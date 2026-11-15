@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "common_iustategraph.h"
@@ -25,10 +21,10 @@ namespace
     // BaseWatcher stores its target's Watchable sub-object, and IObjRW places
     // Watchable at its own +0x08 (`struct IObjRW : IObjInspect, IObjAffect,
     // Watchable`, common_iface.h), so subtracting 8 recovers the object.
-    // IObjInspect is IObjRW's first base, which is why retail can read the
+    // IObjInspect is IObjRW's first base, which is why baseline can read the
     // primary vtable straight out of the adjusted pointer (`MOV EDX,[ECX]`).
-    //
-    // Retail spells this out at every use as `if (p) p - 8 else 0`, then
+
+    // baseline spells this out at every use as `if (p) p - 8 else 0`, then
     // re-tests the result against 0 -- a dead second test, since the only way
     // `p - 8` is null is a literal 0x8 sentinel (which BaseWatcher's
     // `Watchable* const*` constructor does guard against, see
@@ -53,8 +49,8 @@ namespace
         return &Sys->SelfTarget;
     }
 
-    // Common.dll.txt:244179-244205 (item 1802) and 244993-245012 (item 1805)
-    // inline this identically; FUN_062e6a80 / GetCachedRange (item 1791) is
+    // Common (item 1802) and 244993-245012 (item 1805)
+    // inline this identically; the routine / GetCachedRange (item 1791) is
     // the out-of-line variant that also hands the pair back to a caller.
     // Slot +0x6C is IObjInspect::get_attitude_towards_symmetrical and returns
     // 0 on success; on any failure, or when either interface is null, both
@@ -113,29 +109,29 @@ namespace
         }
     }
 
-    // .rdata:063a0790 == 0xBF19999A.
+    // == 0xBF19999A.
     float const kHostileAttitudeStrict = -0.6f;
-    // .rdata:063a0794 == 0xBE4CCCCD.
+    // == 0xBE4CCCCD.
     float const kHostileAttitudeLoose = -0.2f;
     // The object-type mask BuildAiTargetList scans and filters with
     // (0x7FFFFF minus bit 0x200).
     unsigned const kScanTypeMask = 0x7FFDFFu;
     // The narrower "ship-ish" mask both scan loops re-test each candidate against.
     unsigned const kShipTypeMask = 0x7F0000u;
-    // .rdata:0x47C35000 -- FindClosestHostileTarget's seed distance.
+    // FindClosestHostileTarget's seed distance.
     float const kMaxConsideredDistance = 100000.0f;
 }
 
 FAiTargetList* GetAiTargetList(SystemManager* Sys)
 {
-    // Every retail call site spells this out as `ADD reg,0x34`. Now that
+    // Every baseline call site spells this out as `ADD reg,0x34`. Now that
     // FAiTargetList IS SystemManagerTimerTable, the named member replaces the
     // hand-rolled cast and common_systemmanager.h's
     // `offsetof(SystemManager, Timers) == 0x34` is what keeps it honest.
     return &Sys->Timers;
 }
 
-// Common.dll.c 0x062ed0d0 (FUN_062ed0d0), item 1882. Unchanged from the
+// Common 0x062ed0d0 (the routine), item 1882. Unchanged from the
 // earlier pass apart from the doc comment.
 unsigned ElemVectorSize(void const* VectorHeader)
 {
@@ -149,7 +145,7 @@ unsigned ElemVectorSize(void const* VectorHeader)
     return static_cast<unsigned>((Used - Begin) / static_cast<int>(kElemStride));
 }
 
-// Common.dll.c 0x062ed100 (FUN_062ed100), item 1883. Retail's
+// Common 0x062ed100 (the routine), item 1883. baseline's
 // `TEST EAX,EAX; JZ` (skip the byte copy but still advance both pointers)
 // only matters if DestBegin starts null -- reproduced as-is.
 void CopyElemRange(void const* SrcBegin, void const* SrcEnd, void* DestBegin)
@@ -163,13 +159,13 @@ void CopyElemRange(void const* SrcBegin, void const* SrcEnd, void* DestBegin)
         if (Dest != nullptr)
             std::memcpy(Dest, Src, kElemStride);
         Src += kElemStride;
-        Dest += kElemStride; // unconditional in retail, even on the null-Dest iteration
+        Dest += kElemStride; // unconditional in baseline, even on the null-Dest iteration
     }
 }
 
-// 0x0628f050, the compiler-generated destroy-a-range helper Ghidra mislabels
+// , the compiler-generated destroy-a-range helper analysis mislabels
 // `JustifyNode::Execute` (an ICF fold -- the two functions compiled to
-// identical code). FAiTarget has no destructor, so retail's instance walks
+// identical code). FAiTarget has no destructor, so baseline's instance walks
 // the range and does nothing per element. Kept as a real call so the two
 // sites that use it stay legible rather than vanishing.
 void DestroyAiTargetRange(FAiTargetVector* Self, FAiTarget* First, FAiTarget* Last)
@@ -179,7 +175,7 @@ void DestroyAiTargetRange(FAiTargetVector* Self, FAiTarget* First, FAiTarget* La
     (void)Last;
 }
 
-// The inlined `erase(begin(), end())` at Common.dll.txt:243866-243888. The
+// The inlined `erase(begin(), end())` at Common. The
 // `rep movsd` shift loop there is real code but provably dead: its source
 // cursor is seeded from End (`MOV EAX,EDX` at 0x062e75a0, where EDX already
 // holds End) and immediately compared against End, so it exits before the
@@ -191,32 +187,32 @@ void ClearAiTargetVector(FAiTargetVector* Self)
     Self->End = First;
 }
 
-// Common.dll.c 0x062e77e0 (FUN_062e77e0), item 1801, Common.dll.txt 244086-244112, all 25
+// Common 0x062e77e0 (the routine), item 1801, Common, all 25
 // instructions. `MOV byte [EBP+0x1c],0` is bBuilt; EBX/EDX load End (+0x14) and Begin
 // (+0x10); the 0x22-dword `rep movsd` loop is seeded with EAX = EBX and compared against EBX,
 // so it never runs; `MOV [EBP+0x14],EDX` stores End = Begin. Unlike ClearAiTargetVector
-// above, retail makes no DestroyAiTargetRange call here.
+// above, baseline makes no DestroyAiTargetRange call here.
 void ResetAiTargetList(FAiTargetList* Self)
 {
     Self->bBuilt = 0;
     Self->Targets.End = Self->Targets.Begin;
 }
 
-// Common.dll.c 0x062ed140 (FUN_062ed140), item 1884. MSVC 7.0's
+// Common 0x062ed140 (the routine), item 1884. MSVC 7.0's
 // `std::vector<FAiTarget>::insert(Where, Count, Value)` / `_Insert_n`, all
-// three branches, derived from Common.dll.txt:253207-253536.
-//
-// Every element move in retail is a `rep movsd` of 0x22 dwords guarded by a
+// three branches, derived from Common.
+
+// Every element move in baseline is a `rep movsd` of 0x22 dwords guarded by a
 // `TEST <dest>,<dest>; JZ` that skips the copy but still advances the cursor
 // -- the same null-destination quirk CopyElemRange has. Since no branch here
 // can reach a null cursor once the allocation succeeded, the guards are not
 // reproduced individually; the memcpy calls below are unconditional.
 void InsertAiTargets(FAiTargetVector* Self, FAiTarget* Where, unsigned Count, FAiTarget const& Value)
 {
-    // Count is retail's size_type: every compare against it is unsigned (JNC / JC / JBE).
+    // Count is baseline's size_type: every compare against it is unsigned (JNC / JC / JBE).
     int const CapacityRoom = (int)(Self->Cap - Self->End);
 
-    if ((unsigned)CapacityRoom < Count)                        // 0x062ed166 CMP EDX,ESI; JNC
+    if ((unsigned)CapacityRoom < Count)                        // CMP EDX,ESI; JNC
     {
         // --- Branch 1 (0x062ed172): reallocate. ---
         unsigned Size = 0;
@@ -224,7 +220,7 @@ void InsertAiTargets(FAiTargetVector* Self, FAiTarget* Where, unsigned Count, FA
         if (Self->Begin != nullptr)
         {
             Size = (unsigned)(Self->End - Self->Begin);
-            // 0x062ed18e `CMP ESI,EDX; MOV ECX,EDX; JC` -- keep Size when
+            // `CMP ESI,EDX; MOV ECX,EDX; JC` -- keep Size when
             // Count < Size, else take Count. i.e. max(Size, Count).
             if (Count < Size)
             {
@@ -254,12 +250,12 @@ void InsertAiTargets(FAiTargetVector* Self, FAiTarget* Where, unsigned Count, FA
             std::memcpy(Dest, Src, kElemStride);
         }
 
-        // 0x062ed279: raw operator delete (0x06391d5a), no element
-        // destructors -- retail does not call the destroy-range helper here.
+        // raw operator delete (0x06391d5a), no element
+        // destructors -- baseline does not call the destroy-range helper here.
         ::operator delete(Self->Begin);
 
         Self->Cap = NewBuf + NewCapacity;
-        // 0x062ed295: recomputed from the OLD Begin/End, which are still in
+        // recomputed from the OLD Begin/End, which are still in
         // place at this point.
         unsigned OldSize = 0;
         if (Self->Begin != nullptr)
@@ -273,7 +269,7 @@ void InsertAiTargets(FAiTargetVector* Self, FAiTarget* Where, unsigned Count, FA
 
     unsigned const TailLength = (unsigned)(Self->End - Where);
 
-    if (TailLength < Count)                                     // 0x062ed2ec CMP EDX,ESI; JNC
+    if (TailLength < Count)                                     // CMP EDX,ESI; JNC
     {
         // --- Branch 2 (0x062ed2d3): in place, but more new elements than
         // existing tail elements. ---
@@ -283,7 +279,7 @@ void InsertAiTargets(FAiTargetVector* Self, FAiTarget* Where, unsigned Count, FA
             std::memcpy(Dest, Src, kElemStride);
         }
 
-        // 0x062ed336: fill the (Count - TailLength) slots that land past the
+        // fill the (Count - TailLength) slots that land past the
         // old End, then 0x062ed374: fill [Where, old End).
         FAiTarget* Fill = Self->End;
         for (unsigned Extra = Count - TailLength; Extra != 0; --Extra, ++Fill)
@@ -302,7 +298,7 @@ void InsertAiTargets(FAiTargetVector* Self, FAiTarget* Where, unsigned Count, FA
     // --- Branch 3 (0x062ed3ae): in place, enough existing tail elements. ---
     if (Count == 0)
     {
-        return; // retail's `TEST ESI,ESI; JBE` straight to the epilogue
+        return; // baseline's `TEST ESI,ESI; JBE` straight to the epilogue
     }
 
     // Move the last Count elements past End, then shift the remainder of the
@@ -330,20 +326,20 @@ void InsertAiTargets(FAiTargetVector* Self, FAiTarget* Where, unsigned Count, FA
     Self->End += Count;
 }
 
-// Common.dll.c 0x062e7580 (FUN_062e7580), item 1800. See the declaration in
+// Common 0x062e7580 (the routine), item 1800. See the declaration in
 // common_iustategraph.h for the step-by-step derivation and for the two
 // disproved blockers this replaces.
 FAiTargetVector* BuildAiTargetList(FAiTargetList* Self)
 {
     FAiTargetVector* const Vec = &Self->Targets;
 
-    // 0x062e7595: a non-persistent list is thrown away before anything else.
+    // a non-persistent list is thrown away before anything else.
     if (Self->bKeepCache == 0)
     {
         ClearAiTargetVector(Vec);
     }
 
-    // 0x062e75d3: a persistent list that has already been built stands.
+    // a persistent list that has already been built stands.
     if (Self->bBuilt != 0 && Self->bKeepCache != 0)
     {
         return Vec;
@@ -352,8 +348,8 @@ FAiTargetVector* BuildAiTargetList(FAiTargetList* Self)
     SystemManager* const Sys = Self->Owner;
     Self->bBuilt = 1;
 
-    // Retail's local_9c, zeroed at 0x062e75ec and then filled as
-    // get_scanlist's out-parameter at 0x062e7673. (Ghidra's XREF list shows
+    // baseline's local_9c, zeroed at 0x062e75ec and then filled as
+    // get_scanlist's out-parameter at 0x062e7673. (analysis's XREF list shows
     // only the zeroing because the write goes through a LEA'd address -- that
     // omission is what the old "null-pointer dereference" blocker was
     // actually looking at.)
@@ -365,7 +361,7 @@ FAiTargetVector* BuildAiTargetList(FAiTargetList* Self)
         return Vec;
     }
 
-    // 0x062e760a-0x062e761f: retail masks an UNINITIALISED stack local
+    // baseline masks an UNINITIALISED stack local
     // (`Flags &= 0xF8`, `EquipFlags &= 0xE0000000`) rather than zeroing it --
     // the inlined EquipStatus default constructor clearing its bitfields. The
     // only bit anyone reads here is 0x02, which that mask clears, so a full
@@ -382,7 +378,7 @@ FAiTargetVector* BuildAiTargetList(FAiTargetList* Self)
         return Vec;
     }
 
-    // 0x062e764d-0x062e7673: retail re-reads the watcher and, unlike the first read, calls
+    // baseline re-reads the watcher and, unlike the first read, calls
     // get_scanlist through the adjusted pointer without testing it.
     IObjInspect* const OwnerObjAgain = RecoverObjInspect(Sys->Watcher.target());
     if (OwnerObjAgain->get_scanlist(List, kScanTypeMask, Self->bKeepCache != 0) != 0)
@@ -390,7 +386,7 @@ FAiTargetVector* BuildAiTargetList(FAiTargetList* Self)
         return Vec;
     }
 
-    // 0x062e7689-0x062e771c: reserve exactly List->Count elements when the
+    // reserve exactly List->Count elements when the
     // current CAPACITY (not the size) falls short. Hand-rolled, not a
     // vector::reserve call.
     int const Wanted = List->Count;
@@ -399,7 +395,7 @@ FAiTargetVector* BuildAiTargetList(FAiTargetList* Self)
     {
         Capacity = static_cast<int>(Vec->Cap - Vec->Begin);
     }
-    // 0x062e76b7 `CMP EDX,EDI; JNC` -- an unsigned compare.
+    // `CMP EDX,EDI; JNC` -- an unsigned compare.
     if ((unsigned)Capacity < (unsigned)Wanted)
     {
         int const AllocCount = (Wanted >= 0) ? Wanted : 0;
@@ -411,14 +407,14 @@ FAiTargetVector* BuildAiTargetList(FAiTargetList* Self)
         ::operator delete(Vec->Begin);
 
         Vec->Cap = NewBuf + Wanted;
-        // 0x062e770c: ElemVectorSize still sees the OLD Begin/End here.
+        // ElemVectorSize still sees the OLD Begin/End here.
         unsigned const OldSize = ElemVectorSize(Vec);
         Vec->End = NewBuf + OldSize;
         Vec->Begin = NewBuf;
     }
 
-    // 0x062e771f-0x062e77c0: one pass over the scanner's result table.
-    // List->Count is re-read every iteration in retail (0x062e77b3), so it is
+    // one pass over the scanner's result table.
+    // List->Count is re-read every iteration in baseline (0x062e77b3), so it is
     // re-read here too.
     for (int Index = 0; Index < List->Count; ++Index)
     {
@@ -428,7 +424,7 @@ FAiTargetVector* BuildAiTargetList(FAiTargetList* Self)
             continue;
         }
 
-        // Retail builds this record on its own stack and leaves everything
+        // baseline builds this record on its own stack and leaves everything
         // except the six fields below indeterminate; the four guard bytes
         // make that harmless, but the port zero-fills to stay defined.
         FAiTarget Local;
@@ -441,7 +437,7 @@ FAiTargetVector* BuildAiTargetList(FAiTargetList* Self)
         Local.bCornersValid = 0;
 
         Candidate->get_type(Local.CachedFlags);
-        Local.bFlagsValid = 1;   // set before the filter branch in retail, not after
+        Local.bFlagsValid = 1;   // set before the filter branch in baseline, not after
         if ((Local.CachedFlags & kScanTypeMask) == 0)
         {
             continue;
@@ -453,16 +449,16 @@ FAiTargetVector* BuildAiTargetList(FAiTargetList* Self)
     return Vec;
 }
 
-// Common.dll.c 0x062e7820 (FUN_062e7820), item 1802 -- the real body of
+// Common 0x062e7820 (the routine), item 1802 -- the real body of
 // IBehaviorManager::get_closest_trailing_ship (item 12392). Derived from
-// Common.dll.txt:244122-244302.
+// Common.
 float GetClosestTrailingShipDistance(FAiTargetList* Self)
 {
-    // 0x062e783c: seeded with 0x7F7FFFFF == FLT_MAX and returned unchanged
+    // seeded with 0x7F7FFFFF == FLT_MAX and returned unchanged
     // when nothing qualifies.
     float Best = FLT_MAX;
 
-    // 0x062e7826-0x062e782d: `MOV ECX,[EBX+4]; ADD ECX,0x34` -- the list is reached through
+    // `MOV ECX,[EBX+4]; ADD ECX,0x34` -- the list is reached through
     // the owner, not through `this`.
     FAiTargetVector* const Vec = BuildAiTargetList(&Self->Owner->Timers);
     SystemManager* const Sys = Self->Owner;
@@ -476,13 +472,13 @@ float GetClosestTrailingShipDistance(FAiTargetList* Self)
             continue;
         }
 
-        // 0x062e7882, slot +0x0BC.
+        // , slot +0x0BC.
         if (Elem->Iface->is_player())
         {
             continue;
         }
 
-        // 0x062e789d, slot +0x074 = get_target. This is the "unidentified
+        // , slot +0x074 = get_target. This is the "unidentified
         // 'resolve target interface' out-param getter" the old blocker_reason
         // listed; it is a plain IObjInspect slot.
         IObjRW* CandidateTarget = nullptr;
@@ -492,7 +488,7 @@ float GetClosestTrailingShipDistance(FAiTargetList* Self)
             continue;
         }
 
-        // 0x062e78be / 0x062e78c7, slot +0x020 = get_id, called on the
+        // / 0x062e78c7, slot +0x020 = get_id, called on the
         // owner's own interface and on the candidate's target. Equal ids mean
         // the candidate is currently targeting us.
         unsigned const OwnerId = OwnerElem->Iface->get_id();
@@ -502,7 +498,7 @@ float GetClosestTrailingShipDistance(FAiTargetList* Self)
             continue;
         }
 
-        // 0x062e78df, cdecl (Candidate, OwnerElement, 0.0f).
+        // , cdecl (Candidate, OwnerElement, 0.0f).
         if (!IsTargetCoAlignedAndAhead(Elem, OwnerElem, 0.0f))
         {
             continue;
@@ -514,23 +510,23 @@ float GetClosestTrailingShipDistance(FAiTargetList* Self)
             continue;
         }
 
-        // 0x062e7953 reads SystemManager+0x157A as the guard -- that is
+        // reads SystemManager+0x157A as the guard -- that is
         // exactly OwnerElem->bPosValid (0x14FC + 0x7E).
         RefreshCachedPosition(OwnerElem);
         RefreshCachedPosition(Elem);
 
-        // 0x062e7998-0x062e79ef: retail's inlined 0x5F3759DF Newton step. The deltas, the
+        // baseline's inlined 0x5F3759DF Newton step. The deltas, the
         // (dz^2 + dy^2) + dx^2 sum, the Newton step and the final product stay on the x87
         // stack; only the bit-hack input is stored as float (FST [ESP+0x18]).
         double const Dx = (double)Elem->CachedPos.x - OwnerElem->CachedPos.x;
         double const Dy = (double)Elem->CachedPos.y - OwnerElem->CachedPos.y;
         double const Dz = (double)Elem->CachedPos.z - OwnerElem->CachedPos.z;
         double const DistanceSq = (Dz * Dz + Dy * Dy) + Dx * Dx;
-        // 0x5f3759df - (bits SAR 1) on the float image, then ((Y*Y) * d2) * 0.5f
-        // (DAT_0639c13c), 1.5f (DAT_0639e6d0) minus that, * Y, * d2 -- all unrounded.
+        // - (bits SAR 1) on the float image, then ((Y*Y) * d2) * 0.5f
+        // (the field), 1.5f (the field) minus that, * Y, * d2 -- all unrounded.
         double const Distance = CmnAiSteer::InlineFastLength(DistanceSq);
 
-        // 0x062e79f1 `FCOM Best; TEST AH,5; JP` -- only strictly less is taken.
+        // `FCOM Best; TEST AH,5; JP` -- only strictly less is taken.
         if (Distance < Best)
         {
             Best = (float)Distance;
@@ -540,18 +536,18 @@ float GetClosestTrailingShipDistance(FAiTargetList* Self)
     return Best;
 }
 
-// Common.dll.c 0x062e8280 (FUN_062e8280), item 1805. Derived from
-// Common.dll.txt:244955-245102. Note this one IS a method of FAiTargetList
+// Common 0x062e8280 (the routine), item 1805. Derived from
+// Common. Note this one IS a method of FAiTargetList
 // itself -- its call site passes `ECX` through unchanged (0x062e82b8
 // `MOV ECX,EBX`), no +0x34 adjustment.
 IObjInspect* FindClosestHostileTarget(FAiTargetList* Self, float MaxClearance)
 {
     IObjInspect* BestIface = nullptr;
-    // 0x062e8299 seeds this with 0x47C35000 == 100000.0f, so anything farther
+    // seeds this with 0x47C35000 == 100000.0f, so anything farther
     // is never returned.
     float BestDistance = kMaxConsideredDistance;
 
-    // 0x062e8286-0x062e82b5: the owner's own world position, fetched before
+    // the owner's own world position, fetched before
     // the list is (re)built.
     IObjInspect* const OwnerObj = RecoverObjInspect(Self->Owner->Watcher.target());
     Vector OwnerPosition;
@@ -574,7 +570,7 @@ IObjInspect* FindClosestHostileTarget(FAiTargetList* Self, float MaxClearance)
             continue;
         }
 
-        // 0x062e835b: a negative MaxClearance skips the clearance gate
+        // a negative MaxClearance skips the clearance gate
         // entirely ("nearest hostile at any range").
         if (!(MaxClearance < 0.0f))
         {
@@ -586,7 +582,7 @@ IObjInspect* FindClosestHostileTarget(FAiTargetList* Self, float MaxClearance)
 
         RefreshCachedPosition(Elem);
 
-        // 0x062e83ac: Distance3 (FUN_062e4f20, item 1752) -- which DOES have
+        // Distance3 (the routine, item 1752) -- which DOES have
         // a tracker item, contrary to this item's old blocker_reason. 062e83b1-062e83c5:
         // the UNROUNDED ST0 is FCOM'd against the float best (TEST AH,0x5 / JP: only
         // strictly less takes it) and FSTP'd to float only then.

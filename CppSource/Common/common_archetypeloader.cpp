@@ -1,25 +1,21 @@
-﻿// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
-// Author: Giperion.
+﻿// Author: Giperion.
 
-// Archetype table loaders -- retail Archetype.cpp (LoadSimples 0x062f1000 .. Free
-// 0x062fa980 and the per-map teardowns up to 0x062fbe10) plus LoadExplosion 0x0630bd60 /
+// Archetype table loaders -- baseline Archetype.cpp (LoadSimples 0x062f1000 .. Free
+// and the per-map teardowns up to 0x062fbe10) plus LoadExplosion 0x0630bd60 /
 // FreeExplosions 0x0630c080. Declared in common_archetype.h (namespace Archetype).
 #include "common_archetype.h"
 #include "common_cliobj.h" // Archetype::ICliObjFactory
 #include "common_id.h"     // ID_String, CreateID
 #include "common_ini.h"    // INI_Reader
 #include "common_misc.h"   // SinglePlayer, SUBOBJ_ID_NONE
-#include "dacom.h"         // FDUMP
+#include "neuroncomponents.h"         // FDUMP
 
 #include <map>
 #include <utility>
 
 namespace
 {
-    const char kArchetypeSource[] = "E:\\FL\\Scratch\\Source\\Common\\Archetype.cpp";
+    const char kArchetypeSource[] = "Common\\Archetype.cpp";
 
     // LoadEquipment's equipment sections (062f7eee..062f9248), in the listing's is_header order.
     // FactoryTypeId is the PUSH before ICliObjFactory slot 0 in each branch; it is also the
@@ -106,7 +102,7 @@ namespace
         }
     }
 
-    // The plain value loop of LoadEquipment (062f7f70..062f7f90) and FUN_062f0dc0
+    // The plain value loop of LoadEquipment (062f7f70..062f7f90) and the routine
     // (062f0e32..062f0e4c): read() for every key, and on false SinglePlayer() with its result
     // discarded. "inherit" gets no special case here: Equipment::read handles it itself
     // (062f4277), and [Simple] has none. Ships, Solars and Asteroids use ReadShipValues /
@@ -130,7 +126,7 @@ namespace
 
     // Duplicate tail: the live record is fetched the way ArchDB::Get does (dump at line 0x49 on
     // a miss) and redefined from the new one through slot 2 (+0x08). On a miss -- a section
-    // without a nickname (id 0), which the insert rejected -- retail dumps and then calls slot 2
+    // without a nickname (id 0), which the insert rejected -- baseline dumps and then calls slot 2
     // through a null pointer (062f92e3 / 062f3035 / 062f0f9d / 062f3ab9 `XOR ECX,ECX;
     // MOV EDX,[ECX]`); the port makes the same call, no null test.
     template <typename T>
@@ -141,11 +137,11 @@ namespace
     }
 
     // [Motor] in LoadEquipment (062f7cc5..062f7eb9): new MotorData (inline ctor), slot 0 read
-    // for every value with the result ignored, then the inline insert into DAT_063fca70 with
-    // small-id registration (same shape as FUN_062fbeb0; "Motor" in the no-nickname dump).
+    // for every value with the result ignored, then the inline insert into the field with
+    // small-id registration (same shape as the routine; "Motor" in the no-nickname dump).
     // Not inserted (nickname 0 or a duplicate): there is NO reload test -- the live motor is
     // looked up as ArchDB::Get does and redefined (slot 1, 062f7ba0), then the new one freed.
-    // On a miss (nickname 0) retail dumps and calls slot 1 through a null pointer (062f7e91
+    // On a miss (nickname 0) baseline dumps and calls slot 1 through a null pointer (062f7e91
     // XOR ECX,ECX); the port makes the same call, no null test.
     void LoadMotorSection(INI_Reader& Reader)
     {
@@ -161,9 +157,9 @@ namespace
         delete Record;
     }
 
-    // FUN_062f0dc0 (062f0dc0..062f0ff9), the [Simple] section shared by LoadSimples (062f1089)
+    // (062f0dc0..062f0ff9), the [Simple] section shared by LoadSimples (062f1089)
     // and LoadShips (062f3166): companion kind 0, Root, value loop, inline insert into
-    // DAT_063fcae8 with small-id registration ("Simple" in the no-nickname dump). Not inserted:
+    // with small-id registration ("Simple" in the no-nickname dump). Not inserted:
     // reload -> redefine the live record and return true; otherwise the [Simple] warning at line
     // 0x364 and return false. The new record is deleted either way.
     bool LoadSimpleSection(INI_Reader& Reader, bool bReload, Archetype::ICliObjFactory* Factory)
@@ -198,7 +194,7 @@ namespace
     }
 
     // Archetype::Free's per-record teardown, inlined for every Root map (062fa9b0..062faa07 and
-    // the same block in FUN_062fabb0 / FUN_062fae00): while the record is still loaded, release
+    // the same block in the routine / the routine): while the record is still loaded, release
     // it (Solar / Ship / Simple / asteroid maps inline Root::Release; Equipment calls it), counting
     // the turns; a non-zero count is dumped with the nickname; then the scalar deleting dtor.
     void FreeRootRecord(Archetype::Root* Record, char const* Format, int Line)
@@ -230,7 +226,7 @@ namespace
 
     void FreeShipRecord(Archetype::Ship* Entry)
     {
-        // Retail format really has %x for the nickname string (and no newline); reproduced.
+        // baseline format really has %x for the nickname string (and no newline); reproduced.
         FreeRootRecord(Entry,
                        "%s(%d) : *** WARNING: Archetype::Ship %x has %d dangling references.",
                        0x6d8);
@@ -264,7 +260,7 @@ namespace
                        0x12bc);
     }
 
-    // FUN_062facf0: every non-null MotorData is released with plain operator delete (MotorData
+    // every non-null MotorData is released with plain operator delete (MotorData
     // has a trivial destructor), then the map is emptied.
     void FreeMotorRecord(Archetype::MotorData* Entry)
     {
@@ -276,7 +272,7 @@ namespace
     // the record's read() (and its companion's ReadUnknown) never sees that key. Ship, Solar and
     // Asteroid read() have no "inherit" case: s_inherit_063a17dc is pushed only at 062f2ae0
     // (LoadShips), 062f3705 (LoadSolar), 062f4277 (Equipment::read) and 062fa2c0 (LoadAsteroids).
-    //
+
     // Shape of the copy, the same in all three loops. Companion is the local the factory filled,
     // which is also the record's +0x04.
     //   - Companion, when non-null: slot 0 (AddRef), then slot 7 (Inherit) with the donor's
@@ -288,12 +284,12 @@ namespace
     //     it took from the donor.
     //   - The record's +0x04 (now the donor's companion): slot 1 (Release), then the record gets
     //     back Companion and the saved nickname.
-    // The port runs the base operator= straight from the donor. Retail UB this drops: the temp's
+    // The port runs the base operator= straight from the donor. baseline UB this drops: the temp's
     // +0x04 is never initialised before Root::operator= releases it (Root(Root const&) at
-    // 062f01f0 for Ship / Solar, the inline temp at 062fa396..062fa3d8 for Asteroid). The donor's
+    // for Ship / Solar, the inline temp at 062fa396..062fa3d8 for Asteroid). The donor's
     // companion nets to +0 references either way.
 
-    // 062f2ae0..062f2f37: LoadShips' value loop. The donor lookup is ArchDB::Get(unsigned)
+    // LoadShips' value loop. The donor lookup is ArchDB::Get(unsigned)
     // inlined (dump 0x3c "ArchDB::Get(%u) failed"); no donor -> the 'inherit' warning at 0x649
     // naming ID_String{id}. Any other key goes to Ship::read, and on false to SinglePlayer() with
     // the result discarded.
@@ -318,16 +314,16 @@ namespace
                 continue;
             }
 
-            ID_String const SavedNickname = Record->Nickname;     // 062f2b9a
-            if (Companion != nullptr)                              // 062f2ba1..062f2bb7
+            ID_String const SavedNickname = Record->Nickname;
+            if (Companion != nullptr)
             {
                 Companion->AddRef();
                 Companion->Inherit(Donor->Companion);
             }
 
-            Record->EqObj::operator=(*Donor);                      // 062f2d43
-            Record->MsgIdPrefix = Donor->MsgIdPrefix.Data;         // 062f2d56 FUN_062fb910
-            Record->BayDoorAnim = Donor->BayDoorAnim;              // 062f2d5b..062f2e6c: +0xdc..+0x12c
+            Record->EqObj::operator=(*Donor);
+            Record->MsgIdPrefix = Donor->MsgIdPrefix.Data;         // the routine
+            Record->BayDoorAnim = Donor->BayDoorAnim;              // +0xdc..+0x12c
             Record->HpBaySurface = Donor->HpBaySurface;
             Record->HpBayExternal = Donor->HpBayExternal;
             Record->HpTractorSource = Donor->HpTractorSource;
@@ -348,20 +344,20 @@ namespace
             Record->StrafeForce = Donor->StrafeForce;
             Record->StrafePowerUsage = Donor->StrafePowerUsage;
             Record->MaxBankAngle = Donor->MaxBankAngle;
-            // +0x130: copy-constructed into the temp (062f2d02 FUN_062fb1e0), assigned into the
-            // record (062f2e72 FUN_062fb2a0), the temp's copy destroyed (062f2eb0 / 062f2ebd).
+            // +0x130: copy-constructed into the temp (062f2d02 the routine), assigned into the
+            // record (062f2e72 the routine), the temp's copy destroyed (062f2eb0 / 062f2ebd).
             Record->LegalHps = Donor->LegalHps;
-            Record->NanobotLimit = Donor->NanobotLimit;            // 062f2e77..062f2e8b +0x140/+0x144
+            Record->NanobotLimit = Donor->NanobotLimit;            // +0x140/+0x144
             Record->ShieldBatteryLimit = Donor->ShieldBatteryLimit;
 
-            if (Record->Companion != nullptr)                      // 062f2eed..062f2ef6
+            if (Record->Companion != nullptr)
                 Record->Companion->Release();
-            Record->Companion = Companion;                         // 062f2ef9..062f2f04
+            Record->Companion = Companion;
             Record->Nickname = SavedNickname;
         }
     }
 
-    // 062f3705..062f3959: LoadSolar's value loop. The lookup is ArchDB::Get(ID_String) inlined
+    // LoadSolar's value loop. The lookup is ArchDB::Get(ID_String) inlined
     // (dump 0x49 "ArchDB::Get(%s) failed. ID=%d", 062f375b..062f3792); no warning follows it, and
     // a hit whose value is null is skipped silently (062f379f).
     void ReadSolarValues(INI_Reader& Reader, Archetype::Solar* Record, Archetype::ICliObj* Companion)
@@ -370,7 +366,7 @@ namespace
         {
             if (!Reader.is_value("inherit"))
             {
-                if (!Record->read(Reader))                         // 062f392e..062f3941
+                if (!Record->read(Reader))
                     SinglePlayer();
                 continue;
             }
@@ -381,30 +377,30 @@ namespace
             if (Donor == nullptr)
                 continue;
 
-            ID_String const SavedNickname = Record->Nickname;     // 062f37ab
-            if (Companion != nullptr)                              // 062f37a5..062f37c2
+            ID_String const SavedNickname = Record->Nickname;
+            if (Companion != nullptr)
             {
                 Companion->AddRef();
                 if (Donor->Companion != nullptr)
                     Companion->Inherit(Donor->Companion);
             }
 
-            Record->EqObj::operator=(*Donor);                      // 062f383d
-            Record->bDestructible = Donor->bDestructible;          // 062f37cf..062f3897: +0x94..+0xa8
+            Record->EqObj::operator=(*Donor);
+            Record->bDestructible = Donor->bDestructible;          // +0x94..+0xa8
             Record->SolarRadius = Donor->SolarRadius;
             Record->Toughness = Donor->Toughness;
             Record->OpenAnim = Donor->OpenAnim;
             Record->JumpOutHp = Donor->JumpOutHp;
             Record->Loadout = Donor->Loadout;
 
-            if (Record->Companion != nullptr)                      // 062f3914..062f391d
+            if (Record->Companion != nullptr)
                 Record->Companion->Release();
-            Record->Nickname = SavedNickname;                      // 062f3920..062f3927
+            Record->Nickname = SavedNickname;
             Record->Companion = Companion;
         }
     }
 
-    // 062fa2c0..062fa49b: LoadAsteroids' [Asteroid] / [AsteroidMine] value loop. Lookup and miss
+    // LoadAsteroids' [Asteroid] / [AsteroidMine] value loop. Lookup and miss
     // as LoadShips (dump 0x3c, then the 'inherit' warning at 0x125b). Any other key goes to
     // Asteroid::read with the result ignored (062fa485, no SinglePlayer call).
     void ReadAsteroidValues(INI_Reader& Reader, Archetype::Asteroid* Record, Archetype::ICliObj* Companion)
@@ -427,21 +423,21 @@ namespace
                 continue;
             }
 
-            ID_String const SavedNickname = Record->Nickname;     // 062fa380
-            if (Companion != nullptr)                              // 062fa37a..062fa393
+            ID_String const SavedNickname = Record->Nickname;
+            if (Companion != nullptr)
             {
                 Companion->AddRef();
                 Companion->Inherit(Donor->Companion);
             }
 
-            Record->Root::operator=(*Donor);                       // 062fa3d8 / 062fa412
-            Record->DetectRadius = Donor->DetectRadius;            // 062fa3dd..062fa432 +0x5c..+0x64
+            Record->Root::operator=(*Donor);                       // / 062fa412
+            Record->DetectRadius = Donor->DetectRadius;            // +0x5c..+0x64
             Record->ExplosionOffset = Donor->ExplosionOffset;
             Record->RechargeTime = Donor->RechargeTime;
 
-            if (Record->Companion != nullptr)                      // 062fa45f..062fa468
+            if (Record->Companion != nullptr)
                 Record->Companion->Release();
-            Record->Nickname = SavedNickname;                      // 062fa46b..062fa472
+            Record->Nickname = SavedNickname;
             Record->Companion = Companion;
         }
     }
@@ -458,7 +454,7 @@ namespace
 
 int __cdecl Archetype::LoadEquipment(char const* Path, bool bReload, ICliObjFactory* Factory)
 {
-    // Retail 062f7c50..062f93e1. The returned count is (motors + equipment) now minus at entry
+    // . The returned count is (motors + equipment) now minus at entry
     // (062f7c6f..062f7c7e, 062f934c..062f935e), and the BEAM_ARCH handle is created at the end
     // even when the file did not open (both open / first read_header failures jump to 062f930e).
     unsigned Saved = GEquipmentDb.Size() + GMotorDb.Size();
@@ -491,7 +487,7 @@ int __cdecl Archetype::LoadEquipment(char const* Path, bool bReload, ICliObjFact
                     Equipment* Record = MakeEquipmentRecord(Kind->FactoryTypeId, Companion);
                     ReadRootValues(Reader, Record);
 
-                    // LAB_062f7f92: FUN_062fbbe0 with the literal "Equipment" for every section.
+                    // the routine with the literal "Equipment" for every section.
                     if (GEquipmentDb.Insert(Record, Record->Nickname, "Equipment"))
                     {
                         BindInsertedRecord(Record);
@@ -499,7 +495,7 @@ int __cdecl Archetype::LoadEquipment(char const* Path, bool bReload, ICliObjFact
                     }
                     else
                     {
-                        // LAB_062f928b: only a reload redefines; no warning on a duplicate.
+                        // only a reload redefines; no warning on a duplicate.
                         if (bReload)
                             RedefineLiveRecord(GEquipmentDb, Record);
                         delete Record;
@@ -520,7 +516,7 @@ int __cdecl Archetype::LoadEquipment(char const* Path, bool bReload, ICliObjFact
 
 int __cdecl Archetype::LoadSolar(char const* Path, bool bReload, ICliObjFactory* Factory)
 {
-    // Retail 062f35b0..062f3ca3. Returns the Solar map size now minus at entry (062f399b; 0 when
+    // . Returns the Solar map size now minus at entry (062f399b; 0 when
     // the file does not open). Header order: Solar, CollisionGroup, Explosion, LOD.
     unsigned Saved = GSolarDb.Size();
 
@@ -528,7 +524,7 @@ int __cdecl Archetype::LoadSolar(char const* Path, bool bReload, ICliObjFactory*
     if (!Reader.open(Path, false))
         return 0;
 
-    SubObjectID::CollGroupIdMaker GroupIds;                    // 062f3614
+    SubObjectID::CollGroupIdMaker GroupIds;
     Solar* Current = nullptr;
     while (Reader.read_header())
     {
@@ -536,10 +532,10 @@ int __cdecl Archetype::LoadSolar(char const* Path, bool bReload, ICliObjFactory*
         {
             ICliObj* Companion = nullptr;
             if (Factory != nullptr)
-                Factory->Create(2, &Companion);                // 062f364d..062f3660
+                Factory->Create(2, &Companion);
 
-            Solar* Record = new Solar(Companion);              // 062f3662..062f36cd, inline ctor
-            GroupIds.Reset();                                  // 062f36e7
+            Solar* Record = new Solar(Companion);              // , inline ctor
+            GroupIds.Reset();
             ReadSolarValues(Reader, Record, Companion);
             if (GSolarDb.Insert(Record, Record->Nickname, "Solar"))
             {
@@ -548,7 +544,7 @@ int __cdecl Archetype::LoadSolar(char const* Path, bool bReload, ICliObjFactory*
             }
             else
             {
-                // 062f3a6a: no reload test and no warning -- a duplicate always redefines.
+                // no reload test and no warning -- a duplicate always redefines.
                 RedefineLiveRecord(GSolarDb, Record);
                 delete Record;
                 Current = nullptr;
@@ -556,8 +552,8 @@ int __cdecl Archetype::LoadSolar(char const* Path, bool bReload, ICliObjFactory*
         }
         else if (Reader.is_header("CollisionGroup"))
         {
-            // 062f3af0..062f3b39: no current solar -> the ERROR at line 0x780; otherwise the next
-            // group id goes straight to FUN_062f9b10 (no SUBOBJ_ID_NONE test here, unlike Ships).
+            // no current solar -> the ERROR at line 0x780; otherwise the next
+            // group id goes straight to the routine (no SUBOBJ_ID_NONE test here, unlike Ships).
             if (Current == nullptr)
             {
                 FDUMP(0x100001, "%s(%d) : *** ERROR: %s", kArchetypeSource, 0x780,
@@ -584,7 +580,7 @@ int __cdecl Archetype::LoadSolar(char const* Path, bool bReload, ICliObjFactory*
 
 int __cdecl Archetype::LoadShips(char const* Path, bool bReload, ICliObjFactory* Factory)
 {
-    // Retail 062f29d0..062f321e. Returns the Ship map size now minus at entry (062f2f7a; 0 when
+    // . Returns the Ship map size now minus at entry (062f2f7a; 0 when
     // the file does not open). Header order: Ship, CollisionGroup, LOD, Simple, Explosion.
     unsigned Saved = GShipDb.Size();
 
@@ -592,7 +588,7 @@ int __cdecl Archetype::LoadShips(char const* Path, bool bReload, ICliObjFactory*
     if (!Reader.open(Path, false))
         return 0;
 
-    SubObjectID::CollGroupIdMaker GroupIds;                    // 062f2a33
+    SubObjectID::CollGroupIdMaker GroupIds;
     Ship* Current = nullptr;
     while (Reader.read_header())
     {
@@ -600,10 +596,10 @@ int __cdecl Archetype::LoadShips(char const* Path, bool bReload, ICliObjFactory*
         {
             ICliObj* Companion = nullptr;
             if (Factory != nullptr)
-                Factory->Create(3, &Companion);                // 062f2a69..062f2a81
+                Factory->Create(3, &Companion);
 
-            Ship* Record = new Ship(Companion);                // 062f2a83..062f2aa7
-            GroupIds.Reset();                                  // 062f2ac2
+            Ship* Record = new Ship(Companion);
+            GroupIds.Reset();
             ReadShipValues(Reader, Record, Companion);
             if (GShipDb.Insert(Record, Record->Nickname, "Ship"))
             {
@@ -612,7 +608,7 @@ int __cdecl Archetype::LoadShips(char const* Path, bool bReload, ICliObjFactory*
             }
             else
             {
-                // 062f2fdb: reload -> redefine; otherwise the [Ship] warning at line 0x66b.
+                // reload -> redefine; otherwise the [Ship] warning at line 0x66b.
                 if (bReload)
                     RedefineLiveRecord(GShipDb, Record);
                 else
@@ -625,7 +621,7 @@ int __cdecl Archetype::LoadShips(char const* Path, bool bReload, ICliObjFactory*
         }
         else if (Reader.is_header("CollisionGroup"))
         {
-            // 062f30a0..062f30fa: skipped without a current ship; an id equal to SUBOBJ_ID_NONE
+            // skipped without a current ship; an id equal to SUBOBJ_ID_NONE
             // (the 16-bit counter wrapped) gets the warning at line 0x67d instead of a group.
             if (Current != nullptr)
             {
@@ -666,19 +662,19 @@ int __cdecl Archetype::LoadAsteroids(char const* Path, ICliObjFactory* Factory)
     if (!Reader.open(Path, false))
         return 0;
 
-    // Retail 062fa0d0..062fa6bd. Any other header is skipped. Both inserts share the tail
-    // 062fa4b0..062fa4cd: inserted -> companion bind; not inserted -> delete, nothing else.
+    // . Any other header is skipped. Both inserts share the tail
+    // inserted -> companion bind; not inserted -> delete, nothing else.
     while (Reader.read_header())
     {
         if (Reader.is_header("Asteroid") || Reader.is_header("AsteroidMine"))
         {
             ICliObj* Companion = nullptr;
             if (Factory != nullptr)
-                Factory->Create(4, &Companion);                // 062fa23f..062fa257
+                Factory->Create(4, &Companion);
 
-            Asteroid* Record = new Asteroid(Companion);        // 062fa259..062fa29f, inline ctor
+            Asteroid* Record = new Asteroid(Companion);        // , inline ctor
             ReadAsteroidValues(Reader, Record, Companion);
-            // 062fa49c: "Asteroid" for both headers.
+            // "Asteroid" for both headers.
             if (GAsteroidDb.Insert(Record, Record->Nickname, "Asteroid"))
                 BindInsertedRecord(Record);
             else
@@ -688,10 +684,10 @@ int __cdecl Archetype::LoadAsteroids(char const* Path, ICliObjFactory* Factory)
         {
             ICliObj* Companion = nullptr;
             if (Factory != nullptr)
-                Factory->Create(5, &Companion);                // 062fa19c..062fa1b4
+                Factory->Create(5, &Companion);
 
-            DynamicAsteroid* Record = new DynamicAsteroid(Companion); // 062fa1b6..062fa1e4
-            while (Reader.read_value())                        // 062fa1ef..062fa224: result ignored
+            DynamicAsteroid* Record = new DynamicAsteroid(Companion);
+            while (Reader.read_value())                        // result ignored
                 Record->read(Reader);
             if (GDynamicAsteroidDb.Insert(Record, Record->Nickname, "DynamicAsteroid"))
                 BindInsertedRecord(Record);
@@ -706,7 +702,7 @@ int __cdecl Archetype::LoadAsteroids(char const* Path, ICliObjFactory* Factory)
 
 int __cdecl Archetype::LoadSimples(char const* Path, bool bReload, ICliObjFactory* Factory)
 {
-    // Retail 062f1000..062f11dc: the Simple map size at entry, [Simple] -> FUN_062f0dc0 (result
+    // the Simple map size at entry, [Simple] -> the routine (result
     // ignored), [Explosion] -> LoadExplosion, anything else skipped; returns size - saved (0 when
     // the file does not open).
     unsigned Saved = GSimpleDb.Size();
@@ -728,9 +724,9 @@ int __cdecl Archetype::LoadSimples(char const* Path, bool bReload, ICliObjFactor
 
 bool __cdecl Archetype::LoadExplosion(INI_Reader& Reader, bool bReload)
 {
-    // Retail 0630bd60..0630bfd0. Only the first "nickname" while no record is held counts:
+    // . Only the first "nickname" while no record is held counts:
     // Id = CreateID(value) with no zero test, Explosion temp(Id) copied into a pair and inserted
-    // by value into DAT_063fcf3c; the record is the node's value whether or not the key was new.
+    // by value into the field; the record is the node's value whether or not the key was new.
     // An existing key under reload gets the inline reset() (0630bf0a..0630bf82) and the id back.
     // Every other key, once a record is held, goes to Explosion::read (result ignored).
     Explosion* Live = nullptr;
@@ -765,8 +761,8 @@ bool __cdecl Archetype::LoadExplosion(INI_Reader& Reader, bool bReload)
 
 void __cdecl Archetype::Free()
 {
-    // Retail 062fa980..062fabaa, then FUN_062facf0, FUN_062fabb0 and the tail jump to
-    // FUN_062fae00. The explosion map is left to FreeExplosions.
+    // , then the routine, the routine and the tail jump to
+    // . The explosion map is left to FreeExplosions.
     GSolarDb.ForEach(FreeSolarRecord);
     GSolarDb.Clear();
     GShipDb.ForEach(FreeShipRecord);
@@ -786,6 +782,6 @@ void __cdecl Archetype::Free()
 
 void __cdecl Archetype::FreeExplosions()
 {
-    // Retail 0630c080: erase every node of DAT_063fcf3c (each Explosion destroyed in place).
+    // erase every node of the field (each Explosion destroyed in place).
     GExplosionDb.clear();
 }

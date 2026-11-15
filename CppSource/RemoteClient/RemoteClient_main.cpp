@@ -1,14 +1,10 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include <windows.h>
 #include "ClientImpl.h"
 #include "rpc_packet.h"
 #include "rpc_packet_codec.h"
-#include "dacom.h"
+#include "neuroncomponents.h"
 #include "common_server_types.h"
 #include "common_server.h"
 #include "common_goods.h"
@@ -543,12 +539,12 @@ static void DispatchClientPacket(unsigned int ClientId, CDAPacket* Packet)
         }
         case 0x22: // FLPACKET_CLIENT_DBGCREATESHIP
             FDUMP(0x100001, "%s(%d) : *** ERROR: %s",
-                  "E:\\FL\\Scratch\\Source\\Network\\OutpostServerPacketHandler.cpp", 0x26a,
+                  "Network\\OutpostServerPacketHandler.cpp", 0x26a,
                   "FLPACKET_CLIENT_DBGCREATESHIP encountered in release mode");
             break;
         case 0x23: // FLPACKET_CLIENT_DBGLOADSYSTEM
             FDUMP(0x100001, "%s(%d) : *** ERROR: %s",
-                  "E:\\FL\\Scratch\\Source\\Network\\OutpostServerPacketHandler.cpp", 0x217,
+                  "Network\\OutpostServerPacketHandler.cpp", 0x217,
                   "FLPACKET_CLIENT_DBGLOADSYSTEM encountered in release mode");
             break;
         case 0x24: // FLPACKET_CLIENT_DOCK
@@ -559,7 +555,7 @@ static void DispatchClientPacket(unsigned int ClientId, CDAPacket* Packet)
         }
         case 0x25: // FLPACKET_CLIENT_DBGDESTROYOBJECT
             FDUMP(0x100001, "%s(%d) : *** ERROR: %s",
-                  "E:\\FL\\Scratch\\Source\\Network\\OutpostServerPacketHandler.cpp", 0x1e4,
+                  "Network\\OutpostServerPacketHandler.cpp", 0x1e4,
                   "FLPACKET_CLIENT_DBGDESTROYOBJECT encountered in Final Release mode");
             break;
         case 0x27: // FLPACKET_CLIENT_TRADERESPONSE
@@ -576,12 +572,12 @@ static void DispatchClientPacket(unsigned int ClientId, CDAPacket* Packet)
         }
         case 0x2D: // FLPACKET_CLIENT_DBGCONSOLE
             FDUMP(0x100001, "%s(%d) : *** ERROR: %s",
-                  "E:\\FL\\Scratch\\Source\\Network\\OutpostServerPacketHandler.cpp", 0x204,
+                  "Network\\OutpostServerPacketHandler.cpp", 0x204,
                   "FLPACKET_CLIENT_DBGCONSOLE encountered in release mode");
             break;
         case 0x2E: // FLPACKET_CLIENT_DBGFREESYSTEM
             FDUMP(0x100001, "%s(%d) : *** ERROR: %s",
-                  "E:\\FL\\Scratch\\Source\\Network\\OutpostServerPacketHandler.cpp", 0x227,
+                  "Network\\OutpostServerPacketHandler.cpp", 0x227,
                   "FLPACKET_CLIENT_DBGFREESYSTEM encountered in release mode");
             break;
         case 0x2F: // FLPACKET_CLIENT_SETMANEUVER
@@ -596,7 +592,7 @@ static void DispatchClientPacket(unsigned int ClientId, CDAPacket* Packet)
         }
         case 0x30: // FLPACKET_CLIENT_DBGRELOCATE_SHIP
             FDUMP(0x100001, "%s(%d) : *** ERROR: %s",
-                  "E:\\FL\\Scratch\\Source\\Network\\OutpostServerPacketHandler.cpp", 0x1f5,
+                  "Network\\OutpostServerPacketHandler.cpp", 0x1f5,
                   "FLPACKET_CLIENT_DBGRELOCATE_SHIP encountered in Final Release mode");
             break;
         case 0x31: // FLPACKET_CLIENT_REQUEST_EVENT

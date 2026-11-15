@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "client_frame_tick.h"
@@ -21,10 +17,10 @@
 #include "font_string.h"
 #include "globals.h"
 #include "hud_element_list.h"
-#include "login_mgr.h"             // G_Server (DAT_0067ecd0), DAT_0067ecbe / DAT_0067ecbf
-#include "main_command_handler.h"  // DAT_0067ecbd (FUN_005b2c50 / FUN_005b2c60)
-#include "menu_enter_state.h"      // FUN_00564b10 / FUN_00564b20
-#include "nn_error.h"              // FUN_00473cb0
+#include "login_mgr.h"             // G_Server (the field), the field / the field
+#include "main_command_handler.h"  // (the routine / the routine)
+#include "menu_enter_state.h"      // / the routine
+#include "nn_error.h"
 #include "player_behavior.h"
 #include "server_connect.h"
 #include "space_camera.h"
@@ -39,13 +35,13 @@
 #include "win3d_render.h"
 #include "win3d_renderables.h"
 
-#include "DALib.h"
-#include "alchemy.h"
+#include "NeuronRuntime.h"
+#include "particlefx.h"
 #include "common_animdb.h"
 #include "common_physys.h"
 #include "common_misc.h"   // SinglePlayer
 #include "common_timing.h" // Timing::UpdateGlobalTime
-#include "dacom.h"
+#include "neuroncomponents.h"
 #include "render/IRenderPipeline.h"
 #include "render/shading.h"
 
@@ -55,37 +51,37 @@
 
 namespace
 {
-    // DAT_0061085c / DAT_00610860 are RenderMgr.cpp globals: G_bRenderDither (the DitherControl
-    // apply LAB_00424630) and G_RenderMipFilter (the MipFilterControlCallback apply
-    // LAB_004246d0), defined in engine_init.cpp.
+    // / the field are RenderMgr.cpp globals: G_bRenderDither (the DitherControl
+    // apply the branch) and G_RenderMipFilter (the MipFilterControlCallback apply
+    // ), defined in engine_init.cpp.
 
-    // DAT_0067ecb0 -- the IServer* the frame saw last (.bss 0). Only FUN_005b2890 touches it
+    // the IServer* the frame saw last (.bss 0). Only the routine touches it
     // (0x005b28bb read, 0x005b28ca store).
     IServer* G_FrameLastServer = nullptr;
 
     IRenderPipeline* FramePipeline()
     {
-        // Every pipeline call in FUN_00424f30 / FUN_00425080 / FUN_00425140 re-reads the DALib
-        // import (MOV EAX,[->DALib::Pipeline]; MOV EAX,[EAX]) -- no null test anywhere.
-        return DALib::Pipeline;
+        // Every pipeline call in the routine / the routine / the routine re-reads the NeuronRuntime
+        // import (MOV EAX,[->NeuronRuntime::Pipeline]; MOV EAX,[EAX]) -- no null test anywhere.
+        return NeuronRuntime::Pipeline;
     }
 
-    // FUN_00424f30 (.text:00424f30-0042507f), cdecl, returns DAT_006679f8.
+    // (module storage-0042507f), cdecl, returns the field.
     bool TryBeginFrame()
     {
-        // 0x00424f30..0x00424f3f: DAT_006679f8 = 0; an inactive application (DAT_00610865)
+        // the field = 0; an inactive application (the field)
         // returns that 0 straight away.
         G_bRenderFrameBegun = false;
         if (!ClientAppIsActive())
             return false;
 
-        // 0x00424f45..0x00424f55: FUN_005b27c0(0) behind DAT_0067ecbc.
+        // the routine(0) behind the field.
         if (G_bFpExceptionTrap)
             SetFpuExceptionTrap(false);
 
-        // 0x00424f58..0x00424f91: when the device changed the precision (DAT_0061084c differs
-        // from DAT_00610848), the frame runs with the one the device left: EAX is loaded from
-        // DAT_0061084c before the 0x18 / 0x35 tests.
+        // when the device changed the precision (the field differs
+        // from the field), the frame runs with the one the device left: EAX is loaded from
+        // before the 0x18 / 0x35 tests.
         if (G_FpuPrecisionFound != G_FpuPrecisionWanted)
         {
             if (G_FpuPrecisionFound == 0x18)
@@ -96,70 +92,70 @@ namespace
                 _control87(0, 0);
         }
 
-        // 0x00424f94..0x00424faf: with DAT_00610864, DAT_006679f8 = (BeginScene +0xe4 >= 0).
+        // with the field, the field = (BeginScene +0xe4 >= 0).
         if (G_bRenderPostCreate)
             G_bRenderFrameBegun = FramePipeline()->BeginScene() >= 0;
 
         if (!G_bRenderFrameBegun)
         {
-            // 0x00424fbf..0x00424fdb: Sleep(1000), then FUN_004249c0(DAT_006679f4, options,
+            // Sleep(1000), then the routine(the field, options,
             // options).
             Sleep(1000);
             if (RenderMgrCreateBuffers(G_RenderMgrWindow, &g_display, &g_display))
             {
-                // 0x00424fe7..0x00425020: Clear(3, 0) +0x3c, SwapBuffers +0x40; only a
+                // Clear(3, 0) +0x3c, SwapBuffers +0x40; only a
                 // non-negative swap is followed by BeginScene, whose result is stored.
                 FramePipeline()->ClearBuffers(3, nullptr);
                 if (FramePipeline()->SwapBuffers() >= 0)
                     G_bRenderFrameBegun = FramePipeline()->BeginScene() >= 0;
             }
-            // 0x00425027..0x0042502e.
+            // .
             if (!G_bRenderFrameBegun)
                 return false;
         }
 
-        // 0x00425030..0x00425059: SetRenderState(0x1a D3DRS_DITHERENABLE) +0xf0, 1 iff the
-        // options object's color_bpp (DAT_00679bd0) is 16 AND DAT_0061085c != 0.
+        // SetRenderState(0x1a D3DRS_DITHERENABLE) +0xf0, 1 iff the
+        // options object's color_bpp (the field) is 16 AND the field != 0.
         const int DitherEnable = (g_display.color_bpp == 0x10 && G_bRenderDither != 0) ? 1 : 0;
         FramePipeline()->SetRenderState(D3DRS_DITHERENABLE, DitherEnable);
-        // 0x0042505f..0x00425074: SetTextureStageState(0, 0x12, DAT_00610860) +0xf8.
+        // SetTextureStageState(0, 0x12, the field) +0xf8.
         FramePipeline()->SetTextureStageState(0, 0x12, G_RenderMipFilter);
 
-        // 0x0042507a.
+        // .
         return G_bRenderFrameBegun;
     }
 
-    // FUN_00425080 (.text:00425080-00425138), void -- flush the material batcher, EndScene, put
+    // (module storage-00425138), void -- flush the material batcher, EndScene, put
     // the render states the next frame starts from back, re-arm the FP trap, restore the FPU
-    // precision. Unconditional: its callers only reach it when FUN_00424f30 returned true.
+    // precision. Unconditional: its callers only reach it when the routine returned true.
     void EndSceneHalf()
     {
-        // 0x00425080..0x0042508c: MaterialBatcher slot 0x28 (1), no null test.
-        DALib::MaterialBatcher->FlushAll(1);
+        // MaterialBatcher slot 0x28 (1), no null test.
+        NeuronRuntime::MaterialBatcher->FlushAll(1);
 
         // Intentional port-only addition: CLIENT-BETA-LABEL, removal only by Giperion.
         DrawClientTickProfile();
 
-        // 0x0042508f..0x0042509a: Pipeline slot 0xe8 (EndScene); EAX is not read.
+        // Pipeline slot 0xe8 (EndScene); EAX is not read.
         FramePipeline()->EndScene();
 
-        // 0x004250a0..0x004250d1: the state the next frame starts from, through the OpenGL.cpp
+        // the state the next frame starts from, through the OpenGL.cpp
         // layer -- glDisable(0xb60), depth write on, glDisable(GL_BLEND), glEnable(GL_DEPTH_TEST),
         // depth func 4 (LESSEQUAL), glEnable(GL_CULL_FACE).
-        Win3DDisable(kWin3DFog);            // FUN_00421ed0(0xb60)
-        Win3DSetDepthWrite(1);              // FUN_00422190(1)
-        Win3DDisable(kWin3DBlend);          // FUN_00421ed0(0xbe2)
-        Win3DEnable(kWin3DDepthTest);       // FUN_00421dd0(0xb71)
-        Win3DSetDepthFunc(4);               // FUN_00422120(4)
-        Win3DEnable(kWin3DCullFace);        // FUN_00421dd0(0xb44)
+        Win3DDisable(kWin3DFog);            // (0xb60)
+        Win3DSetDepthWrite(1);              // (1)
+        Win3DDisable(kWin3DBlend);          // (0xbe2)
+        Win3DEnable(kWin3DDepthTest);       // (0xb71)
+        Win3DSetDepthFunc(4);               // (4)
+        Win3DEnable(kWin3DCullFace);        // (0xb44)
 
-        // 0x004250d6..0x004250e4: FUN_005b27c0(1) behind DAT_0067ecbc.
+        // the routine(1) behind the field.
         if (G_bFpExceptionTrap)
             SetFpuExceptionTrap(true);
 
-        // 0x004250ec..0x00425138: when the precision FUN_004249c0 found (DAT_0061084c) differs
-        // from the one the renderer wants (DAT_00610848), put the wanted one back -- EAX is
-        // loaded from DAT_00610848 here: 24-bit, 53-bit, or the (0, 0) query for anything else.
+        // when the precision the routine found (the field) differs
+        // from the one the renderer wants (the field), put the wanted one back -- EAX is
+        // loaded from the field here: 24-bit, 53-bit, or the (0, 0) query for anything else.
         if (G_FpuPrecisionFound != G_FpuPrecisionWanted)
         {
             if (G_FpuPrecisionWanted == 0x18)
@@ -171,33 +167,33 @@ namespace
         }
     }
 
-    // FUN_00425140 (.text:00425140-0042515d), void.
+    // (module storage-0042515d), void.
     void PresentHalf()
     {
         FClientTickScope PresentProfile(EClientTickSection::Present);
-        // 0x00425140: FUN_004214a0.
+        // the routine.
         Win3DOnPresentFrame();
-        // 0x00425145..0x00425158: SwapBuffers +0x40, then NEG EAX / SBB AL,AL / INC AL --
-        // DAT_00610864 = (result == 0), not (result >= 0).
+        // SwapBuffers +0x40, then NEG EAX / SBB AL,AL / INC AL --
+        // = (result == 0), not (result >= 0).
         G_bRenderPostCreate = FramePipeline()->SwapBuffers() == 0;
     }
 }
 
-// FUN_005b2890, cdecl(double dt) -- WinMain passes FUN_0042d680 read before the message pump
-// (0x005b3347). Listing-traced 0x005b2890..0x005b2a1f. Every state (space LAB_0054b000, GF
-// FUN_00558c10, IntroFocus FUN_00573eb0, MissionBriefing LAB_0043d360) begins, draws and
+// , cdecl(double dt) -- WinMain passes the routine read before the message pump
+// (0x005b3347). Listing-traced 0x005b2890..0x005b2a1f. Every state (space the branch, GF
+// , IntroFocus the routine, MissionBriefing the branch) begins, draws and
 // presents its own frame inside its slot 14; the frame function only runs the timers, the
 // disconnect check, the Win3D roots, the local server and the state machine.
 void TickClientFrame(double DeltaSeconds)
 {
     // Port-only QPC diagnostics requested by Giperion; CLIENT-BETA-LABEL.
     FClientTickProfileFrame ProfileFrame;
-    // 0x005b289a..0x005b28b3: Timing::UpdateGlobalTime(dt) unless FUN_0042d740.
+    // Timing::UpdateGlobalTime(dt) unless the routine.
     if (!ShouldSkipLocalServerTick())
         Timing::UpdateGlobalTime(DeltaSeconds);
 
-    // 0x005b28b6..0x005b28cf: BL = the server pointer changed since the last frame (DAT_0067ecb0
-    // against DAT_0067ecd0); the new one is remembered.
+    // BL = the server pointer changed since the last frame (the field
+    // against the field); the new one is remembered.
     bool bServerChanged = false;
     if (G_FrameLastServer != G_Server)
     {
@@ -205,10 +201,10 @@ void TickClientFrame(double DeltaSeconds)
         G_FrameLastServer = G_Server;
     }
 
-    // 0x005b28cf..0x005b292b: no quit pending (DAT_0067ecbd), multiplayer, and the server dropped
-    // us (DAT_0067ecbe): the "connection lost" box FUN_00473cb0(0x737, 0, 0) when the connect
-    // response had arrived (DAT_0067ecbf); both flags cleared; FUN_005a8260; unless the server
-    // select page is up (FUN_00564b20), the intro mode request 3 (FUN_00564b10) and the quit flag.
+    // no quit pending (the field), multiplayer, and the server dropped
+    // us (the field): the "connection lost" box the routine(0x737, 0, 0) when the connect
+    // response had arrived (the field); both flags cleared; the routine; unless the server
+    // select page is up (the routine), the intro mode request 3 (the routine) and the quit flag.
     if (!ClientQuitRequested() && !SinglePlayer() && G_bServerDisconnected)
     {
         if (G_bServerConnected)
@@ -223,25 +219,25 @@ void TickClientFrame(double DeltaSeconds)
         }
     }
 
-    // 0x005b2936..0x005b2938: FUN_0059e080(dt) -- the only per-frame Update of the registered
+    // the routine(dt) -- the only per-frame Update of the registered
     // Win3D roots (modal dialogs included); the NN modal loops call it themselves (FUN_004739xx).
     FClientTickScope UiProfile(EClientTickSection::Ui);
     Win3DUpdateAll(DeltaSeconds);
     UiProfile.Stop();
 
-    // 0x005b293d..0x005b296d: DAT_0067ecd0 non-null and FUN_0042d740 false -> IServer slot 11
+    // the field non-null and the routine false -> IServer slot 11
     // Update, slot 12 ElapseTime((float)dt) -- both inside TickLocalServer.
     FClientTickScope ServerProfile(EClientTickSection::Server);
     TickLocalServer(static_cast<float>(DeltaSeconds));
     ServerProfile.Stop();
 
-    // EBP: the state to enter (0 = stay); ECX: DAT_0067ecac as last read.
+    // EBP: the state to enter (0 = stay); ECX: the field as last read.
     int NextState = 0;
     IEnvironment* CurrentState = g_client.current_state;
     bool bForceIntro = false;
 
-    // 0x005b2970..0x005b29a1: the server went away this frame (changed and now null) while the
-    // current state is not the IntroFocus (FUN_00575430): in multiplayer the intro mode request
+    // the server went away this frame (changed and now null) while the
+    // current state is not the IntroFocus (the routine): in multiplayer the intro mode request
     // 3, then back to the intro.
     if (bServerChanged && G_Server == nullptr && CurrentState != GetIntroFocusState())
     {
@@ -251,8 +247,8 @@ void TickClientFrame(double DeltaSeconds)
     }
     else
     {
-        // 0x005b29f4..0x005b2a14: a live state runs its slot 14 (+0x38) with (float)dt unless a
-        // quit is pending; DAT_0067ecac is read again after it.
+        // a live state runs its slot 14 (+0x38) with (float)dt unless a
+        // quit is pending; the field is read again after it.
         if (CurrentState != nullptr)
         {
             if (ClientQuitRequested())
@@ -267,40 +263,40 @@ void TickClientFrame(double DeltaSeconds)
                 CurrentState = g_client.current_state;
             }
         }
-        // 0x005b2a16..0x005b2a1f: a quit pending now (set before or by the slot 14) forces
+        // a quit pending now (set before or by the slot 14) forces
         // the intro.
         if (!bForceIntro && ClientQuitRequested())
             bForceIntro = true;
     }
 
-    // 0x005b29a7..0x005b29ac: state 6 (IntroFocus) and the quit flag cleared.
+    // state 6 (IntroFocus) and the quit flag cleared.
     if (bForceIntro)
     {
         NextState = 6;
         SetClientQuitRequested(false);
     }
 
-    // 0x005b29b3..0x005b29be: a state queued by FUN_005b2c70 (DAT_0067ecc4) wins and is
+    // a state queued by the routine (the field) wins and is
     // cleared.
     NextState = ConsumePendingClientState(NextState);
 
-    // 0x005b29c8..0x005b29d8: DAT_0067ecac = FUN_005b2a30(NextState, DAT_0067ecac).
+    // the field = the routine(NextState, the field).
     if (NextState != 0)
     {
         CurrentState = EnterClientState(NextState, CurrentState);
         g_client.current_state = CurrentState;
     }
 
-    // 0x005b29de..0x005b29e6: no state left -> PostQuitMessage(0).
+    // no state left -> PostQuitMessage(0).
     if (CurrentState == nullptr)
         PostQuitMessage(0);
 }
 
 void TickMaterialAnimationPlayback(float DeltaSeconds)
 {
-    // FUN_0041b2e0. No null tests: both DALib globals are live from engine init on.
-    DALib::TextureLib->TickAllPlayback(0, DeltaSeconds);   // slot 0x20 (0, dt)
-    DALib::MatAnimLibrary->TickAnimationInstances(-1, DeltaSeconds);         // slot 0x18 (-1, dt)
+    // . No null tests: both NeuronRuntime globals are live from engine init on.
+    NeuronRuntime::TextureLib->TickAllPlayback(0, DeltaSeconds);   // slot 0x20 (0, dt)
+    NeuronRuntime::MatAnimLibrary->TickAnimationInstances(-1, DeltaSeconds);         // slot 0x18 (-1, dt)
 }
 
 void EndClientRenderScene()
@@ -311,13 +307,13 @@ void EndClientRenderScene()
 
 void PresentClientRenderFrame()
 {
-    // FUN_00425140 -- every retail caller sits inside its FUN_00424f30 success branch.
+    // every baseline caller sits inside its the routine success branch.
     PresentHalf();
 }
 
 bool BeginClientRenderFrame()
 {
-    // FUN_00424f30; the result is DAT_006679f8 (G_bRenderFrameBegun).
+    // ; the result is the field (G_bRenderFrameBegun).
     BeginClientProfileRender();
     const bool bBegun = TryBeginFrame();
     if (!bBegun)
@@ -327,7 +323,7 @@ bool BeginClientRenderFrame()
 
 void EndClientRenderFrame()
 {
-    // FUN_00425080 + FUN_00425140 back to back.
+    // + the routine back to back.
     EndSceneHalf();
     EndClientProfileRender();
     PresentHalf();

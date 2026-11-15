@@ -1,18 +1,14 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // Content.dll TU48 (06f4ed80-06f55e20): faction properties, faction name tables, faction
-// goods and reputation empathy. Lane CNT-GCS (docs/re/content.md, TU map).
-//
-// Listing: DLLS\BIN\Content.dll.txt. The std::map / std::vector instantiations retail emits
-// for the four tables (map ctors FUN_06f528b0 / FUN_06f52930 / FUN_06f529b0, _Tidy
-// LAB_06f4f1f0 / LAB_06f4f300 / LAB_06f507b0, insert FUN_06f53110 / FUN_06f53350 /
-// FUN_06f53590, _Erase FUN_06f53f90 / FUN_06f546a0 / FUN_06f54d40, erase FUN_06f53b40 /
-// FUN_06f54250 / FUN_06f54960, node helpers 06f53960-06f55310, vector insert FUN_06f537a0,
-// find FUN_06f52e90) are the std containers of FactionProps.h.
+// goods and reputation empathy. Lane CNT-GCS (implementation notes, TU map).
+
+// Listing: DLLS\BIN\Content. The std::map / std::vector instantiations baseline emits
+// for the four tables (map ctors the routine / the routine / the routine, _Tidy
+// / the branch / the branch, insert the routine / the routine /
+// , _Erase the routine / the routine / the routine, erase the routine /
+// / the routine, node helpers 06f53960-06f55310, vector insert the routine,
+// find the routine) are the std containers of FactionProps.h.
 
 #include "FactionProps.h"
 
@@ -30,21 +26,21 @@
 #include <cstring>
 #include <utility>
 
-// 06f4ef80: FUN_06eac620 (vector ctor) + atexit FUN_06f4efa0 (vector dtor FUN_06eec8d0).
+// the routine (vector ctor) + atexit the routine (vector dtor the routine).
 std::vector<unsigned int> GFactionGroups;
-// 06f4f1b0: map ctor FUN_06f528b0 + atexit FUN_06f4f1e0.
+// map ctor the routine + atexit the routine.
 FFactionPropsMap GFactionProps;
-// 06f4f2c0: map ctor FUN_06f52930 + atexit FUN_06f4f2f0.
+// map ctor the routine + atexit the routine.
 FFactionNamesMap GFactionNames;
-// 06f50770: map ctor FUN_06f529b0 + atexit FUN_06f507a0.
+// map ctor the routine + atexit the routine.
 FFactionEmpathyMap GFactionEmpathy;
 
 namespace
 {
-    // 06f4efc0 / 06f4efe0 / 06f4f000 (_initterm, in this order): three timer message ids
-    // drawn from the module id generator DAT_06fce76c, stored in DAT_06fd0cd4 (pilot
-    // names, sender FUN_06f51ee0) / DAT_06fd0cd0 (large ship names, FUN_06f51fe0) /
-    // DAT_06fd0ccc (formation designations, FUN_06f520d0); all read by FUN_06f513c0.
+    // / 06f4efe0 / 06f4f000 (_initterm, in this order): three timer message ids
+    // drawn from the module id generator the field, stored in the field (pilot
+    // names, sender the routine) / the field (large ship names, the routine) /
+    // (formation designations, the routine); all read by the routine.
     unsigned int const GFactionNameMsgPilot = GContentNextUniqueId++;
     unsigned int const GFactionNameMsgLargeShip = GContentNextUniqueId++;
     unsigned int const GFactionNameMsgFormation = GContentNextUniqueId++;
@@ -56,7 +52,7 @@ namespace
         return (rand() * Count) / 32768;
     }
 
-    // FUN_06f53ab0 / the inlined FUN_06f55310 loops: find by the pair only.
+    // / the inlined the routine loops: find by the pair only.
     std::vector<FFactionNamePairUse>::iterator FindPairUse(std::vector<FFactionNamePairUse>* Uses,
                                                            int First, int Second)
     {
@@ -66,7 +62,7 @@ namespace
         return It;
     }
 
-    // FUN_06f52f40 / the inlined name loops: find by the name.
+    // / the inlined name loops: find by the name.
     std::vector<FFactionNameUse>::iterator FindNameUse(std::vector<FFactionNameUse>* Uses, int Name)
     {
         std::vector<FFactionNameUse>::iterator It = Uses->begin();
@@ -75,8 +71,8 @@ namespace
         return It;
     }
 
-    // FUN_06f52720 / FUN_06f52ff0 / FUN_06f51db0 bodies: one more use of the pair, or a
-    // new {First, Second, 1} at the end (FUN_06f38170 / FUN_06f6f3e0).
+    // / the routine / the routine bodies: one more use of the pair, or a
+    // new {First, Second, 1} at the end (the routine / the routine).
     void AddPairUse(std::vector<FFactionNamePairUse>* Uses, int First, int Second)
     {
         std::vector<FFactionNamePairUse>::iterator It = FindPairUse(Uses, First, Second);
@@ -92,8 +88,8 @@ namespace
         Uses->insert(Uses->end(), 1, Use);
     }
 
-    // FUN_06f52ec0 / FUN_06ef6bb0 paths of FUN_06f51b80: one more use, or {Name, 1} at the
-    // end (FUN_06f96770).
+    // / the routine paths of the routine: one more use, or {Name, 1} at the
+    // end (the routine).
     void AddNameUse(std::vector<FFactionNameUse>* Uses, int Name)
     {
         std::vector<FFactionNameUse>::iterator It = FindNameUse(Uses, Name);
@@ -108,9 +104,9 @@ namespace
         Uses->insert(Uses->end(), 1, Use);
     }
 
-    // FUN_06f52810 (thiscall, RET 8) and the immediate paths of FUN_06f51ee0 /
-    // FUN_06f520d0: one use less, *OutCount = the new count when given, the entry erased
-    // at zero (FUN_06f53a60); a miss sets *OutCount = 0 and answers false.
+    // (thiscall, RET 8) and the immediate paths of the routine /
+    // one use less, *OutCount = the new count when given, the entry erased
+    // at zero (the routine); a miss sets *OutCount = 0 and answers false.
     bool ReleasePairUse(std::vector<FFactionNamePairUse>* Uses, int First, int Second,
                         int* OutCount)
     {
@@ -129,7 +125,7 @@ namespace
         return true;
     }
 
-    // FUN_06f526a0 (thiscall, RET 8) and the immediate path of FUN_06f51fe0: the same on
+    // (thiscall, RET 8) and the immediate path of the routine: the same on
     // a single name.
     bool ReleaseNameUse(std::vector<FFactionNameUse>* Uses, int Name, int* OutCount)
     {
@@ -148,15 +144,15 @@ namespace
         return true;
     }
 
-    // The predicate of the empathy-rate sort FUN_06f55a00 / FUN_06f55cd0 (FLD a.rate,
+    // The predicate of the empathy-rate sort the routine / the routine (FLD a.rate,
     // FCOMP b.rate, TEST AH,5: a.Rate < b.Rate).
     bool EmpathyRateLess(FFactionEmpathyRate const& A, FFactionEmpathyRate const& B)
     {
         return A.Rate < B.Rate;
     }
 
-    // The three release timers: pub::SetTimer(&SpaceSupport id DAT_06fd1c74,
-    // {MessageId, Group}, 30.0f) (DAT_06fbb78c / DAT_06fbb790 / DAT_06fbb794).
+    // The three release timers: pub::SetTimer(&SpaceSupport id the field,
+    // {MessageId, Group}, 30.0f) (the field / the field / the field).
     void SetFactionNameTimer(unsigned int MessageId, unsigned int Group)
     {
         pub::Controller::TimerExpired Timer;
@@ -165,7 +161,7 @@ namespace
         pub::SetTimer(GSpaceSupportControllerId, Timer, 30.0f);
     }
 
-    // LAB_06f50160 (vtable 06fbb7a4, RET 4): appends GroupId to GFactionGroups when it is
+    // (vtable 06fbb7a4, RET 4): appends GroupId to GFactionGroups when it is
     // not there yet; the second linear find that follows (06f50196-06f501b9) has no
     // effect. Always answers 1.
     struct FFactionGroupCollector : public pub::Reputation::Enumerator
@@ -175,13 +171,13 @@ namespace
             if (std::find(GFactionGroups.begin(), GFactionGroups.end(), GroupId) ==
                 GFactionGroups.end())
             {
-                GFactionGroups.insert(GFactionGroups.end(), 1, GroupId);   // FUN_06f937c0
+                GFactionGroups.insert(GFactionGroups.end(), 1, GroupId);
             }
             return 1;
         }
     };
 
-    // LAB_06f50c40 (vtable 06fbb928, RET 4): ++Count, answers 1.
+    // (vtable 06fbb928, RET 4): ++Count, answers 1.
     struct FFactionGroupCounter : public pub::Reputation::Enumerator
     {
         int Count = 0;              // +0x04
@@ -194,8 +190,8 @@ namespace
         }
     };
 
-    // The reputation clamp of FUN_06f50c50: min(Value, 1.0f - 0.1) first, then the
-    // lower bound -1.0f + 0.1 (x87, DAT_06fbb788 / DAT_06fbb784 are float, DAT_06fbb930
+    // The reputation clamp of the routine: min(Value, 1.0f - 0.1) first, then the
+    // lower bound -1.0f + 0.1 (x87, the field / the field are float, the field
     // is double 0.1). Sum is the unrounded x87 sum, SumF the float the listing stores.
     float ClampFactionReputation(double Sum)
     {
@@ -203,12 +199,12 @@ namespace
         double const Lower = static_cast<double>(-1.0f) + 0.1;
         float const SumF = static_cast<float>(Sum);
 
-        // 06f50cb1-06f50cc4: Upper < Sum (unrounded) -> Upper, else the stored float.
+        // Upper < Sum (unrounded) -> Upper, else the stored float.
         double const Candidate = (Upper < Sum) ? Upper : static_cast<double>(SumF);
-        // 06f50cd4-06f50cdd (TEST AH,0x41 + JNZ: Candidate <= Lower -> Lower).
+        // (TEST AH,0x41 + JNZ: Candidate <= Lower -> Lower).
         if (Candidate <= Lower)
             return static_cast<float>(Lower);
-        // 06f50cdf-06f50cf4: Upper < SumF -> Upper, else SumF.
+        // Upper < SumF -> Upper, else SumF.
         if (Upper < static_cast<double>(SumF))
             return static_cast<float>(Upper);
         return SumF;
@@ -219,7 +215,7 @@ namespace
 // FFactionProps
 // ---------------------------------------------------------------------------------------
 
-// FUN_06f4f060 (06f4f060-06f4f1a6).
+// (06f4f060-06f4f1a6).
 FFactionProps::FFactionProps()
     : CommReferrable()
     , JumpPreference(FactionJumpAny)
@@ -231,7 +227,7 @@ FFactionProps::FFactionProps()
 {
 }
 
-// FUN_06f4f3d0 (06f4f3d0-06f4f429).
+// (06f4f3d0-06f4f429).
 bool FFactionProps::GetFormation(unsigned int const* Key, unsigned int* Out) const
 {
     std::map<unsigned int, unsigned int>::const_iterator It = Formations.find(*Key);
@@ -241,24 +237,24 @@ bool FFactionProps::GetFormation(unsigned int const* Key, unsigned int* Out) con
     return true;
 }
 
-// FUN_06f4f430 (06f4f430-06f4f611).
+// (06f4f430-06f4f611).
 bool FFactionProps::PickSpaceCostume(int Gender, Costume* Out) const
 {
-    // 06f4f456-06f4f4fa: the index list is reserved to the costume count first.
+    // the index list is reserved to the costume count first.
     std::vector<unsigned int> Matches;
     if (!SpaceCostumes.empty())
         Matches.reserve(SpaceCostumes.size());
 
-    // 06f4f504-06f4f573: the out-gender slot is the argument's own stack slot in retail.
+    // the out-gender slot is the argument's own stack slot in baseline.
     for (unsigned int Index = 0; Index < SpaceCostumes.size(); ++Index)
     {
         int SkeletonGender = Gender;
         pub::GF::GetCostumeSkeletonGender(SpaceCostumes[Index], SkeletonGender);
         if (Gender == SkeletonGender)
-            Matches.insert(Matches.end(), 1, Index);                    // FUN_06f937c0
+            Matches.insert(Matches.end(), 1, Index);
     }
 
-    // 06f4f575-06f4f5fd.
+    // .
     if (Matches.empty())
         return false;
 
@@ -275,33 +271,33 @@ bool FFactionProps::PickSpaceCostume(int Gender, Costume* Out) const
     return true;
 }
 
-// FUN_06f4f620 (06f4f620-06f4f7b7).
+// (06f4f620-06f4f7b7).
 bool FFactionProps::PickVoice(unsigned int Roles, unsigned int* Out) const
 {
-    // 06f4f63c-06f4f6a6: a copy of the voice list.
+    // a copy of the voice list.
     std::vector<unsigned int> Candidates(Voices.begin(), Voices.end());
 
     while (!Candidates.empty())
     {
-        // 06f4f6d5-06f4f720: one candidate draws index 0 without calling rand().
+        // one candidate draws index 0 without calling rand().
         int const Count = static_cast<int>(Candidates.size());
         int Pick = 0;
         if (Count != 1)
             Pick = (rand() * Count) / 32768;
 
-        FVoiceProperties* Props = FindVoiceProperties(&Candidates[Pick]);   // FUN_06fa6e50
-        if (Props != nullptr && Props->SupportsRoles(Roles))                // FUN_06fa6e30
+        FVoiceProperties* Props = FindVoiceProperties(&Candidates[Pick]);
+        if (Props != nullptr && Props->SupportsRoles(Roles))
         {
             *Out = Candidates[Pick];
             return true;
         }
-        // 06f4f73c-06f4f767: erase the candidate.
+        // erase the candidate.
         Candidates.erase(Candidates.begin() + Pick);
     }
     return false;
 }
 
-// FUN_06f4f7c0 (06f4f7c0-06f4f860).
+// (06f4f7c0-06f4f860).
 bool FFactionProps::PickGender(int* Out) const
 {
     unsigned int MaleCount = 0;
@@ -315,7 +311,7 @@ bool FFactionProps::PickGender(int* Out) const
     if (Voices.empty())
         return false;
 
-    // 06f4f839-06f4f85b: CMP + SBB: an unsigned draw below MaleCount -> 1, else 2.
+    // CMP + SBB: an unsigned draw below MaleCount -> 1, else 2.
     int const Count = static_cast<int>(Voices.size());
     unsigned int const Draw = static_cast<unsigned int>((rand() * Count) / 32768);
     *Out = (Draw < MaleCount) ? 1 : 2;
@@ -339,11 +335,11 @@ void FFactionNameList::AddRange(INI_Reader* Reader)
         Range.Last = Range.First;
     else
         Range.Last = Reader->get_value_int(1);
-    Ranges.insert(Ranges.end(), 1, Range);                                // FUN_06f96770
+    Ranges.insert(Ranges.end(), 1, Range);
     Count += Range.Last - Range.First + 1;
 }
 
-// FUN_06f4f020 (06f4f020-06f4f04b): unsigned compares (JA / JBE).
+// (06f4f020-06f4f04b): unsigned compares (JA / JBE).
 int FFactionNameList::GetName(unsigned int Index) const
 {
     std::vector<FFactionNameRange>::const_iterator Range = Ranges.begin();
@@ -357,13 +353,13 @@ int FFactionNameList::GetName(unsigned int Index) const
     return Range->First + static_cast<int>(Index);
 }
 
-// FUN_06f4f050 (06f4f050-06f4f059).
+// (06f4f050-06f4f059).
 bool FFactionNameList::IsEmpty() const
 {
     return Count == 0;
 }
 
-// FUN_06f50ff0 (06f50ff0-06f5115c). Group (+0x00) is not written.
+// (06f50ff0-06f5115c). Group (+0x00) is not written.
 FFactionNames::FFactionNames()
     : LargeShipDesig(0)
     , ShortGroupName(0)
@@ -377,7 +373,7 @@ FFactionNames::FFactionNames()
     RankThreshold[1] = 0;
 }
 
-// FUN_06f52230 (06f52230-06f5269d).
+// (06f52230-06f5269d).
 bool FFactionNames::ReadIniValue(INI_Reader* Reader)
 {
     if (Reader->is_value("affiliation"))
@@ -410,7 +406,7 @@ bool FFactionNames::ReadIniValue(INI_Reader* Reader)
     }
     if (Reader->is_value("large_ship_names"))
     {
-        // 06f5248d-06f52604: the same append, inlined as vector::insert(end, 1, range).
+        // the same append, inlined as vector::insert(end, 1, range).
         LargeShipNames.AddRange(Reader);
         return true;
     }
@@ -429,25 +425,25 @@ bool FFactionNames::ReadIniValue(INI_Reader* Reader)
     return false;
 }
 
-// FUN_06f521d0.
+// .
 int FFactionNames::GetLargeShipDesig() const
 {
     return LargeShipDesig;
 }
 
-// FUN_06f521e0.
+// .
 unsigned int FFactionNames::GetShortGroupName() const
 {
     return ShortGroupName;
 }
 
-// FUN_06f521f0.
+// .
 unsigned int FFactionNames::GetNameId(int Index) const
 {
     return NameIds[Index];
 }
 
-// FUN_06f52200 (signed compares, JGE).
+// (signed compares, JGE).
 unsigned int FFactionNames::GetRankDesig(int const* Level) const
 {
     if (*Level < RankThreshold[0])
@@ -457,7 +453,7 @@ unsigned int FFactionNames::GetRankDesig(int const* Level) const
     return RankDesig[2];
 }
 
-// FUN_06f51520 (06f51520-06f51919).
+// (06f51520-06f51919).
 bool FFactionNames::PickPilotName(int* OutFirst, int* OutLast, int Gender, bool bReserve)
 {
     FFactionNameList const* FirstNames = (Gender == 1) ? &MaleFirstNames : &FemaleFirstNames;
@@ -467,13 +463,13 @@ bool FFactionNames::PickPilotName(int* OutFirst, int* OutLast, int Gender, bool 
     int Last = 0;                                                   // EBP
     bool bResult;
 
-    // 06f5154f-06f5158c: unsigned compare of the use count with the pair count.
+    // unsigned compare of the use count with the pair count.
     if (static_cast<unsigned int>(PilotNameUses.size()) <
         static_cast<unsigned int>(LastCount * FirstCount))
     {
         if (OutFirst != nullptr && OutLast != nullptr)
         {
-            // 06f515ac-06f51687. The inner walk compares the counter before its
+            // . The inner walk compares the counter before its
             // increment, so a first name whose last names are all taken ends with the
             // counter at LastCount + 1 and is accepted like a free pair.
             int Outer = 0;
@@ -483,7 +479,7 @@ bool FFactionNames::PickPilotName(int* OutFirst, int* OutLast, int Gender, bool 
                 for (;;)
                 {
                     First = FirstNames->GetName(
-                        static_cast<unsigned int>((FirstStart + Outer) % FirstCount));  // FUN_06f4f020
+                        static_cast<unsigned int>((FirstStart + Outer) % FirstCount));
                     int Inner = 0;
                     int const LastStart = FactionRandIndex(LastCount);
                     for (;;)
@@ -508,7 +504,7 @@ bool FFactionNames::PickPilotName(int* OutFirst, int* OutLast, int Gender, bool 
         }
         else if (OutFirst == nullptr && OutLast != nullptr)
         {
-            // 06f51699-06f51733: last name only, key {1, last}.
+            // last name only, key {1, last}.
             First = 1;
             int Inner = 0;
             int const Start = FactionRandIndex(LastCount);
@@ -526,7 +522,7 @@ bool FFactionNames::PickPilotName(int* OutFirst, int* OutLast, int Gender, bool 
         }
         else
         {
-            // 06f5173d-06f517d3: first name only, key {first, 1}; the draw and the modulus
+            // first name only, key {first, 1}; the draw and the modulus
             // use the last-name count.
             Last = 1;
             int Inner = 0;
@@ -547,7 +543,7 @@ bool FFactionNames::PickPilotName(int* OutFirst, int* OutLast, int Gender, bool 
     }
     else
     {
-        // 06f517dd-06f5187d: every pair is in use.
+        // every pair is in use.
         if (OutFirst != nullptr)
             First = FirstNames->GetName(static_cast<unsigned int>(FactionRandIndex(FirstCount)));
         else
@@ -555,11 +551,11 @@ bool FFactionNames::PickPilotName(int* OutFirst, int* OutLast, int Gender, bool 
         if (OutLast != nullptr)
             Last = LastNames.GetName(static_cast<unsigned int>(FactionRandIndex(LastCount)));
         else
-            First = 1;                                      // 06f51878 writes EBX, not EBP
+            First = 1;                                      // writes EBX, not EBP
         bResult = false;
     }
 
-    // 06f51882-06f518f5.
+    // .
     if (bReserve)
         AddPairUse(&PilotNameUses, First, Last);
     if (OutFirst != nullptr)
@@ -569,14 +565,14 @@ bool FFactionNames::PickPilotName(int* OutFirst, int* OutLast, int Gender, bool 
     return bResult;
 }
 
-// FUN_06f51920 (06f51920-06f51b75).
+// (06f51920-06f51b75).
 bool FFactionNames::PickFormationDesig(int* OutDesig, int* OutNumber, bool bReserve)
 {
     int const Count = FormationDesigs.Count;
 
     if (static_cast<unsigned int>(FormationDesigUses.size()) < static_cast<unsigned int>(Count * 20))
     {
-        // 06f5196b-06f51a46: same walk as the pilot names, 20 numbers per designation.
+        // same walk as the pilot names, 20 numbers per designation.
         int Outer = 0;
         int const Start = FactionRandIndex(Count);
         if (Count > 0)
@@ -604,22 +600,22 @@ bool FFactionNames::PickFormationDesig(int* OutDesig, int* OutNumber, bool bRese
                     break;
             }
         }
-        // 06f51a4c-06f51a74: FUN_06f52720.
+        // the routine.
         if (bReserve)
             AddPairUse(&FormationDesigUses, *OutDesig, *OutNumber);
         return true;
     }
 
-    // 06f51a85-06f51b67.
+    // .
     *OutDesig = FormationDesigs.GetName(static_cast<unsigned int>(FactionRandIndex(Count)));
     int const Number = (rand() * 20) / 32768;
     *OutNumber = Number;
     if (bReserve)
-        AddPairUse(&FormationDesigUses, *OutDesig, Number);                 // FUN_06f52ff0
+        AddPairUse(&FormationDesigUses, *OutDesig, Number);
     return false;
 }
 
-// FUN_06f51b80 (06f51b80-06f51da2).
+// (06f51b80-06f51da2).
 bool FFactionNames::PickLargeShipName(int* OutName, bool bReserve)
 {
     int const Count = LargeShipNames.Count;
@@ -627,7 +623,7 @@ bool FFactionNames::PickLargeShipName(int* OutName, bool bReserve)
 
     if (static_cast<unsigned int>(LargeShipNameUses.size()) < static_cast<unsigned int>(Count))
     {
-        // 06f51bb4-06f51c1f: the first free name from a random start.
+        // the first free name from a random start.
         int Draw = FactionRandIndex(Count);
         for (;;)
         {
@@ -637,12 +633,12 @@ bool FFactionNames::PickLargeShipName(int* OutName, bool bReserve)
                 break;
         }
         if (bReserve)
-            AddNameUse(&LargeShipNameUses, Name);                           // FUN_06f52ec0
+            AddNameUse(&LargeShipNameUses, Name);
         *OutName = Name;
         return true;
     }
 
-    // 06f51ca9-06f51d9c.
+    // .
     Name = LargeShipNames.GetName(static_cast<unsigned int>(FactionRandIndex(Count)));
     if (bReserve)
         AddNameUse(&LargeShipNameUses, Name);
@@ -650,13 +646,13 @@ bool FFactionNames::PickLargeShipName(int* OutName, bool bReserve)
     return false;
 }
 
-// FUN_06f51db0 (06f51db0-06f51ed5).
+// (06f51db0-06f51ed5).
 void FFactionNames::AddFormationDesigUse(int Desig, int Number)
 {
     AddPairUse(&FormationDesigUses, Desig, Number);
 }
 
-// FUN_06f51ee0 (06f51ee0-06f51fd0).
+// (06f51ee0-06f51fd0).
 void FFactionNames::ReleasePilotName(int First, int Last, bool bImmediate)
 {
     if (bImmediate)
@@ -671,7 +667,7 @@ void FFactionNames::ReleasePilotName(int First, int Last, bool bImmediate)
     SetFactionNameTimer(GFactionNameMsgPilot, Group);
 }
 
-// FUN_06f51fe0 (06f51fe0-06f520be).
+// (06f51fe0-06f520be).
 void FFactionNames::ReleaseLargeShipName(int Name, bool bImmediate)
 {
     if (bImmediate)
@@ -679,11 +675,11 @@ void FFactionNames::ReleaseLargeShipName(int Name, bool bImmediate)
         ReleaseNameUse(&LargeShipNameUses, Name, nullptr);
         return;
     }
-    PendingLargeShipNames.push_back(Name);                                  // FUN_06eb6740
+    PendingLargeShipNames.push_back(Name);
     SetFactionNameTimer(GFactionNameMsgLargeShip, Group);
 }
 
-// FUN_06f520d0 (06f520d0-06f521c0).
+// (06f520d0-06f521c0).
 void FFactionNames::ReleaseFormationDesig(int Desig, int Number, bool bImmediate)
 {
     if (bImmediate)
@@ -698,30 +694,30 @@ void FFactionNames::ReleaseFormationDesig(int Desig, int Number, bool bImmediate
     SetFactionNameTimer(GFactionNameMsgFormation, Group);
 }
 
-// FUN_06f513c0 (06f513c0-06f5151c).
+// (06f513c0-06f5151c).
 void __cdecl HandleFactionNameTimer(pub::Controller::TimerExpired const* Timer)
 {
     unsigned int const Group = Timer->Param2;
     if (Timer->Param1 == GFactionNameMsgPilot)
     {
-        FFactionNames* Names = GetFactionNames(&Group);                     // FUN_06f7b0f0
+        FFactionNames* Names = GetFactionNames(&Group);
         FFactionNamePair const Front = Names->PendingPilotNames.front();
         Names->ReleasePilotName(Front.First, Front.Second, true);
-        Names->PendingPilotNames.pop_front();                               // FUN_06ecfe80
+        Names->PendingPilotNames.pop_front();
     }
     else if (Timer->Param1 == GFactionNameMsgLargeShip)
     {
         FFactionNames* Names = GetFactionNames(&Group);
         int const Front = Names->PendingLargeShipNames.front();
-        ReleaseNameUse(&Names->LargeShipNameUses, Front, nullptr);         // FUN_06f526a0
-        Names->PendingLargeShipNames.pop_front();                           // FUN_06f68e40
+        ReleaseNameUse(&Names->LargeShipNameUses, Front, nullptr);
+        Names->PendingLargeShipNames.pop_front();
     }
     else if (Timer->Param1 == GFactionNameMsgFormation)
     {
         FFactionNames* Names = GetFactionNames(&Group);
         FFactionNamePair const Front = Names->PendingFormationDesigs.front();
-        ReleasePairUse(&Names->FormationDesigUses, Front.First, Front.Second, nullptr);  // FUN_06f52810
-        Names->PendingFormationDesigs.pop_front();                          // FUN_06f68e40
+        ReleasePairUse(&Names->FormationDesigUses, Front.First, Front.Second, nullptr);
+        Names->PendingFormationDesigs.pop_front();
     }
 }
 
@@ -729,11 +725,11 @@ void __cdecl HandleFactionNameTimer(pub::Controller::TimerExpired const* Timer)
 // Loaders
 // ---------------------------------------------------------------------------------------
 
-// FUN_06f4f870 (06f4f870-06f50133).
+// (06f4f870-06f50133).
 void __cdecl LoadFactionProps(INI_Reader* Reader)
 {
     // Frame locals that outlive a section: the affiliation [ESP+0x20], the good id
-    // [ESP+0x3c] and the voice id [ESP+0x2c]. Retail never initialises them; the port
+    // [ESP+0x3c] and the voice id [ESP+0x2c]. baseline never initialises them; the port
     // starts them at 0.
     unsigned int Group = 0;
     unsigned int Good = 0;
@@ -744,7 +740,7 @@ void __cdecl LoadFactionProps(INI_Reader* Reader)
         if (!Reader->is_header("FactionProps"))
             continue;
 
-        // 06f4f8bd-06f4f8db: [ESP+0x48] props, [ESP+0x270] names.
+        // [ESP+0x48] props, [ESP+0x270] names.
         FFactionProps Props;
         FFactionNames Names;
 
@@ -761,11 +757,11 @@ void __cdecl LoadFactionProps(INI_Reader* Reader)
             }
             else if (Reader->is_value("formation"))
             {
-                // 06f4f95a-06f4f9c8: inserted only when the key is new.
+                // inserted only when the key is new.
                 unsigned int const Key = CreateID(Reader->get_value_string(0));
                 unsigned int const Value = CreateID(Reader->get_value_string(1));
-                if (Props.Formations.find(Key) == Props.Formations.end())    // FUN_06f7b0f0
-                    Props.Formations.insert(std::make_pair(Key, Value));     // FUN_06f003e0
+                if (Props.Formations.find(Key) == Props.Formations.end())
+                    Props.Formations.insert(std::make_pair(Key, Value));
             }
             else if (Reader->is_value("scan_chance"))
             {
@@ -774,11 +770,11 @@ void __cdecl LoadFactionProps(INI_Reader* Reader)
             else if (Reader->is_value("npc_ship"))
             {
                 unsigned int const Arch = CreateID(Reader->get_value_string());
-                Props.NpcShips.insert(Props.NpcShips.end(), 1, Arch);         // FUN_06f937c0
+                Props.NpcShips.insert(Props.NpcShips.end(), 1, Arch);
             }
             else if (Reader->is_value("scan_for_cargo"))
             {
-                // 06f4fa42-06f4fb39: {archetype, level}; appended when not present.
+                // {archetype, level}; appended when not present.
                 FFactionScanCargo Cargo;
                 Cargo.Archetype = 0;
                 Cargo.Level = 0;
@@ -794,16 +790,16 @@ void __cdecl LoadFactionProps(INI_Reader* Reader)
 
                 std::vector<FFactionScanCargo>::iterator It = Props.ScanForCargo.begin();
                 while (It != Props.ScanForCargo.end() &&
-                       !(It->Archetype == Cargo.Archetype && It->Level == Cargo.Level))  // FUN_06f50140
+                       !(It->Archetype == Cargo.Archetype && It->Level == Cargo.Level))
                 {
                     ++It;
                 }
                 if (It == Props.ScanForCargo.end())
-                    Props.ScanForCargo.insert(Props.ScanForCargo.end(), Cargo);       // FUN_06f537a0
+                    Props.ScanForCargo.insert(Props.ScanForCargo.end(), Cargo);
             }
             else if (Props.CommReferrable::read_comm_ini_data(*Reader))
             {
-                // 06f4fb3e-06f4fb4b: msg_id_prefix, a direct (non-virtual) import call.
+                // msg_id_prefix, a direct (non-virtual) import call.
             }
             else if (Reader->is_value("mc_costume"))
             {
@@ -811,7 +807,7 @@ void __cdecl LoadFactionProps(INI_Reader* Reader)
             }
             else if (Reader->is_value("space_costume"))
             {
-                // 06f4fb89-06f4fbd6: head, body, both hands and the count cleared; the
+                // head, body, both hands and the count cleared; the
                 // accessory slots are not.
                 Costume Appearance;
                 Appearance.PartIds[0] = 0;
@@ -819,22 +815,22 @@ void __cdecl LoadFactionProps(INI_Reader* Reader)
                 Appearance.PartIds[2] = 0;
                 Appearance.PartIds[3] = 0;
                 Appearance.AccessoryCount = 0;
-                ParseSpaceCostume(&Appearance, Reader);                   // FUN_06f31390
-                Props.SpaceCostumes.insert(Props.SpaceCostumes.end(), 1, Appearance);  // FUN_06ed23d0
+                ParseSpaceCostume(&Appearance, Reader);
+                Props.SpaceCostumes.insert(Props.SpaceCostumes.end(), 1, Appearance);
             }
             else if (Reader->is_value("voice"))
             {
                 pub::GetVoiceID(Voice, Reader->get_value_string());
-                Props.Voices.insert(Props.Voices.end(), 1, Voice);          // FUN_06f937c0
+                Props.Voices.insert(Props.Voices.end(), 1, Voice);
             }
             else if (Names.ReadIniValue(Reader))
             {
-                // 06f4fc24-06f4fc33.
+                // .
             }
             else if (Reader->is_value("jump_preference"))
             {
-                // 06f4fc4c-06f4fce1: the value is copied into a TString<0x20> (null ->
-                // empty, FUN_06ea9f40) and compared byte-wise (REPE CMPSB, 9 bytes) with
+                // the value is copied into a TString<0x20> (null ->
+                // empty, the routine) and compared byte-wise (REPE CMPSB, 9 bytes) with
                 // "jumpgate", then "jumphole"; anything else is 0. A copy truncated to 31
                 // characters can never equal either word, so comparing the value itself
                 // is the same test.
@@ -867,7 +863,7 @@ void __cdecl LoadFactionProps(INI_Reader* Reader)
             }
         }
 
-        // 06f4fde1-06f4fe13: legality name ids.
+        // legality name ids.
         if (Props.Legality == FactionLegalityLawful || Props.Legality == FactionLegalityUnlawful)
         {
             unsigned int const LegalityId =
@@ -878,21 +874,21 @@ void __cdecl LoadFactionProps(INI_Reader* Reader)
             Names.NameIds[4] = LegalityId;
         }
 
-        // 06f4fe1a-06f4fea8: both tables keyed by the affiliation; an existing key keeps
+        // both tables keyed by the affiliation; an existing key keeps
         // its entry (_Tree::insert).
-        GFactionNames.insert(std::make_pair(Group, Names));                  // FUN_06f53350
-        GFactionProps.insert(std::make_pair(Group, Props));                  // FUN_06f53110
+        GFactionNames.insert(std::make_pair(Group, Names));
+        GFactionProps.insert(std::make_pair(Group, Props));
     }
 
-    // 06f50108-06f50115.
+    // .
     FFactionGroupCollector Collector;
     pub::Reputation::EnumerateGroups(Collector);
 }
 
-// FUN_06f503d0 (06f503d0-06f5064d).
+// (06f503d0-06f5064d).
 void __cdecl LoadFactionGoods(INI_Reader* Reader)
 {
-    // [ESP+0x10]: the good id outlives the section; retail never initialises it.
+    // [ESP+0x10]: the good id outlives the section; baseline never initialises it.
     unsigned int Good = 0;
 
     while (Reader->read_header())
@@ -907,7 +903,7 @@ void __cdecl LoadFactionGoods(INI_Reader* Reader)
             if (Reader->is_value("faction"))
             {
                 pub::Reputation::GetReputationGroup(Group, Reader->get_value_string(0));
-                FFactionPropsMap::iterator It = GFactionProps.find(Group);      // FUN_06f7b0f0
+                FFactionPropsMap::iterator It = GFactionProps.find(Group);
                 if (It != GFactionProps.end())
                     Props = &It->second;
                 else
@@ -915,7 +911,7 @@ void __cdecl LoadFactionGoods(INI_Reader* Reader)
             }
             else if (Reader->is_value("MarketGood"))
             {
-                // 06f50499-06f50623: no null check on the props (retail faults without a
+                // no null check on the props (baseline faults without a
                 // faction line).
                 pub::GetGoodID(Good, Reader->get_value_string(0));
                 Props->MarketGoods.insert(Props->MarketGoods.end(), 1, Good);
@@ -924,18 +920,18 @@ void __cdecl LoadFactionGoods(INI_Reader* Reader)
     }
 }
 
-// FUN_06f50880 (06f50880-06f50c3a).
+// (06f50880-06f50c3a).
 void __cdecl LoadFactionEmpathy(char const* RelativePath)
 {
     INI_Reader Reader;
-    if (!OpenContentDataIni(RelativePath, &Reader))                         // FUN_06f24280
+    if (!OpenContentDataIni(RelativePath, &Reader))
         return;
 
-    // 06f508d0-06f508e1: the group count reserves every section's rate list.
+    // the group count reserves every section's rate list.
     FFactionGroupCounter Counter;
     pub::Reputation::EnumerateGroups(Counter);
 
-    // Frame locals of the empathy_rate line; retail never initialises them.
+    // Frame locals of the empathy_rate line; baseline never initialises them.
     FFactionEmpathyRate Rate;
     Rate.Group = 0;
     Rate.Rate = 0.0f;
@@ -959,7 +955,7 @@ void __cdecl LoadFactionEmpathy(char const* RelativePath)
             {
                 pub::Reputation::GetReputationGroup(Rate.Group, Reader.get_value_string(0));
                 Rate.Rate = Reader.get_value_float(1);
-                Empathy.EmpathyRates.insert(Empathy.EmpathyRates.end(), 1, Rate); // FUN_06f96770
+                Empathy.EmpathyRates.insert(Empathy.EmpathyRates.end(), 1, Rate);
             }
             else if (Reader.is_value("group"))
             {
@@ -983,7 +979,7 @@ void __cdecl LoadFactionEmpathy(char const* RelativePath)
             }
         }
 
-        // 06f50aec-06f50af7: FUN_06f55a00 sorts the rates ascending by Rate. Retail's
+        // the routine sorts the rates ascending by Rate. baseline's
         // algorithm is kept because it fixes the order of equal rates, which
         // GetFactionHostileGroups exposes.
         if (!Empathy.EmpathyRates.empty())
@@ -992,18 +988,18 @@ void __cdecl LoadFactionEmpathy(char const* RelativePath)
             ContentSort(First, First + Empathy.EmpathyRates.size(), &EmpathyRateLess);
         }
 
-        GFactionEmpathy.insert(std::make_pair(Group, Empathy));                // FUN_06f53590
+        GFactionEmpathy.insert(std::make_pair(Group, Empathy));
     }
 }
 
-// FUN_06f506a0 (06f506a0-06f50758): _Tidy of the props map (clear() or a node-wise erase
+// (06f506a0-06f50758): _Tidy of the props map (clear() or a node-wise erase
 // of [begin, end), the same result).
 void __cdecl UnloadFactionProps()
 {
     GFactionProps.clear();
 }
 
-// FUN_06f50ed0 (06f50ed0-06f50f88).
+// (06f50ed0-06f50f88).
 void __cdecl UnloadFactionEmpathy()
 {
     GFactionEmpathy.clear();
@@ -1013,7 +1009,7 @@ void __cdecl UnloadFactionEmpathy()
 // Lookups
 // ---------------------------------------------------------------------------------------
 
-// FUN_06f50650 (06f50650-06f50693).
+// (06f50650-06f50693).
 FFactionProps* __cdecl GetFactionProps(unsigned int const* Group)
 {
     FFactionPropsMap::iterator It = GFactionProps.find(*Group);
@@ -1022,7 +1018,7 @@ FFactionProps* __cdecl GetFactionProps(unsigned int const* Group)
     return &It->second;
 }
 
-// FUN_06f51370 (06f51370-06f513b3).
+// (06f51370-06f513b3).
 FFactionNames* __cdecl GetFactionNames(unsigned int const* Group)
 {
     FFactionNamesMap::iterator It = GFactionNames.find(*Group);
@@ -1031,7 +1027,7 @@ FFactionNames* __cdecl GetFactionNames(unsigned int const* Group)
     return &It->second;
 }
 
-// FUN_06f50760.
+// .
 std::vector<unsigned int>* __cdecl GetFactionGroups()
 {
     return &GFactionGroups;
@@ -1041,17 +1037,17 @@ std::vector<unsigned int>* __cdecl GetFactionGroups()
 // Reputation empathy
 // ---------------------------------------------------------------------------------------
 
-// FUN_06f50c50 (06f50c50-06f50e0a).
+// (06f50c50-06f50e0a).
 void __cdecl ApplyFactionReputationChange(int VibeHandle, float Delta, unsigned int Group,
                                           bool bEmpathy)
 {
-    // 06f50c50-06f50c66 (TEST AH,0x44 + JNP: equal -> out).
+    // (TEST AH,0x44 + JNP: equal -> out).
     if (Delta == 0.0f)
         return;
     if (Group == 0xFFFFFFFFu)
         return;
 
-    // 06f50c7d-06f50d10. The out value is zeroed once; later reads reuse it.
+    // . The out value is zeroed once; later reads reuse it.
     float Reputation = 0.0f;
     pub::Reputation::GetReputation(VibeHandle, Group, Reputation);
     float Clamped = ClampFactionReputation(static_cast<double>(Reputation) +
@@ -1061,8 +1057,8 @@ void __cdecl ApplyFactionReputationChange(int VibeHandle, float Delta, unsigned 
     if (!bEmpathy)
         return;
 
-    // 06f50d21-06f50dfd: every rate of Group's empathy list.
-    FFactionEmpathyMap::iterator Entry = GFactionEmpathy.find(Group);        // FUN_06f2e220
+    // every rate of Group's empathy list.
+    FFactionEmpathyMap::iterator Entry = GFactionEmpathy.find(Group);
     if (Entry == GFactionEmpathy.end())
         return;
     for (std::vector<FFactionEmpathyRate>::iterator It = Entry->second.EmpathyRates.begin();
@@ -1077,14 +1073,14 @@ void __cdecl ApplyFactionReputationChange(int VibeHandle, float Delta, unsigned 
     }
 }
 
-// FUN_06f50e10 (06f50e10-06f50e97).
+// (06f50e10-06f50e97).
 void __cdecl GetFactionHostileGroups(unsigned int Group, unsigned int* Out, unsigned int Count)
 {
-    FFactionEmpathyMap::iterator Entry = GFactionEmpathy.find(Group);        // FUN_06f2e220
+    FFactionEmpathyMap::iterator Entry = GFactionEmpathy.find(Group);
     if (Entry == GFactionEmpathy.end())
         return;
 
-    // 06f50e66-06f50e8f: the list position only moves past a negative rate, so the first
+    // the list position only moves past a negative rate, so the first
     // rate at or above zero ends the run.
     std::vector<FFactionEmpathyRate>::iterator It = Entry->second.EmpathyRates.begin();
     for (unsigned int Index = 0; Index < Count; ++Index)
@@ -1101,10 +1097,10 @@ void __cdecl GetFactionHostileGroups(unsigned int Group, unsigned int* Out, unsi
     }
 }
 
-// FUN_06f50f90 (06f50f90-06f50fe2).
+// (06f50f90-06f50fe2).
 float __cdecl GetFactionEventRate(unsigned int Group, int Event)
 {
-    FFactionEmpathyMap::iterator Entry = GFactionEmpathy.find(Group);        // FUN_06fa7200
+    FFactionEmpathyMap::iterator Entry = GFactionEmpathy.find(Group);
     if (Entry == GFactionEmpathy.end())
         return 0.0f;
     return Entry->second.EventRates[Event];

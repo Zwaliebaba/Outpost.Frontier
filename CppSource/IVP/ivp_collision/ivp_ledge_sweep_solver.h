@@ -1,87 +1,83 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
 // D-cluster-0635cbd0 pass (2026-09-10): investigation of the Common.dll
-// address range 0x0635cbd0-0x0635e1d0 (decomp-tracker items 3348-3374),
+// address range 0x0635cbd0-0x0635e1d0 (implementation tracker items 3348-3374),
 // the last safe cluster before the DO-NOT-TOUCH range starting at
 // ~0x06360000.
-//
+
 // This range turned out to hold TWO unrelated subsystems, not one:
-//
+
 //   1. 0x0635cbd0-0x0635d360 (items 3348-3354): the "IVP Broadphase" grid/
 //      octree insertion, query and removal logic already covered by a full
 //      behavioral (non-1:1) rewrite in src/Common/common_physys.cpp -- see
 //      that file's own "IVP Broadphase" comment header and the per-item
-//      decomp-tracker notes for the exact retail formulas recovered this
+//      implementation tracker notes for the exact baseline formulas recovered this
 //      pass. Marked `skipped` there, not ported here.
-//
+
 //   2. 0x0635d5b0-0x0635e1d0 (items 3362-3374, this file): an entirely
-//      separate coordinate-frame (retail calls the class "Csys::Csys" per
-//      Ghidra's own demangled constructor symbol at Common.dll.c:216960/
+//      separate coordinate-frame (baseline calls the class "Csys::Csys" per
+//      analysis's own demangled constructor symbol at Common/
 //      216963/217113/217121 -- NOT the same class as this project's own
 //      src/include/common_csys.h Csys, which is a different, 0x30-byte
-//      Pos+Matrix pair; the retail symbol here names an unrelated,
+//      Pos+Matrix pair; the baseline symbol here names an unrelated,
 //      0x40-byte-stride, rows[3]+translation object matching this port's
-//      own IVP_U_Matrix exactly, most likely a genuine retail name
-//      collision between two distinct "Csys" classes in different retail
+//      own IVP_U_Matrix exactly, most likely a genuine baseline name
+//      collision between two distinct "Csys" classes in different baseline
 //      translation units) sweep/distance-test solver operating on
 //      IVP_Compact_Ledge-style compressed vertex data. Documented below.
-//
+
 // ============================================================================
 // The Csys sweep-test family (items 3362-3374)
 // ============================================================================
-//
-// Two generic numeric solver drivers (FUN_06369720, FUN_063694a0) are each
+
+// Two generic numeric solver drivers (the routine, the routine) are each
 // called from 4 large driver
-// functions in this cluster (FUN_0635da70/item 3369, FUN_0635df00/item
-// 3371, FUN_0635e1d0/item 3374, and FUN_0635f180/item 3378 -- the fourth
+// functions in this cluster (the routine/item 3369, the routine/item
+// 3371, the routine/item 3374, and the routine/item 3378 -- the fourth
 // member, added to this list 2026-09-17 by lane claude:w16-ivp, which
 // re-measured it: its 494 instructions contain exactly one
-// `CALL FUN_06369720` at Common.dll.txt:0635f431 and two `CALL FUN_063694a0`,
-// alongside two `CALL FUN_0635de90` seeds and two vector-ctor-iterator
+// `CALL the routine` at Commonf431 and two `CALL the routine`,
+// alongside two `CALL the routine` seeds and two vector-ctor-iterator
 // calls building its two 21-frame matrix arrays -- i.e. the family shape
 // verbatim.)
-//
+
 // [2026-09-17, lane claude:w19-csys-sweep] CORRECTION, and the reason the
 // paragraph above no longer says "still unported". This file used to claim
 // that "both solver addresses sit inside the 0x06363000-0x0636e000
 // LCP/Simplex range this marathon excludes by design", and items
 // 3369/3371/3374/3378 all rested their `simplified` status on that claim.
 // The claim does not survive reading the two bodies end to end
-// (Common.dll.txt:468899-469141 and 469148-469420, 207 + 243 insns,
+// (Common and 469148-469420, 207 + 243 insns,
 // re-read instruction-by-instruction this pass). Neither function contains
 // a permutation array, a ratio test, a pivot step or a matrix: they are a
 // conservative-advancement time-of-contact search over two lazily-filled
 // 21-slot IVP_U_Matrix caches, plus a regula-falsi refinement
-// (FUN_06369280). They are in the excluded ADDRESS range and are not part
+// (the routine). They are in the excluded ADDRESS range and are not part
 // of the excluded SUBSYSTEM. All three are now ported, in
 // ivp_ledge_sweep_solver.cpp next to this header. Each is 109-494 insns with ~3KB stack frames
 // that construct up to 21 stack-local IVP_U_Matrix-shaped "Csys" frames --
-// Common.dll.c:216960-216964/217112-217128/217113-217127) with a pointer
+// Common/217112-217128/217113-217127) with a pointer
 // to one of 7 small "evaluator" objects as an extra argument. Each
 // evaluator is its OWN distinct concrete class (7 different one-slot
-// vtables at .rdata:063a56d8/56dc/56e0/56ec/56f4/56fc/5700, each pointing
+// vtables at module storage/56dc/56e0/56ec/56f4/56fc/5700, each pointing
 // at exactly one of the 7 LAB_ functions below -- confirmed via
-// Common.dll.txt:569198-569224 -- NOT one shared 7-slot vtable, despite
-// decomp-tracker's `vtable_method` classification implying a single
+// Common -- NOT one shared 7-slot vtable, despite
+// implementation tracker's `vtable_method` classification implying a single
 // table). All 7 share the same call shape: `this` = the evaluator object
 // (ECX), 2 explicit stack args = pointers to two IVP_U_Matrix-shaped
 // frames (the two Csys candidates currently under test), return value in
 // ST0 (a float, via the x87 `RET 0x8` convention already established
 // throughout this port for float-returning thiscalls).
-//
+
 // Confirmed shared callees (all already independently ported elsewhere in
 // this codebase, cross-checked instruction-by-instruction this pass):
-//
-//   FUN_063484e0 == IVP_U_Matrix::vmult4(p_in, p_out)       [ivp_math.h]
+
+// == IVP_U_Matrix::vmult4(p_in, p_out)       [ivp_math.h]
 //     *** CORRECTED 2026-09-17, lane claude:w21-csys-chain. This line used to
 //     read "== IVP_U_Matrix::vimult4", and that claim is FALSE. Read the whole
-//     body, Common.dll.txt:412790-412843 (0x063484e0-0x06348573): it never
+//     body, Common (0x063484e0-0x06348573): it never
 //     subtracts the translation, and the three accumulators are
 //       out.x = M[0x00]*px + M[0x04]*py + M[0x08]*pz + M[0x30]
 //       out.y = M[0x10]*px + M[0x14]*py + M[0x18]*pz + M[0x34]
@@ -93,27 +89,27 @@
 //     evaluator below would have transformed its fixed local direction by the
 //     wrong matrix. Note the misidentification never reached code, because
 //     the only two evaluators ported before this pass (items 3363/3368) do
-//     not call FUN_063484e0 at all -- they use FUN_06348580 and FUN_06366010.
-//     The real vimult4 leaves in this module are FUN_06348470 (see
+//     not call the routine at all -- they use the routine and the routine.
+//     The real vimult4 leaves in this module are the routine (see
 //     ivp_math.h's own note) and, for the rotation-only variant,
-//     FUN_06366010.
-//
-//   FUN_06348580 == IVP_U_Matrix3::vmult(p_in, p_out)       [item 2895]
-//     Re-verified this pass, Common.dll.txt:412860-412890: rows at
+// .
+
+// == IVP_U_Matrix3::vmult(p_in, p_out)       [item 2895]
+//     Re-verified this pass, Common: rows at
 //     [ECX+0x00/0x10/0x20], no translation term. Correct as it stood.
-//   FUN_06366010 == IVP_U_Matrix3::vimult(p_in, p_out)      [item 3524]
-//   FUN_06347df0(x) == 1.0f / sqrtf(x)                      [confirmed
-//     this pass: Common.dll.txt:411875-411885, FLD/FSQRT/FDIVR 1.0]
-//   FUN_06347ef0(this=IVP_U_Point) == normize()-equivalent  [confirmed
-//     this pass: Common.dll.txt:412034-412074, same 1e-10 epsilon guard
+// == IVP_U_Matrix3::vimult(p_in, p_out)      [item 3524]
+// (x) == 1.0f / sqrtf(x)                      [confirmed
+//     this pass: Common, FLD/FSQRT/FDIVR 1.0]
+// (this=IVP_U_Point) == normize()-equivalent  [confirmed
+//     this pass: Common, same 1e-10 epsilon guard
 //     and per-axis scale as IVP_U_Point::normize() in ivp_math.h, but
-//     ALSO returns a bool (0 if too small to normalize) -- retail's
+//     ALSO returns a bool (0 if too small to normalize) -- baseline's
 //     normize() and this port's are not quite the same signature]
-//   FUN_0628bed0(this=out, a, b) == the alias-safe x87 cross product,
+// (this=out, a, b) == the alias-safe x87 cross product,
 //     ported as IVP_CalcCrossProduct (ivp_math.h)
-//   FUN_06347e60 == real_length()-equivalent (VectorLength, per this
+// == real_length()-equivalent (VectorLength, per this
 //     port's own ivp_math.h cross-reference comment at line ~198)
-//
+
 // [2026-09-17, lane claude:w21-csys-chain] ALL NINE EVALUATORS ARE NOW
 // PORTED. The paragraph immediately below is kept verbatim because it is the
 // record of what was true before this pass, but its conclusion ("left
@@ -129,7 +125,7 @@
 // [ESP+0x10]/[ESP+0x14], because a `POP ESI` sits between the writes and the
 // reads (:0635d683). Reading the offsets without tracking that pop makes the
 // operands look mismatched and the function look unportable.
-//
+
 // The nine share one shape, which is what finally made them legible: each
 // takes two candidate frames, pushes a small fixed set of its own local
 // points through those frames (vmult4 for positions, vmult for directions),
@@ -141,7 +137,7 @@
 // Their mutual consistency is itself evidence: 3362 and 3365 compute the same
 // quantity with the two frames' roles exchanged, and 3373 computes exactly the
 // squared cross-product length whose reciprocal square root 3372 needs.
-//
+
 // (Historical paragraph, superseded by the one above:)
 // Only 2 of the 7 evaluators were fully hand-traced (FPU-stack-simulated
 // instruction-by-instruction, including exact ESP-relative offsets across
@@ -157,35 +153,35 @@
 // Baraff-style impact/constraint solver machinery already flagged
 // elsewhere in this port -- see ivp_mindist_limiter.cpp's own DoImpact
 // notes). The remaining 5 (items 3362/3364/3365/3366/3367/3372/3373 --
-// see each item's own decomp-tracker notes for its individually-confirmed
+// see each item's own implementation tracker notes for its individually-confirmed
 // callee sequence and touched field offsets) additionally involve
 // cross products, sqrt/invsqrt normalization and, in 2 cases, comparisons
-// against a fixed DAT_063a5668 scale constant -- genuinely different
+// against a fixed the field scale constant -- genuinely different
 // per-evaluator formulas, not a mechanical copy of the two below, and
 // were NOT independently re-derived with the same rigor this pass. Left
 // `simplified` rather than guessed, per this project's own established
 // precedent for cross-cutting numerical-solver clusters (see the Baraff
-// LCP-solver family, decomp-tracker items 3540-3598).
-//
+// LCP-solver family, implementation tracker items 3540-3598).
+
 // The 3 large drivers (items 3369/3371/3374) additionally walk a doubly-
-// linked structure via a `(uint)ptr & 0xc` -> DAT_063ee4e0/DAT_063ee4f0
-// indexed-jump-table pointer-arithmetic idiom (Common.dll.c:217015-217047)
+// linked structure via a `(uint)ptr & 0xc` -> the field/the field
+// indexed-jump-table pointer-arithmetic idiom (Common)
 // whose purpose (most likely a compact edge/twin traversal, given the
 // 16-bit-index * 0x10 + base vertex-fetch pattern alongside it -- see
-// e.g. Common.dll.c:216969/217129, `(*param & 0xffff) * 0x10 + *param_3`)
+// e.g. Common/217129, `(*param & 0xffff) * 0x10 + *param_3`)
 // was not resolved this pass.
-//
+
 // [2026-09-17, lane claude:w22-csys-drivers] RESOLVED, with the bytes. It is
 // the compact-mesh next-edge / previous-edge step, and it is not a "doubly
 // linked structure" at all -- there are no links, only two four-entry
 // constant tables indexed by the low nibble of the edge pointer itself.
-// Read straight out of .data (Common.dll.txt:642753-642794):
-//
-//     .data:063ee4e0  00 00 00 00   04 00 00 00   04 00 00 00   f8 ff ff ff
+// Read straight out of .data (Common):
+
+// 00 00 00 00   04 00 00 00   04 00 00 00   f8 ff ff ff
 //                     ->  { 0, +4, +4, -8 }
-//     .data:063ee4f0  00 00 00 00   08 00 00 00   fc ff ff ff   fc ff ff ff
+// 00 00 00 00   08 00 00 00   fc ff ff ff   fc ff ff ff
 //                     ->  { 0, +8, -4, -4 }
-//
+
 // An IVP_Compact_Triangle is 16 bytes and 16-byte aligned: a 4-byte header
 // followed by its three 4-byte IVP_Compact_Edges, so a live edge pointer
 // always has `ptr & 0xc` equal to 4, 8 or 0xc -- that value is the edge's
@@ -197,9 +193,9 @@
 //     prev: 4 -> c (+8),  8 -> 4 (-4),  c -> 8 (-4)
 // Index 0 would be the triangle header, never a valid edge; both tables hold
 // 0 there, a harmless identity.
-//
+
 // Two independent confirmations that this is what the code means:
-//   * FUN_0635b8d0 (Common.dll.txt:445590-445631) applies both tables to the
+//   * (Common) applies both tables to the
 //     same edge and turns all three results into vertex addresses through the
 //     identical `(dword & 0xffff) * 0x10 + Ledge + Ledge->CPointOffset`
 //     expression -- i.e. three vertices of one triangle, which is only
@@ -209,32 +205,32 @@
 //     IVP_Compact_Edge::GetNextEdge() / GetPrevEdge()
 //     (ivp_compact_builder/ivp_compact_ledge.h:23-101). The values there
 //     match the .data bytes above exactly. So the "unresolved idiom" this
-//     header and four decomp-tracker items have carried since 2026-09-10 was
+//     header and four implementation tracker items have carried since 2026-09-10 was
 //     in fact resolved elsewhere in the tree the whole time; it was a
 //     bookkeeping gap, not a research gap. Use the header's accessors.
-//
+
 // [2026-09-17, lane claude:w19-csys-sweep] The second half of that reason
-// ("porting the drivers without first resolving FUN_06369720/FUN_063694a0's
+// ("porting the drivers without first resolving the routine/the routine's
 // own calling convention would mean guessing the wiring") is now DISCHARGED:
 // the calling convention of both solvers is fully recovered and written out
 // below as IVP_Ledge_Sweep_Evaluator's three methods. What still blocks the
 // 4 drivers is the OTHER half, which remains true and is a TODO, not an
 // accepted state:
 //   (a) 5 of the 7 evaluator functors are still Evaluate_Deferred stubs
-//       returning 0.0f. FUN_0635da70 alone installs PTR_LAB_0635d5b0
-//       (Common.dll.txt:0635db19) -- one of the 5 -- as its first
+//       returning 0.0f. the routine alone installs the branch
+//       (Commondb19) -- one of the 5 -- as its first
 //       evaluator, so porting the driver against a 0.0f stub would produce
 //       a driver that always reports contact at t0.
-//   (b) the `(uint)ptr & 0xc` -> DAT_063ee4e0/DAT_063ee4f0 traversal idiom
+//   (b) the `(uint)ptr & 0xc` -> the field/the field traversal idiom
 //       above is still unresolved.
 // Both are ordinary unfinished porting work inside this cluster.
-//
+
 // [2026-09-17, lane claude:w21-csys-chain] STATUS OF (a) AND (b), AND WHAT IS
 // LEFT.
 //   (a) DISCHARGED. There are no Evaluate_Deferred stubs left; all nine
 //       evaluators are real bodies below, and Evaluate_Deferred itself has
 //       been deleted rather than left behind as a trap for the next lane.
-//   (a') ALSO DISCHARGED: item 3370 / FUN_0635de90, the IVP_Sweep_Frame_Cache
+//   (a') ALSO DISCHARGED: item 3370 / the routine, the IVP_Sweep_Frame_Cache
 //       constructor that all four drivers seed both of their caches through,
 //       is ported as IVP_Sweep_Frame_Cache::Init in the .cpp next to this
 //       header.
@@ -242,21 +238,21 @@
 //       byte-level resolution of the two tables further up this file. It is
 //       IVP_Compact_Edge::GetNextEdge()/GetPrevEdge(), already in
 //       ivp_compact_builder/ivp_compact_ledge.h.
-//
+
 // [2026-09-17, lane claude:w23-csys-drivers] ALL FOUR PRIMARY DRIVERS ARE NOW
-// PORTED. Items 3374 (FUN_0635e1d0) and 3378 (FUN_0635f180) landed this pass as
+// PORTED. Items 3374 (the routine) and 3378 (the routine) landed this pass as
 // EstimateLedgeEdgeVsLedgeEdgeContact and EstimateLedgeVertexVsLedgeEdgeContact
 // in the .cpp next to this header, joining 3369 and 3371. Together the four
 // cover the three feature pairings a ledge sweep needs -- point-vs-face
 // (3371), vertex-vs-face (3369), edge-vs-edge (3374) and vertex-vs-edge
 // (3378) -- which is itself a consistency check on all four readings.
-//
+
 // TWO CORRECTIONS THIS PASS, both to claims this header carried:
-//
-//   * FUN_0634d8d0 / FUN_0634d9d0 / FUN_0634d970, read in full from the
-//     listing (Common.dll.txt:422762-422810, 422890-422917 and 422826-422856):
+
+//   * / the routine / the routine, read in full from the
+//     listing (Common, 422890-422917 and 422826-422856):
 //     they are vmult4, vmult and vimult respectively -- the w16-ivp census was
-//     right about the operation, and the FUN_063484e0 fiasco does NOT repeat
+//     right about the operation, and the the routine fiasco does NOT repeat
 //     here. But all three read their matrix at `this + 0x1c`, not at `this`,
 //     so the receiver is the enclosing cache-source object and not a matrix.
 //     Item 3378's four call sites pass Side->Source. The census did not say
@@ -265,43 +261,43 @@
 //     real evidence for the IVP_Cache_Object reading of
 //     FIVP_Sweep_Cache_Source below, which this header declined to assert.
 //     Still not asserted -- recorded as evidence.
-//
+
 //   * the "shared scalar block" (InnerThreshold = Radius*0.5 + ToleranceBase;
 //     KnownDistance = Radius + SeparationGap; Threshold = Ramp + Radius) is
 //     NOT shared by all four. Items 3369 and 3371 use it. Item 3374 uses none
 //     of it -- it never reads CombinedRadius or SeparationGap at all, and all
 //     six of its solver calls pass a NULL known distance. Item 3378 uses the
-//     Threshold line but multiplies its radius by 0.9f (DAT_063a53fc, raw
+//     Threshold line but multiplies its radius by 0.9f (the field, raw
 //     66 66 66 3f) rather than 0.5f, and it too passes a NULL known distance
 //     everywhere. Treat the block as a pattern that recurs, not an invariant.
-//
-// Item 3377 (FUN_0635f020, 96 insns) also landed this pass, as
+
+// Item 3377 (the routine, 96 insns) also landed this pass, as
 // EstimateBallVsBallContact -- the family's base case, two objects treated as
 // points at their own frame origins, with no ledge, edge or point array
 // touched anywhere in its body. It takes its two FIVP_Sweep_Cache_Source
 // arguments DIRECTLY rather than through FIVP_Sweep_Ledge_Side, and it is
-// reached from a THIRD dispatcher, FUN_0635fe30 (item 3381, :0635fed5).
-//
+// reached from a THIRD dispatcher, the routine (item 3381, :0635fed5).
+
 // WORTH KNOWING BEFORE TOUCHING ITS THREE REMAINING SIBLINGS: item 3377 needed
 // no new research at all. Its `simplified` status rested on three stated
-// blockers -- FUN_0635de90 "blocked, unresolved 21-slot struct", FUN_06369720
+// blockers -- the routine "blocked, unresolved 21-slot struct", the routine
 // "the unported Simplex/LCP entry point", and "`Ctx`'s owning class
 // unidentified" -- and all three had been closed elsewhere in this file
 // between 2026-09-10 and now. That is the second time in this cluster a
 // `simplified` status outlived its reason (items 3374 and 3378 were the same,
 // corrected by lane w22). Re-check items 3375/3376/3379's stated blockers
 // against the current tree before spending any research budget on them.
-//
+
 // [2026-09-17, lane claude:w24-sweep-rest] THE WHOLE CLUSTER IS NOW PORTED --
 // the three remaining drivers AND the four dispatch handlers above them.
-//
+
 // THE RE-CHECK PAID OFF A THIRD TIME. Items 3375, 3376 and 3379 were each held
 // `simplified` on three stated blockers apiece, and every one of the three was
 // already closed in this file before this pass started:
-//   * "FUN_0635de90 (item 3370, still `blocked`)" -- item 3370 is
+//   * "the routine (item 3370, still `blocked`)" -- item 3370 is
 //     `ready_unverified`, ported as IVP_Sweep_Frame_Cache::Init below since
 //     2026-09-17 17:19.
-//   * "FUN_06369720 / FUN_063694a0 (items 3598/3597, `partial`/unported),
+//   * "the routine / the routine (items 3598/3597, `partial`/unported),
 //     entry points into the deliberately-declined-to-port Simplex/LCP solver
 //     (items 3540-3598)" -- both are `ready_unverified` since 2026-09-17 14:16,
 //     and the LCP attribution itself was refuted by lane w19-lcp-audit.
@@ -312,11 +308,11 @@
 // three) whose `simplified` status outlived its reason. No new research budget
 // was needed to discharge any of the nine recorded blockers; the work was
 // reading the nine hundred instructions.
-//
+
 // THE PLACEHOLDER ARGUMENT TYPE IS ALSO RESOLVED, and not by guessing. Item
-// 3379 is what settles it: it calls FUN_0634d8d0, FUN_0634d9d0 and
-// FUN_0634d970 with `ECX = SideB->Source` (:0635fa2f, :0635fa44, :0635fa93 --
-// and :0635fa93 is in FUN_0634d970's own XREF list in ivp_real_object.h). Those
+// 3379 is what settles it: it calls the routine, the routine and
+// with `ECX = SideB->Source` (:0635fa2f, :0635fa44, :0635fa93 --
+// and :0635fa93 is in the routine's own XREF list in ivp_real_object.h). Those
 // three are already ported in THIS TREE as IVP_TransformSlotToWorldSpace,
 // IVP_RotateSlotToWorldSpace and IVP_RotateWorldToSlotSpace, whose receiver is
 // `IVP_NarrowPhaseCacheSlot*` (ivp_real_object.h:811-873, item 3076/3077 plus
@@ -336,10 +332,10 @@
 // hoist IVP_NarrowPhaseCacheSlot into ivp_real_object.h and make
 // FIVP_Sweep_Cache_Source an alias of it. Until then the two are layout-
 // compatible by construction and this file uses `Source->Frame.<op>()` where
-// retail calls the three helpers -- identical code, one indirection fewer.
-//
+// baseline calls the three helpers -- identical code, one indirection fewer.
+
 // STILL OPEN in this cluster (nothing accepted as permanent):
-//   * (closed 2026-10-09 by CMN-PHY8: FUN_0634f320 now builds the single
+//   * (closed 2026-10-09 by CMN-PHY8: the routine now builds the single
 //     IVP_Sweep_Estimator_Context declared below; the former private
 //     duplicate in ivp_mindist_limiter.cpp is gone.)
 //   * item 3117's own `simplified` status: the 330-instruction tail that was
@@ -356,17 +352,17 @@ class IVP_Core;
 class IVP_Time;
 
 // ============================================================================
-// IVP_Sweep_Frame_Cache -- PORT-LOCAL NAME (retail's own class name for this
-// object is not recovered; Ghidra only ever sees it as a 0x5a8-byte stack
+// IVP_Sweep_Frame_Cache -- PORT-LOCAL NAME (baseline's own class name for this
+// object is not recovered; analysis only ever sees it as a 0x5a8-byte stack
 // local).
-//
-// Layout proved from FUN_0635de90 (Common.dll.txt:449713-449752), the
+
+// Layout proved from the routine (Common), the
 // constructor all 4 drivers call on it, cross-checked against the two
 // solvers' own indexing:
 //   +0x00  Object          `MOV [ECX],EAX` where EAX = CtorArg->[0x08]; the
-//                          receiver of every FUN_06345850 call the solvers
+//                          receiver of every the routine call the solvers
 //                          make (== IVP_Real_Object::get_m_world_f_object_at_transform,
-//                          decomp-tracker item 2815).
+//                          implementation tracker item 2815).
 //   +0x04  Core            `MOV [ECX+4],[Object+0x98]`; +0x98 is
 //                          IVP_Real_Object::core throughout this port.
 //   +0x08/+0x0c            never touched by the ctor or by either solver.
@@ -380,22 +376,22 @@ class IVP_Time;
 //                          Either way slot 0 is always valid on entry,
 //                          which is why both solvers read FrameAtSlot[0]
 //                          without a null check.
-//   +0x68  FrameStorage[21] 21 * 0x40 bytes. Retail builds these with the
-//                          vector-ctor-iterator FUN_06273bc0(ptr, 0x40,
+//   +0x68  FrameStorage[21] 21 * 0x40 bytes. baseline builds these with the
+//                          vector-ctor-iterator the routine(ptr, 0x40,
 //                          0x15, Csys::Csys) immediately before calling
-//                          FUN_0635de90 on the 0x68 bytes just below them
-//                          (Common.dll.txt:0635da84-0635daa4), and the two
+// on the 0x68 bytes just below them
+//                          (Commonda84-0635daa4), and the two
 //                          stack locals are exactly 0x68 apart -- i.e. one
 //                          object, not two. 0x40 == sizeof(IVP_U_Matrix).
 // Total 0x68 + 21*0x40 = 0x5a8, matching local_5a8 in every driver.
 // ============================================================================
 // ----------------------------------------------------------------------------
 // FIVP_Sweep_Cache_Source -- PORT-LOCAL PLACEHOLDER for the single argument
-// IVP_Sweep_Frame_Cache::Init takes. Retail's own type for it is NOT
+// IVP_Sweep_Frame_Cache::Init takes. baseline's own type for it is NOT
 // recovered and is deliberately NOT guessed here.
-//
-// What IS proved, from FUN_0635de90's 36 instructions plus its call site in
-// FUN_0635da70 (Common.dll.txt:0635da78-0635daa4):
+
+// What IS proved, from the routine's 36 instructions plus its call site in
+// (Commonda78-0635daa4):
 //   * the drivers obtain it as `param_3->[0x08]` / `param_4->[0x08]`
 //     (:0635da81 `MOV EDI,[EBP+8]`, :0635dab0 `MOV EDI,[EBX+8]`), i.e. it is
 //     itself reached one indirection below each of the two objects the driver
@@ -438,16 +434,16 @@ struct IVP_Sweep_Frame_Cache
     IVP_U_Matrix *FrameAtSlot[21];      // +0x14
     IVP_U_Matrix FrameStorage[21];      // +0x68
 
-    // FUN_0635de90 (Common.dll.txt:449711-449757, i.e. the byte range
-    // 0x0635de90-0x0635def0, 36 insns; decomp-tracker item 3370). thiscall,
+    // (Common, i.e. the byte range
+    // , 36 insns; implementation tracker item 3370). thiscall,
     // one stack argument, `RET 0x4`. It is a pure output-struct initializer:
     // it never reads any pre-existing field of `this`, which is why the
     // drivers can hand it raw stack memory. Note it does NOT touch
-    // FrameStorage -- retail runs the MSVC vector-constructor-iterator over
-    // that array first, with a constructor (Csys::Csys) whose entire retail
+    // FrameStorage -- baseline runs the MSVC vector-constructor-iterator over
+    // that array first, with a constructor (Csys::Csys) whose entire baseline
     // body is `MOV EAX,ECX; RET`, so that step is a runtime no-op and is not
     // reproduced here.
-    // Source is deliberately NOT const-qualified: retail stores
+    // Source is deliberately NOT const-qualified: baseline stores
     // `Source + 0x1c` straight into FrameAtSlot[], which the solvers then
     // hand out as a live frame pointer, so the cache genuinely aliases the
     // source's own storage rather than copying it.
@@ -460,16 +456,16 @@ static_assert(offsetof(IVP_Sweep_Frame_Cache, FrameStorage) == 0x68, "IVP_Sweep_
 // ============================================================================
 // IVP_Ledge_Sweep_Evaluator -- PORT-LOCAL NAME for the abstract base of the 7
 // one-slot evaluator classes documented above.
-//
-// Field layout proved from FUN_0635da70's construction of its first
-// evaluator (the stack local Ghidra calls local_ba4):
-//   +0x00  vfptr           set to PTR_LAB_0635d5b0 at Common.dll.txt:0635db19.
+
+// Field layout proved from the routine's construction of its first
+// evaluator (the stack local analysis calls local_ba4):
+//   +0x00  vfptr           set to the branch at Commondb19.
 //   +0x04  MaxRelativeSpeed    `FLD [ESI+8]; FSTP [local_ba0]` (:0635db9d).
 //   +0x08  IMaxRelativeSpeed   `FLD 1.0; FDIV [local_ba0]; FSTP [local_b9c]`
 //                          (:0635dba4-:0635dbba) -- i.e. exactly
 //                          1.0f / MaxRelativeSpeed. This is what makes the
-//                          two solvers agree: FUN_06369720 divides by
-//                          `[ESI+4]` at :063697a8 while FUN_063694a0
+//                          two solvers agree: the routine divides by
+//                          `[ESI+4]` at :063697a8 while the routine
 //                          multiplies by `[EBP+8]` at :06369523, and both
 //                          therefore compute the same (distance / speed)
 //                          step.
@@ -479,7 +475,7 @@ static_assert(offsetof(IVP_Sweep_Frame_Cache, FrameStorage) == 0x68, "IVP_Sweep_
 //                          below), so 2 dwords must sit here. Kept as
 //                          named placeholders so any future derived class
 //                          lands on the right offsets.
-//
+
 // The single virtual slot takes the two cached frames in the order
 // (frame of the param_7 cache, frame of the param_8 cache) -- proved four
 // separate times, at :063694ce/:063694cf, :06369664/:06369669,
@@ -490,33 +486,33 @@ static_assert(offsetof(IVP_Sweep_Frame_Cache, FrameStorage) == 0x68, "IVP_Sweep_
 class IVP_Ledge_Sweep_Evaluator
 {
 public:
-    // NOTE: deliberately NO virtual destructor. Retail's 7 evaluator vtables
-    // (.rdata:063a56d8/56dc/56e0/56ec/56f4/56fc/5700) are one slot wide and
+    // NOTE: deliberately NO virtual destructor. baseline's 7 evaluator vtables
+    // (module storage/56dc/56e0/56ec/56f4/56fc/5700) are one slot wide and
     // that slot is Evaluate; adding a destructor slot would move Evaluate off
     // offset 0 and break every `MOV EDX,[ECX]; CALL [EDX]` this file models.
     // The evaluators are stack locals in their drivers and are never deleted
     // through a base pointer.
 
-    // Retail's one and only vtable slot (thiscall, RET 0x8). Every one of the
+    // baseline's one and only vtable slot (thiscall, RET 0x8). Every one of the
     // nine bodies leaves its result UNROUNDED in ST0, and the solvers compare
     // it unrounded (063693f8, 0636966c FST + FCOMP, 0636990d) -- hence double
     // (cmn-ivp3f 2026-10-09; was float).
     virtual double Evaluate(const IVP_U_Matrix *FrameA, const IVP_U_Matrix *FrameB) const = 0;
 
-    // FUN_063694a0 (Common.dll.txt:468899-469141, 207 insns).
+    // (Common, 207 insns).
     int SearchContactTime(float Threshold, float CurTimeBase, float CurTimeOffset,
                           float EndTimeBase, float EndTimeOffset, int StartSlot,
                           IVP_Sweep_Frame_Cache *CacheA, IVP_Sweep_Frame_Cache *CacheB,
                           const float *KnownDistance, IVP_Time *OutTime);
 
-    // FUN_06369720 (Common.dll.txt:469148-469420, 243 insns).
+    // (Common, 243 insns).
     int SearchContactTimeFromContact(float Threshold, float InnerThreshold,
                                      float CurTimeBase, float CurTimeOffset,
                                      float EndTimeBase, float EndTimeOffset,
                                      IVP_Sweep_Frame_Cache *CacheA, IVP_Sweep_Frame_Cache *CacheB,
                                      const float *KnownDistance, IVP_Time *OutTime);
 
-    // FUN_06369280 (Common.dll.txt:468718-468884, 136 insns).
+    // (Common, 136 insns).
     void RefineContactTime(IVP_Time *OutTime, float LoTimeBase, float LoTimeOffset,
                            float HiTimeBase, float HiTimeOffset, float Threshold,
                            float LoDistance, float HiDistance,
@@ -530,14 +526,14 @@ public:
 
 namespace IVP_LedgeSweepEvaluatorsDeferred
 {
-    // Common.dll.txt:448988-449017 (decomp-tracker item 3363, 26 insns).
+    // Common (implementation tracker item 3363, 26 insns).
     // Fully hand-traced this pass (FPU stack + ESP-relative offsets
     // simulated instruction-by-instruction across both CALLs):
     //   Local1 = FrameA->vmult(EvaluatorThis->P0)   // P0 at +0x14
     //   Local2 = FrameB->vmult(EvaluatorThis->P1)   // P1 at +0x24
     //   return dot(Local1, Local2)
-    // cmn-ivp3f 2026-10-09 (.text:0635d6d0-0635d71a): both transforms are
-    // FUN_06348580 calls; the dot is (L1.z*L2.z + L1.y*L2.y) + L2.x*L1.x,
+    // cmn-ivp3f 2026-10-09 (module storage-0635d71a): both transforms are
+    // calls; the dot is (L1.z*L2.z + L1.y*L2.y) + L2.x*L1.x,
     // returned unrounded.
     inline double Evaluate_0635d6d0(const void *EvaluatorThis, const IVP_U_Matrix *FrameA,
                                      const IVP_U_Matrix *FrameB)
@@ -553,7 +549,7 @@ namespace IVP_LedgeSweepEvaluatorsDeferred
                (double)(Local2.k[0]) * Local1.k[0];
     }
 
-    // Common.dll.txt:449308-449334 (decomp-tracker item 3368, 26 insns).
+    // Common (implementation tracker item 3368, 26 insns).
     // Fully hand-traced this pass, same method as Evaluate_0635d6d0 above.
     // Notably chains vmult (rotate INTO FrameB) with vimult (rotate back
     // OUT via FrameA's inverse) before the final dot -- i.e. re-expresses
@@ -562,7 +558,7 @@ namespace IVP_LedgeSweepEvaluatorsDeferred
     //   Local1 = FrameB->vmult(EvaluatorThis->P1)    // P1 at +0x24
     //   Local2 = FrameA->vimult(Local1)
     //   return dot(Local2, EvaluatorThis->P0)         // P0 at +0x14
-    // cmn-ivp3f 2026-10-09 (.text:0635da20-0635da68): dot is
+    // cmn-ivp3f 2026-10-09 (module storage-0635da68): dot is
     // (L2.y*P0.y + L2.z*P0.z) + L2.x*P0.x, returned unrounded.
     inline double Evaluate_0635da20(const void *EvaluatorThis, const IVP_U_Matrix *FrameA,
                                      const IVP_U_Matrix *FrameB)
@@ -580,17 +576,17 @@ namespace IVP_LedgeSweepEvaluatorsDeferred
 
     // ------------------------------------------------------------------------
     // The seven evaluators ported 2026-09-17 by lane claude:w21-csys-chain.
-    //
+
     // Each was read from its first byte to its RET; the byte range is given on
     // each function. They are written as free functions taking the evaluator
     // as `const void *` for the same reason the two above are: the nine are
-    // nine DISTINCT retail classes with nine different field layouts sharing
+    // nine DISTINCT baseline classes with nine different field layouts sharing
     // one one-slot vtable shape, and item 3367 in particular proves they are
     // not one class -- it puts a float at +0x14 and starts its points at
     // +0x18, where every other member starts its points at +0x14. Inventing a
     // class hierarchy to hold that would be guessing; the offsets below are
     // measured.
-    //
+
     // Helper: fetch the evaluator's own local point at a measured offset.
     // ------------------------------------------------------------------------
     inline const IVP_U_Point *EvaluatorPoint(const void *EvaluatorThis, int Offset)
@@ -605,35 +601,35 @@ namespace IVP_LedgeSweepEvaluatorsDeferred
             static_cast<const char *>(EvaluatorThis) + Offset);
     }
 
-    // Common.dll.txt:448882-448975, bytes 0x0635d5b0-0x0635d6c1 (item 3362,
+    // Common, bytes 0x0635d5b0-0x0635d6c1 (item 3362,
     // 93 insns -- the largest of the nine, and the one every driver but item
     // 3374 installs).
-    //
-    // Only the FIRST of its three transforms is an actual CALL; retail
+
+    // Only the FIRST of its three transforms is an actual CALL; baseline
     // inlined the other two. The inlined pair is what makes the body long,
-    // and reading it is what proves FUN_063484e0 is vmult4 (below, the
+    // and reading it is what proves the routine is vmult4 (below, the
     // inlined FrameB transform of P34 adds [EAX+0x30/0x34/0x38] -- the
     // translation -- to a plain rows-dot-point, and the called transform of
     // P14 must be the same operation for the subtraction that follows to
     // mean anything).
-    //
-    //   Position = FrameA->vmult4(P14)              // CALL FUN_063484e0
+
+    //   Position = FrameA->vmult4(P14)              // CALL the routine
     //   Anchor   = FrameB->vmult4(P34)              // inlined, :0635d5c8-:0635d63a
     //   Normal   = FrameB->vmult (P24)              // inlined, :0635d63c-:0635d686
     //   return dot(Position - Anchor, Normal)
-    //
+
     // i.e. the signed distance of a point on object A from a plane carried by
-    // object B. NOTE the retail body never materializes Anchor.z or the third
+    // object B. NOTE the baseline body never materializes Anchor.z or the third
     // component of the difference in memory -- Anchor.z lives on the x87
     // stack from :0635d63a all the way to the FSUBR at :0635d6a2. That is
     // also why the field offsets here are 0x14 / 0x24 / 0x34: three
     // IVP_U_Points at the natural 0x10 stride. (Item 3362's pre-existing
-    // decomp-tracker note claimed "a tightly-packed, 0xC-stride 2-row partial
+    // implementation tracker note claimed "a tightly-packed, 0xC-stride 2-row partial
     // matrix, NOT IVP_U_Point's usual 0x10 stride". That is wrong -- the note
     // was reading the two inlined transforms' 0xC-spaced FLD operands, which
     // are three matrix ROWS, as if they were the evaluator's own fields.)
-    // cmn-ivp3f 2026-10-09, x87-exact (.text:0635d5b0-0635d6c1). The inlined
-    // Anchor transform is NOT FUN_063484e0's rounding: x/y are spilled as
+    // cmn-ivp3f 2026-10-09, x87-exact (module storage-0635d6c1). The inlined
+    // Anchor transform is NOT the routine's rounding: x/y are spilled as
     // floats after the first two terms only, then float((r.z*p.z + t) + vv);
     // Anchor.z stays extended to the final FSUBR. The inlined Normal is
     // x = (r0.x*p.x + r0.z*p.z) + r0.y*p.y, y likewise with r1,
@@ -643,7 +639,7 @@ namespace IVP_LedgeSweepEvaluatorsDeferred
                                     const IVP_U_Matrix *FrameB)
     {
         IVP_U_Point Position;
-        FrameA->vmult4(EvaluatorPoint(EvaluatorThis, 0x14), &Position); // 0635d5c3
+        FrameA->vmult4(EvaluatorPoint(EvaluatorThis, 0x14), &Position);
 
         const IVP_U_Point *P34 = EvaluatorPoint(EvaluatorThis, 0x34);
         const double Px = P34->k[0];
@@ -670,23 +666,23 @@ namespace IVP_LedgeSweepEvaluatorsDeferred
                                                   (double)(FrameB->rows[2].k[0]) * P24->k[0]) +
                                                  (double)(FrameB->rows[2].k[2]) * P24->k[2]);
 
-        const float DeltaX = Position.k[0] - AnchorX;                         // 0635d68a-0635d692
-        const float DeltaY = Position.k[1] - AnchorY;                         // 0635d696-0635d69e
-        const double DeltaZ = (double)(Position.k[2]) - AnchorZ;   // 0635d6a2 FSUBR
+        const float DeltaX = Position.k[0] - AnchorX;
+        const float DeltaY = Position.k[1] - AnchorY;
+        const double DeltaZ = (double)(Position.k[2]) - AnchorZ;   // FSUBR
         return (DeltaZ * NormalZ + (double)(DeltaY) * NormalY) + (double)(DeltaX) * NormalX;
     }
 
-    // Common.dll.txt:449018-449071, bytes 0x0635d720-0x0635d7ac (item 3364,
+    // Common, bytes 0x0635d720-0x0635d7ac (item 3364,
     // 52 insns).
-    //
+
     //   PositionA = FrameA->vmult4(P14)
     //   PositionB = FrameB->vmult4(P24)
     //   Delta     = PositionB - PositionA
     //   Projected = dot(Delta, P34) * 1.2f        // P34 read RAW, untransformed
     //   return (fabsf(Projected) * Projected < Delta.quad_length())
     //              ? Projected : sqrtf(Delta.quad_length());
-    //
-    // The final test is retail's, transcribed literally rather than
+
+    // The final test is baseline's, transcribed literally rather than
     // simplified. Its effect is `min(Projected, |Delta|)` for positive
     // Projected -- `fabsf(s)*s` is s*s with s's sign, so a negative Projected
     // always compares below a non-negative quad_length and is returned
@@ -697,9 +693,9 @@ namespace IVP_LedgeSweepEvaluatorsDeferred
     // ST0 < mem, i.e. strictly-less. The fall-through is >= (or unordered),
     // and it is the fall-through that replaces the value with the square
     // root.
-    //
-    // The 1.2f multiplier is DAT_063a5668, read as raw bytes:
-    // 9a 99 99 3f == 0x3F99999A == 1.2f. Ghidra's own listing comment says
+
+    // The 1.2f multiplier is the field, read as raw bytes:
+    // 9a 99 99 3f == 0x3F99999A == 1.2f. analysis's own listing comment says
     // "= 9Ah", which is only the first byte and means nothing.
     // cmn-ivp3f 2026-10-09, x87-exact: D = B - A kept extended; Q =
     // float((Dy*Dy + Dz*Dz) + Dx*Dx) (FSTP 0635d772); Proj = ((Dy*Py + Dz*Pz)
@@ -719,7 +715,7 @@ namespace IVP_LedgeSweepEvaluatorsDeferred
 
         const IVP_U_Point *Direction = EvaluatorPoint(EvaluatorThis, 0x34);
         const double Projected = ((DeltaY * Direction->k[1] + DeltaZ * Direction->k[2]) + DeltaX * Direction->k[0]) *
-                                 (double)(1.2f); // DAT_063a5668
+                                 (double)(1.2f);
         if (std::fabs(Projected) * Projected < QuadLength)
         {
             return Projected;
@@ -727,14 +723,14 @@ namespace IVP_LedgeSweepEvaluatorsDeferred
         return std::sqrt((double)(QuadLength));
     }
 
-    // Common.dll.txt:449073-449113, bytes 0x0635d7b0-0x0635d81e (item 3365,
+    // Common, bytes 0x0635d7b0-0x0635d81e (item 3365,
     // 40 insns).
-    //
+
     //   PositionA = FrameA->vmult4(P14)
     //   PositionB = FrameB->vmult4(P24)
     //   Normal    = FrameB->vmult (P34)
     //   return dot(PositionB - PositionA, Normal)
-    //
+
     // Same quantity as Evaluate_0635d5b0 with the two frames' roles
     // exchanged (there the plane is B's and the point is A's and the
     // difference runs A-minus-B; here the difference runs B-minus-A and the
@@ -758,9 +754,9 @@ namespace IVP_LedgeSweepEvaluatorsDeferred
         return (DeltaZ * Normal.k[2] + DeltaY * Normal.k[1]) + DeltaX * Normal.k[0];
     }
 
-    // Common.dll.txt:449129-449218, bytes 0x0635d830-0x0635d941 (item 3366,
+    // Common, bytes 0x0635d830-0x0635d941 (item 3366,
     // 89 insns).
-    //
+
     //   PositionA = FrameA->vmult4(P14)
     //   DirectionA= FrameA->vmult (P24)
     //   PositionB = FrameB->vmult4(P34)
@@ -768,31 +764,31 @@ namespace IVP_LedgeSweepEvaluatorsDeferred
     //   Delta     = PositionA - PositionB
     //   Perp      = normize(cross(cross(DirectionB, Delta), DirectionB))
     //   return dot(DirectionA, Perp)
-    //
+
     // The doubled cross product is the standard "component of Delta
     // perpendicular to DirectionB"; normalizing it yields the unit direction
     // from B's edge towards A's, and the result is A's own edge direction
-    // projected onto it. Both crosses are INLINE in retail (:0635d897-
+    // projected onto it. Both crosses are INLINE in baseline (:0635d897-
     // :0635d917), not calls, and their operand order was taken term by term
     // rather than assumed: the first is cross(DirectionB, Delta) --
     // :0635d899 computes dz*B2.y - dy*B2.z, which is +(DirectionB x Delta).x,
     // not (Delta x DirectionB).x.
-    //
-    // The normalize IS a call, FUN_06347ef0 at :0635d91b, with ECX loaded
+
+    // The normalize IS a call, the routine at :0635d91b, with ECX loaded
     // eight instructions earlier at :0635d8ff (`LEA ECX,[ESP+0x18]`) and
     // untouched in between. It normalizes in place and returns 0/1 in EAX;
-    // retail ignores the return, so a below-epsilon Perp is left unchanged
+    // baseline ignores the return, so a below-epsilon Perp is left unchanged
     // rather than zeroed -- ivp_math.h's normize() has that same behaviour,
     // so it is used directly instead of being reimplemented.
-    //
+
     // Field offsets 0x14 / 0x24 / 0x34 / 0x44: four IVP_U_Points. Note ESI is
     // advanced by 0x44 at :0635d874 and is never used as `this` again.
-    // cmn-ivp3f 2026-10-09, x87-exact (.text:0635d87f-0635d93c):
+    // cmn-ivp3f 2026-10-09, x87-exact (module storage-0635d93c):
     //   D = PosA - PosB extended (B = DirectionB);
     //   C.x = float(Dz*By - Bz*Dy), C.y = float(Bz*Dx - Dz*Bx), C.z = Dy*Bx - By*Dx extended;
     //   T1 = float(By*C.x), T2 = float(C.y*Bx);
     //   Perp.x = float(C.y*Bz - C.z*By), Perp.y = float(C.z*Bx - Bz*C.x),
-    //   Perp.z = float(T1 - T2); FUN_06347ef0 normize;
+    //   Perp.z = float(T1 - T2); the routine normize;
     //   result (A.z*Perp.z + A.y*Perp.y) + Perp.x*A.x unrounded (A = DirectionA).
     inline double Evaluate_0635d830(const void *EvaluatorThis, const IVP_U_Matrix *FrameA,
                                     const IVP_U_Matrix *FrameB)
@@ -824,38 +820,38 @@ namespace IVP_LedgeSweepEvaluatorsDeferred
         Perpendicular.k[0] = (float)((double)(Cy) * Bz - Cz * By);
         Perpendicular.k[1] = (float)(Cz * Bx - Bz * Cx);
         Perpendicular.k[2] = (float)((double)(T1) - T2);
-        Perpendicular.normize(); // 0635d91b
+        Perpendicular.normize();
 
         return ((double)(DirectionA.k[2]) * Perpendicular.k[2] +
                 (double)(DirectionA.k[1]) * Perpendicular.k[1]) +
                (double)(Perpendicular.k[0]) * DirectionA.k[0];
     }
 
-    // Common.dll.txt:449231-449298, bytes 0x0635d950-0x0635da14 (item 3367,
+    // Common, bytes 0x0635d950-0x0635da14 (item 3367,
     // 66 insns).
-    //
+
     //   PositionA  = FrameA->vmult4(P18)
     //   PositionB  = FrameB->vmult4(P28)
     //   DirectionB = FrameB->vmult (P38)
     //   MeasureB   = FrameB->vmult (P48)
     //   Delta      = PositionB - PositionA
-    //   Moment     = cross(Delta, DirectionB)       // CALL FUN_0628bed0
-    //   Limit      = Moment.real_length()           // CALL FUN_06347e60
+    //   Moment     = cross(Delta, DirectionB)       // CALL the routine
+    //   Limit      = Moment.real_length()           // CALL the routine
     //   Value      = dot(Moment, MeasureB) + Float14
     //   return (Value < Limit) ? Value : Limit;
-    //
+
     // THE ODD ONE OUT of the nine: its points start at +0x18, not +0x14,
     // because +0x14 is a float bias added to the result (:0635d9fa
     // `FADD [ESI+0x14]`). Any attempt to give the nine a common base class
     // has to account for that.
-    //
-    // Argument order of the cross product was proved, not assumed. Retail
+
+    // Argument order of the cross product was proved, not assumed. baseline
     // pushes &DirectionB first (:0635d9a9) and &Delta second (:0635d9b6), so
     // &Delta is the one sitting at [ESP+0] at the CALL, which makes it
-    // FUN_0628bed0's param_1; and FUN_0628bed0 (Common.dll.txt:83869-83891,
+    // 's param_1; and the routine (Common,
     // read in full this pass) computes ECX = param_1 x param_2. Hence
     // cross(Delta, DirectionB) and not the reverse.
-    //
+
     // Branch polarity, mask and jump together: :0635da02 FCOMP ST(1);
     // FNSTSW AX; TEST AH,0x1 (C0); JZ -> the jump is taken when C0 is CLEAR,
     // i.e. NOT (Value < Limit), and the jumped-to path returns Limit (which
@@ -876,9 +872,9 @@ namespace IVP_LedgeSweepEvaluatorsDeferred
         IVP_U_Point Delta;
         Delta.subtract(&PositionB, &PositionA);
 
-        // cmn-ivp3e 2026-10-08: x87 precision. FUN_0628bed0 is
+        // cmn-ivp3e 2026-10-08: x87 precision. the routine is
         // IVP_CalcCrossProduct (products extended, each component rounded at
-        // its FSTP); FUN_06347e60's length stays unrounded in ST1 (Limit);
+        // its FSTP); the routine's length stays unrounded in ST1 (Limit);
         // Value = ((M.z*Me.z + M.y*Me.y) + Me.x*M.x) + bias stays extended for
         // the `FCOMP ST(1)` and only its FST copy (:0635d9fe) is returned.
         IVP_U_Point Moment;
@@ -891,42 +887,42 @@ namespace IVP_LedgeSweepEvaluatorsDeferred
                              EvaluatorFloat(EvaluatorThis, 0x14);
         if (Value < Limit)
         {
-            return (float)(Value); // 0635d9fe FST dword, reloaded at 0635da0d
+            return (float)(Value); // FST dword, reloaded at 0635da0d
         }
         return Limit; // left unrounded in ST0
     }
 
-    // Common.dll.txt:449919-449991, bytes 0x0635e080-0x0635e154 (item 3372,
+    // Common, bytes 0x0635e080-0x0635e154 (item 3372,
     // 72 insns).
-    //
+
     //   PositionA  = FrameA->vmult4(P14)
     //   DirectionA = FrameA->vmult (P24)
     //   PositionB  = FrameB->vmult4(P34)
     //   DirectionB = FrameB->vmult (P44)
-    //   Axis       = cross(DirectionA, DirectionB)    // CALL FUN_0628bed0
+    //   Axis       = cross(DirectionA, DirectionB)    // CALL the routine
     //   return (dot(Axis, PositionA) - dot(Axis, PositionB))
     //              * (1.0f / sqrtf(Axis.quad_length()))
     //              * Float54;
-    //
+
     // The canonical edge-edge separation: the signed distance between two
     // skew lines, measured along their common perpendicular, times a stored
-    // scale at +0x54. Retail reaches the reciprocal square root through
-    // FUN_06347df0, whose whole body is FLD/FSQRT/FDIVR DAT_063a53d0, and
-    // DAT_063a53d0 is raw bytes 00 00 80 3f == 1.0f -- so it is exactly
+    // scale at +0x54. baseline reaches the reciprocal square root through
+    // , whose whole body is FLD/FSQRT/FDIVR the field, and
+    // is raw bytes 00 00 80 3f == 1.0f -- so it is exactly
     // 1.0f/sqrtf(x) with no rsqrt approximation to reproduce.
-    //
-    // Cross-product argument order: retail pushes &DirectionB first
+
+    // Cross-product argument order: baseline pushes &DirectionB first
     // (:0635e0cf) then &DirectionA (:0635e0d8), so DirectionA is param_1 and
     // the product is cross(DirectionA, DirectionB).
-    //
-    // Retail computes the two dot products against the SAME Axis and
+
+    // baseline computes the two dot products against the SAME Axis and
     // subtracts them (:0635e11b FSUBP) rather than dotting Axis with the
     // difference. Kept that way: with floats the two are not identical.
-    // cmn-ivp3f 2026-10-09, x87-exact (.text:0635e0cf-0635e14d): Axis =
-    // FUN_0628bed0 = IVP_CalcCrossProduct(DirectionA, DirectionB);
+    // cmn-ivp3f 2026-10-09, x87-exact (module storage-0635e14d): Axis =
+    // = IVP_CalcCrossProduct(DirectionA, DirectionB);
     // d1 = (Ax.z*PA.z + Ax.y*PA.y) + PA.x*Ax.x, d2 likewise with PB;
     // Num = float(d1 - d2); Q = float((Ax.y^2 + Ax.z^2) + Ax.x^2);
-    // result (FUN_06347df0(Q) * Num) * Float54 unrounded.
+    // result (the routine(Q) * Num) * Float54 unrounded.
     inline double Evaluate_0635e080(const void *EvaluatorThis, const IVP_U_Matrix *FrameA,
                                     const IVP_U_Matrix *FrameB)
     {
@@ -934,13 +930,13 @@ namespace IVP_LedgeSweepEvaluatorsDeferred
         IVP_U_Point DirectionA;
         IVP_U_Point PositionB;
         IVP_U_Point DirectionB;
-        FrameA->vmult(EvaluatorPoint(EvaluatorThis, 0x24), &DirectionA);   // 0635e096
-        FrameA->vmult4(EvaluatorPoint(EvaluatorThis, 0x14), &PositionA);   // 0635e0a6
-        FrameB->vmult(EvaluatorPoint(EvaluatorThis, 0x44), &DirectionB);   // 0635e0ba
-        FrameB->vmult4(EvaluatorPoint(EvaluatorThis, 0x34), &PositionB);   // 0635e0ca
+        FrameA->vmult(EvaluatorPoint(EvaluatorThis, 0x24), &DirectionA);
+        FrameA->vmult4(EvaluatorPoint(EvaluatorThis, 0x14), &PositionA);
+        FrameB->vmult(EvaluatorPoint(EvaluatorThis, 0x44), &DirectionB);
+        FrameB->vmult4(EvaluatorPoint(EvaluatorThis, 0x34), &PositionB);
 
         IVP_U_Point Axis;
-        IVP_CalcCrossProduct(&Axis, &DirectionA, &DirectionB);              // 0635e0dd
+        IVP_CalcCrossProduct(&Axis, &DirectionA, &DirectionB);
 
         const double DotA = ((double)(Axis.k[2]) * PositionA.k[2] +
                              (double)(Axis.k[1]) * PositionA.k[1]) +
@@ -948,31 +944,31 @@ namespace IVP_LedgeSweepEvaluatorsDeferred
         const double DotB = ((double)(Axis.k[2]) * PositionB.k[2] +
                              (double)(Axis.k[1]) * PositionB.k[1]) +
                             (double)(PositionB.k[0]) * Axis.k[0];
-        const float Numerator = (float)(DotA - DotB);           // 0635e11d
+        const float Numerator = (float)(DotA - DotB);
         const float QuadLength = (float)(
             ((double)(Axis.k[1]) * Axis.k[1] + (double)(Axis.k[2]) * Axis.k[2]) +
-            (double)(Axis.k[0]) * Axis.k[0]);                    // 0635e13d
+            (double)(Axis.k[0]) * Axis.k[0]);
         return (IVP_InvSqrtFloat(QuadLength) * Numerator) * EvaluatorFloat(EvaluatorThis, 0x54);
     }
 
-    // Common.dll.txt:450001-450037, bytes 0x0635e160-0x0635e1c1 (item 3373,
+    // Common, bytes 0x0635e160-0x0635e1c1 (item 3373,
     // 36 insns).
-    //
+
     //   DirectionA = FrameA->vmult(P14)
     //   DirectionB = FrameB->vmult(P24)
     //   return cross(DirectionA, DirectionB).quad_length();
-    //
+
     // The degeneracy guard for Evaluate_0635e080 above: it is precisely the
     // quantity whose reciprocal square root that evaluator divides by, so a
     // driver installing both is asking "are these two edges parallel enough
     // that the edge-edge distance is meaningless". Note NEITHER transform is
     // vmult4 -- both are rotation-only, which is correct for directions and
     // is also why this is the only one of the nine that never calls
-    // FUN_063484e0.
-    //
+    // .
+
     // Cross-product argument order: &DirectionB pushed first (:0635e18e),
     // &DirectionA second (:0635e193), so DirectionA is param_1.
-    // cmn-ivp3f 2026-10-09, x87-exact: Axis = FUN_0628bed0 =
+    // cmn-ivp3f 2026-10-09, x87-exact: Axis = the routine =
     // IVP_CalcCrossProduct(DirectionA, DirectionB); result
     // (z*z + y*y) + x*x unrounded.
     inline double Evaluate_0635e160(const void *EvaluatorThis, const IVP_U_Matrix *FrameA,
@@ -991,12 +987,12 @@ namespace IVP_LedgeSweepEvaluatorsDeferred
 }
 
 // ============================================================================
-// The driver layer (decomp-tracker items 3369 / 3371 / 3374 / 3378 and their
+// The driver layer (implementation tracker items 3369 / 3371 / 3374 / 3378 and their
 // four `simplified` siblings 3375 / 3376 / 3377 / 3379).
-//
+
 // [2026-09-17, lane claude:w22-csys-drivers] The two argument shapes below and
 // the receiver were derived from the ONE dispatcher that reaches item 3371,
-// LAB_0635fd10 (Common.dll.txt:452286-452385, read in full), not guessed from
+// (Common, read in full), not guessed from
 // the driver bodies alone.
 // ============================================================================
 
@@ -1004,8 +1000,8 @@ namespace IVP_LedgeSweepEvaluatorsDeferred
 // FIVP_Sweep_Ledge_Side -- PORT-LOCAL NAME. The 0x10-byte "resolved side"
 // record the dispatcher builds on its own frame and passes to the driver by
 // address (`LEA EAX,[ESP+0x18]; PUSH EAX`, :0635fdce-:0635fdd2).
-//
-// Every field is written in LAB_0635fd10 and read in FUN_0635df00, so both
+
+// Every field is written in the branch and read in the routine, so both
 // ends agree:
 //   +0x00 Points -- `MOV EDX,[EDI]; ADD EDX,EDI; MOV [ESP+0x18],EDX`
 //                   (:0635fda0-:0635fda4) with EDI == the ledge, i.e. this is
@@ -1020,7 +1016,7 @@ namespace IVP_LedgeSweepEvaluatorsDeferred
 //                   IVP_Compact_Triangle::GetCompactLedge(), since triangle n
 //                   sits at Ledge+0x10+n*0x10.
 //   +0x08 Source -- `[ESP+0x20] = EAX` (:0635fd98), the return value of
-//                   FUN_06353510(this = ObjectB). This is what the driver
+// (this = ObjectB). This is what the driver
 //                   feeds to IVP_Sweep_Frame_Cache::Init, and Init's own use
 //                   of +0x08/+0x1c is what types it as
 //                   FIVP_Sweep_Cache_Source.
@@ -1040,16 +1036,16 @@ static_assert(offsetof(FIVP_Sweep_Ledge_Side, Object) == 0x0c, "FIVP_Sweep_Ledge
 
 // ----------------------------------------------------------------------------
 // IVP_Sweep_Estimator_Context -- the driver's `this`.
-//
-// RECEIVER PROOF, not an offset resemblance: in LAB_0635fd10, ECX is loaded
+
+// RECEIVER PROOF, not an offset resemblance: in the branch, ECX is loaded
 // once at :0635fd94 (`MOV ECX,[ESP+0x30]`, the handler's own single stack
 // argument), used at :0635fda8 to zero +0x28, and is NOT written again before
-// the `CALL FUN_0635df00` at :0635fdd9 -- the intervening instructions touch
+// the `CALL the routine` at :0635fdd9 -- the intervening instructions touch
 // only EAX/EDX/EBX/EBP/ESI/EDI. So the driver's ECX is the handler's argument.
-//
-// That argument is retail's 0x34-byte collision-time-estimator context,
-// built by FUN_0634f320 at BASE+0x20 and dispatched through
-// `CALL [idx*4 + DAT_0658af9c]`; FUN_0634f320 constructs this very struct.
+
+// That argument is baseline's 0x34-byte collision-time-estimator context,
+// built by the routine at BASE+0x20 and dispatched through
+// `CALL [idx*4 + the field]`; the routine constructs this very struct.
 // Every offset item 3371 touches:
 //     +0x08 ClosingBound  -> the evaluator's MaxRelativeSpeed (:0635dfd8)
 //     +0x10 Mindist       -> :0635dfe5, then +0x14/+0x50/+0x54 through it
@@ -1074,26 +1070,26 @@ struct IVP_Sweep_Estimator_Context
     float OutEventBase;         // +0x2c
     float OutEventOffset;       // +0x30
 
-    // FUN_0635df00 (Common.dll.txt:449772-449907, bytes 0x0635df00-0x0635e072,
-    // 109 insns; decomp-tracker item 3371). thiscall, three stack arguments,
-    // `RET 0xc`. Reached only from LAB_0635fd10's ShapeTypeB == 2 arm.
+    // (Common, bytes 0x0635df00-0x0635e072,
+    // 109 insns; implementation tracker item 3371). thiscall, three stack arguments,
+    // `RET 0xc`. Reached only from the branch's ShapeTypeB == 2 arm.
     void EstimateBallVsLedgeFaceContact(const void *FeatureEdge,
                                         FIVP_Sweep_Cache_Source *SourceA,
                                         FIVP_Sweep_Ledge_Side *SideB);
 
-    // FUN_0635da70 (Common.dll.txt:449341-449699, bytes 0x0635da70-0x0635de83,
-    // 299 insns; decomp-tracker item 3369). thiscall, four stack arguments,
-    // `RET 0x10`. Reached from LAB_0635fef0 (:0636002a).
+    // (Common, bytes 0x0635da70-0x0635de83,
+    // 299 insns; implementation tracker item 3369). thiscall, four stack arguments,
+    // `RET 0x10`. Reached from the branch (:0636002a).
     void EstimateLedgeVertexVsLedgeFaceContact(const void *FeatureEdgeA,
                                                const void *FeatureEdgeB,
                                                FIVP_Sweep_Ledge_Side *SideA,
                                                FIVP_Sweep_Ledge_Side *SideB);
 
-    // FUN_0635e1d0 (Common.dll.txt:450051-450495, bytes 0x0635e1d0 through the
-    // `RET 0x10` at 0x0635e77e, 361 insns; decomp-tracker item 3374). thiscall,
+    // (Common, bytes 0x0635e1d0 through the
+    // `RET 0x10` at 0x0635e77e, 361 insns; implementation tracker item 3374). thiscall,
     // four stack arguments, `RET 0x10`. Its one XREF is :0635fff4, i.e. the
-    // dispatcher LAB_0635fef0, the same one that reaches item 3369.
-    //
+    // dispatcher the branch, the same one that reaches item 3369.
+
     // The argument shape is item 3369's exactly, proved the same way: ESI is
     // loaded from the param_3 slot at :0635e1d9 and EDI from the param_4 slot
     // at :0635e214, and both are immediately dereferenced at +0x08 to feed
@@ -1105,11 +1101,11 @@ struct IVP_Sweep_Estimator_Context
                                              FIVP_Sweep_Ledge_Side *SideA,
                                              FIVP_Sweep_Ledge_Side *SideB);
 
-    // FUN_0635f180 (Common.dll.txt:451361-451925, bytes 0x0635f180 through the
-    // `RET 0x10` at 0x0635f8bb, 494 insns; decomp-tracker item 3378 -- the
+    // (Common, bytes 0x0635f180 through the
+    // `RET 0x10` at 0x0635f8bb, 494 insns; implementation tracker item 3378 -- the
     // largest member of the family). thiscall, four stack arguments,
-    // `RET 0x10`. Its one XREF is :06360045, again dispatcher LAB_0635fef0.
-    //
+    // `RET 0x10`. Its one XREF is :06360045, again dispatcher the branch.
+
     // RECEIVER PROOF, from this body rather than borrowed: ECX is copied to ESI
     // at :0635f1a5 before anything else touches it, and ESI is thereafter read
     // at +0x08, +0x0c, +0x10, +0x18, +0x1c, +0x20, +0x24 and written at +0x28,
@@ -1121,10 +1117,10 @@ struct IVP_Sweep_Estimator_Context
                                                FIVP_Sweep_Ledge_Side *SideA,
                                                FIVP_Sweep_Ledge_Side *SideB);
 
-    // FUN_0635f020 (Common.dll.txt:451231-451353, bytes 0x0635f020 through the
-    // `RET 0x8` at 0x0635f177, 96 insns; decomp-tracker item 3377 -- the
+    // (Common, bytes 0x0635f020 through the
+    // `RET 0x8` at 0x0635f177, 96 insns; implementation tracker item 3377 -- the
     // smallest of the family). thiscall, TWO stack arguments, `RET 0x8`.
-    //
+
     // Unlike the four ledge drivers it takes the two cache sources DIRECTLY
     // rather than through FIVP_Sweep_Ledge_Side: :0635f045 and :0635f072 read
     // the parameter slots and hand them straight to IVP_Sweep_Frame_Cache::Init
@@ -1132,28 +1128,28 @@ struct IVP_Sweep_Estimator_Context
     // reading +0x4c/+0x50/+0x54, which is Source->Frame's translation
     // (Frame at +0x1c, IVP_U_Matrix::vv at +0x30). No ledge, no edge, no
     // point array is touched anywhere in the body.
-    //
-    // Its one XREF is :0635fed5, inside FUN_0635fe30 (item 3381) -- a THIRD
-    // dispatcher, distinct from LAB_0635fd10 (which reaches item 3371) and
-    // LAB_0635fef0 (which reaches items 3369, 3374 and 3378).
+
+    // Its one XREF is :0635fed5, inside the routine (item 3381) -- a THIRD
+    // dispatcher, distinct from the branch (which reaches item 3371) and
+    // (which reaches items 3369, 3374 and 3378).
     void EstimateBallVsBallContact(FIVP_Sweep_Cache_Source *SourceA,
                                    FIVP_Sweep_Cache_Source *SourceB);
 
-    // FUN_0635e790 (Common.dll.txt:450564-450914, bytes 0x0635e790 through the
-    // `RET 0x10` at 0x0635e880 inclusive, 340 insns; decomp-tracker item 3375).
+    // (Common, bytes 0x0635e790 through the
+    // `RET 0x10` at 0x0635e880 inclusive, 340 insns; implementation tracker item 3375).
     // thiscall, four stack arguments, `RET 0x10`. Its one XREF is :06360060,
-    // i.e. dispatcher LAB_0635fef0's (ShapeTypeA, ShapeTypeB) == (0, 0) arm --
+    // i.e. dispatcher the branch's (ShapeTypeA, ShapeTypeB) == (0, 0) arm --
     // which is what names it: shape tag 0 is a ledge VERTEX on both sides.
     void EstimateLedgeVertexVsLedgeVertexContact(const void *FeatureEdgeA,
                                                  const void *FeatureEdgeB,
                                                  FIVP_Sweep_Ledge_Side *SideA,
                                                  FIVP_Sweep_Ledge_Side *SideB);
 
-    // FUN_0635ec90 (Common.dll.txt:450963-451226, bytes 0x0635ec90 through the
-    // `RET 0x10` at 0x0635f01a inclusive, 259 insns; decomp-tracker item 3376).
+    // (Common, bytes 0x0635ec90 through the
+    // `RET 0x10` at 0x0635f01a inclusive, 259 insns; implementation tracker item 3376).
     // thiscall, four stack arguments, `RET 0x10`. Its one XREF is :0635fe07,
-    // dispatcher LAB_0635fd10's ShapeTypeB == 0 arm.
-    //
+    // dispatcher the branch's ShapeTypeB == 0 arm.
+
     // NOTE THE ARGUMENT SHAPE, which is neither of the two already in this
     // file: param_1 is a bare IVP_Real_Object* (read only at +0x98, :0635ecf0-
     // :0635ecf7), param_3 is a cache source passed DIRECTLY (:0635ecb2, the
@@ -1165,13 +1161,13 @@ struct IVP_Sweep_Estimator_Context
                                           FIVP_Sweep_Cache_Source *SourceA,
                                           FIVP_Sweep_Ledge_Side *SideB);
 
-    // FUN_0635f8c0 (Common.dll.txt:451980-452276, bytes 0x0635f8c0 through the
-    // `RET 0x10` at 0x0635fd04 inclusive, 293 insns; decomp-tracker item 3379).
+    // (Common, bytes 0x0635f8c0 through the
+    // `RET 0x10` at 0x0635fd04 inclusive, 293 insns; implementation tracker item 3379).
     // thiscall, four stack arguments, `RET 0x10`. Its one XREF is :0635fdf0,
-    // dispatcher LAB_0635fd10's ShapeTypeB == 1 arm (a ledge EDGE).
-    //
+    // dispatcher the branch's ShapeTypeB == 1 arm (a ledge EDGE).
+
     // ObjectA IS GENUINELY UNUSED here, and that is measured, not assumed:
-    // Ghidra's own frame analysis leaves param_1 `<UNASSIGNED>` (no stack
+    // analysis's own frame analysis leaves param_1 `<UNASSIGNED>` (no stack
     // location could be attached to it) and the function's local list has no
     // entry at frame+0xc1c. The body reads Stack[0x8], Stack[0xc] and
     // Stack[0x10] only. It still takes four arguments and still returns
@@ -1191,43 +1187,43 @@ static_assert(offsetof(IVP_Sweep_Estimator_Context, OutCode) == 0x28, "IVP_Sweep
 static_assert(offsetof(IVP_Sweep_Estimator_Context, OutEventBase) == 0x2c, "IVP_Sweep_Estimator_Context::OutEventBase");
 
 // ============================================================================
-// The dispatch layer (decomp-tracker items 3380 / 3381 / 3382 / 3383, plus the
+// The dispatch layer (implementation tracker items 3380 / 3381 / 3382 / 3383, plus the
 // table initializer item 3384) -- ported 2026-09-17 by lane
 // claude:w24-sweep-rest.
-//
+
 // This is what sits between IVP_RescheduleCollisionEvent (item 3117,
 // ivp_mindist_limiter.cpp) and the eight drivers above it. Item 3117 builds
 // the 0x34-byte context, computes `Index = ShapeType[j] + ShapeType[i] * 4`
-// and does `CALL dword ptr [Index*4 + DAT_0658af9c]` (:0634f5b0-:0634f5ea).
-//
+// and does `CALL dword ptr [Index*4 + the field]` (:0634f5b0-:0634f5ea).
+
 // All four handlers are __cdecl with ONE stack argument and a plain `RET` (no
 // callee cleanup) -- item 3117 does its own `ADD ESP,4` equivalent. They are
 // NOT thiscalls, despite dispatching into thiscall drivers: each loads ECX
 // from its own stack argument first.
-//
-// THE TABLE, read out of FUN_06360090 (Common.dll.txt:452636-452661):
-//     MOV EAX,LAB_06360080; MOV ECX,0x10; MOV EDI,DAT_0658af9c; REP STOSD
+
+// THE TABLE, read out of the routine (Common):
+//     MOV EAX,the branch; MOV ECX,0x10; MOV EDI,the field; REP STOSD
 // fills all sixteen slots with the trap, and then eleven `MOV [slot],reg`
 // stores follow, EIGHT OF WHICH RE-STORE THE TRAP THAT IS ALREADY THERE
 // (:063600a7, :063600ac, :063600b1, :063600b6, :063600bb, :063600c0,
 // :063600c5, :063600ca). Those eight are reproduced anyway -- they are what a
 // literal source-level array initializer compiles to, and leaving them out
 // would hide that the array is written exhaustively.
-//     slots 0, 1, 2, 5    -> LAB_0635fef0   (ledge-vs-ledge)
-//     slots 12, 13, 14    -> LAB_0635fd10   (ball-vs-ledge)
-//     slot 15             -> FUN_0635fe30   (ball-vs-ball)
-//     the other eight     -> LAB_06360080   (the trap)
+//     slots 0, 1, 2, 5    -> the branch   (ledge-vs-ledge)
+//     slots 12, 13, 14    -> the branch   (ball-vs-ledge)
+//     slot 15             -> the routine   (ball-vs-ball)
+//     the other eight     -> the branch   (the trap)
 // With Index = ShapeB + ShapeA*4 that reads: ShapeA in {0,1} (ledge vertex or
 // ledge edge) paired with ShapeB in {0,1,2} goes to the ledge-vs-ledge
 // handler; ShapeA == 3 (ball) with ShapeB in {0,1,2} goes to ball-vs-ledge;
 // (3,3) goes to ball-vs-ball. Slots 3, 7, 11 are "ShapeB == 3 with a non-ball
-// A", which retail never generates because it normalizes the ball onto side A.
-//
+// A", which baseline never generates because it normalizes the ball onto side A.
+
 // ivp_environment.cpp already declares IVP_InitSimUnitDispatchTable() for
-// FUN_06360090 and filled a local array of nullptr with the retail targets in
+// and filled a local array of nullptr with the baseline targets in
 // comments. It now forwards to IVP_InitSweepEstimatorTable() below instead, so
 // there is one table rather than two.
-//
+
 // That placeholder sized the array at seventeen, on the reading that the last
 // store at :063600fb writes "one past" the sixteen the REP STOSD covers. That
 // is wrong: 0x0658afd8 - 0x0658af9c = 0x3c = 15 * 4, so it is slot 15, the
@@ -1236,26 +1232,26 @@ static_assert(offsetof(IVP_Sweep_Estimator_Context, OutEventBase) == 0x2c, "IVP_
 
 typedef void (*FIVP_Sweep_Estimator_Handler)(IVP_Sweep_Estimator_Context *Ctx);
 
-// LAB_0635fd10 (Common.dll.txt:452287-452389, bytes 0x0635fd10 through the
-// `RET` at 0x0635fe25, 97 insns; decomp-tracker item 3380).
+// (Common, bytes 0x0635fd10 through the
+// `RET` at 0x0635fe25, 97 insns; implementation tracker item 3380).
 void IVP_SweepEstimate_BallVsLedge(IVP_Sweep_Estimator_Context *Ctx);
 
-// FUN_0635fe30 (Common.dll.txt:452406-452469, bytes 0x0635fe30 through the
-// `RET` at 0x0635fee3, 60 insns; decomp-tracker item 3381).
+// (Common, bytes 0x0635fe30 through the
+// `RET` at 0x0635fee3, 60 insns; implementation tracker item 3381).
 void IVP_SweepEstimate_BallVsBall(IVP_Sweep_Estimator_Context *Ctx);
 
-// LAB_0635fef0 (Common.dll.txt:452483-452621, bytes 0x0635fef0 through the
-// `RET` at 0x0636007e, 131 insns; decomp-tracker item 3382).
+// (Common, bytes 0x0635fef0 through the
+// `RET` at 0x0636007e, 131 insns; implementation tracker item 3382).
 void IVP_SweepEstimate_LedgeVsLedge(IVP_Sweep_Estimator_Context *Ctx);
 
-// LAB_06360080 (Common.dll.txt:452624-452625, bytes 0x06360080-0x0636008a,
-// 2 insns; decomp-tracker item 3383). Retail's body is
+// (Common, bytes 0x06360080-0x0636008a,
+// 2 insns; implementation tracker item 3383). baseline's body is
 // `MOV dword ptr [0x00000000],0x0; RET` -- a deliberate null store, i.e. an
 // assert that this shape-pair index can never be dispatched.
 void IVP_SweepEstimate_Unreachable(IVP_Sweep_Estimator_Context *Ctx);
 
-// FUN_06360090 (decomp-tracker item 3384). Fills the 16-slot table.
+// (implementation tracker item 3384). Fills the 16-slot table.
 void IVP_InitSweepEstimatorTable();
 
-// `CALL dword ptr [Index*4 + DAT_0658af9c]`, item 3117 at :0634f5ea.
+// `CALL dword ptr [Index*4 + the field]`, item 3117 at :0634f5ea.
 void IVP_InvokeSweepEstimator(int TableIndex, IVP_Sweep_Estimator_Context *Ctx);

@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "RendComp.h"
@@ -13,12 +9,12 @@
 #include <map>
 #include <new>
 
-// VMeshData.cpp / VMeshLibrary.cpp of retail rendcomp.dll (06c2d330..06c2f4d3).
+// VMeshData.cpp / VMeshLibrary.cpp of baseline rendcomp.dll (06c2d330..06c2f4d3).
 
 // Mesh data indexed by CRC.
 static std::map<unsigned long, FVmeshData*> G_VmeshDataMap;
 
-// FUN_06c2e780: map[data->Crc] = data (an existing node keeps its key and gets the new value).
+// map[data->Crc] = data (an existing node keeps its key and gets the new value).
 static bool VMeshDataMapInsert(FVmeshData* Data)
 {
     if (Data == nullptr)
@@ -27,7 +23,7 @@ static bool VMeshDataMapInsert(FVmeshData* Data)
     return true;
 }
 
-// FUN_06c2e8b0: erase every node keyed by data->Crc.
+// erase every node keyed by data->Crc.
 static void VMeshDataMapErase(FVmeshData* Data)
 {
     if (Data == nullptr)
@@ -83,7 +79,7 @@ bool VMeshChannelPresent(unsigned long Fvf, unsigned int ChannelId)
     return bPresent;
 }
 
-// FUN_06c31280 / the offset loop of FUN_06c2e020: absent channel -> 0; otherwise the element
+// / the offset loop of the routine: absent channel -> 0; otherwise the element
 // sizes of every present channel that precedes it in the table.
 int VMeshChannelByteOffset(unsigned long Fvf, unsigned int ChannelId)
 {
@@ -101,8 +97,8 @@ int VMeshChannelByteOffset(unsigned long Fvf, unsigned int ChannelId)
     return Offset;
 }
 
-// FUN_06c2e290 (texture part) plus the position/normal/colour terms inlined in FUN_06c2e020 /
-// FUN_06c31500. Texture formats (jump table 06c2e2e0): 0 -> 8, 1 -> 0xC, 2 -> 0x10, 3 -> 4.
+// (texture part) plus the position/normal/colour terms inlined in the routine /
+// . Texture formats (jump table 06c2e2e0): 0 -> 8, 1 -> 0xC, 2 -> 0x10, 3 -> 4.
 unsigned int VMeshFvfStride(unsigned long Fvf)
 {
     unsigned int Position = 0;
@@ -158,7 +154,7 @@ static int VMeshChannelElemBytes(unsigned int ChannelId)
     return 0;
 }
 
-// FUN_06c2e020 / FUN_06c31500. Vertices start after the facegroups and the index array:
+// / the routine. Vertices start after the facegroups and the index array:
 // header + 0x10 + 12 * FaceGroups + 2 * Indices; the VMeshRef variant adds VertexStart*stride.
 // +0x0C of the record is never written.
 bool VMeshFillChannelRecord(const FVmeshDataHeader* Header, unsigned long VertexStart,
@@ -180,7 +176,7 @@ bool VMeshFillChannelRecord(const FVmeshDataHeader* Header, unsigned long Vertex
     return true;
 }
 
-// FUN_06c2e510 / FUN_06c31730: zero 0x70 bytes, channel records 1 @+4, 8 @+0x18, 2 @+0x40,
+// / the routine: zero 0x70 bytes, channel records 1 @+4, 8 @+0x18, 2 @+0x40,
 // 4 @+0x54, 0x10 @+0x2C, [0] = 2, +0x68 = FVF, +0x6C = vertex count.
 static void VMeshFillVertexStream(const FVmeshDataHeader* Header, unsigned long VertexStart,
                                   unsigned long VertexCount, unsigned int ChannelId,
@@ -215,19 +211,19 @@ void VMeshBuildVertexDesc(const FVmeshDataHeader* Header, unsigned long VertexSt
 // ---------------------------------------------------------------------------------------
 static int VMeshGroupRemove(FVmeshGroup* Group, FVmeshData* Data);
 
-// FUN_06c2d480: DestroyVb(&group->VertexBuffer).
+// DestroyVb(&group->VertexBuffer).
 void VMeshGroupDestroyVb(FVmeshGroup* Group)
 {
     G_VertexBuffer->DestroyVb(&Group->VertexBuffer);
 }
 
-// FUN_06c2d490: DestroyIb(&group->IndexBuffer).
+// DestroyIb(&group->IndexBuffer).
 void VMeshGroupDestroyIb(FVmeshGroup* Group)
 {
     G_IndexBuffer->DestroyIb(&Group->IndexBuffer);
 }
 
-// FUN_06c2d460: Fvf = 0, then both buffers.
+// Fvf = 0, then both buffers.
 static void VMeshGroupReleaseBuffers(FVmeshGroup* Group)
 {
     Group->Fvf = 0;
@@ -235,7 +231,7 @@ static void VMeshGroupReleaseBuffers(FVmeshGroup* Group)
     VMeshGroupDestroyIb(Group);
 }
 
-// FUN_06c2d330 (thiscall group, RET 4) -> AL. Already a member -> true. The first member
+// (thiscall group, RET 4) -> AL. Already a member -> true. The first member
 // fixes the FVF; a different FVF -> false. Totals grow before the old group lets go.
 static bool VMeshGroupAdd(FVmeshGroup* Group, FVmeshData* Data)
 {
@@ -304,7 +300,7 @@ static int VMeshGroupRemove(FVmeshGroup* Group, FVmeshData* Data)
     return Result;
 }
 
-// FUN_06c2d4a0 (ECX = group). A VB that still selects is kept. Otherwise it is rebuilt for
+// (ECX = group). A VB that still selects is kept. Otherwise it is rebuilt for
 // VertexTotal vertices and every member copies its vertices in at a running base; a failed
 // copy stops the walk. Returns the final select_vb result (or the create failure).
 int VMeshGroupEnsureVb(FVmeshGroup* Group)
@@ -409,7 +405,7 @@ int VMeshGroupEnsureIb(FVmeshGroup* Group, unsigned long BaseVertex)
 // VMeshData.
 // ---------------------------------------------------------------------------------------
 
-// FUN_06c2df60 (thiscall, RET 8): SizeKib = (int)Size * (double)1/1024 (DAT_06c36490) stored
+// (thiscall, RET 8): SizeKib = (int)Size * (double)1/1024 (the field) stored
 // as float; everything else zero, RefCount 1, Name duplicated and hashed, then the map entry
 // and the "Memory_VMeshData" event.
 static FVmeshData* VMeshDataConstruct(FVmeshData* This, const char* Name, unsigned long Size)
@@ -428,14 +424,14 @@ static FVmeshData* VMeshDataConstruct(FVmeshData* This, const char* Name, unsign
     This->Header = nullptr;
     This->RefCount = 1;
     This->Name = _strdup(Name);
-    This->Crc = DACOM_CRC::GetCRC32(This->Name);
+    This->Crc = NEURONCOMPONENTS_CRC::GetCRC32(This->Name);
     VMeshDataMapInsert(This);
     LogStream::LogEvent("Memory_VMeshData", This->SizeKib, 0x610);
     return This;
 }
 
-// FUN_06c2df00: map entry, group membership, name, leaf bytes and the material array go (the
-// materials themselves are released by the parts, FUN_06c30980), then the negative event.
+// map entry, group membership, name, leaf bytes and the material array go (the
+// materials themselves are released by the parts, the routine), then the negative event.
 static void VMeshDataDestruct(FVmeshData* This)
 {
     VMeshDataMapErase(This);
@@ -454,7 +450,7 @@ int VMeshDataAddRef(FVmeshData* Data)
     return Data->RefCount;
 }
 
-// FUN_06c2dff0: at <= 0 the object is destroyed; returns the decremented count.
+// at <= 0 the object is destroyed; returns the decremented count.
 int VMeshDataRelease(FVmeshData* Data)
 {
     Data->RefCount -= 1;
@@ -467,14 +463,14 @@ int VMeshDataRelease(FVmeshData* Data)
     return Count;
 }
 
-// FUN_06c2dd20 (cdecl File, Name). A CRC hit is AddRef'd and returned. Otherwise the
+// (cdecl File, Name). A CRC hit is AddRef'd and returned. Otherwise the
 // "VMeshData" leaf of the given (per-.vms) file system is read whole; a failed open or read
 // is an ERROR and 0. Old-format leaves (flag bit 0 clear) are refused with a WARNING.
 FVmeshData* VMeshDataLoad(IFileSystem* File, const char* Name)
 {
     FVmeshKey Key;
     Key.Name = Name;
-    Key.Crc = DACOM_CRC::GetCRC32(Name);
+    Key.Crc = NEURONCOMPONENTS_CRC::GetCRC32(Name);
     FVmeshData* Found = VMeshDataFind(&Key);
     if (Found != nullptr)
     {
@@ -536,60 +532,60 @@ FVmeshData* VMeshDataLoad(IFileSystem* File, const char* Name)
 // VMeshLibrary aggregate (0x18).
 // ---------------------------------------------------------------------------------------
 
-// The handle Load returns: retail news a 0xC VC6 std::list<smart ptr to VMeshData>
-// (FUN_06c2f2b0 head, FUN_06c2f250 push_back with AddRef, FUN_06c2f2e0 / FUN_06c2f230 erase
-// with Release, FUN_06c2f330 iterator step).
+// The handle Load returns: baseline news a 0xC VC6 std::list<smart ptr to VMeshData>
+// (the routine head, the routine push_back with AddRef, the routine / the routine erase
+// with Release, the routine iterator step).
 typedef std::list<FVmeshData*> FVmeshDataList;
 
 class FVMeshLibrary : public IAggregateComponent, public IVMeshLibrary
 {
 public:
-    // +0xC: non-delegating unknown (vtable PTR_LAB_06c364f8).
-    struct FInner : public IDAComponent
+    // +0xC: non-delegating unknown (vtable the branch).
+    struct FInner : public INeuronComponent
     {
         unsigned long RefCount; // +0x10
         FVMeshLibrary* Owner;   // +0x14
 
-        GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override;
-        unsigned long DACOM_API AddRef() override;
-        unsigned long DACOM_API Release() override;
+        GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override;
+        unsigned long NEURONCOMPONENTS_API AddRef() override;
+        unsigned long NEURONCOMPONENTS_API Release() override;
     };
 
-    IDAComponent* Outer;        // +0x08 AGGDESC+8, or &Inner when not aggregated
+    INeuronComponent* Outer;        // +0x08 AGGDESC+8, or &Inner when not aggregated
     FInner Inner;
 
-    // LAB_06c2f430 / 440 / 450 (and the -4 thunks 06c2f460 / 470 / 480 for the IVMeshLibrary
+    // / 440 / 450 (and the -4 thunks 06c2f460 / 470 / 480 for the IVMeshLibrary
     // face): everything goes to the controlling unknown.
-    GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override
+    GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override
     {
         return Outer->QueryInterface(Iid, Out);
     }
 
-    unsigned long DACOM_API AddRef() override
+    unsigned long NEURONCOMPONENTS_API AddRef() override
     {
         return Outer->AddRef();
     }
 
-    unsigned long DACOM_API Release() override
+    unsigned long NEURONCOMPONENTS_API Release() override
     {
         return Outer->Release();
     }
 
-    // FUN_06c2f5e0.
-    GENRESULT DACOM_API Initialize() override
+    // .
+    GENRESULT NEURONCOMPONENTS_API Initialize() override
     {
         return 0;
     }
 
-    void* DACOM_API Load(void* File, int LodFilter) override;
-    void DACOM_API Unload(void* Handle) override;
+    void* NEURONCOMPONENTS_API Load(void* File, int LodFilter) override;
+    void NEURONCOMPONENTS_API Unload(void* Handle) override;
 };
 
-// LAB_06c2f340: table {"1.11_IVMeshLibrary", 4}, {"1.11_IAggregateComponent", 0}; a hit hands
+// table {"1.11_IVMeshLibrary", 4}, {"1.11_IAggregateComponent", 0}; a hit hands
 // out owner + offset AddRef'd through that face; a miss writes 0 and returns -3.
-GENRESULT DACOM_API FVMeshLibrary::FInner::QueryInterface(const char* Iid, void** Out)
+GENRESULT NEURONCOMPONENTS_API FVMeshLibrary::FInner::QueryInterface(const char* Iid, void** Out)
 {
-    IDAComponent* Face = nullptr;
+    INeuronComponent* Face = nullptr;
     if (std::strcmp(Iids::VMeshLibrary, Iid) == 0)
         Face = (IVMeshLibrary*)Owner;
     else if (std::strcmp(Iids::AggregateComponent, Iid) == 0)
@@ -604,16 +600,16 @@ GENRESULT DACOM_API FVMeshLibrary::FInner::QueryInterface(const char* Iid, void*
     return GR_OK;
 }
 
-// LAB_06c306b0.
-unsigned long DACOM_API FVMeshLibrary::FInner::AddRef()
+// .
+unsigned long NEURONCOMPONENTS_API FVMeshLibrary::FInner::AddRef()
 {
     RefCount += 1;
     return RefCount;
 }
 
-// LAB_06c2f400: decrement when above 0; at 0 pin the count at 1 and free the owner (the
+// decrement when above 0; at 0 pin the count at 1 and free the owner (the
 // object has no destructor), return 0.
-unsigned long DACOM_API FVMeshLibrary::FInner::Release()
+unsigned long NEURONCOMPONENTS_API FVMeshLibrary::FInner::Release()
 {
     if (RefCount > 0)
         RefCount -= 1;
@@ -624,7 +620,7 @@ unsigned long DACOM_API FVMeshLibrary::FInner::Release()
     return 0;
 }
 
-void* DACOM_API FVMeshLibrary::Load(void* FileArg, int LodFilter)
+void* NEURONCOMPONENTS_API FVMeshLibrary::Load(void* FileArg, int LodFilter)
 {
     IFileSystem* File = (IFileSystem*)FileArg;
     FVmeshDataList* List = nullptr;
@@ -708,7 +704,7 @@ void* DACOM_API FVMeshLibrary::Load(void* FileArg, int LodFilter)
         } while (File->FindNext((unsigned long)Find, &FindData) != 0);
     }
 
-    File->OpenNode(".."); // 06c2f12e: DAT_06c37250 = ".." (2E 2E 00)
+    File->OpenNode(".."); // the field = ".." (2E 2E 00)
     if (List != nullptr && List->empty())
     {
         delete List;
@@ -722,8 +718,8 @@ void* DACOM_API FVMeshLibrary::Load(void* FileArg, int LodFilter)
     return List;
 }
 
-// FUN_06c2f1c0 (thiscall, RET 4): release every entry, free the list.
-void DACOM_API FVMeshLibrary::Unload(void* Handle)
+// (thiscall, RET 4): release every entry, free the list.
+void NEURONCOMPONENTS_API FVMeshLibrary::Unload(void* Handle)
 {
     FVmeshDataList* List = (FVmeshDataList*)Handle;
     if (List == nullptr)
@@ -738,19 +734,19 @@ void DACOM_API FVMeshLibrary::Unload(void* Handle)
     delete List;
 }
 
-// LAB_06c2ed50 (factory vtable slot 3). Only a 0x14 AGGDESC whose name matches the factory's;
+// (factory vtable slot 3). Only a 0x14 AGGDESC whose name matches the factory's;
 // otherwise *Out = 0, -3. Allocation failure -> *Out = 0, -4. Outer = AGGDESC+8; when set the
 // inner is written to *(AGGDESC+0xC), otherwise the object is its own outer.
 struct FVMeshAggDesc
 {
     unsigned long Size;
     const char* Name;
-    IDAComponent* Outer;
-    IDAComponent** InnerOut;
+    INeuronComponent* Outer;
+    INeuronComponent** InnerOut;
     const char* Extra;
 };
 
-GENRESULT DACOM_API VMeshLibraryFactoryCreate(FDacomFactory* This, AGGDESC* Desc, void** Out)
+GENRESULT NEURONCOMPONENTS_API VMeshLibraryFactoryCreate(FNeuronComponentsFactory* This, AGGDESC* Desc, void** Out)
 {
     FVMeshAggDesc* Extended = (FVMeshAggDesc*)Desc;
     if (Extended->Size != 0x14 || std::strcmp(Extended->Name, This->Name) != 0)

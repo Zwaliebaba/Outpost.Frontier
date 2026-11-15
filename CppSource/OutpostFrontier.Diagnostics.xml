@@ -18,25 +18,25 @@
   </EnumProperty>
   <EnumProperty Name="OutpostFrontierBetaLabel" DisplayName="Beta version label"
                 Category="Profiling" Default="0"
-                Description="Not in the original game: draws the 'Beta 2' label in the top-left corner of every frame (OUTPOST_FRONTIER_BETA_LABEL, client only). After changing it, save this property sheet and rebuild the solution.">
+                Description="draws the 'Beta 2' label in the top-left corner of every frame (OUTPOST_FRONTIER_BETA_LABEL, client only). After changing it, save this property sheet and rebuild the solution.">
     <EnumValue Name="0" DisplayName="Off" />
     <EnumValue Name="1" DisplayName="On" />
   </EnumProperty>
   <EnumProperty Name="OutpostFrontierWidescreenSupport" DisplayName="Widescreen resolutions"
                 Category="Display" Default="1"
-                Description="Not in the original game: display modes wider than 4:3 in the options, Hor+ cameras and HUD windows at the screen edges (OUTPOST_FRONTIER_WIDESCREEN_SUPPORT, client only). Off builds the retail 4:3-only behaviour. After changing it, save this property sheet and rebuild the solution.">
+                Description="display modes wider than 4:3 in the options, Hor+ cameras and HUD windows at the screen edges (OUTPOST_FRONTIER_WIDESCREEN_SUPPORT, client only). Off builds the baseline 4:3-only behaviour. After changing it, save this property sheet and rebuild the solution.">
     <EnumValue Name="0" DisplayName="Off" />
     <EnumValue Name="1" DisplayName="On" />
   </EnumProperty>
-  <EnumProperty Name="OutpostFrontierRp9" DisplayName="Direct3D 9 renderer (RP9)"
+  <EnumProperty Name="OutpostFrontierDx9Renderer" DisplayName="Direct3D 9 renderer (DX9RENDERER)"
                 Category="Features" Default="0"
-                Description="Not in the original game: builds RP9.dll (the Direct3D 9 mirror of RP8, needs the DirectX SDK June 2010) and the client's Direct3D 9 extension hooks such as the volumetric nebula (OUTPOST_FRONTIER_RP9). Select it at run time with DirectX9 in bin\DACOM.INI. Off builds neither. After changing it, save this property sheet and rebuild the solution.">
+                Description="builds DX9RENDERER.dll (the Direct3D 9 mirror of DX8RENDERER, needs the DirectX SDK June 2010) and the client's Direct3D 9 extension hooks such as the volumetric nebula (OUTPOST_FRONTIER_DX9RENDERER). Select it at run time with DirectX9 in bin\NEURONCOMPONENTS.INI. Off builds neither. After changing it, save this property sheet and rebuild the solution.">
     <EnumValue Name="0" DisplayName="Off" />
     <EnumValue Name="1" DisplayName="On" />
   </EnumProperty>
   <EnumProperty Name="OutpostFrontierWalkMode" DisplayName="Walk mode in bases"
                 Category="Features" Default="0"
-                Description="Not in the original game: walking through base rooms as Trent (OUTPOST_FRONTIER_WALK_MODE, client only; docs/walk_mode.md). Off builds the retail base screens. After changing it, save this property sheet and rebuild the solution.">
+                Description="walking through base rooms as Rellan (OUTPOST_FRONTIER_WALK_MODE, client only; docs/walk_mode.md). Off builds the baseline base screens. After changing it, save this property sheet and rebuild the solution.">
     <EnumValue Name="0" DisplayName="Off" />
     <EnumValue Name="1" DisplayName="On" />
   </EnumProperty>

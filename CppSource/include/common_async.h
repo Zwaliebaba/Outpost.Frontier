@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -18,21 +14,21 @@ namespace Async
     COMMON_API void __cdecl Shutdown();
 
     // Async::Action -- Common.dll's "async" work item is actually executed synchronously
-    // on the calling thread (no worker pool exists in retail either).
-    // ??_7Action@Async@@6B@ (.rdata:063a2268) has two slots: [0] MSVCRT purecall
-    // (.text:06391fb0) -- the work body, which AddWork runs once (`CALL [EAX]` at 062fd5a1);
-    // retail exports no name for it -- and [1] the scalar deleting destructor
-    // (.text:062fd450, raw bytes in the listing). Fields: the byte at +0x04 (ctor argument,
+    // on the calling thread (no worker pool exists in baseline either).
+    // ??_7Action@Async@@6B@ (module storage) has two slots: [0] MSVCRT purecall
+    // (module storage) -- the work body, which AddWork runs once (`CALL [EAX]` at 062fd5a1);
+    // baseline exports no name for it -- and [1] the scalar deleting destructor
+    // (module storage, raw bytes in the listing). Fields: the byte at +0x04 (ctor argument,
     // default false per the default constructor closure 0x062fd440) makes AddWork delete the
     // action when it is done; +0x08 is the Win32 event AddWork signals otherwise, closed by
     // the destructor (0x062fd540).
     struct COMMON_API Action
     {
     public:
-        Action(bool bInDeleteWhenDone = false); // 0x062fd400 ??0Action@Async@@QAE@_N@Z
-        Action(Action const& Other);             // 0x062fd420 ??0Action@Async@@QAE@ABU01@@Z
+        Action(bool bInDeleteWhenDone = false); // ??0Action@Async@@QAE@_N@Z
+        Action(Action const& Other);             // ??0Action@Async@@QAE@ABU01@@Z
 
-        // Retail exports no copy assignment (VC6 never generated one); deleting it keeps the
+        // baseline exports no copy assignment (VC6 never generated one); deleting it keeps the
         // compiler from generating and exporting one, and from declaring move members.
         Action& operator=(Action const&) = delete;
 
@@ -49,15 +45,15 @@ namespace Async
     };
     static_assert(sizeof(Action) == 0x0C, "Async::Action sizeof 0x0C");
 
-    // 0x062fd580 ?AddWork@Async@@YA_NPAUAction@1@@Z. Unless the action deletes itself when
+    // ?AddWork@Async@@YA_NPAUAction@1@@Z. Unless the action deletes itself when
     // done, creates a fresh auto-reset, unsignaled event into Work->hEvent (unconditionally --
-    // retail does not look at the old handle). Runs the work body synchronously, then either
+    // baseline does not look at the old handle). Runs the work body synchronously, then either
     // deletes the action (vtable+4, the scalar deleting destructor, flag 1) or signals the
     // event. Always returns true.
     COMMON_API bool __cdecl AddWork(Action* Work);
 
-    // 0x062a8920 ?DumpWorkQueue@Async@@YAXXZ: a bare RET (ICF-shared with a dozen empty bodies).
+    // ?DumpWorkQueue@Async@@YAXXZ: a bare RET (ICF-shared with a dozen empty bodies).
     COMMON_API void __cdecl DumpWorkQueue();
-    // 0x06325390 ?WorkQueueSize@Async@@YAHXZ: `XOR EAX,EAX; RET` -- there is no queue.
+    // ?WorkQueueSize@Async@@YAHXZ: `XOR EAX,EAX; RET` -- there is no queue.
     COMMON_API int __cdecl WorkQueueSize();
 }

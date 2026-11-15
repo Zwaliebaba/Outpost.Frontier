@@ -1,32 +1,28 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
-// Server.dll fuse database and fuse-action classes -- retail .text:06cfc650-06cffc97
+// Server.dll fuse database and fuse-action classes -- baseline module storage-06cffc97
 // (RTTI: ServerFuse, ServerFuseAction, IgniteFuseAction, DestroyRootAction,
 // DamageRootAction, DestroyGroupAction, DamageGroupAction,
 // DestroyHardpointAttachmentAction, DamageHardpointAttachmentAction, ImpulseAction,
-// TumbleAction, MakeInvincibleAction, DumpCargoAction -- .data:06d886c8 .. 06d88a68).
-//
+// TumbleAction, MakeInvincibleAction, DumpCargoAction -- module storage .. 06d88a68).
+
 // Common.dll owns only the Fuse / FuseAction base classes and the list of fuse INI paths
-// (FuseDB::m_FuseINIFiles). Server.dll reads those files itself (FUN_06cfd4b0) into its own
-// map of ServerFuse prototypes (DAT_06d8d870), creating one Server FuseAction subclass per
+// (FuseDB::m_FuseINIFiles). Server.dll reads those files itself (the routine) into its own
+// map of ServerFuse prototypes (the field), creating one Server FuseAction subclass per
 // action section. An EqObj ignites a fuse by copy-constructing the prototype into its own burn
-// list (EqObj light_fuse, .text:06cec4d0, vtable +0x1e4) and binding itself as the owner
-// (FUN_06cfd1e0). The OutpostFrontier.exe counterpart of this file is
+// list (EqObj light_fuse, module storage, vtable +0x1e4) and binding itself as the owner
+// (the routine). The OutpostFrontier.exe counterpart of this file is
 // src/OutpostFrontier/Client/client_fuse.h.
-//
+
 // Port status: the database (load / teardown / accessor), the INI reader, the owner binding,
 // every constructor / clone / Read / slot-12 copy and every Trigger / UnTrigger override follow
 // the listing.
-//
-// Every damage Trigger builds its DamageList the same way (retail inlines the DamageList
+
+// Every damage Trigger builds its DamageList the same way (baseline inlines the DamageList
 // constructor): cause 0x15, inflictor = the source id, inflictor owner = the source object's
-// CSimple+0xb4 when the owner sits in a StarSystem that knows the source (FUN_06d0c8d0, mask
+// CSimple+0xb4 when the owner sits in a StarSystem that knows the source (the routine, mask
 // 0x7f0000). The EqObj / GameObject slots they call (+0x188, +0x194, +0x1c0 .. +0x1e8) are
 // declared in server_gameobject.h.
 
@@ -39,45 +35,45 @@
 class EqObj;
 
 // ---------------------------------------------------------------------------
-// ServerFuse -- vftable .rdata:06d65724: [.text:06cec7c0 scalar deleting dtor (Fuse::~Fuse +
+// ServerFuse -- vftable module storage: [module storage scalar deleting dtor (Fuse::~Fuse +
 // delete), Fuse::FreeActions]. sizeof 0x3c = Fuse (0x34) + Owner +0x34 + bHasDestroyRoot +0x38.
 // ---------------------------------------------------------------------------
 class ServerFuse : public Fuse
 {
 public:
-    // FUN_06cfd4e0 .text:06cfd583-06cfd5aa: Fuse(ID_String{CreateID("")}, -1.0f), +0x34 = 0,
+    // module storage-06cfd5aa: Fuse(ID_String{CreateID("")}, -1.0f), +0x34 = 0,
     // +0x38 = 0.
     ServerFuse(ID_String const& Nickname = ID_String{CreateID("")}, float Lifetime = -1.0f);
-    // EqObj light_fuse .text:06cec59c-06cec5b9 (inlined): the Common copy constructor (which
+    // EqObj light_fuse module storage-06cec5b9 (inlined): the Common copy constructor (which
     // clones every action through FuseAction slot 1), then +0x34 and +0x38 copied.
     ServerFuse(ServerFuse const& Other);
-    // .text:06cec7c0: Fuse::~Fuse only.
+    // Fuse::~Fuse only.
     ~ServerFuse() override;
 
-    // FUN_06cfc650 -- reads one [fuse] section and the action sections that follow it.
+    // reads one [fuse] section and the action sections that follow it.
     bool Read(INI_Reader& Reader);
-    // FUN_06cfd1e0 -- stores the owning object in the fuse and in every action.
+    // stores the owning object in the fuse and in every action.
     void SetOwner(EqObj* NewOwner);
 
     EqObj* Owner;                   // +0x34
-    // +0x38. Set by Read when a [destroy_root] section is met (.text:06cfc711); read by EqObj
-    // light_fuse (.text:06cec61c) to decide whether igniting this fuse kills the object.
+    // +0x38. Set by Read when a [destroy_root] section is met (module storage); read by EqObj
+    // light_fuse (module storage) to decide whether igniting this fuse kills the object.
     bool bHasDestroyRoot;
 };
 
 // ---------------------------------------------------------------------------
-// ServerFuseAction -- vftable .rdata:06d66ea8, 12 slots: FUN_06cfcf40 scalar deleting dtor,
+// ServerFuseAction -- vftable module storage, 12 slots: the routine scalar deleting dtor,
 // _purecall x2, every other slot the Common.dll FuseAction body. Only adds the owner pointer at
 // +0x24. Abstract, like FuseAction.
 // ---------------------------------------------------------------------------
 class ServerFuseAction : public FuseAction
 {
 public:
-    // Inlined at every construction site (e.g. .text:06cfc6cd-06cfc6d8): FuseAction(),
+    // Inlined at every construction site (e.g. module storage-06cfc6d8): FuseAction(),
     // +0x24 = 0.
     ServerFuseAction();
-    // FUN_06cfd1b0: the inlined ~FuseAction (restore the Common vftable, free the sub-object
-    // vector, zero its three pointers). FUN_06cfcf40 is its scalar deleting wrapper, shared by
+    // the inlined ~FuseAction (restore the Common vftable, free the sub-object
+    // vector, zero its three pointers). the routine is its scalar deleting wrapper, shared by
     // every subclass vftable.
     ~ServerFuseAction() override;
 
@@ -87,24 +83,24 @@ public:
 // Slot 12 (+0x30) of every action subclass below except DestroyRootAction is a new virtual
 // that copies the archetype part of another instance of the same class
 // (FuseAction::CopyArchProperties + the subclass fields); the slot-1 clones call it on the fresh
-// object. Its retail name is unknown, hence Slot30 (the same convention as client_fuse.h).
+// object. Its baseline name is unknown, hence Slot30 (the same convention as client_fuse.h).
 
 // ---------------------------------------------------------------------------
-// IgniteFuseAction -- vftable .rdata:06d66e70, sizeof 0x30 ([ignite_fuse]).
+// IgniteFuseAction -- vftable module storage, sizeof 0x30 ([ignite_fuse]).
 // ---------------------------------------------------------------------------
 class IgniteFuseAction : public ServerFuseAction
 {
 public:
     IgniteFuseAction();
 
-    FuseAction* Slot04() const override;       // FUN_06cfcea0
-    bool Slot08(INI_Reader& Reader) override;  // FUN_06cfefd0
-    void Trigger(unsigned SourceId, unsigned short SubObjId) override; // FUN_06cff050
-    // LAB_06cff0e0 -- the only UnTrigger override in the family (slot 8).
+    FuseAction* Slot04() const override;
+    bool Slot08(INI_Reader& Reader) override;
+    void Trigger(unsigned SourceId, unsigned short SubObjId) override;
+    // the only UnTrigger override in the family (slot 8).
     void UnTrigger(unsigned short SubObjId) override;
 
 protected:
-    virtual void Slot30(IgniteFuseAction const& Other); // FUN_06cff150
+    virtual void Slot30(IgniteFuseAction const& Other);
 
 public:
     ID_String FuseId; // +0x28 "fuse"
@@ -112,7 +108,7 @@ public:
 };
 
 // ---------------------------------------------------------------------------
-// DestroyRootAction -- vftable .rdata:06d66e2c, sizeof 0x28 ([destroy_root]). No slot 12: the
+// DestroyRootAction -- vftable module storage, sizeof 0x28 ([destroy_root]). No slot 12: the
 // clone copies through CopyArchProperties (slot 11) directly.
 // ---------------------------------------------------------------------------
 class DestroyRootAction : public ServerFuseAction
@@ -120,25 +116,25 @@ class DestroyRootAction : public ServerFuseAction
 public:
     DestroyRootAction();
 
-    FuseAction* Slot04() const override;                          // LAB_06cfcb30
-    bool Slot08(INI_Reader& Reader) override;                     // FUN_06cfe040
-    void Trigger(unsigned SourceId, unsigned short SubObjId) override; // FUN_06cfe070
+    FuseAction* Slot04() const override;
+    bool Slot08(INI_Reader& Reader) override;
+    void Trigger(unsigned SourceId, unsigned short SubObjId) override;
 };
 
 // ---------------------------------------------------------------------------
-// DamageRootAction -- vftable .rdata:06d66de8, sizeof 0x30 ([damage_root]).
+// DamageRootAction -- vftable module storage, sizeof 0x30 ([damage_root]).
 // ---------------------------------------------------------------------------
 class DamageRootAction : public ServerFuseAction
 {
 public:
     DamageRootAction();
 
-    FuseAction* Slot04() const override;       // LAB_06cfcb90
-    bool Slot08(INI_Reader& Reader) override;  // FUN_06cfe0f0
-    void Trigger(unsigned SourceId, unsigned short SubObjId) override; // LAB_06cfe180
+    FuseAction* Slot04() const override;
+    bool Slot08(INI_Reader& Reader) override;
+    void Trigger(unsigned SourceId, unsigned short SubObjId) override;
 
 protected:
-    virtual void Slot30(DamageRootAction const& Other); // FUN_06cfe330
+    virtual void Slot30(DamageRootAction const& Other);
 
 public:
     int Hitpoints;    // +0x28 "hitpoints"
@@ -146,19 +142,19 @@ public:
 };
 
 // ---------------------------------------------------------------------------
-// DestroyGroupAction -- vftable .rdata:06d66da0, sizeof 0x30 ([destroy_group]).
+// DestroyGroupAction -- vftable module storage, sizeof 0x30 ([destroy_group]).
 // ---------------------------------------------------------------------------
 class DestroyGroupAction : public ServerFuseAction
 {
 public:
     DestroyGroupAction();
 
-    FuseAction* Slot04() const override;       // FUN_06cfcc00
-    bool Slot08(INI_Reader& Reader) override;  // FUN_06cfe370
-    void Trigger(unsigned SourceId, unsigned short SubObjId) override; // LAB_06cfe490
+    FuseAction* Slot04() const override;
+    bool Slot08(INI_Reader& Reader) override;
+    void Trigger(unsigned SourceId, unsigned short SubObjId) override;
 
 protected:
-    virtual void Slot30(DestroyGroupAction const& Other); // FUN_06cff150 (ICF)
+    virtual void Slot30(DestroyGroupAction const& Other); // (ICF)
 
 public:
     CacheString GroupName; // +0x28 "group_name"
@@ -166,19 +162,19 @@ public:
 };
 
 // ---------------------------------------------------------------------------
-// DamageGroupAction -- vftable .rdata:06d66d58, sizeof 0x34 ([damage_group]).
+// DamageGroupAction -- vftable module storage, sizeof 0x34 ([damage_group]).
 // ---------------------------------------------------------------------------
 class DamageGroupAction : public ServerFuseAction
 {
 public:
     DamageGroupAction();
 
-    FuseAction* Slot04() const override;       // FUN_06cfcca0
-    bool Slot08(INI_Reader& Reader) override;  // FUN_06cfe6c0
-    void Trigger(unsigned SourceId, unsigned short SubObjId) override; // LAB_06cfe7d0
+    FuseAction* Slot04() const override;
+    bool Slot08(INI_Reader& Reader) override;
+    void Trigger(unsigned SourceId, unsigned short SubObjId) override;
 
 protected:
-    virtual void Slot30(DamageGroupAction const& Other); // FUN_06cfe950
+    virtual void Slot30(DamageGroupAction const& Other);
 
 public:
     CacheString GroupName; // +0x28 "group_name"
@@ -187,7 +183,7 @@ public:
 };
 
 // ---------------------------------------------------------------------------
-// DestroyHardpointAttachmentAction -- vftable .rdata:06d66d08, sizeof 0x30
+// DestroyHardpointAttachmentAction -- vftable module storage, sizeof 0x30
 // ([destroy_hp_attachment]).
 // ---------------------------------------------------------------------------
 class DestroyHardpointAttachmentAction : public ServerFuseAction
@@ -195,12 +191,12 @@ class DestroyHardpointAttachmentAction : public ServerFuseAction
 public:
     DestroyHardpointAttachmentAction();
 
-    FuseAction* Slot04() const override;       // FUN_06cfcd50
-    bool Slot08(INI_Reader& Reader) override;  // FUN_06cfe9a0
-    void Trigger(unsigned SourceId, unsigned short SubObjId) override; // LAB_06cfeae0
+    FuseAction* Slot04() const override;
+    bool Slot08(INI_Reader& Reader) override;
+    void Trigger(unsigned SourceId, unsigned short SubObjId) override;
 
 protected:
-    virtual void Slot30(DestroyHardpointAttachmentAction const& Other); // FUN_06cff150 (ICF)
+    virtual void Slot30(DestroyHardpointAttachmentAction const& Other); // (ICF)
 
 public:
     CacheString Hardpoint; // +0x28 "hardpoint"
@@ -208,7 +204,7 @@ public:
 };
 
 // ---------------------------------------------------------------------------
-// DamageHardpointAttachmentAction -- vftable .rdata:06d66cb8, sizeof 0x34
+// DamageHardpointAttachmentAction -- vftable module storage, sizeof 0x34
 // ([damage_hp_attachment]).
 // ---------------------------------------------------------------------------
 class DamageHardpointAttachmentAction : public ServerFuseAction
@@ -216,12 +212,12 @@ class DamageHardpointAttachmentAction : public ServerFuseAction
 public:
     DamageHardpointAttachmentAction();
 
-    FuseAction* Slot04() const override;       // FUN_06cfcdf0
-    bool Slot08(INI_Reader& Reader) override;  // FUN_06cfed40
-    void Trigger(unsigned SourceId, unsigned short SubObjId) override; // LAB_06cfee50
+    FuseAction* Slot04() const override;
+    bool Slot08(INI_Reader& Reader) override;
+    void Trigger(unsigned SourceId, unsigned short SubObjId) override;
 
 protected:
-    virtual void Slot30(DamageHardpointAttachmentAction const& Other); // FUN_06cfe950 (ICF)
+    virtual void Slot30(DamageHardpointAttachmentAction const& Other); // (ICF)
 
 public:
     CacheString Hardpoint; // +0x28 "hardpoint"
@@ -230,19 +226,19 @@ public:
 };
 
 // ---------------------------------------------------------------------------
-// ImpulseAction -- vftable .rdata:06d66c78, sizeof 0x44 ([impulse]).
+// ImpulseAction -- vftable module storage, sizeof 0x44 ([impulse]).
 // ---------------------------------------------------------------------------
 class ImpulseAction : public ServerFuseAction
 {
 public:
     ImpulseAction();
 
-    FuseAction* Slot04() const override;       // FUN_06cfcf60
-    bool Slot08(INI_Reader& Reader) override;  // FUN_06cff170
-    void Trigger(unsigned SourceId, unsigned short SubObjId) override; // LAB_06cff290
+    FuseAction* Slot04() const override;
+    bool Slot08(INI_Reader& Reader) override;
+    void Trigger(unsigned SourceId, unsigned short SubObjId) override;
 
 protected:
-    virtual void Slot30(ImpulseAction const& Other); // FUN_06cff550
+    virtual void Slot30(ImpulseAction const& Other);
 
 public:
     CacheString Hardpoint; // +0x28 "hardpoint"
@@ -253,19 +249,19 @@ public:
 };
 
 // ---------------------------------------------------------------------------
-// TumbleAction -- vftable .rdata:06d66c38, sizeof 0x50 ([tumble]).
+// TumbleAction -- vftable module storage, sizeof 0x50 ([tumble]).
 // ---------------------------------------------------------------------------
 class TumbleAction : public ServerFuseAction
 {
 public:
     TumbleAction();
 
-    FuseAction* Slot04() const override;       // LAB_06cfd010
-    bool Slot08(INI_Reader& Reader) override;  // FUN_06cff5a0
-    void Trigger(unsigned SourceId, unsigned short SubObjId) override; // LAB_06cff6c0
+    FuseAction* Slot04() const override;
+    bool Slot08(INI_Reader& Reader) override;
+    void Trigger(unsigned SourceId, unsigned short SubObjId) override;
 
 protected:
-    virtual void Slot30(TumbleAction const& Other); // FUN_06cff940
+    virtual void Slot30(TumbleAction const& Other);
 
 public:
     float AngDragScale;      // +0x28 "ang_drag_scale" (1.0f by default)
@@ -278,62 +274,62 @@ public:
 };
 
 // ---------------------------------------------------------------------------
-// MakeInvincibleAction -- vftable .rdata:06d66bf0, sizeof 0x2c ([make_invincible]).
+// MakeInvincibleAction -- vftable module storage, sizeof 0x2c ([make_invincible]).
 // ---------------------------------------------------------------------------
 class MakeInvincibleAction : public ServerFuseAction
 {
 public:
     MakeInvincibleAction();
 
-    FuseAction* Slot04() const override;       // LAB_06cfd0a0
-    bool Slot08(INI_Reader& Reader) override;  // FUN_06cff970
-    void Trigger(unsigned SourceId, unsigned short SubObjId) override; // LAB_06cff9d0
+    FuseAction* Slot04() const override;
+    bool Slot08(INI_Reader& Reader) override;
+    void Trigger(unsigned SourceId, unsigned short SubObjId) override;
 
 protected:
-    virtual void Slot30(MakeInvincibleAction const& Other); // FUN_06cffa80
+    virtual void Slot30(MakeInvincibleAction const& Other);
 
 public:
     bool bTurnOn; // +0x28 "turn_on" (1 by default)
 };
 
 // ---------------------------------------------------------------------------
-// DumpCargoAction -- vftable .rdata:06d66bac, sizeof 0x2c ([dump_cargo]).
+// DumpCargoAction -- vftable module storage, sizeof 0x2c ([dump_cargo]).
 // ---------------------------------------------------------------------------
 class DumpCargoAction : public ServerFuseAction
 {
 public:
     DumpCargoAction();
 
-    FuseAction* Slot04() const override;       // FUN_06cfd110
-    bool Slot08(INI_Reader& Reader) override;  // FUN_06cffaa0
-    void Trigger(unsigned SourceId, unsigned short SubObjId) override; // LAB_06cffb10
+    FuseAction* Slot04() const override;
+    bool Slot08(INI_Reader& Reader) override;
+    void Trigger(unsigned SourceId, unsigned short SubObjId) override;
 
 protected:
-    virtual void Slot30(DumpCargoAction const& Other); // FUN_06cffc80
+    virtual void Slot30(DumpCargoAction const& Other);
 
 public:
     CacheString OriginHardpoint; // +0x28 "origin_hardpoint"
 };
 
 // ---------------------------------------------------------------------------
-// The Server fuse prototype database: std::map<unsigned, ServerFuse*> at .data:DAT_06d8d870,
+// The Server fuse prototype database: std::map<unsigned, ServerFuse*> at .data:the field,
 // keyed by the fuse nickname id. Derives from FuseDB to read the protected path list.
 // ---------------------------------------------------------------------------
 class ServerFuseDB : public FuseDB
 {
 public:
-    static std::map<unsigned, ServerFuse*>& Get(); // FUN_06cfd390
-    static void Clear();                           // FUN_06cfd3a0
-    static void LoadAll();                         // FUN_06cfd4b0
+    static std::map<unsigned, ServerFuse*>& Get();
+    static void Clear();
+    static void LoadAll();
 
 private:
-    static void LoadFile(char const* Path);        // FUN_06cfd4e0 (thiscall on the map)
+    static void LoadFile(char const* Path);        // (thiscall on the map)
 
-    static std::map<unsigned, ServerFuse*> Fuses;  // DAT_06d8d870
+    static std::map<unsigned, ServerFuse*> Fuses;
 };
 
-// "random" (.rdata:06d66f18) interned once at load time: the group / hardpoint name the
-// DestroyGroupAction (LAB_06cfe350 -> DAT_06d8d8ac) and DestroyHardpointAttachmentAction
-// (LAB_06cfe980 -> DAT_06d8d8a8) Trigger bodies compare against with stricmp.
-extern char const* GRandomGroupName;     // DAT_06d8d8ac
-extern char const* GRandomHardpointName; // DAT_06d8d8a8
+// "random" (module storage) interned once at load time: the group / hardpoint name the
+// DestroyGroupAction (the branch -> the field) and DestroyHardpointAttachmentAction
+// (the branch -> the field) Trigger bodies compare against with stricmp.
+extern char const* GRandomGroupName;
+extern char const* GRandomHardpointName;

@@ -1,22 +1,18 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "page_character_select_single.h"
 
-#include "font_string.h"       // FHudWideText, WideTextAssign (FUN_00413df0)
-#include "globals.h"           // GetClientFrameTimeCapped (FUN_0042d680)
-#include "ids_rdl.h"           // AppendTextAsRdl (FUN_0057db50), AppendTextMaybeXmlRdl (FUN_0057e2c0)
-#include "ids_strings.h"       // GetIdsStringWWithRawFallback (FUN_004347e0)
+#include "font_string.h"       // FHudWideText, WideTextAssign (the routine)
+#include "globals.h"           // GetClientFrameTimeCapped (the routine)
+#include "ids_rdl.h"           // AppendTextAsRdl (the routine), AppendTextMaybeXmlRdl (the routine)
+#include "ids_strings.h"       // GetIdsStringWWithRawFallback (the routine)
 #include "intro_page_util.h"
-#include "loading_screen.h"    // LoadingScreenSetClear / LoadingScreenStart (FUN_00579280 / 290)
-#include "login_mgr.h"         // G_LoginMgr (DAT_0067e7b8)
-#include "menu_ui_init.h"      // PlayUiSoundSlot (FUN_00564570), PlayOrRewindUiSoundSlot (5645c0)
-#include "nn_confirm.h"        // NnConfirmOpenFormatted (FUN_00488a80)
-#include "nn_error.h"          // NnErrorRunModal (FUN_00473cb0)
-#include "nn_load_save.h"      // NnLoadSaveEntryText (FUN_00488b70)
+#include "loading_screen.h"    // LoadingScreenSetClear / LoadingScreenStart (the routine / 290)
+#include "login_mgr.h"         // G_LoginMgr (the field)
+#include "menu_ui_init.h"      // PlayUiSoundSlot (the routine), PlayOrRewindUiSoundSlot (5645c0)
+#include "nn_confirm.h"        // NnConfirmOpenFormatted (the routine)
+#include "nn_error.h"          // NnErrorRunModal (the routine)
+#include "nn_load_save.h"      // NnLoadSaveEntryText (the routine)
 #include "ui_list_box.h"
 #include "ui_rich_text_win.h"
 #include "ui_scroll.h"
@@ -25,7 +21,7 @@
 #include "common_archetype.h"  // Archetype::GetShip
 #include "common_misc.h"       // filetime_to_wstring
 #include "common_text.h"
-#include "common_tstring.h"    // TString<32> (FUN_00420750)
+#include "common_tstring.h"    // TString<32> (the routine)
 #include "common_universe.h"   // Universe::get_system
 
 #include <stdint.h>            // intptr_t
@@ -39,10 +35,10 @@ using namespace IntroPageUtil;
 
 namespace
 {
-    // DAT_0067ae10.
+    // .
     PageCharacterSelectSingle G_PageCharacterSelectSingle;
 
-    // .rdata:005e2af4 -- L"-", the text of an empty value window.
+    // L"-", the text of an empty value window.
     wchar_t const kDashText[] = L"-";
 
     // The UIListBox rows carry the CharacterInfo* as their data word (0x0056b667 / 0x0056b685).
@@ -87,10 +83,10 @@ namespace
     };
 
     // The x87 row loop over the three "bImg" statics (0x0056cf1c..0x0056cf76 and
-    // 0x0056d166..0x0056d1c0): EDI from 2 down to 0 against +0xf4, +0xf8, +0xfc; the offset
-    // V = EDI * 0.1 (DAT_005c7720) + SlideT. FCOM 0.0 (DAT_005c8ba8), TEST AH,0x41 / JNZ: at
+    // ): EDI from 2 down to 0 against +0xf4, +0xf8, +0xfc; the offset
+    // V = EDI * 0.1 (the field) + SlideT. FCOM 0.0 (the field), TEST AH,0x41 / JNZ: at
     // or below 0.0 (or unordered) the image goes to {V, 0, 0}; above 0.0 (fall-through) to
-    // {0, 0, 0} (all three from the 0.0f DAT_005c7474 still on the stack). Slot 5 SetPosition.
+    // {0, 0, 0} (all three from the 0.0f the field still on the stack). Slot 5 SetPosition.
     void PlaceButtonImages(Win3D* const* Images, double SlideT)
     {
         int Row = 2;
@@ -146,7 +142,7 @@ PageCharacterSelectSingle::PageCharacterSelectSingle()
     , bLoadRequested(0)
     , bIntroBaseLeft(0)
 {
-    // FUN_0056b050: FUN_00591ae0(FUN_00594580(+0x8c)), FUN_00591e30 on +0x8c, +0xb8..+0xf0 = 0,
+    // the routine(the routine(+0x8c)), the routine on +0x8c, +0xb8..+0xf0 = 0,
     // +0x118's first byte 0, the five lists +0x31c..+0x34c, the vector +0x358, +0x368 = +0x369 =
     // 0, +0xb4 = 0, +0x108 = 1.0, +0x110 = 0, the vftables, +0x114 = -1. The statics
     // +0xf4..+0x104 and the bytes +0x318 / +0x319 are not written; the static object starts
@@ -155,18 +151,18 @@ PageCharacterSelectSingle::PageCharacterSelectSingle()
 
 PageCharacterSelectSingle::~PageCharacterSelectSingle()
 {
-    // FUN_0056d360: vftables back, the vector (FUN_00489160 over its rows, then freed), the
-    // lists +0x34c..+0x31c (FUN_0046ba90), +0xf0..+0xb8 = 0, FUN_00591ef0 on +0x8c, FUN_00591ba0
+    // vftables back, the vector (the routine over its rows, then freed), the
+    // lists +0x34c..+0x31c (the routine), +0xf0..+0xb8 = 0, the routine on +0x8c, the routine
     // -- the member destructors in reverse declaration order, then the base.
 }
 
 void PageCharacterSelectSingle::Destroy()
 {
-    // LAB_0056b240. Hidden first.
+    // . Hidden first.
     Flags = static_cast<unsigned char>(Flags & 0xfc);
 
-    // 0x0056b260..0x0056b2aa: every child -- the next one read first, its class name copied
-    // into a TString<32> (FUN_00420750), slot 10, then deleted (slot 0 with 1) when the copy's
+    // every child -- the next one read first, its class name copied
+    // into a TString<32> (the routine), slot 10, then deleted (slot 0 with 1) when the copy's
     // first 14 bytes are "StaticControl" with its terminator (REPE CMPSB, ECX = 0xe).
     Win3D* Child = ChildHead;
     while (Child != nullptr)
@@ -182,10 +178,10 @@ void PageCharacterSelectSingle::Destroy()
         Child = Next;
     }
 
-    UIPage::MasterWin::Destroy(); // FUN_00591de0
-    UnregisterEvent(0xf);         // FUN_005760f0(0xf) on the +0x80 face
+    UIPage::MasterWin::Destroy();
+    UnregisterEvent(0xf);         // (0xf) on the +0x80 face
 
-    // 0x0056b2c1..0x0056b315.
+    // .
     CharacterShip = nullptr;
     LoadCharacter = nullptr;
     DeleteCharacter = nullptr;
@@ -205,11 +201,11 @@ void PageCharacterSelectSingle::Destroy()
 
 bool PageCharacterSelectSingle::Create(Win3D* NewParent, void* /*Payload*/)
 {
-    // LAB_0056b330. MasterWin::Create (FUN_00591cd0) with no payload; its result is not tested.
+    // . MasterWin::Create (the routine) with no payload; its result is not tested.
     UIPage::MasterWin::Create(NewParent, nullptr);
-    Result = 0; // 0x0056b35e
+    Result = 0;
 
-    // 0x0056b364..0x0056b474: the widgets through the IUIPage face (slot 4), in retail's order.
+    // the widgets through the IUIPage face (slot 4), in baseline's order.
     CharacterShip = static_cast<UiRichTextWin*>(FindWidget("CharacterShip"));
     LoadCharacter = static_cast<UiTextMsgButton*>(FindWidget("LoadCharacter"));
     DeleteCharacter = static_cast<UiTextMsgButton*>(FindWidget("DeleteCharacter"));
@@ -226,41 +222,41 @@ bool PageCharacterSelectSingle::Create(Win3D* NewParent, void* /*Payload*/)
     ShipLabel = static_cast<UiRichTextWin*>(FindWidget("ShipLabel"));
     ScreenTitle = static_cast<UiRichTextWin*>(FindWidget("ScreenTitle"));
 
-    RegisterEvent(0xf); // 0x0056b47a FUN_005760d0
+    RegisterEvent(0xf); // the routine
 
-    // 0x0056b47f..0x0056b4c4: the scroll bar's chrome colours, a page of 20, step 1.
-    CharScroll->SetArrowColors(ChromeColor(), ChromeColor()); // FUN_00595f30
-    CharScroll->SetBarColors(ChromeColor(), ChromeColor());   // FUN_00595f50
-    CharScroll->SetPage(20.0f);                               // FUN_00595de0(0x41a00000)
-    CharScroll->SetStep(1.0f);                                // FUN_00595e10(0x3f800000)
+    // the scroll bar's chrome colours, a page of 20, step 1.
+    CharScroll->SetArrowColors(ChromeColor(), ChromeColor());
+    CharScroll->SetBarColors(ChromeColor(), ChromeColor());
+    CharScroll->SetPage(20.0f);                               // (0x41a00000)
+    CharScroll->SetStep(1.0f);                                // (0x3f800000)
 
-    // 0x0056b4c9..0x0056b4e8: the three buttons draw no frame (FUN_00579860(0)).
+    // the three buttons draw no frame (the routine(0)).
     LoadCharacter->SetDrawFrame(false);
     DeleteCharacter->SetDrawFrame(false);
     MainMenu->SetDrawFrame(false);
 
-    // 0x0056b4f2..0x0056b506.
+    // .
     bDeletePending = 0;
     bCharacterChosen = 0;
     SlideT = -2.0;
 
-    // 0x0056b50b..0x0056b510: the faction records (CLoginMgr +0x1d8) rebuilt (FUN_005aade0).
+    // the faction records (CLoginMgr +0x1d8) rebuilt (the routine).
     G_LoginMgr.ReloadFactions();
 
-    // 0x0056b515..0x0056b525: the roster refreshed (FUN_005aa680); only a 1 fills the lists.
+    // the roster refreshed (the routine); only a 1 fills the lists.
     if (G_LoginMgr.RequestCharacterInfo() == 1)
     {
-        // 0x0056b52b..0x0056b56d: both lists emptied, page 20 / step 1, the bar shown.
+        // both lists emptied, page 20 / step 1, the bar shown.
         CharSelDesc->ItemCount = 0;
         CharSelTime->ItemCount = 0;
         CharScroll->SetPage(20.0f);
         CharScroll->SetStep(1.0f);
         ShowWin3D(CharScroll);
 
-        // 0x0056b56d..0x0056b6af: the roster count (FUN_00575950 on DAT_0067e96c), the vector
-        // emptied (FUN_004890c0) and reserved (FUN_005755a0); one row per record that is not
-        // the restart save (+0x200), appended (FUN_00575700) and added to both lists
-        // (FUN_005a1f50) with the record as the data word.
+        // the roster count (the routine on the field), the vector
+        // emptied (the routine) and reserved (the routine); one row per record that is not
+        // the restart save (+0x200), appended (the routine) and added to both lists
+        // (the routine) with the record as the data word.
         int Added = 0;
         unsigned const Count = G_LoginMgr.Characters.count();
         Entries.clear();
@@ -271,9 +267,9 @@ bool PageCharacterSelectSingle::Create(Win3D* NewParent, void* /*Payload*/)
                 G_LoginMgr.CharacterAt(static_cast<int>(Index));
             if (Info == nullptr || Info->bIsRestart != 0)
                 continue;
-            FCharSelectSingleEntry Entry; // FUN_0056d4b0
+            FCharSelectSingleEntry Entry;
             Entry.Info = Info;
-            wchar_t const* const EntryText = NnLoadSaveEntryText(Info); // FUN_00488b70
+            wchar_t const* const EntryText = NnLoadSaveEntryText(Info);
             Entry.Name.assign(EntryText, wcslen(EntryText));
             wchar_t const* const TimeText =
                 filetime_to_wstring(*reinterpret_cast<_FILETIME const*>(&Info->TimestampLow));
@@ -283,36 +279,36 @@ bool PageCharacterSelectSingle::Create(Win3D* NewParent, void* /*Payload*/)
             CharSelDesc->AddItem(Last.Name.c_str(), InfoToItemData(Last.Info));
             CharSelTime->AddItem(Last.Time.c_str(), InfoToItemData(Last.Info));
             ++Added;
-        } // Entry destroyed (FUN_00487c30)
+        } // Entry destroyed (the routine)
 
-        // 0x0056b6b5..0x0056b6f2: the range 0..rows added (FILD), page 20, step 1, value 0.
+        // the range 0..rows added (FILD), page 20, step 1, value 0.
         CharScroll->SetRange(0.0f, static_cast<float>(Added));
         CharScroll->SetPage(20.0f);
         CharScroll->SetStep(1.0f);
         CharScroll->SetValue(0.0f);
-        UpdateScrollVisibility(); // FUN_0056bd10
+        UpdateScrollVisibility();
 
-        // 0x0056b6fe..0x0056b730: both lists from the bar's value (ftol).
+        // both lists from the bar's value (ftol).
         CharSelDesc->FirstVisible = static_cast<int>(CharScroll->GetValue());
         CharSelTime->FirstVisible = static_cast<int>(CharScroll->GetValue());
     }
 
-    // 0x0056b738..0x0056b75d: the ship window emptied, the three buttons shown.
-    CharacterShip->ClearContent(); // FUN_0057b370
+    // the ship window emptied, the three buttons shown.
+    CharacterShip->ClearContent();
     LoadCharacter->Flags = static_cast<unsigned char>(LoadCharacter->Flags | 3);
     DeleteCharacter->Flags = static_cast<unsigned char>(DeleteCharacter->Flags | 3);
     MainMenu->Flags = static_cast<unsigned char>(MainMenu->Flags | 3);
 
-    // 0x0056b761..0x0056b791: no frame, row rules on, for both lists.
+    // no frame, row rules on, for both lists.
     CharSelDesc->bDrawFrame = 0;
     CharSelDesc->bDrawRowRules = 1;
     CharSelTime->bDrawFrame = 0;
     CharSelTime->bDrawRowRules = 1;
 
-    // 0x0056b78e..0x0056b798: FUN_0056bd40 with EBP, 0 on both paths.
+    // the routine with EBP, 0 on both paths.
     ShowDetails(nullptr);
 
-    // 0x0056b79d..0x0056b828: all fifteen widgets hidden.
+    // all fifteen widgets hidden.
     HideWin3D(CharacterMoney);
     HideWin3D(CharacterRank);
     HideWin3D(CharacterLocation);
@@ -329,7 +325,7 @@ bool PageCharacterSelectSingle::Create(Win3D* NewParent, void* /*Payload*/)
     HideWin3D(ShipLabel);
     HideWin3D(ScreenTitle);
 
-    // 0x0056b82b..0x0056b8f5: the five captions (FUN_0046c860, then FUN_0057da40; no
+    // the five captions (the routine, then the routine; no
     // trailing-paragraph cut).
     LoadIds(MoneyLabelText, 0x594);
     LoadIds(RankLabelText, 0x5ec);
@@ -337,7 +333,7 @@ bool PageCharacterSelectSingle::Create(Win3D* NewParent, void* /*Payload*/)
     LoadIds(ShipLabelText, 0x591);
     LoadIds(TitleText, 0x4f5);
 
-    // 0x0056b8fa..0x0056bb24: each label emptied, a style, then a reference to its caption.
+    // each label emptied, a style, then a reference to its caption.
     MoneyLabel->ClearContent();
     AppendStyle(MoneyLabel, 0x5724);
     AppendRef(MoneyLabel, MoneyLabelText);
@@ -354,14 +350,14 @@ bool PageCharacterSelectSingle::Create(Win3D* NewParent, void* /*Payload*/)
     AppendStyle(ScreenTitle, 0x1df5);
     AppendRef(ScreenTitle, TitleText);
 
-    // 0x0056bb2a..0x0056bc79: L"-" (FUN_0057e2c0) into a local list, copied into the four
+    // L"-" (the routine) into a local list, copied into the four
     // value windows behind the same style.
     {
-        RenderDisplayList Dash; // FUN_0042a7e0
+        RenderDisplayList Dash;
         AppendTextMaybeXmlRdl(kDashText, static_cast<unsigned>(wcslen(kDashText)), Dash, false);
         CharacterShip->ClearContent();
         AppendStyle(CharacterShip, 0x5724);
-        CharacterShip->AppendContent(Dash); // FUN_0057b3e0
+        CharacterShip->AppendContent(Dash);
         CharacterMoney->ClearContent();
         AppendStyle(CharacterMoney, 0x5724);
         CharacterMoney->AppendContent(Dash);
@@ -372,16 +368,16 @@ bool PageCharacterSelectSingle::Create(Win3D* NewParent, void* /*Payload*/)
         AppendStyle(CharacterLocation, 0x5724);
         CharacterLocation->AppendContent(Dash);
 
-        // 0x0056bc7e..0x0056bc95: twenty visible rows in both lists.
+        // twenty visible rows in both lists.
         CharSelDesc->VisibleRows = 0x14;
         CharSelTime->VisibleRows = 0x14;
-    } // 0x0056bc9b..0x0056bce6: the local list's nodes and head freed
+    } // the local list's nodes and head freed
     return true;
 }
 
 void PageCharacterSelectSingle::UpdateScrollVisibility()
 {
-    // FUN_0056bd10: CharSelDesc's count - 20 >= 1 (JGE) shows the bar, else hidden.
+    // CharSelDesc's count - 20 >= 1 (JGE) shows the bar, else hidden.
     if (CharSelDesc->ItemCount - 0x14 >= 1)
         CharScroll->Flags = static_cast<unsigned char>(CharScroll->Flags | 3);
     else
@@ -390,12 +386,12 @@ void PageCharacterSelectSingle::UpdateScrollVisibility()
 
 void PageCharacterSelectSingle::ShowDetails(CCharacterSet::CharacterInfo const* Info)
 {
-    // FUN_0056bd40 (RET 4, 0x2244-byte frame).
+    // (RET 4, 0x2244-byte frame).
     if (Info == nullptr)
     {
-        // LAB_0056c13d..0x0056c2db: "-" (FUN_0057e2c0) into the ship, money, rank and location
+        // "-" (the routine) into the ship, money, rank and location
         // windows; Load and Delete inactive and not interactive.
-        RenderDisplayList Dash; // FUN_0042a7e0
+        RenderDisplayList Dash;
         AppendTextMaybeXmlRdl(kDashText, static_cast<unsigned>(wcslen(kDashText)), Dash, false);
         CharacterShip->ClearContent();
         AppendStyle(CharacterShip, 0x5724);
@@ -416,8 +412,8 @@ void PageCharacterSelectSingle::ShowDetails(CCharacterSet::CharacterInfo const* 
         return;
     }
 
-    // 0x0056bd76..0x0056be1d: the money (+0x234) through L"%d" (0x005d0ec4) into a 0x80-wide
-    // buffer, then into its own list (FUN_0046ba60 / FUN_0057db50) behind the style.
+    // the money (+0x234) through L"%d" (0x005d0ec4) into a 0x80-wide
+    // buffer, then into its own list (the routine / the routine) behind the style.
     wchar_t Number[0x80];
     swprintf(Number, 0x80, L"%d", Info->Money);
     CharacterMoney->ClearContent();
@@ -426,7 +422,7 @@ void PageCharacterSelectSingle::ShowDetails(CCharacterSet::CharacterInfo const* 
     AppendTextAsRdl(Number, static_cast<unsigned>(wcslen(Number)), MoneyText, false);
     CharacterMoney->AppendContent(MoneyText);
 
-    // 0x0056be22..0x0056beb8: the rank (+0x270), the same way.
+    // the rank (+0x270), the same way.
     swprintf(Number, 0x80, L"%d", Info->Rank);
     CharacterRank->ClearContent();
     AppendStyle(CharacterRank, 0x5724);
@@ -434,8 +430,8 @@ void PageCharacterSelectSingle::ShowDetails(CCharacterSet::CharacterInfo const* 
     AppendTextAsRdl(Number, static_cast<unsigned>(wcslen(Number)), RankText, false);
     CharacterRank->AppendContent(RankText);
 
-    // 0x0056bebd..0x0056bf9c: the ship's name -- only with a ship archetype (+0x230) that
-    // resolves: its ids_name (+0x14) through FUN_004347e0 into 0x80 wide chars (the first char
+    // the ship's name -- only with a ship archetype (+0x230) that
+    // resolves: its ids_name (+0x14) through the routine into 0x80 wide chars (the first char
     // zeroed on a miss), then its own list behind the style.
     CharacterShip->ClearContent();
     if (Info->ShipArchetype != 0)
@@ -448,14 +444,14 @@ void PageCharacterSelectSingle::ShowDetails(CCharacterSet::CharacterInfo const* 
                                              0x80) == 0)
                 ShipName[0] = L'\0';
             AppendStyle(CharacterShip, 0x5724);
-            RenderDisplayList ShipText; // FUN_0046ba60
+            RenderDisplayList ShipText;
             AppendTextAsRdl(ShipName, static_cast<unsigned>(wcslen(ShipName)), ShipText, false);
             CharacterShip->AppendContent(ShipText);
-        } // FUN_0046ba90
+        }
     }
 
-    // 0x0056bfa1..0x0056c0c2: the system's name -- ISystem slot 3 (strid_name) through
-    // FUN_004347e0 into 0x1000 wide chars, into a {Text, Capacity} (FUN_00413df0: "IDS?" on a
+    // the system's name -- ISystem slot 3 (strid_name) through
+    // into 0x1000 wide chars, into a {Text, Capacity} (the routine: "IDS?" on a
     // miss, else the copied length), then its own list behind the style; the text freed.
     Universe::ISystem const* const System = Universe::get_system(Info->SystemId);
     CharacterLocation->ClearContent();
@@ -470,13 +466,13 @@ void PageCharacterSelectSingle::ShowDetails(CCharacterSet::CharacterInfo const* 
         else
             WideTextAssign(&SystemName, Buffer, Length);
         AppendStyle(CharacterLocation, 0x5724);
-        RenderDisplayList LocationText; // FUN_0042a7e0
+        RenderDisplayList LocationText;
         AppendTextAsRdl(SystemName.Text, static_cast<unsigned>(wcslen(SystemName.Text)),
                         LocationText, false);
         CharacterLocation->AppendContent(LocationText);
     }
 
-    // 0x0056c0c5..0x0056c0f0: Load and Delete active and interactive.
+    // Load and Delete active and interactive.
     LoadCharacter->Flags = static_cast<unsigned char>(LoadCharacter->Flags | 1);
     DeleteCharacter->Flags = static_cast<unsigned char>(DeleteCharacter->Flags | 1);
     LoadCharacter->bInteractive = 1;
@@ -514,37 +510,37 @@ void PageCharacterSelectSingle::BeginLeave(int Direction)
     LeaveDirection = Direction;
     bLeaving = 1;
     SlideT = 0.0;
-    PlayUiSoundSlot(0x1b); // FUN_00564570
+    PlayUiSoundSlot(0x1b);
 }
 
 bool PageCharacterSelectSingle::Slot23(unsigned Msg, unsigned A, unsigned B)
 {
-    // LAB_0056c360.
+    // .
     if (Msg == 0x3004)
     {
-        PlayOrRewindUiSoundSlot(0); // FUN_005645c0(0)
+        PlayOrRewindUiSoundSlot(0); // (0)
         if (A == 0x3003)
         {
-            // 0x0056c3af: load -- nothing while leaving.
+            // load -- nothing while leaving.
             if (bLeaving != 0)
                 return true;
-            BeginLeave(1); // 0x0056caa2
+            BeginLeave(1);
             return true;
         }
         if (A == 0x300c)
         {
-            // LAB_0056c726: main menu.
+            // main menu.
             if (bLeaving != 0)
                 return true;
-            BeginLeave(0); // 0x0056c81e
+            BeginLeave(0);
             return true;
         }
         if (A == 0x3002)
         {
-            // LAB_0056c4ac: delete.
+            // delete.
             if (bDeletePending != 0)
             {
-                // 0x0056c4be..0x0056c521: the confirm box said yes -- everything live again.
+                // the confirm box said yes -- everything live again.
                 bDeletePending = 0;
                 CharScroll->Flags = static_cast<unsigned char>(CharScroll->Flags | 1);
                 CharSelDesc->Flags = static_cast<unsigned char>(CharSelDesc->Flags | 1);
@@ -558,8 +554,8 @@ bool PageCharacterSelectSingle::Slot23(unsigned Msg, unsigned A, unsigned B)
                 if (CharSelDesc->SelectedIndex == -1)
                     return true;
 
-                // 0x0056c536..0x0056c583: the selected record's CHARACTER_ID copied raw (REP
-                // MOVSD, 0x80 dwords), the rows dropped (FUN_004890c0), both lists emptied,
+                // the selected record's CHARACTER_ID copied raw (REP
+                // MOVSD, 0x80 dwords), the rows dropped (the routine), both lists emptied,
                 // the bar's range 0..0.
                 CCharacterSet::CharacterInfo const* const Victim =
                     ItemDataToInfo(CharSelDesc->GetItemData(CharSelDesc->SelectedIndex));
@@ -570,11 +566,11 @@ bool PageCharacterSelectSingle::Slot23(unsigned Msg, unsigned A, unsigned B)
                 CharSelTime->ItemCount = 0;
                 CharScroll->SetRange(0.0f, 0.0f);
 
-                int const Destroyed = G_LoginMgr.DestroyCharacter(VictimId); // FUN_005aa8f0
+                int const Destroyed = G_LoginMgr.DestroyCharacter(VictimId);
                 if (Destroyed == 1)
                 {
-                    // 0x0056c59d..0x0056c607: no selection (CMP count,-1 / JLE), the range's
-                    // top one lower (FUN_00595d90, FSUB 1.0f DAT_005c75dc), the details
+                    // no selection (CMP count,-1 / JLE), the range's
+                    // top one lower (the routine, FSUB 1.0f the field), the details
                     // emptied, the lists refilled.
                     if (CharSelDesc->ItemCount > -1)
                         CharSelDesc->SelectedIndex = -1;
@@ -590,26 +586,26 @@ bool PageCharacterSelectSingle::Slot23(unsigned Msg, unsigned A, unsigned B)
                 }
                 if (Destroyed != 2)
                 {
-                    // 0x0056c61f..0x0056c668: the delete failed -- NN_Error 0x73b, the slide
+                    // the delete failed -- NN_Error 0x73b, the slide
                     // reset to -2.0, the faction list and the roster fetched again.
-                    NnErrorRunModal(0x73b, false, nullptr); // FUN_00473cb0
+                    NnErrorRunModal(0x73b, false, nullptr);
                     SlideT = -2.0;
-                    G_LoginMgr.ReloadFactions(); // 0x0056c643 FUN_005aade0
-                    int const Relisted = G_LoginMgr.RequestCharacterInfo(); // FUN_005aa680
+                    G_LoginMgr.ReloadFactions(); // the routine
+                    int const Relisted = G_LoginMgr.RequestCharacterInfo();
                     if (Relisted == 1)
                     {
-                        RefillLists(); // 0x0056c675
+                        RefillLists();
                         return true;
                     }
                     if (Relisted != 2)
                         NnErrorRunModal(0x73c, false, nullptr);
                 }
-                Result = 5; // LAB_0056c66b
+                Result = 5;
                 RefillLists();
                 return true;
             }
 
-            // LAB_0056c68a: first press -- the confirm box over the page; everything inactive
+            // first press -- the confirm box over the page; everything inactive
             // until it answers (0x3006).
             bDeletePending = 1;
             CharScroll->Flags = static_cast<unsigned char>(CharScroll->Flags & 0xfe);
@@ -625,12 +621,12 @@ bool PageCharacterSelectSingle::Slot23(unsigned Msg, unsigned A, unsigned B)
                 return true;
             CCharacterSet::CharacterInfo const* const Selected =
                 ItemDataToInfo(CharSelDesc->GetItemData(CharSelDesc->SelectedIndex));
-            NnConfirmOpenFormatted(this, NnLoadSaveEntryText(Selected), nullptr); // FUN_00488a80
+            NnConfirmOpenFormatted(this, NnLoadSaveEntryText(Selected), nullptr);
             return true;
         }
         if (A == 0xf003)
         {
-            // LAB_0056c83e: the confirm box said no -- everything live again; false either way.
+            // the confirm box said no -- everything live again; false either way.
             if (bDeletePending != 0)
             {
                 bDeletePending = 0;
@@ -646,12 +642,12 @@ bool PageCharacterSelectSingle::Slot23(unsigned Msg, unsigned A, unsigned B)
             }
             return false;
         }
-        return false; // LAB_0056c830
+        return false;
     }
 
     if (Msg == 0xf001)
     {
-        // 0x0056c8e0..0x0056c938: a click on a row (B, from ListBox::MouseEvent) selects it in
+        // a click on a row (B, from ListBox::MouseEvent) selects it in
         // both lists when -1 <= B < count; the details follow; false.
         int const Row = static_cast<int>(B);
         if (Row >= -1 && Row < CharSelDesc->ItemCount)
@@ -664,7 +660,7 @@ bool PageCharacterSelectSingle::Slot23(unsigned Msg, unsigned A, unsigned B)
 
     if (Msg == 0x3006)
     {
-        // LAB_0056c93b: the confirm box's answer, back through slot 23.
+        // the confirm box's answer, back through slot 23.
         if (A == 0)
         {
             Slot23(0x3004, 0xf003, 0);
@@ -680,7 +676,7 @@ bool PageCharacterSelectSingle::Slot23(unsigned Msg, unsigned A, unsigned B)
 
     if (Msg == 0xf002)
     {
-        // 0x0056c993: a double click loads the selection -- not without one, not while leaving.
+        // a double click loads the selection -- not without one, not while leaving.
         if (CharSelDesc->SelectedIndex == -1)
             return true;
         if (bLeaving != 0)
@@ -691,7 +687,7 @@ bool PageCharacterSelectSingle::Slot23(unsigned Msg, unsigned A, unsigned B)
 
     if (Msg == 0xf005)
     {
-        // LAB_0056caec: the bar moved -- both lists from its value (ftol).
+        // the bar moved -- both lists from its value (ftol).
         CharSelDesc->FirstVisible = static_cast<int>(CharScroll->GetValue());
         CharSelTime->FirstVisible = static_cast<int>(CharScroll->GetValue());
         return true;
@@ -701,14 +697,14 @@ bool PageCharacterSelectSingle::Slot23(unsigned Msg, unsigned A, unsigned B)
 
 void PageCharacterSelectSingle::RefillLists()
 {
-    // FUN_0056cb40. 0x0056cb5d..0x0056cba9: both lists emptied, page 20 / step 1, the bar shown.
+    // . 0x0056cb5d..0x0056cba9: both lists emptied, page 20 / step 1, the bar shown.
     CharSelDesc->ItemCount = 0;
     CharSelTime->ItemCount = 0;
     CharScroll->SetPage(20.0f);
     CharScroll->SetStep(1.0f);
     ShowWin3D(CharScroll);
 
-    // 0x0056cbac..0x0056cc40: the roster count (FUN_00575950), the rows dropped (FUN_004890c0)
+    // the roster count (the routine), the rows dropped (the routine)
     // and the storage grown to the count when smaller (the reserve inline).
     int Added = 0;
     unsigned const Count = G_LoginMgr.Characters.count();
@@ -716,7 +712,7 @@ void PageCharacterSelectSingle::RefillLists()
     if (Entries.capacity() < Count)
         Entries.reserve(Count);
 
-    // 0x0056cc50..0x0056cd73: as Create's loop (the row's strings built empty, then assigned).
+    // as Create's loop (the row's strings built empty, then assigned).
     for (unsigned Index = 0; Index < Count; ++Index)
     {
         CCharacterSet::CharacterInfo* const Info = G_LoginMgr.CharacterAt(static_cast<int>(Index));
@@ -729,31 +725,31 @@ void PageCharacterSelectSingle::RefillLists()
         wchar_t const* const TimeText =
             filetime_to_wstring(*reinterpret_cast<_FILETIME const*>(&Info->TimestampLow));
         Entry.Time.assign(TimeText, wcslen(TimeText));
-        Entries.push_back(Entry); // FUN_00575700
+        Entries.push_back(Entry);
         FCharSelectSingleEntry const& Last = Entries.back();
         CharSelDesc->AddItem(Last.Name.c_str(), InfoToItemData(Last.Info));
         CharSelTime->AddItem(Last.Time.c_str(), InfoToItemData(Last.Info));
         ++Added;
     }
 
-    // 0x0056cd7b..0x0056cdb6: range 0..rows added (FILD), page 20, step 1, value 0.
+    // range 0..rows added (FILD), page 20, step 1, value 0.
     CharScroll->SetRange(0.0f, static_cast<float>(Added));
     CharScroll->SetPage(20.0f);
     CharScroll->SetStep(1.0f);
     CharScroll->SetValue(0.0f);
-    // 0x0056cdbb..0x0056cde0: FUN_0056bd10's body inline.
+    // the routine's body inline.
     UpdateScrollVisibility();
-    // 0x0056cde3..0x0056ce1a: both lists from the bar's value (ftol).
+    // both lists from the bar's value (ftol).
     CharSelDesc->FirstVisible = static_cast<int>(CharScroll->GetValue());
     CharSelTime->FirstVisible = static_cast<int>(CharScroll->GetValue());
 }
 
 void PageCharacterSelectSingle::Update()
 {
-    // FUN_0056ce30. Win3D's child walk (next read before each call, FUN_005a17b0 inlined).
+    // . Win3D's child walk (next read before each call, the routine inlined).
     Win3D::Update();
 
-    // 0x0056ce6b..0x0056ceb4: the row under the cursor in either list (CharSelTime's wins)
+    // the row under the cursor in either list (CharSelTime's wins)
     // pulses in both, when -1 <= row < that list's count.
     int Hover = -1;
     if (CharSelDesc->HoverIndex != -1)
@@ -765,28 +761,28 @@ void PageCharacterSelectSingle::Update()
     if (Hover >= -1 && Hover < CharSelTime->ItemCount)
         CharSelTime->Field80 = Hover;
 
-    // 0x0056ceba..0x0056ced9: FCOMP 1.0 (DAT_005c89b8), TEST AH,5 / JP -- the jump (not below
-    // 1.0, or unordered) goes to LAB_0056d136, which slides out only while leaving; the
-    // fall-through (below 1.0) slides out while leaving (JNZ LAB_0056d13e), else slides in.
+    // FCOMP 1.0 (the field), TEST AH,5 / JP -- the jump (not below
+    // 1.0, or unordered) goes to the branch, which slides out only while leaving; the
+    // fall-through (below 1.0) slides out while leaving (JNZ the branch), else slides in.
     bool const bBelowOne = SlideT < 1.0;
     if (bLeaving == 0 && bBelowOne)
     {
-        // 0x0056cedf..0x0056cf16: the frame time capped at 0.5 (FCOM 0.5 DAT_005c75e8, TEST
+        // the frame time capped at 0.5 (FCOM 0.5 the field, TEST
         // AH,0x41 / JNZ keeps it when not greater, the fall-through loads 0.5), 1.3 per second
-        // (DAT_005e2a58).
-        double Dt = GetClientFrameTimeCapped(); // FUN_0042d680
+        // (the field).
+        double Dt = GetClientFrameTimeCapped();
         if (Dt > 0.5)
             Dt = 0.5;
         SlideT = Dt * 1.3 + SlideT;
 
-        PlaceButtonImages(ButtonImages, SlideT); // 0x0056cf1c..0x0056cf76
+        PlaceButtonImages(ButtonImages, SlideT);
 
-        // 0x0056cf78..0x0056cf9f: FCOMP 0.0, TEST AH,0x41 / JNZ LAB_0056d0b5 -- at or below 0.0
+        // FCOMP 0.0, TEST AH,0x41 / JNZ the branch -- at or below 0.0
         // (or unordered) the boxes follow SlideT; above 0.0 (fall-through) everything arrives.
         if (SlideT > 0.0)
         {
-            // 0x0056cfa5..0x0056d0b3: both boxes home, the widgets shown (the bar only when
-            // needed, FUN_0056bd10's test inline), the three "bImg" hidden, SlideT parked at 2.0.
+            // both boxes home, the widgets shown (the bar only when
+            // needed, the routine's test inline), the three "bImg" hidden, SlideT parked at 2.0.
             float const Home[3] = {0.0f, 0.0f, 0.0f};
             BigBox->SetPosition(Home);
             SmallBox->SetPosition(Home);
@@ -815,7 +811,7 @@ void PageCharacterSelectSingle::Update()
         }
         else
         {
-            // LAB_0056d0b5: bigBox at {-1.5 * SlideT, 0, 0} (DAT_005e2bb0), smallBox at
+            // bigBox at {-1.5 * SlideT, 0, 0} (the field), smallBox at
             // {0, SlideT, 0}.
             float const BigPosition[3] = {static_cast<float>(SlideT * -1.5), 0.0f, 0.0f};
             BigBox->SetPosition(BigPosition);
@@ -823,24 +819,24 @@ void PageCharacterSelectSingle::Update()
             SmallBox->SetPosition(SmallPosition);
         }
 
-        // 0x0056d0f9..0x0056d131: the slide sound while -0.5 < SlideT < -0.1 (FCOMP -0.5
-        // DAT_005e2a50, TEST AH,0x41 / JNZ skips at or below; FCOMP -0.1 DAT_005d5070, TEST AH,5
+        // the slide sound while -0.5 < SlideT < -0.1 (FCOMP -0.5
+        // , TEST AH,0x41 / JNZ skips at or below; FCOMP -0.1 the field, TEST AH,5
         // / JP skips when not below).
         if (SlideT > -0.5 && SlideT < -0.1)
-            PlayUiSoundSlot(0x1b); // FUN_00564570(0x1b)
+            PlayUiSoundSlot(0x1b); // (0x1b)
     }
     else if (bLeaving != 0)
     {
-        // LAB_0056d13e: SlideT runs down at 1.5 per second (DAT_005d3c48, no cap; FSUBR).
+        // SlideT runs down at 1.5 per second (the field, no cap; FSUBR).
         SlideT = SlideT - GetClientFrameTimeCapped() * 1.5;
 
-        PlaceButtonImages(ButtonImages, SlideT); // 0x0056d166..0x0056d1c0
+        PlaceButtonImages(ButtonImages, SlideT);
 
-        // 0x0056d1c2..0x0056d1d3: FCOMP -0.5, TEST AH,5 / JP LAB_0056d229 -- not below -0.5 (or
+        // FCOMP -0.5, TEST AH,5 / JP the branch -- not below -0.5 (or
         // unordered) the boxes follow; below -0.5 (fall-through) the leave ends.
         if (SlideT < -0.5)
         {
-            // 0x0056d1d5..0x0056d227: the three "bImg" hidden, the leave over; direction 1 asks
+            // the three "bImg" hidden, the leave over; direction 1 asks
             // IntroFocus to leave the intro base (+0x368), anything else is state 1; SlideT back
             // to -2.0.
             HideWin3D(ButtonImages[0]);
@@ -855,7 +851,7 @@ void PageCharacterSelectSingle::Update()
         }
         else
         {
-            // 0x0056d229..0x0056d280: as LAB_0056d0b5.
+            // as the branch.
             float const BigPosition[3] = {static_cast<float>(SlideT * -1.5), 0.0f, 0.0f};
             BigBox->SetPosition(BigPosition);
             float const SmallPosition[3] = {0.0f, static_cast<float>(SlideT), 0.0f};
@@ -863,7 +859,7 @@ void PageCharacterSelectSingle::Update()
         }
     }
 
-    // 0x0056d283..0x0056d2ef: once IntroFocus has left the intro base (+0x369), the selected
+    // once IntroFocus has left the intro base (+0x369), the selected
     // row's record becomes the chosen character (loading screen first), state 0xc.
     if (bIntroBaseLeft == 0)
         return;
@@ -871,8 +867,8 @@ void PageCharacterSelectSingle::Update()
     bLoadRequested = 0;
     if (bCharacterChosen != 0)
         return;
-    LoadingScreenSetClear(1); // FUN_00579280(1)
-    LoadingScreenStart();     // FUN_00579290
+    LoadingScreenSetClear(1); // (1)
+    LoadingScreenStart();
     CCharacterSet::CharacterInfo const* const Chosen =
         ItemDataToInfo(CharSelDesc->GetItemData(CharSelDesc->SelectedIndex));
     if (Chosen == nullptr)
@@ -886,8 +882,8 @@ void PageCharacterSelectSingle::Update()
 
 bool PageCharacterSelectSingle::OnEvent(unsigned MsgId)
 {
-    // LAB_0056d310 (this = the +0x80 face): event 0xf outside a leave -> state 1 (face +0x34 =
-    // page +0xb4); anything else is FUN_0053f330 (false).
+    // (this = the +0x80 face): event 0xf outside a leave -> state 1 (face +0x34 =
+    // page +0xb4); anything else is the routine (false).
     if (MsgId == 0xf && bLeaving == 0)
     {
         Result = 1;

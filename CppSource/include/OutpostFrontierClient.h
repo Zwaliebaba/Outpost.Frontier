@@ -1,31 +1,27 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
 // IClientImpl -- OutpostFrontier.exe's receiver of the server's IClient calls.
-//
-// Retail class IClientImpl (RTTI .data:00615bf0 ".?AVIClientImpl@@", reached from the
-// complete-object locator .rdata:005e6670 that precedes its IClient vftable at
-// .rdata:005e6674, 126 entries). ONE object carries both interfaces: the static initializer
-// .text:005b0840 stores the IClient vptr (.rdata:005e6674) at .data:Client+0, the IChatClient
-// vptr (.rdata:005e6668, one slot) at +4 and zero at +8, and GetChatClientInterface returns
+
+// baseline class IClientImpl (RTTI module storage ".?AVIClientImpl@@", reached from the
+// complete-object locator module storage that precedes its IClient vftable at
+// , 126 entries). ONE object carries both interfaces: the static initializer
+// stores the IClient vptr (module storage) at .data:Client+0, the IChatClient
+// vptr (module storage, one slot) at +4 and zero at +8, and GetChatClientInterface returns
 // Client+4 -- the IChatClient sub-object of the same instance, not a second object. The
 // object (`Client`, ordinal 66) and the two getters live in client_exports.cpp.
-//
-// The slot bodies are split along retail's translation units:
-//   client_iclient_space.cpp -- IClientS.cpp (.text:0053aaa0..0053e4a0, the FDUMP path string
-//                               .rdata:005dec60), the space side;
-//   client_iclient.cpp       -- everything else: the GF mirror forwards (.text:00437510..
-//                               00437b30), the player-state / chat / trade block (.text:
-//                               005a5a60..005a64f0), the login forwards (.text:005a81f0..
-//                               005a8240) and the three shared stubs (0052fba0, 00401e90,
-//                               0051ca40).
-//
-// The argument COUNT of every slot is retail's RET n / 4 (rpc_iclient.h); the first argument
+
+// The slot bodies are split along baseline's translation units:
+//   client_iclient_space.cpp -- IClientS.cpp (module storage..0053e4a0, the FDUMP path string
+// ), the space side;
+//   client_iclient.cpp       -- everything else: the GF mirror forwards (module storage..
+// ), the player-state / chat / trade block (.text:
+// ), the login forwards (module storage..
+// ) and the three shared stubs (0052fba0, 00401e90,
+// ).
+
+// The argument COUNT of every slot is baseline's RET n / 4 (rpc_iclient.h); the first argument
 // is the client (connection) id, which almost no receiver reads.
 
 #include "rpc_iclient.h"
@@ -38,7 +34,7 @@ class IClientImpl : public IClient, public IChatClient
 public:
     IClientImpl();
 
-    // IClient, in slot order (rpc_iclient.h names each slot and its retail address).
+    // IClient, in slot order (rpc_iclient.h names each slot and its baseline address).
     void SendCommonFireWeapon(unsigned int ClientId, const XFireWeaponInfo& Info) override;
     void SendCommonActivateEquip(unsigned int ClientId, const XActivateEquip& Info) override;
     void SendCommonActivateCruise(unsigned int ClientId, const XActivateCruise& Info) override;
@@ -191,14 +187,14 @@ public:
     void SendServerPlaySoundEffect(unsigned int ClientId, unsigned int SoundId) override;
     void DumpPacketStats(const char* Name) override;
 
-    // IChatClient slot 0 (retail .text:005a6250, ch1 CHATMSG).
+    // IChatClient slot 0 (baseline module storage, ch1 CHATMSG).
     void SendCommonChatMsg(CHAT_ID TargetId, CHAT_ID SenderId, unsigned long Size, const void* Data) override;
 
-    // +0x08, zeroed by .text:005b0840. TODO: no other reference to .data:0067ea6c in the
-    // retail listing -- meaning unrecovered.
+    // +0x08, zeroed by module storage. TODO: no other reference to module storage in the
+    // baseline listing -- meaning unrecovered.
     unsigned int Field_0x08;
 };
-static_assert(sizeof(IClientImpl) == 0x0c, "retail Client spans .data:0067ea64..0067ea6f");
+static_assert(sizeof(IClientImpl) == 0x0c, "baseline Client spans module storage..0067ea6f");
 
 // Only the Client data object crosses this boundary; the class has no export attribute.
 #if defined(OUTPOST_FRONTIER_EXPORTS)

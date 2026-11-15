@@ -1,18 +1,14 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
 // Common.dll ZONE -- the one implementation of Universe::IZone (RTTI .?AUZONE@@ : IZone :
-// IZoneImmersion, vftable .rdata:063a5094, 37 slots). Common-internal: nothing outside
+// IZoneImmersion, vftable module storage, 37 slots). Common-internal: nothing outside
 // Common.dll constructs, destroys or names a ZONE; other modules see IZone only
 // (common_universe.h). The universe loader (common_universe.cpp) builds one on its stack per
-// [Zone] block and copies it by value into the zone map, as retail does.
-//
-// Retail keeps the zone's data on ZONE; the port keeps it on IZone (see the comment on
+// [Zone] block and copies it by value into the zone map, as baseline does.
+
+// baseline keeps the zone's data on ZONE; the port keeps it on IZone (see the comment on
 // IZone), so ZONE adds no members of its own. Bodies: src/Common/common_zone.cpp.
 
 #include "common_universe.h"
@@ -20,10 +16,10 @@
 struct ZONE : Universe::IZone
 {
     ZONE();
-    // FUN_0633e3f0: member-wise copy (common_zone.cpp).
+    // member-wise copy (common_zone.cpp).
     ZONE(ZONE const& Other);
-    // FUN_06339010 (.text:06339010-0633909b). Non-virtual, as in retail: the vftable has no
-    // destructor slot. Releases the mesh handle through DALib::Engine (vt+0x3c) and frees
+    // (module storage-0633909b). Non-virtual, as in baseline: the vftable has no
+    // destructor slot. Releases the mesh handle through NeuronRuntime::Engine (vt+0x3c) and frees
     // the owned loot record; the population buffer goes with IZone::Population.
     ~ZONE();
 
@@ -66,6 +62,6 @@ struct ZONE : Universe::IZone
     void SetVisit(unsigned char NewVisit) override;
 
 private:
-    // FUN_0633a917: slot +0x48's box case (a JZ tail), returned unrounded like the slot.
+    // slot +0x48's box case (a JZ tail), returned unrounded like the slot.
     double ClassifyBox(Vector const& Point) const;
 };

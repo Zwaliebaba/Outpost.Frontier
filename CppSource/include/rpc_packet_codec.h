@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -51,7 +47,7 @@ inline void RpcWireRecord(unsigned int PacketId, unsigned int Length, bool bEnco
     } else {
         ++Stats.DecodedCount;
         Stats.DecodedBytes += Length + 2u;
-        // Preserve retail's comparison: payload length is compared with maximum+2.
+        // Preserve baseline's comparison: payload length is compared with maximum+2.
         if (Length > Stats.DecodedMaximum + 2u) Stats.DecodedMaximum = Length + 2u;
         Stats.DecodedAverage = Stats.DecodedBytes / Stats.DecodedCount;
     }
@@ -78,7 +74,7 @@ public:
         Packet.MarshalError = 0;
     }
 
-    // Header helper has no capacity check in retail (06b4e740 / 06bebe50). It reads
+    // Header helper has no capacity check in baseline (06b4e740 / 06bebe50). It reads
     // PacketId, snapshots the destination once, writes the WORD, stores Cursor=2 and
     // commits Ptr=cached+2; its literal zero result is then stored to MarshalError by
     // every caller (e.g. RC06b55465/06b55467), LAST. The transport supplies room for
@@ -300,7 +296,7 @@ public:
         return RpcWirePacketFactory<FRpcSaveGamePacket>(OutPacket);
     }
     CHARACTER_ID CharacterId;
-    // Retail deliberately leaves both primitive fields uninitialized.
+    // baseline deliberately leaves both primitive fields uninitialized.
     wchar_t* Description;
     unsigned int DescriptionCount;
 };
@@ -582,7 +578,7 @@ public:
     static int Factory(FPacketBase** OutPacket) {
         return RpcWirePacketFactory<FRpcRequestCollisionGroupsPacket>(OutPacket);
     }
-    // Modern allocation and value-initialized partial nodes differ from retail's
+    // Modern allocation and value-initialized partial nodes differ from baseline's
     // uninitialized two-DWORD node copy, including Pad02; retain this explicit gap.
     std::list<CollisionGroupDesc> Groups;
 };
@@ -757,7 +753,7 @@ public:
     }
 
     // TODO: establish the meaning of these native fields. Offsets describe the
-    // retail payload; this modern owning representation is never copied to wire.
+    // baseline payload; this modern owning representation is never copied to wire.
     unsigned int Field_0x00;
     unsigned int Field_0x04;
     unsigned int Field_0x08;
@@ -884,7 +880,7 @@ public:
     static int Factory(FPacketBase** OutPacket) {
         return RpcWirePacketFactory<FRpcCreateNewCharacterPacket>(OutPacket);
     }
-    // Retail RC uses 24 wchar_t, RS 64. The codec preserves each copy policy;
+    // baseline RC uses 24 wchar_t, RS 64. The codec preserves each copy policy;
     // these fields express values, never offsets in a VC6 object representation.
     wchar_t Name[64];
     unsigned int Field_0x80;
@@ -893,7 +889,7 @@ public:
     unsigned int Field_0x8c;
 };
 
-// These eight retail classes share the byte-buffer wire body, but their senders
+// These eight baseline classes share the byte-buffer wire body, but their senders
 // have different ownership contracts. The pointer remains a pointer, never an STL
 // object representation in the packet stream. The destructor is its RAII owner.
 class FRpcCommonBufferPacketBase : public FPacketBase {
@@ -964,7 +960,7 @@ public:
     static int Factory(FPacketBase** OutPacket) {
         return RpcWirePacketFactory<FRpcPlayerTradePacket>(OutPacket);
     }
-    // Fields coexist as in retail; a variant would discard untouched decode state.
+    // Fields coexist as in baseline; a variant would discard untouched decode state.
     unsigned int Action;
     int Reason;
     unsigned int TargetPlayer;

@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "StdAfx.h"
@@ -17,23 +13,23 @@ namespace
 	const int NewsTextBytes = 0x1400;
 }
 
-// .text:00413560
+
 CServerNewsDlg::CServerNewsDlg(CWnd* Parent)
 	: CDialog(IDD, Parent)
 {
 }
 
-// .text:004135e0
+
 void CServerNewsDlg::DoDataExchange(CDataExchange* DX)
 {
 	DDX_Control(DX, 1058, NewsEdit);
 }
 
-// .rdata:0041e078: no entries.
+// no entries.
 BEGIN_MESSAGE_MAP(CServerNewsDlg, CDialog)
 END_MESSAGE_MAP()
 
-// .text:00413730
+
 BOOL CServerNewsDlg::OnInitDialog()
 {
 	CDialog::OnInitDialog();
@@ -44,7 +40,7 @@ BOOL CServerNewsDlg::OnInitDialog()
 	return TRUE;
 }
 
-// .text:00413620
+
 void CServerNewsDlg::OnOK()
 {
 	wchar_t Text[NewsTextBytes];
@@ -57,7 +53,7 @@ void CServerNewsDlg::OnOK()
 	CDialog::OnOK();
 }
 
-// .text:00413780
+
 void ApplyServerNews()
 {
 	LockServer();

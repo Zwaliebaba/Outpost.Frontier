@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // Universe\MissionCreatedSolars.ini (see mission_created_solars.h).
@@ -17,11 +13,11 @@ unsigned char G_bMissionCreatedSolarsLoaded = 0;
 
 void LoadMissionCreatedSolars()
 {
-    // FUN_00476c40.
+    // .
     if (G_bMissionCreatedSolarsLoaded != 0)
         return;
 
-    // 00476c71..00476c86: the latch first, then the path against no file system.
+    // the latch first, then the path against no file system.
     char Path[0x104];
     G_bMissionCreatedSolarsLoaded = 1;
     GetFileSysPath(Path, "Universe\\MissionCreatedSolars.ini", nullptr);
@@ -38,7 +34,7 @@ void LoadMissionCreatedSolars()
         if (!Reader.is_header("MissionCreatedSolar"))
             continue;
 
-        // 00476cec..00476cf7: the three "seen" flags cleared per section.
+        // the three "seen" flags cleared per section.
         bool bHasBase = false;
         bool bHasInfo = false;
         bool bHasPos = false;
@@ -62,7 +58,7 @@ void LoadMissionCreatedSolars()
                 bHasPos = true;
             }
 
-            // 00476dc1..00476e13: all three seen -> push the record, start over.
+            // all three seen -> push the record, start over.
             if (bHasBase && bHasInfo && bHasPos)
             {
                 FMissionCreatedSolar Record;
@@ -71,19 +67,19 @@ void LoadMissionCreatedSolars()
                 Record.Pos[1] = Pos[1];
                 Record.Pos[2] = Pos[2];
                 Record.IdsInfo = IdsInfo;
-                G_MissionCreatedSolars.push_back(Record); // FUN_00477510(end, 1, &Record)
+                G_MissionCreatedSolars.push_back(Record); // (end, 1, &Record)
                 bHasBase = false;
                 bHasInfo = false;
                 bHasPos = false;
             }
         }
     }
-    // 00476e3d..00476fc4: the reader's destructor (inlined in retail).
+    // the reader's destructor (inlined in baseline).
 }
 
 bool FindMissionCreatedSolar(unsigned BaseId, float* OutPos, int* OutIdsInfo)
 {
-    // FUN_00476fe0.
+    // .
     LoadMissionCreatedSolars();
 
     int const Count = static_cast<int>(G_MissionCreatedSolars.size());

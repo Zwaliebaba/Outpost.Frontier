@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -14,10 +10,10 @@
 struct IVP_U_Matrix3;
 struct IVP_U_Matrix;
 
-// Precision convention for this file (retail is VC6 x87 code): a value retail keeps on the
-// x87 stack is `double` here, a value retail spills with FSTP dword is `float`. Sums are
-// written in retail's evaluation order (it changes the rounding). Every function below
-// names the retail address it ports.
+// Precision convention for this file (baseline is VC6 x87 code): a value baseline keeps on the
+// x87 stack is `double` here, a value baseline spills with FSTP dword is `float`. Sums are
+// written in baseline's evaluation order (it changes the rounding). Every function below
+// names the baseline address it ports.
 
 // 16-byte 3D point/vector (4th float used for hesse distance or padding)
 struct IVP_U_Point
@@ -41,7 +37,7 @@ struct IVP_U_Point
         k[2] = _z;
     }
 
-    // FUN_0628bdf0: copies k[0..2].
+    // copies k[0..2].
     void set(const IVP_U_Point *p)
     {
         k[0] = p->k[0];
@@ -77,10 +73,10 @@ struct IVP_U_Point
 
     // No float cross product / quad_length members here (cmn-ivp3g
     // 2026-10-09): the float-per-step versions that lived here were port-only
-    // lookalikes. Retail's cross product is FUN_0628bed0 =
+    // lookalikes. baseline's cross product is the routine =
     // IVP_CalcCrossProduct below (x87 products, one rounding per component).
 
-    // FUN_06347e60 (.text:06347e60-06347e80), thiscall, no arguments.
+    // (module storage-06347e80), thiscall, no arguments.
     // sqrt((x*x + y*y) + z*z); the result is returned on the x87 stack unrounded.
     double real_length() const
     {
@@ -90,10 +86,10 @@ struct IVP_U_Point
         return sqrt((X * X + Y * Y) + Z * Z);
     }
 
-    // FUN_06347e90 (.text:06347e90-06347ee6), thiscall, no arguments.
-    // q = (x*x + y*y) + z*z stays on the stack; FCOM 1e-10f (DAT_063a53d8); TEST AH,0x1;
+    // (module storage-06347ee6), thiscall, no arguments.
+    // q = (x*x + y*y) + z*z stays on the stack; FCOM 1e-10f (the field); TEST AH,0x1;
     // JE -> q >= eps normalises. Otherwise (less, or unordered) the vector is left alone and
-    // 0.0 (DAT_063a53d4) is returned. inv = 1.0 / sqrt(q) is extended, every component is
+    // 0.0 (the field) is returned. inv = 1.0 / sqrt(q) is extended, every component is
     // float(inv * c), and the return value is q * inv (FMULP), unrounded.
     double real_length_plus_normize()
     {
@@ -110,8 +106,8 @@ struct IVP_U_Point
         return QuadLength * InvLength;
     }
 
-    // FUN_06347ef0 (.text:06347ef0-06347f41). |v|^2 = (x*x + y*y) + z*z stays on the x87
-    // stack (double here); FCOM DAT_063a53d8 (1e-10f); TEST AH,0x1; JZ -> normalise when
+    // (module storage-06347f41). |v|^2 = (x*x + y*y) + z*z stays on the x87
+    // stack (double here); FCOM the field (1e-10f); TEST AH,0x1; JZ -> normalise when
     // |v|^2 >= 1e-10, otherwise (smaller, or unordered) leave v untouched and return 0.
     // inv = 1.0 / sqrt(|v|^2) is kept extended, each component is float(inv * c). Returns 1.
     int normize()
@@ -127,7 +123,7 @@ struct IVP_U_Point
         return 1;
     }
 
-    // FUN_06347e00 (.text:06347e00-06347e52), thiscall, RET 0xc: this = p1 * (1 - t) + p2 * t.
+    // (module storage-06347e52), thiscall, RET 0xc: this = p1 * (1 - t) + p2 * t.
     // s = 1.0 - t is extended. x and y are summed on the stack (float only at the FSTP), z is
     // float(float(s * p1.z) + float(t * p2.z)) -- both z products are spilled as floats first.
     void set_interpolate(const IVP_U_Point *p1, const IVP_U_Point *p2, float t)
@@ -142,7 +138,7 @@ struct IVP_U_Point
         k[2] = (float)((double)(Z2) + Z1);
     }
 
-    // FUN_06347f50 (.text:06347f50-06347f94), thiscall (v, dir), RET 8: this = v - dot(v, dir) * dir.
+    // (module storage-06347f94), thiscall (v, dir), RET 8: this = v - dot(v, dir) * dir.
     // n = -((v.x*d.x + d.z*v.z) + v.y*d.y) stays on the stack (FCHS);
     // y = n*d.y + v.y (kept), z = n*d.z + v.z (FSTP float to a temp), x = n*d.x + v.x.
     // All reads precede the first store; the stores go z, x, y.
@@ -158,7 +154,7 @@ struct IVP_U_Point
         k[1] = (float)(Y);
     }
 
-    // FUN_06347fa0 (.text:06347fa0-06348038), thiscall (coeffs = {a, b, c}), RET 4.
+    // (module storage-06348038), thiscall (coeffs = {a, b, c}), RET 4.
     // Output {disc, root0, root1} of a*x^2 + b*x + c = 0.
     //   FLD a; FABS; FCOMP 1e-10f; TEST AH,0x1; JZ quadratic -> |a| >= eps goes quadratic,
     //   smaller or unordered goes linear. Linear: k[0] = 0; |b| < eps (or unordered) ->
@@ -169,7 +165,7 @@ struct IVP_U_Point
     //   spilled as float: k[2] = float((s - b) * inv), k[1] = float((-b - float(s)) * inv).
     void set_quadratic_roots(const IVP_U_Point *coeffs)
     {
-        const double Epsilon = (double)(1e-10f); // DAT_063a53d8
+        const double Epsilon = (double)(1e-10f);
         const float a = coeffs->k[0];
         const float b = coeffs->k[1];
         const float c = coeffs->k[2];
@@ -202,7 +198,7 @@ struct IVP_U_Point
         k[1] = (float)(Root);
     }
 
-    // FUN_063480a0 (.text:063480a0-06348143), thiscall (p0, p1, p2), RET 0xc: the
+    // (module storage-06348143), thiscall (p0, p1, p2), RET 0xc: the
     // (unnormalised) Hesse plane through three points.
     //   a = p1 - p0 stays on the stack, b = p2 - p0 is spilled as floats.
     //   n = b x a (NOT a x b): n.x = float(b.y*a.z - b.z*a.y), n.y = float(b.z*a.x - b.x*a.z)
@@ -230,9 +226,9 @@ struct IVP_U_Point
         k[3] = (float)(-((Nz * Z0 + (double)(Ny) * Y0) + (double)(Nx) * X0));
     }
 
-    // FUN_06348150 (.text:06348150-0634817b), thiscall: inv = 1.0 / real_length() (FUN_06347e60,
+    // (module storage-0634817b), thiscall: inv = 1.0 / real_length() (the routine,
     // FDIVR on the unrounded return), kept extended; all four components become float(inv * c).
-    // No zero-length guard in retail.
+    // No zero-length guard in baseline.
     void normize_plane()
     {
         const double InvLength = 1.0 / real_length();
@@ -242,7 +238,7 @@ struct IVP_U_Point
         k[3] = (float)(InvLength * k[3]);
     }
 
-    // FUN_06348180 (.text:06348180-063481a2), thiscall (v), RET 4: this = -v. All three
+    // (module storage-063481a2), thiscall (v), RET 4: this = -v. All three
     // components of v are read before the first store; the stores go x, z, y.
     void set_negated(const IVP_U_Point *v)
     {
@@ -253,22 +249,22 @@ struct IVP_U_Point
         k[1] = -y;
     }
 
-    // FUN_063485e0, defined after IVP_CalcCrossProduct below.
+    // , defined after IVP_CalcCrossProduct below.
     void set_arbitrary_perpendicular_to(const IVP_U_Point *v);
 };
 
-// FUN_06347df0 (.text:06347df0-06347dfc), cdecl (float x): FLD x; FSQRT; FDIVR 1.0f
-// (DAT_063a53d0); RET -- 1 / sqrt(x) returned unrounded on the x87 stack. 18 retail
+// (module storage-06347dfc), cdecl (float x): FLD x; FSQRT; FDIVR 1.0f
+// (the field); RET -- 1 / sqrt(x) returned unrounded on the x87 stack. 18 baseline
 // callers (minimize solver, ledge sweep, limiter contact frames).
 inline double IVP_InvSqrtFloat(float Value)
 {
     return 1.0 / sqrt((double)(Value));
 }
 
-// FUN_0628bed0 (thiscall on Out, RET 8): Out = A x B. All six products stay on the x87 stack;
+// (thiscall on Out, RET 8): Out = A x B. All six products stay on the x87 stack;
 // x = (a.y*b.z) - (a.z*b.y), y = (b.x*a.z) - (a.x*b.z), z = (a.x*b.y) - (a.y*b.x), each rounded
 // to float at its store; every operand is read before the first store (alias-safe). The
-// PhySys copy of the same retail function is PhySys_Vec3Cross (common_physys.cpp, on Vector).
+// PhySys copy of the same baseline function is PhySys_Vec3Cross (common_physys.cpp, on Vector).
 inline void IVP_CalcCrossProduct(IVP_U_Point* Out, const IVP_U_Point* A, const IVP_U_Point* B)
 {
     const double Ax = A->k[0], Ay = A->k[1], Az = A->k[2];
@@ -281,12 +277,12 @@ inline void IVP_CalcCrossProduct(IVP_U_Point* Out, const IVP_U_Point* A, const I
     Out->k[2] = (float)(Z);
 }
 
-// FUN_063485e0 (.text:063485e0-0634865a), thiscall (v), RET 4: a vector perpendicular to v.
+// (module storage-0634865a), thiscall (v), RET 4: a vector perpendicular to v.
 //   this.xyz = v.xyz. Largest |component|: max starts at 0.0f, index at 0, and the scan runs
 //   from index 2 down to 0 with FCOM; TEST AH,0x41; JNZ skip -> only a strictly greater |c|
 //   replaces it (ties keep the higher index), the new max is spilled as float.
 //   prev = index - 1, wrapping -1 to 2. this[index] = this[prev], this[prev] = -this[index]
-//   (FMUL -1.0f). Then FUN_0628bed0(this; this, v): this = this x v.
+//   (FMUL -1.0f). Then the routine(this; this, v): this = this x v.
 inline void IVP_U_Point::set_arbitrary_perpendicular_to(const IVP_U_Point *v)
 {
     k[0] = v->k[0];
@@ -323,7 +319,7 @@ struct IVP_U_Matrix3
     IVP_U_Point *get_row(int index) { return &rows[index]; }
     const IVP_U_Point *get_row(int index) const { return &rows[index]; }
 
-    // FUN_06348580 (.text:06348580-063485d6), thiscall (in, out), RET 8: out = M * in.
+    // (module storage-063485d6), thiscall (in, out), RET 8: out = M * in.
     //   y = (r1.x*in.x + r1.z*in.z) + r1.y*in.y stays on the stack,
     //   z = (r2.x*in.x + r2.z*in.z) + r2.y*in.y is spilled as float,
     //   x = (r0.z*in.z + r0.y*in.y) + r0.x*in.x.
@@ -341,7 +337,7 @@ struct IVP_U_Matrix3
         p_out->k[1] = (float)(Ry);
     }
 
-    // FUN_06366010 (.text:06366010-06366066), thiscall (in, out), RET 8: out = M^T * in.
+    // (module storage-06366066), thiscall (in, out), RET 8: out = M^T * in.
     //   y = (r0.y*in.x + r2.y*in.z) + r1.y*in.y stays on the stack,
     //   z = (r0.z*in.x + r2.z*in.z) + r1.z*in.y is spilled as float,
     //   x = (r2.x*in.z + r1.x*in.y) + r0.x*in.x.
@@ -365,7 +361,7 @@ struct IVP_U_Matrix : public IVP_U_Matrix3
 {
     IVP_U_Point vv; // translation offset at +0x30
 
-    // FUN_063481b0 (.text:063481b0-063481cc), thiscall: REP STOSD zeroes all 0x10 dwords
+    // (module storage-063481cc), thiscall: REP STOSD zeroes all 0x10 dwords
     // (the rows' 4th floats and vv.hesse included), then 1.0f at +0x00 / +0x14 / +0x28.
     void init()
     {
@@ -375,7 +371,7 @@ struct IVP_U_Matrix : public IVP_U_Matrix3
         rows[2].k[2] = 1.0f;
     }
 
-    // FUN_063484e0 (.text:063484e0-06348573), thiscall (in, out), RET 8: out = M * in + vv.
+    // (module storage-06348573), thiscall (in, out), RET 8: out = M * in + vv.
     // The compiler spills the x and y partial sums as floats after every term:
     //   tx = float(r00*x); ty = float(r10*x); ez = x*r20 (kept);
     //   tx = float(r01*y + tx); ty = float(r11*y + ty); ez = ez + r21*y;
@@ -402,7 +398,7 @@ struct IVP_U_Matrix : public IVP_U_Matrix3
         p_out->k[1] = (float)(Ry);
     }
 
-    // FUN_06348470 (.text:06348470-063484cf), thiscall (in, out), RET 8: out = M^T * (in - vv).
+    // (module storage-063484cf), thiscall (in, out), RET 8: out = M^T * (in - vv).
     //   d = in - vv stays on the stack (dx, dy, dz);
     //   out.x = (r2.x*dz + r1.x*dy) + r0.x*dx, likewise y and z, each stored as float in
     //   the order x, y, z after d is complete.
@@ -416,17 +412,17 @@ struct IVP_U_Matrix : public IVP_U_Matrix3
         p_out->k[2] = (float)((rows[2].k[2] * Dz + rows[1].k[2] * Dy) + rows[0].k[2] * Dx);
     }
 
-    // FUN_063481d0 (.text:063481d0-063482b9), thiscall (mb, result), RET 8:
+    // (module storage-063482b9), thiscall (mb, result), RET 8:
     // result = this * mb (rotation), result.vv = this.rot * mb.vv + this.vv.
-    //   t = FUN_06348580(this; &mb.vv) into a float local, first.
+    //   t = the routine(this; &mb.vv) into a float local, first.
     //   Per row r of this (a), into a float local c:
     //     c[r][0] = (b00*a.x + b20*a.z) + b10*a.y
     //     c[r][1] = (b21*a.z + b11*a.y) + b01*a.x
     //     c[r][2] = (b22*a.z + b12*a.y) + b02*a.x
-    //   result.rows = c (k[0..2] only: FLD/FSTP for row 0, FUN_0628bdf0 for rows 1 and 2).
+    //   result.rows = c (k[0..2] only: FLD/FSTP for row 0, the routine for rows 1 and 2).
     //   Then (reading this.vv only now): y = t.y + vv.y (kept), z = float(t.z + vv.z),
     //   x = t.x + vv.x; stored z, x, y.
-    // Retail callers pass result == this (06347503) or a separate local (06343da4).
+    // baseline callers pass result == this (06347503) or a separate local (06343da4).
     void mmult4(const IVP_U_Matrix *mb, IVP_U_Matrix *result) const
     {
         IVP_U_Point Translation;
@@ -457,16 +453,16 @@ struct IVP_U_Matrix : public IVP_U_Matrix3
         result->vv.k[1] = (float)(Ty);
     }
 
-    // FUN_063482c0 (.text:063482c0-063483c9), thiscall (mb, result), RET 8:
+    // (module storage-063483c9), thiscall (mb, result), RET 8:
     // result = this^-1 * mb for a rigid this: rotation this^T * mb.rot, translation
     // this^T * (mb.vv - this.vv).
-    //   d = float(mb.vv - vv) (x, y, z); FUN_06366010(this; &d, &result.vv) -- written first.
+    //   d = float(mb.vv - vv) (x, y, z); the routine(this; &d, &result.vv) -- written first.
     //   t = this^T copied into a float local (t[r][c] = rows[c][r]).
     //   Per row r (m = t[r]):
     //     c1 = (b21*m.z + b01*m.x) + b11*m.y            (kept)
     //     c2 = float((b12*m.y + b02*m.x) + b22*m.z)      (temp)
     //     c0 = (b00*m.x + b20*m.z) + b10*m.y
-    //   written back into t[r] as 2, 0, 1; then result.rows = t via FUN_0628bdf0.
+    //   written back into t[r] as 2, 0, 1; then result.rows = t via the routine.
     void mimult4(const IVP_U_Matrix *mb, IVP_U_Matrix *result) const
     {
         IVP_U_Point Delta;
@@ -502,11 +498,11 @@ struct IVP_U_Matrix : public IVP_U_Matrix3
         }
     }
 
-    // FUN_063483d0 (.text:063483d0-06348466), thiscall (source), RET 4: this = source^-1 for
+    // (module storage-06348466), thiscall (source), RET 4: this = source^-1 for
     // a rigid source. The diagonal is copied (00, 11, 22), then each off-diagonal pair
     // (1,0)/(0,1), (2,0)/(0,2), (2,1)/(1,2) is loaded from source and stored swapped (both
     // loads before both stores, so this == source works). Only k[0..2] of each row are
-    // written. Then FUN_06348580(this; &source.vv) into a float local t and vv = -t.
+    // written. Then the routine(this; &source.vv) into a float local t and vv = -t.
     void set_inverse(const IVP_U_Matrix *Source)
     {
         rows[0].k[0] = Source->rows[0].k[0];
@@ -552,7 +548,7 @@ struct IVP_U_Quat
     void set_rot_vector(const IVP_U_Point *v, float dt);
 };
 
-// FUN_06350bc0 (.text:06350bc0-06350c94), thiscall (out), RET 4: rotation matrix of the quat.
+// (module storage-06350c94), thiscall (out), RET 4: rotation matrix of the quat.
 //   x2 = x + x stays on the stack; y2 = y + y and z2 = z + z are spilled as floats.
 //   xx, xy, xz, yy, yz, zz are float products; wx = x2*w, wy = y2*w, wz = z2*w stay extended.
 //   Stores in address order: 00 = 1-(zz+yy), 01 = xy-wz, 02 = wy+xz, 10 = wz+xy,
@@ -585,11 +581,11 @@ inline void IVP_U_Quat::set_matrix(IVP_U_Matrix3 *out_matrix) const
     out_matrix->rows[2].k[2] = (float)(1.0 - ((double)(YY) + XX));
 }
 
-// FUN_06350df0 (.text:06350df0-06350fa3), thiscall (q0, q1, alpha), RET 0xc.
+// (module storage-06350fa3), thiscall (q0, q1, alpha), RET 0xc.
 //   dot = ((q0.z*q1.z + q0.y*q1.y) + q1.w*q0.w) + q0.x*q1.x stays on the stack and is also
 //   spilled as float d. FCOM 0.0; TEST AH,0x41; JNZ negate -> dot <= 0 or unordered:
 //   dot = -dot, sign = -1.0f, d = float(dot); otherwise sign = 1.0f.
-//   FCOMP 0.999f (DAT_063a5630); TEST AH,0x1; JE lerp -> the extended dot >= 0.999 lerps,
+//   FCOMP 0.999f (the field); TEST AH,0x1; JE lerp -> the extended dot >= 0.999 lerps,
 //   less or unordered slerps:
 //     omega = _CIacos(d); inv = float(1 / sqrt(1 - d*d));
 //     s0 = float(sin((1 - alpha) * omega) * inv); s1 = sin(omega * alpha) * inv * sign (kept);
@@ -647,7 +643,7 @@ inline void IVP_U_Quat::set_interpolate_quat(const IVP_U_Quat *q0, const IVP_U_Q
     w = (float)(G * w);
 }
 
-// FUN_06350ca0 (.text:06350ca0-06350de8), thiscall (m), RET 4: quat from a rotation matrix.
+// (module storage-06350de8), thiscall (m), RET 4: quat from a rotation matrix.
 //   tr = (m11 + m00) + m22 extended; FCOM 0.0; TEST AH,0x41; JNZ -> tr <= 0 or unordered
 //   takes the diagonal branch.
 //   tr > 0: s = sqrt(tr + 1.0); w = float(s*0.5); s = 0.5 / s (extended);
@@ -658,7 +654,7 @@ inline void IVP_U_Quat::set_interpolate_quat(const IVP_U_Quat *q0, const IVP_U_Q
 //     FCOM 0.0; TEST AH,0x40; JNZ -> s == 0 or unordered keeps s, otherwise s = 0.5 / s;
 //     q[3] = float((m[k][j] - m[j][k])*s), q[j] = float((m[j][i] + m[i][j])*s),
 //     q[k] = float((m[k][i] + m[i][k])*s); this = q.
-//   Both branches end in FUN_06350fb0 (normize).
+//   Both branches end in the routine (normize).
 inline void IVP_U_Quat::set_from_matrix(const IVP_U_Matrix3 *m)
 {
     const double Trace = ((double)(m->rows[1].k[1]) + m->rows[0].k[0]) + m->rows[2].k[2];
@@ -701,8 +697,8 @@ inline void IVP_U_Quat::set_from_matrix(const IVP_U_Matrix3 *m)
     normize();
 }
 
-// FUN_06350fb0 (.text:06350fb0-0635100d), thiscall.
-//   len = ((x*x + y*y) + z*z) + w*w extended; FCOM 1e-10f (DAT_063a53d8); TEST AH,0x41;
+// (module storage-0635100d), thiscall.
+//   len = ((x*x + y*y) + z*z) + w*w extended; FCOM 1e-10f (the field); TEST AH,0x41;
 //   JNZ return -> len <= eps or unordered leaves the quat alone. inv = 1.0 / sqrt(len)
 //   extended; every component = float(inv * c).
 inline void IVP_U_Quat::normize()
@@ -718,9 +714,9 @@ inline void IVP_U_Quat::normize()
     w = (float)(InvLen * w);
 }
 
-// FUN_06351010 (.text:06351010-063510b7), thiscall.
+// (module storage-063510b7), thiscall.
 //   len = float(((x*x + y*y) + z*z) + w*w) (FSTP dword to the PUSH ECX slot).
-//   |1.0 - len| FCOMP 1e-6f (DAT_063a5610); TEST AH,0x41; JNZ return -> not greater or
+//   |1.0 - len| FCOMP 1e-6f (the field); TEST AH,0x41; JNZ return -> not greater or
 //   unordered leaves the quat alone.
 //   f = 1.5 - len*0.5 extended; do f = f + (1.0 - f*f*len)*0.5 while |1.0 - f*f*len| > 1e-6
 //   (TEST AH,0x41; JE loop); every component = float(f * c).
@@ -745,7 +741,7 @@ inline void IVP_U_Quat::fast_normize()
     w = (float)(F * w);
 }
 
-// FUN_063510c0 (.text:063510c0-063510e0), thiscall (q), RET 4: (-x, -y, -z, w).
+// (module storage-063510e0), thiscall (q), RET 4: (-x, -y, -z, w).
 inline void IVP_U_Quat::set_invert_unit(const IVP_U_Quat *q)
 {
     x = -q->x;
@@ -754,7 +750,7 @@ inline void IVP_U_Quat::set_invert_unit(const IVP_U_Quat *q)
     w = q->w;
 }
 
-// FUN_063510f0 (.text:063510f0-06351183), thiscall (q1, q2), RET 8: this = q1 * q2.
+// (module storage-06351183), thiscall (q1, q2), RET 8: this = q1 * q2.
 //   y = ((q1.w*q2.y + q2.w*q1.y) + q1.z*q2.x) - q2.z*q1.x            (kept)
 //   z = float(((q1.w*q2.z + q1.x*q2.y) + q1.z*q2.w) - q2.x*q1.y)      (temp)
 //   w = float(((q1.w*q2.w - q1.x*q2.x) - q1.y*q2.y) - q1.z*q2.z)      (temp)
@@ -780,8 +776,8 @@ inline void IVP_U_Quat::set_mult_quat(const IVP_U_Quat *q1, const IVP_U_Quat *q2
     y = (float)(Ry);
 }
 
-// FUN_06351190 (.text:06351190-0635124b), thiscall (q1, q2), RET 8: this = q1 * q2^-1.
-// l = FUN_063510c0(q2) in a float local first, then (its own summation order):
+// (module storage-0635124b), thiscall (q1, q2), RET 8: this = q1 * q2^-1.
+// l = the routine(q2) in a float local first, then (its own summation order):
 //   y = ((l.x*q1.z + l.y*q1.w) + l.w*q1.y) - l.z*q1.x                (kept)
 //   z = float(((l.y*q1.x + l.w*q1.z) + l.z*q1.w) - l.x*q1.y)          (temp)
 //   w = float(((l.w*q1.w - l.x*q1.x) - l.y*q1.y) - l.z*q1.z)          (temp)
@@ -809,8 +805,8 @@ inline void IVP_U_Quat::set_mult_inv_quat(const IVP_U_Quat *q1, const IVP_U_Quat
     y = (float)(Ry);
 }
 
-// FUN_06351250 (.text:06351250-0635130b), thiscall (q1, q2), RET 8: this = q1^-1 * q2.
-// l = FUN_063510c0(q1) in a float local first, then:
+// (module storage-0635130b), thiscall (q1, q2), RET 8: this = q1^-1 * q2.
+// l = the routine(q1) in a float local first, then:
 //   y = ((l.z*q2.x + l.y*q2.w) + l.w*q2.y) - l.x*q2.z                (kept)
 //   z = float(((l.w*q2.z + l.z*q2.w) + l.x*q2.y) - l.y*q2.x)          (temp)
 //   w = float(((l.w*q2.w - l.x*q2.x) - l.y*q2.y) - l.z*q2.z)          (temp)
@@ -838,8 +834,8 @@ inline void IVP_U_Quat::set_inv_mult_quat(const IVP_U_Quat *q1, const IVP_U_Quat
     y = (float)(Ry);
 }
 
-// FUN_06350aa0 (.text:06350aa0-06350b17), thiscall (v, dt), RET 8.
-//   h = dt*0.5 extended; per axis s = h*v.c, s = s - ((s*s)*s)*(1/6f) (DAT_063a5624).
+// (module storage-06350b17), thiscall (v, dt), RET 8.
+//   h = dt*0.5 extended; per axis s = h*v.c, s = s - ((s*s)*s)*(1/6f) (the field).
 //   x and y are stored as floats (and re-read as floats); z is stored (FST) but its
 //   extended value is squared: w = float(sqrt(1.0 - ((z*z + y*y) + x*x))).
 inline void IVP_U_Quat::set_fast_rot_vector(const IVP_U_Point *v, float dt)
@@ -864,11 +860,11 @@ inline void IVP_U_Quat::set_fast_rot_vector(const IVP_U_Point *v, float dt)
     w = (float)(sqrt(1.0 - ((S * S + (double)(Sy) * Sy) + (double)(Sx) * Sx)));
 }
 
-// FUN_06350b20 (.text:06350b20-06350bb7), thiscall (v, dt), RET 8.
+// (module storage-06350bb7), thiscall (v, dt), RET 8.
 //   h = dt*0.5 extended; x = float(FSIN(h*v.x)), y = float(FSIN(h*v.y)); z = FSIN(h*v.z) is
 //   stored (FST) and kept extended. len = (x*x + y*y) + z*z with the float x, y.
 //   FCOM 1.0; TEST AH,0x41; JNZ -> len <= 1 or unordered keeps len. Otherwise
-//   f = 0.997f (DAT_063a5628) / sqrt(len); x, y = float(f*c) (also spilled), z = f*z_float
+//   f = 0.997f (the field) / sqrt(len); x, y = float(f*c) (also spilled), z = f*z_float
 //   stored and kept, len = (z*z + y*y) + x*x. w = float(sqrt(1.0 - len)).
 inline void IVP_U_Quat::set_rot_vector(const IVP_U_Point *v, float dt)
 {
@@ -899,10 +895,10 @@ static_assert(sizeof(IVP_U_Matrix3) == 0x30, "IVP_U_Matrix3 size mismatch");
 static_assert(sizeof(IVP_U_Matrix) == 0x40, "IVP_U_Matrix size mismatch");
 static_assert(sizeof(IVP_U_Quat) == 0x10, "IVP_U_Quat size mismatch");
 
-// FUN_06350a60 (.text:06350a60-06350a8f), thiscall (this = In, out), RET 4: per component
+// (module storage-06350a8f), thiscall (this = In, out), RET 4: per component
 // out = float(a + a) with a = _CIasin(in) (FADD ST0,ST0 on the unrounded result), stored
 // x, y, z, each before the next input component is read.
-// CRT asin is the retail result: system msvcrt _CIasin and ucrtbase asin dispatch to the
+// CRT asin is the baseline result: system msvcrt _CIasin and ucrtbase asin dispatch to the
 // same SSE2 core under default MXCSR / masked x87 exceptions (see x87_trig.h).
 inline void IVP_DoubleAsinVector(const IVP_U_Point *In, IVP_U_Point *Out)
 {

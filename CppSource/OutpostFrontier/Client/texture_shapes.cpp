@@ -1,19 +1,15 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "texture_shapes.h"
 
-#include "fl_fx_mesh.h"      // FLFxMeshFactoryCreate (FUN_004f67e0), DAT_00674cdc
+#include "fl_fx_mesh.h"      // FLFxMeshFactoryCreate (the routine), the field
 
-#include "alchemy.h"         // IFxRuntime::BindMeshFactory
+#include "particlefx.h"         // IFxRuntime::BindMeshFactory
 #include "common_ini.h"
-#include "dacom.h"
+#include "neuroncomponents.h"
 #include "globals.h"
 #include "readfile.h"
-#include "DALib.h"
+#include "NeuronRuntime.h"
 #include "render/IRenderPipeline.h"
 #include "render/shading.h"
 
@@ -25,25 +21,25 @@
 #include <string.h>
 #include <vector>
 
-char const kShapeDbHeaderFull[] = "E:\\FL\\Scratch\\Source\\Client\\cmn\\ShapeDB.h";
+char const kShapeDbHeaderFull[] = "Client\\cmn\\ShapeDB.h";
 char const kShapeDbHeaderLower[] = "cmn\\shapedb.h";
 char const kShapeDbHeader[] = "cmn\\ShapeDB.h";
 
 namespace
 {
-    // s_E:\FL\Scratch\Source\Client\cmn\ShapeDB.cpp (005c999c) -- every FDUMP in 004255c0 and
-    // 00425b30 names this file.
-    char const kShapeDbCpp[] = "E:\\FL\\Scratch\\Source\\Client\\cmn\\ShapeDB.cpp";
+    // s_Client\cmn\ShapeDB.cpp (005c999c) -- every FDUMP in 004255c0 and
+    // names this file.
+    char const kShapeDbCpp[] = "Client\\cmn\\ShapeDB.cpp";
 
-    // DAT_005c865c, the empty string retail passes both to INI_Reader::log_link and as the
+    // , the empty string baseline passes both to INI_Reader::log_link and as the
     // "%s" context argument of the loader's messages.
     char const kEmpty[] = "";
 
-    // 004256c0 immediates.
-    float const kZero = 0.0f;     // DAT_005c7474
-    float const kOne = 1.0f;      // DAT_005c75dc
-    float const kHalf = 0.5f;     // DAT_005c75e0 (and the 0x3f000000 stored at 004258f3)
-    float const kUvInset = 0.01f; // DAT_005c99c8
+    // immediates.
+    float const kZero = 0.0f;
+    float const kOne = 1.0f;
+    float const kHalf = 0.5f;     // (and the 0x3f000000 stored at 004258f3)
+    float const kUvInset = 0.01f;
 
     // The {name, CRC32} query TextureLib slot +0x30 (Slot12) reads.
     struct FTexCrcQuery
@@ -52,8 +48,8 @@ namespace
         unsigned long Crc; // +4
     };
 
-    // The `[Data] effect_shapes =` queue, a VC6 vector<CacheString> at DAT_00674f14..20.
-    // CacheString is one pointer; FUN_004f7230 overwrites it with the StringAlloc result, so the
+    // The `[Data] effect_shapes =` queue, a VC6 vector<CacheString> at the field..20.
+    // CacheString is one pointer; the routine overwrites it with the StringAlloc result, so the
     // element is exactly that pointer.
     std::vector<char const*> G_EffectShapeFiles;
 }
@@ -66,45 +62,45 @@ FShapeDB G_UiShapeDB;
 
 // ---------------------------------------------------------------- texture reference
 
-// LAB_004cc950 (the static initializer of the HUD's DAT_00673570): Field04 = -1, Texture = 0.
+// (the static initializer of the HUD's the field): Field04 = -1, Texture = 0.
 FTextureRef::FTextureRef() : Texture(nullptr), Field04(-1)
 {
 }
 
-// FUN_00426f80
+
 FTextureRef::FTextureRef(FTextureRef const& Other)
 {
     Texture = nullptr;
     Texture = Other.Texture;
     if (Texture != nullptr)
-        DALib::TextureLib->CreatePlaybackGroup(Texture, nullptr);
+        NeuronRuntime::TextureLib->CreatePlaybackGroup(Texture, nullptr);
     Field04 = Other.Field04;
 }
 
-// FUN_00426de0 (also inlined as LAB_004cc970 and into the node destructor FUN_00420cb0).
+// (also inlined as the branch and into the node destructor the routine).
 FTextureRef::~FTextureRef()
 {
     if (Texture != nullptr)
     {
-        DALib::TextureLib->ReleaseTextureRecord(Texture);
+        NeuronRuntime::TextureLib->ReleaseTextureRecord(Texture);
         Texture = nullptr;
     }
 }
 
-// -------------------------------------------------------------------- FUN_004255c0
+// -------------------------------------------------------------------- the routine
 
 bool TextureRefLoad(FTextureRef* Ref, char const* Name)
 {
     if (Ref->Texture != nullptr)
     {
-        DALib::TextureLib->ReleaseTextureRecord(Ref->Texture);
+        NeuronRuntime::TextureLib->ReleaseTextureRecord(Ref->Texture);
         Ref->Texture = nullptr;
     }
 
     FTexCrcQuery Query;
     Query.Name = Name;
-    Query.Crc = DACOM_CRC::GetCRC32(Name);
-    if (DALib::TextureLib->FindTextureByCrc(&Query, &Ref->Texture) != GR_OK)
+    Query.Crc = NEURONCOMPONENTS_CRC::GetCRC32(Name);
+    if (NeuronRuntime::TextureLib->FindTextureByCrc(&Query, &Ref->Texture) != GR_OK)
     {
         FDUMP(0x100001, "%s(%d) : *** ERROR: texture (%s) is not defined", kShapeDbCpp, 0x24,
               Name);
@@ -112,7 +108,7 @@ bool TextureRefLoad(FTextureRef* Ref, char const* Name)
     return Ref->Texture != nullptr;
 }
 
-// -------------------------------------------------------------------- FUN_00425640
+// -------------------------------------------------------------------- the routine
 
 void* TexShapeGetGpuHandle(FTextureRef const* Ref, int Frame)
 {
@@ -120,47 +116,47 @@ void* TexShapeGetGpuHandle(FTextureRef const* Ref, int Frame)
         return nullptr;
 
     unsigned long FrameInfo[5];
-    DALib::TextureLib->GetTextureFrame(Ref->Texture, Frame, FrameInfo);
+    NeuronRuntime::TextureLib->GetTextureFrame(Ref->Texture, Frame, FrameInfo);
     return reinterpret_cast<void*>(FrameInfo[0]);
 }
 
-// -------------------------------------------------------------------- FUN_00425680
+// -------------------------------------------------------------------- the routine
 
 void TexShapeSetTexture(FTextureRef* Ref, void* Texture)
 {
     if (Ref->Texture != nullptr)
     {
-        DALib::TextureLib->ReleaseTextureRecord(Ref->Texture);
+        NeuronRuntime::TextureLib->ReleaseTextureRecord(Ref->Texture);
         Ref->Texture = nullptr;
     }
     Ref->Texture = Texture;
     if (Texture != nullptr)
-        DALib::TextureLib->CreatePlaybackGroup(Texture, nullptr);
+        NeuronRuntime::TextureLib->CreatePlaybackGroup(Texture, nullptr);
 }
 
-// -------------------------------------------------------------------- FUN_004256c0
+// -------------------------------------------------------------------- the routine
 
 void TexShapeSetRect(FTexShape* Shape, float X, float Y, float W, float H, float UpperLeftU,
                      float UpperLeftV, float LowerRightU, float LowerRightV)
 {
-    // 004256ca: Slot22(record, frame 0, out5) with no check of either the record or the
-    // result. Retail leaves out5 uninitialised; the port zeroes it so a failed call reads 0.
+    // Slot22(record, frame 0, out5) with no check of either the record or the
+    // result. baseline leaves out5 uninitialised; the port zeroes it so a failed call reads 0.
     unsigned long Frame[5] = {0, 0, 0, 0, 0};
-    DALib::TextureLib->GetTextureFrame(Shape->Texture, 0, Frame);
+    NeuronRuntime::TextureLib->GetTextureFrame(Shape->Texture, 0, Frame);
 
-    // 004256e7: Pipeline slot +0xcc with the handle and three out pointers; the two sizes are
+    // Pipeline slot +0xcc with the handle and three out pointers; the two sizes are
     // zeroed first (004256d6/004256da) and the result is not checked.
     unsigned int TexW = 0;
     unsigned int TexH = 0;
     int Levels = 0;
-    DALib::Pipeline
+    NeuronRuntime::Pipeline
         ->GetTextureDim(reinterpret_cast<void*>(Frame[0]), &TexW, &TexH, &Levels);
 
     // FILD of the {size, 0} qword: the sizes are unsigned.
     float const FTexW = static_cast<float>(TexW);
     float const FTexH = static_cast<float>(TexH);
 
-    // 0042570b: a rect given in 0..1 is normalised, so scale it up to pixels. The x87 gate is
+    // a rect given in 0..1 is normalised, so scale it up to pixels. The x87 gate is
     // `TEST AH,0x41` + `JP`, i.e. the multiply runs only when both components are <= 1.
     if (X <= kOne && Y <= kOne)
     {
@@ -168,7 +164,7 @@ void TexShapeSetRect(FTexShape* Shape, float X, float Y, float W, float H, float
         Y = FTexH * Y;
     }
 
-    // 0042575d: a zero extent means "the whole texture"; a fractional one is normalised.
+    // a zero extent means "the whole texture"; a fractional one is normalised.
     if (W == kZero || H == kZero)
     {
         W = FTexW;
@@ -180,7 +176,7 @@ void TexShapeSetRect(FTexShape* Shape, float X, float Y, float W, float H, float
         H = FTexH * H;
     }
 
-    // 004257e7: the UV rect, inset by 0.01 of a pixel on every edge so neighbouring shapes in
+    // the UV rect, inset by 0.01 of a pixel on every edge so neighbouring shapes in
     // an atlas never bleed into each other.
     float const Right = X + W;
     float const Bottom = Y + H;
@@ -191,7 +187,7 @@ void TexShapeSetRect(FTexShape* Shape, float X, float Y, float W, float H, float
     Shape->PixelW = static_cast<int>(W);
     Shape->PixelH = static_cast<int>(H);
 
-    // 00425864: a negative corner means "take it from the rect".
+    // a negative corner means "take it from the rect".
     if (UpperLeftU < kZero)
         UpperLeftU = X;
     if (UpperLeftV < kZero)
@@ -201,7 +197,7 @@ void TexShapeSetRect(FTexShape* Shape, float X, float Y, float W, float H, float
     if (LowerRightV < kZero)
         LowerRightV = Bottom;
 
-    // 004258cb: an odd pixel width puts the centre on a half-pixel. Retail applies the
+    // an odd pixel width puts the centre on a half-pixel. baseline applies the
     // correction to U only -- V gets no matching term (0042598c).
     float const SpanU = LowerRightU - UpperLeftU;
     float const SpanV = LowerRightV - UpperLeftV;
@@ -210,7 +206,7 @@ void TexShapeSetRect(FTexShape* Shape, float X, float Y, float W, float H, float
         OddSpan = ((OddSpan - 1) | static_cast<int>(0xfffffffe)) + 1;
     float const HalfPixelU = (OddSpan == 1) ? kHalf : kZero;
 
-    // 0042590b: the divisors fall back to 1 so a degenerate rect cannot divide by zero.
+    // the divisors fall back to 1 so a degenerate rect cannot divide by zero.
     float const DivW = (W == kZero) ? kOne : W;
     float const DivH = (H == kZero) ? kOne : H;
     float const HalfW = DivW * kHalf;
@@ -245,12 +241,12 @@ unsigned FShapeDB::Count() const
     return static_cast<unsigned>(Shapes.size());
 }
 
-// -------------------------------------------------------------------- FUN_00426e20
+// -------------------------------------------------------------------- the routine
 
 FTexShape* FShapeDB::FindOrCreate(TString<24> const& Key)
 {
-    // Retail copies Key and a value whose record is null into a pair (FUN_00426f80 and the MOV
-    // chain at 00426e76), inserts it (FUN_00427250), destroys the temporaries and returns
+    // baseline copies Key and a value whose record is null into a pair (the routine and the MOV
+    // chain at 00426e76), inserts it (the routine), destroys the temporaries and returns
     // node + 0x28. Its value is a stack local with only the record cleared; the port's value
     // is FTexShape() -- record null, Field04 -1 (FTextureRef's constructor), the rest zero.
     FShapeMap::value_type Entry(Key, FTexShape());
@@ -284,7 +280,7 @@ FTexShape* FShapeDB::Find(char const* Name, char const* SourceFile)
     return &Hit->second;
 }
 
-// -------------------------------------------------------------------- FUN_00425a20
+// -------------------------------------------------------------------- the routine
 
 void FShapeDB::Clear()
 {
@@ -292,7 +288,7 @@ void FShapeDB::Clear()
     {
         if (It->second.Texture != nullptr)
         {
-            DALib::TextureLib->ReleaseTextureRecord(It->second.Texture);
+            NeuronRuntime::TextureLib->ReleaseTextureRecord(It->second.Texture);
             It->second.Texture = nullptr;
         }
     }
@@ -300,18 +296,18 @@ void FShapeDB::Clear()
     LastFound = nullptr;
 }
 
-// -------------------------------------------------------------------- FUN_00425b30
+// -------------------------------------------------------------------- the routine
 
 int FShapeDB::Load(char const* Path, IFileSystem* BaseDir)
 {
-    // 00425b64: a function-local static vector of the texture groups this call loaded (guard
-    // DAT_00667a1c, storage DAT_00667a0c..18, freed at exit by LAB_00426e00).
+    // a function-local static vector of the texture groups this call loaded (guard
+    // , storage the field..18, freed at exit by the branch).
     static std::vector<int> LoadedGroups;
 
     INI_Reader Reader;
-    ITextureLibrary2* const Library = DALib::TextureLib;
+    ITextureLibrary2* const Library = NeuronRuntime::TextureLib;
 
-    // 00425ba9: generic slot 4 is saved, cleared for the load and restored at the end.
+    // generic slot 4 is saved, cleared for the load and restored at the end.
     unsigned long SavedSlot4 = 0;
     Library->GetGenericSlot(4, &SavedSlot4);
     Library->SetGenericSlot(4, 0);
@@ -346,7 +342,7 @@ int FShapeDB::Load(char const* Path, IFileSystem* BaseDir)
 
         while (Reader.read_header())
         {
-            CurrentShape = nullptr; // 00425c9d, on every header
+            CurrentShape = nullptr; // , on every header
 
             if (Reader.is_header("Texture"))
             {
@@ -358,7 +354,7 @@ int FShapeDB::Load(char const* Path, IFileSystem* BaseDir)
                         bExpectTexture = true;
                         CurrentShape = nullptr;
 
-                        TString<260> Value; // FUN_004271f0
+                        TString<260> Value;
                         Value.Length = 0;
                         Value.Data[0] = '\0';
                         Value = Reader.get_value_string(0);
@@ -367,8 +363,8 @@ int FShapeDB::Load(char const* Path, IFileSystem* BaseDir)
 
                         CurrentFile.Length = CopyBoundedString(CurrentFile.Data, 0x104, Value.Data);
 
-                        // 00425d64: a DOS "FileSystem" descriptor for the archive, created
-                        // under DALib::Data.
+                        // a DOS "FileSystem" descriptor for the archive, created
+                        // under NeuronRuntime::Data.
                         IFileSystem* Archive = nullptr;
                         FFileSystemDesc Desc;
                         memset(&Desc, 0, sizeof(Desc));
@@ -380,11 +376,11 @@ int FShapeDB::Load(char const* Path, IFileSystem* BaseDir)
                         Desc.Creation = 3;
                         Desc.Flags = 0x8000080u;
                         Desc.Field30 = 0xffffffffu;
-                        if (DALib::Data->CreateInstance(reinterpret_cast<AGGDESC*>(&Desc),
+                        if (NeuronRuntime::Data->CreateInstance(reinterpret_cast<AGGDESC*>(&Desc),
                                                         reinterpret_cast<void**>(&Archive)) == GR_OK)
                         {
-                            // 00425e0f: slot +0x14 loads the archive and names its group; the
-                            // group is queued whatever the result. Retail's group local is
+                            // slot +0x14 loads the archive and names its group; the
+                            // group is queued whatever the result. baseline's group local is
                             // uninitialised; the port starts it at -1.
                             int Group = -1;
                             Library->LoadTextureGroup(Archive, &Group);
@@ -424,7 +420,7 @@ int FShapeDB::Load(char const* Path, IFileSystem* BaseDir)
                         void* Texture = nullptr;
                         FTexCrcQuery Query;
                         Query.Name = Name.Data;
-                        Query.Crc = DACOM_CRC::GetCRC32(Name.Data);
+                        Query.Crc = NEURONCOMPONENTS_CRC::GetCRC32(Name.Data);
                         if (Library->FindTextureByCrc(&Query, &Texture) != GR_OK)
                         {
                             Reader.log_link(kEmpty);
@@ -433,7 +429,7 @@ int FShapeDB::Load(char const* Path, IFileSystem* BaseDir)
                         }
                         else
                         {
-                            // 004264d6: Slot12's reference is dropped at once; shapes take
+                            // Slot12's reference is dropped at once; shapes take
                             // their own through slot +0x34.
                             Library->ReleaseTextureRecord(Texture);
                         }
@@ -458,7 +454,7 @@ int FShapeDB::Load(char const* Path, IFileSystem* BaseDir)
                         if (Value != nullptr)
                             ShapeName.Length = CopyBoundedString(ShapeName.Data, 0x104, Value);
 
-                        TString<24> Key; // FUN_004205c0
+                        TString<24> Key;
                         Key = ShapeName.Data;
                         FTexShape* const Shape = FindOrCreate(Key);
                         if (Shape->Texture != nullptr)
@@ -492,7 +488,7 @@ int FShapeDB::Load(char const* Path, IFileSystem* BaseDir)
                         void* Texture = nullptr;
                         FTexCrcQuery Query;
                         Query.Name = Value;
-                        Query.Crc = DACOM_CRC::GetCRC32(Value);
+                        Query.Crc = NEURONCOMPONENTS_CRC::GetCRC32(Value);
                         if (Library->FindTextureByCrc(&Query, &Texture) != GR_OK)
                         {
                             Reader.log_link(kEmpty);
@@ -542,8 +538,8 @@ int FShapeDB::Load(char const* Path, IFileSystem* BaseDir)
                         }
                         else
                         {
-                            // 00426222: the first four are required, the last four read 0.0
-                            // (DAT_005c8ba8) when empty.
+                            // the first four are required, the last four read 0.0
+                            // (the field) when empty.
                             float Values[8];
                             for (unsigned Index = 0; Index < 4; ++Index)
                                 Values[Index] = Reader.get_value_float(Index);
@@ -559,7 +555,7 @@ int FShapeDB::Load(char const* Path, IFileSystem* BaseDir)
                     }
                     else
                     {
-                        // 00426355 -- the message says [Shape] even inside [Texture].
+                        // the message says [Shape] even inside [Texture].
                         char Message[0x200];
                         sprintf(Message, "unknown [Shape] parameter %s", Reader.get_name_ptr());
                         Reader.log_link(Message);
@@ -620,7 +616,7 @@ int FShapeDB::Load(char const* Path, IFileSystem* BaseDir)
                     }
                     else if (Reader.is_value("lower_right"))
                     {
-                        // 00426699 / 004266b2: both components + 1.0 (DAT_005c89b8), stored to
+                        // / 004266b2: both components + 1.0 (the field), stored to
                         // the lower-right pair ([ESP+0x2c] / [ESP+0x40]).
                         LowerRightU = Reader.get_value_float(0) + 1.f;
                         LowerRightV = Reader.get_value_float(1) + 1.f;
@@ -657,8 +653,8 @@ int FShapeDB::Load(char const* Path, IFileSystem* BaseDir)
                 }
                 else
                 {
-                    // 0042687a: key via FUN_00427020, a {record 0, Field04 -1} value, map insert
-                    // (FUN_00427160 + FUN_00427080) -- the same find-or-insert as FUN_00426e20.
+                    // key via the routine, a {record 0, Field04 -1} value, map insert
+                    // (the routine + the routine) -- the same find-or-insert as the routine.
                     TString<24> Key;
                     Key = ShapeName.Data;
                     FTexShape* const Shape = FindOrCreate(Key);
@@ -670,7 +666,7 @@ int FShapeDB::Load(char const* Path, IFileSystem* BaseDir)
                     }
                     else
                     {
-                        // 00426925: the record goes in directly and takes its reference through
+                        // the record goes in directly and takes its reference through
                         // slot +0x34, then a full-texture rect, then the section's own rect.
                         Shape->Texture = CurrentTexture;
                         Library->CreatePlaybackGroup(CurrentTexture, nullptr);
@@ -684,7 +680,7 @@ int FShapeDB::Load(char const* Path, IFileSystem* BaseDir)
         }
     }
 
-    // 00426a01: every group this call loaded is garbage-collected, the list emptied, slot 4
+    // every group this call loaded is garbage-collected, the list emptied, slot 4
     // restored; the result is the map size.
     for (std::vector<int>::iterator It = LoadedGroups.begin(); It != LoadedGroups.end(); ++It)
         Library->GarbageCollect(*It);
@@ -696,7 +692,7 @@ int FShapeDB::Load(char const* Path, IFileSystem* BaseDir)
 // ---------------------------------------------------------------- in-place storage
 
 static_assert(sizeof(FShapeDB) <= kShapeDbStorageBytes,
-              "FShapeDB must fit the 0x18 bytes retail's owners reserve for it");
+              "FShapeDB must fit the 0x18 bytes baseline's owners reserve for it");
 
 FShapeDB* ShapeDBConstructAt(void* Storage)
 {
@@ -713,23 +709,23 @@ FShapeDB* ShapeDBAt(void* Storage)
     return static_cast<FShapeDB*>(Storage);
 }
 
-// -------------------------------------------------------------------- FUN_004f7230
+// -------------------------------------------------------------------- the routine
 
 void AddEffectShapesFile(char const* Path)
 {
     G_EffectShapeFiles.push_back(StringAlloc(Path, true));
 }
 
-// -------------------------------------------------------------------- FUN_004f73b0
+// -------------------------------------------------------------------- the routine
 
 void ClearEffectShapesFiles()
 {
-    // `DAT_00674f1c = DAT_00674f18`: the vector's end is set back to its begin. The queued
+    // `the field = the field`: the vector's end is set back to its begin. The queued
     // StringAlloc'd paths are not freed, and the capacity stays.
     G_EffectShapeFiles.clear();
 }
 
-// -------------------------------------------------------------------- FUN_004f70d0
+// -------------------------------------------------------------------- the routine
 
 int WarmUpEffectShapes()
 {
@@ -740,13 +736,13 @@ int WarmUpEffectShapes()
         Result = G_EffectShapeDB.Load(*It, nullptr);
     }
 
-    // 0x004f7100..0x004f7136: with an FxRuntime and no factory yet (DAT_00674cdc), FUN_004f67e0
+    // with an FxRuntime and no factory yet (the field), the routine
     // builds the FLFxMeshFactory; on its true result the pointer (null when its allocation
     // failed) goes to IFxRuntime slot +0x24 BindMeshFactory.
-    if (DALib::FxRuntime != nullptr && G_FLFxMeshFactory == nullptr &&
+    if (NeuronRuntime::FxRuntime != nullptr && G_FLFxMeshFactory == nullptr &&
         FLFxMeshFactoryCreate(&G_FLFxMeshFactory))
     {
-        DALib::FxRuntime->BindMeshFactory(G_FLFxMeshFactory);
+        NeuronRuntime::FxRuntime->BindMeshFactory(G_FLFxMeshFactory);
     }
     return Result;
 }

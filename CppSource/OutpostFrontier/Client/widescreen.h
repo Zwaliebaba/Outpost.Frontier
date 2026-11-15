@@ -1,13 +1,9 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
-// Port-only widescreen support (OUTPOST_FRONTIER_WIDESCREEN_SUPPORT). Retail ships 4:3 only: the
-// options page lists 4:3 modes (FUN_004af120 tests Width * 3 == Height * 4) and every camera
+// Port-only widescreen support (OUTPOST_FRONTIER_WIDESCREEN_SUPPORT). baseline ships 4:3 only: the
+// options page lists 4:3 modes (the routine tests Width * 3 == Height * 4) and every camera
 // keeps its horizontal half-angle fixed while the viewport aspect changes, so a wider surface
 // loses picture at the top and bottom ("Vert-"). With the define the cameras go "Hor+": the
 // stored horizontal half-angle (+0x98 on the space camera, +0x14 on the room camera) keeps
@@ -15,7 +11,7 @@
 // full surface width widens its frustum by the factor below. The vertical angle, and with it
 // the whole Win3D interface, stays what a 4:3 screen of the same height shows; the extra width
 // is added at the sides; the HUD's corner windows are drawn out at the edges
-// (hud_widescreen.h). See docs/re/deviations.md (WIDESCREEN).
+// (hud_widescreen.h). See implementation notes (WIDESCREEN).
 
 #ifdef OUTPOST_FRONTIER_WIDESCREEN_SUPPORT
 
@@ -27,7 +23,7 @@
 // The Hor+ factor for a viewport ViewportWidth pixels wide: the surface aspect over 4:3 when the
 // viewport spans the full surface width and the surface is wider than 4:3, otherwise 1. A
 // letterboxed viewport keeps the full width, so the bars crop height and never change the
-// horizontal angle; a sub-viewport (HUD target view, comm window, nav map) keeps retail's maths.
+// horizontal angle; a sub-viewport (HUD target view, comm window, nav map) keeps baseline's maths.
 inline double WidescreenHorPlusScale(long long ViewportWidth)
 {
     long long const SurfaceWidth = static_cast<long long>(G_RenderSurfaceWidth);

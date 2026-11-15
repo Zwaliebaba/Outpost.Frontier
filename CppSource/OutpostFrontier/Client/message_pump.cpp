@@ -1,24 +1,20 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "globals.h"
 #include "input_manager.h"
-#include "menu_keymap_config.h" // KeyMapRouteInputMessage (FUN_00577850)
+#include "menu_keymap_config.h" // KeyMapRouteInputMessage (the routine)
 
 #include "imeui.h"
 
 #include <windows.h>
 
-// FUN_005b0b60 (.text:005b0b60-005b0c20), cdecl(int* ExitCode): drain the queue with
+// (module storage-005b0c20), cdecl(int* ExitCode): drain the queue with
 // PeekMessage(PM_NOREMOVE) + GetMessage. A hot key IMEFocus claims, or a message the menu
-// accelerator router (FUN_00577850) consumes, skips Translate/Dispatch. WM_QUIT stores its
+// accelerator router (the routine) consumes, skips Translate/Dispatch. WM_QUIT stores its
 // wParam through ExitCode (no null check, 0x005b0c18) and returns false.
 bool PumpMessages(int* exit_code)
 {
-    // 0x005b0b69: FUN_0041ef20 drains the DirectInput mouse queue first.
+    // the routine drains the DirectInput mouse queue first.
     MouseDispatchEvents();
     MSG Msg;
     while (PeekMessageA(&Msg, nullptr, 0, 0, PM_NOREMOVE))

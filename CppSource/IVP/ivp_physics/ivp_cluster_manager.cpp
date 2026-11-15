@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "ivp_cluster_manager.h"
@@ -10,8 +6,8 @@
 #include "ivp_ov_element.h"
 #include "ivp_listener.h"
 
-// FUN_0635d4d0 (IVP_VHash_HashPointer, declared in ivp_utility/ivp_vhash.h via
-// ivp_cluster_manager.h): CRC-32 (table DAT_063edcdc) over the four bytes of
+// (IVP_VHash_HashPointer, declared in ivp_utility/ivp_vhash.h via
+// ivp_cluster_manager.h): CRC-32 (table the field) over the four bytes of
 // the key, OR 0x80000000.
 
 namespace
@@ -27,10 +23,10 @@ namespace
 
     unsigned HashObjectKey(IVP_Real_Object* Object)
     {
-        return IVP_VHash_HashPointer((unsigned)Object); // FUN_0635d4d0
+        return IVP_VHash_HashPointer((unsigned)Object);
     }
 
-    // 0635d510 / 0635d450 (.text:0635d534-0635d560 / 0635d474-0635d4a0): from
+    // / 0635d450 (module storage-0635d560 / 0635d474-0635d4a0): from
     // index SizeMm down to 0, every stored table is destroyed (06348be0) and
     // freed (06391d5a).
     template <class TTable>
@@ -52,14 +48,14 @@ namespace
 // The callback-table hashes.
 // ============================================================================
 
-// FUN_0635d510 (.text:0635d510-0635d582), reached through the deleting dtor
-// 0634ae50 (slot 1 of 063a54c0). ~IVP_VHash (063522f0) runs after this body.
+// (module storage-0635d582), reached through the deleting dtor
+// (slot 1 of 063a54c0). ~IVP_VHash (063522f0) runs after this body.
 IVP_Object_Callback_Table_Hash::~IVP_Object_Callback_Table_Hash()
 {
     DeleteAllTables<IVP_Object_Callback_Table>(this);
 }
 
-// LAB_0635d590 (.text:0635d590-0635d5a1, RET 8): NEG / SBB / INC -> 1 when the
+// (module storage-0635d5a1, RET 8): NEG / SBB / INC -> 1 when the
 // two keys are equal, else 0.
 int IVP_Object_Callback_Table_Hash::Compare(void* Elem0, void* Elem1)
 {
@@ -67,7 +63,7 @@ int IVP_Object_Callback_Table_Hash::Compare(void* Elem0, void* Elem1)
            static_cast<IVP_Object_Callback_Table*>(Elem1)->real_object ? 1 : 0;
 }
 
-// FUN_0634aef0 (.text:0634aef0-0634af5e, RET 4): the probe holds only the key;
+// (module storage-0634af5e, RET 4): the probe holds only the key;
 // its vector stays empty, so its destructor (06348be0 at :0634af48) frees nothing.
 IVP_Object_Callback_Table* IVP_Object_Callback_Table_Hash::find_table(IVP_Real_Object* Object)
 {
@@ -76,7 +72,7 @@ IVP_Object_Callback_Table* IVP_Object_Callback_Table_Hash::find_table(IVP_Real_O
     return static_cast<IVP_Object_Callback_Table*>(FindElem(&Probe, HashObjectKey(Object)));
 }
 
-// FUN_0634b350 (.text:0634b350-0634b3c?, RET 4): the same probe through the
+// (module storage-0634b3c?, RET 4): the same probe through the
 // removing lookup 06352480.
 IVP_Object_Callback_Table* IVP_Object_Callback_Table_Hash::remove_table(IVP_Real_Object* Object)
 {
@@ -85,21 +81,21 @@ IVP_Object_Callback_Table* IVP_Object_Callback_Table_Hash::remove_table(IVP_Real
     return static_cast<IVP_Object_Callback_Table*>(RemoveElem(&Probe, HashObjectKey(Object)));
 }
 
-// FUN_0635d450 (.text:0635d450-0635d4c2), through the deleting dtor 0634ae70
+// (module storage-0635d4c2), through the deleting dtor 0634ae70
 // (slot 1 of 063a54b8).
 IVP_Collision_Callback_Table_Hash::~IVP_Collision_Callback_Table_Hash()
 {
     DeleteAllTables<IVP_Collision_Callback_Table>(this);
 }
 
-// LAB_0635d590, shared with the object table hash (both vtables point at it).
+// , shared with the object table hash (both vtables point at it).
 int IVP_Collision_Callback_Table_Hash::Compare(void* Elem0, void* Elem1)
 {
     return static_cast<IVP_Collision_Callback_Table*>(Elem0)->real_object ==
            static_cast<IVP_Collision_Callback_Table*>(Elem1)->real_object ? 1 : 0;
 }
 
-// FUN_0634aef0 (one body for both hashes; ECX is the hash).
+// (one body for both hashes; ECX is the hash).
 IVP_Collision_Callback_Table* IVP_Collision_Callback_Table_Hash::find_table(IVP_Real_Object* Object)
 {
     IVP_Collision_Callback_Table Probe;
@@ -107,7 +103,7 @@ IVP_Collision_Callback_Table* IVP_Collision_Callback_Table_Hash::find_table(IVP_
     return static_cast<IVP_Collision_Callback_Table*>(FindElem(&Probe, HashObjectKey(Object)));
 }
 
-// FUN_0634b350.
+// .
 IVP_Collision_Callback_Table* IVP_Collision_Callback_Table_Hash::remove_table(IVP_Real_Object* Object)
 {
     IVP_Collision_Callback_Table Probe;
@@ -119,7 +115,7 @@ IVP_Collision_Callback_Table* IVP_Collision_Callback_Table_Hash::remove_table(IV
 // IVP_Cluster_Manager
 // ============================================================================
 
-// FUN_0634ad70. `REP STOSD` zeroes all six dwords (:0634ad89-:0634ad92), +0x04
+// . `REP STOSD` zeroes all six dwords (:0634ad89-:0634ad92), +0x04
 // is stored before any allocation (:0634ad9a), then the root cluster
 // (operator new(0x20) + 06345760), the object table hash (operator new(0x10) +
 // IVP_VHash(0x10) + vtbl 063a54c0) and the collision table hash (vtbl 063a54b8).
@@ -137,7 +133,7 @@ IVP_Cluster_Manager::IVP_Cluster_Manager(IVP_Environment* Environment)
     collision_callback_hash = new IVP_Collision_Callback_Table_Hash(0x10);
 }
 
-// FUN_0634b300: each member is deleted through its slot-0 / slot-1 deleting
+// each member is deleted through its slot-0 / slot-1 deleting
 // dtor when set and nulled either way.
 IVP_Cluster_Manager::~IVP_Cluster_Manager()
 {
@@ -160,13 +156,13 @@ IVP_Cluster_Manager::~IVP_Cluster_Manager()
     collision_callback_hash = nullptr;
 }
 
-// FUN_0634b3d0 (.text:0634b3d0-0634b3d3): `INC [ECX+0x14]; RET 4`.
+// (module storage-0634b3d3): `INC [ECX+0x14]; RET 4`.
 void IVP_Cluster_Manager::add_object(IVP_Real_Object* /*Object*/)
 {
     ++number_of_real_objects;
 }
 
-// FUN_0634b3e0.
+// .
 void IVP_Cluster_Manager::remove_object(IVP_Real_Object* Object)
 {
     // :0634b3e4-:0634b3f1 -- the count drops before the first lookup.
@@ -177,7 +173,7 @@ void IVP_Cluster_Manager::remove_object(IVP_Real_Object* Object)
     if (ObjTable != nullptr)
     {
         obj_callback_hash->remove_table(Object);
-        delete ObjTable; // 06348be0, then 06391d5a
+        delete ObjTable; // , then 06391d5a
     }
 
     // :0634b418-:0634b43d
@@ -209,7 +205,7 @@ void IVP_Cluster_Manager::remove_object(IVP_Real_Object* Object)
 }
 
 // ============================================================================
-// FUN_06345e40 (.text:06345e40-06345e56).
+// (module storage-06345e56).
 // ============================================================================
 int32_t IVP_Real_Object_Get_Collision_Check_Count(const IVP_Real_Object* Object)
 {
@@ -222,7 +218,7 @@ int32_t IVP_Real_Object_Get_Collision_Check_Count(const IVP_Real_Object* Object)
 }
 
 // ============================================================================
-// FUN_0634b1a0 (.text:0634b1a0-0634b222, RET 4). Control flow transcribed label by
+// (module storage-0634b222, RET 4). Control flow transcribed label by
 // label; `Current` is EAX, `Next` is ECX. The +0x1c read is IVP_Cluster::
 // first_object (only done on objects whose type is 1, or on the root).
 // ============================================================================
@@ -238,7 +234,7 @@ IVP_Object* IVP_Cluster_Manager::get_next_real_object_in_cluster_tree(IVP_Object
     IVP_Object* Next;
     for (;;)
     {
-        // LAB_0634b1b5
+
         if (Current == nullptr)
         {
             Current = get_root_cluster()->first_object; // +0x1c
@@ -253,7 +249,7 @@ IVP_Object* IVP_Cluster_Manager::get_next_real_object_in_cluster_tree(IVP_Object
             Next = Current->next_object; // +0x08
         }
 
-        // LAB_0634b1ce -- descend through clusters to the first non-cluster child.
+        // descend through clusters to the first non-cluster child.
         if (Current->object_type == GIvpObjectTypeCluster)
         {
             for (;;)
@@ -270,7 +266,7 @@ IVP_Object* IVP_Cluster_Manager::get_next_real_object_in_cluster_tree(IVP_Object
             }
         }
 
-        // LAB_0634b1e1 -- no sibling: climb until an ancestor has one.
+        // no sibling: climb until an ancestor has one.
         if (Next == nullptr)
         {
             for (;;)
@@ -290,7 +286,7 @@ IVP_Object* IVP_Cluster_Manager::get_next_real_object_in_cluster_tree(IVP_Object
                         return nullptr;
                     }
                 }
-                // LAB_0634b200
+
                 Next = Current->next_object;
                 if (Next != nullptr)
                 {
@@ -299,7 +295,7 @@ IVP_Object* IVP_Cluster_Manager::get_next_real_object_in_cluster_tree(IVP_Object
             }
         }
 
-        // LAB_0634b207
+
         Current = Next;
         if (Next->object_type != GIvpObjectTypeCluster)
         {
@@ -313,7 +309,7 @@ IVP_Object* IVP_Cluster_Manager::get_next_real_object_in_cluster_tree(IVP_Object
 }
 
 // ============================================================================
-// FUN_0634b230 (.text:0634b230-0634b2f4, RET 4).
+// (module storage-0634b2f4, RET 4).
 // ============================================================================
 void IVP_Cluster_Manager::check_for_unused_objects(IVP_Universe_Manager* UniverseManager)
 {
@@ -380,14 +376,14 @@ void IVP_Cluster_Manager::check_for_unused_objects(IVP_Universe_Manager* Univers
 }
 
 // ============================================================================
-// The fire loops. Shape shared by all seven (e.g. .text:0634ae90-0634aee0):
+// The fire loops. Shape shared by all seven (e.g. module storage-0634aee0):
 // find the object's table; if there is one, walk its listeners from the last
 // to the first; after each call with more listeners left (index > 0), look the
 // table up again and stop if it has gone. The loop keeps using the table it
 // found first (EDI is not reloaded), only the existence check is repeated.
 // ============================================================================
 
-// FUN_0634ae90 (RET 4): key = Event->Object (+0x04), listener slot 0.
+// (RET 4): key = Event->Object (+0x04), listener slot 0.
 void IVP_Cluster_Manager::fire_event_object_deleted(IVP_Environment_Object_Notify_Event* Event)
 {
     IVP_Real_Object* const Object = Event->Object;
@@ -406,7 +402,7 @@ void IVP_Cluster_Manager::fire_event_object_deleted(IVP_Environment_Object_Notif
     }
 }
 
-// FUN_0634af70 (RET 4): listener slot 3 (+0xc).
+// (RET 4): listener slot 3 (+0xc).
 void IVP_Cluster_Manager::fire_event_object_frozen(IVP_Environment_Object_Notify_Event* Event)
 {
     IVP_Real_Object* const Object = Event->Object;
@@ -425,7 +421,7 @@ void IVP_Cluster_Manager::fire_event_object_frozen(IVP_Environment_Object_Notify
     }
 }
 
-// FUN_0634afd0 (RET 4): listener slot 2 (+0x8).
+// (RET 4): listener slot 2 (+0x8).
 void IVP_Cluster_Manager::fire_event_object_revived(IVP_Environment_Object_Notify_Event* Event)
 {
     IVP_Real_Object* const Object = Event->Object;
@@ -444,7 +440,7 @@ void IVP_Cluster_Manager::fire_event_object_revived(IVP_Environment_Object_Notif
     }
 }
 
-// FUN_0634b030 (RET 8): `TEST byte [listener+4],1` (:0634b05c), slot 0 with Event.
+// (RET 8): `TEST byte [listener+4],1` (:0634b05c), slot 0 with Event.
 void IVP_Cluster_Manager::fire_event_pre_collision(IVP_Real_Object* Object, void* Event)
 {
     IVP_Collision_Callback_Table* const Table = collision_callback_hash->find_table(Object);
@@ -467,7 +463,7 @@ void IVP_Cluster_Manager::fire_event_pre_collision(IVP_Real_Object* Object, void
     }
 }
 
-// FUN_0634b090 (RET 4): `TEST byte [listener+4],2` (:0634b0b8), slot 1 with the
+// (RET 4): `TEST byte [listener+4],2` (:0634b0b8), slot 1 with the
 // object itself (key and argument are the same stack dword, EBP).
 void IVP_Cluster_Manager::fire_event_collision_object_deleted(IVP_Real_Object* Object)
 {
@@ -491,7 +487,7 @@ void IVP_Cluster_Manager::fire_event_collision_object_deleted(IVP_Real_Object* O
     }
 }
 
-// FUN_0634b0e0 (RET 8): `TEST byte [listener+4],4` (:0634b10c), slot 2 with Event.
+// (RET 8): `TEST byte [listener+4],4` (:0634b10c), slot 2 with Event.
 void IVP_Cluster_Manager::fire_event_friction_slot2(IVP_Real_Object* Object, void* Event)
 {
     IVP_Collision_Callback_Table* const Table = collision_callback_hash->find_table(Object);
@@ -514,7 +510,7 @@ void IVP_Cluster_Manager::fire_event_friction_slot2(IVP_Real_Object* Object, voi
     }
 }
 
-// FUN_0634b140 (RET 8): `TEST byte [listener+4],4` (:0634b16c), slot 3 with Event.
+// (RET 8): `TEST byte [listener+4],4` (:0634b16c), slot 3 with Event.
 void IVP_Cluster_Manager::fire_event_friction_slot3(IVP_Real_Object* Object, void* Event)
 {
     IVP_Collision_Callback_Table* const Table = collision_callback_hash->find_table(Object);

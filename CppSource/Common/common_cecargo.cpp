@@ -1,10 +1,6 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
-// CECargo (retail CECargo.cpp) -- split out of common_cequip.cpp (CMN-B2).
+// CECargo (baseline CECargo.cpp) -- split out of common_cequip.cpp (CMN-B2).
 // Declared in common_cequip.h; helpers shared with the sibling TUs are in
 // common_cequip_internal.h (namespace CmnCequip).
 #include "common_cequip.h"
@@ -22,8 +18,8 @@
 #include "common_spatial.h"  // ISpatialPartition (ScanList::add_in_range bucket query)
 #include "common_timing.h"   // Timing::GetGlobalTime (CEShieldGenerator / CEShield)
 #include "common_universe.h"
-#include "DALib.h"
-#include "dacom.h"
+#include "NeuronRuntime.h"
+#include "neuroncomponents.h"
 #include "../IVP/ivp_physics/ivp_real_object.h"
 #include "../IVP/ivp_physics/ivp_controller.h"  // IVP_Event_Sim (do_simulation_controller)
 
@@ -34,13 +30,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "common_cequip_internal.h"   // CallDacomStricmp (DACOM.DLL!stricmp, IAT 0639902c)
+#include "common_cequip_internal.h"   // CallNeuronComponentsStricmp (NEURONCOMPONENTS.DLL!stricmp, IAT 0639902c)
 
 using namespace CmnCequip;
 
 namespace
 {
-    const char kCECargoSource[] = "E:\\FL\\Scratch\\Source\\Common\\CECargo.cpp";
+    const char kCECargoSource[] = "Common\\CECargo.cpp";
 }
 
 CECargo::CECargo(CEqObj* OwnerObj, unsigned short EquipId, Archetype::Equipment const* ArchObj,
@@ -50,7 +46,7 @@ CECargo::CECargo(CEqObj* OwnerObj, unsigned short EquipId, Archetype::Equipment 
     CargoPod = nullptr;
     HitPts = 0.0f;
     Count = 0;
-    CEquip::Activate(false);   // 06295495: direct, non-virtual call
+    CEquip::Activate(false);   // direct, non-virtual call
 }
 
 CECargo::CECargo(CECargo const& Other)
@@ -63,7 +59,7 @@ CECargo::CECargo(CECargo const& Other)
 
 CECargo::~CECargo()
 {
-    // Common.dll.c 57275-57296 (0x354b0): retail's actual destructor performs the same
+    // Common (0x354b0): baseline's actual destructor performs the same
     // CargoPod-unlink as Destroy() (unconditionally, even if ->Destroy() already ran earlier
     // through game logic) as a safety net during unwind, then force-calls the non-virtual
     // CEquip::Destroy() -- same pattern as the CEPower/CEAttachedFX/CERepairDroid/CEInternalFX
@@ -82,7 +78,7 @@ bool CECargo::IsDestroyed() const
 
 void CECargo::Destroy()
 {
-    // Common.dll.c 0x357f0: retail calls into the linked pod to clear the link symmetrically
+    // Common 0x357f0: baseline calls into the linked pod to clear the link symmetrically
     // (CargoPod->EmptyPod() nulls both CargoPod->Cargo and this->CargoPod), rather than just
     // dropping this side's pointer and leaving the pod with a stale back-reference.
     if (CargoPod != nullptr)
@@ -99,7 +95,7 @@ void CECargo::Init(float HealthFrac, unsigned StackCount, CacheString const& Har
     char const* Hp = Hardpoint.Value;
     if (Hp[0] == '\0')
         return;
-    if (CallDacomStricmp(Hp, EquipDesc::CARGO_BAY_HP_NAME.Value) == 0)   // DACOM stricmp
+    if (CallNeuronComponentsStricmp(Hp, EquipDesc::CARGO_BAY_HP_NAME.Value) == 0)   // NEURONCOMPONENTS stricmp
         return;
 
     // First connected cargo pod (vt+0x58 IsConnected) whose GetParentHPName (vt+0x60)
@@ -108,7 +104,7 @@ void CECargo::Init(float HealthFrac, unsigned StackCount, CacheString const& Har
     CECargoPod* Pod = CECargoPod::cast(Owner->EquipManager.Traverse(Walk));
     while (Pod != nullptr)
     {
-        if (Pod->IsConnected() && CallDacomStricmp(Pod->GetParentHPName().Value, Hp) == 0)
+        if (Pod->IsConnected() && CallNeuronComponentsStricmp(Pod->GetParentHPName().Value, Hp) == 0)
         {
             CargoPod = Pod;
             Pod->FillPod(this);
@@ -129,32 +125,32 @@ void CECargo::Init(float HealthFrac, unsigned StackCount, CacheString const& Har
 void CECargo::AddToStack(unsigned Amount, float HealthFrac)
 {
     // Listing 0x06295630-0x062956cc. The partial-unit fraction is GetRelativeHealth (vt+0x44,
-    // left unrounded in ST0). Every compare against 1.0f (.rdata:0639a1d0) is FCOMP /
+    // left unrounded in ST0). Every compare against 1.0f (module storage) is FCOMP /
     // TEST AH,0x5 / JP: the jump is taken unless C0 alone is set, i.e. on >= and on NaN,
     // hence the `!(x < 1)` predicates.
-    if (!(GetRelativeHealth() < 1.0))                   // 06295636-06295644
+    if (!(GetRelativeHealth() < 1.0))
     {
-        Count += Amount;                                // 062956aa
+        Count += Amount;
     }
     else
     {
-        if (!(HealthFrac < 1.0f))                       // 06295646-06295655
+        if (!(HealthFrac < 1.0f))
         {
-            Count += Amount;                            // 06295699: no SetHitPoints
+            Count += Amount;                            // no SetHitPoints
             return;
         }
-        HealthFrac = (float)(GetRelativeHealth() + HealthFrac);   // 0629565b-06295669 FSTP float
-        if (!(HealthFrac < 1.0f))                       // 0629566f-0629567e
+        HealthFrac = (float)(GetRelativeHealth() + HealthFrac);   // FSTP float
+        if (!(HealthFrac < 1.0f))
         {
             Count += Amount;
-            HealthFrac -= 1.0f;                         // 06295686-06295693
+            HealthFrac -= 1.0f;
         }
         else
         {
-            Count += Amount - 1;                        // 06295680 DEC
+            Count += Amount - 1;                        // DEC
         }
     }
-    SetHitPoints(GetMaxHitPoints() * HealthFrac);       // 062956b6-062956c7 vt+0x38 / vt+0x40
+    SetHitPoints(GetMaxHitPoints() * HealthFrac);       // vt+0x38 / vt+0x40
 }
 
 void CECargo::RemoveFromStack(unsigned Amount)
@@ -168,13 +164,13 @@ void CECargo::RemoveFromStack(unsigned Amount)
 
 float CECargo::GetHitPoints() const
 {
-    // Common.dll.c 0x35810
+    // Common 0x35810
     return HitPts;
 }
 
 void CECargo::SetHitPoints(float Hit)
 {
-    // Common.dll.c 0x35820: *(this+0x24) = Hit. Overrides the base CEquip
+    // Common 0x35820: *(this+0x24) = Hit. Overrides the base CEquip
     // no-op so cargo hit points can actually be set (e.g. CEqObj::add_item).
     HitPts = Hit;
 }
@@ -205,13 +201,13 @@ bool CECargo::GetEquipDesc(EquipDesc& Desc) const
 
 unsigned CECargo::GetCount() const
 {
-    // Common.dll.c 0xdbaf0: `MOV EAX,dword ptr [this+0x28]; RET`.
+    // Common 0xdbaf0: `MOV EAX,dword ptr [this+0x28]; RET`.
     return Count;
 }
 
 void CECargo::SetCount(unsigned NewCount)
 {
-    // Common.dll.txt 0xdbae0: `MOV dword ptr [this+0x28],param_1; RET`.
+    // Common 0xdbae0: `MOV dword ptr [this+0x28],param_1; RET`.
     Count = NewCount;
 }
 
@@ -219,7 +215,7 @@ float CECargo::GetDecayDamagePerSecond() const
 {
     // Listing 0x06295710-0x06295730: Arch's vt+0x10 compared with 0xa, no Arch null test.
     if (Arch->get_class_type() != Archetype::AClassCommodity)
-        return 0.0f;                                    // .rdata:06399408
+        return 0.0f;
     return ((Archetype::Commodity*)Arch)->get_decay_per_second();   // tail JMP
 }
 
@@ -232,7 +228,7 @@ CECargo* __cdecl CECargo::cast(CEquip* Equip)
 
 CECargo const* __cdecl CECargo::cast(CEquip const* Equip)
 {
-    // Retail folds the const overload onto the same body as the non-const one.
+    // baseline folds the const overload onto the same body as the non-const one.
     return cast((CEquip*)Equip);
 }
 

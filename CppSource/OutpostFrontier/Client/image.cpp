@@ -1,20 +1,16 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "image.h"
 
-#include "dataconfig_progress.h" // GetIntroConfigState: TgaPath DAT_0067c18c
-#include "globals.h"             // g_display.data_path DAT_00679e0c, G_RenderSurfaceWidth/Height
+#include "dataconfig_progress.h" // GetIntroConfigState: TgaPath the field
+#include "globals.h"             // g_display.data_path the field, G_RenderSurfaceWidth/Height
 #include "widescreen.h"   // port-only (OUTPOST_FRONTIER_WIDESCREEN_SUPPORT)
 #include "pixel_format.h"
-#include "screen_quad_state.h"    // ScreenQuadDrawBigImageTile (FUN_00404720)
-#include "win3d_immediate.h"     // Win3DSetOrtho2D (FUN_004225e0)
+#include "screen_quad_state.h"    // ScreenQuadDrawBigImageTile (the routine)
+#include "win3d_immediate.h"     // Win3DSetOrtho2D (the routine)
 
-#include "DALib.h"
-#include "dacom.h"
+#include "NeuronRuntime.h"
+#include "neuroncomponents.h"
 #include "readfile.h"
 #include "render/IBigImage2.h"
 #include "render/IRenderPipeline.h"
@@ -31,25 +27,25 @@ static_assert(sizeof(void*) != 4 || offsetof(Image, BigImage) == 0x14, "Image +0
 
 namespace
 {
-    char const kIntroCpp[] = "E:\\FL\\Scratch\\Source\\Client\\Interface\\Intro.cpp"; // 0x005e2724
-    char const kBigImageFailed[] = "Failed to create a BigImage from an image source!\n"; // 0x005e2754
+    char const kIntroCpp[] = "Client\\Interface\\Intro.cpp";
+    char const kBigImageFailed[] = "Failed to create a BigImage from an image source!\n";
 
-    // The render-state saver FUN_00565a10 builds seven of: {Pipeline, State, Saved}, filled by
+    // The render-state saver the routine builds seven of: {Pipeline, State, Saved}, filled by
     // GetRenderState (IRenderPipeline slot 61, +0xf4) and then forced by SetRenderState (slot
-    // 60, +0xf0); its destructor FUN_00405840 puts Saved back. Destroyed in reverse order, as
+    // 60, +0xf0); its destructor the routine puts Saved back. Destroyed in reverse order, as
     // the EH states 6..0 of 0x00565a10 unwind them.
     struct FImageRenderStateSave
     {
         FImageRenderStateSave(int NewState, int Value)
         {
-            Pipeline = DALib::Pipeline;
+            Pipeline = NeuronRuntime::Pipeline;
             State = NewState;
             Pipeline->GetRenderState((D3DRENDERSTATETYPE)State, &Saved);
             Pipeline->SetRenderState((D3DRENDERSTATETYPE)State, Value);
         }
         ~FImageRenderStateSave()
         {
-            // FUN_00405840.
+            // .
             Pipeline->SetRenderState((D3DRENDERSTATETYPE)State, Saved);
         }
 
@@ -63,7 +59,7 @@ namespace
     };
 
     // {D3DTEXTURESTAGESTATETYPE, value} pairs, zero-terminated: .rdata 0x005e2558 (stage 0) and
-    // 0x005e2590 (stage 1), read from the PE bytes.
+    // (stage 1), read from the PE bytes.
     struct FTextureStageSetting
     {
         int Type;
@@ -74,18 +70,18 @@ namespace
     FTextureStageSetting const kImageStage1[] = {
         {1, 1}, {2, 2}, {3, 1}, {4, 1}, {5, 2}, {6, 1}, {0, 0}};
 
-    // The mapped-file object FUN_00565490 keeps on its stack (0x1c..0x2c): FUN_00575570 is its
-    // IFileSystem AddRef copy, FUN_005658d0 Open, FUN_005659b0 Close, FUN_00565830 the dtor the
+    // The mapped-file object the routine keeps on its stack (0x1c..0x2c): the routine is its
+    // IFileSystem AddRef copy, the routine Open, the routine Close, the routine the dtor the
     // EH unwind (0x005c1f3e) runs.
     struct FImageMappedFile
     {
         explicit FImageMappedFile(IFileSystem* NewFs)
         {
-            // FUN_00575570 (RET 4): store and AddRef (slot 1) when non-null.
+            // (RET 4): store and AddRef (slot 1) when non-null.
             Fs = NewFs;
             if (Fs != nullptr)
                 Fs->AddRef();
-            // 0x0056554f..0x00565557. Mapping (+0x08) is left unwritten: Open stores it before
+            // . Mapping (+0x08) is left unwritten: Open stores it before
             // anything reads it, and Close reads it only behind a valid Handle.
             Handle = 0xffffffffu;
             Size = 0;
@@ -94,7 +90,7 @@ namespace
 
         ~FImageMappedFile()
         {
-            // FUN_00565830: Close's body, then the IFileSystem member's own release (already
+            // Close's body, then the IFileSystem member's own release (already
             // null by then).
             Close();
             if (Fs != nullptr)
@@ -104,7 +100,7 @@ namespace
             }
         }
 
-        // FUN_005658d0 (thiscall, RET 8): 0 when the file is mapped; -8 open failed, -6 mapping
+        // (thiscall, RET 8): 0 when the file is mapped; -8 open failed, -6 mapping
         // failed, -1 view failed.
         int Open(char const* Path, unsigned long Field30)
         {
@@ -131,7 +127,7 @@ namespace
             return -1;
         }
 
-        // FUN_005659b0.
+        // .
         void Close()
         {
             if (Handle != 0xffffffffu)
@@ -166,7 +162,7 @@ namespace
         FImageMappedFile& operator=(FImageMappedFile const&) = delete;
     };
 
-    // FUN_005657d0 (thiscall on the TGA header): the pixel depth -- byte +7 (colour-map entry
+    // (thiscall on the TGA header): the pixel depth -- byte +7 (colour-map entry
     // size) for a colour-mapped image, else byte +0x10 -- equal to 32 means 8 alpha bits.
     bool TgaHasAlpha(unsigned char const* Header)
     {
@@ -175,7 +171,7 @@ namespace
         return AlphaBits > 0;
     }
 
-    // FUN_00565800 (thiscall on the TGA header): colour-mapped -> first entry index (MOVSX
+    // (thiscall on the TGA header): colour-mapped -> first entry index (MOVSX
     // +3) + map length (MOVSX +5); type 3 -> 0x100; otherwise 0.
     int TgaPaletteEntries(unsigned char const* Header)
     {
@@ -216,7 +212,7 @@ namespace
 
 IImage::~IImage()
 {
-    // FUN_00565080: the base vptr store only.
+    // the base vptr store only.
 }
 
 Image::Image()
@@ -226,7 +222,7 @@ Image::Image()
 
 Image::~Image()
 {
-    // FUN_00565010: release +0x14 (0x00565040..0x00565048), then the member's own release
+    // release +0x14 (0x00565040..0x00565048), then the member's own release
     // (0x0056504f..0x00565061), which finds it null.
     Release();
     if (BigImage != nullptr)
@@ -238,7 +234,7 @@ Image::~Image()
 
 void Image::Release()
 {
-    // FUN_005650d0.
+    // .
     if (BigImage != nullptr)
     {
         BigImage->Release();
@@ -248,14 +244,14 @@ void Image::Release()
 
 bool Image::Load(char const* Path)
 {
-    // FUN_00565430.
+    // .
     char const* const Dot = strrchr(Path, '.');
     if (Dot != nullptr)
     {
         char const* const Extension = Dot + 1;
-        if (_stricmp(Extension, "bmp") == 0) // DACOM stricmp, 0x005e279c
+        if (_stricmp(Extension, "bmp") == 0) // NEURONCOMPONENTS stricmp, 0x005e279c
             return LoadBmp(Path);
-        // 0x00565471..0x00565479: stricmp against "tga" (0x005e2798); the result is not read.
+        // stricmp against "tga" (0x005e2798); the result is not read.
         (void)_stricmp(Extension, "tga");
     }
     return LoadTga(Path);
@@ -263,11 +259,11 @@ bool Image::Load(char const* Path)
 
 bool Image::LoadBmp(char const* Path)
 {
-    // FUN_005650f0.
+    // .
     if (BigImage != nullptr)
         return true;
 
-    // 0x00565139..0x00565214: data path, a '\\' unless it is empty or already ends in one,
+    // data path, a '\\' unless it is empty or already ends in one,
     // TgaPath, then Path.
     std::string FullPath(g_display.data_path.c_str());
     if (!FullPath.empty() && FullPath[FullPath.size() - 1] != '\\')
@@ -311,7 +307,7 @@ bool Image::LoadBmp(char const* Path)
             FBigImageDesc Desc;
             Desc.Size = 0x2c;
             Desc.Name = "BigImage";
-            Desc.Pipeline = DALib::Pipeline;
+            Desc.Pipeline = NeuronRuntime::Pipeline;
             Desc.ImageSource = nullptr;
             Desc.SrcFormat = &TargetFormat;
             Desc.DstFormat = &ImageFormat;
@@ -321,8 +317,8 @@ bool Image::LoadBmp(char const* Path)
             Desc.Pitch = static_cast<unsigned long>(Dib.dsBm.bmWidthBytes);
             Desc.DrawTile = &ScreenQuadDrawBigImageTile;
 
-            Release(); // 0x00565392..0x0056539a
-            if (DALib::Dacom->CreateInstance(reinterpret_cast<AGGDESC*>(&Desc),
+            Release();
+            if (NeuronRuntime::NeuronComponents->CreateInstance(reinterpret_cast<AGGDESC*>(&Desc),
                                              reinterpret_cast<void**>(&BigImage)) == 0)
             {
                 bResult = true;
@@ -340,12 +336,12 @@ bool Image::LoadBmp(char const* Path)
 
 bool Image::LoadTga(char const* Path)
 {
-    // FUN_00565490.
+    // .
     if (BigImage != nullptr)
         return true;
 
-    // 0x005654bf..0x00565536: a "FileSystem" (desc size 0x34) rooted at TgaPath under
-    // DALib::Data.
+    // a "FileSystem" (desc size 0x34) rooted at TgaPath under
+    // NeuronRuntime::Data.
     FFileSystemDesc Desc;
     memset(&Desc, 0, 0x34);
     Desc.Size = 0x34;
@@ -357,10 +353,10 @@ bool Image::LoadTga(char const* Path)
     Desc.Flags = 0x8000080u;
     Desc.Field30 = 0xffffffffu;
     IFileSystem* SubFs = nullptr;
-    if (DALib::Data->CreateInstance(reinterpret_cast<AGGDESC*>(&Desc),
+    if (NeuronRuntime::Data->CreateInstance(reinterpret_cast<AGGDESC*>(&Desc),
                                     reinterpret_cast<void**>(&SubFs)) != 0)
     {
-        // 0x0056562a: FUN_00526a20 on the holder, return false.
+        // the routine on the holder, return false.
         if (SubFs != nullptr)
         {
             SubFs->Release();
@@ -377,7 +373,7 @@ bool Image::LoadTga(char const* Path)
             unsigned char const* const Header =
                 reinterpret_cast<unsigned char const*>(static_cast<uintptr_t>(Mapped.View));
 
-            // 0x0056558b..0x005655ef: the header's format, seeded with FUN_005b7010(0).
+            // the header's format, seeded with the routine(0).
             unsigned long ImageFormat = static_cast<unsigned long>(PixelFormatFromD3D(0));
             unsigned char const Type = static_cast<unsigned char>(Header[2] & 7);
             if (Type == 1 && Header[1] == 1)
@@ -391,11 +387,11 @@ bool Image::LoadTga(char const* Path)
             else
                 PixelFormatFind(&ImageFormat, 0x18, 8, 8, 8, 0);
 
-            // 0x005655f4..0x00565607: CMP bpp,0x20 / JNC -- anything under 32 bits fails.
+            // CMP bpp,0x20 / JNC -- anything under 32 bits fails.
             unsigned long const Bpp = PixelFormatGetDesc(static_cast<int>(ImageFormat))->Bpp;
             if (Bpp >= 0x20)
             {
-                // 0x00565641..0x00565663: pitch = ((bpp + 7) >> 3) * (short)width (IMUL).
+                // pitch = ((bpp + 7) >> 3) * (short)width (IMUL).
                 long const Width = static_cast<long>(TgaShort(Header + 0xc));
                 long const Height = static_cast<long>(TgaShort(Header + 0xe));
                 unsigned long const Pitch =
@@ -403,7 +399,7 @@ bool Image::LoadTga(char const* Path)
                 unsigned long TargetFormat = 0;
                 PixelFormatFind(&TargetFormat, 0x20, 8, 8, 8, 8);
 
-                // 0x00565671..0x00565696: the pixels follow the 0x12-byte header, the id field
+                // the pixels follow the 0x12-byte header, the id field
                 // and, for a colour-mapped image, 3 bytes per palette entry.
                 unsigned char const* Pixels = nullptr;
                 if ((Header[2] & 7) == 1)
@@ -414,7 +410,7 @@ bool Image::LoadTga(char const* Path)
                 FBigImageDesc ImageDesc;
                 ImageDesc.Size = 0x2c;
                 ImageDesc.Name = "BigImage";
-                ImageDesc.Pipeline = DALib::Pipeline;
+                ImageDesc.Pipeline = NeuronRuntime::Pipeline;
                 ImageDesc.ImageSource = nullptr;
                 ImageDesc.SrcFormat = &TargetFormat; // +0x10 (see LoadBmp)
                 ImageDesc.DstFormat = &ImageFormat;  // +0x14
@@ -424,8 +420,8 @@ bool Image::LoadTga(char const* Path)
                 ImageDesc.Pitch = Pitch;
                 ImageDesc.DrawTile = &ScreenQuadDrawBigImageTile;
 
-                Release(); // 0x005656ef..0x005656f7
-                if (DALib::Dacom->CreateInstance(reinterpret_cast<AGGDESC*>(&ImageDesc),
+                Release();
+                if (NeuronRuntime::NeuronComponents->CreateInstance(reinterpret_cast<AGGDESC*>(&ImageDesc),
                                                  reinterpret_cast<void**>(&BigImage)) == 0)
                 {
                     bResult = true;
@@ -437,10 +433,10 @@ bool Image::LoadTga(char const* Path)
                 }
             }
         }
-        // Every exit: FUN_005659b0, then FUN_00526a20 on the (already cleared) +0x10 holder.
+        // Every exit: the routine, then the routine on the (already cleared) +0x10 holder.
         Mapped.Close();
     }
-    // 0x00565756..0x0056576c / 0x00565794..0x005657aa: release the sub filesystem.
+    // / 0x00565794..0x005657aa: release the sub filesystem.
     if (SubFs != nullptr)
         SubFs->Release();
     return bResult;
@@ -460,13 +456,13 @@ void ImageSetWidescreenAlign(int Side)
 
 void Image::Draw()
 {
-    // FUN_00565a10.
+    // .
     if (BigImage == nullptr)
         return;
 
-    Win3DSetOrtho2D(); // FUN_004225e0
+    Win3DSetOrtho2D();
 
-    // 0x00565a40..0x00565bee: D3DRS_CULLMODE none, ZFUNC always, ZWRITEENABLE off, ZENABLE
+    // D3DRS_CULLMODE none, ZFUNC always, ZWRITEENABLE off, ZENABLE
     // off, SRCBLEND SRCALPHA, DESTBLEND INVSRCALPHA, ALPHABLENDENABLE on.
     FImageRenderStateSave CullMode(0x16, 1);
     FImageRenderStateSave ZFunc(0x17, 8);
@@ -476,16 +472,16 @@ void Image::Draw()
     FImageRenderStateSave DestBlend(0x14, 6);
     FImageRenderStateSave AlphaBlend(0x1b, 1);
 
-    // 0x00565bee..0x00565c49: the two stage tables through SetTextureStageState (slot 62,
+    // the two stage tables through SetTextureStageState (slot 62,
     // +0xf8); these are not restored.
-    IRenderPipeline* Pipeline = DALib::Pipeline;
+    IRenderPipeline* Pipeline = NeuronRuntime::Pipeline;
     for (FTextureStageSetting const* Setting = kImageStage0; Setting->Type != 0; ++Setting)
         Pipeline->SetTextureStageState(0, Setting->Type, Setting->Value);
-    Pipeline = DALib::Pipeline;
+    Pipeline = NeuronRuntime::Pipeline;
     for (FTextureStageSetting const* Setting = kImageStage1; Setting->Type != 0; ++Setting)
         Pipeline->SetTextureStageState(1, Setting->Type, Setting->Value);
 
-    // 0x00565c4b..0x00565ca9: alpha 1, colour {1, 1, 1}, then Draw(null, {0, height, width, 0}).
+    // alpha 1, colour {1, 1, 1}, then Draw(null, {0, height, width, 0}).
     RECT Dest;
 #ifdef OUTPOST_FRONTIER_WIDESCREEN_SUPPORT
     // Port-only Hor+: the 4:3 picture keeps its own aspect instead of stretching -- centred,
@@ -503,20 +499,20 @@ void Image::Draw()
     Dest.bottom = 0;
 #else
     Dest.left = 0;
-    Dest.top = static_cast<LONG>(G_RenderSurfaceHeight);  // DAT_00610854
-    Dest.right = static_cast<LONG>(G_RenderSurfaceWidth); // DAT_00610850
+    Dest.top = static_cast<LONG>(G_RenderSurfaceHeight);
+    Dest.right = static_cast<LONG>(G_RenderSurfaceWidth);
     Dest.bottom = 0;
 #endif
     float const Color[3] = {1.0f, 1.0f, 1.0f};
     BigImage->SetAlpha(1.0f); // +0x18
     BigImage->SetColor(Color); // +0x1c
     BigImage->Draw(nullptr, &Dest); // +0x10
-    // 0x00565cac..0x00565d74: the seven savers restore in reverse order on scope exit.
+    // the seven savers restore in reverse order on scope exit.
 }
 
 Image* CreateImage()
 {
-    // FUN_00565d90: operator new(0x18) (MSVCRT, null on failure); the Image ctor only on
+    // operator new(0x18) (MSVCRT, null on failure); the Image ctor only on
     // success, null otherwise.
     return new (std::nothrow) Image();
 }

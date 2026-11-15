@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "StdAfx.h"
@@ -13,40 +9,40 @@
 
 namespace
 {
-	// Control id of the list box (ServerResources.dll dialog 151).
+	// Control id of the list box (ServerInterface.dll dialog 151).
 	const int PlayerListId = 1057;
 }
 
-// .text:004037d0 (static initializer: ctor with a null parent, then atexit(004037f0)).
+// (static initializer: ctor with a null parent, then atexit(004037f0)).
 CChoosePlayerDlg GChoosePlayerDlg;
 
-// .text:00403850
+
 CChoosePlayerDlg::CChoosePlayerDlg(CWnd* Parent)
 	: CDialog(IDD, Parent)
 {
 }
 
-// .text:004038d0 — retail's null test on the list pointer is the compiler's adjustment from
+// — baseline's null test on the list pointer is the compiler's adjustment from
 // the CFLListBox (+0x60) to its CWnd part (+0x64).
 void CChoosePlayerDlg::DoDataExchange(CDataExchange* DX)
 {
 	DDX_Control(DX, PlayerListId, PlayerList);
 }
 
-// Message map .rdata:0041c1a0: LBN_DBLCLK 1057 -> 00403930, WM_MEASUREITEM -> 00403b00.
+// Message map module storage: LBN_DBLCLK 1057 -> 00403930, WM_MEASUREITEM -> 00403b00.
 BEGIN_MESSAGE_MAP(CChoosePlayerDlg, CDialog)
 	ON_LBN_DBLCLK(PlayerListId, &CChoosePlayerDlg::OnDblClkPlayerList)
 	ON_WM_MEASUREITEM()
 END_MESSAGE_MAP()
 
-// .text:00403930 — a double click is the virtual OnOK (vtable +0xcc).
+// — a double click is the virtual OnOK (vtable +0xcc).
 void CChoosePlayerDlg::OnDblClkPlayerList()
 {
 	OnOK();
 }
 
-// .text:00403940 — under the server lock, adds the active character name of every player
-// session 1..MaxPlayers (retail reads Players+0x4 on every iteration) to the list.
+// — under the server lock, adds the active character name of every player
+// session 1..MaxPlayers (baseline reads Players+0x4 on every iteration) to the list.
 BOOL CChoosePlayerDlg::OnInitDialog()
 {
 	CDialog::OnInitDialog();
@@ -63,13 +59,13 @@ BOOL CChoosePlayerDlg::OnInitDialog()
 	return TRUE;
 }
 
-// .text:00403990 — the dialog is modeless: Cancel destroys the window (vtable +0x60).
+// — the dialog is modeless: Cancel destroys the window (vtable +0x60).
 void CChoosePlayerDlg::OnCancel()
 {
 	DestroyWindow();
 }
 
-// .text:004039a0 — opens (or brings to front) the chat window of the selected character's
+// — opens (or brings to front) the chat window of the selected character's
 // account, then destroys this window; with no selection only the window is destroyed.
 void CChoosePlayerDlg::OnOK()
 {
@@ -101,7 +97,7 @@ void CChoosePlayerDlg::OnOK()
 	DestroyWindow();
 }
 
-// .text:00403b00 — list rows are as tall as the list's regular font.
+// — list rows are as tall as the list's regular font.
 void CChoosePlayerDlg::OnMeasureItem(int IDCtl, LPMEASUREITEMSTRUCT MeasureInfo)
 {
 	if (IDCtl != PlayerListId)

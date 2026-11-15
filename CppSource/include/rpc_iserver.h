@@ -1,13 +1,9 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // rpc_iserver.h -- rpclocal.dll's public ABI: IServerImpl, the Client / Server data
 // exports and the four Get*Interface factories.
-//
-// Retail EXE\rpclocal.dll exports 113 names (dumpbin -exports), all of them the shape
+
+// baseline EXE\rpclocal.dll exports 113 names (dumpbin -exports), all of them the shape
 // `__declspec(dllexport)` on a class produces, plus five C names:
 //   1-6     ??0 / ??4 of IClient (rpc_iclient.h) and IServerImpl
 //   7-9     ??_7IClient@@6B@, ??_7IServerImpl@@6BIChatServer@@@, ??_7IServerImpl@@6BIServer@@@
@@ -15,16 +11,16 @@
 //           virtual, slot 92), SubmitChat (IChatServer), and four
 //           non-virtual ones (GetServerStats, HandleCharacterInfo, HandleDamageObject,
 //           HandlePacket)
-//   108     Client  (data, .data:0x06dbbcdc)      109  GetChatClientInterface (0xeec0)
+//   108     Client  (data, module storage)      109  GetChatClientInterface (0xeec0)
 //   110     GetChatServerInterface (0xf1d0)       111  GetClientInterface     (0xeeb0)
-//   112     GetServerInterface     (0xf1c0)       113  Server  (data, .data:0x06dbbd28)
+//   112     GetServerInterface     (0xf1c0)       113  Server  (data, module storage)
 // Without a .def the linker numbers exports by name in ASCII order, which is the order
 // above, so matching the NAME SET matches the ordinals too.
-//
-// Every declaration below is written so that it mangles to retail's decorated name --
+
+// Every declaration below is written so that it mangles to baseline's decorated name --
 // that is what fixes `struct` here (?..@IServerImpl@@QAE@ABU0@@Z: `U`), CHAT_ID, ServerStats,
 // `class` CDAPacket / EquipDescList / CDAPCharacterInfo / CDAPDamageSpaceObj.
-//
+
 // Server.dll exports a different IServerImpl (server_iserverimpl.h), also used by
 // RemoteClient. This proxy declaration is used by rpclocal and RemoteServer;
 // the two IServerImpl declarations must never meet in one translation unit.
@@ -42,20 +38,20 @@ class CDAPDamageSpaceObj;
 class FPacketSerializer;
 
 // C4275: IServer / IChatServer are interfaces from common_server.h and are not exported
-// themselves -- exactly as in retail, which exports no IServer / IChatServer symbol.
+// themselves -- exactly as in baseline, which exports no IServer / IChatServer symbol.
 #pragma warning(push)
 #pragma warning(disable : 4275)
 
 // ===========================================================================
-// IServerImpl -- retail .data:Server (0x06dbbd28): IServer vptr at +0x00
+// IServerImpl -- baseline .data:Server (0x06dbbd28): IServer vptr at +0x00
 // (??_7IServerImpl@@6BIServer@@@, 0x06db3450), IChatServer vptr at +0x04
 // (??_7IServerImpl@@6BIChatServer@@@, 0x06db3448), serializer pointer at +0x08 -- the
-// static initializer LAB_06d8f1a0 writes exactly those three dwords.
+// static initializer the branch writes exactly those three dwords.
 // ===========================================================================
 struct RPCLOCAL_API IServerImpl : public IServer, public IChatServer {
-    // Retail exports ??0IServerImpl@@QAE@XZ (0x1110), ??0IServerImpl@@QAE@ABU0@@Z (0x1130)
+    // baseline exports ??0IServerImpl@@QAE@XZ (0x1110), ??0IServerImpl@@QAE@ABU0@@Z (0x1130)
     // and ??4IServerImpl@@QAEAAU0@ABU0@@Z (0x1160). User-declared so the compiler does not
-    // also generate and export move members retail does not have.
+    // also generate and export move members baseline does not have.
     IServerImpl();
     IServerImpl(const IServerImpl& Other);
     IServerImpl& operator=(const IServerImpl& Other);
@@ -154,8 +150,8 @@ struct RPCLOCAL_API IServerImpl : public IServer, public IChatServer {
     void DumpPacketStats(const char* Name) override;
     void Dock(const unsigned int& BaseId, const unsigned int& SessionId) override;
 
-    // --- IServerImpl's own virtual: slot 92 (+0x170, .rdata:06db35c0 -> 0x06d8f460) ---
-    // IServer ends at slot 91 (Server.dll's IServer table .rdata:06d65d4c holds 92
+    // --- IServerImpl's own virtual: slot 92 (+0x170, module storage -> 0x06d8f460) ---
+    // IServer ends at slot 91 (Server.dll's IServer table module storage holds 92
     // _purecall entries), so this, the first virtual IServerImpl adds, lands at +0x170.
     virtual void PushToServer(CDAPacket* Packet);
 
@@ -175,9 +171,9 @@ struct RPCLOCAL_API IServerImpl : public IServer, public IChatServer {
     void HandlePacket(CDAPacket* Packet);
 
     // +0x08 -- the packet-type registry. Zeroed by every constructor (06d81119,
-    // 06d8f1a0), filled by Startup from FUN_06d95e50 (06d8f2c9 MOV [EBP+0x8],EAX), read
+    // ), filled by Startup from the routine (06d8f2c9 MOV [EBP+0x8],EAX), read
     // untested by every serializing slot (e.g. 06d8d489 MOV ECX,[ESI+0x8] ahead of
-    // CALL FUN_06d96300) and released by Shutdown (06d8f35d / 06d8f360). The copy
+    // CALL the routine) and released by Shutdown (06d8f35d / 06d8f360). The copy
     // constructor and operator= copy the pointer as it is (06d81143 / 06d81166), no AddRef.
     FPacketSerializer* Serializer;
 };
@@ -185,11 +181,11 @@ struct RPCLOCAL_API IServerImpl : public IServer, public IChatServer {
 #pragma warning(pop)
 
 // ===========================================================================
-// Data exports. Retail's names are the undecorated C names `Client` and `Server`, so
+// Data exports. baseline's names are the undecorated C names `Client` and `Server`, so
 // they are extern "C" -- which also means they cannot carry the G prefix.
 //   Server (ordinal 113) -- the IServerImpl above; GetServerInterface (0x06d8f1c0) is
 //          MOV EAX,.data:Server / RET, GetChatServerInterface (0x06d8f1d0) returns
-//          .data:0x06dbbd2c == Server + 4.
+// == Server + 4.
 //   Client (ordinal 108) -- rpclocal's IClient proxy (src/rpclocal/rpc_client_proxy.cpp);
 //          its concrete class is private to that file, so it is declared there, not here.
 // ===========================================================================

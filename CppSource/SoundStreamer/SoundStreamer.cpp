@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "SoundStreamerInternal.h"
@@ -25,7 +21,7 @@ namespace
     HACMDRIVERID G_FraunhoferDriverId = nullptr;
     HACMDRIVER G_FraunhoferDriver = nullptr;
 
-    // FDUMP is DACOM's statically initialised handler (DefaultFdump); retail calls through the
+    // FDUMP is NEURONCOMPONENTS's statically initialised handler (DefaultFdump); baseline calls through the
     // import with no null test.
     void Fdump(unsigned int Flags, int Line, const char* Message)
     {
@@ -34,7 +30,7 @@ namespace
             Fmt = kFdumpErrorFmt;
         else if (Flags == kFdumpNotice)
             Fmt = kFdumpNoticeFmt;
-        FDUMP(static_cast<int>(Flags), Fmt, kRetailSource, Line, Message);
+        FDUMP(static_cast<int>(Flags), Fmt, kbaselineSource, Line, Message);
     }
 
     // FDUMP sites of the streamer object (06ef2e00 / 06ef3060) report SoundStreamer.cpp.
@@ -48,7 +44,7 @@ namespace
         FDUMP(static_cast<int>(Flags), Fmt, kStreamerSource, Line, Message);
     }
 
-    // FUN_06ef2910 cdecl: _vsnprintf(Buffer, 0x2000, Fmt, args) (FUN_06ef4a15), returns Buffer.
+    // cdecl: _vsnprintf(Buffer, 0x2000, Fmt, args) (the routine), returns Buffer.
     // No forced terminator.
     char* FormatStreamerMessage(char* Buffer, const char* Fmt, ...)
     {
@@ -59,7 +55,7 @@ namespace
         return Buffer;
     }
 
-    // 06ef2e7a..2eb2 / 06ef2ef8..2f30: FUN_06ef2910 sprintf("%s(%d) : DSound error #%08X",
+    // ..2eb2 / 06ef2ef8..2f30: the routine sprintf("%s(%d) : DSound error #%08X",
     // SoundStreamer.cpp, line, hr) into a 0x2000 stack buffer, then FDUMP ERROR with the same
     // file and line.
     void FdumpDsound(int Line, HRESULT Hr)
@@ -70,7 +66,7 @@ namespace
                                             Line, static_cast<unsigned int>(Hr)));
     }
 
-    // Retail QIs compare inline (strcmp loop / REPE CMPSB) with no null checks.
+    // baseline QIs compare inline (strcmp loop / REPE CMPSB) with no null checks.
     bool IidEqual(const char* Left, const char* Right)
     {
         return strcmp(Left, Right) == 0;
@@ -133,13 +129,13 @@ namespace
         return Result;
     }
 
-    // FUN_06ef1990 call sites (StopStream 33f0, ShutdownDevice): no handle test of their own.
+    // call sites (StopStream 33f0, ShutdownDevice): no handle test of their own.
     void StopHandle(FStreamingSound* Stream)
     {
         StreamingSoundStop(Stream);
     }
 
-    // FUN_06ef1d10 thiscall: +0x86 == 0 -> 1; state 1 / 8 / 9 -> 2. No handle test.
+    // thiscall: +0x86 == 0 -> 1; state 1 / 8 / 9 -> 2. No handle test.
     void StartHandle(FStreamingSound* Stream)
     {
         if (Stream->bWantPlay == 0)
@@ -148,7 +144,7 @@ namespace
             Stream->State = 2;
     }
 
-    // FUN_06ef1d70: +0xB8 set and GetVolume (+0x18) >= 0 -> the queried value, else +0x88.
+    // +0xB8 set and GetVolume (+0x18) >= 0 -> the queried value, else +0x88.
     long QueryBufferVolume(FStreamingSound* Stream)
     {
         if (Stream->Buffer != nullptr)
@@ -188,10 +184,10 @@ namespace
         unsigned long Field30;
     };
 
-    // 06ef30af..3109: 0x34 desc {size, "FileSystem", 0, Path, 0x80000000, 1, 0, 3, 0x8000080,
-    // 0, 0, 0, -1} (REP STOSD zeroes +8..+0x33 first), DACOM_Acquire() unchecked, slot 0xC
+    // ..3109: 0x34 desc {size, "FileSystem", 0, Path, 0x80000000, 1, 0, 3, 0x8000080,
+    // 0, 0, 0, -1} (REP STOSD zeroes +8..+0x33 first), NEURONCOMPONENTS_Acquire() unchecked, slot 0xC
     // CreateInstance straight into the caller's out slot; its result is returned.
-    GENRESULT CreateFileSystem(const char* Path, IDAComponent** Out)
+    GENRESULT CreateFileSystem(const char* Path, INeuronComponent** Out)
     {
         FFileSystemAggDesc Desc = {};
         Desc.Size = 0x34;
@@ -203,18 +199,18 @@ namespace
         Desc.Field1C = 3;
         Desc.Field20 = 0x8000080;
         Desc.Field30 = 0xFFFFFFFF;
-        ICOManager* Dacom = DACOM_Acquire();
-        return Dacom->CreateInstance(reinterpret_cast<AGGDESC*>(&Desc),
+        ICOManager* NeuronComponents = NEURONCOMPONENTS_Acquire();
+        return NeuronComponents->CreateInstance(reinterpret_cast<AGGDESC*>(&Desc),
                                      reinterpret_cast<void**>(Out));
     }
 
-    // FUN_06ef1200 thiscall (Name, FileSystem) RET 8 - the 0x110 stream handle ctor.
+    // thiscall (Name, FileSystem) RET 8 - the 0x110 stream handle ctor.
     // +0x00 std::string = Name: strlen(Name) via REPNE SCASB with no null test, then the copy.
     // +0x10 = FileSystem with AddRef when non-null. +0x14 / +0x18 = -1 (file / map handles),
-    // +0x90 = -1 (fact samples), +0xD0 = -1; every other field the ctor stores is 0. Retail
+    // +0x90 = -1 (fact samples), +0xD0 = -1; every other field the ctor stores is 0. baseline
     // leaves +0xAC..+0xB4 and +0xEA unwritten (operator new memory); the port's calloc gives 0,
     // and none of them is read before LoadWav / the decoder writes it.
-    void ConstructStreamHandle(FStreamingSound* Stream, const char* Name, IDAComponent* FileSystem)
+    void ConstructStreamHandle(FStreamingSound* Stream, const char* Name, INeuronComponent* FileSystem)
     {
         const size_t NameLen = strlen(Name);
         Stream->Path = static_cast<char*>(malloc(NameLen + 1));
@@ -230,8 +226,8 @@ namespace
         Stream->EncoderDelayBytes = -1;
     }
 
-    // 06ef311c..3127: FileSystem slot 0x70 (GetFileAttributes-like) on the path, no checks.
-    unsigned long FileSystemAttributes(IDAComponent* FileSystem, const char* Path)
+    // ..3127: FileSystem slot 0x70 (GetFileAttributes-like) on the path, no checks.
+    unsigned long FileSystemAttributes(INeuronComponent* FileSystem, const char* Path)
     {
         // +0x70 GetPathAttributes reads the const char* path.
         return static_cast<unsigned long>(
@@ -247,7 +243,7 @@ namespace
             const size_t NewCap = Count == 0 ? 4 : Count * 2;
             FStreamingSound** Grown =
                 static_cast<FStreamingSound**>(realloc(*Begin, NewCap * sizeof(FStreamingSound*)));
-            // VC6 vector growth (FUN_06ef3960) does not test its allocation either.
+            // VC6 vector growth (the routine) does not test its allocation either.
             *Begin = Grown;
             *End = Grown + Count;
             *Cap = Grown + NewCap;
@@ -261,13 +257,13 @@ namespace
     void AdvanceSourceOrDrain(FStreamingSound* Stream, unsigned long Used);
     void SilenceLocked(FStreamingSound* Stream);
 
-    // Retail copies with inline MOVSD/MOVSB or memcpy and no pointer tests.
+    // baseline copies with inline MOVSD/MOVSB or memcpy and no pointer tests.
     void CopyBytes(void* Dest, const void* Src, unsigned long Count)
     {
         memcpy(Dest, Src, Count);
     }
 
-    // 06ef1f18..1f57: REP STOSD/STOSB only when the count is non-zero; no pointer test.
+    // ..1f57: REP STOSD/STOSB only when the count is non-zero; no pointer test.
     void ZeroBytes(void* Dest, unsigned long Count)
     {
         if (Count == 0)
@@ -275,7 +271,7 @@ namespace
         memset(Dest, 0, Count);
     }
 
-    // 06ef21cc..21d6: DIV / IMUL by the block with no zero test.
+    // ..21d6: DIV / IMUL by the block with no zero test.
     unsigned long AlignDown(unsigned long Value, unsigned long Align)
     {
         return (Value / Align) * Align;
@@ -305,10 +301,10 @@ namespace
         return 1;
     }
 
-    // retail FUN_06ef28c0
+
     unsigned char* PeekMapped(FStreamingSound* Stream, unsigned long Offset, unsigned long Size)
     {
-        // 06ef28c0..28e3: map -1, or offset + size >u +0x20 -> 0; else +0x1C + offset (no view
+        // ..28e3: map -1, or offset + size >u +0x20 -> 0; else +0x1C + offset (no view
         // test).
         if (Stream->MapHandle == 0xFFFFFFFFu)
             return nullptr;
@@ -317,7 +313,7 @@ namespace
         return Stream->MappedView + Offset;
     }
 
-    // retail FUN_06ef2850
+
     unsigned char MapFileView(FStreamingSound* Stream)
     {
         if (Stream->FileSystem == nullptr)
@@ -356,7 +352,7 @@ namespace
                                  ->OpenByDesc(reinterpret_cast<FFileSystemDesc*>(&Desc));
     }
 
-    // retail FUN_06ef1040 — play cursor, not the buffer pointer
+    // — play cursor, not the buffer pointer
     unsigned long GetPlayCursor(FStreamingSound* Stream)
     {
         if (Stream->State != 2 && Stream->State != 3 && Stream->State != 6)
@@ -370,7 +366,7 @@ namespace
         return Play;
     }
 
-    // retail FUN_06ef1080
+
     unsigned long GetBufferedBytes(FStreamingSound* Stream)
     {
         const unsigned long Play = GetPlayCursor(Stream);
@@ -380,7 +376,7 @@ namespace
         return (Stream->BufferBytes - Play) + Write;
     }
 
-    // retail FUN_06ef10b0
+
     unsigned long ComputeLockFree(FStreamingSound* Stream, unsigned long* Lock1, unsigned long* Lock2)
     {
         *Lock1 = 0;
@@ -404,10 +400,10 @@ namespace
         return *Lock1;
     }
 
-    // retail FUN_06ef23c0
+
     unsigned char LockBufferRegion(FStreamingSound* Stream, unsigned long Want)
     {
-        // 06ef23c0..2438: wrap +0xC0 at +0xBC; want == 0 or a failed Lock (+0x2C, no buffer
+        // ..2438: wrap +0xC0 at +0xBC; want == 0 or a failed Lock (+0x2C, no buffer
         // test) clears only the two pointers (+0x100 / +0x108), the byte counts are left as they are.
         if (Stream->WriteCursor >= Stream->BufferBytes)
             Stream->WriteCursor = 0;
@@ -424,7 +420,7 @@ namespace
         return 0;
     }
 
-    // retail FUN_06ef22d0
+
     unsigned long TrimEncoderDelay(FStreamingSound* Stream, unsigned char* Dest, unsigned long Count)
     {
         long Delay = Stream->EncoderDelayBytes;
@@ -461,7 +457,7 @@ namespace
         return Count;
     }
 
-    // retail FUN_06ef2440
+
     unsigned long UnlockAdvance(FStreamingSound* Stream, unsigned long Used1, unsigned long Used2)
     {
         if (Stream->LockPtr1 == nullptr)
@@ -475,7 +471,7 @@ namespace
             if (Stream->EncoderDelayBytes != -1)
                 Trimmed2 = TrimEncoderDelay(Stream, static_cast<unsigned char*>(Stream->LockPtr2), Used2);
         }
-        // 06ef248a..24a3: Unlock (+0x4C) with no buffer test.
+        // ..24a3: Unlock (+0x4C) with no buffer test.
         Stream->Buffer->Unlock(Stream->LockPtr1, Trimmed1, Stream->LockPtr2, Trimmed2);
         Stream->LockPtr1 = nullptr;
         Stream->LockPtr2 = nullptr;
@@ -488,7 +484,7 @@ namespace
         return Trimmed1 + Trimmed2;
     }
 
-    // retail FUN_06ef1fb0
+
     void PrepareAcmSource(FStreamingSound* Stream, unsigned long Want)
     {
         if (Want < Stream->DecodeOutSize)
@@ -510,14 +506,14 @@ namespace
         Stream->AcmHeader.cbSrcLengthUsed = 0;
     }
 
-    // retail FUN_06ef2190
+
     unsigned char AcmConvertBlock(FStreamingSound* Stream, void* Dest, unsigned long DestBytes)
     {
         Stream->AcmHeader.cbSrcLengthUsed = 0;
         Stream->AcmHeader.cbDstLengthUsed = 0;
         if (Stream->AcmStream == nullptr)
             return 0;
-        // 06ef21ae..21d6: -1 passes through; otherwise (+0xEC * dest) / +0xF0, aligned down
+        // ..21d6: -1 passes through; otherwise (+0xEC * dest) / +0xF0, aligned down
         // to +0x94, with both DIVs unguarded.
         unsigned long SrcWant = 0;
         if (DestBytes == 0xFFFFFFFFu)
@@ -584,7 +580,7 @@ namespace
         }
         ZeroBytes(Stream->LockPtr1, Stream->LockBytes1);
         ZeroBytes(Stream->LockPtr2, Stream->LockBytes2);
-        // 06ef1f59..1f7e: Unlock (+0x4C) with no buffer test.
+        // ..1f7e: Unlock (+0x4C) with no buffer test.
         Stream->Buffer->Unlock(Stream->LockPtr1, Stream->LockBytes1, Stream->LockPtr2,
                                Stream->LockBytes2);
         Stream->LockPtr1 = nullptr;
@@ -656,7 +652,7 @@ namespace
         return Copied1 + Copied2;
     }
 
-    // retail FUN_06ef1df0
+
     unsigned long FillPcmLocked(FStreamingSound* Stream, unsigned long Want)
     {
         unsigned long Copied = 0;
@@ -689,7 +685,7 @@ namespace
         return Copied;
     }
 
-    // retail FUN_06ef24f0
+
     void FillAcmBlock(FStreamingSound* Stream, unsigned long Want)
     {
         if (Stream->AcmStream == nullptr || Want == 0)
@@ -701,7 +697,7 @@ namespace
             if (LockBufferRegion(Stream, Want) == 0)
                 return;
             CopyHeapIntoLocks(Stream, Stream->LockBytes1, Stream->LockBytes2);
-            // 06ef25e9..262c: the amount written (FUN_06ef2440's result, after the encoder-delay
+            // ..262c: the amount written (the routine's result, after the encoder-delay
             // trim) is what comes off the request, not the bytes copied out of the heap.
             const unsigned long Written =
                 UnlockAdvance(Stream, Stream->LockBytes1, Stream->LockBytes2);
@@ -718,7 +714,7 @@ namespace
             return;
         if (LockBufferRegion(Stream, Want) == 0)
             return;
-        // 06ef264c..2770: the lock is smaller than the decode heap -> convert into the heap and
+        // ..2770: the lock is smaller than the decode heap -> convert into the heap and
         // copy out (+0x104 / +0x10C = the two copied amounts, +0x50 = their sum), or zero both
         // counts when nothing was produced; otherwise convert straight into the first lock region
         // (+0x104 = +0x50, +0x10C = 0). A failed convert only clears the success byte.
@@ -762,7 +758,7 @@ namespace
         }
     }
 
-    // retail FUN_06ef27a0
+
     void FillStreamEntry(FStreamingSound* Stream, unsigned long Want)
     {
         if (Stream->State != 2 && Stream->State != 3)
@@ -782,7 +778,7 @@ namespace
             FillPcmLocked(Stream, Want);
     }
 
-    // retail FUN_06ef1990
+
     void StreamingSoundStop(FStreamingSound* Stream)
     {
         Stream->bWantPlay = 0;
@@ -794,9 +790,9 @@ namespace
         }
     }
 
-    // retail FUN_06ef19d0 (thiscall, no return value). The port is x87 (/arch:IA32): the double
-    // operands are exact widenings, the division is the same single rounding step as retail, and
-    // the float locals are retail's FSTP float points (see docs/re/audio.md).
+    // (thiscall, no return value). The port is x87 (/arch:IA32): the double
+    // operands are exact widenings, the division is the same single rounding step as baseline, and
+    // the float locals are baseline's FSTP float points (see implementation notes).
     void PrefillAndPlay(FStreamingSound* Stream)
     {
         Stream->State = 2;
@@ -805,7 +801,7 @@ namespace
         float Thresh = Stream->Threshold;
         if (Thresh > 1.0)
             Thresh = 1.0f;
-        unsigned long Buffered = GetBufferedBytes(Stream); // FUN_06ef1080
+        unsigned long Buffered = GetBufferedBytes(Stream);
         // FILD qword {rate, 0} -> FSTP float; FILD qword {buffered, 0}; FDIV float; FCOMP float.
         // No zero-rate guard: buffered/0 is inf or NaN, and TEST AH,5 / JP sends both to Play.
         const float RateF = static_cast<float>(static_cast<unsigned long long>(Stream->BytesPerSec));
@@ -822,7 +818,7 @@ namespace
                     static_cast<long long>(static_cast<double>(RateF) * static_cast<double>(Thresh)));
                 Want = ((Raw + Block - 1) / Block) * Block;
             }
-            FillStreamEntry(Stream, Want); // FUN_06ef27a0
+            FillStreamEntry(Stream, Want);
             // FLD [+0xC4]; FCOMP double 0.25; keep +0xC4 unless greater. Kept on the FPU stack.
             float WaitThresh = Stream->Threshold;
             if (WaitThresh > 0.25)
@@ -852,7 +848,7 @@ namespace
             Stream->State = 3;
     }
 
-    // retail FUN_06ef1b70
+
     unsigned char PumpHandle(FStreamingSound* Stream)
     {
         if (Stream->State == 2)
@@ -900,7 +896,7 @@ namespace
                 Stream->State = 8;
             }
         }
-        // 06ef1ca5..1ce8: states 2 / 3 / 6 push +0x88 / +0x8C through SetVolume (+0x3C) and
+        // ..1ce8: states 2 / 3 / 6 push +0x88 / +0x8C through SetVolume (+0x3C) and
         // SetPan (+0x40) with no buffer test, AL = 1; any other state AL = 0.
         if (Stream->State == 2 || Stream->State == 3 || Stream->State == 6)
         {
@@ -915,9 +911,9 @@ namespace
 
 FStreamerInner::FStreamerInner() : RefCount(1), Self(nullptr) {}
 
-GENRESULT DACOM_API FStreamerInner::QueryInterface(const char* Iid, void** Out)
+GENRESULT NEURONCOMPONENTS_API FStreamerInner::QueryInterface(const char* Iid, void** Out)
 {
-    // LAB_06ef3d00 RET 0xC: table 06efc24c {IStreamer,+0} {IStreamer2,+0} {IAggregateComponent,+4},
+    // RET 0xC: table 06efc24c {IStreamer,+0} {IStreamer2,+0} {IAggregateComponent,+4},
     // inline strcmp, no null checks. Hit: iface = [this+8]+offset, AddRef via its vtbl+4, then
     // *Out = iface, return 0. Miss: *Out = 0, return 0xFFFFFFFD.
     if (IidEqual(Iid, Iids::Streamer) || IidEqual(Iid, Iids::Streamer2))
@@ -938,21 +934,21 @@ GENRESULT DACOM_API FStreamerInner::QueryInterface(const char* Iid, void** Out)
     return GR_INTERFACE_UNSUPPORTED;
 }
 
-unsigned long DACOM_API FStreamerInner::AddRef()
+unsigned long NEURONCOMPONENTS_API FStreamerInner::AddRef()
 {
     ++RefCount;
     return RefCount;
 }
 
-unsigned long DACOM_API FStreamerInner::Release()
+unsigned long NEURONCOMPONENTS_API FStreamerInner::Release()
 {
     if (RefCount > 0)
         --RefCount;
     const unsigned long Remaining = RefCount;
     if (Remaining == 0)
     {
-        // LAB_06ef3dd0: count = 1; if Self(+8) run the dtor FUN_06ef2b50 (whose ShutdownDevice
-        // clears DAT_06f010a4) and free it. DAT_06f010a4 is not touched here.
+        // count = 1; if Self(+8) run the dtor the routine (whose ShutdownDevice
+        // clears the field) and free it. the field is not touched here.
         RefCount = 1;
         FSoundStreamer* Owner = Self;
         if (Owner != nullptr)
@@ -964,7 +960,7 @@ unsigned long DACOM_API FStreamerInner::Release()
 
 FSoundStreamerFactory::FSoundStreamerFactory() : RefCount(1), Name(kComponentName) {}
 
-GENRESULT DACOM_API FSoundStreamerFactory::QueryInterface(const char* Iid, void** Out)
+GENRESULT NEURONCOMPONENTS_API FSoundStreamerFactory::QueryInterface(const char* Iid, void** Out)
 {
     if (Out == nullptr)
         return GR_GENERIC;
@@ -976,13 +972,13 @@ GENRESULT DACOM_API FSoundStreamerFactory::QueryInterface(const char* Iid, void*
     return GR_OK;
 }
 
-unsigned long DACOM_API FSoundStreamerFactory::AddRef()
+unsigned long NEURONCOMPONENTS_API FSoundStreamerFactory::AddRef()
 {
     ++RefCount;
     return RefCount;
 }
 
-unsigned long DACOM_API FSoundStreamerFactory::Release()
+unsigned long NEURONCOMPONENTS_API FSoundStreamerFactory::Release()
 {
     if (RefCount > 0)
         --RefCount;
@@ -996,7 +992,7 @@ unsigned long DACOM_API FSoundStreamerFactory::Release()
     return Remaining;
 }
 
-GENRESULT DACOM_API FSoundStreamerFactory::CreateInstance(AGGDESC* Desc, void** Instance)
+GENRESULT NEURONCOMPONENTS_API FSoundStreamerFactory::CreateInstance(AGGDESC* Desc, void** Instance)
 {
     if (Instance == nullptr)
         return GR_GENERIC;
@@ -1042,8 +1038,8 @@ FSoundStreamer::FSoundStreamer()
 
 FSoundStreamer::~FSoundStreamer()
 {
-    // FUN_06ef2b50: ShutdownDevice, CloseHandle(+0x68) unconditional, free pending/active
-    // storage, DeleteCriticalSection(+0x20). DAT_06f010a4 is left to ShutdownDevice.
+    // ShutdownDevice, CloseHandle(+0x68) unconditional, free pending/active
+    // storage, DeleteCriticalSection(+0x20). the field is left to ShutdownDevice.
     ShutdownDevice();
     CloseHandle(WakeEvent);
     free(PendingBegin);
@@ -1073,23 +1069,23 @@ void FSoundStreamer::BindOuter(FStreamerAggDesc* Desc)
     }
 }
 
-// LAB_06ef3e10 / 3e20 / 3e30: this = [this+0x6C] controlling unknown, JMP [vtbl+0/4/8]. No null check.
-GENRESULT DACOM_API FSoundStreamer::QueryInterface(const char* Iid, void** Out)
+// / 3e20 / 3e30: this = [this+0x6C] controlling unknown, JMP [vtbl+0/4/8]. No null check.
+GENRESULT NEURONCOMPONENTS_API FSoundStreamer::QueryInterface(const char* Iid, void** Out)
 {
     return Controlling->QueryInterface(Iid, Out);
 }
 
-unsigned long DACOM_API FSoundStreamer::AddRef()
+unsigned long NEURONCOMPONENTS_API FSoundStreamer::AddRef()
 {
     return Controlling->AddRef();
 }
 
-unsigned long DACOM_API FSoundStreamer::Release()
+unsigned long NEURONCOMPONENTS_API FSoundStreamer::Release()
 {
     return Controlling->Release();
 }
 
-GENRESULT DACOM_API FSoundStreamer::Initialize()
+GENRESULT NEURONCOMPONENTS_API FSoundStreamer::Initialize()
 {
     DirectSound = nullptr;
     Window = nullptr;
@@ -1098,7 +1094,7 @@ GENRESULT DACOM_API FSoundStreamer::Initialize()
     Gain = 0.0f;
     WorkerThread = nullptr;
     ThreadFlags = 0;
-    // FUN_06ef1000 on every Initialize: DAT_06f010a0 = FUN_06ef3fb0(Fraunhofer); 0 -> FDUMP 0x32.
+    // on every Initialize: the field = the routine(Fraunhofer); 0 -> FDUMP 0x32.
     // A previously opened driver is neither checked nor closed.
     G_FraunhoferDriver = OpenFraunhoferDriver();
     if (G_FraunhoferDriver == nullptr)
@@ -1111,14 +1107,14 @@ bool FSoundStreamer::OpenOwnDirectSound()
     const HRESULT Hr = CoInitialize(nullptr);
     if (FAILED(Hr))
     {
-        FdumpStreamer(kFdumpError, 0x1B2, "SoundStreamer - Failed to CoInitialize."); // 06efe370
+        FdumpStreamer(kFdumpError, 0x1B2, "SoundStreamer - Failed to CoInitialize.");
         return false;
     }
 
     const HRESULT CreateHr =
-        CoCreateInstance(kClsidDirectSound, nullptr, CLSCTX_INPROC_SERVER, kIidDirectSoundRetail,
+        CoCreateInstance(kClsidDirectSound, nullptr, CLSCTX_INPROC_SERVER, kIidDirectSoundbaseline,
                          reinterpret_cast<void**>(&DirectSound));
-    // 06ef2e76..2eb5: a failed CoCreateInstance is only reported; Initialize (+0x28) is then
+    // ..2eb5: a failed CoCreateInstance is only reported; Initialize (+0x28) is then
     // called through +8 unchecked.
     if (CreateHr != 0)
         FdumpDsound(0x1BB, CreateHr);
@@ -1129,7 +1125,7 @@ bool FSoundStreamer::OpenOwnDirectSound()
         DirectSound = nullptr;
         CoUninitialize();
         bCoInitialized = 0;
-        FdumpStreamer(kFdumpError, 0x1C7, "SoundStreamer - Failed to initialize Direct Sound."); // 06efe2d0
+        FdumpStreamer(kFdumpError, 0x1C7, "SoundStreamer - Failed to initialize Direct Sound.");
         return false;
     }
     const HRESULT CoopHr = DirectSound->SetCooperativeLevel(Window, DSSCL_NORMAL);
@@ -1138,11 +1134,11 @@ bool FSoundStreamer::OpenOwnDirectSound()
     return true;
 }
 
-int DACOM_API FSoundStreamer::InitializeDevice(FStreamerInitDesc* Desc)
+int NEURONCOMPONENTS_API FSoundStreamer::InitializeDevice(FStreamerInitDesc* Desc)
 {
     if (Desc == nullptr || Desc->Size != 0x18)
     {
-        FdumpStreamer(kFdumpError, 0x1A5, "SoundStreamer - Invalid parameters."); // 06efe254
+        FdumpStreamer(kFdumpError, 0x1A5, "SoundStreamer - Invalid parameters.");
         return 0;
     }
 
@@ -1165,7 +1161,7 @@ int DACOM_API FSoundStreamer::InitializeDevice(FStreamerInitDesc* Desc)
     WorkerThread = CreateThread(nullptr, 0x1000, WorkerThreadProc, this, 0, &ThreadId);
     if (WorkerThread == nullptr)
     {
-        FdumpStreamer(kFdumpError, 0x21A, "SoundStreamer - failed to Create thread."); // 06efe278
+        FdumpStreamer(kFdumpError, 0x21A, "SoundStreamer - failed to Create thread.");
         if (DirectSound != nullptr)
         {
             DirectSound->Release();
@@ -1182,8 +1178,8 @@ int DACOM_API FSoundStreamer::InitializeDevice(FStreamerInitDesc* Desc)
         --Wait;
         if (Wait == 0)
         {
-            FdumpStreamer(kFdumpError, 0x20F, "SoundStreamer - failed to Activate thread."); // 06efe2a4
-            // 06ef2fd7..2fde: the handle is closed but +0x60 keeps the stale value.
+            FdumpStreamer(kFdumpError, 0x20F, "SoundStreamer - failed to Activate thread.");
+            // ..2fde: the handle is closed but +0x60 keeps the stale value.
             CloseHandle(WorkerThread);
             if (DirectSound != nullptr)
             {
@@ -1260,8 +1256,8 @@ void FSoundStreamer::ShutdownDevice()
 
 void FSoundStreamer::ReleaseStreamResources(FStreamingSound* Stream)
 {
-    // The handle teardown + dtor sequence every retail delete site runs: FUN_06ef1120, then
-    // FUN_06ef3910 (+0xB8), FUN_06ef3ea0 (+0xA8), FUN_06ef3ec0 (+0x10 again, the +0 string);
+    // The handle teardown + dtor sequence every baseline delete site runs: the routine, then
+    // (+0xB8), the routine (+0xA8), the routine (+0x10 again, the +0 string);
     // the caller frees the 0x110 block. No null test on the handle.
     Stream->bBufferReady = 0;
     if (Stream->Buffer != nullptr)
@@ -1298,7 +1294,7 @@ void FSoundStreamer::ReleaseStreamResources(FStreamingSound* Stream)
         Stream->AcmStream = nullptr;
     }
     Stream->State = 0;
-    // FUN_06ef3ea0: +0xA8 freed again when still set (no ACM stream but a decode heap).
+    // +0xA8 freed again when still set (no ACM stream but a decode heap).
     if (Stream->DecodeHeap != nullptr)
     {
         free(Stream->DecodeHeap);
@@ -1310,7 +1306,7 @@ void FSoundStreamer::ReleaseStreamResources(FStreamingSound* Stream)
 
 bool FSoundStreamer::OpenAcmStream(FStreamingSound* Stream)
 {
-    // FUN_06ef13d0 thiscall: +0x9C null -> 0 (retail's own test; no handle check).
+    // thiscall: +0x9C null -> 0 (baseline's own test; no handle check).
     if (Stream->DataPtr == nullptr)
         return false;
     WAVEFORMATEX* Src = reinterpret_cast<WAVEFORMATEX*>(Stream->FmtBlob);
@@ -1324,7 +1320,7 @@ bool FSoundStreamer::OpenAcmStream(FStreamingSound* Stream)
     memset(&Stream->AcmHeader, 0, sizeof(Stream->AcmHeader));
     Stream->AcmHeader.cbStruct = 0x54;
     const unsigned long Avg = *reinterpret_cast<unsigned long*>(Stream->FmtBlob + 8);
-    // 06ef1468..147d: ftol(FILD qword(u32 avg) * float +0xC4) - low dword of the int64 truncation.
+    // ..147d: ftol(FILD qword(u32 avg) * float +0xC4) - low dword of the int64 truncation.
     const double Scaled = static_cast<double>(static_cast<unsigned long long>(Avg)) *
                           static_cast<double>(Stream->Threshold);
     const unsigned long SrcGuess = static_cast<unsigned long>(static_cast<long long>(Scaled));
@@ -1352,7 +1348,7 @@ bool FSoundStreamer::OpenAcmStream(FStreamingSound* Stream)
     return true;
 }
 
-// Direct calls of FUN_06ef27a0 / FUN_06ef1b70 from the worker and StartStream; retail passes the
+// Direct calls of the routine / the routine from the worker and StartStream; baseline passes the
 // handle straight through.
 void FSoundStreamer::FillStreamBlock(FStreamingSound* Stream, unsigned long Want)
 {
@@ -1366,9 +1362,9 @@ void FSoundStreamer::PumpOneStream(FStreamingSound* Stream)
 
 void FSoundStreamer::MovePendingActive()
 {
-    // FUN_06ef3790: no null-handle checks (state +0x80 is read straight off each entry); an entry
+    // no null-handle checks (state +0x80 is read straight off each entry); an entry
     // leaving a vector is erased at its own position (tail shifted down one slot, end -= 4) and
-    // appended to the other vector with FUN_06ef3960 (insert 1 at end).
+    // appended to the other vector with the routine (insert 1 at end).
     EnterCriticalSection(&Lock);
     FStreamingSound** Scan = ActiveBegin;
     while (Scan != ActiveEnd)
@@ -1406,24 +1402,24 @@ unsigned long FSoundStreamer::PumpStreams()
     {
         if (ActiveBegin != nullptr && ActiveBegin != ActiveEnd)
         {
-            // 06ef35ed..374d. The port is x87 (/arch:IA32): double locals are exact widenings of
-            // retail's register values, the float locals are retail's FSTP float points (rate,
+            // ..374d. The port is x87 (/arch:IA32): double locals are exact widenings of
+            // baseline's register values, the float locals are baseline's FSTP float points (rate,
             // threshold, best), and each FMUL/FDIV/FIMUL is the same single rounding step.
             EnterCriticalSection(&Lock);
             FStreamingSound* Emptiest = nullptr;
-            float BestBuffered = 60.0f; // 0x42700000
-            const float Threshold = 3.0f * 0.04f; // DAT_06efc16c * DAT_06efc1e0, FSTP float
+            float BestBuffered = 60.0f;
+            const float Threshold = 3.0f * 0.04f; // * , FSTP float
             FStreamingSound** Scan = ActiveBegin;
             while (Scan != ActiveEnd)
             {
                 FStreamingSound* Stream = *Scan;
                 ++Scan;
-                if (Stream == nullptr) // 06ef3612
+                if (Stream == nullptr)
                     continue;
                 PumpOneStream(Stream);
                 if (Stream->State != 3 && Stream->State != 2)
                     continue;
-                const unsigned long Buffered = GetBufferedBytes(Stream); // FUN_06ef1080
+                const unsigned long Buffered = GetBufferedBytes(Stream);
                 // FILD qword {rate, 0} -> FSTP float; FILD qword {buffered, 0}; FDIV. A zero rate
                 // gives inf/NaN, which fails both '<' tests below exactly as FCOM/JP does.
                 const float Rate = static_cast<float>(static_cast<unsigned long long>(Stream->BytesPerSec));
@@ -1456,7 +1452,7 @@ unsigned long FSoundStreamer::PumpStreams()
                 const unsigned long Block = Emptiest->PcmBlock;
                 if (Block != 0)
                 {
-                    // FILD count; FMUL 4.0f (DAT_06efc170); FMUL 0.04f; FIMUL dword rate; _ftol.
+                    // FILD count; FMUL 4.0f (the field); FMUL 0.04f; FIMUL dword rate; _ftol.
                     const double Raw = static_cast<double>(static_cast<int>(Count)) * 4.0 *
                                        static_cast<double>(0.04f) *
                                        static_cast<double>(static_cast<int>(Emptiest->BytesPerSec));
@@ -1475,9 +1471,9 @@ unsigned long FSoundStreamer::PumpStreams()
     return 1;
 }
 
-bool FSoundStreamer::LoadWav(FStreamingSound* Stream, const char* Path, IDAComponent* FileSystem)
+bool FSoundStreamer::LoadWav(FStreamingSound* Stream, const char* Path, INeuronComponent* FileSystem)
 {
-    // FUN_06ef1560 thiscall (handle; DirectSound = streamer+8, Gain = streamer+0x18) RET 8.
+    // thiscall (handle; DirectSound = streamer+8, Gain = streamer+0x18) RET 8.
     // The streamer's own DirectSound / Gain members are those two arguments.
     (void)Path;
     (void)FileSystem;
@@ -1485,7 +1481,7 @@ bool FSoundStreamer::LoadWav(FStreamingSound* Stream, const char* Path, IDACompo
         return false;
     if (DirectSound == nullptr)
         return false;
-    // 06ef159b..15ba: +0xC4 = gain bits, then FCOMP 0.0 + TEST AH,0x41 + JNP: less or equal
+    // ..15ba: +0xC4 = gain bits, then FCOMP 0.0 + TEST AH,0x41 + JNP: less or equal
     // fails, greater and NaN go on.
     Stream->Threshold = Gain;
     if (Gain < 0.0f || Gain == 0.0f)
@@ -1493,7 +1489,7 @@ bool FSoundStreamer::LoadWav(FStreamingSound* Stream, const char* Path, IDACompo
     if (Stream->FileSystem == nullptr)
         return false;
 
-    // 06ef15cb..1635: the file / map handles keep the ctor's -1 here (FUN_06ef1200).
+    // ..1635: the file / map handles keep the ctor's -1 here (the routine).
     OpenNestedWavFile(Stream);
     if (MapFileView(Stream) == 0)
         return false;
@@ -1527,7 +1523,7 @@ bool FSoundStreamer::LoadWav(FStreamingSound* Stream, const char* Path, IDACompo
             DataHdr = Chunk;
         else if (Id == 0x74636166)
             FactHdr = Chunk;
-        // 06ef16e0..16f4: JNS -> 0, then a signed JLE clamp against +0x20.
+        // ..16f4: JNS -> 0, then a signed JLE clamp against +0x20.
         long Next = static_cast<long>(Stream->ReadCursor + Size);
         if (Next < 0)
             Next = 0;
@@ -1571,7 +1567,7 @@ bool FSoundStreamer::LoadWav(FStreamingSound* Stream, const char* Path, IDACompo
     char Msg[0x2000];
     if (Tag == 1)
     {
-        // 06ef1821..1867: copy 0x12 bytes to +0xD8, +0xF0 = +0xE0, then
+        // ..1867: copy 0x12 bytes to +0xD8, +0xF0 = +0xE0, then
         // ftol(FILD qword(u32 avg) * float +0xC4) - the low dword of the int64 truncation.
         CopyBytes(&Stream->PcmTag, Stream->FmtBlob, 0x12);
         Stream->BytesPerSec = Stream->PcmAvg;
@@ -1583,13 +1579,13 @@ bool FSoundStreamer::LoadWav(FStreamingSound* Stream, const char* Path, IDACompo
     {
         if (!OpenAcmStream(Stream))
         {
-            // 06ef17c4..17fc: name = +4 or "" (DAT_06efc14c), FUN_06ef2910, FDUMP ERROR 0x1E7
+            // ..17fc: name = +4 or "" (the field), the routine, FDUMP ERROR 0x1E7
             // under NewStream.cpp.
             const char* Name = Stream->Path != nullptr ? Stream->Path : "";
             Fdump(kFdumpError, 0x1E7,
                   FormatStreamerMessage(Msg,
                                         "StreamingSound: Error initializing ACM for WAV file  '%s'\n",
-                                        Name)); // 06efe14c
+                                        Name));
             return false;
         }
         Stream->BytesPerSec = Stream->PcmAvg;
@@ -1616,7 +1612,7 @@ bool FSoundStreamer::LoadWav(FStreamingSound* Stream, const char* Path, IDACompo
                                     Name, static_cast<unsigned int>(CreateHr)));
         return false;
     }
-    // 06ef191a..1963: GetFormat (+0x14)(+0xD8, 0x12, 0), +0xBC = dwBufferBytes, +0xC0 / +0xC8 /
+    // ..1963: GetFormat (+0x14)(+0xD8, 0x12, 0), +0xBC = dwBufferBytes, +0xC0 / +0xC8 /
     // +0xB0 / +0xB4 = 0, SetVolume (+0x3C)(+0x88), SetPan (+0x40)(+0x8C) - no buffer checks.
     Stream->Buffer->GetFormat(reinterpret_cast<WAVEFORMATEX*>(&Stream->PcmTag), 0x12, nullptr);
     Stream->BufferBytes = Desc.dwBufferBytes;
@@ -1631,20 +1627,20 @@ bool FSoundStreamer::LoadWav(FStreamingSound* Stream, const char* Path, IDACompo
     return true;
 }
 
-void* DACOM_API FSoundStreamer::CreateStream(const char* Path, IDAComponent* FileSystem,
+void* NEURONCOMPONENTS_API FSoundStreamer::CreateStream(const char* Path, INeuronComponent* FileSystem,
                                              unsigned long Flags)
 {
-    // FUN_06ef3060 stdcall (this, Path, FileSystem, Flags) RET 0x10.
+    // stdcall (this, Path, FileSystem, Flags) RET 0x10.
     if (WorkerThread == nullptr) // +0x60
         return nullptr;
 
     // [ESP+0x10]: the owned file system (0 unless created below), released on every exit
     // after this point. Name (EDI) is what the handle gets and what the error message prints.
-    IDAComponent* OwnedFs = nullptr;
+    INeuronComponent* OwnedFs = nullptr;
     const char* Name = nullptr;
     if (FileSystem == nullptr)
     {
-        // 06ef309e..311a: no path -> 0; else create a FileSystem rooted at the path. On
+        // ..311a: no path -> 0; else create a FileSystem rooted at the path. On
         // failure the out slot is released if set, return 0. On success the handle gets the
         // new file system and a NULL name (06ef3118 XOR EDI,EDI).
         if (Path == nullptr)
@@ -1660,24 +1656,24 @@ void* DACOM_API FSoundStreamer::CreateStream(const char* Path, IDAComponent* Fil
     }
     else
     {
-        // 06ef311c..3135: attributes -1 or directory bit 0x10 -> -1 (nothing owned yet).
+        // ..3135: attributes -1 or directory bit 0x10 -> -1 (nothing owned yet).
         Name = Path;
         const unsigned long Attrs = FileSystemAttributes(FileSystem, Path);
         if (Attrs == static_cast<unsigned long>(-1) || (Attrs & 0x10) != 0)
             return reinterpret_cast<void*>(static_cast<uintptr_t>(0xFFFFFFFFu));
     }
 
-    // 06ef313b..3150: operator new(0x110) + FUN_06ef1200(Name, FileSystem); a null new is
+    // ..3150: operator new(0x110) + the routine(Name, FileSystem); a null new is
     // carried on (EAX = 0) and dereferenced by the +0x85 store below.
     FStreamingSound* Stream = static_cast<FStreamingSound*>(calloc(1, sizeof(FStreamingSound)));
     ConstructStreamHandle(Stream, Name, FileSystem);
-    // 06ef3159..316b: +0x85 = (Flags >> 1) & 1.
+    // ..316b: +0x85 = (Flags >> 1) & 1.
     Stream->bLoop = static_cast<unsigned char>((Flags >> 1) & 1);
-    // 06ef3171..3186: FUN_06ef2de0 / FUN_06ef2df0 leave EAX = this+8 (the IDirectSound), which
-    // is the argument of FUN_06ef1560; its result alone decides.
+    // ..3186: the routine / the routine leave EAX = this+8 (the IDirectSound), which
+    // is the argument of the routine; its result alone decides.
     if (!LoadWav(Stream, Name, FileSystem))
     {
-        // 06ef3193..31f5: FUN_06ef2910 into a 0x2000 buffer with the handle's name, FDUMP
+        // ..31f5: the routine into a 0x2000 buffer with the handle's name, FDUMP
         // ERROR 0x254 (SoundStreamer.cpp), then the handle teardown and delete.
         char ReadMsg[0x2000];
         FdumpStreamer(kFdumpError, 0x254,
@@ -1690,11 +1686,11 @@ void* DACOM_API FSoundStreamer::CreateStream(const char* Path, IDAComponent* Fil
         return nullptr;
     }
 
-    // 06ef3215..321e: Flags bit 0 -> FUN_06ef1d10.
+    // ..321e: Flags bit 0 -> the routine.
     if ((Flags & 1) != 0)
         StartHandle(Stream);
 
-    // 06ef3223..3241: push_back into the +0x48 vector under +0x20.
+    // ..3241: push_back into the +0x48 vector under +0x20.
     EnterCriticalSection(&Lock);
     PtrListPush(&PendingBegin, &PendingEnd, &PendingCap, Stream);
     LeaveCriticalSection(&Lock);
@@ -1704,14 +1700,14 @@ void* DACOM_API FSoundStreamer::CreateStream(const char* Path, IDAComponent* Fil
     return Stream;
 }
 
-GENRESULT DACOM_API FSoundStreamer::DestroyStream(void* Handle)
+GENRESULT NEURONCOMPONENTS_API FSoundStreamer::DestroyStream(void* Handle)
 {
     FStreamingSound* Stream = static_cast<FStreamingSound*>(Handle);
     if (Stream == nullptr || WorkerThread == nullptr)
         return static_cast<GENRESULT>(0);
-    // LAB_06ef3290: vtbl+0x18 StopStream, then under the lock the handle is torn down and freed
+    // vtbl+0x18 StopStream, then under the lock the handle is torn down and freed
     // only where it is found - first match in the active vector, then first match in the pending
-    // vector - each erased at its position. A handle in neither vector is left alone (retail
+    // vector - each erased at its position. A handle in neither vector is left alone (baseline
     // leaks it).
     StopStream(Stream);
     EnterCriticalSection(&Lock);
@@ -1745,7 +1741,7 @@ GENRESULT DACOM_API FSoundStreamer::DestroyStream(void* Handle)
     return static_cast<GENRESULT>(1);
 }
 
-GENRESULT DACOM_API FSoundStreamer::StopStream(void* Handle)
+GENRESULT NEURONCOMPONENTS_API FSoundStreamer::StopStream(void* Handle)
 {
     FStreamingSound* Stream = static_cast<FStreamingSound*>(Handle);
     if (Stream == nullptr || WorkerThread == nullptr)
@@ -1754,7 +1750,7 @@ GENRESULT DACOM_API FSoundStreamer::StopStream(void* Handle)
     return static_cast<GENRESULT>(1);
 }
 
-GENRESULT DACOM_API FSoundStreamer::StartStream(void* Handle)
+GENRESULT NEURONCOMPONENTS_API FSoundStreamer::StartStream(void* Handle)
 {
     FStreamingSound* Stream = static_cast<FStreamingSound*>(Handle);
     if (Stream == nullptr || WorkerThread == nullptr)
@@ -1766,7 +1762,7 @@ GENRESULT DACOM_API FSoundStreamer::StartStream(void* Handle)
     return static_cast<GENRESULT>(1);
 }
 
-GENRESULT DACOM_API FSoundStreamer::SetVolume(void* Handle, long Volume)
+GENRESULT NEURONCOMPONENTS_API FSoundStreamer::SetVolume(void* Handle, long Volume)
 {
     FStreamingSound* Stream = static_cast<FStreamingSound*>(Handle);
     if (Stream == nullptr || WorkerThread == nullptr)
@@ -1777,7 +1773,7 @@ GENRESULT DACOM_API FSoundStreamer::SetVolume(void* Handle, long Volume)
     return static_cast<GENRESULT>(1);
 }
 
-GENRESULT DACOM_API FSoundStreamer::GetVolume(void* Handle, long* Out)
+GENRESULT NEURONCOMPONENTS_API FSoundStreamer::GetVolume(void* Handle, long* Out)
 {
     FStreamingSound* Stream = static_cast<FStreamingSound*>(Handle);
     if (Stream == nullptr || WorkerThread == nullptr)
@@ -1786,7 +1782,7 @@ GENRESULT DACOM_API FSoundStreamer::GetVolume(void* Handle, long* Out)
     return static_cast<GENRESULT>(1);
 }
 
-unsigned long DACOM_API FSoundStreamer::QueryStatus(void* Handle)
+unsigned long NEURONCOMPONENTS_API FSoundStreamer::QueryStatus(void* Handle)
 {
     FStreamingSound* Stream = static_cast<FStreamingSound*>(Handle);
     if (Stream == nullptr || WorkerThread == nullptr)
@@ -1810,17 +1806,17 @@ unsigned long DACOM_API FSoundStreamer::QueryStatus(void* Handle)
     }
 }
 
-unsigned long DACOM_API FSoundStreamer::GetReserved58()
+unsigned long NEURONCOMPONENTS_API FSoundStreamer::GetReserved58()
 {
     return Reserved58;
 }
 
-unsigned long DACOM_API FSoundStreamer::GetReserved5C()
+unsigned long NEURONCOMPONENTS_API FSoundStreamer::GetReserved5C()
 {
     return Reserved5C;
 }
 
-GENRESULT DACOM_API FSoundStreamer::SetPan(void* Handle, long Pan)
+GENRESULT NEURONCOMPONENTS_API FSoundStreamer::SetPan(void* Handle, long Pan)
 {
     FStreamingSound* Stream = static_cast<FStreamingSound*>(Handle);
     if (Stream == nullptr || WorkerThread == nullptr)
@@ -1831,7 +1827,7 @@ GENRESULT DACOM_API FSoundStreamer::SetPan(void* Handle, long Pan)
     return static_cast<GENRESULT>(1);
 }
 
-GENRESULT DACOM_API FSoundStreamer::GetPan(void* Handle, long* Out)
+GENRESULT NEURONCOMPONENTS_API FSoundStreamer::GetPan(void* Handle, long* Out)
 {
     FStreamingSound* Stream = static_cast<FStreamingSound*>(Handle);
     if (Stream == nullptr || WorkerThread == nullptr)
@@ -1844,13 +1840,13 @@ BOOL WINAPI DllMain(HINSTANCE /*Instance*/, DWORD Reason, LPVOID /*Reserved*/)
 {
     if (Reason == DLL_PROCESS_ATTACH)
     {
-        // FUN_06ef3890: operator new(0xC) factory (fail -> return 1), DACOM_Acquire (no null
+        // operator new(0xC) factory (fail -> return 1), NEURONCOMPONENTS_Acquire (no null
         // check), RegisterComponent vtbl+0x10, factory Release. No DisableThreadLibraryCalls.
         FSoundStreamerFactory* Factory = new (std::nothrow) FSoundStreamerFactory();
         if (Factory == nullptr)
             return TRUE;
-        ICOManager* Dacom = DACOM_Acquire();
-        Dacom->RegisterComponent(Factory, kComponentName, reinterpret_cast<void*>(kRegisterPriority));
+        ICOManager* NeuronComponents = NEURONCOMPONENTS_Acquire();
+        NeuronComponents->RegisterComponent(Factory, kComponentName, reinterpret_cast<void*>(kRegisterPriority));
         Factory->Release();
     }
     else if (Reason == DLL_PROCESS_DETACH)

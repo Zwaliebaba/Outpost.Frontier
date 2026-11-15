@@ -1,14 +1,10 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
-// Non-MFC TU on purpose: no StdAfx.h, so dalib_net.h and common_errorhandler.h can be included
+// Non-MFC TU on purpose: no StdAfx.h, so neuronruntime_net.h and common_errorhandler.h can be included
 // without the MFC CObject clash.
 #include "CrashReport.h"
 
-#include "dalib_net.h"           // CDPServer::CrashCleanup
+#include "neuronruntime_net.h"           // CDPServer::CrashCleanup
 #include "common_errorhandler.h" // ErrorHandler::deactivate
 
 #include <windows.h>
@@ -17,16 +13,16 @@
 
 namespace
 {
-	// .data:00426300 — the '|'-separated list of files Dr. Watson attaches, 0x410 wchar ending
+	// — the '|'-separated list of files Dr. Watson attaches, 0x410 wchar ending
 	// where GCrashAppName begins. In OutpostServer.exe only AppendDxDiagReport writes it (all six
 	// references are inside 00408b70..00408f5e), so it holds at most the dxdiag report.
 	wchar_t GCrashReportFiles[0x410];
 
-	// .data:00426b20 — the application name handed to Dr. Watson (0x80 wchar, the last one
-	// forced to zero at .data:00426c1e).
+	// — the application name handed to Dr. Watson (0x80 wchar, the last one
+	// forced to zero at module storage).
 	wchar_t GCrashAppName[0x80];
 
-	// .text:00408b70..00408cbd: run "dxdiag.exe <temp>\dxdiag.txt", wait up to 60 s and, unless
+	// run "dxdiag.exe <temp>\dxdiag.txt", wait up to 60 s and, unless
 	// it timed out, append the report path to GCrashReportFiles.
 	void AppendDxDiagReport()
 	{
@@ -60,7 +56,7 @@ namespace
 			size_t Length = wcslen(GCrashReportFiles);
 			MultiByteToWideChar(CP_UTF8, 0, ReportPath, -1, GCrashReportFiles + Length,
 				(int)(0x410 - Length));
-			// .text:00408c98: the terminator lands 0x104 wchar past the old end, not after the
+			// the terminator lands 0x104 wchar past the old end, not after the
 			// appended text.
 			GCrashReportFiles[Length + 0x104] = L'\0';
 		}
@@ -68,7 +64,7 @@ namespace
 		CloseHandle(ProcessInfo.hThread);
 	}
 
-	// .text:00408cc0..004090e9, the unhandled-exception filter. Breakpoint (0x80000003) and
+	// , the unhandled-exception filter. Breakpoint (0x80000003) and
 	// single-step (0x80000004) go to the next handler. Everything else: close a hosted
 	// DirectPlay session, then hand the crash to Dr. Watson (dw15.exe) through a 0x1c50-byte
 	// shared block and wait for it. Returns EXCEPTION_EXECUTE_HANDLER unless dw15 says the
@@ -82,7 +78,7 @@ namespace
 			return 0;
 		}
 
-		// .text:00408d0d..00408d32: its own __try whose filter (00408d22) returns 1.
+		// its own __try whose filter (00408d22) returns 1.
 		__try
 		{
 			CDPServer::CrashCleanup();
@@ -183,7 +179,7 @@ namespace
 							}
 							else
 							{
-								// .text:00408ff9..00409083.
+								// .
 								bool bWaiting = true;
 								do
 								{
@@ -240,7 +236,7 @@ namespace
 	}
 }
 
-// .text:004090f0..0040911c
+
 void InstallCrashHandler(const wchar_t* AppName)
 {
 	wcsncpy(GCrashAppName, AppName, 0x80);

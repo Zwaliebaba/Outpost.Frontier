@@ -203,7 +203,7 @@ static int codesize (int arg) {
 }
 
 
-/* Thorn.dll retail address binding: FUN_06f53050.
+/* SceneScript.dll baseline address binding: the routine.
  * This is the complete instruction insertion path: grow the code vector,
  * move the tail, update pc, and encode the widened operand. */
 static int fix_opcode (LexState *ls, int pc, OpCode op, int arg) {
@@ -275,7 +275,7 @@ static int real_constant (FuncState *fs, const real *Number) {
     if (ttype(&cnt[c]) == LUA_T_NUMBER) {
       const real *ExistingNumber = &nvalue(&cnt[c]);
       unsigned short ComparisonStatus;
-      /* Retail 06f53ff1 returns on C3 after one signaling FCOMP.
+      /* returns on C3 after one signaling FCOMP.
          Two C comparisons add a waiting FLD before this return. */
       __asm {
         mov eax, ExistingNumber
@@ -377,7 +377,7 @@ static void flush_list (LexState *ls, int m, int n) {
 }
 
 
-/* Thorn.dll retail address binding: FUN_06f528d0. */
+/* SceneScript.dll baseline address binding: the routine. */
 static void luaI_registerlocalvar (FuncState *fs, TaggedString *varname,
                                    int line) {
   if (fs->nvars != -1) {  /* debug information? */
@@ -409,7 +409,7 @@ static void add_localvar (LexState *ls, TaggedString *name) {
 }
 
 
-/* Thorn.dll retail address binding: FUN_06f52d60. */
+/* SceneScript.dll baseline address binding: the routine. */
 static void correctvarlines (LexState *ls, int nvars) {
   FuncState *fs = ls->fs;
   if (fs->nvars != -1) {  /* debug information? */
@@ -489,7 +489,7 @@ static void adjuststack (LexState *ls, int n) {
 }
 
 
-/* Thorn.dll retail address binding: FUN_06f52f20. */
+/* SceneScript.dll baseline address binding: the routine. */
 static void close_exp (LexState *ls, int pc, int nresults) {
   if (pc > 0) {  /* expression is an open function call? */
     Byte *code = ls->fs->f->code;
@@ -503,7 +503,7 @@ static void close_exp (LexState *ls, int pc, int nresults) {
 }
 
 
-/* Thorn.dll retail address binding: FUN_06f52f60. */
+/* SceneScript.dll baseline address binding: the routine. */
 static void adjust_mult_assign (LexState *ls, int nvars, listdesc *d) {
   int diff = d->n - nvars;
   if (d->pc == 0) {  /* list is closed */
@@ -590,7 +590,7 @@ static void storevar (LexState *ls, vardesc *var) {
 }
 
 
-/* Thorn.dll retail address binding: FUN_06f53020 (relative jump fix-up). */
+/* SceneScript.dll baseline address binding: the routine (relative jump fix-up). */
 static int fix_jump (LexState *ls, int pc, OpCode op, int n) {
   /* jump is relative to position following jump instruction */
   return fix_opcode(ls, pc, op, n-(pc+JMPSIZE));
@@ -634,7 +634,7 @@ static void func_onstack (LexState *ls, FuncState *func) {
 }
 
 
-/* Thorn.dll retail address binding: FUN_06f526d0.
+/* SceneScript.dll baseline address binding: the routine.
  * The modern Lua32 FuncState carries the same linked parser state, proto
  * root, initial code bytes, debug flag and GC protection semantics. */
 static void init_state (LexState *ls, FuncState *fs, TaggedString *source) {
@@ -659,7 +659,7 @@ static void init_state (LexState *ls, FuncState *fs, TaggedString *source) {
 }
 
 
-/* Thorn.dll retail address binding: FUN_06f527d0. */
+/* SceneScript.dll baseline address binding: the routine. */
 static void close_func (LexState *ls) {
   FuncState *fs = ls->fs;
   TProtoFunc *f = fs->f;
@@ -1065,7 +1065,7 @@ static void simpleexp (LexState *ls, vardesc *v, stack_op *s) {
   switch (ls->token) {
     case NUMBER: {  /* simpleexp -> NUMBER */
       real r;
-      /* Preserve the original payload until the retail arithmetic stage. */
+      /* Preserve the original payload until the baseline arithmetic stage. */
       memcpy(&r, &ls->seminfo.r, sizeof(r));
       next(ls);
       /* dirty trick: check whether it is a -NUMBER not followed by '^' */

@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -20,15 +16,15 @@
 class INI_Reader;
 struct FContentPlayerState;     // ContentPlayerState.h
 
-// One [NewsItem] record, 0x80 bytes (element of vector DAT_06fcef24..DAT_06fcef30).
-// Default state is set by the loader FUN_06eb44c0 (06eb451a-06eb4597); copy is the
-// member-wise FUN_06eb68a0, destruction FUN_06eb4680.
+// One [NewsItem] record, 0x80 bytes (element of vector the field..the field).
+// Default state is set by the loader the routine (06eb451a-06eb4597); copy is the
+// member-wise the routine, destruction the routine.
 struct FNewsItem
 {
     FNewsItem();
-    FNewsItem(FNewsItem const& Other) = default;          // FUN_06eb68a0
+    FNewsItem(FNewsItem const& Other) = default;
     FNewsItem& operator=(FNewsItem const& Other) = default;
-    ~FNewsItem();                                          // FUN_06eb4680
+    ~FNewsItem();
 
     std::vector<unsigned int> Bases;                       // +0x00 "base", unique ids
     int FromStage;                                         // +0x10 "rank"[0], default 0
@@ -42,14 +38,14 @@ struct FNewsItem
     NewsBroadcastDescription Desc;
 };
 
-// DAT_06fcef24: constructed by LAB_06eb4440, destroyed by the atexit FUN_06eb4470.
+// constructed by the branch, destroyed by the atexit the routine.
 extern std::vector<FNewsItem> GNewsItems;
 
-// FUN_06eb44c0: one record per [NewsItem] section, appended to GNewsItems.
+// one record per [NewsItem] section, appended to GNewsItems.
 void __cdecl LoadNewsItems(INI_Reader* Reader);
 
-// BaseSupport message 0x2c (mission offer accepted), 0x10 bytes. Read by LAB_06eb4ba0
-// 06eb5087; sent with Kind 0 by FBarOffer::Accept (06ea8ec2) and re-sent as is to the
+// BaseSupport message 0x2c (mission offer accepted), 0x10 bytes. Read by the branch
+// ; sent with Kind 0 by FBarOffer::Accept (06ea8ec2) and re-sent as is to the
 // new mission controller (06eb51dc).
 struct FMissionOfferAcceptMsg
 {
@@ -60,8 +56,8 @@ struct FMissionOfferAcceptMsg
 };
 
 // A mission vendor offer of a docked player (list element, node +8). Built by TU35
-// FUN_06f047e0 from pub::GF::MissionVendorOfferCreate and the generated mission (copied
-// with FUN_06eb2060, the loader reference moves in); released by FUN_06f04a40 or by an
+// from pub::GF::MissionVendorOfferCreate and the generated mission (copied
+// with the routine, the loader reference moves in); released by the routine or by an
 // accepted offer (BaseSupport msg 0x2c).
 struct FBaseVendorOffer
 {
@@ -79,11 +75,11 @@ struct FBaseVisit
     std::list<FBaseVendorOffer> VendorOffers;       // +0x10
 };
 
-// DAT_06fcef10: player id -> visit (map; find FUN_06f7b0f0, insert FUN_06eb5940, erase
-// FUN_06eb5b50).
+// player id -> visit (map; find the routine, insert the routine, erase
+// ).
 extern std::map<unsigned int, FBaseVisit> GBaseVisits;
 
-// FUN_06eb55c0 (cdecl; caller FBarOffer::Accept FUN_06ea8d50 06ea8f55, bribe): rebuild the
-// player's mission vendor offers -- release them (FUN_06f04a40), then FUN_06f047e0 for the
+// (cdecl; caller FBarOffer::Accept the routine 06ea8f55, bribe): rebuild the
+// player's mission vendor offers -- release them (the routine), then the routine for the
 // player's base.
 void __cdecl RefreshMissionVendorOffers(FContentPlayerState* State);

@@ -1,15 +1,11 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "common_ini.h"
 #include "msvcrt_atof.h"
 
-#include "DALib.h"
-#include "dacom.h"
-#include "msvcrt_compat.h" // MsvcrtAtoi: retail's MSVCRT.DLL atoi wraps, the UCRT saturates
+#include "NeuronRuntime.h"
+#include "neuroncomponents.h"
+#include "msvcrt_compat.h" // MsvcrtAtoi: baseline's MSVCRT.DLL atoi wraps, the UCRT saturates
 
 #include <ctype.h>
 #include <stdio.h>
@@ -22,9 +18,9 @@
 #include <map>
 #include <utility>
 
-// common_dacom_stricmp.cpp: DACOM.DLL!stricmp, the import retail's StringCache tree and every
+// common_neuroncomponents_stricmp.cpp: NEURONCOMPONENTS.DLL!stricmp, the import baseline's StringCache tree and every
 // INI_Reader name compare (is_header / is_value / get_value_bool) call.
-int CallDacomStricmp(const char* Left, const char* Right);
+int CallNeuronComponentsStricmp(const char* Left, const char* Right);
 
 static_assert(sizeof(INI_Reader::State) == 0xC08, "text INI_Reader::State is cursor+line+3x0x400");
 static_assert(offsetof(INI_Reader::State, Text) == 4 && offsetof(INI_Reader::State, Bini) == 4,
@@ -43,39 +39,39 @@ static_assert(sizeof(FBiniParam) == 5, "BINI param is type + 4-byte payload");
 
 namespace
 {
-    const char IniSource[] = "E:\\FL\\Scratch\\Source\\Common\\Ini.cpp";
-    const char ParseSource[] = "E:\\FL\\Scratch\\Source\\Common\\Parse.cpp";
+    const char IniSource[] = "Common\\Ini.cpp";
+    const char ParseSource[] = "Common\\Parse.cpp";
     const unsigned int BiniMagic = 0x494E4942; // 'BINI'
     const unsigned int BiniHeaderBytes = 0xC;
     const unsigned int BiniParamBytes = sizeof(FBiniParam); // 5
-    const char EmptyC[] = ""; // .rdata:063997b0
+    const char EmptyC[] = "";
 
     char GStringIndexScratch[0x400];
 
-    // DAT_063fd198: the text-mode get_line_ptr buffer. Retail's is 0x100 bytes and is filled
+    // the text-mode get_line_ptr buffer. baseline's is 0x100 bytes and is filled
     // by an unbounded sprintf("%s = %s") -- a line past 0xff chars overruns it (undefined
     // behaviour). Name and parameters are each < 0x400 chars, so this size holds any line.
     char GTextLineScratch[0x808];
 
-    // DAT_0658e800: the BINI get_line_ptr buffer, 0x100 bytes in retail and likewise
+    // the BINI get_line_ptr buffer, 0x100 bytes in baseline and likewise
     // overrun by long values (undefined behaviour); the port truncates past this size.
     char GBiniLineScratch[0x2000];
 
-    // DAT_0658e900 (0x100 bytes): the "%d" / "%g" text of a numeric BINI parameter.
+    // (0x100 bytes): the "%d" / "%g" text of a numeric BINI parameter.
     char GBiniNumScratch[0x100];
 
-    // DAT_063fcf98 (0x100 wchar_t): the BINI get_value_wstring result, written by
+    // (0x100 wchar_t): the BINI get_value_wstring result, written by
     // mbstowcs(..., 0x100). The extra element is never written and keeps the result
-    // terminated when mbstowcs fills all 0x100 (which in retail needs a join that has
+    // terminated when mbstowcs fills all 0x100 (which in baseline needs a join that has
     // already overrun its 0x100-byte buffer).
     wchar_t GBiniWideScratch[0x101];
 
     ILoadingScreen* GLoadingScreen = nullptr;
 
-    // .data:063ed4a8 (128 bytes, character classes) immediately followed by .data:063ed528
+    // (128 bytes, character classes) immediately followed by module storage
     // (128 bytes, digit values), copied from the PE. Class bits: 0x01 letter, 0x02 upper,
     // 0x04 lower, 0x08 decimal digit, 0x10 hex digit, 0x20 identifier, 0x40 white space
-    // (\t \n \r ' '), 0x80 operator. Retail indexes the class table with (c & 0x7f), and the
+    // (\t \n \r ' '), 0x80 operator. baseline indexes the class table with (c & 0x7f), and the
     // digit table with the SIGNED char (MOVSX, 0631bd9e) - a byte >= 0x80 reads the class
     // table that precedes it; GParseTables keeps both in one array so that read is the same.
     unsigned char const GParseTables[256] = {
@@ -101,13 +97,13 @@ namespace
     unsigned char const ParseClassDigit = 0x08;
     unsigned char const ParseClassHex = 0x10;
 
-    // TEST byte [ (c & 0x7f) + DAT_063ed4a8 ], Bits
+    // TEST byte [ (c & 0x7f) + the field ], Bits
     bool HasParseClass(char Ch, unsigned char Bits)
     {
         return (GParseTables[Ch & 0x7f] & Bits) != 0;
     }
 
-    // MOVSX EDX,AL; MOVZX EAX,byte [EDX + DAT_063ed528]
+    // MOVSX EDX,AL; MOVZX EAX,byte [EDX + the field]
     int ParseDigitValue(char Ch)
     {
         return GParseTables[0x80 + (signed char)Ch];
@@ -116,7 +112,7 @@ namespace
     // ParseNumber's base-N accumulation (0631bd7d-0631be15): Frac starts at 0.0; '.' sets
     // Frac = Base; a digit value >= Base (signed JGE) prints the warning and stops; while
     // Frac is not above 0 (FCOM, TEST AH,0x41, JNZ) Value = Value * Base + digit, else
-    // Value += digit / Frac and Frac *= Base. The sign is applied by the caller. Retail keeps
+    // Value += digit / Frac and Frac *= Base. The sign is applied by the caller. baseline keeps
     // Value on the x87 stack for the whole loop (80-bit); the port accumulates in double.
     double ParseBaseN(char const* Begin, char const* End, int Base, char const* Original)
     {
@@ -150,7 +146,7 @@ namespace
         return Value;
     }
 
-    // MSVCRT tolower in the "C" locale, on the sign-extended char retail passes (MOVSX).
+    // MSVCRT tolower in the "C" locale, on the sign-extended char baseline passes (MOVSX).
     int ParseToLower(char Ch)
     {
         int const Value = (signed char)Ch;
@@ -159,7 +155,7 @@ namespace
         return Value;
     }
 
-    // strcat into a fixed buffer, truncating at its end. Stands in for retail's unbounded
+    // strcat into a fixed buffer, truncating at its end. Stands in for baseline's unbounded
     // strcat into the 0x100-byte join / line buffers (see the buffer notes above).
     void AppendBounded(char* Dest, unsigned int DestChars, char const* Src)
     {
@@ -174,12 +170,12 @@ namespace
 
 char const* __cdecl StringIndex(char const* Text, unsigned int Index)
 {
-    // Common.dll.txt 0631be30-0631bedd. Per field: skip white space (class bit 0x40 of
+    // Commonbe30-0631bedd. Per field: skip white space (class bit 0x40 of
     // c & 0x7f: \t \n \r ' '), find the next ','. While Index != 0: no comma -> "" (only
-    // byte 0 of DAT_06401350 is written), else continue after it with Index - 1. At the
+    // byte 0 of the field is written), else continue after it with Index - 1. At the
     // wanted field the end is the comma or the terminator, trailing white space is trimmed
-    // (end > start, unsigned), the bytes are copied into DAT_06401350 and terminated. No
-    // null check of Text. Retail's copy is unbounded (a field of 0x400+ bytes overflows the
+    // (end > start, unsigned), the bytes are copied into the field and terminated. No
+    // null check of Text. baseline's copy is unbounded (a field of 0x400+ bytes overflows the
     // buffer - undefined behaviour); the port copies at most 0x3ff bytes.
     char const* Cursor = Text;
     unsigned int Remain = Index;
@@ -217,7 +213,7 @@ char const* __cdecl StringIndex(char const* Text, unsigned int Index)
 
 double __cdecl ParseNumber(char const* Text)
 {
-    // Common.dll.txt 0631bb70-0631be2a, branch by branch:
+    // Commonbb70-0631be2a, branch by branch:
     //   '+' skipped, then '-' sets Sign = -1 and is skipped. No null check of Text.
     //   A leading '0': the whole zero run is skipped (Start lands on the first non-'0');
     //   tolower of that char == 'x' -> skip it, Base = 16.
@@ -227,7 +223,7 @@ double __cdecl ParseNumber(char const* Text)
     //   'b' (tolower) drops that char with Base 10 / 2; run == 1 followed by a lowercase 'h'
     //   gives Base 16. Then at the end of the span: '\0' -> Base 10 atof(Start) else base-N;
     //   anything else: an optional '.' plus decimal digits extends the span, then Base 10 ->
-    //   atof(Start) (the 'e' exponent scan that follows in retail only advances a pointer
+    //   atof(Start) (the 'e' exponent scan that follows in baseline only advances a pointer
     //   atof never sees), else base-N. The sign is applied at the end (FCHS).
     int Sign = 1;
     int Base = 10;
@@ -331,21 +327,21 @@ double __cdecl ParseNumber(char const* Text)
 
 double __cdecl ValueNum(char const* Text, unsigned int Index)
 {
-    // Common.dll.txt:0631bee0. Two instructions of substance: StringIndex then the CRT atof.
-    // Deliberately NOT ParseNumber -- retail calls [MSVCRT.DLL::atof] directly here, so "0x10"
+    // Commonbee0. Two instructions of substance: StringIndex then the CRT atof.
+    // Deliberately NOT ParseNumber -- baseline calls [MSVCRT.DLL::atof] directly here, so "0x10"
     // reads back as 0 and the base-N suffixes ParseNumber understands are not honoured.
     return MsvcrtAtof(StringIndex(Text, Index));
 }
 
 void __cdecl RegisterLoadingScreen(ILoadingScreen* Screen)
 {
-    // Common.dll.c:148708 / .txt:06311420 — DAT_063fd2a4 = param.
+    // Common / .txt:06311420 — the field = param.
     GLoadingScreen = Screen;
 }
 
 void __cdecl RefreshLoadingProgress()
 {
-    // Common.dll.c:148720 / .txt:06311430 — thiscall vtable slot 0; JMP if non-null.
+    // Common / .txt:06311430 — thiscall vtable slot 0; JMP if non-null.
     if (GLoadingScreen == nullptr)
         return;
     GLoadingScreen->Refresh();
@@ -362,7 +358,7 @@ INI_Reader::FBiniFile::FBiniFile()
     , Block(nullptr)
     , Value(nullptr)
 {
-    // INI_Reader ctor .text:0630f690..0630f6d2: the FileMap part (+0x1428..+0x1448), the
+    // INI_Reader ctor module storage..0630f6d2: the FileMap part (+0x1428..+0x1448), the
     // header (+0x144c), string base (+0x1450), block (+0x1454) and value (+0x145c) pointers.
     // The value index (+0x1458), the params pointer (+0x1460) and the join buffer are not
     // written.
@@ -370,7 +366,7 @@ INI_Reader::FBiniFile::FBiniFile()
 
 bool INI_Reader::FBiniFile::Init()
 {
-    // FUN_0630fbd0: seek(0) inlined (0630fbd9), FileMap::read_ptr(BINI_Header*&) inlined
+    // seek(0) inlined (0630fbd9), FileMap::read_ptr(BINI_Header*&) inlined
     // (0630fbe9..0630fc19: take min(Size - Cursor, 0xc) bytes, advance, accept only a full
     // 0xc read with the 'BINI' magic and StringTableOffset < Size), failure -> seek(0) when
     // a view exists. The header pointer (+0x24) is stored either way; on success block
@@ -415,17 +411,17 @@ FBiniParam const* INI_Reader::FBiniFile::ParamAt(unsigned int Index) const
 {
     // `LEA reg,[Index + Index*4]; ADD reg,[+0x38]`: no null check of the params pointer,
     // which read_value leaves null when the file ends inside a value (a read through it
-    // faults, as in retail).
+    // faults, as in baseline).
     return &Params[Index];
 }
 
 void INI_Reader::FBiniFile::ReportMissingParam(unsigned int Index) const
 {
     // The out-of-range branch every BINI getter inlines (0630ffde, 063106b5, 06310867,
-    // 0631099d, 06310ae9, 06310c3c, 06310dec): sprintf into a 0x100 stack buffer with the
+    // , 06310ae9, 06310c3c, 06310dec): sprintf into a 0x100 stack buffer with the
     // block name (string base + word [Block]) and the value name (string base + word
     // [Value]), then MessageBoxA(0, Buffer, "ERROR", 0). Block is read without a check.
-    // Retail's sprintf is unbounded -- names longer than the buffer overrun the stack
+    // baseline's sprintf is unbounded -- names longer than the buffer overrun the stack
     // (undefined behaviour); the port truncates instead.
     char Buffer[0x100];
     _snprintf(Buffer, sizeof(Buffer), "header [%s] value %s missing parameter %u",
@@ -436,11 +432,11 @@ void INI_Reader::FBiniFile::ReportMissingParam(unsigned int Index) const
 
 char const* INI_Reader::FBiniFile::FormatParam(unsigned int Index)
 {
-    // FUN_0630ff40 (also the inlined body of get_value_string(unsigned) 06310a30): a null
+    // (also the inlined body of get_value_string(unsigned) 06310a30): a null
     // value (+0x34) returns "" without a report; Index >= ParamCount (unsigned JNC) reports
     // and returns "". Type 0 (zero-extended byte) and 1 (int) go through "%d", type 2 (float
-    // widened to double) through "%g", into DAT_0658e900; type 3 is a string-table offset;
-    // any other type (JA caseD_4) returns DAT_0658e900 as it stands.
+    // widened to double) through "%g", into the field; type 3 is a string-table offset;
+    // any other type (JA caseD_4) returns the field as it stands.
     if (Value == nullptr)
         return EmptyC;
     if (Index >= Value->ParamCount)
@@ -474,7 +470,7 @@ char const* INI_Reader::FBiniFile::JoinParams()
     // get_value_wstring (06310d40..06310e96) share: the join buffer (+0x3c) is emptied; with
     // a value, for Index = 0 .. ParamCount-1 (signed JL, the count re-read every pass) the
     // formatted parameter is taken first, then ", " is appended when Index > 0, then the
-    // parameter. Retail appends with unbounded strcat (see JoinChars).
+    // parameter. baseline appends with unbounded strcat (see JoinChars).
     Joined[0] = '\0';
     if (Value == nullptr)
         return Joined;
@@ -494,7 +490,7 @@ char const* INI_Reader::FBiniFile::JoinParams()
 
 INI_Reader::INI_Reader()
 {
-    // .text:0630f660: Text's FileMap part, Text.LineNum (+0x24) = 0, Header[0] (+0x28) = 0,
+    // Text's FileMap part, Text.LineNum (+0x24) = 0, Header[0] (+0x28) = 0,
     // the BINI half (see FBiniFile's ctor), bBini (+0x1564) = 0. ValueName, ValueParams and
     // ValueWide are not written.
     Text.LineNum = 0;
@@ -502,22 +498,22 @@ INI_Reader::INI_Reader()
     bBini = false;
 }
 
-// .text:062634f0 / 06263650: every member copied / assigned in declaration order (both
+// / 06263650: every member copied / assigned in declaration order (both
 // FileMaps through their own copy / assignment, the buffers byte for byte, bBini last).
 INI_Reader::INI_Reader(INI_Reader const& Other) = default;
 INI_Reader& INI_Reader::operator=(INI_Reader const& Other) = default;
 
 INI_Reader::~INI_Reader()
 {
-    // .text:06263860: the BINI FileMap is destroyed (close inlined, string freed), then the
+    // the BINI FileMap is destroyed (close inlined, string freed), then the
     // text one -- the member destructors, in reverse declaration order.
 }
 
 bool INI_Reader::open(char const* Path, bool bFatal)
 {
-    // .text:0630f9b0. A local FileMap opens the file (FileMap::open inlined: close, name =
+    // . A local FileMap opens the file (FileMap::open inlined: close, name =
     // Path with no null check, CreateFileA / CreateFileMappingA / GetFileSize / MapViewOfFile,
-    // Cursor = 0). Failure: FatalErrorFn(200, Path) when bFatal (called through the DALib
+    // Cursor = 0). Failure: FatalErrorFn(200, Path) when bFatal (called through the NeuronRuntime
     // pointer without a check), return false. Neither of the reader's own maps is closed
     // first: whatever they still hold is overwritten.
     RefreshLoadingProgress();
@@ -530,15 +526,15 @@ bool INI_Reader::open(char const* Path, bool bFatal)
         return false;
     }
 
-    // 0630fa9a..0630fac4: seek(0), read_ptr(BINI_Header*&); a full header with the 'BINI'
+    // seek(0), read_ptr(BINI_Header*&); a full header with the 'BINI'
     // magic and StringTableOffset < Size selects the BINI half.
     Temp.seek(0);
     BINI_Header* FileHeader = nullptr;
     if (Temp.read_ptr(FileHeader) && FileHeader->Magic == BiniMagic &&
         FileHeader->StringTableOffset < Temp.Size)
     {
-        // 0630fb37: FileMap::operator= into the BINI half, the local forgets its view and
-        // handles, FUN_0630fbd0. Success sets bBini; failure falls through to the text path
+        // FileMap::operator= into the BINI half, the local forgets its view and
+        // handles, the routine. Success sets bBini; failure falls through to the text path
         // below with the local's handles already given away (so the text map gets no view).
         Bini.FileMap::operator=(Temp);
         Temp.View = nullptr;
@@ -555,7 +551,7 @@ bool INI_Reader::open(char const* Path, bool bFatal)
         Temp.seek(0);
     }
 
-    // 0630fb67: text. bBini = 0; the text map takes the local's name and five dwords and the
+    // text. bBini = 0; the text map takes the local's name and five dwords and the
     // local forgets its view and handles (handoff_to inlined); LineNum = 0, Header[0] = 0,
     // Cursor = 0 when there is a view. The result stays true.
     bBini = false;
@@ -568,7 +564,7 @@ bool INI_Reader::open(char const* Path, bool bFatal)
 
 bool INI_Reader::open_memory(char const* Buffer, unsigned int Bytes)
 {
-    // .text:0630fc50: a null Buffer or zero Bytes returns false without touching the reader.
+    // a null Buffer or zero Bytes returns false without touching the reader.
     // Otherwise a local FileMap gets a malloc'd copy (FileMap::open_memory inlined), bBini = 0,
     // and the text map takes it over exactly as open's text path does (the previous text map
     // is not closed). BINI data in memory is never recognised.
@@ -586,7 +582,7 @@ bool INI_Reader::open_memory(char const* Buffer, unsigned int Bytes)
 
 void INI_Reader::close()
 {
-    // .text:0630f770: FileMap::close inlined on the map the flag selects (name erased,
+    // FileMap::close inlined on the map the flag selects (name erased,
     // view / mapping / file released, a malloc'd view freed, Cursor = 0). The flag, the
     // name buffers, LineNum and the BINI pointers are left as they are.
     if (bBini)
@@ -597,7 +593,7 @@ void INI_Reader::close()
 
 void INI_Reader::reset()
 {
-    // .text:0630f920. BINI: block and value pointers cleared, then seek(0xc) inlined (past the
+    // . BINI: block and value pointers cleared, then seek(0xc) inlined (past the
     // header; min(Size, 0xc) when there is a view). The value index and params pointer stay.
     // Text: LineNum = 0, Header[0] = 0, seek(0) inlined.
     if (bBini)
@@ -615,7 +611,7 @@ void INI_Reader::reset()
 
 void INI_Reader::seek(unsigned int Pos)
 {
-    // .text:0630f6f0: FileMap::seek inlined on the map the flag selects.
+    // FileMap::seek inlined on the map the flag selects.
     if (bBini)
         Bini.seek(Pos);
     else
@@ -624,7 +620,7 @@ void INI_Reader::seek(unsigned int Pos)
 
 unsigned int INI_Reader::tell() const
 {
-    // .text:0630f740: FileMap::tell inlined on the map the flag selects.
+    // FileMap::tell inlined on the map the flag selects.
     if (bBini)
         return Bini.tell();
     return Text.tell();
@@ -632,7 +628,7 @@ unsigned int INI_Reader::tell() const
 
 int INI_Reader::get_line_num() const
 {
-    // .text:0630f970: BINI has no lines -- FDUMP warning (line 0x1f6), 0.
+    // BINI has no lines -- FDUMP warning (line 0x1f6), 0.
     if (bBini)
     {
         FDUMP(0x100002, "%s(%d) : *** WARNING: %s", IniSource, 0x1f6,
@@ -644,7 +640,7 @@ int INI_Reader::get_line_num() const
 
 bool INI_Reader::is_end() const
 {
-    // .text:06310460 (SBB / INC = "not below"). BINI: the end is the string table --
+    // (SBB / INC = "not below"). BINI: the end is the string table --
     // !(Cursor < StringTableOffset) with a view, else !(0 < StringTableOffset); the header
     // pointer is read without a check. Text: !(Cursor < Size), else !(0 < Size).
     if (bBini)
@@ -661,7 +657,7 @@ bool INI_Reader::is_end() const
 
 bool INI_Reader::ReadTextHeader()
 {
-    // FUN_0630f3d0 (read_header / find_header text path). A local LineParser32 (Buffer[0],
+    // (read_header / find_header text path). A local LineParser32 (Buffer[0],
     // Length, Position = 0). Lines are read until one whose first non-blank char is '['
     // (skip_white inlined; Position < Length; the char is neither 0 nor ';' and is '['):
     // Position past '[', read_terminator(Header, ']') inlined; a name that starts with ';'
@@ -693,7 +689,7 @@ bool INI_Reader::ReadTextHeader()
 
 bool INI_Reader::ReadBiniHeader()
 {
-    // read_header's BINI branch (.text:06310082-06310166). With a current block, the values
+    // read_header's BINI branch (module storage-06310166). With a current block, the values
     // not read yet are skipped (index < ValueCount, signed: MOVSX index vs MOVZX count): a
     // 3-byte value record is requested (request_pointer inlined); a short read leaves the value
     // null, otherwise the cursor moves over its ParamCount * 5 bytes (seek inlined); the index
@@ -732,7 +728,7 @@ bool INI_Reader::ReadBiniHeader()
 
 bool INI_Reader::read_header()
 {
-    // .text:06310070.
+    // .
     if (bBini)
         return ReadBiniHeader();
     return ReadTextHeader();
@@ -740,7 +736,7 @@ bool INI_Reader::read_header()
 
 bool INI_Reader::ReadTextValue()
 {
-    // LAB_0630f4e0 (read_value's text path). Per line: the line number and tell() are saved
+    // (read_value's text path). Per line: the line number and tell() are saved
     // and a fresh LineParser32 is read. No more lines: ValueName[0] = 0, false. Blank lines
     // (Position >= Length after skip_white) and lines starting with 0 or ';' are skipped. A
     // '[' line belongs to the next section: LineNum and the cursor are restored (seek
@@ -788,7 +784,7 @@ bool INI_Reader::ReadTextValue()
 
 bool INI_Reader::read_value()
 {
-    // .text:06310170. BINI: the block pointer is read without a check; index >= ValueCount
+    // . BINI: the block pointer is read without a check; index >= ValueCount
     // (signed) -> false. A 3-byte value record is requested: short -> value = null, false.
     // Then ParamCount * 5 bytes are requested the same way (request_pointer inlined): the
     // params pointer is View + Cursor, or null when the file has no bytes left; the index is
@@ -815,8 +811,8 @@ bool INI_Reader::read_value()
 
 bool INI_Reader::find_header(char const* Name)
 {
-    // .text:06310250: reset() inlined, then read_header() (BINI loop / FUN_0630f3d0, the flag
-    // re-tested every pass) until the section name compares equal under DACOM stricmp.
+    // reset() inlined, then read_header() (BINI loop / the routine, the flag
+    // re-tested every pass) until the section name compares equal under NEURONCOMPONENTS stricmp.
     reset();
     while (read_header())
     {
@@ -828,25 +824,25 @@ bool INI_Reader::find_header(char const* Name)
 
 bool INI_Reader::is_header(char const* Name)
 {
-    // .text:063103c0: DACOM stricmp(section name, Name) == 0. BINI reads the block pointer
+    // NEURONCOMPONENTS stricmp(section name, Name) == 0. BINI reads the block pointer
     // without a check.
     if (bBini)
-        return CallDacomStricmp(Bini.String(Bini.Block->NameOffset), Name) == 0;
-    return CallDacomStricmp(Header, Name) == 0;
+        return CallNeuronComponentsStricmp(Bini.String(Bini.Block->NameOffset), Name) == 0;
+    return CallNeuronComponentsStricmp(Header, Name) == 0;
 }
 
 bool INI_Reader::is_value(char const* Name)
 {
-    // .text:06310410: DACOM stricmp(value name, Name) == 0. BINI reads the value pointer
+    // NEURONCOMPONENTS stricmp(value name, Name) == 0. BINI reads the value pointer
     // without a check.
     if (bBini)
-        return CallDacomStricmp(Bini.String(Bini.Value->NameOffset), Name) == 0;
-    return CallDacomStricmp(ValueName, Name) == 0;
+        return CallNeuronComponentsStricmp(Bini.String(Bini.Value->NameOffset), Name) == 0;
+    return CallNeuronComponentsStricmp(ValueName, Name) == 0;
 }
 
 char const* INI_Reader::get_header_ptr()
 {
-    // .text:063104c0: BINI string base + word [block], no check; text Header.
+    // BINI string base + word [block], no check; text Header.
     if (bBini)
         return Bini.String(Bini.Block->NameOffset);
     return Header;
@@ -854,7 +850,7 @@ char const* INI_Reader::get_header_ptr()
 
 char const* INI_Reader::get_name_ptr()
 {
-    // .text:063104e0: BINI string base + word [value], no check; text ValueName.
+    // BINI string base + word [value], no check; text ValueName.
     if (bBini)
         return Bini.String(Bini.Value->NameOffset);
     return ValueName;
@@ -862,7 +858,7 @@ char const* INI_Reader::get_name_ptr()
 
 char const* INI_Reader::get_file_name() const
 {
-    // .text:06310040: the name of the map the flag selects (the string's buffer, or the
+    // the name of the map the flag selects (the string's buffer, or the
     // library's empty string).
     if (bBini)
         return Bini.get_file_name();
@@ -871,15 +867,15 @@ char const* INI_Reader::get_file_name() const
 
 char const* INI_Reader::get_name() const
 {
-    // .text:06263450: JMP get_file_name.
+    // JMP get_file_name.
     return get_file_name();
 }
 
 char const* INI_Reader::get_line_ptr()
 {
-    // .text:0630fe10. BINI: no value -> ""; else sprintf(DAT_0658e800, "%s = ", value name),
-    // the joined parameters (FUN_0630ff40 per parameter, ", " between) are built in the join
-    // buffer and appended. Text: sprintf(DAT_063fd198, "%s = %s", ValueName, ValueParams).
+    // . BINI: no value -> ""; else sprintf(the field, "%s = ", value name),
+    // the joined parameters (the routine per parameter, ", " between) are built in the join
+    // buffer and appended. Text: sprintf(the field, "%s = %s", ValueName, ValueParams).
     if (bBini)
     {
         if (Bini.Value == nullptr)
@@ -898,7 +894,7 @@ char const* INI_Reader::get_line_ptr()
 
 unsigned int INI_Reader::get_num_parameters() const
 {
-    // .text:06310510. BINI: ParamCount of the value, read without a check. Text: 0 for an
+    // . BINI: ParamCount of the value, read without a check. Text: 0 for an
     // empty ValueParams, else 1 + the number of ',' (strchr loop).
     if (bBini)
         return Bini.Value->ParamCount;
@@ -921,7 +917,7 @@ unsigned int INI_Reader::get_num_parameters() const
 
 bool INI_Reader::is_value_empty(unsigned int Index)
 {
-    // .text:06310560. BINI: false only when a value exists and Index < ParamCount. Text: the
+    // . BINI: false only when a value exists and Index < ParamCount. Text: the
     // StringIndex field is empty.
     if (bBini)
     {
@@ -934,12 +930,12 @@ bool INI_Reader::is_value_empty(unsigned int Index)
 
 bool INI_Reader::get_value_bool(unsigned int Index)
 {
-    // .text:063105b0. BINI: no value -> false; Index >= ParamCount -> report, false. Type 0
+    // . BINI: no value -> false; Index >= ParamCount -> report, false. Type 0
     // returns the byte itself (non-zero = true), 1 int != 0, 2 float compared with 0.0
     // (FCOMP double 0639c430; TEST AH,0x44; JNP false: only "equal" (0x40) has PF=0, so
-    // less, greater and unordered are true), 3 the string: DACOM stricmp "true" -> true,
+    // less, greater and unordered are true), 3 the string: NEURONCOMPONENTS stricmp "true" -> true,
     // "false" -> false, else atoi != 0; other types false.
-    // Text: the StringIndex field under DACOM stricmp: "true" / "1" true, "false" / "0" false;
+    // Text: the StringIndex field under NEURONCOMPONENTS stricmp: "true" / "1" true, "false" / "0" false;
     // anything else prints the FDUMP error (line 0x126, the text map's file name) and is false.
     if (bBini)
     {
@@ -962,9 +958,9 @@ bool INI_Reader::get_value_bool(unsigned int Index)
         case BiniParamString:
         {
             char const* const Field = Bini.String(Param->StringOffset);
-            if (CallDacomStricmp(Field, "true") == 0)
+            if (CallNeuronComponentsStricmp(Field, "true") == 0)
                 return true;
-            if (CallDacomStricmp(Field, "false") == 0)
+            if (CallNeuronComponentsStricmp(Field, "false") == 0)
                 return false;
             return MsvcrtAtoi(Field) != 0;
         }
@@ -974,13 +970,13 @@ bool INI_Reader::get_value_bool(unsigned int Index)
     }
 
     char const* const Field = StringIndex(ValueParams, Index);
-    if (CallDacomStricmp(Field, "true") == 0)
+    if (CallNeuronComponentsStricmp(Field, "true") == 0)
         return true;
-    if (CallDacomStricmp(Field, "1") == 0)
+    if (CallNeuronComponentsStricmp(Field, "1") == 0)
         return true;
-    if (CallDacomStricmp(Field, "false") == 0)
+    if (CallNeuronComponentsStricmp(Field, "false") == 0)
         return false;
-    if (CallDacomStricmp(Field, "0") == 0)
+    if (CallNeuronComponentsStricmp(Field, "0") == 0)
         return false;
 
     FDUMP(0x100001, "%s(%d) : *** ERROR: Invalid bool value %s in .ini file %s\n", IniSource, 0x126,
@@ -990,7 +986,7 @@ bool INI_Reader::get_value_bool(unsigned int Index)
 
 int INI_Reader::get_value_int(unsigned int Index)
 {
-    // .text:063107c0. BINI: no value -> 0; Index >= ParamCount -> report, 0. Type 0 the
+    // . BINI: no value -> 0; Index >= ParamCount -> report, 0. Type 0 the
     // zero-extended byte, 1 the int, 2 the float through _ftol (FLD + CALL _ftol, EAX kept:
     // the low 32 bits of the 64-bit truncation, 2^32 -> 0), 3 MSVCRT atoi of the string,
     // other types 0. Text: MSVCRT atoi of the StringIndex field.
@@ -1024,9 +1020,9 @@ int INI_Reader::get_value_int(unsigned int Index)
 
 double INI_Reader::ValueAsNumber(unsigned int Index)
 {
-    // get_value_float's body (.text:063108f0); the result stays on the x87 stack, so
+    // get_value_float's body (module storage); the result stays on the x87 stack, so
     // value_num (JMP get_value_float) sees it unrounded. BINI: the default is the float
-    // DAT_06399408 (0.0), returned for no value and, after the report, for Index >=
+    // (0.0), returned for no value and, after the report, for Index >=
     // ParamCount and unknown types. Type 0 FILD of the zero-extended byte, 1 FILD of the int,
     // 2 the float, 3 MSVCRT atof of the string. Text: ParseNumber of the StringIndex field.
     if (bBini)
@@ -1058,7 +1054,7 @@ double INI_Reader::ValueAsNumber(unsigned int Index)
 
 double INI_Reader::get_value_float(unsigned int Index)
 {
-    // .text:063108f0: the x87 result is returned unrounded; callers either FSTP it as a float
+    // the x87 result is returned unrounded; callers either FSTP it as a float
     // (an implicit double -> float conversion in the port) or use the full value (FSTP double,
     // _ftol, FCOMP double).
     return ValueAsNumber(Index);
@@ -1066,7 +1062,7 @@ double INI_Reader::get_value_float(unsigned int Index)
 
 char const* INI_Reader::get_value_string(unsigned int Index)
 {
-    // .text:06310a30: BINI is FUN_0630ff40's body inlined; text the StringIndex field.
+    // BINI is the routine's body inlined; text the StringIndex field.
     if (bBini)
         return Bini.FormatParam(Index);
     return StringIndex(ValueParams, Index);
@@ -1074,7 +1070,7 @@ char const* INI_Reader::get_value_string(unsigned int Index)
 
 char const* INI_Reader::get_value_string()
 {
-    // .text:06310b70: BINI the joined parameters (join buffer), text ValueParams.
+    // BINI the joined parameters (join buffer), text ValueParams.
     if (bBini)
         return Bini.JoinParams();
     return ValueParams;
@@ -1082,7 +1078,7 @@ char const* INI_Reader::get_value_string()
 
 wchar_t const* INI_Reader::get_value_wstring()
 {
-    // .text:06310d20. BINI: the joined parameters through mbstowcs(DAT_063fcf98, join,
+    // . BINI: the joined parameters through mbstowcs(the field, join,
     // 0x100). Text: mbstowcs(ValueWide (+0xc28), ValueParams, 0x400). No terminator is added
     // by either (ValueParams always fits).
     if (bBini)
@@ -1096,31 +1092,31 @@ wchar_t const* INI_Reader::get_value_wstring()
 
 char const* INI_Reader::get_value_ptr()
 {
-    // .text:062634c0: JMP get_value_string().
+    // JMP get_value_string().
     return get_value_string();
 }
 
 char const* INI_Reader::get_indexed_value(unsigned int Index)
 {
-    // .text:062634d0: JMP get_value_string(unsigned).
+    // JMP get_value_string(unsigned).
     return get_value_string(Index);
 }
 
 bool INI_Reader::get_bool(unsigned int Index)
 {
-    // .text:062634e0: JMP get_value_bool.
+    // JMP get_value_bool.
     return get_value_bool(Index);
 }
 
 double INI_Reader::value_num(unsigned int Index)
 {
-    // .text:062634b0: JMP get_value_float -- the unrounded x87 result.
+    // JMP get_value_float -- the unrounded x87 result.
     return ValueAsNumber(Index);
 }
 
 Vector INI_Reader::get_vector()
 {
-    // .text:06263460: get_value_float(0), (1), (2) in that order.
+    // get_value_float(0), (1), (2) in that order.
     Vector Result;
     Result.x = get_value_float(0);
     Result.y = get_value_float(1);
@@ -1130,7 +1126,7 @@ Vector INI_Reader::get_vector()
 
 void INI_Reader::get_state(State& Out) const
 {
-    // .text:06310f00. BINI writes five fields over the start of State: +0 tell(), +4 block -
+    // . BINI writes five fields over the start of State: +0 tell(), +4 block -
     // view, +8 the word value index, +0xc value - view, +0x10 params - view (null pointers
     // give negative offsets, kept as such); nothing else in State is touched. Text: tell(),
     // LineNum, and the three 0x400 buffers (REP MOVSD 0x100 dwords each).
@@ -1155,12 +1151,12 @@ void INI_Reader::get_state(State& Out) const
 
 void INI_Reader::set_state(State const& In)
 {
-    // .text:06310fc0. BINI: seek(+0) inlined, then block / value / params = view + the saved
+    // . BINI: seek(+0) inlined, then block / value / params = view + the saved
     // offsets (even without a view: the offsets become the pointers) and the word index.
     // Text: seek(+0) inlined, LineNum, the three buffers.
     if (bBini)
     {
-        // Offset -> pointer as integer arithmetic (also without a view, as in retail).
+        // Offset -> pointer as integer arithmetic (also without a view, as in baseline).
         std::uintptr_t const Base = (std::uintptr_t)Bini.View;
         Bini.seek(In.Cursor);
         Bini.Block = (BINI_Block const*)(Base + In.Bini.BlockOffset);
@@ -1179,14 +1175,14 @@ void INI_Reader::set_state(State const& In)
 
 void INI_Reader::log_link(char const* Link) const
 {
-    // .text:062ed730: a bare `RET 4` (ICF-shared with CostumeDescriptions::warn). The
-    // retail build compiled the link logging out; nothing happens.
+    // a bare `RET 4` (ICF-shared with CostumeDescriptions::warn). The
+    // baseline build compiled the link logging out; nothing happens.
     (void)Link;
 }
 
 bool INI_Reader::is_number(char const* Candidate) const
 {
-    // .text:06311080. No null check. An optional '-' / '+', then an optional '.' (counts as
+    // . No null check. An optional '-' / '+', then an optional '.' (counts as
     // the one decimal point). A quote is stepped over; tolower of the next char in 'a'..'z'
     // followed by a closing quote is a number; otherwise the checks below continue AFTER the
     // quote. "0x" / "0X": the rest must be decimal digits or tolower 'a'..'f' (an empty rest
@@ -1220,7 +1216,7 @@ bool INI_Reader::is_number(char const* Candidate) const
         {
             if (Ch >= '0' && Ch <= '9')
                 continue;
-            int const Lower = ParseToLower(Ch); // -128..127: the byte compare retail does
+            int const Lower = ParseToLower(Ch); // -128..127: the byte compare baseline does
             if (Lower < 'a' || Lower > 'f')
                 return false;
         }

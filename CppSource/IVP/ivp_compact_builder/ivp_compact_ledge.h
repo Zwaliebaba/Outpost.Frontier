@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -26,9 +22,9 @@ struct alignas(16) IVP_U_Float_Point
     float* AsArray() { return &X; }
 };
 
-// 16-byte lookup tables matching retail Common.dll DAT_063ee4e0 and DAT_063ee4f0
-alignas(16) static const int32_t G_IVP_Compact_Edge_Next_Lut[4] = { 0,  4,  4, -8 }; // DAT_063ee4e0
-alignas(16) static const int32_t G_IVP_Compact_Edge_Prev_Lut[4] = { 0,  8, -4, -4 }; // DAT_063ee4f0
+// 16-byte lookup tables matching baseline Common.dll the field and the field
+alignas(16) static const int32_t G_IVP_Compact_Edge_Next_Lut[4] = { 0,  4,  4, -8 };
+alignas(16) static const int32_t G_IVP_Compact_Edge_Prev_Lut[4] = { 0,  8, -4, -4 };
 
 // 4-byte packed compact half-edge
 class IVP_Compact_Edge
@@ -143,13 +139,13 @@ public:
         return TriInfo & 0x0FFF;
     }
 
-    // D-cluster-06350740 pass (2026-09-10, decomp-tracker item 3201,
-    // FUN_06353840): bits [23:12] of TriInfo, confirmed by
-    // Common.dll.txt:06353891-06353894 (`SHR EAX,0xc; AND EAX,0xfff`)
+    // D-cluster-06350740 pass (2026-09-10, implementation tracker item 3201,
+    // ): bits [23:12] of TriInfo, confirmed by
+    // Common (`SHR EAX,0xc; AND EAX,0xfff`)
     // right after reading a triangle's raw TriInfo dword. Matches the
     // classic IVP_Compact_Triangle bit layout (tri_index:12,
     // material_index:7, is_virtual:1, pierce_index:12 = 32 bits) at the
-    // pierce_index position -- used by FUN_06353840 as a TRIANGLE INDEX
+    // pierce_index position -- used by the routine as a TRIANGLE INDEX
     // into the same ledge's own triangle array (see
     // IVP_WalkPiercingTriangleChain below), i.e. "the other triangle this
     // one is pierce-linked to". Only this one call site was traced this
@@ -303,11 +299,11 @@ inline const IVP_U_Float_Point* IVP_Compact_Edge::GetStartPoint() const
     return GetCompactLedge()->GetPoint(this);
 }
 
-// Retail FUN_06353840: walks pierce-linked triangles of StartEdge's ledge
-// toward the triangle whose Voronoi weights (FUN_0635b210) for Position (in
+// walks pierce-linked triangles of StartEdge's ledge
+// toward the triangle whose Voronoi weights (the routine) for Position (in
 // the ledge's object space) are all non-positive or whose neighbours were all
 // visited; returns that triangle's edge. Defined in ivp_compact_ledge.cpp.
-// The visited flags live in a std::vector instead of retail's alloca
-// (FUN_06391dc0) buffer.
+// The visited flags live in a std::vector instead of baseline's alloca
+// (the routine) buffer.
 struct IVP_U_Point;
 IVP_Compact_Edge* IVP_WalkPiercingTriangleChain(IVP_Compact_Edge* StartEdge, const IVP_U_Point* Position);

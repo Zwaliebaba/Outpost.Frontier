@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // Common.dll room sub-records: RoomCameraInfo, SetpointProperties, SetpointInfo, CharPlaceInfo,
@@ -10,13 +6,13 @@
 
 #include "common_goods.h"
 #include "common_misc.h" // malloc_strcpy / malloc_strfree
-#include "dacom.h"
+#include "neuroncomponents.h"
 
 #include <cstdio>
 #include <cstring>
 
-// common_dacom_stricmp.cpp: DACOM.DLL!stricmp (Common IAT PTR 0639902c).
-int CallDacomStricmp(const char* Left, const char* Right);
+// common_neuroncomponents_stricmp.cpp: NEURONCOMPONENTS.DLL!stricmp (Common IAT PTR 0639902c).
+int CallNeuronComponentsStricmp(const char* Left, const char* Right);
 
 // ---------------------------------------------------------------------------
 // Room sub-structure implementations
@@ -33,15 +29,15 @@ RoomCameraInfo::RoomCameraInfo()
 
 RoomCameraInfo::~RoomCameraInfo()
 {
-    // Common.dll.c 0x13300: dtor is ICF-shared with destroy() -- frees Name before
+    // Common 0x13300: dtor is ICF-shared with destroy() -- frees Name before
     // resetting fields. Was previously an empty body, leaking every allocated Name.
     destroy();
 }
 
-// 06273370: no self-assignment test. destroy() inlined (malloc_strfree(&Name), Name = 0,
+// no self-assignment test. destroy() inlined (malloc_strfree(&Name), Name = 0,
 // identity Frame, 35 / 0.25 / 1e6), then malloc_strcpy(&Name, Other.Name), the 0xc-dword
 // Frame copy and the three floats. Assigning an object to itself therefore drops its Name
-// and resets its Frame, as retail.
+// and resets its Frame, as baseline.
 RoomCameraInfo& RoomCameraInfo::operator=(RoomCameraInfo const& Other)
 {
     destroy();
@@ -64,7 +60,7 @@ void RoomCameraInfo::clear()
 
 void RoomCameraInfo::destroy()
 {
-    // Retail 0x13300 (ICF-shared with dtor):
+    // baseline 0x13300 (ICF-shared with dtor):
     // SUB ESP,0xc; PUSH ESI,EDI; MOV ESI,this;
     // PUSH ESI; CALL malloc_strfree (frees Name at +0x00);
     // LEA EAX,[ESI+0x4]; XOR ECX,ECX; MOV [ESI],ECX (Name=nullptr);
@@ -77,9 +73,9 @@ void RoomCameraInfo::destroy()
 }
 
 // SetpointProperties strings: +0x08 (Segment) is owned through malloc_strcpy /
-// malloc_strfree in every retail writer (0627b220, 0627b501, 0627b1d8), never StringAlloc.
+// malloc_strfree in every baseline writer (0627b220, 0627b501, 0627b1d8), never StringAlloc.
 
-// 0627b190: bytes +0/+1 = 0, +4 = -1, +8 = 0, +0xc = -1, byte +0x10 = 0, +0x20 = -1.
+// bytes +0/+1 = 0, +4 = -1, +8 = 0, +0xc = -1, byte +0x10 = 0, +0x20 = -1.
 // +2/+3 and NameBuffer[1..15] are not written.
 SetpointProperties::SetpointProperties()
     : bValid(0)
@@ -92,13 +88,13 @@ SetpointProperties::SetpointProperties()
     NameBuffer[0] = '\0';
 }
 
-// 0627b1d0 (ICF-shared with destroy()): malloc_strfree(&+8), then the clear() stores.
+// (ICF-shared with destroy()): malloc_strfree(&+8), then the clear() stores.
 SetpointProperties::~SetpointProperties()
 {
     destroy();
 }
 
-// 0627b200: +0/+1 bytes, +4, malloc_strcpy(&+8, Other+8) (strdup, a null source stores null),
+// +0/+1 bytes, +4, malloc_strcpy(&+8, Other+8) (strdup, a null source stores null),
 // +0xc, copy-until-NUL of +0x10, +0x20.
 SetpointProperties::SetpointProperties(SetpointProperties const& Other)
     : bValid(Other.bValid)
@@ -112,9 +108,9 @@ SetpointProperties::SetpointProperties(SetpointProperties const& Other)
     Posture = Other.Posture;
 }
 
-// 06261270 (??4SetpointProperties, ICF-folded with MissileUseStruct::operator=): a plain
+// (??4SetpointProperties, ICF-folded with MissileUseStruct::operator=): a plain
 // 9-dword block copy. +0x08 is copied as a pointer, so the two objects share Segment and the
-// old one leaks -- retail's own hazard, kept.
+// old one leaks -- baseline's own hazard, kept.
 SetpointProperties& SetpointProperties::operator=(SetpointProperties const& Other)
 {
     bValid = Other.bValid;
@@ -129,7 +125,7 @@ SetpointProperties& SetpointProperties::operator=(SetpointProperties const& Othe
     return *this;
 }
 
-// 0627b1b0: same stores as the ctor. +0x08 is overwritten with 0 WITHOUT being freed (retail
+// same stores as the ctor. +0x08 is overwritten with 0 WITHOUT being freed (baseline
 // leaks it here; destroy() is the freeing variant).
 void SetpointProperties::clear()
 {
@@ -142,18 +138,18 @@ void SetpointProperties::clear()
     Posture = -1;
 }
 
-// 0627b1d0: PUSH &+8; CALL malloc_strfree; then +8 = 0 and the clear() stores.
+// PUSH &+8; CALL malloc_strfree; then +8 = 0 and the clear() stores.
 void SetpointProperties::destroy()
 {
     malloc_strfree(const_cast<char**>(&Segment));
     clear();
 }
 
-// 0627b250: copy-until-NUL of NewSegment into +0x10 (no length check, no null check), then
-// toupper over strlen(+0x10) bytes. The unbounded copy is retail's (a source longer than 15
+// copy-until-NUL of NewSegment into +0x10 (no length check, no null check), then
+// toupper over strlen(+0x10) bytes. The unbounded copy is baseline's (a source longer than 15
 // characters runs into Posture at +0x20); reproduced as-is under the owner's UB ruling.
 // toupper takes the byte through unsigned char: for every byte value the C-locale result is
-// the one MSVCRT gives the sign-extended char retail passes.
+// the one MSVCRT gives the sign-extended char baseline passes.
 void SetpointProperties::set_segment(char const* NewSegment)
 {
     strcpy(NameBuffer, NewSegment);
@@ -165,19 +161,19 @@ void SetpointProperties::set_segment(char const* NewSegment)
 
 namespace
 {
-    const char kSetpointSource[] = "E:\\FL\\Scratch\\Source\\Common\\SetpointProperties.cpp";
+    const char kSetpointSource[] = "Common\\SetpointProperties.cpp";
 
-    // .data:063fbbe0 .. 063fbfe0 -- combine_to_name's result buffer (0x400 bytes).
+    // combine_to_name's result buffer (0x400 bytes).
     char GSetpointNameBuffer[0x400];
 }
 
-// 0627b2b0. Name convention "zs|zg / pc|npc|none|rpc / <+8> / <zone> / <+0x10> / posture".
+// . Name convention "zs|zg / pc|npc|none|rpc / <+8> / <zone> / <+0x10> / posture".
 // No reset of the object first: fields not reached keep their previous values.
 void SetpointProperties::extract_from_name(char const* FullName)
 {
-    // 0627b2bf-0627b308: a malloc_strcpy'd work copy, lowered byte by byte over strlen bytes
+    // a malloc_strcpy'd work copy, lowered byte by byte over strlen bytes
     // (tolower through unsigned char gives the C-locale result MSVCRT gives the sign-extended
-    // char retail passes). A null name crashes in the strlen, as retail.
+    // char baseline passes). A null name crashes in the strlen, as baseline.
     char* Work = nullptr;
     malloc_strcpy(&Work, FullName);
     size_t Length = strlen(Work);
@@ -185,7 +181,7 @@ void SetpointProperties::extract_from_name(char const* FullName)
     for (Index = 0; Index < Length; ++Index)
         Work[Index] = (char)tolower((unsigned char)Work[Index]);
 
-    // 0627b30a-0627b357: six strtok calls on "/".
+    // six strtok calls on "/".
     char* PrefixToken = strtok(Work, "/");
     char* CharTypeToken = strtok(nullptr, "/");
     char* SegmentToken = strtok(nullptr, "/");
@@ -193,7 +189,7 @@ void SetpointProperties::extract_from_name(char const* FullName)
     char* NameToken = strtok(nullptr, "/");
     char const* PostureToken = strtok(nullptr, "/");
 
-    // 0627b35c-0627b39e: the prefix is tested first (REPE CMPSB over 3 bytes = strcmp on the
+    // the prefix is tested first (REPE CMPSB over 3 bytes = strcmp on the
     // lowered copy). Neither "zs" nor "zg": bValid = 0, free the work copy, return -- no dump.
     if (strcmp(PrefixToken, "zs") != 0 && strcmp(PrefixToken, "zg") != 0)
     {
@@ -202,9 +198,9 @@ void SetpointProperties::extract_from_name(char const* FullName)
         return;
     }
 
-    // 0627b3a1-0627b3ff: a missing posture token becomes "" (.rdata:063997b0); bValid = 1;
+    // a missing posture token becomes "" (module storage); bValid = 1;
     // a missing token 0..4 is reported, and parsing carries on regardless (a null token then
-    // crashes in the compare/copy below, exactly as retail does).
+    // crashes in the compare/copy below, exactly as baseline does).
     if (PostureToken == nullptr)
         PostureToken = "";
     bValid = 1;
@@ -215,7 +211,7 @@ void SetpointProperties::extract_from_name(char const* FullName)
               kSetpointSource, 0x78, FullName);
     }
 
-    // 0627b402-0627b466
+
     if (strcmp(PrefixToken, "zs") == 0)
         bZoneScript = 1;
     else if (strcmp(PrefixToken, "zg") == 0)
@@ -224,7 +220,7 @@ void SetpointProperties::extract_from_name(char const* FullName)
         FDUMP(0x100001, "%s(%d) : *** ERROR: setpoint name prefix %s (of %s) is not zs/ or zg/\n",
               kSetpointSource, 0x87, PrefixToken, FullName);
 
-    // 0627b46a-0627b4f5
+
     if (strcmp(CharTypeToken, "pc") == 0)
         CharType = 1;
     else if (strcmp(CharTypeToken, "npc") == 0)
@@ -238,20 +234,20 @@ void SetpointProperties::extract_from_name(char const* FullName)
               "%s(%d) : *** ERROR: setpoint character type %s (of %s) is not pc, npc, none, or rpc\n",
               kSetpointSource, 0x9e, CharTypeToken, FullName);
 
-    // 0627b4f8-0627b501: malloc_strcpy into +0x08 without freeing the previous value.
+    // malloc_strcpy into +0x08 without freeing the previous value.
     malloc_strcpy(const_cast<char**>(&Segment), SegmentToken);
 
-    // 0627b506-0627b556
+
     char* ZoneEnd = nullptr;
     Zone = strtol(ZoneToken, &ZoneEnd, 10);
     if (ZoneEnd != nullptr && *ZoneEnd != '\0')
         FDUMP(0x100001, "%s(%d) : *** ERROR: setpoint zone number %s (of %s) is not a number\n",
               kSetpointSource, 0xac, ZoneToken, FullName);
 
-    // 0627b559-0627b5a4: set_segment inlined.
+    // set_segment inlined.
     set_segment(NameToken);
 
-    // 0627b5a6-0627b634
+
     if (strcmp(PostureToken, "stand") == 0)
         Posture = 0;
     else if (strcmp(PostureToken, "sitlow") == 0)
@@ -268,11 +264,11 @@ void SetpointProperties::extract_from_name(char const* FullName)
         Posture = 3;
     }
 
-    // 0627b63b
+
     malloc_strfree(&Work);
 }
 
-// 0627b660: rebuilds the name into the shared buffer with unchecked appends.
+// rebuilds the name into the shared buffer with unchecked appends.
 char const* SetpointProperties::combine_to_name() const
 {
     if (bValid == 0)
@@ -291,7 +287,7 @@ char const* SetpointProperties::combine_to_name() const
         FDUMP(0x100001, "%s(%d) : *** ERROR: %s", kSetpointSource, 0xfe,
               "Invalid occupancy value for setpoint\n");
 
-    // 0627b72d: +0x08 appended with no null test (a null Segment faults, as retail).
+    // +0x08 appended with no null test (a null Segment faults, as baseline).
     strcat(GSetpointNameBuffer, Segment);
     strcat(GSetpointNameBuffer, "/");
 
@@ -328,9 +324,9 @@ SetpointInfo::SetpointInfo(SetpointInfo const& Other)
     , Frame(Other.Frame)
     , Props(Other.Props)
 {
-    // 0x062612d0: +0x00 Name copied as a pointer (no malloc_strcpy), the 0x0c-dword Csys
+    // +0x00 Name copied as a pointer (no malloc_strcpy), the 0x0c-dword Csys
     // block copy at +0x04, then SetpointProperties' copy ctor on +0x34. The copy shares Name
-    // with Other, as in retail.
+    // with Other, as in baseline.
 }
 
 SetpointInfo::~SetpointInfo()
@@ -345,7 +341,7 @@ void SetpointInfo::clear()
     Props.clear();
 }
 
-// 062737c0: malloc_strfree(&Name), Props.destroy() (CALL 0627b1d0), then Name = 0, Frame
+// malloc_strfree(&Name), Props.destroy() (CALL 0627b1d0), then Name = 0, Frame
 // identity and a tail-jump into Props.clear() -- i.e. clear().
 void SetpointInfo::destroy()
 {
@@ -379,7 +375,7 @@ void CharPlaceInfo::clear()
     StartScript = nullptr;
 }
 
-// 062738f0 (ICF-shared with the dtor): malloc_strfree +0x00 and +0x40, then the clear() stores.
+// (ICF-shared with the dtor): malloc_strfree +0x00 and +0x40, then the clear() stores.
 void CharPlaceInfo::destroy()
 {
     malloc_strfree(const_cast<char**>(&Name));
@@ -387,12 +383,12 @@ void CharPlaceInfo::destroy()
     clear();
 }
 
-// 06273960: false for a null Name, else DACOM.DLL!stricmp(Name, TestName) == 0.
+// false for a null Name, else NEURONCOMPONENTS.DLL!stricmp(Name, TestName) == 0.
 bool CharPlaceInfo::is_named(char const* TestName) const
 {
     if (Name == nullptr)
         return false;
-    return CallDacomStricmp(Name, TestName) == 0;
+    return CallNeuronComponentsStricmp(Name, TestName) == 0;
 }
 
 ShipPlaceInfo::ShipPlaceInfo()
@@ -422,7 +418,7 @@ void ShipPlaceInfo::clear()
 
 void ShipPlaceInfo::destroy()
 {
-    // 06273a50 (ICF-shared with the dtor): malloc_strfree +0x00, +0x38, +0x3c, then the
+    // (ICF-shared with the dtor): malloc_strfree +0x00, +0x38, +0x3c, then the
     // clear() stores.
     malloc_strfree(const_cast<char**>(&Nickname));
     malloc_strfree(const_cast<char**>(&LandingScript));
@@ -464,7 +460,7 @@ void RoomButtonInfo::clear()
 
 void RoomButtonInfo::destroy()
 {
-    // 06273b30 (ICF-shared with the dtor): malloc_strfree +0x00/+0x04/+0x08/+0x0c, then the
+    // (ICF-shared with the dtor): malloc_strfree +0x00/+0x04/+0x08/+0x0c, then the
     // four +0x1c.. transitions in a counted loop, then the clear() stores.
     malloc_strfree(const_cast<char**>(&Name));
     malloc_strfree(const_cast<char**>(&RoomSwitch));
@@ -479,18 +475,18 @@ void RoomButtonInfo::destroy()
 RoomLightInfo::RoomLightInfo()
     : Type(0)
 {
-    // Common.dll.c 0x13410: Frame=identity, then this+0x30/+0x34/+0x38 = (0, 0, -1.0f),
+    // Common 0x13410: Frame=identity, then this+0x30/+0x34/+0x38 = (0, 0, -1.0f),
     // NOT (1,1,1). The earlier note here guessed this field was a mislabeled direction; that
     // is now PROVEN -- read_set_script's named-light branch rotates and normalizes the very
-    // same ThornLightProperties+0xC triple (see RoomLightInfo::Direction in common_goods.h),
+    // same SceneScriptLightProperties+0xC triple (see RoomLightInfo::Direction in common_goods.h),
     // and the field has been renamed Color -> Direction accordingly.
     Frame.set_identity();
     Direction[0] = 0.0f;
     Direction[1] = 0.0f;
     Direction[2] = -1.0f;
-    // Retail leaves everything from +0x3C to +0xA3 (Mode, Color and Opaque4C) uninitialized
+    // baseline leaves everything from +0x3C to +0xA3 (Mode, Color and Opaque4C) uninitialized
     // here -- the ctor jumps straight from the +0x38 store to zeroing the +0xa4 Type byte.
-    // Not zero-filled on purpose, to match retail; add_set_script_light overwrites the whole
+    // Not zero-filled on purpose, to match baseline; add_set_script_light overwrites the whole
     // range before use.
 }
 
@@ -501,7 +497,7 @@ RoomLightInfo::~RoomLightInfo()
 
 void RoomLightInfo::clear()
 {
-    // Common.dll.c 0x13490: byte-identical to the constructor above, including leaving
+    // Common 0x13490: byte-identical to the constructor above, including leaving
     // Mode/Color/Opaque4C untouched (see constructor's comment).
     Frame.set_identity();
     Direction[0] = 0.0f;
@@ -512,7 +508,7 @@ void RoomLightInfo::clear()
 
 RoomLightInfo& RoomLightInfo::operator=(RoomLightInfo const& Other)
 {
-    // Common.dll.c 0x1290: plain 0x2a-dword (0xA8-byte) memberwise copy, no self-assignment
+    // Common 0x1290: plain 0x2a-dword (0xA8-byte) memberwise copy, no self-assignment
     // check (unlike RoomButtonInfo/RoomPropInfo, RoomLightInfo owns no allocated memory).
     Frame = Other.Frame;
     Direction[0] = Other.Direction[0];
@@ -529,7 +525,7 @@ RoomLightInfo& RoomLightInfo::operator=(RoomLightInfo const& Other)
 
 void RoomLightInfo::destroy()
 {
-    // Retail 0x48920 (ICF-folded): single RET instruction — empty function.
+    // baseline 0x48920 (ICF-folded): single RET instruction — empty function.
     // This is shared with ~18 other trivial functions via ICF folding.
 }
 
@@ -548,7 +544,7 @@ RoomPropInfo::RoomPropInfo()
     , PriorityId(0)
     , bRunningLights(false)
 {
-    // Common.dll.c 0x13510: Category defaults to -1 (0xffffffff) and bFog (+0x3e) defaults
+    // Common 0x13510: Category defaults to -1 (0xffffffff) and bFog (+0x3e) defaults
     // to true -- both were wrong here (0 and false respectively) before this fix.
     Frame.set_identity();
 }
@@ -560,7 +556,7 @@ RoomPropInfo::~RoomPropInfo()
 
 RoomPropInfo& RoomPropInfo::operator=(RoomPropInfo const& Other)
 {
-    // 0x062612b0: `MOV ECX,0x15; MOVSD.REP` -- the whole 0x54-byte record is block-copied,
+    // `MOV ECX,0x15; MOVSD.REP` -- the whole 0x54-byte record is block-copied,
     // strings included as raw pointers; the old strings are not freed and there is no
     // self-assignment test (copying onto itself is a no-op anyway).
     Template = Other.Template;
@@ -582,8 +578,8 @@ RoomPropInfo& RoomPropInfo::operator=(RoomPropInfo const& Other)
 
 void RoomPropInfo::clear()
 {
-    // Common.dll.c 0x135b0: Category=-1 and bFog=true (both were wrong here, same
-    // bug as the constructor above). Matches retail in not freeing Template/Name/
+    // Common 0x135b0: Category=-1 and bFog=true (both were wrong here, same
+    // bug as the constructor above). Matches baseline in not freeing Template/Name/
     // Loadout before nulling them (that happens in destroy(), not clear()).
     Template = nullptr;
     Name = nullptr;
@@ -603,7 +599,7 @@ void RoomPropInfo::clear()
 
 void RoomPropInfo::destroy()
 {
-    // 06273590 (ICF-shared with the dtor): malloc_strfree +0x00, +0x04, +0x48 and nothing
+    // (ICF-shared with the dtor): malloc_strfree +0x00, +0x04, +0x48 and nothing
     // else -- no clear(); the other fields keep their values.
     malloc_strfree(const_cast<char**>(&Template));
     malloc_strfree(const_cast<char**>(&Name));
@@ -631,9 +627,9 @@ ExhaustNozzleInfo& ExhaustNozzleInfo::operator=(ExhaustNozzleInfo const& Other)
 
 bool ExhaustNozzleInfo::GetHardpointOffset_NS(Transform& Out) const
 {
-    // Common.dll.c 0x35bf0 / Common.dll.txt:101568-101612 (raw asm)
-    // Retail: offset 0 is a ushort SubObjId compared against the SUBOBJ_ID_NONE global
-    // sentinel (0x0000, read out of .rdata:063a4aa4 -- confirmed live in the disasm, not
+    // Common 0x35bf0 / Common (raw asm)
+    // baseline: offset 0 is a ushort SubObjId compared against the SUBOBJ_ID_NONE global
+    // sentinel (0x0000, read out of module storage -- confirmed live in the analysis, not
     // a hardcoded literal), not a char* HardpointName as previously modeled.
     if (SubObjId == SUBOBJ_ID_NONE)
     {

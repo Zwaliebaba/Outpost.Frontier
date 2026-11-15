@@ -1,26 +1,22 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
-// The ship dealer of a base (retail NN_ShipTrader, OutpostFrontier.exe 0x004b7440..0x004b9850).
-//
+// The ship dealer of a base (baseline NN_ShipTrader, OutpostFrontier.exe 0x004b7440..0x004b9850).
+
 // RTTI .?AVNN_ShipTrader@@ : WinControl, Event::Handler (COL 0x005ebd9c; the IDataViewOwner face
 // at +0x7c has COL 0x005ebdb0). operator_new(0x448) (0x004b9738).
-// WINFACTORY<NN_ShipTrader> DAT_006722d0 "NN_ShipTrader": static init LAB_004b7410 (ctor
-// FUN_004b96b0, atexit LAB_004b7430 -> FUN_00579380); Create FUN_004b9720 (operator_new, the
-// WinControl ctor FUN_0059f860 and the three vptrs inlined, the class-name pointer, slot 9; a
+// WINFACTORY<NN_ShipTrader> the field "NN_ShipTrader": static init the branch (ctor
+// , atexit the branch -> the routine); Create the routine (operator_new, the
+// WinControl ctor the routine and the three vptrs inlined, the class-name pointer, slot 9; a
 // failed Create is followed by the scalar deleting destructor).
-//
+
 // vftable 0x005d593c -- WinControl's with these overrides (raw dword dump):
-//   0 FUN_004b97e0 scalar deleting dtor (FUN_004b9800), 9 FUN_004b7440 Create, 11 FUN_004b93d0
-//   Update, 13 LAB_004b9260 Draw, 20 LAB_004b89a0 KeyEvent, 42 LAB_004b85f0 SetProperty.
-// IDataViewOwner face +0x7c: vftable 0x005d5930 (WinControl's LAB_0053aaa0 / FUN_0053e4a0).
-// Event::Handler face +0x32c: vftable 0x005d5928, slot 0 LAB_004b9370.
-//
+//   0 the routine scalar deleting dtor (the routine), 9 the routine Create, 11 the routine
+//   Update, 13 the branch Draw, 20 the branch KeyEvent, 42 the branch SetProperty.
+// IDataViewOwner face +0x7c: vftable 0x005d5930 (WinControl's the branch / the routine).
+// Event::Handler face +0x32c: vftable 0x005d5928, slot 0 the branch.
+
 // The window lists at most three ships the base market sells (market category 3, ship
 // packages), each with its icon, name, class and price, and the player's current ship; picking
 // one shows it in the 3D view with its three info panes. The ctor writes no member: everything
@@ -39,30 +35,30 @@ class ShipViewControl;
 class NnShipTrader : public WinControl, public EventHandler
 {
 public:
-    // Inlined into FUN_004b9720: WinControl's ctor and the vptrs; no member is written.
+    // Inlined into the routine: WinControl's ctor and the vptrs; no member is written.
     NnShipTrader();
-    // FUN_004b9800 -- the Event::Handler (FUN_00576010) and WinControl (FUN_0059fa50)
+    // the Event::Handler (the routine) and WinControl (the routine)
     // destructors.
     ~NnShipTrader() override;
 
-    // slot 9 FUN_004b7440 (RET 8) -- the market's ships and every control; Win3D's Create last.
+    // slot 9 the routine (RET 8) -- the market's ships and every control; Win3D's Create last.
     bool Create(Win3D* NewParent, void* Data) override;
-    // slot 11 FUN_004b93d0 -- the children, then RefreshRows when the player's rank level moved.
+    // slot 11 the routine -- the children, then RefreshRows when the player's rank level moved.
     void Update() override;
-    // slot 13 LAB_004b9260 -- the row frames' layers, the two frame columns, WinControl's Draw and
+    // slot 13 the branch -- the row frames' layers, the two frame columns, WinControl's Draw and
     // the drag rotation of the 3D ship.
     void Draw() override;
-    // slot 20 LAB_004b89a0 (RET 8) -- Escape closes the window; returns false.
+    // slot 20 the branch (RET 8) -- Escape closes the window; returns false.
     bool KeyEvent(unsigned Key, unsigned char* Modifiers) override;
-    // slot 42 LAB_004b85f0 (RET 0xc) -- clicks (0x26 / 0x27), hover (0x2c / 0x2d), close (0x4e).
+    // slot 42 the branch (RET 0xc) -- clicks (0x26 / 0x27), hover (0x2c / 0x2d), close (0x4e).
     intptr_t SetProperty(int Msg, uintptr_t A, uintptr_t B) override;
 
-    // Event::Handler face LAB_004b9370 (RET 4) -- USER_CANCEL (0x10) closes the window.
+    // Event::Handler face the branch (RET 4) -- USER_CANCEL (0x10) closes the window.
     bool OnEvent(unsigned MsgId) override;
 
-    // FUN_004b8a00 (RET 4) -- select a row (0..RowCount-1), -2 for the current ship.
+    // (RET 4) -- select a row (0..RowCount-1), -2 for the current ship.
     void SelectRow(int Row);
-    // FUN_004b93f0 -- every row's rank / reputation status, the rows sorted by status, the row
+    // every row's rank / reputation status, the rows sorted by status, the row
     // controls refilled.
     void RefreshRows();
 
@@ -110,10 +106,10 @@ public:
 
 private:
     // The close sequence of KeyEvent, SetProperty 0x26 / 0x27 / 0x4e and OnEvent: the NavBar
-    // (FUN_004424f0(0), FUN_00442850), FUN_0043d2a0 on every child, slot 10, scalar deleting dtor.
+    // (the routine(0), the routine), the routine on every child, slot 10, scalar deleting dtor.
     void Close();
-    // Retail indexes the row arrays with Selected == -2 in SelectRow (0x004b8f29, 0x004b8f5b,
-    // 0x004b904f) and so reads the dwords 8 bytes before the array. The layout is retail's
+    // baseline indexes the row arrays with Selected == -2 in SelectRow (0x004b8f29, 0x004b8f5b,
+    // ) and so reads the dwords 8 bytes before the array. The layout is baseline's
     // (static_asserts below), so this reads the same fields.
     int RowDword(size_t ArrayOffset, int Index) const;
 
@@ -121,7 +117,7 @@ private:
     NnShipTrader& operator=(NnShipTrader const&) = delete;
 };
 
-static_assert(sizeof(NnShipTrader) == 0x448, "retail NN_ShipTrader is 0x448 bytes (operator_new 0x004b9738)");
+static_assert(sizeof(NnShipTrader) == 0x448, "baseline NN_ShipTrader is 0x448 bytes (operator_new 0x004b9738)");
 static_assert(offsetof(NnShipTrader, CancelButton) == 0x330, "NN_ShipTrader +0x330");
 static_assert(offsetof(NnShipTrader, ShipView) == 0x370, "NN_ShipTrader +0x370");
 static_assert(offsetof(NnShipTrader, PlayerWorth) == 0x3a4, "NN_ShipTrader +0x3a4");

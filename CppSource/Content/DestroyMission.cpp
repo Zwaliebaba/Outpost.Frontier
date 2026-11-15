@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // Content.dll TU27 (06eef190-06ef2070): the "DestroyMission" controller (FDestroyMission),
@@ -15,8 +11,8 @@
 #include "common_net.h"
 
 #include "BaseDB.h"
-#include "ContentStaticIds.h"   // TU27 static IDs 06eef190..06eef370 (DAT_06fcf24c..DAT_06fcf210)
-#include "ContentDefaultId.h"   // TU27 06eef390 (CreateID("default") -> DAT_06fcf20c)
+#include "ContentStaticIds.h"   // TU27 static IDs 06eef190..06eef370 (the field..the field)
+#include "ContentDefaultId.h"   // TU27 06eef390 (CreateID("default") -> the field)
 #include "ContentInternal.h"
 #include "ContentPlayerState.h"
 #include "FactionProps.h"
@@ -41,21 +37,21 @@
 #include <new>
 #include <vector>
 
-// DAT_06fcf1f8 (static init LAB_06ef04d0: FUN_06ef0500 builds the empty vector and stores
-// its address in DAT_06fcf258; atexit FUN_06ef04f0 -> FUN_06ef0520 frees the buffer and
-// clears DAT_06fcf258). Only TU27 reads it, so its place in the static-init order is free.
+// (static init the branch: the routine builds the empty vector and stores
+// its address in the field; atexit the routine -> the routine frees the buffer and
+// clears the field). Only TU27 reads it, so its place in the static-init order is free.
 std::vector<unsigned int> GRmObjectiveZones;
 
 namespace
 {
-    // DAT_06fcf250 -- this TU's cached 3DMathEngine (FUN_06fa8fa0 on first use).
+    // this TU's cached 3DMathEngine (the routine on first use).
     I3DMathEngine* GRmMissionMath = nullptr;
 
-    // .rdata DAT_06fb7608: game units per range unit (300).
+    // .rdata the field: game units per range unit (300).
     float const GRmRangeScale = 300.0f;
 
-    // Zone enumerator of FUN_06ef1810 (vtable 06fb782c, local at [ESP+0x34], 0x14 bytes):
-    // slot 0 LAB_06ef1ac0 (RET 8) = push_back(*ZoneId); the reader is not read.
+    // Zone enumerator of the routine (vtable 06fb782c, local at [ESP+0x34], 0x14 bytes):
+    // slot 0 the branch (RET 8) = push_back(*ZoneId); the reader is not read.
     struct FRmZoneEnumerator : public pub::System::ZoneEnumerator
     {
         std::vector<unsigned int> Zones;            // +0x04 (alloc byte) / +0x08..+0x10
@@ -66,14 +62,14 @@ namespace
         }
     };
 
-    // The zone filter inlined in FUN_06ef0e30 / FUN_06ef0f20 / FUN_06ef1240: every zone of
+    // The zone filter inlined in the routine / the routine / the routine: every zone of
     // the InZones result that System knows and whose mission_type is lawful or unlawful
-    // (+0x12 / +0x13) is appended once (the inline find + insert-at-end of FUN_06f95e00).
+    // (+0x12 / +0x13) is appended once (the inline find + insert-at-end of the routine).
     void CollectMissionZones(FSystemInfo* System, Vector const& Position, float Radius,
                              std::vector<unsigned int>* OutZones)
     {
         unsigned int ZoneIds[0x100];
-        // Retail leaves the count uninitialised; pub::System::InZones always writes it.
+        // baseline leaves the count uninitialised; pub::System::InZones always writes it.
         unsigned int Count = 0;
         pub::System::InZones(System->SystemId, Position, Radius, ZoneIds, 0x100, Count);
         for (unsigned int Index = 0; Index < Count; ++Index)
@@ -84,10 +80,10 @@ namespace
         }
     }
 
-    // The population filter inlined twice in FUN_06ef1810 (06ef1891-06ef1905,
-    // 06ef1980-06ef19f5): every populating group except 0x62e8 that OfferGroup feels at or
-    // below -0.2 (FCOMP DAT_06fb75e0 + TEST AH,0x41 + JP: greater and unordered skip) is
-    // appended once (FUN_06f95e00). pub::Zone::GetPopulation's result is not tested.
+    // The population filter inlined twice in the routine (06ef1891-06ef1905,
+    // ): every populating group except 0x62e8 that OfferGroup feels at or
+    // below -0.2 (FCOMP the field + TEST AH,0x41 + JP: greater and unordered skip) is
+    // appended once (the routine). pub::Zone::GetPopulation's result is not tested.
     void CollectHostileGroups(unsigned int ZoneId, int OfferGroup,
                               std::vector<unsigned int>* OutGroups)
     {
@@ -101,7 +97,7 @@ namespace
             // TODO: which reputation group 0x62e8 is (an id constant in the listing).
             if (It->first == 0x62e8)
                 continue;
-            // Retail keeps the previous stack value when GetReputation fails (-4, unknown
+            // baseline keeps the previous stack value when GetReputation fails (-4, unknown
             // group) without writing it; the port starts from 0.
             float Feeling = 0.0f;
             pub::Reputation::GetReputation(OfferGroupId, It->first, Feeling);
@@ -110,8 +106,8 @@ namespace
         }
     }
 
-    // The random pick inlined in FUN_06ef15b0 (06ef1762-06ef17b2) and FUN_06ef1810
-    // (06ef1a40-06ef1a92) -- the same expression as FUN_06f4d200: one element -> index 0,
+    // The random pick inlined in the routine (06ef1762-06ef17b2) and the routine
+    // (06ef1a40-06ef1a92) -- the same expression as the routine: one element -> index 0,
     // else (rand() * n) / 32768 (CDQ / AND 0x7fff / ADD / SAR 0xf = signed division).
     unsigned int PickRandomId(std::vector<unsigned int> const& Ids)
     {
@@ -127,18 +123,18 @@ namespace
 // FDestroyMission (RandomMissionObject.h)
 // =======================================================================================
 
-// DAT_06fcf208: this TU's message type (static init LAB_06eef3b0, GenerateUniqueMessageType
-// inlined). Retail never reads it; it only advances the generator.
+// this TU's message type (static init the branch, GenerateUniqueMessageType
+// inlined). baseline never reads it; it only advances the generator.
 unsigned int const GDestroyMissionMessageType = StateMachineMessage::GenerateUniqueMessageType();
 
 namespace
 {
-    // .rdata DAT_06fb75e4 (-1): the "any state" passed to the TU47 body.
+    // .rdata the field (-1): the "any state" passed to the TU47 body.
     int const GDmAnyState = -1;
 
     // The router lookup of a runtime machine id (06eef70b-06eef723, 06ef0492-06ef04ab,
-    // 06eefa7f-06eefa98): DAT_06fcf254 slot 3, the MessageHandler part - 0x10; a missing id
-    // gives null, which retail then calls through.
+    // ): the field slot 3, the MessageHandler part - 0x10; a missing id
+    // gives null, which baseline then calls through.
     FRmRuntimeMachine* DmLookupMachine(unsigned int Id)
     {
         MessageHandler* const Handler = GMessageRouter->LookupHandlerById(Id);
@@ -147,7 +143,7 @@ namespace
         return static_cast<FRmRuntimeMachine*>(Handler);
     }
 
-    // The recurring test of LAB_06eef740 (06eef7bc-06eef7d3 and its copies): a message for
+    // The recurring test of the branch (06eef7bc-06eef7d3 and its copies): a message for
     // any state (delivery state -1) or for the machine's current state.
     bool DmIsForCurrentState(StateMachine const* Machine, StateMachineMessage const* Message)
     {
@@ -163,7 +159,7 @@ namespace
             Ids->erase(It);
     }
 
-    // FUN_06eb5f30 + FUN_06eb5770: appended when absent (the second find is not read).
+    // + the routine: appended when absent (the second find is not read).
     void DmAppendUnique(std::vector<unsigned int>* Ids, unsigned int Id)
     {
         if (std::find(Ids->begin(), Ids->end(), Id) == Ids->end())
@@ -171,9 +167,9 @@ namespace
     }
 }
 
-// FUN_06eef3d0 (06eef3d0-06eef50f, RET 8). The TU47 base (FUN_06f4b0d0), +0x240 = the parms
+// (06eef3d0-06eef50f, RET 8). The TU47 base (the routine), +0x240 = the parms
 // (AddRef when non-null), +0x244 = FindSystemInfo(&DestSys), the +0x248 objective list
-// (FUN_06f1ca70, vtable 06fb478c) with +0x258 = 0, the three id vectors, the vtables, +0x80 =
+// (the routine, vtable 06fb478c) with +0x258 = 0, the three id vectors, the vtables, +0x80 =
 // the first offer's type byte (no empty-list test), then the group's process (the import,
 // called directly) with a stack SMEventData of type 1.
 FDestroyMission::FDestroyMission(unsigned int const* InControllerId, FRandomMissionData* InData)
@@ -186,10 +182,10 @@ FDestroyMission::FDestroyMission(unsigned int const* InControllerId, FRandomMiss
     StateMachineGroup::process(&Enter);
 }
 
-// FUN_06eef550 (06eef550-06eef6d4). Every +0x290 id is removed from the group
+// (06eef550-06eef6d4). Every +0x290 id is removed from the group
 // (remove_state_machine(uint), the import), then remove_dying_machines; the three vectors,
-// the objective list (vtable 06fb479c, FUN_06f1cb40, node erase), the parms holder (+0x240,
-// FUN_06fa0330 inlined) and the TU47 dtor FUN_06f4b460. The port's members follow the body
+// the objective list (vtable 06fb479c, the routine, node erase), the parms holder (+0x240,
+// inlined) and the TU47 dtor the routine. The port's members follow the body
 // in reverse declaration order: the three vectors, the list, then the holder.
 FDestroyMission::~FDestroyMission()
 {
@@ -198,7 +194,7 @@ FDestroyMission::~FDestroyMission()
     remove_dying_machines();
 }
 
-// LAB_06eef6e0: with a running machine, its slot 8 (tail call through the router lookup of
+// with a running machine, its slot 8 (tail call through the router lookup of
 // +0x290[0], -0x10); otherwise the system id of +0x244.
 int FDestroyMission::Slot08()
 {
@@ -207,19 +203,19 @@ int FDestroyMission::Slot08()
     return static_cast<int>(DestSystem->SystemId);
 }
 
-// LAB_06eef730: +0x240 +0x50.
+// +0x240 +0x50.
 int FDestroyMission::Slot09()
 {
     return MissionData->JumpPref;
 }
 
-// LAB_06ea1480: XOR AL,AL; RET.
+// XOR AL,AL; RET.
 bool FDestroyMission::Slot12()
 {
     return false;
 }
 
-// FUN_06ef0480 (06ef0480-06ef04c1): slot 7 of every +0x290 machine (router lookup, -0x10),
+// (06ef0480-06ef04c1): slot 7 of every +0x290 machine (router lookup, -0x10),
 // then JMP thunk_FUN_06f0fc40 (the TU38 body).
 void FDestroyMission::EndMission()
 {
@@ -228,16 +224,16 @@ void FDestroyMission::EndMission()
     FMissionObject::EndMission();
 }
 
-// LAB_06ef0460: +0x10 (the reward the TU38 body splits) = +0x240 +0x3c, then JMP FUN_06f4c9c0.
+// +0x10 (the reward the TU38 body splits) = +0x240 +0x3c, then JMP the routine.
 void FDestroyMission::OnMissionSucceed()
 {
     Reward = static_cast<unsigned int>(MissionData->Reward);
     FRandomMissionObject::OnMissionSucceed();
 }
 
-// FUN_06ef02a0 (06ef02a0-06ef0381, RET 4): a local FmtStr (inline zeroing) opened with slot 45
+// (06ef02a0-06ef0381, RET 4): a local FmtStr (inline zeroing) opened with slot 45
 // of the reason (begin_mad_lib only) goes to the first player as mission message 2, broadcast;
-// then the TU47 body FUN_06f4c6f0.
+// then the TU47 body the routine.
 void FDestroyMission::FailMission(int Reason)
 {
     FmtStr Text;
@@ -250,8 +246,8 @@ void FDestroyMission::FailMission(int Reason)
     FRandomMissionObject::FailMission(Reason);
 }
 
-// FUN_06ef0390 (06ef0390-06ef0451, RET 8): the reason text to the leaving player (message 2,
-// not broadcast), then the TU47 body FUN_06f4c830.
+// (06ef0390-06ef0451, RET 8): the reason text to the leaving player (message 2,
+// not broadcast), then the TU47 body the routine.
 void FDestroyMission::RemoveMissionPlayer(unsigned int InPlayerId, int Reason)
 {
     FmtStr Text;
@@ -260,7 +256,7 @@ void FDestroyMission::RemoveMissionPlayer(unsigned int InPlayerId, int Reason)
     FRandomMissionObject::RemoveMissionPlayer(InPlayerId, Reason);
 }
 
-// LAB_06ef01d0 (RET 4): jump table 06ef0258 over 0..14 (11 and 13 share 0x3325), else 1.
+// (RET 4): jump table 06ef0258 over 0..14 (11 and 13 share 0x3325), else 1.
 unsigned int FDestroyMission::GetReasonIds(int Reason)
 {
     switch (Reason)
@@ -284,8 +280,8 @@ unsigned int FDestroyMission::GetReasonIds(int Reason)
     }
 }
 
-// FUN_06ef0100 (06ef0100-06ef01cb): for every offer of the mission (+0x240 +0x80): offer +0xc =
-// this, FUN_06f890f0(offer, &machine) builds the runtime machine (0xb4, FUN_06f89a00) for offer
+// (06ef0100-06ef01cb): for every offer of the mission (+0x240 +0x80): offer +0xc =
+// this, the routine(offer, &machine) builds the runtime machine (0xb4, the routine) for offer
 // types 1..3, its MessageHandler id (get_id on machine+0x10, no null test) is taken, the group
 // adds it (slot 4, add_state_machine), and the id is appended to +0x26c when absent.
 void FDestroyMission::CreateRuntimeMachines()
@@ -297,7 +293,7 @@ void FDestroyMission::CreateRuntimeMachines()
         FRmRuntimeMachine* Machine = nullptr;
         Offer->Mission = this;
         CreateRmRuntimeMachine(Offer, &Machine);
-        // No null test: an offer type outside 1..3 leaves Machine null and retail reads
+        // No null test: an offer type outside 1..3 leaves Machine null and baseline reads
         // get_id of null + 0x10.
         unsigned int const Id = static_cast<MessageHandler*>(Machine)->get_id();
         add_state_machine(Machine);
@@ -307,14 +303,14 @@ void FDestroyMission::CreateRuntimeMachines()
     }
 }
 
-// LAB_06eef740 (06eef740-06ef00bf, RET 8). "Any state" (*State < 0):
+// (06eef740-06ef00bf, RET 8). "Any state" (*State < 0):
 //   controller 0x20: slot 37, then the TU47 body with -1;
-//   message DAT_06fd3bb8 (machine started; delivery state -1 or current): no running machine
+//   message the field (machine started; delivery state -1 or current): no running machine
 //     yet -> state 2; the sender leaves +0x27c and joins +0x28c (once);
-//   message DAT_06fd3bac: +0x25c = 1 and slot 37;
+//   message the field: +0x25c = 1 and slot 37;
 //   controller 0x39: the TU47 body only while no machine runs; 0x12 / 0x25 / 0x27: the TU47
 //     body (0x12 / 0x25 first scan the players for a ship, the result is not used);
-//   controller 9: FUN_06f86e40(player) sent (MessageHandler slot 2) to every running machine,
+//   controller 9: the routine(player) sent (MessageHandler slot 2) to every running machine,
 //     then the TU47 body; controller 4 (save): single player and the mission's player ->
 //     "[RandomMission]", "type = DestroyMission" and the parms' slot 1, unless the first
 //     running machine's slot 12 says no; then the TU47 body; any other controller message: the
@@ -322,11 +318,11 @@ void FDestroyMission::CreateRuntimeMachines()
 // State 0: enter -> +0x50 = mad lib 0x32fa + offer type, +0x68 = the mission text, SMM_TIMEOUT
 //   to itself after 1.1 s (StateMachineMessageHandler::send_delayed_message_to_me, scope 1);
 //   SMM_TIMEOUT -> state 1.
-// State 1: enter -> FUN_06ef0100; with a pending machine, its id moves to +0x27c (once) and
-//   leaves +0x26c (FUN_06ef1ef0), and DAT_06fd3bbc goes to it after 0.01 s
+// State 1: enter -> the routine; with a pending machine, its id moves to +0x27c (once) and
+//   leaves +0x26c (the routine), and the field goes to it after 0.01 s
 //   (MessageHandler::send_delayed_message).
-// State 2: DAT_06fd3bb0 (failed) -> the sender leaves +0x28c and the group (slot 5), +0x23c =
-//   the message's +0x1c, state 4. DAT_06fd3bb4 (succeeded) -> the sender leaves +0x28c and the
+// State 2: the field (failed) -> the sender leaves +0x28c and the group (slot 5), +0x23c =
+//   the message's +0x1c, state 4. the field (succeeded) -> the sender leaves +0x28c and the
 //   group; with nothing running or starting: nothing pending -> state 3, else the next pending
 //   machine is started as in state 1.
 // State 3: enter -> slot 23. State 4: enter -> slot 35 with +0x23c.
@@ -374,8 +370,8 @@ bool FDestroyMission::Slot2(SMEventData const* Event, int const& State)
             (static_cast<EMessage>(Controller->ControllerId) == EMessage::DockRequest ||
              static_cast<EMessage>(Controller->ControllerId) == EMessage::Msg0x25))
         {
-            // 06eef912-06eef934 / 06eef95b-06eef984: the players are scanned until one has a
-            // ship (FUN_06ef00d0); the result is never read.
+            // / 06eef95b-06eef984: the players are scanned until one has a
+            // ship (the routine); the result is never read.
             for (int Index = 0; Index < static_cast<int>(PlayerStates.size()); ++Index)
             {
                 if (RmPlayerHasShip(PlayerStates[Index]))
@@ -405,8 +401,8 @@ bool FDestroyMission::Slot2(SMEventData const* Event, int const& State)
             unsigned int const* Parms = static_cast<unsigned int const*>(Controller->DataPtr);
             if (pub::SinglePlayer() && Parms[0] == PlayerState->PlayerId)
             {
-                // 06eefa64-06eefa9f: with a running machine, only when the first one's slot
-                // 12 (CanSave, FUN_06f8a590) agrees.
+                // with a running machine, only when the first one's slot
+                // 12 (CanSave, the routine) agrees.
                 if (RunningMachines.empty() || DmLookupMachine(RunningMachines[0])->CanSave())
                 {
                     FILE* File = reinterpret_cast<FILE*>(static_cast<uintptr_t>(Parms[1]));
@@ -520,13 +516,13 @@ bool FDestroyMission::Slot2(SMEventData const* Event, int const& State)
     return false;
 }
 
-// FUN_06ef00d0 (06ef00d0-06ef00da): SETNZ of +0x10.
+// (06ef00d0-06ef00da): SETNZ of +0x10.
 bool RmPlayerHasShip(FContentPlayerState const* State)
 {
     return State->ShipObject != nullptr;
 }
 
-// FUN_06eeec50 06eeed07-06eeed28: operator new(0x29c); on success FUN_06eef3d0(&ControllerId,
+// 06eeed07-06eeed28: operator new(0x29c); on success the routine(&ControllerId,
 // Parms). The parms are the TU27 mission (CreateParms at +0).
 IDLL* CreateDestroyMission(char const* /*Name*/, unsigned int ControllerId, void const* Parms)
 {
@@ -539,7 +535,7 @@ IDLL* CreateDestroyMission(char const* /*Name*/, unsigned int ControllerId, void
 // FRandomMissionData
 // =======================================================================================
 
-// FUN_06ef0600 (06ef0600-06ef06c4, cdecl): operator new(0x88); on success the TU47 base
+// (06ef0600-06ef06c4, cdecl): operator new(0x88); on success the TU47 base
 // ctor, ObjectivePos / ObjectiveZone 0, the tree path (06ef064c-06ef0658), the empty offer
 // list (06ef066a-06ef0681) and the two vptrs; *OutMission = it (0 on failure). AL = 1.
 bool FRandomMissionData::Create(FRandomMissionData** OutMission)
@@ -548,10 +544,10 @@ bool FRandomMissionData::Create(FRandomMissionData** OutMission)
     return true;
 }
 
-// FUN_06ef06d0 (06ef06d0-06ef0800), deleting dtor FUN_06ef0550 / thunk LAB_06ef2060: a
-// non-zero ObjectiveZone is erased from GRmObjectiveZones (first match; FUN_06f6a640 moves
+// (06ef06d0-06ef0800), deleting dtor the routine / thunk the branch: a
+// non-zero ObjectiveZone is erased from GRmObjectiveZones (first match; the routine moves
 // the tail down), every listed offer gets (Offer + 4)->Release, then the list
-// (FUN_06ecfec0 / FUN_06f15350), the tree path and the base (~FmtStr +0x24) are destroyed
+// (the routine / the routine), the tree path and the base (~FmtStr +0x24) are destroyed
 // -- the member order of the port.
 FRandomMissionData::~FRandomMissionData()
 {
@@ -566,7 +562,7 @@ FRandomMissionData::~FRandomMissionData()
         (*It)->Release();
 }
 
-// FUN_06ef0810 (RET 4): the base's eight lines, then these six; the tree path is not saved
+// (RET 4): the base's eight lines, then these six; the tree path is not saved
 // here.
 void FRandomMissionData::Save(FILE* File)
 {
@@ -580,9 +576,9 @@ void FRandomMissionData::Save(FILE* File)
     fprintf(File, "\n");
 }
 
-// LAB_06ef0890 (RET 4): the base's keys first (its result is not read), then these. The
+// (RET 4): the base's keys first (its result is not read), then these. The
 // position values are read as integers (FILD). A loaded objective zone is appended to
-// GRmObjectiveZones when absent (FUN_06f937c0; the find that follows has no effect).
+// GRmObjectiveZones when absent (the routine; the find that follows has no effect).
 void FRandomMissionData::LoadValue(INI_Reader* Reader)
 {
     FRmMissionDataBase::LoadValue(Reader);
@@ -619,8 +615,8 @@ void FRandomMissionData::LoadValue(INI_Reader* Reader)
 // FRandomMissionLoader -- TU27 slots and helpers
 // =======================================================================================
 
-// FUN_06ef09c0 (RET 4, the argument is not read; callers Load 06ef0b9c with 1, CreateMission
-// 06ef1ea7 with 0). The offer query (FUN_06f9cac0 defaults) takes the mission's values;
+// (RET 4, the argument is not read; callers Load 06ef0b9c with 1, CreateMission
+// with 0). The offer query (the routine defaults) takes the mission's values;
 // srand(RandomSeed) makes the tree walk repeat the saved mission. A built offer is appended
 // to the list and AddRef'd, and its text becomes the mission's Description. 2 when the list
 // is still empty, else 0; the local offer reference is released either way.
@@ -640,14 +636,14 @@ int FRandomMissionLoader::FinalizeMission(int /*Unused*/)
     Query.PlayerId = Mission->PlayerId;
     Query.DestSys = Mission->DestSys;
 
-    // [ESP+0x8] (EBP-0x4c): the offer holder, released by FUN_06fa0330 on unwind and inline
+    // [ESP+0x8] (EBP-0x4c): the offer holder, released by the routine on unwind and inline
     // at 06ef0acf-06ef0ae5.
     TRmRef<FRmOffer> Offer;
     std::srand(Mission->RandomSeed);
-    // DAT_06fcf25c->vtable[+0xc](&Query, &Offer, &Mission->TreePath).
+    // ->vtable[+0xc](&Query, &Offer, &Mission->TreePath).
     if (GRandomMissionGenerator->BuildOffer(&Query, Offer.GetAddress(), &Mission->TreePath))
     {
-        Mission->Offers.push_back(Offer.Get());           // FUN_06f1e390 at the end
+        Mission->Offers.push_back(Offer.Get());           // at the end
         Offer->AddRef();
         Mission->Description = Offer->Text;                 // FmtStr::operator= (offer +0x3c)
     }
@@ -657,7 +653,7 @@ int FRandomMissionLoader::FinalizeMission(int /*Unused*/)
     return Result;
 }
 
-// LAB_06ef0b00 (RET 0xc). The reader's state is saved and the reader reset; the old
+// (RET 0xc). The reader's state is saved and the reader reset; the old
 // mission is released through its interface (not deleted) and a new one created (no null
 // test); every [RandomMission] section feeds its values to LoadValue and then
 // FinalizeMission, whose 0 becomes the result (NEG / SBB / INC). *OutMission = the mission
@@ -692,7 +688,7 @@ bool FRandomMissionLoader::Load(INI_Reader* Reader, FRandomMissionData** OutMiss
     return bLoaded;
 }
 
-// FUN_06ef0be0 (RET 8). BaseId = the offer base; MissionClass = the first offer's type byte
+// (RET 8). BaseId = the offer base; MissionClass = the first offer's type byte
 // (+0x54) + 1; Title = mad lib 0x734 with the LOADER's mission's system (06ef0c16 reads
 // [this + 8], not the argument); Description = mad lib 0x72a with the offering group's
 // name; Briefing = the mission's text; +0x58 = the reward, +0x5c = the player. TargetId and
@@ -709,7 +705,7 @@ void FRandomMissionLoader::GetOfferDescription(FRandomMissionData const* InMissi
     OutDescription->Title.end_mad_lib();
 
     OutDescription->Description.begin_mad_lib(0x72a);
-    // Retail reuses the argument slot for the name id; GetGroupName always writes it.
+    // baseline reuses the argument slot for the name id; GetGroupName always writes it.
     unsigned int GroupNameId = 0;
     pub::Reputation::GetGroupName(static_cast<unsigned int>(InMission->OfferGroup), GroupNameId);
     OutDescription->Description.append_string(GroupNameId);
@@ -720,10 +716,10 @@ void FRandomMissionLoader::GetOfferDescription(FRandomMissionData const* InMissi
     OutDescription->Filter = InMission->PlayerId;
 }
 
-// FUN_06ef0c90 (RET 0xc). Same system -> false; any id 0 -> true. Otherwise the route is
-// walked one connection at a time (TU41 FUN_06f29c10 with the mission's jump preference,
-// then FUN_06f2a240 to the far system): no next connection, or one of the gates locked for
-// the player or for everybody (TU53 FUN_06f6d2b0), blocks it.
+// (RET 0xc). Same system -> false; any id 0 -> true. Otherwise the route is
+// walked one connection at a time (TU41 the routine with the mission's jump preference,
+// then the routine to the far system): no next connection, or one of the gates locked for
+// the player or for everybody (TU53 the routine), blocks it.
 bool FRandomMissionLoader::IsRouteBlocked(unsigned int FromSystem, unsigned int ToSystem,
                                           unsigned int PlayerId)
 {
@@ -755,13 +751,13 @@ bool FRandomMissionLoader::IsRouteBlocked(unsigned int FromSystem, unsigned int 
     return bBlocked;
 }
 
-// LAB_06ef0dc0 (RET 0xc). The offer base's system (pub::GetSystem) against the mission's:
+// (RET 0xc). The offer base's system (pub::GetSystem) against the mission's:
 // a different system whose route is blocked gives mad lib 0x740, code 2 and false.
 bool FRandomMissionLoader::CanAccept(FRandomMissionData const* /*Unused*/, FmtStr* OutReason,
                                      int* OutCode)
 {
     bool bBlocked = false;
-    // Retail's slot holds the pushed ECX until pub::GetSystem writes it.
+    // baseline's slot holds the pushed ECX until pub::GetSystem writes it.
     unsigned int OfferSystem = 0;
     pub::GetSystem(OfferSystem, Mission->OfferBase);
     if (OfferSystem != Mission->DestSys)
@@ -777,7 +773,7 @@ bool FRandomMissionLoader::CanAccept(FRandomMissionData const* /*Unused*/, FmtSt
     return !bBlocked;
 }
 
-// FUN_06ef0e30 (RET 0x14). Range > 0 (FCOMP DAT_06fb444c + TEST AH,0x41 + JNZ returns on
+// (RET 0x14). Range > 0 (FCOMP the field + TEST AH,0x41 + JNZ returns on
 // <= and unordered): the mission zones within Range * 300 of Position.
 void FRandomMissionLoader::CollectZonesInRange(unsigned int /*PlayerId*/, FSystemInfo* System,
                                                Vector const* Position, float Range,
@@ -788,8 +784,8 @@ void FRandomMissionLoader::CollectZonesInRange(unsigned int /*PlayerId*/, FSyste
     CollectMissionZones(System, *Position, Range * GRmRangeScale, OutZones);
 }
 
-// FUN_06ef0f20 (RET 0x14). Range > 10 (DAT_06fb7614). For every trade lane passing within
-// Range * 300 (FUN_06f767d0) the nearer end is where the lane is entered and the other end
+// (RET 0x14). Range > 10 (the field). For every trade lane passing within
+// Range * 300 (the routine) the nearer end is where the lane is entered and the other end
 // where it leaves: the distance to the entry (3DMathEngine::Sqrt of the float squared
 // distance) must be > 0 and leave Range - D / 300 - 10 > 0; 10 less again is the range left
 // at the exit. When that is > 0 the zones around the exit are collected; the exit is then
@@ -811,7 +807,7 @@ void FRandomMissionLoader::CollectZonesAlongTradeLanes(unsigned int PlayerId,
         FTradeLane const* Lane = *LaneIt;
         Vector const& Start = Lane->StartPosition;
         Vector const& End = Lane->EndPosition;
-        // 06ef0fbc-06ef0fe4: Start - End is built (FUN_06eb7810) and never read.
+        // Start - End is built (the routine) and never read.
 
         // Each difference is stored as a float; the sums of squares (z, y, x order) are
         // stored as floats too.
@@ -853,7 +849,7 @@ void FRandomMissionLoader::CollectZonesAlongTradeLanes(unsigned int PlayerId,
         if (!(Remaining > 0.0))
             continue;
 
-        // DAT_06fb7610: FST float for the recursion, the compare on the unrounded value.
+        // FST float for the recursion, the compare on the unrounded value.
         double const ExitRangeExact = Remaining - 10.0;
         float const ExitRange = static_cast<float>(ExitRangeExact);
         if (ExitRangeExact > 0.0)
@@ -864,15 +860,15 @@ void FRandomMissionLoader::CollectZonesAlongTradeLanes(unsigned int PlayerId,
     }
 }
 
-// FUN_06ef1240 (RET 0x14). Range > 45 (DAT_06fb7618). The faction's jump preference
+// (RET 0x14). Range > 45 (the field). The faction's jump preference
 // (TU48 record +0x58) limits the jump type. For every jump of System at a distance D > 0
 // (FSQRT) with Range - D / 300 - 45 > 0 whose gate is not locked for the player (TU53
-// FUN_06f6ce90), the far system is loaded (FUN_06f4d5e0) and its jump back (ObjectId ==
+// ), the far system is loaded (the routine) and its jump back (ObjectId ==
 // GotoObject) is the arrival point (skipped when missing or when a coordinate is still
 // 1e10). 10 less is the range left there: zones around the arrival when > 0, then trade
-// lanes and jumps from it. An empty local std::list (FUN_06f93790, 06ef1282-06ef1295) is
+// lanes and jumps from it. An empty local std::list (the routine, 06ef1282-06ef1295) is
 // built right after the range test and destroyed at the end without use (EH state 0 for the
-// whole body, funclet 06fac040 FUN_06f15350).
+// whole body, funclet 06fac040 the routine).
 void FRandomMissionLoader::CollectZonesThroughJumps(unsigned int PlayerId, FSystemInfo* System,
                                                     Vector const* Position, float Range,
                                                     std::vector<unsigned int>* OutZones)
@@ -880,12 +876,12 @@ void FRandomMissionLoader::CollectZonesThroughJumps(unsigned int PlayerId, FSyst
     if (!(Range > 45.0f))
         return;
 
-    // 06ef1282-06ef1295: [ESP+0x3c] (EBP-0x430), head node FUN_06f93790 (0xc bytes, so a
+    // [ESP+0x3c] (EBP-0x430), head node the routine (0xc bytes, so a
     // 4-byte element). Never read or written afterwards; the element type is unknowable,
     // unsigned int stands in for it.
     std::list<unsigned int> UnusedList;
 
-    // 06ef1299-06ef12c7: TU48 FUN_06f50650 (no null test) +0x58, 0 = any jump type.
+    // TU48 the routine (no null test) +0x58, 0 = any jump type.
     unsigned int OfferGroupId = static_cast<unsigned int>(Mission->OfferGroup);
     int const JumpPreference = GetFactionProps(&OfferGroupId)->JumpPreference;
 
@@ -911,7 +907,7 @@ void FRandomMissionLoader::CollectZonesThroughJumps(unsigned int PlayerId, FSyst
         if (!(RemainingExact > 0.0))
             continue;
 
-        // TU53 FUN_06f6ce90 (06ef138c): the gate locked for this player or for everybody.
+        // TU53 the routine (06ef138c): the gate locked for this player or for everybody.
         if (IsContentGateLocked(&PlayerId, &Jump.GotoObject))
             continue;
 
@@ -920,7 +916,7 @@ void FRandomMissionLoader::CollectZonesThroughJumps(unsigned int PlayerId, FSyst
 
         bool bFound = false;
         Vector Arrival;
-        Arrival.x = 1e10f;                          // 0x501502f9
+        Arrival.x = 1e10f;
         Arrival.y = 1e10f;
         Arrival.z = 1e10f;
         for (unsigned int BackIndex = 0; BackIndex < Target->Jumps.size(); ++BackIndex)
@@ -934,7 +930,7 @@ void FRandomMissionLoader::CollectZonesThroughJumps(unsigned int PlayerId, FSyst
         }
         if (!bFound)
             continue;
-        // FCOMP DAT_06fb781c + TEST AH,0x44 + JNP: equal skips, unordered goes on.
+        // FCOMP the field + TEST AH,0x44 + JNP: equal skips, unordered goes on.
         if (Arrival.x == 1e10f || Arrival.y == 1e10f || Arrival.z == 1e10f)
             continue;
 
@@ -948,7 +944,7 @@ void FRandomMissionLoader::CollectZonesThroughJumps(unsigned int PlayerId, FSyst
     }
 }
 
-// FUN_06ef15b0 (RET 0x10). Candidates from Range - 10 (stored as a float) around Position,
+// (RET 0x10). Candidates from Range - 10 (stored as a float) around Position,
 // along trade lanes and through jumps; a candidate survives when it is not already an
 // objective and the offering faction's legality (TU48 record +0x94: 1 lawful, 2 unlawful)
 // matches the zone's mission_type. One survivor is picked at random; 0 when its route from
@@ -974,7 +970,7 @@ unsigned int FRandomMissionLoader::PickObjectiveZone(unsigned int PlayerId, FSys
         if (std::find(GRmObjectiveZones.begin(), GRmObjectiveZones.end(), *It) ==
             GRmObjectiveZones.end())
         {
-            // 06ef16a3-06ef16f3: TU48 FUN_06f50650(&OfferGroup) (no null test), read twice.
+            // TU48 the routine(&OfferGroup) (no null test), read twice.
             unsigned int OfferGroupId = static_cast<unsigned int>(Mission->OfferGroup);
             if (GetFactionProps(&OfferGroupId)->Legality == FactionLegalityLawful &&
                 Zone->bLawful)
@@ -998,8 +994,8 @@ unsigned int FRandomMissionLoader::PickObjectiveZone(unsigned int PlayerId, FSys
     return Picked;
 }
 
-// FUN_06ef1810 (RET 0xc). The hostile groups populating the zones within 7500
-// (DAT_06fb761c) of Position; when there are none, those of every zone of the system
+// (RET 0xc). The hostile groups populating the zones within 7500
+// (the field) of Position; when there are none, those of every zone of the system
 // (pub::System::EnumerateZones). One is picked at random, -1 when there is none.
 unsigned int FRandomMissionLoader::PickEnemyGroup(FSystemInfo* System, Vector const* Position,
                                                   int OfferGroup)
@@ -1030,12 +1026,12 @@ unsigned int FRandomMissionLoader::PickEnemyGroup(FSystemInfo* System, Vector co
     return PickRandomId(Groups);
 }
 
-// LAB_06ef1c70 (RET 8). Result starts at 3. The held mission is released (FUN_06fa0330) and
+// (RET 8). Result starts at 3. The held mission is released (the routine) and
 // a new one created (no null test) with a fresh seed rand() (also passed to srand), the
-// request's player / base / group / difficulty, the reward for the difficulty (FUN_06f98380)
+// request's player / base / group / difficulty, the reward for the difficulty (the routine)
 // and rep_reward / rep_hit +/-0.15 (0x3e19999a / 0xbe19999a). The search starts at the
-// base's dock object (FUN_06eac0c0 -> FUN_06eac4d0, no null test; the position stays
-// unset when the base has none) in the player's system (FUN_06f49b00 -> FUN_06f478c0)
+// base's dock object (the routine -> the routine, no null test; the position stays
+// unset when the base has none) in the player's system (the routine -> the routine)
 // with range 90, in multiplayer 90 + 30 per other player in that system, at most 300
 // (FCOM + TEST AH,0x41 + JNZ keeps <= and unordered). No zone -> 3. Otherwise the zone
 // becomes an objective, the mission takes its system and position, and the enemy group is
@@ -1062,21 +1058,21 @@ int FRandomMissionLoader::CreateMission(FRmMissionRequest const* Request,
     Mission->RepReward = 0.15f;
     Mission->RepHit = -0.15f;
 
-    // Retail's local is uninitialised when the base has no dock object.
+    // baseline's local is uninitialised when the base has no dock object.
     Vector DockPosition = {};
     FindContentBaseInfo(&Mission->OfferBase)->FindDockObject(&DockPosition);
 
     FSystemInfo* System = FindContentPlayerState(Mission->PlayerId)->GetSystemRecord();
     RegisterRmDestSystem(System->SystemId);
 
-    float Range = 90.0f;                                            // 0x42b40000
+    float Range = 90.0f;
     if (!pub::SinglePlayer())
     {
-        // FUN_06f78ee0 = &SystemInfo +0xb8 (the players); a null begin counts 0.
+        // = &SystemInfo +0xb8 (the players); a null begin counts 0.
         int const OtherPlayers = static_cast<int>(
             FindContentPlayerState(Mission->PlayerId)->GetSystemRecord()->Players.size()) - 1;
-        double Scaled = static_cast<double>(OtherPlayers) * 30.0 + 90.0; // DAT_06fb7828/7824
-        if (Scaled > 300.0)                                             // DAT_06fb7820
+        double Scaled = static_cast<double>(OtherPlayers) * 30.0 + 90.0; // /7824
+        if (Scaled > 300.0)
             Scaled = 300.0;
         Range = static_cast<float>(Scaled);
     }

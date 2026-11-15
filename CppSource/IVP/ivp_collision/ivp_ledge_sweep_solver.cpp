@@ -1,56 +1,52 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // ============================================================================
 // ivp_ledge_sweep_solver.cpp
-//
+
 // The three generic solver functions behind the Csys sweep-test driver family
-// (decomp-tracker Common.dll items 3596 / 3597 / 3598):
-//
-//   FUN_06369280  ->  IVP_Ledge_Sweep_Evaluator::RefineContactTime
-//   FUN_063694a0  ->  IVP_Ledge_Sweep_Evaluator::SearchContactTime
-//   FUN_06369720  ->  IVP_Ledge_Sweep_Evaluator::SearchContactTimeFromContact
-//
+// (implementation tracker Common.dll items 3596 / 3597 / 3598):
+
+// ->  IVP_Ledge_Sweep_Evaluator::RefineContactTime
+// ->  IVP_Ledge_Sweep_Evaluator::SearchContactTime
+// ->  IVP_Ledge_Sweep_Evaluator::SearchContactTimeFromContact
+
 // WHAT THIS CLUSTER ACTUALLY IS (2026-09-17, lane claude:w19-csys-sweep).
 // Until this pass all three were parked as "private support machinery of the
 // Baraff-style Simplex/LCP contact solver, inside the excluded
-// 0x06363000-0x0636e000 range". That attribution is wrong and every one of
+// range". That attribution is wrong and every one of
 // its consequences was wrong with it. Reading the three bodies end to end
-// against Common.dll.txt (NOT Common.dll.c) shows:
-//
+// against Common (NOT Common) shows:
+
 //   * there is no permutation array, no ratio test, no pivot selection and
 //     no matrix anywhere in the 586 instructions;
 //   * what there IS: a distance functor invoked through a one-slot vtable, a
 //     scalar threshold comparison, a step of (distance / relative speed), a
 //     pair of lazily-filled 21-entry transform caches keyed by a 1/200-second
 //     grid, and a regula-falsi bracket refinement.
-//
+
 // That is textbook conservative advancement / time-of-contact search. The
 // functions live at LCP-adjacent addresses and belong to the sweep test.
-//
+
 // TIME REPRESENTATION. Every "time" here is a split IVP_Time {time_base,
-// time_offset} pair passed as two separate floats, exactly as retail passes
+// time_offset} pair passed as two separate floats, exactly as baseline passes
 // it. The solvers keep time_offset normalized into (-inf, 1.0] with an
 // explicit `while (offset > 1.0f) { base += 1.0f; offset -= 1.0f; }` loop --
 // the same loop shape appears three times across the three functions
 // (:063695df, :06369882, :06369302) and is transcribed literally each time
-// rather than replaced with fmod, because retail's version is a loop and its
+// rather than replaced with fmod, because baseline's version is a loop and its
 // float rounding is observable in the result.
-//
+
 // .rdata CONSTANTS, read as raw bytes (a widened-float trap was checked for
-// and does not apply -- only DAT_063a58b0 is a genuine 8-byte double, and it
+// and does not apply -- only the field is a genuine 8-byte double, and it
 // is all zeroes):
-//   DAT_063a53d0 = 00 00 80 3f              -> 1.0f
-//   DAT_063a53d4 = 00 00 00 00              -> 0.0f
-//   DAT_063a545c = a6 9b 44 3b              -> 0.003f (0x3b449ba6)
-//   DAT_063a5654 = 0a d7 a3 3b              -> 0.005f (0x3ba3d70a)
-//   DAT_063a58a8 = 00 00 c0 3e              -> 0.375f
-//   DAT_063a58ac = 00 00 48 43              -> 200.0f  (== 1.0f / 0.005f)
-//   DAT_063a58b0 = 00 00 00 00 00 00 00 00  -> (double)0.0
-//
+// = 00 00 80 3f              -> 1.0f
+// = 00 00 00 00              -> 0.0f
+// = a6 9b 44 3b              -> 0.003f (0x3b449ba6)
+// = 0a d7 a3 3b              -> 0.005f (0x3ba3d70a)
+// = 00 00 c0 3e              -> 0.375f
+// = 00 00 48 43              -> 200.0f  (== 1.0f / 0.005f)
+// = 00 00 00 00 00 00 00 00  -> (double)0.0
+
 // x87 BRANCH POLARITY. Every FCOM/FCOMP in this file was resolved by reading
 // the MASK and the JUMP together, never the predicate alone:
 //   TEST AH,0x41 + JZ   -> taken when ST0 >  mem   (C3 and C0 both clear)
@@ -60,12 +56,12 @@
 // The one place this matters most is :063694e5 vs :06369764, where the two
 // entry points test the SAME comparison with OPPOSITE jumps -- see
 // SearchContactTimeFromContact's comment.
-//
-// x87 PRECISION (cmn-ivp3g). Values retail keeps on the x87 stack are
+
+// x87 PRECISION (cmn-ivp3g). Values baseline keeps on the x87 stack are
 // `double` here and are rounded to float only where the listing has an
-// FST/FSTP dword; compares that retail makes on the unrounded ST0 compare the
+// FST/FSTP dword; compares that baseline makes on the unrounded ST0 compare the
 // double. Every test is written so the unordered (NaN) case takes the same
-// side as retail's mask/jump pair (unordered sets C3, C2 and C0).
+// side as baseline's mask/jump pair (unordered sets C3, C2 and C0).
 // ============================================================================
 
 #include "ivp_ledge_sweep_solver.h"
@@ -73,22 +69,22 @@
 #include "../ivp_physics/ivp_real_object.h"
 #include "../ivp_physics/ivp_mindist.h"
 #include "../ivp_compact_builder/ivp_compact_ledge.h"
-#include "ivp_compact_ledge_solver.h" // calc_hesse_vec_object_not_normized (FUN_0635b940)
+#include "ivp_compact_ledge_solver.h" // calc_hesse_vec_object_not_normized (the routine)
 #include "../ivp_utility/ivp_signed_byte.h" // IVP_SignedLowByte (IVP_Sweep_Frame_Cache::Init)
 
 #include <cmath>
 
 // ============================================================================
-// FUN_06369280 -- IVP_Ledge_Sweep_Evaluator::RefineContactTime
-// Common.dll.txt:468718-468884 (136 insns). Sole caller: SearchContactTime
+// IVP_Ledge_Sweep_Evaluator::RefineContactTime
+// Common (136 insns). Sole caller: SearchContactTime
 // below, at :063696d9.
-//
+
 // Regula falsi (false position) on the bracket
 // [(LoTimeBase,LoTimeOffset) -> LoDistance, (HiTimeBase,HiTimeOffset) ->
 // HiDistance], solving Evaluate(...) == Threshold, with an Illinois-style
 // pull toward the bracket midpoint applied on every 4th iteration to stop the
 // classic false-position stagnation on one endpoint.
-//
+
 // Receiver proof: ECX is spilled to local_84 at :06369298 and reloaded from
 // there at :063693e6 purely to reach `MOV EDX,[ECX]; CALL [EDX]` -- i.e. the
 // receiver is this evaluator, and the only thing done with it is the slot-0
@@ -105,7 +101,7 @@ void IVP_Ledge_Sweep_Evaluator::RefineContactTime(IVP_Time *OutTime,
     // local_88 at :0636929c. Counts only the iterations that did NOT converge.
     int Iteration = 0;
 
-    // EBX / EBP. Retail keeps the low end of the bracket in these two
+    // EBX / EBP. baseline keeps the low end of the bracket in these two
     // registers AND mirrored in the param_2/param_3 stack slots; the two are
     // written together at :06369432/:06369439 and never diverge, so one pair
     // of locals models both.
@@ -114,8 +110,8 @@ void IVP_Ledge_Sweep_Evaluator::RefineContactTime(IVP_Time *OutTime,
 
     for (;;)
     {
-        // LAB_063692a4. ESI/local_90 and EDI/local_8c.
-        //
+        // . ESI/local_90 and EDI/local_8c.
+
         // :063692ab writes `local_8c = EBP` and :063692b8 writes
         // `local_90 = ESI`, but local_8c is unconditionally overwritten eight
         // instructions later by the FST at :063692f1, so only local_90's
@@ -139,8 +135,8 @@ void IVP_Ledge_Sweep_Evaluator::RefineContactTime(IVP_Time *OutTime,
             + LoTimeOffset;
         float MidOffset = (float)(MidOffsetExt);
 
-        // :063692f5 FCOMP 1.0f / TEST AH,0x41 / JNZ LAB_0636932f -- the
-        // normalization at LAB_06369302 runs only while the offset is
+        // :063692f5 FCOMP 1.0f / TEST AH,0x41 / JNZ the branch -- the
+        // normalization at the branch runs only while the offset is
         // strictly greater than 1.0f (unordered skips it). Each pass:
         // base FLD/FADD 1.0/FSTP dword; offset FLD/FSUB 1.0/FST dword, then
         // FCOMP 1.0f on the unrounded difference (:06369302-:06369329).
@@ -155,7 +151,7 @@ void IVP_Ledge_Sweep_Evaluator::RefineContactTime(IVP_Time *OutTime,
         // on iterations 3, 7, 11, ...
         if ((Iteration & 3) == 3)
         {
-            // :0636933d `CMP EAX,0x40 / JG LAB_0636945f`. Strictly greater
+            // :0636933d `CMP EAX,0x40 / JG the branch`. Strictly greater
             // than 64, and the give-up exit reports the LOW end of the
             // bracket, not the current midpoint.
             if (Iteration > 0x40)
@@ -190,7 +186,7 @@ void IVP_Ledge_Sweep_Evaluator::RefineContactTime(IVP_Time *OutTime,
         // :063693bc-:063693f6. Two transform evaluations at the candidate
         // time, then the evaluator. Argument order proved by PUSH order:
         // :063693cd pushes ESI (time_base) last of the three, so it is
-        // FUN_06345850's first argument; :063693f5 pushes &local_40 (the
+        // 's first argument; :063693f5 pushes &local_40 (the
         // ObjectA frame) last of the two, so it is Evaluate's first argument.
         IVP_Time MidTime;
         MidTime.time_base = MidBase;
@@ -207,7 +203,7 @@ void IVP_Ledge_Sweep_Evaluator::RefineContactTime(IVP_Time *OutTime,
         const float MidDistance = (float)(MidDistanceExt);
 
         // :063693f8-:0636940e: FLD ST0 / FSUB Threshold / FABS / FCOMP 0.003f
-        // / TEST AH,0x1 / JNZ LAB_06369478 -- converged when strictly less
+        // / TEST AH,0x1 / JNZ the branch -- converged when strictly less
         // OR unordered (C0 is set for both), hence the negated >=.
         if (!(std::fabs(MidDistanceExt - Threshold) >= (double)(0.003f)))
         {
@@ -220,7 +216,7 @@ void IVP_Ledge_Sweep_Evaluator::RefineContactTime(IVP_Time *OutTime,
         // a non-converged iteration.
         Iteration = Iteration + 1;
 
-        // :06369414 FCOM / TEST AH,0x1 / JNZ LAB_06369445 -- strictly less
+        // :06369414 FCOM / TEST AH,0x1 / JNZ the branch -- strictly less
         // than Threshold (or unordered) moves the HIGH end of the bracket
         // down to the midpoint (FSTP dword into param_8 at :06369445).
         if (!(MidDistanceExt >= Threshold))
@@ -241,19 +237,19 @@ void IVP_Ledge_Sweep_Evaluator::RefineContactTime(IVP_Time *OutTime,
 }
 
 // ============================================================================
-// FUN_063694a0 -- IVP_Ledge_Sweep_Evaluator::SearchContactTime
-// Common.dll.txt:468899-469141 (207 insns).
-//
+// IVP_Ledge_Sweep_Evaluator::SearchContactTime
+// Common (207 insns).
+
 // Conservative advancement from (CurTimeBase, CurTimeOffset) toward
 // (EndTimeBase, EndTimeOffset): while the evaluator's distance is above
 // Threshold, advance by up to twice (distance / relative speed), quantized
 // down onto a 1/200 s grid, filling both caches' transform slots on demand;
 // as soon as the distance drops to or below Threshold, hand the bracket to
 // RefineContactTime.
-//
+
 // Returns 1 and writes *OutTime when a contact time at or before the end of
 // the interval was found, 0 otherwise.
-//
+
 // Receiver proof: ECX is copied to EBP at :063694b0 and spilled to local_c at
 // :063694b7. EBP is then reused as a scratch float-bits register from
 // :063695b6 onward, and is deliberately RELOADED from local_c at :0636968c
@@ -261,8 +257,8 @@ void IVP_Ledge_Sweep_Evaluator::RefineContactTime(IVP_Time *OutTime,
 // :06369523 needs the evaluator again. local_c is also the source for the
 // virtual call at :0636965e. So the receiver is this evaluator and both
 // +0x08 and the vtable belong to it.
-//
-// CACHE-SLOT BOUND. Retail's only guard is `CMP ESI,0x14 / JZ` at :0636967b,
+
+// CACHE-SLOT BOUND. baseline's only guard is `CMP ESI,0x14 / JZ` at :0636967b,
 // i.e. exact equality with 20, evaluated AFTER the slot has been indexed.
 // That is safe only because the advance per step can never exceed the
 // remaining interval: the `Remaining + Step > 0` early-out caps the
@@ -292,10 +288,10 @@ int IVP_Ledge_Sweep_Evaluator::SearchContactTime(float Threshold,
     }
     else
     {
-        Distance = (float)(Evaluate(CacheA->FrameAtSlot[0], CacheB->FrameAtSlot[0])); // 063694d4 FSTP dword
+        Distance = (float)(Evaluate(CacheA->FrameAtSlot[0], CacheB->FrameAtSlot[0])); // FSTP dword
     }
 
-    // :063694e2 TEST AH,0x41 / :063694e5 JZ LAB_06369507. The jump is taken
+    // :063694e2 TEST AH,0x41 / :063694e5 JZ the branch. The jump is taken
     // when Distance > Threshold (march); the FALL-THROUGH is Distance <=
     // Threshold (or unordered), which is an immediate hit at the interval
     // start.
@@ -313,7 +309,7 @@ int IVP_Ledge_Sweep_Evaluator::SearchContactTime(float Threshold,
 
     for (;;)
     {
-        // LAB_0636951b. `FMUL [EBP+8]` -- multiply by the reciprocal speed,
+        // . `FMUL [EBP+8]` -- multiply by the reciprocal speed,
         // not divide by the speed. Stays on the x87 stack (ST1 below).
         const double Step = ((double)(Distance) - Threshold) * IMaxRelativeSpeed;
 
@@ -325,7 +321,7 @@ int IVP_Ledge_Sweep_Evaluator::SearchContactTime(float Threshold,
             (((double)(PrevTimeBase) - EndTimeBase) + PrevTimeOffset) - EndTimeOffset;
         const float Remaining = (float)(RemainingExt);
 
-        // :06369544 TEST AH,0x41 / :06369547 JZ LAB_0636969d -- the jump
+        // :06369544 TEST AH,0x41 / :06369547 JZ the branch -- the jump
         // (return 0) is taken when Remaining + Step is STRICTLY GREATER than
         // zero, i.e. one conservative step already overshoots the end of the
         // interval, so no contact can occur inside it.
@@ -340,10 +336,10 @@ int IVP_Ledge_Sweep_Evaluator::SearchContactTime(float Threshold,
         double Advance;
 
         // :0636954f FLD param_8 (the rounded Remaining) / FADD ST0,ST1.
-        // :0636955d TEST AH,0x41 / :06369560 JNZ LAB_0636957c -- the jump
+        // :0636955d TEST AH,0x41 / :06369560 JNZ the branch -- the jump
         // (take the doubled step) is taken when Remaining + 2*Step is LESS
         // THAN OR EQUAL TO zero (or unordered). The fall-through means two
-        // steps would overshoot, so retail jumps straight to the end of the
+        // steps would overshoot, so baseline jumps straight to the end of the
         // interval (plus a 0.003 epsilon) and tests there.
         if ((double)(Remaining) + DoubledStep > 0.0)
         {
@@ -355,7 +351,7 @@ int IVP_Ledge_Sweep_Evaluator::SearchContactTime(float Threshold,
         {
             Advance = DoubledStep;
 
-            // :0636957c FCOM against the 8-byte DAT_063a58b0. Read as raw
+            // :0636957c FCOM against the 8-byte the field. Read as raw
             // bytes it is a genuine (double)0.0, not a widened float -- the
             // only real double in this cluster. TEST AH,0x1 / JZ keeps the
             // value when >= 0; strictly negative OR unordered loads 0.0f.
@@ -365,7 +361,7 @@ int IVP_Ledge_Sweep_Evaluator::SearchContactTime(float Threshold,
             }
         }
 
-        // LAB_06369591. Quantize onto the 1/200 s grid, at least one grid
+        // . Quantize onto the 1/200 s grid, at least one grid
         // step. FMUL 200.0f on the extended value, then `ftol`, which
         // truncates toward zero, matching C's int conversion.
         int StepCount = static_cast<int>(Advance * (double)(200.0f));
@@ -395,7 +391,7 @@ int IVP_Ledge_Sweep_Evaluator::SearchContactTime(float Threshold,
         SlotTime.time_base = NewTimeBase;
         SlotTime.time_offset = NewTimeOffset;
 
-        // LAB_0636960c. EBX is param_7 (CacheA), so CacheA is filled first
+        // . EBX is param_7 (CacheA), so CacheA is filled first
         // here -- the opposite order from SearchContactTimeFromContact, which
         // fills param_7 first too but holds it in EDI. The stored pointer is
         // always the cache's own inline storage for that slot:
@@ -407,7 +403,7 @@ int IVP_Ledge_Sweep_Evaluator::SearchContactTime(float Threshold,
                                                              &CacheA->FrameStorage[Slot]);
         }
 
-        // LAB_0636962f. Retail latches CacheA's pointer into the param_8 slot
+        // . baseline latches CacheA's pointer into the param_8 slot
         // at :06369639 BEFORE possibly creating CacheB's, then reloads
         // CacheB's fresh at :0636965a.
         IVP_U_Matrix *FrameA = CacheA->FrameAtSlot[Slot];
@@ -423,12 +419,12 @@ int IVP_Ledge_Sweep_Evaluator::SearchContactTime(float Threshold,
         const double NewDistanceExt = Evaluate(FrameA, CacheB->FrameAtSlot[Slot]);
         const float NewDistance = (float)(NewDistanceExt);
 
-        // :06369676 TEST AH,0x41 / :06369679 JNZ LAB_063696ab -- taken when
+        // :06369676 TEST AH,0x41 / :06369679 JNZ the branch -- taken when
         // NewDistance <= Threshold (or unordered), i.e. the bracket
         // [Prev, New] straddles the contact.
         if (!(NewDistanceExt > Threshold))
         {
-            // :063696ab-:063696d9. Retail passes the ADDRESS of its own
+            // :063696ab-:063696d9. baseline passes the ADDRESS of its own
             // param_2 slot, so RefineContactTime writes back over
             // (CurTimeBase, CurTimeOffset); the result is then range-checked
             // and reported.
@@ -441,7 +437,7 @@ int IVP_Ledge_Sweep_Evaluator::SearchContactTime(float Threshold,
             CurTimeOffset = Refined.time_offset;
 
             // :063696de-:063696ee, extended. :063696f6 TEST AH,0x41 /
-            // :063696f9 JZ LAB_0636969f -- return 0 when the refined time
+            // :063696f9 JZ the branch -- return 0 when the refined time
             // landed strictly past the end.
             if ((((double)(CurTimeBase) - EndTimeBase) + CurTimeOffset) - EndTimeOffset > 0.0)
             {
@@ -468,22 +464,22 @@ int IVP_Ledge_Sweep_Evaluator::SearchContactTime(float Threshold,
 }
 
 // ============================================================================
-// FUN_06369720 -- IVP_Ledge_Sweep_Evaluator::SearchContactTimeFromContact
-// Common.dll.txt:469148-469420 (243 insns).
-//
+// IVP_Ledge_Sweep_Evaluator::SearchContactTimeFromContact
+// Common (243 insns).
+
 // The entry point the drivers actually call (8 external call sites, all in
-// 0x0635dc22-0x0635faff). It handles the case where the two bodies are
+// ). It handles the case where the two bodies are
 // ALREADY within Threshold at the start of the interval, which
 // SearchContactTime cannot: that function would report an immediate hit at
 // t0 and never move.
-//
+
 // The polarity of the entry test is the single most important detail in this
 // file and is the mirror image of SearchContactTime's:
 //   SearchContactTime  :063694e5  TEST AH,0x41 + JZ   -> march when d >  T
 //   this function      :06369764  TEST AH,0x41 + JNZ  -> loop  when d <= T
 // So when the bodies start APART this function just delegates to
 // SearchContactTime, and when they start TOUCHING it runs its own loop.
-//
+
 // That loop walks forward while the separation keeps growing but stays inside
 // Threshold, and stops the moment the separation stops growing
 // (NewDistance <= the distance measured at t0) -- reporting the PREVIOUS grid
@@ -491,7 +487,7 @@ int IVP_Ledge_Sweep_Evaluator::SearchContactTime(float Threshold,
 // separation instead leaves the Threshold band, the remainder of the interval
 // is handed to SearchContactTime, starting from the slot already reached and
 // re-using the distance already measured.
-//
+
 // Note the two differences from SearchContactTime's stepping, both verified
 // instruction by instruction rather than assumed from the family resemblance:
 //   * the step is measured against a SECOND, smaller threshold
@@ -501,11 +497,11 @@ int IVP_Ledge_Sweep_Evaluator::SearchContactTime(float Threshold,
 //     overshoot test at :06369804 has the opposite jump sense to
 //     :0636955d's, so overshoot means "jump to the end of the interval"
 //     rather than "return 0".
-//
+
 // It also divides by MaxRelativeSpeed (+0x04) directly at :063697a8 instead
 // of multiplying by IMaxRelativeSpeed (+0x08). The drivers set +0x08 to
-// exactly 1.0f / +0x04 (Common.dll.txt:0635db9d-0635dbba), so the two agree.
-//
+// exactly 1.0f / +0x04 (Commondb9d-0635dbba), so the two agree.
+
 // Receiver proof: ECX is copied to ESI at :06369738 and spilled to local_c at
 // :0636973d. ESI is then used BOTH as the receiver of the slot-0 virtual call
 // at :06369743 AND as the base of the `FDIV [ESI+4]` at :063697a8 -- one
@@ -528,10 +524,10 @@ int IVP_Ledge_Sweep_Evaluator::SearchContactTimeFromContact(float Threshold, flo
     }
     else
     {
-        Distance = (float)(Evaluate(CacheA->FrameAtSlot[0], CacheB->FrameAtSlot[0])); // 0636974b FSTP dword
+        Distance = (float)(Evaluate(CacheA->FrameAtSlot[0], CacheB->FrameAtSlot[0])); // FSTP dword
     }
 
-    // :06369761 TEST AH,0x41 / :06369764 JNZ LAB_0636979e. The FALL-THROUGH
+    // :06369761 TEST AH,0x41 / :06369764 JNZ the branch. The FALL-THROUGH
     // (Distance strictly greater than Threshold) is the delegation.
     if (Distance > Threshold)
     {
@@ -544,7 +540,7 @@ int IVP_Ledge_Sweep_Evaluator::SearchContactTimeFromContact(float Threshold, flo
                                  CacheA, CacheB, &Distance, OutTime);
     }
 
-    // LAB_0636979e. FLD 1.0 / FDIV [ESI+4] / FSTP dword param_9 -- the
+    // . FLD 1.0 / FDIV [ESI+4] / FSTP dword param_9 -- the
     // reciprocal is rounded to float (the param_9 slot) before use.
     float InvSpeed = 1.0f / MaxRelativeSpeed;
     int Slot = 0;
@@ -552,7 +548,7 @@ int IVP_Ledge_Sweep_Evaluator::SearchContactTimeFromContact(float Threshold, flo
     float PrevTimeOffset = CurTimeOffset;
 
     // :063697c1-:063697d1, extended. :063697d9 TEST AH,0x1 / :063697dc JZ
-    // LAB_063699e3 -- return 0 when the difference is >= 0; strictly
+    // return 0 when the difference is >= 0; strictly
     // negative OR unordered (C0 set) enters the loop.
     if ((((double)(CurTimeBase) - EndTimeBase) + CurTimeOffset) - EndTimeOffset >= 0.0)
     {
@@ -566,7 +562,7 @@ int IVP_Ledge_Sweep_Evaluator::SearchContactTimeFromContact(float Threshold, flo
 
     for (;;)
     {
-        // LAB_063697e2. Measured against InnerThreshold, and divided by the
+        // . Measured against InnerThreshold, and divided by the
         // speed via the reciprocal computed once above.
         // :063697e2-:063697fa: Step, Remaining and their sum all stay on the
         // x87 stack (cmn-ivp3f 2026-10-09: double, was float).
@@ -575,7 +571,7 @@ int IVP_Ledge_Sweep_Evaluator::SearchContactTimeFromContact(float Threshold, flo
 
         double Advance;
 
-        // :06369804 TEST AH,0x41 / :06369807 JNZ LAB_06369823 -- the jump
+        // :06369804 TEST AH,0x41 / :06369807 JNZ the branch -- the jump
         // (keep the step) is taken when Remaining + Step <= 0. The
         // fall-through, an overshoot, jumps to the end of the interval.
         if (Remaining + Step > 0.0)
@@ -587,9 +583,9 @@ int IVP_Ledge_Sweep_Evaluator::SearchContactTimeFromContact(float Threshold, flo
         {
             Advance = Step;
 
-            // :06369823 FCOM against the 4-byte DAT_063a53d4 (0.0f) -- note
+            // :06369823 FCOM against the 4-byte the field (0.0f) -- note
             // this is a FLOAT compare where SearchContactTime's equivalent at
-            // :0636957c uses the 8-byte DAT_063a58b0. Same value, different
+            // :0636957c uses the 8-byte the field. Same value, different
             // constant; not a transcription slip. TEST AH,0x1 / JZ keeps the
             // value when >= 0; strictly negative OR unordered loads 0.0f.
             if (!(Advance >= 0.0))
@@ -598,7 +594,7 @@ int IVP_Ledge_Sweep_Evaluator::SearchContactTimeFromContact(float Threshold, flo
             }
         }
 
-        // LAB_06369838, same quantization as SearchContactTime (FMUL 200.0f
+        // , same quantization as SearchContactTime (FMUL 200.0f
         // on the extended value, then ftol).
         int StepCount = static_cast<int>(Advance * (double)(200.0f));
         if (StepCount < 1)
@@ -624,7 +620,7 @@ int IVP_Ledge_Sweep_Evaluator::SearchContactTimeFromContact(float Threshold, flo
         const float WorkTimeBase = (float)(WorkTimeBaseExt);
         const float WorkTimeOffset = (float)(WorkTimeOffsetExt);
 
-        // LAB_063698a7. `ADD ESI,ECX` -- the slot advances by the same grid
+        // . `ADD ESI,ECX` -- the slot advances by the same grid
         // count. There is no `Slot == 20` guard in this function at all; the
         // bound rests entirely on Advance never exceeding the remaining
         // interval (both branches above are capped by Remaining).
@@ -657,13 +653,13 @@ int IVP_Ledge_Sweep_Evaluator::SearchContactTimeFromContact(float Threshold, flo
 
         // :0636990d FCOM (not FCOMP -- NewDistance stays live on the FPU
         // stack for the second test and for the next iteration) / TEST
-        // AH,0x41 / :06369916 JZ LAB_0636996b, taken when NewDistance is
+        // AH,0x41 / :06369916 JZ the branch, taken when NewDistance is
         // strictly greater than Threshold: the bodies have separated past the
         // band, so the rest of the interval is an ordinary approach search.
         if (NewDistanceExt > Threshold)
         {
             // :0636996b-:06369977 extended; :0636997b TEST AH,0x41 /
-            // :06369986 JZ LAB_063699e3 -- return 0 when strictly past the end.
+            // :06369986 JZ the branch -- return 0 when strictly past the end.
             if ((((double)(WorkTimeBase) - EndTimeBase) + WorkTimeOffset) - EndTimeOffset > 0.0)
             {
                 return 0;
@@ -681,8 +677,8 @@ int IVP_Ledge_Sweep_Evaluator::SearchContactTimeFromContact(float Threshold, flo
                                      CacheA, CacheB, &NewDistance, OutTime);
         }
 
-        // :0636991e TEST AH,0x41 / :06369921 JNZ LAB_063699c1, taken when
-        // NewDistance <= the distance measured at the interval start. Retail
+        // :0636991e TEST AH,0x41 / :06369921 JNZ the branch, taken when
+        // NewDistance <= the distance measured at the interval start. baseline
         // reports local_8/local_4 -- the PREVIOUS grid time, not the one just
         // stepped to (:063699c7/:063699cb).
         if (!(NewDistanceExt > Distance)) // <= or unordered
@@ -697,7 +693,7 @@ int IVP_Ledge_Sweep_Evaluator::SearchContactTimeFromContact(float Threshold, flo
         PrevTimeBase = WorkTimeBase;
         PrevTimeOffset = WorkTimeOffset;
 
-        // :06369927-:06369943 extended; TEST AH,0x1 / JNZ LAB_063697e2 --
+        // :06369927-:06369943 extended; TEST AH,0x1 / JNZ the branch --
         // loop while strictly before the end OR unordered; >= 0 returns 0.
         if ((((double)(WorkTimeBase) - EndTimeBase) + WorkTimeOffset) - EndTimeOffset >= 0.0)
         {
@@ -709,46 +705,46 @@ int IVP_Ledge_Sweep_Evaluator::SearchContactTimeFromContact(float Threshold, flo
 }
 
 // ============================================================================
-// FUN_0635de90 -- IVP_Sweep_Frame_Cache::Init
-// Common.dll.txt:449711-449757, bytes 0x0635de90-0x0635def0 (36 insns,
-// decomp-tracker item 3370). Read first byte to last this pass.
-//
+// IVP_Sweep_Frame_Cache::Init
+// Common, bytes 0x0635de90-0x0635def0 (36 insns,
+// implementation tracker item 3370). Read first byte to last this pass.
+
 // Sixteen call sites, all of them sweep drivers, all of them paired: every
 // driver seeds two of these, one per object under test (:0635daa4/:0635dad1,
 // :0635df34/:0635df69, :0635e20f/:0635e258, :0635e7cf/:0635e80a,
 // :0635ecc1/:0635eceb, :0635f054/:0635f07e, :0635f1b4/:0635f1e1,
 // :0635f8f1/:0635f91e).
-//
+
 // WHAT THE BRANCH IS. `EAX = Object->flags; EAX <<= 0x18; CMP EAX,0x8000000;
 // JL` -- a SIGNED compare after shifting the low byte into the sign position,
 // which is this port's already-documented movement-state idiom: it is
 // `(int8_t)(flags & 0xFF) >= 8`. See ivp_real_object.cpp's own comment on the
 // same test, and ivp_core.cpp's copy of it. The two sides are NOT symmetric
 // and the asymmetry is the point:
-//
+
 //   >= 8 (non-moving): every one of the 21 slots is pointed at the SAME
 //        prepared frame, Source->Frame. A static object has one transform for
 //        all 21 time samples, so the solvers' lazy-fill path can never fire
 //        for it and FrameStorage stays untouched.
-//
+
 //   <  8 (moving): slots 20..1 are nulled and only slot 0 is seeded. The
 //        solvers fill the rest on demand into FrameStorage.
-//
+
 // Either way slot 0 ends up valid, which is exactly why SearchContactTime and
 // SearchContactTimeFromContact read FrameAtSlot[0] with no null check
 // (:0636961d, :063698be).
-//
-// NOT DONE HERE, deliberately: retail precedes each of the sixteen calls with
-// FUN_06273bc0(FrameStorage, 0x40, 0x15, Csys::Csys), the MSVC
+
+// NOT DONE HERE, deliberately: baseline precedes each of the sixteen calls with
+// (FrameStorage, 0x40, 0x15, Csys::Csys), the MSVC
 // vector-constructor-iterator. Csys::Csys is `MOV EAX,ECX; RET` in full
-// (Common.dll.txt 0x06261260-0x06261262), so those 21 invocations are a
+// (Common 0x06261260-0x06261262), so those 21 invocations are a
 // runtime no-op and there is nothing to transcribe. The 0x40 element size is
 // sizeof(IVP_U_Matrix), not sizeof(this project's own Csys) -- see the
-// header's note on the retail name collision.
+// header's note on the baseline name collision.
 // ============================================================================
 void IVP_Sweep_Frame_Cache::Init(FIVP_Sweep_Cache_Source *Source)
 {
-    // :0635de95-:0635dea2. Object first, then Core through it -- retail
+    // :0635de95-:0635dea2. Object first, then Core through it -- baseline
     // re-reads [ECX] at :0635dea0 rather than reusing EAX, and reads flags
     // through that re-read pointer, so the two are provably the same object.
     this->Object = Source->Object;
@@ -784,21 +780,21 @@ void IVP_Sweep_Frame_Cache::Init(FIVP_Sweep_Cache_Source *Source)
     }
 
     // :0635dec6/:0635dec9 and :0635deea/:0635deec -- both paths end with the
-    // same store, and retail really does emit it twice.
+    // same store, and baseline really does emit it twice.
     this->Field_0x10 = Source->Field_0x00;
 }
 
 // ============================================================================
 // THE DRIVER LAYER  (2026-09-17, lane claude:w22-csys-drivers)
 // ============================================================================
-//
-// Retail's global mindist tolerance block (.data:0658aa10), the one
+
+// baseline's global mindist tolerance block (module storage), the one
 // G_IVP_MindistSettings object (ivp_mindist_settings.h) built at DLL load.
 // The two globals item 3371 reads are:
-//   DAT_0658aa10 = +0x000             -- the tolerance base
-//   DAT_0658aa18 = +0x008             -- the ramp's base, which is why every
-//                                        retail user spells it
-//                                        `FLD [idx*4 + DAT_0658aa18]`
+// = +0x000             -- the tolerance base
+// = +0x008             -- the ramp's base, which is why every
+//                                        baseline user spells it
+//                                        `FLD [idx*4 + the field]`
 // 2026-10-08 (claude-code:cmn-phy2): this file's second, lazily-built copy of
 // the block is gone; the accessors keep their names and read the global.
 #include "../ivp_physics/ivp_mindist_settings.h"
@@ -806,20 +802,20 @@ void IVP_Sweep_Frame_Cache::Init(FIVP_Sweep_Cache_Source *Source)
 namespace
 {
     float SweepToleranceRamp(uint32_t Index) { return IVP_MindistSettingsRamp(Index); }
-    float SweepToleranceBase() { return G_IVP_MindistSettings.real_coll_dist; }            // DAT_0658aa10
-    float SweepToleranceBias() { return G_IVP_MindistSettings.mindist_change_force_dist; } // DAT_0658ab34
+    float SweepToleranceBase() { return G_IVP_MindistSettings.real_coll_dist; }
+    float SweepToleranceBias() { return G_IVP_MindistSettings.mindist_change_force_dist; }
 
-    // FUN_0635b940 (the unnormalised face normal of an edge's triangle, raw
+    // (the unnormalised face normal of an edge's triangle, raw
     // ledge pointer) has one port: IVP_Compact_Ledge_Solver::
     // calc_hesse_vec_object_not_normized (ivp_mindist_solve.cpp). The
     // float-precision duplicate that lived here (SweepFaceNormal) is gone
     // (cmn-ivp3e 2026-10-08); the three drivers call the solver directly.
 
     // ------------------------------------------------------------------------
-    // The concrete evaluator item 3371 installs: .rdata:PTR_LAB_0635d5b0,
+    // The concrete evaluator item 3371 installs: .rdata:the branch,
     // stored into the stack local's slot 0 at :0635df83. Its one virtual slot
     // is Evaluate_0635d5b0, already ported in the header.
-    //
+
     // Field offsets are the driver's own writes, not a guess at a shared base
     // class (the header's note on item 3367 is why no shared base exists):
     //   +0x04 / +0x08  MaxRelativeSpeed, IMaxRelativeSpeed  (:0635dfdb/:0635dff7)
@@ -846,10 +842,10 @@ namespace
         }
     };
     static_assert(sizeof(IVP_Sweep_PointPlane_Evaluator) == 0x44,
-                  "evaluator must be retail's 0x44-byte frame local");
+                  "evaluator must be baseline's 0x44-byte frame local");
 
     // ------------------------------------------------------------------------
-    // The second evaluator item 3369 installs: .rdata:PTR_LAB_0635da20 stored
+    // The second evaluator item 3369 installs: .rdata:the branch stored
     // at :0635dc61, whose one slot is Evaluate_0635da20 (already ported in the
     // header). A DIFFERENT concrete class from the one above -- two points,
     // not three, and the base fields are filled from a different speed bound.
@@ -872,25 +868,25 @@ namespace
         }
     };
     static_assert(sizeof(IVP_Sweep_EdgeNormal_Evaluator) == 0x34,
-                  "evaluator must be retail's 0x34-byte frame local");
+                  "evaluator must be baseline's 0x34-byte frame local");
 
     // ------------------------------------------------------------------------
-    // The three concrete evaluators item 3374 (FUN_0635e1d0) installs. Their
+    // The three concrete evaluators item 3374 (the routine) installs. Their
     // field offsets are not inferred from the evaluator bodies -- they are the
     // DRIVER'S OWN stores, and the driver's stack frame is what pins them.
-    //
+
     // Frame arithmetic, once, because all three depend on it. The prologue is
     // `SUB ESP,0xc6c` at :0635e1d0 followed by four pushes (:0635e1d6/d7/d8 and
     // :0635e1e3), so the settled frame pointer is ESP_entry-0xc7c and that is
-    // the 0xc7c in every one of Ghidra's `[ESP + local_XXX + 0xc7c]`
+    // the 0xc7c in every one of analysis's `[ESP + local_XXX + 0xc7c]`
     // spellings -- i.e. local_XXX lives at frame+(0xc7c-XXX). That gives:
-    //
-    //   frame+0x6c .. +0xc4   evaluator 1 (0x58 bytes), vfptr PTR_LAB_0635e080
-    //   frame+0xc4 .. +0xf8   evaluator 3 (0x34 bytes), vfptr PTR_LAB_0635d6d0
-    //   frame+0xf8 .. +0x12c  evaluator 2 (0x34 bytes), vfptr PTR_LAB_0635e160
+
+    //   frame+0x6c .. +0xc4   evaluator 1 (0x58 bytes), vfptr the branch
+    //   frame+0xc4 .. +0xf8   evaluator 3 (0x34 bytes), vfptr the branch
+    //   frame+0xf8 .. +0x12c  evaluator 2 (0x34 bytes), vfptr the branch
     //   frame+0x12c.. +0x6d4  CacheB      (0x5a8 bytes)
     //   frame+0x6d4.. +0xc7c  CacheA      (0x5a8 bytes)
-    //
+
     // Those five spans TILE the frame exactly, end to end, with no gap and no
     // overlap. That is the check that the sizes below are right: if evaluator 1
     // were 0x44 bytes like IVP_Sweep_PointPlane_Evaluator above, or if
@@ -927,7 +923,7 @@ namespace
     // because these evaluators are polymorphic and offsetof on a non-standard-
     // layout type is only conditionally supported.
     static_assert(sizeof(IVP_Sweep_EdgeEdge_Evaluator) == 0x58,
-                  "evaluator must be retail's 0x58-byte frame local");
+                  "evaluator must be baseline's 0x58-byte frame local");
 
     // Evaluator 2, frame+0xf8. vfptr stored at :0635e576; its slot is
     // Evaluate_0635e160 (item 3373), the parallel-edge degeneracy guard --
@@ -938,7 +934,7 @@ namespace
     //                    (:0635e4d2/:0635e4e3/:0635e4f2)
     //   +0x24 DirectionB frame+0x11c, copied from evaluator 1's +0x44
     //                    (:0635e502/:0635e517/:0635e526)
-    // A DIFFERENT retail class from IVP_Sweep_EdgeNormal_Evaluator above
+    // A DIFFERENT baseline class from IVP_Sweep_EdgeNormal_Evaluator above
     // despite the identical 0x34 size -- different vtable, different meaning.
     class IVP_Sweep_EdgeParallel_Evaluator : public IVP_Ledge_Sweep_Evaluator
     {
@@ -952,7 +948,7 @@ namespace
         }
     };
     static_assert(sizeof(IVP_Sweep_EdgeParallel_Evaluator) == 0x34,
-                  "evaluator must be retail's 0x34-byte frame local");
+                  "evaluator must be baseline's 0x34-byte frame local");
 
     // Evaluator 3, frame+0xc4. vfptr stored at :0635e67e; its slot is
     // Evaluate_0635d6d0 (item 3363), `dot(FrameA->vmult(P14),
@@ -962,7 +958,7 @@ namespace
     //                    :0635e6c0/:0635e6c7/:0635e6f9
     //   +0x24 Normal     frame+0xe8, filled by SweepFaceNormal at :0635e705 and
     //                    normalized at :0635e714
-    // Again a distinct retail class from the two 0x34-byte ones above; this one
+    // Again a distinct baseline class from the two 0x34-byte ones above; this one
     // is the only member of the three whose slot is the plain two-direction dot
     // product.
     class IVP_Sweep_EdgeFace_Evaluator : public IVP_Ledge_Sweep_Evaluator
@@ -977,17 +973,17 @@ namespace
         }
     };
     static_assert(sizeof(IVP_Sweep_EdgeFace_Evaluator) == 0x34,
-                  "evaluator must be retail's 0x34-byte frame local");
+                  "evaluator must be baseline's 0x34-byte frame local");
 
     // ------------------------------------------------------------------------
-    // The two further concrete evaluators item 3378 (FUN_0635f180) installs.
+    // The two further concrete evaluators item 3378 (the routine) installs.
     // (Its middle one is IVP_Sweep_PointPlane_Evaluator above, reused
-    // unchanged -- same PTR_LAB_0635d5b0 vfptr, same 0x14/0x24/0x34 points.)
-    //
-    // ITEM 3378 OVERLAYS ALL THREE ON ONE STACK SLOT. Retail builds a single
+    // unchanged -- same the branch vfptr, same 0x14/0x24/0x34 points.)
+
+    // ITEM 3378 OVERLAYS ALL THREE ON ONE STACK SLOT. baseline builds a single
     // object at frame+0x34 and REBINDS its vfptr twice as the function moves
-    // between passes -- PTR_LAB_0635d950 at :0635f26b, PTR_LAB_0635d5b0 at
-    // :0635f471, PTR_LAB_0635d830 at :0635f6ea -- reinterpreting the same
+    // between passes -- the branch at :0635f26b, the branch at
+    // :0635f471, the branch at :0635f6ea -- reinterpreting the same
     // bytes each time. C++ cannot rebind a vptr, so the port uses three
     // separate locals. That is safe, and the check is not a hand-wave: every
     // field each successor evaluator reads is freshly written before its first
@@ -1000,7 +996,7 @@ namespace
     // inside its own loop. Nothing survives a rebind.
     // ------------------------------------------------------------------------
 
-    // Pass 1's evaluator, frame+0x34, vfptr PTR_LAB_0635d950 (item 3367).
+    // Pass 1's evaluator, frame+0x34, vfptr the branch (item 3367).
     // THE ODD ONE OUT of the nine: +0x14 is a float bias and the points start
     // at +0x18, not +0x14. The driver's own stores confirm it from the other
     // side -- :0635f32d writes a SCALAR to frame+0x48 (evaluator +0x14) while
@@ -1027,9 +1023,9 @@ namespace
         }
     };
     static_assert(sizeof(IVP_Sweep_VertexEdgeMoment_Evaluator) == 0x58,
-                  "evaluator must be retail's 0x58-byte frame local");
+                  "evaluator must be baseline's 0x58-byte frame local");
 
-    // Pass 3's evaluator, frame+0x34, vfptr PTR_LAB_0635d830 (item 3366).
+    // Pass 3's evaluator, frame+0x34, vfptr the branch (item 3366).
     //   +0x14 PositionA  side A's feature vertex, A-local
     //   +0x24 DirectionA the current fan edge's unit direction, A-local
     //   +0x34 PositionB  side B's feature vertex, B-local
@@ -1051,15 +1047,15 @@ namespace
         }
     };
     static_assert(sizeof(IVP_Sweep_EdgeFanEdge_Evaluator) == 0x54,
-                  "evaluator must be retail's 0x54-byte frame local");
+                  "evaluator must be baseline's 0x54-byte frame local");
 
     // ------------------------------------------------------------------------
-    // FUN_06347e60, Common.dll.txt:411949-411964 (bytes 0x06347e60-0x06347e80,
+    // , Common (bytes 0x06347e60-0x06347e80,
     // 16 insns), read in full for this pass rather than taken from the
     // header's cross-reference. thiscall, no stack arguments, plain `RET`,
     // result in ST0. The x87 stack was simulated: it loads z, y, x, then
     // accumulates (x*x + y*y) + z*z and takes FSQRT. The association order is
-    // retail's and is reproduced, because float addition is not associative.
+    // baseline's and is reproduced, because float addition is not associative.
     // Products, sums and the FSQRT all stay on the x87 stack and the result is
     // returned unrounded in ST0 (cmn-ivp3g: double, was float).
     // ------------------------------------------------------------------------
@@ -1071,11 +1067,11 @@ namespace
     }
 
     // ------------------------------------------------------------------------
-    // The single evaluator item 3377 (FUN_0635f020) installs: PTR_LAB_0635d720
+    // The single evaluator item 3377 (the routine) installs: the branch
     // at :0635f09c, whose one slot is Evaluate_0635d720 (item 3364).
-    //
+
     // Frame arithmetic for that driver: `SUB ESP,0xb94` plus four pushes puts
-    // the frame at ESP_entry-0xba4, which is Ghidra's constant. The evaluator
+    // the frame at ESP_entry-0xba4, which is analysis's constant. The evaluator
     // is at frame+0x10, CacheB at frame+0x54 and CacheA at frame+0x5fc, and
     // those three spans plus the two 0x5a8-byte caches tile 0x10..0xba4 with no
     // gap -- the same end-to-end check used on item 3374.
@@ -1104,31 +1100,31 @@ namespace
         }
     };
     static_assert(sizeof(IVP_Sweep_CenterDistance_Evaluator) == 0x44,
-                  "evaluator must be retail's 0x44-byte frame local");
+                  "evaluator must be baseline's 0x44-byte frame local");
 
     // ------------------------------------------------------------------------
     // The fan-walk evaluator items 3375 and 3376 both install for their second
-    // pass: PTR_LAB_0635d7b0 (:0635eac4 and :0635eebd), whose one slot is
+    // pass: the branch (:0635eac4 and :0635eebd), whose one slot is
     // Evaluate_0635d7b0 (item 3365, already ported in the header).
-    //
-    // It is a DIFFERENT retail class from IVP_Sweep_PointPlane_Evaluator and
+
+    // It is a DIFFERENT baseline class from IVP_Sweep_PointPlane_Evaluator and
     // IVP_Sweep_CenterDistance_Evaluator despite sharing their 0x44 size and
     // their 0x14/0x24/0x34 point offsets -- a different vtable, and its +0x34 is
     // pushed through FrameB with vmult (a direction) where PointPlane's +0x34
     // goes through vmult4 (a position) and CenterDistance's is not transformed
     // at all.
-    //
+
     //   +0x14 PointOther  the OTHER side's feature vertex, in that side's local
     //                     frame, transformed by FrameA
     //   +0x24 PointSelf   this side's own feature vertex, transformed by FrameB
     //   +0x34 Direction   the current fan edge's unit direction, this side's
     //                     local frame, rotated by FrameB
     // Evaluate returns dot(PointSelf_world - PointOther_world, Direction_world).
-    //
+
     // Offsets are the DRIVERS' own stores, and item 3375's frame tiling pins
     // them: its evaluator sits at frame+0x24 and its two 0x5a8-byte caches at
     // frame+0xac and frame+0x654, leaving frame+0x68..0xac for exactly the
-    // seventeen dwords Ghidra names local_b94 through local_b54 -- 0x44 bytes,
+    // seventeen dwords analysis names local_b94 through local_b54 -- 0x44 bytes,
     // end to end, no gap. An evaluator of any other size breaks that.
     // ------------------------------------------------------------------------
     class IVP_Sweep_VertexFanEdge_Evaluator : public IVP_Ledge_Sweep_Evaluator
@@ -1144,26 +1140,26 @@ namespace
         }
     };
     static_assert(sizeof(IVP_Sweep_VertexFanEdge_Evaluator) == 0x44,
-                  "evaluator must be retail's 0x44-byte frame local");
+                  "evaluator must be baseline's 0x44-byte frame local");
 }
 
 // ============================================================================
-// FUN_0635df00 -- IVP_Sweep_Estimator_Context::EstimateBallVsLedgeFaceContact
-// Common.dll.txt:449772-449907. Bytes 0x0635df00 through the `RET 0xc` at
-// 0x0635e072 inclusive -- read first instruction to last for this pass, all
+// IVP_Sweep_Estimator_Context::EstimateBallVsLedgeFaceContact
+// Common. Bytes 0x0635df00 through the `RET 0xc` at
+// inclusive -- read first instruction to last for this pass, all
 // 109 of them, with the stack frame tracked through every PUSH so that each
 // `[ESP + local_XXX + 0xbac]` spelling could be resolved to a real field.
 // (Prologue `SUB ESP,0xb9c` plus four register pushes puts ESP at
-// frame-0xbac, which is the constant in all of Ghidra's spellings; each of
+// frame-0xbac, which is the constant in all of analysis's spellings; each of
 // the six PUSHes before the final CALL shifts it again, and the evaluator's
 // own field offsets only line up if that shifting is tracked -- e.g.
 // :0635dfbd's `FSTP [ESP+0x50]` and :0635dfc3's `FSTP [ESP+0x5c]` are two
 // DIFFERENT fields of the same point despite the 0xc gap, because a PUSH
 // happened in between.)
-//
-// Decomp-tracker item 3371, the smallest of the four drivers. Its single
-// caller is LAB_0635fd10's ShapeTypeB == 2 arm (:0635fdd9).
-//
+
+// implementation tracker item 3371, the smallest of the four drivers. Its single
+// caller is the branch's ShapeTypeB == 2 arm (:0635fdd9).
+
 // WHAT IT IS. A conservative-advancement contact-time estimate between one
 // object treated as a POINT and one triangle face of another object's compact
 // ledge. The "point" reading is not an inference from the name: the evaluator's
@@ -1173,20 +1169,20 @@ namespace
 // carried by object B: the anchor is the feature edge's start vertex and the
 // normal is that triangle's face normal, both expressed in B's local frame and
 // transformed by FrameB inside the evaluator.
-//
+
 // ARGUMENT ORDER, from the PUSH order at the call site (:0635fdd2/:0635fdd7/
 // :0635fdd8): the last PUSH is param_1, so param_1 is Mindist->FeatureB,
 // param_2 is ObjectA's cache object, param_3 is &SideB. Note param_1 is the
 // RAW tagged edge pointer -- the dispatcher's `AND EAX,0xfffffff0` at
 // :0635fd76 is a separate temporary used only to find the containing ledge,
 // and the value actually passed is the unmasked one saved at :0635fd29.
-//
-// CACHES. Retail builds both 0x5a8-byte caches on its own frame, running the
+
+// CACHES. baseline builds both 0x5a8-byte caches on its own frame, running the
 // MSVC vector-constructor-iterator over each one's 21-matrix tail first
 // (:0635df18/:0635df53). Csys::Csys is `MOV EAX,ECX; RET` in full, so those
 // 42 invocations are a runtime no-op and are not reproduced -- same reasoning
 // as IVP_Sweep_Frame_Cache::Init's own note above. The ASYMMETRY between the
-// two seeds is retail's and is transcribed literally: CacheA is seeded from
+// two seeds is baseline's and is transcribed literally: CacheA is seeded from
 // param_2 DIRECTLY (:0635df25 reads the parameter slot, not through it),
 // while CacheB is seeded from param_3->Source (:0635df40 `MOV ECX,[EBX+0x8]`).
 // ============================================================================
@@ -1197,13 +1193,13 @@ void IVP_Sweep_Estimator_Context::EstimateBallVsLedgeFaceContact(
     IVP_Sweep_Frame_Cache CacheA;
     CacheA.Init(SourceA);
 
-    // :0635df39-:0635df69. local_b50. Retail spills SideB->Source into
+    // :0635df39-:0635df69. local_b50. baseline spills SideB->Source into
     // local_b9c at :0635df43 and reloads it at :0635df60 purely because the
     // vector-ctor loop clobbers the register in between.
     IVP_Sweep_Frame_Cache CacheB;
     CacheB.Init(SideB->Source);
 
-    // :0635df6e-:0635df81. `(*Edge & 0xffff) * 0x10 + SideB->Points`. Retail
+    // :0635df6e-:0635df81. `(*Edge & 0xffff) * 0x10 + SideB->Points`. baseline
     // indexes SideB->Points, the ALREADY-RESOLVED absolute point-array base,
     // not the ledge -- see FIVP_Sweep_Ledge_Side's comment. The two are equal
     // by construction; the literal form is kept.
@@ -1218,24 +1214,24 @@ void IVP_Sweep_Estimator_Context::EstimateBallVsLedgeFaceContact(
     // three float components; +0x20 deliberately left alone.
     Evaluator.PointA.set(0.0f, 0.0f, 0.0f);
 
-    // :0635dfa3-:0635dfc3. Retail interleaves this with the pushes for the
+    // :0635dfa3-:0635dfc3. baseline interleaves this with the pushes for the
     // call below: it loads the vertex's y and x onto the x87 stack and copies
     // z as raw bits through EDX/EAX, then stores x, y and z into +0x34, +0x38
     // and +0x3c.
     Evaluator.Anchor.set(Vertex->X, Vertex->Y, Vertex->Z);
 
-    // :0635dfc7 CALL FUN_0635b940(Edge, SideB->Ledge, &Evaluator.Normal),
-    // cdecl, `ADD ESP,0xc`; then :0635dfd3 CALL FUN_06347ef0 with ECX =
-    // &Evaluator.Normal. Retail ignores normize's bool return, so a
+    // :0635dfc7 CALL the routine(Edge, SideB->Ledge, &Evaluator.Normal),
+    // cdecl, `ADD ESP,0xc`; then :0635dfd3 CALL the routine with ECX =
+    // &Evaluator.Normal. baseline ignores normize's bool return, so a
     // degenerate (zero-area) triangle leaves the normal unnormalized rather
     // than zeroed -- ivp_math.h's normize() behaves the same way.
     IVP_Compact_Ledge_Solver::calc_hesse_vec_object_not_normized(
-        Edge, static_cast<const IVP_Compact_Ledge *>(SideB->Ledge), &Evaluator.Normal); // FUN_0635b940
+        Edge, static_cast<const IVP_Compact_Ledge *>(SideB->Ledge), &Evaluator.Normal);
     Evaluator.Normal.normize();
 
     // :0635dfd8-:0635dff7. `FLD [ESI+8]` then `FLD 1.0; FDIV` -- the
     // reciprocal is computed from the stored field, not recomputed from
-    // ClosingBound, which matters if ClosingBound is zero (retail produces an
+    // ClosingBound, which matters if ClosingBound is zero (baseline produces an
     // infinity here and does not guard it; neither does this).
     Evaluator.MaxRelativeSpeed = this->ClosingBound;
     Evaluator.IMaxRelativeSpeed = 1.0f / Evaluator.MaxRelativeSpeed;
@@ -1250,14 +1246,14 @@ void IVP_Sweep_Estimator_Context::EstimateBallVsLedgeFaceContact(
     const float CombinedRadius = LedgeMindist->CombinedRadius;
 
     // `MOV ECX,[EAX+0x14]; SHR ECX,0x16; AND ECX,0xff` then
-    // `FLD [ECX*4 + DAT_0658aa18]`. Exactly the ramp index
-    // ivp_mindist_limiter.cpp already derived for FUN_0634f320.
+    // `FLD [ECX*4 + the field]`. Exactly the ramp index
+    // ivp_mindist_limiter.cpp already derived for the routine.
     const uint32_t RampIndex = (LedgeMindist->StateFlags >> 22) & 0xff;
     const float Ramp = SweepToleranceRamp(RampIndex);
 
-    // :0635e015-:0635e023. DAT_063a5460 is 0.5f -- raw .rdata bytes
-    // 00 00 00 3f (Common.dll.txt:568776-568779), NOT the 1.0f that
-    // DAT_063a53d0 four rows earlier holds. DAT_0658aa10 is the tolerance
+    // :0635e015-:0635e023. the field is 0.5f -- raw .rdata bytes
+    // 00 00 00 3f (Common), NOT the 1.0f that
+    // four rows earlier holds. the field is the tolerance
     // block's own [0x00].
     const float InnerThreshold = CombinedRadius * 0.5f + SweepToleranceBase();
 
@@ -1294,34 +1290,34 @@ void IVP_Sweep_Estimator_Context::EstimateBallVsLedgeFaceContact(
 }
 
 // ============================================================================
-// FUN_0635da70 -- IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeFaceContact
-// Common.dll.txt:449341-449699. Bytes 0x0635da70 through the `RET 0x10` at
-// 0x0635de83 inclusive -- all 299 instructions read first to last for this
+// IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeFaceContact
+// Common. Bytes 0x0635da70 through the `RET 0x10` at
+// inclusive -- all 299 instructions read first to last for this
 // pass, with the x87 stack simulated across both CALL sequences and every
 // PUSH-induced re-basing of ESP resolved (the frame is `SUB ESP,0xc0c` plus
-// four pushes, so Ghidra's constant is 0xc1c, and inside the second call
+// four pushes, so analysis's constant is 0xc1c, and inside the second call
 // sequence ESP moves nine more times before the CALL).
-//
-// Decomp-tracker item 3369. Called from LAB_0635fef0 at :0636002a.
-//
+
+// implementation tracker item 3369. Called from the branch at :0636002a.
+
 // WHAT IT IS: two different sweep tests against the same pair of objects,
 // run back to back, with the SECOND one repeated once per edge of a vertex
 // fan.
-//
+
 //   Pass 1 (:0635db19-:0635dc2b) is the same point-vs-plane test item 3371
-//   runs -- evaluator PTR_LAB_0635d5b0 -- except that the point is a real
+//   runs -- evaluator the branch -- except that the point is a real
 //   ledge VERTEX of side A rather than the literal origin: +0x14 is loaded
 //   from side A's own point array at :0635db21-:0635db52, where item 3371
 //   stored three zeroes. Threshold, inner threshold and known distance are
 //   built from the mindist exactly as in item 3371.
-//
+
 //   Pass 2 (:0635dc32-:0635de74) installs a SECOND evaluator,
-//   PTR_LAB_0635da20, and walks the fan of edges around that same vertex,
+// , and walks the fan of edges around that same vertex,
 //   testing each edge DIRECTION against the face normal. It is the rate test
 //   that pass 1 cannot do: pass 1 asks "when do this vertex and that face
 //   touch", pass 2 asks "which of the edges leaving this vertex is closing
 //   fast enough to matter before the event time pass 1 just found".
-//
+
 // THE OUT-TIME IS ALSO THE INTERVAL END, and that is the structural point of
 // the function. :0635dafd/:0635db04 seed this->OutEvent* from this->Next*, and
 // from then on EVERY solver call reads its end-of-interval arguments back out
@@ -1331,7 +1327,7 @@ void IVP_Sweep_Estimator_Context::EstimateBallVsLedgeFaceContact(
 // returns the earliest contact any of them found. A transcription that gave
 // the solver `NextBase/NextOffset` every time would still compile and would
 // still find contacts -- it would just stop finding the earliest one.
-//
+
 // THE FAN WALK is `Cursor = Cursor->GetPrevEdge()->GetOppositeEdge()`
 // (:0635de58-:0635de6e, and the same expression once before the loop at
 // :0635dd20-:0635dd3b to pick the starting cursor). That is the standard
@@ -1340,15 +1336,15 @@ void IVP_Sweep_Estimator_Context::EstimateBallVsLedgeFaceContact(
 // The loop terminates on `Cursor == FeatureEdgeA` tested AFTER the body
 // (:0635de4f-:0635de56), so the hub edge itself is the last one processed,
 // not the first.
-//
+
 // .rdata CONSTANTS used here, all read as raw bytes:
-//   DAT_063a5460 = 00 00 00 3f              -> 0.5f
-//   DAT_063a5464 = cd cc cc 3d              -> 0.1f   (Ghidra's listing
+// = 00 00 00 3f              -> 0.5f
+// = cd cc cc 3d              -> 0.1f   (analysis's listing
 //                                              comment "= CDh" is one byte
 //                                              and means nothing)
-//   DAT_063a53d8 = ff e6 db 2e              -> 1e-10f (0x2EDBE6FF; exponent
+// = ff e6 db 2e              -> 1e-10f (0x2EDBE6FF; exponent
 //                                              0x5D, so 2^-34 * 1.7176)
-//   DAT_063a53d0 = 00 00 80 3f              -> 1.0f
+// = 00 00 80 3f              -> 1.0f
 // ============================================================================
 void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeFaceContact(
     const void *FeatureEdgeA, const void *FeatureEdgeB,
@@ -1357,7 +1353,7 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeFaceContact(
     // :0635da81-:0635daa4 and :0635dab0-:0635dad1. Both caches are seeded from
     // their side's Source -- unlike item 3371, which takes its first source as
     // a bare parameter. The two vector-constructor-iterator calls in between
-    // (FUN_06273bc0 over 21 * 0x40 bytes with Csys::Csys) are the same runtime
+    // (the routine over 21 * 0x40 bytes with Csys::Csys) are the same runtime
     // no-op documented on IVP_Sweep_Frame_Cache::Init.
     IVP_Sweep_Frame_Cache CacheA;
     CacheA.Init(SideA->Source);
@@ -1366,9 +1362,9 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeFaceContact(
     CacheB.Init(SideB->Source);
 
     // :0635dad6-:0635db00, read through the caches' own Core field (+0x04 of
-    // each 0x5a8-byte cache -- Ghidra's local_b4c and local_5a4 are CacheB+4
+    // each 0x5a8-byte cache -- analysis's local_b4c and local_5a4 are CacheB+4
     // and CacheA+4, not separate locals). B is loaded first and A is added.
-    //
+
     // NOTE ON THE FIELD NAME, recorded rather than silently accepted: this
     // port calls IVP_Core+0x148 `MaxSurfaceDeviation`. Here it is multiplied
     // by a time span to bound a DISTANCE (:0635dd48) and handed to the solver
@@ -1397,7 +1393,7 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeFaceContact(
     // ---- Pass 1: vertex of A against the face carrying edge B ----------------
     IVP_Sweep_PointPlane_Evaluator VertexFace;
 
-    // :0635db21-:0635db52 (+0x14) and :0635db59-:0635db82 (+0x34). Retail
+    // :0635db21-:0635db52 (+0x14) and :0635db59-:0635db82 (+0x34). baseline
     // interleaves the two vertex loads, carrying each one's z as raw integer
     // bits through a general register while x and y ride the x87 stack.
     VertexFace.PointA.set(VertexA->X, VertexA->Y, VertexA->Z);
@@ -1405,7 +1401,7 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeFaceContact(
 
     // :0635db89 / :0635db98. Side B's ledge, side B's edge.
     IVP_Compact_Ledge_Solver::calc_hesse_vec_object_not_normized(
-        EdgeB, static_cast<const IVP_Compact_Ledge *>(SideB->Ledge), &VertexFace.Normal); // FUN_0635b940
+        EdgeB, static_cast<const IVP_Compact_Ledge *>(SideB->Ledge), &VertexFace.Normal);
     VertexFace.Normal.normize();
 
     // :0635db9d-:0635dbba.
@@ -1437,11 +1433,11 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeFaceContact(
     // ---- Pass 2: the edge fan around that same vertex of A -------------------
     IVP_Sweep_EdgeNormal_Evaluator EdgeNormal;
 
-    // :0635dc32-:0635dc5d. Retail copies FOUR dwords, i.e. the whole
+    // :0635dc32-:0635dc5d. baseline copies FOUR dwords, i.e. the whole
     // IVP_U_Point including its 4th float, which nothing ever wrote. The
     // destination's 4th dword (+0x30) has no reader: Evaluate_0635da20
     // (0635da20-0635da68) reads +0x14..+0x1c and hands +0x24 to the
-    // rotation-only vmult (FUN_06348580, x/y/z). Copying the three live
+    // rotation-only vmult (the routine, x/y/z). Copying the three live
     // components is therefore observably identical.
     EdgeNormal.Normal.set(&VertexFace.Normal);
 
@@ -1454,7 +1450,7 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeFaceContact(
 
     // :0635dc96-:0635dcc5, x87 stack simulated; the whole chain stays on the
     // x87 stack and is rounded ONCE by the FSTP dword at :0635dccc. The
-    // negation is retail's `FCHS` at :0635dca8 and applies to the bias term
+    // negation is baseline's `FCHS` at :0635dca8 and applies to the bias term
     // alone, before the multiply -- not to the whole expression afterwards.
     //   -(ToleranceBias * ObjectB->core->DAngularLimitFactor)
     //      * (CombinedRadius * 0.1f + GapOrRamp) / Ramp
@@ -1492,7 +1488,7 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeFaceContact(
 
     for (;;)
     {
-        // LAB_0635dd50, :0635dd50-:0635dd8b. The vector from the hub vertex to
+        // , :0635dd50-:0635dd8b. The vector from the hub vertex to
         // the far end of this fan edge. The far end is the NEXT edge's start
         // point, which is what `[NEXT_TABLE[tag] + Cursor]` loads -- note it
         // loads the next edge's DWORD, not its address.
@@ -1508,7 +1504,7 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeFaceContact(
         const double DeltaZExt = (double)(FarPoint->Z) - VertexA->Z;
         const float DeltaZ = (float)(DeltaZExt);
 
-        // :0635dd8d-:0635dda7, in retail's own association order: the z and y
+        // :0635dd8d-:0635dda7, in baseline's own association order: the z and y
         // terms are summed first, then the x term is added to that; FSTP dword
         // local_c08 at :0635dda7.
         const float Projection = (float)(
@@ -1516,13 +1512,13 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeFaceContact(
              + (double)(LocalNormalA.k[1]) * DeltaY)
             + (double)(DeltaX) * LocalNormalA.k[0]);
 
-        // :0635ddab-:0635ddc3, also in retail's order: (x*x + y*y) + z*z,
-        // FSTP dword as FUN_06347df0's argument at :0635ddc3.
+        // :0635ddab-:0635ddc3, also in baseline's order: (x*x + y*y) + z*z,
+        // FSTP dword as the routine's argument at :0635ddc3.
         const float QuadLength = (float)(
             ((double)(DeltaX) * DeltaX + (double)(DeltaY) * DeltaY)
             + DeltaZExt * DeltaZExt);
 
-        // :0635ddca CALL FUN_06347df0: FLD/FSQRT/FDIVR 1.0f, result returned
+        // :0635ddca CALL the routine: FLD/FSQRT/FDIVR 1.0f, result returned
         // unrounded in ST0 and kept there for the direction below.
         const double InverseLength = IVP_InvSqrtFloat(QuadLength);
 
@@ -1533,7 +1529,7 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeFaceContact(
         float Alignment = (float)(AlignmentExt);
 
         // :0635dddc FCOMP against MaxTravel / :0635dde2 TEST AH,0x1 / JZ
-        // LAB_0635de49. Mask and jump together: C0 alone, and the JUMP (skip
+        // . Mask and jump together: C0 alone, and the JUMP (skip
         // the test entirely) is taken when C0 is CLEAR, i.e. when Alignment is
         // >= MaxTravel. The fall-through, which runs the sweep, is strictly
         // less OR unordered.
@@ -1570,7 +1566,7 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeFaceContact(
             break;
         }
 
-        // :0635de58-:0635de72. Retail reuses the tag it saved at :0635dd71,
+        // :0635de58-:0635de72. baseline reuses the tag it saved at :0635dd71,
         // which is this same cursor's own `& 0xc`; the expression is
         // identical.
         Cursor = Cursor->GetPrevEdge()->GetOppositeEdge();
@@ -1578,32 +1574,32 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeFaceContact(
 }
 
 // ============================================================================
-// FUN_0635e1d0 -- IVP_Sweep_Estimator_Context::EstimateLedgeEdgeVsLedgeEdgeContact
-// Common.dll.txt:450051-450495. Bytes 0x0635e1d0 through the `RET 0x10` at
-// 0x0635e77e inclusive -- ALL 361 instructions read first to last for this
+// IVP_Sweep_Estimator_Context::EstimateLedgeEdgeVsLedgeEdgeContact
+// Common. Bytes 0x0635e1d0 through the `RET 0x10` at
+// inclusive -- ALL 361 instructions read first to last for this
 // pass, with the x87 stack simulated through each of the four load/store
 // interleavings and every PUSH-induced re-basing of ESP resolved back to
 // frame+N (the frame is ESP_entry-0xc7c; see the evaluator block above).
-//
-// Decomp-tracker item 3374. Its single XREF is :0635fff4, inside dispatcher
-// LAB_0635fef0 -- the same dispatcher that reaches item 3369.
-//
+
+// implementation tracker item 3374. Its single XREF is :0635fff4, inside dispatcher
+// the same dispatcher that reaches item 3369.
+
 // WHAT IT IS: the EDGE-versus-EDGE arm of the sweep. Item 3369 handles a
 // vertex of A against a face of B; this one handles one edge of A against one
 // edge of B, and it runs FOUR distinct tests, in this order:
-//
-//   1. the skew-line edge-edge separation itself (evaluator PTR_LAB_0635e080),
+
+//   1. the skew-line edge-edge separation itself (evaluator the branch),
 //      event code 0x40;
-//   2. the parallel-edge degeneracy guard (PTR_LAB_0635e160), which measures
+//   2. the parallel-edge degeneracy guard (the branch), which measures
 //      |dirA x dirB|^2 -- exactly the quantity test 1 divides by -- and so
 //      catches the case where test 1's answer is meaningless, event code 0x41;
 //   3. four "does this edge direction point into that face" tests
-//      (PTR_LAB_0635d6d0) over the 2x2 product of {edge, its opposite} on each
+//      (the branch) over the 2x2 product of {edge, its opposite} on each
 //      side, event code 0x42.
-//
+
 // THREE PREMISES OF THIS LANE'S BRIEF THAT THE LISTING CONTRADICTS, recorded
 // because each one would have produced wrong code:
-//
+
 //   (a) "the scalar block (InnerThreshold = Radius*0.5 + ToleranceBase;
 //       KnownDistance = Radius + SeparationGap; Threshold = Ramp + Radius)
 //       that both of them share and this one almost certainly shares too."
@@ -1618,14 +1614,14 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeFaceContact(
 //       quantity it does build is a different one entirely: the sum of the two
 //       cores' +0x148 (:0635e277-:0635e27d), which is what item 3369 calls
 //       SpeedBound, not what it calls CombinedRadius.
-//
-//   (b) "a census by lane w16-ivp asserts FUN_0634d8d0 = IVP_U_Matrix::vmult4
-//       and FUN_0634d9d0 = vmult ... Item 3378 is the one expected to call
-//       them." Not this item's problem -- FUN_0635e1d0 calls NEITHER. Its only
-//       matrix transform is FUN_06348580 (twice, :0635e3d9 and :0635e3f8), the
+
+//   (b) "a census by lane w16-ivp asserts the routine = IVP_U_Matrix::vmult4
+//       and the routine = vmult ... Item 3378 is the one expected to call
+//       them." Not this item's problem -- the routine calls NEITHER. Its only
+//       matrix transform is the routine (twice, :0635e3d9 and :0635e3f8), the
 //       already-verified IVP_U_Matrix3::vmult. The caution is left standing
 //       for item 3378 and was not discharged here.
-//
+
 //   (c) the header's own long-standing claim that the drivers are what walk the
 //       `& 0xc` next/prev tables. This one does use them (:0635e2a3 and
 //       :0635e2df) but for something simpler than a fan walk: just the far end
@@ -1633,23 +1629,23 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeFaceContact(
 //       `GetOppositeEdge()`, at :0635e5bc-:0635e5c8 and :0635e5e5-:0635e5f2 --
 //       `((int32_t)(Edge->Data << 1) >> 17)` added to the edge as a dword
 //       index, which is IVP_Compact_Edge::GetOppositeIndex() term for term.
-//
+
 // THE OUT-TIME IS AGAIN THE INTERVAL END. :0635e290/:0635e297 seed OutEvent*
 // from Next*, and from there every one of the six solver calls (1 + 1 + 4)
 // takes its end-of-interval pair out of OutEvent* and writes its result back
 // to the same pair, so each hit narrows the window the later tests search.
 // Passing Next* to the later calls would still find contacts; it would just
 // stop finding the earliest one.
-//
-// .rdata CONSTANTS, read as RAW BYTES (Ghidra's inline `= FFh` / `= ??`
+
+// .rdata CONSTANTS, read as RAW BYTES (analysis's inline `= FFh` / `= ??`
 // comments on three of these are wrong or empty):
-//   DAT_063a53d0 = 00 00 80 3f  -> 1.0f
-//   DAT_063a53d4 = 00 00 00 00  -> 0.0f
-//   DAT_063a53d8 = ff e6 db 2e  -> 1e-10f   (Ghidra prints "= FFh")
-//   DAT_063a5498 = 00 00 80 bf  -> -1.0f    (Ghidra prints nothing)
+// = 00 00 80 3f  -> 1.0f
+// = 00 00 00 00  -> 0.0f
+// = ff e6 db 2e  -> 1e-10f   (analysis prints "= FFh")
+// = 00 00 80 bf  -> -1.0f    (analysis prints nothing)
 // and the .data ones are the same uninitialized tolerance block items 3369 and
-// 3371 already reach: DAT_0658aa10 == block[0x00], DAT_0658aa18 == &block[2],
-// DAT_0658ab34 == block[0x49].
+// 3371 already reach: the field == block[0x00], the field == &block[2],
+// == block[0x49].
 // ============================================================================
 void IVP_Sweep_Estimator_Context::EstimateLedgeEdgeVsLedgeEdgeContact(
     const void *FeatureEdgeA, const void *FeatureEdgeB,
@@ -1658,7 +1654,7 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeEdgeVsLedgeEdgeContact(
     // :0635e1d9-:0635e20f and :0635e214-:0635e258. Both caches seeded from
     // their own side's Source, as in item 3369. The two 21-iteration
     // Csys::Csys loops in between (:0635e1f6 and :0635e231 -- written out
-    // inline here rather than through FUN_06273bc0) are the same runtime no-op
+    // inline here rather than through the routine) are the same runtime no-op
     // documented on IVP_Sweep_Frame_Cache::Init: Csys::Csys is `MOV EAX,ECX;
     // RET` in full.
     IVP_Sweep_Frame_Cache CacheA;
@@ -1672,8 +1668,8 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeEdgeVsLedgeEdgeContact(
 
     // :0635e25d-:0635e293. A's core is loaded first and B's is added to it --
     // the opposite association order from item 3369's identical-looking sum,
-    // which loads B first. Kept as retail spells it.
-    //
+    // which loads B first. Kept as baseline spells it.
+
     // Same naming caveat item 3369 recorded: this port calls IVP_Core+0x148
     // MaxSurfaceDeviation, and here the sum is used as a relative-speed bound.
     // Not renamed by this lane.
@@ -1685,8 +1681,8 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeEdgeVsLedgeEdgeContact(
     this->OutEventOffset = this->NextOffset;
 
     // :0635e29a-:0635e31d. Both edges' start and far vertices. The far vertex
-    // is the NEXT edge's start point -- retail loads the next edge's DWORD
-    // through the table (`MOV EDX,[EDX + DAT_063ee4e0]; MOV EAX,[EDX + EAX]`),
+    // is the NEXT edge's start point -- baseline loads the next edge's DWORD
+    // through the table (`MOV EDX,[EDX + the field]; MOV EAX,[EDX + EAX]`),
     // not its address, and masks 0xffff off that.
     const IVP_Compact_Edge *const EdgeA = static_cast<const IVP_Compact_Edge *>(FeatureEdgeA);
     const IVP_Compact_Edge *const EdgeB = static_cast<const IVP_Compact_Edge *>(FeatureEdgeB);
@@ -1702,10 +1698,10 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeEdgeVsLedgeEdgeContact(
     const IVP_U_Float_Point *const FarVertexB =
         PointsB + EdgeB->GetNextEdge()->GetStartPointIndex();
 
-    // :0635e2b6-:0635e326. Retail computes y first, then z (spilled through a
+    // :0635e2b6-:0635e326. baseline computes y first, then z (spilled through a
     // general register as raw bits), then x, and stores them x/y/z. The
-    // normalize is `CALL FUN_06347ef0` with ECX = &field, i.e. in place, and
-    // retail ignores its bool return -- a degenerate edge is left unnormalized
+    // normalize is `CALL the routine` with ECX = &field, i.e. in place, and
+    // baseline ignores its bool return -- a degenerate edge is left unnormalized
     // rather than zeroed, exactly as normize() behaves here.
     EdgeEdge.DirectionA.set(FarVertexA->X - VertexA->X,
                             FarVertexA->Y - VertexA->Y,
@@ -1728,7 +1724,7 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeEdgeVsLedgeEdgeContact(
     EdgeEdge.MaxRelativeSpeed = this->ClosingBound;
     EdgeEdge.IMaxRelativeSpeed = 1.0f / EdgeEdge.MaxRelativeSpeed;
 
-    // :0635e3c8-:0635e3f8. Two `CALL FUN_06348580` == IVP_U_Matrix3::vmult,
+    // :0635e3c8-:0635e3f8. Two `CALL the routine` == IVP_U_Matrix3::vmult,
     // both on a cache SOURCE frame (`Source + 0x1c`), rotation only, which is
     // correct for directions. Argument order taken from which PUSH lands at
     // [ESP+0]: at :0635e3d9 that is &DirectionB (pushed second, :0635e3c7), so
@@ -1739,7 +1735,7 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeEdgeVsLedgeEdgeContact(
     IVP_U_Point WorldDirectionA;
     SideA->Source->Frame.vmult(&EdgeEdge.DirectionA, &WorldDirectionA);
 
-    // :0635e407-:0635e40b. FUN_0628bed0(this = out, param_1, param_2) computes
+    // :0635e407-:0635e40b. the routine(this = out, param_1, param_2) computes
     // `out = param_1 x param_2` with the products on the x87 stack and one
     // float rounding per component (IVP_CalcCrossProduct); &WorldDirectionA is
     // pushed second (:0635e406) and therefore sits at [ESP+0], so it is
@@ -1750,7 +1746,7 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeEdgeVsLedgeEdgeContact(
     const IVP_Ledge_Mindist *const LedgeMindist =
         static_cast<const IVP_Ledge_Mindist *>(this->Mindist);
 
-    // :0635e410-:0635e42c, in retail's own association order: the y and z terms
+    // :0635e410-:0635e42c, in baseline's own association order: the y and z terms
     // are summed first, the x term is added to that, and the FCHS negates the
     // whole sum -- all on the x87 stack, compared unrounded (no store).
     // Mindist +0x60/+0x64/+0x68 is IVP_Ledge_Mindist's SeparatingNormal,
@@ -1760,12 +1756,12 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeEdgeVsLedgeEdgeContact(
            + (double)(Axis.k[2]) * LedgeMindist->SeparatingNormal.z)
           + (double)(Axis.k[0]) * LedgeMindist->SeparatingNormal.x);
 
-    // :0635e42e-:0635e463. MASK AND JUMP TOGETHER: `FCOMP 0.0f` (DAT_063a53d4
+    // :0635e42e-:0635e463. MASK AND JUMP TOGETHER: `FCOMP 0.0f` (the field
     // is raw 00 00 00 00) then `TEST AH,0x41` (C0|C3) + `JNZ`, so the JUMP is
     // taken when NegatedAlignment <= 0.0f and the FALL-THROUGH is strictly
     // greater. The fall-through stores 0 / -1.0f; the jump target (also taken
     // when unordered) stores 1 / +1.0f.
-    //
+
     // Restated on the un-negated quantity: SwapFlag and Scale both follow the
     // sign of `dot(Axis, SeparatingNormal)` -- negative gives (0, -1.0f),
     // non-negative gives (1, +1.0f). Scale is evaluator 1's +0x54 multiplier,
@@ -1823,7 +1819,7 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeEdgeVsLedgeEdgeContact(
 
     // :0635e56a-:0635e588. The OTHER solver entry point, with a literal
     // 1e-10f threshold pushed as the immediate 0x2edbe6ff (the same bit
-    // pattern DAT_063a53d8 holds), a zero start slot, a null known distance,
+    // pattern the field holds), a zero start slot, a null known distance,
     // and once more OutEvent* as both the interval end and the output.
     if (Parallel.SearchContactTime(
             1e-10f,
@@ -1849,7 +1845,7 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeEdgeVsLedgeEdgeContact(
     const IVP_Compact_Edge *const OppositeA = EdgeA->GetOppositeEdge();
     const IVP_Compact_Edge *const OppositeB = EdgeB->GetOppositeEdge();
 
-    // :0635e5f5-:0635e67a. Retail materializes six parallel four-entry tables
+    // :0635e5f5-:0635e67a. baseline materializes six parallel four-entry tables
     // on its frame and then walks them with TWO cursors in OPPOSITE
     // directions: ESI counts up 0,4,8,0xc from one base and EBX counts DOWN
     // 0,-4,-8,-0xc from another (:0635e765-:0635e76e). Four of the tables are
@@ -1857,7 +1853,7 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeEdgeVsLedgeEdgeContact(
     // second-cache tables below look reversed relative to the others -- they
     // are stored ascending and read descending. They are written out here in
     // the order the loop consumes them.
-    //
+
     // The pairing is self-consistent and that is the check on it: on iteration
     // i the direction handed to the evaluator's +0x14 belongs to the object
     // whose cache is the FIRST solver argument, and the face normal handed to
@@ -1879,8 +1875,8 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeEdgeVsLedgeEdgeContact(
 
         // :0635e692-:0635e6e7. `TEST EAX,EAX; JNZ` -- the JUMP (the raw copy)
         // is taken when the flag is NON-zero, so it is the ZERO flag that
-        // negates. The negation is three separate `FMUL DAT_063a5498` with
-        // DAT_063a5498 == raw 00 00 80 bf == -1.0f, not a sign flip, so it is
+        // negates. The negation is three separate `FMUL the field` with
+        // == raw 00 00 80 bf == -1.0f, not a sign flip, so it is
         // written as a multiply here too (it differs from a sign flip on a
         // negative zero).
         if (UseRawDirection[FanIndex] != 0)
@@ -1894,17 +1890,17 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeEdgeVsLedgeEdgeContact(
                                    Direction->k[2] * -1.0f);
         }
 
-        // :0635e6e9-:0635e714. cdecl `FUN_0635b940(Edge, Side->Ledge,
+        // :0635e6e9-:0635e714. cdecl `the routine(Edge, Side->Ledge,
         // &Normal)` then an in-place normize, the same pair items 3369 and
         // 3371 run. Note the ledge comes from the SIDE record, so on the first
         // two iterations it is A's ledge even though the direction is B's --
         // that asymmetry is the whole point of the test.
         IVP_Compact_Ledge_Solver::calc_hesse_vec_object_not_normized(
             FanEdge[FanIndex], static_cast<const IVP_Compact_Ledge *>(FanSide[FanIndex]->Ledge),
-            &EdgeFace.Normal); // FUN_0635b940
+            &EdgeFace.Normal);
         EdgeFace.Normal.normize();
 
-        // :0635e719-:0635e738. `FLD DAT_0658ab34; FMUL [Core+0x48]; FCHS`,
+        // :0635e719-:0635e738. `FLD the field; FMUL [Core+0x48]; FCHS`,
         // where Core is the FIRST cache's own +0x04. The FCHS applies to the
         // product, and the product is the whole threshold -- unlike item
         // 3369's structurally similar expression, nothing further is
@@ -1930,39 +1926,39 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeEdgeVsLedgeEdgeContact(
 }
 
 // ============================================================================
-// FUN_0635f180 -- IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeEdgeContact
-// Common.dll.txt:451361-451925. Bytes 0x0635f180 through the `RET 0x10` at
-// 0x0635f8bb inclusive -- ALL 494 instructions read first to last for this
+// IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeEdgeContact
+// Common. Bytes 0x0635f180 through the `RET 0x10` at
+// inclusive -- ALL 494 instructions read first to last for this
 // pass. The frame is `SUB ESP,0xc28` plus four pushes, so the settled frame
-// pointer is ESP_entry-0xc38 and that is the 0xc38 in Ghidra's spellings;
+// pointer is ESP_entry-0xc38 and that is the 0xc38 in analysis's spellings;
 // every `[ESP + local_XXX + 0xc3c/0xc40/0xc4c/0xc54]` variant is a spelling
 // taken at a DIFFERENT push depth and was resolved back to frame+(0xc38-XXX)
 // individually. Getting that wrong is how the evaluator fields stop lining up.
-//
-// Decomp-tracker item 3378, the largest driver in the family. Its one XREF is
-// :06360045, dispatcher LAB_0635fef0.
-//
+
+// implementation tracker item 3378, the largest driver in the family. Its one XREF is
+// :06360045, dispatcher the branch.
+
 // WHAT IT IS: one VERTEX of side A against one EDGE of side B, in three
 // passes that reuse a single evaluator slot:
-//
-//   Pass 1 (:0635f1e6-:0635f43a), evaluator PTR_LAB_0635d950 / item 3367 --
+
+//   Pass 1 (:0635f1e6-:0635f43a), evaluator the branch / item 3367 --
 //     the clamped moment test. Event code 0x30.
-//   Pass 2 (:0635f441-:0635f64a), evaluator PTR_LAB_0635d5b0 / item 3362,
+//   Pass 2 (:0635f441-:0635f64a), evaluator the branch / item 3362,
 //     run TWICE, over B's edge and its opposite: the vertex against the plane
 //     that stands on that edge, perpendicular to its own face. Code 0x31.
-//   Pass 3 (:0635f650-:0635f8ac), evaluator PTR_LAB_0635d830 / item 3366,
+//   Pass 3 (:0635f650-:0635f8ac), evaluator the branch / item 3366,
 //     run once per edge of the fan around vertex A: edge-vs-edge separation
 //     between each fan edge and B's edge. Code 0x32.
-//
+
 // The three passes are strictly ordered and each one's interval end is
 // narrowed by whatever the previous one wrote -- see the aliasing note below.
-//
+
 // FIVE THINGS A TRANSCRIPTION GETS WRONG IF IT GUESSES:
-//
-//   1. FUN_0634d8d0 AND FUN_0634d9d0 DO NOT TAKE A MATRIX. This lane's brief
+
+//   1. the routine AND the routine DO NOT TAKE A MATRIX. This lane's brief
 //      warned that the w16-ivp census calls them vmult4 and vmult and had not
 //      been re-derived. Both bodies were read in full this pass
-//      (Common.dll.txt:422762-422810 for 0x0634d8d0-0x0634d964, and
+//      (Common for 0x0634d8d0-0x0634d964, and
 //      422890-422917 for 0x0634d9d0-0x0634da27) and the census is RIGHT ABOUT
 //      THE OPERATION -- 0634d8d0 is rows-dot-point PLUS the translation
 //      (`FADD [ECX+0x4c/0x50/0x54]` at :0634d950/:0634d939/:0634d945, no
@@ -1971,61 +1967,61 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeEdgeVsLedgeEdgeContact(
 //      omission is load-bearing: every matrix element is read at ECX+0x1c and
 //      up (+0x1c/+0x20/+0x24, +0x2c/+0x30/+0x34, +0x3c/+0x40/+0x44,
 //      +0x4c/+0x50/+0x54), i.e. the matrix sits at `this + 0x1c`, NOT at
-//      `this`. Passing the matrix where retail passes the enclosing object
+//      `this`. Passing the matrix where baseline passes the enclosing object
 //      would read 0x1c bytes too early. At every call site here ECX is
 //      `Side->Source` (:0635f32a, :0635f343, :0635f34b, :0635f3c8), and
 //      FIVP_Sweep_Cache_Source::Frame is at +0x1c, so the port spells them
 //      `Source->Frame.vmult4/vmult`.
 //      A third member of the same family sits between them and IS used here:
-//      FUN_0634d970 (:0634d970-:0634d9c7, also read in full) computes the
+// (:0634d970-:0634d9c7, also read in full) computes the
 //      TRANSPOSED rotation -- out.x = M00*px + M10*py + M20*pz -- i.e.
 //      vimult, again on the matrix at this+0x1c.
 //      Incidental: that all three take the object and not the matrix is real
 //      evidence for the IVP_Cache_Object reading of FIVP_Sweep_Cache_Source
 //      that this file's header deliberately declined to assert. Still not
 //      asserted here; recorded as evidence, not as a rename.
-//
-//   2. DAT_063a56f8 IS NEGATIVE. Raw bytes 9a 99 99 be == 0xBE99999A ==
-//      -0.3f. Ghidra's listing comment says "= 9Ah", one byte. It is one bit
-//      away from DAT_063a5668 (9a 99 99 3f == +1.2f), which this same file
+
+//   2. the field IS NEGATIVE. Raw bytes 9a 99 99 be == 0xBE99999A ==
+//      -0.3f. analysis's listing comment says "= 9Ah", one byte. It is one bit
+//      away from the field (9a 99 99 3f == +1.2f), which this same file
 //      already uses elsewhere, so a reader who pattern-matches the first three
 //      bytes gets the sign AND the magnitude wrong and pass 3's threshold
 //      comes out +1.2x instead of -0.3x.
-//
+
 //   3. PASS 1 PASSES Next*, NOT OutEvent*. :0635f406 and :0635f3f1 read
 //      [ESI+0x20]/[ESI+0x24]. Passes 2 and 3 read [EBP]/[EBP+4] with EBP ==
 //      ESI+0x2c (:0635f5e5/:0635f600 and :0635f856/:0635f848), i.e. OutEvent*.
 //      The two are equal when pass 1 runs, because :0635f207/:0635f21f seed
 //      OutEvent from Next -- so this is not a behavioural difference today,
-//      but it is what retail wrote and it is transcribed as written rather
+//      but it is what baseline wrote and it is transcribed as written rather
 //      than normalized to one form.
-//
+
 //   4. THE TWO CORES ARE MEASURED DIFFERENTLY (:0635f686-:0635f6f5). Side A's
 //      term uses the LIVE length of its own feature vertex (`MOV ECX,EBX;
-//      CALL FUN_06347e60`, with EBX still pointing at that vertex), while side
+//      CALL the routine`, with EBX still pointing at that vertex), while side
 //      B's uses the cached IVP_Core::BoundingRadius at +0x14c. Symmetrizing
 //      that -- using BoundingRadius for both -- would loosen A's bound to the
 //      whole object and change which contact the search finds first.
-//
+
 //   5. +0x0c OF THE CONTEXT IS LIVE HERE. Items 3369, 3371 and 3374 never read
 //      it; this one uses it as pass 2's whole relative-speed bound
 //      (:0635f441) and again as a speed multiplier in pass 3's span
 //      (:0635f666). The header's name MarginSpan is kept, but note it is used
 //      with units of speed in both places.
-//
+
 // .rdata CONSTANTS, read as RAW BYTES:
-//   DAT_063a53d0 = 00 00 80 3f -> 1.0f
-//   DAT_063a53fc = 66 66 66 3f -> 0.9f    (Ghidra prints "= 66h  f")
-//   DAT_063a545c = a6 9b 44 3b -> 0.003f  (Ghidra prints "= A6h")
-//   DAT_063a5460 = 00 00 00 3f -> 0.5f
-//   DAT_063a56f8 = 9a 99 99 be -> -0.3f   (see point 2 above)
+// = 00 00 80 3f -> 1.0f
+// = 66 66 66 3f -> 0.9f    (analysis prints "= 66h  f")
+// = a6 9b 44 3b -> 0.003f  (analysis prints "= A6h")
+// = 00 00 00 3f -> 0.5f
+// = 9a 99 99 be -> -0.3f   (see point 2 above)
 // ============================================================================
 void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeEdgeContact(
     const void *FeatureEdgeA, const void *FeatureEdgeB,
     FIVP_Sweep_Ledge_Side *SideA, FIVP_Sweep_Ledge_Side *SideB)
 {
     // :0635f188-:0635f1e1. Same pair of caches as every other driver; the two
-    // `FUN_06273bc0(ptr, 0x40, 0x15, Csys::Csys)` vector-constructor-iterator
+    // `the routine(ptr, 0x40, 0x15, Csys::Csys)` vector-constructor-iterator
     // calls are the documented runtime no-op.
     IVP_Sweep_Frame_Cache CacheA;
     CacheA.Init(SideA->Source);
@@ -2046,7 +2042,7 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeEdgeContact(
     this->OutEventOffset = this->NextOffset;
 
     // :0635f222-:0635f296. A's feature vertex, B's feature vertex, and the far
-    // end of B's edge. Retail saves `&NextLut[EdgeB & 0xc]` into the frame at
+    // end of B's edge. baseline saves `&NextLut[EdgeB & 0xc]` into the frame at
     // :0635f265 and reuses it in pass 3 at :0635f6e0 -- the same next-edge
     // step, spelled once.
     const IVP_Compact_Edge *const EdgeA = static_cast<const IVP_Compact_Edge *>(FeatureEdgeA);
@@ -2062,7 +2058,7 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeEdgeContact(
         PointsB + EdgeB->GetNextEdge()->GetStartPointIndex();
 
     // ---- Pass 1: the clamped moment test -------------------------------------
-    // :0635f26b installs PTR_LAB_0635d950.
+    // :0635f26b installs the branch.
     IVP_Sweep_VertexEdgeMoment_Evaluator Moment;
 
     // :0635f278-:0635f2a9.
@@ -2086,7 +2082,7 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeEdgeContact(
     const uint32_t RampIndex = (LedgeMindist->StateFlags >> 22) & 0xff;
     const float Ramp = SweepToleranceRamp(RampIndex);
 
-    // :0635f31f-:0635f32d. DAT_063a5460 is raw 00 00 00 3f == 0.5f. This lands
+    // :0635f31f-:0635f32d. the field is raw 00 00 00 3f == 0.5f. This lands
     // in the evaluator's +0x14 SCALAR slot, which is the whole reason item
     // 3367's points start at +0x18.
     Moment.Bias = (Ramp + CombinedRadius) * 0.5f;
@@ -2094,7 +2090,7 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeEdgeContact(
     // :0635f317-:0635f3b6. Both feature vertices into world space (vmult4,
     // translation included), B's edge direction into world space rotation-only
     // (vmult), then the moment of the separation about that edge.
-    // Argument order for FUN_0628bed0 taken from which PUSH lands at [ESP+0]:
+    // Argument order for the routine taken from which PUSH lands at [ESP+0]:
     // &Separation is pushed second (:0635f38b) so it is param_1.
     IVP_U_Point WorldVertexA;
     SideA->Source->Frame.vmult4(&Moment.PointA, &WorldVertexA);
@@ -2105,26 +2101,26 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeEdgeContact(
     IVP_U_Point WorldDirectionB;
     SideB->Source->Frame.vmult(&Moment.DirectionB, &WorldDirectionB);
 
-    // :0635f360-:0635f3af, component by component in retail's x/y/z order.
+    // :0635f360-:0635f3af, component by component in baseline's x/y/z order.
     IVP_U_Point Separation;
     Separation.set(WorldVertexB.k[0] - WorldVertexA.k[0],
                    WorldVertexB.k[1] - WorldVertexA.k[1],
                    WorldVertexB.k[2] - WorldVertexA.k[2]);
 
-    // :0635f3b6 FUN_0628bed0 (out = local_b60): x87 products, one float
+    // :0635f3b6 the routine (out = local_b60): x87 products, one float
     // rounding per component -- IVP_CalcCrossProduct.
     IVP_U_Point WorldMoment;
     IVP_CalcCrossProduct(&WorldMoment, &Separation, &WorldDirectionB);
 
     // :0635f3c8-:0635f3d4. Back into B's local frame through the TRANSPOSED
-    // rotation (FUN_0634d970 == vimult on Source->Frame), then normalized in
-    // place with retail ignoring the bool return.
+    // rotation (the routine == vimult on Source->Frame), then normalized in
+    // place with baseline ignoring the bool return.
     SideB->Source->Frame.vimult(&WorldMoment, &Moment.MeasureB);
     Moment.MeasureB.normize();
 
     // :0635f3d9-:0635f431. Ten pushes; from [ESP+0] outward they are
     // Threshold, InnerThreshold, NowBase, NowOffset, NextBase, NextOffset,
-    // &CacheA, &CacheB, null, &OutEvent. DAT_063a53fc is raw 66 66 66 3f ==
+    // &CacheA, &CacheB, null, &OutEvent. the field is raw 66 66 66 3f ==
     // 0.9f -- NOT the 0.5f that items 3369/3371 multiply their radius by, so
     // this is a different inner threshold, not the family's shared one.
     // Note Next*, not OutEvent* -- see point 3 of the header comment.
@@ -2141,7 +2137,7 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeEdgeContact(
     }
 
     // ---- Pass 2: the vertex against B's two edge-side planes -----------------
-    // :0635f471 rebinds the slot to PTR_LAB_0635d5b0 -- the same concrete
+    // :0635f471 rebinds the slot to the branch -- the same concrete
     // class item 3371 uses, so the existing evaluator type is reused.
     IVP_Sweep_PointPlane_Evaluator EdgePlane;
 
@@ -2173,7 +2169,7 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeEdgeContact(
         IVP_U_Point EdgeVector;
         EdgeVector.set(Next->X - Cur->X, Next->Y - Cur->Y, Next->Z - Cur->Z);
 
-        // :0635f52c-:0635f5b4. FUN_0635b940 INLINED: retail recomputes
+        // :0635f52c-:0635f5b4. the routine INLINED: baseline recomputes
         // `Next - Cur` a second time on the x87 stack (:0635f561-:0635f574)
         // rather than reusing EdgeVector, and those recomputed differences are
         // UNROUNDED (never stored), unlike EdgeVector's FSTP'd components.
@@ -2194,7 +2190,7 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeEdgeContact(
                        (float)(EdgeXExt * PrevY - EdgeYExt * PrevX));
 
         // :0635f5bb/:0635f5c4. &EdgeVector is pushed second (:0635f57b) so it
-        // is param_1 of the cross (FUN_0628bed0, x87-exact). The result is the
+        // is param_1 of the cross (the routine, x87-exact). The result is the
         // in-plane outward normal of this edge: perpendicular to both the edge
         // and the face normal.
         IVP_CalcCrossProduct(&EdgePlane.Normal, &EdgeVector, &FaceNormal);
@@ -2221,11 +2217,11 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeEdgeContact(
     }
 
     // ---- Pass 3: the fan of edges at vertex A against B's edge ----------------
-    // :0635f6ea rebinds the slot to PTR_LAB_0635d830.
+    // :0635f6ea rebinds the slot to the branch.
     IVP_Sweep_EdgeFanEdge_Evaluator FanEdge;
 
     // :0635f650-:0635f67e. How much separation is still unspent at the current
-    // end of the interval. DAT_063a545c is raw a6 9b 44 3b == 0.003f, and the
+    // end of the interval. the field is raw a6 9b 44 3b == 0.003f, and the
     // clamp's polarity is the mask and the jump together: `FCOMP 0.003f;
     // TEST AH,0x1` (C0 alone) `+ JZ` jumps PAST the clamp when C0 is CLEAR,
     // i.e. when the value is >= 0.003f. The fall-through is strictly less and
@@ -2246,7 +2242,7 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeEdgeContact(
     }
 
     // :0635f686-:0635f6f5. The asymmetric speed bound -- see point 4 of the
-    // header comment. Retail adds B's term to A's (`FADD ST0,ST1` with A's
+    // header comment. baseline adds B's term to A's (`FADD ST0,ST1` with A's
     // term in ST1), divides by the (float) span, then adds the plain
     // core-deviation sum from the prologue. TermA and TermB are never stored;
     // one FSTP dword at :0635f714.
@@ -2283,7 +2279,7 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeEdgeContact(
 
     // :0635f7b4-:0635f7f3. `FADD ST0,ST0` doubles the angular limit factor
     // before the two multiplies, all on the x87 stack; one FSTP dword into
-    // local_c18. DAT_063a56f8 is raw 9a 99 99 be == -0.3f, so the threshold is
+    // local_c18. the field is raw 9a 99 99 be == -0.3f, so the threshold is
     // NEGATIVE -- see point 2 of the header comment.
     const float FanThreshold = (float)(
         (((double)(CoreB->DAngularLimitFactor) + CoreB->DAngularLimitFactor)
@@ -2334,19 +2330,19 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeEdgeContact(
 }
 
 // ============================================================================
-// FUN_0635f020 -- IVP_Sweep_Estimator_Context::EstimateBallVsBallContact
-// Common.dll.txt:451231-451353. Bytes 0x0635f020 through the `RET 0x8` at
-// 0x0635f177 inclusive -- all 96 instructions read first to last.
-//
-// Decomp-tracker item 3377, the smallest member of the family and its base
+// IVP_Sweep_Estimator_Context::EstimateBallVsBallContact
+// Common. Bytes 0x0635f020 through the `RET 0x8` at
+// inclusive -- all 96 instructions read first to last.
+
+// implementation tracker item 3377, the smallest member of the family and its base
 // case: no feature geometry at all, just the two objects' frame origins.
-//
+
 // THREE CLAIMS IN THIS ITEM'S OWN PRE-EXISTING TRACKER NOTE ARE STALE, and
 // they are why it sat at `simplified` with a blocker since 2026-09-10:
-//   * "FUN_0635de90 (item 3370, still `blocked`, unresolved 21-slot candidate-
+//   * "the routine (item 3370, still `blocked`, unresolved 21-slot candidate-
 //     list struct)". Ported since, as IVP_Sweep_Frame_Cache::Init above; the
 //     struct is IVP_Sweep_Frame_Cache and its layout is proved.
-//   * "FUN_06369720 (item 3598, `partial`/unported) -- the single entry point
+//   * "the routine (item 3598, `partial`/unported) -- the single entry point
 //     this function calls into the deliberately-declined-to-port Simplex/LCP
 //     solver class". Ported since, as
 //     IVP_Ledge_Sweep_Evaluator::SearchContactTimeFromContact above, and the
@@ -2359,7 +2355,7 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeEdgeContact(
 // The note's actual READING of the code was sound; only its dependencies were
 // out of date. Nothing about this function needed new research, just a re-check
 // of what it claimed to be waiting on.
-//
+
 // WHAT IT IS: a conservative-advancement contact time between two objects
 // treated as points at their own frame origins. Evaluate_0635d720 pushes the
 // two zeroed local points through vmult4, so the tested positions are exactly
@@ -2368,10 +2364,10 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeEdgeContact(
 // stand at the start of the interval. The evaluator's clamp
 // (`min(Projected, |Delta|)`, written branchlessly via `fabsf(s)*s`) is what
 // keeps the answer honest once the objects rotate away from that direction.
-//
+
 // The scalar block here IS the family's shared one -- Threshold = Ramp +
 // CombinedRadius, InnerThreshold = CombinedRadius * 0.5f + ToleranceBase
-// (DAT_063a5460, raw 00 00 00 3f == 0.5f) -- but the known distance is still a
+// (the field, raw 00 00 00 3f == 0.5f) -- but the known distance is still a
 // literal null (`PUSH 0x0`, :0635f106), as in items 3374 and 3378. Only items
 // 3369 and 3371 pass a real one.
 // ============================================================================
@@ -2380,7 +2376,7 @@ void IVP_Sweep_Estimator_Context::EstimateBallVsBallContact(
 {
     // :0635f02c-:0635f07e. Two caches, two inline 21-iteration Csys::Csys
     // loops (:0635f038 and :0635f065). This driver spells the
-    // vector-constructor-iterator inline where item 3378 calls FUN_06273bc0
+    // vector-constructor-iterator inline where item 3378 calls the routine
     // for it, but Csys::Csys is `MOV EAX,ECX; RET` either way, so both
     // spellings are the same runtime no-op and neither is reproduced.
     IVP_Sweep_Frame_Cache CacheA;
@@ -2396,7 +2392,7 @@ void IVP_Sweep_Estimator_Context::EstimateBallVsBallContact(
     this->OutEventBase = this->NextBase;
     this->OutEventOffset = this->NextOffset;
 
-    // :0635f09c installs PTR_LAB_0635d720.
+    // :0635f09c installs the branch.
     IVP_Sweep_CenterDistance_Evaluator CenterDistance;
 
     // :0635f0ab-:0635f0e0. Six explicit stores of the integer 0 -- the three
@@ -2408,7 +2404,7 @@ void IVP_Sweep_Estimator_Context::EstimateBallVsBallContact(
     // :0635f08f-:0635f0ec. `[Source+0x4c]` is Source->Frame.vv -- Frame at
     // +0x1c plus IVP_U_Matrix::vv at +0x30 -- i.e. each object's world-space
     // origin as the caller prepared it. The difference runs B minus A, and
-    // retail normalizes it in place and ignores normize's bool return, so a
+    // baseline normalizes it in place and ignores normize's bool return, so a
     // pair of exactly-coincident origins leaves this unnormalized rather than
     // zeroed.
     CenterDistance.Axis.set(SourceB->Frame.vv.k[0] - SourceA->Frame.vv.k[0],
@@ -2446,43 +2442,43 @@ void IVP_Sweep_Estimator_Context::EstimateBallVsBallContact(
 }
 
 // ============================================================================
-// FUN_0635e790 -- IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeVertexContact
-// Common.dll.txt:450564-450914. Bytes 0x0635e790 through the `RET 0x10` at
-// 0x0635ec80 inclusive -- ALL 340 instructions read first to last for this
+// IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeVertexContact
+// Common. Bytes 0x0635e790 through the `RET 0x10` at
+// inclusive -- ALL 340 instructions read first to last for this
 // pass, x87 stack simulated across every one of the five CALL sequences, and
 // every PUSH-induced re-basing of ESP resolved back to frame+N. The frame is
-// `SUB ESP,0xbec` plus four pushes, so Ghidra's constant is 0xbfc and
+// `SUB ESP,0xbec` plus four pushes, so analysis's constant is 0xbfc and
 // local_XXX lives at frame+(0xbfc-XXX).
-//
-// Decomp-tracker item 3375. Its single XREF is :06360060, dispatcher
-// LAB_0635fef0's (ShapeTypeA, ShapeTypeB) == (0, 0) arm -- BOTH sides a ledge
+
+// implementation tracker item 3375. Its single XREF is :06360060, dispatcher
+// 's (ShapeTypeA, ShapeTypeB) == (0, 0) arm -- BOTH sides a ledge
 // vertex, which is what gives this function its name. That is not inferred
 // from the body: the dispatcher's two nested switches are read in full below
 // (see IVP_SweepEstimate_LedgeVsLedge) and tag 0 is the arm that also sends
 // (0,1) to item 3378 (EstimateLedgeVertexVsLedgeEdge) and (0,2) to item 3369
 // (EstimateLedgeVertexVsLedgeFace), so tag 0 on side A is a vertex in three
 // independent places.
-//
+
 // FRAME TILING, the structural cross-check: evaluator at frame+0x24 (0x44
 // bytes, to 0x68), seventeen scalar dwords frame+0x68..0xac, CacheA at
 // frame+0xac (0x5a8, to 0x654), CacheB at frame+0x654 (0x5a8, to 0xbfc). End
 // to end, no gap, no overlap.
-//
+
 // WHAT IT IS: two passes, the second one run twice with the sides exchanged.
-//
+
 //   Pass 1 (:0635e88e-:0635e95e) is the vertex-to-vertex distance measured
 //   along the mindist's own separating normal, NEGATED. Evaluator
-//   PTR_LAB_0635d720 -- the same concrete class item 3377 uses for two ball
+// the same concrete class item 3377 uses for two ball
 //   origins -- with the two real ledge vertices in place of the two zeroes and
 //   -SeparatingNormal in place of the centre-to-centre direction. Event code
 //   0x10.
-//
+
 //   Pass 2 (:0635eaae-:0635ec70) walks the fan of edges around ONE side's
 //   feature vertex and asks, for each fan edge, when that edge's direction
 //   stops separating it from the OTHER side's vertex. Evaluator
-//   PTR_LAB_0635d7b0. Event code 0x11. The outer loop runs exactly twice, once
-//   per side, through retail's negative-index/positive-index alias pair.
-//
+// . Event code 0x11. The outer loop runs exactly twice, once
+//   per side, through baseline's negative-index/positive-index alias pair.
+
 // THE TWO-SIDED ALIAS TRICK, decoded rather than guessed. :0635ea6f/:0635ea7f
 // zero two loop variables; :0635ec5f/:0635ec62 step one by -4 and the other by
 // +4; :0635ec65 `CMP EAX,-0x8` + `JG` keeps going while the negative one is
@@ -2497,22 +2493,22 @@ void IVP_Sweep_Estimator_Context::EstimateBallVsBallContact(
 // so iteration 0 takes the B side as "self" and iteration 1 takes the A side.
 // Written out as a plain two-pass loop here; the arithmetic is recorded
 // because it is the only thing that proves which side is which.
-//
+
 // THE OUT-TIME IS AGAIN THE INTERVAL END for pass 2 (:0635ebe0/:0635ec04 read
 // OutEvent* and :0635ebdc pushes &OutEvent as the destination), so each fan
 // edge that scores narrows the window for the rest. Pass 1 is the exception
-// and it is retail's, transcribed literally: :0635e932/:0635e91a read
+// and it is baseline's, transcribed literally: :0635e932/:0635e91a read
 // this->Next* directly rather than this->OutEvent*. At that point the two are
 // equal because :0635e822-:0635e83c has just copied one into the other, so the
-// difference is unobservable -- but it is written the way retail writes it.
-//
-// .rdata CONSTANTS, read as RAW BYTES (Ghidra prints a single misleading byte
+// difference is unobservable -- but it is written the way baseline writes it.
+
+// .rdata CONSTANTS, read as RAW BYTES (analysis prints a single misleading byte
 // for two of these):
-//   DAT_063a5460 = 00 00 00 3f  ->  0.5f
-//   DAT_063a5498 = 00 00 80 bf  -> -1.0f
-//   DAT_063a53d0 = 00 00 80 3f  ->  1.0f
-//   DAT_063a56f0 = 00 00 00 bf  -> -0.5f   (NEW this pass; it sits one dword
-//                                  below PTR_LAB_0635d720 at 063a56f4 and two
+// = 00 00 00 3f  ->  0.5f
+// = 00 00 80 bf  -> -1.0f
+// = 00 00 80 3f  ->  1.0f
+// = 00 00 00 bf  -> -0.5f   (NEW this pass; it sits one dword
+//                                  below the branch at 063a56f4 and two
 //                                  below the 9a 99 99 be == -0.3f at 063a56f8,
 //                                  so reading it a byte at a time is exactly
 //                                  how a wrong constant gets into this file)
@@ -2525,7 +2521,7 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeVertexContact(
     // their side's Source. The two 21-iteration Csys::Csys loops in between are
     // spelled INLINE here (`LEA EDI,...; MOV ECX,EDI; CALL Csys::Csys;
     // ADD EDI,0x40; DEC EBX; JNZ`) where items 3376/3378/3379 call
-    // FUN_06273bc0 for the same thing; Csys::Csys is `MOV EAX,ECX; RET` in
+    // for the same thing; Csys::Csys is `MOV EAX,ECX; RET` in
     // full, so both spellings are the same runtime no-op.
     IVP_Sweep_Frame_Cache CacheA;
     CacheA.Init(SideA->Source);
@@ -2557,22 +2553,22 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeVertexContact(
         static_cast<const IVP_Ledge_Mindist *>(this->Mindist);
 
     // ---- Pass 1: the two vertices along the separating normal ---------------
-    // :0635e88e installs PTR_LAB_0635d720, i.e. the SAME concrete evaluator
+    // :0635e88e installs the branch, i.e. the SAME concrete evaluator
     // class item 3377 builds. Reusing the class is not a convenience: it is the
-    // same retail vtable, so it is the same retail type.
+    // same baseline vtable, so it is the same baseline type.
     IVP_Sweep_CenterDistance_Evaluator VertexVertex;
 
-    // :0635e864-:0635e8a7. Retail interleaves the two vertex loads, carrying
+    // :0635e864-:0635e8a7. baseline interleaves the two vertex loads, carrying
     // each one's z through a general register while x and y ride the x87 stack.
     VertexVertex.PointA.set(VertexA->X, VertexA->Y, VertexA->Z);
     VertexVertex.PointB.set(VertexB->X, VertexB->Y, VertexB->Z);
 
     // :0635e8ab-:0635e8eb. Each component of Mindist->SeparatingNormal
-    // (+0x60/+0x64/+0x68) multiplied by DAT_063a5498 == -1.0f. Retail does the
+    // (+0x60/+0x64/+0x68) multiplied by the field == -1.0f. baseline does the
     // three FMULs in the order y, z, x and stores x, y, z; the negation is the
     // whole of it -- there is no normalize here, because SeparatingNormal is
     // already a unit vector by the time the mindist hands it over.
-    //
+
     // Evaluate_0635d720 reads this field RAW and untransformed, so the sign
     // matters and is not absorbed anywhere downstream: it decides which way
     // "closing" points for the projection test.
@@ -2610,7 +2606,7 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeVertexContact(
 
     // ---- The two pass-2 speed bounds ---------------------------------------
     // :0635e961-:0635e977. MarginSpan (+0x0c) is exercised here; items 3369,
-    // 3371, 3374 and 3377 never touch it, and item 3378 does. Retail's own
+    // 3371, 3374 and 3377 never touch it, and item 3378 does. baseline's own
     // association order is kept, including that the subtraction of NowOffset
     // happens AFTER the addition of OutEventOffset rather than being folded
     // into a single (End - Now) term.
@@ -2621,7 +2617,7 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeVertexContact(
          * this->MarginSpan)
         + LedgeMindist->SeparationGap);
 
-    // :0635e97b-:0635e99f. FUN_06347e60 is thiscall with the point as `this`;
+    // :0635e97b-:0635e99f. the routine is thiscall with the point as `this`;
     // both calls are on the raw feature vertices, i.e. the distance of each
     // vertex from its own object's frame origin. Its result comes back
     // unrounded. TermA is FSTP dword'd into local_bec (:0635e992); TermB is
@@ -2637,7 +2633,7 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeVertexContact(
     // the B-side pass uses, and vice versa -- proved by the index arithmetic,
     // not by which looks more natural: the loop reads frame+0x9c at j == 0 (the
     // CoreB-weighted value) on the iteration whose "self" side is B.
-    //
+
     // Each is ((Span * MSD) + TermB) + TermA on the x87 stack, one FSTP dword
     // (:0635e9cb into local_b60, :0635e9f2 into local_b5c).
     const float SpeedForSideB = (float)(
@@ -2655,7 +2651,7 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeVertexContact(
                                    : CoreA->UpperLimitRadius;
 
     // :0635ea12-:0635ea2a. The ramp index is recomputed from StateFlags rather
-    // than reusing the one pass 1 already has. Transcribed as retail spells it.
+    // than reusing the one pass 1 already has. Transcribed as baseline spells it.
     // `FLD ST0; FMULP` -- the square stays on the x87 stack, never stored.
     const float RampAgain = SweepToleranceRamp((LedgeMindist->StateFlags >> 22) & 0xff);
     const double RampSquared = (double)(RampAgain) * RampAgain;
@@ -2671,12 +2667,12 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeVertexContact(
     const double BoundedSquare = (SpanSquaredExt >= RampSquared) ? RampSquared
                                                                  : (double)(SpanSquared);
 
-    // :0635ea47-:0635ea9b. DAT_063a56f0 is -0.5f (raw 00 00 00 bf), and
+    // :0635ea47-:0635ea9b. the field is -0.5f (raw 00 00 00 bf), and
     // `FDIV ST0,ST1` divides by the larger radius. The result is NEGATIVE, and
     // deliberately so -- SearchContactTime marches while distance > Threshold,
     // so a negative threshold means "keep marching until the fan edge actually
     // crosses".
-    //
+
     // WORTH SEEING: -0.5f / LargerRadius is exactly IVP_Core::
     // DAngularLimitFactor (+0x48, documented in ivp_core.h as
     // 0.5f / UpperLimitRadius) of whichever core has the LARGER radius, with
@@ -2701,7 +2697,7 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeVertexContact(
         IVP_Sweep_Frame_Cache *const CacheOther = (SideIndex == 0) ? &CacheA : &CacheB;
         const float SpeedBound = (SideIndex == 0) ? SpeedForSideB : SpeedForSideA;
 
-        // :0635eac4 rebinds the evaluator slot to PTR_LAB_0635d7b0 on the very
+        // :0635eac4 rebinds the evaluator slot to the branch on the very
         // same stack bytes pass 1 used. C++ cannot rebind a vptr, so this is a
         // separate local; the check that it is safe is that every field the new
         // evaluator reads is written below before its first use.
@@ -2721,7 +2717,7 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeVertexContact(
 
         for (;;)
         {
-            // LAB_0635eb58, :0635eb58-:0635eb98. The far end of this fan edge
+            // , :0635eb58-:0635eb98. The far end of this fan edge
             // is the NEXT edge's start vertex, indexed out of the SELF side's
             // already-resolved point array.
             const IVP_U_Float_Point *const FarPoint =
@@ -2737,7 +2733,7 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeVertexContact(
             const float DeltaY = (float)(DeltaYExt);
             const float DeltaZ = (float)(DeltaZExt);
 
-            // :0635eb9c-:0635ebb0, in retail's own association order: the x and
+            // :0635eb9c-:0635ebb0, in baseline's own association order: the x and
             // z terms are summed first and the y term is added to that. Not the
             // usual (x+y)+z, and float addition is not associative, so the
             // order is kept. x is the ROUNDED delta (FLD/FMUL local_ba4), z and
@@ -2746,12 +2742,12 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeVertexContact(
                 ((double)(DeltaX) * DeltaX + DeltaZExt * DeltaZExt)
                 + DeltaYExt * DeltaYExt);
 
-            // :0635ebbd CALL FUN_06347df0 -- FLD/FSQRT/FDIVR DAT_063a53d0 with
-            // DAT_063a53d0 == 1.0f, a plain reciprocal square root, returned
+            // :0635ebbd CALL the routine -- FLD/FSQRT/FDIVR the field with
+            // == 1.0f, a plain reciprocal square root, returned
             // unrounded.
             const double InverseLength = IVP_InvSqrtFloat(QuadLength);
 
-            // :0635ebc2-:0635ec07. Retail overwrites the three raw components
+            // :0635ebc2-:0635ec07. baseline overwrites the three raw components
             // in place with the normalized ones: each ROUNDED delta (local_ba0,
             // local_b9c, local_ba4) times the unrounded InverseLength, FSTP
             // dword.
@@ -2759,7 +2755,7 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeVertexContact(
                                   (float)(DeltaY * InverseLength),
                                   (float)(DeltaZ * InverseLength));
 
-            // :0635ec0c-:0635ec15. `InverseLength * QuadLength` is retail's own
+            // :0635ec0c-:0635ec15. `InverseLength * QuadLength` is baseline's own
             // way of spelling sqrtf(QuadLength) -- it already has the
             // reciprocal on the FPU stack, so it multiplies rather than taking
             // a second square root. Kept literally: the two are not bit-equal.
@@ -2801,23 +2797,23 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeVertexContact(
 }
 
 // ============================================================================
-// FUN_0635ec90 -- IVP_Sweep_Estimator_Context::EstimateBallVsLedgeVertexContact
-// Common.dll.txt:450963-451226. Bytes 0x0635ec90 through the `RET 0x10` at
-// 0x0635f01a inclusive -- ALL 259 instructions read first to last, frame
-// `SUB ESP,0xba4` plus four pushes so Ghidra's constant is 0xbb4 and local_XXX
+// IVP_Sweep_Estimator_Context::EstimateBallVsLedgeVertexContact
+// Common. Bytes 0x0635ec90 through the `RET 0x10` at
+// inclusive -- ALL 259 instructions read first to last, frame
+// `SUB ESP,0xba4` plus four pushes so analysis's constant is 0xbb4 and local_XXX
 // lives at frame+(0xbb4-XXX).
-//
-// Decomp-tracker item 3376. Its single XREF is :0635fe07, dispatcher
-// LAB_0635fd10's ShapeTypeB == 0 arm.
-//
+
+// implementation tracker item 3376. Its single XREF is :0635fe07, dispatcher
+// 's ShapeTypeB == 0 arm.
+
 // WHAT IT IS, and how the name is earned. This is item 3375 with side A
 // collapsed to a point. Every structural element matches one for one:
-//   * pass 1 is the same PTR_LAB_0635d720 evaluator with the same
+//   * pass 1 is the same the branch evaluator with the same
 //     -SeparatingNormal axis and the same (Ramp + CombinedRadius,
 //     CombinedRadius*0.5 + ToleranceBase) pair, event code 0x10 -- except that
 //     its +0x14 is three literal zeroes (:0635ed50-:0635ed60) instead of a
 //     ledge vertex, i.e. object A's own frame origin;
-//   * pass 2 is the same PTR_LAB_0635d7b0 fan walk with the same
+//   * pass 2 is the same the branch fan walk with the same
 //     `Cursor = Cursor->GetPrevEdge()->GetOppositeEdge()` rotation and the same
 //     event code 0x11 -- except that it runs ONCE, on the B side only, because
 //     a point has no fan;
@@ -2828,7 +2824,7 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeVertexContact(
 //     for a point at its own origin, so the two agree exactly. That agreement,
 //     derived independently from the two listings, is the main cross-check on
 //     both readings.
-//
+
 // ARGUMENTS. Four, `RET 0x10`, but not item 3375's four:
 //   param_1  IVP_Real_Object* -- read ONCE, at :0635ecf0-:0635ecf7, only to
 //            reach ->core. Side A has no ledge, no points and no side record,
@@ -2838,10 +2834,10 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeVertexContact(
 //            parameter slot, not something read through it) -- exactly as item
 //            3377 takes its two.
 //   param_4  the FIVP_Sweep_Ledge_Side for side B.
-// Proved at the call site, not by resemblance: LAB_0635fdf7 pushes
+// Proved at the call site, not by resemblance: the branch pushes
 // &SideB, SourceA, FeatureB, ObjectA in that order (:0635fdff-:0635fe06), so
 // ObjectA is argument one.
-//
+
 // THE THRESHOLD SCALE IS NOT ITEM 3375'S, and this is the place a "the
 // siblings share their constants" assumption would have produced wrong
 // numbers. Item 3375 computes `min(Span^2, Ramp^2) * -0.5f / max(radiusA,
@@ -2851,7 +2847,7 @@ void IVP_Sweep_Estimator_Context::EstimateLedgeVertexVsLedgeVertexContact(
 // same quantity whenever B is the larger side, because +0x48 is documented as
 // 0.5f/UpperLimitRadius, but the expressions are different and only one of them
 // is what this function does.
-//
+
 // CACHE ORDER. CacheA is built at frame+0x60c from param_3 and CacheB at
 // frame+0x64 from param_4->Source -- i.e. the HIGHER address is the A side
 // here, the opposite of item 3375's arrangement. Both solver calls push
@@ -2864,7 +2860,7 @@ void IVP_Sweep_Estimator_Context::EstimateBallVsLedgeVertexContact(
     FIVP_Sweep_Cache_Source *SourceA, FIVP_Sweep_Ledge_Side *SideB)
 {
     // :0635ec9a-:0635ecc1 and :0635ecd0-:0635eceb. Both vector-constructor-
-    // iterator calls (FUN_06273bc0 over 21 * 0x40 bytes with Csys::Csys) are
+    // iterator calls (the routine over 21 * 0x40 bytes with Csys::Csys) are
     // the usual runtime no-op and are not reproduced.
     IVP_Sweep_Frame_Cache CacheA;
     CacheA.Init(SourceA);
@@ -2890,7 +2886,7 @@ void IVP_Sweep_Estimator_Context::EstimateBallVsLedgeVertexContact(
         static_cast<const IVP_Ledge_Mindist *>(this->Mindist);
 
     // ---- Pass 1: A's origin against B's feature vertex ----------------------
-    // :0635ed41 installs PTR_LAB_0635d720.
+    // :0635ed41 installs the branch.
     IVP_Sweep_CenterDistance_Evaluator OriginVertex;
 
     // :0635ed50-:0635ed60 write three literal zeroes; :0635ed35-:0635ed68 write
@@ -2934,7 +2930,7 @@ void IVP_Sweep_Estimator_Context::EstimateBallVsLedgeVertexContact(
         + LedgeMindist->SeparationGap);
 
     // :0635ee3c-:0635ee74. CoreA contributes only its Margin -- there is no
-    // vertex on side A to measure. Retail caches CoreA->Margin into the slot it
+    // vertex on side A to measure. baseline caches CoreA->Margin into the slot it
     // had been keeping CoreA in (:0635ee20-:0635ee2b) before the call that
     // clobbers the register, which is why the read happens so early.
     // (|VB| * MSD_B + Margin_B) + Span * MSD_B via FADDP, then + Margin_A --
@@ -2960,11 +2956,11 @@ void IVP_Sweep_Estimator_Context::EstimateBallVsLedgeVertexContact(
         (float)(-(BoundedSquare * CoreB->DAngularLimitFactor));
 
     // ---- Pass 2: the edge fan around B's feature vertex ---------------------
-    // :0635eebd rebinds the evaluator slot to PTR_LAB_0635d7b0 on the same
+    // :0635eebd rebinds the evaluator slot to the branch on the same
     // stack bytes; a separate local here, for the same reason as item 3375.
     IVP_Sweep_VertexFanEdge_Evaluator FanEdge;
 
-    // :0635eec7-:0635eeef. PointOther is again the literal origin -- retail
+    // :0635eec7-:0635eeef. PointOther is again the literal origin -- baseline
     // re-zeroes the three dwords rather than relying on pass 1's, and so does
     // this port.
     FanEdge.PointOther.set(0.0f, 0.0f, 0.0f);
@@ -2981,7 +2977,7 @@ void IVP_Sweep_Estimator_Context::EstimateBallVsLedgeVertexContact(
 
     for (;;)
     {
-        // LAB_0635ef13, :0635ef13-:0635ef4f.
+        // , :0635ef13-:0635ef4f.
         const IVP_U_Float_Point *const FarPoint =
             PointsB + Cursor->GetNextEdge()->GetStartPointIndex();
 
@@ -2999,7 +2995,7 @@ void IVP_Sweep_Estimator_Context::EstimateBallVsLedgeVertexContact(
             ((double)(DeltaX) * DeltaX + DeltaZExt * DeltaZExt)
             + DeltaYExt * DeltaYExt);
 
-        // :0635ef74 CALL FUN_06347df0, result unrounded.
+        // :0635ef74 CALL the routine, result unrounded.
         const double InverseLength = IVP_InvSqrtFloat(QuadLength);
 
         // :0635ef79-:0635efb8. Rounded deltas times the unrounded inverse.
@@ -3037,32 +3033,32 @@ void IVP_Sweep_Estimator_Context::EstimateBallVsLedgeVertexContact(
 }
 
 // ============================================================================
-// FUN_0635f8c0 -- IVP_Sweep_Estimator_Context::EstimateBallVsLedgeEdgeContact
-// Common.dll.txt:451980-452276. Bytes 0x0635f8c0 through the `RET 0x10` at
-// 0x0635fd04 inclusive -- ALL 293 instructions read first to last, frame
-// `SUB ESP,0xc08` plus four pushes so Ghidra's constant is 0xc18.
-//
-// Decomp-tracker item 3379. Its single XREF is :0635fdf0, dispatcher
-// LAB_0635fd10's ShapeTypeB == 1 arm -- a ledge EDGE, which names it.
-//
+// IVP_Sweep_Estimator_Context::EstimateBallVsLedgeEdgeContact
+// Common. Bytes 0x0635f8c0 through the `RET 0x10` at
+// inclusive -- ALL 293 instructions read first to last, frame
+// `SUB ESP,0xc08` plus four pushes so analysis's constant is 0xc18.
+
+// implementation tracker item 3379. Its single XREF is :0635fdf0, dispatcher
+// 's ShapeTypeB == 1 arm -- a ledge EDGE, which names it.
+
 // FRAME TILING: evaluator at frame+0x60 (0x58 bytes, to 0xb8), a 0x10-byte
 // cross-product scratch at frame+0xb8, CacheB at frame+0xc8 (0x5a8, to 0x670),
 // CacheA at frame+0x670 (0x5a8, to 0xc18). End to end from 0xb8 onwards.
-//
+
 // WHAT IT IS: two passes over one ledge edge, with a ball on side A.
-//
+
 //   Pass 1 (:0635f942-:0635fb08) is the MOMENT test. Evaluator
-//   PTR_LAB_0635d950 -- the odd one of the nine, whose +0x14 is a scalar bias
+// the odd one of the nine, whose +0x14 is a scalar bias
 //   and whose points start at +0x18. Its four fields are A's origin, B's edge
 //   start vertex, B's unit edge direction, and a "measure" direction built in
 //   world space and carried back into B's frame. Event code 0x30.
-//
+
 //   Pass 2 (:0635fb39-:0635fcd9) runs TWICE, over the edge and its twin, and
 //   asks when the ball crosses each triangle's own side plane through that
-//   edge. Evaluator PTR_LAB_0635d5b0 (the same class item 3371 uses), with the
+//   edge. Evaluator the branch (the same class item 3371 uses), with the
 //   plane anchored at the edge's start vertex and its normal built as
 //   `(PNext - PCur) x FaceNormal`. Event code 0x31.
-//
+
 // THIS DRIVER READS NO IVP_Core AT ALL. Not MaxSurfaceDeviation, not Margin,
 // not UpperLimitRadius, not DAngularLimitFactor -- there is no `[reg+0x98]`
 // anywhere in its 293 instructions. Its two evaluators take their speed bounds
@@ -3070,26 +3066,26 @@ void IVP_Sweep_Estimator_Context::EstimateBallVsLedgeVertexContact(
 // and Ctx->MarginSpan (+0x0c) for pass 2 (:0635fb0f). A transcription that
 // copied item 3375's or 3376's core-weighted bound here would be wrong twice
 // over.
-//
+
 // ITS INNER THRESHOLD IS `CombinedRadius * 0.9f + ToleranceBase`, not
-// `* 0.5f` -- DAT_063a53fc at :0635faca, raw bytes 66 66 66 3f == 0.9f, where
-// every other member of the family multiplies by DAT_063a5460 (00 00 00 3f ==
-// 0.5f). Item 3378 is the only other driver that does this. Ghidra's inline
-// comment on DAT_063a53fc prints "= 66h", one byte, which is meaningless.
-//
+// `* 0.5f` -- the field at :0635faca, raw bytes 66 66 66 3f == 0.9f, where
+// every other member of the family multiplies by the field (00 00 00 3f ==
+// 0.5f). Item 3378 is the only other driver that does this. analysis's inline
+// comment on the field prints "= 66h", one byte, which is meaningless.
+
 // ITS PASS-2 THRESHOLD IS A BARE NEGATED GLOBAL, not a computed distance:
-// `-DAT_0658ab34` (:0635fcb1-:0635fcbb), i.e. -block[0x49] of the tolerance
+// `-the field` (:0635fcb1-:0635fcbb), i.e. -block[0x49] of the tolerance
 // object, the same SweepToleranceBias() item 3369 uses inside a product. No
 // span, no radius, no per-edge length. That is the third place in this one
 // function where the family pattern does not hold.
-//
-// param_1 IS UNUSED. Ghidra could not assign it a stack slot and the body
+
+// param_1 IS UNUSED. analysis could not assign it a stack slot and the body
 // references only Stack[0x8]/Stack[0xc]/Stack[0x10]; the signature keeps it
 // because the dispatcher pushes the same four arguments for this arm as for
 // item 3376's.
-//
-// THE THREE TRANSFORM HELPERS, and the trap lane w23 flagged. Retail calls
-// FUN_0634d8d0 (:0635fa2f), FUN_0634d9d0 (:0635fa44) and FUN_0634d970
+
+// THE THREE TRANSFORM HELPERS, and the trap lane w23 flagged. baseline calls
+// (:0635fa2f), the routine (:0635fa44) and the routine
 // (:0635fa93), each with `ECX = SideB->Source`. All three are already ported in
 // this tree, in ivp_real_object.h, as IVP_TransformSlotToWorldSpace (vmult4),
 // IVP_RotateSlotToWorldSpace (vmult) and IVP_RotateWorldToSlotSpace (vimult),
@@ -3098,7 +3094,7 @@ void IVP_Sweep_Estimator_Context::EstimateBallVsLedgeVertexContact(
 // This file spells them `Source->Frame.<op>()`, which is the same three
 // operations on the same three matrices with one indirection fewer; the
 // equivalence is exact because FIVP_Sweep_Cache_Source::Frame is at +0x1c.
-// (:0635fa93 appears verbatim in FUN_0634d970's own XREF list in
+// (:0635fa93 appears verbatim in the routine's own XREF list in
 // ivp_real_object.h, which is the independent confirmation that these are the
 // same functions -- and, with the +0x08/+0x1c field match, that
 // FIVP_Sweep_Cache_Source is IVP_NarrowPhaseCacheSlot. See the header.)
@@ -3132,7 +3128,7 @@ void IVP_Sweep_Estimator_Context::EstimateBallVsLedgeEdgeContact(
         static_cast<const IVP_Ledge_Mindist *>(this->Mindist);
 
     // ---- Pass 1: the moment test -------------------------------------------
-    // :0635f942 installs PTR_LAB_0635d950.
+    // :0635f942 installs the branch.
     IVP_Sweep_VertexEdgeMoment_Evaluator EdgeMoment;
 
     // :0635f95f-:0635f96f. A's own frame origin.
@@ -3142,7 +3138,7 @@ void IVP_Sweep_Estimator_Context::EstimateBallVsLedgeEdgeContact(
     EdgeMoment.PointB.set(VertexB->X, VertexB->Y, VertexB->Z);
 
     // :0635f9a6-:0635f9da. The edge direction in B's own local frame,
-    // normalized in place by FUN_06347ef0. Retail ignores normize's bool
+    // normalized in place by the routine. baseline ignores normize's bool
     // return, so a degenerate edge is left unnormalized rather than zeroed.
     EdgeMoment.DirectionB.set(VertexBNext->X - VertexB->X,
                               VertexBNext->Y - VertexB->Y,
@@ -3160,12 +3156,12 @@ void IVP_Sweep_Estimator_Context::EstimateBallVsLedgeEdgeContact(
     const float Ramp = SweepToleranceRamp((LedgeMindist->StateFlags >> 22) & 0xff);
     EdgeMoment.Bias = (Ramp + CombinedRadius) * 0.5f;
 
-    // :0635fa2f. FUN_0634d8d0 on SideB->Source: B's feature vertex carried into
+    // :0635fa2f. the routine on SideB->Source: B's feature vertex carried into
     // WORLD space, translation included.
     IVP_U_Point WorldVertexB;
     SideB->Source->Frame.vmult4(&EdgeMoment.PointB, &WorldVertexB);
 
-    // :0635fa44. FUN_0634d9d0 on the same receiver: the edge direction rotated
+    // :0635fa44. the routine on the same receiver: the edge direction rotated
     // into world space, no translation.
     IVP_U_Point WorldDirectionB;
     SideB->Source->Frame.vmult(&EdgeMoment.DirectionB, &WorldDirectionB);
@@ -3178,8 +3174,8 @@ void IVP_Sweep_Estimator_Context::EstimateBallVsLedgeEdgeContact(
                    WorldVertexB.k[1] - SourceA->Frame.vv.k[1],
                    WorldVertexB.k[2] - SourceA->Frame.vv.k[2]);
 
-    // :0635fa7b CALL FUN_0628bed0, whose receiver is the OUTPUT and whose
-    // param_1 is the argument sitting at [ESP+0]. Retail pushes
+    // :0635fa7b CALL the routine, whose receiver is the OUTPUT and whose
+    // param_1 is the argument sitting at [ESP+0]. baseline pushes
     // &WorldDirectionB first and &WorldDelta second, so &WorldDelta is
     // param_1 and the product is cross(WorldDelta, WorldDirectionB), not the
     // reverse. Argument order taken from the push order, not assumed. The
@@ -3188,7 +3184,7 @@ void IVP_Sweep_Estimator_Context::EstimateBallVsLedgeEdgeContact(
     IVP_U_Point WorldMoment;
     IVP_CalcCrossProduct(&WorldMoment, &WorldDelta, &WorldDirectionB);
 
-    // :0635fa93 FUN_0634d970 (the transpose rotate, world -> B-local) then
+    // :0635fa93 the routine (the transpose rotate, world -> B-local) then
     // :0635fa9f normize in place. This is the evaluator's +0x48.
     SideB->Source->Frame.vimult(&WorldMoment, &EdgeMoment.MeasureB);
     EdgeMoment.MeasureB.normize();
@@ -3213,11 +3209,11 @@ void IVP_Sweep_Estimator_Context::EstimateBallVsLedgeEdgeContact(
     }
 
     // ---- Pass 2: the two side planes through this edge ----------------------
-    // :0635fb0f-:0635fb69. Retail builds a two-element array {FeatureEdgeB,
+    // :0635fb0f-:0635fb69. baseline builds a two-element array {FeatureEdgeB,
     // FeatureEdgeB->GetOppositeEdge()} on its own frame at frame+0x40 and walks
     // it with a pointer and a down-counter initialized to 2
     // (:0635fb31/:0635fb59/:0635fb5d/:0635fb61, loop closed at :0635fce0-
-    // :0635fcf4). The evaluator's vfptr is rebound to PTR_LAB_0635d5b0 and its
+    // :0635fcf4). The evaluator's vfptr is rebound to the branch and its
     // speed bound comes from Ctx->MarginSpan, NOT from Ctx->ClosingBound the
     // way pass 1's does.
     const IVP_Compact_Edge *const EdgePair[2] = { EdgeB, EdgeB->GetOppositeEdge() };
@@ -3231,13 +3227,13 @@ void IVP_Sweep_Estimator_Context::EstimateBallVsLedgeEdgeContact(
         // :0635fb41-:0635fb51. A's origin again.
         SidePlane.PointA.set(0.0f, 0.0f, 0.0f);
 
-        // :0635fb0f-:0635fb69, hoisted out of the loop by retail but written
+        // :0635fb0f-:0635fb69, hoisted out of the loop by baseline but written
         // into the same slot each time the evaluator is rebound, so it is
         // written here too.
         SidePlane.MaxRelativeSpeed = this->MarginSpan;
         SidePlane.IMaxRelativeSpeed = 1.0f / SidePlane.MaxRelativeSpeed;
 
-        // LAB_0635fb76, :0635fb76-:0635fbd9. The triangle's three vertices,
+        // , :0635fb76-:0635fbd9. The triangle's three vertices,
         // fetched through the next/prev step tables off THIS edge.
         const IVP_U_Float_Point *const PointCur = PointsB + Edge->GetStartPointIndex();
         const IVP_U_Float_Point *const PointNext =
@@ -3249,14 +3245,14 @@ void IVP_Sweep_Estimator_Context::EstimateBallVsLedgeEdgeContact(
         const float EdgeY = PointNext->Y - PointCur->Y;
         const float EdgeZ = PointNext->Z - PointCur->Z;
 
-        // :0635fbdd-:0635fc5c. The face normal (FUN_0635b940 inlined), spelled
-        // out component by component exactly as retail does it: with
+        // :0635fbdd-:0635fc5c. The face normal (the routine inlined), spelled
+        // out component by component exactly as baseline does it: with
         // P = Prev - Cur (FSTP'd to float, local_c00/local_bf4/local_bfc)
         // and E = Next - Cur RECOMPUTED on the x87 stack and never stored
         // (:0635fc0f-:0635fc1f -- not the FSTP'd EdgeX/Y/Z above), the
         // result is E x P, each component one FSTP dword:
         //   x = Ey*Pz - Ez*Py, y = Ez*Px - Ex*Pz, z = Ex*Py - Ey*Px.
-        // Written inline because retail indexes SideB->Points (the resolved
+        // Written inline because baseline indexes SideB->Points (the resolved
         // array) and not the ledge.
         const float PrevX = PointPrev->X - PointCur->X;
         const float PrevY = PointPrev->Y - PointCur->Y;
@@ -3273,7 +3269,7 @@ void IVP_Sweep_Estimator_Context::EstimateBallVsLedgeEdgeContact(
         IVP_U_Point EdgeDirection;
         EdgeDirection.set(EdgeX, EdgeY, EdgeZ);
 
-        // :0635fc60 CALL FUN_0628bed0 with &EdgeDirection at [ESP+0] and
+        // :0635fc60 CALL the routine with &EdgeDirection at [ESP+0] and
         // &FaceNormal at [ESP+4], so param_1 is the edge direction:
         // cross(EdgeDirection, FaceNormal), x87-exact (IVP_CalcCrossProduct).
         // :0635fc6c normalizes in place. The result is the in-plane normal of
@@ -3307,29 +3303,29 @@ void IVP_Sweep_Estimator_Context::EstimateBallVsLedgeEdgeContact(
 
 // ============================================================================
 // THE DISPATCH LAYER  (2026-09-17, lane claude:w24-sweep-rest)
-//
+
 // Four handlers and a table, sitting between IVP_RescheduleCollisionEvent
 // (item 3117) and the eight drivers above. See the header for the table's own
 // layout and for why these are __cdecl rather than thiscalls.
-//
+
 // ONE THING WORTH SAYING BEFORE THE CODE: the two big handlers are what NAME
 // the drivers. Until this pass the eight drivers' names came from reading their
 // bodies and inferring which feature pairing each one was for. The dispatchers
 // settle it from outside, because each one switches on IVP_Ledge_Mindist's own
 // ShapeType tags and every arm is a different driver:
-//     LAB_0635fd10, on ShapeTypeB alone (side A is a ball):
-//         0 -> FUN_0635ec90   ball vs ledge VERTEX   (item 3376)
-//         1 -> FUN_0635f8c0   ball vs ledge EDGE     (item 3379)
-//         2 -> FUN_0635df00   ball vs ledge FACE     (item 3371)
-//     LAB_0635fef0, on both tags:
-//         (0,0) -> FUN_0635e790   vertex vs vertex   (item 3375)
-//         (0,1) -> FUN_0635f180   vertex vs edge     (item 3378)
-//         (0,2) -> FUN_0635da70   vertex vs face     (item 3369)
-//         (1,1) -> FUN_0635e1d0   edge   vs edge     (item 3374)
+// , on ShapeTypeB alone (side A is a ball):
+//         0 -> the routine   ball vs ledge VERTEX   (item 3376)
+//         1 -> the routine   ball vs ledge EDGE     (item 3379)
+//         2 -> the routine   ball vs ledge FACE     (item 3371)
+// , on both tags:
+//         (0,0) -> the routine   vertex vs vertex   (item 3375)
+//         (0,1) -> the routine   vertex vs edge     (item 3378)
+//         (0,2) -> the routine   vertex vs face     (item 3369)
+//         (1,1) -> the routine   edge   vs edge     (item 3374)
 // So tag 0 == vertex, 1 == edge, 2 == face, 3 == ball, consistently in seven
 // places. Every one of the five driver names lane w22/w23 chose from the bodies
 // alone is confirmed, and the three named this pass are named from here rather
-// than from a body reading. Note also that (1,0), (1,2) and (2,*) are retail's
+// than from a body reading. Note also that (1,0), (1,2) and (2,*) are baseline's
 // own null-store traps -- the mindist normalizes the pairing so that the
 // lower-dimensional feature is always on side A.
 // ============================================================================
@@ -3340,10 +3336,10 @@ namespace
     // +0x34. It is not declared in ivp_mindist.h -- that header spells the two
     // copies out as flat fields (ObjectA/FeatureA/ShapeTypeA at +0x28/+0x2c/
     // +0x32 and ObjectB/FeatureB/ShapeTypeB at +0x44/+0x48/+0x4e) -- but
-    // LAB_0635fef0 indexes them as an array and there is no honest way to
+    // indexes them as an array and there is no honest way to
     // transcribe that without the stride.
-    //
-    // The stride is retail's own: `EDX = i*8 - i` (i.e. i*7) then
+
+    // The stride is baseline's own: `EDX = i*8 - i` (i.e. i*7) then
     // `[Mindist + EDX*4 + 0x28]`, which is `Mindist + 0x28 + i*0x1c`. Subtract
     // the 0x10 that lands on Object and the slot base is +0x18 + i*0x1c. Both
     // fixed spellings fall out: i == 0 gives +0x28/+0x2c/+0x32, i == 1 gives
@@ -3361,7 +3357,7 @@ namespace
         int16_t ShapeType;               // +0x1a
     };
     static_assert(sizeof(FIVP_Sweep_Mindist_Side) == 0x1c,
-                  "mindist side slot must be retail's 0x1c-byte stride");
+                  "mindist side slot must be baseline's 0x1c-byte stride");
 
     FIVP_Sweep_Mindist_Side *SweepMindistSide(IVP_Ledge_Mindist *Mindist, uint32_t Index)
     {
@@ -3369,8 +3365,8 @@ namespace
             reinterpret_cast<char *>(Mindist) + 0x18 + Index * 0x1c);
     }
 
-    // Retail's own "this cannot happen" store, `MOV dword ptr [0x00000000],0x0`.
-    // Reproduced as a null dereference so it stays exactly as loud as retail
+    // baseline's own "this cannot happen" store, `MOV dword ptr [0x00000000],0x0`.
+    // Reproduced as a null dereference so it stays exactly as loud as baseline
     // made it -- this is an assert, not an error path, and quietly returning
     // would turn a detectable bug into a silently wrong simulation.
     void SweepEstimatorUnreachable()
@@ -3378,17 +3374,17 @@ namespace
         *reinterpret_cast<volatile int32_t *>(0) = 0;
     }
 
-    // The 16-slot table FUN_06360090 fills, plus retail's own 17th dword --
+    // The 16-slot table the routine fills, plus baseline's own 17th dword --
     // ivp_environment.cpp's existing port already sizes it at 17 and explains
     // why; kept identical here so the two agree.
     FIVP_Sweep_Estimator_Handler G_SweepEstimatorTable[16] = {};
 }
 
 // ============================================================================
-// LAB_0635fd10 -- IVP_SweepEstimate_BallVsLedge  (decomp-tracker item 3380)
-// Common.dll.txt:452287-452389. Bytes 0x0635fd10 through the `RET` at
-// 0x0635fe25 inclusive -- all 97 instructions read first to last.
-//
+// IVP_SweepEstimate_BallVsLedge  (implementation tracker item 3380)
+// Common. Bytes 0x0635fd10 through the `RET` at
+// inclusive -- all 97 instructions read first to last.
+
 // __cdecl, one stack argument, plain `RET`. Side A is a ball, side B is a
 // ledge, and the arm is chosen by Mindist->ShapeTypeB alone.
 // ============================================================================
@@ -3400,9 +3396,9 @@ void IVP_SweepEstimate_BallVsLedge(IVP_Sweep_Estimator_Context *Ctx)
     IVP_Real_Object *const ObjectB = Mindist->synapse[1].l_obj;
     IVP_Compact_Edge *const FeatureB = Mindist->synapse[1].edge;
 
-    // :0635fd20-:0635fd67. Retail INLINES IVP_Real_Object::
+    // :0635fd20-:0635fd67. baseline INLINES IVP_Real_Object::
     // ResolveNarrowPhaseCacheSlot here (allocate into Object->[0x40] when null
-    // via FUN_0634d530, ++Slot->RefCount, then refresh via FUN_0634d640 when
+    // via the routine, ++Slot->RefCount, then refresh via the routine when
     // the object is moving and the environment's tick counter is newer than the
     // slot's stamp) and CALLS it for the other side at :0635fd8f. Same
     // function, two spellings; this port uses the method for both.
@@ -3429,7 +3425,7 @@ void IVP_SweepEstimate_BallVsLedge(IVP_Sweep_Estimator_Context *Ctx)
     // writes the nonzero code.
     Ctx->OutCode = 0;
 
-    // :0635fdaf-:0635fe07. Retail's own three-way switch, `MOVSX EAX,word ptr
+    // :0635fdaf-:0635fe07. baseline's own three-way switch, `MOVSX EAX,word ptr
     // [EBX+0x4e]` then a chain of SUB/DEC + JZ. All three arms receive the
     // UNMASKED feature edge saved at :0635fd29 -- the `AND EAX,0xfffffff0` at
     // :0635fd76 is a separate temporary used only to find the ledge.
@@ -3449,7 +3445,7 @@ void IVP_SweepEstimate_BallVsLedge(IVP_Sweep_Estimator_Context *Ctx)
         Ctx->EstimateBallVsLedgeFaceContact(FeatureB, SourceA, &SideB);
         break;
     default:
-        // :0635fdbe, retail's null store.
+        // :0635fdbe, baseline's null store.
         SweepEstimatorUnreachable();
         break;
     }
@@ -3462,18 +3458,18 @@ void IVP_SweepEstimate_BallVsLedge(IVP_Sweep_Estimator_Context *Ctx)
 }
 
 // ============================================================================
-// FUN_0635fe30 -- IVP_SweepEstimate_BallVsBall  (decomp-tracker item 3381)
-// Common.dll.txt:452406-452469. Bytes 0x0635fe30 through the `RET` at
-// 0x0635fee3 inclusive -- all 60 instructions read first to last.
-//
+// IVP_SweepEstimate_BallVsBall  (implementation tracker item 3381)
+// Common. Bytes 0x0635fe30 through the `RET` at
+// inclusive -- all 60 instructions read first to last.
+
 // The simplest of the three real handlers: no ledge, no feature edge, no shape
 // switch. Both sides resolve their cache slot and the pair goes straight to
 // item 3377.
-//
+
 // THIS ITEM'S RECORDED BLOCKER IS STALE. It reads "NOT portable yet:
-// FUN_0635f020 (item 3377) is itself only `simplified` with NO ported_file
+// (item 3377) is itself only `simplified` with NO ported_file
 // committed ... it calls into the deliberately-unported LCP/Simplex solver
-// subsystem (items 3540-3598) via FUN_06369720/item 3598, and further depends
+// subsystem (items 3540-3598) via the routine/item 3598, and further depends
 // on item 3370". Item 3377 is `ready_unverified` and ported as
 // EstimateBallVsBallContact above; item 3370 is ported as
 // IVP_Sweep_Frame_Cache::Init; item 3598 is ported as
@@ -3511,13 +3507,13 @@ void IVP_SweepEstimate_BallVsBall(IVP_Sweep_Estimator_Context *Ctx)
 }
 
 // ============================================================================
-// LAB_0635fef0 -- IVP_SweepEstimate_LedgeVsLedge  (decomp-tracker item 3382)
-// Common.dll.txt:452483-452621. Bytes 0x0635fef0 through the `RET` at
-// 0x0636007e inclusive -- all 131 instructions read first to last.
-//
+// IVP_SweepEstimate_LedgeVsLedge  (implementation tracker item 3382)
+// Common. Bytes 0x0635fef0 through the `RET` at
+// inclusive -- all 131 instructions read first to last.
+
 // Both sides are ledges, so both sides need a side record, and which of the
 // mindist's two embedded slots is "A" is chosen at run time by StateFlags.
-//
+
 // THE SIDE SELECTION, decoded from the arithmetic rather than assumed:
 //     EAX = Mindist->StateFlags;  i = (EAX >> 8) & 3;
 //     EAX ^= 0x100;               j = (EAX >> 8) & 3;
@@ -3525,9 +3521,9 @@ void IVP_SweepEstimate_BallVsBall(IVP_Sweep_Estimator_Context *Ctx)
 // a pair, never two independent selections. Item 3117's own trace reached the
 // same conclusion from the same instructions. The `& 3` is the compiler masking
 // a two-bit field of which only one bit is ever meaningful, and it is kept here
-// (rather than simplified to `& 1`) because it is what retail computes: the
+// (rather than simplified to `& 1`) because it is what baseline computes: the
 // stride arithmetic below is written out literally so that a StateFlags value
-// with bit 9 set would go the same place in this port as in retail, instead of
+// with bit 9 set would go the same place in this port as in baseline, instead of
 // being quietly folded onto slot 0 or 1.
 // ============================================================================
 void IVP_SweepEstimate_LedgeVsLedge(IVP_Sweep_Estimator_Context *Ctx)
@@ -3555,7 +3551,7 @@ void IVP_SweepEstimate_LedgeVsLedge(IVP_Sweep_Estimator_Context *Ctx)
         reinterpret_cast<FIVP_Sweep_Cache_Source *>(ObjectA->ResolveNarrowPhaseCacheSlot());
     SideA.Object = ObjectA;
 
-    // :0635ff6f-:0635ffa4. Side B's record, the same four fields. Note retail
+    // :0635ff6f-:0635ffa4. Side B's record, the same four fields. Note baseline
     // reads SlotB's feature back out of its own frame spill at :0635ff6f rather
     // than from the mindist again; same value.
     IVP_Real_Object *const ObjectB = SlotB->Object;
@@ -3573,7 +3569,7 @@ void IVP_SweepEstimate_LedgeVsLedge(IVP_Sweep_Estimator_Context *Ctx)
     Ctx->OutCode = 0;
 
     // :0635ffaf-:06360060. Two nested switches, on SlotA->ShapeType and then
-    // SlotB->ShapeType. Every combination retail does not handle is its own
+    // SlotB->ShapeType. Every combination baseline does not handle is its own
     // null-store trap, and there are three of them: shape tag 1 on side A
     // accepts only tag 1 on side B, and tag 2 or 3 on side A is rejected
     // outright. That asymmetry is the mindist's own normalization showing
@@ -3627,8 +3623,8 @@ void IVP_SweepEstimate_LedgeVsLedge(IVP_Sweep_Estimator_Context *Ctx)
 }
 
 // ============================================================================
-// LAB_06360080 -- IVP_SweepEstimate_Unreachable  (decomp-tracker item 3383)
-// Common.dll.txt:452624-452625, bytes 0x06360080-0x0636008a, 2 instructions:
+// IVP_SweepEstimate_Unreachable  (implementation tracker item 3383)
+// Common, bytes 0x06360080-0x0636008a, 2 instructions:
 // `MOV dword ptr [0x00000000],0x0` then `RET`.
 // ============================================================================
 void IVP_SweepEstimate_Unreachable(IVP_Sweep_Estimator_Context * /*Ctx*/)
@@ -3637,29 +3633,29 @@ void IVP_SweepEstimate_Unreachable(IVP_Sweep_Estimator_Context * /*Ctx*/)
 }
 
 // ============================================================================
-// FUN_06360090 -- IVP_InitSweepEstimatorTable  (decomp-tracker item 3384)
-// Common.dll.txt:452636-452661.
+// IVP_InitSweepEstimatorTable  (implementation tracker item 3384)
+// Common.
 // ============================================================================
 void IVP_InitSweepEstimatorTable()
 {
-    // :06360090-:063600a0. `MOV EAX,LAB_06360080; MOV ECX,0x10;
-    // MOV EDI,DAT_0658af9c; REP STOSD` -- sixteen slots of the trap.
-    //
+    // :06360090-:063600a0. `MOV EAX,the branch; MOV ECX,0x10;
+    // MOV EDI,the field; REP STOSD` -- sixteen slots of the trap.
+
     // The array is SIXTEEN dwords, not seventeen. An earlier reading of this
     // function (recorded on item 3384 and in ivp_environment.cpp's now-deleted
     // placeholder) claimed the last explicit store, `MOV [0658afd8],
-    // FUN_0635fe30` at :063600fb, lands "one past" the REP STOSD's range. It
+    // ` at :063600fb, lands "one past" the REP STOSD's range. It
     // does not: 0x0658afd8 - 0x0658af9c = 0x3c = 15 * 4, so that store is slot
     // 15, the last of the sixteen the REP already covered. Checked against the
-    // raw listing, not the pseudo-decompile.
+    // raw listing, not the pseudo-inspect.
     for (int Index = 0; Index < 16; ++Index)
     {
         G_SweepEstimatorTable[Index] = &IVP_SweepEstimate_Unreachable;
     }
 
-    // :063600a7-:063600fb, in retail's own store order. Eight of these eleven
+    // :063600a7-:063600fb, in baseline's own store order. Eight of these eleven
     // re-store the trap that the REP STOSD has already written; they are kept
-    // because dropping them would hide that retail writes the array
+    // because dropping them would hide that baseline writes the array
     // exhaustively.
     G_SweepEstimatorTable[3]  = &IVP_SweepEstimate_Unreachable;  // :063600a7
     G_SweepEstimatorTable[4]  = &IVP_SweepEstimate_Unreachable;  // :063600ac
@@ -3683,11 +3679,11 @@ void IVP_InitSweepEstimatorTable()
 }
 
 // ============================================================================
-// `CALL dword ptr [TableIndex*4 + DAT_0658af9c]`, item 3117 at :0634f5ea.
-//
-// Unguarded, as retail (cmn-ivp3g 2026-10-09 removed an invented range/null
+// `CALL dword ptr [TableIndex*4 + the field]`, item 3117 at :0634f5ea.
+
+// Unguarded, as baseline (cmn-ivp3g 2026-10-09 removed an invented range/null
 // guard): `ShapeType[j] + ShapeType[i] * 4` with both tags in 0..3 cannot leave
-// 0..15, and the table is filled by FUN_06360090 from the environment
+// 0..15, and the table is filled by the routine from the environment
 // constructor (ivp_environment.cpp, :0634c5c5) before any mindist exists.
 // ============================================================================
 void IVP_InvokeSweepEstimator(int TableIndex, IVP_Sweep_Estimator_Context *Ctx)

@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -17,7 +13,7 @@ namespace Geometry { struct Sphere; struct Frustum; } // common_misc.h
 
 // The 0x14-byte entry the partitions store and Add (+0x10) / AddArray (+0x14) take. SYSTEM's
 // zone-tree build fills one per listed zone as {zone, zone->Pos, zone radius}
-// (.text:0633b061-0633b0a6).
+// (module storage-0633b0a6).
 struct FSpatialEntry
 {
     void* Object;    // +0x00
@@ -26,8 +22,8 @@ struct FSpatialEntry
 };
 static_assert(sizeof(FSpatialEntry) == 0x14, "FSpatialEntry size is 0x14");
 
-// The result buffer the queries write into. Every retail caller builds it on the stack as
-// {0x800, 0, items} (SYSTEM slots 8-12, Server.dll pub::System::InZones .text:06cfb640/06cfb760).
+// The result buffer the queries write into. Every baseline caller builds it on the stack as
+// {0x800, 0, items} (SYSTEM slots 8-12, Server.dll pub::System::InZones module storage/06cfb760).
 // The queries append while Count < Capacity and never reset Count.
 struct FSpatialQueryResult
 {
@@ -37,7 +33,7 @@ struct FSpatialQueryResult
 };
 
 // The segment the ray query (+0x20) takes: BspPartition reads the origin at +0x00, the
-// direction at +0x0c and the length at +0x18 (FUN_063310c0, FUN_063311e0).
+// direction at +0x0c and the length at +0x18 (the routine, the routine).
 struct FSpatialRay
 {
     Vector Origin;    // +0x00
@@ -46,8 +42,8 @@ struct FSpatialRay
 };
 static_assert(sizeof(FSpatialRay) == 0x1c, "FSpatialRay size is 0x1c");
 
-// RTTI .?AUISpatialPartition@@ -- the base of BspPartition (vftable .rdata:063a4920) and
-// LinearPartition (.rdata:063a48ec). Ten slots; retail has no symbols for them, so the names
+// RTTI .?AUISpatialPartition@@ -- the base of BspPartition (vftable module storage) and
+// LinearPartition (module storage). Ten slots; baseline has no symbols for them, so the names
 // below describe what both implementations do. +0x04 and +0x24 have no caller identified
 // and keep slot names.
 struct ISpatialPartition
@@ -81,7 +77,7 @@ inline int SpatialFillFrustum(ISpatialPartition* Spatial, Geometry::Frustum cons
     return Spatial->QueryFrustum(Query, Result);
 }
 
-// ?FreeSpatial@@YAXPAUISpatialPartition@@@Z (.text:06331940) / ?NewSpatial@@YAPAUISpatialPartition@@PBD@Z
-// (.text:0632e9f0).
+// ?FreeSpatial@@YAXPAUISpatialPartition@@@Z (module storage) / ?NewSpatial@@YAPAUISpatialPartition@@PBD@Z
+// (module storage).
 COMMON_API void __cdecl FreeSpatial(ISpatialPartition* Spatial);
 COMMON_API ISpatialPartition* __cdecl NewSpatial(char const* Type);

@@ -1,10 +1,6 @@
-# OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-# faithful to the behaviour of the original game.
-# This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-# developed by Digital Anvil.
 # Author: Giperion.
 
-# One-off Cycle 3 verifier: mmap retail UTF the same way as src/ReadFile.
+# One-off Cycle 3 verifier: mmap baseline UTF the same way as src/ReadFile.
 # Not part of the build. Run: python utf_walk_once.py
 
 import mmap
@@ -255,9 +251,9 @@ def main():
     files = sys.argv[1:]
     if not files:
         files = [
-            r"D:\OutpostFrontier\DATA\SHIPS\LIBERTY\LI_ELITE\li_elite.cmp",
-            r"D:\OutpostFrontier\DATA\SHIPS\LIBERTY\LI_ELITE\li_elite_shield.3db",
-            r"D:\OutpostFrontier\DATA\SHIPS\LIBERTY\LI_FIGHTER\li_fighter.cmp",
+            r"D:\OutpostFrontier\DATA\SHIPS\HELION\HE_ELITE\he_elite.cmp",
+            r"D:\OutpostFrontier\DATA\SHIPS\HELION\HE_ELITE\he_elite_shield.3db",
+            r"D:\OutpostFrontier\DATA\SHIPS\HELION\HE_FIGHTER\he_fighter.cmp",
         ]
     for path in files:
         check(path)

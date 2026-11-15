@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -9,19 +5,19 @@
 // VC6 <algorithm> std::sort as MSVC 6 instantiated it inside OutpostFrontier.exe: median-of-three
 // quicksort while a range holds more than 16 elements (_SORT_MAX), then an insertion sort of
 // the first 16 and an unguarded insert of every later element. The current CRT's std::sort
-// orders equal elements differently, so a port whose retail call sorts with a comparator that
-// has ties uses this to keep retail's order.
-//
+// orders equal elements differently, so a port whose baseline call sorts with a comparator that
+// has ties uses this to keep baseline's order.
+
 // The OutpostFrontier.exe instantiation on FServerInfo* (GetFilteredServers, std::sort inlined at
-// 0x005acb92..0x005acca6):
-//   FUN_005afea0  _Sort                 (the median and the partition inlined)
-//   FUN_005affc0  _Insertion_sort
-//   FUN_005b0060  _Median
-//   FUN_005b00d0  _Unguarded_partition
+// ):
+// _Sort                 (the median and the partition inlined)
+// _Insertion_sort
+// _Median
+// _Unguarded_partition
 
 namespace Vc6Sort
 {
-    // FUN_005b0060 (cdecl): the median of three by Less.
+    // (cdecl): the median of three by Less.
     template <class T, class Pred>
     T Median(T A, T B, T C, Pred Less)
     {
@@ -30,7 +26,7 @@ namespace Vc6Sort
         return Less(A, C) ? A : (Less(B, C) ? C : B);
     }
 
-    // FUN_005b00d0 (cdecl): advance First past elements below Pivot, step Last back past
+    // (cdecl): advance First past elements below Pivot, step Last back past
     // elements above it; stop when they meet (Last <= First, unsigned), else swap and go on.
     template <class T, class Pred>
     T* UnguardedPartition(T* First, T* Last, T Pivot, Pred Less)
@@ -51,7 +47,7 @@ namespace Vc6Sort
         }
     }
 
-    // _Unguarded_insert (inlined into FUN_005affc0 and std::sort): shift the elements above
+    // _Unguarded_insert (inlined into the routine and std::sort): shift the elements above
     // Value up by one until one is not above it, then store Value.
     template <class T, class Pred>
     void UnguardedInsert(T* Last, T Value, Pred Less)
@@ -66,7 +62,7 @@ namespace Vc6Sort
         *Last = Value;
     }
 
-    // FUN_005affc0 (cdecl): an element below the first moves to the front (the range shifted
+    // (cdecl): an element below the first moves to the front (the range shifted
     // up by one); any other goes through UnguardedInsert.
     template <class T, class Pred>
     void InsertionSort(T* First, T* Last, Pred Less)
@@ -89,7 +85,7 @@ namespace Vc6Sort
         }
     }
 
-    // FUN_005afea0 (cdecl): while more than 16 elements remain, partition around the median of
+    // (cdecl): while more than 16 elements remain, partition around the median of
     // the first, middle ((Last - First) / 2, signed) and last element; recurse into the shorter
     // side when the right one is not longer (L - M <= M - F), else into the left one.
     template <class T, class Pred>

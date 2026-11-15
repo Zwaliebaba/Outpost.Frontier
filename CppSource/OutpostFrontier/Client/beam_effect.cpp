@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "beam_effect.h"
@@ -12,15 +8,15 @@
 #include "effect_vertex_batch.h"
 #include "game_options.h"
 #include "globals.h"
-#include "hud_target.h"     // HudTransformPoint (FUN_004e7090)
+#include "hud_target.h"     // HudTransformPoint (the routine)
 #include "perf_options.h"
 #include "texture_shapes.h"
 #include "vis_effect_arch.h"
 
-#include "DALib.h"
-#include "dacom.h"
+#include "NeuronRuntime.h"
+#include "neuroncomponents.h"
 #include "common_csys.h"
-#include "engine/engbase.h"
+#include "engine/sceneruntime.h"
 #include "space_camera.h"
 
 #include <cmath>
@@ -36,16 +32,16 @@ namespace
     constexpr float kZero = 0.0f;
     constexpr float kHalf = 0.5f;
     constexpr float kOne = 1.0f;
-    constexpr float kUvCore = 0.75f;     // 0x3f400000
-    constexpr float kUvMid = 0.25f;      // 0x3e800000
-    constexpr float kUvUAlt0 = 0.55f;    // 0x3f0ccccd
-    constexpr float kUvUAlt1 = 0.45f;    // 0x3ee66666
-    constexpr double kByteScale = 255.0; // DAT_005c89c0
-    constexpr float kLifetimeIntensityCap = 0.3f; // DAT_006129cc
+    constexpr float kUvCore = 0.75f;
+    constexpr float kUvMid = 0.25f;
+    constexpr float kUvUAlt0 = 0.55f;
+    constexpr float kUvUAlt1 = 0.45f;
+    constexpr double kByteScale = 255.0;
+    constexpr float kLifetimeIntensityCap = 0.3f;
 
     bool BeamGeometryOptionEnabled()
     {
-        // FUN_005792b0(0x26) == kGameOptParticles.
+        // (0x26) == kGameOptParticles.
         return GetGameOption(kGameOptParticles) != 0;
     }
 
@@ -62,9 +58,9 @@ namespace
         return This;
     }
 
-    // FUN_004f7db0 used to have a twin here (BeamEffectFreezeWorld) that wrote the instance
+    // used to have a twin here (BeamEffectFreezeWorld) that wrote the instance
     // TRANSFORM's translation into +0x4c instead of the object's velocity; it is gone, the
-    // beam calls effect_base.cpp's EffectFreezeToWorld / EffectKill like retail (2026-09-25).
+    // beam calls effect_base.cpp's EffectFreezeToWorld / EffectKill like baseline (2026-09-25).
 
     void SetVec(FVector* Out, float X, float Y, float Z)
     {
@@ -84,7 +80,7 @@ namespace
 
     void SetBatchColorRgb(FEffectVertexBatch* Batch, float Scale, float R, float G, float B)
     {
-        // Retail ftol order: R → DAT_00674cac, G → cad, B → cae (byte slots).
+        // baseline ftol order: R → the field, G → cad, B → cae (byte slots).
         Batch->ColorR = ColorByte(R, Scale);
         Batch->ColorG = ColorByte(G, Scale);
         Batch->ColorB = ColorByte(B, Scale);
@@ -94,7 +90,7 @@ namespace
 
 }
 
-// FUN_004f9540
+
 FBeamEffect::FBeamEffect(unsigned TypeId) : FEffectBase(TypeId)
 {
     Arch = nullptr;
@@ -115,7 +111,7 @@ void BeamEffectConstruct(FBeamEffect* This, unsigned TypeId)
 
 void BeamEffectAddRef(FBeamEffect* This)
 {
-    // FUN_004f7a80.
+    // .
     This->RefCount = This->RefCount + 1;
 }
 
@@ -124,7 +120,7 @@ int BeamEffectRelease(FBeamEffect* This)
     return This->Release();
 }
 
-// FUN_004f9510 (slot +0x20) around FUN_004f9450.
+// (slot +0x20) around the routine.
 FBeamEffect::~FBeamEffect()
 {
     G_BeamEffectLiveCount = G_BeamEffectLiveCount - 1;
@@ -145,11 +141,11 @@ void BeamEffectAttach(FBeamEffect* This, void* WatchableOwner, int EngineIndex,
     This->Attach(WatchableOwner, EngineIndex, LocalXform);
 }
 
-// LAB_004f9600 — vtable[0] start(EffectArch*).
+// — vtable[0] start(EffectArch*).
 unsigned char FBeamEffect::Start(FEffectArch* EffectArch)
 {
     FBeamEffect* const This = this;
-    // 0x004f9600: arch+0x14 read with no null test on the arch.
+    // arch+0x14 read with no null test on the arch.
     FBeamEffectArch* const BeamArch = EffectArch->VisBeam;
     This->Arch = BeamArch;
     if (BeamArch == nullptr)
@@ -163,17 +159,17 @@ unsigned char FBeamEffect::Start(FEffectArch* EffectArch)
         This->Priority0C = TypeInfo->Priority;
 
     This->Flags08 = static_cast<unsigned char>(This->Flags08 & 0xfdu);
-    // Inline link @ 004f9633..004f967f ≡ FUN_004f7af0 / EffectTypeListLink.
+    // Inline link @ 004f9633..004f967f ≡ the routine / EffectTypeListLink.
     EffectTypeListLink(This);
 
-    // Already resolved once — DAT_00674f54 non-null → success (004f9682..004f9689).
+    // Already resolved once — the field non-null → success (004f9682..004f9689).
     if (G_BeamEffectTexture != nullptr)
         return 1;
 
-    // ShapeDB resolve "code_beam" — FUN_004205c0/690/6c0 on DAT_00674f24.
+    // ShapeDB resolve "code_beam" — the routine/690/6c0 on the field.
     // FShapeDB::Find FDUMPs the miss with the same header path (inline find at 004f969b).
     FTexShape const* Shape = G_EffectShapeDB.Find("code_beam", kShapeDbHeaderLower);
-    // Listing: EDI = node+0x28 (shape payload) or 0; store in DAT_00674f54.
+    // Listing: EDI = node+0x28 (shape payload) or 0; store in the field.
     G_BeamEffectTexture = Shape != nullptr ? static_cast<void*>(const_cast<FTexShape*>(Shape))
                                            : nullptr;
 
@@ -181,10 +177,10 @@ unsigned char FBeamEffect::Start(FEffectArch* EffectArch)
         return 1;
 
     FDUMP(0x100002, "%s(%d) : *** WARNING: %s",
-          "E:\\FL\\Scratch\\Source\\Client\\space\\Effect.cpp", 0x5df,
+          "Client\\space\\Effect.cpp", 0x5df,
           "texture ( code_beam ) for BeamEffect not found");
 
-    // 0x004f9735: texture miss -- link if needed, FUN_004f7db0, Flags08|2, return 0.
+    // texture miss -- link if needed, the routine, Flags08|2, return 0.
     EffectTypeListLink(This);
     EffectFreezeToWorld(AsEffect(This));
     This->Flags08 = static_cast<unsigned char>(This->Flags08 | 2u);
@@ -196,12 +192,12 @@ unsigned char BeamEffectStart(FBeamEffect* This, FEffectArch* EffectArch)
     return This->FBeamEffect::Start(EffectArch);
 }
 
-// BeamEffectCreateFromEffectArch was removed 2026-09-25: it had no caller and no retail
-// counterpart (operator new + unlink + delete). The real creation site is FUN_0053f340
-// (cli_projectile_fx.cpp), which allocates through FUN_004f79a0(0x84).
+// BeamEffectCreateFromEffectArch was removed 2026-09-25: it had no caller and no baseline
+// counterpart (operator new + unlink + delete). The real creation site is the routine
+// (cli_projectile_fx.cpp), which allocates through the routine(0x84).
 
-// LAB_004f9480 — slot +8, shared with ParticleEffect: the world translation out, ST0 = +0x74.
-// Retail inlines FUN_004f7ef0's body and copies the translation (+0x24 of the transform).
+// — slot +8, shared with ParticleEffect: the world translation out, ST0 = +0x74.
+// baseline inlines the routine's body and copies the translation (+0x24 of the transform).
 float FBeamEffect::GetWorldPos(FVector* Out)
 {
     FBeamEffect* const This = this;
@@ -218,7 +214,7 @@ float BeamEffectGetWorldPos(FBeamEffect* This, FVector* Out)
     return This->FBeamEffect::GetWorldPos(Out);
 }
 
-// LAB_004f97a0 — vtable[+0x04].
+// — vtable[+0x04].
 void FBeamEffect::Kill()
 {
     FBeamEffect* const This = this;
@@ -226,33 +222,33 @@ void FBeamEffect::Kill()
 
     if ((This->Flags70 & 2u) != 0u)
     {
-        // 0x004f97b6: link if needed, FUN_004f7db0, dead.
+        // link if needed, the routine, dead.
         EffectTypeListLink(This);
         EffectFreezeToWorld(Base);
         This->Flags08 = static_cast<unsigned char>(This->Flags08 | 2u);
         return;
     }
 
-    // 0x004f980a.
+    // .
     EffectTypeListLink(This);
     if (This->EngineIndex != -1)
     {
         if (EffectWatchedObject(Base) == nullptr)
         {
-            // 0x004f9862: link (FUN_004fc920), FUN_004f7db0, dead; then the clamp.
+            // link (the routine), the routine, dead; then the clamp.
             EffectTypeListLink(This);
             EffectFreezeToWorld(Base);
             This->Flags08 = static_cast<unsigned char>(This->Flags08 | 2u);
         }
         else
         {
-            // 0x004f9897..0x004f994f: FUN_004f7db0's body inlined; not marked dead.
+            // the routine's body inlined; not marked dead.
             EffectFreezeToWorld(Base);
         }
     }
 
-    // 0x004f9950: +0x7c below 0.0 (TEST AH,5 / JNP: strictly less, ordered) or above
-    // DAT_006129cc (TEST AH,0x41 / JNZ skips on <=, = and unordered) becomes DAT_006129cc.
+    // +0x7c below 0.0 (TEST AH,5 / JNP: strictly less, ordered) or above
+    // (TEST AH,0x41 / JNZ skips on <=, = and unordered) becomes the field.
     // Exactly 0.0 and NaN are left alone.
     if (This->Float7C < 0.0f || This->Float7C > kLifetimeIntensityCap)
         This->Float7C = kLifetimeIntensityCap;
@@ -263,17 +259,17 @@ void BeamEffectArmDeath(FBeamEffect* This)
     This->FBeamEffect::Kill();
 }
 
-// LAB_004f9980 — vtable[+0x14].
+// — vtable[+0x14].
 unsigned char FBeamEffect::UpdateVisibility(float Dt, FSpaceCamera* Cam)
 {
     FBeamEffect* const This = this;
-    // 0x004f9980: no code_beam texture (DAT_00674f54) -> the visibility bit as it stands.
+    // no code_beam texture (the field) -> the visibility bit as it stands.
     if (G_BeamEffectTexture == nullptr)
         return static_cast<unsigned char>(This->Flags70 & 1u);
 
-    // 0x004f999b: FCOMP Priority0C vs DAT_006129c8, TEST AH,1 / JNZ -- below the perf level
-    // (or unordered): the beam is killed. 0x004f9ae2..0x004f9bfe is FUN_004f7bd0 written out
-    // (link; watcher gone -> CALL FUN_004f7bd0; else the freeze body; Flags08|2).
+    // FCOMP Priority0C vs the field, TEST AH,1 / JNZ -- below the perf level
+    // (or unordered): the beam is killed. 0x004f9ae2..0x004f9bfe is the routine written out
+    // (link; watcher gone -> CALL the routine; else the freeze body; Flags08|2).
     float const Perf = GetPerfGenericEffectPerf();
     if (!(This->Priority0C >= Perf))
     {
@@ -281,26 +277,26 @@ unsigned char FBeamEffect::UpdateVisibility(float Dt, FSpaceCamera* Cam)
         return static_cast<unsigned char>(This->Flags70 & 1u);
     }
 
-    // 0x004f99b9: the object's own slot +8 (LAB_004f9480) -> world position, radius in ST0.
+    // the object's own slot +8 (the branch) -> world position, radius in ST0.
     FVector WorldPos;
     float const Radius = This->GetWorldPos(&WorldPos);
 
-    // 0x004f99ca: camera slot 0x40 (the view transform at +0x38), then I3DMathEngine +0x28
-    // through DAT_00674f50.
+    // camera slot 0x40 (the view transform at +0x38), then I3DMathEngine +0x28
+    // through the field.
     ICamera* const CamIface = AsCamera(Cam);
     FTransform const* const ViewXform =
         reinterpret_cast<FTransform const*>(CamIface->GetViewTransform());
     FVector ViewPos;
     EffectMath()->TransformXform(ViewPos, *ViewXform, WorldPos);
 
-    // 0x004f99f3: NegZ = -view.z; the sphere's far edge Radius + NegZ must lie strictly beyond
+    // NegZ = -view.z; the sphere's far edge Radius + NegZ must lie strictly beyond
     // the near plane (camera slot 0x20): FCOMP ZNear vs edge, TEST AH,5 / JP leaves otherwise.
     float const NegZ = -ViewPos.Z;
     float const FarEdge = NegZ + Radius;
     if (!(CamIface->GetZNear() < FarEdge))
         return static_cast<unsigned char>(This->Flags70 & 1u);
 
-    // 0x004f9a1e: the pbubble test. Distance (NegZ - Radius) must be strictly inside
+    // the pbubble test. Distance (NegZ - Radius) must be strictly inside
     // Near + (Far - Near) * (1.0 - perf); FCOMPP + TEST AH,0x41 / JNZ leaves on <=, = or NaN.
     FEffectTypeInfo const* const TypeInfo =
         EffectTypeInfoByIndex(static_cast<int>(This->EffectTypeId));
@@ -311,17 +307,17 @@ unsigned char FBeamEffect::UpdateVisibility(float Dt, FSpaceCamera* Cam)
     if (!(Threshold > NearDistance))
         return static_cast<unsigned char>(This->Flags70 & 1u);
 
-    // 0x004f9a56 / 0x004f9a79: the two side planes (camera +0x80/+0x88 and +0x90/+0x94).
+    // / 0x004f9a79: the two side planes (camera +0x80/+0x88 and +0x90/+0x94).
     // TEST AH,0x41 / JP -> outside when the plane distance is greater than the radius or NaN.
     float const DistX = fabsf(ViewPos.X) * Cam->PlaneX[0] + ViewPos.Z * Cam->PlaneX[2];
     float const DistY = fabsf(ViewPos.Y) * Cam->PlaneY[1] + ViewPos.Z * Cam->PlaneY[2];
     if (!(DistX <= Radius) || !(DistY <= Radius))
     {
-        This->Flags70 = static_cast<unsigned char>(This->Flags70 & 0xfeu);   // 0x004f9ac0
+        This->Flags70 = static_cast<unsigned char>(This->Flags70 & 0xfeu);
         return static_cast<unsigned char>(This->Flags70 & 1u);
     }
 
-    This->Flags70 = static_cast<unsigned char>(This->Flags70 | 1u);           // 0x004f9a9c
+    This->Flags70 = static_cast<unsigned char>(This->Flags70 | 1u);
     return static_cast<unsigned char>(This->Flags70 & 1u);
 }
 
@@ -330,34 +326,34 @@ unsigned char BeamEffectUpdateVisibility(FBeamEffect* This, float Dt, FSpaceCame
     return This->FBeamEffect::UpdateVisibility(Dt, Cam);
 }
 
-// LAB_004f9c20 — vtable[+0x18].
+// — vtable[+0x18].
 unsigned char FBeamEffect::TickDraw(float Dt, FSpaceCamera* Cam)
 {
     FBeamEffect* const This = this;
-    // 0x004f9c25: FUN_005792b0(0x26).
+    // the routine(0x26).
     if (GetGameOption(kGameOptParticles) == 0)
         return 0;
 
-    // 0x004f9c3f: FUN_0042d740.
+    // the routine.
     if (ShouldSkipLocalServerTick())
         return 1;
 
-    // 0x004f9c4c: TEST AH,1 / JNZ -- below zero (or NaN) restarts at 0, else accumulates.
+    // TEST AH,1 / JNZ -- below zero (or NaN) restarts at 0, else accumulates.
     if (!(This->Progress78 >= 0.0f))
         This->Progress78 = 0.0f;
     else
         This->Progress78 = This->Progress78 + Dt;
 
-    // 0x004f9c6d: TEST AH,0x41 / JNZ -- no lifetime (<= 0 or NaN): keep drawing.
+    // TEST AH,0x41 / JNZ -- no lifetime (<= 0 or NaN): keep drawing.
     if (!(This->Float7C > 0.0f))
         return 1;
 
-    // 0x004f9c81: TEST AH,0x41 / JP -- still above zero (or NaN) after the tick: keep drawing.
+    // TEST AH,0x41 / JP -- still above zero (or NaN) after the tick: keep drawing.
     This->Float7C = This->Float7C - Dt;
     if (!(This->Float7C <= 0.0f))
         return 1;
 
-    // 0x004f9c9c..0x004f9dc5: FUN_004f7bd0 written out, then the explicit `OR [+8],2` retail
+    // the routine written out, then the explicit `OR [+8],2` baseline
     // repeats after the recursive-call arm (already set by the kill).
     EffectKill(AsEffect(This));
     This->Flags08 = static_cast<unsigned char>(This->Flags08 | 2u);
@@ -369,7 +365,7 @@ unsigned char BeamEffectTickDraw(FBeamEffect* This, float Dt, FSpaceCamera* Cam)
     return This->FBeamEffect::TickDraw(Dt, Cam);
 }
 
-// LAB_004fa0a0 — listing txt:389985–390134 (MulTransform path included).
+// — listing txt:389985–390134 (MulTransform path included).
 unsigned char FBeamEffect::BuildGeometry(FSpaceCamera* Cam)
 {
     FBeamEffect* const This = this;
@@ -380,28 +376,28 @@ unsigned char FBeamEffect::BuildGeometry(FSpaceCamera* Cam)
     FTransform StackXform;
     FTransform* UseXform = &This->LocalXform;
 
-    // 0x004fa0c5..0x004fa177: with a watched object (the Watchable at +0x44, and that minus
+    // with a watched object (the Watchable at +0x44, and that minus
     // eight, both non-null) and an engine instance (+0x40 != -1), the instance transform
-    // (IEngine slot 0xa0) times the local one (math engine slot 0x1c, DAT_00674f50);
-    // otherwise the local transform at +0x10. Retail copies either into a stack local.
+    // (IEngine slot 0xa0) times the local one (math engine slot 0x1c, the field);
+    // otherwise the local transform at +0x10. baseline copies either into a stack local.
     Watchable const* const Watched = This->Watcher.target();
     if (Watched != nullptr && reinterpret_cast<uintptr_t>(Watched) - 8u != 0u &&
         This->EngineIndex != -1)
     {
-        float* const InstanceRaw = DALib::Engine->GetInstanceTransform(
+        float* const InstanceRaw = NeuronRuntime::Engine->GetInstanceTransform(
             reinterpret_cast<void*>(static_cast<intptr_t>(This->EngineIndex)));
         EffectMath()->MulTransform(StackXform, *reinterpret_cast<FTransform const*>(InstanceRaw),
                                    This->LocalXform);
         UseXform = &StackXform;
     }
 
-    // 0x004fa17c..0x004fa1aa: T = +0x78 / +0x80 only when +0x78 is below +0x80 (TEST AH,5 /
+    // T = +0x78 / +0x80 only when +0x78 is below +0x80 (TEST AH,5 /
     // JP skips equal, above and unordered), else 1.
     float T = 1.0f;
     if (This->Progress78 < This->ProgressDenom80)
         T = This->Progress78 / This->ProgressDenom80;
 
-    // 0x004fa1ae..0x004fa1e6: with +0x7c above 0, intensity = +0x7c / 0.3f (DAT_006129cc); the
+    // with +0x7c above 0, intensity = +0x7c / 0.3f (the field); the
     // quotient still on the FPU at or below 0 returns 0 (TEST AH,0x41 / JP).
     float Intensity = 1.0f;
     if (This->Float7C > 0.0f)
@@ -437,7 +433,7 @@ unsigned char BeamEffectBuildGeometry(FBeamEffect* This, FSpaceCamera* Cam)
     return This->FBeamEffect::BuildGeometry(Cam);
 }
 
-// FUN_004fa270 (thiscall, RET 0xc, returns AL = 1) — OutpostFrontier.exe.txt:390144–391149.
+// (thiscall, RET 0xc, returns AL = 1) — OutpostFrontier–391149.
 int BeamEffectBuildSingleSegment(FBeamEffect* This, FTransform const* WorldXform, float T,
                                  float Intensity)
 {
@@ -448,7 +444,7 @@ int BeamEffectBuildSingleSegment(FBeamEffect* This, FTransform const* WorldXform
     float NearR = Arch->RadiusNear;
     if (T == 0.0f && (This->Flags70 & 8u) != 0u)
     {
-        // 0x004fa2a0: FUN_0054bc80 (IsFirstPersonCameraCurrent, space_camera.cpp).
+        // the routine (IsFirstPersonCameraCurrent, space_camera.cpp).
         if (!IsFirstPersonCameraCurrent())
             NearR = Arch->RadiusNearAlt;
     }
@@ -457,7 +453,7 @@ int BeamEffectBuildSingleSegment(FBeamEffect* This, FTransform const* WorldXform
     if (TipR < NearR)
         TipR = NearR;
 
-    // 0x004fa2ca..0x004fa394: no clamps here (unlike FUN_004fb1e0). The Z sums keep the
+    // no clamps here (unlike the routine). The Z sums keep the
     // product on the FPU and round once at the store.
     float const Delta0 = Arch->Radius0 - NearR;
     float const Delta1 = Arch->Radius1 - NearR;
@@ -469,7 +465,7 @@ int BeamEffectBuildSingleSegment(FBeamEffect* This, FTransform const* WorldXform
     WorldT.Y = WorldXform->Translation.Y;
     WorldT.Z = WorldXform->Translation.Z;
 
-    // Local axis samples (FUN_00422b80 = Vector3 store; FUN_004e7090 = TransformXform).
+    // Local axis samples (the routine = Vector3 store; the routine = TransformXform).
     // Cross arms live in local XY; beam extent is local Z.
     // Listing: EndR at +0xa4 with zeros at +0x9c/+0xa0 → src (0,0,EndR);
     // StartRNeg at +0xb0 with zeros at +0xa8/+0xac → src (0,0,StartRNeg).
@@ -498,8 +494,8 @@ int BeamEffectBuildSingleSegment(FBeamEffect* This, FTransform const* WorldXform
     FVector XfStart; // stack +0x90
     FVector Tmp;
 
-    // 0x004fa3c0..0x004fa44e: four FUN_004e7090 calls (HudTransformPoint) -- the NearR axes
-    // and their negations (FUN_00422b80 on negated components).
+    // four the routine calls (HudTransformPoint) -- the NearR axes
+    // and their negations (the routine on negated components).
     HudTransformPoint(WorldXform, &XfPosX, &VX);
     SetVec(&Tmp, -VX.X, -VX.Y, -VX.Z);
     HudTransformPoint(WorldXform, &XfNegX, &Tmp);
@@ -507,7 +503,7 @@ int BeamEffectBuildSingleSegment(FBeamEffect* This, FTransform const* WorldXform
     SetVec(&Tmp, -VY.X, -VY.Y, -VY.Z);
     HudTransformPoint(WorldXform, &XfNegY, &Tmp);
 
-    // 0x004fa453..0x004fa592: six inline TransformXform calls through DAT_00674f50 (re-read and
+    // six inline TransformXform calls through the field (re-read and
     // lazily acquired before each), straight into their destinations: the tip axes, their
     // negations, then Start (+0x90) and End (+0x30).
     EffectMath()->TransformXform(XfTipPosX, *WorldXform, TipX);
@@ -636,14 +632,14 @@ int BeamEffectBuildSingleSegment(FBeamEffect* This, FTransform const* WorldXform
     EffectVertexBatchPushTriangle(Batch, A0, A1, A6);
     EffectVertexBatchPushTriangle(Batch, A0, A2, A3);
     EffectVertexBatchPushTriangle(Batch, A0, A2, A4);
-    // 0x004fb1ae reads frame +0x3c, which held A0 until 0x004fb16d stored the MOVZX'd A5 over
+    // reads frame +0x3c, which held A0 until 0x004fb16d stored the MOVZX'd A5 over
     // it (MOV [ESP+0x48],EAX with three arguments pushed); A0 itself stays in ESI.
     EffectVertexBatchPushTriangle(Batch, A0, A2, A5);
     EffectVertexBatchPushTriangle(Batch, A0, A2, A6);
     return 1;
 }
 
-// FUN_00423b30 (cdecl): Out = A + B, per component.
+// (cdecl): Out = A + B, per component.
 static void VecAdd(FVector* Out, FVector const* A, FVector const* B)
 {
     Out->X = A->X + B->X;
@@ -651,7 +647,7 @@ static void VecAdd(FVector* Out, FVector const* A, FVector const* B)
     Out->Z = A->Z + B->Z;
 }
 
-// FUN_00411350 (thiscall on In, RET 4) and the FUN_00422b80 ctor on negated components: Out = -In.
+// (thiscall on In, RET 4) and the the routine ctor on negated components: Out = -In.
 static void VecNegate(FVector* Out, FVector const* In)
 {
     Out->X = -In->X;
@@ -659,7 +655,7 @@ static void VecNegate(FVector* Out, FVector const* In)
     Out->Z = -In->Z;
 }
 
-// FUN_004fb1e0 (thiscall, RET 0xc, returns AL = 1) -- the SegmentMode 1 ("BeamBolt") builder,
+// (thiscall, RET 0xc, returns AL = 1) -- the SegmentMode 1 ("BeamBolt") builder,
 // txt:391152-392620. A tip cross (TipR) fanned from the origin, then a tube: origin -> Start
 // behind it, the NearR ring around the origin, the ring pushed forward to Mid, and Mid ->
 // Mid+End in front. Frame locals are named in comments by their offset from ESP after the
@@ -670,7 +666,7 @@ int BeamEffectBuildMultiSegment(FBeamEffect* This, FTransform const* WorldXform,
     FBeamEffectArch* const Arch = This->Arch;
     FEffectVertexBatch* const Batch = &G_EffectVertexBatch;
 
-    // 0x004fb1e9..0x004fb219: NearR = +0x6c, or flash_size +0x78 when T == 0 (TEST AH,0x44 /
+    // NearR = +0x6c, or flash_size +0x78 when T == 0 (TEST AH,0x44 /
     // JP keeps +0x6c on unequal and unordered); TipR = +0x74, raised to NearR when below it
     // (FCOM, TEST AH,5 / JP).
     float NearR = Arch->RadiusNear;
@@ -680,7 +676,7 @@ int BeamEffectBuildMultiSegment(FBeamEffect* This, FTransform const* WorldXform,
     if (TipR < NearR)
         TipR = NearR;
 
-    // 0x004fb21b..0x004fb273: the two lengths less NearR and core_length, each zeroed when
+    // the two lengths less NearR and core_length, each zeroed when
     // below 0 (TEST AH,5 / JP keeps equal, above and unordered).
     float Delta0 = Arch->Radius0 - NearR;   // +0x28
     float Delta1 = Arch->Radius1 - NearR;   // +0x20
@@ -692,7 +688,7 @@ int BeamEffectBuildMultiSegment(FBeamEffect* This, FTransform const* WorldXform,
     if (MidR < 0.0f)
         MidR = 0.0f;
 
-    // 0x004fb27b..0x004fb377: the local vectors. The Z sums keep the product on the FPU and
+    // the local vectors. The Z sums keep the product on the FPU and
     // round once at the store.
     FVector NearX;                                         // +0x60
     SetVec(&NearX, NearR, 0.0f, 0.0f);
@@ -714,8 +710,8 @@ int BeamEffectBuildMultiSegment(FBeamEffect* This, FTransform const* WorldXform,
     FVector EndLocal;                                      // +0x128
     SetVec(&EndLocal, 0.0f, 0.0f, static_cast<float>(static_cast<double>(Delta1) * T + NearR));
 
-    // 0x004fb379..0x004fb4ae: nine FUN_004e7090 calls (HudTransformPoint) -- each axis, then
-    // its negation (FUN_00411350 / FUN_00422b80 into +0x30), then the Start point.
+    // nine the routine calls (HudTransformPoint) -- each axis, then
+    // its negation (the routine / the routine into +0x30), then the Start point.
     FVector Tmp;                                           // +0x30
     FVector XfNearPosX;                                    // +0x134
     FVector XfNearNegX;                                    // +0x104
@@ -740,9 +736,9 @@ int BeamEffectBuildMultiSegment(FBeamEffect* This, FTransform const* WorldXform,
     HudTransformPoint(WorldXform, &XfTipNegY, &Tmp);
     HudTransformPoint(WorldXform, &XfStart, &StartLocal);
 
-    // 0x004fb4b3..0x004fb671: six inline TransformXform calls through DAT_00674f50 (re-read and
+    // six inline TransformXform calls through the field (re-read and
     // lazily acquired before each), straight into their destinations; the sums are
-    // FUN_00423b30.
+    // .
     FVector Sum;
     FVector XfEndMid;                                      // +0xe0
     FVector XfMid;                                         // +0xc8
@@ -764,7 +760,7 @@ int BeamEffectBuildMultiSegment(FBeamEffect* This, FTransform const* WorldXform,
     VecAdd(&Sum, &Tmp, &MidLocal);
     EffectMath()->TransformXform(XfNearNegYMid, *WorldXform, Sum);
 
-    // 0x004fb674..0x004fb6d5: head_texture (+0x08) == 1 -> V {0, 0.5}, else {0.5, 1}, and the
+    // head_texture (+0x08) == 1 -> V {0, 0.5}, else {0.5, 1}, and the
     // midpoint (sum * 0.5 double, kept on the FPU until the first vertex stores it);
     // trail_texture (+0x0c) == 1 -> {0, 0.45}, else {0.55, 1}.
     float UvV0;                                            // +0x24
@@ -794,13 +790,13 @@ int BeamEffectBuildMultiSegment(FBeamEffect* This, FTransform const* WorldXform,
         UvU1 = kOne;
     }
 
-    // 0x004fb6d5..0x004fb6ed: head_brightness and trail_brightness times the intensity.
+    // head_brightness and trail_brightness times the intensity.
     float const Scale0 = Intensity * Arch->IntensityScale0;   // +0x2c
     float const Scale1 = Intensity * Arch->IntensityScale1;   // +0x10
 
     // --- tip cross, head_brightness (0x004fb6f1..0x004fbf40) ---
     // Colour bytes are ftol(Scale * colour * 255.0) (the low byte of the truncation), alpha
-    // 0xff. The first eight appends are FUN_0046eab0 written out inline.
+    // 0xff. The first eight appends are the routine written out inline.
     SetBatchColorRgb(Batch, Scale0, Arch->ColorOuterR, Arch->ColorOuterG, Arch->ColorOuterB);
     Batch->U = kUvCore;
     Batch->V = UvVMid;
@@ -812,7 +808,7 @@ int BeamEffectBuildMultiSegment(FBeamEffect* This, FTransform const* WorldXform,
     Batch->V = UvV0;
     unsigned short const I1 = static_cast<unsigned short>( // +0x98
         EffectVertexBatchAppend(Batch, XfTipPosX.X, XfTipPosX.Y, XfTipPosX.Z));
-    // 0x004fba8a: V is read from +0x24 before that slot is reused for the position -- still V0.
+    // V is read from +0x24 before that slot is reused for the position -- still V0.
     Batch->U = kOne;
     Batch->V = UvV0;
     unsigned short const I2 = static_cast<unsigned short>( // +0x2c
@@ -839,8 +835,8 @@ int BeamEffectBuildMultiSegment(FBeamEffect* This, FTransform const* WorldXform,
     unsigned short const A1 = static_cast<unsigned short>( // +0x88
         EffectVertexBatchAppend(Batch, XfStart.X, XfStart.Y, XfStart.Z));
 
-    // 0x004fc2f0..0x004fc4d6: outter_color, U 0.25, V = the second trail V; the NearR ring.
-    // From here on the appends are real FUN_0046eab0 calls.
+    // outter_color, U 0.25, V = the second trail V; the NearR ring.
+    // From here on the appends are real the routine calls.
     SetBatchColorRgb(Batch, Scale1, Arch->ColorTipR, Arch->ColorTipG, Arch->ColorTipB);
     Batch->U = kUvMid;
     Batch->V = UvU1;
@@ -853,21 +849,21 @@ int BeamEffectBuildMultiSegment(FBeamEffect* This, FTransform const* WorldXform,
     unsigned short const B2 = static_cast<unsigned short>( // +0x24
         EffectVertexBatchAppend(Batch, XfNearNegY.X, XfNearNegY.Y, XfNearNegY.Z));
 
-    // 0x004fc54f..0x004fc5d3: sec_core_color, U 0, the first trail V; Mid.
+    // sec_core_color, U 0, the first trail V; Mid.
     SetBatchColorRgb(Batch, Scale1, Arch->ColorBand1R, Arch->ColorBand1G, Arch->ColorBand1B);
     Batch->U = 0.0f;
     Batch->V = UvU0;
     unsigned short const B3 = static_cast<unsigned short>( // +0xa0
         EffectVertexBatchAppend(Batch, XfMid.X, XfMid.Y, XfMid.Z));
 
-    // 0x004fc5d8..0x004fc65f: tail_color, U 0.25, the second trail V; Mid + End.
+    // tail_color, U 0.25, the second trail V; Mid + End.
     SetBatchColorRgb(Batch, Scale1, Arch->ColorMidR, Arch->ColorMidG, Arch->ColorMidB);
     Batch->U = kUvMid;
     Batch->V = UvU1;
     unsigned short const B4 = static_cast<unsigned short>( // +0x94 (stored after SUB ESP,0xc)
         EffectVertexBatchAppend(Batch, XfEndMid.X, XfEndMid.Y, XfEndMid.Z));
 
-    // 0x004fc664..0x004fc738: FUN_004fc950 with the float-rounded products trail_brightness *
+    // the routine with the float-rounded products trail_brightness *
     // sec_outter_color, U 0.25, the first trail V; the ring pushed forward to Mid.
     EffectVertexBatchSetColor(Batch, Scale1 * Arch->ColorBand2R, Scale1 * Arch->ColorBand2G,
                               Scale1 * Arch->ColorBand2B);
@@ -882,7 +878,7 @@ int BeamEffectBuildMultiSegment(FBeamEffect* This, FTransform const* WorldXform,
     unsigned short const C3 = static_cast<unsigned short>( // +0x28 (stored after three PUSHes)
         EffectVertexBatchAppend(Batch, XfNearNegYMid.X, XfNearNegYMid.Y, XfNearNegYMid.Z));
 
-    // 0x004fc73d..0x004fc88f: FUN_004fc9a0 triangles and FUN_004fca50 quads.
+    // the routine triangles and the routine quads.
     EffectVertexBatchPushTriangle(Batch, I0, I1, I2);
     EffectVertexBatchPushTriangle(Batch, I0, I3, I2);
     EffectVertexBatchPushTriangle(Batch, I0, I3, I4);

@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -9,19 +5,19 @@
 #include "common_exports.h"
 
 // ============================================================================
-// MetaNode<T> / MetaList<T> / OwnerList<T> -- retail's intrusive doubly linked
+// MetaNode<T> / MetaList<T> / OwnerList<T> -- baseline's intrusive doubly linked
 // list templates (Common.dll exports the GoodDesc instantiations; Common.dll,
 // Server.dll and OutpostFrontier.exe each export OwnerList<pub::SpaceObj::CargoDesc>).
-//
+
 // Layout (all instantiations): vptr +0x00, Head +0x04, Tail +0x08, bUseHeap
 // (a byte) +0x0C, FreeList +0x10; sizeof 0x14. A node is {Next +0x00, Prev
 // +0x04, Data +0x08}, allocated with operator new(0xc). With bUseHeap set, freed
 // nodes are pushed on FreeList and reused by alloc_node; otherwise they are
 // deleted.
-//
+
 // Member bodies below are traced from the MetaList<GoodDesc> instantiation in
-// Common.dll (.text:0627c5c0-0627ca17, plus the ICF-folded getters at
-// .text:062a66a0 / 062d1ad0 and the empty assignment at .text:062ed730).
+// Common.dll (module storage-0627ca17, plus the ICF-folded getters at
+// / 062d1ad0 and the empty assignment at module storage).
 // ============================================================================
 
 template <typename T>
@@ -37,22 +33,22 @@ template <typename T>
 class MetaList
 {
 public:
-    // .text:0627c670: Head, Tail, FreeList = 0; bUseHeap = the argument. The
+    // Head, Tail, FreeList = 0; bUseHeap = the argument. The
     // default argument is what makes MSVC emit the exported default constructor
-    // closure ??_F (.text:0627bde0, the same stores with 0).
+    // closure ??_F (module storage, the same stores with 0).
     MetaList(bool bInUseHeap = false)
         : Head(nullptr), Tail(nullptr), bUseHeap(bInUseHeap), FreeList(nullptr)
     {
     }
 
-    // .text:0627c930: the free() walk, then the free_heap() walk, inlined.
+    // the free() walk, then the free_heap() walk, inlined.
     virtual ~MetaList()
     {
         free();
         free_heap();
     }
 
-    // .text:0627c6e0
+
     void prepend(T* Item)
     {
         MetaNode<T>* Node = alloc_node();
@@ -69,7 +65,7 @@ public:
         Head = Node;
     }
 
-    // .text:0627c720: splice Other's chain after Tail, then empty Other (its
+    // splice Other's chain after Tail, then empty Other (its
     // FreeList is left alone).
     void append(MetaList& Other)
     {
@@ -90,7 +86,7 @@ public:
         Other.Head = nullptr;
     }
 
-    // .text:0627c760
+
     void append(T* Item)
     {
         MetaNode<T>* Node = alloc_node();
@@ -107,7 +103,7 @@ public:
         Tail = Node;
     }
 
-    // .text:0627c7a0: After == 0 prepends, After == Tail appends (both inlined
+    // After == 0 prepends, After == Tail appends (both inlined
     // there), anything else links the new node between After and After->Next.
     void insert_after(MetaNode<T>* After, T* Item)
     {
@@ -129,7 +125,7 @@ public:
         Node->Next->Prev = Node;
     }
 
-    // .text:0627c840: unlink, free_node (inlined), and leave Node pointing at the
+    // unlink, free_node (inlined), and leave Node pointing at the
     // removed node's old Prev. A null Node is a no-op.
     void remove(MetaNode<T>*& Node)
     {
@@ -161,7 +157,7 @@ public:
         Node = OldPrev;
     }
 
-    // .text:0627c8d0: a null Node starts at Head (forward) or Tail (backward);
+    // a null Node starts at Head (forward) or Tail (backward);
     // otherwise it steps to Next or Prev. True while Node is non-null.
     bool traverse(MetaNode<T>*& Node, bool bForward) const
     {
@@ -172,7 +168,7 @@ public:
         return Node != nullptr;
     }
 
-    // .text:0627c990: every node goes to FreeList (bUseHeap) or is deleted; the
+    // every node goes to FreeList (bUseHeap) or is deleted; the
     // data pointers are not touched. Then Tail = Head = 0.
     void free()
     {
@@ -195,7 +191,7 @@ public:
         Head = nullptr;
     }
 
-    // .text:0627c9d0: delete every node on FreeList, then FreeList = 0.
+    // delete every node on FreeList, then FreeList = 0.
     void free_heap()
     {
         MetaNode<T>* Current = FreeList;
@@ -208,7 +204,7 @@ public:
         FreeList = nullptr;
     }
 
-    // .text:0627ca00
+
     unsigned int count() const
     {
         unsigned int Result = 0;
@@ -217,26 +213,26 @@ public:
         return Result;
     }
 
-    // .text:062d1ad0 (`MOV EAX,[ECX+4]; RET`, ICF-shared).
+    // (`MOV EAX,[ECX+4]; RET`, ICF-shared).
     MetaNode<T>* get_head() const { return Head; }
 
-    // .text:062a66a0 (`MOV EAX,[ECX+8]; RET`, ICF-shared).
+    // (`MOV EAX,[ECX+8]; RET`, ICF-shared).
     MetaNode<T>* get_tail() const { return Tail; }
 
 protected:
-    // .text:0627c5c0: only the vptr is stored; nothing is copied or initialised.
+    // only the vptr is stored; nothing is copied or initialised.
     MetaList(MetaList const& Other)
     {
         (void)Other;
     }
 
-    // .text:062ed730: empty (`RET 4`, ICF-shared); returns void.
+    // empty (`RET 4`, ICF-shared); returns void.
     void operator=(MetaList const& Other)
     {
         (void)Other;
     }
 
-    // .text:0627c690: pop FreeList when bUseHeap and it is not empty, otherwise
+    // pop FreeList when bUseHeap and it is not empty, otherwise
     // operator new(0xc) (the node is not initialised).
     MetaNode<T>* alloc_node()
     {
@@ -249,7 +245,7 @@ protected:
         return new MetaNode<T>;
     }
 
-    // .text:0627c6b0: with bUseHeap a non-null node is pushed on FreeList,
+    // with bUseHeap a non-null node is pushed on FreeList,
     // otherwise it is deleted.
     void free_node(MetaNode<T>* Node)
     {
@@ -271,9 +267,9 @@ protected:
     MetaNode<T>* FreeList; // +0x10
 };
 
-// How OwnerList<T>::free releases one element. Retail's free() is `delete Data`
+// How OwnerList<T>::free releases one element. baseline's free() is `delete Data`
 // on an element type with a trivial destructor, so only an operator delete call
-// survives: the class one where T declares it (OwnerList<GoodDesc>, .text:0627be93
+// survives: the class one where T declares it (OwnerList<GoodDesc>, module storage
 // -> ??3GoodDesc, JMP free), the global one otherwise. The generic form calls the
 // global operator delete directly because OwnerList<pub::SpaceObj::CargoDesc> is
 // instantiated with CargoDesc incomplete; an element type with its own operator
@@ -286,15 +282,15 @@ inline void OwnerListDeleteData(T* Data)
 
 // ============================================================================
 // OwnerList<T> -- a MetaList<T> that owns its elements.
-//
-// Server's RTTI for ??_7OwnerList<CargoDesc> (.rdata:06d64f24, COL
-// .rdata:06d6be3c) lists ".?AV?$MetaList@UCargoDesc@SpaceObj@pub@@@@" as the
+
+// Server's RTTI for ??_7OwnerList<CargoDesc> (module storage, COL
+// ) lists ".?AV?$MetaList@UCargoDesc@SpaceObj@pub@@@@" as the
 // base, and ~OwnerList re-stamps MetaList's vftable half way through.
-//
-// Bodies are identical in Common.dll (GoodDesc: .text:0627be00 ctor, 0627be20
+
+// Bodies are identical in Common.dll (GoodDesc: module storage ctor, 0627be20
 // copy ctor, 0627be50 dtor, 062ed500 operator=, 0627ca20 free; CargoDesc:
-// 062ed4d0, 062ed4f0, 062eed20, 062ed500, 062eecb0), Server.dll (CargoDesc:
-// 06ce3040, 06ce3060, 06ce5810, 06ce10d0, 06ce57a0) and OutpostFrontier.exe
+// , 062ed4f0, 062eed20, 062ed500, 062eecb0), Server.dll (CargoDesc:
+// , 06ce3060, 06ce5810, 06ce10d0, 06ce57a0) and OutpostFrontier.exe
 // (CargoDesc: 004c9770, 004c9790, 004ced60, 0041c1a0, 004cecf0).
 // ============================================================================
 template <typename T>

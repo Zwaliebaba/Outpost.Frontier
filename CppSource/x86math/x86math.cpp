@@ -1,19 +1,15 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "x86math.h"
 
-// DACOM-wide result codes (see the note in x86math.h); kept local until dacom.h owns them.
+// NEURONCOMPONENTS-wide result codes (see the note in x86math.h); kept local until neuroncomponents.h owns them.
 
 #include <cmath>
 #include <cstddef>
 #include <cstring>
 #include <new>
 
-int CallDacomStricmp(const char* Left, const char* Right);
+int CallNeuronComponentsStricmp(const char* Left, const char* Right);
 
 namespace
 {
@@ -21,15 +17,15 @@ namespace
     const char* G_ImplementationId = "x86";
     const float G_MinDet = 1e-8f;
     const unsigned int G_RegisterPriority = 0x40000000u;
-    // LAB_06f71170: CMPSB.REPE ECX=0xD — 12 chars + NUL, not CRT strcmp.
+    // CMPSB.REPE ECX=0xD — 12 chars + NUL, not CRT strcmp.
     const unsigned int G_ComponentNameBytes = 13;
     static_assert(sizeof(G_ComponentName) == G_ComponentNameBytes, "CMPSB ECX=0xD");
 
-    // DAT_06f74030..06f7442f: 0x400 bytes (06f74430 is a separate guard byte). Readers index
+    // 0x400 bytes (06f74430 is a separate guard byte). Readers index
     // with (bits >> 14) & 0x3FF (06f72851/06f728d1).
     unsigned char G_InvSqrtTable[0x400];
 
-    // Retail PE .data at DAT_06f74030 is BSS (on-disk zeros). FUN_06f71010 / DllMain fill all
+    // baseline PE .data at the field is BSS (on-disk zeros). the routine / DllMain fill all
     // 0x400 entries via FSQRT + FDIVR qword 1.0, then (bits + 0x2000) >> 15. Match that x87 path.
     void BuildInvSqrtTable()
     {
@@ -58,8 +54,8 @@ namespace
 #endif
             G_InvSqrtTable[Index] = static_cast<unsigned char>((RecipBits + 0x2000u) >> 15);
         }
-        // 06f7104c / 06f710fb: MOV byte [06f74230],0xFF = base + 0x200. Index 0x200 is the
-        // mantissa-1.0 slot (X = 1.0, 4.0, ...): its computed byte wraps to 0x00, retail patches it.
+        // / 06f710fb: MOV byte [06f74230],0xFF = base + 0x200. Index 0x200 is the
+        // mantissa-1.0 slot (X = 1.0, 4.0, ...): its computed byte wraps to 0x00, baseline patches it.
         G_InvSqrtTable[0x200] = 0xFF;
     }
 
@@ -82,7 +78,7 @@ namespace
         return Y;
     }
 
-    // LAB_06f71830: Rotate/TransformMatrix literal shared x87 body.
+    // Rotate/TransformMatrix literal shared x87 body.
     // Stores precede the next component source reads, including aliased calls.
     void MulVecByMatrix(FVector& Dst, const FMatrix& Matrix, const FVector& Source)
     {
@@ -125,7 +121,7 @@ namespace
         }
     }
 
-    // LAB_06f718f0: shared InverseRotate/TransposeTransform body. Each
+    // shared InverseRotate/TransposeTransform body. Each
     // output float is stored before the next component reads the source.
     void MulVecByTranspose(FVector& Dst, const FMatrix& Matrix, const FVector& Source)
     {
@@ -194,8 +190,8 @@ namespace
         Dst.D[2][2] = (Source.D[0][0] * Source.D[1][1] - Source.D[0][1] * Source.D[1][0]) * Scale;
     }
 
-    // Retail FSQRT + FDIVR dword 1.0 (DAT_06f730f8). quat_slerp (LAB_06f724d0)
-    // uses this path, not table InvSqrt (FUN_06f72830).
+    // baseline FSQRT + FDIVR dword 1.0 (the field). quat_slerp (the branch)
+    // uses this path, not table InvSqrt (the routine).
     float RecipSqrtFsqrt(float LenSq)
     {
         const float One = 1.0f;
@@ -214,10 +210,10 @@ namespace
 #endif
     }
 
-    // FastDot (FUN_06f71af0 + LAB_06f71d60…LAB_06f71f90): classify each row coeff
-    // as ==0 / ==1 / other. Retail layout: kernel @ +0xC, saved-ops int @ +0x10.
-    // Callers: FUN_06f719b0 (slot 17) and LAB_06f71fb0 (slot 16) only — both wired.
-    // Kernels are isolated thiscall / RET 4 / ST0. Slots 16/17 stay DACOM stdcall.
+    // FastDot (the routine + the branch…the branch): classify each row coeff
+    // as ==0 / ==1 / other. baseline layout: kernel @ +0xC, saved-ops int @ +0x10.
+    // Callers: the routine (slot 17) and the branch (slot 16) only — both wired.
+    // Kernels are isolated thiscall / RET 4 / ST0. Slots 16/17 stay NEURONCOMPONENTS stdcall.
     struct FFastDot
     {
         float A;
@@ -267,7 +263,7 @@ namespace
     }
 
 #if defined(_M_IX86)
-    // DAT_06f730fc — FLD of +0.0; FLDZ is the same value (ZZZ only).
+    // — FLD of +0.0; FLDZ is the same value (ZZZ only).
     __declspec(naked) float FFastDot::FastDotZZZ(const FVector* /*Vec*/)
     {
         __asm
@@ -617,8 +613,8 @@ namespace
     static_assert(offsetof(FFastDot, A) == 0, "FastDot A");
     static_assert(offsetof(FFastDot, B) == 4, "FastDot B");
     static_assert(offsetof(FFastDot, C) == 8, "FastDot C");
-    static_assert(offsetof(FFastDot, Kernel) == 0xC, "retail kernel @ +0xC");
-    static_assert(offsetof(FFastDot, SavedOps) == 0x10, "retail saved-ops @ +0x10");
+    static_assert(offsetof(FFastDot, Kernel) == 0xC, "baseline kernel @ +0xC");
+    static_assert(offsetof(FFastDot, SavedOps) == 0x10, "baseline saved-ops @ +0x10");
     static_assert(sizeof(FFastDotKernel) == 4, "MSVC simple-class member pointer is a code address");
 
     // Ordinary C++ member dispatch; the native result/store boundary is
@@ -714,17 +710,17 @@ namespace
 
 struct FMathEngine final : I3DMathEngine, IComponentFactory
 {
-    GENRESULT DACOM_API QueryInterface(const char* /*Iid*/, void** Out) override
+    GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* /*Iid*/, void** Out) override
     {
         if (Out != nullptr)
             *Out = nullptr;
         return GR_GENERIC;
     }
 
-    unsigned long DACOM_API AddRef() override { return 1; }
-    unsigned long DACOM_API Release() override { return 1; }
+    unsigned long NEURONCOMPONENTS_API AddRef() override { return 1; }
+    unsigned long NEURONCOMPONENTS_API Release() override { return 1; }
 
-    GENRESULT DACOM_API CreateInstance(AGGDESC* Desc, void** Instance) override
+    GENRESULT NEURONCOMPONENTS_API CreateInstance(AGGDESC* Desc, void** Instance) override
     {
         if (Instance == nullptr)
             return GR_INVALID_PARMS;
@@ -738,7 +734,7 @@ struct FMathEngine final : I3DMathEngine, IComponentFactory
             std::memcmp(Info->InterfaceName, G_ComponentName, G_ComponentNameBytes) != 0)
             return GR_INTERFACE_UNSUPPORTED;
 
-        if (Info->Implementation != nullptr && CallDacomStricmp(Info->Implementation, G_ImplementationId) != 0)
+        if (Info->Implementation != nullptr && CallNeuronComponentsStricmp(Info->Implementation, G_ImplementationId) != 0)
             return GR_INTERFACE_UNSUPPORTED;
 
         AddRef();
@@ -746,7 +742,7 @@ struct FMathEngine final : I3DMathEngine, IComponentFactory
         return GR_OK;
     }
 
-    GENRESULT DACOM_API Inverse(FMatrix& Dst, const FMatrix& Source) override
+    GENRESULT NEURONCOMPONENTS_API Inverse(FMatrix& Dst, const FMatrix& Source) override
     {
         const float Determinant = Det(Source);
         if (std::fabs(Determinant) > G_MinDet)
@@ -758,7 +754,7 @@ struct FMathEngine final : I3DMathEngine, IComponentFactory
         return GR_INVALID_PARMS;
     }
 
-    GENRESULT DACOM_API Scale(FMatrix& Dst, const FMatrix& Source, float Scale) override
+    GENRESULT NEURONCOMPONENTS_API Scale(FMatrix& Dst, const FMatrix& Source, float Scale) override
     {
         for (int Row = 0; Row < 3; ++Row)
         {
@@ -768,7 +764,7 @@ struct FMathEngine final : I3DMathEngine, IComponentFactory
         return GR_OK;
     }
 
-    float DACOM_API Det(const FMatrix& Source) override
+    float NEURONCOMPONENTS_API Det(const FMatrix& Source) override
     {
         return Source.D[0][0] * Source.D[1][1] * Source.D[2][2] +
                Source.D[0][1] * Source.D[1][2] * Source.D[2][0] +
@@ -778,7 +774,7 @@ struct FMathEngine final : I3DMathEngine, IComponentFactory
                Source.D[0][2] * Source.D[1][1] * Source.D[2][0];
     }
 
-    GENRESULT DACOM_API MulQuat(FQuaternion& Dst, const FQuaternion& A, const FQuaternion& B) override
+    GENRESULT NEURONCOMPONENTS_API MulQuat(FQuaternion& Dst, const FQuaternion& A, const FQuaternion& B) override
     {
         Dst.W = A.W * B.W - (A.X * B.X + A.Y * B.Y + A.Z * B.Z);
         Dst.X = A.W * B.X + B.W * A.X + (A.Y * B.Z - A.Z * B.Y);
@@ -787,9 +783,9 @@ struct FMathEngine final : I3DMathEngine, IComponentFactory
         return GR_OK;
     }
 
-    GENRESULT DACOM_API MulTransform(FTransform& Dst, const FTransform& A, const FTransform& B) override
+    GENRESULT NEURONCOMPONENTS_API MulTransform(FTransform& Dst, const FTransform& A, const FTransform& B) override
     {
-        // LAB_06f716f0: literal row/translation interleave and x87 sum order.
+        // literal row/translation interleave and x87 sum order.
         // Input words are read after each output store, including aliased calls.
         float* ResultTransform = &Dst.Rotation.D[0][0];
         const float* LeftTransform = &A.Rotation.D[0][0];
@@ -915,7 +911,7 @@ struct FMathEngine final : I3DMathEngine, IComponentFactory
         return GR_OK;
     }
 
-    GENRESULT DACOM_API MulMatrix(FMatrix& Dst, const FMatrix& A, const FMatrix& B) override
+    GENRESULT NEURONCOMPONENTS_API MulMatrix(FMatrix& Dst, const FMatrix& A, const FMatrix& B) override
     {
         // 71670..716e1: literal x87 loop, preserving product/add/store order
         // and immediate alias visibility between individual result writes.
@@ -967,7 +963,7 @@ struct FMathEngine final : I3DMathEngine, IComponentFactory
         return GR_OK;
     }
 
-    GENRESULT DACOM_API TransformQuat(FVector& Dst, const FQuaternion& Quat, const FVector& Source) override
+    GENRESULT NEURONCOMPONENTS_API TransformQuat(FVector& Dst, const FQuaternion& Quat, const FVector& Source) override
     {
         const float DotVv = Quat.X * Quat.X + Quat.Y * Quat.Y + Quat.Z * Quat.Z;
         const float Scale = Quat.W * Quat.W - DotVv;
@@ -981,7 +977,7 @@ struct FMathEngine final : I3DMathEngine, IComponentFactory
         return GR_OK;
     }
 
-    GENRESULT DACOM_API TransformXform(FVector& Dst, const FTransform& Xform, const FVector& Source) override
+    GENRESULT NEURONCOMPONENTS_API TransformXform(FVector& Dst, const FTransform& Xform, const FVector& Source) override
     {
         // 71890..718ed: translation is added while each dot remains extended,
         // then that component is stored before the next source read.
@@ -1027,31 +1023,31 @@ struct FMathEngine final : I3DMathEngine, IComponentFactory
         return GR_OK;
     }
 
-    GENRESULT DACOM_API TransformMatrix(FVector& Dst, const FMatrix& Matrix, const FVector& Source) override
+    GENRESULT NEURONCOMPONENTS_API TransformMatrix(FVector& Dst, const FMatrix& Matrix, const FVector& Source) override
     {
         MulVecByMatrix(Dst, Matrix, Source);
         return GR_OK;
     }
 
-    GENRESULT DACOM_API Rotate(FVector& Dst, const FTransform& Xform, const FVector& Source) override
+    GENRESULT NEURONCOMPONENTS_API Rotate(FVector& Dst, const FTransform& Xform, const FVector& Source) override
     {
         MulVecByMatrix(Dst, Xform.Rotation, Source);
         return GR_OK;
     }
 
-    GENRESULT DACOM_API InverseRotate(FVector& Dst, const FTransform& Xform, const FVector& Source) override
+    GENRESULT NEURONCOMPONENTS_API InverseRotate(FVector& Dst, const FTransform& Xform, const FVector& Source) override
     {
         MulVecByTranspose(Dst, Xform.Rotation, Source);
         return GR_OK;
     }
 
-    GENRESULT DACOM_API TransposeTransform(FVector& Dst, const FMatrix& Matrix, const FVector& Source) override
+    GENRESULT NEURONCOMPONENTS_API TransposeTransform(FVector& Dst, const FMatrix& Matrix, const FVector& Source) override
     {
         MulVecByTranspose(Dst, Matrix, Source);
         return GR_OK;
     }
 
-    GENRESULT DACOM_API InverseTransform(FVector& Dst, const FTransform& Xform, const FVector& Source) override
+    GENRESULT NEURONCOMPONENTS_API InverseTransform(FVector& Dst, const FTransform& Xform, const FVector& Source) override
     {
         const FVector Delta = {Source.X - Xform.Translation.X, Source.Y - Xform.Translation.Y,
                                Source.Z - Xform.Translation.Z};
@@ -1059,7 +1055,7 @@ struct FMathEngine final : I3DMathEngine, IComponentFactory
         return GR_OK;
     }
 
-    GENRESULT DACOM_API TransformListXform(FVector* Dst, const FTransform& Xform, const FVector* Source,
+    GENRESULT NEURONCOMPONENTS_API TransformListXform(FVector* Dst, const FTransform& Xform, const FVector* Source,
                                            int Count) override
     {
         if (Xform.Translation.X == 0.0f && Xform.Translation.Y == 0.0f && Xform.Translation.Z == 0.0f)
@@ -1069,14 +1065,14 @@ struct FMathEngine final : I3DMathEngine, IComponentFactory
         return GR_OK;
     }
 
-    GENRESULT DACOM_API TransformListMatrix(FVector* Dst, const FMatrix& Matrix, const FVector* Source,
+    GENRESULT NEURONCOMPONENTS_API TransformListMatrix(FVector* Dst, const FMatrix& Matrix, const FVector* Source,
                                             int Count) override
     {
         TransformListFast(Dst, Matrix, Source, Count, nullptr);
         return GR_OK;
     }
 
-    GENRESULT DACOM_API TransposeTransformList(FVector* Dst, const FMatrix& Matrix, const FVector* Source,
+    GENRESULT NEURONCOMPONENTS_API TransposeTransformList(FVector* Dst, const FMatrix& Matrix, const FVector* Source,
                                                int Count) override
     {
         FMatrix Transposed;
@@ -1084,7 +1080,7 @@ struct FMathEngine final : I3DMathEngine, IComponentFactory
         return TransformListMatrix(Dst, Transposed, Source, Count);
     }
 
-    GENRESULT DACOM_API InverseTransformList(FVector* Dst, const FTransform& Xform, const FVector* Source,
+    GENRESULT NEURONCOMPONENTS_API InverseTransformList(FVector* Dst, const FTransform& Xform, const FVector* Source,
                                              int Count) override
     {
         FVector NegTranslation = {-Xform.Translation.X, -Xform.Translation.Y, -Xform.Translation.Z};
@@ -1097,7 +1093,7 @@ struct FMathEngine final : I3DMathEngine, IComponentFactory
         return TransformListXform(Dst, Inverse, Source, Count);
     }
 
-    GENRESULT DACOM_API MatrixToQuaternion(FQuaternion& Dst, const FMatrix& Source) override
+    GENRESULT NEURONCOMPONENTS_API MatrixToQuaternion(FQuaternion& Dst, const FMatrix& Source) override
     {
         const FMatrix* SourceMatrix = &Source;
         FQuaternion* DestinationQuat = &Dst;
@@ -1105,7 +1101,7 @@ struct FMathEngine final : I3DMathEngine, IComponentFactory
         const float One = 1.0f;
         const float Half = 0.5f;
         static const int NextAxis[3] = {1, 2, 0};
-        // LAB_06f72290..723b1 keeps the trace, root and reciprocal on x87;
+        // ..723b1 keeps the trace, root and reciprocal on x87;
         // only the four destination writes round to float. AND EAX,4100/JNZ
         // takes the not-greater (including unordered) branch in all three tests.
         // Keep the branch-specific store/read order for aliased source/output.
@@ -1206,7 +1202,7 @@ struct FMathEngine final : I3DMathEngine, IComponentFactory
         return GR_OK;
     }
 
-    GENRESULT DACOM_API QuaternionToMatrix(FMatrix& Dst, const FQuaternion& Quat) override
+    GENRESULT NEURONCOMPONENTS_API QuaternionToMatrix(FMatrix& Dst, const FQuaternion& Quat) override
     {
         // 723c0..724c4: retain S/Xs and selected products on x87; the
         // asymmetric float scratch stores are part of the arithmetic contract.
@@ -1304,12 +1300,12 @@ struct FMathEngine final : I3DMathEngine, IComponentFactory
         return GR_OK;
     }
 
-    GENRESULT DACOM_API QuatSlerp(FQuaternion& Dst, const FQuaternion& A, const FQuaternion& B, float T) override
+    GENRESULT NEURONCOMPONENTS_API QuatSlerp(FQuaternion& Dst, const FQuaternion& A, const FQuaternion& B, float T) override
     {
         return QuatSlerpValue(Dst, A, B, &T);
     }
 
-    GENRESULT DACOM_API QuatSlerpValue(FQuaternion& Dst, const FQuaternion& A, const FQuaternion& B, const float* T) override
+    GENRESULT NEURONCOMPONENTS_API QuatSlerpValue(FQuaternion& Dst, const FQuaternion& A, const FQuaternion& B, const float* T) override
     {
         // 724d0..725cb: normalized linear interpolation, literal x87 terms,
         // component store order and NaN hemisphere selection. Inputs may alias Dst.
@@ -1416,7 +1412,7 @@ struct FMathEngine final : I3DMathEngine, IComponentFactory
         return GR_OK;
     }
 
-    GENRESULT DACOM_API GeneralInverse(FTransform& Dst, float& W, const FTransform& Source) override
+    GENRESULT NEURONCOMPONENTS_API GeneralInverse(FTransform& Dst, float& W, const FTransform& Source) override
     {
         const float Determinant = Source.Rotation.D[0][0] * (Source.Rotation.D[1][1] * Source.Rotation.D[2][2] -
                                                              Source.Rotation.D[2][1] * Source.Rotation.D[1][2]) -
@@ -1452,20 +1448,20 @@ struct FMathEngine final : I3DMathEngine, IComponentFactory
         return Result;
     }
 
-    GENRESULT DACOM_API InvSqrt(float& Dst, float X) override
+    GENRESULT NEURONCOMPONENTS_API InvSqrt(float& Dst, float X) override
     {
         Dst = TableInvSqrt(X);
         return GR_OK;
     }
 
-    GENRESULT DACOM_API Sqrt(float& Dst, float X) override
+    GENRESULT NEURONCOMPONENTS_API Sqrt(float& Dst, float X) override
     {
         Dst = TableInvSqrt(X) * X;
         return GR_OK;
     }
 };
 
-static_assert(sizeof(FMathEngine) == 8, "retail DllMain allocates operator_new(8) — two vfptrs");
+static_assert(sizeof(FMathEngine) == 8, "baseline DllMain allocates operator_new(8) — two vfptrs");
 
 FMathEngine* G_Engine = nullptr;
 
@@ -1474,7 +1470,7 @@ BOOL WINAPI DllMain(HINSTANCE Module, DWORD Reason, LPVOID /*Reserved*/)
     if (Reason == DLL_PROCESS_ATTACH)
     {
         DisableThreadLibraryCalls(Module);
-        // FUN_06f71090: PUSH 8 / operator_new. Null → DAT=0, RET TRUE, no InvSqrt table.
+        // PUSH 8 / operator_new. Null → DAT=0, RET TRUE, no InvSqrt table.
         void* Memory = ::operator new(8, std::nothrow);
         if (Memory == nullptr)
         {
@@ -1483,11 +1479,11 @@ BOOL WINAPI DllMain(HINSTANCE Module, DWORD Reason, LPVOID /*Reserved*/)
         }
         G_Engine = new (Memory) FMathEngine();
         BuildInvSqrtTable();
-        // 06f71107: DACOM_Acquire; JZ 06f71145 skips registration silently (no log in retail).
-        ICOManager* Dacom = DACOM_Acquire();
-        if (Dacom != nullptr)
+        // NEURONCOMPONENTS_Acquire; JZ 06f71145 skips registration silently (no log in baseline).
+        ICOManager* NeuronComponents = NEURONCOMPONENTS_Acquire();
+        if (NeuronComponents != nullptr)
         {
-            Dacom->RegisterComponent(static_cast<IComponentFactory*>(G_Engine), G_ComponentName,
+            NeuronComponents->RegisterComponent(static_cast<IComponentFactory*>(G_Engine), G_ComponentName,
                                      reinterpret_cast<void*>(G_RegisterPriority));
         }
     }

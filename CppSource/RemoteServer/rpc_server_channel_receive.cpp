@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #define RPCLOCAL_EXPORTS
@@ -71,13 +67,13 @@ static void RpcServerCharacterRecordListCopy(std::list<FRpcServerCharacterRecord
     for (std::list<FRpcServerCharacterRecord*>::const_iterator It = Source.begin();
          It != Source.end(); ++It) {
         const FRpcServerCharacterRecord* From = *It;
-        if (From == nullptr) continue;                                      // 06bdfbb5
+        if (From == nullptr) continue;
         FRpcServerCharacterRecord* To = new (std::nothrow) FRpcServerCharacterRecord();
-        To->Name = From->Name;                                              // 06bdfc98
+        To->Name = From->Name;
         To->Field_0x200 = From->Field_0x200;
         To->Field_0x201 = From->Field_0x201;
-        To->TextA = From->TextA;                                            // 06bdfccc
-        To->TextB = From->TextB;                                            // 06bdfce8
+        To->TextA = From->TextA;
+        To->TextB = From->TextB;
         To->Field_0x224 = From->Field_0x224;
         To->Field_0x228 = From->Field_0x228;
         To->Field_0x22c = From->Field_0x22c;
@@ -92,14 +88,14 @@ static void RpcServerCharacterRecordListCopy(std::list<FRpcServerCharacterRecord
         To->Field_0x250 = From->Field_0x250;
         To->Field_0x254 = From->Field_0x254;
         To->Field_0x258 = From->Field_0x258;
-        To->Field_0x25c = From->Field_0x25c;                                // 06bdfd9c
+        To->Field_0x25c = From->Field_0x25c;
         RpcServerCharacterIdBlockCopy(&To->BlockA, From->BlockA);
         RpcServerCharacterIdBlockCopy(&To->BlockB, From->BlockB);
-        To->Equipment.AppendCopy(From->Equipment);                          // 06bdff6f
-        // 06bdff76..06bdff8a: +0x260 = low byte of the copied list's size, or 0.
+        To->Equipment.AppendCopy(From->Equipment);
+        // +0x260 = low byte of the copied list's size, or 0.
         To->Field_0x260 = (To->Equipment.Records != nullptr)
             ? static_cast<unsigned char>(To->Equipment.Records->size() & 0xffu) : 0u;
-        To->CollisionGroups = From->CollisionGroups;                        // 06bdff90..
+        To->CollisionGroups = From->CollisionGroups;                        // ..
         Dest.push_back(To);
     }
 }
@@ -108,26 +104,26 @@ static void RpcServerCharacterRecordListCopy(std::list<FRpcServerCharacterRecord
 // record (the inverse of the sender's permutation).
 static void RpcServerCharacterInfoFromRecord(CCharacterSet::CharacterInfo* Dest,
     const FRpcServerCharacterRecord* Source) {
-    Dest->Id = Source->Name;                                                // 06bd48ea
-    Dest->bIsRestart = (Source->Field_0x200 != 0) ? 1u : 0u;                // 06bd48f8 SETNE
-    Dest->bIsAutoSave = (Source->Field_0x201 != 0) ? 1u : 0u;               // 06bd4909 SETNE
-    Dest->Name = Source->TextA;                                             // 06bd4929
-    Dest->Description = Source->TextB;                                      // 06bd4946
+    Dest->Id = Source->Name;
+    Dest->bIsRestart = (Source->Field_0x200 != 0) ? 1u : 0u;                // SETNE
+    Dest->bIsAutoSave = (Source->Field_0x201 != 0) ? 1u : 0u;               // SETNE
+    Dest->Name = Source->TextA;
+    Dest->Description = Source->TextB;
     Dest->DescripStrId = Source->Field_0x224;
     Dest->TimestampLow = Source->Field_0x228;
     Dest->TimestampHigh = Source->Field_0x22c;
     Dest->ShipArchetype = Source->Field_0x230;
     Dest->Money = static_cast<int>(Source->Field_0x234);
-    Dest->VoiceId = Source->Field_0x244;                                    // 06bd498e -> +0x26c
-    Dest->Rank = Source->Field_0x248;                                       // 06bd499a -> +0x270
-    Dest->BaseId = Source->Field_0x23c;                                     // 06bd49a6 -> +0x264
-    Dest->LocationId = Source->Field_0x240;                                 // 06bd49b2 -> +0x268
-    Dest->SystemId = Source->Field_0x238;                                   // 06bd49be -> +0x260
-    std::memcpy(&Dest->HullStatus, &Source->Field_0x250, 4u);               // 06bd49ca -> +0x244
+    Dest->VoiceId = Source->Field_0x244;                                    // -> +0x26c
+    Dest->Rank = Source->Field_0x248;                                       // -> +0x270
+    Dest->BaseId = Source->Field_0x23c;                                     // -> +0x264
+    Dest->LocationId = Source->Field_0x240;                                 // -> +0x268
+    Dest->SystemId = Source->Field_0x238;                                   // -> +0x260
+    std::memcpy(&Dest->HullStatus, &Source->Field_0x250, 4u);               // -> +0x244
     Dest->NumKills = static_cast<int>(Source->Field_0x254);                 // -> +0x238
     Dest->NumMissionFailures = static_cast<int>(Source->Field_0x258);       // -> +0x240
     Dest->NumMissionSuccesses = static_cast<int>(Source->Field_0x25c);      // -> +0x23c
-    // 06bd49f4..06bd4af7: a null block leaves the Costume as constructed; otherwise
+    // a null block leaves the Costume as constructed; otherwise
     // [1],[0],[3],[2], the count, and an unsigned copy NOT bounded by the eight slots
     // (reproduced on purpose), the bound re-read from the block every round.
     const FRpcServerCharacterIdBlock* Blocks[2] = { Source->BlockA, Source->BlockB };
@@ -146,28 +142,28 @@ static void RpcServerCharacterInfoFromRecord(CCharacterSet::CharacterInfo* Dest,
             OutIds[Index] = Block->Ids[Index];
         }
     }
-    // 06bd4af9..06bd4bea: only the handle's list header is tested. Each element is a
+    // only the handle's list header is tested. Each element is a
     // default EquipDesc appended to +0x248, then the setters on the appended node.
     if (Source->Equipment.Records != nullptr) {
         for (std::list<FRpcServerEquipRecord*>::const_iterator It =
                  Source->Equipment.Records->begin();
              It != Source->Equipment.Records->end(); ++It) {
             const FRpcServerEquipRecord* E = *It;
-            Dest->Equipment.Items.push_back(EquipDesc());                   // 06bd4b27..06bd4b68
+            Dest->Equipment.Items.push_back(EquipDesc());
             EquipDesc& Item = Dest->Equipment.Items.back();
-            Item.set_arch_id(E->ArchId);                                    // 06bd4b7f
-            Item.set_count(E->Count);                                       // 06bd4b8b
-            Item.set_id(E->Id);                                             // 06bd4b9a
-            Item.set_equipped(E->bEquipped);                                // 06bd4ba8 raw byte
-            Item.set_status(E->Health);                                     // 06bd4bb4
-            // 06bd4bba / 06bd4bbd: the wire byte stored raw into EquipDesc +0x18.
+            Item.set_arch_id(E->ArchId);
+            Item.set_count(E->Count);
+            Item.set_id(E->Id);
+            Item.set_equipped(E->bEquipped);                                // raw byte
+            Item.set_status(E->Health);
+            // / 06bd4bbd: the wire byte stored raw into EquipDesc +0x18.
             std::memcpy(&Item.bMission, &E->Field_0x0f, 1u);
             CacheString Hardpoint;
-            Hardpoint.Value = StringAlloc(E->Hardpoint, false);             // 06bd4bc6
-            Item.set_hardpoint(Hardpoint);                                  // 06bd4bda
+            Hardpoint.Value = StringAlloc(E->Hardpoint, false);
+            Item.set_hardpoint(Hardpoint);
         }
     }
-    // 06bd4bf4..06bd4c65: list<CollisionGroupDesc>::operator= onto +0x254.
+    // list<CollisionGroupDesc>::operator= onto +0x254.
     Dest->CollisionGroups = Source->CollisionGroups;
 }
 
@@ -179,7 +175,7 @@ static void RpcServerCharacterInfoFromRecord(CCharacterSet::CharacterInfo* Dest,
 // null value (MetaList::append inline, 06bd4c6d..06bd4cab); the copy is then freed on
 // the spot (06bd4cb3..06bd4d33) while its node keeps the dangling pointer.
 // SaveFailureCount <- +0x20 (06bd4d53), Client->vt[+0x34](Arg, &Set) (06bd4d70).
-// Retail then destroys the Set (records, then the MetaList), then the local list's
+// baseline then destroys the Set (records, then the MetaList), then the local list's
 // nodes; here the local list goes first (reverse declaration order): only frees,
 // unobservable. Returns true (06bd4e96). `this` is never read, so case 03 and the
 // exported member share this body.
@@ -192,14 +188,14 @@ static bool RpcServerHandleCharacterInfo(const FPacketBase* Packet, IClient* Cli
     RpcServerCharacterRecordListCopy(Local, Typed->Records);
     for (std::list<FRpcServerCharacterRecord*>::iterator It = Local.begin(); It != Local.end();
          ++It) {
-        const FRpcServerCharacterRecord* Source = *It;                      // 06bd47d4, untested
+        const FRpcServerCharacterRecord* Source = *It;                      // , untested
         CCharacterSet::CharacterInfo* Info = new (std::nothrow) CCharacterSet::CharacterInfo();
         if (Info != nullptr) {
             RpcServerCharacterInfoFromRecord(Info, Source);
         }
         Set.Characters.append(Info);
         if (*It != nullptr) {
-            delete *It;                                                     // 06bd4cbe..06bd4d33
+            delete *It;
         }
     }
     Set.SaveFailureCount = Typed->SaveFailureCount;
@@ -224,8 +220,8 @@ bool IServerImpl::HandleDamageObject(CDAPDamageSpaceObj* Packet, IClient* Client
     const FRpcServerDamageObjectPacket* Typed =
         reinterpret_cast<const FRpcServerDamageObjectPacket*>(Packet);
     DamageList Local;
-    Local = Typed->Damage;                                                     // 06bd5093
-    Client->SendServerDamageObject(Arg, Typed->ObjectId, Local);              // 06bd50ac
+    Local = Typed->Damage;
+    Client->SendServerDamageObject(Arg, Typed->ObjectId, Local);
     return true;
 }
 
@@ -283,40 +279,40 @@ void RpcReceiveServerChannel(unsigned int ClientId, FPacketBase* Packet, IClient
             {
                 const FRpcServerCreateShipPacket* Typed =
                     static_cast<const FRpcServerCreateShipPacket*>(Packet);
-                // .data:06c138f0, built on first use (guard bit 2 of 06c138b8: base ctor
-                // 06bd3f20 + the derived stores) and destroyed by the atexit 06bd4390.
+                // , built on first use (guard bit 2 of 06c138b8: base ctor
+                // + the derived stores) and destroyed by the atexit 06bd4390.
                 static CShipCreateInfo GCreateShipInfo;
-                RpcServerCreateObjectRead(&Typed->Object, &GCreateShipInfo);        // 06bd211f
-                GCreateShipInfo.bUsingTradelane = Typed->bUsingTradelane;           // 06bd212a
-                GCreateShipInfo.OwnerPlayer = Typed->OwnerPlayer;                   // 06bd2135
+                RpcServerCreateObjectRead(&Typed->Object, &GCreateShipInfo);
+                GCreateShipInfo.bUsingTradelane = Typed->bUsingTradelane;
+                GCreateShipInfo.OwnerPlayer = Typed->OwnerPlayer;
                 GCreateShipInfo.Field_0xd8 = static_cast<unsigned int>(Typed->Field_0xc4);       // MOVZX
                 GCreateShipInfo.Field_0xb0 = static_cast<unsigned int>(Typed->Field_0xc0);       // MOVZX
                 GCreateShipInfo.ReputationRank = static_cast<unsigned int>(Typed->ReputationRank); // MOVZX
-                std::memcpy(&GCreateShipInfo.Throttle, &Typed->Throttle, 4u);      // 06bd2167
-                // 06bd216d..06bd21b1: x by integer move, y and z through the x87 stack
-                // (retail loads z then y and stores y then z).
+                std::memcpy(&GCreateShipInfo.Throttle, &Typed->Throttle, 4u);
+                // x by integer move, y and z through the x87 stack
+                // (baseline loads z then y and stores y then z).
                 std::memcpy(&GCreateShipInfo.AngularVelocity.x, &Typed->AngularVelocity.x, 4u);
                 RpcServerX87CopyFloat(&GCreateShipInfo.AngularVelocity.y, &Typed->AngularVelocity.y);
                 RpcServerX87CopyFloat(&GCreateShipInfo.AngularVelocity.z, &Typed->AngularVelocity.z);
                 std::memcpy(&GCreateShipInfo.Velocity.x, &Typed->Velocity.x, 4u);
                 RpcServerX87CopyFloat(&GCreateShipInfo.Velocity.y, &Typed->Velocity.y);
                 RpcServerX87CopyFloat(&GCreateShipInfo.Velocity.z, &Typed->Velocity.z);
-                GCreateShipInfo.bMarkedBy = Typed->bMarkedBy;                       // 06bd21bd
-                if (!SinglePlayer()) {                                              // 06bd21c3
-                    // 06bd21d1..06bd22f5: two stack FmtStr (EH states 0x10 / 0x11, B
+                GCreateShipInfo.bMarkedBy = Typed->bMarkedBy;
+                if (!SinglePlayer()) {
+                    // two stack FmtStr (EH states 0x10 / 0x11, B
                     // destroyed first); the vibe is the PACKET's +0x2c.
                     FmtStr NameA;
                     FmtStr NameB;
-                    NameA.unflatten(Typed->NameA, Typed->NameASize);                // 06bd227c
-                    NameB.unflatten(Typed->NameB, Typed->NameBSize);                // 06bd2290
+                    NameA.unflatten(Typed->NameA, Typed->NameASize);
+                    NameB.unflatten(Typed->NameB, Typed->NameBSize);
                     const int& Group = Typed->Object.VibeGroupId;
-                    Reputation::Vibe::EnsureExists(Group);                          // 06bd2296
-                    Reputation::Vibe::SetName(Group, NameA, NameB, Typed->DisplayName); // 06bd22ae
-                    Reputation::Vibe::SetAffiliation(Group, Typed->Affiliation, false); // 06bd22bd
-                    Reputation::Vibe::SetAttitudeTowardsPlayer(Group, Typed->Attitude); // 06bd22cd
+                    Reputation::Vibe::EnsureExists(Group);
+                    Reputation::Vibe::SetName(Group, NameA, NameB, Typed->DisplayName);
+                    Reputation::Vibe::SetAffiliation(Group, Typed->Affiliation, false);
+                    Reputation::Vibe::SetAttitudeTowardsPlayer(Group, Typed->Attitude);
                 }
-                Client->SendServerCreateShip(1u, GCreateShipInfo);                  // 06bd2306
-                // 06bd230c..06bd23ab: CShipCreateInfo::clear() inlined (base fields, the
+                Client->SendServerCreateShip(1u, GCreateShipInfo);
+                // CShipCreateInfo::clear() inlined (base fields, the
                 // equipment vector erase, both lists, then the derived tail).
                 GCreateShipInfo.clear();
                 break;
@@ -330,7 +326,7 @@ void RpcReceiveServerChannel(unsigned int ClientId, FPacketBase* Packet, IClient
                 const FRpcServerDamageObjectPacket* Typed =
                     static_cast<const FRpcServerDamageObjectPacket*>(Packet);
                 DamageList Local;
-                Local = Typed->Damage;                                         // 06bd1ffd
+                Local = Typed->Damage;
                 Client->SendServerDamageObject(1u, Typed->ObjectId, Local);
                 break;
             }
@@ -363,7 +359,7 @@ void RpcReceiveServerChannel(unsigned int ClientId, FPacketBase* Packet, IClient
             case 0x08: // FLPACKET_SERVER_CHARSELECTVERIFIED, RS case 06bd1918
             {
                 // Stores +0x00, +0x08, +0x0c only (06bd1918..06bd1943); +0x04 stays
-                // unwritten as in retail -- the game reader (005ab380) never reads it.
+                // unwritten as in baseline -- the game reader (005ab380) never reads it.
                 // The double moves as two integer dwords.
                 const FRpcServerCharSelectVerifiedPacket* Typed =
                     static_cast<const FRpcServerCharSelectVerifiedPacket*>(Packet);
@@ -499,7 +495,7 @@ void RpcReceiveServerChannel(unsigned int ClientId, FPacketBase* Packet, IClient
             }
             case 0x21: // FLPACKET_SERVER_SYSTEM_SWITCH_OUT, RS 06bd2441
             {
-                // Retail copies both dwords into a module global (06c137d4 / 06c137d8)
+                // baseline copies both dwords into a module global (06c137d4 / 06c137d8)
                 // and passes its address; a static FServerSystemSwitchOutInfo (two dwords)
                 // has the same storage.
                 static FServerSystemSwitchOutInfo GSystemSwitchOut;
@@ -576,7 +572,7 @@ void RpcReceiveServerChannel(unsigned int ClientId, FPacketBase* Packet, IClient
                 // test: a failed allocation is written through, reproduced on purpose)
                 // whose elements get the inlined ctor 06bd4200; the list records are
                 // copied in by integer moves at a byte index; SendServerCreateLoot(1, &request), then
-                // the array is freed. Retail leaves the request's pad bytes and each
+                // the array is freed. baseline leaves the request's pad bytes and each
                 // element's +0x47 uninitialised (nondeterministic); the port zeroes them.
                 const FRpcServerCreateLootPacket* Typed =
                     static_cast<const FRpcServerCreateLootPacket*>(Packet);
@@ -644,7 +640,7 @@ void RpcReceiveServerChannel(unsigned int ClientId, FPacketBase* Packet, IClient
                 // (integer moves); FmtStr::unflatten of both blocks; wcscpy of the display
                 // name when there is one; the packet's relations deep-copied into the
                 // stack list (06bddef0); SendServerSetReputation(1, &info); the array freed when the count
-                // byte is non-zero; the stack list's nodes, then NameB, NameA. Retail
+                // byte is non-zero; the stack list's nodes, then NameB, NameA. baseline
                 // leaves +0x0c, the pad bytes and the rest of DisplayName uninitialised
                 // (nondeterministic); the port zeroes them.
                 const FRpcServerSetReputationPacket* Typed =
@@ -701,14 +697,14 @@ void RpcReceiveServerChannel(unsigned int ClientId, FPacketBase* Packet, IClient
                 // packet's relations deep-copied into the list (06bdd430); the count byte
                 // is the list size; for a non-zero size the array as in 0x29 (06bd1706);
                 // SendServerSetGroupFeelings(1, &info); the list's nodes freed. The array is never freed
-                // after the call (a retail leak, reproduced on purpose). Retail leaves
+                // after the call (a baseline leak, reproduced on purpose). baseline leaves
                 // Relations uninitialised for an empty list and the pad bytes always
                 // (nondeterministic); the port zeroes them.
                 const FRpcServerSetGroupFeelingsPacket* Typed =
                     static_cast<const FRpcServerSetGroupFeelingsPacket*>(Packet);
                 FServerSetGroupFeelingsInfo Info;
                 std::list< ::Reputation::Relation*> Local;
-                std::memset(Info.Name, 0, sizeof(Info.Name)); // bytes past the copy: retail garbage
+                std::memset(Info.Name, 0, sizeof(Info.Name)); // bytes past the copy: baseline garbage
                 std::strncpy(Info.Name, Typed->Name, Typed->NameSize);
                 RpcServerRelationListAppendCopy(Local, Typed->Relations);
                 Info.RelationCount = static_cast<unsigned char>(Local.size());
@@ -727,7 +723,7 @@ void RpcReceiveServerChannel(unsigned int ClientId, FPacketBase* Packet, IClient
                 // Stack FServerCreateProjectileInfo, every field an integer move off the
                 // packet: info +0x00..+0x08 = +0x20..+0x28, word +0x0c = +0x2c, Position
                 // = +0x40, Orientation = +0x30, Velocity = +0x4c, +0x38 = +0x58, +0x44 =
-                // +0x64. Retail leaves Pad0e uninitialised (nondeterministic); the port
+                // +0x64. baseline leaves Pad0e uninitialised (nondeterministic); the port
                 // zeroes it. The 1 goes BY VALUE (PUSH 1, 06bd1c50).
                 const FRpcServerCreateMinePacket* Typed =
                     static_cast<const FRpcServerCreateMinePacket*>(Packet);
@@ -748,8 +744,8 @@ void RpcReceiveServerChannel(unsigned int ClientId, FPacketBase* Packet, IClient
             case 0x2d: // FLPACKET_SERVER_CREATECOUNTER, RS 06bd1dd9
             {
                 // Stack FServerCreateProjectileInfo, every field an integer move off the
-                // packet. Pad0e (+0x0e..+0x0f) stays unwritten as in retail (06bd1dd9..
-                // 06bd1e95); the game reader (0053cd70) never reads it. Client id 1 goes
+                // packet. Pad0e (+0x0e..+0x0f) stays unwritten as in baseline (06bd1dd9..
+                // ); the game reader (0053cd70) never reads it. Client id 1 goes
                 // BY REFERENCE (stack dword, 06bd1e7d).
                 const FRpcServerCreateCounterPacket* Typed =
                     static_cast<const FRpcServerCreateCounterPacket*>(Packet);
@@ -826,7 +822,7 @@ void RpcReceiveServerChannel(unsigned int ClientId, FPacketBase* Packet, IClient
                 // ([+0x34] == 0) + 1 (SETE, INC), then a byte loop copies Name including
                 // its NUL when Name is non-null (06bd1dad JZ, 06bd1db5..06bd1dbd). The rest
                 // of the name buffer, and all of it when Name is null, stays unwritten as in
-                // retail. On this receiver Name is always null (the RS decoder 06bf48f0
+                // baseline. On this receiver Name is always null (the RS decoder 06bf48f0
                 // never allocates it), so the game's SendServerRequestSpaceScript (0053d9d0) hands the uninitialised
                 // buffer to the space-script camera: nondeterministic, reproduced on purpose.
                 const FRpcServerRequestSpaceScriptPacket* Typed =
@@ -848,7 +844,7 @@ void RpcReceiveServerChannel(unsigned int ClientId, FPacketBase* Packet, IClient
             }
             case 0x33: // FLPACKET_SERVER_SETMISSIONOBJECTIVESTATE, RS 06bd24cf
             {
-                // Stack {dword +0x20, byte of +0x24, MOVZX word +0x28 as a dword}. Retail
+                // Stack {dword +0x20, byte of +0x24, MOVZX word +0x28 as a dword}. baseline
                 // leaves bytes +5..+7 uninitialised (nondeterministic); the port zeroes
                 // them. Client id 1 BY REFERENCE (stack dword, 06bd24f7).
                 const FRpcServerSetMissionObjectiveStatePacket* Typed =
@@ -869,7 +865,7 @@ void RpcReceiveServerChannel(unsigned int ClientId, FPacketBase* Packet, IClient
                 // Stack record: +0x00 = [+0x20], the FmtStr at +0x04 zeroed inline, byte
                 // +0x20 = [+0x24]; FmtStr::unflatten(TextData, TextSize) under EH state
                 // 0x12 (the FmtStr is RAII here); stack One = 1 BY REFERENCE; ~FmtStr.
-                // Retail leaves +0x1c and the pad bytes uninitialised (nondeterministic);
+                // baseline leaves +0x1c and the pad bytes uninitialised (nondeterministic);
                 // the port zeroes them.
                 const FRpcServerReplaceMissionObjectivePacket* Typed =
                     static_cast<const FRpcServerReplaceMissionObjectivePacket*>(Packet);
@@ -894,7 +890,7 @@ void RpcReceiveServerChannel(unsigned int ClientId, FPacketBase* Packet, IClient
                 // test): State = MOVZX byte, FmtStr::unflatten(Data, Size).
                 // SendServerSetMissionObjectives(&One, &record); then, when Count and Entries
                 // are non-zero, vector delete.
-                // Retail leaves Entries uninitialised when Count is 0; the port uses null.
+                // baseline leaves Entries uninitialised when Count is 0; the port uses null.
                 const FRpcServerSetMissionObjectivesPacket* Typed =
                     static_cast<const FRpcServerSetMissionObjectivesPacket*>(Packet);
                 FServerSetMissionObjectivesInfo Info;
@@ -926,7 +922,7 @@ void RpcReceiveServerChannel(unsigned int ClientId, FPacketBase* Packet, IClient
             {
                 // Stack FServerCreateGuidedInfo, every field an integer move off the
                 // packet. Pad26/Pad36 (+0x26..+0x27, +0x36..+0x37) stay unwritten as in
-                // retail (06bd1e96..06bd1f2c); the game reader (0053d080) never reads them.
+                // baseline (06bd1e96..06bd1f2c); the game reader (0053d080) never reads them.
                 // Field_0x2c comes from +0x20, which never crosses the wire (the decoder
                 // zeroes it): always 0, reproduced on purpose.
                 const FRpcServerCreateGuidedPacket* Typed =
@@ -967,7 +963,7 @@ void RpcReceiveServerChannel(unsigned int ClientId, FPacketBase* Packet, IClient
             case 0x3c: // FLPACKET_SERVER_REPAIROBJECT, RS 06bd2c45
             {
                 // Stack {dword +0x20, word of +0x24, dword +0x28}, SendServerRepairObject(1, &local).
-                // Retail leaves the pad word at +0x06 uninitialised (nondeterministic);
+                // baseline leaves the pad word at +0x06 uninitialised (nondeterministic);
                 // the port zeroes it.
                 const FRpcServerRepairObjectPacket* Typed =
                     static_cast<const FRpcServerRepairObjectPacket*>(Packet);
@@ -982,7 +978,7 @@ void RpcReceiveServerChannel(unsigned int ClientId, FPacketBase* Packet, IClient
             case 0x3d: // FLPACKET_SERVER_REMOTEOBJECTCARGOUPDATE, RS 06bd2b04
             {
                 // The vector is built first (EH state 0x17), the handle second (0x18);
-                // 06bdaa80 extracts, 06bd5130 converts; stack One = 1 BY REFERENCE,
+                // extracts, 06bd5130 converts; stack One = 1 BY REFERENCE,
                 // ObjectId +0x28, &vector, MOVZX byte +0x24; the handle is destroyed first
                 // (06bdc790), then the vector's block.
                 const FRpcServerRemoteObjectCargoUpdatePacket* Typed =
@@ -1011,7 +1007,7 @@ void RpcReceiveServerChannel(unsigned int ClientId, FPacketBase* Packet, IClient
             }
             // ===== end SERVER 0x20..0x3f (RS-P2) =====
             // ===== SERVER 0x40..0x5b (RS-P3) =====
-            // Cases of HandlePacket 06bd1260 (switch 06bd12b1). Where retail passes &one,
+            // Cases of HandlePacket 06bd1260 (switch 06bd12b1). Where baseline passes &one,
             // the 1 is a stack local written right before the call, as in the listing.
             case 0x40: // SETMISSIONFAILURES, caseD_40 06bd2cca
             {
@@ -1113,7 +1109,7 @@ void RpcReceiveServerChannel(unsigned int ClientId, FPacketBase* Packet, IClient
                         case 0x48:
             {
                 // SETCOLLISIONGROUPS, caseD_48 06bd3102: the packet's own list (accessor
-                // 06bda780 = &packet+0x20), no copy; SendServerSetCollisionGroups(1, &list).
+                // = &packet+0x20), no copy; SendServerSetCollisionGroups(1, &list).
                 FRpcServerSetCollisionGroupsPacket* Typed =
                     static_cast<FRpcServerSetCollisionGroupsPacket*>(Packet);
                 Client->SendServerSetCollisionGroups(1u, Typed->Groups);
@@ -1121,7 +1117,7 @@ void RpcReceiveServerChannel(unsigned int ClientId, FPacketBase* Packet, IClient
             }
             case 0x49: // SETHULLSTATUS: the float's dword pushed as is
             {
-                // Bit copy, not an x87 load: retail pushes the packet's dword unchanged.
+                // Bit copy, not an x87 load: baseline pushes the packet's dword unchanged.
                 float HullStatus;
                 std::memcpy(&HullStatus, &static_cast<FRpcSetHullStatusPacket*>(Packet)->Value, 4u);
                 Client->SendServerSetHullStatus(1u, HullStatus);
@@ -1169,9 +1165,9 @@ void RpcReceiveServerChannel(unsigned int ClientId, FPacketBase* Packet, IClient
                     Hint = new (std::nothrow) FRpcLocalCostumeHint;
                     Hint->UnSerialize(Typed->Data, Typed->Size);
                 }
-                // 06bd1cfa PUSH ESI: the hint pointer goes out even when it is null (any Kind
+                // PUSH ESI: the hint pointer goes out even when it is null (any Kind
                 // but 1), the literal 1 by reference (06bd1cfb..06bd1d0f). No implementer
-                // null-tests it; the game's LAB_0053de70 reads Kind through it first.
+                // null-tests it; the game's the branch reads Kind through it first.
                 unsigned int One = 1u;
                 Client->SendServerLoadHint(One, Hint);
                 if (Hint != nullptr) {
@@ -1309,7 +1305,7 @@ void RpcReceiveServerChannel(unsigned int ClientId, FPacketBase* Packet, IClient
             case 0x57: // SET_MUSIC, caseD_57 06bd1462: MOVZX of the byte, the float's dword as is
             {
                 const FRpcServerSetMusicPacket* Typed = static_cast<FRpcServerSetMusicPacket*>(Packet);
-                // Bit copy, not an x87 load: retail pushes the packet's dword unchanged.
+                // Bit copy, not an x87 load: baseline pushes the packet's dword unchanged.
                 float Fade;
                 std::memcpy(&Fade, &Typed->Field_0x34, 4u);
                 // The wire byte as the bool: the callee keeps one byte (rpclocal 06d8c6ad),

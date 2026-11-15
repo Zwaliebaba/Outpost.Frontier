@@ -1,15 +1,11 @@
-﻿// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
-// Author: Giperion.
+﻿// Author: Giperion.
 
-// CPlayerTradeOffer -- one player's side of a trade in progress (retail 0x0631d620-
-// 0x0631d960 plus ICF-shared accessors). Declared in common_tradeoffer.h.
+// CPlayerTradeOffer -- one player's side of a trade in progress (baseline 0x0631d620-
+// plus ICF-shared accessors). Declared in common_tradeoffer.h.
 #include "common_tradeoffer.h"
 
 // ---- CPlayerTradeOffer (see class comment in common_tradeoffer.h) ----
-//
+
 // Re-audited 2026-09-09 (D59): this class previously had no real data members at all -- every
 // accessor below read/wrote raw offsets on `this` via reinterpret_cast because no ported caller
 // had ever needed to actually construct one (until 2026-09-24 Server-side trade logic used its
@@ -24,7 +20,7 @@ CPlayerTradeOffer::CPlayerTradeOffer()
     , MoneyOffered(0)
     , Accepted(false)
 {
-    // Common.dll.txt 0x0631d8a0-0x0631d8db. List starts empty (retail allocates just the
+    // Common 0x0631d8a0-0x0631d8db. List starts empty (baseline allocates just the
     // list's own empty sentinel head).
 }
 
@@ -36,12 +32,12 @@ CPlayerTradeOffer::CPlayerTradeOffer(CPlayerTradeOffer const& Other)
     , MoneyOffered(Other.MoneyOffered)
     , Accepted(Other.Accepted)
 {
-    // Common.dll.txt 0x0631d630-0x0631d710.
+    // Common 0x0631d630-0x0631d710.
 }
 
 CPlayerTradeOffer& CPlayerTradeOffer::operator=(CPlayerTradeOffer const& Other)
 {
-    // Common.dll.txt 0x0631d720-0x0631d82e. No whole-function self test: the only one is the
+    // Common 0x0631d720-0x0631d82e. No whole-function self test: the only one is the
     // std::list operator=' own `&List == &Other.List` check (0631d73e), around the list copy.
     SourcePlayerId = Other.SourcePlayerId;
     TargetPlayerId = Other.TargetPlayerId;
@@ -54,7 +50,7 @@ CPlayerTradeOffer& CPlayerTradeOffer::operator=(CPlayerTradeOffer const& Other)
 
 CPlayerTradeOffer::~CPlayerTradeOffer()
 {
-    // Common.dll.txt 0x0631d8e0-0x0631d932. Items' own destructor frees its storage; nothing
+    // Common 0x0631d8e0-0x0631d932. Items' own destructor frees its storage; nothing
     // else here owns any resources.
 }
 
@@ -100,19 +96,19 @@ void CPlayerTradeOffer::SetTargetOffer(CPlayerTradeOffer* Offer)
     TargetOffer = Offer;
 }
 
-// 0x06261dc0: LEA EAX,[ECX+0x10] / RET.
+// LEA EAX,[ECX+0x10] / RET.
 EquipDescList& CPlayerTradeOffer::GetList()
 {
     return List;
 }
 
-// 0x062d1ad0: MOV EAX,[ECX+4] / RET.
+// MOV EAX,[ECX+4] / RET.
 unsigned int CPlayerTradeOffer::GetSourcePlayerID()
 {
     return SourcePlayerId;
 }
 
-// 0x0629fb90: MOV EAX,[ECX+0xc] / RET.
+// MOV EAX,[ECX+0xc] / RET.
 CPlayerTradeOffer* CPlayerTradeOffer::GetTargetOffer()
 {
     return TargetOffer;

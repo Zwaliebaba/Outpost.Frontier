@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "screen_quad_state.h"
@@ -10,9 +6,9 @@
 #endif
 
 #include "common_csys.h"
-#include "DALib.h"
-#include "dacom.h"            // DACOM_CRC::GetCRC32
-#include "globals.h"          // G_RenderSurfaceWidth / G_RenderSurfaceHeight (DAT_00610850 / 854)
+#include "NeuronRuntime.h"
+#include "neuroncomponents.h"            // NEURONCOMPONENTS_CRC::GetCRC32
+#include "globals.h"          // G_RenderSurfaceWidth / G_RenderSurfaceHeight (the field / 854)
 #include "render/IRenderPipeline.h"
 #include "space_camera.h"
 #include "win3d_immediate.h"  // Win3DPushProjection / Win3DSetOrtho2D / Win3DPopProjection
@@ -27,9 +23,9 @@
 #include <utility>
 #include <windows.h>
 
-// DAT_006101d8 -- the default texture frame {no texture, u0 0, v0 0, u1 1, v1 1} (.data, never
-// written). Copied into a new container's key by FUN_00402f40 and FUN_00403ea0, and handed to
-// FUN_00402e30 by the core bars (0x004d54a2) and the IME background (0x00563f91).
+// the default texture frame {no texture, u0 0, v0 0, u1 1, v1 1} (.data, never
+// written). Copied into a new container's key by the routine and the routine, and handed to
+// by the core bars (0x004d54a2) and the IME background (0x00563f91).
 unsigned long const G_ScreenQuadDefaultFrame[5] = {0u, 0u, 0u, 0x3f800000u, 0x3f800000u};
 
 namespace
@@ -50,7 +46,7 @@ namespace
     FCachedIntPair GPipelineStateCache[kMaxCachedPipelineStates];
     FCachedIntPair GTextureStageCache[kMaxCachedTextureStageStates];
 
-    // FVF 0x1C4 vertex — FUN_004042c0 expand shape (8 dwords / 0x20).
+    // FVF 0x1C4 vertex — the routine expand shape (8 dwords / 0x20).
     struct FScreenQuadGpuVert
     {
         float X;
@@ -63,7 +59,7 @@ namespace
         float V;
     };
 
-    // Retail material node — exactly 0x28 (FUN_00403160 / FUN_00402ed0).
+    // baseline material node — exactly 0x28 (the routine / the routine).
     // +0x08/+0x0c/+0x10 = AABB record buffer (stride 0x2C); +0x14/+0x18/+0x1c =
     // rotated FVF verts (stride 0x20); +0x20 texture key; +0x24 blend.
     struct FScreenQuadBatchNode
@@ -81,7 +77,7 @@ namespace
     };
     static_assert(sizeof(FScreenQuadBatchNode) == 0x28, "batch node 0x28");
 
-    // DAT_00616498 batch container (map value body). Free list at +0x00,
+    // batch container (map value body). Free list at +0x00,
     // live list at +0x0c, current at +0x18, 5-dword material key at +0x1c.
     struct FScreenQuadBatchContainer
     {
@@ -96,16 +92,16 @@ namespace
         int Sentinel;                   // +0x30 = -1
     };
 
-    // DAT_00616498 -- the container of the current material key inside the map DAT_00616478
+    // the container of the current material key inside the map the field
     // (defined below, after the container destructor), or null.
     FScreenQuadBatchContainer* G_ActiveContainer = nullptr;
 
-    // DAT_00616474 — FUN_00402d30 material-list key; change nulls DAT_00616498.
+    // — the routine material-list key; change nulls the field.
     unsigned long G_MaterialListKey = 0;
-    // DAT_00616490 — default key restored by FUN_00402d50 / FUN_00403ea0 epilogue.
+    // — default key restored by the routine / the routine epilogue.
     unsigned long G_MaterialListKeyDefault = 0;
 
-    // DAT_00616494 — lazy 3DMathEngine (FUN_005b73e0 CreateInstance "3DMathEngine").
+    // — lazy 3DMathEngine (the routine CreateInstance "3DMathEngine").
     I3DMathEngine* G_ScreenQuadMath = nullptr;
 
 
@@ -150,14 +146,14 @@ namespace
 
     I3DMathEngine* AcquireScreenQuadMath()
     {
-        // FUN_005b73e0 → CreateInstance("3DMathEngine"); cached as DAT_00616494.
+        // → CreateInstance("3DMathEngine"); cached as the field.
         if (G_ScreenQuadMath == nullptr)
             G_ScreenQuadMath = Acquire3DMathEngine();
         return G_ScreenQuadMath;
     }
 
-    // FUN_00403160 (thiscall on the node, 0x00403160..0x00403187) -- every dword zeroed, then
-    // +0xc and +0x18 zeroed again. No null check in retail.
+    // (thiscall on the node, 0x00403160..0x00403187) -- every dword zeroed, then
+    // +0xc and +0x18 zeroed again. No null check in baseline.
     void InitBatchNode(FScreenQuadBatchNode* Node)
     {
         Node->Next = nullptr;
@@ -174,17 +170,17 @@ namespace
         Node->RotVertCount = 0;
     }
 
-    // FUN_004031e0 (thiscall on the node, 0x004031e0..0x004031f9) -- FUN_005b7e1d on the
-    // buffers at +0x14 and +0x08; the fields are not cleared (the sole caller FUN_00403190
-    // frees the node next). No null check in retail.
+    // (thiscall on the node, 0x004031e0..0x004031f9) -- the routine on the
+    // buffers at +0x14 and +0x08; the fields are not cleared (the sole caller the routine
+    // frees the node next). No null check in baseline.
     void ReleaseNodeBuffers(FScreenQuadBatchNode* Node)
     {
         operator delete(Node->RotatedVerts);
         operator delete(Node->Records);
     }
 
-    // FUN_00402ed0 (thiscall on the free list at container+0, 0x00402ed0..0x00402f3e) -- the
-    // free head unlinked (count - 1), or with none operator new(0x28) zeroed as FUN_00403160;
+    // (thiscall on the free list at container+0, 0x00402ed0..0x00402f3e) -- the
+    // free head unlinked (count - 1), or with none operator new(0x28) zeroed as the routine;
     // a failed new returns 0 (0x00402f12 CMP EAX,ESI / JZ -- the VC6 operator new returns null,
     // hence nothrow here).
     FScreenQuadBatchNode* AllocBatchNode(FScreenQuadBatchContainer* Pool)
@@ -210,8 +206,8 @@ namespace
         return Node;
     }
 
-    // FUN_00404580 (thiscall on the free list at container+0, RET 4) -- Node appended at the
-    // tail; 0x00404584: a null node is ignored (the only check retail makes).
+    // (thiscall on the free list at container+0, RET 4) -- Node appended at the
+    // tail; 0x00404584: a null node is ignored (the only check baseline makes).
     void SpliceOntoFreeList(FScreenQuadBatchContainer* Pool, FScreenQuadBatchNode* Node)
     {
         if (Node == nullptr)
@@ -233,8 +229,8 @@ namespace
         Pool->FreeCount += 1;
     }
 
-    // FUN_00404d90 (thiscall on a {head, tail, count} list, RET 4; here the live list at
-    // container+0xc) -- Node unlinked, count - 1. No null checks in retail.
+    // (thiscall on a {head, tail, count} list, RET 4; here the live list at
+    // container+0xc) -- Node unlinked, count - 1. No null checks in baseline.
     void UnlinkFromLiveList(FScreenQuadBatchContainer* Pool, FScreenQuadBatchNode* Node)
     {
         if (Node->Prev == nullptr)
@@ -248,8 +244,8 @@ namespace
         Pool->LiveCount -= 1;
     }
 
-    // FUN_00403190 (thiscall on the free list, 0x00403190..0x004031da) -- each head unlinked
-    // (count - 1), FUN_004031e0 on it, then the node freed. No null check in retail.
+    // (thiscall on the free list, 0x00403190..0x004031da) -- each head unlinked
+    // (count - 1), the routine on it, then the node freed. No null check in baseline.
     void DestroyFreeList(FScreenQuadBatchContainer* Pool)
     {
         while (Pool->FreeHead != nullptr)
@@ -269,8 +265,8 @@ namespace
         }
     }
 
-    // FUN_00403200 (thiscall on the container, 0x00403200..0x0040329f) -- every live head
-    // unlinked and appended to the free tail (inline FUN_00404d90 / FUN_00404580), then every
+    // (thiscall on the container, 0x00403200..0x0040329f) -- every live head
+    // unlinked and appended to the free tail (inline the routine / the routine), then every
     // free head unlinked and freed with its +0x14 / +0x08 buffers. No null check, and +0x18 is
     // left as it is.
     void DestroyBatchContainer(FScreenQuadBatchContainer* Pool)
@@ -299,8 +295,8 @@ namespace
         }
     }
 
-    // FUN_004032a0 (0x004032a0..0x00403342) -- FUN_00403200's body on the container at
-    // this + 4 (the map node's value). No null check in retail.
+    // (0x004032a0..0x00403342) -- the routine's body on the container at
+    // this + 4 (the map node's value). No null check in baseline.
     void DestroyBatchContainerEmbedded(void* Owner)
     {
         FScreenQuadBatchContainer* Pool =
@@ -308,13 +304,13 @@ namespace
         DestroyBatchContainer(Pool);
     }
 
-    // The value of one DAT_00616478 map node: the container at node+0x10. Its destructor is the
-    // map's value destructor FUN_00405820 = FUN_004032a0 on the container (every live node moved
-    // to the free list, then every free node and its two buffers freed). Retail builds a
-    // temporary {empty lists, current 0, +0x30 = -1} (FUN_004045b0 / the inline copy in
-    // FUN_00402f40) and inserts a copy of it; constructing the entry in place gives the same
-    // value. The key words +0x1c..+0x2c of that temporary are never initialised in retail; every
-    // insert path overwrites them from DAT_006101d8 before they are read.
+    // The value of one the field map node: the container at node+0x10. Its destructor is the
+    // map's value destructor the routine = the routine on the container (every live node moved
+    // to the free list, then every free node and its two buffers freed). baseline builds a
+    // temporary {empty lists, current 0, +0x30 = -1} (the routine / the inline copy in
+    // ) and inserts a copy of it; constructing the entry in place gives the same
+    // value. The key words +0x1c..+0x2c of that temporary are never initialised in baseline; every
+    // insert path overwrites them from the field before they are read.
     struct FScreenQuadBatchEntry
     {
         FScreenQuadBatchContainer Container;
@@ -342,13 +338,13 @@ namespace
         FScreenQuadBatchEntry& operator=(FScreenQuadBatchEntry const&) = delete;
     };
 
-    // DAT_00616478 -- std::map<material-list key, container> (head DAT_0061647c, size
-    // DAT_00616488). Static init LAB_00402c10 (FUN_00404dd0 + atexit LAB_00402c40, which
-    // destroys every node through FUN_00405820): the map's own constructor / destructor.
+    // std::map<material-list key, container> (head the field, size
+    // ). Static init the branch (the routine + atexit the branch, which
+    // destroys every node through the routine): the map's own constructor / destructor.
     std::map<unsigned long, FScreenQuadBatchEntry> G_BatchMap;
 
 
-    // FUN_00404d50 as the insert paths use it (the live list at container+0xc, before node 0):
+    // as the insert paths use it (the live list at container+0xc, before node 0):
     // Node goes to the live tail.
     void AppendToLiveList(FScreenQuadBatchContainer* Pool, FScreenQuadBatchNode* Node)
     {
@@ -363,11 +359,11 @@ namespace
         Pool->LiveCount += 1;
     }
 
-    // FUN_004045d0 (thiscall on a container, RET 0xc: frame, blend, bFind) -- the body
-    // FUN_00402e30 inlines after FUN_00402f40. The frame's five dwords become the container key
+    // (thiscall on a container, RET 0xc: frame, blend, bFind) -- the body
+    // inlines after the routine. The frame's five dwords become the container key
     // (+0x1c); the current node is kept when its texture (+0x20) matches key[0], otherwise it is
     // dropped (bFind 0) or replaced by the first live node that matches (bFind 1); with none, a
-    // node from FUN_00402ed0 goes to the live tail with the texture, the blend and empty counts.
+    // node from the routine goes to the live tail with the texture, the blend and empty counts.
     FScreenQuadBatchNode* ContainerBeginBatch(FScreenQuadBatchContainer* C,
                                               unsigned long const* Frame, int BlendMode,
                                               bool bFind)
@@ -401,16 +397,16 @@ namespace
         return C->Current;
     }
 
-    // FUN_00402f40 (.text:00402f40-0040315b) -- DAT_00616498, found or inserted.
+    // (module storage-0040315b) -- the field, found or inserted.
     FScreenQuadBatchContainer* EnsureBatchContainer()
     {
-        // 0x00402f4e..0x00402f65: already set -> returned as it is.
+        // already set -> returned as it is.
         if (G_ActiveContainer != nullptr)
             return G_ActiveContainer;
 
-        // 0x00402f6b..0x00403086: the pair {DAT_00616474, empty container} inserted
-        // (FUN_00404f20); an existing entry for the key is left untouched. The temporaries are
-        // destroyed empty. DAT_00616498 = the entry's container (node + 0x10).
+        // the pair {the field, empty container} inserted
+        // (the routine); an existing entry for the key is left untouched. The temporaries are
+        // destroyed empty. the field = the entry's container (node + 0x10).
         std::pair<std::map<unsigned long, FScreenQuadBatchEntry>::iterator, bool> const Inserted =
             G_BatchMap.try_emplace(G_MaterialListKey);
         FScreenQuadBatchContainer* const C = &Inserted.first->second.Container;
@@ -418,12 +414,12 @@ namespace
         if (!Inserted.second)
             return C;
 
-        // 0x00403091..0x004030ab: a new entry takes the default frame as its key.
+        // a new entry takes the default frame as its key.
         for (int Index = 0; Index < 5; ++Index)
             C->MatKey[Index] = static_cast<unsigned>(G_ScreenQuadDefaultFrame[Index]);
         void* const Texture = reinterpret_cast<void*>(static_cast<uintptr_t>(C->MatKey[0]));
 
-        // 0x004030ad..0x004030cf: a current node of another texture is replaced by the first
+        // a current node of another texture is replaced by the first
         // live node of this one (a new entry has neither).
         if (C->Current != nullptr && C->Current->TextureHandle != Texture)
         {
@@ -432,8 +428,8 @@ namespace
                 C->Current = C->Current->Next;
         }
 
-        // 0x004030d1..0x0040313b: none -- the free list's head (FUN_00404d90) or
-        // new(0x28) + FUN_00403160, at the live tail (FUN_00404d50); +0x20 = key[0], +0x24 = 0,
+        // none -- the free list's head (the routine) or
+        // new(0x28) + the routine, at the live tail (the routine); +0x20 = key[0], +0x24 = 0,
         // +0xc = +0x18 = 0.
         if (C->Current == nullptr)
         {
@@ -448,8 +444,8 @@ namespace
         return C;
     }
 
-    // The container's UV rect, key words +0x20..+0x2c, read as dwords (FUN_004034a0,
-    // FUN_004038f0). The container always exists when these are read (FUN_00402f40 never
+    // The container's UV rect, key words +0x20..+0x2c, read as dwords (the routine,
+    // ). The container always exists when these are read (the routine never
     // returns null).
     float BatchU0(FScreenQuadBatchContainer* C)
     {
@@ -475,10 +471,10 @@ namespace
         memcpy(&V, &C->MatKey[4], sizeof(V));
         return V;
     }
-    // The record append retail inlines (FUN_004038f0 0x00403bd9..0x00403c97 /
-    // 0x00403ddb..0x00403e87, FUN_004034a0 0x004035e6..0x004036a8, LAB_004137a0): count + 1;
+    // The record append baseline inlines (the routine 0x00403bd9..0x00403c97 /
+    // , the routine 0x004035e6..0x004036a8, the branch): count + 1;
     // past the capacity (signed JLE) a block of count + 1 + 0x20 records from operator new, the
-    // old records copied when there were any, the old block freed (FUN_005b7e1d, always); the
+    // old records copied when there were any, the old block freed (the routine, always); the
     // 0x2c record written at the old count.
     void AppendRecordToNode(FScreenQuadBatchNode* Node, FScreenQuadRecord const& Record)
     {
@@ -491,13 +487,13 @@ namespace
                 operator new(static_cast<size_t>(Node->RecordCapacity) * 0x2cu));
             if (Node->Records != nullptr)
                 memcpy(Grown, Node->Records, static_cast<size_t>(Count) * 0x2cu);
-            operator delete(Node->Records);   // FUN_005b7e1d
+            operator delete(Node->Records);
             Node->Records = Grown;
         }
         Node->Records[Count] = Record;
     }
 
-    // One FVF 0x1c4 vertex of an axis-aligned record, as FUN_004042c0 writes it: Z = +0x10,
+    // One FVF 0x1c4 vertex of an axis-aligned record, as the routine writes it: Z = +0x10,
     // RHW = +0x14, the colour dword +0x28 copied raw, specular 0.
     void WriteRecordVertex(FScreenQuadGpuVert* Out, FScreenQuadRecord const& Rec, float X, float Y,
                            float U, float V)
@@ -512,15 +508,15 @@ namespace
         Out->V = V;
     }
 
-    // FUN_004042c0 (thiscall on a node, RET 0x10: pipeline, vertex-buffer manager, index buffer,
-    // draw). Listing-traced 0x004042c0..0x00404573. No argument is null-checked in retail.
+    // (thiscall on a node, RET 0x10: pipeline, vertex-buffer manager, index buffer,
+    // draw). Listing-traced 0x004042c0..0x00404573. No argument is null-checked in baseline.
     void FlushOneBatch(FScreenQuadBatchNode* Node, IRenderPipeline* Pipe,
                        IVertexBufferManager* Vbm, IRPIndexBuffer* Ib, IRPDraw* Draw)
     {
-        // 0x004042c7..0x004042d6: slot 66 (+0x108) with the node's texture, unconditionally.
+        // slot 66 (+0x108) with the node's texture, unconditionally.
         Pipe->SetTextureStageTexture(0, Node->TextureHandle);
 
-        // 0x004042dc..0x00404318: blend 1 -> SRCBLEND / DESTBLEND 2 / 2, blend 2 -> 5 / 6,
+        // blend 1 -> SRCBLEND / DESTBLEND 2 / 2, blend 2 -> 5 / 6,
         // anything else leaves them alone. 0x0040431b..0x0040432b: ALPHABLENDENABLE = blend != 0.
 #ifdef OUTPOST_FRONTIER_WALK_MODE
         int const BlendMode = Node->BlendMode == 0 && BaseWalkGetInterfaceDrawOpacity() < 1.0f ?
@@ -540,18 +536,18 @@ namespace
         }
         Pipe->SetRenderState(D3DRS_ALPHABLENDENABLE, (BlendMode != 0) ? 1 : 0);
 
-        // 0x00404331..0x00404340: rotated vertices + four per record; nothing to draw -> the
+        // rotated vertices + four per record; nothing to draw -> the
         // epilogue.
         unsigned int const VertexCount =
             static_cast<unsigned int>(Node->RotVertCount + Node->RecordCount * 4);
         if (VertexCount != 0)
         {
-            // 0x00404346..0x0040435e: IVertexBufferManager slot 5 (+0x14) with FVF 0x1c4 into
+            // IVertexBufferManager slot 5 (+0x14) with FVF 0x1c4 into
             // the 4-dword lock block ([2] = the base vertex, [3] = the write pointer).
             FVertexMemoryLock Lock;
             if (Vbm->LockVertexMemory(kScreenQuadFvf, VertexCount, &Lock) >= 0)
             {
-                // 0x00404364..0x00404473: each record -> (X0,Y0,U0,V0) (X0,Y1,U0,V1)
+                // each record -> (X0,Y0,U0,V0) (X0,Y1,U0,V1)
                 // (X1,Y1,U1,V1) (X1,Y0,U1,V0); the count is re-read every pass.
                 FScreenQuadGpuVert* Dst =
                     (FScreenQuadGpuVert*)Lock.Vertices;
@@ -565,7 +561,7 @@ namespace
                     Dst += 4;
                 }
 
-                // 0x0040447d..0x00404497: the rotated vertices copied after them (REP MOVSD/B).
+                // the rotated vertices copied after them (REP MOVSD/B).
                 memcpy(Dst, Node->RotatedVerts,
                        static_cast<size_t>(Node->RotVertCount) * sizeof(FScreenQuadGpuVert));
 
@@ -578,10 +574,10 @@ namespace
                                                                      BlendMode == 1);
 #endif
 
-                // 0x00404499..0x0040449d: slot 6 (+0x18).
+                // slot 6 (+0x18).
                 Vbm->UnlockVertexMemory(&Lock);
 
-                // 0x004044a0..0x004044d1: quads = count >> 2, six indices each, from the
+                // quads = count >> 2, six indices each, from the
                 // index buffer's scratch (-1) through slot 7 (+0x1c); offset and pointer start 0.
                 unsigned int const QuadCount = VertexCount >> 2;
                 unsigned int const IndexCount = QuadCount * 6u;
@@ -590,7 +586,7 @@ namespace
                 void* Indices = nullptr;
                 if (Ib->LockIb(ScratchIb, &IndexOffset, &Indices, IndexCount) >= 0)
                 {
-                    // 0x004044d7..0x00404527: {b, b+1, b+2, b, b+2, b+3}, b stepping by 4.
+                    // {b, b+1, b+2, b, b+2, b+3}, b stepping by 4.
                     unsigned short* Out = static_cast<unsigned short*>(Indices);
                     unsigned int Base = 0;
                     for (unsigned int Quad = 0; Quad < QuadCount; ++Quad)
@@ -605,7 +601,7 @@ namespace
                         Base += 4u;
                     }
 
-                    // 0x00404529..0x00404558: slot 8 (+0x20); slot 9 (+0x24) with the lock's
+                    // slot 8 (+0x20); slot 9 (+0x24) with the lock's
                     // base vertex; on success IRPDraw slot 3 (+0xc) triangle list over
                     // VertexCount vertices, IndexCount indices from the locked offset.
                     Ib->UnlockIb(ScratchIb);
@@ -615,20 +611,20 @@ namespace
             }
         }
 
-        // 0x0040455f..0x00404566: ALPHABLENDENABLE off on every path.
+        // ALPHABLENDENABLE off on every path.
         Pipe->SetRenderState(D3DRS_ALPHABLENDENABLE, 0);
     }
 
-    // FUN_00403ea0 0x004040df..0x0040415a / 0x00404186..0x00404200: every live node with
-    // anything queued goes through FUN_004042c0 with the DALib globals (not the caller's
-    // pipeline), is unlinked (FUN_00404d90) and put on the free list (FUN_00404580) with its
+    // 0x004040df..0x0040415a / 0x00404186..0x00404200: every live node with
+    // anything queued goes through the routine with the NeuronRuntime globals (not the caller's
+    // pipeline), is unlinked (the routine) and put on the free list (the routine) with its
     // counts untouched; then no current node.
     void FlushContainer(FScreenQuadBatchContainer* C)
     {
-        IRenderPipeline* const Pipe = DALib::Pipeline;
-        IVertexBufferManager* const Vbm = DALib::VertexBuffer;
-        IRPIndexBuffer* const Ib = DALib::RPIndexBuffer;
-        IRPDraw* const Draw = DALib::RPDraw;
+        IRenderPipeline* const Pipe = NeuronRuntime::Pipeline;
+        IVertexBufferManager* const Vbm = NeuronRuntime::VertexBuffer;
+        IRPIndexBuffer* const Ib = NeuronRuntime::RPIndexBuffer;
+        IRPDraw* const Draw = NeuronRuntime::RPDraw;
         while (C->LiveHead != nullptr)
         {
             FScreenQuadBatchNode* const Node = C->LiveHead;
@@ -652,23 +648,23 @@ FScreenQuadRenderStateSaver::FScreenQuadRenderStateSaver(IRenderPipeline* InPipe
 
 FScreenQuadRenderStateSaver::~FScreenQuadRenderStateSaver()
 {
-    // FUN_00405840 (inlined at most sites): Saved back through slot 60.
+    // (inlined at most sites): Saved back through slot 60.
     Pipe->SetRenderState((D3DRENDERSTATETYPE)State, Saved);
 }
 
 int ScreenQuadClip1D(float* Edge0, float* Edge1, float* Attr0, float* Attr1, float Lo, float Hi,
                      float Span)
 {
-    // FUN_00404670 (cdecl), listing-traced 0x00404670..0x00404715. No guard on Span: retail
+    // (cdecl), listing-traced 0x00404670..0x00404715. No guard on Span: baseline
     // divides by it as given.
-    // 0x00404675..0x00404684: Edge1 below Lo (TEST AH,5 / JNP -- ordered less only) -> 0.
+    // Edge1 below Lo (TEST AH,5 / JNP -- ordered less only) -> 0.
     if (*Edge1 < Lo)
         return 0;
-    // 0x0040468e..0x00404699: Edge0 not below Hi (TEST AH,1 / JZ; unordered passes) -> 0.
+    // Edge0 not below Hi (TEST AH,1 / JZ; unordered passes) -> 0.
     if (static_cast<double>(*Edge0) >= static_cast<double>(Hi))
         return 0;
     int Result = 1;
-    // 0x0040469b..0x004046d2: Lo - Edge0 above 0 (TEST AH,0x41 / JNZ skips not-greater and
+    // Lo - Edge0 above 0 (TEST AH,0x41 / JNZ skips not-greater and
     // unordered): Edge0 moved to Lo, Attr0 += (Attr1 - Attr0) * (delta / Span); the delta stays
     // on the FPU.
     double const DeltaLo = static_cast<double>(Lo) - static_cast<double>(*Edge0);
@@ -681,12 +677,12 @@ int ScreenQuadClip1D(float* Edge0, float* Edge1, float* Attr0, float* Attr1, flo
                 (DeltaLo / static_cast<double>(Span)) +
             static_cast<double>(*Attr0));
     }
-    // 0x004046d8..0x004046e9: Hi - Edge1 not below 0 (TEST AH,5 / JP: greater, equal and
+    // Hi - Edge1 not below 0 (TEST AH,5 / JP: greater, equal and
     // unordered all take the jump) -> Result.
     double const DeltaHi = static_cast<double>(Hi) - static_cast<double>(*Edge1);
     if (!(DeltaHi < 0.0))
         return Result;
-    // 0x004046eb..0x00404707: Edge1 moved to Hi, Attr1 += (Attr1 - Attr0) * (delta / Span)
+    // Edge1 moved to Hi, Attr1 += (Attr1 - Attr0) * (delta / Span)
     // with the Attr0 written above; -1.
     *Edge1 = static_cast<float>(DeltaHi + static_cast<double>(*Edge1));
     *Attr1 = static_cast<float>(
@@ -763,7 +759,7 @@ void ApplyScreenQuadRenderStates(IRenderPipeline* Pipe)
 
 void ScreenQuadSetMaterialKey(unsigned long Key)
 {
-    // FUN_00402d30 (0x00402d30..0x00402d4b): a different key is stored and DAT_00616498
+    // (0x00402d30..0x00402d4b): a different key is stored and the field
     // nulled -- nothing else. The previous key's container keeps its queued nodes in the map
     // until a flush names that key.
     if (G_MaterialListKey != Key)
@@ -773,13 +769,13 @@ void ScreenQuadSetMaterialKey(unsigned long Key)
     }
 }
 
-// FUN_00402d50 (0x00402d50..0x00402e2a; sole caller the font shutdown FUN_004174a0 tail jump
-// 0x0041761a). 0x00402d53..0x00402e07: every map node erased -- the clear path (size != 0,
-// FUN_00405510 + FUN_00405820 + free per node) and the erase-range path (FUN_00405130) both
-// run the value destructor, i.e. FUN_004032a0 on each container. 0x00402e09..0x00402e27: the
-// default key restored and DAT_00616498 nulled only when the key differs from it. With the
-// default key already current, retail leaves DAT_00616498 pointing into the freed node when it
-// was set; ported as retail has it.
+// (0x00402d50..0x00402e2a; sole caller the font shutdown the routine tail jump
+// ). 0x00402d53..0x00402e07: every map node erased -- the clear path (size != 0,
+// + the routine + free per node) and the erase-range path (the routine) both
+// run the value destructor, i.e. the routine on each container. 0x00402e09..0x00402e27: the
+// default key restored and the field nulled only when the key differs from it. With the
+// default key already current, baseline leaves the field pointing into the freed node when it
+// was set; ported as baseline has it.
 void ScreenQuadResetDrawBatchCache()
 {
     G_BatchMap.clear();
@@ -792,10 +788,10 @@ void ScreenQuadResetDrawBatchCache()
 
 namespace
 {
-    // One of FUN_004038f0's two quads (0x00403a92..0x00403c97 bulb, 0x00403c9a..0x00403e87
+    // One of the routine's two quads (0x00403a92..0x00403c97 bulb, 0x00403c9a..0x00403e87
     // glow): nothing unless the horizontal radius is above 1 (TEST AH,0x41 / JNZ skips
     // not-greater and unordered); the colour (x, y, z) * 255 through ftol, nothing when the three
-    // sum (unsigned) to 1 or less; the square centre +- radii clipped (FUN_00404670) to the
+    // sum (unsigned) to 1 or less; the square centre +- radii clipped (the routine) to the
     // viewport's columns then rows with the container's UV rect; one record appended to the
     // container's current node: depth A, 1/-z, the clipped UVs, the colour 0xFFrrggbb (the
     // components' low bytes).
@@ -849,28 +845,28 @@ namespace
 unsigned char ScreenQuadEnqueueFlare(ICamera* Cam, float const* Position, float const* BulbColor,
                                      float const* GlowColor, float BulbSize, float GlowSize)
 {
-    // FUN_004038f0 (cdecl), listing-traced 0x004038f0..0x00403e93. Sole caller FUN_004fdda0
-    // (0x004fdfcc). No argument is null-checked in retail.
+    // (cdecl), listing-traced 0x004038f0..0x00403e93. Sole caller the routine
+    // (0x004fdfcc). No argument is null-checked in baseline.
 
-    // 0x004038f8..0x00403922: Position into camera space through the view transform (slot 16)
-    // with DAT_00616494's TransformXform (slot 10).
+    // Position into camera space through the view transform (slot 16)
+    // with the field's TransformXform (slot 10).
     float const* const View = Cam->GetViewTransform();
     I3DMathEngine* const Math = AcquireScreenQuadMath();
     FVector CamSpace;
     Math->TransformXform(CamSpace, *reinterpret_cast<FTransform const*>(View),
                          *reinterpret_cast<FVector const*>(Position));
 
-    // 0x00403925..0x0040396f: depth z - z * 0.001 (double DAT_005c75f8), stored as a float;
-    // only in front of the near plane: depth - near below 0 (DAT_005c7474), or unordered
+    // depth z - z * 0.001 (double the field), stored as a float;
+    // only in front of the near plane: depth - near below 0 (the field), or unordered
     // (TEST AH,1 / JNZ continues on C0).
     float const Depth = static_cast<float>(static_cast<double>(CamSpace.Z) -
                                            static_cast<double>(CamSpace.Z) * 0.001);
     if (static_cast<double>(Depth) - static_cast<double>(Cam->GetZNear()) >= 0.0)
         return 0;
 
-    // 0x00403970..0x004039aa: InvDepth = -1 / depth (DAT_005c7500); the screen scales
+    // InvDepth = -1 / depth (the field); the screen scales
     // near * x-scale-over-near (slot 11) and near * y-scale-over-near (slot 12), each through a
-    // float temporary, in retail's call order (slot 11, 8, 12, 8).
+    // float temporary, in baseline's call order (slot 11, 8, 12, 8).
     float const InvDepth = static_cast<float>(-1.0 / static_cast<double>(Depth));
     float const XScaleOverNear = static_cast<float>(Cam->GetXScaleOverNear());
     float const ScaleX =
@@ -879,7 +875,7 @@ unsigned char ScreenQuadEnqueueFlare(ICamera* Cam, float const* Position, float 
     float const ScaleY =
         static_cast<float>(static_cast<double>(Cam->GetZNear()) * YScaleOverNear);
 
-    // 0x004039ae..0x004039e6: the radii. Horizontal ones keep their sign, vertical ones are
+    // the radii. Horizontal ones keep their sign, vertical ones are
     // made positive: bulb_size * sx / -z and glow_size * sx / -z (and sy for the vertical).
     double const PerDepthX = static_cast<double>(ScaleX) * static_cast<double>(InvDepth);
     double const PerDepthY = static_cast<double>(ScaleY) * static_cast<double>(InvDepth);
@@ -891,13 +887,13 @@ unsigned char ScreenQuadEnqueueFlare(ICamera* Cam, float const* Position, float 
     float const GlowRadiusY =
         static_cast<float>(std::fabs(PerDepthY * static_cast<double>(GlowSize)));
 
-    // 0x004039ea..0x00403a0f: culled when both horizontal radii are below 1 (DAT_005c75dc;
+    // culled when both horizontal radii are below 1 (the field;
     // TEST AH,5 / JP -- equal, greater and unordered continue). The bulb one is compared
     // unrounded, off the FPU.
     if (BulbRadiusXOnFpu < 1.0 && static_cast<double>(GlowRadiusX) < 1.0)
         return 0;
 
-    // 0x00403a10..0x00403a78: the centre -- the viewport's (slot 5) half spans (DAT_005c75e0)
+    // the centre -- the viewport's (slot 5) half spans (the field)
     // plus the scaled camera-space x / y, plus the viewport's origin.
     int const* const Rect = Cam->GetViewport();
     double const HalfSpanX = static_cast<double>(Rect[2] - Rect[0]) * static_cast<double>(0.5f);
@@ -909,27 +905,27 @@ unsigned char ScreenQuadEnqueueFlare(ICamera* Cam, float const* Position, float 
         (HalfSpanY + static_cast<double>(CamSpace.Y) * ScaleY * InvDepth) +
         static_cast<double>(Rect[1]));
 
-    // 0x00403a7c..0x00403a89: depth A = 1 - near * InvDepth.
+    // depth A = 1 - near * InvDepth.
     float const DepthA = static_cast<float>(
         1.0 - static_cast<double>(Cam->GetZNear()) * static_cast<double>(InvDepth));
 
-    // 0x00403a8d: FUN_00402f40 -- the current container (EDI through both quads).
+    // the routine -- the current container (EDI through both quads).
     FScreenQuadBatchContainer* const C = EnsureBatchContainer();
 
-    // 0x00403a92..0x00403c97: the bulb quad with the bulb colour (argument 3);
-    // 0x00403c9a..0x00403e87: the glow quad with the glow colour (argument 4).
+    // the bulb quad with the bulb colour (argument 3);
+    // the glow quad with the glow colour (argument 4).
     EnqueueFlareQuad(C, Rect, BulbColor, BulbRadiusX, BulbRadiusY, ScreenX, ScreenY, DepthA,
                      InvDepth);
     EnqueueFlareQuad(C, Rect, GlowColor, GlowRadiusX, GlowRadiusY, ScreenX, ScreenY, DepthA,
                      InvDepth);
 
-    // 0x00403e8d: 1 on every path past the near and size culls.
+    // 1 on every path past the near and size culls.
     return 1;
 }
 
 void ScreenQuadBeginBatchFrame(unsigned long const* Frame, int BlendMode, bool bFind)
 {
-    // FUN_00402e30 = FUN_00402f40 (0x00402e34), then the body FUN_004045d0 has as a container
+    // = the routine (0x00402e34), then the body the routine has as a container
     // method (0x00402e39..0x00402ebd: key copy, current-node keep / drop / find, new node at
     // the live tail).
     ContainerBeginBatch(EnsureBatchContainer(), Frame, BlendMode, bFind);
@@ -937,14 +933,14 @@ void ScreenQuadBeginBatchFrame(unsigned long const* Frame, int BlendMode, bool b
 
 void ScreenQuadAppendRecord(FScreenQuadRecord const& Record)
 {
-    // See the header: the node FUN_00402e30 returned is the container's current node.
+    // See the header: the node the routine returned is the container's current node.
     AppendRecordToNode(EnsureBatchContainer()->Current, Record);
 }
 
 void ScreenQuadEnqueueIcon(ICamera* Cam, float const* Position, unsigned long Argb, float Size,
                            float Angle, int /*Unused*/)
 {
-    // FUN_004034a0. 0x004034ab..0x004034d9: the projected centre and half extents (FUN_00403350
+    // . 0x004034ab..0x004034d9: the projected centre and half extents (the routine
     // writes them into the stack and argument slots); nothing when culled.
     float ScreenX = 0.0f;    // local_2c
     float ScreenY = 0.0f;    // local_30
@@ -954,17 +950,17 @@ void ScreenQuadEnqueueIcon(ICamera* Cam, float const* Position, unsigned long Ar
     if (!ScreenQuadProjectObjectExtent(Cam, Position, Size, &ScreenX, &ScreenY, &HalfW, &HalfH,
                                        &InvDepth))
         return;
-    FScreenQuadBatchContainer* const C = EnsureBatchContainer();   // FUN_00402f40, EBP
+    FScreenQuadBatchContainer* const C = EnsureBatchContainer();   // , EBP
     int const* const Rect = Cam->GetViewport();                    // slot 5, EBX
     float const U0 = BatchU0(C);   // +0x20..+0x2c, copied as dwords
     float const V0 = BatchV0(C);
     float const U1 = BatchU1(C);
     float const V1 = BatchV1(C);
 
-    // 0x004034ec..0x004034ff: |Angle| above 1e-5 (DAT_005c75f0; TEST AH,0x41 / JZ) rotates.
+    // |Angle| above 1e-5 (the field; TEST AH,0x41 / JZ) rotates.
     if (!(std::fabs(static_cast<double>(Angle)) > 1.0e-5))
     {
-        // 0x00403505..0x00403576: the square, each edge + 0.5 (DAT_005c75e8).
+        // the square, each edge + 0.5 (the field).
         float X0 = static_cast<float>(static_cast<double>(ScreenX) - HalfW + 0.5);
         float X1 = static_cast<float>(static_cast<double>(ScreenX) + HalfW + 0.5);
         float Y0 = static_cast<float>(static_cast<double>(ScreenY) - HalfH + 0.5);
@@ -974,7 +970,7 @@ void ScreenQuadEnqueueIcon(ICamera* Cam, float const* Position, unsigned long Ar
         float ClipU1 = U1;
         float ClipV1 = V1;
 
-        // 0x0040357a..0x004035e0: clipped to the viewport's columns, then rows.
+        // clipped to the viewport's columns, then rows.
         if (ScreenQuadClip1D(&X0, &X1, &ClipU0, &ClipU1, static_cast<float>(Rect[0]),
                              static_cast<float>(Rect[2]), HalfW + HalfW) == 0)
             return;
@@ -982,7 +978,7 @@ void ScreenQuadEnqueueIcon(ICamera* Cam, float const* Position, unsigned long Ar
                              static_cast<float>(Rect[3]), HalfH + HalfH) == 0)
             return;
 
-        // 0x004035e6..0x004036a8: depth 1 - near * InvDepth, one record appended to the current
+        // depth 1 - near * InvDepth, one record appended to the current
         // node (grown to count + 0x21 records when full).
         float const DepthA = static_cast<float>(
             1.0 - static_cast<double>(Cam->GetZNear()) * static_cast<double>(InvDepth));
@@ -996,7 +992,7 @@ void ScreenQuadEnqueueIcon(ICamera* Cam, float const* Position, unsigned long Ar
                 operator new(static_cast<size_t>(Node->RecordCapacity) * 0x2cu));
             if (Node->Records != nullptr)
                 memcpy(Grown, Node->Records, static_cast<size_t>(Count) * 0x2cu);
-            operator delete(Node->Records);   // FUN_005b7e1d
+            operator delete(Node->Records);
             Node->Records = Grown;
         }
         FScreenQuadRecord& Rec = Node->Records[Count];
@@ -1014,7 +1010,7 @@ void ScreenQuadEnqueueIcon(ICamera* Cam, float const* Position, unsigned long Ar
         return;
     }
 
-    // 0x004036b1..0x004036f7: the rotated half axes and the depth.
+    // the rotated half axes and the depth.
     double const Cos = std::cos(static_cast<double>(Angle));
     double const Sin = std::sin(static_cast<double>(Angle));
     float const CosHalfW = static_cast<float>(Cos * HalfW);
@@ -1024,7 +1020,7 @@ void ScreenQuadEnqueueIcon(ICamera* Cam, float const* Position, unsigned long Ar
     float const DepthA = static_cast<float>(
         1.0 - static_cast<double>(Cam->GetZNear()) * static_cast<double>(InvDepth));
 
-    // 0x004036fb..0x0040376b: the corners, in retail's operand order.
+    // the corners, in baseline's operand order.
     double const X = static_cast<double>(ScreenX);
     double const Y = static_cast<double>(ScreenY);
     double const XMinusCos = X - CosHalfW;
@@ -1040,7 +1036,7 @@ void ScreenQuadEnqueueIcon(ICamera* Cam, float const* Position, unsigned long Ar
     CornerX[3] = static_cast<float>((static_cast<double>(CosHalfW) + X) - SinHalfH);
     CornerY[3] = static_cast<float>(YMinusSin - CosHalfH);
 
-    // 0x0040376f..0x004037c4: every corner inside [left, right) x [top, bottom), unordered
+    // every corner inside [left, right) x [top, bottom), unordered
     // values passing (TEST AH,5 / JNP; TEST AH,0x41 / JNP, JZ, JNP).
     float const Left = static_cast<float>(Rect[0]);
     for (int Index = 0; Index < 4; ++Index)
@@ -1055,7 +1051,7 @@ void ScreenQuadEnqueueIcon(ICamera* Cam, float const* Position, unsigned long Ar
             return;
     }
 
-    // 0x004037c6..0x004038e3: four vertices appended (grown to count + 0x24 when full):
+    // four vertices appended (grown to count + 0x24 when full):
     // (u0, v0), (u0, v1), (u1, v1), (u1, v0).
     FScreenQuadBatchNode* const Node = C->Current;
     int const Count = Node->RotVertCount;
@@ -1067,7 +1063,7 @@ void ScreenQuadEnqueueIcon(ICamera* Cam, float const* Position, unsigned long Ar
             operator new(static_cast<size_t>(Node->RotVertCapacity) * 0x20u));
         if (Node->RotatedVerts != nullptr)
             memcpy(Grown, Node->RotatedVerts, static_cast<size_t>(Count) * 0x20u);
-        operator delete(Node->RotatedVerts);   // FUN_005b7e1d
+        operator delete(Node->RotatedVerts);
         Node->RotatedVerts = Grown;
     }
     float const VertU[4] = {U0, U0, U1, U1};
@@ -1086,54 +1082,54 @@ void ScreenQuadEnqueueIcon(ICamera* Cam, float const* Position, unsigned long Ar
     }
 }
 
-// DAT_0061648c -- the static initializer LAB_00402c00 stores -1 (XREFs: 00402c00 W, 00404045 R,
-// 00404b80 R -- never written again).
+// the static initializer the branch stores -1 (XREFs: 00402c00 W, 00404045 R,
+// R -- never written again).
 unsigned long G_ScreenQuadCurrentListKey = 0xffffffffu;
 
-// FUN_00403ea0 (cdecl: pipeline, list key), listing-traced 0x00403ea0..0x004042bf.
+// (cdecl: pipeline, list key), listing-traced 0x00403ea0..0x004042bf.
 void ScreenQuadFlush(IRenderPipeline* Pipe, unsigned long Key)
 {
-    // 0x00403ec6..0x00403f69: three savers on the caller's pipeline (slot 61 read, slot 60
+    // three savers on the caller's pipeline (slot 61 read, slot 60
     // write): 0x88 -> 0, 0x8b -> -1, 0x16 -> 1. They restore in reverse order at the end
-    // (0x00404267..0x004042a6: 0x16 inline, then FUN_00405840 for 0x8b and 0x88).
+    // (0x00404267..0x004042a6: 0x16 inline, then the routine for 0x8b and 0x88).
     FScreenQuadRenderStateSaver const SaverA(Pipe, 0x88, 0);
     FScreenQuadRenderStateSaver const SaverB(Pipe, 0x8b, -1);
     FScreenQuadRenderStateSaver const SaverC(Pipe, 0x16, 1);
 
-    // 0x00403f78..0x00403f98: DAT_005c7520 {0x89,0} {0x1d,0} {0x1b,0}.
+    // the field {0x89,0} {0x1d,0} {0x1b,0}.
     Pipe->SetRenderState(D3DRS_LIGHTING, 0);
     Pipe->SetRenderState(D3DRS_SPECULARENABLE, 0);
     Pipe->SetRenderState(D3DRS_ALPHABLENDENABLE, 0);
-    // 0x00403f9a..0x00403fba: DAT_005c7540 {0x8d,1} {0x91,1}.
+    // the field {0x8d,1} {0x91,1}.
     Pipe->SetRenderState(D3DRS_COLORVERTEX, 1);
     Pipe->SetRenderState(D3DRS_DIFFUSEMATERIALSOURCE, 1);
-    // 0x00403fbc..0x00403fc3: stage 0 type 0xb (the table loop leaves EAX = 0) = 0.
+    // stage 0 type 0xb (the table loop leaves EAX = 0) = 0.
     Pipe->SetTextureStageState(0, 0xb, 0);
-    // 0x00403fc9..0x00403feb: DAT_005c7568 on stage 0.
+    // the field on stage 0.
     Pipe->SetTextureStageState(0, 1, 4);
     Pipe->SetTextureStageState(0, 2, 2);
     Pipe->SetTextureStageState(0, 3, 0);
     Pipe->SetTextureStageState(0, 4, 4);
     Pipe->SetTextureStageState(0, 5, 2);
     Pipe->SetTextureStageState(0, 6, 0);
-    // 0x00403fed..0x0040400f: DAT_005c75a0 on stage 1.
+    // the field on stage 1.
     Pipe->SetTextureStageState(1, 1, 1);
     Pipe->SetTextureStageState(1, 2, 2);
     Pipe->SetTextureStageState(1, 3, 1);
     Pipe->SetTextureStageState(1, 4, 1);
     Pipe->SetTextureStageState(1, 5, 2);
     Pipe->SetTextureStageState(1, 6, 1);
-    // 0x00404011..0x00404038: stage 0 types 0x18 = 0, 0xd = 3, 0xe = 3.
+    // stage 0 types 0x18 = 0, 0xd = 3, 0xe = 3.
     Pipe->SetTextureStageState(0, 0x18, 0);
     Pipe->SetTextureStageState(0, 0xd, 3);
     Pipe->SetTextureStageState(0, 0xe, 3);
 
     if (Key == G_ScreenQuadCurrentListKey)
     {
-        // 0x00404051..0x004040d9: the current container, created on demand -- the pair
-        // {DAT_00616474, FUN_004045b0 temporary} inserted (FUN_00404f00 / FUN_00404e40, the
-        // temporaries destroyed empty by FUN_00403200); a new entry is given the default frame
-        // through FUN_004045d0(DAT_006101d8, 0, 1).
+        // the current container, created on demand -- the pair
+        // {the field, the routine temporary} inserted (the routine / the routine, the
+        // temporaries destroyed empty by the routine); a new entry is given the default frame
+        // through the routine(the field, 0, 1).
         if (G_ActiveContainer == nullptr)
         {
             std::pair<std::map<unsigned long, FScreenQuadBatchEntry>::iterator, bool> const
@@ -1142,38 +1138,38 @@ void ScreenQuadFlush(IRenderPipeline* Pipe, unsigned long Key)
             if (Inserted.second)
                 ContainerBeginBatch(G_ActiveContainer, G_ScreenQuadDefaultFrame, 0, true);
         }
-        // 0x004040df..0x0040415a.
+        // .
         FlushContainer(G_ActiveContainer);
     }
     else
     {
-        // 0x0040415f..0x00404200: FUN_00432240 (find); the end node -> nothing drawn.
+        // the routine (find); the end node -> nothing drawn.
         std::map<unsigned long, FScreenQuadBatchEntry>::iterator const Found =
             G_BatchMap.find(Key);
         if (Found != G_BatchMap.end())
             FlushContainer(&Found->second.Container);
     }
 
-    // 0x00404207..0x00404227: DAT_005c7558 {0x8d,0}. 0x00404229..0x00404241: stage 0 types
+    // the field {0x8d,0}. 0x00404229..0x00404241: stage 0 types
     // 0xd and 0xe = 1.
     Pipe->SetRenderState(D3DRS_COLORVERTEX, 0);
     Pipe->SetTextureStageState(0, 0xd, 1);
     Pipe->SetTextureStageState(0, 0xe, 1);
 
-    // 0x00404247..0x0040425d: the default key back; DAT_00616498 nulled only on a change.
+    // the default key back; the field nulled only on a change.
     if (G_MaterialListKey != G_MaterialListKeyDefault)
     {
         G_MaterialListKey = G_MaterialListKeyDefault;
         G_ActiveContainer = nullptr;
     }
 
-    // Port bookkeeping, not retail: every state above went to the pipeline directly, so the
+    // Port bookkeeping, not baseline: every state above went to the pipeline directly, so the
     // ScreenQuadSet* cache the menu path keeps (see the header) no longer mirrors the device.
     // Runs before the savers' destructors, which also write directly.
     ScreenQuadInvalidateStateCache();
 }
 
-// DAT_006101ec -- .data byte, initial 1, never written in the PE; sole reader FUN_00404720
+// .data byte, initial 1, never written in the PE; sole reader the routine
 // (0x00404951). Set: the big-image tiles are drawn with stage 0 MAGFILTER (0x10) and MINFILTER
 // (0x11) forced to 1 (point).
 unsigned char G_BigImageTilePointFilter = 1;
@@ -1181,67 +1177,67 @@ unsigned char G_BigImageTilePointFilter = 1;
 void __cdecl ScreenQuadDrawBigImageTile(void* TextureHandle, unsigned long PackedColor,
                                         float* DestXy, float* UvQuad)
 {
-    // FUN_00404720 (cdecl, RET), listing-traced 0x00404720..0x00404cdb. No argument is checked.
-    // 0x0040473a..0x00404744: glMatrixMode(0x1701) is the empty RET at 0x00401e90.
-    // 0x00404747 / 0x0040474c: FUN_00422a70, FUN_004225e0.
+    // (cdecl, RET), listing-traced 0x00404720..0x00404cdb. No argument is checked.
+    // glMatrixMode(0x1701) is the empty RET at 0x00401e90.
+    // / 0x0040474c: the routine, the routine.
     Win3DPushProjection();
     Win3DSetOrtho2D();
 
-    // 0x00404751..0x0040480f: three savers on DALib::Pipeline (slot 61 read, slot 60 write; EH
+    // three savers on NeuronRuntime::Pipeline (slot 61 read, slot 60 write; EH
     // states 0..2): 0x88 -> 0, 0x8b -> -1, 0x16 -> 1.
-    FScreenQuadRenderStateSaver const SaverA(DALib::Pipeline, 0x88, 0);
-    FScreenQuadRenderStateSaver const SaverB(DALib::Pipeline, 0x8b, -1);
-    FScreenQuadRenderStateSaver const SaverC(DALib::Pipeline, 0x16, 1);
+    FScreenQuadRenderStateSaver const SaverA(NeuronRuntime::Pipeline, 0x88, 0);
+    FScreenQuadRenderStateSaver const SaverB(NeuronRuntime::Pipeline, 0x8b, -1);
+    FScreenQuadRenderStateSaver const SaverC(NeuronRuntime::Pipeline, 0x16, 1);
 
-    // 0x0040480f..0x0040483b: DAT_005c7520 {0x89,0} {0x1d,0} {0x1b,0}.
-    DALib::Pipeline->SetRenderState(D3DRS_LIGHTING, 0);
-    DALib::Pipeline->SetRenderState(D3DRS_SPECULARENABLE, 0);
-    DALib::Pipeline->SetRenderState(D3DRS_ALPHABLENDENABLE, 0);
-    // 0x0040483d..0x00404866: DAT_005c7540 {0x8d,1} {0x91,1}.
-    DALib::Pipeline->SetRenderState(D3DRS_COLORVERTEX, 1);
-    DALib::Pipeline->SetRenderState(D3DRS_DIFFUSEMATERIALSOURCE, 1);
-    // 0x00404868..0x0040487e: stage 0 type 0xb = 0.
-    DALib::Pipeline->SetTextureStageState(0, 0xb, 0);
-    // 0x0040487e..0x004048a8: DAT_005c7568 on stage 0.
-    DALib::Pipeline->SetTextureStageState(0, 1, 4);
-    DALib::Pipeline->SetTextureStageState(0, 2, 2);
-    DALib::Pipeline->SetTextureStageState(0, 3, 0);
-    DALib::Pipeline->SetTextureStageState(0, 4, 4);
-    DALib::Pipeline->SetTextureStageState(0, 5, 2);
-    DALib::Pipeline->SetTextureStageState(0, 6, 0);
-    // 0x004048aa..0x004048d8: DAT_005c75a0 on stage 1.
-    DALib::Pipeline->SetTextureStageState(1, 1, 1);
-    DALib::Pipeline->SetTextureStageState(1, 2, 2);
-    DALib::Pipeline->SetTextureStageState(1, 3, 1);
-    DALib::Pipeline->SetTextureStageState(1, 4, 1);
-    DALib::Pipeline->SetTextureStageState(1, 5, 2);
-    DALib::Pipeline->SetTextureStageState(1, 6, 1);
-    // 0x004048da..0x0040491e: stage 0 types 0x18 = 0, 0xd = 3, 0xe = 3.
-    DALib::Pipeline->SetTextureStageState(0, 0x18, 0);
-    DALib::Pipeline->SetTextureStageState(0, 0xd, 3);
-    DALib::Pipeline->SetTextureStageState(0, 0xe, 3);
+    // the field {0x89,0} {0x1d,0} {0x1b,0}.
+    NeuronRuntime::Pipeline->SetRenderState(D3DRS_LIGHTING, 0);
+    NeuronRuntime::Pipeline->SetRenderState(D3DRS_SPECULARENABLE, 0);
+    NeuronRuntime::Pipeline->SetRenderState(D3DRS_ALPHABLENDENABLE, 0);
+    // the field {0x8d,1} {0x91,1}.
+    NeuronRuntime::Pipeline->SetRenderState(D3DRS_COLORVERTEX, 1);
+    NeuronRuntime::Pipeline->SetRenderState(D3DRS_DIFFUSEMATERIALSOURCE, 1);
+    // stage 0 type 0xb = 0.
+    NeuronRuntime::Pipeline->SetTextureStageState(0, 0xb, 0);
+    // the field on stage 0.
+    NeuronRuntime::Pipeline->SetTextureStageState(0, 1, 4);
+    NeuronRuntime::Pipeline->SetTextureStageState(0, 2, 2);
+    NeuronRuntime::Pipeline->SetTextureStageState(0, 3, 0);
+    NeuronRuntime::Pipeline->SetTextureStageState(0, 4, 4);
+    NeuronRuntime::Pipeline->SetTextureStageState(0, 5, 2);
+    NeuronRuntime::Pipeline->SetTextureStageState(0, 6, 0);
+    // the field on stage 1.
+    NeuronRuntime::Pipeline->SetTextureStageState(1, 1, 1);
+    NeuronRuntime::Pipeline->SetTextureStageState(1, 2, 2);
+    NeuronRuntime::Pipeline->SetTextureStageState(1, 3, 1);
+    NeuronRuntime::Pipeline->SetTextureStageState(1, 4, 1);
+    NeuronRuntime::Pipeline->SetTextureStageState(1, 5, 2);
+    NeuronRuntime::Pipeline->SetTextureStageState(1, 6, 1);
+    // stage 0 types 0x18 = 0, 0xd = 3, 0xe = 3.
+    NeuronRuntime::Pipeline->SetTextureStageState(0, 0x18, 0);
+    NeuronRuntime::Pipeline->SetTextureStageState(0, 0xd, 3);
+    NeuronRuntime::Pipeline->SetTextureStageState(0, 0xe, 3);
 
-    // 0x0040491e..0x00404951: stage 0 types 0x10 and 0x11 read (slot 63) into two locals.
+    // stage 0 types 0x10 and 0x11 read (slot 63) into two locals.
     int SavedStage0Type10 = 0;   // [ESP+0x8]
     int SavedStage0Type11 = 0;   // [ESP+0xc]
-    DALib::Pipeline->GetTextureStageState(0, 0x10, &SavedStage0Type10);
-    DALib::Pipeline->GetTextureStageState(0, 0x11, &SavedStage0Type11);
+    NeuronRuntime::Pipeline->GetTextureStageState(0, 0x10, &SavedStage0Type10);
+    NeuronRuntime::Pipeline->GetTextureStageState(0, 0x11, &SavedStage0Type11);
 
-    // 0x00404951..0x00404987: DAT_006101ec set (TEST AL,AL / JZ skips) -> both = 1.
+    // the field set (TEST AL,AL / JZ skips) -> both = 1.
     if (G_BigImageTilePointFilter != 0)
     {
-        DALib::Pipeline->SetTextureStageState(0, 0x10, 1);
-        DALib::Pipeline->SetTextureStageState(0, 0x11, 1);
+        NeuronRuntime::Pipeline->SetTextureStageState(0, 0x10, 1);
+        NeuronRuntime::Pipeline->SetTextureStageState(0, 0x11, 1);
     }
 
-    // 0x00404987..0x004049fe: two more savers (EH states 3, 4): 0x17 -> 8, 0xe -> 0.
-    FScreenQuadRenderStateSaver const SaverD(DALib::Pipeline, 0x17, 8);
-    FScreenQuadRenderStateSaver const SaverE(DALib::Pipeline, 0xe, 0);
+    // two more savers (EH states 3, 4): 0x17 -> 8, 0xe -> 0.
+    FScreenQuadRenderStateSaver const SaverD(NeuronRuntime::Pipeline, 0x17, 8);
+    FScreenQuadRenderStateSaver const SaverE(NeuronRuntime::Pipeline, 0xe, 0);
 
-    // 0x004049fe..0x00404a2a: FUN_00402d30 inlined on DACOM_CRC::GetCRC32("image").
-    ScreenQuadSetMaterialKey(DACOM_CRC::GetCRC32("image"));
+    // the routine inlined on NEURONCOMPONENTS_CRC::GetCRC32("image").
+    ScreenQuadSetMaterialKey(NEURONCOMPONENTS_CRC::GetCRC32("image"));
 
-    // 0x00404a2a..0x00404a53: the frame {handle, UvQuad[0], UvQuad[7], UvQuad[6], UvQuad[1]}
+    // the frame {handle, UvQuad[0], UvQuad[7], UvQuad[6], UvQuad[1]}
     // (u0, v0, u1, v1), copied as dwords.
     unsigned long Frame[5];
     Frame[0] = static_cast<unsigned long>(reinterpret_cast<uintptr_t>(TextureHandle));
@@ -1250,11 +1246,11 @@ void __cdecl ScreenQuadDrawBigImageTile(void* TextureHandle, unsigned long Packe
     memcpy(&Frame[3], &UvQuad[6], sizeof(unsigned long));
     memcpy(&Frame[4], &UvQuad[1], sizeof(unsigned long));
 
-    // 0x00404a57..0x00404a73: FUN_00402f40, then FUN_004045d0(frame, blend 2, bFind 0) -> ESI.
+    // the routine, then the routine(frame, blend 2, bFind 0) -> ESI.
     FScreenQuadBatchNode* const Node =
         ContainerBeginBatch(EnsureBatchContainer(), Frame, 2, false);
 
-    // 0x00404a6c..0x00404a94: the destination rect into locals.
+    // the destination rect into locals.
     float X0 = DestXy[0];   // [ESP+0x4c]
     float Y0 = DestXy[1];   // [ESP+0x50]
     float X1 = DestXy[2];   // [ESP+0x54]
@@ -1268,18 +1264,18 @@ void __cdecl ScreenQuadDrawBigImageTile(void* TextureHandle, unsigned long Packe
     memcpy(&U1, &Frame[3], sizeof(float));
     memcpy(&V1, &Frame[4], sizeof(float));
 
-    // 0x00404a88..0x00404ad7: FUN_00404670 on x against [0, DAT_00610850 - 1] (FILD of the
+    // the routine on x against [0, the field - 1] (FILD of the
     // decremented int), span X1 - X0 stored as a float; 0 skips to 0x00404b97.
     float const SpanX = static_cast<float>(static_cast<double>(X1) - static_cast<double>(X0));
     float const HiX = static_cast<float>(static_cast<int>(G_RenderSurfaceWidth - 1u));
     if (ScreenQuadClip1D(&X0, &X1, &U0, &U1, 0.0f, HiX, SpanX) != 0)
     {
-        // 0x00404add..0x00404b24: the same on y against [0, DAT_00610854 - 1].
+        // the same on y against [0, the field - 1].
         float const SpanY = static_cast<float>(static_cast<double>(Y1) - static_cast<double>(Y0));
         float const HiY = static_cast<float>(static_cast<int>(G_RenderSurfaceHeight - 1u));
         if (ScreenQuadClip1D(&Y0, &Y1, &V0, &V1, 0.0f, HiY, SpanY) != 0)
         {
-            // 0x00404b26..0x00404b7d: FUN_00404ce0(node + 8, 1) and the record written into the
+            // the routine(node + 8, 1) and the record written into the
             // slot it returns: the clipped rect, 1.0 / 1.0, the clipped UVs, the colour dword.
             FScreenQuadRecord Rec;
             Rec.X0 = X0;
@@ -1295,20 +1291,20 @@ void __cdecl ScreenQuadDrawBigImageTile(void* TextureHandle, unsigned long Packe
             Rec.ColorBits = PackedColor;
             AppendRecordToNode(Node, Rec);
 
-            // 0x00404b80..0x00404b94: FUN_00403ea0(DALib::Pipeline, DAT_0061648c).
-            ScreenQuadFlush(DALib::Pipeline, G_ScreenQuadCurrentListKey);
+            // the routine(NeuronRuntime::Pipeline, the field).
+            ScreenQuadFlush(NeuronRuntime::Pipeline, G_ScreenQuadCurrentListKey);
         }
     }
 
-    // 0x00404b97..0x00404bc6: DAT_005c7558 {0x8d,0}. 0x00404bc8..0x00404bf5: stage 0 types 0xd
+    // the field {0x8d,0}. 0x00404bc8..0x00404bf5: stage 0 types 0xd
     // and 0xe = 1. 0x00404bf5..0x00404c28: stage 0 types 0x10 / 0x11 back to the saved values.
-    DALib::Pipeline->SetRenderState(D3DRS_COLORVERTEX, 0);
-    DALib::Pipeline->SetTextureStageState(0, 0xd, 1);
-    DALib::Pipeline->SetTextureStageState(0, 0xe, 1);
-    DALib::Pipeline->SetTextureStageState(0, 0x10, SavedStage0Type10);
-    DALib::Pipeline->SetTextureStageState(0, 0x11, SavedStage0Type11);
+    NeuronRuntime::Pipeline->SetRenderState(D3DRS_COLORVERTEX, 0);
+    NeuronRuntime::Pipeline->SetTextureStageState(0, 0xd, 1);
+    NeuronRuntime::Pipeline->SetTextureStageState(0, 0xe, 1);
+    NeuronRuntime::Pipeline->SetTextureStageState(0, 0x10, SavedStage0Type10);
+    NeuronRuntime::Pipeline->SetTextureStageState(0, 0x11, SavedStage0Type11);
 
-    // 0x00404c28: FUN_00422ab0. The savers then restore in reverse order (0x00404c2d..0x00404cc5:
+    // the routine. The savers then restore in reverse order (0x00404c2d..0x00404cc5:
     // 0xe, 0x17, 0x16, 0x8b, 0x88).
     Win3DPopProjection();
 }
@@ -1318,20 +1314,20 @@ unsigned char ScreenQuadProjectObjectExtent(ICamera* Cam, float const* Position,
                                             float* OutHalfW, float* OutHalfH,
                                             float* OutInvDepth)
 {
-    // FUN_00403350. 0x00403353..0x00403382: Position into camera space through the view
-    // transform (slot 16) with DAT_00616494's TransformXform (slot 10).
+    // . 0x00403353..0x00403382: Position into camera space through the view
+    // transform (slot 16) with the field's TransformXform (slot 10).
     float const* const View = Cam->GetViewTransform();
     I3DMathEngine* const Math = AcquireScreenQuadMath();
     FVector CamSpace;
     Math->TransformXform(CamSpace, *reinterpret_cast<FTransform const*>(View),
                          *reinterpret_cast<FVector const*>(Position));
 
-    // 0x00403385..0x0040339a: only in front of the near plane (z - near below 0, or unordered;
+    // only in front of the near plane (z - near below 0, or unordered;
     // TEST AH,1 / JNZ).
     if (static_cast<double>(CamSpace.Z) - static_cast<double>(Cam->GetZNear()) >= 0.0)
         return 0;
 
-    // 0x004033a4..0x004033ec: InvDepth = -1 / z (DAT_005c7500), stored as a float; the two
+    // InvDepth = -1 / z (the field), stored as a float; the two
     // screen scales near * x-scale-over-near (slot 11) and near * y-scale-over-near (slot 12),
     // each stored as a float.
     float const InvDepth = static_cast<float>(-1.0 / static_cast<double>(CamSpace.Z));
@@ -1341,7 +1337,7 @@ unsigned char ScreenQuadProjectObjectExtent(ICamera* Cam, float const* Position,
     float const YScaleOverNear = static_cast<float>(Cam->GetYScaleOverNear());
     float const ScaleY = static_cast<float>(static_cast<double>(Cam->GetZNear()) * YScaleOverNear);
 
-    // 0x004033f0..0x00403427: the half extents (Size / 2, DAT_005c75e0), the vertical one made
+    // the half extents (Size / 2, the field), the vertical one made
     // positive; culled when the horizontal one (unrounded) is below 1 (TEST AH,5 / JP).
     double const HalfW = static_cast<double>(ScaleX) * static_cast<double>(InvDepth) *
                          static_cast<double>(Size) * static_cast<double>(0.5f);
@@ -1353,7 +1349,7 @@ unsigned char ScreenQuadProjectObjectExtent(ICamera* Cam, float const* Position,
     if (HalfW < 1.0)
         return 0;
 
-    // 0x00403431..0x00403497: the centre -- the viewport's (slot 5) half spans plus its origin,
+    // the centre -- the viewport's (slot 5) half spans plus its origin,
     // offset by the scaled camera-space x / y.
     int const* const Rect = Cam->GetViewport();
     double const HalfSpanY = static_cast<double>(Rect[3] - Rect[1]) * static_cast<double>(0.5f);

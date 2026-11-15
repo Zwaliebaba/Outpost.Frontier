@@ -1,71 +1,67 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // rpc_iclient.h - IClient / IChatClient (the RPC client-side interfaces).
-//
-// Ground truth: retail EXE/rpclocal.dll (ImageBase 0x06d80000).
+
+// Ground truth: baseline EXE/rpclocal.dll (ImageBase 0x06d80000).
 //   * the abstract interface vtable is the exported symbol ??_7IClient@@6B@ at
-//     .rdata:0x06db3250 - exactly 126 purecall entries (0x06db3250..0x06db3444);
+// - exactly 126 purecall entries (0x06db3250..0x06db3444);
 //   * rpclocal also ships its own concrete IClient at .data:Client (0x06dbbcdc),
-//     whose vtable at .rdata:0x06db3978 has the very same 126 entries.
+//     whose vtable at module storage has the very same 126 entries.
 //   Two independent counts agree: IClient has 126 slots, +0x000..+0x1f4.
-//
+
 // Who exports GetClientInterface (re-checked on the listing in wave 2):
 //   * OutpostFrontier.exe exports it. IServerImpl::Startup (0x06d8f1e0) strncpy()s the
-//     first 0x104 bytes of SStartupInfo (the caller module path) to .data:0x06dbbbc0,
+//     first 0x104 bytes of SStartupInfo (the caller module path) to module storage,
 //     and IClient::Startup (slot 10, 0x06d8eed0) LoadLibraryA()s exactly that path to
-//     obtain the real client interface (cached in .data:0x06dbbcd8).
+//     obtain the real client interface (cached in module storage).
 //   * rpclocal.dll exports it too (ordinal 111, 0x06d8eeb0 -> &Client), and that is
-//     the copy retail Server.dll receives: Startup copies the whole 0x214-byte
+//     the copy baseline Server.dll receives: Startup copies the whole 0x214-byte
 //     SStartupInfo onto the stack and then OVERWRITES its first 0x104 bytes with
 //     GetModuleFileNameA(rpclocal HMODULE) before calling Server::Startup (+0x24).
 //   Hence SStartupInfo.ModulePath sits at offset +0x000, size 0x104 - not at +0x104.
-//
+
 // Almost every IClient slot is a packet sender: it allocates a CDAPacket through
-//   FUN_06d96300(Serializer /* this+0x08 */, Channel, Opcode, &OutPacket),
+// (Serializer /* this+0x08 */, Channel, Opcode, &OutPacket),
 // fills the payload from +0x20 on and hands the packet to PushToClient (slot 9, +0x24).
 // The Channel/Opcode pair and the FLPACKET_* name in each comment below come from the
-// retail packet registry FUN_06d960a0(Serializer, Channel << 16 | Opcode,
+// baseline packet registry the routine(Serializer, Channel << 16 | Opcode,
 // "FLPACKET_...", Factory); "size" is that packet class's operator new() size.
-// See src/rpclocal/rpc_packet_registry.cpp for the whole registry (protocol: docs/re/rpclocal.md).
-//
-// NAMES. Retail never decorated the IClient member names (rpclocal exports only
+// See src/rpclocal/rpc_packet_registry.cpp for the whole registry (protocol: implementation notes).
+
+// NAMES. baseline never decorated the IClient member names (rpclocal exports only
 // ??0IClient@@QAE@XZ, ??4IClient@@QAEAAV0@ABV0@@Z and ??_7IClient@@6B@), so every name
 // here is OURS, built by one rule (2026-10-16):
 //   * a packet sender is `Send` + the channel word of its FLPACKET_* registry string
 //     (COMMON = ch1, SERVER = ch2) + the rest of that string in PascalCase:
 //     FLPACKET_COMMON_FIREWEAPON -> SendCommonFireWeapon, FLPACKET_SERVER_SET_CAMERA ->
 //     SendServerSetCamera. Run-together words are split where English splits them; the
-//     abbreviations retail itself spells out elsewhere are kept as retail spells them
+//     abbreviations baseline itself spells out elsewhere are kept as baseline spells them
 //     (GF as in IServerImpl::GFGoodBuy, NN as in pub::Player::SendNNMessage, Msg, Obj,
 //     Arch, Resp, Cfg). When several slots send ONE packet type (PLAYER_TRADE,
 //     PLAYERLIST, MISCOBJUPDATE) the packet name gets a suffix: for PLAYER_TRADE the name
-//     of the retail-DECORATED IServerImpl method that sends the same sub-type the other
+//     of the baseline-DECORATED IServerImpl method that sends the same sub-type the other
 //     way (?InitiateTrade@IServerImpl@@ writes 0x01, ... ?StopTradeRequest@ writes 0x80);
 //     for the other two the field the slot carries.
-//   * the few non-senders are named after what the retail bodies do, mirroring the
+//   * the few non-senders are named after what the baseline bodies do, mirroring the
 //     decorated IServerImpl name of the same role where one exists (PushToServer ->
-//     PushToClient, Startup, Shutdown, Update, OnConnect, DumpPacketStats) and DALib's
+//     PushToClient, Startup, Shutdown, Update, OnConnect, DumpPacketStats) and NeuronRuntime's
 //     decorated CDPClientProxy names that RemoteClient.dll's bodies call (GetSendQSize,
 //     GetSendQBytes, GetLinkSaturation, Disconnect).
 // Each slot's comment keeps its old mechanical name as "(was SlotNN)".
-//
+
 // TYPES. The argument COUNT is exact: each callee's own RET n / 4 (a by-value Costume
 // takes 13 of those dwords). Every argument type was re-derived from rpclocal's sender
 // body, OutpostFrontier.exe's receiver and Server.dll's caller; the whole derivation table is
 // D:\Temp\claude_scratch\iclient\TABLE.md (phase 1 of the 2026-10-16 rename) and the
 // tracker's interface card. Conventions:
 //   * ClientId is the connection/session id the packet goes to. rpclocal's PushToClient
-//     never reads it; RemoteClient's hands it to DALib. Twenty-one senders take it BY
-//     REFERENCE (`const unsigned int&`): their retail body dereferences it before calling
+//     never reads it; RemoteClient's hands it to NeuronRuntime. Twenty-one senders take it BY
+//     REFERENCE (`const unsigned int&`): their baseline body dereferences it before calling
 //     slot 9 (e.g. 06d8b23f MOV ECX,[EDX] in SendServerSetCash), and rpclocal's receiver
 //     passes the address of a stack/static 1 for exactly those.
 //   * a struct the callee always dereferences and never null-tests is `const T&`; the
-//     callee only reads it. Pointers remain where retail tests for null (Packet, Name),
-//     where a retail caller passes null (LoadHint's Hint), or the argument is an array
+//     callee only reads it. Pointers remain where baseline tests for null (Packet, Name),
+//     where a baseline caller passes null (LoadHint's Hint), or the argument is an array
 //     (TextIds) or a byte block whose ownership moves.
 //   * byte blocks: `const unsigned char* Data, unsigned int Size` when the sender copies
 //     or borrows them; `unsigned char* Data` when the packet TAKES the caller's
@@ -77,7 +73,7 @@
 #include <string>
 #include <vector>
 
-// Retail mangles it ?PushToServer@IServerImpl@@UAEXPAVCDAPacket@@@Z -- `V`, a class.
+// baseline mangles it ?PushToServer@IServerImpl@@UAEXPAVCDAPacket@@@Z -- `V`, a class.
 class CDAPacket;
 
 // Argument types. Every one is complete elsewhere; this header only names them, so the
@@ -133,16 +129,16 @@ struct FServerRepairObjectInfo;             // slot 84
 
 // ============================================================================
 // Export macros for rpclocal.dll (src/include/rpc_iserver.h uses both).
-//
-// RPC_ICLIENT_API -- IClient is exported, never imported. Retail EXE\rpclocal.dll
+
+// RPC_ICLIENT_API -- IClient is exported, never imported. baseline EXE\rpclocal.dll
 // (ordinals 1, 2, 5, 7), EXE\Server.dll (9, 10, 28, 39) and EXE\OutpostFrontier.exe
 // (9, 10, 22, 32) EACH export their own ??0IClient@@QAE@XZ, ??0IClient@@QAE@ABV0@@Z,
-// ??4IClient@@QAEAAV0@ABV0@@Z and ??_7IClient@@6B@, and no retail module imports any
-// of them. rpclocal's ??_7IClient@@6B@ (.rdata:0x06db3250) and OutpostFrontier.exe's
-// (.rdata:0x005c9034) are each 126 entries of the module's own purecall thunk
+// ??4IClient@@QAEAAV0@ABV0@@Z and ??_7IClient@@6B@, and no baseline module imports any
+// of them. rpclocal's ??_7IClient@@6B@ (module storage) and OutpostFrontier.exe's
+// (module storage) are each 126 entries of the module's own purecall thunk
 // (0x06db1dd0 / 0x005b8064) -- the abstract class itself, emitted because it was
 // declared dllexport in every module that compiled it.
-//
+
 // So RPC_ICLIENT_API is dllexport in exactly those three modules -- RPCLOCAL_EXPORTS,
 // SERVER_EXPORTS, OUTPOST_FRONTIER_EXPORTS (each set by its own .vcxproj) -- and plain
 // everywhere else (Common.dll reaches this header through server_sysdb.h /
@@ -151,7 +147,7 @@ struct FServerRepairObjectInfo;             // slot 84
 // src/Server/IServerImpl.cpp, src/OutpostFrontier/Client/client_exports.cpp) and none links
 // another's import library, so a dllimport would be C2491 on those definitions. The
 // vftable is exported from the TU whose constructor stamps it.
-//
+
 // RPCLOCAL_API -- rpclocal's own exports (IServerImpl, Client, Server, Get*Interface).
 // rpc_iserver.h declares the proxy used by rpclocal and RemoteServer. RemoteClient
 // uses Server.dll's canonical server_iserverimpl.h instead. Import-library linkage
@@ -174,7 +170,7 @@ struct FServerRepairObjectInfo;             // slot 84
 // ============================================================================
 class RPC_ICLIENT_API IClient {
 public:
-    // Special members retail spells out: rpclocal exports ??0IClient@@QAE@XZ,
+    // Special members baseline spells out: rpclocal exports ??0IClient@@QAE@XZ,
     // ??0IClient@@QAE@ABV0@@Z and ??4IClient@@QAEAAV0@ABV0@@Z next to ??_7IClient@@6B@.
     // They are user-declared (so no move members are generated and exported) and DEFINED
     // once per module that links IClient: src/rpclocal/rpc_client_proxy.cpp,
@@ -185,7 +181,7 @@ public:
     IClient& operator=(const IClient& Other);
 
     // ---- slots 0..8: the channel-1 mirror of IServer slots 0..8 (same X* records,
-    //      retail-decorated there as ?FireWeapon@IServerImpl@@UAEXIABUXFireWeaponInfo@@@Z ...)
+    //      baseline-decorated there as ?FireWeapon@IServerImpl@@UAEXIABUXFireWeaponInfo@@@Z ...)
 
     // +0x000  0x06d8b310  ch1 op 0x02  FLPACKET_COMMON_FIREWEAPON (size 0x40)  (was Slot00)
     virtual void SendCommonFireWeapon(unsigned int ClientId, const XFireWeaponInfo& Info) = 0;
@@ -204,7 +200,7 @@ public:
     // +0x01c  0x06d8bd10  ch1 op 0x10  FLPACKET_COMMON_STOPTRADELANE (size 0x2c)  (was Slot07)
     // The sender serializes only ShipId (06d8bd2d..06d8bd31: [ESP+0x10] -> packet+0x20); the
     // two ring ids are what IServer::StopTradelane sends the other way and what the exe's
-    // LAB_0053c760 reads (it ignores the third), so they keep the IServer meaning.
+    // reads (it ignores the third), so they keep the IServer meaning.
     virtual void SendCommonStopTradeLane(unsigned int ClientId, unsigned int ShipId,
                                          unsigned int TradelaneRing1, unsigned int TradelaneRing2) = 0;
     // +0x020  0x06d8bdb0  ch1 op 0x14  FLPACKET_COMMON_JETTISONCARGO (size 0x2c)  (was Slot08)
@@ -214,31 +210,31 @@ public:
 
     // +0x024  0x06d8f080  (was Slot09)
     // The one outbound path every sender ends in: this->vt[+0x24](ClientId, Packet).
-    // rpclocal: FUN_06d85e00(CDAConnection, Packet), the id unread. RemoteClient.dll
+    // rpclocal: the routine(CDAConnection, Packet), the id unread. RemoteClient.dll
     // (06b39650): CDPClientProxy::Send to the proxy of ClientId, or CDPClientProxy::
     // Disconnect when Packet is null -- Server.dll sends a null packet on purpose
-    // (06d48d33..06d48d3b). Named after its retail-decorated mirror
+    // (06d48d33..06d48d3b). Named after its baseline-decorated mirror
     // ?PushToServer@IServerImpl@@UAEXPAVCDAPacket@@@Z.
     virtual void PushToClient(unsigned int ClientId, CDAPacket* Packet) = 0;
     // +0x028  0x06d8eed0  (was Slot10)
-    // rpclocal: LoadLibraryA(the module path IServerImpl::Startup saved at .data:0x06dbbbc0)
+    // rpclocal: LoadLibraryA(the module path IServerImpl::Startup saved at module storage)
     // -> GetClientInterface / GetChatClientInterface -> forwards both of its own arguments
     // to the real IClient's Startup, then builds the packet serializer into this+0x08.
     // RemoteClient.dll (06b39750): CDPServer ctor, BeginHosting(Port), SetMaxPlayers.
     // Server.dll passes SStartupInfo +0x208 / +0x20c.
     virtual bool Startup(unsigned int MaxPlayers, unsigned int Port) = 0;
     // +0x02c  0x06d8eae0  (was Slot11)
-    // 0x06d8eae0 - shared bare "RET 4" stub. The same code backs three exported rpclocal
+    // - shared bare "RET 4" stub. The same code backs three exported rpclocal
     // names: ?GetServerStats@ (public NON-virtual, not a vtable entry anywhere),
     // ?OnConnect@ (IServer slot 17) and ?SetActiveConnection@ (IServer slot 13); the
     // IClient role is IServer::OnConnect's (?OnConnect@IServerImpl@@UAEXI@Z), hence the
     // name. Incoming ch2 op 0x01 FLPACKET_SERVER_CONNECTRESPONSE is delivered to THIS slot
-    // by IServerImpl::HandlePacket; OutpostFrontier.exe's LAB_005a81f0 forwards the id to
+    // by IServerImpl::HandlePacket; OutpostFrontier.exe's the branch forwards the id to
     // CLoginMgr::OnConnectResponse.
     virtual void OnConnect(unsigned int ClientId) = 0;
 
     // +0x030  0x06d883a0  ch2 op 0x02  FLPACKET_SERVER_LOGINRESPONSE (size 0x24)  (was Slot12)
-    // 06d883bd MOV DL,byte ptr [ECX] -- the status byte read THROUGH the argument; Server.dll
+    // MOV DL,byte ptr [ECX] -- the status byte read THROUGH the argument; Server.dll
     // passes &PlayerDB::login's result (?login@PlayerDB@@QAEEABUSLoginInfo@@I@Z returns E).
     virtual void SendServerLoginResponse(unsigned int ClientId, const unsigned char& Status) = 0;
     // +0x034  0x06d89890  ch2 op 0x03  FLPACKET_SERVER_CHARACTERINFO (size 0x30)  (was Slot13)
@@ -251,16 +247,16 @@ public:
     // cached interface pointers. RemoteClient.dll: 06b39980. Mirrors ?Shutdown@IServerImpl@@.
     virtual void Shutdown() = 0;
     // +0x040  0x06d8efc0  (was Slot16)
-    // client-side pump. Creates the CDAConnection (FUN_06d88280), emits ch2 op 0x01
-    // CONNECTRESPONSE once, then drains the client->server queue via FUN_06d86580 /
-    // FUN_06d86a70. IServerImpl::Update calls it as FUN_06d8efc0(&Client); RemoteClient.dll's
-    // 06b399d0 is CDPServer::DispatchMsgs. Mirrors ?Update@IServerImpl@@UAEHXZ.
+    // client-side pump. Creates the CDAConnection (the routine), emits ch2 op 0x01
+    // CONNECTRESPONSE once, then drains the client->server queue via the routine /
+    // . IServerImpl::Update calls it as the routine(&Client); RemoteClient.dll's
+    // is CDPServer::DispatchMsgs. Mirrors ?Update@IServerImpl@@UAEHXZ.
     // Returns 1 on every path: rpclocal 06d8f05b MOV EAX,0x1, and OutpostFrontier.exe's own slot 16
-    // (IClientImpl vtable .rdata:005e6674 + 0x40 -> LAB_0051ca40) is MOV EAX,0x1 / RET. Both known
+    // (IClientImpl vtable module storage + 0x40 -> the branch) is MOV EAX,0x1 / RET. Both known
     // callers discard it (rpclocal 06d8f448, Server.dll 06d45148).
     virtual int Update() = 0;
     // +0x044  0x06d8f070  (was Slot17)
-    // rpclocal: clears DAT_06dbbd18 / DAT_06dbbd19 (the connection-established flags), the
+    // rpclocal: clears the field / the field (the connection-established flags), the
     // id unread. RemoteClient.dll (06b39a00): CDPClientProxy::Disconnect on ClientId's proxy.
     virtual void DisconnectClient(unsigned int ClientId) = 0;
     // +0x048  0x06d8f0a0  (was Slot18)
@@ -273,7 +269,7 @@ public:
     virtual unsigned int GetSendQBytes(unsigned int ClientId) = 0;
     // +0x050  0x06d8f0b0  (was Slot20)
     // rpclocal: FLD [0.0]; RET 4. RemoteClient.dll (06b39dc0):
-    // ?GetLinkSaturation@CDPClientProxy@@QAENXZ, else the 0.0 at .rdata:06b6bef8.
+    // ?GetLinkSaturation@CDPClientProxy@@QAENXZ, else the 0.0 at module storage.
     virtual double GetLinkSaturation(unsigned int ClientId) = 0;
 
     // ---- channel 2: player state
@@ -281,12 +277,12 @@ public:
     // +0x054  0x06d883e0  ch2 op 0x23  FLPACKET_SERVER_SETSHIPARCH (size 0x24)  (was Slot21)
     virtual void SendServerSetShipArch(unsigned int ClientId, unsigned int ShipArchId) = 0;
     // +0x058  0x06d88420  ch2 op 0x49  FLPACKET_SERVER_SETHULLSTATUS (size 0x24)  (was Slot22)
-    // 06d8843d FLD float ptr [ESP+0x10] / FSTP float ptr [ECX+0x20].
+    // FLD float ptr [ESP+0x10] / FSTP float ptr [ECX+0x20].
     virtual void SendServerSetHullStatus(unsigned int ClientId, float HullStatus) = 0;
     // +0x05c  0x06d88460  ch2 op 0x48  FLPACKET_SERVER_SETCOLLISIONGROUPS (size 0x2c)  (was Slot23)
     // Server.dll pushes &PlayerData::collision_groups (06d4f400, slot +0x26c); rpclocal's
     // receiver passes `LEA EAX,[packet+0x20]`, the list inside the packet; OutpostFrontier.exe's
-    // LAB_00437530 hands it to FUN_004c3f30 (std::list operator= into DAT_0067296c). Nobody
+    // hands it to the routine (std::list operator= into the field). Nobody
     // tests it for null. The mirror of ?ReqCollisionGroups@IServerImpl@@ (a reference).
     virtual void SendServerSetCollisionGroups(unsigned int ClientId, const std::list<CollisionGroupDesc>& Groups) = 0;
     // +0x060  0x06d884a0  ch2 op 0x24  FLPACKET_SERVER_SETEQUIPMENT (size 0x24)  (was Slot24)
@@ -309,19 +305,19 @@ public:
     // +0x074  0x06d88720  ch2 op 0x15  FLPACKET_SERVER_GFDESTROYCHARACTER (size 0x28)  (was Slot29)
     virtual void SendServerGFDestroyCharacter(unsigned int ClientId, unsigned int RoomId, unsigned int Key) = 0;
     // +0x078  0x06d88770  ch2 op 0x26  FLPACKET_SERVER_GFUPDATECHAR (size 0x28)  (was Slot30)
-    // Data/Size: a MarshalBuffer image (CharacterProperties); FUN_06d97b00 copies it.
+    // Data/Size: a MarshalBuffer image (CharacterProperties); the routine copies it.
     virtual void SendServerGFUpdateChar(unsigned int ClientId, const unsigned char* Data, unsigned int Size) = 0;
     // +0x07c  0x06d887c0  ch2 op 0x0f  FLPACKET_SERVER_GFCOMPLETECHARLIST (size 0x24)  (was Slot31)
     virtual void SendServerGFCompleteCharList(unsigned int ClientId, unsigned int RoomId) = 0;
     // +0x080  0x06d88800  ch2 op 0x1a  FLPACKET_SERVER_GFSCRIPTBEHAVIOR (size 0x28)  (was Slot32)
-    // Data/Size: a MarshalBuffer image (ScriptBehavior); FUN_06d97b00 copies it.
+    // Data/Size: a MarshalBuffer image (ScriptBehavior); the routine copies it.
     virtual void SendServerGFScriptBehavior(unsigned int ClientId, const unsigned char* Data, unsigned int Size) = 0;
     // +0x084  0x06d88850  ch2 op 0x17  FLPACKET_SERVER_GFDESTROYSCRIPTBEHAVIOR (size 0x28)  (was Slot33)
     virtual void SendServerGFDestroyScriptBehavior(unsigned int ClientId, unsigned int RoomId, unsigned int BehaviorId) = 0;
     // +0x088  0x06d888a0  ch2 op 0x11  FLPACKET_SERVER_GFCOMPLETESCRIPTBEHAVIORLIST (size 0x24)  (was Slot34)
     virtual void SendServerGFCompleteScriptBehaviorList(unsigned int ClientId, unsigned int RoomId) = 0;
     // +0x08c  0x06d888e0  ch2 op 0x1f  FLPACKET_SERVER_GFUPDATEAMBIENTSCRIPT (size 0x28)  (was Slot35)
-    // Data/Size: a MarshalBuffer image (AmbientScriptProperties); FUN_06d90a00 copies it.
+    // Data/Size: a MarshalBuffer image (AmbientScriptProperties); the routine copies it.
     virtual void SendServerGFUpdateAmbientScript(unsigned int ClientId, const unsigned char* Data, unsigned int Size) = 0;
     // +0x090  0x06d88930  ch2 op 0x19  FLPACKET_SERVER_GFDESTROYAMBIENTSCRIPT (size 0x28)  (was Slot36)
     virtual void SendServerGFDestroyAmbientScript(unsigned int ClientId, unsigned int RoomId, unsigned int Key) = 0;
@@ -330,12 +326,12 @@ public:
     // +0x098  0x06d889c0  ch2 op 0x16  FLPACKET_SERVER_GFDESTROYMISSIONCOMPUTER (size 0x28)  (was Slot38)
     virtual void SendServerGFDestroyMissionComputer(unsigned int ClientId, unsigned int BaseId, unsigned int Key) = 0;
     // +0x09c  0x06d88a10  ch2 op 0x1d  FLPACKET_SERVER_GFUPDATEMISSIONCOMPUTER (size 0x28)  (was Slot39)
-    // Data/Size: a MarshalBuffer image (MissionVendorProperties); FUN_06d97b00 copies it.
+    // Data/Size: a MarshalBuffer image (MissionVendorProperties); the routine copies it.
     virtual void SendServerGFUpdateMissionComputer(unsigned int ClientId, const unsigned char* Data, unsigned int Size) = 0;
     // +0x0a0  0x06d88a60  ch2 op 0x10  FLPACKET_SERVER_GFCOMPLETEMISSIONCOMPUTERLIST (size 0x24)  (was Slot40)
     virtual void SendServerGFCompleteMissionComputerList(unsigned int ClientId, unsigned int BaseId) = 0;
     // +0x0a4  0x06d88aa0  ch2 op 0x20  FLPACKET_SERVER_GFMISSIONVENDORACCEPTANCE (size 0x28)  (was Slot41)
-    // Data/Size: a MarshalBuffer image (MissionVendorAcceptance); FUN_06d97b00 copies it.
+    // Data/Size: a MarshalBuffer image (MissionVendorAcceptance); the routine copies it.
     virtual void SendServerGFMissionVendorAcceptance(unsigned int ClientId, const unsigned char* Data, unsigned int Size) = 0;
     // +0x0a8  0x06d88af0  ch2 op 0x5a  FLPACKET_SERVER_GFMISSIONVENDORWHYEMPTY (size 0x24)  (was Slot42)
     // Reason is pub::GF::ReportWhyMissionVendorEmpty's MVEmptyReason (common_server.h), which
@@ -345,7 +341,7 @@ public:
     // +0x0ac  0x06d88b30  ch2 op 0x14  FLPACKET_SERVER_GFDESTROYNEWSBROADCAST (size 0x28)  (was Slot43)
     virtual void SendServerGFDestroyNewsBroadcast(unsigned int ClientId, unsigned int BaseId, unsigned int Key) = 0;
     // +0x0b0  0x06d88b80  ch2 op 0x1e  FLPACKET_SERVER_GFUPDATENEWSBROADCAST (size 0x28)  (was Slot44)
-    // Data/Size: a MarshalBuffer image (NewsBroadcastProperties); FUN_06d97b00 copies it.
+    // Data/Size: a MarshalBuffer image (NewsBroadcastProperties); the routine copies it.
     virtual void SendServerGFUpdateNewsBroadcast(unsigned int ClientId, const unsigned char* Data, unsigned int Size) = 0;
     // +0x0b4  0x06d88bd0  ch2 op 0x0e  FLPACKET_SERVER_GFCOMPLETENEWSBROADCASTLIST (size 0x24)  (was Slot45)
     virtual void SendServerGFCompleteNewsBroadcastList(unsigned int ClientId, unsigned int BaseId) = 0;
@@ -369,7 +365,7 @@ public:
     virtual void SendServerExplodeAsteroidMine(unsigned int ClientId, const FMineExplosion& Info) = 0;
     // +0x0d4  0x06d8a800  ch2 op 0x4a  FLPACKET_SERVER_SETGUIDEDTARGET (size 0x2c)  (was Slot53)
     // Widths are proven (dword, dword, word at 06d8a833 MOV AX,word ptr [ESP+0x18]); the
-    // names are from the packet name only -- no port caller, and the exe's FUN_0053d4f0 is a
+    // names are from the packet name only -- no port caller, and the exe's the routine is a
     // bare RET 0x10.
     virtual void SendServerSetGuidedTarget(unsigned int ClientId, unsigned int GuidedId, unsigned int TargetId,
                                            unsigned short TargetSubObjId) = 0;
@@ -389,13 +385,13 @@ public:
     virtual void SendServerLaunch(unsigned int ClientId, const FServerLaunchInfo& Info) = 0;
     // +0x0f4  0x06d8a130  ch2 op 0x27  FLPACKET_SERVER_REQUESTCREATESHIPRESP (size 0x28)  (was Slot61)
     // bSuccess: 06d8a158 MOV CL,byte ptr [ESP+0x10] (Server.dll's IServerImpl::RequestCreateShip
-    // computes it with SETNZ into a byte local, .text:06cefa5f / 06cefa62); ShipId the new
+    // computes it with SETNZ into a byte local, module storage / 06cefa62); ShipId the new
     // ship's id.
     virtual void SendServerRequestCreateShipResp(unsigned int ClientId, bool bSuccess, unsigned int ShipId) = 0;
     // +0x0f8  0x06d8aa40  ch2 op 0x32  FLPACKET_SERVER_REQUESTSPACESCRIPT (size 0x3c)  (was Slot62)
     virtual void SendServerRequestSpaceScript(unsigned int ClientId, const FServerRequestSpaceScriptInfo& Info) = 0;
     // +0x0fc  0x06d88c10  ch2 op 0x05  FLPACKET_SERVER_DAMAGEOBJECT (size 0x40)  (was Slot63)
-    // Damage goes to FUN_06d90390, the packet's DamageList copy (06d88c3d).
+    // Damage goes to the routine, the packet's DamageList copy (06d88c3d).
     virtual void SendServerDamageObject(unsigned int ClientId, unsigned int ObjectId, const DamageList& Damage) = 0;
     // +0x100  0x06d88c60  ch2 op 0x38  FLPACKET_SERVER_ITEMTRACTORED (size 0x2c)  (was Slot64)
     virtual void SendServerItemTractored(unsigned int ClientId, const FPayloadServerItemTractored& Info) = 0;
@@ -404,11 +400,11 @@ public:
     // +0x108  0x06d88d70  ch2 op 0x29  FLPACKET_SERVER_SETREPUTATION (size 0x68)  (was Slot66)
     virtual void SendServerSetReputation(unsigned int ClientId, const FServerSetReputationInfo& Info) = 0;
     // +0x10c  0x06d88f70  ch2 op 0x2a  FLPACKET_SERVER_ADJUSTATTITUDE (size 0x28)  (was Slot67)
-    // 06d88f8d MOV ECX,[EAX] (a dword) and 06d88f96 FLD float ptr [EAX+0x4] through Info.
+    // MOV ECX,[EAX] (a dword) and 06d88f96 FLD float ptr [EAX+0x4] through Info.
     virtual void SendServerAdjustAttitude(unsigned int ClientId, const FPayloadServerAdjustAttitude& Info) = 0;
     // +0x110  0x06d88fc0  ch2 op 0x4f  FLPACKET_SERVER_SENDCOMM (size 0x78)  (was Slot68)
     // RET 0x5c = 23 dwords: CommCostume is a Costume BY VALUE (13 dwords, copied at
-    // 06d89007..06d89014; Server.dll REP MOVSDs it onto the stack at 06cf6b97); TextIds is an
+    // ; Server.dll REP MOVSDs it onto the stack at 06cf6b97); TextIds is an
     // array of TextCount dwords (06d8907e..06d890b2, count compared signed); Duration goes
     // through FLD/FSTP (06d890d4); the last argument is stored as a byte (06d890db) and
     // rpclocal's receiver always passes a literal 0 for it (06d83083). The scalar names follow
@@ -435,8 +431,8 @@ public:
     virtual void SendServerSetMissionObjectiveState(const unsigned int& ClientId,
                                                     const FServerMissionObjectiveStateInfo& Info) = 0;
     // +0x128  0x06d8aca0  ch2 op 0x5b  FLPACKET_SERVER_MISSIONSAVEA (size 0x24)  (was Slot74)
-    // ClientId BY VALUE here. OutpostFrontier.exe's LAB_00437b30 tail-calls IServer::MissionSaveB
-    // with both arguments in place, and retail decorates that one
+    // ClientId BY VALUE here. OutpostFrontier.exe's the branch tail-calls IServer::MissionSaveB
+    // with both arguments in place, and baseline decorates that one
     // ?MissionSaveB@IServerImpl@@UAEXIK@Z -- so MissionId is an unsigned long.
     virtual void SendServerMissionSaveA(unsigned int ClientId, unsigned long MissionId) = 0;
     // +0x12c  0x06d8ace0  ch2 op 0x46  FLPACKET_SERVER_MARKOBJ (size 0x28)  (was Slot75)
@@ -461,21 +457,21 @@ public:
     // CleanUp (06d8a412 CALL [EDX+0xc]) virtuals on it. A pointer, not a reference: both
     // receivers (rpclocal caseD_4d 06d81c0a, remoteserver caseD_4d 06bd1cfa) push NULL for
     // any wire Kind but 1. No implementer null-tests it (senders 06d8a3dc / 06b35e9c, the
-    // exe's LAB_0053de70 reads Kind at +4 first).
+    // exe's the branch reads Kind at +4 first).
     virtual void SendServerLoadHint(const unsigned int& ClientId, BaseHint* Hint) = 0;
     // +0x148  0x06d8a5c0  ch2 op 0x2b  FLPACKET_SERVER_SETGROUPFEELINGS (size 0x34)  (was Slot82)
     virtual void SendServerSetGroupFeelings(unsigned int ClientId, const FServerSetGroupFeelingsInfo& Info) = 0;
     // +0x14c  0x06d8a9e0  ch2 op 0x44  FLPACKET_SERVER_REQUEST_RETURNED (size 0x28)  (was Slot83)
     // The sender keeps one byte of each of the last three (06d8aa08..06d8aa1e); both ends
-    // treat them as ints (Server.dll's FUN_06d01e80 request_returned(int, int, int),
-    // OutpostFrontier.exe's FUN_00546d00).
+    // treat them as ints (Server.dll's the routine request_returned(int, int, int),
+    // OutpostFrontier.exe's the routine).
     virtual void SendServerRequestReturned(const unsigned int& ClientId, unsigned int ShipId, int RequestType,
                                            int Response, int Extra) = 0;
     // +0x150  0x06d8bfe0  ch2 op 0x3c  FLPACKET_SERVER_REPAIROBJECT (size 0x2c)  (was Slot84)
     virtual void SendServerRepairObject(unsigned int ClientId, const FServerRepairObjectInfo& Info) = 0;
     // +0x154  0x06d8c040  ch2 op 0x3d  FLPACKET_SERVER_REMOTEOBJECTCARGOUPDATE (size 0x2c)  (was Slot85)
     // Flag: one byte (06d8c072 MOV DL,byte ptr [param_4]); Server.dll passes 1, OutpostFrontier.exe's
-    // FUN_0053deb0 never reads it -- TODO(name).
+    // never reads it -- TODO(name).
     virtual void SendServerRemoteObjectCargoUpdate(const unsigned int& ClientId, unsigned int ObjectId,
                                                    const EquipDescVector& Cargo, unsigned char Flag) = 0;
     // +0x158  0x06d8c0f0  ch2 op 0x55  FLPACKET_SERVER_OBJECTCARGOUPDATE (size 0x34)  (was Slot86)
@@ -528,7 +524,7 @@ public:
     virtual void SendServerSetDirective(const unsigned int& ClientId, const FPayloadServerSetDirective& Info) = 0;
 
     // ---- ch1 op 0x12 FLPACKET_COMMON_PLAYER_TRADE (size 0x44): eight senders, each writing
-    //      its sub-type literal to packet+0x20; suffix = the retail-decorated IServerImpl
+    //      its sub-type literal to packet+0x20; suffix = the baseline-decorated IServerImpl
     //      method that writes the same literal (06d8e3e1 .. 06d8e641).
 
     // +0x194  0x06d8b8e0  sub-type 0x01 (?InitiateTrade@IServerImpl@@UAEXII@Z)  (was Slot101)
@@ -553,12 +549,12 @@ public:
     virtual void SendServerScanNotify(unsigned int ClientId, unsigned int ScannerId, unsigned int GoodId) = 0;
 
     // ---- ch2 op 0x52 FLPACKET_SERVER_PLAYERLIST (size 0x30): three senders, the kind
-    //      dword at packet+0x20 (1 add, 2 remove, 0 clear), then FUN_06d99950(Name, Value).
+    //      dword at packet+0x20 (1 add, 2 remove, 0 clear), then the routine(Name, Value).
 
     // +0x1b8  0x06d8c500  kind 1  (was Slot110)
-    // Name is _wcsdup'ed after a null test (FUN_06d99950, 06d99976); bAlreadyPresent is a byte
+    // Name is _wcsdup'ed after a null test (the routine, 06d99976); bAlreadyPresent is a byte
     // (06d8c51d) -- 1 when Server.dll lists an existing player to a newcomer, 0 when it
-    // announces the newcomer (OutpostFrontier.exe's FUN_0046aa10 gets `== 0`).
+    // announces the newcomer (OutpostFrontier.exe's the routine gets `== 0`).
     virtual void SendServerPlayerListAdd(unsigned int ClientId, const wchar_t* Name, unsigned int PlayerId,
                                          bool bAlreadyPresent) = 0;
     // +0x1bc  0x06d8c560  kind 2  (was Slot111)
@@ -570,7 +566,7 @@ public:
     //      setting its own bits of the flag word at packet+0x20 (rpc_payloads.h table).
 
     // +0x1c4  0x06d8c1f0  flags 0x0009  (was Slot113)
-    // GroupId lands in the exe's CShip+0x1b4 (LAB_0053e2b0).
+    // GroupId lands in the exe's CShip+0x1b4 (the branch).
     virtual void SendServerMiscObjUpdateObjectGroup(unsigned int ClientId, unsigned int ObjectId, unsigned int GroupId) = 0;
     // +0x1c8  0x06d8c290  flags 0x0002  (was Slot114)
     // Server.dll: PlayerData group_mission_id / group_mission_set_by (pub::Player::SetMsnID).
@@ -578,16 +574,16 @@ public:
     // +0x1cc  0x06d8c430  flags 0x0010  (was Slot115)
     // The server's message of the day, by reference on every side: Server.dll pushes
     // &PlayerDB::m_MOTD (06d4509c) or &Message (PlayerDB::SetMOTD); rpclocal's sender hands
-    // it to FUN_06d98b20 (string assign, untested) and its receiver passes `LEA EDX,[EBP+0x40]`,
-    // the string inside the packet; OutpostFrontier.exe's LAB_0053e3a0 reads [A1+4] -- the VC6
+    // it to the routine (string assign, untested) and its receiver passes `LEA EDX,[EBP+0x40]`,
+    // the string inside the packet; OutpostFrontier.exe's the branch reads [A1+4] -- the VC6
     // basic_string<unsigned short> _Ptr, falling back to _Nullstr -- and gives it to
-    // FUN_0046b0f0 as a wchar_t*. The client id is not read by the exe.
+    // as a wchar_t*. The client id is not read by the exe.
     virtual void SendServerMiscObjUpdateMotd(unsigned int ClientId, const std::wstring& Motd) = 0;
     // +0x1d0  0x06d8c240  flags 0x0028  (was Slot116)
     virtual void SendServerMiscObjUpdateAffiliation(unsigned int ClientId, unsigned int ObjectId,
                                                     unsigned int Affiliation) = 0;
     // +0x1d4  0x06d8c2e0  flags 0x0044  (was Slot117)
-    // Rank travels as a word (FUN_06d98ce0); the exe's FUN_0053e200 compares PlayerId with
+    // Rank travels as a word (the routine); the exe's the routine compares PlayerId with
     // its own ClientId.
     virtual void SendServerMiscObjUpdateRank(unsigned int ClientId, unsigned int PlayerId, int Rank) = 0;
     // +0x1d8  0x06d8c390  flags 0x0005  (was Slot118)
@@ -597,8 +593,8 @@ public:
     // +0x1e0  0x06d8c330  flags 0x0100  (was Slot120)
     // A vector of dwords by reference: Server.dll's update_formation_state pushes a stack
     // vector (06d5d920 `LEA EBX,[ESP+0x14]` / 06d5d924 PUSH, and three more sites), rpclocal's
-    // sender walks it element by element into FUN_06d98cf0 and its receiver passes `LEA
-    // EDX,[EBP+0x58]`, the vector inside the packet; OutpostFrontier.exe's LAB_0053e270 reads
+    // sender walks it element by element into the routine and its receiver passes `LEA
+    // EDX,[EBP+0x58]`, the vector inside the packet; OutpostFrontier.exe's the branch reads
     // [A1+4] (_First) and [A1+8] (_Last) with `SAR EAX,0x2` -- 4-byte elements.
     virtual void SendServerMiscObjUpdateFormation(unsigned int ClientId, const std::vector<unsigned int>& MemberIds) = 0;
 
@@ -609,7 +605,7 @@ public:
     // +0x1e8  0x06d8c660  ch2 op 0x57  FLPACKET_SERVER_SET_MUSIC (size 0x38)  (was Slot122)
     // pub::Audio::SetMusic's Tryptich unpacked: four dwords, a byte (06d8c6ad MOV CL,byte ptr
     // [ESP+0x20]), a float (06d8c67d FLD float ptr [ESP+0x24]). The music names follow the
-    // exe's FUN_00553340 (StarSysSetMusicOverride); bFlag is TODO(name).
+    // exe's the routine (StarSysSetMusicOverride); bFlag is TODO(name).
     virtual void SendServerSetMusic(unsigned int ClientId, unsigned int SpaceMusic, unsigned int DangerMusic,
                                     unsigned int BattleMusic, unsigned int OverrideMusic, bool bFlag,
                                     float Fade) = 0;
@@ -624,8 +620,8 @@ public:
 
 // ============================================================================
 // IChatClient - 1 slot. rpclocal keeps it as a second base of the same object:
-// GetChatClientInterface() returns Client + 4 (.data:0x06dbbce0); its vtable at
-// .rdata:0x06db3970 holds a single entry, 0x06d8c470.
+// GetChatClientInterface() returns Client + 4 (module storage); its vtable at
+// holds a single entry, 0x06d8c470.
 // ============================================================================
 class IChatClient {
 public:

@@ -1,15 +1,11 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
-// Common.dll spatial partitions (.text:0632e830-06331a00 plus the node pool at
-// .text:06332140): NewSpatial / FreeSpatial, BspPartition, LinearPartition and the process-wide
-// pool every BSP node comes from (DAT_0640a728).
-//
-// Floating point: retail evaluates on the x87 stack with 53-bit precision control. A value that
-// stays on the stack is kept as double here; a value retail stores with FSTP float is rounded to
+// Common.dll spatial partitions (module storage-06331a00 plus the node pool at
+// ): NewSpatial / FreeSpatial, BspPartition, LinearPartition and the process-wide
+// pool every BSP node comes from (the field).
+
+// Floating point: baseline evaluates on the x87 stack with 53-bit precision control. A value that
+// stays on the stack is kept as double here; a value baseline stores with FSTP float is rounded to
 // float at the same point. Summation orders follow each function's own instruction order.
 
 #include "common_spatial.h"
@@ -23,33 +19,33 @@
 
 #include "x87_trig.h" // X87Tan (BspPartition::QueryFrustum, 063314eb FPTAN)
 
-// DACOM.DLL!stricmp (Common IAT 0639902c), src/Common/common_dacom_stricmp.cpp.
-int CallDacomStricmp(const char* Left, const char* Right);
+// NEURONCOMPONENTS.DLL!stricmp (Common IAT 0639902c), src/Common/common_neuroncomponents_stricmp.cpp.
+int CallNeuronComponentsStricmp(const char* Left, const char* Right);
 
 namespace
 {
-    // DAT_0640a748 / DAT_0640a74c: zeroed by every sphere / ray query, read nowhere.
+    // / the field: zeroed by every sphere / ray query, read nowhere.
     unsigned GSpatialQueryStatA = 0;
     unsigned GSpatialQueryStatB = 0;
-    // DAT_0640a750: +1 per Add, -1 per Remove, over all partitions; read nowhere.
+    // +1 per Add, -1 per Remove, over all partitions; read nowhere.
     int GSpatialObjectCount = 0;
 
-    double LengthSquared(Vector const& V) // FUN_062c4780: (x*x + y*y) + z*z
+    double LengthSquared(Vector const& V) // (x*x + y*y) + z*z
     {
         return ((double)(V.x) * V.x + (double)(V.y) * V.y) + (double)(V.z) * V.z;
     }
 
-    double Length(Vector const& V) // FUN_06347e60
+    double Length(Vector const& V)
     {
         return std::sqrt(LengthSquared(V));
     }
 
-    double Dot(Vector const& A, Vector const& B) // FUN_062c47a0: (a.z*b.z + a.y*b.y) + a.x*b.x
+    double Dot(Vector const& A, Vector const& B) // (a.z*b.z + a.y*b.y) + a.x*b.x
     {
         return ((double)(A.z) * B.z + (double)(A.y) * B.y) + (double)(A.x) * B.x;
     }
 
-    Vector Subtract(Vector const& A, Vector const& B) // FUN_06288800: out = a - b
+    Vector Subtract(Vector const& A, Vector const& B) // out = a - b
     {
         Vector Out;
         Out.x = A.x - B.x;
@@ -58,7 +54,7 @@ namespace
         return Out;
     }
 
-    Vector AddVectors(Vector const& A, Vector const& B) // FUN_062887d0: out = a + b
+    Vector AddVectors(Vector const& A, Vector const& B) // out = a + b
     {
         Vector Out;
         Out.x = A.x + B.x;
@@ -67,7 +63,7 @@ namespace
         return Out;
     }
 
-    Vector Scale(Vector const& V, float S) // FUN_06288830: out = v * s
+    Vector Scale(Vector const& V, float S) // out = v * s
     {
         Vector Out;
         Out.x = S * V.x;
@@ -76,21 +72,21 @@ namespace
         return Out;
     }
 
-    void Accumulate(Vector& Sum, Vector const& V) // FUN_062887a0: this += v (v + this)
+    void Accumulate(Vector& Sum, Vector const& V) // this += v (v + this)
     {
         Sum.x = V.x + Sum.x;
         Sum.y = V.y + Sum.y;
         Sum.z = V.z + Sum.z;
     }
 
-    void ScaleInPlace(Vector& V, float S) // FUN_062e25c0: this *= s
+    void ScaleInPlace(Vector& V, float S) // this *= s
     {
         V.x = S * V.x;
         V.y = S * V.y;
         V.z = S * V.z;
     }
 
-    void NormalizeInPlace(Vector& V) // FUN_0632f940
+    void NormalizeInPlace(Vector& V)
     {
         double const Inv = 1.0 / Length(V);
         V.x = (float)(Inv * V.x);
@@ -98,7 +94,7 @@ namespace
         V.z = (float)(Inv * V.z);
     }
 
-    void DivideByLength(Vector& V, float Len) // FUN_062dc410: this *= 1 / len
+    void DivideByLength(Vector& V, float Len) // this *= 1 / len
     {
         double const Inv = 1.0 / (double)(Len);
         V.x = (float)(Inv * V.x);
@@ -106,7 +102,7 @@ namespace
         V.z = (float)(Inv * V.z);
     }
 
-    // FUN_06330960 (cdecl): out = in / s, through one reciprocal that x and y use rounded to
+    // (cdecl): out = in / s, through one reciprocal that x and y use rounded to
     // float (FST) and z uses at full precision.
     Vector DivideByScalar(Vector const& In, float S)
     {
@@ -119,14 +115,14 @@ namespace
         return Out;
     }
 
-    // FUN_0632f980: the three counts are usable unless their unsigned sum wrapped.
+    // the three counts are usable unless their unsigned sum wrapped.
     bool CountsValid(unsigned const Counts[3])
     {
         unsigned const Sum = Counts[0] + Counts[1] + Counts[2];
         return Counts[0] < Sum && Counts[1] < Sum && Counts[2] < Sum;
     }
 
-    // FUN_0632fff0: |c2 - c1| + 2 * c0, or 9999 when the counts are not valid.
+    // |c2 - c1| + 2 * c0, or 9999 when the counts are not valid.
     unsigned ScoreCounts(unsigned const Counts[3])
     {
         if (!CountsValid(Counts))
@@ -143,14 +139,14 @@ namespace
         Vector Normal;  // +0x00
         float Distance; // +0x0c
 
-        // FUN_0632f920: ((p.z*n.z + p.y*n.y) + p.x*n.x) - d.
+        // ((p.z*n.z + p.y*n.y) + p.x*n.x) - d.
         double SignedDistance(Vector const& P) const
         {
             return (((double)(P.z) * Normal.z + (double)(P.y) * Normal.y) +
                     (double)(P.x) * Normal.x) - Distance;
         }
 
-        // FUN_0632f3f0: 1 when the sphere lies beyond the plane, 2 when it lies behind it,
+        // 1 when the sphere lies beyond the plane, 2 when it lies behind it,
         // 0 when it touches it. `TEST AH,0x41 / JNZ` then `TEST AH,5 / JP`: an unordered
         // distance lands on 0.
         int Classify(Vector const& P, float Radius) const
@@ -167,14 +163,14 @@ namespace
             return 0;
         }
 
-        void Build(Vector const& Point, Vector const& Direction); // FUN_0632f8b0
-        bool BuildFromEdge(FSpatialEntry const& A, FSpatialEntry const& B); // FUN_0632fee0
-        void ComputeInitialSplit(FSpatialEntry const* Entries, int Count);  // FUN_0632f480
-        void ComputeCentroidSplit(FSpatialEntry const* Entries, int Count); // FUN_063300e0
+        void Build(Vector const& Point, Vector const& Direction);
+        bool BuildFromEdge(FSpatialEntry const& A, FSpatialEntry const& B);
+        void ComputeInitialSplit(FSpatialEntry const* Entries, int Count);
+        void ComputeCentroidSplit(FSpatialEntry const* Entries, int Count);
     };
     static_assert(sizeof(FSpatialPlane) == 0x10, "FSpatialPlane size is 0x10");
 
-    // The side test written out in FUN_06330020: ((p.y*n.y + p.x*n.x) + n.z*p.z) - d.
+    // The side test written out in the routine: ((p.y*n.y + p.x*n.x) + n.z*p.z) - d.
     int ClassifyYXZ(FSpatialPlane const& Plane, FSpatialEntry const& Entry)
     {
         double const S = (((double)(Entry.Position.y) * Plane.Normal.y +
@@ -191,7 +187,7 @@ namespace
         return 0;
     }
 
-    // FUN_0632f8b0: the plane through Point whose normal is Direction normalised. The
+    // the plane through Point whose normal is Direction normalised. The
     // normalised components stay on the x87 stack for the distance, so they are used unrounded.
     void FSpatialPlane::Build(Vector const& Point, Vector const& Direction)
     {
@@ -206,7 +202,7 @@ namespace
         Distance = (float)((Z * Point.z + Y * Point.y) + X * Point.x);
     }
 
-    // FUN_0632fee0: the plane perpendicular to B - A through A's position pushed out along the
+    // the plane perpendicular to B - A through A's position pushed out along the
     // current normal by A's radius + 0.1. Fails when the two positions are within 0.001^(1/2).
     bool FSpatialPlane::BuildFromEdge(FSpatialEntry const& A, FSpatialEntry const& B)
     {
@@ -242,7 +238,7 @@ namespace
         return true;
     }
 
-    // FUN_06330020 / FUN_06330d90 output: the per-side counts of a candidate plane and a copy of it.
+    // / the routine output: the per-side counts of a candidate plane and a copy of it.
     struct FSpatialSplit
     {
         unsigned Counts[3];  // +0x00 on, beyond, behind
@@ -250,7 +246,7 @@ namespace
     };
     static_assert(sizeof(FSpatialSplit) == 0x1c, "FSpatialSplit size is 0x1c");
 
-    // FUN_06330020 (thiscall on the split, args plane, entries, count).
+    // (thiscall on the split, args plane, entries, count).
     void ClassifyEntries(FSpatialSplit& Out, FSpatialPlane const& Plane, FSpatialEntry const* Entries, int Count)
     {
         Out.Plane = Plane;
@@ -263,7 +259,7 @@ namespace
         }
     }
 
-    // FUN_06330d90 (thiscall on the split, args plane, vector). The vector's bounds are read
+    // (thiscall on the split, args plane, vector). The vector's bounds are read
     // again on every pass.
     void ClassifyVector(FSpatialSplit& Out, FSpatialPlane const& Plane, std::vector<FSpatialEntry> const& Entries)
     {
@@ -277,7 +273,7 @@ namespace
         }
     }
 
-    // FUN_0632f480 (thiscall on the plane, args entries, count): start from the centroid plane
+    // (thiscall on the plane, args entries, count): start from the centroid plane
     // of the entries, then try the plane of every ordered pair (i < j) and keep the best split.
     void FSpatialPlane::ComputeInitialSplit(FSpatialEntry const* Entries, int Count)
     {
@@ -375,7 +371,7 @@ namespace
                     BestScore = Score;
                     if (Score == 0)
                     {
-                        break; // leaves this row only; the outer loop runs on (.text:0632f862)
+                        break; // leaves this row only; the outer loop runs on (module storage)
                     }
                 }
             }
@@ -383,7 +379,7 @@ namespace
         *this = Best.Plane;
     }
 
-    // FUN_063300e0 (thiscall on the plane, args entries, count): the plane through the centroid
+    // (thiscall on the plane, args entries, count): the plane through the centroid
     // whose normal is the mean direction from the centroid to the entries.
     void FSpatialPlane::ComputeCentroidSplit(FSpatialEntry const* Entries, int Count)
     {
@@ -477,7 +473,7 @@ namespace
             return Used;
         }
 
-        // FUN_0632f440: copy the entry into the first empty slot; false when all eight are used.
+        // copy the entry into the first empty slot; false when all eight are used.
         bool AddEntry(FSpatialEntry const& Entry)
         {
             unsigned const Used = CountUsed();
@@ -489,7 +485,7 @@ namespace
             return true;
         }
 
-        // FUN_0632f140: the node holding Object, searching this node's used slots and then the
+        // the node holding Object, searching this node's used slots and then the
         // three children depth first.
         FSpatialNode* FindObject(void* Object)
         {
@@ -517,8 +513,8 @@ namespace
     };
     static_assert(sizeof(FSpatialNode) == 0xbc, "FSpatialNode size is 0xbc");
 
-    // DAT_0658e740 (guard DAT_0658e738): the zeroed node every new node is copied from, built on
-    // first use (FUN_063300c0 zeroes 0x2f dwords; the AddObject / AddArray copies of the guard
+    // (guard the field): the zeroed node every new node is copied from, built on
+    // first use (the routine zeroes 0x2f dwords; the AddObject / AddArray copies of the guard
     // also run the no-op entry constructor over the 8 slots, which changes nothing).
     FSpatialNode const& SpatialNodeTemplate()
     {
@@ -531,20 +527,20 @@ namespace
         return Template;
     }
 
-    // DAT_0640a728: the one list every BSP node of every partition lives in. Nodes are carved
-    // from 200-node malloc blocks (FUN_06332140) and go back onto a free chain when erased; the
+    // the one list every BSP node of every partition lives in. Nodes are carved
+    // from 200-node malloc blocks (the routine) and go back onto a free chain when erased; the
     // blocks are released only when the list is destroyed at exit.
     class FSpatialNodeList
     {
     public:
-        FSpatialNodeList();  // FUN_0632e850 (static initializer LAB_0632e830)
-        ~FSpatialNodeList(); // LAB_0632e950 (atexit) / FUN_06331950 (same body, ctor unwind)
+        FSpatialNodeList();  // (static initializer the branch)
+        ~FSpatialNodeList(); // (atexit) / the routine (same body, ctor unwind)
 
-        // FUN_0632f9b0 and the inlined insert(end(), template) at the other allocation sites:
+        // and the inlined insert(end(), template) at the other allocation sites:
         // append a copy of the template and return its value.
         FSpatialNode* PushBack();
 
-        // The search-and-erase inlined in LAB_0632eed0 / FUN_0632efa0 / FUN_06331890: unlink
+        // The search-and-erase inlined in the branch / the routine / the routine: unlink
         // the list node whose value is Node, if any, and chain it onto the free nodes.
         void Erase(FSpatialNode* Node);
 
@@ -557,14 +553,14 @@ namespace
         };
         static_assert(sizeof(FListNode) == 0xc4, "FListNode size is 0xc4");
 
-        // The payload of the +0x04 list: one malloc block (FUN_063323b0 frees it).
+        // The payload of the +0x04 list: one malloc block (the routine frees it).
         struct FBlock
         {
             FListNode* Memory; // +0x00 200 nodes
             unsigned Bytes; // +0x04
         };
 
-        FListNode* BuyNode(); // FUN_06332140
+        FListNode* BuyNode();
 
         std::list<FBlock> Blocks; // +0x04 / +0x08
         FListNode* FreeNodes;     // +0x0c
@@ -675,7 +671,7 @@ namespace
 }
 
 // ============================================================================
-// LinearPartition (RTTI .?AULinearPartition@@, vftable .rdata:063a48ec, 0x14 bytes):
+// LinearPartition (RTTI .?AULinearPartition@@, vftable module storage, 0x14 bytes):
 // every entry in one array, every query a full scan.
 // ============================================================================
 struct LinearPartition : public ISpatialPartition
@@ -683,32 +679,32 @@ struct LinearPartition : public ISpatialPartition
     // +0x04 allocator byte, +0x08 begin / +0x0c end / +0x10 capacity.
     std::vector<FSpatialEntry> Entries;
 
-    // FUN_0632ee10 / body FUN_0632ee30: the array is released.
+    // / body the routine: the array is released.
     virtual ~LinearPartition() override {}
 
     // CShip::get_status-shaped `XOR EAX,EAX; RET` at 06325390.
     virtual int Slot04() override { return 0; }
 
-    // LAB_0632ea80: erase(begin, end). The object count is not touched.
+    // erase(begin, end). The object count is not touched.
     virtual void Clear() override
     {
         Entries.clear();
     }
 
-    // LAB_0632eae0: only the global object count drops; the entry stays in the array.
+    // only the global object count drops; the entry stays in the array.
     virtual void Remove(void*) override
     {
         --GSpatialObjectCount;
     }
 
-    // LAB_0632eaf0: insert(end(), 1, *Entry), then count it.
+    // insert(end(), 1, *Entry), then count it.
     virtual void Add(FSpatialEntry const* Entry) override
     {
         Entries.push_back(*Entry);
         ++GSpatialObjectCount;
     }
 
-    // FUN_0632ed10: Add (vtbl+0x10) for each entry.
+    // Add (vtbl+0x10) for each entry.
     virtual void AddArray(FSpatialEntry const* Array, unsigned Count) override
     {
         for (unsigned Index = 0; Index < Count; ++Index)
@@ -720,7 +716,7 @@ struct LinearPartition : public ISpatialPartition
     // CShip::get_status (`XOR EAX,EAX; RET 8`).
     virtual int QueryFrustum(Geometry::Frustum const*, FSpatialQueryResult*) override { return 0; }
 
-    // LAB_0632ed50: every entry whose sphere overlaps the query sphere (strictly), in array
+    // every entry whose sphere overlaps the query sphere (strictly), in array
     // order. The differences stay unrounded on the x87 stack.
     virtual int QuerySphere(Geometry::Sphere const* Sphere, FSpatialQueryResult* Result) override
     {
@@ -746,7 +742,7 @@ struct LinearPartition : public ISpatialPartition
     // CShip::get_status (`XOR EAX,EAX; RET 8`).
     virtual int QueryRay(FSpatialRay const*, FSpatialQueryResult*) override { return 0; }
 
-    // FUN_0632edf0: zero six dwords.
+    // zero six dwords.
     virtual void Slot24(unsigned long Out[6]) override
     {
         memset(Out, 0, 6 * sizeof(unsigned long));
@@ -754,7 +750,7 @@ struct LinearPartition : public ISpatialPartition
 };
 
 // ============================================================================
-// BspPartition (RTTI .?AUBspPartition@@, vftable .rdata:063a4920, 0x0c bytes).
+// BspPartition (RTTI .?AUBspPartition@@, vftable module storage, 0x0c bytes).
 // ============================================================================
 struct BspPartition : public ISpatialPartition
 {
@@ -763,48 +759,48 @@ struct BspPartition : public ISpatialPartition
 
     BspPartition() : Root(nullptr), EntryCount(0) {}
 
-    // FUN_06331870 / body FUN_06331890: the same teardown as Clear.
+    // / body the routine: the same teardown as Clear.
     virtual ~BspPartition() override
     {
         Release();
     }
 
-    virtual int Slot04() override { return 0; } // 06325390
+    virtual int Slot04() override { return 0; }
 
-    // LAB_0632eed0.
+    // .
     virtual void Clear() override
     {
         Release();
     }
 
-    virtual void Remove(void* Object) override;                                         // LAB_0632f060
-    virtual void Add(FSpatialEntry const* Entry) override;                              // LAB_0632f1b0
-    virtual void AddArray(FSpatialEntry const* Entries, unsigned Count) override;       // FUN_06330340
-    virtual int QueryFrustum(Geometry::Frustum const* Frustum, FSpatialQueryResult* Result) override; // LAB_063314c0
-    virtual int QuerySphere(Geometry::Sphere const* Sphere, FSpatialQueryResult* Result) override;    // LAB_063315b0
-    virtual int QueryRay(FSpatialRay const* Ray, FSpatialQueryResult* Result) override; // LAB_06330e70
+    virtual void Remove(void* Object) override;
+    virtual void Add(FSpatialEntry const* Entry) override;
+    virtual void AddArray(FSpatialEntry const* Entries, unsigned Count) override;
+    virtual int QueryFrustum(Geometry::Frustum const* Frustum, FSpatialQueryResult* Result) override;
+    virtual int QuerySphere(Geometry::Sphere const* Sphere, FSpatialQueryResult* Result) override;
+    virtual int QueryRay(FSpatialRay const* Ray, FSpatialQueryResult* Result) override;
 
-    // FUN_0632edf0 (shared with LinearPartition).
+    // (shared with LinearPartition).
     virtual void Slot24(unsigned long Out[6]) override
     {
         memset(Out, 0, 6 * sizeof(unsigned long));
     }
 
 private:
-    void Release();                                                                       // LAB_0632eed0 / FUN_06331890 body
-    void FreeNode(FSpatialNode* Node);                                                    // FUN_0632efa0
-    void InsertWalk(FSpatialNode* Node, FSpatialEntry const* Entry);                      // FUN_0632fa30
-    void InsertSplit(FSpatialNode* Node, FSpatialEntry const* Entry);                     // FUN_0632fbe0
+    void Release();                                                                       // / the routine body
+    void FreeNode(FSpatialNode* Node);
+    void InsertWalk(FSpatialNode* Node, FSpatialEntry const* Entry);
+    void InsertSplit(FSpatialNode* Node, FSpatialEntry const* Entry);
     FSpatialPlane SplitEntries(std::vector<FSpatialEntry> const& Entries, std::vector<FSpatialEntry>& Touching,
-                               std::vector<FSpatialEntry>& Beyond, std::vector<FSpatialEntry>& Behind); // FUN_06330630
-    void Build(FSpatialNode* Node, std::vector<FSpatialEntry> const& Entries);           // FUN_06330990
-    void QueryRayNode(FSpatialNode* Node, FSpatialRay const* Ray, FSpatialQueryResult* Result);      // FUN_063311e0
-    void QuerySphereNode(FSpatialNode* Node, Geometry::Sphere const* Sphere, FSpatialQueryResult* Result); // FUN_06331730
+                               std::vector<FSpatialEntry>& Beyond, std::vector<FSpatialEntry>& Behind);
+    void Build(FSpatialNode* Node, std::vector<FSpatialEntry> const& Entries);
+    void QueryRayNode(FSpatialNode* Node, FSpatialRay const* Ray, FSpatialQueryResult* Result);
+    void QuerySphereNode(FSpatialNode* Node, Geometry::Sphere const* Sphere, FSpatialQueryResult* Result);
 };
 
 namespace
 {
-    // FUN_063311c0 (thiscall on the result): append Object when set and there is room.
+    // (thiscall on the result): append Object when set and there is room.
     void AppendResult(FSpatialQueryResult* Result, void* Object)
     {
         if (Object != nullptr && Result->Count < Result->Capacity)
@@ -814,7 +810,7 @@ namespace
         }
     }
 
-    // FUN_063310c0 (cdecl): where the ray crosses the plane. *OutSide is the side the origin is
+    // (cdecl): where the ray crosses the plane. *OutSide is the side the origin is
     // on (1 beyond, 2 otherwise) and is written before any failure.
     bool IntersectRayPlane(FSpatialRay const* Ray, FSpatialPlane const* Plane, Vector* OutHit, int* OutSide)
     {
@@ -859,7 +855,7 @@ namespace
 
     // The leaf test of both ray walks: the entry's sphere contains the origin, or it lies
     // ahead of the origin and the ray passes closer than its radius. Dist is the float that
-    // retail stores and reuses; DistSphere is the value it compares against the radius first.
+    // baseline stores and reuses; DistSphere is the value it compares against the radius first.
     bool RayHitsEntry(FSpatialRay const* Ray, FSpatialEntry const& Entry, Vector Delta, double DistExact)
     {
         float const Dist = (float)(DistExact);
@@ -916,7 +912,7 @@ void BspPartition::FreeNode(FSpatialNode* Node)
 
 void BspPartition::Remove(void* Object)
 {
-    // Retail reads the root's slots without testing the root (.text:0632f062-0632f070): on an
+    // baseline reads the root's slots without testing the root (module storage-0632f070): on an
     // empty partition that is a null dereference, reproduced here.
     FSpatialNode* Node = nullptr;
     unsigned const RootUsed = Root->CountUsed();
@@ -1000,7 +996,7 @@ void BspPartition::Add(FSpatialEntry const* Entry)
         return;
     }
 
-    // .text:0632f275: the first root is a split node on the plane x = 0 (normal (1,0,0)
+    // the first root is a split node on the plane x = 0 (normal (1,0,0)
     // normalised in place, distance (z + y + x) * 0).
     Node = GSpatialNodes.PushBack();
     Root = Node;
@@ -1112,7 +1108,7 @@ void BspPartition::InsertSplit(FSpatialNode* Node, FSpatialEntry const* Entry)
                             BestScore = Score;
                             if (Score == 0)
                             {
-                                break; // leaves this row only (.text:0632fce1 -> 0632fcf4)
+                                break; // leaves this row only (module storage -> 0632fcf4)
                             }
                         }
                     }
@@ -1170,7 +1166,7 @@ FSpatialPlane BspPartition::SplitEntries(std::vector<FSpatialEntry> const& Entri
     }
     Vector const Centroid = DivideByScalar(Sum, (float)(Count));
 
-    // Retail leaves the best plane uninitialised until a candidate wins; the port starts it at
+    // baseline leaves the best plane uninitialised until a candidate wins; the port starts it at
     // zero (only reachable when every entry sits on the centroid).
     int BestScore = 9999;
     FSpatialPlane Best;
@@ -1667,7 +1663,7 @@ void BspPartition::QueryRayNode(FSpatialNode* Node, FSpatialRay const* Ray, FSpa
 
 void __cdecl FreeSpatial(ISpatialPartition* Spatial)
 {
-    // .text:06331940: the scalar deleting destructor with flag 1 when the pointer is set.
+    // the scalar deleting destructor with flag 1 when the pointer is set.
     if (Spatial != nullptr)
     {
         delete Spatial;
@@ -1676,16 +1672,16 @@ void __cdecl FreeSpatial(ISpatialPartition* Spatial)
 
 ISpatialPartition* __cdecl NewSpatial(char const* Type)
 {
-    // .text:0632e9f0: DACOM stricmp against "BSP", "Linear" and "QuadTree"; the last match has
+    // NEURONCOMPONENTS stricmp against "BSP", "Linear" and "QuadTree"; the last match has
     // no partition behind it and returns 0 like an unknown name.
-    if (CallDacomStricmp(Type, "BSP") == 0)
+    if (CallNeuronComponentsStricmp(Type, "BSP") == 0)
     {
         return new BspPartition();
     }
-    if (CallDacomStricmp(Type, "Linear") == 0)
+    if (CallNeuronComponentsStricmp(Type, "Linear") == 0)
     {
         return new LinearPartition();
     }
-    CallDacomStricmp(Type, "QuadTree");
+    CallNeuronComponentsStricmp(Type, "QuadTree");
     return nullptr;
 }

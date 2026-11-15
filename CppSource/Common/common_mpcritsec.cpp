@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // Common.dll MPCritSec: a lazily initialised Win32 critical section. Split out of common_net.cpp.
@@ -20,14 +16,14 @@
 MPCritSec::MPCritSec()
     : bInitialized(false)
 {
-    // 06304750: retail stores only the byte flag; the section bytes stay indeterminate
+    // baseline stores only the byte flag; the section bytes stay indeterminate
     // until lock() initialises them. The port zeroes them (owner's over-initialisation rule).
     memset(&CriticalSection, 0, sizeof(CriticalSection));
 }
 
 MPCritSec::~MPCritSec()
 {
-    // 06304760: flag set -> clear it, then DeleteCriticalSection.
+    // flag set -> clear it, then DeleteCriticalSection.
     if (bInitialized)
     {
         bInitialized = false;
@@ -37,7 +33,7 @@ MPCritSec::~MPCritSec()
 
 MPCritSec& MPCritSec::operator=(MPCritSec const& Other)
 {
-    // Retail (0x06261d70): REP MOVSD of all 7 dwords (CriticalSection, the flag and its
+    // baseline (0x06261d70): REP MOVSD of all 7 dwords (CriticalSection, the flag and its
     // padding), no self-assignment test (a self-copy is the identity, hence memmove). See
     // the header comment for the aliasing caveat this reproduces.
     memmove((void*)this, &Other, sizeof(MPCritSec));
@@ -46,7 +42,7 @@ MPCritSec& MPCritSec::operator=(MPCritSec const& Other)
 
 void MPCritSec::lock()
 {
-    // 0x06304780: single-player (DAT_063ed17c != 0) -> return without touching the section.
+    // single-player (the field != 0) -> return without touching the section.
     // Otherwise lazily InitializeCriticalSection on first use (byte flag +0x18), then Enter.
     if (GbSinglePlayer)
         return;
@@ -60,7 +56,7 @@ void MPCritSec::lock()
 
 void MPCritSec::unlock()
 {
-    // 0x063047b0: single-player -> return; otherwise Leave (no bInitialized check).
+    // single-player -> return; otherwise Leave (no bInitialized check).
     if (GbSinglePlayer)
         return;
     LeaveCriticalSection(&CriticalSection);

@@ -1,43 +1,39 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
-// Retail NN_Preferences (E:\FL\Scratch\Source\Client\nn\NN_Preferences.cpp -- FDUMP at
-// 0x004af4b5 names the file). See nn_preferences.h.
-//
+// baseline NN_Preferences (Client\nn\NN_Preferences.cpp -- FDUMP at
+// names the file). See nn_preferences.h.
+
 // The class replaces the flat NnPreferencesScreen / FOverlayNav shell (menu_ui_widgets.cpp,
 // nn_screen.cpp) and the old options_screen_data.* / menu_options.* ports; "NN_Preferences" is
 // registered only by the WINFACTORY global below.
 
 #include "nn_preferences.h"
-#include "msvcrt_compat.h" // MsvcrtAtoi: retail MSVCRT.DLL wraps mod 2^32, the UCRT saturates
+#include "msvcrt_compat.h" // MsvcrtAtoi: baseline MSVCRT.DLL wraps mod 2^32, the UCRT saturates
 
-#include "gameflow.h"              // ResetGameflowRoomLetterbox (FUN_00558d60)
+#include "gameflow.h"              // ResetGameflowRoomLetterbox (the routine)
 #include "globals.h"               // GetClientFrameTimeCapped, g_display, g_client, SetRenderModeWithFallback
-#include "ids_rdl.h"               // LoadIdsIntoRdl (FUN_0057da40)
-#include "ids_strings.h"           // GetIdsStringWWithRawFallback (FUN_004347e0)
-#include "login_mgr.h"             // G_Server (DAT_0067ecd0)
+#include "ids_rdl.h"               // LoadIdsIntoRdl (the routine)
+#include "ids_strings.h"           // GetIdsStringWWithRawFallback (the routine)
+#include "login_mgr.h"             // G_Server (the field)
 #include "menu_keymap_config.h"
-#include "menu_sound_arch.h"       // BindClientBackgroundMusic (FUN_00428ba0)
+#include "menu_sound_arch.h"       // BindClientBackgroundMusic (the routine)
 #include "menu_ui_init.h"          // PlayUiSoundSlot / PlayUiSoundSlotFlag1 / StopUiSoundSlot
 #include "nn_button_control.h"
-#include "nn_modal.h"              // G_bNnScreenUp (DAT_0067dcc8), NnModalResumeGame, NnFloatBits
+#include "nn_modal.h"              // G_bNnScreenUp (the field), NnModalResumeGame, NnFloatBits
 #include "cargo_bar_control.h"
-#include "font_string.h"           // FontStringConstruct (FUN_004144b0)
+#include "font_string.h"           // FontStringConstruct (the routine)
 #include "nn_rollover.h"           // NnRolloverShowIdsAtGlobal / NnRolloverShowHoverAtGlobal
-#include "tooltip_hover.h"         // FToolTipHoverInfo, ToolTipHoverReset (FUN_004963a0)
+#include "tooltip_hover.h"         // FToolTipHoverInfo, ToolTipHoverReset (the routine)
 #include "nn_text_control.h"
 #include "nn_ui_pulse.h"           // G_NnPaletteArgb_679bb0 / 679ba4 / 679b94
-#include "perf_options.h"          // SavePerfOptions (FUN_005b3ec0), FindPerfOption*, ProbeMachineGraphicsLevel
-#include "pixel_format.h"          // PixelFormatFromD3D / PixelFormatGetDesc (FUN_005b7010 / 005b7030)
-#include "player_spawn.h"          // GetPlayerConnectionId (DAT_00673344)
+#include "perf_options.h"          // SavePerfOptions (the routine), FindPerfOption*, ProbeMachineGraphicsLevel
+#include "pixel_format.h"          // PixelFormatFromD3D / PixelFormatGetDesc (the routine / 005b7030)
+#include "player_spawn.h"          // GetPlayerConnectionId (the field)
 #include "rich_text_win.h"
 #include "ui_scroll.h"
 #include "widescreen.h"            // port-only (OUTPOST_FRONTIER_WIDESCREEN_SUPPORT)
 #include "win3d.h"
-#include "win3d_renderables.h"     // Win3DFlushBeforeOverlayDraw (FUN_0045a9f0)
+#include "win3d_renderables.h"     // Win3DFlushBeforeOverlayDraw (the routine)
 #include "win_factory.h"
 #include "wire_controls.h"
 
@@ -45,9 +41,9 @@
 #include "common_ini.h"            // INI_Reader
 #include "common_server.h"         // IServer::ReqDifficultyScale (slot 87)
 #include "common_misc.h"           // SinglePlayer
-#include "dacom.h"                 // FDUMP
-#include "DALib.h"
-#include "engine/engbase.h"
+#include "neuroncomponents.h"                 // FDUMP
+#include "NeuronRuntime.h"
+#include "engine/sceneruntime.h"
 #include "soundmanager.h"          // ISoundSource
 
 #include <algorithm>
@@ -58,21 +54,21 @@
 #include <wchar.h>
 #include <windows.h>
 
-// Retail DAT_006721d0 -- WINFACTORY<NN_Preferences> (LAB_004a9270 -> FUN_004b28e0; Create
-// FUN_004b2950; atexit LAB_004a9290 -> FUN_00579380).
+// WINFACTORY<NN_Preferences> (the branch -> the routine; Create
+// ; atexit the branch -> the routine).
 WINFACTORY<NnPreferences> G_NnPreferencesFactory("NN_Preferences");
 
 namespace
 {
-    // Retail DAT_006721c0 -- the empty key-row vector category 3 answers with (static init
-    // FUN_004addb0, atexit LAB_004adde0).
+    // the empty key-row vector category 3 answers with (static init
+    // , atexit the branch).
     std::vector<FKeyRow> const G_NnPreferencesEmptyRows;
 
-    // DAT_00611e28 -- keys TryBindKey refuses (Shift, Ctrl, Alt, Esc, F1, -1, LWin, RWin).
+    // keys TryBindKey refuses (Shift, Ctrl, Alt, Esc, F1, -1, LWin, RWin).
     int const kForbiddenKeys[8] = {0x10, 0x11, 0x12, 0x1b, 0x70, -1, 0x5b, 0x5c};
 
-    char const kKeyListPath[] = "../Data/interface/keylist.ini"; // 0x005d4cbc
-    char const kPerfOptionsFile[] = "PerfOptions.ini";           // 0x005d5088
+    char const kKeyListPath[] = "../Data/interface/keylist.ini";
+    char const kPerfOptionsFile[] = "PerfOptions.ini";
 
     void ShowControl(Win3D* Control)
     {
@@ -84,7 +80,7 @@ namespace
         Control->Flags = static_cast<unsigned char>(Control->Flags & 0xfc);
     }
 
-    // FUN_004347e0(DAT_0067eca8, Ids, Buffer, 0x40) then the control's SetProperty(0x1d, Buffer).
+    // (the field, Ids, Buffer, 0x40) then the control's SetProperty(0x1d, Buffer).
     void SetTextIds(WinControl* Text, unsigned Ids)
     {
         wchar_t Buffer[0x40];
@@ -105,7 +101,7 @@ namespace
 
 NnPreferences::NnPreferences()
 {
-    // FUN_004b2950: FUN_0059f860, the vptrs, the nine vectors emptied. Every other member is
+    // the routine, the vptrs, the nine vectors emptied. Every other member is
     // written by Create before it is read; the port zeroes the block here.
     bClosed = 0; bInGame = 0; bSeedMode = 0; Pad32f = 0; SelWidth = 0; bSel32 = 0;
     BigBox = nullptr; Pad33c[0] = nullptr; Pad33c[1] = nullptr; Title = nullptr; CloseButton = nullptr;
@@ -146,20 +142,20 @@ NnPreferences::NnPreferences()
 
 NnPreferences::~NnPreferences()
 {
-    // FUN_004a9600: the nine vectors (81c, 80c, 7fc, 554 .. 504) are freed, then the WinControl
+    // the nine vectors (81c, 80c, 7fc, 554 .. 504) are freed, then the WinControl
     // dtor -- the std::vector members do it here.
 }
 
 bool NnPreferences::Slot23(unsigned, unsigned, unsigned)
 {
-    // FUN_004ada30
+
     OutputDebugStringA("OnMessage\n");
     return false;
 }
 
 void NnPreferences::Draw()
 {
-    // FUN_004abdb0: flush, then every visible child (Flags bit 1) draws; the set-key frame
+    // flush, then every visible child (Flags bit 1) draws; the set-key frame
     // flushes the overlay batch again before it draws.
     Win3DFlushBeforeOverlayDraw();
     Win3D* Child = ChildHead;
@@ -175,11 +171,11 @@ void NnPreferences::Draw()
 
 void NnPreferences::Update()
 {
-    // FUN_004ab6e0
+
     WinControl::Update();
     double Dt = GetClientFrameTimeCapped();
 
-    // The column buttons and their texts in retail's local order: interface, keymap, video,
+    // The column buttons and their texts in baseline's local order: interface, keymap, video,
     // audio, credits (main menu only -- in game the slot stays unwritten and is never read),
     // main menu.
     Win3D* Buttons[6] = {PageButtons[1], PageButtons[0], PageButtons[2], PageButtons[3], nullptr, PageButtons[5]};
@@ -198,7 +194,7 @@ void NnPreferences::Update()
     {
         if (bClosingAnim == 0)
         {
-            // 0x004ab7f6: the opening slide.
+            // the opening slide.
             Anim += Dt * 1.5;
             for (int Step = 6, Index = 0; Step > 0; --Step, ++Index)
             {
@@ -242,7 +238,7 @@ void NnPreferences::Update()
 
     if (bDoClosing)
     {
-        // 0x004ab9b1: the closing slide.
+        // the closing slide.
         if (Dt > 0.03)
             Dt = 0.03;
         Anim -= Dt * 1.5;
@@ -277,7 +273,7 @@ void NnPreferences::Update()
         SetPosition3(BigBox, static_cast<float>(Anim * -1.2), 0.0f, 0.0f);
     }
 
-    // 0x004abb5b
+
     if (bInGame == 0)
     {
         if (bFlipping != 0)
@@ -309,9 +305,9 @@ void NnPreferences::Update()
             Angles.y = 0.0f;
             Angles.z = 0.0f;
             Matrix Rotation = RotateMatrix(Angles);
-            DALib::Engine->SetInstanceOrientation(BigBox->MeshHolder.EngineInstance,
+            NeuronRuntime::Engine->SetInstanceOrientation(BigBox->MeshHolder.EngineInstance,
                                                   reinterpret_cast<float*>(&Rotation));
-            DALib::Engine->UpdateInstance(BigBox->MeshHolder.EngineInstance, 0, nullptr);
+            NeuronRuntime::Engine->UpdateInstance(BigBox->MeshHolder.EngineInstance, 0, nullptr);
         }
     }
     else
@@ -328,14 +324,14 @@ void NnPreferences::Update()
         bFlipping = 0;
     }
 
-    // 0x004abcd7: the credits roll.
+    // the credits roll.
     if (CurPage == 4 && bFlipping == 0)
     {
         CreditsScroll = Dt * CreditsSpeed + CreditsScroll;
         CreditsText->SetScrollOrigin(0, static_cast<int>(CreditsScroll));
     }
 
-    // 0x004abd10: the video-mode confirm countdown.
+    // the video-mode confirm countdown.
     if (bVideoConfirm != 0)
     {
         ConfirmCountdown -= Dt;
@@ -347,14 +343,14 @@ void NnPreferences::Update()
             return;
         }
         wchar_t Buffer[0x40];
-        swprintf(Buffer, 0x40, L"%1.0f", Dt); // 0x005d5048
+        swprintf(Buffer, 0x40, L"%1.0f", Dt);
         DialogText[2]->SetProperty(0x1d, reinterpret_cast<uintptr_t>(Buffer), 0);
     }
 }
 
 void NnPreferences::SetRowsHidden(bool bHide)
 {
-    // FUN_004abdf0
+
     if (CurPage == 0)
     {
         for (int Index = 0; Index < 13; ++Index)
@@ -420,7 +416,7 @@ void NnPreferences::SetRowsHidden(bool bHide)
 
 void NnPreferences::ShowKeyDialog()
 {
-    // FUN_004abfb0
+
     SetTextIds(DialogButtonText[0], 0x5e8);
     SetTextIds(DialogButtonText[1], 0x2148);
     ShowControl(SetKeyFrame);
@@ -440,7 +436,7 @@ void NnPreferences::ShowKeyDialog()
 void NnPreferences::CloseKeyDialogRestoreRows()
 {
     // Inlined at 0x004ac3d0 / 0x004ac649 / 0x004ac85e / 0x004ac90b / 0x004ad834 / 0x004adb40
-    // (the callers clear bKeyCapture and release the capture first where retail does).
+    // (the callers clear bKeyCapture and release the capture first where baseline does).
     HideControl(DialogText[0]);
     HideControl(DialogText[1]);
     HideControl(DialogText[2]);
@@ -472,18 +468,18 @@ void NnPreferences::MarkKeyMapDirtyAndReload()
 
 intptr_t NnPreferences::SetProperty(int Msg, uintptr_t A, uintptr_t B)
 {
-    // FUN_004ac0a0
+
     Win3D* const Source = reinterpret_cast<Win3D*>(A);
 
     if (Msg == 0x46 || Msg == 0x25)
     {
-        // 0x004ac0df: row tooltips.
+        // row tooltips.
         if (CurPage == 0)
         {
             for (int Index = 0; Index < 13; ++Index)
             {
                 if (Source == KeyRows[Index] || Source == KeyAltRows[Index])
-                    NnRolloverShowIdsAtGlobal(0x68c, 0.0f, 0.2f); // FUN_004b6440 @ 0x004ac1b4
+                    NnRolloverShowIdsAtGlobal(0x68c, 0.0f, 0.2f); // @ 0x004ac1b4
                 else if (Source == CommandRows[Index])
                     ShowRowTip(Index);
             }
@@ -519,7 +515,7 @@ intptr_t NnPreferences::SetProperty(int Msg, uintptr_t A, uintptr_t B)
 
     if (bConfirmMode != 0)
     {
-        // 0x004ac205: the "apply changes?" dialog.
+        // the "apply changes?" dialog.
         if (Msg != 0x26)
             return 0;
         if (Source == OverwriteButton)
@@ -562,7 +558,7 @@ intptr_t NnPreferences::SetProperty(int Msg, uintptr_t A, uintptr_t B)
 
     if (bVideoConfirm != 0)
     {
-        // 0x004ac3b8: "keep this video mode?".
+        // "keep this video mode?".
         if (Msg != 0x26)
             return 0;
         if (Source == OverwriteButton)
@@ -584,7 +580,7 @@ intptr_t NnPreferences::SetProperty(int Msg, uintptr_t A, uintptr_t B)
         {
             return 0;
         }
-        // 0x004ac46e
+
         RefreshRows(0x536);
         UpdateDirty(-1, -1.0f);
         return 1;
@@ -592,7 +588,7 @@ intptr_t NnPreferences::SetProperty(int Msg, uintptr_t A, uintptr_t B)
 
     if (bKeyCapture != 0)
     {
-        // 0x004ac553: the key conflict / capture dialog.
+        // the key conflict / capture dialog.
         if (Msg != 0x26)
             return 0;
         if (Source == OverwriteButton)
@@ -631,7 +627,7 @@ intptr_t NnPreferences::SetProperty(int Msg, uintptr_t A, uintptr_t B)
         return 0;
     }
 
-    // 0x004ac9bb
+
     if (Msg == 0x3e)
     {
         std::vector<FPrefOption>* Options = nullptr;
@@ -667,7 +663,7 @@ intptr_t NnPreferences::SetProperty(int Msg, uintptr_t A, uintptr_t B)
 
     if (Msg == 0x29)
     {
-        // 0x004acb2c: a slider released on the audio page stops its preview sound.
+        // a slider released on the audio page stops its preview sound.
         if (CurPage != 3)
             return 0;
         for (int Index = 0; Index < 14; ++Index)
@@ -687,7 +683,7 @@ intptr_t NnPreferences::SetProperty(int Msg, uintptr_t A, uintptr_t B)
     if (Msg != 0x26)
         return 0;
 
-    // 0x004acbb8: clicks, per page.
+    // clicks, per page.
     switch (CurPage)
     {
     case 0:
@@ -752,17 +748,17 @@ intptr_t NnPreferences::SetProperty(int Msg, uintptr_t A, uintptr_t B)
                 else
                     SetToggleOption(Entry.Id, Entry.Default, -1);
             }
-            // 0x004ace35 / 0x004ad1eb: FLD float +0x14, FMUL float 100.0f on the x87 stack, ftol --
+            // / 0x004ad1eb: FLD float +0x14, FMUL float 100.0f on the x87 stack, ftol --
             // an exact product (24 x 7 bits), so double, not a rounded float, reaches ftol.
             FPerfOption* const Graphics = FindPerfOption("default_graphics");
             SetSliderOption(0x767, static_cast<int>(static_cast<double>(Graphics->Applied) * 100.0), -1);
             if (CurPage == 1)
             {
-                // 0x004ace5c: the default video mode from the device caps.
+                // the default video mode from the device caps.
                 unsigned long Ability4 = 0;
-                DALib::Pipeline->QueryDeviceAbility(4, &Ability4);
+                NeuronRuntime::Pipeline->QueryDeviceAbility(4, &Ability4);
                 unsigned long VideoMemory = 0;
-                DALib::Pipeline->QueryDeviceAbility(3, &VideoMemory);
+                NeuronRuntime::Pipeline->QueryDeviceAbility(3, &VideoMemory);
                 VideoMemory >>= 20;
                 RefreshRows(-1);
                 int Width = 0x320;
@@ -831,7 +827,7 @@ intptr_t NnPreferences::SetProperty(int Msg, uintptr_t A, uintptr_t B)
         break;
     }
 
-    // 0x004ad2a1: the column buttons.
+    // the column buttons.
     int const PageOfButton[5] = {0, 1, 2, 3, 4};
     for (int Button = 0; Button < 5; ++Button)
     {
@@ -848,7 +844,7 @@ intptr_t NnPreferences::SetProperty(int Msg, uintptr_t A, uintptr_t B)
         break;
     }
 
-    // 0x004ad438: close / main menu.
+    // close / main menu.
     if (Source == CloseButton || Source == PageButtons[5])
     {
         if (CurPage == 5)
@@ -863,7 +859,7 @@ intptr_t NnPreferences::SetProperty(int Msg, uintptr_t A, uintptr_t B)
 
 bool NnPreferences::TryBindKey(int Vk, unsigned Mods)
 {
-    // FUN_004ad600
+
     for (int Index = 0; Index < 8; ++Index)
     {
         if (Vk == kForbiddenKeys[Index])
@@ -909,7 +905,7 @@ bool NnPreferences::TryBindKey(int Vk, unsigned Mods)
         return true;
     }
 
-    // 0x004ad8c4: conflict -- hide the rows and ask.
+    // conflict -- hide the rows and ask.
     for (int Index = 0; Index < 13; ++Index)
     {
         HideControl(KeyBtnRows[Index]);
@@ -940,9 +936,9 @@ bool NnPreferences::TryBindKey(int Vk, unsigned Mods)
 
 bool NnPreferences::MouseEvent(FWin3DMouseEvent const* Event)
 {
-    // FUN_004ada40
+
     char Text[0x100];
-    sprintf(Text, "OnButton = %d\n", Event->Field0); // 0x005d50a4
+    sprintf(Text, "OnButton = %d\n", Event->Field0);
     OutputDebugStringA(Text);
     if (bKeyCapture == 0)
         return false;
@@ -955,9 +951,9 @@ bool NnPreferences::MouseEvent(FWin3DMouseEvent const* Event)
 
 bool NnPreferences::KeyEvent(unsigned Key, unsigned char* Modifiers)
 {
-    // FUN_004adac0
+
     char Text[0x100];
-    sprintf(Text, "OnKey = %d\n", Key); // 0x005d50b4
+    sprintf(Text, "OnKey = %d\n", Key);
     OutputDebugStringA(Text);
 
     if (bKeyCapture != 0)
@@ -1015,7 +1011,7 @@ bool NnPreferences::KeyEvent(unsigned Key, unsigned char* Modifiers)
 
 std::vector<FKeyRow> NnPreferences::GetCategoryRows(int Category) const
 {
-    // FUN_004ade00: a copy of the category's rows; anything but 0..2 -> DAT_006721c0 (empty).
+    // a copy of the category's rows; anything but 0..2 -> the field (empty).
     switch (Category)
     {
     case 0: return KeyGroups[0];
@@ -1027,13 +1023,13 @@ std::vector<FKeyRow> NnPreferences::GetCategoryRows(int Category) const
 
 std::vector<FKeyRow> NnPreferences::GetCurGroupRows() const
 {
-    // FUN_004ae030: the same switch on +0x838.
+    // the same switch on +0x838.
     return GetCategoryRows(CurGroup);
 }
 
 void NnPreferences::SelectGroup(int Group)
 {
-    // FUN_004ae260
+
     CurGroup = Group;
     KeyScroll->SetProperty(0x38, 0, 0);
     int Count = static_cast<int>(GetCurGroupRows().size());
@@ -1074,7 +1070,7 @@ void NnPreferences::SelectGroup(int Group)
 
 void NnPreferences::EnterKeyMapPage()
 {
-    // FUN_004ae4b0
+
     if (CurPage == 0 && bFlipping == 0)
         return;
     if (bFlipping == 0)
@@ -1116,7 +1112,7 @@ void NnPreferences::EnterKeyMapPage()
 
 namespace
 {
-    // The "enter an option page" tail shared by FUN_004ae650 / 4ae770 / 4ae890.
+    // The "enter an option page" tail shared by the routine / 4ae770 / 4ae890.
     void ResetCancelGrey(NnTextControl* CancelText, WireButtonControl* CancelButton)
     {
         CancelText->TextColour = G_NnPaletteArgb_679b94;
@@ -1127,7 +1123,7 @@ namespace
 
 void NnPreferences::EnterInterfacePage()
 {
-    // FUN_004ae650
+
     if (CurPage == 1 && bFlipping == 0)
         return;
     if (bFlipping == 0)
@@ -1153,7 +1149,7 @@ void NnPreferences::EnterInterfacePage()
 
 void NnPreferences::EnterVideoPage()
 {
-    // FUN_004ae770
+
     if (CurPage == 2 && bFlipping == 0)
         return;
     if (bFlipping == 0)
@@ -1179,7 +1175,7 @@ void NnPreferences::EnterVideoPage()
 
 void NnPreferences::EnterAudioPage()
 {
-    // FUN_004ae890
+
     if (CurPage == 3 && bFlipping == 0)
         return;
     if (bFlipping == 0)
@@ -1204,7 +1200,7 @@ void NnPreferences::EnterAudioPage()
 
 void NnPreferences::EnterCreditsPage()
 {
-    // FUN_004ae9a0
+
     if (CurPage == 4 && bFlipping == 0)
         return;
     if (bFlipping == 0)
@@ -1226,7 +1222,7 @@ void NnPreferences::EnterCreditsPage()
 
 void NnPreferences::LeaveKeyMapPage()
 {
-    // FUN_004aeab0
+
     if (bDirty != 0)
     {
         ShowConfirmDialog(true);
@@ -1260,7 +1256,7 @@ void NnPreferences::LeaveKeyMapPage()
 
 namespace
 {
-    // The row hides shared by FUN_004aebb0 / 4aeca0 / 4aed70.
+    // The row hides shared by the routine / 4aeca0 / 4aed70.
     void HideOptionRow(NnPreferences* Self, int Index)
     {
         HideControl(Self->OptTitleText[Index]);
@@ -1278,7 +1274,7 @@ namespace
 
 void NnPreferences::LeaveInterfacePage()
 {
-    // FUN_004aebb0
+
     if (bDirty != 0)
     {
         ShowConfirmDialog(true);
@@ -1303,7 +1299,7 @@ void NnPreferences::LeaveInterfacePage()
 
 void NnPreferences::LeaveVideoPage()
 {
-    // FUN_004aeca0
+
     if (bDirty != 0)
     {
         ShowConfirmDialog(true);
@@ -1322,7 +1318,7 @@ void NnPreferences::LeaveVideoPage()
 
 void NnPreferences::LeaveAudioPage()
 {
-    // FUN_004aed70
+
     if (bDirty != 0)
     {
         ShowConfirmDialog(true);
@@ -1352,7 +1348,7 @@ void NnPreferences::LeaveCreditsPage()
 void NnPreferences::LeaveCurrentPage()
 {
     // The five-entry jump tables 0x004ad544 / 57c / 590 / 5a4 / 5b8 / 5cc / 5e0 / 0x004add98 /
-    // 0x004af108; pages 5 and 6 leave nothing.
+    // ; pages 5 and 6 leave nothing.
     switch (CurPage)
     {
     case 0: LeaveKeyMapPage(); break;
@@ -1366,7 +1362,7 @@ void NnPreferences::LeaveCurrentPage()
 
 void NnPreferences::GotoRequestedPage()
 {
-    // FUN_004aee30
+
     if (ReqPage != 5 && ReqPage != 6)
     {
         PlayOrRewindUiSoundSlot(2);
@@ -1382,7 +1378,7 @@ void NnPreferences::GotoRequestedPage()
     case 5:
         if (bInGame == 0)
         {
-            // 0x004aeec9: the main-menu closing slide.
+            // the main-menu closing slide.
             bClosingAnim = 1;
             Anim = 0.0;
             int const Slide[5] = {0, 1, 2, 3, 5};
@@ -1395,14 +1391,14 @@ void NnPreferences::GotoRequestedPage()
             SavePerfOptions(kPerfOptionsFile);
             return;
         }
-        // 0x004af03d
+
         bClosed = 1;
         NnModalResumeGame(bPausedGame);
         G_bNnScreenUp = false;
         SavePerfOptions(kPerfOptionsFile);
         break;
     case 6:
-        // 0x004af084
+
         bClosed = 1;
         G_bNnScreenUp = false;
         if (bInGame == 0)
@@ -1441,17 +1437,17 @@ namespace
             Self->OptText[Index]->SetProperty(0x24, 1, 0);
     }
 
-    // The 0x18-byte record IRenderPipeline slot 10 fills (rp8 FUN_06d084f2 writes +0x00..+0x10:
-    // mode index, width, height, refresh rate, rp pixel format). FUN_004af120 reads +0x04
-    // ([ESP+0x10]), +0x08 ([ESP+0x14]) and +0x10 ([ESP+0x1c], CMP 1 and FUN_005b7030).
+    // The 0x18-byte record IRenderPipeline slot 10 fills (dx8renderer the routine writes +0x00..+0x10:
+    // mode index, width, height, refresh rate, rp pixel format). the routine reads +0x04
+    // ([ESP+0x10]), +0x08 ([ESP+0x14]) and +0x10 ([ESP+0x1c], CMP 1 and the routine).
     struct FPipelineDisplayMode
     {
         int Index;       // +0x00
         int Width;       // +0x04
         int Height;      // +0x08
         int RefreshRate; // +0x0c
-        int Format;      // +0x10 FUN_005b7010(0) before the call
-        int Field14;     // +0x14 FUN_005b7010(0) before the call
+        int Format;      // +0x10 the routine(0) before the call
+        int Field14;     // +0x14 the routine(0) before the call
     };
 
 #ifdef OUTPOST_FRONTIER_WIDESCREEN_SUPPORT
@@ -1471,13 +1467,13 @@ namespace
 
         std::vector<FPrefVideoMode> Picked;
         unsigned int Count = 0;
-        DALib::Pipeline->GetDisplayModeCount(&Count);
+        NeuronRuntime::Pipeline->GetDisplayModeCount(&Count);
         for (unsigned int Index = 0; Index < Count; ++Index)
         {
             FPipelineDisplayMode Mode;
             Mode.Field14 = PixelFormatFromD3D(0);
             Mode.Format = PixelFormatFromD3D(0);
-            if (DALib::Pipeline->GetDisplayModeEnum(Index, &Mode) != 0)
+            if (NeuronRuntime::Pipeline->GetDisplayModeEnum(Index, &Mode) != 0)
                 continue;
             if (Mode.Format == 1)
                 continue;
@@ -1539,19 +1535,19 @@ namespace
 
 bool NnPreferences::FindVideoMode(DisplaySettings* Out, int Width, int Height, int Bpp) const
 {
-    // FUN_004af120 (RET 0x10; this unused): the first 4:3 device mode matching the non-zero
+    // (RET 0x10; this unused): the first 4:3 device mode matching the non-zero
     // Width / Height and Bpp (Bpp <= 0: Out->color_bpp) lands in Out->width / height.
     Out->width = 0;
     Out->height = 0;
     unsigned int Count = 0;
-    DALib::Pipeline->GetDisplayModeCount(&Count);
+    NeuronRuntime::Pipeline->GetDisplayModeCount(&Count);
     for (unsigned int Index = 0; Index < Count; ++Index)
     {
-        // 0x004af164..0x004af179: +0x14 then +0x10 seeded with FUN_005b7010(0).
+        // +0x14 then +0x10 seeded with the routine(0).
         FPipelineDisplayMode Mode;
         Mode.Field14 = PixelFormatFromD3D(0);
         Mode.Format = PixelFormatFromD3D(0);
-        if (DALib::Pipeline->GetDisplayModeEnum(Index, &Mode) != 0)
+        if (NeuronRuntime::Pipeline->GetDisplayModeEnum(Index, &Mode) != 0)
             continue;
         if (Mode.Format == 1)
             continue;
@@ -1559,7 +1555,7 @@ bool NnPreferences::FindVideoMode(DisplaySettings* Out, int Width, int Height, i
             continue;
         if (Height != 0 && Height != Mode.Height)
             continue;
-        // 0x004af1b9..0x004af1d1: FUN_005b7030(format)+4 against Bpp (Bpp > 0, JLE signed) or
+        // the routine(format)+4 against Bpp (Bpp > 0, JLE signed) or
         // against Out+0x10.
         int const ModeBpp = static_cast<int>(PixelFormatGetDesc(Mode.Format)->Bpp);
         if (Bpp > 0 ? Bpp != ModeBpp : Out->color_bpp != ModeBpp)
@@ -1576,13 +1572,13 @@ bool NnPreferences::FindVideoMode(DisplaySettings* Out, int Width, int Height, i
             break;
         }
     }
-    // 0x004af202..0x004af20e: TEST / JBE on each (unsigned: non-zero).
+    // TEST / JBE on each (unsigned: non-zero).
     return Out->width != 0 && Out->height != 0;
 }
 
 void NnPreferences::LoadKeyList(char const* Path)
 {
-    // FUN_004af230
+
     KeyGroups[0].clear();
     KeyGroups[1].clear();
     KeyGroups[2].clear();
@@ -1590,10 +1586,10 @@ void NnPreferences::LoadKeyList(char const* Path)
     if (!Reader.open(Path, false))
     {
         FDUMP(0x100001, "%s(%d) : *** ERROR: Could not open %s",
-              "E:\\FL\\Scratch\\Source\\Client\\nn\\NN_Preferences.cpp", 0x910, Path);
+              "Client\\nn\\NN_Preferences.cpp", 0x910, Path);
         return;
     }
-    int Group = 0; // retail: uninitialised until the first [Group]
+    int Group = 0; // baseline: uninitialised until the first [Group]
     while (Reader.read_header())
     {
         if (Reader.is_header("Group"))
@@ -1608,7 +1604,7 @@ void NnPreferences::LoadKeyList(char const* Path)
             }
             if (Group == 1)
             {
-                // 0x004af3a3: group 1 opens with a caption row.
+                // group 1 opens with a caption row.
                 FKeyRow Caption = FKeyRow();
                 Caption.Primary.NicknameId = 0;
                 Caption.Primary.VirtualKey = -1;
@@ -1653,7 +1649,7 @@ void NnPreferences::LoadKeyList(char const* Path)
 
 void NnPreferences::AddKeyRow(int CommandId, int Category)
 {
-    // FUN_004af5c0 (RET 8)
+    // (RET 8)
     if (Category < 0 || Category > 3)
         return;
     FKeyRow Row = FKeyRow();
@@ -1719,7 +1715,7 @@ void NnPreferences::AddKeyRow(int CommandId, int Category)
 
 void NnPreferences::FillKeyRows(int First)
 {
-    // FUN_004af900 (RET 4)
+    // (RET 4)
     std::vector<FKeyRow> const Rows = GetCurGroupRows();
     if (static_cast<unsigned>(First) > static_cast<unsigned>(static_cast<int>(Rows.size()) - 13))
         return;
@@ -1754,7 +1750,7 @@ void NnPreferences::FillKeyRows(int First)
             Lookup.Modifiers = Row.Primary.Modifiers;
             KeyMapFormatBindingName(&Lookup, Name, 0x100);
             KeyText->SetText(Name);
-            AltText->SetText(Row.bEditable != 0 ? L"" : Name); // 0x005c8ce0 is L""
+            AltText->SetText(Row.bEditable != 0 ? L"" : Name); // is L""
         }
         else if (Row.BindingKind == 2)
         {
@@ -1783,7 +1779,7 @@ void NnPreferences::FillKeyRows(int First)
 
 void NnPreferences::BeginKeyCapture(int Row, bool bAlt)
 {
-    // FUN_004afb80 (RET 8)
+    // (RET 8)
     std::vector<FKeyRow> const Rows = GetCurGroupRows();
     FKeyRow const& Entry = Rows[Row];
     if (Entry.BindingKind == 0 || Entry.bEditable == 0)
@@ -1821,10 +1817,10 @@ void NnPreferences::BeginKeyCapture(int Row, bool bAlt)
 
 namespace
 {
-    // FUN_004afd80 (thiscall on the row, RET 8) -- one "option = id[, info, default, slider,
+    // (thiscall on the row, RET 8) -- one "option = id[, info, default, slider,
     // byte15[, min, max]]" line; a lone id is a header. With bSeed the matching perf option
-    // (FUN_005b3770 by ids) takes float(Default * 0.01) as its value (its vt[0], a no-op in
-    // every retail FPerfOption, is not modelled).
+    // (the routine by ids) takes float(Default * 0.01) as its value (its vt[0], a no-op in
+    // every baseline FPerfOption, is not modelled).
     void ParseOptLine(FPrefOption* Option, INI_Reader& Reader, bool bSeed)
     {
         unsigned const Count = Reader.get_num_parameters();
@@ -1891,13 +1887,13 @@ namespace
 
 bool NnPreferences::LoadOptList(char const* Path)
 {
-    // FUN_004afe30 (RET 4). The vectors are appended to, never cleared.
+    // (RET 4). The vectors are appended to, never cleared.
     INI_Reader Reader;
     bool const bOpened = Reader.open(Path, false);
     if (!bOpened)
     {
         FDUMP(0x100001, "%s(%d) : *** ERROR: Could not open %s",
-              "E:\\FL\\Scratch\\Source\\Client\\nn\\NN_Preferences.cpp", 0x9f5, Path);
+              "Client\\nn\\NN_Preferences.cpp", 0x9f5, Path);
         return bOpened;
     }
     while (Reader.read_header())
@@ -1917,9 +1913,9 @@ bool NnPreferences::LoadOptList(char const* Path)
 
 void NnPreferences::TakeSnapshot()
 {
-    // FUN_004b0530: the current value of each of the 14 rows (headers -1, sliders their scroll
+    // the current value of each of the 14 rows (headers -1, sliders their scroll
     // value, toggles 0/1), then the three preview sounds stop. The row copy is a local that is
-    // only overwritten on pages 1..3 -- retail seeds it once (Id -1, bytes 0).
+    // only overwritten on pages 1..3 -- baseline seeds it once (Id -1, bytes 0).
     if (bSeedMode != 0)
         return;
     FPrefOption Row = BlankOption();
@@ -1958,7 +1954,7 @@ void NnPreferences::TakeSnapshot()
 
 void NnPreferences::ShowConfirmDialog(bool bShow)
 {
-    // FUN_004b2540 (RET 4)
+    // (RET 4)
     if (bCreating != 0)
         return;
     bConfirmMode = static_cast<unsigned char>(bShow);
@@ -2000,7 +1996,7 @@ void NnPreferences::ShowConfirmDialog(bool bShow)
 
 void NnPreferences::CancelChanges()
 {
-    // FUN_004b2700
+
     if (CurPage == 0)
     {
         char const* const UserPath = EnsureUserKeyMapPath();
@@ -2035,7 +2031,7 @@ void NnPreferences::CancelChanges()
 namespace
 {
     // The perf-option write every setter here inlines: +0x10 = Value, vt[0](Value) (a no-op for
-    // every retail option, not modelled -- see FPerfOption), then when +0x14 differs from +0x10
+    // every baseline option, not modelled -- see FPerfOption), then when +0x14 differs from +0x10
     // (FCOMP / TEST AH,0x44 / JNP: equal skips, unordered applies) +0x14 = +0x10 and vt[1].
     void SetPerfOptionValue(FPerfOption* Option, float Value)
     {
@@ -2047,11 +2043,11 @@ namespace
             Option->Apply(Option->Value);
     }
 
-    char const kOptListPath[] = "../Data/interface/optlist.ini"; // 0x005d4a28
+    char const kOptListPath[] = "../Data/interface/optlist.ini";
 
-    // The widget the "OptToggleText[Row]" slot resolves to: retail indexes +0x61c + Row * 4
+    // The widget the "OptToggleText[Row]" slot resolves to: baseline indexes +0x61c + Row * 4
     // without a range check, so the Row -1 its seed / defaults / preset callers pass lands on
-    // +0x618, the last toggle button (FUN_004b1d20 0x004b1df5).
+    // +0x618, the last toggle button (the routine 0x004b1df5).
     WinControl* ToggleTextSlot(NnPreferences* Self, int Row)
     {
         if (Row >= 0)
@@ -2062,9 +2058,9 @@ namespace
 
 void NnPreferences::ApplyPercent(int Percent)
 {
-    // FUN_004b0370 (RET 4): every row with a default (+0x08 != -1) of the three sections, in
-    // the order +0x504, +0x524, +0x544, gets it -- sliders through FUN_004b1450, toggles through
-    // FUN_004b1d20, both with row -1. The size is re-read every pass.
+    // (RET 4): every row with a default (+0x08 != -1) of the three sections, in
+    // the order +0x504, +0x524, +0x544, gets it -- sliders through the routine, toggles through
+    // , both with row -1. The size is re-read every pass.
     for (unsigned Index = 0; Index < OptionsA.size(); ++Index)
     {
         FPrefOption const Entry = OptionsA[Index];
@@ -2096,31 +2092,31 @@ void NnPreferences::ApplyPercent(int Percent)
             SetToggleOption(Entry.Id, Entry.Default, -1);
     }
 
-    // 0x004b04b0: -1 -> ftol(default_graphics +0x14 * 100.0f) (no null test).
+    // -1 -> ftol(default_graphics +0x14 * 100.0f) (no null test).
     if (Percent == -1)
         Percent = static_cast<int>(static_cast<double>(FindPerfOption("default_graphics")->Applied) * 100.0);
     SetSliderOption(0x767, Percent, -1);
 
-    // 0x004b04e3: advanced_graphics = 0 (no null test).
+    // advanced_graphics = 0 (no null test).
     SetPerfOptionValue(FindPerfOption("advanced_graphics"), 0.0f);
 }
 
 bool NnPreferences::SeedGraphicsDefaults()
 {
-    // FUN_004a9380 (cdecl): a bare NN_Preferences (operator_new(0x980), FUN_0059f860, the nine
+    // (cdecl): a bare NN_Preferences (operator_new(0x980), the routine, the nine
     // vectors, the vptrs -- no Create) in seed mode (+0x32e = 1) reads optlist.ini, which stores
-    // every option's default; then the machine score (FUN_004a92a0).
+    // every option's default; then the machine score (the routine).
     NnPreferences* const Dialog = new NnPreferences();
     Dialog->bSeedMode = 1;
     Dialog->LoadOptList(kOptListPath);
     float const Score = ProbeMachineGraphicsLevel();
 
-    // 0x004a94b7: FCOMP 0.0f / TEST AH,5 / JP -- only "less" returns (unordered goes on). The
+    // FCOMP 0.0f / TEST AH,5 / JP -- only "less" returns (unordered goes on). The
     // dialog is not freed on this path.
     if (Score < 0.0f)
         return false;
 
-    // 0x004a94dd..0x004a95a4: each option null-tested.
+    // each option null-tested.
     FPerfOption* const Default = FindPerfOption("default_graphics");
     if (Default != nullptr)
         SetPerfOptionValue(Default, Score);
@@ -2131,7 +2127,7 @@ bool NnPreferences::SeedGraphicsDefaults()
     if (Advanced != nullptr)
         SetPerfOptionValue(Advanced, 0.0f);
 
-    // 0x004a95a7: FUN_004b0370(ftol(score * 100.0f)), then vt[0](1) -- the scalar deleting dtor.
+    // the routine(ftol(score * 100.0f)), then vt[0](1) -- the scalar deleting dtor.
     Dialog->ApplyPercent(static_cast<int>(static_cast<double>(Score) * 100.0));
     delete Dialog;
     return true;
@@ -2139,13 +2135,13 @@ bool NnPreferences::SeedGraphicsDefaults()
 
 void NnPreferences::SetSliderOption(int Id, int Value, int Row)
 {
-    // FUN_004b1450 (RET 0xc)
+    // (RET 0xc)
     if (Id == 0x534 || Id == 0x657)
     {
-        // 0x004b146b: gamma (ability 1) and environment maps (ability 8) need the device; without
+        // gamma (ability 1) and environment maps (ability 8) need the device; without
         // it the call ends here -- no dirty update.
         unsigned long Ability = 0;
-        DALib::Pipeline->QueryDeviceAbility(Id == 0x534 ? 1u : 8u, &Ability);
+        NeuronRuntime::Pipeline->QueryDeviceAbility(Id == 0x534 ? 1u : 8u, &Ability);
         if (Ability == 0)
             return;
     }
@@ -2153,10 +2149,10 @@ void NnPreferences::SetSliderOption(int Id, int Value, int Row)
     FPerfOption* const Option = FindPerfOptionByIds(Id);
     if (Option != nullptr && Id != 0x57f)
     {
-        // 0x004b14bf: FILD / FMUL double 0.01 / FST float.
+        // FILD / FMUL double 0.01 / FST float.
         float const Scaled = static_cast<float>(static_cast<double>(Value) * 0.01);
         SetPerfOptionValue(Option, Scaled);
-        // 0x004b1501: the paired options follow (no null tests): sfx -> 0x583, music -> 0x584,
+        // the paired options follow (no null tests): sfx -> 0x583, music -> 0x584,
         // asteroids -> 0x57d and 0x5ca.
         if (Id == 0x538)
         {
@@ -2176,7 +2172,7 @@ void NnPreferences::SetSliderOption(int Id, int Value, int Row)
     wchar_t Text[0x40];
     if (Id == 0x581)
     {
-        // 0x004b18fd
+
         if (Row >= 0)
             PlayUiSoundSlotFlag1(0x1e);
     }
@@ -2184,14 +2180,14 @@ void NnPreferences::SetSliderOption(int Id, int Value, int Row)
     {
         if (Id == 0x687)
         {
-            // 0x004b1974: max_submitted_sounds shows its count.
-            swprintf(Text, 0x40, L"%d", Value); // 0x005d0ec4
+            // max_submitted_sounds shows its count.
+            swprintf(Text, 0x40, L"%d", Value);
             if (Row >= 0)
                 SmallText[Row]->SetProperty(0x1d, reinterpret_cast<uintptr_t>(Text), 0);
         }
         else if (Id == 0x767)
         {
-            // 0x004b19cd: the graphics preset drives every video row that has a range.
+            // the graphics preset drives every video row that has a range.
             for (unsigned Index = 0; Index < OptionsC.size(); ++Index)
             {
                 FPrefOption const Entry = OptionsC[Index];
@@ -2209,7 +2205,7 @@ void NnPreferences::SetSliderOption(int Id, int Value, int Row)
                     }
                     else
                     {
-                        // 0x004b1a7d: FILD (Max - Min) / FDIVR double 100.0 / FIMUL (Value - Min).
+                        // FILD (Max - Min) / FDIVR double 100.0 / FIMUL (Value - Min).
                         double const Scale = 100.0 / static_cast<double>(Entry.Max - Entry.Min);
                         SetSliderOption(Entry.Id,
                                         static_cast<int>(Scale * static_cast<double>(Value - Entry.Min)),
@@ -2221,7 +2217,7 @@ void NnPreferences::SetSliderOption(int Id, int Value, int Row)
                     SetToggleOption(Entry.Id, (Value >= Entry.Min && Value <= Entry.Max) ? 1 : 0, -1);
                 }
             }
-            // 0x004b1ae4: general_graphics follows the preset (no null test).
+            // general_graphics follows the preset (no null test).
             SetPerfOptionValue(FindPerfOption("general_graphics"),
                                static_cast<float>(static_cast<double>(Value) * 0.01));
             if (bSeedMode != 0)
@@ -2237,25 +2233,25 @@ void NnPreferences::SetSliderOption(int Id, int Value, int Row)
         }
         else if (Id == 0x583)
         {
-            // 0x004b1956
+
             if (Row >= 0)
                 PlayUiSoundSlotFlag1(0x21);
         }
         else if (Id == 0x584)
         {
-            // 0x004b1938
+
             if (Row >= 0)
                 PlayUiSoundSlotFlag1(0x22);
         }
     }
     else
     {
-        // 0x004b1643: the jump table 0x004b1b80 / 0x004b1b98 over 0x534..0x57f.
+        // the jump table 0x004b1b80 / 0x004b1b98 over 0x534..0x57f.
         switch (Id)
         {
         case 0x534:
         {
-            // 0x004b18a5: gamma as "%3.2f" of Value * 0.01f.
+            // gamma as "%3.2f" of Value * 0.01f.
             swprintf(Text, 0x40, L"%3.2f", static_cast<double>(Value) * static_cast<double>(0.01f));
             if (Row >= 0)
                 SmallText[Row]->SetProperty(0x1d, reinterpret_cast<uintptr_t>(Text), 0);
@@ -2263,7 +2259,7 @@ void NnPreferences::SetSliderOption(int Id, int Value, int Row)
         }
         case 0x536:
         {
-            // 0x004b17cb: the video mode cycle; a negative value ends the call (no dirty update).
+            // the video mode cycle; a negative value ends the call (no dirty update).
             if (Value < 0)
                 return;
             int Match = 0;
@@ -2274,14 +2270,14 @@ void NnPreferences::SetSliderOption(int Id, int Value, int Row)
             }
             FPrefVideoMode const Found = Modes[Match];
             SelWidth = Found.Width;
-            swprintf(Text, 0x40, L"%d x %d", Found.Width, Found.Height); // 0x005d5190
+            swprintf(Text, 0x40, L"%d x %d", Found.Width, Found.Height);
             if (bBigVram != 0)
             {
                 bSel32 = static_cast<unsigned char>(Found.Bpp == 0x20);
-                // Retail formats the buffer into itself (0x004b1851 / 0x004b185e).
+                // baseline formats the buffer into itself (0x004b1851 / 0x004b185e).
                 wchar_t Size[0x40];
                 wcscpy(Size, Text);
-                swprintf(Text, 0x40, bSel32 != 0 ? L"%ls x 32" : L"%ls x 16", Size); // 0x005d5180 / 5170
+                swprintf(Text, 0x40, bSel32 != 0 ? L"%ls x 32" : L"%ls x 16", Size); // / 5170
             }
             if (Row >= 0)
             {
@@ -2291,17 +2287,17 @@ void NnPreferences::SetSliderOption(int Id, int Value, int Row)
             break;
         }
         case 0x538:
-            // 0x004b1767
+
             if (Row >= 0)
                 PlayUiSoundSlotFlag1(0x1f);
             break;
         case 0x539:
         {
-            // 0x004b1785: the music preview plays only when no background music is bound.
+            // the music preview plays only when no background music is bound.
             if (Row >= 0)
             {
                 void* Source = nullptr;
-                if (!BindClientBackgroundMusic(&Source)) // FUN_00428ba0
+                if (!BindClientBackgroundMusic(&Source))
                     PlayUiSoundSlotFlag1(0x20);
                 else
                     static_cast<ISoundSource*>(Source)->Release(); // vt+8
@@ -2310,8 +2306,8 @@ void NnPreferences::SetSliderOption(int Id, int Value, int Row)
         }
         case 0x57f:
         {
-            // 0x004b1660: DIFFICULTY_SCALE = Value * 0.5, only when it differs from the shared
-            // slot 6 (FUN_005b3510); then the server hears of it. The option is not null-tested.
+            // DIFFICULTY_SCALE = Value * 0.5, only when it differs from the shared
+            // slot 6 (the routine); then the server hears of it. The option is not null-tested.
             float const Scale = static_cast<float>(static_cast<double>(Value) * 0.5);
             if (GetPerfOptionSlot(6) != Scale)
             {
@@ -2322,8 +2318,8 @@ void NnPreferences::SetSliderOption(int Id, int Value, int Row)
             }
             if (Row >= 0)
             {
-                // 0x004b16e5: FUN_004347e0(0x702 + Value) for 0..3.
-                // PORT: retail leaves the buffer as it was for any other value; the port blanks it.
+                // the routine(0x702 + Value) for 0..3.
+                // PORT: baseline leaves the buffer as it was for any other value; the port blanks it.
                 Text[0] = 0;
                 if (static_cast<unsigned>(Value) <= 3)
                     GetIdsStringWWithRawFallback(0x702u + static_cast<unsigned>(Value), Text, 0x40);
@@ -2336,13 +2332,13 @@ void NnPreferences::SetSliderOption(int Id, int Value, int Row)
         }
     }
 
-    // 0x004b1b62: FUN_004b1f30(-1, -1.0f).
+    // the routine(-1, -1.0f).
     UpdateDirty(-1, -1.0f);
 }
 
 bool NnPreferences::TryApplyVideoMode(int Width, unsigned char b32)
 {
-    // FUN_004b1c00 (RET 8): the first 0x28 bytes of DAT_00679bc0 on the stack.
+    // (RET 8): the first 0x28 bytes of the field on the stack.
     DisplaySettings Mode;
     memcpy(&Mode, &g_display, 0x28);
     CurWidth = Mode.width;
@@ -2359,27 +2355,27 @@ bool NnPreferences::TryApplyVideoMode(int Width, unsigned char b32)
             continue;
         FindVideoMode(&Mode, Modes[Index].Width, Modes[Index].Height, -1);
         if (bInGame == 0)
-            ResetGameflowRoomLetterbox(); // FUN_00558d60(Width, Height) reads neither
+            ResetGameflowRoomLetterbox(); // (Width, Height) reads neither
     }
     if (Mode.width == 0 || Mode.height == 0)
         return false;
-    SetRenderModeWithFallback(g_client.window, &Mode); // FUN_00424ce0(DAT_0067eca0, &Mode)
+    SetRenderModeWithFallback(g_client.window, &Mode); // (the field, &Mode)
     ConfirmCountdown = 10.0;
     return true;
 }
 
 void NnPreferences::SetToggleOption(int Id, int Value, int Row)
 {
-    // FUN_004b1d20 (RET 0xc)
+    // (RET 0xc)
     if (Id == 0x534 || Id == 0x657)
     {
         unsigned long Ability = 0;
-        DALib::Pipeline->QueryDeviceAbility(Id == 0x534 ? 1u : 8u, &Ability);
+        NeuronRuntime::Pipeline->QueryDeviceAbility(Id == 0x534 ? 1u : 8u, &Ability);
         if (Ability == 0)
             return;
     }
 
-    // 0x004b1d72: FILD Value / FCOMP double 0.999 / TEST AH,0x41 -- only "greater" is on.
+    // FILD Value / FCOMP double 0.999 / TEST AH,0x41 -- only "greater" is on.
     int const bOn = static_cast<double>(Value) > 0.999 ? 1 : 0;
     FPerfOption* const Option = FindPerfOptionByIds(Id);
     if (Option != nullptr)
@@ -2395,7 +2391,7 @@ void NnPreferences::SetToggleOption(int Id, int Value, int Row)
 
     if (Id == 0x57e)
     {
-        // 0x004b1e53: "apply video mode" -- ask to keep it, or redraw the rows.
+        // "apply video mode" -- ask to keep it, or redraw the rows.
         if (TryApplyVideoMode(SelWidth, bSel32))
         {
             bVideoConfirm = 1;
@@ -2414,13 +2410,13 @@ void NnPreferences::SetToggleOption(int Id, int Value, int Row)
         }
     }
 
-    // 0x004b1f02
+
     UpdateDirty(Id, static_cast<float>(bOn));
 }
 
 void NnPreferences::UpdateDirty(int Id, float Value)
 {
-    // FUN_004b1f30 (RET 8): a pending video mode, or any row that no longer matches its
+    // (RET 8): a pending video mode, or any row that no longer matches its
     // snapshot, makes the page dirty.
     if (bSeedMode != 0)
         return;
@@ -2441,18 +2437,18 @@ void NnPreferences::UpdateDirty(int Id, float Value)
         {
             if (Row.Id == 0x536)
                 continue;
-            // 0x004b1ff2: ftol(snapshot) against ftol(the scroll value as an unsigned qword).
+            // ftol(snapshot) against ftol(the scroll value as an unsigned qword).
             unsigned const ScrollValue = static_cast<unsigned>(OptScroll[Index]->SetProperty(0x3b, 0, 0));
             if (static_cast<int>(Snapshot[Index]) != static_cast<int>(static_cast<long long>(ScrollValue)))
                 bFound = true;
             continue;
         }
-        // 0x004b2037: toggles count only while visible.
+        // toggles count only while visible.
         if ((OptToggle[Index]->Flags & 2) == 0)
             continue;
         if (Row.Id == Id)
         {
-            // 0x004b204d: FLD snapshot / FCOMP Value / TEST AH,0x44 / JP -- equal marks it.
+            // FLD snapshot / FCOMP Value / TEST AH,0x44 / JP -- equal marks it.
             if (Snapshot[Index] == Value)
                 bFound = true;
             continue;
@@ -2464,7 +2460,7 @@ void NnPreferences::UpdateDirty(int Id, float Value)
             bFound = true;
     }
 
-    // 0x004b20d7
+
     bDirty = static_cast<unsigned char>(bFound);
     CancelText->TextColour = bFound ? G_NnPaletteArgb_679bb0 : G_NnPaletteArgb_679b94;
     CancelButton->bUseColour = static_cast<unsigned char>(!bFound);
@@ -2474,27 +2470,27 @@ void NnPreferences::UpdateDirty(int Id, float Value)
 
 namespace
 {
-    // FUN_004b2130's two inlined record blocks (0x004b21d7..0x004b2259, 0x004b2338..0x004b239b):
-    // caption null, the Font::String constructed (FUN_004144b0), FUN_004963a0's stores, Ids =
-    // IdsAlt = the row's info ids, FUN_004b6420(&record, 0, 0.2f), then the record's dtor.
+    // 's two inlined record blocks (0x004b21d7..0x004b2259, 0x004b2338..0x004b239b):
+    // caption null, the Font::String constructed (the routine), the routine's stores, Ids =
+    // IdsAlt = the row's info ids, the routine(&record, 0, 0.2f), then the record's dtor.
     void ShowRowTipRecord(int InfoIds)
     {
-        FToolTipHoverInfo Record; // caption null + FUN_004144b0; dtor FUN_00444ee0
+        FToolTipHoverInfo Record; // caption null + the routine; dtor the routine
         ToolTipHoverReset(&Record);
         Record.Ids = InfoIds;
         Record.IdsAlt = InfoIds;
-        NnRolloverShowHoverAtGlobal(&Record, 0.0f, 0.2f); // 0x3e4ccccd
+        NnRolloverShowHoverAtGlobal(&Record, 0.0f, 0.2f);
     }
 }
 
 void NnPreferences::ShowRowTip(int Row)
 {
-    // FUN_004b2130 (RET 4): the row's info ids in the rollover (FUN_004b6420 with a record
+    // (RET 4): the row's info ids in the rollover (the routine with a record
     // {Ids, Ids, empty caption}, 0, 0.2f).
     if (CurPage == 0)
     {
         int const First = static_cast<int>(KeyScroll->SetProperty(0x3b, 0, 0));
-        // PORT: retail reads an uninitialised local for a group outside 0..2 (0x004b21cb);
+        // PORT: baseline reads an uninitialised local for a group outside 0..2 (0x004b21cb);
         // SelectGroup only ever stores 0..2.
         int InfoIds = 0;
         switch (CurGroup)
@@ -2517,7 +2513,7 @@ void NnPreferences::ShowRowTip(int Row)
         Entry = OptionsB[Row];
     else
         return;
-    // 0x004b2314: nothing while a key is captured or a video mode waits for confirmation.
+    // nothing while a key is captured or a video mode waits for confirmation.
     if (Entry.InfoIds <= 0 || bKeyCapture != 0 || bVideoConfirm != 0)
         return;
     ShowRowTipRecord(Entry.InfoIds);
@@ -2525,13 +2521,13 @@ void NnPreferences::ShowRowTip(int Row)
 
 void NnPreferences::ProbeModes(int)
 {
-    // FUN_004b2440 (RET 4; the argument is not read).
+    // (RET 4; the argument is not read).
     DisplaySettings Mode;
     memcpy(&Mode, &g_display, 0x28);
     Mode.width = 0;
     Mode.height = 0;
     unsigned long VideoMemory = 0;
-    DALib::Pipeline->QueryDeviceAbility(3, &VideoMemory);
+    NeuronRuntime::Pipeline->QueryDeviceAbility(3, &VideoMemory);
     VideoMemory >>= 20;
     bBigVram = static_cast<unsigned char>(VideoMemory >= 0x11);
     ModeCount = 0;
@@ -2542,7 +2538,7 @@ void NnPreferences::ProbeModes(int)
             FindVideoMode(&Mode, Modes[Index].Width, Modes[Index].Height, Modes[Index].Bpp));
         if (bModeAvail[Index] == 0)
             continue;
-        // 0x004b24e8: 32-bit modes need more than 16 MB of video memory.
+        // 32-bit modes need more than 16 MB of video memory.
         if (bBigVram == 0 && Modes[Index].Bpp != 0x10)
         {
             bModeAvail[Index] = 0;
@@ -2555,7 +2551,7 @@ void NnPreferences::ProbeModes(int)
 
 void NnPreferences::Revert(bool bApply)
 {
-    // FUN_004b06a0 (RET 4): every row that moved away from its snapshot goes back; with bApply
+    // (RET 4): every row that moved away from its snapshot goes back; with bApply
     // the widgets follow and the row index is passed on.
     if (bSeedMode != 0)
         return;
@@ -2574,7 +2570,7 @@ void NnPreferences::Revert(bool bApply)
         {
             if (Row.Id == 0x536)
             {
-                // 0x004b0740: back to the current video mode, every matching entry.
+                // back to the current video mode, every matching entry.
                 if (CurWidth == SelWidth && bCur32 == bSel32)
                     continue;
                 for (int Mode = 0; Mode < kPrefVideoModeCount; ++Mode)
@@ -2595,7 +2591,7 @@ void NnPreferences::Revert(bool bApply)
                 }
                 continue;
             }
-            // 0x004b07e6: FILD qword (the scroll value) / FCOMP snapshot -- equal skips.
+            // FILD qword (the scroll value) / FCOMP snapshot -- equal skips.
             unsigned const ScrollValue = static_cast<unsigned>(OptScroll[Index]->SetProperty(0x3b, 0, 0));
             if (static_cast<double>(static_cast<long long>(ScrollValue)) == static_cast<double>(Snapshot[Index]))
                 continue;
@@ -2611,7 +2607,7 @@ void NnPreferences::Revert(bool bApply)
             }
             continue;
         }
-        // 0x004b0868: toggles only while their text is visible.
+        // toggles only while their text is visible.
         if ((OptToggleText[Index]->Flags & 2) == 0)
             continue;
         // FLD snapshot / FCOMP double 0.999 / TEST AH,1: "less" (and unordered) is off; the
@@ -2667,11 +2663,11 @@ namespace
 
 void NnPreferences::RefreshRows(int Id)
 {
-    // FUN_004b0920 (RET 4): lay the 14 rows of the current page out from its section; Id -1 does
+    // (RET 4): lay the 14 rows of the current page out from its section; Id -1 does
     // every row, anything else only the row(s) with that option id.
     if (bSeedMode == 0)
     {
-        // 0x004b0936: row 0's slider and caption back to their defaults (the preset row
+        // row 0's slider and caption back to their defaults (the preset row
         // changes them below).
         OptScroll[0]->SetSize(NnFloatBits(0x3e75c28f), NnFloatBits(0x3c656042));
         SetPosition3(OptScroll[0], 0.0f, 0.0f, 0.0f);
@@ -2685,7 +2681,7 @@ void NnPreferences::RefreshRows(int Id)
         bool bDisabled = false;
         if (bSeedMode == 0)
             OptToggle[Index]->ButtonBits2 = static_cast<unsigned char>(OptToggle[Index]->ButtonBits2 | 2);
-        // 0x004b09c9: only the id and the three bytes are reset; pages 1..3 copy the row.
+        // only the id and the three bytes are reset; pages 1..3 copy the row.
         Row.Id = -1;
         Row.bSlider = 0;
         Row.Byte15 = 0;
@@ -2701,13 +2697,13 @@ void NnPreferences::RefreshRows(int Id)
             if (Row.Id == 0x534 || Row.Id == 0x657)
             {
                 unsigned long Ability = 0;
-                DALib::Pipeline->QueryDeviceAbility(Row.Id == 0x534 ? 1u : 8u, &Ability);
+                NeuronRuntime::Pipeline->QueryDeviceAbility(Row.Id == 0x534 ? 1u : 8u, &Ability);
                 bDisabled = Ability == 0;
             }
             else if (Row.Id == 0x67f)
             {
-                // 0x004b0a7e: dithering is pointless in 32-bit colour (a copy of the first 0x28
-                // bytes of DAT_00679bc0, its +0x10).
+                // dithering is pointless in 32-bit colour (a copy of the first 0x28
+                // bytes of the field, its +0x10).
                 bDisabled = g_display.color_bpp == 0x20;
             }
             else if (Row.Id == 0x57f)
@@ -2719,7 +2715,7 @@ void NnPreferences::RefreshRows(int Id)
         if (Id != -1 && Id != RowId)
             continue;
 
-        // 0x004b0ac9
+
         OptScroll[Index]->SetProperty(0x37, 0, 100);
         HideControl(OptToggle[Index]);
         HideControl(OptTitleText[Index]);
@@ -2739,7 +2735,7 @@ void NnPreferences::RefreshRows(int Id)
         wchar_t Text[0x40];
         if (Row.bHeader != 0)
         {
-            // 0x004b0b48: a header row is its title only.
+            // a header row is its title only.
             HideControl(OptText[Index]);
             GetIdsStringWWithRawFallback(static_cast<unsigned>(RowId), Text, 0x40);
             OptTitleText[Index]->SetProperty(0x1d, reinterpret_cast<uintptr_t>(Text), 0);
@@ -2749,7 +2745,7 @@ void NnPreferences::RefreshRows(int Id)
         if (bDisabled)
             continue;
 
-        // 0x004b0b94: "not in game" rows are greyed while the window is open in game.
+        // "not in game" rows are greyed while the window is open in game.
         SetOptionRowGreyed(this, Index, Row.Byte15 != 0 && bInGame != 0);
         ShowControl(OptText[Index]);
         GetIdsStringWWithRawFallback(static_cast<unsigned>(RowId), Text, 0x40);
@@ -2760,14 +2756,14 @@ void NnPreferences::RefreshRows(int Id)
         {
             if (Row.bSlider != 0)
             {
-                // 0x004b0d58: ftol(+0x14 * 100.0f).
+                // ftol(+0x14 * 100.0f).
                 OptScroll[Index]->SetProperty(
                     0x38, static_cast<uintptr_t>(static_cast<int>(static_cast<double>(Option->Applied) * 100.0)), 0);
                 ShowControl(OptScroll[Index]);
             }
             else
             {
-                // 0x004b0d82: FCOMP double 0.999 / TEST AH,0x41 -- only "greater" is on.
+                // FCOMP double 0.999 / TEST AH,0x41 -- only "greater" is on.
                 int const bOn = static_cast<double>(Option->Applied) > 0.999 ? 1 : 0;
                 OptToggle[Index]->SetProperty(0x30, static_cast<uintptr_t>(bOn), 0);
                 ShowControl(OptToggle[Index]);
@@ -2777,23 +2773,23 @@ void NnPreferences::RefreshRows(int Id)
             }
         }
 
-        // 0x004b0e14
+
         switch (RowId)
         {
         case 0x534:
         {
-            // 0x004b1179: gamma's value as "%3.2f".
+            // gamma's value as "%3.2f".
             if (Option == nullptr)
                 break;
             wchar_t Value[0x40];
-            swprintf(Value, 0x40, L"%3.2f", static_cast<double>(Option->Applied)); // 0x005d5164
+            swprintf(Value, 0x40, L"%3.2f", static_cast<double>(Option->Applied));
             SmallText[Index]->SetProperty(0x1d, reinterpret_cast<uintptr_t>(Value), 0);
             ShowControl(SmallText[Index]);
             break;
         }
         case 0x536:
         {
-            // 0x004b0f0d: the video mode cycle moves up to this row: y = -Index * 0.035f.
+            // the video mode cycle moves up to this row: y = -Index * 0.035f.
             float const Y = static_cast<float>(static_cast<double>(-Index) * static_cast<double>(NnFloatBits(0x3d0f5c29)));
             SetPosition3(VideoModeCycle, 0.0f, Y, 0.0f);
             float const Y2 = Y + Y;
@@ -2802,7 +2798,7 @@ void NnPreferences::RefreshRows(int Id)
             SetPosition3(VideoModeText, 0.0f, Y, 0.0f);
             VideoModeCycle->SetProperty(0x37, 0, static_cast<uintptr_t>(ModeCount - 1));
 
-            // 0x004b0fd7: the current display mode's entry (the last match wins).
+            // the current display mode's entry (the last match wins).
             wchar_t ModeText[0x40];
             bool bFound = false;
             for (int Mode = 0; Mode < kPrefVideoModeCount; ++Mode)
@@ -2814,13 +2810,13 @@ void NnPreferences::RefreshRows(int Id)
                 CurWidth = Modes[Mode].Width;
                 SelWidth = Modes[Mode].Width;
                 bSel32 = static_cast<unsigned char>(Modes[Mode].Bpp == 0x20);
-                swprintf(ModeText, 0x40, L"%d x %d", Modes[Mode].Width, Modes[Mode].Height); // 0x005d5190
+                swprintf(ModeText, 0x40, L"%d x %d", Modes[Mode].Width, Modes[Mode].Height);
                 VideoModeCycle->SetProperty(0x38, static_cast<uintptr_t>(CycleIndex[Mode]), 0);
                 bFound = true;
             }
             if (!bFound)
             {
-                // 0x004b10a3: none -- the display's own size, cycle at 0.
+                // none -- the display's own size, cycle at 0.
                 CurWidth = g_display.width;
                 SelWidth = g_display.width;
                 bSel32 = static_cast<unsigned char>(g_display.color_bpp == 0x20);
@@ -2829,7 +2825,7 @@ void NnPreferences::RefreshRows(int Id)
             }
             if (bBigVram != 0)
             {
-                // Retail formats the buffer into itself (0x004b1113 / 0x004b1123).
+                // baseline formats the buffer into itself (0x004b1113 / 0x004b1123).
                 wchar_t Size[0x40];
                 wcscpy(Size, ModeText);
                 swprintf(ModeText, 0x40, bSel32 != 0 ? L"%ls x 32" : L"%ls x 16", Size);
@@ -2843,7 +2839,7 @@ void NnPreferences::RefreshRows(int Id)
         }
         case 0x57e:
         {
-            // 0x004b0e45: the "apply" button, live while a different mode is selected.
+            // the "apply" button, live while a different mode is selected.
             ShowControl(SmallButton[Index]);
             ShowControl(SmallButtonText[Index]);
             GetIdsStringWWithRawFallback(0x60b, Text, 0x40);
@@ -2864,7 +2860,7 @@ void NnPreferences::RefreshRows(int Id)
         }
         case 0x57f:
         {
-            // 0x004b11ac: difficulty 0..3 from DIFFICULTY_SCALE * 2 (the option is not
+            // difficulty 0..3 from DIFFICULTY_SCALE * 2 (the option is not
             // null-tested here).
             float const Applied = Option->Applied;
             OptScroll[Index]->SetProperty(0x37, 0, 3);
@@ -2872,7 +2868,7 @@ void NnPreferences::RefreshRows(int Id)
             OptScroll[Index]->SetProperty(0x38, static_cast<uintptr_t>(Level), 0);
             ShowControl(OptScroll[Index]);
             // Jump table 0x004b143c: ids 0x702..0x705.
-            // PORT: retail leaves the buffer as it was for any other level; the port blanks it.
+            // PORT: baseline leaves the buffer as it was for any other level; the port blanks it.
             wchar_t LevelText[0x40];
             LevelText[0] = 0;
             if (static_cast<unsigned>(Level) <= 3)
@@ -2883,22 +2879,22 @@ void NnPreferences::RefreshRows(int Id)
         }
         case 0x687:
         {
-            // 0x004b1367: max_submitted_sounds, 8..32.
+            // max_submitted_sounds, 8..32.
             if (Option == nullptr)
                 break;
             OptScroll[Index]->SetProperty(0x37, 8, 0x20);
-            float const Count = static_cast<float>(GetMaxSubmittedSounds()); // FUN_005b3860
+            float const Count = static_cast<float>(GetMaxSubmittedSounds());
             OptScroll[Index]->SetProperty(0x38, static_cast<uintptr_t>(static_cast<int>(Count)), 0);
             ShowControl(OptScroll[Index]);
             wchar_t CountText[0x40];
-            swprintf(CountText, 0x40, L"%1.0f", static_cast<double>(Count)); // 0x005d5048
+            swprintf(CountText, 0x40, L"%1.0f", static_cast<double>(Count));
             SmallText[Index]->SetProperty(0x1d, reinterpret_cast<uintptr_t>(CountText), 0);
             ShowControl(SmallText[Index]);
             break;
         }
         case 0x767:
         {
-            // 0x004b12d3: the graphics preset row gets a longer slider and a larger caption.
+            // the graphics preset row gets a longer slider and a larger caption.
             OptScroll[Index]->SetSize(NnFloatBits(0x3eb4bc6a), NnFloatBits(0x3c9374bc));
             SetPosition3(OptScroll[Index], NnFloatBits(0xbde147ae), 0.0f, 0.0f);
             if (bApplyingPreset == 0)
@@ -2914,7 +2910,7 @@ void NnPreferences::RefreshRows(int Id)
         }
         default:
         {
-            // 0x004b128c: a row without a perf option shows its caption only.
+            // a row without a perf option shows its caption only.
             if (Option != nullptr)
                 break;
             HideControl(OptText[Index]);
@@ -2929,17 +2925,17 @@ void NnPreferences::RefreshRows(int Id)
 
 bool NnPreferences::Create(Win3D* NewParent, void* Data)
 {
-    // FUN_004a9790 (RET 8).
-    //
-    // 0x004a97b3..0x004a9829: the state bytes and doubles.
+    // (RET 8).
+
+    // the state bytes and doubles.
     bCreating = 1;
     bSeedMode = 0;
     FlipAngle = 0.0;
-    FlipSpeed = 360.0;              // 0x40768000:00000000
+    FlipSpeed = 360.0;              // 00000000
     bFlipping = 0;
     bFlipHalf = 0;
     bClosingAnim = 0;
-    Anim = -2.0;                    // 0xc0000000:00000000
+    Anim = -2.0;                    // 00000000
     bBigVram = 0;
     bKeyCapture = 0;
     bVideoConfirm = 0;
@@ -2952,7 +2948,7 @@ bool NnPreferences::Create(Win3D* NewParent, void* Data)
 #ifdef OUTPOST_FRONTIER_WIDESCREEN_SUPPORT
     BuildWidescreenModeTable(Modes);
 #else
-    // 0x004a982f..0x004a98bc: the five resolutions at 16 bpp, copied to 5..9 at 32 bpp.
+    // the five resolutions at 16 bpp, copied to 5..9 at 32 bpp.
     int const kModeWidths[5] = {0x320, 0x400, 0x480, 0x500, 0x640};
     int const kModeHeights[5] = {0x258, 0x300, 0x360, 0x3c0, 0x4b0};
     for (int Index = 0; Index < 5; ++Index)
@@ -2968,7 +2964,7 @@ bool NnPreferences::Create(Win3D* NewParent, void* Data)
         Modes[Index + 5].Bpp = 0x20;
     }
 #endif
-    // 0x004a98be..0x004a98db
+
     for (int Index = 0; Index < kPrefVideoModeCount; ++Index)
     {
         bModeAvail[Index] = 0;
@@ -2977,7 +2973,7 @@ bool NnPreferences::Create(Win3D* NewParent, void* Data)
     ModeCount = 0;
     ProbeModes(-1);
 
-    // 0x004a98ec..0x004a9920: payload null -> opened in game (the game is paused, FUN_004a7670).
+    // payload null -> opened in game (the game is paused, the routine).
     bInGame = static_cast<unsigned char>(Data == nullptr);
     CurGroup = 0;
     G_bNnScreenUp = true;
@@ -2988,7 +2984,7 @@ bool NnPreferences::Create(Win3D* NewParent, void* Data)
     float const Zero[3] = {0.0f, 0.0f, 0.0f};
     if (bInGame != 0)
     {
-        // 0x004a9958..0x004a9a31: FUN_005a0db0 with NoMeshRender 0, NoWireRender 1,
+        // the routine with NoMeshRender 0, NoWireRender 1,
         // NoColoring 1, RenderToWindow 0, NoClearRender 1 -- neither result is kept.
         float const PlanePosition[3] = {0.0f, 0.0f, -1.0f};
         CreateStaticControl("Options_BlackPlane", "Interface\\NeuroNet\\MISC_bigblackplane.3db",
@@ -2999,14 +2995,14 @@ bool NnPreferences::Create(Win3D* NewParent, void* Data)
     }
     else
     {
-        // 0x004a9a38..0x004a9a8e -> +0x338.
+        // -> +0x338.
         float const BoxPosition[3] = {NnFloatBits(0x3e19999a), NnFloatBits(0xbd50e560), -1.0f};
         BigBox = CreateStaticControl("big box",
                                      "Interface\\NeuroNet\\Inventory\\FRONT_shortoptions_box2.cmp",
                                      BoxPosition, nullptr, Zero, 0, 0, 0, 1, 1, 0, 1, 0, 0, 0, Zero);
     }
 
-    // 0x004a9a94..0x004a9aee: a copy of the display mode (DAT_00679bc0, 10 dwords); 32 bpp
+    // a copy of the display mode (the field, 10 dwords); 32 bpp
     // without the big-VRAM flag counts as 16.
     SelWidth = 0;
     CurWidth = 0;
@@ -3018,7 +3014,7 @@ bool NnPreferences::Create(Win3D* NewParent, void* Data)
         bSel32 = 0;
     }
 
-    // 0x004a9af5..0x004a9b7b: the in-game close box and the title height.
+    // the in-game close box and the title height.
     float TitlePosition[3] = {NnFloatBits(0xbdb851ec), 0.0f, 0.0f};
     if (bInGame != 0)
     {
@@ -3035,15 +3031,15 @@ bool NnPreferences::Create(Win3D* NewParent, void* Data)
         TitlePosition[1] = NnFloatBits(0x3e8ed917);
     }
 
-    // 0x004a9b83..0x004a9bc7: FUN_005a0e30("Screen Title", "PageHeader", ..., 0, 0.481, 0.06,
-    // 1.75, 0x4f8, 1, 0, 1) -> +0x344, colour DAT_00679bb0.
+    // the routine("Screen Title", "PageHeader", ..., 0, 0.481, 0.06,
+    // 1.75, 0x4f8, 1, 0, 1) -> +0x344, colour the field.
     Title = static_cast<NnTextControl*>(
         CreateTextControl("Screen Title", "PageHeader", TitlePosition, nullptr,
                           NnFloatBits(0x3ef645a2), NnFloatBits(0x3d75c28f), NnFloatBits(0x3fe00000),
                           0x4f8, 1, 0, 1));
     Title->TextColour = G_NnPaletteArgb_679bb0;
 
-    // 0x004a9bcd..0x004a9c07: the page column's origin and step.
+    // the page column's origin and step.
     float ColumnX = NnFloatBits(0xbe99999a);
     float ColumnY = NnFloatBits(0x3e51eb85);
     float Step = NnFloatBits(0x3d9db22d);
@@ -3054,9 +3050,9 @@ bool NnPreferences::Create(Win3D* NewParent, void* Data)
         Step = NnFloatBits(0x3dae147b);
     }
 
-    // 0x004a9c07..0x004a9ed7: the page buttons, FUN_005a0c90(name, FRONT_button.cmp, 0,
+    // the page buttons, the routine(name, FRONT_button.cmp, 0,
     // "ui_select_item", 0, {X, Y, 0}, 0, {0.13, 0.026, 0}, 0, 0, 0, 0, 0, 0, 0); all but the
-    // credits button get FUN_0055bfc0(1). The step multiples are FSTP'd floats (Step + Step,
+    // credits button get the routine(1). The step multiples are FSTP'd floats (Step + Step,
     // Step * 3.0f, Step * 6.0f); the credits row keeps Step * 4.0f in the x87 register.
     char const kButtonMesh[] = "Interface\\NeuroNet\\Inventory\\FRONT_button.cmp";
     float const ButtonExtents[3] = {NnFloatBits(0x3e051eb8), NnFloatBits(0x3cd4fdf4), 0.0f};
@@ -3091,7 +3087,7 @@ bool NnPreferences::Create(Win3D* NewParent, void* Data)
 
         if (bInGame == 0)
         {
-            // 0x004a9e31..0x004a9e6b: no FUN_0055bfc0 for this one.
+            // no the routine for this one.
             Position[1] = static_cast<float>(static_cast<double>(ColumnY) -
                                              static_cast<double>(Step) * 4.0);
             PageButtons[4] = static_cast<NnButtonControl*>(
@@ -3106,7 +3102,7 @@ bool NnPreferences::Create(Win3D* NewParent, void* Data)
         PageButtons[5]->SetMontageMode(1);
     }
 
-    // 0x004a9edc..0x004aa176: the captions, FUN_005a0e30(name, "ButtonText", {X - 0.13, Y', 0},
+    // the captions, the routine(name, "ButtonText", {X - 0.13, Y', 0},
     // 0, 0.2580, 0.03, 1.25, ids, 1, 0, 1) and SetProperty(0x24, 1, 0) each. Y' is the double
     // Y + 0.015 minus the same step multiples.
     {
@@ -3159,7 +3155,7 @@ bool NnPreferences::Create(Win3D* NewParent, void* Data)
         PageTexts[5]->TextColour = G_NnPaletteArgb_679bb0;
     }
 
-    // 0x004aa17c..0x004aa1bc: the option rows' origin, optlist.ini, and the scroll origin
+    // the option rows' origin, optlist.ini, and the scroll origin
     // (RowY + 0.007f, FADD dword, FSTP float).
     float RowY = NnFloatBits(0x3e47ae14);
     if (bInGame == 0)
@@ -3168,7 +3164,7 @@ bool NnPreferences::Create(Win3D* NewParent, void* Data)
     float const ScrollRowY = static_cast<float>(static_cast<double>(RowY) +
                                                 static_cast<double>(NnFloatBits(0x3be56042)));
 
-    // 0x004aa1c0..0x004aa6c4: fourteen option rows. F = float(i * 0.035f), TY = float(RowY - F).
+    // fourteen option rows. F = float(i * 0.035f), TY = float(RowY - F).
     char Name[0x100];
     for (int Index = 0; Index < 14; ++Index)
     {
@@ -3177,7 +3173,7 @@ bool NnPreferences::Create(Win3D* NewParent, void* Data)
         float const RowTextY = static_cast<float>(static_cast<double>(RowY) -
                                                   static_cast<double>(Offset));
 
-        // FUN_005a0e30(name, "PageHeader", {-0.03, TY, 0}, 0, 0.215, 0.03, 1.43, 0, 0, 0, 0).
+        // (name, "PageHeader", {-0.03, TY, 0}, 0, 0.215, 0.03, 1.43, 0, 0, 0, 0).
         sprintf(Name, "opt_titleText %d", Index);
         float const TitleRow[3] = {NnFloatBits(0xbcf5c28f), RowTextY, 0.0f};
         OptTitleText[Index] = static_cast<NnTextControl*>(
@@ -3193,9 +3189,9 @@ bool NnPreferences::Create(Win3D* NewParent, void* Data)
         OptText[Index]->SetProperty(0x24, 1, 0);
         OptText[Index]->Byte380 = 0;
 
-        // FUN_005a0fb0(name, check.3db, repairblackbox.3db, "ui_shipview_select", 0,
+        // (name, check.3db, repairblackbox.3db, "ui_shipview_select", 0,
         // {0.415, TY, 0}, 0, {0.015, 0.015, 0}, 0, 0, 0, 0, 0x65f, 0x67a); SetProperty(0x35, 1, 0);
-        // +0x370 = DAT_00679b94.
+        // +0x370 = the field.
         sprintf(Name, "opt_toggle %d", Index);
         float const TogglePosition[3] = {NnFloatBits(0x3ed47ae1), RowTextY, 0.0f};
         float const ToggleExtents[3] = {NnFloatBits(0x3c75c28f), NnFloatBits(0x3c75c28f), 0.0f};
@@ -3215,7 +3211,7 @@ bool NnPreferences::Create(Win3D* NewParent, void* Data)
             CreateTextControl(Name, "SubHeader", ToggleTextRow, nullptr, NnFloatBits(0x3e6147ae),
                               NnFloatBits(0x3cf5c28f), NnFloatBits(0x3f666666), 0, 2, 0, 0));
 
-        // FUN_005a17e0(name, {0.19, float(ScrollRowY - F), -1}, 0.24, 0.014, 0, 100, 1, 1);
+        // (name, {0.19, float(ScrollRowY - F), -1}, 0.24, 0.014, 0, 100, 1, 1);
         // SetProperty(0x37, 0, 100); +0x3b4 = 1; +0x3cc = 1.0f.
         sprintf(Name, "opt_scroll %d", Index);
         float const ScrollPosition[3] = {
@@ -3251,8 +3247,8 @@ bool NnPreferences::Create(Win3D* NewParent, void* Data)
             CreateTextControl(Name, "ToolTip", RightRow, nullptr, NnFloatBits(0x3de147ae),
                               NnFloatBits(0x3ca3d70a), NnFloatBits(0x3f4ccccd), 0, 2, 0, 0));
 
-        // FUN_005a0d00(name, "ui_select_item", {0.32, TY, 0}, {0.09, 0.011, 0}, 0, 0, 0, 0, 0);
-        // +0x378 = DAT_00679b94, +0x35d |= 1.
+        // (name, "ui_select_item", {0.32, TY, 0}, {0.09, 0.011, 0}, 0, 0, 0, 0, 0);
+        // +0x378 = the field, +0x35d |= 1.
         sprintf(Name, "opt_smallBtn %d", Index);
         float const SmallButtonRow[3] = {NnFloatBits(0x3ea3d70a), RowTextY, 0.0f};
         float const SmallButtonExtents[3] = {NnFloatBits(0x3db851ec), NnFloatBits(0x3c343958), 0.0f};
@@ -3270,7 +3266,7 @@ bool NnPreferences::Create(Win3D* NewParent, void* Data)
                               NnFloatBits(0x3f666666), 0, 1, 0, 0));
     }
 
-    // 0x004aa6ca..0x004aa713: FUN_005a0d60("opt_static_bar", {0.31, 0.31, -1},
+    // the routine("opt_static_bar", {0.31, 0.31, -1},
     // {0.53, 0.0295, 0}, 0, 0, 0, 1) -> +0x7a4.
     {
         float const BarPosition[3] = {NnFloatBits(0x3e9eb852), NnFloatBits(0x3e9eb852), -1.0f};
@@ -3279,7 +3275,7 @@ bool NnPreferences::Create(Win3D* NewParent, void* Data)
             CreateWireStaticControl("opt_static_bar", BarPosition, BarExtents, 0, 0, 0, 1));
     }
 
-    // 0x004aa718..0x004aa88c: cancel / set defaults boxes and captions.
+    // cancel / set defaults boxes and captions.
     {
         float const WireExtents[3] = {NnFloatBits(0x3d8f5c29), NnFloatBits(0x3c75c28f), 0.0f};
         float const CancelPosition[3] = {NnFloatBits(0x3e9a1cac), NnFloatBits(0xbe970a3d), 0.0f};
@@ -3304,7 +3300,7 @@ bool NnPreferences::Create(Win3D* NewParent, void* Data)
                               0));
     }
 
-    // 0x004aa891..0x004aa9f2: the video mode cycle, its two frames and caption.
+    // the video mode cycle, its two frames and caption.
     {
         float const CyclePosition[3] = {NnFloatBits(0x3ed47ae1), NnFloatBits(0x3e604189), -1.0f};
         VideoModeCycle = CreateUICycle("video_mode_cycle", CyclePosition, NnFloatBits(0x3c449ba6),
@@ -3327,18 +3323,18 @@ bool NnPreferences::Create(Win3D* NewParent, void* Data)
         VideoModeText->SetProperty(0x24, 1, 0);
     }
 
-    // 0x004aa9f8..0x004aaa2e: clean, cancel greyed and enabled.
+    // clean, cancel greyed and enabled.
     bDirty = 0;
     CancelText->TextColour = G_NnPaletteArgb_679b94;
     CancelButton->bUseColour = 1;
     CancelButton->ButtonState = static_cast<unsigned char>(CancelButton->ButtonState & 0xfb);
 
-    // 0x004aaa34..0x004aaa47: FUN_004aed70, FUN_004aeca0, FUN_004af230(keylist.ini).
+    // the routine, the routine, the routine(keylist.ini).
     LeaveAudioPage();
     LeaveVideoPage();
     LoadKeyList(kKeyListPath);
 
-    // 0x004aaa4c..0x004aaaa8: FUN_005a17e0("keymap_scroll", {0.415, 0.135, -1}, 0.015, 0.39, 0,
+    // the routine("keymap_scroll", {0.415, 0.135, -1}, 0.015, 0.39, 0,
     // KeyGroups[0].size(), 13, 0) -> +0x4b8.
     {
         float const ScrollPosition[3] = {NnFloatBits(0x3ed47ae1), NnFloatBits(0x3e0a3d71), -1.0f};
@@ -3347,7 +3343,7 @@ bool NnPreferences::Create(Win3D* NewParent, void* Data)
                                    static_cast<int>(KeyGroups[0].size()), 0xd, 0);
     }
 
-    // 0x004aaaad..0x004aab53: the three group tabs, x = float(j * 0.175 - 0.03) in doubles;
+    // the three group tabs, x = float(j * 0.175 - 0.03) in doubles;
     // +0x35c &= 0xbf.
     for (int Group = 0; Group < 3; ++Group)
     {
@@ -3362,7 +3358,7 @@ bool NnPreferences::Create(Win3D* NewParent, void* Data)
             static_cast<unsigned char>(GroupButtons[Group]->WireState & 0xbf);
     }
 
-    // 0x004aab59..0x004aac64: the tab captions, "ItemName" 0.125 x 0.0295, scale 0.9, ids
+    // the tab captions, "ItemName" 0.125 x 0.0295, scale 0.9, ids
     // 0x76e..0x770, 1, 0, 0; then SetProperty(0x24, 1, 0) on all three.
     {
         float const TabTextWidth = NnFloatBits(0x3e000000);
@@ -3384,14 +3380,14 @@ bool NnPreferences::Create(Win3D* NewParent, void* Data)
             GroupTexts[Group]->SetProperty(0x24, 1, 0);
     }
 
-    // 0x004aac66..0x004aaf49: thirteen key rows. BY = float(0.1745 - (k - 1) * 0.059); the
+    // thirteen key rows. BY = float(0.1745 - (k - 1) * 0.059); the
     // captions sit at (k + 0.5) * double(0.0295f) below double(0.128f) / double(0.133f).
     for (int Row = 0; Row < 13; ++Row)
     {
         float const ButtonY = static_cast<float>(0.1745 - static_cast<double>(Row - 1) * 0.059);
         float const RowExtents[3] = {NnFloatBits(0x3e19999a), NnFloatBits(0x3cf1a9fc), 0.0f};
 
-        // FUN_005a0d00(name, "ui_select_item", {0.34, BY, -1}, {0.15, 0.0295, 0}, 0, 0, 0, 0,
+        // (name, "ui_select_item", {0.34, BY, -1}, {0.15, 0.0295, 0}, 0, 0, 0, 0,
         // 0xa); +0x35c &= 0xbf.
         sprintf(Name, "IBtn_Row%d", Row);
         float const ButtonPosition[3] = {NnFloatBits(0x3eae147b), ButtonY, -1.0f};
@@ -3440,7 +3436,7 @@ bool NnPreferences::Create(Win3D* NewParent, void* Data)
         KeyAltRows[Row]->SetProperty(0x24, 1, 0);
     }
 
-    // 0x004aaf4f..0x004aafe9: the two column headers, ids 0x763 / 0x764.
+    // the two column headers, ids 0x763 / 0x764.
     {
         float Position[3] = {NnFloatBits(0x3e2e147b), NnFloatBits(0x3e1cac08), 0.0f};
         KeyColumn1 = static_cast<NnTextControl*>(
@@ -3452,7 +3448,7 @@ bool NnPreferences::Create(Win3D* NewParent, void* Data)
                               NnFloatBits(0x3c8b4396), NnFloatBits(0x3f8ccccd), 0x764, 1, 0, 0));
     }
 
-    // 0x004aafef..0x004ab077: fourteen row separators, FUN_005a0d60(name, {0.287, BY, -1},
+    // fourteen row separators, the routine(name, {0.287, BY, -1},
     // {0.53, 0.0295, 0}, 0, 0, 0, 1).
     for (int Row = 0; Row < 14; ++Row)
     {
@@ -3465,15 +3461,15 @@ bool NnPreferences::Create(Win3D* NewParent, void* Data)
             CreateWireStaticControl(Name, StaticPosition, StaticExtents, 0, 0, 0, 1));
     }
 
-    // 0x004ab07d..0x004ab09e: the last separator's +0x35d |= 1, FUN_004af900(0), FUN_004aeab0.
+    // the last separator's +0x35d |= 1, the routine(0), the routine.
     StaticRows[13]->WireState2 = static_cast<unsigned char>(StaticRows[13]->WireState2 | 1);
     FillKeyRows(0);
     LeaveKeyMapPage();
 
-    // 0x004ab0a3..0x004ab1f9: the credits. FUN_005a10e0("CreditsMessageText", 0.5, 0.44,
-    // {-0.113, 0.208, -1}, 0) -> +0x7f0 (no null test), FUN_0057b370, +0x8b0 = 20.0, twenty
-    // ParagraphNodes through FUN_0057b470, then ids 0x6003f..0x60048 loaded into one local
-    // list (FUN_0057da40, the last paragraph is kept) and appended with FUN_0057b3e0.
+    // the credits. the routine("CreditsMessageText", 0.5, 0.44,
+    // {-0.113, 0.208, -1}, 0) -> +0x7f0 (no null test), the routine, +0x8b0 = 20.0, twenty
+    // ParagraphNodes through the routine, then ids 0x6003f..0x60048 loaded into one local
+    // list (the routine, the last paragraph is kept) and appended with the routine.
     RenderDisplayList Credits;
     {
         float const CreditsOffset[3] = {NnFloatBits(0xbde76c8b), NnFloatBits(0x3e54fdf4), -1.0f};
@@ -3491,7 +3487,7 @@ bool NnPreferences::Create(Win3D* NewParent, void* Data)
         CreditsText->AppendContent(Credits);
     }
 
-    // 0x004ab1fe..0x004ab273: from the main menu -- credits hidden, the credits caption idle,
+    // from the main menu -- credits hidden, the credits caption idle,
     // the defaults caption re-read (ids 0x5e4) and the defaults box, its caption and the title
     // hidden.
     if (bInGame == 0)
@@ -3504,7 +3500,7 @@ bool NnPreferences::Create(Win3D* NewParent, void* Data)
         HideControl(Title);
     }
 
-    // 0x004ab276..0x004ab311: FUN_005a0db0("SetKeyFrame", alt-f4window.cmp, {0, 0, -1}, 0,
+    // the routine("SetKeyFrame", alt-f4window.cmp, {0, 0, -1}, 0,
     // {0, 0, 0}, 0, 0, 0, 1, 1, 0, 1, 0, 0, 0, {0, 0, 0}) -> +0x4e4.
     {
         float const FramePosition[3] = {0.0f, 0.0f, -1.0f};
@@ -3514,7 +3510,7 @@ bool NnPreferences::Create(Win3D* NewParent, void* Data)
                                           0, Zero);
     }
 
-    // 0x004ab2f8..0x004ab3dc: the dialog's three lines, "ConfirmText" 0.27 x 0.03, scale 1.5,
+    // the dialog's three lines, "ConfirmText" 0.27 x 0.03, scale 1.5,
     // 1, 0, 0 (only the first has an ids, 0x5e6).
     {
         float const DialogWidth = NnFloatBits(0x3e8a3d71);
@@ -3534,7 +3530,7 @@ bool NnPreferences::Create(Win3D* NewParent, void* Data)
                               DialogHeight, DialogScale, 0, 1, 0, 0));
     }
 
-    // 0x004ab3d7..0x004ab52c: overwrite / cancel boxes (+0x35d |= 1 on cancel) and captions
+    // overwrite / cancel boxes (+0x35d |= 1 on cancel) and captions
     // (ids 0x5e8 / 0x2148).
     {
         float const DialogExtents[3] = {NnFloatBits(0x3dcccccd), NnFloatBits(0x3cac0831), 0.0f};
@@ -3556,7 +3552,7 @@ bool NnPreferences::Create(Win3D* NewParent, void* Data)
                               NnFloatBits(0x3fc00000), 0x2148, 1, 0, 0));
     }
 
-    // 0x004ab532..0x004ab577: the dialog starts hidden.
+    // the dialog starts hidden.
     HideControl(DialogText[0]);
     HideControl(DialogText[1]);
     HideControl(DialogText[2]);
@@ -3566,16 +3562,16 @@ bool NnPreferences::Create(Win3D* NewParent, void* Data)
     HideControl(DialogCancelButton);
     HideControl(SetKeyFrame);
 
-    // 0x004ab57a..0x004ab59e: FUN_004abdf0(0), FUN_004abdf0(1), FUN_004aebb0, and in game
-    // FUN_004ae650.
+    // the routine(0), the routine(1), the routine, and in game
+    // .
     SetRowsHidden(false);
     SetRowsHidden(true);
     LeaveInterfacePage();
     if (bInGame != 0)
         EnterInterfacePage();
 
-    // 0x004ab5a3..0x004ab60f: slot 31 SetOffset(0, 0, -1), slot 5 SetPosition(+0x60), layer
-    // 100 / 6, then FUN_004b5060. On failure +0x32c = 1. The local list is freed on both paths.
+    // slot 31 SetOffset(0, 0, -1), slot 5 SetPosition(+0x60), layer
+    // 100 / 6, then the routine. On failure +0x32c = 1. The local list is freed on both paths.
     SetOffset(0.0f, 0.0f, -1.0f);
     SetPosition(Position);
     DrawLayer = 0x64;

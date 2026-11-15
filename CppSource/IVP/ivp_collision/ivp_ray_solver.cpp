@@ -1,12 +1,8 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // IVP ray casting -- IVP_Ray_Solver / IVP_Ray_Solver_Os (see ivp_ray_solver.h).
-//
-// Traced against EXE\Disasm\Common.dll.txt .text:06349a60-0634a9a8 with retail's x87
+
+// Traced against Common module storage-0634a9a8 with baseline's x87
 // rounding points: a value that stays on the FPU stack is double here, every
 // `FSTP float ptr` is a float conversion. Comparisons follow the FNSTSW / TEST AH / Jcc
 // pattern of each site, including which side an unordered (NaN) compare falls on.
@@ -25,7 +21,7 @@
 
 namespace
 {
-    // FUN_0628bed0 (thiscall Out; A, B): Out = A x B with retail's term order
+    // (thiscall Out; A, B): Out = A x B with baseline's term order
     // x = Ay*Bz - Az*By, y = Az*Bx - Ax*Bz, z = Ax*By - Ay*Bx (products on the stack).
     void IVP_RayCrossProduct(const IVP_U_Point* A, const IVP_U_Point* B, IVP_U_Point* Out)
     {
@@ -36,7 +32,7 @@ namespace
         Out->k[2] = (float)(Ax * By - Ay * Bx);
     }
 
-    // FUN_062c4780: (x*x + y*y) + z*z, left on the stack.
+    // (x*x + y*y) + z*z, left on the stack.
     double IVP_RayQuadLength(const IVP_U_Point* V)
     {
         return ((double)(V->k[0]) * V->k[0] + (double)(V->k[1]) * V->k[1]) +
@@ -57,7 +53,7 @@ namespace
         return Bits;
     }
 
-    // FUN_0635d3e0 (IVP_U_BigVector_Grow, ivp_utility/ivp_u_bigvector.cpp): IVP_U_BigVector grow, shared with the surface
+    // (IVP_U_BigVector_Grow, ivp_utility/ivp_u_bigvector.cpp): IVP_U_BigVector grow, shared with the surface
     // managers' ledge lists.
 }
 
@@ -65,7 +61,7 @@ namespace
 // IVP_Ray_Solver
 // ============================================================================
 
-// FUN_06349a60. Copies direction (+0x34), start (+0x04), length (+0x44) and flags (+0x48)
+// . Copies direction (+0x34), start (+0x04), length (+0x44) and flags (+0x48)
 // from the template, then centre = start + (length * 0.5) * dir and
 // end = start + length * dir, each component float(h * d + s) with h extended.
 IVP_Ray_Solver::IVP_Ray_Solver(const IVP_Ray_Solver_Template* Template)
@@ -80,7 +76,7 @@ IVP_Ray_Solver::IVP_Ray_Solver(const IVP_Ray_Solver_Template* Template)
     ray_flags = Template->ray_flags;
 
     // :06349aa3-06349aea: the centre starts as a copy of start, then gets h * dir added.
-    const double Half = (double)(ray_length) * 0.5; // DAT_063a5460
+    const double Half = (double)(ray_length) * 0.5;
     ray_center_point.k[0] = (float)(Half * ray_normized_direction.k[0] + ray_start_point.k[0]);
     ray_center_point.k[1] = (float)(Half * ray_normized_direction.k[1] + ray_start_point.k[1]);
     ray_center_point.k[2] = (float)(Half * ray_normized_direction.k[2] + ray_start_point.k[2]);
@@ -92,7 +88,7 @@ IVP_Ray_Solver::IVP_Ray_Solver(const IVP_Ray_Solver_Template* Template)
     ray_end_point.k[2] = (float)(Length * ray_normized_direction.k[2] + ray_start_point.k[2]);
 }
 
-// FUN_06349ba0. The two axis words form a 2-entry array that is walked from the second entry
+// . The two axis words form a 2-entry array that is walked from the second entry
 // down (:06349bc5 ESI = &AxisB, :06349c05 SUB ESI,2). Per axis:
 //   V = dir[k] * length * PlaneDist; Lo' = (Lo[k] - start[k]) * Scale;
 //   FCOMPP(V, Lo'); TEST AH,0x1; JNZ -> return 0 when V < Lo' (or unordered);
@@ -115,11 +111,11 @@ int IVP_Ray_Solver::check_ray_against_box_face(float PlaneDist, float Scale, con
     return 1;
 }
 
-// FUN_06349c30. Cohen-Sutherland codes of start (+0x04) and end (+0x14) against [Min, Max]:
+// . Cohen-Sutherland codes of start (+0x04) and end (+0x14) against [Min, Max]:
 // per axis bit 1/4/0x10 when p < Min (FCOMP; TEST AH,0x1; JZ -> unordered also sets it),
 // otherwise bit 2/8/0x20 when p > Max (TEST AH,0x41; JNZ skip). Either code 0 -> 1; common
 // bit -> 0; then one box face per bit set in the start code and clear in the end code, in
-// retail's order 0x10, 0x2, 0x20, 0x1, 0x4, 0x8. Every plane distance / scale is spilled
+// baseline's order 0x10, 0x2, 0x20, 0x1, 0x4, 0x8. Every plane distance / scale is spilled
 // as a float before the call.
 int IVP_Ray_Solver::check_ray_against_box(const float* Min, const float* Max)
 {
@@ -218,7 +214,7 @@ int IVP_Ray_Solver::check_ray_against_box(const float* Min, const float* Max)
     return 0;
 }
 
-// FUN_0634a600. Ray against a sphere of radius Ball+0x94 around the cached world position
+// . Ray against a sphere of radius Ball+0x94 around the cached world position
 // (cache slot +0x4c).
 void IVP_Ray_Solver::check_ray_against_ball(IVP_Real_Object* Ball)
 {
@@ -247,7 +243,7 @@ void IVP_Ray_Solver::check_ray_against_ball(IVP_Real_Object* Ball)
     Coefficients.k[2] = (float)(QuadDist - RadiusSq);
 
     IVP_U_Point Solution;
-    Solution.set_quadratic_roots(&Coefficients); // FUN_06347fa0
+    Solution.set_quadratic_roots(&Coefficients);
     if (!(Solution.k[0] >= 0.0f))
         return;
 
@@ -269,7 +265,7 @@ void IVP_Ray_Solver::check_ray_against_ball(IVP_Real_Object* Ball)
     Normal.k[0] = (float)(HitX - Cx);
     Normal.k[1] = (float)((double)(HitY) - Cy);
     Normal.k[2] = (float)((double)(HitZ) - Cz);
-    if (Normal.normize() != 1) // FUN_06347ef0; CMP EAX,1; JZ
+    if (Normal.normize() != 1) // ; CMP EAX,1; JZ
     {
         Normal.k[0] = 1.0f;
         Normal.k[1] = 0.0f;
@@ -279,8 +275,8 @@ void IVP_Ray_Solver::check_ray_against_ball(IVP_Real_Object* Ball)
     add_hit_object(Ball, nullptr, nullptr, Dist, &Normal); // :0634a7a7-0634a7ba, CALL [EDX]
 }
 
-// FUN_0634a7d0. Filter by ray_flags (only when Object is non-null), then dispatch on
-// IVP_Object::object_type. Retail reads object_type even for a null Object (:0634a7fe).
+// . Filter by ray_flags (only when Object is non-null), then dispatch on
+// IVP_Object::object_type. baseline reads object_type even for a null Object (:0634a7fe).
 void IVP_Ray_Solver::check_ray_against_object(IVP_Real_Object* Object)
 {
     if (Object != nullptr)
@@ -307,7 +303,7 @@ void IVP_Ray_Solver::check_ray_against_object(IVP_Real_Object* Object)
     }
 }
 
-// FUN_0634a830. The node cell is decoded by FUN_0635d360 into an origin and one edge
+// . The node cell is decoded by the routine into an origin and one edge
 // length; box = [origin, origin + size] (floats). On a box hit every element of the cell is
 // tested (last to first) against the ray's bounding sphere and then the ray line, and the
 // children are walked last to first.
@@ -355,7 +351,7 @@ void IVP_Ray_Solver::check_ray_against_ov_node(IVP_OV_Node* Node, IVP_OV_Tree_Ma
         check_ray_against_ov_node(Node->Children.elems[Index], Manager);
 }
 
-// FUN_0634a990. Environment+0x14 is the OV tree manager; +0x178 its current root cell.
+// . Environment+0x14 is the OV tree manager; +0x178 its current root cell.
 void IVP_Ray_Solver::check_ray_against_all_objects_in_sim(const IVP_Environment* Environment)
 {
     IVP_OV_Tree_Manager* Manager = Environment->ov_tree_manager;
@@ -367,8 +363,8 @@ void IVP_Ray_Solver::check_ray_against_all_objects_in_sim(const IVP_Environment*
 // IVP_Ray_Solver_Os
 // ============================================================================
 
-// FUN_0634a500. Start goes through the object's cached world transform inverse
-// (FUN_0634d860), the direction through its rotation inverse (FUN_0634d970);
+// . Start goes through the object's cached world transform inverse
+// (the routine), the direction through its rotation inverse (the routine);
 // end = start + L * dir, centre = start + (L * 0.5) * dir (float(h * d + s) each).
 IVP_Ray_Solver_Os::IVP_Ray_Solver_Os(IVP_Ray_Solver* RaySolver, IVP_Real_Object* Object)
 {
@@ -385,13 +381,13 @@ IVP_Ray_Solver_Os::IVP_Ray_Solver_Os(IVP_Ray_Solver* RaySolver, IVP_Real_Object*
     ray_end_point.k[1] = (float)(Length * ray_normized_direction.k[1] + ray_start_point.k[1]);
     ray_end_point.k[2] = (float)(Length * ray_normized_direction.k[2] + ray_start_point.k[2]);
 
-    const double Half = Length * 0.5; // DAT_063a5460
+    const double Half = Length * 0.5;
     ray_center_point.k[0] = (float)(Half * ray_normized_direction.k[0] + ray_start_point.k[0]);
     ray_center_point.k[1] = (float)(Half * ray_normized_direction.k[1] + ray_start_point.k[1]);
     ray_center_point.k[2] = (float)(Half * ray_normized_direction.k[2] + ray_start_point.k[2]);
 }
 
-// FUN_06349fd0 (vtable 063a54b0 slot 0).
+// (vtable 063a54b0 slot 0).
 int IVP_Ray_Solver_Os::check_ray_against_compact_ledge_os(const IVP_Compact_Ledge* Ledge)
 {
     const int32_t NTriangles = Ledge->GetNTriangles(); // MOVSX [ESI+0xc]
@@ -418,7 +414,7 @@ int IVP_Ray_Solver_Os::check_ray_against_compact_ledge_os(const IVP_Compact_Ledg
             return 0;
 
         const float HitFraction = (float)(StartDist / (StartDist - EndDist));
-        HitPoint.set_interpolate(&ray_start_point, &ray_end_point, HitFraction); // FUN_06347e00
+        HitPoint.set_interpolate(&ray_start_point, &ray_end_point, HitFraction);
         IVP_Compact_Ledge_Solver::calc_unscaled_qr_vals_F_space(Ledge, Edge, &HitPoint, &QR);
 
         // :0634a0bc-0634a0d4: any sign bit set (including -0.0) -> outside the triangle.
@@ -428,11 +424,11 @@ int IVP_Ray_Solver_Os::check_ray_against_compact_ledge_os(const IVP_Compact_Ledg
 
         if (!(StartDist >= 0.0f)) // :0634a0d6-0634a115: hit from the back, flip the normal
         {
-            Normal.k[0] = (float)((double)(Normal.k[0]) * -1.0); // DAT_063a5498
+            Normal.k[0] = (float)((double)(Normal.k[0]) * -1.0);
             Normal.k[1] = (float)((double)(Normal.k[1]) * -1.0);
             Normal.k[2] = (float)((double)(Normal.k[2]) * -1.0);
         }
-        Normal.normize(); // FUN_06347ef0
+        Normal.normize();
 
         const float HitDist = (float)((double)(HitFraction) * ray_length);
         ray_solver->add_hit_object(object, Ledge, Triangle, HitDist, &Normal);
@@ -444,7 +440,7 @@ int IVP_Ray_Solver_Os::check_ray_against_compact_ledge_os(const IVP_Compact_Ledg
     const double Dx = ray_normized_direction.k[0];
     const double Dy = ray_normized_direction.k[1];
     const double Dz = ray_normized_direction.k[2];
-    const double FacingLimit = (double)(-1e-6f); // DAT_063a54a8
+    const double FacingLimit = (double)(-1e-6f);
 
     if (NTriangles <= 0)
         return 0;
@@ -503,7 +499,7 @@ int IVP_Ray_Solver_Os::check_ray_against_compact_ledge_os(const IVP_Compact_Ledg
         {
             if (!(QR.Checks[Check] > 0.0f)) // TEST AH,0x41; JNZ cross
                 break;
-            CrossEdge = CrossEdge->GetNextEdge(); // DAT_063ee4e0
+            CrossEdge = CrossEdge->GetNextEdge();
         }
 
         if (Check == 3)
@@ -520,7 +516,7 @@ int IVP_Ray_Solver_Os::check_ray_against_compact_ledge_os(const IVP_Compact_Ledg
     return 0;
 }
 
-// FUN_0634a3f0. Sphere test of the node (radius + half the ray length around the ray
+// . Sphere test of the node (radius + half the ray length around the ray
 // centre), then -- when the ray centre is outside the node sphere -- the distance of the
 // node centre from the ray line (|dir x d|^2 may exceed r^2 by at most 0.01). Terminal
 // nodes go to the virtual ledge test, inner nodes recurse left and loop right.
@@ -535,7 +531,7 @@ void IVP_Ray_Solver_Os::check_ray_against_ledge_tree_node(const IVP_Compact_Ledg
         Delta.k[0] = (float)((double)(Node->center[0]) - ray_center_point.k[0]);
         Delta.k[1] = (float)((double)(Node->center[1]) - ray_center_point.k[1]);
         Delta.k[2] = (float)((double)(Node->center[2]) - ray_center_point.k[2]);
-        const double QuadDist = IVP_RayQuadLength(&Delta); // FUN_062c4780
+        const double QuadDist = IVP_RayQuadLength(&Delta);
 
         // FCOMPP(q, reach^2); TEST AH,0x1; JZ return -> q >= reach^2 misses.
         if (QuadDist >= (double)(Reach) * Reach)
@@ -545,7 +541,7 @@ void IVP_Ray_Solver_Os::check_ray_against_ledge_tree_node(const IVP_Compact_Ledg
         if (QuadDist >= RadiusSq) // TEST AH,0x1; JNZ skips the line test when q < r^2 (or unordered)
         {
             IVP_U_Point Cross;
-            IVP_RayCrossProduct(&ray_normized_direction, &Delta, &Cross); // FUN_0628bed0
+            IVP_RayCrossProduct(&ray_normized_direction, &Delta, &Cross);
             // FSUBR r^2; FCOMP -0.01f; TEST AH,0x1; JNZ return.
             if (!((double)(RadiusSq) - IVP_RayQuadLength(&Cross) >= (double)(-0.01f)))
                 return;
@@ -562,13 +558,13 @@ void IVP_Ray_Solver_Os::check_ray_against_ledge_tree_node(const IVP_Compact_Ledg
     }
 }
 
-// FUN_0634a4e0.
+// .
 void IVP_Ray_Solver_Os::check_ray_against_compact_surface(const IVP_Compact_Surface* Surface)
 {
     check_ray_against_ledge_tree_node(Surface->get_compact_ledge_tree_root());
 }
 
-// LAB_06349b40 (.text:06349b40-06349b94, RET 0x14), IVP_Ray_Solver_Min_Hash::
+// (module storage-06349b94, RET 0x14), IVP_Ray_Solver_Min_Hash::
 // add_hit_object (cmn-ivp3d 2026-10-08). The slot is hits[counter] (min_hash
 // +0x10 = this+0x5c); a full table (counter >= 0x100, signed `JGE`) drops the
 // hit. The counter is raised by min_hash.add, not here.
@@ -589,5 +585,5 @@ void IVP_Ray_Solver_Min_Hash::add_hit_object(IVP_Real_Object* Object, const IVP_
     Hit->hit_surface_direction_os.x = HitSurfaceNormal->x;         // :06349b7d
     Hit->hit_surface_direction_os.y = HitSurfaceNormal->y;         // :06349b81
     Hit->hit_distance = HitDist;                                   // :06349b8b
-    min_hash.add(Hit, HitDist);                                    // :06349b8e FUN_0634d3e0
+    min_hash.add(Hit, HitDist);                                    // :06349b8e the routine
 }

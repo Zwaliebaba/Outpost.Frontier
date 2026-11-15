@@ -1,17 +1,13 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
-// Retail TexturePanels / planet-ring — OutpostFrontier.exe PTR_LAB_005db1b4 (14 slots).
-// Epic: texture-panels. NOT StarGlow (that is StarSphere PTR_FUN_005db658).
-//
-// Layout recovered from FUN_0050a040 ctor + LAB_0050a240 Exterior stores + Clear/GetPiece.
-// Load creates FNebulaClouds (0x12c) via FUN_00550180/00550240 and links them at +0x68.
-// DrawPanels / Nebula slot 005091a0 both call FUN_00551500 on those clouds objects.
+// baseline TexturePanels / planet-ring — OutpostFrontier.exe the branch (14 slots).
+// Epic: texture-panels. NOT StarGlow (that is StarSphere the routine).
+
+// Layout recovered from the routine ctor + the branch Exterior stores + Clear/GetPiece.
+// Load creates FNebulaClouds (0x12c) via the routine/00550240 and links them at +0x68.
+// DrawPanels / Nebula slot 005091a0 both call the routine on those clouds objects.
 
 #include "cli_nebula.h"
 #include "common_universe.h"
@@ -19,7 +15,7 @@
 
 #include <cstddef>
 
-// Piece record, stride 0x18, eight per ring, built by Load (LAB_0050a240, 0050aa4f..0050ac5d):
+// Piece record, stride 0x18, eight per ring, built by Load (the branch, 0050aa4f..0050ac5d):
 // a run of ring segments plus the bounding sphere of their vertices.
 struct FTexturePanelPiece
 {
@@ -37,7 +33,7 @@ struct FTexturePanelsListNode
     FNebulaClouds* Clouds;        // +0x08
 };
 
-// Retail IPlanetRing : Universe::IZoneImmersion (single primary base).
+// baseline IPlanetRing : Universe::IZoneImmersion (single primary base).
 class IPlanetRing : public Universe::IZoneImmersion
 {
 public:
@@ -56,7 +52,7 @@ public:
     virtual ~IPlanetRing();                                       // +0x34
 };
 
-// PlanetaryRings::PlanetRing; retail sizeof 0x78.
+// PlanetaryRings::PlanetRing; baseline sizeof 0x78.
 struct FTexturePanels : IPlanetRing
 {
     FTexturePanels();
@@ -77,8 +73,8 @@ struct FTexturePanels : IPlanetRing
 
     FShapeDB Shapes;                     // +0x04, destroyed automatically on constructor failure
     unsigned char ShapePadding[0x18 - sizeof(FShapeDB)];
-    // Retail Load: Universe::get_zone(sysId, nickname) — IZone*, not ISystem.
-    // Universe::IZone (common_universe.h); retail calls its vt +0xc/+0x28/+0x34/+0x44.
+    // baseline Load: Universe::get_zone(sysId, nickname) — IZone*, not ISystem.
+    // Universe::IZone (common_universe.h); baseline calls its vt +0xc/+0x28/+0x34/+0x44.
     Universe::IZone const* Zone;          // +0x1c
     int NumSegments;                      // +0x20  default 0x20
     float ThicknessEdge;                  // +0x24  Exterior thickness_edge= (ctor 0.1)
@@ -114,15 +110,15 @@ static_assert(offsetof(FTexturePanels, Shape) == 0x54, "Shape +0x54");
 static_assert(offsetof(FTexturePanels, ListSentinel) == 0x68, "list +0x68");
 static_assert(offsetof(FTexturePanels, bLoaded) == 0x74, "bLoaded +0x74");
 
-FTexturePanels* TexturePanelsCreate(); // FUN_0050bfa0
+FTexturePanels* TexturePanelsCreate();
 
-// FUN_00551500 — shared Clouds panel draw (this = FNebulaClouds).
+// — shared Clouds panel draw (this = FNebulaClouds).
 void TexturePanelDrawClouds(FNebulaClouds* Clouds, void* Camera, void* ExclusionCtx);
 
-// FUN_0050c040 — destroy all TexturePanels in the global Create list.
+// — destroy all TexturePanels in the global Create list.
 void TexturePanelsDestroyAll();
 
-// Node of the global TexturePanels instance list DAT_0067505c (FUN_0050bfa0 links every new
+// Node of the global TexturePanels instance list the field (the routine links every new
 // instance at the tail).
 struct FTexturePanelsGlobalNode
 {
@@ -131,24 +127,24 @@ struct FTexturePanelsGlobalNode
     FTexturePanels* Panels;
 };
 
-// FUN_00509f20 hands out &DAT_0067505c; its callers read the root's +4, the sentinel node.
+// hands out &the field; its callers read the root's +4, the sentinel node.
 // This returns that sentinel.
 FTexturePanelsGlobalNode* TexturePanelsListSentinel();
 
-// The StarSys tick's walk (FUN_00554eb0 via FUN_00509f20 = &DAT_0067505c): slot 3 update
+// The StarSys tick's walk (the routine via the routine = &the field): slot 3 update
 // (camera, dt) on every live TexturePanels.
 void TexturePanelsUpdateAll(void* Camera, float Dt);
 
-// FUN_00509f60 — DAT_00613324 = Detail, then slot 12 ApplyDetail on every live TexturePanels.
+// — the field = Detail, then slot 12 ApplyDetail on every live TexturePanels.
 void TexturePanelsApplyDetailAll(float Detail);
 
-// FUN_00509f30 — slot 5 DrawPanels(camera) on every live TexturePanels (space draw pass).
+// — slot 5 DrawPanels(camera) on every live TexturePanels (space draw pass).
 void TexturePanelsDrawAll(void* Camera);
 
-// FUN_00552420 / 00552440 / 00552480 — FVF / texture-format helpers used by DrawClouds.
+// / 00552440 / 00552480 — FVF / texture-format helpers used by DrawClouds.
 unsigned char TexturePanelsFormatHasAlpha(int FormatId);
 int TexturePanelsFvfPositionBytes(unsigned char FvfLow);
 int TexturePanelsFvfDiffuseNormalBytes(unsigned char FvfLow);
 
-// Nebula vtable slot 7 LAB_005091a0.
+// Nebula vtable slot 7 the branch.
 void NebulaDrawCloudsPanels(FNebulaEffect* Nebula, void* Camera);

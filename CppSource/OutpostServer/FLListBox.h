@@ -1,14 +1,10 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // CFLListBox — OutpostServer's owner-draw list box (Arial Unicode MS, per-item colour / italic /
 // bold keyed by the item data). Item text is stored hex-encoded (Common's WideToHex) so the
 // ANSI list box can carry wide strings; DrawItem decodes it and draws with TextOutW.
-// Retail: ctor .text:0040fad0, dtor 0040fe50, vtables .rdata:0041dbd8 (IFLListBox part, at
-// offset 0) and 0041db00 (CListBox part, at +4), message map .rdata:0041daf4.
+// baseline: ctor module storage, dtor 0040fe50, vtables module storage (IFLListBox part, at
+// offset 0) and 0041db00 (CListBox part, at +4), message map module storage.
 // Used by the accounts / chat / player-pick dialogs (member at +0x60 or +0x1a0).
 #pragma once
 
@@ -40,8 +36,8 @@ public:
 	DECLARE_MESSAGE_MAP()
 
 public:
-	// Retail offsets are from the start of the object (CListBox subobject at +4).
-	// The accounts dialog measures its rows with RegularFont (.text:00412c99).
+	// baseline offsets are from the start of the object (CListBox subobject at +4).
+	// The accounts dialog measures its rows with RegularFont (module storage).
 	CFont RegularFont;    // +0x44  weight 400
 	CFont ItalicFont;     // +0x4c  weight 400, italic
 	CFont BoldFont;       // +0x54  weight 700

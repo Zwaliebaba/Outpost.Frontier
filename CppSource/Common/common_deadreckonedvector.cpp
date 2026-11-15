@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // CDeadReckonedVector (non-inline members; the inline ones are in common_cobject.h).
@@ -11,30 +7,30 @@
 
 // ============================================================================
 // CDeadReckonedVector implementation
-//
+
 // Q(t) = BasePosition + Velocity*t + 0.5*Acceleration*t^2 is fitted through the
 // three newest samples (t=0 at the newest), and a corrective quadratic
 // Q2(tau) = BlendBasePosition + Velocity2*tau + 0.5*Acceleration2*tau^2 through
 // Samples[1] at tau=-T, the previously rendered position at tau=0 and the
 // primary quadratic's value at tau=ConvergeWindow. Doit() renders Q2 until
 // ElapsedTime reaches ConvergeWindow and Q from then on.
-//
-// PRECISION. Retail does this on the x87 stack at 53-bit precision; a value is
+
+// PRECISION. baseline does this on the x87 stack at 53-bit precision; a value is
 // float only where the listing stores it with FSTP float (every Vector
 // component, because every Vector passes through the Vector(float,float,float)
-// constructor FUN_0628b030 or the operator helpers FUN_06288800 (a-b),
-// FUN_062887d0 (a+b), FUN_06288830 (v*s), which all FSTP float). Coefficients,
+// constructor the routine or the operator helpers the routine (a-b),
+// (a+b), the routine (v*s), which all FSTP float). Coefficients,
 // lengths, dots and times stay double. The code below spells each of those
 // roundings out; a float temporary means the listing stored one.
-//
+
 // The copy constructor, operator=, CalcError, GetSample and the two Normalize
-// members are inline in common_cobject.h: retail compiled them into every
+// members are inline in common_cobject.h: baseline compiled them into every
 // module from the header (see the export table on the class).
 // ============================================================================
 
 namespace
 {
-    // FUN_0628b030 plus the FSTP float the caller did for each argument.
+    // plus the FSTP float the caller did for each argument.
     inline Vector MakeVector(float X, float Y, float Z)
     {
         Vector Result;
@@ -52,7 +48,7 @@ namespace
                           (float)(V.z * S));
     }
 
-    // FUN_06288800 / FUN_062887d0 and the inline FLD float / FSUB|FADD float /
+    // / the routine and the inline FLD float / FSUB|FADD float /
     // FSTP float triples: float operands, one rounding per component.
     inline Vector VecSub(Vector const& A, Vector const& B)
     {
@@ -64,7 +60,7 @@ namespace
         return MakeVector(A.x + B.x, A.y + B.y, A.z + B.z);
     }
 
-    // The two FSQRT sequences of AddSample (.text:06290d08..06290d57): each
+    // The two FSQRT sequences of AddSample (module storage..06290d57): each
     // square is exact in double, summed (x^2 + z^2) + y^2, root kept double.
     inline double LengthXZY(Vector const& V)
     {
@@ -75,8 +71,8 @@ namespace
     }
 }
 
-// .text:06290930..06290a07: the same stores as Reset, inlined, plus the vptr.
-// Retail never writes Samples (+0x08..+0x2c) or Timestamps (+0x30..+0x47)
+// the same stores as Reset, inlined, plus the vptr.
+// baseline never writes Samples (+0x08..+0x2c) or Timestamps (+0x30..+0x47)
 // here, so they start indeterminate; the port zeroes them first (safe
 // over-init, owner rule 2026-10-14) -- AddSample overwrites all of them on the
 // first sample, but GetSample / a SampleCount==0 Doit could read them before.
@@ -96,7 +92,7 @@ CDeadReckonedVector::~CDeadReckonedVector()
 
 void CDeadReckonedVector::Reset()
 {
-    // .text:06290a20..06290aef. MaxCorrectiveTime goes back to the retail
+    // . MaxCorrectiveTime goes back to the baseline
     // constant 0x3fd0000000000000 = 0.25. Samples and Timestamps are NOT
     // touched: a SampleCount==0 Doit after Reset still projects from the old
     // Samples[0] (062917ff).
@@ -115,7 +111,7 @@ void CDeadReckonedVector::Reset()
     MaxCorrectiveTime = 0.25;
 }
 
-// .text:06290af0 .. .text:062916dc, RET 0xC. Traced instruction by instruction;
+// .. module storage, RET 0xC. Traced instruction by instruction;
 // the addresses below are where each value is produced.
 void CDeadReckonedVector::AddSample(Vector const& Pos, double Timestamp)
 {
@@ -149,36 +145,36 @@ void CDeadReckonedVector::AddSample(Vector const& Pos, double Timestamp)
         Timestamps[0] = Timestamp;
     }
 
-    // 06290c0a..06290ca7.
+    // .
     double const Dt01 = Timestamp - Timestamps[1];
     ++SampleCount;
     bool bNearStraight = false;                       // [ESP+0xf] = 0
-    ConvergeWindow = 0.0;                             // 06290c2f / 06290c37
+    ConvergeWindow = 0.0;                             // / 06290c37
     double const Dt12 = Timestamps[1] - Timestamps[2];
     BasePosition = Samples[0];
-    double const Span = Dt12 + Dt01;                  // 06290c63
-    double PrevElapsed = ElapsedTime - Dt01;          // 06290c75
+    double const Span = Dt12 + Dt01;
+    double PrevElapsed = ElapsedTime - Dt01;
     if (PrevElapsed < 0.0)                            // FCOM 0.0 / TEST AH,5 / JP
     {
         PrevElapsed = 0.0;
     }
-    double const SpanT = PrevElapsed + Dt01;          // 06290c8e
-    ConvergeWindow = Dt01;                            // 06290ca7
+    double const SpanT = PrevElapsed + Dt01;
+    ConvergeWindow = Dt01;
 
     // Local copies the rest of the function reads (06290c8c..06290ccb).
     Vector const P0 = Samples[0];
     Vector const P1 = Samples[1];
     Vector const P2 = Samples[2];
 
-    Vector D1 = VecSub(P1, P0);                       // 06290cec
-    Vector D2 = VecSub(P1, P2);                       // 06290d03
-    double const Len1 = LengthXZY(D1);                // 06290d39, kept on the stack
-    double const Len2 = LengthXZY(D2);                // 06290d57, stored double
+    Vector D1 = VecSub(P1, P0);
+    Vector D2 = VecSub(P1, P2);
+    double const Len1 = LengthXZY(D1);                // , kept on the stack
+    double const Len2 = LengthXZY(D2);                // , stored double
 
     bool bQuadraticFit = false;
     if (Dt01 == 0.0 || Dt12 == 0.0 || Len1 == 0.0 || Len2 == 0.0)
     {
-        // 06290d72 / 06290d8a / 06290d9b / 06290db3 all land on 06291349,
+        // / 06290d8a / 06290d9b / 06290db3 all land on 06291349,
         // which SETS the near-straight flag before the secant fallback -- so a
         // degenerate sample converges linearly below.
         bNearStraight = true;
@@ -194,14 +190,14 @@ void CDeadReckonedVector::AddSample(Vector const& Pos, double Timestamp)
         D2.y = (float)(D2.y * InvLen2);
         D2.z = (float)(D2.z * InvLen2);
 
-        // 06290e1e..06290e41: (x*x' + z*z') + y*y', on the stack.
+        // (x*x' + z*z') + y*y', on the stack.
         double const Dot = ((double)D2.x * D1.x + (double)D2.z * D1.z) +
                            (double)D2.y * D1.y;
 
         // FCOM 0.0 / TEST AH,0x41 / JZ fallback: the fit runs unless Dot > 0.
         if (!(Dot > 0.0))
         {
-            // FCOMP double -0.996194 (.rdata:0639c428) / TEST AH,5 / JP.
+            // FCOMP double -0.996194 (module storage) / TEST AH,5 / JP.
             if (Dot < -0.996194)
             {
                 bNearStraight = true;
@@ -232,7 +228,7 @@ void CDeadReckonedVector::AddSample(Vector const& Pos, double Timestamp)
 
     if (!bQuadraticFit)
     {
-        // 0629134e..06291465.
+        // .
         if (Dt01 == 0.0)
         {
             Velocity = MakeVector(0.0f, 0.0f, 0.0f);
@@ -250,7 +246,7 @@ void CDeadReckonedVector::AddSample(Vector const& Pos, double Timestamp)
         }
     }
 
-    // 062910fc: FCOMP 0.0 / TEST AH,0x41 / JNZ end.
+    // FCOMP 0.0 / TEST AH,0x41 / JNZ end.
     if (ConvergeWindow > 0.0)
     {
         Vector const OldProjected = ProjectedPosition;
@@ -266,11 +262,11 @@ void CDeadReckonedVector::AddSample(Vector const& Pos, double Timestamp)
         Vector const VelTerm = ScaleByDouble(Velocity, Window);
         Vector const Anchored = VecAdd(VelTerm, BasePosition);
         Vector const Target = VecAdd(AccTerm, Anchored);
-        Vector const Offset = VecSub(Target, OldProjected);           // 062912a7
+        Vector const Offset = VecSub(Target, OldProjected);
 
         if (bNearStraight)
         {
-            // 062912bf..06291344: straight line to the target.
+            // straight line to the target.
             Velocity2 = ScaleByDouble(Offset, 1.0 / Window);            // FDIVR float 1.0
             Acceleration2 = MakeVector(0.0f, 0.0f, 0.0f);
         }
@@ -313,16 +309,16 @@ void CDeadReckonedVector::AddSample(Vector const& Pos, double Timestamp)
         }
     }
 
-    ElapsedTime = 0.0;                                                 // 062916cb
+    ElapsedTime = 0.0;
 }
 
 double CDeadReckonedVector::ConvergeTime()
 {
-    // Common.dll.c 0x31780.
+    // Common 0x31780.
     return ConvergeWindow;
 }
 
-// .text:062917c0 .. .text:06291bab, RET 0x8.
+// .. module storage, RET 0x8.
 void CDeadReckonedVector::Doit(double Dt)
 {
     double const Elapsed = Dt + ElapsedTime;          // FLD Dt / FADD [+0xc0]
@@ -330,7 +326,7 @@ void CDeadReckonedVector::Doit(double Dt)
 
     if (SampleCount == 0)
     {
-        // 062917e5..06291813: FSTP float narrows the time before FUN_06288830.
+        // FSTP float narrows the time before the routine.
         float const T = (float)(Elapsed);
         Vector const Drift = MakeVector(ConvergedVelocity.x * T, ConvergedVelocity.y * T,
                                         ConvergedVelocity.z * T);
@@ -341,7 +337,7 @@ void CDeadReckonedVector::Doit(double Dt)
     double const Elapsed2 = Elapsed * Elapsed;        // FSTP double 0629181d
     // FCOMP [+0xb8] / TEST AH,5 / JP: blending while Elapsed < ConvergeWindow.
     bool const bBlending = Elapsed < ConvergeWindow;
-    // 06291876: FST float of Elapsed2 into the same slot; every later reader
+    // FST float of Elapsed2 into the same slot; every later reader
     // takes this float, only TrackedPosition uses the double still on the stack.
     float const Elapsed2f = (float)(Elapsed2);
 
@@ -357,7 +353,7 @@ void CDeadReckonedVector::Doit(double Dt)
 
     if (!bBlending)
     {
-        // 0629192c..062919e8.
+        // .
         ProjectedPosition = TrackedPosition;
         Vector const HalfAcc = MakeVector(Acceleration.x * 0.5f, Acceleration.y * 0.5f,
                                           Acceleration.z * 0.5f);
@@ -367,7 +363,7 @@ void CDeadReckonedVector::Doit(double Dt)
         return;
     }
 
-    // 062919f2..06291ba4.
+    // .
     Vector const HalfAcc2 = MakeVector(Acceleration2.x * 0.5f, Acceleration2.y * 0.5f,
                                        Acceleration2.z * 0.5f);
     Vector const AccTerm2 = MakeVector(HalfAcc2.x * Elapsed2f, HalfAcc2.y * Elapsed2f,
@@ -380,13 +376,13 @@ void CDeadReckonedVector::Doit(double Dt)
 
 Vector const& CDeadReckonedVector::GetProjectedPosition()
 {
-    // Common.dll.c 0x317b0.
+    // Common 0x317b0.
     return ProjectedPosition;
 }
 
 Vector CDeadReckonedVector::ProjectVelocity(double Dt)
 {
-    // .text:062916e0 .. .text:0629176e (RET 0xC, hidden return pointer). Formula:
+    // .. module storage (RET 0xC, hidden return pointer). Formula:
     // (0.5*Acceleration)*Dt*Dt + Velocity -- not integrated velocity/position.
     // Dt stays a double on the x87 stack throughout; it is never rounded to float,
     // and Dt^2 is never formed on its own. The three axes narrow differently:
@@ -395,7 +391,7 @@ Vector CDeadReckonedVector::ProjectVelocity(double Dt)
     //   y: float(H.y*Dt) (0629172d), then float(that*Dt) (06291745)
     //   z: (Dt*H.z)*Dt kept on the stack (06291731, 06291749) -- never stored
     // then + Velocity (+0x78/+0x7c/+0x80) and one FSTP float per component.
-    float const Hx = Acceleration.x * 0.5f;   // .rdata:0639c13c == 0.5f
+    float const Hx = Acceleration.x * 0.5f;   // == 0.5f
     float const Hy = Acceleration.y * 0.5f;
     float const Hz = Acceleration.z * 0.5f;
     float const Ax = (float)(Hx * Dt);

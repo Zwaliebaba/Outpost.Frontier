@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "StdAfx.h"
@@ -18,13 +14,13 @@
 
 namespace
 {
-	// ServerResources.dll string table.
+	// ServerInterface.dll string table.
 	const UINT IdsBadMaxPlayers = 0xf006;   // "...That number must be between 1 and 128."
 	const UINT IdsNoServerName = 0xf007;    // "You must provide a name for your server."
 	const UINT IdsLegalNotice = 0xf02d;
 
 	// OutpostServer.cfg — written and read field by field in this order (binary, "wb" / "rb").
-	// Version 2 files lack the trailing bAllowPvp byte. Retail keeps every field as a separate
+	// Version 2 files lack the trailing bAllowPvp byte. baseline keeps every field as a separate
 	// local of OnInitDialog / OnOK.
 	struct FServerConfigFile
 	{
@@ -44,17 +40,17 @@ namespace
 CServerConfigDlg::CServerConfigDlg(CWnd* Parent)
 	: CDialog(IDD, Parent)
 {
-	// Retail's inline ctor (.text:0040bd6c) leaves the control pointers unset; OnInitDialog
+	// baseline's inline ctor (module storage) leaves the control pointers unset; OnInitDialog
 	// assigns them before anything reads them.
 }
 
-// .text:00407040 — empty (shared, ICF-folded `RET 4`).
+// — empty (shared, ICF-folded `RET 4`).
 void CServerConfigDlg::DoDataExchange(CDataExchange* DX)
 {
 	CDialog::DoDataExchange(DX);
 }
 
-// .text:004067f0
+
 BOOL CServerConfigDlg::OnInitDialog()
 {
 	MaxPlayersSpin = GetDlgItem(1011);
@@ -117,8 +113,8 @@ BOOL CServerConfigDlg::OnInitDialog()
 		LegalNotice->SetWindowText(LegalText);
 	}
 
-	// Command-line /C switch (FServerControl+0x9ae, .text:00406b3b): with a saved configuration,
-	// accept it without showing the dialog. Retail tests the (already closed) FILE pointer for
+	// Command-line /C switch (FServerControl+0x9ae, module storage): with a saved configuration,
+	// accept it without showing the dialog. baseline tests the (already closed) FILE pointer for
 	// non-null.
 	if (GApp->ServerControl.bAutoAcceptConfig && File != nullptr)
 	{
@@ -127,7 +123,7 @@ BOOL CServerConfigDlg::OnInitDialog()
 	return TRUE;
 }
 
-// .text:00406b70
+
 void CServerConfigDlg::OnOK()
 {
 	FServerConfigFile Config;
@@ -160,10 +156,10 @@ void CServerConfigDlg::OnOK()
 	Control.SetMaxPlayers(Config.MaxPlayers);
 	Control.SetServerDescription(Config.Description);
 	Control.SetServerName(Config.ServerName);
-	Control.SetAllowNewPlayers(Config.bAllowNewPlayers);    // SStartupInfo byte, .text:00402370
+	Control.SetAllowNewPlayers(Config.bAllowNewPlayers);    // SStartupInfo byte, module storage
 	Control.bListServerReporting = Config.bInternetAccessible;
 	Control.ServerPassword.assign(Config.Password, wcslen(Config.Password));
-	Control.SetAllowPvp(Config.bAllowPvp);                  // SStartupInfo byte, .text:00402390
+	Control.SetAllowPvp(Config.bAllowPvp);                  // SStartupInfo byte, module storage
 
 	Players.BuildLocalUserDir();
 	char Path[0x400] = "";

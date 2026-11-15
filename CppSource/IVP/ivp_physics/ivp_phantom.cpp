@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "ivp_phantom.h"
@@ -41,7 +37,7 @@ namespace
     }
 }
 
-// FUN_06344710 (.text:06344710-063449cd, thiscall, RET 8).
+// (module storage-063449cd, thiscall, RET 8).
 IVP_Controller_Phantom::IVP_Controller_Phantom(IVP_Real_Object* Object, const IVP_Template_Phantom* Template)
     : listeners()           // :06344734-:0634473c memsize / n_elems / elems = 0
     , mindist_set(0x10)     // :0634473f-:06344767 IVP_VHash(0x10), listener vector(0)
@@ -53,7 +49,7 @@ IVP_Controller_Phantom::IVP_Controller_Phantom(IVP_Real_Object* Object, const IV
     if (Template->manage_intruding_objects != 0)
     {
         set_of_objects = new IVP_U_Set_Active<IVP_Real_Object>(0x10); // operator new(0x18)
-        object_store = new IVP_VHash_Store(0x10);                     // operator new(0x14), FUN_063525f0
+        object_store = new IVP_VHash_Store(0x10);                     // operator new(0x14), the routine
     }
     else
     {
@@ -79,7 +75,7 @@ IVP_Controller_Phantom::IVP_Controller_Phantom(IVP_Real_Object* Object, const IV
     if (Template->dont_check_for_unmoveables == 0 && static_cast<uint8_t>(object->flags) == 0x10)
     {
         object->flags = (object->flags & 0xffffff09u) | 0x9u;
-        object->environment->mindist_manager->RecheckOvElement(object); // FUN_0634ebd0
+        object->environment->mindist_manager->RecheckOvElement(object);
     }
 
     exit_policy_extra_radius = Template->exit_policy_extra_radius; // :063448ba-:063448c0
@@ -145,10 +141,10 @@ IVP_Controller_Phantom::IVP_Controller_Phantom(IVP_Real_Object* Object, const IV
         Mindist->StateFlags = (Mindist->StateFlags & 0xffffdfffu) | 0x1000u;
     }
 
-    // +0x38 / +0x3c are not written (retail leaves the operator new bytes).
+    // +0x38 / +0x3c are not written (baseline leaves the operator new bytes).
 }
 
-// FUN_063442c0 (.text:063442c0-063443fd).
+// (module storage-063443fd).
 IVP_Controller_Phantom::~IVP_Controller_Phantom()
 {
     // :063442e1-:063442ff: every listener, last first, slot 2.
@@ -160,7 +156,7 @@ IVP_Controller_Phantom::~IVP_Controller_Phantom()
     // :06344301-:06344305: the owner forgets its phantom.
     object->first_child = nullptr;
 
-    // :06344308-:0634435e, in this order: +0x30, +0x2c (FUN_06352620 then
+    // :06344308-:0634435e, in this order: +0x30, +0x2c (the routine then
     // operator delete), +0x28, +0x34 (virtual slot 1 with 1). Each pointer is
     // nulled after its test.
     delete core_store;
@@ -172,11 +168,11 @@ IVP_Controller_Phantom::~IVP_Controller_Phantom()
     delete set_of_cores;
     set_of_cores = nullptr;
 
-    // :0634435b-:063443ec: the members, mindist_set (inline FUN_06344a00) then
+    // :0634435b-:063443ec: the members, mindist_set (inline the routine) then
     // the listener vector, run as member destructors.
 }
 
-// FUN_06344400 (.text:06344400-0634457c, RET 4).
+// (module storage-0634457c, RET 4).
 void IVP_Controller_Phantom::mindist_entered_volume(IVP_Ledge_Mindist* Mindist)
 {
     IVP_Mindist_Base* const MindistBase = IVP_Phantom_AsMindistBase(Mindist);
@@ -189,14 +185,14 @@ void IVP_Controller_Phantom::mindist_entered_volume(IVP_Ledge_Mindist* Mindist)
     if (set_of_objects != nullptr)
     {
         IVP_Real_Object* const Other = IVP_Phantom_OtherObject(Mindist, object);
-        const int32_t Count = static_cast<int32_t>(reinterpret_cast<intptr_t>(object_store->FindElem(Other))); // FUN_06352930
+        const int32_t Count = static_cast<int32_t>(reinterpret_cast<intptr_t>(object_store->FindElem(Other)));
         if (Count != 0)
         {
-            object_store->ChangeElem(Other, reinterpret_cast<void*>(static_cast<intptr_t>(Count + 1))); // FUN_063529e0
+            object_store->ChangeElem(Other, reinterpret_cast<void*>(static_cast<intptr_t>(Count + 1)));
         }
         else
         {
-            object_store->AddElem(Other, reinterpret_cast<void*>(static_cast<intptr_t>(1))); // FUN_063526d0
+            object_store->AddElem(Other, reinterpret_cast<void*>(static_cast<intptr_t>(1)));
             set_of_objects->add_element(Other);
         }
     }
@@ -224,7 +220,7 @@ void IVP_Controller_Phantom::mindist_entered_volume(IVP_Ledge_Mindist* Mindist)
     }
 }
 
-// FUN_06344580 (.text:06344580-063446fe, RET 4): the mirror of 06344400.
+// (module storage-063446fe, RET 4): the mirror of 06344400.
 void IVP_Controller_Phantom::mindist_left_volume(IVP_Ledge_Mindist* Mindist)
 {
     IVP_Mindist_Base* const MindistBase = IVP_Phantom_AsMindistBase(Mindist);
@@ -244,7 +240,7 @@ void IVP_Controller_Phantom::mindist_left_volume(IVP_Ledge_Mindist* Mindist)
         }
         else
         {
-            object_store->RemoveElem(Other); // FUN_063527e0
+            object_store->RemoveElem(Other);
             set_of_objects->remove_element(Other);
         }
     }
@@ -272,14 +268,14 @@ void IVP_Controller_Phantom::mindist_left_volume(IVP_Ledge_Mindist* Mindist)
     }
 }
 
-// FUN_06344230 (.text:06344230-0634425a, RET 4): IVP_U_Vector::add on +0x08
-// (grow through FUN_063441a0 when n_elems >= memsize, unsigned `JC`).
+// (module storage-0634425a, RET 4): IVP_U_Vector::add on +0x08
+// (grow through the routine when n_elems >= memsize, unsigned `JC`).
 void IVP_Controller_Phantom::add_listener_phantom(IVP_Listener_Phantom* Listener)
 {
     listeners.Add(Listener);
 }
 
-// FUN_06344260 (.text:06344260-063442b0, RET 4): IVP_U_Vector::remove_element
+// (module storage-063442b0, RET 4): IVP_U_Vector::remove_element
 // inlined on +0x08 -- a backward search, then the count drops by one and the
 // tail moves down over the found slot.
 void IVP_Controller_Phantom::remove_listener_phantom(IVP_Listener_Phantom* Listener)
@@ -296,7 +292,7 @@ void IVP_Controller_Phantom::remove_listener_phantom(IVP_Listener_Phantom* Liste
         --Index;
     }
 
-    // VERY STRANGE, REPRODUCED ON PURPOSE (:06344288-:063442ac): retail has no
+    // VERY STRANGE, REPRODUCED ON PURPOSE (:06344288-:063442ac): baseline has no
     // not-found test. The count is decremented regardless (an empty vector
     // wraps to 0xffff) and the shift loop runs from Index = -1, so an absent
     // listener writes elems[-1] = elems[0] and shifts the whole vector down

@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -33,7 +29,7 @@ struct FSystemZone;             // SystemInfo.h (TU64)
 // "SPParams") and the populator ("TLPzr" / "SPPzr") that reads the section into it and
 // decides when it spawns. The TL ("TL_Attack", trade-lane attack) classes live in TU60
 // (06f81120-06f83ec0), the SP ("SP_Attack") classes in TU59 (06f80410-06f81120); their
-// bodies are in RandomEncounters.cpp, the TU31 base in RandomMissionDB.cpp. Retail has no RTTI
+// bodies are in RandomEncounters.cpp, the TU31 base in RandomMissionDB.cpp. baseline has no RTTI
 // in Content.dll; the class names are the port's.
 // =======================================================================================
 
@@ -41,57 +37,57 @@ struct FSystemZone;             // SystemInfo.h (TU64)
 struct FRandEncPosition
 {
     Vector Position;                // +0x00
-    float Weight;                   // +0x0c summed and picked in FUN_06efc2d0
+    float Weight;                   // +0x0c summed and picked in the routine
 };
 
 // FRandEncFormation +0x18 element (list node 0x1c): one ship-class choice of a formation.
 struct FRandEncShipChoice
 {
-    std::vector<unsigned int> ShipClasses;  // +0x00 (alloc byte) / +0x04..+0x0c; dtor FUN_06eec8d0
-    float Weight;                           // +0x10 summed and picked in FUN_06efba30
+    std::vector<unsigned int> ShipClasses;  // +0x00 (alloc byte) / +0x04..+0x0c; dtor the routine
+    float Weight;                           // +0x10 summed and picked in the routine
 };
 
-// +0x44 element (list node 0x30, value 0x28; erase FUN_06efc910, value dtor FUN_06efc950):
+// +0x44 element (list node 0x30, value 0x28; erase the routine, value dtor the routine):
 // one "formation" line of the section.
 struct FRandEncFormation
 {
-    FFormation* Formation = nullptr;        // +0x00 -> FUN_06f66c80 (PlaceFormationBlocks)
+    FFormation* Formation = nullptr;        // +0x00 -> the routine (PlaceFormationBlocks)
     ID_String Nickname;                     // +0x04 dumped with get_string
     // +0x08: "formation" value 1 as read (dumped); the parse copies it into Weight (+0x24).
     // TODO: whether anything but Dump reads +0x08 (the TL populator).
     float Field_0x08 = 0.0f;
-    int MinCount = 0;                       // +0x0c ship count range (FUN_06efba30 06efbb63)
+    int MinCount = 0;                       // +0x0c ship count range (the routine 06efbb63)
     int MaxCount = 0;                       // +0x10
     int Count = 0;                          // +0x14 the count picked for the current spawn
     std::list<FRandEncShipChoice> ShipChoices;  // +0x18 (head +0x1c, size +0x20)
-    float Weight = 0.0f;                    // +0x24 summed and picked in FUN_06efba30
+    float Weight = 0.0f;                    // +0x24 summed and picked in the routine
 };
 
 // ---------------------------------------------------------------------------------------
-// Parameter object base (retail 0xa0). Ctor FUN_06efb550, dtor FUN_06efb710, deleting dtor
-// FUN_06efb690; vtable 06fb7ae4 {AddRef, Release, 06efb690, purecall, FUN_06efc2d0,
+// Parameter object base (baseline 0xa0). Ctor the routine, dtor the routine, deleting dtor
+// ; vtable 06fb7ae4 {AddRef, Release, 06efb690, purecall, the routine,
 // purecall}. The derived TL (0xbc, vtable 06fbc1a4) and SP (0xc4, vtable 06fbbfbc) objects
 // add plain values only, so their dtors (06f81c20 / 06f80550) are this dtor inlined.
 // ---------------------------------------------------------------------------------------
 class FRandEncParams : public FContentRefObject
 {
 public:
-    // FUN_06efb550.
+    // .
     FRandEncParams();
-    // FUN_06efb710: the three lists freed, vptr back to 06fb43f8.
+    // the three lists freed, vptr back to 06fb43f8.
     ~FRandEncParams() override;
 
-    // Slot 3 (purecall in the base): TL 3 (LAB_06f5e540), SP 2 (LAB_06ee9660) -- the type
-    // codes of FUN_06efb8e0.
+    // Slot 3 (purecall in the base): TL 3 (the branch), SP 2 (the branch) -- the type
+    // codes of the routine.
     virtual int GetType() = 0;
-    // Slot 4, FUN_06efc2d0 (RET 4): spawn the encounter around the target object (+0x88).
-    // The base ignores bForced; the TL override (FUN_06f83af0) spawns at its trade lane unless
-    // it is set. Called by the populators and by FUN_06f148f0 (TU38) with 1.
+    // Slot 4, the routine (RET 4): spawn the encounter around the target object (+0x88).
+    // The base ignores bForced; the TL override (the routine) spawns at its trade lane unless
+    // it is set. Called by the populators and by the routine (TU38) with 1.
     virtual void Spawn(bool bForced);
-    // Slot 5 (purecall in the base): the values as INI text (TL FUN_06f81d50, SP FUN_06f80f10).
+    // Slot 5 (purecall in the base): the values as INI text (TL the routine, SP the routine).
     virtual void Dump(FILE* File) = 0;
 
-    // FUN_06efba30 (RET 0x1c; callers Spawn 06efc6e8 and TU38 FUN_06f145d0 06f1466e): create
+    // (RET 0x1c; callers Spawn 06efc6e8 and TU38 the routine 06f1466e): create
     // one weighted-picked formation of the encounter at Placement, through the player's system.
     // Count -1 picks the ship count from the formation's range. A null Choices picks a
     // weighted ship choice per ship, else ship i takes the classes of Choices' i-th element.
@@ -100,20 +96,20 @@ public:
     // DockTarget -> FSystemInfo::CreateNpcShips. False when the player has no system, no
     // formation is picked or no npc_ship arch fits a ship.
     // Choices / Names are the TU38 +0x8c record's lists at +0x3c / +0x48: the snapshot writer
-    // FUN_06f130b0 (MissionSave.cpp, CNT-MS-OBJ11) builds Choices as {npc +0x128 class ids,
+    // (MissionSave.cpp, CNT-MS-OBJ11) builds Choices as {npc +0x128 class ids,
     // 1.0f} and Names as the npcs' TString<0x30> nicknames -- the types declared here.
     bool SpawnFormation(FTransform const* Placement, int Count,
                         std::list<FObjListDirective*> const* Directives,
                         std::list<FRandEncShipChoice> const* Choices,
                         std::list<TString<0x30>>* Names, int Priority, unsigned int DockTarget);
 
-    // +0x08: ctor 0; TU58 FUN_06f782e0 (06f78a9c) writes the trade lane's system.
+    // +0x08: ctor 0; TU58 the routine (06f78a9c) writes the trade lane's system.
     FSystemInfo* System = nullptr;
-    // +0x0c: the controller id given to every ship (-> ship params +0x6c). Retail's ctor
+    // +0x0c: the controller id given to every ship (-> ship params +0x6c). baseline's ctor
     // leaves it unset; the port starts it at 0.
     unsigned int ControllerId = 0;
-    // +0x10: the player the encounter belongs to (FUN_06f478c0 on it gives the system).
-    // Retail's ctor leaves it unset; the port starts it at null.
+    // +0x10: the player the encounter belongs to (the routine on it gives the system).
+    // baseline's ctor leaves it unset; the port starts it at null.
     FContentPlayerState* Player = nullptr;
     int AttackerRep = -1;                   // +0x14 "attacker_rep" -- the ships' faction group
     ID_String PilotId;                      // +0x18 "pilot_id" (cleared)
@@ -129,7 +125,7 @@ public:
     // SetTarget(&GotoTargetId, 200, -1)); both populators' Reset zero it.
     unsigned int GotoTargetId = 0;
     // +0x88: the object the encounter spawns around (pub::SpaceObj::GetLocation in Spawn).
-    // Retail's ctor leaves it unset; the port starts it at 0.
+    // baseline's ctor leaves it unset; the port starts it at 0.
     unsigned int TargetObjectId = 0;
     // +0x8c "arrival_obj" (a number or a nickname, SP parse 06f81858): SpawnFormation's
     // DockTarget in Spawn.
@@ -142,21 +138,21 @@ public:
     int ShipNameCounter = 0;                // +0x9c the %d of "rand_enc_ship_%d"
 };
 
-// "TLParams" (retail 0xbc, ctor FUN_06f81bb0): the trade-lane attack.
+// "TLParams" (baseline 0xbc, ctor the routine): the trade-lane attack.
 class FRandEncTLParams : public FRandEncParams
 {
 public:
-    // FUN_06f81bb0.
+    // .
     FRandEncTLParams() = default;
 
-    int GetType() override;                 // LAB_06f5e540: 3
-    // FUN_06f83af0 (RET 4): DrainShields on the ring; bForced -> the base body, else every
+    int GetType() override;                 // 3
+    // (RET 4): DrainShields on the ring; bForced -> the base body, else every
     // formation to spawn goes to a weighted spawn point turned by the ring's orientation,
     // with a 25 s delay directive for its leader (SpawnLaneFormation).
     void Spawn(bool bForced) override;
-    void Dump(FILE* File) override;         // FUN_06f81d50
+    void Dump(FILE* File) override;
 
-    // FUN_06f832b0 (RET 0x14; only caller Spawn 06f83e0a): the lane counterpart of
+    // (RET 0x14; only caller Spawn 06f83e0a): the lane counterpart of
     // SpawnFormation -- a weighted formation, its ships through the attacker faction's
     // npc_ship archs (a ship without an arch is skipped), named pilots, then the leader's
     // guide description (type 3) walking the path of the ring's zone, and the ships created in
@@ -184,15 +180,15 @@ public:
     FSystemZone* TargetZone = nullptr;
 };
 
-// "SPParams" (retail 0xc4, ctor FUN_06f804d0): the attack in open space.
+// "SPParams" (baseline 0xc4, ctor the routine): the attack in open space.
 class FRandEncSPParams : public FRandEncParams
 {
 public:
-    // FUN_06f804d0.
+    // .
     FRandEncSPParams() = default;
 
-    int GetType() override;                 // LAB_06ee9660: 2
-    void Dump(FILE* File) override;         // FUN_06f80f10
+    int GetType() override;                 // 2
+    void Dump(FILE* File) override;
 
     // +0xa0 "activation_type": 0 time_cumulative, 1 location, 2 time.
     int ActivationType = 0;
@@ -204,20 +200,20 @@ public:
     // ActivationTime[0]] (Parse, and Accept whenever it is 0).
     float CumulativeTime = 0.0f;
     // +0xc0: the smallest zone around the target when the attacker faction was last picked
-    // (FSystemInfo::FindSmallestZoneAt in Accept 06f80894). Retail's ctor leaves it unset.
+    // (FSystemInfo::FindSmallestZoneAt in Accept 06f80894). baseline's ctor leaves it unset.
     FSystemZone* TargetZone = nullptr;
 };
 
 // ---------------------------------------------------------------------------------------
-// Populators ("Pzr", 0xc bytes, built inline by FUN_06efb980): read the section into the
+// Populators ("Pzr", 0xc bytes, built inline by the routine): read the section into the
 // parameter object (slot 4) and decide from the controller messages when it spawns (slot 3).
-// Both vtables are {AddRef, Release, FUN_06f06eb0 (empty deleting dtor), Accept, Parse,
+// Both vtables are {AddRef, Release, the routine (empty deleting dtor), Accept, Parse,
 // Reset}.
 // ---------------------------------------------------------------------------------------
 class FRandEncPopulator : public FContentRefObject
 {
 public:
-    // Slot 3 (RET 0xc): a controller message; true when the encounter triggers (FUN_06f148f0
+    // Slot 3 (RET 0xc): a controller message; true when the encounter triggers (the routine
     // then calls Params' Spawn(1) and disables the encounter). Message 0x37 -> Reset.
     virtual bool Accept(FRandEncParams* Params, pub::Controller::EMessage MessageId,
                         void const* MessageParms) = 0;
@@ -231,14 +227,14 @@ public:
 class FRandEncTLPopulator : public FRandEncPopulator
 {
 public:
-    // FUN_06f81ed0: 0x16 (a ship left a trade lane: {ship, entry ring, exit ring, system})
+    // 0x16 (a ship left a trade lane: {ship, entry ring, exit ring, system})
     // arms the attack on a ring of the player's lane; 0x20 fires it once the player's ship
     // is within 10000 of that ring; 0x3b restores the attack chance.
     bool Accept(FRandEncParams* Params, pub::Controller::EMessage MessageId,
                 void const* MessageParms) override;
-    // FUN_06f82b90.
+    // .
     void Parse(INI_Reader* Reader, FRandEncParams* Params) override;
-    // LAB_06f83280.
+    // .
     void Reset(FRandEncParams* Params) override;
 
     // +0x08: an attack is armed (Accept 0x16 06f829ff); 0x20 then tests the distance.
@@ -250,14 +246,14 @@ public:
 class FRandEncSPPopulator : public FRandEncPopulator
 {
 public:
-    // FUN_06f80680: on 0x20 (MessageParms = the elapsed seconds, float) the activation test,
+    // on 0x20 (MessageParms = the elapsed seconds, float) the activation test,
     // then the formation / position defaults and, without an attacker_rep, the attacker
     // faction picked from the target zone's population.
     bool Accept(FRandEncParams* Params, pub::Controller::EMessage MessageId,
                 void const* MessageParms) override;
-    // FUN_06f81120.
+    // .
     void Parse(INI_Reader* Reader, FRandEncParams* Params) override;
-    // LAB_06f818d0.
+    // .
     void Reset(FRandEncParams* Params) override;
 
     // +0x08: seconds accumulated towards the time activation (Accept); Reset clears it.
@@ -267,9 +263,9 @@ public:
 // The weighted pick inlined in TU31 (06efba67-06efbb4c, 06efbd7c-06efbe68, 06efc423-06efc4fa)
 // and TU60 (TL Accept 06f82640-06f82715, TL Spawn 06f83c53-06f83d37): the weights are summed
 // into a float; a zero sum (TEST AH,0x44 + JP falls through only on equal) picks nothing;
-// otherwise R = Sum * (rand() * DAT_06fb4448 (1/32768)) as a float, and the first element
+// otherwise R = Sum * (rand() * (1/32768)) as a float, and the first element
 // whose running float sum reaches R (TEST AH,0x41 + JNP: taken when R < sum or R == sum, an
-// unordered compare keeps walking) is picked; none -> end. Where retail then uses the list's
+// unordered compare keeps walking) is picked; none -> end. Where baseline then uses the list's
 // head node (an empty list, a zero sum, a walk past the end), it reads the sentinel's
 // uninitialised value; every caller in the port stops on end() instead.
 template <typename TElement>
@@ -295,24 +291,24 @@ typename std::list<TElement>::iterator RandEncPickWeighted(std::list<TElement>* 
     return Elements->end();
 }
 
-// FUN_06efb830 (cdecl; callers TU38 06f11d75 / 06f11dd9 / 06f1802b / 06f18090): "TLParams" or
+// (cdecl; callers TU38 06f11d75 / 06f11dd9 / 06f1802b / 06f18090): "TLParams" or
 // "SPParams" (stricmp) -> a new object in *Out, else null. True when *Out is non-null.
 bool __cdecl CreateRandEncParams(char const* Name, FRandEncParams** Out);
-// FUN_06efb8e0 (cdecl; caller TU58 06f78951): the same by GetType code, 2 SP, 3 TL.
+// (cdecl; caller TU58 06f78951): the same by GetType code, 2 SP, 3 TL.
 bool __cdecl CreateRandEncParamsByType(int Type, FRandEncParams** Out);
-// FUN_06efb980 (cdecl): "TLPzr" or "SPPzr" -> a new populator in *Out, else null.
+// (cdecl): "TLPzr" or "SPPzr" -> a new populator in *Out, else null.
 bool __cdecl CreateRandEncPopulator(char const* Name, FRandEncPopulator** Out);
-// Random-mission encounters (docs/re/content.md, TU map, lane CNT-RM):
+// Random-mission encounters (implementation notes, TU map, lane CNT-RM):
 //   TU62 06f94d10-06f97360  killable solars (RandomMissions\KillableSolars.ini) and vignette
 //                           critical loot (RandomMissions\VignetteCriticalLoot.ini).
-// Both loaders take an already opened INI_Reader; the generator ctor FUN_06f9d550 opens and
+// Both loaders take an already opened INI_Reader; the generator ctor the routine opens and
 // closes it.
 
 // ---------------------------------------------------------------------------------------
-// TU62 -- killable solars. DAT_06fd3c20: map<nickname id, entry>, static init LAB_06f94f30
-// (map ctor FUN_06f95e80), atexit FUN_06f94f60.
+// TU62 -- killable solars. the field: map<nickname id, entry>, static init the branch
+// (map ctor the routine), atexit the routine.
 // ---------------------------------------------------------------------------------------
-struct FRmKillableSolar             // map value, retail 0x40 bytes
+struct FRmKillableSolar             // map value, baseline 0x40 bytes
 {
     ID_String Nickname;             // +0x00 CreateID("nickname")
     int SolarType;                  // +0x04 GRmSolarTypes value, -1 when absent/unknown
@@ -332,15 +328,15 @@ struct FRmKillableSolar             // map value, retail 0x40 bytes
 
 extern std::map<unsigned int, FRmKillableSolar> GRmKillableSolars;
 
-void __cdecl LoadKillableSolars(INI_Reader* Reader);                                 // FUN_06f95040
+void __cdecl LoadKillableSolars(INI_Reader* Reader);
 FRmKillableSolar* __cdecl PickKillableSolar(unsigned int Faction, int SolarType,
-                                            unsigned int ZoneTypeMask, float Difficulty); // FUN_06f956c0
+                                            unsigned int ZoneTypeMask, float Difficulty);
 
 // ---------------------------------------------------------------------------------------
-// TU62 -- vignette critical loot. DAT_06fd3c10: vector of 0x34-byte records, static init
-// LAB_06f95810, atexit FUN_06f95840 (record dtor FUN_06f95ca0).
+// TU62 -- vignette critical loot. the field: vector of 0x34-byte records, static init
+// , atexit the routine (record dtor the routine).
 // ---------------------------------------------------------------------------------------
-struct FRmCriticalLoot              // retail 0x34 bytes
+struct FRmCriticalLoot              // baseline 0x34 bytes
 {
     int WhyDesired[2];              // +0x00 / +0x04 "why_desired" (two ints)
     int Name;                       // +0x08 "name" (int)
@@ -353,10 +349,10 @@ struct FRmCriticalLoot              // retail 0x34 bytes
 
 extern std::vector<FRmCriticalLoot> GRmCriticalLoot;
 
-void __cdecl LoadVignetteCriticalLoot(INI_Reader* Reader);                           // FUN_06f95890
-FRmCriticalLoot* __cdecl PickCriticalLoot(unsigned int Faction, unsigned int Type);           // FUN_06f95cd0
+void __cdecl LoadVignetteCriticalLoot(INI_Reader* Reader);
+FRmCriticalLoot* __cdecl PickCriticalLoot(unsigned int Faction, unsigned int Type);
 
-// FUN_06f95e00: vector<uint> insert-unique -- linear find; when absent insert at end and
+// vector<uint> insert-unique -- linear find; when absent insert at end and
 // return {position, true}, else {found, false}. Shared COMDAT, called from TU27/46/51/62/63.
 std::pair<std::vector<unsigned int>::iterator, bool> __cdecl RmInsertUnique(
     std::vector<unsigned int>* Values, unsigned int const& Value);

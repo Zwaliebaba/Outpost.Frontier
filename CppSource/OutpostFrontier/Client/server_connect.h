@@ -1,18 +1,14 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
-// Retail server-module plumbing (source "network\ServerConnect.cpp" per the FDUMP in
-// FUN_005b6f40) and the start / stop of the server connection.
-//   FUN_005b6f40  LoadServerModule        FUN_005b6fb0  GetLoadedServer
-//   FUN_005b6fc0  GetLoadedChatServer     FUN_005b6fd0  FreeServerModule
-//   FUN_005a8080  StartServer             FUN_005a8260  ShutdownServerConnection
-// The loaded interfaces live in .data:0067ed58 / 0067ed5c; the ones the client talks to are
-// G_Server / G_ChatServer (.data:0067ecd0 / 0067ecd4, login_mgr.h).
+// baseline server-module plumbing (source "network\ServerConnect.cpp" per the FDUMP in
+// ) and the start / stop of the server connection.
+// LoadServerModule        the routine  GetLoadedServer
+// GetLoadedChatServer     the routine  FreeServerModule
+// StartServer             the routine  ShutdownServerConnection
+// The loaded interfaces live in module storage / 0067ed5c; the ones the client talks to are
+// G_Server / G_ChatServer (module storage / 0067ecd4, login_mgr.h).
 
 struct IServer;
 
@@ -28,6 +24,6 @@ void ShutdownServerConnection();
 void* GetLocalServerInterface();
 void* GetLocalChatServerInterface();
 
-// The server half of retail FUN_005b2890 (.text:005b293d-005b2970): when G_Server is set and
-// FUN_0042d740 does not hold the local server, Update (+0x2c) then ElapseTime (+0x30).
+// The server half of baseline the routine (module storage-005b2970): when G_Server is set and
+// does not hold the local server, Update (+0x2c) then ElapseTime (+0x30).
 void TickLocalServer(float DeltaSeconds);

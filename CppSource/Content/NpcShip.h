@@ -1,22 +1,18 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
 // Content.dll TU43 (06f33300-06f34ef0): the NPC ship — every ship Content creates for a
-// mission, an encounter or the population (callers of the ctor FUN_06f336a0: SpaceSupport
-// 06f60ad4, TU58 06f734e5). It is the TU50 ship base plus a pub::AI::ContentCallback at
+// mission, an encounter or the population (callers of the ctor the routine: SpaceSupport
+// , TU58 06f734e5). It is the TU50 ship base plus a pub::AI::ContentCallback at
 // +0x174 (the AI reports tether / lead / flee / combat events there), an optional TU37
 // guide at +0x178 and its own copy of the pilot personality.
-//
-// Also here: TU53's NPC ship event list DAT_06fd1bd8 (FUN_06f683e0..FUN_06f68840). It lives
+
+// Also here: TU53's NPC ship event list the field (the routine..the routine). It lives
 // in SpaceSupport's range, but the NPC ship is its only element type and its main user
 // (decision of the orchestrator, 2026-09-30); SpaceSupport routes its messages into it.
-//
-// Retail class sizes: parameters 0x504 (ctor FUN_06f33500), ship 0x5b0. No RTTI in Content;
+
+// baseline class sizes: parameters 0x504 (ctor the routine), ship 0x5b0. No RTTI in Content;
 // the class names are the port's.
 
 #include "BehaviorCmds.h"
@@ -36,8 +32,8 @@ struct FNpcShipArch;            // NpcShips.h (TU42)
 struct FContentPlayerState;     // ContentPlayerState.h
 class FContentNpcShip;
 
-// Parameter block of an NPC ship (0x504). FUN_06f33500 (callers 06ef47cb, 06efbbec,
-// 06f15ea9, 06f8341f, ...) is its default ctor: the TU50 block (see FContentShipParams),
+// Parameter block of an NPC ship (0x504). the routine (callers 06ef47cb, 06efbbec,
+// , 06f8341f, ...) is its default ctor: the TU50 block (see FContentShipParams),
 // then the members below with their ctor values.
 struct FContentNpcShipParams : public FContentShipParams
 {
@@ -48,17 +44,17 @@ struct FContentNpcShipParams : public FContentShipParams
     Vector Position;                                     // +0xb4 0
     int StateGraph = -1;                                 // +0xc0 arch +0x10; -1 -> "NOTHING"
     // +0xc4: the ctor zeroes the four parts and the count only (06f3359d-06f335b5); the
-    // accessories are copied up to AccessoryCount. Filled by FUN_06f34a80 (FactionProps).
+    // accessories are copied up to AccessoryCount. Filled by the routine (FactionProps).
     Costume CommCostume;
     unsigned int Voice = 0;                              // +0xf8 ShipInfo::VoiceId
     // +0xfc: one reference held by the block in a member handle (the copy AddRefs it through
-    // FUN_06f21fd0, FUN_06ef4bb0 / the unwind maps Release it through FUN_06f28e10). Any guide
+    // , the routine / the unwind maps Release it through the routine). Any guide
     // description: an FGuideDesc from the encounter / random mission code, or a [MetaBehavior]
     // object from the mission ship spawn (TU38 06f167ad-06f167e0); the ship ctor hands it to
     // CreateGuide.
     FGuideDescHandle GuideDesc;
     ID_String Pilot;                                     // +0x100 cleared
-    float Field_0x104 = -1.0f;                           // +0x104 DAT_06fb956c -> ship +0x1bc
+    float Field_0x104 = -1.0f;                           // +0x104 the field -> ship +0x1bc
     float Field_0x108 = 24.0f;                           // +0x108 -> ship +0x1c8
     float Field_0x10c = 500.0f;                          // +0x10c -> ship +0x1c0
     int Field_0x110 = -1;                                // +0x110 TODO: no reader in TU43
@@ -70,42 +66,42 @@ struct FContentNpcShipParams : public FContentShipParams
     unsigned int CreationType = 2;                       // +0x4fc -> ship +0x1b4
     int Level = 0;                                       // +0x500 arch +0x24; ShipInfo +0xbc
 
-    // FUN_06f33500.
+    // .
     FContentNpcShipParams();
-    // Copy, inlined in TU58 FUN_06f732e0 (06f73309-06f7349e): the TU50 block (FUN_06f73680),
-    // then every member; GuideDesc AddRef'ed when non-null (FUN_06f21fd0), the +0x118 list
-    // copied (FUN_06f0deb0).
+    // Copy, inlined in TU58 the routine (06f73309-06f7349e): the TU50 block (the routine),
+    // then every member; GuideDesc AddRef'ed when non-null (the routine), the +0x118 list
+    // copied (the routine).
     FContentNpcShipParams(FContentNpcShipParams const& Other);
     FContentNpcShipParams& operator=(FContentNpcShipParams const&) = delete;
-    // FUN_06ef4bb0 (06ef4bb0-06ef4ce2; callers 06ef66a6, 06ef8793, 06efc8e8, 06f16805, ...):
+    // (06ef4bb0-06ef4ce2; callers 06ef66a6, 06ef8793, 06efc8e8, 06f16805, ...):
     // the +0x118 list freed, GuideDesc Released (slot 1) and cleared, the +0x80 buffer freed,
-    // then the TU50 block dtor (inlined FUN_06ef4ab0 body).
+    // then the TU50 block dtor (inlined the routine body).
     ~FContentNpcShipParams();
 };
 
-// FUN_06f348f0 (cdecl): fill Params from an npcships.ini arch (null: nothing). Pilot
+// (cdecl): fill Params from an npcships.ini arch (null: nothing). Pilot
 // overrides the arch pilot and Job selects a JobBlock (both optional).
 void __cdecl ApplyNpcShipArch(FContentNpcShipParams* Params, FNpcShipArch const* Arch,
                               ID_String* Pilot, ID_String const* Job);
-// FUN_06f34a40 (cdecl): the arch *ArchId of GNpcShipArchs through ApplyNpcShipArch; true
+// (cdecl): the arch *ArchId of GNpcShipArchs through ApplyNpcShipArch; true
 // when the arch exists.
 bool __cdecl ApplyNpcShipArchById(FContentNpcShipParams* Params, unsigned int const* ArchId,
                                   ID_String* Pilot, ID_String const* Job);
-// FUN_06f34a80 (cdecl): costume and voice of FactionId's faction properties (TU48).
+// (cdecl): costume and voice of FactionId's faction properties (TU48).
 // Param2 goes to the costume pick as is and to the voice pick as (Param2 != 1) + 1.
-// TODO: meaning of Param2 (TU48 FUN_06f4f430 / FUN_06f4f620).
+// TODO: meaning of Param2 (TU48 the routine / the routine).
 bool __cdecl ApplyNpcShipFaction(unsigned int FactionId, int Param2, FContentNpcShipParams* Params);
 
-// Retail vtables: primary 06fb95a0 {sdd 06f33d00, 06ea1460, 06f33cf0, 06f57c30, 06f57c40,
-// 06f33e70, 06f341f0}; DirectiveCallback at +0x118 06fb959c {06f33f90}; ContentCallback at
+// baseline vtables: primary 06fb95a0 {sdd 06f33d00, 06ea1460, 06f33cf0, 06f57c30, 06f57c40,
+// , 06f341f0}; DirectiveCallback at +0x118 06fb959c {06f33f90}; ContentCallback at
 // +0x174 06fb9574 {06f34240, 06f34250, 06f34400, 06f34000, 06f34ce0, 06fa8f2a (Common's
 // information_request), 06f34ad0, 06f34090, 06f34050, 06f34cb0}.
 class FContentNpcShip : public FContentShipBase, public pub::AI::ContentCallback
 {
 public:
-    // FUN_06f336a0 (RET 4).
+    // (RET 4).
     explicit FContentNpcShip(FContentNpcShipParams const* Params);
-    // FUN_06f34680 (called by the deleting dtor 06f33d00).
+    // (called by the deleting dtor 06f33d00).
     ~FContentNpcShip() override;
 
     // Slot 1, 06ea1460: MOV AL,1.
@@ -122,53 +118,53 @@ public:
     // ContentCallback. follow_event (06f34240, `RET 0x10`) and information_request (the
     // Common import 06fa8f2a) keep the inline bodies of common_pub.h.
     void tether_object_event(uint ObjectId1, uint ObjectId2, TetherStatusType Status,
-                             Vector const& Position) override;                 // 06f34250
+                             Vector const& Position) override;
     void lead_object_event(uint ObjectId1, uint ObjectId2, LeadProgressType Progress,
-                           float Value, Vector const& Position) override;      // 06f34400
-    void ship_in_sights_event(uint ObjectId) override;                         // 06f34000
+                           float Value, Vector const& Position) override;
+    void ship_in_sights_event(uint ObjectId) override;
     bool request_flee_destination(uint ObjectId, FleeReason Reason, FleeDestinationType& OutType,
                                   Vector& OutPosition, uint& OutParam,
-                                  float& OutFloat) override;                   // 06f34ce0
-    void scan_state_change(bool bScanning) override;                           // 06f34ad0
-    void combat_state_notification(CSNType Type, uint Param1, uint Param2) override; // 06f34090
-    void combat_drift_event() override;                                        // 06f34050
-    CreationType get_creation_type() override;                                 // 06f34cb0
+                                  float& OutFloat) override;
+    void scan_state_change(bool bScanning) override;
+    void combat_state_notification(CSNType Type, uint Param1, uint Param2) override;
+    void combat_drift_event() override;
+    CreationType get_creation_type() override;
 
-    // FUN_06f33e80: owned by the SpacePop controller (ControllerId == DAT_06fd0e64).
+    // owned by the SpacePop controller (ControllerId == the field).
     bool IsSpacePopShip() const;
-    // FUN_06f33ea0 (RET 8): flee to a position.
+    // (RET 8): flee to a position.
     void SetFleePosition(Vector const* Position, float const* Distance);
-    // FUN_06f33ee0 (RET 0xc): flee from / to an object.
+    // (RET 0xc): flee from / to an object.
     void SetFleeObject(unsigned int const* ObjectId, float const* Distance, bool bType3);
-    // FUN_06f33f20 (RET 4; only caller the GCS player hail conversation 06ee4eaa /
-    // 06ee4ef4): LastHailPlayer = Player, LastHailTime = the game time.
+    // (RET 4; only caller the GCS player hail conversation 06ee4eaa /
+    // ): LastHailPlayer = Player, LastHailTime = the game time.
     void SetLastHailPlayer(FContentPlayerState* Player);
-    // FUN_06f33f40: no flee destination.
+    // no flee destination.
     void ClearFlee();
-    // FUN_06f33fd0 (RET 4): +0x1b1 = Value; when set, the event list stops this ship's timer
-    // (FUN_06f68600). While set the tether / lead callbacks do nothing.
+    // (RET 4): +0x1b1 = Value; when set, the event list stops this ship's timer
+    // (the routine). While set the tether / lead callbacks do nothing.
     void SetField1b1(bool Value);
-    // FUN_06f33ff0.
+    // .
     bool GetField1b1() const;
-    // FUN_06f34100: a comm line of this ship ended (SpaceSupport msg 0xb via the event list).
+    // a comm line of this ship ended (SpaceSupport msg 0xb via the event list).
     void OnCommLineDone();
-    // FUN_06f34800 (RET 0xc): move the ship to System (null: out of every system) at
+    // (RET 0xc): move the ship to System (null: out of every system) at
     // Position / Orientation (either may be null).
     void Relocate(FSystemInfo* NewSystem, Vector const* Position, Matrix const* Orientation);
-    // FUN_06f34af0 (RET 8): replace the guide by one built from Desc.
+    // (RET 8): replace the guide by one built from Desc.
     void SetGuideFromDesc(FGuideDescBase* Desc, bool bStart);
-    // FUN_06f34b70 (RET 0xc): replace the guide (null: cancel and drop it).
+    // (RET 0xc): replace the guide (null: cancel and drop it).
     void SetGuide(FContentGuide* NewGuide, bool bStart, bool bReset);
-    // FUN_06f34c30 (RET 8): forward an event to the guide's HandleEvent (slot 7); drop the
+    // (RET 8): forward an event to the guide's HandleEvent (slot 7); drop the
     // guide when it is done.
     void ForwardToGuide(pub::Controller::EMessage MsgId, void const* Parms);
-    // FUN_06f34c80: the guide's type, 0 without a guide.
+    // the guide's type, 0 without a guide.
     int GetGuideType() const;
-    // FUN_06f34ca0.
+    // .
     FContentGuide* GetGuide() const;
 
     // +0x178: a ref-holding member (the dtor's unwind map FuncInfo 06fc3b8c: state 1 releases
-    // +0x178 with FUN_06f28e10 after state 2 destroyed +0x17c), so it is destroyed after
+    // +0x178 with the routine after state 2 destroyed +0x17c), so it is destroyed after
     // Field_0x17c and before the TU50 base.
     FContentGuideHandle Guide;
     std::list<unsigned int> Field_0x17c;           // +0x17c params +0x118. TODO: meaning
@@ -203,10 +199,10 @@ public:
 };
 
 // ---------------------------------------------------------------------------------------
-// TU53 NPC ship event list (DAT_06fd1bd8; ctor FUN_06f5ca60 from the _initterm thunk
-// LAB_06f5ca20, dtor FUN_06f15350 from the atexit thunk FUN_06f5ca40). One record per NPC
+// TU53 NPC ship event list (the field; ctor the routine from the _initterm thunk
+// , dtor the routine from the atexit thunk the routine). One record per NPC
 // ship with a pending timer / lead / tether report; the timers are SpaceSupport's
-// (DAT_06fd1c74), so SpaceSupport hands its timer and comm messages to HandleMessage.
+// (the field), so SpaceSupport hands its timer and comm messages to HandleMessage.
 // ---------------------------------------------------------------------------------------
 
 // List value (0x30; node 0x38).
@@ -229,26 +225,26 @@ struct FNpcShipEvent
 class FNpcShipEventList
 {
 public:
-    // FUN_06f683e0 (RET 8): SpaceSupport messages 0x3e (timer), 0x39 (object destroyed),
+    // (RET 8): SpaceSupport messages 0x3e (timer), 0x39 (object destroyed),
     // 0xb (comm line finished).
     void HandleMessage(pub::Controller::EMessage MsgId, void const* Parms);
-    // FUN_06f68570 (RET 8).
+    // (RET 8).
     void SetCommLine(FContentNpcShip* Ship, unsigned int CommLineId);
-    // FUN_06f68600 (RET 4).
+    // (RET 4).
     void ClearTimer(FContentNpcShip* Ship);
-    // FUN_06f68630 (RET 8): mute the ship (SetField1b1(true)) for Delay seconds.
+    // (RET 8): mute the ship (SetField1b1(true)) for Delay seconds.
     void StartTimer(FContentNpcShip* Ship, float Delay);
-    // FUN_06f68710 (RET 0x14): report the lead event again in 30 s.
+    // (RET 0x14): report the lead event again in 30 s.
     void QueueLeadEvent(FContentNpcShip* Ship, unsigned int ObjectId, unsigned int Progress,
                         float Value, Vector const* Position);
-    // FUN_06f68840 (RET 0x10): report the tether event again in 30 s.
+    // (RET 0x10): report the tether event again in 30 s.
     void QueueTetherEvent(FContentNpcShip* Ship, unsigned int ObjectId, unsigned int Status,
                           Vector const* Position);
 
     std::list<FNpcShipEvent> Events;       // +0x00
-    unsigned int LastLeadProgress = 0;     // +0x0c DAT_06fd1be4
-    unsigned int LastFollowStatus = 0;     // +0x10 DAT_06fd1be8
-    unsigned int LastTetherStatus = 0;     // +0x14 DAT_06fd1bec
+    unsigned int LastLeadProgress = 0;     // +0x0c the field
+    unsigned int LastFollowStatus = 0;     // +0x10 the field
+    unsigned int LastTetherStatus = 0;     // +0x14 the field
 };
 
-extern FNpcShipEventList GNpcShipEvents;   // DAT_06fd1bd8
+extern FNpcShipEventList GNpcShipEvents;

@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -13,7 +9,7 @@
 
 #include <cstring>
 
-// Retail TString<N>: length at +0, chars at +4. Mangle ?$TString@$0BA@ for N=16.
+// baseline TString<N>: length at +0, chars at +4. Mangle ?$TString@$0BA@ for N=16.
 template <unsigned N>
 struct TString
 {
@@ -21,7 +17,7 @@ struct TString
     char Data[N];
 
     // OutpostFrontier.exe 0x004c9610 (inlined per-N template instantiation): compares Data against a
-    // plain C string. Retail walks two bytes per loop iteration (an unrolled strcmp); this port
+    // plain C string. baseline walks two bytes per loop iteration (an unrolled strcmp); this port
     // does the equivalent one byte at a time. A null Str matches only an empty TString.
     bool operator==(char const* Str) const
     {
@@ -37,12 +33,12 @@ struct TString
         }
     }
 
-    // Common.dll FUN_062fb910 (the N=64 instance, not exported; also inlined into
-    // CommReferrable::operator= .text:062610a0, CommReferrable::read_comm_ini_data
-    // .text:0632e7b0 and Server.dll pub::Translate{Good,Ship}ToMsgIdPrefix .text:06d5e050/
-    // .text:06d5e0d0): a null Str empties the string; otherwise strlen, clamped to N-1
+    // Common.dll the routine (the N=64 instance, not exported; also inlined into
+    // CommReferrable::operator= module storage, CommReferrable::read_comm_ini_data
+    // and Server.dll pub::Translate{Good,Ship}ToMsgIdPrefix module storage/
+    // ): a null Str empties the string; otherwise strlen, clamped to N-1
     // (`CMP EAX,N; JC; MOV EAX,N-1`), copied without the terminator, then Data[Len] = 0.
-    // Common.dll FUN_06306020 (`len = strlen; if (len >= N) len = N-1; copy; NUL`) is the same
+    // Common.dll the routine (`len = strlen; if (len >= N) len = N-1; copy; NUL`) is the same
     // operation spelled as a free function.
     TString& operator=(char const* Str)
     {

@@ -51,7 +51,7 @@
       <AdditionalIncludeDirectories>$(ProjectDir)..\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>REMOTESERVER_EXPORTS;FL_CLIENT;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <WarningLevel>Level3</WarningLevel>
-      <!-- /sdl adds exported __autoclassinit2 members absent from retail. -->
+      <!-- /sdl adds exported __autoclassinit2 members absent from baseline. -->
       <SDLCheck>false</SDLCheck>
       <MultiProcessorCompilation Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</MultiProcessorCompilation>
       <MultiProcessorCompilation Condition="'$(Configuration)|$(Platform)'=='DebugASan|Win32'">true</MultiProcessorCompilation>
@@ -59,7 +59,7 @@
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <AdditionalDependencies>kernel32.lib;user32.lib;dacom.lib;Common.lib;Server.lib;OutpostFrontier.lib;rpclocal.lib;DALib.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>kernel32.lib;user32.lib;neuroncomponents.lib;Common.lib;Server.lib;OutpostFrontier.lib;rpclocal.lib;NeuronRuntime.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -74,7 +74,7 @@
     <ClInclude Include="rpc_server_channel_receive_private.h" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\dacom\dacom.vcxproj">
+    <ProjectReference Include="..\neuroncomponents\neuroncomponents.vcxproj">
       <Project>{8F3A1B20-9C4D-4E5F-A617-B8C9D0E1F203}</Project>
     </ProjectReference>
     <ProjectReference Include="..\OutpostFrontier\OutpostFrontier.vcxproj">

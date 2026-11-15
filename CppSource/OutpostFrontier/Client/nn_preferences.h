@@ -1,35 +1,31 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
-// Retail NN_Preferences (RTTI .?AVNN_Preferences@@ : WinControl) -- the options window: key map,
+// baseline NN_Preferences (RTTI .?AVNN_Preferences@@ : WinControl) -- the options window: key map,
 // the three option pages built from interface/optlist.ini, credits, and the in-game close box.
-//
-// WINFACTORY<NN_Preferences> DAT_006721d0 "NN_Preferences": static init LAB_004a9270 (factory
-// ctor FUN_004b28e0, atexit LAB_004a9290 -> FUN_00579380), Create FUN_004b2950
-// (operator_new(0x980), WinControl ctor FUN_0059f860, the two vptrs, the nine vectors empty,
+
+// WINFACTORY<NN_Preferences> the field "NN_Preferences": static init the branch (factory
+// ctor the routine, atexit the branch -> the routine), Create the routine
+// (operator_new(0x980), WinControl ctor the routine, the two vptrs, the nine vectors empty,
 // slot 9 with the payload; on failure the scalar deleting dtor).
-//
-// vftable 0x005d4a5c (one table; the old docs/re/options_screen.md claim of a second one at
+
+// vftable 0x005d4a5c (one table; the old implementation notes claim of a second one at
 // 0x5d4a80 was wrong) -- WinControl's with these overrides:
-//   0 FUN_004a95e0 (scalar deleting dtor around FUN_004a9600), 9 FUN_004a9790 Create,
-//   11 FUN_004ab6e0 Update, 13 FUN_004abdb0 Draw, 19 FUN_004ada40 MouseEvent,
-//   20 FUN_004adac0 KeyEvent, 23 FUN_004ada30 (OutputDebugString "OnMessage\n", false),
-//   42 FUN_004ac0a0 SetProperty.
+//   0 the routine (scalar deleting dtor around the routine), 9 the routine Create,
+//   11 the routine Update, 13 the routine Draw, 19 the routine MouseEvent,
+//   20 the routine KeyEvent, 23 the routine (OutputDebugString "OnMessage\n", false),
+//   42 the routine SetProperty.
 // IDataViewOwner face +0x7c vftable 0x005d4a4c. No Event::Handler face.
-//
+
 // Openers: NN_Pause::DoAction action 4 (payload 0 -> in-game) and PageOptions::Create
 // (payload 1 -> main menu); PageOptions polls bClosed (+0x32c).
-//
+
 // Pages (+0x7f4 CurPage / +0x7f8 ReqPage): 0 key map, 1 "interface" (OptionsA, the video mode
 // cycle lives here), 2 "video" (OptionsC), 3 "audio" (OptionsB), 4 credits, 5 close, 6 escape.
-//
-// PORT: retail std::vector is 16 bytes (allocator byte + three pointers); the port's is not, so
-// the layout is asserted only up to +0x504. Retail offsets past it are in the comments.
+
+// PORT: baseline std::vector is 16 bytes (allocator byte + three pointers); the port's is not, so
+// the layout is asserted only up to +0x504. baseline offsets past it are in the comments.
 
 #include "wincontrol_base.h"
 
@@ -43,7 +39,7 @@ class UiScroll;
 class WireButtonControl;
 class WireStaticControl;
 
-// One optlist.ini row (0x18 bytes); FUN_004afe30 initialises every int to -1 and every byte to 0.
+// One optlist.ini row (0x18 bytes); the routine initialises every int to -1 and every byte to 0.
 struct FPrefOption
 {
     int Id;                 // +0x00 ids of the caption, also the option's key
@@ -56,7 +52,7 @@ struct FPrefOption
     unsigned char bHeader;  // +0x16 caption only
     unsigned char Pad17;
 };
-static_assert(sizeof(FPrefOption) == 0x18, "retail optlist row is 0x18 bytes");
+static_assert(sizeof(FPrefOption) == 0x18, "baseline optlist row is 0x18 bytes");
 
 // One key map row (0x2c bytes) -- two FKeyBindingLookup-shaped triples and the command data.
 struct FKeyRowKey
@@ -76,9 +72,9 @@ struct FKeyRow
     unsigned char bEditable; // +0x28
     unsigned char Pad29[3];
 };
-static_assert(sizeof(FKeyRow) == 0x2c, "retail key row is 0x2c bytes");
+static_assert(sizeof(FKeyRow) == 0x2c, "baseline key row is 0x2c bytes");
 
-// Retail +0x8cc: ten {Width, Height, Bpp} modes (five resolutions at 16 bpp, then at 32).
+// baseline +0x8cc: ten {Width, Height, Bpp} modes (five resolutions at 16 bpp, then at 32).
 struct FPrefVideoMode
 {
     int Width;
@@ -87,8 +83,8 @@ struct FPrefVideoMode
 };
 
 #ifdef OUTPOST_FRONTIER_WIDESCREEN_SUPPORT
-// Port-only: the resolutions come from the device instead of retail's fixed five, so the table
-// grows. The layout past +0x8cc no longer matches retail under the define.
+// Port-only: the resolutions come from the device instead of baseline's fixed five, so the table
+// grows. The layout past +0x8cc no longer matches baseline under the define.
 constexpr int kPrefVideoResolutionCount = 24;
 #else
 constexpr int kPrefVideoResolutionCount = 5;
@@ -98,30 +94,30 @@ constexpr int kPrefVideoModeCount = kPrefVideoResolutionCount * 2;
 class NnPreferences : public WinControl
 {
 public:
-    // Inlined into FUN_004b2950.
+    // Inlined into the routine.
     NnPreferences();
-    // FUN_004a9600
+
     ~NnPreferences() override;
 
-    // slot 9 FUN_004a9790 (RET 8); Data == null -> opened in game.
+    // slot 9 the routine (RET 8); Data == null -> opened in game.
     bool Create(Win3D* NewParent, void* Data) override;
-    // slot 11 FUN_004ab6e0
+    // slot 11 the routine
     void Update() override;
-    // slot 13 FUN_004abdb0
+    // slot 13 the routine
     void Draw() override;
-    // slot 19 FUN_004ada40 (RET 4)
+    // slot 19 the routine (RET 4)
     bool MouseEvent(FWin3DMouseEvent const* Event) override;
-    // slot 20 FUN_004adac0 (RET 8)
+    // slot 20 the routine (RET 8)
     bool KeyEvent(unsigned Key, unsigned char* Modifiers) override;
-    // slot 23 FUN_004ada30 (RET 0xc)
+    // slot 23 the routine (RET 0xc)
     bool Slot23(unsigned Msg, unsigned A, unsigned B) override;
-    // slot 42 FUN_004ac0a0 (RET 0xc)
+    // slot 42 the routine (RET 0xc)
     intptr_t SetProperty(int Msg, uintptr_t A, uintptr_t B) override;
 
-    // FUN_004a9380 (cdecl) -- the machine-score seeding of the graphics defaults.
+    // (cdecl) -- the machine-score seeding of the graphics defaults.
     static bool SeedGraphicsDefaults();
 
-    // FUN_004abdf0 for the file-local helpers that inline its callers' sequences.
+    // for the file-local helpers that inline its callers' sequences.
     void SetRowsHiddenPublic(bool bHide) { SetRowsHidden(bHide); }
 
     unsigned char bClosed;          // +0x32c
@@ -219,25 +215,25 @@ public:
     unsigned char bBigVram;         // +0x97c
 
 private:
-    // FUN_004abdf0 (RET 4) -- hide / show the current page's row widgets.
+    // (RET 4) -- hide / show the current page's row widgets.
     void SetRowsHidden(bool bHide);
-    // FUN_004abfb0 -- show the set-key / confirm dialog.
+    // show the set-key / confirm dialog.
     void ShowKeyDialog();
-    // FUN_004ad600 (RET 8) -- try to bind the captured command to (Vk, Mods).
+    // (RET 8) -- try to bind the captured command to (Vk, Mods).
     bool TryBindKey(int Vk, unsigned Mods);
-    // FUN_004ade00 (RET 8) -- a copy of KeyGroups[Category] (3: the empty static).
+    // (RET 8) -- a copy of KeyGroups[Category] (3: the empty static).
     std::vector<FKeyRow> GetCategoryRows(int Category) const;
-    // FUN_004ae030 (RET 4) -- the same for CurGroup.
+    // (RET 4) -- the same for CurGroup.
     std::vector<FKeyRow> GetCurGroupRows() const;
-    // FUN_004ae260 (RET 4)
+    // (RET 4)
     void SelectGroup(int Group);
-    // FUN_004ae4b0 / 4ae650 / 4ae770 / 4ae890 / 4ae9a0
+    // / 4ae650 / 4ae770 / 4ae890 / 4ae9a0
     void EnterKeyMapPage();
     void EnterInterfacePage();
     void EnterVideoPage();
     void EnterAudioPage();
     void EnterCreditsPage();
-    // FUN_004aeab0 / 4aebb0 / 4aeca0 / 4aed70 and the inlined credits block.
+    // / 4aebb0 / 4aeca0 / 4aed70 and the inlined credits block.
     void LeaveKeyMapPage();
     void LeaveInterfacePage();
     void LeaveVideoPage();
@@ -245,49 +241,49 @@ private:
     void LeaveCreditsPage();
     // The five-way switch every page change inlines.
     void LeaveCurrentPage();
-    // FUN_004aee30
+
     void GotoRequestedPage();
-    // FUN_004af120 (RET 0x10; this unused)
+    // (RET 0x10; this unused)
     bool FindVideoMode(struct DisplaySettings* Out, int Width, int Height, int Bpp) const;
-    // FUN_004af230 (RET 4)
+    // (RET 4)
     void LoadKeyList(char const* Path);
-    // FUN_004af5c0 (RET 8)
+    // (RET 8)
     void AddKeyRow(int CommandId, int Category);
-    // FUN_004af900 (RET 4)
+    // (RET 4)
     void FillKeyRows(int First);
-    // FUN_004afb80 (RET 8)
+    // (RET 8)
     void BeginKeyCapture(int Row, bool bAlt);
-    // FUN_004afe30 (RET 4) -- FUN_004afd80 (one option line) is a file-local helper.
+    // (RET 4) -- the routine (one option line) is a file-local helper.
     bool LoadOptList(char const* Path);
-    // FUN_004b0370 (RET 4)
+    // (RET 4)
     void ApplyPercent(int Percent);
-    // FUN_004b0530
+
     void TakeSnapshot();
-    // FUN_004b06a0 (RET 4)
+    // (RET 4)
     void Revert(bool bApply);
-    // FUN_004b0920 (RET 4)
+    // (RET 4)
     void RefreshRows(int Id);
-    // FUN_004b1450 (RET 0xc)
+    // (RET 0xc)
     void SetSliderOption(int Id, int Value, int Row);
-    // FUN_004b1c00 (RET 8)
+    // (RET 8)
     bool TryApplyVideoMode(int Width, unsigned char b32);
-    // FUN_004b1d20 (RET 0xc)
+    // (RET 0xc)
     void SetToggleOption(int Id, int Value, int Row);
-    // FUN_004b1f30 (RET 8)
+    // (RET 8)
     void UpdateDirty(int Id, float Value);
-    // FUN_004b2130 (RET 4)
+    // (RET 4)
     void ShowRowTip(int Row);
-    // FUN_004b2440 (RET 4)
+    // (RET 4)
     void ProbeModes(int Arg);
-    // FUN_004b2540 (RET 4)
+    // (RET 4)
     void ShowConfirmDialog(bool bShow);
-    // FUN_004b2700
+
     void CancelChanges();
     // The eight-widget hide + row restore sequence inlined at 0x004ac3d0 / 0x004ac649 /
-    // 0x004ac85e / 0x004ac90b / 0x004ad834 / 0x004adb40.
+    // / 0x004ac90b / 0x004ad834 / 0x004adb40.
     void CloseKeyDialogRestoreRows();
     // The "+0x848 = 1, cancel enabled, reload keylist, refill" block inlined at 0x004ac6e7 /
-    // 0x004ac801 / 0x004acc1d / 0x004ad7ac.
+    // / 0x004acc1d / 0x004ad7ac.
     void MarkKeyMapDirtyAndReload();
 };
 

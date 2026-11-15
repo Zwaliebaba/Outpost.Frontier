@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "hud_button.h"
@@ -19,18 +15,18 @@
 #include "win3d_engine_submit.h"
 #include "win3d_immediate.h"
 
-#include "DALib.h"
-#include "engine/engbase.h"
+#include "NeuronRuntime.h"
+#include "engine/sceneruntime.h"
 
 #include <string.h>
 
 namespace
 {
-    // FUN_00421050 + FUN_00421070 on the holder: IEngine::SetInstanceMatrix(+0x04, Transform)
+    // + the routine on the holder: IEngine::SetInstanceMatrix(+0x04, Transform)
     // then UpdateInstance(+0x04, 0, 0).
     void HolderSetMatrixAndUpdate(FClientMeshHolder* Holder, float* Transform12)
     {
-        DALib::Engine->SetInstanceMatrix(Holder->EngineInstance, Transform12);
+        NeuronRuntime::Engine->SetInstanceMatrix(Holder->EngineInstance, Transform12);
         ClientMeshHolderUpdate(Holder);
     }
 }
@@ -41,7 +37,7 @@ namespace
 
 WinButton::WinButton()
 {
-    // 0x004c8d84: FUN_004b5150 on +0xac (identity rotation, zero translation), the vptr, then
+    // the routine on +0xac (identity rotation, zero translation), the vptr, then
     // the fields.
     memset(&RestPose, 0, sizeof(RestPose));
     RestPose.Rotation.D[2][2] = 1.0f;
@@ -57,14 +53,14 @@ WinButton::WinButton()
 
 bool WinButtonProjectedRect(FClientMeshHolder* Holder, float* OutRect4)
 {
-    // FUN_0059f200.
+    // .
     if (!ClientMeshHolderHasInstance(Holder))
         return false;
 
     float Radius = 0.0f;
     float Center[3];
-    DALib::Engine->GetInstanceExtent(Holder->EngineInstance, 0, &Radius, Center);
-    float const* const Pos = DALib::Engine->GetInstancePosition(Holder->EngineInstance);
+    NeuronRuntime::Engine->GetInstanceExtent(Holder->EngineInstance, 0, &Radius, Center);
+    float const* const Pos = NeuronRuntime::Engine->GetInstancePosition(Holder->EngineInstance);
     Vector World;
     World.x = Center[0] + Pos[0];
     World.y = Center[1] + Pos[1];
@@ -84,7 +80,7 @@ bool WinButtonProjectedRect(FClientMeshHolder* Holder, float* OutRect4)
 
 bool WinButton::HitTest(float const* Ray)
 {
-    // FUN_0059f2e0 (RET 4).
+    // (RET 4).
     (void)Ray;
     float Rect[4];
     if (!WinButtonProjectedRect(&MeshHolder, Rect))
@@ -110,7 +106,7 @@ bool WinButton::HitTest(float const* Ray)
 
 void WinButton::SetPosition(float const* NewPosition)
 {
-    // LAB_004c9320.
+    // .
     Position[0] = NewPosition[0];
     Position[1] = NewPosition[1];
     Position[2] = NewPosition[2];
@@ -123,7 +119,7 @@ void WinButton::SetPosition(float const* NewPosition)
 
 void WinButton::SetOrientation(float const* NewOrientation)
 {
-    // LAB_004c92e0: nine dwords into +0x3c, then +0x3c .. +0x6b (orientation and position) into
+    // nine dwords into +0x3c, then +0x3c .. +0x6b (orientation and position) into
     // the rest pose.
     memcpy(Orientation, NewOrientation, 9 * sizeof(float));
     memcpy(&RestPose, Orientation, 12 * sizeof(float));
@@ -132,17 +128,17 @@ void WinButton::SetOrientation(float const* NewOrientation)
 
 void WinButton::SetTransform(FTransform const* NewTransform)
 {
-    // FUN_004c92b0.
+    // .
     memcpy(Orientation, NewTransform, 12 * sizeof(float));
     HolderSetMatrixAndUpdate(&MeshHolder, Orientation);
 }
 
 void WinButton::Update()
 {
-    // FUN_0059f360.
+    // .
     double const Dt = GetClientFrameTimeCapped();
 
-    // 0x0059f36d: only a positive speed moves the angle.
+    // only a positive speed moves the angle.
     if (SpinSpeed > 0.0f)
     {
         double const Delta = Dt * SpinSpeed;
@@ -172,21 +168,21 @@ void WinButton::Update()
         }
     }
 
-    // 0x0059f3ff: wrap into (-360, 360). TEST AH,1 / JNZ sends "below 360 or unordered" to the
+    // wrap into (-360, 360). TEST AH,1 / JNZ sends "below 360 or unordered" to the
     // second test, whose TEST AH,0x41 / JP skips "above -360 or unordered".
     if (SpinAngle >= 360.0f)
         SpinAngle = static_cast<float>(static_cast<double>(SpinAngle) - 360.0);
     else if (SpinAngle <= -360.0f)
         SpinAngle = static_cast<float>(static_cast<double>(SpinAngle) + 360.0);
 
-    // 0x0059f43f .. 0x0059f4da: the rest orientation times RotateMatrix((0, angle, 0)) through
+    // the rest orientation times RotateMatrix((0, angle, 0)) through
     // the 3DMathEngine (slot +0x20), with the rest translation, into +0x3c and the instance.
     Vector Angles;
     Angles.x = 0.0f;
     Angles.y = SpinAngle;
     Angles.z = 0.0f;
     Matrix const Spin = RotateMatrix(Angles);
-    // DAT_0067dd10 (G_Win3DObjectMath, shared with FUN_0059efa0), FUN_005b73e0 when null.
+    // (G_Win3DObjectMath, shared with the routine), the routine when null.
     if (G_Win3DObjectMath == nullptr)
         G_Win3DObjectMath = Acquire3DMathEngine();
     FTransform Live;
@@ -196,7 +192,7 @@ void WinButton::Update()
     memcpy(Orientation, &Live, 12 * sizeof(float));
     HolderSetMatrixAndUpdate(&MeshHolder, Orientation);
 
-    // 0x0059f4df: the Win3D child walk (FUN_005a17b0 inlined).
+    // the Win3D child walk (the routine inlined).
     Win3D* Child = ChildHead;
     while (Child != nullptr)
     {
@@ -211,7 +207,7 @@ void WinButton::Update()
 
 void WinButton::Draw()
 {
-    // FUN_0059f510: "[INTERFACE]" (option 6) and "NEURONET" (option 9) must both be on.
+    // "[INTERFACE]" (option 6) and "NEURONET" (option 9) must both be on.
     if (GetGameOption(kGameOptInterfaceGroup) == 0)
         return;
     if (GetGameOption(kGameOptNeuronet) == 0)
@@ -219,9 +215,9 @@ void WinButton::Draw()
 
     if ((Flags & kWin3DVisible) != 0)
     {
-        // 0x0059f546: FUN_0059efa0(camera, 0, 1.0f, 0) on the holder.
+        // the routine(camera, 0, 1.0f, 0) on the holder.
         SubmitWin3DEngineInstance(&MeshHolder, Win3DGetCamera(), 0, 1.0f, 0);
-        // 0x0059f54b: with bit 0 of +0xa4 the tinted pass, FUN_00434630(camera, instance, 1,
+        // with bit 0 of +0xa4 the tinted pass, the routine(camera, instance, 1,
         // &tint, 1, 1.0f, 0).
         if ((DrawFlags & 1) != 0)
         {
@@ -230,20 +226,20 @@ void WinButton::Draw()
         }
     }
 
-    // 0x0059f57a: JMP FUN_0059e5c0 when there are children.
+    // JMP the routine when there are children.
     if (ChildHead != nullptr)
         Win3DDrawChildren(this);
 }
 
 void WinButton::MouseOver(float const* Ray)
 {
-    // FUN_004c9380: vt+0x10 (slot 4) with the ray, the result into +0xdc.
+    // vt+0x10 (slot 4) with the ray, the result into +0xdc.
     bHover = HitTest(Ray) ? 1 : 0;
 }
 
 void WinButton::MouseLeave(float const* Ray)
 {
-    // LAB_004c93a0 (RET 4).
+    // (RET 4).
     (void)Ray;
     bHover = 0;
 }
@@ -254,8 +250,8 @@ void WinButton::MouseLeave(float const* Ray)
 
 HUD_Button::HUD_Button(INI_Reader& Reader)
 {
-    // FUN_004c8d40 after the WinButton part: the HUDItem part at +0xf4 (inlined), the action
-    // string at +0x12c emptied, both vptrs, HUDItem's name "Button" (FUN_00420750), the position
+    // after the WinButton part: the HUDItem part at +0xf4 (inlined), the action
+    // string at +0x12c emptied, both vptrs, HUDItem's name "Button" (the routine), the position
     // (0, 0, -5) straight into +0x60, +0x150 = 0, then the ini keys.
     Action.Length = 0;
     Action.Data[0] = '\0';
@@ -287,13 +283,13 @@ HUD_Button::HUD_Button(INI_Reader& Reader)
         }
         else if (Reader.is_value("object"))
         {
-            // 0x004c8f6b: FUN_0059f1c0(0, path, 0).
+            // the routine(0, path, 0).
             LoadMeshAndCreate(nullptr, Reader.get_value_string(), 0);
         }
         else if (Reader.is_value("object_pos"))
         {
-            // 0x004c8f93: values 1, 0, 2 read in that order; the point goes to +0x60 and to the
-            // rest translation, then FUN_004c92b0 with the rest pose.
+            // values 1, 0, 2 read in that order; the point goes to +0x60 and to the
+            // rest translation, then the routine with the rest pose.
             float const Y = Reader.get_value_float(1);
             float const X = Reader.get_value_float(0);
             float const Z = Reader.get_value_float(2);
@@ -314,34 +310,34 @@ HUD_Button::HUD_Button(INI_Reader& Reader)
 
 HUD_Button::~HUD_Button()
 {
-    // FUN_004c94b0: WinObject::Destroy inlined (release a bound instance, clear bits 0 and 1,
-    // slot 10 on every child, FUN_0059dc00); then ~HUDItem, the holder's destructor and ~Win3D
+    // WinObject::Destroy inlined (release a bound instance, clear bits 0 and 1,
+    // slot 10 on every child, the routine); then ~HUDItem, the holder's destructor and ~Win3D
     // run as the bases unwind.
     WinObject::Destroy();
 }
 
 void HUD_Button::Update()
 {
-    // LAB_004c93d0: visible only with DAT_00673560 set and options 6 and 0xa on.
+    // visible only with the field set and options 6 and 0xa on.
     bool const bVisible = IsCockpitResourceStringLoading() &&
                           GetGameOption(kGameOptInterfaceGroup) != 0 &&
                           GetGameOption(kGameOptHud) != 0;
     Flags = static_cast<unsigned char>((Flags & ~kWin3DVisible) | (bVisible ? kWin3DVisible : 0));
     if (bHover != 0)
-        HUDItem::ShowToolTip(); // FUN_004c81d0 on +0xf4
-    WinButton::Update();        // JMP FUN_0059f360
+        HUDItem::ShowToolTip(); // on +0xf4
+    WinButton::Update();        // JMP the routine
 }
 
 void HUD_Button::Draw()
 {
-    // LAB_004c93b0: FUN_00421ed0(0xb71), then JMP FUN_0059f510.
+    // the routine(0xb71), then JMP the routine.
     Win3DDisable(kWin3DDepthTest);
     WinButton::Draw();
 }
 
 bool HUD_Button::MouseEvent(FWin3DMouseEvent const* Event)
 {
-    // LAB_004c9430 (RET 4): a click (-1, 2) posts the command record through FUN_0054bcb0.
+    // (RET 4): a click (-1, 2) posts the command record through the routine.
     if (Event->Field0 != -1)
         return false;
     if (Event->Field1 != 2)
@@ -357,13 +353,13 @@ bool HUD_Button::MouseEvent(FWin3DMouseEvent const* Event)
 
 HUDItem* HUD_ButtonFactory::Create(INI_Reader& Reader)
 {
-    // FUN_004c8d40: operator new(0x154), WinObject's ctor FUN_004c9060, the rest inlined.
+    // operator new(0x154), WinObject's ctor the routine, the rest inlined.
     HUD_Button* const Button = new HUD_Button(Reader);
     return Button;
 }
 
 namespace
 {
-    // DAT_006733b0 -- XC entry LAB_004c8320: FUN_004c8ca0(this, "Button"); atexit LAB_004c8340.
+    // XC entry the branch: the routine(this, "Button"); atexit the branch.
     HUD_ButtonFactory G_HudButtonFactory("Button");
 }

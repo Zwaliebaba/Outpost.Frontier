@@ -1,12 +1,8 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
-#include "dacom.h"
+#include "neuroncomponents.h"
 #include "render/IRenderPipeline.h"
 #include "x86math.h"
 #include "luaprofile.h"
@@ -68,7 +64,7 @@ static const unsigned long kSubmitFlagIrDraw = 0x100;
 static const unsigned long kSubmitFlagSkipAlphaTest = 0x400;
 
 
-// DAT_06ed4848 dword[4]: NONE stays, CW↔CCW. Indexed by D3DRS_CULLMODE (0x16).
+// dword[4]: NONE stays, CW↔CCW. Indexed by D3DRS_CULLMODE (0x16).
 static const unsigned long kCullFlip[4] = {0, 1, 3, 2};
 
 // D3D8 D3DPRIMITIVETYPE. SphereMesh slot-10 arg2 is immediate 4 (TRIANGLELIST).
@@ -104,7 +100,7 @@ enum EMaterialSubmit
     SubmitBtDetailTwo
 };
 
-// FShadingPropertyValue / FShadingPropertyRecord (FUN_06eb28f0, stride 0x4C) are public now:
+// FShadingPropertyValue / FShadingPropertyRecord (the routine, stride 0x4C) are public now:
 // render/shading.h (included above), because OutpostFrontier.exe's SwappedMaterial reads them.
 
 inline bool IidEqual(const char* Left, const char* Right)
@@ -120,7 +116,7 @@ inline GENRESULT QiFrom(void* Object, const char* Iid, void** Out)
         *Out = nullptr;
     if (Object == nullptr || Iid == nullptr || Out == nullptr)
         return GR_GENERIC;
-    IDAComponent* Component = (IDAComponent*)Object;
+    INeuronComponent* Component = (INeuronComponent*)Object;
     return Component->QueryInterface(Iid, Out);
 }
 
@@ -152,7 +148,7 @@ inline unsigned long PipeGetRs(IRenderPipeline* Pipeline, D3DRENDERSTATETYPE Sta
     return (unsigned long)Value;
 }
 
-// IRenderPipeline +0xC8 slot 50 — get_texture_format (FUN_06d0e3d9).
+// IRenderPipeline +0xC8 slot 50 — get_texture_format (the routine).
 inline GENRESULT PipeGetTextureFormat(IRenderPipeline* Pipeline, unsigned long Handle,
                                       int* OutFormat)
 {
@@ -172,7 +168,7 @@ static const unsigned char kPixelFormatHasAlpha[15] = {0, 0, 0, 0, 0, 1, 1, 1, 0
 static const int kDxtFormatIndexMin = 10;
 static const int kDxtFormatIndexMax = 14;
 static const int kPixelFormatFourCcCount = 22;
-// DAT_06ed51d8 — FUN_06ed0b50 / FUN_06ed0b80 (ids 9…21).
+// — the routine / the routine (ids 9…21).
 static const unsigned long kPixelFormatFourCc[22] = {
     0, 0x29, 0x14, 0x17, 0x18, 0x1A, 0x19, 0x15, 0x16, 0, 0x31545844u, 0x32545844u,
     0x33545844u, 0x34545844u, 0x35545844u, 0x504F4144u, 0x544F4144u, 0x41414144u,
@@ -207,7 +203,7 @@ inline void PipeSetTexture(IRenderPipeline* Pipeline, unsigned long Stage, unsig
                                          (void*)Handle);
 }
 
-// IRenderPipeline +0x100 slot 64 — set_texture_stage_transform (FUN_06d0fdd2).
+// IRenderPipeline +0x100 slot 64 — set_texture_stage_transform (the routine).
 inline void PipeSetTextureTransform(IRenderPipeline* Pipeline, unsigned long Stage,
                                     const float* Matrix)
 {
@@ -268,7 +264,7 @@ inline GENRESULT RpDrawIndexed(void* Draw, unsigned long Prim, unsigned long Min
                                       (unsigned int)Count);
 }
 
-// FUN_06eb5940
+
 inline unsigned long FvfPosSize(unsigned long Fvf)
 {
     const unsigned char Bits = (unsigned char)Fvf;
@@ -281,7 +277,7 @@ inline unsigned long FvfPosSize(unsigned long Fvf)
     return 0;
 }
 
-// FUN_06eb5980
+
 inline unsigned long FvfColorSize(unsigned long Fvf)
 {
     unsigned long Size = 0;
@@ -292,7 +288,7 @@ inline unsigned long FvfColorSize(unsigned long Fvf)
     return Size;
 }
 
-// FUN_06eb3310
+
 inline unsigned long FvfTexSize(unsigned long Fvf)
 {
     unsigned long Size = 0;
@@ -349,7 +345,7 @@ inline void VbMgrUnlock(void* VbMgr, FVertexMemoryLock* Out)
     AsVbMgr(VbMgr)->UnlockVertexMemory(Out);
 }
 
-// IVertexBufferManager+0x20 FUN_06d114c5 → FUN_06d1f040. RET 0x18.
+// IVertexBufferManager+0x20 the routine → the routine. RET 0x18.
 inline void VbMgrCopy(IVertexBufferManager* VbMgr, void* Dest, unsigned long Fvf, const FRpVertexSrcDesc* Mesh,
                       unsigned long Start, unsigned long Count)
 {
@@ -467,8 +463,8 @@ struct FSystemAggDesc
 {
     unsigned long Size;
     const char* Name;
-    IDAComponent* Outer;
-    IDAComponent** InnerOut;
+    INeuronComponent* Outer;
+    INeuronComponent** InnerOut;
     const char* Extra;
 };
 
@@ -500,7 +496,7 @@ inline bool ReadNamedBytes(void* FileSystem, const char* Name, void* Buffer, uns
     const int ReadOk =
         FileSystemRead(FileSystem, (unsigned long)Handle, Buffer, Size, &BytesRead);
     FileSystemClose(FileSystem, (unsigned long)Handle);
-    // FUN_06eb3450 treats a zero Read result as failure even if a provider
+    // treats a zero Read result as failure even if a provider
     // happens to report the requested byte count; preserve that contract.
     return ReadOk != 0 && BytesRead == Size;
 }
@@ -533,7 +529,7 @@ inline bool WriteNamedBytes(void* FileSystem, const char* Name, const void* Buff
     return WriteOk != 0 && BytesWritten == Size;
 }
 
-// UTF +0x7C OpenByDesc is the retail no-IDataBuffer stub. Named leaves: OpenNode + Read(0) + "..".
+// UTF +0x7C OpenByDesc is the baseline no-IDataBuffer stub. Named leaves: OpenNode + Read(0) + "..".
 inline unsigned long ReadUtfNamedLeaf(void* FileSystem, const char* Name, void* Buffer,
                                       unsigned long MaxBytes)
 {
@@ -585,9 +581,9 @@ static_assert(sizeof(FTextureFrame) == 0x14, "Texture frame file payload");
 struct FTextureEntry
 {
     int RefCount;
-    unsigned long GpuHandle; // retail canonical record+8
+    unsigned long GpuHandle; // baseline canonical record+8
     unsigned long Crc;
-    bool bHasName; // Distinguish retail null name from an allocated empty string.
+    bool bHasName; // Distinguish baseline null name from an allocated empty string.
     std::string FullName;
     char Name[128]; // Compatibility name mirror, identity uses FullName.
     std::vector<FTextureFrame> Frames;
@@ -599,7 +595,7 @@ struct FTextureEntry
         Name[0] = '\0';
     }
 
-    // 06ec0ca4..0ceb: release the owned name, then child storage, then frames.
+    // ..0ceb: release the owned name, then child storage, then frames.
     ~FTextureEntry()
     {
         std::string().swap(FullName);
@@ -636,14 +632,14 @@ struct FMaterialMapRule
     std::string Type;
 
     FMaterialMapRule() = default;
-    // 06ecde20 / 06ece1c0: release program, pattern, then replacement type.
+    // / 06ece1c0: release program, pattern, then replacement type.
     ~FMaterialMapRule()
     {
         Expression.reset();
         std::string().swap(Pattern);
         std::string().swap(Type);
     }
-    // 06ecd320: move owning fields, retain the source key.
+    // move owning fields, retain the source key.
     FMaterialMapRule(FMaterialMapRule&& Other) noexcept
         : Key(Other.Key), bNamePattern(Other.bNamePattern),
           Expression(std::move(Other.Expression)), Pattern(std::move(Other.Pattern)),
@@ -669,7 +665,7 @@ struct FMaterialMapRule
 struct FMaterialGroup
 {
     unsigned long Id;
-    // Retail duplicates group names into heap storage; keep native ownership
+    // baseline duplicates group names into heap storage; keep native ownership
     // dynamic so SetGroupName does not truncate valid long names.
     std::string Name;
     bool bHasName = false;

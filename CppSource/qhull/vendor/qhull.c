@@ -68,7 +68,7 @@ void qh_qhull (void) {
     if (qh ZEROall_ok && !qh TESTvneighbors && qh MERGEexact)
       qh_checkzero( qh_ALL);
     if (qh ZEROall_ok && !qh TESTvneighbors && !qh WAScoplanar) {
-      /* retail 0637d5b5: only the trace2 -- qh.DOcheckmax is NOT cleared and the check_maxout
+      /* only the trace2 -- qh.DOcheckmax is NOT cleared and the check_maxout
          block below is part of the else branch (the listing jumps straight to KEEPnearinside) */
       trace2((qh ferr, "qh_qhull: all facets are clearly convex and no coplanar points.  Post-merging and check of maxout not needed.\n"));
     }else {
@@ -91,7 +91,7 @@ void qh_qhull (void) {
       if (qh DOcheckmax){
         if (qh REPORTfreq) {
 	  qh_buildtracing (NULL, NULL);
-	  FUN_06356960 (/* retail 0637d6f4 */ "\nTesting all coplanar points.\n");
+	  WriteHullDiagnostic (  "\nTesting all coplanar points.\n");
         }
         qh_check_maxout();
       }
@@ -100,7 +100,7 @@ void qh_qhull (void) {
       qh_nearcoplanar();
   }
   if (qh_setsize ((setT*)qhmem.tempstack) != 0) {
-    FUN_06356960 (/* retail 0637d740 */ "qhull internal error (qh_qhull): temporary sets not empty (%d)\n",
+    WriteHullDiagnostic (  "qhull internal error (qh_qhull): temporary sets not empty (%d)\n",
 	     qh_setsize ((setT*)qhmem.tempstack));
     qh_errexit (qh_ERRqhull, NULL, NULL);
   }
@@ -175,7 +175,7 @@ boolT qh_addpoint (pointT *furthest, facetT *facet, boolT checkdist) {
   if (qh_pointid (furthest) == -1)
     qh_setappend (&qh other_points, furthest);
   if (!facet) {
-    FUN_06356960 (/* retail 0637d7d3 (retail text) */ "qh_addpoint: NULL facet.  Use qh_findbestfacet\n");
+    WriteHullDiagnostic (/* (baseline text) */ "qh_addpoint: NULL facet.  Use qh_findbestfacet\n");
     qh_errexit (qh_ERRqhull, NULL, NULL);
   }
   if (checkdist) {
@@ -230,7 +230,7 @@ boolT qh_addpoint (pointT *furthest, facetT *facet, boolT checkdist) {
     facet->notfurthest= True;
     return False;  /* visible_list etc. still defined */
   }
-  /* retail 0637da07: no findbestnew store here (the only stores in qh_addpoint are =True at 0637da2c and =False at 0637da68) */
+  /* no findbestnew store here (the only stores in qh_addpoint are =True at 0637da2c and =False at 0637da68) */
   if (qh PREmerge || qh MERGEexact) {
     qh_premerge (vertex, qh premerge_centrum, qh premerge_cos);
     if (qh_USEfindbestnew)
@@ -256,7 +256,7 @@ boolT qh_addpoint (pointT *furthest, facetT *facet, boolT checkdist) {
   qh_deletevisible (/*qh visible_list*/);
   zmax_(Zmaxvertex, qh num_vertices);
   qh NEWfacets= False;
-  /* retail 0637dabd: IStracing >= 4 only prints the new facet list; CHECKfrequently is an
+  /* IStracing >= 4 only prints the new facet list; CHECKfrequently is an
      independent test (no qh_printlists, no qh_checkpolygon in the trace branch) */
   if (qh IStracing >= 4)
     qh_printfacetlist (qh newfacet_list, NULL, True);
@@ -271,7 +271,7 @@ boolT qh_addpoint (pointT *furthest, facetT *facet, boolT checkdist) {
   qh_resetlists (True /*qh visible_list newvertex_list newfacet_list */);
   trace2((qh ferr, "qh_addpoint: added p%d new facets %d new balance %2.2g point balance %2.2g\n",
     qh_pointid (furthest), numnew, newbalance, pbalance));
-  /* retail 0637dbd7: stop tracing a traced point of a >3-d hull (qhmem.IStracing is the
+  /* stop tracing a traced point of a >3-d hull (qhmem.IStracing is the
      tracing level word at 0658b998) */
   if (qh hull_dim > 3 && qh TRACEpoint == qh_pointid (furthest)) {
     qh IStracing= 0;
@@ -372,14 +372,14 @@ void qh_buildhull(void) {
   trace1((qh ferr, "qh_buildhull: start build hull\n"));
   FORALLfacets {
     if (facet->visible || facet->newfacet) {
-      FUN_06356960 (/* retail 0637de67 */ "qhull internal error (qh_buildhull): visible or new facet f%d in facet list\n",
+      WriteHullDiagnostic (  "qhull internal error (qh_buildhull): visible or new facet f%d in facet list\n",
                    facet->id);    
       qh_errexit (qh_ERRqhull, facet, NULL);
     }
   }
   FORALLvertices {
     if (vertex->newlist) {
-      FUN_06356960 (/* retail 0637deb8 */ "qhull internal error (qh_buildhull): new vertex f%d in vertex list\n",
+      WriteHullDiagnostic (  "qhull internal error (qh_buildhull): new vertex f%d in vertex list\n",
                    vertex->id);
       qh_errprint ("ERRONEOUS", NULL, NULL, NULL, vertex);
       qh_errexit (qh_ERRqhull, NULL, NULL);
@@ -401,7 +401,7 @@ void qh_buildhull(void) {
   if (qh NARROWhull) /* move points from outsideset to coplanarset */
     qh_outcoplanar( /* facet_list */ );
   if (qh num_outside && !furthest) {
-    FUN_06356960 (/* retail 0637dfa3 */ "qhull internal error (qh_buildhull): %d outside points were never processed.\n", qh num_outside);
+    WriteHullDiagnostic (  "qhull internal error (qh_buildhull): %d outside points were never processed.\n", qh num_outside);
     qh_errexit (qh_ERRqhull, NULL, NULL);
   }
   trace1((qh ferr, "qh_buildhull: completed the hull construction\n"));
@@ -450,7 +450,7 @@ void qh_buildtracing (pointT *furthest, facetT *facet) {
     cpu= qh_CPUclock - qh hulltime;
     cpu /= qh_SECticks;
     total= zzval_(Ztotmerge) - zzval_(Zcyclehorizon) + zzval_(Zcyclefacettot);
-    FUN_06356960 (/* retail 0637e0a3 */ "\n\
+    WriteHullDiagnostic (  "\n\
 At %02d:%02d:%02d & %2.5g CPU secs, qhull has created %d facets and merged %d.\n\
  The current hull contains %d facets and %d vertices.  Last point was p%d\n",
       tp->tm_hour, tp->tm_min, tp->tm_sec, cpu, qh facet_id -1,
@@ -462,7 +462,7 @@ At %02d:%02d:%02d & %2.5g CPU secs, qhull has created %d facets and merged %d.\n
     qh IStracing= qh TRACElevel;
     qhmem.IStracing= qh TRACElevel;
   }
-  /* Retail 0637e0c7 (JNZ 0637e0d8) goes straight to the REPORTfreq test: upstream
+  /* (JNZ 0637e0d8) goes straight to the REPORTfreq test: upstream
      qhull's `else if (qh TRACEpoint != -1 && qh TRACEdist < REALmax/2)` branch that
      clears qh IStracing/qhmem.IStracing does not exist in Common.dll. */
   if (qh REPORTfreq && (qh facet_id-1 > qh lastreport+qh REPORTfreq)) {
@@ -474,7 +474,7 @@ At %02d:%02d:%02d & %2.5g CPU secs, qhull has created %d facets and merged %d.\n
     total= zzval_(Ztotmerge) - zzval_(Zcyclehorizon) + zzval_(Zcyclefacettot);
     zinc_(Zdistio);
     qh_distplane (furthest, facet, &dist);
-    FUN_06356960 (/* retail 0637e1ca */ "\n\
+    WriteHullDiagnostic (  "\n\
 At %02d:%02d:%02d & %2.5g CPU secs, qhull has created %d facets and merged %d.\n\
  The current hull contains %d facets and %d vertices.  There are %d\n\
  outside points.  Next is point p%d (v%d), %2.2g above f%d.\n",
@@ -485,7 +485,7 @@ At %02d:%02d:%02d & %2.5g CPU secs, qhull has created %d facets and merged %d.\n
     cpu= qh_CPUclock - qh hulltime;
     cpu /= qh_SECticks;
     qh_distplane (furthest, facet, &dist);
-    FUN_06356960 (/* retail 0637e258 */ "qh_addpoint: add p%d (v%d) to hull of %d facets (%2.2g above f%d) and %d outside at %4.4g CPU secs.  Previous was p%d.\n",
+    WriteHullDiagnostic (  "qh_addpoint: add p%d (v%d) to hull of %d facets (%2.2g above f%d) and %d outside at %4.4g CPU secs.  Previous was p%d.\n",
       furthestid, qh vertex_id, qh num_facets, dist,
       getid_(facet), qh num_outside+1, cpu, qh furthest_id);
   }
@@ -571,7 +571,7 @@ void qh_findhorizon(pointT *point, facetT *facet, int *goodvisible, int *goodhor
     qh_errprint ("visible", facet, NULL, NULL, NULL);
   qh visit_id++;
   FORALLvisible_facets {
-    /* retail 0637e310: no tricoplanar facets in this build, so no tricoplanar check here */
+    /* no tricoplanar facets in this build, so no tricoplanar check here */
     visible->visitid= qh visit_id;
     FOREACHneighbor_(visible) {
       if (neighbor->visitid == qh visit_id) 
@@ -705,7 +705,7 @@ pointT *qh_nextfurthest (facetT **visible) {
 	}
       }
       randr= qh_RANDOMint;
-      /* retail 0637e859: FMUL by the .rdata double 3E00000000200000 (nearest double of
+      /* FMUL by the .rdata double 3E00000000200000 (nearest double of
          1/(qh_RANDOMmax+1)), stored as a double before the second multiply */
       randr= randr*(1.0/(qh_RANDOMmax+1));
       index= (int)floor((qh num_outside - outcoplanar) * randr);
@@ -721,7 +721,7 @@ pointT *qh_nextfurthest (facetT **visible) {
             index -= size;
         }
       }
-      FUN_06356960 (/* retail 0637e8dc */ "qhull internal error (qh_nextfurthest): num_outside %d is too low\nby at least %d, or a random real %g >= 1.0\n",
+      WriteHullDiagnostic (  "qhull internal error (qh_nextfurthest): num_outside %d is too low\nby at least %d, or a random real %g >= 1.0\n",
               qh num_outside, index+1, randr);
       qh_errexit (qh_ERRqhull, NULL, NULL);
     }else { /* VIRTUALmemory */
@@ -798,7 +798,7 @@ void qh_partitionall(setT *vertices, pointT *points, int numpoints){
       SETelem_(pointset, id)= NULL;
   }
   if (!qh BESToutside) {  /* matches conditional for qh_partitionpoint below */
-    /* retail 0637ea6f..0637eac7: !MERGING -> MINoutside; MERGING -> max(4.0 * MINoutside, max_outside + max_outside)
+    /* !MERGING -> MINoutside; MERGING -> max(4.0 * MINoutside, max_outside + max_outside)
        (FMUL .rdata 063a59a0 = 4.0, FADD ST0,ST0, FCOM + TEST AH,1).  The 3.1 qh_DISToutside macro (qh_USEfindbestnew factor) is not used. */
     if (!qh MERGING)
       distoutside= qh MINoutside;
@@ -899,7 +899,7 @@ void qh_partitionall(setT *vertices, pointT *points, int numpoints){
       update qh.max_outside
 */
 void qh_partitioncoplanar (pointT *point, facetT *facet, realT *dist) {
-  /* retail 0637ed40 (qhull 2.6 form): no repartition-by-angle, max_outside is updated after the coplanar set */
+  /* (qhull 2.6 form): no repartition-by-angle, max_outside is updated after the coplanar set */
   facetT *bestfacet;
   pointT *oldfurthest;
   realT bestdist, dist2, maxcoplanar;
@@ -951,7 +951,7 @@ void qh_partitioncoplanar (pointT *point, facetT *facet, realT *dist) {
     if (bestdist <= qh TRACEdist)
       goto LABELtrace;
   }
-  FUN_06356960 (/* retail 0637ef02 */ "qh_partitioncoplanar: ====== p%d increases max_outside to %2.2g of f%d last p%d\n",
+  WriteHullDiagnostic (  "qh_partitioncoplanar: ====== p%d increases max_outside to %2.2g of f%d last p%d\n",
 		 qh_pointid(point), bestdist, bestfacet->id, qh furthest_id);
   qh_errprint ("DISTANT", bestfacet, NULL, NULL, NULL);
 LABELtrace:
@@ -995,7 +995,7 @@ LABELtrace:
         partition as coplanar point into bestfacet
 */
 void qh_partitionpoint (pointT *point, facetT *facet) {
-  /* retail 0637ef60 (qhull 2.6 form) */
+  /* (qhull 2.6 form) */
   realT bestdist, maxcoplanar;
   boolT isoutside;
   facetT *bestfacet;
@@ -1113,7 +1113,7 @@ void qh_partitionvisible(/*visible_list*/ boolT allpoints, int *numoutside) {
     }
     if (!newfacet)
       newfacet= qh newfacet_list;
-    /* retail 0637f220..0637f2cf: no "all new facets deleted as degenerate facets" precision error in this build */
+    /* no "all new facets deleted as degenerate facets" precision error in this build */
     if (visible->outsideset) {
       size= qh_setsize (visible->outsideset);
       *numoutside += size;
@@ -1181,7 +1181,7 @@ void qh_printsummary(FILE *Fp) {
   facetT *Facet;
   const char *PointKind;
 
-  /* Retail 0637f47f..0637f489: null FILE* returns before set/point queries. */
+  /* null FILE* returns before set/point queries. */
   if (!Fp)
     return;
   PointCount = qh num_points + qh_setsize(qh other_points);
@@ -1267,7 +1267,7 @@ void qh_printsummary(FILE *Fp) {
             zzval_(Zcentrumtests) + zzval_(Zbestdist));
   }
   if (!qh RANDOMoutside && qh QHULLfinished) {
-    /* 0637f8af..0637f8cc zero-extends hulltime and converts directly to double. */
+    /* zero-extends hulltime and converts directly to double. */
     Cpu = qh hulltime;
     wval_(Wcpu) = Cpu;
     fprintf(Fp, "  CPU seconds to compute hull (after input): %2.4g\n", Cpu);

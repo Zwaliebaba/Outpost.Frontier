@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "button_mover.h"
@@ -10,18 +6,18 @@
 #include "globals.h"
 #include "wincontrol_base.h"
 
-#include "DALib.h"
-#include "engine/engbase.h"
+#include "NeuronRuntime.h"
+#include "engine/sceneruntime.h"
 #include "x86math.h"
 
 #include <math.h>
 
 namespace
 {
-    // DAT_005c8a5c -- pi (0x40490fdb).
+    // pi (0x40490fdb).
     float const kPi = 3.14159274f;
 
-    // DAT_00679b10 -- ButtonScaler::Update's lazily acquired 3DMathEngine (FUN_005b73e0).
+    // ButtonScaler::Update's lazily acquired 3DMathEngine (the routine).
     I3DMathEngine* G_ButtonScalerMath = nullptr;
 }
 
@@ -29,24 +25,24 @@ namespace
 // ButtonMover
 // ---------------------------------------------------------------------------------------------
 
-// FUN_0055dec0 -- vftable 0x005e18f8, empty vector, +0x18 = 0. +0x14 / +0x1c stay unwritten.
+// vftable 0x005e18f8, empty vector, +0x18 = 0. +0x14 / +0x1c stay unwritten.
 ButtonMover::ButtonMover()
     : bActive(false)
 {
 }
 
-// LAB_00401e90 -- RET.
+// RET.
 void ButtonMover::OnMoveFinished()
 {
 }
 
-// LAB_0043d8a0 -- XOR AL,AL / RET 8.
+// XOR AL,AL / RET 8.
 bool ButtonMover::OnMoveStep(WinControl* /*Control*/, float const* /*Position*/)
 {
     return false;
 }
 
-// FUN_0055dee0 -- the inlined vector insert-at-end of one {Start, End, Control} entry (grow by
+// the inlined vector insert-at-end of one {Start, End, Control} entry (grow by
 // max(size, 1) when full, copy the old range, then the new entry).
 void ButtonMover::AddButton(WinControl* Control, float const* Start, float const* End)
 {
@@ -61,7 +57,7 @@ void ButtonMover::AddButton(WinControl* Control, float const* Start, float const
     Entries.push_back(Entry);
 }
 
-// FUN_0055e120 -- +0x1c = Seconds, +0x18 = 1, +0x14 = 0, then erase(begin, end).
+// +0x1c = Seconds, +0x18 = 1, +0x14 = 0, then erase(begin, end).
 void ButtonMover::Start(float Seconds)
 {
     Duration = Seconds;
@@ -70,7 +66,7 @@ void ButtonMover::Start(float Seconds)
     Entries.erase(Entries.begin(), Entries.end());
 }
 
-// FUN_0055e170
+
 void ButtonMover::Update()
 {
     if (!bActive)
@@ -78,7 +74,7 @@ void ButtonMover::Update()
         return;
     }
 
-    // FUN_0042d680 + [+0x14] -> FST [+0x14]; FCOMP [+0x1c] / TEST AH,1 / JNZ: the snap is taken
+    // + [+0x14] -> FST [+0x14]; FCOMP [+0x1c] / TEST AH,1 / JNZ: the snap is taken
     // when the (unrounded) sum is not below the duration.
     double const Sum = GetClientFrameTimeCapped() + static_cast<double>(Elapsed);
     Elapsed = static_cast<float>(Sum);
@@ -114,7 +110,7 @@ void ButtonMover::Update()
     }
 }
 
-// FUN_0055e290 -- when active: clear the flag, put every control at its End (through
+// when active: clear the flag, put every control at its End (through
 // OnMoveStep / SetProperty(6)), then OnMoveFinished. Inactive: nothing.
 void ButtonMover::Finish()
 {
@@ -145,24 +141,24 @@ void ButtonMover::Finish()
 // ButtonScaler
 // ---------------------------------------------------------------------------------------------
 
-// FUN_0055e340 -- vftable 0x005e1904, empty vector, +0x18 = 0.
+// vftable 0x005e1904, empty vector, +0x18 = 0.
 ButtonScaler::ButtonScaler()
     : bActive(false)
 {
 }
 
-// LAB_00401e90 -- RET.
+// RET.
 void ButtonScaler::OnScaleFinished()
 {
 }
 
-// LAB_0043d8a0 -- XOR AL,AL / RET 8.
+// XOR AL,AL / RET 8.
 bool ButtonScaler::OnScaleStep(WinControl* /*Control*/, float const* /*Scale*/)
 {
     return false;
 }
 
-// FUN_0055e360 -- the inlined vector insert-at-end of one {From, To, Control} entry.
+// the inlined vector insert-at-end of one {From, To, Control} entry.
 void ButtonScaler::AddButton(WinControl* Control, float From, float To)
 {
     FButtonScaleEntry Entry;
@@ -172,7 +168,7 @@ void ButtonScaler::AddButton(WinControl* Control, float From, float To)
     Entries.push_back(Entry);
 }
 
-// FUN_0055e590 -- +0x1c = Seconds, +0x18 = 1, +0x14 = 0, then erase(begin, end).
+// +0x1c = Seconds, +0x18 = 1, +0x14 = 0, then erase(begin, end).
 void ButtonScaler::Start(float Seconds)
 {
     Duration = Seconds;
@@ -181,7 +177,7 @@ void ButtonScaler::Start(float Seconds)
     Entries.erase(Entries.begin(), Entries.end());
 }
 
-// FUN_0055e5e0
+
 void ButtonScaler::Update()
 {
     if (!bActive)
@@ -197,7 +193,7 @@ void ButtonScaler::Update()
         bActive = false;
     }
 
-    // 1 - (cos(t * pi) + 1) * 0.5 (DAT_005c8a5c pi, DAT_005c75dc 1.0, DAT_005c75e0 0.5).
+    // 1 - (cos(t * pi) + 1) * 0.5 (the field pi, the field 1.0, the field 0.5).
     double const Phase = static_cast<double>(Elapsed / Duration) * kPi;
     float const S = static_cast<float>(1.0 - (cos(Phase) + 1.0) * 0.5);
 
@@ -228,7 +224,7 @@ void ButtonScaler::Update()
         Transform.Rotation.D[2][0] = 0.0f;
         Transform.Rotation.D[2][1] = 0.0f;
         Transform.Rotation.D[2][2] = 1.0f;
-        float const* const Current = DALib::Engine->GetInstanceTransform(Instance);
+        float const* const Current = NeuronRuntime::Engine->GetInstanceTransform(Instance);
         Transform.Translation.X = Current[9];
         Transform.Translation.Y = Current[10];
         Transform.Translation.Z = Current[11];
@@ -239,8 +235,8 @@ void ButtonScaler::Update()
         }
         G_ButtonScalerMath->Scale(Transform.Rotation, Transform.Rotation, Scale);
 
-        DALib::Engine->SetInstanceMatrix(Instance, &Transform);
-        DALib::Engine->UpdateInstance(Instance, 0, nullptr);
+        NeuronRuntime::Engine->SetInstanceMatrix(Instance, &Transform);
+        NeuronRuntime::Engine->UpdateInstance(Instance, 0, nullptr);
     }
 
     if (!bActive)

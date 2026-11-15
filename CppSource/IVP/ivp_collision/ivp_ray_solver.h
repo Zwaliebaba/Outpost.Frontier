@@ -1,16 +1,12 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
 // IVP ray casting (Ipion IVP_Ray_Solver family). RTTI in Common.dll proves the class names
-// and the hierarchy (TD .data:063eb1d4 IVP_Ray_Hit_Listener, 063eb1f8 IVP_Ray_Solver,
-// 063eb218 IVP_Ray_Solver_Min_Hash, IVP_Ray_Solver_Os; CHD 063a7250 lists
+// and the hierarchy (TD module storage IVP_Ray_Hit_Listener, 063eb1f8 IVP_Ray_Solver,
+// IVP_Ray_Solver_Min_Hash, IVP_Ray_Solver_Os; CHD 063a7250 lists
 // Min_Hash -> IVP_Ray_Solver -> IVP_Ray_Hit_Listener).
-//
+
 // vtables:
 //   IVP_Ray_Hit_Listener 0639c2d0 { _purecall (add_hit_object), 06289e60 scalar deleting dtor }
 //   IVP_Ray_Solver       063a54a0 { _purecall (add_hit_object), 06349b20 scalar deleting dtor }
@@ -72,34 +68,34 @@ public:
     //   0x4 skip objects whose flags (+0x78) have bit 0x10.
     int32_t     ray_flags;
 
-    // FUN_06349a60 (thiscall, RET 4).
+    // (thiscall, RET 4).
     explicit IVP_Ray_Solver(const IVP_Ray_Solver_Template* Template);
 
-    // FUN_06349ba0 (thiscall, RET 0x18). For the two axes AxisB then AxisA:
+    // (thiscall, RET 0x18). For the two axes AxisB then AxisA:
     // V = direction[k] * length * PlaneDist must lie within
     // [(Lo[k] - start[k]) * Scale, (Hi[k] - start[k]) * Scale]; returns 1 when both do.
     int check_ray_against_box_face(float PlaneDist, float Scale, const float* Lo, const float* Hi,
                                    int16_t AxisA, int16_t AxisB);
 
-    // FUN_06349c30 (thiscall, RET 8): segment start..end against the box [Min, Max].
+    // (thiscall, RET 8): segment start..end against the box [Min, Max].
     int check_ray_against_box(const float* Min, const float* Max);
 
-    // FUN_0634a600 (thiscall, RET 4). Retail takes the IVP_Ball as an IVP_Real_Object.
+    // (thiscall, RET 4). baseline takes the IVP_Ball as an IVP_Real_Object.
     void check_ray_against_ball(IVP_Real_Object* Ball);
 
-    // FUN_0634a7d0 (thiscall, RET 4).
+    // (thiscall, RET 4).
     void check_ray_against_object(IVP_Real_Object* Object);
 
-    // FUN_0634a830 (thiscall, RET 8): recursive walk of the OV (object volume) tree.
+    // (thiscall, RET 8): recursive walk of the OV (object volume) tree.
     void check_ray_against_ov_node(IVP_OV_Node* Node, IVP_OV_Tree_Manager* Manager);
 
-    // FUN_0634a990 (thiscall, RET 4).
+    // (thiscall, RET 4).
     void check_ray_against_all_objects_in_sim(const IVP_Environment* Environment);
 };
 static_assert(sizeof(IVP_Ray_Solver) == 0x4c, "IVP_Ray_Solver size");
 
 // One hit recorded by IVP_Ray_Solver_Min_Hash (0x20 bytes, the stride of
-// 06349b40's `(count + 3) << 5` index). Only x/y/z of the normal are written.
+// 's `(count + 3) << 5` index). Only x/y/z of the normal are written.
 struct IVP_Ray_Hit
 {
     IVP_U_Point                 hit_surface_direction_os; // +0x00 (x, y, z; +0x0c not written)
@@ -110,12 +106,12 @@ struct IVP_Ray_Hit
 };
 static_assert(sizeof(IVP_Ray_Hit) == 0x20, "IVP_Ray_Hit size");
 
-// IVP_Ray_Solver_Min_Hash (cmn-ivp3d 2026-10-08), vtable .rdata:0639c2c4
+// IVP_Ray_Solver_Min_Hash (cmn-ivp3d 2026-10-08), vtable module storage
 // {06349b40 add_hit_object, 06289ed0 scalar deleting dtor}; RTTI TD 063eb218.
 // Collects up to 0x100 hits, ordered by distance in min_hash. The hit count
 // is min_hash.counter (+0x5c), raised by min_hash.add.
 // No out-of-line constructor: PhySys builds it inline (06289cc0, 0628d2b9:
-// FUN_06349a60, FUN_0634d210(8), vptr 0639c2c4).
+// , the routine(8), vptr 0639c2c4).
 class IVP_Ray_Solver_Min_Hash : public IVP_Ray_Solver
 {
 public:
@@ -128,11 +124,11 @@ public:
     {
     }
 
-    // 06289e80 (in place: vptr 0639c2c4, ~IVP_U_Min_Hash 0634d260, vptr
-    // 0639c2d0) / 06289ed0 (scalar deleting, slot 1).
+    // (in place: vptr 0639c2c4, ~IVP_U_Min_Hash 0634d260, vptr
+    // ) / 06289ed0 (scalar deleting, slot 1).
     ~IVP_Ray_Solver_Min_Hash() override {}
 
-    // Slot 0, LAB_06349b40 (RET 0x14). Defined in ivp_ray_solver.cpp.
+    // Slot 0, the branch (RET 0x14). Defined in ivp_ray_solver.cpp.
     void add_hit_object(IVP_Real_Object* Object, const IVP_Compact_Ledge* Ledge,
                         const IVP_Compact_Triangle* Triangle, float HitDist,
                         IVP_U_Point* HitSurfaceNormal) override;
@@ -154,16 +150,16 @@ public:
     IVP_Real_Object* object;                 // +0x48
     float            ray_length;             // +0x4c
 
-    // FUN_0634a500 (thiscall, RET 8).
+    // (thiscall, RET 8).
     IVP_Ray_Solver_Os(IVP_Ray_Solver* RaySolver, IVP_Real_Object* Object);
 
-    // Slot 0, FUN_06349fd0 (thiscall, RET 4). Returns 1 when a hit was reported.
+    // Slot 0, the routine (thiscall, RET 4). Returns 1 when a hit was reported.
     virtual int check_ray_against_compact_ledge_os(const IVP_Compact_Ledge* Ledge);
 
-    // FUN_0634a3f0 (thiscall, RET 4): recursive ledge-tree walk.
+    // (thiscall, RET 4): recursive ledge-tree walk.
     void check_ray_against_ledge_tree_node(const IVP_Compact_Ledgetree_Node* Node);
 
-    // FUN_0634a4e0 (thiscall, RET 4).
+    // (thiscall, RET 4).
     void check_ray_against_compact_surface(const IVP_Compact_Surface* Surface);
 };
 static_assert(sizeof(IVP_Ray_Solver_Os) == 0x50, "IVP_Ray_Solver_Os size");

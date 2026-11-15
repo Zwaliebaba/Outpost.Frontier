@@ -1,14 +1,10 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // FmtStr, FmtStr::Val and the mission-log pack helpers -- split out of common_text.cpp in
 // CMN-SPLIT phase B.
 
 #include "common_text.h"
-#include "dacom.h"
+#include "neuroncomponents.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -57,13 +53,13 @@ int __cdecl PackMissionLogData(int Type, FmtStr const* Fmt, unsigned char* Buffe
 
 // ============================================================================
 // FmtStr — linked-list formatted string. Complex serialization logic.
-// All methods fully RE'd from Ghidra: wire format, append_* with type tags,
+// All methods fully RE'd from analysis: wire format, append_* with type tags,
 // deep copy, comparison, flatten/unflatten.
 // ============================================================================
 
 FmtStr::Val::Val(unsigned short InType, void* InData, unsigned char InFlags)
 {
-    // RVA 0xAD570. The exported signature takes the payload as void*; retail stores the dword
+    // RVA 0xAD570. The exported signature takes the payload as void*; baseline stores the dword
     // as-is into +0x04, whatever the tag.
     Next = nullptr;
     Value = (unsigned int)(std::uintptr_t)InData;
@@ -73,7 +69,7 @@ FmtStr::Val::Val(unsigned short InType, void* InData, unsigned char InFlags)
 
 FmtStr::Val::Val(void const* Src, int& OutConsumed)
 {
-    // RVA 0xAD660 (Common.dll.c 150131-150143). Build directly from a serialized Val, reporting
+    // RVA 0xAD660 (Common). Build directly from a serialized Val, reporting
     // the number of bytes InitFromVoid consumed.
     Next = nullptr;
     OutConsumed = InitFromVoid(Src);
@@ -81,22 +77,22 @@ FmtStr::Val::Val(void const* Src, int& OutConsumed)
 
 FmtStr::Val::Val(void const* Src)
 {
-    // RVA 0xAD680 (Common.dll.c 150147-150156). Same, but the caller doesn't need the count.
+    // RVA 0xAD680 (Common). Same, but the caller doesn't need the count.
     Next = nullptr;
     InitFromVoid(Src);
 }
 
 FmtStr::Val::Val(const Val& Other)
 {
-    // RVA 0xAD6A0 (Common.dll.c 150160-150167). Retail forwards straight to operator=, which
+    // RVA 0xAD6A0 (Common). baseline forwards straight to operator=, which
     // deep-copies 0x21/0x4E payloads -- NOT a memberwise copy (see operator= above).
     *this = Other;
 }
 
 FmtStr::Val::~Val()
 {
-    // RVA 0xAD510 (Common.dll.c 150026-150053). Tag 0x21: walk Subtree->Head, ~Val() + free()
-    // each child, zero Subtree->Head and free the subtree object itself (FUN_06391d5a, the
+    // RVA 0xAD510 (Common). Tag 0x21: walk Subtree->Head, ~Val() + free()
+    // each child, zero Subtree->Head and free the subtree object itself (the routine, the
     // module's free() wrapper). Tag 0x4E: free the block.
     if (TypeTag == 0x21)
     {
@@ -110,13 +106,13 @@ FmtStr::Val::~Val()
                 Child = NextChild;
             }
             Subtree->Head = nullptr;
-            // Retail calls operator delete directly; ~FmtStr on the emptied subtree does nothing.
+            // baseline calls operator delete directly; ~FmtStr on the emptied subtree does nothing.
             delete Subtree;
         }
     }
     else if (TypeTag == 0x4E)
     {
-        // 0630d51f: FUN_06391d5a is the module's operator delete (PUSH; CALL free), the pair of
+        // the routine is the module's operator delete (PUSH; CALL free), the pair of
         // the operator new(0x14) that allocated the block; no null test, no store afterwards.
         delete Marker;
     }
@@ -124,13 +120,13 @@ FmtStr::Val::~Val()
 
 FmtStr::Val const& FmtStr::Val::operator=(const Val& Other)
 {
-    // RVA 0xAD6C0 (Common.dll.c 150174-150219, `??4Val@FmtStr@@...`). BUG FIX: this was a
+    // RVA 0xAD6C0 (Common, `??4Val@FmtStr@@...`). BUG FIX: this was a
     // naive shallow copy (Next/payload/TypeTag/Flags), which for TypeTag 0x21/0x4E leaves two
     // Val nodes pointing at the SAME heap block -- both destructors (~Val, TypeTag-aware) free
-    // it, a double-free/use-after-free. Retail always copies Next/TypeTag/Flags shallowly (a
+    // it, a double-free/use-after-free. baseline always copies Next/TypeTag/Flags shallowly (a
     // pointer or scalar has no owned payload) but for 0x21/0x4E it allocates and deep-copies a
-    // fresh subtree/block, exactly like CopyFmtStrChain() (FUN_0630de20) does when building a new node
-    // from scratch. Retail has no self-assignment guard here; matched (self-assign of a Val is
+    // fresh subtree/block, exactly like CopyFmtStrChain() (the routine) does when building a new node
+    // from scratch. baseline has no self-assignment guard here; matched (self-assign of a Val is
     // not something append_*/operator= on FmtStr ever does).
     Next = Other.Next;
     Value = Other.Value; // the raw payload dword, whatever the tag
@@ -139,7 +135,7 @@ FmtStr::Val const& FmtStr::Val::operator=(const Val& Other)
 
     if (TypeTag == 0x21)
     {
-        // 0630d71a-0630d74b: VC6 operator new returns null on failure (hence nothrow); a null
+        // VC6 operator new returns null on failure (hence nothrow); a null
         // subtree skips the copy and the node keeps a null payload.
         FmtStr* const NewSub = new (std::nothrow) FmtStr();
         if (NewSub != nullptr)
@@ -148,7 +144,7 @@ FmtStr::Val const& FmtStr::Val::operator=(const Val& Other)
     }
     else if (TypeTag == 0x4E)
     {
-        // 0630d6ff-0630d716: operator new(0x14) (VC6: null on failure, hence nothrow), then the
+        // operator new(0x14) (VC6: null on failure, hence nothrow), then the
         // 5 dwords are copied with no null test of the new block.
         NavMarker* const NewBlock = new (std::nothrow) NavMarker;
         *NewBlock = *Other.Marker;
@@ -166,11 +162,11 @@ bool FmtStr::Val::operator==(const Val& Other) const
     }
     if (TypeTag == 0x4E)
     {
-        // BUG FIX: this previously ran the float-epsilon compare over all 5 dwords. Retail
-        // (Common.dll.c ~150238-150253, `?operator==@Val@FmtStr@@...`) only does that for
+        // BUG FIX: this previously ran the float-epsilon compare over all 5 dwords. baseline
+        // (Common ~150238-150253, `?operator==@Val@FmtStr@@...`) only does that for
         // dwords[2..4] (the NavMarker's position, presumably); dwords[0..1] (presumably two
         // integer ids) are compared with plain integer `!=`, no epsilon at all.
-        // 0630d790-0630d7ea: both payloads dereferenced without a null test.
+        // both payloads dereferenced without a null test.
         unsigned int const* ThisData = Marker->Data;
         unsigned int const* OtherData = Other.Marker->Data;
         if (ThisData[0] != OtherData[0] || ThisData[1] != OtherData[1])
@@ -197,12 +193,12 @@ bool FmtStr::Val::operator==(const Val& Other) const
     if (TypeTag == 0x21)
     {
         // Compare nested FmtStr subtrees: first check MadLibId, then walk both child lists.
-        // BUG FIX: retail (Common.dll.c:150257, `piVar2[1] == (*(param_1+4))[1]`) compares the
+        // BUG FIX: baseline (Common, `piVar2[1] == (*(param_1+4))[1]`) compares the
         // subtree's field at +4 -- that's `FmtStr::MadLibId` in our now-complete layout, not a
         // mystery "count field" (the header used to be Head-pointer-only when this comment was
         // written). Skipping it meant two subtrees with different mad-lib ids but identical
         // value lists compared equal.
-        // 0630d7f9-0630d802: both subtrees dereferenced without a null test.
+        // both subtrees dereferenced without a null test.
         FmtStr const* ThisSub = Subtree;
         FmtStr const* OtherSub = Other.Subtree;
         if (ThisSub->MadLibId != OtherSub->MadLibId)
@@ -248,14 +244,14 @@ int FmtStr::Val::InitFromVoid(const void* Src)
 
     if (Tag == 0x21)
     {
-        // Nested FmtStr subtree: allocate and unflatten. BUG FIX: retail (Common.dll.c:150111
+        // Nested FmtStr subtree: allocate and unflatten. BUG FIX: baseline (Common
         // -150112) returns `unflatten(...) + 3` directly -- the actual number of bytes
         // unflatten consumed, plus this node's own 3-byte tag+flags header. This previously
         // recomputed the size from scratch via get_flattened_size() instead of trusting
         // unflatten's own return value; the two happen to agree in the normal case, but
         // diverge if unflatten ever bails out early (e.g. a malloc failure partway through
-        // the child list), so match retail exactly.
-        // 0630d5f7-0630d644: VC6 operator new returns null on failure (hence nothrow); retail
+        // the child list), so match baseline exactly.
+        // VC6 operator new returns null on failure (hence nothrow); baseline
         // then calls unflatten on the null subtree, which faults on its first read -- so does
         // the port (no guard).
         FmtStr* Sub = new (std::nothrow) FmtStr();
@@ -266,7 +262,7 @@ int FmtStr::Val::InitFromVoid(const void* Src)
     if (Tag == 0x4E)
     {
         // Data block: 5 dwords (0x14 bytes)
-        // 0630d5d2-0630d5e5: operator new(0x14) (VC6: null on failure, hence nothrow); the
+        // operator new(0x14) (VC6: null on failure, hence nothrow); the
         // block is filled with no null test.
         NavMarker* Block = new (std::nothrow) NavMarker;
         const unsigned int* SrcBlock = (const unsigned int*)(P + 3);
@@ -291,15 +287,15 @@ unsigned int FmtStr::Val::flatten(void* Dest, unsigned int MaxSize) const
 
     if (TypeTag == 0x21)
     {
-        // BUG FIX x2 (Common.dll.c 149990-150006, `?flatten@Val@FmtStr@@...`):
+        // BUG FIX x2 (Common, `?flatten@Val@FmtStr@@...`):
         // (1) P+3 must hold the nested subtree's OWN MadLibId (`puVar5[1]`, i.e. Sub+0x04) --
         //     this previously wrote NodeCount there again (duplicating the P+7 field), likely
         //     written before FmtStr grew a real MadLibId field at +4.
         // (2) The header (tag+flags+subMadLibId+childcount = 9 bytes, P..P+9) already accounts
-        //     for the leading 3-byte tag+flags -- retail returns `(param_2-uVar4)+3`, which is
+        //     for the leading 3-byte tag+flags -- baseline returns `(param_2-uVar4)+3`, which is
         //     exactly `Cur-P` (9+children), not `(Cur-P)+3`. The extra +3 this previously added
         //     made every 0x21 node report 3 bytes larger than it actually wrote.
-        // 0630d4aa-0630d504: the subtree is dereferenced without a null test.
+        // the subtree is dereferenced without a null test.
         FmtStr const* Sub = Subtree;
         *(unsigned int*)(P + 3) = Sub->MadLibId;
         unsigned int NodeCount = 0;
@@ -385,12 +381,12 @@ namespace
         LinkFmtStrTail(Str, Node);
     }
 
-    // FUN_0630de20 (operator= and the (id, list) ctor): free Dest's chain (destroy() inlined),
+    // (operator= and the (id, list) ctor): free Dest's chain (destroy() inlined),
     // Head = 0, then copy Src node by node. Each node is a CRT malloc of 0x0c bytes taking the
     // source's three dwords; tag 0x4E gets a fresh 0x14-byte block filled without a null test,
     // tag 0x21 a new FmtStr (null on failure, else Head = 0 and operator=) -- the source payload
     // is not null-tested either. A failed node malloc stores 0 into the current link and the
-    // next node's link becomes that null node (0630df27-0630df3d), exactly as retail.
+    // next node's link becomes that null node (0630df27-0630df3d), exactly as baseline.
     void CopyFmtStrChain(FmtStr& Dest, FmtStr::Val const* Src)
     {
         Dest.destroy();
@@ -406,7 +402,7 @@ namespace
                 Node->Flags = Cur->Flags;
                 if (Node->TypeTag == 0x21)
                 {
-                    // 0630def1-0630df22: VC6 operator new returns null on failure (hence
+                    // VC6 operator new returns null on failure (hence
                     // nothrow); a null subtree skips the copy and leaves a null payload.
                     FmtStr* const Sub = new (std::nothrow) FmtStr();
                     if (Sub != nullptr)
@@ -415,7 +411,7 @@ namespace
                 }
                 else if (Node->TypeTag == 0x4E)
                 {
-                    // 0630ded6: operator new(0x14), filled without a null test.
+                    // operator new(0x14), filled without a null test.
                     FmtStr::NavMarker* const Block = new (std::nothrow) FmtStr::NavMarker;
                     *Block = *Cur->Marker;
                     Node->Marker = Block;
@@ -431,7 +427,7 @@ namespace
 
 FmtStr::FmtStr(const FmtStr& Other)
 {
-    // RVA 0xAE1F0. Retail zeroes only the head pointer and then runs operator=, which copies
+    // RVA 0xAE1F0. baseline zeroes only the head pointer and then runs operator=, which copies
     // the id and all fourteen counters.
     Head = nullptr;
     MadLibId = 0;
@@ -442,9 +438,9 @@ FmtStr::FmtStr(const FmtStr& Other)
 FmtStr::FmtStr(unsigned int InMadLibId, const Val* ValueList)
 {
     // RVA 0xAE2D0. The first argument is the MAD-LIB ID, not a node count, and the second is
-    // the head of a node chain to deep-copy -- retail hands both to the same helper operator=
-    // uses (FUN_0630de20). The port used to read them as (count, array).
-    // 0630e2d0-0630e333: Head and the fourteen counters zeroed, the id stored, FUN_0630de20.
+    // the head of a node chain to deep-copy -- baseline hands both to the same helper operator=
+    // uses (the routine). The port used to read them as (count, array).
+    // Head and the fourteen counters zeroed, the id stored, the routine.
     Head = nullptr;
     memset(ValueIndex, 0, sizeof(ValueIndex));
     MadLibId = InMadLibId;
@@ -460,8 +456,8 @@ FmtStr::~FmtStr()
 const FmtStr& FmtStr::operator=(const FmtStr& Other)
 {
     // RVA 0xADDA0. Copies the mad-lib id, deep-copies the node chain, then copies all fourteen
-    // counters one by one (0630ddb8..0630de09). Retail returns a CONST reference.
-    // Retail has no self test: self-assignment frees the chain FUN_0630de20 is about to copy
+    // counters one by one (0630ddb8..0630de09). baseline returns a CONST reference.
+    // baseline has no self test: self-assignment frees the chain the routine is about to copy
     // (use after free, undefined behaviour). The port keeps the chain instead.
     if (this != &Other)
     {
@@ -474,7 +470,7 @@ const FmtStr& FmtStr::operator=(const FmtStr& Other)
 
 bool FmtStr::operator==(const FmtStr& Other) const
 {
-    // RVA 0xAE060. BUG FIX: retail (Common.dll.c:151057) compares MadLibId FIRST and returns
+    // RVA 0xAE060. BUG FIX: baseline (Common) compares MadLibId FIRST and returns
     // false immediately on a mismatch, before ever looking at the node lists -- this previously
     // skipped that check entirely and would call two FmtStr with different mad-lib ids (but
     // coincidentally identical value lists) equal.
@@ -498,7 +494,7 @@ bool FmtStr::operator==(const FmtStr& Other) const
 
 void FmtStr::destroy()
 {
-    // RVA 0xAE270 — identical to dtor body. Retail leaves the counters and the mad-lib id
+    // RVA 0xAE270 — identical to dtor body. baseline leaves the counters and the mad-lib id
     // alone here; only the node chain goes.
     Val* Current = Head;
     while (Current != nullptr)
@@ -512,7 +508,7 @@ void FmtStr::destroy()
         }
         else if (Current->TypeTag == 0x4E)
         {
-            delete Current->Marker; // FUN_06391d5a, operator delete; no null test
+            delete Current->Marker; // , operator delete; no null test
         }
         free(Current);
         Current = Next;
@@ -533,7 +529,7 @@ void FmtStr::end_mad_lib()
 
 void FmtStr::append(Val* Node)
 {
-    // 0630d850-0630d86a. Takes ownership of an already-built node and links it at the tail;
+    // . Takes ownership of an already-built node and links it at the tail;
     // a null node is ignored. Node->Next is not touched, so a chain is appended whole.
     if (Node == nullptr)
         return;
@@ -543,13 +539,13 @@ void FmtStr::append(Val* Node)
 void FmtStr::append_fmt_str(const FmtStr& Other)
 {
     // RVA 0xADC50 — tag 0x21, a nested FmtStr subtree. BUG FIX: this previously stamped a
-    // hardcoded 0 into the new node's Flags. Retail (Common.dll.c:150717-150718) reads/posts
+    // hardcoded 0 into the new node's Flags. baseline (Common) reads/posts
     // -increments `this[0x13]` same as every other append_*, i.e. it DOES have its own counter
     // -- `ValueIndex[KindUnused13]` (offset +0x13), despite that slot's header comment claiming
     // no exported append_* touches it. See also common_text.h's ValueKind comment, which should
     // be corrected: only offset +0x0D (KindUnused0D) is genuinely never stamped.
-    // 0630dc50-0630dcf7: the node is allocated first; a failed malloc does nothing at all.
-    // 0630dc8a-0630dcb7: VC6 operator new returns null on failure (hence nothrow); a null
+    // the node is allocated first; a failed malloc does nothing at all.
+    // VC6 operator new returns null on failure (hence nothrow); a null
     // subtree skips the copy and the node is still appended with a null payload.
     Val* const Node = (Val*)malloc(sizeof(Val));
     if (Node == nullptr)
@@ -568,12 +564,12 @@ void FmtStr::append_fmt_str(const FmtStr& Other)
 void FmtStr::append_nav_marker(const NavMarker& Marker)
 {
     // RVA 0xAD8E0 (0630d8e0-0630d97b) — tag 0x4E, counter +0x08. The node is allocated first (a
-    // failed malloc does nothing); the 0x14-byte payload block is null-tested by retail itself
+    // failed malloc does nothing); the 0x14-byte payload block is null-tested by baseline itself
     // (0630d92e): on failure the node keeps a null payload.
     Val* const Node = (Val*)malloc(sizeof(Val));
     if (Node == nullptr)
         return;
-    // 0630d916: operator new(0x14) (VC6: null on failure, hence nothrow).
+    // operator new(0x14) (VC6: null on failure, hence nothrow).
     NavMarker* const Block = new (std::nothrow) NavMarker;
     if (Block != nullptr)
         *Block = Marker;
@@ -589,7 +585,7 @@ int FmtStr::append_void(void* Data)
 {
     // RVA 0xAD870 — rebuilds a node straight from a serialized Val, so the flags come from the
     // source and no counter moves. Returns the number of bytes consumed.
-    // 0630d870-0630d8d9. A failed malloc returns EAX as it stands, which is the Data argument
+    // . A failed malloc returns EAX as it stands, which is the Data argument
     // loaded at 0630d8a4 -- very strange, reproduced on purpose. Otherwise Next = 0,
     // InitFromVoid fills the rest, and the node goes to the tail.
     Val* const Node = (Val*)malloc(sizeof(Val));
@@ -609,7 +605,7 @@ void FmtStr::append_system(const unsigned int& Id)
 
 void FmtStr::append_base(const unsigned int& Id)
 {
-    // RVA 0xAD9D0 — tag 0x42 'B', counter +0x0A. Retail takes an ID by reference, not a
+    // RVA 0xAD9D0 — tag 0x42 'B', counter +0x0A. baseline takes an ID by reference, not a
     // char* -- the port used to declare append_base(char const*).
     AppendValueNode(*this, 0x42, Id, ValueIndex[KindBase]);
 }
@@ -693,11 +689,11 @@ int FmtStr::flatten(void* Dest, unsigned int MaxSize) const
         {
             // BUG FIX: this previously hardcoded Written=3 (header only), which silently
             // dropped the nested subtree's own payload bytes from Cursor/Remaining and would
-            // clobber it with the next sibling. Retail (Common.dll.c:150936-150939) does
+            // clobber it with the next sibling. baseline (Common) does
             // `iVar2 = flatten(puVar1[1], Cursor+3, uVar5) + 3;` -- the nested FmtStr::flatten
             // call recurses with the SAME (not reduced) remaining budget, and its returned byte
             // count is added to the 3-byte tag+flags header to get this node's total size.
-            // 0630dfe1-0630dfef: the subtree is called without a null test.
+            // the subtree is called without a null test.
             Written = V->Subtree->flatten(Cursor + 3, Remaining) + 3;
         }
         else if (V->TypeTag == 0x4E)
@@ -719,7 +715,7 @@ int FmtStr::flatten(void* Dest, unsigned int MaxSize) const
 int FmtStr::unflatten(void* Src, unsigned int Size)
 {
     // RVA 0xAE010 — the inverse of flatten. Returns the number of bytes consumed.
-    // BUG FIX: retail (Common.dll.c:150989-150997) unconditionally zeroes the WHOLE object
+    // BUG FIX: baseline (Common) unconditionally zeroes the WHOLE object
     // (Head, MadLibId, and all 14 ValueIndex counters -- 6 dwords total) before checking
     // whether Src is null, and the wire format never carries the counters back in, so after
     // any unflatten() (null Src included) they must end up all-zero. This previously only
@@ -736,7 +732,7 @@ int FmtStr::unflatten(void* Src, unsigned int Size)
     MadLibId = *(unsigned int const*)Base;
     unsigned short const NodeCount = *(unsigned short const*)(Base + 4);
 
-    // 0630e0a7-0630e0f5: per node a CRT malloc of 0x0c, Next = 0, InitFromVoid; the node is
+    // per node a CRT malloc of 0x0c, Next = 0, InitFromVoid; the node is
     // stored into the current link and becomes the next link. A failed malloc stores 0 and
     // advances the cursor by the previous step (EBP, which starts as the Src argument) -- very
     // strange, reproduced on purpose; the next node's link store then goes through null.

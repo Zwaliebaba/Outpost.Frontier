@@ -1,8 +1,4 @@
-﻿// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
-// Author: Giperion.
+﻿// Author: Giperion.
 
 #include <windows.h>
 #define RPCLOCAL_EXPORTS
@@ -15,7 +11,7 @@
 #include "../include/common_misc.h" // SinglePlayer
 // CollisionGroupDesc's complete definition (ch2 0x48, IClient::SendServerSetCollisionGroups).
 #include "../include/common_archetype.h"
-#include "../include/dalib_net.h"
+#include "../include/neuronruntime_net.h"
 #include "../include/rpc_packet.h"
 #include "../include/rpc_packet_codec.h"
 #include "../include/rpc_server_channel_codec.h" // Canonical hardpoint dictionary builder.
@@ -42,7 +38,7 @@ namespace
     typedef IClient* (__cdecl* FGetClientInterface)();
     typedef IChatClient* (__cdecl* FGetChatClientInterface)();
 
-    // FUN_06bd1000: the caller's SStartupInfo owns the client-module path.
+    // the caller's SStartupInfo owns the client-module path.
     IClient* LoadClientModule(const char* ModulePath)
     {
         GClientModule = LoadLibraryA(ModulePath);
@@ -55,7 +51,7 @@ namespace
         return GLoadedClient;
     }
 
-    // FUN_06bd1050: release the matching module reference and clear both facades.
+    // release the matching module reference and clear both facades.
     void UnloadClientModule()
     {
         if (GClientModule != nullptr) {
@@ -103,7 +99,7 @@ extern int RegisterChannel1Packets(FPacketSerializer* Serializer);
 extern int RegisterChannel2Packets(FPacketSerializer* Serializer);
 extern int RegisterChannel3Packets(FPacketSerializer* Serializer);
 
-// LAB_06bd9930. Keep the actual network object separate from exported base no-ops.
+// . Keep the actual network object separate from exported base no-ops.
 bool FRemoteServerImpl::Startup(const SStartupInfo& Info)
 {
     bool bResult = false;
@@ -125,7 +121,7 @@ bool FRemoteServerImpl::Startup(const SStartupInfo& Info)
     return bResult;
 }
 
-// FUN_06bd9a70: the client facade shuts down before its DirectPlay transport.
+// the client facade shuts down before its DirectPlay transport.
 void FRemoteServerImpl::Shutdown()
 {
     if (GStartupClient != nullptr) {
@@ -142,7 +138,7 @@ void FRemoteServerImpl::Shutdown()
     UnloadClientModule();
 }
 
-// FUN_06bd9c90.
+// .
 int FRemoteServerImpl::Update()
 {
     GiveServerRunPermission();
@@ -151,7 +147,7 @@ int FRemoteServerImpl::Update()
     return 1;
 }
 
-// LAB_06bd9ac0 consumes the packet regardless of encode/send outcome.
+// consumes the packet regardless of encode/send outcome.
 void FRemoteServerImpl::PushToServer(CDAPacket* Packet)
 {
     unsigned char Buffer[0x2800];
@@ -164,7 +160,7 @@ void FRemoteServerImpl::PushToServer(CDAPacket* Packet)
     TypedPacket->Release();
 }
 
-// LAB_06bd98a0 only accepts a nonnull DirectPlay buffer.
+// only accepts a nonnull DirectPlay buffer.
 void FRemoteServerClient::OnReceive(unsigned char* Data, unsigned long Size)
 {
     if (Data != nullptr) {
@@ -173,14 +169,14 @@ void FRemoteServerClient::OnReceive(unsigned char* Data, unsigned long Size)
     }
 }
 
-// LAB_06bd98c0.
+// .
 void FRemoteServerClient::OnDisconnect()
 {
     Server.bConnected = false;
     GStartupClient->DisconnectClient(0);
 }
 
-// LAB_06bd98e0 reports only failed DirectPlay connections to OutpostFrontier.exe.
+// reports only failed DirectPlay connections to OutpostFrontier.exe.
 void FRemoteServerClient::OnConnect(long Result)
 {
     if (Result != 0) {
@@ -190,13 +186,13 @@ void FRemoteServerClient::OnConnect(long Result)
     }
 }
 
-// LAB_06bd9b30: the remote server's own slot always answers false.
+// the remote server's own slot always answers false.
 bool FRemoteServerImpl::SwapConnections(EFLConnection ConnA, EFLConnection ConnB)
 {
     return false;
 }
 
-// LAB_06bd9b40 uses a signed comparison against connection slot 2.
+// uses a signed comparison against connection slot 2.
 void FRemoteServerImpl::SetActiveConnection(EFLConnection Connection)
 {
     if (static_cast<int>(Connection) < 2) {
@@ -204,14 +200,14 @@ void FRemoteServerImpl::SetActiveConnection(EFLConnection Connection)
     }
 }
 
-// LAB_06bd9c70 deliberately notifies the facade without closing CDPClient here.
+// deliberately notifies the facade without closing CDPClient here.
 void FRemoteServerImpl::DisConnect(unsigned int SessionId, EFLConnection Type)
 {
     bConnected = false;
     GStartupClient->DisconnectClient(0);
 }
 
-// LAB_06bd9b50 skips the native seven-byte URL prefix and tries ports right to left.
+// skips the native seven-byte URL prefix and tries ports right to left.
 void FRemoteServerImpl::Connect(const char* ServerName, unsigned short* Password)
 {
     GUID ApplicationGuid = {0xa690f026, 0x26f0, 0x4e57, {0xac, 0xa0, 0xec, 0xf8, 0x68, 0xe4, 0x8d, 0x21}};
@@ -250,7 +246,7 @@ extern "C" __declspec(dllexport) void* __cdecl GetChatServerInterface()
     return static_cast<IChatServer*>(&Server);
 }
 
-// Each network DLL emits the trivial abstract IClient special members, as retail.
+// Each network DLL emits the trivial abstract IClient special members, as baseline.
 IClient::IClient() {}
 IClient::IClient(const IClient& Other) {}
 IClient& IClient::operator=(const IClient& Other) { return *this; }
@@ -282,7 +278,7 @@ void HandlePacket(unsigned int ClientId, CDAPacket* Packet)
                 float FieldRounded;
                 float* TimeDestination = &Info.Field_0x20;
                 float* FieldDestination = &Info.Field_0x24;
-                // 06bd3b9a..3bca retains the two intermediate FST operations.
+                // ..3bca retains the two intermediate FST operations.
                 __asm {
                     mov eax, TimeSource
                     fld dword ptr [eax]
@@ -410,7 +406,7 @@ void HandlePacket(unsigned int ClientId, CDAPacket* Packet)
                         break;
                     case 0x40:
                         // The wire byte as the bool: the callee keeps one byte (rpclocal
-                        // 06d8b963), so only values above 1 would differ.
+                        // ), so only values above 1 would differ.
                         Client->SendCommonPlayerTradeAcceptTrade(1, Wire->TargetPlayer, Wire->bAccepted != 0);
                         break;
                     case 0x80:

@@ -1,15 +1,11 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // Content.dll TU45 (06f36f10-06f46940): pilot personalities.
-//
-// Listing: DLLS\BIN\Content.dll.txt. Every function below names the retail
-// address it ports. The std::map template instantiations retail emits for the
+
+// Listing: DLLS\BIN\Content. Every function below names the baseline
+// address it ports. The std::map template instantiations baseline emits for the
 // seventeen maps (_Insert/_Buynode/_Erase/_Lrotate/_Rrotate/iterator steps,
-// 06f3e550-06f46920) and the per-map construct/atexit-destroy thunks
+// ) and the per-map construct/atexit-destroy thunks
 // (06f38f40-06f39f70) are the std::map objects themselves.
 
 #include "PilotPersonalities.h"
@@ -26,8 +22,8 @@ namespace
 {
     typedef pub::AI::Personality FPersonality;
 
-    // Value of a DAT_06fd0aa0 node (node+0x10, 0x11 dwords), filled by
-    // FUN_06f3cc10 in the order of its locals local_50..local_10.
+    // Value of a the field node (node+0x10, 0x11 dwords), filled by
+    // in the order of its locals local_50..local_10.
     struct FPilotRefs
     {
         ID_String Inherit;           // +0x00 inherit
@@ -51,35 +47,35 @@ namespace
 
     static_assert(sizeof(FPilotRefs) == 0x44, "FPilotRefs: 0x11 dwords (MOVSD 0x11)");
 
-    // Retail construction order (_initterm 06fcdca0.., one construct/atexit
+    // baseline construction order (_initterm 06fcdca0.., one construct/atexit
     // thunk pair per map, 06f38f40..06f39f70): pilots first, Job last.
-    std::map<unsigned int, FPilotRefs> GPilots;                                             // DAT_06fd0aa0
-    std::map<unsigned int, FPersonality::EvadeDodgeUseStruct> GEvadeDodgeBlocks;           // DAT_06fd0a8c
-    std::map<unsigned int, FPersonality::EvadeBreakUseStruct> GEvadeBreakBlocks;           // DAT_06fd0a78
-    std::map<unsigned int, FPersonality::BuzzHeadTowardUseStruct> GBuzzHeadTowardBlocks;   // DAT_06fd0a64
-    std::map<unsigned int, FPersonality::BuzzPassByUseStruct> GBuzzPassByBlocks;           // DAT_06fd0a50
-    std::map<unsigned int, FPersonality::TrailUseStruct> GTrailBlocks;                     // DAT_06fd0a3c
-    std::map<unsigned int, FPersonality::StrafeUseStruct> GStrafeBlocks;                   // DAT_06fd0a28
-    std::map<unsigned int, FPersonality::EngineKillUseStruct> GEngineKillBlocks;           // DAT_06fd0a14
-    std::map<unsigned int, FPersonality::RepairUseStruct> GRepairBlocks;                   // DAT_06fd0a00
-    std::map<unsigned int, FPersonality::GunUseStruct> GGunBlocks;                         // DAT_06fd09ec
-    std::map<unsigned int, FPersonality::MineUseStruct> GMineBlocks;                       // DAT_06fd09d8
-    std::map<unsigned int, FPersonality::MissileUseStruct> GMissileBlocks;                 // DAT_06fd09c4
-    std::map<unsigned int, FPersonality::DamageReactionStruct> GDamageReactionBlocks;      // DAT_06fd09b0
-    std::map<unsigned int, FPersonality::MissileReactionStruct> GMissileReactionBlocks;    // DAT_06fd099c
-    std::map<unsigned int, FPersonality::CountermeasureUseStruct> GCountermeasureBlocks;   // DAT_06fd0988
-    std::map<unsigned int, FPersonality::FormationUseStruct> GFormationBlocks;             // DAT_06fd0974
-    std::map<unsigned int, FPersonality::JobStruct> GJobBlocks;                            // DAT_06fd0960
+    std::map<unsigned int, FPilotRefs> GPilots;
+    std::map<unsigned int, FPersonality::EvadeDodgeUseStruct> GEvadeDodgeBlocks;
+    std::map<unsigned int, FPersonality::EvadeBreakUseStruct> GEvadeBreakBlocks;
+    std::map<unsigned int, FPersonality::BuzzHeadTowardUseStruct> GBuzzHeadTowardBlocks;
+    std::map<unsigned int, FPersonality::BuzzPassByUseStruct> GBuzzPassByBlocks;
+    std::map<unsigned int, FPersonality::TrailUseStruct> GTrailBlocks;
+    std::map<unsigned int, FPersonality::StrafeUseStruct> GStrafeBlocks;
+    std::map<unsigned int, FPersonality::EngineKillUseStruct> GEngineKillBlocks;
+    std::map<unsigned int, FPersonality::RepairUseStruct> GRepairBlocks;
+    std::map<unsigned int, FPersonality::GunUseStruct> GGunBlocks;
+    std::map<unsigned int, FPersonality::MineUseStruct> GMineBlocks;
+    std::map<unsigned int, FPersonality::MissileUseStruct> GMissileBlocks;
+    std::map<unsigned int, FPersonality::DamageReactionStruct> GDamageReactionBlocks;
+    std::map<unsigned int, FPersonality::MissileReactionStruct> GMissileReactionBlocks;
+    std::map<unsigned int, FPersonality::CountermeasureUseStruct> GCountermeasureBlocks;
+    std::map<unsigned int, FPersonality::FormationUseStruct> GFormationBlocks;
+    std::map<unsigned int, FPersonality::JobStruct> GJobBlocks;
 
-    // .rdata DAT_06fb6060: degrees -> radians (FMUL float ptr).
+    // .rdata the field: degrees -> radians (FMUL float ptr).
     float const GDegToRad = 0.017453292f;
 
-    // DAT_06fd0ab8: FUN_06f3c9b0 copies the weapon-type parameter here and
+    // the routine copies the weapon-type parameter here and
     // _strupr's it before the strstr tests.
     char GAttackPreferenceWeapons[256];
 
     // .rdata 06fb95e8..06fb97b8: 12 records of {char Name[0x20]; int ClassId;}
-    // (stride 0x24), read by attack_order (06f3c190) and FUN_06f3c9b0.
+    // (stride 0x24), read by attack_order (06f3c190) and the routine.
     struct FShipClassName
     {
         char const* Name;
@@ -105,7 +101,7 @@ namespace
     // stride 0xC, terminated by class 0xC.
     typedef FPersonality::JobStruct::FAttackPreference FAttackPreference;
 
-    // FUN_06f3c970. Also inlined verbatim at every other TRUE/FALSE key of the
+    // . Also inlined verbatim at every other TRUE/FALSE key of the
     // block loaders: "TRUE" -> true, otherwise "not FALSE".
     bool ParseTrueFalse(char const* Text)
     {
@@ -128,7 +124,7 @@ namespace
         return _stricmp(Text, "HARDEST") == 0 ? 4 : 2;
     }
 
-    // FUN_06f3a2d0: [EvadeDodgeBlock] values.
+    // [EvadeDodgeBlock] values.
     void LoadEvadeDodgeBlock(INI_Reader* Reader, FPersonality::EvadeDodgeUseStruct* Out, ID_String* OutNickname)
     {
         char Name[256];
@@ -195,7 +191,7 @@ namespace
         } while (Reader->read_value());
     }
 
-    // FUN_06f3a690: [EvadeBreakBlock] values.
+    // [EvadeBreakBlock] values.
     void LoadEvadeBreakBlock(INI_Reader* Reader, FPersonality::EvadeBreakUseStruct* Out, ID_String* OutNickname)
     {
         char Name[256];
@@ -248,7 +244,7 @@ namespace
         } while (Reader->read_value());
     }
 
-    // FUN_06f3a940: [BuzzHeadTowardBlock] values.
+    // [BuzzHeadTowardBlock] values.
     void LoadBuzzHeadTowardBlock(INI_Reader* Reader, FPersonality::BuzzHeadTowardUseStruct* Out,
                                  ID_String* OutNickname)
     {
@@ -320,7 +316,7 @@ namespace
         } while (Reader->read_value());
     }
 
-    // FUN_06f3ad40: [BuzzPassByBlock] values.
+    // [BuzzPassByBlock] values.
     void LoadBuzzPassByBlock(INI_Reader* Reader, FPersonality::BuzzPassByUseStruct* Out, ID_String* OutNickname)
     {
         char Name[256];
@@ -369,7 +365,7 @@ namespace
         } while (Reader->read_value());
     }
 
-    // FUN_06f3b030: [TrailBlock] values.
+    // [TrailBlock] values.
     void LoadTrailBlock(INI_Reader* Reader, FPersonality::TrailUseStruct* Out, ID_String* OutNickname)
     {
         if (!Reader->read_value())
@@ -395,7 +391,7 @@ namespace
         } while (Reader->read_value());
     }
 
-    // FUN_06f3b190: [StrafeBlock] values.
+    // [StrafeBlock] values.
     void LoadStrafeBlock(INI_Reader* Reader, FPersonality::StrafeUseStruct* Out, ID_String* OutNickname)
     {
         if (!Reader->read_value())
@@ -413,7 +409,7 @@ namespace
         } while (Reader->read_value());
     }
 
-    // FUN_06f3b240: [EngineKillBlock] values.
+    // [EngineKillBlock] values.
     void LoadEngineKillBlock(INI_Reader* Reader, FPersonality::EngineKillUseStruct* Out, ID_String* OutNickname)
     {
         if (!Reader->read_value())
@@ -428,7 +424,7 @@ namespace
                 Out->EngineKillFaceTime = Reader->get_value_float(0);
             else if (Reader->is_value("engine_kill_use_afterburner"))
             {
-                // 06f3b2ee-06f3b31d: the bool goes through FILD into a float.
+                // the bool goes through FILD into a float.
                 Out->EngineKillUseAfterburner = (float)(ParseTrueFalse(Reader->get_value_string()) ? 1 : 0);
             }
             else if (Reader->is_value("engine_kill_afterburner_time"))
@@ -438,7 +434,7 @@ namespace
         } while (Reader->read_value());
     }
 
-    // FUN_06f3b370: [RepairBlock] values.
+    // [RepairBlock] values.
     void LoadRepairBlock(INI_Reader* Reader, FPersonality::RepairUseStruct* Out, ID_String* OutNickname)
     {
         if (!Reader->read_value())
@@ -462,7 +458,7 @@ namespace
         } while (Reader->read_value());
     }
 
-    // FUN_06f3b470: [GunBlock] values.
+    // [GunBlock] values.
     void LoadGunBlock(INI_Reader* Reader, FPersonality::GunUseStruct* Out, ID_String* OutNickname)
     {
         if (!Reader->read_value())
@@ -503,7 +499,7 @@ namespace
                 Out->AutoTurretNoBurstIntervalTime = Reader->get_value_float(0);
             else if (Reader->is_value("fire_style"))
             {
-                // 06f3b677-06f3b6a8: "MULTIPLE" stores stricmp's 0; anything else
+                // "MULTIPLE" stores stricmp's 0; anything else
                 // (the "SINGLE" compare result is discarded) stores 1.
                 char const* Style = Reader->get_value_string();
                 if (_stricmp(Style, "MULTIPLE") == 0)
@@ -517,7 +513,7 @@ namespace
         } while (Reader->read_value());
     }
 
-    // FUN_06f3b6c0: [MineBlock] values.
+    // [MineBlock] values.
     void LoadMineBlock(INI_Reader* Reader, FPersonality::MineUseStruct* Out, ID_String* OutNickname)
     {
         if (!Reader->read_value())
@@ -535,7 +531,7 @@ namespace
         } while (Reader->read_value());
     }
 
-    // FUN_06f3b770: [MissileBlock] values.
+    // [MissileBlock] values.
     void LoadMissileBlock(INI_Reader* Reader, FPersonality::MissileUseStruct* Out, ID_String* OutNickname)
     {
         if (!Reader->read_value())
@@ -565,7 +561,7 @@ namespace
         } while (Reader->read_value());
     }
 
-    // FUN_06f3b900: [DamageReactionBlock] values.
+    // [DamageReactionBlock] values.
     void LoadDamageReactionBlock(INI_Reader* Reader, FPersonality::DamageReactionStruct* Out,
                                  ID_String* OutNickname)
     {
@@ -608,7 +604,7 @@ namespace
         } while (Reader->read_value());
     }
 
-    // FUN_06f3bb00: [MissileReactionBlock] values.
+    // [MissileReactionBlock] values.
     void LoadMissileReactionBlock(INI_Reader* Reader, FPersonality::MissileReactionStruct* Out,
                                   ID_String* OutNickname)
     {
@@ -629,7 +625,7 @@ namespace
         } while (Reader->read_value());
     }
 
-    // FUN_06f3bbd0: [FormationBlock] values.
+    // [FormationBlock] values.
     void LoadFormationBlock(INI_Reader* Reader, FPersonality::FormationUseStruct* Out, ID_String* OutNickname)
     {
         if (!Reader->read_value())
@@ -680,7 +676,7 @@ namespace
                 Out->bRegroupFormationOnEvadeBreak = ParseTrueFalse(Reader->get_value_string());
             else if (Reader->is_value("formation_exit_mode"))
             {
-                // 06f3c02a-06f3c0d8: get_value_string() is re-read for every compare;
+                // get_value_string() is re-read for every compare;
                 // no match leaves the field as it was.
                 if (_stricmp(Reader->get_value_string(), "BREAK_AWAY_FROM_CENTER") == 0)
                     Out->FormationExitMode = 0;
@@ -704,7 +700,7 @@ namespace
         } while (Reader->read_value());
     }
 
-    // FUN_06f3c9b0 (body continues at 06f3c9d8): one attack_preference line
+    // (body continues at 06f3c9d8): one attack_preference line
     // "<class>, <range>, <weapon types>" into record Index.
     void LoadAttackPreference(FPersonality::JobStruct* Job, INI_Reader* Reader, int Index)
     {
@@ -736,11 +732,11 @@ namespace
             }
         }
 
-        // LAB_06f3caaf: terminator after this record, matched or not.
+        // terminator after this record, matched or not.
         Records[Index + 1].ShipClass = 0xC;
     }
 
-    // FUN_06f3cad0: attack_subtarget_order token list -> JobStruct +0xAC ints,
+    // attack_subtarget_order token list -> JobStruct +0xAC ints,
     // terminated by 7.
     void LoadAttackSubtargetOrder(FPersonality::JobStruct* Job, char* Text)
     {
@@ -774,7 +770,7 @@ namespace
         Order[Count] = 7;
     }
 
-    // FUN_06f3c190: [JobBlock] values.
+    // [JobBlock] values.
     void LoadJobBlock(INI_Reader* Reader, FPersonality::JobStruct* Out, ID_String* OutNickname)
     {
         int PreferenceIndex = 0;
@@ -822,7 +818,7 @@ namespace
                 Out->MaximumLeaderTargetDistance = Reader->get_value_float(0);
             else if (Reader->is_value("combat_drift_distance"))
             {
-                // 06f3c700: key recognised, nothing stored.
+                // key recognised, nothing stored.
             }
             else if (Reader->is_value("attack_order"))
             {
@@ -835,13 +831,13 @@ namespace
                     if (_stricmp(Token, "ANYTHING") == 0)
                         Records[Count++].ShipClass = 0xB;
                     // The table also holds ANYTHING (11): an ANYTHING token takes
-                    // two records, exactly as in retail.
+                    // two records, exactly as in baseline.
                     for (int ClassIndex = 0; ClassIndex < 12; ++ClassIndex)
                     {
                         if (_stricmp(Token, GShipClassNames[ClassIndex].Name) == 0)
                         {
                             Records[Count].ShipClass = GShipClassNames[ClassIndex].ClassId;
-                            Records[Count].Range = 5000.0f; // 0x459c4000
+                            Records[Count].Range = 5000.0f;
                             Records[Count].WeaponFlags = 0xF;
                             ++Count;
                         }
@@ -879,7 +875,7 @@ namespace
         } while (Reader->read_value());
     }
 
-    // FUN_06f3cc10: one [Pilot] section into DAT_06fd0aa0.
+    // one [Pilot] section into the field.
     void LoadPilot(INI_Reader* Reader)
     {
         FPilotRefs Refs;
@@ -990,14 +986,14 @@ namespace
             } while (Reader->read_value());
         }
 
-        // 06f3d0a0..: unique insert; a pilot nickname seen before keeps its
+        // ..: unique insert; a pilot nickname seen before keeps its
         // first definition.
         if (!Nickname.IsEmpty())
             GPilots.insert(std::make_pair(Nickname.Id, Refs));
     }
 }
 
-// FUN_06f3d400
+
 bool __cdecl LoadPilotPersonalities(INI_Reader* Reader)
 {
     if (Reader->read_header())
@@ -1170,7 +1166,7 @@ bool __cdecl LoadPilotPersonalities(INI_Reader* Reader)
     return true;
 }
 
-// FUN_06f3a040
+
 void __cdecl ClearPilotPersonalities()
 {
     GEvadeDodgeBlocks.clear();
@@ -1192,7 +1188,7 @@ void __cdecl ClearPilotPersonalities()
     GPilots.clear();
 }
 
-// FUN_06f3df10
+
 bool __cdecl ApplyPilotJob(ID_String* JobId, pub::AI::Personality* OutPersonality)
 {
     if (JobId->IsEmpty())
@@ -1202,7 +1198,7 @@ bool __cdecl ApplyPilotJob(ID_String* JobId, pub::AI::Personality* OutPersonalit
     if (Found == GJobBlocks.end())
         return false;
 
-    // 06f3df79-06f3dfad: force_attack_formation (+0x134) only replaces ours when
+    // force_attack_formation (+0x134) only replaces ours when
     // the block set it (+0x135); after a copy with +0x135 set, +0x135 stays 1.
     FPersonality::JobStruct Job = Found->second;
     bool bForceAttackFormationSet = false;
@@ -1219,7 +1215,7 @@ bool __cdecl ApplyPilotJob(ID_String* JobId, pub::AI::Personality* OutPersonalit
     return true;
 }
 
-// FUN_06f3e020
+
 bool __cdecl GetPilotPersonality(unsigned int* PilotId, pub::AI::Personality* OutPersonality)
 {
     std::map<unsigned int, FPilotRefs>::iterator Pilot = GPilots.find(*PilotId);
@@ -1329,8 +1325,8 @@ bool __cdecl GetPilotPersonality(unsigned int* PilotId, pub::AI::Personality* Ou
             OutPersonality->FormationParams = Found->second;
     }
 
-    // 06f3e4ac-06f3e531: with a job_id, the inherited pilot's job is applied
-    // first, then our own. (Retail also default-constructs an unused local
+    // with a job_id, the inherited pilot's job is applied
+    // first, then our own. (baseline also default-constructs an unused local
     // Personality at 06f3e508 on the inherit path; it is never read.)
     if (!Refs.Job.IsEmpty())
     {
@@ -1348,7 +1344,7 @@ bool __cdecl GetPilotPersonality(unsigned int* PilotId, pub::AI::Personality* Ou
     return true;
 }
 
-// FUN_06f3dfd0
+
 bool __cdecl GetPilotPersonalityWithJob(unsigned int* PilotId, ID_String* JobId,
                                         pub::AI::Personality* OutPersonality)
 {

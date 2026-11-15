@@ -1,14 +1,10 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // CEditAccountDlg — "Edit Account" (dialog 141): shows one account's name and characters,
 // deletes characters and bans / unbans the account. Opened modally by
-// CAccountsDlg::OnEditAccount (.text:00413030), which sets Account before DoModal.
-// Retail: ctor .text:00409200, dtor 00409300, scalar deleting dtor 004092e0, vtable
-// .rdata:0041cc08, message map 0041cc00 (entries 0041cb70).
+// CAccountsDlg::OnEditAccount (module storage), which sets Account before DoModal.
+// baseline: ctor module storage, dtor 00409300, scalar deleting dtor 004092e0, vtable
+// , message map 0041cc00 (entries 0041cb70).
 #pragma once
 
 #include "FLListBox.h"
@@ -38,10 +34,10 @@ protected:
 	CButton BannedCheck;           // +0x60,  control 1044 "Banned"
 	CFLListBox CharacterList;      // +0xa0,  control 1040 (CListBox subobject at +0xa4)
 	CButton DeleteCharacterButton; // +0x140, control 1041
-	CButton Field_0x180;           // +0x180, never DDX-bound or read in retail
+	CButton Field_0x180;           // +0x180, never DDX-bound or read in baseline
 	CRichEditCtrl AccountNameEdit; // +0x1c0, control 1037
 
 public:
-	// Set by the creator before DoModal; the retail ctor leaves it uninitialised.
+	// Set by the creator before DoModal; the baseline ctor leaves it uninitialised.
 	CAccount* Account; // +0x200
 };

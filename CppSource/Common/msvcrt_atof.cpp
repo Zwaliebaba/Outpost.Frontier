@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "msvcrt_atof.h"
@@ -226,7 +222,7 @@ namespace
                     (Significand & UINT64_C(0xfffffffffffff));
             else
             {
-                // 10162f37 restores the original mantissa, shifts relative to
+                // restores the original mantissa, shifts relative to
                 // -1023, rounds to 53 bits, then packs with a 12-bit shift. The
                 // final extra bit is discarded rather than rounded again.
                 unsigned int Shift = -1023 - (Value.Exponent - 0x3fff);

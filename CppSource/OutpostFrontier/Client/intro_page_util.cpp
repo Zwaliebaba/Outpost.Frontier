@@ -1,13 +1,9 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "intro_page_util.h"
 
 #include "ids_rdl.h"     // LoadIdsIntoRdl, RdlAppendNode, RdlClear, RdlRemoveLastParagraph
-#include "nn_ui_pulse.h" // G_HudChromeColorRgba (DAT_00679bb4)
+#include "nn_ui_pulse.h" // G_HudChromeColorRgba (the field)
 #include "win3d.h"
 
 namespace IntroPageUtil

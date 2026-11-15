@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "ui_table.h"
@@ -11,7 +7,7 @@
 #include "win3d_immediate.h"
 #include "win_factory.h"
 
-#include "DALib.h"
+#include "NeuronRuntime.h"
 #include "common_csys.h"
 #include "x86math.h"
 
@@ -19,7 +15,7 @@
 
 namespace
 {
-    // DAT_0067da38 -- this TU's lazily acquired 3DMathEngine (FUN_005b73e0).
+    // this TU's lazily acquired 3DMathEngine (the routine).
     I3DMathEngine* G_UiTableMath = nullptr;
 
     I3DMathEngine* UiTableMath()
@@ -29,24 +25,24 @@ namespace
         return G_UiTableMath;
     }
 
-    // .data DAT_006156a8 / DAT_006156ac / DAT_006156b0, read only by the constructor
+    // .data the field / the field / the field, read only by the constructor
     // (0x00597e28..0x00597e45; no writer anywhere in the listing). R, G, B, A byte order, the
-    // order FUN_00421ba0 reads them.
-    unsigned char const kUiTableFrameRgba[4] = {0x00, 0xff, 0x00, 0xff};    // FF00FF00h
-    unsigned char const kUiTableSelectedRgba[4] = {0xa0, 0x00, 0x00, 0xa0}; // A00000A0h
-    unsigned char const kUiTableHoveredRgba[4] = {0x80, 0x80, 0x80, 0x80};  // 80808080h
+    // order the routine reads them.
+    unsigned char const kUiTableFrameRgba[4] = {0x00, 0xff, 0x00, 0xff};    // h
+    unsigned char const kUiTableSelectedRgba[4] = {0xa0, 0x00, 0x00, 0xa0}; // h
+    unsigned char const kUiTableHoveredRgba[4] = {0x80, 0x80, 0x80, 0x80};  // h
 
     // The seven render states both halves of Draw set (0x00598c4f..0x00598ce1 and
-    // 0x00598ee4..0x00598f77): pipeline slot +0xf0.
+    // ): pipeline slot +0xf0.
     void UiTableSetDrawStates()
     {
-        DALib::Pipeline->SetRenderState(D3DRS_ZENABLE, 0);
-        DALib::Pipeline->SetRenderState(D3DRS_ZWRITEENABLE, 0);
-        DALib::Pipeline->SetRenderState(D3DRS_CULLMODE, 1);
-        DALib::Pipeline->SetRenderState(D3DRS_LIGHTING, 0);
-        DALib::Pipeline->SetRenderState(D3DRS_SRCBLEND, 5);
-        DALib::Pipeline->SetRenderState(D3DRS_DESTBLEND, 6);
-        DALib::Pipeline->SetRenderState(D3DRS_ALPHABLENDENABLE, 1);
+        NeuronRuntime::Pipeline->SetRenderState(D3DRS_ZENABLE, 0);
+        NeuronRuntime::Pipeline->SetRenderState(D3DRS_ZWRITEENABLE, 0);
+        NeuronRuntime::Pipeline->SetRenderState(D3DRS_CULLMODE, 1);
+        NeuronRuntime::Pipeline->SetRenderState(D3DRS_LIGHTING, 0);
+        NeuronRuntime::Pipeline->SetRenderState(D3DRS_SRCBLEND, 5);
+        NeuronRuntime::Pipeline->SetRenderState(D3DRS_DESTBLEND, 6);
+        NeuronRuntime::Pipeline->SetRenderState(D3DRS_ALPHABLENDENABLE, 1);
     }
 
     // The mouse ray scaled onto the table's z plane (Position.z / Ray.z, the quotient kept on the
@@ -86,8 +82,8 @@ namespace
     }
 }
 
-// Retail DAT_0067da00 -- WINFACTORY<UITable> static (LAB_00599220 -> FUN_00599250; Create
-// FUN_005992c0 = operator_new(0x13c) + FUN_00597cd0 + slot 9, scalar delete on false).
+// WINFACTORY<UITable> static (the branch -> the routine; Create
+// = operator_new(0x13c) + the routine + slot 9, scalar delete on false).
 WINFACTORY<UiTable> G_UITableFactory("UITable");
 
 UiTable::UiTable()
@@ -107,7 +103,7 @@ UiTable::UiTable()
     , DragEdge(0)
     , DragOffset(0.0f)
 {
-    // FUN_00597cd0 after the inlined Win3D ctor: empty vectors, +0xf4 identity with zero
+    // after the inlined Win3D ctor: empty vectors, +0xf4 identity with zero
     // translation, the flags and colours, then the two resize cursors (LoadImageA(0, 32645 /
     // 32644, IMAGE_CURSOR, 0, 0, LR_SHARED)) and GetCursor(). +0x138 is written as the integer 0.
     Win3DIdentityRotation3x3(InverseTransform);
@@ -129,13 +125,13 @@ UiTable::UiTable()
 
 UiTable::~UiTable()
 {
-    // FUN_00597ed0: release every row handle and free +0xb4, then free +0xa4, +0x94, +0x84 --
+    // release every row handle and free +0xb4, then free +0xa4, +0x94, +0x84 --
     // the members' own destructors in reverse declaration order -- then Win3D's (inlined).
 }
 
 bool UiTable::SetColumnEdge(unsigned Index, float X)
 {
-    // FUN_00597ff0
+
     if (Index == 0 || ColumnEdges.empty() || Index >= ColumnEdges.size())
         return false;
     unsigned const Prev = Index - 1;
@@ -146,12 +142,12 @@ bool UiTable::SetColumnEdge(unsigned Index, float X)
     float const Lo = Gap2 + ColumnEdges[Prev];
     float const Next = Index + 1 == ColumnEdges.size() ? Width : ColumnEdges[Index + 1];
     float const Hi = Next - Gap2;
-    // 0x005980a9 TEST AH,5 / JP: below Lo -> Lo; 0x005980bc TEST AH,0x41 / JNZ: above Hi -> Hi.
+    // TEST AH,5 / JP: below Lo -> Lo; 0x005980bc TEST AH,0x41 / JNZ: above Hi -> Hi.
     if (X < Lo)
         X = Lo;
     else if (X > Hi)
         X = Hi;
-    // 0x005980cd TEST AH,0x44 / JNP skips the store only when equal.
+    // TEST AH,0x44 / JNP skips the store only when equal.
     if (X != ColumnEdges[Index])
     {
         ColumnEdges[Index] = X;
@@ -162,7 +158,7 @@ bool UiTable::SetColumnEdge(unsigned Index, float X)
 
 bool UiTable::SetRowEdge(unsigned Index, float Y)
 {
-    // FUN_00598100
+
     if (Index == 0 || RowEdges.empty() || Index >= RowEdges.size())
         return false;
     unsigned const Prev = Index - 1;
@@ -172,9 +168,9 @@ bool UiTable::SetRowEdge(unsigned Index, float Y)
     float const Gap2 = GrabDistance + GrabDistance;
     float const Lo = RowEdges[Prev] - Gap2;
     // The lower limit stays on the x87 stack (0x005981ae FADDP, compared at 0x005981b5). For the
-    // last edge retail adds +Height, not -Height: the limit is then above every edge, the first
+    // last edge baseline adds +Height, not -Height: the limit is then above every edge, the first
     // test always clamps to it and the second clamps to Lo, so the last row edge only ever lands
-    // on Lo. Kept as retail has it.
+    // on Lo. Kept as baseline has it.
     double const Hi = static_cast<double>(Index + 1 == RowEdges.size() ? Height
                                                                         : RowEdges[Index + 1])
                       + Gap2;
@@ -192,7 +188,7 @@ bool UiTable::SetRowEdge(unsigned Index, float Y)
 
 void UiTable::Layout(unsigned RowStart, unsigned RowCount, unsigned ColStart, unsigned ColCount)
 {
-    // FUN_00598210
+
     if (RowEdges.empty() || RowStart >= RowEdges.size())
         return;
     if (ColumnEdges.empty() || ColStart >= ColumnEdges.size())
@@ -211,9 +207,9 @@ void UiTable::Layout(unsigned RowStart, unsigned RowCount, unsigned ColStart, un
                                     : RowEdges[Row] + Height;
         for (unsigned Col = ColStart; Col < ColEnd; ++Col)
         {
-            // 0x00598335..0x0059837d: the element address, or 0 when either index or the flat
+            // the element address, or 0 when either index or the flat
             // index is out of range -- and the element is then read through that address
-            // without a test (0x0059837d CMP [ESI],0), as retail does.
+            // without a test (0x0059837d CMP [ESI],0), as baseline does.
             BaseRichTextWin** Cell = nullptr;
             if (Row < RowEdges.size() && Col < ColumnEdges.size())
             {
@@ -233,7 +229,7 @@ void UiTable::Layout(unsigned RowStart, unsigned RowCount, unsigned ColStart, un
             FTransform World;
             UiTableMath()->MulTransform(World, *reinterpret_cast<FTransform const*>(Orientation),
                                         Offset);
-            FTransform const Copy = World; // FUN_00406880
+            FTransform const Copy = World;
             (*Cell)->SetTransform(reinterpret_cast<float const*>(&Copy));
 
             float const ColumnWidth = Col < static_cast<unsigned>(ColumnEdges.size()) - 1
@@ -247,7 +243,7 @@ void UiTable::Layout(unsigned RowStart, unsigned RowCount, unsigned ColStart, un
 
 bool UiTable::Create(Win3D* NewParent, void* Data)
 {
-    // LAB_00598490
+
     Win3DReparent(this, NewParent);
     Win3DRegister(this);
     Flags = static_cast<unsigned char>((Flags & 0xfb) | 3);
@@ -283,7 +279,7 @@ bool UiTable::Create(Win3D* NewParent, void* Data)
 
 void UiTable::SetTransform(float const* Transform)
 {
-    // LAB_005987e0: slot 7, slot 5 (both virtual), +0xf4 = GeneralInverse(+0x3c) (the W
+    // slot 7, slot 5 (both virtual), +0xf4 = GeneralInverse(+0x3c) (the W
     // out-parameter lands in the argument slot), Layout of everything.
     SetOrientation(Transform);
     SetPosition(Transform + 9);
@@ -296,7 +292,7 @@ void UiTable::SetTransform(float const* Transform)
 
 void UiTable::SetPosition(float const* NewPosition)
 {
-    // LAB_00598850: +0x60 = NewPosition, then the same inverse and Layout as SetTransform.
+    // +0x60 = NewPosition, then the same inverse and Layout as SetTransform.
     Position[0] = NewPosition[0];
     Position[1] = NewPosition[1];
     Position[2] = NewPosition[2];
@@ -309,7 +305,7 @@ void UiTable::SetPosition(float const* NewPosition)
 
 void UiTable::Update()
 {
-    // LAB_005988c0 -- Win3D's child update (FUN_005a17b0) inlined first.
+    // Win3D's child update (the routine) inlined first.
     Win3D::Update();
 
     if (Win3DGetCapture() == this && bDragging != 0)
@@ -339,7 +335,7 @@ void UiTable::Update()
     bHovered = 0;
     bDragArmed = 0;
     bDragging = 0;
-    // 0x00598a2b..0x00598a92: 0 <= x < Width and -Height < y <= 0, else nothing more (no
+    // 0 <= x < Width and -Height < y <= 0, else nothing more (no
     // SetCursor either).
     if (!(Local.X >= 0.0f))
         return;
@@ -383,8 +379,8 @@ void UiTable::Update()
             bDragArmed = 1;
             return;
         }
-        // 0x00598b97 TEST AH,0x41 / JP: above this edge (or unordered) -> next row;
-        // 0x00598ba6 TEST AH,0x41 / JNZ: at or below the next edge (or unordered) -> next row.
+        // TEST AH,0x41 / JP: above this edge (or unordered) -> next row;
+        // TEST AH,0x41 / JNZ: at or below the next edge (or unordered) -> next row.
         if (!(Local.Y <= Edge) || !(Local.Y > Next))
         {
             ++I;
@@ -402,7 +398,7 @@ void UiTable::Update()
 
 void UiTable::Draw()
 {
-    // FUN_00598c40
+
     Win3DBindModelview(nullptr, Orientation);
     UiTableSetDrawStates();
     if (bSelected != 0)
@@ -437,7 +433,7 @@ void UiTable::Draw()
 
 bool UiTable::MouseEvent(FWin3DMouseEvent const* Event)
 {
-    // LAB_00599090
+
     if (Event->Field0 == -1)
     {
         if (Event->Field1 == 2)
@@ -469,7 +465,7 @@ bool UiTable::MouseEvent(FWin3DMouseEvent const* Event)
             return true;
         }
     }
-    // 0x00599145: bubble to the parent's slot 19, false at the root.
+    // bubble to the parent's slot 19, false at the root.
     if (Parent != nullptr)
         return Parent->MouseEvent(Event);
     return false;
@@ -477,7 +473,7 @@ bool UiTable::MouseEvent(FWin3DMouseEvent const* Event)
 
 bool UiTable::HitTest(float const* Ray)
 {
-    // LAB_00599160: the given ray on the table plane, in table space, inside
+    // the given ray on the table plane, in table space, inside
     // [0, Width) x (-Height, 0].
     FVector const Local = UiTableRayToLocal(this, Ray);
     if (!(Local.X >= 0.0f))

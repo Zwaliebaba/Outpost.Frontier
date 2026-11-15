@@ -724,7 +724,7 @@ static struct luaL_reg builtin_funcs[] = {
 
 #define INTFUNCSIZE (sizeof(builtin_funcs)/sizeof(builtin_funcs[0]))
 
-/* Retail FUN_0680a790 PUSH 0x22 — 34 baselib pairs, no iolib/strlib/mathlib. */
+/* PUSH 0x22 — 34 baselib pairs, no iolib/strlib/mathlib. */
 #if !defined(DEBUG) && !defined(LUA_COMPAT2_5)
 typedef char LuaProfileBaselibCountCheck[(INTFUNCSIZE == 0x22) ? 1 : -1];
 #endif

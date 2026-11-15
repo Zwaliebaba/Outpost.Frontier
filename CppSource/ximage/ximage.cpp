@@ -1,10 +1,6 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
-#include "dacom.h"
+#include "neuroncomponents.h"
 #include "ximage.h"
 #include "render/render.h"
 #include "render/IRenderPipeline.h"
@@ -25,15 +21,15 @@ namespace
 {
     void* const kRegisterPriority = (void*)0x40000000;
     const unsigned long kBigImageDescSize = 0x2C;
-    const unsigned int kFormatScratchSize = 0x2000; // FUN_06f81a40 _vsnprintf cap
+    const unsigned int kFormatScratchSize = 0x2000; // _vsnprintf cap
     const char kBigImageCpp[] =
-        "C:\\work\\builds\\dalibs\\dalibs-build\\build\\Src\\ximage\\bigimage.cpp"; // 06f84060
-    const char kWarningFormat[] = "%s(%d) : WARNING:General:%s";                  // 06f84040
-    const char kNoticeFormat[] = "%s(%d) : NOTICE:General:%s";                    // 06f840d4
-    const char kSetLevelFailed[] = " failed to set texture level data ";          // 06f8401c
-    const char kAllocateFailed[] = "Failed to allocate %d by %d, %d bpp texture."; // 06f840a4
+        "ximage\\bigimage.cpp";
+    const char kWarningFormat[] = "%s(%d) : WARNING:General:%s";
+    const char kNoticeFormat[] = "%s(%d) : NOTICE:General:%s";
+    const char kSetLevelFailed[] = " failed to set texture level data ";
+    const char kAllocateFailed[] = "Failed to allocate %d by %d, %d bpp texture.";
 
-    // DAT_06f84150 (22 PixelFormat ids, returned by FUN_06f828f0).
+    // (22 PixelFormat ids, returned by the routine).
     const unsigned long kFormatIds[22] = {
         0,
         0x29,
@@ -58,10 +54,10 @@ namespace
         0x34414144,
         0x38414144};
 
-    // DAT_06f841a8: 15 records of 0x4C bytes; ximage only reads record+4 (bits per pixel).
+    // 15 records of 0x4C bytes; ximage only reads record+4 (bits per pixel).
     const unsigned long kFormatBits[15] = {0, 8, 24, 16, 16, 16, 16, 32, 32, 0, 0, 0, 0, 0, 0};
 
-    // FUN_06f82900: index of Id in DAT_06f84150, 0 when absent.
+    // index of Id in the field, 0 when absent.
     int FormatIdToIndex(unsigned long Id)
     {
         int Index = 0;
@@ -74,7 +70,7 @@ namespace
         return 0;
     }
 
-    // FUN_06f82920 + record+4: CMP 0xE / JLE -> record[Value]; else record 0 (bpp 0).
+    // + record+4: CMP 0xE / JLE -> record[Value]; else record 0 (bpp 0).
     unsigned long FormatBits(unsigned long Value)
     {
         unsigned long Index = 0;
@@ -89,13 +85,13 @@ namespace
         return (FormatBits(*Format) + 7u) >> 3;
     }
 
-    // FUN_06f81a70 thiscall RET 4: *this = *param (one dword). Used to pass a PixelFormat by value.
+    // thiscall RET 4: *this = *param (one dword). Used to pass a PixelFormat by value.
     void CopyDword(unsigned long* Dest, const unsigned long* Src)
     {
         *Dest = *Src;
     }
 
-    // FUN_06f81a40: _vsnprintf(Buffer, 0x2000, Format, ...) then return Buffer.
+    // _vsnprintf(Buffer, 0x2000, Format, ...) then return Buffer.
     char* FormatScratch(char* Buffer, const char* Format, ...)
     {
         va_list Args;
@@ -105,7 +101,7 @@ namespace
         return Buffer;
     }
 
-    // FUN_06f81180 allocation-failure FDUMP: the message carries the WHOLE image size and a
+    // allocation-failure FDUMP: the message carries the WHOLE image size and a
     // literal 0x10 bpp (PUSH 0x10), not the tile that failed.
     void DumpAllocateFail(int Line, unsigned long Width, unsigned long Height)
     {
@@ -124,7 +120,7 @@ namespace
         FDUMP(0x100003, kNoticeFormat, kBigImageCpp, Line, kSetLevelFailed);
     }
 
-    // FUN_06f81a10: round up to a power of two (POT input stays, 0 -> 0). SAR, not SHR.
+    // round up to a power of two (POT input stays, 0 -> 0). SAR, not SHR.
     long RoundUpPot(unsigned long Value)
     {
         long Work = (long)(Value);
@@ -150,7 +146,7 @@ namespace
         return Out;
     }
 
-    // FUN_06f822d0: 0 for an empty rect; otherwise swap inverted edges and return 1.
+    // 0 for an empty rect; otherwise swap inverted edges and return 1.
     int NormalizeRect(RECT* Rect)
     {
         const long Width = Rect->right - Rect->left;
@@ -174,7 +170,7 @@ namespace
         return 1;
     }
 
-    // FUN_06f82740: smart-pointer reset (Release + null) of an interface slot.
+    // smart-pointer reset (Release + null) of an interface slot.
     template <typename TInterface>
     void ReleaseInterface(TInterface** Slot)
     {
@@ -188,8 +184,8 @@ namespace
     GENRESULT CreateTexture(IRenderPipeline* Pipeline, long Width, long Height, unsigned long* Format,
                             void** OutHandle)
     {
-        // OutHandle receives a pointer to RP8's 8-byte wrapper, not IDirect3DTexture8*.
-        // Every retail call passes Levels = 1, Flags = 0.
+        // OutHandle receives a pointer to DX8RENDERER's 8-byte wrapper, not IDirect3DTexture8*.
+        // Every baseline call passes Levels = 1, Flags = 0.
         return Pipeline->CreateTexture((int)(Width), (int)(Height),
                                                    (unsigned int*)(Format), 1, 0,
                                                    OutHandle);
@@ -204,7 +200,7 @@ namespace
                                   unsigned long SrcH, unsigned long Pitch, unsigned long* Format,
                                   const void* Pixels)
     {
-        // Every retail call: level 0, trailing two arguments 0.
+        // Every baseline call: level 0, trailing two arguments 0.
         return Pipeline->SetTextureLevelData(
             Handle, 0, (int)(SrcW), (int)(SrcH),
             (unsigned int)(Pitch), (unsigned int*)(Format), Pixels,
@@ -264,8 +260,8 @@ namespace
             ReleaseInterface(&Pipeline_);
         }
 
-        // LAB_06f82760: {IID, offset} table 06f830e4 (IBigImage2, IBigImage, null terminator).
-        GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override
+        // {IID, offset} table 06f830e4 (IBigImage2, IBigImage, null terminator).
+        GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override
         {
             struct FQiEntry
             {
@@ -273,9 +269,9 @@ namespace
                 unsigned long ByteOffset;
             };
             static const FQiEntry Table[] = {
-                {Iids::BigImage2, 0}, // 06f830e4 / 06f830e8
-                {Iids::BigImage, 0},  // 06f830ec / 06f830f0
-                {nullptr, 0},         // 06f830f4
+                {Iids::BigImage2, 0}, // / 06f830e8
+                {Iids::BigImage, 0},  // / 06f830f0
+                {nullptr, 0},
             };
 
             unsigned int Index = 0;
@@ -285,11 +281,11 @@ namespace
                 {
                     unsigned char* Base = (unsigned char*)(this);
                     const unsigned long Offset = Table[Index].ByteOffset;
-                    IDAComponent* Face = nullptr;
+                    INeuronComponent* Face = nullptr;
                     if ((Offset & 0x80000000u) != 0)
-                        Face = *(IDAComponent**)(Base + (Offset & 0x7FFFFFFFu));
+                        Face = *(INeuronComponent**)(Base + (Offset & 0x7FFFFFFFu));
                     else
-                        Face = (IDAComponent*)(Base + Offset);
+                        Face = (INeuronComponent*)(Base + Offset);
                     Face->AddRef();
                     *Out = Face;
                     return GR_OK;
@@ -300,15 +296,15 @@ namespace
             return GR_INTERFACE_UNSUPPORTED;
         }
 
-        // LAB_06f82810.
-        unsigned long DACOM_API AddRef() override
+        // .
+        unsigned long NEURONCOMPONENTS_API AddRef() override
         {
             RefCount_ = RefCount_ + 1;
             return RefCount_;
         }
 
-        // FUN_06f82820: JBE skips DEC; on zero, store 1, run the destructor, operator_delete.
-        unsigned long DACOM_API Release() override
+        // JBE skips DEC; on zero, store 1, run the destructor, operator_delete.
+        unsigned long NEURONCOMPONENTS_API Release() override
         {
             if (RefCount_ != 0)
                 RefCount_ = RefCount_ - 1;
@@ -319,17 +315,17 @@ namespace
             return 0;
         }
 
-        // Reserved — retail LAB_06f82640 is RET 0xC, no body, no name (EAX is the caller's).
+        // Reserved — baseline the branch is RET 0xC, no body, no name (EAX is the caller's).
         // formerly Slot3; TODO: original purpose and return contract.
-        GENRESULT DACOM_API NoOp(void* A, void* B) override
+        GENRESULT NEURONCOMPONENTS_API NoOp(void* A, void* B) override
         {
             (void)A;
             (void)B;
             return GR_OK;
         }
 
-        // LAB_06f82060. Returns retail's EAX: 0 for an empty source rect, otherwise TilesX.
-        GENRESULT DACOM_API Draw(const RECT* Src, const RECT* Dest) override
+        // . Returns baseline's EAX: 0 for an empty source rect, otherwise TilesX.
+        GENRESULT NEURONCOMPONENTS_API Draw(const RECT* Src, const RECT* Dest) override
         {
             RECT Rect;
             if (Src != nullptr)
@@ -360,7 +356,7 @@ namespace
             if (SrcH == 0)
                 return 0;
 
-            // 06f820f7..06f82139: FILD/FIDIV int by int, FSTP float.
+            // FILD/FIDIV int by int, FSTP float.
             float DestX = (float)(Dest->left);
             const float ScaleX = (float)((double)(Dest->right - Dest->left) /
                                                     (double)(SrcW));
@@ -412,7 +408,7 @@ namespace
                     {
                         if (DrawTile_ != nullptr)
                         {
-                            // 06f8221a..06f82273: callback Y endpoints reverse the destination RECT.
+                            // callback Y endpoints reverse the destination RECT.
                             float DestXy[4];
                             DestXy[0] = (float)((double)(DestX) - 0.5);
                             DestXy[1] = (float)((double)(RowH) +
@@ -435,25 +431,25 @@ namespace
             return (GENRESULT)(TilesX_);
         }
 
-        // LAB_06f82650: RET 0xC with EAX = Height.
-        GENRESULT DACOM_API GetSize(unsigned long* Width, unsigned long* Height) override
+        // RET 0xC with EAX = Height.
+        GENRESULT NEURONCOMPONENTS_API GetSize(unsigned long* Width, unsigned long* Height) override
         {
             *Width = Width_;
             *Height = Height_;
             return (GENRESULT)(Height_);
         }
 
-        // LAB_06f82670: FMUL 255.0f (DAT_06f830e0), _ftol, low byte -> +0x2c; EAX = _ftol result.
-        GENRESULT DACOM_API SetAlpha(float Alpha) override
+        // FMUL 255.0f (the field), _ftol, low byte -> +0x2c; EAX = _ftol result.
+        GENRESULT NEURONCOMPONENTS_API SetAlpha(float Alpha) override
         {
             const long Value = FtolLow((double)(Alpha) * 255.0);
             Alpha_ = (unsigned char)(Value & 0xFF);
             return (GENRESULT)(Value);
         }
 
-        // FUN_06f82690: G, R, B through _ftol*255 with OR 0xFFFFFF00 / SHL chain -> 0xFFRRGGBB.
+        // G, R, B through _ftol*255 with OR 0xFFFFFF00 / SHL chain -> 0xFFRRGGBB.
         // RET 8 with EAX = this.
-        GENRESULT DACOM_API SetColor(const float* Rgb) override
+        GENRESULT NEURONCOMPONENTS_API SetColor(const float* Rgb) override
         {
             unsigned long Packed = (unsigned long)(FtolLow((double)(Rgb[1]) * 255.0)) & 0xFFu;
             unsigned long Red = (unsigned long)(FtolLow((double)(Rgb[0]) * 255.0));
@@ -467,14 +463,14 @@ namespace
             return (GENRESULT)((intptr_t)((IBigImage2*)(this)));
         }
 
-        // LAB_06f826f0.
-        unsigned long DACOM_API GetTileCount() override
+        // .
+        unsigned long NEURONCOMPONENTS_API GetTileCount() override
         {
             return TileCount_;
         }
 
-        // LAB_06f82700: signed range check against TileCount, then handle + SetRect(0,0,W,H).
-        GENRESULT DACOM_API GetTile(int Index, void** OutHandle, RECT* OutRect) override
+        // signed range check against TileCount, then handle + SetRect(0,0,W,H).
+        GENRESULT NEURONCOMPONENTS_API GetTile(int Index, void** OutHandle, RECT* OutRect) override
         {
             if (Index < 0 || Index >= (long)(TileCount_))
                 return GR_GENERIC;
@@ -483,8 +479,8 @@ namespace
             return GR_OK;
         }
 
-        // LAB_06f81a80: re-upload pixels into the existing tiles (same order as FUN_06f81180).
-        GENRESULT DACOM_API SetFromBuffer(const void* Pixels, unsigned long* Format,
+        // re-upload pixels into the existing tiles (same order as the routine).
+        GENRESULT NEURONCOMPONENTS_API SetFromBuffer(const void* Pixels, unsigned long* Format,
                                           unsigned long Width, unsigned long Height,
                                           unsigned long Pitch) override
         {
@@ -563,13 +559,13 @@ namespace
         }
 
         // formerly Slot11; TODO: original operation purpose.
-        GENRESULT DACOM_API ReturnMinusSeven(void* Unused) override
+        GENRESULT NEURONCOMPONENTS_API ReturnMinusSeven(void* Unused) override
         {
             (void)Unused;
             return (GENRESULT)-7;
         }
 
-        // Body of FUN_06f823f0 after the inline ctor (06f8249a..06f82573). Returns the
+        // Body of the routine after the inline ctor (06f8249a..06f82573). Returns the
         // function's fail local: -1 unless the tile upload returned non-zero.
         GENRESULT Initialize(FBigImageDesc* Desc)
         {
@@ -774,7 +770,7 @@ namespace
                     const unsigned char* TilePixels = Base + TileW * Bpp * Col + TileH * Row * Pitch;
                     if (AbilitySquareOnly_ != 0)
                     {
-                        // 06f8173b..06f81760: square side = max(POT(RemX), POT(RemY)), signed JLE.
+                        // square side = max(POT(RemX), POT(RemY)), signed JLE.
                         long Side = RoundUpPot(RemX);
                         if (Side <= PotY)
                             Side = PotY;
@@ -930,8 +926,8 @@ namespace
     public:
         FBigImageFactory() : RefCount_(1), Name_(Render::Factory::BigImage) {}
 
-        // LAB_06f82370: *Out = 0, CMPSB 0x17 bytes vs "1.11_IComponentFactory" (== strcmp).
-        GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override
+        // *Out = 0, CMPSB 0x17 bytes vs "1.11_IComponentFactory" (== strcmp).
+        GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override
         {
             *Out = nullptr;
             if (std::strcmp(Iid, Iids::ComponentFactory) != 0)
@@ -941,15 +937,15 @@ namespace
             return GR_OK;
         }
 
-        // LAB_06f823b0.
-        unsigned long DACOM_API AddRef() override
+        // .
+        unsigned long NEURONCOMPONENTS_API AddRef() override
         {
             RefCount_ = RefCount_ + 1;
             return RefCount_;
         }
 
-        // FUN_06f823c0.
-        unsigned long DACOM_API Release() override
+        // .
+        unsigned long NEURONCOMPONENTS_API Release() override
         {
             if (RefCount_ != 0)
                 RefCount_ = RefCount_ - 1;
@@ -960,7 +956,7 @@ namespace
             return 0;
         }
 
-        GENRESULT DACOM_API CreateInstance(AGGDESC* Desc, void** Out) override
+        GENRESULT NEURONCOMPONENTS_API CreateInstance(AGGDESC* Desc, void** Out) override
         {
             FBigImageDesc* Big = (FBigImageDesc*)(Desc);
             if (Big->Size != kBigImageDescSize || std::strcmp(Big->Name, Name_) != 0)
@@ -994,11 +990,11 @@ namespace
 
     static_assert(sizeof(FBigImageFactory) == 0x0C, "operator_new(0xc) @06f8232c");
 
-    // FUN_06f82320: DACOM_Acquire, operator_new(0xC) (null passes a null factory on, as
-    // retail does), RegisterComponent(factory, "BigImage", 0x40000000), drop the creation ref.
+    // NEURONCOMPONENTS_Acquire, operator_new(0xC) (null passes a null factory on, as
+    // baseline does), RegisterComponent(factory, "BigImage", 0x40000000), drop the creation ref.
     void RegisterBigImage()
     {
-        ICOManager* Manager = DACOM_Acquire();
+        ICOManager* Manager = NEURONCOMPONENTS_Acquire();
         FBigImageFactory* Factory = new (std::nothrow) FBigImageFactory();
         Manager->RegisterComponent(Factory, Render::Factory::BigImage,
                                    kRegisterPriority);
@@ -1006,7 +1002,7 @@ namespace
     }
 }
 
-// FUN_06f828d0: DEC reason / JNZ -> return 1; attach registers the factory.
+// DEC reason / JNZ -> return 1; attach registers the factory.
 BOOL WINAPI DllMain(HINSTANCE Instance, DWORD Reason, LPVOID Reserved)
 {
     (void)Instance;

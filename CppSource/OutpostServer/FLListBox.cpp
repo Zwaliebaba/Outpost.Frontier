@@ -1,14 +1,10 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "StdAfx.h"
 #include "FLListBox.h"
 #include "common_misc.h" // HexToWide / WideToHex
 
-// .text:0040fad0 — four 12-point "Arial Unicode MS" fonts (regular, bold, bold italic, italic,
+// — four 12-point "Arial Unicode MS" fonts (regular, bold, bold italic, italic,
 // created in that order).
 CFLListBox::CFLListBox()
 {
@@ -39,7 +35,7 @@ CFLListBox::CFLListBox()
 	::ReleaseDC(nullptr, ScreenDC);
 }
 
-// .text:0040fe50 — deletes the fonts explicitly (regular, bold, italic, bold italic), then the
+// — deletes the fonts explicitly (regular, bold, italic, bold italic), then the
 // maps and the CFont members are destroyed by the compiler.
 CFLListBox::~CFLListBox()
 {
@@ -49,16 +45,16 @@ CFLListBox::~CFLListBox()
 	BoldItalicFont.DeleteObject();
 }
 
-// Message map .rdata:0041dac4: WM_DRAWITEM reflection -> DrawItem through the vcall thunk
-// 00411db0 (CListBox vtable +0xc0). Written out by hand because ON_WM_DRAWITEM_REFLECT would
+// Message map module storage: WM_DRAWITEM reflection -> DrawItem through the vcall thunk
+// (CListBox vtable +0xc0). Written out by hand because ON_WM_DRAWITEM_REFLECT would
 // take &CFLListBox::DrawItem, whose member-pointer representation (CWnd is not the first base)
-// does not convert to a CWnd member pointer; &CListBox::DrawItem is what retail's entry holds.
+// does not convert to a CWnd member pointer; &CListBox::DrawItem is what baseline's entry holds.
 BEGIN_MESSAGE_MAP(CFLListBox, CListBox)
 	{ WM_DRAWITEM + WM_REFLECT_BASE, 0, 0, 0, AfxSig_vs,
 		(AFX_PMSG)(AFX_PMSGW)(static_cast<void (AFX_MSG_CALL CWnd::*)(LPDRAWITEMSTRUCT)>(&CListBox::DrawItem)) },
 END_MESSAGE_MAP()
 
-// .text:00410040
+
 void CFLListBox::AddItem(const wchar_t* Text, DWORD_PTR Data)
 {
 	char Hex[0x400];
@@ -67,7 +63,7 @@ void CFLListBox::AddItem(const wchar_t* Text, DWORD_PTR Data)
 	::SendMessageA(m_hWnd, LB_SETITEMDATA, (WPARAM)Index, (LPARAM)Data);
 }
 
-// .text:00410520
+
 void CFLListBox::GetItemText(int Index, CiWString& OutText)
 {
 	CString HexText;
@@ -77,7 +73,7 @@ void CFLListBox::GetItemText(int Index, CiWString& OutText)
 	OutText.assign(Text, wcslen(Text));
 }
 
-// .text:00410650
+
 int CFLListBox::SelectItem(const wchar_t* Text)
 {
 	char Hex[0x400];
@@ -85,19 +81,19 @@ int CFLListBox::SelectItem(const wchar_t* Text)
 	return (int)::SendMessageA(m_hWnd, LB_SELECTSTRING, 0, (LPARAM)Hex);
 }
 
-// .text:004100a0 — map operator[] (retail inlines the insert-unique path).
+// — map operator[] (baseline inlines the insert-unique path).
 void CFLListBox::SetItemColor(DWORD_PTR Data, COLORREF Color)
 {
 	ItemColors[Data] = Color;
 }
 
-// .text:00410240 — erase(equal_range(Data)).
+// — erase(equal_range(Data)).
 void CFLListBox::RemoveItemColor(DWORD_PTR Data)
 {
 	ItemColors.erase(Data);
 }
 
-// .text:004101e0
+
 COLORREF CFLListBox::GetItemColor(DWORD_PTR Data)
 {
 	std::map<DWORD_PTR, COLORREF>::iterator It = ItemColors.find(Data);
@@ -108,7 +104,7 @@ COLORREF CFLListBox::GetItemColor(DWORD_PTR Data)
 	return It->second;
 }
 
-// .text:00410340
+
 void CFLListBox::SetItemItalic(DWORD_PTR Data, bool bItalic)
 {
 	if (!bItalic)
@@ -119,13 +115,13 @@ void CFLListBox::SetItemItalic(DWORD_PTR Data, bool bItalic)
 	ItalicItems[Data] = true;
 }
 
-// .text:004103d0 — presence only; the stored bool is never read.
+// — presence only; the stored bool is never read.
 bool CFLListBox::IsItemItalic(DWORD_PTR Data)
 {
 	return ItalicItems.find(Data) != ItalicItems.end();
 }
 
-// .text:00410430
+
 void CFLListBox::SetItemBold(DWORD_PTR Data, bool bBold)
 {
 	if (!bBold)
@@ -136,13 +132,13 @@ void CFLListBox::SetItemBold(DWORD_PTR Data, bool bBold)
 	BoldItems[Data] = true;
 }
 
-// .text:004104c0
+
 bool CFLListBox::IsItemBold(DWORD_PTR Data)
 {
 	return BoldItems.find(Data) != BoldItems.end();
 }
 
-// .text:004106b0
+
 void CFLListBox::DrawItem(LPDRAWITEMSTRUCT DrawInfo)
 {
 	CDC* DC = CDC::FromHandle(DrawInfo->hDC);
@@ -194,7 +190,7 @@ void CFLListBox::DrawItem(LPDRAWITEMSTRUCT DrawInfo)
 	DC->SelectObject(OldFont);
 }
 
-// .text:004108f0
+
 void CFLListBox::DeleteItem(LPDELETEITEMSTRUCT DeleteInfo)
 {
 	RemoveItemColor(DeleteInfo->itemData);

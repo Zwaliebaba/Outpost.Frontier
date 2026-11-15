@@ -1,39 +1,35 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
-// Retail BaseRichTextWin / RichTextWin (E:\FL\Scratch\Source\Client\...\RichDisplay.cpp,
+// baseline BaseRichTextWin / RichTextWin (Client\...\RichDisplay.cpp,
 // RTTI .?AVBaseRichTextWin@@ : WinControl, .?AVRichTextWin@@ : BaseRichTextWin).
-//
+
 // A WinControl that lays a RenderDisplayList out into a GDI memory DC through a DeviceTRC,
 // copies the 16-bit DIB into an IBigImage2 and draws that image over the control's projected
 // screen rectangle.
-//
-// BaseRichTextWin: ctor FUN_005793e0, dtor FUN_00579620 (scalar deleting FUN_00579600),
+
+// BaseRichTextWin: ctor the routine, dtor the routine (scalar deleting the routine),
 // vftable 0x005e459c (47 slots) + IDataViewOwner face 0x005e4590. Overrides of WinControl:
-//   0 FUN_00579600, 4 LAB_0057aa80 HitTest, 5 FUN_0057b0a0 SetPosition, 9 FUN_0057a810 Create,
-//   11 FUN_0057b0e0 Update, 12 LAB_0057b140 UpdateInactive, 13 FUN_0057ab10 Draw,
-//   23 FUN_0057afd0 Slot23, 42 LAB_0057ebb0 SetProperty;
-// own slots 45 FUN_004b6c50 Relayout (MOV AL,1) and 46 LAB_005798a0 GetToolTipHoverInfo.
+//   0 the routine, 4 the branch HitTest, 5 the routine SetPosition, 9 the routine Create,
+//   11 the routine Update, 12 the branch UpdateInactive, 13 the routine Draw,
+//   23 the routine Slot23, 42 the branch SetProperty;
+// own slots 45 the routine Relayout (MOV AL,1) and 46 the branch GetToolTipHoverInfo.
 // Direct subclasses: RichTextWin, UIFastTable (0x005e511c).
-//
-// RichTextWin: ctor FUN_0057b1b0, dtor FUN_0057b260 (scalar deleting FUN_0057b240),
-// vftable 0x005e476c (48 slots) + face 0x005e4760. Overrides: 0 FUN_0057b240,
-// 9 FUN_0057b5a0 Create, 11 FUN_0057b530 Update, 45 LAB_0057b320 Relayout;
-// own slot 47 FUN_0057b7b0 CreateWithText.
+
+// RichTextWin: ctor the routine, dtor the routine (scalar deleting the routine),
+// vftable 0x005e476c (48 slots) + face 0x005e4760. Overrides: 0 the routine,
+// 9 the routine Create, 11 the routine Update, 45 the branch Relayout;
+// own slot 47 the routine CreateWithText.
 // Subclasses: RichTextEditWin (0x005e4844), MsgWin (0x005cffc4), UIRichTextWin (0x005e58d4),
 // UITextMsgButton (0x005e5af4).
-//
+
 // BaseRichTextWin layout (after WinControl's 0x32c):
 //   +0x32c DebugWindow* -- only the ctor (0) and the dtor/Create null tests touch it; the
 //          DebugWindow vftable 0x005e465c is installed nowhere but in the dtor (0x00579664),
 //          so no DebugWindow is ever built and every branch on it is dead
 //   +0x330 / +0x334 width / height in the control's local units (Create: 0.4 / 0.3)
-//   +0x338..+0x344 the two corners (0,0,0) and (w,-h,0) in world space (FUN_00579e90)
+//   +0x338..+0x344 the two corners (0,0,0) and (w,-h,0) in world space (the routine)
 //   +0x348..+0x354 their screen rectangle left, top, right, bottom
 //   +0x358 / +0x35c pixel width / height (right - left, bottom - top)
 //   +0x360 / +0x364 scroll x / y in pixels
@@ -42,12 +38,12 @@
 //   +0x374 RenderDisplayList -- LayoutRichText output, executed by Draw
 //   +0x380 laid-out height in pixels
 //   +0x384 DeviceTRC (0x50)
-//   +0x3d4 GDI surface {HDC, HBITMAP, previous object, width, height} (FUN_00579390 frees it)
+//   +0x3d4 GDI surface {HDC, HBITMAP, previous object, width, height} (the routine frees it)
 //   +0x3e8 DIB pitch, +0x3ec IBigImage2*
 //   +0x3f0 vertical UIScroll ("ScrollV_%d"), +0x3f4 horizontal UIScroll (never created here)
 //   +0x3f8 scrollbar width 0.02f, +0x3fc scrollbar gap 0.002f
 //   +0x400 layout dirty, +0x401 surface dirty, +0x402 draw the debug frame,
-//   +0x403 frame RGBA (DAT_00615170: 00 ff 00 ff), +0x407 automatic vertical scrollbar
+//   +0x403 frame RGBA (the field: 00 ff 00 ff), +0x407 automatic vertical scrollbar
 //   +0x408 vertical alignment 0..3
 //   +0x40c FToolTipHoverInfo (0x64), key (+0x40c) = this
 //   +0x470 feed the ToolTip on hover, +0x471 never hit, +0x472 skip the image upload
@@ -89,74 +85,74 @@ struct FRichTextSurface
 class BaseRichTextWin : public WinControl
 {
 public:
-    // FUN_005793e0
+
     BaseRichTextWin();
-    // FUN_00579620
+
     ~BaseRichTextWin() override;
 
-    // slot 4 LAB_0057aa80
+    // slot 4 the branch
     bool HitTest(float const* Ray) override;
-    // slot 5 FUN_0057b0a0
+    // slot 5 the routine
     void SetPosition(float const* NewPosition) override;
-    // slot 9 FUN_0057a810
+    // slot 9 the routine
     bool Create(Win3D* NewParent, void* Data) override;
-    // slot 11 FUN_0057b0e0
+    // slot 11 the routine
     void Update() override;
-    // slot 12 LAB_0057b140
+    // slot 12 the branch
     void UpdateInactive() override;
-    // slot 13 FUN_0057ab10
+    // slot 13 the routine
     void Draw() override;
-    // slot 23 FUN_0057afd0 -- 0xf005 from the scrollbars
+    // slot 23 the routine -- 0xf005 from the scrollbars
     bool Slot23(unsigned Msg, unsigned A, unsigned B) override;
-    // slot 42 LAB_0057ebb0 -- property 6 sets the attach offset
+    // slot 42 the branch -- property 6 sets the attach offset
     intptr_t SetProperty(int Msg, uintptr_t A, uintptr_t B) override;
 
-    // slot 45 (+0xb4) FUN_004b6c50 -- MOV AL,1
+    // slot 45 (+0xb4) the routine -- MOV AL,1
     virtual bool Relayout();
-    // slot 46 (+0xb8) LAB_005798a0 -- &+0x40c
+    // slot 46 (+0xb8) the branch -- &+0x40c
     virtual FToolTipHoverInfo* GetToolTipHoverInfo();
 
-    // FUN_00579860 (RET 4)
+    // (RET 4)
     void SetDrawFrame(bool bDraw);
-    // FUN_00579870 (RET 4)
+    // (RET 4)
     void SetFrameColor(unsigned long const* Rgba);
-    // FUN_00579880 (RET 4)
+    // (RET 4)
     void SetNeverHit(bool bNever);
-    // FUN_00579890 (RET 4)
+    // (RET 4)
     void SetToolTipEnabled(bool bEnabled);
-    // FUN_005798b0 (RET 8)
+    // (RET 8)
     void SetScrollOrigin(int ScrollX, int ScrollY);
-    // FUN_00579970 (RET 8)
+    // (RET 8)
     void GetScrollOrigin(int* OutScrollX, int* OutScrollY);
-    // FUN_005799f0 (RET 4)
+    // (RET 4)
     void SetAutoScrollbar(bool bAuto);
-    // FUN_00579a10
+
     void ScrollToEnd();
-    // FUN_00579a40
+
     void ScrollToTop();
-    // FUN_00579a50 (RET 4)
+    // (RET 4)
     void SetKeepScrolledToEnd(bool bKeep);
-    // FUN_00579a60 (RET 4)
+    // (RET 4)
     void SetAlignMode(int Mode);
-    // FUN_00579a90 (RET 4)
+    // (RET 4)
     void SetSkipUpload(bool bSkip);
-    // FUN_00579aa0 -- build the "ScrollV_%d" UIScroll beside the text.
+    // build the "ScrollV_%d" UIScroll beside the text.
     UiScroll* CreateScrollBarV();
-    // FUN_00579bd0 (RET 4)
+    // (RET 4)
     void ShowScrollBarV(bool bShow);
-    // FUN_00579c30
+
     float GetScrollBarGap();
-    // FUN_00579c40 (RET 4)
+    // (RET 4)
     void SetAttachOffset(float const* NewOffset);
-    // FUN_00579cc0 (RET 8)
+    // (RET 8)
     void SetNormSize(float Width, float Height);
-    // FUN_00579e90 -- project the control, then (re)build the DC, bitmap and image.
+    // project the control, then (re)build the DC, bitmap and image.
     void EnsureSurface();
-    // FUN_0057a610
+
     DeviceTRC* GetDeviceTRC();
-    // FUN_0057a620 (RET 8)
+    // (RET 8)
     void MarkDirty(bool bSurface, bool bLayout);
-    // FUN_0057a680
+
     void RebuildLayoutIfDirty();
 
     DebugWindow* DebugWin;              // +0x32c
@@ -204,7 +200,7 @@ private:
     BaseRichTextWin& operator=(BaseRichTextWin const&) = delete;
 };
 
-static_assert(sizeof(BaseRichTextWin) == 0x488, "retail BaseRichTextWin is 0x488 bytes");
+static_assert(sizeof(BaseRichTextWin) == 0x488, "baseline BaseRichTextWin is 0x488 bytes");
 static_assert(offsetof(BaseRichTextWin, NormWidth) == 0x330, "BaseRichTextWin +0x330");
 static_assert(offsetof(BaseRichTextWin, WorldRect) == 0x338, "BaseRichTextWin +0x338");
 static_assert(offsetof(BaseRichTextWin, ScreenRect) == 0x348, "BaseRichTextWin +0x348");
@@ -226,29 +222,29 @@ static_assert(offsetof(BaseRichTextWin, AttachOffset) == 0x47c, "BaseRichTextWin
 class RichTextWin : public BaseRichTextWin
 {
 public:
-    // FUN_0057b1b0
+
     RichTextWin();
-    // FUN_0057b260
+
     ~RichTextWin() override;
 
-    // slot 9 FUN_0057b5a0
+    // slot 9 the routine
     bool Create(Win3D* NewParent, void* Data) override;
-    // slot 11 FUN_0057b530
+    // slot 11 the routine
     void Update() override;
-    // slot 45 LAB_0057b320 -- LayoutRichText(+0x384, +0x488, width - 4, +0x374, 2, 0, 0,
+    // slot 45 the branch -- LayoutRichText(+0x384, +0x488, width - 4, +0x374, 2, 0, 0,
     // &+0x380, +0x494)
     bool Relayout() override;
-    // slot 47 (+0xbc) FUN_0057b7b0 (RET 0x10) -- Create, the size, then one TextNode.
+    // slot 47 (+0xbc) the routine (RET 0x10) -- Create, the size, then one TextNode.
     virtual void CreateWithText(Win3D* NewParent, wchar_t const* Text, float Width,
                                 float Height);
 
-    // FUN_0057b370
+
     void ClearContent();
-    // FUN_0057b3e0 (RET 4) -- append a clone of every node of Source.
+    // (RET 4) -- append a clone of every node of Source.
     void AppendContent(RenderDisplayList const& Source);
-    // FUN_0057b470 (RET 4) -- append a clone of Node.
+    // (RET 4) -- append a clone of Node.
     void AppendNode(RDLNode const& Node);
-    // FUN_0057b520 (RET 4)
+    // (RET 4)
     void SetLayoutFlag(bool bFlag);
 
     RenderDisplayList Content;          // +0x488
@@ -260,40 +256,40 @@ private:
     RichTextWin& operator=(RichTextWin const&) = delete;
 };
 
-static_assert(sizeof(RichTextWin) == 0x498, "UIRichTextWin allocates 0x498 (FUN_0059cbd0)");
+static_assert(sizeof(RichTextWin) == 0x498, "UIRichTextWin allocates 0x498 (module state)");
 static_assert(offsetof(RichTextWin, Content) == 0x488, "RichTextWin +0x488");
 static_assert(offsetof(RichTextWin, LayoutFlag) == 0x494, "RichTextWin +0x494");
 
-// Retail RichTextEditWin (RTTI .?AVRichTextEditWin@@ : RichTextWin, Event::Handler), the
-// editable rich text box. ctor FUN_0057b8d0, scalar deleting dtor FUN_0057bb10, vftable
-// 0x005e4844 (53 slots) + IDataViewOwner face 0x005e4838 + Event::Handler face 0x005e4830 at
-// +0x498 (one slot, LAB_0057c930). Overrides of RichTextWin: 0 FUN_0057bb10,
-// 11 FUN_0057c360 Update, 13 FUN_0057c440 Draw, 19 FUN_0057d1d0 MouseEvent; own slots
-// 48 FUN_0057c330, 49 FUN_0057c9b0, 50 FUN_0057ceb0, 51 / 52 FUN_00401e90 (RET).
+// baseline RichTextEditWin (RTTI .?AVRichTextEditWin@@ : RichTextWin, Event::Handler), the
+// editable rich text box. ctor the routine, scalar deleting dtor the routine, vftable
+// (53 slots) + IDataViewOwner face 0x005e4838 + Event::Handler face 0x005e4830 at
+// +0x498 (one slot, the branch). Overrides of RichTextWin: 0 the routine,
+// 11 the routine Update, 13 the routine Draw, 19 the routine MouseEvent; own slots
+// 48 the routine, 49 the routine, 50 the routine, 51 / 52 the routine (RET).
 // Subclasses: UITextEdit (0x005e5bd4), ChatTextInputDisplay (0x005cfec4).
-// The factory is WINFACTORY<RichTextEditWin> "RichTextEditWin" (DAT_0067c414).
-//
+// The factory is WINFACTORY<RichTextEditWin> "RichTextEditWin" (the field).
+
 // How it edits: the text is a vector of 0xc-byte cells (+0x4c4) -- a character and the text
 // attributes it was typed with. Every change rebuilds the source list (+0x488) as two
 // references, one to the prefix list (+0x4dc) and one to the generated text list (+0x4e8), which
-// FUN_0057d330 refills: a TRANode at every attribute change (or one reference to +0x4fc when the
+// refills: a TRANode at every attribute change (or one reference to +0x4fc when the
 // fixed-style flag +0x4f8 is set) and a TextNode per run ('*' each in password mode). Keys and
 // characters arrive through the Event::Handler face (+0x498) as events 1 and 2 while the box is
-// the input focus (Activate FUN_0057c750); an IME box (FLImeInputBox, +0x52c) exists only while
+// the input focus (Activate the routine); an IME box (FLImeInputBox, +0x52c) exists only while
 // an IMEFocus singleton does.
-//
-// The retail layout is kept in the comments; the port holds the containers as STL members (no
-// retail ABI), so the object is larger than retail's 0x530.
+
+// The baseline layout is kept in the comments; the port holds the containers as STL members (no
+// baseline ABI), so the object is larger than baseline's 0x530.
 //   +0x498 Event::Handler, +0x49c caret, +0x4a0 / +0x4a4 (see below), +0x4a8 4,
 //   +0x4ac caret shown, +0x4b0 caret timer, +0x4b4 caret period (0.5f), +0x4b8 caret RGBA,
 //   +0x4bc caret height scale (1.0f), +0x4c0 editable, +0x4c4 cells, +0x4d4 current attributes
-//   (TRA DAT_0067c40c, static init LAB_0057b8b0: 00 ff ff ff), +0x4dc prefix list, +0x4e8 text
+//   (TRA the field, static init the branch: 00 ff ff ff), +0x4dc prefix list, +0x4e8 text
 //   list, +0x4f4 allowed formatting, +0x4f8 fixed style, +0x4fc fixed-style list, +0x508
 //   password mode, +0x50c case mode, +0x510 max length, +0x514 set<wchar_t> filter,
 //   +0x528 replacement character ('_'), +0x52a filter is an allow list, +0x52b IME enabled,
 //   +0x52c FLImeInputBox*.
 
-// +0x4c4 element (0xc bytes in retail: the character, two bytes of padding and an 8-byte
+// +0x4c4 element (0xc bytes in baseline: the character, two bytes of padding and an 8-byte
 // TextRenderAttributes of which every copy moves only the first dword).
 struct FRichEditCell
 {
@@ -304,65 +300,65 @@ struct FRichEditCell
 class RichTextEditWin : public RichTextWin, public EventHandler
 {
 public:
-    // FUN_0057b8d0
+
     RichTextEditWin();
-    // FUN_0057bbf0 (scalar deleting FUN_0057bb10)
+    // (scalar deleting the routine)
     ~RichTextEditWin() override;
 
-    // slot 11 FUN_0057c360 -- the source list animated, the ToolTip feed, Win3D's child walk,
+    // slot 11 the routine -- the source list animated, the ToolTip feed, Win3D's child walk,
     // then the caret blink.
     void Update() override;
-    // slot 13 FUN_0057c440 -- BaseRichTextWin's draw, the IME box resized, then the caret line.
+    // slot 13 the routine -- BaseRichTextWin's draw, the IME box resized, then the caret line.
     void Draw() override;
-    // slot 19 LAB_0057d1d0 -- a parent takes the event, else WinControl's FUN_005a0650
+    // slot 19 the branch -- a parent takes the event, else WinControl's the routine
     bool MouseEvent(FWin3DMouseEvent const* Event) override;
-    // slot 48 (+0xc0) FUN_0057c330 (RET 0xc) -- Create (slot 9) with no data, then the size.
+    // slot 48 (+0xc0) the routine (RET 0xc) -- Create (slot 9) with no data, then the size.
     virtual void CreateSized(Win3D* NewParent, float Width, float Height);
-    // slot 49 (+0xc4) FUN_0057c9b0 (RET 4) -- event 1, a key.
+    // slot 49 (+0xc4) the routine (RET 4) -- event 1, a key.
     virtual bool OnKeyDown(FHudCmdRecord const* Record);
-    // slot 50 (+0xc8) LAB_0057ceb0 (RET 4) -- event 2, a character.
+    // slot 50 (+0xc8) the branch (RET 4) -- event 2, a character.
     virtual bool OnChar(FHudCmdRecord const* Record);
-    // slot 51 (+0xcc) FUN_00401e90 -- RET; Activate's tail call.
+    // slot 51 (+0xcc) the routine -- RET; Activate's tail call.
     virtual void OnActivated();
-    // slot 52 (+0xd0) FUN_00401e90 -- RET; Deactivate's first call.
+    // slot 52 (+0xd0) the routine -- RET; Deactivate's first call.
     virtual void OnDeactivating();
 
-    // Event::Handler slot 0 FUN_0057c930 (RET 4, this = the +0x498 face).
+    // Event::Handler slot 0 the routine (RET 4, this = the +0x498 face).
     bool OnEvent(unsigned MsgId) override;
 
-    // FUN_0057bdb0 (RET 4) -- a negative count is ignored.
+    // (RET 4) -- a negative count is ignored.
     void SetMaxLength(int MaxChars);
-    // FUN_0057bdd0 (RET 4) -- +0x4f8; a change rebuilds the display.
+    // (RET 4) -- +0x4f8; a change rebuilds the display.
     void SetFixedStyle(bool bFixed);
-    // FUN_0057be00 (RET 4) -- +0x508; a change rebuilds the display.
+    // (RET 4) -- +0x508; a change rebuilds the display.
     void SetPasswordMode(bool bPassword);
-    // FUN_0057be30 (RET 4) -- +0x52b, and the IME box built or destroyed with it.
+    // (RET 4) -- +0x52b, and the IME box built or destroyed with it.
     void SetImeEnabled(bool bEnabled);
-    // FUN_0057bfa0 (RET 4)
+    // (RET 4)
     void SetEditable(bool bNewEditable);
-    // FUN_0057bff0 -- every cell dropped, caret 0, display rebuilt, the IME box rebuilt.
+    // every cell dropped, caret 0, display rebuilt, the IME box rebuilt.
     void ClearText();
-    // FUN_0057c0e0 (RET 8) -- replace the text; Attr null means the current attributes.
+    // (RET 8) -- replace the text; Attr null means the current attributes.
     void SetText(wchar_t const* Text, TextRenderAttributes const* Attr);
-    // FUN_0057c2c0 (RET 8) -- copy the first min(count, MaxChars - 1) characters and a
+    // (RET 8) -- copy the first min(count, MaxChars - 1) characters and a
     // terminator. Returns the number written including the terminator, or the cell count when
     // MaxChars <= 0 (then nothing is written).
     int GetText(wchar_t* Buffer, int MaxChars);
-    // FUN_0057c750 -- shown, input focus, events 1 / 2 (and 0xf while read-only), IME focus.
+    // shown, input focus, events 1 / 2 (and 0xf while read-only), IME focus.
     void Activate();
-    // FUN_0057c7d0 (RET 4)
+    // (RET 4)
     void Deactivate(bool bHide);
-    // FUN_0057c840 (RET 4) -- 0 as typed, 1 upper case, 2 lower case.
+    // (RET 4) -- 0 as typed, 1 upper case, 2 lower case.
     void SetCaseMode(int Mode);
-    // FUN_0057c850 (RET 4)
+    // (RET 4)
     void SetFilterIsAllowList(bool bAllowList);
-    // FUN_0057c860 (RET 8) -- insert Count characters into the filter set, last one first.
+    // (RET 8) -- insert Count characters into the filter set, last one first.
     void AddFilterChars(wchar_t const* Chars, int Count);
-    // FUN_0057c920 (RET 4)
+    // (RET 4)
     void SetReplacementChar(wchar_t Ch);
-    // FUN_0057d330
+
     void RebuildDisplay();
-    // FUN_0057d6a0 (RET 4) -- clamp to 0..count, then take the attributes of the cell before it.
+    // (RET 4) -- clamp to 0..count, then take the attributes of the cell before it.
     void SetCaret(int Position);
 
     int Caret;                          // +0x49c
@@ -394,7 +390,7 @@ public:
     FLImeInputBox* ImeBox;              // +0x52c
 
 protected:
-    // FUN_0057d1f0 (RET 8) -- a TextNode of Count cells from Start ('*' each in password mode)
+    // (RET 8) -- a TextNode of Count cells from Start ('*' each in password mode)
     // appended to the text list.
     void AppendTextRun(int Start, int Count);
     // The bounded advance every edit spells inline: begin() moved Position cells, stopping at

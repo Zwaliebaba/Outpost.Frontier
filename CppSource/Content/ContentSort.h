@@ -1,27 +1,23 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
-// The std::sort that retail Content.dll was built with (VC6 <algorithm>: _Sort_0 / _Sort /
+// The std::sort that baseline Content.dll was built with (VC6 <algorithm>: _Sort_0 / _Sort /
 // _Median / _Unguarded_partition / _Insertion_sort / _Unguarded_insert, _SORT_MAX 16).
-// Every instantiation in the listing has this shape, e.g. TU48 FUN_06f55a00 (_Sort_0 with
-// the first _Sort pass inlined) + FUN_06f55cd0 (_Sort) for the empathy rates.
-//
-// It is a port of retail behaviour, not a replacement for std::sort: the algorithm is not
+// Every instantiation in the listing has this shape, e.g. TU48 the routine (_Sort_0 with
+// the first _Sort pass inlined) + the routine (_Sort) for the empathy rates.
+
+// It is a port of baseline behaviour, not a replacement for std::sort: the algorithm is not
 // stable, so the final order of elements that compare equal is decided by these exact
 // steps; a different sort gives the same key order but a different order of ties.
-//
-// Less is the retail predicate (a strict weak order): Less(A, B) is true when A goes first.
+
+// Less is the baseline predicate (a strict weak order): Less(A, B) is true when A goes first.
 
 // _Median takes its three elements by value, as VC6's `_Median(_Ty _X, _Ty _Y, _Ty _Z, _Pr _P)`:
-// the caller copy-constructs the arguments and the callee destroys them (retail TU58
+// the caller copy-constructs the arguments and the callee destroys them (baseline TU58
 // FZonePathLabel instance: argument copies in _Sort_0 06f7f370 states 1 / 2 and _Sort 06f7f990
 // states 0 / 1, parameter dtors in _Median 06f7fea0 states 0-2). Returning a parameter moves it
-// where retail copy-constructs the return slot; the returned value is the same.
+// where baseline copy-constructs the return slot; the returned value is the same.
 template <typename TElement, typename TLess>
 TElement ContentSortMedian(TElement A, TElement B, TElement C, TLess Less)
 {

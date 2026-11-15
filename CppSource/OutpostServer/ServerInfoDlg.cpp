@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "StdAfx.h"
@@ -10,24 +6,24 @@
 
 namespace
 {
-	// SetTimer id and period used by OnCreate (.text:004079e6).
+	// SetTimer id and period used by OnCreate (module storage).
 	const UINT_PTR InfoTimerId = 0x2000;
 	const UINT InfoTimerPeriod = 2000;
 }
 
-// .text:004074c0
+
 CServerInfoDlg::CServerInfoDlg(CWnd* Parent)
 	: CDialog(IDD, Parent)
 {
 }
 
-// .text:004075b0
+
 void CServerInfoDlg::DoDataExchange(CDataExchange* DX)
 {
 	DDX_Control(DX, 1005, InfoTree);
 }
 
-// Message map .rdata:0041c8f0: WM_CLOSE -> 004075f0, WM_TIMER -> 004079c0, WM_CREATE -> 004079d0,
+// Message map module storage: WM_CLOSE -> 004075f0, WM_TIMER -> 004079c0, WM_CREATE -> 004079d0,
 // WM_SIZE -> 00407a00.
 BEGIN_MESSAGE_MAP(CServerInfoDlg, CDialog)
 	ON_WM_CLOSE()
@@ -36,19 +32,19 @@ BEGIN_MESSAGE_MAP(CServerInfoDlg, CDialog)
 	ON_WM_SIZE()
 END_MESSAGE_MAP()
 
-// .text:004075f0 — closing only hides the window.
+// — closing only hides the window.
 void CServerInfoDlg::OnClose()
 {
 	ShowWindow(SW_HIDE);
 }
 
-// .text:004079c0 — CWnd::OnTimer (the inline Default()); retail's timer does nothing else.
+// — CWnd::OnTimer (the inline Default()); baseline's timer does nothing else.
 void CServerInfoDlg::OnTimer(UINT_PTR IDEvent)
 {
 	Default();
 }
 
-// .text:004079d0 — after the default creation starts a 2-second timer.
+// — after the default creation starts a 2-second timer.
 int CServerInfoDlg::OnCreate(LPCREATESTRUCT CreateInfo)
 {
 	if ((int)Default() == -1)
@@ -59,7 +55,7 @@ int CServerInfoDlg::OnCreate(LPCREATESTRUCT CreateInfo)
 	return 0;
 }
 
-// .text:00407a00 — keeps the tree's left/top margin on the right and bottom too.
+// — keeps the tree's left/top margin on the right and bottom too.
 void CServerInfoDlg::OnSize(UINT Type, int Width, int Height)
 {
 	Default();

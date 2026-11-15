@@ -126,7 +126,7 @@ int qh_new_qhull (int dim, int numpoints, coordT *points, boolT ismalloc,
     firstcall= False;
   }
   if (strncmp (qhull_cmd,"qhull ", 6)) {
-    FUN_06356960 ("qh_new_qhull: start qhull_cmd argument with \"qhull \"\n"); /* retail 063784f3 */
+    WriteHullDiagnostic ("qh_new_qhull: start qhull_cmd argument with \"qhull \"\n");
     exit(1);
   }
   qh_initqhull_start (NULL, outfile, errfile);
@@ -154,7 +154,7 @@ int qh_new_qhull (int dim, int numpoints, coordT *points, boolT ismalloc,
     }
     qh_init_B (new_points, numpoints, hulldim, new_ismalloc);
     qh_qhull();
-    /* retail 063784b0 ends here: no qh_check_output, qh_produce_output
+    /* ends here: no qh_check_output, qh_produce_output
        or qh_check_points after qh_qhull (0637d510) */
   }
   qh NOerrexit = True;
@@ -185,35 +185,35 @@ int qh_new_qhull (int dim, int numpoints, coordT *points, boolT ismalloc,
 */
 void qh_errexit(int exitcode, facetT *facet, ridgeT *ridge) {
 
-  if (!qh ferr) {  /* retail 06378600: no error file -> no report, raw exitcode */
+  if (!qh ferr) {  /* no error file -> no report, raw exitcode */
     qh NOerrexit= True;
     longjmp(qh errexit, exitcode);
   }
   if (qh ERREXITcalled) {
-    FUN_06356960 ("\nqhull error while processing previous error.  Exit program\n"); /* retail 0637861c */
+    WriteHullDiagnostic ("\nqhull error while processing previous error.  Exit program\n");
     exit(1);
   }
   qh ERREXITcalled= True;
   if (!qh QHULLfinished)
     qh hulltime= qh_CPUclock - qh hulltime;
   qh_errprint("ERRONEOUS", facet, NULL, ridge, NULL);
-  FUN_06356960 ("\nWhile executing: %s | %s\n", qh rbox_command, qh qhull_command); /* retail 0637867d */
-  FUN_06356960 ("Options selected for %s:\n%s\n", qh_VERSION, qh qhull_options); /* retail 06378694 */
+  WriteHullDiagnostic ("\nWhile executing: %s | %s\n", qh rbox_command, qh qhull_command);
+  WriteHullDiagnostic ("Options selected for %s:\n%s\n", qh_VERSION, qh qhull_options);
   if (qh furthest_id >= 0) {
-    FUN_06356960 ("Last point added to hull was p%d.", qh furthest_id); /* retail 063786ab */
+    WriteHullDiagnostic ("Last point added to hull was p%d.", qh furthest_id);
     if (zzval_(Ztotmerge))
-      FUN_06356960 ("  Last merge was #%d.", zzval_(Ztotmerge)); /* retail 063786c2 */
+      WriteHullDiagnostic ("  Last merge was #%d.", zzval_(Ztotmerge));
     if (qh QHULLfinished)
-      FUN_06356960 ("\nQhull has finished constructing the hull."); /* retail 063786e8 */
+      WriteHullDiagnostic ("\nQhull has finished constructing the hull.");
     else if (qh POSTmerging)
-      FUN_06356960 ("\nQhull has started post-merging."); /* retail 063786e8 */
-    FUN_06356960 ("\n"); /* retail 063786f5 */
+      WriteHullDiagnostic ("\nQhull has started post-merging.");
+    WriteHullDiagnostic ("\n");
   }
   if (qh FORCEoutput && (qh QHULLfinished || (!facet && !ridge)))
     qh_produce_output();
   else {
     if (exitcode != qh_ERRsingular && zzval_(Zsetplane) > qh hull_dim+1) {
-      FUN_06356960 ("\nAt error exit:\n"); /* retail 0637873c */
+      WriteHullDiagnostic ("\nAt error exit:\n");
       qh_printsummary (qh ferr);
       if (qh PRINTstatistics) {
 	qh_collectstatistics();
@@ -231,7 +231,7 @@ void qh_errexit(int exitcode, facetT *facet, ridgeT *ridge) {
   else if (exitcode == qh_ERRprec && !qh PREmerge)
     qh_printhelp_degenerate (qh ferr);
   if (qh NOerrexit) {
-    FUN_06356960 ("qhull error while ending program.  Exit program\n"); /* retail 063787e8 */
+    WriteHullDiagnostic ("qhull error while ending program.  Exit program\n");
     exit(1);
   }
   qh NOerrexit= True;
@@ -252,18 +252,18 @@ void qh_errexit(int exitcode, facetT *facet, ridgeT *ridge) {
 void qh_errprint(char *string, facetT *atfacet, facetT *otherfacet, ridgeT *atridge, vertexT *atvertex) {
   int i;
 
-  if (!qh ferr)  /* retail 06378820: nothing is printed without an error file */
+  if (!qh ferr)  /* nothing is printed without an error file */
     return;
   if (atfacet) {
-    FUN_06356960 ("%s FACET:\n", string); /* retail 06378843 */
+    WriteHullDiagnostic ("%s FACET:\n", string);
     qh_printfacet(qh ferr, atfacet);
   }
-  if (otherfacet && qh ferr) {  /* retail 0637885f re-reads qh ferr here */
-    FUN_06356960 ("%s OTHER FACET:\n", string); /* retail 0637886e */
+  if (otherfacet && qh ferr) {  /* re-reads qh ferr here */
+    WriteHullDiagnostic ("%s OTHER FACET:\n", string);
     qh_printfacet(qh ferr, otherfacet);
   }
   if (atridge) {
-    FUN_06356960 ("%s RIDGE:\n", string); /* retail 06378891 */
+    WriteHullDiagnostic ("%s RIDGE:\n", string);
     qh_printridge(qh ferr, atridge);
     if (atridge->top && atridge->top != atfacet && atridge->top != otherfacet)
       qh_printfacet(qh ferr, atridge->top);
@@ -276,11 +276,11 @@ void qh_errprint(char *string, facetT *atfacet, facetT *otherfacet, ridgeT *atri
       otherfacet= otherfacet_(atridge, atfacet);
   }
   if (atvertex) {
-    FUN_06356960 ("%s VERTEX:\n", string); /* retail 06378906 */
+    WriteHullDiagnostic ("%s VERTEX:\n", string);
     qh_printvertex (qh ferr, atvertex);
   }
   if (qh fout && qh FORCEoutput && atfacet && !qh QHULLfinished && !qh IStracing) {
-    FUN_06356960 ("ERRONEOUS and NEIGHBORING FACETS to output\n"); /* retail 06378949 */
+    WriteHullDiagnostic ("ERRONEOUS and NEIGHBORING FACETS to output\n");
     for (i= 0; i < qh_PRINTEND; i++)  /* use fout for geomview output */
       qh_printneighborhood (qh fout, qh PRINTout[i], atfacet, otherfacet,
 			    !qh_ALL);

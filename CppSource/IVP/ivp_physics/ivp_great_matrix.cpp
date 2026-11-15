@@ -1,13 +1,9 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
-// IVP linear-constraint solver -- Common.dll .text:06366070-063682f2.
+// IVP linear-constraint solver -- Common.dll module storage-063682f2.
 // See ivp_great_matrix.h for the class identification. Every function below
-// was transcribed from the retail listing (EXE/Disasm/Common.dll.txt), not
-// from the Ghidra decompile; x87 compares are reproduced with their NaN side
+// was transcribed from the baseline listing (Common), not
+// from the analysis inspect; x87 compares are reproduced with their NaN side
 // (`TEST AH,0x1; JZ` = jump when a >= b, so the fall-through is written as
 // `!(a >= b)`; `TEST AH,0x41; JZ` = jump when a > b).
 
@@ -31,7 +27,7 @@ namespace
     }
 
     // The four-wide `Dst[k] = Factor * Src[k] + Dst[k]` loop shared by
-    // 063660d0 / 06367bb0 / 06367d00 / 06368260: `TEST cnt; JLE` then
+    // / 06367bb0 / 06367d00 / 06368260: `TEST cnt; JLE` then
     // (cnt + 3) SHR 2 blocks. Product and sum stay on the FPU stack, each
     // element is stored with FSTP float.
     void AddScaledBlocks(float* Dst, float const* Src, int Count, float Factor)
@@ -100,7 +96,7 @@ namespace
 // IVP_Great_Matrix_Many_Zero
 // ============================================================================
 
-// 06366400: MatrixEps = 0x3089705f (1e-9); +0x0c/+0x10/+0x14 = 0; +0x04 = 0.
+// MatrixEps = 0x3089705f (1e-9); +0x0c/+0x10/+0x14 = 0; +0x04 = 0.
 // AlignedRowLen (+0x08) is not written.
 IVP_Great_Matrix_Many_Zero::IVP_Great_Matrix_Many_Zero()
 {
@@ -111,7 +107,7 @@ IVP_Great_Matrix_Many_Zero::IVP_Great_Matrix_Many_Zero()
     Columns = 0;
 }
 
-// 06366070-063660cc (RET 4)
+// (RET 4)
 int IVP_Great_Matrix_Many_Zero::TestResultRow(int Row) const
 {
     double Sum = 0.0;
@@ -125,7 +121,7 @@ int IVP_Great_Matrix_Many_Zero::TestResultRow(int Row) const
     return 1;
 }
 
-// 063660d0-06366175 (RET 0xc)
+// (RET 0xc)
 void IVP_Great_Matrix_Many_Zero::AddMultipleLine(int First, int Second, float Factor)
 {
     float* Src = MatrixValues + (AlignedRowLen + 1) * First;
@@ -137,20 +133,20 @@ void IVP_Great_Matrix_Many_Zero::AddMultipleLine(int First, int Second, float Fa
                                                (double)(DesiredVector[Second]));
 }
 
-// 06366180-06366190
+
 int IVP_Great_Matrix_Many_Zero::SolveGreatMatrixManyZero()
 {
     TransformToLowerNullTriangle();
     return SolveLowerNullMatrix();
 }
 
-// 063661a0-063661ac
+
 void IVP_Great_Matrix_Many_Zero::AlignMatrixValues()
 {
     MatrixValues = reinterpret_cast<float*>((reinterpret_cast<uintptr_t>(MatrixValues) + 0xc) & ~static_cast<uintptr_t>(0xF));
 }
 
-// 063661b0-06366216 (RET 4)
+// (RET 4)
 void IVP_Great_Matrix_Many_Zero::FindPivotInColumn(int Col)
 {
     float Best = std::fabs(MatrixValues[(AlignedRowLen + 1) * Col]); // FABS; FSTP float
@@ -168,7 +164,7 @@ void IVP_Great_Matrix_Many_Zero::FindPivotInColumn(int Col)
         ExchangeRows(Col, Pivot);
 }
 
-// 06366220-06366298 (RET 8)
+// (RET 8)
 void IVP_Great_Matrix_Many_Zero::ExchangeRows(int RowA, int RowB)
 {
     SwapBlocks(MatrixValues + AlignedRowLen * RowA, MatrixValues + AlignedRowLen * RowB, Columns);
@@ -177,14 +173,14 @@ void IVP_Great_Matrix_Many_Zero::ExchangeRows(int RowA, int RowB)
     DesiredVector[RowB] = Tmp;
 }
 
-// 063662a0-06366335
+
 void IVP_Great_Matrix_Many_Zero::TransformToLowerNullTriangle()
 {
     for (int Col = 0; Col < Columns; ++Col)
     {
         FindPivotInColumn(Col);
         float Pivot = MatrixValues[(AlignedRowLen + 1) * Col];
-        if (!(std::fabs(Pivot) >= MatrixEps)) // TEST AH,1; JNZ LAB_06366327
+        if (!(std::fabs(Pivot) >= MatrixEps)) // TEST AH,1; JNZ the branch
             continue;
         float Inv = (float)((double)(-1.0f) / (double)(Pivot)); // FDIV; FSTP float local_4
         for (int Row = Col + 1; Row < Columns; ++Row)
@@ -196,7 +192,7 @@ void IVP_Great_Matrix_Many_Zero::TransformToLowerNullTriangle()
     }
 }
 
-// 06366340-063663f3
+
 int IVP_Great_Matrix_Many_Zero::SolveLowerNullMatrix()
 {
     for (int Row = Columns - 1; Row >= 0; --Row)
@@ -207,7 +203,7 @@ int IVP_Great_Matrix_Many_Zero::SolveLowerNullMatrix()
             Sum = Sum - (double)(DesiredVector[K]) * (double)(RowPtr[K]);
 
         float Diag = RowPtr[Row];
-        if (std::fabs(Diag) >= MatrixEps) // TEST AH,1; JZ LAB_063663a8
+        if (std::fabs(Diag) >= MatrixEps) // TEST AH,1; JZ the branch
         {
             DesiredVector[Row] = (float)(Sum / (double)(Diag));
             continue;
@@ -225,7 +221,7 @@ int IVP_Great_Matrix_Many_Zero::SolveLowerNullMatrix()
     return 1;
 }
 
-// 06366420-0636653b (RET 0xc)
+// (RET 0xc)
 void IVP_Great_Matrix_Many_Zero::FillFromBiggerMatrix(IVP_Great_Matrix_Many_Zero const* Big, int const* Indices, int Count)
 {
     if (Count == 0)
@@ -263,7 +259,7 @@ void IVP_Great_Matrix_Many_Zero::FillFromBiggerMatrix(IVP_Great_Matrix_Many_Zero
     }
 }
 
-// 06366540-06366584
+
 void IVP_Great_Matrix_Many_Zero::MultAlignedMatrix()
 {
     for (int Row = 0; Row < Columns; ++Row)
@@ -280,7 +276,7 @@ void IVP_Great_Matrix_Many_Zero::MultAlignedMatrix()
 // IVP_Incr_L_U_Matrix
 // ============================================================================
 
-// 063678c0-06367955 (RET 4)
+// (RET 4)
 int IVP_Incr_L_U_Matrix::NormalizeRowL(int Row)
 {
     float* RowPtr = LMatrix + AlignedRowLen * Row;
@@ -293,7 +289,7 @@ int IVP_Incr_L_U_Matrix::NormalizeRowL(int Row)
     return 1;
 }
 
-// 06367960-06367a51 (RET 4)
+// (RET 4)
 int IVP_Incr_L_U_Matrix::NormalizeRowU(int Row)
 {
     int DiagIndex = AlignedRowLen * Row + Row;
@@ -312,7 +308,7 @@ int IVP_Incr_L_U_Matrix::NormalizeRowU(int Row)
     return 1;
 }
 
-// 06367a60-06367b3c (RET 8)
+// (RET 8)
 void IVP_Incr_L_U_Matrix::ExchangeRowsLU(int RowA, int RowB)
 {
     float* UA = UMatrix + AlignedRowLen * RowA + RowA;
@@ -322,7 +318,7 @@ void IVP_Incr_L_U_Matrix::ExchangeRowsLU(int RowA, int RowB)
     SwapBlocks(AlignDown16(LA), AlignDown16(LMatrix + AlignedRowLen * RowB), FloatsAboveBlock(LA) + NSub);
 }
 
-// 06367b40-06367ba5 (RET 4)
+// (RET 4)
 void IVP_Incr_L_U_Matrix::PivotInColumnU(int Col)
 {
     float Best = std::fabs(UMatrix[(AlignedRowLen + 1) * Col]);
@@ -340,7 +336,7 @@ void IVP_Incr_L_U_Matrix::PivotInColumnU(int Col)
         ExchangeRowsLU(Col, Pivot);
 }
 
-// 06367bb0-06367cf4 (RET 0xc)
+// (RET 0xc)
 void IVP_Incr_L_U_Matrix::SubtractRowLU(int Src, int Dst, float Factor)
 {
     float NegFactor = -Factor; // FCHS; FST float
@@ -355,7 +351,7 @@ void IVP_Incr_L_U_Matrix::SubtractRowLU(int Src, int Dst, float Factor)
     UMatrix[AlignedRowLen * Dst + Src] = 0.0f;
 }
 
-// 06367d00-06367da4 (RET 0xc)
+// (RET 0xc)
 void IVP_Incr_L_U_Matrix::SubtractRowLZero(int Src, int Dst, float Factor)
 {
     float NegFactor = -Factor;
@@ -365,7 +361,7 @@ void IVP_Incr_L_U_Matrix::SubtractRowLZero(int Src, int Dst, float Factor)
     LDst[Src] = 0.0f;
 }
 
-// 06367db0-06367e8f
+
 int IVP_Incr_L_U_Matrix::FactorFull()
 {
     if (NSub == 0)
@@ -395,7 +391,7 @@ int IVP_Incr_L_U_Matrix::FactorFull()
     return NormalizeRowU(NSub - 1) != 0 ? 1 : 0; // NEG/SBB/NEG
 }
 
-// 06367e90-06367f7a
+
 int IVP_Incr_L_U_Matrix::AddNewRowAndColumn()
 {
     for (int I = NSub - 1; I >= 0; --I)
@@ -418,7 +414,7 @@ int IVP_Incr_L_U_Matrix::AddNewRowAndColumn()
     return NormalizeRowU(NSub - 1);
 }
 
-// 06367f80-063680d1 (RET 4)
+// (RET 4)
 int IVP_Incr_L_U_Matrix::RemoveRowAndColumn(int Index)
 {
     ExchangeColumnsL(Index, NSub - 1);
@@ -462,7 +458,7 @@ int IVP_Incr_L_U_Matrix::RemoveRowAndColumn(int Index)
     return 1;
 }
 
-// 063680e0-06368128 (RET 8)
+// (RET 8)
 void IVP_Incr_L_U_Matrix::ExchangeColumnsL(int ColA, int ColB)
 {
     for (int Row = 0; Row < NSub; ++Row)
@@ -473,7 +469,7 @@ void IVP_Incr_L_U_Matrix::ExchangeColumnsL(int ColA, int ColB)
     }
 }
 
-// 06368130-06368178 (RET 8)
+// (RET 8)
 void IVP_Incr_L_U_Matrix::ExchangeColumnsU(int ColA, int ColB)
 {
     for (int Row = 0; Row < NSub; ++Row)
@@ -484,7 +480,7 @@ void IVP_Incr_L_U_Matrix::ExchangeColumnsU(int ColA, int ColB)
     }
 }
 
-// 06368180-063681c5
+
 void IVP_Incr_L_U_Matrix::MultVecWithL()
 {
     for (int Row = NSub - 1; Row >= 0; --Row)
@@ -497,7 +493,7 @@ void IVP_Incr_L_U_Matrix::MultVecWithL()
     }
 }
 
-// 063681d0-06368225
+
 void IVP_Incr_L_U_Matrix::SolveUpperTriangle()
 {
     for (int Row = NSub - 1; Row >= 0; --Row)
@@ -512,7 +508,7 @@ void IVP_Incr_L_U_Matrix::SolveUpperTriangle()
     }
 }
 
-// 06368230-06368259
+
 void IVP_Incr_L_U_Matrix::SolveLU()
 {
     for (int I = NSub - 1; I >= 0; --I)
@@ -521,7 +517,7 @@ void IVP_Incr_L_U_Matrix::SolveLU()
     SolveUpperTriangle();
 }
 
-// 06368260-063682f2 (RET 0xc)
+// (RET 0xc)
 void IVP_Incr_L_U_Matrix::SubtractRowL(int Src, int Dst, float Factor)
 {
     float NegFactor = -Factor;
@@ -533,7 +529,7 @@ void IVP_Incr_L_U_Matrix::SubtractRowL(int Src, int Dst, float Factor)
 // IVP_Linear_Constraint_Solver
 // ============================================================================
 
-// 06366590-06366609
+
 void IVP_Linear_Constraint_Solver::UpdateDeltaAccelOfInactives()
 {
     for (int I = RActives; I < NVariables; ++I)
@@ -550,7 +546,7 @@ void IVP_Linear_Constraint_Solver::UpdateDeltaAccelOfInactives()
     }
 }
 
-// 06366610-06366664
+
 void IVP_Linear_Constraint_Solver::ComputeResidual()
 {
     for (int I = 0; I < NVariables; ++I)
@@ -563,7 +559,7 @@ void IVP_Linear_Constraint_Solver::ComputeResidual()
     }
 }
 
-// 06366670-063666e5
+
 int IVP_Linear_Constraint_Solver::SolutionIsCorrect()
 {
     ComputeResidual();
@@ -581,8 +577,8 @@ int IVP_Linear_Constraint_Solver::SolutionIsCorrect()
     return 1;
 }
 
-// 063666f0-063669a5 (RET 4). The first twelve blocks are the GetMem sequence
-// inlined; the rest call FUN_06347380 itself. Order kept.
+// (RET 4). The first twelve blocks are the GetMem sequence
+// inlined; the rest call the routine itself. Order kept.
 void IVP_Linear_Constraint_Solver::AllocateMemory(IVP_U_Memory* Mem)
 {
     ActivesInactivesIgnored = static_cast<int*>(Mem->GetMem(AlignedSize * 4));
@@ -606,7 +602,7 @@ void IVP_Linear_Constraint_Solver::AllocateMemory(IVP_U_Memory* Mem)
     SubSolverMat.ResultVector = static_cast<float*>(Mem->GetMem(AlignedSize * 4));
 }
 
-// 063669b0-06366b03 (RET 0x18). Returns FullSolveLc's EAX (the zeroing
+// (RET 0x18). Returns FullSolveLc's EAX (the zeroing
 // stores after it use EDI).
 int IVP_Linear_Constraint_Solver::InitAndSolveLc(float* A, float* B, float* X, int N, int NumActives, IVP_U_Memory* Mem)
 {
@@ -616,13 +612,13 @@ int IVP_Linear_Constraint_Solver::InitAndSolveLc(float* A, float* B, float* X, i
 
     RActives = 0;
     IgnoredPos = 0;
-    SolverEps = 1e-7f; // 0x33d6bf95
+    SolverEps = 1e-7f;
     GaussEps = 1e-7f;
     FullAMatrix.Columns = N;
     FullAMatrix.MatrixValues = A;
     TestEps = SolverEps * 1000.0f; // FLD; FMUL 1000.0f; FSTP float
     SubSolverStatus = 0;
-    MaxStepLen = 10000.0f; // 0x461c4000
+    MaxStepLen = 10000.0f;
     LuMatrix.AlignedRowLen = AlignedSize;
     LuMatrix.NSub = 0;
     LuMatrix.MatrixEps = SolverEps * 10.0f;
@@ -669,7 +665,7 @@ int IVP_Linear_Constraint_Solver::InitAndSolveLc(float* A, float* B, float* X, i
     return Result;
 }
 
-// 06366b10-06366b3e (RET 4)
+// (RET 4)
 void IVP_Linear_Constraint_Solver::RemoveVariableFromLU(int Index)
 {
     if (SubSolverStatus == 0)
@@ -681,7 +677,7 @@ void IVP_Linear_Constraint_Solver::RemoveVariableFromLU(int Index)
     LuMatrix.NSub = LuMatrix.NSub - 1;
 }
 
-// 06366b50-06366bf1
+
 void IVP_Linear_Constraint_Solver::AddVariableToLU()
 {
     int NewVar = ActivesInactivesIgnored[RActives - 1];
@@ -698,7 +694,7 @@ void IVP_Linear_Constraint_Solver::AddVariableToLU()
         SubSolverStatus = 2;
 }
 
-// 06366c00-06366ca7
+
 void IVP_Linear_Constraint_Solver::DoALittleRandomPermutation()
 {
     if (RActives < 2)
@@ -724,7 +720,7 @@ void IVP_Linear_Constraint_Solver::DoALittleRandomPermutation()
     ExchangeActivesInactives(FirstPermuteInactive + Ignored + 1, SecondPermuteInactive + Ignored + 1);
 }
 
-// 06366cb0-06366d02
+
 void IVP_Linear_Constraint_Solver::MoveNotNecessaryActivesToInactives()
 {
     for (int I = 0; I < RActives; ++I)
@@ -740,13 +736,13 @@ void IVP_Linear_Constraint_Solver::MoveNotNecessaryActivesToInactives()
     }
 }
 
-// 06366d10-06366d16 (RET 4; ECX unused)
+// (RET 4; ECX unused)
 void IVP_Linear_Constraint_Solver::IncreaseStepCount(int* StepCount)
 {
     *StepCount = *StepCount + 1;
 }
 
-// 06366d20-0636712e. Labels carry the retail LAB_ names.
+// . Labels carry the baseline LAB_ names.
 int IVP_Linear_Constraint_Solver::FullSolveLc()
 {
     float Eps = SolverEps;   // [ESP+0x14]
@@ -759,7 +755,7 @@ int IVP_Linear_Constraint_Solver::FullSolveLc()
     int Limit = 0;           // EBP
     int Var = 0;             // EDI at 06366d9b
 
-LoopTop: // LAB_06366d45
+LoopTop:
     if (DidRealStep != 0)
         IncreaseStepCount(&StepCount);
     if (StepCount > 0xfa)
@@ -772,7 +768,7 @@ LoopTop: // LAB_06366d45
     }
     TestCountdown = TestCountdown - 1;
 
-NextVariable: // LAB_06366d83
+NextVariable:
     if (!(IgnoredPos < NVariables))
         return 1;
     Var = ActivesInactivesIgnored[IgnoredPos];
@@ -787,18 +783,18 @@ NextVariable: // LAB_06366d83
         }
         else
         {
-            SubSolverStatus = 1; // LAB_06366dc8
+            SubSolverStatus = 1;
         }
     }
 
-    if (!(std::fabs(Accel[Var]) >= Eps)) // TEST AH,1; JZ LAB_06366e04
+    if (!(std::fabs(Accel[Var]) >= Eps)) // TEST AH,1; JZ the branch
     {
         Limit = IgnoredPos;
         if (!(std::fabs(FullX[Var]) >= Eps))
-            goto MoveIgnoredToInactive; // LAB_063670dd
-        goto MoveIgnoredToActive;       // LAB_06367083
+            goto MoveIgnoredToInactive;
+        goto MoveIgnoredToActive;
     }
-    if (Accel[Var] >= 0.0f) // LAB_06366e04: TEST AH,1; JZ LAB_063670dd
+    if (Accel[Var] >= 0.0f) // TEST AH,1; JZ the branch
         goto MoveIgnoredToInactive;
 
     if (GetFDelta() == 0)
@@ -810,8 +806,8 @@ NextVariable: // LAB_06366d83
 
     if (!((double)(MaxStepLen) * (double)(DeltaAccel[Var]) > -(double)(Accel[Var])))
     {
-        Limit = -1; // LAB_06366e7f
-        StepLen = 1e20f; // 0x60ad78ec
+        Limit = -1;
+        StepLen = 1e20f;
     }
     else
     {
@@ -819,7 +815,7 @@ NextVariable: // LAB_06366d83
         StepLen = (float)(-((double)(Accel[Var]) / (double)(DeltaAccel[Var])));
     }
 
-    // LAB_06366e8a: actives that would reach zero force.
+    // actives that would reach zero force.
     {
         int NumActives = RActives; // ECX
         if (NumActives > 0)
@@ -829,16 +825,16 @@ NextVariable: // LAB_06366d83
             {
                 int Active = ActivesInactivesIgnored[I];
                 float Df = DeltaF[Active];
-                if (Df >= NegEps) // FCOM; TEST AH,1; JZ LAB_06366ef5
+                if (Df >= NegEps) // FCOM; TEST AH,1; JZ the branch
                     continue;
                 double Step = -((double)(FullX[Active]) / (double)(Df));
                 if (!(std::fabs(Step) >= (double)(Eps)) && !(FullX[Active] >= Eps))
                 {
-                    StepLen = (float)(Step); // LAB_06366f44
+                    StepLen = (float)(Step);
                     Limit = I;
                     goto StepChosen;
                 }
-                if (!(Step >= (double)(StepLen) + (double)(Eps))) // LAB_06366eda
+                if (!(Step >= (double)(StepLen) + (double)(Eps)))
                 {
                     StepLen = (float)(Step);
                     Limit = I;
@@ -846,7 +842,7 @@ NextVariable: // LAB_06366d83
             }
         }
 
-        // LAB_06366eff: inactives whose acceleration would reach zero.
+        // inactives whose acceleration would reach zero.
         int Ignored = IgnoredPos; // EBX
         if (NumActives < Ignored)
         {
@@ -855,7 +851,7 @@ NextVariable: // LAB_06366d83
             {
                 int Inactive = ActivesInactivesIgnored[I];
                 float Da = DeltaAccel[Inactive];
-                if ((double)(Da) >= NegSolverEps) // FCOM ST1; TEST AH,1; JZ LAB_06366f4c
+                if ((double)(Da) >= NegSolverEps) // FCOM ST1; TEST AH,1; JZ the branch
                     continue;
                 double Step = -((double)(Accel[Inactive]) / (double)(Da));
                 if (!(Step >= (double)(StepLen) - (double)(Eps)))
@@ -867,16 +863,16 @@ NextVariable: // LAB_06366d83
         }
     }
 
-    // LAB_06366f58
+
     if (!(StepLen >= 0.0f))
         StepLen = 0.0f;
     if (Limit < 0)
         return 0;
 
-StepChosen: // LAB_06366f79
-    if (StepLen > MaxStepLen) // TEST AH,0x41; JZ LAB_06366fa9
+StepChosen:
+    if (StepLen > MaxStepLen) // TEST AH,0x41; JZ the branch
         goto RestartSolve;
-    if (StepLen >= SolverEps) // TEST AH,1; JZ LAB_06366fe5
+    if (StepLen >= SolverEps) // TEST AH,1; JZ the branch
     {
         SmallStepCount = 0;
     }
@@ -887,7 +883,7 @@ StepChosen: // LAB_06366f79
             goto RestartSolve;
     }
 
-    // LAB_06366fed
+
     DidRealStep = 1;
     UpdateStepVectors(StepLen);
     if (Limit < RActives)
@@ -898,7 +894,7 @@ StepChosen: // LAB_06366f79
         RemoveVariableFromLU(Limit);
         goto LoopTop;
     }
-    if (Limit < IgnoredPos) // LAB_06367037
+    if (Limit < IgnoredPos)
     {
         if (StepLen > SolverEps) // TEST AH,0x41; JNZ skip
             MoveNotNecessaryActivesToInactives();
@@ -909,7 +905,7 @@ StepChosen: // LAB_06366f79
         goto LoopTop;
     }
 
-MoveIgnoredToActive: // LAB_06367083
+MoveIgnoredToActive:
     MoveNotNecessaryActivesToInactives();
     Var = ActivesInactivesIgnored[Limit];
     Accel[Var] = 0.0f;
@@ -923,7 +919,7 @@ MoveIgnoredToActive: // LAB_06367083
     AddVariableToLU();
     goto LoopTop;
 
-MoveIgnoredToInactive: // LAB_063670dd
+MoveIgnoredToInactive:
     Var = ActivesInactivesIgnored[IgnoredPos];
     FullX[Var] = 0.0f;
     DidRealStep = 0;
@@ -933,11 +929,11 @@ MoveIgnoredToInactive: // LAB_063670dd
     if (IgnoredPos < NVariables)
         goto LoopTop;
 
-AllVariablesPlaced: // LAB_0636711c
+AllVariablesPlaced:
     TestCountdown = 0;
     goto LoopTop;
 
-RestartSolve: // LAB_06366fab
+RestartSolve:
     IncreaseStepCount(&StepCount);
     if (StepCount > 0xfa)
         return 0;
@@ -945,12 +941,12 @@ RestartSolve: // LAB_06366fab
     if (Restart() == 0)
         return 0;
 
-ResetCountdown: // LAB_06366fd8
+ResetCountdown:
     TestCountdown = 7;
     goto NextVariable;
 }
 
-// 06367130-0636715c (RET 8)
+// (RET 8)
 void IVP_Linear_Constraint_Solver::ExchangeActivesInactives(int IndexA, int IndexB)
 {
     int VarB = ActivesInactivesIgnored[IndexB];
@@ -961,7 +957,7 @@ void IVP_Linear_Constraint_Solver::ExchangeActivesInactives(int IndexA, int Inde
     VariableIsFoundAt[VarA] = IndexB;
 }
 
-// 06367160-06367200 (RET 4)
+// (RET 4)
 void IVP_Linear_Constraint_Solver::UpdateStepVectors(float StepLen)
 {
     for (int I = 0; I < NVariables; ++I)
@@ -983,7 +979,7 @@ void IVP_Linear_Constraint_Solver::UpdateStepVectors(float StepLen)
     }
 }
 
-// 06367210-0636739f
+
 int IVP_Linear_Constraint_Solver::GetFDelta()
 {
     for (int I = 0; I < AlignedSize; ++I)
@@ -1024,7 +1020,7 @@ int IVP_Linear_Constraint_Solver::GetFDelta()
     return Result;
 }
 
-// 063673a0-06367407 (tail JMP into FactorFull)
+// (tail JMP into FactorFull)
 int IVP_Linear_Constraint_Solver::SetupLUFromActives()
 {
     for (int I = 0; I < RActives; ++I)
@@ -1039,7 +1035,7 @@ int IVP_Linear_Constraint_Solver::SetupLUFromActives()
     return LuMatrix.FactorFull();
 }
 
-// 06367410-0636747f: insertion sort of the actives, largest X first.
+// insertion sort of the actives, largest X first.
 void IVP_Linear_Constraint_Solver::SortActivesByX()
 {
     for (int I = 0; I + 1 < RActives; ++I)
@@ -1056,7 +1052,7 @@ void IVP_Linear_Constraint_Solver::SortActivesByX()
     }
 }
 
-// 06367480-0636751b
+
 void IVP_Linear_Constraint_Solver::StartFromResetX()
 {
     FullAMatrix.DesiredVector = ResetX;
@@ -1076,7 +1072,7 @@ void IVP_Linear_Constraint_Solver::StartFromResetX()
     }
 }
 
-// 06367520-06367653 (RET 4)
+// (RET 4)
 void IVP_Linear_Constraint_Solver::StartWithActives(int NumActives)
 {
     AlignedSubSize = (NumActives + 3) & ~3;
@@ -1091,14 +1087,14 @@ void IVP_Linear_Constraint_Solver::StartWithActives(int NumActives)
         SubSolverStatus = 0;
         for (;;)
         {
-            LuMatrix.SolveLU(); // LAB_0636756e
+            LuMatrix.SolveLU();
             for (int I = 0; I < RActives; ++I)
                 ResetX[ActivesInactivesIgnored[I]] = LuMatrix.OutVec[I];
             StartFromResetX();
 
             int Index = RActives;
             int Var = 0;
-            for (;;) // LAB_063675a5
+            for (;;)
             {
                 --Index;
                 if (Index < 0)
@@ -1115,7 +1111,7 @@ void IVP_Linear_Constraint_Solver::StartWithActives(int NumActives)
             RemoveVariableFromLU(Index);
             if (SubSolverStatus > 0)
             {
-                for (int I = 0; I < NVariables; ++I) // LAB_06367626
+                for (int I = 0; I < NVariables; ++I)
                 {
                     Accel[I] = 0.0f;
                     FullX[I] = 0.0f;
@@ -1126,17 +1122,17 @@ void IVP_Linear_Constraint_Solver::StartWithActives(int NumActives)
                 LuMatrix.InputVec[I] = FullB[ActivesInactivesIgnored[I]];
         }
     }
-    RActives = 0; // LAB_06367643
+    RActives = 0;
     IgnoredPos = 0;
     LuMatrix.NSub = 0;
 }
 
-// 06367660-063677c8
+
 int IVP_Linear_Constraint_Solver::Restart()
 {
     for (;;)
     {
-        LuMatrix.NSub = RActives; // LAB_06367667
+        LuMatrix.NSub = RActives;
         for (int I = 0; I < AlignedSize; ++I)
             ResetX[I] = 0.0f;
         DoALittleRandomPermutation();
@@ -1149,7 +1145,7 @@ int IVP_Linear_Constraint_Solver::Restart()
         }
         else
         {
-            SubSolverStatus = 2; // LAB_063676dc
+            SubSolverStatus = 2;
             SortActivesByX();
             DoALittleRandomPermutation();
             LuSubSolver.Columns = RActives;
@@ -1167,29 +1163,29 @@ int IVP_Linear_Constraint_Solver::Restart()
             for (int I = 0; I < RActives; ++I)
                 ResetX[ActivesInactivesIgnored[I]] = LuSubSolver.ResultVector[I];
         }
-        StartFromResetX(); // LAB_063677a8
+        StartFromResetX();
         if (!(RemoveInvalidActives() > 0))
             return 1;
     }
 }
 
-// 063677d0-063677f9 (RET 4)
+// (RET 4)
 void IVP_Linear_Constraint_Solver::MoveVariableToEnd(int Index)
 {
     for (int Next = Index + 1, Prev = Index; Next < NVariables; ++Next, ++Prev)
         ExchangeActivesInactives(Prev, Next);
 }
 
-// 06367800-063678bc
+
 int IVP_Linear_Constraint_Solver::RemoveInvalidActives()
 {
     int Removed = 0;
     for (int I = 0; I < RActives; ++I)
     {
         float* X = &FullX[ActivesInactivesIgnored[I]];
-        if (*X >= SolverEps) // TEST AH,1; JZ LAB_06367876
+        if (*X >= SolverEps) // TEST AH,1; JZ the branch
             continue;
-        if (-SolverEps >= *X) // FLD eps; FCHS; FCOMP [x]; TEST AH,1; JZ LAB_0636784a
+        if (-SolverEps >= *X) // FLD eps; FCHS; FCOMP [x]; TEST AH,1; JZ the branch
         {
             MoveVariableToEnd(I);
             Removed = Removed + 1;
@@ -1200,7 +1196,7 @@ int IVP_Linear_Constraint_Solver::RemoveInvalidActives()
             *X = 0.0f;
             ExchangeActivesInactives(I, RActives - 1);
         }
-        RActives = RActives - 1; // LAB_0636785a
+        RActives = RActives - 1;
         LuMatrix.NSub = LuMatrix.NSub - 1;
         --I;
         SubSolverStatus = 1;

@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -13,7 +9,7 @@
 
 class INI_Reader;
 
-// One [Sound] line, 12 bytes (vector DAT_06fd1ba8..DAT_06fd1bb4), sorted by
+// One [Sound] line, 12 bytes (vector the field..the field), sorted by
 // (VoiceId, MsgId) unsigned.
 struct FVoiceLine
 {
@@ -21,12 +17,12 @@ struct FVoiceLine
     unsigned int MsgId;                                      // +0x04 pub::GetNicknameId of msg
     float Duration;                                          // +0x08
 };
-static_assert(sizeof(FVoiceLine) == 0xc, "retail voice line is 12 bytes");
+static_assert(sizeof(FVoiceLine) == 0xc, "baseline voice line is 12 bytes");
 
-// DAT_06fd1ba8: constructed by LAB_06f5cbf0, freed by the atexit FUN_06f5cc20.
+// constructed by the branch, freed by the atexit the routine.
 extern std::vector<FVoiceLine> GVoiceLines;
 
-// FUN_06f67840: append this file's lines, re-sort the table, return its size.
+// append this file's lines, re-sort the table, return its size.
 int __cdecl LoadVoiceLines(INI_Reader* Reader);
-// FUN_06f67780: the duration of (VoiceId, MsgId), or -1.0f.
+// the duration of (VoiceId, MsgId), or -1.0f.
 float __cdecl FindVoiceLineDuration(unsigned int const* VoiceId, unsigned int const* MsgId);

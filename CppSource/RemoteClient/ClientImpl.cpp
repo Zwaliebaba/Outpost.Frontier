@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include <windows.h>
@@ -13,7 +9,7 @@
 #include <windows.h>
 
 #include "../include/rpc_packet.h"
-#include "dalib_net.h"
+#include "neuronruntime_net.h"
 #include "rpc_packet_codec.h"
 
 CClientImpl Client;
@@ -118,7 +114,7 @@ void CClientImpl::SendCommonStopTradeLane(unsigned int ClientId, unsigned int Sh
     FPacketBase* Packet = nullptr;
     if (Serializer->Allocate(1, 0x10, &Packet) == 0)
     {
-        // Retail ignores the last two arguments; the constructor zeroes both rings.
+        // baseline ignores the last two arguments; the constructor zeroes both rings.
         static_cast<FRpcStopTradeLanePacket*>(Packet)->ShipId = ShipId;
         PushToClient(ClientId, Packet->AsRaw());
     }

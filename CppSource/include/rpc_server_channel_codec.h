@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -23,7 +19,7 @@ int RpcRegisterRemoteServerServerPackets(FPacketSerializer* Serializer);
 // ===== shared SERVER helpers =====
 struct FmtStr;
 
-// A float moved through the x87 stack (FLD dword / FSTP dword), as retail SERVER
+// A float moved through the x87 stack (FLD dword / FSTP dword), as baseline SERVER
 // senders, encoders and receivers do for float fields: bit-exact except that a
 // signaling NaN is quietened.
 inline void RpcServerX87CopyFloat(float* Destination, const float* Source) {
@@ -77,8 +73,8 @@ struct FRpcServerCreateObjectCostume {
     unsigned int* Ids;      // +0x44 operator new(Count * 4), CostumeAccessory copies
 };
 
-// packet+0x20..+0x9b. Member order is retail's; the containers are this toolchain's
-// (no retail ABI).
+// packet+0x20..+0x9b. Member order is baseline's; the containers are this toolchain's
+// (no baseline ABI).
 struct FRpcServerCreateObjectFields {
     FRpcServerCreateObjectFields();
     FRpcServerCreateObjectFields(const FRpcServerCreateObjectFields&) = delete;
@@ -102,7 +98,7 @@ struct FRpcServerCreateObjectFields {
 // RC 06b50e50 / RS 06c08640 (instruction-identical) and RC 06b51750 / RS 06c08f40
 // (the RC decoder checks the id array and a hardpoint text run before it allocates
 // them, and returns 5 when that allocation fails). Called by each packet's Encode /
-// Decode right after its header on the packet's own marshal scratch; retail ignores
+// Decode right after its header on the packet's own marshal scratch; baseline ignores
 // the return and lets the sticky error stop the packet's next field. Encode returns
 // 0 or 0x16, Decode 0 or the stream error (5 on the RC allocation failures).
 unsigned int RpcServerCreateObjectEncode(FPacketBase& Packet, FRpcWireStream& Stream,
@@ -118,7 +114,7 @@ void RpcServerCreateObjectFill(const CEqObjCreateInfo* Info,
 void RpcServerCreateObjectRead(const FRpcServerCreateObjectFields* Fields,
     CEqObjCreateInfo* Info);
 // RC 06b4fee0 / RS 06bed590: fills the hardpoint dictionary the create-object codec
-// uses (names -> codes 1..42). Retail calls it once, at the end of the packet
+// uses (names -> codes 1..42). baseline calls it once, at the end of the packet
 // serializer's construction (RC 06b3b087, RS 06be1357).
 void RpcServerBuildHardpointDictionary();
 // ===== end shared SERVER helpers =====
@@ -618,7 +614,7 @@ struct FPacketServerObjectCargoUpdate : public FPacketBase {
 // not proven. Constructors initialize exactly what the native constructors write.
 
 // 0x05 FLPACKET_SERVER_DAMAGEOBJECT. RC factory 06b4a350 / ctor 06b4a390 / dtor
-// 06b3ecb0, RS 06be4e50 / 06be4e90 / 06bdb980 (body 06bdb200); operator new(0x40).
+// , RS 06be4e50 / 06be4e90 / 06bdb980 (body 06bdb200); operator new(0x40).
 // The ctor leaves +0x20 unset and builds Common's DamageList in place at +0x24 (list
 // dummy, size, byte +0x30, dwords +0x34/+0x38/+0x3c zeroed): DamageList(). The
 // destructor tears that list down: ~DamageList(). Codecs RC 06b3e780 / 06b3e9c0 =
@@ -682,7 +678,7 @@ public:
 };
 
 // 0x08 FLPACKET_SERVER_CHARSELECTVERIFIED. RC 06b4b9d0 / ctor 06b4ba10, RS 06be6510 /
-// 06be6550; the ctor writes no payload field. Wire: dword, then the double moved
+// ; the ctor writes no payload field. Wire: dword, then the double moved
 // through the x87 stack on encode (FLD/FSTP qword) and by two integer dwords on decode.
 class FRpcServerCharSelectVerifiedPacket : public FPacketBase {
 public:
@@ -700,7 +696,7 @@ public:
 };
 
 // 0x0a FLPACKET_SERVER_ACTIVATEOBJECT. RC 06b4a570 / ctor 06b4a5b0, RS 06be5070 /
-// 06be50b0; the ctor writes no payload field. Wire: dword, raw byte, dword (9 bytes).
+// ; the ctor writes no payload field. Wire: dword, raw byte, dword (9 bytes).
 class FRpcServerActivateObjectPacket : public FPacketBase {
 public:
     FRpcServerActivateObjectPacket() : FPacketBase(0x2000au) {}
@@ -720,7 +716,7 @@ public:
 // three dwords, ctor writes none of them.
 using FRpcServerLandPacket = FRpcClientDwordTriplePacket<0x2000bu>;
 // 0x0d FLPACKET_SERVER_SETSTARTROOM: RC 06b4be00 / ctor 06b4be40, RS 06be6960 /
-// 06be69a0; two dwords, ctor writes neither.
+// ; two dwords, ctor writes neither.
 using FRpcServerSetStartRoomPacket = FRpcClientDwordPairPacket<0x2000du>;
 
 // Single-dword lists: the ctor writes no payload field; wire is one dword.
@@ -749,7 +745,7 @@ using FRpcServerGfDestroyAmbientScriptPacket = FRpcClientDwordPairPacket<0x20019
 
 // Owned byte block {Size, Data} (1a/1d/1e: Size +0x20, Data +0x24; 1f: Data +0x20,
 // Size +0x24, as its native ctor 06b4c350, set helper 06b3d490 and codecs 06b3d4d0 /
-// 06b3d610 address them). The ctor zeroes both; the destructor frees a non-null Data
+// address them). The ctor zeroes both; the destructor frees a non-null Data
 // (RC 06b3d100). Wire: dword Size, Size bytes. Decode differs between the DLLs (see
 // remote_server_channel_codecs.cpp).
 unsigned int RpcServerBlobEncode(FPacketBase& Packet, const unsigned int& Size,
@@ -817,7 +813,7 @@ static_assert(sizeof(FRpcServerGfUpdateAmbientScriptPacket) == 0x28, "SERVER 0x1
 // 0x04 FLPACKET_SERVER_CREATESHIP. RC factory 06b4a800 / ctor 06b4a840 / dtor 06b40320
 // (body 06b3f820), RS 06be5300 / 06be5340 / 06be54a0 (body 06bf0c10), operator
 // new(0xec); every pair is instruction-identical. Codecs RC 06b3f9b0 / 06b3fee0, RS
-// 06bf0da0 / 06bf12d0 (the RC decoder checks the display-name run before it allocates
+// / 06bf12d0 (the RC decoder checks the display-name run before it allocates
 // it and returns 5 when that fails). Dump is the base no-op (RC 06b4ecc0 / RS 06bec3a0).
 // The create-object block is followed by CShipCreateInfo's own tail.
 class FRpcServerCreateShipPacket : public FPacketBase {
@@ -860,7 +856,7 @@ public:
 // Native SERVER classes of 0x40..0x5b shared by both remote DLLs. RC and RS build the
 // same layouts, constructors and wire bodies for every ID here (RS-S2 contracts 40..5b);
 // a body whose RC and RS listings differ says so at its definition. Constructors write
-// exactly what the native constructors write; the rest stays as retail leaves it.
+// exactly what the native constructors write; the rest stays as baseline leaves it.
 
 // One-scalar and empty bodies. Encode: header, one reserved field, end, stats.
 // 0x40 SETMISSIONFAILURES  RC 06b4c670/06b4c6b0, RS 06be7270/06be72b0; ctor leaves +0x20.
@@ -903,7 +899,7 @@ public:
 };
 
 // 0x44 FLPACKET_SERVER_REQUEST_RETURNED. RC 06b4b0a0 / ctor 06b4b0e0, RS 06be5bc0 /
-// 06be5c00; the ctor writes no payload field. Wire: dword and three bytes (7 bytes).
+// ; the ctor writes no payload field. Wire: dword and three bytes (7 bytes).
 class FRpcServerRequestReturnedPacket : public FPacketBase {
 public:
     FRpcServerRequestReturnedPacket() : FPacketBase(0x20044u) {}
@@ -921,7 +917,7 @@ public:
 };
 
 // 0x45 FLPACKET_SERVER_SET_MISSION_MESSAGE. RC 06b4b7d0 / ctor 06b4b810 / dtor
-// 06b4b860, RS 06be62f0 / 06be6330 / 06be6360. The ctor zeroes the block; the
+// , RS 06be62f0 / 06be6330 / 06be6360. The ctor zeroes the block; the
 // destructor releases it with operator delete. Wire: Type, then the flattened
 // CSetMissionMessage::Text as a length-prefixed block.
 class FRpcServerSetMissionMessagePacket : public FPacketBase {
@@ -959,7 +955,7 @@ public:
 };
 
 // 0x47 FLPACKET_SERVER_CFGINTERFACENOTIFICATION. RC 06b4b490 / ctor 06b4b4d0, RS
-// 06be5fb0 / 06be5ff0; the ctor writes no payload field. Wire: +0x20, the byte +0x28,
+// / 06be5ff0; the ctor writes no payload field. Wire: +0x20, the byte +0x28,
 // then +0x24. The sender copies the byte raw; only the receiver normalizes it.
 class FRpcServerCfgInterfaceNotificationPacket : public FPacketBase {
 public:
@@ -977,7 +973,7 @@ public:
 };
 
 // 0x4a FLPACKET_SERVER_SETGUIDEDTARGET. RC 06b4cc30 / ctor 06b4cc70, RS 06be7830 /
-// 06be7870; the ctor zeroes all three fields. Wire: dword, dword, word.
+// ; the ctor zeroes all three fields. Wire: dword, dword, word.
 class FRpcServerSetGuidedTargetPacket : public FPacketBase {
 public:
     FRpcServerSetGuidedTargetPacket()
@@ -1035,7 +1031,7 @@ public:
 };
 
 // 0x53 FLPACKET_SERVER_FORMATION_UPDATE. RC 06b4cfd0 / ctor 06b4d010, RS 06be7bf0 /
-// 06be7c30; the ctor zeroes all four dwords. Wire: dword, then Offset as one raw
+// ; the ctor zeroes all four dwords. Wire: dword, then Offset as one raw
 // 12-byte reservation.
 class FRpcServerFormationUpdatePacket : public FPacketBase {
 public:
@@ -1052,7 +1048,7 @@ public:
 };
 
 // 0x55 FLPACKET_SERVER_OBJECTCARGOUPDATE. RC 06b4d120 / ctor 06b4d160, RS 06be7d60 /
-// 06be7da0. Carries one EquipDesc: ctor +0x20/+0x24/+0x28 = 0, Count = 1, Status =
+// . Carries one EquipDesc: ctor +0x20/+0x24/+0x28 = 0, Count = 1, Status =
 // 1.0f, bMission = 0. Wire: dword, dword, word, word, float (x87 on encode, raw on
 // decode), byte.
 class FRpcServerObjectCargoUpdatePacket : public FPacketBase {
@@ -1097,7 +1093,7 @@ public:
 };
 
 // 0x4d FLPACKET_SERVER_LOADHINT (RS-P4). RC 06b4abf0 / ctor 06b4ac30 / deleting dtor
-// 06b43820 (body 06b42f00), RS 06be5710 / 06be5750 / 06bdc510 (body 06bdbc10). Carries
+// (body 06b42f00), RS 06be5710 / 06be5750 / 06bdc510 (body 06bdbc10). Carries
 // one serialized BaseHint: the ctor zeroes all three fields, the destructor frees a
 // non-null block and clears the pointer. Wire: Size, Kind, then Size bytes.
 class FRpcServerLoadHintPacket : public FPacketBase {
@@ -1122,7 +1118,7 @@ public:
 #include "rpc_iclient_args.h" // FPayloadServerSetDirective (0x4e)
 
 // 0x4e FLPACKET_SERVER_SETDIRECTIVE (RS-P4). RC 06b4ac60 / ctor 06b4aca0 / deleting dtor
-// 06b4ad70, RS 06be5780 / 06be57c0 / 06be5890. Carries one FPayloadServerSetDirective at
+// , RS 06be5780 / 06be57c0 / 06be5890. Carries one FPayloadServerSetDirective at
 // +0x20. The ctor seeds it as Server's default construction does (+0x18 = -1, +0x40 = 3,
 // every other field 0) and leaves +0x00 and the padding bytes. Wire: the 0x94-byte record
 // as one reservation, written and read field by field, so the padding bytes +0x09..+0x0b
@@ -1142,7 +1138,7 @@ public:
 };
 
 // 0x52 FLPACKET_SERVER_PLAYERLIST (RS-P4). RC 06b4cee0 / ctor 06b4cf20 / deleting dtor
-// 06b466d0 (body 06b466a0), RS 06be7ae0 / 06be7b20 / 06be7b60 (body 06bf9f40). One
+// (body 06b466a0), RS 06be7ae0 / 06be7b20 / 06be7b60 (body 06bf9f40). One
 // packet type for IClient slots 110 (Kind 1), 111 (Kind 2) and 112 (Kind 0); the ctor
 // seeds Kind 3, which the receiver ignores. Name is a CRT heap string (_wcsdup by the
 // setter, malloc by the decoder, free by the setter and the destructor). Wire: Kind,
@@ -1179,7 +1175,7 @@ public:
 // dtor 06b4cb10 (body 06b4cb30), RS 06be7650 / 06be7690 / 06be7710. Holds a
 // std::list<CollisionGroupDesc> at +0x20 (VC6: allocator byte +0x20, head +0x24, size
 // +0x28; the port's list has its own layout). Wire (helpers RC 06b3a180 / 06b3a230, RS
-// 06bda4e0 / 06bda590): the low word of the size, then per node the u16 Id and the float
+// / 06bda590): the low word of the size, then per node the u16 Id and the float
 // Health (x87 on encode, raw on decode).
 class FRpcServerSetCollisionGroupsPacket : public FPacketBase {
 public:
@@ -1198,10 +1194,10 @@ public:
 #include "common_reputation.h" // Costume (0x4f)
 
 // 0x4f FLPACKET_SERVER_SENDCOMM (RS-P9). RC factory 06b4ccd0 / ctor 06b4cd10 / deleting dtor
-// 06b4cd50 (body 06b4cd70), RS 06be78d0 / 06be7910 / 06be7950 (body 06be7970); RC and RS are
-// identical except where Decode says so. Size 0x78, every field at its retail offset: the
+// (body 06b4cd70), RS 06be78d0 / 06be7910 / 06be7950 (body 06be7970); RC and RS are
+// identical except where Decode says so. Size 0x78, every field at its baseline offset: the
 // accessory loops of the sender and the decoder run past Body.AccessoryIds when the count
-// exceeds 8 and land on the members that follow, as retail's do. The ctor zeroes the four
+// exceeds 8 and land on the members that follow, as baseline's do. The ctor zeroes the four
 // part ids, the accessory count and the owned array pointer and sets +0x74 to 1; the rest is
 // left as operator new leaves it. Wire: three dwords, the byte +0x74; when it is not 0 the
 // part ids 0 and 1, the accessory count as a byte and that many accessory ids; then +0x60,
@@ -1242,7 +1238,7 @@ static_assert(sizeof(FRpcServerSendCommPacket) == 0x78, "SERVER 0x4f size 0x78")
 // Field_0x54 to -1 and leaves the string and the vector empty. VC6 layout: wstring +0x40
 // (_Ptr +0x44, _Len +0x48), +0x50 (ctor 0, never coded), vector +0x58 (_First +0x5c), byte
 // +0x68; the port's std containers have their own layout, so only the scalar offsets before
-// +0x40 are retail's. Wire: Flags, then per set bit in this order: 0x08 +0x28, 0x04 +0x24,
+// +0x40 are baseline's. Wire: Flags, then per set bit in this order: 0x08 +0x28, 0x04 +0x24,
 // 0x01 +0x34, 0x02 +0x38 and +0x3c, 0x10 the text (low word of its length, then that many
 // wide characters), 0x20 +0x54, 0x40 the word +0x2c, 0x80 +0x30, 0x100 the byte +0x68 then
 // every element of the vector.
@@ -1357,11 +1353,11 @@ using FRpcServerSetEquipmentPacket = FRpcServerEquipListPacket<0x20024u>;
 using FRpcServerSetCargoPacket = FRpcServerEquipListPacket<0x20025u>;
 
 // 0x21 FLPACKET_SERVER_SYSTEM_SWITCH_OUT: RC 06b4a6b0 / ctor 06b4a6f0, RS 06be51b0 /
-// 06be51f0; two dwords, ctor writes neither.
+// ; two dwords, ctor writes neither.
 using FRpcServerSystemSwitchOutPacket = FRpcClientDwordPairPacket<0x20021u>;
 
 // 0x27 FLPACKET_SERVER_REQUESTCREATESHIPRESP: RC 06b49ff0 / ctor 06b4a030, RS
-// 06be4af0 / 06be4b30; ctor writes no payload field. Wire: raw byte, dword.
+// / 06be4b30; ctor writes no payload field. Wire: raw byte, dword.
 class FRpcServerRequestCreateShipRespPacket : public FPacketBase {
 public:
     FRpcServerRequestCreateShipRespPacket() : FPacketBase(0x20027u) {}
@@ -1377,7 +1373,7 @@ public:
 };
 
 // 0x2a FLPACKET_SERVER_ADJUSTATTITUDE: RC 06b4b000 / ctor 06b4b040, RS 06be5b20 /
-// 06be5b60; ctor writes no payload field. Wire: dword, float (FLD/FSTP on encode,
+// ; ctor writes no payload field. Wire: dword, float (FLD/FSTP on encode,
 // integer MOV on decode).
 class FRpcServerAdjustAttitudePacket : public FPacketBase {
 public:
@@ -1394,7 +1390,7 @@ public:
 };
 
 // 0x2f FLPACKET_SERVER_SETREMOVEITEM: RC 06b49e90 / ctor 06b49ed0, RS 06be4970 /
-// 06be49b0; the ctor writes +0x20 = 0, +0x24 = +0x28 = -1. Wire: three dwords.
+// ; the ctor writes +0x20 = 0, +0x24 = +0x28 = -1. Wire: three dwords.
 class FRpcServerSetRemoveItemPacket : public FRpcClientDwordTriplePacket<0x2002fu> {
 public:
     FRpcServerSetRemoveItemPacket() {
@@ -1409,13 +1405,13 @@ public:
 
 // 0x30 SETCASH (RC 06b49d80 / 06b49dc0, RS 06be4840 / 06be4880), 0x3e SETNUMKILLS
 // (RC 06b4c530 / 06b4c570, RS 06be7130 / 06be7170), 0x3f SETMISSIONSUCCESSES (RC
-// 06b4c5d0 / 06b4c610, RS 06be71d0 / 06be7210): one dword the ctor leaves unset.
+// / 06b4c610, RS 06be71d0 / 06be7210): one dword the ctor leaves unset.
 using FRpcServerSetCashPacket = FRpcScalarPacket<0x20030u, unsigned int, false>;
 using FRpcServerSetNumKillsPacket = FRpcScalarPacket<0x2003eu, unsigned int, false>;
 using FRpcServerSetMissionSuccessesPacket = FRpcScalarPacket<0x2003fu, unsigned int, false>;
 
 // 0x39 FLPACKET_SERVER_SCANNOTIFY: RC 06b4ce40 / ctor 06b4ce80, RS 06be7a40 /
-// 06be7a80; two dwords, ctor writes neither.
+// ; two dwords, ctor writes neither.
 using FRpcServerScanNotifyPacket = FRpcClientDwordPairPacket<0x20039u>;
 
 // 0x20 GFMISSIONVENDORACCEPTANCE (RC factory 06b4c380 / ctor 06b4c3c0, E 06b3dd00,
@@ -1427,10 +1423,10 @@ using FRpcServerGfMissionVendorAcceptancePacket = FRpcServerBlobPacket<0x20020u>
 using FRpcServerGfUpdateCharPacket = FRpcServerBlobPacket<0x20026u>;
 
 // 0x22 FLPACKET_SERVER_SYSTEM_SWITCH_IN: RC factory 06b4a750 / ctor 06b4a790, RS
-// 06be5250 / 06be5290 (size 0x44). The ctor zeroes Position and seeds Orientation
+// / 06be5290 (size 0x44). The ctor zeroes Position and seeds Orientation
 // {w=1,0,0,0}; it leaves the two dwords. Wire: dword, dword, Position (one 12-byte
 // reservation), Orientation (one 16-byte reservation), all integer copies (RC
-// 06b3a160 / 06b39ec0). The IClient argument is FPayloadServerSystemSwitchIn.
+// / 06b39ec0). The IClient argument is FPayloadServerSystemSwitchIn.
 class FRpcServerSystemSwitchInPacket : public FPacketBase {
 public:
     FRpcServerSystemSwitchInPacket();
@@ -1448,7 +1444,7 @@ public:
 };
 
 // 0x31 FLPACKET_SERVER_EXPLODEASTEROIDMINE: RC factory 06b4ab50 / ctor 06b4ab90, RS
-// 06be5670 / 06be56b0 (size 0x30). The ctor zeroes all four dwords. Wire: dword, then
+// / 06be56b0 (size 0x30). The ctor zeroes all four dwords. Wire: dword, then
 // the Vector as one 12-byte reservation (integer copy).
 class FRpcServerExplodeAsteroidMinePacket : public FPacketBase {
 public:
@@ -1465,7 +1461,7 @@ public:
 };
 
 // 0x38 FLPACKET_SERVER_ITEMTRACTORED: RC factory 06b4a4d0 / ctor 06b4a510, RS
-// 06be4fd0 / 06be5010 (size 0x2c). The ctor zeroes every field. Wire: dword, dword,
+// / 06be5010 (size 0x2c). The ctor zeroes every field. Wire: dword, dword,
 // word, word. The IClient argument is FPayloadServerItemTractored.
 class FRpcServerItemTractoredPacket : public FPacketBase {
 public:
@@ -1518,11 +1514,11 @@ public:
 };
 
 // 0x32 FLPACKET_SERVER_REQUESTSPACESCRIPT: RC factory 06b4b950 / ctor 06b4b990 / dtor
-// 06b43ed0, RS 06be6470 / 06be64b0 / (own dtor via 06be64f0) (size 0x3c). The ctor zeroes
+// , RS 06be6470 / 06be64b0 / (own dtor via 06be64f0) (size 0x3c). The ctor zeroes
 // +0x20, +0x28..+0x30 and Name, sets Mode = 1 and leaves NameSize. The dtor frees a
 // non-null Name. Wire: dword, NameSize, then NameSize bytes when it is non-zero;
 // +0x28..+0x34 never cross the wire. RS Decode copies the name into Name WITHOUT
-// allocating it (Name is null from the ctor): a retail write through null, reproduced on
+// allocating it (Name is null from the ctor): a baseline write through null, reproduced on
 // purpose (owner's UB ruling).
 class FRpcServerRequestSpaceScriptPacket : public FPacketBase {
 public:
@@ -1549,7 +1545,7 @@ public:
 };
 
 // 0x33 FLPACKET_SERVER_SETMISSIONOBJECTIVESTATE: RC factory 06b4b350 / ctor 06b4b390, RS
-// 06be5e70 / 06be5eb0 (size 0x2c); the ctor writes no payload field. Wire: dword,
+// / 06be5eb0 (size 0x2c); the ctor writes no payload field. Wire: dword,
 // dword (the sender zero-extends a byte), word. The IClient argument is
 // FServerMissionObjectiveStateInfo.
 class FRpcServerSetMissionObjectiveStatePacket : public FPacketBase {
@@ -1568,7 +1564,7 @@ public:
 };
 
 // 0x34 FLPACKET_SERVER_REPLACEMISSIONOBJECTIVE: RC factory 06b4b530 / ctor 06b4b570 / dtor
-// 06b4b5c0, RS 06be6050 / 06be6090 / 06be60e0 (size 0x30). The ctor zeroes TextSize and
+// , RS 06be6050 / 06be6090 / 06be60e0 (size 0x30). The ctor zeroes TextSize and
 // TextData only; the dtor frees a non-null TextData. Wire: dword, dword (the sender
 // zero-extends a byte), TextSize, TextSize bytes of a flattened FmtStr. The IClient
 // argument is FServerReplaceMissionObjectiveInfo.
@@ -1599,8 +1595,8 @@ public:
 // destructor RS 06bdabb0 / RC 06b3ede0 frees a non-null Data; the packet dtors run it
 // inline for B then A after their list (RS 06bdab6a..06bdab8b / 06bdd579..06bdd598), and
 // the unwind funclets of both ctors and both dtors call it (RS 06c0a428/433, 06c0a4b8/4c3,
-// 06c0a728/733, 06c0a778/783; RC calls at 06b6a79e/7a9, 06b6a95e/969, 06b6aa4e/a59,
-// 06b6aa9e/aa9).
+// /733, 06c0a778/783; RC calls at 06b6a79e/7a9, 06b6a95e/969, 06b6aa4e/a59,
+// /aa9).
 struct FRpcServerFlatTextBlock {
     FRpcServerFlatTextBlock() : Size(0), Data(nullptr) {}
     ~FRpcServerFlatTextBlock() {
@@ -1621,13 +1617,13 @@ struct FRpcServerMissionObjectiveRecord {
 };
 
 // 0x35 FLPACKET_SERVER_SETMISSIONOBJECTIVES: RC factory 06b4b880 / ctor 06b4b8c0 / dtor
-// 06b44d20, RS 06be63a0 / 06be63e0 / 06bdaad0 (retail size 0x48). The ctor zeroes the two
+// , RS 06be63a0 / 06be63e0 / 06bdaad0 (baseline size 0x48). The ctor zeroes the two
 // blocks and Count and builds the record list; the dtor frees every record's Data and
 // the record, then the members go: the list, TextB, TextA (block RAII). Wire: Field_0x00, Count, State, TextA
 // block, TextB block, then, only when Count is non-zero, every list record as byte
-// State, dword Size, Size bytes. Retail keeps a VC6 std::list<record*> inline (+0x3c
+// State, dword Size, Size bytes. baseline keeps a VC6 std::list<record*> inline (+0x3c
 // allocator byte, +0x40 head, +0x44 size); the port keeps this toolchain's std::list of
-// the same record pointers, so sizeof differs from retail (not a cross-module type).
+// the same record pointers, so sizeof differs from baseline (not a cross-module type).
 class FRpcServerSetMissionObjectivesPacket : public FPacketBase {
 public:
     FRpcServerSetMissionObjectivesPacket();
@@ -1652,11 +1648,11 @@ public:
     FRpcServerFlatTextBlock TextA; // +0x28 flattened argument +0x0c FmtStr
     FRpcServerFlatTextBlock TextB; // +0x30 flattened argument +0x24 FmtStr
     unsigned int Count;       // +0x38
-    std::list<FRpcServerMissionObjectiveRecord*> Objectives; // retail +0x3c..+0x44
+    std::list<FRpcServerMissionObjectiveRecord*> Objectives; // baseline +0x3c..+0x44
 };
 
 // 0x3c FLPACKET_SERVER_REPAIROBJECT: RC factory 06b4c490 / ctor 06b4c4d0, RS 06be7090 /
-// 06be70d0 (size 0x2c). The ctor zeroes the three dwords. Wire: three dwords. One of
+// (size 0x2c). The ctor zeroes the three dwords. Wire: three dwords. One of
 // the few classes with its own Dump slot (RC 06b61bf0 / RS 06bf7dd0).
 class FRpcServerRepairObjectPacket : public FPacketBase {
 public:
@@ -1675,7 +1671,7 @@ public:
 };
 
 // 0x2d FLPACKET_SERVER_CREATECOUNTER: RC factory 06b4aa70 / ctor 06b4aab0, RS
-// 06be5590 / 06be55d0 (size 0x68). The ctor zeroes every dword, seeds SubObjId with
+// / 06be55d0 (size 0x68). The ctor zeroes every dword, seeds SubObjId with
 // Common's SUBOBJ_ID_NONE and Orientation with {w=1,0,0,0}. Wire: four dwords, word,
 // Orientation (one 16-byte reservation), three Vectors (one 12-byte reservation
 // each), all integer copies (RC 06b39ec0 / 06b3a160). The sender's argument is
@@ -1702,7 +1698,7 @@ public:
 };
 
 // 0x37 FLPACKET_SERVER_CREATEGUIDED: RC factory 06b4a420 / ctor 06b4a460, RS
-// 06be4f20 / 06be4f60 (size 0x58). The ctor writes only Position = 0 and
+// / 06be4f60 (size 0x58). The ctor writes only Position = 0 and
 // Orientation = {w=1,0,0,0}. Wire: u16 Archetype::LargeIDToSmallID(nickname),
 // OwnerId, u16 SubObjId, TargetId, u16 TargetSubObjId, ObjId, Position (12 bytes),
 // then x, y, z, w each as (s8)ftol(f * 127.0). Field_0x00 never crosses the wire:
@@ -1752,13 +1748,13 @@ struct FRpcServerLootRecord {
 static_assert(sizeof(FRpcServerLootRecord) == 0x48, "CREATELOOT list record 0x48");
 
 // 0x28 FLPACKET_SERVER_CREATELOOT: RC factory 06b4ada0 / ctor 06b4ade0 / dtor 06b4ae90,
-// RS 06be58c0 / 06be5900 (retail size 0x34). The ctor zeroes OwnerId and Kind and builds
+// RS 06be58c0 / 06be5900 (baseline size 0x34). The ctor zeroes OwnerId and Kind and builds
 // the list. Wire: OwnerId, byte Kind, byte list size, then per record LootId, u16 small
 // id of ContentsNickname, ContentsHitPts (FLD/FSTP), u16 Units, u16 small id of
 // ContainerNickname, HitPts (FLD/FSTP), NameOverride, Position, and ONLY in single player
-// Velocity and Orientation, then the two bytes. Retail keeps a VC6 std::list inline
+// Velocity and Orientation, then the two bytes. baseline keeps a VC6 std::list inline
 // (+0x28 allocator byte, +0x2c head, +0x30 size); the port keeps this toolchain's
-// std::list of the same records, so sizeof differs from retail (not a cross-module type).
+// std::list of the same records, so sizeof differs from baseline (not a cross-module type).
 class FRpcServerCreateLootPacket : public FPacketBase {
 public:
     FRpcServerCreateLootPacket() : FPacketBase(0x20028u), OwnerId(0), Kind(0) {}
@@ -1773,7 +1769,7 @@ public:
     void AddLoot(const FRpcServerLootRecord& Record);
     unsigned int OwnerId; // +0x20 request +0x00
     unsigned char Kind;   // +0x24 request +0x04, low byte
-    std::list<FRpcServerLootRecord> Loot; // retail +0x28..+0x30
+    std::list<FRpcServerLootRecord> Loot; // baseline +0x28..+0x30
 };
 
 // --- relation lists: 0x29 SETREPUTATION, 0x2b SETGROUPFEELINGS ---
@@ -1785,15 +1781,15 @@ void RpcServerRelationListAppendCopy(std::list< ::Reputation::Relation*>& Dest,
     const std::list< ::Reputation::Relation*>& Source);
 
 // 0x29 FLPACKET_SERVER_SETREPUTATION: RC factory 06b4aef0 / ctor 06b4af30 / dtor 06b3ed00,
-// RS 06be5a10 / 06be5a50 / 06bdd4e0 (retail size 0x68), own Dump (RC 06b3f7c0 / RS
-// 06bddf70). The five presence masks are packet fields the ctor seeds with 1, 2, 4, 8 and
+// RS 06be5a10 / 06be5a50 / 06bdd4e0 (baseline size 0x68), own Dump (RC 06b3f7c0 / RS
+// ). The five presence masks are packet fields the ctor seeds with 1, 2, 4, 8 and
 // 0x10. Encode recomputes Flags, then: Flags, Target, Affiliation when present, the
 // display name (byte length, length * 2 bytes) and the two flattened FmtStr blocks when
 // present, then on an MP server the Attitude float (FLD/FSTP), otherwise the relation
 // count (byte or word) and per relation Feeling (FLD/FSTP), GroupId. The decoder reads
-// the attitude when NOT in single player, the relations when in single player. Retail
+// the attitude when NOT in single player, the relations when in single player. baseline
 // keeps a VC6 std::list inline (+0x48 allocator byte, +0x4c head, +0x50 size); the port
-// keeps this toolchain's std::list of the same pointers, so sizeof differs from retail.
+// keeps this toolchain's std::list of the same pointers, so sizeof differs from baseline.
 class FRpcServerSetReputationPacket : public FPacketBase {
 public:
     FRpcServerSetReputationPacket();
@@ -1820,7 +1816,7 @@ public:
     unsigned int MaskDisplayName;   // +0x3c ctor 4
     unsigned int MaskRelationsByte; // +0x40 ctor 8
     unsigned int MaskRelationsWord; // +0x44 ctor 0x10
-    std::list< ::Reputation::Relation*> Relations; // retail +0x48..+0x50, owned values
+    std::list< ::Reputation::Relation*> Relations; // baseline +0x48..+0x50, owned values
     unsigned char Flags;            // +0x54
     unsigned int Target;            // +0x58 argument +0x00, Dump label "Target"
     unsigned int Affiliation;       // +0x5c argument +0x08, Dump label "Affiliation"; ctor -1
@@ -1829,11 +1825,11 @@ public:
 };
 
 // 0x2b FLPACKET_SERVER_SETGROUPFEELINGS: RC factory 06b49f20 / ctor 06b49f60 / dtor
-// 06b43870, RS 06be4a00 / 06be4a40 / (06bdcf40) (retail size 0x34). The ctor zeroes Name
+// , RS 06be4a00 / 06be4a40 / (06bdcf40) (baseline size 0x34). The ctor zeroes Name
 // and NameSize and builds the list. Wire (encoder): NameSize, NameSize bytes when it is
 // non-zero, then, when the low word of the list size is non-zero, per non-null relation
 // Feeling (FLD/FSTP), GroupId. The encoder never writes a count, but the decoder reads a
-// u16 count after the name: retail's two sides disagree, reproduced on purpose. Retail
+// u16 count after the name: baseline's two sides disagree, reproduced on purpose. baseline
 // keeps a VC6 std::list inline (+0x28 allocator byte, +0x2c head, +0x30 size).
 class FRpcServerSetGroupFeelingsPacket : public FPacketBase {
 public:
@@ -1853,11 +1849,11 @@ public:
     void SetName(const char* Source, unsigned int Size);
     char* Name;              // +0x20 owned
     unsigned int NameSize;   // +0x24 strlen + 1
-    std::list< ::Reputation::Relation*> Relations; // retail +0x28..+0x30, owned values
+    std::list< ::Reputation::Relation*> Relations; // baseline +0x28..+0x30, owned values
 };
 
 // 0x2c FLPACKET_SERVER_CREATEMINE: RC factory 06b4a9a0 / ctor 06b4a9e0, RS 06be54c0 /
-// 06be5500 (size 0x68). The ctor zeroes every field and seeds Orientation {w=1,0,0,0};
+// (size 0x68). The ctor zeroes every field and seeds Orientation {w=1,0,0,0};
 // unlike 0x2d it leaves SubObjId 0. Wire: ObjId, u16 small id of ArchetypeNickname,
 // OwnerId, u16 SubObjId, Position, and ONLY in single player Orientation, Velocity,
 // Field_0x38, all integer copies (RC 06b3a160 / 06b39ec0). Field_0x44 never crosses the
@@ -1885,7 +1881,7 @@ public:
 
 // 0x3d FLPACKET_SERVER_REMOTEOBJECTCARGOUPDATE: RC factory 06b4cf60 / ctor 06b4cfa0 /
 // dtor 06b45490 (sets its vtable, then the equipment base dtor 06b4f860), RS 06be7b80 /
-// 06be7bc0 / 06bda7c0 (size 0x2c). The ctor zeroes the handle, Flag and ObjectId. Wire:
+// / 06bda7c0 (size 0x2c). The ctor zeroes the handle, Flag and ObjectId. Wire:
 // ObjectId, raw byte Flag, then the equipment list (06b4f8d0 / 06b4fb10).
 class FRpcServerRemoteObjectCargoUpdatePacket : public FRpcServerEquipListPacketBase {
 public:
@@ -1911,7 +1907,7 @@ public:
 
 // The id block a wire record points to: operator new(0x18), four dwords, a count and
 // an operator new(Count * 4) array. Built from a Costume by the sender (RC 06b355f8 /
-// 06b3569a), read back into one by HandleCharacterInfo (RS 06bd49f4..06bd4af7).
+// ), read back into one by HandleCharacterInfo (RS 06bd49f4..06bd4af7).
 struct FRpcServerCharacterIdBlock {
     unsigned int Field_0x00; // +0x00 Costume::PartIds[0]
     unsigned int Field_0x04; // +0x04 Costume::PartIds[1]
@@ -1925,14 +1921,14 @@ struct FRpcServerCharacterIdBlock {
 // inline pair in RS 06bdea60: a non-null Ids array is freed, then the block.
 void RpcServerCharacterIdBlockFree(FRpcServerCharacterIdBlock* Block);
 
-// The wire record, operator new(0x27c) in retail (RC sender 06b353df, decoder RS
-// 06bdec90, receiver copy RS 06bdfbc0). Member order is the record's. The two strings
-// are retail MSVCP60 basic_string<unsigned short>; here std::wstring (no retail ABI).
+// The wire record, operator new(0x27c) in baseline (RC sender 06b353df, decoder RS
+// , receiver copy RS 06bdfbc0). Member order is the record's. The two strings
+// are baseline MSVCP60 basic_string<unsigned short>; here std::wstring (no baseline ABI).
 struct FRpcServerCharacterRecord {
     // The decoder's / copy's inline ctor (RS 06bdecb3..06bded56): name byte, both flag
     // bytes, the strings, +0x224, +0x228, +0x22c, +0x244..+0x25c, +0x260, the handle,
     // the collision list and both block pointers. +0x230..+0x240 are left alone in
-    // retail and zeroed here; every path overwrites them before they are read.
+    // baseline and zeroed here; every path overwrites them before they are read.
     FRpcServerCharacterRecord();
     // The member teardown every owner runs (packet dtor RS 06bdea60 pass 1, receiver
     // RS 06bd4cbe..06bd4d33): BlockA, BlockB, then the members in reverse order: the
@@ -1969,11 +1965,11 @@ struct FRpcServerCharacterRecord {
 };
 
 // 0x03 FLPACKET_SERVER_CHARACTERINFO (CDAPCharacterInfo). RC factory 06b4b1e0 / ctor
-// 06b4b220 / dtor 06b42c70, RS 06be5d00 / 06be5d40 / 06be1280 (body 06bdea60);
+// / dtor 06b42c70, RS 06be5d00 / 06be5d40 / 06be1280 (body 06bdea60);
 // operator new(0x30). The ctor builds only the record list (+0x24 allocator byte,
 // +0x28 dummy, +0x2c size 0); +0x20 is left unset. Codecs RC 06b41aa0 / 06b40500,
 // RS 06be00e0 / 06bdebe0 (encoders and RS decoder instruction-identical to rpclocal
-// 06d949d0 / 06d934d0; the RC decoder bounds the name and checks byte runs before it
+// / 06d934d0; the RC decoder bounds the name and checks byte runs before it
 // allocates them). Dump RC 06b40340 / RS 06bdea20.
 class FRpcServerCharacterInfoPacket : public FPacketBase {
 public:
@@ -1989,7 +1985,7 @@ public:
         return RpcWirePacketFactory<FRpcServerCharacterInfoPacket>(OutPacket);
     }
     unsigned int SaveFailureCount;                   // +0x20 CCharacterSet +0x14
-    std::list<FRpcServerCharacterRecord*> Records;   // +0x24 retail VC6 list<record*>
+    std::list<FRpcServerCharacterRecord*> Records;   // +0x24 baseline VC6 list<record*>
 };
 
 // ===== end SERVER 0x01..0x1f (RS-P1) part 2 =====

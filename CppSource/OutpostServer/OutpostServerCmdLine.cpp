@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "StdAfx.h"
@@ -15,7 +11,7 @@
 
 namespace
 {
-	// ServerLogf code of every message ParseParam writes (.text:004138aa, MOV EDI,0x100052).
+	// ServerLogf code of every message ParseParam writes (module storage, MOV EDI,0x100052).
 	const ErrorCode CommandLineLogCode = { 0x100052 };
 
 	// Logs string resource Id formatted with one argument (CString destroyed after the log).
@@ -28,10 +24,10 @@ namespace
 	}
 }
 
-// .text:00413880 — only flags are parsed, and only once the app pointer exists; everything
+// — only flags are parsed, and only once the app pointer exists; everything
 // else goes to CCommandLineInfo::ParseParam. Numeric switches use (MSVCRT) atoi; a rejected
 // value is logged with resource strings 0xf01f..0xf024. 'C' falls through into the unknown-
-// switch path (retail has no break there): it sets ServerControl's flag, logs 0xf025 and hands
+// switch path (baseline has no break there): it sets ServerControl's flag, logs 0xf025 and hands
 // the parameter to MFC as well.
 void COutpostServerCommandLineInfo::ParseParam(const TCHAR* Param, BOOL bFlag, BOOL bLast)
 {
@@ -114,7 +110,7 @@ void COutpostServerCommandLineInfo::ParseParam(const TCHAR* Param, BOOL bFlag, B
 	case 'H':
 	case 'h':
 	{
-		// Rate is left unset when sscanf matches nothing, as in retail.
+		// Rate is left unset when sscanf matches nothing, as in baseline.
 		float Rate;
 		sscanf(Param + 1, "%f", &Rate);
 		if (!Control.SetUpdateRate(Rate))
@@ -144,7 +140,7 @@ void COutpostServerCommandLineInfo::ParseParam(const TCHAR* Param, BOOL bFlag, B
 	case 'C':
 	case 'c':
 		Control.SetAutoAcceptConfig(true);
-		// fall through: retail continues into the unknown-switch path (00413b76).
+		// fall through: baseline continues into the unknown-switch path (00413b76).
 	default:
 	{
 		CString Format;

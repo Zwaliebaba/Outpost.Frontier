@@ -45,7 +45,7 @@
       <AdditionalIncludeDirectories>$(ProjectDir)..\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>OUTPOST_SERVER;REMOTECLIENT_EXPORTS;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <WarningLevel>Level3</WarningLevel>
-      <!-- /sdl adds exported __autoclassinit2 members absent from retail. -->
+      <!-- /sdl adds exported __autoclassinit2 members absent from baseline. -->
       <SDLCheck>false</SDLCheck>
       <MultiProcessorCompilation Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</MultiProcessorCompilation>
       <MultiProcessorCompilation Condition="'$(Configuration)|$(Platform)'=='DebugASan|Win32'">true</MultiProcessorCompilation>
@@ -53,7 +53,7 @@
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <AdditionalDependencies>kernel32.lib;user32.lib;dacom.lib;Common.lib;Server.lib;rpclocal.lib;DALib.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>kernel32.lib;user32.lib;neuroncomponents.lib;Common.lib;Server.lib;rpclocal.lib;NeuronRuntime.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -69,7 +69,7 @@
     <ProjectReference Include="..\Server\Server.vcxproj">
       <Project>{B1C2D3E4-F5A6-7890-BCDE-F12345678901}</Project>
     </ProjectReference>
-    <ProjectReference Include="..\dacom\dacom.vcxproj">
+    <ProjectReference Include="..\neuroncomponents\neuroncomponents.vcxproj">
       <Project>{8F3A1B20-9C4D-4E5F-A617-B8C9D0E1F203}</Project>
     </ProjectReference>
   </ItemGroup>

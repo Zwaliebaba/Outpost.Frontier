@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "MovieAce.h"
@@ -17,7 +13,7 @@ static_assert(offsetof(FMd4Context, Buffer) == 0x18u, "md4 buffer");
 static_assert(offsetof(FMd4Context, Digest) == 0x58u, "md4 digest");
 static_assert(sizeof(FSha1Context) == 0x74u, "sha context scrubbed as 29 dwords");
 
-// 0x06ada920 through 0x06ada95f. First byte 0x80, the other 63 bytes are 0.
+// through 0x06ada95f. First byte 0x80, the other 63 bytes are 0.
 // Md4Final copies at most 0x40 of these.
 static const unsigned char Md4Padding[64] = { 0x80 };
 
@@ -68,7 +64,7 @@ static void Md4Step(unsigned int& A, unsigned int& B, unsigned int& C, unsigned 
     A = NextA;
 }
 
-// 0x06acef00. No branches. Round words and rotates were read off the unrolled body
+// . No branches. Round words and rotates were read off the unrolled body
 // through 0x06acf366. Round 1 has no constant. Round 2 adds 0x5A827999.
 // Round 3 adds 0x6ED9EBA1. The four state words are added back at 0x06acf346.
 void __stdcall Md4Transform(unsigned int* State, const unsigned int* Block)
@@ -107,7 +103,7 @@ void __stdcall Md4Transform(unsigned int* State, const unsigned int* Block)
     State[3] = State[3] + D;
 }
 
-// 0x06aced90.
+// .
 void __stdcall Md4Init(FMd4Context* Context)
 {
     Context->BitCountLow = 0u;
@@ -118,7 +114,7 @@ void __stdcall Md4Init(FMd4Context* Context)
     Context->State[3] = 0x10325476u;
 }
 
-// 0x06acedc0. Index is (old bit count >> 3) & 0x3f. The high count increments
+// . Index is (old bit count >> 3) & 0x3f. The high count increments
 // when the low count wraps, then Length>>29 is added either way.
 void __stdcall Md4Update(FMd4Context* Context, const unsigned char* Data, unsigned int Length)
 {
@@ -163,7 +159,7 @@ void __stdcall Md4Update(FMd4Context* Context, const unsigned char* Data, unsign
     }
 }
 
-// 0x06aceea0. Pad length is 0x38-index, or 0x78-index when index >= 0x38.
+// . Pad length is 0x38-index, or 0x78-index when index >= 0x38.
 // The 64-bit bit count is appended, then the four state words land at +0x58.
 void __stdcall Md4Final(FMd4Context* Context)
 {
@@ -187,7 +183,7 @@ void __stdcall Md4Final(FMd4Context* Context)
     Tail[3] = Context->State[3];
 }
 
-// 0x06ace800.
+// .
 int __stdcall RngInitState(FRngState* State, unsigned int Step, unsigned int Mode, unsigned int Flags)
 {
     if (State == 0)
@@ -203,7 +199,7 @@ int __stdcall RngInitState(FRngState* State, unsigned int Step, unsigned int Mod
     return 1;
 }
 
-// 0x06ace834. Does not test Buffer or Size for null.
+// . Does not test Buffer or Size for null.
 int __stdcall RngQueryBuffer(FRngState* State, unsigned char** Buffer, unsigned int* Size)
 {
     if (State == 0 || State->Magic != 0x1423u)
@@ -215,7 +211,7 @@ int __stdcall RngQueryBuffer(FRngState* State, unsigned char** Buffer, unsigned 
     return 1;
 }
 
-// 0x06ace860. Bit 0 of the flags byte also absorbs the pool into the digest.
+// . Bit 0 of the flags byte also absorbs the pool into the digest.
 // The stored index is (Step + old index) mod Size, not the cursor used for the XOR.
 int __stdcall RngStir(FRngState* State, const void* Data, unsigned int Length)
 {
@@ -281,7 +277,7 @@ int __stdcall RngStir(FRngState* State, const void* Data, unsigned int Length)
     return 1;
 }
 
-// 0x06ace9f8. lpdwDisposition is a local; retail points it at the PHKEY slot.
+// . lpdwDisposition is a local; baseline points it at the PHKEY slot.
 int __stdcall RngOpenKey(unsigned int Access, void** Key)
 {
     DWORD Disposition = 0;
@@ -302,7 +298,7 @@ int __stdcall RngOpenKey(unsigned int Access, void** Key)
     return 0;
 }
 
-// 0x06ace96e. Access is 1 (KEY_QUERY_VALUE). Value name is "Seed".
+// . Access is 1 (KEY_QUERY_VALUE). Value name is "Seed".
 int __stdcall RngReadSeed(unsigned char* Data, unsigned int Size)
 {
     HKEY Key = 0;
@@ -322,7 +318,7 @@ int __stdcall RngReadSeed(unsigned char* Data, unsigned int Size)
     return 0;
 }
 
-// 0x06ace9b5. Access is 2 (KEY_SET_VALUE). Type immediate is 3.
+// . Access is 2 (KEY_SET_VALUE). Type immediate is 3.
 int __stdcall RngWriteSeed(const unsigned char* Data, unsigned int Size)
 {
     HKEY Key = 0;
@@ -341,7 +337,7 @@ int __stdcall RngWriteSeed(const unsigned char* Data, unsigned int Size)
     return 0;
 }
 
-// 0x06acea30.
+// .
 void __stdcall Rc4Crypt(unsigned char* Box, unsigned int Length, unsigned char* Data)
 {
     unsigned int IndexI = Box[0x100];
@@ -366,7 +362,7 @@ void __stdcall Rc4Crypt(unsigned char* Box, unsigned int Length, unsigned char* 
     Box[0x101] = static_cast<unsigned char>(IndexJ);
 }
 
-// 0x06acea91. The 0x40 dwords are 0x03020100, then +0x04040404 each.
+// . The 0x40 dwords are 0x03020100, then +0x04040404 each.
 void __stdcall Rc4Init(unsigned char* Box, unsigned int KeyLength, const unsigned char* Key)
 {
     unsigned int Pattern = 0x03020100u;
@@ -399,7 +395,7 @@ void __stdcall Rc4Init(unsigned char* Box, unsigned int KeyLength, const unsigne
     }
 }
 
-// 0x06aceb0f. Quarter is Length>>2 bytes. Returns 0 when Blocks, Data, or Quarter is 0.
+// . Quarter is Length>>2 bytes. Returns 0 when Blocks, Data, or Quarter is 0.
 // Each of the eight hashes is SHA-1 init / update-unswapped / final (0x06ac9250, 0x06ac9360, 0x06ac9430).
 // After the fold, 29 dwords of the SHA context and 20 dwords of the intermediate digests are cleared.
 int __stdcall MixShaBlocks(const unsigned char* Data, unsigned int Length, unsigned char* Blocks)
@@ -505,7 +501,7 @@ int __stdcall MixShaBlocks(const unsigned char* Data, unsigned int Length, unsig
     return 1;
 }
 
-// 0x06aced89. Caller at 0x06accf59 pushes a buffer and a DWORD* (0x40) and tests EAX.
+// . Caller at 0x06accf59 pushes a buffer and a DWORD* (0x40) and tests EAX.
 int __stdcall RngTryReadBlock(void*, unsigned int*)
 {
     return 0;

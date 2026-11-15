@@ -1,31 +1,27 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // Content.dll TU53 (SpaceSupport's range, 06f61350-06f661f0): the placement of an encounter
-// spawn -- where a formation built by TU29 FUN_06ef4eb0 (FEncounterParameters::SpawnFormation)
+// spawn -- where a formation built by TU29 the routine (FEncounterParameters::SpawnFormation)
 // appears: out of a trade lane (1), launched from a dock (2..6), cruising in (7) or buzzing the
-// player (8). PlaceSpawnFormation (FUN_06f65f10) picks one of the formation's arrival methods
+// player (8). PlaceSpawnFormation (the routine) picks one of the formation's arrival methods
 // at random until one places the blocks and fills the FSpawnPlan (Guides.h).
-// Lane CNT-GS (docs/re/content.md, TU map).
-//
-// x87: retail keeps intermediate values in extended precision and rounds only on FSTP dword;
-// the port uses double for the unrounded values and float where retail stores a float.
+// Lane CNT-GS (implementation notes, TU map).
+
+// x87: baseline keeps intermediate values in extended precision and rounds only on FSTP dword;
+// the port uses double for the unrounded values and float where baseline stores a float.
 
 #include "SpaceSupport.h"
 
 #include "ContentInternal.h"        // SubtractVectors (06eeaee0), FastReciprocalSqrt (06f5aeb0)
 #include "ContentPlayerState.h"     // FContentPlayerState, FContentPlayerShip (TU46)
 #include "ContentStaticIds.h"       // TU53's static ids (can_use_berths / *_moors)
-#include "DockQueues.h"             // GetSpaceMathEngine (DAT_06fd1c70)
+#include "DockQueues.h"             // GetSpaceMathEngine (the field)
 #include "Guides.h"                 // FGuideDescBase, FSpawnPlan
 #include "MissionObjList.h"         // CreateObjListDirective, FObjListGotoVec, FObjListInstantTradelane
 #include "NpcShip.h"                // FContentNpcShipParams (TU43)
 #include "PatrolPaths.h"            // FPatrolPath, FPatrolPathSegment
 #include "Populators.h"             // FSpawnRequest, FSpacePopExclusionSphere, SpacePopGetSolarDetection
-#include "SpacePaths.h"             // IsSegmentClear (FUN_06f60e10)
+#include "SpacePaths.h"             // IsSegmentClear (the routine)
 #include "SystemInfo.h"             // FSystemInfo, FSystemZone, FTradeLaneRing, DistanceSquaredToSegment
 #include "common_misc.h"            // random_inside_cylinder
 #include "common_server.h"
@@ -44,18 +40,18 @@ namespace
     int const GNoShipRep = -1;
     // .rdata 06fbbb70: "no object" -- the excluded id of a first pick.
     unsigned int const GNoObjectId = 0;
-    // .rdata 06fbbb7c: every object type (the path target picks of FUN_06f63cc0).
+    // .rdata 06fbbb7c: every object type (the path target picks of the routine).
     unsigned int const GAnyObjectType = 0xffffffffu;
-    // DAT_06fd0eb0 (static init LAB_06f62940 = 5000): how far from the spawn point a trade
-    // lane ring must be to become the entry ring (FUN_06f62950, compared as an unsigned int64).
+    // (static init the branch = 5000): how far from the spawn point a trade
+    // lane ring must be to become the entry ring (the routine, compared as an unsigned int64).
     unsigned int GTradeLaneEntryDistance = 5000;
-    // DAT_06fbbc40: the clearance added to an object's squared radius (FUN_06f61350).
+    // the clearance added to an object's squared radius (the routine).
     float const GObjectClearanceSq = 90000.0f;
-    // DAT_06fbbc54: the per-axis squared tolerance of "the walk reached a segment end".
+    // the per-axis squared tolerance of "the walk reached a segment end".
     float const GSegmentEndToleranceSq = 0.01f;
-    // DAT_06fbbc98: 3500^2, the dock-launch distance limit of FUN_06f65900.
+    // 3500^2, the dock-launch distance limit of the routine.
     float const GDockLaunchDistanceSq = 12250000.0f;
-    // DAT_06fb4448: 2^-15 (rand() to [0, 1)).
+    // 2^-15 (rand() to [0, 1)).
     float const GRandScale = 1.0f / 32768.0f;
 
     bool const GTrue = true;
@@ -77,7 +73,7 @@ namespace
         return Out;
     }
 
-    // FUN_06f0bb50 (thiscall): sqrt((x^2 + y^2) + z^2) on the x87 stack.
+    // (thiscall): sqrt((x^2 + y^2) + z^2) on the x87 stack.
     double VectorLength(Vector const& V)
     {
         return std::sqrt((static_cast<double>(V.x) * V.x + static_cast<double>(V.y) * V.y) +
@@ -85,7 +81,7 @@ namespace
     }
 
     // The inline form (no CALL): the components subtracted in place and stored through the
-    // Vector(x, y, z) ctor FUN_06eb7810. The CALL sites of FUN_06eeaee0 use SubtractVectors.
+    // Vector(x, y, z) ctor the routine. The CALL sites of the routine use SubtractVectors.
     Vector Subtract(Vector const& A, Vector const& B)
     {
         Vector Out;
@@ -95,7 +91,7 @@ namespace
         return Out;
     }
 
-    // FUN_06f0bb80 (cdecl): *Out = A + B, each component stored as a float.
+    // (cdecl): *Out = A + B, each component stored as a float.
     Vector Add(Vector const& A, Vector const& B)
     {
         Vector Out;
@@ -105,7 +101,7 @@ namespace
         return Out;
     }
 
-    // FUN_06f60760 (cdecl): *Out = V * Scale, each product stored as a float.
+    // (cdecl): *Out = V * Scale, each product stored as a float.
     Vector Scale(Vector const& V, float Factor)
     {
         Vector Out;
@@ -115,7 +111,7 @@ namespace
         return Out;
     }
 
-    // std::find over a class list (FUN_06eb5f30 against the vector's end).
+    // std::find over a class list (the routine against the vector's end).
     bool HasClass(std::vector<unsigned int> const& Classes, unsigned int ClassId)
     {
         return std::find(Classes.begin(), Classes.end(), ClassId) != Classes.end();
@@ -127,19 +123,19 @@ namespace
         return (rand() * Count) / 32768;
     }
 
-    // The "(rand() << 1) >> 15" coin of FUN_06f61800 / FUN_06f62ab0: 0 or 1.
+    // The "(rand() << 1) >> 15" coin of the routine / the routine: 0 or 1.
     int RandCoin()
     {
         return (rand() * 2) / 32768;
     }
 
     // The exclusion spheres of the other players' ships (2500 around each ship that is not
-    // the request's), appended in player order. Inline in FUN_06f64800 (06f64873-06f648e8),
-    // FUN_06f64fc0 (06f6506e-06f650dc) and FUN_06f65900 (06f65b4b-06f65bbc).
+    // the request's), appended in player order. Inline in the routine (06f64873-06f648e8),
+    // (06f6506e-06f650dc) and the routine (06f65b4b-06f65bbc).
     void AddOtherPlayerSpheres(FSystemInfo* System, FSpawnRequest const* Request,
                                std::vector<FSpacePopExclusionSphere>* Spheres)
     {
-        std::vector<FContentPlayerState*>* Players = System->GetPlayers();          // FUN_06f78ee0
+        std::vector<FContentPlayerState*>* Players = System->GetPlayers();
         for (std::vector<FContentPlayerState*>::iterator Player = Players->begin();
              Player != Players->end(); ++Player)
         {
@@ -147,14 +143,14 @@ namespace
             if (Ship == nullptr || Ship->SpaceObjId == Request->PlayerShip->SpaceObjId)
                 continue;
             Vector Position;
-            Ship->GetPosition(&Position);                                           // FUN_06eb70f0
+            Ship->GetPosition(&Position);
             FSpacePopExclusionSphere const Sphere = {Position.x, Position.y, Position.z, 2500.0f};
-            Spheres->push_back(Sphere);                                             // FUN_06f695a0
+            Spheres->push_back(Sphere);
         }
     }
 
     // The spawner's directive insert: the new directive goes in front of the leader block's
-    // list (FUN_06f1e390 at FUN_06f1df30's begin, or the same insert inlined), AddRef'ed
+    // list (the routine at the routine's begin, or the same insert inlined), AddRef'ed
     // through the holder's pointer; the holder releases the creating reference.
     void AddLeaderDirective(FContentNpcShipParams* Leader, FObjListDirective* Directive)
     {
@@ -162,7 +158,7 @@ namespace
         Directive->AddRef();
     }
 
-    // FUN_06f61350 (06f61350-06f6142a, cdecl): false when an object of the system (a scan of
+    // (06f61350-06f6142a, cdecl): false when an object of the system (a scan of
     // 300 around Position, type 0x7f0000, 64 at most) is nearer than its radius plus 300
     // (squared radius + 90000 above the squared distance).
     bool IsClearOfObjects(Vector const* Position, FSystemInfo* System)
@@ -189,24 +185,24 @@ namespace
         return true;
     }
 
-    // FUN_06f61570 (06f61570-06f616c4, cdecl): Out[256] = Center + *Radius * the unit
+    // (06f61570-06f616c4, cdecl): Out[256] = Center + *Radius * the unit
     // directions of a 16 x 16 polar grid (polar angle i * pi/16, azimuth j * pi/8; entry
-    // j * 16 + i). The table is a function-local static (guard DAT_06fd1ab8 with the atexit
-    // dtor FUN_06f616d0, an empty body) built once (flag DAT_06fd0eb4).
+    // j * 16 + i). The table is a function-local static (guard the field with the atexit
+    // dtor the routine, an empty body) built once (flag the field).
     void GetSpherePoints(Vector const* Center, float const* Radius, Vector* Out)
     {
-        static Vector Directions[256];                                              // DAT_06fd0eb8
-        static bool bDirectionsBuilt = false;                                       // DAT_06fd0eb4
+        static Vector Directions[256];
+        static bool bDirectionsBuilt = false;
         if (!bDirectionsBuilt)
         {
             for (int Polar = 0; Polar < 16; ++Polar)
             {
-                double const PolarAngle = Polar * static_cast<double>(0.19634954631328583f); // DAT_06fbbc50
+                double const PolarAngle = Polar * static_cast<double>(0.19634954631328583f);
                 double const SinPolar = std::sin(PolarAngle);
                 float const CosPolar = static_cast<float>(std::cos(PolarAngle));
                 for (int Azimuth = 0; Azimuth < 16; ++Azimuth)
                 {
-                    double const AzimuthAngle = Azimuth * 0.39269909262657166;       // DAT_06fbbc48
+                    double const AzimuthAngle = Azimuth * 0.39269909262657166;
                     Vector& Direction = Directions[Azimuth * 16 + Polar];
                     Direction.x = static_cast<float>(std::cos(AzimuthAngle) * SinPolar);
                     Direction.y = static_cast<float>(std::sin(AzimuthAngle) * SinPolar);
@@ -227,7 +223,7 @@ namespace
         }
     }
 
-    // TEST AH,0x41 / JP of FUN_06f61800: every axis of Point is within the squared tolerance
+    // TEST AH,0x41 / JP of the routine: every axis of Point is within the squared tolerance
     // of End (C0 or C3 on each compare).
     bool IsAtSegmentEnd(Vector const& Point, Vector const& End)
     {
@@ -238,7 +234,7 @@ namespace
                Dz * Dz <= GSegmentEndToleranceSq;
     }
 
-    // FUN_06f61800 (06f61800-06f61cab, cdecl, 12 args): a spawn point on the segment
+    // (06f61800-06f61cab, cdecl, 12 args): a spawn point on the segment
     // SegmentStart-SegmentEnd. The walk starts at the segment point nearest to Position and
     // steps 200 towards one end chosen at random (up to 15 points); the second and third pass
     // walk the other way. A point must be inside every InsideSpheres sphere, outside every
@@ -255,11 +251,11 @@ namespace
                                int* OutDirection, FSystemInfo* System)
     {
         Vector Closest;
-        DistanceSquaredToSegment(Position, SegmentStart, SegmentEnd, &Closest);    // FUN_06f611a0
-        Vector const Delta = Subtract(*SegmentEnd, *SegmentStart);                  // FUN_06eb7810
+        DistanceSquaredToSegment(Position, SegmentStart, SegmentEnd, &Closest);
+        Vector const Delta = Subtract(*SegmentEnd, *SegmentStart);
         double const InvLength = 1.0 / std::sqrt(
             (static_cast<double>(Delta.x) * Delta.x + static_cast<double>(Delta.y) * Delta.y) +
-            static_cast<double>(Delta.z) * Delta.z);                                // DAT_06fb5810
+            static_cast<double>(Delta.z) * Delta.z);
         Vector Step;
         Step.x = static_cast<float>(Delta.x * InvLength);
         Step.y = static_cast<float>(Delta.y * InvLength);
@@ -268,14 +264,14 @@ namespace
         Vector Far;
         if (RandCoin() != 0)
         {
-            Step = Scale(Step, 200.0f);                                             // DAT_06fb8578
+            Step = Scale(Step, 200.0f);
             *OutDirection = -1;
             *OutTarget = *SegmentStart;
             Far = *SegmentEnd;
         }
         else
         {
-            Step = Scale(Step, -200.0f);                                            // DAT_06fbbc58
+            Step = Scale(Step, -200.0f);
             *OutDirection = 1;
             *OutTarget = *SegmentEnd;
             Far = *SegmentStart;
@@ -287,12 +283,12 @@ namespace
             if (Pass == 1)
             {
                 *OutTarget = Far;
-                Step = Scale(Step, -1.0f);                                          // DAT_06fb5e84
+                Step = Scale(Step, -1.0f);
                 *OutDirection = -*OutDirection;
             }
             for (int StepIndex = 0; StepIndex < 15; ++StepIndex)
             {
-                Vector Offset;                                                      // FUN_06eb7810
+                Vector Offset;
                 Offset.x = static_cast<float>(static_cast<double>(Step.x) * StepIndex);
                 Offset.y = static_cast<float>(static_cast<double>(Step.y) * StepIndex);
                 Offset.z = static_cast<float>(static_cast<double>(Step.z) * StepIndex);
@@ -300,7 +296,7 @@ namespace
 
                 Vector OnSegment;
                 DistanceSquaredToSegment(OutPosition, SegmentStart, SegmentEnd, &OnSegment);
-                // 06f61a86-06f61b2c: the walk left the segment at an end -> next pass.
+                // the walk left the segment at an end -> next pass.
                 if (IsAtSegmentEnd(OnSegment, *SegmentStart) || IsAtSegmentEnd(OnSegment, *SegmentEnd))
                     break;
 
@@ -333,7 +329,7 @@ namespace
                     for (std::vector<FSystemZone*>::const_iterator Zone = AvoidZones->begin();
                          Zone != AvoidZones->end(); ++Zone)
                     {
-                        // TEST AH,0x41 / JNP against 1.0 (DAT_06fb70c0): inside or on the zone.
+                        // TEST AH,0x41 / JNP against 1.0 (the field): inside or on the zone.
                         if (pub::Zone::ClassifyPoint((*Zone)->ZoneId, *OutPosition) <= 1.0)
                         {
                             bZoneFailed = true;
@@ -344,7 +340,7 @@ namespace
                 if (bZoneFailed)
                     continue;
 
-                if (SpacePopGetSolarDetection())                                    // FUN_06f5a7e0
+                if (SpacePopGetSolarDetection())
                 {
                     unsigned int const SystemId = System->SystemId;
                     unsigned int Ids[0x20];
@@ -354,7 +350,7 @@ namespace
                     if (Count != 0)
                         continue;
                 }
-                if (IsClearOfObjects(OutPosition, System))                           // FUN_06f61350
+                if (IsClearOfObjects(OutPosition, System))
                 {
                     bFound = true;
                     break;
@@ -364,7 +360,7 @@ namespace
         return bFound;
     }
 
-    // FUN_06f61cb0 (06f61cb0-06f62116, cdecl, 17 args): a spawn point on the sphere of
+    // (06f61cb0-06f62116, cdecl, 17 args): a spawn point on the sphere of
     // Radius around Center (GetSpherePoints) whose height is within CylinderHeight / 2 of
     // LookFrom's, inside every InsideSpheres sphere and outside every OutsideSpheres sphere;
     // the candidates are drawn at random. Each draw must be within MaxZoneDistance of every
@@ -382,17 +378,17 @@ namespace
                               FSystemInfo* System)
     {
         Vector Points[256];
-        GetSpherePoints(&Center, &Radius, Points);                                  // FUN_06f61570
+        GetSpherePoints(&Center, &Radius, Points);
         std::vector<std::pair<unsigned int, unsigned int>> Candidates;
-        Candidates.reserve(256);                                                    // 06f61d02-06f61d73
-        double const HalfHeight = CylinderHeight * 0.5;                             // DAT_06fb74e0
+        Candidates.reserve(256);
+        double const HalfHeight = CylinderHeight * 0.5;
         double const MaxHeight = LookFrom.y + HalfHeight;
         for (unsigned int Polar = 0; Polar < 16; ++Polar)
         {
             for (unsigned int Azimuth = 0; Azimuth < 16; ++Azimuth)
             {
                 *OutPosition = Points[Polar * 16 + Azimuth];
-                // 06f61dcc-06f61df1: TEST AH,0x41 / JE, then (LookFrom.y - half) FCOMPP.
+                // TEST AH,0x41 / JE, then (LookFrom.y - half) FCOMPP.
                 bool bFits = true;
                 if (OutPosition->y > MaxHeight)
                     bFits = false;
@@ -401,14 +397,14 @@ namespace
                 if (!TestExclusionSpheres(&OutPosition->x, InsideSpheres, &GTrue, &GTrue))
                     bFits = false;
                 if (TestExclusionSpheres(&OutPosition->x, OutsideSpheres, &GTrue, &GFalse) && bFits)
-                    Candidates.push_back(std::make_pair(Polar, Azimuth));            // FUN_06f96770
+                    Candidates.push_back(std::make_pair(Polar, Azimuth));
             }
         }
 
         bool bFound = false;
         while (!Candidates.empty() && !bFound)
         {
-            // 06f61ec5-06f61f01: floor(rand() * 2^-15 * (count - 1) + 0.5), FTOL.
+            // floor(rand() * 2^-15 * (count - 1) + 0.5), FTOL.
             double const Scaled = std::floor(
                 static_cast<double>(rand()) * GRandScale *
                     static_cast<double>(static_cast<long long>(Candidates.size() - 1)) +
@@ -436,7 +432,7 @@ namespace
                 continue;
             if (AvoidZones != nullptr)
             {
-                // 06f61fb2-06f61fe9: both exits of this loop continue at 06f61feb.
+                // both exits of this loop continue at 06f61feb.
                 for (std::vector<FSystemZone*>::const_iterator Zone = AvoidZones->begin();
                      Zone != AvoidZones->end(); ++Zone)
                 {
@@ -455,10 +451,10 @@ namespace
                     OutFrom->x = LookFrom.x + Offset.x;
                     OutFrom->y = LookFrom.y + Offset.y;
                     OutFrom->z = LookFrom.z + Offset.z;
-                    OutFrom->y = OutPosition->y;                                    // 06f62053
+                    OutFrom->y = OutPosition->y;
                     ++Tries;
                     bScanClear = true;
-                    if (SpacePopGetSolarDetection())                                // FUN_06f5a7e0
+                    if (SpacePopGetSolarDetection())
                     {
                         unsigned int const SystemId = System->SystemId;
                         unsigned int Ids[0x20];
@@ -469,7 +465,7 @@ namespace
                             bScanClear = false;
                     }
                 } while (!bScanClear && Tries <= 3);
-                // 06f620cd-06f620ef: a fourth draw fails even when its scan is clear.
+                // a fourth draw fails even when its scan is clear.
                 if (bScanClear && Tries <= 3 && IsSegmentClear(OutFrom, OutPosition, System) &&
                     IsClearOfObjects(OutPosition, System))
                 {
@@ -480,7 +476,7 @@ namespace
         return bFound;
     }
 
-    // FUN_06f62950 (06f62950-06f62aa7, cdecl, recursive): from ring *Index along *Direction,
+    // (06f62950-06f62aa7, cdecl, recursive): from ring *Index along *Direction,
     // the first ring that has a ring behind it (Index - Direction) and lies farther than 5000
     // from *Position (distance by the reciprocal square root estimate); -1 / -1 and false when
     // the walk leaves the lane.
@@ -516,7 +512,7 @@ namespace
             std::memcpy(&Guess, &Bits, sizeof(Guess));
             double const Length =
                 ((1.5f - static_cast<double>(Guess) * Guess * LengthSq * 0.5f) * Guess) * LengthSq;
-            // FILD qword DAT_06fd0eb0 / FCOMPP, TEST AH,5 / JP: found when 5000 is below it.
+            // FILD qword the field / FCOMPP, TEST AH,5 / JP: found when 5000 is below it.
             if (static_cast<double>(GTradeLaneEntryDistance) < Length)
             {
                 *OutRing = Current;
@@ -528,7 +524,7 @@ namespace
         return FindLaneEntryRings(Rings, &Next, Direction, Position, OutRing, OutPrevRing);
     }
 
-    // FUN_06f62ab0 (06f62ab0-06f62f4d, cdecl): the entry rings of one lane for the request
+    // (06f62ab0-06f62f4d, cdecl): the entry rings of one lane for the request
     // (FindLaneEntryRings from the ring nearest to the request's position -- the scan stops
     // when the distances start to grow --, towards the lane's far end, or a random way from a
     // middle ring). The result also depends on the lane end the ships come from: when a
@@ -551,7 +547,7 @@ namespace
             double const Dy = static_cast<double>(Position.y) - Ring->Position.y;
             double const Dz = static_cast<double>(Position.z) - Ring->Position.z;
             double const DistanceSq = (Dz * Dz + Dy * Dy) + Dx * Dx;
-            // 06f62b2a-06f62b59: the first ring, or a nearer one, is taken; a farther one ends
+            // the first ring, or a nearer one, is taken; a farther one ends
             // the scan; an equal one goes on.
             if (NearestDistanceSq == -1.0f || static_cast<double>(NearestDistanceSq) > DistanceSq)
             {
@@ -565,7 +561,7 @@ namespace
         }
 
         int const LastRing = static_cast<int>(Rings->size()) - 1;
-        // 06f62b7e-06f62bbf: kept in the Request argument's slot.
+        // kept in the Request argument's slot.
         bool bMiddle;
         if (Request->ZoneList != 0)
             bMiddle = true;
@@ -615,25 +611,25 @@ namespace
                     return false;
                 }
             }
-            // 06f62dec-06f62e02: SETG on prev > ring -> +1: the last ring, else the first.
+            // SETG on prev > ring -> +1: the last ring, else the first.
             End = *OutPrevRing > *OutRing ? Rings->back().Position : Rings->front().Position;
         }
 
         float Radius = 4000.0f;
         float NearestPlayerSq;
-        if (System->IsPlayerShipNear(&End, &Radius, &NearestPlayerSq))              // FUN_06f72dd0
+        if (System->IsPlayerShipNear(&End, &Radius, &NearestPlayerSq))
             return !bMiddle;
         float MaxDistance = 4000.0f;
         float ConeAngle = 70.0f;
-        if (System->IsSeenByPlayerShip(&End, &MaxDistance, &ConeAngle))             // FUN_06f730c0
+        if (System->IsSeenByPlayerShip(&End, &MaxDistance, &ConeAngle))
             return !bMiddle;
         float ObjectRadius = 4000.0f;
-        if (System->IsNearPlayerField124Object(&End, &ObjectRadius))                // FUN_06f73130
+        if (System->IsNearPlayerField124Object(&End, &ObjectRadius))
             return !bMiddle;
         return bMiddle;
     }
 
-    // The ring-list pick of FUN_06f62f50 (06f63096-06f630d7 / 06f63143-06f63180): the only
+    // The ring-list pick of the routine (06f63096-06f630d7 / 06f63143-06f63180): the only
     // list, or (rand() * count) >> 15.
     std::vector<std::vector<FTradeLaneRing>>::iterator
     PickLane(std::vector<std::vector<FTradeLaneRing>>* Lanes)
@@ -643,7 +639,7 @@ namespace
         return Lanes->begin() + Pick;
     }
 
-    // FUN_06f62f50 (06f62f50-06f637da, cdecl): the trade-lane arrival point. The ring lists
+    // (06f62f50-06f637da, cdecl): the trade-lane arrival point. The ring lists
     // of the lanes within 5000 of the request (in a lane zone of the heartbeat population at
     // the ship: only lanes whose first ring is in that zone) are tried in random order; a
     // lane's entry rings come from PickLaneEntry. The exit point is *Offset beyond the entry
@@ -656,13 +652,13 @@ namespace
                               unsigned int* OutRingId, unsigned int* OutNextRingId,
                               Vector* OutPosition, Matrix* OutOrientation, float const* Offset)
     {
-        std::vector<std::vector<FTradeLaneRing>> Lanes;                             // FUN_06ead6a0
+        std::vector<std::vector<FTradeLaneRing>> Lanes;
         *OutRingId = 0;
         bool bInLaneZone;
         if (Zone != nullptr && Zone->bTradelane && Request->ZoneList == 0)
         {
             bInLaneZone = true;
-            System->FindTradeLaneRingListsNear(&Request->Placement.Position, 5000.0f, &Lanes); // FUN_06f76970
+            System->FindTradeLaneRingListsNear(&Request->Placement.Position, 5000.0f, &Lanes);
             std::vector<std::vector<FTradeLaneRing>>::iterator Lane = Lanes.begin();
             while (Lane != Lanes.end())
             {
@@ -670,7 +666,7 @@ namespace
                 if (!(pub::Zone::ClassifyPoint(Zone->ZoneId, Lane->front().Position) > 1.0f))
                     ++Lane;
                 else
-                    Lane = Lanes.erase(Lane);                                       // FUN_06f69830
+                    Lane = Lanes.erase(Lane);
             }
         }
         else
@@ -679,11 +675,11 @@ namespace
             System->FindTradeLaneRingListsNear(&Request->Placement.Position, 5000.0f, &Lanes);
         }
         if (Lanes.empty())
-            return;                                                                 // 06f63058
+            return;
 
         for (;;)
         {
-            // 06f63070: an emptied list clears both ring ids.
+            // an emptied list clears both ring ids.
             if (Lanes.empty())
             {
                 *OutNextRingId = 0;
@@ -695,7 +691,7 @@ namespace
             int PrevRingIndex;
             while (!PickLaneEntry(System, &*Lane, Request, &bInLaneZone, &RingIndex, &PrevRingIndex))
             {
-                Lanes.erase(Lane);                                                  // FUN_06f69830
+                Lanes.erase(Lane);
                 if (Lanes.empty())
                 {
                     *OutNextRingId = 0;
@@ -715,10 +711,10 @@ namespace
             Matrix PrevOrientation;
             pub::SpaceObj::GetLocation(Rings[static_cast<size_t>(PrevRingIndex)].ObjectId,
                                        PrevPosition, PrevOrientation);
-            Vector const LaneDirection = SubtractVectors(PrevPosition, RingPosition); // 06f63230
+            Vector const LaneDirection = SubtractVectors(PrevPosition, RingPosition);
             *OutNextRingId = Rings[static_cast<size_t>(PrevRingIndex)].ObjectId;
 
-            // 06f63255-06f632b8: the entry ring is next to a lane end.
+            // the entry ring is next to a lane end.
             bool bNearLaneEnd = false;
             if (PrevRingIndex < RingIndex)
             {
@@ -744,25 +740,25 @@ namespace
             Local.Z = bForward ? -*Offset : *Offset;
             FVector Rotated;
             GetSpaceMathEngine()->TransformMatrix(Rotated, RingMatrix, Local);      // slot +0x2c
-            Vector ExitPoint;                                                       // FUN_06eb7810
+            Vector ExitPoint;
             ExitPoint.x = Rotated.X + RingPosition.x;
             ExitPoint.y = Rotated.Y + RingPosition.y;
             ExitPoint.z = Rotated.Z + RingPosition.z;
 
             int LeaveDirection = Direction;
             float const LeaveTime =
-                static_cast<float>(System->GetTimeSinceLaneLeave(&LeaveDirection, OutRingId)); // FUN_06f78070
+                static_cast<float>(System->GetTimeSinceLaneLeave(&LeaveDirection, OutRingId));
             float ShipDistance = 0.0f;
             int ShipDirection = Direction;
             bool bReject = false;
-            // 06f633fe-06f63413: TEST AH,0x41 / JNZ against 15000 (DAT_06fbbc60): a ship within
+            // TEST AH,0x41 / JNZ against 15000 (the field): a ship within
             // 15000 either way.
-            if (System->GetLaneShipDistance(&ShipDirection, OutRingId, &ExitPoint, &ShipDistance) && // FUN_06f77e70
+            if (System->GetLaneShipDistance(&ShipDirection, OutRingId, &ExitPoint, &ShipDistance) &&
                 !(std::fabs(static_cast<double>(ShipDistance)) > 15000.0))
             {
                 bReject = true;
             }
-            // 06f63415-06f63441: near a lane end, a ship left less than 7 s ago (TEST AH,1 /
+            // near a lane end, a ship left less than 7 s ago (TEST AH,1 /
             // JE against 7.0 accepts, TEST AH,5 / JNP against 0 accepts a negative time).
             else if (bNearLaneEnd && !(LeaveTime >= 7.0f) && !(LeaveTime < 0.0f))
             {
@@ -770,7 +766,7 @@ namespace
             }
             if (bReject)
             {
-                Lanes.erase(Lane);                                                  // FUN_06f6a410 / FUN_06f637e0 + FUN_06f699e0
+                Lanes.erase(Lane);                                                  // / the routine + the routine
                 continue;
             }
 
@@ -784,7 +780,7 @@ namespace
             }
             else
             {
-                // 06f636b2-06f63757: the ring's orientation with its first and third columns
+                // the ring's orientation with its first and third columns
                 // negated; the lift is taken from the ring's own orientation.
                 *OutOrientation = RingOrientation;
                 for (int Row = 0; Row < 3; ++Row)
@@ -806,7 +802,7 @@ namespace
 
     // The formation's orientation from its forward vector, columns right, up, forward (the
     // shared tail of 06f64d7e-06f64e5f and 06f65619-06f65702): Up = Forward x Right (each
-    // product stored as a float), normalized by FUN_06f0bb50.
+    // product stored as a float), normalized by the routine.
     Matrix BuildColumnMatrix(Vector const& Right, Vector const& Forward, Vector* OutUpRaw)
     {
         Vector Up;
@@ -817,7 +813,7 @@ namespace
         Up.z = static_cast<float>(static_cast<double>(Right.y) * Forward.x -
                                   static_cast<double>(Forward.y) * Right.x);
         *OutUpRaw = Up;
-        double const InvUp = 1.0 / VectorLength(Up);                                // DAT_06fb5810
+        double const InvUp = 1.0 / VectorLength(Up);
         Matrix Out;
         Out.E[0][0] = Right.x;
         Out.E[0][1] = static_cast<float>(Up.x * InvUp);
@@ -841,7 +837,7 @@ namespace
         }
     }
 
-    // FUN_06f65d20 (06f65d20-06f65f02, cdecl): arrival method 1, out of a trade lane.
+    // (06f65d20-06f65f02, cdecl): arrival method 1, out of a trade lane.
     // PickTradeLaneArrival with the offset 0 for the zones ahead of the ship (request zone
     // list 2), else 3750; the entry ring must be outside every exclusion sphere of the request.
     // Plan kind 1 with both rings, the leader at the arrival point and orientation, and an
@@ -849,20 +845,20 @@ namespace
     bool PlaceOnTradeLane(FSpawnRequest const* Request, FSystemInfo* System, FSystemZone* Zone,
                           FSpawnPlan* Plan, std::list<FContentNpcShipParams>* Blocks)
     {
-        float const Offset = Request->ZoneList == 2 ? 0.0f : 3750.0f;               // 0x456a6000
+        float const Offset = Request->ZoneList == 2 ? 0.0f : 3750.0f;
         unsigned int RingId;
         unsigned int NextRingId;
         Vector Position;
         Matrix Orientation;
         PickTradeLaneArrival(System, Zone, Request, &RingId, &NextRingId, &Position, &Orientation,
-                             &Offset);                                              // FUN_06f62f50
+                             &Offset);
         if (RingId == 0)
             return false;
 
         Vector RingPosition;
         Matrix RingOrientation;
-        pub::SpaceObj::GetLocation(RingId, RingPosition, RingOrientation);         // 06f65da8
-        // 06f65dae-06f65dd6: outside every sphere (bAll 1, bInside 0).
+        pub::SpaceObj::GetLocation(RingId, RingPosition, RingOrientation);
+        // outside every sphere (bAll 1, bInside 0).
         if (!TestExclusionSpheres(&RingPosition.x, &Request->ExclusionSpheres, &GTrue, &GFalse))
             return false;
 
@@ -875,17 +871,17 @@ namespace
 
         // The holder in the first argument's slot (EH state 0).
         TRefHandle<FObjListDirective> Directive;
-        CreateObjListDirective(0x14, &Directive.Pointer);                           // FUN_06f24870
-        // 06f65e65-06f65e7a: the offset's float bits go to the op's +0x14.
+        CreateObjListDirective(0x14, &Directive.Pointer);
+        // the offset's float bits go to the op's +0x14.
         unsigned int OffsetBits;
         std::memcpy(&OffsetBits, &Offset, sizeof(OffsetBits));
         static_cast<FObjListInstantTradelane*>(Directive.Pointer)->SetLane(&RingId, OffsetBits,
-                                                                           &NextRingId); // FUN_06f27870
+                                                                           &NextRingId);
         AddLeaderDirective(&Leader, Directive);
         return true;
     }
 
-    // FUN_06f65900 (06f65900-06f65d14, cdecl): arrival methods 2..6, launched from a dock.
+    // (06f65900-06f65d14, cdecl): arrival methods 2..6, launched from a dock.
     // Only a formation of one ship. The object types come from Methods[3..6] (docking ring,
     // jump gate, station, capital; an arrival drops rings and gates). Ships that can use
     // moorings look within 4000 of the request and must not be nearer than 3500 (unless an
@@ -899,7 +895,7 @@ namespace
                      unsigned int Faction, std::list<FContentNpcShipParams>* Blocks)
     {
         (void)Zone;
-        if (Blocks->size() != 1)                                                    // 06f65920
+        if (Blocks->size() != 1)
             return false;
 
         unsigned char const* Method = Methods->data();
@@ -907,19 +903,19 @@ namespace
                             (Method[4] != 0 ? 0x40u : 0u) | (Method[3] != 0 ? 0x20u : 0u);
         FContentNpcShipParams const& Block = Blocks->front();
         if (Request->bArrival)
-            Mask &= 0xfffff39fu;                                                    // 06f6599c
+            Mask &= 0xfffff39fu;
 
         bool bTry = true;                                                           // arg slot 7
         bool bNear = false;                                                         // arg slot 4
         float Range = 0.0f;
         std::vector<unsigned int> const& Classes = Block.ClassIds;
         if (HasClass(Classes, GIdCanUseSmallMoors) || HasClass(Classes, GIdCanUseMediumMoors) ||
-            HasClass(Classes, GIdCanUseLargeMoors))                                 // DAT_06fd1c38/34/30
+            HasClass(Classes, GIdCanUseLargeMoors))                                 // /34/30
         {
-            Range = 4000.0f;                                                        // 0x457a0000
+            Range = 4000.0f;
             bNear = false;
         }
-        else if (HasClass(Classes, GIdCanUseBerths))                                // DAT_06fd1c3c
+        else if (HasClass(Classes, GIdCanUseBerths))
         {
             if (Request->bArrival)
             {
@@ -927,7 +923,7 @@ namespace
             }
             else
             {
-                Range = GEncounterPlacementRange;                                   // DAT_06fcf2f4
+                Range = GEncounterPlacementRange;
                 bNear = true;
             }
         }
@@ -951,13 +947,13 @@ namespace
             Plan->DockTarget = System->PickDockTarget(&Block.ClassIds, &GNoShipRep, &Faction,
                                                       &Plan->DockTarget,
                                                       &Request->Placement.Position, Range,
-                                                      &Mask);                       // FUN_06f724f0
+                                                      &Mask);
             if ((Plan->DockTarget & 0x3fffffff) == 0)
                 continue;
             Vector Position;
             Matrix Orientation;
-            pub::SpaceObj::GetLocation(Plan->DockTarget, Position, Orientation);   // 06f65aff
-            // 06f65b05-06f65bbc: the spheres are gathered once (the request's, then the other
+            pub::SpaceObj::GetLocation(Plan->DockTarget, Position, Orientation);
+            // the spheres are gathered once (the request's, then the other
             // players' ships).
             if (Spheres.empty())
             {
@@ -965,11 +961,11 @@ namespace
                          Request->ExclusionSpheres.begin();
                      Sphere != Request->ExclusionSpheres.end(); ++Sphere)
                 {
-                    Spheres.push_back(*Sphere);                                     // FUN_06f69d50
+                    Spheres.push_back(*Sphere);
                 }
                 AddOtherPlayerSpheres(System, Request, &Spheres);
             }
-            if (!TestExclusionSpheres(&Position.x, &Spheres, &GTrue, &GFalse))       // FUN_06f616e0
+            if (!TestExclusionSpheres(&Position.x, &Spheres, &GTrue, &GFalse))
                 continue;
 
             Vector const& From = Request->Placement.Position;
@@ -979,20 +975,20 @@ namespace
             double const DistanceSq = (Dz * Dz + Dy * Dy) + Dx * Dx;
             if (bNear)
             {
-                // 06f65bfd-06f65c3a: TEST AH,5 / JNP -- fails when range^2 is below it.
+                // TEST AH,5 / JNP -- fails when range^2 is below it.
                 if (static_cast<double>(GEncounterPlacementRange) * GEncounterPlacementRange <
                     DistanceSq)
                     continue;
             }
             else if (!Request->bArrival)
             {
-                // 06f65c49-06f65c7e: fails when it is below 3500^2.
+                // fails when it is below 3500^2.
                 if (DistanceSq < GDockLaunchDistanceSq)
                     continue;
             }
             else
             {
-                // 06f65c84-06f65cb9: TEST AH,0x41 / JE -- fails when it is above 3500^2.
+                // TEST AH,0x41 / JE -- fails when it is above 3500^2.
                 if (DistanceSq > GDockLaunchDistanceSq)
                     continue;
             }
@@ -1002,7 +998,7 @@ namespace
         return bFound;
     }
 
-    // FUN_06f64800 (06f64800-06f64fb7, cdecl): arrival method 7, cruising in. Exclusion
+    // (06f64800-06f64fb7, cdecl): arrival method 7, cruising in. Exclusion
     // spheres: 2500 around the other players' ships, the request's, and one around the
     // request's position. A patrol-path leader (guide type 3; the description is not
     // null-tested) spawns on a random segment of the zone's path (FindSegmentSpawnPoint, sphere
@@ -1018,13 +1014,13 @@ namespace
         std::vector<FSpacePopExclusionSphere> Spheres;                              // local_70
         std::vector<FSystemZone*> Zones;                                            // local_60
         if (Zone != nullptr)
-            Zones.push_back(Zone);                                                  // FUN_06eb5770
+            Zones.push_back(Zone);
         AddOtherPlayerSpheres(System, Request, &Spheres);
         for (std::vector<FSpacePopExclusionSphere>::const_iterator Sphere =
                  Request->ExclusionSpheres.begin();
              Sphere != Request->ExclusionSpheres.end(); ++Sphere)
         {
-            Spheres.push_back(*Sphere);                                             // FUN_06f695a0
+            Spheres.push_back(*Sphere);
         }
 
         Vector const& RequestPosition = Request->Placement.Position;
@@ -1034,14 +1030,14 @@ namespace
         bool const bPathLeader = Blocks->front().GuideDesc->Type == 3;
         if (bPathLeader)
         {
-            FPatrolPath* Path = Zone->GetPath();                                    // FUN_06fa8130
+            FPatrolPath* Path = Zone->GetPath();
             FSpacePopExclusionSphere const Around = {
                 RequestPosition.x, RequestPosition.y, RequestPosition.z,
-                Request->bArrival ? 200.0f : 2500.0f};                              // 0x43480000 / 0x451c4000
+                Request->bArrival ? 200.0f : 2500.0f};                              // / 0x451c4000
             Spheres.push_back(Around);
             std::vector<FPatrolPathSegment> Segments;
-            Path->GetZoneSegments(Zone->ZoneId, &Segments);                         // FUN_06f37ea0
-            // 06f649b1-06f649df: the segment is not range-checked (an empty list is read).
+            Path->GetZoneSegments(Zone->ZoneId, &Segments);
+            // the segment is not range-checked (an empty list is read).
             FPatrolPathSegment const* Segment =
                 Segments.data() + RandIndex(static_cast<int>(Segments.size()));
             bFound = FindSegmentSpawnPoint(&Spheres, nullptr, nullptr, &Zones,
@@ -1050,7 +1046,7 @@ namespace
                                            &Path->Points[static_cast<size_t>(Segment->FirstPoint)],
                                            &Path->Points[static_cast<size_t>(Segment->SecondPoint)],
                                            &SpawnPosition, &Destination, &Plan->PathDirection,
-                                           System);                                 // FUN_06f61800
+                                           System);
             if (bFound)
             {
                 Plan->Path = Path;
@@ -1065,7 +1061,7 @@ namespace
             float Radius;
             if (Request->bArrival)
             {
-                // 06f64a85-06f64af2: rand * 2^-15 * 1775 + 100 (DAT_06fbbc80 / DAT_06fbbc78).
+                // rand * 2^-15 * 1775 + 100 (the field / the field).
                 Radius = static_cast<float>(static_cast<double>(rand()) * GRandScale * 1775.0 + 100.0);
                 Center = RequestPosition;
                 LookFrom = RequestPosition;
@@ -1075,22 +1071,22 @@ namespace
             }
             else
             {
-                // 06f64afc-06f64bdf: rand * 2^-15 * 50 + 2500 (DAT_06fbbc70 / DAT_06fbbc68).
+                // rand * 2^-15 * 50 + 2500 (the field / the field).
                 Radius = static_cast<float>(static_cast<double>(rand()) * GRandScale * 50.0 + 2500.0);
-                Center = Add(RequestPosition, Scale(Request->Velocity, 5.0f));      // FUN_06f60760 / FUN_06f0bb80
-                Vector Ahead;                                                       // FUN_06eb7810
-                Ahead.x = Request->Velocity.x * 7.0f;                               // DAT_06fbbc5c
+                Center = Add(RequestPosition, Scale(Request->Velocity, 5.0f));      // / the routine
+                Vector Ahead;
+                Ahead.x = Request->Velocity.x * 7.0f;
                 Ahead.y = Request->Velocity.y * 7.0f;
                 Ahead.z = Request->Velocity.z * 7.0f;
                 LookFrom = Add(RequestPosition, Ahead);
                 FSpacePopExclusionSphere const Around = {
                     RequestPosition.x, RequestPosition.y, RequestPosition.z, 2500.0f};
-                Spheres.push_back(Around);                                          // FUN_06f69d50
+                Spheres.push_back(Around);
             }
             bFound = FindSphereSpawnPoint(&Spheres, nullptr, nullptr, &Zones,
                                           static_cast<float>(*ZoneCreationDistance), Center, Radius,
                                           LookFrom, 2000.0f, 500.0f, &SpawnPosition, &Destination,
-                                          System);                                  // FUN_06f61cb0
+                                          System);
         }
         if (!bFound)
             return false;
@@ -1100,9 +1096,9 @@ namespace
         Plan->Destination = Destination;
         Blocks->front().Position = SpawnPosition;
 
-        // 06f64cc3-06f64d1c: forward = (spawn - destination) normalized, the squares summed
+        // forward = (spawn - destination) normalized, the squares summed
         // x, z, y.
-        Vector const Delta = SubtractVectors(SpawnPosition, Destination);           // 06f64cd2
+        Vector const Delta = SubtractVectors(SpawnPosition, Destination);
         double const InvLength = 1.0 / std::sqrt(
             (static_cast<double>(Delta.x) * Delta.x + static_cast<double>(Delta.z) * Delta.z) +
             static_cast<double>(Delta.y) * Delta.y);
@@ -1110,8 +1106,8 @@ namespace
         Forward.x = static_cast<float>(Delta.x * InvLength);
         Forward.y = static_cast<float>(Delta.y * InvLength);
         Forward.z = static_cast<float>(Delta.z * InvLength);
-        // 06f64d1e-06f64d7e: right = (0,1,0) x forward, unrounded, scaled by the float
-        // reciprocal of its length (DAT_06fb444c = 0).
+        // right = (0,1,0) x forward, unrounded, scaled by the float
+        // reciprocal of its length (the field = 0).
         double const Y0 = static_cast<double>(Forward.y) * 0.0f;
         double const RightX = Forward.z - Y0;
         double const RightY = static_cast<double>(Forward.x) * 0.0f - static_cast<double>(Forward.z) * 0.0f;
@@ -1126,20 +1122,20 @@ namespace
         Matrix const Orientation = BuildColumnMatrix(Right, Forward, &UpRaw);
         SetBlocksOrientation(Blocks, Orientation);
 
-        // 06f64e85-06f64f4a: the leader's GotoVec to the destination (EH state 3 holder).
+        // the leader's GotoVec to the destination (EH state 3 holder).
         TRefHandle<FObjListDirective> Directive;
-        CreateObjListDirective(5, &Directive.Pointer);                              // FUN_06f24870
+        CreateObjListDirective(5, &Directive.Pointer);
         FObjListGotoVec* Goto = static_cast<FObjListGotoVec*>(Directive.Pointer);
         Goto->Op.Priority = 1;                                                      // [dir+0x114]
         // The guide type is read again from the leader's description (not null-tested).
         float const Range = Blocks->front().GuideDesc->Type == 3 ? 500.0f : 100.0f;
-        Goto->SetDestination(&Destination, Range, -1.0f, 0, false, false);          // FUN_06f26460
+        Goto->SetDestination(&Destination, Range, -1.0f, 0, false, false);
         Goto->Op.Field_58 = 1;                                                      // [dir+0x164]
         AddLeaderDirective(&Blocks->front(), Directive);
         return true;
     }
 
-    // FUN_06f64fc0 (06f64fc0-06f658cb, cdecl): arrival method 8, buzzing the player. Exclusion
+    // (06f64fc0-06f658cb, cdecl): arrival method 8, buzzing the player. Exclusion
     // spheres: the request's, then 2500 around the other players' ships, and (not arrivals)
     // 2500 around the request's position. A ship slower than 5 gets a point on a sphere of
     // radius 2500 + rand * 50 around it; a moving one a point on a 45 sphere 150 above its
@@ -1154,27 +1150,27 @@ namespace
         Vector Velocity = Request->Velocity;                                        // local_c0
         std::vector<FSpacePopExclusionSphere> Spheres;                              // local_5c
         std::vector<FSystemZone*> Zones;                                            // local_80
-        Zones.push_back(Zone);                                                      // FUN_06eb5770, not null-tested
+        Zones.push_back(Zone);                                                      // , not null-tested
         for (std::vector<FSpacePopExclusionSphere>::const_iterator Sphere =
                  Request->ExclusionSpheres.begin();
              Sphere != Request->ExclusionSpheres.end(); ++Sphere)
         {
-            Spheres.push_back(*Sphere);                                             // FUN_06f695a0
+            Spheres.push_back(*Sphere);
         }
         AddOtherPlayerSpheres(System, Request, &Spheres);
 
         Vector const& RequestPosition = Request->Placement.Position;
-        // 06f650de-06f6511c: |v| = |v|^2 * FUN_06f5aeb0(|v|^2); TEST AH,0x41 / JP against 5.
+        // |v| = |v|^2 * (|v|^2); TEST AH,0x41 / JP against 5.
         float const SpeedSq = static_cast<float>(
             (static_cast<double>(Velocity.x) * Velocity.x + static_cast<double>(Velocity.y) * Velocity.y) +
             static_cast<double>(Velocity.z) * Velocity.z);
-        double const Speed = FastReciprocalSqrt(SpeedSq) * SpeedSq;                 // 06f65105
+        double const Speed = FastReciprocalSqrt(SpeedSq) * SpeedSq;
         Vector Center;
         Vector LookFrom;
         float Radius;
         // JP is taken when neither C0 nor C3 is set or the compare is unordered: slow only
         // when the speed is at most 5.
-        if (Speed <= 5.0)                                                           // DAT_06fb6280
+        if (Speed <= 5.0)
         {
             Center = RequestPosition;
             LookFrom = RequestPosition;
@@ -1182,38 +1178,38 @@ namespace
         }
         else
         {
-            // 06f6516e-06f6519b: the direction of travel.
+            // the direction of travel.
             double const InvSpeed = 1.0 / VectorLength(Velocity);
             Vector Direction;
             Direction.x = static_cast<float>(Velocity.x * InvSpeed);
             Direction.y = static_cast<float>(Velocity.y * InvSpeed);
             Direction.z = static_cast<float>(Velocity.z * InvSpeed);
-            // 06f6519d-06f651e1: 2500 + speed * 2.5 ahead (DAT_06fbbc90 / DAT_06fbbc68).
+            // 2500 + speed * 2.5 ahead (the field / the field).
             float const SpeedSq2 = static_cast<float>(
                 (static_cast<double>(Request->Velocity.x) * Request->Velocity.x +
                  static_cast<double>(Request->Velocity.y) * Request->Velocity.y) +
                 static_cast<double>(Request->Velocity.z) * Request->Velocity.z);
             float const AheadDistance = static_cast<float>(
-                FastReciprocalSqrt(SpeedSq2) * SpeedSq2 * 2.5 + 2500.0);           // 06f651c4
+                FastReciprocalSqrt(SpeedSq2) * SpeedSq2 * 2.5 + 2500.0);
             Vector const Ahead = Add(RequestPosition, Scale(Direction, AheadDistance));
             Center = Ahead;                                                         // local_8c
             Vector const Behind =
-                SubtractVectors(RequestPosition, Scale(Direction, 5000.0f));        // 06f65241, 0x459c4000
+                SubtractVectors(RequestPosition, Scale(Direction, 5000.0f));        // , 0x459c4000
             LookFrom = Behind;
-            // 06f65246-06f652e4: the direction from behind to ahead, and right = (0,1,0) x it.
-            Vector const Track = SubtractVectors(Ahead, Behind);                    // 06f6526d
+            // the direction from behind to ahead, and right = (0,1,0) x it.
+            Vector const Track = SubtractVectors(Ahead, Behind);
             double const InvTrack = 1.0 / VectorLength(Track);
             Vector TrackDirection;
             TrackDirection.x = static_cast<float>(Track.x * InvTrack);
             TrackDirection.y = static_cast<float>(Track.y * InvTrack);
             TrackDirection.z = static_cast<float>(Track.z * InvTrack);
             double const Y0 = static_cast<double>(TrackDirection.y) * 0.0f;
-            Vector Right;                                                           // FUN_06eb7810
+            Vector Right;
             Right.x = static_cast<float>(TrackDirection.z - Y0);
             Right.y = static_cast<float>(static_cast<double>(TrackDirection.x) * 0.0f -
                                          static_cast<double>(TrackDirection.z) * 0.0f);
             Right.z = static_cast<float>(Y0 - TrackDirection.x);
-            // 06f652e9-06f6531a: TEST AH,0x44 / JP against 0.0 (DAT_06fbbc88) per component.
+            // TEST AH,0x44 / JP against 0.0 (the field) per component.
             if (Right.x == 0.0 && Right.y == 0.0 && Right.z == 0.0)
             {
                 Center = RequestPosition;
@@ -1225,7 +1221,7 @@ namespace
                 Right.x = static_cast<float>(Right.x * InvRight);
                 Right.y = static_cast<float>(Right.y * InvRight);
                 Right.z = static_cast<float>(Right.z * InvRight);
-                Vector Up;                                                          // FUN_06eb7810
+                Vector Up;
                 Up.x = static_cast<float>(static_cast<double>(TrackDirection.y) * Right.z -
                                           static_cast<double>(TrackDirection.z) * Right.y);
                 Up.y = static_cast<float>(static_cast<double>(TrackDirection.z) * Right.x -
@@ -1236,18 +1232,18 @@ namespace
                 Up.x = static_cast<float>(Up.x * InvUp);
                 Up.y = static_cast<float>(Up.y * InvUp);
                 Up.z = static_cast<float>(Up.z * InvUp);
-                Vector const Raise = Scale(Up, 150.0f);                             // 0x43160000
-                Center.x = Center.x + Raise.x;                                      // FUN_06f658d0
+                Vector const Raise = Scale(Up, 150.0f);
+                Center.x = Center.x + Raise.x;
                 Center.y = Center.y + Raise.y;
                 Center.z = Center.z + Raise.z;
-                Radius = 45.0f;                                                     // 0x42340000
+                Radius = 45.0f;
             }
         }
         if (!Request->bArrival)
         {
             FSpacePopExclusionSphere const Around = {
                 RequestPosition.x, RequestPosition.y, RequestPosition.z, 2500.0f};
-            Spheres.push_back(Around);                                              // FUN_06f695a0
+            Spheres.push_back(Around);
         }
 
         Vector SpawnPosition;                                                       // local_88
@@ -1256,7 +1252,7 @@ namespace
                                   static_cast<float>(*ZoneCreationDistance), Center, Radius,
                                   LookFrom, 50.0f, 50.0f, &SpawnPosition, &Destination, System))
         {
-            return false;                                                           // FUN_06f61cb0
+            return false;
         }
 
         Plan->Position = SpawnPosition;
@@ -1265,9 +1261,9 @@ namespace
         FContentNpcShipParams& Leader = Blocks->front();
         Leader.Position = SpawnPosition;
 
-        // 06f65559-06f655e5: forward = (spawn - destination) normalized by FUN_06f0bb50, right =
-        // (0,1,0) x forward stored as floats, then normalized by FUN_06f0bb50.
-        Vector const Delta = SubtractVectors(SpawnPosition, Destination);           // 06f6556e
+        // forward = (spawn - destination) normalized by the routine, right =
+        // (0,1,0) x forward stored as floats, then normalized by the routine.
+        Vector const Delta = SubtractVectors(SpawnPosition, Destination);
         double const InvLength = 1.0 / VectorLength(Delta);
         Vector Forward;
         Forward.x = static_cast<float>(Delta.x * InvLength);
@@ -1287,22 +1283,22 @@ namespace
         Matrix const Orientation = BuildColumnMatrix(Right, Forward, &UpRaw);
         SetBlocksOrientation(Blocks, Orientation);
 
-        // 06f65721-06f6578b: the leader moves 50 along the (renormalized) up axis.
+        // the leader moves 50 along the (renormalized) up axis.
         double const InvUp = 1.0 / VectorLength(UpRaw);
         Vector Up;
         Up.x = static_cast<float>(UpRaw.x * InvUp);
         Up.y = static_cast<float>(UpRaw.y * InvUp);
         Up.z = static_cast<float>(UpRaw.z * InvUp);
-        Vector const Lift = Scale(Up, 50.0f);                                       // 0x42480000
-        Leader.Position.x = Leader.Position.x + Lift.x;                             // FUN_06f658d0
+        Vector const Lift = Scale(Up, 50.0f);
+        Leader.Position.x = Leader.Position.x + Lift.x;
         Leader.Position.y = Leader.Position.y + Lift.y;
         Leader.Position.z = Leader.Position.z + Lift.z;
 
-        // 06f65790-06f6583e: the GotoVec (EH state 2 holder; FUN_06f28e10 clears it first).
+        // the GotoVec (EH state 2 holder; the routine clears it first).
         TRefHandle<FObjListDirective> Directive;
-        CreateObjListDirective(5, &Directive.Pointer);                              // FUN_06f24870
+        CreateObjListDirective(5, &Directive.Pointer);
         FObjListGotoVec* Goto = static_cast<FObjListGotoVec*>(Directive.Pointer);
-        Goto->SetDestination(&Destination, 401.0f, -1.0f, 0, false, false);         // 0x43c88000
+        Goto->SetDestination(&Destination, 401.0f, -1.0f, 0, false, false);
         Goto->Op.Priority = 1;                                                      // [dir+0x114]
         Goto->Op.Field_58 = 1;                                                      // [dir+0x164]
         AddLeaderDirective(&Leader, Directive);
@@ -1310,20 +1306,20 @@ namespace
     }
 }
 
-// FUN_06f65f10 (06f65f10-06f661f0, cdecl).
+// (06f65f10-06f661f0, cdecl).
 bool __cdecl PlaceSpawnFormation(FSpawnRequest const* Request, FSystemInfo* System,
                                  FSystemZone* Zone, double const* ZoneCreationDistance,
                                  std::vector<unsigned char> Arrival, FSpawnPlan* Plan,
                                  unsigned int const* Faction,
                                  std::list<FContentNpcShipParams>* Blocks)
 {
-    std::vector<unsigned char> Methods(Arrival);                                    // FUN_06f69570
+    std::vector<unsigned char> Methods(Arrival);
     if (Request->bArrival)
     {
-        // 06f65f8a-06f65fd2: arrivals may cruise in; unless the leader is a patrol-path
+        // arrivals may cruise in; unless the leader is a patrol-path
         // leader they may also buzz the player, but never come out of a trade lane.
         Methods[7] = 1;
-        FGuideDescBase const* Desc = Blocks->front().GuideDesc;                     // FUN_06f1df30
+        FGuideDescBase const* Desc = Blocks->front().GuideDesc;
         if (Desc == nullptr || Desc->Type != 3)
         {
             Methods[8] = 1;
@@ -1333,13 +1329,13 @@ bool __cdecl PlaceSpawnFormation(FSpawnRequest const* Request, FSystemInfo* Syst
 
     while (Plan->Kind == 0)
     {
-        // 06f65ff0-06f6600c: no method left -> not placed.
+        // no method left -> not placed.
         size_t Index = 0;
         while (Index < Methods.size() && Methods[Index] == 0)
             ++Index;
         if (Index >= Methods.size())
             return false;
-        // 06f6600e-06f66056: a random start, then the next set method (wrapping).
+        // a random start, then the next set method (wrapping).
         int const Count = static_cast<int>(Methods.size());
         unsigned int Pick = static_cast<unsigned int>((rand() * Count) / 32768);
         while (Methods[Pick % static_cast<unsigned int>(Count)] == 0)
@@ -1347,7 +1343,7 @@ bool __cdecl PlaceSpawnFormation(FSpawnRequest const* Request, FSystemInfo* Syst
         switch (Pick % static_cast<unsigned int>(Count))
         {
         case 1:
-            PlaceOnTradeLane(Request, System, Zone, Plan, Blocks);                  // FUN_06f65d20
+            PlaceOnTradeLane(Request, System, Zone, Plan, Blocks);
             Methods[1] = 0;
             break;
         case 2:
@@ -1355,7 +1351,7 @@ bool __cdecl PlaceSpawnFormation(FSpawnRequest const* Request, FSystemInfo* Syst
         case 4:
         case 5:
         case 6:
-            PlaceAtDock(Request, System, Zone, &Methods, Plan, *Faction, Blocks);   // FUN_06f65900
+            PlaceAtDock(Request, System, Zone, &Methods, Plan, *Faction, Blocks);
             Methods[6] = 0;
             Methods[5] = 0;
             Methods[4] = 0;
@@ -1363,15 +1359,15 @@ bool __cdecl PlaceSpawnFormation(FSpawnRequest const* Request, FSystemInfo* Syst
             Methods[2] = 0;
             break;
         case 7:
-            PlaceCruising(Request, System, Zone, ZoneCreationDistance, Plan, Blocks); // FUN_06f64800
+            PlaceCruising(Request, System, Zone, ZoneCreationDistance, Plan, Blocks);
             Methods[7] = 0;
             break;
         case 8:
-            PlaceBuzzing(Request, System, Zone, ZoneCreationDistance, Plan, Blocks); // FUN_06f64fc0
+            PlaceBuzzing(Request, System, Zone, ZoneCreationDistance, Plan, Blocks);
             Methods[8] = 0;
             break;
         default:
-            // Index 0 (never set by the arrival parser) or above 8: nothing; retail loops on.
+            // Index 0 (never set by the arrival parser) or above 8: nothing; baseline loops on.
             break;
         }
     }
@@ -1380,8 +1376,8 @@ bool __cdecl PlaceSpawnFormation(FSpawnRequest const* Request, FSystemInfo* Syst
 
 namespace
 {
-    // The dock target picks of FUN_06f63cc0: the leader's classes, no ship reputation, the
-    // leader's affiliation (FUN_06eb6bb0, fetched for each pick) and the type mask 0x600d60.
+    // The dock target picks of the routine: the leader's classes, no ship reputation, the
+    // leader's affiliation (the routine, fetched for each pick) and the type mask 0x600d60.
     unsigned int PickLeaderDockTarget(FSystemInfo* System, FContentNpcShipParams* Leader,
                                       unsigned int const* ExcludeId, Vector const* Position,
                                       float Range)
@@ -1389,10 +1385,10 @@ namespace
         unsigned int const Mask = 0x600d60;
         unsigned int const Affiliation = Leader->ReputationHandle->GetAffiliation();
         return System->PickDockTarget(&Leader->ClassIds, &GNoShipRep, &Affiliation, ExcludeId,
-                                      Position, Range, &Mask);                  // FUN_06f724f0
+                                      Position, Range, &Mask);
     }
 
-    // The point-index filter of FUN_06f63cc0 (06f63dd8-06f63e2f, 06f64526-06f64561): drops
+    // The point-index filter of the routine (06f63dd8-06f63e2f, 06f64526-06f64561): drops
     // the indices outside [First, Last] (JL / JG, the raw values: -1 is not remapped).
     void KeepPointsInRange(std::vector<int>* Points, int First, int Last)
     {
@@ -1407,7 +1403,7 @@ namespace
     }
 }
 
-// FUN_06f63cc0 (06f63cc0-06f647fc, cdecl).
+// (06f63cc0-06f647fc, cdecl).
 void __cdecl SetLeaderGuideTargets(FSystemInfo* System, FSpawnPlan* Plan,
                                    FContentNpcShipParams* Leader)
 {
@@ -1420,7 +1416,7 @@ void __cdecl SetLeaderGuideTargets(FSystemInfo* System, FSpawnPlan* Plan,
 
     if (Plan->Kind == 2)
     {
-        // 06f63d08-06f63f06: launched from a dock -- the launcher is the first target.
+        // launched from a dock -- the launcher is the first target.
         unsigned int DockTarget = Plan->DockTarget;
         unsigned int Target2 = 0;
         if (bWander)
@@ -1447,11 +1443,11 @@ void __cdecl SetLeaderGuideTargets(FSystemInfo* System, FSpawnPlan* Plan,
             unsigned int const Affiliation = Leader->ReputationHandle->GetAffiliation();
             Target2 = System->PickPathDockTarget(&Leader->ClassIds, &GNoShipRep, &Affiliation,
                                                  &DockTarget, Path, First, Last, 0.0f,
-                                                 &GAnyObjectType);                  // FUN_06f725c0
+                                                 &GAnyObjectType);
             std::vector<int> Points;
-            Path->GetObjectPointIndices(&Target2, &Points);                         // FUN_06f37d30
+            Path->GetObjectPointIndices(&Target2, &Points);
             KeepPointsInRange(&Points, First, Last);
-            // 06f63e40-06f63e62: not range-checked (an empty list is read).
+            // not range-checked (an empty list is read).
             Plan->PathPoint = Points.data()[RandIndex(static_cast<int>(Points.size()))];
             if (Target2 == 0)
                 Target2 = DockTarget;
@@ -1460,29 +1456,29 @@ void __cdecl SetLeaderGuideTargets(FSystemInfo* System, FSpawnPlan* Plan,
         {
             Target2 = PickLeaderDockTarget(System, Leader, &DockTarget, &Origin, -1.0f);
         }
-        int const Rep = Leader->ReputationHandle->GetReputation();                  // FUN_06f33f80
-        Desc->SetTargets(&DockTarget, &Target2, &Leader->ClassIds, &Rep);           // FUN_06f06260
+        int const Rep = Leader->ReputationHandle->GetReputation();
+        Desc->SetTargets(&DockTarget, &Target2, &Leader->ClassIds, &Rep);
         return;
     }
 
     if (Plan->Kind == 1)
     {
-        // 06f63f14-06f64430: out of a trade lane.
+        // out of a trade lane.
         unsigned int Target2 = 0;                                                   // [esp+0x7c]
         unsigned int Target1 = 0;                                                   // [esp+0x14]
         FTradeLane* Lane;
-        System->FindTradeLaneByRing(&Plan->RingId, &Lane);                          // FUN_06f77e00
-        int const Order = System->GetTradeLaneRingOrder(&Plan->RingId, &Plan->NextRingId); // FUN_06f77b40
+        System->FindTradeLaneByRing(&Plan->RingId, &Lane);
+        int const Order = System->GetTradeLaneRingOrder(&Plan->RingId, &Plan->NextRingId);
         Vector Anchor;                                                              // local_40
         if (Order == -1)
         {
             Anchor = Lane->StartPosition;
             Target2 = PickLeaderDockTarget(System, Leader, &GNoObjectId, &Lane->EndPosition,
-                                           20000.0f);                               // 0x469c4000
+                                           20000.0f);
         }
         else if (Order == 0)
         {
-            return;                                                                 // 06f647ea
+            return;
         }
         else if (Order == 1)
         {
@@ -1500,14 +1496,14 @@ void __cdecl SetLeaderGuideTargets(FSystemInfo* System, FSpawnPlan* Plan,
         else
         {
             std::vector<FTradeLane*> Near;
-            System->FindTradeLanesNear(&Anchor, 20000.0f, &Near);                  // FUN_06f767d0
+            System->FindTradeLanesNear(&Anchor, 20000.0f, &Near);
             bool const bOneLane = Near.size() == 1;
-            // 06f640dc-06f64109: TEST AH,5 / JNP -- below 0.5, or the only lane.
+            // TEST AH,5 / JNP -- below 0.5, or the only lane.
             if (static_cast<double>(rand()) * GRandScale < 0.5 || bOneLane)
                 Target1 = PickLeaderDockTarget(System, Leader, &Target2, &Anchor, 20000.0f);
             std::vector<FTradeLane*>::iterator Own = std::find(Near.begin(), Near.end(), Lane);
             if (Own != Near.end())
-                Near.erase(Own);                                                    // FUN_06f69a10
+                Near.erase(Own);
             while (Target1 == 0)
             {
                 if (Near.empty())
@@ -1517,7 +1513,7 @@ void __cdecl SetLeaderGuideTargets(FSystemInfo* System, FSpawnPlan* Plan,
                 }
                 int const Pick = RandIndex(static_cast<int>(Near.size()));
                 FTradeLane* Other = Near[static_cast<size_t>(Pick)];
-                Vector const ToStart = Subtract(Other->StartPosition, Anchor);     // FUN_06eb7810
+                Vector const ToStart = Subtract(Other->StartPosition, Anchor);
                 Vector const ToEnd = Subtract(Other->EndPosition, Anchor);
                 double const StartSq = (static_cast<double>(ToStart.z) * ToStart.z +
                                         static_cast<double>(ToStart.y) * ToStart.y) +
@@ -1525,20 +1521,20 @@ void __cdecl SetLeaderGuideTargets(FSystemInfo* System, FSpawnPlan* Plan,
                 double const EndSq = (static_cast<double>(ToEnd.z) * ToEnd.z +
                                       static_cast<double>(ToEnd.y) * ToEnd.y) +
                                      static_cast<double>(ToEnd.x) * ToEnd.x;
-                // 06f6426b-06f64272: TEST AH,0x41 / JNZ -- the end only when it is farther.
+                // TEST AH,0x41 / JNZ -- the end only when it is farther.
                 Vector const* FarEnd = EndSq > StartSq ? &Other->EndPosition : &Other->StartPosition;
                 Target1 = PickLeaderDockTarget(System, Leader, &Target2, FarEnd, 20000.0f);
-                Near.erase(Near.begin() + Pick);                                    // FUN_06f6a640
+                Near.erase(Near.begin() + Pick);
             }
             if (Target2 == 0)
                 Target2 = PickLeaderDockTarget(System, Leader, &Target1, &Origin, -1.0f);
         }
-        int const Rep = Leader->ReputationHandle->GetReputation();                  // FUN_06f33f80
-        Desc->SetTargets(&Target2, &Target1, &Leader->ClassIds, &Rep);              // FUN_06f06260
+        int const Rep = Leader->ReputationHandle->GetReputation();
+        Desc->SetTargets(&Target2, &Target1, &Leader->ClassIds, &Rep);
         return;
     }
 
-    // 06f64435-06f647e1: cruising, buzzing, or not placed.
+    // cruising, buzzing, or not placed.
     unsigned int Target1 = 0;                                                       // [esp+0x10]
     unsigned int Target2 = 0;                                                       // [esp+0x18]
     FPatrolPath* Path = Plan->Path;
@@ -1568,13 +1564,13 @@ void __cdecl SetLeaderGuideTargets(FSystemInfo* System, FSpawnPlan* Plan,
         unsigned int const Affiliation = Leader->ReputationHandle->GetAffiliation();
         Target1 = System->PickPathDockTarget(&Leader->ClassIds, &GNoShipRep, &Affiliation,
                                              &GNoObjectId, Path, First, Last, 0.0f,
-                                             &GAnyObjectType);                      // FUN_06f725c0
+                                             &GAnyObjectType);
         std::vector<int> Points;
-        Path->GetObjectPointIndices(&Target1, &Points);                             // FUN_06f37d30
+        Path->GetObjectPointIndices(&Target1, &Points);
         KeepPointsInRange(&Points, First, Last);
         Plan->PathPoint = Points.data()[RandIndex(static_cast<int>(Points.size()))];
 
-        // 06f64595-06f64611: the second target's point range.
+        // the second target's point range.
         int SecondFirst;
         int SecondLast;
         if (!Path->bLoop)
@@ -1606,13 +1602,13 @@ void __cdecl SetLeaderGuideTargets(FSystemInfo* System, FSpawnPlan* Plan,
         unsigned int const SecondAffiliation = Leader->ReputationHandle->GetAffiliation();
         Target2 = System->PickPathDockTarget(&Leader->ClassIds, &GNoShipRep, &SecondAffiliation,
                                              &Target1, Path, SecondFirst, SecondLast, 5000.0f,
-                                             &GAnyObjectType);                      // 0x459c4000
+                                             &GAnyObjectType);
         if (Target2 == 0)
             Target2 = Target1;
     }
     else
     {
-        // 06f6467e-06f647a1: TEST AH,5 / JP -- the first target near the leader below 0.5.
+        // TEST AH,5 / JP -- the first target near the leader below 0.5.
         if (static_cast<double>(rand()) * GRandScale < 0.5)
             Target1 = PickLeaderDockTarget(System, Leader, &GNoObjectId, &Leader->Position, 20000.0f);
         if (Target1 == 0)
@@ -1626,6 +1622,6 @@ void __cdecl SetLeaderGuideTargets(FSystemInfo* System, FSpawnPlan* Plan,
         else if (Target1 == 0)
             Target1 = Target2;
     }
-    int const Rep = Leader->ReputationHandle->GetReputation();                      // FUN_06f33f80
-    Desc->SetTargets(&Target2, &Target1, &Leader->ClassIds, &Rep);                  // FUN_06f06260
+    int const Rep = Leader->ReputationHandle->GetReputation();
+    Desc->SetTargets(&Target2, &Target1, &Leader->ClassIds, &Rep);
 }

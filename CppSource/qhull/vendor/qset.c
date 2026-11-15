@@ -66,7 +66,7 @@ void qh_setaddnth(setT **setp, int nth, void *newelem) {
   }
   oldsize= *sizep - 1;
   if (nth < 0 || nth > oldsize) {
-    FUN_06356960 (/* retail 0636e141 */ "qhull internal error (qh_setaddnth): nth %d is out-of-bounds for set:\n", nth);
+    WriteHullDiagnostic (  "qhull internal error (qh_setaddnth): nth %d is out-of-bounds for set:\n", nth);
     qh_setprint (qhmem.ferr, "", *setp);
     qh_errexit (qhmem_ERRqhull, NULL, NULL);
   }
@@ -231,11 +231,11 @@ void qh_setcheck(setT *set, char *tname, int id) {
   SETreturnsize_(set, size);
   maxsize= set->maxsize;
   if (size > maxsize || !maxsize) {
-    FUN_06356960 (/* retail 0636e33d */ "qhull internal error (qh_setcheck): actual size %d of %s%d is greater than max size %d\n",
+    WriteHullDiagnostic (  "qhull internal error (qh_setcheck): actual size %d of %s%d is greater than max size %d\n",
 	     size, tname, id, maxsize);
     waserr= 1;
   }else if (set->e[size].p) {
-    FUN_06356960 (/* retail 0636e33d (shared CALL with the message above) */ "qhull internal error (qh_setcheck): %s%d (size %d max %d) is not null terminated.\n",
+    WriteHullDiagnostic (/* (shared CALL with the message above) */ "qhull internal error (qh_setcheck): %s%d (size %d max %d) is not null terminated.\n",
 	     tname, id, maxsize, size-1);
     waserr= 1;
   }
@@ -421,7 +421,7 @@ void *qh_setdelnth(setT *set, int nth) {
   if (!(*sizep)--)         /*  if was a full set */
     *sizep= set->maxsize;  /*     *sizep= (maxsize-1)+ 1 */
   if (nth < 0 || nth >= *sizep) {
-    FUN_06356960 (/* retail 0636e4ce */ "qhull internal error (qh_setaddnth): nth %d is out-of-bounds for set:\n", nth);
+    WriteHullDiagnostic (  "qhull internal error (qh_setaddnth): nth %d is out-of-bounds for set:\n", nth);
     qh_setprint (qhmem.ferr, "", set);
     qh_errexit (qhmem_ERRqhull, NULL, NULL);
   }
@@ -458,7 +458,7 @@ void *qh_setdelnthsorted(setT *set, int nth) {
 
   sizep= SETsizeaddr_(set);
   if (nth < 0 || (*sizep && nth >= *sizep-1) || nth >= set->maxsize) {
-    FUN_06356960 (/* retail 0636e538 */ "qhull internal error (qh_setaddnth): nth %d is out-of-bounds for set:\n", nth);
+    WriteHullDiagnostic (  "qhull internal error (qh_setaddnth): nth %d is out-of-bounds for set:\n", nth);
     qh_setprint (qhmem.ferr, "", set);
     qh_errexit (qhmem_ERRqhull, NULL, NULL);
   }
@@ -936,7 +936,7 @@ setT *qh_setnew_delnthsorted(setT *set, int size, int nth, int prepend) {
   int tailsize= size - nth -1, newsize;
 
   if (tailsize < 0) {
-    FUN_06356960 (/* retail 0636e9e1 */ "qhull internal error (qh_setaddnth): nth %d is out-of-bounds for set:\n", nth);
+    WriteHullDiagnostic (  "qhull internal error (qh_setaddnth): nth %d is out-of-bounds for set:\n", nth);
     qh_setprint (qhmem.ferr, "", set);
     qh_errexit (qhmem_ERRqhull, NULL, NULL);
   }
@@ -1015,7 +1015,7 @@ setT *qh_setnew_delnthsorted(setT *set, int size, int nth, int prepend) {
 void qh_setprint(FILE *fp, char* string, setT *set) {
   int size, k;
 
-  /* Retail 0636eb20..0636eb28 (TEST EBP,EBP / JZ 0636eba4): a NULL fp returns
+  /* (TEST EBP,EBP / JZ 0636eba4): a NULL fp returns
      without printing; qhmem.ferr is the stream passed by every error path. */
   if (!fp)
     return;
@@ -1056,7 +1056,7 @@ void qh_setreplace(setT *set, void *oldelem, void *newelem) {
   if (*elemp)
     *elemp= newelem;
   else {
-    FUN_06356960 (/* retail 0636ebe4 */ "qhull internal error (qh_setreplace): elem %p not found in set\n",
+    WriteHullDiagnostic (  "qhull internal error (qh_setreplace): elem %p not found in set\n",
        oldelem);
     qh_setprint (qhmem.ferr, "", set);
     qh_errexit (qhmem_ERRqhull, NULL, NULL);
@@ -1086,7 +1086,7 @@ int qh_setsize(setT *set) {
   if ((size= *sizep)) {
     size--;
     if (size > set->maxsize) {
-      FUN_06356960 (/* retail 0636ec34 */ "qhull internal error (qh_setsize): current set size %d is greater than maximum size %d\n",
+      WriteHullDiagnostic (  "qhull internal error (qh_setsize): current set size %d is greater than maximum size %d\n",
 	       size, set->maxsize);
       qh_setprint (qhmem.ferr, "set: ", set);
       qh_errexit (qhmem_ERRqhull, NULL, NULL);
@@ -1117,7 +1117,7 @@ setT *qh_settemp(int setsize) {
   newset= qh_setnew (setsize);
   qh_setappend ((setT **)&qhmem.tempstack, newset);
   if (qhmem.IStracing >= 5)
-    FUN_06356960 (/* retail 0636ecae */ "qh_settemp: temp set %p of %d elements, depth %d\n",
+    WriteHullDiagnostic (  "qh_settemp: temp set %p of %d elements, depth %d\n",
        newset, newset->maxsize, qh_setsize ((setT*)qhmem.tempstack));
   return newset;
 } /* settemp */
@@ -1147,7 +1147,7 @@ void qh_settempfree(setT **set) {
   stackedset= qh_settemppop ();
   if (stackedset != *set) {
     qh_settemppush(stackedset);
-    FUN_06356960 (/* retail 0636ed0b */ "qhull internal error (qh_settempfree): set %p (size %d) was not last temporary allocated (depth %d, set %p, size %d)\n",
+    WriteHullDiagnostic (  "qhull internal error (qh_settempfree): set %p (size %d) was not last temporary allocated (depth %d, set %p, size %d)\n",
 	     *set, qh_setsize(*set), qh_setsize((setT*)qhmem.tempstack)+1,
 	     stackedset, qh_setsize(stackedset));
     qh_errexit (qhmem_ERRqhull, NULL, NULL);
@@ -1191,11 +1191,11 @@ setT *qh_settemppop(void) {
   
   stackedset= (setT*)qh_setdellast((setT *)qhmem.tempstack);
   if (!stackedset) {
-    FUN_06356960 (/* retail 0636ed9a */ "qhull internal error (qh_settemppop): pop from empty temporary stack\n");
+    WriteHullDiagnostic (  "qhull internal error (qh_settemppop): pop from empty temporary stack\n");
     qh_errexit (qhmem_ERRqhull, NULL, NULL);
   }
   if (qhmem.IStracing >= 5)
-    FUN_06356960 (/* retail 0636edd5 */ "qh_settemppop: depth %d temp set %p of %d elements\n",
+    WriteHullDiagnostic (  "qh_settemppop: depth %d temp set %p of %d elements\n",
        qh_setsize((setT*)qhmem.tempstack)+1, stackedset, qh_setsize(stackedset));
   return stackedset;
 } /* settemppop */
@@ -1216,7 +1216,7 @@ void qh_settemppush(setT *set) {
   
   qh_setappend ((setT**)&qhmem.tempstack, set);
   if (qhmem.IStracing >= 5)
-    FUN_06356960 (/* retail 0636ee2c */ "qh_settemppush: depth %d temp set %p of %d elements\n",
+    WriteHullDiagnostic (  "qh_settemppush: depth %d temp set %p of %d elements\n",
     qh_setsize((setT*)qhmem.tempstack), set, qh_setsize(set));
 } /* settemppush */
 
@@ -1240,7 +1240,7 @@ void qh_settemppush(setT *set) {
 void qh_settruncate (setT *set, int size) {
 
   if (size < 0 || size > set->maxsize) {
-    FUN_06356960 (/* retail 0636ee58 */ "qhull internal error (qh_settruncate): size %d out of bounds for set:\n", size);
+    WriteHullDiagnostic (  "qhull internal error (qh_settruncate): size %d out of bounds for set:\n", size);
     qh_setprint (qhmem.ferr, "", set);
     qh_errexit (qhmem_ERRqhull, NULL, NULL);
   }
@@ -1293,7 +1293,7 @@ void qh_setzero (setT *set, int index, int size) {
   int count;
 
   if (index < 0 || index >= size || size > set->maxsize) {
-    FUN_06356960 (/* retail 0636eef2 */ "qhull internal error (qh_setzero): index %d or size %d out of bounds for set:\n", index, size);
+    WriteHullDiagnostic (  "qhull internal error (qh_setzero): index %d or size %d out of bounds for set:\n", index, size);
     qh_setprint (qhmem.ferr, "", set);
     qh_errexit (qhmem_ERRqhull, NULL, NULL);
   }

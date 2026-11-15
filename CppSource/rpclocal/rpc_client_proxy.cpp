@@ -1,30 +1,26 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
-// rpc_client_proxy.cpp -- rpclocal's OWN IClient / IChatClient, retail .data:Client
+// rpc_client_proxy.cpp -- rpclocal's OWN IClient / IChatClient, baseline .data:Client
 // (0x06dbbcdc), exported as GetClientInterface (ordinal 111, 0x06d8eeb0).
-//
-// This is the outgoing half of the server -> client direction. Retail Server.dll does
+
+// This is the outgoing half of the server -> client direction. baseline Server.dll does
 // LoadLibraryA(SStartupInfo.ModulePath) + GetProcAddress("GetClientInterface") and gets
 // THIS object, because IServerImpl::Startup (0x06d8f1e0) overwrote the first 0x104 bytes
 // of the SStartupInfo copy it forwards with GetModuleFileNameA(rpclocal's own HMODULE).
 // The caller's original path (OutpostFrontier.exe) is kept in GCallerModulePath, and Startup
 // (slot 10) LoadLibraryA()s that one to reach the REAL client interface.
-//
-// Every sender slot mirrors the retail shape:
-//     FUN_06d96300(Serializer /* this+0x08 */, Channel, Opcode, &OutPacket)
+
+// Every sender slot mirrors the baseline shape:
+// (Serializer /* this+0x08 */, Channel, Opcode, &OutPacket)
 //     ... fill the payload from OutPacket+0x20 ...
 //     this->vt[+0x24](x, OutPacket)              // PushToClient (slot 9), the outbound enqueue
-// Channel/opcode, the FLPACKET_* name, the arity and the retail address of every slot
-// come from docs/re/rpclocal.md, cross-checked against src/include/rpc_iclient.h: the
+// Channel/opcode, the FLPACKET_* name, the arity and the baseline address of every slot
+// come from implementation notes, cross-checked against src/include/rpc_iclient.h: the
 // header's argument counts and the doc's RET n / 4 column agree on all 126 slots.
-//
+
 // The header declares every slot with its typed signature (2026-10-16). The per-type
 // payload layout still lives in the Marshal/Deliver pairs of rpc_payload_ch1.cpp /
-// rpc_payload_ch2.cpp, whose Marshal side reads the sender's arguments as the retail
+// rpc_payload_ch2.cpp, whose Marshal side reads the sender's arguments as the baseline
 // stack image -- one dword per argument slot, a by-reference or pointer argument as its
 // address, a by-value Costume as its thirteen dwords. Each slot below converts its typed
 // arguments into that image explicitly (RpcArgAddress / RpcArgPointer / RpcArgFloatBits);
@@ -43,7 +39,7 @@
 
 // ---------------------------------------------------------------------------
 // IClient's special members. src/include/rpc_iclient.h declares them out of line
-// (retail rpclocal exports ??0IClient@@QAE@XZ and ??4IClient@@QAEAAV0@ABV0@@Z next to
+// (baseline rpclocal exports ??0IClient@@QAE@XZ and ??4IClient@@QAEAAV0@ABV0@@Z next to
 // the vtable symbol), so every module that derives from IClient needs a definition of
 // its own -- Server.dll has one in src/Server/IServerImpl.cpp, and this is rpclocal's.
 // The class is abstract and carries no data, so all three are trivial.
@@ -61,7 +57,7 @@ IClient& IClient::operator=(const IClient& Other) {
 }
 
 // ---------------------------------------------------------------------------
-// The argument-image conversions. Retail's senders read their arguments straight off
+// The argument-image conversions. baseline's senders read their arguments straight off
 // their own stack frame: a by-reference / pointer argument is the address in that slot,
 // a float is its bit pattern (FLD float ptr [ESP+n]). The codecs consume exactly that
 // image, so these three produce it from the typed parameters.
@@ -84,53 +80,53 @@ static unsigned int RpcArgFloatBits(const float& Value) {
 // A Costume by value occupies thirteen argument dwords (RET 0x5c of 0x06d88fc0).
 static_assert(sizeof(Costume) == 13 * sizeof(unsigned int), "Costume is 13 dwords by value");
 
-// retail .data:0x06dbbd18 -- set by Update (slot 16) the first time it runs while
+// set by Update (slot 16) the first time it runs while
 // connected (06d8efe4), cleared by DisconnectClient (slot 17, 06d8f072). Nothing else
 // touches it.
 static bool GbFlag_06dbbd18 = false;
-// retail .data:0x06dbbd19 -- the connected byte, shared with IServerImpl; see rpc_transport.h.
+// the connected byte, shared with IServerImpl; see rpc_transport.h.
 bool GbRpcConnected = false;
 
-// retail .data:0x06dbbd0c / 0x06dbbd10 -- the interfaces Startup (slot 10, 0x06d8eed0) gets
+// / 0x06dbbd10 -- the interfaces Startup (slot 10, 0x06d8eed0) gets
 // from the real client module; Startup copies them into GRealClient / GRealChatClient
-// (.data:0x06dbbcd8 / 0x06dbbcd4) and Shutdown (slot 15, 0x06d8ef80) clears only these two.
+// (module storage / 0x06dbbcd4) and Shutdown (slot 15, 0x06d8ef80) clears only these two.
 static IClient* GCachedRealClient = nullptr;
 static IChatClient* GCachedRealChatClient = nullptr;
-// retail .data:0x06dbbd14 -- the module handle Startup gets from LoadLibraryA (06d8eee0)
+// the module handle Startup gets from LoadLibraryA (06d8eee0)
 // and Shutdown hands to FreeLibrary (06d8ef98) and clears (06d8ef9e). A module global,
 // not a member: the Client object is exactly the two vptrs and the serializer pointer.
 static HMODULE GRealClientModule = nullptr;
-// retail .data:0x06dbbd1c -- the IClient proxy's copy of the CDAConnection pointer: written
-// only by Update (06d8efdf, FUN_06d88280's answer once connected), read by Update
+// the IClient proxy's copy of the CDAConnection pointer: written
+// only by Update (06d8efdf, the routine's answer once connected), read by Update
 // (06d8f026, 06d8f04c) and PushToClient (06d8f080). Never cleared: after
-// IServerImpl::Shutdown freed the object it dangles, as in retail (see GRpcConnection in
+// IServerImpl::Shutdown freed the object it dangles, as in baseline (see GRpcConnection in
 // rpc_transport.h).
 static FRpcConnection* GClientConnection = nullptr;
 
 // ===========================================================================
-// FLocalClientProxy -- retail .data:Client, one object with two vtables (IClient at
+// FLocalClientProxy -- baseline .data:Client, one object with two vtables (IClient at
 // +0x00, IChatClient at +0x04), exactly like IServerImpl = IServer + IChatServer.
-// Its constructor is LAB_06d8ee90: both vptrs plus a zeroed this+0x08 (the serializer).
+// Its constructor is the branch: both vptrs plus a zeroed this+0x08 (the serializer).
 // ===========================================================================
 class FLocalClientProxy : public IClient, public IChatClient {
 public:
-    // LAB_06d8ee90: 06d8ee90 MOV [DAT_06dbbce4],0 (Client+0x08), then the IClient and the
+    // 06d8ee90 MOV [the field],0 (Client+0x08), then the IClient and the
     // IChatClient vptrs -- the compiler installs those two.
     FLocalClientProxy() : Serializer(nullptr) {
     }
 
     // -----------------------------------------------------------------------
-    // Sender helpers -- the shape every retail sender slot repeats.
+    // Sender helpers -- the shape every baseline sender slot repeats.
     // -----------------------------------------------------------------------
     void SendPacket(unsigned int Channel, unsigned int Opcode,
                     const unsigned int* Args, unsigned int ArgCount) {
-        // Retail: this->vt[+0x24](param_1, Packet) -- e.g. 06d883c3 MOV ECX,[ESP+0xc] /
-        // 06d883d1 PUSH ECX: the slot's own first argument.
+        // baseline: this->vt[+0x24](param_1, Packet) -- e.g. 06d883c3 MOV ECX,[ESP+0xc] /
+        // PUSH ECX: the slot's own first argument.
         SendPacketEx(Channel, Opcode, ArgCount > 0 ? Args[0] : 0u, Args, ArgCount);
     }
 
     // As SendPacket, for the senders whose first parameter is a reference (the client id is
-    // passed as `const unsigned int&`, Args[0] = its address): retail reads the dword
+    // passed as `const unsigned int&`, Args[0] = its address): baseline reads the dword
     // through it and hands THAT to PushToClient -- e.g. SendServerSetCash 06d8b238 MOV
     // EDX,[ESP+0xc] / 06d8b23f MOV ECX,[EDX] / PUSH ECX. The 21 senders that dereference
     // (rpc_iclient.h, re-checked 2026-10-16 on every sender of the vtable at 06db3978):
@@ -144,16 +140,16 @@ public:
         SendPacketEx(Channel, Opcode, ClientId, Args, ArgCount);
     }
 
-    // As SendPacket, but with the value retail hands to PushToClient given separately from
+    // As SendPacket, but with the value baseline hands to PushToClient given separately from
     // the dwords the payload codec marshals. FLPACKET_COMMON_PLAYER_TRADE needs that split:
     // its payload starts with a sub-type literal that is not one of the slot's arguments.
-    //
-    // Every retail IClient sender slot is the same shape (0x06d883a0 as the model):
-    //   06d883a9 MOV ECX,[ESI+0x8]  ; the serializer, untested
-    //   06d883ac PUSH op / PUSH ch / 06d883b0 CALL FUN_06d96300 (Allocate, 0 = success)
-    //   06d883b5 TEST EAX,EAX / JNZ -> epilogue
+
+    // Every baseline IClient sender slot is the same shape (0x06d883a0 as the model):
+    // MOV ECX,[ESI+0x8]  ; the serializer, untested
+    // PUSH op / PUSH ch / 06d883b0 CALL the routine (Allocate, 0 = success)
+    // TEST EAX,EAX / JNZ -> epilogue
     //   payload writes from packet+0x20
-    //   06d883d4 CALL [EDX+0x24]    ; PushToClient (param_1, packet)
+    // CALL [EDX+0x24]    ; PushToClient (param_1, packet)
     // Removed here, because none of it is in any sender slot: the lazy RegisterAll, the
     // raw-dword fallback for a missing codec (all 102 (channel, opcode) pairs these slots
     // send have a Marshal in GChannel1Codecs / GChannel2Codecs), the SendCount increment
@@ -161,7 +157,7 @@ public:
     void SendPacketEx(unsigned int Channel, unsigned int Opcode, unsigned int PushClientId,
                       const unsigned int* Args, unsigned int ArgCount) {
         FPacketBase* Packet = nullptr;
-        if (Serializer->Allocate(Channel, Opcode, &Packet) != 0) {   // 06d883a9 / 06d883b0
+        if (Serializer->Allocate(Channel, Opcode, &Packet) != 0) {   // / 06d883b0
             return;
         }
         if (!RpcFindPayloadCodec(Channel, Opcode)->Marshal(Packet, Args, ArgCount)) {
@@ -172,9 +168,9 @@ public:
     }
 
     // Channel 1 opcode 0x12 FLPACKET_COMMON_PLAYER_TRADE carries eight logical messages
-    // discriminated by a bitmask in the payload's first dword (packet+0x20); retail's
+    // discriminated by a bitmask in the payload's first dword (packet+0x20); baseline's
     // sub-dispatcher inside HandlePacket reads exactly that dword. Each of the eight
-    // retail senders writes its own literal there and then serializes only the fields its
+    // baseline senders writes its own literal there and then serializes only the fields its
     // sub-type needs -- MarshalPlayerTrade replays that, so what it gets here is
     // { SubType, arg 2, arg 3 } with the client id kept back for PushToClient.
     void SendTradePacket(unsigned int Subtype, const unsigned int* Args, unsigned int ArgCount) {
@@ -249,14 +245,14 @@ public:
     }
 
     // +0x024  0x06d8f080 -- the single outbound enqueue point.
-    // Retail: FUN_06d85e00(DAT_06dbbd1c /* the CDAConnection */, Packet). Every other
+    // baseline: the routine(the field /* the CDAConnection */, Packet). Every other
     // sender slot reaches the queue through this one (this->vt[+0x24](x, Packet)).
-    //   06d8f080 MOV ECX,[DAT_06dbbd1c] / 06d8f086 TEST / 06d8f088 JZ -> 06d8f094 RET 8
-    //   06d8f08a PUSH [ESP+8] (the packet) / 06d8f08f CALL FUN_06d85e00
-    // Retail reads only [ESP+8]; the first argument -- the client id every sender passes,
+    // MOV ECX,[the field] / 06d8f086 TEST / 06d8f088 JZ -> 06d8f094 RET 8
+    // PUSH [ESP+8] (the packet) / 06d8f08f CALL the routine
+    // baseline reads only [ESP+8]; the first argument -- the client id every sender passes,
     // by value or read through its reference -- is never used. Before the pump has
     // fetched the connection (Update, once IServerImpl::Connect set the connected byte)
-    // the packet is dropped and never released, as in retail; FUN_06d85e00's answer is
+    // the packet is dropped and never released, as in baseline; the routine's answer is
     // discarded. Every type is queued, SET_WEAPON_GROUP 0x11 included.
     void PushToClient(unsigned int ClientId, CDAPacket* Packet) override {
         (void)ClientId;
@@ -266,22 +262,22 @@ public:
     }
 
     // +0x028  0x06d8eed0
-    // Retail: LoadLibraryA(.data:0x06dbbbc0 -- the module path IServerImpl::Startup saved,
+    // baseline: LoadLibraryA(module storage -- the module path IServerImpl::Startup saved,
     // i.e. OutpostFrontier.exe) -> GetClientInterface / GetChatClientInterface, caches them in
-    // .data:0x06dbbcd8 / 0x06dbbcd4, forwards BOTH of its arguments to the real client's
+    // / 0x06dbbcd4, forwards BOTH of its arguments to the real client's
     // vtable+0x28, then builds the packet serializer at this+0x08 and registers channels
     // 2 and 1 on it. Returns the real client's answer.
-    //
-    //   06d8eed1 PUSH DAT_06dbbbc0 / 06d8eed8 LoadLibraryA / 06d8eee0 -> DAT_06dbbd14
-    //   06d8eee5 JZ 06d8ef12 -- on failure the cached interfaces keep whatever they held
-    //   06d8eeee GetProcAddress("GetClientInterface") / 06d8eef6 CALL EAX -> DAT_06dbbd0c
-    //   06d8ef02 GetProcAddress("GetChatClientInterface") / 06d8ef0a CALL EAX -> DAT_06dbbd10
+
+    // PUSH the field / 06d8eed8 LoadLibraryA / 06d8eee0 -> the field
+    // JZ 06d8ef12 -- on failure the cached interfaces keep whatever they held
+    // GetProcAddress("GetClientInterface") / 06d8eef6 CALL EAX -> the field
+    // GetProcAddress("GetChatClientInterface") / 06d8ef0a CALL EAX -> the field
     //            (neither address is tested; LoadLibraryA runs on EVERY call, no caching)
-    //   06d8ef12 TEST DAT_06dbbd0c / JZ -> return 0
-    //   06d8ef1c DAT_06dbbcd4 = DAT_06dbbd10 ; 06d8ef31 DAT_06dbbcd8 = DAT_06dbbd0c
-    //   06d8ef3a CALL [EAX+0x28](MaxPlayers, Port) / TEST AL / JZ -> return 0
-    //   06d8ef41 FUN_06d95e50 -> this+0x08 / JZ -> 0 ; 06d8ef4e FUN_06d9bc80 (ch2) / JNZ -> 0 ;
-    //   06d8ef5e FUN_06d9ace0 (ch1) / JNZ -> 0 ; 06d8ef6a MOV AL,1
+    // TEST the field / JZ -> return 0
+    // the field = the field ; 06d8ef31 the field = the field
+    // CALL [EAX+0x28](MaxPlayers, Port) / TEST AL / JZ -> return 0
+    // the routine -> this+0x08 / JZ -> 0 ; 06d8ef4e the routine (ch2) / JNZ -> 0 ;
+    // the routine (ch1) / JNZ -> 0 ; 06d8ef6a MOV AL,1
     bool Startup(unsigned int MaxPlayers, unsigned int Port) override {
         typedef IClient* (__cdecl *GetClientInterfaceFn)();
         typedef IChatClient* (__cdecl *GetChatClientInterfaceFn)();
@@ -303,25 +299,25 @@ public:
         if (!GRealClient->Startup(MaxPlayers, Port)) {
             return false;
         }
-        // 06d8ef41 CALL FUN_06d95e50 / 06d8ef48 MOV [EDI+0x8],EAX / 06d8ef4b JZ -> false
+        // CALL the routine / 06d8ef48 MOV [EDI+0x8],EAX / 06d8ef4b JZ -> false
         Serializer = RpcGetPacketSerializer();
         if (Serializer == nullptr) {
             return false;
         }
-        // 06d8ef4e FUN_06d9bc80 (channel 2) / 06d8ef58 JNZ -> false
+        // the routine (channel 2) / 06d8ef58 JNZ -> false
         if (RpcRegisterChannel2Types(Serializer) != 0) {
             return false;
         }
-        // 06d8ef5a MOV EAX,[EDI+0x8] / 06d8ef5e FUN_06d9ace0 (channel 1) / 06d8ef68 JNZ -> false
+        // MOV EAX,[EDI+0x8] / 06d8ef5e the routine (channel 1) / 06d8ef68 JNZ -> false
         if (RpcRegisterChannel1Types(Serializer) != 0) {
             return false;
         }
-        return true;                                    // 06d8ef6a MOV AL,1
+        return true;                                    // MOV AL,1
     }
 
     // +0x02c  0x06d8eae0 -- a bare RET 4, shared with IServer's GetServerStats /
     // OnConnect / SetActiveConnection. Incoming ch2 op 0x01 FLPACKET_SERVER_CONNECTRESPONSE
-    // is delivered to THIS slot by IServerImpl::HandlePacket, and retail does nothing with it.
+    // is delivered to THIS slot by IServerImpl::HandlePacket, and baseline does nothing with it.
     void OnConnect(unsigned int ClientId) override {
         (void)ClientId;
     }
@@ -346,10 +342,10 @@ public:
     }
 
     // +0x03c  0x06d8ef80
-    //   06d8ef80 MOV ECX,[DAT_06dbbd0c] / 06d8ef89 CALL [EAX+0x3c]   ; untested
-    //   06d8ef93 if DAT_06dbbd14 : FreeLibrary, DAT_06dbbd14 = 0, DAT_06dbbd10 = 0
-    //   06d8efaa DAT_06dbbd0c = 0                                  ; unconditional
-    // The published copies DAT_06dbbcd8 / 06dbbcd4 (GRealClient / GRealChatClient) and the
+    // MOV ECX,[the field] / 06d8ef89 CALL [EAX+0x3c]   ; untested
+    // if the field : FreeLibrary, the field = 0, the field = 0
+    // the field = 0                                  ; unconditional
+    // The published copies the field / 06dbbcd4 (GRealClient / GRealChatClient) and the
     // two pump flags are NOT touched.
     void Shutdown() override {
         GCachedRealClient->Shutdown();
@@ -362,29 +358,29 @@ public:
     }
 
     // +0x040  0x06d8efc0 -- the client-side pump. IServerImpl::Update calls it as
-    // FUN_06d8efc0(&Client) at 06d8f448.
-    //   06d8efc1 TEST [DAT_06dbbd18] / JNZ 06d8f01d
-    //   06d8efcd TEST [DAT_06dbbd19] / JZ 06d8f05b          ; not connected -> return 1
-    //   06d8efda CALL FUN_06d88280 -> DAT_06dbbd1c          ; create only, no Start
-    //   06d8efe4 DAT_06dbbd18 = 1
-    //   06d8efeb ECX=[this+0x8] / TEST / JZ 06d8f01d        ; serializer
-    //   06d8effb FUN_06d96300(2, 1, &pkt) / JNZ 06d8f01d    ; CONNECTRESPONSE
-    //   06d8f008 [pkt+0x20] = 1 / 06d8f01a CALL [EDX+0x24](1, pkt)
-    //   06d8f01d TEST [DAT_06dbbd19] / JZ 06d8f05b
-    //   06d8f026 conn=[DAT_06dbbd1c]; [conn] null or [[conn]+0x2c]==0 -> 06d8f05b
-    //   06d8f039 FUN_06d86580 pop / 06d8f047 FUN_06d86a70(1, pkt) / pop again until null
-    //   06d8f05b MOV EAX,1
-    // FUN_06d86a70 releases the packet itself at its common exit (06d87c69 CALL
-    // FUN_06d8f4a0 on EBP = the packet); RpcDispatchToServer does not, so the Release sits
+    // (&Client) at 06d8f448.
+    // TEST [the field] / JNZ 06d8f01d
+    // TEST [the field] / JZ 06d8f05b          ; not connected -> return 1
+    // CALL the routine -> the field          ; create only, no Start
+    // the field = 1
+    // ECX=[this+0x8] / TEST / JZ 06d8f01d        ; serializer
+    // the routine(2, 1, &pkt) / JNZ 06d8f01d    ; CONNECTRESPONSE
+    // [pkt+0x20] = 1 / 06d8f01a CALL [EDX+0x24](1, pkt)
+    // TEST [the field] / JZ 06d8f05b
+    // conn=[the field]; [conn] null or [[conn]+0x2c]==0 -> 06d8f05b
+    // the routine pop / 06d8f047 the routine(1, pkt) / pop again until null
+    // MOV EAX,1
+    // releases the packet itself at its common exit (06d87c69 CALL
+    // on EBP = the packet); RpcDispatchToServer does not, so the Release sits
     // after the call here.
     int Update() override {
         if (!GbFlag_06dbbd18) {
             if (!GbRpcConnected) {
-                return 1;                                   // 06d8efd4 JZ 06d8f05b
+                return 1;                                   // JZ 06d8f05b
             }
-            GClientConnection = RpcCreateConnection();      // 06d8efda / 06d8efdf
+            GClientConnection = RpcCreateConnection();      // / 06d8efdf
             GbFlag_06dbbd18 = true;
-            // 06d8efeb MOV ECX,[ESI+0x8] / TEST / JZ 06d8f01d -- no serializer (Startup
+            // MOV ECX,[ESI+0x8] / TEST / JZ 06d8f01d -- no serializer (Startup
             // has not run), no CONNECTRESPONSE; the drain below still runs.
             if (Serializer != nullptr) {
                 const unsigned int NoArgs[1] = { 0 };
@@ -392,9 +388,9 @@ public:
             }
         }
         if (!GbRpcConnected) {
-            return 1;                                       // 06d8f024 JZ 06d8f05b
+            return 1;                                       // JZ 06d8f05b
         }
-        // 06d8f026 MOV ECX,[DAT_06dbbd1c] (untested) ; PopServerBound answers null for a
+        // MOV ECX,[the field] (untested) ; PopServerBound answers null for a
         // missing or empty queue, which is the 06d8f02e / 06d8f037 test; the pointer is
         // re-read for every pop (06d8f04c).
         FPacketBase* Packet = GClientConnection->PopServerBound();
@@ -403,11 +399,11 @@ public:
             Packet->Release();
             Packet = GClientConnection->PopServerBound();
         }
-        return 1;                                           // 06d8f05b MOV EAX,0x1
+        return 1;                                           // MOV EAX,0x1
     }
 
-    // +0x044  0x06d8f070 -- 06d8f070 XOR AL,AL / 06d8f072 -> DAT_06dbbd18 /
-    // 06d8f077 -> DAT_06dbbd19 / RET 4.
+    // +0x044  0x06d8f070 -- 06d8f070 XOR AL,AL / 06d8f072 -> the field /
+    // -> the field / RET 4.
     void DisconnectClient(unsigned int ClientId) override {
         (void)ClientId;
         GbFlag_06dbbd18 = false;
@@ -439,7 +435,7 @@ public:
     }
 
     // +0x058  0x06d88420  ch2 op 0x49  FLPACKET_SERVER_SETHULLSTATUS
-    // The codec copies the argument slot's bits (retail 06d8843d FLD float ptr [ESP+0x10]).
+    // The codec copies the argument slot's bits (baseline 06d8843d FLD float ptr [ESP+0x10]).
     void SendServerSetHullStatus(unsigned int ClientId, float HullStatus) override {
         const unsigned int Args[2] = { ClientId, RpcArgFloatBits(HullStatus) };
         SendPacket(2, 0x49, Args, 2);
@@ -732,11 +728,11 @@ public:
     }
 
     // +0x110  0x06d88fc0  ch2 op 0x4f  FLPACKET_SERVER_SENDCOMM
-    // MarshalSendComm reads the retail frame image (RpcSendCommFrameDword): the 23
-    // argument dwords exactly as they sit on retail's stack (RET 0x5c) -- ClientId,
+    // MarshalSendComm reads the baseline frame image (RpcSendCommFrameDword): the 23
+    // argument dwords exactly as they sit on baseline's stack (RET 0x5c) -- ClientId,
     // SenderId, ReceiverId, VoiceId, the thirteen dwords of the by-value Costume, CommType,
     // TextIds, TextCount, Mood, Duration's bits, the bool's slot -- plus the one other dword
-    // retail's Ids loop can reach in this frame: the return address into the caller.
+    // baseline's Ids loop can reach in this frame: the return address into the caller.
     void SendServerSendComm(unsigned int ClientId, unsigned int SenderId, unsigned int ReceiverId,
                             unsigned int VoiceId, Costume CommCostume, unsigned int CommType,
                             const unsigned int* TextIds, int TextCount, unsigned int Mood,
@@ -778,8 +774,8 @@ public:
     }
 
     // +0x120  0x06d8b020  ch2 op 0x35  FLPACKET_SERVER_SETMISSIONOBJECTIVES
-    // The client id is read through its reference (.text:06d8b1f3 MOV EDX,[ESP+0x28] /
-    // .text:06d8b1f7 MOV EDX,[EDX] / PUSH EDX before PushToClient).
+    // The client id is read through its reference (module storage MOV EDX,[ESP+0x28] /
+    // MOV EDX,[EDX] / PUSH EDX before PushToClient).
     void SendServerSetMissionObjectives(const unsigned int& ClientId,
                                         const FServerSetMissionObjectivesInfo& Info) override {
         const unsigned int Args[2] = { RpcArgAddress(ClientId), RpcArgAddress(Info) };
@@ -1130,14 +1126,14 @@ public:
     }
 
     // +0x1f4  0x06d8f480 -- the same function as IServerImpl::DumpPacketStats, i.e.
-    // void DumpPacketStats(char const *). Retail: FUN_06d961b0(FUN_06d95e50(), Name) --
+    // void DumpPacketStats(char const *). baseline: the routine(the routine(), Name) --
     // the singleton asked afresh, not this+0x08.
     void DumpPacketStats(const char* Name) override {
         RpcGetPacketSerializer()->DumpStats(Name);
     }
 
     // -----------------------------------------------------------------------
-    // IChatClient -- the second base, one slot. Retail's vtable at .rdata:0x06db3970
+    // IChatClient -- the second base, one slot. baseline's vtable at module storage
     // holds a single entry, 0x06d8c470 (RET 0x10, i.e. four arguments), and it sends
     // ch1 op 0x05 FLPACKET_COMMON_CHATMSG. TargetId and SenderId go to the payload whole
     // (06d8c4d4..06d8c4e3); PushToClient gets TargetId's low word -- the client id inside
@@ -1153,12 +1149,12 @@ public:
 private:
     // +0x08 -- the packet-type registry: zeroed by the constructor (06d8ee90), filled by
     // Startup (06d8ef48), read untested by every sender (06d883a9 MOV ECX,[ESI+0x8]) and
-    // tested only by the pump (06d8efeb). Retail never releases it on this side; the one
+    // tested only by the pump (06d8efeb). baseline never releases it on this side; the one
     // release is IServerImpl::Shutdown's, after which this pointer dangles.
     FPacketSerializer* Serializer;
 };
 
-// The singleton retail keeps at .data:Client (0x06dbbcdc) and exports as the undecorated
+// The singleton baseline keeps at .data:Client (0x06dbbcdc) and exports as the undecorated
 // data name `Client` (ordinal 108); GetClientInterface (0x06d8eeb0) returns it and
 // GetChatClientInterface returns Client + 4, i.e. the IChatClient sub-object of this very
 // instance. extern "C" because the export name is the bare C name -- which is also why it
@@ -1175,7 +1171,7 @@ IChatClient* RpcGetChatClientProxy() {
     return static_cast<IChatClient*>(&Client);
 }
 
-// retail IClient::Update (slot 16, 0x06d8efc0), called from IServerImpl::Update.
+// baseline IClient::Update (slot 16, 0x06d8efc0), called from IServerImpl::Update.
 void RpcClientPump() {
     Client.Update();
 }

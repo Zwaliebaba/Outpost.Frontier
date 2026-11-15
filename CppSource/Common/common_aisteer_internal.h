@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -10,7 +6,7 @@
 // common_aisteer.cpp (CMN-SPLIT stage 1, 2026-10-14): common_obstacleavoidance.cpp,
 // common_aiintercept.cpp, common_aifirecontrol.cpp, common_airaycast.cpp,
 // common_aisteer.cpp, common_faceidea.cpp, common_dodgeidea.cpp,
-// common_splinemoveidea.cpp. None of these is a retail export. Until the split they
+// common_splinemoveidea.cpp. None of these is a baseline export. Until the split they
 // lived in anonymous namespaces of common_aisteer.cpp; the small ones are inline here,
 // the rest are declared here and defined in common_aisteer.cpp. Consumers write
 // `using namespace CmnAiSteer;` after their includes.
@@ -25,7 +21,7 @@
 namespace CmnAiSteer
 {
     // The fast-length idiom ObstacleAvoidance::Update inlines four times (e.g. 062de596-
-    // 062de5c0): the squared length LenSq stays on the x87 stack, only its float image feeds
+    // ): the squared length LenSq stays on the x87 stack, only its float image feeds
     // the 0x5f3759df guess, and the one Newton step plus the final multiply run on the
     // unrounded value: ((1.5f - y*y*LenSq*0.5f) * y) * LenSq == ~sqrt(LenSq).
     inline double InlineFastLength(double LenSq)
@@ -46,12 +42,12 @@ namespace CmnAiSteer
     inline float LenSq(Vector const& A) { return A.x * A.x + A.y * A.y + A.z * A.z; }
     inline float Clamp11(float V) { return V < -1.0f ? -1.0f : (V > 1.0f ? 1.0f : V); }
 
-    // Local equivalent of the already-ported VecDot3 (FUN_062c47a0, item 1282) --
+    // Local equivalent of the already-ported VecDot3 (the routine, item 1282) --
     // that port has internal linkage in common_behavior.cpp and isn't shared via
     // a header, so BuildOrientationBasis (common_aisteer.cpp) uses this copy instead.
     inline float Dot3(Vector const& A, Vector const& B) { return A.x * B.x + A.y * B.y + A.z * B.z; }
 
-    // FUN_062c47a0 as retail computes it: (A.z*B.z + A.y*B.y) + A.x*B.x on the x87
+    // as baseline computes it: (A.z*B.z + A.y*B.y) + A.x*B.x on the x87
     // stack, returned in ST0 unrounded.
     inline double DotZyx(Vector const& A, Vector const& B)
     {
@@ -76,13 +72,13 @@ namespace CmnAiSteer
     Vector CachedIfacePosition(SystemManager* Sys);
     Matrix* IfaceOrientation(SystemManager* Sys);
 
-    // FUN_062e3730 (item 1743), cdecl (Out, Reference, RelDir, UpHint); defined in
+    // (item 1743), cdecl (Out, Reference, RelDir, UpHint); defined in
     // common_aisteer.cpp.
     void SteeringFrameFromRelativeDir(Matrix& Out, Matrix const& Reference, Vector const& RelDir, Vector const& UpHint);
 
     // The owner object PathfindManager's ctor and ObstacleAvoidance::AttachOwner query:
     // `MOV EAX,[Owner+0xf0]; TEST EAX,EAX; JZ; LEA ECX,[EAX-8]` -- the watched object
-    // behind IBehaviorManager+0xF0, 0 when nothing is watched. Retail re-reads it before
+    // behind IBehaviorManager+0xF0, 0 when nothing is watched. baseline re-reads it before
     // every call and dereferences it without a further test. Shared by
     // common_pathfind.cpp and common_obstacleavoidance.cpp.
     inline IObjRW* PathfindOwnerObject(IBehaviorManager const* Owner)

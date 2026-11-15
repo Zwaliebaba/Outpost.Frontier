@@ -43,11 +43,11 @@
   <ItemDefinitionGroup>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <AdditionalDependencies>dacom.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>neuroncomponents.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="..\include\dacom.h" />
+    <ClInclude Include="..\include\neuroncomponents.h" />
     <ClInclude Include="..\include\render\shading.h" />
     <ClInclude Include="ShadingInternal.h" />
     <ClInclude Include="Material.h" />
@@ -70,7 +70,7 @@
     <ResourceCompile Include="Shading.rc" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\dacom\dacom.vcxproj">
+    <ProjectReference Include="..\neuroncomponents\neuroncomponents.vcxproj">
       <Project>{8F3A1B20-9C4D-4E5F-A617-B8C9D0E1F203}</Project>
     </ProjectReference>
   </ItemGroup>

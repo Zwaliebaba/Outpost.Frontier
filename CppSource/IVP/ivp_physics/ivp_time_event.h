@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -19,10 +15,10 @@
 //         :06360789, 063607c0 :0636087c-:06360888).
 //   +0x04 the event's pool slot, 0xffff when not queued: the time manager
 //         stores 0xffff there right after the removal (:06360724, :06360881)
-//         and FUN_063609c0 stores the Insert result there (:063609e5).
+//         and the routine stores the Insert result there (:063609e5).
 // There is no virtual destructor: the PSI event's vtable 063a574c has one slot,
 // and the time manager's destructor frees queued events with a bare operator
-// delete (FUN_06360960). Derived classes that need one (IVP_Collision) declare
+// delete (the routine). Derived classes that need one (IVP_Collision) declare
 // it themselves.
 // ============================================================================
 

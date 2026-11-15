@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -20,7 +16,7 @@
 // owning payloads, including XFireWeaponInfo and XTractorObjects, use std::vector.
 // ---------------------------------------------------------------------------
 template<typename T>
-struct FRetailVector {
+struct FbaselineVector {
     unsigned int AllocPad;   // +0x00  allocator sub-object (padding)
     T* Begin;                // +0x04  _First
     T* End;                  // +0x08  _Last
@@ -32,15 +28,15 @@ struct FRetailVector {
 };
 
 // ---------------------------------------------------------------------------
-// SStartupInfo — 0x214 bytes. Ground truth: Server.dll.c
+// SStartupInfo — 0x214 bytes. Ground truth: Server
 // ?Startup@IServerImpl@@UAE_NABUSStartupInfo@@@Z (0x64b70) reads
 //   PlayerDB::init(&Players, *(uint*)(param_1 + 0x208), (bool)param_1[0x211])
-//   FUN_06d43340((LPCSTR)param_1)                      -> LoadLibrary(ModulePath)
+// ((LPCSTR)param_1)                      -> LoadLibrary(ModulePath)
 //   DataConfig::startup((char*)(param_1 + 0x104), ...)  -> the INI path
-//   FUN_06d448d0(param_1 + 0x104, ...)                  -> the INI path again
+// (param_1 + 0x104, ...)                  -> the INI path again
 //   IClient vtable+0x28(*(uint*)(param_1+0x208), *(uint*)(param_1+0x20c))
 // and rpclocal's IServerImpl::Startup (0x06d8f1e0) does
-//   strncpy(&DAT_06dbbbc0, (char*)param_1, 0x104)  /  GetModuleFileNameA(..., copy, 0x104)
+//   strncpy(&the field, (char*)param_1, 0x104)  /  GetModuleFileNameA(..., copy, 0x104)
 // i.e. the module path is the FIRST 0x104 bytes, at offset +0x000, and the INI
 // path follows at +0x104. OutpostFrontier.exe's own mirror copy
 // (src/OutpostFrontier/Client/server_connect.cpp::BuildStartupInfo) agrees.
@@ -58,13 +54,13 @@ struct SStartupInfo {
     unsigned int MaxPlayers;
 
     // +0x20c: the DirectPlay host port. IServerImpl::Startup forwards it to IClient slot 10
-    //         as arg 1; RemoteClient's slot 10 (.text:06b397a6) passes it to
+    //         as arg 1; RemoteClient's slot 10 (module storage) passes it to
     //         CDPServer::BeginHosting, which adds it as the address's "port" component when
-    //         non-zero (DALib .text:065c50e6). OutpostServer's -P switch sets it (error string
+    //         non-zero (NeuronRuntime module storage). OutpostServer's -P switch sets it (error string
     //         0xf01f "Could not set the server port: %u").
     unsigned int Port;
 
-    // +0x210: players may damage other players. Forwarded to FUN_06cfffd0 (player
+    // +0x210: players may damage other players. Forwarded to the routine (player
     //         subsystem init) as arg 1, which stores it in GbAllowPvp; the damage paths
     //         drop player-on-player hits while it is 0. OutpostServer's Server Configuration
     //         dialog fills it from "Allow Players to Harm Other Players" (control 1059);
@@ -72,7 +68,7 @@ struct SStartupInfo {
     unsigned char bAllowPvp;
 
     // +0x211: new accounts may be created (PlayerDB::init arg 1 -> PlayerDB+0x0c, which
-    //         gates account creation in PlayerDB's login path, .text:06d53f04). OutpostServer
+    //         gates account creation in PlayerDB's login path, module storage). OutpostServer
     //         fills it from "Allow New Players" (control 1010); single player sets it to 1.
     unsigned char bAllowNewPlayers;
 
@@ -84,13 +80,13 @@ struct SStartupInfo {
 static_assert(sizeof(SStartupInfo) == 0x214, "SStartupInfo size mismatch");
 
 // SLoginInfo — passed to IServer::Login and PlayerDB::login.
-// Retail layout: wide-string account name at offset 0 (used as (wchar_t*)param_1
-// throughout the decompilation), a creation-permission flag at offset 0xC0
+// baseline layout: wide-string account name at offset 0 (used as (wchar_t*)param_1
+// throughout the analysis), a creation-permission flag at offset 0xC0
 // (checked in load_user_data before calling create_account).
 // 96 wchar_t = 0xC0 bytes, then flag + padding to 0xC8 total.
 #pragma pack(push, 1)
 struct SLoginInfo {
-    // AccountName cannot span +0x00..+0xBF: retail's sender,
+    // AccountName cannot span +0x00..+0xBF: baseline's sender,
     // rpclocal IServerImpl::Login (0x06d8cc70), does wcscpy from param_1 AND a
     // second wcscpy from LEA EDX,[ESI + 0xa0] (0x06d8cca5), then reads a byte at
     // +0xC0. The receiver caps the two strings at 0x28 and 0x10 wide characters
@@ -99,7 +95,7 @@ struct SLoginInfo {
     // wchar_t[40], i.e. the corrected bound rather than the old 96.
     wchar_t AccountName[40];    // +0x00: account/character name (wide), 0x50 bytes
     unsigned char Field_0x50[0x50]; // +0x50: TODO: not written by Login's sender
-    // TODO: semantics unrecovered -- retail decorates neither side of this call,
+    // TODO: semantics unrecovered -- baseline decorates neither side of this call,
     // so all that is confirmed is a second 16-wide-character string at +0xA0.
     wchar_t Field_0xA0[16];     // +0xA0: second wide string, 0x20 bytes
     unsigned int CreateFlag;    // +0xC0: nonzero = allow account creation
@@ -110,32 +106,32 @@ static_assert(sizeof(SLoginInfo) == 0xC8, "SLoginInfo size mismatch");
 
 // ===========================================================================
 // IServer payload structures.
-//
+
 // Every layout below is reconstructed from two independent readers of the same
 // bytes: the rpclocal.dll serializer (writes the fields into a CDAPacket from
 // +0x20 on) and the Server.dll consumer (reads the same fields and dispatches
-// them). Per-field derivation: IServer card in decomp-tracker.
+// them). Per-field derivation: IServer card in implementation tracker.
 // A static_assert is present only where the total size is actually proven.
 // Fields whose SEMANTICS are not proven keep a mechanical Field_0xNN name and
 // an open TODO — the primitive type IS proven in every such case.
 // ===========================================================================
 
-// XFireWeaponInfo — retail 0x20 bytes, fully recovered (§3.1). Slot 0.
-// Retail +0x10 is a real VC6 std::vector<unsigned short> (allocator byte, _First +0x14,
-// _Last +0x18, _End +0x1c) owned by the record. Per the "no retail ABI" rule the port
-// holds a modern std::vector, so sizeof differs from retail's 0x20 and carries no
+// XFireWeaponInfo — baseline 0x20 bytes, fully recovered (§3.1). Slot 0.
+// baseline +0x10 is a real VC6 std::vector<unsigned short> (allocator byte, _First +0x14,
+// _Last +0x18, _End +0x1c) owned by the record. Per the "no baseline ABI" rule the port
+// holds a modern std::vector, so sizeof differs from baseline's 0x20 and carries no
 // static_assert; every module that sees this struct is ours.
-// Special members, as retail inlines them (Common.dll exports none of them):
+// Special members, as baseline inlines them (Common.dll exports none of them):
 //   ctor -- OutpostFrontier.exe 0x0052d33c..0x0052d364 (FireBarrelAim), 0x005348b0..0x005348d5
-//           (FUN_00534870); Server.dll 0x06d0e306..0x06d0e326 (notify_fire_weapon);
+//           (the routine); Server.dll 0x06d0e306..0x06d0e326 (notify_fire_weapon);
 //           rpclocal packet ctor 0x06d9afc5..0x06d9afe3: ObjectId = 0, TargetPos = three
-//           0x7f7fffff (FLT_MAX), the vector built empty.
-//   dtor -- OutpostFrontier.exe FUN_0052d3f0 (out of line; also the inlined epilogues
-//           0x0052d3cd, 0x00534b20, Server 0x06d0e4bc): operator delete(_First), then
+// (FLT_MAX), the vector built empty.
+//   dtor -- OutpostFrontier.exe the routine (out of line; also the inlined epilogues
+// , 0x00534b20, Server 0x06d0e4bc): operator delete(_First), then
 //           _First/_Last/_End = 0 -- the implicit destructor of Hardpoints.
 //   copy -- VC6 vector<unsigned short>::operator= inlined, always a deep copy of the
 //           elements (Server 0x06d0e34a..0x06d0e474; rpclocal to-server caseD_2
-//           0x06d875ad..0x06d876cb and client caseD_2 0x06d83426..0x06d8353c;
+// and client caseD_2 0x06d83426..0x06d8353c;
 //           remoteserver FireWeapon 0x06bd81a0..): what the implicit copy does.
 struct XFireWeaponInfo {
     XFireWeaponInfo()
@@ -147,7 +143,7 @@ struct XFireWeaponInfo {
     }
 
     unsigned int ObjectId;                     // +0x00
-    Vector TargetPos;                          // +0x04  3 floats (rpclocal FUN_06d8f510)
+    Vector TargetPos;                          // +0x04  3 floats (rpclocal the routine)
     std::vector<unsigned short> Hardpoints;    // +0x10  element stride 2 ((last-first) >> 1)
 };
 
@@ -190,7 +186,7 @@ struct XSetTarget {
 };
 static_assert(sizeof(XSetTarget) == 0x10, "XSetTarget sizeof 0x10");
 
-// XTractorObjects — IServer slot 5. Retail's vector at +0x08 owns its ids;
+// XTractorObjects — IServer slot 5. baseline's vector at +0x08 owns its ids;
 // all our callers use this modern owning vector, never the VC6 object layout.
 struct XTractorObjects {
     unsigned int ObjectId;                  // +0x00
@@ -204,7 +200,7 @@ struct XGoTradelane {
     unsigned int ObjectId;        // +0x00  compared against the player's ship id (player+0x3e4)
     unsigned int TradelaneRing1;  // +0x04
     unsigned int TradelaneRing2;  // +0x08
-    // TODO: semantics unproven (direction?). One byte; 5th argument of FUN_06d0df40.
+    // TODO: semantics unproven (direction?). One byte; 5th argument of the routine.
     bool Field_0x0c;              // +0x0c
     unsigned char Pad_0x0d[3];    // +0x0d
 };
@@ -238,7 +234,7 @@ struct SGFGoodBuyInfo {
 static_assert(sizeof(SGFGoodBuyInfo) == 0x10, "SGFGoodBuyInfo sizeof 0x10");
 
 // SGFGoodSellInfo — PARTIAL (§3.12). Three dwords are serialized (rpclocal
-// 0x06d8d600 / Server 0x06d17bf0); no reader touches anything past +0x08, so the
+// / Server 0x06d17bf0); no reader touches anything past +0x08, so the
 // total size is NOT proven and deliberately carries no static_assert.
 struct SGFGoodSellInfo {
     unsigned int Field_0x00;  // TODO: semantics unproven
@@ -257,8 +253,8 @@ struct SGFGoodVaporizedInfo {
 // SSPObjUpdateInfo — 0x30 bytes, fully recovered (§3.17). Slot 52.
 struct SSPObjUpdateInfo {
     unsigned int ObjectId;       // +0x00
-    Quaternion Orientation;      // +0x04  4 floats (rpclocal FUN_06d8f4f0)
-    Vector Position;             // +0x14  3 floats (rpclocal FUN_06d8f510)
+    Quaternion Orientation;      // +0x04  4 floats (rpclocal the routine)
+    Vector Position;             // +0x14  3 floats (rpclocal the routine)
     double Timestamp;            // +0x20  read as an 8-byte double, narrowed to float on the wire
     // TODO: semantics unproven (throttle?). Serialized to packet+0x48.
     unsigned int Field_0x28;     // +0x28
@@ -270,16 +266,16 @@ static_assert(sizeof(SSPObjUpdateInfo) == 0x30, "SSPObjUpdateInfo sizeof 0x30");
 
 // SSPMunitionCollisionInfo — 0x1c bytes, fully recovered (§3.18). Slot 53.
 // Semantics proven 2026-09-24 by its consumer, Server.dll StarSystem::munition_collision
-// (FUN_06d0d500, .text:06d0d51f-06d0d637), which reads every field: +0x00 goes to
+// (the routine, module storage-06d0d637), which reads every field: +0x00 goes to
 // Archetype::GetEquipment (the munition archetype id), +0x04 to find_object and becomes
 // FMunitionImpact::ShooterId and the DamageList inflictor, +0x08 is the object hit, +0x0c
 // FMunitionImpact::SubObjId, +0x10..+0x18 FMunitionImpact::HitPos (three floats). The
 // Field_0x names are kept because rpclocal's wire marshalling copies them dword for dword.
 struct SSPMunitionCollisionInfo {
-    unsigned int Field_0x00;   // +0x00  munition archetype id (GetEquipment, .text:06d0d5a4)
-    unsigned int Field_0x04;   // +0x04  shooter object id (find_object, .text:06d0d533)
+    unsigned int Field_0x00;   // +0x00  munition archetype id (GetEquipment, module storage)
+    unsigned int Field_0x04;   // +0x04  shooter object id (find_object, module storage)
     unsigned int ObjectId;     // +0x08  Server.dll looks the object up by THIS field
-    unsigned short Field_0x0c; // +0x0c  sub-object hit (FMunitionImpact +0x08, .text:06d0d5aa)
+    unsigned short Field_0x0c; // +0x0c  sub-object hit (FMunitionImpact +0x08, module storage)
     unsigned short Pad_0x0e;   // +0x0e
     unsigned int Field_0x10;   // +0x10  hit position x (float bits, FMunitionImpact +0x0c)
     unsigned int Field_0x14;   // +0x14  hit position y (float bits)
@@ -310,7 +306,7 @@ struct SSPBadLandsObjCollisionInfo {
 static_assert(sizeof(SSPBadLandsObjCollisionInfo) == 0xc, "SSPBadLandsObjCollisionInfo sizeof 0xc");
 
 // CollisionGroupDesc — 8 bytes, size proven (§3.15). ReqCollisionGroups takes a
-// std::list<CollisionGroupDesc> const&; rpclocal's list copier FUN_06d8f710
+// std::list<CollisionGroupDesc> const&; rpclocal's list copier the routine
 // allocates 0x10 per node (8 bytes of prev/next links + this payload) and copies
 // exactly two dwords.
 // It is NOT redeclared here: CollisionGroupDesc is a Common.dll type, already
@@ -358,7 +354,7 @@ enum class EFLConnection : int {
 struct XSetManeuver {
     // TODO: semantics unproven (maneuver type?). rpclocal writes it to packet+0x20.
     unsigned int Field_0x00;  // +0x00
-    unsigned int ObjectId;    // +0x04  FUN_06d006c0((uint*)(info + 4), ...)
+    unsigned int ObjectId;    // +0x04  the routine((uint*)(info + 4), ...)
     // TODO: semantics unproven (target/parameter?). rpclocal writes it to packet+0x28.
     unsigned int Field_0x08;  // +0x08
 };
@@ -366,21 +362,21 @@ static_assert(sizeof(XSetManeuver) == 0xc, "XSetManeuver sizeof 0xc");
 
 // ---------------------------------------------------------------------------
 // CDAPacket — the RPC packet base, exactly 0x20 bytes. Ground truth: the packet
-// constructors the rpclocal registry installs, e.g. FUN_06d9c860
+// constructors the rpclocal registry installs, e.g. the routine
 // (FLPACKET_SERVER_LOGINRESPONSE, operator new(0x24)):
 //     [EAX+0x04] = 1                 ; usage count
 //     [EAX+0x08] = 0                 ; queue link
 //     [EAX+0x10] = 0
 //     [EAX+0x1c] = 0
 //     [EAX+0x20] = 0                 ; first payload byte
-//     [EAX]      = PTR_FUN_06db4ffc  ; vptr, 4 slots { dtor, codec A, codec B, dump }
+//     [EAX]      = the routine  ; vptr, 4 slots { dtor, codec A, codec B, dump }
 //     [EAX+0x0c] = 0x20002           ; PacketId = Channel << 16 | Opcode
 // Both dispatchers read the routing dword at +0x0c; the payload of a concrete
 // packet type starts at +0x20 and its total size is that type's operator new
-// argument (0x24 minimum, 0xec maximum). Full registry: src/rpclocal/rpc_packet_registry.cpp (protocol: docs/re/rpclocal.md).
+// argument (0x24 minimum, 0xec maximum). Full registry: src/rpclocal/rpc_packet_registry.cpp (protocol: implementation notes).
 // The previous {type, size, data[]} declaration here was fabricated.
 // ---------------------------------------------------------------------------
-// A class, not a struct: retail rpclocal and Server.dll both export
+// A class, not a struct: baseline rpclocal and Server.dll both export
 // ?PushToServer@IServerImpl@@UAEXPAVCDAPacket@@@Z (`PAV` = pointer to class).
 class CDAPacket {
 public:
@@ -402,11 +398,11 @@ static_assert(sizeof(CDAPacket) == 0x20, "CDAPacket base sizeof 0x20");
 // EquipDescList / EquipDesc — real definitions in common_goods.h; referenced here
 // only by const-reference (ReqCargo/ReqEquipment/AddTradeEquip/DelTradeEquip), so
 // forward declarations suffice and the types stay declared in exactly one place.
-// EquipDescList is a class in retail (?ReqCargo@IServerImpl@@UAEXABVEquipDescList@@I@Z).
+// EquipDescList is a class in baseline (?ReqCargo@IServerImpl@@UAEXABVEquipDescList@@I@Z).
 class EquipDescList;
 struct EquipDesc;
 
-// CHARACTER_ID — retail is a fixed 512-byte (0x200), NUL-terminated, case-insensitive
+// CHARACTER_ID — baseline is a fixed 512-byte (0x200), NUL-terminated, case-insensitive
 // character/account identifier string — NOT a 4-byte int. Evidence (Common.dll RVAs):
 //   ctor      0x1030  MOV byte ptr [this],0        — writes ONE byte (empty string)
 //   is_valid  0x1040  reads ONE byte, returns it != 0 (non-empty-string check)
@@ -415,16 +411,16 @@ struct EquipDesc;
 //   operator< 0xce740 stricmp(a,b) < 0
 //   operator== 0xce760 stricmp(a,b) == 0
 //   operator!= 0xce780 stricmp(a,b) != 0
-// Buffer size confirmed from OutpostFrontier.exe.c FUN_005aa9c0 (0x005aa9c0): a per-player record
+// Buffer size confirmed from OutpostFrontier the routine (0x005aa9c0): a per-player record
 // is allocated as operator_new(0x2dc), CHARACTER_ID is copied at offset 0, and two flag bytes
 // immediately follow at [0x200]/[0x201] — i.e. the CHARACTER_ID field spans exactly [0x000,0x200).
 // Corroborated by scratch buffers built the same way elsewhere: `CHARACTER_ID local_200[512]`
-// (FUN_00487550-adjacent) and `CHARACTER_ID aCStack_208[516]` (FUN_0056ce30) — both padded-up
+// (the routine-adjacent) and `CHARACTER_ID aCStack_208[516]` (the routine) — both padded-up
 // staging buffers for a value later strcpy'd into a real CHARACTER_ID via operator=.
-//
-// EXPORTS. Retail Common.dll exports SEVEN CHARACTER_ID symbols and no more --
+
+// EXPORTS. baseline Common.dll exports SEVEN CHARACTER_ID symbols and no more --
 // there is no destructor, no copy constructor and no operator> in the table.
-// Read straight off Common.dll.txt's export annotations (RVA / ordinal /
+// Read straight off Common's export annotations (RVA / ordinal /
 // decorated name):
 //   0x1030   154  ??0CHARACTER_ID@@QAE@XZ            CHARACTER_ID::CHARACTER_ID(void)
 //   0x1040  3228  ?is_valid@CHARACTER_ID@@QBE_NXZ    bool is_valid(void) const
@@ -433,7 +429,7 @@ struct EquipDesc;
 //   0xce740  952  ??M@YA_NABUCHARACTER_ID@@0@Z       bool operator<(CHARACTER_ID const&, CHARACTER_ID const&)
 //   0xce760  883  ??8@YA_NABUCHARACTER_ID@@0@Z       bool operator==(CHARACTER_ID const&, CHARACTER_ID const&)
 //   0xce780  891  ??9@YA_NABUCHARACTER_ID@@0@Z       bool operator!=(CHARACTER_ID const&, CHARACTER_ID const&)
-// Server.dll imports operator= by name through IAT slot .rdata:06d648ec
+// Server.dll imports operator= by name through IAT slot module storage
 // (`06d4a7d3  CALL dword ptr [->COMMON.DLL::CHARACTER_ID::operator=]`), so the
 // export is a real cross-module contract, not decoration. Every one of the
 // seven therefore carries COMMON_API, and the two bodies that used to be inline
@@ -442,18 +438,18 @@ struct EquipDesc;
 struct CHARACTER_ID {
     char Buffer[0x200];
 
-    // Retail ctor only zeroes Buffer[0]; we zero the whole buffer to avoid reading
+    // baseline ctor only zeroes Buffer[0]; we zero the whole buffer to avoid reading
     // uninitialized memory elsewhere (harmless deviation — no code inspects trailing bytes).
     COMMON_API CHARACTER_ID();
 
     COMMON_API bool is_valid() const;
     COMMON_API void invalidate();
 
-    // Retail returns a const reference: ??4CHARACTER_ID@@QAEABU0@ABU0@@Z.
+    // baseline returns a const reference: ??4CHARACTER_ID@@QAEABU0@ABU0@@Z.
     COMMON_API CHARACTER_ID const& operator=(CHARACTER_ID const& other);
 };
 
-static_assert(sizeof(CHARACTER_ID) == 0x200, "CHARACTER_ID must match the retail 512-byte buffer");
+static_assert(sizeof(CHARACTER_ID) == 0x200, "CHARACTER_ID must match the baseline 512-byte buffer");
 
 COMMON_API bool operator<(CHARACTER_ID const& lhs, CHARACTER_ID const& rhs);
 COMMON_API bool operator==(CHARACTER_ID const& lhs, CHARACTER_ID const& rhs);
@@ -474,13 +470,13 @@ COMMON_API bool operator!=(CHARACTER_ID const& lhs, CHARACTER_ID const& rhs);
 // (The serialized packet payload is exactly 0x90 bytes — 0x24 dwords — but that
 // is the packet's size, not this struct's.)
 // The old {wchar_t Name[64]; CostumeId; ShipArchId; field_88;} put the trailing
-// fields at +0x80; retail has them at +0x30, and there are four of them.
+// fields at +0x80; baseline has them at +0x30, and there are four of them.
 // ---------------------------------------------------------------------------
 struct SCreateCharacterInfo {
     wchar_t Name[24];         // +0x00 .. +0x2f
-    // Proven 2026-09-24 (claude:srv-save-2) by Server.dll FUN_06d4b790, which
-    // looks each one up in NewChar::TheDB (.text:06d4b8b1 .. .text:06d4b8fe),
-    // against Common.dll's Load that fills those trees (.text:063149d0):
+    // Proven 2026-09-24 (claude:srv-save-2) by Server.dll the routine, which
+    // looks each one up in NewChar::TheDB (module storage .. module storage),
+    // against Common.dll's Load that fills those trees (module storage):
     unsigned int Field_0x30;  // [Faction] nickname id -- slot 0, faction tree +0x04
     unsigned int Field_0x34;  // home base id (a [Faction] `base`) -- slot 3, tree +0x40
     unsigned int Field_0x38;  // [Package] nickname id -- slot 1, tree +0x18
@@ -489,41 +485,41 @@ struct SCreateCharacterInfo {
     // hands this wave) spells them; rename to FactionId/BaseId/PackageId/PilotId.
 };
 
-// ServerStats — 0x2c bytes, matches retail layout (11 DWORDs)
+// ServerStats — 0x2c bytes, matches baseline layout (11 DWORDs)
 // GetServerStats copies from a global stats buffer, then overrides:
 //   +0x00 = active player count (from traverse_active)
 //   +0x20, +0x24, +0x28 = 0
-// Named as retail names it: ?GetServerStats@IServerImpl@@QAEXAAUServerStats@@@Z
+// Named as baseline names it: ?GetServerStats@IServerImpl@@QAEXAAUServerStats@@@Z
 // (rpclocal ordinal 38, Server.dll ordinal 265). rpclocal's body is a bare RET 4
 // (0x06d8eae0) and never touches the struct.
-// Server.dll's global copy lives at .data:06d8f998 (GServerStats, IServerImpl.cpp);
-// Startup zero-fills all 11 dwords (.text:06d44c04 REP STOSD) and the counters
+// Server.dll's global copy lives at module storage (GServerStats, IServerImpl.cpp);
+// Startup zero-fills all 11 dwords (module storage REP STOSD) and the counters
 // below are the only other writers in the module.
 struct ServerStats {
     unsigned int PlayerCount;           // +0x00: active player count (overridden)
-    unsigned int LoginSuccessCount;     // +0x04: INC at .text:06d4511d (Login, result 3)
-    unsigned int LogoutCount;           // +0x08: INC at .text:06d54489 (PlayerDB::logout)
-    unsigned int LoginFailCount;        // +0x0c: INC at .text:06d45127 (Login, other results)
-    // +0x10: INC at .text:06ce825f, the only writer besides Startup. It sits in
-    // EqObj's +0x158 destroy override (FUN_06ce8080) on the path taken when the
+    unsigned int LoginSuccessCount;     // +0x04: INC at module storage (Login, result 3)
+    unsigned int LogoutCount;           // +0x08: INC at module storage (PlayerDB::logout)
+    unsigned int LoginFailCount;        // +0x0c: INC at module storage (Login, other results)
+    // +0x10: INC at module storage, the only writer besides Startup. It sits in
+    // EqObj's +0x158 destroy override (the routine) on the path taken when the
     // object has an owning player (CSimple+0xb4 != 0), !SinglePlayer(), the
     // destroy kind is 1 and is_player() (IObjInspect slot 47) is true, right
-    // after FUN_06d19110 broadcasts control message 0x14 with that player's id:
+    // after the routine broadcasts control message 0x14 with that player's id:
     // a count of multiplayer player-ship deaths. Ported: EqObj::destroy
     // (src/Server/server_gameobject.cpp) increments it on that path.
     unsigned int Field_0x10;
     unsigned int Field_0x14;            // +0x14: only the Startup zero-fill writes it
     unsigned int Field_0x18;            // +0x18: only the Startup zero-fill writes it
-    unsigned int AbortMissionCount;     // +0x1c: INC at .text:06d4582f (AbortMission)
+    unsigned int AbortMissionCount;     // +0x1c: INC at module storage (AbortMission)
     unsigned int Reserved1;             // +0x20: always 0
     unsigned int Reserved2;             // +0x24: always 0
     unsigned int Reserved3;             // +0x28: always 0
 };
 static_assert(sizeof(ServerStats) == 0x2c, "ServerStats sizeof 0x2c");
 
-// CHAT_ID — 4-byte chat identifier (passed by value in retail)
+// CHAT_ID — 4-byte chat identifier (passed by value in baseline)
 // Low 16 bits = player/session ID, upper bits = flags/channel info
-// The retail name is the type name: rpclocal and Server.dll both export
+// The baseline name is the type name: rpclocal and Server.dll both export
 // ?SubmitChat@IServerImpl@@UAEXUCHAT_ID@@KPBX0H@Z (`U` = struct CHAT_ID, by value).
 struct CHAT_ID {
     unsigned int Id;
@@ -533,6 +529,6 @@ struct CHAT_ID {
     unsigned short GetPlayerId() const { return (unsigned short)(Id & 0xFFFF); }
 };
 
-// DamageEntry lives in common_misc.h -- the real one, with SubObjFate and the retail 0x18
+// DamageEntry lives in common_misc.h -- the real one, with SubObjFate and the baseline 0x18
 // layout. A three-field stand-in used to be declared here; nothing referenced it, and it
 // collided with the real definition as soon as both headers met in one translation unit.

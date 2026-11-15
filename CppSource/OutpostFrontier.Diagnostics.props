@@ -5,7 +5,7 @@
     <OutpostFrontierEnableTickProfile>0</OutpostFrontierEnableTickProfile>
     <OutpostFrontierBetaLabel>0</OutpostFrontierBetaLabel>
     <OutpostFrontierWidescreenSupport>1</OutpostFrontierWidescreenSupport>
-    <OutpostFrontierRp9>0</OutpostFrontierRp9>
+    <OutpostFrontierDx9Renderer>0</OutpostFrontierDx9Renderer>
     <OutpostFrontierWalkMode>1</OutpostFrontierWalkMode>
   </PropertyGroup>
 </Project>

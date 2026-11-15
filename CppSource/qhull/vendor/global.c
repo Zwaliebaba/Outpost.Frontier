@@ -35,7 +35,7 @@ void qh_appendprint (qh_PRINT format) {
   int i;
 
   for (i=0; i < qh_PRINTEND; i++) {
-    if (qh PRINTout[i] == format) /* retail 063746de..063746e0: no qh_PRINTqhull exception */
+    if (qh PRINTout[i] == format) /* no qh_PRINTqhull exception */
       break;
     if (!qh PRINTout[i]) {
       qh PRINTout[i]= format;
@@ -628,7 +628,7 @@ void qh_initflags(char *command) {
 	  if (*t == ',')
 	    t++;
 	  else
-	    FUN_06356960 (/* retail 06375140 */ "qhull warning: origin for Halfspace intersection should be 'Hn,n,n,...'\n");
+	    WriteHullDiagnostic (  "qhull warning: origin for Halfspace intersection should be 'Hn,n,n,...'\n");
 	}
         s= t;
 	qh_strtod (s, &t);
@@ -718,7 +718,7 @@ void qh_initflags(char *command) {
           qh_appendprint (qh_PRINTinner);
           break;
         case 'I':
-          qh_option ("FIds", NULL, NULL); /* retail text "FIds" (.data:063f2014, 46 49 64 73); stock qhull has "FIDs" */
+          qh_option ("FIds", NULL, NULL); /* baseline text "FIds" (module storage, 46 49 64 73); stock qhull has "FIDs" */
           qh_appendprint (qh_PRINTids);
           break;
         case 'm':
@@ -783,7 +783,7 @@ void qh_initflags(char *command) {
 	  break;
 	default:
 	  s--;
-	  FUN_06356960 (/* retail 06375632 */ "qhull warning: unknown 'F' output option %c, rest ignored\n", (int)s[0]);
+	  WriteHullDiagnostic (  "qhull warning: unknown 'F' output option %c, rest ignored\n", (int)s[0]);
 	  while (*++s && !isspace(*s));
 	  break;
 	}
@@ -836,10 +836,10 @@ void qh_initflags(char *command) {
 	  break;
 	case 'D':
 	  if (!isdigit (*s))
-	    FUN_06356960 (/* retail 063757ea */ "qhull input error: missing dimension for option 'GDn'\n");
+	    WriteHullDiagnostic (  "qhull input error: missing dimension for option 'GDn'\n");
 	  else {
 	    if (qh DROPdim >= 0)
-	      FUN_06356960 (/* retail 06375806 */ "qhull warning: can only drop one dimension.  Previous 'GD%d' ignored\n",
+	      WriteHullDiagnostic (  "qhull warning: can only drop one dimension.  Previous 'GD%d' ignored\n",
 	           qh DROPdim);
   	    qh DROPdim= qh_strtol (s, &s);
             qh_option ("GDrop-dim", &qh DROPdim, NULL);
@@ -847,7 +847,7 @@ void qh_initflags(char *command) {
 	  break;
 	default:
 	  s--;
-	  FUN_06356960 (/* retail 06375845 */ "qhull warning: unknown 'G' print option %c, rest ignored\n", (int)s[0]);
+	  WriteHullDiagnostic (  "qhull warning: unknown 'G' print option %c, rest ignored\n", (int)s[0]);
 	  while (*++s && !isspace(*s));
 	  break;
 	}
@@ -887,7 +887,7 @@ void qh_initflags(char *command) {
           break;
 	case 'A':
 	  if (!isdigit (*s))
-	    FUN_06356960 (/* retail 063759e1 */ "qhull input error: missing facet count for keep area option 'PAn'\n");
+	    WriteHullDiagnostic (  "qhull input error: missing facet count for keep area option 'PAn'\n");
 	  else {
   	    qh KEEParea= qh_strtol (s, &s);
             qh_option ("PArea-keep", &qh KEEParea, NULL);
@@ -896,7 +896,7 @@ void qh_initflags(char *command) {
 	  break;
 	case 'F':
 	  if (!isdigit (*s))
-	    FUN_06356960 (/* retail 06375a36 */ "qhull input error: missing facet area for option 'PFn'\n");
+	    WriteHullDiagnostic (  "qhull input error: missing facet area for option 'PFn'\n");
 	  else {
   	    qh KEEPminArea= qh_strtod (s, &s);
             qh_option ("PFacet-area-keep", NULL, &qh KEEPminArea);
@@ -905,7 +905,7 @@ void qh_initflags(char *command) {
 	  break;
 	case 'M':
 	  if (!isdigit (*s))
-	    FUN_06356960 (/* retail 06375a8c */ "qhull input error: missing merge count for option 'PMn'\n");
+	    WriteHullDiagnostic (  "qhull input error: missing merge count for option 'PMn'\n");
 	  else {
   	    qh KEEPmerge= qh_strtol (s, &s);
             qh_option ("PMerge-keep", &qh KEEPmerge, NULL);
@@ -913,7 +913,7 @@ void qh_initflags(char *command) {
 	  break;
 	default:
 	  s--;
-	  FUN_06356960 (/* retail 06375acd */ "qhull warning: unknown 'P' print option %c, rest ignored\n", (int)s[0]);
+	  WriteHullDiagnostic (  "qhull warning: unknown 'P' print option %c, rest ignored\n", (int)s[0]);
 	  while (*++s && !isspace(*s));
 	  break;
 	}
@@ -1004,7 +1004,7 @@ void qh_initflags(char *command) {
 	  qh_option ("Qsearch-initial-simplex", NULL, NULL);
 	  qh ALLpoints= True;
 	  break;
-	/* retail 06375b59: the 2.6 'Q' switch has no 't' (Qtriangulate) and no 'T' (QTn) case; they fall to the default */
+	/* the 2.6 'Q' switch has no 't' (Qtriangulate) and no 'T' (QTn) case; they fall to the default */
 	case 'u':
 	  qh_option ("QupperDelaunay", NULL, NULL);
 	  qh UPPERdelaunay= True;
@@ -1016,7 +1016,7 @@ void qh_initflags(char *command) {
 	case 'x':
 	  qh_option ("Qxact-merge", NULL, NULL);
 	  qh MERGEexact= True;
-	  qh MERGING= True;  /* retail 06375eb4 */
+	  qh MERGING= True;
 	  break;
 	case 'z':
 	  qh_option ("Qz-infinity-point", NULL, NULL);
@@ -1027,7 +1027,7 @@ void qh_initflags(char *command) {
 	  qh NOpremerge= True;
 	  break;
 	case '1':
-	  /* retail 06375ef5: no Q10 / Q11 sub-options in the 2.6 build; a digit after 1/2/3 is skipped with a warning */
+	  /* no Q10 / Q11 sub-options in the 2.6 build; a digit after 1/2/3 is skipped with a warning */
 	  qh_option ("Q1-no-angle-sort", NULL, NULL);
 	  qh ANGLEmerge= False;
 	  goto LABELcheckdigit;
@@ -1042,7 +1042,7 @@ void qh_initflags(char *command) {
 	  qh MERGEvertices= False;
 	LABELcheckdigit:
 	  if (isdigit(*s))
-	    FUN_06356960 (/* retail 06375f61 */ "qhull warning: can not follow '1', '2', or '3' with a digit.  '%c' skipped.\n",
+	    WriteHullDiagnostic (  "qhull warning: can not follow '1', '2', or '3' with a digit.  '%c' skipped.\n",
 	             *s++);
 	  break;
 	case '4':
@@ -1072,9 +1072,9 @@ void qh_initflags(char *command) {
 	case 'G':
 	  i= qh_strtol (s, &t);
 	  if (qh GOODpoint)
-	    FUN_06356960 (/* retail 0637602b */ "qhull warning: good point already defined for option 'QGn'.  Ignored\n");
+	    WriteHullDiagnostic (  "qhull warning: good point already defined for option 'QGn'.  Ignored\n");
           else if (s == t)
-	    FUN_06356960 (/* retail 0637604f */ "qhull warning: missing good point id for option 'QGn'.  Ignored\n");
+	    WriteHullDiagnostic (  "qhull warning: missing good point id for option 'QGn'.  Ignored\n");
 	  else if (i < 0 || *s == '-') {
  	    qh GOODpoint= i-1;
   	    qh_option ("QGood-if-dont-see-point", &i, NULL);
@@ -1094,7 +1094,7 @@ void qh_initflags(char *command) {
 	  break;
 	case 'R':
           if (!isdigit(*s) && *s != '-')
-	    FUN_06356960 (/* retail 06376121 */ "qhull warning: missing random seed for option 'QRn'.  Ignored\n");
+	    WriteHullDiagnostic (  "qhull warning: missing random seed for option 'QRn'.  Ignored\n");
 	  else {
  	    qh ROTATErandom= i= qh_strtol(s, &s);
    	    if (i > 0)
@@ -1106,9 +1106,9 @@ void qh_initflags(char *command) {
 	case 'V':
 	  i= qh_strtol (s, &t);
 	  if (qh GOODvertex)
-	    FUN_06356960 (/* retail 063761a3 */ "qhull warning: good vertex already defined for option 'QVn'.  Ignored\n");
+	    WriteHullDiagnostic (  "qhull warning: good vertex already defined for option 'QVn'.  Ignored\n");
           else if (s == t)
-	    FUN_06356960 (/* retail 063761c7 */ "qhull warning: no good point id given for option 'QVn'.  Ignored\n");
+	    WriteHullDiagnostic (  "qhull warning: no good point id given for option 'QVn'.  Ignored\n");
 	  else if (i < 0) {
  	    qh GOODvertex= i - 1;
  	    qh_option ("QV-good-facets-not-point", &i, NULL);
@@ -1120,7 +1120,7 @@ void qh_initflags(char *command) {
 	  break;
 	default:
 	  s--;
-	  FUN_06356960 (/* retail 06376239 */ "qhull warning: unknown 'Q' qhull option %c, rest ignored\n", (int)s[0]);
+	  WriteHullDiagnostic (  "qhull warning: unknown 'Q' qhull option %c, rest ignored\n", (int)s[0]);
 	  while (*++s && !isspace(*s));
 	  break;
 	}
@@ -1145,7 +1145,7 @@ void qh_initflags(char *command) {
 	  break;
 	case 'z':
 	  if (!qh fout)
-	    FUN_06356960 (/* retail 06376348 */ "qhull warning: output file undefined (stdout).  Option 'Tz' ignored.\n");
+	    WriteHullDiagnostic (  "qhull warning: output file undefined (stdout).  Option 'Tz' ignored.\n");
 	  else {
 	    qh_option ("Tz-stdout", NULL, NULL);
   	    qh ferr= qh fout;
@@ -1154,7 +1154,7 @@ void qh_initflags(char *command) {
 	  break;
 	case 'C':
 	  if (!isdigit(*s))
-	    FUN_06356960 (/* retail 0637638e */ "qhull warning: missing point id for cone for trace option 'TCn'.  Ignored\n");
+	    WriteHullDiagnostic (  "qhull warning: missing point id for cone for trace option 'TCn'.  Ignored\n");
 	  else {
 	    i= qh_strtol (s, &s);
 	    qh_option ("TCone-stop", &i, NULL);
@@ -1163,18 +1163,18 @@ void qh_initflags(char *command) {
 	  break;
 	case 'F':
 	  if (!isdigit(*s))
-	    FUN_06356960 (/* retail 063763e7 */ "qhull warning: missing frequency count for trace option 'TFn'.  Ignored\n");
+	    WriteHullDiagnostic (  "qhull warning: missing frequency count for trace option 'TFn'.  Ignored\n");
 	  else {
 	    qh REPORTfreq= qh_strtol (s, &s);
             qh_option ("TFacet-log", &qh REPORTfreq, NULL);
 	    qh REPORTfreq2= qh REPORTfreq/2;  /* for tracemerging() */
 	  }
 	  break;
-	/* retail qh_initflags 06374d50: the 2.6 'T' switch has no 'TI' (input file) case (no 'TInput-file' string) */
+	/* baseline qh_initflags 06374d50: the 2.6 'T' switch has no 'TI' (input file) case (no 'TInput-file' string) */
 	case 'O':
 	  if (s[0] != ' ' || s[1] == '\"' || isspace (s[1])) {
 	    s++;
-	    FUN_06356960 (/* retail 0637656c */ "qhull warning: option 'TO' mistyped.\nUse 'TO', one space, file name, and space or end-of-line.\nThe file name may be enclosed in single quotes.\nDo not use double quotes.  Option 'FO' ignored.\n");
+	    WriteHullDiagnostic (  "qhull warning: option 'TO' mistyped.\nUse 'TO', one space, file name, and space or end-of-line.\nThe file name may be enclosed in single quotes.\nDo not use double quotes.  Option 'FO' ignored.\n");
 	  }else {  /* not a procedure because of qh_option (filename, NULL, NULL); */
 	    char filename[500], *t= filename;
 	    boolT isquote= False;
@@ -1186,7 +1186,7 @@ void qh_initflags(char *command) {
 	    }
 	    while (*s) {
 	      if (t - filename >= sizeof (filename)-2) {
-		FUN_06356960 (/* retail 06376491 */ "qhull error: filename for 'TO' too long.\n");
+		WriteHullDiagnostic (  "qhull error: filename for 'TO' too long.\n");
 		qh_errexit (qh_ERRinput, NULL, NULL);
 	      }
 	      if (isquote) {
@@ -1201,9 +1201,9 @@ void qh_initflags(char *command) {
 	    }
 	    *t= '\0';
 	    if (isquote)
-	      FUN_06356960 (/* retail 063764ea */ "qhull error: missing end quote for option 'TO'.  Rest of line ignored.\n");
+	      WriteHullDiagnostic (  "qhull error: missing end quote for option 'TO'.  Rest of line ignored.\n");
 	    else if (!freopen (filename, "w", stdout)) {
-	      FUN_06356960 (/* retail 0637651e */ "qhull error: could not open file \"%s\".", filename);
+	      WriteHullDiagnostic (  "qhull error: could not open file \"%s\".", filename);
 	      qh_errexit (qh_ERRinput, NULL, NULL);
 	    }else {
 	      qh_option ("TOutput-file", NULL, NULL);
@@ -1213,7 +1213,7 @@ void qh_initflags(char *command) {
 	  break;
 	case 'P':
 	  if (!isdigit(*s))
-	    FUN_06356960 (/* retail 0637658f */ "qhull warning: missing point id for trace option 'TPn'.  Ignored\n");
+	    WriteHullDiagnostic (  "qhull warning: missing point id for trace option 'TPn'.  Ignored\n");
 	  else {
 	    qh TRACEpoint= qh_strtol (s, &s);
             qh_option ("Trace-point", &qh TRACEpoint, NULL);
@@ -1221,7 +1221,7 @@ void qh_initflags(char *command) {
 	  break;
 	case 'M':
 	  if (!isdigit(*s))
-	    FUN_06356960 (/* retail 063765de */ "qhull warning: missing merge id for trace option 'TMn'.  Ignored\n");
+	    WriteHullDiagnostic (  "qhull warning: missing merge id for trace option 'TMn'.  Ignored\n");
 	  else {
 	    qh TRACEmerge= qh_strtol (s, &s);
             qh_option ("Trace-merge", &qh TRACEmerge, NULL);
@@ -1229,7 +1229,7 @@ void qh_initflags(char *command) {
 	  break;
 	case 'R':
 	  if (!isdigit(*s))
-	    FUN_06356960 (/* retail 0637662d */ "qhull warning: missing rerun count for trace option 'TRn'.  Ignored\n");
+	    WriteHullDiagnostic (  "qhull warning: missing rerun count for trace option 'TRn'.  Ignored\n");
 	  else {
 	    qh RERUN= qh_strtol (s, &s);
             qh_option ("TRerun", &qh RERUN, NULL);
@@ -1238,7 +1238,7 @@ void qh_initflags(char *command) {
 	case 'V':
 	  i= qh_strtol (s, &t);
 	  if (s == t)
-	    FUN_06356960 (/* retail 06376689 */ "qhull warning: missing furthest point id for trace option 'TVn'.  Ignored\n");
+	    WriteHullDiagnostic (  "qhull warning: missing furthest point id for trace option 'TVn'.  Ignored\n");
 	  else if (i < 0) {
 	    qh STOPpoint= i - 1;
             qh_option ("TV-stop-before-point", &i, NULL);
@@ -1250,7 +1250,7 @@ void qh_initflags(char *command) {
 	  break;
 	case 'W':
 	  if (!isdigit(*s))
-	    FUN_06356960 (/* retail 063766f1 */ "qhull warning: missing max width for trace option 'TWn'.  Ignored\n");
+	    WriteHullDiagnostic (  "qhull warning: missing max width for trace option 'TWn'.  Ignored\n");
 	  else {
  	    qh TRACEdist= (realT) qh_strtod (s, &s);
             qh_option ("TWide-trace", NULL, &qh TRACEdist);
@@ -1258,26 +1258,26 @@ void qh_initflags(char *command) {
 	  break;
 	default:
 	  s--;
-	  FUN_06356960 (/* retail 06376736 */ "qhull warning: unknown 'T' trace option %c, rest ignored\n", (int)s[0]);
+	  WriteHullDiagnostic (  "qhull warning: unknown 'T' trace option %c, rest ignored\n", (int)s[0]);
 	  while (*++s && !isspace(*s));
 	  break;
 	}
       }
       break;
     default:
-      FUN_06356960 (/* retail 0637679d */ "qhull warning: unknown flag %c (%x)\n", (int)s[-1],
+      WriteHullDiagnostic (  "qhull warning: unknown flag %c (%x)\n", (int)s[-1],
 	       (int)s[-1]);
       break;
     }
     if (s-1 == prev_s && *s && !isspace(*s)) {
-      FUN_06356960 (/* retail 063767d5 */ "qhull warning: missing space after flag %c (%x); reserved for menu. Skipped.\n",
+      WriteHullDiagnostic (  "qhull warning: missing space after flag %c (%x); reserved for menu. Skipped.\n",
 	       (int)*prev_s, (int)*prev_s);
       while (*s && !isspace(*s))
 	s++;
     }
   }
   if (isgeom && !qh FORCEoutput && qh PRINTout[1])
-    FUN_06356960 (/* retail 06376830 */ "qhull warning: additional output formats are not compatible with Geomview\n");
+    WriteHullDiagnostic (  "qhull warning: additional output formats are not compatible with Geomview\n");
   /* set derived values in qh_initqhull_globals */
 } /* initflags */
 
@@ -1367,10 +1367,10 @@ void qh_initqhull_globals (coordT *points, int numpoints, int dim, boolT ismallo
       qh_option ("_pre-merge", NULL, NULL);
     }else {
       qh MERGEexact= True;
-      qh_option ("_merge-exact", NULL, NULL);  /* retail 06376d99 */
+      qh_option ("_merge-exact", NULL, NULL);
     }
   }
-  /* retail 06376d4e: no "else if (qh MERGEexact) qh MERGING= True" (qh_initflags 'Qx' sets MERGING, 06375eb4),
+  /* no "else if (qh MERGEexact) qh MERGING= True" (qh_initflags 'Qx' sets MERGING, 06375eb4),
      no qh_NOmerge JOGGLEmax reset and no TRIangulate warning in the 2.6 build */
   if (qh JOGGLEmax < REALmax/2 && qh DELAUNAY && !qh SCALEinput && !qh SCALElast) {
     qh SCALElast= True;
@@ -1382,9 +1382,9 @@ void qh_initqhull_globals (coordT *points, int numpoints, int dim, boolT ismallo
     qh ZEROall_ok= True;
     qh_option ("_zero-centrum", NULL, NULL);
   }
-  /* retail 06376e3e: no REALepsilon / qh_NOmerge checks in this build */
+  /* no REALepsilon / qh_NOmerge checks in this build */
   if (!(qh PRINTgood || qh PRINTneighbors)) {
-    if (qh KEEParea || qh KEEPminArea < REALmax/2 || qh KEEPmerge || qh DELAUNAY) {  /* retail: no GOODvertex/GOODpoint clause */
+    if (qh KEEParea || qh KEEPminArea < REALmax/2 || qh KEEPmerge || qh DELAUNAY) {  /* baseline: no GOODvertex/GOODpoint clause */
       qh PRINTgood= True;
       qh_option ("Pgood", NULL, NULL);
     }
@@ -1394,20 +1394,20 @@ void qh_initqhull_globals (coordT *points, int numpoints, int dim, boolT ismallo
     qh_option ("Qinterior-keep", NULL, NULL);
   }
   if (qh DELAUNAY && qh HALFspace) {
-    FUN_06356960 (/* retail 06376edc */ "qhull input error: can not use Delaunay ('d') or Voronoi ('v') with halfspace intersection ('H')\n");
+    WriteHullDiagnostic (  "qhull input error: can not use Delaunay ('d') or Voronoi ('v') with halfspace intersection ('H')\n");
     qh_errexit (qh_ERRinput, NULL, NULL);
   }
   if (!qh DELAUNAY && (qh UPPERdelaunay || qh ATinfinity)) {
-    FUN_06356960 (/* retail 06376f0a */ "qhull input error: use upper-Delaunay ('Qu') or infinity-point ('Qz') with Delaunay ('d') or Voronoi ('v')\n");
+    WriteHullDiagnostic (  "qhull input error: use upper-Delaunay ('Qu') or infinity-point ('Qz') with Delaunay ('d') or Voronoi ('v')\n");
     qh_errexit (qh_ERRinput, NULL, NULL);
   }
   if (qh UPPERdelaunay && qh ATinfinity) {
-    FUN_06356960 (/* retail 06376f30 */ "qhull input error: can not use infinity-point ('Qz') with upper-Delaunay ('Qu')\n");
+    WriteHullDiagnostic (  "qhull input error: can not use infinity-point ('Qz') with upper-Delaunay ('Qu')\n");
     qh_errexit (qh_ERRinput, NULL, NULL);
   }
-  if (qh SCALElast && !qh DELAUNAY)  /* retail 06376f41: no PRINTprecision test */
-    FUN_06356960 (/* retail 06376f56 */ "qhull input warning: option 'Qbb' (scale-last-coordinate) is normally used with 'd' or 'v'\n");
-  qh DOcheckmax= (!qh FORCEoutput && !qh SKIPcheckmax && qh MERGING );  /* retail 06376f5e: FORCEoutput (0658b05c) is part of the test */
+  if (qh SCALElast && !qh DELAUNAY)  /* no PRINTprecision test */
+    WriteHullDiagnostic (  "qhull input warning: option 'Qbb' (scale-last-coordinate) is normally used with 'd' or 'v'\n");
+  qh DOcheckmax= (!qh FORCEoutput && !qh SKIPcheckmax && qh MERGING );  /* FORCEoutput (0658b05c) is part of the test */
   qh KEEPnearinside= (qh DOcheckmax && !(qh KEEPinside && qh KEEPcoplanar) 
                           && !qh NOnearinside);
   if (qh MERGING)
@@ -1477,7 +1477,7 @@ void qh_initqhull_globals (coordT *points, int numpoints, int dim, boolT ismallo
     randi= qh_RANDOMint;
     randr += randi;
     if (randi > qh_RANDOMmax) {
-      FUN_06356960 (/* retail 06377240 */ "\
+      WriteHullDiagnostic (  "\
 qhull configuration error (qh_RANDOMmax in user.h):\n\
    random integer %d > qh_RANDOMmax (%.8g)\n",
 	       randi, qh_RANDOMmax);
@@ -1485,15 +1485,15 @@ qhull configuration error (qh_RANDOMmax in user.h):\n\
     }
   }
   qh_RANDOMseed_(seed);
-  randr = randr*0.001;  /* retail 06377262: FMUL by the .rdata double 0.001, not an FDIV by 1000 */
+  randr = randr*0.001;  /* FMUL by the .rdata double 0.001, not an FDIV by 1000 */
   if (randr < qh_RANDOMmax/10
   || randr > qh_RANDOMmax * 5)
-    FUN_06356960 (/* retail 063772b0 */ "\
+    WriteHullDiagnostic (  "\
 qhull configuration warning (qh_RANDOMmax in user.h):\n\
    average of 1000 random integers (%.2g) is much different than expected (%.2g).\n\
    Is qh_RANDOMmax (%f) wrong?\n",
 	     randr, qh_RANDOMmax/2.0, qh_RANDOMmax);
-  /* retail 063772b8: RANDOMfactor times the .rdata double 063a5958 (= 2/qh_RANDOMmax), not 2*F/RANDOMmax;
+  /* RANDOMfactor times the .rdata double 063a5958 (= 2/qh_RANDOMmax), not 2*F/RANDOMmax;
      no qh_HASHfactor check exists in this build */
   qh RANDOMa= qh RANDOMfactor*(2.0/qh_RANDOMmax);
   qh RANDOMb= 1.0 - qh RANDOMfactor;
@@ -1520,13 +1520,13 @@ qhull configuration warning (qh_RANDOMmax in user.h):\n\
     else if (qh PRINTout[i] == qh_PRINTpointnearest)
       printcoplanar= True;
     else if (qh PRINTout[i] == qh_PRINTpointintersect && !qh HALFspace) {
-      FUN_06356960 (/* retail 063773b9 */ "qhull input error: option 'Fp' is only used for \nhalfspace intersection ('Hn,n,n').\n");
+      WriteHullDiagnostic (  "qhull input error: option 'Fp' is only used for \nhalfspace intersection ('Hn,n,n').\n");
       qh_errexit (qh_ERRinput, NULL, NULL);
     }else if (qh PRINTout[i] == qh_PRINTtriangles && (qh HALFspace || qh VORONOI)) {
-      FUN_06356960 (/* retail 063773e8 */ "qhull input error: option 'Ft' is not available for Voronoi vertices or halfspace intersection\n");
+      WriteHullDiagnostic (  "qhull input error: option 'Ft' is not available for Voronoi vertices or halfspace intersection\n");
       qh_errexit (qh_ERRinput, NULL, NULL);
     }else if (qh PRINTout[i] == qh_PRINTcentrums && qh VORONOI) {
-      FUN_06356960 (/* retail 063773f9 */ "qhull input error: option 'Fc' is not available for Voronoi vertices ('v')\n");
+      WriteHullDiagnostic (  "qhull input error: option 'Fc' is not available for Voronoi vertices ('v')\n");
       qh_errexit (qh_ERRinput, NULL, NULL);
     }else if (qh PRINTout[i] == qh_PRINTvertices) {
       if (qh VORONOI)
@@ -1535,33 +1535,33 @@ qhull configuration warning (qh_RANDOMmax in user.h):\n\
         qh_option ("Fvertices", NULL, NULL);
     }
   }
-  /* retail 06377430: the 2.6 build only warns here (3.1 turned this into qh KEEPcoplanar + "Qcoplanar") */
+  /* the 2.6 build only warns here (3.1 turned this into qh KEEPcoplanar + "Qcoplanar") */
   if (!qh KEEPcoplanar && !qh KEEPinside && ! qh ONLYgood) {
     if ((qh PRINTcoplanar && qh PRINTspheres) || printcoplanar)
-      FUN_06356960 (/* retail 0637745c */ "qhull input warning: options 'Fc', 'FP', and 'Gp' need option 'Qc' or 'Qi' to record coplanar/inside points\n");
+      WriteHullDiagnostic (  "qhull input warning: options 'Fc', 'FP', and 'Gp' need option 'Qc' or 'Qi' to record coplanar/inside points\n");
   }
-  if (printmath && (qh hull_dim > 3 || qh VORONOI || qh HALFspace)) {  /* retail 06377469: HALFspace is part of the test */
-    FUN_06356960 (/* retail 0637748b */ "qhull input error: Mathematica output is only available for 2-d and 3-d convex hulls and Delaunay triangulations\n");
+  if (printmath && (qh hull_dim > 3 || qh VORONOI || qh HALFspace)) {  /* HALFspace is part of the test */
+    WriteHullDiagnostic (  "qhull input error: Mathematica output is only available for 2-d and 3-d convex hulls and Delaunay triangulations\n");
     qh_errexit (qh_ERRinput, NULL, NULL);
   }
   if (printgeom) {
     if (qh hull_dim > 4) {
-      FUN_06356960 (/* retail 063774b4 */ "qhull input error: Geomview output is only available for 2-d, 3-d and 4-d\n");
+      WriteHullDiagnostic (  "qhull input error: Geomview output is only available for 2-d, 3-d and 4-d\n");
       qh_errexit (qh_ERRinput, NULL, NULL);
     }
     if (qh PRINTnoplanes && !(qh PRINTcoplanar + qh PRINTcentrums
      + qh PRINTdots + qh PRINTspheres + qh DOintersections + qh PRINTridges)) {
-      FUN_06356960 (/* retail 06377500 */ "qhull input error: no output specified for Geomview\n");
+      WriteHullDiagnostic (  "qhull input error: no output specified for Geomview\n");
       qh_errexit (qh_ERRinput, NULL, NULL);
     }
     if (qh VORONOI && (qh hull_dim > 3 || qh DROPdim >= 0)) {
-      FUN_06356960 (/* retail 0637752f */ "qhull input error: Geomview output for Voronoi diagrams only for 2-d\n");
+      WriteHullDiagnostic (  "qhull input error: Geomview output for Voronoi diagrams only for 2-d\n");
       qh_errexit (qh_ERRinput, NULL, NULL);
     }
     /* can not warn about furthest-site Geomview output: no lower_threshold */
     if (qh hull_dim == 4 && qh DROPdim == -1 &&
 	(qh PRINTcoplanar || qh PRINTspheres || qh PRINTcentrums)) {
-      FUN_06356960 (/* retail 0637756f */ "qhull input warning: coplanars, vertices, and centrums output not\n\
+      WriteHullDiagnostic (  "qhull input warning: coplanars, vertices, and centrums output not\n\
 available for 4-d output (ignored).  Could use 'GDn' instead.\n");
       qh PRINTcoplanar= qh PRINTspheres= qh PRINTcentrums= False;
     }
@@ -1571,7 +1571,7 @@ available for 4-d output (ignored).  Could use 'GDn' instead.\n");
     if (qh DROPdim < qh hull_dim) {
       qh PRINTdim--;
       if (!printgeom || qh hull_dim < 3)
-        FUN_06356960 (/* retail 063775bd */ "qhull input warning: drop dimension 'GD%d' is only available for 3-d/4-d Geomview\n", qh DROPdim);
+        WriteHullDiagnostic (  "qhull input warning: drop dimension 'GD%d' is only available for 3-d/4-d Geomview\n", qh DROPdim);
     }else
       qh DROPdim= -1;
   }else if (qh VORONOI) {
@@ -1611,7 +1611,7 @@ void qh_initqhull_mem (void) {
     qh_memsize(sizeof(mergeT));
   }
   qh_memsize(sizeof(facetT));
-  qh_memsize(0xc);                   /* retail 06377645: sizeof(hashentryT) = 12 (qh_produce_output 063855b5 prints it as "hashentry"); the 3.1 source has no hash entry type */
+  qh_memsize(0xc);                   /* sizeof(hashentryT) = 12 (qh_produce_output 063855b5 prints it as "hashentry"); the 3.1 source has no hash entry type */
   i= sizeof(setT) + (qh hull_dim - 1) * SETelemsize;  /* ridge.vertices */
   qh_memsize(i);
   qh_memsize(qh normal_size);        /* normal */
@@ -1662,7 +1662,7 @@ void qh_initqhull_start (FILE *infile, FILE *outfile, FILE *errfile) {
   qh MAXsumcoord= 0.0;
   qh MAXwidth= -REALmax;
   qh MERGEindependent= True;
-  qh MINdenom_1= 0.0; /* retail 063777d3/063777dd stores 0.0; qh_detroundoff sets REALmin */
+  qh MINdenom_1= 0.0; /* /063777dd stores 0.0; qh_detroundoff sets REALmin */
   qh MINoutside= 0.0;
   qh MINvisible= REALmax;
   qh MAXcoplanar= REALmax;

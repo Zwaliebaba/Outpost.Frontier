@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "common_universe.h"
@@ -17,8 +13,8 @@
 #include "common_reputation.h" // Reputation::Vibe static store (FreeStatic / Begin / EndStaticLoad)
 #include "common_zone.h"   // ZONE, the concrete IZone
 
-#include "DALib.h"
-#include "dacom.h"
+#include "NeuronRuntime.h"
+#include "neuroncomponents.h"
 #include "readfile.h"
 
 #include <list>
@@ -39,7 +35,7 @@ using CmnUniverse::SYSTEM;
 
 namespace
 {
-    const char kSystemsSource[] = "E:\\FL\\Scratch\\Source\\Common\\Systems.cpp";
+    const char kSystemsSource[] = "Common\\Systems.cpp";
     const unsigned long kPathChars = 0x104;
     const unsigned kValidIdMask = 0x3fffffff;
 
@@ -47,17 +43,17 @@ namespace
     IFileSystem* GUniverseDirFs = nullptr;
 
 
-    // The universe object DAT_0658a828: the system map at +0x00, the base map at +0x14, the
-    // zone map at +0x28 and the gate map at +0x3c. Retail keeps the records by value in the
+    // The universe object the field: the system map at +0x00, the base map at +0x14, the
+    // zone map at +0x28 and the gate map at +0x3c. baseline keeps the records by value in the
     // map nodes: the loader builds each record on its stack, copies it into a {id, record}
     // pair, copies the pair into the node, and destroys the pair and the stack record
-    // (FUN_06337250). The maps below do the same.
+    // (the routine). The maps below do the same.
     std::map<unsigned, SYSTEM> GSystems;
     std::map<unsigned, BASE> GBases;
     std::map<unsigned, ZONE> GZones;
     std::map<unsigned, unsigned> GGateSystems;
 
-    // DAT_0658a824 / DAT_0658a820: the GetFirst/GetNext walks. Retail keeps a bare node
+    // / the field: the GetFirst/GetNext walks. baseline keeps a bare node
     // pointer that starts as 0 and is written only by those four functions, so a GetNext
     // before any GetFirst dereferences it; a value-initialised iterator is the same null node.
     std::map<unsigned, SYSTEM>::iterator GSystemWalk;
@@ -67,11 +63,11 @@ namespace
 
 namespace CmnUniverse
 {
-    // The shared [Object] record pool of ISystem slots 15/16: DAT_0658a994..DAT_0658a9a0, a
-    // VC6 vector of 0x118-byte records. Its static constructor LAB_06336330 and atexit
-    // destructor LAB_06336360 are this std::vector's own construction and destruction.
+    // The shared [Object] record pool of ISystem slots 15/16: the field..the field, a
+    // VC6 vector of 0x118-byte records. Its static constructor the branch and atexit
+    // destructor the branch are this std::vector's own construction and destruction.
     std::vector<Universe::FSystemObject> GSystemObjectPool;
-    // DAT_0658a9b8: the SYSTEM whose file the pool currently holds. Retail never resets it.
+    // the SYSTEM whose file the pool currently holds. baseline never resets it.
     SYSTEM const* GSystemObjectPoolOwner = nullptr;
 }
 
@@ -81,13 +77,13 @@ namespace
 
     // Desc layout is asserted once, in readfile.h (DOS/UTF prefix 0x34, MEM tail to 0x40).
 
-    // Stack slots of FUN_06337250 that outlive one INI section, because retail never
+    // Stack slots of the routine that outlive one INI section, because baseline never
     // re-initialises them per section: the stack SYSTEM's position (+0x74, ESP+0x1f4..0x1fc --
     // the constructor at 06337376-06337441 does not write it, so a [System] without pos /
     // real_pos keeps the previous block's) and the [Object] nickname kept in [ESP+0x20] / ESI
     // (06337f5b loads it at the start of every [Object], 06338114 stores it back, so an object
     // without a nickname key uses the previous object's). Their first values are whatever the
-    // stack held (undefined behaviour in retail); the port starts both at zero.
+    // stack held (undefined behaviour in baseline); the port starts both at zero.
     struct FUniverseLoadCarry
     {
         Vector SystemPos;
@@ -105,11 +101,11 @@ namespace
         GUniverseDirFs = nullptr;
     }
 
-    // The four erase(begin, end) calls Startup (06337078-063370ee), FUN_06337250
+    // The four erase(begin, end) calls Startup (06337078-063370ee), the routine
     // (06337279-0633729f) and Shutdown (0633bd94-0633bee2) make, in that order: systems
     // (record destructors FreeSpatial the zone tree), bases, zones (~ZONE releases the mesh
     // handle), gates. Strings are StringCache pointers and are never freed.
-    // Port: the walk iterators are reset too; retail leaves GetNextSystem / GetNextBase holding
+    // Port: the walk iterators are reset too; baseline leaves GetNextSystem / GetNextBase holding
     // an iterator into the erased nodes (undefined), the port's is end() instead.
     void ClearUniverseTables()
     {
@@ -121,8 +117,8 @@ namespace
         GGateSystems.clear();
     }
 
-    // Startup .text:06337169-063371f6: a DOS file system rooted at the universe directory.
-    // DALib::Dacom is not null-checked (06337189 `TEST EDX,EDX; JNZ` falls into the call
+    // Startup module storage-063371f6: a DOS file system rooted at the universe directory.
+    // NeuronRuntime::NeuronComponents is not null-checked (06337189 `TEST EDX,EDX; JNZ` falls into the call
     // either way); the result is the object on success, else 0 (NEG/SBB/NOT/AND).
     void CreateUniverseDirFs(char const* Directory)
     {
@@ -139,7 +135,7 @@ namespace
         Desc.Field30 = 0xFFFFFFFF;
 
         void* Object = nullptr;
-        GENRESULT Result = DALib::Dacom->CreateInstance((AGGDESC*)&Desc, &Object);
+        GENRESULT Result = NeuronRuntime::NeuronComponents->CreateInstance((AGGDESC*)&Desc, &Object);
         GUniverseDirFs = (Result == GR_OK) ? (IFileSystem*)Object : nullptr;
     }
 
@@ -157,15 +153,15 @@ namespace
         {
             if (Reader.is_value("seconds_per_day"))
             {
-                // 06337347-06337355: FLD 1.0 / FDIV by the unrounded value, FSTP double.
+                // FLD 1.0 / FDIV by the unrounded value, FSTP double.
                 DaysPerSecond = 1.0 / Reader.get_value_float(0);
                 break;
             }
         } while (Reader.read_value());
     }
 
-    // FUN_06337250 .text:06337441-06338447: the value loop of one [System] block. The "file"
-    // key parses that system's own ini on the spot (.text:063374b2-06338289), so the zones and
+    // module storage-06338447: the value loop of one [System] block. The "file"
+    // key parses that system's own ini on the spot (module storage-06338289), so the zones and
     // connections of a system are loaded in the middle of its [System] block, with whatever
     // nickname the block has set by then as their system id.
     void ReadSystemValues(INI_Reader& Reader, SYSTEM& Record, FUniverseLoadCarry& Carry)
@@ -177,18 +173,18 @@ namespace
         {
             if (Reader.is_value("nickname"))
             {
-                // 06337465-0633748a: CreateID, then StringAlloc(value, false).
+                // CreateID, then StringAlloc(value, false).
                 char const* Text = Reader.get_value_string();
                 Record.NicknameId = CreateID(Text);
                 Record.Nickname = StringAlloc(Text, false);
             }
             else if (Record.CommReferrable::read_comm_ini_data(Reader))
             {
-                // .text:063374a5: msg_id_prefix -> CommReferrable::MsgIdPrefix.
+                // msg_id_prefix -> CommReferrable::MsgIdPrefix.
             }
             else if (Reader.is_value("file"))
             {
-                // 063374d2-063374ea: StringAlloc(value, false) into +0x70, then the system file
+                // StringAlloc(value, false) into +0x70, then the system file
                 // is read right here (063374e0-06338289).
                 Record.File = StringAlloc(Reader.get_value_string(), false);
                 LoadSystemFile(Record, Record.File, Carry);
@@ -211,11 +207,11 @@ namespace
             }
             else if (Reader.is_value("links"))
             {
-                // 06338371: the key is recognised and its value is not read.
+                // the key is recognised and its value is not read.
             }
             else if (Reader.is_value("pos"))
             {
-                // 06338393-063383eb: z is 0.0 (DAT_0639c430) when value 2 is empty.
+                // z is 0.0 (the field) when value 2 is empty.
                 Record.Pos.x = Reader.get_value_float(0);
                 Record.Pos.y = Reader.get_value_float(1);
                 if (Reader.is_value_empty(2))
@@ -232,10 +228,10 @@ namespace
         } while (Reader.read_value());
     }
 
-    // FUN_06337250 .text:06338451-0633861d, after the value loop. A valid id: the key comes
+    // module storage-0633861d, after the value loop. A valid id: the key comes
     // from slot 0 (06338470), the stack record is copied into a {key, SYSTEM} pair
-    // (FUN_0633e020), the pair into the map (FUN_0633dea0, no overwrite), and the pair is
-    // destroyed (FUN_0633aee0) before the collision error. An invalid id (mask 0x3fffffff)
+    // (the routine), the pair into the map (the routine, no overwrite), and the pair is
+    // destroyed (the routine) before the collision error. An invalid id (mask 0x3fffffff)
     // only reports. The msg_id_prefix check runs either way. The caller destroys the stack
     // record afterwards (06338620-063386ad).
     void InsertSystem(SYSTEM& Record)
@@ -260,14 +256,14 @@ namespace
             }
         }
 
-        // .text:0633850b-0633861d: a system without msg_id_prefix is an error unless it is one
+        // a system without msg_id_prefix is an error unless it is one
         // of the listed story/tutorial systems. Each REPE CMPSB compares strlen+1 bytes, i.e.
-        // an exact match. "St03" is tested twice in retail's list.
+        // an exact match. "Ep03" is tested twice in baseline's list.
         if (Record.CommReferrable::GetMsgIdPrefix().Length == 0)
         {
             static char const* const kSystemsWithoutPrefix[] = {
-                "St01", "St02", "St03", "St02b", "St02c", "St03", "St03b", "Tut", "Ew05",
-                "FP7_system", "Ew06",
+                "Ep01", "Ep02", "Ep03", "Ep02b", "Ep02c", "Ep03", "Ep03b", "Tut", "Oe05",
+                "RELAYSEVEN_system", "Oe06",
             };
             char const* Name = Record.Nickname;
             bool bListed = false;
@@ -327,10 +323,10 @@ namespace
         return Universe::ZoneShapeInvalid;
     }
 
-    // FUN_06337250 .text:06337527-0633753a (and FUN_06336750 .text:063367d6-063367e8): without
+    // module storage-0633753a (and the routine module storage-063367e8): without
     // the universe directory file system the system file name is copied as it is, with an
     // unbounded byte loop into the 0x108-byte stack buffer. Port: the copy stops at the
-    // buffer (a longer name is undefined behaviour in retail); the name is a StringAlloc
+    // buffer (a longer name is undefined behaviour in baseline); the name is a StringAlloc
     // result, never null.
     void CopyRelPath(char* Dest, char const* RelFile)
     {
@@ -350,8 +346,8 @@ namespace
         }
     }
 
-    // FUN_06337250 .text:06337711-06337d77: the value loop of one [Zone] block, into the stack
-    // ZONE (constructor .text:063375cd-06337710; the system id at 063376ed is set by the caller).
+    // module storage-06337d77: the value loop of one [Zone] block, into the stack
+    // ZONE (constructor module storage-06337710; the system id at 063376ed is set by the caller).
     void ReadZoneValues(INI_Reader& Reader, ZONE& Zone)
     {
         Universe::IZone* const Record = &Zone;
@@ -362,7 +358,7 @@ namespace
         {
             if (Reader.is_value("nickname") || Reader.is_value("name"))
             {
-                // 06337d4d-06337d5f: only the id (ZONE +0x04); the text is not kept.
+                // only the id (ZONE +0x04); the text is not kept.
                 Record->NicknameId = CreateID(Reader.get_value_string());
             }
             else if (Reader.is_value("pos"))
@@ -373,7 +369,7 @@ namespace
             }
             else if (Reader.is_value("rotate"))
             {
-                // .text:063377bf-0633781c: the three floats through EulerMatrix, copied over
+                // the three floats through EulerMatrix, copied over
                 // the orientation (REP MOVSD, 9 dwords).
                 Vector Angles;
                 Angles.x = Reader.get_value_float(0);
@@ -399,13 +395,13 @@ namespace
             }
             else if (Reader.is_value("mesh"))
             {
-                // .text:063378fe-06337912: Archetype::Load(get_value_string(0), &mesh handle,
+                // Archetype::Load(get_value_string(0), &mesh handle,
                 // null); the bool result is dropped.
                 Archetype::Load(Reader.get_value_string(0), &Record->MeshHandle, nullptr);
             }
             else if (Reader.is_value("edge_fraction"))
             {
-                // 06337933-063379b2: the unrounded value (re-read for every test) against
+                // the unrounded value (re-read for every test) against
                 // 0.0 (TEST 5 / JNP: below) and 1.0 (TEST 5 / JP: at or above, or unordered).
                 double const Value = Reader.get_value_float(0);
                 if (Value < 0.0)
@@ -421,7 +417,7 @@ namespace
             }
             else if (Reader.is_value("property_fog_color"))
             {
-                // 063379f3-06337a35: each value FMUL double DAT_0639a1b8 (1/255), FSTP float.
+                // each value FMUL double the field (1/255), FSTP float.
                 double const kInv255 = 0.00392156862745098;
                 Record->FogColor.x = (float)(Reader.get_value_float(0) * kInv255);
                 Record->FogColor.y = (float)(Reader.get_value_float(1) * kInv255);
@@ -429,14 +425,14 @@ namespace
             }
             else if (Reader.is_value("drag_modifier"))
             {
-                // 06337a5a-06337b01. FST float, then FCOMP float 1.0 (DAT_0639a1d0) on the
+                // . FST float, then FCOMP float 1.0 (the field) on the
                 // UNROUNDED value, TEST AH,5 / JP: below 1.0 falls into the error; >= 1.0 or
                 // unordered jumps past it. The later tests read the stored float.
                 double const Unrounded = Reader.get_value_float(0);
                 float const Value = (float)Unrounded;
                 if (Unrounded < 1.0)
                 {
-                    // FUN_062b7750(0x10000, 1) builds the flags 0x100001; get_file_name, then
+                    // (0x10000, 1) builds the flags 0x100001; get_file_name, then
                     // the zone id through ID_String::get_string ("0x..." text).
                     char const* const FileName = Reader.get_file_name();
                     ID_String ZoneId;
@@ -445,20 +441,20 @@ namespace
                           "%s(%d) : *** ERROR: drag modifier should be >= 1.0  in zone (%s) in file (%s)",
                           kSystemsSource, 0x9cd, ZoneId.get_string(), FileName);
                 }
-                // 06337abd-06337ada: FCOMP double 1.0, JP (>= 1.0 or unordered) keeps the
+                // FCOMP double 1.0, JP (>= 1.0 or unordered) keeps the
                 // value, below 1.0 stores 1.0.
                 if (Value < 1.0f)
                     Record->DragModifier = 1.0f;
                 else
                     Record->DragModifier = Value;
-                // 06337ae1-06337af6: TEST AH,0x41 / JNZ skips the flag on below, equal or
+                // TEST AH,0x41 / JNZ skips the flag on below, equal or
                 // unordered; only a value above 1.0 sets 0x80000.
                 if (Value > 1.0f)
                     Record->PropertyFlags |= 0x80000;
             }
             else if (Reader.is_value("damage"))
             {
-                // 06337b1b-06337b39: FST float, FCOMP 0.0f on the unrounded value, TEST AH,0x41
+                // FST float, FCOMP 0.0f on the unrounded value, TEST AH,0x41
                 // / JNZ skips the flag on <= 0 or unordered.
                 double const Value = Reader.get_value_float(0);
                 Record->Damage = (float)Value;
@@ -467,7 +463,7 @@ namespace
             }
             else if (Reader.is_value("interference"))
             {
-                // 06337b5e-06337b7c: FST float, FCOMP 0.0f on the unrounded value, TEST AH,0x44
+                // FST float, FCOMP 0.0f on the unrounded value, TEST AH,0x44
                 // / JNP skips the flag only when equal (unordered sets it).
                 double const Value = Reader.get_value_float(0);
                 Record->Interference = (float)Value;
@@ -481,7 +477,7 @@ namespace
             }
             else if (Reader.is_value("spacedust"))
             {
-                // 06337be3-06337c05: StringAlloc(value, false) into the CacheString at +0x70.
+                // StringAlloc(value, false) into the CacheString at +0x70.
                 Record->Spacedust = StringAlloc(Reader.get_value_string(), false);
                 Record->PropertyFlags |= 0x200000;
             }
@@ -491,9 +487,9 @@ namespace
             }
             else if (Reader.is_value("faction"))
             {
-                // FUN_06337250 .text:06337c4d-06337cac: MakeId(get_value_string(0)) zero-
+                // module storage-06337cac: MakeId(get_value_string(0)) zero-
                 // extended, get_value_float(1), then the pair is inserted at the end of the
-                // zone's population (FUN_0633de20 pair ctor, FUN_0633e570 insert(end)).
+                // zone's population (the routine pair ctor, the routine insert(end)).
                 unsigned int const FactionId = MakeId(Reader.get_value_string(0));
                 float const Weight = Reader.get_value_float(1);
                 Record->Population.Items.push_back(std::pair<unsigned int, float>(FactionId, Weight));
@@ -504,7 +500,7 @@ namespace
             }
             else if (Reader.is_value("visit"))
             {
-                // .text:06337ce8-06337cfd: through vt+0x90, which ORs in 0x20.
+                // through vt+0x90, which ORs in 0x20.
                 Record->SetVisit((unsigned char)Reader.get_value_int(0));
             }
             else if (Reader.is_value("ids_name"))
@@ -518,13 +514,13 @@ namespace
         } while (Reader.read_value());
     }
 
-    // FUN_06337250 .text:06337d80-06337e07. Returns the zone as the zone map now holds it, or
+    // module storage-06337e07. Returns the zone as the zone map now holds it, or
     // null when it was not inserted, which decides whether it goes onto its SYSTEM's zone list.
     // An empty id (ID_String::IsEmpty, no mask) is not inserted. Otherwise the stack ZONE is
-    // copied into a {id, ZONE} pair (FUN_0633e3f0), the pair into the zone map (FUN_0633df60,
-    // no overwrite, no error on a duplicate), and the pair is destroyed (FUN_06339010 at
-    // 06337dee) -- its destructor releases the mesh handle the map node still holds, as the
-    // stack ZONE's destructor does again afterwards: retail releases a zone mesh twice for the
+    // copied into a {id, ZONE} pair (the routine), the pair into the zone map (the routine,
+    // no overwrite, no error on a duplicate), and the pair is destroyed (the routine at
+    // ) -- its destructor releases the mesh handle the map node still holds, as the
+    // stack ZONE's destructor does again afterwards: baseline releases a zone mesh twice for the
     // one Archetype::Load, and so does the port.
     Universe::IZone* InsertZone(ZONE const& Record)
     {
@@ -566,13 +562,13 @@ namespace
         return Universe::SolarGateNone;
     }
 
-    // FUN_06336380: read one [Object] section of a system file into a pool record. The key
-    // order below is retail's is_value order.
+    // read one [Object] section of a system file into a pool record. The key
+    // order below is baseline's is_value order.
     void ReadSystemObject(Universe::FSystemObject& Record, INI_Reader& Reader)
     {
-        memset(&Record, 0, sizeof(Record));        // .text:0633638e-06336397 (0x46 dwords)
-        Record.Visit = 0;                          // .text:0633639b
-        bool bStar = false;                        // .text:063363a1
+        memset(&Record, 0, sizeof(Record));        // (0x46 dwords)
+        Record.Visit = 0;
+        bool bStar = false;
         if (!Reader.read_value())
             return;
 
@@ -580,7 +576,7 @@ namespace
         {
             if (Reader.is_value("nickname"))
             {
-                // FUN_06306020(+4, 0x40, value): TString assignment (null -> empty).
+                // (+4, 0x40, value): TString assignment (null -> empty).
                 Record.Nickname = Reader.get_value_string();
             }
             else if (Reader.is_value("next_ring"))
@@ -593,7 +589,7 @@ namespace
             }
             else if (Reader.is_value("pos"))
             {
-                // .text:063364b4-063364f5: value 1 is read first, then 0, then 2.
+                // value 1 is read first, then 0, then 2.
                 float Y = Reader.get_value_float(1);
                 float X = Reader.get_value_float(0);
                 float Z = Reader.get_value_float(2);
@@ -634,7 +630,7 @@ namespace
             }
             else if (Reader.is_value("base"))
             {
-                // .text:0633667a-063366ff: the same lookup and 0xbff warning as FUN_0633bb20.
+                // the same lookup and 0xbff warning as the routine.
                 Record.BaseId = LookupObjectBaseId(Reader.get_value_string());
             }
             else if (Reader.is_value("star"))
@@ -644,13 +640,13 @@ namespace
         } while (Reader.read_value());
 
         if (bStar)
-            Record.Visit = 1;                      // .text:0633673a
+            Record.Visit = 1;
     }
 
     void BuildSystemFilePath(char* FullPath, char const* RelFile)
     {
-        // Retail inlines this in both FUN_06337250 (.text:063374e0-0633753a) and FUN_06336750
-        // (.text:06336787-063367e8): with the universe directory file system, its root
+        // baseline inlines this in both the routine (module storage-0633753a) and the routine
+        // (module storage-063367e8): with the universe directory file system, its root
         // (vt+0x84 into a 0x104-byte buffer) joined with the name by
         // _makepath(out, NULL, root, name, NULL); without it, a plain copy. No absolute-path
         // test (unlike GetFileSysPath).
@@ -670,11 +666,11 @@ namespace
 
 namespace CmnUniverse
 {
-    // FUN_06336750: refill the shared object pool from one system file. Returns false when
+    // refill the shared object pool from one system file. Returns false when
     // the file does not open (the pool is left empty).
     bool LoadSystemObjectPool(char const* RelFile)
     {
-        GSystemObjectPool.clear();                 // .text:0633677d FUN_06340e70(begin, end)
+        GSystemObjectPool.clear();                 // the routine(begin, end)
 
         char FullPath[kPathChars];
         BuildSystemFilePath(FullPath, RelFile);
@@ -683,7 +679,7 @@ namespace CmnUniverse
         if (!Reader.open(FullPath, false))
             return false;
 
-        // .text:06336817-063368a3: grow to 300 records (0x14820 bytes) when smaller.
+        // grow to 300 records (0x14820 bytes) when smaller.
         if (GSystemObjectPool.capacity() < 300)
             GSystemObjectPool.reserve(300);
 
@@ -691,8 +687,8 @@ namespace CmnUniverse
         {
             if (!Reader.is_header("Object"))
                 continue;
-            // .text:063368d1-0633694e: push_back a zeroed record (the function-static zero
-            // record DAT_0658a878), then read into the new back().
+            // push_back a zeroed record (the function-static zero
+            // record the field), then read into the new back().
             GSystemObjectPool.push_back(Universe::FSystemObject());
             ReadSystemObject(GSystemObjectPool.back(), Reader);
         }
@@ -703,8 +699,8 @@ namespace CmnUniverse
 namespace
 {
 
-    // FUN_06337250 .text:06337ef6-06338234: one [Object] section of a system file during the
-    // universe load. Only the keys below are read here; the full record is FUN_06336380's job.
+    // module storage-06338234: one [Object] section of a system file during the
+    // universe load. Only the keys below are read here; the full record is the routine's job.
     void ReadSystemFileObject(INI_Reader& Reader, SYSTEM& System, FUniverseLoadCarry& Carry)
     {
         unsigned NicknameId = 0;                   // [ESP+0x2c] (ID_String::clear 06337f2b)
@@ -714,28 +710,28 @@ namespace
         unsigned GotoId = 0;                       // [ESP+0xb4] (written only by goto)
         unsigned char Visit = 0;                   // [ESP+0x18]
         bool bSawGoto = false;                     // BL
-        Vector Pos;                                // .text:06337f0c: 0xbdcccccd = -0.1f
+        Vector Pos;                                // 0xbdcccccd = -0.1f
         Pos.x = -0.1f;
         Pos.y = -0.1f;
         Pos.z = -0.1f;
 
-        // 06337f4a-06337f51: no value at all -> the section ends here; [ESP+0x20] is not
+        // no value at all -> the section ends here; [ESP+0x20] is not
         // written back (06338114 is past the loop).
         if (!Reader.read_value())
             return;
 
-        // 06337f5b: ESI = [ESP+0x20], the nickname the previous [Object] left behind.
+        // ESI = [ESP+0x20], the nickname the previous [Object] left behind.
         unsigned CarriedNickname = Carry.ObjectNickname;
         do
         {
             if (Reader.is_value("nickname"))
             {
                 NicknameId = CreateID(Reader.get_value_string(0));
-                CarriedNickname = NicknameId;      // 06337f90 MOV ESI,EAX
+                CarriedNickname = NicknameId;      // MOV ESI,EAX
             }
             else if (Reader.is_value("base"))
             {
-                BaseId = LookupObjectBaseId(Reader.get_value_string());   // FUN_0633bb20
+                BaseId = LookupObjectBaseId(Reader.get_value_string());
             }
             else if (Reader.is_value("ids_name"))
             {
@@ -757,21 +753,21 @@ namespace
             }
             else if (Reader.is_value("goto"))
             {
-                // .text:063380b4-063380f9: the gate map entry is {ESI, goto} -- the nickname
+                // the gate map entry is {ESI, goto} -- the nickname
                 // read so far in this object, else the carried one -- inserted without
-                // overwrite (FUN_062fbad0).
+                // overwrite (the routine).
                 GotoId = CreateID(Reader.get_value_string(0));
                 GGateSystems.insert(std::pair<unsigned, unsigned>(CarriedNickname, GotoId));
                 bSawGoto = true;
             }
         } while (Reader.read_value());
 
-        Carry.ObjectNickname = CarriedNickname;    // 06338114 MOV [ESP+0x20],ESI
+        Carry.ObjectNickname = CarriedNickname;    // MOV [ESP+0x20],ESI
 
         if (bSawGoto)
         {
-            // .text:0633811e-063381cb: gate type from the solar archetype, then push_back of
-            // the connection record onto SYSTEM+0x54 (FUN_0633e770): +0x00 goto, +0x04 this
+            // gate type from the solar archetype, then push_back of
+            // the connection record onto SYSTEM+0x54 (the routine): +0x00 goto, +0x04 this
             // object's nickname id ([ESP+0x2c]), +0x08 the carried nickname ([ESP+0x20]),
             // +0x0c pos (x from EBP, y/z from [ESP+0x3c]/[ESP+0x40]), +0x18 visit, +0x1c type.
             ID_String ArchName;
@@ -791,18 +787,18 @@ namespace
             System.Connections.push_back(Connection);
         }
 
-        // .text:063381d0-06338231: an object that names a base updates that base.
+        // an object that names a base updates that base.
         if (BaseId == 0 || !IdIsValid(BaseId))
             return;
         std::map<unsigned, BASE>::iterator Found = GBases.find(BaseId);
         if (Found == GBases.end())
         {
-            // 06338290: FUN_062b7750(0x10000, 2) -> flags 0x100002.
+            // the routine(0x10000, 2) -> flags 0x100002.
             FDUMP(0x100002, "%s(%d) : *** WARNING: get_base(%#X) failed.\n", kSystemsSource, 0xbf3,
                   BaseId);
             return;
         }
-        // .text:06338208-06338231: when the base's slot 2 (strid_name) equals this object's
+        // when the base's slot 2 (strid_name) equals this object's
         // ids_name, slot 25 (+0x64) stores the carried nickname ([ESP+0x20]) and slot 26
         // (+0x68) the visit byte ([ESP+0x18]) into the base. (The null test on the node value
         // at 0x0633820b cannot fail: it is node+0x10.)
@@ -813,8 +809,8 @@ namespace
         Base.SetSpaceObjectVisit(Visit);
     }
 
-    // The system-file half of FUN_06337250 (.text:063374e0-06338289): build the path, open
-    // the file, allocate every [Object] vibe (FUN_062b8de0), rewind, then read [Zone] /
+    // The system-file half of the routine (module storage-06338289): build the path, open
+    // the file, allocate every [Object] vibe (the routine), rewind, then read [Zone] /
     // [Music] / [Object]. A file that does not open is skipped silently (06337567).
     void LoadSystemFile(SYSTEM& System, char const* RelFile, FUniverseLoadCarry& Carry)
     {
@@ -832,12 +828,12 @@ namespace
         {
             if (Reader.is_header("Zone"))
             {
-                // .text:063375c0-063375c8: the reader state is taken at the header, before
+                // the reader state is taken at the header, before
                 // any value of the section is read.
                 Universe::FSystemZone Entry;
                 Reader.get_state(Entry.State);
 
-                // The stack ZONE (ESP+0xd0, ctor .text:063375cd-06337710); 063376ed: its
+                // The stack ZONE (ESP+0xd0, ctor module storage-06337710); 063376ed: its
                 // system id is the SYSTEM's nickname id so far (+0x4c).
                 ZONE Stack;
                 Stack.SystemId = System.NicknameId;
@@ -846,13 +842,13 @@ namespace
                 if (Inserted != nullptr)
                 {
                     Entry.Zone = Inserted;
-                    System.Zones.push_back(Entry);      // FUN_0633e920
+                    System.Zones.push_back(Entry);
                 }
-                // 06337e2d-06337e84: the stack ZONE's destructor (inline ~ZONE).
+                // the stack ZONE's destructor (inline ~ZONE).
             }
             else if (Reader.is_header("Music"))
             {
-                // .text:06337ea3-06337ef1
+
                 if (!Reader.read_value())
                     continue;
                 do
@@ -895,7 +891,7 @@ namespace
             }
             else if (Reader.is_value("BGCS_base_run_by"))
             {
-                // 06338873-063388bd: std::string assignment (_Grow(len, true) + copy; an empty
+                // std::string assignment (_Grow(len, true) + copy; an empty
                 // value empties the string).
                 Record->BgcsBaseRunBy = Reader.get_value_string();
             }
@@ -966,9 +962,9 @@ namespace
         } while (Reader.read_value());
     }
 
-    // FUN_06337250 .text:06338bae-06338c95, after the [Base] value loop. A valid id: the key
-    // from slot 0 (06338bc4), the stack BASE copied into a {key, BASE} pair (FUN_0633e210),
-    // the pair into the base map (FUN_0633ead0, no overwrite), the pair destroyed (its
+    // module storage-06338c95, after the [Base] value loop. A valid id: the key
+    // from slot 0 (06338bc4), the stack BASE copied into a {key, BASE} pair (the routine),
+    // the pair into the base map (the routine, no overwrite), the pair destroyed (its
     // BGCS string released), then the collision error. An invalid id only reports. The
     // caller destroys the stack BASE afterwards (06338c95-06338cc9).
     void InsertBase(BASE const& Record)
@@ -993,16 +989,16 @@ namespace
         }
     }
 
-    // FUN_06337250 (thiscall on the universe object DAT_0658a828, RET 4). Returns the system
+    // (thiscall on the universe object the field, RET 4). Returns the system
     // map's size ([ESI+0x10], 06338cea), which is 0 when the file does not open.
     // It also drives the reputation Vibe static store: emptied before the reader (063372a4),
     // loading mode after a successful open (063372db), sorted after the header loop
     // (06338ce5) -- so every Vibe allocated while the universe loads is a static entry.
     unsigned LoadUniverseIni(char const* FullPath)
     {
-        // 06337279-0633729f: erase(begin, end) on the system, base, zone and gate maps.
+        // erase(begin, end) on the system, base, zone and gate maps.
         ClearUniverseTables();
-        // 063372a4: thunk_FUN_06320550.
+        // thunk_FUN_06320550.
         Reputation::Vibe::FreeStatic();
 
         FUniverseLoadCarry Carry;
@@ -1015,7 +1011,7 @@ namespace
         if (!Reader.open(FullPath, false))
             return (unsigned)GSystems.size();
 
-        // 063372db: FUN_06320430.
+        // the routine.
         Reputation::Vibe::BeginStaticLoad();
 
         while (Reader.read_header())
@@ -1026,27 +1022,27 @@ namespace
             }
             else if (Reader.is_header("System"))
             {
-                // 06337376-06337441: the stack SYSTEM; its +0x74 position is not constructed
+                // the stack SYSTEM; its +0x74 position is not constructed
                 // (see FUniverseLoadCarry), so it still holds the previous block's.
                 SYSTEM Stack;
                 Stack.Pos = Carry.SystemPos;
                 ReadSystemValues(Reader, Stack, Carry);
                 InsertSystem(Stack);
                 Carry.SystemPos = Stack.Pos;
-                // 06338620-063386ad: the stack SYSTEM's destructor (FreeSpatial when set, the
+                // the stack SYSTEM's destructor (FreeSpatial when set, the
                 // zone list, the connection vector).
             }
             else if (Reader.is_header("Base"))
             {
-                // 063386d0-06338780: the stack BASE (constructor below).
+                // the stack BASE (constructor below).
                 BASE Stack;
                 ReadBaseValues(Reader, &Stack);
                 InsertBase(Stack);
-                // 06338c95-06338cc9: the stack BASE's destructor (its BGCS string).
+                // the stack BASE's destructor (its BGCS string).
             }
         }
 
-        // 06338ce5: FUN_06320530 (only on the opened path; 063372d5 jumps past it).
+        // the routine (only on the opened path; 063372d5 jumps past it).
         Reputation::Vibe::EndStaticLoad();
 
         return (unsigned)GSystems.size();
@@ -1091,10 +1087,10 @@ namespace Universe
 {
     bool __cdecl Startup(char const* RelPath)
     {
-        // listing 06337060. Refcount DAT_0658a9bc: skip load if already != 0.
+        // listing 06337060. Refcount the field: skip load if already != 0.
         if (GUniverseRefCount == 0)
         {
-            // 06337073-063370ee: the four maps erased; 063370f3 thunk_FUN_06320550 (the
+            // the four maps erased; 063370f3 thunk_FUN_06320550 (the
             // reputation Vibe static store emptied); 063370f8-06337107 the old directory file
             // system released.
             ClearUniverseTables();
@@ -1102,7 +1098,7 @@ namespace Universe
             ReleaseUniverseDirFs();
 
             char FullPath[kPathChars];
-            GetFileSysPath(FullPath, RelPath, DALib::Data);
+            GetFileSysPath(FullPath, RelPath, NeuronRuntime::Data);
 
             char Drive[kPathChars];
             char Dir[kPathChars];
@@ -1131,7 +1127,7 @@ namespace Universe
         if (GUniverseRefCount != 0)
             return;
 
-        // 0633bd94-0633bee2: systems, bases, zones, gates erased; 0633bee4 thunk_FUN_06320550
+        // systems, bases, zones, gates erased; 0633bee4 thunk_FUN_06320550
         // (the reputation Vibe static store emptied); then the directory file system released
         // (vt+0x08) and nulled.
         ClearUniverseTables();
@@ -1173,7 +1169,7 @@ namespace Universe
 
     void __cdecl get_filename(char* Dest, char const* RelPath)
     {
-        // Common.dll.txt:0633c650. With the universe directory file system (DAT_0658a9b4):
+        // Commonc650. With the universe directory file system (the field):
         // its root (vt+0x84 into a 0x104-byte buffer) joined by
         // _makepath(Dest, NULL, root, RelPath, NULL); without it, a byte copy of RelPath into
         // Dest through its NUL. No argument checks.
@@ -1187,7 +1183,7 @@ namespace Universe
         strcpy(Dest, RelPath);
     }
 
-    // 0633c030 / 0633c0a0: post-increment walks -- the element under the walk is returned
+    // / 0633c0a0: post-increment walks -- the element under the walk is returned
     // and the walk moves to its in-order successor before the return.
     ISystem* __cdecl GetFirstSystem()
     {
@@ -1240,7 +1236,7 @@ namespace Universe
         return &Found->second;
     }
 
-    // 0633c230 / 0633c2a0: the same post-increment walks over the base map.
+    // / 0633c2a0: the same post-increment walks over the base map.
     IBase* __cdecl GetFirstBase()
     {
         GBaseWalk = GBases.begin();
@@ -1360,7 +1356,7 @@ namespace Universe
 
     unsigned __cdecl get_gate_system(unsigned NicknameId)
     {
-        // listing 0633c5e0. DAT_0658a868 map: key = object CreateID, value = goto system.
+        // listing 0633c5e0. the field map: key = object CreateID, value = goto system.
         std::map<unsigned, unsigned>::iterator Found = GGateSystems.find(NicknameId);
         if (Found == GGateSystems.end())
         {

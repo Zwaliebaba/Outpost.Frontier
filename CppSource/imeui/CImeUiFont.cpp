@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "CImeUiFont.h"
@@ -9,7 +5,7 @@
 #include <cwchar>
 #include <vector>
 
-// FUN_067120f0: caret prefixes use an explicit count, not NUL termination.
+// caret prefixes use an explicit count, not NUL termination.
 BOOL ImeUi_GetTextExtent(HDC Dc, const wchar_t* Text, int Count, SIZE* Size)
 {
     static bool bChecked = false;
@@ -19,7 +15,7 @@ BOOL ImeUi_GetTextExtent(HDC Dc, const wchar_t* Text, int Count, SIZE* Size)
         bChecked = true;
         OSVERSIONINFOW Version;
         Version.dwOSVersionInfoSize = sizeof(Version);
-        #pragma warning(suppress: 4996) // Retail platform branch uses GetVersionExW.
+        #pragma warning(suppress: 4996) // baseline platform branch uses GetVersionExW.
         GetVersionExW(&Version);
         bWindowsNt = Version.dwPlatformId == VER_PLATFORM_WIN32_NT;
     }
@@ -45,7 +41,7 @@ CImeUiFont::CImeUiFont(IMEInputBox* Owner)
 
 CImeUiFont::~CImeUiFont()
 {
-    // FUN_06712440 calls DeleteObject for the DC too.
+    // calls DeleteObject for the DC too.
     if (m_hDC != nullptr)
         SelectObject(m_hDC, nullptr);
     if (m_hFont != nullptr)

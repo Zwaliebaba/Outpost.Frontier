@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // Content.dll TU53: the path and route helpers (SpacePaths.h). Lane CNT-AI owns this file.
@@ -10,13 +6,13 @@
 
 #include "BaseDB.h"               // FindContentBaseInfo, FContentBase::FindFaction
 #include "BehaviorCmds.h"         // FContentShipBase (formation group +0x154)
-#include "ContentInternal.h"      // SubtractVectors (FUN_06eeaee0)
-#include "ContentPlayerState.h"   // FindContentPlayerStateByShip (FUN_06f49bc0)
-#include "DockQueues.h"           // GetSpaceMathEngine (DAT_06fd1c70, shared with DockQueues)
-#include "Encounters.h"           // SetMatrixIdentity (FUN_06efc7a0)
+#include "ContentInternal.h"      // SubtractVectors (the routine)
+#include "ContentPlayerState.h"   // FindContentPlayerStateByShip (the routine)
+#include "DockQueues.h"           // GetSpaceMathEngine (the field, shared with DockQueues)
+#include "Encounters.h"           // SetMatrixIdentity (the routine)
 #include "MissionObject.h"        // FNnPathLeg, FMissionDirectiveList
 #include "MissionObjList.h"       // CreateObjListDirective, FObjListDock, FObjListGotoVec
-#include "Populators.h"           // SpacePopGetSolarDetection (FUN_06f5a7e0)
+#include "Populators.h"           // SpacePopGetSolarDetection (the routine)
 #include "SpaceSupport.h"         // GSpaceSupportGuidedShips
 #include "SystemInfo.h"
 #include "common_server.h"
@@ -30,8 +26,8 @@
 namespace
 {
     // The inlined subtraction whose three differences are passed as floats to the Vector
-    // (x, y, z) ctor FUN_06eb7810 (06f5f633, 06f5f65c, 06f5fa9e, 06f605de, 06f6065b). The
-    // CALL sites of FUN_06eeaee0 use the shared SubtractVectors (ContentInternal.h).
+    // (x, y, z) ctor the routine (06f5f633, 06f5f65c, 06f5fa9e, 06f605de, 06f6065b). The
+    // CALL sites of the routine use the shared SubtractVectors (ContentInternal.h).
     Vector Subtract(Vector const& A, Vector const& B)
     {
         Vector Out;
@@ -41,7 +37,7 @@ namespace
         return Out;
     }
 
-    // FUN_06f5f4f0 (thiscall on the vector): z*z + y*y, then + x*x, on the x87 stack.
+    // (thiscall on the vector): z*z + y*y, then + x*x, on the x87 stack.
     double LengthSquaredZyx(Vector const& V)
     {
         return (static_cast<double>(V.z) * V.z + static_cast<double>(V.y) * V.y) +
@@ -61,7 +57,7 @@ namespace
         return Guess;
     }
 
-    // The cost form of FUN_06f5f930: ((LengthSquared / Divisor) * (1.5 - y * y *
+    // The cost form of the routine: ((LengthSquared / Divisor) * (1.5 - y * y *
     // LengthSquared * 0.5)) * y (06f5fa34-06f5fa54, 06f5fad4-06f5faf2, 06f5fb31-06f5fb56).
     double FastLengthOver(double LengthSquared, float Divisor)
     {
@@ -70,13 +66,13 @@ namespace
         return ((LengthSquared / Divisor) * Step) * Guess;
     }
 
-    // DAT_06fd1ac0 (16 x 0xc; built once, guard byte DAT_06fd1ab9): the unit vectors
-    // (cos(i * pi / 8), 0, sin(i * pi / 8)) of FUN_06f61430. The float DAT_06fbbc44 is pi / 8.
+    // (16 x 0xc; built once, guard byte the field): the unit vectors
+    // (cos(i * pi / 8), 0, sin(i * pi / 8)) of the routine. The float the field is pi / 8.
     Vector GRingDirections[16];
     bool bRingDirectionsBuilt = false;
 
-    // The empty ring of FUN_06f62120 / FUN_06f62290 / FUN_06f62440 / FUN_06f67050: id 0,
-    // identity rotation, zero translation, reputation -1. Retail leaves the position of the
+    // The empty ring of the routine / the routine / the routine / the routine: id 0,
+    // identity rotation, zero translation, reputation -1. baseline leaves the position of the
     // first three unset (it is only read when a ring is found); the port zeroes it.
     void InitEmptyRing(FTradeLaneRing* Ring)
     {
@@ -91,10 +87,10 @@ namespace
         Ring->Reputation = 0xffffffffu;
     }
 
-    // FUN_06f62750 (cdecl): *Out = the rings of the first lane of System that has a ring with
+    // (cdecl): *Out = the rings of the first lane of System that has a ring with
     // RingId; Out is untouched when no lane has it. Each lane's ring vector is copied into a
     // local (06f627c3-06f627dc, EH state 0 = funclet 06fafc80 on [EBP-0x1c]) and the copy is
-    // searched; a miss frees it (06f6280b), a hit assigns it to *Out (FUN_06f68ac0) and frees it.
+    // searched; a miss frees it (06f6280b), a hit assigns it to *Out (the routine) and frees it.
     void GetLaneRingsOf(FSystemInfo* System, unsigned int RingId, std::vector<FTradeLaneRing>* Out)
     {
         std::vector<FTradeLane>* Lanes = System->GetTradeLanes();
@@ -106,14 +102,14 @@ namespace
             {
                 if (Ring->ObjectId == RingId)
                 {
-                    *Out = Rings;                                         // FUN_06f68ac0
+                    *Out = Rings;
                     return;
                 }
             }
         }
     }
 
-    // FUN_06f62880 (cdecl): *Out = the ring *RingId of its lane (untouched when not found).
+    // (cdecl): *Out = the ring *RingId of its lane (untouched when not found).
     void FindRing(FSystemInfo* System, unsigned int const* RingId, FTradeLaneRing* Out)
     {
         std::vector<FTradeLaneRing> Rings;
@@ -128,7 +124,7 @@ namespace
         }
     }
 
-    // FUN_06f62290 (cdecl): the lane end ring (first or last ring of a lane) nearest to
+    // (cdecl): the lane end ring (first or last ring of a lane) nearest to
     // Position. First ring: (x*x + z*z) + y*y kept on the x87 stack; last ring:
     // (z*z + y*y) + x*x stored as a float. A ring wins while no ring was taken (Best -1) or
     // when strictly nearer.
@@ -149,21 +145,21 @@ namespace
             double const Dz = static_cast<double>(First.Position.z) - Position->z;
             double const FirstDistance = (Dx * Dx + Dz * Dz) + Dy * Dy;
 
-            // 06f62352-06f62380: the differences stay on the x87 stack (no float store of the
+            // the differences stay on the x87 stack (no float store of the
             // components); only the sum is stored as a float.
             double const Lx = static_cast<double>(Last.Position.x) - Position->x;
             double const Ly = static_cast<double>(Last.Position.y) - Position->y;
             double const Lz = static_cast<double>(Last.Position.z) - Position->z;
             float const LastDistance = static_cast<float>((Lz * Lz + Ly * Ly) + Lx * Lx);
 
-            // 06f6238a-06f623b7: TEST AH,0x44 / JNP -> Best == -1; else TEST AH,5 / JP ->
+            // TEST AH,0x44 / JNP -> Best == -1; else TEST AH,5 / JP ->
             // taken unless FirstDistance < Best.
             if (Best == -1.0f || FirstDistance < Best)
             {
                 Best = static_cast<float>(FirstDistance);
                 BestRing = First;
             }
-            // 06f623bb-06f623dd: TEST AH,5 / JP -> taken unless LastDistance < Best.
+            // TEST AH,5 / JP -> taken unless LastDistance < Best.
             if (LastDistance < Best)
             {
                 BestRing = Last;
@@ -173,7 +169,7 @@ namespace
         *Out = BestRing;
     }
 
-    // FUN_06f62120 (cdecl): over every lane, the entry ring FindEntryRing(Position, lane, no
+    // (cdecl): over every lane, the entry ring FindEntryRing(Position, lane, no
     // target) gives; the one nearest to Position ((z*z + x*x) + y*y) wins, first taken while
     // Best is -1, then only when strictly nearer.
     void FindNearestRing(FTradeLaneRing* Out, FSystemInfo* System, Vector const* Position)
@@ -191,7 +187,7 @@ namespace
             double const Dy = static_cast<double>(Ring.Position.y) - Position->y;
             double const Dz = static_cast<double>(Ring.Position.z) - Position->z;
             double const Distance = (Dz * Dz + Dx * Dx) + Dy * Dy;
-            // 06f62203-06f6221d: Best == -1 (TEST AH,0x44 / JNP), else Distance < Best.
+            // Best == -1 (TEST AH,0x44 / JNP), else Distance < Best.
             if (Best == -1.0f || Distance < Best)
             {
                 Best = static_cast<float>(Distance);
@@ -201,11 +197,11 @@ namespace
         *Out = BestRing;
     }
 
-    // The planner local of FUN_06f5ea40 (ESP+0x74; built inline: FUN_06f2cb90 on +0,
-    // FUN_06eb79a0 on +0xc; torn down by FUN_06f5ff50).
+    // The planner local of the routine (ESP+0x74; built inline: the routine on +0,
+    // on +0xc; torn down by the routine).
     struct FNnPathPlanner
     {
-        // +0x00: candidate routes, each a chain of lane legs (node 0x14, FUN_06f2cb90).
+        // +0x00: candidate routes, each a chain of lane legs (node 0x14, the routine).
         std::list<std::list<FNnPathLeg>> Routes;
         // +0x0c: the system's lanes as kind 0 legs, dropped once a route ends on them.
         std::list<FNnPathLeg> Lanes;
@@ -223,7 +219,7 @@ namespace
         double GetRouteCost(FSystemInfo* System, std::list<FNnPathLeg> const* Legs);
     };
 
-    // FUN_06f5f760 (thiscall, RET 0x10; `this` unused): the end of StartRing's lane to leave
+    // (thiscall, RET 0x10; `this` unused): the end of StartRing's lane to leave
     // it by. The other end when StartRing is one of them, else the end nearer to Target (the
     // last ring on a tie). No lane: Out gets id 0, position 0 and reputation -1; false.
     bool FNnPathPlanner::FindExitRing(FSystemInfo* System, FTradeLaneRing const* StartRing,
@@ -251,7 +247,7 @@ namespace
             }
             else
             {
-                // 06f5f888-06f5f8ed: (z*z + y*y) + x*x of each end, both on the x87 stack;
+                // (z*z + y*y) + x*x of each end, both on the x87 stack;
                 // TEST AH,0x41 / JNZ keeps the last ring unless LastDistance > FirstDistance
                 // (unordered keeps it too).
                 double const Fx = static_cast<double>(First.Position.x) - Target->x;
@@ -272,8 +268,8 @@ namespace
         return true;
     }
 
-    // FUN_06f5f5c0 (thiscall, RET 8): the route of least summed cost wins (first taken while
-    // Best is negative); *Current = the ring its last leg ends on (FUN_06f62880). Per leg:
+    // (thiscall, RET 8): the route of least summed cost wins (first taken while
+    // Best is negative); *Current = the ring its last leg ends on (the routine). Per leg:
     // (|B - End|^2 + |B - Start|^2) + (|A - End|^2 + |A - Start|^2), summed as a float.
     void FNnPathPlanner::PickBestRoute(FSystemInfo* System, FTradeLaneRing* Current)
     {
@@ -284,9 +280,9 @@ namespace
             float Sum = 0.0f;
             for (std::list<FNnPathLeg>::iterator Leg = Route->begin(); Leg != Route->end(); ++Leg)
             {
-                Vector const AStart = SubtractVectors(Leg->PointA, Start); // 06f5f60e
-                Vector const AEnd = Subtract(Leg->PointA, End);            // FUN_06eb7810
-                Vector const BStart = Subtract(Leg->PointB, Start);        // FUN_06eb7810
+                Vector const AStart = SubtractVectors(Leg->PointA, Start);
+                Vector const AEnd = Subtract(Leg->PointA, End);
+                Vector const BStart = Subtract(Leg->PointB, Start);
                 double const Bx = static_cast<double>(Leg->PointB.x) - End.x;
                 double const By = static_cast<double>(Leg->PointB.y) - End.y;
                 double const Bz = static_cast<double>(Leg->PointB.z) - End.z;
@@ -296,16 +292,16 @@ namespace
                 double const R = LengthSquaredZyx(AStart);
                 Sum = static_cast<float>(P + (Q + R) + Sum);
             }
-            // 06f5f6ff-06f5f71d: Sum < Best (JNP), else Best < 0 (TEST AH,5 / JP skips).
+            // Sum < Best (JNP), else Best < 0 (TEST AH,5 / JP skips).
             if (Sum < Best || Best < 0.0f)
             {
                 Best = Sum;
-                FindRing(System, &Route->back().ObjectB, Current);         // FUN_06f62880
+                FindRing(System, &Route->back().ObjectB, Current);
             }
         }
     }
 
-    // FUN_06f5f570 (thiscall, RET 4): erase the first lane leg whose ObjectB is *Ring's id.
+    // (thiscall, RET 4): erase the first lane leg whose ObjectB is *Ring's id.
     void FNnPathPlanner::RemoveLaneEndingAt(FTradeLaneRing const* Ring)
     {
         for (std::list<FNnPathLeg>::iterator Lane = Lanes.begin(); Lane != Lanes.end(); ++Lane)
@@ -318,39 +314,39 @@ namespace
         }
     }
 
-    // FUN_06f5fb90 (thiscall, RET 4): the route ending on *Current (last leg's ObjectB) is
+    // (thiscall, RET 4): the route ending on *Current (last leg's ObjectB) is
     // taken out of Routes (empty base when none); each lane with an end within 11000 of
     // Current's position gives a new route = base + that lane, oriented away from Current
     // (a lane whose far end is near is reversed: kind 0, ends and rings swapped).
     void FNnPathPlanner::ExtendRoutes(FTradeLaneRing const* Current)
     {
-        std::list<FNnPathLeg> Base;                                        // FUN_06f93280
+        std::list<FNnPathLeg> Base;
         for (std::list<std::list<FNnPathLeg>>::iterator Route = Routes.begin();
              Route != Routes.end(); ++Route)
         {
             if (Route->back().ObjectB == Current->ObjectId)
             {
-                Base = *Route;                                             // FUN_06f0ddb0
-                Routes.erase(Route);                                       // FUN_06f68f70
+                Base = *Route;
+                Routes.erase(Route);
                 break;
             }
         }
 
         for (std::list<FNnPathLeg>::iterator Lane = Lanes.begin(); Lane != Lanes.end(); ++Lane)
         {
-            // 06f5fc44-06f5fc81: TEST AH,0x41 / JP skips when greater (or unordered).
-            Vector const ToA = SubtractVectors(Lane->PointA, Current->Position);   // 06f5fc52
+            // TEST AH,0x41 / JP skips when greater (or unordered).
+            Vector const ToA = SubtractVectors(Lane->PointA, Current->Position);
             double const DistanceA = (static_cast<double>(ToA.z) * ToA.z +
                                       static_cast<double>(ToA.y) * ToA.y) +
                                      static_cast<double>(ToA.x) * ToA.x;
             if (DistanceA <= 1.21e8)
             {
-                std::list<FNnPathLeg> Route(Base);                         // FUN_06f0dd10
-                Route.push_back(*Lane);                                    // FUN_06f69780
-                Routes.push_back(Route);                                   // FUN_06f697d0
+                std::list<FNnPathLeg> Route(Base);
+                Route.push_back(*Lane);
+                Routes.push_back(Route);
                 continue;
             }
-            Vector const ToB = SubtractVectors(Lane->PointB, Current->Position);   // 06f5fce9
+            Vector const ToB = SubtractVectors(Lane->PointB, Current->Position);
             double const DistanceB = (static_cast<double>(ToB.z) * ToB.z +
                                       static_cast<double>(ToB.y) * ToB.y) +
                                      static_cast<double>(ToB.x) * ToB.x;
@@ -369,7 +365,7 @@ namespace
         }
     }
 
-    // FUN_06f5fe50 (thiscall, RET 0xc): *Out = the first route ending on *Ring (unless Out is
+    // (thiscall, RET 0xc): *Out = the first route ending on *Ring (unless Out is
     // that route); with bErase the route is dropped from Routes.
     void FNnPathPlanner::CopyRouteEndingAt(FTradeLaneRing const* Ring, std::list<FNnPathLeg>* Out,
                                            bool bErase)
@@ -387,7 +383,7 @@ namespace
         }
     }
 
-    // FUN_06f5f930 (thiscall, RET 8): travel time of Legs. The first leg adds Start to its
+    // (thiscall, RET 8): travel time of Legs. The first leg adds Start to its
     // entry ring (FindEntryRing on its lane towards End) at 300 per second; then each leg its
     // length, free flight (kind 1) at 300, lanes at 2500 (FastLengthOver).
     double FNnPathPlanner::GetRouteCost(FSystemInfo* System, std::list<FNnPathLeg> const* Legs)
@@ -397,20 +393,20 @@ namespace
         {
             if (Leg == Legs->begin())
             {
-                std::vector<FTradeLaneRing> Rings;                         // FUN_06eac620
+                std::vector<FTradeLaneRing> Rings;
                 GetLaneRingsOf(System, Leg->ObjectA, &Rings);
                 if (!Rings.empty())
                 {
                     FTradeLaneRing Entry;
                     FindEntryRing(&Entry, &Start, &Rings, &End);
-                    Vector const ToEntry = SubtractVectors(Start, Entry.Position);  // 06f5f9fb
+                    Vector const ToEntry = SubtractVectors(Start, Entry.Position);
                     double const LengthSquared = LengthSquaredZyx(ToEntry);
                     Total = static_cast<float>(FastLengthOver(LengthSquared, 300.0f) + Total);
                 }
             }
             if (Leg->Kind == 1)
             {
-                Vector const Along = Subtract(Leg->PointA, Leg->PointB);   // FUN_06eb7810
+                Vector const Along = Subtract(Leg->PointA, Leg->PointB);
                 Total = static_cast<float>(FastLengthOver(LengthSquaredZyx(Along), 300.0f) + Total);
             }
             else
@@ -425,7 +421,7 @@ namespace
         return Total;
     }
 
-    // FUN_06f5ea20 (thiscall): Kind 1, ObjectA / ObjectB 0 (the points are the caller's).
+    // (thiscall): Kind 1, ObjectA / ObjectB 0 (the points are the caller's).
     FNnPathLeg MakeFreeLeg(Vector const& PointA, Vector const& PointB)
     {
         FNnPathLeg Leg;
@@ -438,7 +434,7 @@ namespace
     }
 }
 
-// FUN_06f5f510 (thiscall on the vector) and the inline copies: see SpacePaths.h.
+// (thiscall on the vector) and the inline copies: see SpacePaths.h.
 double __cdecl FastLength(double LengthSquared)
 {
     float const Guess = SqrtGuess(LengthSquared);
@@ -446,13 +442,13 @@ double __cdecl FastLength(double LengthSquared)
     return (Step * Guess) * LengthSquared;
 }
 
-// FUN_06f60d60 (06f60d60-06f60d9d).
+// (06f60d60-06f60d9d).
 void __cdecl RegisterGuidedShip(FContentNpcShip* Ship)
 {
     GSpaceSupportGuidedShips.push_back(Ship);
 }
 
-// FUN_06f60da0 (06f60da0-06f60dc3).
+// (06f60da0-06f60dc3).
 void __cdecl UnregisterGuidedShip(FContentNpcShip* Ship)
 {
     for (std::list<FContentNpcShip*>::iterator It = GSpaceSupportGuidedShips.begin();
@@ -466,19 +462,19 @@ void __cdecl UnregisterGuidedShip(FContentNpcShip* Ship)
     }
 }
 
-// FUN_06f60e10 (06f60e10-06f60fb1).
+// (06f60e10-06f60fb1).
 bool __cdecl IsSegmentClear(Vector const* From, Vector const* To, FSystemInfo* System)
 {
-    if (SpacePopGetSolarDetection() == 0)                                  // FUN_06f5a7e0
+    if (SpacePopGetSolarDetection() == 0)
         return true;
 
-    // 06f60e27-06f60e67: the difference; the length from (x*x + z*z) + y*y.
+    // the difference; the length from (x*x + z*z) + y*y.
     double const Dx = static_cast<double>(To->x) - From->x;                // kept on the stack
     float const Dy = To->y - From->y;
     float const Dz = To->z - From->z;
     double const Length = std::sqrt((Dx * Dx + static_cast<double>(Dz) * Dz) +
                                     static_cast<double>(Dy) * Dy);
-    // 06f60e6b-06f60e94: (600 + 400) against Length * 0.5 (TEST AH,5 / JP): below it the
+    // (600 + 400) against Length * 0.5 (TEST AH,5 / JP): below it the
     // radius is 2000, else Length.
     float ScanRadius = static_cast<float>(Length);
     if (Length * 0.5 < 1000.0)
@@ -510,14 +506,14 @@ bool __cdecl IsSegmentClear(Vector const* From, Vector const* To, FSystemInfo* S
             Reach = (200.0 + 400.0) + Radius;
         float const ReachSquared = static_cast<float>(Reach * Reach);
         Vector Closest;
-        // 06f60f79-06f60f8a: TEST AH,5 / JNP -> blocked when the distance is below the reach.
+        // TEST AH,5 / JNP -> blocked when the distance is below the reach.
         if (DistanceSquaredToSegment(&ObjectCenter, From, To, &Closest) < ReachSquared)
             return false;
     }
     return true;
 }
 
-// FUN_06f60fc0 (06f60fc0-06f61190).
+// (06f60fc0-06f61190).
 bool __cdecl FindObstacleCenter(unsigned int SystemId, Vector Center, float Range,
                                 Vector* OutCenter)
 {
@@ -545,7 +541,7 @@ bool __cdecl FindObstacleCenter(unsigned int SystemId, Vector Center, float Rang
         double const Dy = static_cast<double>(Center.y) - ObjectCenter.y;
         double const Dz = static_cast<double>(Center.z) - ObjectCenter.z;
         double const DistanceSquared = (Dz * Dz + Dy * Dy) + Dx * Dx;
-        // 06f610b8-06f610cd: TEST AH,0x41 / JNZ skips unless Limit^2 > distance^2.
+        // TEST AH,0x41 / JNZ skips unless Limit^2 > distance^2.
         if (static_cast<double>(Limit) * Limit > DistanceSquared)
         {
             Obstacles[ObstacleCount] = ObjectCenter;
@@ -577,8 +573,8 @@ bool __cdecl FindObstacleCenter(unsigned int SystemId, Vector Center, float Rang
     return ObstacleCount > 0;
 }
 
-// FUN_06f61430 (06f61430-06f61556). The table is built on the first call (the atexit entry
-// of the guard DAT_06fd1b80, FUN_06f61560, is an empty function).
+// (06f61430-06f61556). The table is built on the first call (the atexit entry
+// of the guard the field, the routine, is an empty function).
 void __cdecl PickPointsAround(Vector const* Center, float const* MinRange, float MaxRange,
                               Vector* OutPoints)
 {
@@ -607,7 +603,7 @@ void __cdecl PickPointsAround(Vector const* Center, float const* MinRange, float
     }
 }
 
-// FUN_06f62440 (06f62440-06f62740).
+// (06f62440-06f62740).
 void __cdecl FindEntryRing(FTradeLaneRing* Out, Vector const* Position,
                            std::vector<FTradeLaneRing> const* Rings, Vector const* Target)
 {
@@ -621,10 +617,10 @@ void __cdecl FindEntryRing(FTradeLaneRing* Out, Vector const* Position,
     for (std::vector<FTradeLaneRing>::const_iterator Ring = Rings->begin(); Ring != Rings->end();
          ++Ring)
     {
-        Vector const Diff = Subtract(Ring->Position, *Position);          // FUN_06eb7810
+        Vector const Diff = Subtract(Ring->Position, *Position);
         double const WideDistance = LengthSquaredZyx(Diff);
         float const Distance = static_cast<float>(WideDistance);         // FST local_f8
-        // 06f6254d-06f6256b: the x87 value < Nearest (JNP), else Nearest == -1 (TEST AH,0x44).
+        // the x87 value < Nearest (JNP), else Nearest == -1 (TEST AH,0x44).
         if (WideDistance < NearestDistance || NearestDistance == -1.0f)
         {
             Nearest = *Ring;
@@ -633,7 +629,7 @@ void __cdecl FindEntryRing(FTradeLaneRing* Out, Vector const* Position,
         if (Target == nullptr)
             continue;
 
-        // 06f62591-06f625d1: the ring's -z axis through its rotation (slot 11,
+        // the ring's -z axis through its rotation (slot 11,
         // TransformMatrix), normalised with 1 / sqrt((x*x + y*y) + z*z).
         FVector const Back = {0.0f, 0.0f, -1.0f};
         FVector Axis;
@@ -644,7 +640,7 @@ void __cdecl FindEntryRing(FTradeLaneRing* Out, Vector const* Position,
         double const Nx = Axis.X * Inverse;
         double const Ny = Inverse * Axis.Y;
         double const Nz = Inverse * Axis.Z;
-        // 06f62622-06f62676: the plane's offset, then the signed distances of Target and
+        // the plane's offset, then the signed distances of Target and
         // Position; the ring counts when their product is below 0 (TEST AH,5 / JP skips).
         double const Offset = -((Ring->Position.z * Nz + Ring->Position.x * Nx) +
                                 Ring->Position.y * Ny);
@@ -653,7 +649,7 @@ void __cdecl FindEntryRing(FTradeLaneRing* Out, Vector const* Position,
             ((Nz * Position->z + Ny * Position->y) + Nx * Position->x) + Offset;
         if (!(TargetSide * PositionSide < 0.0))
             continue;
-        // 06f62678-06f62696: Distance < Crossing (JNP), else Crossing == -1.
+        // Distance < Crossing (JNP), else Crossing == -1.
         if (Distance < CrossingDistance || CrossingDistance == -1.0f)
         {
             Crossing = *Ring;
@@ -661,23 +657,23 @@ void __cdecl FindEntryRing(FTradeLaneRing* Out, Vector const* Position,
         }
     }
 
-    // 06f626d0-06f626f8: the crossing ring replaces the nearest one when a target was given
+    // the crossing ring replaces the nearest one when a target was given
     // and its id is set.
     if (Target != nullptr && (Crossing.ObjectId & 0x3fffffffu) != 0)
         Nearest = Crossing;
     *Out = Nearest;
 }
 
-// FUN_06f6cb60 (06f6cb60-06f6cb8e).
+// (06f6cb60-06f6cb8e).
 bool __cdecl IsBaseOfAffiliation(int const* Reputation, unsigned int const* BaseId)
 {
     unsigned int Affiliation = 0;
     pub::Reputation::GetAffiliation(*Reputation, Affiliation);
-    FContentBase* Base = FindContentBaseInfo(BaseId);                      // FUN_06eac0c0
-    return Base->FindFaction(Affiliation) != nullptr;                      // FUN_06eab770
+    FContentBase* Base = FindContentBaseInfo(BaseId);
+    return Base->FindFaction(Affiliation) != nullptr;
 }
 
-// FUN_06f5ea40 (06f5ea40-06f5f4e2).
+// (06f5ea40-06f5f4e2).
 bool __cdecl BuildNnPath(FSystemInfo* System, Vector const* From, Vector const* To,
                          std::list<FNnPathLeg>* Legs, int Flags, float const* Range,
                          int Unused7)
@@ -686,7 +682,7 @@ bool __cdecl BuildNnPath(FSystemInfo* System, Vector const* From, Vector const* 
     (void)Unused7;
     bool bResult = true;                                                   // local_21e
 
-    // 06f5ea6d-06f5ea7c: the lane end nearest to the destination (FUN_06f62290).
+    // the lane end nearest to the destination (the routine).
     FTradeLaneRing EndRing;
     FindNearestLaneEnd(&EndRing, System, To);
 
@@ -694,10 +690,10 @@ bool __cdecl BuildNnPath(FSystemInfo* System, Vector const* From, Vector const* 
     Planner.Start = *From;
     Planner.End = *To;
     Planner.DirectCost = static_cast<float>(
-        FastLength(LengthSquaredZyx(SubtractVectors(*From, *To))) / 300.0f);  // 06f5eb00
+        FastLength(LengthSquaredZyx(SubtractVectors(*From, *To))) / 300.0f);
 
-    // 06f5eb2e-06f5ebf6: every lane as a kind 0 leg between its end rings (FUN_06f5ea20 then
-    // Kind 0; FUN_06f2fb70 is the ring count).
+    // every lane as a kind 0 leg between its end rings (the routine then
+    // Kind 0; the routine is the ring count).
     std::vector<FTradeLane>* Lanes = System->GetTradeLanes();
     for (std::vector<FTradeLane>::iterator Lane = Lanes->begin(); Lane != Lanes->end(); ++Lane)
     {
@@ -705,33 +701,33 @@ bool __cdecl BuildNnPath(FSystemInfo* System, Vector const* From, Vector const* 
         Leg.Kind = 0;
         Leg.ObjectA = Lane->Rings.empty() ? 0 : Lane->Rings.front().ObjectId;
         Leg.ObjectB = Lane->Rings.empty() ? 0 : Lane->Rings.back().ObjectId;
-        Planner.Lanes.push_back(Leg);                                      // FUN_06f68e70
+        Planner.Lanes.push_back(Leg);
     }
 
     if (Planner.Routes.empty())
     {
-        // 06f5ec0a-06f5ec5d: the ring nearest to the start and the end of its lane to leave by.
+        // the ring nearest to the start and the end of its lane to leave by.
         FTradeLaneRing StartRing;
-        FindNearestRing(&StartRing, System, &Planner.Start);              // FUN_06f62120
+        FindNearestRing(&StartRing, System, &Planner.Start);
         FTradeLaneRing ExitRing;
-        InitEmptyRing(&ExitRing);                                          // FUN_06f67050
+        InitEmptyRing(&ExitRing);
         if (!Planner.FindExitRing(System, &StartRing, &Planner.End, &ExitRing))
         {
-            // 06f5f071-06f5f12c: no lane: straight to the destination unless it is in range.
+            // no lane: straight to the destination unless it is in range.
             Legs->clear();
             // TEST AH,5 / JP: no path unless Range^2 < distance^2.
-            Vector const Diff = SubtractVectors(*From, *To);             // 06f5f0a1
+            Vector const Diff = SubtractVectors(*From, *To);
             double const DistanceSquared = LengthSquaredZyx(Diff);
             double const RangeValue = *Range;
             if (!(RangeValue * RangeValue < DistanceSquared))
                 return false;
-            Legs->push_back(MakeFreeLeg(*From, *To));                      // FUN_06f69780
+            Legs->push_back(MakeFreeLeg(*From, *To));
             return bResult;
         }
 
-        // 06f5ec63-06f5edfe: the start lane (the one the exit ring belongs to) becomes the
+        // the start lane (the one the exit ring belongs to) becomes the
         // first route, oriented towards the exit; EntryPoint is where that lane is joined.
-        // Retail leaves EntryPoint unset when no lane matches (never: the exit ring is a lane
+        // baseline leaves EntryPoint unset when no lane matches (never: the exit ring is a lane
         // end); the port starts it at 0.
         Vector EntryPoint;
         EntryPoint.x = 0.0f;
@@ -749,7 +745,7 @@ bool __cdecl BuildNnPath(FSystemInfo* System, Vector const* From, Vector const* 
                 Reversed.ObjectA = Lane->ObjectB;
                 Reversed.ObjectB = Lane->ObjectA;
                 Route.push_back(Reversed);
-                Planner.Routes.push_back(Route);                           // FUN_06f68f20
+                Planner.Routes.push_back(Route);
                 Planner.Lanes.erase(Lane);
                 break;
             }
@@ -764,12 +760,12 @@ bool __cdecl BuildNnPath(FSystemInfo* System, Vector const* From, Vector const* 
             }
         }
 
-        // 06f5ee03-06f5efdf: every lane with an end within 11000 of EntryPoint starts a route
+        // every lane with an end within 11000 of EntryPoint starts a route
         // too, oriented away from it.
         std::list<FNnPathLeg>::iterator Lane = Planner.Lanes.begin();
         while (Lane != Planner.Lanes.end())
         {
-            if (LengthSquaredZyx(SubtractVectors(EntryPoint, Lane->PointA)) < 1.21e8)   // 06f5ee41
+            if (LengthSquaredZyx(SubtractVectors(EntryPoint, Lane->PointA)) < 1.21e8)
             {
                 std::list<FNnPathLeg> Route;
                 Route.push_back(*Lane);
@@ -777,7 +773,7 @@ bool __cdecl BuildNnPath(FSystemInfo* System, Vector const* From, Vector const* 
                 Lane = Planner.Lanes.erase(Lane);
                 continue;
             }
-            if (LengthSquaredZyx(SubtractVectors(EntryPoint, Lane->PointB)) < 1.21e8)   // 06f5eee8
+            if (LengthSquaredZyx(SubtractVectors(EntryPoint, Lane->PointB)) < 1.21e8)
             {
                 std::list<FNnPathLeg> Route;
                 FNnPathLeg Reversed = MakeFreeLeg(Lane->PointB, Lane->PointA);
@@ -793,8 +789,8 @@ bool __cdecl BuildNnPath(FSystemInfo* System, Vector const* From, Vector const* 
         }
     }
 
-    // 06f5efe5-06f5f148: the ring the best route ends on; its lane leg leaves the pool. The
-    // ring starts as id 0 with the identity transform (FUN_06f143d0); retail leaves its
+    // the ring the best route ends on; its lane leg leaves the pool. The
+    // ring starts as id 0 with the identity transform (the routine); baseline leaves its
     // position and reputation unset, the port zeroes them.
     FTradeLaneRing Current;
     InitEmptyRing(&Current);
@@ -809,33 +805,33 @@ bool __cdecl BuildNnPath(FSystemInfo* System, Vector const* From, Vector const* 
         }
     }
 
-    // 06f5f14d-06f5f254: extend until the destination's lane end is reached, the routes run
+    // extend until the destination's lane end is reached, the routes run
     // out, or the current ring is within 11000 of that end (TEST AH,0x41 / JP: <= counts).
-    Vector ToEnd = SubtractVectors(Current.Position, EndRing.Position);   // 06f5f167
+    Vector ToEnd = SubtractVectors(Current.Position, EndRing.Position);
     bool bClose = LengthSquaredZyx(ToEnd) <= 1.21e8;
     while (Current.ObjectId != EndRing.ObjectId && !Planner.Routes.empty() && !bClose)
     {
         Planner.ExtendRoutes(&Current);
         Planner.PickBestRoute(System, &Current);
         Planner.RemoveLaneEndingAt(&Current);
-        ToEnd = SubtractVectors(Current.Position, EndRing.Position);   // 06f5f210
+        ToEnd = SubtractVectors(Current.Position, EndRing.Position);
         bClose = LengthSquaredZyx(ToEnd) <= 1.21e8;
     }
 
-    // 06f5f25a-06f5f2cc: the chosen route, then free flight from its last ring.
+    // the chosen route, then free flight from its last ring.
     Planner.CopyRouteEndingAt(&Current, Legs, false);
     Legs->push_back(MakeFreeLeg(Current.Position, *To));
 
-    // 06f5f2cc-06f5f315: the lanes must beat flying straight (TEST AH,0x41 / JNZ keeps the
+    // the lanes must beat flying straight (TEST AH,0x41 / JNZ keeps the
     // route unless Cost > Direct; unordered keeps it too).
     float const Cost = static_cast<float>(Planner.GetRouteCost(System, Legs));
-    double const Direct = FastLength(LengthSquaredZyx(SubtractVectors(*From, *To))) / 300.0f;   // 06f5f2ec
+    double const Direct = FastLength(LengthSquaredZyx(SubtractVectors(*From, *To))) / 300.0f;
     if (Cost > Direct)
     {
-        // 06f5f31b-06f5f39c: straight flight, unless the destination is within *Range
+        // straight flight, unless the destination is within *Range
         // (TEST AH,5 / JP: no path unless Range^2 < distance^2).
-        Legs->clear();                                                     // FUN_06ecfec0
-        double const DistanceSquared = LengthSquaredZyx(SubtractVectors(*From, *To));   // 06f5f32a
+        Legs->clear();
+        double const DistanceSquared = LengthSquaredZyx(SubtractVectors(*From, *To));
         double const RangeValue = *Range;
         if (!(RangeValue * RangeValue < DistanceSquared))
             return false;
@@ -843,13 +839,13 @@ bool __cdecl BuildNnPath(FSystemInfo* System, Vector const* From, Vector const* 
         return bResult;
     }
 
-    // 06f5f3a6-06f5f49e: the first lane is joined at its ring nearest to From that lies
+    // the first lane is joined at its ring nearest to From that lies
     // between From and the lane's far end; a lane joined at its exit is dropped (and an
     // emptied path becomes the straight flight).
     std::list<FNnPathLeg>::iterator First = Legs->begin();
     if (First != Legs->end())
     {
-        std::vector<FTradeLaneRing> Rings;                                 // FUN_06eac620
+        std::vector<FTradeLaneRing> Rings;
         GetLaneRingsOf(System, First->ObjectA, &Rings);
         FTradeLaneRing Entry;
         FindEntryRing(&Entry, From, &Rings, &First->PointB);
@@ -857,7 +853,7 @@ bool __cdecl BuildNnPath(FSystemInfo* System, Vector const* From, Vector const* 
         First->PointA = Entry.Position;
         if (First->ObjectA == First->ObjectB)
         {
-            Legs->pop_front();                                             // FUN_06f68e40
+            Legs->pop_front();
             if (Legs->empty())
                 Legs->push_back(MakeFreeLeg(*From, *To));
         }
@@ -865,18 +861,18 @@ bool __cdecl BuildNnPath(FSystemInfo* System, Vector const* From, Vector const* 
     return bResult;
 }
 
-// FUN_06f60020 (06f60020-06f601eb). The unwind map (FuncInfo 06fc4af4) holds the legs (state
+// (06f60020-06f601eb). The unwind map (FuncInfo 06fc4af4) holds the legs (state
 // 0) and one ref-holding local per branch (state 1 the dock directive, state 2 the goto
-// directive; FUN_06f28e10 releases it): each directive is made by the factory (FUN_06f24870)
+// directive; the routine releases it): each directive is made by the factory (the routine)
 // into its holder (the dock branch first releases the empty holder, 06f60128), gets its
 // setter and BaseOp Field_08 = 1 ([dir+0x114]), the list takes a copy (insert at the end,
-// FUN_06f1e390) and AddRefs it (slot 0), and the holder is released at the end of the branch.
-// Retail leaves the leg count in EAX (06f601a3); no caller reads it.
+// ) and AddRefs it (slot 0), and the holder is released at the end of the branch.
+// baseline leaves the leg count in EAX (06f601a3); no caller reads it.
 void __cdecl BuildPathDirectives(FSystemInfo* System, Vector const* From, Vector const* To,
                                  std::list<FObjListDirective*>* Directives, int Flags,
                                  float const* Range)
 {
-    std::list<FNnPathLeg> Legs;                                            // FUN_06f93280
+    std::list<FNnPathLeg> Legs;
     BuildNnPath(System, From, To, &Legs, Flags, Range, 0);
     for (std::list<FNnPathLeg>::iterator Leg = Legs.begin(); Leg != Legs.end(); ++Leg)
     {
@@ -885,7 +881,7 @@ void __cdecl BuildPathDirectives(FSystemInfo* System, Vector const* From, Vector
             TRefHandle<FObjListDirective> Directive;                      // EH state 1
             CreateObjListDirective(0x13, &Directive.Pointer);
             FObjListDock* Dock = static_cast<FObjListDock*>(Directive.Pointer);
-            Dock->SetTarget(&Leg->ObjectA, &Leg->ObjectB);                 // FUN_06f276f0
+            Dock->SetTarget(&Leg->ObjectA, &Leg->ObjectB);
             Dock->Op.Priority = 1;
             Directives->push_back(Directive.Pointer);
             Directive->AddRef();
@@ -895,7 +891,7 @@ void __cdecl BuildPathDirectives(FSystemInfo* System, Vector const* From, Vector
             TRefHandle<FObjListDirective> Directive;                      // EH state 2
             CreateObjListDirective(5, &Directive.Pointer);
             FObjListGotoVec* Goto = static_cast<FObjListGotoVec*>(Directive.Pointer);
-            Goto->SetDestination(&Leg->PointB, *Range, -1.0f, 0, false, false);   // FUN_06f26460
+            Goto->SetDestination(&Leg->PointB, *Range, -1.0f, 0, false, false);
             Goto->Op.Priority = 1;
             Directives->push_back(Directive.Pointer);
             Directive->AddRef();
@@ -903,11 +899,11 @@ void __cdecl BuildPathDirectives(FSystemInfo* System, Vector const* From, Vector
     }
 }
 
-// FUN_06f68270 (06f68270-06f682b5).
+// (06f68270-06f682b5).
 bool __cdecl IsSameShipOrFormation(FContentShipBase* Ship, unsigned int OtherId)
 {
     FContentShipBase* Other =
-        static_cast<FContentShipBase*>(Ship->GetSystem()->FindShip(OtherId));    // FUN_06f73930
+        static_cast<FContentShipBase*>(Ship->GetSystem()->FindShip(OtherId));
     if (Other == nullptr)
         return false;
     if (Other->FormationId != 0xffffffffu && Other->FormationId == Ship->FormationId)
@@ -917,9 +913,9 @@ bool __cdecl IsSameShipOrFormation(FContentShipBase* Ship, unsigned int OtherId)
 
 namespace
 {
-    // 06f67dcc-06f67e62 / 06f67e8f-06f67f59: the ships of Object's formation group
-    // (FUN_06f66220 after room for 5 is reserved, FUN_06eed270), or Object alone when it flies
-    // in no group (+0x154 == -1, appended by FUN_06eb5770 / FUN_06f937c0).
+    // / 06f67e8f-06f67f59: the ships of Object's formation group
+    // (the routine after room for 5 is reserved, the routine), or Object alone when it flies
+    // in no group (+0x154 == -1, appended by the routine / the routine).
     void CollectAttitudeMembers(std::vector<FContentShipBase*>* Out, FContentShipBase* Object)
     {
         if (Object->FormationId == 0xffffffffu)
@@ -932,23 +928,23 @@ namespace
     }
 }
 
-// FUN_06f67d80 (06f67d80-06f68267). Slot 1 of a member (FContentSpaceObj::Slot04) tells an NPC
-// ship (true) from a player ship; an NPC's reputation is its handle's (FUN_06f33f80), a player
+// (06f67d80-06f68267). Slot 1 of a member (FContentSpaceObj::Slot04) tells an NPC
+// ship (true) from a player ship; an NPC's reputation is its handle's (the routine), a player
 // ship's pub::SpaceObj::GetRep (not checked inside the loops). SetAttitude(A, B) sets A's
-// attitude towards B. Neither FindShip result is null-checked (retail).
+// attitude towards B. Neither FindShip result is null-checked (baseline).
 void __cdecl SetFormationAttitudes(FSystemInfo* System, unsigned int ShipId, unsigned int OtherId,
                                    bool bFormations, bool bMutual, float Attitude)
 {
     if (!bFormations)
     {
-        // 06f681d7-06f68257: the two objects only, never from a player's ship.
+        // the two objects only, never from a player's ship.
         int ShipRep;
         int OtherRep;
         if (pub::SpaceObj::GetRep(ShipId, ShipRep) != 0)
             return;
         if (pub::SpaceObj::GetRep(OtherId, OtherRep) != 0)
             return;
-        if (FindContentPlayerStateByShip(&ShipId) == nullptr)            // FUN_06f49bc0
+        if (FindContentPlayerStateByShip(&ShipId) == nullptr)
             pub::Reputation::SetAttitude(ShipRep, OtherRep, Attitude);
         if (bMutual && FindContentPlayerStateByShip(&OtherId) == nullptr)
             pub::Reputation::SetAttitude(OtherRep, ShipRep, Attitude);
@@ -959,13 +955,13 @@ void __cdecl SetFormationAttitudes(FSystemInfo* System, unsigned int ShipId, uns
     CollectAttitudeMembers(&ShipMembers,
                            static_cast<FContentShipBase*>(System->FindShip(ShipId)));
 
-    // 06f67e65-06f67e81: OtherId is a ship when its type has a bit of 0x7f0000. Retail
+    // OtherId is a ship when its type has a bit of 0x7f0000. baseline
     // ignores GetType's result (the type stays unset on a failure); the port starts it at 0.
     unsigned int OtherType = 0;
     pub::SpaceObj::GetType(OtherId, OtherType);
     if ((OtherType & 0x7f0000u) == 0)
     {
-        // 06f680f2-06f681c4: every member of the ship's group and the object's reputation.
+        // every member of the ship's group and the object's reputation.
         int OtherRep;
         if (pub::SpaceObj::GetRep(OtherId, OtherRep) != 0)
             return;
@@ -996,7 +992,7 @@ void __cdecl SetFormationAttitudes(FSystemInfo* System, unsigned int ShipId, uns
     CollectAttitudeMembers(&OtherMembers,
                            static_cast<FContentShipBase*>(System->FindShip(OtherId)));
 
-    // 06f67f5c-06f680bf.
+    // .
     for (std::vector<FContentShipBase*>::iterator Member = ShipMembers.begin();
          Member != ShipMembers.end(); ++Member)
     {
@@ -1019,7 +1015,7 @@ void __cdecl SetFormationAttitudes(FSystemInfo* System, unsigned int ShipId, uns
                 }
                 else
                 {
-                    // 06f67fff-06f68030: towards a player's ship, one way only.
+                    // towards a player's ship, one way only.
                     int TargetRep;
                     pub::SpaceObj::GetRep((*Target)->SpaceObjId, TargetRep);
                     int MemberRep = (*Member)->ReputationHandle->GetReputation();
@@ -1029,7 +1025,7 @@ void __cdecl SetFormationAttitudes(FSystemInfo* System, unsigned int ShipId, uns
         }
         else if (bMutual)
         {
-            // 06f68046-06f680b4: a player's ship: only the NPC targets towards it.
+            // a player's ship: only the NPC targets towards it.
             for (std::vector<FContentShipBase*>::iterator Target = OtherMembers.begin();
                  Target != OtherMembers.end(); ++Target)
             {

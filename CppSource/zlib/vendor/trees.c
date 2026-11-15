@@ -964,7 +964,7 @@ local void compress_block(deflate_state *s, const ct_data *ltree,
 local int detect_data_type(deflate_state *s) {
     /* block_mask is the bit mask of block-listed bytes
      * set bits 0..6, 14..25, and 28..31
-     * 0xf3ffc07f = binary 11110011111111111100000001111111
+     * = binary 11110011111111111100000001111111
      */
     unsigned long block_mask = 0xf3ffc07fUL;
     int n;

@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -35,15 +31,15 @@ public:
     float normal[4];                 // +0x00 plane normal (x, y, z; +0xc not written by the builder)
     IVP_Template_Polygon* templ;     // +0x10 owning template
     int32_t n_lines;                 // +0x14
-    uint16_t* lines;                 // +0x18 line indices, calloc(n_lines, 2) (FUN_06343f80)
+    uint16_t* lines;                 // +0x18 line indices, calloc(n_lines, 2) (the routine)
     char* revert_line;               // +0x1c per line: 1 = walk the line forwards, operator new(n_lines)
 
-    // 0636d9c0: zero 8 dwords.
+    // zero 8 dwords.
     IVP_Template_Surface();
-    // 0636d9e0 (reached through the thunk 0636da20).
+    // (reached through the thunk 0636da20).
     ~IVP_Template_Surface();
 
-    // 0636da10: (this - templ->surfaces) >> 5.
+    // (this - templ->surfaces) >> 5.
     int32_t get_surface_index() const;
 };
 static_assert(sizeof(IVP_Template_Surface) == 0x20, "IVP_Template_Surface is 0x20 bytes");
@@ -59,9 +55,9 @@ public:
     int32_t n_surfaces;               // +0x10
     IVP_Template_Surface* surfaces;   // +0x14 new IVP_Template_Surface[n_surfaces]
 
-    // 0636d940.
+    // .
     IVP_Template_Polygon();
-    // 0636d960.
+    // .
     ~IVP_Template_Polygon();
 };
 static_assert(sizeof(IVP_Template_Polygon) == 0x18, "IVP_Template_Polygon is 0x18 bytes");

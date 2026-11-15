@@ -1,29 +1,25 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
 // The docking camera -- the fixed exterior shot that watches the player's ship fly into a dock
-// ring or a base mooring point. Vtable .rdata 0x005dc2d4, ctor FUN_0051ea20, controller + 0xa9c.
-//
+// ring or a base mooring point. Vtable .rdata 0x005dc2d4, ctor the routine, controller + 0xa9c.
+
 // It is the only camera in the hierarchy that never moves and yet updates every frame: it holds
 // its position and re-aims at the player's ship, which is exactly what a docking shot looks
 // like. Four slots are its own:
-//
-//   0x58  FUN_0051eaa0  attach:     runs two subsystem calls first, then the usual watcher swap
-//   0x64  LAB_0051ea50  activate:   base activate, bars in, clear the fade countdown
-//   0x68  FUN_0051ea80  deactivate: bars out, clear the countdown
-//   0x6c  LAB_0051eae0  update:     re-aim at the ship, and run the fade countdown
-//
+
+//   0x58  the routine  attach:     runs two subsystem calls first, then the usual watcher swap
+//   0x64  the branch  activate:   base activate, bars in, clear the fade countdown
+//   0x68  the routine  deactivate: bars out, clear the countdown
+//   0x6c  the branch  update:     re-aim at the ship, and run the fade countdown
+
 // Its own fields, all three written by the ctor at 0x0051ea2a..0x0051ea36:
-//
+
 //   +0xf8   bFadePending   whether the docking fade-out has been armed
 //   +0xfc   TotalSeconds   how long the docking sequence lasts
 //   +0x100  ElapsedSeconds how much of it has gone by
-//
+
 // The countdown is what makes the screen fade to black just as the ship reaches the airlock: the
 // update fades out once the REMAINING time drops below the fade's own duration, so the fade
 // finishes exactly as the sequence does.
@@ -49,22 +45,22 @@ static_assert(offsetof(FDockingCamera, bFadePending) == 0x0f8, "DC +0x0f8");
 static_assert(offsetof(FDockingCamera, TotalSeconds) == 0x0fc, "DC +0x0fc");
 static_assert(offsetof(FDockingCamera, ElapsedSeconds) == 0x100, "DC +0x100");
 
-// FUN_0051ea20.
+// .
 void DockingCameraConstruct(FDockingCamera* Cam);
 
-// Slot 0x58 (FUN_0051eaa0).
+// Slot 0x58 (the routine).
 void DockingCameraAttach(FDockingCamera* Cam, void* Object);
 
-// Slot 0x64 (LAB_0051ea50).
+// Slot 0x64 (the branch).
 bool DockingCameraActivate(FDockingCamera* Cam, const int* ViewRect4);
 
-// Slot 0x68 (FUN_0051ea80).
+// Slot 0x68 (the routine).
 void DockingCameraDeactivate(FDockingCamera* Cam);
 
-// Slot 0x6c (LAB_0051eae0). Re-aims at the player ship and advances the fade countdown.
+// Slot 0x6c (the branch). Re-aims at the player ship and advances the fade countdown.
 void DockingCameraUpdate(FDockingCamera* Cam, float DeltaSeconds);
 
-// FUN_0051ebd0 -- a non-virtual method, called from FUN_0054bc0a. Arms the countdown: the
+// a non-virtual method, called from the routine. Arms the countdown: the
 // sequence is Seconds long, and the elapsed counter starts at 0.1 rather than at zero (the
 // literal 0x3dcccccd), so the first tenth of a second is spent before the camera ever runs.
 void DockingCameraBeginSequence(FDockingCamera* Cam, float Seconds);

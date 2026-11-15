@@ -1,31 +1,27 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
-// Retail CargoBarControl (RTTI .?AUCargoBarControl@@ : WinControl) -- the hold bar of the
+// baseline CargoBarControl (RTTI .?AUCargoBarControl@@ : WinControl) -- the hold bar of the
 // NeuroNet inventory and dealer windows and the HUD cargo gauge: a quad strip filled to
 // Used / Capacity, with an optional highlighted head (+0x33c) and tail (+0x338) segment, a
 // line-loop border and a "used/capacity" tooltip.
-//
-// WINFACTORY<CargoBarControl> "CargoBarControl": ctor FUN_0055fcb0 (called from the static
-// initializer at 0x0055e90a), Create FUN_0055fd20 (operator_new(0x350), FUN_0055e930, slot 9).
-// Built directly by WinControl::CreateCargoBarControl (FUN_005a1080 -> Init FUN_0055ee80).
-//
+
+// WINFACTORY<CargoBarControl> "CargoBarControl": ctor the routine (called from the static
+// initializer at 0x0055e90a), Create the routine (operator_new(0x350), the routine, slot 9).
+// Built directly by WinControl::CreateCargoBarControl (the routine -> Init the routine).
+
 // vftable 0x005e1924 (45 slots) -- WinControl's with these overrides:
-//    0 FUN_0055e9f0 scalar deleting dtor (WinControl's FUN_0059fa50 only)
-//    4 LAB_0055fa80 HitTest          5 LAB_0055f5a0 SetPosition     6 LAB_0043d8e0 (Win3D's)
-//    7 LAB_0055f5f0 SetOrientation   9 LAB_0055eb40 Create         11 LAB_0055f660 Update
-//   13 LAB_0055ef60 Draw            15 FUN_0055fa00 MouseEnter     16 FUN_0055fa40 MouseLeave
-//   19 FUN_005a0650 (WinControl's)  27 LAB_0055e9e0 GetHitPriority (0x64)
-//   35 FUN_00401e90 RefreshAttachment (RET -- no hardpoint re-attach)
-//   40 LAB_0055ea20 GetAttachOrientation   41 FUN_0055eaf0 GetAttachPosition
-//   42 LAB_0055fb00 SetProperty
-//
-// Layout (ctor FUN_0055e930, size 0x350):
+//    0 the routine scalar deleting dtor (WinControl's the routine only)
+//    4 the branch HitTest          5 the branch SetPosition     6 the branch (Win3D's)
+//    7 the branch SetOrientation   9 the branch Create         11 the branch Update
+//   13 the branch Draw            15 the routine MouseEnter     16 the routine MouseLeave
+//   19 the routine (WinControl's)  27 the branch GetHitPriority (0x64)
+//   35 the routine RefreshAttachment (RET -- no hardpoint re-attach)
+//   40 the branch GetAttachOrientation   41 the routine GetAttachPosition
+//   42 the branch SetProperty
+
+// Layout (ctor the routine, size 0x350):
 //   +0x32c "tooltip2" IDS -- the caption prefix of the tooltip ("%s %d/%d")
 //   +0x330 capacity, +0x334 used, +0x338 tail segment, +0x33c head segment (floats)
 //   +0x340 fill colour RGBA bytes ("color", ctor 0,0,0,0)
@@ -41,28 +37,28 @@
 class CargoBarControl : public WinControl
 {
 public:
-    // FUN_0055e930
+
     CargoBarControl();
 
-    // FUN_0055ee80 (RET 0x20) -- the argument list of FUN_005a1080 after the name.
+    // (RET 0x20) -- the argument list of the routine after the name.
     void Init(char const* MeshPath, float const* NewOffset, char const* Hardpoint,
               float const* NewHalfExtents, unsigned char bNewHorizontal, int NewToolTip2Ids,
               unsigned NewColor, unsigned NewHighlightColor);
 
     // --- Win3D / WinControl overrides ---
-    bool HitTest(float const* Ray) override;                       // slot 4  LAB_0055fa80
-    void SetPosition(float const* NewPosition) override;           // slot 5  LAB_0055f5a0
-    void SetOrientation(float const* NewOrientation) override;     // slot 7  LAB_0055f5f0
-    bool Create(Win3D* NewParent, void* Data) override;            // slot 9  LAB_0055eb40
-    void Update() override;                                        // slot 11 LAB_0055f660
-    void Draw() override;                                          // slot 13 LAB_0055ef60
-    void MouseEnter(float const* Ray) override;                    // slot 15 FUN_0055fa00
-    void MouseLeave(float const* Ray) override;                    // slot 16 FUN_0055fa40
-    int GetHitPriority() override;                                 // slot 27 LAB_0055e9e0
-    void RefreshAttachment() override;                             // slot 35 FUN_00401e90
-    void GetAttachOrientation(float* OutOrientation9) override;    // slot 40 LAB_0055ea20
-    void GetAttachPosition(float* OutPosition3) override;          // slot 41 FUN_0055eaf0
-    intptr_t SetProperty(int Msg, uintptr_t A, uintptr_t B) override; // slot 42 LAB_0055fb00
+    bool HitTest(float const* Ray) override;                       // slot 4  the branch
+    void SetPosition(float const* NewPosition) override;           // slot 5  the branch
+    void SetOrientation(float const* NewOrientation) override;     // slot 7  the branch
+    bool Create(Win3D* NewParent, void* Data) override;            // slot 9  the branch
+    void Update() override;                                        // slot 11 the branch
+    void Draw() override;                                          // slot 13 the branch
+    void MouseEnter(float const* Ray) override;                    // slot 15 the routine
+    void MouseLeave(float const* Ray) override;                    // slot 16 the routine
+    int GetHitPriority() override;                                 // slot 27 the branch
+    void RefreshAttachment() override;                             // slot 35 the routine
+    void GetAttachOrientation(float* OutOrientation9) override;    // slot 40 the branch
+    void GetAttachPosition(float* OutPosition3) override;          // slot 41 the routine
+    intptr_t SetProperty(int Msg, uintptr_t A, uintptr_t B) override; // slot 42 the branch
 
     int ToolTip2Ids;                  // +0x32c
     float Capacity;                   // +0x330
@@ -87,11 +83,11 @@ private:
 static_assert(offsetof(CargoBarControl, ToolTip2Ids) == 0x32c, "CargoBarControl +0x32c");
 static_assert(offsetof(CargoBarControl, Color) == 0x340, "CargoBarControl +0x340");
 static_assert(offsetof(CargoBarControl, bShow) == 0x34d, "CargoBarControl +0x34d");
-static_assert(sizeof(CargoBarControl) == 0x350, "retail CargoBarControl is 0x350 bytes");
+static_assert(sizeof(CargoBarControl) == 0x350, "baseline CargoBarControl is 0x350 bytes");
 
-// The tooltip hover record (tooltip_hover.h) as retail inlines it at each hover site: the
-// per-site start values after construction and the caption copy (FUN_004142a0 + wcsncpy). The
-// construction and the teardown (FUN_00444ee0) are the record's own ctor / dtor. Defined in
+// The tooltip hover record (tooltip_hover.h) as baseline inlines it at each hover site: the
+// per-site start values after construction and the caption copy (the routine + wcsncpy). The
+// construction and the teardown (the routine) are the record's own ctor / dtor. Defined in
 // cargo_bar_control.cpp; NN_Inventory's SetProperty 0x4f uses them too.
 struct FToolTipHoverInfo;
 void ToolTipHoverInit(FToolTipHoverInfo* Info);

@@ -1,0 +1,19 @@
+; Author: Giperion.
+
+LIBRARY neuroncomponents
+EXPORTS
+    NEURONCOMPONENTS_Acquire
+    NEURONCOMPONENTS_GetDllVersion
+    NEURONCOMPONENTS_GetVersion
+    FDUMP DATA
+    ?GetCRC32@NEURONCOMPONENTS_CRC@@YAKPBD@Z
+    ?GetCRC32@NEURONCOMPONENTS_CRC@@YAKPBD0@Z
+    ?GetContinuedCRC32@NEURONCOMPONENTS_CRC@@YAKKPBD@Z
+    ?GetContinuedCRC32@NEURONCOMPONENTS_CRC@@YAKKD@Z
+    ?CompareStringsI@NEURONCOMPONENTS_CRC@@YAHPBD0@Z
+    ?Startup@LogStream@@YA_NPBD@Z
+    ?FlushToDisk@LogStream@@YAXXZ
+    ?LogEvent@LogStream@@YAXPBDMK@Z
+    ?LogNamedEvent@LogStream@@YAXPBD0K@Z
+    ?Update@LogStream@@YAXM@Z
+    stricmp = NeuronComponentsStricmp

@@ -1161,9 +1161,9 @@ extern int ZEXPORT zipOpenNewFileInZip4_64(zipFile file, const char* filename, c
     zi->ci.bstream.avail_in = (uInt)0;
     zi->ci.bstream.avail_out = (uInt)Z_BUFSIZE;
     zi->ci.bstream.next_out = (char*)zi->ci.buffered_data;
-    zi->ci.bstream.total_in_hi32 = 0;
+    zi->ci.bstream.total_in_pe32 = 0;
     zi->ci.bstream.total_in_lo32 = 0;
-    zi->ci.bstream.total_out_hi32 = 0;
+    zi->ci.bstream.total_out_pe32 = 0;
     zi->ci.bstream.total_out_lo32 = 0;
 #endif
 
@@ -1347,7 +1347,7 @@ local int zip64FlushWriteBuffer(zip64_internal* zi) {
     {
       zi->ci.totalUncompressedData += zi->ci.bstream.total_in_lo32;
       zi->ci.bstream.total_in_lo32 = 0;
-      zi->ci.bstream.total_in_hi32 = 0;
+      zi->ci.bstream.total_in_pe32 = 0;
     }
     else
 #endif
@@ -1399,7 +1399,7 @@ extern int ZEXPORT zipWriteInFileInZip(zipFile file, const void* buf, unsigned i
         if ((zi->ci.method == Z_BZIP2ED) && (!zi->ci.raw))
         {
           uLong uTotalOutBefore_lo = zi->ci.bstream.total_out_lo32;
-//          uLong uTotalOutBefore_hi = zi->ci.bstream.total_out_hi32;
+//          uLong uTotalOutBefore_hi = zi->ci.bstream.total_out_pe32;
           err=BZ2_bzCompress(&zi->ci.bstream,  BZ_RUN);
 
           zi->ci.pos_in_buffered_data += (uInt)(zi->ci.bstream.total_out_lo32 - uTotalOutBefore_lo) ;

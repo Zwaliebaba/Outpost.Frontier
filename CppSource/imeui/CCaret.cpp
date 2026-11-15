@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "CCaret.h"
@@ -11,7 +7,7 @@
 CCaret::CCaret(HWND HWnd)
 {
     m_bShow = false;
-    BlinkTimestamp = 0; // Retail +4 stores blink timestamp, ignores HWnd.
+    BlinkTimestamp = 0; // baseline +4 stores blink timestamp, ignores HWnd.
     m_bCaretState = false;
     m_nX = 0;
     m_nY = 0;

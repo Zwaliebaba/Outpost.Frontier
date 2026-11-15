@@ -1,27 +1,23 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
-// Common.dll Loadout (retail Loadouts.cpp): the loadout table read from the loadout INIs.
+// Common.dll Loadout (baseline Loadouts.cpp): the loadout table read from the loadout INIs.
 // Split out of common_goods.cpp.
 
 #include "common_goods.h"
 #include "common_id.h"
 #include "common_ini.h"
-#include "msvcrt_compat.h" // MsvcrtAtoi: retail MSVCRT.DLL wraps mod 2^32, the UCRT saturates
-#include "dacom.h"
+#include "msvcrt_compat.h" // MsvcrtAtoi: baseline MSVCRT.DLL wraps mod 2^32, the UCRT saturates
+#include "neuroncomponents.h"
 
 #include <map>
 #include <vector>
 
-// common_dacom_stricmp.cpp: DACOM.DLL!stricmp (Common IAT PTR 0639902c).
-int CallDacomStricmp(const char* Left, const char* Right);
+// common_neuroncomponents_stricmp.cpp: NEURONCOMPONENTS.DLL!stricmp (Common IAT PTR 0639902c).
+int CallNeuronComponentsStricmp(const char* Left, const char* Right);
 
 namespace
 {
-    const char kLoadoutSource[] = "E:\\FL\\Scratch\\Source\\Common\\Loadouts.cpp";
+    const char kLoadoutSource[] = "Common\\Loadouts.cpp";
 
     // Loadout::ReadEquipLine / ReadCargoLine (06311b8c-06311bbf / 06311c43-06311c76): MSVCRT
     // atoi of the token; when that is 0, CreateID of the same token (through the identity
@@ -35,10 +31,10 @@ namespace
     }
 
     // EquipDescVector::add_equipment_item (0630a0b0) over the std::vector<EquipDesc> that
-    // Loadout::Map keeps where retail has an EquipDescVector (Loadout::Load 0631184b is its
+    // Loadout::Map keeps where baseline has an EquipDescVector (Loadout::Load 0631184b is its
     // caller). With bCombinable: find the FIRST element with the same arch; if mission byte,
-    // owner or hardpoint (DACOM stricmp) differ, the scan restarts from the beginning
-    // (JNZ 0630a0d0) -- it never moves past that element, so such a line hangs, as in retail.
+    // owner or hardpoint (NEURONCOMPONENTS stricmp) differ, the scan restarts from the beginning
+    // (JNZ 0630a0d0) -- it never moves past that element, so such a line hangs, as in baseline.
     // On a full match the health-aware fold, x87 compares TEST AH,0x5 + JP = "not below 1.0"
     // (unordered counts as not below). Otherwise the item is appended and 0 returned.
     int AddEquipmentItem(std::vector<EquipDesc>& Items, EquipDesc const& Desc, bool bCombinable)
@@ -61,23 +57,23 @@ namespace
                     break;
 
                 if (Match->bMission != Desc.bMission || Match->Owner != Desc.Owner ||
-                    CallDacomStricmp(Match->Hardpoint, Desc.Hardpoint) != 0)
+                    CallNeuronComponentsStricmp(Match->Hardpoint, Desc.Hardpoint) != 0)
                     continue;
 
                 if (!(Match->Health < 1.0f))
                 {
-                    // 0630a19e: counts summed, the incoming health taken.
+                    // counts summed, the incoming health taken.
                     Match->Count += Desc.Count;
                     Match->Health = Desc.Health;
                 }
                 else if (!(Desc.Health < 1.0f))
                 {
-                    // 0630a18a.
+                    // .
                     Match->Count += Desc.Count;
                 }
                 else
                 {
-                    // 0630a147-0630a181: the sum stays on the x87 stack; a sum of two floats
+                    // the sum stays on the x87 stack; a sum of two floats
                     // is exact in a double.
                     double const Sum = (double)Match->Health + Desc.Health;
                     int const Total = Desc.Count + Match->Count;
@@ -107,12 +103,12 @@ namespace
 
 namespace
 {
-    // DAT_063fd2a8: the loadout table, a map holding each Loadout::Map by value (the node's
-    // value starts at node+0x10; Free's FUN_06311a90 destroys it in place).
+    // the loadout table, a map holding each Loadout::Map by value (the node's
+    // value starts at node+0x10; Free's the routine destroys it in place).
     std::map<unsigned, Loadout::Map> GLoadouts;
 }
 
-// 06311b70. equipped, count 1, the arch (MSVCRT atoi of value 0, or CreateID of it when that
+// . equipped, count 1, the arch (MSVCRT atoi of value 0, or CreateID of it when that
 // gives 0), value 1 StringAlloc'd as the hardpoint or BAY when empty, value 2 the health.
 bool __cdecl Loadout::ReadEquipLine(INI_Reader& Reader, EquipDesc& Desc)
 {
@@ -137,8 +133,8 @@ bool __cdecl Loadout::ReadEquipLine(INI_Reader& Reader, EquipDesc& Desc)
     return true;
 }
 
-// 06311c30. Not equipped; arch as ReadEquipLine; value 1 the count; value 2 the hardpoint --
-// except that a value 2 whose atof is not 0.0 (.rdata:0639c430, TEST AH,0x44 + JP = not
+// . Not equipped; arch as ReadEquipLine; value 1 the count; value 2 the hardpoint --
+// except that a value 2 whose atof is not 0.0 (module storage, TEST AH,0x44 + JP = not
 // equal) ends the line there, before health and mission are read.
 bool __cdecl Loadout::ReadCargoLine(INI_Reader& Reader, EquipDesc& Desc)
 {
@@ -170,14 +166,14 @@ bool __cdecl Loadout::ReadCargoLine(INI_Reader& Reader, EquipDesc& Desc)
     return true;
 }
 
-// 063115e0 ?Load@Loadout@@YAHPBD_N@Z. The path is opened as given (no GetFileSysPath); the
+// ?Load@Loadout@@YAHPBD_N@Z. The path is opened as given (no GetFileSysPath); the
 // bool argument is never read (no access to [ESP+0x1614] in the body). Returns the growth of
 // the loadout map. Each [Loadout] block starts with no current loadout; "nickname" while one
 // is current is ignored, otherwise it inserts {key id, Map{NicknameId 0 (a cleared ID_String),
 // no items, EquipIdMaker()}} (06311729), then stores the id into the node's NicknameId
 // (06311755) whether or not the key was new; an existing entry also has its items erased and
 // its id maker reset (06311757 tests the insert's bool). "equip" and "cargo" use the current
-// loadout without a null test (before any nickname that is a null dereference, as in retail).
+// loadout without a null test (before any nickname that is a null dereference, as in baseline).
 // "archetype" is tested and ignored. The reader is not closed explicitly.
 int __cdecl Loadout::Load(char const* Path, bool bReload)
 {
@@ -215,7 +211,7 @@ int __cdecl Loadout::Load(char const* Path, bool bReload)
                 }
                 else if (Reader.is_value("equip"))
                 {
-                    // 063117a4-063117e2: a default EquipDesc appended, read in place, then
+                    // a default EquipDesc appended, read in place, then
                     // given the next EquipIdMaker id.
                     Current->Items.push_back(EquipDesc());
                     ReadEquipLine(Reader, Current->Items.back());
@@ -223,7 +219,7 @@ int __cdecl Loadout::Load(char const* Path, bool bReload)
                 }
                 else if (Reader.is_value("cargo"))
                 {
-                    // 06311801-06311863: EquipDescVector::add_equipment_item with
+                    // EquipDescVector::add_equipment_item with
                     // combinable = arch_is_combinable(arch) && is_internal(); a fresh id only
                     // when it appended (returned 0).
                     EquipDesc Desc;
@@ -248,7 +244,7 @@ int __cdecl Loadout::Load(char const* Path, bool bReload)
     return (int)(GLoadouts.size() - Saved);
 }
 
-// .text:06311ab0: every node erased, its Map destroyed in place (FUN_06311a90 frees the item
+// every node erased, its Map destroyed in place (the routine frees the item
 // buffer), then the head re-linked to itself and the size zeroed.
 void __cdecl Loadout::Free()
 {

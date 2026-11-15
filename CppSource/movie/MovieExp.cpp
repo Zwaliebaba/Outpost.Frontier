@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "MovieGraph.h"
@@ -94,7 +90,7 @@ static unsigned int* AlignOddSlot(unsigned int* Slot, unsigned char* Reference)
     return Slot + Bit;
 }
 
-// 0x06ac45a0. Modular reduction of a long integer. RET 0x18.
+// . Modular reduction of a long integer. RET 0x18.
 // Mode 0 shifts, then three product stages off +0x4A8, +0x830 and +0x120.
 // Any other mode uses the factors at +0xA74 and then +0x120.
 // Count above LimbCount+2*Dispatch[0], or equal and not strictly below the modulus, stores 0x1F and returns 0.
@@ -307,9 +303,9 @@ static unsigned int* WindowFlag(unsigned char* Frame, int Index)
     return (unsigned int*)(Frame + 0x340 + (Index * 0x204));
 }
 
-// 0x06ac5610. Signed sliding-window exponentiation. RET 0x1C, seven arguments.
+// . Signed sliding-window exponentiation. RET 0x1C, seven arguments.
 // Window is accepted only for 3..7. The 0x11578 frame is the chkstk block.
-// State at +0x2C is the object FUN_06ac6a90, FUN_06ac7680, FUN_06ac61a0 and FUN_06ac69a0 index:
+// State at +0x2C is the object the routine, the routine, the routine and the routine index:
 // +0 success, +4 kind-is-2-or-3, +8 refill counter, +0xC window half, +0x10 field holder.
 // +0x11184 is the depth counter at state+0x11158.
 long __stdcall ExponentiateSlidingWindow(void* Base, int Window, int Span, void* Exponent, int ExponentCount, void* Extra, void* FieldHolder)

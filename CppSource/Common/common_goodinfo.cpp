@@ -1,14 +1,10 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
-// Common.dll goods list (retail GoodList.cpp): GoodDesc / GoodDescList and the good-item helpers,
+// Common.dll goods list (baseline GoodList.cpp): GoodDesc / GoodDescList and the good-item helpers,
 // TradeResponseInfo, GoodInfo / GoodInfoList, GoodList_* and Good2Arch / Arch2Good, plus the
 // exported OwnerList<CargoDesc>, MetaList<GoodDesc> and OwnerList<GoodDesc> instantiations.
 // Split out of common_goods.cpp.
-//
+
 // Static-initialisation order: GGoodInfoList is dynamically initialised; this TU follows
 // common_equipdesc.cpp, common_constants.cpp and common_loadout.cpp, as in common_goods.cpp.
 
@@ -18,8 +14,8 @@
 #include "common_ini.h"
 #include "common_misc.h"   // GetFileSysPath
 #include "common_server.h" // OWNERLIST_CARGODESC_EXPORTS
-#include "DALib.h"
-#include "dacom.h"
+#include "NeuronRuntime.h"
+#include "neuroncomponents.h"
 
 #include <cstdlib>
 #include <cstring>
@@ -28,19 +24,19 @@
 #include <new>
 #include <vector>
 
-// common_dacom_stricmp.cpp: DACOM.DLL!stricmp (Common IAT PTR 0639902c).
-int CallDacomStricmp(const char* Left, const char* Right);
+// common_neuroncomponents_stricmp.cpp: NEURONCOMPONENTS.DLL!stricmp (Common IAT PTR 0639902c).
+int CallNeuronComponentsStricmp(const char* Left, const char* Right);
 
 using CmnGoods::kPathChars;
 
 namespace
 {
-    const char kGoodListSource[] = "E:\\FL\\Scratch\\Source\\Common\\GoodList.cpp";
+    const char kGoodListSource[] = "Common\\GoodList.cpp";
 }
 
 // ---------------------------------------------------------------------------
 // GoodDesc / GoodDescList (Common.dll GOODS batch). GoodDescList is
-// OwnerList<GoodDesc> plus retail's own copy members; the list operations are
+// OwnerList<GoodDesc> plus baseline's own copy members; the list operations are
 // the MetaList<T> / OwnerList<T> templates (common_metalist.h).
 // ---------------------------------------------------------------------------
 
@@ -56,13 +52,13 @@ void GoodDesc::operator delete(void* Ptr)
     free(Ptr);
 }
 
-// .text:0627be30
+
 GoodDescList::GoodDescList()
     : OwnerList<GoodDesc>()
 {
 }
 
-// .text:0630e350: OwnerList<GoodDesc>() (bUseHeap = 0), then bUseHeap taken from
+// OwnerList<GoodDesc>() (bUseHeap = 0), then bUseHeap taken from
 // Other, then operator='s append loop inlined.
 GoodDescList::GoodDescList(GoodDescList const& Other)
     : OwnerList<GoodDesc>()
@@ -71,7 +67,7 @@ GoodDescList::GoodDescList(GoodDescList const& Other)
     *this = Other;
 }
 
-// .text:0630e450: walks Other forward and appends a default-constructed GoodDesc
+// walks Other forward and appends a default-constructed GoodDesc
 // overwritten with each source element. This list is not cleared first, there is
 // no self-assignment check, and bUseHeap is left alone.
 GoodDescList const& GoodDescList::operator=(GoodDescList const& Other)
@@ -149,11 +145,11 @@ COMMON_API int __cdecl remove_good_item(unsigned int GoodId, int Count, GoodDesc
     return 0;
 }
 
-// 0xaa990. Re-derived from raw disasm (Common.dll.txt:303057-303098): walks the
+// 0xaa990. Re-derived from raw analysis (Common): walks the
 // *entire* list and keeps overwriting its result on every match, so it returns
 // the LAST node/GoodDesc with a matching GoodId, not the first. OutNode, when
 // non-null, receives that node (nullptr on no match). No null-check on List,
-// matching retail.
+// matching baseline.
 COMMON_API GoodDesc* __cdecl find_good_item(GoodDescList* List, unsigned int GoodId,
                                             MetaNode<GoodDesc>** OutNode)
 {
@@ -174,7 +170,7 @@ COMMON_API GoodDesc* __cdecl find_good_item(GoodDescList* List, unsigned int Goo
 }
 
 // ---------------------------------------------------------------------------
-// TradeResponseInfo — retail Common.dll GOODS batch network message.
+// TradeResponseInfo — baseline Common.dll GOODS batch network message.
 // ---------------------------------------------------------------------------
 
 // 0x1c2b0
@@ -221,7 +217,7 @@ GoodInfo::GoodInfo()
     , FreeAmmoArchId(0)
     , FreeAmmoCount(0)
 {
-    // 0626ff79-0626ffa2: CacheString::clear on +0x74..+0x84 -- the string pool's shared empty
+    // CacheString::clear on +0x74..+0x84 -- the string pool's shared empty
     // string, not a literal.
     ShopArchetype.clear();
     ItemIcon.clear();
@@ -243,10 +239,10 @@ GoodInfoList::~GoodInfoList()
     destroy();
 }
 
-// 0x062704a0: .text:062704b1..062704cd -- every non-null GoodInfo* in the list gets
-// ~GoodInfo + free (a null one is skipped, .text:062704b6 TEST EBX,EBX / JZ); then
-// .text:062704cf..062704eb erases every list node; then the ById tree (+0x0c,
-// .text:062704ed..06270576) and the ByArch tree (+0x20, .text:0627057c..) are cleared.
+// module storage..062704cd -- every non-null GoodInfo* in the list gets
+// ~GoodInfo + free (a null one is skipped, module storage TEST EBX,EBX / JZ); then
+// erases every list node; then the ById tree (+0x0c,
+// ) and the ByArch tree (+0x20, module storage..) are cleared.
 void GoodInfoList::destroy()
 {
     std::list<GoodInfo*>::iterator It = Goods.begin();
@@ -268,8 +264,8 @@ GoodInfo const* GoodInfoList::find_by_id(unsigned Id) const
     return Found->second;
 }
 
-// 0x06271290: .text:0627129d CALL CreateID, then the ById (+0x0c) lookup that
-// find_by_id does (.text:062712b5 FUN_062fcfb0 lower_bound, key compare at +0xc, value
+// module storage CALL CreateID, then the ById (+0x0c) lookup that
+// find_by_id does (module storage the routine lower_bound, key compare at +0xc, value
 // at node+0x10, end -> 0).
 GoodInfo const* GoodInfoList::find_by_name(char const* Name) const
 {
@@ -286,10 +282,10 @@ GoodInfo const* GoodInfoList::find_by_archetype(unsigned ArchId) const
 
 GoodInfo const* GoodInfoList::find_by_ship_arch(unsigned ArchId) const
 {
-    // 0x06271300: .text:06271301 ESI = list head (this+4); .text:06271311..0627131d walk
+    // module storage ESI = list head (this+4); module storage..0627131d walk
     // the nodes in insertion order and return the first GoodInfo whose ShipArchId
-    // (+0x54) equals ArchId; .text:06271306 XOR EAX,EAX -- nullptr when none matches.
-    // Retail dereferences each entry without a null test.
+    // (+0x54) equals ArchId; module storage XOR EAX,EAX -- nullptr when none matches.
+    // baseline dereferences each entry without a null test.
     std::list<GoodInfo*>::const_iterator It = Goods.begin();
     for (; It != Goods.end(); ++It)
     {
@@ -304,11 +300,11 @@ std::list<GoodInfo*> const* GoodInfoList::get_list() const
     return &Goods;
 }
 
-// 0x06270620 ?read_Good_block@GoodInfoList@@AAEXPAVINI_Reader@@PAUGoodInfo@@@Z. Offsets in the
-// comments are GoodInfo's retail ones (+0x48 nickname id ... +0xbc free ammo count).
+// ?read_Good_block@GoodInfoList@@AAEXPAVINI_Reader@@PAUGoodInfo@@@Z. Offsets in the
+// comments are GoodInfo's baseline ones (+0x48 nickname id ... +0xbc free ammo count).
 void GoodInfoList::read_Good_block(INI_Reader* Reader, GoodInfo* Info)
 {
-    // 063ea6c0: {name, category} x4, walked with DACOM stricmp; a null name is skipped.
+    // {name, category} x4, walked with NEURONCOMPONENTS stricmp; a null name is skipped.
     struct FCategoryName
     {
         char const* Name;
@@ -321,13 +317,13 @@ void GoodInfoList::read_Good_block(INI_Reader* Reader, GoodInfo* Info)
         {"Ship", GoodCategoryShip},
     };
 
-    unsigned EquipmentArch = 0; // 0627063b
+    unsigned EquipmentArch = 0;
 
     while (Reader->read_value())
     {
         if (Reader->is_value("nickname"))
         {
-            // 06270672-062706af: a nickname already in this list's id map with a non-null
+            // a nickname already in this list's id map with a non-null
             // GoodInfo ends the whole function at once (06270e40) -- the rest of the block and
             // the post-loop equipment fix-up are skipped.
             unsigned const NicknameId = CreateID(Reader->get_value_string());
@@ -355,14 +351,14 @@ void GoodInfoList::read_Good_block(INI_Reader* Reader, GoodInfo* Info)
         }
         else if (Reader->is_value("category"))
         {
-            // 06270791-062707f7. No match: FDUMP line 0xab and +0x4c keeps its value.
+            // . No match: FDUMP line 0xab and +0x4c keeps its value.
             char const* const Text = Reader->get_value_string();
             bool bFound = false;
             unsigned Index = 0;
             for (Index = 0; Index < 4; ++Index)
             {
                 if (kCategories[Index].Name != nullptr &&
-                    CallDacomStricmp(Text, kCategories[Index].Name) == 0)
+                    CallNeuronComponentsStricmp(Text, kCategories[Index].Name) == 0)
                 {
                     Info->Category = kCategories[Index].Category;
                     bFound = true;
@@ -381,14 +377,14 @@ void GoodInfoList::read_Good_block(INI_Reader* Reader, GoodInfo* Info)
         }
         else if (Reader->is_value("price"))
         {
-            // 06270844-062708c4: FILD the int, FST float +0x58 while the exact integer stays
+            // FILD the int, FST float +0x58 while the exact integer stays
             // on the x87 stack; each still-zero bound becomes integer * 0.95f / 1.05f
             // (0x3f733333 / 0x3f866666) rounded once to float. The double product below is
             // exact for any |price| < 2^29.
             int const Whole = Reader->get_value_int(0);
             double const Exact = Whole;
-            float const kLow = 0.949999988079071f;   // .rdata:06399e78
-            float const kHigh = 1.0499999523162842f; // .rdata:06399e74
+            float const kLow = 0.949999988079071f;
+            float const kHigh = 1.0499999523162842f;
             Info->Price = (float)Exact;
             if (Info->GoodBuyPrice == 0.0f)
                 Info->GoodBuyPrice = (float)(kLow * Exact);
@@ -401,7 +397,7 @@ void GoodInfoList::read_Good_block(INI_Reader* Reader, GoodInfo* Info)
         }
         else if (Reader->is_value("good_buy_price"))
         {
-            // 062708e0 (and 06270902 / 06270924 / 06270946 below): FMUL float [+0x58] on the
+            // (and 06270902 / 06270924 / 06270946 below): FMUL float [+0x58] on the
             // unrounded get_value_float result (value_num = the same read, no float rounding),
             // one FSTP float.
             Info->GoodBuyPrice = (float)(Reader->value_num(0) * Info->Price);
@@ -444,9 +440,9 @@ void GoodInfoList::read_Good_block(INI_Reader* Reader, GoodInfo* Info)
         }
         else if (Reader->is_value("hull"))
         {
-            // 06270a8a-06270ac4: the lookup goes to the GLOBAL good list's id map
-            // (DAT_063fbb80), not this one, and the found GoodInfo is dereferenced with no
-            // null test (a miss reads +0x48 of address 0 -- retail's crash, kept).
+            // the lookup goes to the GLOBAL good list's id map
+            // (the field), not this one, and the found GoodInfo is dereferenced with no
+            // null test (a miss reads +0x48 of address 0 -- baseline's crash, kept).
             unsigned const HullId = CreateID(Reader->get_value_string());
             std::map<unsigned, GoodInfo*>::const_iterator Found = GGoodInfoList.ById.find(HullId);
             GoodInfo* Hull = nullptr;
@@ -456,7 +452,7 @@ void GoodInfoList::read_Good_block(INI_Reader* Reader, GoodInfo* Info)
         }
         else if (Reader->is_value("addon"))
         {
-            // 06270ae3-06270d41. value(1) is StringAlloc'd before anything is decided, even
+            // . value(1) is StringAlloc'd before anything is decided, even
             // when it turns out to be "internal".
             unsigned const AddonArch = CreateID(Reader->get_value_string(0));
             CacheString Hp;
@@ -465,7 +461,7 @@ void GoodInfoList::read_Good_block(INI_Reader* Reader, GoodInfo* Info)
             if (Count <= 0)
                 Count = 1;
 
-            // 06270b2c-06270b8c: value(3) copied into a 0x40-byte buffer, at most 0x3f chars.
+            // value(3) copied into a 0x40-byte buffer, at most 0x3f chars.
             char Slot[0x40];
             Slot[0] = '\0';
             if (!Reader->is_value_empty(3))
@@ -484,9 +480,9 @@ void GoodInfoList::read_Good_block(INI_Reader* Reader, GoodInfo* Info)
             // A default EquipDesc is appended to the chosen list (+0xa0 mid, +0xac high,
             // +0x94 otherwise) and then filled in place.
             std::vector<EquipDesc>* Target = &Info->AddonLow;
-            if (CallDacomStricmp(Slot, "mid") == 0)
+            if (CallNeuronComponentsStricmp(Slot, "mid") == 0)
                 Target = &Info->AddonMid;
-            else if (CallDacomStricmp(Slot, "high") == 0)
+            else if (CallNeuronComponentsStricmp(Slot, "high") == 0)
                 Target = &Info->AddonHigh;
             Target->push_back(EquipDesc());
             EquipDesc& Addon = Target->back();
@@ -494,7 +490,7 @@ void GoodInfoList::read_Good_block(INI_Reader* Reader, GoodInfo* Info)
             Addon.set_count(Count);
             Addon.set_status(1.0f);
             Addon.set_equipped(true);
-            if (CallDacomStricmp(Hp.Value, "internal") == 0)
+            if (CallNeuronComponentsStricmp(Hp.Value, "internal") == 0)
                 Addon.make_internal();
             else
                 Addon.set_hardpoint(Hp);
@@ -505,15 +501,15 @@ void GoodInfoList::read_Good_block(INI_Reader* Reader, GoodInfo* Info)
         }
         else
         {
-            // .text:06270d5f: the last fallback is CommReferrable slot 2 (read_comm_ini_data),
+            // the last fallback is CommReferrable slot 2 (read_comm_ini_data),
             // which takes "msg_id_prefix" and ignores every other key.
             Info->read_comm_ini_data(*Reader);
         }
     }
 
-    // 06270da1-06270e3d. Commodity and Equipment goods take their arch from "equipment" and
+    // . Commodity and Equipment goods take their arch from "equipment" and
     // inherit ids and, for attached equipment (Equipment slot 9), the visual strings from the
-    // archetype. GetEquipment's result is used with no null test, as in retail.
+    // archetype. GetEquipment's result is used with no null test, as in baseline.
     if (Info->Category == GoodCategoryCommodity || Info->Category == GoodCategoryEquipment)
     {
         Info->ArchId = EquipmentArch;
@@ -540,11 +536,11 @@ void GoodInfoList::read_Good_block(INI_Reader* Reader, GoodInfo* Info)
         Info->ShopArchetype = Info->AttachmentArchetype;
 }
 
-// 0x06270e50 ?load@GoodInfoList@@QAEXPBD@Z.
+// ?load@GoodInfoList@@QAEXPBD@Z.
 void GoodInfoList::load(char const* RelPath)
 {
     char FullPath[kPathChars];
-    GetFileSysPath(FullPath, RelPath, DALib::Data);
+    GetFileSysPath(FullPath, RelPath, NeuronRuntime::Data);
 
     INI_Reader Reader;
     if (!Reader.open(FullPath, false))
@@ -560,7 +556,7 @@ void GoodInfoList::load(char const* RelPath)
         {
             GoodInfo* Info = new GoodInfo();
             read_Good_block(&Reader, Info);
-            // .text:06270f42 FUN_0627f280: the list insert at end(), unconditional.
+            // the routine: the list insert at end(), unconditional.
             Goods.push_back(Info);
             if (Info->Id != 0 && Info->ArchId != 0 && Info->Id != Info->ArchId)
             {
@@ -569,7 +565,7 @@ void GoodInfoList::load(char const* RelPath)
                 FDUMP(0x100002, "%s(%d) : *** WARNING: Good (%s) nickname different from equipment",
                       kGoodListSource, 0x1b0, Name.get_string());
             }
-            // .text:06270f9c/06270fc0 and .text:06270fd4/06270ff4: map insert of
+            // /06270fc0 and module storage/06270ff4: map insert of
             // (key, 0) then the node's value set to Info -- operator[] on the ById tree
             // (+0x0c, key GoodInfo+0x48) and the ByArch tree (+0x20, key +0x50), with no
             // zero-key test: a later good with the same key overwrites the earlier one.
@@ -578,7 +574,7 @@ void GoodInfoList::load(char const* RelPath)
         }
         else if (Reader.is_header("GoodType"))
         {
-            // 0627100e: the argument is the caller's relative path, not the reader's name.
+            // the argument is the caller's relative path, not the reader's name.
             FDUMP(0x100002, "%s(%d) : *** WARNING: [GoodType] is obsolete in ini file %s\n",
                   kGoodListSource, 0x1ba, RelPath);
         }
@@ -643,17 +639,17 @@ bool __cdecl arch_is_combinable(unsigned int ArchId)
 // ===========================================================================
 // OwnerList<pub::SpaceObj::CargoDesc> -- template defined in src/include/
 // common_server.h. This explicit instantiation definition makes Common.dll emit
-// and export the six members retail's Common.dll exports: ??0 (ord 4,
-// .text:062ed4d0), copy ??0 (ord 3, .text:062ed4f0), ??1 (ord 495, .text:062eed20),
-// ??4 (ord 697, .text:062ed500, ICF-shared with OwnerList<GoodDesc>::operator= and
-// others), ??_7 (ord 962, .rdata:063a0880) and free (ord 2562, .text:062eecb0).
+// and export the six members baseline's Common.dll exports: ??0 (ord 4,
+// ), copy ??0 (ord 3, module storage), ??1 (ord 495, module storage),
+// ??4 (ord 697, module storage, ICF-shared with OwnerList<GoodDesc>::operator= and
+// others), ??_7 (ord 962, module storage) and free (ord 2562, module storage).
 // Server.dll and OutpostFrontier.exe carry the same instantiation.
 // ===========================================================================
-// Member-level export (common_server.h): ??_7 is the one retail export this cannot emit.
+// Member-level export (common_server.h): ??_7 is the one baseline export this cannot emit.
 OWNERLIST_CARGODESC_EXPORTS
 
 // MetaList<GoodDesc> and OwnerList<GoodDesc>: Common.dll exports every member of both
-// (MetaList .text:0627bde0 ??_F, 0627c5c0-0627ca17, getters 062a66a0 / 062d1ad0,
+// (MetaList module storage ??_F, 0627c5c0-0627ca17, getters 062a66a0 / 062d1ad0,
 // operator= 062ed730; OwnerList 0627be00, 0627be20, 0627be50, 062ed500, 0627ca20).
 // The importing declarations are in common_goods.h.
 template class COMMON_API MetaList<GoodDesc>;

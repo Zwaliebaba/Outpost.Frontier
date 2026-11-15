@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -12,27 +8,27 @@
 #include "server_exports.h"
 
 // CObject — base game object in Server.dll
-// Layout derived from retail Server.dll.c decompilation
+// Layout derived from baseline Server analysis
 // All offsets verified against GetAtmosphereRange (0x19800), GetType (0x18da0),
-// and constructor FUN_06cee360
+// and constructor the routine
 
 struct FCEquipManager; // forward declaration for FCObject::EquipMgr pointer
 
 // ===========================================================================
 // DEPRECATED, DO NOT ADD USERS.
-//
+
 // FCObject (and FCShip in server_cship.h) is a flat
-// placeholder struct that conflates TWO different retail objects: the IObjRW
+// placeholder struct that conflates TWO different baseline objects: the IObjRW
 // wrapper Server.dll owns (vtables at +0x00/+0x04, CBase::Object at +0x10) and
 // the Common.dll CObject it points at (ObjectClass at +0x4c, archetype at +0x88,
-// physics body at +0x54). Nothing in retail has that layout.
-//
+// physics body at +0x54). Nothing in baseline has that layout.
+
 // As of the "real objects instead of malloc blocks" pass, pub::SpaceObj::Create /
 // CreateSolar / CreateLoot build genuine GameObject/Ship/Solar/Loot wrappers
 // (src/include/server_gameobject.h) around genuine Common.dll CShip/CSolar/CLoot
 // instances, and the FLID registry holds those wrappers. Every pub::SpaceObj::
 // export now dispatches through IObjInspect instead of reading raw offsets.
-//
+
 // These structs and the FCEquipManager/FCEquipItem pair below survive only
 // because nothing has claimed the job of deleting them yet; they have no users
 // left in src/Server. TODO: remove them, along with COBJECT_MIN_SIZE and
@@ -66,8 +62,8 @@ struct FCObject {
     //   & 0x503 == 0x503 → ship
     //   & 0x803 == 0x803 → loot/cargo container
     unsigned int TypeFlags;
-    // +0x50: unidentified dword. Retail's physics-body read is [CObject + 0x54], not
-    // +0x50 — see pub::SpaceObj::AddImpulse at .text:06cf90f1 (MOV ECX,[EAX + 0x54]).
+    // +0x50: unidentified dword. baseline's physics-body read is [CObject + 0x54], not
+    // +0x50 — see pub::SpaceObj::AddImpulse at module storage (MOV ECX,[EAX + 0x54]).
     unsigned int Field_0x50;
     // +0x54: physics body pointer (PhySys::Body*)
     void* PhysicsBody;
@@ -160,25 +156,25 @@ inline bool IsLootContainer(const FCObject* obj) {
 
 // ===========================================================================
 // Equipment system — CEquipManager / CEquip / CECargo
-// Layout derived from retail Server.dll.c decompilation
+// Layout derived from baseline Server analysis
 // CEquipManager stored at FCObject + 0xE4
 // ===========================================================================
 
 // Equipment type masks (used by CEquipTraverser)
-//
-// Only two of these are confirmed against retail:
+
+// Only two of these are confirmed against baseline:
 //   0x10000 - pub::SpaceObj::EnumerateCargo   (CEquipTraverser(0x10000))
 //   0x80000 - pub::SpaceObj::GetScannerRange  (CEquipManager::FindFirst(mgr, 0x80000))
 // The rest are unverified guesses from an earlier pass, and at least one NAME is
 // provably wrong: pub::SpaceObj::ActivateEquipment case 2 uses mask 0x1000 - called
 // EQUIP_TYPE_COUNTERMEASURE here - while its case 3, which walks CELightEquip items,
 // uses mask 1, for which there is no constant below at all (EQUIP_TYPE_LIGHT is 0x100).
-// TODO: re-derive the whole table from the retail CEquip class hierarchy before
+// TODO: re-derive the whole table from the baseline CEquip class hierarchy before
 // trusting any of the unconfirmed entries.
 enum EEquipTypeMask {
     EQUIP_TYPE_CARGO       = 0x10000,   // confirmed
     EQUIP_TYPE_SCANNER     = 0x80000,   // confirmed
-    EQUIP_TYPE_LIGHT       = 0x100,     // unconfirmed - retail traverses lights with mask 1
+    EQUIP_TYPE_LIGHT       = 0x100,     // unconfirmed - baseline traverses lights with mask 1
     EQUIP_TYPE_SHIELD      = 0x200,     // unconfirmed
     EQUIP_TYPE_WEAPON      = 0x400,     // unconfirmed
     EQUIP_TYPE_MINE        = 0x800,     // unconfirmed
@@ -205,7 +201,7 @@ struct FCEquipItem {
 // Equipment manager — manages all equipment on a CObject
 struct FCEquipManager {
     FCEquipItem* Head;            // +0x00: first item
-    FCEquipItem* Tail;            // +0x04: last item  
+    FCEquipItem* Tail;            // +0x04: last item
     unsigned int ItemCount;       // +0x08: total items
     unsigned short NextEquipID;   // +0x0C: next available equip slot ID
 
@@ -258,10 +254,10 @@ inline FCEquipManager* GetEquipManager(FCObject* obj) {
 
 // ===========================================================================
 // pub::SpaceObj info structures — input to Create / CreateSolar / CreateLoot
-// Layouts reconstructed from retail Server.dll.c decompilation access patterns
+// Layouts reconstructed from baseline Server analysis access patterns
 // ===========================================================================
 
-// DestroyType -- a GLOBAL enum in retail, not pub::SpaceObj's:
+// DestroyType -- a GLOBAL enum in baseline, not pub::SpaceObj's:
 //   ?Destroy@SpaceObj@pub@@YAHIW4DestroyType@@@Z
 enum DestroyType {
     DESTROY_NORMAL = 0,
@@ -284,116 +280,116 @@ namespace pub {
 namespace SpaceObj {
 
 // ShipInfo -- pub::SpaceObj::Create's argument
-// (?Create@SpaceObj@pub@@YAHAAIABUShipInfo@12@@Z, .text:06cf7c90).
-//
+// (?Create@SpaceObj@pub@@YAHAAIABUShipInfo@12@@Z, module storage).
+
 // Every placed member is proven by a load in pub::SpaceObj::Create (ESI = &info,
-// .text:06cf7cf7). Create copies them into its CShipCreateInfo request (built on
-// the stack, CEqObjCreateInfo ctor .text:06cf7d23, server_createinfo.h) and hands
-// that to FUN_06d0a880, which copies it again (FUN_06d0af00) and fills
+// ). Create copies them into its CShipCreateInfo request (built on
+// the stack, CEqObjCreateInfo ctor module storage, server_createinfo.h) and hands
+// that to the routine, which copies it again (the routine) and fills
 // CShip::CreateParms from the copy. The "request +N" and "Parms +N" columns below
-// name those two hops. Retail offsets throughout; the last load is +0xbc, so the
-// retail size is at least 0xc0. Members Create never reads are placeholders.
+// name those two hops. baseline offsets throughout; the last load is +0xbc, so the
+// baseline size is at least 0xc0. Members Create never reads are placeholders.
 
 // CargoDesc -- one element of ShipInfo's cargo list (forward-declared in
 // common_server.h for the OwnerList<CargoDesc> exports). Only the two dwords
-// FUN_06d5f990 reads are known; retail's full size is not recovered, and
+// reads are known; baseline's full size is not recovered, and
 // nothing in the port allocates one.
 struct CargoDesc {
-    unsigned int GoodId;   // +0x00  GoodList::find_by_id (.text:06d5faa4), Good2Arch (.text:06d5fc9d)
-    // FILD qword with a zeroed high dword (.text:06d5fad6 .. 06d5fae5), so the
-    // division reads it unsigned; set_count takes it raw (.text:06d5fcb5).
+    unsigned int GoodId;   // +0x00  GoodList::find_by_id (module storage), Good2Arch (module storage)
+    // FILD qword with a zeroed high dword (module storage .. 06d5fae5), so the
+    // division reads it unsigned; set_count takes it raw (module storage).
     unsigned int Count;    // +0x04
 };
 
 struct ShipInfo {
-    // FUN_06d43820 (Server_ControllerExists, IServerImpl.cpp) is called with &info
-    // (.text:06cf7f60) and dereferences it as the controller's FLID; the same
-    // dword is stored into the new controller-map entry's +0x10 (.text:06cf7fe1).
+    // (Server_ControllerExists, IServerImpl.cpp) is called with &info
+    // (module storage) and dereferences it as the controller's FLID; the same
+    // dword is stored into the new controller-map entry's +0x10 (module storage).
     unsigned int ControllerId;       // +0x00
-    unsigned int SystemID;           // +0x04  FUN_06d00280 (.text:06cf7cfe)
-    unsigned int ShipArchID;         // +0x08  request +0x08 (.text:06cf7e08), Archetype::GetShip (.text:06cf7eca)
-    Vector Position;                 // +0x0c  request +0x4c (.text:06cf7e0b)            -> Parms +0x10
-    Vector AngularVelocity;          // +0x18  request +0xc4 (.text:06cf7e9d)            -> Parms +0x4c
-    Vector Velocity;                 // +0x24  request +0xb8 (.text:06cf7e84)            -> Parms +0x40
-    // I3DMathEngine::MatrixToQuaternion on &info+0x30 (.text:06cf7e4b / 06cf7e55),
-    // quaternion -> request +0x58; FUN_06d0a880 turns it back into a matrix
-    // (QuaternionToMatrix, .text:06d0aaed) and copies 9 dwords -> Parms +0x1c.
+    unsigned int SystemID;           // +0x04  the routine (module storage)
+    unsigned int ShipArchID;         // +0x08  request +0x08 (module storage), Archetype::GetShip (module storage)
+    Vector Position;                 // +0x0c  request +0x4c (module storage)            -> Parms +0x10
+    Vector AngularVelocity;          // +0x18  request +0xc4 (module storage)            -> Parms +0x4c
+    Vector Velocity;                 // +0x24  request +0xb8 (module storage)            -> Parms +0x40
+    // I3DMathEngine::MatrixToQuaternion on &info+0x30 (module storage / 06cf7e55),
+    // quaternion -> request +0x58; the routine turns it back into a matrix
+    // (QuaternionToMatrix, module storage) and copies 9 dwords -> Parms +0x1c.
     Matrix Orientation;              // +0x30 .. +0x53
-    unsigned int Field_0x54;         // +0x54  request +0xb0 (.text:06cf7e01) -> Parms +0xec (CShip+0x21c); TODO: semantic name unknown
-    unsigned int LoadoutID;          // +0x58  Loadout::Get (.text:06cf7f29), request +0x6c (.text:06cf7ec3)
-    // FUN_06d5f990's third argument is &info+0x5c (.text:06cf7f4c). It reads
-    // the dword at +4 and walks `node = *node` until NULL (.text:06d5f9ae ..
-    // .text:06d5f9c5), and each node's +8 is a pointer to {GoodId, Count}:
+    unsigned int Field_0x54;         // +0x54  request +0xb0 (module storage) -> Parms +0xec (CShip+0x21c); TODO: semantic name unknown
+    unsigned int LoadoutID;          // +0x58  Loadout::Get (module storage), request +0x6c (module storage)
+    // 's third argument is &info+0x5c (module storage). It reads
+    // the dword at +4 and walks `node = *node` until NULL (module storage ..
+    // ), and each node's +8 is a pointer to {GoodId, Count}:
     // MetaNode<CargoDesc> {Next, Prev, Data}, i.e. the OwnerList<CargoDesc>
     // (vptr +0x5c, Head +0x60, Tail +0x64, bUseHeap +0x68, FreeList +0x6c)
     // whose members Server.dll exports. sizeof 0x14 fills +0x5c..+0x6f exactly.
     OwnerList<CargoDesc> Cargo;      // +0x5c
     // pub::Costume (13 dwords), copied field by field and then a counted loop:
-    unsigned int CostumeHead;        // +0x70  request +0x14 (.text:06cf7d8c)       -> Parms +0x64
-    unsigned int CostumeBody;        // +0x74  request +0x18 (.text:06cf7d89)       -> Parms +0x68
-    unsigned int CostumeLeftHand;    // +0x78  request +0x1c (.text:06cf7d9d)       -> Parms +0x6c
-    unsigned int CostumeRightHand;   // +0x7c  request +0x20 (.text:06cf7d96)       -> Parms +0x70
-    unsigned int CostumeAccessory[8];// +0x80  request +0x24, `count` dwords (.text:06cf7dd0) -> Parms +0x74
-    int CostumeAccessoryCount;       // +0xa0  request +0x44 (.text:06cf7da4)       -> Parms +0x94
-    int VibeGroupId;                 // +0xa4  request +0x10 (.text:06cf7ded)       -> Parms +0x60
-    unsigned int VoiceId;            // +0xa8  request +0x48 (.text:06cf7de1)       -> Parms +0x98
-    unsigned int DockingBaseId;      // +0xac  request +0x0c (.text:06cf7eb6)       -> Parms +0x5c
-    // An INTEGER: FUN_06d0a880 FILDs the request copy (.text:06d0aa6d) into
+    unsigned int CostumeHead;        // +0x70  request +0x14 (module storage)       -> Parms +0x64
+    unsigned int CostumeBody;        // +0x74  request +0x18 (module storage)       -> Parms +0x68
+    unsigned int CostumeLeftHand;    // +0x78  request +0x1c (module storage)       -> Parms +0x6c
+    unsigned int CostumeRightHand;   // +0x7c  request +0x20 (module storage)       -> Parms +0x70
+    unsigned int CostumeAccessory[8];// +0x80  request +0x24, `count` dwords (module storage) -> Parms +0x74
+    int CostumeAccessoryCount;       // +0xa0  request +0x44 (module storage)       -> Parms +0x94
+    int VibeGroupId;                 // +0xa4  request +0x10 (module storage)       -> Parms +0x60
+    unsigned int VoiceId;            // +0xa8  request +0x48 (module storage)       -> Parms +0x98
+    unsigned int DockingBaseId;      // +0xac  request +0x0c (module storage)       -> Parms +0x5c
+    // An INTEGER: the routine FILDs the request copy (module storage) into
     // Parms +0x0c HitPts.
-    int HitPts;                      // +0xb0  request +0x68 (.text:06cf7ed4)
+    int HitPts;                      // +0xb0  request +0x68 (module storage)
     unsigned int Field_0xb4;         // +0xb4  not read by Create
-    // request +0xe8 (.text:06cf7ee1); FUN_06d0a880 tests it `& 0x3fffffff` after
-    // the ship is built (.text:06d0ad30 / .text:06d0ad36).
+    // request +0xe8 (module storage); the routine tests it `& 0x3fffffff` after
+    // the ship is built (module storage / module storage).
     unsigned int Field_0xb8;         // +0xb8  TODO: semantic name unknown
-    unsigned int ReputationRank;     // +0xbc  request +0xb4 (.text:06cf7de7)       -> Parms +0xf0 (CShip::CreateParms::Rank)
+    unsigned int ReputationRank;     // +0xbc  request +0xb4 (module storage)       -> Parms +0xf0 (CShip::CreateParms::Rank)
 };
 
 // SolarInfo -- pub::SpaceObj::CreateSolar's argument
-// (?CreateSolar@SpaceObj@pub@@YAHAAIABUSolarInfo@12@@Z, .text:06cf80d0).
-//
-// Placed from the loads in pub::SpaceObj::CreateSolar (ESI = &info, .text:06cf80ed)
+// (?CreateSolar@SpaceObj@pub@@YAHAAIABUSolarInfo@12@@Z, module storage).
+
+// Placed from the loads in pub::SpaceObj::CreateSolar (ESI = &info, module storage)
 // into its CSolarCreateInfo request (server_createinfo.h) and from there by
-// FUN_06d0a200 into CSolar::CreateParms (FUN_06d0a770 ctor at ESP+0x28). The
+// into CSolar::CreateParms (the routine ctor at ESP+0x28). The
 // earlier reconstruction split the matrix into two runs (+0x0c and +0x40) and
 // read +0x88 as a char pointer; the listing shows a Vector at +0x0c, one 3x3 at
-// +0x18 and an inline string at +0x88. Retail offsets; the last load is +0xcc.
+// +0x18 and an inline string at +0x88. baseline offsets; the last load is +0xcc.
 struct SolarInfo {
     unsigned int Field_0x00;         // +0x00  not read by CreateSolar
-    unsigned int SolarArchID;        // +0x04  request +0x08 (.text:06cf818c), Archetype::GetSolar (.text:06cf8254)
-    unsigned int SystemID;           // +0x08  FUN_06d00280 (.text:06cf80f4)
-    Vector Position;                 // +0x0c  request +0x4c (.text:06cf8200)       -> Parms +0x10
-    // MatrixToQuaternion on &info+0x18 (.text:06cf8234 / 06cf823e) -> request
-    // +0x58; FUN_06d0a200 QuaternionToMatrix (.text:06d0a3b0) -> Parms +0x1c.
+    unsigned int SolarArchID;        // +0x04  request +0x08 (module storage), Archetype::GetSolar (module storage)
+    unsigned int SystemID;           // +0x08  the routine (module storage)
+    Vector Position;                 // +0x0c  request +0x4c (module storage)       -> Parms +0x10
+    // MatrixToQuaternion on &info+0x18 (module storage / 06cf823e) -> request
+    // +0x58; the routine QuaternionToMatrix (module storage) -> Parms +0x1c.
     Matrix Orientation;              // +0x18 .. +0x3b
-    unsigned int LoadoutID;          // +0x3c  request +0x6c (.text:06cf8263); Loadout::Get in FUN_06d0a200 (.text:06d0a455)
-    unsigned int CostumeHead;        // +0x40  request +0x14 (.text:06cf81b5)       -> Parms +0x64
-    unsigned int CostumeBody;        // +0x44  request +0x18 (.text:06cf81ae)       -> Parms +0x68
-    unsigned int CostumeLeftHand;    // +0x48  request +0x1c (.text:06cf81c2)       -> Parms +0x6c
-    unsigned int CostumeRightHand;   // +0x4c  request +0x20 (.text:06cf81bb)       -> Parms +0x70
-    unsigned int CostumeAccessory[8];// +0x50  request +0x24, `count` dwords (.text:06cf81e8) -> Parms +0x74
-    int CostumeAccessoryCount;       // +0x70  request +0x44 (.text:06cf81c9)       -> Parms +0x94
-    int VibeGroupId;                 // +0x74  request +0x10 (.text:06cf81fd)       -> Parms +0x60
-    unsigned int VoiceId;            // +0x78  request +0x48 (.text:06cf81fa)       -> Parms +0x98
-    unsigned int DockingBaseId;      // +0x7c  request +0x0c (.text:06cf8189)       -> Parms +0x5c and +0xe0
-    unsigned char Field_0x80;        // +0x80  byte, request +0xb4 (.text:06cf8294) -> Parms +0xbc (VisitValue)
+    unsigned int LoadoutID;          // +0x3c  request +0x6c (module storage); Loadout::Get in the routine (module storage)
+    unsigned int CostumeHead;        // +0x40  request +0x14 (module storage)       -> Parms +0x64
+    unsigned int CostumeBody;        // +0x44  request +0x18 (module storage)       -> Parms +0x68
+    unsigned int CostumeLeftHand;    // +0x48  request +0x1c (module storage)       -> Parms +0x6c
+    unsigned int CostumeRightHand;   // +0x4c  request +0x20 (module storage)       -> Parms +0x70
+    unsigned int CostumeAccessory[8];// +0x50  request +0x24, `count` dwords (module storage) -> Parms +0x74
+    int CostumeAccessoryCount;       // +0x70  request +0x44 (module storage)       -> Parms +0x94
+    int VibeGroupId;                 // +0x74  request +0x10 (module storage)       -> Parms +0x60
+    unsigned int VoiceId;            // +0x78  request +0x48 (module storage)       -> Parms +0x98
+    unsigned int DockingBaseId;      // +0x7c  request +0x0c (module storage)       -> Parms +0x5c and +0xe0
+    unsigned char Field_0x80;        // +0x80  byte, request +0xb4 (module storage) -> Parms +0xbc (VisitValue)
     unsigned char Pad81[3];          // +0x81
-    // An INTEGER: FUN_06d0a200 FILDs the request copy (.text:06d0a352).
-    int HitPts;                      // +0x84  request +0x68 (.text:06cf819a)
-    // Inline, not a pointer: CreateSolar tests the first byte (.text:06cf815a,
-    // empty -> -4) and passes &info+0x88 to CreateID (.text:06cf8179). Nothing
+    // An INTEGER: the routine FILDs the request copy (module storage).
+    int HitPts;                      // +0x84  request +0x68 (module storage)
+    // Inline, not a pointer: CreateSolar tests the first byte (module storage,
+    // empty -> -4) and passes &info+0x88 to CreateID (module storage). Nothing
     // in either function bounds it; 0x44 is the gap up to the next read.
     char Nickname[0x44];             // +0x88 .. +0xcb
-    // request +0xbc (.text:06cf828e); FUN_06d0a200 calls FUN_06cef3b0(value, 1)
-    // when `value & 0x3fffffff` (.text:06d0a53d .. 06d0a54f).
+    // request +0xbc (module storage); the routine calls the routine(value, 1)
+    // when `value & 0x3fffffff` (module storage .. 06d0a54f).
     unsigned int Field_0xcc;         // +0xcc  TODO: semantic name unknown
 };
 
-// LootInfo — passed to pub::SpaceObj::CreateLoot (.text:06cf84a0), which copies it
+// LootInfo — passed to pub::SpaceObj::CreateLoot (module storage), which copies it
 // field by field into one 0x6c-byte FLootRecord (server_gameobject.h) and hands that to
-// StarSystem::create_loot (FUN_06d08a40) in mode 4. The names follow the record slot each
-// field lands in (.text:06cf8503-06cf85c6); highest offset read is +0x64.
+// StarSystem::create_loot (the routine) in mode 4. The names follow the record slot each
+// field lands in (module storage-06cf85c6); highest offset read is +0x64.
 struct LootInfo {
-    unsigned int SystemID;          // +0x00  FUN_06d00280 system lookup (missing -> -4)
+    unsigned int SystemID;          // +0x00  the routine system lookup (missing -> -4)
     unsigned int EquipArchID;       // +0x04  Archetype::GetEquipment -> record +0x0c (contents)
     unsigned int NameId;            // +0x08  -> record +0x1c (CLoot NameId)
     unsigned int OwnerObjId;        // +0x0C  create_loot's SourceObjId (CLoot OwnerId)
@@ -426,33 +422,33 @@ struct EQInfo {
     unsigned int Field_0x0c;        // +0x0c: case 1 gate — the branch is taken when != 0
                                     //        TODO: semantic name unknown
     // +0x10: case 1 hands &CargoOut to the object's IObjInspect::scan_cargo (+0x120,
-    // `ADD ESI,0x10; PUSH ESI` at .text:06cf9490) as its EquipDescVector& out-parameter,
+    // `ADD ESI,0x10; PUSH ESI` at module storage) as its EquipDescVector& out-parameter,
     // so the field is 0x10 bytes (sizeof(EquipDescVector)), not the one dword declared
     // here before. It is raw storage rather than an EquipDescVector member because
-    // retail EQInfo is trivial: pub::SpaceObj::Dock builds one on its stack with no
-    // constructor or destructor call (.text:06cfa755 .. 06cfa77b).
+    // baseline EQInfo is trivial: pub::SpaceObj::Dock builds one on its stack with no
+    // constructor or destructor call (module storage .. 06cfa77b).
     unsigned int CargoOut[4];       // +0x10 .. +0x1f
 };
 static_assert(sizeof(EQInfo) == 0x20, "EQInfo: +0x10 carries a 0x10-byte EquipDescVector");
 
-// pub::SpaceObj::ActivateEquipment — Server.dll .text:06cf93f0. Body: server_pub.cpp.
-// Content.dll FUN_06f14780 at 06f148c0: Type=2, byte at +4 = 0.
+// pub::SpaceObj::ActivateEquipment — Server.dll module storage. Body: server_pub.cpp.
+// Content.dll the routine at 06f148c0: Type=2, byte at +4 = 0.
 SERVER_API EQUIPMENT_RTYPE __cdecl ActivateEquipment(unsigned int const& ObjId, EQInfo* Info);
 
 // TerminalInfo — output struct for GetTerminalInfo
-// Retail: 0x24 bytes, name at +0x00 (32 chars), value at +0x20
+// baseline: 0x24 bytes, name at +0x00 (32 chars), value at +0x20
 struct TerminalInfo {
     char Name[0x20];                // +0x00: terminal name string (max 31 chars + null)
     unsigned int Value;             // +0x20: terminal value dword
 };
 
 // ?GetTerminalInfo@SpaceObj@pub@@YAHABIHAAUTerminalInfo@12@@Z -- Server.dll 0x19900, body
-// server_pub.cpp. Content.dll TU53 dock queues (FUN_06f6bdd0, FUN_06f6c580, FUN_06f6c920,
-// FUN_06f6e9d0, FUN_06f6ee40): Value is the docking sphere's type.
+// server_pub.cpp. Content.dll TU53 dock queues (the routine, the routine, the routine,
+// , the routine): Value is the docking sphere's type.
 SERVER_API int __cdecl GetTerminalInfo(const unsigned int& ObjId, int Index, TerminalInfo& OutInfo);
 
 // PosSelectionType — position selection algorithm for GetEmptyPos
-// Retail: ?GetEmptyPos@SpaceObj@pub@@YAHABIABVTransform@@ABM2ABW4PosSelectionType@12@AAVVector@@@Z
+// baseline: ?GetEmptyPos@SpaceObj@pub@@YAHABIABVTransform@@ABM2ABW4PosSelectionType@12@AAVVector@@@Z
 enum PosSelectionType {
     POS_SEL_XY_PLANE = 0,
     POS_SEL_XZ_PLANE = 1,
@@ -461,35 +457,35 @@ enum PosSelectionType {
 };
 
 // ?GetEmptyPos@SpaceObj@pub@@YAHABIABVTransform@@ABM2ABW4PosSelectionType@12@AAVVector@@@Z --
-// Server.dll .text:06cf9bd0, body server_pub.cpp:4005. Content.dll TU38 FUN_06f15e20 (06f16455),
-// FUN_06f169a0 (06f16b52).
+// Server.dll module storage, body server_pub.cpp:4005. Content.dll TU38 the routine (06f16455),
+// (06f16b52).
 SERVER_API int __cdecl GetEmptyPos(const unsigned int& system_id_ref, const Transform& base_transform,
                                    const float& start_radius, const float& clearance,
                                    const PosSelectionType& selection_type, Vector& out_pos);
 
-// ?IsPosEmpty@SpaceObj@pub@@YAHABIABVVector@@ABMAA_N@Z -- Server.dll .text:06cfa060, body
-// server_pub.cpp:4147. Content.dll TU38 FUN_06f15e20 (06f1641f), FUN_06f169a0 (06f16b1a).
+// ?IsPosEmpty@SpaceObj@pub@@YAHABIABVVector@@ABMAA_N@Z -- Server.dll module storage, body
+// server_pub.cpp:4147. Content.dll TU38 the routine (06f1641f), the routine (06f16b1a).
 SERVER_API int __cdecl IsPosEmpty(const unsigned int& system_id_ref, const Vector& pos,
                                   const float& radius, bool& out_empty);
 
-// ?Create@SpaceObj@pub@@YAHAAIABUShipInfo@12@@Z — Server.dll .text:06cf7c90. Body:
-// server_pub.cpp. Content.dll NPC ship ctor FUN_06f336a0 (06f33aaf): OutId = the ship's +4.
+// ?Create@SpaceObj@pub@@YAHAAIABUShipInfo@12@@Z — Server.dll module storage. Body:
+// server_pub.cpp. Content.dll NPC ship ctor the routine (06f33aaf): OutId = the ship's +4.
 SERVER_API int __cdecl Create(unsigned int& OutId, ShipInfo const& Info);
 
-// ?CreateSolar@SpaceObj@pub@@YAHAAIABUSolarInfo@12@@Z -- Server.dll .text:06cf80d0, body
-// server_pub.cpp:3482. Content.dll TU38 FUN_06f169a0 (06f16d2b).
+// ?CreateSolar@SpaceObj@pub@@YAHAAIABUSolarInfo@12@@Z -- Server.dll module storage, body
+// server_pub.cpp:3482. Content.dll TU38 the routine (06f16d2b).
 SERVER_API int __cdecl CreateSolar(unsigned int& OutId, SolarInfo const& Info);
 
-// ?CreateLoot@SpaceObj@pub@@YAHAAIABULootInfo@12@@Z -- Server.dll .text:06cf84a0, body
-// server_pub.cpp:2536. Content.dll TU38 FUN_06f16fa0 (06f170b4 / 06f170c8).
+// ?CreateLoot@SpaceObj@pub@@YAHAAIABULootInfo@12@@Z -- Server.dll module storage, body
+// server_pub.cpp:2536. Content.dll TU38 the routine (06f170b4 / 06f170c8).
 SERVER_API int __cdecl CreateLoot(unsigned int& OutId, LootInfo const& Info);
 
 // ?GetHealth@SpaceObj@pub@@YAHABIAAM1@Z -- body server_pub.cpp:3397. Content.dll TU38 snapshot
-// FUN_06f130b0 (06f134b3, 06f137b1, 06f139c3, 06f13aa8, 06f13d27): the current hit points.
+// (06f134b3, 06f137b1, 06f139c3, 06f13aa8, 06f13d27): the current hit points.
 SERVER_API int __cdecl GetHealth(const unsigned int& obj_id_ref, float& out_current, float& out_max);
 
 // ?Destroy@SpaceObj@pub@@YAHIW4DestroyType@@@Z — body server_pub.cpp. Content.dll
-// FUN_06f34670 (06f34676, DESTROY_NORMAL).
+// (06f34676, DESTROY_NORMAL).
 SERVER_API int __cdecl Destroy(unsigned int ObjId, DestroyType Type);
 
 } // namespace SpaceObj

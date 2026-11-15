@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // CEArmor, CECargoPod, CERepairDroid, CETradeLaneEquip -- split out of common_cequip.cpp (CMN-B2).
@@ -22,8 +18,8 @@
 #include "common_spatial.h"  // ISpatialPartition (ScanList::add_in_range bucket query)
 #include "common_timing.h"   // Timing::GetGlobalTime (CEShieldGenerator / CEShield)
 #include "common_universe.h"
-#include "DALib.h"
-#include "dacom.h"
+#include "NeuronRuntime.h"
+#include "neuroncomponents.h"
 #include "../IVP/ivp_physics/ivp_real_object.h"
 #include "../IVP/ivp_physics/ivp_controller.h"  // IVP_Event_Sim (do_simulation_controller)
 
@@ -52,7 +48,7 @@ CEArmor::CEArmor(CEArmor const& Other)
 
 CEArmor::~CEArmor()
 {
-    // Common.dll.c 57139-57157 (0x351d0): retail force-calls the non-virtual CEquip::Destroy()
+    // Common (0x351d0): baseline force-calls the non-virtual CEquip::Destroy()
     // here unconditionally as a safety net during unwind -- same pattern as the
     // CEPower/CEAttachedFX/CERepairDroid/CEInternalFX/CECargo destructors.
     CEquip::Destroy();
@@ -79,19 +75,19 @@ CECargoPod::CECargoPod(CECargoPod const& Other)
 
 CECargoPod::~CECargoPod()
 {
-    // Common.dll.c 57580-57602 (0x358f0): retail's ~CECargoPod() inlines the same unlink logic
+    // Common (0x358f0): baseline's ~CECargoPod() inlines the same unlink logic
     // as EmptyPod() (checks Cargo/this+0x4c, clears both this->Cargo and Cargo->CargoPod)
     // BEFORE running the base Destroy() chain (CExternalEquip::Destroy -> CEquip::Destroy +
-    // Disconnect), called here unconditionally exactly as retail does (even if the pod's
+    // Disconnect), called here unconditionally exactly as baseline does (even if the pod's
     // Destroy() was already invoked earlier through game logic). Its sibling ~CECargo()
     // (see above) performs the mirror-image unlink-then-Destroy() sequence too, just via a
     // call into the linked CECargoPod::EmptyPod() instead of inlining it -- both destructors
     // are the same "unlink + force Destroy()" pattern, not an asymmetry.
     EmptyPod();
-    CExternalEquip::Destroy();   // 06295928: direct call
+    CExternalEquip::Destroy();   // direct call
 }
 
-// Common.dll.c 0x35980. Links the two objects together: this->Cargo = Cargo, and
+// Common 0x35980. Links the two objects together: this->Cargo = Cargo, and
 // Cargo->CargoPod = this (CECargo::CargoPod is the existing +0x20 back-pointer).
 void CECargoPod::FillPod(CECargo* CargoObj)
 {
@@ -102,7 +98,7 @@ void CECargoPod::FillPod(CECargo* CargoObj)
 
 void CECargoPod::EmptyPod()
 {
-    // Common.dll.c 0x35990: if still linked, null out the CECargo's back-pointer to this pod,
+    // Common 0x35990: if still linked, null out the CECargo's back-pointer to this pod,
     // then null out our own Cargo pointer. Symmetric inverse of FillPod.
     if (Cargo != nullptr)
     {
@@ -113,14 +109,14 @@ void CECargoPod::EmptyPod()
 
 bool CECargoPod::IsLootable() const
 {
-    // Common.dll.c 0x35950: lootable iff this pod currently holds a CECargo whose
+    // Common 0x35950: lootable iff this pod currently holds a CECargo whose
     // stack count is non-zero (an emptied or unfilled pod isn't worth looting).
     return Cargo != nullptr && Cargo->Count != 0;
 }
 
 CECargoPod* __cdecl CECargoPod::cast(CEquip* Equip)
 {
-    // Common.dll.c 0x359a0
+    // Common 0x359a0
     if (Equip == nullptr || Equip->GetType() != EquipTypeCargoPod)
         return nullptr;
     return (CECargoPod*)Equip;
@@ -128,7 +124,7 @@ CECargoPod* __cdecl CECargoPod::cast(CEquip* Equip)
 
 CECargoPod const* __cdecl CECargoPod::cast(CEquip const* Equip)
 {
-    // Retail folds the const overload onto the same body as the non-const one.
+    // baseline folds the const overload onto the same body as the non-const one.
     return cast((CEquip*)Equip);
 }
 
@@ -136,10 +132,10 @@ CERepairDroid::CERepairDroid(CEqObj* OwnerObj, unsigned short EquipId,
                              Archetype::RepairDroid const* ArchObj, bool bMissionFlag)
     : CInternalEquip(EquipTypeRepairDroid, OwnerObj, EquipId, ArchObj, bMissionFlag)
 {
-    // Common.dll.txt 120523-120549 (0x3fbc0): retail's primary ctor never writes this+0x20
+    // Common (0x3fbc0): baseline's primary ctor never writes this+0x20
     // (HitPts) at all -- it is left as whatever garbage the allocator handed back. Zero-
     // initializing here is a deliberate, documented deviation (a safe, deterministic stand-in
-    // for retail's uninitialized field) rather than an attempt to replicate that quirk.
+    // for baseline's uninitialized field) rather than an attempt to replicate that quirk.
     HitPts = 0.0f;
 }
 
@@ -147,13 +143,13 @@ CERepairDroid::CERepairDroid(CERepairDroid const& Other)
     : CInternalEquip(Other)
     , HitPts(Other.HitPts)
 {
-    // Common.dll.c 56973-56995 (0x34e00). Base-then-derived copy shape: CInternalEquip(Other)
+    // Common (0x34e00). Base-then-derived copy shape: CInternalEquip(Other)
     // stamps the intermediate CInternalEquip vtable, then this class's own vtable is restamped.
 }
 
 CERepairDroid::~CERepairDroid()
 {
-    // Common.dll.c 67354-67373 (listing 0x3fbf0): retail unconditionally force-calls the
+    // Common (listing 0x3fbf0): baseline unconditionally force-calls the
     // non-virtual CEquip::Destroy(this) here (bDestroyed=1 + EquipDestroying notify) as a
     // safety net during unwind. CEquipManager::Clear()/CleanUp() (this file) delete CEquip*
     // directly with no preceding ->Destroy() call, so without this the notification and
@@ -163,19 +159,19 @@ CERepairDroid::~CERepairDroid()
 
 float CERepairDroid::GetHitPoints() const
 {
-    // Common.dll.c 0x34df0
+    // Common 0x34df0
     return HitPts;
 }
 
 void CERepairDroid::SetHitPoints(float Hit)
 {
-    // Common.dll.txt 120594-120612 (listing 0x3fc50). Stores Hit, then if it has dropped to
+    // Common (listing 0x3fc50). Stores Hit, then if it has dropped to
     // or below 0.0f, re-dispatches virtually through vtable+0x30 -- confirmed to be
-    // CEquip::Activate's slot (Common.dll.txt 558301-558330, the raw CEquip::`vftable' dump
+    // CEquip::Activate's slot (Common, the raw CEquip::`vftable' dump
     // at 0x639bdcc: slot 0x30 resolves to the real, non-folded CEquip::Activate, not this
     // class's own SetHitPoints) -- with Activate(false); the pushed 0 stack operand is the
     // bool argument, not a recursive SetHitPoints(0.0f) call (both share the same 1-argument
-    // RET 4 shape, which is why Ghidra's decompiled jumptable recovery failed here and just
+    // RET 4 shape, which is why analysis's inspected jumptable recovery failed here and just
     // emitted an untyped indirect call).
     HitPts = Hit;
     if (Hit <= 0.0f)
@@ -184,7 +180,7 @@ void CERepairDroid::SetHitPoints(float Hit)
 
 CERepairDroid* __cdecl CERepairDroid::cast(CEquip* Equip)
 {
-    // Common.dll.c 0x3fc80
+    // Common 0x3fc80
     if (Equip == nullptr || Equip->GetType() != EquipTypeRepairDroid)
         return nullptr;
     return (CERepairDroid*)Equip;
@@ -192,7 +188,7 @@ CERepairDroid* __cdecl CERepairDroid::cast(CEquip* Equip)
 
 CERepairDroid const* __cdecl CERepairDroid::cast(CEquip const* Equip)
 {
-    // Retail folds the const overload onto the same body as the non-const one.
+    // baseline folds the const overload onto the same body as the non-const one.
     return cast((CEquip*)Equip);
 }
 

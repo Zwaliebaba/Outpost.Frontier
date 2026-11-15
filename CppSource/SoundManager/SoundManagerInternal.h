@@ -1,12 +1,8 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
-#include "dacom.h"
+#include "neuroncomponents.h"
 #include "soundmanager.h"
 #include "luaprofile.h"
 #include "audio/dsound8.h"
@@ -24,26 +20,26 @@ static const unsigned int kFdumpError = 0x100001;
 static const unsigned int kFdumpWarning = 0x100002;
 static const unsigned int kFdumpNotice = 0x100003;
 
-// s_C:\work\... at .data:06eea070 (21 FDUMP sites in SoundMan.cpp code).
-static const char kRetailSource[] =
-    "C:\\work\\builds\\dalibs\\dalibs-build\\build\\Src\\SoundManager\\SoundMan.cpp";
-// .data:06eeadd4 - the statically linked WavLib (FDUMP sites 06ee867d, 8812, 883f, 88f8).
+// Source label shared by the sound manager diagnostics.
+static const char kbaselineSource[] =
+    "SoundManager\\SoundMan.cpp";
+// - the statically linked WavLib (FDUMP sites 06ee867d, 8812, 883f, 88f8).
 static const char kWavLibSource[] =
-    "C:\\work\\builds\\dalibs\\dalibs-build\\build\\Src\\WavLib\\wavlib.cpp";
+    "WavLib\\wavlib.cpp";
 static const char kFdumpErrorFmt[] = "%s(%d) : ERROR:General:%s";
 static const char kFdumpWarningFmt[] = "%s(%d) : WARNING:General:%s";
 static const char kFdumpNoticeFmt[] = "%s(%d) : NOTICE:General:%s";
 
-// Retail DAT_06ee91cc / 06ee91bc / 06ee91ac — last word E5 60, not SDK A7 70.
+// / 06ee91bc / 06ee91ac — last word E5 60, not SDK A7 70.
 static const GUID kClsidDirectSound = {
     0x47D4D946, 0x62E8, 0x11CF, {0x93, 0xBC, 0x44, 0x45, 0x53, 0x54, 0x00, 0x00}};
-static const GUID kIidDirectSoundRetail = {
+static const GUID kIidDirectSoundbaseline = {
     0x279AFA83, 0x4981, 0x11CE, {0xA5, 0x21, 0x00, 0x20, 0xAF, 0x0B, 0xE5, 0x60}};
-static const GUID kIidDirectSound3DListenerRetail = {
+static const GUID kIidDirectSound3DListenerbaseline = {
     0x279AFA84, 0x4981, 0x11CE, {0xA5, 0x21, 0x00, 0x20, 0xAF, 0x0B, 0xE5, 0x60}};
-static const GUID kIidDirectSound3DBufferRetail = {
+static const GUID kIidDirectSound3DBufferbaseline = {
     0x279AFA86, 0x4981, 0x11CE, {0xA5, 0x21, 0x00, 0x20, 0xAF, 0x0B, 0xE5, 0x60}};
-// DAT_06ee918c — IID_IDirectSoundNotify (FUN_06ee1a40 QI).
+// — IID_IDirectSoundNotify (the routine QI).
 static const GUID kIidDirectSoundNotify = {
     0xB0210783, 0x89CD, 0x11D0, {0xAF, 0x08, 0x00, 0xA0, 0xC9, 0x25, 0xCD, 0x16}};
 
@@ -60,15 +56,15 @@ struct FSoundAggDesc
 {
     unsigned long Size;
     const char* Name;
-    IDAComponent* Outer;
-    IDAComponent** InnerOut;
+    INeuronComponent* Outer;
+    INeuronComponent** InnerOut;
     const char* Extra;
 };
 
 // Nested vtbl @ object +0x08 — not in the aggregator QI table. Slot 3 binds IProfileParser.
-struct ISoundManagerParserBind : IDAComponent
+struct ISoundManagerParserBind : INeuronComponent
 {
-    virtual GENRESULT DACOM_API BindParser() = 0; // +0x0C LAB_06ee56f0
+    virtual GENRESULT NEURONCOMPONENTS_API BindParser() = 0; // +0x0C the branch
 };
 
 class FSoundArchetype final : public ISoundArchetype
@@ -77,26 +73,26 @@ public:
     FSoundArchetype();
     ~FSoundArchetype();
 
-    GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override;
-    unsigned long DACOM_API AddRef() override;
-    unsigned long DACOM_API Release() override;
-    GENRESULT DACOM_API GetFormat(void* Out) override;
-    GENRESULT DACOM_API GetSamples(void* Out) override;
-    unsigned long DACOM_API GetNumFrames() override;
-    float DACOM_API GetGain() override;
-    unsigned long DACOM_API GetChannelCount() override;
-    unsigned long DACOM_API GetDurationMs() override;
-    GENRESULT DACOM_API SetSamples(void* A, void* B) override;
-    GENRESULT DACOM_API SetGain(float InGain) override;
-    unsigned long DACOM_API IsReady() override;
-    GENRESULT DACOM_API GetLoopRange(unsigned long* Start, unsigned long* End) override;
+    GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override;
+    unsigned long NEURONCOMPONENTS_API AddRef() override;
+    unsigned long NEURONCOMPONENTS_API Release() override;
+    GENRESULT NEURONCOMPONENTS_API GetFormat(void* Out) override;
+    GENRESULT NEURONCOMPONENTS_API GetSamples(void* Out) override;
+    unsigned long NEURONCOMPONENTS_API GetNumFrames() override;
+    float NEURONCOMPONENTS_API GetGain() override;
+    unsigned long NEURONCOMPONENTS_API GetChannelCount() override;
+    unsigned long NEURONCOMPONENTS_API GetDurationMs() override;
+    GENRESULT NEURONCOMPONENTS_API SetSamples(void* A, void* B) override;
+    GENRESULT NEURONCOMPONENTS_API SetGain(float InGain) override;
+    unsigned long NEURONCOMPONENTS_API IsReady() override;
+    GENRESULT NEURONCOMPONENTS_API GetLoopRange(unsigned long* Start, unsigned long* End) override;
 
     GENRESULT FillFromPcm(const unsigned short* Fmt8, unsigned long ByteCount,
                           unsigned long LoopStart, unsigned long LoopEnd, const void* Samples,
                           IDirectSound* DirectSound, unsigned long InFlags);
-    // Retail FUN_06ee1240: the caller opens the file as an IFileSystem and this reads the
-    // RIFF straight out of its mapping (WavLib FUN_06ee8960). No path is involved.
-    GENRESULT FillFromWav(IDAComponent* FileSystem, IDirectSound* DirectSound,
+    // the caller opens the file as an IFileSystem and this reads the
+    // RIFF straight out of its mapping (WavLib the routine). No path is involved.
+    GENRESULT FillFromWav(INeuronComponent* FileSystem, IDirectSound* DirectSound,
                           unsigned long InFlags);
     GENRESULT DuplicateBuffer(IDirectSound* DirectSound, IDirectSoundBuffer** Out) const;
 
@@ -122,7 +118,7 @@ struct FArchMapEntry
     FSoundArchetype* Archetype;
 };
 
-// Instance list node 0x60 (FUN_06ee7d50). Payload starts at +8.
+// Instance list node 0x60 (the routine). Payload starts at +8.
 struct FSoundInstanceNode
 {
     FSoundInstanceNode* Next;      // +0x00
@@ -130,7 +126,7 @@ struct FSoundInstanceNode
     ISoundSource* PlayKey;         // +0x08
     IDirectSoundBuffer* Buffer;    // +0x0C
     IDirectSound3DBuffer* Buffer3d;// +0x10
-    HANDLE NotifyEvent;            // +0x14 payload+0x0C (FUN_06ee1a40)
+    HANDLE NotifyEvent;            // +0x14 payload+0x0C (the routine)
     unsigned long Pad18;           // +0x18 payload+0x10
     unsigned long FeatureFlags;    // +0x1C payload+0x14 notify offset / loop-end bytes
     unsigned long CapsFlags;       // +0x20 → Status +8 via node+0x28
@@ -157,14 +153,14 @@ struct FAttachedNode
 
 class FSoundManager;
 
-class FSoundInner final : public IDAComponent
+class FSoundInner final : public INeuronComponent
 {
 public:
     FSoundInner();
 
-    GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override;
-    unsigned long DACOM_API AddRef() override;
-    unsigned long DACOM_API Release() override;
+    GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override;
+    unsigned long NEURONCOMPONENTS_API AddRef() override;
+    unsigned long NEURONCOMPONENTS_API Release() override;
 
     unsigned long RefCount;
     FSoundManager* Self;
@@ -175,10 +171,10 @@ class FSoundManagerFactory final : public IComponentFactory
 public:
     FSoundManagerFactory();
 
-    GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override;
-    unsigned long DACOM_API AddRef() override;
-    unsigned long DACOM_API Release() override;
-    GENRESULT DACOM_API CreateInstance(AGGDESC* Desc, void** Instance) override;
+    GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override;
+    unsigned long NEURONCOMPONENTS_API AddRef() override;
+    unsigned long NEURONCOMPONENTS_API Release() override;
+    GENRESULT NEURONCOMPONENTS_API CreateInstance(AGGDESC* Desc, void** Instance) override;
 
     unsigned long RefCount;
     const char* Name;
@@ -192,98 +188,98 @@ public:
     FSoundManager();
     ~FSoundManager();
 
-    GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override;
-    unsigned long DACOM_API AddRef() override;
-    unsigned long DACOM_API Release() override;
+    GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override;
+    unsigned long NEURONCOMPONENTS_API AddRef() override;
+    unsigned long NEURONCOMPONENTS_API Release() override;
 
-    GENRESULT DACOM_API SetPcmFormat(unsigned short* Fmt) override;
-    GENRESULT DACOM_API GetPcmFormat(unsigned short* Fmt) override;
-    GENRESULT DACOM_API SetMasterGain(float Gain) override;
-    GENRESULT DACOM_API SetMaxChannels(unsigned long Count) override;
-    GENRESULT DACOM_API SetSpeakerConfig(unsigned long Index) override;
-    float DACOM_API GetMasterGain() override;
-    unsigned long DACOM_API GetMaxChannels() override;
-    unsigned long DACOM_API GetSpeakerConfig() override;
-    GENRESULT DACOM_API SetEaxPreview(int Env, float Vol, float Decay, float Damp) override;
-    GENRESULT DACOM_API GetEaxPreview(unsigned long* Env, unsigned long* Vol, unsigned long* Decay,
+    GENRESULT NEURONCOMPONENTS_API SetPcmFormat(unsigned short* Fmt) override;
+    GENRESULT NEURONCOMPONENTS_API GetPcmFormat(unsigned short* Fmt) override;
+    GENRESULT NEURONCOMPONENTS_API SetMasterGain(float Gain) override;
+    GENRESULT NEURONCOMPONENTS_API SetMaxChannels(unsigned long Count) override;
+    GENRESULT NEURONCOMPONENTS_API SetSpeakerConfig(unsigned long Index) override;
+    float NEURONCOMPONENTS_API GetMasterGain() override;
+    unsigned long NEURONCOMPONENTS_API GetMaxChannels() override;
+    unsigned long NEURONCOMPONENTS_API GetSpeakerConfig() override;
+    GENRESULT NEURONCOMPONENTS_API SetEaxPreview(int Env, float Vol, float Decay, float Damp) override;
+    GENRESULT NEURONCOMPONENTS_API GetEaxPreview(unsigned long* Env, unsigned long* Vol, unsigned long* Decay,
                                       unsigned long* Damp) override;
-    GENRESULT DACOM_API SetOrientation(FVec3* Front, FVec3* Up) override;
-    GENRESULT DACOM_API SetOrientationFromMatrix(float* Matrix) override;
-    GENRESULT DACOM_API SetListenerPosition(FVec3* Pos) override;
-    GENRESULT DACOM_API SetListenerVelocity(FVec3* Vel) override;
-    GENRESULT DACOM_API SetDistanceFactor(float Value) override;
-    GENRESULT DACOM_API SetDopplerFactor(float Value) override;
-    GENRESULT DACOM_API SetRolloffFactor(float Value) override;
-    GENRESULT DACOM_API GetOrientationSpace(FVec3* Pos, FVec3* Vel) override;
-    GENRESULT DACOM_API GetOrientationMatrix(float* Out9) override;
-    GENRESULT DACOM_API GetListenerPosition(FVec3* Out) override;
-    GENRESULT DACOM_API GetListenerVelocity(FVec3* Out) override;
-    float DACOM_API GetDistanceFactor() override;
-    float DACOM_API GetDopplerFactor() override;
-    float DACOM_API GetRolloffFactor() override;
-    GENRESULT DACOM_API EaxGetInstance(void* Id, GUID* Set, unsigned long Prop, void* Buf,
+    GENRESULT NEURONCOMPONENTS_API SetOrientation(FVec3* Front, FVec3* Up) override;
+    GENRESULT NEURONCOMPONENTS_API SetOrientationFromMatrix(float* Matrix) override;
+    GENRESULT NEURONCOMPONENTS_API SetListenerPosition(FVec3* Pos) override;
+    GENRESULT NEURONCOMPONENTS_API SetListenerVelocity(FVec3* Vel) override;
+    GENRESULT NEURONCOMPONENTS_API SetDistanceFactor(float Value) override;
+    GENRESULT NEURONCOMPONENTS_API SetDopplerFactor(float Value) override;
+    GENRESULT NEURONCOMPONENTS_API SetRolloffFactor(float Value) override;
+    GENRESULT NEURONCOMPONENTS_API GetOrientationSpace(FVec3* Pos, FVec3* Vel) override;
+    GENRESULT NEURONCOMPONENTS_API GetOrientationMatrix(float* Out9) override;
+    GENRESULT NEURONCOMPONENTS_API GetListenerPosition(FVec3* Out) override;
+    GENRESULT NEURONCOMPONENTS_API GetListenerVelocity(FVec3* Out) override;
+    float NEURONCOMPONENTS_API GetDistanceFactor() override;
+    float NEURONCOMPONENTS_API GetDopplerFactor() override;
+    float NEURONCOMPONENTS_API GetRolloffFactor() override;
+    GENRESULT NEURONCOMPONENTS_API EaxGetInstance(void* Id, GUID* Set, unsigned long Prop, void* Buf,
                                        unsigned long Cb, unsigned long* Pcb) override;
-    GENRESULT DACOM_API EaxSetInstance(void* Id, GUID* Set, unsigned long Prop, void* Data,
+    GENRESULT NEURONCOMPONENTS_API EaxSetInstance(void* Id, GUID* Set, unsigned long Prop, void* Data,
                                        unsigned long Cb) override;
-    GENRESULT DACOM_API EaxGetPrimary(GUID* Set, unsigned long Prop, void* Buf, unsigned long Cb,
+    GENRESULT NEURONCOMPONENTS_API EaxGetPrimary(GUID* Set, unsigned long Prop, void* Buf, unsigned long Cb,
                                       unsigned long* Pcb) override;
-    GENRESULT DACOM_API EaxSetPrimary(GUID* Set, unsigned long Prop, void* Data,
+    GENRESULT NEURONCOMPONENTS_API EaxSetPrimary(GUID* Set, unsigned long Prop, void* Data,
                                       unsigned long Cb) override;
-    int DACOM_API CreateArchetypePcm(void* Fmt, unsigned long ByteCount, unsigned long LoopStart,
+    int NEURONCOMPONENTS_API CreateArchetypePcm(void* Fmt, unsigned long ByteCount, unsigned long LoopStart,
                                      unsigned long LoopEnd, void* Samples,
                                      unsigned long ArchFlags) override;
-    int DACOM_API CreateArchetypeFromSource(void* Source, unsigned long ArchFlags) override;
-    int DACOM_API CreateArchetypeFromWav(IDAComponent* FileSystem, unsigned long ArchFlags) override;
-    GENRESULT DACOM_API DestroyArchetype(int Id) override;
-    GENRESULT DACOM_API QueryArchetype(int Id, void** Out) override;
-    GENRESULT DACOM_API AttachPlayKey(ISoundSource* PlayKey, unsigned long Index) override;
-    GENRESULT DACOM_API DetachPlayKey(ISoundSource* PlayKey) override;
-    GENRESULT DACOM_API ReplaceAttachedList(void** Keys, unsigned long Count) override;
-    unsigned long DACOM_API GetAttachedCount() override;
-    unsigned long DACOM_API GetPlayingCount() override;
-    GENRESULT DACOM_API StartupDevice(HWND Hwnd, unsigned long Flags) override;
-    GENRESULT DACOM_API ShutdownDevice() override;
-    GENRESULT DACOM_API GetDirectSound(IDirectSound** Out) override;
-    unsigned long DACOM_API GetTickCountSlot() override;
+    int NEURONCOMPONENTS_API CreateArchetypeFromSource(void* Source, unsigned long ArchFlags) override;
+    int NEURONCOMPONENTS_API CreateArchetypeFromWav(INeuronComponent* FileSystem, unsigned long ArchFlags) override;
+    GENRESULT NEURONCOMPONENTS_API DestroyArchetype(int Id) override;
+    GENRESULT NEURONCOMPONENTS_API QueryArchetype(int Id, void** Out) override;
+    GENRESULT NEURONCOMPONENTS_API AttachPlayKey(ISoundSource* PlayKey, unsigned long Index) override;
+    GENRESULT NEURONCOMPONENTS_API DetachPlayKey(ISoundSource* PlayKey) override;
+    GENRESULT NEURONCOMPONENTS_API ReplaceAttachedList(void** Keys, unsigned long Count) override;
+    unsigned long NEURONCOMPONENTS_API GetAttachedCount() override;
+    unsigned long NEURONCOMPONENTS_API GetPlayingCount() override;
+    GENRESULT NEURONCOMPONENTS_API StartupDevice(HWND Hwnd, unsigned long Flags) override;
+    GENRESULT NEURONCOMPONENTS_API ShutdownDevice() override;
+    GENRESULT NEURONCOMPONENTS_API GetDirectSound(IDirectSound** Out) override;
+    unsigned long NEURONCOMPONENTS_API GetTickCountSlot() override;
     GENRESULT GetDeviceSnapshot(void* Out) override;
-    GENRESULT DACOM_API MixerTick(ISoundListenerPose* ListenerPose) override;
-    GENRESULT DACOM_API StopInstanceBuffer(ISoundSource* PlayKey) override;
-    GENRESULT DACOM_API PlayInstanceBuffer(ISoundSource* PlayKey) override;
-    GENRESULT DACOM_API GetArchetypeFormat(void* Id, void* Out) override;
-    GENRESULT DACOM_API GetArchetypeSamples(void* Id, void* Out) override;
-    unsigned long DACOM_API GetArchetypeFrames(void* Id) override;
-    float DACOM_API GetArchetypeGain(void* Id) override;
-    unsigned long DACOM_API GetArchetypeChannels(void* Id) override;
-    GENRESULT DACOM_API SetArchetypeSamples(void* A, void* B, void* C) override;
-    unsigned long DACOM_API GetArchetypeReady(void* Id) override;
+    GENRESULT NEURONCOMPONENTS_API MixerTick(ISoundListenerPose* ListenerPose) override;
+    GENRESULT NEURONCOMPONENTS_API StopInstanceBuffer(ISoundSource* PlayKey) override;
+    GENRESULT NEURONCOMPONENTS_API PlayInstanceBuffer(ISoundSource* PlayKey) override;
+    GENRESULT NEURONCOMPONENTS_API GetArchetypeFormat(void* Id, void* Out) override;
+    GENRESULT NEURONCOMPONENTS_API GetArchetypeSamples(void* Id, void* Out) override;
+    unsigned long NEURONCOMPONENTS_API GetArchetypeFrames(void* Id) override;
+    float NEURONCOMPONENTS_API GetArchetypeGain(void* Id) override;
+    unsigned long NEURONCOMPONENTS_API GetArchetypeChannels(void* Id) override;
+    GENRESULT NEURONCOMPONENTS_API SetArchetypeSamples(void* A, void* B, void* C) override;
+    unsigned long NEURONCOMPONENTS_API GetArchetypeReady(void* Id) override;
 
-    GENRESULT DACOM_API GetInstanceStatus(int Index, void* Out) override;
-    GENRESULT DACOM_API BindParser() override;
+    GENRESULT NEURONCOMPONENTS_API GetInstanceStatus(int Index, void* Out) override;
+    GENRESULT NEURONCOMPONENTS_API BindParser() override;
 
     void BindOuter(FSoundAggDesc* Desc);
-    GENRESULT CreateDirectSound(); // FUN_06ee5730
-    void DumpDeviceNotices();      // FUN_06ee5b20
-    void ApplyListener();          // FUN_06ee6d50
+    GENRESULT CreateDirectSound();
+    void DumpDeviceNotices();
+    void ApplyListener();
     void ReleaseCom();
     FSoundArchetype* LookupArchetype(int Id);
     int InsertArchetype(FSoundArchetype* Archetype);
     void DestroyAllArchetypes();
-    void StopInstancesForArch(int ArchId); // FUN_06ee4740
+    void StopInstancesForArch(int ArchId);
     void ClearAttached();
     FSoundInstanceNode* FindInstanceByKey(ISoundSource* PlayKey);
     FSoundInstanceNode* CreateInstanceFromKey(ISoundSource* PlayKey);
     FAttachedNode* FindAttached(ISoundSource* PlayKey);
     void UnlinkInstance(FSoundInstanceNode* Node);
-    unsigned char MixerApplyInstance(FSoundInstanceNode* Node);  // FUN_06ee64c0
+    unsigned char MixerApplyInstance(FSoundInstanceNode* Node);
     void MixerApplyEax(FSoundInstanceNode* Node);
     void RefreshInstancePose(FSoundInstanceNode* Node);
     unsigned char MixerAllowCreate(ISoundSource* PlayKey);
-    void LinkPendingInstance(FSoundInstanceNode* Node);          // FUN_06ee7c00
-    void SplicePendingInstances();                               // FUN_06ee7c70
-    unsigned char MixerSetStartOffset(FSoundInstanceNode* Node); // FUN_06ee6b70
-    void ApplyListenerFromSource(ISoundListenerPose* Pose);      // FUN_06ee6e20
-    unsigned char OneShotAlreadyExpired(ISoundSource* PlayKey);  // FUN_06ee6070
-    unsigned char SetupInstanceNotify(FSoundInstanceNode* Node); // FUN_06ee1a40
+    void LinkPendingInstance(FSoundInstanceNode* Node);
+    void SplicePendingInstances();
+    unsigned char MixerSetStartOffset(FSoundInstanceNode* Node);
+    void ApplyListenerFromSource(ISoundListenerPose* Pose);
+    unsigned char OneShotAlreadyExpired(ISoundSource* PlayKey);
+    unsigned char SetupInstanceNotify(FSoundInstanceNode* Node);
 
     unsigned char bParserBound;     // +0x0C
     char DeviceIdString[0x28];      // +0x0D
@@ -301,10 +297,10 @@ public:
     unsigned long Field70;
     unsigned long Field74;
     float ReverbMix;                // +0x78
-    unsigned long Field7C;          // +0x7C DS3DALG GUID dword0 (ctor DAT_06ee95e4 = 0)
-    unsigned long Field80;          // +0x80 DAT_06ee95e8
-    unsigned long Field84;          // +0x84 DAT_06ee95ec
-    unsigned long Field88;          // +0x88 DAT_06ee95f0
+    unsigned long Field7C;          // +0x7C DS3DALG GUID dword0 (ctor the field = 0)
+    unsigned long Field80;          // +0x80 the field
+    unsigned long Field84;          // +0x84 the field
+    unsigned long Field88;          // +0x88 the field
     unsigned long Flags;            // +0x8C
     unsigned long CapsFlags;        // +0x90
     unsigned long Field94;
@@ -321,19 +317,19 @@ public:
     float DopplerFactor;            // +0xE8
     float RolloffFactor;            // +0xEC
     float Max3dPan;                 // +0xF0
-    HWND Window;                    // +0xF4 not written by FUN_06ee1b40
-    FArchMapEntry* ArchEntries;     // +0xF8 retail FUN_06ee7620 std::map
+    HWND Window;                    // +0xF4 not written by the routine
+    FArchMapEntry* ArchEntries;     // +0xF8 baseline the routine std::map
     unsigned long ArchCount;        // +0xFC
     unsigned long ArchCap;          // +0x100
     unsigned char bArchEmpty;       // +0x104
     unsigned char Pad105[3];
     unsigned long Pad108;
-    FAttachedNode* AttachedUnused;  // +0x10C list this (FUN_06ee7d80 size 0xC)
+    FAttachedNode* AttachedUnused;  // +0x10C list this (the routine size 0xC)
     FAttachedNode* AttachedSentinel;// +0x110
     unsigned long AttachedCount;    // +0x114
-    FSoundInstanceNode* InstanceUnused;   // +0x118 list this (FUN_06ee7d50 size 0x60)
+    FSoundInstanceNode* InstanceUnused;   // +0x118 list this (the routine size 0x60)
     FSoundInstanceNode* InstanceSentinel; // +0x11C
-    unsigned long InstanceEmbeddedCount;  // +0x120 (play count is DAT_06eeaf08)
+    unsigned long InstanceEmbeddedCount;  // +0x120 (play count is the field)
     unsigned long NextArchId;       // +0x124
     IDirectSound3DListener* Listener; // +0x128
     IDirectSound* DirectSound;      // +0x12C
@@ -341,7 +337,7 @@ public:
     IProfileParser* Parser;         // +0x134
     unsigned char bCoInitialized;   // +0x138
     unsigned char Pad139[3];
-    IDAComponent* Controlling;      // +0x13C
+    INeuronComponent* Controlling;      // +0x13C
     FSoundInner Inner;              // +0x140
 };
 

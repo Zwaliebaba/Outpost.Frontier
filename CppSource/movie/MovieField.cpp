@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "MovieField.h"
@@ -9,41 +5,41 @@
 
 #include <windows.h>
 
-// DAT_06ae097c. Defined in MovieGraph.cpp.
+// . Defined in MovieGraph.cpp.
 extern int GMovieGraphCode;
 
-// DAT_06ae0980. Allocation counter. Only 0x06ac4f80 and 0x06ac4fb0 touch it.
+// . Allocation counter. Only 0x06ac4f80 and 0x06ac4fb0 touch it.
 int GMovieAllocCount = 0;
 
 // Callees outside this file. Names stay Movie_<addr> until those lanes name them.
-// 0x06ac45a0. Defined in MovieExp.cpp. RET 0x18.
+// . Defined in MovieExp.cpp. RET 0x18.
 long __stdcall ReduceLimbsModulo(unsigned int* Source, unsigned int Count, unsigned int Mode, unsigned int* Dest, unsigned int* Modulus, void* Scratch);
 
-// 0x06ac85c0. Limb add, borrow/carry in EAX. RET 0x10.
+// . Limb add, borrow/carry in EAX. RET 0x10.
 long __stdcall Movie_AddLimbsCarry(unsigned int* Left, unsigned int* Right, int Dest, int Count);
 
-// 0x06ac89d0. Limb subtract, borrow in EAX. RET 0x10.
+// . Limb subtract, borrow in EAX. RET 0x10.
 long __stdcall SubtractLimbs(unsigned int* Left, unsigned int* Right, int Dest, int Count);
 
-// 0x06ac8bd0. In-place limb shift. RET 0x10.
+// . In-place limb shift. RET 0x10.
 unsigned int __stdcall ShiftLimbs(unsigned int* Source, unsigned int BitCount, unsigned int* Dest, int Count);
 
-// 0x06ac8630. Multiply a limb by the modulus and subtract. RET 0x10.
+// . Multiply a limb by the modulus and subtract. RET 0x10.
 unsigned int __stdcall Movie_SubtractScaledLimbs(int Modulus, unsigned int Digit, unsigned int* Buffer, int Count);
 
-// 0x06ac8490. RET 0x10.
+// . RET 0x10.
 unsigned int __stdcall Movie_AddScaledLimbs(int Modulus, unsigned int Scale, unsigned int* Buffer, int Count);
 
-// 0x06ac8a90. Signed compare of two limb integers. RET 0x10.
+// . Signed compare of two limb integers. RET 0x10.
 long __stdcall CompareLimbs(int Left, unsigned int LeftCount, int Right, int RightCount);
 
-// 0x06aca7d0. RET 0x4.
+// . RET 0x4.
 void __stdcall FillWindowTable(unsigned int Size);
 
-// 0x06ac52f0. Single-limb divisor. RET 0x14. Body in MovieFieldMid.cpp.
+// . Single-limb divisor. RET 0x14. Body in MovieFieldMid.cpp.
 unsigned int __stdcall Movie_DivideByLimb(unsigned int* Dividend, unsigned int DivisorLimb, unsigned int* Reciprocal, unsigned int Quotient, int DividendCount);
 
-// 0x06ac54d0. Writes two dwords: reciprocal, then shift. RET 0xC.
+// . Writes two dwords: reciprocal, then shift. RET 0xC.
 void __stdcall StoreLeadingReciprocal(int Limbs, unsigned int Count, unsigned int* Reciprocal);
 
 static void Movie_CopyLimbs(unsigned int* Dest, unsigned int* Source, unsigned int Count)
@@ -126,7 +122,7 @@ static unsigned int Movie_ReciprocalHigh(unsigned int Carry, unsigned int Top, u
     return (unsigned int)(Sum >> 32);
 }
 
-// 0x06ac4080
+
 // Field_0x110 == 0 copies LimbCount limbs. Otherwise reduces modulo (mode 1).
 // Returns the significant limb count, or 0 when the reduction fails.
 unsigned int __stdcall Movie_CopyOrReduceField(unsigned int* Source, unsigned int* Dest, unsigned int* Modulus)
@@ -143,7 +139,7 @@ unsigned int __stdcall Movie_CopyOrReduceField(unsigned int* Source, unsigned in
     return Movie_SignificantCount(Dest, LimbCount);
 }
 
-// 0x06ac40e0
+
 // Sum = Left + Right. Subtracts Modulus unless the sum produced no carry and is below it.
 // Status 0x19 when the subtract's borrow disagrees with the add's carry.
 void __stdcall Movie_AddModulo(unsigned int* Left, unsigned int* Right, unsigned int* Sum, unsigned int* Modulus)
@@ -164,7 +160,7 @@ void __stdcall Movie_AddModulo(unsigned int* Left, unsigned int* Right, unsigned
     }
 }
 
-// 0x06ac4160
+
 // Product of Left and Right (one expand when they alias), then modular reduction.
 // Allocates a 0x231C scratch when Scratch is null and frees it on the way out.
 void __stdcall Movie_MultiplyModulo(unsigned int* Left, unsigned int* Right, unsigned int* Dest, unsigned int* Modulus, unsigned int* Scratch)
@@ -206,7 +202,7 @@ void __stdcall Movie_MultiplyModulo(unsigned int* Left, unsigned int* Right, uns
     }
 }
 
-// 0x06ac4250
+
 // Expands Source, multiplies it by the (Factor, FactorTail) pair, then reduces.
 void __stdcall Movie_MultiplyFactorModulo(unsigned int* Source, unsigned int* Factor, unsigned int* FactorTail, unsigned int* Dest, unsigned int* Modulus, unsigned int* Scratch)
 {
@@ -222,7 +218,7 @@ void __stdcall Movie_MultiplyFactorModulo(unsigned int* Source, unsigned int* Fa
     ReduceLimbsModulo(AtA74, LimbCount << 1, Modulus[0x44], Dest, Modulus, Scratch);
 }
 
-// 0x06ac42e0
+
 // Multiplies the four terms the caller already laid out, then reduces.
 void __stdcall Movie_MultiplyTermsModulo(unsigned int* TermA, unsigned int* TermB, unsigned int* TermC, unsigned int* TermD, unsigned int* Dest, unsigned int* Modulus, unsigned int* Scratch)
 {
@@ -232,7 +228,7 @@ void __stdcall Movie_MultiplyTermsModulo(unsigned int* TermA, unsigned int* Term
     ReduceLimbsModulo(Product, LimbCount << 1, Modulus[0x44], Dest, Modulus, Scratch);
 }
 
-// 0x06ac4340
+
 // Dest = -Source modulo Modulus. A zero source stays zero; otherwise Dest = Modulus - Dest.
 void __stdcall Movie_NegateModulo(unsigned int* Source, unsigned int* Dest, unsigned int* Modulus)
 {
@@ -255,7 +251,7 @@ void __stdcall Movie_NegateModulo(unsigned int* Source, unsigned int* Dest, unsi
     }
 }
 
-// 0x06ac4390
+
 // Shifts Dest left (BitCount > 0) or right (BitCount < 0), reducing modulo Modulus.
 // A right shift of an even modulus stores status 0x1c. A failed correction stores 0x1a or 0x1b.
 void __stdcall Movie_ShiftModulo(unsigned int* Source, int BitCount, unsigned int* Dest, unsigned int* Modulus)
@@ -340,7 +336,7 @@ void __stdcall Movie_ShiftModulo(unsigned int* Source, int BitCount, unsigned in
     }
 }
 
-// 0x06ac4550
+
 // Dest = Left - Right. On borrow, adds Modulus back.
 // Status 0x1d when that add's carry disagrees with the borrow.
 void __stdcall Movie_SubtractModulo(unsigned int* Left, unsigned int* Right, unsigned int* Dest, unsigned int* Modulus)
@@ -357,7 +353,7 @@ void __stdcall Movie_SubtractModulo(unsigned int* Left, unsigned int* Right, uns
     }
 }
 
-// 0x06ac4db0
+
 // Splits Source at min(Count, Bound[0]) into Dest+0x1B4 and Dest+0x1C4.
 // Status 0x38 when the tail is longer than Bound[0].
 void __stdcall Movie_SplitLimbs(unsigned int* Source, unsigned int Count, unsigned int* Dest, unsigned int* Bound)
@@ -379,7 +375,7 @@ void __stdcall Movie_SplitLimbs(unsigned int* Source, unsigned int Count, unsign
     Movie_EvaluateWindow(Source + Head, Tail, Dest + 0x71, (unsigned char*)(Dest + 0xde), Bound);
 }
 
-// 0x06ac4e20
+
 // Reduces Source[0..Count) into Dest. Field_0x110 == 0 copies and zero-pads.
 // Otherwise the value is staged at Workspace+0x100 and reduced.
 // Returns 0 after clearing Dest when the 0x261C workspace cannot be allocated.
@@ -420,7 +416,7 @@ long __stdcall Movie_ReduceModulo(unsigned int* Source, unsigned int Count, unsi
     return 1;
 }
 
-// 0x06ac4f40
+
 // 386 (0x182) and 486 (0x1E6), and anything whose processor level is below 6, pass 4.
 // Every other processor passes 0xC.
 void __cdecl Movie_InitForProcessor()
@@ -437,8 +433,8 @@ void __cdecl Movie_InitForProcessor()
     }
 }
 
-// 0x06ac4f80
-// LocalAlloc(LMEM_FIXED). Status 0x2b on failure. Otherwise increments DAT_06ae0980.
+
+// LocalAlloc(LMEM_FIXED). Status 0x2b on failure. Otherwise increments the field.
 void* __stdcall Movie_AllocateBlock(unsigned int Size)
 {
     void* Block = LocalAlloc(0, Size);
@@ -451,7 +447,7 @@ void* __stdcall Movie_AllocateBlock(unsigned int Size)
     return Block;
 }
 
-// 0x06ac4fb0
+
 void __stdcall Movie_FreeBlock(void* Block)
 {
     if (Block != 0)
@@ -461,14 +457,14 @@ void __stdcall Movie_FreeBlock(void* Block)
     }
 }
 
-// 0x06ac4fd0
+
 // The unread store of 0 at [ESP+0x14] has no later read.
 unsigned int __stdcall Movie_EstimateQuotient(unsigned int Carry, unsigned int Top, unsigned int Second, unsigned int* Reciprocal)
 {
     return Movie_ReciprocalHigh(Carry, Top, Second, Reciprocal);
 }
 
-// 0x06ac5050
+
 // Quotient and remainder of a 64-bit dividend by a 32-bit divisor.
 // Status 9 when High >= Divisor, which also covers a zero divisor.
 void __stdcall Movie_DivideDoubleWord(unsigned int Low, unsigned int High, unsigned int Divisor, int* Quotient, int* Remainder)
@@ -486,7 +482,7 @@ void __stdcall Movie_DivideDoubleWord(unsigned int Low, unsigned int High, unsig
     *Remainder = (int)(Low - Quot * Divisor);
 }
 
-// 0x06ac5090
+
 // Divides Dividend by Divisor. Remainder lands in Remainder.
 // Quotient digits are stored at Quotient when that address is nonzero, high digit first.
 // Returns the remainder's significant length. Status 0xB, 0xC, or 0xA, and 0, on the error paths.

@@ -1,27 +1,23 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
 // UIWinObject — PAGE_*.txt mesh widget (RTTI .?AUUIWinObject@@ : WinObject : Win3D).
-//
-// Retail:
-//   WINFACTORY<UIWinObject> DAT_0067dac0, static init LAB_0059c2a0 → FUN_0059c8d0
-//   Create FUN_0059c940: operator_new(0x100), Win3D ctor FUN_004b6790, WinObject part
-//   (mesh holder +0x7c FUN_00420d40 / +0x90 FUN_00492250, holder vftable 0x005d2efc,
-//   holder+0x10 = -1, colour +0xa5, byte +0xa4 &= 0xf8), then +0xb8 FUN_004215b0 identity
+
+// baseline:
+//   WINFACTORY<UIWinObject> the field, static init the branch → the routine
+//   Create the routine: operator_new(0x100), Win3D ctor the routine, WinObject part
+//   (mesh holder +0x7c the routine / +0x90 the routine, holder vftable 0x005d2efc,
+//   holder+0x10 = -1, colour +0xa5, byte +0xa4 &= 0xf8), then +0xb8 the routine identity
 //   3x3 + zero translation, vftable 0x005e5d34.
 //   vftable 0x005e5d34 overrides of WinObject 0x005d709c:
-//     slot 0  FUN_0059ce20  scalar deleting destructor (dtor FUN_0059cf70 = WinObject's)
-//     slot 5  LAB_0059ab10  SetPosition
-//     slot 8  LAB_0059a900  SetTransform
-//     slot 9  FUN_0059a760  Create
-//     slot 13 0x0059ab50    draw: debug frame (dead — DAT_0067dbc4 has no writer), then
-//                           WinObject draw FUN_0059f120
-//
+//     slot 0  the routine  scalar deleting destructor (dtor the routine = WinObject's)
+//     slot 5  the branch  SetPosition
+//     slot 8  the branch  SetTransform
+//     slot 9  the routine  Create
+//     slot 13 0x0059ab50    draw: debug frame (dead — the field has no writer), then
+//                           WinObject draw the routine
+
 // The WinObject part (mesh holder, +0xa4 draw flags, +0xa5 tint, slots 10 / 11 / 13) is the
 // WinObject base (win_object.h); the debug frame of slot 13 is dead, so Draw is WinObject's.
 
@@ -35,11 +31,11 @@ public:
     UiWinObject();
     ~UiWinObject() override;
 
-    // slot 5 (+0x14) — LAB_0059ab10.
+    // slot 5 (+0x14) — the branch.
     void SetPosition(float const* NewPosition) override;
-    // slot 8 (+0x20) — LAB_0059a900.
+    // slot 8 (+0x20) — the branch.
     void SetTransform(float const* Transform) override;
-    // slot 9 (+0x24) — FUN_0059a760: false when Payload is null or the mesh load fails.
+    // slot 9 (+0x24) — the routine: false when Payload is null or the mesh load fails.
     bool Create(Win3D* NewParent, void* Payload) override;
 
     FClientMeshHolder const& Mesh() const { return MeshHolder; }
@@ -53,4 +49,4 @@ private:
     float Corner_[3];                       // +0xf4 — slot 8: Block * (Width, -Height, 0)
 };
 
-static_assert(sizeof(UiWinObject) == 0x100, "retail UIWinObject is 0x100 bytes");
+static_assert(sizeof(UiWinObject) == 0x100, "baseline UIWinObject is 0x100 bytes");

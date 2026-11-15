@@ -1,18 +1,14 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // NeuroNetNavMap -- the view switches and the pieces of the frame that follow the view: the
 // map meshes' pan / zoom, the grid labels, the zoom on a click, the universe / system rebuilds
-// and the side panels' slide. See nn_navmap.h. Retail Client\Interface\NeuroNet\NavMap.cpp.
+// and the side panels' slide. See nn_navmap.h. baseline Client\Interface\NeuroNet\NavMap.cpp.
 
 #include "nn_navmap.h"
-#include "character_select_equip.h" // GetPlayerStarSystemIdRetail (FUN_004c4830)
-#include "DALib.h"                  // DALib::Engine
-#include "engine/engbase.h"         // IEngine
-#include "menu_ui_init.h"           // PlayOrRewindUiSoundSlot (FUN_005645c0)
+#include "character_select_equip.h" // GetPlayerStarSystemIdbaseline (the routine)
+#include "NeuronRuntime.h"                  // NeuronRuntime::Engine
+#include "engine/sceneruntime.h"         // IEngine
+#include "menu_ui_init.h"           // PlayOrRewindUiSoundSlot (the routine)
 #include "rich_text_win.h"          // RichTextWin : WinControl
 #include "ui_scroll.h"              // UiScroll : WinControl
 #include "win3d.h"                  // kWin3DVisible
@@ -23,58 +19,58 @@
 
 namespace
 {
-    // DAT_005c7f68 -- 1/255 as the float 0x3b808081.
+    // 1/255 as the float 0x3b808081.
     float const kNavMapInv255 = 0.003921568859368563f;
 
-    // FILD of the zero-extended byte, FMUL DAT_005c7f68, FSTP dword.
+    // FILD of the zero-extended byte, FMUL the field, FSTP dword.
     float NavMapByteToUnit(unsigned char Value)
     {
         return static_cast<float>(static_cast<double>(Value) * kNavMapInv255);
     }
 
-    // The alpha FUN_004963d0 gives a map mesh: ftol(Alpha * 255.0f) (DAT_005c75d8), its low
-    // byte, back to a float through DAT_005c7f68.
+    // The alpha the routine gives a map mesh: ftol(Alpha * 255.0f) (the field), its low
+    // byte, back to a float through the field.
     float NavMapAlphaByte(float Alpha)
     {
         int const Whole = static_cast<int>(static_cast<double>(Alpha) * 255.0);
         return NavMapByteToUnit(static_cast<unsigned char>(Whole));
     }
 
-    // DAT_005d3e48 -- the zoomed map mesh's scale per unit of zoom (0x3dee23b8, 5/43).
+    // the zoomed map mesh's scale per unit of zoom (0x3dee23b8, 5/43).
     float const kNavMapZoomedMeshScale = 0.11627906560897827f;
-    // DAT_005ca220.
+    // .
     float const kNavMapFlatMeshScale = 1.5f;
 
-    // FUN_0049fbf0's constants: DAT_005d3f48 / DAT_005d3f40 / DAT_005d3f44 the grid's offset
-    // from the pan, DAT_005d3168 the label step, DAT_005d3164 / DAT_005d314c the first label,
-    // DAT_005d3f3c / DAT_005d3f38 and DAT_005d3f34 / DAT_005d3f30 the frame's edges, the two
+    // 's constants: the field / the field / the field the grid's offset
+    // from the pan, the field the label step, the field / the field the first label,
+    // / the field and the field / the field the frame's edges, the two
     // fixed rows / columns -0.294 / -0.309, and the zoomed scale 8.6.
-    float const kNavMapGridOffsetX = 0.027000000700354576f;   // 0x3cdd2f1b
-    float const kNavMapGridOffsetY = 0.011500000022351742f;   // 0x3c3c6a7f
-    float const kNavMapGridOffsetNegY = -0.011500000022351742f; // 0xbc3c6a7f
-    float const kNavMapGridStep = 0.07000000029802322f;       // 0x3d8f5c29
-    float const kNavMapGridFirstLetter = 0.27900001406669617f; // 0x3e8ed917
-    float const kNavMapGridFirstNumber = 0.25200000405311584f; // 0x3e810625
-    float const kNavMapGridLetterMax = 0.23000000417232513f;  // 0x3e6b851f
-    float const kNavMapGridLetterMin = -0.3100000023841858f;  // 0xbe9eb852
-    float const kNavMapGridNumberMax = 0.27399998903274536f;  // 0x3e8c49ba
-    float const kNavMapGridNumberMin = -0.25699999928474426f; // 0xbe839581
-    float const kNavMapGridLetterRow = -0.29399999976158142f; // 0xbe96872b
-    float const kNavMapGridNumberColumn = -0.30899998545646667f; // 0xbe9e353f
-    float const kNavMapZoomedScale = 8.6000003814697266f;     // 0x4109999a
+    float const kNavMapGridOffsetX = 0.027000000700354576f;
+    float const kNavMapGridOffsetY = 0.011500000022351742f;
+    float const kNavMapGridOffsetNegY = -0.011500000022351742f;
+    float const kNavMapGridStep = 0.07000000029802322f;
+    float const kNavMapGridFirstLetter = 0.27900001406669617f;
+    float const kNavMapGridFirstNumber = 0.25200000405311584f;
+    float const kNavMapGridLetterMax = 0.23000000417232513f;
+    float const kNavMapGridLetterMin = -0.3100000023841858f;
+    float const kNavMapGridNumberMax = 0.27399998903274536f;
+    float const kNavMapGridNumberMin = -0.25699999928474426f;
+    float const kNavMapGridLetterRow = -0.29399999976158142f;
+    float const kNavMapGridNumberColumn = -0.30899998545646667f;
+    float const kNavMapZoomedScale = 8.6000003814697266f;
 
-    // FUN_0049f1a0: DAT_005d3f28 (double) -- the zoomed-in distance per unit of MapExtentX.
+    // the field (double) -- the zoomed-in distance per unit of MapExtentX.
     double const kNavMapZoomedDistance = 0.11627906976744186;
-    // 0x3fc00000 -- the zoom's duration.
+    // the zoom's duration.
     float const kNavMapZoomSeconds = 1.5f;
 
-    // DAT_005d2ed4 / DAT_005d2ed8 -- the two bases Create adds its right-panel offsets to (the
-    // same constants as nn_navmap.cpp's; FUN_004a0a70 derives the panels' off-screen x from
+    // / the field -- the two bases Create adds its right-panel offsets to (the
+    // same constants as nn_navmap.cpp's; the routine derives the panels' off-screen x from
     // them).
-    float const kNavMapPanelBaseA = -0.434f; // 0xbede353f
-    float const kNavMapPanelBaseB = 0.421f;  // 0x3ed78d50
+    float const kNavMapPanelBaseA = -0.434f;
+    float const kNavMapPanelBaseB = 0.421f;
 
-    // One control FUN_004a0a70 slides: off-screen x (the panel base plus an offset, computed
+    // One control the routine slides: off-screen x (the panel base plus an offset, computed
     // in the FPU and stored as a float), on-screen x, and the y both share (z 0).
     struct FNavMapSlide
     {
@@ -84,7 +80,7 @@ namespace
         float Y;
     };
 
-    // The FPU sum FUN_004a0a70 stores as a panel control's off-screen x.
+    // The FPU sum the routine stores as a panel control's off-screen x.
     float NavMapPanelX(float Base, double Offset)
     {
         return static_cast<float>(static_cast<double>(Base) + Offset);
@@ -97,15 +93,15 @@ namespace
 
 void NeuroNetNavMap::SetMapMeshTransform(int View, float Alpha)
 {
-    // FUN_004963d0.
-    IEngine* const Engine = DALib::Engine;
+    // .
+    IEngine* const Engine = NeuronRuntime::Engine;
     double const Zoom = static_cast<double>(ZoomScale);
     double const PanX = static_cast<double>(PanOffset[0]) * Zoom;
     double const PanY = static_cast<double>(PanOffset[1]) * Zoom;
 
     if (View == 2)
     {
-        // 004963e5..004964a4: the zoomed mesh (+0x378), placed at +0x828 plus the scaled pan,
+        // the zoomed mesh (+0x378), placed at +0x828 plus the scaled pan,
         // its rotation's [0][0] / [1][1] = ZoomScale * 5/43 (the rest of the rotation kept).
         float const Scale = static_cast<float>(Zoom * static_cast<double>(kNavMapZoomedMeshScale));
         FTransform Transform;
@@ -118,7 +114,7 @@ void NeuroNetNavMap::SetMapMeshTransform(int View, float Alpha)
         Transform.Translation.Z = Field_0x828[2];
         Engine->SetInstanceMatrix(ZoomedMapMesh2.EngineInstance, &Transform);
 
-        // 004964aa..004964e9: white, the alpha through a byte.
+        // white, the alpha through a byte.
         ZoomedMapMesh2.UserFloats[0] = 1.0f;
         ZoomedMapMesh2.UserFloats[1] = 1.0f;
         ZoomedMapMesh2.UserFloats[2] = 1.0f;
@@ -126,7 +122,7 @@ void NeuroNetNavMap::SetMapMeshTransform(int View, float Alpha)
         return;
     }
 
-    // 004964f6..004965ac: the flat mesh (+0x350) at MeshPosition plus the scaled pan, scale
+    // the flat mesh (+0x350) at MeshPosition plus the scaled pan, scale
     // ZoomScale * 1.5.
     float const Scale = static_cast<float>(Zoom * static_cast<double>(kNavMapFlatMeshScale));
     FTransform Transform;
@@ -139,7 +135,7 @@ void NeuroNetNavMap::SetMapMeshTransform(int View, float Alpha)
     Transform.Translation.Z = MeshPosition[2];
     Engine->SetInstanceMatrix(ZoomedMapMesh.EngineInstance, &Transform);
 
-    // 004965b2..004965ef
+
     ZoomedMapMesh.UserFloats[0] = 1.0f;
     ZoomedMapMesh.UserFloats[1] = 1.0f;
     ZoomedMapMesh.UserFloats[2] = 1.0f;
@@ -148,7 +144,7 @@ void NeuroNetNavMap::SetMapMeshTransform(int View, float Alpha)
 
 void NeuroNetNavMap::PlaceGridLabels()
 {
-    // FUN_0049fbf0. A label's place is From + (To - From) * Ease, each end = (the grid's
+    // . A label's place is From + (To - From) * Ease, each end = (the grid's
     // offset + the label's step) * the end's scale.
     float ScaleFrom = 1.0f;
     float ScaleTo = 1.0f;
@@ -163,7 +159,7 @@ void NeuroNetNavMap::PlaceGridLabels()
         Ease = TransitionEase;
         if (ViewMode == 2)
         {
-            // 0049fc49..0049fc77 / 0049fcee: zooming out of view 2.
+            // / 0049fcee: zooming out of view 2.
             FromX = static_cast<float>(static_cast<double>(kNavMapGridOffsetX) -
                                        static_cast<double>(TransitionDelta[0]));
             ScaleTo = 1.0f;
@@ -173,7 +169,7 @@ void NeuroNetNavMap::PlaceGridLabels()
         }
         else
         {
-            // 0049fc79..0049fcc3: zooming in.
+            // zooming in.
             ScaleFrom = 1.0f;
             ScaleTo = kNavMapZoomedScale;
             ToX = static_cast<float>(static_cast<double>(TransitionDelta[0]) +
@@ -186,7 +182,7 @@ void NeuroNetNavMap::PlaceGridLabels()
     }
     else if (ViewMode == 2)
     {
-        // 0049fcca..0049fcf2: zoomed in, following the pan.
+        // zoomed in, following the pan.
         ScaleTo = kNavMapZoomedScale;
         FromX = static_cast<float>(static_cast<double>(PanOffset[0]) +
                                    static_cast<double>(kNavMapGridOffsetX));
@@ -195,7 +191,7 @@ void NeuroNetNavMap::PlaceGridLabels()
         ScaleFrom = kNavMapZoomedScale;
     }
 
-    // 0049fcfa..0049fdae: the letters A..H along the bottom. TEST AH,0x41 + JE hides one right
+    // the letters A..H along the bottom. TEST AH,0x41 + JE hides one right
     // of 0.23; TEST AH,5 + JNP hides one left of -0.31 (an unordered x stays shown).
     for (int Index = 0; Index < 8; ++Index)
     {
@@ -218,7 +214,7 @@ void NeuroNetNavMap::PlaceGridLabels()
         Label->SetProperty(6, reinterpret_cast<uintptr_t>(Pos), 0);
     }
 
-    // 0049fdb4..0049fe62: the numbers 1..8 down the left side.
+    // the numbers 1..8 down the left side.
     for (int Index = 0; Index < 8; ++Index)
     {
         double const Step = static_cast<double>(kNavMapGridFirstNumber) -
@@ -240,10 +236,10 @@ void NeuroNetNavMap::PlaceGridLabels()
 
 void NeuroNetNavMap::ZoomToClick()
 {
-    // FUN_0049f1a0.
-    HideObjectTools(); // FUN_0049f0e0
+    // .
+    HideObjectTools();
 
-    // 0049f1ab..0049f25d: the pan that puts the click at the centre, less the current pan.
+    // the pan that puts the click at the centre, less the current pan.
     double const HalfX = static_cast<double>(MapSize[0]) * 0.5;
     double const HalfY = static_cast<double>(MapSize[1]) * 0.5;
     TransitionDelta[2] = 0.0f;
@@ -258,7 +254,7 @@ void NeuroNetNavMap::ZoomToClick()
     TransitionDelta[2] = static_cast<float>(static_cast<double>(TransitionDelta[2]) -
                                             static_cast<double>(PanOffset[2]));
 
-    // 0049f25d..0049f2c4: a 1.5 s view-2 transition from the current pan; the distance goes
+    // a 1.5 s view-2 transition from the current pan; the distance goes
     // from MapExtentX / ZoomScale to MapExtentX * 5/43.
     TransitionTime = 0.0f;
     TransitionStart[0] = PanOffset[0];
@@ -272,7 +268,7 @@ void NeuroNetNavMap::ZoomToClick()
         static_cast<double>(MapExtentX) * kNavMapZoomedDistance - Distance);
     ZoomDistance = static_cast<float>(Distance);
 
-    PlayOrRewindUiSoundSlot(6); // FUN_005645c0(6)
+    PlayOrRewindUiSoundSlot(6); // (6)
 }
 
 // ----------------------------------------------------------------------------------------
@@ -281,13 +277,13 @@ void NeuroNetNavMap::ZoomToClick()
 
 void NeuroNetNavMap::EnterSystemView()
 {
-    // FUN_0049e1d0.
+    // .
     if (G_NavMapFilterMode == 6)
         SetFilterMode(FilterModeBeforeInfoCard);
     ViewMode = 1;
     CachedObjectId = 0xffffffffu;
 
-    // 0049e209..0049e246: the jump links, their records freed (FUN_0053e430 / FUN_00516f70).
+    // the jump links, their records freed (the routine / the routine).
     while (!JumpLinks.empty())
     {
         FNavMapJumpLink* const Link = JumpLinks.front();
@@ -295,7 +291,7 @@ void NeuroNetNavMap::EnterSystemView()
         JumpLinks.pop_front();
     }
 
-    // 0049e248..0049e294: every item (FUN_0048dd40 + operator delete on a non-null one).
+    // every item (the routine + operator delete on a non-null one).
     while (!Items.empty())
     {
         FNavMapItem* const Item = Items.front();
@@ -304,17 +300,17 @@ void NeuroNetNavMap::EnterSystemView()
         Items.pop_front();
     }
 
-    // 0049e297..0049e2b1
+
     for (int Index = 0; Index < 0x63; ++Index)
         WaypointItems[Index] = nullptr;
     for (int Index = 0; Index < 0x63; ++Index)
         BestPathItems[Index] = nullptr;
 
-    BuildSystemItems(); // FUN_004917c0
-    AddPlayerMarker();  // FUN_00491410
+    BuildSystemItems();
+    AddPlayerMarker();
     UniverseButton->SetProperty(1, 0, 0);
 
-    // 0049e2d5..0049e301: the row hides with no system or one of the four hidden ones.
+    // the row hides with no system or one of the four hidden ones.
     unsigned char bHidden = 1;
     if (CurrentSystem != nullptr)
     {
@@ -336,12 +332,12 @@ void NeuroNetNavMap::EnterSystemView()
     PatrolFilter->SetProperty(1, bHidden, 0);
     MineableFilter->SetProperty(1, bHidden, 0);
 
-    // 0049e363..0049e396: the mission filter needs mission zones (a null vector counts as
+    // the mission filter needs mission zones (a null vector counts as
     // none).
     unsigned const bNoMission = (MissionZoneIds.empty() || bHidden != 0) ? 1u : 0u;
     MissionFilter->SetProperty(1, bNoMission, 0);
 
-    // 0049e39c..0049e41c: the political sub-filters only in modes 1 / 2.
+    // the political sub-filters only in modes 1 / 2.
     if (G_NavMapFilterMode == 1 || G_NavMapFilterMode == 2)
     {
         AllFilter->SetProperty(1, bHidden, 0);
@@ -361,14 +357,14 @@ void NeuroNetNavMap::EnterSystemView()
     for (int Index = 0; Index < 4; ++Index)
         FactionLabels[Index]->SetProperty(1, 1, 0);
 
-    // 0049e4ab..0049e546: no pan, the flat mesh at full alpha, the items and the grid placed,
+    // no pan, the flat mesh at full alpha, the items and the grid placed,
     // then every grid label shown.
     PanOffset[0] = 0.0f;
     PanOffset[1] = 0.0f;
     PanOffset[2] = 0.0f;
-    SetMapMeshTransform(ViewMode, 1.0f); // FUN_004963d0
-    PlaceItems();                        // FUN_00496600
-    PlaceGridLabels();                   // FUN_0049fbf0
+    SetMapMeshTransform(ViewMode, 1.0f);
+    PlaceItems();
+    PlaceGridLabels();
     for (int Index = 0; Index < 8; ++Index)
         GridLetters[Index]->SetProperty(1, 0, 0);
     for (int Index = 0; Index < 8; ++Index)
@@ -377,14 +373,14 @@ void NeuroNetNavMap::EnterSystemView()
 
 void NeuroNetNavMap::EnterUniverseView()
 {
-    // FUN_0049e550.
+    // .
     ViewMode = 0;
     if (G_NavMapFilterMode == 4 || G_NavMapFilterMode == 7)
         SetFilterMode(0);
     else if (G_NavMapFilterMode == 6)
         SetFilterMode(FilterModeBeforeInfoCard);
 
-    // 0049e589..0049e5d5 / 0049e5d7..0049e61b: the jump links (records freed) and the items.
+    // / 0049e5d7..0049e61b: the jump links (records freed) and the items.
     while (!JumpLinks.empty())
     {
         FNavMapJumpLink* const Link = JumpLinks.front();
@@ -403,12 +399,12 @@ void NeuroNetNavMap::EnterUniverseView()
     for (int Index = 0; Index < 0x63; ++Index)
         BestPathItems[Index] = nullptr;
 
-    BuildUniverseItems(); // FUN_004915b0
-    AddPlayerMarker();    // FUN_00491410
+    BuildUniverseItems();
+    AddPlayerMarker();
 
-    // 0049e647..0049e692: the player marker onto the player's system's star (no null test of
-    // PlayerItem or of the star's system, as in retail).
-    unsigned const PlayerSystem = GetPlayerStarSystemIdRetail();
+    // the player marker onto the player's system's star (no null test of
+    // PlayerItem or of the star's system, as in baseline).
+    unsigned const PlayerSystem = GetPlayerStarSystemIdbaseline();
     for (std::list<FNavMapItem*>::iterator It = Items.begin(); It != Items.end(); ++It)
     {
         FNavMapItem* const Item = *It;
@@ -422,7 +418,7 @@ void NeuroNetNavMap::EnterUniverseView()
         break;
     }
 
-    // 0049e695..0049e7e3: the filter row hidden, the faction labels shown.
+    // the filter row hidden, the faction labels shown.
     LabelButton->SetProperty(1, 1, 0);
     UniverseButton->SetProperty(1, 1, 0);
     PhysicalFilter->SetProperty(1, 1, 0);
@@ -439,12 +435,12 @@ void NeuroNetNavMap::EnterUniverseView()
     for (int Index = 0; Index < 4; ++Index)
         FactionLabels[Index]->SetProperty(1, 0, 0);
 
-    // 0049e7e9..0049e87a: no pan, the items placed, the grid hidden, the title "Universe"
+    // no pan, the items placed, the grid hidden, the title "Universe"
     // (ids 0x505).
     PanOffset[0] = 0.0f;
     PanOffset[1] = 0.0f;
     PanOffset[2] = 0.0f;
-    PlaceItems(); // FUN_00496600
+    PlaceItems();
     for (int Index = 0; Index < 8; ++Index)
         GridLetters[Index]->SetProperty(1, 1, 0);
     for (int Index = 0; Index < 8; ++Index)
@@ -458,11 +454,11 @@ void NeuroNetNavMap::EnterUniverseView()
 
 void NeuroNetNavMap::SyncSidePanels()
 {
-    // FUN_004a1620 -- not while a slide runs.
-    if (ButtonMover::IsActive()) // FUN_0055e280
+    // not while a slide runs.
+    if (ButtonMover::IsActive())
         return;
 
-    // 004a1639..004a16ad: the eight waypoint / abort controls, scanned up to the first null.
+    // the eight waypoint / abort controls, scanned up to the first null.
     WinControl* const Controls[9] = {ClearAllWaypointsButton, ClearAllWaypointsText,
                                      AbortMissionButton,      AbortMissionText,
                                      AbortYesButton,          AbortYesText,
@@ -478,7 +474,7 @@ void NeuroNetNavMap::SyncSidePanels()
         }
     }
 
-    // 004a16af..004a16e0: the objective rows (each null-tested), then the info text (not).
+    // the objective rows (each null-tested), then the info text (not).
     if (bAnyShown == 0)
     {
         for (int Index = 0; Index < 3; ++Index)
@@ -501,19 +497,19 @@ void NeuroNetNavMap::SyncSidePanels()
         bAnyShown = 1;
 
     if (bAnyShown != bSidePanelsOpen)
-        SlideSidePanels(bAnyShown); // FUN_004a0a70
+        SlideSidePanels(bAnyShown);
 }
 
 void NeuroNetNavMap::SlideSidePanels(unsigned char bOpen)
 {
-    // FUN_004a0a70.
+    // .
     if (bOpen == bSidePanelsOpen)
         return;
-    PlayOrRewindUiSoundSlot(5);         // FUN_005645c0(5)
-    ButtonMover::Start(0.4f);           // FUN_0055e120(0.4)
+    PlayOrRewindUiSoundSlot(5);         // (5)
+    ButtonMover::Start(0.4f);           // (0.4)
     bSidePanelsOpen = bOpen;
 
-    // 004a0aa6..004a0b3d / 004a105f..004a10b4: the two side windows (z -0.22). Opening, the
+    // / 004a105f..004a10b4: the two side windows (z -0.22). Opening, the
     // left one comes in from 1.045 to 0.657 and the right one goes out from 0.19 to 0.585;
     // closing reverses both.
     float const LeftOut[3] = {1.045f, -0.23f, -0.22f};
@@ -531,15 +527,15 @@ void NeuroNetNavMap::SlideSidePanels(unsigned char bOpen)
         ButtonMover::AddButton(RightWindow, RightOut, RightIn);
     }
 
-    // 004a0b42..004a1604 (open) / 004a10b9..004a1604 (close): every panel control, in this
+    // (open) / 004a10b9..004a1604 (close): every panel control, in this
     // order, between its off-screen x (a panel base plus an offset, rounded to a float) and its
     // place; opening moves it in, closing out.
-    // The offsets are the float constants FSUB / FADD read: DAT_005d33dc, DAT_005d33b8,
-    // DAT_005d3410, DAT_005d2ac0, DAT_005d3398, DAT_005d3378, DAT_005d335c, DAT_005d3340,
-    // DAT_005d3328, DAT_005d3310, DAT_005d32ac, DAT_005d3260, DAT_005d323c.
+    // The offsets are the float constants FSUB / FADD read: the field, the field,
+    // , the field, the field, the field, the field, the field,
+    // , the field, the field, the field, the field.
     // The on-screen places are MOV immediates; six of them are one ulp away from the nearest
     // float to their decimal (0x3ea76c8c, 0x3efe76c8, 0x3eba5e36, 0x3eb22d0f, 0x3e808313,
-    // 0xbc9ba5e4), so those are spelled with their exact value.
+    // ), so those are spelled with their exact value.
     FNavMapSlide const Slides[17] = {
         {ClearAllWaypointsButton, NavMapPanelX(kNavMapPanelBaseB, -static_cast<double>(0.516f)),
          -0.516f, -0.237f},

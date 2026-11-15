@@ -1,56 +1,52 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "nn_button_control.h"
 #include "hud_widescreen.h"   // port-only (OUTPOST_FRONTIER_WIDESCREEN_SUPPORT)
 
-#include "game_options.h"         // GetGameOption (FUN_005792b0)
-#include "globals.h"              // GetClientFrameTimeCapped (FUN_0042d680)
-#include "hud_command_dispatch.h" // HudPostCommand (FUN_005763b0)
-#include "input_manager.h"        // GetClientSoftwareCursor (DAT_00616840 / DAT_00616844)
+#include "game_options.h"         // GetGameOption (the routine)
+#include "globals.h"              // GetClientFrameTimeCapped (the routine)
+#include "hud_command_dispatch.h" // HudPostCommand (the routine)
+#include "input_manager.h"        // GetClientSoftwareCursor (the field / the field)
 #include "menu_sound_arch.h"      // LookupClientSoundArch / PlayClientSoundArchIfIdle
 #include "menu_ui_init.h"         // FindUiSoundSlot / PlayOrRewindUiSoundSlot / PlayUiRolloverSound
-#include "nn_montage_draw.h"      // ButtonMontage tiles, NnMontageDrawTileAt (FUN_00559900)
-#include "nn_tooltip.h"           // NnToolTipHideGlobal (FUN_004be390)
+#include "nn_montage_draw.h"      // ButtonMontage tiles, NnMontageDrawTileAt (the routine)
+#include "nn_tooltip.h"           // NnToolTipHideGlobal (the routine)
 #include "nn_ui_pulse.h"          // NnUiPulseReset / NnUiPulseBlendArgb / palette
-#include "space_camera.h"         // FSpaceCamera (DAT_0067dbf8)
-#include "space_camera_third.h"   // CockpitMulMatrix (FUN_0051a140)
-#include "tooltip_hover.h"        // FToolTipHoverInfo / NnToolTipFeedHover (FUN_004be370)
+#include "space_camera.h"         // FSpaceCamera (the field)
+#include "space_camera_third.h"   // CockpitMulMatrix (the routine)
+#include "tooltip_hover.h"        // FToolTipHoverInfo / NnToolTipFeedHover (the routine)
 #include "win3d.h"
 #include "win3d_engine_submit.h"  // SubmitWin3DEngineInstance / ..TintedEngineInstanceWrapped
-#include "win3d_immediate.h"      // Win3DDisable (FUN_00421ed0)
+#include "win3d_immediate.h"      // Win3DDisable (the routine)
 #include "win_factory.h"
 
-#include "common_csys.h"          // RotateMatrix, Acquire3DMathEngine (FUN_005b73e0)
+#include "common_csys.h"          // RotateMatrix, Acquire3DMathEngine (the routine)
 #include "common_id.h"            // CreateID
 #include "common_ini.h"           // INI_Reader
 #include "x86math.h"
 
-#include "DALib.h"
+#include "NeuronRuntime.h"
 
 #include <math.h>
 #include <string.h>
 
-// Retail DAT_00679aac -- WINFACTORY<ButtonControl> (static init LAB_005597a0: FUN_0055d240
-// "ButtonControl" + atexit LAB_005597c0 -> FUN_00579380); Create FUN_0055d2b0.
+// WINFACTORY<ButtonControl> (static init the branch: the routine
+// "ButtonControl" + atexit the branch -> the routine); Create the routine.
 WINFACTORY<NnButtonControl> G_ButtonControlFactory("ButtonControl");
 
-// Retail DAT_00679a80 -- WINFACTORY<ToggleButtonControl> (static init LAB_005597d0:
-// FUN_0055d350 "ToggleButtonControl" + atexit LAB_005597f0 -> FUN_00579380); Create
-// FUN_0055d3c0.
+// WINFACTORY<ToggleButtonControl> (static init the branch:
+// "ToggleButtonControl" + atexit the branch -> the routine); Create
+// .
 WINFACTORY<NnToggleButtonControl> G_ToggleButtonControlFactory("ToggleButtonControl");
 
-// Retail DAT_00679a54 -- WINFACTORY<RichTextButtonControl> (static init LAB_00559800:
-// FUN_0055d4e0 "RichTextButtonControl" + atexit LAB_00559820 -> FUN_00579380); Create
-// FUN_0055d550.
+// WINFACTORY<RichTextButtonControl> (static init the branch:
+// "RichTextButtonControl" + atexit the branch -> the routine); Create
+// .
 WINFACTORY<NnRichTextButtonControl> G_RichTextButtonControlFactory("RichTextButtonControl");
 
 namespace
 {
-    // DAT_00679aec -- the 3DMathEngine this class acquires on first use (FUN_005b73e0), shared
+    // the 3DMathEngine this class acquires on first use (the routine), shared
     // by SetOrientation (0x0055b5df) and MouseEvent (0x0055b9e6).
     I3DMathEngine* G_ButtonMathEngine = nullptr;
 
@@ -61,13 +57,13 @@ namespace
         return G_ButtonMathEngine;
     }
 
-    // DAT_005c75dc
+
     float const kOne = 1.0f;
-    // DAT_005c7f68 -- 1/255 (0x3b808081)
+    // 1/255 (0x3b808081)
     float const kInv255 = 1.0f / 255.0f;
-    // 0x3cb43958 -- FUN_00559aa0's icon size without a tile scale
+    // the routine's icon size without a tile scale
     float const kDefaultIconSize = 0.022f;
-    // DAT_005e1514 -- 0x3fb504f3, sqrt(2)
+    // 0x3fb504f3, sqrt(2)
     float const kSqrt2 = 1.41421354f;
 
     bool HasInstance(WinControl const* Control)
@@ -92,7 +88,7 @@ namespace
     }
 
     // The tile search Init (0x0055ac5b..0x0055acf2) and Create (0x0055ab6d..0x0055ac04) inline:
-    // load ButtonMontage on first use (FUN_00559db0), then the first tile whose name stricmp-
+    // load ButtonMontage on first use (the routine), then the first tile whose name stricmp-
     // equals Path, else null.
     FButtonMontageTile* FindMontageTileForPath(char const* Path)
     {
@@ -107,12 +103,12 @@ namespace
         return nullptr;
     }
 
-    // The mouse ray LAB_0055b660 builds inline from the software cursor through the Win3D
-    // camera (0x0055b67a..0x0055b760): near-plane point, FUN_00423b90 with a copy of the camera
+    // The mouse ray the branch builds inline from the software cursor through the Win3D
+    // camera (0x0055b67a..0x0055b760): near-plane point, the routine with a copy of the camera
     // orientation, normalised by 1 / sqrt.
     void CursorRayForUpdate(float* Ray)
     {
-        FSpaceCamera* const Cam = Win3DGetCamera(); // DAT_0067dbf8
+        FSpaceCamera* const Cam = Win3DGetCamera();
         int CursorX = 0;
         int CursorY = 0;
         GetClientSoftwareCursor(&CursorX, &CursorY, nullptr);
@@ -123,9 +119,9 @@ namespace
                                      Cam->YScale * Cam->ZNear);
         Local.Z = -Cam->ZNear;
         FMatrix CamOrientation;
-        memcpy(&CamOrientation, Cam->World, sizeof(CamOrientation)); // DAT_0067dbfc
+        memcpy(&CamOrientation, Cam->World, sizeof(CamOrientation));
         FVector World;
-        Win3DTransformByMatrix(World, CamOrientation, Local); // FUN_00423b90
+        Win3DTransformByMatrix(World, CamOrientation, Local);
         double const Inv =
             kOne / sqrt(static_cast<double>(World.X) * World.X +
                         static_cast<double>(World.Y) * World.Y +
@@ -135,8 +131,8 @@ namespace
         Ray[2] = static_cast<float>(World.Z * Inv);
     }
 
-    // The holder tint FUN_00559aa0 (0x00559b9b..0x00559bff) and Draw (0x0055b36d..0x0055b3d6)
-    // write before FUN_0059efa0: bytes 0..2 into +0x14 / +0x18 / +0x1c, byte 3 into +0x24,
+    // The holder tint the routine (0x00559b9b..0x00559bff) and Draw (0x0055b36d..0x0055b3d6)
+    // write before the routine: bytes 0..2 into +0x14 / +0x18 / +0x1c, byte 3 into +0x24,
     // each times 1/255.
     void SetHolderTint(FClientMeshHolder* Holder, unsigned char const* Rgba)
     {
@@ -146,11 +142,11 @@ namespace
         Holder->UserFloats[4] = static_cast<float>(static_cast<double>(Rgba[3]) * kInv255);
     }
 
-    // FUN_00559aa0 (cdecl Button, Rgba; Draw pushes +0x335 as a third argument that the
+    // (cdecl Button, Rgba; Draw pushes +0x335 as a third argument that the
     // function never reads) -- the button body: the ButtonMontage icon at the instance's
-    // position (or +0x60 + +0xa8) through FUN_00559900, sized by the tile's scale, else by the
+    // position (or +0x60 + +0xa8) through the routine, sized by the tile's scale, else by the
     // instance's extent (Engine vt+0x88), else 0.022, times sqrt(2); when no icon was drawn
-    // and an instance is bound, the instance tinted by Rgba through FUN_0059efa0.
+    // and an instance is bound, the instance tinted by Rgba through the routine.
     void ButtonDrawBody(NnButtonControl* Button, unsigned char const* Rgba)
     {
         float Size = kDefaultIconSize;
@@ -160,9 +156,9 @@ namespace
             Size = Tile->Scale;
             if (Size == 0.0f)
             {
-                // 0x00559ad3: GetInstanceExtent(+0x84, 1, &Size, &Centre) -- no instance test.
+                // GetInstanceExtent(+0x84, 1, &Size, &Centre) -- no instance test.
                 float Centre[3];
-                DALib::Engine->GetInstanceExtent(Button->MeshHolder.EngineInstance, 1, &Size,
+                NeuronRuntime::Engine->GetInstanceExtent(Button->MeshHolder.EngineInstance, 1, &Size,
                                                  Centre);
             }
         }
@@ -171,7 +167,7 @@ namespace
         float Where[3];
         if (HasInstance(Button))
         {
-            float const* const Placed = ClientMeshHolderGetPosition(&Button->MeshHolder); // FUN_00420fb0
+            float const* const Placed = ClientMeshHolderGetPosition(&Button->MeshHolder);
             Where[0] = Placed[0];
             Where[1] = Placed[1];
             Where[2] = Placed[2];
@@ -183,12 +179,12 @@ namespace
             Where[2] = Button->Position[2] + Button->Offset[2];
         }
 
-        if (NnMontageDrawTileAt(Tile, Where, Rgba, Size, 0, 0.0f)) // FUN_00559900
+        if (NnMontageDrawTileAt(Tile, Where, Rgba, Size, 0, 0.0f))
             return;
         if (!HasInstance(Button))
             return;
         SetHolderTint(&Button->MeshHolder, Rgba);
-        SubmitWin3DEngineInstance(&Button->MeshHolder, Win3DGetCamera(), 0, 1.0f, 0); // FUN_0059efa0
+        SubmitWin3DEngineInstance(&Button->MeshHolder, Win3DGetCamera(), 0, 1.0f, 0);
     }
 
     void SetRgba(unsigned char* Out, unsigned char R, unsigned char G, unsigned char B,
@@ -203,7 +199,7 @@ namespace
 
 void ButtonKeyCommandLookup(char const* KeyName, int* OutCommandId, int* OutToolTipIds)
 {
-    // FUN_0055a490.
+    // .
     *OutCommandId = 0;
     *OutToolTipIds = 0;
     if (_stricmp(KeyName, "tractor") == 0)
@@ -212,13 +208,13 @@ void ButtonKeyCommandLookup(char const* KeyName, int* OutCommandId, int* OutTool
         *OutToolTipIds = 0xbc2;
         return;
     }
-    if (_stricmp(KeyName, "next") == 0) // DAT_005e15d4
+    if (_stricmp(KeyName, "next") == 0)
     {
         *OutCommandId = 0x1d;
         *OutToolTipIds = 0xbb9;
         return;
     }
-    if (_stricmp(KeyName, "prev") == 0) // DAT_005e15cc
+    if (_stricmp(KeyName, "prev") == 0)
     {
         *OutCommandId = 0x1e;
         *OutToolTipIds = 0xbba;
@@ -249,15 +245,15 @@ NnButtonControl::NnButtonControl()
     , bGlow(0)
     , MontageTile(nullptr)
     , SpinAngle(0.0f)
-    , SpinSpeed(180.0f) // 0x43340000
+    , SpinSpeed(180.0f)
     , BlinkTimer(0.0f)
     , GlowArgb(0)
     , CommandId(0)
     , UiSoundSlot(0)
 {
-    // FUN_0055a560 after FUN_0059f860. Two empty strings, the colour +0x370 = 0, then
+    // after the routine. Two empty strings, the colour +0x370 = 0, then
     // +0x330 &= 0x80 and +0x331 = (+0x331 & 0xee) | 0xe; the bits the masks keep are whatever
-    // the allocation held in retail and 0 here. +0x338 and +0x348 are not written by the ctor
+    // the allocation held in baseline and 0 here. +0x338 and +0x348 are not written by the ctor
     // (Init / Create and Draw write them); the port starts them at null / 0.
     Colour[0] = 0;
     Colour[1] = 0;
@@ -269,15 +265,15 @@ NnButtonControl::NnButtonControl()
 
 NnButtonControl::~NnButtonControl()
 {
-    // FUN_0055d610: a button still holding the capture leaves the capture stack
-    // (FUN_0059d960); then the two strings (+0x360 first) and WinControl's FUN_0059fa50.
+    // a button still holding the capture leaves the capture stack
+    // (the routine); then the two strings (+0x360 first) and WinControl's the routine.
     if ((ButtonBits & 0x10) != 0)
         Win3DRemoveCapture(this);
 }
 
 void NnButtonControl::SetPosition(float const* NewPosition)
 {
-    // FUN_0055b4a0 (RET 4).
+    // (RET 4).
     Field2e0[0] = NewPosition[0];
     Field2e0[1] = NewPosition[1];
     Field2e0[2] = NewPosition[2];
@@ -298,9 +294,9 @@ void NnButtonControl::SetPosition(float const* NewPosition)
         Placed[1] = NewPosition[1];
         Placed[2] = NewPosition[2];
     }
-    WinControl::SetPosition(Placed); // FUN_005a0880
+    WinControl::SetPosition(Placed);
 
-    // 0x0055b522: the instance is placed again, at +0x60 (+ +0xa8 under PositionFlags bit 0).
+    // the instance is placed again, at +0x60 (+ +0xa8 under PositionFlags bit 0).
     if (!HasInstance(this))
         return;
     float Instance[3];
@@ -316,15 +312,15 @@ void NnButtonControl::SetPosition(float const* NewPosition)
         Instance[1] = Position[1];
         Instance[2] = Position[2];
     }
-    DALib::Engine->SetInstancePosition(MeshHolder.EngineInstance, Instance);
-    DALib::Engine->UpdateInstance(MeshHolder.EngineInstance, 0, nullptr);
+    NeuronRuntime::Engine->SetInstancePosition(MeshHolder.EngineInstance, Instance);
+    NeuronRuntime::Engine->UpdateInstance(MeshHolder.EngineInstance, 0, nullptr);
 }
 
 void NnButtonControl::SetOrientation(float const* NewOrientation)
 {
-    // LAB_0055b5c0 (RET 4): the new orientation times the attach orientation (slot 40) through
+    // (RET 4): the new orientation times the attach orientation (slot 40) through
     // the 3DMathEngine's MulMatrix (+0x20) into Win3D's +0x3c, then onto the instance. Unlike
-    // WinControl's FUN_005a0950 it does not recurse into children.
+    // WinControl's the routine it does not recurse into children.
     bAttached = 1;
     FMatrix Attach;
     GetAttachOrientation(&Attach.D[0][0]);
@@ -334,15 +330,15 @@ void NnButtonControl::SetOrientation(float const* NewOrientation)
     memcpy(Orientation, &Result, sizeof(Orientation));
     if (!HasInstance(this))
         return;
-    DALib::Engine->SetInstanceOrientation(MeshHolder.EngineInstance, Orientation);
-    DALib::Engine->UpdateInstance(MeshHolder.EngineInstance, 0, nullptr);
+    NeuronRuntime::Engine->SetInstanceOrientation(MeshHolder.EngineInstance, Orientation);
+    NeuronRuntime::Engine->UpdateInstance(MeshHolder.EngineInstance, 0, nullptr);
 }
 
 bool NnButtonControl::Create(Win3D* NewParent, void* Data)
 {
-    // FUN_0055a6b0 (RET 8).
-    Win3DReparent(this, NewParent); // FUN_0059dd00
-    Win3DRegister(this);            // FUN_0059dbf0
+    // (RET 8).
+    Win3DReparent(this, NewParent);
+    Win3DRegister(this);
     Flags = static_cast<unsigned char>((Flags & 0xfb) | 0x03);
 
     INI_Reader* const Ini = static_cast<INI_Reader*>(Data);
@@ -366,17 +362,17 @@ bool NnButtonControl::Create(Win3D* NewParent, void* Data)
                 if (Value[0] == '\0')
                     continue;
                 SoundName.assign(Value);
-                UiSoundSlot = FindUiSoundSlot(SoundName.c_str()); // FUN_00564610
+                UiSoundSlot = FindUiSoundSlot(SoundName.c_str());
                 continue;
             }
             if (Ini->is_value("event"))
             {
-                // 0x0055a834: a null value still reaches the lookup; only an empty one is
+                // a null value still reaches the lookup; only an empty one is
                 // skipped.
                 char const* const Value = Ini->get_value_string();
                 if (Value != nullptr && Value[0] == '\0')
                     continue;
-                ButtonKeyCommandLookup(Value, &CommandId, &ToolTipIds); // FUN_0055a490
+                ButtonKeyCommandLookup(Value, &CommandId, &ToolTipIds);
                 if (CommandId != 0 || ToolTipIds != 0)
                     RefreshAttachment(); // slot 35
                 continue;
@@ -391,19 +387,19 @@ bool NnButtonControl::Create(Win3D* NewParent, void* Data)
                 Offset[2] = Z;
                 if (HasInstance(this))
                 {
-                    // 0x0055a8e0: FUN_00422b80 builds {+0x60 + offset} and the instance moves.
+                    // the routine builds {+0x60 + offset} and the instance moves.
                     float Placed[3];
                     Placed[2] = Offset[2] + Position[2];
                     Placed[1] = Offset[1] + Position[1];
                     Placed[0] = Position[0] + Offset[0];
-                    DALib::Engine->SetInstancePosition(MeshHolder.EngineInstance, Placed);
-                    DALib::Engine->UpdateInstance(MeshHolder.EngineInstance, 0, nullptr);
+                    NeuronRuntime::Engine->SetInstancePosition(MeshHolder.EngineInstance, Placed);
+                    NeuronRuntime::Engine->UpdateInstance(MeshHolder.EngineInstance, 0, nullptr);
                 }
                 continue;
             }
             if (Ini->is_value("hardpoint"))
             {
-                // 0x0055a94c: the attach transform is reset, then filled from the NEW parent's
+                // the attach transform is reset, then filled from the NEW parent's
                 // hardpoint of that name. The name itself is not kept (+0x1d0 is untouched).
                 AttachOrientation[0] = 1.0f;
                 AttachOrientation[1] = 0.0f;
@@ -467,11 +463,11 @@ bool NnButtonControl::Create(Win3D* NewParent, void* Data)
                 ToolTip2Ids = static_cast<int>(Ini->get_value_float(0)); // ftol
         }
 
-        // 0x0055ab6d: the ButtonMontage tile of the (possibly just loaded) mesh path.
+        // the ButtonMontage tile of the (possibly just loaded) mesh path.
         MontageTile = FindMontageTileForPath(MeshPath);
     }
 
-    // 0x0055ac04: the parent is re-placed at its own position (slot 5), which positions this
+    // the parent is re-placed at its own position (slot 5), which positions this
     // control with it.
     if (Parent != nullptr)
         Parent->SetPosition(Parent->Position);
@@ -480,10 +476,10 @@ bool NnButtonControl::Create(Win3D* NewParent, void* Data)
 
 void NnButtonControl::Update()
 {
-    // LAB_0055b660: Win3D's child walk (FUN_005a17b0) first.
+    // Win3D's child walk (the routine) first.
     Win3D::Update();
 
-    // 0x0055b66d: while the button holds the capture, follow the cursor and light / unlight
+    // while the button holds the capture, follow the cursor and light / unlight
     // bit 2 as it moves on and off.
     if ((ButtonBits & 0x10) != 0)
     {
@@ -497,7 +493,7 @@ void NnButtonControl::Update()
                 TellParent(this, 0x2b);
                 if (Parent != nullptr)
                 {
-                    NnUiPulseReset(); // FUN_0059d580
+                    NnUiPulseReset();
                     TellParent(this, 0x2c);
                 }
             }
@@ -510,11 +506,11 @@ void NnButtonControl::Update()
         }
     }
 
-    // 0x0055b82d: the blink. The timer gains the frame time; every whole second past 1.0
+    // the blink. The timer gains the frame time; every whole second past 1.0
     // flips +0x334 (FCOM 1.0 / TEST AH,0x41: "not above" stops).
     if (bBlink == 0)
         return;
-    double Timer = GetClientFrameTimeCapped() + static_cast<double>(BlinkTimer); // FUN_0042d680
+    double Timer = GetClientFrameTimeCapped() + static_cast<double>(BlinkTimer);
     BlinkTimer = static_cast<float>(Timer);
     if (!(Timer > kOne))
         return;
@@ -535,9 +531,9 @@ void NnButtonControl::Draw()
     // reach this without the Win3D draw walk, so the control sets its own HUD shift.
     FWidescreenHudShiftScope const WidescreenScope(WidescreenHudShiftPixelsFor(this), true);
 #endif
-    // FUN_0055af90.
+    // .
     GlowArgb = 0;
-    if (GetGameOption(kGameOptInterfaceGroup) == 0) // FUN_005792b0(6)
+    if (GetGameOption(kGameOptInterfaceGroup) == 0) // (6)
         return;
     if (GetGameOption(kGameOptNeuronet) == 0) // (9)
         return;
@@ -550,14 +546,14 @@ void NnButtonControl::Draw()
     if (bBlink != 0 && bBlinkPhase != 0)
         return;
 
-    Win3DDrawChildren(this); // FUN_0059e5c0
+    Win3DDrawChildren(this);
     unsigned char const SavedSelected = static_cast<unsigned char>((ButtonBits >> 6) & 1);
 
     if (bSpin != 0)
     {
-        // 0x0055b02e: the spin. With a positive speed the angle runs forward while bit 0 is
+        // the spin. With a positive speed the angle runs forward while bit 0 is
         // set, otherwise it winds back to 0 the short way (up through 359, down through 1).
-        double const Frame = GetClientFrameTimeCapped(); // FUN_0042d680
+        double const Frame = GetClientFrameTimeCapped();
         if (SpinSpeed > 0.0f) // FCOMP 0 / TEST AH,0x41 / JNZ: not above skips
         {
             double const Step = Frame * SpinSpeed;
@@ -565,11 +561,11 @@ void NnButtonControl::Draw()
             {
                 SpinAngle = static_cast<float>(Step + SpinAngle);
             }
-            else if (SpinAngle > 180.0f) // DAT_005da41c
+            else if (SpinAngle > 180.0f)
             {
                 double const Angle = Step + Step + SpinAngle;
                 SpinAngle = static_cast<float>(Angle);
-                if (Angle > 359.0) // DAT_005e1734
+                if (Angle > 359.0)
                     SpinAngle = 0.0f;
             }
             else
@@ -580,24 +576,24 @@ void NnButtonControl::Draw()
                     SpinAngle = 0.0f;
             }
         }
-        // 0x0055b0c5: wrap into (-360, 360) -- DAT_005ca23c / DAT_005e1730.
+        // wrap into (-360, 360) -- the field / the field.
         if (SpinAngle >= 360.0f)
             SpinAngle = SpinAngle - 360.0f;
         else if (SpinAngle <= -360.0f)
             SpinAngle = SpinAngle + 360.0f;
 
-        // 0x0055b105: RotateMatrix({0, angle, 0}) onto the instance (Engine vt+0x94, vt+0x6c).
-        // Retail tests no instance here.
+        // RotateMatrix({0, angle, 0}) onto the instance (Engine vt+0x94, vt+0x6c).
+        // baseline tests no instance here.
         Vector Angles;
         Angles.x = 0.0f;
         Angles.y = SpinAngle;
         Angles.z = 0.0f;
         Matrix Spun = RotateMatrix(Angles);
-        DALib::Engine->SetInstanceOrientation(MeshHolder.EngineInstance, &Spun);
-        DALib::Engine->UpdateInstance(MeshHolder.EngineInstance, 0, nullptr);
+        NeuronRuntime::Engine->SetInstanceOrientation(MeshHolder.EngineInstance, &Spun);
+        NeuronRuntime::Engine->UpdateInstance(MeshHolder.EngineInstance, 0, nullptr);
     }
 
-    // 0x0055b167: the colours. Glow (local_3c) starts black; both +0x330 bit-3 arms of the
+    // the colours. Glow (local_3c) starts black; both +0x330 bit-3 arms of the
     // listing (0x0055b18d / 0x0055b240) produce the same pair, so the test is not repeated.
     unsigned char Glow[4] = {0, 0, 0, 0};
     unsigned char Body[4] = {0, 0, 0, 0};
@@ -616,7 +612,7 @@ void NnButtonControl::Draw()
     }
     else if ((ButtonBits & 0x02) != 0 || ((ButtonBits & 0x01) != 0 && (ButtonBits2 & 0x08) != 0))
     {
-        // Focused, or hovered with the hover pulse on: two FUN_00561da0 samples.
+        // Focused, or hovered with the hover pulse on: two the routine samples.
         unsigned long Pulse = 0;
         NnUiPulseBlendArgb(&Pulse);
         memcpy(Body, &Pulse, sizeof(Body));
@@ -625,7 +621,7 @@ void NnButtonControl::Draw()
     }
     else
     {
-        // Idle: DAT_00679bb0.
+        // Idle: the field.
         memcpy(Glow, &G_NnPaletteArgb_679bb0, sizeof(Glow));
         memcpy(Body, &G_NnPaletteArgb_679bb0, sizeof(Body));
     }
@@ -637,7 +633,7 @@ void NnButtonControl::Draw()
         memcpy(Glow, Colour, sizeof(Glow));
     }
 
-    // 0x0055b33d: the body, unless no_mesh_render.
+    // the body, unless no_mesh_render.
     if ((ButtonBits2 & 0x01) == 0)
     {
         if (bSpin != 0 && (ButtonBits & 0x01) != 0)
@@ -645,16 +641,16 @@ void NnButtonControl::Draw()
             if (HasInstance(this))
             {
                 SetHolderTint(&MeshHolder, Body);
-                SubmitWin3DEngineInstance(&MeshHolder, Win3DGetCamera(), 0, 1.0f, 0); // FUN_0059efa0
+                SubmitWin3DEngineInstance(&MeshHolder, Win3DGetCamera(), 0, 1.0f, 0);
             }
         }
         else
         {
-            ButtonDrawBody(this, Body); // FUN_00559aa0(this, Body, +0x335)
+            ButtonDrawBody(this, Body); // (this, Body, +0x335)
         }
     }
 
-    Win3DDisable(kWin3DDepthTest); // FUN_00421ed0(0xb71)
+    Win3DDisable(kWin3DDepthTest); // (0xb71)
     if ((ButtonBits2 & 0x01) != 0 || bGlow != 0)
     {
         if (HasInstance(this))
@@ -664,46 +660,46 @@ void NnButtonControl::Draw()
                        (static_cast<unsigned long>(Glow[1]) << 8) |
                        static_cast<unsigned long>(Glow[2]);
             SubmitWin3DTintedEngineInstanceWrapped(Win3DGetCamera(), MeshHolder.EngineInstance,
-                                                  1, Glow, 1, 1.0f, 0); // FUN_00434630
+                                                  1, Glow, 1, 1.0f, 0);
         }
     }
-    Win3DDisable(kWin3DDepthTest); // FUN_00421ed0(0xb71)
+    Win3DDisable(kWin3DDepthTest); // (0xb71)
 
-    // 0x0055b475: bit 6 goes back to what it was before the inactive arm could clear it.
+    // bit 6 goes back to what it was before the inactive arm could clear it.
     ButtonBits = static_cast<unsigned char>((ButtonBits & 0xbf) | (SavedSelected << 6));
     Slot39(); // vt+0x9c
 }
 
 void NnButtonControl::MouseEnter(float const* /*Ray*/)
 {
-    // FUN_0055b8a0 (RET 4).
+    // (RET 4).
     if (Parent != nullptr)
     {
-        NnUiPulseReset(); // FUN_0059d580
+        NnUiPulseReset();
         TellParent(this, 0x2c);
     }
     ButtonBits = static_cast<unsigned char>(ButtonBits | 0x01);
     if ((ButtonBits2 & 0x02) != 0)
-        PlayUiRolloverSound(); // FUN_00564700
+        PlayUiRolloverSound();
 }
 
 void NnButtonControl::MouseLeave(float const* /*Ray*/)
 {
-    // FUN_0055b900 (RET 4).
+    // (RET 4).
     if (ToolTipIds != 0)
-        NnToolTipHideGlobal(); // FUN_004be390
+        NnToolTipHideGlobal();
     TellParent(this, 0x2d);
     ButtonBits = static_cast<unsigned char>(ButtonBits & 0xfe);
 }
 
 bool NnButtonControl::MouseEvent(FWin3DMouseEvent const* Event)
 {
-    // FUN_0055b950 (RET 4).
+    // (RET 4).
     if ((ButtonBits2 & 0x02) == 0)
         return false;
-    // 0x0055b965: while some control holds the mouse, a button whose WinControl parent does
+    // while some control holds the mouse, a button whose WinControl parent does
     // not hold it ignores the event.
-    if (Parent != nullptr && Win3DAnyCaptured()) // FUN_0059e6a0
+    if (Parent != nullptr && Win3DAnyCaptured())
     {
         WinControl* const ParentControl = Parent->AsWinControl();
         if (ParentControl != nullptr && ParentControl->bCaptured == 0)
@@ -712,13 +708,13 @@ bool NnButtonControl::MouseEvent(FWin3DMouseEvent const* Event)
 
     if ((ButtonBits & 0x10) != 0)
     {
-        // 0x0055b9a3: the release of a press this button captured.
+        // the release of a press this button captured.
         if (Event->Field0 != -1 || Event->Field1 != 1)
             return false;
         ButtonBits = static_cast<unsigned char>(ButtonBits & 0xeb);
-        Win3DRemoveCapture(this); // FUN_0059d960
+        Win3DRemoveCapture(this);
 
-        // 0x0055b9c4..0x0055ba81: the cursor ray -- FUN_004bdd40 on DAT_0067dbf8, the engine's
+        // the cursor ray -- the routine on the field, the engine's
         // TransformMatrix (+0x2c) with a copy of the camera orientation, normalised inline.
         FSpaceCamera* const Cam = Win3DGetCamera();
         int CursorX = 0;
@@ -742,29 +738,29 @@ bool NnButtonControl::MouseEvent(FWin3DMouseEvent const* Event)
 
         if (!HitTest(Ray)) // slot 4
         {
-            // 0x0055bb37: released off the button.
+            // released off the button.
             TellParent(this, 0x29);
             ButtonBits = static_cast<unsigned char>(ButtonBits & 0xfe);
             return true;
         }
 
-        // 0x0055ba8e: the click sound -- the UI sound slot, else the sound archetype named by
+        // the click sound -- the UI sound slot, else the sound archetype named by
         // a non-empty +0x360.
         if (UiSoundSlot != -1)
         {
-            PlayOrRewindUiSoundSlot(static_cast<unsigned>(UiSoundSlot)); // FUN_005645c0
+            PlayOrRewindUiSoundSlot(static_cast<unsigned>(UiSoundSlot));
         }
         else if (!SoundName.empty())
         {
             ID_String SoundId;
             SoundId.Id = CreateID(SoundName.c_str());
-            void* const Arch = LookupClientSoundArch(&SoundId); // FUN_0042ae40
-            PlayClientSoundArchIfIdle(Arch, nullptr, nullptr);          // FUN_004285f0
+            void* const Arch = LookupClientSoundArch(&SoundId);
+            PlayClientSoundArchIfIdle(Arch, nullptr, nullptr);
         }
 
         if ((ButtonBits & 0x80) != 0)
         {
-            // 0x0055baef: a right click only tells the parent 0x27 (its answer is ignored).
+            // a right click only tells the parent 0x27 (its answer is ignored).
             TellParent(this, 0x27);
             return true;
         }
@@ -772,7 +768,7 @@ bool NnButtonControl::MouseEvent(FWin3DMouseEvent const* Event)
         return true;
     }
 
-    // 0x0055bb71: a press, left (Field1 2) or right (3).
+    // a press, left (Field1 2) or right (3).
     if (Event->Field0 != -1)
         return false;
     if (Event->Field1 != 2 && Event->Field1 != 3)
@@ -785,20 +781,20 @@ bool NnButtonControl::MouseEvent(FWin3DMouseEvent const* Event)
     ButtonBits = static_cast<unsigned char>(ButtonBits | 0x14);
     if (Parent != nullptr)
     {
-        NnUiPulseReset(); // FUN_0059d580
+        NnUiPulseReset();
         TellParent(this, 0x2c);
     }
-    Win3DPushCapture(this); // FUN_0059d8d0
+    Win3DPushCapture(this);
     return true;
 }
 
 void NnButtonControl::ShowToolTip()
 {
-    // FUN_0055bde0: key -1 and no alt id first, the empty caption (FUN_00413df0), then both ids
+    // key -1 and no alt id first, the empty caption (the routine), then both ids
     // from +0xcc, the command +0x34c as the aux dword, the instance's position (Engine vt+0xa0
-    // [9..11]) or +0x60 + +0xa8, the half extents +0xb4 and the live byte; FUN_004be370; then
+    // [9..11]) or +0x60 + +0xa8, the half extents +0xb4 and the live byte; the routine; then
     // the record's teardown (~FToolTipHoverInfo). The caption +0x08 / +0x0c zeroing and
-    // FUN_004144b0 on +0x10 are the record's constructor.
+    // on +0x10 are the record's constructor.
     FToolTipHoverInfo Info;
     Info.IdsAlt = 0;                  // +0x04
     Info.Ids = -1;                    // +0x00
@@ -809,7 +805,7 @@ void NnButtonControl::ShowToolTip()
     if (HasInstance(this))
     {
         float Transform[12];
-        memcpy(Transform, DALib::Engine->GetInstanceTransform(MeshHolder.EngineInstance),
+        memcpy(Transform, NeuronRuntime::Engine->GetInstanceTransform(MeshHolder.EngineInstance),
                sizeof(Transform));
         Info.WorldPos[0] = Transform[9];
         Info.WorldPos[1] = Transform[10];
@@ -830,8 +826,8 @@ void NnButtonControl::ShowToolTip()
 
 intptr_t NnButtonControl::SetProperty(int Msg, uintptr_t A, uintptr_t B)
 {
-    // FUN_0055bc30 (RET 0xc): jump table 0x0055bd6c indexed by 0x0055bd98[Msg - 0xc]; every
-    // own case answers 0, the rest tail-jump into WinControl's FUN_005a13c0.
+    // (RET 0xc): jump table 0x0055bd6c indexed by 0x0055bd98[Msg - 0xc]; every
+    // own case answers 0, the rest tail-jump into WinControl's the routine.
     switch (Msg)
     {
     case 0x0c:
@@ -866,16 +862,16 @@ intptr_t NnButtonControl::SetProperty(int Msg, uintptr_t A, uintptr_t B)
         bBlink = (A != 0) ? 1 : 0;
         return 0;
     default:
-        return WinControl::SetProperty(Msg, A, B); // JMP FUN_005a13c0
+        return WinControl::SetProperty(Msg, A, B); // JMP the routine
     }
 }
 
 void NnButtonControl::Activate()
 {
-    // FUN_0055a660.
+    // .
     if (CommandId != 0)
     {
-        HudPostCommand(static_cast<unsigned>(CommandId), 0); // FUN_005763b0
+        HudPostCommand(static_cast<unsigned>(CommandId), 0);
         return;
     }
     TellParent(this, 0x26);
@@ -889,12 +885,12 @@ void NnButtonControl::Init(char const* NewMeshPath, char const* NewMesh2,
                            unsigned char bNewNoZEnable, int NewToolTipIds, int NewToolTip2Ids,
                            int NewCommandId)
 {
-    // FUN_0055ac30 (RET 0x38).
+    // (RET 0x38).
     if (NewMeshPath != nullptr)
     {
         strcpy(MeshPath, NewMeshPath);
         MontageTile = FindMontageTileForPath(MeshPath);
-        // 0x0055acf6: without a tile, or with a tile of scale 0 (FCOMP 0 / TEST AH,0x44 / JP:
+        // without a tile, or with a tile of scale 0 (FCOMP 0 / TEST AH,0x44 / JP:
         // a non-zero scale skips), the mesh itself is loaded (slot 38).
         if (MontageTile == nullptr || MontageTile->Scale == 0.0f)
             SetMesh(NewMeshPath, 0);
@@ -904,11 +900,11 @@ void NnButtonControl::Init(char const* NewMeshPath, char const* NewMesh2,
     if (NewSoundName != nullptr && NewSoundName[0] != '\0')
     {
         SoundName.assign(NewSoundName);
-        UiSoundSlot = FindUiSoundSlot(SoundName.c_str()); // FUN_00564610
+        UiSoundSlot = FindUiSoundSlot(SoundName.c_str());
     }
     if (KeyCommandName != nullptr && KeyCommandName[0] != '\0')
     {
-        ButtonKeyCommandLookup(KeyCommandName, &CommandId, &ToolTipIds); // FUN_0055a490
+        ButtonKeyCommandLookup(KeyCommandName, &CommandId, &ToolTipIds);
         if (CommandId != 0 || ToolTipIds != 0)
             RefreshAttachment(); // slot 35
     }
@@ -922,13 +918,13 @@ void NnButtonControl::Init(char const* NewMeshPath, char const* NewMesh2,
         Placed[0] = Offset[0] + Position[0];
         Placed[1] = Offset[1] + Position[1];
         Placed[2] = Offset[2] + Position[2];
-        DALib::Engine->SetInstancePosition(MeshHolder.EngineInstance, Placed);
-        DALib::Engine->UpdateInstance(MeshHolder.EngineInstance, 0, nullptr);
+        NeuronRuntime::Engine->SetInstancePosition(MeshHolder.EngineInstance, Placed);
+        NeuronRuntime::Engine->UpdateInstance(MeshHolder.EngineInstance, 0, nullptr);
     }
 
     if (Hardpoint != nullptr)
     {
-        // 0x0055ae90: the name is kept, the attach transform reset and filled from the
+        // the name is kept, the attach transform reset and filled from the
         // parent's hardpoint of that name (slot 36; its answer is not used).
         strcpy(HardpointName, Hardpoint);
         AttachOrientation[0] = 1.0f;
@@ -969,7 +965,7 @@ void NnButtonControl::Init(char const* NewMeshPath, char const* NewMesh2,
 
 namespace
 {
-    // DAT_005e1738 -- the double 0x400921fb51000000 (pi rounded to float): the Draw glow pass
+    // the double 0x400921fb51000000 (pi rounded to float): the Draw glow pass
     // turns the instance half a turn about y.
     double const kToggleGlowAngle = 3.1415927410125732;
 
@@ -980,7 +976,7 @@ namespace
                reinterpret_cast<void*>(static_cast<intptr_t>(-1));
     }
 
-    // The parent notification with a B argument (FUN_0055cc90's 0x30 carries the state).
+    // The parent notification with a B argument (the routine's 0x30 carries the state).
     void TellParentWithValue(WinControl* Self, int Msg, uintptr_t Value)
     {
         Win3D* const Parent = Self->GetParent();
@@ -992,14 +988,14 @@ namespace
         ParentControl->SetProperty(Msg, reinterpret_cast<uintptr_t>(Self->AsWinControl()), Value);
     }
 
-    // The hover record LAB_0055c690 packs inline (0x0055c835..0x0055ca82): the ids twice, no
-    // aux dword (unlike FUN_0055bde0 it leaves +0x44 at 0), the main instance's position
+    // The hover record the branch packs inline (0x0055c835..0x0055ca82): the ids twice, no
+    // aux dword (unlike the routine it leaves +0x44 at 0), the main instance's position
     // (Engine vt+0xa0 [9..11], no instance test), the half extents +0xb4 and the live byte;
-    // FUN_004be370; then the record's teardown (~FToolTipHoverInfo).
+    // ; then the record's teardown (~FToolTipHoverInfo).
     void FeedToggleToolTip(NnToggleButtonControl* Control, int Ids)
     {
-        // The caption +0x08 / +0x0c and FUN_004144b0 on +0x10: the record's constructor;
-        // FUN_00413df0(0, -1) on the null caption does nothing.
+        // The caption +0x08 / +0x0c and the routine on +0x10: the record's constructor;
+        // (0, -1) on the null caption does nothing.
         FToolTipHoverInfo Info;
         Info.IdsAlt = 0;                 // +0x04
         Info.Ids = -1;                   // +0x00
@@ -1008,7 +1004,7 @@ namespace
         Info.Ids = Ids;
         Info.IdsAlt = Ids;
         float Transform[12];
-        memcpy(Transform, DALib::Engine->GetInstanceTransform(Control->MeshHolder.EngineInstance),
+        memcpy(Transform, NeuronRuntime::Engine->GetInstanceTransform(Control->MeshHolder.EngineInstance),
                sizeof(Transform));
         Info.WorldPos[0] = Transform[9];
         Info.WorldPos[1] = Transform[10];
@@ -1026,7 +1022,7 @@ NnToggleButtonControl::NnToggleButtonControl()
     , UiSoundSlotState0(0)
     , UiSoundSlotState1(0)
 {
-    // The ctor FUN_0055d3c0 inlines after FUN_0055a560: the +0x378 holder (FUN_00420d40, the
+    // The ctor the routine inlines after the routine: the +0x378 holder (the routine, the
     // five floats 1.0f, +0x10 = -1 -- FClientMeshHolder's defaults) and two empty strings.
     // +0x3a0 / +0x3c4 / +0x3c8 are not written (Create / Init set them); the port starts them
     // at 0.
@@ -1034,7 +1030,7 @@ NnToggleButtonControl::NnToggleButtonControl()
 
 NnToggleButtonControl::~NnToggleButtonControl()
 {
-    // FUN_0055d710: +0x3b4, then +0x3a4, then the holder (FUN_0059ef20), then ButtonControl's
+    // +0x3b4, then +0x3a4, then the holder (the routine), then ButtonControl's
     // body inlined -- all by the member / base destructors in that order.
 }
 
@@ -1042,20 +1038,20 @@ void NnToggleButtonControl::PlaceToggleMesh()
 {
     if (HasToggleInstance(this))
     {
-        // FUN_00422b80(+0xa8 + +0x60, +0xac + +0x64, +0xb0 + +0x68).
+        // (+0xa8 + +0x60, +0xac + +0x64, +0xb0 + +0x68).
         float Placed[3];
         Placed[0] = Offset[0] + Position[0];
         Placed[1] = Offset[1] + Position[1];
         Placed[2] = Offset[2] + Position[2];
-        DALib::Engine->SetInstancePosition(ToggleMesh.EngineInstance, Placed);
-        DALib::Engine->UpdateInstance(ToggleMesh.EngineInstance, 0, nullptr);
+        NeuronRuntime::Engine->SetInstancePosition(ToggleMesh.EngineInstance, Placed);
+        NeuronRuntime::Engine->UpdateInstance(ToggleMesh.EngineInstance, 0, nullptr);
         if (HasInstance(this))
         {
             float Transform[12];
-            memcpy(Transform, DALib::Engine->GetInstanceTransform(MeshHolder.EngineInstance),
+            memcpy(Transform, NeuronRuntime::Engine->GetInstanceTransform(MeshHolder.EngineInstance),
                    sizeof(Transform));
-            DALib::Engine->SetInstanceOrientation(ToggleMesh.EngineInstance, Transform);
-            DALib::Engine->UpdateInstance(ToggleMesh.EngineInstance, 0, nullptr);
+            NeuronRuntime::Engine->SetInstanceOrientation(ToggleMesh.EngineInstance, Transform);
+            NeuronRuntime::Engine->UpdateInstance(ToggleMesh.EngineInstance, 0, nullptr);
         }
     }
     RefreshAttachment(); // slot 35
@@ -1063,24 +1059,24 @@ void NnToggleButtonControl::PlaceToggleMesh()
 
 bool NnToggleButtonControl::Create(Win3D* NewParent, void* Data)
 {
-    // FUN_0055bfd0 (RET 8): montage mode first, then ButtonControl's INI parser.
+    // (RET 8): montage mode first, then ButtonControl's INI parser.
     MontageMode = 1; // +0x335
-    bool const bResult = NnButtonControl::Create(NewParent, Data); // FUN_0055a6b0
+    bool const bResult = NnButtonControl::Create(NewParent, Data);
 
-    // 0x0055bff1: a non-empty "mesh2" goes into the +0x378 holder (FUN_0059ec80(path, 0, 0)),
+    // a non-empty "mesh2" goes into the +0x378 holder (the routine(path, 0, 0)),
     // whose instance takes the main holder's floats +0x94 as user data (Engine vt+0x7c).
     if (Mesh2.c_str()[0] != '\0')
     {
         ClientMeshLoadFromPath(&ToggleMesh, Mesh2.c_str(), 0, false);
-        DALib::Engine->SetInstanceUserData(ToggleMesh.EngineInstance, &MeshHolder.UserFloats[0]);
+        NeuronRuntime::Engine->SetInstanceUserData(ToggleMesh.EngineInstance, &MeshHolder.UserFloats[0]);
         PlaceToggleMesh();
     }
 
-    // 0x0055c12c: state 0, both state sounds from "button_sound", and their UI slots.
+    // state 0, both state sounds from "button_sound", and their UI slots.
     ToggleState = 0;
     SoundState0 = SoundName;
     SoundState1 = SoundName;
-    UiSoundSlotState0 = FindUiSoundSlot(SoundState0.c_str()); // FUN_00564610
+    UiSoundSlotState0 = FindUiSoundSlot(SoundState0.c_str());
     UiSoundSlotState1 = FindUiSoundSlot(SoundState1.c_str());
     return bResult;
 }
@@ -1093,22 +1089,22 @@ void NnToggleButtonControl::Init(char const* NewMeshPath, char const* NewMesh2,
                                  unsigned char bNewNoZEnable, int NewToolTipIds,
                                  int NewToolTip2Ids)
 {
-    // FUN_0055c1c0 (RET 0x34).
+    // (RET 0x34).
     MontageMode = 1; // +0x335
     NnButtonControl::Init(NewMeshPath, NewMesh2, NewSoundName, KeyCommandName, NewOffset,
                           Hardpoint, NewHalfExtents, bNoMeshRender, bActionButton,
                           bNoColorChange, bNewNoZEnable, NewToolTipIds, NewToolTip2Ids,
-                          0); // FUN_0055ac30
+                          0);
 
-    // 0x0055c21d: a non-null NewMesh2 (only null is tested here) into the +0x378 holder.
+    // a non-null NewMesh2 (only null is tested here) into the +0x378 holder.
     if (NewMesh2 != nullptr)
     {
-        ClientMeshLoadFromPath(&ToggleMesh, NewMesh2, 0, false); // FUN_0059ec80(path, 0, 0)
-        DALib::Engine->SetInstanceUserData(ToggleMesh.EngineInstance, &MeshHolder.UserFloats[0]);
+        ClientMeshLoadFromPath(&ToggleMesh, NewMesh2, 0, false); // (path, 0, 0)
+        NeuronRuntime::Engine->SetInstanceUserData(ToggleMesh.EngineInstance, &MeshHolder.UserFloats[0]);
         PlaceToggleMesh();
     }
 
-    // 0x0055c326: as Create's tail.
+    // as Create's tail.
     ToggleState = 0;
     SoundState0 = SoundName;
     SoundState1 = SoundName;
@@ -1118,60 +1114,60 @@ void NnToggleButtonControl::Init(char const* NewMeshPath, char const* NewMesh2,
 
 void NnToggleButtonControl::SetPosition(float const* NewPosition)
 {
-    // LAB_0055c510 (RET 4): ButtonControl's, then with both instances bound the main
+    // (RET 4): ButtonControl's, then with both instances bound the main
     // instance's whole transform onto the +0x378 one (Engine vt+0x9c).
-    NnButtonControl::SetPosition(NewPosition); // FUN_0055b4a0
+    NnButtonControl::SetPosition(NewPosition);
     if (!HasToggleInstance(this))
         return;
     if (!HasInstance(this))
         return;
     float Transform[12];
-    memcpy(Transform, DALib::Engine->GetInstanceTransform(MeshHolder.EngineInstance),
+    memcpy(Transform, NeuronRuntime::Engine->GetInstanceTransform(MeshHolder.EngineInstance),
            sizeof(Transform));
-    DALib::Engine->SetInstanceMatrix(ToggleMesh.EngineInstance, Transform);
-    DALib::Engine->UpdateInstance(ToggleMesh.EngineInstance, 0, nullptr);
+    NeuronRuntime::Engine->SetInstanceMatrix(ToggleMesh.EngineInstance, Transform);
+    NeuronRuntime::Engine->UpdateInstance(ToggleMesh.EngineInstance, 0, nullptr);
 }
 
 void NnToggleButtonControl::SetOrientation(float const* NewOrientation)
 {
-    // LAB_0055c5a0 (RET 4): the new orientation times the attach orientation (slot 40) through
-    // FUN_0051a140 into +0x3c, onto the main instance, then the main instance's transform onto
+    // (RET 4): the new orientation times the attach orientation (slot 40) through
+    // into +0x3c, onto the main instance, then the main instance's transform onto
     // the +0x378 one.
     bAttached = 1; // +0x328
     float Attach[9];
     GetAttachOrientation(Attach);
     float Result[9];
-    CockpitMulMatrix(Result, NewOrientation, Attach); // FUN_0051a140
+    CockpitMulMatrix(Result, NewOrientation, Attach);
     memcpy(Orientation, Result, sizeof(Orientation));
     if (HasInstance(this))
     {
-        DALib::Engine->SetInstanceOrientation(MeshHolder.EngineInstance, Orientation);
-        DALib::Engine->UpdateInstance(MeshHolder.EngineInstance, 0, nullptr);
+        NeuronRuntime::Engine->SetInstanceOrientation(MeshHolder.EngineInstance, Orientation);
+        NeuronRuntime::Engine->UpdateInstance(MeshHolder.EngineInstance, 0, nullptr);
     }
     if (!HasToggleInstance(this))
         return;
     if (!HasInstance(this))
         return;
     float Transform[12];
-    memcpy(Transform, DALib::Engine->GetInstanceTransform(MeshHolder.EngineInstance),
+    memcpy(Transform, NeuronRuntime::Engine->GetInstanceTransform(MeshHolder.EngineInstance),
            sizeof(Transform));
-    DALib::Engine->SetInstanceOrientation(ToggleMesh.EngineInstance, Transform);
-    DALib::Engine->UpdateInstance(ToggleMesh.EngineInstance, 0, nullptr);
+    NeuronRuntime::Engine->SetInstanceOrientation(ToggleMesh.EngineInstance, Transform);
+    NeuronRuntime::Engine->UpdateInstance(ToggleMesh.EngineInstance, 0, nullptr);
 }
 
 void NnToggleButtonControl::Update()
 {
-    // LAB_0055c690. 0x0055c6b1: the +0x378 mesh is loaded late when it is still unbound and
+    // . 0x0055c6b1: the +0x378 mesh is loaded late when it is still unbound and
     // "mesh2" is set -- without the user data Create / Init give it.
-    if (!ClientMeshHolderHasInstance(&ToggleMesh) && Mesh2.c_str()[0] != '\0') // FUN_00420d60
+    if (!ClientMeshHolderHasInstance(&ToggleMesh) && Mesh2.c_str()[0] != '\0')
     {
-        ClientMeshLoadFromPath(&ToggleMesh, Mesh2.c_str(), 0, false); // FUN_0059ec80(path, 0, 0)
+        ClientMeshLoadFromPath(&ToggleMesh, Mesh2.c_str(), 0, false); // (path, 0, 0)
         PlaceToggleMesh();
     }
 
-    Win3D::Update(); // FUN_005a17b0
+    Win3D::Update();
 
-    // 0x0055c7ee: under the cached mouse ray (FUN_0059da70, slot 4) the tooltip of the current
+    // under the cached mouse ray (the routine, slot 4) the tooltip of the current
     // state: +0x32c in state 1, else +0xcc -- each only when non-zero.
     float MouseRay[3];
     Win3DGetMouseRay(MouseRay);
@@ -1188,23 +1184,23 @@ void NnToggleButtonControl::Update()
         }
     }
 
-    // 0x0055ca87: while the button holds the capture -- the cursor ray (FUN_004bdd40 on
-    // DAT_0067dbf8, the 3DMathEngine's TransformMatrix with a copy of the camera orientation,
-    // normalised by 1 / sqrt), then slot 4. Unlike ButtonControl's LAB_0055b660 no +0x330 bit is
+    // while the button holds the capture -- the cursor ray (the routine on
+    // , the 3DMathEngine's TransformMatrix with a copy of the camera orientation,
+    // normalised by 1 / sqrt), then slot 4. Unlike ButtonControl's the branch no +0x330 bit is
     // written: on the button it tests bit 0 (not bit 2), off it tests bit 2.
     if ((ButtonBits & 0x10) != 0)
     {
         FSpaceCamera* const Cam = Win3DGetCamera();
         int CursorX = 0;
         int CursorY = 0;
-        GetClientSoftwareCursor(&CursorX, &CursorY, nullptr); // DAT_00616840 / DAT_00616844
+        GetClientSoftwareCursor(&CursorX, &CursorY, nullptr); // / the field
         FVector Local;
         Win3DScreenToNearPlane(Cam, Local, static_cast<float>(CursorX),
                                static_cast<float>(CursorY));
         FMatrix CamOrientation;
-        memcpy(&CamOrientation, Cam->World, sizeof(CamOrientation)); // DAT_0067dbfc
+        memcpy(&CamOrientation, Cam->World, sizeof(CamOrientation));
         FVector World;
-        ButtonMathEngine()->TransformMatrix(World, CamOrientation, Local); // DAT_00679aec +0x2c
+        ButtonMathEngine()->TransformMatrix(World, CamOrientation, Local); // +0x2c
         double const Inv =
             kOne / sqrt(static_cast<double>(World.X) * World.X +
                         static_cast<double>(World.Y) * World.Y +
@@ -1223,7 +1219,7 @@ void NnToggleButtonControl::Update()
                 TellParent(this, 0x2b);
                 if (Parent != nullptr)
                 {
-                    NnUiPulseReset(); // FUN_0059d580
+                    NnUiPulseReset();
                     TellParent(this, 0x2c);
                 }
             }
@@ -1235,10 +1231,10 @@ void NnToggleButtonControl::Update()
         }
     }
 
-    // 0x0055cc1c: the blink, as ButtonControl's.
+    // the blink, as ButtonControl's.
     if (bBlink == 0)
         return;
-    double Timer = GetClientFrameTimeCapped() + static_cast<double>(BlinkTimer); // FUN_0042d680
+    double Timer = GetClientFrameTimeCapped() + static_cast<double>(BlinkTimer);
     BlinkTimer = static_cast<float>(Timer);
     if (!(Timer > kOne))
         return;
@@ -1254,7 +1250,7 @@ void NnToggleButtonControl::Update()
 
 void NnToggleButtonControl::Draw()
 {
-    // LAB_0055c3b0: in state 1 ButtonControl's Draw runs with the +0x378 instance standing in
+    // in state 1 ButtonControl's Draw runs with the +0x378 instance standing in
     // for +0x84 (restored after); the instance drawn is kept for the glow pass below.
     void* Instance = nullptr;
     if (ToggleState == 1)
@@ -1262,24 +1258,24 @@ void NnToggleButtonControl::Draw()
         Instance = ToggleMesh.EngineInstance;
         void* const Saved = MeshHolder.EngineInstance;
         MeshHolder.EngineInstance = Instance;
-        NnButtonControl::Draw(); // FUN_0055af90
+        NnButtonControl::Draw();
         MeshHolder.EngineInstance = Saved;
     }
     else
     {
         Instance = MeshHolder.EngineInstance;
-        NnButtonControl::Draw(); // FUN_0055af90
+        NnButtonControl::Draw();
     }
 
-    Win3DDisable(kWin3DDepthTest); // FUN_00421ed0(0xb71)
-    // 0x0055c3f5: after a glow pass (+0x348 non-zero) the glow again, half a turn about y --
-    // the orientation {C,0,S, 0,1,0, -S,0,C} of DAT_005e1738 replaces the instance's (updated),
-    // the tinted submit FUN_00434630 in the glow colour, and the saved orientation goes back
+    Win3DDisable(kWin3DDepthTest); // (0xb71)
+    // after a glow pass (+0x348 non-zero) the glow again, half a turn about y --
+    // the orientation {C,0,S, 0,1,0, -S,0,C} of the field replaces the instance's (updated),
+    // the tinted submit the routine in the glow colour, and the saved orientation goes back
     // without an update.
     if (GlowArgb != 0 && Instance != reinterpret_cast<void*>(static_cast<intptr_t>(-1)))
     {
         float Saved[9];
-        memcpy(Saved, DALib::Engine->GetInstanceOrientation(Instance), sizeof(Saved)); // vt+0x98
+        memcpy(Saved, NeuronRuntime::Engine->GetInstanceOrientation(Instance), sizeof(Saved)); // vt+0x98
         float const C = static_cast<float>(cos(kToggleGlowAngle));
         float const S = static_cast<float>(sin(kToggleGlowAngle));
         float Turned[9];
@@ -1292,23 +1288,23 @@ void NnToggleButtonControl::Draw()
         Turned[6] = -S;
         Turned[7] = 0.0f;
         Turned[8] = C;
-        DALib::Engine->SetInstanceOrientation(Instance, Turned);
-        DALib::Engine->UpdateInstance(Instance, 0, nullptr);
+        NeuronRuntime::Engine->SetInstanceOrientation(Instance, Turned);
+        NeuronRuntime::Engine->UpdateInstance(Instance, 0, nullptr);
         unsigned char Glow[4];
         Glow[0] = static_cast<unsigned char>(GlowArgb >> 16);
         Glow[1] = static_cast<unsigned char>(GlowArgb >> 8);
         Glow[2] = static_cast<unsigned char>(GlowArgb);
         Glow[3] = static_cast<unsigned char>(GlowArgb >> 24);
         SubmitWin3DTintedEngineInstanceWrapped(Win3DGetCamera(), Instance, 1, Glow, 1, 1.0f,
-                                               0); // FUN_00434630
-        DALib::Engine->SetInstanceOrientation(Instance, Saved);
+                                               0);
+        NeuronRuntime::Engine->SetInstanceOrientation(Instance, Saved);
     }
-    Win3DDisable(kWin3DDepthTest); // FUN_00421ed0(0xb71)
+    Win3DDisable(kWin3DDepthTest); // (0xb71)
 }
 
 bool NnToggleButtonControl::MouseEvent(FWin3DMouseEvent const* Event)
 {
-    // LAB_0055cd20 (RET 4): the button sound and its UI slot of the current state, then
+    // (RET 4): the button sound and its UI slot of the current state, then
     // ButtonControl's handler.
     if (ToggleState == 0)
     {
@@ -1320,17 +1316,17 @@ bool NnToggleButtonControl::MouseEvent(FWin3DMouseEvent const* Event)
         SoundName = SoundState1;
         UiSoundSlot = UiSoundSlotState1;
     }
-    return NnButtonControl::MouseEvent(Event); // FUN_0055b950
+    return NnButtonControl::MouseEvent(Event);
 }
 
 intptr_t NnToggleButtonControl::SetProperty(int Msg, uintptr_t A, uintptr_t B)
 {
-    // LAB_0055cf90 (RET 0xc): jump table 0x0055d200 indexed by 0x0055d214[Msg - 6].
+    // (RET 0xc): jump table 0x0055d200 indexed by 0x0055d214[Msg - 6].
     switch (Msg)
     {
     case 6:
     {
-        // 0x0055cfbb: the offset from A; with a MAIN instance bound the +0x378 instance moves to
+        // the offset from A; with a MAIN instance bound the +0x378 instance moves to
         // +0x60 (+ +0xa8 under +0x2f4 bit 0). Then ButtonControl's 6 as well.
         float const* const NewOffset = reinterpret_cast<float const*>(A);
         Offset[0] = NewOffset[0];
@@ -1351,10 +1347,10 @@ intptr_t NnToggleButtonControl::SetProperty(int Msg, uintptr_t A, uintptr_t B)
                 Placed[1] = Position[1];
                 Placed[2] = Position[2];
             }
-            DALib::Engine->SetInstancePosition(ToggleMesh.EngineInstance, Placed);
-            DALib::Engine->UpdateInstance(ToggleMesh.EngineInstance, 0, nullptr);
+            NeuronRuntime::Engine->SetInstancePosition(ToggleMesh.EngineInstance, Placed);
+            NeuronRuntime::Engine->UpdateInstance(ToggleMesh.EngineInstance, 0, nullptr);
         }
-        return NnButtonControl::SetProperty(Msg, A, B); // FUN_0055bc30
+        return NnButtonControl::SetProperty(Msg, A, B);
     }
     case 0x2f:
         *reinterpret_cast<int*>(A) = ToggleState;
@@ -1364,11 +1360,11 @@ intptr_t NnToggleButtonControl::SetProperty(int Msg, uintptr_t A, uintptr_t B)
         ToggleState = (A == 0) ? 1 : 0;
         return 0;
     case 0x31:
-        // 0x0055d0a6: the two state sounds, each only when its pointer is non-null.
+        // the two state sounds, each only when its pointer is non-null.
         if (A != 0)
         {
             SoundState0.assign(reinterpret_cast<char const*>(A));
-            UiSoundSlotState0 = FindUiSoundSlot(SoundState0.c_str()); // FUN_00564610
+            UiSoundSlotState0 = FindUiSoundSlot(SoundState0.c_str());
         }
         if (B != 0)
         {
@@ -1377,13 +1373,13 @@ intptr_t NnToggleButtonControl::SetProperty(int Msg, uintptr_t A, uintptr_t B)
         }
         return 0;
     default:
-        return NnButtonControl::SetProperty(Msg, A, B); // FUN_0055bc30
+        return NnButtonControl::SetProperty(Msg, A, B);
     }
 }
 
 void NnToggleButtonControl::Activate()
 {
-    // FUN_0055cc90: ButtonControl's FUN_0055a660 body inlined (the command, else the parent's
+    // ButtonControl's the routine body inlined (the command, else the parent's
     // 0x26), then the state flips and the parent hears 0x30 with the new state as B.
     NnButtonControl::Activate();
     ToggleState = (ToggleState == 0) ? 1 : 0;

@@ -1,68 +1,64 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "nn_montage_draw.h"
 
 #include "screen_quad_state.h"
 
-#include "DALib.h"
+#include "NeuronRuntime.h"
 #include "common_ini.h"
 #include "common_misc.h"   // GetFileSysPath
-#include "dacom.h"
+#include "neuroncomponents.h"
 #include "render/IRenderPipeline.h"
-#include "render/shading.h"      // ITextureLibrary2 (DALib::TextureLib slot 22)
+#include "render/shading.h"      // ITextureLibrary2 (NeuronRuntime::TextureLib slot 22)
 #include "space_camera.h"        // AsCamera
-#include "win3d.h"               // Win3DGetCamera (DAT_0067dbf8)
+#include "win3d.h"               // Win3DGetCamera (the field)
 
 #include <cstring>
 
-// Static initialisers in retail XC order: LAB_00559830 (0x0060fdb8), LAB_005598b0 (0x0060fdbc),
-// LAB_005598e0 (0x0060fdc0).
-std::vector<FButtonMontageTile> G_ButtonMontageTiles; // DAT_00679a44
-FShapeDB G_ButtonShapeDB;                             // DAT_00679a2c
-unsigned long G_ButtonsMaterialKey = DACOM_CRC::GetCRC32("buttons"); // DAT_00679a28
-bool G_bButtonMontageLoaded = false;                  // DAT_00679af0
+// Static initialisers in baseline XC order: the branch (0x0060fdb8), the branch (0x0060fdbc),
+// (0x0060fdc0).
+std::vector<FButtonMontageTile> G_ButtonMontageTiles;
+FShapeDB G_ButtonShapeDB;
+unsigned long G_ButtonsMaterialKey = NEURONCOMPONENTS_CRC::GetCRC32("buttons");
+bool G_bButtonMontageLoaded = false;
 
 namespace
 {
-    FTexShape* G_ButtonShapeMontage32 = nullptr;        // DAT_00679af4
-    FTexShape* G_ButtonShapeMontage64 = nullptr;        // DAT_00679af8
-    FTexShape* G_ButtonShapeTargetingElement = nullptr; // DAT_00679afc
-    FTexShape* G_ButtonShapeTalkElement = nullptr;      // DAT_00679b00
+    FTexShape* G_ButtonShapeMontage32 = nullptr;
+    FTexShape* G_ButtonShapeMontage64 = nullptr;
+    FTexShape* G_ButtonShapeTargetingElement = nullptr;
+    FTexShape* G_ButtonShapeTalkElement = nullptr;
 
 }
 
 void LoadButtonMontage()
 {
-    // FUN_00559db0.
+    // .
     if (G_bButtonMontageLoaded)
         return;
     G_bButtonMontageLoaded = true;
 
-    // 0x00559ddc..0x00559df6: FUN_00425b30 on DAT_00679a2c.
-    G_ButtonShapeDB.Load("Interface\\ButtonTextures.ini", DALib::Data);
+    // the routine on the field.
+    G_ButtonShapeDB.Load("Interface\\ButtonTextures.ini", NeuronRuntime::Data);
 
-    // 0x00559dfb..0x0055a003: four inlined ShapeDB finds (cmn\shapedb.h:0xf2 on a miss; the
-    // last one through FUN_00512660, the same cached find).
+    // four inlined ShapeDB finds (cmn\shapedb.h:0xf2 on a miss; the
+    // last one through the routine, the same cached find).
     G_ButtonShapeMontage32 = G_ButtonShapeDB.Find("Montage32", kShapeDbHeaderLower);
     G_ButtonShapeMontage64 = G_ButtonShapeDB.Find("Montage64", kShapeDbHeaderLower);
     G_ButtonShapeTargetingElement =
         G_ButtonShapeDB.Find("HUD_targetingelement", kShapeDbHeaderLower);
     G_ButtonShapeTalkElement = G_ButtonShapeDB.Find("HUD_talkelement", kShapeDbHeaderLower);
 
-    // 0x0055a003..0x0055a062.
+    // .
     char Path[0x100];
-    GetFileSysPath(Path, "interface\\ButtonMontage.ini", DALib::Data);
+    GetFileSysPath(Path, "interface\\ButtonMontage.ini", NeuronRuntime::Data);
     INI_Reader Reader;
     if (!Reader.open(Path, false) || !Reader.read_header())
         return;
 
     do
     {
-        // 0x0055a070..0x0055a098: per section.
+        // per section.
         float Step = 0.0f;
         float U = 0.0f;
         float V = 0.0f;
@@ -75,7 +71,7 @@ void LoadButtonMontage()
         {
             if (Reader.is_value("size"))
             {
-                // 0x0055a0e4..0x0055a11c: 1 / (256 / size), 1 / 4 for a non-positive size.
+                // 1 / (256 / size), 1 / 4 for a non-positive size.
                 Size = Reader.get_value_int(0);
                 int TilesPerRow = 4;
                 if (Size > 0)
@@ -94,7 +90,7 @@ void LoadButtonMontage()
             }
             else
             {
-                // 0x0055a163..0x0055a19f: the shape the tile sits on.
+                // the shape the tile sits on.
                 FTexShape* Shape = nullptr;
                 if (TextureIndex == 2)
                 {
@@ -114,12 +110,12 @@ void LoadButtonMontage()
                     Shape = G_ButtonShapeMontage64;
                 }
 
-                // 0x0055a19f..0x0055a1c9.
+                // .
                 float Scale = 0.0f;
                 if (!Reader.is_value_empty(1))
                     Scale = Reader.get_value_float(1);
 
-                // 0x0055a1cd..0x0055a261: FUN_0055d870 -- insert one element at end().
+                // the routine -- insert one element at end().
                 FButtonMontageTile Tile;
                 Tile.Name = Reader.get_name_ptr();
                 Tile.U = U;
@@ -129,8 +125,8 @@ void LoadButtonMontage()
                 Tile.Scale = Scale;
                 G_ButtonMontageTiles.push_back(Tile);
 
-                // 0x0055a267..0x0055a2a1: FST stores the rounded sum, FCOMP tests the unrounded
-                // one against 0.99f (DAT_005e1518); only an ordered > moves to the next row.
+                // FST stores the rounded sum, FCOMP tests the unrounded
+                // one against 0.99f (the field); only an ordered > moves to the next row.
                 double const NextU = static_cast<double>(Step) + static_cast<double>(U);
                 U = static_cast<float>(NextU);
                 if (NextU > static_cast<double>(0.99f))
@@ -148,14 +144,14 @@ void LoadButtonMontage()
 
 FButtonMontageTile* FindButtonMontageTile(std::string Name)
 {
-    // FUN_0055a360.
+    // .
     if (!G_bButtonMontageLoaded)
         LoadButtonMontage();
 
     int const Count = static_cast<int>(G_ButtonMontageTiles.size());
     for (int Index = 0; Index < Count; ++Index)
     {
-        // DACOM stricmp(entry, Name); a null string buffer reads as "".
+        // NEURONCOMPONENTS stricmp(entry, Name); a null string buffer reads as "".
         if (_stricmp(G_ButtonMontageTiles[Index].Name.c_str(), Name.c_str()) == 0)
             return &G_ButtonMontageTiles[Index];
     }
@@ -164,7 +160,7 @@ FButtonMontageTile* FindButtonMontageTile(std::string Name)
 
 void ClearButtonMontage()
 {
-    // FUN_00559d20: erase(begin, end), then JMP FUN_00425a20 on DAT_00679a2c.
+    // erase(begin, end), then JMP the routine on the field.
     G_ButtonMontageTiles.clear();
     G_ButtonShapeDB.Clear();
 }
@@ -172,18 +168,18 @@ void ClearButtonMontage()
 bool NnMontageDrawTileAt(FButtonMontageTile const* Tile, float const* Position,
                          unsigned char const* Rgba, float Size, int Mode, float Angle)
 {
-    // FUN_00559900. 0x00559904..0x0055991a: nothing without a tile or its shape.
+    // . 0x00559904..0x0055991a: nothing without a tile or its shape.
     if (Tile == nullptr)
         return false;
     if (Tile->Shape == nullptr)
         return false;
 
-    // 0x00559921..0x0055994e: frame 0 of the shape's texture record (handle, u0, v0, u1, v1).
+    // frame 0 of the shape's texture record (handle, u0, v0, u1, v1).
     unsigned long Frame[5];
-    DALib::TextureLib->GetTextureFrame(Tile->Shape->Texture, 0, Frame);
+    NeuronRuntime::TextureLib->GetTextureFrame(Tile->Shape->Texture, 0, Frame);
 
-    // 0x00559952..0x00559a20: the tile's square, inset by 1/256, mirrored per Mode.
-    double const Inset = static_cast<double>(0.00390625f);   // DAT_005d748c
+    // the tile's square, inset by 1/256, mirrored per Mode.
+    double const Inset = static_cast<double>(0.00390625f);
     float const Low0 = static_cast<float>(static_cast<double>(Tile->U) + Inset);
     float const Low1 = static_cast<float>(static_cast<double>(Tile->V) + Inset);
     float const High0 = static_cast<float>(
@@ -225,10 +221,10 @@ bool NnMontageDrawTileAt(FButtonMontageTile const* Tile, float const* Position,
     if (bRect)
         memcpy(&Frame[1], Rect, sizeof(Rect));
 
-    // 0x00559a24..0x00559a72: the "buttons" key, the batch node, the icon (the RGBA bytes as a
+    // the "buttons" key, the batch node, the icon (the RGBA bytes as a
     // D3DCOLOR A:R:G:B).
-    ScreenQuadSetMaterialKey(G_ButtonsMaterialKey);   // FUN_00402d30(DAT_00679a28)
-    ScreenQuadBeginBatchFrame(Frame, 2, true);        // FUN_00402e30(&frame, 2, 1)
+    ScreenQuadSetMaterialKey(G_ButtonsMaterialKey);   // (the field)
+    ScreenQuadBeginBatchFrame(Frame, 2, true);        // (&frame, 2, 1)
     unsigned long const Argb = (static_cast<unsigned long>(Rgba[3]) << 24) |
                                (static_cast<unsigned long>(Rgba[0]) << 16) |
                                (static_cast<unsigned long>(Rgba[1]) << 8) |
@@ -239,20 +235,20 @@ bool NnMontageDrawTileAt(FButtonMontageTile const* Tile, float const* Position,
 
 void NnMontageFlushButtons()
 {
-    // FUN_00559c20, listing-traced 0x00559c20..0x00559d13. Two stack savers on DALib::Pipeline
-    // (slot 61 read, slot 60 write; EH states 0 / 1): 0x17 -> 8, 0xe -> 0. FUN_00403ea0 on the
-    // "buttons" list DAT_00679a28 with DALib::Pipeline read again. Then 0xe restored, then 0x17
-    // (0x00559cc7..0x00559cff). No null check anywhere; no material-key call -- FUN_00403ea0
+    // , listing-traced 0x00559c20..0x00559d13. Two stack savers on NeuronRuntime::Pipeline
+    // (slot 61 read, slot 60 write; EH states 0 / 1): 0x17 -> 8, 0xe -> 0. the routine on the
+    // "buttons" list the field with NeuronRuntime::Pipeline read again. Then 0xe restored, then 0x17
+    // (0x00559cc7..0x00559cff). No null check anywhere; no material-key call -- the routine
     // finds the "buttons" container by its key.
-    IRenderPipeline* const Pipe17 = DALib::Pipeline;
+    IRenderPipeline* const Pipe17 = NeuronRuntime::Pipeline;
     int Saved17 = 0;
     Pipe17->GetRenderState(D3DRS_ZFUNC, &Saved17);
     Pipe17->SetRenderState(D3DRS_ZFUNC, 8);
-    IRenderPipeline* const Pipe0E = DALib::Pipeline;
+    IRenderPipeline* const Pipe0E = NeuronRuntime::Pipeline;
     int Saved0E = 0;
     Pipe0E->GetRenderState(D3DRS_ZWRITEENABLE, &Saved0E);
     Pipe0E->SetRenderState(D3DRS_ZWRITEENABLE, 0);
-    ScreenQuadFlush(DALib::Pipeline, G_ButtonsMaterialKey);
+    ScreenQuadFlush(NeuronRuntime::Pipeline, G_ButtonsMaterialKey);
     Pipe0E->SetRenderState(D3DRS_ZWRITEENABLE, Saved0E);
     Pipe17->SetRenderState(D3DRS_ZFUNC, Saved17);
 }

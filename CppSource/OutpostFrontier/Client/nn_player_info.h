@@ -1,31 +1,27 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
-// The NeuroNet player-information sheet (retail NN_PlayerInfo, OutpostFrontier.exe 0x004a7800..
-// 0x004a9230; shares NN_Help's CHAR_infowindow.cmp mesh): "PLAYER STATUS", the player's
+// The NeuroNet player-information sheet (baseline NN_PlayerInfo, OutpostFrontier.exe 0x004a7800..
+// ; shares NN_Help's CHAR_infowindow.cmp mesh): "PLAYER STATUS", the player's
 // statistics on the right (level, worth, missions, kills by ship class, play time, visits) and
 // six rows of the factions the player has met on the left, each with its reputation bar; a
 // click on a row replaces the statistics with that faction's infocard. Opened by the NeuroNet
 // main button (panel 0x65, nn_main_button.cpp) through the "NN_PlayerInfo" factory.
-//
+
 // RTTI .?AVNN_PlayerInfo@@ : WinControl. operator_new(0x428) in the factory's Create
-// FUN_004a9100, which inlines the ctor: WinControl's FUN_0059f860, the payload's low byte at
+// , which inlines the ctor: WinControl's the routine, the payload's low byte at
 // +0x40c, the empty faction vector, vftable 0x005d4794, the IDataViewOwner face +0x7c its own
 // copy (0x005d4788) of WinControl's two slots, FirstRow = 0, the visit flags 0x41 of the
-// "li_p_grp" reputation group (FUN_004c4e00, told to the server) and DAT_006721bc = this.
-// WINFACTORY<NN_PlayerInfo> DAT_00672180 "NN_PlayerInfo": static init LAB_004a7820 (ctor
-// FUN_004a9090 -- the WinFactory head, FUN_0059dab0, vftable 0x005d49dc -- then atexit
-// LAB_004a7840 -> FUN_00579380).
-//
+// "he_p_grp" reputation group (the routine, told to the server) and the field = this.
+// WINFACTORY<NN_PlayerInfo> the field "NN_PlayerInfo": static init the branch (ctor
+// the WinFactory head, the routine, vftable 0x005d49dc -- then atexit
+// -> the routine).
+
 // vftable 0x005d4794 -- WinControl's (0x005e5e44) with these overrides (raw dword diff):
-//   0 FUN_004a7850 scalar deleting dtor (dtor FUN_004a7870), 9 FUN_004a78c0 Create,
-//   13 LAB_004a8200 Draw, 23 LAB_00475430 Slot23 (the body NN_Help's slot 23 shares by ICF),
-//   42 LAB_004a80e0 SetProperty.
+//   0 the routine scalar deleting dtor (dtor the routine), 9 the routine Create,
+//   13 the branch Draw, 23 the branch Slot23 (the body NN_Help's slot 23 shares by ICF),
+//   42 the branch SetProperty.
 
 #include "win_factory.h"
 #include "wincontrol_base.h"
@@ -37,9 +33,9 @@
 class RichTextWin;
 class UiScroll;
 
-// The REQUEST_PLAYER_STATS block (IClient slot 94, LAB_0053c3d0): this 0x34-byte head, then
+// The REQUEST_PLAYER_STATS block (IClient slot 94, the branch): this 0x34-byte head, then
 // ShipKillCount FNnPlayerStatsShipKills, then ReputationCount FPlayerStatsRepEntry (nn_dealer.h).
-// The field names are the headings NN_PlayerInfo shows each value under (resources.dll ids).
+// The field names are the headings NN_PlayerInfo shows each value under (UiText.dll ids).
 struct FNnPlayerStatsBlock
 {
     int TotalMissions;          // +0x00 -- ids 0x64b "Total Missions:"
@@ -78,40 +74,40 @@ struct FNnPlayerInfoFaction
 class NnPlayerInfo : public WinControl
 {
 public:
-    // The ctor FUN_004a9100 inlines (0x004a9143..0x004a91d6); PayloadByte is the factory
+    // The ctor the routine inlines (0x004a9143..0x004a91d6); PayloadByte is the factory
     // payload's low byte.
     explicit NnPlayerInfo(unsigned char PayloadByte);
-    // FUN_004a7870 -- DAT_006721bc = 0 (no test that it is this one), the vector freed, then
-    // WinControl's dtor FUN_0059fa50.
+    // the field = 0 (no test that it is this one), the vector freed, then
+    // WinControl's dtor the routine.
     ~NnPlayerInfo() override;
 
-    // slot 9 FUN_004a78c0 (RET 8) -- the mesh, the close button, the titles, the infocard (hidden)
+    // slot 9 the routine (RET 8) -- the mesh, the close button, the titles, the infocard (hidden)
     // and its close button / text (hidden), six faction rows (frame, name, two bars), the scroll
     // and the thirteen heading / value pairs; Worth and the next-level line hidden outside
     // single player. Then Count = 0, SetOffset(0, 0, 0), SetPosition(Position), the stats timer
     // 1.0 and Win3D's Create.
     bool Create(Win3D* NewParent, void* Data) override;
-    // slot 13 LAB_004a8200 -- with the HUD option on: fill the six rows from FirstRow, join the
+    // slot 13 the branch -- with the HUD option on: fill the six rows from FirstRow, join the
     // frame column, WinControl's Draw, a darkening quad over each visible row's reputation bar,
     // then once a second (+0x424) ask the server for fresh stats (IServer slot 73).
     void Draw() override;
-    // slot 23 LAB_00475430 (RET 0xc) -- 0xef02 removes the window from its parent and deletes it
+    // slot 23 the branch (RET 0xc) -- 0xef02 removes the window from its parent and deletes it
     // (every child first); anything else is WinControl's Slot23.
     bool Slot23(unsigned Msg, unsigned A, unsigned B) override;
-    // slot 42 LAB_004a80e0 (RET 0xc) -- 0x3e from the scroll: FirstRow = B. 0x26: the close
+    // slot 42 the branch (RET 0xc) -- 0x3e from the scroll: FirstRow = B. 0x26: the close
     // button closes the NeuroNet screen; the infocard's close button restores the statistics;
     // a faction frame opens that faction's infocard. Everything else returns 0.
     intptr_t SetProperty(int Msg, uintptr_t A, uintptr_t B) override;
 
-    // FUN_004a8820 (thiscall, RET 0xc) -- the statistics texts from Stats and ShipKills, then the
+    // (thiscall, RET 0xc) -- the statistics texts from Stats and ShipKills, then the
     // faction list rebuilt from Reputations: every group the player has visit bit 0 for (the
-    // visit map, FUN_004c4da0) that is not a story faction; sorted, and the scroll's range set.
+    // visit map, the routine) that is not a story faction; sorted, and the scroll's range set.
     void OnPlayerStats(FNnPlayerStatsBlock const* Stats, FNnPlayerStatsShipKills const* ShipKills,
                        FPlayerStatsRepEntry const* Reputations);
-    // FUN_004a8750 (thiscall) -- bubble passes over the faction rows until one swaps nothing,
+    // (thiscall) -- bubble passes over the faction rows until one swaps nothing,
     // ascending by attitude, the player's own affiliation (multiplayer) counted 10 higher.
     void SortFactions();
-    // FUN_004a8e80 (thiscall, RET 4) -- the infocard of the faction in Row (not tested against
+    // (thiscall, RET 4) -- the infocard of the faction in Row (not tested against
     // the count): the title becomes its name, the statistics are hidden, the card and its close
     // button shown. Nothing without rows or without an infocard.
     void ShowFactionInfocard(int Row);
@@ -130,8 +126,8 @@ public:
     WinControl* CloseInfocardText;           // +0x408 "NavMapCloseInfocardText"
     unsigned char Field_0x40c;               // +0x40c TODO: the factory payload's low byte;
                                              //        nothing in the PE reads a byte here
-    std::vector<FNnPlayerInfoFaction> Factions; // +0x410 (retail begin / end / capacity)
-    int FactionCount;                        // +0x41c -- kept next to the vector, as retail does
+    std::vector<FNnPlayerInfoFaction> Factions; // +0x410 (baseline begin / end / capacity)
+    int FactionCount;                        // +0x41c -- kept next to the vector, as baseline does
     int FirstRow;                            // +0x420 -- the scroll's value
     float StatsRequestTimer;                 // +0x424
 
@@ -140,7 +136,7 @@ private:
     NnPlayerInfo& operator=(NnPlayerInfo const&) = delete;
 };
 
-// Retail's offsets up to the vector; the port's std::vector is not retail's 12 bytes (no retail
+// baseline's offsets up to the vector; the port's std::vector is not baseline's 12 bytes (no baseline
 // ABI), so the fields after it and the class size are not asserted.
 static_assert(offsetof(NnPlayerInfo, CloseButton) == 0x32c, "NN_PlayerInfo +0x32c");
 static_assert(offsetof(NnPlayerInfo, PlayerStatsTitle) == 0x330, "NN_PlayerInfo +0x330");
@@ -155,7 +151,7 @@ static_assert(offsetof(NnPlayerInfo, FactionInfoCard) == 0x400, "NN_PlayerInfo +
 static_assert(offsetof(NnPlayerInfo, CloseInfocardText) == 0x408, "NN_PlayerInfo +0x408");
 static_assert(offsetof(NnPlayerInfo, Field_0x40c) == 0x40c, "NN_PlayerInfo +0x40c");
 
-// WINFACTORY<NN_PlayerInfo> (DAT_00672180). Its one slot FUN_004a9100 is not the generic
+// WINFACTORY<NN_PlayerInfo> (the field). Its one slot the routine is not the generic
 // WINFACTORY<T>::Create: the ctor takes the payload's low byte.
 class NnPlayerInfoFactory : public WinFactory
 {
@@ -165,18 +161,18 @@ public:
     {
     }
 
-    // FUN_004a9100 (RET 8): operator_new(0x428), the ctor, +0x10 = the factory's name (+0xc),
+    // (RET 8): operator_new(0x428), the ctor, +0x10 = the factory's name (+0xc),
     // slot 9; on failure the scalar deleting dtor with 1 and null.
     Win3D* Create(Win3D* Parent, void* Payload) override;
 };
 
-// DAT_006721bc -- the open NN_PlayerInfo, or null. Written by its ctor (0x004a91d6) and dtor
-// (0x004a7883); read only by FUN_004a8e40.
+// the open NN_PlayerInfo, or null. Written by its ctor (0x004a91d6) and dtor
+// (0x004a7883); read only by the routine.
 extern NnPlayerInfo* G_NnPlayerInfo;
 
-// FUN_004a8e40 (cdecl, 3 args) -- REQUEST_PLAYER_STATS arrived (IClient slot 94, LAB_0053c3d0,
+// (cdecl, 3 args) -- REQUEST_PLAYER_STATS arrived (IClient slot 94, the branch,
 // with the block, its ship-kill table and its reputation table): an open NN_PlayerInfo takes
-// all three (FUN_004a8820); otherwise NN_Dealer's FUN_00483f30 gets ([Stats+0x30], the
+// all three (the routine); otherwise NN_Dealer's the routine gets ([Stats+0x30], the
 // reputation table).
 void NnPlayerInfoOnPlayerStats(unsigned char const* Stats, void const* ShipKills,
                                void const* Reputations);

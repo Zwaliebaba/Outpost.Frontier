@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "wincontrol_base.h"
@@ -15,14 +11,14 @@
 #include "win3d_immediate.h"
 #include "win_factory.h"
 
-#include "DALib.h"
-#include "dacom.h"
+#include "NeuronRuntime.h"
+#include "neuroncomponents.h"
 
 #include <string.h>
 
 namespace
 {
-    // DAT_005c7f68 -- 1/255 (0x3b808081).
+    // 1/255 (0x3b808081).
     float const kInv255 = 1.0f / 255.0f;
 
     void SetIdentity3x3(float* M)
@@ -38,17 +34,17 @@ namespace
         M[8] = 1.0f;
     }
 
-    // DALib::Engine vt+0x8c SetInstancePosition then vt+0x6c UpdateInstance(inst, 0, 0), the
+    // NeuronRuntime::Engine vt+0x8c SetInstancePosition then vt+0x6c UpdateInstance(inst, 0, 0), the
     // pair every WinControl slot below issues after moving its instance.
     void SetInstancePositionAndUpdate(void* Instance, float* Position)
     {
-        DALib::Engine->SetInstancePosition(Instance, Position);
-        DALib::Engine->UpdateInstance(Instance, 0, nullptr);
+        NeuronRuntime::Engine->SetInstancePosition(Instance, Position);
+        NeuronRuntime::Engine->UpdateInstance(Instance, 0, nullptr);
     }
 
     bool HasInstance(WinControl const* Control)
     {
-        // The `CMP [ESI+0x84],-1` test several slots inline instead of calling FUN_00420d60.
+        // The `CMP [ESI+0x84],-1` test several slots inline instead of calling the routine.
         return Control->MeshHolder.EngineInstance !=
                reinterpret_cast<void*>(static_cast<intptr_t>(-1));
     }
@@ -56,8 +52,8 @@ namespace
 
 WinControl::WinControl()
 {
-    // FUN_0059f860. The Win3D part (FUN_004b6790) runs as the base ctor; then the
-    // IDataViewOwner face, the mesh holder (FUN_00420d40) with anim -1 and five 1.0f, and the
+    // . The Win3D part (the routine) runs as the base ctor; then the
+    // IDataViewOwner face, the mesh holder (the routine) with anim -1 and five 1.0f, and the
     // fields below in the listing's order of meaning (the stores are interleaved there).
     ClientMeshHolderConstruct(&MeshHolder);
     MeshHolder.UserFloats[3] = 1.0f;
@@ -67,7 +63,7 @@ WinControl::WinControl()
     MeshHolder.UserFloats[4] = 1.0f;
     MeshHolder.AnimOrArchIndex = -1;
 
-    // 0059f903..0059f945: attach transform = identity, zero position.
+    // attach transform = identity, zero position.
     SetIdentity3x3(AttachOrientation);
     AttachPosition[2] = 0.0f;
     AttachPosition[1] = 0.0f;
@@ -92,7 +88,7 @@ WinControl::WinControl()
     HitOffset[2] = 0.0f;
     Field2e0[0] = 0.0f;
     Field2e0[1] = 0.0f;
-    Field2e0[2] = 10000.0f; // 0x461c4000
+    Field2e0[2] = 10000.0f;
     bAttached = 0;
     MeshPath[0] = '\0';
     HardpointName[0] = '\0';
@@ -101,7 +97,7 @@ WinControl::WinControl()
 
 WinControl::~WinControl()
 {
-    // FUN_0059fa50.
+    // .
     if (bCaptured != 0)
     {
         bCaptured = 0;
@@ -109,7 +105,7 @@ WinControl::~WinControl()
     }
     ClientUiMeshHolderRelease(&MeshHolder);
 
-    // 0059faab..0059fadd: every child is destroyed and deleted. The dynamic_cast to
+    // every child is destroyed and deleted. The dynamic_cast to
     // WinControl in between (0059fac8) has its result discarded.
     Win3D* Child = ChildHead;
     while (Child != nullptr)
@@ -124,19 +120,19 @@ WinControl::~WinControl()
         Rest->Destroy();
     Win3DUnregister(this);
 
-    // 0059fb0e: the holder member's dtor FUN_0059ef20 runs as ~FClientMeshHolder; the Win3D
-    // dtor FUN_004b4fd0 then runs as the base.
+    // the holder member's dtor the routine runs as ~FClientMeshHolder; the Win3D
+    // dtor the routine then runs as the base.
 }
 
 WinControl* WinControl::AsWinControl()
 {
-    // FUN_0043d950.
+    // .
     return this;
 }
 
 bool WinControl::HitTest(float const* Ray)
 {
-    // FUN_005a0340. The box transform starts as identity with a zero position; a bound
+    // . The box transform starts as identity with a zero position; a bound
     // instance supplies its whole 3x4 transform (Engine vt+0xa0), otherwise the position is
     // +0x60 + +0xa8. The hit offset +0xc0 is added either way and +0x2d3 forces the
     // orientation back to identity.
@@ -147,7 +143,7 @@ bool WinControl::HitTest(float const* Ray)
     Transform[11] = 0.0f;
     if (ClientMeshHolderHasInstance(&MeshHolder))
     {
-        float const* const Source = DALib::Engine->GetInstanceTransform(MeshHolder.EngineInstance);
+        float const* const Source = NeuronRuntime::Engine->GetInstanceTransform(MeshHolder.EngineInstance);
         memcpy(Transform, Source, sizeof(Transform));
     }
     else
@@ -166,7 +162,7 @@ bool WinControl::HitTest(float const* Ray)
     if (!bHit)
         return bHit;
 
-    // 0059e4b4: the parent WinControl hears property 0x25 with this control, then 0x4f when a
+    // the parent WinControl hears property 0x25 with this control, then 0x4f when a
     // tooltip id is set; a non-zero answer to 0x4f ends it there.
     if (Parent != nullptr)
     {
@@ -182,7 +178,7 @@ bool WinControl::HitTest(float const* Ray)
         }
     }
 
-    // 005a0502: otherwise an active, visible control with a tooltip id shows it itself.
+    // otherwise an active, visible control with a tooltip id shows it itself.
     if (ToolTipIds != 0 && (Flags & kWin3DActive) != 0 && (Flags & kWin3DVisible) != 0)
         ShowToolTip();
     return bHit;
@@ -190,7 +186,7 @@ bool WinControl::HitTest(float const* Ray)
 
 void WinControl::SetPosition(float const* NewPosition)
 {
-    // FUN_005a0880.
+    // .
     Position[0] = NewPosition[0];
     Position[1] = NewPosition[1];
     Position[2] = NewPosition[2];
@@ -212,20 +208,20 @@ void WinControl::SetPosition(float const* NewPosition)
         SetInstancePositionAndUpdate(MeshHolder.EngineInstance, Placed);
     }
 
-    // 005a0927: every child is moved to this control's new position.
+    // every child is moved to this control's new position.
     for (Win3D* Child = ChildHead; Child != nullptr; Child = Child->NextSibling)
         Child->SetPosition(Position);
 }
 
 void WinControl::SetOrientation(float const* NewOrientation)
 {
-    // FUN_005a0950.
+    // .
     memmove(Orientation, NewOrientation, sizeof(Orientation));
     if (ClientMeshHolderHasInstance(&MeshHolder))
     {
-        DALib::Engine->SetInstanceOrientation(MeshHolder.EngineInstance,
+        NeuronRuntime::Engine->SetInstanceOrientation(MeshHolder.EngineInstance,
                                               const_cast<float*>(NewOrientation));
-        DALib::Engine->UpdateInstance(MeshHolder.EngineInstance, 0, nullptr);
+        NeuronRuntime::Engine->UpdateInstance(MeshHolder.EngineInstance, 0, nullptr);
     }
     for (Win3D* Child = ChildHead; Child != nullptr; Child = Child->NextSibling)
         Child->SetOrientation(NewOrientation);
@@ -233,7 +229,7 @@ void WinControl::SetOrientation(float const* NewOrientation)
 
 void WinControl::Destroy()
 {
-    // FUN_0059fb60: release the mesh, destroy and delete every child, then the Win3D
+    // release the mesh, destroy and delete every child, then the Win3D
     // teardown (flags, remaining children, unregister).
     ClientUiMeshHolderRelease(&MeshHolder);
     Win3D* Child = ChildHead;
@@ -256,7 +252,7 @@ void WinControl::Draw()
     // reach this without the Win3D draw walk, so the control sets its own HUD shift.
     FWidescreenHudShiftScope const WidescreenScope(WidescreenHudShiftPixelsFor(this), true);
 #endif
-    // FUN_005a0760: the FUN_005a06a0 body inlined, the sorted child draw, then slot 39.
+    // the the routine body inlined, the sorted child draw, then slot 39.
     DrawStaticMesh();
     Win3DDrawChildren(this);
     Slot39();
@@ -264,9 +260,9 @@ void WinControl::Draw()
 
 void WinControl::DrawStaticMesh()
 {
-    // FUN_005a06a0. With "DRAW STATIC CONTROLS" (FUN_005792b0(0x15)) on and an instance bound
-    // (FUN_00420d60), the instance is submitted with depth test off, tinted by the HUD chrome
-    // colour DAT_00679bb4 scaled by 1/255 (DAT_005c7f68).
+    // . With "DRAW STATIC CONTROLS" (the routine(0x15)) on and an instance bound
+    // (the routine), the instance is submitted with depth test off, tinted by the HUD chrome
+    // colour the field scaled by 1/255 (the field).
     if (GetGameOption(kGameOptDrawStaticControls) != 0 && ClientMeshHolderHasInstance(&MeshHolder))
     {
         Win3DDisable(kWin3DDepthTest);
@@ -285,7 +281,7 @@ void WinControl::DrawStaticMesh()
 
 void WinControl::SetHiddenWithChildren(bool bHide)
 {
-    // FUN_005a0c30: walk +0x0c / +0x08; a child whose slot 2 answers non-null gets
+    // walk +0x0c / +0x08; a child whose slot 2 answers non-null gets
     // SetProperty(1, bHide, 0) (vt+0xa8). Then 0x005a0c65: bHide -> Flags &= 0xfc, else |= 3.
     for (Win3D* Child = ChildHead; Child != nullptr; Child = Child->NextSibling)
     {
@@ -303,7 +299,7 @@ void WinControl::SetHiddenWithChildren(bool bHide)
 
 bool WinControl::MouseEvent(FWin3DMouseEvent const* Event)
 {
-    // FUN_005a0650: a capturing control takes every Field0 == -1 event; otherwise the event
+    // a capturing control takes every Field0 == -1 event; otherwise the event
     // is taken when the cached mouse ray hits this control.
     if (bCaptured != 0 && Event->Field0 == -1)
         return true;
@@ -313,7 +309,7 @@ bool WinControl::MouseEvent(FWin3DMouseEvent const* Event)
 
 bool WinControl::Slot23(unsigned Msg, unsigned /*A*/, unsigned /*B*/)
 {
-    // FUN_005a0840.
+    // .
     if (Msg == 0xef01)
     {
         if (Parent != nullptr)
@@ -331,17 +327,17 @@ bool WinControl::Slot23(unsigned Msg, unsigned /*A*/, unsigned /*B*/)
 
 void WinControl::DataViewSlot0(unsigned /*A*/, unsigned /*B*/)
 {
-    // LAB_0053aaa0: RET 8.
+    // RET 8.
 }
 
 void WinControl::DataViewSlot1(unsigned /*A*/)
 {
-    // FUN_0053e4a0: RET 4.
+    // RET 4.
 }
 
 void WinControl::LoadIni(char const* Path)
 {
-    // LAB_0059fd10.
+    // .
     INI_Reader Ini;
     if (!Ini.open(Path, false) || !Ini.find_header("BaseFrame") || !Ini.is_header("BaseFrame"))
         return;
@@ -399,7 +395,7 @@ void WinControl::LoadIni(char const* Path)
             ToolTipIds = static_cast<int>(Ini.get_value_float(0));
     }
 
-    // 0059ffca: every further section names a child; its class_name value picks the factory
+    // every further section names a child; its class_name value picks the factory
     // and the section name becomes the child's name.
     while (Ini.read_header())
     {
@@ -418,17 +414,17 @@ void WinControl::LoadIni(char const* Path)
 
 void WinControl::Slot29(FILE* /*File*/)
 {
-    // FUN_0053e4a0: RET 4.
+    // RET 4.
 }
 
 void WinControl::Slot30(unsigned /*A*/)
 {
-    // FUN_0053e4a0: RET 4.
+    // RET 4.
 }
 
 void WinControl::SetOffset(float X, float Y, float Z)
 {
-    // FUN_005a0250: store the new offset and hand every child WinControl the change through
+    // store the new offset and hand every child WinControl the change through
     // slot 43, then re-place this control at its parent's position (or its own).
     float Delta[3];
     Delta[0] = X - Offset[0];
@@ -451,7 +447,7 @@ void WinControl::SetOffset(float X, float Y, float Z)
 
 void WinControl::CaptureMouse()
 {
-    // FUN_005a0300.
+    // .
     if (bCaptured != 0)
         return;
     bCaptured = 1;
@@ -460,7 +456,7 @@ void WinControl::CaptureMouse()
 
 void WinControl::ReleaseMouse()
 {
-    // FUN_005a0320.
+    // .
     if (bCaptured == 0)
         return;
     bCaptured = 0;
@@ -469,27 +465,27 @@ void WinControl::ReleaseMouse()
 
 void WinControl::ShowToolTip()
 {
-    // FUN_005a0530: the hover record handed to FUN_004be370 carries this control as its key
-    // (+0x00, which FUN_004bdea0 compares against the ToolTip's +0xf4) and the tooltip id at
-    // +0x04; no caption, AuxField +0x44 and the live byte +0x60 clear. Retail leaves the world
+    // the hover record handed to the routine carries this control as its key
+    // (+0x00, which the routine compares against the ToolTip's +0xf4) and the tooltip id at
+    // +0x04; no caption, AuxField +0x44 and the live byte +0x60 clear. baseline leaves the world
     // position / half extents (+0x48..+0x5f) as stack garbage; the port zeroes them.
-    // 005a054e..005a055e: caption +0x08 / +0x0c zeroed, FUN_004144b0 on +0x10 -- the record's
+    // caption +0x08 / +0x0c zeroed, the routine on +0x10 -- the record's
     // constructor.
     FToolTipHoverInfo Info;
     Info.AuxField = 0;                // +0x44
     Info.bLive = 0;                   // +0x60
     Info.Ids = static_cast<int>(reinterpret_cast<intptr_t>(this)); // +0x00
     Info.IdsAlt = ToolTipIds;         // +0x04 <- +0xcc
-    NnToolTipFeedHover(&Info);        // FUN_004be370
+    NnToolTipFeedHover(&Info);
 
-    // 005a05c7..005a0630: the record's teardown (~FToolTipHoverInfo) -- FUN_004144f0 on the
-    // Font::String, release its children (FUN_00418f70), free the child vector and the text
+    // the record's teardown (~FToolTipHoverInfo) -- the routine on the
+    // Font::String, release its children (the routine), free the child vector and the text
     // buffer, then the caption buffer +0x08 (null here).
 }
 
 void WinControl::RefreshAttachment()
 {
-    // FUN_005a09d0: children first, then this control's own attachment to its parent's
+    // children first, then this control's own attachment to its parent's
     // hardpoint +0x1d0; last, the PARENT is re-placed at its own position (0x005a0a5d calls
     // slot 5 with ECX = parent), which moves this control along with its siblings.
     for (Win3D* Child = ChildHead; Child != nullptr; Child = Child->NextSibling)
@@ -516,17 +512,17 @@ void WinControl::RefreshAttachment()
 
 bool WinControl::GetHardpointTransform(char const* Name, float* OutTransform12)
 {
-    // FUN_005a0a70 (RET 8). OutTransform12 is 3x3 orientation then position; the position
+    // (RET 8). OutTransform12 is 3x3 orientation then position; the position
     // always has +0xa8 added.
     if (ClientMeshHolderHasInstance(&MeshHolder))
     {
-        void* const Archetype = DALib::Engine->GetInstanceArchetype(MeshHolder.EngineInstance);
-        DALib::Engine->ReleaseHandle(Archetype);
+        void* const Archetype = NeuronRuntime::Engine->GetInstanceArchetype(MeshHolder.EngineInstance);
+        NeuronRuntime::Engine->ReleaseHandle(Archetype);
         FHardpointKey Key;
         Key.Name = Name;
-        Key.Crc = DACOM_CRC::GetCRC32(Name);
+        Key.Crc = NEURONCOMPONENTS_CRC::GetCRC32(Name);
         unsigned char Blob[0x48];
-        if (static_cast<unsigned char>(DALib::Hardpoint->GetHardpoint(Archetype, &Key, Blob)) != 0)
+        if (static_cast<unsigned char>(NeuronRuntime::Hardpoint->GetHardpoint(Archetype, &Key, Blob)) != 0)
         {
             // Blob +0x04 position, +0x10 orientation.
             float Local[12];
@@ -551,7 +547,7 @@ bool WinControl::GetHardpointTransform(char const* Name, float* OutTransform12)
 
 WinControl* WinControl::FindChild(char const* ChildName)
 {
-    // FUN_005a0bc0: the first child whose +0x18 name strcmp-equals ChildName, as a WinControl.
+    // the first child whose +0x18 name strcmp-equals ChildName, as a WinControl.
     for (Win3D* Child = ChildHead; Child != nullptr; Child = Child->NextSibling)
     {
         if (strcmp(Child->Name, ChildName) == 0)
@@ -562,13 +558,13 @@ WinControl* WinControl::FindChild(char const* ChildName)
 
 void WinControl::SetMesh(char const* Path, char const* MaterialPath)
 {
-    // FUN_0059fbd0 (RET 8). A bound instance of the same path (stricmp) is left alone.
+    // (RET 8). A bound instance of the same path (stricmp) is left alone.
     if (HasInstance(this) && _stricmp(MeshPath, Path) == 0)
         return;
     strcpy(MeshPath, Path);
     ClientUiMeshHolderRelease(&MeshHolder);
     if (Path[0] != '\0')
-        ClientMeshLoadFromPath(&MeshHolder, Path, MaterialPath, false); // 0x0059fc2e (.., 0)
+        ClientMeshLoadFromPath(&MeshHolder, Path, MaterialPath, false); // (.., 0)
     if (HasInstance(this))
     {
         float Matrix[12];
@@ -576,20 +572,20 @@ void WinControl::SetMesh(char const* Path, char const* MaterialPath)
         Matrix[9] = Offset[0] + Position[0];
         Matrix[10] = Offset[1] + Position[1];
         Matrix[11] = Offset[2] + Position[2];
-        DALib::Engine->SetInstanceMatrix(MeshHolder.EngineInstance, Matrix);
-        DALib::Engine->UpdateInstance(MeshHolder.EngineInstance, 0, nullptr);
+        NeuronRuntime::Engine->SetInstanceMatrix(MeshHolder.EngineInstance, Matrix);
+        NeuronRuntime::Engine->UpdateInstance(MeshHolder.EngineInstance, 0, nullptr);
     }
     RefreshAttachment();
 }
 
 void WinControl::Slot39()
 {
-    // FUN_00401e90: RET.
+    // RET.
 }
 
 void WinControl::GetAttachOrientation(float* OutOrientation9)
 {
-    // FUN_005a1670: the attach orientation while attached to a WinControl parent, else
+    // the attach orientation while attached to a WinControl parent, else
     // identity.
     if (Parent != nullptr && bAttached != 0 && Parent->AsWinControl() != nullptr)
     {
@@ -603,7 +599,7 @@ void WinControl::GetAttachOrientation(float* OutOrientation9)
 
 void WinControl::GetAttachPosition(float* OutPosition3)
 {
-    // FUN_005a1750: the attach position under the same condition, else zero.
+    // the attach position under the same condition, else zero.
     if (Parent != nullptr && bAttached != 0 && Parent->AsWinControl() != nullptr)
     {
         OutPosition3[0] = AttachPosition[0];
@@ -618,7 +614,7 @@ void WinControl::GetAttachPosition(float* OutPosition3)
 
 intptr_t WinControl::SetProperty(int Msg, uintptr_t A, uintptr_t B)
 {
-    // FUN_005a13c0 (RET 0xc), jump table 0x005a1638 over Msg - 1.
+    // (RET 0xc), jump table 0x005a1638 over Msg - 1.
     switch (Msg)
     {
     case 1:
@@ -682,8 +678,8 @@ intptr_t WinControl::SetProperty(int Msg, uintptr_t A, uintptr_t B)
             Matrix[9] = Position[0] + Offset[0];
             Matrix[10] = Position[1] + Offset[1];
             Matrix[11] = Position[2] + Offset[2];
-            DALib::Engine->SetInstanceMatrix(MeshHolder.EngineInstance, Matrix);
-            DALib::Engine->UpdateInstance(MeshHolder.EngineInstance, 0, nullptr);
+            NeuronRuntime::Engine->SetInstanceMatrix(MeshHolder.EngineInstance, Matrix);
+            NeuronRuntime::Engine->UpdateInstance(MeshHolder.EngineInstance, 0, nullptr);
         }
         return 1;
     case 9:
@@ -701,7 +697,7 @@ intptr_t WinControl::SetProperty(int Msg, uintptr_t A, uintptr_t B)
 
 void WinControl::AddAttachOffset(float const* Delta)
 {
-    // FUN_005a1380.
+    // .
     AttachPosition[0] = AttachPosition[0] + Delta[0];
     AttachPosition[1] = Delta[1] + AttachPosition[1];
     AttachPosition[2] = Delta[2] + AttachPosition[2];
@@ -709,11 +705,11 @@ void WinControl::AddAttachOffset(float const* Delta)
 
 bool WinControl::NameEquals(char const* OtherName)
 {
-    // FUN_00585090.
+    // .
     return strcmp(Name, OtherName) == 0;
 }
 
-// Retail DAT_0067dd14 -- WINFACTORY<WinControl> static (LAB_0059f830 -> FUN_005a19b0("WinControl");
-// Create FUN_005a1a20: operator_new(0x32c), FUN_0059f860, +0x10 = &factory+0xc, slot 9); atexit
-// LAB_0059f850 -> FUN_00579380.
+// WINFACTORY<WinControl> static (the branch -> the routine("WinControl");
+// Create the routine: operator_new(0x32c), the routine, +0x10 = &factory+0xc, slot 9); atexit
+// -> the routine.
 WINFACTORY<WinControl> G_WinControlFactory("WinControl");

@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "RendComp.h"
@@ -15,76 +11,76 @@
 #include <new>
 
 // VMPartArch.cpp (06c308c0..06c31e35) and the VMesh render plugin (06c2d710..06c2dd19) of
-// retail rendcomp.dll.
+// baseline rendcomp.dll.
 
 class FVMeshPart;
 
-// +0x04: IMesh face (PTR_LAB_06c36638, 30 slots).
+// +0x04: IMesh face (the branch, 30 slots).
 class FVMeshPartMesh : public IMesh
 {
 public:
     FVMeshPart* Owner;
 
-    GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override;
-    unsigned long DACOM_API AddRef() override;
-    unsigned long DACOM_API Release() override;
-    int DACOM_API ResetMesh() override; // formerly Slot3
-    int DACOM_API NoOp() override; // formerly Slot4
-    int DACOM_API RefreshMaterials(unsigned long Flags) override; // formerly Slot5
-    int DACOM_API RejectOperation(void* A) override; // formerly Slot6
-    int DACOM_API RejectOperation() override; // formerly Slot7
-    int DACOM_API GetFaceGroupCount(int* Out) override; // formerly Slot8
-    int DACOM_API OpenFaceGroup(int Index, int Mode) override; // formerly Slot9
-    int DACOM_API CloseFaceGroup() override; // formerly Slot10
-    int DACOM_API AddFaceGroup(void* A) override; // formerly Slot11
-    int DACOM_API RemoveFaceGroup(int Index) override; // formerly Slot12
-    int DACOM_API GetFaceGroupPrimitiveType(unsigned int* Out) override; // formerly Slot13
-    int DACOM_API GetFaceGroupMaterial(IMaterial** Out) override; // formerly Slot14
-    int DACOM_API SetFaceGroupMaterial(IMaterial* Material) override; // formerly Slot15
-    int DACOM_API GetFaceGroupMaterialContext(void** Out) override; // formerly Slot16
-    int DACOM_API SetFaceGroupMaterialContext(void* A) override; // formerly Slot17
-    int DACOM_API OpenFaceGroupChannels(unsigned long Flags) override; // formerly Slot18
-    int DACOM_API CloseFaceGroupChannels() override; // formerly Slot19
-    int DACOM_API LockFaceGroupChannels(unsigned long Mask) override; // formerly Slot20
-    int DACOM_API UnlockFaceGroupChannels() override; // formerly Slot21
-    int DACOM_API GetFaceGroupData(int Channel, void** A, void** B, void** C, void** D) override; // formerly Slot22
-    int DACOM_API SetFaceGroupData(int Channel, void* A, void* B, void* C, void* D) override; // formerly Slot23
-    int DACOM_API GetFaceGroupIndices(int Channel, void** A, void** B) override; // formerly Slot24
-    int DACOM_API SetFaceGroupIndices(int Channel, void* Src, int Count) override; // formerly Slot25
-    int DACOM_API GetFaceGroupIndexCount(int Selector, void** Out) override; // formerly Slot26
-    int DACOM_API SetFaceGroupIndexCount(int Selector, int Count) override; // formerly Slot27
-    int DACOM_API AddFaceGroupChannels(unsigned long Flags) override; // formerly Slot28
-    int DACOM_API RemoveFaceGroupChannels(unsigned long Flags) override; // formerly Slot29
+    GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override;
+    unsigned long NEURONCOMPONENTS_API AddRef() override;
+    unsigned long NEURONCOMPONENTS_API Release() override;
+    int NEURONCOMPONENTS_API ResetMesh() override; // formerly Slot3
+    int NEURONCOMPONENTS_API NoOp() override; // formerly Slot4
+    int NEURONCOMPONENTS_API RefreshMaterials(unsigned long Flags) override; // formerly Slot5
+    int NEURONCOMPONENTS_API RejectOperation(void* A) override; // formerly Slot6
+    int NEURONCOMPONENTS_API RejectOperation() override; // formerly Slot7
+    int NEURONCOMPONENTS_API GetFaceGroupCount(int* Out) override; // formerly Slot8
+    int NEURONCOMPONENTS_API OpenFaceGroup(int Index, int Mode) override; // formerly Slot9
+    int NEURONCOMPONENTS_API CloseFaceGroup() override; // formerly Slot10
+    int NEURONCOMPONENTS_API AddFaceGroup(void* A) override; // formerly Slot11
+    int NEURONCOMPONENTS_API RemoveFaceGroup(int Index) override; // formerly Slot12
+    int NEURONCOMPONENTS_API GetFaceGroupPrimitiveType(unsigned int* Out) override; // formerly Slot13
+    int NEURONCOMPONENTS_API GetFaceGroupMaterial(IMaterial** Out) override; // formerly Slot14
+    int NEURONCOMPONENTS_API SetFaceGroupMaterial(IMaterial* Material) override; // formerly Slot15
+    int NEURONCOMPONENTS_API GetFaceGroupMaterialContext(void** Out) override; // formerly Slot16
+    int NEURONCOMPONENTS_API SetFaceGroupMaterialContext(void* A) override; // formerly Slot17
+    int NEURONCOMPONENTS_API OpenFaceGroupChannels(unsigned long Flags) override; // formerly Slot18
+    int NEURONCOMPONENTS_API CloseFaceGroupChannels() override; // formerly Slot19
+    int NEURONCOMPONENTS_API LockFaceGroupChannels(unsigned long Mask) override; // formerly Slot20
+    int NEURONCOMPONENTS_API UnlockFaceGroupChannels() override; // formerly Slot21
+    int NEURONCOMPONENTS_API GetFaceGroupData(int Channel, void** A, void** B, void** C, void** D) override; // formerly Slot22
+    int NEURONCOMPONENTS_API SetFaceGroupData(int Channel, void* A, void* B, void* C, void* D) override; // formerly Slot23
+    int NEURONCOMPONENTS_API GetFaceGroupIndices(int Channel, void** A, void** B) override; // formerly Slot24
+    int NEURONCOMPONENTS_API SetFaceGroupIndices(int Channel, void* Src, int Count) override; // formerly Slot25
+    int NEURONCOMPONENTS_API GetFaceGroupIndexCount(int Selector, void** Out) override; // formerly Slot26
+    int NEURONCOMPONENTS_API SetFaceGroupIndexCount(int Selector, int Count) override; // formerly Slot27
+    int NEURONCOMPONENTS_API AddFaceGroupChannels(unsigned long Flags) override; // formerly Slot28
+    int NEURONCOMPONENTS_API RemoveFaceGroupChannels(unsigned long Flags) override; // formerly Slot29
 };
 
-// +0x08: IMatHookUp face (PTR_LAB_06c36628, four entries).
+// +0x08: IMatHookUp face (the branch, four entries).
 class FVMeshPartHook : public IMatHookUp
 {
 public:
     FVMeshPart* Owner;
 
-    GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override;
-    unsigned long DACOM_API AddRef() override;
-    unsigned long DACOM_API Release() override;
-    int DACOM_API HookUpMaterials() override; // formerly Slot3
+    GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override;
+    unsigned long NEURONCOMPONENTS_API AddRef() override;
+    unsigned long NEURONCOMPONENTS_API Release() override;
+    int NEURONCOMPONENTS_API HookUpMaterials() override; // formerly Slot3
 };
 
-// +0x0C: IRenderableMesh face (PTR_LAB_06c3660c).
+// +0x0C: IRenderableMesh face (the branch).
 class FVMeshPartRenderable : public IRenderableMesh
 {
 public:
     FVMeshPart* Owner;
 
-    GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override;
-    unsigned long DACOM_API AddRef() override;
-    unsigned long DACOM_API Release() override;
-    int DACOM_API GetVertexCount(int* Out) override; // formerly Slot3
-    int DACOM_API CopyVertexData(void* Dest, unsigned int Fvf, unsigned int StartVertex, unsigned int VertexCount) override; // formerly Slot4
-    int DACOM_API GetIndexCount(int* Out) override; // formerly Slot5
-    int DACOM_API CopyIndices(unsigned short** Dest, int Count) override; // formerly Slot6
+    GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override;
+    unsigned long NEURONCOMPONENTS_API AddRef() override;
+    unsigned long NEURONCOMPONENTS_API Release() override;
+    int NEURONCOMPONENTS_API GetVertexCount(int* Out) override; // formerly Slot3
+    int NEURONCOMPONENTS_API CopyVertexData(void* Dest, unsigned int Fvf, unsigned int StartVertex, unsigned int VertexCount) override; // formerly Slot4
+    int NEURONCOMPONENTS_API GetIndexCount(int* Out) override; // formerly Slot5
+    int NEURONCOMPONENTS_API CopyIndices(unsigned short** Dest, int Count) override; // formerly Slot6
 };
 
-// The VMesh part archetype (retail 0x90: four vtables, Cursor +0x10, UseCount +0x14,
+// The VMesh part archetype (baseline 0x90: four vtables, Cursor +0x10, UseCount +0x14,
 // Data +0x18, Ref +0x1C, 0x70 vertex descriptor +0x20). The plugin hands its address out as
 // the LOD handle.
 class FVMeshPart : public IVMeshPart
@@ -97,19 +93,19 @@ public:
     int UseCount;               // +0x14 IRenderComponent Slot7/Slot8
     FVmeshData* Data;           // +0x18
     FVmeshRef* Ref;             // +0x1C the VMeshRef leaf, owned
-    FRpVertexSrcDesc VertexDesc;       // +0x20 FUN_06c31730, built by the first HookUp
+    FRpVertexSrcDesc VertexDesc;       // +0x20 the routine, built by the first HookUp
 
     FVMeshPart();
     ~FVMeshPart();
 
-    GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override;
-    unsigned long DACOM_API AddRef() override;
-    unsigned long DACOM_API Release() override;
-    bool DACOM_API Draw(ICamera* Camera, void* Inst, unsigned long Flags, const void* Matrix,
+    GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override;
+    unsigned long NEURONCOMPONENTS_API AddRef() override;
+    unsigned long NEURONCOMPONENTS_API Release() override;
+    bool NEURONCOMPONENTS_API Draw(ICamera* Camera, void* Inst, unsigned long Flags, const void* Matrix,
                         IMaterial* Override) override;
-    bool DACOM_API Prepare(void* Listing, void* Scratch) override;
-    FVmeshRef* DACOM_API GetRef() override;
-    FVmeshDataHeader* DACOM_API GetHeader() override;
+    bool NEURONCOMPONENTS_API Prepare(void* Listing, void* Scratch) override;
+    FVmeshRef* NEURONCOMPONENTS_API GetRef() override;
+    FVmeshDataHeader* NEURONCOMPONENTS_API GetHeader() override;
 
     int Claim(IFileSystem* File);
     int HookUp();
@@ -118,7 +114,7 @@ public:
     int TriangleCount() const;
 };
 
-// FUN_06c30920: vtables, Data 0, UseCount 0, Cursor -1, Ref 0, then the no-op FUN_06c2f5e0.
+// vtables, Data 0, UseCount 0, Cursor -1, Ref 0, then the no-op the routine.
 // The vertex descriptor is left as allocated.
 FVMeshPart::FVMeshPart()
     : Cursor(-1)
@@ -160,10 +156,10 @@ FVMeshPart::~FVMeshPart()
     }
 }
 
-// LAB_06c31d10: exact compares, no AddRef. "1.11_IVMeshLibrary" -> this; IMesh -> +4;
-// IMatHookUp -> +8; IRenderableMesh -> +0xC; IDAComponent -> +4. A miss returns -1 and leaves
-// Out alone. (Retail also writes 0 and returns 0 for a null this, which C++ cannot reach.)
-GENRESULT DACOM_API FVMeshPart::QueryInterface(const char* Iid, void** Out)
+// exact compares, no AddRef. "1.11_IVMeshLibrary" -> this; IMesh -> +4;
+// IMatHookUp -> +8; IRenderableMesh -> +0xC; INeuronComponent -> +4. A miss returns -1 and leaves
+// Out alone. (baseline also writes 0 and returns 0 for a null this, which C++ cannot reach.)
+GENRESULT NEURONCOMPONENTS_API FVMeshPart::QueryInterface(const char* Iid, void** Out)
 {
     if (std::strcmp(Iid, Iids::VMeshLibrary) == 0)
     {
@@ -185,7 +181,7 @@ GENRESULT DACOM_API FVMeshPart::QueryInterface(const char* Iid, void** Out)
         *Out = (IRenderableMesh*)(&Renderable);
         return 0;
     }
-    if (std::strcmp(Iid, Iids::DAComponent) == 0)
+    if (std::strcmp(Iid, Iids::NeuronComponent) == 0)
     {
         *Out = (IMesh*)(&Mesh);
         return 0;
@@ -193,25 +189,25 @@ GENRESULT DACOM_API FVMeshPart::QueryInterface(const char* Iid, void** Out)
     return -1;
 }
 
-// FUN_06c2b100: MOV EAX,1 -- the part is not reference counted.
-unsigned long DACOM_API FVMeshPart::AddRef()
+// MOV EAX,1 -- the part is not reference counted.
+unsigned long NEURONCOMPONENTS_API FVMeshPart::AddRef()
 {
     return 1;
 }
 
-unsigned long DACOM_API FVMeshPart::Release()
+unsigned long NEURONCOMPONENTS_API FVMeshPart::Release()
 {
     return 1;
 }
 
-// FUN_06c30900.
-FVmeshRef* DACOM_API FVMeshPart::GetRef()
+// .
+FVmeshRef* NEURONCOMPONENTS_API FVMeshPart::GetRef()
 {
     return Ref;
 }
 
-// FUN_06c30910.
-FVmeshDataHeader* DACOM_API FVMeshPart::GetHeader()
+// .
+FVmeshDataHeader* NEURONCOMPONENTS_API FVMeshPart::GetHeader()
 {
     if (Data == nullptr)
         return nullptr;
@@ -224,13 +220,13 @@ const FVmeshFacegroup* FVMeshPart::Facegroups() const
         (const unsigned char*)Data->Header + 0x10);
 }
 
-// FUN_06c31160: the channel test on the VMeshData header FVF.
+// the channel test on the VMeshData header FVF.
 bool FVMeshPart::ChannelPresent(unsigned int ChannelId) const
 {
     return VMeshChannelPresent(Data->Header->Fvf, ChannelId);
 }
 
-// FUN_06c31110: sum of IndexCount / 3 (signed division) over the part's facegroups.
+// sum of IndexCount / 3 (signed division) over the part's facegroups.
 int FVMeshPart::TriangleCount() const
 {
     int Total = 0;
@@ -333,10 +329,10 @@ int FVMeshPart::HookUp()
     return 0;
 }
 
-// FUN_06c31950 (thiscall, RET 8) -> AL. The group's VB must select (FUN_06c2d4a0); the
+// (thiscall, RET 8) -> AL. The group's VB must select (the routine); the
 // listing gets {VB, FVF, base vertex + VMeshRef.VertexStart}; the IB is made current with
-// that base vertex (FUN_06c2d5a0) and the scratch gets {IB, start index + IndexStart}.
-bool DACOM_API FVMeshPart::Prepare(void* ListingArg, void* ScratchArg)
+// that base vertex (the routine) and the scratch gets {IB, start index + IndexStart}.
+bool NEURONCOMPONENTS_API FVMeshPart::Prepare(void* ListingArg, void* ScratchArg)
 {
     FVbListing* Listing = (FVbListing*)ListingArg;
     FIbScratch* Scratch = (FIbScratch*)ScratchArg;
@@ -360,7 +356,7 @@ bool DACOM_API FVMeshPart::Prepare(void* ListingArg, void* ScratchArg)
     return Result >= 0;
 }
 
-bool DACOM_API FVMeshPart::Draw(ICamera* Camera, void* Inst, unsigned long Flags,
+bool NEURONCOMPONENTS_API FVMeshPart::Draw(ICamera* Camera, void* Inst, unsigned long Flags,
                                 const void* Matrix, IMaterial* Override)
 {
     if (Data == nullptr)
@@ -450,72 +446,72 @@ bool DACOM_API FVMeshPart::Draw(ICamera* Camera, void* Inst, unsigned long Flags
 }
 
 // ---------------------------------------------------------------------------------------
-// IMesh face. Every body reaches the part through Owner (retail: this - 4).
+// IMesh face. Every body reaches the part through Owner (baseline: this - 4).
 // ---------------------------------------------------------------------------------------
 
-// LAB_06c31e00: SUB [ESP+4],4; JMP LAB_06c31d10.
-GENRESULT DACOM_API FVMeshPartMesh::QueryInterface(const char* Iid, void** Out)
+// SUB [ESP+4],4; JMP the branch.
+GENRESULT NEURONCOMPONENTS_API FVMeshPartMesh::QueryInterface(const char* Iid, void** Out)
 {
     return Owner->QueryInterface(Iid, Out);
 }
 
-// LAB_06c27670 -> FUN_06c2b100.
-unsigned long DACOM_API FVMeshPartMesh::AddRef()
+// -> the routine.
+unsigned long NEURONCOMPONENTS_API FVMeshPartMesh::AddRef()
 {
     return Owner->AddRef();
 }
 
-unsigned long DACOM_API FVMeshPartMesh::Release()
+unsigned long NEURONCOMPONENTS_API FVMeshPartMesh::Release()
 {
     return Owner->Release();
 }
 
-// FUN_06c2f5e0 (slots 3 and 4).
+// (slots 3 and 4).
 // formerly Slot3
-int DACOM_API FVMeshPartMesh::ResetMesh()
+int NEURONCOMPONENTS_API FVMeshPartMesh::ResetMesh()
 {
     return 0;
 }
 
 // formerly Slot4
-int DACOM_API FVMeshPartMesh::NoOp()
+int NEURONCOMPONENTS_API FVMeshPartMesh::NoOp()
 {
     return 0;
 }
 
-// LAB_06c2c2d0.
+// .
 // formerly Slot5
-int DACOM_API FVMeshPartMesh::RefreshMaterials(unsigned long /*Flags*/)
+int NEURONCOMPONENTS_API FVMeshPartMesh::RefreshMaterials(unsigned long /*Flags*/)
 {
     return 0;
 }
 
-// LAB_06c22650.
+// .
 // formerly Slot6
-int DACOM_API FVMeshPartMesh::RejectOperation(void* /*A*/)
+int NEURONCOMPONENTS_API FVMeshPartMesh::RejectOperation(void* /*A*/)
 {
     return -1;
 }
 
-// LAB_06c22660.
+// .
 // formerly Slot7
-int DACOM_API FVMeshPartMesh::RejectOperation()
+int NEURONCOMPONENTS_API FVMeshPartMesh::RejectOperation()
 {
     return -1;
 }
 
-// LAB_06c30a00: facegroup count of the part.
+// facegroup count of the part.
 // formerly Slot8
-int DACOM_API FVMeshPartMesh::GetFaceGroupCount(int* Out)
+int NEURONCOMPONENTS_API FVMeshPartMesh::GetFaceGroupCount(int* Out)
 {
     *Out = Owner->Ref->FacegroupCount;
     return 0;
 }
 
-// LAB_06c30a20: select a facegroup; a selection already open, or an index past the part's
+// select a facegroup; a selection already open, or an index past the part's
 // count (unsigned), -> -1.
 // formerly Slot9
-int DACOM_API FVMeshPartMesh::OpenFaceGroup(int Index, int /*Mode*/)
+int NEURONCOMPONENTS_API FVMeshPartMesh::OpenFaceGroup(int Index, int /*Mode*/)
 {
     if (Owner->Cursor >= 0)
         return -1;
@@ -525,9 +521,9 @@ int DACOM_API FVMeshPartMesh::OpenFaceGroup(int Index, int /*Mode*/)
     return 0;
 }
 
-// LAB_06c30a50: close the selection through the own vtable's slots 19 and 21.
+// close the selection through the own vtable's slots 19 and 21.
 // formerly Slot10
-int DACOM_API FVMeshPartMesh::CloseFaceGroup()
+int NEURONCOMPONENTS_API FVMeshPartMesh::CloseFaceGroup()
 {
     if (Owner->Cursor < 0)
         return -1;
@@ -537,27 +533,27 @@ int DACOM_API FVMeshPartMesh::CloseFaceGroup()
     return 0;
 }
 
-// LAB_06c30a80.
+// .
 // formerly Slot11
-int DACOM_API FVMeshPartMesh::AddFaceGroup(void* /*A*/)
+int NEURONCOMPONENTS_API FVMeshPartMesh::AddFaceGroup(void* /*A*/)
 {
     RendCompFdumpAt(kFdumpNotice, G_FileVMPartArch, 0x9E,
                     "VMPartArch add_facegroup: not implemented");
     return (int)0xFFFFFFF9;
 }
 
-// LAB_06c30ab0.
+// .
 // formerly Slot12
-int DACOM_API FVMeshPartMesh::RemoveFaceGroup(int /*Index*/)
+int NEURONCOMPONENTS_API FVMeshPartMesh::RemoveFaceGroup(int /*Index*/)
 {
     RendCompFdumpAt(kFdumpNotice, G_FileVMPartArch, 0xA5,
                     "VMPartArch remove_facegroup: not implemented");
     return (int)0xFFFFFFF9;
 }
 
-// LAB_06c30ae0: the dword at VMeshData header +4.
+// the dword at VMeshData header +4.
 // formerly Slot13
-int DACOM_API FVMeshPartMesh::GetFaceGroupPrimitiveType(unsigned int* Out)
+int NEURONCOMPONENTS_API FVMeshPartMesh::GetFaceGroupPrimitiveType(unsigned int* Out)
 {
     if (Owner->Cursor < 0)
         return -1;
@@ -565,9 +561,9 @@ int DACOM_API FVMeshPartMesh::GetFaceGroupPrimitiveType(unsigned int* Out)
     return 0;
 }
 
-// LAB_06c30b10: the selected facegroup's material, AddRef'd when present.
+// the selected facegroup's material, AddRef'd when present.
 // formerly Slot14
-int DACOM_API FVMeshPartMesh::GetFaceGroupMaterial(IMaterial** Out)
+int NEURONCOMPONENTS_API FVMeshPartMesh::GetFaceGroupMaterial(IMaterial** Out)
 {
     if (Owner->Cursor < 0)
         return -1;
@@ -583,18 +579,18 @@ int DACOM_API FVMeshPartMesh::GetFaceGroupMaterial(IMaterial** Out)
     return 0;
 }
 
-// LAB_06c30b60.
+// .
 // formerly Slot15
-int DACOM_API FVMeshPartMesh::SetFaceGroupMaterial(IMaterial* /*Material*/)
+int NEURONCOMPONENTS_API FVMeshPartMesh::SetFaceGroupMaterial(IMaterial* /*Material*/)
 {
     RendCompFdumpAt(kFdumpNotice, G_FileVMPartArch, 0xD2,
                     "VMPartArch set_facegroup_material: not implemented");
     return (int)0xFFFFFFF9;
 }
 
-// LAB_06c30b90.
+// .
 // formerly Slot16
-int DACOM_API FVMeshPartMesh::GetFaceGroupMaterialContext(void** /*Out*/)
+int NEURONCOMPONENTS_API FVMeshPartMesh::GetFaceGroupMaterialContext(void** /*Out*/)
 {
     if (Owner->Cursor < 0)
         return -1;
@@ -603,9 +599,9 @@ int DACOM_API FVMeshPartMesh::GetFaceGroupMaterialContext(void** /*Out*/)
     return (int)0xFFFFFFF9;
 }
 
-// LAB_06c30bd0.
+// .
 // formerly Slot17
-int DACOM_API FVMeshPartMesh::SetFaceGroupMaterialContext(void* /*A*/)
+int NEURONCOMPONENTS_API FVMeshPartMesh::SetFaceGroupMaterialContext(void* /*A*/)
 {
     if (Owner->Cursor < 0)
         return -1;
@@ -614,24 +610,24 @@ int DACOM_API FVMeshPartMesh::SetFaceGroupMaterialContext(void* /*A*/)
     return (int)0xFFFFFFF9;
 }
 
-// LAB_06c30c10 (slots 18 and 20): channel present -> 0, absent -> -8.
+// (slots 18 and 20): channel present -> 0, absent -> -8.
 // formerly Slot18
-int DACOM_API FVMeshPartMesh::OpenFaceGroupChannels(unsigned long Flags)
+int NEURONCOMPONENTS_API FVMeshPartMesh::OpenFaceGroupChannels(unsigned long Flags)
 {
     if (Owner->Cursor < 0)
         return -1;
     return Owner->ChannelPresent((unsigned int)Flags) ? 0 : -8;
 }
 
-// LAB_06c30c40 (slots 19 and 21).
+// (slots 19 and 21).
 // formerly Slot19
-int DACOM_API FVMeshPartMesh::CloseFaceGroupChannels()
+int NEURONCOMPONENTS_API FVMeshPartMesh::CloseFaceGroupChannels()
 {
     return Owner->Cursor >= 0 ? 0 : -1;
 }
 
 // formerly Slot20
-int DACOM_API FVMeshPartMesh::LockFaceGroupChannels(unsigned long Mask)
+int NEURONCOMPONENTS_API FVMeshPartMesh::LockFaceGroupChannels(unsigned long Mask)
 {
     if (Owner->Cursor < 0)
         return -1;
@@ -639,15 +635,15 @@ int DACOM_API FVMeshPartMesh::LockFaceGroupChannels(unsigned long Mask)
 }
 
 // formerly Slot21
-int DACOM_API FVMeshPartMesh::UnlockFaceGroupChannels()
+int NEURONCOMPONENTS_API FVMeshPartMesh::UnlockFaceGroupChannels()
 {
     return Owner->Cursor >= 0 ? 0 : -1;
 }
 
-// LAB_06c30c60: FUN_06c31500 record over the part's vertex range -> *A pointer, *B stride,
+// the routine record over the part's vertex range -> *A pointer, *B stride,
 // *C element size, *D vertex count.
 // formerly Slot22
-int DACOM_API FVMeshPartMesh::GetFaceGroupData(int Channel, void** A, void** B, void** C, void** D)
+int NEURONCOMPONENTS_API FVMeshPartMesh::GetFaceGroupData(int Channel, void** A, void** B, void** C, void** D)
 {
     if (Owner->Cursor < 0)
         return -1;
@@ -664,9 +660,9 @@ int DACOM_API FVMeshPartMesh::GetFaceGroupData(int Channel, void** A, void** B, 
     return 0;
 }
 
-// LAB_06c30ce0.
+// .
 // formerly Slot23
-int DACOM_API FVMeshPartMesh::SetFaceGroupData(int /*Channel*/, void* /*A*/, void* /*B*/, void* /*C*/,
+int NEURONCOMPONENTS_API FVMeshPartMesh::SetFaceGroupData(int /*Channel*/, void* /*A*/, void* /*B*/, void* /*C*/,
                                      void* /*D*/)
 {
     RendCompFdumpAt(kFdumpNotice, G_FileVMPartArch, 0x13F,
@@ -674,10 +670,10 @@ int DACOM_API FVMeshPartMesh::SetFaceGroupData(int /*Channel*/, void* /*A*/, voi
     return (int)0xFFFFFFF9;
 }
 
-// LAB_06c30d90: *B = the selected facegroup's IndexCount; *A = header + 0x10 + 12 * FaceGroups
-// + 6 * (FacegroupStart + Cursor) -- retail scales the facegroup index by 6 bytes here.
+// *B = the selected facegroup's IndexCount; *A = header + 0x10 + 12 * FaceGroups
+// + 6 * (FacegroupStart + Cursor) -- baseline scales the facegroup index by 6 bytes here.
 // formerly Slot24
-int DACOM_API FVMeshPartMesh::GetFaceGroupIndices(int /*Channel*/, void** A, void** B)
+int NEURONCOMPONENTS_API FVMeshPartMesh::GetFaceGroupIndices(int /*Channel*/, void** A, void** B)
 {
     if (Owner->Cursor < 0)
         return -1;
@@ -693,18 +689,18 @@ int DACOM_API FVMeshPartMesh::GetFaceGroupIndices(int /*Channel*/, void** A, voi
     return 0;
 }
 
-// LAB_06c30df0.
+// .
 // formerly Slot25
-int DACOM_API FVMeshPartMesh::SetFaceGroupIndices(int /*Channel*/, void* /*Src*/, int /*Count*/)
+int NEURONCOMPONENTS_API FVMeshPartMesh::SetFaceGroupIndices(int /*Channel*/, void* /*Src*/, int /*Count*/)
 {
     RendCompFdumpAt(kFdumpNotice, G_FileVMPartArch, 0x188,
                     "VMPartArch set_facegroup_indices: not implemented");
     return (int)0xFFFFFFF9;
 }
 
-// LAB_06c30d10: selector 1 only -> the selected facegroup's IndexCount.
+// selector 1 only -> the selected facegroup's IndexCount.
 // formerly Slot26
-int DACOM_API FVMeshPartMesh::GetFaceGroupIndexCount(int Selector, void** Out)
+int NEURONCOMPONENTS_API FVMeshPartMesh::GetFaceGroupIndexCount(int Selector, void** Out)
 {
     if (Owner->Cursor < 0)
         return -1;
@@ -716,27 +712,27 @@ int DACOM_API FVMeshPartMesh::GetFaceGroupIndexCount(int Selector, void** Out)
     return 0;
 }
 
-// LAB_06c30d60.
+// .
 // formerly Slot27
-int DACOM_API FVMeshPartMesh::SetFaceGroupIndexCount(int /*Selector*/, int /*Count*/)
+int NEURONCOMPONENTS_API FVMeshPartMesh::SetFaceGroupIndexCount(int /*Selector*/, int /*Count*/)
 {
     RendCompFdumpAt(kFdumpNotice, G_FileVMPartArch, 0x165,
                     "VMPartArch set_facegroup_indices_count: not implemented");
     return (int)0xFFFFFFF9;
 }
 
-// LAB_06c30e20.
+// .
 // formerly Slot28
-int DACOM_API FVMeshPartMesh::AddFaceGroupChannels(unsigned long /*Flags*/)
+int NEURONCOMPONENTS_API FVMeshPartMesh::AddFaceGroupChannels(unsigned long /*Flags*/)
 {
     RendCompFdumpAt(kFdumpNotice, G_FileVMPartArch, 0x18F,
                     "VMPartArch add_elements: not implemented");
     return (int)0xFFFFFFF9;
 }
 
-// LAB_06c30e50.
+// .
 // formerly Slot29
-int DACOM_API FVMeshPartMesh::RemoveFaceGroupChannels(unsigned long /*Flags*/)
+int NEURONCOMPONENTS_API FVMeshPartMesh::RemoveFaceGroupChannels(unsigned long /*Flags*/)
 {
     RendCompFdumpAt(kFdumpNotice, G_FileVMPartArch, 0x196,
                     "VMPartArch remove_elements: not implemented");
@@ -747,26 +743,26 @@ int DACOM_API FVMeshPartMesh::RemoveFaceGroupChannels(unsigned long /*Flags*/)
 // IMatHookUp face.
 // ---------------------------------------------------------------------------------------
 
-// LAB_06c31e10: SUB [ESP+4],8; JMP LAB_06c31d10.
-GENRESULT DACOM_API FVMeshPartHook::QueryInterface(const char* Iid, void** Out)
+// SUB [ESP+4],8; JMP the branch.
+GENRESULT NEURONCOMPONENTS_API FVMeshPartHook::QueryInterface(const char* Iid, void** Out)
 {
     return Owner->QueryInterface(Iid, Out);
 }
 
-// LAB_06c27690 -> FUN_06c2b100.
-unsigned long DACOM_API FVMeshPartHook::AddRef()
+// -> the routine.
+unsigned long NEURONCOMPONENTS_API FVMeshPartHook::AddRef()
 {
     return Owner->AddRef();
 }
 
-unsigned long DACOM_API FVMeshPartHook::Release()
+unsigned long NEURONCOMPONENTS_API FVMeshPartHook::Release()
 {
     return Owner->Release();
 }
 
-// LAB_06c317b0.
+// .
 // formerly Slot3
-int DACOM_API FVMeshPartHook::HookUpMaterials()
+int NEURONCOMPONENTS_API FVMeshPartHook::HookUpMaterials()
 {
     return Owner->HookUp();
 }
@@ -775,33 +771,33 @@ int DACOM_API FVMeshPartHook::HookUpMaterials()
 // IRenderableMesh face.
 // ---------------------------------------------------------------------------------------
 
-// LAB_06c31e20: SUB [ESP+4],0xC; JMP LAB_06c31d10.
-GENRESULT DACOM_API FVMeshPartRenderable::QueryInterface(const char* Iid, void** Out)
+// SUB [ESP+4],0xC; JMP the branch.
+GENRESULT NEURONCOMPONENTS_API FVMeshPartRenderable::QueryInterface(const char* Iid, void** Out)
 {
     return Owner->QueryInterface(Iid, Out);
 }
 
-// LAB_06c31e30 -> FUN_06c2b100.
-unsigned long DACOM_API FVMeshPartRenderable::AddRef()
+// -> the routine.
+unsigned long NEURONCOMPONENTS_API FVMeshPartRenderable::AddRef()
 {
     return Owner->AddRef();
 }
 
-unsigned long DACOM_API FVMeshPartRenderable::Release()
+unsigned long NEURONCOMPONENTS_API FVMeshPartRenderable::Release()
 {
     return Owner->Release();
 }
 
-// LAB_06c30e80: VMeshRef.VertexCount.
+// VMeshRef.VertexCount.
 // formerly Slot3
-int DACOM_API FVMeshPartRenderable::GetVertexCount(int* Out)
+int NEURONCOMPONENTS_API FVMeshPartRenderable::GetVertexCount(int* Out)
 {
     *Out = Owner->Ref->VertexCount;
     return 0;
 }
 
 // formerly Slot4
-int DACOM_API FVMeshPartRenderable::CopyVertexData(void* Dest, unsigned int Fvf, unsigned int StartVertex, unsigned int VertexCount)
+int NEURONCOMPONENTS_API FVMeshPartRenderable::CopyVertexData(void* Dest, unsigned int Fvf, unsigned int StartVertex, unsigned int VertexCount)
 {
     IVertexBufferManager* Manager = nullptr;
     int Result = -1;
@@ -813,16 +809,16 @@ int DACOM_API FVMeshPartRenderable::CopyVertexData(void* Dest, unsigned int Fvf,
     return Result;
 }
 
-// LAB_06c30f70: VMeshRef +0x0E.
+// VMeshRef +0x0E.
 // formerly Slot5
-int DACOM_API FVMeshPartRenderable::GetIndexCount(int* Out)
+int NEURONCOMPONENTS_API FVMeshPartRenderable::GetIndexCount(int* Out)
 {
     *Out = Owner->Ref->IndexCount;
     return 0;
 }
 
 // formerly Slot6
-int DACOM_API FVMeshPartRenderable::CopyIndices(unsigned short** Dest, int Count)
+int NEURONCOMPONENTS_API FVMeshPartRenderable::CopyIndices(unsigned short** Dest, int Count)
 {
     const unsigned int Expected = Owner->Ref->IndexCount;
     if ((unsigned int)Count != Expected)
@@ -844,12 +840,12 @@ static bool VMeshHandleValid(void* Handle)
 class FVMeshPlugin : public IRenderComponent
 {
 public:
-    FVMeshPart* Bound;          // +0x04 FUN_06c2d710 zeroes it, Slot17 sets it
+    FVMeshPart* Bound;          // +0x04 the routine zeroes it, Slot17 sets it
     unsigned long Field08;      // +0x08 TODO: calloc-zeroed, no reader in 06c2d710..06c2dd19
     unsigned long RefCount;     // +0x0C
 
-    // LAB_06c2dc30: table {"1.11_IRenderComponent", 0}; miss -> 0, -3.
-    GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override
+    // table {"1.11_IRenderComponent", 0}; miss -> 0, -3.
+    GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override
     {
         if (std::strcmp(Iids::RenderComponent, Iid) != 0)
         {
@@ -861,15 +857,15 @@ public:
         return GR_OK;
     }
 
-    // LAB_06c2dce0.
-    unsigned long DACOM_API AddRef() override
+    // .
+    unsigned long NEURONCOMPONENTS_API AddRef() override
     {
         RefCount += 1;
         return RefCount;
     }
 
-    // LAB_06c2dcf0: decrement when above 0; at 0 pin the count at 1 and free() the object.
-    unsigned long DACOM_API Release() override
+    // decrement when above 0; at 0 pin the count at 1 and free() the object.
+    unsigned long NEURONCOMPONENTS_API Release() override
     {
         if (RefCount > 0)
             RefCount -= 1;
@@ -880,29 +876,29 @@ public:
         return 0;
     }
 
-    int DACOM_API Claim(void* FileArg) override
+    int NEURONCOMPONENTS_API Claim(void* FileArg) override
     {
         IFileSystem* File = (IFileSystem*)FileArg;
         int Handle = -1;
         if (File->OpenNode("VMeshPart") == 0)
             return Handle;
-        // Retail calls the claim on a null part when operator new(0x90) fails; the throwing
+        // baseline calls the claim on a null part when operator new(0x90) fails; the throwing
         // new is the C++ form of that (no null test either way).
         FVMeshPart* Part = new FVMeshPart();
         if (Part->Claim(File) < 0)
         {
             delete Part;
-            File->OpenNode(".."); // 06c2d799: DAT_06c37250 = ".." (2E 2E 00)
+            File->OpenNode(".."); // the field = ".." (2E 2E 00)
             return Handle;
         }
         Handle = (int)((intptr_t)Part);
-        File->OpenNode(".."); // 06c2d7c8
+        File->OpenNode("..");
         return Handle;
     }
 
-    // LAB_06c2d7e0: FUN_06c31070 (clone, not implemented: NOTICE 0x211, -7) -> -1.
+    // the routine (clone, not implemented: NOTICE 0x211, -7) -> -1.
     // formerly Slot4
-    int DACOM_API CloneHandle(void* /*Handle*/) override
+    int NEURONCOMPONENTS_API CloneHandle(void* /*Handle*/) override
     {
         void* Clone = nullptr;
         RendCompFdumpAt(kFdumpNotice, G_FileVMPartArch, 0x211,
@@ -913,17 +909,17 @@ public:
         return (int)((intptr_t)Clone);
     }
 
-    // FUN_06c2d820 (RET 8): a valid handle is destroyed. EAX is not set in retail; 0 here.
-    int DACOM_API DestroyHandle(void* Handle) override
+    // (RET 8): a valid handle is destroyed. EAX is not set in baseline; 0 here.
+    int NEURONCOMPONENTS_API DestroyHandle(void* Handle) override
     {
         if (VMeshHandleValid(Handle))
             delete (FVMeshPart*)Handle;
         return 0;
     }
 
-    // LAB_06c219d0: invalid handle -> -1, else the part's QueryInterface.
+    // invalid handle -> -1, else the part's QueryInterface.
     // formerly Slot6
-    int DACOM_API QueryHandle(void* Handle, const char* Iid, void** Out) override
+    int NEURONCOMPONENTS_API QueryHandle(void* Handle, const char* Iid, void** Out) override
     {
         if (!VMeshHandleValid(Handle))
             return -1;
@@ -931,14 +927,14 @@ public:
     }
 
     // formerly Slot7
-    int DACOM_API CreateMeshInstance(void* InstId, void* Handle) override
+    int NEURONCOMPONENTS_API CreateMeshInstance(void* InstId, void* Handle) override
     {
         if (!VMeshHandleValid(Handle))
             return 0;
         FVMeshPart* Part = (FVMeshPart*)Handle;
         Part->UseCount += 1;
         Part->AddRef();
-        // Retail passes the Handle argument's own stack slot as the radius out-parameter
+        // baseline passes the Handle argument's own stack slot as the radius out-parameter
         // (LEA EDX,[ESP+0x24] @ 06c2d958) and reads it back with FLD; the start value is the
         // handle's bits.
         float Radius;
@@ -958,7 +954,7 @@ public:
     }
 
     // formerly Slot8
-    int DACOM_API DestroyMeshInstance(void* /*InstId*/, void* Handle) override
+    int NEURONCOMPONENTS_API DestroyMeshInstance(void* /*InstId*/, void* Handle) override
     {
         if (!VMeshHandleValid(Handle))
             return 0;
@@ -972,29 +968,29 @@ public:
         return (int)(Part->Release());
     }
 
-    // LAB_06c2da60: a bare RET 0xC (EAX undefined); 0 here.
+    // a bare RET 0xC (EAX undefined); 0 here.
     // formerly Slot9
-    int DACOM_API UpdateMeshInstance(void* /*InstId*/, void* /*Arg*/) override
+    int NEURONCOMPONENTS_API UpdateMeshInstance(void* /*InstId*/, void* /*Arg*/) override
     {
         return 0;
     }
 
-    // LAB_06c2daa0 (RET 0x14): this->Slot6(Handle, Iid, Out); InstId unread.
+    // (RET 0x14): this->Slot6(Handle, Iid, Out); InstId unread.
     // formerly Slot10
-    int DACOM_API QueryMeshInstance(void* /*InstId*/, void* Handle, const char* Iid, void** Out) override
+    int NEURONCOMPONENTS_API QueryMeshInstance(void* /*InstId*/, void* Handle, const char* Iid, void** Out) override
     {
         return QueryHandle(Handle, Iid, Out);
     }
 
-    // FUN_06c2fb50: a bare RET 8; 0 here.
+    // a bare RET 8; 0 here.
     // formerly Slot11
-    int DACOM_API UpdateMeshInstances(void* /*InstId*/) override
+    int NEURONCOMPONENTS_API UpdateMeshInstances(void* /*InstId*/) override
     {
         return 0;
     }
 
     // formerly Slot12
-    int DACOM_API QueryGeometry(void* Handle, int /*Lod*/, void* A, void* B, void* /*C*/, void* D,
+    int NEURONCOMPONENTS_API QueryGeometry(void* Handle, int /*Lod*/, void* A, void* B, void* /*C*/, void* D,
                          void* /*E*/) override
     {
         if (!VMeshHandleValid(Handle))
@@ -1016,9 +1012,9 @@ public:
         return 1;
     }
 
-    // LAB_06c2d8f0 (RET 0x10) -> AL: FUN_06c310a0 copies VMeshRef +0x14 (6 dwords).
+    // (RET 0x10) -> AL: the routine copies VMeshRef +0x14 (6 dwords).
     // formerly Slot13
-    int DACOM_API GetBounds(void* Handle, float /*Lod*/, void* Out) override
+    int NEURONCOMPONENTS_API GetBounds(void* Handle, float /*Lod*/, void* Out) override
     {
         if (!VMeshHandleValid(Handle))
             return 0;
@@ -1026,9 +1022,9 @@ public:
         return 1;
     }
 
-    // LAB_06c2da70 (RET 0x10) -> AL: FUN_06c310f0 copies VMeshRef +0x2C (3 floats).
+    // (RET 0x10) -> AL: the routine copies VMeshRef +0x2C (3 floats).
     // formerly Slot14
-    int DACOM_API GetCentroid(void* Handle, float /*Lod*/, void* Out) override
+    int NEURONCOMPONENTS_API GetCentroid(void* Handle, float /*Lod*/, void* Out) override
     {
         if (!VMeshHandleValid(Handle))
             return 0;
@@ -1036,18 +1032,18 @@ public:
         return 1;
     }
 
-    // LAB_06c2d850: XOR AL,AL; RET 0x20.
+    // XOR AL,AL; RET 0x20.
     // formerly Slot15
-    int DACOM_API SplitByPlane(void* /*Handle*/, void* /*A*/, void* /*B*/, void* /*C*/, void* /*D*/,
+    int NEURONCOMPONENTS_API SplitByPlane(void* /*Handle*/, void* /*A*/, void* /*B*/, void* /*C*/, void* /*D*/,
                          void* /*E*/, void* /*F*/) override
     {
         return 0;
     }
 
-    // LAB_06c2da10 (RET 0x1C) -> AL: draw the part bound by Slot17 (the Handle argument is
+    // (RET 0x1C) -> AL: draw the part bound by Slot17 (the Handle argument is
     // not read) with the flag word translated: 0x4000 clear -> 0x40, 0x1000 -> 2, 0x8000 -> 0x80.
     // formerly Slot16
-    int DACOM_API RenderInstance(ICamera* Camera, void* /*Handle*/, void* Inst, unsigned long Flags,
+    int NEURONCOMPONENTS_API RenderInstance(ICamera* Camera, void* /*Handle*/, void* Inst, unsigned long Flags,
                          void* Matrix, void* Extra) override
     {
         unsigned long PartFlags = 0;
@@ -1060,9 +1056,9 @@ public:
         return Bound->Draw(Camera, Inst, PartFlags, Matrix, (IMaterial*)Extra) ? 1 : 0;
     }
 
-    // LAB_06c2dac0 (RET 0xC): invalid handle -> -1, else bind it.
+    // (RET 0xC): invalid handle -> -1, else bind it.
     // formerly Slot17
-    int DACOM_API BindMeshInstance(void* /*Inst*/, void* Handle) override
+    int NEURONCOMPONENTS_API BindMeshInstance(void* /*Inst*/, void* Handle) override
     {
         if (!VMeshHandleValid(Handle))
             return -1;
@@ -1071,10 +1067,10 @@ public:
     }
 };
 
-// LAB_06c2db50 (factory vtable PTR_LAB_06c36414 slot 3, RET 0xC). Only a 0x10 AGGDESC whose
-// name matches the factory's (else *Out = 0, -3); calloc failure -> *Out = 0, -4. FUN_06c2d720
+// (factory vtable the branch slot 3, RET 0xC). Only a 0x10 AGGDESC whose
+// name matches the factory's (else *Out = 0, -3); calloc failure -> *Out = 0, -4. the routine
 // then requires AGGDESC +8 and +0xC to be set, otherwise the object is freed, *Out = 0, -2.
-GENRESULT DACOM_API VMeshPluginFactoryCreate(FDacomFactory* This, AGGDESC* Desc, void** Out)
+GENRESULT NEURONCOMPONENTS_API VMeshPluginFactoryCreate(FNeuronComponentsFactory* This, AGGDESC* Desc, void** Out)
 {
     FRenderPluginDesc* Extended = (FRenderPluginDesc*)Desc;
     if (Extended->Size != 0x10 || std::strcmp(Extended->Name, This->Name) != 0)

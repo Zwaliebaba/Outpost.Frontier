@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -11,30 +7,30 @@
 #include "../ivp_utility/ivp_u_memory.h"
 
 // ============================================================================
-// IVP linear-constraint solver (Common.dll .text:06366070-063682f2).
-//
+// IVP linear-constraint solver (Common.dll module storage-063682f2).
+
 // Three classes, identified by the field offsets every function reads and by
-// the one place that builds them all, the friction solver FUN_06368560:
+// the one place that builds them all, the friction solver the routine:
 //   - IVP_Great_Matrix_Many_Zero (0x18 bytes): a dense row-aligned matrix with
 //     a right-hand side and a result vector; Gauss elimination with partial
-//     pivoting (06366070-06366584). FUN_06368560 builds one on its stack with
+//     pivoting (06366070-06366584). the routine builds one on its stack with
 //     the ctor 06366400.
 //   - IVP_Incr_L_U_Matrix (0x2c bytes): an incrementally maintained L/U pair
 //     (063678c0-063682f2), embedded in the solver at +0x6c (every caller does
 //     `LEA ECX,[ESI+0x6c]`).
 //   - IVP_Linear_Constraint_Solver (0xf8 bytes): the LCP solver
-//     (06366590-063678bc). FUN_06368560 keeps it on its stack at ESP+0x30 and
+//     (06366590-063678bc). the routine keeps it on its stack at ESP+0x30 and
 //     runs the IVP_Great_Matrix_Many_Zero ctor on +0x98, +0xb0, +0xc8, +0xe0
 //     (0636865f-0636868a) -- the solver's own ctor is inlined and does nothing
 //     else.
-//
-// Retail is VC6/x87. Every value the listing keeps on the FPU stack is held in
+
+// baseline is VC6/x87. Every value the listing keeps on the FPU stack is held in
 // `double` here; every `FSTP float` is a float store. All buffers come from an
 // IVP_U_Memory arena (32-byte aligned); several loops start at the 16-byte
 // aligned-down address of a row and process whole blocks of four floats, which
 // is reproduced exactly (they can touch up to three elements before/after the
-// logical range, as retail does).
-//
+// logical range, as baseline does).
+
 // Class / method names follow the Ipion SDK naming where the role is certain;
 // methods are PascalCase per AGENTS.md.
 // ============================================================================
@@ -49,30 +45,30 @@ public:
     float* DesiredVector;  // +0x10 right-hand side (overwritten by the solve)
     float* ResultVector;   // +0x14
 
-    // 06366400
+
     IVP_Great_Matrix_Many_Zero();
 
-    // 06366070: 1 if Desired[Row] <= |Desired[Row] * 1e-5| + Row . Result.
+    // 1 if Desired[Row] <= |Desired[Row] * 1e-5| + Row . Result.
     int TestResultRow(int Row) const;
-    // 063660d0: row Second += Factor * row First (from the aligned block of
+    // row Second += Factor * row First (from the aligned block of
     // element [First][First]); Desired[Second] += Factor * Desired[First].
     void AddMultipleLine(int First, int Second, float Factor);
-    // 06366180
+
     int SolveGreatMatrixManyZero();
-    // 063661a0
+
     void AlignMatrixValues();
-    // 063661b0
+
     void FindPivotInColumn(int Col);
-    // 06366220
+
     void ExchangeRows(int RowA, int RowB);
-    // 063662a0
+
     void TransformToLowerNullTriangle();
-    // 06366340
+
     int SolveLowerNullMatrix();
-    // 06366420: copy the Indices x Indices sub-matrix (and right-hand side)
+    // copy the Indices x Indices sub-matrix (and right-hand side)
     // out of Big.
     void FillFromBiggerMatrix(IVP_Great_Matrix_Many_Zero const* Big, int const* Indices, int Count);
-    // 06366540: Result = Matrix * Desired.
+    // Result = Matrix * Desired.
     void MultAlignedMatrix();
 };
 
@@ -95,33 +91,33 @@ public:
     int    AlignedRowLen;  // +0x24 (solver +0x90)
     int    NSub;           // +0x28 (solver +0x94)
 
-    // 063678c0 / 06367960
+    // / 06367960
     int NormalizeRowL(int Row);
     int NormalizeRowU(int Row);
-    // 06367a60
+
     void ExchangeRowsLU(int RowA, int RowB);
-    // 06367b40
+
     void PivotInColumnU(int Col);
-    // 06367bb0: row Dst -= Factor * row Src in U (right of Src) and L; U[Dst][Src] = 0.
+    // row Dst -= Factor * row Src in U (right of Src) and L; U[Dst][Src] = 0.
     void SubtractRowLU(int Src, int Dst, float Factor);
-    // 06367d00: row Dst -= Factor * row Src in L; L[Dst][Src] = 0.
+    // row Dst -= Factor * row Src in L; L[Dst][Src] = 0.
     void SubtractRowLZero(int Src, int Dst, float Factor);
-    // 06367db0
+
     int FactorFull();
-    // 06367e90
+
     int AddNewRowAndColumn();
-    // 06367f80
+
     int RemoveRowAndColumn(int Index);
-    // 063680e0 / 06368130
+    // / 06368130
     void ExchangeColumnsL(int ColA, int ColB);
     void ExchangeColumnsU(int ColA, int ColB);
-    // 06368180: Temp = L * Mult.
+    // Temp = L * Mult.
     void MultVecWithL();
-    // 063681d0: back substitution through U, Out = Temp.
+    // back substitution through U, Out = Temp.
     void SolveUpperTriangle();
-    // 06368230: Out = U^-1 L Input.
+    // Out = U^-1 L Input.
     void SolveLU();
-    // 06368260: row Dst -= Factor * row Src in L (no zeroing).
+    // row Dst -= Factor * row Src in L (no zeroing).
     void SubtractRowL(int Src, int Dst, float Factor);
 };
 
@@ -165,47 +161,47 @@ public:
     IVP_Great_Matrix_Many_Zero Field_0xC8;   // +0xC8 TODO: constructed (06368677) but unused by this cluster
     IVP_Great_Matrix_Many_Zero SubSolverMat; // +0xE0 eps/buffers set by InitAndSolveLc, no reader in this cluster
 
-    // 063669b0
+
     int InitAndSolveLc(float* A, float* B, float* X, int N, int NumActives, IVP_U_Memory* Mem);
 
-    // 06366590
+
     void UpdateDeltaAccelOfInactives();
-    // 06366610: Residual = A * X - B.
+    // Residual = A * X - B.
     void ComputeResidual();
-    // 06366670
+
     int SolutionIsCorrect();
-    // 063666f0
+
     void AllocateMemory(IVP_U_Memory* Mem);
-    // 06366b10 / 06366b50
+    // / 06366b50
     void RemoveVariableFromLU(int Index);
     void AddVariableToLU();
-    // 06366c00
+
     void DoALittleRandomPermutation();
-    // 06366cb0
+
     void MoveNotNecessaryActivesToInactives();
-    // 06366d10 (thiscall; `this` unused)
+    // (thiscall; `this` unused)
     void IncreaseStepCount(int* StepCount);
-    // 06366d20
+
     int FullSolveLc();
-    // 06367130
+
     void ExchangeActivesInactives(int IndexA, int IndexB);
-    // 06367160
+
     void UpdateStepVectors(float StepLen);
-    // 06367210
+
     int GetFDelta();
-    // 063673a0
+
     int SetupLUFromActives();
-    // 06367410
+
     void SortActivesByX();
-    // 06367480
+
     void StartFromResetX();
-    // 06367520
+
     void StartWithActives(int NumActives);
-    // 06367660
+
     int Restart();
-    // 063677d0
+
     void MoveVariableToEnd(int Index);
-    // 06367800
+
     int RemoveInvalidActives();
 };
 

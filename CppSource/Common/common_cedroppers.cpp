@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // CEMineDropper, CECounterMeasureDropper -- split out of common_cequip.cpp (CMN-B2).
@@ -22,8 +18,8 @@
 #include "common_spatial.h"  // ISpatialPartition (ScanList::add_in_range bucket query)
 #include "common_timing.h"   // Timing::GetGlobalTime (CEShieldGenerator / CEShield)
 #include "common_universe.h"
-#include "DALib.h"
-#include "dacom.h"
+#include "NeuronRuntime.h"
+#include "neuroncomponents.h"
 #include "../IVP/ivp_physics/ivp_real_object.h"
 #include "../IVP/ivp_physics/ivp_controller.h"  // IVP_Event_Sim (do_simulation_controller)
 
@@ -51,7 +47,7 @@ CEMineDropper::CEMineDropper(CEMineDropper const& Other)
 
 CEMineDropper::~CEMineDropper()
 {
-    // Common.dll.c: retail's ~CEMineDropper() is identical-code-folded with
+    // Common: baseline's ~CEMineDropper() is identical-code-folded with
     // ~CECounterMeasureDropper() at the same address (both are empty derived dtors that add
     // no fields beyond CELauncher) -- the Destroy()/Projectile-Release()/base-dtor work
     // happens in the automatically-invoked ~CELauncher(), not here. Empty body is correct.
@@ -59,11 +55,11 @@ CEMineDropper::~CEMineDropper()
 
 FireResult CEMineDropper::CanFire(Vector const& Target) const
 {
-    // Common.dll.c 61604-61627 (0x3a270): defer to CELauncher::CanFire; if the launcher itself
+    // Common (0x3a270): defer to CELauncher::CanFire; if the launcher itself
     // reports FireOk, additionally block firing (FireCruise) when the owner is a CShip
-    // currently in cruise mode -- mines can't be dropped while cruising. (Decomp inlines a
+    // currently in cruise mode -- mines can't be dropped while cruising. (analysis inlines a
     // redundant re-check of the same "ship && ObjectClass==ClassShip" condition that can never
-    // be false at that point -- a decompiler artifact, not additional logic -- so it is
+    // be false at that point -- a analysis tool artifact, not additional logic -- so it is
     // collapsed here.)
     FireResult Result = CELauncher::CanFire(Target);
     if (Result == FireOk && Owner != nullptr &&
@@ -78,7 +74,7 @@ FireResult CEMineDropper::CanFire(Vector const& Target) const
 
 CEMineDropper* __cdecl CEMineDropper::cast(CEquip* Equip)
 {
-    // Common.dll.c 0x3a2d0 (?cast@CEMineDropper@@...): type must be EquipTypeMineDropper (0x20).
+    // Common 0x3a2d0 (?cast@CEMineDropper@@...): type must be EquipTypeMineDropper (0x20).
     if (Equip == nullptr || Equip->GetType() != EquipTypeMineDropper)
         return nullptr;
     return (CEMineDropper*)Equip;
@@ -86,7 +82,7 @@ CEMineDropper* __cdecl CEMineDropper::cast(CEquip* Equip)
 
 CEMineDropper const* __cdecl CEMineDropper::cast(CEquip const* Equip)
 {
-    // Retail folds the const overload onto the same body as the non-const one.
+    // baseline folds the const overload onto the same body as the non-const one.
     return cast((CEquip*)Equip);
 }
 
@@ -116,30 +112,30 @@ bool CECounterMeasureDropper::Update(float Dt, unsigned Flags)
     // targeting the owner (get_target -> get_id == Owner->Id) within AiRangeSq (pre-squared)
     // fires Notify(Event_0x19) and ends the walk. The epilogue 0629a45e-0629a484 is
     // CELauncher::Update inlined (refire accumulate below 10000.0f, CAttachedEquip::Update).
-    if (IsFunctioning() && (Flags & 0x20) == 0)                        // 0629a32b / 0629a33a
+    if (IsFunctioning() && (Flags & 0x20) == 0)                        // / 0629a33a
     {
         Archetype::CounterMeasureDropper const* CmArch = (Archetype::CounterMeasureDropper const*)Arch;
-        // 0629a349: FCOMP 0.0f, TEST AH,0x41 / JNZ -> only a strictly positive range goes on.
+        // FCOMP 0.0f, TEST AH,0x41 / JNZ -> only a strictly positive range goes on.
         if (CmArch->AiRangeSq > 0.0f)
         {
-            // 0629a36e: FindFirst's result is used as the scanner with no cast and no test.
+            // FindFirst's result is used as the scanner with no cast and no test.
             CEScanner const* Scanner = (CEScanner const*)Owner->EquipManager.FindFirst(EquipTypeScanner);
             for (int Index = 0; Index < Scanner->Scans.Count; ++Index)
             {
                 Watchable const* Watched = Scanner->Scans.Entries[Index].target();
                 if (Watched == nullptr)
                     continue;
-                // 0629a39c: ESI = Watched - 8 (IObjRW's Watchable base), TEST ESI,ESI.
+                // ESI = Watched - 8 (IObjRW's Watchable base), TEST ESI,ESI.
                 IObjRW* Tracked = (IObjRW*)((char*)Watched - 8);
                 if (Tracked == nullptr)
                     continue;
 
-                unsigned Kind = 0;                  // retail leaves the slot unset before the call
+                unsigned Kind = 0;                  // baseline leaves the slot unset before the call
                 Tracked->get_type(Kind);            // vt+0x88
                 if (Kind != 0x1000000)
                     continue;
 
-                IObjRW* SubObj = nullptr;           // 0629a3c9
+                IObjRW* SubObj = nullptr;
                 Tracked->get_target(SubObj);        // vt+0x74
                 if (SubObj == nullptr)
                     continue;
@@ -150,14 +146,14 @@ bool CECounterMeasureDropper::Update(float Dt, unsigned Flags)
                 GetCenterOfMass(ShipPos);           // vt+0x70
                 Vector const& TrackedPos = Tracked->get_position();   // vt+0x00
 
-                // 0629a400-0629a438: the differences and the sum stay on the FPU, summed as
+                // the differences and the sum stay on the FPU, summed as
                 // (dz^2 + dy^2) + dx^2; FCOMP vs AiRangeSq, TEST AH,0x5 / JNP: only "below".
                 double const Dx = (double)TrackedPos.x - ShipPos.x;
                 double const Dy = (double)TrackedPos.y - ShipPos.y;
                 double const Dz = (double)TrackedPos.z - ShipPos.z;
                 if (Dz * Dz + Dy * Dy + Dx * Dx < CmArch->AiRangeSq)
                 {
-                    Notify(INotify::Event_0x19, nullptr);   // 0629a459, then the epilogue
+                    Notify(INotify::Event_0x19, nullptr);   // , then the epilogue
                     break;
                 }
             }
@@ -169,7 +165,7 @@ bool CECounterMeasureDropper::Update(float Dt, unsigned Flags)
 
 CECounterMeasureDropper* __cdecl CECounterMeasureDropper::cast(CEquip* Equip)
 {
-    // Common.dll.c 61730-61739 (0x3a4a0): type must be EquipTypeCmDropper (0x40).
+    // Common (0x3a4a0): type must be EquipTypeCmDropper (0x40).
     if (Equip == nullptr || Equip->GetType() != EquipTypeCmDropper)
         return nullptr;
     return (CECounterMeasureDropper*)Equip;
@@ -177,7 +173,7 @@ CECounterMeasureDropper* __cdecl CECounterMeasureDropper::cast(CEquip* Equip)
 
 CECounterMeasureDropper const* __cdecl CECounterMeasureDropper::cast(CEquip const* Equip)
 {
-    // Retail folds the const overload onto the same body as the non-const one.
+    // baseline folds the const overload onto the same body as the non-const one.
     return cast((CEquip*)Equip);
 }
 

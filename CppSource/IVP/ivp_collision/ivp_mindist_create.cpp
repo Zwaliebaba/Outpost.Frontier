@@ -1,12 +1,8 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
-// FUN_0634e0b0 -- IVP_Create_Exact_Mindists (the library's
+// IVP_Create_Exact_Mindists (the library's
 // IVP_Mindist_Manager::create_exact_mindists) and its private helpers
-// FUN_0634e7d0 / FUN_0634e7f0 / FUN_0634e820 / FUN_0634e860 / FUN_063505a0.
+// / the routine / the routine / the routine / the routine.
 // cmn-ivp2b, 2026-10-08. See ivp_mindist_create.h.
 
 #include "ivp_mindist_create.h"
@@ -23,14 +19,14 @@
 #include <cstdint>
 #include <cstdlib>
 
-#include "../ivp_utility/ivp_u_bigvector.h" // IVP_U_BigVector_Grow (FUN_0635d3e0): grow a
+#include "../ivp_utility/ivp_u_bigvector.h" // IVP_U_BigVector_Grow (the routine): grow a
                                             // {capacity, count, elems, inline buffer @+0xc}
                                             // list to 2*capacity+1
 
 namespace
 {
-    // The two ledge lists FUN_0634e0b0 keeps on its stack: a 32-bit
-    // {capacity, count, elems} header (FUN_06350540: elems = buffer, capacity =
+    // The two ledge lists the routine keeps on its stack: a 32-bit
+    // {capacity, count, elems} header (the routine: elems = buffer, capacity =
     // 0x100, count = 0) immediately followed by its 0x100-entry inline buffer,
     // which is what the grow helper's `elems != this+0xc` test relies on.
     struct FLedgeList
@@ -40,7 +36,7 @@ namespace
 
         FLedgeList()
         {
-            List.Elems = InlineBuffer; // FUN_06350540 :0635054a
+            List.Elems = InlineBuffer; // 0635054a
             List.Capacity = 0x100;     // :0635054d
             List.Count = 0;            // :0635054f
         }
@@ -50,15 +46,15 @@ namespace
         ~FLedgeList()
         {
             if (List.Elems != InlineBuffer && List.Elems != nullptr)
-                std::free(List.Elems); // FUN_06343fb0
+                std::free(List.Elems);
         }
 
-        // FUN_06350590 + the store at :0634e21c-0634e248, and the inlined
+        // + the store at :0634e21c-0634e248, and the inlined
         // copy at :0634e340-0634e375: grow when Count >= Capacity, then append.
         void Add(const IVP_Compact_Ledge* Ledge)
         {
             if (List.Count >= List.Capacity)
-                IVP_U_BigVector_Grow(&List); // FUN_0635d3e0
+                IVP_U_BigVector_Grow(&List);
             List.Elems[List.Count] = const_cast<IVP_Compact_Ledge*>(Ledge);
             ++List.Count;
         }
@@ -68,10 +64,10 @@ namespace
             return static_cast<const IVP_Compact_Ledge*>(List.Elems[Index]);
         }
     };
-    static_assert(offsetof(FLedgeList, InlineBuffer) == 0x0c, "inline buffer at list+0xc (FUN_0635d3e0's test)");
+    static_assert(offsetof(FLedgeList, InlineBuffer) == 0x0c, "inline buffer at list+0xc (module state's test)");
 
     // The local IVP_U_Vector with a 0x80-entry inline buffer right after its
-    // header (FUN_06347dd0(this, buffer, 0x80) at :0634e45f); its destructor
+    // header (the routine(this, buffer, 0x80) at :0634e45f); its destructor
     // is the vector's inline-buffer-aware clear (:0634e6f8-0634e726).
     struct FNewMindistVector
     {
@@ -84,8 +80,8 @@ namespace
         }
     };
 
-    // The pair key FUN_0634e0b0 builds at its local +0x48 and hands to
-    // FUN_0634e7f0 / FUN_0634e860. Only the two ledges are read.
+    // The pair key the routine builds at its local +0x48 and hands to
+    // / the routine. Only the two ledges are read.
     struct FMindistPairKey
     {
         IVP_Real_Object* Object0;        // +0x00
@@ -104,13 +100,13 @@ namespace
         return static_cast<uint32_t>(Shifted) * 0x3ffu + Mixed;
     }
 
-    // FUN_0634e7f0 (.text:0634e7f0-0634e811, cdecl): hash of a pair key.
+    // (module storage-0634e811, cdecl): hash of a pair key.
     uint32_t HashPairKey(const FMindistPairKey* Key)
     {
         return HashLedgePair(Key->Ledge0, Key->Ledge1);
     }
 
-    // FUN_0634e820 (.text:0634e820-0634e855, cdecl): hash of a collision's
+    // (module storage-0634e855, cdecl): hash of a collision's
     // own ledge pair (slot 2, get_ledges). The second stack argument the
     // caller pushes (0) is never read.
     uint32_t HashCollision(IVP_Collision* Collision)
@@ -120,7 +116,7 @@ namespace
         return HashLedgePair(Ledges[0], Ledges[1]);
     }
 
-    // FUN_0634e860 (.text:0634e860-0634e895, cdecl): true when the
+    // (module storage-0634e895, cdecl): true when the
     // collision's ledges are exactly the key's (first, then second).
     bool CollisionMatchesKey(IVP_Collision* Collision, const FMindistPairKey* Key)
     {
@@ -130,7 +126,7 @@ namespace
                Ledges[1] == Key->Ledge1;   // :0634e882
     }
 
-    // FUN_0634e7d0 (.text:0634e7d0-0634e7ea, thiscall on the collision,
+    // (module storage-0634e7ea, thiscall on the collision,
     // RET 8): replace the back-index that equals OldIndex (+0x0c first, else
     // +0x10 unconditionally).
     void SetFVectorIndex(IVP_Collision* Collision, int32_t OldIndex, int32_t NewIndex)
@@ -141,7 +137,7 @@ namespace
             Collision->IndexInElement1 = NewIndex;
     }
 
-    // FUN_0628be60 (Dst = A + B * Scale) as the x87 evaluates it: per
+    // (Dst = A + B * Scale) as the x87 evaluates it: per
     // component FLD Scale / FMUL B / FADD A / FSTP float.
     void AddMultiple(IVP_U_Point* Out, const Vector& A, const Vector& B, float Scale)
     {
@@ -150,7 +146,7 @@ namespace
         Out->z = (float)((double)(Scale) * B.z + A.z);
     }
 
-    // One side's ledge collection: .text:0634e13c-0634e21a for object 0
+    // One side's ledge collection: module storage-0634e21a for object 0
     // (Object = EBP = obj0, Other = ESI = obj1) and :0634e257-0634e337 for
     // object 1 (Object = ESI = obj1, Other = EBP = obj0). The search centre is
     // the OTHER object's core position extrapolated to now, taken into this
@@ -166,7 +162,7 @@ namespace
             (((double)(Environment->current_time.time_base) - OtherCore->TimeOfLastPsi.time_base)
              + Environment->current_time.time_offset) - OtherCore->TimeOfLastPsi.time_offset);
 
-        // FUN_0628be60(&centre, core+0xb4, core+0xc4, DeltaTime).
+        // (&centre, core+0xb4, core+0xc4, DeltaTime).
         IVP_U_Point CentreWorld;
         AddMultiple(&CentreWorld, OtherCore->PosWorldFCore, OtherCore->DeltaWorldFCore, DeltaTime);
 
@@ -174,7 +170,7 @@ namespace
         const float SearchRadius = (float)(
             (double)(Object->field_94) + OtherCore->UpperLimitRadius + ScanRadius);
 
-        // get_cache_object_no_lock (inlined), then FUN_06348470 on cache+0x1c.
+        // get_cache_object_no_lock (inlined), then the routine on cache+0x1c.
         IVP_NarrowPhaseCacheSlot* Cache = Object->get_cache_object_no_lock();
         IVP_U_Point CentreObject;
         IVP_TransformWorldToSlotSpace(Cache, &CentreWorld, &CentreObject);
@@ -188,17 +184,17 @@ namespace
     }
 }
 
-// FUN_06350560 (.text:06350560-06350580).
+// (module storage-06350580).
 FCollisionIndexTable::~FCollisionIndexTable()
 {
     if (bHeap != 0 && Table != nullptr) // :06350563-:0635056e
     {
-        std::free(Table);               // :06350571 FUN_06343fb0
+        std::free(Table);               // :06350571 the routine
         Table = nullptr;                // :06350579
     }
 }
 
-// FUN_063505a0 (.text:063505a0-063505de, RET 8).
+// (module storage-063505de, RET 8).
 void IVP_SwapCollisionSlots(IVP_U_Vector<IVP_Collision>* Vector, int32_t IndexA, int32_t IndexB)
 {
     IVP_Collision* A = Vector->elems[IndexA]; // :063505a9
@@ -217,7 +213,7 @@ void IVP_SwapCollisionSlots(IVP_U_Vector<IVP_Collision>* Vector, int32_t IndexA,
         B->IndexInElement1 = IndexA;   // :063505d9
 }
 
-// FUN_0634e0b0 (.text:0634e0b0-0634e7cc).
+// (module storage-0634e7cc).
 void IVP_Create_Exact_Mindists(IVP_Real_Object* Object0, IVP_Real_Object* Object1, float ScanRadius,
                                IVP_U_Vector<IVP_Collision>* Mindists,
                                const IVP_Compact_Ledge* SingleLedge0, const IVP_Compact_Ledge* SingleLedge1,
@@ -226,8 +222,8 @@ void IVP_Create_Exact_Mindists(IVP_Real_Object* Object0, IVP_Real_Object* Object
 {
     IVP_Environment* Environment = Object0->environment; // :0634e0da
 
-    FLedgeList Ledges0; // local +0x66c: object 0's ledges (FUN_06350540, :0634e0f5)
-    FLedgeList Ledges1; // local +0x260: object 1's ledges (FUN_06350540, :0634e119)
+    FLedgeList Ledges0; // local +0x66c: object 0's ledges (the routine, :0634e0f5)
+    FLedgeList Ledges1; // local +0x260: object 1's ledges (the routine, :0634e119)
 
     // :0634e11e-0634e248 -- object 0's side.
     if (SingleLedge0 == nullptr)
@@ -278,7 +274,7 @@ void IVP_Create_Exact_Mindists(IVP_Real_Object* Object0, IVP_Real_Object* Object
             } while (HeapSize <= Twice);    // :0634e3bc-:0634e3be `JLE`
         }
         Hash.Mask = HeapSize - 1;                                                           // :0634e3c3/:0634e3c7
-        Hash.Table = static_cast<int16_t*>(std::malloc(static_cast<size_t>(HeapSize) * 2)); // :0634e3cb FUN_06343f70
+        Hash.Table = static_cast<int16_t*>(std::malloc(static_cast<size_t>(HeapSize) * 2)); // :0634e3cb the routine
     }
     int16_t* const Table = Hash.Table;
     const int32_t Mask = Hash.Mask;
@@ -362,24 +358,24 @@ void IVP_Create_Exact_Mindists(IVP_Real_Object* Object0, IVP_Real_Object* Object
                 if (!bCreate)
                     continue;
 
-                // LAB_0634e599 -- a new exact mindist for this ledge pair.
+                // a new exact mindist for this ledge pair.
                 // `TEST byte [ledge+8],3` on both: if either is set, the
                 // recursive variant (0x94), else the plain one (0x80); both
                 // get (object 0's environment, Delegator).
                 IVP_Ledge_Mindist* Mindist;
                 if ((Ledge0->SizeAndFlags & 3) == 0 &&
                     (Ledge1->SizeAndFlags & 3) == 0)
-                    Mindist = new IVP_Ledge_Mindist(Environment, Delegator);   // :0634e5ad-:0634e5d9 FUN_0634dd10
+                    Mindist = new IVP_Ledge_Mindist(Environment, Delegator);   // :0634e5ad-:0634e5d9 the routine
                 else
-                    Mindist = new IVP_Complex_Mindist(Environment, Delegator); // :0634e5e0-:0634e60c FUN_06362ab0
+                    Mindist = new IVP_Complex_Mindist(Environment, Delegator); // :0634e5e0-:0634e60c the routine
 
-                // :0634e615-:0634e641 -- FUN_0634def0(obj0, obj1, ledge0+0x14,
+                // :0634e615-:0634e641 -- the routine(obj0, obj1, ledge0+0x14,
                 // ledge1+0x14): each ledge's first triangle's first edge.
                 Mindist->init_mindist(Object0, Object1,
                                       const_cast<IVP_Compact_Ledge*>(Ledge0)->GetFirstEdge(),
                                       const_cast<IVP_Compact_Ledge*>(Ledge1)->GetFirstEdge());
 
-                NewMindists.Vector.Add(Mindist); // :0634e646-:0634e66c (FUN_063441a0 when full)
+                NewMindists.Vector.Add(Mindist); // :0634e646-:0634e66c (the routine when full)
             }
         }
 
@@ -394,16 +390,16 @@ void IVP_Create_Exact_Mindists(IVP_Real_Object* Object0, IVP_Real_Object* Object
         }
 
         // :0634e6b1-0634e6f6 -- append the new records from the top down;
-        // each gets its back-index -1 -> its slot (FUN_0634e7d0).
+        // each gets its back-index -1 -> its slot (the routine).
         for (int32_t Index = static_cast<int32_t>(NewMindists.Vector.n_elems) - 1; Index >= 0; --Index)
         {
             IVP_Collision* New = NewMindists.Vector.elems[Index]; // :0634e6c5-:0634e6c9
             const int32_t NewSlot = static_cast<int32_t>(Mindists->n_elems);
-            Mindists->Add(New);                                   // :0634e6be-:0634e6e0, :0634e6f1 (FUN_063441a0 when full)
+            Mindists->Add(New);                                   // :0634e6be-:0634e6e0, :0634e6f1 (the routine when full)
             SetFVectorIndex(New, -1, NewSlot);                    // :0634e6e3-:0634e6ec
         }
     } // :0634e6f8-0634e726 -- NewMindists' inline-buffer-aware clear
 
-    // Hash's destructor (:0634e728-0634e745, the inlined FUN_06350560), then
+    // Hash's destructor (:0634e728-0634e745, the inlined the routine), then
     // Ledges1 / Ledges0 (:0634e748-0634e7b5).
 }

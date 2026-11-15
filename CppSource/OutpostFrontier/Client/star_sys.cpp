@@ -1,10 +1,6 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
-// Retail E:\FL\Scratch\Source\Client\space\StarSys.cpp (+ the StarSphere.h background object),
+// baseline Client\space\StarSys.cpp (+ the StarSphere.h background object),
 // OutpostFrontier.exe .text 0x00552b60..0x00555760. See star_sys.h for the globals map.
 
 #include "star_sys.h"
@@ -19,7 +15,7 @@
 #include "game_options.h"
 #include "globals.h"
 #include "menu_sound_arch.h"
-#ifdef OUTPOST_FRONTIER_RP9
+#ifdef OUTPOST_FRONTIER_DX9RENDERER
 #include "nebula_volume.h" // NebulaVolume::RegisterNebula (port-only)
 #endif
 #include "player_behavior.h"
@@ -27,13 +23,13 @@
 #include "space_dust.h"
 #include "space_scene_obj_draw.h"
 #include "space_solar_world.h"
-#include "star_sphere.h" // StarSphereDestroyAll (FUN_0050c6e0)
+#include "star_sphere.h" // StarSphereDestroyAll (the routine)
 #include "texture_panels.h"
 #include "texture_shapes.h"
 #include "tradelane_fx.h"
 #include "voice_profiles.h"
 
-#include "DALib.h"
+#include "NeuronRuntime.h"
 #include "common_casteroid.h"
 #include "common_cequip.h"
 #include "common_cobject.h"
@@ -44,9 +40,9 @@
 #include "common_physys.h"
 #include "common_ivp_real_object.h" // IVP_Real_Object::client_data (+0xa4), the collision filter
 #include "common_universe.h"
-#include "dacom.h"
-#include "dacom_iids.h"
-#include "engine/engbase.h"
+#include "neuroncomponents.h"
+#include "neuroncomponents_iids.h"
+#include "engine/sceneruntime.h"
 #include "render/IFLAppearance.h"
 #include "soundmanager.h"
 
@@ -55,67 +51,67 @@
 
 namespace
 {
-    char const* const kStarSysFile = "E:\\FL\\Scratch\\Source\\Client\\space\\StarSys.cpp";
-    char const* const kStarSphereFile = "E:\\FL\\Scratch\\Source\\Client\\space\\StarSphere.h";
+    char const* const kStarSysFile = "Client\\space\\StarSys.cpp";
+    char const* const kStarSphereFile = "Client\\space\\StarSphere.h";
 
-    // {voice, msg} pair of the [Archetype] voice = list (node payload 8 bytes, FUN_00553590).
+    // {voice, msg} pair of the [Archetype] voice = list (node payload 8 bytes, the routine).
     struct FStarSysVoiceLine
     {
         unsigned VoiceId;
         unsigned MsgId;
     };
 
-    // DAT_00679870 -- roots still loaded when the previous system was left (FUN_00554e20).
+    // roots still loaded when the previous system was left (the routine).
     std::list<Archetype::Root*> G_KeepAliveRoots;
-    // DAT_0067987c -- [Archetype] voice = pairs.
+    // [Archetype] voice = pairs.
     std::list<FStarSysVoiceLine> G_PreloadVoices;
-    // DAT_00679888 -- [Archetype] snd = ids.
+    // [Archetype] snd = ids.
     std::list<unsigned> G_PreloadSounds;
-    // DAT_00679894 -- [Archetype] archetype preloads.
+    // [Archetype] archetype preloads.
     std::list<Archetype::Root*> G_PreloadArchetypes;
-    // DAT_006798a0 -- [Object] archetype= preloads (FUN_005547c0), released once the INI loaded.
+    // [Object] archetype= preloads (the routine), released once the INI loaded.
     std::list<Archetype::Root*> G_ObjectArchetypes;
-    // DAT_006798ac -- the [TexturePanels] shape DB (static ctor LAB_00552e40, dtor LAB_00552e60).
+    // the [TexturePanels] shape DB (static ctor the branch, dtor the branch).
     FShapeDB G_StarSysShapeDB;
-    // DAT_006798c4 -- the nebulae of the current system.
+    // the nebulae of the current system.
     std::list<FNebulaEffect*> G_Nebulae;
 
-    // DAT_006798d0..e4 -- the scripted music override (FUN_00553340 / FUN_00553380).
-    // Retail .bss (no static initializer writes d0/d4/6c); FUN_005545a0 stores 1 / -1.0f /
+    // ..e4 -- the scripted music override (the routine / the routine).
+    // baseline .bss (no static initializer writes d0/d4/6c); the routine stores 1 / -1.0f /
     // 1000.0f at 00554643 / 0055464a / 00554676 on every system enter.
-    unsigned char G_MusicOverrideNoFade = 0; // DAT_006798d0
-    float G_MusicOverrideFade = 0.0f;        // DAT_006798d4
-    unsigned G_MusicOverrideTrack = 0;       // DAT_006798d8
-    unsigned G_MusicOverrideBattle = 0;      // DAT_006798dc
-    unsigned G_MusicOverrideDanger = 0;      // DAT_006798e0
-    unsigned G_MusicOverrideSpace = 0;       // DAT_006798e4
-    // DAT_006798e8..f4 -- the system's own tracks ([Music] battle/danger/space; e8 is only
+    unsigned char G_MusicOverrideNoFade = 0;
+    float G_MusicOverrideFade = 0.0f;
+    unsigned G_MusicOverrideTrack = 0;
+    unsigned G_MusicOverrideBattle = 0;
+    unsigned G_MusicOverrideDanger = 0;
+    unsigned G_MusicOverrideSpace = 0;
+    // ..f4 -- the system's own tracks ([Music] battle/danger/space; e8 is only
     // ever zeroed).
-    unsigned G_MusicSystemOverride = 0;      // DAT_006798e8
-    unsigned G_MusicSystemBattle = 0;        // DAT_006798ec
-    unsigned G_MusicSystemDanger = 0;        // DAT_006798f0
-    unsigned G_MusicSystemSpace = 0;         // DAT_006798f4
+    unsigned G_MusicSystemOverride = 0;
+    unsigned G_MusicSystemBattle = 0;
+    unsigned G_MusicSystemDanger = 0;
+    unsigned G_MusicSystemSpace = 0;
 
-    // DAT_00679954 -- the current system.
+    // the current system.
     Universe::ISystem const* G_System = nullptr;
 
-    // DAT_00679958..70 -- music state machine.
-    int G_MusicState = 0;                    // DAT_00679958
-    unsigned G_MusicTrack = 0;               // DAT_0067995c
-    unsigned char G_bMusicCrossFading = 0;   // DAT_00679960
-    float G_MusicCrossFadeTime = 0.0f;       // DAT_00679964
-    unsigned char G_bMusicBattleHit = 0;     // DAT_00679968
-    float G_MusicDangerScanTime = 0.0f;      // DAT_0067996c
-    unsigned char G_bMusicDanger = 0;        // DAT_00679970
+    // ..70 -- music state machine.
+    int G_MusicState = 0;
+    unsigned G_MusicTrack = 0;
+    unsigned char G_bMusicCrossFading = 0;
+    float G_MusicCrossFadeTime = 0.0f;
+    unsigned char G_bMusicBattleHit = 0;
+    float G_MusicDangerScanTime = 0.0f;
+    unsigned char G_bMusicDanger = 0;
 
-    // DAT_00679978 -- player collisions are not reported until this client time.
+    // player collisions are not reported until this client time.
     double G_PlayerCollisionsSuppressedUntil = 0.0;
 
-    // DAT_006140b4..b6 -- [System] space_color (.data initial {0, 0, 0x40}).
+    // ..b6 -- [System] space_color (.data initial {0, 0, 0x40}).
     unsigned char G_SpaceColor[3] = {0x00, 0x00, 0x40};
 
-    // FUN_0054baf0 hands out the player's IObjRW; the CObject behind it is IObjInspectImpl's
-    // CBase::Object (retail `ADD EAX,0xc` / `MOV ECX,[EAX+4]`).
+    // hands out the player's IObjRW; the CObject behind it is IObjInspectImpl's
+    // CBase::Object (baseline `ADD EAX,0xc` / `MOV ECX,[EAX+4]`).
     IObjRW* PlayerObjRW()
     {
         return static_cast<IObjRW*>(GetPlayerObjRW());
@@ -126,20 +122,20 @@ namespace
         return static_cast<IObjInspectImpl*>(Player)->Object;
     }
 
-    // FUN_005416c0(id, 0) -- the client ObjDB lookup (ClientObjDb_FindObject).
+    // (id, 0) -- the client ObjDB lookup (ClientObjDb_FindObject).
     IObjRW* FindClientObject(unsigned Id)
     {
         return ClientObjDb_FindObject(Id, 0);
     }
 
-    // ------------------------------------------------------------ FUN_00553100
+    // ------------------------------------------------------------ the routine
     // Pin one [Object] archetype of the system file: resolve it by kind (0 simple, 2 solar,
     // 4 asteroid), build the companion's material cache, AddRef, remember it.
     void PreloadObjectArchetype(char const* Name, int Kind)
     {
         // A miss on a solar/asteroid lookup, and an unknown Kind, leave the NAME pointer in the
         // register that is then used as the archetype (00553163 / 005531b4 reload ESI from the
-        // argument). Retail dereferences it; the port reproduces that exactly.
+        // argument). baseline dereferences it; the port reproduces that exactly.
         Archetype::Root* Arch =
             reinterpret_cast<Archetype::Root*>(const_cast<char*>(Name));
         if (Kind == 0)
@@ -171,12 +167,12 @@ namespace
                       kStarSysFile, 0x9b, Name);
         }
 
-        Archetype::CliObjPreloadMaterials(Arch->Companion, false); // FUN_00407310(0)
+        Archetype::CliObjPreloadMaterials(Arch->Companion, false); // (0)
         Arch->AddRef();
         G_ObjectArchetypes.push_back(Arch);
     }
 
-    // ------------------------------------------------------------ FUN_00553590
+    // ------------------------------------------------------------ the routine
     void PreloadVoiceLine(unsigned VoiceId, unsigned MsgId)
     {
         FVoiceProfile* const Voice = LookupClientVoice(VoiceId);
@@ -200,7 +196,7 @@ namespace
         G_PreloadVoices.push_back(Line);
     }
 
-    // ------------------------------------------------------------ FUN_005547c0
+    // ------------------------------------------------------------ the routine
     // Walk the system file's [Object] blocks and pin every archetype= as a solar.
     void PreloadSystemObjectArchetypes(unsigned const* SystemId)
     {
@@ -245,12 +241,12 @@ namespace
         return static_cast<unsigned char>(static_cast<int>(Value));
     }
 
-    // ------------------------------------------------------------ FUN_00553740
-    // Load the system INI. Retail parses the file in one pass, section by section.
+    // ------------------------------------------------------------ the routine
+    // Load the system INI. baseline parses the file in one pass, section by section.
     void StarSysLoadIni(char const* Path)
     {
-        ClientObjDb_FreeSpatial(); // 00553763: FUN_00540e90
-        SpaceResetFarClip();       // FUN_00410130
+        ClientObjDb_FreeSpatial(); // the routine
+        SpaceResetFarClip();
 
         bool bAsteroidsLoaded = false; // [ESP+0x13], once per call
 
@@ -259,7 +255,7 @@ namespace
         {
             FDUMP(0x100002, "%s(%d) : *** WARNING: unknown system (%s)\n", kStarSysFile, 0x446,
                   Path);
-            ClientObjDb_RebuildSpatial(); // LAB_00554260 falls into 00554280 (no close)
+            ClientObjDb_RebuildSpatial(); // falls into 00554280 (no close)
             return;
         }
 
@@ -277,7 +273,7 @@ namespace
                     }
                     else if (Reader.is_value("space_farclip"))
                     {
-                        SpaceSetFarClip(Reader.get_value_float(0)); // FUN_00410150
+                        SpaceSetFarClip(Reader.get_value_float(0));
                     }
                 }
             }
@@ -307,7 +303,7 @@ namespace
                     {
                         ID_String Snd;
                         Snd.Id = CreateID(Value);
-                        PreloadClientSoundArch(&Snd); // FUN_00427a10(&id, 1)
+                        PreloadClientSoundArch(&Snd); // (&id, 1)
                         G_PreloadSounds.push_back(CreateID(Value));
                         continue;
                     }
@@ -342,11 +338,11 @@ namespace
                         Arch->load(); // Root slot 3
                         if (Arch->Companion != nullptr)
                             Arch->Companion->Load(1); // ICliObj slot 8
-                        G_PreloadArchetypes.push_back(Arch); // FUN_005556b0
+                        G_PreloadArchetypes.push_back(Arch);
                     }
                     else
                     {
-                        // 00553b07: flags from FUN_00411c50(0x10000, 2) = 0x100002.
+                        // flags from the routine(0x10000, 2) = 0x100002.
                         FDUMP(0x100002, "%s(%d) : *** WARNING: Failed to preload archetype\n  %s",
                               kStarSysFile, 0x321, Reader.get_line_ptr());
                     }
@@ -367,9 +363,9 @@ namespace
             else if (Reader.is_header("Background"))
             {
                 FStarSphereBackground& Bg = G_StarSphereBackground;
-                Bg.Layers[1].Name.Value = StringAlloc("", false); // DAT_00679924
-                Bg.Layers[2].Name.Value = StringAlloc("", false); // DAT_00679938
-                Bg.Layers[0].Name.Value = StringAlloc("", false); // DAT_00679910
+                Bg.Layers[1].Name.Value = StringAlloc("", false);
+                Bg.Layers[2].Name.Value = StringAlloc("", false);
+                Bg.Layers[0].Name.Value = StringAlloc("", false);
                 while (Reader.read_value())
                 {
                     if (Reader.is_value("basic_stars"))
@@ -391,21 +387,21 @@ namespace
                     if (Reader.is_value("spacedust"))
                         Dust.Value = StringAlloc(Reader.get_value_string(), false);
                 }
-                // 00553d6d: FUN_0054bde0(&Dust).
+                // the routine(&Dust).
                 SpaceDustSetSystemDust(&Dust);
             }
             else if (Reader.is_header("LightSource"))
             {
-                void* const Mem = GameLightHeapAlloc(0x12c); // FUN_00537a90
+                void* const Mem = GameLightHeapAlloc(0x12c);
                 FGameLight* Light = nullptr;
                 if (Mem != nullptr)
-                    Light = GameLightConstruct(static_cast<FGameLight*>(Mem)); // FUN_005374e0
-                GameLightLoad(Light, &Reader);                               // FUN_00537a40
-                GameLightRelease(Light);                                     // FUN_00537ad0
+                    Light = GameLightConstruct(static_cast<FGameLight*>(Mem));
+                GameLightLoad(Light, &Reader);
+                GameLightRelease(Light);
             }
             else if (Reader.is_header("Object"))
             {
-                SpawnWorldSolarFromObjectSection(Reader); // FUN_00548a20
+                SpawnWorldSolarFromObjectSection(Reader);
             }
             else if (Reader.is_header("TexturePanels"))
             {
@@ -413,7 +409,7 @@ namespace
                 {
                     if (Reader.is_value("file"))
                         G_StarSysShapeDB.Load(GetFullFilename(Reader.get_value_string()),
-                                              nullptr); // FUN_00425b30
+                                              nullptr);
                 }
             }
             else if (Reader.is_header("Asteroids"))
@@ -434,7 +430,7 @@ namespace
                     else if (Reader.is_value("zone"))
                         CopyTruncated(Zone, sizeof(Zone), Reader.get_value_string());
                 }
-                CliAsteroidCreateAndLoad(File, Zone); // FUN_0051ff50
+                CliAsteroidCreateAndLoad(File, Zone);
             }
             else if (Reader.is_header("Nebula"))
             {
@@ -447,8 +443,8 @@ namespace
                 {
                     if (Reader.is_value("file"))
                     {
-                        // Every file= creates a new nebula (FUN_00509b00); an earlier one of the
-                        // same block is dropped without being freed, as in retail.
+                        // Every file= creates a new nebula (the routine); an earlier one of the
+                        // same block is dropped without being freed, as in baseline.
                         CopyTruncated(File, sizeof(File), Reader.get_value_string());
                         Nebula = NebulaCreate();
                     }
@@ -461,7 +457,7 @@ namespace
                 {
                     using FLoad = void(__thiscall*)(FNebulaEffect*, char const*, char const*);
                     Nebula->Load(File, Zone); // slot 0
-#ifdef OUTPOST_FRONTIER_RP9
+#ifdef OUTPOST_FRONTIER_DX9RENDERER
                     // Port-only: the file name for volumetric.ini [NebulaOverride] file=.
                     NebulaVolume::RegisterNebula(Nebula, File);
 #endif
@@ -470,10 +466,10 @@ namespace
             }
         }
         Reader.close();
-        ClientObjDb_RebuildSpatial(); // 00554280: FUN_00540eb0
+        ClientObjDb_RebuildSpatial(); // the routine
     }
 
-    // ------------------------------------------------------------ FUN_00554ce0
+    // ------------------------------------------------------------ the routine
     // Drop the [Archetype] preloads of the system being left.
     void ReleaseSystemPreloads()
     {
@@ -487,7 +483,7 @@ namespace
         {
             ID_String Snd;
             Snd.Id = *It;
-            UnloadClientSoundArch(&Snd); // FUN_00427a40
+            UnloadClientSoundArch(&Snd);
         }
         G_PreloadSounds.clear();
 
@@ -512,9 +508,9 @@ namespace
         G_PreloadVoices.clear();
     }
 
-    // ------------------------------------------------------------ FUN_00554e20
+    // ------------------------------------------------------------ the routine
     // The Archetype::Enum* callback of the leave path: keep every loaded root alive across the
-    // system switch (released again by the next FUN_005545a0).
+    // system switch (released again by the next the routine).
     struct FKeepLoadedRoots : Archetype::ArchEnumerator
     {
         bool Enumerate(Archetype::Root* Record) override
@@ -528,9 +524,9 @@ namespace
         }
     };
 
-    // ------------------------------------------------------------ LAB_005544e0
+    // ------------------------------------------------------------ the branch
     // PhySys::m_pCollisionFilter while in a system: in multiplayer, collisions that involve the
-    // local player's own objects are ignored until DAT_00679978.
+    // local player's own objects are ignored until the field.
     IVP_BOOL __cdecl StarSysCollisionFilter(IVP_Real_Object* A, IVP_Real_Object* B)
     {
         if (SinglePlayer())
@@ -538,7 +534,7 @@ namespace
         if (A == nullptr || B == nullptr)
             return IVP_TRUE;
 
-        // 00554506 / 0055450e: IVP_Real_Object::client_data (+0xa4), the CObject back-pointer.
+        // / 0055450e: IVP_Real_Object::client_data (+0xa4), the CObject back-pointer.
         CObject* ObjA = (CObject*)A->client_data;
         CObject* ObjB = (CObject*)B->client_data;
 
@@ -554,17 +550,17 @@ namespace
 
         unsigned const OwnerA = ObjA != nullptr ? static_cast<CSimple*>(ObjA)->OwnerPlayer : 0;
         unsigned const OwnerB = ObjB != nullptr ? static_cast<CSimple*>(ObjB)->OwnerPlayer : 0;
-        unsigned const Self = GetPlayerConnectionId(); // DAT_00673344
+        unsigned const Self = GetPlayerConnectionId();
         if (OwnerA != Self && OwnerB != Self)
             return IVP_FALSE;
 
-        // 0055457f: FCOMP / TEST AH,0x41 / JP -- TRUE once now > DAT_00679978 (or unordered).
+        // FCOMP / TEST AH,0x41 / JP -- TRUE once now > the field (or unordered).
         if (GetClientElapsedTime() <= G_PlayerCollisionsSuppressedUntil)
             return IVP_FALSE;
         return IVP_TRUE;
     }
 
-    // ------------------------------------------------------------ FUN_00555240
+    // ------------------------------------------------------------ the routine
     // Is anything on the player's scanner hostile to the player?
     bool ScannerSeesHostile()
     {
@@ -592,7 +588,7 @@ namespace
                 reinterpret_cast<unsigned char const*>(Watched) - 8);
             if (Target == nullptr)
                 continue;
-            // 005552a1..005552a8: PUSH target, PUSH player -> FUN_0045a490(player, target):
+            // PUSH target, PUSH player -> the routine(player, target):
             // the target's attitude towards the player.
             if (GetAttitudeClass(PlayerObjRW(), Target) == -1)
                 return true;
@@ -600,20 +596,20 @@ namespace
         return false;
     }
 
-    // ------------------------------------------------------------ FUN_00552fd0
+    // ------------------------------------------------------------ the routine
     // Load one background layer's mesh when it is not bound yet.
     void StarSphereLoadLayer(FStarSphereLayer* Layer)
     {
         if (!ClientMeshHolderHasInstance(&Layer->Holder))
         {
-            if (ClientMeshHolderLoad(&Layer->Holder, Layer->Name.Value, nullptr)) // 00420dd0
+            if (ClientMeshHolderLoad(&Layer->Holder, Layer->Name.Value, nullptr))
             {
                 float Extent = 0.0f;
                 float Center[3] = {0.0f, 0.0f, 0.0f};
-                DALib::Engine->GetInstanceExtent(Layer->Holder.EngineInstance, 0, &Extent,
+                NeuronRuntime::Engine->GetInstanceExtent(Layer->Holder.EngineInstance, 0, &Extent,
                                                  Center);
-                ClientMeshHolderSetPosition(&Layer->Holder, Center); // 00420fd0
-                ClientMeshHolderUpdate(&Layer->Holder);              // 00421070
+                ClientMeshHolderSetPosition(&Layer->Holder, Center);
+                ClientMeshHolderUpdate(&Layer->Holder);
             }
             if (!ClientMeshHolderHasInstance(&Layer->Holder))
                 FDUMP(0x100001, "%s(%d) : *** ERROR: couldnt create starsphere %s",
@@ -622,7 +618,7 @@ namespace
         (void)ClientMeshHolderHasInstance(&Layer->Holder); // the return value is unused
     }
 
-    // ------------------------------------------------------------ FUN_00552ea0
+    // ------------------------------------------------------------ the routine
     void StarSphereRender(FStarSphereBackground* This, void* Camera)
     {
         if (GetGameOption(0x19) == 0)
@@ -657,7 +653,7 @@ namespace
         }
 
         IFLAppearance* Appearance = nullptr;
-        if (DALib::Engine->QueryInterface(Iids::FLAppearance,
+        if (NeuronRuntime::Engine->QueryInterface(Iids::FLAppearance,
                                           reinterpret_cast<void**>(&Appearance)) == 0)
         {
             // Draw order: basic stars, complex stars, nebulae.
@@ -675,16 +671,16 @@ namespace
 
 // ------------------------------------------------------------------------ globals
 
-unsigned char G_StarSysAmbientRgb[3] = {0, 0, 0};     // DAT_006798f8
-unsigned char G_StarSysAmbientWorkRgb[3] = {0, 0, 0}; // DAT_0067986c
+unsigned char G_StarSysAmbientRgb[3] = {0, 0, 0};
+unsigned char G_StarSysAmbientWorkRgb[3] = {0, 0, 0};
 
-FStarSphereBackground G_StarSphereBackground; // DAT_00679900, static ctor LAB_00552b60
+FStarSphereBackground G_StarSphereBackground; // , static ctor the branch
 
 // ------------------------------------------------------------------------ StarSphere
 
 FStarSphereBackground::FStarSphereBackground()
 {
-    // FUN_00552b80: each layer = FUN_00420d40 + CacheString::clear.
+    // each layer = the routine + CacheString::clear.
     for (int I = 0; I < 3; ++I)
     {
         MeshHolderConstruct(&Layers[I].Holder);
@@ -696,22 +692,22 @@ FStarSphereBackground::FStarSphereBackground()
 
 FStarSphereBackground::~FStarSphereBackground()
 {
-    // FUN_00552c70: FUN_00420d10 on the layers, last first. That base destructor only resets
+    // the routine on the layers, last first. That base destructor only resets
     // the helper's vptr; the instance is not destroyed here.
     // Real member destructors run in reverse order; ObjectHandle releases no instance.
 }
 
 void StarSphereDraw(void* Camera)
 {
-    // FUN_00552e70.
+    // .
     if (GetGameOption(0x19) != 0 && GetGameOption(0x1a) != 0)
         StarSphereRender(&G_StarSphereBackground, Camera);
 }
 
 void StarSphereApplyDetail(float Value)
 {
-    // LAB_00552cd0: the thresholds are doubles (DAT_005debf8 0.75, DAT_005c75e8 0.5,
-    // DAT_005c75f8 0.001); every step is FCOMP / TEST AH,0x41 / JNZ, i.e. strictly greater.
+    // the thresholds are doubles (the field 0.75, the field 0.5,
+    // 0.001); every step is FCOMP / TEST AH,0x41 / JNZ, i.e. strictly greater.
     double const V = static_cast<double>(Value);
     if (V > 0.75)
     {
@@ -732,12 +728,12 @@ void StarSphereApplyDetail(float Value)
 
 Universe::ISystem const* StarSysGetSystem()
 {
-    return G_System; // FUN_005556a0
+    return G_System;
 }
 
 unsigned StarSysGetActiveSystemId()
 {
-    // FUN_00554e90: tail-jump into ISystem slot 0.
+    // tail-jump into ISystem slot 0.
     if (G_System == nullptr)
         return 0;
     return G_System->GetId();
@@ -745,12 +741,12 @@ unsigned StarSysGetActiveSystemId()
 
 std::list<FNebulaEffect*>& StarSysNebulaList()
 {
-    return G_Nebulae; // FUN_005553a0
+    return G_Nebulae;
 }
 
 FNebulaEffect* StarSysFindNebula(Vector const* Pos, float* OutFactor, FNebulaEffect* Hint)
 {
-    // FUN_005553b0.
+    // .
     using FFactor = float(__thiscall*)(FNebulaEffect*, float*);
     float* const PosFloats = const_cast<float*>(reinterpret_cast<float const*>(Pos));
     if (GetGameOption(0x25) != 0 && GetGameOption(0x27) != 0)
@@ -785,7 +781,7 @@ FNebulaEffect* StarSysFindNebula(Vector const* Pos, float* OutFactor, FNebulaEff
 
 void StarSysGetFogColor(Vector const* Pos, unsigned char* OutRgb)
 {
-    // FUN_005552e0.
+    // .
     float Factor = 0.0f;
     FNebulaEffect* const Nebula = StarSysFindNebula(Pos, &Factor, nullptr);
     if (Nebula != nullptr && Factor >= 1.0f)
@@ -805,12 +801,12 @@ void StarSysGetFogColor(Vector const* Pos, unsigned char* OutRgb)
 
 unsigned char const* StarSysSpaceColor()
 {
-    return G_SpaceColor; // FUN_00555460
+    return G_SpaceColor;
 }
 
 unsigned char const* StarSysAmbientColor()
 {
-    // FUN_00555470: base + AMBIENT (option 0x3b), clamped at 0xff only (JG).
+    // base + AMBIENT (option 0x3b), clamped at 0xff only (JG).
     int const Ambient = GetGameOption(0x3b);
     for (int I = 0; I < 3; ++I)
     {
@@ -823,14 +819,14 @@ unsigned char const* StarSysAmbientColor()
 
 void StarSysEnter(unsigned SystemId)
 {
-    // FUN_005545a0.
+    // .
     RefreshLoadingProgress();
     G_System = Universe::get_system(SystemId);
     if (G_System == nullptr)
         FDUMP(0x100001, "%s(%d) : *** ERROR: %s", kStarSysFile, 0x48b,
               "Player trying to ENTER invalid system");
 
-    // Retail continues without a test: a null system faults on the next line.
+    // baseline continues without a test: a null system faults on the next line.
     char Path[0x104];
     Universe::get_filename(Path, G_System->GetFile());
 
@@ -852,13 +848,13 @@ void StarSysEnter(unsigned SystemId)
     G_MusicDangerScanTime = 1000.0f;
     G_bMusicDanger = 0;
 
-    PreloadSystemObjectArchetypes(&SystemId); // FUN_005547c0
+    PreloadSystemObjectArchetypes(&SystemId);
 
-    PhySys::m_pCollisionFilter = &StarSysCollisionFilter; // LAB_005544e0
+    PhySys::m_pCollisionFilter = &StarSysCollisionFilter;
     PhySys::Startup(SystemId);
     RefreshLoadingProgress();
 
-    StarSysLoadIni(Path); // FUN_00553740
+    StarSysLoadIni(Path);
     RefreshLoadingProgress();
 
     for (std::list<Archetype::Root*>::iterator It = G_ObjectArchetypes.begin();
@@ -883,10 +879,10 @@ void StarSysEnter(unsigned SystemId)
 
 void StarSysLeave(IObjRW* Player)
 {
-    // FUN_00554ab0. Not all of it is portable yet; every missing callee is named in place.
+    // . Not all of it is portable yet; every missing callee is named in place.
     if (Player != nullptr)
     {
-        FKeepLoadedRoots Keep; // vtable PTR_FUN_005e1210 -> FUN_00554e20
+        FKeepLoadedRoots Keep; // vtable the routine -> the routine
         Archetype::EnumSimples(&Keep);
         Archetype::EnumShips(&Keep);
         Archetype::EnumSolars(&Keep);
@@ -895,25 +891,25 @@ void StarSysLeave(IObjRW* Player)
         Archetype::EnumEquipment(&Keep);
     }
 
-    // 00554b21..00554b64: a local list (vtable 005e11c0, FUN_005afe60 node alloc) holding Player
-    // -- pushed even when Player is null -- handed to FUN_00541210 below. The Gameobj list
+    // a local list (vtable 005e11c0, the routine node alloc) holding Player
+    // -- pushed even when Player is null -- handed to the routine below. The Gameobj list
     // entries are the IObjRW pointers themselves (IObjRW is the Gameobj's first base).
     std::list<FClientGameobj*> KeepObjects;
     KeepObjects.push_back(static_cast<FClientGameobj*>(Player));
-    // 00554b62..00554b6e: a non-null Player gets its vtable slot 100 (+0x190, LAB_00524e60 on
+    // a non-null Player gets its vtable slot 100 (+0x190, the branch on
     // the Gameobj base: draw states cleared, +0x34 = 10.0f).
     if (Player != nullptr)
         static_cast<FClientGameobj*>(Player)->Slot190();
     RefreshLoadingProgress();
-    // 00554b7e: FUN_005200b0 -- destroy every client asteroid field (FUN_005205d0 per field).
+    // the routine -- destroy every client asteroid field (the routine per field).
     CliAsteroidDestroyAll();
     if (!SinglePlayer())
         CmnAsteroid::Unload(StarSysGetActiveSystemId());
     RefreshLoadingProgress();
-    TradeLaneShutdown(); // 00554bab: FUN_00515500
-    // 00554bb0..00554bb5: FUN_00541210(&list) -- the ObjDB cleared except the list.
+    TradeLaneShutdown(); // the routine
+    // the routine(&list) -- the ObjDB cleared except the list.
     ClientObjDb_ClearExcept(&KeepObjects);
-    // 00554bbd: FUN_005382f0 (light grid reset); 00554bc2: FUN_005383c0 (every GameLight
+    // the routine (light grid reset); 00554bc2: the routine (every GameLight
     // detached and disabled, the still-referenced ones re-enabled).
     LightGridReset();
     GameLightLeaveSystem();
@@ -926,33 +922,33 @@ void StarSysLeave(IObjRW* Player)
     G_StarSphereBackground.CurrentQuality = 0;
     RefreshLoadingProgress();
 
-    SpaceDustShutdown(); // 00554c0b: FUN_0054be20
+    SpaceDustShutdown(); // the routine
     RefreshLoadingProgress();
-    StarSphereDestroyAll(); // 00554c12: FUN_0050c6e0
+    StarSphereDestroyAll(); // the routine
 
     for (std::list<FNebulaEffect*>::iterator It = G_Nebulae.begin(); It != G_Nebulae.end(); ++It)
-        NebulaDestroy(*It); // FUN_00509b70: slot 22 (+0x58) with 1
+        NebulaDestroy(*It); // slot 22 (+0x58) with 1
     G_Nebulae.clear();
 
-    TexturePanelsDestroyAll();  // FUN_0050c040
-    G_StarSysShapeDB.Clear();   // FUN_00425a20
-    ReleaseSystemPreloads();    // FUN_00554ce0
+    TexturePanelsDestroyAll();
+    G_StarSysShapeDB.Clear();
+    ReleaseSystemPreloads();
     RefreshLoadingProgress();
 }
 
 void StarSysLeaveWithoutPlayer()
 {
-    // FUN_00554e80: PUSH 0 / CALL FUN_00554ab0.
+    // PUSH 0 / CALL the routine.
     StarSysLeave(nullptr);
 }
 
 void StarSysUpdate(float Dt)
 {
-    // FUN_00554eb0.
-    void* const Camera = GetClientSoundListenerObject(); // FUN_0040f130
+    // .
+    void* const Camera = GetClientSoundListenerObject();
     if (Camera != nullptr)
     {
-        SpaceDustUpdate(G_System, Camera); // 00554ecb: FUN_0054beb0(DAT_00679954, cam)
+        SpaceDustUpdate(G_System, Camera); // the routine(the field, cam)
     }
     else
     {
@@ -962,8 +958,8 @@ void StarSysUpdate(float Dt)
 
     if (GetGameOption(0x25) != 0)
     {
-        // 0x00554f1a..0x00554f42: count DAT_006798cc above 0 (JBE), then every nebula of the
-        // list DAT_006798c8 through its vtable slot 2 (+0x08) with (camera, dt).
+        // count the field above 0 (JBE), then every nebula of the
+        // list the field through its vtable slot 2 (+0x08) with (camera, dt).
         if (GetGameOption(0x27) != 0 && !G_Nebulae.empty())
         {
             using FNebulaUpdateSlot = void(__thiscall*)(FNebulaEffect*, void*, float);
@@ -971,19 +967,19 @@ void StarSysUpdate(float Dt)
                  It != G_Nebulae.end(); ++It)
                 (*It)->Update(Camera, Dt);
         }
-        TexturePanelsUpdateAll(Camera, Dt); // FUN_00509f20 walk, slot 3 (+0x0c)
+        TexturePanelsUpdateAll(Camera, Dt); // walk, slot 3 (+0x0c)
     }
 
-    if (static_cast<int>(CliAsteroidRegistryCount()) > 0) // FUN_005201c0
+    if (static_cast<int>(CliAsteroidRegistryCount()) > 0)
     {
         if (!SinglePlayer() && GetGameOption(0x21) != 0)
             CmnAsteroid::Update(GetClientObjDb(), Dt);
-        CliAsteroidUpdateFields(Camera, Dt); // FUN_00520130
+        CliAsteroidUpdateFields(Camera, Dt);
     }
 
     // ---- music ----
     void* SourceRaw = nullptr;
-    if (BindClientBackgroundMusic(&SourceRaw)) // FUN_00428ba0 (AddRef'd)
+    if (BindClientBackgroundMusic(&SourceRaw)) // (AddRef'd)
     {
         ISoundSource* const Source = static_cast<ISoundSource*>(SourceRaw);
         if (Source->IsFinished()) // slot 29 (+0x74)
@@ -1024,13 +1020,13 @@ void StarSysUpdate(float Dt)
     bool bPlayerFlag = false;
     {
         void* const Player = GetPlayerObjRW();
-        // 005550c4: the client Gameobj's +0x158 word (the jump / dock arm state read by
+        // the client Gameobj's +0x158 word (the jump / dock arm state read by
         // space_scene_obj_draw.cpp GameobjJumpArmState); FClientGameobj keeps it in OpaqueTail.
         if (Player != nullptr)
             bPlayerFlag = *reinterpret_cast<int*>(static_cast<unsigned char*>(Player) + 0x158) != 0;
     }
 
-    // 0x005550d1..0x0055512c: the sum stays on the FPU -- FST stores it to DAT_00679964 as a
+    // the sum stays on the FPU -- FST stores it to the field as a
     // float, FCOMP compares the unrounded value with MUSIC_CROSS_FADE_DELAY (TEST AH,1 / JNZ:
     // below, or unordered, keeps fading; the reset runs only on ordered >=).
     bool bTimeCrossFade = false;
@@ -1062,12 +1058,12 @@ void StarSysUpdate(float Dt)
     else if (G_bMusicCrossFading != 0)
         return;
 
-    // 0x0055514b..0x00555166: the same FST / FCOMP shape against 2.0f (DAT_005d55b4).
+    // the same FST / FCOMP shape against 2.0f (the field).
     double const ScanTime = static_cast<double>(G_MusicDangerScanTime) + static_cast<double>(Dt);
     G_MusicDangerScanTime = static_cast<float>(ScanTime);
     if (ScanTime >= 2.0)
     {
-        G_bMusicDanger = ScannerSeesHostile() ? 1 : 0; // FUN_00555240
+        G_bMusicDanger = ScannerSeesHostile() ? 1 : 0;
         G_MusicDangerScanTime = 0.0f;
     }
 
@@ -1110,14 +1106,14 @@ void StarSysUpdate(float Dt)
 
     if (G_MusicTrack != Track)
     {
-        SetClientBackgroundMusic(Track, G_MusicOverrideNoFade, G_MusicOverrideFade); // 004288e0
+        SetClientBackgroundMusic(Track, G_MusicOverrideNoFade, G_MusicOverrideFade);
         G_MusicTrack = Track;
     }
 }
 
 bool StarSysHasVoiceMessage(unsigned VoiceId, unsigned MsgId)
 {
-    // FUN_00553660.
+    // .
     for (std::list<FStarSysVoiceLine>::iterator It = G_PreloadVoices.begin();
          It != G_PreloadVoices.end(); ++It)
     {
@@ -1129,14 +1125,14 @@ bool StarSysHasVoiceMessage(unsigned VoiceId, unsigned MsgId)
 
 void StarSysPreloadVoiceMessage(unsigned VoiceId, unsigned MsgId)
 {
-    // FUN_00553590.
+    // .
     PreloadVoiceLine(VoiceId, MsgId);
 }
 
 void StarSysSetMusicOverride(unsigned SpaceMusic, unsigned DangerMusic, unsigned BattleMusic,
                              unsigned OverrideMusic, float Fade, bool bNoFadeFlag)
 {
-    // FUN_00553340: the byte flag stores SETZ of the sixth argument.
+    // the byte flag stores SETZ of the sixth argument.
     G_MusicOverrideSpace = SpaceMusic;
     G_MusicOverrideTrack = OverrideMusic;
     G_MusicOverrideDanger = DangerMusic;
@@ -1147,7 +1143,7 @@ void StarSysSetMusicOverride(unsigned SpaceMusic, unsigned DangerMusic, unsigned
 
 void StarSysClearMusicOverride()
 {
-    // FUN_00553380 (the same six stores are inlined in FUN_00554eb0 at 00554fc3).
+    // (the same six stores are inlined in the routine at 00554fc3).
     G_MusicOverrideTrack = 0;
     G_MusicOverrideBattle = 0;
     G_MusicOverrideDanger = 0;
@@ -1158,7 +1154,7 @@ void StarSysClearMusicOverride()
 
 void StarSysNoteDamage(IObjRW* Victim, void const* DamageRecord)
 {
-    // FUN_00553250.
+    // .
     IObjRW* const Player = PlayerObjRW();
     if (Player == nullptr)
         return;
@@ -1169,13 +1165,13 @@ void StarSysNoteDamage(IObjRW* Victim, void const* DamageRecord)
     bool bFlag = false;
     if (Victim->get_id() == PlayerId)
     {
-        // 00553289..00553290: PUSH object, PUSH player -> FUN_0045a490(player, object).
+        // PUSH object, PUSH player -> the routine(player, object).
         if (GetAttitudeClass(PlayerObjRW(), FindClientObject(InflictorId)) == -1)
             bFlag = true;
     }
     if (InflictorId == PlayerId)
     {
-        if (GetAttitudeClass(PlayerObjRW(), Victim) == -1) // 005532a6..005532ad
+        if (GetAttitudeClass(PlayerObjRW(), Victim) == -1)
         {
             G_bMusicBattleHit = 1;
             return;
@@ -1187,7 +1183,7 @@ void StarSysNoteDamage(IObjRW* Victim, void const* DamageRecord)
 
 void StarSysNoteTargetChange(unsigned ShipId)
 {
-    // FUN_005532d0.
+    // .
     IObjRW* const Player = PlayerObjRW();
     if (Player == nullptr)
         return;
@@ -1204,19 +1200,19 @@ void StarSysNoteTargetChange(unsigned ShipId)
     IObjRW* const Target = static_cast<CShip*>(Obj)->get_target();
     if (Target == nullptr)
         return;
-    if (GetAttitudeClass(PlayerObjRW(), Target) == -1) // FUN_0045a490(player, target)
+    if (GetAttitudeClass(PlayerObjRW(), Target) == -1) // (player, target)
         G_bMusicBattleHit = 1;
 }
 
 void StarSysSuppressPlayerCollisions(double Seconds)
 {
-    // FUN_005544d0.
+    // .
     G_PlayerCollisionsSuppressedUntil = GetClientElapsedTime() + Seconds;
 }
 
 int GetAttitudeClass(IObjInspect const* Target, IObjInspect const* Viewer)
 {
-    // FUN_0045a490: -1 hostile (<= -0.6), 1 friendly (>= 0.6), 0 otherwise / on failure.
+    // -1 hostile (<= -0.6), 1 friendly (>= 0.6), 0 otherwise / on failure.
     if (Target == nullptr || Viewer == nullptr)
         return 0;
     float Attitude = 0.0f;

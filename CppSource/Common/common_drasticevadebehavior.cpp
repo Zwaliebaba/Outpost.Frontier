@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "common_drasticevadebehavior.h"
@@ -9,11 +5,11 @@
 #include <cstring>
 
 // DrasticEvadeBehavior -- see common_drasticevadebehavior.h. Ported from
-// EXE/Disasm/Common.dll.txt; every method below re-traced 2026-10-08.
+// Common; every method below re-traced 2026-10-08.
 
-// FUN_062c8730 (Common.dll.txt 195469-195488), all 15 instructions: FUN_062d2020(TypeId),
+// (Common), all 15 instructions: the routine(TypeId),
 // +0x40 = 0, vptr, +0x30 = 4.0f (0x40800000), +0x34/+0x38/+0x3c = 0. +0x2c is left to
-// Slot3 in retail; the port zeroes it (Slot3 runs before Slot7 reads it).
+// Slot3 in baseline; the port zeroes it (Slot3 runs before Slot7 reads it).
 DrasticEvadeBehavior::DrasticEvadeBehavior(int InTypeId)
     : Behavior()
     , TypeId(InTypeId)
@@ -33,35 +29,35 @@ DrasticEvadeBehavior::DrasticEvadeBehavior(int InTypeId)
     , TargetOffset{}
     , TargetKind40(0)
 {
-    ConstructBase(InTypeId);   // FUN_062d2020 -- Behavior's own field initialisation
+    ConstructBase(InTypeId);   // Behavior's own field initialisation
 }
 
-// Slot 0 is FUN_062c7090, the scalar-deleting dtor ICF-shared by seven behavior vtables.
+// Slot 0 is the routine, the scalar-deleting dtor ICF-shared by seven behavior vtables.
 DrasticEvadeBehavior::~DrasticEvadeBehavior()
 {
 }
 
-// Slot 1, LAB_062cf3e0: `JMP FUN_062d2090`.
+// Slot 1, the branch: `JMP the routine`.
 bool DrasticEvadeBehavior::SetContext(void* Owner, void* Manager, void* Sys)
 {
     return BindContext(Owner, Manager, Sys);
 }
 
-// Slot 3, FUN_062c8790: `CALL FUN_062d20d0; MOV dword [ESI+0x2c],0; RET`.
+// Slot 3, the routine: `CALL the routine; MOV dword [ESI+0x2c],0; RET`.
 void DrasticEvadeBehavior::Slot3()
 {
     Behavior::Slot3();
     StateTimer2c = 0.0f;
 }
 
-// Slot 4, FUN_062c87b0: `CALL FUN_062d20f0; OR byte [ESI+0x28],0x2; RET`.
+// Slot 4, the routine: `CALL the routine; OR byte [ESI+0x28],0x2; RET`.
 void DrasticEvadeBehavior::Slot4()
 {
     Behavior::Slot4();
     Flags28 = static_cast<unsigned char>(Flags28 | 0x2);
 }
 
-// Slot 5, LAB_062c8760: EAX = 2; `TEST AL,DL` (AL = 2, DL = Flags28) -- bit 0x2.
+// Slot 5, the branch: EAX = 2; `TEST AL,DL` (AL = 2, DL = Flags28) -- bit 0x2.
 //   set:   `XOR EAX,EAX; CMP DL,AL` with DL = Flag29 -> JZ (Flag29 == 0) keeps EAX = 0.
 //   clear: `TEST DL,DL` -> JZ (Flag29 == 0) keeps EAX = 2.
 //   Not taken (Flag29 != 0) -> EAX = 3. Then [ECX+0xc] = EAX, RET 4 (EAX returned).
@@ -77,12 +73,12 @@ int DrasticEvadeBehavior::Slot5(float Unused)
     return Result;
 }
 
-// Slot 7, LAB_062c8800 (Common.dll.txt 195590-195666), 76 instructions.
+// Slot 7, the branch (Common), 76 instructions.
 int DrasticEvadeBehavior::Slot7()
 {
     if (TargetKind40 == 0)
     {
-        // LAB_062c8864: `FLD [+0x1c]; FADD [+0x2c]; FST [+0x2c]; FCOMP [+0x30]`,
+        // `FLD [+0x1c]; FADD [+0x2c]; FST [+0x2c]; FCOMP [+0x30]`,
         // `TEST AH,0x5; JP` -- not taken only for C0 alone, i.e. timer < duration.
         // The compare uses the unrounded sum still in ST0 (FST, not FSTP).
         double const Timer = static_cast<double>(DeltaTime1c) + static_cast<double>(StateTimer2c);
@@ -91,19 +87,19 @@ int DrasticEvadeBehavior::Slot7()
         if (Timer < static_cast<double>(DurationThreshold30))
         {
             Vector const Nudge = { TargetOffset.x, TargetOffset.y, 0.0f };
-            Affect->set_nudge_vec(Nudge);                                   // 062c889a [EAX+0x8]
+            Affect->set_nudge_vec(Nudge);                                   // [EAX+0x8]
             UpdateResult10 = 1;
             return 1;
         }
         Vector const Zero = { 0.0f, 0.0f, 0.0f };
-        Affect->set_nudge_vec(Zero);                                        // 062c88c9
+        Affect->set_nudge_vec(Zero);
         UpdateResult10 = 2;
         return 2;
     }
 
     if (TargetKind40 == 1)
     {
-        // LAB_062c881e: same accumulate/compare; FUN_062e89a0 on [+0x24]+0x18 with Mode 0
+        // same accumulate/compare; the routine on [+0x24]+0x18 with Mode 0
         // pushed first, then -1.0f (0xbf800000) while running or 0 when expired.
         double const Timer = static_cast<double>(DeltaTime1c) + static_cast<double>(StateTimer2c);
         StateTimer2c = static_cast<float>(Timer);
@@ -119,18 +115,18 @@ int DrasticEvadeBehavior::Slot7()
         return 2;
     }
 
-    UpdateResult10 = 3;                                                     // 062c8811
+    UpdateResult10 = 3;
     return 3;
 }
 
-// Slot 10, LAB_062c87c0 (Common.dll.txt 195559-195584), all 26 instructions.
+// Slot 10, the branch (Common), all 26 instructions.
 bool DrasticEvadeBehavior::Slot10(void* DirectiveOp)
 {
     unsigned char const* const Op = static_cast<unsigned char const*>(DirectiveOp);
-    std::memcpy(&TargetKind40, Op + 0xc, sizeof(TargetKind40));             // 062c87c9
+    std::memcpy(&TargetKind40, Op + 0xc, sizeof(TargetKind40));
     if (TargetKind40 == 0)
-        std::memcpy(&TargetOffset, Op + 0x10, sizeof(TargetOffset));         // 062c87d0-062c87e4
-    Flags28 = static_cast<unsigned char>(Flags28 | 0x2);                     // 062c87f0
-    std::memcpy(&DurationThreshold30, Op + 0x1c, sizeof(DurationThreshold30)); // 062c87f3
+        std::memcpy(&TargetOffset, Op + 0x10, sizeof(TargetOffset));
+    Flags28 = static_cast<unsigned char>(Flags28 | 0x2);
+    std::memcpy(&DurationThreshold30, Op + 0x1c, sizeof(DurationThreshold30));
     return true;
 }

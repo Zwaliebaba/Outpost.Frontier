@@ -1,11 +1,7 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "rpc_packet_codec.h"
-#include "common_misc.h" // SinglePlayer selects retail's two FIREWEAPON formats.
+#include "common_misc.h" // SinglePlayer selects baseline's two FIREWEAPON formats.
 #include "common_net.h" // PLAYER_TRADE counts its trailer by IsMPServer direction.
 #include "common_text.h" // Canonical FmtStr::Val size calculation.
 
@@ -15,7 +11,7 @@
 #include <ostream>
 
 namespace {
-// A distinct private global in each Remote DLL, as in both retail images.
+// A distinct private global in each Remote DLL, as in both baseline images.
 std::map<unsigned int, FRpcWireStats> GRemoteWireStats;
 }
 
@@ -159,7 +155,7 @@ void FRpcConnectResponsePacket::Dump(std::ostream& Out) const {
 }
 
 void FRpcLoginResponsePacket::Dump(std::ostream& Out) const {
-    // Retail selects the unsigned-character inserter, not a decimal integer.
+    // baseline selects the unsigned-character inserter, not a decimal integer.
     Out << "   Result   : " << Value << "\n";
 }
 
@@ -1088,7 +1084,7 @@ unsigned int FRpcPlayerTradePacket::Encode(unsigned char** BufferHolder,
     if (bNeedTarget) {
         // RC06b68e06/06b68d66/06b68ee9: the DWORD is counted only on this
         // direction, but the sticky Error is tested on every path (06b68e1d,
-        // 06b68d7d, 06b68efc) before the target DWORD is written to the cached
+        // , 06b68efc) before the target DWORD is written to the cached
         // destination and Ptr=cached+4 is committed (06b68f7a..06b68f85).
         if (bCountTarget) Stream.Reserve(4u, 0x16u);
         if (MarshalError != 0) return 0x16u;
@@ -1187,7 +1183,7 @@ unsigned int FRpcChatMsgPacket::Decode(const unsigned char* Buffer,
     }
 #endif
     // Both native decoders replace the pointer unconditionally. Re-decoding an
-    // existing packet does not release its previous allocation in retail.
+    // existing packet does not release its previous allocation in baseline.
     Data = static_cast<unsigned char*>(::operator new(DataSize, std::nothrow));
 #if defined(REMOTECLIENT_EXPORTS)
     if (Data == nullptr) return 5u; // MarshalError and the decoded size remain intact.
@@ -1381,7 +1377,7 @@ void RpcUpdateExpand(signed char Encoded, float& Value) {
 }
 
 // TEST AH,5 + JP takes the equal/greater/unordered side, while fall-through
-// selects the strictly-less tier. Z has only the small comparison in retail.
+// selects the strictly-less tier. Z has only the small comparison in baseline.
 unsigned char RpcFirePickTier(const float& Value, bool bHasMediumTier) {
     const float* Source = &Value;
     unsigned char Tier;
@@ -1569,7 +1565,7 @@ unsigned int FRpcUpdateObjectPacket::Decode(const unsigned char* Buffer,
 unsigned int FRpcPopUpDialogPacket::Decode(const unsigned char* Buffer,
     unsigned int Size, unsigned int* OutLength) {
     FRpcWireStream Stream(*this, const_cast<unsigned char*>(Buffer), Size);
-    // Retail ignores both helper results, including RC's allocation error 5.
+    // baseline ignores both helper results, including RC's allocation error 5.
     // A sticky marshal error still advances each later checked field's cursor.
     RpcWireDecodeOwnedBlock(*this, Stream, SizeA, DataA);
     RpcWireDecodeOwnedBlock(*this, Stream, SizeB, DataB);
@@ -1593,7 +1589,7 @@ unsigned int FRpcClientLoginPacket::Encode(unsigned char** BufferHolder,
     if (!Stream.Put(&AccountLength, 1u)) return 0x16u;
     if (!Stream.Put(&SecondLength, 1u)) return 0x16u;
     if (AccountLength != 0) {
-        // This mutation precedes the account-buffer capacity check in retail.
+        // This mutation precedes the account-buffer capacity check in baseline.
         _wcslwr(AccountName);
         if (!Stream.PutBlock(AccountName, static_cast<unsigned int>(AccountLength) * 2u)) return 0x16u;
     }
@@ -1706,7 +1702,7 @@ unsigned int FRpcTractorObjectsPacket::Encode(unsigned char** BufferHolder,
     if (!Stream.Put(&TractorEquipId, 2u)) return 0x16u;
     const unsigned short Count = static_cast<unsigned short>(TargetIds.size());
     if (!Stream.Put(&Count, 2u)) return 0x16u;
-    // Retail truncates the count to a WORD but emits every element, independently.
+    // baseline truncates the count to a WORD but emits every element, independently.
     for (std::vector<unsigned int>::const_iterator It = TargetIds.begin(); It != TargetIds.end(); ++It) {
         if (!Stream.Put(&*It, 4u)) return 0x16u;
     }

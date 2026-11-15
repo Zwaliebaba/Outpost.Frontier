@@ -1,26 +1,22 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
-// Retail Intro.cpp PageAccountSelect (RTTI .?AVPageAccountSelect@@ : UIPage::MasterWin) -- the
+// baseline Intro.cpp PageAccountSelect (RTTI .?AVPageAccountSelect@@ : UIPage::MasterWin) -- the
 // multiplayer "enter your CD key" page (PAGE_AccountSelect.page: AccountBoxShort, SelectServer,
-// Back, AccountID, Explain). One static instance, DAT_0067aa10 (static init LAB_005726a0 -> ctor
-// FUN_005726c0, atexit LAB_00573570 -> dtor FUN_00573470). vftables: main 0x005e2ef4, IUIPage
-// face (+0x7c) 0x005e2ed8, Event::Handler face (+0x80) 0x005e2ed0 (slot 0 LAB_005733b0).
-//
+// Back, AccountID, Explain). One static instance, the field (static init the branch -> ctor
+// , atexit the branch -> dtor the routine). vftables: main 0x005e2ef4, IUIPage
+// face (+0x7c) 0x005e2ed8, Event::Handler face (+0x80) 0x005e2ed0 (slot 0 the branch).
+
 // Call path: IntroFocus EnterState case 6 (0x00574c1a) loads the page descriptor (+0x8c),
 // calls slot 9 Create(0, 0) and makes this the active page (+0x228). IntroFocus::Update poll
-// index 2 (0x00574021) moves to the state in +0xb4 (DAT_0067aac4) and clears it. IntroFocus
+// index 2 (0x00574021) moves to the state in +0xb4 (the field) and clears it. IntroFocus
 // Exit calls slot 10 (0x00573e81).
-//
-// Retail layout past MasterWin (+0x00..+0x8b): +0x8c FUiPageDesc, +0xb4 Result, +0xb8 slide
+
+// baseline layout past MasterWin (+0x00..+0x8b): +0x8c FUiPageDesc, +0xb4 Result, +0xb8 slide
 // parameter (double), +0xc0 leaving, +0xc4 leave direction, +0xd4 the box's home position,
 // +0xe0..+0xf0 the five widgets, +0xf4 / +0x100 two RenderDisplayLists. The port's MasterWin
-// has no retail byte layout (see page_options.h), so the members below keep only the order.
+// has no baseline byte layout (see page_options.h), so the members below keep only the order.
 
 #include "common_text.h" // RenderDisplayList
 #include "ui_page.h"
@@ -33,27 +29,27 @@ class UiTextMsgButton;
 class PageAccountSelect : public UIPage::MasterWin
 {
 public:
-    // FUN_005726c0.
+    // .
     PageAccountSelect();
-    // FUN_00573470.
+    // .
     ~PageAccountSelect() override;
 
-    // slot 9 FUN_005727f0 (RET 8).
+    // slot 9 the routine (RET 8).
     bool Create(Win3D* NewParent, void* Payload) override;
-    // slot 10 FUN_005727b0.
+    // slot 10 the routine.
     void Destroy() override;
-    // slot 11 LAB_00572cc0 -- the slide in / out, then Win3D's child walk.
+    // slot 11 the branch -- the slide in / out, then Win3D's child walk.
     void Update() override;
-    // slot 23 FUN_00573010 (RET 0xc).
+    // slot 23 the routine (RET 0xc).
     bool Slot23(unsigned Msg, unsigned A, unsigned B) override;
-    // Event::Handler face (+0x80) slot 0 LAB_005733b0 (RET 4).
+    // Event::Handler face (+0x80) slot 0 the branch (RET 4).
     bool OnEvent(unsigned MsgId) override;
 
-    // FUN_00573370 (RET 4) -- FUN_00579890(bEnabled) on AccountID, SelectServer and Back.
+    // (RET 4) -- the routine(bEnabled) on AccountID, SelectServer and Back.
     void SetToolTipsEnabled(bool bEnabled);
 
-    FUiPageDesc Desc;              // +0x8c -- EnterState case 6 loads it (DAT_0067aa9c)
-    int Result;                    // +0xb4 -- DAT_0067aac4: the next IntroFocus state
+    FUiPageDesc Desc;              // +0x8c -- EnterState case 6 loads it (the field)
+    int Result;                    // +0xb4 -- the field: the next IntroFocus state
     double SlideT;                 // +0xb8 -- Create -1.5; 0..2 while in, 0..-0.9 while leaving
     unsigned char bLeaving;        // +0xc0
     int LeaveDirection;            // +0xc4 -- 1 on to ServerSelect (Result 5), -1 back (1)
@@ -81,5 +77,5 @@ private:
     PageAccountSelect& operator=(PageAccountSelect const&) = delete;
 };
 
-// DAT_0067aa10.
+// .
 PageAccountSelect& GetPageAccountSelect();

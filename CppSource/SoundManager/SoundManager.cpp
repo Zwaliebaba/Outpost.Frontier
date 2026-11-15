@@ -1,11 +1,7 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "SoundManagerInternal.h"
-#include "msvcrt_compat.h" // MsvcrtAtoi: retail MSVCRT.DLL wraps mod 2^32, the UCRT saturates
+#include "msvcrt_compat.h" // MsvcrtAtoi: baseline MSVCRT.DLL wraps mod 2^32, the UCRT saturates
 #include "readfile.h"
 
 #include <cctype>
@@ -26,10 +22,10 @@
 
 namespace
 {
-    // DAT_06eeaf0c: initialised by every FSoundManager ctor (06ee1c79), deleted by every dtor
+    // initialised by every FSoundManager ctor (06ee1c79), deleted by every dtor
     // (06ee1e09).
     CRITICAL_SECTION G_InstanceLock;
-    // DAT_06eeaf00 global instance list (head DAT_06eeaf04, count DAT_06eeaf08). Retail builds the
+    // global instance list (head the field, count the field). baseline builds the
     // head node in the static initializer 06ee1740 -> 06ee1750 (alloc, self-link, count = 0) at DLL
     // load and registers 06ee17f0 through _onexit (06ee17e0); FInstanceListInit below does both.
     FSoundInstanceNode G_InstanceSentinel;
@@ -42,14 +38,14 @@ namespace
             G_InstanceSentinel.Prev = &G_InstanceSentinel;
             G_InstanceCount = 0;
         }
-        ~FInstanceListInit(); // 06ee17f0, defined after ReleaseInstancePayload
+        ~FInstanceListInit(); // , defined after ReleaseInstancePayload
     };
     FInstanceListInit G_InstanceListInit;
-    HANDLE G_MixerEvent = nullptr;   // DAT_06eeaf70: CreateEventA in ctor 06ee1dc2, CloseHandle in dtor 06ee1e15
-    HANDLE G_NotifyThread = nullptr; // DAT_06eeaf6c, FUN_06ee1a40
-    unsigned long G_MixerStopFlag = 0; // DAT_06eeaf74, set by FUN_06ee4900, read by FUN_06ee18e0
+    HANDLE G_MixerEvent = nullptr;   // CreateEventA in ctor 06ee1dc2, CloseHandle in dtor 06ee1e15
+    HANDLE G_NotifyThread = nullptr; // , the routine
+    unsigned long G_MixerStopFlag = 0; // , set by the routine, read by the routine
 
-    // DAT_06eeaf5c / DAT_06eeaf60 / DAT_06eea028 / DAT_06eeaf64 / DAT_06eeaf68 / DAT_06eea020
+    // / the field / the field / the field / the field / the field
     unsigned long G_AllowHwToSw = 0;
     unsigned long G_AllowSwToHw = 0;
     unsigned long G_ForceFreqToSw = 1;
@@ -59,12 +55,12 @@ namespace
 
     const char kDefaultDeviceId[] = "{00000000-0000-0000-0000-000000000000}";
     // s_0123456789truefalsynox.. at 06eea428 (36 chars + NUL, copied with 9 MOVSD + 1 MOVSB at
-    // 06ee3788/395e/4228 and in FUN_06ee72f0). The port had dropped the trailing "OX+-", which cut
+    // /395e/4228 and in the routine). The port had dropped the trailing "OX+-", which cut
     // "0X1F" to "0" instead of reaching the hex branch.
     const char kIntCharset[] = "0123456789truefalsynoxTRUEFALSYNOX+-";
     const char kFloatCharset[] = "0123456789eE.+-";
 
-    // Retail DAT_06ee915c / 914c / 916c — last dword CA8AC24F, not SDK 4FACC94F.
+    // / 914c / 916c — last dword CA8AC24F, not SDK 4FACC94F.
     const GUID kDs3dAlgHrtfFull = {
         0xC2413340, 0x1C1B, 0x11D2, {0x94, 0xF5, 0x00, 0xC0, 0x4F, 0xC2, 0x8A, 0xCA}};
     const GUID kDs3dAlgHrtfLight = {
@@ -88,8 +84,8 @@ namespace
     };
     const unsigned long kSpeakerCount = sizeof(kSpeakerTable) / sizeof(kSpeakerTable[0]);
 
-    // FUN_06ee71c0 cdecl (buffer, fmt, ...): _vsnprintf(buffer, 0x2000, fmt, args), returns
-    // the buffer. No terminator is forced. Every retail message is formatted through it
+    // cdecl (buffer, fmt, ...): _vsnprintf(buffer, 0x2000, fmt, args), returns
+    // the buffer. No terminator is forced. Every baseline message is formatted through it
     // into a 0x2000-byte stack buffer.
     char* FormatMessage2000(char* Buffer, const char* Fmt, ...)
     {
@@ -100,8 +96,8 @@ namespace
         return Buffer;
     }
 
-    // Retail calls through the DACOM FDUMP import unconditionally (MOV EAX,[->FDUMP];
-    // CALL [EAX]); dacom initialises it statically to DefaultFdump.
+    // baseline calls through the NEURONCOMPONENTS FDUMP import unconditionally (MOV EAX,[->FDUMP];
+    // CALL [EAX]); neuroncomponents initialises it statically to DefaultFdump.
     void Fdump(unsigned int Flags, int Line, const char* Message)
     {
         const char* Fmt = kFdumpWarningFmt;
@@ -109,7 +105,7 @@ namespace
             Fmt = kFdumpErrorFmt;
         else if (Flags == kFdumpNotice)
             Fmt = kFdumpNoticeFmt;
-        FDUMP(static_cast<int>(Flags), Fmt, kRetailSource, Line, Message);
+        FDUMP(static_cast<int>(Flags), Fmt, kbaselineSource, Line, Message);
     }
 
     // FDUMP sites inside the statically linked WavLib report wavlib.cpp (06eeadd4).
@@ -125,22 +121,22 @@ namespace
     {
         char Buf[0x2000];
         Fdump(kFdumpWarning, Line,
-              FormatMessage2000(Buf, "SoundMgr:Couldn't create archetype %d.\n", ArchId)); // 06eea1ec
+              FormatMessage2000(Buf, "SoundMgr:Couldn't create archetype %d.\n", ArchId));
     }
 
-    // Retail QIs compare inline (strcmp loop / REPE CMPSB) with no null checks.
+    // baseline QIs compare inline (strcmp loop / REPE CMPSB) with no null checks.
     bool IidEqual(const char* Left, const char* Right)
     {
         return strcmp(Left, Right) == 0;
     }
 
-    // 06ee7067..7085 (and the two copies after it): signed-char range tests 0-9, a-f, A-F.
+    // ..7085 (and the two copies after it): signed-char range tests 0-9, a-f, A-F.
     bool IsGuidHexDigit(char C)
     {
         return (C >= '0' && C <= '9') || (C >= 'a' && C <= 'f') || (C >= 'A' && C <= 'F');
     }
 
-    // 06ee705f..7094: a field starts at the cursor, runs while hex digits last, and the cursor
+    // ..7094: a field starts at the cursor, runs while hex digits last, and the cursor
     // then steps one past the stop character (a NUL included) before strtoul(field, 0, 16).
     unsigned long ParseGuidField(const char*& Cursor)
     {
@@ -151,13 +147,13 @@ namespace
         return strtoul(Field, nullptr, 16);
     }
 
-    // FUN_06ee6fd0 cdecl (text, guid; sole caller StartupDevice at 06ee3ec4 with +0x0D/+0x38).
-    // The default id DAT_06eea024 -> 06eea02c "{00000000-0000-0000-0000-000000000000}" zeroes
+    // cdecl (text, guid; sole caller StartupDevice at 06ee3ec4 with +0x0D/+0x38).
+    // The default id the field -> 06eea02c "{00000000-0000-0000-0000-000000000000}" zeroes
     // the GUID. Otherwise: skip to '{' and one past it (past the NUL when there is none);
     // strcpy the rest into a 0xC8-byte stack buffer that is never read again; three
     // hex-run fields (Data1 dword, Data2/Data3 word); then Data4 as eight two-character
     // strtoul pairs, the cursor skipping one extra character after the second pair. No
-    // validation and no guards, as retail.
+    // validation and no guards, as baseline.
     void ParseGuidString(const char* Text, GUID* Out)
     {
         if (strcmp(Text, kDefaultDeviceId) == 0)
@@ -169,7 +165,7 @@ namespace
         while (*Cursor != '\0' && *Cursor != '{')
             ++Cursor;
         ++Cursor;
-        char DeadCopy[0xC8]; // 06ee704d local_c8
+        char DeadCopy[0xC8]; // local_c8
         strcpy(DeadCopy, Cursor);
         const unsigned long Data1 = ParseGuidField(Cursor);
         const unsigned long Data2 = ParseGuidField(Cursor);
@@ -200,19 +196,19 @@ namespace
         memcpy(Out->Data4, Data4, sizeof(Data4));
     }
 
-    // Retail StartupDevice / FUN_06ee72f0 read every INI value through IProfileParser vtbl+0x20
+    // baseline StartupDevice / the routine read every INI value through IProfileParser vtbl+0x20
     // (section, key, buffer, 0x400) into one of four global scratch buffers, never cleared first:
-    // DAT_06eeafa0 (integers, also FUN_06ee72f0), DAT_06eeb3c0 (reverb floats), DAT_06eeb7e0
-    // (deviceID, 3D_SW_Algorithm) and DAT_06eebc00 (speakerConfiguration presence probe).
+    // (integers, also the routine), the field (reverb floats), the field
+    // (deviceID, 3D_SW_Algorithm) and the field (speakerConfiguration presence probe).
     char G_IniIntBuffer[0x420];
     char G_IniFloatBuffer[0x420];
     char G_IniStringBuffer[0x420];
     char G_IniSpeakerBuffer[0x404];
 
     // Inlined after every integer GetString (StartupDevice 06ee3783.., 06ee3959.., 06ee4223.. and
-    // FUN_06ee72f0 06ee7384..): strspn against the 36-char set and cut there only when the span is
+    // 06ee7384..): strspn against the 36-char set and cut there only when the span is
     // non-zero; then "true"/"yes" -> 1 and "false"/"no" -> 0 (stricmp, one call each), an 'x' or 'X'
-    // anywhere -> strtoul(.., 0, 16), else atoi. The strspn(buf, "0123456789+-") retail runs just
+    // anywhere -> strtoul(.., 0, 16), else atoi. The strspn(buf, "0123456789+-") baseline runs just
     // before atoi has its result discarded, so nothing is cut there.
     unsigned long ParseIniUnsigned(char* Text)
     {
@@ -242,9 +238,9 @@ namespace
         return static_cast<float>(atof(Text));
     }
 
-    // FUN_06ee74d0 thiscall (Dest, Src) RET 4: replace *Dest with Src (Release old, AddRef new)
+    // thiscall (Dest, Src) RET 4: replace *Dest with Src (Release old, AddRef new)
     // unless they are equal; returns the stored pointer.
-    IDAComponent* AssignComPtr(IDAComponent** Dest, IDAComponent* Src)
+    INeuronComponent* AssignComPtr(INeuronComponent** Dest, INeuronComponent* Src)
     {
         if (*Dest != Src)
         {
@@ -260,8 +256,8 @@ namespace
         return *Dest;
     }
 
-    // FUN_06ee7600 thiscall: Release and clear a held COM pointer.
-    void ReleaseComPtr(IDAComponent** Ptr)
+    // thiscall: Release and clear a held COM pointer.
+    void ReleaseComPtr(INeuronComponent** Ptr)
     {
         if (*Ptr != nullptr)
         {
@@ -270,36 +266,36 @@ namespace
         }
     }
 
-    // StartupDevice's per-key prologue (inlined ten times): Local = 0; FUN_06ee74d0(&Local,
-    // cached parser [+0x134]) and, when that leaves nothing, Dacom QueryInterface for
+    // StartupDevice's per-key prologue (inlined ten times): Local = 0; the routine(&Local,
+    // cached parser [+0x134]) and, when that leaves nothing, NeuronComponents QueryInterface for
     // "1.11_IProfileParser" into Local. True when a parser is held.
-    bool AcquireParserLocal(ICOManager* Dacom, IProfileParser* Cached, IDAComponent** Local)
+    bool AcquireParserLocal(ICOManager* NeuronComponents, IProfileParser* Cached, INeuronComponent** Local)
     {
         *Local = nullptr;
         if (AssignComPtr(Local, Cached) != nullptr)
             return true;
-        return Dacom->QueryInterface(Iids::ProfileParser, reinterpret_cast<void**>(Local)) == GR_OK;
+        return NeuronComponents->QueryInterface(Iids::ProfileParser, reinterpret_cast<void**>(Local)) == GR_OK;
     }
 
-    // FUN_06ee72f0 cdecl (dacom, cached, section, key, default, out). Out may be null (then the
+    // cdecl (neuroncomponents, cached, section, key, default, out). Out may be null (then the
     // value lives in the 'cached' argument slot). Parser acquisition as above; when no parser is
     // obtained *Out is NOT written and its previous content is returned - StartupDevice passes one
     // stack variable to every call and reads it back, so a failed acquisition keeps the previous
     // key's value. Otherwise *Out = default, OpenSection(section, 3) (0 -> skip), GetString(key,
-    // DAT_06eeafa0, 0x400) (0 -> keep default), parse, CloseSection; Release the parser; return *Out.
-    unsigned long ReadProfileInt(ICOManager* Dacom, IProfileParser* Cached, const char* Section,
+    // , 0x400) (0 -> keep default), parse, CloseSection; Release the parser; return *Out.
+    unsigned long ReadProfileInt(ICOManager* NeuronComponents, IProfileParser* Cached, const char* Section,
                                  const char* Key, unsigned long DefaultValue, unsigned long* Out)
     {
         unsigned long Fallback = 0;
         if (Out == nullptr)
             Out = &Fallback;
-        IDAComponent* Local = nullptr;
+        INeuronComponent* Local = nullptr;
         if (Cached != nullptr)
         {
             Local = Cached;
             Cached->AddRef();
         }
-        else if (Dacom->QueryInterface(Iids::ProfileParser, reinterpret_cast<void**>(&Local)) != GR_OK)
+        else if (NeuronComponents->QueryInterface(Iids::ProfileParser, reinterpret_cast<void**>(&Local)) != GR_OK)
             return *Out;
         IProfileParser* Parser = static_cast<IProfileParser*>(Local);
         *Out = DefaultValue;
@@ -320,7 +316,7 @@ namespace
         memcpy(Dest, Src, sizeof(GUID));
     }
 
-    // FUN_06ee54e0 thiscall RET 0xC: write 3 dwords into Dest.
+    // thiscall RET 0xC: write 3 dwords into Dest.
     void StoreVec3(FVec3* Dest, float X, float Y, float Z)
     {
         Dest->X = X;
@@ -328,7 +324,7 @@ namespace
         Dest->Z = Z;
     }
 
-    // FUN_06ee5500 cdecl: Out = A - B. Each component is x87 FLD float / FSUB float / FSTP float
+    // cdecl: Out = A - B. Each component is x87 FLD float / FSUB float / FSTP float
     // (Z and Y computed first, stored X, Y, Z) - emulated in double, then rounded to float.
     void SubVec3(FVec3* Out, const FVec3* A, const FVec3* B)
     {
@@ -349,7 +345,7 @@ namespace
         Fdump(kFdumpNotice, Line, FormatMessage2000(Text, Fmt, PlayKey->GetArchId()));
     }
 
-    // FUN_06ee5f00 thiscall RET 8 (payload at node+8, hw-used count). Returns AL.
+    // thiscall RET 8 (payload at node+8, hw-used count). Returns AL.
     unsigned char MaybeMigrateHwSw(FSoundManager* Manager, FSoundInstanceNode* Node,
                                    unsigned long HwUsed)
     {
@@ -397,8 +393,8 @@ namespace
                       static_cast<int>(Manager->Field50)));
             return bNeed;
         }
-        // 06ee6014 TEST AL,1 tests EAX after the AND ~1 at 06ee5fb0, so this notice never
-        // fires in retail either; kept as the listing has it.
+        // TEST AL,1 tests EAX after the AND ~1 at 06ee5fb0, so this notice never
+        // fires in baseline either; kept as the listing has it.
         if ((Flags & 1) != 0)
         {
             Fdump(kFdumpNotice, 0xC30,
@@ -408,7 +404,7 @@ namespace
         return bNeed;
     }
 
-    // FUN_06ee56e0 stdcall RET 4: factory Initialize hook, always 0.
+    // stdcall RET 4: factory Initialize hook, always 0.
     unsigned long SoundManagerFactoryInitialize(void* /*Unused*/)
     {
         return 0;
@@ -416,7 +412,7 @@ namespace
 
     FAttachedNode* MakeAttachedSentinel()
     {
-        // FUN_06ee7d80 head node (0xC); retail stores the self-links into the result unchecked.
+        // head node (0xC); baseline stores the self-links into the result unchecked.
         FAttachedNode* Node = static_cast<FAttachedNode*>(calloc(1, sizeof(FAttachedNode)));
         Node->Next = Node;
         Node->Prev = Node;
@@ -425,20 +421,20 @@ namespace
 
     // ---- WavLib (statically linked into SoundManager.dll, 06ee8660..06ee8d4d) ----
 
-    HACMDRIVER G_WavLibDriver = nullptr; // DAT_06eeaf7c
+    HACMDRIVER G_WavLibDriver = nullptr;
 
-    // Instance block handed to acmDriverEnum by FUN_06ee8d00: {name to match, found id}.
+    // Instance block handed to acmDriverEnum by the routine: {name to match, found id}.
     struct FAcmDriverSearch
     {
         const char* LongName;  // +0
         HACMDRIVERID DriverId; // +4
     };
 
-    // LAB_06ee8c60 ACMDRIVERENUMCB (RET 0xC): 1 = keep enumerating, 0 = stop (match stored).
+    // ACMDRIVERENUMCB (RET 0xC): 1 = keep enumerating, 0 = stop (match stored).
     BOOL CALLBACK WavLibAcmEnum(HACMDRIVERID DriverId, DWORD_PTR Instance, DWORD /*Support*/)
     {
         FAcmDriverSearch* Search = reinterpret_cast<FAcmDriverSearch*>(Instance);
-        if (Search == nullptr || Search->LongName == nullptr) // 06ee8c6f / 06ee8c73
+        if (Search == nullptr || Search->LongName == nullptr) // / 06ee8c73
             return TRUE;
         ACMDRIVERDETAILSA Details;
         Details.cbStruct = 0x398;
@@ -452,7 +448,7 @@ namespace
         return FALSE;
     }
 
-    // FUN_06ee8d00 cdecl: enumerate for LongName, then open whatever id the search left
+    // cdecl: enumerate for LongName, then open whatever id the search left
     // (still 0 when nothing matched - acmDriverOpen then fails).
     HACMDRIVER WavLibOpenAcmDriver(const char* LongName)
     {
@@ -467,8 +463,8 @@ namespace
         return Driver;
     }
 
-    // FUN_06ee8660: unconditional (the caller FUN_06ee86c0 tests DAT_06eeaf7c first).
-    // The name is .data:06eeae38 - the "(advanced)" codec, same as SoundStreamer's.
+    // unconditional (the caller the routine tests the field first).
+    // The name is module storage - the "(advanced)" codec, same as SoundStreamer's.
     void WavLibInitAcmDriver()
     {
         G_WavLibDriver = WavLibOpenAcmDriver("Fraunhofer IIS MPEG Layer-3 Codec (advanced)");
@@ -477,7 +473,7 @@ namespace
     }
 
     // One-slot sink WavLib hands the decoded sound to (slot 0, thiscall, RET 0xC). The only
-    // implementation is FUN_06ee1240's stack object (vtable PTR_LAB_06ee9210, FArchetypeWavSink).
+    // implementation is the routine's stack object (vtable the branch, FArchetypeWavSink).
     // It is consumed while the file mapping (PCM) or the ACM output buffer is still live.
     class FWavSink
     {
@@ -486,8 +482,8 @@ namespace
                                       unsigned long ByteCount) = 0;
     };
 
-    // Stack object of FUN_06ee8960: {file system, map handle, view, mapped size, read cursor}.
-    // Its destructor FUN_06ee8c00 is the EH unwind action (LAB_06ee8f88) and is inlined on every
+    // Stack object of the routine: {file system, map handle, view, mapped size, read cursor}.
+    // Its destructor the routine is the EH unwind action (the branch) and is inlined on every
     // normal exit as well.
     struct FWavLibMap
     {
@@ -497,7 +493,7 @@ namespace
         unsigned long Size;        // +0x0C
         unsigned long Cursor;      // +0x10
 
-        // FUN_06ee8c00
+
         ~FWavLibMap()
         {
             if (Handle != -1 && FileSystem != nullptr)
@@ -507,7 +503,7 @@ namespace
             }
         }
 
-        // FUN_06ee8c30 thiscall RET 8: pointer into the view, or 0 when unmapped / out of range.
+        // thiscall RET 8: pointer into the view, or 0 when unmapped / out of range.
         const unsigned char* Range(unsigned long Offset, unsigned long Length) const
         {
             if (Handle == -1)
@@ -518,17 +514,17 @@ namespace
         }
     };
 
-    // FUN_06ee86c0 cdecl: whole-file ACM decode of a compressed WAV; the PCM goes to the sink
+    // cdecl: whole-file ACM decode of a compressed WAV; the PCM goes to the sink
     // and is freed afterwards. Trim (encoder delay) and fact (sample count) are honoured only
     // when positive.
     unsigned char WavLibAcmDecode(const WAVEFORMATEX* Src, const unsigned char* Data, unsigned long DataSize,
                                   unsigned long TrimSamples, unsigned long FactSamples, FWavSink* Sink)
     {
-        if (G_WavLibDriver == nullptr) // 06ee86cc
+        if (G_WavLibDriver == nullptr)
             WavLibInitAcmDriver();
         ACMSTREAMHEADER Header;
         memset(&Header, 0, sizeof(Header)); // REP STOSD 0x15
-        WAVEFORMATEX Dst;                    // retail sets only the tag before the suggest
+        WAVEFORMATEX Dst;                    // baseline sets only the tag before the suggest
         Dst.wFormatTag = WAVE_FORMAT_PCM;
         unsigned char bOk = 0;
         HACMSTREAM Acm = nullptr;
@@ -540,7 +536,7 @@ namespace
             return 0;
         Header.cbStruct = 0x54;
         Header.cbSrcLength = DataSize;
-        if (DataSize < Src->nBlockAlign) // 06ee8753 JNC
+        if (DataSize < Src->nBlockAlign) // JNC
             Header.cbSrcLength = Src->nBlockAlign;
         Header.cbSrcLengthUsed = 0;
         Header.cbDstLength = 0;
@@ -592,7 +588,7 @@ namespace
                 }
             }
         }
-        // 06ee890d common exit.
+        // common exit.
         if (Acm != nullptr)
         {
             if (Header.cbStruct != 0)
@@ -607,9 +603,9 @@ namespace
         return bOk;
     }
 
-    // FUN_06ee8960 cdecl: map the file through the caller's IFileSystem (+0x3C/+0x40/+0x28),
+    // cdecl: map the file through the caller's IFileSystem (+0x3C/+0x40/+0x28),
     // walk RIFF/WAVE, and hand fmt/data to the sink while the mapping is open. PCM goes to the
-    // sink as is; anything else through FUN_06ee86c0. Returns the sink's result, 0 on any
+    // sink as is; anything else through the routine. Returns the sink's result, 0 on any
     // failure. No path and no other file access.
     unsigned char WavLibLoad(IFileSystem* FileSystem, FWavSink* Sink)
     {
@@ -687,7 +683,7 @@ namespace
         return Sink->Consume(Fmt8, Samples, DataChunk[1]);
     }
 
-    // Stack object of FUN_06ee1240 (06ee126a): {vtable PTR_LAB_06ee9210, archetype, DirectSound,
+    // Stack object of the routine (06ee126a): {vtable the branch, archetype, DirectSound,
     // flags}.
     class FArchetypeWavSink final : public FWavSink
     {
@@ -696,8 +692,8 @@ namespace
         IDirectSound* DirectSound;  // +0x08
         unsigned long Flags;        // +0x0C
 
-        // LAB_06ee12f0 thiscall RET 0xC: frames = bytes / fmt[3] (DIV, no zero test);
-        // FUN_06ee1330(fmt, bytes, 0, frames, samples, DS, flags); NEG/SBB/INC -> (hr == 0).
+        // thiscall RET 0xC: frames = bytes / fmt[3] (DIV, no zero test);
+        // (fmt, bytes, 0, frames, samples, DS, flags); NEG/SBB/INC -> (hr == 0).
         unsigned char Consume(const unsigned short* Fmt8, const void* Samples,
                               unsigned long ByteCount) override
         {
@@ -708,7 +704,7 @@ namespace
         }
     };
 
-    // 06ee67d9..680d: y = 0x5F3759DF - (bits(x) SAR 1); on the FPU stack
+    // ..680d: y = 0x5F3759DF - (bits(x) SAR 1); on the FPU stack
     // Dist = (((1.5f - ((y*y)*x)*0.5f) * y) * x), stored as float. The products stay on the
     // x87 stack until the FSTP; the port is x87 too (/arch:IA32), and its double locals are
     // exact spills of those register values, so the single float rounding point is the same.
@@ -723,14 +719,14 @@ namespace
         return static_cast<float>(((static_cast<double>(1.5f) - Half) * YD) * XD);
     }
 
-    // 06ee6826..6858, only when DistSq > MinDistSq: on the x87 stack
+    // ..6858, only when DistSq > MinDistSq: on the x87 stack
     // Min / (Min + Rolloff * (Dist * DistanceFactor - Min)) -> FLDLG2 + FYL2X (log10) ->
     // FMUL double 10.0 -> FADD the client attenuation -> FSTP float. Kept as x87 code because
     // FYL2X is not bit-identical to the CRT log10. No guard on the log argument.
     float SoftwareAttenuation(float MinDistance, float Dist, float DistanceFactor,
                               float RolloffFactor, float ClientAtten)
     {
-        static const double kTen = 10.0; // DAT_06ee9480
+        static const double kTen = 10.0;
         float Result;
         __asm
         {
@@ -752,8 +748,8 @@ namespace
         return Result;
     }
 
-    // FUN_06ee1670 cdecl: clamp vs DAT_06ee9220=-100 / DAT_06ee9250=100,
-    // return pow(DAT_06ee9248=2.0, pitch * DAT_06ee9240=0.01f). The clamp is
+    // cdecl: clamp vs the field=-100 / the field=100,
+    // return pow(the field=2.0, pitch * =0.01f). The clamp is
     // TEST AH,0x05 + JP (fall-through = less -> -100, then skip the second compare) and
     // TEST AH,0x41 + JNZ (fall-through = greater -> 100); NaN is clamped by neither. The
     // product is FMUL by the float constant without a float store, and _CIpow leaves the
@@ -773,7 +769,7 @@ namespace
         return static_cast<unsigned long>(static_cast<long long>(Value));
     }
 
-    // FUN_06ee16c0 cdecl (archetype, play-key): archetype null -> 0; DurationMs (+0x1C) if
+    // cdecl (archetype, play-key): archetype null -> 0; DurationMs (+0x1C) if
     // flags (+0x20) bit1 clear, GetPitch (+0x28, stdcall) nonzero, or pitch == 0.0f
     // (TEST AH,0x44 + JNP: only C3 alone skips, NaN goes on); else
     // ftol(float(DurationMs) / PitchToMultiplier) with the duration FILD qword -> FSTP float
@@ -794,7 +790,7 @@ namespace
         return Ftol32(static_cast<double>(DurationF) / PitchToMultiplier(Pitch));
     }
 
-    // FUN_06ee1040 thiscall: zero payload fields (not +0x18 / +0x30 / +0x34).
+    // thiscall: zero payload fields (not +0x18 / +0x30 / +0x34).
     void InitInstancePayload(FSoundInstanceNode* Node)
     {
         Node->PlayKey = nullptr;
@@ -818,7 +814,7 @@ namespace
         Node->LastStartTick = 0;
     }
 
-    // FUN_06ee11a0 thiscall: Release Buffer3d, Stop+Release Buffer, Release PlayKey.
+    // thiscall: Release Buffer3d, Stop+Release Buffer, Release PlayKey.
     void ReleaseInstancePayload(FSoundInstanceNode* Node)
     {
         if (Node->Buffer3d != nullptr)
@@ -839,8 +835,8 @@ namespace
         }
     }
 
-    // 06ee17f0 (_onexit, once-guard byte DAT_06eeaf24): erase every node still on the DAT_06eeaf00
-    // list - unlink, payload dtor FUN_06ee85e0 -> FUN_06ee11a0, node free, DAT_06eeaf08-- - then
+    // (_onexit, once-guard byte the field): erase every node still on the the field
+    // list - unlink, payload dtor the routine -> the routine, node free, the field-- - then
     // release the head and zero head/count. The port's head is the embedded sentinel.
     FInstanceListInit::~FInstanceListInit()
     {
@@ -858,7 +854,7 @@ namespace
         G_InstanceCount = 0;
     }
 
-    // FUN_06ee10a0 thiscall RET 4: assign payload with COM Release/AddRef.
+    // thiscall RET 4: assign payload with COM Release/AddRef.
     void AssignInstancePayload(FSoundInstanceNode* Dest, const FSoundInstanceNode* Src)
     {
         ReleaseInstancePayload(Dest);
@@ -888,7 +884,7 @@ namespace
         Dest->LastStartTick = Src->LastStartTick;
     }
 
-    // FUN_06ee1080 thiscall RET 4: zero COM ptrs then FUN_06ee10a0.
+    // thiscall RET 4: zero COM ptrs then the routine.
     void CopyConstructInstancePayload(FSoundInstanceNode* Dest, const FSoundInstanceNode* Src)
     {
         Dest->PlayKey = nullptr;
@@ -897,7 +893,7 @@ namespace
         AssignInstancePayload(Dest, Src);
     }
 
-    // FUN_06ee6410 cdecl (samples, byteCount, buffer): Lock(0, 0, &p1, &b1, 0, 0, ENTIREBUFFER);
+    // cdecl (samples, byteCount, buffer): Lock(0, 0, &p1, &b1, 0, 0, ENTIREBUFFER);
     // failure (JL) -> FDUMP ERROR 0xD03 "Couldn't lock sound buffer.\n" (06eeac28), -1. Else
     // copy min(byteCount, b1) (REP MOVSD/MOVSB, no null test), Unlock(p1, b1, 0, 0) with its
     // result ignored, return 0.
@@ -918,8 +914,8 @@ namespace
         return 0;
     }
 
-    // FUN_06ee18e0 stdcall RET 4: DS-notify thread. Collect node+0x14 events +
-    // DAT_06eeaf70, WFMO; looping wrap SetCurrentPosition(Pad18); else CloseHandle.
+    // stdcall RET 4: DS-notify thread. Collect node+0x14 events +
+    // , WFMO; looping wrap SetCurrentPosition(Pad18); else CloseHandle.
     DWORD WINAPI NotifyThreadProc(void* /*Unused*/)
     {
         HANDLE* Handles = nullptr;
@@ -928,7 +924,7 @@ namespace
         DWORD PlayPos = 0;
         for (;;)
         {
-            // 06ee18f0..1945: operator new((count + 1) * 4), zero it, collect node+0x14 events.
+            // ..1945: operator new((count + 1) * 4), zero it, collect node+0x14 events.
             EnterCriticalSection(&G_InstanceLock);
             const unsigned long AllocBytes = G_InstanceCount * 4u + 4u;
             Handles = static_cast<HANDLE*>(operator new(AllocBytes));
@@ -953,7 +949,7 @@ namespace
             HANDLE Signaled = Handles[Wait];
             if (Signaled == G_MixerEvent)
             {
-                ResetEvent(G_MixerEvent); // 06ee197d
+                ResetEvent(G_MixerEvent);
             }
             else
             {
@@ -965,7 +961,7 @@ namespace
                     {
                         if (Node->PlayKey->IsLooping() != 0)
                         {
-                            // 06ee19ae: GetCurrentPosition(&play, NULL) - no write cursor;
+                            // GetCurrentPosition(&play, NULL) - no write cursor;
                             // the result is not tested.
                             Node->Buffer->GetCurrentPosition(&PlayPos, nullptr);
                             if (PlayPos > Node->FeatureFlags)
@@ -1001,7 +997,7 @@ namespace
         return Value;
     }
 
-    // FUN_06ee1000 thiscall: { IDirectSoundBuffer* +0x00, DSBUFFERDESC +0x04 }.
+    // thiscall: { IDirectSoundBuffer* +0x00, DSBUFFERDESC +0x04 }.
     // Zeros 0x28 bytes, dwSize=0x24, dwFlags=CTRL3D (0x10), dwBufferBytes=4, lpwfxFormat=arg.
     struct FDsBufferDescWrapper
     {
@@ -1020,7 +1016,7 @@ namespace
         return This;
     }
 
-    // FUN_06ee7600 thiscall (VA outside this lane): Release wrapper.Buffer if non-null.
+    // thiscall (VA outside this lane): Release wrapper.Buffer if non-null.
     void ReleaseDsBufferWrapper(FDsBufferDescWrapper* This)
     {
         if (This->Buffer != nullptr)
@@ -1034,7 +1030,7 @@ namespace
 FSoundArchetype::FSoundArchetype()
     : nChannels(0), Field06(0), nSamplesPerSec(0), nBlockAlign(0), LoopStart(0), LoopEnd(0),
       NumFrames(0), Gain(0.0f), DurationMs(0), Flags(0), Buffer(nullptr), bSamplesReady(0),
-      RefCount(1) // caller after FUN_06ee11f0 stores 1 at +0x2C; ctor itself does not
+      RefCount(1) // caller after the routine stores 1 at +0x2C; ctor itself does not
 {
     Pad29[0] = 0;
     Pad29[1] = 0;
@@ -1043,7 +1039,7 @@ FSoundArchetype::FSoundArchetype()
 
 FSoundArchetype::~FSoundArchetype()
 {
-    // FUN_06ee1220 thiscall: vtbl restore then Release [this+0x24].
+    // thiscall: vtbl restore then Release [this+0x24].
     if (Buffer != nullptr)
     {
         Buffer->Release();
@@ -1051,28 +1047,28 @@ FSoundArchetype::~FSoundArchetype()
     }
 }
 
-GENRESULT DACOM_API FSoundArchetype::QueryInterface(const char* Iid, void** Out)
+GENRESULT NEURONCOMPONENTS_API FSoundArchetype::QueryInterface(const char* Iid, void** Out)
 {
-    // LAB_06ee8190 RET 0xC: walks the one-entry table DAT_06ee94b0 {"1.11_ISoundArchetype", +0}
+    // RET 0xC: walks the one-entry table the field {"1.11_ISoundArchetype", +0}
     // (terminator 06ee94b8) with an inline strcmp; no null checks on Iid or Out. Miss -> *Out = 0,
     // return 0xFFFFFFFD; hit -> AddRef through the found interface, *Out = it, return 0.
     if (!IidEqual(Iid, Iids::SoundArchetype))
     {
-        *Out = nullptr; // 06ee81e9, only after the table walk
+        *Out = nullptr; // , only after the table walk
         return GR_INTERFACE_UNSUPPORTED;
     }
-    AddRef();                                 // 06ee822e, before the store
-    *Out = static_cast<ISoundArchetype*>(this); // 06ee8236
+    AddRef();                                 // , before the store
+    *Out = static_cast<ISoundArchetype*>(this);
     return GR_OK;
 }
 
-unsigned long DACOM_API FSoundArchetype::AddRef()
+unsigned long NEURONCOMPONENTS_API FSoundArchetype::AddRef()
 {
     ++RefCount;
     return RefCount;
 }
 
-unsigned long DACOM_API FSoundArchetype::Release()
+unsigned long NEURONCOMPONENTS_API FSoundArchetype::Release()
 {
     if (RefCount > 0)
         --RefCount;
@@ -1086,9 +1082,9 @@ unsigned long DACOM_API FSoundArchetype::Release()
     return Remaining;
 }
 
-GENRESULT DACOM_API FSoundArchetype::GetFormat(void* Out)
+GENRESULT NEURONCOMPONENTS_API FSoundArchetype::GetFormat(void* Out)
 {
-    // LAB_06ee1530 RET 8: copy [this+4] and [this+8] as two dwords. No null check.
+    // RET 8: copy [this+4] and [this+8] as two dwords. No null check.
     // EAX leftover is [this+8]; callers ignore HRESULT.
     memcpy(Out, &nChannels, 8);
     unsigned long Packed = 0;
@@ -1096,47 +1092,47 @@ GENRESULT DACOM_API FSoundArchetype::GetFormat(void* Out)
     return static_cast<GENRESULT>(Packed);
 }
 
-GENRESULT DACOM_API FSoundArchetype::GetSamples(void* /*Out*/)
+GENRESULT NEURONCOMPONENTS_API FSoundArchetype::GetSamples(void* /*Out*/)
 {
-    // LAB_06ee1550 RET 8: FDUMP ERROR 0x204, return 0.
-    Fdump(kFdumpError, 0x204, "SoundManager: get_samples() function is not supported."); // 06eea140
+    // RET 8: FDUMP ERROR 0x204, return 0.
+    Fdump(kFdumpError, 0x204, "SoundManager: get_samples() function is not supported.");
     return GR_OK;
 }
 
-unsigned long DACOM_API FSoundArchetype::GetNumFrames()
+unsigned long NEURONCOMPONENTS_API FSoundArchetype::GetNumFrames()
 {
     return NumFrames;
 }
 
-float DACOM_API FSoundArchetype::GetGain()
+float NEURONCOMPONENTS_API FSoundArchetype::GetGain()
 {
-    // LAB_06ee1590 RET 4: FLD [this+0x18].
+    // RET 4: FLD [this+0x18].
     return Gain;
 }
 
-unsigned long DACOM_API FSoundArchetype::GetChannelCount()
+unsigned long NEURONCOMPONENTS_API FSoundArchetype::GetChannelCount()
 {
-    // LAB_06ee15a0 RET 4: MOVZX EAX, word [this+4].
+    // RET 4: MOVZX EAX, word [this+4].
     return nChannels;
 }
 
-unsigned long DACOM_API FSoundArchetype::GetDurationMs()
+unsigned long NEURONCOMPONENTS_API FSoundArchetype::GetDurationMs()
 {
-    // LAB_06ee15b0 RET 4: EAX = [this+0x1C].
+    // RET 4: EAX = [this+0x1C].
     return DurationMs;
 }
 
-GENRESULT DACOM_API FSoundArchetype::SetSamples(void* /*A*/, void* /*B*/)
+GENRESULT NEURONCOMPONENTS_API FSoundArchetype::SetSamples(void* /*A*/, void* /*B*/)
 {
-    // LAB_06ee15f0 RET 0xC: FDUMP ERROR 0x23A, EAX leftover.
-    Fdump(kFdumpError, 0x23A, "SoundManager: function set_samples() not supported.\n"); // 06eea178
+    // RET 0xC: FDUMP ERROR 0x23A, EAX leftover.
+    Fdump(kFdumpError, 0x23A, "SoundManager: function set_samples() not supported.\n");
     return GR_OK;
 }
 
-GENRESULT DACOM_API FSoundArchetype::SetGain(float InGain)
+GENRESULT NEURONCOMPONENTS_API FSoundArchetype::SetGain(float InGain)
 {
-    // LAB_06ee1620 RET 8: FCOM DAT_06ee9238 (0.0) → store 0 if >; else FCOM
-    // DAT_06ee9228 (-100.0) → store DAT_06ee9220 if <; [this+0x28]=1; return 0.
+    // RET 8: FCOM the field (0.0) → store 0 if >; else FCOM
+    // (-100.0) → store the field if <; [this+0x28]=1; return 0.
     Gain = InGain;
     if (Gain > 0.0f)
         Gain = 0.0f;
@@ -1146,15 +1142,15 @@ GENRESULT DACOM_API FSoundArchetype::SetGain(float InGain)
     return GR_OK;
 }
 
-unsigned long DACOM_API FSoundArchetype::IsReady()
+unsigned long NEURONCOMPONENTS_API FSoundArchetype::IsReady()
 {
-    // LAB_06ee15c0 RET 4: AL=1.
+    // RET 4: AL=1.
     return 1;
 }
 
-GENRESULT DACOM_API FSoundArchetype::GetLoopRange(unsigned long* Start, unsigned long* End)
+GENRESULT NEURONCOMPONENTS_API FSoundArchetype::GetLoopRange(unsigned long* Start, unsigned long* End)
 {
-    // LAB_06ee15d0 RET 0xC: no null check; EAX leftover = LoopEnd.
+    // RET 0xC: no null check; EAX leftover = LoopEnd.
     *Start = LoopStart;
     *End = LoopEnd;
     return static_cast<GENRESULT>(LoopEnd);
@@ -1165,7 +1161,7 @@ GENRESULT FSoundArchetype::FillFromPcm(const unsigned short* Fmt8, unsigned long
                                        const void* Samples, IDirectSound* DirectSound,
                                        unsigned long InFlags)
 {
-    // FUN_06ee1330 thiscall RET 0x1C.
+    // thiscall RET 0x1C.
     if (Buffer != nullptr)
     {
         Buffer->Release();
@@ -1175,13 +1171,13 @@ GENRESULT FSoundArchetype::FillFromPcm(const unsigned short* Fmt8, unsigned long
     memcpy(&nChannels, Fmt8, 8);
     LoopStart = InLoopStart;
     LoopEnd = InLoopEnd;
-    // 06ee1374..139b: unsigned DIVs with no zero guards, as retail.
+    // ..139b: unsigned DIVs with no zero guards, as baseline.
     NumFrames = ByteCount / nBlockAlign;
     DurationMs = (NumFrames * 1000) / nSamplesPerSec;
 
-    // 06ee1385..13ed: WAVEFORMATEX {PCM, channels, rate, avg, align, bits, 0} where
+    // ..13ed: WAVEFORMATEX {PCM, channels, rate, avg, align, bits, 0} where
     // bits = (align*8) IDIV channels, and the format's block align is NOT the input align but
-    // LOWORD(ftol(FILD(bits*channels) * 0.125 (DAT_06ee9218))), avg = that word * rate.
+    // LOWORD(ftol(FILD(bits*channels) * 0.125 (the field))), avg = that word * rate.
     WAVEFORMATEX Wave;
     Wave.wFormatTag = WAVE_FORMAT_PCM;
     Wave.nChannels = nChannels;
@@ -1203,7 +1199,7 @@ GENRESULT FSoundArchetype::FillFromPcm(const unsigned short* Fmt8, unsigned long
 
     if ((InFlags & 8) != 0 && (InFlags & 0x10) != 0)
     {
-        Fdump(kFdumpWarning, 0x1AC, "SoundMgr:Archetype requested 3D and Pan controls, disabling pan.\n"); // 06eea0e0
+        Fdump(kFdumpWarning, 0x1AC, "SoundMgr:Archetype requested 3D and Pan controls, disabling pan.\n");
         Flags &= ~0x10u;
     }
     if ((Flags & 8) != 0)
@@ -1228,18 +1224,18 @@ GENRESULT FSoundArchetype::FillFromPcm(const unsigned short* Fmt8, unsigned long
         Buffer = nullptr;
         return GR_GENERIC;
     }
-    // FUN_06ee6410 (outside range): fail leaves Buffer, returns -1.
+    // (outside range): fail leaves Buffer, returns -1.
     if (UploadSoundBuffer(Buffer, Samples, ByteCount) < 0)
         return GR_GENERIC;
     bSamplesReady = 1;
     return GR_OK;
 }
 
-GENRESULT FSoundArchetype::FillFromWav(IDAComponent* FileSystem, IDirectSound* DirectSound,
+GENRESULT FSoundArchetype::FillFromWav(INeuronComponent* FileSystem, IDirectSound* DirectSound,
                                        unsigned long InFlags)
 {
-    // FUN_06ee1240 thiscall RET 0xC: build the sink on the stack, FUN_06ee8960(FS, &sink).
-    // Sink result nonzero -> 0. Otherwise FS+0x84 (name, 0x80), FUN_06ee71c0 = _vsnprintf 0x2000,
+    // thiscall RET 0xC: build the sink on the stack, the routine(FS, &sink).
+    // Sink result nonzero -> 0. Otherwise FS+0x84 (name, 0x80), the routine = _vsnprintf 0x2000,
     // FDUMP WARNING 0x17D, return -1. Nothing else reads the file.
     FArchetypeWavSink Sink;
     Sink.Archetype = this;
@@ -1268,9 +1264,9 @@ GENRESULT FSoundArchetype::DuplicateBuffer(IDirectSound* DirectSound, IDirectSou
 
 FSoundInner::FSoundInner() : RefCount(1), Self(nullptr) {}
 
-GENRESULT DACOM_API FSoundInner::QueryInterface(const char* Iid, void** Out)
+GENRESULT NEURONCOMPONENTS_API FSoundInner::QueryInterface(const char* Iid, void** Out)
 {
-    // LAB_06ee8460 RET 0xC: walks DAT_06ee95cc {"1.11_ISoundManager", +0}, DAT_06ee95d4
+    // RET 0xC: walks the field {"1.11_ISoundManager", +0}, the field
     // {"1.11_ISoundManagerStatus", +4}, terminator 06ee95dc, with an inline strcmp; no null checks.
     // Hit: the interface at Self(+8)+offset is AddRef'd through its own vtable (+4) - which goes to
     // the controlling unknown - then stored, return 0. Miss: *Out = 0, return 0xFFFFFFFD.
@@ -1292,26 +1288,26 @@ GENRESULT DACOM_API FSoundInner::QueryInterface(const char* Iid, void** Out)
     return GR_INTERFACE_UNSUPPORTED;
 }
 
-unsigned long DACOM_API FSoundInner::AddRef()
+unsigned long NEURONCOMPONENTS_API FSoundInner::AddRef()
 {
     ++RefCount;
     return RefCount;
 }
 
-unsigned long DACOM_API FSoundInner::Release()
+unsigned long NEURONCOMPONENTS_API FSoundInner::Release()
 {
     if (RefCount > 0)
         --RefCount;
     const unsigned long Remaining = RefCount;
     if (Remaining == 0)
     {
-        // LAB_06ee8520: count = 1, then if Self(+8) run the dtor FUN_06ee1de0 (which itself calls
+        // count = 1, then if Self(+8) run the dtor the routine (which itself calls
         // ShutdownDevice) and free the object; return 0.
         RefCount = 1;
         FSoundManager* Owner = Self;
         if (Owner != nullptr)
         {
-            // 06ee8547..854d: FUN_06ee1de0 then free - the object came from calloc (06ee836d).
+            // ..854d: the routine then free - the object came from calloc (06ee836d).
             Owner->~FSoundManager();
             free(Owner);
         }
@@ -1322,9 +1318,9 @@ unsigned long DACOM_API FSoundInner::Release()
 
 FSoundManagerFactory::FSoundManagerFactory() : RefCount(1), Name(kComponentName) {}
 
-GENRESULT DACOM_API FSoundManagerFactory::QueryInterface(const char* Iid, void** Out)
+GENRESULT NEURONCOMPONENTS_API FSoundManagerFactory::QueryInterface(const char* Iid, void** Out)
 {
-    // LAB_06ee8290 RET 0xC: *Out = 0 first, REPE CMPSB against "1.11_IComponentFactory" (0x17
+    // RET 0xC: *Out = 0 first, REPE CMPSB against "1.11_IComponentFactory" (0x17
     // bytes), miss -> 0xFFFFFFFD; hit -> *Out = this, AddRef through vtbl+4, return 0. No null checks.
     *Out = nullptr;
     if (!IidEqual(Iid, Iids::ComponentFactory))
@@ -1334,13 +1330,13 @@ GENRESULT DACOM_API FSoundManagerFactory::QueryInterface(const char* Iid, void**
     return GR_OK;
 }
 
-unsigned long DACOM_API FSoundManagerFactory::AddRef()
+unsigned long NEURONCOMPONENTS_API FSoundManagerFactory::AddRef()
 {
     ++RefCount;
     return RefCount;
 }
 
-unsigned long DACOM_API FSoundManagerFactory::Release()
+unsigned long NEURONCOMPONENTS_API FSoundManagerFactory::Release()
 {
     if (RefCount > 0)
         --RefCount;
@@ -1354,28 +1350,28 @@ unsigned long DACOM_API FSoundManagerFactory::Release()
     return Remaining;
 }
 
-GENRESULT DACOM_API FSoundManagerFactory::CreateInstance(AGGDESC* Desc, void** Instance)
+GENRESULT NEURONCOMPONENTS_API FSoundManagerFactory::CreateInstance(AGGDESC* Desc, void** Instance)
 {
-    // FUN_06ee8310 RET 0xC. No null checks on Desc, its name or Instance.
+    // RET 0xC. No null checks on Desc, its name or Instance.
     FSoundAggDesc* SoundDesc = reinterpret_cast<FSoundAggDesc*>(Desc);
     if (SoundDesc->Size != kAggDescSize || strcmp(SoundDesc->Name, Name) != 0)
     {
-        *Instance = nullptr; // 06ee841a
+        *Instance = nullptr;
         return GR_INTERFACE_UNSUPPORTED;
     }
 
-    // 06ee8366..8382: calloc(1, 0x14C) - every field FUN_06ee1b40 does not store (DeviceGuid
+    // ..8382: calloc(1, 0x14C) - every field the routine does not store (DeviceGuid
     // +0x38, Window +0xF4, ...) starts zeroed - then the ctor in place.
     void* Memory = calloc(1, sizeof(FSoundManager));
     if (Memory == nullptr)
     {
-        *Instance = nullptr; // 06ee8407
+        *Instance = nullptr;
         return GR_OUT_OF_MEMORY;
     }
     FSoundManager* Object = new (Memory) FSoundManager();
 
     Object->BindOuter(SoundDesc);
-    // 06ee83c4: FUN_06ee56e0 always returns 0, so the 06ee83d2..83fd failure tail (null the
+    // the routine always returns 0, so the 06ee83d2..83fd failure tail (null the
     // desc inner-out, dtor, free, *Instance = 0) cannot run.
     SoundManagerFactoryInitialize(Object);
     *Instance = static_cast<ISoundManager*>(Object);
@@ -1394,11 +1390,11 @@ FSoundManager::FSoundManager()
       Listener(nullptr), DirectSound(nullptr), Primary(nullptr), Parser(nullptr),
       bCoInitialized(0), Controlling(nullptr)
 {
-    // FUN_06ee1b40: FUN_06ee7620(+0xF8 map), FUN_06ee7d80(+0x10C list head), FUN_06ee7d50(+0x118
-    // list head), then InitializeCriticalSection(DAT_06eeaf0c) (06ee1c79), field stores, and
-    // CreateEventA -> DAT_06eeaf70 last (06ee1dc2). Both run on every construction.
+    // the routine(+0xF8 map), the routine(+0x10C list head), the routine(+0x118
+    // list head), then InitializeCriticalSection(the field) (06ee1c79), field stores, and
+    // CreateEventA -> the field last (06ee1dc2). Both run on every construction.
     AttachedSentinel = MakeAttachedSentinel();
-    // FUN_06ee7d50 head node (0x60), self-linked unchecked (06ee1c1b..1c23).
+    // head node (0x60), self-linked unchecked (06ee1c1b..1c23).
     InstanceSentinel = static_cast<FSoundInstanceNode*>(calloc(1, sizeof(FSoundInstanceNode)));
     InstanceSentinel->Next = InstanceSentinel;
     InstanceSentinel->Prev = InstanceSentinel;
@@ -1428,15 +1424,15 @@ FSoundManager::FSoundManager()
     Pad139[2] = 0;
     Inner.Self = this;
     Controlling = &Inner;
-    G_MixerEvent = CreateEventA(nullptr, FALSE, FALSE, nullptr); // 06ee1dc2 -> DAT_06eeaf70
+    G_MixerEvent = CreateEventA(nullptr, FALSE, FALSE, nullptr); // -> the field
 }
 
 FSoundManager::~FSoundManager()
 {
-    // FUN_06ee1de0: vtbl restore, FUN_06ee4900 (06ee1dff), DeleteCriticalSection(DAT_06eeaf0c)
-    // (06ee1e09), CloseHandle(DAT_06eeaf70) (06ee1e15), Release +0x134 and null (06ee1e1b), then the
-    // member containers: +0x118 list (FUN_06ee7590/7d10), +0x10C list (FUN_06ee7580/7510), +0xF8 map
-    // (FUN_06ee7ad0/7cd0) - ReleaseCom.
+    // vtbl restore, the routine (06ee1dff), DeleteCriticalSection(the field)
+    // (06ee1e09), CloseHandle(the field) (06ee1e15), Release +0x134 and null (06ee1e1b), then the
+    // member containers: +0x118 list (the routine/7d10), +0x10C list (the routine/7510), +0xF8 map
+    // (the routine/7cd0) - ReleaseCom.
     ShutdownDevice();
     DeleteCriticalSection(&G_InstanceLock);
     CloseHandle(G_MixerEvent);
@@ -1450,7 +1446,7 @@ FSoundManager::~FSoundManager()
 
 void FSoundManager::BindOuter(FSoundAggDesc* Desc)
 {
-    // 06ee8387..83be: inner unknown at +0x140 = {vtbl 95c0, count 1, Self}; +0x13C = desc outer
+    // ..83be: inner unknown at +0x140 = {vtbl 95c0, count 1, Self}; +0x13C = desc outer
     // if set, and then *desc+0xC = inner unconditionally (06ee8400); else +0x13C = inner.
     Inner.RefCount = 1;
     Inner.Self = this;
@@ -1467,10 +1463,10 @@ void FSoundManager::BindOuter(FSoundAggDesc* Desc)
 
 void FSoundManager::ReleaseCom()
 {
-    // Member-container teardown of FUN_06ee1de0 (06ee1e35..), after ShutdownDevice already emptied
+    // Member-container teardown of the routine (06ee1e35..), after ShutdownDevice already emptied
     // the global list, the attached list and the archetype map and released the DirectSound objects.
-    // +0x118 pending list: FUN_06ee7590 per node (unlink, payload dtor FUN_06ee11a0, free, count--),
-    // then FUN_06ee7d10 frees the head.
+    // +0x118 pending list: the routine per node (unlink, payload dtor the routine, free, count--),
+    // then the routine frees the head.
     FSoundInstanceNode* Pending = InstanceSentinel->Next;
     while (Pending != InstanceSentinel)
     {
@@ -1485,7 +1481,7 @@ void FSoundManager::ReleaseCom()
     free(InstanceSentinel);
     InstanceSentinel = nullptr;
     InstanceEmbeddedCount = 0;
-    // +0x10C attached list: FUN_06ee7510 per node (unlink, free; the play key is not released),
+    // +0x10C attached list: the routine per node (unlink, free; the play key is not released),
     // then the head.
     FAttachedNode* Attached = AttachedSentinel->Next;
     while (Attached != AttachedSentinel)
@@ -1497,8 +1493,8 @@ void FSoundManager::ReleaseCom()
     free(AttachedSentinel);
     AttachedSentinel = nullptr;
     AttachedCount = 0;
-    // +0xF8 map: FUN_06ee7ad0 erase-all + FUN_06ee7cd0 node frees. Already emptied by
-    // FUN_06ee4800 inside ShutdownDevice; only the storage is left.
+    // +0xF8 map: the routine erase-all + the routine node frees. Already emptied by
+    // inside ShutdownDevice; only the storage is left.
     free(ArchEntries);
     ArchEntries = nullptr;
     ArchCount = 0;
@@ -1506,24 +1502,24 @@ void FSoundManager::ReleaseCom()
     bArchEmpty = 1;
 }
 
-// FUN_06ee8560 / 8580 / 85a0: replace `this` with the controlling unknown at +0x13C and tail-jump
+// / 8580 / 85a0: replace `this` with the controlling unknown at +0x13C and tail-jump
 // to its slot 0 / 1 / 2. No null check.
-GENRESULT DACOM_API FSoundManager::QueryInterface(const char* Iid, void** Out)
+GENRESULT NEURONCOMPONENTS_API FSoundManager::QueryInterface(const char* Iid, void** Out)
 {
     return Controlling->QueryInterface(Iid, Out);
 }
 
-unsigned long DACOM_API FSoundManager::AddRef()
+unsigned long NEURONCOMPONENTS_API FSoundManager::AddRef()
 {
     return Controlling->AddRef();
 }
 
-unsigned long DACOM_API FSoundManager::Release()
+unsigned long NEURONCOMPONENTS_API FSoundManager::Release()
 {
     return Controlling->Release();
 }
 
-GENRESULT DACOM_API FSoundManager::SetPcmFormat(unsigned short* Fmt)
+GENRESULT NEURONCOMPONENTS_API FSoundManager::SetPcmFormat(unsigned short* Fmt)
 {
     SampleRate = Fmt[2];
     Channels = Fmt[0];
@@ -1531,9 +1527,9 @@ GENRESULT DACOM_API FSoundManager::SetPcmFormat(unsigned short* Fmt)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FSoundManager::GetPcmFormat(unsigned short* Fmt)
+GENRESULT NEURONCOMPONENTS_API FSoundManager::GetPcmFormat(unsigned short* Fmt)
 {
-    // LAB_06ee1ff0 RET 8. No null check, no zero-channel check: +2 is the 16-bit +6 value
+    // RET 8. No null check, no zero-channel check: +2 is the 16-bit +6 value
     // (MOVZX AX) divided by the dword +0x9C (06ee201b..2026).
     Fmt[2] = static_cast<unsigned short>(SampleRate);
     Fmt[0] = static_cast<unsigned short>(Channels);
@@ -1542,19 +1538,19 @@ GENRESULT DACOM_API FSoundManager::GetPcmFormat(unsigned short* Fmt)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FSoundManager::SetMasterGain(float Gain)
+GENRESULT NEURONCOMPONENTS_API FSoundManager::SetMasterGain(float Gain)
 {
     MasterGain = Gain;
     return GR_OK;
 }
 
-GENRESULT DACOM_API FSoundManager::SetMaxChannels(unsigned long Count)
+GENRESULT NEURONCOMPONENTS_API FSoundManager::SetMaxChannels(unsigned long Count)
 {
     MaxChannels = Count;
     return GR_OK;
 }
 
-GENRESULT DACOM_API FSoundManager::SetSpeakerConfig(unsigned long Index)
+GENRESULT NEURONCOMPONENTS_API FSoundManager::SetSpeakerConfig(unsigned long Index)
 {
     if (DirectSound == nullptr || Index < 1 || Index >= 0xB)
         return GR_GENERIC;
@@ -1562,17 +1558,17 @@ GENRESULT DACOM_API FSoundManager::SetSpeakerConfig(unsigned long Index)
     return GR_OK;
 }
 
-float DACOM_API FSoundManager::GetMasterGain()
+float NEURONCOMPONENTS_API FSoundManager::GetMasterGain()
 {
     return MasterGain;
 }
 
-unsigned long DACOM_API FSoundManager::GetMaxChannels()
+unsigned long NEURONCOMPONENTS_API FSoundManager::GetMaxChannels()
 {
     return MaxChannels;
 }
 
-unsigned long DACOM_API FSoundManager::GetSpeakerConfig()
+unsigned long NEURONCOMPONENTS_API FSoundManager::GetSpeakerConfig()
 {
     if (DirectSound == nullptr)
         return 0xC;
@@ -1589,14 +1585,14 @@ unsigned long DACOM_API FSoundManager::GetSpeakerConfig()
     return 0xC;
 }
 
-GENRESULT DACOM_API FSoundManager::SetEaxPreview(int Env, float Vol, float Decay, float Damp)
+GENRESULT NEURONCOMPONENTS_API FSoundManager::SetEaxPreview(int Env, float Vol, float Decay, float Damp)
 {
-    // LAB_06ee2100 RET 0x14. +0x12C==0 → -1 without storing. Env: SBB/AND (<0x1A ? env : 0),
-    // not clamp-to-0x19. Vol 0..1, Decay 0.1..100 (DAT_06ee9430), Damp 0..2. Flags bit2 off → -1
-    // after store. Probe via FUN_06ee1000 (dwBufferBytes=4). QI IKsPropertySet on the probe;
+    // RET 0x14. +0x12C==0 → -1 without storing. Env: SBB/AND (<0x1A ? env : 0),
+    // not clamp-to-0x19. Vol 0..1, Decay 0.1..100 (the field), Damp 0..2. Flags bit2 off → -1
+    // after store. Probe via the routine (dwBufferBytes=4). QI IKsPropertySet on the probe;
     // QuerySupport EAX20_Buffer ulId=0, need bits GET|SET. If CapsFlags bit2 clear: Get 0x10
     // into +0x68..+0x74 and OR +0x90 with 4. Set 0x10-byte blob. Success does not Release the
-    // PropertySet (retail). Fail releases it then FUN_06ee7600.
+    // PropertySet (baseline). Fail releases it then the routine.
     if (DirectSound == nullptr)
         return GR_GENERIC;
 
@@ -1604,7 +1600,7 @@ GENRESULT DACOM_API FSoundManager::SetEaxPreview(int Env, float Vol, float Decay
     // Each clamp is float vs double constant: FCOMP lo + TEST AH,5 + JP (fall-through = less ->
     // store the double lo), else FCOMP hi + TEST AH,0x41 + JNZ (fall-through = greater -> store
     // hi), else keep the argument. NaN takes both jumps and is stored unchanged.
-    // Bounds DAT_06ee9238 0.0 / 9440 1.0, 9438 0.1 / 9430 100.0, 9238 0.0 / 9248 2.0.
+    // Bounds the field 0.0 / 9440 1.0, 9438 0.1 / 9430 100.0, 9238 0.0 / 9248 2.0.
     if (static_cast<double>(Vol) < 0.0)
         EaxVol = static_cast<float>(0.0);
     else if (static_cast<double>(Vol) > 1.0)
@@ -1662,7 +1658,7 @@ GENRESULT DACOM_API FSoundManager::SetEaxPreview(int Env, float Vol, float Decay
 
     if ((CapsFlags & 4) == 0)
     {
-        // 06ee2299..22db: the 0x10-byte stack buffer is not pre-zeroed and the Get result is
+        // ..22db: the 0x10-byte stack buffer is not pre-zeroed and the Get result is
         // ignored; whatever is there lands in +0x68..+0x74.
         unsigned long Cached[4];
         PropertySet->Get(kDsPropSetEax20Buffer, 0, nullptr, 0, Cached, 0x10, nullptr);
@@ -1690,10 +1686,10 @@ GENRESULT DACOM_API FSoundManager::SetEaxPreview(int Env, float Vol, float Decay
     return GR_OK;
 }
 
-GENRESULT DACOM_API FSoundManager::GetEaxPreview(unsigned long* Env, unsigned long* Vol,
+GENRESULT NEURONCOMPONENTS_API FSoundManager::GetEaxPreview(unsigned long* Env, unsigned long* Vol,
                                                 unsigned long* Decay, unsigned long* Damp)
 {
-    // LAB_06ee2350 RET 0x14: unconditional DWORD copies +0x58..+0x64. No null checks. No status:
+    // RET 0x14: unconditional DWORD copies +0x58..+0x64. No null checks. No status:
     // EAX is left holding the +0x64 dword (06ee236f) at return.
     *Env = static_cast<unsigned long>(EaxEnv);
     memcpy(Vol, &EaxVol, sizeof(float));
@@ -1706,7 +1702,7 @@ GENRESULT DACOM_API FSoundManager::GetEaxPreview(unsigned long* Env, unsigned lo
 
 void FSoundManager::ApplyListener()
 {
-    // FUN_06ee6d50 thiscall (callers 06ee4729, 06ee6f23): with a listener (+0x128), push the
+    // thiscall (callers 06ee4729, 06ee6f23): with a listener (+0x128), push the
     // stored +0xA8..+0xEC as-is through SetOrientation (+0x34), SetPosition (+0x38),
     // SetVelocity (+0x40), SetDistanceFactor (+0x2C), SetDopplerFactor (+0x30),
     // SetRolloffFactor (+0x3C), each with dwApply 1 = DS3D_DEFERRED (PUSH 0x1); the mixer
@@ -1721,9 +1717,9 @@ void FSoundManager::ApplyListener()
     Listener->SetRolloffFactor(RolloffFactor, DS3D_DEFERRED);
 }
 
-GENRESULT DACOM_API FSoundManager::SetOrientation(FVec3* InFront, FVec3* InUp)
+GENRESULT NEURONCOMPONENTS_API FSoundManager::SetOrientation(FVec3* InFront, FVec3* InUp)
 {
-    // LAB_06ee23d0: negate front → +0xA8; copy up → +0xB4; Front.Z/Up.Z *= FILD(+0xA4);
+    // negate front → +0xA8; copy up → +0xB4; Front.Z/Up.Z *= FILD(+0xA4);
     // IDirectSound3DListener::SetOrientation(+0x34) dwApply=1. No extra negate. No ApplyListener.
     const float Scale = static_cast<float>(CoordScale);
     Front.X = -InFront->X;
@@ -1739,9 +1735,9 @@ GENRESULT DACOM_API FSoundManager::SetOrientation(FVec3* InFront, FVec3* InUp)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FSoundManager::SetOrientationFromMatrix(float* Matrix)
+GENRESULT NEURONCOMPONENTS_API FSoundManager::SetOrientationFromMatrix(float* Matrix)
 {
-    // LAB_06ee2380 RET 8: A = m[1], m[4], m[7] (+4/+10/+1C) at [ESP], B = m[2], m[5], m[8]
+    // RET 8: A = m[1], m[4], m[7] (+4/+10/+1C) at [ESP], B = m[2], m[5], m[8]
     // (+8/+14/+20) at [ESP+0xC]; PUSH A, PUSH B, PUSH this -> self+0x34 (SetOrientation) with
     // Front = B (column 2) and Up = A (column 1); its result is returned.
     FVec3 InUp;
@@ -1755,9 +1751,9 @@ GENRESULT DACOM_API FSoundManager::SetOrientationFromMatrix(float* Matrix)
     return SetOrientation(&InFront, &InUp);
 }
 
-GENRESULT DACOM_API FSoundManager::SetListenerPosition(FVec3* Pos)
+GENRESULT NEURONCOMPONENTS_API FSoundManager::SetListenerPosition(FVec3* Pos)
 {
-    // LAB_06ee24a0: copy → +0xCC; Z *= FILD(+0xA4) stored back; SetPosition(+0x38) dwApply=1.
+    // copy → +0xCC; Z *= FILD(+0xA4) stored back; SetPosition(+0x38) dwApply=1.
     const float Scale = static_cast<float>(CoordScale);
     Position.X = Pos->X;
     Position.Y = Pos->Y;
@@ -1767,9 +1763,9 @@ GENRESULT DACOM_API FSoundManager::SetListenerPosition(FVec3* Pos)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FSoundManager::SetListenerVelocity(FVec3* Vel)
+GENRESULT NEURONCOMPONENTS_API FSoundManager::SetListenerVelocity(FVec3* Vel)
 {
-    // LAB_06ee2500: copy → +0xD8; Z *= scale stored; SetVelocity(+0x40) dwApply=1.
+    // copy → +0xD8; Z *= scale stored; SetVelocity(+0x40) dwApply=1.
     const float Scale = static_cast<float>(CoordScale);
     Velocity.X = Vel->X;
     Velocity.Y = Vel->Y;
@@ -1779,7 +1775,7 @@ GENRESULT DACOM_API FSoundManager::SetListenerVelocity(FVec3* Vel)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FSoundManager::SetDistanceFactor(float Value)
+GENRESULT NEURONCOMPONENTS_API FSoundManager::SetDistanceFactor(float Value)
 {
     DistanceFactor = Value;
     if (Listener != nullptr)
@@ -1787,7 +1783,7 @@ GENRESULT DACOM_API FSoundManager::SetDistanceFactor(float Value)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FSoundManager::SetDopplerFactor(float Value)
+GENRESULT NEURONCOMPONENTS_API FSoundManager::SetDopplerFactor(float Value)
 {
     DopplerFactor = Value;
     if (Listener != nullptr)
@@ -1795,7 +1791,7 @@ GENRESULT DACOM_API FSoundManager::SetDopplerFactor(float Value)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FSoundManager::SetRolloffFactor(float Value)
+GENRESULT NEURONCOMPONENTS_API FSoundManager::SetRolloffFactor(float Value)
 {
     RolloffFactor = Value;
     if (Listener != nullptr)
@@ -1803,9 +1799,9 @@ GENRESULT DACOM_API FSoundManager::SetRolloffFactor(float Value)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FSoundManager::GetOrientationSpace(FVec3* Pos, FVec3* Vel)
+GENRESULT NEURONCOMPONENTS_API FSoundManager::GetOrientationSpace(FVec3* Pos, FVec3* Vel)
 {
-    // LAB_06ee2730: copy Front → Pos, Pos.Z *= scale, negate all three Pos; copy Up → Vel, Vel.Z *= scale (no negate).
+    // copy Front → Pos, Pos.Z *= scale, negate all three Pos; copy Up → Vel, Vel.Z *= scale (no negate).
     const float Scale = static_cast<float>(CoordScale);
     Pos->X = Front.X;
     Pos->Y = Front.Y;
@@ -1816,13 +1812,13 @@ GENRESULT DACOM_API FSoundManager::GetOrientationSpace(FVec3* Pos, FVec3* Vel)
     Vel->X = Up.X;
     Vel->Y = Up.Y;
     Vel->Z = Up.Z * Scale;
-    // 06ee2798: EAX is left holding the second out pointer at RET 0xC.
+    // EAX is left holding the second out pointer at RET 0xC.
     return static_cast<GENRESULT>(reinterpret_cast<uintptr_t>(Vel));
 }
 
-GENRESULT DACOM_API FSoundManager::GetOrientationMatrix(float* Out9)
+GENRESULT NEURONCOMPONENTS_API FSoundManager::GetOrientationMatrix(float* Out9)
 {
-    // LAB_06ee25f0 RET 8: self+0x50 (GetOrientationSpace) into SpaceFront (F+0x28, arg1) and
+    // RET 8: self+0x50 (GetOrientationSpace) into SpaceFront (F+0x28, arg1) and
     // SpaceUp (F+0x1C, arg2), result ignored. Right from the stored +0xA8 / +0xB4; Flags bit 4
     // (+0x8C) picks the operand order. Each term is an x87 product of two floats (exact) and one
     // FSUBP, stored as float - computed here in double and rounded once.
@@ -1858,49 +1854,49 @@ GENRESULT DACOM_API FSoundManager::GetOrientationMatrix(float* Out9)
     Out9[6] = static_cast<float>(static_cast<double>(CoordScale) * Right.Z);
     Out9[7] = SpaceUp.Z;
     Out9[8] = SpaceFront.Z;
-    // 06ee26c9: EAX = Out9 at RET 8.
+    // EAX = Out9 at RET 8.
     return static_cast<GENRESULT>(reinterpret_cast<uintptr_t>(Out9));
 }
 
-GENRESULT DACOM_API FSoundManager::GetListenerPosition(FVec3* Out)
+GENRESULT NEURONCOMPONENTS_API FSoundManager::GetListenerPosition(FVec3* Out)
 {
-    // FUN_06ee27c0: copy +0xCC; out.Z *= FILD(+0xA4). Does not mutate stored position.
+    // copy +0xCC; out.Z *= FILD(+0xA4). Does not mutate stored position.
     Out->X = Position.X;
     Out->Y = Position.Y;
     Out->Z = Position.Z * static_cast<float>(CoordScale);
-    // 06ee27d4: EAX = Out at RET 8.
+    // EAX = Out at RET 8.
     return static_cast<GENRESULT>(reinterpret_cast<uintptr_t>(Out));
 }
 
-GENRESULT DACOM_API FSoundManager::GetListenerVelocity(FVec3* Out)
+GENRESULT NEURONCOMPONENTS_API FSoundManager::GetListenerVelocity(FVec3* Out)
 {
-    // LAB_06ee2810: copy +0xD8; out.Z *= scale.
+    // copy +0xD8; out.Z *= scale.
     Out->X = Velocity.X;
     Out->Y = Velocity.Y;
     Out->Z = Velocity.Z * static_cast<float>(CoordScale);
-    // 06ee2824: EAX = Out at RET 8.
+    // EAX = Out at RET 8.
     return static_cast<GENRESULT>(reinterpret_cast<uintptr_t>(Out));
 }
 
-float DACOM_API FSoundManager::GetDistanceFactor()
+float NEURONCOMPONENTS_API FSoundManager::GetDistanceFactor()
 {
     return DistanceFactor;
 }
 
-float DACOM_API FSoundManager::GetDopplerFactor()
+float NEURONCOMPONENTS_API FSoundManager::GetDopplerFactor()
 {
     return DopplerFactor;
 }
 
-float DACOM_API FSoundManager::GetRolloffFactor()
+float NEURONCOMPONENTS_API FSoundManager::GetRolloffFactor()
 {
     return RolloffFactor;
 }
 
-GENRESULT DACOM_API FSoundManager::EaxGetInstance(void* Id, GUID* Set, unsigned long Prop, void* Buf,
+GENRESULT NEURONCOMPONENTS_API FSoundManager::EaxGetInstance(void* Id, GUID* Set, unsigned long Prop, void* Buf,
                                                  unsigned long Cb, unsigned long* Pcb)
 {
-    // LAB_06ee2890 RET 0x1C: walk DAT_06eeaf04 matching node+8; QI IKsPropertySet on node+0xC;
+    // RET 0x1C: walk the field matching node+8; QI IKsPropertySet on node+0xC;
     // QuerySupport bit0 (GET); IKsPropertySet::Get(+0x0C). HRESULT of Get ignored. Fail → -1.
     GENRESULT Result = GR_GENERIC;
     FSoundInstanceNode* Node = G_InstanceSentinel.Next;
@@ -1928,10 +1924,10 @@ GENRESULT DACOM_API FSoundManager::EaxGetInstance(void* Id, GUID* Set, unsigned 
     return Result;
 }
 
-GENRESULT DACOM_API FSoundManager::EaxSetInstance(void* Id, GUID* Set, unsigned long Prop, void* Data,
+GENRESULT NEURONCOMPONENTS_API FSoundManager::EaxSetInstance(void* Id, GUID* Set, unsigned long Prop, void* Data,
                                                  unsigned long Cb)
 {
-    // LAB_06ee2a40 RET 0x18: same instance walk; QuerySupport bit1 (SET); IKsPropertySet::Set(+0x10).
+    // RET 0x18: same instance walk; QuerySupport bit1 (SET); IKsPropertySet::Set(+0x10).
     GENRESULT Result = GR_GENERIC;
     FSoundInstanceNode* Node = G_InstanceSentinel.Next;
     while (Node != &G_InstanceSentinel)
@@ -1958,12 +1954,12 @@ GENRESULT DACOM_API FSoundManager::EaxSetInstance(void* Id, GUID* Set, unsigned 
     return Result;
 }
 
-GENRESULT DACOM_API FSoundManager::EaxGetPrimary(GUID* Set, unsigned long Prop, void* Buf,
+GENRESULT NEURONCOMPONENTS_API FSoundManager::EaxGetPrimary(GUID* Set, unsigned long Prop, void* Buf,
                                                 unsigned long Cb, unsigned long* Pcb)
 {
-    // LAB_06ee2940 RET 0x18: if +0x12C==0 → -1. Probe format 22050/16/2, FUN_06ee1000, CreateSoundBuffer
+    // RET 0x18: if +0x12C==0 → -1. Probe format 22050/16/2, the routine, CreateSoundBuffer
     // on the wrapper. If wrapper.Buffer≠0, QI IKsPropertySet on primary +0x130; QuerySupport bit0; Get.
-    // Always FUN_06ee7600 the probe. HRESULT of Get ignored.
+    // Always the routine the probe. HRESULT of Get ignored.
     GENRESULT Result = GR_GENERIC;
     if (DirectSound == nullptr)
         return Result;
@@ -1999,10 +1995,10 @@ GENRESULT DACOM_API FSoundManager::EaxGetPrimary(GUID* Set, unsigned long Prop, 
     return Result;
 }
 
-GENRESULT DACOM_API FSoundManager::EaxSetPrimary(GUID* Set, unsigned long Prop, void* Data,
+GENRESULT NEURONCOMPONENTS_API FSoundManager::EaxSetPrimary(GUID* Set, unsigned long Prop, void* Data,
                                                 unsigned long Cb)
 {
-    // LAB_06ee2af0 RET 0x14: same probe + primary QI as Get; QuerySupport bit1; IKsPropertySet::Set.
+    // RET 0x14: same probe + primary QI as Get; QuerySupport bit1; IKsPropertySet::Set.
     GENRESULT Result = GR_GENERIC;
     if (DirectSound == nullptr)
         return Result;
@@ -2078,9 +2074,9 @@ int FSoundManager::InsertArchetype(FSoundArchetype* Archetype)
 
 void FSoundManager::StopInstancesForArch(int ArchId)
 {
-    // FUN_06ee4740 thiscall RET 4 (callers 06ee31b1, 06ee481a): walk DAT_06eeaf00; for each node
+    // thiscall RET 4 (callers 06ee31b1, 06ee481a): walk the field; for each node
     // whose key's GetArchId (+0x20, called unconditionally) equals the id: lock, unlink,
-    // payload dtor, node free, count--, SetEvent(DAT_06eeaf70), unlock.
+    // payload dtor, node free, count--, SetEvent(the field), unlock.
     FSoundInstanceNode* Node = G_InstanceSentinel.Next;
     while (Node != &G_InstanceSentinel)
     {
@@ -2098,8 +2094,8 @@ void FSoundManager::StopInstancesForArch(int ArchId)
 
 void FSoundManager::DestroyAllArchetypes()
 {
-    // FUN_06ee4800: for each archetype in map (ascending id) order, FUN_06ee4740 on its key,
-    // then Release the value (06ee481f..4825, no null check); then clear the map. Retail
+    // for each archetype in map (ascending id) order, the routine on its key,
+    // then Release the value (06ee481f..4825, no null check); then clear the map. baseline
     // walks an RB-tree at +0xF8; the port keeps the linear array sorted by id (insert appends
     // increasing ids, erase shifts down), so the order matches (deviations.md).
     for (unsigned long Index = 0; Index < ArchCount; ++Index)
@@ -2116,9 +2112,9 @@ void FSoundManager::DestroyAllArchetypes()
 
 void FSoundManager::ClearAttached()
 {
-    // 06ee33b8..3403 (head of FUN_06ee33b0): first pass Releases every attached key (+8, no
+    // ..3403 (head of the routine): first pass Releases every attached key (+8, no
     // null check) with the list intact, re-reading the head each step; second pass erases
-    // every node (FUN_06ee7510: unlink, free, size--).
+    // every node (the routine: unlink, free, size--).
     FAttachedNode* Node = AttachedSentinel->Next;
     while (Node != AttachedSentinel)
     {
@@ -2139,9 +2135,9 @@ void FSoundManager::ClearAttached()
 
 void FSoundManager::UnlinkInstance(FSoundInstanceNode* Node)
 {
-    // Inline erase of the DAT_06eeaf00 list as at 06ee3527..355a / 06ee477c..47d1: unlink, payload
-    // dtor FUN_06ee11a0 (COM releases only - the node's notify event +0x14 is not closed), node back
-    // to the allocator, DAT_06eeaf08-- (no underflow check).
+    // Inline erase of the the field list as at 06ee3527..355a / 06ee477c..47d1: unlink, payload
+    // dtor the routine (COM releases only - the node's notify event +0x14 is not closed), node back
+    // to the allocator, the field-- (no underflow check).
     Node->Prev->Next = Node->Next;
     Node->Next->Prev = Node->Prev;
     ReleaseInstancePayload(Node);
@@ -2151,8 +2147,8 @@ void FSoundManager::UnlinkInstance(FSoundInstanceNode* Node)
 
 FSoundInstanceNode* FSoundManager::FindInstanceByKey(ISoundSource* PlayKey)
 {
-    // Inline walks of DAT_06eeaf00 comparing node+8 with the key (06ee4ca0, 06ee4fd1, 06ee34d0,
-    // LAB_06ee6f30/6f70); no key test.
+    // Inline walks of the field comparing node+8 with the key (06ee4ca0, 06ee4fd1, 06ee34d0,
+    // /6f70); no key test.
     FSoundInstanceNode* Node = G_InstanceSentinel.Next;
     while (Node != &G_InstanceSentinel)
     {
@@ -2165,7 +2161,7 @@ FSoundInstanceNode* FSoundManager::FindInstanceByKey(ISoundSource* PlayKey)
 
 FAttachedNode* FSoundManager::FindAttached(ISoundSource* PlayKey)
 {
-    // 06ee4ba0..4bbd: walk the attached list (+0x110 head) comparing node+8 with the key.
+    // ..4bbd: walk the attached list (+0x110 head) comparing node+8 with the key.
     FAttachedNode* Node = AttachedSentinel->Next;
     while (Node != AttachedSentinel)
     {
@@ -2179,7 +2175,7 @@ FAttachedNode* FSoundManager::FindAttached(ISoundSource* PlayKey)
 void FSoundManager::RefreshInstancePose(FSoundInstanceNode* Node)
 {
     // Mixer existing-instance pose @ 06ee4cdc–06ee4db6: listener pos copy, defaults
-    // 10/500, client vtbl+0x30/+0x38/+0x34, Z *= +0xA4, SubVec3 (FUN_06ee5500), then
+    // 10/500, client vtbl+0x30/+0x38/+0x34, Z *= +0xA4, SubVec3 (the routine), then
     // DistSq = (x*x + y*y) + z*z on the FPU stack, stored once as float. No null checks.
     if (Node->PlayKey->Is3d() == 0)
         return;
@@ -2203,7 +2199,7 @@ void FSoundManager::RefreshInstancePose(FSoundInstanceNode* Node)
 
 unsigned char FSoundManager::MixerAllowCreate(ISoundSource* PlayKey)
 {
-    // LAB_06ee4e6b–06ee4f51: not 3D -> allow; lookup miss -> deny; arch bit0 clear -> allow;
+    // –06ee4f51: not 3D -> allow; lookup miss -> deny; arch bit0 clear -> allow;
     // else StoreVec3(src - listener) and allow only when max*max > (z*z + y*y) + x*x
     // (FCOMPP, TEST AH,0x41 + JNZ: fall-through = max^2 greater; equal and NaN deny).
     if (PlayKey->Is3d() == 0)
@@ -2215,13 +2211,13 @@ unsigned char FSoundManager::MixerAllowCreate(ISoundSource* PlayKey)
     unsigned char bAllow = 1;
     if ((Archetype->Flags & 1) != 0)
     {
-        // 06ee4eac: the position local is not pre-initialised; GetPosition (+0x30) fills it.
+        // the position local is not pre-initialised; GetPosition (+0x30) fills it.
         FVec3 SrcPos;
         PlayKey->GetPosition(&SrcPos);
         SrcPos.Z *= static_cast<float>(CoordScale);
-        float MaxDist = 3.402823466e+38f; // 0x7f7fffff
+        float MaxDist = 3.402823466e+38f;
         PlayKey->GetMaxDistance(&MaxDist);
-        // 06ee4ed9..4f06: each difference is x87 FLD float / FSUB float / FSTP float.
+        // ..4f06: each difference is x87 FLD float / FSUB float / FSTP float.
         const float Dz = static_cast<float>(static_cast<double>(SrcPos.Z) - Position.Z);
         const float Dy = static_cast<float>(static_cast<double>(SrcPos.Y) - Position.Y);
         const float Dx = static_cast<float>(static_cast<double>(SrcPos.X) - Position.X);
@@ -2240,7 +2236,7 @@ unsigned char FSoundManager::MixerAllowCreate(ISoundSource* PlayKey)
 
 void FSoundManager::LinkPendingInstance(FSoundInstanceNode* Node)
 {
-    // FUN_06ee7c00: insert 0x60 node before pending sentinel, copy-construct payload. The port
+    // insert 0x60 node before pending sentinel, copy-construct payload. The port
     // links the already-filled node instead of copying; no checks (the 06ee7c4a test is the
     // placement-new null check on node+8, never zero).
     Node->Next = InstanceSentinel;
@@ -2252,8 +2248,8 @@ void FSoundManager::LinkPendingInstance(FSoundInstanceNode* Node)
 
 void FSoundManager::SplicePendingInstances()
 {
-    // FUN_06ee7c70 (raw _Splice of the whole +0x118 chain before head DAT_06eeaf04) plus the
-    // 06ee5204..520d count transfer. The caller (MixerTick 06ee51dc) already checked +0x120 != 0,
+    // (raw _Splice of the whole +0x118 chain before head the field) plus the
+    // ..520d count transfer. The caller (MixerTick 06ee51dc) already checked +0x120 != 0,
     // so the chain is non-empty; 7c70 itself has no checks.
     FSoundInstanceNode* First = InstanceSentinel->Next;
     FSoundInstanceNode* Last = InstanceSentinel->Prev;
@@ -2269,8 +2265,8 @@ void FSoundManager::SplicePendingInstances()
 
 void FSoundManager::MixerApplyEax(FSoundInstanceNode* Node)
 {
-    // Tail of FUN_06ee64c0 @ 06ee6ad8..6b52: CapsFlags (+0x90) bit 2; GetEaxEnvironment
-    // (+0x4C) into a zeroed dword, nonzero -> skip; buffer QI IKsPropertySet (DAT_06ee917c),
+    // Tail of the routine @ 06ee6ad8..6b52: CapsFlags (+0x90) bit 2; GetEaxEnvironment
+    // (+0x4C) into a zeroed dword, nonzero -> skip; buffer QI IKsPropertySet (the field),
     // nonzero -> skip; QuerySupport (+0x14) into a zeroed dword, result ignored; bit 1 ->
     // Set (+0x10)(DSPROPSETID_EAX20_ListenerProperties, 1, NULL, 0, &probe, 4); Release.
     if ((CapsFlags & 4) == 0)
@@ -2291,9 +2287,9 @@ void FSoundManager::MixerApplyEax(FSoundInstanceNode* Node)
 
 unsigned char FSoundManager::MixerApplyInstance(FSoundInstanceNode* Node)
 {
-    // FUN_06ee64c0 thiscall RET 4. The mixer (06ee5236) pushes node+8 (payload) and ignores
+    // thiscall RET 4. The mixer (06ee5236) pushes node+8 (payload) and ignores
     // AL. C++ Node is the full 0x60 object; payload fields sit at PlayKey onward. Pose is
-    // filled by FUN_06ee6e20, not here. No null checks: retail dereferences the play key and
+    // filled by the routine, not here. No null checks: baseline dereferences the play key and
     // the buffer unconditionally.
     ISoundSource* PlayKey = Node->PlayKey;
 
@@ -2361,14 +2357,14 @@ unsigned char FSoundManager::MixerApplyInstance(FSoundInstanceNode* Node)
                     Outside = 360;
                 Buffer3d->SetConeAngles(Inside, Outside, Apply);
 
-                // 06ee663e: zeroed vector, result ignored; Z = FILD(CoordScale) * Z, FSTP float.
+                // zeroed vector, result ignored; Z = FILD(CoordScale) * Z, FSTP float.
                 FVec3 ConeDir = {};
                 PlayKey->GetConeOrientation(&ConeDir);
                 ConeDir.Z = static_cast<float>(static_cast<double>(CoordScale) *
                                                static_cast<double>(ConeDir.Z));
                 Buffer3d->SetConeOrientation(ConeDir.X, ConeDir.Y, ConeDir.Z, Apply);
 
-                // 06ee668a: zeroed, result ignored; *100.0f FST float; < -10000 (TEST AH,5 +
+                // zeroed, result ignored; *100.0f FST float; < -10000 (TEST AH,5 +
                 // JP, fall-through = less) -> -10000; else > 0 (TEST AH,0x41 + JNZ,
                 // fall-through = greater) -> 0; ftol.
                 float OutsideVol = 0.0f;
@@ -2381,7 +2377,7 @@ unsigned char FSoundManager::MixerApplyInstance(FSoundInstanceNode* Node)
                 Buffer3d->SetConeOutsideVolume(static_cast<LONG>(ScaledVol), Apply);
             }
 
-            // 06ee66f4: GetVelocity (+0x48), JL skips; Z = FILD(CoordScale) * Z.
+            // GetVelocity (+0x48), JL skips; Z = FILD(CoordScale) * Z.
             FVec3 Velocity = {};
             if (PlayKey->GetVelocity(&Velocity) >= 0)
             {
@@ -2390,7 +2386,7 @@ unsigned char FSoundManager::MixerApplyInstance(FSoundInstanceNode* Node)
                 Buffer3d->SetVelocity(Velocity.X, Velocity.Y, Velocity.Z, Apply);
             }
 
-            // 06ee672c: payload+0x30 (MinDistance) clamped [1, 1e9] and written back, then
+            // payload+0x30 (MinDistance) clamped [1, 1e9] and written back, then
             // SetMinDistance (+0x44); then payload+0x28 (MaxDistance), SetMaxDistance (+0x40).
             Node->MinDistance = ClampDsDistance(Node->MinDistance);
             Buffer3d->SetMinDistance(Node->MinDistance, Apply);
@@ -2400,7 +2396,7 @@ unsigned char FSoundManager::MixerApplyInstance(FSoundInstanceNode* Node)
         }
         else
         {
-            // 06ee67d9: software 3D. Dist = DistSq * invsqrt(DistSq) (one Newton step, stored
+            // software 3D. Dist = DistSq * invsqrt(DistSq) (one Newton step, stored
             // float); attenuation only when DistSq > MinDistSq (TEST AH,0x41 + JNZ,
             // fall-through = greater), with no guard on the log argument.
             const float Dist = QuakeDistance(Node->DistSq);
@@ -2410,7 +2406,7 @@ unsigned char FSoundManager::MixerApplyInstance(FSoundInstanceNode* Node)
 
             if ((Node->DsCapsFlags & 0x40) != 0)
             {
-                // 06ee6862: listener right = Up x Front on the FPU stack, direction scaled
+                // listener right = Up x Front on the FPU stack, direction scaled
                 // by 1.0f / Dist and stored back as floats, pan = ftol(
                 // ((Dz*Rz + Dy*Ry) + Dx*Rx) * Max3dPan). No clamp.
                 const double RightX = static_cast<double>(Up.Y) * Front.Z -
@@ -2444,7 +2440,7 @@ unsigned char FSoundManager::MixerApplyInstance(FSoundInstanceNode* Node)
             Buffer3d->SetMode(DS3DMODE_DISABLE, Apply);
         if ((Node->DsCapsFlags & 0x40) != 0)
         {
-            // 06ee6948: client GetPan (+0x2C), JL skips; clamp [-10000, 10000] signed.
+            // client GetPan (+0x2C), JL skips; clamp [-10000, 10000] signed.
             long ClientPan = 0;
             if (PlayKey->GetPan(&ClientPan) >= 0)
             {
@@ -2463,14 +2459,14 @@ unsigned char FSoundManager::MixerApplyInstance(FSoundInstanceNode* Node)
         }
     }
 
-    // 06ee69ac: GetArchId (+0x20) -> FUN_06ee31d0. Retail does not test the lookup result
+    // GetArchId (+0x20) -> the routine. baseline does not test the lookup result
     // (AL is discarded) and goes on with the out-slot; DestroyArchetype (06ee3150) erases
-    // every instance node of that archetype from the list (FUN_06ee4740 at 06ee31b1) under
+    // every instance node of that archetype from the list (the routine at 06ee31b1) under
     // the instance lock, so a node the mixer walks always resolves.
     FSoundArchetype* Archetype = LookupArchetype(PlayKey->GetArchId());
     if ((Node->StatusFlags & 0x20) != 0)
     {
-        // MOVZX word [arch+8]; GetPitch (+0x28), JL skips; ftol(FUN_06ee1670(pitch) * FIMUL
+        // MOVZX word [arch+8]; GetPitch (+0x28), JL skips; ftol(the routine(pitch) * FIMUL
         // int32 rate); clamp unsigned (JBE 100000 / JNC 100).
         const int Rate = static_cast<int>(Archetype->nSamplesPerSec);
         float Pitch;
@@ -2493,7 +2489,7 @@ unsigned char FSoundManager::MixerApplyInstance(FSoundInstanceNode* Node)
     const float ArchGain = Archetype->Gain;
     Archetype->Release();
 
-    // 06ee6a6b: ((gain + master) + atten) * 100.0f on the FPU stack; > 0 -> 0 (TEST AH,0x41
+    // ((gain + master) + atten) * 100.0f on the FPU stack; > 0 -> 0 (TEST AH,0x41
     // + JNZ, fall-through = greater); < -10000 -> -10000 (TEST AH,5 + JP, fall-through =
     // less); NaN passes both; ftol.
     double Volume = ((static_cast<double>(ArchGain) + MasterGain) + ClientAtten) * 100.0;
@@ -2516,9 +2512,9 @@ unsigned char FSoundManager::MixerApplyInstance(FSoundInstanceNode* Node)
 
 unsigned char FSoundManager::OneShotAlreadyExpired(ISoundSource* PlayKey)
 {
-    // FUN_06ee6070 thiscall RET 4 (sole caller 06ee4c60): IsLooping (+0x1C) -> 0 (keep);
-    // GetArchId (+0x20) -> FUN_06ee31d0 lookup, miss -> 1; else
-    // Field4C > FUN_06ee16c0(arch, key) + GetStartTick (+0x10) (unsigned, SETA), then the
+    // thiscall RET 4 (sole caller 06ee4c60): IsLooping (+0x1C) -> 0 (keep);
+    // GetArchId (+0x20) -> the routine lookup, miss -> 1; else
+    // Field4C > the routine(arch, key) + GetStartTick (+0x10) (unsigned, SETA), then the
     // archetype is released. No play-key null check.
     if (PlayKey->IsLooping() != 0)
         return 0;
@@ -2534,11 +2530,11 @@ unsigned char FSoundManager::OneShotAlreadyExpired(ISoundSource* PlayKey)
 
 void FSoundManager::ApplyListenerFromSource(ISoundListenerPose* Pose)
 {
-    // FUN_06ee6e20 thiscall RET 4 (sole caller 06ee4b81, which skips the call for a null
+    // thiscall RET 4 (sole caller 06ee4b81, which skips the call for a null
     // pose). Locals: front (0,0,1), up (0,1,0), one vector (0,0,0) and one float 1.0f. The
     // position call and the velocity call share the vector, and the three factor calls share
     // the float, so a failed getter hands the next setter whatever the previous getter left
-    // there. Each pair is skipped on JL; then FUN_06ee6d50.
+    // there. Each pair is skipped on JL; then the routine.
     FVec3 InFront;
     FVec3 InUp;
     InFront.X = 0.0f;
@@ -2569,8 +2565,8 @@ void FSoundManager::ApplyListenerFromSource(ISoundListenerPose* Pose)
 
 unsigned char FSoundManager::MixerSetStartOffset(FSoundInstanceNode* Node)
 {
-    // FUN_06ee6b70 thiscall RET 4 (sole caller 06ee528c). Payload = node+8. AL gates the
-    // mixer's Play. No null checks in retail.
+    // thiscall RET 4 (sole caller 06ee528c). Payload = node+8. AL gates the
+    // mixer's Play. No null checks in baseline.
     ISoundSource* PlayKey = Node->PlayKey;
     unsigned long Tick;
     if ((Node->StatusFlags & 0x40) == 0)
@@ -2593,7 +2589,7 @@ unsigned char FSoundManager::MixerSetStartOffset(FSoundInstanceNode* Node)
     unsigned long Delta = Field4C - Tick;
     if ((Node->StatusFlags & 0x20) != 0)
     {
-        // 06ee6bfa: GetPitch (+0x28) into its own slot; 0 -> FUN_06ee1670(pitch), else clear
+        // GetPitch (+0x28) into its own slot; 0 -> the routine(pitch), else clear
         // bit 0x20 and use 1.0f; Delta = ftol(FILD qword(u32 Delta) * multiplier).
         float Pitch;
         double Multiplier = 1.0;
@@ -2603,28 +2599,28 @@ unsigned char FSoundManager::MixerSetStartOffset(FSoundInstanceNode* Node)
             Node->StatusFlags &= ~0x20u;
         Delta = Ftol32(static_cast<double>(static_cast<unsigned long long>(Delta)) * Multiplier);
     }
-    // 06ee6c4a: ftol(FILD qword(u32 Delta) * 0.001f (DAT_06ee949c) * FIMUL int32 word rate).
+    // ftol(FILD qword(u32 Delta) * 0.001f (the field) * FIMUL int32 word rate).
     unsigned long Samples =
         Ftol32((static_cast<double>(static_cast<unsigned long long>(Delta)) *
                 static_cast<double>(0.001f)) *
                static_cast<double>(static_cast<int>(Archetype->nSamplesPerSec)));
-    // 06ee6c7c: looping and past LoopEnd (unsigned JBE) -> wrap with an unsigned DIV; no
-    // zero-length guard in retail.
+    // looping and past LoopEnd (unsigned JBE) -> wrap with an unsigned DIV; no
+    // zero-length guard in baseline.
     if (PlayKey->IsLooping() != 0 && Samples > Archetype->LoopEnd)
         Samples = ((Samples - Archetype->LoopStart) % (Archetype->LoopEnd - Archetype->LoopStart)) +
                   Archetype->LoopStart;
     const unsigned long ByteOffset = static_cast<unsigned long>(Archetype->nBlockAlign) * Samples;
     const unsigned long MaxBytes =
         Archetype->NumFrames * static_cast<unsigned long>(Archetype->nBlockAlign);
-    // 06ee6cac JBE -> 06ee6b9d returns 0 WITHOUT releasing the archetype the lookup AddRef'd:
-    // a retail reference leak, reproduced on purpose.
+    // JBE -> 06ee6b9d returns 0 WITHOUT releasing the archetype the lookup AddRef'd:
+    // a baseline reference leak, reproduced on purpose.
     if (MaxBytes <= ByteOffset)
         return 0;
     if (G_DisplayExtraDebug != 0 && PlayKey->IsLooping() == 0)
     {
         char Line[0x2000];
         Fdump(kFdumpNotice, 0xEAC,
-              FormatMessage2000(Line, "Setting start offset %d for non-looping instance of %d.\n", // 06eeacac
+              FormatMessage2000(Line, "Setting start offset %d for non-looping instance of %d.\n",
                                 static_cast<int>(ByteOffset), PlayKey->GetArchId()));
     }
     Node->Buffer->SetCurrentPosition(ByteOffset);
@@ -2638,25 +2634,25 @@ unsigned char FSoundManager::MixerSetStartOffset(FSoundInstanceNode* Node)
 
 FSoundInstanceNode* FSoundManager::CreateInstanceFromKey(ISoundSource* PlayKey)
 {
-    // FUN_06ee60e0 thiscall RET 8 (playkey, payload; sole caller 06ee4f6b), returns 0 / -1.
-    // Retail fills a stack payload that MixerTick freshly zeroed (FUN_06ee1040 at 06ee4f5b),
+    // thiscall RET 8 (playkey, payload; sole caller 06ee4f6b), returns 0 / -1.
+    // baseline fills a stack payload that MixerTick freshly zeroed (the routine at 06ee4f5b),
     // so its opening Buffer3d / Stop+Buffer / PlayKey releases (06ee6124..6164) find nothing;
     // the port fills a freshly zeroed intrusive node instead and returns it (nullptr = -1).
-    // No null checks on the key, the device or the archetype buffer, as retail.
+    // No null checks on the key, the device or the archetype buffer, as baseline.
     char Message[0x2000];
     const int ArchId = PlayKey->GetArchId();
     FSoundArchetype* Archetype = LookupArchetype(ArchId);
     if (Archetype == nullptr)
     {
-        // 06ee63c6: miss -> WARNING 0xCE5 unless the id is -1.
+        // miss -> WARNING 0xCE5 unless the id is -1.
         if (ArchId != -1)
             Fdump(kFdumpWarning, 0xCE5,
-                  FormatMessage2000(Message, "SoundMgr:Couldn't create an instance of archetype %d.\n", // 06eeab80
+                  FormatMessage2000(Message, "SoundMgr:Couldn't create an instance of archetype %d.\n",
                                     ArchId));
         return nullptr;
     }
 
-    // Port-only allocation (retail's list node comes from FUN_06ee7c00 in MixerTick).
+    // Port-only allocation (baseline's list node comes from the routine in MixerTick).
     FSoundInstanceNode* Node = static_cast<FSoundInstanceNode*>(calloc(1, sizeof(FSoundInstanceNode)));
     if (Node == nullptr)
     {
@@ -2665,16 +2661,16 @@ FSoundInstanceNode* FSoundManager::CreateInstanceFromKey(ISoundSource* PlayKey)
     }
     InitInstancePayload(Node);
 
-    // 06ee616a: DuplicateSoundBuffer (+0x14)(arch +0x24, &payload+4); JL -> WARNING 0xCDD,
+    // DuplicateSoundBuffer (+0x14)(arch +0x24, &payload+4); JL -> WARNING 0xCDD,
     // Release the archetype, then fall into the 06ee63c6 tail, which (the id is not -1 here)
     // also emits WARNING 0xCE5; return -1.
     if (DirectSound->DuplicateSoundBuffer(Archetype->Buffer, &Node->Buffer) < 0)
     {
         Fdump(kFdumpWarning, 0xCDD,
-              FormatMessage2000(Message, "SoundMgr:Couldn't duplicate archetype buffer %d.\n", ArchId)); // 06eeabb8
+              FormatMessage2000(Message, "SoundMgr:Couldn't duplicate archetype buffer %d.\n", ArchId));
         Archetype->Release();
         Fdump(kFdumpWarning, 0xCE5,
-              FormatMessage2000(Message, "SoundMgr:Couldn't create an instance of archetype %d.\n", // 06eeab80
+              FormatMessage2000(Message, "SoundMgr:Couldn't create an instance of archetype %d.\n",
                                 ArchId));
         free(Node);
         return nullptr;
@@ -2691,8 +2687,8 @@ FSoundInstanceNode* FSoundManager::CreateInstanceFromKey(ISoundSource* PlayKey)
 
     if ((Caps.dwFlags & 0x10) != 0)
     {
-        // 06ee61ca: QI IDirectSound3DBuffer (DAT_06ee919c) into payload+8, result ignored.
-        Dup->QueryInterface(kIidDirectSound3DBufferRetail, reinterpret_cast<void**>(&Node->Buffer3d));
+        // QI IDirectSound3DBuffer (the field) into payload+8, result ignored.
+        Dup->QueryInterface(kIidDirectSound3DBufferbaseline, reinterpret_cast<void**>(&Node->Buffer3d));
         if (Node->Buffer3d != nullptr)
         {
             Node->StatusFlags |= 0x10;
@@ -2704,14 +2700,14 @@ FSoundInstanceNode* FSoundManager::CreateInstanceFromKey(ISoundSource* PlayKey)
 
     if ((Caps.dwFlags & 0x20) != 0)
     {
-        // 06ee61fe: GetFrequency (+0x20); >= 0 -> |= 0x20; else, with extra debug, NOTICE
+        // GetFrequency (+0x20); >= 0 -> |= 0x20; else, with extra debug, NOTICE
         // 0xCC1 with GetArchId asked again (06ee6223).
         DWORD DummyFreq = 0;
         if (Dup->GetFrequency(&DummyFreq) >= 0)
             Node->StatusFlags |= 0x20;
         else if (G_DisplayExtraDebug != 0)
             Fdump(kFdumpNotice, 0xCC1,
-                  FormatMessage2000(Message, "Failed to get requested freq control for instance of %d.\n", // 06eeabec
+                  FormatMessage2000(Message, "Failed to get requested freq control for instance of %d.\n",
                                     PlayKey->GetArchId()));
     }
 
@@ -2738,7 +2734,7 @@ FSoundInstanceNode* FSoundManager::CreateInstanceFromKey(ISoundSource* PlayKey)
         Node->Position.Z = Node->Position.Z * static_cast<float>(CoordScale);
         Node->MaxDistSq = Node->MaxDistance * Node->MaxDistance;
         Node->MinDistSq = Node->MinDistance * Node->MinDistance;
-        // 06ee631e: the three differences are FSTP'd as floats (FUN_06ee54e0), then
+        // the three differences are FSTP'd as floats (the routine), then
         // DistSq = (x*x + y*y) + z*z on the FPU stack, stored once as float.
         // Each difference is FLD float / FSUB float / FSTP float (Z, Y, X) - emulated in double.
         const float DiffZ = static_cast<float>(static_cast<double>(Node->Position.Z) - Position.Z);
@@ -2751,15 +2747,15 @@ FSoundInstanceNode* FSoundManager::CreateInstanceFromKey(ISoundSource* PlayKey)
         Node->DistSq = static_cast<float>((DirX * DirX + DirY * DirY) + DirZ * DirZ);
     }
 
-    // FUN_06ee60e0 fills payload only. MixerTick inserts via FUN_06ee7c00 pending list.
+    // fills payload only. MixerTick inserts via the routine pending list.
     return Node;
 }
 
-int DACOM_API FSoundManager::CreateArchetypePcm(void* Fmt, unsigned long ByteCount,
+int NEURONCOMPONENTS_API FSoundManager::CreateArchetypePcm(void* Fmt, unsigned long ByteCount,
                                                 unsigned long LoopStart, unsigned long LoopEnd,
                                                 void* Samples, unsigned long ArchFlags)
 {
-    // FUN_06ee2be0 RET 0x1C: new 0x30 + FUN_06ee11f0, FUN_06ee1330 fill, FUN_06ee7e10 map insert.
+    // RET 0x1C: new 0x30 + the routine, the routine fill, the routine map insert.
     // A null operator new result is carried on (06ee2c12 EDI = 0) and dereferenced unchecked.
     FSoundArchetype* Archetype = new (std::nothrow) FSoundArchetype();
     if (DirectSound == nullptr ||
@@ -2773,9 +2769,9 @@ int DACOM_API FSoundManager::CreateArchetypePcm(void* Fmt, unsigned long ByteCou
     return InsertArchetype(Archetype);
 }
 
-int DACOM_API FSoundManager::CreateArchetypeFromSource(void* Source, unsigned long ArchFlags)
+int NEURONCOMPONENTS_API FSoundManager::CreateArchetypeFromSource(void* Source, unsigned long ArchFlags)
 {
-    // LAB_06ee2dc0 RET 0xC: FUN_06ee2be0's sequence with the FUN_06ee1330 arguments read from a
+    // RET 0xC: the routine's sequence with the the routine arguments read from a
     // PCM descriptor: format = desc+0 (8 bytes), byte count = desc+0x14, loop start = desc+0x8,
     // loop end = desc+0xC, samples = desc+0x18 (read only once the device is known to exist).
     // Device missing or fill < 0 -> Release, WARNING 0x5B3 with the unchanged next id, -1.
@@ -2797,12 +2793,12 @@ int DACOM_API FSoundManager::CreateArchetypeFromSource(void* Source, unsigned lo
     return InsertArchetype(Archetype);
 }
 
-int DACOM_API FSoundManager::CreateArchetypeFromWav(IDAComponent* FileSystem,
+int NEURONCOMPONENTS_API FSoundManager::CreateArchetypeFromWav(INeuronComponent* FileSystem,
                                                     unsigned long ArchFlags)
 {
-    // LAB_06ee2f90 RET 0xC: new 0x30 + FUN_06ee11f0; device missing or FUN_06ee1240 < 0 ->
+    // RET 0xC: new 0x30 + the routine; device missing or the routine < 0 ->
     // Release, WARNING 0x5C5 with the unchanged next id, -1; else id = next++, map insert.
-    // No file-system null test in retail.
+    // No file-system null test in baseline.
     // A null operator new result is carried on (06ee2fc2 EDI = 0) and dereferenced unchecked.
     FSoundArchetype* Archetype = new (std::nothrow) FSoundArchetype();
     if (DirectSound == nullptr || Archetype->FillFromWav(FileSystem, DirectSound, ArchFlags) != GR_OK)
@@ -2814,11 +2810,11 @@ int DACOM_API FSoundManager::CreateArchetypeFromWav(IDAComponent* FileSystem,
     return InsertArchetype(Archetype);
 }
 
-GENRESULT DACOM_API FSoundManager::DestroyArchetype(int Id)
+GENRESULT NEURONCOMPONENTS_API FSoundManager::DestroyArchetype(int Id)
 {
-    // LAB_06ee3150 RET 8: map find (FUN_06ee80d0 lower_bound + key check); miss -> -1. Take the
-    // value, erase the entry (FUN_06ee76d0); a null value -> -1 (after the erase); otherwise
-    // FUN_06ee4740(id) removes that archetype's instances, the value is released, 0. No
+    // RET 8: map find (the routine lower_bound + key check); miss -> -1. Take the
+    // value, erase the entry (the routine); a null value -> -1 (after the erase); otherwise
+    // (id) removes that archetype's instances, the value is released, 0. No
     // lookup AddRef/Release pair, and the id -1 needs no special case (it is never a key).
     unsigned long Index = 0;
     while (Index < ArchCount && ArchEntries[Index].Id != Id)
@@ -2826,7 +2822,7 @@ GENRESULT DACOM_API FSoundManager::DestroyArchetype(int Id)
     if (Index == ArchCount)
         return GR_GENERIC;
     FSoundArchetype* Archetype = ArchEntries[Index].Archetype;
-    // Erase keeping the ascending-id order the retail map iterates in.
+    // Erase keeping the ascending-id order the baseline map iterates in.
     memmove(&ArchEntries[Index], &ArchEntries[Index + 1],
             (ArchCount - Index - 1) * sizeof(FArchMapEntry));
     --ArchCount;
@@ -2839,9 +2835,9 @@ GENRESULT DACOM_API FSoundManager::DestroyArchetype(int Id)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FSoundManager::QueryArchetype(int Id, void** Out)
+GENRESULT NEURONCOMPONENTS_API FSoundManager::QueryArchetype(int Id, void** Out)
 {
-    // LAB_06ee3250 RET 0xC: Out==0 → -1; FUN_06ee31d0; fail → *Out=0,-1;
+    // RET 0xC: Out==0 → -1; the routine; fail → *Out=0,-1;
     // QI 1.11_ISoundArchetype; fail FDUMP 0x627 then Release → -1; else Release → 0.
     if (Out == nullptr)
         return GR_GENERIC;
@@ -2854,7 +2850,7 @@ GENRESULT DACOM_API FSoundManager::QueryArchetype(int Id, void** Out)
     const GENRESULT Result = Archetype->QueryInterface(Iids::SoundArchetype, Out);
     if (Result != GR_OK)
     {
-        Fdump(kFdumpWarning, 0x627, "Failed to query the IID_ISoundArchetype.\n"); // 06eea214
+        Fdump(kFdumpWarning, 0x627, "Failed to query the IID_ISoundArchetype.\n");
         Archetype->Release();
         return GR_GENERIC;
     }
@@ -2862,11 +2858,11 @@ GENRESULT DACOM_API FSoundManager::QueryArchetype(int Id, void** Out)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FSoundManager::AttachPlayKey(ISoundSource* PlayKey, unsigned long Index)
+GENRESULT NEURONCOMPONENTS_API FSoundManager::AttachPlayKey(ISoundSource* PlayKey, unsigned long Index)
 {
-    // FUN_06ee32e0 RET 0xC: null key → -1; AddRef; insert before the Index-th node, or before
-    // the head when Index >= count (JNC). FUN_06ee7d80 node. The head (+0x110) always exists
-    // (ctor 06ee1bbd), so retail does not test it.
+    // RET 0xC: null key → -1; AddRef; insert before the Index-th node, or before
+    // the head when Index >= count (JNC). the routine node. The head (+0x110) always exists
+    // (ctor 06ee1bbd), so baseline does not test it.
     if (PlayKey == nullptr)
         return GR_GENERIC;
     ISoundSource* Key = PlayKey;
@@ -2894,9 +2890,9 @@ GENRESULT DACOM_API FSoundManager::AttachPlayKey(ISoundSource* PlayKey, unsigned
     return GR_OK;
 }
 
-GENRESULT DACOM_API FSoundManager::DetachPlayKey(ISoundSource* PlayKey)
+GENRESULT NEURONCOMPONENTS_API FSoundManager::DetachPlayKey(ISoundSource* PlayKey)
 {
-    // LAB_06ee34d0 RET 8: unlink matching instance (CS+FUN_06ee85e0/7d10+SetEvent), then attached.
+    // RET 8: unlink matching instance (CS+the routine/7d10+SetEvent), then attached.
     FSoundInstanceNode* Inst = FindInstanceByKey(PlayKey);
     if (Inst != nullptr)
     {
@@ -2905,7 +2901,7 @@ GENRESULT DACOM_API FSoundManager::DetachPlayKey(ISoundSource* PlayKey)
         SetEvent(G_MixerEvent);
         LeaveCriticalSection(&G_InstanceLock);
     }
-    // 06ee3571..35f1: EVERY attached node whose key matches is released (vtbl+8), unlinked, freed,
+    // ..35f1: EVERY attached node whose key matches is released (vtbl+8), unlinked, freed,
     // +0x114--; the walk continues past each removal.
     FAttachedNode* Attached = AttachedSentinel->Next;
     while (Attached != AttachedSentinel)
@@ -2928,11 +2924,11 @@ GENRESULT DACOM_API FSoundManager::DetachPlayKey(ISoundSource* PlayKey)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FSoundManager::ReplaceAttachedList(void** Keys, unsigned long Count)
+GENRESULT NEURONCOMPONENTS_API FSoundManager::ReplaceAttachedList(void** Keys, unsigned long Count)
 {
-    // FUN_06ee33b0 RET 0xC: Release+erase attached; Count==0 → destroy all instances
-    // (FUN_06ee7590 each) + SetEvent under the lock, 0. Otherwise append each key at the end
-    // (FUN_06ee7bb0 node, size++, then AddRef); a null key returns -1 at once, leaving the
+    // RET 0xC: Release+erase attached; Count==0 → destroy all instances
+    // (the routine each) + SetEvent under the lock, 0. Otherwise append each key at the end
+    // (the routine node, size++, then AddRef); a null key returns -1 at once, leaving the
     // keys already appended attached. No test on the key array pointer itself.
     ClearAttached();
     if (Count == 0)
@@ -2966,37 +2962,37 @@ GENRESULT DACOM_API FSoundManager::ReplaceAttachedList(void** Keys, unsigned lon
     return GR_OK;
 }
 
-unsigned long DACOM_API FSoundManager::GetAttachedCount()
+unsigned long NEURONCOMPONENTS_API FSoundManager::GetAttachedCount()
 {
     return AttachedCount;
 }
 
-unsigned long DACOM_API FSoundManager::GetPlayingCount()
+unsigned long NEURONCOMPONENTS_API FSoundManager::GetPlayingCount()
 {
     return G_InstanceCount;
 }
 
-GENRESULT DACOM_API FSoundManager::BindParser()
+GENRESULT NEURONCOMPONENTS_API FSoundManager::BindParser()
 {
-    // LAB_06ee56f0: nested this is object+8; body uses object+0x134 / +0x0C.
+    // nested this is object+8; body uses object+0x134 / +0x0C.
     if (Parser != nullptr)
     {
         Parser->Release();
         Parser = nullptr;
     }
-    // 06ee5712..5721: DACOM_Acquire() unchecked, QI("1.11_IProfileParser") straight into &+0x134;
+    // ..5721: NEURONCOMPONENTS_Acquire() unchecked, QI("1.11_IProfileParser") straight into &+0x134;
     // its result is ignored.
-    ICOManager* Dacom = DACOM_Acquire();
-    Dacom->QueryInterface(Iids::ProfileParser, reinterpret_cast<void**>(&Parser));
+    ICOManager* NeuronComponents = NEURONCOMPONENTS_Acquire();
+    NeuronComponents->QueryInterface(Iids::ProfileParser, reinterpret_cast<void**>(&Parser));
     bParserBound = 1;
     return GR_OK;
 }
 
 void FSoundManager::DumpDeviceNotices()
 {
-    // FUN_06ee5b20 thiscall (Ghidra also split the branch targets LAB_06ee5c0d / LAB_06ee5c50 /
-    // LAB_06ee5e8b). Every line is formatted by FUN_06ee71c0 into one 0x2000 stack buffer and
-    // sent as NOTICE. "" is DAT_06eeaf78, " NOT" is DAT_06eeaae4.
+    // thiscall (analysis also split the branch targets the branch / the branch /
+    // ). Every line is formatted by the routine into one 0x2000 stack buffer and
+    // sent as NOTICE. "" is the field, " NOT" is the field.
     char Line[0x2000];
     const char* Enabled = ((CapsFlags & 1) != 0) ? "ENABLED" : "DISABLED";
     const char* Requested = ((Flags & 1) != 0) ? "" : " NOT";
@@ -3023,7 +3019,7 @@ void FSoundManager::DumpDeviceNotices()
                                 Requested));
     }
 
-    // 06ee5c81: TEST AH,2 / AH,1 / AL sign (0x80) / AL,0x40 / AH,4 on the +0x90 dword.
+    // TEST AH,2 / AH,1 / AL sign (0x80) / AL,0x40 / AH,4 on the +0x90 dword.
     // Literals 06eea9a0 / 964 / 928 / 8f0 / 8c0 / 894 / 86c / 830 / 804 / 7e0 (all end in ".\n").
     if ((CapsFlags & 0x200) != 0)
         Fdump(kFdumpNotice, 0xBB1,
@@ -3060,7 +3056,7 @@ void FSoundManager::DumpDeviceNotices()
 
 GENRESULT FSoundManager::CreateDirectSound()
 {
-    // FUN_06ee5730 thiscall. Already-created +0x12C returns -1, not success.
+    // thiscall. Already-created +0x12C returns -1, not success.
     if (DirectSound != nullptr)
         return GR_GENERIC;
 
@@ -3071,7 +3067,7 @@ GENRESULT FSoundManager::CreateDirectSound()
 
     if (DirectSound == nullptr)
     {
-        CoCreateInstance(kClsidDirectSound, nullptr, CLSCTX_INPROC_SERVER, kIidDirectSoundRetail,
+        CoCreateInstance(kClsidDirectSound, nullptr, CLSCTX_INPROC_SERVER, kIidDirectSoundbaseline,
                          reinterpret_cast<void**>(&DirectSound));
     }
     if (DirectSound == nullptr)
@@ -3082,12 +3078,12 @@ GENRESULT FSoundManager::CreateDirectSound()
     {
         char Warn[0x2000];
         Fdump(kFdumpWarning, 0xB31,
-              FormatMessage2000(Warn, "SoundManager:Couldn't create DSound device %s.\n", // 06eea778
+              FormatMessage2000(Warn, "SoundManager:Couldn't create DSound device %s.\n",
                                 DeviceIdString));
         Hr = DirectSound->Initialize(nullptr);
         if (Hr < 0)
         {
-            Fdump(kFdumpWarning, 0xB34, "SoundManager:Couldn't initialize default DSound device.\n"); // 06eea73c
+            Fdump(kFdumpWarning, 0xB34, "SoundManager:Couldn't initialize default DSound device.\n");
             DirectSound->Release();
             DirectSound = nullptr;
             return GR_GENERIC;
@@ -3117,7 +3113,7 @@ GENRESULT FSoundManager::CreateDirectSound()
     DirectSound->CreateSoundBuffer(&PrimaryDesc, &Primary, nullptr);
     if (Primary == nullptr)
     {
-        Fdump(kFdumpNotice, 0xB8E, "SoundManager: Couldn't create primary sound buffer.\n"); // 06eea6cc
+        Fdump(kFdumpNotice, 0xB8E, "SoundManager: Couldn't create primary sound buffer.\n");
         DirectSound->Release();
         DirectSound = nullptr;
         return GR_GENERIC;
@@ -3126,11 +3122,11 @@ GENRESULT FSoundManager::CreateDirectSound()
     CapsFlags &= ~3u;
     if ((Caps.dwFlags & DSCAPS_EMULDRIVER) != 0 || Caps.dwUnlockTransferRateHwBuffers != 0)
     {
-        // 06ee59e3: Flags &= ~3, then NOTICE 0xB5D formatted through FUN_06ee71c0.
+        // Flags &= ~3, then NOTICE 0xB5D formatted through the routine.
         Flags &= ~3u;
         char Isa[0x2000];
         Fdump(kFdumpNotice, 0xB5D,
-              FormatMessage2000(Isa, "ISA or slow sound card detected. Disabling HW buffers.\n")); // 06eea704
+              FormatMessage2000(Isa, "ISA or slow sound card detected. Disabling HW buffers.\n"));
     }
     else
     {
@@ -3170,7 +3166,7 @@ GENRESULT FSoundManager::CreateDirectSound()
     }
 
     if ((PrimaryDesc.dwFlags & DSBCAPS_CTRL3D) != 0)
-        Primary->QueryInterface(kIidDirectSound3DListenerRetail, reinterpret_cast<void**>(&Listener));
+        Primary->QueryInterface(kIidDirectSound3DListenerbaseline, reinterpret_cast<void**>(&Listener));
 
     unsigned long BlockAlign = (Channels * BitsPerSample) >> 3;
     unsigned long AvgBytes = SampleRate * BlockAlign;
@@ -3189,16 +3185,16 @@ GENRESULT FSoundManager::CreateDirectSound()
     return GR_OK;
 }
 
-GENRESULT DACOM_API FSoundManager::StartupDevice(HWND Hwnd, unsigned long InFlags)
+GENRESULT NEURONCOMPONENTS_API FSoundManager::StartupDevice(HWND Hwnd, unsigned long InFlags)
 {
-    // LAB_06ee3670 RET 0xC. Parser bind runs before the flags==0 reject.
+    // RET 0xC. Parser bind runs before the flags==0 reject.
     if (bParserBound == 0)
         BindParser();
 
     Window = Hwnd;
     if (InFlags == 0)
     {
-        Fdump(kFdumpError, 0x6D5, "SoundManager: startup options must be non-zero.\n"); // 06eea47c
+        Fdump(kFdumpError, 0x6D5, "SoundManager: startup options must be non-zero.\n");
         return GR_GENERIC;
     }
 
@@ -3206,16 +3202,16 @@ GENRESULT DACOM_API FSoundManager::StartupDevice(HWND Hwnd, unsigned long InFlag
     if ((InFlags & 0x800) != 0)
         Flags &= ~3u;
 
-    // One integer and one float stack variable ([ESP+0x10] / [ESP+0x1C] in retail) carry every
+    // One integer and one float stack variable ([ESP+0x10] / [ESP+0x1C] in baseline) carry every
     // value. Each block resets them to its default only once a parser was obtained, so a block
-    // whose acquisition fails inherits the previous block's value, exactly as retail does.
+    // whose acquisition fails inherits the previous block's value, exactly as baseline does.
     unsigned long Value = 0;
     float FloatValue = 0.0f;
-    ICOManager* Dacom = DACOM_Acquire();
-    IDAComponent* Local = nullptr;
+    ICOManager* NeuronComponents = NEURONCOMPONENTS_Acquire();
+    INeuronComponent* Local = nullptr;
 
-    // 06ee36f0..38e3 useEAX (default = current bit 2). The parser is released inline here.
-    if (AcquireParserLocal(Dacom, Parser, &Local))
+    // ..38e3 useEAX (default = current bit 2). The parser is released inline here.
+    if (AcquireParserLocal(NeuronComponents, Parser, &Local))
     {
         IProfileParser* Ini = static_cast<IProfileParser*>(Local);
         Value = Flags & 4;
@@ -3234,8 +3230,8 @@ GENRESULT DACOM_API FSoundManager::StartupDevice(HWND Hwnd, unsigned long InFlag
     else
         Flags &= ~4u;
 
-    // 06ee38e9..3a9a reverbBaseEnvironment (default 0) -> +0x58.
-    if (AcquireParserLocal(Dacom, Parser, &Local))
+    // ..3a9a reverbBaseEnvironment (default 0) -> +0x58.
+    if (AcquireParserLocal(NeuronComponents, Parser, &Local))
     {
         IProfileParser* Ini = static_cast<IProfileParser*>(Local);
         Value = 0;
@@ -3250,8 +3246,8 @@ GENRESULT DACOM_API FSoundManager::StartupDevice(HWND Hwnd, unsigned long InFlag
     ReleaseComPtr(&Local);
     EaxEnv = static_cast<int>(Value);
 
-    // 06ee3a9d..3b7b reverbMasterVolume (default 0.0f) -> +0x5C.
-    if (AcquireParserLocal(Dacom, Parser, &Local))
+    // ..3b7b reverbMasterVolume (default 0.0f) -> +0x5C.
+    if (AcquireParserLocal(NeuronComponents, Parser, &Local))
     {
         IProfileParser* Ini = static_cast<IProfileParser*>(Local);
         FloatValue = 0.0f;
@@ -3266,8 +3262,8 @@ GENRESULT DACOM_API FSoundManager::StartupDevice(HWND Hwnd, unsigned long InFlag
     ReleaseComPtr(&Local);
     EaxVol = FloatValue;
 
-    // 06ee3b7e..3c5c reverbDecayTime (default 0.1f = 0x3DCCCCCD) -> +0x60.
-    if (AcquireParserLocal(Dacom, Parser, &Local))
+    // ..3c5c reverbDecayTime (default 0.1f = 0x3DCCCCCD) -> +0x60.
+    if (AcquireParserLocal(NeuronComponents, Parser, &Local))
     {
         IProfileParser* Ini = static_cast<IProfileParser*>(Local);
         FloatValue = 0.1f;
@@ -3282,8 +3278,8 @@ GENRESULT DACOM_API FSoundManager::StartupDevice(HWND Hwnd, unsigned long InFlag
     ReleaseComPtr(&Local);
     EaxDecay = FloatValue;
 
-    // 06ee3c5f..3d39 reverbDamping (default 1.0f) -> +0x64.
-    if (AcquireParserLocal(Dacom, Parser, &Local))
+    // ..3d39 reverbDamping (default 1.0f) -> +0x64.
+    if (AcquireParserLocal(NeuronComponents, Parser, &Local))
     {
         IProfileParser* Ini = static_cast<IProfileParser*>(Local);
         FloatValue = 1.0f;
@@ -3298,8 +3294,8 @@ GENRESULT DACOM_API FSoundManager::StartupDevice(HWND Hwnd, unsigned long InFlag
     ReleaseComPtr(&Local);
     EaxDamp = FloatValue;
 
-    // 06ee3d3c..3e1b reverbMix (default 0.0f) -> +0x78 = ftol(value).
-    if (AcquireParserLocal(Dacom, Parser, &Local))
+    // ..3e1b reverbMix (default 0.0f) -> +0x78 = ftol(value).
+    if (AcquireParserLocal(NeuronComponents, Parser, &Local))
     {
         IProfileParser* Ini = static_cast<IProfileParser*>(Local);
         FloatValue = 0.0f;
@@ -3314,10 +3310,10 @@ GENRESULT DACOM_API FSoundManager::StartupDevice(HWND Hwnd, unsigned long InFlag
     ReleaseComPtr(&Local);
     *reinterpret_cast<int*>(&ReverbMix) = static_cast<int>(FloatValue);
 
-    // 06ee3e1e..3ec4: the default "{00000000-...}" (via PTR DAT_06eea024) is copied into +0x0D only
+    // ..3ec4: the default "{00000000-...}" (via PTR the field) is copied into +0x0D only
     // once a parser was obtained (06ee3e60); without one +0x0D keeps the ctor's zeros. Both copies
-    // are strncpy(.., 0x28) with no forced terminator; the INI value goes through DAT_06eeb7e0.
-    if (AcquireParserLocal(Dacom, Parser, &Local))
+    // are strncpy(.., 0x28) with no forced terminator; the INI value goes through the field.
+    if (AcquireParserLocal(NeuronComponents, Parser, &Local))
     {
         IProfileParser* Ini = static_cast<IProfileParser*>(Local);
         strncpy(DeviceIdString, kDefaultDeviceId, 0x28);
@@ -3330,7 +3326,7 @@ GENRESULT DACOM_API FSoundManager::StartupDevice(HWND Hwnd, unsigned long InFlag
         }
     }
     ReleaseComPtr(&Local);
-    ParseGuidString(DeviceIdString, &DeviceGuid); // FUN_06ee6fd0(+0x0D, +0x38)
+    ParseGuidString(DeviceIdString, &DeviceGuid); // (+0x0D, +0x38)
 
     const unsigned long AlgBits = Flags & 0x3C0;
     const char* AlgName = "USER";
@@ -3342,13 +3338,13 @@ GENRESULT DACOM_API FSoundManager::StartupDevice(HWND Hwnd, unsigned long InFlag
         AlgName = "LIGHT";
     else if (AlgBits == 0x400)
         AlgName = "NONE";
-    // 06ee3f2a sprintf's the name into a stack buffer; 06ee3f66 strncpy(AlgBuf, it, 0x20) runs only
-    // once a parser was obtained, then the INI value (via DAT_06eeb7e0) overwrites it with another
-    // strncpy(.., 0x20). Without a parser retail compares an uninitialised AlgBuf; the port fills it
+    // sprintf's the name into a stack buffer; 06ee3f66 strncpy(AlgBuf, it, 0x20) runs only
+    // once a parser was obtained, then the INI value (via the field) overwrites it with another
+    // strncpy(.., 0x20). Without a parser baseline compares an uninitialised AlgBuf; the port fills it
     // with the default name up front so that case stays defined.
     char AlgBuf[0x20];
     strncpy(AlgBuf, AlgName, 0x20);
-    if (AcquireParserLocal(Dacom, Parser, &Local))
+    if (AcquireParserLocal(NeuronComponents, Parser, &Local))
     {
         IProfileParser* Ini = static_cast<IProfileParser*>(Local);
         void* Section = Ini->OpenSection("SoundManager", 3);
@@ -3391,8 +3387,8 @@ GENRESULT DACOM_API FSoundManager::StartupDevice(HWND Hwnd, unsigned long InFlag
         CopyAlgGuid(&Field7C, &kDs3dAlgGuidNull);
     }
 
-    // 06ee41a3..4369 useNoHW (default = current bit 0x800) - a non-zero value clears bits 0/1.
-    if (AcquireParserLocal(Dacom, Parser, &Local))
+    // ..4369 useNoHW (default = current bit 0x800) - a non-zero value clears bits 0/1.
+    if (AcquireParserLocal(NeuronComponents, Parser, &Local))
     {
         IProfileParser* Ini = static_cast<IProfileParser*>(Local);
         Value = Flags & 0x800;
@@ -3408,10 +3404,10 @@ GENRESULT DACOM_API FSoundManager::StartupDevice(HWND Hwnd, unsigned long InFlag
     if (Value != 0)
         Flags &= ~3u;
 
-    // From here on FUN_06ee72f0 does the reads; every call writes the shared Value and the caller
+    // From here on the routine does the reads; every call writes the shared Value and the caller
     // reads Value back (not the return), so a failed parser acquisition keeps the previous value.
     IProfileParser* Cached = Parser;
-    ReadProfileInt(Dacom, Cached, "SoundManager", "rightHandedCoordinates", Flags & 0x10, &Value);
+    ReadProfileInt(NeuronComponents, Cached, "SoundManager", "rightHandedCoordinates", Flags & 0x10, &Value);
     if (Value != 0)
     {
         Flags |= 0x10;
@@ -3421,7 +3417,7 @@ GENRESULT DACOM_API FSoundManager::StartupDevice(HWND Hwnd, unsigned long InFlag
     else
         Flags &= ~0x10u;
 
-    ReadProfileInt(Dacom, Cached, "SoundManager", "createAll2DInSoftware", Flags & 0x20, &Value);
+    ReadProfileInt(NeuronComponents, Cached, "SoundManager", "createAll2DInSoftware", Flags & 0x20, &Value);
     if (Value != 0)
     {
         Flags |= 0x20;
@@ -3433,12 +3429,12 @@ GENRESULT DACOM_API FSoundManager::StartupDevice(HWND Hwnd, unsigned long InFlag
         CapsFlags &= ~0x20u;
     }
 
-    // 06ee444a..4506: presence probe of speakerConfiguration into DAT_06eebc00; only when the key
-    // exists is it read through FUN_06ee72f0 (default 2) and applied after the device is up.
+    // ..4506: presence probe of speakerConfiguration into the field; only when the key
+    // exists is it read through the routine (default 2) and applied after the device is up.
     unsigned char bSpeakerKey = 0;   // [ESP+0x27]
     unsigned long SpeakerValue = 0;  // [ESP+0x1C]
     int SpeakerFound = -1;           // EDI
-    if (AcquireParserLocal(Dacom, Parser, &Local))
+    if (AcquireParserLocal(NeuronComponents, Parser, &Local))
     {
         IProfileParser* Ini = static_cast<IProfileParser*>(Local);
         void* Section = Ini->OpenSection("SoundManager", 3);
@@ -3452,69 +3448,69 @@ GENRESULT DACOM_API FSoundManager::StartupDevice(HWND Hwnd, unsigned long InFlag
     ReleaseComPtr(&Local);
     if (SpeakerFound >= 0)
     {
-        ReadProfileInt(Dacom, Cached, "SoundManager", "speakerConfiguration", 2, &Value);
+        ReadProfileInt(NeuronComponents, Cached, "SoundManager", "speakerConfiguration", 2, &Value);
         bSpeakerKey = 1;
         SpeakerValue = Value;
     }
 
-    ReadProfileInt(Dacom, Cached, "SoundManager", "maxSoundChannels", MaxChannels, &Value);
+    ReadProfileInt(NeuronComponents, Cached, "SoundManager", "maxSoundChannels", MaxChannels, &Value);
     MaxChannels = Value; // +0x54
 
-    ReadProfileInt(Dacom, Cached, "SoundManager", "use2DHW", Flags & 1, &Value);
+    ReadProfileInt(NeuronComponents, Cached, "SoundManager", "use2DHW", Flags & 1, &Value);
     if (Value != 0)
         Flags |= 1;
     else
         Flags &= ~1u;
 
-    ReadProfileInt(Dacom, Cached, "SoundManager", "use3DHW", Flags & 2, &Value);
+    ReadProfileInt(NeuronComponents, Cached, "SoundManager", "use3DHW", Flags & 2, &Value);
     if (Value != 0)
         Flags |= 2;
     else
         Flags &= ~2u;
 
-    ReadProfileInt(Dacom, Cached, "SoundManager", "ALLOW_HW_TO_SW", G_AllowHwToSw, &Value);
+    ReadProfileInt(NeuronComponents, Cached, "SoundManager", "ALLOW_HW_TO_SW", G_AllowHwToSw, &Value);
     if (Value != 0 && (Flags & 3) != 0)
         G_AllowHwToSw = 1;
     else
         G_AllowHwToSw = 0;
 
-    ReadProfileInt(Dacom, Cached, "SoundManager", "ALLOW_SW_TO_HW", G_AllowSwToHw, &Value);
+    ReadProfileInt(NeuronComponents, Cached, "SoundManager", "ALLOW_SW_TO_HW", G_AllowSwToHw, &Value);
     if (Value != 0 && (Flags & 3) != 0)
         G_AllowSwToHw = 1;
     else
         G_AllowSwToHw = 0;
 
-    ReadProfileInt(Dacom, Cached, "SoundManager", "FORCE_FREQ_CONTROL_TO_SW", G_ForceFreqToSw, &Value);
+    ReadProfileInt(NeuronComponents, Cached, "SoundManager", "FORCE_FREQ_CONTROL_TO_SW", G_ForceFreqToSw, &Value);
     G_ForceFreqToSw = Value;
-    ReadProfileInt(Dacom, Cached, "SoundManager", "NEVER_SET_START_POS", G_NeverSetStartPos, &Value);
+    ReadProfileInt(NeuronComponents, Cached, "SoundManager", "NEVER_SET_START_POS", G_NeverSetStartPos, &Value);
     G_NeverSetStartPos = Value;
-    ReadProfileInt(Dacom, Cached, "SoundManager", "DISPLAY_EXTRA_DEBUG_INFO", G_DisplayExtraDebug,
+    ReadProfileInt(NeuronComponents, Cached, "SoundManager", "DISPLAY_EXTRA_DEBUG_INFO", G_DisplayExtraDebug,
                    &Value);
     G_DisplayExtraDebug = Value;
 
-    // 06ee46c2..46fe: IMUL value,100 then FILD qword {product, 0} (unsigned) -> FSTP float +0xF0.
-    ReadProfileInt(Dacom, Cached, "SoundManager", "max3DPan", 0x64, &Value);
+    // ..46fe: IMUL value,100 then FILD qword {product, 0} (unsigned) -> FSTP float +0xF0.
+    ReadProfileInt(NeuronComponents, Cached, "SoundManager", "max3DPan", 0x64, &Value);
     Max3dPan = static_cast<float>(static_cast<unsigned long long>(Value * 100));
 
-    // 06ee4704..470d: FUN_06ee5730 < 0 -> return -1.
+    // ..470d: the routine < 0 -> return -1.
     if (CreateDirectSound() < 0)
         return GR_GENERIC;
     if (bSpeakerKey != 0)
         SetSpeakerConfig(SpeakerValue); // this->vtbl+0x1C
-    ApplyListener();                    // FUN_06ee6d50
+    ApplyListener();
     return GR_OK;
 }
 
 unsigned char FSoundManager::SetupInstanceNotify(FSoundInstanceNode* Node)
 {
-    // FUN_06ee1a40 stdcall RET 4. Arg = payload (node+8).
+    // stdcall RET 4. Arg = payload (node+8).
     if (G_NotifyThread == nullptr)
     {
         unsigned long Tid = 0;
         G_NotifyThread = CreateThread(nullptr, 0, NotifyThreadProc, nullptr, 0, &Tid);
         if (G_NotifyThread == nullptr)
         {
-            Fdump(kFdumpError, 0x347, "SoundManager: couldn't create thread for looping sounds.\n"); // 06eea1b0
+            Fdump(kFdumpError, 0x347, "SoundManager: couldn't create thread for looping sounds.\n");
             return 0;
         }
     }
@@ -3544,19 +3540,19 @@ unsigned char FSoundManager::SetupInstanceNotify(FSoundInstanceNode* Node)
     return 1;
 }
 
-GENRESULT DACOM_API FSoundManager::ShutdownDevice()
+GENRESULT NEURONCOMPONENTS_API FSoundManager::ShutdownDevice()
 {
-    // FUN_06ee4900 RET 0x4. Does not Release parser cache at +0x134.
-    // 06ee4900..4921: only a running notify thread is stopped - flag DAT_06eeaf74 = 1, close the
-    // handle DAT_06eeaf6c, null it. No SetEvent, no wait.
+    // RET 0x4. Does not Release parser cache at +0x134.
+    // ..4921: only a running notify thread is stopped - flag the field = 1, close the
+    // handle the field, null it. No SetEvent, no wait.
     if (G_NotifyThread != nullptr)
     {
         G_MixerStopFlag = 1;
         CloseHandle(G_NotifyThread);
         G_NotifyThread = nullptr;
     }
-    // 06ee4927..498d: drain the global list DAT_06eeaf00 without taking DAT_06eeaf0c - unlink,
-    // payload dtor FUN_06ee85e0 -> FUN_06ee11a0, node free FUN_06ee7d10, DAT_06eeaf08--.
+    // ..498d: drain the global list the field without taking the field - unlink,
+    // payload dtor the routine -> the routine, node free the routine, the field--.
     if (G_InstanceCount != 0)
     {
         FSoundInstanceNode* Node = G_InstanceSentinel.Next;
@@ -3571,7 +3567,7 @@ GENRESULT DACOM_API FSoundManager::ShutdownDevice()
             Node = Next;
         }
     }
-    // 06ee4993..49f8: drain the +0x110 attached list; nodes go back to the allocator, the play
+    // ..49f8: drain the +0x110 attached list; nodes go back to the allocator, the play
     // keys are NOT released (AttachPlayKey's AddRef is only undone by DetachPlayKey).
     if (AttachedCount != 0)
     {
@@ -3586,7 +3582,7 @@ GENRESULT DACOM_API FSoundManager::ShutdownDevice()
             Attached = Next;
         }
     }
-    DestroyAllArchetypes(); // 06ee49fe FUN_06ee4800
+    DestroyAllArchetypes(); // the routine
     if ((CapsFlags & 4) != 0)
         SetEaxPreview(static_cast<int>(Field68), *reinterpret_cast<float*>(&Field74),
                       *reinterpret_cast<float*>(&Field70), *reinterpret_cast<float*>(&Field6C));
@@ -3611,9 +3607,9 @@ GENRESULT DACOM_API FSoundManager::ShutdownDevice()
     return GR_OK;
 }
 
-GENRESULT DACOM_API FSoundManager::GetDirectSound(IDirectSound** Out)
+GENRESULT NEURONCOMPONENTS_API FSoundManager::GetDirectSound(IDirectSound** Out)
 {
-    // LAB_06ee4a90 RET 8. No check on Out: DS null -> *Out = 0, -1; else *Out = DS, AddRef, 0.
+    // RET 8. No check on Out: DS null -> *Out = 0, -1; else *Out = DS, AddRef, 0.
     if (DirectSound == nullptr)
     {
         *Out = nullptr;
@@ -3624,21 +3620,21 @@ GENRESULT DACOM_API FSoundManager::GetDirectSound(IDirectSound** Out)
     return GR_OK;
 }
 
-unsigned long DACOM_API FSoundManager::GetTickCountSlot()
+unsigned long NEURONCOMPONENTS_API FSoundManager::GetTickCountSlot()
 {
     return GetTickCount();
 }
 
 GENRESULT FSoundManager::GetDeviceSnapshot(void* Out)
 {
-    // LAB_06ee4ad0 thiscall RET 0x4. No memset. Caps copies are dwFree* not dwMax*.
+    // thiscall RET 0x4. No memset. Caps copies are dwFree* not dwMax*.
     unsigned char* Bytes = static_cast<unsigned char*>(Out);
     memcpy(Bytes + 4, &CapsFlags, 4);
     memcpy(Bytes + 8, &MaxChannels, 4);
     memcpy(Bytes + 12, &Field94, 4);
     if (DirectSound != nullptr)
     {
-        // 06ee4afd..4b0d: only dwSize is set before GetCaps (+0x10), whose result is ignored.
+        // ..4b0d: only dwSize is set before GetCaps (+0x10), whose result is ignored.
         DSCAPS Caps;
         Caps.dwSize = 0x60;
         DirectSound->GetCaps(&Caps);
@@ -3649,9 +3645,9 @@ GENRESULT FSoundManager::GetDeviceSnapshot(void* Out)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FSoundManager::MixerTick(ISoundListenerPose* ListenerPose)
+GENRESULT NEURONCOMPONENTS_API FSoundManager::MixerTick(ISoundListenerPose* ListenerPose)
 {
-    // LAB_06ee4b50 stdcall RET 8. Listing-complete: 6e20, prune, is_active/start-tick/
+    // stdcall RET 8. Listing-complete: 6e20, prune, is_active/start-tick/
     // 6070, pose+range cull, 1040/60e0/5f00/7c00 pending, 7c70 splice, 64c0, Play+6b70.
     unsigned char bDirty = 0;
     Field4C = GetTickCount();
@@ -3675,7 +3671,7 @@ GENRESULT DACOM_API FSoundManager::MixerTick(ISoundListenerPose* ListenerPose)
     unsigned long Created = 0;
     unsigned long AttachedIndex = 0;
     {
-        // 06ee4c17: the attached head (+0x110) always exists; retail does not test it.
+        // the attached head (+0x110) always exists; baseline does not test it.
         FAttachedNode* Attached = AttachedSentinel->Next;
         while (Attached != AttachedSentinel)
         {
@@ -3695,7 +3691,7 @@ GENRESULT DACOM_API FSoundManager::MixerTick(ISoundListenerPose* ListenerPose)
                 FSoundInstanceNode* Existing = FindInstanceByKey(PlayKey);
                 if (Existing != nullptr)
                 {
-                    // 06ee505e..5153: the notice is emitted before LeaveCriticalSection.
+                    // ..5153: the notice is emitted before LeaveCriticalSection.
                     EnterCriticalSection(&G_InstanceLock);
                     UnlinkInstance(Existing);
                     bDirty = 1;
@@ -3723,7 +3719,7 @@ GENRESULT DACOM_API FSoundManager::MixerTick(ISoundListenerPose* ListenerPose)
                 FSoundInstanceNode* Existing = FindInstanceByKey(PlayKey);
                 if (Existing != nullptr)
                 {
-                    // 06ee4dcd: cull unless DistSq < MaxDistSq (TEST AH,5 + JP: equal, greater
+                    // cull unless DistSq < MaxDistSq (TEST AH,5 + JP: equal, greater
                     // and NaN all jump to the cull at 06ee4e12).
                     RefreshInstancePose(Existing);
                     if (PlayKey->Is3d() != 0 && (Existing->DsCapsFlags & 0x20000) != 0 &&
@@ -3747,8 +3743,8 @@ GENRESULT DACOM_API FSoundManager::MixerTick(ISoundListenerPose* ListenerPose)
                 }
                 else if (MixerAllowCreate(PlayKey) != 0)
                 {
-                    // 06ee4f57..4fb0: on success Created++, payload+0x18 = attached index,
-                    // FUN_06ee5f00 (result unused), then the pending-list insert.
+                    // ..4fb0: on success Created++, payload+0x18 = attached index,
+                    // (result unused), then the pending-list insert.
                     FSoundInstanceNode* CreatedNode = CreateInstanceFromKey(PlayKey);
                     if (CreatedNode != nullptr)
                     {
@@ -3764,7 +3760,7 @@ GENRESULT DACOM_API FSoundManager::MixerTick(ISoundListenerPose* ListenerPose)
         }
     }
 
-    // 06ee51ba: pending count -> lock, dirty = 1 (before the re-check), splice if still non-zero.
+    // pending count -> lock, dirty = 1 (before the re-check), splice if still non-zero.
     if (InstanceEmbeddedCount != 0)
     {
         EnterCriticalSection(&G_InstanceLock);
@@ -3784,7 +3780,7 @@ GENRESULT DACOM_API FSoundManager::MixerTick(ISoundListenerPose* ListenerPose)
     if (Listener != nullptr)
         Listener->CommitDeferredSettings();
 
-    // 06ee5251..54b9: play pass. IsLooping (+0x1C) is asked before FUN_06ee6b70; no null
+    // ..54b9: play pass. IsLooping (+0x1C) is asked before the routine; no null
     // checks on the key or the buffer.
     Node = G_InstanceSentinel.Next;
     while (Node != &G_InstanceSentinel)
@@ -3820,7 +3816,7 @@ GENRESULT DACOM_API FSoundManager::MixerTick(ISoundListenerPose* ListenerPose)
                           FormatMessage2000(
                               Line, "Trying to restart instance of arch %d in SW because HW not available.\n",
                               Node->PlayKey->GetArchId()));
-                // 06ee5367: EBP becomes 4, so a successful retry is not marked HW below.
+                // EBP becomes 4, so a successful retry is not marked HW below.
                 LocFlags = DSBPLAY_LOCSOFTWARE;
                 Hr = Node->Buffer->Play(0, 0, PlayFlags | LocFlags);
                 if (Hr >= 0)
@@ -3860,12 +3856,12 @@ GENRESULT DACOM_API FSoundManager::MixerTick(ISoundListenerPose* ListenerPose)
     }
 
     if (bDirty != 0)
-        SetEvent(G_MixerEvent); // 06ee54c9..54d1
+        SetEvent(G_MixerEvent); // ..54d1
 
     return GR_OK;
 }
 
-GENRESULT DACOM_API FSoundManager::StopInstanceBuffer(ISoundSource* PlayKey)
+GENRESULT NEURONCOMPONENTS_API FSoundManager::StopInstanceBuffer(ISoundSource* PlayKey)
 {
     FSoundInstanceNode* Node = FindInstanceByKey(PlayKey);
     if (Node == nullptr || Node->Buffer == nullptr)
@@ -3874,9 +3870,9 @@ GENRESULT DACOM_API FSoundManager::StopInstanceBuffer(ISoundSource* PlayKey)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FSoundManager::PlayInstanceBuffer(ISoundSource* PlayKey)
+GENRESULT NEURONCOMPONENTS_API FSoundManager::PlayInstanceBuffer(ISoundSource* PlayKey)
 {
-    // LAB_06ee6f70: match node+8 == key; buffer (+0xC) null -> 0; IsLooping on the key.
+    // match node+8 == key; buffer (+0xC) null -> 0; IsLooping on the key.
     FSoundInstanceNode* Node = FindInstanceByKey(PlayKey);
     if (Node == nullptr || Node->Buffer == nullptr)
         return GR_OK;
@@ -3886,9 +3882,9 @@ GENRESULT DACOM_API FSoundManager::PlayInstanceBuffer(ISoundSource* PlayKey)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FSoundManager::GetArchetypeFormat(void* Id, void* Out)
+GENRESULT NEURONCOMPONENTS_API FSoundManager::GetArchetypeFormat(void* Id, void* Out)
 {
-    // LAB_06ee5530: miss EAX=0; hit GetFormat then return Release's EAX.
+    // miss EAX=0; hit GetFormat then return Release's EAX.
     FSoundArchetype* Archetype = LookupArchetype(static_cast<int>(reinterpret_cast<intptr_t>(Id)));
     if (Archetype == nullptr)
         return GR_OK;
@@ -3896,9 +3892,9 @@ GENRESULT DACOM_API FSoundManager::GetArchetypeFormat(void* Id, void* Out)
     return static_cast<GENRESULT>(Archetype->Release());
 }
 
-GENRESULT DACOM_API FSoundManager::GetArchetypeSamples(void* Id, void* Out)
+GENRESULT NEURONCOMPONENTS_API FSoundManager::GetArchetypeSamples(void* Id, void* Out)
 {
-    // LAB_06ee5570: miss returns 0, no FDUMP. Hit returns GetSamples EAX after Release.
+    // miss returns 0, no FDUMP. Hit returns GetSamples EAX after Release.
     FSoundArchetype* Archetype = LookupArchetype(static_cast<int>(reinterpret_cast<intptr_t>(Id)));
     if (Archetype == nullptr)
         return GR_OK;
@@ -3907,7 +3903,7 @@ GENRESULT DACOM_API FSoundManager::GetArchetypeSamples(void* Id, void* Out)
     return Result;
 }
 
-unsigned long DACOM_API FSoundManager::GetArchetypeFrames(void* Id)
+unsigned long NEURONCOMPONENTS_API FSoundManager::GetArchetypeFrames(void* Id)
 {
     FSoundArchetype* Archetype = LookupArchetype(static_cast<int>(reinterpret_cast<intptr_t>(Id)));
     if (Archetype == nullptr)
@@ -3917,9 +3913,9 @@ unsigned long DACOM_API FSoundManager::GetArchetypeFrames(void* Id)
     return Frames;
 }
 
-float DACOM_API FSoundManager::GetArchetypeGain(void* Id)
+float NEURONCOMPONENTS_API FSoundManager::GetArchetypeGain(void* Id)
 {
-    // LAB_06ee55f0: FLD arch+0x18 after Release; miss FLD 0.0.
+    // FLD arch+0x18 after Release; miss FLD 0.0.
     FSoundArchetype* Archetype = LookupArchetype(static_cast<int>(reinterpret_cast<intptr_t>(Id)));
     if (Archetype == nullptr)
         return 0.0f;
@@ -3928,9 +3924,9 @@ float DACOM_API FSoundManager::GetArchetypeGain(void* Id)
     return Value;
 }
 
-unsigned long DACOM_API FSoundManager::GetArchetypeChannels(void* Id)
+unsigned long NEURONCOMPONENTS_API FSoundManager::GetArchetypeChannels(void* Id)
 {
-    // LAB_06ee5630: MOVZX arch+4, then Release.
+    // MOVZX arch+4, then Release.
     FSoundArchetype* Archetype = LookupArchetype(static_cast<int>(reinterpret_cast<intptr_t>(Id)));
     if (Archetype == nullptr)
         return 0;
@@ -3939,16 +3935,16 @@ unsigned long DACOM_API FSoundManager::GetArchetypeChannels(void* Id)
     return Count;
 }
 
-GENRESULT DACOM_API FSoundManager::SetArchetypeSamples(void* /*A*/, void* /*B*/, void* /*C*/)
+GENRESULT NEURONCOMPONENTS_API FSoundManager::SetArchetypeSamples(void* /*A*/, void* /*B*/, void* /*C*/)
 {
-    // LAB_06ee5670 RET 0x10: FDUMP only, no lookup.
+    // RET 0x10: FDUMP only, no lookup.
     Fdump(kFdumpError, 0xAF5, "SoundManager: set_samples() not supported.");
     return GR_OK;
 }
 
-unsigned long DACOM_API FSoundManager::GetArchetypeReady(void* Id)
+unsigned long NEURONCOMPONENTS_API FSoundManager::GetArchetypeReady(void* Id)
 {
-    // LAB_06ee56a0: arch vtbl+0x2C, miss AL=0.
+    // arch vtbl+0x2C, miss AL=0.
     FSoundArchetype* Archetype = LookupArchetype(static_cast<int>(reinterpret_cast<intptr_t>(Id)));
     if (Archetype == nullptr)
         return 0;
@@ -3957,9 +3953,9 @@ unsigned long DACOM_API FSoundManager::GetArchetypeReady(void* Id)
     return Ready;
 }
 
-GENRESULT DACOM_API FSoundManager::GetInstanceStatus(int Index, void* Out)
+GENRESULT NEURONCOMPONENTS_API FSoundManager::GetInstanceStatus(int Index, void* Out)
 {
-    // LAB_06ee3620 RET 0xC: Index in [0, DAT_06eeaf08); walk sentinel→Next Index times;
+    // RET 0xC: Index in [0, the field); walk sentinel→Next Index times;
     // Out+0=node+8, Out+4=node+0x24, Out+8=node+0x28. No Out-null check.
     if (Index < 0 || static_cast<unsigned long>(Index) >= G_InstanceCount)
         return GR_GENERIC;
@@ -3982,11 +3978,11 @@ BOOL WINAPI DllMain(HINSTANCE Instance, DWORD Reason, LPVOID /*Reserved*/)
     if (Reason == DLL_PROCESS_ATTACH)
     {
         DisableThreadLibraryCalls(Instance);
-        // FUN_06ee71f0: DACOM_Acquire is called once for the null test and again for the
+        // NEURONCOMPONENTS_Acquire is called once for the null test and again for the
         // RegisterComponent call (06ee720e / 06ee7267). Literals 06eead5c / 06eeace8 / 06eead24.
-        if (DACOM_Acquire() == nullptr)
+        if (NEURONCOMPONENTS_Acquire() == nullptr)
         {
-            Fdump(kFdumpWarning, 0x10B4, "SoundManager: DllMain: unable to get DACOM!\n");
+            Fdump(kFdumpWarning, 0x10B4, "SoundManager: DllMain: unable to get NEURONCOMPONENTS!\n");
             return TRUE;
         }
         FSoundManagerFactory* Factory = new (std::nothrow) FSoundManagerFactory();
@@ -3996,7 +3992,7 @@ BOOL WINAPI DllMain(HINSTANCE Instance, DWORD Reason, LPVOID /*Reserved*/)
             return TRUE;
         }
         const GENRESULT Result =
-            DACOM_Acquire()->RegisterComponent(Factory, kComponentName,
+            NEURONCOMPONENTS_Acquire()->RegisterComponent(Factory, kComponentName,
                                                reinterpret_cast<void*>(kRegisterPriority));
         if (Result != GR_OK)
             Fdump(kFdumpWarning, 0x10BA, "SoundManager: DllMain: unable to register component!\n");

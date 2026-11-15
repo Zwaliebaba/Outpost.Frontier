@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -9,7 +5,7 @@
 #include "common_exports.h"
 
 // Common.dll TEXT / RDL / geometry cluster.
-// Reverse-engineered from EXE/Disasm/Common.dll.c + EXE/Common.map.
+// analysis from Common + EXE/Common.map.
 // Second pass: all implementable functions complete; remaining stubs marked FULLPORT-DEFERRED.
 
 #include <windows.h>
@@ -22,10 +18,10 @@
 class TextRenderContext;
 class DeviceTRC;
 
-// Retail's global enum TextJustify (?set_justify@JustifyNode@@QAEXW4TextJustify@@@Z). Enumerators
+// baseline's global enum TextJustify (?set_justify@JustifyNode@@QAEXW4TextJustify@@@Z). Enumerators
 // leave no symbols in a binary, so these NAMES are the port's.
-// VALUES (2026-09-09, item 2416 / FUN_0632b020, RDLX "JUST" tag handler, Common.dll.txt around
-// 0x0632baf4-0x0632bb6a): the "loc" attribute's switch sets the mode byte to 1 for 'C'/'c'
+// VALUES (2026-09-09, item 2416 / the routine, RDLX "JUST" tag handler, Common around
+// ): the "loc" attribute's switch sets the mode byte to 1 for 'C'/'c'
 // (center) and 2 for 'R'/'r' (right), 0 otherwise (left/default) -- two independent, directly
 // literal samples. This SUPERSEDES the previous Right=1/Center=2 guess, which was based on a
 // single ambiguous observation (OutpostFrontier.exe 0x0045ef96 builds a JustifyNode with value 1 --
@@ -51,7 +47,7 @@ class RenderDisplayList;
 struct COMMON_API Rect
 {
     // User-declared so that no implicit move members are generated and exported:
-    // VC6 had none, and retail exports exactly the copy assignment.
+    // VC6 had none, and baseline exports exactly the copy assignment.
     Rect& operator=(Rect const&) = default;
 
     int Left;       // +0x00
@@ -84,10 +80,10 @@ static_assert(sizeof(Rect) == 0x10, "Rect must be 0x10");
 
 // RVA 0xBE320 (??8@YA_NABURect@@0@Z). Free-function equality: fields all equal, OR
 // both rects are "null" (Width==0 or Height==0) -- two empty rects with different
-// leftover Left/Top/dimension bits still compare equal, matching retail exactly.
+// leftover Left/Top/dimension bits still compare equal, matching baseline exactly.
 COMMON_API bool operator==(Rect const& A, Rect const& B);
 
-// RVA 0xBE390 (??9@YA_NABURect@@0@Z). NOT a plain !(A==B): retail's inlined
+// RVA 0xBE390 (??9@YA_NABURect@@0@Z). NOT a plain !(A==B): baseline's inlined
 // "at least one non-empty" check here tests Width>0 && Height>0 (signed JLE/JG),
 // while the sibling operator== just above tests Width!=0 && Height!=0 (JZ/JNZ,
 // i.e. Rect::null()). Kept as its own faithful copy rather than collapsed to
@@ -96,7 +92,7 @@ COMMON_API bool operator!=(Rect const& A, Rect const& B);
 
 // ============================================================================
 // ViewRect -- the same rectangle as edges instead of extents. 4 ints, size 0x10.
-// Retail manglings say struct for both (?Rect_to_ViewRect@@YA?AUViewRect@@ABURect@@@Z).
+// baseline manglings say struct for both (?Rect_to_ViewRect@@YA?AUViewRect@@ABURect@@@Z).
 // ============================================================================
 struct ViewRect
 {
@@ -107,7 +103,7 @@ struct ViewRect
 };
 static_assert(sizeof(ViewRect) == 0x10, "ViewRect must be 0x10");
 
-// Common.dll.txt:0631e5f0 / 0631e620. Extents <-> inclusive edges; both are pure arithmetic.
+// Commone5f0 / 0631e620. Extents <-> inclusive edges; both are pure arithmetic.
 COMMON_API ViewRect __cdecl Rect_to_ViewRect(Rect const& In);
 COMMON_API Rect __cdecl ViewRect_to_Rect(ViewRect const& In);
 COMMON_API tagRECT __cdecl Rect_to_RECT(Rect const& In);
@@ -122,10 +118,10 @@ COMMON_API int __cdecl PackMissionLogData(int Type, FmtStr const* Fmt, unsigned 
 
 class TextRenderContext;
 class RenderDisplayList;
-// 0x06326600, 828 insns, tracker item 72966 -- the RDLX LAYOUT/line-breaking pass (consumes the tree
+// , 828 insns, tracker item 72966 -- the RDLX LAYOUT/line-breaking pass (consumes the tree
 // ParseRdlxTag/ParseRdlxEndElement/ParseRdlxCharacters in common_rdlio.cpp build, produces line breaks/positions/
 // wrapping/truncation into OutRdl). Ported 2026-09-10 (layoutrichtext-pass11): walks Rdl's node
-// list (a documented flat-walk simplification of retail's single-use recursion deque), measuring/
+// list (a documented flat-walk simplification of baseline's single-use recursion deque), measuring/
 // splitting/wrapping/justifying/positioning each line into OutRdl, with a single-line "truncate
 // with an ellipsis" mode gated by Param7. One low-confidence sub-piece (an edge-case list trim when
 // the ellipsis itself doesn't fit) and the exact meaning of the boolean return value are flagged as
@@ -137,19 +133,19 @@ COMMON_API int __cdecl lex_compare(RenderDisplayList const& A, RenderDisplayList
 // ============================================================================
 // FmtStr — formatted string with embedded values (linked-list of Val nodes).
 // Each node is 0xC: {next*, data_or_subtree, type_tag(ushort)+flags(uchar)}.
-//
-// Size 0x18, not 0x04. Retail's ??0FmtStr@@QAE@IPBUVal@0@@Z (0630e2d0) zeroes the head, the
+
+// Size 0x18, not 0x04. baseline's ??0FmtStr@@QAE@IPBUVal@0@@Z (0630e2d0) zeroes the head, the
 // mad-lib id at +0x04 and fourteen bytes at +0x08..+0x15, and ??4FmtStr@@QAEABU0@ABU0@@Z
 // (0630dda0) copies exactly those fields one at a time. The fourteen bytes are one counter per
 // value kind: every append_* post-increments its own counter and stamps the OLD value into the
 // new node's Flags, which is how the formatter later binds each value to its placeholder.
-//
-// Exported member by member, not with a class-level COMMON_API. Retail exports exactly the
+
+// Exported member by member, not with a class-level COMMON_API. baseline exports exactly the
 // members marked below and NO default constructor: there is neither ??0FmtStr@@QAE@XZ nor a
 // `default constructor closure' ??_FFmtStr@@QAEXXZ in its export table (compare
 // ??_FJustifyNode@@QAEXXZ, which a class-level export with a defaulted-argument ctor produces).
 // Yet every owner of a FmtStr default-constructs it inline -- MissionVendorProperties'
-// ctor (.text:0631a78c-0631a7f5) zeroes Head, MadLibId and the fourteen counters of each
+// ctor (module storage-0631a7f5) zeroes Head, MadLibId and the fourteen counters of each
 // member in place without calling anything. A class-level export would export an inline
 // default ctor too, so the default ctor below is inline and deliberately left unexported.
 // ============================================================================
@@ -157,7 +153,7 @@ struct FmtStr
 {
     struct NavMarker;
 
-    // Node in the FmtStr linked list. Size 0xC. Retail exports no default constructor for it
+    // Node in the FmtStr linked list. Size 0xC. baseline exports no default constructor for it
     // (only the (tag, data, flags), (void const*), (void const*, int&) and copy constructors).
     struct COMMON_API Val
     {
@@ -174,13 +170,13 @@ struct FmtStr
         unsigned char Flags;    // +0x0A
 
         Val(unsigned short InType, void* InData, unsigned char InFlags);
-        // Common.dll.c 150131-150156 (`??0Val@FmtStr@@QAE@PBXAAH@Z` / `...QAE@PBX@Z`) --
+        // Common (`??0Val@FmtStr@@QAE@PBXAAH@Z` / `...QAE@PBX@Z`) --
         // build directly from a serialized Val (InitFromVoid), optionally reporting the number
         // of bytes consumed. Not currently called anywhere else in the port, but real exported
-        // retail overloads, kept for API completeness/future callers.
+        // baseline overloads, kept for API completeness/future callers.
         Val(void const* Src, int& OutConsumed);
         explicit Val(void const* Src);
-        // Common.dll.c 150160-150167 (`??0Val@FmtStr@@QAE@ABU01@@Z`) -- retail defines this as
+        // Common (`??0Val@FmtStr@@QAE@ABU01@@Z`) -- baseline defines this as
         // a real (non-implicit) copy ctor that forwards to operator=, which is NOT a memberwise
         // copy for TypeTag 0x21/0x4E (see operator= below). Declaring it explicitly here is
         // required: without it, C++ would silently synthesize a shallow memberwise copy ctor
@@ -188,7 +184,7 @@ struct FmtStr
         Val(const Val& Other);
         ~Val();
 
-        // Retail returns a const reference: ??4Val@FmtStr@@QAEABU01@ABU01@@Z.
+        // baseline returns a const reference: ??4Val@FmtStr@@QAEABU01@ABU01@@Z.
         Val const& operator=(const Val& Other);
         bool operator==(const Val& Other) const;
 
@@ -199,14 +195,14 @@ struct FmtStr
         unsigned int get_flattened_size() const;
 
     private:
-        // Retail: ?InitFromVoid@Val@FmtStr@@AAEHPBX@Z (A = private). Besides the two Val(void
-        // const*...) ctors it is called by FmtStr::append_void (.text:0630d8b4) and
-        // FmtStr::unflatten (.text:0630e0cd), so FmtStr is a friend.
+        // baseline: ?InitFromVoid@Val@FmtStr@@AAEHPBX@Z (A = private). Besides the two Val(void
+        // const*...) ctors it is called by FmtStr::append_void (module storage) and
+        // FmtStr::unflatten (module storage), so FmtStr is a friend.
         friend struct FmtStr;
         int InitFromVoid(const void* Src);
     };
 
-    // The 0x14-byte payload append_nav_marker copies into a node (tag 0x4E). Retail names it
+    // The 0x14-byte payload append_nav_marker copies into a node (tag 0x4E). baseline names it
     // FmtStr::NavMarker (?append_nav_marker@FmtStr@@QAEXABUNavMarker@1@@Z) and moves it with a
     // 5-dword REP MOVSD; the individual fields are not needed by anything the port ports.
     struct NavMarker
@@ -215,9 +211,9 @@ struct FmtStr
     };
 
     // Which counter each append_* uses. The values are the byte offsets minus 0x08, so the
-    // array index doubles as retail's field offset. Only KindUnused0D (+0x0D) is genuinely never
+    // array index doubles as baseline's field offset. Only KindUnused0D (+0x0D) is genuinely never
     // stamped by any exported append_*; KindUnused13 (+0x13) IS used -- by append_fmt_str, which
-    // was previously (wrongly) thought to skip its own counter (Common.dll.c:150717-150718).
+    // was previously (wrongly) thought to skip its own counter (Common).
     enum ValueKind
     {
         KindNavMarker = 0,      // +0x08
@@ -241,8 +237,8 @@ struct FmtStr
     unsigned int MadLibId;              // +0x04  set by begin_mad_lib / the (id, list) ctor
     unsigned char ValueIndex[KindCount];// +0x08  per-kind running index, stamped into Val::Flags
 
-    // Inline and unexported -- see the note above the struct. Zeroes exactly what retail's
-    // inlined default construction zeroes (.text:0631a793-0631a7bf).
+    // Inline and unexported -- see the note above the struct. Zeroes exactly what baseline's
+    // inlined default construction zeroes (module storage-0631a7bf).
     FmtStr()
         : Head(nullptr), MadLibId(0)
     {
@@ -260,7 +256,7 @@ struct FmtStr
 
     COMMON_API void destroy();
 
-    // 06309b30 (folded with a pile of other one-line setters) / 062a8920 (an empty function).
+    // (folded with a pile of other one-line setters) / 062a8920 (an empty function).
     COMMON_API void begin_mad_lib(unsigned int Id);
     COMMON_API void end_mad_lib();
 
@@ -304,7 +300,7 @@ struct VisualSize
 static_assert(sizeof(VisualSize) == 0x10, "VisualSize must be 0x10");
 
 // ============================================================================
-// TextRenderAttributes — opaque attribute bundle. Retail copies only first dword.
+// TextRenderAttributes — opaque attribute bundle. baseline copies only first dword.
 // ============================================================================
 struct TextRenderAttributes
 {
@@ -322,25 +318,25 @@ class COMMON_API TextRenderContext
 {
 public:
     // ImageNode holds a pointer to one of these (PBVImage@TextRenderContext@@). Nothing about
-    // the class itself is exported, so the port declares only the name. Retail mangles it
+    // the class itself is exported, so the port declares only the name. baseline mangles it
     // as a class (VImage@TextRenderContext@@ in ?destroy_image@DeviceTRC@@UAEXPAVImage@...).
     class Image;
 
-    // Nested types. Retail's State is 0x20 bytes: get_state (.text:06327410) writes +0x00/+0x08/
-    // +0x0C and tail-calls get_clip_rect(&+0x10); set_state (.text:06327440) reads the same and
+    // Nested types. baseline's State is 0x20 bytes: get_state (module storage) writes +0x00/+0x08/
+    // +0x0C and tail-calls get_clip_rect(&+0x10); set_state (module storage) reads the same and
     // tail-calls set_clip_rect(+0x10). push_state builds the same record on its stack. The copy
-    // helper FUN_0632d510 copies every dword except +0x04, which nothing ever writes or reads.
+    // helper the routine copies every dword except +0x04, which nothing ever writes or reads.
     struct State
     {
         unsigned long Attributes;   // +0x00  CurrentAttrs (TRC+0x1C)
-        unsigned long Unused04;     // +0x04  formerly Field04: never written or read by retail
+        unsigned long Unused04;     // +0x04  formerly Field04: never written or read by baseline
         int PosV;                   // +0x08  TRC+0x2C
         int PosH;                   // +0x0C  TRC+0x30
         RECT ClipRect;              // +0x10  get_clip_rect / set_clip_rect
     };
 
     // Layout recovered from SetStandardFont (Common.dll 0xc6570): +0x00 is a char*, +0x04 a
-    // dword, and +0x08..+0x0A three flag bytes. FUN_063277f0, which turns a style into a
+    // dword, and +0x08..+0x0A three flag bytes. the routine, which turns a style into a
     // LOGFONTA, reads exactly these.
     struct FontDesc
     {
@@ -350,11 +346,11 @@ public:
         unsigned char bItalic;  // +0x09
         unsigned char bUnderline; // +0x0A
         unsigned char Unused0B; // formerly Pad0B: alignment byte, never read
-        // 0x0C bytes: DeviceTRC::static_set_font (.text:06327d50) builds one on a 0x0C-byte
-        // stack frame (local_c..local_4) and hands it to the LOGFONT builder FUN_063277f0.
+        // 0x0C bytes: DeviceTRC::static_set_font (module storage) builds one on a 0x0C-byte
+        // stack frame (local_c..local_4) and hands it to the LOGFONT builder the routine.
     };
 
-    // Retail exports nothing of Image itself (no ctor, dtor or vftable), so it is not
+    // baseline exports nothing of Image itself (no ctor, dtor or vftable), so it is not
     // COMMON_API: the only concrete image is DeviceTRC's, created and destroyed inside
     // Common.dll through create_image / destroy_image.
     class Image
@@ -362,8 +358,8 @@ public:
     public:
         virtual ~Image() {}
 
-        // ImageNode::GetVisualSize (.text:06329640) reads both straight through the base
-        // pointer (FMUL [img+4] / [img+8]); DeviceTRC::BMPImage's ctor (FUN_06327880) fills them.
+        // ImageNode::GetVisualSize (module storage) reads both straight through the base
+        // pointer (FMUL [img+4] / [img+8]); DeviceTRC::BMPImage's ctor (the routine) fills them.
         float Width;    // +0x04
         float Height;   // +0x08
     };
@@ -386,7 +382,7 @@ public:
     // Position/origin
     void set_pos(int H, int V);
     void set_origin(int H, int V);
-    // Retail: ?get_pos_h@TextRenderContext@@QAEHXZ etc. -- non-const (QAE).
+    // baseline: ?get_pos_h@TextRenderContext@@QAEHXZ etc. -- non-const (QAE).
     int get_pos_h();
     int get_pos_v();
     int get_origin_h();
@@ -401,9 +397,9 @@ public:
     void pop_state();
     void reset_to_default();
 
-    // Virtual device interface. TextRenderContext's vftable (.rdata:063a3de8) holds the dtor
-    // and then eleven _purecall slots (0x06391fb0), and retail exports none of these for the
-    // base class, so they are pure here. DeviceTRC (.rdata:063a3e1c) fills them in this order.
+    // Virtual device interface. TextRenderContext's vftable (module storage) holds the dtor
+    // and then eleven _purecall slots (0x06391fb0), and baseline exports none of these for the
+    // base class, so they are pure here. DeviceTRC (module storage) fills them in this order.
     virtual int get_cell_width() const = 0;                                          // +0x04
     virtual int get_cell_height() const = 0;                                         // +0x08
     virtual void get_text_visual_size(const wchar_t* Text, VisualSize& Size, int Len) const = 0; // +0x0C
@@ -411,7 +407,7 @@ public:
     virtual void get_text_fit(const wchar_t* Text, int MaxWidth, int& FitCount,
                               int* Widths, VisualSize& Size, int Len) const = 0;     // +0x14
     virtual void execute_text(const wchar_t* Text, bool bHighlight, int Len) = 0;    // +0x18
-    // Retail ?execute_image@DeviceTRC@@UAEXPBVImage@TextRenderContext@@_N@Z: a pointer and a
+    // baseline ?execute_image@DeviceTRC@@UAEXPBVImage@TextRenderContext@@_N@Z: a pointer and a
     // draw flag. ImageNode::Execute (0x06329620) passes its image and its own bool through.
     virtual void execute_image(const Image* Img, bool bDraw) = 0;                    // +0x1C
     virtual void set_clip_rect(const RECT& ClipRect) = 0;                            // +0x20
@@ -420,9 +416,9 @@ public:
     virtual void destroy_image(Image* Img) = 0;                                      // +0x2C
 
 private:
-    // State save/restore (used by get_dimensions and layout measurement). Private in retail
+    // State save/restore (used by get_dimensions and layout measurement). Private in baseline
     // (?get_state@TextRenderContext@@AAEXAAUState@1@@Z / ?set_state@...@AAEXABUState@1@@Z);
-    // besides the class itself only LayoutRichText calls them (.text:06326600 prologue and
+    // besides the class itself only LayoutRichText calls them (module storage prologue and
     // its two restore paths), so it is a friend.
     friend COMMON_API bool __cdecl LayoutRichText(TextRenderContext& Ctx, RenderDisplayList const& Rdl,
                                                   int Param3, RenderDisplayList& OutRdl, int Param5,
@@ -431,21 +427,21 @@ private:
     void set_state(const State& InState);
 
 public:
-    // Retail holds two VC6 std::lists (allocator byte, head, size): the STATE stack at +0x04
+    // baseline holds two VC6 std::lists (allocator byte, head, size): the STATE stack at +0x04
     // (head +0x08 with 0x28-byte nodes = links + a 0x20-byte State, size +0x0C) and the
     // ATTRIBUTE stack at +0x10 (head +0x14 with 0x10-byte nodes, size +0x18). Both are stacks
     // at the FRONT: push_state / push_default_attributes insert before head->_Next and
     // pop_state / pop_default_attributes / get_default_attributes use the front node.
     // LayoutRichText and RenderDisplayList::get_dimensions push onto StateStack directly
-    // (FUN_0632c0d0 = push_front). The port holds them as std::lists (No retail ABI); in the
-    // Debug CRT a std::list is 12 bytes, which keeps every later field at its retail offset.
+    // (the routine = push_front). The port holds them as std::lists (No baseline ABI); in the
+    // Debug CRT a std::list is 12 bytes, which keeps every later field at its baseline offset.
     std::list<State> StateStack;                // +0x04
     std::list<TextRenderAttributes> AttrStack;  // +0x10
     TextRenderAttributes CurrentAttrs; // +0x1C  current attributes
     unsigned long Unused20;     // +0x20  formerly Field20: never written or read by any TRC
-                                //        function in retail (not by the ctors, copies or dtor)
+                                //        function in baseline (not by the ctors, copies or dtor)
     TextRenderAttributes DefaultAttrs; // +0x24  default attributes
-    unsigned long Unused28;     // +0x28  formerly Field28: never written or read in retail
+    unsigned long Unused28;     // +0x28  formerly Field28: never written or read in baseline
     int PosV;                   // +0x2C  get_pos_v (0xc7580) / set_pos_v (0xc7590)
     int PosH;                   // +0x30  get_pos_h (0xc75a0) / set_pos_h (0xc75b0)
     int OriginV;                 // +0x34  get_origin_v (0xc75c0) / set_origin_v (0xc75d0)
@@ -454,13 +450,13 @@ public:
 
 // ============================================================================
 // RichText global entry points — Common.dll 0xc6340 / 0xc6410 / 0xc6570 / 0xc65c0.
-// E:\FL\Scratch\Source\Common\RichDisplayList.cpp.
+// Common\RichDisplayList.cpp.
 // ============================================================================
 
 // 0xc6340. Frees every cached font, sets both screen scale factors from the screen HEIGHT
 // (ScaleX = H/768, ScaleY = H/600 — the two reference heights, 1024x768 and 800x600), derives
 // the drop-shadow offset as ftol(2 * ScaleX), and records whether the OS major version is
-// above 4. Always returns true. The exe passes DAT_00610854, its surface height (005b1f64).
+// above 4. Always returns true. The exe passes the field, its surface height (005b1f64).
 COMMON_API bool __cdecl InitializeRichText(int ScreenHeight);
 
 // 0xc6410. Rebuilds all 32 styles x 8 bold/italic/underline combinations of cached GDI fonts.
@@ -491,26 +487,26 @@ public:
 
     // One cached GDI font: an entry of mFont. 0x7C bytes; mFont is 32 styles x 8
     // bold/italic/underline combinations, row-major, so a font index is (Style << 3) | Combo.
-    // The HFONT sits at +0x40 (DAT_064019a8 = mFont + 0x40), the LOGFONTA it was created from
+    // The HFONT sits at +0x40 (the field = mFont + 0x40), the LOGFONTA it was created from
     // at +0x00 and its TEXTMETRICA at +0x44. Nothing of WinFont is exported.
     class WinFont
     {
     public:
-        // LAB_063277b0: zeroes LogFont (0x3C bytes) and FontHandle; UnscaledSize and Metrics
-        // are left as they are. It and the destructor FUN_063277d0 (DeleteObject(FontHandle)
+        // zeroes LogFont (0x3C bytes) and FontHandle; UnscaledSize and Metrics
+        // are left as they are. It and the destructor the routine (DeleteObject(FontHandle)
         // if set, then null it) are the element ctor/dtor of mFont's static array
-        // initialisation (LAB_06327750 / LAB_06327780).
+        // initialisation (the branch / the branch).
         WinFont();
         ~WinFont();
 
         LOGFONTA LogFont;           // +0x00
-        int UnscaledSize;           // +0x3C  FUN_063277f0 stashes the unscaled size here; FILD (signed)
+        int UnscaledSize;           // +0x3C  the routine stashes the unscaled size here; FILD (signed)
         HFONT FontHandle;           // +0x40
         TEXTMETRICA Metrics;        // +0x44
     };
 
     // Static methods
-    // Retail ?static_set_font@DeviceTRC@@SAXHABUFontDesc@TextRenderContext@@M@Z (.text:06327d50):
+    // baseline ?static_set_font@DeviceTRC@@SAXHABUFontDesc@TextRenderContext@@M@Z (module storage):
     // rebuilds the eight fonts of one style from Desc, scaled by Scale.
     static void __cdecl static_set_font(int Index, const FontDesc& Desc, float Scale);
     static void __cdecl set_image_root(const char* Path);
@@ -528,7 +524,7 @@ public:
     virtual void execute_image(const Image* Img, bool bDraw) override;
     virtual void set_clip_rect(const RECT& NewClip) override;
     virtual void get_clip_rect(RECT& OutRect) override;
-    // Retail: ?create_image@DeviceTRC@@UAEPAVImage@TextRenderContext@@QBD@Z -- the pointer
+    // baseline: ?create_image@DeviceTRC@@UAEPAVImage@TextRenderContext@@QBD@Z -- the pointer
     // parameter itself is const (QBD).
     virtual Image* create_image(const char* const Filename) override;
     virtual void destroy_image(Image* Img) override;
@@ -542,20 +538,20 @@ private:
     friend COMMON_API void __cdecl ShutdownRichText();
 
     // The concrete image create_image returns (RTTI .?AVBMPImage@DeviceTRC@@, vftable
-    // .rdata:063a4608); nothing of it is exported, so it is defined in common_textrender.cpp.
+    // ); nothing of it is exported, so it is defined in common_textrender.cpp.
     class BMPImage;
 
-    // Private static data, exported: ?mDropShadowX@DeviceTRC@@0HA (.data:063ed670),
-    // ?mDropShadowY@DeviceTRC@@0HA (.data:063ed674), ?mFont@DeviceTRC@@0PAVWinFont@1@A
-    // (.data:06401968; a static array member mangles as a pointer).
+    // Private static data, exported: ?mDropShadowX@DeviceTRC@@0HA (module storage),
+    // ?mDropShadowY@DeviceTRC@@0HA (module storage), ?mFont@DeviceTRC@@0PAVWinFont@1@A
+    // (module storage; a static array member mangles as a pointer).
     static int mDropShadowX;
     static int mDropShadowY;
     static WinFont mFont[256];
 
     HDC MHdc;                   // +0x3C
     // +0x40..+0x4C, formerly Field40..Field4C: the cached clip rectangle in context
-    // coordinates. set_clip_rect (.text:063284a1) stores its argument here, get_clip_rect
-    // (.text:063284d0) refreshes it from the DC's clip region (zeroed when the DC has none) and
+    // coordinates. set_clip_rect (module storage) stores its argument here, get_clip_rect
+    // (module storage) refreshes it from the DC's clip region (zeroed when the DC has none) and
     // returns it; DeviceTRC() zeroes it, DeviceTRC(HDC) leaves it unwritten.
     RECT ClipRect;
 };
@@ -592,23 +588,23 @@ public:
     // Virtual interface (slots from vtable analysis)
     virtual RDLNode* Clone() const = 0;
     virtual void Execute(TextRenderContext& Ctx, bool bHighlight) = 0;
-    // Per-frame Update(float). Pure in RDLNode (.rdata:063a3e54 +0x08 is _purecall 0x06391fb0;
-    // retail exports no ?Update@RDLNode). Every concrete node exports its own override
+    // Per-frame Update(float). Pure in RDLNode (module storage +0x08 is _purecall 0x06391fb0;
+    // baseline exports no ?Update@RDLNode). Every concrete node exports its own override
     // (?Update@<Class>@@UAEXM@Z); all but RDLRefNode's are the ICF-folded `RET 4` at
-    // 0x062ed730. RDLRefNode (0x06329b70) forwards to its referenced list.
+    // . RDLRefNode (0x06329b70) forwards to its referenced list.
     virtual void Update(float Dt) = 0;
     virtual void GetVisualSize(const TextRenderContext& Ctx, VisualSize& Size) const = 0;
     virtual void GetElementSize(int& OutSize) const = 0;
     virtual void GetElementPos(int Index, TextRenderContext& Ctx, int& OutPos) const = 0;
-    // 2026-09-10 SIGNATURE FIX (item 72966 / LayoutRichText pass): retail's real vtable+0x18
+    // 2026-09-10 SIGNATURE FIX (item 72966 / LayoutRichText pass): baseline's real vtable+0x18
     // slot takes 5 arguments, not 4 -- confirmed two independent ways: (1) LayoutRichText's one
-    // confirmed call site (Common.dll.txt 0x06326c9b-0x06326cad) pushes 5 args in order
-    // (Ctx, MaxSize, 0, &OutLeft, &OutRight); (2) TextNode::SplitAtSize's own mangled retail
-    // symbol (?SplitAtSize@TextNode@@UBE_NABVTextRenderContext@@HIAAPAVRDLNode@@1@Z, Common.dll.txt
+    // confirmed call site (Common 0x06326c9b-0x06326cad) pushes 5 args in order
+    // (Ctx, MaxSize, 0, &OutLeft, &OutRight); (2) TextNode::SplitAtSize's own mangled baseline
+    // symbol (?SplitAtSize@TextNode@@UBE_NABVTextRenderContext@@HIAAPAVRDLNode@@1@Z, Common
     // 358218-358249) decodes to exactly (const TextRenderContext&, int, unsigned int, RDLNode*&,
     // RDLNode*&) -- the "I" between "H" and the two "AAPAVRDLNode@@" pointers is this new
-    // SplitFlags param. Traced into the shared split helper (retail FUN_06328f20, Common.dll.txt
-    // 0x06328f20 on): `TEST byte ptr [ESP+0x44],0x1; JNZ ...` at 0x06328f71/0x06328f76 gates
+    // SplitFlags param. Traced into the shared split helper (baseline the routine, Common
+    // on): `TEST byte ptr [ESP+0x44],0x1; JNZ ...` at 0x06328f71/0x06328f76 gates
     // whether the backward word-boundary whitespace scan runs at all -- bit 0 SET skips the scan
     // and splits exactly at the last character that fits; bit 0 CLEAR (the only value the one
     // known call site ever passes) runs the scan, matching this port's existing
@@ -616,12 +612,12 @@ public:
     virtual bool SplitAtSize(const TextRenderContext& Ctx, int MaxSize, unsigned int SplitFlags,
                              RDLNode*& OutLeft, RDLNode*& OutRight) const = 0;
 
-    // Retail's node-type query: 24 virtual conversion operators, one non-const/const pair per
+    // baseline's node-type query: 24 virtual conversion operators, one non-const/const pair per
     // concrete node class, exported as ??BRDLNode@@UAEPAV<Class>@@XZ / ??BRDLNode@@UBEPBV<Class>@@XZ
-    // (ordinals 917-940). All 24 base bodies are one ICF-folded stub, Common.dll.txt 0x06325390
+    // (ordinals 917-940). All 24 base bodies are one ICF-folded stub, Common 0x06325390
     // `XOR EAX,EAX; RET` (return null). Every subclass overrides exactly its own pair with the
     // ICF-folded `MOV EAX,ECX; RET` at 0x06261260 (return this; ??B<Class>@@UAEPAV0@XZ, ordinals
-    // 903-916 and neighbours). RDLNode's vtable (.rdata:063a3e54) is 32 slots: 8 ordinary
+    // 903-916 and neighbours). RDLNode's vtable (module storage) is 32 slots: 8 ordinary
     // virtuals, then these 24 from +0x20 to +0x7C. The pair offsets, read off each subclass's own
     // vtable (the slot pair that holds 0x06261260): TextNode +0x20, TRANode +0x28, PositionNode
     // +0x30, ParagraphNode +0x38, JustifyNode +0x40, ClipNode +0x48, StyleNode +0x50, NullNode
@@ -629,7 +625,7 @@ public:
     // non-const operator is the even slot: ParseRdlxCharacters appends into what +0x20 returns.
     // Declared in that order. Callers: BinaryRDLWriter::write_buffer (0x0632a970: +0x28, +0x30,
     // +0x20, +0x60, +0x38, +0x50, +0x68), ParseRdlxCharacters (+0x20), OutpostFrontier.exe
-    // FUN_0057eb40 (+0x38), LayoutRichText's main loop (+0x38/+0x40/+0x50/+0x60).
+    // (+0x38), LayoutRichText's main loop (+0x38/+0x40/+0x50/+0x60).
     virtual operator TextNode*();
     virtual operator const TextNode*() const;
     virtual operator TRANode*();
@@ -670,14 +666,14 @@ public:
 
     virtual RDLNode* Clone() const override;
     virtual void Execute(TextRenderContext& Ctx, bool bHighlight) override;
-    virtual void Update(float Dt) override; // 0x062ed730 (ICF-folded empty `RET 4`)
+    virtual void Update(float Dt) override; // (ICF-folded empty `RET 4`)
     virtual void GetVisualSize(const TextRenderContext& Ctx, VisualSize& Size) const override;
     virtual void GetElementSize(int& OutSize) const override;
     virtual void GetElementPos(int Index, TextRenderContext& Ctx, int& OutPos) const override;
     virtual bool SplitAtSize(const TextRenderContext& Ctx, int MaxSize, unsigned int SplitFlags,
                              RDLNode*& OutLeft, RDLNode*& OutRight) const override;
-    // Retail ??BNullNode@@UAEPAV0@XZ / ??BNullNode@@UBEPBV0@XZ: both are the ICF-folded
-    // `MOV EAX,ECX; RET` at Common.dll.txt 0x06261260 (return this). See RDLNode.
+    // baseline ??BNullNode@@UAEPAV0@XZ / ??BNullNode@@UBEPBV0@XZ: both are the ICF-folded
+    // `MOV EAX,ECX; RET` at Common 0x06261260 (return this). See RDLNode.
     virtual operator NullNode*() override;
     virtual operator const NullNode*() const override;
 };
@@ -695,23 +691,23 @@ public:
 
     void set_attributes(const TextRenderAttributes& InAttrs, unsigned int InMask);
 
-    // Retail accessors, all non-const (QAE), each an ICF-folded one-liner:
-    const TextRenderAttributes& get_attributes(); // 0x0632e7a0  LEA EAX,[ECX+0x4]
-    unsigned int get_mask();                      // 0x0629fb90  MOV EAX,[ECX+0xC]
-    void set_mask(unsigned int InMask);           // 0x06332f40  MOV [ECX+0xC],arg
-    unsigned int get_default_mask();              // 0x06263a70  MOV EAX,[ECX+0x10]
-    void set_default_mask(unsigned int InMask);   // 0x06332f50  MOV [ECX+0x10],arg
+    // baseline accessors, all non-const (QAE), each an ICF-folded one-liner:
+    const TextRenderAttributes& get_attributes(); // LEA EAX,[ECX+0x4]
+    unsigned int get_mask();                      // MOV EAX,[ECX+0xC]
+    void set_mask(unsigned int InMask);           // MOV [ECX+0xC],arg
+    unsigned int get_default_mask();              // MOV EAX,[ECX+0x10]
+    void set_default_mask(unsigned int InMask);   // MOV [ECX+0x10],arg
 
     virtual RDLNode* Clone() const override;
     virtual void Execute(TextRenderContext& Ctx, bool bHighlight) override;
-    virtual void Update(float Dt) override; // 0x062ed730 (ICF-folded empty `RET 4`)
+    virtual void Update(float Dt) override; // (ICF-folded empty `RET 4`)
     virtual void GetVisualSize(const TextRenderContext& Ctx, VisualSize& Size) const override;
     virtual void GetElementSize(int& OutSize) const override;
     virtual void GetElementPos(int Index, TextRenderContext& Ctx, int& OutPos) const override;
     virtual bool SplitAtSize(const TextRenderContext& Ctx, int MaxSize, unsigned int SplitFlags,
                              RDLNode*& OutLeft, RDLNode*& OutRight) const override;
-    // Retail ??BTRANode@@UAEPAV0@XZ / ??BTRANode@@UBEPBV0@XZ: both are the ICF-folded
-    // `MOV EAX,ECX; RET` at Common.dll.txt 0x06261260 (return this). See RDLNode.
+    // baseline ??BTRANode@@UAEPAV0@XZ / ??BTRANode@@UBEPBV0@XZ: both are the ICF-folded
+    // `MOV EAX,ECX; RET` at Common 0x06261260 (return this). See RDLNode.
     virtual operator TRANode*() override;
     virtual operator const TRANode*() const override;
     friend class BinaryRDLWriter; // write_buffer (0x0632a970) reads the fields directly
@@ -719,13 +715,13 @@ public:
 private:
     TextRenderAttributes Attrs; // +0x04
     unsigned int Unused08;      // +0x08  formerly Field08: no ctor writes it and nothing reads it
-                                //        (retail leaves stack garbage; the port zeroes it)
+                                //        (baseline leaves stack garbage; the port zeroes it)
     unsigned int Mask;          // +0x0C  formerly Field0C: get_mask / set_mask (0x0629fb90)
     unsigned int DefaultMask;   // +0x10  formerly Field10: get_default_mask (0x06263a70)
 };
 static_assert(sizeof(TRANode) == 0x14, "TRANode must be 0x14");
 
-// TextNode — owns a wide string. Retail: vtable + one VC6 basic_string<unsigned short> at +0x04
+// TextNode — owns a wide string. baseline: vtable + one VC6 basic_string<unsigned short> at +0x04
 // (allocator byte, pointer +0x08, length +0x0C, reserve +0x10) = 0x14 bytes, nothing else. The
 // port holds the same single member as a std::wstring (modern std type, so the size differs).
 class COMMON_API TextNode : public RDLNode
@@ -735,29 +731,29 @@ public:
     TextNode(const TextNode& Other);
     // Len < 0 means "the whole string" in both constructors, set_text overloads and the
     // basic_string append_text; the pointer forms measure with wcslen.
-    TextNode(const std::wstring& InText, int Len);   // 0x06328770
-    TextNode(const wchar_t* InText, int Len);        // 0x063288e0
+    TextNode(const std::wstring& InText, int Len);
+    TextNode(const wchar_t* InText, int Len);
     ~TextNode();
 
     TextNode& operator=(const TextNode& Other);
 
-    void set_text(const std::wstring& InText, int Len);    // 0x06328a40
-    void set_text(const wchar_t* InText, int Len);         // 0x06328ba0
-    void append_text(const wchar_t* InText, int Len);      // 0x06328c60
-    void append_text(const std::wstring& InText, int Len); // 0x06328d30
-    // Retail ?get_text@TextNode@@QBEABV?$basic_string@G...@std@@XZ (0x0632e7a0, LEA EAX,[ECX+4]).
+    void set_text(const std::wstring& InText, int Len);
+    void set_text(const wchar_t* InText, int Len);
+    void append_text(const wchar_t* InText, int Len);
+    void append_text(const std::wstring& InText, int Len);
+    // baseline ?get_text@TextNode@@QBEABV?$basic_string@G...@std@@XZ (0x0632e7a0, LEA EAX,[ECX+4]).
     const std::wstring& get_text() const;
 
     virtual RDLNode* Clone() const override;
     virtual void Execute(TextRenderContext& Ctx, bool bHighlight) override;
-    virtual void Update(float Dt) override; // 0x062ed730 (ICF-folded empty `RET 4`)
+    virtual void Update(float Dt) override; // (ICF-folded empty `RET 4`)
     virtual void GetVisualSize(const TextRenderContext& Ctx, VisualSize& Size) const override;
     virtual void GetElementSize(int& OutSize) const override;
     virtual void GetElementPos(int Index, TextRenderContext& Ctx, int& OutPos) const override;
     virtual bool SplitAtSize(const TextRenderContext& Ctx, int MaxSize, unsigned int SplitFlags,
                              RDLNode*& OutLeft, RDLNode*& OutRight) const override;
-    // Retail ??BTextNode@@UAEPAV0@XZ / ??BTextNode@@UBEPBV0@XZ: both are the ICF-folded
-    // `MOV EAX,ECX; RET` at Common.dll.txt 0x06261260 (return this). See RDLNode.
+    // baseline ??BTextNode@@UAEPAV0@XZ / ??BTextNode@@UBEPBV0@XZ: both are the ICF-folded
+    // `MOV EAX,ECX; RET` at Common 0x06261260 (return this). See RDLNode.
     virtual operator TextNode*() override;
     virtual operator const TextNode*() const override;
     friend class BinaryRDLWriter; // write_buffer (0x0632a970) reads the fields directly
@@ -775,27 +771,27 @@ public:
     TextPtrNode(const wchar_t* Text, int Len);
 
     void set_text(const wchar_t* Text, int Len);
-    // Retail ?get_text@TextPtrNode@@QBEPBGXZ (0x062d1ad0, MOV EAX,[ECX+0x4]) and
+    // baseline ?get_text@TextPtrNode@@QBEPBGXZ (0x062d1ad0, MOV EAX,[ECX+0x4]) and
     // ?get_text_length@TextPtrNode@@QBEHXZ (0x062a66a0, MOV EAX,[ECX+0x8]); both const.
     const wchar_t* get_text() const;
     int get_text_length() const;
 
     virtual RDLNode* Clone() const override;
     virtual void Execute(TextRenderContext& Ctx, bool bHighlight) override;
-    virtual void Update(float Dt) override; // 0x062ed730 (ICF-folded empty `RET 4`)
+    virtual void Update(float Dt) override; // (ICF-folded empty `RET 4`)
     virtual void GetVisualSize(const TextRenderContext& Ctx, VisualSize& Size) const override;
     virtual void GetElementSize(int& OutSize) const override;
     virtual void GetElementPos(int Index, TextRenderContext& Ctx, int& OutPos) const override;
     virtual bool SplitAtSize(const TextRenderContext& Ctx, int MaxSize, unsigned int SplitFlags,
                              RDLNode*& OutLeft, RDLNode*& OutRight) const override;
-    // Retail ??BTextPtrNode@@UAEPAV0@XZ / ??BTextPtrNode@@UBEPBV0@XZ: both are the ICF-folded
-    // `MOV EAX,ECX; RET` at Common.dll.txt 0x06261260 (return this). See RDLNode.
+    // baseline ??BTextPtrNode@@UAEPAV0@XZ / ??BTextPtrNode@@UBEPBV0@XZ: both are the ICF-folded
+    // `MOV EAX,ECX; RET` at Common 0x06261260 (return this). See RDLNode.
     virtual operator TextPtrNode*() override;
     virtual operator const TextPtrNode*() const override;
     friend class BinaryRDLWriter; // write_buffer (0x0632a970) reads the fields directly
 
 private:
-    // Retail is 0x0C bytes: Clone (.text:06329470) allocates operator new(0xc) and every
+    // baseline is 0x0C bytes: Clone (module storage) allocates operator new(0xc) and every
     // constructor writes only +0x04 / +0x08.
     const wchar_t* TextPtr;        // +0x04
     int TextLen;                   // +0x08  signed: the ctor tests it with JGE (06329334)
@@ -806,7 +802,7 @@ static_assert(sizeof(TextPtrNode) == 0x0C, "TextPtrNode must be 0x0C");
 class COMMON_API AttribStackNode : public RDLNode
 {
 public:
-    // Retail Execute() only special-cases 0 (push) and 1 (pop); the default
+    // baseline Execute() only special-cases 0 (push) and 1 (pop); the default
     // ctor stores the literal 3 (neither push nor pop -- an inert sentinel),
     // so that value is kept nameless here rather than invented.
     // Fixed int underlying type: the field also holds 2 (clear) and 3 (the default ctor's
@@ -819,21 +815,21 @@ public:
 
     AttribStackNode& operator=(const AttribStackNode& Other);
 
-    // Retail ?get_operation@AttribStackNode@@QAE?AW4Op@1@XZ (0x062d1ad0, MOV EAX,[ECX+0x4]) and
+    // baseline ?get_operation@AttribStackNode@@QAE?AW4Op@1@XZ (0x062d1ad0, MOV EAX,[ECX+0x4]) and
     // ?set_operation@AttribStackNode@@QAEXW4Op@1@@Z (0x06309b30, MOV [ECX+0x4],arg); non-const.
     Op get_operation();
     void set_operation(Op op);
 
     virtual RDLNode* Clone() const override;
     virtual void Execute(TextRenderContext& Ctx, bool bHighlight) override;
-    virtual void Update(float Dt) override; // 0x062ed730 (ICF-folded empty `RET 4`)
+    virtual void Update(float Dt) override; // (ICF-folded empty `RET 4`)
     virtual void GetVisualSize(const TextRenderContext& Ctx, VisualSize& Size) const override;
     virtual void GetElementSize(int& OutSize) const override;
     virtual void GetElementPos(int Index, TextRenderContext& Ctx, int& OutPos) const override;
     virtual bool SplitAtSize(const TextRenderContext& Ctx, int MaxSize, unsigned int SplitFlags,
                              RDLNode*& OutLeft, RDLNode*& OutRight) const override;
-    // Retail ??BAttribStackNode@@UAEPAV0@XZ / ??BAttribStackNode@@UBEPBV0@XZ: both are the ICF-folded
-    // `MOV EAX,ECX; RET` at Common.dll.txt 0x06261260 (return this). See RDLNode.
+    // baseline ??BAttribStackNode@@UAEPAV0@XZ / ??BAttribStackNode@@UBEPBV0@XZ: both are the ICF-folded
+    // `MOV EAX,ECX; RET` at Common 0x06261260 (return this). See RDLNode.
     virtual operator AttribStackNode*() override;
     virtual operator const AttribStackNode*() const override;
 
@@ -848,26 +844,26 @@ class COMMON_API ImageNode : public RDLNode
 public:
     ImageNode();
     ImageNode(const ImageNode& Other);
-    // 063295f0 stores the argument straight into +0x04: the node holds a POINTER to the image,
+    // stores the argument straight into +0x04: the node holds a POINTER to the image,
     // not an id. Same size either way, but a different type.
     explicit ImageNode(TextRenderContext::Image const* Img);
     virtual ~ImageNode();
 
     ImageNode& operator=(const ImageNode& Other);
 
-    TextRenderContext::Image const* get_image();          // 0x062d1ad0  MOV EAX,[ECX+0x4]
-    void set_image(TextRenderContext::Image const* InImg); // 0x06309b30  MOV [ECX+0x4],arg
+    TextRenderContext::Image const* get_image();          // MOV EAX,[ECX+0x4]
+    void set_image(TextRenderContext::Image const* InImg); // MOV [ECX+0x4],arg
 
     virtual RDLNode* Clone() const override;
     virtual void Execute(TextRenderContext& Ctx, bool bHighlight) override;
-    virtual void Update(float Dt) override; // 0x062ed730 (ICF-folded empty `RET 4`)
+    virtual void Update(float Dt) override; // (ICF-folded empty `RET 4`)
     virtual void GetVisualSize(const TextRenderContext& Ctx, VisualSize& Size) const override;
     virtual void GetElementSize(int& OutSize) const override;
     virtual void GetElementPos(int Index, TextRenderContext& Ctx, int& OutPos) const override;
     virtual bool SplitAtSize(const TextRenderContext& Ctx, int MaxSize, unsigned int SplitFlags,
                              RDLNode*& OutLeft, RDLNode*& OutRight) const override;
-    // Retail ??BImageNode@@UAEPAV0@XZ / ??BImageNode@@UBEPBV0@XZ: both are the ICF-folded
-    // `MOV EAX,ECX; RET` at Common.dll.txt 0x06261260 (return this). See RDLNode.
+    // baseline ??BImageNode@@UAEPAV0@XZ / ??BImageNode@@UBEPBV0@XZ: both are the ICF-folded
+    // `MOV EAX,ECX; RET` at Common 0x06261260 (return this). See RDLNode.
     virtual operator ImageNode*() override;
     virtual operator const ImageNode*() const override;
 
@@ -885,36 +881,36 @@ public:
 
     PositionNode& operator=(const PositionNode& Other);
 
-    // Retail ?set_pos@PositionNode@@QAEXMM@Z (.text:06329720): two floats, stored raw.
+    // baseline ?set_pos@PositionNode@@QAEXMM@Z (module storage): two floats, stored raw.
     void set_pos(float H, float V);
-    // Retail accessors, all non-const (QAE):
-    float get_pos_h();              // 0x06261db0  FLD [ECX+0xC]
-    float get_pos_v();              // 0x06261da0  FLD [ECX+0x8]
-    void set_pos_h(float H);        // 0x06332f40  MOV [ECX+0xC],arg
-    void set_pos_v(float V);        // 0x0631d940  MOV [ECX+0x8],arg
-    bool is_rel_h();                // 0x06329740  MOV AL,[ECX+0x4]
-    bool is_rel_v();                // 0x06329750  MOV AL,[ECX+0x5]
+    // baseline accessors, all non-const (QAE):
+    float get_pos_h();              // FLD [ECX+0xC]
+    float get_pos_v();              // FLD [ECX+0x8]
+    void set_pos_h(float H);        // MOV [ECX+0xC],arg
+    void set_pos_v(float V);        // MOV [ECX+0x8],arg
+    bool is_rel_h();                // MOV AL,[ECX+0x4]
+    bool is_rel_v();                // MOV AL,[ECX+0x5]
     void set_rel_h(bool bRel);
     void set_rel_v(bool bRel);
 
     virtual RDLNode* Clone() const override;
     virtual void Execute(TextRenderContext& Ctx, bool bHighlight) override;
-    virtual void Update(float Dt) override; // 0x062ed730 (ICF-folded empty `RET 4`)
+    virtual void Update(float Dt) override; // (ICF-folded empty `RET 4`)
     virtual void GetVisualSize(const TextRenderContext& Ctx, VisualSize& Size) const override;
     virtual void GetElementSize(int& OutSize) const override;
     virtual void GetElementPos(int Index, TextRenderContext& Ctx, int& OutPos) const override;
     virtual bool SplitAtSize(const TextRenderContext& Ctx, int MaxSize, unsigned int SplitFlags,
                              RDLNode*& OutLeft, RDLNode*& OutRight) const override;
-    // Retail ??BPositionNode@@UAEPAV0@XZ / ??BPositionNode@@UBEPBV0@XZ: both are the ICF-folded
-    // `MOV EAX,ECX; RET` at Common.dll.txt 0x06261260 (return this). See RDLNode.
+    // baseline ??BPositionNode@@UAEPAV0@XZ / ??BPositionNode@@UBEPBV0@XZ: both are the ICF-folded
+    // `MOV EAX,ECX; RET` at Common 0x06261260 (return this). See RDLNode.
     virtual operator PositionNode*() override;
     virtual operator const PositionNode*() const override;
     friend class BinaryRDLWriter; // write_buffer (0x0632a970) reads the fields directly
     friend class BinaryRDLReader; // read_buffer (0x0632a560) writes the fields directly
 
 private:
-    // Retail layout (ctor .text:063296f0, copy ctor .text:063259f0, is_rel_h .text:06329740,
-    // set_rel_h .text:06329760, set_pos .text:06329720, Execute .text:06329780): the two
+    // baseline layout (ctor module storage, copy ctor module storage, is_rel_h module storage,
+    // set_rel_h module storage, set_pos module storage, Execute module storage): the two
     // relative flags are separate bytes, the position is two floats with V before H.
     bool bRelH;                 // +0x04
     bool bRelV;                 // +0x05
@@ -932,14 +928,14 @@ public:
 
     virtual RDLNode* Clone() const override;
     virtual void Execute(TextRenderContext& Ctx, bool bHighlight) override;
-    virtual void Update(float Dt) override; // 0x062ed730 (ICF-folded empty `RET 4`)
+    virtual void Update(float Dt) override; // (ICF-folded empty `RET 4`)
     virtual void GetVisualSize(const TextRenderContext& Ctx, VisualSize& Size) const override;
     virtual void GetElementSize(int& OutSize) const override;
     virtual void GetElementPos(int Index, TextRenderContext& Ctx, int& OutPos) const override;
     virtual bool SplitAtSize(const TextRenderContext& Ctx, int MaxSize, unsigned int SplitFlags,
                              RDLNode*& OutLeft, RDLNode*& OutRight) const override;
-    // Retail ??BParagraphNode@@UAEPAV0@XZ / ??BParagraphNode@@UBEPBV0@XZ: both are the ICF-folded
-    // `MOV EAX,ECX; RET` at Common.dll.txt 0x06261260 (return this). See RDLNode.
+    // baseline ??BParagraphNode@@UAEPAV0@XZ / ??BParagraphNode@@UBEPBV0@XZ: both are the ICF-folded
+    // `MOV EAX,ECX; RET` at Common 0x06261260 (return this). See RDLNode.
     virtual operator ParagraphNode*() override;
     virtual operator const ParagraphNode*() const override;
 };
@@ -950,7 +946,7 @@ class COMMON_API JustifyNode : public RDLNode
 {
 public:
     JustifyNode(const JustifyNode& Other);
-    // 063298d0 -- stores the mode at +0x04. Retail's only other constructor: there is no
+    // stores the mode at +0x04. baseline's only other constructor: there is no
     // ??0JustifyNode@@QAE@XZ, and the exported `default constructor closure'
     // ??_FJustifyNode@@QAEXXZ (06325af0: PUSH 0; CALL 063298d0) is what a defaulted argument
     // of 0 on this constructor produces -- so the default lives here, not in a separate ctor.
@@ -958,21 +954,21 @@ public:
 
     JustifyNode& operator=(const JustifyNode& Other);
 
-    // Retail ?get_justify@JustifyNode@@QAE?AW4TextJustify@@XZ (0x062d1ad0, MOV EAX,[ECX+0x4])
+    // baseline ?get_justify@JustifyNode@@QAE?AW4TextJustify@@XZ (0x062d1ad0, MOV EAX,[ECX+0x4])
     // and ?set_justify@JustifyNode@@QAEXW4TextJustify@@@Z (0x06309b30, MOV [ECX+0x4],arg).
     TextJustify get_justify();
     void set_justify(TextJustify Mode);
 
     virtual RDLNode* Clone() const override;
     virtual void Execute(TextRenderContext& Ctx, bool bHighlight) override;
-    virtual void Update(float Dt) override; // 0x062ed730 (ICF-folded empty `RET 4`)
+    virtual void Update(float Dt) override; // (ICF-folded empty `RET 4`)
     virtual void GetVisualSize(const TextRenderContext& Ctx, VisualSize& Size) const override;
     virtual void GetElementSize(int& OutSize) const override;
     virtual void GetElementPos(int Index, TextRenderContext& Ctx, int& OutPos) const override;
     virtual bool SplitAtSize(const TextRenderContext& Ctx, int MaxSize, unsigned int SplitFlags,
                              RDLNode*& OutLeft, RDLNode*& OutRight) const override;
-    // Retail ??BJustifyNode@@UAEPAV0@XZ / ??BJustifyNode@@UBEPBV0@XZ: both are the ICF-folded
-    // `MOV EAX,ECX; RET` at Common.dll.txt 0x06261260 (return this). See RDLNode.
+    // baseline ??BJustifyNode@@UAEPAV0@XZ / ??BJustifyNode@@UBEPBV0@XZ: both are the ICF-folded
+    // `MOV EAX,ECX; RET` at Common 0x06261260 (return this). See RDLNode.
     virtual operator JustifyNode*() override;
     virtual operator const JustifyNode*() const override;
 
@@ -987,27 +983,27 @@ class COMMON_API ClipNode : public RDLNode
 public:
     ClipNode();
     ClipNode(const ClipNode& Other);
-    // 06329940 -- copies the four RECT members into +0x04..+0x10 in order.
+    // copies the four RECT members into +0x04..+0x10 in order.
     explicit ClipNode(tagRECT const& Rect);
 
     ClipNode& operator=(const ClipNode& Other);
 
-    // 06329970 -- retail takes a single RECT reference, not four ints.
+    // baseline takes a single RECT reference, not four ints.
     void set_rect(tagRECT const& Rect);
-    // Retail ?get_rect@ClipNode@@QAEABUtagRECT@@XZ (0x0632e7a0, LEA EAX,[ECX+0x4]): a
+    // baseline ?get_rect@ClipNode@@QAEABUtagRECT@@XZ (0x0632e7a0, LEA EAX,[ECX+0x4]): a
     // reference to the RECT stored at +0x04. Non-const.
     const tagRECT& get_rect();
 
     virtual RDLNode* Clone() const override;
     virtual void Execute(TextRenderContext& Ctx, bool bHighlight) override;
-    virtual void Update(float Dt) override; // 0x062ed730 (ICF-folded empty `RET 4`)
+    virtual void Update(float Dt) override; // (ICF-folded empty `RET 4`)
     virtual void GetVisualSize(const TextRenderContext& Ctx, VisualSize& Size) const override;
     virtual void GetElementSize(int& OutSize) const override;
     virtual void GetElementPos(int Index, TextRenderContext& Ctx, int& OutPos) const override;
     virtual bool SplitAtSize(const TextRenderContext& Ctx, int MaxSize, unsigned int SplitFlags,
                              RDLNode*& OutLeft, RDLNode*& OutRight) const override;
-    // Retail ??BClipNode@@UAEPAV0@XZ / ??BClipNode@@UBEPBV0@XZ: both are the ICF-folded
-    // `MOV EAX,ECX; RET` at Common.dll.txt 0x06261260 (return this). See RDLNode.
+    // baseline ??BClipNode@@UAEPAV0@XZ / ??BClipNode@@UBEPBV0@XZ: both are the ICF-folded
+    // `MOV EAX,ECX; RET` at Common 0x06261260 (return this). See RDLNode.
     virtual operator ClipNode*() override;
     virtual operator const ClipNode*() const override;
 
@@ -1023,25 +1019,25 @@ class COMMON_API StyleNode : public RDLNode
 public:
     StyleNode();
     StyleNode(const StyleNode& Other);
-    // 06329a10 -- stores the id as a WORD at +0x04.
+    // stores the id as a WORD at +0x04.
     explicit StyleNode(unsigned short Id);
 
     StyleNode& operator=(const StyleNode& Other);
 
-    // Retail ?get_style_id@StyleNode@@QAEGXZ (0x06329a30, MOV AX,[ECX+0x4]) -- non-const.
+    // baseline ?get_style_id@StyleNode@@QAEGXZ (0x06329a30, MOV AX,[ECX+0x4]) -- non-const.
     unsigned short get_style_id();
     void set_style_id(unsigned short Id);
 
     virtual RDLNode* Clone() const override;
     virtual void Execute(TextRenderContext& Ctx, bool bHighlight) override;
-    virtual void Update(float Dt) override; // 0x062ed730 (ICF-folded empty `RET 4`)
+    virtual void Update(float Dt) override; // (ICF-folded empty `RET 4`)
     virtual void GetVisualSize(const TextRenderContext& Ctx, VisualSize& Size) const override;
     virtual void GetElementSize(int& OutSize) const override;
     virtual void GetElementPos(int Index, TextRenderContext& Ctx, int& OutPos) const override;
     virtual bool SplitAtSize(const TextRenderContext& Ctx, int MaxSize, unsigned int SplitFlags,
                              RDLNode*& OutLeft, RDLNode*& OutRight) const override;
-    // Retail ??BStyleNode@@UAEPAV0@XZ / ??BStyleNode@@UBEPBV0@XZ: both are the ICF-folded
-    // `MOV EAX,ECX; RET` at Common.dll.txt 0x06261260 (return this). See RDLNode.
+    // baseline ??BStyleNode@@UAEPAV0@XZ / ??BStyleNode@@UBEPBV0@XZ: both are the ICF-folded
+    // `MOV EAX,ECX; RET` at Common 0x06261260 (return this). See RDLNode.
     virtual operator StyleNode*() override;
     virtual operator const StyleNode*() const override;
 
@@ -1058,9 +1054,9 @@ public:
     RDLRefNode(RenderDisplayList& Ref);
     RDLRefNode(const RDLRefNode& Other);
 
-    // Retail ?get_list@RDLRefNode@@QAEABVRenderDisplayList@@XZ (0x062d1ad0, MOV EAX,[ECX+0x4]):
+    // baseline ?get_list@RDLRefNode@@QAEABVRenderDisplayList@@XZ (0x062d1ad0, MOV EAX,[ECX+0x4]):
     // the +0x04 member is a reference, returned as-is. Being a reference, it also makes the
-    // implicit copy assignment deleted -- which is why retail exports no ??4RDLRefNode.
+    // implicit copy assignment deleted -- which is why baseline exports no ??4RDLRefNode.
     const RenderDisplayList& get_list();
 
     virtual void Update(float Dt) override;
@@ -1072,8 +1068,8 @@ public:
     virtual void GetElementPos(int Index, TextRenderContext& Ctx, int& OutPos) const override;
     virtual bool SplitAtSize(const TextRenderContext& Ctx, int MaxSize, unsigned int SplitFlags,
                              RDLNode*& OutLeft, RDLNode*& OutRight) const override;
-    // Retail ??BRDLRefNode@@UAEPAV0@XZ / ??BRDLRefNode@@UBEPBV0@XZ: both are the ICF-folded
-    // `MOV EAX,ECX; RET` at Common.dll.txt 0x06261260 (return this). See RDLNode.
+    // baseline ??BRDLRefNode@@UAEPAV0@XZ / ??BRDLRefNode@@UBEPBV0@XZ: both are the ICF-folded
+    // `MOV EAX,ECX; RET` at Common 0x06261260 (return this). See RDLNode.
     virtual operator RDLRefNode*() override;
     virtual operator const RDLRefNode*() const override;
     friend class BinaryRDLWriter; // write_buffer (0x0632a970) reads the fields directly
@@ -1111,10 +1107,10 @@ public:
     void get_dimensions(TextRenderContext& Ctx, float& OutWidth, float& OutHeight, float& OutDepth);
     int get_element_count() const;
     bool get_element_pos(TextRenderContext& Ctx, int Index, float& OutH, float& OutV, float& OutDepth);
-    // Retail ?optimize@RenderDisplayList@@QAEXXZ is 0x062a8920, a bare RET: an empty body.
+    // baseline ?optimize@RenderDisplayList@@QAEXXZ is 0x062a8920, a bare RET: an empty body.
     void optimize();
 
-    // Data members accessible for cross-class iteration (RDLRefNode::Update etc.). Retail is a
+    // Data members accessible for cross-class iteration (RDLRefNode::Update etc.). baseline is a
     // VC6 std::list<RDLNode*>: allocator byte, head sentinel, size. List cells are 0x0C-byte
     // FRdlListNode blocks; every module allocates them with malloc and frees them with free.
     unsigned char Allocator;    // +0x00  formerly `void* Head`: the list's allocator byte, never read
@@ -1131,14 +1127,14 @@ class COMMON_API StyleCollection
 {
 public:
     // User-declared so that no implicit move members are generated and exported:
-    // VC6 had none, and retail exports exactly the copy assignment.
+    // VC6 had none, and baseline exports exactly the copy assignment.
     StyleCollection& operator=(StyleCollection const&) = default;
 
-    // Retail's registry value type (V Style@StyleCollection in the mangled mStyles). Nothing of
+    // baseline's registry value type (V Style@StyleCollection in the mangled mStyles). Nothing of
     // it is exported. It is 0x0C bytes and shaped exactly like a RenderDisplayList: map node
-    // payload at +0x10 is what get_style (.text:0632a50f `ADD EAX,0x10`) returns as a
-    // RenderDisplayList&, set_style(Rdl) (.text:0632a40a/0632a444) walks its node list at +0x04
-    // and count at +0x08, and the map's operator[] (FUN_0632c190) copy-constructs it with the
+    // payload at +0x10 is what get_style (module storage `ADD EAX,0x10`) returns as a
+    // RenderDisplayList&, set_style(Rdl) (module storage/0632a444) walks its node list at +0x04
+    // and count at +0x08, and the map's operator[] (the routine) copy-constructs it with the
     // list copy sequence. So the port models it as the list itself.
     class Style : public RenderDisplayList
     {
@@ -1147,22 +1143,22 @@ public:
     static void __cdecl set_style(unsigned short Id, const RenderDisplayList& Rdl);
     static void __cdecl set_style(unsigned short Id, const TextRenderAttributes& Attrs);
     static RenderDisplayList& __cdecl get_style(unsigned short Id);
-    // Retail ?remove_style@StyleCollection@@SAXG@Z is 0x062a8920, a bare RET: it never
+    // baseline ?remove_style@StyleCollection@@SAXG@Z is 0x062a8920, a bare RET: it never
     // removes anything.
     static void __cdecl remove_style(unsigned short Id);
 
 protected:
-    // Retail ?mStyles@StyleCollection@@1V?$map@GVStyle@StyleCollection@@...@std@@A (.data:06401950),
+    // baseline ?mStyles@StyleCollection@@1V?$map@GVStyle@StyleCollection@@...@std@@A (module storage),
     // a protected static std::map keyed by the 16-bit style id.
     static std::map<unsigned short, Style> mStyles;
 };
 
 // ============================================================================
 // BinaryRDLReader / BinaryRDLWriter -- binary serialization for RDL (the chat wire format).
-// Both are vtable-only (size 0x04), concrete, with no destructor at all: retail exports
-// ??0 / ??0(const&) / ??4 for each and nothing else special (Common.dll.txt 0x06325ee0..
-// 0x06325f18, 0x0628d500), and neither vtable has a destructor slot.
-//
+// Both are vtable-only (size 0x04), concrete, with no destructor at all: baseline exports
+// ??0 / ??0(const&) / ??4 for each and nothing else special (Common 0x06325ee0..
+// , 0x0628d500), and neither vtable has a destructor slot.
+
 // Stream = back-to-back records {int32 Type; uint32 Length; byte Payload[Length]}:
 //   1 TRANode       Length 8: +0 Attrs.Packed, +4 mask (TRANode+0x0C)
 //   2 Text          Length 2*n+2: n UTF-16 units and a terminating NUL
@@ -1179,15 +1175,15 @@ public:
     BinaryRDLReader();
     BinaryRDLReader(const BinaryRDLReader& Other);
 
-    // ??_7BinaryRDLReader@@6B@ (.rdata:063a4554): [0] read_buffer, [1] read_file,
+    // ??_7BinaryRDLReader@@6B@ (module storage): [0] read_buffer, [1] read_file,
     // [2] extract_text_from_buffer.
-    // 0x0632a560 ?read_buffer@BinaryRDLReader@@UAE_NAAVRenderDisplayList@@PBDI@Z.
+    // ?read_buffer@BinaryRDLReader@@UAE_NAAVRenderDisplayList@@PBDI@Z.
     virtual bool read_buffer(RenderDisplayList& Rdl, const char* Buffer, unsigned int Size);
-    // 0x0632c0c0 ?read_file@BinaryRDLReader@@UAE_NAAVRenderDisplayList@@PBD@Z -- the shared
+    // ?read_file@BinaryRDLReader@@UAE_NAAVRenderDisplayList@@PBD@Z -- the shared
     // `XOR AL,AL; RET 8` stub: always false.
     virtual bool read_file(RenderDisplayList& Rdl, const char* Filename);
-    // 0x0632a8a0 ?extract_text_from_buffer@BinaryRDLReader@@UAE_NPAGIAAIPBDI@Z: concatenates
-    // the text of every Type 2 record. Retail never touches OutSize.
+    // ?extract_text_from_buffer@BinaryRDLReader@@UAE_NPAGIAAIPBDI@Z: concatenates
+    // the text of every Type 2 record. baseline never touches OutSize.
     virtual bool extract_text_from_buffer(wchar_t* Dest, unsigned int MaxSize, unsigned int& OutSize,
                                           const char* Buffer, unsigned int Size);
 };
@@ -1199,13 +1195,13 @@ public:
     BinaryRDLWriter();
     BinaryRDLWriter(const BinaryRDLWriter& Other);
 
-    // ??_7BinaryRDLWriter@@6B@ (.rdata:063a4564, ordinal 974): [0] write_buffer, [1] write_file.
-    // 0x0632a970 ?write_buffer@BinaryRDLWriter@@UAE_NABVRenderDisplayList@@PADIAAI@Z. OutSize
+    // ??_7BinaryRDLWriter@@6B@ (module storage, ordinal 974): [0] write_buffer, [1] write_file.
+    // ?write_buffer@BinaryRDLWriter@@UAE_NABVRenderDisplayList@@PADIAAI@Z. OutSize
     // receives the bytes written -- on failure, the bytes of the records that did fit. Server.dll
-    // hands it straight to IServerImpl::SubmitChat (FUN_06d4f570, 0x06d4f8b1 -> 0x06d4f8e6).
+    // hands it straight to IServerImpl::SubmitChat (the routine, 0x06d4f8b1 -> 0x06d4f8e6).
     virtual bool write_buffer(const RenderDisplayList& Rdl, char* Dest, unsigned int MaxSize,
                               unsigned int& OutSize);
-    // 0x0632c0c0 ?write_file@BinaryRDLWriter@@UAE_NABVRenderDisplayList@@PBD@Z (ordinal 3858) --
+    // ?write_file@BinaryRDLWriter@@UAE_NABVRenderDisplayList@@PBD@Z (ordinal 3858) --
     // the shared `XOR AL,AL; RET 8` stub: always false.
     virtual bool write_file(const RenderDisplayList& Rdl, const char* Filename);
 };
@@ -1220,26 +1216,26 @@ class COMMON_API XMLReader
 public:
     XMLReader();
     XMLReader(const XMLReader& Other);
-    // Retail has no destructor: vftable 063a4538 is {read_buffer, read_file,
+    // baseline has no destructor: vftable 063a4538 is {read_buffer, read_file,
     // extract_text_from_buffer} and no ??1XMLReader is exported.
 
-    // Common.dll.c/.txt 0xcac30 (Common.dll.txt:362106-362299). Ported 2026-09-09 (D109, item
+    // Common/.txt 0xcac30 (Common). Ported 2026-09-09 (D109, item
     // 73110): same CoCreateInstance/putContentHandler wiring as read_file below, but wraps
     // (Buffer, Size) in a BSTR and calls ISAXXMLReader::parse(VARIANT) instead of parseURL. Full
-    // instruction-by-instruction trace and the one deliberately-simplified edge case (retail's
+    // instruction-by-instruction trace and the one deliberately-simplified edge case (baseline's
     // OOM path throws a real C++ exception this port doesn't reproduce; treated as an ordinary
     // parse failure instead) are documented on the definition in common_rdlio.cpp.
     virtual bool read_buffer(RenderDisplayList& Rdl, const char* Buffer, unsigned int Size);
-    // Common.dll.c/.txt 0xcbf80 (Common.dll.txt:364321-364417). Ported 2026-09-09 (D109, item
+    // Common/.txt 0xcbf80 (Common). Ported 2026-09-09 (D109, item
     // 13991): CoCreateInstance()s Microsoft's real MSXML2 SAXXMLReader COM object
     // (CLSID_SAXXMLReader), registers a genuine ISAXContentHandler-implementing sink (see
     // RdlxSaxContentHandler in common_rdlio.cpp) via putContentHandler, mbstowcs's Filename, and
     // calls parseURL. NOT a DOM/IPersistStreamInit load as previously assumed -- see the
     // detailed evidence trail on the definition in common_rdlio.cpp.
     virtual bool read_file(RenderDisplayList& Rdl, const char* Filename);
-    // Common.dll.c/.txt 0xcc0a0: concrete default — XOR AL,AL; RET (always false). Retail's
+    // Common/.txt 0xcc0a0: concrete default — XOR AL,AL; RET (always false). baseline's
     // XMLReader is instantiable; this was wrongly pure in the port and blocked IDS→RDL XML.
-    // Retail ?extract_text_from_buffer@XMLReader@@UAE_NPAGIAAIPBDI@Z.
+    // baseline ?extract_text_from_buffer@XMLReader@@UAE_NPAGIAAIPBDI@Z.
     virtual bool extract_text_from_buffer(wchar_t* Dest, unsigned int MaxSize, unsigned int& OutSize,
                                           const char* Buffer, unsigned int Size);
 };
@@ -1250,20 +1246,20 @@ class COMMON_API XMLWriter
 public:
     XMLWriter();
     XMLWriter(const XMLWriter& Other);
-    // Retail has no destructor: vftable 063a4548 is {write_buffer, write_file} and no
+    // baseline has no destructor: vftable 063a4548 is {write_buffer, write_file} and no
     // ??1XMLWriter is exported.
 
-    // Common.dll.c/.txt 0xcc0b0 (?write_buffer@XMLWriter@@UAE_NABVRenderDisplayList@@PADIAAI@Z):
-    // retail's mangled signature is (RenderDisplayList const&, char* Dest, unsigned int MaxSize,
+    // Common/.txt 0xcc0b0 (?write_buffer@XMLWriter@@UAE_NABVRenderDisplayList@@PADIAAI@Z):
+    // baseline's mangled signature is (RenderDisplayList const&, char* Dest, unsigned int MaxSize,
     // unsigned int& OutSize) -- an extra by-ref out-size param the old 3-arg declaration was
     // missing -- and the body is a concrete `XOR AL,AL; RET 0x10` (always returns false), i.e.
-    // neither slot is pure in retail. Base XMLWriter provides
+    // neither slot is pure in baseline. Base XMLWriter provides
     // a default "unsupported" implementation; only the mangled interface (not vtable-only size)
     // changes since XMLWriter stays vtable-pointer-only at 0x04 bytes.
     virtual bool write_buffer(const RenderDisplayList& Rdl, char* Dest, unsigned int MaxSize,
                               unsigned int& OutSize);
-    // .text:0632c0c0 (XOR AL,AL; RET 8), an ICF stub shared with BinaryRDLWriter::write_file and
-    // others: retail XMLWriter::write_file is concrete and always fails.
+    // (XOR AL,AL; RET 8), an ICF stub shared with BinaryRDLWriter::write_file and
+    // others: baseline XMLWriter::write_file is concrete and always fails.
     virtual bool write_file(const RenderDisplayList& Rdl, const char* Filename);
 };
 static_assert(sizeof(XMLWriter) == 0x04, "XMLWriter must be 0x04");

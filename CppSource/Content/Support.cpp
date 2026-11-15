@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "ContentInternal.h"
@@ -38,14 +34,14 @@
 
 namespace
 {
-    // One ptough_graph_pt element of DAT_06fd0bd0 (8 bytes): +0 experience (worth), +4 rank.
+    // One ptough_graph_pt element of the field (8 bytes): +0 experience (worth), +4 rank.
     struct FPlayerToughPt
     {
         int Experience;
         int Toughness;
     };
 
-    // Retail DAT_06fd0bd0 vector<{exp, rank}> — filled by FUN_06f49c50, read by FUN_06f49440.
+    // vector<{exp, rank}> — filled by the routine, read by the routine.
     std::vector<FPlayerToughPt> GPlayerToughnessScale;
 }
 
@@ -62,10 +58,10 @@ namespace
     }
 
     // FRandomMissionData (TU27, 0x88; DestroyMission.cpp) and FRandomMissionLoader
-    // (FUN_06f4d220; RandomMissionDB.cpp / DestroyMission.cpp) are declared in
+    // (the routine; RandomMissionDB.cpp / DestroyMission.cpp) are declared in
     // RandomMission.h.
     // Parms of message 0x100b, broadcast (Flid 0) after a saved random mission is
-    // re-created (FUN_06f483d0 06f486cf-06f486f7).
+    // re-created (the routine 06f486cf-06f486f7).
     struct FRandomMissionAttachMessage
     {
         unsigned int MissionControllerId;
@@ -75,7 +71,7 @@ namespace
 
 namespace
 {
-    // Content.dll FUN_06f49780, called by FUN_06f483d0 for unhandled [mPlayer] keys.
+    // Content.dll the routine, called by the routine for unhandled [mPlayer] keys.
     void LoadContentPlayerStatsValue(FContentPlayerStats& Stats, INI_Reader* Reader)
     {
         if (Reader->is_value("ship_type_killed"))
@@ -138,7 +134,7 @@ namespace
 
 void LoadPlayerToughnessScale(INI_Reader* Reader)
 {
-    // Content.dll FUN_06f49c50 (.text:06f49c50–06f49f8c, listing 287835–288111).
+    // Content.dll the routine (module storage–06f49f8c, listing 287835–288111).
     int MaxExperience = 0;
     if (Reader->read_header())
     {
@@ -146,7 +142,7 @@ void LoadPlayerToughnessScale(INI_Reader* Reader)
         {
             if (Reader->is_header("PlayerToughnessScale"))
             {
-                // Retail reallocates the VC6 vector to 0x29 slots when capacity is
+                // baseline reallocates the VC6 vector to 0x29 slots when capacity is
                 // below that; std::vector::reserve is the same capacity contract.
                 if (GPlayerToughnessScale.capacity() < 0x29u)
                     GPlayerToughnessScale.reserve(0x29u);
@@ -181,7 +177,7 @@ void LoadPlayerToughnessScale(INI_Reader* Reader)
         }
     }
 
-    // Retail skips the extrapolation fill when SinglePlayer() is true.
+    // baseline skips the extrapolation fill when SinglePlayer() is true.
     if (SinglePlayer())
         return;
 
@@ -199,7 +195,7 @@ void LoadPlayerToughnessScale(INI_Reader* Reader)
 
 void RecalculateContentPlayerRank(FContentPlayerState* State)
 {
-    // Content.dll FUN_06f49440 (.text:06f49440–06f495e4, listing 286859–287013).
+    // Content.dll the routine (module storage–06f495e4, listing 286859–287013).
     int Cash = 0;
     float AssetValue = 0.0f;
     pub::Player::InspectCash(State->PlayerId, Cash);
@@ -265,7 +261,7 @@ void RecalculateContentPlayerRank(FContentPlayerState* State)
                 static_cast<float>(static_cast<unsigned int>(Found->Experience));
             if (NextThreshold != 0.0f)
             {
-                // 06f4958d: FILD qword worth, FSUBR float threshold - the
+                // FILD qword worth, FSUBR float threshold - the
                 // difference stays on the x87 stack (double, not float).
                 double Remainder = static_cast<double>(NextThreshold) - static_cast<double>(Worth);
                 if (Remainder < 1.0)
@@ -289,8 +285,8 @@ void RecalculateContentPlayerRank(FContentPlayerState* State)
 
 void LoadContentPlayerState(FContentPlayerState* State, INI_Reader* Reader)
 {
-    // Content.dll FUN_06f483d0: both collections are empty after construction,
-    // and the retail loader erases their full old ranges before scanning.
+    // Content.dll the routine: both collections are empty after construction,
+    // and the baseline loader erases their full old ranges before scanning.
     State->Vnpcs.clear();
     State->Rumors.clear();
 
@@ -352,7 +348,7 @@ void LoadContentPlayerState(FContentPlayerState* State, INI_Reader* Reader)
         else if (Reader->is_header("RandomMission"))
         {
             // Listing 0x06f4863f–0x06f4872e: type string is copied then ignored by
-            // FUN_06f4d220; Load / Create / 0x100b / SetMsnID follow on success.
+            // ; Load / Create / 0x100b / SetMsnID follow on success.
             while (Reader->read_value())
             {
                 if (!Reader->is_value("type"))
@@ -361,7 +357,7 @@ void LoadContentPlayerState(FContentPlayerState* State, INI_Reader* Reader)
                 char MissionType[0x3c];
                 std::strncpy(MissionType, Reader->get_value_string(0), sizeof(MissionType));
 
-                // FUN_06f4d220 always produces a loader; retail calls through it
+                // always produces a loader; baseline calls through it
                 // without a null check.
                 FRandomMissionLoader* Loader = nullptr;
                 CreateRandomMissionLoader(MissionType, &Loader);
@@ -373,7 +369,7 @@ void LoadContentPlayerState(FContentPlayerState* State, INI_Reader* Reader)
                         "content.dll", MissionType, Mission, pub::Controller::ABOVE_NORMAL);
                     State->ValueD8 = ControllerId;
 
-                    // 06f486cf-06f486f7: _SendMessage(&0 (all controllers), 0x100b,
+                    // _SendMessage(&0 (all controllers), 0x100b,
                     // {mission controller, player}).
                     FRandomMissionAttachMessage AttachMessage;
                     AttachMessage.MissionControllerId = ControllerId;
@@ -391,7 +387,7 @@ void LoadContentPlayerState(FContentPlayerState* State, INI_Reader* Reader)
         }
     }
 
-    // FUN_06f49440 recalculates rank and the next-rank cash threshold here.
+    // recalculates rank and the next-rank cash threshold here.
     RecalculateContentPlayerRank(State);
     Reader->set_state(SavedState);
 }

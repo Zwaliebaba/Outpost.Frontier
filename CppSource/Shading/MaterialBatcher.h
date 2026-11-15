@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -35,7 +31,7 @@ struct FBatchRecord
     FBatchRecord();
 };
 
-static_assert(sizeof(FBatchRecord) == 0xF0, "retail batch payload size 0xF0");
+static_assert(sizeof(FBatchRecord) == 0xF0, "baseline batch payload size 0xF0");
 static_assert(offsetof(FBatchRecord, Context) == 4, "queued context starts at +4");
 static_assert(sizeof(FMaterialSubmitContext) == 0x24, "queued context is nine words");
 static_assert(offsetof(FBatchRecord, Context) + offsetof(FMaterialSubmitContext, VbListing) == 0x18, "queued VB view +0x18");
@@ -50,7 +46,7 @@ static_assert(offsetof(FBatchRecord, Flags) == 0xE0, "flags follow optional snap
 
 struct FBatchQueuedRecord
 {
-    FBatchRecord Retail;
+    FBatchRecord baseline;
     std::vector<unsigned short> OwnedIndices;
 };
 
@@ -68,14 +64,14 @@ struct FBatchBin
 class FMaterialBatcher;
 struct FBatchDispatch;
 
-class FMaterialBatcherController final : public IDAComponent
+class FMaterialBatcherController final : public INeuronComponent
 {
 public:
     explicit FMaterialBatcherController(FMaterialBatcher* InOwner);
 
-    GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override;
-    unsigned long DACOM_API AddRef() override;
-    unsigned long DACOM_API Release() override;
+    GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override;
+    unsigned long NEURONCOMPONENTS_API AddRef() override;
+    unsigned long NEURONCOMPONENTS_API Release() override;
 
     FMaterialBatcher* Owner;
 };
@@ -86,51 +82,51 @@ public:
     FMaterialBatcher();
     ~FMaterialBatcher();
 
-    GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override;
-    unsigned long DACOM_API AddRef() override;
-    unsigned long DACOM_API Release() override;
+    GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override;
+    unsigned long NEURONCOMPONENTS_API AddRef() override;
+    unsigned long NEURONCOMPONENTS_API Release() override;
 
-    GENRESULT DACOM_API ClearRules() override;
-    GENRESULT DACOM_API AddRule(unsigned long Kind, const char* Pattern) override;
-    GENRESULT DACOM_API RemoveRule(unsigned long Kind, const char* Pattern) override;
-    GENRESULT DACOM_API SelectBin(unsigned long Index) override;
-    GENRESULT DACOM_API SetBinSortKind(unsigned long Index, void* Value) override;
-    GENRESULT DACOM_API SetBinOrder(unsigned long Index, long Key) override;
-    GENRESULT DACOM_API FlushBin(unsigned long Index, unsigned char Clear) override;
-    GENRESULT DACOM_API FlushAll(unsigned char Clear) override;
-    GENRESULT DACOM_API Submit(IMaterial* Material, void* Context, unsigned long PrimType,
+    GENRESULT NEURONCOMPONENTS_API ClearRules() override;
+    GENRESULT NEURONCOMPONENTS_API AddRule(unsigned long Kind, const char* Pattern) override;
+    GENRESULT NEURONCOMPONENTS_API RemoveRule(unsigned long Kind, const char* Pattern) override;
+    GENRESULT NEURONCOMPONENTS_API SelectBin(unsigned long Index) override;
+    GENRESULT NEURONCOMPONENTS_API SetBinSortKind(unsigned long Index, void* Value) override;
+    GENRESULT NEURONCOMPONENTS_API SetBinOrder(unsigned long Index, long Key) override;
+    GENRESULT NEURONCOMPONENTS_API FlushBin(unsigned long Index, unsigned char Clear) override;
+    GENRESULT NEURONCOMPONENTS_API FlushAll(unsigned char Clear) override;
+    GENRESULT NEURONCOMPONENTS_API Submit(IMaterial* Material, void* Context, unsigned long PrimType,
                                unsigned long Start, unsigned long Count,
                                unsigned long Zero, unsigned long Field,
                                void* Unused, unsigned long Flags) override;
-    GENRESULT DACOM_API ClearBins() override;
-    GENRESULT DACOM_API NoOp(void* Arg) override;
-    GENRESULT DACOM_API SetEvents(void* NewValue) override;
-    GENRESULT DACOM_API GetEvents(void* Arg) override;
-    GENRESULT DACOM_API SetRecordTag(void* Value) override;
-    GENRESULT DACOM_API GetRecordTag(void* Arg) override;
-    GENRESULT DACOM_API SetRecordTagContext(void* Value) override;
-    GENRESULT DACOM_API GetRecordTagContext(void* Arg) override;
+    GENRESULT NEURONCOMPONENTS_API ClearBins() override;
+    GENRESULT NEURONCOMPONENTS_API NoOp(void* Arg) override;
+    GENRESULT NEURONCOMPONENTS_API SetEvents(void* NewValue) override;
+    GENRESULT NEURONCOMPONENTS_API GetEvents(void* Arg) override;
+    GENRESULT NEURONCOMPONENTS_API SetRecordTag(void* Value) override;
+    GENRESULT NEURONCOMPONENTS_API GetRecordTag(void* Arg) override;
+    GENRESULT NEURONCOMPONENTS_API SetRecordTagContext(void* Value) override;
+    GENRESULT NEURONCOMPONENTS_API GetRecordTagContext(void* Arg) override;
 
     FMaterialLibrary Library; // +4  QI 1.11_IMaterialLibrary
-    std::vector<FBatchRule> RuleList; // retail this+0x58/+0x5C, slots 3/4/5
+    std::vector<FBatchRule> RuleList; // baseline this+0x58/+0x5C, slots 3/4/5
     unsigned long RefCount;
-    IDAComponent* Outer;
+    INeuronComponent* Outer;
     IRenderPipeline* Pipeline;
     IRPVertexBuffer* RpVertexBuffer;
     IRPIndexBuffer* RpIndexBuffer;
     unsigned char* ScratchBuffer; // Owned byte arena for copied streams.
-    unsigned long BufferSize;      // retail owner +0x84 capacity
+    unsigned long BufferSize;      // baseline owner +0x84 capacity
     unsigned long Bin1SortOrder;
     std::unique_ptr<FBatchBin> Bins[2];
-    unsigned long BinOrder[2];     // retail this+0x60/+0x64
-    FBatchBin* SelectedBin;        // retail this+0x70, slots 6/7
-    IMaterialBatcherEvents* CachedInterface; // retail this+0x74, slots 14/15 (AddRef/Release-managed)
-    void* Field78;                 // retail this+0x78, slots 16/17 (plain)
-    void* Field7C;                 // retail this+0x7C, slots 18/19 (plain)
-    unsigned long FrameValue;      // retail this+0x88
-    unsigned long PendingFrameValue; // retail this+0x8C
-    FMaterialBatcherController Controller; // retail nondelegating unknown @ +0x94
-    IDAComponent* ControllingUnknown; // retail +90, distinct from initialized Outer+50
+    unsigned long BinOrder[2];     // baseline this+0x60/+0x64
+    FBatchBin* SelectedBin;        // baseline this+0x70, slots 6/7
+    IMaterialBatcherEvents* CachedInterface; // baseline this+0x74, slots 14/15 (AddRef/Release-managed)
+    void* Field78;                 // baseline this+0x78, slots 16/17 (plain)
+    void* Field7C;                 // baseline this+0x7C, slots 18/19 (plain)
+    unsigned long FrameValue;      // baseline this+0x88
+    unsigned long PendingFrameValue; // baseline this+0x8C
+    FMaterialBatcherController Controller; // baseline nondelegating unknown @ +0x94
+    INeuronComponent* ControllingUnknown; // baseline +90, distinct from initialized Outer+50
 
     GENRESULT InitializeFromDescriptor(const FMaterialAggregateDesc* Desc);
     GENRESULT StartupFromOuter();

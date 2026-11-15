@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "EyeMaterial.h"
@@ -11,22 +7,22 @@
 #include <cmath>
 #include <new>
 
-// .data:06602ad0, read from the PE bytes (the listing truncates it): the __FILE__ of the one
+// , read from the PE bytes (the listing truncates it): the __FILE__ of the one
 // FDUMP site in the material code (065ff37f, line 0x23F).
 static const char* const G_FdumpFileMaterialImpl =
-    "C:\\work\\builds\\dalibs\\DALIBS~1\\build\\include\\imaterialimpl.h";
+    "include\\imaterialimpl.h";
 
-// .data:066031ac: four zero bytes, the Description of every EyeMaterial parameter.
+// four zero bytes, the Description of every EyeMaterial parameter.
 static const char G_ParamNoDescription[4] = {0, 0, 0, 0};
-// .data:06602b30.
+// .
 static const char* const G_TextureNameNone = "(None)";
-// .rdata:066013fc and .rdata:0660140c: the defaults / ranges LAB_065ff750 hands FUN_065ffab0
+// and module storage: the defaults / ranges the branch hands the routine
 // by address.
 static const float G_ParamZeros[4] = {0.0f, 0.0f, 0.0f, 0.0f};
 static const float G_ParamOnes[4] = {1.0f, 1.0f, 1.0f, 1.0f};
-// .rdata:06601578: FLT_EPSILON, the slack of LAB_065ff470's range test.
+// FLT_EPSILON, the slack of the branch's range test.
 static const float G_ParamRangeSlack = 1.1920928955078125e-07f;
-// .rdata:06601580 (a double): FUN_066001c0's dead zone.
+// (a double): the routine's dead zone.
 static const double G_EyeUvDeadZone = 1.0e-4;
 
 static void* DwordToPointer(unsigned long Value)
@@ -50,7 +46,7 @@ namespace
         unsigned long Loss;
     };
 
-    // DAT_06602c88 entry (0x4C).
+    // entry (0x4C).
     struct FPixelFormatDesc
     {
         unsigned long Id;            // +0x00
@@ -64,14 +60,14 @@ namespace
 
     static_assert(sizeof(FPixelFormatDesc) == 0x4C, "PixelFormat descriptor is 0x4C bytes");
 
-    // DAT_06602c30 (.data, 0x16 dwords), read verbatim from the PE bytes.
+    // (.data, 0x16 dwords), read verbatim from the PE bytes.
     unsigned long G_PixelFormatD3D[0x16] = {
         0x0,        0x29,       0x14,       0x17,       0x18,       0x1a,
         0x19,       0x15,       0x16,       0x0,        0x31545844, 0x32545844,
         0x33545844, 0x34545844, 0x35545844, 0x504f4144, 0x544f4144, 0x41414144,
         0x4c414144, 0x31414144, 0x34414144, 0x38414144};
 
-    // DAT_06602c88 (.data, 15 x 0x4C), read verbatim from the PE bytes.
+    // (.data, 15 x 0x4C), read verbatim from the PE bytes.
     FPixelFormatDesc G_PixelFormatDescs[15] = {
         {0, 0, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, 0},
         {1, 8, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, 0},
@@ -91,13 +87,13 @@ namespace
         {0xe, 0, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, {0, 0, 0, 0}, 1}};
 }
 
-// FUN_06600d90: MOV EAX,DAT_06602c30; RET.
+// MOV EAX,the field; RET.
 static unsigned long* PixelFormatGetD3DFormats()
 {
     return G_PixelFormatD3D;
 }
 
-// FUN_06600da0 (cdecl): the index of the first entry equal to D3DFormat among 0x16, else 0.
+// (cdecl): the index of the first entry equal to D3DFormat among 0x16, else 0.
 static int PixelFormatFromD3D(unsigned long D3DFormat)
 {
     const unsigned long* const Formats = PixelFormatGetD3DFormats();
@@ -111,7 +107,7 @@ static int PixelFormatFromD3D(unsigned long D3DFormat)
     return 0;
 }
 
-// FUN_06600dc0 (cdecl): Id > 14 (signed JLE) -> entry 0, else &DAT_06602c88[Id].
+// (cdecl): Id > 14 (signed JLE) -> entry 0, else &the field[Id].
 static FPixelFormatDesc* PixelFormatGetDesc(int Id)
 {
     if (Id > 0xe)
@@ -127,14 +123,14 @@ static GENRESULT MaterialFsResult(bool bOk)
 
 static void FillMaterialWriteDesc(FFileSystemDesc* Desc, const char* Key)
 {
-    // 066006e0..0731: the reader fields, then +8 "UTF", +0x10 0xC0000000, +0x1C 2.
+    // ..0731: the reader fields, then +8 "UTF", +0x10 0xC0000000, +0x1C 2.
     FillFileDesc(Desc, Key);
     Desc->Implementation = "UTF";
     Desc->Access = 0xC0000000;
     Desc->Creation = 2;
 }
 
-// FUN_066003a0 (FS, Key, Out): Read(h, &Data, 4, &Got, 0); *Out = Data only when the read
+// (FS, Key, Out): Read(h, &Data, 4, &Got, 0); *Out = Data only when the read
 // answered non-zero with Got == 4.
 static GENRESULT MaterialFsReadDword(IFileSystem* Fs, const char* Key, unsigned long* Out)
 {
@@ -156,7 +152,7 @@ static GENRESULT MaterialFsReadDword(IFileSystem* Fs, const char* Key, unsigned 
     return MaterialFsResult(bOk);
 }
 
-// FUN_06600460: FUN_066003a0 with the dword moved through FLD/FSTP float.
+// the routine with the dword moved through FLD/FSTP float.
 static GENRESULT MaterialFsReadFloat(IFileSystem* Fs, const char* Key, float* Out)
 {
     FFileSystemDesc Desc;
@@ -177,7 +173,7 @@ static GENRESULT MaterialFsReadFloat(IFileSystem* Fs, const char* Key, float* Ou
     return MaterialFsResult(bOk);
 }
 
-// FUN_06600520 (FS, Key, Count, Out, OutCount): with OutCount, Count = min(GetSize(h, 0) >> 2,
+// (FS, Key, Count, Out, OutCount): with OutCount, Count = min(GetSize(h, 0) >> 2,
 // Count) is stored through it first; then Read(h, Out, Count * 4) must deliver all of it.
 static GENRESULT MaterialFsReadFloats(IFileSystem* Fs, const char* Key, unsigned long Count,
                                       float* Out, unsigned long* OutCount)
@@ -235,7 +231,7 @@ static bool MaterialFsWrite(IFileSystem* Fs, int Handle, const void* Src, unsign
            Done == Size;
 }
 
-// FUN_066006d0 (FS, Key, Src): 4 bytes.
+// (FS, Key, Src): 4 bytes.
 static GENRESULT MaterialFsWriteDword(IFileSystem* Fs, const char* Key, const void* Src)
 {
     FFileSystemDesc Desc;
@@ -250,7 +246,7 @@ static GENRESULT MaterialFsWriteDword(IFileSystem* Fs, const char* Key, const vo
     return MaterialFsResult(bOk);
 }
 
-// FUN_06600790 (FS, Key, Count, Src): Count * 4 bytes.
+// (FS, Key, Count, Src): Count * 4 bytes.
 static GENRESULT MaterialFsWriteFloats(IFileSystem* Fs, const char* Key, unsigned long Count,
                                        const void* Src)
 {
@@ -266,7 +262,7 @@ static GENRESULT MaterialFsWriteFloats(IFileSystem* Fs, const char* Key, unsigne
     return MaterialFsResult(bOk);
 }
 
-// FUN_06600850 (FS, Key, Size, Src): Size bytes.
+// (FS, Key, Size, Src): Size bytes.
 static GENRESULT MaterialFsWriteBlock(IFileSystem* Fs, const char* Key, unsigned long Size,
                                       const void* Src)
 {
@@ -282,7 +278,7 @@ static GENRESULT MaterialFsWriteBlock(IFileSystem* Fs, const char* Key, unsigned
     return MaterialFsResult(bOk);
 }
 
-// FUN_065fe590 (cdecl: Flags, Which): Which 0 -> Flags & 3, 1 -> (Flags >> 2) & 3, else 0.
+// (cdecl: Flags, Which): Which 0 -> Flags & 3, 1 -> (Flags >> 2) & 3, else 0.
 static unsigned long MaterialAddressModeBits(unsigned long Flags, int Which)
 {
     if (Which == 0)
@@ -329,7 +325,7 @@ FMaterialParamValue::~FMaterialParamValue()
 
 void FMaterialParamValue::Clear()
 {
-    // FUN_065fe5c0, 065fe5c0..e613.
+    // , 065fe5c0..e613.
     if (Type == 5 || Type == 7)
     {
         if (Value[0] != 0)
@@ -342,7 +338,7 @@ void FMaterialParamValue::Clear()
     }
     if (Type == 6)
     {
-        IDAComponent* const Com = (IDAComponent*)(DwordToPointer(Value[0]));
+        INeuronComponent* const Com = (INeuronComponent*)(DwordToPointer(Value[0]));
         Value[0] = 0;
         if (Com != nullptr)
         {
@@ -356,7 +352,7 @@ void FMaterialParamValue::Clear()
 
 void FMaterialParamValue::DupString(const char* Src)
 {
-    // FUN_065fe620, 065fe620..e67d.
+    // , 065fe620..e67d.
     if (Value[0] != 0)
     {
         HeapFree(GetProcessHeap(), 0, DwordToPointer(Value[0]));
@@ -370,10 +366,10 @@ void FMaterialParamValue::DupString(const char* Src)
     std::memcpy(Copy, Src, Length);
 }
 
-void FMaterialParamValue::SwapCom(IDAComponent* NewCom)
+void FMaterialParamValue::SwapCom(INeuronComponent* NewCom)
 {
-    // FUN_065fe930, 065fe930..e950.
-    IDAComponent* const Old = (IDAComponent*)(DwordToPointer(Value[0]));
+    // , 065fe930..e950.
+    INeuronComponent* const Old = (INeuronComponent*)(DwordToPointer(Value[0]));
     Value[0] = PointerToDword(NewCom);
     if (NewCom != nullptr)
         NewCom->AddRef();
@@ -383,7 +379,7 @@ void FMaterialParamValue::SwapCom(IDAComponent* NewCom)
 
 FMaterialParamValue& FMaterialParamValue::operator=(const FMaterialParamValue& Src)
 {
-    // FUN_065fef00, 065fef00..f026 (jump table 065ff02c): the old value is cleared by the OLD
+    // , 065fef00..f026 (jump table 065ff02c): the old value is cleared by the OLD
     // type when the types differ, then copied by the new one.
     if (Src.Type != Type)
         Clear();
@@ -410,7 +406,7 @@ FMaterialParamValue& FMaterialParamValue::operator=(const FMaterialParamValue& S
         DupString((const char*)(DwordToPointer(Src.Value[0])));
         break;
     case 6:
-        SwapCom((IDAComponent*)(DwordToPointer(Src.Value[0])));
+        SwapCom((INeuronComponent*)(DwordToPointer(Src.Value[0])));
         break;
     default:
         break;
@@ -420,7 +416,7 @@ FMaterialParamValue& FMaterialParamValue::operator=(const FMaterialParamValue& S
 
 void FMaterialParamValue::Set(int InType, unsigned long Arg)
 {
-    // FUN_065ffab0, 065ffab0..fbed (jump table 065ffbf0).
+    // , 065ffab0..fbed (jump table 065ffbf0).
     if (InType != Type)
         Clear();
     Type = InType;
@@ -449,7 +445,7 @@ void FMaterialParamValue::Set(int InType, unsigned long Arg)
         DupString((const char*)(DwordToPointer(Arg)));
         break;
     case 6:
-        SwapCom((IDAComponent*)(DwordToPointer(Arg)));
+        SwapCom((INeuronComponent*)(DwordToPointer(Arg)));
         break;
     default:
         break;
@@ -521,7 +517,7 @@ FEyeMaterialImpl::FEyeMaterialImpl()
     , bTranslucent(0)
     , bOneBitAlpha(0)
 {
-    // LAB_065fe070 065fe0f2..e119: the 0x11 dwords of +0x20 zeroed, then Diffuse and Ambient
+    // 065fe0f2..e119: the 0x11 dwords of +0x20 zeroed, then Diffuse and Ambient
     // (+0x20..+0x3C) set to 1.0f.
     std::memset(&Colors, 0, sizeof(Colors));
     int Index = 0;
@@ -535,7 +531,7 @@ FEyeMaterialImpl::FEyeMaterialImpl()
 
 FEyeMaterialImpl::~FEyeMaterialImpl()
 {
-    // FUN_06600a30, 06600a30..0ae3 (vtable 06601598 stored first).
+    // , 06600a30..0ae3 (vtable 06601598 stored first).
     unsigned long Index = 0;
     while (Index < TextureRowCount)
     {
@@ -559,7 +555,7 @@ FEyeMaterialImpl::~FEyeMaterialImpl()
 
 void* __thiscall FEyeMaterialImpl::ScalarDeletingDestructor(unsigned char bDelete)
 {
-    // FUN_06600a30: the destructor body, then operator delete(this) when bit 0 is set; EAX =
+    // the destructor body, then operator delete(this) when bit 0 is set; EAX =
     // this.
     if ((bDelete & 1) != 0)
         delete this;
@@ -568,9 +564,9 @@ void* __thiscall FEyeMaterialImpl::ScalarDeletingDestructor(unsigned char bDelet
     return this;
 }
 
-GENRESULT DACOM_API FEyeMaterialImpl::Initialize(IDAComponent* Outer)
+GENRESULT NEURONCOMPONENTS_API FEyeMaterialImpl::Initialize(INeuronComponent* Outer)
 {
-    // FUN_065fe1b0 (RET 8), 065fe1b0..e311.
+    // (RET 8), 065fe1b0..e311.
     if (Outer == nullptr)
         return GR_GENERIC;
     if (Outer->QueryInterface(Iids::TextureLibraryA, (void**)(&TextureLib)) < 0)
@@ -587,7 +583,7 @@ GENRESULT DACOM_API FEyeMaterialImpl::Initialize(IDAComponent* Outer)
         return GR_GENERIC;
     VertexBufferMgr->Release();
 
-    // 065fe260..e30b: one texture row per type-7 parameter, then every parameter's default
+    // ..e30b: one texture row per type-7 parameter, then every parameter's default
     // stored through slot 26.
     FMaterialParamDesc* Table = nullptr;
     const unsigned long Count = GetParameterTable((void**)(&Table));
@@ -610,7 +606,7 @@ GENRESULT DACOM_API FEyeMaterialImpl::Initialize(IDAComponent* Outer)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FEyeMaterialImpl::LoadFromFileSystem(void* FileSystem)
+GENRESULT NEURONCOMPONENTS_API FEyeMaterialImpl::LoadFromFileSystem(void* FileSystem)
 {
     IFileSystem* const Fs = (IFileSystem*)(FileSystem);
     FMaterialParamDesc* Table = nullptr;
@@ -626,7 +622,7 @@ GENRESULT DACOM_API FEyeMaterialImpl::LoadFromFileSystem(void* FileSystem)
             switch (Cell.Type)
             {
             case 1:
-                // 065fe3a2..e41b: FUN_066003a0's body inline, FUN_065f3e80 building the desc.
+                // ..e41b: the routine's body inline, the routine building the desc.
                 Result = MaterialFsReadDword(Fs, Entry->Key, &Cell.Value[0]);
                 break;
             case 2:
@@ -678,7 +674,7 @@ GENRESULT DACOM_API FEyeMaterialImpl::LoadFromFileSystem(void* FileSystem)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FEyeMaterialImpl::SaveProperties(void* FileSystem)
+GENRESULT NEURONCOMPONENTS_API FEyeMaterialImpl::SaveProperties(void* FileSystem)
 {
     IFileSystem* const Fs = (IFileSystem*)(FileSystem);
     FMaterialParamDesc* Table = nullptr;
@@ -721,7 +717,7 @@ GENRESULT DACOM_API FEyeMaterialImpl::SaveProperties(void* FileSystem)
                     Cell.DupString((const char*)(DwordToPointer(Address[0])));
                     break;
                 case 6:
-                    Cell.SwapCom((IDAComponent*)(DwordToPointer(Address[0])));
+                    Cell.SwapCom((INeuronComponent*)(DwordToPointer(Address[0])));
                     break;
                 default:
                     break;
@@ -750,7 +746,7 @@ GENRESULT DACOM_API FEyeMaterialImpl::SaveProperties(void* FileSystem)
                 }
                 case 8:
                 {
-                    // 065fe817..e855: the stored dword is read back (result ignored) and only its
+                    // ..e855: the stored dword is read back (result ignored) and only its
                     // bits 4..7 replaced.
                     unsigned long Raw = 0;
                     MaterialFsReadDword(Fs, Entry->Key, &Raw);
@@ -760,7 +756,7 @@ GENRESULT DACOM_API FEyeMaterialImpl::SaveProperties(void* FileSystem)
                 }
                 case 9:
                 {
-                    // 065fe85a..e8b8: pair 0 (U) writes bits 0..1 AND then falls into the pair-1
+                    // ..e8b8: pair 0 (U) writes bits 0..1 AND then falls into the pair-1
                     // code writing bits 2..3 as well (JMP 065fe896); pair 1 writes bits 2..3.
                     unsigned long Raw = 0;
                     MaterialFsReadDword(Fs, Entry->Key, &Raw);
@@ -785,9 +781,9 @@ GENRESULT DACOM_API FEyeMaterialImpl::SaveProperties(void* FileSystem)
     return Result;
 }
 
-GENRESULT DACOM_API FEyeMaterialImpl::ApplyVerify(void* /*Context*/, void* /*Extra*/)
+GENRESULT NEURONCOMPONENTS_API FEyeMaterialImpl::ApplyVerify(void* /*Context*/, void* /*Extra*/)
 {
-    // FUN_065fe960 (RET 0xC): slot 24 Setup, slot 8 Bind(0), Pipeline +0x110 VerifyState, slot 9
+    // (RET 0xC): slot 24 Setup, slot 8 Bind(0), Pipeline +0x110 VerifyState, slot 9
     // Teardown(0); the VerifyState result.
     Setup();
     Bind(nullptr);
@@ -796,9 +792,9 @@ GENRESULT DACOM_API FEyeMaterialImpl::ApplyVerify(void* /*Context*/, void* /*Ext
     return Result;
 }
 
-GENRESULT DACOM_API FEyeMaterialImpl::ResolveTextures(float /*Delta*/)
+GENRESULT NEURONCOMPONENTS_API FEyeMaterialImpl::ResolveTextures(float /*Delta*/)
 {
-    // LAB_065fe9a0 (RET 8): per row, Handle -1 -> Frame = 0; else a row that is not single-frame
+    // (RET 8): per row, Handle -1 -> Frame = 0; else a row that is not single-frame
     // re-reads its frame through TextureLib +0x70 GetFrame(Handle, -1, &Frame). Always 0.
     unsigned long Index = 0;
     while (Index < TextureRowCount)
@@ -823,9 +819,9 @@ static bool ContextHasDiffuseStream(const FMaterialSubmitContext* Context)
     return Source != nullptr && Source->Diffuse.Base != nullptr;
 }
 
-GENRESULT DACOM_API FEyeMaterialImpl::Bind(void* Context)
+GENRESULT NEURONCOMPONENTS_API FEyeMaterialImpl::Bind(void* Context)
 {
-    // FUN_06600af0 (RET 8): Pipeline +0xAC SetMaterial(&+0x20); diffuse stream ->
+    // (RET 8): Pipeline +0xAC SetMaterial(&+0x20); diffuse stream ->
     // SetRenderState(0x8D, 1). 0.
     Pipeline->SetMaterial((const D3DMATERIAL8*)&Colors);
     if (ContextHasDiffuseStream((FMaterialSubmitContext*)(Context)))
@@ -833,26 +829,26 @@ GENRESULT DACOM_API FEyeMaterialImpl::Bind(void* Context)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FEyeMaterialImpl::Teardown(void* Context)
+GENRESULT NEURONCOMPONENTS_API FEyeMaterialImpl::Teardown(void* Context)
 {
-    // LAB_06600b40 (RET 8): diffuse stream -> SetRenderState(0x8D, 0). 0.
+    // (RET 8): diffuse stream -> SetRenderState(0x8D, 0). 0.
     if (ContextHasDiffuseStream((FMaterialSubmitContext*)(Context)))
         Pipeline->SetRenderState(D3DRS_COLORVERTEX, 0);
     return GR_OK;
 }
 
 
-GENRESULT DACOM_API FEyeMaterialImpl::Submit(void* Context, unsigned long PrimType,
+GENRESULT NEURONCOMPONENTS_API FEyeMaterialImpl::Submit(void* Context, unsigned long PrimType,
                                           unsigned long Start, unsigned long Count,
                                           unsigned long IbStart, unsigned long IndexSpan,
                                           unsigned long Flags)
 {
-    // LAB_065fea00 (RET 0x20), 065fea00..ebf7.
+    // (RET 0x20), 065fea00..ebf7.
     FMaterialSubmitContext* const Ctx = (FMaterialSubmitContext*)(Context);
     GENRESULT Result;
     if ((Flags & 0x100) != 0)
     {
-        // 065fea1c: IRPDraw +0xC with the IB scratch bias.
+        // IRPDraw +0xC with the IB scratch bias.
         Result = Draw->DrawIndexedPrimitive(PrimType, Start, Count, Ctx->IbScratch->Bias + IbStart,
                                             IndexSpan);
         if (Result >= 0)
@@ -868,7 +864,7 @@ GENRESULT DACOM_API FEyeMaterialImpl::Submit(void* Context, unsigned long PrimTy
     if (Result >= 0)
         return Result;
 
-    // 065fea93..ebea: copy the vertices through the VB manager and draw from its buffer.
+    // ..ebea: copy the vertices through the VB manager and draw from its buffer.
     const FRpVertexSrcDesc* const Source = Ctx->SourceVertices;
     if (Source == nullptr || Count == 0 || IndexSpan == 0)
         return Result;
@@ -877,7 +873,7 @@ GENRESULT DACOM_API FEyeMaterialImpl::Submit(void* Context, unsigned long PrimTy
     if (Result < 0)
         return Result;
 
-    // 065feacb..eb78: the vertex stride from the locked FVF.
+    // ..eb78: the vertex stride from the locked FVF.
     const unsigned long Fvf = Lock.Listing.Fvf;
     unsigned long PositionBytes = 0;
     if ((Fvf & 0xC) == 0xC)
@@ -922,9 +918,9 @@ GENRESULT DACOM_API FEyeMaterialImpl::Submit(void* Context, unsigned long PrimTy
                                             Ctx->Indices + IbStart, IndexSpan, 0);
 }
 
-GENRESULT DACOM_API FEyeMaterialImpl::SetName(const char* InName)
+GENRESULT NEURONCOMPONENTS_API FEyeMaterialImpl::SetName(const char* InName)
 {
-    // LAB_065fec10 (RET 8): the old name deleted; null -> 0. Otherwise a copy of at most 0x40
+    // (RET 8): the old name deleted; null -> 0. Otherwise a copy of at most 0x40
     // bytes (strlen + 1 capped), NUL-terminated and lowercased. 0.
     delete[] Name;
     Name = nullptr;
@@ -940,9 +936,9 @@ GENRESULT DACOM_API FEyeMaterialImpl::SetName(const char* InName)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FEyeMaterialImpl::GetName(char* Out, unsigned long Size)
+GENRESULT NEURONCOMPONENTS_API FEyeMaterialImpl::GetName(char* Out, unsigned long Size)
 {
-    // LAB_065fec80 (RET 0xC): -1 before SetName; else strncpy and a forced NUL.
+    // (RET 0xC): -1 before SetName; else strncpy and a forced NUL.
     if (Name == nullptr)
         return GR_GENERIC;
     std::strncpy(Out, Name, Size);
@@ -950,9 +946,9 @@ GENRESULT DACOM_API FEyeMaterialImpl::GetName(char* Out, unsigned long Size)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FEyeMaterialImpl::CopyClassName(char* Out, unsigned long Size)
+GENRESULT NEURONCOMPONENTS_API FEyeMaterialImpl::CopyClassName(char* Out, unsigned long Size)
 {
-    // FUN_065fecc0 (RET 0xC): slot 20 tested, then called again for the strncpy.
+    // (RET 0xC): slot 20 tested, then called again for the strncpy.
     if (ClassName() == nullptr)
         return GR_GENERIC;
     std::strncpy(Out, ClassName(), Size);
@@ -960,21 +956,21 @@ GENRESULT DACOM_API FEyeMaterialImpl::CopyClassName(char* Out, unsigned long Siz
     return GR_OK;
 }
 
-GENRESULT DACOM_API FEyeMaterialImpl::GetPassCount(int* Out)
+GENRESULT NEURONCOMPONENTS_API FEyeMaterialImpl::GetPassCount(int* Out)
 {
-    // LAB_065fed00 (RET 8).
+    // (RET 8).
     *Out = 1;
     return GR_OK;
 }
 
-GENRESULT DACOM_API FEyeMaterialImpl::GetParameterCount(unsigned long* OutCount)
+GENRESULT NEURONCOMPONENTS_API FEyeMaterialImpl::GetParameterCount(unsigned long* OutCount)
 {
-    // LAB_065fed10 (RET 8): slot 27 with a null out-pointer.
+    // (RET 8): slot 27 with a null out-pointer.
     *OutCount = GetParameterTable(nullptr);
     return GR_OK;
 }
 
-GENRESULT DACOM_API FEyeMaterialImpl::GetParameterDescriptor(unsigned long Index, void* OutDesc)
+GENRESULT NEURONCOMPONENTS_API FEyeMaterialImpl::GetParameterDescriptor(unsigned long Index, void* OutDesc)
 {
     FMaterialParamDesc* Table = nullptr;
     if (GetParameterTable((void**)(&Table)) <= Index)
@@ -991,9 +987,9 @@ GENRESULT DACOM_API FEyeMaterialImpl::GetParameterDescriptor(unsigned long Index
     return GR_OK;
 }
 
-GENRESULT DACOM_API FEyeMaterialImpl::GetParameterValue(unsigned long Index, void* InOutDesc)
+GENRESULT NEURONCOMPONENTS_API FEyeMaterialImpl::GetParameterValue(unsigned long Index, void* InOutDesc)
 {
-    // FUN_065ff060 (RET 0xC), jump table 065ff1c8. InOutDesc is one value cell: retyped to the
+    // (RET 0xC), jump table 065ff1c8. InOutDesc is one value cell: retyped to the
     // parameter's type (old value cleared by its old type), then filled from slot 28's address.
     FMaterialParamDesc* Table = nullptr;
     if (GetParameterTable((void**)(&Table)) <= Index)
@@ -1028,7 +1024,7 @@ GENRESULT DACOM_API FEyeMaterialImpl::GetParameterValue(unsigned long Index, voi
         Out->DupString((const char*)(DwordToPointer(Address[0])));
         break;
     case 6:
-        Out->SwapCom((IDAComponent*)(DwordToPointer(Address[0])));
+        Out->SwapCom((INeuronComponent*)(DwordToPointer(Address[0])));
         break;
     default:
         break;
@@ -1036,9 +1032,9 @@ GENRESULT DACOM_API FEyeMaterialImpl::GetParameterValue(unsigned long Index, voi
     return GR_OK;
 }
 
-GENRESULT DACOM_API FEyeMaterialImpl::SetParameterValue(unsigned long Index, void* Value)
+GENRESULT NEURONCOMPONENTS_API FEyeMaterialImpl::SetParameterValue(unsigned long Index, void* Value)
 {
-    // LAB_065ff1f0 (RET 0xC): Index >= count or slot 25 false -> -1; else slot 26, 0.
+    // (RET 0xC): Index >= count or slot 25 false -> -1; else slot 26, 0.
     FMaterialParamDesc* Table = nullptr;
     if (GetParameterTable((void**)(&Table)) <= Index)
         return GR_GENERIC;
@@ -1050,13 +1046,13 @@ GENRESULT DACOM_API FEyeMaterialImpl::SetParameterValue(unsigned long Index, voi
 
 GENRESULT __thiscall FEyeMaterialImpl::InitializeFromDescriptor(void* /*Arg*/)
 {
-    // FUN_06600ba0: XOR EAX,EAX; RET 4.
+    // XOR EAX,EAX; RET 4.
     return GR_OK;
 }
 
 GENRESULT __thiscall FEyeMaterialImpl::ApplyInitialRenderStates(void* /*Arg*/)
 {
-    // FUN_06600ba0 again.
+    // again.
     return GR_OK;
 }
 
@@ -1066,7 +1062,7 @@ GENRESULT FEyeMaterialImpl::UpdateTranslucency()
     bOneBitAlpha = 0;
     if (bTranslucent != 0)
         return 1;
-    // FUN_06600da0(0) -- the value that survives as the result when the frame is 0.
+    // (0) -- the value that survives as the result when the frame is 0.
     GENRESULT Result = PixelFormatFromD3D(0);
     if (TextureRows[0].Frame == 0)
         return Result;
@@ -1107,11 +1103,11 @@ GENRESULT __thiscall FEyeMaterialImpl::Setup()
         {
             FEngineName Query;
             Query.Text = Row->Name;
-            Query.Crc = DACOM_CRC::GetCRC32(Row->Name);
+            Query.Crc = NEURONCOMPONENTS_CRC::GetCRC32(Row->Name);
             void* Texture;
             if (Library->FindTextureByCrc(&Query, &Texture) < 0)
             {
-                // 065ff32d: REPE CMPSB over the 7 bytes of "(None)".
+                // REPE CMPSB over the 7 bytes of "(None)".
                 bVerified = std::strcmp(Row->Name, G_TextureNameNone) == 0;
             }
             else
@@ -1213,9 +1209,9 @@ GENRESULT __thiscall FEyeMaterialImpl::StoreParameterValue(unsigned long Index, 
         }
         case 6:
         {
-            IDAComponent** const Slot = (IDAComponent**)(Address);
-            IDAComponent* const Old = *Slot;
-            IDAComponent* const NewCom = (IDAComponent*)(DwordToPointer(Cell->Value[0]));
+            INeuronComponent** const Slot = (INeuronComponent**)(Address);
+            INeuronComponent* const Old = *Slot;
+            INeuronComponent* const NewCom = (INeuronComponent*)(DwordToPointer(Cell->Value[0]));
             *Slot = NewCom;
             if (NewCom != nullptr)
                 NewCom->AddRef();
@@ -1246,7 +1242,7 @@ GENRESULT __thiscall FEyeMaterialImpl::StoreParameterValue(unsigned long Index, 
 
 unsigned long __thiscall FEyeMaterialImpl::GetParameterTable(void** OutBase)
 {
-    // LAB_06600b80 (RET 4): no table.
+    // (RET 4): no table.
     if (OutBase != nullptr)
         *OutBase = nullptr;
     return 0;
@@ -1254,7 +1250,7 @@ unsigned long __thiscall FEyeMaterialImpl::GetParameterTable(void** OutBase)
 
 void* __thiscall FEyeMaterialImpl::GetParameterAddress(unsigned long /*Index*/)
 {
-    // FUN_06600ba0.
+    // .
     return nullptr;
 }
 
@@ -1264,7 +1260,7 @@ void* __thiscall FEyeMaterialImpl::GetParameterAddress(unsigned long /*Index*/)
 
 namespace
 {
-    // .rdata:06601588: {IID, offset} pairs, a null IID ends the list. An offset with bit 31
+    // {IID, offset} pairs, a null IID ends the list. An offset with bit 31
     // set would name a pointer to load instead of a sub-object; this table has none.
     struct FInterfaceOffset
     {
@@ -1277,7 +1273,7 @@ namespace
         {nullptr, 0}};
 }
 
-GENRESULT DACOM_API FEyeMaterialInner::QueryInterface(const char* Iid, void** Out)
+GENRESULT NEURONCOMPONENTS_API FEyeMaterialInner::QueryInterface(const char* Iid, void** Out)
 {
     int Index = 0;
     while (G_EyeMaterialInterfaces[Index].Iid != nullptr)
@@ -1286,11 +1282,11 @@ GENRESULT DACOM_API FEyeMaterialInner::QueryInterface(const char* Iid, void** Ou
         {
             const unsigned long Offset = G_EyeMaterialInterfaces[Index].Offset;
             unsigned char* const Base = (unsigned char*)(Owner);
-            IDAComponent* Face;
+            INeuronComponent* Face;
             if ((Offset & 0x80000000u) != 0)
-                Face = *(IDAComponent**)(Base + (Offset & 0x7FFFFFFFu));
+                Face = *(INeuronComponent**)(Base + (Offset & 0x7FFFFFFFu));
             else
-                Face = (IDAComponent*)(Base + Offset);
+                Face = (INeuronComponent*)(Base + Offset);
             Face->AddRef();
             *Out = Face;
             return GR_OK;
@@ -1301,16 +1297,16 @@ GENRESULT DACOM_API FEyeMaterialInner::QueryInterface(const char* Iid, void** Ou
     return GR_INTERFACE_UNSUPPORTED;
 }
 
-unsigned long DACOM_API FEyeMaterialInner::AddRef()
+unsigned long NEURONCOMPONENTS_API FEyeMaterialInner::AddRef()
 {
-    // LAB_065fe060 (the factory's AddRef too): ++[this+4].
+    // (the factory's AddRef too): ++[this+4].
     RefCount += 1;
     return RefCount;
 }
 
-unsigned long DACOM_API FEyeMaterialInner::Release()
+unsigned long NEURONCOMPONENTS_API FEyeMaterialInner::Release()
 {
-    // LAB_066009d0 (RET 4): decrement when above 0; reaching 0 re-arms it to 1 and calls the
+    // (RET 4): decrement when above 0; reaching 0 re-arms it to 1 and calls the
     // owner's slot 21 with 1, then returns 0.
     if (RefCount > 0)
         RefCount -= 1;
@@ -1335,14 +1331,14 @@ namespace
         int Value;
     };
 
-    // .rdata:0660146c -- stage 0 texture-stage states.
+    // stage 0 texture-stage states.
     const FStateValue G_EyeStage0States[] = {{D3DTSS_COLOROP, 4}, {D3DTSS_COLORARG1, 2}, {D3DTSS_COLORARG2, 0}, {D3DTSS_ALPHAOP, 4}, {D3DTSS_ALPHAARG1, 2}, {D3DTSS_ALPHAARG2, 0}, {0, 0}};
-    // .rdata:066014a4 -- stage 1.
+    // stage 1.
     const FStateValue G_EyeStage1States[] = {{D3DTSS_COLOROP, 1}, {D3DTSS_COLORARG1, 2}, {D3DTSS_COLORARG2, 1}, {D3DTSS_ALPHAOP, 1}, {D3DTSS_ALPHAARG1, 2}, {D3DTSS_ALPHAARG2, 1}, {0, 0}};
-    // .rdata:0660143c -- render states when translucent.
+    // render states when translucent.
     const FStateValue G_EyeBlendStates[] = {{D3DRS_LIGHTING, 1}, {D3DRS_SPECULARENABLE, 0}, {D3DRS_ALPHABLENDENABLE, 1}, {D3DRS_SRCBLEND, 5}, {D3DRS_DESTBLEND, 6},
                                             {0, 0}};
-    // .rdata:0660141c -- render states when opaque.
+    // render states when opaque.
     const FStateValue G_EyeOpaqueStates[] = {{D3DRS_LIGHTING, 1}, {D3DRS_SPECULARENABLE, 0}, {D3DRS_ALPHABLENDENABLE, 0}, {0, 0}};
 }
 
@@ -1375,33 +1371,33 @@ FEyeMaterial::FEyeMaterial()
     Inner.Owner = this;
 }
 
-GENRESULT DACOM_API FEyeMaterial::QueryInterface(const char* Iid, void** Out)
+GENRESULT NEURONCOMPONENTS_API FEyeMaterial::QueryInterface(const char* Iid, void** Out)
 {
-    // LAB_06600a00: [ESP+4] = [this+0x68], JMP [vtable+0].
+    // [ESP+4] = [this+0x68], JMP [vtable+0].
     return Controlling->QueryInterface(Iid, Out);
 }
 
-unsigned long DACOM_API FEyeMaterial::AddRef()
+unsigned long NEURONCOMPONENTS_API FEyeMaterial::AddRef()
 {
-    // LAB_06600a10.
+    // .
     return Controlling->AddRef();
 }
 
-unsigned long DACOM_API FEyeMaterial::Release()
+unsigned long NEURONCOMPONENTS_API FEyeMaterial::Release()
 {
-    // LAB_06600a20.
+    // .
     return Controlling->Release();
 }
 
-GENRESULT DACOM_API FEyeMaterial::Bind(void* Context)
+GENRESULT NEURONCOMPONENTS_API FEyeMaterial::Bind(void* Context)
 {
-    // LAB_065fff20 (RET 8), 065fff20..001ae.
+    // (RET 8), 065fff20..001ae.
     FMaterialSubmitContext* const Ctx = (FMaterialSubmitContext*)(Context);
     Pipeline->SetMaterial((const D3DMATERIAL8*)&Colors); // +0xAC
     if (ContextHasDiffuseStream(Ctx))
         Pipeline->SetRenderState(D3DRS_COLORVERTEX, 1);
 
-    // 065fff63..ffb4: the first texture row on stage 0; its wrap mode less 4 (0 below 4) as
+    // ..ffb4: the first texture row on stage 0; its wrap mode less 4 (0 below 4) as
     // state 0xB, the address modes plus 1 as 0xD / 0xE.
     IRenderPipeline* const StagePipeline = Pipeline;
     const FMaterialTextureRow* const Row = TextureRows;
@@ -1458,9 +1454,9 @@ GENRESULT DACOM_API FEyeMaterial::Bind(void* Context)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FEyeMaterial::Teardown(void* Context)
+GENRESULT NEURONCOMPONENTS_API FEyeMaterial::Teardown(void* Context)
 {
-    // LAB_06600270 (RET 8): no context -> 0 at once. Else D3DTSS_TEXTURETRANSFORMFLAGS off on
+    // (RET 8): no context -> 0 at once. Else D3DTSS_TEXTURETRANSFORMFLAGS off on
     // stage 0 and, with a diffuse stream, D3DRS_COLORVERTEX off.
     if (Context == nullptr)
         return GR_OK;
@@ -1470,16 +1466,16 @@ GENRESULT DACOM_API FEyeMaterial::Teardown(void* Context)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FEyeMaterial::GetRenderFlags(unsigned long* Out)
+GENRESULT NEURONCOMPONENTS_API FEyeMaterial::GetRenderFlags(unsigned long* Out)
 {
-    // LAB_065ffef0 (RET 8): NEG/SBB -> 0xA when translucent, else 8.
+    // (RET 8): NEG/SBB -> 0xA when translucent, else 8.
     *Out = bTranslucent != 0 ? 0xAu : 0x8u;
     return GR_OK;
 }
 
 const char* __thiscall FEyeMaterial::ClassName()
 {
-    // LAB_065fff10: MOV EAX,"EyeMaterial" (.rdata:066014dc); RET.
+    // MOV EAX,"EyeMaterial" (module storage); RET.
     return G_EyeMaterialName;
 }
 
@@ -1501,7 +1497,7 @@ unsigned long __thiscall FEyeMaterial::GetParameterTable(void** OutBase)
         Table[7].Init(8, 0, "Dt_flags", "Texture Wrap Mode", G_ParamNoDescription, 4, 0, 0);
         Table[8].Init(9, 0x20000, "Dt_flags", "Texture U Address Mode", G_ParamNoDescription, 2,
                       0, 0);
-        // 065ffa6f: the last one through the FUN_065ffc50 constructor.
+        // the last one through the the routine constructor.
         Table[9].Init(9, 0x40000, "Dt_flags", "Texture V Address Mode", G_ParamNoDescription, 2,
                       0, 0);
     }
@@ -1512,7 +1508,7 @@ unsigned long __thiscall FEyeMaterial::GetParameterTable(void** OutBase)
 
 void* __thiscall FEyeMaterial::GetParameterAddress(unsigned long Index)
 {
-    // LAB_065ffe60 (RET 4), jump table 065ffebc. 6..9 are offsets from the row pointer itself
+    // (RET 4), jump table 065ffebc. 6..9 are offsets from the row pointer itself
     // (no null test).
     switch (Index)
     {
@@ -1541,17 +1537,17 @@ void* __thiscall FEyeMaterial::GetParameterAddress(unsigned long Index)
     }
 }
 
-GENRESULT DACOM_API FEyeMaterial::InnerQueryInterface(const char* Iid, void** Out)
+GENRESULT NEURONCOMPONENTS_API FEyeMaterial::InnerQueryInterface(const char* Iid, void** Out)
 {
     return Inner.QueryInterface(Iid, Out);
 }
 
-unsigned long DACOM_API FEyeMaterial::InnerAddRef()
+unsigned long NEURONCOMPONENTS_API FEyeMaterial::InnerAddRef()
 {
     return Inner.AddRef();
 }
 
-unsigned long DACOM_API FEyeMaterial::InnerRelease()
+unsigned long NEURONCOMPONENTS_API FEyeMaterial::InnerRelease()
 {
     return Inner.Release();
 }
@@ -1564,13 +1560,13 @@ namespace
 {
     struct FEyeMaterialFactory : FDeformableFactory
     {
-        GENRESULT DACOM_API CreateInstance(AGGDESC* Desc, void** Out) override;
+        GENRESULT NEURONCOMPONENTS_API CreateInstance(AGGDESC* Desc, void** Out) override;
     };
 }
 
-GENRESULT DACOM_API FEyeMaterialFactory::CreateInstance(AGGDESC* Desc, void** Out)
+GENRESULT NEURONCOMPONENTS_API FEyeMaterialFactory::CreateInstance(AGGDESC* Desc, void** Out)
 {
-    // LAB_065fe070 (RET 0xC), 065fe070..e1a8. The desc is {0x14, name, outer, inner-out}.
+    // (RET 0xC), 065fe070..e1a8. The desc is {0x14, name, outer, inner-out}.
     FAGGDESC14* const Aggregate = (FAGGDESC14*)(Desc);
     if (Aggregate->Size != 0x14 || std::strcmp(Aggregate->NameAt4, Name) != 0)
     {
@@ -1583,7 +1579,7 @@ GENRESULT DACOM_API FEyeMaterialFactory::CreateInstance(AGGDESC* Desc, void** Ou
         *Out = nullptr;
         return GR_OUT_OF_MEMORY;
     }
-    IDAComponent* const Outer = Aggregate->OuterUnknown;
+    INeuronComponent* const Outer = Aggregate->OuterUnknown;
     Object->Controlling = Outer;
     if (Outer != nullptr)
         *Aggregate->InnerUnknown = &Object->Inner;
@@ -1605,14 +1601,14 @@ GENRESULT DACOM_API FEyeMaterialFactory::CreateInstance(AGGDESC* Desc, void** Ou
 
 bool RegisterEyeMaterialFactory()
 {
-    // FUN_065fdfd0, 065fdfd0..e019.
+    // , 065fdfd0..e019.
     FEyeMaterialFactory* const Factory = new (std::nothrow) FEyeMaterialFactory();
     if (Factory == nullptr)
         return false;
     Factory->RefCount = 1;
     Factory->Name = G_EyeMaterialName;
-    ICOManager* const Dacom = DACOM_Acquire();
-    Dacom->RegisterComponent((IDAComponent*)(Factory), G_EyeMaterialName,
+    ICOManager* const NeuronComponents = NEURONCOMPONENTS_Acquire();
+    NeuronComponents->RegisterComponent((INeuronComponent*)(Factory), G_EyeMaterialName,
                              (void*)(0x80000000));
     Factory->Release();
     return true;

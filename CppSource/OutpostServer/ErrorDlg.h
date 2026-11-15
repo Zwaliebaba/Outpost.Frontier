@@ -1,12 +1,8 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
-// CErrorDlg -- dialog 145 "Error" (ServerResources.dll). Retail ctor .text:00401290 (called
-// from .text:0040728d), scalar deleting dtor .text:00401300, vtable .rdata:0041bf88, empty
-// message map .rdata:0041bc68 (base CDialog). No members past CDialog.
+// CErrorDlg -- dialog 145 "Error" (ServerInterface.dll). baseline ctor module storage (called
+// from module storage), scalar deleting dtor module storage, vtable module storage, empty
+// message map module storage (base CDialog). No members past CDialog.
 #pragma once
 
 class CErrorDlg : public CDialog
@@ -14,10 +10,10 @@ class CErrorDlg : public CDialog
 public:
 	enum { IDD = 145 };
 
-	CErrorDlg(CWnd* Parent = NULL);   // .text:00401290
+	CErrorDlg(CWnd* Parent = NULL);
 
 protected:
-	virtual void DoDataExchange(CDataExchange* DX);   // .text:00401330 (empty: RET 4)
+	virtual void DoDataExchange(CDataExchange* DX);   // (empty: RET 4)
 
 	DECLARE_MESSAGE_MAP()
 };

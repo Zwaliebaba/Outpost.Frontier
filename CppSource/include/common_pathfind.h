@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -16,24 +12,24 @@
 
 // ============================================================================
 // PathfindManager -- the per-ship AI path/obstacle state IBehaviorManager owns at +0x0C.
-//
-// Identity: IBehaviorManager's ctor FUN_062d2220 does `PUSH 0x580; CALL operator_new;
-// PUSH ESI; MOV ECX,EAX; CALL FUN_062db3b0` and stores the result at IBehaviorManager+0x0C
-// (.text:062d2327-062d2369). Server.dll's pub::AI::SubmitState loads that word into ECX and
+
+// Identity: IBehaviorManager's ctor the routine does `PUSH 0x580; CALL operator_new;
+// PUSH ESI; MOV ECX,EAX; CALL the routine` and stores the result at IBehaviorManager+0x0C
+// (module storage-062d2369). Server.dll's pub::AI::SubmitState loads that word into ECX and
 // calls the exported PathfindManager::clear_user_zone / submit_user_zone on it
-// (Server .text:06d5c999, 06d5c9ef, 06d5cb00, 06d5cb42), so FUN_062db3b0 is
+// (Server module storage, 06d5c9ef, 06d5cb00, 06d5cb42), so the routine is
 // PathfindManager::PathfindManager(IBehaviorManager*) and the object is 0x580 bytes.
 // No RTTI: the class has no vtable (the ctor never writes one; +0x00 is a plain dword).
-//
-// Destructor: never emitted out of line. IBehaviorManager's dtor FUN_062d2530 inlines it at
-// .text:062d2573-062d25bc: `if (+0x218) set_pointer(0)`, `if (+0x1c8) set_pointer(0)`, then
+
+// Destructor: never emitted out of line. IBehaviorManager's dtor the routine inlines it at
+// `if (+0x218) set_pointer(0)`, `if (+0x1c8) set_pointer(0)`, then
 // operator delete -- i.e. the implicit destructor of the two BaseWatcher members below, in
 // reverse declaration order. The port's implicit destructor does exactly that.
-//
-// EXPORTS: member-level. Retail exports clear_user_zone / get_user_zone / submit_user_zone and
+
+// EXPORTS: member-level. baseline exports clear_user_zone / get_user_zone / submit_user_zone and
 // nothing else of the class (no ctor, no operator=), so the class carries no export macro.
-//
-// Layout: every field below is placed from the ctor's own stores (Common.dll.txt
+
+// Layout: every field below is placed from the ctor's own stores (Common
 // 225461-225695) and, where named, from the readers cited on the field. Offset-named members
 // are fields whose type the ctor or a reader confirms but whose meaning is not recovered.
 // Some per-tick methods of this class are still ported as free functions over a raw byte
@@ -44,25 +40,25 @@ class PathfindManager
 {
 public:
     // Size from get_user_zone / submit_user_zone's dword copy loops (0x16 dwords = 0x58
-    // bytes). Nested in PathfindManager, as the retail mangling says
+    // bytes). Nested in PathfindManager, as the baseline mangling says
     // (UUserZone@1@ in ?get_user_zone@PathfindManager@@QAE_NAAUUserZone@1@@Z).
-    //
-    // Field meanings come from the one reader of the zone, the volume probe FUN_062db830
+
+    // Field meanings come from the one reader of the zone, the volume probe the routine
     // (UserZoneContainsPoint, item 1672), which reads it in place at PathfindManager+0x0C:
     //   Mode       0 = sphere at TargetPoint / Radius, 1 = oriented box, 2 = live target,
     //              anything else = no test;
     //   Invert     the probe's answer is flipped when non-zero (tested as a whole dword);
     //   TargetKey  an object id; mode 2 looks it up with Owner->ObjectDb->FindById(&TargetKey).
-    // Its one builder, Server.dll pub::AI::SubmitState (.text:06d5c957..06d5cb56), fills
+    // Its one builder, Server.dll pub::AI::SubmitState (module storage..06d5cb56), fills
     // exactly these fields from SetZoneBehaviorParams (see server_pub.cpp).
     struct UserZone
     {
-        // Not exported: every module compiles its own copy. Common's is FUN_062db740
-        // (called on PathfindManager+0x24 == Zone+0x18 at .text:062db3da): the matrix at
+        // Not exported: every module compiles its own copy. Common's is the routine
+        // (called on PathfindManager+0x24 == Zone+0x18 at module storage): the matrix at
         // +0x00..+0x20 of the record set to identity (+0x00/+0x10/+0x20 = 1.0f, the other
         // six words 0) and the Vector at +0x24..+0x2C zeroed -- i.e. BoxRotation = identity,
-        // BoxCenter = 0. Server's copy is FUN_06d0a850 (identity matrix at S+0x6c) followed by
-        // three inline zero stores to the Vector (.text:06d5c969..06d5c97f). No other field
+        // BoxCenter = 0. Server's copy is the routine (identity matrix at S+0x6c) followed by
+        // three inline zero stores to the Vector (module storage..06d5c97f). No other field
         // is initialised.
         UserZone()
         {
@@ -90,24 +86,24 @@ public:
         unsigned int TargetKey;  // +0x54  mode 2 object id (IObjDB::FindById(&TargetKey) via Owner+0xEC)
     };
 
-    // FUN_062db3b0 (item 1667). Not exported.
+    // (item 1667). Not exported.
     explicit PathfindManager(IBehaviorManager* NewOwner);
 
-    // 0x062db820 ?clear_user_zone@PathfindManager@@QAEXXZ
+    // ?clear_user_zone@PathfindManager@@QAEXXZ
     COMMON_API void clear_user_zone();
-    // 0x062db800 ?submit_user_zone@PathfindManager@@QAEXABUUserZone@1@@Z
+    // ?submit_user_zone@PathfindManager@@QAEXABUUserZone@1@@Z
     COMMON_API void submit_user_zone(UserZone const& Zone);
-    // 0x062c5ac0 ?get_user_zone@PathfindManager@@QAE_NAAUUserZone@1@@Z (non-const: QAE)
+    // ?get_user_zone@PathfindManager@@QAE_NAAUUserZone@1@@Z (non-const: QAE)
     COMMON_API bool get_user_zone(UserZone& OutZone);
 
-    // FUN_062de160 (item 1689), not exported, fastcall on `this`, 16 instructions
-    // (Common.dll.txt 229612-229629):
+    // (item 1689), not exported, fastcall on `this`, 16 instructions
+    // (Common):
     //   AL = (byte [ECX+0x574] == 1);                        // Avoidance.HasContact
     //   if ([ECX+0x16c] != 3 && byte [ECX+0x180] != 0) AL = 1; // Reaction.State / bInReaction
     //   return AL == 0;                                       // SETZ
     // True while the obstacle avoidance has no contact and no obstacle reaction is running.
-    // Callers: SystemManager's tick (.text:062e677e) stores it in ThrustManager::bCruiseUnobstructed,
-    // the gate engage_cruise checks; .text:062d3c01 and .text:062fe296. Retail name unknown.
+    // Callers: SystemManager's tick (module storage) stores it in ThrustManager::bCruiseUnobstructed,
+    // the gate engage_cruise checks; module storage and module storage. baseline name unknown.
     bool IsCruiseUnobstructed() const
     {
         bool bObstructed = (Avoidance.HasContact == 1);
@@ -116,52 +112,52 @@ public:
         return !bObstructed;
     }
 
-    // FUN_062dd3d0 (item 1682), not exported, thiscall, `RET 8`, 108 instructions
-    // (Common.dll.txt 228376-228515). Reached only through Behavior::SetCruiseLock
-    // (FUN_062d21d0, 20 call sites across the Behavior family), which tail-jumps here with
+    // (item 1682), not exported, thiscall, `RET 8`, 108 instructions
+    // (Common). Reached only through Behavior::SetCruiseLock
+    // (the routine, 20 call sites across the Behavior family), which tail-jumps here with
     // this = Behavior+0x20 (IBehaviorManager) -> +0x0C. Only the low byte of Value is read
     // (`MOV CL,byte ptr [ESP+param_1]`). Mask bit 1 latches it into Field_254, bit 0 into
     // Field_24C; a zero Value then resets the +0x214..+0x243 record (after notifying the
     // ThrustManager with a zero vector when bit 0 was given and Field_214 bit 0 was set).
-    // Retail name unknown; the port name follows the Behavior-side callers.
+    // baseline name unknown; the port name follows the Behavior-side callers.
     void SetCruiseLock(int Value, unsigned int Mask);
 
-    // FUN_062dd760, not exported, __thiscall, RET 4. The per-tick update; its one caller is
-    // IBehaviorManager::UpdateBehaviorTick (.text:062d2d00) with the tick's Dt. Only for an
+    // , not exported, __thiscall, RET 4. The per-tick update; its one caller is
+    // IBehaviorManager::UpdateBehaviorTick (module storage) with the tick's Dt. Only for an
     // owner type in 0x7f0000: a 1 s zone-property probe (Field_000 / Field_004), a reset
     // of the obstacle state while behaviour 6 / 8 / 0x13 / -1 runs, the 0.1 s
     // RefreshAvoidance and the nudge hand-off to the ThrustManager, then (with Flag245 and
     // Field_254 set) UpdateShipHeadingBlend and the ObstacleAvoidance tick on its own period.
     void Update(float Dt);
 
-    // FUN_062dd580, not exported, __thiscall, RET 0. Rebuilds the +0x214 record: a point
+    // , not exported, __thiscall, RET 0. Rebuilds the +0x214 record: a point
     // from SelectAvoidancePoint (Field_214 = 2), else for owner types in 0x130000 a nudge
     // direction from SelectObstacleDirection (Field_214 = 1, the obstacle watched in
     // Watcher218), else nothing (Field_214 = 0).
     void RefreshAvoidance();
 
-    // FUN_062dda10, not exported, __thiscall, RET 0xc. 0 with *OutPoint / *OutScale /
+    // , not exported, __thiscall, RET 0xc. 0 with *OutPoint / *OutScale /
     // *OutKind filled (kind 2 = user-zone exit, 3 = obstacle reaction, 1 = avoidance
     // point), 2 when nothing applies (*OutKind then 0 on the avoidance path).
     int SelectAvoidancePoint(Vector* OutPoint, float* OutScale, int* OutKind);
 
-    // FUN_062de050, not exported, __thiscall, RET 0xc. 0 with a nudge direction and the
+    // , not exported, __thiscall, RET 0xc. 0 with a nudge direction and the
     // obstacle it avoids (Field_255 = 1, Field_258 = its id), 2 otherwise.
     int SelectObstacleDirection(Vector* OutDirection, IObjRW** OutObstacle, unsigned ExcludeId);
 
-    // FUN_062db830 (item 1672), not exported, __thiscall, RET 8 (the second stack argument is
+    // (item 1672), not exported, __thiscall, RET 8 (the second stack argument is
     // a float* the body never reads; dropped). Is ProbePoint inside the user zone? A zone that
     // is not active (bUserZoneActive clear) admits everything; Invert flips the answer.
     // Formerly the file-static AiVolumeProbeContainsPoint in the (since dissolved) common_stubs.cpp.
     bool UserZoneContainsPoint(Vector const* ProbePoint);
 
-    // FUN_062ddcd0 (item 1686, also reached through the thunk 0x062de040), not exported,
+    // (item 1686, also reached through the thunk 0x062de040), not exported,
     // __thiscall, RET 4. 0 with the unit direction from the owner towards the user zone (away
     // from it when Invert is set) in *OutDir, 2 when the zone is inactive or does not apply.
     // Formerly the free function AiVolumeProbeApproachDirection(This, OutDir).
     int GetUserZoneApproachDirection(Vector* OutDir);
 
-    // formerly the free ClassifyShipObstaclePhase(Self) -- FUN_062dc840 (item 1681), not
+    // formerly the free ClassifyShipObstaclePhase(Self) -- the routine (item 1681), not
     // exported, __thiscall. Resets Reaction, then picks the obstacle whose deflection capsule
     // (padded by 750 / 250 and Field_1FC) holds the ship and lies closest to the target from
     // the own scan list and a 20000-radius spatial query; commits a State 1 escape or asks
@@ -169,7 +165,7 @@ public:
     // otherwise NudgeObstaclePathPoint's non-zero result. Definition: common_obstacleavoidance.cpp.
     int ClassifyObstaclePhase();
 
-    // formerly the free UpdateShipHeadingBlend(Self, Dt) -- FUN_062dc590 (item 1680), RET 4.
+    // formerly the free UpdateShipHeadingBlend(Self, Dt) -- the routine (item 1680), RET 4.
     // Phase 0 latches Reaction.Heading into BlendStart and restarts the 4 s BlendTimer; phase 1,
     // an expired timer or a clear bBlendEnabled reset Reaction (State 3, Heading 0); otherwise
     // Reaction.Heading turns from BlendStart towards TargetPosition by the elapsed fraction of
@@ -179,13 +175,13 @@ public:
 
     // The sub-record at +0x16C. Its ctor is inlined into PathfindManager's: the member at
     // record+0x1C gets the ICF-folded empty ctor 0x06261260 (`MOV EAX,ECX; RET`), then
-    // FUN_062db7a0 (ResetState, item 1670) runs on the record. FUN_062db7a0 is also called
-    // from .text:062dd87b. Field names follow common_aisteer.h's "Ship heading-blend
+    // (ResetState, item 1670) runs on the record. the routine is also called
+    // from module storage. Field names follow common_aisteer.h's "Ship heading-blend
     // classifier pair" table, whose readers (ClassifyShipObstaclePhase,
     // UpdateShipHeadingBlend) address these bytes as PathfindManager+0x16C..+0x19F.
     struct ObstacleReaction
     {
-        // FUN_062db7a0: State = 3, LastObstacleTag = 0, Heading = 0 (stored +0x10, +0x0C,
+        // State = 3, LastObstacleTag = 0, Heading = 0 (stored +0x10, +0x0C,
         // +0x08), bInReaction = 0, bCloseEncounter = 0. ActiveSlot is not touched.
         void ResetState();
 
@@ -198,26 +194,26 @@ public:
         ObstacleAvoidance::Slot ActiveSlot;    // +0x18  (+0x184) never written by the ctor
     };
 
-    int Field_000;                             // +0x000 ctor: 0 (.text:062db54c)
-    int Field_004;                             // +0x004 ctor: 0 (.text:062db644)
+    int Field_000;                             // +0x000 ctor: 0 (module storage)
+    int Field_004;                             // +0x004 ctor: 0 (module storage)
     bool bUserZoneActive;                      // +0x008 submit_user_zone sets, clear_user_zone clears
     unsigned char Pad009[3];
     UserZone Zone;                             // +0x00C
-    int Field_064;                             // +0x064 ctor: 0 (.text:062db519)
+    int Field_064;                             // +0x064 ctor: 0 (module storage)
     unsigned int NextDeflectionSlot;           // +0x068 round-robin cursor into DeflectionSlots
-    unsigned int RecentObstacleIds[8];         // +0x06C ctor: REP STOSD 8 x 0 (.text:062db3f4)
+    unsigned int RecentObstacleIds[8];         // +0x06C ctor: REP STOSD 8 x 0 (module storage)
     // Built with `eh vector constructor iterator(this+0x8c, 0x1c, 8, 0x06261260)`: the
     // element ctor is the ICF-folded empty body, so nothing in the array is initialised.
     ObstacleAvoidance::Slot DeflectionSlots[8]; // +0x08C
     ObstacleReaction Reaction;                 // +0x16C
     float BlendTimer;                          // +0x1A0 ctor: 0
-    Vector BlendStart;                         // +0x1A4 ctor: (0, 1, 0) (.text:062db711-062db71d)
+    Vector BlendStart;                         // +0x1A4 ctor: (0, 1, 0) (module storage-062db71d)
     bool bBlendEnabled;                        // +0x1B0 ctor: 0
     unsigned char Pad1B1[3];
     Vector TargetPosition;                     // +0x1B4 never written by the ctor
     IBehaviorManager* Owner;                   // +0x1C0
-    unsigned int OwnerType;                    // +0x1C4 Owner object's IObjInspect::get_type (.text:062db57a)
-    BaseWatcher Watcher1C8;                    // +0x1C8 destroyed by FUN_062d2530 (.text:062d259b)
+    unsigned int OwnerType;                    // +0x1C4 Owner object's IObjInspect::get_type (module storage)
+    BaseWatcher Watcher1C8;                    // +0x1C8 destroyed by the routine (module storage)
     Vector Field_1D0;                          // +0x1D0 ctor: 0 (stored z, y, x)
     int Field_1DC;                             // +0x1DC ctor: 0
     float Timer1E0;                            // +0x1E0 ctor: rand() / 32768 * Period1E4
@@ -232,7 +228,7 @@ public:
     float Timer20C;                            // +0x20C ctor: rand() / 32768 * Period210
     float Period210;                           // +0x210 ctor: 0.1f
     int Field_214;                             // +0x214 ctor: 0
-    BaseWatcher Watcher218;                    // +0x218 ctor FUN_062de190(nullptr); destroyed by FUN_062d2530 (.text:062d2580)
+    BaseWatcher Watcher218;                    // +0x218 ctor the routine(nullptr); destroyed by the routine (module storage)
     Vector Field_220;                          // +0x220 ctor: 0 (stored z, y, x)
     Vector Field_22C;                          // +0x22C ctor: 0 (stored z, y, x)
     unsigned char Field_238;                   // +0x238 ctor: 0; RefreshAvoidance copies Avoidance.HasContact's raw byte
@@ -241,8 +237,8 @@ public:
     int Field_240;                             // +0x240 ctor: 0
     bool Field_244;                            // +0x244 ctor: 0
     // +0x245: pub::AI::SubmitState's SetFlagParams FlagId 0 stores the raw uint8_t there
-    // (Server .text:06d5c93c); Common tests it as a byte (TEST AL,AL at .text:062dd937,
-    // 062dda17, 062de058). ctor: 1.
+    // (Server module storage); Common tests it as a byte (TEST AL,AL at module storage,
+    // , 062de058). ctor: 1.
     unsigned char Flag245;                     // +0x245
     unsigned char Pad246[2];
     int Field_248;                             // +0x248 ctor: -1
@@ -305,14 +301,14 @@ static_assert(offsetof(PathfindManager, CachedObstacleId) == 0x260, "PathfindMan
 static_assert(offsetof(PathfindManager, bHasCachedObstacle) == 0x264, "PathfindManager+0x264");
 static_assert(offsetof(PathfindManager, Avoidance) == 0x268, "PathfindManager+0x268 Avoidance");
 static_assert(offsetof(PathfindManager, Avoidance) + offsetof(ObstacleAvoidance, HasContact) == 0x574,
-              "PathfindManager+0x574 Avoidance.HasContact (FUN_062de160)");
+              "PathfindManager+0x574 Avoidance.HasContact (module state)");
 static_assert(sizeof(PathfindManager) == 0x580,
-    "PathfindManager must match retail's operator_new(0x580) at .text:062d2327");
+    "PathfindManager must match baseline's operator_new(0x580) at module storage");
 
-// FUN_062db7c0 (sole caller FUN_062d2830 at .text:062d2879), thiscall on the
+// (sole caller the routine at module storage), thiscall on the
 // PathfindManager, `RET 4`. With a database: Avoidance.PhysSystemId (+0x26C) =
-// ObjectDb->GetZoneDb()->slot 0() -- retail makes the GetZoneDb / slot-0 pair twice and keeps
-// the second result (.text:062db7cc-062db7e6). Without one: PhysSystemId = 0. The zone
+// ObjectDb->GetZoneDb()->slot 0() -- baseline makes the GetZoneDb / slot-0 pair twice and keeps
+// the second result (module storage-062db7e6). Without one: PhysSystemId = 0. The zone
 // database's type has no published interface; its slot 0 is the PhySys system id getter the
 // launcher line-of-fire probe also calls (common_aifirecontrol.cpp).
 struct IObjDB;

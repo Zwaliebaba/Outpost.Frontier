@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "MovieObject.h"
@@ -20,27 +16,27 @@ static_assert(SWP_NOZORDER == 4, "SetWindowPos flags");
 static_assert(WM_CREATE == 1 && WM_SIZE == 5 && WM_PAINT == 0x0F && WM_ERASEBKGND == 0x14, "window messages");
 static_assert(GWL_USERDATA == -21, "SetWindowLong index");
 
-// FUN_06acf3d0. movie.dll operator delete: push arg, call FUN_06ad07b3, pop, ret.
+// . movie.dll operator delete: push arg, call the routine, pop, ret.
 void __cdecl MovieOperatorDelete(void* Block);
 
-// 0x06acf3db. movie.dll operator new: __nh_malloc(size, 1). Returns the pointer; does not throw itself.
+// . movie.dll operator new: __nh_malloc(size, 1). Returns the pointer; does not throw itself.
 void* __cdecl MovieOperatorNew(unsigned int Size);
 
-// FUN_06ad970e. Throws the "string too long" C++ exception. No return on the retail path.
+// . Throws the "string too long" C++ exception. No return on the baseline path.
 void __cdecl MovieThrowStringTooLong();
 
-// FUN_06acf876. movie.dll atexit registration (not the CRT atexit import).
+// . movie.dll atexit registration (not the CRT atexit import).
 int __cdecl MovieRegisterAtexit(void (__cdecl* Callback)());
 
-// LAB_06acf7ef. __amsg_exit(0x19). Slots +0x04..+0x28 of PTR_LAB_06ada20c.
+// . __amsg_exit(0x19). Slots +0x04..+0x28 of the branch.
 void __cdecl MovieAbortRuntime();
 
 uint8_t g_movieAtexitGuard;
 
-// DAT_06ada238 is four zero bytes. MCIWndCreateA reads it as an empty C string.
+// is four zero bytes. MCIWndCreateA reads it as an empty C string.
 static const char GApproach2EmptyFile[4] = { 0, 0, 0, 0 };
 
-// PTR_LAB_06ada20c slots after the scalar delete. Retail stores one __amsg_exit address in every slot.
+// slots after the scalar delete. baseline stores one __amsg_exit address in every slot.
 static void Approach2BaseAbort()
 {
     MovieAbortRuntime();
@@ -70,7 +66,7 @@ void FApproach2Base::Nop28() { Approach2BaseAbort(); }
 void FApproach2Player::Nop24() {}
 void FApproach2Player::Nop28() {}
 
-// 0x06ac15a9. Catch of the string grow. pType of HandlerType_06adb3a8 is null (catch-all).
+// . Catch of the string grow. pType of HandlerType_06adb3a8 is null (catch-all).
 // Replaces the rounded capacity with the requested size and allocates that size plus 2.
 static uint8_t* Approach2StringGrowOnAllocFailure(uint32_t Size, uint32_t* Capacity)
 {
@@ -83,7 +79,7 @@ static uint8_t* Approach2StringGrowOnAllocFailure(uint32_t Size, uint32_t* Capac
     return (uint8_t*)MovieOperatorNew(AllocBytes);
 }
 
-// 0x06ac15d0. Continuation after the allocation. EBX = string, ESI = capacity, [EBP+8] = block.
+// . Continuation after the allocation. EBX = string, ESI = capacity, [EBP+8] = block.
 static void Approach2StringGrowInstall(FApproach2String* This, uint8_t* Block, uint32_t Capacity)
 {
     uint32_t OldLength = This->Length;
@@ -125,7 +121,7 @@ static void Approach2StringGrowInstall(FApproach2String* This, uint8_t* Block, u
     NewPtr[NewLength] = 0;
 }
 
-// 0x06ac1000. WNDPROC of MPMCIParent.
+// . WNDPROC of MPMCIParent.
 LRESULT __stdcall Approach2ParentWindowProc(HWND Hwnd, UINT Message, WPARAM WParam, LPARAM LParam)
 {
     FApproach2Player* Player;
@@ -147,7 +143,7 @@ LRESULT __stdcall Approach2ParentWindowProc(HWND Hwnd, UINT Message, WPARAM WPar
     return DefWindowProcA(Hwnd, Message, WParam, LParam);
 }
 
-// 0x06ac1060. RegisterClassExA("MPMCIParent").
+// . RegisterClassExA("MPMCIParent").
 void __cdecl Approach2RegisterParentClass()
 {
     WNDCLASSEXA WindowClass;
@@ -160,14 +156,14 @@ void __cdecl Approach2RegisterParentClass()
     RegisterClassExA(&WindowClass);
 }
 
-// 0x06ac10b0. UnregisterClassA("MPMCIParent").
+// . UnregisterClassA("MPMCIParent").
 void __cdecl Approach2UnregisterParentClass()
 {
     HMODULE Instance = GetModuleHandleA(nullptr);
     UnregisterClassA("MPMCIParent", Instance);
 }
 
-// 0x06ac10d0. Constructor of the 0x20-byte approach-2 player.
+// . Constructor of the 0x20-byte approach-2 player.
 FApproach2Player::FApproach2Player()
 {
     // Listing pushes ECX and reads [ESP+3], the high byte of This, into the allocator byte.
@@ -182,7 +178,7 @@ FApproach2Player::FApproach2Player()
     ParentWindow = nullptr;
 }
 
-// 0x06ac1100. Scalar deleting destructor.
+// . Scalar deleting destructor.
 FApproach2Base* FApproach2Player::ScalarDelete(uint8_t Flags)
 {
     Destroy();
@@ -193,7 +189,7 @@ FApproach2Base* FApproach2Player::ScalarDelete(uint8_t Flags)
     return this;
 }
 
-// 0x06ac1120. Destroy the MCI child and release the VC6 path.
+// . Destroy the MCI child and release the VC6 path.
 void FApproach2Player::Destroy()
 {
     FApproach2Player* This = this;
@@ -227,7 +223,7 @@ void FApproach2Player::Destroy()
     new (This) FApproach2Base;
 }
 
-// 0x06ac1190. Parent window procedure body. WM_CREATE creates the MCI child.
+// . Parent window procedure body. WM_CREATE creates the MCI child.
 LRESULT FApproach2Player::HandleParentMessage(UINT Message, WPARAM WParam, LPARAM LParam)
 {
     FApproach2Player* This = this;
@@ -286,7 +282,7 @@ LRESULT FApproach2Player::HandleParentMessage(UINT Message, WPARAM WParam, LPARA
     return DefWindowProcA(This->MciWindow, Message, WParam, LParam);
 }
 
-// 0x06ac12f0. Assign the VC6 path and create the MPMCIParent window.
+// . Assign the VC6 path and create the MPMCIParent window.
 bool FApproach2Player::Open(HWND Hwnd, LONG* ClientRect, const char* Path)
 {
     FApproach2Player* This = this;
@@ -379,7 +375,7 @@ bool FApproach2Player::Open(HWND Hwnd, LONG* ClientRect, const char* Path)
     return Created != nullptr;
 }
 
-// 0x06ac1400. Destroy the MCI child if the parent window exists.
+// . Destroy the MCI child if the parent window exists.
 void FApproach2Player::DestroyWindows()
 {
     FApproach2Player* This = this;
@@ -391,7 +387,7 @@ void FApproach2Player::DestroyWindows()
     }
 }
 
-// 0x06ac1430. MCIWNDM_OPENA (0x499).
+// . MCIWNDM_OPENA (0x499).
 bool FApproach2Player::OpenFile(const char* File)
 {
     FApproach2Player* This = this;
@@ -404,7 +400,7 @@ bool FApproach2Player::OpenFile(const char* File)
     return false;
 }
 
-// 0x06ac1460. MCI_PLAY (0x806). The stack dword is not read.
+// . MCI_PLAY (0x806). The stack dword is not read.
 void FApproach2Player::Play(int /*Unused*/)
 {
     FApproach2Player* This = this;
@@ -417,21 +413,21 @@ void FApproach2Player::Play(int /*Unused*/)
     This->bStopped = 1;
 }
 
-// 0x06ac1490. MCI_STOP (0x808).
+// . MCI_STOP (0x808).
 LRESULT FApproach2Player::MciStop()
 {
     FApproach2Player* This = this;
     return SendMessageA(This->MciWindow, 0x808, 0, 0);
 }
 
-// 0x06ac14b0. MCI_CLOSE (0x804).
+// . MCI_CLOSE (0x804).
 LRESULT FApproach2Player::MciClose()
 {
     FApproach2Player* This = this;
     return SendMessageA(This->MciWindow, 0x804, 0, 0);
 }
 
-// 0x06ac14d0. True when bStopped is 0.
+// . True when bStopped is 0.
 bool FApproach2Player::IsPlaying()
 {
     FApproach2Player* This = this;
@@ -439,14 +435,14 @@ bool FApproach2Player::IsPlaying()
     return Flag == 0;
 }
 
-// 0x06ac14e0. XOR AL, AL. No caller in movie.dll reads EAX: the only CALL [reg+0x1C]
-// is the COM object at 06ac236a. Slot +0x1C of PTR_FUN_06ada1e0 has no call site.
+// . XOR AL, AL. No caller in movie.dll reads EAX: the only CALL [reg+0x1C]
+// is the COM object at 06ac236a. Slot +0x1C of the routine has no call site.
 bool FApproach2Player::ReturnFalse()
 {
     return false;
 }
 
-// 0x06ac14f0. AL = byte [this+0x0D]. UpdateMovie 06ac1755 is the only call of this
+// . AL = byte [this+0x0D]. UpdateMovie 06ac1755 is the only call of this
 // slot and it tests AL (06ac1758).
 uint8_t FApproach2Player::GetError()
 {
@@ -454,7 +450,7 @@ uint8_t FApproach2Player::GetError()
     return This->bError;
 }
 
-// 0x06ac1500. VC6 string tidy. FreeBuffers == 0 only zeros ptr/len/cap.
+// . VC6 string tidy. FreeBuffers == 0 only zeros ptr/len/cap.
 void  Approach2StringRelease(FApproach2String* This, char FreeBuffers)
 {
     if (FreeBuffers != 0 && This->Ptr != nullptr)
@@ -474,7 +470,7 @@ void  Approach2StringRelease(FApproach2String* This, char FreeBuffers)
     This->Capacity = 0;
 }
 
-// 0x06ac1550. VC6 basic_string grow.
+// . VC6 basic_string grow.
 void  Approach2StringGrow(FApproach2String* This, uint32_t Size)
 {
     uint32_t Capacity = Size | 0x1Fu;
@@ -500,7 +496,7 @@ void  Approach2StringGrow(FApproach2String* This, uint32_t Size)
     Approach2StringGrowInstall(This, Block, Capacity);
 }
 
-// 0x06ac1660. Set the atexit guard bit, then register the empty terminator.
+// . Set the atexit guard bit, then register the empty terminator.
 void __cdecl Approach2RegisterEmptyAtexit()
 {
     uint8_t Guard = g_movieAtexitGuard;
@@ -511,8 +507,8 @@ void __cdecl Approach2RegisterEmptyAtexit()
     MovieRegisterAtexit(&Movie_Nop);
 }
 
-// 0x06ac1a80. Identical to 0x06ac1660, including the JNZ that skips only the
-// OR/store (06ac1a8a -> 06ac1a94). Both always register FUN_06ac1ce0 (Movie_Nop).
+// . Identical to 0x06ac1660, including the JNZ that skips only the
+// OR/store (06ac1a8a -> 06ac1a94). Both always register the routine (Movie_Nop).
 void __cdecl Approach2RepeatEmptyAtexit()
 {
     uint8_t Guard = g_movieAtexitGuard;

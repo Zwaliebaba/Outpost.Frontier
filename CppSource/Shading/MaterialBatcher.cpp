@@ -1,11 +1,7 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "MaterialBatcher.h"
-#include "msvcrt_compat.h" // MsvcrtAtoi: retail MSVCRT.DLL wraps mod 2^32, the UCRT saturates
+#include "msvcrt_compat.h" // MsvcrtAtoi: baseline MSVCRT.DLL wraps mod 2^32, the UCRT saturates
 
 #include <algorithm>
 #include <cmath>
@@ -13,7 +9,7 @@
 
 void FMaterialBatcher::ResetScratch()
 {
-    // FUN_06eca5d0: release the owner stream arena and reset its cursors.
+    // release the owner stream arena and reset its cursors.
     delete[] ScratchBuffer;
     ScratchBuffer = nullptr;
     BufferSize = 0;
@@ -23,7 +19,7 @@ void FMaterialBatcher::ResetScratch()
 
 void FMaterialBatcher::InitializeScratch(unsigned long Size)
 {
-    // FUN_06eca560: queue nodes use native containers; this arena owns stream copies.
+    // queue nodes use native containers; this arena owns stream copies.
     ResetScratch();
     if (Size != 0)
     {
@@ -36,7 +32,7 @@ void FMaterialBatcher::InitializeScratch(unsigned long Size)
 
 void* FMaterialBatcher::AllocateScratch(unsigned long Size)
 {
-    // FUN_06eca620: integer pointer arithmetic and wrapping DWORD cursor.
+    // integer pointer arithmetic and wrapping DWORD cursor.
     const uintptr_t Address = (uintptr_t)ScratchBuffer + FrameValue;
     FrameValue += Size;
     return (void*)Address;
@@ -44,7 +40,7 @@ void* FMaterialBatcher::AllocateScratch(unsigned long Size)
 
 unsigned short* FMaterialBatcher::CloneIndices(const unsigned short* Source, unsigned long Count)
 {
-    // FUN_06eca3d0: wrap the byte count in a DWORD, then copy every byte.
+    // wrap the byte count in a DWORD, then copy every byte.
     const unsigned long Bytes = Count * 2;
     unsigned short* Dest = (unsigned short*)AllocateScratch(Bytes);
     // REP MOVS with zero count performs no memory access.
@@ -56,7 +52,7 @@ unsigned short* FMaterialBatcher::CloneIndices(const unsigned short* Source, uns
 void FMaterialBatcher::CloneVertexStream(const FRpVertexStream& Source, FRpVertexStream& Dest,
                                          unsigned long IndexCount)
 {
-    // FUN_06eca400: test pointers alone; zero-length nonnull arrays stay nonnull.
+    // test pointers alone; zero-length nonnull arrays stay nonnull.
     Dest.ByteSize = Source.ByteSize;
     Dest.Stride = Source.Stride;
     Dest.Count = Source.Count;
@@ -82,7 +78,7 @@ void FMaterialBatcher::CloneVertexStream(const FRpVertexStream& Source, FRpVerte
 
 void FMaterialBatcher::CopyVertexSource(const FRpVertexSrcDesc& Source, FRpVertexSrcDesc& Dest)
 {
-    // FUN_06eca4a0: header then Position, Normal, Diffuse, Tex0, Tex1.
+    // header then Position, Normal, Diffuse, Tex0, Tex1.
     Dest.Flags = Source.Flags;
     Dest.SrcFvf = Source.SrcFvf;
     Dest.SrcCount = Source.SrcCount;
@@ -113,7 +109,7 @@ FBatchBin::FBatchBin() : Pad0(0), SortKind(0), RecordCount(0) {}
 
 
 
-// Dispatch layout consumed by FUN_06ec9f10; the face is borrowed after flattening.
+// Dispatch layout consumed by the routine; the face is borrowed after flattening.
 struct FBatchDispatch
 {
     unsigned long MaterialFlags;
@@ -199,7 +195,7 @@ static float ComputeBatchDepth(const FBatchRecord& Record)
 
 void FMaterialBatcher::BuildBatchDispatch(FBatchBin* Bin, FBatchDispatch* Dispatch)
 {
-    // FUN_06ec9da0: query once per ordered material group, release after its list.
+    // query once per ordered material group, release after its list.
     for (std::map<IMaterial*, std::list<FBatchQueuedRecord>>::iterator Group = Bin->Queue.begin();
          Group != Bin->Queue.end(); ++Group)
     {
@@ -214,10 +210,10 @@ void FMaterialBatcher::BuildBatchDispatch(FBatchBin* Bin, FBatchDispatch* Dispat
                  Item != Group->second.end(); ++Item)
             {
                 Dispatch->MaterialFlags = MaterialFlags;
-                Dispatch->Record = &Item->Retail;
+                Dispatch->Record = &Item->baseline;
                 Dispatch->Batched = Batched;
                 Dispatch->Material = Material;
-                Dispatch->Key = ComputeBatchDepth(Item->Retail);
+                Dispatch->Key = ComputeBatchDepth(Item->baseline);
                 ++Dispatch;
             }
             if (Batched != nullptr)
@@ -231,10 +227,10 @@ FMaterialBatcherController::FMaterialBatcherController(FMaterialBatcher* InOwner
 {
 }
 
-GENRESULT DACOM_API FMaterialBatcherController::QueryInterface(const char* Iid, void** Out)
+GENRESULT NEURONCOMPONENTS_API FMaterialBatcherController::QueryInterface(const char* Iid, void** Out)
 {
-    // LAB_06ecba70: fixed map 06ed2e34 has offsets 0, 0, 4, 8.
-    IDAComponent* Face;
+    // fixed map 06ed2e34 has offsets 0, 0, 4, 8.
+    INeuronComponent* Face;
     if (std::strcmp(Iid, Iids::MaterialBatcher) == 0 || std::strcmp(Iid, Iids::MaterialBatcher2) == 0)
         Face = Owner;
     else if (std::strcmp(Iid, Iids::MaterialLibrary) == 0)
@@ -252,14 +248,14 @@ GENRESULT DACOM_API FMaterialBatcherController::QueryInterface(const char* Iid, 
     return GR_OK;
 }
 
-unsigned long DACOM_API FMaterialBatcherController::AddRef()
+unsigned long NEURONCOMPONENTS_API FMaterialBatcherController::AddRef()
 {
     return ++Owner->RefCount;
 }
 
-unsigned long DACOM_API FMaterialBatcherController::Release()
+unsigned long NEURONCOMPONENTS_API FMaterialBatcherController::Release()
 {
-    // LAB_06ecbb30: saturate at zero, restore one before owner destruction.
+    // saturate at zero, restore one before owner destruction.
     if (Owner->RefCount != 0)
         --Owner->RefCount;
     const unsigned long Next = Owner->RefCount;
@@ -314,19 +310,19 @@ FMaterialBatcher::~FMaterialBatcher()
 
 static_assert(offsetof(FMaterialBatcher, Library) == 0x04, "IMaterialLibrary at Batcher+4");
 
-GENRESULT DACOM_API FMaterialBatcher::QueryInterface(const char* Iid, void** Out)
+GENRESULT NEURONCOMPONENTS_API FMaterialBatcher::QueryInterface(const char* Iid, void** Out)
 {
     // +90 is selected by the factory before descriptor initialization.
     return ControllingUnknown->QueryInterface(Iid, Out);
 }
 
-unsigned long DACOM_API FMaterialBatcher::AddRef()
+unsigned long NEURONCOMPONENTS_API FMaterialBatcher::AddRef()
 {
     // +90 is selected by the factory before descriptor initialization.
     return ControllingUnknown->AddRef();
 }
 
-unsigned long DACOM_API FMaterialBatcher::Release()
+unsigned long NEURONCOMPONENTS_API FMaterialBatcher::Release()
 {
     // +90 is selected by the factory before descriptor initialization.
     return ControllingUnknown->Release();
@@ -334,14 +330,14 @@ unsigned long DACOM_API FMaterialBatcher::Release()
 
 GENRESULT FMaterialBatcher::InitializeFromDescriptor(const FMaterialAggregateDesc* Desc)
 {
-    // FUN_06ec85a0: initialize the embedded library before the batcher outer.
+    // initialize the embedded library before the batcher outer.
     if (Library.InitializeFromDescriptor(Desc) < 0)
         return GR_GENERIC;
     Outer = Desc->OuterAt8;
     return GR_OK;
 }
 
-// The two inlined keyed readers in LAB_06ec85d0 share retail DAT_06ed5860.
+// The two inlined keyed readers in the branch share baseline the field.
 static char GBatcherProfileValue[0x400];
 
 static unsigned long ReadBatcherProfileUnsigned(ICOManager* Manager, IProfileParser* InitialParser,
@@ -385,7 +381,7 @@ static unsigned long ReadBatcherProfileUnsigned(ICOManager* Manager, IProfilePar
                 Value = std::strtoul(GBatcherProfileValue, nullptr, 16);
             else
             {
-                // Retail calls strspn("0123456789+-") but ignores its result.
+                // baseline calls strspn("0123456789+-") but ignores its result.
                 std::strspn(GBatcherProfileValue, "0123456789+-");
                 Value = (unsigned long)MsvcrtAtoi(GBatcherProfileValue);
             }
@@ -399,12 +395,12 @@ static unsigned long ReadBatcherProfileUnsigned(ICOManager* Manager, IProfilePar
 GENRESULT FMaterialBatcher::StartupFromOuter()
 {
     IProfileParser* Parser = nullptr;
-    ICOManager* Manager = DACOM_Acquire();
+    ICOManager* Manager = NEURONCOMPONENTS_Acquire();
     const GENRESULT ParserResult = Manager->QueryInterface(Iids::ProfileParser, (void**)&Parser);
     if (ParserResult < 0)
     {
         FDUMP(0x100001, "%s(%d) : ERROR:General:%s",
-              R"(C:\\work\\builds\\dalibs\\dalibs-build\\build\\Src\\Shading\\Materials\\MaterialBatcher.cpp)",
+              R"(Shading\\Materials\\MaterialBatcher.cpp)",
               0x1AA, "Unable to acquire IID_IProfileParser, cannot continue");
         if (Parser != nullptr)
             Parser->Release();
@@ -418,7 +414,7 @@ GENRESULT FMaterialBatcher::StartupFromOuter()
     if (PipelineResult < 0)
     {
         FDUMP(0x100001, "%s(%d) : ERROR:General:%s",
-              R"(C:\\work\\builds\\dalibs\\dalibs-build\\build\\Src\\Shading\\Materials\\MaterialBatcher.cpp)",
+              R"(Shading\\Materials\\MaterialBatcher.cpp)",
               0x1AF, "Unable to acquire IID_IRenderPipeline, cannot continue");
         if (Parser != nullptr)
             Parser->Release();
@@ -429,7 +425,7 @@ GENRESULT FMaterialBatcher::StartupFromOuter()
                                                             (void**)&RpVertexBuffer);
     if (VertexResult < 0)
         FDUMP(0x100001, "%s(%d) : ERROR:General:%s",
-              R"(C:\\work\\builds\\dalibs\\dalibs-build\\build\\Src\\Shading\\Materials\\MaterialBatcher.cpp)",
+              R"(Shading\\Materials\\MaterialBatcher.cpp)",
               0x1B5, "Unable to acquire IID_IRPVertexBuffer........");
     else
         RpVertexBuffer->Release();
@@ -437,7 +433,7 @@ GENRESULT FMaterialBatcher::StartupFromOuter()
                                                            (void**)&RpIndexBuffer);
     if (IndexResult < 0)
         FDUMP(0x100001, "%s(%d) : ERROR:General:%s",
-              R"(C:\\work\\builds\\dalibs\\dalibs-build\\build\\Src\\Shading\\Materials\\MaterialBatcher.cpp)",
+              R"(Shading\\Materials\\MaterialBatcher.cpp)",
               0x1BC, "Unable to acquire IID_IRPIndexBuffer........");
     else
         RpIndexBuffer->Release();
@@ -455,7 +451,7 @@ GENRESULT FMaterialBatcher::StartupFromOuter()
     Bin1SortOrder = ReadBatcherProfileUnsigned(Manager, Parser, "Bin1SortOrder", 2);
     BinOrder[0] = 0;
     FBatchBin* FirstBin = new FBatchBin();
-    // LAB_06ec8b3c overwrites the old pointer without destroying its descriptor.
+    // overwrites the old pointer without destroying its descriptor.
     // Keep that ownership behavior on repeated Startup, including allocation order.
     Bins[0].release();
     Bins[0].reset(FirstBin);
@@ -476,11 +472,11 @@ GENRESULT FMaterialBatcher::StartupFromOuter()
     return GR_OK;
 }
 
-// FUN_06ec8bd0: independent parser acquisition and section lifetime.
+// independent parser acquisition and section lifetime.
 void FMaterialBatcher::ParseBatchedMaterials()
 {
     IProfileParser* Parser = nullptr;
-    ICOManager* Manager = DACOM_Acquire();
+    ICOManager* Manager = NEURONCOMPONENTS_Acquire();
     const GENRESULT Result = Manager->QueryInterface(Iids::ProfileParser, (void**)&Parser);
     if (Result >= 0)
     {
@@ -534,21 +530,21 @@ void FMaterialBatcher::ClearBin(FBatchBin* Bin)
 
 static void WarnUnsupportedBatchSort()
 {
-    // FUN_06eca370: exact five FDUMP arguments; no queue processing.
+    // exact five FDUMP arguments; no queue processing.
     FDUMP(0x100003, "%s(%d) : NOTICE:General:%s",
-        "C:\\work\\builds\\dalibs\\dalibs-build\\build\\Src\\Shading\\Materials\\MaterialBatcher.cpp", 0x5d2, "IMB_SO_PRIM_BACK_TO_FRONT/FRONT_TO_BACK sort order unimplemented, contact pbleisch\n");
+        "Shading\\Materials\\MaterialBatcher.cpp", 0x5d2, "IMB_SO_PRIM_BACK_TO_FRONT/FRONT_TO_BACK sort order unimplemented, contact pbleisch\n");
 }
 
 static void WarnMalformedBatchSort()
 {
-    // FUN_06eca3a0: preserve the retail typo and exact diagnostic metadata.
+    // preserve the baseline typo and exact diagnostic metadata.
     FDUMP(0x100002, "%s(%d) : WARNING:General:%s",
-        "C:\\work\\builds\\dalibs\\dalibs-build\\build\\Src\\Shading\\Materials\\MaterialBatcher.cpp", 0x5d9, "MaterialBatcher: sort statte not well implemented, contact stravis\n");
+        "Shading\\Materials\\MaterialBatcher.cpp", 0x5d9, "MaterialBatcher: sort statte not well implemented, contact stravis\n");
 }
 
 void FMaterialBatcher::FlushOne(FBatchBin* Bin, unsigned char Clear)
 {
-    // FUN_06ec9d20: both callbacks execute even for an empty bin.
+    // both callbacks execute even for an empty bin.
     if (CachedInterface != nullptr)
         CachedInterface->BeginFlush(Clear);
     switch (Bin->SortKind)
@@ -608,7 +604,7 @@ void FMaterialBatcher::ProcessQueuedBin(FBatchBin* Bin)
                     Triangle.PositionIndices[Corner] = Remap != nullptr ?
                         Remap[Triangle.Indices[Corner]] : Triangle.Indices[Corner];
                 }
-                // Retail triangle path uses packed float3 positions regardless of stride.
+                // baseline triangle path uses packed float3 positions regardless of stride.
                 double Depth = ComputeBatchPositionDepth(Record, Positions + Triangle.PositionIndices[1] * 3);
                 Depth += ComputeBatchPositionDepth(Record, Positions + Triangle.PositionIndices[2] * 3);
                 Depth += ComputeBatchPositionDepth(Record, Positions + Triangle.PositionIndices[0] * 3);
@@ -669,14 +665,14 @@ void FMaterialBatcher::ProcessQueuedBin(FBatchBin* Bin)
         Active->Teardown(PreviousContext);
 }
 
-GENRESULT DACOM_API FMaterialBatcher::ClearRules()
+GENRESULT NEURONCOMPONENTS_API FMaterialBatcher::ClearRules()
 {
-    // ClearRuleList — retail takes no explicit arg.
+    // ClearRuleList — baseline takes no explicit arg.
     RuleList.clear();
     return GR_OK;
 }
 
-GENRESULT DACOM_API FMaterialBatcher::AddRule(unsigned long Kind, const char* Pattern)
+GENRESULT NEURONCOMPONENTS_API FMaterialBatcher::AddRule(unsigned long Kind, const char* Pattern)
 {
     // 8fa0 duplicates before compiling, then 9050 transfers both owners to the node.
     FBatchRule Rule;
@@ -687,7 +683,7 @@ GENRESULT DACOM_API FMaterialBatcher::AddRule(unsigned long Kind, const char* Pa
     return GR_OK;
 }
 
-GENRESULT DACOM_API FMaterialBatcher::RemoveRule(unsigned long Kind, const char* Pattern)
+GENRESULT NEURONCOMPONENTS_API FMaterialBatcher::RemoveRule(unsigned long Kind, const char* Pattern)
 {
     // 9080 removes the first exact Kind/strcmp match, including duplicate rules.
     for (size_t Index = 0; Index < RuleList.size(); ++Index)
@@ -701,7 +697,7 @@ GENRESULT DACOM_API FMaterialBatcher::RemoveRule(unsigned long Kind, const char*
     return (GENRESULT)-1;
 }
 
-GENRESULT DACOM_API FMaterialBatcher::SelectBin(unsigned long Index)
+GENRESULT NEURONCOMPONENTS_API FMaterialBatcher::SelectBin(unsigned long Index)
 {
     if (Index >= 2)
         return (GENRESULT)-1;
@@ -709,7 +705,7 @@ GENRESULT DACOM_API FMaterialBatcher::SelectBin(unsigned long Index)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FMaterialBatcher::SetBinSortKind(unsigned long Index, void* Value)
+GENRESULT NEURONCOMPONENTS_API FMaterialBatcher::SetBinSortKind(unsigned long Index, void* Value)
 {
     if (Index >= 2)
         return (GENRESULT)-1;
@@ -717,7 +713,7 @@ GENRESULT DACOM_API FMaterialBatcher::SetBinSortKind(unsigned long Index, void* 
     return GR_OK;
 }
 
-GENRESULT DACOM_API FMaterialBatcher::SetBinOrder(unsigned long Index, long Key)
+GENRESULT NEURONCOMPONENTS_API FMaterialBatcher::SetBinOrder(unsigned long Index, long Key)
 {
     if (Index >= 2)
         return (GENRESULT)-1;
@@ -744,9 +740,9 @@ GENRESULT DACOM_API FMaterialBatcher::SetBinOrder(unsigned long Index, long Key)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FMaterialBatcher::FlushBin(unsigned long Index, unsigned char Clear)
+GENRESULT NEURONCOMPONENTS_API FMaterialBatcher::FlushBin(unsigned long Index, unsigned char Clear)
 {
-    // Retail indexes exactly the same two descriptors as slots 6/7/8/12.
+    // baseline indexes exactly the same two descriptors as slots 6/7/8/12.
     if (Index >= 2)
         return (GENRESULT)-1;
     FBatchBin* Target = Bins[Index].get();
@@ -762,9 +758,9 @@ GENRESULT DACOM_API FMaterialBatcher::FlushBin(unsigned long Index, unsigned cha
     return GR_OK;
 }
 
-GENRESULT DACOM_API FMaterialBatcher::FlushAll(unsigned char Clear)
+GENRESULT NEURONCOMPONENTS_API FMaterialBatcher::FlushAll(unsigned char Clear)
 {
-    // LAB_06ec9350: order slots carry descriptor indices, including disabled -1.
+    // order slots carry descriptor indices, including disabled -1.
     for (unsigned long Position = 0; Position < 2; ++Position)
     {
         const unsigned long Index = BinOrder[Position];
@@ -782,12 +778,12 @@ GENRESULT DACOM_API FMaterialBatcher::FlushAll(unsigned char Clear)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FMaterialBatcher::Submit(IMaterial* Material, void* Context, unsigned long PrimType,
+GENRESULT NEURONCOMPONENTS_API FMaterialBatcher::Submit(IMaterial* Material, void* Context, unsigned long PrimType,
                                               unsigned long Start, unsigned long Count,
                                               unsigned long Zero, unsigned long Field,
                                               void* Unused, unsigned long Flags)
 {
-    // LAB_06ec9570: mandatory selected descriptor, material and queued context.
+    // mandatory selected descriptor, material and queued context.
     if (SelectedBin->Pad0 < 0)
     {
         IBatchedMaterial* Batched = nullptr;
@@ -808,7 +804,7 @@ GENRESULT DACOM_API FMaterialBatcher::Submit(IMaterial* Material, void* Context,
     std::list<FBatchQueuedRecord>& Records = SelectedBin->Queue[Material];
     Records.emplace_back();
     FBatchQueuedRecord& Queued = Records.back();
-    FBatchRecord& Record = Queued.Retail;
+    FBatchRecord& Record = Queued.baseline;
     // Construct in place: all subobject pointers remain valid for the queue lifetime.
     const FMaterialSubmitContext* Source = (const FMaterialSubmitContext*)Context;
     Record.PrimType = PrimType;
@@ -833,7 +829,7 @@ GENRESULT DACOM_API FMaterialBatcher::Submit(IMaterial* Material, void* Context,
         Desc.Size = sizeof(Desc);
         Desc.InterfaceName = "3DMathEngine";
         Desc.Implementation = nullptr;
-        DACOM_Acquire()->CreateInstance((AGGDESC*)&Desc,
+        NEURONCOMPONENTS_Acquire()->CreateInstance((AGGDESC*)&Desc,
                                         (void**)&GBatchMathEngine);
     }
     FTransform Combined;
@@ -874,7 +870,7 @@ GENRESULT DACOM_API FMaterialBatcher::Submit(IMaterial* Material, void* Context,
     return GR_OK;
 }
 
-GENRESULT DACOM_API FMaterialBatcher::ClearBins()
+GENRESULT NEURONCOMPONENTS_API FMaterialBatcher::ClearBins()
 {
     for (unsigned long Index = 0; Index < 2; ++Index)
         ClearBin(Bins[Index].get());
@@ -882,14 +878,14 @@ GENRESULT DACOM_API FMaterialBatcher::ClearBins()
     return GR_OK;
 }
 
-GENRESULT DACOM_API FMaterialBatcher::NoOp(void* /*Arg*/)
+GENRESULT NEURONCOMPONENTS_API FMaterialBatcher::NoOp(void* /*Arg*/)
 {
     return GR_OK;
 }
 
-GENRESULT DACOM_API FMaterialBatcher::SetEvents(void* NewValue)
+GENRESULT NEURONCOMPONENTS_API FMaterialBatcher::SetEvents(void* NewValue)
 {
-    // LAB_06ec99f0: AddRef the new value, swap into this+0x74, Release the old.
+    // AddRef the new value, swap into this+0x74, Release the old.
     IMaterialBatcherEvents* NewRef = (IMaterialBatcherEvents*)NewValue;
     IMaterialBatcherEvents* Old = CachedInterface;
     CachedInterface = NewRef;
@@ -900,9 +896,9 @@ GENRESULT DACOM_API FMaterialBatcher::SetEvents(void* NewValue)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FMaterialBatcher::GetEvents(void* Arg)
+GENRESULT NEURONCOMPONENTS_API FMaterialBatcher::GetEvents(void* Arg)
 {
-    // LAB_06ec9a20: publish the initial reference, then reload it for AddRef.
+    // publish the initial reference, then reload it for AddRef.
     IMaterialBatcherEvents* Initial = CachedInterface;
     *(IMaterialBatcherEvents**)Arg = Initial;
     if (Initial != nullptr)
@@ -910,32 +906,32 @@ GENRESULT DACOM_API FMaterialBatcher::GetEvents(void* Arg)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FMaterialBatcher::SetRecordTag(void* Value)
+GENRESULT NEURONCOMPONENTS_API FMaterialBatcher::SetRecordTag(void* Value)
 {
-    // LAB_06ec9a40: plain store into this+0x78, no refcount management.
+    // plain store into this+0x78, no refcount management.
     Field78 = Value;
     return GR_OK;
 }
 
-GENRESULT DACOM_API FMaterialBatcher::GetRecordTag(void* Arg)
+GENRESULT NEURONCOMPONENTS_API FMaterialBatcher::GetRecordTag(void* Arg)
 {
-    // LAB_06ec9a50: *out = this+0x78.
+    // *out = this+0x78.
     if (Arg == nullptr)
         return GR_GENERIC;
     *(void**)Arg = Field78;
     return GR_OK;
 }
 
-GENRESULT DACOM_API FMaterialBatcher::SetRecordTagContext(void* Value)
+GENRESULT NEURONCOMPONENTS_API FMaterialBatcher::SetRecordTagContext(void* Value)
 {
-    // LAB_06ec9a70: plain store into this+0x7C, no refcount management.
+    // plain store into this+0x7C, no refcount management.
     Field7C = Value;
     return GR_OK;
 }
 
-GENRESULT DACOM_API FMaterialBatcher::GetRecordTagContext(void* Arg)
+GENRESULT NEURONCOMPONENTS_API FMaterialBatcher::GetRecordTagContext(void* Arg)
 {
-    // LAB_06ec9a80: *out = this+0x7C.
+    // *out = this+0x7C.
     if (Arg == nullptr)
         return GR_GENERIC;
     *(void**)Arg = Field7C;

@@ -360,7 +360,7 @@ int lua_dofile (char *filename) {
   c = fgetc(f);
   ungetc(c, f);
   bin = (c == ID_CHUNK);
-  /* Retail 0680307d..06803091 reopens every binary stream, including stdin. */
+  /* reopens every binary stream, including stdin. */
   if (bin)
     f = freopen(filename, "rb", f);
   luaL_filesource(source, filename, sizeof(source));

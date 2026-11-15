@@ -71,7 +71,7 @@
     make copy of qhull-news.html as qh-news.htm
 */
 
-/* Retail Common.dll's qhull version string (063f3260, pushed by qh_initbuild
+/* baseline Common.dll's qhull version string (063f3260, pushed by qh_initbuild
    06372d18, qh_errexit 0637868a, 0637d124 and 0638a5ec). The source itself is
    still qhull 2002.1. */
 #define qh_VERSION "ipion 99/07/10"
@@ -169,7 +169,7 @@ typedef enum {qh_PRINTnone= 0,
 */
 #define qh_ALL      True
 #define qh_NOupper  True     /* argument for qh_findbest */
-#define qh_IScheckmax  True     /* (unused: retail has no qh_findbesthorizon) */
+#define qh_IScheckmax  True     /* (unused: baseline has no qh_findbesthorizon) */
 #define qh_ISnewfacets  True     /* argument for qh_findbest */
 
 /*-<a                             href="qh-qhull.htm#TOC"

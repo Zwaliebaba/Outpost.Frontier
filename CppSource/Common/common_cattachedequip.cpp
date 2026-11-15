@@ -1,10 +1,6 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
-// CAttachedEquip (retail CAttachedEquip.cpp) -- split out of common_cequip.cpp (CMN-B2).
+// CAttachedEquip (baseline CAttachedEquip.cpp) -- split out of common_cequip.cpp (CMN-B2).
 // Declared in common_cequip.h; helpers shared with the sibling TUs are in
 // common_cequip_internal.h (namespace CmnCequip).
 #include "common_cequip.h"
@@ -23,8 +19,8 @@
 #include "common_spatial.h"  // ISpatialPartition (ScanList::add_in_range bucket query)
 #include "common_timing.h"   // Timing::GetGlobalTime (CEShieldGenerator / CEShield)
 #include "common_universe.h"
-#include "DALib.h"
-#include "dacom.h"
+#include "NeuronRuntime.h"
+#include "neuroncomponents.h"
 #include "../IVP/ivp_physics/ivp_real_object.h"
 #include "../IVP/ivp_physics/ivp_controller.h"  // IVP_Event_Sim (do_simulation_controller)
 
@@ -59,7 +55,7 @@ CAttachedEquip::CAttachedEquip(unsigned TypeBits, CEqObj* OwnerObj, unsigned sho
     BoundCenter.x = 0.0f;
     BoundCenter.y = 0.0f;
     BoundCenter.z = 0.0f;
-    // .text:0629312e..06293147: Arch vt+0xc load() with no null test, then the non-virtual
+    // Arch vt+0xc load() with no null test, then the non-virtual
     // CEquip::GetMaxHitPoints into +0x30. The pad bytes +0x39..+0x3b are not written.
     Arch->load();
     HitPts = CEquip::GetMaxHitPoints();
@@ -75,11 +71,11 @@ CAttachedEquip::CAttachedEquip(CAttachedEquip const& Other)
     , BoundRadius(Other.BoundRadius)
     , BoundCenter(Other.BoundCenter)
 {
-    // Common.dll.c 54938 (0x32a70). Raw field copy re-stamping the vtable at each base level
+    // Common (0x32a70). Raw field copy re-stamping the vtable at each base level
     // (CEquip::_vftable_, then CExternalEquip::_vftable_, then this class's own) -- ordinary
     // MSVC base-then-derived copy-ctor codegen, reproduced here via CExternalEquip(Other)'s
     // own (compiler-generated) memberwise copy plus this level's fields. No AddRef/refcount
-    // bump on Attachment/Debris/Arch, matching retail exactly. Only the +0x38 byte is copied
+    // bump on Attachment/Debris/Arch, matching baseline exactly. Only the +0x38 byte is copied
     // (06292adf/06292ae2); the pad bytes +0x39..+0x3b are not.
 }
 
@@ -106,7 +102,7 @@ int CAttachedEquip::GetToughness() const
 
 bool CAttachedEquip::Update(float Dt, unsigned Flags)
 {
-    // .text:06293210..0629323b: destroyed (vt+8) with un-retrieved debris -> true; else
+    // destroyed (vt+8) with un-retrieved debris -> true; else
     // CExternalEquip::Update (itself a JMP to CEquip::Update).
     if (IsDestroyed() && Debris != nullptr)
         return true;
@@ -123,7 +119,7 @@ void CAttachedEquip::SetHitPoints(float Hit)
     HitPts = Hit;
 }
 
-// Common.dll.txt 0xc75d0: `*(int*)(this+0x34) = param_1`.
+// Common 0xc75d0: `*(int*)(this+0x34) = param_1`.
 void CAttachedEquip::SetFate(DamageEntry::SubObjFate FateValue)
 {
     Fate = (int)(FateValue);
@@ -138,26 +134,26 @@ bool CAttachedEquip::IsConnected() const
 
 bool CAttachedEquip::Connect(char const* HpName)
 {
-    // .text:062932a0..06293378. No null tests: the CRC of HpName, the parent connector's user
+    // . No null tests: the CRC of HpName, the parent connector's user
     // data (IEngine+0x80 of [this+0x24]) and its part (+0x58) are used as they come.
-    if (!CExternalEquip::Connect(HpName))                                    // 062932a9
+    if (!CExternalEquip::Connect(HpName))
         return false;
 
-    unsigned long const HpCrc = DACOM_CRC::GetCRC32(HpName);                 // 062932b7
+    unsigned long const HpCrc = NEURONCOMPONENTS_CRC::GetCRC32(HpName);
     CObject* const Parent = (CObject*)(
-        DALib::Engine->GetInstanceUserData((void*)(ConnectionIndex)));   // 062932d0
-    // 062932d6..062932f6: a parent part (+0x58) whose hardpoint id list (std::find over the
+        NeuronRuntime::Engine->GetInstanceUserData((void*)(ConnectionIndex)));
+    // a parent part (+0x58) whose hardpoint id list (std::find over the
     // vector at part+0x24/+0x28) holds the CRC makes this a non-physical attachment.
     PhyArch::Part const* const Part = Parent->PhyPart;
     if (Part != nullptr &&
         std::find(Part->HardpointIds.begin(), Part->HardpointIds.end(), HpCrc) !=
             Part->HardpointIds.end())
     {
-        Attachment = new CNonPhysAttachment();                               // 062932f8..0629331e
+        Attachment = new CNonPhysAttachment();
     }
     else
     {
-        Attachment = new CPhysAttachment();                                  // 06293340..0629335d
+        Attachment = new CPhysAttachment();
     }
     return Attachment->Connect(this);                                        // vt+0x10
 }
@@ -169,7 +165,7 @@ void CAttachedEquip::Disconnect()
     {
         if (Fate == kFateDebris)
         {
-            // 0x0629339f: ComputeExplosiveImpulses(GetRootIndex(), &ParentPush, &ChildPush, &Point)
+            // ComputeExplosiveImpulses(GetRootIndex(), &ParentPush, &ChildPush, &Point)
             // (the three out-pointers are pushed before the vtable+0x84 call and stay on the stack
             // as the helper's arguments 2..4).
             Vector ParentPush;
@@ -218,7 +214,7 @@ long CAttachedEquip::GetRootIndex() const
 
 bool CAttachedEquip::GetVelocity(Vector& Out) const
 {
-    // Common.dll.c 55580 (0x334e0). Connected guard, then Attachment->GetPhysicsOwner()->
+    // Common (0x334e0). Connected guard, then Attachment->GetPhysicsOwner()->
     // get_velocity() (CObject's own vtable+0x54 vcall, already ported as CObject::get_velocity()).
     Out.x = 0.0f;
     Out.y = 0.0f;
@@ -238,7 +234,7 @@ void CAttachedEquip::ComputeBoundingSphere(float& OutRadius, Vector& OutCenter) 
     // The three arguments (0, &OutRadius, &OutCenter) are pushed before the 0-arg
     // GetRootIndex() vcall (+0x84) and stay on the stack for the engine call.
     long Root = GetRootIndex();
-    DALib::Engine->GetInstanceExtent((void*)(Root), 0, &OutRadius,
+    NeuronRuntime::Engine->GetInstanceExtent((void*)(Root), 0, &OutRadius,
                                      &OutCenter.x);
 }
 
@@ -247,7 +243,7 @@ bool CAttachedEquip::GetCenterOfMass(Vector& Out) const
     // Listing 0x06293570..0x06293645. Zero Out; when connected, fill the bound cache once
     // (vtable+0x8c), then transform the local center by the root instance's world transform:
     // IEngine::GetInstanceTransform(Attachment->GetRootIndex()) (+0xa0) and
-    // I3DMathEngine::TransformXform (+0x28, the per-TU cached singleton DAT_063fc114).
+    // I3DMathEngine::TransformXform (+0x28, the per-TU cached singleton the field).
     Vector World;
     World.x = 0.0f;
     World.y = 0.0f;
@@ -261,7 +257,7 @@ bool CAttachedEquip::GetCenterOfMass(Vector& Out) const
         ComputeBoundingSphere(BoundRadius, BoundCenter);
     }
     long Root = Attachment->GetRootIndex();
-    float* Xform = DALib::Engine->GetInstanceTransform((void*)(Root));
+    float* Xform = NeuronRuntime::Engine->GetInstanceTransform((void*)(Root));
     Acquire3DMathEngine()->TransformXform((FVector&)(World),
                                           *(FTransform const*)Xform,
                                           (FVector const&)(BoundCenter));
@@ -271,10 +267,10 @@ bool CAttachedEquip::GetCenterOfMass(Vector& Out) const
 
 bool CAttachedEquip::GetRadius(float& OutRadius) const
 {
-    // Common.dll.c 55654-55670 (raw 06293650, listing 0x33650). Same IsConnected guard + lazy
+    // Common (raw 06293650, listing 0x33650). Same IsConnected guard + lazy
     // bBoundsValid cache as GetCenterOfMass above (sharing the same ComputeBoundingSphere
     // cache-populate call), returning the cached BoundRadius (local-space magnitude, not
-    // re-transformed -- retail does not re-transform the radius, only the center).
+    // re-transformed -- baseline does not re-transform the radius, only the center).
     if (!IsConnected())
         return false;
     if (!bBoundsValid)
@@ -295,9 +291,9 @@ CObject* CAttachedEquip::GetPhysicsOwner() const
 
 bool CAttachedEquip::IsInstOnEquip(long InstIndex) const
 {
-    // Common.dll.c 0x336a0. See header comment: retail calls a 0-arg self-virtual twice at the
+    // Common 0x336a0. See header comment: baseline calls a 0-arg self-virtual twice at the
     // same vtable slot returning a long, compared/used exactly like GetRootIndex() would be.
-    // .text:062936a0..062936e3: vt+0x84 GetRootIndex is called again for IsDescendant.
+    // vt+0x84 GetRootIndex is called again for IsDescendant.
     if (InstIndex == -1)
         return false;
     if (InstIndex == GetRootIndex())
@@ -321,12 +317,12 @@ CAttachedEquip* __cdecl CAttachedEquip::cast(CEquip* Equip)
 
 CAttachedEquip const* __cdecl CAttachedEquip::cast(CEquip const* Equip)
 {
-    // Retail folds the const overload onto the same body as the non-const one.
+    // baseline folds the const overload onto the same body as the non-const one.
     return cast(const_cast<CEquip*>(Equip));
 }
 
 // ============================================================
-// Archetype accessors and small retail members restored by name
+// Archetype accessors and small baseline members restored by name
 // ============================================================
 
 // Every leaf *Arch accessor is one ICF-folded body at listing 0x3fb90 (MOV EAX,[ECX+0xc]; RET):

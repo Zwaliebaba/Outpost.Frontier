@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "StdAfx.h"
@@ -24,7 +20,7 @@ void SaveMotd()
 	{
 		return;
 	}
-	// Retail copies the text into a zeroed 0x1400-wchar stack buffer, then writes wcslen(copy)
+	// baseline copies the text into a zeroed 0x1400-wchar stack buffer, then writes wcslen(copy)
 	// characters starting at the string's own buffer.
 	wchar_t Copy[0x1400] = L"";
 	wcscpy(Copy, GMotd.c_str());

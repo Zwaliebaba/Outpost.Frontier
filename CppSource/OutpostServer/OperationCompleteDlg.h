@@ -1,11 +1,7 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // COperationCompleteDlg — "Operation Complete / The password has been set!" (dialog 0x90).
-// Retail: ctor .text:00413d50, vtable .rdata:0041e1a8, message map .rdata:0041e1a0 (empty).
+// baseline: ctor module storage, vtable module storage, message map module storage (empty).
 #pragma once
 
 class COperationCompleteDlg : public CDialog

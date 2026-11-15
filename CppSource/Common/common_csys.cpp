@@ -1,18 +1,14 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "common_csys.h"
 #include "x86math.h" // I3DMathEngine
 
-#include "DALib.h"   // DALib::Engine, for DALib_Engine_get_csys
-#include "dacom.h"   // DACOM_Acquire, AGGDESC
-#include "x87_trig.h" // retail's inline FSIN / FCOS (EulerMatrix, RotateMatrix)
+#include "NeuronRuntime.h"   // NeuronRuntime::Engine, for NeuronRuntime_Engine_get_csys
+#include "neuroncomponents.h"   // NEURONCOMPONENTS_Acquire, AGGDESC
+#include "x87_trig.h" // baseline's inline FSIN / FCOS (EulerMatrix, RotateMatrix)
 
 #include <math.h>
-#include <stdlib.h>  // abs(int) -- retail truncates the dot product through it
+#include <stdlib.h>  // abs(int) -- baseline truncates the dot product through it
 
 namespace
 {
@@ -89,10 +85,10 @@ void Csys::set_transform(Transform const& Xform)
     CopyMatrix(Orient, Xform.Rotation);
 }
 
-// The Csys transforms go through the 3DMathEngine (retail's TU cache DAT_063fceb8, lazily
-// filled by FUN_06391cf0 = Acquire3DMathEngine); its return codes are ignored, as in retail.
+// The Csys transforms go through the 3DMathEngine (baseline's TU cache the field, lazily
+// filled by the routine = Acquire3DMathEngine); its return codes are ignored, as in baseline.
 
-// .text:06307490..063074fb: slot +0x2c TransformMatrix(Rotated, Orient, Local), then
+// slot +0x2c TransformMatrix(Rotated, Orient, Local), then
 // Rotated + Pos, one FADD / FSTP float per component.
 Vector Csys::trans_from_frame(Vector const& Local) const
 {
@@ -105,7 +101,7 @@ Vector Csys::trans_from_frame(Vector const& Local) const
     return Out;
 }
 
-// .text:06307500..06307544: slot +0x20 MulMatrix(Out, Orient, Local).
+// slot +0x20 MulMatrix(Out, Orient, Local).
 Matrix Csys::trans_from_frame(Matrix const& Local) const
 {
     Matrix Out;
@@ -113,7 +109,7 @@ Matrix Csys::trans_from_frame(Matrix const& Local) const
     return Out;
 }
 
-// .text:06307550..06307603: the two members above in this order (TransformMatrix + Pos, then
+// the two members above in this order (TransformMatrix + Pos, then
 // MulMatrix).
 Csys Csys::trans_from_frame(Csys const& Local) const
 {
@@ -123,7 +119,7 @@ Csys Csys::trans_from_frame(Csys const& Local) const
     return Out;
 }
 
-// .text:06307610..0630767b: Delta = World - Pos (FSUB, FSTP float each), then slot +0x38
+// Delta = World - Pos (FSUB, FSTP float each), then slot +0x38
 // TransposeTransform(Out, Orient, Delta).
 Vector Csys::trans_to_frame(Vector const& World) const
 {
@@ -136,7 +132,7 @@ Vector Csys::trans_to_frame(Vector const& World) const
     return Out;
 }
 
-// .text:06307680..06307702: transposed copy of Orient (FLD/FSTP float), then slot +0x20
+// transposed copy of Orient (FLD/FSTP float), then slot +0x20
 // MulMatrix(Out, Transposed, World).
 Matrix Csys::trans_to_frame(Matrix const& World) const
 {
@@ -147,7 +143,7 @@ Matrix Csys::trans_to_frame(Matrix const& World) const
     return Out;
 }
 
-// .text:06307710..0630780c: the two members above in this order.
+// the two members above in this order.
 Csys Csys::trans_to_frame(Csys const& World) const
 {
     Csys Out;
@@ -156,7 +152,7 @@ Csys Csys::trans_to_frame(Csys const& World) const
     return Out;
 }
 
-// .text:063079b0..06307a73: slot +0x38 TransposeTransform(Back, Orient, Pos); Pos' = -Back
+// slot +0x38 TransposeTransform(Back, Orient, Pos); Pos' = -Back
 // (FCHS, FSTP float); Orient' = transpose(Orient).
 Csys Csys::get_inverse() const
 {
@@ -184,28 +180,28 @@ Csys __cdecl Csys_init(Vector const& Pos, Matrix const& Orient)
     return Out;
 }
 
-// .text:06307a80..06307b2f: the body of Csys::trans_from_frame(Csys) with Left as `this`.
+// the body of Csys::trans_from_frame(Csys) with Left as `this`.
 Csys __cdecl operator*(Csys const& Left, Csys const& Right)
 {
     return Left.trans_from_frame(Right);
 }
 
-// .text:063038b0..06303a55 (cdecl, hidden Matrix* result). Values the listing keeps on the x87
+// (cdecl, hidden Matrix* result). Values the listing keeps on the x87
 // stack are double here; every FSTP float is a float here.
-//   063038b4..063038d5  L = sqrt((x*x + y*y) + z*z) on the stack
-//   063038d7..063038e2  FCOM double 1e-4 (DAT_0639c2b8); TEST AH,0x41; JNZ -> the degenerate
+// L = sqrt((x*x + y*y) + z*z) on the stack
+// FCOM double 1e-4 (the field); TEST AH,0x41; JNZ -> the degenerate
 //                       look (1, 0, 0) on less, equal or unordered; the fall-through is L > 1e-4
-//   063038e4..06303922  Inv = -1.0 (DAT_063a03f0) / L; Look[i] = float(Inv * Dir[i])
-//   0630393a..0630396e  |LookX| then |LookY| against double 1e-4: `TEST AH,0x5; JP` jumps on
+// Inv = -1.0 (the field) / L; Look[i] = float(Inv * Dir[i])
+// |LookX| then |LookY| against double 1e-4: `TEST AH,0x5; JP` jumps on
 //                       greater, equal or unordered -> Side = (-LookX, LookY); only when both
-//                       are strictly less does Side become (0.0f, 1.0f) (DAT_06399408 /
-//                       DAT_0639a1d0)
-//   06303970..063039b4  C0 = float(LookY*0 - LookZ*SideX), C1 = float(LookZ*SideY - LookX*0),
+//                       are strictly less does Side become (0.0f, 1.0f) (the field /
+// )
+// C0 = float(LookY*0 - LookZ*SideX), C1 = float(LookZ*SideY - LookX*0),
 //                       C2 = float(SideX*LookX - SideY*LookY) -- the *0.0f terms are real
 //                       multiplies (they carry a NaN / infinity through)
-//   063039b8..063039eb  InvN = float(1.0f / sqrt((C2*C2 + C1*C1) + C0*C0)); no length guard
-//   063039ef..06303a07  C0n = C0*InvN and C1n = C1*InvN stay on the stack, C2n is FSTP float
-//   06303a0f..06303a4f  E[0][0] = LookZ*C1n - C2n*LookY; E[1][0] = C2n*LookX - LookZ*C0n;
+// InvN = float(1.0f / sqrt((C2*C2 + C1*C1) + C0*C0)); no length guard
+// C0n = C0*InvN and C1n = C1*InvN stay on the stack, C2n is FSTP float
+// E[0][0] = LookZ*C1n - C2n*LookY; E[1][0] = C2n*LookX - LookZ*C0n;
 //                       E[2][0] = C0n*LookY - C1n*LookX; E[0][1] = C0n; E[1][1] = C1n;
 //                       E[2][1] = C2n; column 2 = Look (E[2][2] stored at 063039d4)
 Matrix __cdecl LookMatrix(Vector const& Direction)
@@ -276,9 +272,9 @@ Matrix __cdecl LookMatrixYup(Vector const& Direction)
     // every FSTP float is a float here.
     Matrix Out;
 
-    // 06303a64..06303a7d: LenSq = (x*x + y*y) + z*z on the stack. 06303a85: FCOM double 1e-4
-    // (DAT_0639c2b8); TEST AH,0x41; JNZ -> the degenerate look (0, 0, -1) on less, equal or
-    // unordered; the fall-through (LenSq > 1e-4) normalises with -1.0 (DAT_063a03f0) / sqrt.
+    // LenSq = (x*x + y*y) + z*z on the stack. 06303a85: FCOM double 1e-4
+    // (the field); TEST AH,0x41; JNZ -> the degenerate look (0, 0, -1) on less, equal or
+    // unordered; the fall-through (LenSq > 1e-4) normalises with -1.0 (the field) / sqrt.
     const double X = Direction.x;
     const double Y = Direction.y;
     const double Z = Direction.z;
@@ -289,20 +285,20 @@ Matrix __cdecl LookMatrixYup(Vector const& Direction)
     if (LenSq > 1e-4)
     {
         const double Inv = -1.0 / sqrt(LenSq);
-        LookX = (float)(Inv * X);   // 06303a9e
-        LookY = (float)(Inv * Y);   // 06303aaf
-        LookZ = (float)(Inv * Z);   // 06303abe
+        LookX = (float)(Inv * X);
+        LookY = (float)(Inv * Y);
+        LookZ = (float)(Inv * Z);
     }
     else
     {
-        LookX = 0.0f;                                     // 06303ade (DAT_06399408)
-        LookY = 0.0f;                                     // 06303ae4
-        LookZ = -1.0f;                                    // 06303ad6 (0xbf800000)
+        LookX = 0.0f;                                     // (the field)
+        LookY = 0.0f;
+        LookZ = -1.0f;                                    // (0xbf800000)
     }
 
-    // 06303aea..06303b22: |LookX| then |LookZ| against double 1e-4, `TEST AH,0x5; JP` jumps on
+    // |LookX| then |LookZ| against double 1e-4, `TEST AH,0x5; JP` jumps on
     // greater, equal or unordered -> Ref = (-LookX, 0, LookZ); only when both are strictly less
-    // is Ref = (0, 0, 1) (DAT_06399408 / DAT_0639a1d0). Both stay on the x87 stack.
+    // is Ref = (0, 0, 1) (the field / the field). Both stay on the x87 stack.
     // The float Look components as the x87 stack holds them (exact).
     const double Lx = LookX;
     const double Ly = LookY;
@@ -320,7 +316,7 @@ Matrix __cdecl LookMatrixYup(Vector const& Direction)
         RefZ = 1.0;
     }
 
-    // 06303b24..06303b6a: each product and difference on the stack, one FSTP float each. The
+    // each product and difference on the stack, one FSTP float each. The
     // X and Z components are the cross product of (RefX, 0, RefZ) with Look; the middle one is
     // RefZ*LookZ - RefX*LookX (still perpendicular to Look). The *0.0f terms are real
     // multiplies (they carry a NaN / infinity through).
@@ -328,14 +324,14 @@ Matrix __cdecl LookMatrixYup(Vector const& Direction)
     const double UpY = (float)(RefZ * Lz - RefX * Lx);
     const double UpZ = (float)(Lx * 0.0f - Ly * RefZ);
 
-    // 06303b78..06303ba3: UpInv = float(1.0f / sqrt((UpZ^2 + UpY^2) + UpX^2)) -- no length
+    // UpInv = float(1.0f / sqrt((UpZ^2 + UpY^2) + UpX^2)) -- no length
     // guard. 06303ba7..06303bbf: UpX and UpY scaled stay on the stack, UpZ is FSTP float.
     const float UpInv = (float)(1.0f / sqrt((UpZ * UpZ + UpY * UpY) + UpX * UpX));
     const double UpXn = UpX * UpInv;
     const double UpYn = UpY * UpInv;
     const double UpZn = (float)(UpZ * UpInv);
 
-    // 06303b84 / 06303bcb / 06303bc7..06303c07: column 2 = Look, column 1 = Up, column 0 =
+    // / 06303bcb / 06303bc7..06303c07: column 2 = Look, column 1 = Up, column 0 =
     // Up x Look, each element one double expression narrowed by its FSTP float.
     Out.E[2][2] = LookZ;
     Out.E[2][1] = (float)UpZn;
@@ -351,7 +347,7 @@ Matrix __cdecl LookMatrixYup(Vector const& Direction)
 
 Matrix __cdecl EulerMatrix(Vector const& AnglesDegrees)
 {
-    // Common.dll.txt 06304230..0630431b. The three angles are degrees * DAT_0639d210, each FSTP
+    // Common..0630431b. The three angles are degrees * , each FSTP
     // float (06304237..0630426a). FSIN / FCOS of those floats stay on the x87 stack (double
     // here); cos(yaw) is spilled as a DOUBLE (06304286 FSTP double local_38), so it is not
     // narrowed either. Only SinR*CosP (0630429e) and CosR*CosP (063042a6) are FSTP float;
@@ -375,38 +371,38 @@ Matrix __cdecl EulerMatrix(Vector const& AnglesDegrees)
     const double CosRCosP = (float)(CosR * CosP);
 
     Matrix Out;
-    Out.E[0][0] = (float)(CosR * CosY);                       // 063042b0
-    Out.E[0][1] = (float)(SinYSinP * CosR - SinRCosP);        // 063042bc
-    Out.E[0][2] = (float)(CosRCosP * SinY + SinR * SinP);     // 063042cc
-    Out.E[1][0] = (float)(SinR * CosY);                       // 063042d6
-    Out.E[1][1] = (float)(SinYSinP * SinR + CosRCosP);        // 063042e0
-    Out.E[1][2] = (float)(SinRCosP * SinY - CosR * SinP);     // 063042f0
-    Out.E[2][0] = (float)(-SinY);                             // 063042f8
-    Out.E[2][1] = (float)(CosY * SinP);                       // 06304302
-    Out.E[2][2] = (float)(CosY * CosP);                       // 0630430c
+    Out.E[0][0] = (float)(CosR * CosY);
+    Out.E[0][1] = (float)(SinYSinP * CosR - SinRCosP);
+    Out.E[0][2] = (float)(CosRCosP * SinY + SinR * SinP);
+    Out.E[1][0] = (float)(SinR * CosY);
+    Out.E[1][1] = (float)(SinYSinP * SinR + CosRCosP);
+    Out.E[1][2] = (float)(SinRCosP * SinY - CosR * SinP);
+    Out.E[2][0] = (float)(-SinY);
+    Out.E[2][1] = (float)(CosY * SinP);
+    Out.E[2][2] = (float)(CosY * CosP);
     return Out;
 }
 
 Matrix __cdecl RotateMatrix(Vector const& AnglesDegrees)
 {
-    // Common.dll.txt:06303fe0-063041ab (2026-10-08, claude-code:cmn-phy3: re-ported onto
+    // Commonfe0-063041ab (2026-10-08, claude-code:cmn-phy3: re-ported onto
     // the math engine, closing the "Мелкие экспорты Common" ledger item). Accum starts as
     // identity (06303ff5-0630403a) and one axis at a time is folded in, in the order Y
     // (06303fe8), X (06304091), Z (06304135):
     //     I3DMathEngine slot 8 (+0x20) MulMatrix(&Tmp, &Accum, &Rot); Accum = Tmp (REP MOVSD 9)
-    // through the file-static engine cache DAT_063fce08 (lazy FUN_06391cf0 ==
+    // through the file-static engine cache the field (lazy the routine ==
     // Acquire3DMathEngine). An axis whose |angle| is not greater than 0.01 (double
-    // .rdata:0639e6b0; `TEST AH,0x41; JNZ` skips on less/equal/unordered) is skipped with its
-    // multiply. Angles are degrees * DAT_0639d210 (0.017453292f).
-    //   Y: FUN_063041b0(float(y*k)): cos/sin of that float on the FPU, each stored as float;
+    // ; `TEST AH,0x41; JNZ` skips on less/equal/unordered) is skipped with its
+    // multiply. Angles are degrees * (0.017453292f).
+    //   Y: the routine(float(y*k)): cos/sin of that float on the FPU, each stored as float;
     //      E00 = cos, E02 = sin, E20 = -sin, E22 = cos, E11 = 1, rest 0.
     //   X: inlined (063040a6-06304101): `FST float [arg]` keeps x*k UNROUNDED on the stack
     //      for FCOS, while FSIN reads back the float-rounded copy;
     //      E00 = 1, E11 = cos, E12 = -sin, E21 = sin, E22 = cos, rest 0.
-    //   Z: FUN_063041f0(float(z*k)): E00 = cos, E01 = -sin, E10 = sin, E11 = cos, E22 = 1.
-    // The engine's return code is ignored, as in retail.
-    static const float kDegToRad = 0.017453292f;   // .rdata:0639d210
-    static const double kAngleEpsilon = 0.01;      // .rdata:0639e6b0, compared against fabs()
+    //   Z: the routine(float(z*k)): E00 = cos, E01 = -sin, E10 = sin, E11 = cos, E22 = 1.
+    // The engine's return code is ignored, as in baseline.
+    static const float kDegToRad = 0.017453292f;
+    static const double kAngleEpsilon = 0.01;      // , compared against fabs()
 
     Matrix Accum;
     MatrixSetIdentity(Accum);
@@ -457,7 +453,7 @@ Matrix __cdecl RotateMatrix(Vector const& AnglesDegrees)
 
 Matrix __cdecl GetDirectionMatrix(Transform const& Xform, Vector const& Target)
 {
-    // Common.dll.txt:06303c10. Reads as "aim the transform at Target": column 2 becomes the
+    // Commonc10. Reads as "aim the transform at Target": column 2 becomes the
     // normalised vector from Target back to the transform's own position (06303c3d subtracts
     // in that order), and the other two columns are rebuilt around it.
     Matrix Base = Xform.Rotation;   // local_48, nine dwords copied at 06303c2a
@@ -467,14 +463,14 @@ Matrix __cdecl GetDirectionMatrix(Transform const& Xform, Vector const& Target)
     Delta.y = Xform.Translation.y - Target.y;
     Delta.z = Xform.Translation.z - Target.z;
 
-    // 06303c46..06303c94: each component FCOMP float 0.0 with `TEST AH,0x44; JP` -- the jump to
+    // each component FCOMP float 0.0 with `TEST AH,0x44; JP` -- the jump to
     // the rebuild is taken on not-equal AND on unordered, so only three exact zeros return the
     // rotation unchanged.
     if (Delta.x == 0.0f && Delta.y == 0.0f && Delta.z == 0.0f)
         return Base;
 
     // Values the listing keeps on the x87 stack are double below; every FSTP float is a float.
-    // 06303c99..06303cd5: InvLen = 1.0 (double, DAT_06399410) / sqrt((z*z + y*y) + x*x), kept on
+    // InvLen = 1.0 (double, the field) / sqrt((z*z + y*y) + x*x), kept on
     // the stack; Dir = float(Delta * InvLen).
     const double Dx = Delta.x;
     const double Dy = Delta.y;
@@ -485,10 +481,10 @@ Matrix __cdecl GetDirectionMatrix(Transform const& Xform, Vector const& Target)
     Dir.y = (float)(Dy * InvLen);
     Dir.z = (float)(InvLen * Dz);
 
-    // 06303cd9..06303d16: how parallel the transform's column 1 already is to Dir:
+    // how parallel the transform's column 1 already is to Dir:
     // (B11*Dir.y + B21*Dir.z) + B01*Dir.x on the stack, through MSVCRT _ftol (64-bit truncation;
     // CDQ keeps the low dword) and the INTEGER abs, then FILD / FCOMP double 0.98
-    // (DAT_063a0610) with `TEST AH,0x41; JNZ` -- less or equal takes column 1.
+    // (the field) with `TEST AH,0x41; JNZ` -- less or equal takes column 1.
     const double Dot = ((double)Base.E[1][1] * Dir.y + (double)Base.E[2][1] * Dir.z) +
                        (double)Base.E[0][1] * Dir.x;
     const int Truncated = abs((int)(long long)Dot);
@@ -497,22 +493,22 @@ Matrix __cdecl GetDirectionMatrix(Transform const& Xform, Vector const& Target)
     Vector Col1;
     if ((double)Truncated <= 0.98)
     {
-        // 06303e50..06303f98: reference axis is column 1 of the incoming rotation
-        // (FUN_0628b030 into local_88).
+        // reference axis is column 1 of the incoming rotation
+        // (the routine into local_88).
         Vector Ref;
         Ref.x = Base.E[0][1];
         Ref.y = Base.E[1][1];
         Ref.z = Base.E[2][1];
 
         // Along = float((Rz*Dz + Ry*Dy) + Rx*Dx) (06303e68..06303ea5); Proj = Dir * Along
-        // (FUN_06288830, one float product each); Ortho = Ref - Proj (FUN_06288800).
+        // (the routine, one float product each); Ortho = Ref - Proj (the routine).
         const float Along = (float)(((double)Ref.z * Dir.z + (double)Ref.y * Dir.y) + (double)Ref.x * Dir.x);
         Vector Ortho;
         Ortho.x = Ref.x - Along * Dir.x;
         Ortho.y = Ref.y - Along * Dir.y;
         Ortho.z = Ref.z - Along * Dir.z;
 
-        // 06303edb..06303f34: Inv = 1.0f / sqrt((x*x + y*y) + z*z) on the stack; Col1 =
+        // Inv = 1.0f / sqrt((x*x + y*y) + z*z) on the stack; Col1 =
         // float(Ortho * Inv).
         const double Ox = Ortho.x;
         const double Oy = Ortho.y;
@@ -522,29 +518,29 @@ Matrix __cdecl GetDirectionMatrix(Transform const& Xform, Vector const& Target)
         Col1.y = (float)(Oy * Inv);
         Col1.z = (float)(Oz * Inv);
 
-        // 06303f3a..06303f7f: Col0 = Col1 x Dir, each difference of products FSTP float as an
-        // argument of FUN_0628b030.
+        // Col0 = Col1 x Dir, each difference of products FSTP float as an
+        // argument of the routine.
         Col0.z = (float)((double)Col1.x * Dir.y - (double)Col1.y * Dir.x);
         Col0.y = (float)((double)Col1.z * Dir.x - (double)Col1.x * Dir.z);
         Col0.x = (float)((double)Col1.y * Dir.z - (double)Col1.z * Dir.y);
     }
     else
     {
-        // 06303d1c..06303e4b: reference axis is column 0 instead (FLD/FSTP float copies).
+        // reference axis is column 0 instead (FLD/FSTP float copies).
         Vector Ref;
         Ref.x = Base.E[0][0];
         Ref.y = Base.E[1][0];
         Ref.z = Base.E[2][0];
 
-        // Along as in the other arm (06303d3c..06303d71); Proj (FUN_06288830); Ortho
-        // (FUN_06288800).
+        // Along as in the other arm (06303d3c..06303d71); Proj (the routine); Ortho
+        // (the routine).
         const float Along = (float)(((double)Ref.z * Dir.z + (double)Ref.y * Dir.y) + (double)Ref.x * Dir.x);
         Vector Ortho;
         Ortho.x = Ref.x - Along * Dir.x;
         Ortho.y = Ref.y - Along * Dir.y;
         Ortho.z = Ref.z - Along * Dir.z;
 
-        // 06303dc6..06303deb: FUN_06347e60 = sqrt((x*x + y*y) + z*z), FDIVR float 1.0, the
+        // the routine = sqrt((x*x + y*y) + z*z), FDIVR float 1.0, the
         // reciprocal kept on the stack; Col0 = float(Ortho * Inv).
         const double Ox = Ortho.x;
         const double Oy = Ortho.y;
@@ -554,14 +550,14 @@ Matrix __cdecl GetDirectionMatrix(Transform const& Xform, Vector const& Target)
         Col0.y = (float)(Oy * Inv);
         Col0.z = (float)(Oz * Inv);
 
-        // 06303df1..06303e3f: Dir x Col0 -- the opposite order from the arm above, which keeps
+        // Dir x Col0 -- the opposite order from the arm above, which keeps
         // this basis right-handed too (Col0 x Col1 == Dir either way).
         Col1.x = (float)((double)Col0.z * Dir.y - (double)Col0.y * Dir.z);
         Col1.y = (float)((double)Col0.x * Dir.z - (double)Col0.z * Dir.x);
         Col1.z = (float)((double)Col0.y * Dir.x - (double)Col0.x * Dir.y);
     }
 
-    // FUN_06275ee0 writes its three arguments as COLUMNS, in the order (Col0, Col1, Dir).
+    // writes its three arguments as COLUMNS, in the order (Col0, Col1, Dir).
     Matrix Out;
     Out.E[0][0] = Col0.x; Out.E[1][0] = Col0.y; Out.E[2][0] = Col0.z;
     Out.E[0][1] = Col1.x; Out.E[1][1] = Col1.y; Out.E[2][1] = Col1.z;
@@ -571,7 +567,7 @@ Matrix __cdecl GetDirectionMatrix(Transform const& Xform, Vector const& Target)
 
 Vector __cdecl MatrixColumn2(Matrix const& M)
 {
-    // Common.dll.c 0x62d3af0. Retail (thiscall, this=Matrix*, stack arg=Vector* Out):
+    // Common 0x62d3af0. baseline (thiscall, this=Matrix*, stack arg=Vector* Out):
     //   Out->x = this->E[0][2]; Out->y = this->E[1][2]; Out->z = this->E[2][2];
     // Raw column 2, no sign flip -- see the header comment for the contrast with
     // this port's many already-inlined "Forward = -E[*][2]" call sites elsewhere.
@@ -584,7 +580,7 @@ Vector __cdecl MatrixColumn2(Matrix const& M)
 
 Vector __cdecl MatrixColumn0(Matrix const& M)
 {
-    // Common.dll.c 0x62e0480 (FUN_062e0480). Retail (thiscall, this=Matrix*,
+    // Common 0x62e0480 (the routine). baseline (thiscall, this=Matrix*,
     // stack arg=Vector* Out, EAX=Out on return):
     //   Out->x = this->E[0][0]; Out->y = this->E[1][0]; Out->z = this->E[2][0];
     // Raw column 0, no sign flip.
@@ -597,7 +593,7 @@ Vector __cdecl MatrixColumn0(Matrix const& M)
 
 Vector __cdecl MatrixColumn1(Matrix const& M)
 {
-    // Common.dll.c 0x62e04a0 (FUN_062e04a0). Retail (thiscall, this=Matrix*,
+    // Common 0x62e04a0 (the routine). baseline (thiscall, this=Matrix*,
     // stack arg=Vector* Out, EAX=Out on return):
     //   Out->x = this->E[0][1]; Out->y = this->E[1][1]; Out->z = this->E[2][1];
     // Raw column 1, no sign flip -- see MatrixColumn0/MatrixColumn2 above.
@@ -610,22 +606,22 @@ Vector __cdecl MatrixColumn1(Matrix const& M)
 
 void __cdecl MatrixSetColumn2(Matrix& M, Vector const& Src)
 {
-    // Common.dll.c 0x62e3710 (FUN_062e3710). Plain thiscall setter, the
+    // Common 0x62e3710 (the routine). Plain thiscall setter, the
     // mirror of MatrixColumn2 above -- see the header comment.
     M.E[0][2] = Src.x;
     M.E[1][2] = Src.y;
     M.E[2][2] = Src.z;
 }
 
-Csys __cdecl DALib_Engine_get_csys(long Handle)
+Csys __cdecl NeuronRuntime_Engine_get_csys(long Handle)
 {
-    // .text:06307900..06307954 (cdecl, hidden Csys* result). 06307903..06307914: DALib::Engine
+    // (cdecl, hidden Csys* result). 06307903..06307914: NeuronRuntime::Engine
     // (through the import, untested) slot 40 (+0xa0, GetInstanceTransform) on Handle;
-    // 0630791a..06307933: the Transform's +0x24 vector into the local Csys position;
-    // 06307937..06307940: its 3x3 (9 dwords, REP MOVSD) into the orientation; 06307942..0630794d:
+    // the Transform's +0x24 vector into the local Csys position;
+    // its 3x3 (9 dwords, REP MOVSD) into the orientation; 06307942..0630794d:
     // the 0x30-byte local copied to the result. Nothing is tested.
     Transform const* const Xform =
-        (Transform const*)DALib::Engine->GetInstanceTransform((void*)Handle);
+        (Transform const*)NeuronRuntime::Engine->GetInstanceTransform((void*)Handle);
 
     Csys Out;
     Out.Pos = Xform->Translation;
@@ -634,7 +630,7 @@ Csys __cdecl DALib_Engine_get_csys(long Handle)
 }
 
 
-// .text:06307cc0..06307f1a: the largest |A - B| over the position and the nine matrix
+// the largest |A - B| over the position and the nine matrix
 // elements; a difference replaces the running maximum only when strictly greater, so a NaN
 // difference is never taken.
 float __cdecl Csys_error(Csys const& A, Csys const& B)
@@ -661,22 +657,22 @@ float __cdecl Csys_error(Csys const& A, Csys const& B)
     return Error;
 }
 
-// Csys_interpolate -- ordinal 1332, .text:06307b40-06307cbe (cdecl, hidden result pointer at
+// Csys_interpolate -- ordinal 1332, module storage-06307cbe (cdecl, hidden result pointer at
 // entry+4, A at +8, B at +0x38, T at +0x68).
-//
-// Position: the x87 sequence at .text:06307b46-06307bd5 keeps some intermediates on the FPU
+
+// Position: the x87 sequence at module storage-06307bd5 keeps some intermediates on the FPU
 // stack and spills others through float locals, so the rounding points are reproduced here:
 //   dx, dy stay on the stack (double); dz is spilled FSTP dword local_8c (float);
 //   dx*T is spilled FSTP dword local_84 (float); dy*T and dz_f*T stay on the stack;
 //   each component is rounded to float once, at its FSTP into the result Pos.
-// Orientation: the file-static 3DMathEngine singleton (DAT_063fceb8, lazy-acquired through
-// FUN_06391cf0 == Acquire3DMathEngine before every call):
-//   +0x50 MatrixToQuaternion(qB, B.Orient)        .text:06307bf5
-//   +0x50 MatrixToQuaternion(qA, A.Orient)        .text:06307c1b
-//   +0x58 QuatSlerp(qOut, qA, qB, T)              .text:06307c4b
-//   qOut copied to a temporary                     .text:06307c4e-06307c71
-//   +0x54 QuaternionToMatrix(M, qTmp)             .text:06307c90
-// Return codes are ignored by retail. Result = {Pos, M} copied through the hidden pointer.
+// Orientation: the file-static 3DMathEngine singleton (the field, lazy-acquired through
+// == Acquire3DMathEngine before every call):
+//   +0x50 MatrixToQuaternion(qB, B.Orient)        module storage
+//   +0x50 MatrixToQuaternion(qA, A.Orient)        module storage
+//   +0x58 QuatSlerp(qOut, qA, qB, T)              module storage
+//   qOut copied to a temporary                     module storage-06307c71
+//   +0x54 QuaternionToMatrix(M, qTmp)             module storage
+// Return codes are ignored by baseline. Result = {Pos, M} copied through the hidden pointer.
 Csys __cdecl Csys_interpolate(Csys A, Csys B, float T)
 {
     double const Dx = (double)(B.Pos.x) - (double)(A.Pos.x);
@@ -702,36 +698,36 @@ Csys __cdecl Csys_interpolate(Csys A, Csys B, float T)
     return Result;
 }
 
-// .text:06307960..063079ab: the Csys repacked as a Transform on the stack (the 3x3 at +0xc,
+// the Csys repacked as a Transform on the stack (the 3x3 at +0xc,
 // REP MOVSD 9, then Pos into +0x24) and handed to IEngine slot 39 (+0x9c, SetInstanceMatrix)
-// through the DALib::Engine import, which is not tested.
-void __cdecl DALib_Engine_set_csys(long Handle, Csys const& InCsys)
+// through the NeuronRuntime::Engine import, which is not tested.
+void __cdecl NeuronRuntime_Engine_set_csys(long Handle, Csys const& InCsys)
 {
     Transform Xform = InCsys.get_transform();
-    DALib::Engine->SetInstanceMatrix((void*)Handle, &Xform);
+    NeuronRuntime::Engine->SetInstanceMatrix((void*)Handle, &Xform);
 }
 
-// DELIBERATE DEVIATION FROM RETAIL, 2026-09-17 -- read this before "fixing" it back.
-//
-// Retail's own body (.text:06391cf0-06391d28) does NOT cache: it builds the AGGDESC on the
-// stack, calls DACOM_Acquire, dispatches CreateInstance through the manager's vtable+0x0c and
-// returns, every single time. The caching in retail lives at the CALL SITES -- twenty-five
+// DELIBERATE DEVIATION FROM BASELINE, 2026-09-17 -- read this before "fixing" it back.
+
+// baseline's own body (module storage-06391d28) does NOT cache: it builds the AGGDESC on the
+// stack, calls NEURONCOMPONENTS_Acquire, dispatches CreateInstance through the manager's vtable+0x0c and
+// returns, every single time. The caching in baseline lives at the CALL SITES -- twenty-five
 // per-translation-unit file statics in `.data`, each using the MSVC lazy-singleton idiom:
 //     MOV EAX,[DAT_xxxxxxxx] / TEST EAX,EAX / JNZ skip
 //     CALL Acquire3DMathEngine / MOV [DAT_xxxxxxxx],EAX
 // (those 25 globals were identified and closed on 2026-09-17 by the globals lane).
-//
+
 // The port has 114 call sites and none of them cache, so before this change every one of them
-// -- including per-tick AI steering and equipment paths -- ran a DACOM acquire plus a COM
+// -- including per-tick AI steering and equipment paths -- ran a NEURONCOMPONENTS acquire plus a COM
 // CreateInstance and then dropped the returned reference without Release.
-//
+
 // Rather than retrofit 114 call-site statics across eleven files, the cache is collapsed into
-// one here. The observable difference from retail: retail may hold up to twenty-five
+// one here. The observable difference from baseline: baseline may hold up to twenty-five
 // references to the engine, this holds one. That is safe in this port precisely because no
 // call site ever released its reference anyway, so the port was never balancing them.
-//
+
 // TODO: if the per-TU statics ever matter (e.g. if CreateInstance stops returning a shared
-// instance), move the cache back out to the call sites and restore this body to retail's.
+// instance), move the cache back out to the call sites and restore this body to baseline's.
 I3DMathEngine* __cdecl Acquire3DMathEngine()
 {
     static I3DMathEngine* CachedEngine = nullptr;
@@ -750,10 +746,10 @@ I3DMathEngine* __cdecl Acquire3DMathEngine()
     Desc.Base.interface_name = "3DMathEngine";
     Desc.Reserved08 = nullptr;
 
-    // .text:06391d0b..06391d1e: DACOM_Acquire, then its slot +0x0c CreateInstance with no test
+    // NEURONCOMPONENTS_Acquire, then its slot +0x0c CreateInstance with no test
     // of the manager.
     void* Engine = nullptr;
-    ICOManager* const Manager = DACOM_Acquire();
+    ICOManager* const Manager = NEURONCOMPONENTS_Acquire();
     Manager->CreateInstance(&Desc.Base, &Engine);
 
     CachedEngine = (I3DMathEngine*)Engine;

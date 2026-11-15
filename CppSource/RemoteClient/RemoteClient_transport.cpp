@@ -1,12 +1,8 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "ClientImpl.h"
 #include "remoteclient.h"
-#include "dalib_net.h"
+#include "neuronruntime_net.h"
 #include "common_server.h"
 #include "server_iserverimpl.h"
 #include "rpc_packet.h"
@@ -323,8 +319,8 @@ void CRemoteClientProxy::OnReceive(unsigned char* Data, unsigned long Size)
 
         HandleClientPacket(ClientId, Packet->AsRaw());
         Remaining -= static_cast<int>(DecodedSize);
-        // 06b3932d subtracts DecodedSize from ESI only. Unlike remoteserver's
-        // decoder loop, retail does not advance EDI past the decoded body.
+        // subtracts DecodedSize from ESI only. Unlike remoteserver's
+        // decoder loop, baseline does not advance EDI past the decoded body.
     } while (Remaining > 0);
 }
 

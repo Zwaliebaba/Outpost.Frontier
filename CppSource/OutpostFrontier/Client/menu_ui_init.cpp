@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "menu_ui_init.h"
@@ -15,9 +11,9 @@
 #include "client_state.h"
 #include "common_id.h"
 #include "globals.h"
-#include "DALib.h"
+#include "NeuronRuntime.h"
 #include "soundstreamer.h"
-#include "dacom.h"
+#include "neuroncomponents.h"
 #include "space_camera.h"
 
 #include <io.h>
@@ -28,7 +24,7 @@ namespace
 {
     static const int kUiSoundTableCount = 0x2d;
 
-    // DAT_006149e8 — 0x2d nicknames (listing .data:006149e8..00614a98).
+    // — 0x2d nicknames (listing module storage..00614a98).
     static const char* kUiSoundNames[kUiSoundTableCount] = {
         "ui_select_item",                    // 0
         "ui_item_select",                    // 1
@@ -77,21 +73,21 @@ namespace
         "hud_comm_window",                   // 44
     };
 
-    // DAT_0067a4a8 -- 0x2d cached SoundArch pointers (.bss, zeroed again by FUN_00564520).
+    // 0x2d cached SoundArch pointers (.bss, zeroed again by the routine).
     void* GUiSoundTable[kUiSoundTableCount] = {};
 
 }
 
 void InitUiSoundTable()
 {
-    // FUN_00564520 — zero DAT_0067a4a8 .. 0x2d pointers.
+    // — zero the field .. 0x2d pointers.
     for (int Index = 0; Index < kUiSoundTableCount; ++Index)
         GUiSoundTable[Index] = nullptr;
 }
 
 int FindUiSoundSlot(const char* Name)
 {
-    // FUN_00564610 (cdecl): DACOM stricmp(DAT_006149e8[Index], Name) for Index 0..0x2c, the
+    // (cdecl): NEURONCOMPONENTS stricmp(the field[Index], Name) for Index 0..0x2c, the
     // first match wins; -1 otherwise. No test of Name or of the table entries.
     for (int Index = 0; Index < kUiSoundTableCount; ++Index)
     {
@@ -110,9 +106,9 @@ const char* GetUiSoundSlotName(unsigned int Slot)
 
 void PlayUiSoundSlot(unsigned int Slot)
 {
-    // FUN_00564570(Slot): no range check and no init latch. An empty cache slot is filled from
-    // FUN_0042ae40(CreateID(DAT_006149e8[Slot])) and AddRef'd through the archetype's vtable+0xc,
-    // with no null test on the lookup; then FUN_004285f0(Arch, 0, 0).
+    // (Slot): no range check and no init latch. An empty cache slot is filled from
+    // (CreateID(the field[Slot])) and AddRef'd through the archetype's vtable+0xc,
+    // with no null test on the lookup; then the routine(Arch, 0, 0).
     if (GUiSoundTable[Slot] == nullptr)
     {
         char const* const Name = kUiSoundNames[Slot];
@@ -126,10 +122,10 @@ void PlayUiSoundSlot(unsigned int Slot)
 
 void PlayUiSoundSlotFlag1(unsigned int Slot)
 {
-    // FUN_00564650(Slot): the lazy fill of FUN_00564570 (00564654..0056468f), then a 0x18-byte
+    // (Slot): the lazy fill of the routine (00564654..0056468f), then a 0x18-byte
     // play key on the stack -- +0x00 and +0x08..+0x14 zero, the +0x04 byte (flags & 0xf8) | 1
-    // (00564692..005646c8) -- and FUN_004285f0(Arch, &Key, 0).
-    // PORT: retail keeps bits 3..7 of that byte and the dword's upper three bytes from whatever
+    // (00564692..005646c8) -- and the routine(Arch, &Key, 0).
+    // PORT: baseline keeps bits 3..7 of that byte and the dword's upper three bytes from whatever
     // was on the stack; the port zeroes them.
     if (GUiSoundTable[Slot] == nullptr)
     {
@@ -145,8 +141,8 @@ void PlayUiSoundSlotFlag1(unsigned int Slot)
 
 void PlayOrRewindUiSoundSlot(unsigned int Slot)
 {
-    // FUN_005645c0(Slot): the same lazy fill as FUN_00564570 (005645c4..005645fc), then
-    // FUN_00428640(Arch, 0, 0). No range check, no init latch.
+    // (Slot): the same lazy fill as the routine (005645c4..005645fc), then
+    // (Arch, 0, 0). No range check, no init latch.
     if (GUiSoundTable[Slot] == nullptr)
     {
         char const* const Name = kUiSoundNames[Slot];
@@ -155,23 +151,23 @@ void PlayOrRewindUiSoundSlot(unsigned int Slot)
         GUiSoundTable[Slot] = LookupClientSoundArch(&NicknameId);
         AcquireClientSoundArch(GUiSoundTable[Slot]);
     }
-    // 005645ff..00564606: FUN_00428640(Arch, 0, 0) -- rewind a live source of this archetype,
+    // the routine(Arch, 0, 0) -- rewind a live source of this archetype,
     // or start a new one. It never stops anything.
     PlayOrRewindClientSoundArch(GUiSoundTable[Slot], nullptr, nullptr);
 }
 
 void StopUiSoundSlot(unsigned int Slot)
 {
-    // FUN_005646e0(Slot): the cached archetype DAT_0067a4a8[Slot] as it stands (no lazy fill,
-    // no range check), tail-jumped into FUN_004285c0.
+    // (Slot): the cached archetype the field[Slot] as it stands (no lazy fill,
+    // no range check), tail-jumped into the routine.
     StopClientSoundArch(GUiSoundTable[Slot]);
 }
 
 void PlayUiRolloverSound()
 {
-    // FUN_00564700: only while the intro menu is the current state (FUN_005b0880) or the local
-    // server tick is held (FUN_0042d730). Slot 0x1d ("ui_rollover", DAT_00614a5c / cache
-    // DAT_0067a51c) is filled lazily like FUN_00564570, then FUN_00428680(Arch, 0, 0, 0) --
+    // only while the intro menu is the current state (the routine) or the local
+    // server tick is held (the routine). Slot 0x1d ("ui_rollover", the field / cache
+    // ) is filled lazily like the routine, then the routine(Arch, 0, 0, 0) --
     // a plain start, not the if-idle variant.
     if (!IsClientIntroEnvironment() && !IsClientServerTickPaused())
         return;
@@ -189,8 +185,8 @@ void PlayUiRolloverSound()
 
 bool IsAnyUiSoundPlaying()
 {
-    // FUN_00564760: ESI from DAT_0067a4a8 up to 0x0067a55c (JL, 4 bytes a step); a null slot is
-    // skipped (0056476a), a non-null one goes to FUN_00428000 and a non-zero count answers 1
+    // ESI from the field up to 0x0067a55c (JL, 4 bytes a step); a null slot is
+    // skipped (0056476a), a non-null one goes to the routine and a non-zero count answers 1
     // (00564777 -> 00564788). The walk running out answers 0 (00564784).
     for (int Index = 0; Index < kUiSoundTableCount; ++Index)
     {
@@ -202,9 +198,9 @@ bool IsAnyUiSoundPlaying()
     return false;
 }
 
-// FUN_00564540 -- walk the whole DAT_0067a4a8[0x2d] cache (end sentinel 0x0067a55c), release
+// walk the whole the field[0x2d] cache (end sentinel 0x0067a55c), release
 // every non-null archetype reference through its vtable+0x10 (ReleaseClientSoundArch) and null
-// the slot. No init latch: the table is static storage, zero before FUN_00564520 ever runs.
+// the slot. No init latch: the table is static storage, zero before the routine ever runs.
 void ShutdownUiSoundTable()
 {
     for (int Index = 0; Index < kUiSoundTableCount; ++Index)

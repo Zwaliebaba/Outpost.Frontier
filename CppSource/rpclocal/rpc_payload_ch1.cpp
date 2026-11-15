@@ -1,22 +1,18 @@
-﻿// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
-// Author: Giperion.
+﻿// Author: Giperion.
 
 // rpc_payload_ch1.cpp -- the 21 channel-1 packet types, marshalled and delivered the way
-// retail does it.
-//
+// baseline does it.
+
 // Channel 1 is the "common" channel: the same 21 packet types travel in BOTH directions,
 // which is why every layout here has two independent readings in the listing --
 // rpclocal's IClient slot (server -> client, the direction this file implements) and
 // rpclocal's IServerImpl method (client -> server, written up in
-// the decomp-tracker IServer card). Where a documented struct exists the two agree field for
+// the implementation tracker IServer card). Where a documented struct exists the two agree field for
 // field, and that agreement is what promotes these layouts from "read once" to "checked".
-//
-// Every Deliver() below reproduces its retail HandlePacket case exactly, including the
-// literal 1 retail pushes in place of the session id. Retail addresses are quoted per
-// codec; the receive-side case labels are the ones Ghidra assigns inside the channel-1
+
+// Every Deliver() below reproduces its baseline HandlePacket case exactly, including the
+// literal 1 baseline pushes in place of the session id. baseline addresses are quoted per
+// codec; the receive-side case labels are the ones analysis assigns inside the channel-1
 // switch that starts at 0x06d83256.
 
 #include "rpc_payloads.h"
@@ -30,11 +26,11 @@
 // Shared helpers
 // ---------------------------------------------------------------------------
 
-// Copies InSize bytes into a block the packet owns from now on. Retail does the same with
+// Copies InSize bytes into a block the packet owns from now on. baseline does the same with
 // a bare operator new (e.g. 0x06d8c4aa for CHATMSG, 0x06d8b5b1 for REQUEST_BEST_PATH,
-// 0x06d8b631 for REQUEST_PLAYER_STATS) -- a zero size included, which still hands back a
-// non-null zero-byte block. Where retail tests the source or the size first (CHATMSG,
-// 06d8c499 / 06d8c4a1), the caller carries that test.
+// for REQUEST_PLAYER_STATS) -- a zero size included, which still hands back a
+// non-null zero-byte block. Where baseline tests the source or the size first (CHATMSG,
+// / 06d8c4a1), the caller carries that test.
 static void* RpcCopyIntoPacketBlock(const void* Source, unsigned int InSize) {
     unsigned char* Block = static_cast<unsigned char*>(::operator new(InSize, std::nothrow));
     const unsigned char* Src = static_cast<const unsigned char*>(Source);
@@ -54,8 +50,8 @@ static void RpcFreePacketBlock(void* Block) {
 // ch1 op 0x01 FLPACKET_COMMON_UPDATEOBJECT
 // Sender 0x06d897c0 (IClient+0x0d8, RET 8), receiver caseD_1 at 0x06d83a4a.
 //   payload+0x00 = byte  arg+0x28        payload+0x04 = dword arg+0x00
-//   payload+0x08 = Vector arg+0x14 (FUN_06d8f510)
-//   payload+0x14 = Quaternion arg+0x04 (FUN_06d8f4f0)
+//   payload+0x08 = Vector arg+0x14 (the routine)
+//   payload+0x14 = Quaternion arg+0x04 (the routine)
 //   payload+0x24 = dword arg+0x20        payload+0x28 = dword arg+0x24
 // ===========================================================================
 static bool MarshalUpdateObject(FPacketBase* Packet, const unsigned int* Args, unsigned int ArgCount) {
@@ -105,7 +101,7 @@ static bool MarshalFireWeapon(FPacketBase* Packet, const unsigned int* Args, uns
     Wire.Hardpoints.End = nullptr;
     Wire.Hardpoints.Cap = nullptr;
 
-    // Retail's `(last - first) >> 1` element count, then a word-by-word copy into a block
+    // baseline's `(last - first) >> 1` element count, then a word-by-word copy into a block
     // the packet keeps. std::vector::size() is the same arithmetic, data() its _First.
     const unsigned int Count = static_cast<unsigned int>(Info->Hardpoints.size());
     if (Count != 0) {
@@ -179,24 +175,24 @@ static bool MarshalChatMsg(FPacketBase* Packet, const unsigned int* Args, unsign
     FPayloadCommonChatMsg Wire;
     Wire.Field_0x00 = Args[0];
     Wire.Field_0x04 = Args[1];
-    // Retail: `if (Buffer != 0 && Size != 0) { new(Size); memcpy } else { Size = 0; Buffer = 0 }`.
+    // baseline: `if (Buffer != 0 && Size != 0) { new(Size); memcpy } else { Size = 0; Buffer = 0 }`.
     Wire.Size = 0;
     Wire.Buffer = nullptr;
     const unsigned int Size = Args[2];
     void* Source = reinterpret_cast<void*>(Args[3]);
-    if (Source != nullptr && Size != 0) {                   // 06d8c499 / 06d8c4a1
-        Wire.Size = Size;                                   // 06d8c4a8
-        Wire.Buffer = RpcCopyIntoPacketBlock(Source, Size); // 06d8c4aa, bare
+    if (Source != nullptr && Size != 0) {                   // / 06d8c4a1
+        Wire.Size = Size;
+        Wire.Buffer = RpcCopyIntoPacketBlock(Source, Size); // , bare
     }
     return RpcPayloadWrite(Packet, 0, Wire);
 }
 
-// caseD_5 0x06d83900: DAT_06dbbcd4 is read untested (83906) -- no null test here either.
+// caseD_5 0x06d83900: the field is read untested (83906) -- no null test here either.
 // The first argument is a 4-byte struct built on the stack, word 1 then two zero bytes
 // (83916..83925), i.e. the dword 1.
 static bool DeliverChatMsg(const FPacketBase* Packet, IClient*, IChatClient* ChatClient) {
     const FPayloadCommonChatMsg Wire = RpcPayloadRead<FPayloadCommonChatMsg>(Packet, 0);
-    // Retail pushes the payload's +0x04, +0x08 and +0x0c and a literal 1 -- payload+0x00
+    // baseline pushes the payload's +0x04, +0x08 and +0x0c and a literal 1 -- payload+0x00
     // is written by the sender and then never read.
     ChatClient->SendCommonChatMsg(CHAT_ID(1u), CHAT_ID(Wire.Field_0x04), Wire.Size, Wire.Buffer);
     return true;
@@ -221,7 +217,7 @@ static bool DeliverActivateEquip(const FPacketBase* Packet, IClient* Client, ICh
     XActivateEquip Info;
     Info.ObjectId = Wire.ObjectId;
     Info.EquipId = Wire.EquipId;
-    Info.bActivate = (Wire.bActivate != 0);   // retail: `param_1[0x24] != 0`
+    Info.bActivate = (Wire.bActivate != 0);   // baseline: `param_1[0x24] != 0`
     Info.Pad_0x07 = 0;
     Client->SendCommonActivateEquip(1u, Info);
     return true;
@@ -247,7 +243,7 @@ static bool DeliverActivateCruise(const FPacketBase* Packet, IClient* Client, IC
     XActivateCruise Info;
     Info.ObjectId = Wire.ObjectId;
     Info.bActivate = (Wire.bActivate != 0);
-    Info.Field_0x05 = (Wire.Field_0x05 != 0) ? 1u : 0u;   // retail: `param_1[0x25] != 0`
+    Info.Field_0x05 = (Wire.Field_0x05 != 0) ? 1u : 0u;   // baseline: `param_1[0x25] != 0`
     Info.Pad_0x06[0] = 0;
     Info.Pad_0x06[1] = 0;
     Client->SendCommonActivateCruise(1u, Info);
@@ -292,7 +288,7 @@ static bool DeliverGoTradelane(const FPacketBase* Packet, IClient* Client, IChat
 static bool MarshalStopTradelane(FPacketBase* Packet, const unsigned int* Args, unsigned int ArgCount) {
     FPayloadCommonStopTradelane Wire;
     Wire.Field_0x00 = Args[1];
-    Wire.Field_0x04 = 0;   // retail never writes these two
+    Wire.Field_0x04 = 0;   // baseline never writes these two
     Wire.Field_0x08 = 0;
     return RpcPayloadWrite(Packet, 0, Wire);
 }
@@ -304,7 +300,7 @@ static bool DeliverStopTradelane(const FPacketBase* Packet, IClient* Client, ICh
 }
 
 // ===========================================================================
-// The buffer family. One marshaller pair, parameterised by whether retail copies and
+// The buffer family. One marshaller pair, parameterised by whether baseline copies and
 // whether the packet takes ownership (payload+0x08, see FPayloadCommonBuffer).
 // ===========================================================================
 static bool MarshalBufferCommon(FPacketBase* Packet, const unsigned int* Args,
@@ -410,9 +406,9 @@ static bool DeliverSetInterfaceState(const FPacketBase* Packet, IClient* Client,
 
 // ===========================================================================
 // ch1 op 0x12 FLPACKET_COMMON_PLAYER_TRADE -- eight senders, one sub-switch.
-//
+
 // The proxy hands us Args[0] = the sub-type mask it is sending under, then the slot's own
-// arguments -- see FLocalClientProxy::SendTradePacket. That mirrors retail, where each of
+// arguments -- see FLocalClientProxy::SendTradePacket. That mirrors baseline, where each of
 // the eight slots writes its own literal into payload+0x00.
 // ===========================================================================
 static bool MarshalPlayerTrade(FPacketBase* Packet, const unsigned int* Args, unsigned int ArgCount) {
@@ -425,10 +421,10 @@ static bool MarshalPlayerTrade(FPacketBase* Packet, const unsigned int* Args, un
     Wire.Pad_0x11[0] = 0;
     Wire.Pad_0x11[1] = 0;
     Wire.Pad_0x11[2] = 0;
-    // The rest is what the packet constructor FUN_06d9bad0 leaves for the fields a sub-type
+    // The rest is what the packet constructor the routine leaves for the fields a sub-type
     // does not write: +0x14 = 0xffffffff (06d9bafa), +0x18 / +0x1c = 0 (06d9bb01 / 06d9bb04).
     // So sub-types 1/2/4/0x20/0x40/0x80 ship EquipArchId -1, not 0. The word at +0x20 is not
-    // seeded at all (operator new residue in retail); zero here.
+    // seeded at all (operator new residue in baseline); zero here.
     Wire.EquipArchId = 0xffffffffu;
     Wire.EquipCount = 0;
     Wire.EquipStatus = 0.0f;
@@ -442,25 +438,25 @@ static bool MarshalPlayerTrade(FPacketBase* Packet, const unsigned int* Args, un
     const unsigned int A2 = Args[2];
 
     switch (Wire.SubType) {
-    case 0x01:   // 0x06d8b8e0 InitiateTrade-shaped
-    case 0x20:   // 0x06d8bb10
-    case 0x80:   // 0x06d8bb60
+    case 0x01:   // InitiateTrade-shaped
+    case 0x20:
+    case 0x80:
         Wire.Field_0x08 = A1;
         break;
-    case 0x02:   // 0x06d8b980
+    case 0x02:
         Wire.Field_0x04 = A1;
         break;
-    case 0x04:   // 0x06d8b9d0
+    case 0x04:
         Wire.Field_0x08 = A1;
         Wire.Field_0x0c = A2;
         break;
-    case 0x40:   // 0x06d8b930
+    case 0x40:
         Wire.Field_0x08 = A1;
         Wire.Field_0x10 = (unsigned char)(A2 & 0xffu);
         break;
-    case 0x08:   // 0x06d8ba20 -- EquipDesc, status included
-    case 0x10: { // 0x06d8baa0 -- EquipDesc, status NOT written
-        // 06d8ba48 / 06d8ba52 / 06d8ba5c / 06d8ba71: direct loads off the caller's
+    case 0x08:   // EquipDesc, status included
+    case 0x10: { // EquipDesc, status NOT written
+        // / 06d8ba52 / 06d8ba5c / 06d8ba71: direct loads off the caller's
         // EquipDesc (+0x04, +0x14, float +0x10, word +0x02); 0x06d8baa0 skips the float.
         Wire.Field_0x08 = A1;
         const EquipDesc* Desc = reinterpret_cast<const EquipDesc*>(A2);
@@ -493,7 +489,7 @@ static bool DeliverPlayerTrade(const FPacketBase* Packet, IClient* Client, IChat
     case 0x08: {
         // caseD_8 0x06d837df: COMMON's EquipDesc::EquipDesc() (06d837e3), then
         // set_arch_id(+0x34) 06d837f1, set_count(+0x38) 06d837ff, set_status(+0x3c)
-        // 06d8380d, set_id(word +0x40) 06d8381e, then IClient+0x1a4 (06d83837).
+        // , set_id(word +0x40) 06d8381e, then IClient+0x1a4 (06d83837).
         EquipDesc Desc;
         Desc.set_arch_id(Wire.EquipArchId);
         Desc.set_count((int)Wire.EquipCount);
@@ -524,7 +520,7 @@ static bool DeliverPlayerTrade(const FPacketBase* Packet, IClient* Client, IChat
         Client->SendCommonPlayerTradeStopTradeRequest(1u, Wire.Field_0x08);
         return true;
     default:
-        // Retail's sub-switch has no default: anything else falls out and the packet dies.
+        // baseline's sub-switch has no default: anything else falls out and the packet dies.
         return false;
     }
 }
@@ -574,7 +570,7 @@ static bool DeliverActivateThrusters(const FPacketBase* Packet, IClient* Client,
         RpcPayloadRead<FPayloadCommonActivateThrusters>(Packet, 0);
     XActivateThrusters Info;
     Info.ObjectId = Wire.ObjectId;
-    Info.bActivate = (Wire.bActivate != 0);   // retail: SETNZ on packet+0x24
+    Info.bActivate = (Wire.bActivate != 0);   // baseline: SETNZ on packet+0x24
     Info.Pad_0x05[0] = 0;
     Info.Pad_0x05[1] = 0;
     Info.Pad_0x05[2] = 0;
@@ -585,18 +581,18 @@ static bool DeliverActivateThrusters(const FPacketBase* Packet, IClient* Client,
 // ===========================================================================
 // ch1 op 0x1b FLPACKET_COMMON_POP_UP_DIALOG -- sender 0x06d8b690 (IClient+0x17c,
 // RET 0x10), receiver caseD_1b at 0x06d835e3 -> IClient vtable +0x17c.
-//
+
 // THE GAP THAT USED TO BE HERE IS CLOSED. The old note said neither FmtStr export was
 // reachable because rpclocal.vcxproj links only kernel32 and user32. That was a property
-// of the port, not of retail: retail rpclocal's import table names COMMON.DLL, and four
-// FmtStr entry points in it. The project now links Common.lib, as retail does, and this
+// of the port, not of baseline: baseline rpclocal's import table names COMMON.DLL, and four
+// FmtStr entry points in it. The project now links Common.lib, as baseline does, and this
 // type flattens and unflattens for real. The long argument is at the head of the
 // flattened-FmtStr family section in rpc_payloads.h.
-//
+
 // (The old note also had the size table backwards -- it said tag 0x4e costs 7 and
 // everything else 0x17. The loop at 0x06d8b6d0 does the opposite: `CMP EAX,0x4e ; SETZ CL
 // ; DEC ECX ; AND ECX,0xfffffff0 ; ADD ECX,0x17` gives 0x17 for 0x4e and 7 for the rest.)
-//
+
 // The payload copies now, so the type is self-contained and queues like the rest.
 // Arguments: Args[0] session id (never serialized), Args[1]/Args[2] FmtStr*, Args[3] the
 // dword at packet+0x30 (06d8b780).
@@ -607,9 +603,9 @@ static bool MarshalPopUpDialog(FPacketBase* Packet, const unsigned int* Args, un
     FPayloadCommonPopUpDialog Wire;
     Wire.SizeA = 0;
     Wire.SizeB = 0;
-    Wire.BufferA = RpcFlattenFmtStr(*SourceA, Wire.SizeA);   // 06d8b6ff..06d8b719
-    Wire.BufferB = RpcFlattenFmtStr(*SourceB, Wire.SizeB);   // 06d8b760..06d8b776
-    Wire.Field_0x10 = Args[3];                               // 06d8b780
+    Wire.BufferA = RpcFlattenFmtStr(*SourceA, Wire.SizeA);
+    Wire.BufferB = RpcFlattenFmtStr(*SourceB, Wire.SizeB);
+    Wire.Field_0x10 = Args[3];
     return RpcPayloadWrite(Packet, 0, Wire);
 }
 
@@ -617,9 +613,9 @@ static bool DeliverPopUpDialog(const FPacketBase* Packet, IClient* Client, IChat
     const FPayloadCommonPopUpDialog Wire = RpcPayloadRead<FPayloadCommonPopUpDialog>(Packet, 0);
     FmtStr TextA;
     FmtStr TextB;
-    RpcUnflattenFmtStr(TextA, Wire.BufferA, Wire.SizeA);     // 06d8368a
-    RpcUnflattenFmtStr(TextB, Wire.BufferB, Wire.SizeB);     // 06d83698
-    // 06d836a5..06d836b2: PUSH packet+0x30, PUSH &B, PUSH &A, PUSH 1.
+    RpcUnflattenFmtStr(TextA, Wire.BufferA, Wire.SizeA);
+    RpcUnflattenFmtStr(TextB, Wire.BufferB, Wire.SizeB);
+    // PUSH packet+0x30, PUSH &B, PUSH &A, PUSH 1.
     Client->SendCommonPopUpDialog(1u, TextA, TextB, Wire.Field_0x10);
     return true;
 }
@@ -655,7 +651,7 @@ static bool MarshalTractorObjects(FPacketBase* Packet, const unsigned int* Args,
 // zeroed (83270..8327c), +0x00 = payload+0x00 and the word +0x04 = payload+0x04
 // (83280..8329b), then the inlined vector<uint> operator= from payload+0x08
 // (832a0..83396): an empty source leaves it empty, otherwise one operator new of Count*4
-// bytes holds a COPY (83378). IClient slot 5 (833ad) gets (1, &local); FUN_06d851d0, the
+// bytes holds a COPY (83378). IClient slot 5 (833ad) gets (1, &local); the routine, the
 // vector destructor, frees the copy (833bf).
 static bool DeliverTractorObjects(const FPacketBase* Packet, IClient* Client, IChatClient*) {
     const FPayloadCommonTractorObjects Wire =
@@ -673,7 +669,7 @@ static bool DeliverTractorObjects(const FPacketBase* Packet, IClient* Client, IC
 }
 
 // ===========================================================================
-// The table. Order follows the opcode, not the retail registrator's order.
+// The table. Order follows the opcode, not the baseline registrator's order.
 // ===========================================================================
 const FRpcPayloadCodec GChannel1Codecs[] = {
     { 1, 0x01, "FLPACKET_COMMON_UPDATEOBJECT",             0x2c,

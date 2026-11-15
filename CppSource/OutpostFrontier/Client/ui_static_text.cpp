@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "ui_static_text.h"
@@ -14,26 +10,26 @@ UiStaticText::UiStaticText()
     : LocalWidth(0.0f)
     , LocalHeight(0.0f)
 {
-    // FUN_0059c3d0 0059c40c..0059c4ab (inlined ctor): the Win3D and TextWin parts run in their
+    // 0059c40c..0059c4ab (inlined ctor): the Win3D and TextWin parts run in their
     // constructors. +0xec / +0xf0 are left to slot 9 (the zeros are only C++ initialisation).
 }
 
 UiStaticText::~UiStaticText()
 {
-    // FUN_0059cda0 -> the TextWin dtor FUN_005a1af0.
+    // -> the TextWin dtor the routine.
 }
 
 bool UiStaticText::Create(Win3D* NewParent, void* Payload)
 {
-    // FUN_00599ac0 (RET 8).
-    Win3DReparent(this, NewParent);                                   // FUN_0059dd00
-    Win3DRegister(this);                                              // FUN_0059dbf0
+    // (RET 8).
+    Win3DReparent(this, NewParent);
+    Win3DRegister(this);
     Flags = static_cast<unsigned char>((Flags & 0xfb) | kWin3DActive | kWin3DVisible);
 
-    InitTextDefaults();                                               // FUN_005a1c50
+    InitTextDefaults();
 
     Flags = static_cast<unsigned char>(Flags & 0xfe);
-    Width = 0.1f;                                                     // 0x3dcccccd
+    Width = 0.1f;
     Height = 0.1f;
     FlagE1 = 0;
     SetText(L"StaticText");                                           // vftable+0x70
@@ -53,14 +49,14 @@ bool UiStaticText::Create(Win3D* NewParent, void* Payload)
 
 void UiStaticText::SetTransform(float const* Transform)
 {
-    // LAB_00599b70 (RET 4): slot 7 (Transform), slot 5 (Transform + 9), then the extent
-    // projection through DAT_0067dbc0 with M = the argument block itself (EDI, not this+0x3c)
+    // (RET 4): slot 7 (Transform), slot 5 (Transform + 9), then the extent
+    // projection through the field with M = the argument block itself (EDI, not this+0x3c)
     // and Z = Transform[11]; +0xb4 / +0xb8 from +0xec / +0xf0.
     SetOrientation(Transform);
     SetPosition(Transform + 9);
     UiWidgetProjectExtent(Transform, Transform[11], LocalWidth, LocalHeight, &Width, &Height);
 }
 
-// Retail DAT_0067db70 -- WINFACTORY<UIStaticText> static (LAB_0059c1e0 -> FUN_0059c360; Create
-// FUN_0059c3d0); atexit dtor FUN_00579380.
+// WINFACTORY<UIStaticText> static (the branch -> the routine; Create
+// ); atexit dtor the routine.
 WINFACTORY<UiStaticText> G_UIStaticTextFactory("UIStaticText");

@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // Plain C++ TU (no MFC): only Win32 resource calls and the std::vector of modules.
@@ -11,8 +7,8 @@
 
 std::vector<HMODULE> GResourceDlls;
 
-// .text:00417480 — the returned base is computed before the push_back (size 0 when the vector
-// has no storage yet). Retail's inlined VC6 insert grows to size + max(size, 1); the port lets
+// — the returned base is computed before the push_back (size 0 when the vector
+// has no storage yet). baseline's inlined VC6 insert grows to size + max(size, 1); the port lets
 // std::vector choose its capacity, which nothing observes.
 unsigned int AddResourceDll(HMODULE Module)
 {
@@ -21,7 +17,7 @@ unsigned int AddResourceDll(HMODULE Module)
 	return IdsBase;
 }
 
-// .text:00417600
+
 int LoadResourceString(HMODULE Module, unsigned int Id, wchar_t* Buf, int BufChars)
 {
 	if (Buf != nullptr && BufChars < 1)
@@ -72,7 +68,7 @@ int LoadResourceString(HMODULE Module, unsigned int Id, wchar_t* Buf, int BufCha
 	return (int)Count;
 }
 
-// .text:004176b0
+
 int LoadIdsString(void* Unused, unsigned int Ids, wchar_t* Buf, int BufChars)
 {
 	(void)Unused;

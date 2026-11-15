@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "StdAfx.h"
@@ -10,34 +6,34 @@
 #include "OutpostServerDoc.h"
 #include "OutpostServer.h"
 
-#include "dacom.h"
+#include "neuroncomponents.h"
 
 #include <algorithm>
 #include <cstdarg>
 #include <cstdio>
 
-// .data:00427900 — guards the console view pointer, the FDUMP swap and the log buffer.
-// Retail creates it from the static initializer at .text:0040ddc0 (the tail of the document
+// — guards the console view pointer, the FDUMP swap and the log buffer.
+// baseline creates it from the static initializer at module storage (the tail of the document
 // TU's initializers); it is defined here next to its only users.
 HANDLE GLogMutex = CreateMutexA(NULL, FALSE, NULL);
 
-// .data:00427d2c — the view ServerLogf writes to (set by the view ctor, cleared by its dtor).
+// — the view ServerLogf writes to (set by the view ctor, cleared by its dtor).
 static COutpostServerView* GLogView = NULL;
-// .data:00427d28 — DACOM's FDUMP before the view replaced it.
+// — NEURONCOMPONENTS's FDUMP before the view replaced it.
 static void(__cdecl* GPrevFdump)(int, const char*, ...) = NULL;
-// .data:00427920 — the formatted line. Retail's buffer is 0x400 bytes and the '\n' append can
-// store its terminator one byte past it (into .data:00427d20); the extra byte keeps that
+// — the formatted line. baseline's buffer is 0x400 bytes and the '\n' append can
+// store its terminator one byte past it (into module storage); the extra byte keeps that
 // store inside this object.
 static char GLogBuffer[0x400 + 1];
-// .data:004258d4 — running line number of c:\OutpostServerErrors.log (starts at 1).
+// — running line number of c:\OutpostServerErrors.log (starts at 1).
 static int GErrorLogLine = 1;
 
-// Text colours (.data:004258b8..004258d0, COLORREF 0x00bbggrr).
-static const COLORREF GColorError = 0x000000ff;     // .data:004258b8 levels 0 and 1
-static const COLORREF GColorDefault = 0x0000ff00;   // .data:004258bc
-static const COLORREF GColorWarning = 0x0000ffff;   // .data:004258c0 level 2
-static const COLORREF GColorPrompt = 0x00ffff00;    // .data:004258cc lines with '>' at [5]
-static const COLORREF GColorText = 0x00ffffff;      // .data:004258d0 OnInitialUpdate
+// Text colours (module storage..004258d0, COLORREF 0x00bbggrr).
+static const COLORREF GColorError = 0x000000ff;     // levels 0 and 1
+static const COLORREF GColorDefault = 0x0000ff00;
+static const COLORREF GColorWarning = 0x0000ffff;   // level 2
+static const COLORREF GColorPrompt = 0x00ffff00;    // lines with '>' at [5]
+static const COLORREF GColorText = 0x00ffffff;      // OnInitialUpdate
 
 // The CHARFORMAT every call site builds on the stack: zeroed, cbSize = sizeof(CHARFORMATA)
 // (0x3c), dwMask = CFM_COLOR, crTextColor = Color.
@@ -51,13 +47,13 @@ static void SetViewTextColor(CRichEditView* View, COLORREF Color)
 	View->SetCharFormat(Format);
 }
 
-// IMPLEMENT_DYNCREATE(COutpostServerView, CRichEditView): CRuntimeClass .rdata:0041d49c
+// IMPLEMENT_DYNCREATE(COutpostServerView, CRichEditView): CRuntimeClass module storage
 // {"COutpostServerView", 0x188, 0xffff, CreateObject 0040dde0, _GetBaseClass 0040de90};
 // GetRuntimeClass 0040dea0.
 IMPLEMENT_DYNCREATE(COutpostServerView, CRichEditView)
 
-// .rdata:0041d548 (GetMessageMap 0040dec0, base CRichEditView::messageMap 0040deb0),
-// entries .rdata:0041d4b8.
+// (GetMessageMap 0040dec0, base CRichEditView::messageMap 0040deb0),
+// entries module storage.
 BEGIN_MESSAGE_MAP(COutpostServerView, CRichEditView)
 	ON_WM_DESTROY()
 	ON_WM_KEYDOWN()
@@ -66,7 +62,7 @@ BEGIN_MESSAGE_MAP(COutpostServerView, CRichEditView)
 	ON_COMMAND(ID_FILE_PRINT_PREVIEW, &CRichEditView::OnFilePrintPreview)
 END_MESSAGE_MAP()
 
-// .text:0040ded0
+
 COutpostServerView::COutpostServerView()
 {
 	LineCount = 0;
@@ -77,7 +73,7 @@ COutpostServerView::COutpostServerView()
 	ReleaseMutex(GLogMutex);
 }
 
-// .text:0040df40
+
 COutpostServerView::~COutpostServerView()
 {
 	WaitForSingleObject(GLogMutex, INFINITE);
@@ -86,13 +82,13 @@ COutpostServerView::~COutpostServerView()
 	ReleaseMutex(GLogMutex);
 }
 
-// .text:0040e040
+
 BOOL COutpostServerView::PreCreateWindow(CREATESTRUCT& Cs)
 {
 	return CRichEditView::PreCreateWindow(Cs);
 }
 
-// .text:0040e050
+
 void COutpostServerView::OnInitialUpdate()
 {
 	CRichEditView::OnInitialUpdate();
@@ -108,19 +104,19 @@ void COutpostServerView::OnInitialUpdate()
 	}
 }
 
-// .text:0040e160
+
 BOOL COutpostServerView::OnPreparePrinting(CPrintInfo* Info)
 {
 	return DoPreparePrinting(Info);
 }
 
-// .text:0040e170 — deactivate an in-place item that belongs to this view.
-// Retail order: base OnDestroy first, then the document query (vtbl+0xb8). CRichEditView::
+// — deactivate an in-place item that belongs to this view.
+// baseline order: base OnDestroy first, then the document query (vtbl+0xb8). CRichEditView::
 // OnDestroy Release()s m_lpRichEditOle without clearing it, and CRichEditDoc::
 // GetInPlaceActiveItem then calls IRichEditOle::GetObject through that pointer. Under MFC 4.2
 // with the 2003 riched20 the control still held the object, so the call was harmless; the
 // MFC 14 / msftedit control frees it on that Release and the query jumped through a dead
-// vtable. One extra reference across the retail-order query keeps the object alive exactly as
+// vtable. One extra reference across the baseline-order query keeps the object alive exactly as
 // the old control did (deviations.md: "OutpostServer: IRichEditOle reference across OnDestroy").
 void COutpostServerView::OnDestroy()
 {
@@ -141,13 +137,13 @@ void COutpostServerView::OnDestroy()
 	}
 }
 
-// .text:0040e680
+
 void COutpostServerView::OnKeyDown(UINT Char, UINT RepCnt, UINT Flags)
 {
 	CRichEditView::OnKeyDown(Char, RepCnt, Flags);
 }
 
-// .text:0040e280
+
 bool COutpostServerView::TrimLines()
 {
 	CRichEditCtrl& Ctrl = GetRichEditCtrl();
@@ -169,7 +165,7 @@ bool COutpostServerView::TrimLines()
 	return true;
 }
 
-// .text:0040e330
+
 int __cdecl ServerLogf(ErrorCode Code, const char* Format, ...)
 {
 	WaitForSingleObject(GLogMutex, INFINITE);
@@ -196,7 +192,7 @@ int __cdecl ServerLogf(ErrorCode Code, const char* Format, ...)
 	_vsnprintf(GLogBuffer, 0x400, Format, Args);
 	va_end(Args);
 	size_t Length = strlen(GLogBuffer);
-	// Retail reads GLogBuffer[-1] (a zero padding byte) for an empty line.
+	// baseline reads GLogBuffer[-1] (a zero padding byte) for an empty line.
 	if ((Length == 0 || GLogBuffer[Length - 1] != '\n') && Length < 0x400)
 	{
 		GLogBuffer[Length] = '\n';

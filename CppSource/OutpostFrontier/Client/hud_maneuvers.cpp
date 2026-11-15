@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "hud_maneuvers.h"
@@ -22,7 +18,7 @@
 #include "nn_messaging.h"
 #include "nn_modal.h"
 #include "nn_button_control.h"   // NnButtonControl::MontageTile (+0x338)
-#include "nn_montage_draw.h"     // FindButtonMontageTile (FUN_0055a360)
+#include "nn_montage_draw.h"     // FindButtonMontageTile (the routine)
 #include "nn_ui_pulse.h"
 #include "perf_options.h"
 #include "player_behavior.h"
@@ -32,9 +28,9 @@
 #include "win3d.h"
 #include "win3d_engine_submit.h"
 
-#include "DALib.h"
-#include "dacom.h"
-#include "engine/engbase.h"
+#include "NeuronRuntime.h"
+#include "neuroncomponents.h"
+#include "engine/sceneruntime.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -42,14 +38,14 @@
 
 namespace
 {
-    // DAT_00674a58.
+    // .
     HUD_Maneuvers* G_HudManeuvers = nullptr;
 
-    // LAB_004d75a0 / LAB_004d75c0 (static initializers): DAT_00674a18, DAT_00674a14.
+    // / the branch (static initializers): the field, the field.
     unsigned const G_ManeuverVoiceCancelled = CreateID("cancelled");
     unsigned const G_ManeuverVoiceTradeLaneDisrupted = CreateID("nnvoice_trade_lane_disrupted");
 
-    // DAT_00612638 -- the behaviour name -> button command table (four entries).
+    // the behaviour name -> button command table (four entries).
     FHudNamedValue const kManeuverCommands[4] = {
         {"Dock", 0x79},
         {"Goto", 0x7a},
@@ -57,7 +53,7 @@ namespace
         {"FreeFlight", 0xc6},
     };
 
-    // DAT_006125fc -- the four buttons' rest offsets (12 bytes each; the loop at 0x004d7c03
+    // the four buttons' rest offsets (12 bytes each; the loop at 0x004d7c03
     // walks EDI from 0x00612600 to 0x00612630).
     float const kButtonHomeOffsets[4][3] = {
         {0.0f, 0.231f, 0.3f},
@@ -66,8 +62,8 @@ namespace
         {-0.03f, 0.231f, 0.015f},
     };
 
-    // DAT_00612654 -- the frame mesh indexed by the button count (clamped to 9). Entry 0 is the
-    // last dword of kManeuverCommands (0xc6), which retail would read as a string pointer; the
+    // the frame mesh indexed by the button count (clamped to 9). Entry 0 is the
+    // last dword of kManeuverCommands (0xc6), which baseline would read as a string pointer; the
     // only caller (UpdateButtons) counts every one of the four buttons, so index 0 is never
     // loaded -- the ctor leaves FrameButtonCount at 0, which the equality test skips.
     char const* const kFrameMeshes[10] = {
@@ -83,13 +79,13 @@ namespace
         "Interface\\HUD\\HUD_maneuverbox9.cmp",
     };
 
-    // DAT_0061262c -- the tab mesh UpdateTabAndCruise puts back.
+    // the tab mesh UpdateTabAndCruise puts back.
     char const* const kTabMesh = "Interface\\Baseside\\CITY_maneuvertab1.cmp";
 
-    // DAT_005d8274 (.rdata, a zero dword) -- the second id of the formation request.
+    // (.rdata, a zero dword) -- the second id of the formation request.
     unsigned const kFormationRequestSecondId = 0;
 
-    // FUN_00489e80(Id, 0) -- the NN voice queue (nn_messaging.cpp).
+    // (Id, 0) -- the NN voice queue (nn_messaging.cpp).
     void QueueManeuverVoice(unsigned VoiceId)
     {
         NnVoiceEnqueue(VoiceId, 0);
@@ -139,7 +135,7 @@ namespace
         if (ClientMeshHolderHasInstance(&Control->MeshHolder))
         {
             float const* const Source =
-                DALib::Engine->GetInstanceTransform(Control->MeshHolder.EngineInstance);
+                NeuronRuntime::Engine->GetInstanceTransform(Control->MeshHolder.EngineInstance);
             memcpy(Out12, Source, 12 * sizeof(float));
         }
         else
@@ -153,7 +149,7 @@ namespace
         Out12[11] = Out12[11] + Control->HitOffset[2];
     }
 
-    // The player IObjRW's ship (FUN_0054baf0, +0xc, CBase::Object, class & 0x503), or null.
+    // The player IObjRW's ship (the routine, +0xc, CBase::Object, class & 0x503), or null.
     CShip* PlayerShip(IObjRW* Player)
     {
         return HudShipOfObjRw(Player);
@@ -168,7 +164,7 @@ namespace
 bool HudLookupNamedValue(FHudNamedValue const* Table, char const* Name, int* OutValue,
                          unsigned Count)
 {
-    // FUN_004d9ca0.
+    // .
     for (unsigned i = 0; i < Count; ++i)
     {
         if (Table[i].Name != nullptr && _stricmp(Name, Table[i].Name) == 0)
@@ -187,18 +183,18 @@ HUD_Maneuvers* GetHudManeuvers()
 
 HUD_Maneuvers::HUD_Maneuvers(INI_Reader& Reader)
 {
-    // FUN_004d75e0: HUDItem inlined (watcher FUN_004c95b0(0)), WinControl FUN_0059f860, the
-    // empty vector, the watcher at +0x390 zeroed, the four vptrs, DAT_00674a58 = this.
+    // HUDItem inlined (watcher the routine(0)), WinControl the routine, the
+    // empty vector, the watcher at +0x390 zeroed, the four vptrs, the field = this.
     G_HudManeuvers = this;
 
-    // 0x004d76c1..0x004d7924
+
     while (Reader.read_value())
     {
         if (!Reader.is_value("maneuver"))
             continue;
 
-        // 0x004d76e5..0x004d7718: a local with the three strings emptied, appended
-        // (FUN_004d9a70 is vector::insert at end); the rest is written on the new element.
+        // a local with the three strings emptied, appended
+        // (the routine is vector::insert at end); the rest is written on the new element.
         FHudManeuver Local;
         memset(&Local, 0, sizeof(Local));
         Maneuvers.push_back(Local);
@@ -209,7 +205,7 @@ HUD_Maneuvers::HUD_Maneuvers(INI_Reader& Reader)
         Maneuver.Ids2 = static_cast<int>(Reader.get_value_float(2));        // ftol
         Maneuver.Mesh = Reader.get_value_string(3);
 
-        // 0x004d77a5..0x004d77c1: NEG / SBB / AND -- the value when found, else 0.
+        // NEG / SBB / AND -- the value when found, else 0.
         int Command = 0;
         bool const bFound = HudLookupNamedValue(kManeuverCommands, Maneuver.Name.Data, &Command, 4);
         Maneuver.CommandId = bFound ? Command : 0;
@@ -217,20 +213,20 @@ HUD_Maneuvers::HUD_Maneuvers(INI_Reader& Reader)
         Maneuver.BehaviorId = BehaviorTypes::get_behavior_id(Maneuver.Name.Data);
         Maneuver.GrayMesh = Reader.get_value_string(4);
 
-        // 0x004d7811..0x004d7912: FUN_0055a360(std::string(Mesh)), then (GrayMesh) -- the
+        // the routine(std::string(Mesh)), then (GrayMesh) -- the
         // ButtonMontage tile of each path (the first lookup loads the montage).
         Maneuver.MontageTile = FindButtonMontageTile(std::string(Maneuver.Mesh.Data));
         Maneuver.GrayMontageTile = FindButtonMontageTile(std::string(Maneuver.GrayMesh.Data));
     }
 
-    // 0x004d792a..0x004d7a28
+
     HUDItem::Name = "Maneuvers";
     HUD_Maneuvers::Create(nullptr, nullptr);   // direct call 0x004d7945
     Win3D::SetName("HUD_Maneuvers");
     ClassName = "HUD_Maneuvers";
     FormationState = 0;
     FormationTarget.set(nullptr);
-    Field398[0] = 0.039f;                      // 0x3d1fbe77
+    Field398[0] = 0.039f;
     Field398[1] = 0.039f;
     Field398[2] = 0.0f;
     Field3a4 = -1;
@@ -238,7 +234,7 @@ HUD_Maneuvers::HUD_Maneuvers(INI_Reader& Reader)
     TrailField14 = 0.0f;
     FrameButtonCount = 0;                      // Create left 9 here
     ThrottleRate = 0.0f;
-    TrailDistance = 100.0f;                    // DAT_005d828c
+    TrailDistance = 100.0f;
     bTabMeshReset = 1;
     Field3c8 = 0x13;
     Byte3cc = 0;
@@ -247,25 +243,25 @@ HUD_Maneuvers::HUD_Maneuvers(INI_Reader& Reader)
 
 HUD_Maneuvers::~HUD_Maneuvers()
 {
-    // FUN_004d7a70: DAT_00674a58 = 0, then the +0x390 watcher (set_pointer(0) when watching),
-    // the vector freed, Event::Handler FUN_00576010, ~WinControl FUN_0059fa50 and HUDItem's
+    // the field = 0, then the +0x390 watcher (set_pointer(0) when watching),
+    // the vector freed, Event::Handler the routine, ~WinControl the routine and HUDItem's
     // watcher -- the member and base destructors, in that order.
     G_HudManeuvers = nullptr;
 }
 
 bool HUD_Maneuvers::Create(Win3D* NewParent, void* Data)
 {
-    // FUN_004d7b50 (this = the WinControl face).
+    // (this = the WinControl face).
     float const Zero[3] = {0.0f, 0.0f, 0.0f};
 
-    float const FramePos[3] = {0.0f, 0.176f, -0.5f};          // 0x3e343958, 0xbf000000
+    float const FramePos[3] = {0.0f, 0.176f, -0.5f};          // , 0xbf000000
     Frame = CreateStaticControl("ManeuverFrame", "Interface\\HUD\\HUD_maneuverbox9.cmp", FramePos,
                                 nullptr, Zero, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, Zero);
     FrameButtonCount = 9;
     WinControlHalfExtentsFromMesh(FrameHalfExtents, &Frame->MeshHolder);
 
-    // 0x004d7bf4..0x004d7cda: the first four elements, whatever the vector holds.
-    float const ButtonHalf[3] = {0.014f, 0.014f, 0.0f};        // 0x3c656042
+    // the first four elements, whatever the vector holds.
+    float const ButtonHalf[3] = {0.014f, 0.014f, 0.0f};
     for (int i = 0; i < 4; ++i)
     {
         char ButtonName[0x64];
@@ -284,19 +280,19 @@ bool HUD_Maneuvers::Create(Win3D* NewParent, void* Data)
         Button->SetProperty(1, 1, 0);
     }
 
-    float const TabPos[3] = {0.0f, 0.292f, -1.0f};             // 0x3e958106, 0xbf800000
+    float const TabPos[3] = {0.0f, 0.292f, -1.0f};             // , 0xbf800000
     Tab = CreateStaticControl("ManeuverTab", "Interface\\Baseside\\CITY_maneuvertab1.cmp", TabPos,
                               nullptr, Zero, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, Zero);
     Tab->SetProperty(1, 1, 0);
     WinControlHalfExtentsFromMesh(TabHalfExtents, &Tab->MeshHolder);
 
-    float const CruisePos[3] = {0.0f, 0.297f, 0.0f};           // 0x3e981062
+    float const CruisePos[3] = {0.0f, 0.297f, 0.0f};
     CruiseButton = CreateButtonControl("ManeuverCruiseButton", "interface\\HUD\\hud_mnvrwarp.3db",
                                        nullptr, "ui_select_item", nullptr, CruisePos, nullptr,
                                        ButtonHalf, 0, 1, 0, 0, 0xbf9, 0, 0x45);
     CruiseButton->SetProperty(1, 1, 0);
 
-    // 0x004d7e08..0x004d7ef2: FUN_005760d0 on the handler at +0x364, in this order.
+    // the routine on the handler at +0x364, in this order.
     unsigned const Commands[0x18] = {
         0x74, 0x76, 0x79, 0x7a, 0x7b, 0x77, 0x78, 0x7e, 0x7f, 0x80, 0xc6, 0x45,
         0x81, 0x82, 0x83, 0x84, 0x86, 0x85, 0x87, 0x88, 0x43, 0x44, 0x04, 0x0f,
@@ -306,20 +302,20 @@ bool HUD_Maneuvers::Create(Win3D* NewParent, void* Data)
 
     SetOffset(0.0f, 0.0f, -1.0f);
     SetPosition(Position);
-    return Win3D::Create(NewParent, Data);     // FUN_004b5060, SETNZ
+    return Win3D::Create(NewParent, Data);     // , SETNZ
 }
 
 bool HUD_Maneuvers::OnEvent(unsigned MsgId)
 {
-    // LAB_004d7f60 (this = the handler face at +0x364).
-    // 0x004d7f66..0x004d7f89: brake key up.
+    // (this = the handler face at +0x364).
+    // brake key up.
     if (MsgId == 0x78 && HudCommandRecord()->Byte18 == 0)
     {
         SetPlayerBrakeReverse(false);
         return true;
     }
 
-    // 0x004d7f8c..0x004d7fa0 -> 0x004d8414: with the pick blocked or the letterbox up only the
+    // -> 0x004d8414: with the pick blocked or the letterbox up only the
     // strafe key-ups get through.
     if (HudIsMousePickBlocked() || IsLetterboxVisible())
     {
@@ -331,7 +327,7 @@ bool HUD_Maneuvers::OnEvent(unsigned MsgId)
         return true;
     }
 
-    // 0x004d7fa6..0x004d7fec: the player's ship and its behaviour manager, or nothing.
+    // the player's ship and its behaviour manager, or nothing.
     CShip* const Ship = PlayerShip(static_cast<IObjRW*>(GetPlayerObjRW()));
     if (Ship == nullptr)
         return false;
@@ -343,24 +339,24 @@ bool HUD_Maneuvers::OnEvent(unsigned MsgId)
     switch (MsgId)
     {
     case 0x81:
-        // 0x004d800f: trail closer (FST, then FCOMP of the unrounded difference, TEST 5 / JP).
+        // trail closer (FST, then FCOMP of the unrounded difference, TEST 5 / JP).
         if (Current == 3)
         {
-            double const Closer = static_cast<double>(TrailDistance) - 20.0;   // DAT_005d8290
+            double const Closer = static_cast<double>(TrailDistance) - 20.0;
             TrailDistance = static_cast<float>(Closer);
-            if (Closer < 20.0)                                                // DAT_005d8284
+            if (Closer < 20.0)
                 TrailDistance = 20.0f;
             SetPlayerBehaviorDirectionGated(0.0f, 0.0f, TrailDistance);
         }
         return true;
 
     case 0x82:
-        // 0x004d804e: trail farther (TEST 0x41 / JNZ: clamped only when above 2000).
+        // trail farther (TEST 0x41 / JNZ: clamped only when above 2000).
         if (Current == 3)
         {
             double const Farther = 20.0 + static_cast<double>(TrailDistance);
             TrailDistance = static_cast<float>(Farther);
-            if (Farther > 2000.0)                                             // DAT_005d8288
+            if (Farther > 2000.0)
                 TrailDistance = 2000.0f;
             SetPlayerBehaviorDirectionGated(0.0f, 0.0f, TrailDistance);
         }
@@ -374,8 +370,8 @@ bool HUD_Maneuvers::OnEvent(unsigned MsgId)
     case 0x86:
     case 0x87:
     case 0x88:
-        // 0x004d80a4: key down -- the direction of the key; key up -- the first strafe key
-        // still held (KeyMap FUN_005784a0), else none.
+        // key down -- the direction of the key; key up -- the first strafe key
+        // still held (KeyMap the routine), else none.
         if (HudCommandRecord()->Byte18 != 0)
         {
             SetPlayerStrafeBurst(static_cast<int>(MsgId) - 0x84);
@@ -410,7 +406,7 @@ bool HUD_Maneuvers::OnEvent(unsigned MsgId)
 
     case 0x0f:
     {
-        // 0x004d81d9: USER_CANCEL.
+        // USER_CANCEL.
         if (NnMainButtonHasActivePanel())
             return false;
         if (!HudStatusIsRearView() && HudStatusIsTurretView())
@@ -421,7 +417,7 @@ bool HUD_Maneuvers::OnEvent(unsigned MsgId)
         IObjRW* const Player = static_cast<IObjRW*>(GetPlayerObjRW());
         if (Player == nullptr)
             return true;
-        // 0x004d8240: a non-ship player object gives a null CShip, which retail hands to
+        // a non-ship player object gives a null CShip, which baseline hands to
         // is_launching as it is.
         CShip* const PlayerShipNow = PlayerShip(Player);
         if (PlayerShipNow->is_launching())
@@ -472,7 +468,7 @@ bool HUD_Maneuvers::OnEvent(unsigned MsgId)
 
     case 0x04:
     {
-        // 0x004d8354: the mouse wheel steps the throttle by 0.2 (DAT_005d8298).
+        // the mouse wheel steps the throttle by 0.2 (the field).
         int const Wheel = GetClientMouseWheel();
         if (Wheel < 0)
         {
@@ -505,7 +501,7 @@ bool HUD_Maneuvers::OnEvent(unsigned MsgId)
     case 0x80:
     case 0xc6:
     {
-        // 0x004d83d1: the first of the first four maneuvers whose command this is.
+        // the first of the first four maneuvers whose command this is.
         FHudManeuver* const First = Maneuvers.data();
         for (int i = 0; i < 4; ++i)
         {
@@ -526,7 +522,7 @@ bool HUD_Maneuvers::OnEvent(unsigned MsgId)
 
 bool HUD_Maneuvers::OnResult(int Param1, int Param2, int Param3)
 {
-    // LAB_004d9410 (this = the RequestCB face at +0x368).
+    // (this = the RequestCB face at +0x368).
     (void)Param3;
     if (Param1 != 1)
         return false;
@@ -548,20 +544,20 @@ bool HUD_Maneuvers::OnResult(int Param1, int Param2, int Param3)
 
 void HUD_Maneuvers::UpdateInactive()
 {
-    // FUN_004d8570 (this = the WinControl face).
+    // (this = the WinControl face).
     if (GetClientMouseCursorDrawFlag() != 0 && GetPlayerObjRW() != nullptr &&
         !IsLetterboxVisible())
     {
-        SetHiddenWithChildren(false);          // FUN_005a0c30(0)
+        SetHiddenWithChildren(false);          // (0)
     }
-    // 0x004d8597..0x004d85b4: LAB_004682f0 inlined.
+    // the branch inlined.
     Win3D::UpdateInactive();
 }
 
 void HUD_Maneuvers::Update()
 {
-    // LAB_004d85c0 (this = the WinControl face).
-    // 0x004d85c4: TEST AH,0x44 / JNP -- skipped only when the rate compares equal to 0.
+    // (this = the WinControl face).
+    // TEST AH,0x44 / JNP -- skipped only when the rate compares equal to 0.
     if (!(ThrottleRate == 0.0f))
     {
         float const Last = GetLastPlayerThrottle();
@@ -579,28 +575,28 @@ void HUD_Maneuvers::Update()
         GetGameOption(kGameOptHud) != 0 && GetPlayerObjRW() != nullptr && !IsLetterboxVisible())
     {
         UpdateButtons();
-        Win3D::Update();                        // tail jump FUN_005a17b0
+        Win3D::Update();                        // tail jump the routine
         return;
     }
-    SetHiddenWithChildren(true);                // FUN_005a0c30(1)
-    Win3D::Update();                            // tail jump FUN_005a17b0
+    SetHiddenWithChildren(true);                // (1)
+    Win3D::Update();                            // tail jump the routine
 }
 
 void HUD_Maneuvers::Draw()
 {
-    // LAB_004d8690 (this = the WinControl face).
+    // (this = the WinControl face).
     if (IsSpaceInitInProgress())
         return;
 
-    // 0x004d86a5..0x004d86c0: without the auto-hide option (Applied <= 0.999, or NaN) the bar
+    // without the auto-hide option (Applied <= 0.999, or NaN) the bar
     // is drawn as it is.
     if (!(static_cast<double>(FindPerfOption("autohide_maneuver_bar")->Applied) > 0.999))
     {
-        WinControl::Draw();                     // FUN_005a0760
+        WinControl::Draw();
         return;
     }
 
-    // 0x004d86c6..0x004d88d7: otherwise only while the mouse ray is over the frame or the tab.
+    // otherwise only while the mouse ray is over the frame or the tab.
     float Transform[12];
     float Ray[3];
     ControlBoxTransform(Frame, Transform);
@@ -616,8 +612,8 @@ void HUD_Maneuvers::Draw()
 
 bool HUD_Maneuvers::HitTest(float const* Ray)
 {
-    // LAB_004d9820 (this = the WinControl face).
-    if (WinControl::HitTest(Ray))               // FUN_005a0340
+    // (this = the WinControl face).
+    if (WinControl::HitTest(Ray))
         return true;
     float Transform[12];
     ControlBoxTransform(Tab, Transform);
@@ -626,7 +622,7 @@ bool HUD_Maneuvers::HitTest(float const* Ray)
 
 intptr_t HUD_Maneuvers::SetProperty(int Msg, uintptr_t A, uintptr_t B)
 {
-    // LAB_004d8da0 (this = the WinControl face). Only 0x26 is handled; nothing is forwarded to
+    // (this = the WinControl face). Only 0x26 is handled; nothing is forwarded to
     // WinControl.
     (void)B;
     if (Msg != 0x26)
@@ -634,7 +630,7 @@ intptr_t HUD_Maneuvers::SetProperty(int Msg, uintptr_t A, uintptr_t B)
     IObjRW* const Player = static_cast<IObjRW*>(GetPlayerObjRW());
     if (Player == nullptr)
         return 0;
-    // 0x004d8db3..0x004d8dd2: the behaviour manager is fetched and not used.
+    // the behaviour manager is fetched and not used.
     CShip* const Ship = PlayerShip(Player);
     (void)Ship->get_behavior_interface();
 
@@ -651,7 +647,7 @@ intptr_t HUD_Maneuvers::SetProperty(int Msg, uintptr_t A, uintptr_t B)
 
 void HUD_Maneuvers::UpdateButtons()
 {
-    // FUN_004d88f0.
+    // .
     IObjRW* const Player = static_cast<IObjRW*>(GetPlayerObjRW());
     if (Player == nullptr)
         return;
@@ -659,7 +655,7 @@ void HUD_Maneuvers::UpdateButtons()
     int const Current = Behavior->CurrentBehaviorIndex;
     int const ManeuverCount = static_cast<int>(Maneuvers.size());
 
-    // 0x004d8974: buttons 0, 2, 1, 3.
+    // buttons 0, 2, 1, 3.
     int const Order[4] = {0, 2, 1, 3};
     FHudManeuver* LastShown = nullptr;
     int Shown = 0;
@@ -670,7 +666,7 @@ void HUD_Maneuvers::UpdateButtons()
         int const Id = Maneuver->BehaviorId;
         Maneuver->bSelected = 0;
 
-        // 0x004d89bb..0x004d8a02: available unless (-1 / 0x12 and not the current behaviour),
+        // available unless (-1 / 0x12 and not the current behaviour),
         // or the manager answers 2 (EvalSkip) for it -- which a disrupted trade-lane dock and the
         // current behaviour still pass.
         bool bAvailable = true;
@@ -690,7 +686,7 @@ void HUD_Maneuvers::UpdateButtons()
         WinControl* const Button = Buttons[Index];
         if (bAvailable)
         {
-            // 0x004d8a08..0x004d8ab2
+
             ++Shown;
             Button->SetProperty(1, 0, 0);
             LastShown = Maneuver;
@@ -719,7 +715,7 @@ void HUD_Maneuvers::UpdateButtons()
         }
         else
         {
-            // 0x004d8ad4..0x004d8b1f: shown too, gray, and tinted with B = 1. The +0x338 store
+            // shown too, gray, and tinted with B = 1. The +0x338 store
             // sits between the mesh and the colour call.
             Button->SetProperty(1, 0, 0);
             Button->SetProperty(4, reinterpret_cast<uintptr_t>(Maneuver->GrayMesh.Data), 0);
@@ -733,18 +729,18 @@ void HUD_Maneuvers::UpdateButtons()
 
     SetFrameButtonCount(Shown);
 
-    // 0x004d8b50..0x004d8bd3: the visible buttons laid out left to right, 0.04 apart
-    // (DAT_005d845c), centred (an even count starts half a step, DAT_005d1fe4, to the right).
+    // the visible buttons laid out left to right, 0.04 apart
+    // (the field), centred (an even count starts half a step, the field, to the right).
     float const Start = (Shown & 1) != 0 ? 0.0f : 0.02f;
     float X = static_cast<float>(static_cast<double>(Start) -
                                  static_cast<double>(Shown / 2) * static_cast<double>(0.04f));
     for (int i = 0; i < ManeuverCount; ++i)
     {
-        // Retail walks Buttons[] as far as the vector's size (hud.ini has four lines).
+        // baseline walks Buttons[] as far as the vector's size (hud.ini has four lines).
         WinControl* const Button = Buttons[i];
         if ((Button->Flags & kWin3DVisible) == 0)
             continue;
-        float const Pos[3] = {X, 0.1777f, 0.5f};    // 0x3e35f6fd, 0x3f000000
+        float const Pos[3] = {X, 0.1777f, 0.5f};    // , 0x3f000000
         Button->SetProperty(6, reinterpret_cast<uintptr_t>(Pos), 0);
         X = X + 0.04f;
     }
@@ -754,7 +750,7 @@ void HUD_Maneuvers::UpdateButtons()
 
 void HUD_Maneuvers::UpdateTabAndCruise(int BehaviorId)
 {
-    // FUN_004d8bf0.
+    // .
     if (BehaviorId != 0x13 && BehaviorId != 2 && BehaviorId != 3 && BehaviorId != 5 &&
         BehaviorId != 7)
     {
@@ -765,7 +761,7 @@ void HUD_Maneuvers::UpdateTabAndCruise(int BehaviorId)
 
     Tab->SetProperty(1, 0, 0);
 
-    // 0x004d8c4d..0x004d8c90: the offset of the button the tab sits under (Goto: button 1,
+    // the offset of the button the tab sits under (Goto: button 1,
     // Dock: button 2, anything else: button 0), read through property 7.
     float Offset[3] = {0.0f, 0.0f, 0.0f};
     WinControl* Anchor = Buttons[0];
@@ -782,19 +778,19 @@ void HUD_Maneuvers::UpdateTabAndCruise(int BehaviorId)
         WinControlHalfExtentsFromMesh(TabHalfExtents, &Tab->MeshHolder);
     }
 
-    // 0x004d8cd4..0x004d8cff
+
     Offset[0] = Offset[0] + Offset[0];
-    Offset[1] = 0.294f;                          // 0x3e966cf5
+    Offset[1] = 0.294f;
     Offset[2] = -1.0f;
     Tab->SetProperty(6, reinterpret_cast<uintptr_t>(Offset), 0);
 
-    // 0x004d8d05..0x004d8d4a: the cruise button is shown either way; away from Goto, FreeFlight
-    // and Dock it moves left by 0.032 (DAT_005d69c0).
+    // the cruise button is shown either way; away from Goto, FreeFlight
+    // and Dock it moves left by 0.032 (the field).
     CruiseButton->SetProperty(1, 0, 0);
     if (BehaviorId != 2 && BehaviorId != 0x13 && BehaviorId != 7)
         Offset[0] = Offset[0] - 0.032f;
 
-    Offset[1] = 0.297f;                          // 0x3e981062
+    Offset[1] = 0.297f;
     Offset[2] = 0.0f;
     CruiseButton->SetProperty(6, reinterpret_cast<uintptr_t>(Offset), 0);
     CruiseButton->SetProperty(0xc, GetPlayerEngineCruiseActive() ? 1u : 0u, 0);
@@ -802,11 +798,11 @@ void HUD_Maneuvers::UpdateTabAndCruise(int BehaviorId)
 
 bool HUD_Maneuvers::RequestManeuver(int BehaviorId, bool bFlag)
 {
-    // FUN_004d8e20.
+    // .
     IObjRW* const Player = static_cast<IObjRW*>(GetPlayerObjRW());
     if (Player == nullptr)
         return false;
-    // 0x004d8e46..0x004d8e67: a non-ship player object gives a null CShip, which retail passes
+    // a non-ship player object gives a null CShip, which baseline passes
     // to get_behavior_interface as it is.
     CShip* const Ship = PlayerShip(Player);
     IBehaviorManager* const Behavior = Ship->get_behavior_interface();
@@ -814,13 +810,13 @@ bool HUD_Maneuvers::RequestManeuver(int BehaviorId, bool bFlag)
     IDirectiveInfo const Info = MakeDirectiveInfo(1, BehaviorId);   // +0x24 {1, 0, id}
     bool bResult = false;
 
-    // 0x004d8e7c: switch on BehaviorId + 1 (byte table 0x004d93ec, eleven cases).
+    // switch on BehaviorId + 1 (byte table 0x004d93ec, eleven cases).
     switch (BehaviorId)
     {
     case -1:
     case 0x13:
     {
-        // 0x004d8ea5: free flight -- {1, 0, 0x13} with no op, then the steering reset.
+        // free flight -- {1, 0, 0x13} with no op, then the steering reset.
         IDirectiveInfo const FreeFlight = MakeDirectiveInfo(1, 0x13);
         bResult = Behavior->set_current_directive(FreeFlight, nullptr);
         ResetPlayerBehaviorDirection();
@@ -829,7 +825,7 @@ bool HUD_Maneuvers::RequestManeuver(int BehaviorId, bool bFlag)
 
     case 3:
     {
-        // 0x004d8ed4: trail the ship's target.
+        // trail the ship's target.
         pub::AI::DirectiveTrailOp Op;
         IObjRW* const Target = Ship->get_target();
         if (Target == nullptr)
@@ -843,7 +839,7 @@ bool HUD_Maneuvers::RequestManeuver(int BehaviorId, bool bFlag)
 
     case 0xd:
     {
-        // 0x004d8f2b: strafe past the target.
+        // strafe past the target.
         pub::AI::DirectiveStrafeOp Op;
         IObjRW* const Target = Ship->get_target();
         if (Target == nullptr)
@@ -855,7 +851,7 @@ bool HUD_Maneuvers::RequestManeuver(int BehaviorId, bool bFlag)
 
     case 0xf:
     {
-        // 0x004d8f6a: face the target (mode 1), or a point 10000 ahead (mode 2, DAT_005ca21c).
+        // face the target (mode 1), or a point 10000 ahead (mode 2, the field).
         pub::AI::DirectiveFaceOp Op;
         IObjRW* const Target = Ship->get_target();
         if (Target != nullptr)
@@ -881,7 +877,7 @@ bool HUD_Maneuvers::RequestManeuver(int BehaviorId, bool bFlag)
 
     case 2:
     {
-        // 0x004d902f: go to the target, or to a point 100000 ahead (DAT_005d8460).
+        // go to the target, or to a point 100000 ahead (the field).
         pub::AI::DirectiveGotoOp Op;
         Op.Field_58 = 0;
         IObjRW* const Target = Ship->get_target();
@@ -892,34 +888,34 @@ bool HUD_Maneuvers::RequestManeuver(int BehaviorId, bool bFlag)
             float Radius = 0.0f;
             Vector Center;
             Target->get_physical_radius(Radius, Center);
-            // get_type's result is not tested; the type word is read either way (retail reads
+            // get_type's result is not tested; the type word is read either way (baseline reads
             // an unwritten stack slot when the call fails; the port starts it at 0).
             unsigned Type = 0;
             Target->get_type(Type);
-            float Factor = 1.0f;                                   // 0x004d908b
+            float Factor = 1.0f;
             if ((Type & 0x30000u) != 0)
-                Factor = 5.0f;                                     // DAT_005d8464
+                Factor = 5.0f;
             else if ((Type & 0x140000u) != 0)
-                Factor = 2.0f;                                     // DAT_005d55b4
+                Factor = 2.0f;
             else if ((Type & 0x680000u) != 0)
-                Factor = 1.0f;                                     // DAT_005c75dc
+                Factor = 1.0f;
             else if ((Type & 0xfu) != 0)
-                Factor = 0.5f;                                     // DAT_005c75e0
+                Factor = 0.5f;
             else if ((Type & 0xfdffu) != 0)
-                Factor = 1.0f;                                     // DAT_005c75dc
+                Factor = 1.0f;
             double const Range = static_cast<double>(Factor) * static_cast<double>(Radius);
             Op.Field_50 = static_cast<float>(Range);
-            if (Range < 100.0)                                     // DAT_005ca320, TEST 5 / JP
+            if (Range < 100.0)                                     // , TEST 5 / JP
                 Op.Field_50 = 100.0f;
             if (Type == 0x200u)
                 Op.Field_50 = 100.0f;
             else if (Type == 0x80u)
-                Op.Field_50 = 750.0f;                              // 0x443b8000
+                Op.Field_50 = 750.0f;
         }
         else
         {
             Op.Field_0C = 1;
-            Op.Field_50 = 500.0f;                                  // 0x43fa0000
+            Op.Field_50 = 500.0f;
             float Point[3];
             PointAlongShipZ(Ship, -100000.0f, Point);
             Op.Destination.x = Point[0];
@@ -934,10 +930,10 @@ bool HUD_Maneuvers::RequestManeuver(int BehaviorId, bool bFlag)
 
     case 0xa:
     {
-        // 0x004d91d6: formation.
+        // formation.
         if (bFlag)
         {
-            // 0x004d91e1: the accepted request -- the op is set, the result is not kept.
+            // the accepted request -- the op is set, the result is not kept.
             pub::AI::DirectiveFormationOp Op;
             Behavior->set_current_directive(Info, &Op);
             break;
@@ -945,7 +941,7 @@ bool HUD_Maneuvers::RequestManeuver(int BehaviorId, bool bFlag)
         if (FormationState == 1)
             break;
 
-        // 0x004d9212..0x004d92f2: watch the target (or its formation leader), then ask the
+        // watch the target (or its formation leader), then ask the
         // player's ship for a formation request (IObjAffect slot 23) and return at once.
         IObjRW* const Target = Ship->get_target();
         FormationTarget.set(Target != nullptr ? static_cast<Watchable const*>(Target) : nullptr);
@@ -970,7 +966,7 @@ bool HUD_Maneuvers::RequestManeuver(int BehaviorId, bool bFlag)
 
     case 7:
     {
-        // 0x004d9304: dock with the target.
+        // dock with the target.
         pub::AI::DirectiveDockOp Op;
         IObjRW* const Target = Ship->get_target();
         if (Target == nullptr)
@@ -982,7 +978,7 @@ bool HUD_Maneuvers::RequestManeuver(int BehaviorId, bool bFlag)
 
     case 0xc:
     case 0x10:
-        // 0x004d9340 / 0x004d9349: the directive with no op.
+        // / 0x004d9349: the directive with no op.
         bResult = Behavior->set_current_directive(Info, nullptr);
         break;
 
@@ -991,8 +987,8 @@ bool HUD_Maneuvers::RequestManeuver(int BehaviorId, bool bFlag)
         break;
     }
 
-    // 0x004d935a..0x004d93ac: with a target, IServer::SetManeuver (slot 66, +0x108) on the
-    // connection DAT_00673344 with {this panel's object id, the target's id, BehaviorId}.
+    // with a target, IServer::SetManeuver (slot 66, +0x108) on the
+    // connection the field with {this panel's object id, the target's id, BehaviorId}.
     IObjRW* const Target = Ship->get_target();
     if (Target != nullptr)
     {
@@ -1007,7 +1003,7 @@ bool HUD_Maneuvers::RequestManeuver(int BehaviorId, bool bFlag)
 
 void HUD_Maneuvers::ActivateManeuver(FHudManeuver* Maneuver)
 {
-    // FUN_004d9470.
+    // .
     IObjRW* const Player = static_cast<IObjRW*>(GetPlayerObjRW());
     if (Player == nullptr)
         return;
@@ -1028,7 +1024,7 @@ void HUD_Maneuvers::ActivateManeuver(FHudManeuver* Maneuver)
     int const Id = Maneuver->BehaviorId;
     if (Current == Id)
     {
-        // 0x004d950a: the running maneuver again -- re-sent unless it is none / free flight.
+        // the running maneuver again -- re-sent unless it is none / free flight.
         if (Current == -1 || Current == 0x13)
             return;
         RequestManeuver(Id, false);
@@ -1037,28 +1033,28 @@ void HUD_Maneuvers::ActivateManeuver(FHudManeuver* Maneuver)
 
     if (Behavior->external_player_evaluate(Id) != EvalSkip)
     {
-        // 0x004d953a: FUN_00489ea0(Name) -- CreateID(Name) into the voice queue.
+        // the routine(Name) -- CreateID(Name) into the voice queue.
         NnVoiceEnqueueByName(Maneuver->Name.Data);
         RequestManeuver(Maneuver->BehaviorId, false);
         if (Maneuver->BehaviorId == 3)
         {
-            TrailDistance = 100.0f;              // DAT_005d828c
+            TrailDistance = 100.0f;
             TrailField14 = 0.0f;
         }
         return;
     }
 
-    // 0x004d957b: refused -- a dock at a trade-lane ring with its shield down says why.
+    // refused -- a dock at a trade-lane ring with its shield down says why.
     if (Maneuver->BehaviorId == 7 && IsTargetTradeLaneDisrupted())
         QueueManeuverVoice(G_ManeuverVoiceTradeLaneDisrupted);
 }
 
 void HUD_Maneuvers::SetFrameButtonCount(int Count)
 {
-    // FUN_004d95b0.
+    // .
     if (Count == -1)
     {
-        // 0x004d95c4..0x004d9663: count the maneuvers the manager does not refuse.
+        // count the maneuvers the manager does not refuse.
         Count = 0;
         IObjRW* const Player = static_cast<IObjRW*>(GetPlayerObjRW());
         if (Player == nullptr)
@@ -1081,21 +1077,21 @@ void HUD_Maneuvers::SetFrameButtonCount(int Count)
     Frame->SetProperty(4, reinterpret_cast<uintptr_t>(kFrameMeshes[FrameButtonCount]), 0);
     WinControlHalfExtentsFromMesh(FrameHalfExtents, &Frame->MeshHolder);
 
-    // 0x004d96c2..0x004d973f: the frame box grows (x1.1, y2.5); this window's own box and hit
+    // the frame box grows (x1.1, y2.5); this window's own box and hit
     // offset are fixed.
-    FrameHalfExtents[1] = FrameHalfExtents[1] * 2.5f;     // DAT_005d74c8
-    HalfExtents[0] = 0.174f;                               // 0x3e322d0e
-    FrameHalfExtents[0] = FrameHalfExtents[0] * 1.1f;     // DAT_005d8468
-    HalfExtents[1] = 0.036f;                               // 0x3d1374bc
+    FrameHalfExtents[1] = FrameHalfExtents[1] * 2.5f;
+    HalfExtents[0] = 0.174f;
+    FrameHalfExtents[0] = FrameHalfExtents[0] * 1.1f;
+    HalfExtents[1] = 0.036f;
     HalfExtents[2] = 0.0f;
-    HitOffset[0] = 0.002f;                                 // 0x3b03126f
-    HitOffset[1] = 0.351f;                                 // 0x3eb3b646
+    HitOffset[0] = 0.002f;
+    HitOffset[1] = 0.351f;
     HitOffset[2] = 0.0f;
 }
 
 bool HUD_Maneuvers::IsTargetTradeLaneDisrupted()
 {
-    // FUN_004d9750.
+    // .
     IObjRW* const Player = static_cast<IObjRW*>(GetPlayerObjRW());
     if (Player == nullptr)
         return false;
@@ -1108,7 +1104,7 @@ bool HUD_Maneuvers::IsTargetTradeLaneDisrupted()
     unsigned Type = 0;
     if (Target->get_type(Type) != 0)
         return false;
-    // 0x004d97b5: JS on the low byte -- type bit 0x80 (a trade-lane ring).
+    // JS on the low byte -- type bit 0x80 (a trade-lane ring).
     if ((Type & 0x80u) == 0)
         return false;
     CObject const* const Object = Target->cobject();                  // slot +0x150

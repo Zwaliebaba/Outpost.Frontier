@@ -43,7 +43,7 @@ void qh_allstatA (void) {
   zdef_(wmin, Wmindenom, "min. denominator in hyperplane computation", -1);
 
   qhstat precision= qhstat next;  /* call qh_precision for each of these */
-  zzdef_(zdoc, Zdoc3, "precision problems", -1); /* retail 0637a890 */
+  zzdef_(zdoc, Zdoc3, "precision problems", -1);
   zzdef_(zinc, Zcoplanarridges, "coplanar half ridges in output", -1);
   zzdef_(zinc, Zconcaveridges, "concave half ridges in output", -1);
   zzdef_(zinc, Zflippedfacets, "flipped facets", -1);
@@ -59,7 +59,7 @@ void qh_allstatB (void) {
   zzdef_(zdoc, Zdoc1, "summary information", -1);
   zdef_(zinc, Zvertices, "number of vertices in output", -1);
   zdef_(zinc, Znumfacets, "number of facets in output", -1);
-  /* retail 0637aba0: no Znonsimplicial / Znowsimplicial; the first Znumridges def keeps only its id store (dead stores) */
+  /* no Znonsimplicial / Znowsimplicial; the first Znumridges def keeps only its id store (dead stores) */
   zdef_(zinc, Znumridges, "number of ridges in output", -1);
   zdef_(zadd, Znumridges, "average number of ridges per facet", Znumfacets);
   zdef_(zmax, Zmaxridges, "maximum number of ridges", -1);
@@ -96,7 +96,7 @@ void qh_allstatC (void) {
   zdef_(zmax, Zvisfacetmax,  "    maximum", -1);
   zdef_(zadd, Zvisvertextot, "ave. visible vertices per iteration", Zprocessed);
   zdef_(zmax, Zvisvertexmax, "    maximum", -1);
-  zzdef_(zadd, Zdelvertextot, "  ave. vertices deleted per iteration", Zprocessed); /* retail 0637b000 (moved here from allstatD) */
+  zzdef_(zadd, Zdelvertextot, "  ave. vertices deleted per iteration", Zprocessed); /* (moved here from allstatD) */
   zdef_(zmax, Zdelvertexmax, "    maximum vertices deleted", -1);
   zdef_(zinc, Ztothorizon, "ave. horizon facets per iteration", Zprocessed);
   zdef_(zadd, Znewfacettot,  "ave. new or merged facets per iteration", Zprocessed);
@@ -119,7 +119,7 @@ void qh_allstatC (void) {
   zzdef_(zinc, Zcheckpart, "  ave. distance tests per check", Ztotcheck);
 }
 void qh_allstatD(void) {
-  /* retail 0637b570: 17 entries; the vendored 3.1 qh_allstatE block is part of this table in retail */
+  /* 17 entries; the vendored 3.1 qh_allstatE block is part of this table in baseline */
   zdef_(zdoc, Zdoc4, "partitioning statistics", -1);
   zdef_(zinc, Zpartinside, "inside points", -1);
   zdef_(zinc, Zpartnear, "  inside points kept with a facet", -1);
@@ -253,7 +253,7 @@ void qh_allstatI(void) {
   zzdef_(zinc, Zridge0, "bounded ridges with near-zero normal", -1);
   zzdef_(wadd, Wridge0, "  ave. angle to ridge", Zridge0);
   zzdef_(wmax, Wridge0max, "  max. angle to ridge", -1);
-  /* retail 0637c720: 13 entries, no 3.1 triangulation statistics */
+  /* 13 entries, no 3.1 triangulation statistics */
 } /* allstat */
 
 /*-<a                             href="qh-stat.htm#TOC"
@@ -285,7 +285,7 @@ void qh_collectstatistics (void) {
   
   qh old_randomdist= qh RANDOMdist;
   qh RANDOMdist= False;
-  /* Retail 0637c9a8 (ADD ECX,0x16a0): sizeof(qhT)+sizeof(qhstatT) of Common.dll's own
+  /* (ADD ECX,0x16a0): sizeof(qhT)+sizeof(qhstatT) of Common.dll's own
      layouts; the vendored structs are not guaranteed to add up to the same number. */
   zval_(Zmempoints)= qh num_points * qh normal_size + 0x16a0;
   zval_(Zmemfacets)= 0;
@@ -327,7 +327,7 @@ void qh_collectstatistics (void) {
     zadd_(Znummergetot, facet->nummerge);
     i= facet->nummerge; /* avoid warnings */
     zmax_(Znummergemax, i); 
-    /* retail has no Znowsimplicial / Znonsimplicial counters (qh_collectstatistics still to be re-traced) */
+    /* baseline has no Znowsimplicial / Znonsimplicial counters (qh_collectstatistics still to be re-traced) */
     if (sizridges) {
       zadd_(Znumridges, sizridges);
       zmax_(Zmaxridges, sizridges);
@@ -420,13 +420,13 @@ void qh_initstatistics (void) {
   qh_allstatB();
   qh_allstatC();
   qh_allstatD();
-  qh_allstatE2();  /* retail 0637ce5e: no qh_allstatE */
+  qh_allstatE2();  /* no qh_allstatE */
   qh_allstatF();
   qh_allstatG();
   qh_allstatH();
   qh_allstatI();
   if (qhstat next > sizeof(qhstat id)) {
-    FUN_06356960 (/* retail 0637ce8e */ "qhull error (qh_initstatistics): increase size of qhstat.id[].\n\
+    WriteHullDiagnostic (  "qhull error (qh_initstatistics): increase size of qhstat.id[].\n\
       qhstat.next %d should be <= sizeof(qhstat id) %d\n", qhstat next, sizeof(qhstat id));
 #if 0 /* for locating error, Znumridges should be duplicated */
     for (i=0; i < ZEND; i++) {
@@ -530,7 +530,7 @@ void qh_printstatistics (FILE *fp, char *string) {
   int i, k;
   realT ave;
 
-  /* Retail 0637d060 (TEST EDI,EDI / JZ 0637d2f5): a NULL fp returns before any work,
+  /* (TEST EDI,EDI / JZ 0637d2f5): a NULL fp returns before any work,
      including the Wpbalance2/Wnewbalance2 updates. */
   if (!fp)
     return;

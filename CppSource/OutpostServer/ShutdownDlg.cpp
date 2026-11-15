@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "StdAfx.h"
@@ -10,30 +6,30 @@
 
 namespace
 {
-	// SetTimer id used by OnInitDialog (.text:00415ef6) and tested by OnTimer (.text:00415f90).
+	// SetTimer id used by OnInitDialog (module storage) and tested by OnTimer (module storage).
 	const UINT_PTR ShutdownPollTimerId = 0x3001;
 }
 
-// .text:00415e40
+
 CShutdownDlg::CShutdownDlg(CWnd* Parent)
 	: CDialog(IDD, Parent)
 	, WaitThread(WaitStartupThread)
 {
 }
 
-// .text:00415ea0 — retail body is empty (CWnd::DoDataExchange is an empty inline).
+// — baseline body is empty (CWnd::DoDataExchange is an empty inline).
 void CShutdownDlg::DoDataExchange(CDataExchange* DX)
 {
 	CDialog::DoDataExchange(DX);
 }
 
-// Message map .rdata:0041e5d8: WM_TCARD -> 00415f80, WM_TIMER -> 00415f90.
+// Message map module storage: WM_TCARD -> 00415f80, WM_TIMER -> 00415f90.
 BEGIN_MESSAGE_MAP(CShutdownDlg, CDialog)
 	ON_WM_TCARD()
 	ON_WM_TIMER()
 END_MESSAGE_MAP()
 
-// .text:00415ee0 — starts the one-second poll timer and centres the box over the main window.
+// — starts the one-second poll timer and centres the box over the main window.
 BOOL CShutdownDlg::OnInitDialog()
 {
 	CDialog::OnInitDialog();
@@ -49,12 +45,12 @@ BOOL CShutdownDlg::OnInitDialog()
 	return TRUE;
 }
 
-// .text:00415f80 — swallows WM_TCARD (retail body is a bare RET 8).
+// — swallows WM_TCARD (baseline body is a bare RET 8).
 void CShutdownDlg::OnTCard(UINT Action, DWORD ActionData)
 {
 }
 
-// .text:00415f90
+
 void CShutdownDlg::OnTimer(UINT_PTR IDEvent)
 {
 	if (IDEvent != ShutdownPollTimerId)

@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -15,28 +11,28 @@ class IVP_Event_Sim;
 
 // ============================================================================
 // IVP_Friction_Solver -- the stack object of the friction pass
-// (Common.dll .text:06355380 ctor, .text:06368300-06368d78 methods).
-//
-// Built only by IVP_ListManager::DoPushesDistanceKeepers (FUN_06368f60) on
+// (Common.dll module storage ctor, module storage-06368d78 methods).
+
+// Built only by IVP_ListManager::DoPushesDistanceKeepers (the routine) on
 // its own stack (SUB ESP,0x830; the object sits at ESP+0xc), so its size is
 // bounded by that frame: 0x2c + 0x200 * 4 = 0x82c bytes.
-//
+
 // Layout, from the constructor 06355380 and the methods' field reads:
-//   +0x00 IVP_Great_Matrix_Many_Zero (ctor 06366400 on `this`, .text:0635539f);
+//   +0x00 IVP_Great_Matrix_Many_Zero (ctor 06366400 on `this`, module storage);
 //         Columns = CtxListCount - ComplexNotNecessaryNumber, buffers from the
 //         environment's arena (+0xa0), then AlignMatrixValues (063661a0).
 //   +0x18 float: the scale NormizeConstraintEqu (06368410) leaves for
 //         ScaleResultVector (063683f0); not set by the ctor.
-//   +0x1c IVP_Environment* = system->Environment (.text:063553c2-063553c5).
+//   +0x1c IVP_Environment* = system->Environment (module storage-063553c5).
 //   +0x20 const IVP_Event_Sim* = the ctor's second argument; DoResultingPushes
-//         reads its +4 (i_delta_time, .text:06368946-06368949).
-//   +0x24 IVP_U_Vector with 0x200 inline slots at +0x2c (.text:063553a4-063553b2:
+//         reads its +4 (i_delta_time, module storage-06368949).
+//   +0x24 IVP_U_Vector with 0x200 inline slots at +0x2c (module storage-063553b2:
 //         elems = this+0x2c, memsize word 0x200, n_elems word 0), destroyed
-//         inline at the end of 06368f60 (.text:06369039-0636905b: freed only
+//         inline at the end of 06368f60 (module storage-0636905b: freed only
 //         when elems is neither the inline buffer nor null). Holds every
 //         contact record (IVP_Impact_Solver_Long_Term, the contact point's +0x40) in
 //         matrix order.
-//
+
 // Method names follow the Ipion SDK roles (setup_coords_mindists,
 // calc_solver_PSI, solve_linear_equation_and_push, ...) in PascalCase.
 // ============================================================================
@@ -49,33 +45,33 @@ public:
     const IVP_Event_Sim* EventSim;                          // +0x20
     IVP_U_Vector_Fixed<IVP_Impact_Solver_Long_Term, 0x200> DistsOfSystem;   // +0x24 (inline slots +0x2c)
 
-    // 06355380 (thiscall, RET 8)
+    // (thiscall, RET 8)
     IVP_Friction_Solver(IVP_ListManager* FrictionSystem, const IVP_Event_Sim* EventSimIn);
 
-    // 06368970 (RET 4)
+    // (RET 4)
     void SetupCoordsMindists(IVP_ListManager* FrictionSystem);
 
-    // 06368a30 (RET 8): fills the matrix and right-hand side, writes the
+    // (RET 8): fills the matrix and right-hand side, writes the
     // matrix indices of the "supposed active" dists to ActiveIsAtPos and
     // returns how many there are.
     int CalcSolverPSI(IVP_ListManager* FrictionSystem, int* ActiveIsAtPos);
 
-    // 06368560 (RET 0x10)
+    // (RET 0x10)
     void SolveLinearEquationAndPush(IVP_ListManager* FrictionSystem, int* ActiveIsAtPos, int TotalActives,
                                     IVP_U_Memory* Mem);
 
-    // 06368410: scales the matrix by 1/max(diagonal) and the right-hand side
+    // scales the matrix by 1/max(diagonal) and the right-hand side
     // by 1/max|rhs|, leaving the product of the two back-scales in ImpulseScale.
     void NormizeConstraintEqu();
 
-    // 06368300 (RET 0x10): seeds ResultVector from the Gauss sub-solution and
+    // (RET 0x10): seeds ResultVector from the Gauss sub-solution and
     // checks it; 1 = accept.
     int TestGaussSolutionSuggestion(const float* Values, const int* Indices, int Count, IVP_U_Memory* Mem);
 
-    // 063683f0: ResultVector[i] *= ImpulseScale.
+    // ResultVector[i] *= ImpulseScale.
     void ScaleResultVector();
 
-    // 063687b0 (RET 4; returns 0 in EAX, discarded by its only caller).
+    // (RET 4; returns 0 in EAX, discarded by its only caller).
     void DoResultingPushes(IVP_ListManager* FrictionSystem);
 };
 

@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "common_lootbehavior.h"
@@ -17,9 +13,9 @@
 #include <cstring>
 
 // LootBehavior -- see common_lootbehavior.h. Every method re-ported from
-// EXE/Disasm/Common.dll.txt 2026-10-08 (claude-code:cmn-ai5).
+// Common-10-08 (claude-code:cmn-ai5).
 
-// FUN_062e74a0 (item 1798) is SystemManagerTimerTable::FindVerifiedObject.
+// (item 1798) is SystemManagerTimerTable::FindVerifiedObject.
 
 namespace
 {
@@ -43,21 +39,21 @@ namespace
         return nullptr;
     }
 
-    // The cargo-hold check inlined at .text:062ce8a4-062ce8fe and 062ceb9e-062cebf8: the own
-    // ship's CShip (null when it is not one -- retail then faults on [ECX+0x88]); with a
+    // The cargo-hold check inlined at module storage-062ce8fe and 062ceb9e-062cebf8: the own
+    // ship's CShip (null when it is not one -- baseline then faults on [ECX+0x88]); with a
     // positive hold the free fraction, else 0.0; true when that exceeds 0.2 (double
-    // .rdata:0639fa50, `TEST AH,0x41; JZ`).
+    // , `TEST AH,0x41; JZ`).
     bool OwnHoldHasRoom(SystemManager* Sys)
     {
         CShip const* const Ship = static_cast<CShip const*>(CObjectOfClass(OwnShip(Sys), CObject::ClassShip));
         Archetype::Ship const* const Arch = static_cast<Archetype::Ship const*>(Ship->Archetype);
-        double Fraction = 0.0;                                      // FLD DAT_06399408
+        double Fraction = 0.0;                                      // FLD the field
         if (static_cast<double>(Arch->HoldSize) > 0.0)              // FCOMP double 0.0; `TEST AH,0x41; JNZ`
             Fraction = static_cast<double>(Ship->get_cargo_hold_remaining()) / Arch->HoldSize;
         return Fraction > 0.2;
     }
 
-    // The 0x5f3759df distance at .text:062cea9b-062cead9 / 062cec90-062cecd0: (dz*dz + dx*dx)
+    // The 0x5f3759df distance at module storage-062cead9 / 062cec90-062cecd0: (dz*dz + dx*dx)
     // + dy*dy on the x87 stack, FST for the bit pattern, DistSq * s * (1.5 - 0.5 * s*s*DistSq).
     double FastDistance(Vector const& A, Vector const& B)
     {
@@ -74,42 +70,42 @@ namespace
         return ((1.5f - ((static_cast<double>(Seed) * Seed) * DistSq) * 0.5f) * Seed) * DistSq;
     }
 
-    // FUN_062ecd90 (.text:062ecd90-062ece39, RET 4): `this` is the SystemManager+0x1498
+    // (module storage-062ece39, RET 4): `this` is the SystemManager+0x1498
     // tractor record {Owner1498, Watcher149C, Unknown14A4 = tractor equipment id}. Point the
     // tractor at Target through the owner ship's IObjAffect::slot_40(&Id, Target, -1).
     bool TractorActivate(SystemManager* Sys, IObjRW* Target)
     {
-        if (Target == nullptr)                                      // 062ecd98
+        if (Target == nullptr)
             return false;
         unsigned short const* const Id = reinterpret_cast<unsigned short const*>(&Sys->Unknown14A4);
-        if (*Id == SUBOBJ_ID_NONE)                                  // 062ecda6
+        if (*Id == SUBOBJ_ID_NONE)
             return false;
         IObjRW* const Current = WatchedObject(Sys->Watcher149C);
-        if (Current != nullptr && Current->get_id() == Target->get_id())   // 062ecdc7-062ecde4
+        if (Current != nullptr && Current->get_id() == Target->get_id())
             return false;
-        Sys->Watcher149C.set(reinterpret_cast<Watchable const*>(reinterpret_cast<char*>(Target) + 8));   // 062ecdea
-        IObjRW* const Owner = WatchedObject(Sys->Owner1498->Watcher);      // 062ece08-062ece1a
+        Sys->Watcher149C.set(reinterpret_cast<Watchable const*>(reinterpret_cast<char*>(Target) + 8));
+        IObjRW* const Owner = WatchedObject(Sys->Owner1498->Watcher);
         int const Result = static_cast<IObjAffect*>(Owner)->slot_40(Id, WatchedObject(Sys->Watcher149C), -1);
-        return Result == 0;                                         // 062ece26
+        return Result == 0;
     }
 
-    // FUN_062ece40 (.text:062ece40-062ecea3, RET 0): release the tractor through
+    // (module storage-062ecea3, RET 0): release the tractor through
     // IObjAffect::slot_4c(&Id, false, -1); true when that returned 0 (NEG/SBB/INC).
     bool TractorRelease(SystemManager* Sys)
     {
-        if (WatchedObject(Sys->Watcher149C) == nullptr)             // 062ece43-062ece53
+        if (WatchedObject(Sys->Watcher149C) == nullptr)
             return false;
         unsigned short const* const Id = reinterpret_cast<unsigned short const*>(&Sys->Unknown14A4);
-        if (*Id == SUBOBJ_ID_NONE)                                  // 062ece5a
+        if (*Id == SUBOBJ_ID_NONE)
             return false;
-        Sys->Watcher149C.set(nullptr);                              // 062ece6f-062ece76
+        Sys->Watcher149C.set(nullptr);
         IObjRW* const Owner = WatchedObject(Sys->Owner1498->Watcher);
-        return static_cast<IObjAffect*>(Owner)->slot_4c(Id, false, -1) == 0;   // 062ece98
+        return static_cast<IObjAffect*>(Owner)->slot_4c(Id, false, -1) == 0;
     }
 }
 
 // ----------------------------------------------------------------------------
-// FUN_062ce400 (.text:062ce400-062ce48f).
+// (module storage-062ce48f).
 // ----------------------------------------------------------------------------
 LootBehavior::LootBehavior(int InTypeId)
     : Behavior()
@@ -125,43 +121,43 @@ LootBehavior::LootBehavior(int InTypeId)
     , Flags28(0)
     , Flag29(0)
     , Pad2a{}
-    , Move()                        // 062ce431 FUN_062d4e60
-    , Face()                        // 062ce441 FUN_062d6750
-    , bHasTractor164(0)             // not written by retail's ctor; SetContext writes it
+    , Move()                        // the routine
+    , Face()                        // the routine
+    , bHasTractor164(0)             // not written by baseline's ctor; SetContext writes it
     , Pad165{}
-    , TractorReach168(0.0f)         // not written by retail's ctor; SetContext writes it
-    , Flag16c(1)                    // 062ce461
+    , TractorReach168(0.0f)         // not written by baseline's ctor; SetContext writes it
+    , Flag16c(1)
     , Pad16d{}
-    , Field170(13.0f)               // 062ce457 0x41500000
-    , Target{}                      // 062ce446-062ce44e watcher zeroed, 062ce47b bDirected = 0
+    , Field170(13.0f)               // 0x41500000
+    , Target{}                      // watcher zeroed, 062ce47b bDirected = 0
 {
-    ConstructBase(InTypeId);        // 062ce423 FUN_062d2020
+    ConstructBase(InTypeId);        // the routine
 }
 
-// FUN_062ce4c0 (FUN_062ce4a0 is the scalar-deleting thunk).
+// (the routine is the scalar-deleting thunk).
 LootBehavior::~LootBehavior()
 {
 }
 
 // ----------------------------------------------------------------------------
-// Slot 1, LAB_062ce550 (.text:062ce550-062ce653).
+// Slot 1, the branch (module storage-062ce653).
 // ----------------------------------------------------------------------------
 bool LootBehavior::SetContext(void* Owner, void* Manager, void* Sys)
 {
-    bool const bOk = BindContext(Owner, Manager, Sys);              // 062ce565 FUN_062d2090
+    bool const bOk = BindContext(Owner, Manager, Sys);              // the routine
     if (bOk)
     {
-        Move.SetContext(OwnerContext, NavHelper, Manager);          // 062ce581
-        Face.SetContext(OwnerContext, NavHelper, Manager);          // 062ce598
+        Move.SetContext(OwnerContext, NavHelper, Manager);
+        Face.SetContext(OwnerContext, NavHelper, Manager);
     }
 
-    // LAB_062ce59a -- runs whether or not the binder accepted the context.
-    Target.Watcher.set(nullptr);                                    // 062ce59a-062ce5ac
-    Target.bDirected = 0;                                           // 062ce5b4
-    bHasTractor164 = 0;                                             // 062ce5bb
-    TractorReach168 = 0.0f;                                         // 062ce5c2
+    // runs whether or not the binder accepted the context.
+    Target.Watcher.set(nullptr);
+    Target.bDirected = 0;
+    bHasTractor164 = 0;
+    TractorReach168 = 0.0f;
 
-    // 062ce5cc-062ce649: retail reuses its own argument slots: the second one becomes the
+    // baseline reuses its own argument slots: the second one becomes the
     // equipment id (seeded SUBOBJ_ID_NONE) and the first the EquipmentVal value in front of
     // it, i.e. one EquipmentVal{Value, EquipId}.
     EquipmentVal Tractor;
@@ -171,11 +167,11 @@ bool LootBehavior::SetContext(void* Owner, void* Manager, void* Sys)
     IObjRW* const Ship = OwnShip(NavHelper);
     if (Ship->find_equipment(&Tractor.EquipId, 1, 0x100000) == 0)  // [+0x114], tractor class
     {
-        bHasTractor164 = 1;                                         // 062ce606
+        bHasTractor164 = 1;
         if (OwnShip(NavHelper)->get_equipment_val(Tractor, Tractor.EquipId,
                                                   static_cast<EquipmentValType>(5), 0.0f) == 0)   // [+0x11c]
         {
-            // 062ce638-062ce643: FMUL double 0.75 (.rdata:0639fe28), FSTP float.
+            // FMUL double 0.75 (module storage), FSTP float.
             TractorReach168 = static_cast<float>(static_cast<double>(Tractor.Value) * 0.75);
         }
     }
@@ -183,7 +179,7 @@ bool LootBehavior::SetContext(void* Owner, void* Manager, void* Sys)
 }
 
 // ----------------------------------------------------------------------------
-// Slot 3, LAB_062cd5d0: `JMP FUN_062d20d0`.
+// Slot 3, the branch: `JMP the routine`.
 // ----------------------------------------------------------------------------
 void LootBehavior::Slot3()
 {
@@ -191,51 +187,51 @@ void LootBehavior::Slot3()
 }
 
 // ----------------------------------------------------------------------------
-// Slot 4, FUN_062ce660 (.text:062ce660-062ce6aa).
+// Slot 4, the routine (module storage-062ce6aa).
 // ----------------------------------------------------------------------------
 void LootBehavior::Slot4()
 {
-    Target.Watcher.set(nullptr);                                    // 062ce663-062ce675
-    Target.bDirected = 0;                                           // 062ce680
-    Move.Commit();                                                  // 062ce687
-    Face.Commit();                                                  // 062ce696
-    (void)TractorRelease(NavHelper);                                // 062ce6a2 FUN_062ece40(Sys+0x1498)
-    Behavior::Slot4();                                              // 062ce6aa JMP FUN_062d20f0
+    Target.Watcher.set(nullptr);
+    Target.bDirected = 0;
+    Move.Commit();
+    Face.Commit();
+    (void)TractorRelease(NavHelper);                                // the routine(Sys+0x1498)
+    Behavior::Slot4();                                              // JMP the routine
 }
 
 // ----------------------------------------------------------------------------
-// Slot 5, FUN_062ce6b0 (.text:062ce6b0-062ce73a).
+// Slot 5, the routine (module storage-062ce73a).
 // ----------------------------------------------------------------------------
 int LootBehavior::Slot5(float Unused)
 {
     (void)Unused;
-    // 062ce6b3-062ce6c8: only with a tractor and the TargetManager in attack state 2.
+    // only with a tractor and the TargetManager in attack state 2.
     if (bHasTractor164 != 0 && NavHelper->Targeting.AttackState == 2)
     {
-        if (WatchedObject(Target.Watcher) == nullptr)               // 062ce6ca-062ce6df
-            (void)AcquireLootTarget(&Target);                       // 062ce6e4 FUN_062ce870
-        if (WatchedObject(Target.Watcher) != nullptr)               // 062ce6e9-062ce6f4
+        if (WatchedObject(Target.Watcher) == nullptr)
+            (void)AcquireLootTarget(&Target);                       // the routine
+        if (WatchedObject(Target.Watcher) != nullptr)
         {
-            ModeSelector0xc = Flag29 ? 3 : 0;                       // 062ce6f6-062ce70b
+            ModeSelector0xc = Flag29 ? 3 : 0;
             return ModeSelector0xc;
         }
     }
-    ModeSelector0xc = Flag29 ? 3 : 2;                               // LAB_062ce718
+    ModeSelector0xc = Flag29 ? 3 : 2;
     return ModeSelector0xc;
 }
 
 // ----------------------------------------------------------------------------
-// FUN_062ce740 (.text:062ce740-062ce85e, RET 4).
+// (module storage-062ce85e, RET 4).
 // ----------------------------------------------------------------------------
 bool LootBehavior::IsLootUnclaimed(IObjRW* Loot)
 {
-    // 062ce743-062ce776: the loot's CLoot (null when it is not one -- retail then reads
+    // the loot's CLoot (null when it is not one -- baseline then reads
     // [0+0xf0]); more than one unit is never contested.
     CLoot const* const LootObj = static_cast<CLoot const*>(CObjectOfClass(Loot, CObject::ClassLoot));
     if (LootObj->Units > 1)                                         // `CMP [EAX+0xf0],1; JA`
         return true;
 
-    // 062ce77c-062ce79b: every ship-class object in the owner's scan list (FUN_062e74e0).
+    // every ship-class object in the owner's scan list (the routine).
     ScanList const* List = nullptr;
     (void)NavHelper->Timers.GetOwnScanList(List, 0x7f0000);
     if (List == nullptr)
@@ -244,99 +240,99 @@ bool LootBehavior::IsLootUnclaimed(IObjRW* Loot)
     for (int Index = 0; static_cast<unsigned>(Index) < static_cast<unsigned>(List->Count); ++Index)   // `JBE` / `JC`
     {
         IObjRW* const Other = WatchedObject(List->Entries[Index]);
-        if (Other == OwnShip(NavHelper))                            // 062ce7c1-062ce7d6
+        if (Other == OwnShip(NavHelper))
             continue;
-        unsigned OtherType = 0;                                     // not pre-set in retail
-        Other->get_type(OtherType);                                 // 062ce7e1 [+0x88], result unread
+        unsigned OtherType = 0;                                     // not pre-set in baseline
+        Other->get_type(OtherType);                                 // [+0x88], result unread
         if ((OtherType & 0x7f0000u) == 0)
             continue;
-        CObject const* const OtherShip = CObjectOfClass(Other, CObject::ClassShip);   // 062ce7f1-062ce80e
+        CObject const* const OtherShip = CObjectOfClass(Other, CObject::ClassShip);
         if (OtherShip == nullptr)
             continue;
         IBehaviorManager* const Manager =
-            const_cast<CEqObj*>(static_cast<CEqObj const*>(OtherShip))->get_behavior_interface();   // 062ce812
+            const_cast<CEqObj*>(static_cast<CEqObj const*>(OtherShip))->get_behavior_interface();
         if (Manager == nullptr)
             continue;
-        if (Manager->CurrentBehaviorIndex != 0x10)                  // 062ce81b: currently looting
+        if (Manager->CurrentBehaviorIndex != 0x10)                  // currently looting
             continue;
-        // 062ce824-062ce83e: its LootBehavior (dispatch slot 16, +0x1b4) chases this loot.
+        // its LootBehavior (dispatch slot 16, +0x1b4) chases this loot.
         LootBehavior const* const OtherLoot = static_cast<LootBehavior const*>(Manager->BehaviorDispatchTable[16]);
         if (WatchedObject(OtherLoot->Target.Watcher) == Loot)
             return false;
     }
-    return true;                                                    // LAB_062ce857
+    return true;
 }
 
 // ----------------------------------------------------------------------------
-// FUN_062ce870 (.text:062ce870-062ceb40, RET 4).
+// (module storage-062ceb40, RET 4).
 // ----------------------------------------------------------------------------
 bool LootBehavior::AcquireLootTarget(FLootTarget* Slot)
 {
     SystemManager* const Sys = NavHelper;
     pub::AI::Personality::JobStruct const& Job = Sys->PersonalityData.JobParams;
-    if (Job.LootPreference == 0)                                    // 062ce87c [Sys+0x18fc]: loot flags
+    if (Job.LootPreference == 0)                                    // [Sys+0x18fc]: loot flags
         return false;
-    if (!OwnHoldHasRoom(Sys))                                       // 062ce896-062ce8fe
+    if (!OwnHoldHasRoom(Sys))
         return false;
 
-    // LAB_062ce90c: the own position (ExternalIface transform slot 4, +0x24 = Position).
+    // the own position (ExternalIface transform slot 4, +0x24 = Position).
     Vector const& OwnPos = Sys->SelfTarget.Iface->get_transform().Translation;   // [+0x10] +0x24
 
     IObjRW* Best = nullptr;                                         // [ESP+0x20]
-    float BestDistance = 3.40282347e+38f;                           // 0x7f7fffff
+    float BestDistance = 3.40282347e+38f;
     ScanList const* List = nullptr;
-    (void)Sys->Timers.GetOwnScanList(List, 0x10000000);   // 062ce948, loot class
+    (void)Sys->Timers.GetOwnScanList(List, 0x10000000);   // , loot class
     if (List == nullptr)
-        return false;                                               // 062ce953
+        return false;
 
     for (int Index = 0; static_cast<unsigned>(Index) < static_cast<unsigned>(List->Count); ++Index)
     {
         IObjRW* const Candidate = WatchedObject(List->Entries[Index]);
-        unsigned CandidateType = 0;                                 // not pre-set in retail
-        Candidate->get_type(CandidateType);                         // 062ce98c [+0x88]
+        unsigned CandidateType = 0;                                 // not pre-set in baseline
+        Candidate->get_type(CandidateType);                         // [+0x88]
         if ((CandidateType & 0x10000000u) == 0)
             continue;
 
-        CLoot const* const Loot = static_cast<CLoot const*>(CObjectOfClass(Candidate, CObject::ClassLoot));   // 062ce9a0-062ce9c3
-        if (Loot->bCanAiTractor == 0)                               // 062ce9c5 [+0xfc]
+        CLoot const* const Loot = static_cast<CLoot const*>(CObjectOfClass(Candidate, CObject::ClassLoot));
+        if (Loot->bCanAiTractor == 0)                               // [+0xfc]
             break;
 
-        int const Kind = static_cast<int>(Loot->ContentsArch->get_class_type());   // 062ce9db [+0x10]
+        int const Kind = static_cast<int>(Loot->ContentsArch->get_class_type());   // [+0x10]
         if (Kind == 0xa)
         {
-            // 062ce9e3-062cea3c: commodities need loot flag bit 0 and, when the personality
+            // commodities need loot flag bit 0 and, when the personality
             // lists goods (+0x1904 count, +0x1908 ids), the candidate's good among them.
             if ((Job.LootPreference & 1) == 0)
                 break;
             int const ListCount = Job.ScanForCargoCount;
             if (ListCount > 0)
             {
-                unsigned GoodId = 0;                                // 062cea06
+                unsigned GoodId = 0;
                 if (Candidate->get_good_id(GoodId) == 0)            // [+0x24]
                 {
                     int GoodIndex = 0;
-                    while (Job.ScanForCargo[GoodIndex] != GoodId)   // LAB_062cea30
+                    while (Job.ScanForCargo[GoodIndex] != GoodId)
                     {
                         ++GoodIndex;
                         if (GoodIndex >= ListCount)
-                            goto Done;                              // 062cea3c JMP LAB_062ceb0f
+                            goto Done;                              // JMP the branch
                     }
                 }
             }
         }
         else if (Kind == 0x1a || Kind == 0x1b)
         {
-            if ((Job.LootPreference & 4) == 0)                      // LAB_062cea4b
+            if ((Job.LootPreference & 4) == 0)
                 break;
         }
 
-        // LAB_062cea61.
+        // .
         if (Loot->Units == 0)                                       // [+0xf0]
             break;
-        if (!IsLootUnclaimed(Candidate))                            // 062cea72 FUN_062ce740
+        if (!IsLootUnclaimed(Candidate))                            // the routine
             continue;
 
-        // 062cea7b-062ceaf0: the nearest wins (`FCOM best; TEST AH,0x5; JP` keeps >=).
+        // the nearest wins (`FCOM best; TEST AH,0x5; JP` keeps >=).
         Vector const& LootPos = Candidate->get_transform().Translation;   // [+0x10] +0x24
         double const Distance = FastDistance(LootPos, OwnPos);
         if (Distance < BestDistance)
@@ -347,49 +343,49 @@ bool LootBehavior::AcquireLootTarget(FLootTarget* Slot)
     }
 
 Done:
-    // LAB_062ceb0f: the slot watches the winner (or nothing), undirected.
+    // the slot watches the winner (or nothing), undirected.
     Slot->Watcher.set(Best != nullptr ? reinterpret_cast<Watchable const*>(reinterpret_cast<char*>(Best) + 8)
                                       : nullptr);
-    Slot->bDirected = 0;                                            // 062ceb2f
+    Slot->bDirected = 0;
     return Best != nullptr;
 }
 
 // ----------------------------------------------------------------------------
-// Slot 7, LAB_062ceb50 (.text:062ceb50-062cedc7).
+// Slot 7, the branch (module storage-062cedc7).
 // ----------------------------------------------------------------------------
 int LootBehavior::Slot7()
 {
-    if (OwnerContext == nullptr)                                    // 062ceb56
+    if (OwnerContext == nullptr)
     {
         UpdateResult10 = 3;
         return 3;
     }
-    IObjRW* const Loot = WatchedObject(Target.Watcher);             // 062ceb6c-062ceb85 EBX
+    IObjRW* const Loot = WatchedObject(Target.Watcher);             // EBX
     if (Loot == nullptr)
     {
-        UpdateResult10 = 2;                                         // LAB_062cec0d
+        UpdateResult10 = 2;
         return 2;
     }
 
     SystemManager* const Sys = NavHelper;
-    if (!OwnHoldHasRoom(Sys))                                       // 062ceb8b-062cebf8
+    if (!OwnHoldHasRoom(Sys))
     {
-        Target.Watcher.set(nullptr);                                // 062cebfa-062cec04
+        Target.Watcher.set(nullptr);
         Target.bDirected = 0;
         UpdateResult10 = 2;
         return 2;
     }
 
-    // LAB_062cec1b: the FAiTarget type refresh (get_type, then +0x7d = 1).
+    // the FAiTarget type refresh (get_type, then +0x7d = 1).
     FAiTarget* const Nav = &Sys->SelfTarget;
     if (Nav->bFlagsValid == 0)
     {
         Nav->Iface->get_type(Nav->CachedFlags);
         Nav->bFlagsValid = 1;
     }
-    // 062cec44-062cec53: `AND ECX,0x10000; OR ECX,0x20000; JNZ LAB_062ced2c` -- always taken.
+    // `AND ECX,0x10000; OR ECX,0x20000; JNZ the branch` -- always taken.
     // The fall-through at 062cec59-062ced2a (a FastDistance gate on TractorReach168, then
-    // Move.Commit and FUN_062ecd90, or the release exit) is unreachable in retail and is
+    // Move.Commit and the routine, or the release exit) is unreachable in baseline and is
     // written below behind the same constant test.
     if ((((Nav->CachedFlags & 0x10000u) | 0x20000u)) == 0)
     {
@@ -400,52 +396,52 @@ int LootBehavior::Slot7()
             Move.Commit();
             if (!TractorActivate(Sys, Loot))
             {
-                UpdateResult10 = 1;                                 // LAB_062cedba
+                UpdateResult10 = 1;
                 return 1;
             }
         }
-        Target.Watcher.set(nullptr);                                // LAB_062ced01
+        Target.Watcher.set(nullptr);
         Target.bDirected = 0;
         UpdateResult10 = 2;
         return 2;
     }
 
-    // LAB_062ced2c: fly within tractor reach, then face it and tractor it in.
-    Move.SetWatchObject(Loot);                                      // 062ced32 FUN_062d5760
-    Move.SetEnabled(true);                                          // 062ced3b FUN_062d5a10
-    Move.SetRange3c(TractorReach168);                               // 062ced49 .text:062a66b0
-    if (Move.Update(DeltaTime) == 1)                                // 062ced56
+    // fly within tractor reach, then face it and tractor it in.
+    Move.SetWatchObject(Loot);                                      // the routine
+    Move.SetEnabled(true);                                          // the routine
+    Move.SetRange3c(TractorReach168);                               // module storage
+    if (Move.Update(DeltaTime) == 1)
     {
-        Move.Commit();                                              // 062ced62
-        Face.SetWatchObject(Loot);                                  // 062ced6e FUN_062d7510
-        if (Face.Update(DeltaTime) == 1 && TractorActivate(Sys, Loot))   // 062ced7b / 062ced8d
-            return 2;                                               // 062ced99: +0x10 not written
+        Move.Commit();
+        Face.SetWatchObject(Loot);                                  // the routine
+        if (Face.Update(DeltaTime) == 1 && TractorActivate(Sys, Loot))   // / 062ced8d
+            return 2;                                               // +0x10 not written
     }
     else
     {
-        Face.SetWatchObject(Loot);                                  // LAB_062ceda1
+        Face.SetWatchObject(Loot);
         Face.Update(DeltaTime);
     }
-    UpdateResult10 = 1;                                             // LAB_062cedba
+    UpdateResult10 = 1;
     return 1;
 }
 
 // ----------------------------------------------------------------------------
-// Slot 10, FUN_062cedd0 (.text:062cedd0-062cee3f).
+// Slot 10, the routine (module storage-062cee3f).
 // ----------------------------------------------------------------------------
 bool LootBehavior::Slot10(void* DirectiveOp)
 {
     unsigned char* const Op = static_cast<unsigned char*>(DirectiveOp);
-    void* const Found = NavHelper->Timers.FindVerifiedObject((unsigned const*)(Op + 0xc));   // 062cede3
+    void* const Found = NavHelper->Timers.FindVerifiedObject((unsigned const*)(Op + 0xc));
     Target.Watcher.set(Found != nullptr ? reinterpret_cast<Watchable const*>(static_cast<char*>(Found) + 8)
-                                        : nullptr);                 // 062cedf9-062cee00
-    if (WatchedObject(Target.Watcher) != nullptr)                   // 062cee05-062cee10
+                                        : nullptr);
+    if (WatchedObject(Target.Watcher) != nullptr)
     {
-        Target.bDirected = 1;                                       // 062cee1b
+        Target.bDirected = 1;
         Flags28 = static_cast<unsigned char>(Flags28 | 0x2);
         return true;
     }
-    Flags28 = static_cast<unsigned char>(Flags28 & 0xfd);           // LAB_062cee29
-    Flag16c = Op[0x10];                                             // 062cee35
+    Flags28 = static_cast<unsigned char>(Flags28 & 0xfd);
+    Flag16c = Op[0x10];
     return false;
 }

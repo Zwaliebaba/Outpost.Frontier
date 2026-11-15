@@ -1,20 +1,16 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // TU61 -- the random-mission runtime machine and the runtime slots of the offer components
-// (docs/re/content.md, TU map, lane CNT-RM). Declarations in RandomMissionMachine.h,
+// (implementation notes, TU map, lane CNT-RM). Declarations in RandomMissionMachine.h,
 // RandomMissionOffer.h and RandomMissionRuntime.h.
 
 #include "ContentStaticIds.h"       // TU61's 16 static-init thunks 06f84060..06f84240
-#include "ContentDefaultId.h"       // TU61 LAB_06f84260: CreateID("default") -> DAT_06fd3bc4
+#include "ContentDefaultId.h"       // TU61 the branch: CreateID("default") -> the field
 
 #include "RandomMissionMachine.h"
 
 #include "ContentInternal.h"        // SubtractVectors, SpacePopRemoveExclusionSphere
-#include "ContentMessageRouter.h"   // GMessageRouter (DAT_06fcf254)
+#include "ContentMessageRouter.h"   // GMessageRouter (the field)
 #include "ContentPlayerState.h"     // FContentPlayerState
 #include "DockQueues.h"             // PlaceFormationBlocks
 #include "Encounters.h"             // FindFormation
@@ -44,20 +40,20 @@
 // FRmObjective (vtable 06fbc6d8)
 // =======================================================================================
 
-// FUN_06f85440 (06f85440-06f85542): operator new(0x48); the member copy with the vtable store
-// 06fbc700 then 06fbc6d8; a failed new returns null.
+// (06f85440-06f85542): operator new(0x48); the member copy with the vtable store
+// then 06fbc6d8; a failed new returns null.
 FRmObjective* FRmObjective::Clone() const
 {
     return new FRmObjective(*this);
 }
 
-// LAB_06ee9e10 (ICF): MOV EAX,1; RET.
+// (ICF): MOV EAX,1; RET.
 int FRmObjective::GetType() const
 {
     return 1;
 }
 
-// LAB_06f85590 (06f85590-06f855df, RET 8). The factory's out-parameter is the argument slot of
+// (06f85590-06f855df, RET 8). The factory's out-parameter is the argument slot of
 // InMission (it starts as InMission and is overwritten; type 7 always builds).
 FMissionObjective* FRmObjective::CreateMissionObjective(FMissionObject* InMission,
                                                         FRmRuntimeMachine* Machine)
@@ -73,18 +69,18 @@ FMissionObjective* FRmObjective::CreateMissionObjective(FMissionObject* InMissio
     return Created;
 }
 
-// LAB_06ea1470 (ICF: XOR AL,AL; RET 4).
+// (ICF: XOR AL,AL; RET 4).
 bool FRmObjective::GetPosition(Vector* /*Out*/)
 {
     return false;
 }
 
-// LAB_06f85580: RET 0xc.
+// RET 0xc.
 void FRmObjective::SetPosition(Vector /*InPosition*/)
 {
 }
 
-// LAB_06ea1470 (ICF).
+// (ICF).
 bool FRmObjective::GetSystemId(unsigned int* /*Out*/)
 {
     return false;
@@ -94,7 +90,7 @@ bool FRmObjective::GetSystemId(unsigned int* /*Out*/)
 // FRmObjectiveType2 (vtable 06fbc710)
 // =======================================================================================
 
-// FUN_06f855f0 (06f855f0-06f8578d, RET 4). The vector assignment (06f8565f-06f85776) is the
+// (06f855f0-06f8578d, RET 4). The vector assignment (06f8565f-06f85776) is the
 // VC6 vector operator= inlined.
 FRmObjectiveType2::FRmObjectiveType2(FRmParamText const* Source)
 {
@@ -103,7 +99,7 @@ FRmObjectiveType2::FRmObjectiveType2(FRmParamText const* Source)
         Params = Source->Params;
 }
 
-// LAB_06f860a0 (06f860a0-06f860f7, RET 4).
+// (06f860a0-06f860f7, RET 4).
 FmtStr* FRmObjectiveType2::Build(IRmTextParamSource* Source)
 {
     if (Text.MadLibId == 0)
@@ -123,40 +119,40 @@ FmtStr* FRmObjectiveType2::Build(IRmTextParamSource* Source)
     return &Text;
 }
 
-// FUN_06f85790 (06f85790-06f858a5): operator new(0x5c), the member copy (vtable stores 06fbc700,
-// 06fbc6d8, 06fbc710); null when new fails.
+// (06f85790-06f858a5): operator new(0x5c), the member copy (vtable stores 06fbc700,
+// , 06fbc710); null when new fails.
 FRmObjective* FRmObjectiveType2::Clone() const
 {
     return new FRmObjectiveType2(*this);
 }
 
-// LAB_06ee9660 (ICF): MOV EAX,2; RET.
+// (ICF): MOV EAX,2; RET.
 int FRmObjectiveType2::GetType() const
 {
     return 2;
 }
 
-// LAB_06f86060 (RET 4).
+// (RET 4).
 bool FRmObjectiveType2::GetPosition(Vector* Out)
 {
     *Out = MarkerPosition;
     return true;
 }
 
-// LAB_06f86080 (RET 0xc).
+// (RET 0xc).
 void FRmObjectiveType2::SetPosition(Vector InPosition)
 {
     MarkerPosition = InPosition;
 }
 
-// LAB_06f858b0 (RET 4).
+// (RET 4).
 bool FRmObjectiveType2::GetSystemId(unsigned int* Out)
 {
     *Out = MarkerSystemId;
     return true;
 }
 
-// LAB_06f86030 (RET 0x14).
+// (RET 0x14).
 void FRmObjectiveType2::SetMarker(unsigned int InSystemId, int InValue, Vector InPosition)
 {
     MarkerSystemId = InSystemId;
@@ -168,9 +164,9 @@ void FRmObjectiveType2::SetMarker(unsigned int InSystemId, int InValue, Vector I
 // FRmObjectiveType3 (vtable 06fbc73c)
 // =======================================================================================
 
-// FUN_06f858c0 (06f858c0-06f85a91, RET 4): the base part inline (FmtStr, StrId 0, the
+// (06f858c0-06f85a91, RET 4): the base part inline (FmtStr, StrId 0, the
 // parameter vector, +0x30 = 0x3a, +0x34 = 0, +0x38 = Vector(0, 0, 0), +0x44 = 0), the id
-// vector, then StrId and Params of Source as FUN_06f855f0.
+// vector, then StrId and Params of Source as the routine.
 FRmObjectiveType3::FRmObjectiveType3(FRmParamText const* Source)
 {
     StrId = Source->StrId;
@@ -178,7 +174,7 @@ FRmObjectiveType3::FRmObjectiveType3(FRmParamText const* Source)
         Params = Source->Params;
 }
 
-// FUN_06f85f60 (06f85f60-06f86029).
+// (06f85f60-06f86029).
 FRmObjectiveType3::~FRmObjectiveType3()
 {
     for (std::vector<unsigned int>::iterator Id = Ids.begin(); Id != Ids.end(); ++Id)
@@ -189,19 +185,19 @@ FRmObjectiveType3::~FRmObjectiveType3()
     }
 }
 
-// FUN_06f85aa0 (06f85aa0-06f85c11): operator new(0x70), the member copy (+0x6c included).
+// (06f85aa0-06f85c11): operator new(0x70), the member copy (+0x6c included).
 FRmObjective* FRmObjectiveType3::Clone() const
 {
     return new FRmObjectiveType3(*this);
 }
 
-// LAB_06f5e540 (ICF): MOV EAX,3; RET.
+// (ICF): MOV EAX,3; RET.
 int FRmObjectiveType3::GetType() const
 {
     return 3;
 }
 
-// LAB_06f85d90 (06f85d90-06f85f5d, RET 0x18). The text: FmtStr::destroy, then the six dwords
+// (06f85d90-06f85f5d, RET 0x18). The text: FmtStr::destroy, then the six dwords
 // zeroed (STOSD x6, the inline FmtStr ctor) -- the next Build rebuilds it.
 void FRmObjectiveType3::SetTargets(std::vector<unsigned int> const* InIds,
                                    std::vector<FContentPlayerState*>* InPlayers,
@@ -229,8 +225,8 @@ void FRmObjectiveType3::SetTargets(std::vector<unsigned int> const* InIds,
     }
 }
 
-// LAB_06f85c40 (06f85c40-06f85d83, RET 0x1c). The local vector is reserved to the record
-// count first (FUN_06eb6b30 / FUN_06eed270).
+// (06f85c40-06f85d83, RET 0x1c). The local vector is reserved to the record
+// count first (the routine / the routine).
 void FRmObjectiveType3::SetTargetRecords(FRmRecordList* Records,
                                          std::vector<FContentPlayerState*>* InPlayers,
                                          unsigned int Mask, unsigned int InSystemId,
@@ -255,7 +251,7 @@ void FRmObjectiveType3::SetTargetRecords(FRmRecordList* Records,
 namespace
 {
     // The "away from the origin" test of 06f8612f-06f8617b / 06f861c0-06f86203 /
-    // 06f8627d-06f862bd: per coordinate FLD, FMUL ST1, FCOMP 1.0 (DAT_06fb5810), TEST AH,0x41
+    // per coordinate FLD, FMUL ST1, FCOMP 1.0 (the field), TEST AH,0x41
     // + JP: greater or unordered is away (the z test's JNP jumps on less or equal).
     bool RmIsAwayFromOrigin(Vector const& At)
     {
@@ -266,7 +262,7 @@ namespace
     }
 }
 
-// LAB_06f86230 (06f86230-06f862dd, RET 4).
+// (06f86230-06f862dd, RET 4).
 FmtStr* FRmObjectiveType4::Build(IRmTextParamSource* Source)
 {
     if (Text.MadLibId == 0)
@@ -290,13 +286,13 @@ FmtStr* FRmObjectiveType4::Build(IRmTextParamSource* Source)
     return &Text;
 }
 
-// LAB_06f25080 (ICF): MOV EAX,4; RET.
+// (ICF): MOV EAX,4; RET.
 int FRmObjectiveType4::GetType() const
 {
     return 4;
 }
 
-// LAB_06f861c0 (06f861c0-06f86220, RET 4).
+// (06f861c0-06f86220, RET 4).
 bool FRmObjectiveType4::GetPosition(Vector* Out)
 {
     if (!RmIsAwayFromOrigin(MarkerPosition))
@@ -305,7 +301,7 @@ bool FRmObjectiveType4::GetPosition(Vector* Out)
     return true;
 }
 
-// LAB_06f86120 (06f86120-06f861b7, RET 0x18).
+// (06f86120-06f861b7, RET 0x18).
 void FRmObjectiveType4::SetCountdown(int InSeconds, unsigned int InSystemId, int InValue,
                                      Vector InPosition)
 {
@@ -324,13 +320,13 @@ void FRmObjectiveType4::SetCountdown(int InSeconds, unsigned int InSystemId, int
 // FRmRuntimeMachine helpers
 // =======================================================================================
 
-// FUN_06f8a570: JMP [mission vtable +0x74] (slot 29).
+// JMP [mission vtable +0x74] (slot 29).
 std::vector<FContentPlayerState*>* FRmRuntimeMachine::GetMissionPlayers()
 {
     return Mission->GetPlayerStates();
 }
 
-// FUN_06f8a580: JMP [mission vtable +0x78] (slot 30).
+// JMP [mission vtable +0x78] (slot 30).
 std::map<unsigned int, FContentPlayerState*>* FRmRuntimeMachine::GetMissionPlayerMap()
 {
     return Mission->GetPlayerStateMap();
@@ -340,23 +336,23 @@ std::map<unsigned int, FContentPlayerState*>* FRmRuntimeMachine::GetMissionPlaye
 // FRmConversationMessage (vtable 06fbc6d0)
 // =======================================================================================
 
-// 06f84f66-06f84f92 (inline in FUN_06f84f10): the base first, then the Clone of Source.
+// (inline in the routine): the base first, then the Clone of Source.
 FRmConversationMessage::FRmConversationMessage(FRmConversationBase* Source)
     : StateMachineMessage(GRmMsgType06fd3b74)
     , Conversation(Source->Clone())
 {
 }
 
-// FUN_06f87dc0: the conversation deleted through its slot 0 when set.
+// the conversation deleted through its slot 0 when set.
 FRmConversationMessage::~FRmConversationMessage()
 {
     if (Conversation != nullptr)
         delete Conversation;
 }
 
-// FUN_06f87e10: StateMachineMessage::operator new(0x20) and the shallow copy (exported base
+// StateMachineMessage::operator new(0x20) and the shallow copy (exported base
 // copy ctor, +0x1c, vptr; EH state 0), state -1 at 06f87e65, then +0x1c = its Clone (slot 5,
-// 06f87e6d). No null test: a failed new reads +0x1c of null.
+// ). No null test: a failed new reads +0x1c of null.
 StateMachineMessage* FRmConversationMessage::clone() const
 {
     FRmConversationMessage* const Copy = new FRmConversationMessage(*this);
@@ -368,7 +364,7 @@ StateMachineMessage* FRmConversationMessage::clone() const
 // FRmOfferComponent slots 5-7 (vtable 06fbc6ac) and the slot 7 overrides
 // =======================================================================================
 
-// FUN_06f84f10 (06f84f10-06f8500f, RET 0xc). Per conversation whose Trigger (slot 8) is
+// (06f84f10-06f8500f, RET 0xc). Per conversation whose Trigger (slot 8) is
 // Trigger: slot 6 (Conversation, Machine, Player); then the message with a slot 5 clone goes
 // through this handler's send_delayed_message after the conversation's delay (slot 10) to
 // Machine's handler id; the message's dtor deletes the clone.
@@ -388,8 +384,8 @@ void FRmOfferComponent::SendConversations(int Trigger, FRmRuntimeMachine* Machin
     }
 }
 
-// LAB_06f85020 (06f85020-06f852a5, RET 0xc). MarkReady (slot 9); per line: the texts and the
-// players cleared, slot 7 for the listeners (bSpeaker 1) and then the speaker... in retail
+// (06f85020-06f852a5, RET 0xc). MarkReady (slot 9); per line: the texts and the
+// players cleared, slot 7 for the listeners (bSpeaker 1) and then the speaker... in baseline
 // order: slot 7 with 1 first, then with 0; no voice yet -> pub::SpaceObj::GetVoiceID of the
 // speaker; the voice line name of the line's text (MakeVoiceLineName(Text, "-", VoiceId))
 // appended as a nickname id; +0x28 = 0x4a39, Field_0x8c = 1.
@@ -416,7 +412,7 @@ void FRmOfferComponent::PrepareConversation(FRmConversation* Conversation,
     }
 }
 
-// LAB_06f852b0 (RET 0x10): Machine's slot 11 with the same arguments.
+// (RET 0x10): Machine's slot 11 with the same arguments.
 bool FRmOfferComponent::ResolveLine(bool bSpeaker, FRmLine* Line, FRmRuntimeMachine* Machine,
                                     FContentPlayerState* Player)
 {
@@ -425,7 +421,7 @@ bool FRmOfferComponent::ResolveLine(bool bSpeaker, FRmLine* Line, FRmRuntimeMach
 
 namespace
 {
-    // The ship and solar slot 7 bodies (LAB_06f88df0 / LAB_06f88af0) differ in two places:
+    // The ship and solar slot 7 bodies (the branch / the branch) differ in two places:
     // the range 8 test (ship: squared distance < 1e8, TEST AH,0x5 + JP; solar: <= 1e8, TEST
     // AH,0x41 + JP) and the bSpeaker argument passed to the machine without Player (ship 1,
     // solar 0).
@@ -441,7 +437,7 @@ namespace
             return Machine->ResolveLine(!bSolar, Line, nullptr);
 
         std::vector<FContentPlayerState*>* Players = Machine->GetMissionPlayers();
-        // FUN_06eb6b30 (capacity) < the player count -> reallocate to exactly that count.
+        // (capacity) < the player count -> reallocate to exactly that count.
         Line->PlayerIds.reserve(Players->size());
         Vector Center;
         Player->ShipObject->GetPosition(&Center);
@@ -455,8 +451,8 @@ namespace
             Other->ShipObject->GetPosition(&Position);
             if (Kind == 9)
             {
-                // 06f88f13-06f88f65: FUN_06eb7810(x, y, z) of the float differences, then
-                // (z*z + y*y) + x*x against 1e8 (DAT_06fbc2ac): TEST AH,0x41 + JNZ skips
+                // the routine(x, y, z) of the float differences, then
+                // (z*z + y*y) + x*x against 1e8 (the field): TEST AH,0x41 + JNZ skips
                 // less, equal or unordered -- the player is kept when farther.
                 float const Dx = Position.x - Center.x;
                 float const Dy = Position.y - Center.y;
@@ -469,7 +465,7 @@ namespace
             }
             else
             {
-                // 06f89063-06f890b3: SubtractVectors (FUN_06eeaee0), (z*z + y*y) + x*x.
+                // SubtractVectors (the routine), (z*z + y*y) + x*x.
                 Vector const Delta = SubtractVectors(Position, Center);
                 double const DistanceSq = static_cast<double>(Delta.z) * Delta.z +
                                           static_cast<double>(Delta.y) * Delta.y +
@@ -484,14 +480,14 @@ namespace
     }
 }
 
-// LAB_06f88df0 (06f88df0-06f890e3, RET 0x10).
+// (06f88df0-06f890e3, RET 0x10).
 bool FRmShipComponent::ResolveLine(bool bSpeaker, FRmLine* Line, FRmRuntimeMachine* Machine,
                                    FContentPlayerState* Player)
 {
     return RmResolveRangeLine(bSpeaker, Line, Machine, Player, false);
 }
 
-// LAB_06f88af0 (06f88af0-06f88de3, RET 0x10).
+// (06f88af0-06f88de3, RET 0x10).
 bool FRmSolarComponent::ResolveLine(bool bSpeaker, FRmLine* Line, FRmRuntimeMachine* Machine,
                                     FContentPlayerState* Player)
 {
@@ -509,13 +505,13 @@ FRmSolarMessage::FRmSolarMessage(unsigned int Type, unsigned int InObjectId)
 {
 }
 
-// FUN_06f87cb0: operator new(0x20), the copy ctor, +0x1c.
+// operator new(0x20), the copy ctor, +0x1c.
 StateMachineMessage* FRmSolarMessage::clone() const
 {
     return new FRmSolarMessage(*this);
 }
 
-// FUN_06f86c80 (RET 0xc).
+// (RET 0xc).
 FRmLootMessage::FRmLootMessage(unsigned int Type, unsigned int InObjectId, unsigned int InValue)
     : StateMachineMessage(Type)
     , ObjectId(InObjectId)
@@ -523,7 +519,7 @@ FRmLootMessage::FRmLootMessage(unsigned int Type, unsigned int InObjectId, unsig
 {
 }
 
-// FUN_06f86cb0: operator new(0x24), the copy ctor, +0x1c / +0x20.
+// operator new(0x24), the copy ctor, +0x1c / +0x20.
 StateMachineMessage* FRmLootMessage::clone() const
 {
     return new FRmLootMessage(*this);
@@ -539,7 +535,7 @@ FRmLootPlayerMessage::FRmLootPlayerMessage(unsigned int Type, unsigned int InObj
 {
 }
 
-// FUN_06f86d20: operator new(0x28), the copy ctor, +0x1c..+0x24 (the 06fbc80c store first,
+// operator new(0x28), the copy ctor, +0x1c..+0x24 (the 06fbc80c store first,
 // then 06fbc814: an inlined base copy).
 StateMachineMessage* FRmLootPlayerMessage::clone() const
 {
@@ -554,20 +550,20 @@ FRmShipMessage::FRmShipMessage(unsigned int Type, unsigned int InGroup, unsigned
 {
 }
 
-// FUN_06f87c40: operator new(0x24), the copy ctor, +0x1c / +0x20.
+// operator new(0x24), the copy ctor, +0x1c / +0x20.
 StateMachineMessage* FRmShipMessage::clone() const
 {
     return new FRmShipMessage(*this);
 }
 
-// FUN_06f87d10 (RET 4): StateMachineMessage(DAT_06fd3b78), +0x1c.
+// (RET 4): StateMachineMessage(the field), +0x1c.
 FRmCookieMessage::FRmCookieMessage(unsigned int InCookie)
     : StateMachineMessage(GRmMsgType06fd3b78)
     , Cookie(InCookie)
 {
 }
 
-// FUN_06f87d40: operator new(0x20), the copy ctor, +0x1c.
+// operator new(0x20), the copy ctor, +0x1c.
 StateMachineMessage* FRmCookieMessage::clone() const
 {
     return new FRmCookieMessage(*this);
@@ -577,7 +573,7 @@ StateMachineMessage* FRmCookieMessage::clone() const
 // Records
 // =======================================================================================
 
-// FUN_06f866a0: +4 = 1, the empty name, +0x3c = 2, +0x40 = 0, +0x44 = -2.0 (DAT_06fbc2e8),
+// +4 = 1, the empty name, +0x3c = 2, +0x40 = 0, +0x44 = -2.0 (the field),
 // +0x48 / +0x4c = 0, the empty loot vector, vtable 06fbc7c8.
 FRmSpawnRecord::FRmSpawnRecord()
 {
@@ -585,12 +581,12 @@ FRmSpawnRecord::FRmSpawnRecord()
     Name.Data[0] = '\0';
 }
 
-// FUN_06f86700 / FUN_06f87bf0: the loot vector's elements (their label lists) and buffer.
+// / the routine: the loot vector's elements (their label lists) and buffer.
 FRmSpawnRecord::~FRmSpawnRecord()
 {
 }
 
-// FUN_06f86820: every non-null record deleted through its slot 0 with 1.
+// every non-null record deleted through its slot 0 with 1.
 void FRmRecordList::DeleteAll()
 {
     for (std::list<FRmSpawnRecord*>::iterator It = Records.begin(); It != Records.end(); ++It)
@@ -600,7 +596,7 @@ void FRmRecordList::DeleteAll()
     }
 }
 
-// FUN_06f86850 (RET 4).
+// (RET 4).
 FRmSpawnRecord* FRmRecordList::FindById(unsigned int Id)
 {
     if (Id == 0)
@@ -613,7 +609,7 @@ FRmSpawnRecord* FRmRecordList::FindById(unsigned int Id)
     return nullptr;
 }
 
-// FUN_06f86880 (RET 0x34): the unrolled strcmp of InName.Data against the record's name.
+// (RET 0x34): the unrolled strcmp of InName.Data against the record's name.
 FRmSpawnRecord* FRmRecordList::FindByName(TString<0x30> InName)
 {
     for (std::list<FRmSpawnRecord*>::iterator It = Records.begin(); It != Records.end(); ++It)
@@ -628,7 +624,7 @@ FRmSpawnRecord* FRmRecordList::FindByName(TString<0x30> InName)
 // Sub-machines
 // =======================================================================================
 
-// 06f89b01-06f89b1a (the base part inline in the runtime machine ctor).
+// (the base part inline in the runtime machine ctor).
 FRmSubMachine::FRmSubMachine(unsigned int InOwnerId)
     : StateMachineMessageHandler(GMessageRouter)
     , OwnerId(InOwnerId)
@@ -645,13 +641,13 @@ FRmSolarMachine::FRmSolarMachine(unsigned int InOwnerId)
 {
 }
 
-// FUN_06f86920.
+// .
 FRmSolarMachine::~FRmSolarMachine()
 {
     Records.DeleteAll();
 }
 
-// LAB_06f86a00 (06f86a00-06f86ab7, RET 8). True for every message 0x39 in state 0.
+// (06f86a00-06f86ab7, RET 8). True for every message 0x39 in state 0.
 bool FRmSolarMachine::Slot2(SMEventData const* Event, int const& State)
 {
     if (State < 0 || State != 0)
@@ -675,7 +671,7 @@ bool FRmSolarMachine::Slot2(SMEventData const* Event, int const& State)
     return true;
 }
 
-// FUN_06f86ae0 (06f86ae0-06f86c78, RET 0x10): a local list filled in record order, returned
+// (06f86ae0-06f86c78, RET 0x10): a local list filled in record order, returned
 // as a copy (06f86bbe-06f86c06).
 FRmRecordList FRmSolarMachine::Query(int Kind, int InState, unsigned int Mask)
 {
@@ -700,15 +696,15 @@ FRmShipMachine::FRmShipMachine(unsigned int InOwnerId)
 {
 }
 
-// FUN_06f87990.
+// .
 FRmShipMachine::~FRmShipMachine()
 {
     Records.DeleteAll();
 }
 
-// LAB_06f87e90 (06f87e90-06f880b8, RET 8). After the destroyed message: the record's group;
-// every member destroyed (State 3) -> DAT_06fd3ba4; a record with Flags bit 1 and no alive
-// member with Flags bit 1 left -> DAT_06fd3ba0. True for every message 0x39 in state 0.
+// (06f87e90-06f880b8, RET 8). After the destroyed message: the record's group;
+// every member destroyed (State 3) -> the field; a record with Flags bit 1 and no alive
+// member with Flags bit 1 left -> the field. True for every message 0x39 in state 0.
 bool FRmShipMachine::Slot2(SMEventData const* Event, int const& State)
 {
     if (State < 0 || State != 0)
@@ -758,7 +754,7 @@ bool FRmShipMachine::Slot2(SMEventData const* Event, int const& State)
     return true;
 }
 
-// FUN_06f87a50 (06f87a50-06f87be7, RET 0x10).
+// (06f87a50-06f87be7, RET 0x10).
 FRmRecordList FRmShipMachine::Query(int Kind, int InState, unsigned int Mask)
 {
     FRmRecordList Result;
@@ -777,7 +773,7 @@ FRmRecordList FRmShipMachine::Query(int Kind, int InState, unsigned int Mask)
     return Result;
 }
 
-// FUN_06f880c0 (06f880c0-06f88239, RET 8).
+// (06f880c0-06f88239, RET 8).
 FRmRecordList FRmShipMachine::QueryGroup(unsigned int Group)
 {
     FRmRecordList Result;
@@ -799,19 +795,19 @@ FRmLootMachine::FRmLootMachine(unsigned int InOwnerId)
 {
 }
 
-// FUN_06f86ef0.
+// .
 FRmLootMachine::~FRmLootMachine()
 {
     Records.DeleteAll();
 }
 
-// LAB_06f86fb0 (06f86fb0-06f877b6, RET 8). State 0 only; every handled message answers true.
+// (06f86fb0-06f877b6, RET 8). State 0 only; every handled message answers true.
 bool FRmLootMachine::Slot2(SMEventData const* Event, int const& State)
 {
     if (State < 0 || State != 0)
         return false;
 
-    // 06f86fe7-06f872ab: message DAT_06fd3b6c {+0x1c loot id, +0x20 ship id} for this state:
+    // message the field {+0x1c loot id, +0x20 ship id} for this state:
     // the loot is taken from its holder and created again next to the ship.
     if (Event->get_event_type() == 3)
     {
@@ -853,13 +849,13 @@ bool FRmLootMachine::Slot2(SMEventData const* Event, int const& State)
             pub::SpaceObj::GetMotion(PlayerShip, Linear, Angular);
             Vector ShipPosition;
             Player->ShipObject->GetPosition(&ShipPosition);
-            // 06f87148-06f871ef: position = ship + (0, 10, 0) (DAT_06fb4438), velocity = the
+            // position = ship + (0, 10, 0) (the field), velocity = the
             // ship's + (0, 10, 0), the ship's angular velocity, one unit.
             Info.Position = Vector{ShipPosition.x, ShipPosition.y + 10.0f, ShipPosition.z};
             Info.Velocity = Vector{Linear.x, Linear.y + 10.0f, Linear.z};
             Info.AngularVelocity = Angular;
             Info.Units = 1;
-            // 06f871fa-06f87235: rand() * 2^-15 (DAT_06fb4448) * 0.5 + 0.5 (double DAT_06fb74e0).
+            // rand() * 2^-15 (the field) * 0.5 + 0.5 (double the field).
             int const Roll = std::rand();
             float const Scaled = static_cast<float>(Roll) * 3.0517578125e-05f;
             Info.HitPtsScale = static_cast<float>(static_cast<double>(Scaled) * 0.5 + 0.5);
@@ -882,7 +878,7 @@ bool FRmLootMachine::Slot2(SMEventData const* Event, int const& State)
     SMControllerEvent const* Controller = static_cast<SMControllerEvent const*>(Event);
     // A type 4 event's int +0x08 is the controller message id, cast back after the type test.
 
-    // 06f872b0-06f87419: message 0x39 {id, ..., +0x10 cause} -- the loot is gone.
+    // message 0x39 {id, ..., +0x10 cause} -- the loot is gone.
     if (Event->get_event_type() == 4 &&
         static_cast<EMessage>(Controller->ControllerId) == EMessage::ObjectDestroyed)
     {
@@ -921,7 +917,7 @@ bool FRmLootMachine::Slot2(SMEventData const* Event, int const& State)
         return true;
     }
 
-    // 06f8741e-06f87593: message 0x18 {id, ship, word slot, good, units} -- picked up.
+    // message 0x18 {id, ship, word slot, good, units} -- picked up.
     if (Event->get_event_type() == 4 &&
         static_cast<EMessage>(Controller->ControllerId) == EMessage::LootAcquired)
     {
@@ -957,7 +953,7 @@ bool FRmLootMachine::Slot2(SMEventData const* Event, int const& State)
         return true;
     }
 
-    // 06f87598-06f876d6: message 0x27 {ship, word 1}: the critical loot the player holds.
+    // message 0x27 {ship, word 1}: the critical loot the player holds.
     if (Event->get_event_type() == 4 &&
         static_cast<EMessage>(Controller->ControllerId) == EMessage::Msg0x27)
     {
@@ -979,7 +975,7 @@ bool FRmLootMachine::Slot2(SMEventData const* Event, int const& State)
         return true;
     }
 
-    // 06f876db-06f8779a: message 0x3d {system}: the first alive critical loot of that system
+    // message 0x3d {system}: the first alive critical loot of that system
     // is destroyed.
     if (Event->get_event_type() == 4 &&
         static_cast<EMessage>(Controller->ControllerId) == EMessage::SystemUnloaded)
@@ -1007,7 +1003,7 @@ float GRmMultiplayerDelay = 30.0f;
 
 namespace
 {
-    // The x87 squared distance of FUN_06f89e90 / FUN_06f8bb80: the three differences kept in
+    // The x87 squared distance of the routine / the routine: the three differences kept in
     // extended precision, summed (x*x + z*z) + y*y.
     double RmDistanceSq(Vector const& A, Vector const& B)
     {
@@ -1018,7 +1014,7 @@ namespace
     }
 }
 
-// FUN_06f89a00 (06f89a00-06f89c96, RET 4). The three sub-machines are added with the
+// (06f89a00-06f89c96, RET 4). The three sub-machines are added with the
 // StateMachineGroup import (not FRmMachineGroup::AddMachine); their owner id is this
 // machine's handler id, read before each is built.
 FRmRuntimeMachine::FRmRuntimeMachine(FRmOffer* InOffer)
@@ -1036,13 +1032,13 @@ FRmRuntimeMachine::FRmRuntimeMachine(FRmOffer* InOffer)
     StateMachineGroup::add_state_machine(Loot);
 }
 
-// FUN_06f89cc0: the members in reverse order (Offer released, the objective vector, the
+// the members in reverse order (Offer released, the objective vector, the
 // objective list with its objectives), then ~FRmMachineGroup.
 FRmRuntimeMachine::~FRmRuntimeMachine()
 {
 }
 
-// LAB_06f8a5c0 (RET 8).
+// (RET 8).
 bool FRmRuntimeMachine::Slot2(SMEventData const* Event, int const& State)
 {
     if (State < 0)
@@ -1056,12 +1052,12 @@ bool FRmRuntimeMachine::Slot2(SMEventData const* Event, int const& State)
     return false;
 }
 
-// LAB_06ebf720: RET.
+// RET.
 void FRmRuntimeMachine::Shutdown()
 {
 }
 
-// FUN_06f89dc0 (06f89dc0-06f89e2b).
+// (06f89dc0-06f89e2b).
 unsigned int FRmRuntimeMachine::GetSystemId()
 {
     if (Objectives.Objectives.empty())
@@ -1078,19 +1074,19 @@ unsigned int FRmRuntimeMachine::GetSystemId()
     return Offer->System->SystemId;
 }
 
-// FUN_06f89e30 (RET 0x34): slot 3 of the solar machine's list (+0x20).
+// (RET 0x34): slot 3 of the solar machine's list (+0x20).
 FRmSpawnRecord* FRmRuntimeMachine::FindSolarByName(TString<0x30> InName)
 {
     return Solars->Records.FindByName(InName);
 }
 
-// FUN_06f89e60 (RET 0x34).
+// (RET 0x34).
 FRmSpawnRecord* FRmRuntimeMachine::FindShipByName(TString<0x30> InName)
 {
     return Ships->Records.FindByName(InName);
 }
 
-// LAB_06f89e90 (06f89e90-06f8a537, RET 0xc). Speaker kinds (FRmCommLine::Speaker - 1, jump
+// (06f89e90-06f8a537, RET 0xc). Speaker kinds (FRmCommLine::Speaker - 1, jump
 // table 06f8a53c): 1 BASE (the offer's costume and voice, +0x2c = 0x32d7), 2 BIG_SOLAR (the
 // first alive solar of type 0), 3 BIG_SHIP (the first ship of kind 2), 4 DEFENSIVE_SHIP (kind 1
 // and alive), 5 FRIENDLY_SHIP (attitude > 0.0 and alive). Listener kinds (FRmCommSequence::
@@ -1140,7 +1136,7 @@ bool FRmRuntimeMachine::ResolveLine(bool bSpeaker, FRmLine* Line, FContentPlayer
             }
             return false;
         case 5:
-            // 06f89fa3-06f89fb6: FCOMP 0.0 (DAT_06fbc29c), TEST AH,0x41 + JNZ: less, equal or
+            // FCOMP 0.0 (the field), TEST AH,0x41 + JNZ: less, equal or
             // unordered skip.
             for (std::list<FRmSpawnRecord*>::iterator It = Ships->Records.Records.begin();
                  It != Ships->Records.Records.end(); ++It)
@@ -1187,7 +1183,7 @@ bool FRmRuntimeMachine::ResolveLine(bool bSpeaker, FRmLine* Line, FContentPlayer
             Vector Other;
             (*It)->ShipObject->GetPosition(&Other);
             double const DistanceSq = RmDistanceSq(Other, Center);
-            // 06f8a22e (kind 8): TEST AH,0x41 + JP skips greater only; 06f8a317 (kind 9):
+            // (kind 8): TEST AH,0x41 + JP skips greater only; 06f8a317 (kind 9):
             // TEST AH,0x41 + JNZ skips less, equal and unordered.
             bool const bKeep = Line->TargetKind == 8 ? !(DistanceSq > 100000000.0)
                                                      : DistanceSq > 100000000.0;
@@ -1199,9 +1195,9 @@ bool FRmRuntimeMachine::ResolveLine(bool bSpeaker, FRmLine* Line, FContentPlayer
     case 10:
     case 11:
     {
-        // 06f8a0e8-06f8a12f / 06f8a150-06f8a197: the player index advances only past a
+        // / 06f8a150-06f8a197: the player index advances only past a
         // player WITHOUT a ship (ADD EDI,4 at 06f8a129 / 06f8a191 is jumped over by both the
-        // match and the push path). Retail therefore never leaves the loop once a mission
+        // match and the push path). baseline therefore never leaves the loop once a mission
         // player has a ship; the port keeps that.
         std::vector<FContentPlayerState*>* Players = GetMissionPlayers();
         std::vector<FContentPlayerState*>::iterator It = Players->begin();
@@ -1224,7 +1220,7 @@ bool FRmRuntimeMachine::ResolveLine(bool bSpeaker, FRmLine* Line, FContentPlayer
     }
 }
 
-// LAB_06f8a590.
+// .
 bool FRmRuntimeMachine::CanSave()
 {
     if (get_state() == 5 || get_state() == 6 || get_state() == 7)
@@ -1232,7 +1228,7 @@ bool FRmRuntimeMachine::CanSave()
     return true;
 }
 
-// LAB_06f71100 (ICF with FRmTrigger::OnIdle).
+// (ICF with FRmTrigger::OnIdle).
 bool FRmRuntimeMachine::OnState0(SMEventData const* Event, int const& State)
 {
     if (State == 0 && Event->get_event_type() < 4 && Event->get_event_type() == 1)
@@ -1243,7 +1239,7 @@ bool FRmRuntimeMachine::OnState0(SMEventData const* Event, int const& State)
     return false;
 }
 
-// LAB_06f8a610 (06f8a610-06f8a669, RET 8).
+// (06f8a610-06f8a669, RET 8).
 bool FRmRuntimeMachine::OnState1(SMEventData const* Event, int const& State)
 {
     if (State != 1 || Event->get_event_type() != 3)
@@ -1257,7 +1253,7 @@ bool FRmRuntimeMachine::OnState1(SMEventData const* Event, int const& State)
     return true;
 }
 
-// LAB_06f8a670 (06f8a670-06f8a6ac, RET 8).
+// (06f8a670-06f8a6ac, RET 8).
 bool FRmRuntimeMachine::OnState2(SMEventData const* Event, int const& State)
 {
     if (State == 2 && Event->get_event_type() < 4 && Event->get_event_type() == 1)
@@ -1268,7 +1264,7 @@ bool FRmRuntimeMachine::OnState2(SMEventData const* Event, int const& State)
     return false;
 }
 
-// FUN_06f8b160 (06f8b160-06f8b24b): over a copy of the mission's players.
+// (06f8b160-06f8b24b): over a copy of the mission's players.
 void FRmRuntimeMachine::RefreshObjectives()
 {
     std::vector<FContentPlayerState*> Players = *GetMissionPlayers();
@@ -1282,7 +1278,7 @@ void FRmRuntimeMachine::RefreshObjectives()
     bObjectivesChanged = false;
 }
 
-// FUN_06f8b250 (06f8b250-06f8b32a): over a copy of the mission's players, mission slot 2.
+// (06f8b250-06f8b32a): over a copy of the mission's players, mission slot 2.
 void FRmRuntimeMachine::SendPlaceholderObjectives()
 {
     std::vector<FContentPlayerState*> Players = *GetMissionPlayers();
@@ -1291,7 +1287,7 @@ void FRmRuntimeMachine::SendPlaceholderObjectives()
         Mission->GetOrCreatePlayer((*It)->PlayerId)->SendPlaceholderObjective();
 }
 
-// FUN_06f8b330 (06f8b330-06f8b618, RET 4).
+// (06f8b330-06f8b618, RET 4).
 void FRmRuntimeMachine::UpdatePlayerObjectives(unsigned int InPlayerId)
 {
     FMissionPlayer* Player = Mission->GetOrCreatePlayer(InPlayerId);
@@ -1299,12 +1295,12 @@ void FRmRuntimeMachine::UpdatePlayerObjectives(unsigned int InPlayerId)
         return;
     std::list<FMissionObjective*>& List = Player->Objectives.Objectives;
 
-    // 06f8b35b-06f8b3d5: the machine's run starts after the first objective of a player
+    // the machine's run starts after the first objective of a player
     // without a ship and after the type 5 path objectives; it ends at a type 8 or 5 objective.
     std::list<FMissionObjective*>::iterator First = List.begin();
     bool bReplaced = false;
     // Port-only STL adaptation (CONTENT-OBJECTIVE-END-ITERATOR in deviations.md).
-    // Retail 06f8b376 has no end check: MOV EAX,[EAX] follows the circular node's Next
+    // has no end check: MOV EAX,[EAX] follows the circular node's Next
     // pointer. On an empty VC6 list the sentinel points to itself. Modern std::list
     // forbids ++end(), so retain end() here and continue the objective update.
     // Keep this check unless an equivalent empty-list-safe traversal replaces it.
@@ -1316,7 +1312,7 @@ void FRmRuntimeMachine::UpdatePlayerObjectives(unsigned int InPlayerId)
     while (Last != List.end() && (*Last)->GetType() != 8 && (*Last)->GetType() != 5)
         ++Last;
 
-    // 06f8b3d7-06f8b4a2: the run is replaced by clones of the machine's objectives unless it
+    // the run is replaced by clones of the machine's objectives unless it
     // already matches them one by one (the player's objective's IsSame, slot 6).
     bool bSame = true;
     {
@@ -1340,7 +1336,7 @@ void FRmRuntimeMachine::UpdatePlayerObjectives(unsigned int InPlayerId)
         bReplaced = true;
     }
 
-    // 06f8b4a7-06f8b4bf: only a player in this machine's system gets anything sent.
+    // only a player in this machine's system gets anything sent.
     FContentPlayerState* State = Player->PlayerState;
     if (State->GetSystemRecord()->SystemId != GetSystemId())
         return;
@@ -1348,8 +1344,8 @@ void FRmRuntimeMachine::UpdatePlayerObjectives(unsigned int InPlayerId)
     bool bPathChanged = false;
     if (State->ShipObject != nullptr && State->ShipObject->HasField120())
     {
-        // 06f8b4e2-06f8b579: once per launch, a reached first path objective is dropped
-        // (squared distance < 1e6, DAT_06fb8570; TEST AH,0x5 + JP skips greater, equal and
+        // once per launch, a reached first path objective is dropped
+        // (squared distance < 1e6, the field; TEST AH,0x5 + JP skips greater, equal and
         // unordered).
         if (Player->Field_0x24 == 0)
         {
@@ -1383,7 +1379,7 @@ void FRmRuntimeMachine::UpdatePlayerObjectives(unsigned int InPlayerId)
     }
     else
     {
-        // 06f8b580-06f8b5ca: the path objectives (slot 19); a single path objective makes
+        // the path objectives (slot 19); a single path objective makes
         // the objective after it carry flags 0x50.
         Player->Field_0x24 = 0;
         UpdatePathObjectives(Player, &bPathChanged);
@@ -1401,7 +1397,7 @@ void FRmRuntimeMachine::UpdatePlayerObjectives(unsigned int InPlayerId)
         }
     }
 
-    // 06f8b5ce-06f8b5ef: outside single player the mission's slot 31.
+    // outside single player the mission's slot 31.
     bool bCountChanged = false;
     if (!pub::SinglePlayer())
         Mission->UpdatePlayerCountObjective(Player, &bCountChanged);
@@ -1409,7 +1405,7 @@ void FRmRuntimeMachine::UpdatePlayerObjectives(unsigned int InPlayerId)
         Player->SendObjectives();
 }
 
-// FUN_06f8b620 (06f8b620-06f8b924, RET 8).
+// (06f8b620-06f8b924, RET 8).
 bool FRmRuntimeMachine::UpdatePathObjectives(FMissionPlayer* Player, bool* bChanged)
 {
     FMissionObjectiveList* List = &Player->Objectives;
@@ -1423,7 +1419,7 @@ bool FRmRuntimeMachine::UpdatePathObjectives(FMissionPlayer* Player, bool* bChan
         FContentPlayerState* State = Player->PlayerState;
         Vector PlayerPosition;
         State->GetPosition(&PlayerPosition);
-        // 06f8b6c9-06f8b70c: a player at the origin (every coordinate squared <= 1.0) gets no
+        // a player at the origin (every coordinate squared <= 1.0) gets no
         // path (TEST AH,0x41 + JP: greater or unordered builds).
         bool const bPlaced =
             !(static_cast<double>(PlayerPosition.x) * PlayerPosition.x <= 1.0) ||
@@ -1450,8 +1446,8 @@ bool FRmRuntimeMachine::UpdatePathObjectives(FMissionPlayer* Player, bool* bChan
                 bWhere = true;
             std::list<FMissionObjective*>::iterator Where = List->Objectives.begin();
 
-            // 06f8b7d1-06f8b80d: objective key 0xc: the first object found at the target
-            // (ScanObjects, 0x20 at most, radius 0, mask 0x600de0). Retail reads the buffer's
+            // objective key 0xc: the first object found at the target
+            // (ScanObjects, 0x20 at most, radius 0, mask 0x600de0). baseline reads the buffer's
             // first word even when nothing was found (stack garbage); the port's buffer is 0.
             unsigned int TargetObjectId = 0;
             if (First->Key == 0xc)
@@ -1470,7 +1466,7 @@ bool FRmRuntimeMachine::UpdatePathObjectives(FMissionPlayer* Player, bool* bChan
         return *bChanged;
     }
 
-    // 06f8b88d-06f8b90b / 06f8b8cd-06f8b90b: no target -> the path objectives at the front are
+    // / 06f8b8cd-06f8b90b: no target -> the path objectives at the front are
     // dropped (and reported when there was one).
     if (!List->Objectives.empty())
     {
@@ -1482,7 +1478,7 @@ bool FRmRuntimeMachine::UpdatePathObjectives(FMissionPlayer* Player, bool* bChan
     return *bChanged;
 }
 
-// FUN_06f8bac0 (06f8bac0-06f8bb71, RET 4). The vector index stays valid across
+// (06f8bac0-06f8bb71, RET 4). The vector index stays valid across
 // RebuildObjective (erase + insert at the same place, no reallocation).
 void FRmRuntimeMachine::OnPlayerJoined(unsigned int InPlayerId)
 {
@@ -1503,8 +1499,8 @@ void FRmRuntimeMachine::OnPlayerJoined(unsigned int InPlayerId)
     RefreshObjectives();
 }
 
-// FUN_06f8b930 (06f8b930-06f8bab6, RET 4). TEST AH,0x44 + JNP skips an attitude equal to
-// -2.0 (DAT_06fbc2e8).
+// (06f8b930-06f8bab6, RET 4). TEST AH,0x44 + JNP skips an attitude equal to
+// -2.0 (the field).
 void FRmRuntimeMachine::SetPlayerAttitudes(FContentPlayerState* Player)
 {
     FRmRecordList ShipList = Ships->Query(0, 2, 0);
@@ -1530,21 +1526,21 @@ void FRmRuntimeMachine::SetPlayerAttitudes(FContentPlayerState* Player)
     }
 }
 
-// FUN_06f92680 (RET 4).
+// (RET 4).
 void FRmRuntimeMachine::SpawnSolars(std::list<FRmSolarSpawn>* InSolars)
 {
     for (std::list<FRmSolarSpawn>::iterator It = InSolars->begin(); It != InSolars->end(); ++It)
         SpawnSolar(&*It);
 }
 
-// FUN_06f926b0 (06f926b0-06f92dcd, RET 4).
+// (06f926b0-06f92dcd, RET 4).
 bool FRmRuntimeMachine::SpawnSolar(FRmSolarSpawn* Solar)
 {
     if (Offer->System == nullptr)
         return false;
     bool bCreated = false;
 
-    // 06f926ee-06f92870: the SolarInfo.
+    // the SolarInfo.
     pub::SpaceObj::SolarInfo Info;
     std::memset(&Info, 0, sizeof(Info));
     Info.Orientation.E[0][0] = 1.0f;
@@ -1578,7 +1574,7 @@ bool FRmRuntimeMachine::SpawnSolar(FRmSolarSpawn* Solar)
     }
     Info.Field_0x80 = 0;
 
-    // 06f92877-06f9294f: the reputation, named by the killable solar's string (+0x507d0).
+    // the reputation, named by the killable solar's string (+0x507d0).
     FmtStr Name;
     Name.begin_mad_lib(static_cast<unsigned int>(Solar->Arch->StringId + 0x507d0));
     Name.end_mad_lib();
@@ -1587,7 +1583,7 @@ bool FRmRuntimeMachine::SpawnSolar(FRmSolarSpawn* Solar)
         pub::Reputation::Alloc(Info.VibeGroupId, Name, Empty);
     }
 
-    // 06f92955-06f92b85: the record: the solar's name, its loot, Flags = ModeFlag, the
+    // the record: the solar's name, its loot, Flags = ModeFlag, the
     // attitude and the solar type.
     FRmSolarRecord Record;
     Record.Name = Solar->Nickname.Data;
@@ -1602,7 +1598,7 @@ bool FRmRuntimeMachine::SpawnSolar(FRmSolarSpawn* Solar)
 
     if (pub::SpaceObj::CreateSolar(Record.ObjectId, Info) == 0)
     {
-        // 06f92bc8-06f92c2c: SetPersonalityParams with the "NOTHING" graph, +0x10 / +0x14 = 0,
+        // SetPersonalityParams with the "NOTHING" graph, +0x10 / +0x14 = 0,
         // the solar's pilot when it has one; SubmitState.
         pub::AI::SetPersonalityParams Op;
         Op.StateGraphId = pub::StateGraph::get_state_graph("NOTHING", pub::StateGraph::LEADER);
@@ -1619,7 +1615,7 @@ bool FRmRuntimeMachine::SpawnSolar(FRmSolarSpawn* Solar)
             pub::SpaceObj::SetInvincible(Record.ObjectId, true, Solar->Field_0x4e0 != 0,
                                          Solar->InvincibleDuration);
         }
-        // 06f92c62-06f92cc2: the attitude towards every mission player (FCOMP -2.0, TEST
+        // the attitude towards every mission player (FCOMP -2.0, TEST
         // AH,0x44 + JNP skips equal).
         if (!(Record.Attitude == -2.0f))
         {
@@ -1640,7 +1636,7 @@ bool FRmRuntimeMachine::SpawnSolar(FRmSolarSpawn* Solar)
 
 namespace
 {
-    // FUN_06efc7a0: the 3x3 identity (thiscall on the matrix).
+    // the 3x3 identity (thiscall on the matrix).
     void RmSetIdentity(Matrix* Out)
     {
         std::memset(Out, 0, sizeof(Matrix));
@@ -1649,8 +1645,8 @@ namespace
         Out->E[2][2] = 1.0f;
     }
 
-    // The spawn point search of FUN_06f915a0 (06f916a8-06f918da): GetEmptyPos around the
-    // group's position; on success a second search from a point raised by Lift (FUN_06f0bb80,
+    // The spawn point search of the routine (06f916a8-06f918da): GetEmptyPos around the
+    // group's position; on success a second search from a point raised by Lift (the routine,
     // float adds), with Clearance changed to SecondClearance. The second result is not tested.
     void RmFindSpawnPoint(FRmShipGroup const* Group, float StartRadius, float Clearance,
                           float SecondClearance, float Lift,
@@ -1675,12 +1671,12 @@ namespace
                                    *OutPosition);
     }
 
-    // 06f9206b-06f92133: the stores into the copied JobStruct (+0x2a0 of the personality,
+    // the stores into the copied JobStruct (+0x2a0 of the personality,
     // local [ESP+0x154]); AttackPreferences gets four {class, range, flags} rows and the
     // terminator class 12.
     void RmTuneShipJob(pub::AI::Personality::JobStruct* Job)
     {
-        float const Range = 2000.0f + 2000.0f;          // FLD DAT_06fbc2cc, FADD ST0,ST0
+        float const Range = 2000.0f + 2000.0f;          // FLD the field, FADD ST0,ST0
         int const Kinds[4] = {8, 0xa, 0xb, 0xc};
         int const Flags = 0xf;
         pub::AI::Personality::JobStruct::FAttackPreference* const Prefs = Job->AttackPreferences;
@@ -1706,8 +1702,8 @@ namespace
     }
 }
 
-// FUN_06f915a0 (06f915a0-06f9243a, RET 8). Locals in retail's construction order (EH states 0
-// and 1): the block list (FUN_06ef6b80), the record vector; the created-ship list (state 0xb)
+// (06f915a0-06f9243a, RET 8). Locals in baseline's construction order (EH states 0
+// and 1): the block list (the routine), the record vector; the created-ship list (state 0xb)
 // last. The group is marked spawned first. Every ship of the group becomes a block (name,
 // arch, faction look, the group's orientation, labels, cargo, priority, hit points, a
 // StayInRange 2000 directive and, for the first ship, a GotoVec 500 directive) and a record;
@@ -1725,10 +1721,10 @@ bool FRmRuntimeMachine::SpawnShipGroup(FRmShipGroup* Group, bool bNotFirst)
     if (!Group->Ships.empty())
         Records.reserve(Group->Ships.size());
 
-    // 06f916a8-06f918da: the first group of a component searches the 3D volume (350 / 50, then
+    // the first group of a component searches the 3D volume (350 / 50, then
     // 250 higher); a later one the YZ plane (2625 / 1000, then 150 higher with clearance 250).
-    // Retail does not initialise the point (local_9c4), and need not: GetEmptyPos (Server
-    // .text:06cf9bd0) returns non-zero only through caseD_4 (-4: a negative radius or
+    // baseline does not initialise the point (local_9c4), and need not: GetEmptyPos (Server
+    // ) returns non-zero only through caseD_4 (-4: a negative radius or
     // clearance, or a selection type above 3), which these constant arguments never reach;
     // every other exit writes the point and returns 0 (06cfa03d loops until bEmpty).
     Vector SpawnPoint;
@@ -1742,13 +1738,13 @@ bool FRmRuntimeMachine::SpawnShipGroup(FRmShipGroup* Group, bool bNotFirst)
     for (std::vector<FRmShipSpawn>::iterator Ship = Group->Ships.begin();
          Ship != Group->Ships.end(); ++Ship)
     {
-        // 06f91900-06f919f1: a default block and a default ship record (Kind 0) appended.
+        // a default block and a default ship record (Kind 0) appended.
         Blocks.push_back(FContentNpcShipParams());
         Records.push_back(FRmShipRecord());
         FContentNpcShipParams* Block = &Blocks.back();
         FRmShipRecord* Record = &Records.back();
 
-        // 06f919f1-06f91ace: the name -- the offer's target name on the target ship, a random
+        // the name -- the offer's target name on the target ship, a random
         // name (gender from the faction, BuildNpcName with a named leader), or the [NPC]
         // block's; the block's old reputation handle released first.
         FNpcNameParams Name;
@@ -1763,16 +1759,16 @@ bool FRmRuntimeMachine::SpawnShipGroup(FRmShipGroup* Group, bool bNotFirst)
         {
             if (Ship->TargetName == nullptr)
             {
-                PickNpcNameGender(Ship->Npc.Affiliation, &Name);             // FUN_06f319b0
-                FNpcNameRequest Request;                                    // FUN_06f31650
-                BuildNpcName(Ship->Npc.Affiliation, &Request, &Name, true); // FUN_06f319d0
+                PickNpcNameGender(Ship->Npc.Affiliation, &Name);
+                FNpcNameRequest Request;
+                BuildNpcName(Ship->Npc.Affiliation, &Request, &Name, true);
             }
             if (Block->ReputationHandle != nullptr)
             {
                 Block->ReputationHandle->Release();
                 Block->ReputationHandle = nullptr;
             }
-            CreateNpcNameReputation(&Name, &Block->ReputationHandle);       // FUN_06f31910
+            CreateNpcNameReputation(&Name, &Block->ReputationHandle);
         }
         else
         {
@@ -1781,13 +1777,13 @@ bool FRmRuntimeMachine::SpawnShipGroup(FRmShipGroup* Group, bool bNotFirst)
                 Block->ReputationHandle->Release();
                 Block->ReputationHandle = nullptr;
             }
-            CreateMsnNpcReputation(&Ship->Npc, &Block->ReputationHandle);   // FUN_06f31d40
+            CreateMsnNpcReputation(&Ship->Npc, &Block->ReputationHandle);
         }
 
-        // 06f91ace-06f91cc1: nickname, the npc_ship_arch (result not tested), the faction's
+        // nickname, the npc_ship_arch (result not tested), the faction's
         // costume and voice for the name's gender, creation type 1, the group's orientation,
         // the mission's controller, labels, the group's +0x7c, cargo, priority, hit points.
-        Block->Nickname = Ship->Nickname.Data;                              // FUN_06ed0160
+        Block->Nickname = Ship->Nickname.Data;
         ApplyNpcShipArchById(Block, &Ship->Npc.NpcShipArch.Id, nullptr, nullptr);
         ApplyNpcShipFaction(Ship->Npc.Affiliation, Name.Gender, Block);
         Block->CreationType = 1;
@@ -1807,7 +1803,7 @@ bool FRmRuntimeMachine::SpawnShipGroup(FRmShipGroup* Group, bool bNotFirst)
         Block->Priority = Ship->Priority;
         Block->HitPoints = Ship->HitPoints;
 
-        // 06f91cc1-06f91e13: the record.
+        // the record.
         Record->Name = Ship->Nickname.Data;
         Record->State = 2;
         Record->Loot = Ship->Loot;
@@ -1817,7 +1813,7 @@ bool FRmRuntimeMachine::SpawnShipGroup(FRmShipGroup* Group, bool bNotFirst)
         Record->Kind = Ship->Field_0xdc;
         Record->Field_0x04 = Ship->Npc.Affiliation == Offer->HostileGroup;
 
-        // 06f91e16-06f91f15: StayInRange 2000 (DAT_06fbc2cc) of the group's position; the first
+        // StayInRange 2000 (the field) of the group's position; the first
         // ship also GotoVec there (500, -1.0, no cruise flags, Op +8 = 1); each appended to the
         // block's directives with an AddRef, the holders released.
         TRefHandle<FObjListDirective> StayInRange;
@@ -1841,8 +1837,8 @@ bool FRmRuntimeMachine::SpawnShipGroup(FRmShipGroup* Group, bool bNotFirst)
         }
     }
 
-    // 06f91f63-06f91fc8: a named formation lays the blocks out at the spawn point (identity
-    // rotation); retail does not test FUN_06efd1a0's result here.
+    // a named formation lays the blocks out at the spawn point (identity
+    // rotation); baseline does not test the routine's result here.
     if (!Group->Formation.IsEmpty())
     {
         FTransform Placement;
@@ -1856,8 +1852,8 @@ bool FRmRuntimeMachine::SpawnShipGroup(FRmShipGroup* Group, bool bNotFirst)
         PlaceFormationBlocks(&Blocks, FindFormation(&Group->Formation.Id), &Placement);
     }
 
-    // 06f91fcb-06f92038: the dock target -- the solar of the group's name, else its +0x78;
-    // TU58 FUN_06f73810 in the group's system.
+    // the dock target -- the solar of the group's name, else its +0x78;
+    // TU58 the routine in the group's system.
     unsigned int DockTarget = static_cast<unsigned int>(Group->Field_0x78);
     if (Group->Name.Length != 0)
         DockTarget = Solars->Records.FindByName(Group->Name)->ObjectId;
@@ -1866,9 +1862,9 @@ bool FRmRuntimeMachine::SpawnShipGroup(FRmShipGroup* Group, bool bNotFirst)
     if (DockTarget != 0)
         return bSpawned;
 
-    // 06f92040-06f921dc: block i's ship goes with record i (retail walks the created list
+    // block i's ship goes with record i (baseline walks the created list
     // without an end test). Its personality's job rows are set (SetPersonalityParams, +0x18 = 1,
-    // the state graph of the ship) and a copy of the record (FUN_06f92440) is kept by the ship
+    // the state graph of the ship) and a copy of the record (the routine) is kept by the ship
     // machine.
     std::list<FContentNpcShip*>::iterator Spawned = Created.begin();
     for (std::vector<FRmShipRecord>::iterator Record = Records.begin(); Record != Records.end();
@@ -1882,13 +1878,13 @@ bool FRmRuntimeMachine::SpawnShipGroup(FRmShipGroup* Group, bool bNotFirst)
         pub::AI::SetPersonalityParams Op;
         Op.bSetPersonality = 1;
         Op.Value = Tuned;
-        Op.StateGraphId = pub::AI::get_state_graph_id(Npc->SpaceObjId);    // 06f9216f: Op +0x0c
+        Op.StateGraphId = pub::AI::get_state_graph_id(Npc->SpaceObjId);    // Op +0x0c
         pub::AI::SubmitState(Npc->SpaceObjId, &Op);
         Ships->Records.Records.push_back(new FRmShipRecord(*Record));
     }
 
-    // 06f921e2-06f92313: a record with an attitude (not -2.0, DAT_06fbc2e8; TEST AH,0x44 +
-    // JNP skips equal) sets it towards every mission player, and -0.9 (DAT_06fbc2b8) both ways
+    // a record with an attitude (not -2.0, the field; TEST AH,0x44 +
+    // JNP skips equal) sets it towards every mission player, and -0.9 (the field) both ways
     // with every other alive ship record of a different attitude.
     std::vector<FContentPlayerState*>* Players = GetMissionPlayers();
     for (std::vector<FRmShipRecord>::iterator Record = Records.begin(); Record != Records.end();
@@ -1929,7 +1925,7 @@ bool FRmRuntimeMachine::SpawnShipGroup(FRmShipGroup* Group, bool bNotFirst)
     return bSpawned;
 }
 
-// FUN_06f90f60 (06f90f60-06f912ff, RET 4). Only a critical loot (Kind 2) gets a record and a
+// (06f90f60-06f912ff, RET 4). Only a critical loot (Kind 2) gets a record and a
 // message; every loot is created (a relative one only when its parent object exists).
 bool FRmRuntimeMachine::SpawnLoot(FRmLootSpawn* InLoot)
 {
@@ -1944,7 +1940,7 @@ bool FRmRuntimeMachine::SpawnLoot(FRmLootSpawn* InLoot)
         Info->NameId = static_cast<unsigned int>(InLoot->CriticalLoot->Name + 0x50bb8);
     if (InLoot->bRelPos != 0)
     {
-        // 06f90fda-06f910b3: next to the parent: its position + RelPosOffset, its velocities,
+        // next to the parent: its position + RelPosOffset, its velocities,
         // an identity orientation.
         unsigned int const Parent = Info->OwnerObjId;
         if ((Parent & 0x3fffffff) != 0)
@@ -1972,7 +1968,7 @@ bool FRmRuntimeMachine::SpawnLoot(FRmLootSpawn* InLoot)
         pub::SpaceObj::CreateLoot(InLoot->SpaceObjId, *Info);
     }
 
-    // 06f910c6-06f9119e: the record.
+    // the record.
     FRmLootRecord Record;
     Record.ObjectId = InLoot->SpaceObjId;
     Record.ParentId = Info->OwnerObjId;
@@ -1994,7 +1990,7 @@ bool FRmRuntimeMachine::SpawnLoot(FRmLootSpawn* InLoot)
     return true;
 }
 
-// FUN_06f90f20 (06f90f20-06f90f4f, RET 4).
+// (06f90f20-06f90f4f, RET 4).
 void FRmRuntimeMachine::SpawnRecordLoot(FRmSpawnRecord* Record)
 {
     for (std::vector<FRmLootSpawn>::iterator It = Record->Loot.begin(); It != Record->Loot.end();
@@ -2005,7 +2001,7 @@ void FRmRuntimeMachine::SpawnRecordLoot(FRmSpawnRecord* Record)
     }
 }
 
-// FUN_06f8ade0 (06f8ade0-06f8ae5f, RET 8).
+// (06f8ade0-06f8ae5f, RET 8).
 void FRmRuntimeMachine::AddObjective(int Key, FRmObjective* Objective)
 {
     Objective->Key = Key;
@@ -2042,8 +2038,8 @@ std::list<FMissionObjective*>::iterator FRmRuntimeMachine::ObjectiveListPosition
     return Node;
 }
 
-// FUN_06f8ae70 (06f8ae70-06f8af30, RET 0xc). The list position is taken before the objective
-// is built (the type 5 scan comes first in retail).
+// (06f8ae70-06f8af30, RET 0xc). The list position is taken before the objective
+// is built (the type 5 scan comes first in baseline).
 void FRmRuntimeMachine::InsertObjective(int Key, FRmObjective* Objective,
                                         std::vector<FRmObjective*>::iterator Where)
 {
@@ -2057,7 +2053,7 @@ void FRmRuntimeMachine::InsertObjective(int Key, FRmObjective* Objective,
     RefreshObjectives();
 }
 
-// FUN_06f8af40 (06f8af40-06f8b020, RET 4).
+// (06f8af40-06f8b020, RET 4).
 bool FRmRuntimeMachine::RebuildObjective(int Key)
 {
     std::vector<FRmObjective*>::iterator It = FindObjective(Key);
@@ -2074,7 +2070,7 @@ bool FRmRuntimeMachine::RebuildObjective(int Key)
     return true;
 }
 
-// FUN_06f8b030 (06f8b030-06f8b107, RET 4).
+// (06f8b030-06f8b107, RET 4).
 bool FRmRuntimeMachine::RemoveObjective(int Key)
 {
     std::vector<FRmObjective*>::iterator It = FindObjective(Key);
@@ -2090,7 +2086,7 @@ bool FRmRuntimeMachine::RemoveObjective(int Key)
     return true;
 }
 
-// FUN_06f8b110 (RET 4).
+// (RET 4).
 std::vector<FRmObjective*>::iterator FRmRuntimeMachine::FindObjective(int Key)
 {
     std::vector<FRmObjective*>::iterator It = ActiveObjectives.begin();
@@ -2112,21 +2108,21 @@ FRmVignetteMachine::FRmVignetteMachine(FRmVignetteOffer* InOffer)
 {
 }
 
-// FUN_06f8a6d0: +0xb0 released, then the base.
+// +0xb0 released, then the base.
 FRmVignetteMachine::~FRmVignetteMachine()
 {
 }
 
-// FUN_06f8b140 (RET 8): this is the +0x54 sub-object; +0x5c from it is +0xb0.
+// (RET 8): this is the +0x54 sub-object; +0x5c from it is +0xb0.
 bool FRmVignetteMachine::GetTextParam(int Param, FmtStr* Out)
 {
     return VignetteOffer->GetTextParam(Param, Out);
 }
 
-// LAB_06f8a820 (06f8a820-06f8ab0c).
+// (06f8a820-06f8ab0c).
 void FRmVignetteMachine::Shutdown()
 {
-    // 06f8a841-06f8a8b7: the population exclusion spheres (10000.0, DAT_06fbc2ec) of the
+    // the population exclusion spheres (10000.0, the field) of the
     // target ships and of the solars or the ships.
     if (VignetteOffer->TargetShips.bActive)
     {
@@ -2139,7 +2135,7 @@ void FRmVignetteMachine::Shutdown()
         SpacePopRemoveExclusionSphere(Center.x, Center.y, Center.z, 10000.0f);
     }
 
-    // 06f8a8ba-06f8a96b: every alive ship gets a zone behaviour (mode 2) and +0x1bc = 24.0;
+    // every alive ship gets a zone behaviour (mode 2) and +0x1bc = 24.0;
     // one that is not a formation wingman also a type 4 guide.
     FRmRecordList ShipList = Ships->Query(0, 2, 0);
     pub::AI::SetZoneBehaviorParams ZoneParams;
@@ -2157,13 +2153,13 @@ void FRmVignetteMachine::Shutdown()
         }
     }
 
-    // 06f8a96d-06f8a9ae: the alive solars flagged in the offer's system record.
+    // the alive solars flagged in the offer's system record.
     FRmRecordList SolarList = Solars->Query(-1, 2, 0);
     for (std::list<FRmSpawnRecord*>::iterator It = SolarList.Records.begin();
          It != SolarList.Records.end(); ++It)
         VignetteOffer->System->SetObjectFlag((*It)->ObjectId, true);
 
-    // 06f8a9b0-06f8aa07: the alive loot: a critical one destroyed, any other made vulnerable.
+    // the alive loot: a critical one destroyed, any other made vulnerable.
     FRmRecordList LootList = Loot->Query(0, 0, 0, 2, 0);
     for (std::list<FRmSpawnRecord*>::iterator It = LootList.Records.begin();
          It != LootList.Records.end(); ++It)
@@ -2175,11 +2171,11 @@ void FRmVignetteMachine::Shutdown()
             pub::SpaceObj::SetInvincible(Record->ObjectId, false, true, 0.0f);
     }
 
-    // 06f8aa0b-06f8aa1b: slot 28 with the mission's players.
+    // slot 28 with the mission's players.
     UnmarkObjects(GetMissionPlayers());
 }
 
-// LAB_06f8bb80 (06f8bb80-06f8bc6e). The reward text is slot 2 of the offer's RewardText with
+// (06f8bb80-06f8bc6e). The reward text is slot 2 of the offer's RewardText with
 // this machine as the parameter source. No empty test on the players.
 void FRmVignetteMachine::OnSucceeded()
 {
@@ -2189,7 +2185,7 @@ void FRmVignetteMachine::OnSucceeded()
          ++It)
     {
         FContentPlayerState* const Player = *It;
-        // 06f8bbc9-06f8bc16: FCOMPP of 1e8 (10000.0 * 10000.0) against the squared distance,
+        // FCOMPP of 1e8 (10000.0 * 10000.0) against the squared distance,
         // TEST AH,0x41 + JNZ: only strictly closer players.
         bool bNear = false;
         if (Player->ShipObject != nullptr)
@@ -2214,7 +2210,7 @@ void FRmVignetteMachine::OnSucceeded()
                                        true);
 }
 
-// FUN_06f8ab10 (06f8ab10-06f8add9, RET 4).
+// (06f8ab10-06f8add9, RET 4).
 void FRmVignetteMachine::UnmarkObjects(std::vector<FContentPlayerState*> const* Players)
 {
     FRmRecordList ShipList = Ships->Query(0, 2, 0);
@@ -2242,8 +2238,8 @@ void FRmVignetteMachine::UnmarkObjects(std::vector<FContentPlayerState*> const* 
              Player != Players->end(); ++Player)
             pub::Player::MarkObj((*Player)->PlayerId, (*It)->ObjectId, 0);
     }
-    // 06f8ac6c-06f8ace1: the held critical loot (State 4) leaves its holder's cargo. The query
-    // temporary (EH state 3) is assigned into the loot list above (FUN_06f93490 at 06f8ac96,
+    // the held critical loot (State 4) leaves its holder's cargo. The query
+    // temporary (EH state 3) is assigned into the loot list above (the routine at 06f8ac96,
     // FuncInfo 06fc6698 has no fourth list), which is then walked.
     LootList.Records = Loot->Query(0, 0, 0, 4, 0).Records;
     for (std::list<FRmSpawnRecord*>::iterator It = LootList.Records.begin();
@@ -2254,9 +2250,9 @@ void FRmVignetteMachine::UnmarkObjects(std::vector<FContentPlayerState*> const* 
     }
 }
 
-// FUN_06f8c460 (the vignette machine's slot 2) and its helpers: RandomMissionVignette.cpp.
+// (the vignette machine's slot 2) and its helpers: RandomMissionVignette.cpp.
 
-// FUN_06f890f0 (06f890f0-06f8919f, cdecl).
+// (06f890f0-06f8919f, cdecl).
 bool __cdecl CreateRmRuntimeMachine(FRmOffer* Offer, FRmRuntimeMachine** Out)
 {
     FRmRuntimeMachine* Machine = nullptr;
@@ -2266,7 +2262,7 @@ bool __cdecl CreateRmRuntimeMachine(FRmOffer* Offer, FRmRuntimeMachine** Out)
     return Machine != nullptr;
 }
 
-// FUN_06f877c0 (06f877c0-06f87966, RET 0x18).
+// (06f877c0-06f87966, RET 0x18).
 FRmRecordList FRmLootMachine::Query(int Field6c, int Kind, unsigned int Field60, int InState,
                                     unsigned int InHolderId)
 {

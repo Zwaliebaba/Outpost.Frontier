@@ -1,30 +1,26 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // NN_GroupControl -- the group / trade request window (see nn_group_control.h for the object).
-//
-//   FUN_0045fd70 ctor            FUN_00460170 dtor (FUN_00460090 scalar deleting)
-//   FUN_00460520 SetChannelTable FUN_00460550 Create
-//   FUN_00462a30 ShowControl     FUN_00462a40 Slot23
-//   LAB_00462ab0 UpdateInactive  FUN_00462ba0 Update
-//   LAB_00462bd0 SetProperty     FUN_00462e30 RefreshRequestDisplay
-//   FUN_004632f0 AddTradeRequest FUN_00463630 HandleInviteMessage
-//   DAT_0066d8f4 WINFACTORY<NN_GroupControl> (registrar FUN_0046bf90, create FUN_0046c000)
+
+// ctor            the routine dtor (the routine scalar deleting)
+// SetChannelTable the routine Create
+// ShowControl     the routine Slot23
+// UpdateInactive  the routine Update
+// SetProperty     the routine RefreshRequestDisplay
+// AddTradeRequest the routine HandleInviteMessage
+// WINFACTORY<NN_GroupControl> (registrar the routine, create the routine)
 
 #include "nn_group_control.h"
 
 #include "client_gameobj.h"
-#include "client_objdb.h"      // ClientObjDb_FindObject (FUN_005416c0)
-#include "hud_maneuvers.h"     // GetHudManeuvers (DAT_00674a58), RequestManeuver (FUN_004d8e20)
+#include "client_objdb.h"      // ClientObjDb_FindObject (the routine)
+#include "hud_maneuvers.h"     // GetHudManeuvers (the field), RequestManeuver (the routine)
 #include "ids_rdl.h"
-#include "login_mgr.h"         // G_Server (DAT_0067ecd0), G_ChatServer (DAT_0067ecd4)
+#include "login_mgr.h"         // G_Server (the field), G_ChatServer (the field)
 #include "nn_main_button.h"    // NN_MainButton::SetGroupButtonAlert / SetGroupButtonMesh
-#include "nn_modal.h"          // G_NnMainButton (DAT_0066d3f0), NnMainButtonOnModalOpen
-#include "nn_ui_pulse.h"       // G_HudChromeColorRgba (DAT_00679bb4)
-#include "player_behavior.h"   // GetPlayerObjRW (FUN_0054baf0)
+#include "nn_modal.h"          // G_NnMainButton (the field), NnMainButtonOnModalOpen
+#include "nn_ui_pulse.h"       // G_HudChromeColorRgba (the field)
+#include "player_behavior.h"   // GetPlayerObjRW (the routine)
 #include "player_spawn.h"      // GetPlayerConnectionId / GetPlayerCharacterId
 #include "rich_text_win.h"
 #include "win_factory.h"
@@ -33,18 +29,18 @@
 #include "common_cobject.h"
 #include "common_iface.h"
 #include "common_server.h"
-#include "dacom.h"
+#include "neuroncomponents.h"
 
 #include <ctime>
 
-// DAT_0066d8f4 -- the static initializer runs FUN_0046bf90(&DAT_0066d8f4, "NN_GroupControl").
+// the static initializer runs the routine(&the field, "NN_GroupControl").
 WINFACTORY<NnGroupControl> G_NnGroupControlFactory("NN_GroupControl");
 
 namespace
 {
-    const char kNnChatCpp[] = "E:\\FL\\Scratch\\Source\\Client\\nn\\NN_Chat.cpp";
+    const char kNnChatCpp[] = "Client\\nn\\NN_Chat.cpp";
 
-    // The group channel's 8-byte record (FUN_00463630 reads [+0] and [+4]; LAB_00462bd0 builds
+    // The group channel's 8-byte record (the routine reads [+0] and [+4]; the branch builds
     // one on the stack for SubmitChat).
     struct FNnGroupWireMessage
     {
@@ -52,8 +48,8 @@ namespace
         unsigned Payload;   // +0x4 a player id (low word) or a connection id
     };
 
-    // DAT_0066da5c -- BtnLeave's X. A .bss float nothing in the listing writes, so it is 0.0f;
-    // retail reads it from memory where the other button coordinates are .data constants.
+    // BtnLeave's X. A .bss float nothing in the listing writes, so it is 0.0f;
+    // baseline reads it from memory where the other button coordinates are .data constants.
     float G_GroupBtnLeaveX = 0.0f;
 
     // The clock()/1000*1000 stamp (0x10624dd3 multiply, SAR 6, sign fix, IMUL 0x3e8).
@@ -68,8 +64,8 @@ namespace
         FDUMP(0x100003, "%s(%d) : NOTICE:General:%s", kNnChatCpp, Line, Message);
     }
 
-    // One text of FUN_00460550's table: an optional StyleNode clone pushed first, then the
-    // FUN_0057da40 / FUN_0057eb40 / JustifyNode(1) + TextNode(debug) idiom.
+    // One text of the routine's table: an optional StyleNode clone pushed first, then the
+    // / the routine / JustifyNode(1) + TextNode(debug) idiom.
     void LoadGroupText(RenderDisplayList& Text, unsigned short Style, unsigned Ids,
                        wchar_t const* DebugText)
     {
@@ -81,15 +77,15 @@ namespace
         LoadIdsTextIntoRdl(Ids, Text, DebugText);
     }
 
-    // The discard every FUN_00463630 exit that built nothing takes (0x00463706..0x00463736,
-    // 0x00464c83..0x00464cd2) and FUN_004632f0's no-name exit (0x00463590..0x0046360c).
+    // The discard every the routine exit that built nothing takes (0x00463706..0x00463736,
+    // ) and the routine's no-name exit (0x00463590..0x0046360c).
     void DiscardEntry(FChatMessageEntry* Entry)
     {
         if (G_ChatMessageStore != nullptr)
             G_ChatMessageStore->Discard(Entry);
     }
 
-    // RDLRef(Prefix) clone, then a clone of every node of Name (the FUN_0046c800 loop).
+    // RDLRef(Prefix) clone, then a clone of every node of Name (the the routine loop).
     void AppendPrefixAndName(FChatMessageEntry* Entry, RenderDisplayList& Prefix,
                              RenderDisplayList const* Name)
     {
@@ -99,8 +95,8 @@ namespace
             ChatAppendRdlCopy(Entry->Body, *Name);
     }
 
-    // The FUN_0046cd50 lookup on DAT_0066da7c used by every "name" case: key {Id & 0xffff, 0, 0},
-    // hit only when the node exists and its RDL pointer is non-null. Retail reads DAT_0066da7c
+    // The the routine lookup on the field used by every "name" case: key {Id & 0xffff, 0, 0},
+    // hit only when the node exists and its RDL pointer is non-null. baseline reads the field
     // without a null test at each of these sites.
     RenderDisplayList* FindChatNameForWord(unsigned Word)
     {
@@ -110,9 +106,9 @@ namespace
 
 void NnGroupSendWireMessage(unsigned Opcode, CHAT_ID Player)
 {
-    // FUN_0045e360 (cdecl, 0x0045e360..0x0045e3b0): DAT_0067ecd4 null -> nothing. Sender =
-    // {DAT_00673344 word, 0, 0}; record = {Opcode, MOVZX word of Player}; IChatServer slot 0
-    // (SubmitChat)(sender, 8, &record, DAT_0066da34, -1).
+    // (cdecl, 0x0045e360..0x0045e3b0): the field null -> nothing. Sender =
+    // {the field word, 0, 0}; record = {Opcode, MOVZX word of Player}; IChatServer slot 0
+    // (SubmitChat)(sender, 8, &record, the field, -1).
     IChatServer* const ChatServer = static_cast<IChatServer*>(G_ChatServer);
     if (ChatServer == nullptr)
         return;
@@ -138,14 +134,14 @@ NnGroupControl::NnGroupControl()
     , RequestDisplay(nullptr)
     , AttentionTitle(nullptr)
 {
-    // FUN_0045fd70: WinControl, +0x334 = {0}, the set (FUN_0046d100), the list (FUN_00489f40),
+    // WinControl, +0x334 = {0}, the set (the routine), the list (the routine),
     // 25 empty RDLs, the six control pointers 0, then +0x338/+0x33c/+0x330/+0x32c = 0 and
-    // +0x334 = DAT_0066da48.
+    // +0x334 = the field.
 }
 
 NnGroupControl::~NnGroupControl()
 {
-    // FUN_00460170: DAT_0066da84 cleared when it is this; then the RDLs 0x480 .. 0x360, the list
+    // the field cleared when it is this; then the RDLs 0x480 .. 0x360, the list
     // and the set go (member destruction order), then WinControl's dtor.
     if (G_ChatGroupControl == this)
         G_ChatGroupControl = nullptr;
@@ -153,33 +149,33 @@ NnGroupControl::~NnGroupControl()
 
 void NnGroupControl::SetChannelTable(FChatChannelTable* Table)
 {
-    // FUN_00460520
+
     ChannelTable = Table;
     RefreshRequestDisplay();
 }
 
 void NnGroupControl::ShowControl(Win3D* Control)
 {
-    // FUN_00462a30: OR byte [ECX+0x6c],3.
+    // OR byte [ECX+0x6c],3.
     Control->Flags = static_cast<unsigned char>(Control->Flags | 0x03);
 }
 
 bool NnGroupControl::Create(Win3D* NewParent, void* Data)
 {
-    // FUN_00460550 -- Win3D::Create FUN_004b5060(NewParent, 0); Data is not passed on.
+    // Win3D::Create the routine(NewParent, 0); Data is not passed on.
     (void)Data;
     if (!Win3D::Create(NewParent, nullptr))
         return false;
 
-    // 0x0046058f..0x004605c3
+
     Offset[0] = 0.0f;
-    Offset[1] = 0.052f;     // 0x3d54fdf4
+    Offset[1] = 0.052f;
     Offset[2] = 0.0f;
-    // 0x004605c6..0x004605df: slot 38 (+0x98), then +0x2d2 = 1.
+    // slot 38 (+0x98), then +0x2d2 = 1.
     SetMesh("Interface\\intro\\objects\\MULTI_attentionreq'd.cmp", 0);
     Field2d2 = 1;
 
-    // 0x004605d3..0x004625cb: the 25 texts, in this order.
+    // the 25 texts, in this order.
     LoadGroupText(Texts[kNnGroupTextInviteFrom], 0, 0x60064u,
                   L"DEBUG - You have received a group invitation from:");
     LoadGroupText(Texts[kNnGroupTextTradeFrom], 0, 0x6006fu,
@@ -224,14 +220,14 @@ bool NnGroupControl::Create(Win3D* NewParent, void* Data)
     LoadGroupText(Texts[kNnGroupTextAttentionRequired], 0, 0x60012u,
                   L"DEBUG - ATTENTION REQUIRED");
 
-    // 0x004625d1..0x0046267b
+
     RequestDisplay = static_cast<RichTextWin*>(
         WinFactoryCreate("RequestDisplay", "RichTextWin", this, nullptr));
     if (RequestDisplay != nullptr)
     {
-        float const AttachOffset[3] = {-0.23f, 0.2f, 0.0f};    // DAT_005cef30 / DAT_005cef34
+        float const AttachOffset[3] = {-0.23f, 0.2f, 0.0f};    // / the field
         RequestDisplay->SetAttachOffset(AttachOffset);
-        RequestDisplay->SetNormSize(0.46f, 0.15f);             // DAT_005cef28 / DAT_005cef2c
+        RequestDisplay->SetNormSize(0.46f, 0.15f);             // / the field
         RequestDisplay->SetAutoScrollbar(true);
         RequestDisplay->SetFrameColor(
             reinterpret_cast<unsigned long const*>(G_HudChromeColorRgba));
@@ -240,7 +236,7 @@ bool NnGroupControl::Create(Win3D* NewParent, void* Data)
         RequestDisplay->SetToolTipEnabled(true);
     }
 
-    // 0x00462680..0x00462724: BtnAccept, DAT_0061157c.. = {0.089, 0.021} / {-0.11, -0.03}.
+    // BtnAccept, the field.. = {0.089, 0.021} / {-0.11, -0.03}.
     {
         float const Position[3] = {-0.11f, -0.03f, 0.0f};
         float const Half[3] = {0.089f, 0.021f, 0.0f};
@@ -249,7 +245,7 @@ bool NnGroupControl::Create(Win3D* NewParent, void* Data)
         RDLRefNode Ref(Texts[kNnGroupTextAccept]);
         (*BtnAccept->TextWinRef)->AppendNode(Ref);
     }
-    // 0x00462726..0x004627c4: BtnDecline, DAT_0061158c.. = {0.089, 0.021} / {0.12, -0.03}.
+    // BtnDecline, the field.. = {0.089, 0.021} / {0.12, -0.03}.
     {
         float const Position[3] = {0.12f, -0.03f, 0.0f};
         float const Half[3] = {0.089f, 0.021f, 0.0f};
@@ -258,7 +254,7 @@ bool NnGroupControl::Create(Win3D* NewParent, void* Data)
         RDLRefNode Ref(Texts[kNnGroupTextDecline]);
         (*BtnDecline->TextWinRef)->AppendNode(Ref);
     }
-    // 0x004627c6..0x00462864: BtnLeave, DAT_0061159c.. = {0.089, 0.021} / {DAT_0066da5c, -0.1}.
+    // BtnLeave, the field.. = {0.089, 0.021} / {the field, -0.1}.
     {
         float const Position[3] = {G_GroupBtnLeaveX, -0.1f, 0.0f};
         float const Half[3] = {0.089f, 0.021f, 0.0f};
@@ -269,15 +265,15 @@ bool NnGroupControl::Create(Win3D* NewParent, void* Data)
         RDLRefNode Ref(Texts[kNnGroupTextLeaveGroup]);
         (*Leave->TextWinRef)->AppendNode(Ref);
     }
-    // 0x00462866..0x004628cd: BtnClose.
+    // BtnClose.
     {
-        float const Position[3] = {0.23f, 0.23f, 0.0f};    // 0x3e6b851f
-        float const Half[3] = {0.02f, 0.02f, 0.0f};        // 0x3ca3d70a
+        float const Position[3] = {0.23f, 0.23f, 0.0f};
+        float const Half[3] = {0.02f, 0.02f, 0.0f};
         BtnClose = CreateButtonControl("BtnClose", "Interface\\NeuroNet\\Inventory\\X.3db",
                                        nullptr, "ui_select_item", nullptr, Position, nullptr,
                                        Half, 0, 0, 0, 0, 0x409, 0, 0);
     }
-    // 0x004628d3..0x004629ab: AttentionTitle, 0.46 x 0.035 at {-0.23, 0.035 + 0.2, 0}.
+    // AttentionTitle, 0.46 x 0.035 at {-0.23, 0.035 + 0.2, 0}.
     {
         float const AttachOffset[3] = {-0.23f, 0.035f + 0.2f, 0.0f};
         AttentionTitle = CreateRichTextWin("AttentionTitle", 0.46f, 0.035f, AttachOffset, false);
@@ -289,16 +285,16 @@ bool NnGroupControl::Create(Win3D* NewParent, void* Data)
         AttentionTitle->AppendNode(Ref);
     }
 
-    // 0x004629ad..0x004629c7
+
     BtnLeave->Flags = static_cast<unsigned char>(BtnLeave->Flags | 0x03);
     BtnAccept->Flags = static_cast<unsigned char>(BtnAccept->Flags | 0x03);
     ShowControl(BtnDecline);
 
-    // 0x004629cc..0x004629db
+
     if (G_ChatChannelTable != nullptr)
         SetChannelTable(G_ChatChannelTable);
 
-    // 0x004629e0..0x00462a0a
+
     RefreshRequestDisplay();
     ShownFrom = G_ChatIdNone;
     ShownShipId = 0;
@@ -308,10 +304,10 @@ bool NnGroupControl::Create(Win3D* NewParent, void* Data)
 
 bool NnGroupControl::Slot23(unsigned Msg, unsigned A, unsigned B)
 {
-    // FUN_00462a40
+
     if (Msg == 0xef01)
     {
-        // 0x00462a90: slot 5 with the parent's +0x60.
+        // slot 5 with the parent's +0x60.
         if (Parent != nullptr)
             SetPosition(Parent->Position);
         RefreshRequestDisplay();
@@ -319,7 +315,7 @@ bool NnGroupControl::Slot23(unsigned Msg, unsigned A, unsigned B)
     }
     if (Msg == 0xef02)
     {
-        // 0x00462a69: FUN_0059dd00(this, 0), then Flags &= 0xfc.
+        // the routine(this, 0), then Flags &= 0xfc.
         if (Parent != nullptr)
             Win3DReparent(this, nullptr);
         Flags = static_cast<unsigned char>(Flags & 0xfc);
@@ -331,7 +327,7 @@ bool NnGroupControl::Slot23(unsigned Msg, unsigned A, unsigned B)
 
 void NnGroupControl::UpdateInactive()
 {
-    // LAB_00462ab0
+
     if (ChannelTable != nullptr && (Flags & 0x02) == 0)
     {
         bool bChanged = false;
@@ -339,7 +335,7 @@ void NnGroupControl::UpdateInactive()
         std::list<FNnGroupRequest>::iterator It = Requests.begin();
         while (It != Requests.end())
         {
-            // 0x00462b01..0x00462b0e: unsigned age above 20000 ms expires the request.
+            // unsigned age above 20000 ms expires the request.
             if (static_cast<unsigned>(NowMs - It->TimestampMs) <= 0x4e20u)
                 break;
             if (It->From.Id != G_ChatIdNone.Id && It->ShipId != 0)
@@ -347,28 +343,28 @@ void NnGroupControl::UpdateInactive()
             It = Requests.erase(It);
             bChanged = true;
         }
-        // 0x00462b68 (list ran out) / 0x00462b6a (stopped with a change): refresh.
+        // (list ran out) / 0x00462b6a (stopped with a change): refresh.
         if (bChanged)
             RefreshRequestDisplay();
     }
-    // 0x00462b79..0x00462b93: Win3D's child walk, inlined.
+    // Win3D's child walk, inlined.
     Win3D::UpdateInactive();
 }
 
 void NnGroupControl::Update()
 {
-    // FUN_00462ba0
+
     if (ChannelTable != nullptr && ChannelTableGeneration != ChannelTable->Generation)
     {
         ChannelTableGeneration = ChannelTable->Generation;
         RefreshRequestDisplay();
     }
-    Win3D::Update();    // tail jump FUN_005a17b0
+    Win3D::Update();    // tail jump the routine
 }
 
 intptr_t NnGroupControl::SetProperty(int Msg, uintptr_t A, uintptr_t B)
 {
-    // LAB_00462bd0
+
     if (Msg != 0x26)
         return WinControl::SetProperty(Msg, A, B);
 
@@ -379,7 +375,7 @@ intptr_t NnGroupControl::SetProperty(int Msg, uintptr_t A, uintptr_t B)
             return 0;
         if (ShownShipId == 0)
         {
-            // 0x00462c11..0x00462c5a: accept the group invitation (opcode 2).
+            // accept the group invitation (opcode 2).
             IChatServer* const ChatServer = static_cast<IChatServer*>(G_ChatServer);
             if (ChatServer != nullptr)
             {
@@ -392,12 +388,12 @@ intptr_t NnGroupControl::SetProperty(int Msg, uintptr_t A, uintptr_t B)
         }
         else
         {
-            // 0x00462c5e..0x00462cd5: accept the trade -- target the trader, then RequestTrade.
+            // accept the trade -- target the trader, then RequestTrade.
             FClientGameobj* const Self = ClientObjDb_FindObject(GetPlayerCharacterId(), 1);
             FClientGameobj* const Trader = ClientObjDb_FindObject(ShownShipId, 1);
             if (Self != nullptr && Trader != nullptr)
             {
-                // 0x00462c89..0x00462c99: the ship bucket's gameobj (null otherwise, used
+                // the ship bucket's gameobj (null otherwise, used
                 // anyway), its object via IObjInspect slot 84 (+0x150), narrowed by 0x503.
                 FClientGameobj* const ShipGo = (Self->ManagerKind == 1) ? Self : nullptr;
                 CObject* const Obj = const_cast<CObject*>(ShipGo->cobject());
@@ -409,7 +405,7 @@ intptr_t NnGroupControl::SetProperty(int Msg, uintptr_t A, uintptr_t B)
                 G_Server->RequestTrade(GetPlayerConnectionId(), ShownFrom.Id & 0xffffu);
             }
         }
-        // 0x00462cdb..0x00462d05
+
         Requests.erase(Requests.begin());
         RefreshRequestDisplay();
         if (Requests.empty())
@@ -421,7 +417,7 @@ intptr_t NnGroupControl::SetProperty(int Msg, uintptr_t A, uintptr_t B)
     {
         if (ShownFrom.Id == G_ChatIdNone.Id)
             return WinControl::SetProperty(Msg, A, B);
-        // 0x00462d33..0x00462d9d
+
         if (ShownShipId != 0)
             G_Server->StopTradeRequest(ShownFrom.Id & 0xffffu);
         Requests.erase(Requests.begin());
@@ -433,7 +429,7 @@ intptr_t NnGroupControl::SetProperty(int Msg, uintptr_t A, uintptr_t B)
 
     if (Clicked == BtnLeave)
     {
-        // 0x00462daf..0x00462df2: leave the group (opcode 1, own connection id).
+        // leave the group (opcode 1, own connection id).
         IChatServer* const ChatServer = static_cast<IChatServer*>(G_ChatServer);
         if (ChatServer != nullptr)
         {
@@ -448,13 +444,13 @@ intptr_t NnGroupControl::SetProperty(int Msg, uintptr_t A, uintptr_t B)
     }
 
     if (Clicked == BtnClose)
-        NnMainButtonOnModalOpen();    // 0x00462e07
+        NnMainButtonOnModalOpen();
     return WinControl::SetProperty(Msg, A, B);
 }
 
 void NnGroupControl::RefreshRequestDisplay()
 {
-    // FUN_00462e30
+
     ShownFrom = G_ChatIdNone;
     ShownShipId = 0;
     if (!Requests.empty())
@@ -465,7 +461,7 @@ void NnGroupControl::RefreshRequestDisplay()
 
     if (ShownFrom.Id == G_ChatIdNone.Id)
     {
-        // 0x00462e9f..0x00462f4b
+
         BtnAccept->Flags = static_cast<unsigned char>(BtnAccept->Flags & 0xfe);
         BtnDecline->Flags = static_cast<unsigned char>(BtnDecline->Flags & 0xfe);
         RequestDisplay->ClearContent();
@@ -476,8 +472,8 @@ void NnGroupControl::RefreshRequestDisplay()
         RDLRefNode Ref(Texts[kNnGroupTextNoInvitations]);
         RequestDisplay->AppendNode(Ref);
 
-        // 0x00462f51..0x00462f6f: G_NnMainButton && !(Flags & 2) -> FUN_0045da10(0) and
-        // FUN_0045da50(0) on it (the plain request icon, no alert colour).
+        // G_NnMainButton && !(Flags & 2) -> the routine(0) and
+        // (0) on it (the plain request icon, no alert colour).
         if (G_NnMainButton != nullptr && (Flags & 0x02) == 0)
         {
             G_NnMainButton->SetGroupButtonAlert(false);
@@ -486,7 +482,7 @@ void NnGroupControl::RefreshRequestDisplay()
     }
     else
     {
-        // 0x00462f74..0x00462feb
+
         BtnAccept->Flags = static_cast<unsigned char>(BtnAccept->Flags | 0x01);
         BtnDecline->Flags = static_cast<unsigned char>(BtnDecline->Flags | 0x01);
         RequestDisplay->ClearContent();
@@ -501,7 +497,7 @@ void NnGroupControl::RefreshRequestDisplay()
         RichTextWin* const DeclineCaption = *BtnDecline->TextWinRef;
         if (ShownShipId == 0)
         {
-            // 0x00462ffd..0x004630c3: a group invitation.
+            // a group invitation.
             RDLRefNode What(Texts[kNnGroupTextInviteFrom]);
             RequestDisplay->AppendNode(What);
             AcceptCaption->ClearContent();
@@ -513,7 +509,7 @@ void NnGroupControl::RefreshRequestDisplay()
         }
         else
         {
-            // 0x004630c8..0x004631b0: a trade request.
+            // a trade request.
             RDLRefNode What(Texts[kNnGroupTextTradeFrom]);
             RequestDisplay->AppendNode(What);
             AcceptCaption->ClearContent();
@@ -524,7 +520,7 @@ void NnGroupControl::RefreshRequestDisplay()
             DeclineCaption->AppendNode(DeclineRef);
         }
 
-        // 0x004631b2..0x0046322c
+
         {
             ParagraphNode Para;
             RequestDisplay->AppendNode(Para);
@@ -534,8 +530,8 @@ void NnGroupControl::RefreshRequestDisplay()
             RequestDisplay->AppendNode(Style);
         }
 
-        // 0x00463232..0x00463283: FUN_0046d920 lower_bound + key test on the channel table; a
-        // non-null name list goes in through FUN_0057b3e0.
+        // the routine lower_bound + key test on the channel table; a
+        // non-null name list goes in through the routine.
         if (ChannelTable != nullptr)
         {
             RenderDisplayList* const Name = ChannelTable->FindName(ShownFrom);
@@ -543,8 +539,8 @@ void NnGroupControl::RefreshRequestDisplay()
                 RequestDisplay->AppendContent(*Name);
         }
 
-        // 0x00463288..0x004632ba: G_NnMainButton && !(Flags & 2) -> FUN_0045da10(1) and
-        // FUN_0045da50(ShipId == 0 ? 2 : 1) -- the group or the trade request icon.
+        // G_NnMainButton && !(Flags & 2) -> the routine(1) and
+        // (ShipId == 0 ? 2 : 1) -- the group or the trade request icon.
         if (G_NnMainButton != nullptr && (Flags & 0x02) == 0)
         {
             G_NnMainButton->SetGroupButtonAlert(true);
@@ -552,7 +548,7 @@ void NnGroupControl::RefreshRequestDisplay()
         }
     }
 
-    // 0x004632bf..0x004632dd: BtnLeave shows while the group has members.
+    // BtnLeave shows while the group has members.
     if (!GroupMembers.empty())
         BtnLeave->Flags = static_cast<unsigned char>(BtnLeave->Flags | 0x01);
     else
@@ -561,15 +557,15 @@ void NnGroupControl::RefreshRequestDisplay()
 
 void NnGroupControl::AddTradeRequest(unsigned ShipId)
 {
-    // FUN_004632f0 -- 0x00463311..0x00463342: a pending request from this ship already exists.
+    // 0x00463311..0x00463342: a pending request from this ship already exists.
     for (std::list<FNnGroupRequest>::iterator It = Requests.begin(); It != Requests.end(); ++It)
     {
         if (It->ShipId != 0 && It->ShipId == ShipId)
             return;
     }
 
-    // 0x00463348..0x004633a2: the sender is the ship's owning player when its object is a
-    // CSimple (class bits 3), else FUN_0054bb00 (DAT_00673344); no object -> {0}.
+    // the sender is the ship's owning player when its object is a
+    // CSimple (class bits 3), else the routine (the field); no object -> {0}.
     FNnGroupRequest Request;
     Request.TimestampMs = 0;
     Request.From = G_ChatIdNone;
@@ -586,12 +582,12 @@ void NnGroupControl::AddTradeRequest(unsigned ShipId)
         Request.From = ChatIdForPlayer(Owner & 0xffffu);
     }
 
-    // 0x004633a6..0x004633e7
+
     Request.TimestampMs = GroupNowMsRounded();
     Requests.push_back(Request);
     RefreshRequestDisplay();
 
-    // 0x004633ec..0x0046358b: "trade request from" + the sender's name, or the entry discarded.
+    // "trade request from" + the sender's name, or the entry discarded.
     FChatMessageEntry* const Entry = ChatAcquireEntry();
     RenderDisplayList* const Name = G_ChatChannelTable->FindName(Request.From);
     if (Name == nullptr)
@@ -607,7 +603,7 @@ void NnGroupControl::AddTradeRequest(unsigned ShipId)
 
 void NnGroupControl::HandleInviteMessage(void const* Buffer, unsigned SizeBytes)
 {
-    // FUN_00463630
+
     if (SizeBytes != 8)
     {
         GroupNotice(0x8df, "Received mis-sized invite message.\n");
@@ -619,15 +615,15 @@ void NnGroupControl::HandleInviteMessage(void const* Buffer, unsigned SizeBytes)
     unsigned const Payload = Message->Payload;
     CHAT_ID const Key = ChatIdForPlayer(Payload & 0xffffu);
 
-    // Each case either appends to Entry and commits (LAB_00464b5b: FUN_004686e0 inlined, then
-    // FUN_004684e0) or discards it (caseD_11 / caseD_13).
+    // Each case either appends to Entry and commits (the branch: the routine inlined, then
+    // ) or discards it (caseD_11 / caseD_13).
     RenderDisplayList* Name = nullptr;
     switch (Message->Opcode)
     {
     case 0:
     case 1:
     case 2:
-        // 0x004636e1: server-side opcodes.
+        // server-side opcodes.
         GroupNotice(0x8ef, "Received a group command on a client. This is illegal.\n");
         DiscardEntry(Entry);
         return;
@@ -642,7 +638,7 @@ void NnGroupControl::HandleInviteMessage(void const* Buffer, unsigned SizeBytes)
 
     case 4:
     {
-        // 0x0046386d..0x004638ea: an identical pending invitation -> nothing.
+        // an identical pending invitation -> nothing.
         for (std::list<FNnGroupRequest>::iterator It = Requests.begin(); It != Requests.end();
              ++It)
         {
@@ -671,7 +667,7 @@ void NnGroupControl::HandleInviteMessage(void const* Buffer, unsigned SizeBytes)
 
     case 5:
     {
-        // 0x00463aae..0x00463b0f: every pending invitation (ShipId 0, From set) is dropped.
+        // every pending invitation (ShipId 0, From set) is dropped.
         bool bErased = false;
         std::list<FNnGroupRequest>::iterator It = Requests.begin();
         while (It != Requests.end())
@@ -688,7 +684,7 @@ void NnGroupControl::HandleInviteMessage(void const* Buffer, unsigned SizeBytes)
         }
         if (bErased)
             RefreshRequestDisplay();
-        // 0x00463b14..0x00463b53
+
         GroupMembers.insert(Key.Id);
         RefreshRequestDisplay();
 
@@ -701,7 +697,7 @@ void NnGroupControl::HandleInviteMessage(void const* Buffer, unsigned SizeBytes)
     }
 
     case 6:
-        // 0x00463c98..0x00463d08: the invitation from this player, if pending, is dropped.
+        // the invitation from this player, if pending, is dropped.
         if (Key.Id != G_ChatIdNone.Id)
         {
             for (std::list<FNnGroupRequest>::iterator It = Requests.begin();
@@ -715,7 +711,7 @@ void NnGroupControl::HandleInviteMessage(void const* Buffer, unsigned SizeBytes)
                 }
             }
         }
-        // 0x00463d0d..0x00463d4c
+
         GroupMembers.insert(Key.Id);
         RefreshRequestDisplay();
 
@@ -728,11 +724,11 @@ void NnGroupControl::HandleInviteMessage(void const* Buffer, unsigned SizeBytes)
 
     case 7:
     {
-        // 0x00463e8b..0x00463e98
+
         GroupMembers.clear();
         RefreshRequestDisplay();
 
-        // 0x00463e9d..0x00463eef: a player ship flying behaviour 10 (formation) is switched to
+        // a player ship flying behaviour 10 (formation) is switched to
         // maneuver 0x13.
         HUD_Maneuvers* const Hud = GetHudManeuvers();
         if (Hud != nullptr)
@@ -754,14 +750,14 @@ void NnGroupControl::HandleInviteMessage(void const* Buffer, unsigned SizeBytes)
             }
         }
 
-        // 0x00463ef4..0x00463f71
+
         AppendPrefixAndName(Entry, Texts[kNnGroupTextLeftGroup], nullptr);
         ChatCommitEntries();
         return;
     }
 
     case 8:
-        // 0x00463f76..0x00463f9a
+
         GroupMembers.erase(Key.Id);
         RefreshRequestDisplay();
 
@@ -812,7 +808,7 @@ void NnGroupControl::HandleInviteMessage(void const* Buffer, unsigned SizeBytes)
         return;
 
     case 0xf:
-        // 0x004640d9: the full payload dword against DAT_00673344.
+        // the full payload dword against the field.
         if (Payload == GetPlayerConnectionId())
         {
             AppendPrefixAndName(Entry, Texts[kNnGroupTextAbortMission], nullptr);

@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "ivp_core.h"
@@ -16,7 +12,7 @@
 #include "../ivp_collision/ivp_listmanager_topology.h" // contact-point helpers (063464a0 / 063465a0), cmn-ivp3d
 #include "ivp_contact_point.h"    // IVP_Try_To_Generate_Managed_Friction (06356bc0), cmn-ivp3d
 #include "ivp_impact.h"           // IVP_Old_Sync_Rot_Z (06347240 / 063473b0), cmn-ivp3g
-#include "ivp_mindist_settings.h" // G_IVP_MindistSettings (DAT_0658ab2c), cmn-ivp3d
+#include "ivp_mindist_settings.h" // G_IVP_MindistSettings (the field), cmn-ivp3d
 
 #include <cstdint>
 #include <cstdlib>
@@ -25,10 +21,10 @@
 #include <new>
 
 // The Robin-Hood key -> value store behind IVP_Core::ObjectHashMap in
-// hashmap mode is IVP_VHash_Store (decomp-tracker item 3178): its destructor
-// (FUN_06352620) frees the map in IVP_Core_Remove_Object below, and its
-// ctor / AddElem / RemoveElem / FindElem (FUN_063525f0 / 063526d0 / 063527e0 /
-// 06352930) serve find_object_hash_entry() / register_object_hash_entry() /
+// hashmap mode is IVP_VHash_Store (implementation tracker item 3178): its destructor
+// (the routine) frees the map in IVP_Core_Remove_Object below, and its
+// ctor / AddElem / RemoveElem / FindElem (the routine / 063526d0 / 063527e0 /
+// ) serve find_object_hash_entry() / register_object_hash_entry() /
 // unregister_object_hash_entry() further down. ObjectHashMap stays void*
 // because the single-slot mode stores a candidate pointer in it directly.
 #include "../ivp_utility/ivp_vhash.h"
@@ -69,7 +65,7 @@ namespace
         return reinterpret_cast<IVP_Contact_Point*>(Node + *reinterpret_cast<int16_t*>(Node + 0xc)); // `MOVSX ESI,word [EAX+0xc]; ADD ESI,EAX`
     }
 
-    // FUN_06346770 (thiscall): the long-term impact info's constructor body
+    // (thiscall): the long-term impact info's constructor body
     // -- Status (+0x52) word = 0, the dword at +0x54 &= 0xfffffc00. 063464a0
     // inlines the same two stores (:06346534-:0634654e).
     void IVP_Mindist_Reset_Long_Term_State(IVP_Impact_Solver_Long_Term* Info)
@@ -85,8 +81,8 @@ namespace
 // ============================================================================
 
 
-// FUN_06346fb0: Halts movement, zeros accumulators and velocities for static cores
-void __fastcall FUN_06346fb0(IVP_Core* Core)
+// IVP_StopCoreMovement: Halts movement, zeros accumulators and velocities for static cores
+void __fastcall IVP_StopCoreMovement(IVP_Core* Core)
 {
     Core->MovementState = (Core->MovementState & 0xFFFFFF08) | 8;
 
@@ -110,8 +106,8 @@ void __fastcall FUN_06346fb0(IVP_Core* Core)
     Core->DeltaWorldFCore.y = 0.0f;
     Core->DeltaWorldFCore.z = 0.0f;
 
-    // FUN_06346e70 (item 2850), NOW WIRED (D-target-2989 pass, 2026-09-10):
-    // retail's own tail (Common.dll.txt:06347014-06347039) reads
+    // (item 2850), NOW WIRED (D-target-2989 pass, 2026-09-10):
+    // baseline's own tail (Common) reads
     // Core->Environment (no null check -- a live Core always has one) and
     // passes {delta_time, inv_delta_time} (+0xAC/+0xB0) straight through.
     // See IVP_Core::synchronize_simulation_time_snapshot's header comment in
@@ -121,12 +117,12 @@ void __fastcall FUN_06346fb0(IVP_Core* Core)
 }
 
 // ============================================================================
-// FUN_063464a0 / FUN_063465a0 (cmn-ivp3d 2026-10-08, re-ported from the
+// / IVP_RecalculateCoreValues (cmn-ivp3d 2026-10-08, re-ported from the
 // listing; the old lookalike read env->memory_manager as the arena, invented
 // null guards and dropped every contact-point call).
 // ============================================================================
 
-// FUN_063464a0 (.text:063464a0-06346593), reached only from 063465a0's
+// (module storage-06346593), reached only from 063465a0's
 // fixed-core arm. Port-local name. For every contact point of every object
 // of a core that has just become fixed: flag its friction system (low byte of
 // +0x44 := 1); if the OTHER side's core is fixed too (`TEST byte [core],0xc`)
@@ -161,36 +157,36 @@ static void IVP_Core_Recalc_Contact_Points_Of_Fixed_Core(IVP_Core* Core)
             {
                 if (Record != nullptr)                                                     // :06346512
                 {
-                    IVP_UnlinkPairRecordFromObjects(Record); // FUN_06355200
-                    delete Record;                           // FUN_06391d5a
+                    IVP_UnlinkPairRecordFromObjects(Record);
+                    delete Record;
                 }
             }
             else
             {
-                OtherCore->ensure_objects_in_simulation();  // :06346528 FUN_06347db0 (ECX = the other core)
-                IVP_UpdatePairRecordContactFrame(Record);   // :0634652f FUN_0635a1e0
+                OtherCore->ensure_objects_in_simulation();  // :06346528 the routine (ECX = the other core)
+                IVP_UpdatePairRecordContactFrame(Record);   // :0634652f the routine
                 IVP_Mindist_Reset_Long_Term_State(&Info);   // :06346534-:0634654e
-                IVP_PopulatePairRecordIntoOwner(Record, &Info); // :06346552 FUN_06358c50
-                IVP_ComputePairRecordMassFactor(Record);    // :06346559 FUN_063562d0
+                IVP_PopulatePairRecordIntoOwner(Record, &Info); // :06346552 the routine
+                IVP_ComputePairRecordMassFactor(Record);    // :06346559 the routine
             }
             Node = Next;
         }
     }
 
     --Arena->State;        // :0634657a-:06346583 (arena re-read through the environment)
-    Arena->reset_chunks(); // :06346587 FUN_06344070
+    Arena->reset_chunks(); // :06346587 the routine
 }
 
-// FUN_063465a0 (.text:063465a0-06346767), the library's
+// IVP_RecalculateCoreValues (module storage-06346767), the library's
 // IVP_Core::values_changed_recalc_redundants. Name kept as the raw address
 // because ivp_real_object.cpp calls it so; rename with that caller.
-void __fastcall FUN_063465a0(IVP_Core* Core)
+void __fastcall IVP_RecalculateCoreValues(IVP_Core* Core)
 {
     // :063465a9-:063465ca: inertia terms inside an arena bracket.
     ++Core->Environment->vector_cores_frozen->State;
-    Core->RecomputeInverseInertia();                    // FUN_06347410
+    Core->RecomputeInverseInertia();
     --Core->Environment->vector_cores_frozen->State;
-    Core->Environment->vector_cores_frozen->reset_chunks(); // FUN_06344070
+    Core->Environment->vector_cores_frozen->reset_chunks();
 
     // :063465cf-:0634660b: the movement byte every object takes over.
     int32_t ObjectMovement;
@@ -219,16 +215,16 @@ void __fastcall FUN_063465a0(IVP_Core* Core)
     if ((static_cast<uint8_t>(Core->Flags) & 0xcu) != 0) // :06346632 (re-tested)
     {
         // :0634672b-:06346732.
-        FUN_06346fb0(Core);
+        IVP_StopCoreMovement(Core);
         IVP_Core_Recalc_Contact_Points_Of_Fixed_Core(Core);
-        // :06346737-:0634675c: retail then walks every object's contact-node
+        // :06346737-:0634675c: baseline then walks every object's contact-node
         // list to its end without reading or writing anything else -- a loop
         // whose body was optimised away. No observable effect; not reproduced.
         return;
     }
 
     // :0634663d-:06346721.
-    Core->wake_or_ensure_simulation(); // FUN_06347d80
+    Core->wake_or_ensure_simulation();
     ++Core->Environment->vector_cores_frozen->State;
     for (int32_t ObjIndex = static_cast<int32_t>(Core->Objects.n_elems) - 1; ObjIndex >= 0; --ObjIndex) // count read once (:06346651)
     {
@@ -245,16 +241,16 @@ void __fastcall FUN_063465a0(IVP_Core* Core)
             IVP_Contact_Point* const Record = IVP_Contact_Node_Record(Node);
             if (Record->ListManagerOwner != FrictionSystem)
             {
-                FrictionSystem->MergeFrom(Record->ListManagerOwner); // FUN_063555b0
+                FrictionSystem->MergeFrom(Record->ListManagerOwner);
             }
 
             // :06346690-:063466d6: a fresh stack long-term info per contact
             // point (three trivial vector ctor iterators 06273bc0, then 06346770).
             IVP_Impact_Solver_Long_Term Info;
             IVP_Mindist_Reset_Long_Term_State(&Info);
-            IVP_UpdatePairRecordContactFrame(Record);       // :063466dd FUN_0635a1e0
-            IVP_PopulatePairRecordIntoOwner(Record, &Info);  // :063466e9 FUN_06358c50
-            IVP_ComputePairRecordMassFactor(Record);         // :063466f0 FUN_063562d0
+            IVP_UpdatePairRecordContactFrame(Record);       // :063466dd the routine
+            IVP_PopulatePairRecordIntoOwner(Record, &Info);  // :063466e9 the routine
+            IVP_ComputePairRecordMassFactor(Record);         // :063466f0 the routine
 
             Node = IVP_Contact_Node_Next(Node); // :063466f5, read after the calls
         } while (Node != nullptr);
@@ -263,14 +259,14 @@ void __fastcall FUN_063465a0(IVP_Core* Core)
     Core->Environment->vector_cores_frozen->reset_chunks(); // :0634671c
 }
 
-// FUN_063557c0: IVP_Core::get_master_core() equivalent. Cores can be merged
+// IVP_GetMergedCore: IVP_Core::get_master_core() equivalent. Cores can be merged
 // (welded together, e.g. by a fixed constraint); when that happens one core's
-// MergedCoreWhichReplacedIt is linked to point at the other (see FUN_06348ad0,
+// MergedCoreWhichReplacedIt is linked to point at the other (see the routine,
 // which unions two cores' chains together and zero-initializes the field for a
 // fresh group). This walks that chain to its terminal (null-linked) node, i.e.
 // the current representative/master core for the merged group. A null input
-// core is passed straight through, matching retail's explicit ECX==0 check.
-IVP_Core* __fastcall FUN_063557c0(IVP_Core* Core)
+// core is passed straight through, matching baseline's explicit ECX==0 check.
+IVP_Core* __fastcall IVP_GetMergedCore(IVP_Core* Core)
 {
     if (Core == nullptr)
         return Core;
@@ -296,19 +292,19 @@ void IVP_Core_Remove_Object(IVP_Core* Core, IVP_Real_Object* Object)
 
     if (Core->Objects.n_elems == 0)
     {
-        // Retail (FUN_06346f20 @ Common.dll.txt:410395-410400) guards the call with a
+        // baseline (the routine @ Common) guards the call with a
         // SIGNED comparison of the low byte of MovementState against 8 (byte is shifted
         // into the sign position: `EDX = MovementState; EDX <<= 24; CMP EDX,0x08000000`),
-        // not an unsigned one -- matters for byte values 0x80-0xFF, which retail treats
+        // not an unsigned one -- matters for byte values 0x80-0xFF, which baseline treats
         // as "< 8" (negative once sign-extended) but a plain unsigned compare would not.
         if (static_cast<int8_t>(Core->MovementState & 0xFF) < 8)
         {
-            Core->freeze_simulation_core(); // :06346f87 FUN_06347040 (its object loop is empty here)
+            Core->freeze_simulation_core(); // :06346f87 the routine (its object loop is empty here)
         }
 
-        // Real IVP_Core::~IVP_Core() cleanup (FUN_063477e0, Common.dll.txt:411253-411349;
-        // decomp-tracker item 2866). D69 (2026-09-09) identified all 4 explicit steps
-        // retail performs before freeing Core (beyond the Objects/Controllers vector-buffer
+        // Real IVP_Core::~IVP_Core() cleanup (the routine, Common;
+        // implementation tracker item 2866). D69 (2026-09-09) identified all 4 explicit steps
+        // baseline performs before freeing Core (beyond the Objects/Controllers vector-buffer
         // release IVP_U_Vector's own destructor already replicates via `delete Core` below);
         // D72 (2026-09-09) closed steps 1/3/4. D76 (2026-09-09) closes step 2, the last gap:
         // the earlier "Core+0x5c overlaps Objects' inline buffer" concern is resolved --
@@ -316,22 +312,22 @@ void IVP_Core_Remove_Object(IVP_Core* Core, IVP_Real_Object* Object)
         // ObjectHashMap (+0x5c) is a genuinely separate field, never written by Objects'
         // vector machinery. See ivp_core.h's field comments for the full evidence.
 
-        // Step 1 (Common.dll.txt:411269-411272): dequeue Core from Environment->event_queue
+        // Step 1 (Common): dequeue Core from Environment->event_queue
         // and clear Core->Flags &= ~0x30, in case it was still mid-queue when torn down.
         IVP_Environment_Dequeue_Core(Core->Environment, Core);
 
-        // Step 2 (Common.dll.txt:411273-411301), NOW WIRED (D76, 2026-09-09):
+        // Step 2 (Common), NOW WIRED (D76, 2026-09-09):
         // `if ((Core->Flags & 0xC) == 4)`: free the Robin-Hood hashmap at
-        // Core->ObjectHashMap (+0x5c) -- clear its bucket array via FUN_06352620
+        // Core->ObjectHashMap (+0x5c) -- clear its bucket array via the routine
         // (~IVP_VHash_Store, ivp_utility/ivp_vhash.cpp, item 3178) then free the
-        // container itself (FUN_06391d5a == free()), matching retail's
-        // `CALL thunk_FUN_06352620 (0x06347824); PUSH EDI; CALL FUN_06391d5a
-        // (0x0634782a); MOV [ESI+0x5c],0 (0x06347832)` exactly, Common.dll.txt:
+        // container itself (the routine == free()), matching baseline's
+        // `CALL thunk_FUN_06352620 (0x06347824); PUSH EDI; CALL the routine
+        // (0x0634782a); MOV [ESI+0x5c],0 (0x06347832)` exactly, Common:
         // 411282-411286.
         // `else`: walk Core->Controllers (now correctly Fixed<1>, elems/n_elems read
-        // fresh at loop start exactly once like retail's `MOV DI,word[ESI+0x152]`),
+        // fresh at loop start exactly once like baseline's `MOV DI,word[ESI+0x152]`),
         // calling each attached IVP_Controller's core_is_going_to_be_deleted_event(Core)
-        // -- retail's raw `MOV EDX,[ECX]; CALL [EDX]` thiscall dispatch through vtable
+        // -- baseline's raw `MOV EDX,[ECX]; CALL [EDX]` thiscall dispatch through vtable
         // slot 0, confirmed to be exactly this method by src/include/common_physys.h's
         // PhySys::Controller vtable-slot documentation (ivp_controller.h's own comment
         // has the full trace). No concrete IVP_Controller subclass exists anywhere in
@@ -341,8 +337,8 @@ void IVP_Core_Remove_Object(IVP_Core* Core, IVP_Real_Object* Object)
         {
             if (Core->ObjectHashMap != nullptr)
             {
-                ((IVP_VHash_Store*)Core->ObjectHashMap)->~IVP_VHash_Store(); // FUN_06352620
-                free(Core->ObjectHashMap); // FUN_06391d5a
+                ((IVP_VHash_Store*)Core->ObjectHashMap)->~IVP_VHash_Store();
+                free(Core->ObjectHashMap);
                 Core->ObjectHashMap = nullptr;
             }
         }
@@ -355,38 +351,38 @@ void IVP_Core_Remove_Object(IVP_Core* Core, IVP_Real_Object* Object)
             }
         }
 
-        // Step 3 (Common.dll.txt:411302-411306): if Core has an owning IVP_Simulation_Unit
+        // Step 3 (Common): if Core has an owning IVP_Simulation_Unit
         // (Core->OwningSimUnit, +0x15c), detach Core from it. PORTED (D72, 2026-09-09) as
-        // IVP_Simulation_Unit_Detach_Core (ivp_simulation_unit.h/.cpp, decomp-tracker item
+        // IVP_Simulation_Unit_Detach_Core (ivp_simulation_unit.h/.cpp, implementation tracker item
         // 2919 and its 5 former unprocessed helpers).
         if (Core->OwningSimUnit != nullptr)
         {
             IVP_Simulation_Unit_Detach_Core(Core->OwningSimUnit, Core);
         }
 
-        // Step 4 (Common.dll.txt:411308-411311): free the owned block at Core+0x4c
+        // Step 4 (Common): free the owned block at Core+0x4c
         // (ivp_core.h: SpinClipping) and zero it.
-        free(Core->SpinClipping); // :06347864-0634786d FUN_06391d5a, unconditional
+        free(Core->SpinClipping); // :06347864-0634786d the routine, unconditional
         Core->SpinClipping = nullptr;
 
-        // Core->Objects/Controllers vector-buffer freeing (the rest of FUN_063477e0,
-        // Common.dll.txt:411312-411349) IS already correctly replicated, for free, by
+        // Core->Objects/Controllers vector-buffer freeing (the rest of the routine,
+        // Common) IS already correctly replicated, for free, by
         // IVP_U_Vector<T>'s own destructor running as part of `delete Core` here --
-        // verified byte-for-byte against retail's manual inline-buffer-checked free
+        // verified byte-for-byte against baseline's manual inline-buffer-checked free
         // (see item 2866's notes). No gap in that part.
         delete Core;
     }
 }
 
 // ============================================================================
-// FUN_06347550 + FUN_06347660: IVP_Core's real constructor. See the header's
+// + the routine: IVP_Core's real constructor. See the header's
 // own comment above the declaration for the full field-by-field evidence
 // trail (D-ivpenv-staticobject pass, 2026-09-10).
 // ============================================================================
 IVP_Core::IVP_Core(IVP_Real_Object* Owner, const IVP_U_Quat* InitialOrientation,
                     const IVP_U_Point* InitialPosition, uint32_t FlagsHi, uint32_t FlagsLo)
 {
-    // Step 1 (FUN_06347550, `REP STOSD` over 0x6F dwords): zero the whole object.
+    // Step 1 (the routine, `REP STOSD` over 0x6F dwords): zero the whole object.
     memset(this, 0, sizeof(IVP_Core));
 
     // Step 2: Objects (+0x50) -- re-run its Fixed<1> inline-buffer init (the
@@ -406,34 +402,34 @@ IVP_Core::IVP_Core(IVP_Real_Object* Owner, const IVP_U_Quat* InitialOrientation,
 
     // Step 3: allocate + construct the owning IVP_Simulation_Unit, attach this
     // Core to it, and mark both as "static/inactive" (low byte 8).
-    // .text:063475ae-063475f8: only the constructor call is behind the
-    // operator_new null test (JZ 063475cf); the Add (FUN_06348ec0) and the
+    // only the constructor call is behind the
+    // operator_new null test (JZ 063475cf); the Add (the routine) and the
     // `(State & 0xffffff08) | 8` store run on the result unconditionally.
     // The EH state local_4 = 0 around the ctor (063475bc) is the compiler's
     // "free the block if the ctor throws" funclet: a nothrow new-expression
     // (null test + ctor + deallocation on throw) is exactly that shape.
-    IVP_Simulation_Unit* Unit = new (std::nothrow) IVP_Simulation_Unit(); // operator_new(0x24) + FUN_06348e10
-    OwningSimUnit = Unit;                 // 063475dc
-    Unit->Cores.Add(this);                // FUN_06348ec0, byte-identical to IVP_U_Vector<T>::Add
-    OwningSimUnit->State = (OwningSimUnit->State & 0xFFFFFF08u) | 8u; // 063475e7-063475f8
+    IVP_Simulation_Unit* Unit = new (std::nothrow) IVP_Simulation_Unit(); // operator_new(0x24) + the routine
+    OwningSimUnit = Unit;
+    Unit->Cores.Add(this);                // , byte-identical to IVP_U_Vector<T>::Add
+    OwningSimUnit->State = (OwningSimUnit->State & 0xFFFFFF08u) | 8u;
 
-    // Step 4 (.text:063475fa-06347602): `MOV EAX,[ESI+0xc]; MOV ECX,[EAX]; PUSH ECX;
-    // MOV ECX,ESI; CALL FUN_06349180` -- every new core is registered with the
+    // Step 4 (module storage-06347602): `MOV EAX,[ESI+0xc]; MOV ECX,[EAX]; PUSH ECX;
+    // MOV ECX,ESI; CALL the routine` -- every new core is registered with the
     // environment's standard gravity controller (IVP_Environment+0x00).
     register_controller(Environment->standard_gravity_controller);
-    MovementState = (MovementState & 0xFFFFFF08u) | 8u; // 06347607-06347617, after the register
+    MovementState = (MovementState & 0xFFFFFF08u) | 8u; // , after the register
 
-    // Step 5 (FUN_06347660, .text:063476b0-063476d0): Flags bits [3:2] from
-    // FlagsHi, then FUN_06349400 on Environment->+0x08 with OwningSimUnit --
-    // unconditional in retail (cmn-ivp3f 2026-10-09: the port's former
+    // Step 5 (the routine, module storage-063476d0): Flags bits [3:2] from
+    // FlagsHi, then the routine on Environment->+0x08 with OwningSimUnit --
+    // unconditional in baseline (cmn-ivp3f 2026-10-09: the port's former
     // `Environment != nullptr && OwningSimUnit != nullptr` guard was invented
     // and is removed).
     Flags = (Flags & ~0xCu) | ((FlagsHi & 0x3u) << 2);
-    Environment->sim_units_manager->add_sim_unit_to_manager(OwningSimUnit); // FUN_06349400
+    Environment->sim_units_manager->add_sim_unit_to_manager(OwningSimUnit);
 
     // Step 6: initial orientation, normalized, duplicated into QWorldFCoreNext.
     QWorldFCore = *InitialOrientation;
-    QWorldFCore.normize(); // FUN_06350fb0, byte-identical to IVP_U_Quat::normize()
+    QWorldFCore.normize(); // , byte-identical to IVP_U_Quat::normize()
     QWorldFCoreNext = QWorldFCore;
 
     // Step 7: initial position, zero pose delta, rotation-only matrix refresh,
@@ -446,11 +442,11 @@ IVP_Core::IVP_Core(IVP_Real_Object* Owner, const IVP_U_Quat* InitialOrientation,
     DeltaWorldFCore.x = 0.0f;
     DeltaWorldFCore.y = 0.0f;
     DeltaWorldFCore.z = 0.0f;
-    QWorldFCore.set_matrix(&MWorldFCore); // FUN_06350bc0, writes rows only, not vv
+    QWorldFCore.set_matrix(&MWorldFCore); // , writes rows only, not vv
     MWorldFCore.vv.set(InitialPosition);
 
-    // Step 8: retail default speed limits.
-    SetSpeedLimits(1000.0f, 1000.0f); // FUN_06346870
+    // Step 8: baseline default speed limits.
+    SetSpeedLimits(1000.0f, 1000.0f);
 
     // Step 9: Flags bits [1:0] from FlagsLo (combined with step 5's bits
     // [3:2], the constructed Core's Flags low nibble is fully determined by
@@ -458,7 +454,7 @@ IVP_Core::IVP_Core(IVP_Real_Object* Owner, const IVP_U_Quat* InitialOrientation,
     Flags = (Flags & ~0x3u) | (FlagsLo & 0x3u);
 }
 
-// FUN_06346870 (Common.dll.txt:409632-409642, decomp-tracker item 2837).
+// (Common, implementation tracker item 2837).
 // See the header's own comment above the declaration for the re-attribution
 // evidence (D-ivpenv-staticobject pass, 2026-09-10).
 void IVP_Core::SetSpeedLimits(float NewUpperLimitRadius, float NewSpeedLimit)
@@ -467,18 +463,18 @@ void IVP_Core::SetSpeedLimits(float NewUpperLimitRadius, float NewSpeedLimit)
     SpeedLimit = NewSpeedLimit;
 }
 
-// The tail of FUN_06347d80 (:06347d9b-06347da1): ECX = OwningSimUnit (+0x15c),
-// JMP FUN_063494f0 -- no null test on the unit and none on the cores'
+// The tail of the routine (:06347d9b-06347da1): ECX = OwningSimUnit (+0x15c),
+// JMP the routine -- no null test on the unit and none on the cores'
 // environments (cmn-ivp3g 2026-10-09 removed both invented guards and the
 // raw-offset duplicate of 063494f0).
 void IVP_Core::ensure_in_simulation()
 {
-    IVP_Simulation_Unit_Update_Cores_Last_Motion_Time(OwningSimUnit); // FUN_063494f0
+    IVP_Simulation_Unit_Update_Cores_Last_Motion_Time(OwningSimUnit);
 }
 
-// FUN_063470e0: Common.dll.txt:410541-410589 (decomp-tracker item 2855, 40
+// Common (implementation tracker item 2855, 40
 // insns). See the header comment above this method's declaration in
-// ivp_core.h for the full evidence trail. Retail recomputes the identical
+// ivp_core.h for the full evidence trail. baseline recomputes the identical
 // (Sum, IntPart, Frac) triple twice, once per target field pair -- a pure,
 // side-effect-free recomputation with no observable difference, so this port
 // computes it once and writes both pairs (see also recalc_interpolated_frame
@@ -505,12 +501,12 @@ void IVP_Core::update_time_of_last_motion()
     TimeOfLastLongMotion.time_offset = Frac;
 }
 
-// FUN_06346e70: Common.dll.txt:410293-410326 (decomp-tracker item 2850, 29
+// Common (implementation tracker item 2850, 29
 // insns). See the header comment above this method's declaration in
 // ivp_core.h for the full 2-caller trace.
 void IVP_Core::synchronize_simulation_time_snapshot(float DeltaTime, float InvDeltaTime)
 {
-    (void)DeltaTime; // computed by every caller, never read by retail here -- see header comment
+    (void)DeltaTime; // computed by every caller, never read by baseline here -- see header comment
     IDeltaTime = InvDeltaTime;
 
     QWorldFCoreNext = QWorldFCore; // struct copy, 4 floats (x/y/z/w)
@@ -532,16 +528,16 @@ void IVP_Core::synchronize_simulation_time_snapshot(float DeltaTime, float InvDe
     RotAxisOS.z = 0.0f;
 }
 
-// FUN_06347170: Common.dll.txt:410593-410665 (decomp-tracker item 2856, 63
+// Common (implementation tracker item 2856, 63
 // insns). See the header comment above this method's declaration in
-// ivp_core.h for the full trace, including why the FUN_063454e0 call per
-// object is FULLPORT-DEFERRED (blocked on item 3111/FUN_0634ebd0).
+// ivp_core.h for the full trace, including why the the routine call per
+// object is FULLPORT-DEFERRED (blocked on item 3111/the routine).
 void IVP_Core::mark_active_and_sync_objects()
 {
-    // cmn-ivp3e 2026-10-08: re-traced .text:06347170-06347230. The invented
-    // Environment / object null guards are gone (retail has none), and the
+    // cmn-ivp3e 2026-10-08: re-traced module storage-06347230. The invented
+    // Environment / object null guards are gone (baseline has none), and the
     // `current_time - delta_time` stamp is written before
-    // update_time_of_last_motion as retail does, then replaced by the raw
+    // update_time_of_last_motion as baseline does, then replaced by the raw
     // current_time dwords (:063471fe-06347203).
     MovementState = (MovementState & 0xFFFFFF01u) | 1u;          // :06347177-06347182
 
@@ -556,7 +552,7 @@ void IVP_Core::mark_active_and_sync_objects()
     TimeOfLastPsi.time_base = (float)(ShiftedInt);    // FILD; FST float -> +0x68
     TimeOfLastPsi.time_offset = (float)(Shifted - (double)(ShiftedInt)); // -> +0x6c
 
-    update_time_of_last_motion();                                // FUN_063470e0
+    update_time_of_last_motion();
 
     TimeOfLastPsi = Now;                                         // :063471fe-06347203
 
@@ -564,11 +560,11 @@ void IVP_Core::mark_active_and_sync_objects()
     {
         IVP_Real_Object* const Obj = Objects.elems[Index];
         Obj->flags = (Obj->flags & 0xFFFFFF01u) | 1u;             // :06347213-0634721f
-        Obj->recheck_ov_element_as_moving();                     // FUN_063454e0, :06347222
+        Obj->recheck_ov_element_as_moving();                     // , :06347222
     }
 }
 
-// FUN_063461a0 (.text:063461a0-06346286, thiscall, RET 0x10; args Lever, Lin,
+// (module storage-06346286, thiscall, RET 0x10; args Lever, Lin,
 // Ang, Out). cmn-ivp3f 2026-10-09, x87-exact:
 //   C = Ang x Lever stays extended: Cx = Ang.y*L.z - Ang.z*L.y,
 //   Cy = Ang.z*L.x - Ang.x*L.z, Cz = Ang.x*L.y - Ang.y*L.x.
@@ -592,29 +588,29 @@ void IVP_Core::calc_point_speed_ws(const Vector* LeverArmOS, const Vector* Linea
     const IVP_U_Point& Row1 = MWorldFCore.rows[1];
     const IVP_U_Point& Row2 = MWorldFCore.rows[2];
 
-    OutWorldSpeed->x = (float)((Row0.z * CrossZ + Row0.y * CrossY) + Row0.x * CrossX); // 06346221
-    const float RotatedY = (float)((Row1.z * CrossZ + Row1.y * CrossY) + Row1.x * CrossX); // 06346235
-    OutWorldSpeed->y = RotatedY;                                                                   // 06346241
+    OutWorldSpeed->x = (float)((Row0.z * CrossZ + Row0.y * CrossY) + Row0.x * CrossX);
+    const float RotatedY = (float)((Row1.z * CrossZ + Row1.y * CrossY) + Row1.x * CrossX);
+    OutWorldSpeed->y = RotatedY;
     const double RotatedZ = (Row2.z * CrossZ + Row2.y * CrossY) + Row2.x * CrossX;
-    OutWorldSpeed->z = (float)(RotatedZ);                                               // 06346260 FST
+    OutWorldSpeed->z = (float)(RotatedZ);                                               // FST
 
     const float NewY = (float)((double)(RotatedY) + LinearVelocityWS->y);
     const float NewZ = (float)(RotatedZ + LinearVelocityWS->z);
     const float NewX = (float)((double)(LinearVelocityWS->x) + OutWorldSpeed->x);
-    OutWorldSpeed->z = NewZ; // 0634627b
-    OutWorldSpeed->x = NewX; // 0634627e
-    OutWorldSpeed->y = NewY; // 06346280
+    OutWorldSpeed->z = NewZ;
+    OutWorldSpeed->x = NewX;
+    OutWorldSpeed->y = NewY;
 }
 
-// FUN_06346be0: Common.dll.txt:410012-410027. Thiscall wrapper that forwards
+// Common. Thiscall wrapper that forwards
 // this core's own Speed/RotSpeed into calc_point_speed_ws.
 void IVP_Core::calc_speed_at_object_position(const Vector* LeverArmOS, Vector* OutWorldSpeed) const
 {
     calc_point_speed_ws(LeverArmOS, &Speed, &RotSpeed, OutWorldSpeed);
 }
 
-// FUN_06346cf0: Common.dll.txt 410138-410194. See header comment -- CORRECTED
-// 2026-09-09 (D82) to take the genuinely-separate 5th retail parameter
+// Common. See header comment -- CORRECTED
+// 2026-09-09 (D82) to take the genuinely-separate 5th baseline parameter
 // (param_2=PointImpulseOS for the cross product, param_3=PointImpulseWS for
 // the linear scale; RET 0x14 proves 5 stack dwords, not 4). The two scalings
 // (InvMass uniform, InvRotInertia per-axis) match this class's own already
@@ -623,7 +619,7 @@ void IVP_Core::calc_impulse_deltas(const Vector* LeverArmOS, const Vector* Point
                                     const Vector* PointImpulseWS,
                                     Vector* OutLinearDelta, Vector* OutAngularDelta) const
 {
-    // cmn-ivp3f 2026-10-09, x87-exact (.text:06346cf0-06346d74):
+    // cmn-ivp3f 2026-10-09, x87-exact (module storage-06346d74):
     //   Cx = I.z*L.y - I.y*L.z, Cy = I.x*L.z - I.z*L.x stay extended;
     //   Cz = I.y*L.x - I.x*L.y is FSTP'd to float first (06346d25).
     //   OutAngular = (float(Cx*IRI.x), float(Cy*IRI.y), float(float(Cz)*IRI.z)),
@@ -648,76 +644,76 @@ void IVP_Core::calc_impulse_deltas(const Vector* LeverArmOS, const Vector* Point
     OutLinearDelta->y = LinearY;
 }
 
-// FUN_06346790: Common.dll.txt:409518-409567 (decomp-tracker item 2835, 39
+// Common (implementation tracker item 2835, 39
 // insns). D89 pass (2026-09-09): traced instruction-by-instruction, confirming
 // D86's hypothesis (item 3269's blocker_reason) that this is a genuinely
-// DIFFERENT IVP_Core method from calc_impulse_deltas (FUN_06346cf0), even
+// DIFFERENT IVP_Core method from calc_impulse_deltas (the routine), even
 // though it calls it internally. Sole (currently known) caller is
-// IVP_Impact_Solver's FUN_06358560 (decomp-tracker item 3274, traced by D86,
-// Common.dll.txt:440501-440572), which invokes
-// `Cores[N]->FUN_06346790(ContactCoordsOS[N], &NormalOS, &NormalWS)` once per
+// IVP_Impact_Solver's the routine (implementation tracker item 3274, traced by D86,
+// Common), which invokes
+// `Cores[N]->the routine(ContactCoordsOS[N], &NormalOS, &NormalWS)` once per
 // core -- NormalOS is that core's MWorldFCore-rotated (vimult'd) copy of the
 // SAME world-space normal passed as NormalWS, i.e. "the same physical
 // direction in two frames", exactly matching calc_impulse_deltas's own
 // PointImpulseOS/PointImpulseWS convention (see that method's header comment
 // above).
-//
-// Body (confirmed byte-for-byte against Common.dll.txt):
+
+// Body (confirmed byte-for-byte against Common):
 //   1. TEST AH,0x3 on this->Flags (mask 0x300, bits 8-9) -- NOT the 0x0C
 //      dynamic/kinematic mask used everywhere else in this cluster
 //      (PushContactPoint, the destructor's `(Flags & 0xC) == 4`, etc). This
 //      bit pair's real meaning is not identified anywhere else in the
-//      current port. When set, retail short-circuits straight to `FLD
-//      DAT_063a53d0; RET` (Common.dll.txt:063467ec-063467f6) -- returns
+//      current port. When set, baseline short-circuits straight to `FLD
+// ; RET` (Commonec-063467f6) -- returns
 //      1.0f without touching any of the 3 vector params. Ported faithfully
 //      as an unnamed flag check rather than guessed semantics.
 //   2. Otherwise: calc_impulse_deltas(LeverArmOS, ImpulseDirOS, ImpulseDirWS,
-//      &LinDelta, &AngDelta) (Common.dll.txt:063467b9, forwarding all 3 of
+//      &LinDelta, &AngDelta) (Commonb9, forwarding all 3 of
 //      this function's own params straight through), then
 //      calc_point_speed_ws(LeverArmOS, &LinDelta, &AngDelta, &PointVelDelta)
-//      (Common.dll.txt:063467d0) -- the exact same 2-call chain
+//      (Commond0) -- the exact same 2-call chain
 //      IVP_Impact_Solver::PushContactPoint already uses for its own
 //      TotalEffectiveMassInv accumulation (ivp_impact_solver.cpp).
 //   3. UNLIKE PushContactPoint (which dots PointVelDelta against the push
-//      direction), this function calls FUN_06347e60 (decomp-tracker item
+//      direction), this function calls the routine (implementation tracker item
 //      2879, confirmed this pass: `sqrt(v.x^2+v.y^2+v.z^2)`, i.e. plain
 //      Vector magnitude -- ECX=Vector*, no stack params, 55 call sites
-//      across the DLL, ~16 x87-only instructions, Common.dll.txt:411949-
+//      across the DLL, ~16 x87-only instructions, Common-
 //      411964) on PointVelDelta alone, then returns
-//      `DAT_063a53d0(=1.0f) / |PointVelDelta|` (Common.dll.txt:063467df,
+//      `the field(=1.0f) / |PointVelDelta|` (Commondf,
 //      FDIVR). Since PointVelDelta is "world-space point velocity produced
 //      per unit impulse along ImpulseDir", its magnitude is 1/effective-mass,
 //      so this returns a genuine per-core scalar MASS (not inverse mass) --
-//      matching FUN_06358630/CalcImpulseNeeded's real reduced-mass formula
+//      matching the routine/CalcImpulseNeeded's real reduced-mass formula
 //      `2*m0*m1/(m0+m1)` (see IVP_Impact_Solver::CalcEffectiveMass's header
 //      warning in ivp_impact_solver.cpp for the full writeup).
-// cmn-ivp3f 2026-10-09: returns double -- retail leaves 1.0f / FUN_06347e60()
+// cmn-ivp3f 2026-10-09: returns double -- baseline leaves 1.0f / the routine()
 // unrounded in ST0 (FDIVR at 063467df, RET 0xc); the only caller (06358560)
-// rounds with FSTP dword. FUN_06347e60 is IVP_U_Point::real_length
+// rounds with FSTP dword. the routine is IVP_U_Point::real_length
 // (sqrt((x*x + y*y) + z*z), extended).
 double IVP_Core::calc_effective_mass_along_direction(const Vector* LeverArmOS,
                                                        const Vector* ImpulseDirOS,
                                                        const Vector* ImpulseDirWS) const
 {
     if ((Flags & 0x300) != 0)
-        return (double)(1.0f); // DAT_063a53d0; TEST AH,0x3 at 06346798
+        return (double)(1.0f); // ; TEST AH,0x3 at 06346798
 
     Vector LinDelta, AngDelta;
-    calc_impulse_deltas(LeverArmOS, ImpulseDirOS, ImpulseDirWS, &LinDelta, &AngDelta); // 063467b9
+    calc_impulse_deltas(LeverArmOS, ImpulseDirOS, ImpulseDirWS, &LinDelta, &AngDelta);
 
     IVP_U_Point PointVelDelta;
-    calc_point_speed_ws(LeverArmOS, &LinDelta, &AngDelta, reinterpret_cast<Vector*>(&PointVelDelta)); // 063467d0
+    calc_point_speed_ws(LeverArmOS, &LinDelta, &AngDelta, reinterpret_cast<Vector*>(&PointVelDelta));
 
-    return (double)(1.0f) / PointVelDelta.real_length(); // 063467d9 / 063467df
+    return (double)(1.0f) / PointVelDelta.real_length(); // / 063467df
 }
 
-// FUN_063463f0: see the header comment above calc_conservative_effective_mass
+// see the header comment above calc_conservative_effective_mass
 // (ivp_core.h) for the full formula/evidence trail. Verified term-by-term
-// against Common.dll.txt:409276-409353 -- this function has ZERO callees, so
+// against Common -- this function has ZERO callees, so
 // every step below is directly, unambiguously portable.
-//
-// 2026-10-08 (claude-code:cmn-phy3), precision re-trace of .text:063463f0-
-// 06346497: z*z stays on the FPU for the whole function; y*y (local_14) and
+
+// 2026-10-08 (claude-code:cmn-phy3), precision re-trace of module storage-
+// z*z stays on the FPU for the whole function; y*y (local_14) and
 // x*x (param slot) are spilled as floats; the three terms are each stored as
 // float (`FSTP float` at 06346430/0634643b/06346442); the result
 // 1.0 / (Max + InvMass-or-1.0) is returned unrounded in ST0, hence double.
@@ -746,36 +742,36 @@ double IVP_Core::calc_conservative_effective_mass(const Vector* LeverArm) const
     return 1.0 / ((double)(Max) + InvMass);
 }
 
-// FUN_06347240: Common.dll.txt:410682-410784 (decomp-tracker item 2857, 91
+// Common (implementation tracker item 2857, 91
 // insns). A prior lane (D108, 2026-09-09) traced this partway and left it
 // FULLPORT-DEFERRED (IVP_DEFERRED_RecalcCoreContactAngles in
 // ivp_mindist_limiter.cpp) with 5 unexamined sub-callees. This pass traced
-// every one of those 5 (plus one further transitive callee, FUN_063510c0)
-// term-by-term against Common.dll.txt and found each is a byte-exact match
+// every one of those 5 (plus one further transitive callee, the routine)
+// term-by-term against Common and found each is a byte-exact match
 // for a generic primitive ALREADY implemented in ivp_math.h:
-//   - FUN_06347380 (item 2858): IVP_U_Memory::GetMem, the arena that backs
+//   - the routine (item 2858): IVP_U_Memory::GetMem, the arena that backs
 //     the 0x24-byte IVP_Old_Sync_Rot_Z record below.
-//   - FUN_063510c0 (item 3155, 13 insns, Common.dll.txt:428535-428552):
+//   - the routine (item 3155, 13 insns, Common):
 //     `dst.x=-src.x; dst.y=-src.y; dst.z=-src.z; dst.w=src.w` -- exactly
 //     IVP_U_Quat::set_invert_unit.
-//   - FUN_06351250 (item 3158, 63 insns, :428715-428787): calls
-//     FUN_063510c0 on param_1 then Hamilton-multiplies the result by
+//   - the routine (item 3158, 63 insns, :428715-428787): calls
+// on param_1 then Hamilton-multiplies the result by
 //     param_2 -- exactly IVP_U_Quat::set_inv_mult_quat(param_1, param_2).
-//   - FUN_06350df0 (item 3152, 152 insns, :428234-428401): dot-product +
-//     epsilon branch (DAT_063a5630 = 0x3f7fbe77) between two 4-float structs,
+//   - the routine (item 3152, 152 insns, :428234-428401): dot-product +
+//     epsilon branch (the field = 0x3f7fbe77) between two 4-float structs,
 //     acos/sin-weighted blend with a `sign` correction reusing param_1's dead
-//     stack slot (Ghidra mislabels the later reads of that slot as reads of
+//     stack slot (analysis mislabels the later reads of that slot as reads of
 //     "param_1" -- it is NOT the original pointer at that point, it is the
 //     compiler reusing the slot for the `dot<=0 ? -1 : 1` sign scratch), else
-//     a linear lerp + 2 Newton renormalization passes (DAT_063a5460=0.5,
-//     DAT_063a562c=1.5) -- exactly IVP_U_Quat::set_interpolate_quat(q0, q1,
+//     a linear lerp + 2 Newton renormalization passes (the field=0.5,
+// =1.5) -- exactly IVP_U_Quat::set_interpolate_quat(q0, q1,
 //     alpha), called here with `this` aliased to q1 (safe: the existing
 //     generic method only writes x/y/z/w after all q0/q1 reads complete).
-//   - FUN_06350bc0 (item 3150, 64 insns, :428019-428098): the classic
+//   - the routine (item 3150, 64 insns, :428019-428098): the classic
 //     `1.0f-(yy+zz)` / `xy-wz` / `xy+wz` diagonal-and-cross-term matrix
-//     build (DAT_063a53d0 = 1.0f confirmed byte-for-byte) -- exactly
+//     build (the field = 1.0f confirmed byte-for-byte) -- exactly
 //     IVP_U_Quat::set_matrix.
-//   - FUN_0628be60 (item 772): add_mult, dst.c = float(scale*dir.c +
+//   - the routine (item 772): add_mult, dst.c = float(scale*dir.c +
 //     base.c), written out inline below (the operands are 12-byte Vectors).
 // Every field touched (QWorldFCore +0xD4, QWorldFCoreNext +0xE4, MWorldFCore
 // +0xF4 incl. its vv translation at +0x124, PosWorldFCore +0xB4,
@@ -784,32 +780,32 @@ double IVP_Core::calc_conservative_effective_mass(const Vector* LeverArm) const
 // no layout guessing was needed anywhere in this trace. Environment+0xF8/+0xFC
 // is IVP_Environment::current_time, also already typed (ivp_environment.h),
 // matching PhySys::GetCurrentTime's own documented use of the same fields
-// (docs/re/common_physys.md).
-//
-// Retail control flow (Ipion IVP_Core::synchronize_with_rot_z; cmn-ivp3g
+// (implementation notes).
+
+// baseline control flow (Ipion IVP_Core::synchronize_with_rot_z; cmn-ivp3g
 // 2026-10-09 re-trace of all 91 insns):
-//   06347247-063472c7: FastSimUnitData = Env->vector_cores_frozen (+0xa4)
-//     ->GetMem(0x24) (FUN_06347380); record +0x20 = 0; record +0x00..+0x08 =
+// FastSimUnitData = Env->vector_cores_frozen (+0xa4)
+//     ->GetMem(0x24) (the routine); record +0x20 = 0; record +0x00..+0x08 =
 //     RotSpeed; record +0x10 = QWorldFCoreNext (raw 16 bytes). Record +0x0c is
 //     not written.
-//   063472c6-063472d5: DeltaQuat = set_inv_mult_quat(&QWorldFCore,
+// DeltaQuat = set_inv_mult_quat(&QWorldFCore,
 //     &QWorldFCoreNext), unconditionally, before the interpolation below.
-//   063472da-06347301: Alpha = float((((Etb - tb) + Eto) - to) * IDeltaTime)
+// Alpha = float((((Etb - tb) + Eto) - to) * IDeltaTime)
 //     (one rounding); QWorldFCoreNext = set_interpolate_quat(&QWorldFCore,
 //     &QWorldFCoreNext, Alpha); set_matrix(&MWorldFCore).
-//   06347306-0634732c: the same elapsed chain rounded to float WITHOUT the
+// the same elapsed chain rounded to float WITHOUT the
 //     IDeltaTime factor is the scale of add_mult(&MWorldFCore.vv,
 //     &PosWorldFCore, &DeltaWorldFCore) -- DeltaWorldFCore is the linear
 //     velocity, so the scale is seconds, not Alpha.
-//   06347331-06347372: if (byte Flags & 0xc0) == 0: TwoIDT = float(IDT +
+// if (byte Flags & 0xc0) == 0: TwoIDT = float(IDT +
 //     IDT); RotSpeed.c = float(_CIasin(DeltaQuat.c) * TwoIDT) for x, y, z.
 // The record is arena memory (the destructor never frees +0x1b4); it is read
-// by the impact system (ivp_impact.cpp) and restored by FUN_063473b0.
+// by the impact system (ivp_impact.cpp) and restored by the routine.
 void IVP_Core::recalc_interpolated_frame()
 {
     IVP_Environment* Env = this->Environment;
 
-    // 06347247-063472c7: the sync record, from the environment's frozen-core
+    // the sync record, from the environment's frozen-core
     // arena (Env+0xa4), filled before anything below changes the core.
     IVP_Old_Sync_Rot_Z* Sync =
         static_cast<IVP_Old_Sync_Rot_Z*>(Env->vector_cores_frozen->GetMem(static_cast<int>(sizeof(IVP_Old_Sync_Rot_Z))));
@@ -820,29 +816,29 @@ void IVP_Core::recalc_interpolated_frame()
     Sync->OldSyncRotSpeed.z = RotSpeed.z;
     Sync->OldSyncQWorldFCore = QWorldFCoreNext;
 
-    // 063472c6-063472d5: computed before QWorldFCoreNext is advanced; read
+    // computed before QWorldFCoreNext is advanced; read
     // only under the flag test at the end.
     IVP_U_Quat DeltaQuat;
     DeltaQuat.set_inv_mult_quat(&QWorldFCore, &QWorldFCoreNext);
 
-    // 063472da-063472ee and 06347306-0634731e: the same x87 chain twice.
+    // and 06347306-0634731e: the same x87 chain twice.
     const double ElapsedExt =
         (((double)(Env->current_time.time_base) - TimeOfLastPsi.time_base) + Env->current_time.time_offset) -
         TimeOfLastPsi.time_offset;
     const float Alpha = (float)(ElapsedExt * IDeltaTime);
     const float Elapsed = (float)(ElapsedExt);
 
-    QWorldFCoreNext.set_interpolate_quat(&QWorldFCore, &QWorldFCoreNext, Alpha); // FUN_06350df0
-    QWorldFCoreNext.set_matrix(&MWorldFCore);                                   // FUN_06350bc0
+    QWorldFCoreNext.set_interpolate_quat(&QWorldFCore, &QWorldFCoreNext, Alpha);
+    QWorldFCoreNext.set_matrix(&MWorldFCore);
 
-    // 0634732c FUN_0628be60 add_mult(&MWorldFCore.vv, &PosWorldFCore,
+    // the routine add_mult(&MWorldFCore.vv, &PosWorldFCore,
     // &DeltaWorldFCore, Elapsed): the velocity times the elapsed time, one
     // rounding per component.
     MWorldFCore.vv.y = (float)((double)(Elapsed) * DeltaWorldFCore.y + PosWorldFCore.y);
     MWorldFCore.vv.z = (float)((double)(Elapsed) * DeltaWorldFCore.z + PosWorldFCore.z);
     MWorldFCore.vv.x = (float)((double)(Elapsed) * DeltaWorldFCore.x + PosWorldFCore.x);
 
-    // 06347331-06347372: TEST byte [ESI],0xc0; JNZ skip.
+    // TEST byte [ESI],0xc0; JNZ skip.
     if ((Flags & 0xC0) == 0)
     {
         const float TwoIDeltaTime = (float)((double)(IDeltaTime) + IDeltaTime);
@@ -852,25 +848,25 @@ void IVP_Core::recalc_interpolated_frame()
     }
 }
 
-// FUN_063563d0 (.text:063563d0-063564f5), Ipion
+// (module storage-063564f5), Ipion
 // IVP_Core::grow_friction_system. cmn-ivp3d 2026-10-08, traced in full:
-//   063563d6-063563e7: Result = 0; i = Objects.n_elems - 1 (read once); i < 0
+// Result = 0; i = Objects.n_elems - 1 (read once); i < 0
 //     -> return 0.
-//   063563f0-06356408: per object, Syn = synapse_list_head (+0x20); per
+// per object, Syn = synapse_list_head (+0x20); per
 //     synapse, Mdist = Syn + (int16)Syn->mindist_offset (+0x18) and Next =
 //     Syn->next (+0x8), read before anything else.
-//   0635640a-06356410: StateFlags & 0x3000 -> next synapse.
-//   06356416-06356429: Other = synapse[0].l_obj->core (+0x28 -> +0x98); when
+// StateFlags & 0x3000 -> next synapse.
+// Other = synapse[0].l_obj->core (+0x28 -> +0x98); when
 //     that is this core, synapse[1].l_obj->core (+0x44 -> +0x98).
-//   0635642c-0635644b: Other fixed (`TEST byte [Other],0xc`): if this core is
+// Other fixed (`TEST byte [Other],0xc`): if this core is
 //     fixed too, `TEST ESI,ESI` + slot 4 (deleting dtor) with 1, i.e.
 //     `delete Mdist`; otherwise nothing.
-//   0635644d-06356475: Other movable: Other->+0x5c (0633ba90) non-null -> skip;
-//     06352cf0 (DispatchNarrowPhaseSolve); StateFlags & 0xc000 -> skip;
-//     `FLD [Mdist+0x54]; FCOMP DAT_0658ab2c; TEST AH,1; JZ skip` -- go on only
+// Other movable: Other->+0x5c (0633ba90) non-null -> skip;
+// (DispatchNarrowPhaseSolve); StateFlags & 0xc000 -> skip;
+//     `FLD [Mdist+0x54]; FCOMP the field; TEST AH,1; JZ skip` -- go on only
 //     when C0 is set (gap below max_distance_for_friction, or unordered).
-//   06356477-063564c3: ++vector_cores_frozen->State (env +0xa4, +0x10);
-//     06356bc0(Mdist, &Fs, &HavingNew, OwningSimUnit, 1); --State and
+// ++vector_cores_frozen->State (env +0xa4, +0x10);
+// (Mdist, &Fs, &HavingNew, OwningSimUnit, 1); --State and
 //     reset_chunks (06344070) on the arena re-read through the environment;
 //     HavingNew == 1 -> Result = 1, Other->update_time_of_last_motion()
 //     (063470e0).
@@ -899,9 +895,9 @@ int IVP_Core::grow_friction_system()
                         delete Mdist; // `TEST ESI,ESI` + CALL [vtbl+0x10] with 1
                     }
                 }
-                else if (Other->ObjectHashMap == nullptr) // FUN_0633ba90
+                else if (Other->ObjectHashMap == nullptr)
                 {
-                    Mdist->DispatchNarrowPhaseSolve(); // FUN_06352cf0
+                    Mdist->DispatchNarrowPhaseSolve();
                     if ((Mdist->StateFlags & 0xc000u) == 0 &&
                         !(Mdist->SeparationGap >= G_IVP_MindistSettings.max_distance_for_friction))
                     {
@@ -911,11 +907,11 @@ int IVP_Core::grow_friction_system()
                         IVP_Try_To_Generate_Managed_Friction(Mdist, &FrictionSystem, &HavingNew, OwningSimUnit, 1);
                         IVP_U_Memory* const Arena = Environment->vector_cores_frozen;
                         --Arena->State;
-                        Arena->reset_chunks(); // FUN_06344070
+                        Arena->reset_chunks();
                         if (HavingNew == 1)
                         {
                             Result = 1;
-                            Other->update_time_of_last_motion(); // FUN_063470e0
+                            Other->update_time_of_last_motion();
                         }
                     }
                 }
@@ -926,22 +922,22 @@ int IVP_Core::grow_friction_system()
     return Result;
 }
 
-// FUN_0634b480 (.text:0634b480-0634b58d). cmn-ivp3d 2026-10-08, re-ported
+// (module storage-0634b58d). cmn-ivp3d 2026-10-08, re-ported
 // from the listing (the old body had invented Environment / object null
 // guards, computed Alpha in float and returned a stubbed 0):
-//   0634b488-0634b4a7: every object's flags (+0x78) low byte := 1, n-1..0.
-//   0634b4ab: FUN_06347170 (mark_active_and_sync_objects).
-//   0634b4b0-0634b4eb: Alpha = ((f[env+0x100] - f[env+0xf8]) + f[env+0x104])
+// every object's flags (+0x78) low byte := 1, n-1..0.
+// the routine (mark_active_and_sync_objects).
+// Alpha = ((f[env+0x100] - f[env+0xf8]) + f[env+0x104])
 //     - f[env+0xfc], all on the x87 stack (double here).
-//   0634b4ef-0634b4fa: `FCOM DAT_063a53d8 (1e-10f); TEST AH,0x41; JNZ` --
+// `FCOM the field (1e-10f); TEST AH,0x41; JNZ` --
 //     fall-through (Alpha > eps, ordered) stores {(float)Alpha,
 //     (float)(1.0 / Alpha)} with the UNROUNDED Alpha as divisor; the other
 //     side takes {env->delta_time (+0xac), env->inv_delta_time (+0xb0)}.
-//   0634b526-0634b52d: FUN_06346e70(&pair).
-//   0634b532-0634b534: Result = FUN_063563d0 (grow_friction_system).
-//   0634b539-0634b579: per object n-1..0: event {Environment, Obj} ->
-//     FUN_0634afd0 on env->cluster_manager (+0xc); a second stack event
-//     {Environment (re-read), Obj} -> FUN_0634cf30 on the environment.
+// the routine(&pair).
+// Result = the routine (grow_friction_system).
+// per object n-1..0: event {Environment, Obj} ->
+// on env->cluster_manager (+0xc); a second stack event
+//     {Environment (re-read), Obj} -> the routine on the environment.
 int IVP_Core::revive_pass()
 {
     for (int32_t ObjIndex = static_cast<int32_t>(Objects.n_elems) - 1; ObjIndex >= 0; --ObjIndex)
@@ -950,7 +946,7 @@ int IVP_Core::revive_pass()
         Obj->flags = (Obj->flags & 0xFFFFFF01u) | 1u;
     }
 
-    mark_active_and_sync_objects(); // FUN_06347170
+    mark_active_and_sync_objects();
 
     IVP_Environment* const Env = this->Environment;
     const double CurrentTimeBase = (double)(*reinterpret_cast<const float*>(&Env->current_time.time_base));
@@ -960,35 +956,35 @@ int IVP_Core::revive_pass()
 
     float DeltaTime;
     float InvDeltaTime;
-    if (Alpha > (double)(1.0e-10f)) // DAT_063a53d8 = 0x2edbe6ff
+    if (Alpha > (double)(1.0e-10f)) // = 0x2edbe6ff
     {
         DeltaTime = (float)(Alpha);
-        InvDeltaTime = (float)(1.0 / Alpha); // DAT_063a53d0 = 1.0f
+        InvDeltaTime = (float)(1.0 / Alpha); // = 1.0f
     }
     else
     {
         DeltaTime = Env->delta_time;
         InvDeltaTime = Env->inv_delta_time;
     }
-    synchronize_simulation_time_snapshot(DeltaTime, InvDeltaTime); // FUN_06346e70
+    synchronize_simulation_time_snapshot(DeltaTime, InvDeltaTime);
 
-    const int Result = grow_friction_system(); // FUN_063563d0
+    const int Result = grow_friction_system();
 
     for (int32_t ObjIndex = static_cast<int32_t>(Objects.n_elems) - 1; ObjIndex >= 0; --ObjIndex) // count read once (:0634b53b)
     {
         IVP_Real_Object* const Obj = Objects.elems[ObjIndex];
         IVP_Environment_Object_Notify_Event RevivedEvent{ this->Environment, Obj };
-        this->Environment->cluster_manager->fire_event_object_revived(&RevivedEvent); // FUN_0634afd0
+        this->Environment->cluster_manager->fire_event_object_revived(&RevivedEvent);
         IVP_Environment_Object_Notify_Event ListenerEvent{ this->Environment, Obj };
-        IVP_Environment_Notify_Object_Listeners(this->Environment, &ListenerEvent);  // FUN_0634cf30
+        IVP_Environment_Notify_Object_Listeners(this->Environment, &ListenerEvent);
     }
 
     return Result;
 }
 
-// cmn-ivp3d 2026-10-08: no retail function of its own -- the call-site
-// pattern `OwningSimUnit(+0x15c)->FUN_06349490(Environment(+0xc))` as
-// 06347d80 :06347d8b-:06347d95 emits it. The body that used to be here was a
+// cmn-ivp3d 2026-10-08: no baseline function of its own -- the call-site
+// pattern `OwningSimUnit(+0x15c)->the routine(Environment(+0xc))` as
+// 06347d8b-:06347d95 emits it. The body that used to be here was a
 // second (guarded, dword-compare) copy of 06349490; the single port is
 // IVP_Simulation_Unit_Revive_If_Sleeping.
 void IVP_Core::revive_sleeping_core()
@@ -996,7 +992,7 @@ void IVP_Core::revive_sleeping_core()
     IVP_Simulation_Unit_Revive_If_Sleeping(OwningSimUnit, Environment);
 }
 
-// FUN_06349180 (Common.dll.txt:414429-414455, decomp-tracker item 2932, 22
+// (Common, implementation tracker item 2932, 22
 // insns). D-cluster-06348f60 pass (2026-09-10), ported as a direct
 // dependency of this cluster's own item 2930. See ivp_core.h's own comment
 // above the declaration.
@@ -1006,52 +1002,52 @@ void IVP_Core::register_controller(IVP_Controller* Controller)
     IVP_Simulation_Unit_Register_Core_With_Controller(OwningSimUnit, Controller, this);
 }
 
-// FUN_06349110 (Common.dll.txt:414380-414424, decomp-tracker item 2931, 37
+// (Common, implementation tracker item 2931, 37
 // insns). D-cluster-06348f60 pass (2026-09-10). See ivp_core.h's own comment
 // above the declaration for the full evidence trail.
 void IVP_Core::detach_controller(IVP_Controller* Controller)
 {
     Controllers.RemoveElement(Controller);
 
-    // Retail: unconditional, no null-guard on OwningSimUnit -- reproduced as-is.
+    // baseline: unconditional, no null-guard on OwningSimUnit -- reproduced as-is.
     IVP_Simulation_Unit_Detach_Core_From_Controller_Bucket(OwningSimUnit, Controller, this);
 }
 
-// FUN_06347c40 (Common.dll.txt:411624-411653, decomp-tracker item 2870, 19
-// insns). D-target-ObjectHashMap pass (2026-09-10): full raw-disasm trace,
+// (Common, implementation tracker item 2870, 19
+// insns). D-target-ObjectHashMap pass (2026-09-10): full raw-analysis trace,
 // closing the field-identity TODO ivp_core.h's ObjectHashMap comment left
 // open (3 independent prior lanes -- items 3290/2870/3276/2629 -- had each
 // confirmed +0x5c was a real, meaningful pointer without pinning its type).
-//
-// Calling-convention proof that ObjectHashMap really is FUN_06352930's own
+
+// Calling-convention proof that ObjectHashMap really is the routine's own
 // "self" container pointer (not an unrelated value carried through by
-// coincidence): retail's Flags==4 branch does
+// coincidence): baseline's Flags==4 branch does
 //   `MOV ECX,[ECX+0x5c]; TEST ECX,ECX; JZ <null>; MOV EDX,[ESP+Key]; PUSH EDX;
-//    CALL FUN_06352930`
+//    CALL the routine`
 // -- ECX (ObjectHashMap) is loaded and never touched again before the CALL,
-// and FUN_06352930's own body (26 insns, Common.dll.txt:431171-431203) never
+// and the routine's own body (26 insns, Common) never
 // references ECX at all: it only hashes the pushed stack key into EDX, then
-// tail-calls `PUSH EDX(hash); PUSH EBP(key); CALL FUN_06352980` with ECX
-// still carrying whatever the caller left in it. FUN_06352980 (the raw
+// tail-calls `PUSH EDX(hash); PUSH EBP(key); CALL the routine` with ECX
+// still carrying whatever the caller left in it. the routine (the raw
 // Robin-Hood find, IVP_VHash_Store::FindElem(Key, HashIndex)) is exactly HashMap063525f0's
-// own "self" parameter in every other caller (FUN_06344400/FUN_06344580's
-// contact-pair dispatch, decomp-tracker item 3184) -- so ObjectHashMap IS
+// own "self" parameter in every other caller (the routine/the routine's
+// contact-pair dispatch, implementation tracker item 3184) -- so ObjectHashMap IS
 // that same self pointer here, passed through two full function bodies via a
 // dead register rather than an explicit argument.
-//
-// Non-hashmap (single-slot) mode read directly off Common.dll.txt:411644-
+
+// Non-hashmap (single-slot) mode read directly off Common-
 // 411653: `MOV EAX,[ECX+0x5c]; TEST EAX,EAX; JZ <null>; MOV ECX,[EAX+0x8];
 // CMP ECX,[ESP+Key]; JZ <return EAX>` -- ObjectHashMap holds a single
 // candidate pointer directly (no container object), and this just compares
 // that candidate's own +0x8 field against Key.
-//
+
 // Reused as a generic "resolve tagged child by key" utility by unrelated
-// classes elsewhere in Common.dll -- Common.dll.txt's own XREF block on
-// FUN_06347c40 lists 16 call sites; decomp-tracker item 3290/FUN_06359340
+// classes elsewhere in Common.dll -- Common's own XREF block on
+// lists 16 call sites; implementation tracker item 3290/the routine
 // traces one such unrelated reuse over a DIFFERENT class's own +0x20 field,
 // left blocked since that owner is not IVP_Core. This port only covers the
-// confirmed IVP_Core call sites (e.g. FUN_06356bc0/item 3262 at
-// Common.dll.txt:06356d1d). The candidate entries' own concrete C++ type was
+// confirmed IVP_Core call sites (e.g. the routine/item 3262 at
+// Commond1d). The candidate entries' own concrete C++ type was
 // not determined this pass -- no call site was found that dereferences one
 // beyond its +0x8 key field -- so it stays void*/unsigned rather than
 // guessing a struct layout.
@@ -1061,7 +1057,7 @@ void* IVP_Core::find_object_hash_entry(unsigned Key) const
     {
         if (this->ObjectHashMap == nullptr)
             return nullptr;
-        return ((IVP_VHash_Store*)this->ObjectHashMap)->FindElem((void*)Key); // FUN_06352930
+        return ((IVP_VHash_Store*)this->ObjectHashMap)->FindElem((void*)Key);
     }
 
     void* Candidate = this->ObjectHashMap;
@@ -1072,24 +1068,24 @@ void* IVP_Core::find_object_hash_entry(unsigned Key) const
     return (CandidateKey == Key) ? Candidate : nullptr;
 }
 
-// FUN_06347c80 (Common.dll.txt:411669-411731, decomp-tracker item 2871, 50
-// insns; SEH-wrapped in retail via the standard frame-based handler, not
+// (Common, implementation tracker item 2871, 50
+// insns; SEH-wrapped in baseline via the standard frame-based handler, not
 // reproduced here -- nothing in this straight-line body can throw). Registers
 // Candidate under the key at Candidate's own +0x8 field.
-//
+
 // Hashmap mode (Flags&0xC==4): if ObjectHashMap is still null, allocates+
-// constructs it -- `operator_new(0x14)` then `FUN_063525f0(self, 2)` (an
-// initial capacity of 2 buckets), Common.dll.txt:411693-411709 -- then
-// inserts (key=Candidate->0x8, value=Candidate) via FUN_063526d0/item 3178
-// (Common.dll.txt:411713-411718). Retail has an explicit "operator_new
+// constructs it -- `operator_new(0x14)` then `the routine(self, 2)` (an
+// initial capacity of 2 buckets), Common -- then
+// inserts (key=Candidate->0x8, value=Candidate) via the routine/item 3178
+// (Common). baseline has an explicit "operator_new
 // returned null -> skip the ctor call, leave ObjectHashMap null" branch
 // (411699-411701, `TEST ESI,ESI; JZ`) that this port does not reproduce:
 // `::operator new` throws instead of returning null, so that branch is
 // unreachable here by construction, same precedent as
 // ivp_surface_builder_ledge_soup.cpp's BuildNode allocation.
-//
+
 // Single-slot mode: unconditionally overwrites ObjectHashMap with Candidate
-// itself (Common.dll.txt:411727), discarding whatever was previously cached
+// itself (Common), discarding whatever was previously cached
 // there -- no free, since ObjectHashMap never owns the pointer in this mode
 // (see find_object_hash_entry() above).
 void IVP_Core::register_object_hash_entry(void* Candidate)
@@ -1101,11 +1097,11 @@ void IVP_Core::register_object_hash_entry(void* Candidate)
             // :06347caa-06347cd3: MSVCRT operator new (NULL on failure), the
             // ctor only on a non-null block, else the field gets 0.
             void* Map = ::operator new(0x14, std::nothrow);
-            this->ObjectHashMap = (Map != nullptr) ? new (Map) IVP_VHash_Store(2) : nullptr; // FUN_063525f0
+            this->ObjectHashMap = (Map != nullptr) ? new (Map) IVP_VHash_Store(2) : nullptr;
         }
 
         unsigned CandidateKey = *reinterpret_cast<unsigned*>(reinterpret_cast<uintptr_t>(Candidate) + 0x8);
-        ((IVP_VHash_Store*)this->ObjectHashMap)->AddElem((void*)CandidateKey, Candidate); // FUN_063526d0
+        ((IVP_VHash_Store*)this->ObjectHashMap)->AddElem((void*)CandidateKey, Candidate);
     }
     else
     {
@@ -1113,19 +1109,19 @@ void IVP_Core::register_object_hash_entry(void* Candidate)
     }
 }
 
-// FUN_06347d20 (Common.dll.txt:411743-411754, decomp-tracker item 2872, 12
+// (Common, implementation tracker item 2872, 12
 // insns). Hashmap mode (Flags&0xC==4): removes the entry keyed by Candidate's
-// own +0x8 field via FUN_063527e0/item 3178's CRC32-then-erase
-// (Common.dll.txt:411747-411751). Single-slot mode: unconditionally clears
-// ObjectHashMap to null (Common.dll.txt:411754, `MOV [ECX+0x5c],0`, no
-// comparison) -- retail does NOT check that Candidate actually matches the
+// own +0x8 field via the routine/item 3178's CRC32-then-erase
+// (Common). Single-slot mode: unconditionally clears
+// ObjectHashMap to null (Common, `MOV [ECX+0x5c],0`, no
+// comparison) -- baseline does NOT check that Candidate actually matches the
 // cached single pointer first, so this port doesn't add one either.
 void IVP_Core::unregister_object_hash_entry(void* Candidate)
 {
     if ((this->Flags & 0xC) == 4)
     {
         unsigned CandidateKey = *reinterpret_cast<unsigned*>(reinterpret_cast<uintptr_t>(Candidate) + 0x8);
-        ((IVP_VHash_Store*)this->ObjectHashMap)->RemoveElem((void*)CandidateKey); // FUN_063527e0
+        ((IVP_VHash_Store*)this->ObjectHashMap)->RemoveElem((void*)CandidateKey);
     }
     else
     {
@@ -1133,17 +1129,17 @@ void IVP_Core::unregister_object_hash_entry(void* Candidate)
     }
 }
 
-// FUN_06347d50 (Common.dll.txt:411767-411786, decomp-tracker item 2873, 13
+// (Common, implementation tracker item 2873, 13
 // insns). D-target063555b0-followup pass (2026-09-10, traced while porting
 // IVP_ListManager::MergeFrom's Phase 2 in ivp_mindist_limiter.cpp).
 // thiscall(this=ECX=IVP_Core*, param_1=Candidate on stack, `MOV ESI,
 // [ESP+param_1+0x4]` after the single PUSH ESI prologue). Body:
-//   unregister_object_hash_entry(Candidate);           // 06347d56
-//   if (Candidate != nullptr) {                        // 06347d5b/5d
-//       ECX = Candidate; CALL FUN_063449d0;             // 06347d5f-d61: Clear()
-//       PUSH Candidate; CALL FUN_06391d5a; ADD ESP,4;    // 06347d66-d6c: free()
+//   unregister_object_hash_entry(Candidate);           //
+//   if (Candidate != nullptr) {                        // /5d
+//       ECX = Candidate; CALL the routine;             // -d61: Clear()
+//       PUSH Candidate; CALL the routine; ADD ESP,4;    // -d6c: free()
 //   }
-// FUN_063449d0/item 2767 is the confirmed generic IVP_U_Vector<T>::Clear()
+// /item 2767 is the confirmed generic IVP_U_Vector<T>::Clear()
 // instantiation, called here with `this` = Candidate itself (not a
 // sub-member) -- every real caller of this specific release path therefore
 // has an IVP_U_Vector<T>-shaped header (memsize/n_elems/elems) starting at
@@ -1151,26 +1147,26 @@ void IVP_Core::unregister_object_hash_entry(void* Candidate)
 // the one traced caller's own concrete shape (a 0xc-byte vector-plus-Key
 // struct, matching this cluster's confirmed operator_new(0xc) allocation
 // site).
-// IVP_Core::release_object_hash_entry (FUN_06347d50) is defined in
+// IVP_Core::release_object_hash_entry (the routine) is defined in
 // ivp_friction_solver.cpp: it deletes an IVP_Friction_Info_For_Core, whose
 // full declaration lives in ivp_mindist.h. (The file-local IVP_Synapse_Real
 // that used to collide with that header is now IVP_Synapse_Friction above.)
 
-// FUN_063474d0 (Common.dll.txt:410941-410980, decomp-tracker item 2861, 35
+// (Common, implementation tracker item 2861, 35
 // insns). D-worldtransform pass (2026-09-10): world-transform-init leaf of
-// FUN_06345b20/item 2817's own construction chain (see that function's own
+// /item 2817's own construction chain (see that function's own
 // header comment above IVP_InitCoreRestStateAndDamping, ivp_real_object.cpp,
 // for the wider context). thiscall(this=ECX=IVP_Core*, param_1=LocalCsys on
-// stack). Sole traced call site: FUN_06345b20 at Common.dll.txt:06345d9a,
-// `MOV ECX,ESI(=Self->core); PUSH &local_80; CALL FUN_063474d0` -- `this`
+// stack). Sole traced call site: the routine at Commond9a,
+// `MOV ECX,ESI(=Self->core); PUSH &local_80; CALL the routine` -- `this`
 // here really is IVP_Core* (matches item 2817's own already-confirmed
 // `ESI=Self->core` binding for the rest of that function).
-//
+
 // Body (all 4 field offsets independently re-confirmed against ivp_core.h's
 // own static_asserts this pass):
-//   MWorldFCore.mmult4(LocalCsys, &MWorldFCore);  // Common.dll.txt:410948-410952,
+//   MWorldFCore.mmult4(LocalCsys, &MWorldFCore);  // Common,
 //                                                  // ECX=&MWorldFCore, calls
-//                                                  // FUN_063481d0/item 2890
+//                                                  // /item 2890
 //                                                  // (see ivp_math.h for the
 //                                                  // full trace of that call)
 //   PosWorldFCore = MWorldFCore.vv;               // 410953-410967 (raw
@@ -1181,7 +1177,7 @@ void IVP_Core::unregister_object_hash_entry(void* Candidate)
 //                                                  // Core+0x124/128/12c ->
 //                                                  // Core+0xb4/b8/bc)
 //   QWorldFCore.set_from_matrix(&MWorldFCore);    // 410972-410987, calls
-//                                                  // FUN_06350ca0/item 3151
+//                                                  // /item 3151
 //                                                  // (this=&QWorldFCore,
 //                                                  // param_1=&MWorldFCore) --
 //                                                  // see item 3151's own
@@ -1191,7 +1187,7 @@ void IVP_Core::unregister_object_hash_entry(void* Candidate)
 //                                                  // (branch shapes, DAT
 //                                                  // constants, next_idx=
 //                                                  // {1,2,0} table, and the
-//                                                  // trailing FUN_06350fb0=
+//                                                  // trailing the routine=
 //                                                  // normize() call all
 //                                                  // match term-for-term).
 //                                                  // MWorldFCore is a full
@@ -1202,31 +1198,31 @@ void IVP_Core::unregister_object_hash_entry(void* Candidate)
 //                                                  // IVP_U_Matrix3 rotation
 //                                                  // base, so passing it
 //                                                  // straight through is
-//                                                  // exact, matching retail's
+//                                                  // exact, matching baseline's
 //                                                  // own `CALL
-//                                                  // FUN_06350ca0` with
+//                                                  // ` with
 //                                                  // param_1=&MWorldFCore
-//                                                  // (Common.dll.txt:412512-
-//                                                  // 06347520... i.e.
-//                                                  // 06347513/0634751b).
+//                                                  // (Common-
+//                                                  // ... i.e.
+//                                                  // /0634751b).
 //   QWorldFCoreNext = QWorldFCore;                 // 410988-410996, raw
 //                                                  // 4-dword copy (matches
 //                                                  // ivp_core.h's
 //                                                  // QWorldFCore@+0xD4 /
 //                                                  // QWorldFCoreNext@+0xE4).
-//
+
 // NOW WIRED into IVP_InitCoreRestStateAndDamping (D-item2785-wire pass,
 // 2026-09-10): Self->vtable[2] is confirmed to be IVP_Real_Object::
-// ApplyLocalCsys (LAB_06344de0, decomp-tracker item 2785), and retail's
-// LocalCsys (`local_80` in FUN_06345b20) is now fully traced (identity
+// ApplyLocalCsys (the branch, implementation tracker item 2785), and baseline's
+// LocalCsys (`local_80` in the routine) is now fully traced (identity
 // rotation + a Template-override-or-surface_manager-vtable1 translation) --
 // see IVP_InitCoreRestStateAndDamping's own header comment (ivp_real_object.cpp)
-// for the complete evidence trail. Call order matches retail exactly: this
-// method runs AFTER Self->ApplyLocalCsys(&LocalCsys) (Common.dll.txt:06345bd9
+// for the complete evidence trail. Call order matches baseline exactly: this
+// method runs AFTER Self->ApplyLocalCsys(&LocalCsys) (Commonbd9
 // precedes 06345d9a), with the identical (pre-inversion) LocalCsys pointer.
 void IVP_Core::init_world_transform_from_local_csys(const IVP_U_Matrix* LocalCsys)
 {
-    MWorldFCore.mmult4(LocalCsys, &MWorldFCore); // FUN_063481d0, result == this
+    MWorldFCore.mmult4(LocalCsys, &MWorldFCore); // , result == this
 
     PosWorldFCore.x = MWorldFCore.vv.k[0];
     PosWorldFCore.y = MWorldFCore.vv.k[1];
@@ -1236,24 +1232,24 @@ void IVP_Core::init_world_transform_from_local_csys(const IVP_U_Matrix* LocalCsy
     QWorldFCoreNext = QWorldFCore;
 }
 
-// FUN_06347410. D-rotinertia-selector pass (2026-09-10). See this method's
+// . D-rotinertia-selector pass (2026-09-10). See this method's
 // own declaration comment (ivp_core.h) for why this duplicates (against real
 // named fields) rather than calls common_physys.cpp's file-local
-// PhySys_RecomputeInverseInertia, which is the SAME retail function ported
+// PhySys_RecomputeInverseInertia, which is the SAME baseline function ported
 // for the separate PhySys reimplementation's own callers. Body re-derived
 // from that existing, already-verified port (itself traced from
-// Common.dll.txt:0x347410's raw bytes) -- field offsets cross-checked
+// Common:0x347410's raw bytes) -- field offsets cross-checked
 // 1:1 against this class's own static_asserts (Flags@0x00,
 // UpperLimitRadius@0x04, RotInertia@0x14, Mass@0x20, InvRotInertia@0x34,
 // InvMass@0x40, DAngularLimitFactor@0x48).
-// cmn-ivp3d 2026-10-08: re-traced .text:06347410-063474c3 term by term. The
+// cmn-ivp3d 2026-10-08: re-traced module storage-063474c3 term by term. The
 // 1/Izz and 1/Iyy quotients stay on the x87 stack (double here) and feed the
 // isotropy test unrounded; 1/Ixx is used as the float re-read from +0x34;
 // the (1/Ixx - 1/Iyy) difference is rounded through a float stack local.
 //   S = ((A - Cf)^2 + d3f^2) + (B - A)^2,   d3f = (float)(Cf - B)
 //   M = (Cf^2 + B^2) + A^2
 // with A = 1/Izz, B = 1/Iyy, Cf = (float)(1/Ixx). `FCOMPP` compares M * 0.01f
-// (DAT_063a5468, 0x3c23d70b) with S; `TEST AH,0x41; JNZ` takes the clearing
+// (the field, 0x3c23d70b) with S; `TEST AH,0x41; JNZ` takes the clearing
 // arm when M*k <= S or unordered, the fall-through (M*k > S) sets 0x40.
 void IVP_Core::RecomputeInverseInertia()
 {
@@ -1286,9 +1282,9 @@ void IVP_Core::RecomputeInverseInertia()
 // FSTP float is a static_cast<float>.
 // ============================================================================
 
-// FUN_06347c10 (.text:06347c10..06347c39): FLD Mass / FDIVR NewMass leaves the ratio
+// (module storage..06347c39): FLD Mass / FDIVR NewMass leaves the ratio
 // on the stack; Mass = NewMass (raw dword); each RotInertia component = ratio * component
-// (FMUL, FSTP float); then FUN_06347410.
+// (FMUL, FSTP float); then the routine.
 void IVP_Core::set_mass(float NewMass)
 {
     const double Ratio = (double)(NewMass) / Mass;     // :06347c10-:06347c17
@@ -1299,8 +1295,8 @@ void IVP_Core::set_mass(float NewMass)
     RecomputeInverseInertia();                                    // :06347c34
 }
 
-// FUN_06346bb0 (.text:06346bb0..06346bd0): x and y through FLD / FSTP float, z as a raw
-// dword; then FUN_06347410.
+// (module storage..06346bd0): x and y through FLD / FSTP float, z as a raw
+// dword; then the routine.
 void IVP_Core::set_rotation_inertia(const Vector* Inertia)
 {
     RotInertia.x = Inertia->x;    // :06346bba / :06346bbe
@@ -1309,7 +1305,7 @@ void IVP_Core::set_rotation_inertia(const Vector* Inertia)
     RecomputeInverseInertia();    // :06346bcb
 }
 
-// FUN_06346a00 (.text:06346a00..06346a45): K = InvMass * Magnitude on the stack; the
+// (module storage..06346a45): K = InvMass * Magnitude on the stack; the
 // three accumulators get K * Direction + SpeedChange, stored z, x, y.
 void IVP_Core::push_core_linear(const Vector* Direction, float Magnitude)
 {
@@ -1322,7 +1318,7 @@ void IVP_Core::push_core_linear(const Vector* Direction, float Magnitude)
     SpeedChange.y = NewY;                                                         // :06346a3f
 }
 
-// FUN_06346c80 (.text:06346c80..06346ce2): Local = MWorldFCore.vimult(AxisWs) (06366010 on
+// (module storage..06346ce2): Local = MWorldFCore.vimult(AxisWs) (06366010 on
 // core+0xf4); x * InvRotInertia.x stays on the stack, y / z products are stored as floats;
 // RotSpeedChange += each * Magnitude.
 void IVP_Core::push_core_angular_ws(const Vector* AxisWs, float Magnitude)
@@ -1340,7 +1336,7 @@ void IVP_Core::push_core_angular_ws(const Vector* AxisWs, float Magnitude)
     RotSpeedChange.z = (float)((double)(ScaledZ) * Magnitude + RotSpeedChange.z); // :06346cd0-:06346cdb
 }
 
-// FUN_06346d80 (.text:06346d80..06346dc9): the same as 06346c80 without the transform.
+// (module storage..06346dc9): the same as 06346c80 without the transform.
 void IVP_Core::push_core_angular_cs(const Vector* AxisCs, float Magnitude)
 {
     const double ScaledX = (double)(InvRotInertia.x) * AxisCs->x;      // :06346d83-:06346d8a
@@ -1353,8 +1349,8 @@ void IVP_Core::push_core_angular_cs(const Vector* AxisCs, float Magnitude)
 // ---- end cmn-physys3 block ----
 
 // ============================================================================
-// D-cluster-06346800 pass (2026-09-10): 12-item cluster, Common.dll.txt:
-// 409576-411849 (decomp-tracker items 2836/2838/2840/2842/2845/2849/2859/
+// D-cluster-06346800 pass (2026-09-10): 12-item cluster, Common:
+// 409576-411849 (implementation tracker items 2836/2838/2840/2842/2845/2849/2859/
 // 2863/2867/2868/2874/2875), sitting between the DO-NOT-TOUCH ranges ending
 // ~0x06339010 and starting ~0x06360000. Every item turned out to be a real
 // IVP_Core method (or, for item 2874, an already-partially-triaged dispatcher
@@ -1363,17 +1359,17 @@ void IVP_Core::push_core_angular_cs(const Vector* AxisCs, float Magnitude)
 // and the per-method comments below for the full instruction-level trace.
 // ============================================================================
 
-// FUN_06346800: Common.dll.txt:409576-409621 (decomp-tracker item 2836, 40
-// insns, zero callees). Confirmed via its sole caller (Common.dll.txt:
-// 06369143, a backward walk over a Cores[] array summing this call's result
+// Common (implementation tracker item 2836, 40
+// insns, zero callees). Confirmed via its sole caller (Common:
+// , a backward walk over a Cores[] array summing this call's result
 // into a running total, out of this cluster's scope) that this is a per-core
 // KINETIC ENERGY term: the caller builds param_1 = Speed+SpeedChange and
 // param_2 = RotSpeed+RotSpeedChange (this core's PREDICTED post-pending-
 // impulse velocities) before calling, then accumulates the returned float
 // across every core -- a total-system-kinetic-energy scan, likely an
 // impact-solver convergence/stability check (the scanning function itself is
-// out of scope). Formula (DAT_063a5460 = 0.5f, confirmed byte pattern
-// 0x3f000000):
+// out of scope). Formula (the field = 0.5f, confirmed byte pattern
+// ):
 //   0.5f * (Mass*|LinearVelocity|^2 + RotInertia.x*Angular.x^2
 //                                    + RotInertia.y*Angular.y^2
 //                                    + RotInertia.z*Angular.z^2)
@@ -1381,14 +1377,14 @@ void IVP_Core::push_core_angular_cs(const Vector* AxisCs, float Magnitude)
 // AngularVelocityOS must be in OBJECT space since RotInertia is only
 // diagonal in the core's own body frame (same convention as
 // calc_impulse_deltas's InvRotInertia use above).
-//
-// 2026-10-08 (claude-code:cmn-phy2) re-traced .text:06346800-06346864: the whole
-// sum stays on the x87 stack and is returned in ST0 (the caller FUN_063690b0
+
+// 2026-10-08 (claude-code:cmn-phy2) re-traced module storage-06346864: the whole
+// sum stays on the x87 stack and is returned in ST0 (the caller the routine
 // FADDs it into a float accumulator before rounding), so it is computed and
-// returned in double, in retail's association order:
+// returned in double, in baseline's association order:
 //   Lin = ((L.x*L.x + L.y*L.y) + L.z*L.z) * Mass          (06346828-0634683c)
 //   Rot = (A.y^2*Iy + A.z^2*Iz) + A.x^2*Ix                (06346841-06346850)
-//   E   = (Lin + Rot) * 0.5f (DAT_063a5460)              (06346854-06346858)
+//   E   = (Lin + Rot) * 0.5f (the field)              (06346854-06346858)
 double IVP_Core::calc_kinetic_energy(const Vector* LinearVelocity, const Vector* AngularVelocityOS) const
 {
     const double Ax = AngularVelocityOS->x;
@@ -1404,21 +1400,21 @@ double IVP_Core::calc_kinetic_energy(const Vector* LinearVelocity, const Vector*
     return (Lin + Rot) * (double)(0.5f);
 }
 
-// FUN_06346890 (.text:06346890-06346956, thiscall, RET 0xc), Ipion
+// (module storage-06346956, thiscall, RET 0xc), Ipion
 // IVP_Core::calc_at_matrix. Sole caller 0634612a passes
 // Environment->current_time's two floats (+0xF8/+0xFC) and a caller-owned
 // output matrix. cmn-ivp3g 2026-10-09, traced in full:
-//   06346896-063468a2: MovementState low byte as a SIGNED byte (SHL 24;
+// MovementState low byte as a SIGNED byte (SHL 24;
 //     CMP 0x8000000; JGE) >= 8 -> copy MWorldFCore (+0xf4, REP MOVSD 0x10).
-//   063468a8-063468c5: DeltaExt = ((Base - TimeOfLastPsi.time_base) + Offset)
+// DeltaExt = ((Base - TimeOfLastPsi.time_base) + Offset)
 //     - TimeOfLastPsi.time_offset on the x87 stack; FST rounds a float copy
 //     into the param_1 slot; FCOMP of the UNROUNDED value against 0.0f
-//     (DAT_063a53d4), TEST AH,0x40 + JNZ: equal OR unordered -> the same copy.
-//   063468c7-063468f2: Alpha = float(Delta * IDeltaTime) (Delta = the float
+//     (the field), TEST AH,0x40 + JNZ: equal OR unordered -> the same copy.
+// Alpha = float(Delta * IDeltaTime) (Delta = the float
 //     copy); a local quat = set_interpolate_quat(&QWorldFCore,
-//     &QWorldFCoreNext, Alpha) (FUN_06350df0), then set_matrix(OutMatrix)
-//     (FUN_06350bc0).
-//   063468f7-06346935: OutMatrix->vv(+0x30) = DeltaWorldFCore (+0xc4, the
+//     &QWorldFCoreNext, Alpha) (the routine), then set_matrix(OutMatrix)
+//     (the routine).
+// OutMatrix->vv(+0x30) = DeltaWorldFCore (+0xc4, the
 //     linear velocity) * Delta + PosWorldFCore (+0xb4) -- the float elapsed
 //     time, NOT Alpha; product and sum stay on the stack, one rounding each.
 void IVP_Core::calc_interpolated_transform(float CurrentTimeBase, float CurrentTimeOffset,
@@ -1432,9 +1428,9 @@ void IVP_Core::calc_interpolated_transform(float CurrentTimeBase, float CurrentT
 
     const double DeltaExt = (((double)(CurrentTimeBase) - TimeOfLastPsi.time_base) + CurrentTimeOffset) -
                             TimeOfLastPsi.time_offset;
-    const float Delta = (float)(DeltaExt); // 063468b6 FST
+    const float Delta = (float)(DeltaExt); // FST
 
-    if (!(DeltaExt < 0.0 || DeltaExt > 0.0)) // DAT_063a53d4, equal or unordered
+    if (!(DeltaExt < 0.0 || DeltaExt > 0.0)) // , equal or unordered
     {
         std::memcpy(OutMatrix, &MWorldFCore, sizeof(IVP_U_Matrix));
         return;
@@ -1451,35 +1447,35 @@ void IVP_Core::calc_interpolated_transform(float CurrentTimeBase, float CurrentT
     OutMatrix->vv.x = (float)((double)(Delta) * DeltaWorldFCore.x + PosWorldFCore.x);
 }
 
-// FUN_06346a50 (.text:06346a50-06346ba4, thiscall, RET 0xc), Ipion
+// (module storage-06346ba4, thiscall, RET 0xc), Ipion
 // IVP_Core::damp_object(delta_time, rot_factor, speed_factor). cmn-ivp3g
 // 2026-10-09, traced in full:
-//   06346a53-06346a6f: DTx = dt*Rot.x kept on the stack; DTy, DTz the same,
+// DTx = dt*Rot.x kept on the stack; DTy, DTz the same,
 //     each with an FST float copy.
-//   06346a73-06346a92: Quad = ((DTz*DTz + DTy*DTy) + DTx*DTx) on the
-//     unrounded values; FCOMP 0.5f (DAT_063a5460); TEST AH,0x1 + JZ: >= takes
+// Quad = ((DTz*DTz + DTy*DTy) + DTx*DTx) on the
+//     unrounded values; FCOMP 0.5f (the field); TEST AH,0x1 + JZ: >= takes
 //     the exp branch, < or unordered the linear one.
 //   linear 06346a94-06346ab2: Fx = 1.0f - DTx (kept), Fy = float(1 - DTy_f),
 //     Fz = float(1 - DTz_f).
 //   exp 06346ab4-06346b06: the FLDL2E/F2XM1/FSCALE idiom, i.e. exp(-v):
 //     Fx = exp(-DTx) kept, Fy = float(exp(-DTy_f)), Fz = float(exp(-DTz_f)).
-//   06346b0c-06346b3f: S = dt*speed_factor kept; FCOM 0.9f (DAT_063a53fc);
+// S = dt*speed_factor kept; FCOM 0.9f (the field);
 //     TEST AH,0x1 + JZ: >= -> exp(-S), < or unordered -> 1.0f - S; kept.
-//   06346b41-06346b9b: RotSpeed.y/z = float(Fy/Fz * RotSpeed.y/z), RotSpeed.x
+// RotSpeed.y/z = float(Fy/Fz * RotSpeed.y/z), RotSpeed.x
 //     = float(Fx * RotSpeed.x), Speed.x/y/z = float(Fs * Speed.c).
 void IVP_Core::apply_velocity_damping(float DeltaTime, const Vector* RotDampVec, float SpeedDampValue)
 {
     const double DTx = (double)(DeltaTime) * RotDampVec->x;
     const double DTyExt = (double)(DeltaTime) * RotDampVec->y;
-    const float DTy = (float)(DTyExt); // 06346a64 FST
+    const float DTy = (float)(DTyExt); // FST
     const double DTzExt = (double)(DeltaTime) * RotDampVec->z;
-    const float DTz = (float)(DTzExt); // 06346a6f FST
+    const float DTz = (float)(DTzExt); // FST
     const double Quad = (DTzExt * DTzExt + DTyExt * DTyExt) + DTx * DTx;
 
     double Fx;
     float Fy;
     float Fz;
-    if (!(Quad >= 0.5)) // DAT_063a5460
+    if (!(Quad >= 0.5))
     {
         Fx = 1.0 - DTx;
         Fy = (float)(1.0 - (double)(DTy));
@@ -1493,7 +1489,7 @@ void IVP_Core::apply_velocity_damping(float DeltaTime, const Vector* RotDampVec,
     }
 
     const double S = (double)(DeltaTime) * SpeedDampValue;
-    const double Fs = !(S >= (double)(0.9f)) ? (1.0 - S) : std::exp(-S); // DAT_063a53fc
+    const double Fs = !(S >= (double)(0.9f)) ? (1.0 - S) : std::exp(-S);
 
     RotSpeed.z = (float)((double)(Fz) * RotSpeed.z);
     RotSpeed.x = (float)(Fx * RotSpeed.x);
@@ -1504,19 +1500,19 @@ void IVP_Core::apply_velocity_damping(float DeltaTime, const Vector* RotDampVec,
     Speed.z = (float)(Fs * Speed.z);
 }
 
-// FUN_06346980 (.text:06346980-063469ee, thiscall, RET 4). cmn-ivp3g
+// (module storage-063469ee, thiscall, RET 4). cmn-ivp3g
 // 2026-10-09, traced in full: MovementState SHL 24; CMP 0x2000000; JL -- the
 // signed low byte >= 2 damps with RotSpeedDamp (+0x24..+0x2c) + 0.1f per axis
-// and SpeedDamp (+0x44) + 0.1f (DAT_063a5464 = 0x3dcccccd; FLD/FADD/FSTP
+// and SpeedDamp (+0x44) + 0.1f (the field = 0x3dcccccd; FLD/FADD/FSTP
 // float, one rounding each); otherwise passes &RotSpeedDamp and SpeedDamp
-// unchanged. Both paths call FUN_06346a50 (apply_velocity_damping) with
+// unchanged. Both paths call the routine (apply_velocity_damping) with
 // DeltaTime.
 void IVP_Core::damp_velocities(float DeltaTime)
 {
     if (!(static_cast<int8_t>(MovementState & 0xFFu) < 2))
     {
         Vector FudgedRotDamp;
-        FudgedRotDamp.x = RotSpeedDamp.x + 0.1f; // DAT_063a5464
+        FudgedRotDamp.x = RotSpeedDamp.x + 0.1f;
         FudgedRotDamp.y = RotSpeedDamp.y + 0.1f;
         FudgedRotDamp.z = RotSpeedDamp.z + 0.1f;
         apply_velocity_damping(DeltaTime, &FudgedRotDamp, SpeedDamp + 0.1f);
@@ -1527,8 +1523,8 @@ void IVP_Core::damp_velocities(float DeltaTime)
     }
 }
 
-// FUN_06346c00: Common.dll.txt:410029-410077 (decomp-tracker item 2845, 36
-// insns). Thin wrapper around calc_impulse_deltas() (FUN_06346cf0, already
+// Common (implementation tracker item 2845, 36
+// insns). Thin wrapper around calc_impulse_deltas() (the routine, already
 // ported above) that ACCUMULATES the resulting linear/angular deltas into
 // this core's pending impulse accumulators (RotSpeedChange/SpeedChange,
 // +0x74/+0x84) instead of returning them -- the real "apply an impulse at a
@@ -1549,11 +1545,11 @@ void IVP_Core::apply_impulse_at_point(const Vector* LeverArmOS, const Vector* Po
     SpeedChange.z += LinearDelta.z;
 }
 
-// FUN_06346dd0: Common.dll.txt:410242-410278 (decomp-tracker item 2849, 32
+// Common (implementation tracker item 2849, 32
 // insns). Flushes the pending impulse accumulators (RotSpeedChange/
 // SpeedChange) into RotSpeed/Speed, then resets both accumulators to zero --
 // the commit step apply_impulse_at_point() above builds toward. 4 callers
-// (Common.dll.txt XREF: 06349565/0634973a/063497db/06369183), all inside the
+// (Common XREF: 06349565/0634973a/063497db/06369183), all inside the
 // revive/ensure-in-simulation family, consistent with being the standard
 // "flush pending impulses" step run once per core per PSI.
 void IVP_Core::commit_speed_changes()
@@ -1575,10 +1571,10 @@ void IVP_Core::commit_speed_changes()
     SpeedChange.z = 0.0f;
 }
 
-// FUN_06346960 (.text:06346960-0634697d, 8 insns, 2026-10-08 claude-code:cmn-phy2):
+// (module storage-0634697d, 8 insns, 2026-10-08 claude-code:cmn-phy2):
 // XOR EAX,EAX then MOV [ECX+0x74/0x78/0x7c/0x84/0x88/0x8c],EAX -- zeroes
 // RotSpeedChange then SpeedChange, leaving the dword at +0x80 alone. Sole caller
-// the friction system's undo path FUN_06369190 (IVP_ListManager::UndoComplexPushes).
+// the friction system's undo path the routine (IVP_ListManager::UndoComplexPushes).
 void IVP_Core::clear_speed_change()
 {
     RotSpeedChange.x = 0.0f;
@@ -1589,14 +1585,14 @@ void IVP_Core::clear_speed_change()
     SpeedChange.z = 0.0f;
 }
 
-// FUN_063473b0 (.text:063473b0-06347409, 26 insns), Ipion
+// (module storage-06347409, 26 insns), Ipion
 // IVP_Core::undo_synchronize_rot_z. cmn-ivp3g 2026-10-09, traced in full:
-//   063473b1-063473d2: RotSpeed = Sync->OldSyncRotSpeed (FLD/FSTP float for
+// RotSpeed = Sync->OldSyncRotSpeed (FLD/FSTP float for
 //     x/y, a dword MOV for z).
-//   063473d8-063473fa: QWorldFCoreNext = Sync->OldSyncQWorldFCore (4 dword
+// QWorldFCoreNext = Sync->OldSyncQWorldFCore (4 dword
 //     MOVs).
-//   063473fd: FastSimUnitData = 0; the record is arena memory and is not freed.
-// Sole caller FUN_063596b0 runs this when the record's +0x20 is 0 and does
+// FastSimUnitData = 0; the record is arena memory and is not freed.
+// Sole caller the routine runs this when the record's +0x20 is 0 and does
 // not null-check FastSimUnitData either.
 void IVP_Core::restore_fast_sim_snapshot()
 {
@@ -1611,7 +1607,7 @@ void IVP_Core::restore_fast_sim_snapshot()
     FastSimUnitData = nullptr;
 }
 
-// FUN_06347630: Common.dll.txt:411079-411100 (decomp-tracker item 2863, 16
+// Common (implementation tracker item 2863, 16
 // insns, tiny). Byte-for-byte matches the already-generic
 // IVP_U_Vector<T>::Clear() (ivp_u_vector.h) run against THIS core's own
 // Objects field (+0x50) -- confirmed via the exact same "elems == this+1"
@@ -1619,15 +1615,15 @@ void IVP_Core::restore_fast_sim_snapshot()
 // already documents from the destructor's own equivalent check (memsize@
 // +0x50, n_elems@+0x52, elems@+0x54 relative to Objects, matching
 // IVP_U_Vector<T>'s own field order exactly). Sole caller is a single
-// tail-JMP thunk (Common.dll.txt:06397b83) with no further context
+// tail-JMP thunk (Commonb83) with no further context
 // recovered this pass.
 void IVP_Core::clear_objects_vector()
 {
     Objects.Clear();
 }
 
-// FUN_063478f0: Common.dll.txt:411363-411559 (decomp-tracker item 2867, 184
-// insns, medium). Sole caller (Common.dll.txt:06349621, inside FUN_063495e0
+// Common (implementation tracker item 2867, 184
+// insns, medium). Sole caller (Common, inside the routine
 // -- iterates a SimUnit's Cores[], calls this per core with
 // Environment->current_time's two raw dwords, then folds the returned int
 // STRAIGHT into that core's MovementState LOW BYTE via an XOR idiom
@@ -1639,25 +1635,25 @@ void IVP_Core::clear_objects_vector()
 // constructor's state=8 default, mark_active_and_sync_objects' state=1,
 // damp_velocities'/calc_interpolated_transform's state>=2/>=8 gates above)
 // already treat as meaningful.
-//
+
 // Two independent "has this core moved enough to still be considered awake"
 // checks, each comparing a squared-position-delta and a quaternion-
 // similarity formula against its own pair of thresholds -- a SHORT-term pair
-// (against QWorldFCoreNext/PosLastMotion/QLastMotion, DAT_063a547c ~= 1e-4 /
-// DAT_063a5478 ~= 2.5e-5) and a LONG-term pair (against QWorldFCore/
-// PosLastLongMotion/QLastLongMotion, DAT_063a5474 = 0.01 / DAT_063a5470 =
+// (against QWorldFCoreNext/PosLastMotion/QLastMotion, the field ~= 1e-4 /
+// ~= 2.5e-5) and a LONG-term pair (against QWorldFCore/
+// PosLastLongMotion/QLastLongMotion, the field = 0.01 / the field =
 // 0.04, roughly 100x looser). Both checks share the exact rotation-
 // similarity formula `2*(1 - dot(Qa,Qb)^2) * UpperLimitRadius^2`.
-//
+
 //   1. If EITHER short-term delta exceeds its threshold: update the
 //      short-term checkpoint (QLastMotion=QWorldFCoreNext, PosLastMotion=
 //      PosWorldFCore, TimeOfLastMotion=int/frac-split(CurrentTimeBase+
 //      CurrentTimeOffset), same idiom as update_time_of_last_motion), THEN
-//      fall through into the long-term check below (retail does NOT return
+//      fall through into the long-term check below (baseline does NOT return
 //      here).
 //   2. Else (both short-term deltas small): return 2 if elapsed time since
 //      the (unchanged) TimeOfLastMotion is <= Environment->default_friction
-//      (+0x88 -- retail genuinely compares an elapsed TIME against this
+//      (+0x88 -- baseline genuinely compares an elapsed TIME against this
 //      field despite its own established 0.3f "friction" identity, flagged
 //      as a real, faithfully-preserved oddity rather than silently
 //      reinterpreted), else return 3.
@@ -1666,10 +1662,10 @@ void IVP_Core::clear_objects_vector()
 //      checkpoint (QLastLongMotion=QWorldFCore, PosLastLongMotion=
 //      PosWorldFCore, TimeOfLastLongMotion=int/frac-split(...)) and return 1
 //      unconditionally. Else, return 1 if elapsed time since the (unchanged)
-//      TimeOfLastLongMotion is <= DAT_063a546c(=4.0f, confirmed byte pattern
-//      0x40800000), else return 3.
-//
-// Retail name/exact 1/2/3 semantics not recovered -- this port's own name,
+//      TimeOfLastLongMotion is <= the field(=4.0f, confirmed byte pattern
+// ), else return 3.
+
+// baseline name/exact 1/2/3 semantics not recovered -- this port's own name,
 // documenting only the verified control flow/formulas above.
 int IVP_Core::classify_motion_state(float CurrentTimeBase, float CurrentTimeOffset)
 {
@@ -1678,11 +1674,11 @@ int IVP_Core::classify_motion_state(float CurrentTimeBase, float CurrentTimeOffs
     // greater, so NaN never counts as movement and the elapsed tests give the
     // "recent" result (2 / 1) on NaN. Constants by their exact bits: 0.01 and
     // 0.04 are one ulp above the nearest float literal.
-    const double ShortPosThresholdSq = IVP_Core_Float_From_Bits(0x38d1b717u); // DAT_063a547c
-    const double ShortRotThreshold = IVP_Core_Float_From_Bits(0x37d1b717u);   // DAT_063a5478
-    const double LongPosThresholdSq = IVP_Core_Float_From_Bits(0x3c23d70bu);  // DAT_063a5474
-    const double LongRotThreshold = IVP_Core_Float_From_Bits(0x3d23d70bu);    // DAT_063a5470
-    const double LongElapsedThreshold = IVP_Core_Float_From_Bits(0x40800000u); // DAT_063a546c, 4.0f
+    const double ShortPosThresholdSq = IVP_Core_Float_From_Bits(0x38d1b717u);
+    const double ShortRotThreshold = IVP_Core_Float_From_Bits(0x37d1b717u);
+    const double LongPosThresholdSq = IVP_Core_Float_From_Bits(0x3c23d70bu);
+    const double LongRotThreshold = IVP_Core_Float_From_Bits(0x3d23d70bu);
+    const double LongElapsedThreshold = IVP_Core_Float_From_Bits(0x40800000u); // , 4.0f
 
     // :063478f6-0634793b: ((dz*dz + dy*dy) + dx*dx) on unrounded differences.
     const double ShortDX = (double)(PosWorldFCore.x) - PosLastMotion.x;
@@ -1757,7 +1753,7 @@ int IVP_Core::classify_motion_state(float CurrentTimeBase, float CurrentTimeOffs
     return 1;
 }
 
-// FUN_06347be0: Common.dll.txt:411572-411595 (decomp-tracker item 2868, 18
+// Common (implementation tracker item 2868, 18
 // insns, tiny). Caches Environment->field_114 (+0x114, ivp_environment.h)
 // into Unconfirmed_0x1B8 -- a REAL IVP-internals (0x0634xxxx) write to that
 // field, correcting the header's own prior note that every one of its xrefs
@@ -1765,7 +1761,7 @@ int IVP_Core::classify_motion_state(float CurrentTimeBase, float CurrentTimeOffs
 // Unconfirmed_0x1B8 in ivp_core.h). Then walks Objects backwards, calling
 // IVP_Real_Object::recheck_mindists_of_other_cores (06344f50, cmn-phy6) on
 // each attached object, last first. cmn-ivp3d 2026-10-08: the invented
-// Environment / object null guards are gone (.text:06347be0-06347c0c has
+// Environment / object null guards are gone (module storage-06347c0c has
 // none).
 void IVP_Core::notify_objects_and_cache_env_field()
 {
@@ -1774,19 +1770,19 @@ void IVP_Core::notify_objects_and_cache_env_field()
 
     for (int32_t I = static_cast<int32_t>(Objects.n_elems) - 1; I >= 0; --I)
     {
-        Objects.elems[I]->recheck_mindists_of_other_cores(); // FUN_06344f50
+        Objects.elems[I]->recheck_mindists_of_other_cores();
     }
 }
 
-// FUN_06347d80: Common.dll.txt:411801-411817 (decomp-tracker item 2874, 11
+// Common (implementation tracker item 2874, 11
 // insns, tiny). PORTS (previously released-without-porting per this item's
 // own prior-pass notes, since both callees were unported IVP internals at
 // the time) the standing "wake this core if needed" dispatcher: no-op if
 // (Flags & 0xC) != 0; otherwise revive_sleeping_core() if MovementState low
 // byte == 8 (static/inactive), else ensure_in_simulation(). Both callees are
 // now real, already-ported IVP_Core methods (see their own declarations
-// above). 4 callers (Common.dll.txt XREF: 06345589/06345590/0634663d/
-// 0634bbfc): a physics-contact/connection-list walker (FUN_06345550), not
+// above). 4 callers (Common XREF: 06345589/06345590/0634663d/
+// ): a physics-contact/connection-list walker (the routine), not
 // otherwise touched by this cluster.
 void IVP_Core::wake_or_ensure_simulation()
 {
@@ -1799,14 +1795,14 @@ void IVP_Core::wake_or_ensure_simulation()
         ensure_in_simulation();
 }
 
-// FUN_06347db0: Common.dll.txt:411829-411849 (decomp-tracker item 2875, 15
+// Common (implementation tracker item 2875, 15
 // insns, tiny). Walks Objects backwards calling
-// IVP_Real_Object::EnsureInSimulation() (FUN_06346170, already ported,
+// IVP_Real_Object::EnsureInSimulation() (the routine, already ported,
 // ivp_real_object.cpp) on each attached object. Sole caller:
-// Common.dll.txt:06346528.
+// Common.
 void IVP_Core::ensure_objects_in_simulation()
 {
-    // .text:06347db0-06347dcd: ESI = n_elems (+0x52) - 1, JS done; ECX = elems
+    // ESI = n_elems (+0x52) - 1, JS done; ECX = elems
     // (+0x54)[ESI]; CALL 06346170; ESI--, JNS. No null test.
     for (int i = Objects.Len() - 1; i >= 0; --i)
     {
@@ -1815,7 +1811,7 @@ void IVP_Core::ensure_objects_in_simulation()
 }
 
 // ============================================================================
-// FUN_0634d510 (.text:0634d510-0634d523, cdecl).
+// (module storage-0634d523, cdecl).
 // ============================================================================
 void IVP_Real_Object_Free_Cache_Object(IVP_Real_Object* Object)
 {
@@ -1828,11 +1824,11 @@ void IVP_Real_Object_Free_Cache_Object(IVP_Real_Object* Object)
 }
 
 // ============================================================================
-// FUN_06347040 (.text:06347040-063470d9).
+// (module storage-063470d9).
 // ============================================================================
 void IVP_Core::freeze_simulation_core()
 {
-    FUN_06346fb0(this); // stop movement
+    IVP_StopCoreMovement(this); // stop movement
 
     // :0634704c-:06347065 -- current_time captured once (dword copies).
     const float NowHi = Environment->current_time.time_base;
@@ -1846,7 +1842,7 @@ void IVP_Core::freeze_simulation_core()
         Object->flags = (Object->flags & 0xFFFFFF08u) | 0x8u;
 
         // :06347085-:0634708c
-        Environment->mindist_manager->RecheckOvElement(Object); // FUN_0634ebd0
+        Environment->mindist_manager->RecheckOvElement(Object);
 
         // :06347091-:063470b9 -- dt = ((now_hi - t_hi) + now_lo) - t_lo; both values advance
         // with their gradients, which are zeroed (each FMUL reads before the store).
@@ -1860,18 +1856,18 @@ void IVP_Core::freeze_simulation_core()
         Hull->InnerValueAtLastEdit = (float)(SinceLastEdit * InnerGradient + Hull->InnerValueAtLastEdit);
 
         // :063470bc
-        Hull->DrainAndShift(); // FUN_06352220
+        Hull->DrainAndShift();
 
         // :063470c1-:063470c7
         if (Object->cache_object != nullptr)
         {
-            IVP_Real_Object_Free_Cache_Object(Object); // FUN_0634d510
+            IVP_Real_Object_Free_Cache_Object(Object);
         }
     }
 }
 
 // ============================================================================
-// FUN_0634b590 (.text:0634b590-0634b5dd).
+// (module storage-0634b5dd).
 // ============================================================================
 void IVP_Core::fire_event_object_frozen()
 {
@@ -1897,23 +1893,23 @@ void IVP_Core::fire_event_object_frozen()
         FIvpEventObject EnvironmentEvent;
         EnvironmentEvent.Environment = Environment;
         EnvironmentEvent.RealObject = Object;
-        IVP_Environment_Notify_Object_Listeners_Slot3(Environment, &EnvironmentEvent); // FUN_0634cf00
+        IVP_Environment_Notify_Object_Listeners_Slot3(Environment, &EnvironmentEvent);
     }
 }
 
 // ============================================================================
-// FUN_0634b5e0 (.text:0634b5e0-0634b5f0).
+// (module storage-0634b5f0).
 // ============================================================================
 void IVP_Core::freeze_and_fire_object_frozen()
 {
-    freeze_simulation_core();    // FUN_06347040
-    fire_event_object_frozen();  // FUN_0634b590
+    freeze_simulation_core();
+    fire_event_object_frozen();
 }
 
 // ---- cmn-phy6 block (2026-10-08) ----------------------------------------
-// FUN_06346290 (.text:06346290-06346331, thiscall, RET 8).
+// (module storage-06346331, thiscall, RET 8).
 //   :06346296-:063462a8 W = MWorldFCore(+0xf4).vmult(RotSpeed +0x94) via
-//     FUN_06348580 into a stack point; 06348580 sums rows 1 and 2 as
+// into a stack point; 06348580 sums rows 1 and 2 as
 //     (r.x*p.x + r.z*p.z) + r.y*p.y and row 0 as (r.z*p.z + r.y*p.y) + r.x*p.x
 //     and stores floats -- inlined here in that order (the generic
 //     IVP_U_Matrix3::vmult sums in another order, in float).

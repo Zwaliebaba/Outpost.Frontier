@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // Port-only feature, compiled only with OUTPOST_FRONTIER_WALK_MODE (src/Directory.Build.props).
@@ -10,7 +6,7 @@
 #include "base_walk.h"
 #include "base_walk_math.h"
 
-#include "DALib.h"
+#include "NeuronRuntime.h"
 #include "character_info.h"
 #include "cargo_bar_control.h"
 #include "client_environment.h"
@@ -117,7 +113,7 @@ namespace
     {
         if (G_BaseWalk.Player != nullptr && G_BaseWalk.MotionHandle != -1)
         {
-            DALib::Deform->DestroyHandle(G_BaseWalk.Deformable, G_BaseWalk.MotionHandle);
+            NeuronRuntime::Deform->DestroyHandle(G_BaseWalk.Deformable, G_BaseWalk.MotionHandle);
             G_BaseWalk.Player->RemoveMotionHandle(G_BaseWalk.MotionHandle);
         }
         if (G_BaseWalk.MotionId != 0)
@@ -136,12 +132,12 @@ namespace
         FCharacterObject* const Player = G_BaseWalk.Player;
         if (bRestore && Player->Lod.Instance == G_BaseWalk.Deformable)
         {
-            DALib::Deform->SetPosePos(Player->Lod.Instance, G_BaseWalk.SavedPosition);
-            DALib::Deform->SetPoseOri(Player->Lod.Instance, G_BaseWalk.SavedOrientation);
+            NeuronRuntime::Deform->SetPosePos(Player->Lod.Instance, G_BaseWalk.SavedPosition);
+            NeuronRuntime::Deform->SetPoseOri(Player->Lod.Instance, G_BaseWalk.SavedOrientation);
             Player->SetFloat1C(G_BaseWalk.SavedHeight);
             // SetPosePos applies animation floor offsets. Restore the exact root as well.
-            DALib::Engine->SetInstancePosition(Player->GetEngineInstance(), G_BaseWalk.SavedPosition);
-            DALib::Engine->UpdateInstance(Player->GetEngineInstance(), 0, nullptr);
+            NeuronRuntime::Engine->SetInstancePosition(Player->GetEngineInstance(), G_BaseWalk.SavedPosition);
+            NeuronRuntime::Engine->UpdateInstance(Player->GetEngineInstance(), 0, nullptr);
         }
         if (bRestore)
         {
@@ -184,10 +180,10 @@ namespace
     {
         float Orientation[9];
         G_BaseWalk.Pose.CharacterOrientation(Orientation);
-        DALib::Deform->SetPosePos(G_BaseWalk.Deformable, G_BaseWalk.Pose.Position);
-        DALib::Deform->SetPoseOri(G_BaseWalk.Deformable, Orientation);
+        NeuronRuntime::Deform->SetPosePos(G_BaseWalk.Deformable, G_BaseWalk.Pose.Position);
+        NeuronRuntime::Deform->SetPoseOri(G_BaseWalk.Deformable, Orientation);
         // Animation clips contain root translation; the controller owns world movement.
-        DALib::Engine->SetInstancePosition(G_BaseWalk.Player->GetEngineInstance(),
+        NeuronRuntime::Engine->SetInstancePosition(G_BaseWalk.Player->GetEngineInstance(),
                                             G_BaseWalk.Pose.Position);
         G_BaseWalk.Player->bPoseDirty = 1;
     }
@@ -219,7 +215,7 @@ namespace
         }
         G_BaseWalk.MotionId = CreateID(Name);
         // IAnimation2 playback flags: 2 loops; no XYZ root loop accumulation.
-        DALib::Deform->Play(G_BaseWalk.Deformable, &G_BaseWalk.MotionHandle, Script,
+        NeuronRuntime::Deform->Play(G_BaseWalk.Deformable, &G_BaseWalk.MotionHandle, Script,
                              const_cast<char*>(Name), AsOpaqueDword(0.0f), AsOpaqueDword(0.15f),
                              AsOpaqueDword(Rates[Kind]), AsOpaqueDword(1.0f), AsOpaqueDword(2UL),
                              AsOpaqueDword(G_BaseWalk.Pose.Yaw + 3.14159265359f), nullptr);
@@ -248,7 +244,7 @@ namespace
         if (Spawn == nullptr)
             return nullptr;
         CharacterProperties Props;
-        GetCostumeDescriptions()->get_costume("trent", Props.Cost);
+        GetCostumeDescriptions()->get_costume("rellan", Props.Cost);
         // A private body keeps this optional avatar independent of scripted/shared PCs.
         return CreateCharacterObject(Props, Spawn, -1, Room, 0, Spawn->Frame);
     }
@@ -264,9 +260,9 @@ namespace
         G_BaseWalk.Room = Room;
         G_BaseWalk.Player = Player;
         G_BaseWalk.Deformable = Player->Lod.Instance;
-        std::memcpy(G_BaseWalk.SavedPosition, DALib::Engine->GetInstancePosition(Instance),
+        std::memcpy(G_BaseWalk.SavedPosition, NeuronRuntime::Engine->GetInstancePosition(Instance),
                     sizeof(G_BaseWalk.SavedPosition));
-        std::memcpy(G_BaseWalk.SavedOrientation, DALib::Engine->GetInstanceOrientation(Instance),
+        std::memcpy(G_BaseWalk.SavedOrientation, NeuronRuntime::Engine->GetInstanceOrientation(Instance),
                     sizeof(G_BaseWalk.SavedOrientation));
         std::memcpy(G_BaseWalk.SavedCamera, Camera->Orient, sizeof(G_BaseWalk.SavedOrientation));
         std::memcpy(G_BaseWalk.SavedCamera + 9, Camera->Pos, sizeof(G_BaseWalk.SavedPosition));
@@ -368,16 +364,16 @@ namespace
             void* const FrameInstance = Bar->ManeuverFrame->MeshHolder.EngineInstance;
             float FrameRadius;
             float LocalCenter[3];
-            DALib::Engine->GetInstanceExtent(FrameInstance, 0, &FrameRadius, LocalCenter);
+            NeuronRuntime::Engine->GetInstanceExtent(FrameInstance, 0, &FrameRadius, LocalCenter);
             if (FrameRadius <= 0.0f)
                 return false;
-            float const* const Frame = DALib::Engine->GetInstanceTransform(FrameInstance);
+            float const* const Frame = NeuronRuntime::Engine->GetInstanceTransform(FrameInstance);
             float Center[3];
             for (int Row = 0; Row < 3; ++Row)
                 Center[Row] = Frame[9 + Row] + Frame[Row * 3] * LocalCenter[0] +
                     Frame[Row * 3 + 1] * LocalCenter[1] + Frame[Row * 3 + 2] * LocalCenter[2];
             float const* const RoomPosition =
-                DALib::Engine->GetInstancePosition(RoomButton->MeshHolder.EngineInstance);
+                NeuronRuntime::Engine->GetInstancePosition(RoomButton->MeshHolder.EngineInstance);
             float const ToolbarLeft = Camera->HalfWidth +
                 (Center[0] - FrameRadius) * Camera->XScale / -Center[2];
             float const ToolbarCenterY = Camera->HalfHeight +
@@ -487,7 +483,7 @@ void BaseWalkAfterWorldUpdate()
     }
     ApplyPose();
     // Refresh world matrices after overriding the animated root, before drawing/hotspot picks.
-    DALib::Engine->UpdateInstance(G_BaseWalk.Player->GetEngineInstance(), 0, nullptr);
+    NeuronRuntime::Engine->UpdateInstance(G_BaseWalk.Player->GetEngineInstance(), 0, nullptr);
     float Transform[12];
     G_BaseWalk.Pose.CameraTransform(Transform);
     GetRoomRuntimeRoomCamera(G_BaseWalk.Room)->SetTransform(Transform);

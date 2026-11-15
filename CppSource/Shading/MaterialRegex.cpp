@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "MaterialRegex.h"
@@ -15,7 +11,7 @@ namespace
     constexpr int GNullNode = -1;
     constexpr int GDummyNode = -2;
 
-    // 06ed0ab0: links are unsigned, big-endian, and BACK reverses direction.
+    // links are unsigned, big-endian, and BACK reverses direction.
     int NextRegexNode(const unsigned char* Program, int Node)
     {
         if (Node == GDummyNode)
@@ -40,7 +36,7 @@ namespace
         int Size = 0;
         int GroupNumber = 1;
 
-        // 06ed0400 / 06ed0440: pass one counts without constructing links.
+        // / 06ed0440: pass one counts without constructing links.
         int EmitNode(unsigned char Opcode)
         {
             if (Program == nullptr)
@@ -63,7 +59,7 @@ namespace
                 Program[Cursor++] = Character;
         }
 
-        // 06ed0460: insert the three-byte prefix before an existing atom.
+        // insert the three-byte prefix before an existing atom.
         void InsertNode(unsigned char Opcode, int Node)
         {
             if (Program == nullptr)
@@ -79,7 +75,7 @@ namespace
             Program[Node + 2] = 0;
         }
 
-        // 06ed04b0: patch the final link, with the BACK sign convention.
+        // patch the final link, with the BACK sign convention.
         void PatchTail(int Node, int Target)
         {
             if (Node == GDummyNode)
@@ -95,14 +91,14 @@ namespace
             Program[Node + 2] = (unsigned char)Offset;
         }
 
-        // 06ed0510: only branch nodes have an operand tail to patch.
+        // only branch nodes have an operand tail to patch.
         void PatchOperandTail(int Node, int Target)
         {
             if (Node != GNullNode && Node != GDummyNode && Program[Node] == 6)
                 PatchTail(Node + 3, Target);
         }
 
-        // 06ecfc30: parentheses, newline/pipe alternatives and closing nodes.
+        // parentheses, newline/pipe alternatives and closing nodes.
         int CompileExpression(bool bParenthesized, unsigned int& Flags)
         {
             Flags = 1;
@@ -151,7 +147,7 @@ namespace
             return Result;
         }
 
-        // 06ecfd50: concatenation; an empty branch owns a NOTHING operand.
+        // concatenation; an empty branch owns a NOTHING operand.
         int CompileBranch(unsigned int& Flags)
         {
             Flags = 0;
@@ -175,7 +171,7 @@ namespace
             return Result;
         }
 
-        // 06ecfdf0: simple repetitions use STAR/PLUS; composite ones branch back.
+        // simple repetitions use STAR/PLUS; composite ones branch back.
         int CompilePiece(unsigned int& Flags)
         {
             unsigned int AtomFlags;
@@ -236,7 +232,7 @@ namespace
             return IsRegexQuantifier(*Parse) ? GNullNode : Result;
         }
 
-        // 06ecff60: this is the retail dialect, including its class-only escapes.
+        // this is the baseline dialect, including its class-only escapes.
         int CompileAtom(unsigned int& Flags)
         {
             Flags = 0;
@@ -297,7 +293,7 @@ namespace
                             for (unsigned char Digit = '0'; Digit <= '9'; ++Digit)
                                 EmitByte(Digit);
                             break;
-                        default: break; // Retail consumes unknown escapes without emitting.
+                        default: break; // baseline consumes unknown escapes without emitting.
                         }
                     }
                     else
@@ -383,7 +379,7 @@ namespace
         const char* Starts[10] = {};
         const char* Ends[10] = {};
 
-        // 06ed09c0: maximal consumption of simple repeat operands.
+        // maximal consumption of simple repeat operands.
         int Repeat(int Node)
         {
             const char* Scan = Input;
@@ -410,7 +406,7 @@ namespace
             return Count;
         }
 
-        // 06ed06a0: ordered recursive backtracking with deferred capture writes.
+        // ordered recursive backtracking with deferred capture writes.
         bool Match(int Node)
         {
             while (Node != GNullNode)
@@ -508,7 +504,7 @@ namespace
             return false;
         }
 
-        // 06ed0630: every attempted start clears all ten capture pairs.
+        // every attempted start clears all ten capture pairs.
         bool Try(const char* Start)
         {
             Input = Start;
@@ -526,7 +522,7 @@ namespace
     };
 }
 
-// 06ecfae0: count pass, bounded allocation, emit pass, then search hints.
+// count pass, bounded allocation, emit pass, then search hints.
 std::unique_ptr<FMaterialRegex> FMaterialRegex::Compile(const char* Pattern)
 {
     if (Pattern == nullptr)
@@ -579,7 +575,7 @@ std::unique_ptr<FMaterialRegex> FMaterialRegex::Compile(const char* Pattern)
     return Result;
 }
 
-// 06ed0540: mandatory-substring precheck, anchored/start-character/general search.
+// mandatory-substring precheck, anchored/start-character/general search.
 bool FMaterialRegex::Search(const FMaterialRegex* Expression, const char* Text)
 {
     if (Expression == nullptr || Text == nullptr || Expression->Program[0] != 0x9c)

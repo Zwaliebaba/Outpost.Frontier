@@ -1,31 +1,27 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
-// CTradeEquipListLine / CTradeEquipList -- see trade_equip_list.h. Retail OutpostFrontier.exe
-// 0x004be6c0..0x004bfb53.
+// CTradeEquipListLine / CTradeEquipList -- see trade_equip_list.h. baseline OutpostFrontier.exe
+// .
 
 #include "trade_equip_list.h"
 
 #include "cargo_bar_control.h"
-#include "character_select_equip.h" // GetPlayerEquipDescListRetail (FUN_004c4060), credits (FUN_004c4ce0)
+#include "character_select_equip.h" // GetPlayerEquipDescListbaseline (the routine), credits (the routine)
 #include "client_cliobj.h"          // Archetype::CliObjMaterialPaths (companion +0x20)
 #include "nn_button_control.h"
-#include "star_sphere.h"            // Win3DIdentityRotation3x3 (FUN_004215b0)
+#include "star_sphere.h"            // Win3DIdentityRotation3x3 (the routine)
 #include "win_factory.h"
 
 #include <stdint.h>
 #include <stdio.h>
 #include <wchar.h>
 
-char G_TradeWidgetName[0x400];       // DAT_006724b8
-int G_TradeWidgetNameCounter = 0;    // DAT_006728b8 (.bss)
+char G_TradeWidgetName[0x400];
+int G_TradeWidgetNameCounter = 0;    // (.bss)
 
 namespace
 {
-    // PTR_DAT_005d0ec4 -- L"%d".
+    // L"%d".
     wchar_t const* const kCountFormat = L"%d";
 
     // s_equipment\models\commodities\nn_icons\COMMOD_credits.3db_005d6134.
@@ -46,7 +42,7 @@ namespace
     char const* const kTransferScrollBarMesh =
         "interface\\multiplayer\\trade\\TRADE_transscrollbar.3db";
 
-    // The "merge one bit" idiom retail uses on the ButtonControl flag bytes:
+    // The "merge one bit" idiom baseline uses on the ButtonControl flag bytes:
     // ((Bits ^ Old) & Mask) ^ Old.
     unsigned char MergeBits(unsigned char Old, unsigned char Bits, unsigned char Mask)
     {
@@ -63,7 +59,7 @@ namespace
         return static_cast<int>(reinterpret_cast<intptr_t>(Pointer));
     }
 
-    // Retail walks the circular VC6 list: from the first node, Steps times to ->next, where the
+    // baseline walks the circular VC6 list: from the first node, Steps times to ->next, where the
     // head sentinel sits after the last item and before the first. Position Size is the head.
     size_t CircularListPosition(size_t Size, int Steps)
     {
@@ -93,14 +89,14 @@ void FormatTradeWidgetName(char const* Base)
 void GetTradeItemVisuals(EquipDesc const* Item, CacheString* OutMesh, CacheString* OutMaterial,
                          int* OutIdsName, int* OutIdsInfo, bool bShopArchetype)
 {
-    // FUN_004be6c0 (cdecl).
+    // (cdecl).
     GoodInfo const* const Good = GoodList::find_by_archetype(Item->ArchId);
     OutMesh->clear();
     OutMaterial->clear();
 
     if (Good == nullptr)
     {
-        // 0x004be762..0x004be7b2.
+        // .
         Archetype::Equipment* const Arch = Archetype::GetEquipment(Item->ArchId);
         if (Arch == nullptr)
             return;
@@ -119,14 +115,14 @@ void GetTradeItemVisuals(EquipDesc const* Item, CacheString* OutMesh, CacheStrin
         return;
     }
 
-    // 0x004be6ef..0x004be700: the icon, unless the caller asks for the shop model.
+    // the icon, unless the caller asks for the shop model.
     if (Good->ItemIcon.Value != nullptr && !bShopArchetype)
     {
         OutMesh->Value = Good->ItemIcon.Value;
     }
     else
     {
-        // 0x004be702..0x004be743.
+        // .
         OutMesh->Value = Good->ShopArchetype.Value;
         OutMaterial->clear();
         Archetype::Equipment* const Arch = Archetype::GetEquipment(Item->ArchId);
@@ -147,7 +143,7 @@ void GetTradeItemVisuals(EquipDesc const* Item, CacheString* OutMesh, CacheStrin
         }
     }
 
-    // 0x004be745..0x004be75e.
+    // .
     *OutIdsName = Good->IdsName;
     *OutIdsInfo = Good->IdsInfo;
 }
@@ -166,13 +162,13 @@ CTradeEquipListLine::CTradeEquipListLine(CTradeEquipList* NewOwner)
 
 CTradeEquipListLine::~CTradeEquipListLine()
 {
-    // LAB_004be7c0: the vftable is reset and, with the delete flag, the row freed. The widgets
+    // the vftable is reset and, with the delete flag, the row freed. The widgets
     // are children of the parent control and are not touched.
 }
 
 void CTradeEquipListLine::Init(WinControl* Parent, float const* Position)
 {
-    // FUN_004be7e0. Base = Position moved 0.029 right (DAT_005d6130).
+    // . Base = Position moved 0.029 right (the field).
     float Base[3];
     Base[0] = Position[0] + 0.029f;
     Base[1] = Position[1];
@@ -182,8 +178,8 @@ void CTradeEquipListLine::Init(WinControl* Parent, float const* Position)
 
     if (Owner != nullptr && Owner->bInfoCard != 0)
     {
-        // 0x004be81b..0x004be8fb: the "?" button 0.119 right and 0.021 up of Base
-        // (DAT_005d6128, DAT_005d612c), created hidden and above everything else.
+        // the "?" button 0.119 right and 0.021 up of Base
+        // (the field, the field), created hidden and above everything else.
         At[0] = Base[0] + 0.119f;
         At[1] = Base[1] + 0.021f;
         At[2] = Position[2];
@@ -204,7 +200,7 @@ void CTradeEquipListLine::Init(WinControl* Parent, float const* Position)
         InfoCard = nullptr;
     }
 
-    // 0x004be904..0x004be98f: the info frame at Base.
+    // the info frame at Base.
     Zero[0] = 0.0f;
     Zero[1] = 0.0f;
     Zero[2] = 0.0f;
@@ -215,8 +211,8 @@ void CTradeEquipListLine::Init(WinControl* Parent, float const* Position)
     InfoFrame->Field2f0 = PointerField(this);
     WinControlHalfExtentsFromMesh(InfoFrame->HalfExtents, &InfoFrame->MeshHolder);
 
-    // 0x004be994..0x004bea4c: the item frame 0.175 left of Base ("333>" read as a float,
-    // 0x005d60a4), always drawn tinted (+0x337).
+    // the item frame 0.175 left of Base ("333>" read as a float,
+    // ), always drawn tinted (+0x337).
     At[0] = Base[0] - 0.175f;
     At[1] = Base[1];
     At[2] = Base[2];
@@ -231,7 +227,7 @@ void CTradeEquipListLine::Init(WinControl* Parent, float const* Position)
     IconFrame->SetByte337(1);
     WinControlHalfExtentsFromMesh(IconFrame->HalfExtents, &IconFrame->MeshHolder);
 
-    // 0x004bea51..0x004beb2d: the icon at the same place, a StaticControl; zero half extents
+    // the icon at the same place, a StaticControl; zero half extents
     // and +0x338 vector (the stack slots 0x004bea6d..0x004bea95 clear), +0x418 = 100.
     float IconAt[3];
     IconAt[0] = Base[0] - 0.175f;
@@ -251,7 +247,7 @@ void CTradeEquipListLine::Init(WinControl* Parent, float const* Position)
     WinControlHalfExtentsFromMesh(IconMesh->HalfExtents, &IconMesh->MeshHolder);
     InfoFrame->Field2ec = PointerField(IconMesh);
 
-    // 0x004beb33..0x004bebc6: the name, 0.01 left of Base (DAT_005c99c8), style "ItemName".
+    // the name, 0.01 left of Base (the field), style "ItemName".
     IconAt[0] = Base[0] - 0.01f;
     IconAt[1] = Base[1];
     IconAt[2] = Base[2];
@@ -259,8 +255,8 @@ void CTradeEquipListLine::Init(WinControl* Parent, float const* Position)
     ItemName = Parent->CreateTextControl(G_TradeWidgetName, "ItemName", IconAt, nullptr, 0.23f,
                                          0.066f, 1.5f, 0, 0, 0, 0);
 
-    // 0x004beba8..0x004bec2b: the count, 0.03 right and 0.01 down of Base (DAT_005d011c,
-    // DAT_005c99c8), TextControl +0x358 = 2.
+    // the count, 0.03 right and 0.01 down of Base (the field,
+    // ), TextControl +0x358 = 2.
     IconAt[0] = Base[0] + 0.03f;
     IconAt[1] = Base[1] - 0.01f;
     IconAt[2] = Base[2];
@@ -268,9 +264,9 @@ void CTradeEquipListLine::Init(WinControl* Parent, float const* Position)
     ItemCount = Parent->CreateTextControl(G_TradeWidgetName, "ItemName", IconAt, nullptr, 0.19f,
                                           0.025f, 1.5f, 0, 2, 0, 0);
 
-    // 0x004bec2e..0x004bed2c: the health bar straight from the factory (no Init): a horizontal
+    // the health bar straight from the factory (no Init): a horizontal
     // green bar 0.0264 x 0.0032, 0.176 left ("X94>" read as a float, 0x005d6030) and 0.0272
-    // down (DAT_005d602c) of Base, full (100 of 100), no border (property 0x19 with 0x10000).
+    // down (the field) of Base, full (100 of 100), no border (property 0x19 with 0x10000).
     FormatTradeWidgetName("CargoBar");
     HealthBar = static_cast<CargoBarControl*>(
         WinFactoryCreate(G_TradeWidgetName, "CargoBarControl", Parent, nullptr));
@@ -292,7 +288,7 @@ void CTradeEquipListLine::Init(WinControl* Parent, float const* Position)
 
 void CTradeEquipListLine::Hide()
 {
-    // FUN_004bed40.
+    // .
     IconFrame->SetProperty(1, 1, 0);
     IconMesh->SetProperty(1, 1, 0);
     InfoFrame->SetProperty(1, 1, 0);
@@ -305,7 +301,7 @@ void CTradeEquipListLine::Hide()
 
 void CTradeEquipListLine::Show()
 {
-    // FUN_004bedc0. The info card is hidden, not shown.
+    // . The info card is hidden, not shown.
     IconFrame->SetProperty(1, 0, 0);
     IconFrame->SetProperty(2, 0, 0);
     IconMesh->SetProperty(1, 0, 0);
@@ -320,7 +316,7 @@ void CTradeEquipListLine::Show()
 
 void CTradeEquipListLine::SetHighlight(unsigned char bOn)
 {
-    // FUN_004bee70: bits 2 and 3 of +0x331 on the item frame, then on the info frame.
+    // bits 2 and 3 of +0x331 on the item frame, then on the info frame.
     unsigned char const Bit2 = static_cast<unsigned char>(bOn << 2);
     unsigned char const Bit3 = static_cast<unsigned char>(bOn << 3);
     IconFrame->SetFlags331(MergeBits(IconFrame->GetFlags331(), Bit2, 0x04));
@@ -331,12 +327,12 @@ void CTradeEquipListLine::SetHighlight(unsigned char bOn)
 
 void CTradeEquipListLine::SetItem(EquipDesc* NewItem)
 {
-    // FUN_004bef00.
+    // .
     Show();
 
     if (NewItem->ArchId == 0)
     {
-        // 0x004bef1e..0x004bef68: credits -- the credits icon, IDS 0x476, no info card, an empty
+        // credits -- the credits icon, IDS 0x476, no info card, an empty
         // health bar.
         IconMesh->SetProperty(4, PointerArg(kCreditsIconMesh), 0);
         ItemName->SetProperty(0x1e, 0x476, 0);
@@ -346,7 +342,7 @@ void CTradeEquipListLine::SetItem(EquipDesc* NewItem)
     }
     else
     {
-        // 0x004bef6d..0x004befee.
+        // .
         CacheString Mesh;
         CacheString Material;
         Mesh.clear();
@@ -357,17 +353,17 @@ void CTradeEquipListLine::SetItem(EquipDesc* NewItem)
         if (Mesh.Value != nullptr)
             IconMesh->SetProperty(4, PointerArg(Mesh.Value), PointerArg(Material.Value));
         ItemName->SetProperty(0x1e, static_cast<uintptr_t>(IdsName), 0);
-        // FLD health, FMUL double 100.0 (DAT_005ca320), ftol, FILD, FSTP float.
+        // FLD health, FMUL double 100.0 (the field), ftol, FILD, FSTP float.
         HealthBar->Used = static_cast<float>(
             static_cast<int>(static_cast<double>(NewItem->Health) * 100.0));
     }
 
-    // 0x004beff4..0x004bf019: the count.
+    // the count.
     wchar_t CountText[58];
     swprintf(CountText, 58, kCountFormat, NewItem->Count);
     ItemCount->SetProperty(0x1d, PointerArg(CountText), 0);
 
-    // 0x004bf01f..0x004bf113. Byte +0 of the entry is the trade selection: its bit 0 becomes
+    // . Byte +0 of the entry is the trade selection: its bit 0 becomes
     // bit 6 of +0x330 on both frames; any non-zero value lifts the row to draw layer 2, else a
     // pressed (+0x330 bit 0) item frame lifts it to 1. The name text keeps its layer.
     Item = NewItem;
@@ -412,12 +408,12 @@ CTradeEquipList::CTradeEquipList(WinControl* NewParent, char const* RowsHp,
     , bHighlight(bNewHighlight)
     , CargoVolume(0.0)
 {
-    // FUN_004bf120. Lines, Items (list _Buynode), CreditsTemplate (EquipDesc ctor) first; then
+    // . Lines, Items (list _Buynode), CreditsTemplate (EquipDesc ctor) first; then
     // +0x0c, +0x5c, vftable, +0x2c, +0x30, +0x5d, +0x60/+0x64, +0x5e, the template's count 0
     // and +0x58. +0x04 and +0x34 are not written.
     CreditsTemplate.set_count(0);
 
-    // 0x004bf1d3..0x004bf235: the first row at the translation of the parent's RowsHp
+    // the first row at the translation of the parent's RowsHp
     // hardpoint (slot 36; an identity transform when it has none).
     float Xform[12];
     Win3DIdentityRotation3x3(Xform);
@@ -432,16 +428,16 @@ CTradeEquipList::CTradeEquipList(WinControl* NewParent, char const* RowsHp,
 
     CTradeEquipListLine* Line = new CTradeEquipListLine(this);
     Line->Init(Parent, RowAt);
-    Lines.insert(Lines.end(), Line); // FUN_00537260
+    Lines.insert(Lines.end(), Line);
 
-    // 0x004bf291..0x004bf2b2: the row pitch is the first info frame's full height.
+    // the row pitch is the first info frame's full height.
     float RowHeight;
     if (Line->InfoFrame != nullptr)
         RowHeight = Line->InfoFrame->HalfExtents[1] + Line->InfoFrame->HalfExtents[1];
     else
         RowHeight = 0.0f;
 
-    // 0x004bf2b9..0x004bf330: the remaining rows, each one pitch lower.
+    // the remaining rows, each one pitch lower.
     if (VisibleRows > 1)
     {
         for (int Row = VisibleRows - 1; Row != 0; --Row)
@@ -453,7 +449,7 @@ CTradeEquipList::CTradeEquipList(WinControl* NewParent, char const* RowsHp,
         }
     }
 
-    // 0x004bf339..0x004bf4f1: the scroll bar. Four rows is the transfer list's bar, anything
+    // the scroll bar. Four rows is the transfer list's bar, anything
     // else the inventory's.
     char const* const BackMesh = (VisibleRows == 4) ? kTransferScrollBarMesh : kInventoryScrollBarMesh;
     float ThumbMouse[3] = {0.01f, 0.018f, 0.0f};
@@ -478,7 +474,7 @@ CTradeEquipList::CTradeEquipList(WinControl* NewParent, char const* RowsHp,
 
 CTradeEquipList::~CTradeEquipList()
 {
-    // FUN_004bf540: every row through its deleting destructor, the row vector emptied; the
+    // every row through its deleting destructor, the row vector emptied; the
     // item list (erase + head) and then the row vector's buffer go with the members.
     for (size_t Index = 0; Index < Lines.size(); ++Index)
     {
@@ -490,13 +486,13 @@ CTradeEquipList::~CTradeEquipList()
 
 int CTradeEquipList::SetMoney(int Count)
 {
-    // FUN_004bf620.
+    // .
     EquipDesc* Credits = Items.traverse_equipment_type(0, nullptr);
     if (Credits != nullptr)
     {
         if (Count == 0)
         {
-            // 0x004bf64c..0x004bf695: every entry with the credits entry's id goes. Retail
+            // every entry with the credits entry's id goes. baseline
             // keeps comparing against the freed node; its id is read once here.
             unsigned short const CreditsId = Credits->Id;
             std::list<EquipDesc>::iterator It = Items.Items.begin();
@@ -515,7 +511,7 @@ int CTradeEquipList::SetMoney(int Count)
     }
     else if (Count != 0)
     {
-        // 0x004bf69b..0x004bf6f0: a copy of the template at the end (FUN_004b7390), found
+        // a copy of the template at the end (the routine), found
         // again and given the count.
         Items.Items.push_back(CreditsTemplate);
         Credits = Items.traverse_equipment_type(0, nullptr);
@@ -523,7 +519,7 @@ int CTradeEquipList::SetMoney(int Count)
             Credits->set_count(Count);
     }
 
-    // 0x004bf6f6..0x004bf70c.
+    // .
     CreditsTemplate.set_count(Count);
     Refresh(-1);
     return Count;
@@ -531,17 +527,17 @@ int CTradeEquipList::SetMoney(int Count)
 
 void CTradeEquipList::Rebuild()
 {
-    // FUN_004bf720.
-    EquipDescList& PlayerList = GetPlayerEquipDescListRetail(); // FUN_004c4060
+    // .
+    EquipDescList& PlayerList = GetPlayerEquipDescListbaseline();
     Items.Items.clear(); // list::erase(begin, end)
 
-    if (GetPlayerCreditsRetail() != 0) // FUN_004c4ce0
+    if (GetPlayerCreditsbaseline() != 0)
     {
-        CreditsTemplate.set_count(static_cast<int>(GetPlayerCreditsRetail()));
+        CreditsTemplate.set_count(static_cast<int>(GetPlayerCreditsbaseline()));
         Items.Items.push_back(CreditsTemplate); // list::insert(end, template)
     }
 
-    // 0x004bf77b..0x004bf819: cargo only -- nothing mounted (+0x0c), nothing from a mission
+    // cargo only -- nothing mounted (+0x0c), nothing from a mission
     // (+0x18).
     for (std::list<EquipDesc>::const_iterator It = PlayerList.Items.begin();
          It != PlayerList.Items.end(); ++It)
@@ -554,7 +550,7 @@ void CTradeEquipList::Rebuild()
 
     Refresh(-1);
 
-    // 0x004bf828..0x004bf83c: scroll range [0, max(0, size - rows)].
+    // scroll range [0, max(0, size - rows)].
     int Range = static_cast<int>(Items.Items.size()) - VisibleRows;
     if (Range < 0)
         Range = 0;
@@ -563,12 +559,12 @@ void CTradeEquipList::Rebuild()
 
 void CTradeEquipList::Refresh(int Index)
 {
-    // FUN_004bf850.
+    // .
     size_t const Size = Items.Items.size();
 
     if (Index < 0)
     {
-        // 0x004bf865..0x004bf9bc: from the scroll position, one item per row.
+        // from the scroll position, one item per row.
         std::list<EquipDesc>::iterator Node =
             ListNodeAt(Items.Items, CircularListPosition(Size, TopIndex));
         size_t Row = 0;
@@ -580,7 +576,7 @@ void CTradeEquipList::Refresh(int Index)
             Line->SetItem(&*Node);
             if (bSelectMode != 0)
             {
-                // 0x004bf8ad..0x004bf922: only the frame, icon and bar; credits greyed out.
+                // only the frame, icon and bar; credits greyed out.
                 Line->Hide();
                 Line->IconFrame->SetProperty(1, 0, 0);
                 Line->IconMesh->SetProperty(1, 0, 0);
@@ -594,7 +590,7 @@ void CTradeEquipList::Refresh(int Index)
             }
             else
             {
-                // 0x004bf927..0x004bf9a8: FUN_004bee70 inlined with +0x5e.
+                // the routine inlined with +0x5e.
                 Line->SetHighlight(bHighlight);
             }
             ++Node;
@@ -603,7 +599,7 @@ void CTradeEquipList::Refresh(int Index)
                 break;
         }
 
-        // 0x004bf9c2..0x004bfa1b: the rows past the end of the list are blanked and hidden.
+        // the rows past the end of the list are blanked and hidden.
         for (; Row < Lines.size(); ++Row)
         {
             CTradeEquipListLine* const Line = Lines[Row];
@@ -616,15 +612,15 @@ void CTradeEquipList::Refresh(int Index)
         return;
     }
 
-    // 0x004bfa27..0x004bfb47: one item, when its row is on screen. Every retail caller (all 21
-    // XREFs of FUN_004bf850) passes -1, so this path never runs; an Index at or past the end
-    // would reach the list's head node in retail.
+    // one item, when its row is on screen. Every baseline caller (all 21
+    // XREFs of the routine) passes -1, so this path never runs; an Index at or past the end
+    // would reach the list's head node in baseline.
     int const Row = Index - TopIndex;
     if (Row >= VisibleRows || Row < 0)
         return;
     std::list<EquipDesc>::iterator const Node =
         ListNodeAt(Items.Items, CircularListPosition(Size, Index));
-    // FUN_004c38b0 is the vector's "invalid vector<T> subscript" throw -- at() here.
+    // is the vector's "invalid vector<T> subscript" throw -- at() here.
     Lines.at(static_cast<size_t>(Row))->SetItem(&*Node);
     if (bSelectMode != 0)
     {

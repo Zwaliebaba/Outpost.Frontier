@@ -37,10 +37,10 @@
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <!-- qhull 2002.1 (vendored under vendor\), the classic non-reentrant global-qh_qh API.
-       Retail Common.dll links an older "ipion 99/07/10" qhull (2.6 era): several functions
+       baseline Common.dll links an older "ipion 99/07/10" qhull (2.6 era): several functions
        differ from 2002.1. The vendored source is modified only where it was aligned with
-       the retail listing: the error sink (FUN_06356960 instead of fprintf(qh ferr) at the
-       retail sites, each marked with its retail address), qh_new_qhull / qh_errexit /
+       the baseline listing: the error sink (WriteHullDiagnostic instead of fprintf(qh ferr) at the
+       baseline sites, each marked with its baseline address), qh_new_qhull / qh_errexit /
        qh_errprint / qh_printlists, qh_VERSION and qh_CPUclock. See
        src/qhull/vendor/COPYING.txt for the Qhull license and required attribution. -->
   <ItemDefinitionGroup>

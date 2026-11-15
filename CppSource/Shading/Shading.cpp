@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "Material.h"
@@ -34,9 +30,9 @@ namespace
     public:
         explicit FComponentFactory(const FComponentSpec& Spec) : RefCount(1), Spec(Spec) {}
 
-        GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override
+        GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override
         {
-            // LAB_06eb1050: mandatory output, exact IID including terminator.
+            // mandatory output, exact IID including terminator.
             *Out = nullptr;
             if (std::strncmp(Iid, Iids::ComponentFactory, sizeof(Iids::ComponentFactory)) != 0)
                 return GR_INTERFACE_UNSUPPORTED;
@@ -45,9 +41,9 @@ namespace
             return GR_OK;
         }
 
-        unsigned long DACOM_API AddRef() override { return ++RefCount; }
+        unsigned long NEURONCOMPONENTS_API AddRef() override { return ++RefCount; }
 
-        unsigned long DACOM_API Release() override
+        unsigned long NEURONCOMPONENTS_API Release() override
         {
             if (RefCount > 0)
                 --RefCount;
@@ -60,9 +56,9 @@ namespace
             return Next;
         }
 
-        GENRESULT DACOM_API CreateInstance(AGGDESC* Desc, void** Instance) override
+        GENRESULT NEURONCOMPONENTS_API CreateInstance(AGGDESC* Desc, void** Instance) override
         {
-            // LAB_06ec6d40..6e2e has its own aggregate descriptor contract.
+            // ..6e2e has its own aggregate descriptor contract.
             if (Spec.Kind == KindMaterialAnimation)
             {
                 FMaterialAggregateDesc* AnimationDesc = (FMaterialAggregateDesc*)Desc;
@@ -80,12 +76,12 @@ namespace
                 }
                 Animation->Outer = AnimationDesc->OuterAt8;
                 if (Animation->Outer != nullptr)
-                    *AnimationDesc->InnerOutAtC = (IDAComponent*)(&Animation->Controller);
+                    *AnimationDesc->InnerOutAtC = (INeuronComponent*)(&Animation->Controller);
                 *Instance = (IMatAnimLibrary*)Animation;
                 return GR_OK;
             }
 
-            // FUN_06ecb940: controller publication precedes descriptor init.
+            // controller publication precedes descriptor init.
             if (Spec.Kind == KindMaterialBatcher)
             {
                 FMaterialAggregateDesc* BatcherDesc = (FMaterialAggregateDesc*)Desc;
@@ -102,9 +98,9 @@ namespace
                     return GR_OUT_OF_MEMORY;
                 }
                 Batcher->ControllingUnknown = BatcherDesc->OuterAt8 != nullptr
-                    ? BatcherDesc->OuterAt8 : (IDAComponent*)(&Batcher->Controller);
+                    ? BatcherDesc->OuterAt8 : (INeuronComponent*)(&Batcher->Controller);
                 if (BatcherDesc->OuterAt8 != nullptr)
-                    *BatcherDesc->InnerOutAtC = (IDAComponent*)(&Batcher->Controller);
+                    *BatcherDesc->InnerOutAtC = (INeuronComponent*)(&Batcher->Controller);
                 const GENRESULT Result = Batcher->InitializeFromDescriptor(BatcherDesc);
                 if (Result != GR_OK)
                 {
@@ -136,9 +132,9 @@ namespace
                     return GR_OUT_OF_MEMORY;
                 }
                 Library->ControllingUnknown = LibraryDesc->OuterAt8 != nullptr
-                    ? LibraryDesc->OuterAt8 : (IDAComponent*)(&Library->Controller);
+                    ? LibraryDesc->OuterAt8 : (INeuronComponent*)(&Library->Controller);
                 if (LibraryDesc->OuterAt8 != nullptr)
-                    *LibraryDesc->InnerOutAtC = (IDAComponent*)(&Library->Controller);
+                    *LibraryDesc->InnerOutAtC = (INeuronComponent*)(&Library->Controller);
                 const GENRESULT Result = Library->InitializeFromDescriptor(LibraryDesc);
                 if (Result != GR_OK)
                 {
@@ -152,7 +148,7 @@ namespace
                 return Result;
             }
 
-            // FUN_06ec6760: descriptor initialization is distinct from aggregate Initialize.
+            // descriptor initialization is distinct from aggregate Initialize.
             if (Spec.Kind == KindTextureLibrary)
             {
                 FSystemAggDesc* TextureDesc = (FSystemAggDesc*)Desc;
@@ -170,7 +166,7 @@ namespace
                 }
                 Texture->Outer = TextureDesc->Outer;
                 if (Texture->Outer != nullptr)
-                    *TextureDesc->InnerOut = (IDAComponent*)(&Texture->Controller);
+                    *TextureDesc->InnerOut = (INeuronComponent*)(&Texture->Controller);
                 const GENRESULT Result = Texture->InitializeFromDescriptor(TextureDesc);
                 if (Result != GR_OK)
                 {
@@ -287,10 +283,10 @@ namespace
         {"BtDetailMapTwoMaterial", KindMaterialType},
     };
 
-    // 06ec3810: only the texture registration acquires before allocation.
+    // only the texture registration acquires before allocation.
     void RegisterTextureLibraryComponent()
     {
-        ICOManager* Manager = DACOM_Acquire();
+        ICOManager* Manager = NEURONCOMPONENTS_Acquire();
         if (Manager == nullptr)
             return;
         FComponentFactory* Factory = new (std::nothrow) FComponentFactory(G_Specs[0]);
@@ -308,7 +304,7 @@ namespace
         FComponentFactory* Factory = new (std::nothrow) FComponentFactory(Spec);
         if (Factory == nullptr)
             return false;
-        ICOManager* Manager = DACOM_Acquire();
+        ICOManager* Manager = NEURONCOMPONENTS_Acquire();
         // Opaque priority token: keep const removal explicit.
         Manager->RegisterComponent(Factory, Factory->Name(), const_cast<void*>(kRegisterPriority));
         Factory->Release();
@@ -317,27 +313,27 @@ namespace
 
     void RegisterMaterialComponents()
     {
-        // 06ecf446..f48c: bd20,83f0,6cf0,3dc0,d140,d280,d0a0,d1e0,
+        // ..f48c: bd20,83f0,6cf0,3dc0,d140,d280,d0a0,d1e0,
         // 5c20,d050,d190,d0f0,d230,8590,85e0.
         static const unsigned long First[] = {1, 2, 3, 4, 8, 12, 6, 10, 13, 5, 9, 7, 11, 14, 15};
         for (unsigned long Index = 0; Index < sizeof(First) / sizeof(First[0]); ++Index)
             RegisterMaterialComponent(G_Specs[First[Index]]);
-        ActivateMaterialGlobalRecord(2); // 06ecf491..f52b
-        ActivateMaterialGlobalRecord(1); // 06ecf52d..f580
+        ActivateMaterialGlobalRecord(2); // ..f52b
+        ActivateMaterialGlobalRecord(1); // ..f580
 
-        // 06ecf582..f596: 1000,c210,c260,cdc0,a3b0.
+        // ..f596: 1000,c210,c260,cdc0,a3b0.
         static const unsigned long Second[] = {16, 17, 18, 19, 20};
         for (unsigned long Index = 0; Index < sizeof(Second) / sizeof(Second[0]); ++Index)
             RegisterMaterialComponent(G_Specs[Second[Index]]);
-        ActivateMaterialGlobalRecord(3); // 06ecf59b..f5f0
+        ActivateMaterialGlobalRecord(3); // ..f5f0
 
-        // 06ecf5f2..f601: 7b40,6620,ac50,9210.
+        // ..f601: 7b40,6620,ac50,9210.
         static const unsigned long Third[] = {21, 22, 24, 23};
         for (unsigned long Index = 0; Index < sizeof(Third) / sizeof(Third[0]); ++Index)
             RegisterMaterialComponent(G_Specs[Third[Index]]);
-        ActivateMaterialGlobalRecord(0); // 06ecf606..f650
-        RegisterMaterialComponent(G_Specs[25]); // 06ecf652 -> 47a0
-        RegisterMaterialComponent(G_Specs[26]); // 06ecf65d -> 47f0
+        ActivateMaterialGlobalRecord(0); // ..f650
+        RegisterMaterialComponent(G_Specs[25]); // -> 47a0
+        RegisterMaterialComponent(G_Specs[26]); // -> 47f0
     }
 }
 

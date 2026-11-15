@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "ivp_surface_builder_ledge_soup.h"
@@ -18,8 +14,8 @@
 #include <cstdlib>
 #include <cstring>
 
-// Generic aligned-block allocator pair (FUN_06343fc0 / FUN_06343ff0,
-// decomp-tracker items 2750/2751).
+// Generic aligned-block allocator pair (the routine / the routine,
+// implementation tracker items 2750/2751).
 #include "../ivp_utility/ivp_malloc.h"
 
 namespace
@@ -30,7 +26,7 @@ namespace
     // pattern rather than approximating it with a round decimal -- the actual
     // magnitude is functionally inert in this pass (nothing in the currently
     // ported code reads or updates the bbox yet; that lives in the unported
-    // Compile() callee chain), so byte-fidelity to retail is what matters here,
+    // Compile() callee chain), so byte-fidelity to baseline is what matters here,
     // not a "nice" numeric value.
     float BitsToFloat(uint32_t bits)
     {
@@ -41,15 +37,15 @@ namespace
 
     // MSVCRT ftol: truncation of the x87 value. Every use in this file only
     // keeps the low byte (AL), so a 32-bit truncation gives the same byte.
-    int32_t RetailFtol(double Value)
+    int32_t baselineFtol(double Value)
     {
         return static_cast<int32_t>(Value);
     }
 
-    // Retail's IVP_U_BigVector on the stack of FUN_0636d650 / FUN_0635ada0:
+    // baseline's IVP_U_BigVector on the stack of the routine / the routine:
     // {memsize, n_elems, elems} with a heap buffer of the given capacity
-    // (FUN_06343f70 = malloc). get_all_ledges (FUN_0635abf0) grows it through
-    // FUN_0635d3e0. The destructor is the inlined clear at :0636d6b4-0636d6d5 /
+    // (the routine = malloc). get_all_ledges (the routine) grows it through
+    // . The destructor is the inlined clear at :0636d6b4-0636d6d5 /
     // :0635ae1f-0635ae41 (also the EH unwind funclet, EH state 0): free elems
     // unless it equals header + 0xc or is null.
     struct FLedgeSoupLeafList
@@ -73,9 +69,9 @@ namespace
         FLedgeSoupLeafList& operator=(const FLedgeSoupLeafList&) = delete;
     };
 
-    // Retail .data:DAT_063edcdc, the reflected CRC-32 table (polynomial
-    // 0xEDB88320; entry[1] = 0x77073096 in the listing). constexpr so the
-    // table is constant-initialised like retail's .data copy and is valid for
+    // baseline .data:the field, the reflected CRC-32 table (polynomial
+    // ; entry[1] = 0x77073096 in the listing). constexpr so the
+    // table is constant-initialised like baseline's .data copy and is valid for
     // IVP_PointHashIndex callers in other translation units at any time.
     struct FLedgeSoupCrc32Table
     {
@@ -97,7 +93,7 @@ namespace
     constexpr FLedgeSoupCrc32Table GLedgeSoupCrc32Table;
 }
 
-// Retail FUN_0636cfa0 -- see ivp_point_hash.h.
+// see ivp_point_hash.h.
 unsigned IVP_PointHashIndex(const void* Point)
 {
     const uint8_t* Bytes = static_cast<const uint8_t*>(Point);
@@ -107,7 +103,7 @@ unsigned IVP_PointHashIndex(const void* Point)
     return Crc | 0x80000000u;
 }
 
-// Retail FUN_0636cfe0 -- see ivp_point_hash.h.
+// see ivp_point_hash.h.
 int IVP_PointHashCompare(const void* A, const void* B)
 {
     return std::memcmp(A, B, 12) == 0 ? 1 : 0;
@@ -115,10 +111,10 @@ int IVP_PointHashCompare(const void* A, const void* B)
 
 namespace
 {
-    // The point hash of IVP_SurfaceBuilder_Ledge_Soup, vtable .rdata:063a58f8
-    // {FUN_0636cfe0 compare, FUN_0636b380 scalar deleting dtor}. Created by
-    // FUN_0636b190 as operator_new(0x10) + FUN_063522a0(size) + vtable store.
-    // The retail class name is not in the binary.
+    // The point hash of IVP_SurfaceBuilder_Ledge_Soup, vtable module storage
+    // {the routine compare, the routine scalar deleting dtor}. Created by
+    // as operator_new(0x10) + the routine(size) + vtable store.
+    // The baseline class name is not in the binary.
     class FLedgeSoupPointHash : public IVP_VHash
     {
     public:
@@ -127,14 +123,14 @@ namespace
         {
         }
 
-        // Slot 0 = FUN_0636cfe0 (IVP_PointHashCompare).
+        // Slot 0 = the routine (IVP_PointHashCompare).
         int Compare(void* Elem0, void* Elem1) override
         {
             return IVP_PointHashCompare(Elem0, Elem1);
         }
 
-        // FUN_0636b380 -> FUN_0636cf90 (vtable store, JMP FUN_063522f0 base
-        // dtor), then FUN_06391d5a (operator delete) when bit 0 of the flag is set.
+        // -> the routine (vtable store, JMP the routine base
+        // dtor), then the routine (operator delete) when bit 0 of the flag is set.
         ~FLedgeSoupPointHash() override
         {
         }
@@ -148,8 +144,8 @@ namespace
 // its supporting callees. [2026-09-09 D101 update, superseding the D78/D81/
 // D91/D94/D96/D98/D99 pseudocode history that used to be recorded in this
 // spot] All 8 originally-scoped direct callees plus every second-level
-// callee needed for the real single-ledge retail path are now either ported
-// or a documented, asserted, provably-unreachable-in-retail gap -- see each
+// callee needed for the real single-ledge baseline path are now either ported
+// or a documented, asserted, provably-unreachable-in-baseline gap -- see each
 // function's own comment and ivp_surface_builder_ledge_soup.h's class-level
 // comment for the full evidence trail.
 
@@ -184,21 +180,21 @@ IVP_SurfaceBuilder_Ledge_Soup::IVP_SurfaceBuilder_Ledge_Soup()
     // overwritten with the sentinel bit patterns above (see BitsToFloat).
     // Every IVP_U_Vector<T> member's own default constructor already
     // reproduces the zeroed {capacity=0, count=0, elems=nullptr} state
-    // retail's ctor writes by hand for each of the 6 vectors.
+    // baseline's ctor writes by hand for each of the 6 vectors.
 }
 
 // IVP_SurfaceBuilder_Ledge_Soup::ComputeNodeListBounds() -- ported.
-//
-// Retail: FUN_0636a720 (Common.dll+0x636a720..0x636a85d, decomp-tracker item
+
+// baseline: the routine (Common.dll+0x636a720..0x636a85d, implementation tracker item
 // 3623, 106 insns). [2026-09-11] Its only caller, SplitBuildNodeList()
-// (FUN_0636a860/item 3624), is now fully ported too, so this is fully
+// (the routine/item 3624), is now fully ported too, so this is fully
 // reachable. Originally provided as the first fully-verified building block
 // per this class's bottom-up
 // porting plan.
-//
-// Full trace by cmn-soup 2026-10-08 (.text:0636a720-0636a85d, thiscall,
+
+// Full trace by cmn-soup 2026-10-08 (module storage-0636a85d, thiscall,
 // RET 0xc, `this` unused): both corners start at the ctor sentinels
-// (0x49742400 / 0xc9742400). Per node S = DAT_063ee784 (0x3B83126F) *
+// (0x49742400 / 0xc9742400). Per node S = the field (0x3B83126F) *
 // radius stays on the x87 stack; X and Y terms are float(oct * S) spills,
 // the Z term (FIMUL) and the Z max candidate stay extended -- see the body.
 void IVP_SurfaceBuilder_Ledge_Soup::ComputeNodeListBounds(const IVP_U_Vector<BuildNode>& nodes, float outMin[3], float outMax[3])
@@ -206,7 +202,7 @@ void IVP_SurfaceBuilder_Ledge_Soup::ComputeNodeListBounds(const IVP_U_Vector<Bui
     outMin[0] = outMin[1] = outMin[2] = BitsToFloat(0x49742400);
     outMax[0] = outMax[1] = outMax[2] = BitsToFloat(0xc9742400);
 
-    const double kExtentScale = (double)(BitsToFloat(0x3B83126Fu)); // DAT_063ee784
+    const double kExtentScale = (double)(BitsToFloat(0x3B83126Fu));
 
     // :0636a74e-0636a851: n_elems (word) re-read every pass; JBE skips 0.
     for (int i = 0; i < nodes.Len(); ++i)
@@ -236,34 +232,34 @@ void IVP_SurfaceBuilder_Ledge_Soup::ComputeNodeListBounds(const IVP_U_Vector<Bui
 }
 
 // IVP_SurfaceBuilder_Ledge_Soup::ComputeLedgeBounds() -- ported.
-//
-// Retail: FUN_0635aa60 (Common.dll+0x635aa60..0x635ab9e, decomp-tracker item
-// 3308, 110 insns, Common.dll.txt:444050-444182). Only caller in the
+
+// baseline: the routine (Common.dll+0x635aa60..0x635ab9e, implementation tracker item
+// 3308, 110 insns, Common). Only caller in the
 // currently-ported chain is BuildLeafNodes() below.
-//
-// [2026-09-09 D99] Full raw disassembly re-traced instruction-by-instruction
+
+// [2026-09-09 D99] Full raw analysis re-traced instruction-by-instruction
 // this pass -- supersedes D94's item 3308 notes ("2nd half not fully
 // re-verified line by line", "likely ledge's bounding radius or center
 // reference"): it is neither a radius nor a center, it's a plain min/max
 // corner walk over the ledge's own points, and the SECOND half (the part
 // D94 hadn't re-verified) is nothing more than the final min/max->out-param
 // stores -- no hidden logic there.
-//
+
 //  - Seeds BOTH outMin and outMax from the very first edge's start point
-//    (ledge->GetFirstEdge() == triangle[0]'s CEdge[0], Common.dll.txt:
+//    (ledge->GetFirstEdge() == triangle[0]'s CEdge[0], Common:
 //    444064-444083) -- read UNCONDITIONALLY, even when NTriangles==0.
 //  - If NTriangles == 0 (444084-444086, `MOVSX EAX,word[ESI+0xc]; DEC EAX;
 //    JS`), skips straight to writing out that single seed point as both
 //    corners (degenerate one-point bbox) -- reproduced below by simply
 //    never entering the triangle loop when GetNTriangles()==0.
 //  - Otherwise walks every triangle's 3 edges via the EXACT SAME next-edge
-//    LUT trick as IVP_Compact_Edge::GetNextEdge() (Common.dll.txt:444151-
+//    LUT trick as IVP_Compact_Edge::GetNextEdge() (Common-
 //    444154, `AND EAX,0xc; ADD EDX,[EAX+0x63ee4e0]` -- byte-for-byte
 //    G_IVP_Compact_Edge_Next_Lut from ivp_compact_ledge.h), reusing this
 //    port's own GetFirstTriangle()/GetFirstEdge()/GetNextEdge()/GetPoint()
 //    accessors rather than re-deriving the pointer algebra by hand.
 //  - Per point, per axis: "if less (or unordered), update min; else if
-//    greater, update max" (.text:0635aabd-0635ab44). The Z-axis running max
+//    greater, update max" (module storage-0635ab44). The Z-axis running max
 //    is kept on the x87 stack (a float value, loaded once and replaced by
 //    FLD) and its test is the reversed FCOM, so it also takes an unordered
 //    point -- see the body.
@@ -304,32 +300,32 @@ void IVP_SurfaceBuilder_Ledge_Soup::ComputeLedgeBounds(const IVP_Compact_Ledge* 
 }
 
 // IVP_SurfaceBuilder_Ledge_Soup::BuildLeafNodes() -- ported.
-//
-// Retail: FUN_0636a350 (Common.dll+0x636a350..0x636a638, decomp-tracker item
-// 3621, 259 insns, Common.dll.txt:470496-470795). Compile()'s (item 3617)
+
+// baseline: the routine (Common.dll+0x636a350..0x636a638, implementation tracker item
+// 3621, 259 insns, Common). Compile()'s (item 3617)
 // FIRST callee, called unconditionally once m_Ledges is known non-empty
 // (Compile() early-outs before this point if m_Ledges is empty -- so n>=1
 // always holds here in practice).
-//
-// Control flow (.text:0636a350-0636a638, full trace by cmn-soup 2026-10-08):
+
+// Control flow (module storage-0636a638, full trace by cmn-soup 2026-10-08):
 //  1. m_LeafByteTotal = 0; n = m_Ledges.n_elems (word, zero-extended);
-//     m_LeafCount = n; m_BuildTreeScratch = FUN_06343f80(n+1, 8) (calloc);
+//     m_LeafCount = n; m_BuildTreeScratch = the routine(n+1, 8) (calloc);
 //     entry[0].NextIndexOrCount = 1.
 //  2. For each ledge i = 0..n-1 (EBP = i+1):
 //     a. node = operator_new(0x28) zeroed (REP STOSD), appended to m_VectorF.
-//        (Retail's "operator_new returned null" branch is unreachable here:
+//        (baseline's "operator_new returned null" branch is unreachable here:
 //        `new` throws instead.)
-//     b. FUN_0635aa60(ledge, &min = local_10, &max = local_30);
+//     b. the routine(ledge, &min = local_10, &max = local_30);
 //        node.Center = set_interpolate(p1 = max, p2 = min, 0.5f)
-//        (FUN_06347e00 at :0636a418).
+//        (the routine at :0636a418).
 //     c. v = max - Center as floats (local_20); len = v.real_length()
-//        (FUN_06347e60, unrounded); node.Radius = float(len) (FST).
+//        (the routine, unrounded); node.Radius = float(len) (FST).
 //     d. Class-wide bbox grows by the leaf's sphere. Only the FIRST test
 //        (min X) uses the unrounded len (FSUBR [EDI] right after the FST);
 //        the other five reload the float radius. Min: FCOM; TEST AH,0x1; JZ
 //        skip (stores on less or unordered). Max: TEST AH,0x41; JNZ skip
 //        (stores only on greater).
-//     e. scaled = Radius * DAT_063a54b4 (0x3B83126F) on the stack; octant[k] =
+//     e. scaled = Radius * (0x3B83126F) on the stack; octant[k] =
 //        byte(ftol((max[k] - Center[k]) / scaled)) + 1 (INC AL).
 //     f. +0x1c = ledge, +0x20 = +0x24 = 0, ScratchIndex = EBP;
 //        m_LeafByteTotal += 0x28; scratch[EBP] = {EBP-1, EBP+1, node}.
@@ -345,11 +341,11 @@ void IVP_SurfaceBuilder_Ledge_Soup::BuildLeafNodes()
     m_LeafByteTotal = 0;                                  // :0636a35d
     const int32_t n = m_Ledges.Len();                     // :0636a360 (word)
     m_LeafCount = n;                                      // :0636a36e
-    m_BuildTreeScratch = std::calloc(static_cast<size_t>(n) + 1, sizeof(BuildTreeScratchEntry)); // FUN_06343f80(n+1, 8)
+    m_BuildTreeScratch = std::calloc(static_cast<size_t>(n) + 1, sizeof(BuildTreeScratchEntry)); // (n+1, 8)
     BuildTreeScratchEntry* scratch = static_cast<BuildTreeScratchEntry*>(m_BuildTreeScratch);
     scratch[0].NextIndexOrCount = 1;                      // :0636a383
 
-    const double kExtentScale = (double)(BitsToFloat(0x3B83126Fu)); // DAT_063a54b4
+    const double kExtentScale = (double)(BitsToFloat(0x3B83126Fu));
 
     int32_t ScratchIndex = 1; // EBP
     int32_t LoopIndex = 0;    // local_40
@@ -392,9 +388,9 @@ void IVP_SurfaceBuilder_Ledge_Soup::BuildLeafNodes()
 
         // :0636a4d6-0636a51a: octant bytes, ratio and division on the x87 stack.
         const double Scaled = (double)(node->Radius) * kExtentScale;
-        node->Octant[0] = static_cast<uint8_t>(static_cast<uint8_t>(RetailFtol(((double)(LedgeMax.k[0]) - node->CenterX) / Scaled)) + 1);
-        node->Octant[1] = static_cast<uint8_t>(static_cast<uint8_t>(RetailFtol(((double)(LedgeMax.k[1]) - node->CenterY) / Scaled)) + 1);
-        node->Octant[2] = static_cast<uint8_t>(static_cast<uint8_t>(RetailFtol(((double)(LedgeMax.k[2]) - node->CenterZ) / Scaled)) + 1);
+        node->Octant[0] = static_cast<uint8_t>(static_cast<uint8_t>(baselineFtol(((double)(LedgeMax.k[0]) - node->CenterX) / Scaled)) + 1);
+        node->Octant[1] = static_cast<uint8_t>(static_cast<uint8_t>(baselineFtol(((double)(LedgeMax.k[1]) - node->CenterY) / Scaled)) + 1);
+        node->Octant[2] = static_cast<uint8_t>(static_cast<uint8_t>(baselineFtol(((double)(LedgeMax.k[2]) - node->CenterZ) / Scaled)) + 1);
 
         m_LeafByteTotal += 0x28;              // :0636a51d
         node->Ledge = ledge;                  // :0636a521
@@ -434,7 +430,7 @@ void IVP_SurfaceBuilder_Ledge_Soup::BuildLeafNodes()
 
 void IVP_SurfaceBuilder_Ledge_Soup::InsertLedge(IVP_Compact_Ledge* ledge)
 {
-    // FUN_0636a050. On a null ledge retail does not substitute anything: it
+    // . On a null ledge baseline does not substitute anything: it
     // reports through the IVP message router (0636a059..0636a07e: category 3,
     // string 063ee78c) and returns. The router never has a category level
     // set, so the message is never printed (ivp_message_router.h).
@@ -450,8 +446,8 @@ void IVP_SurfaceBuilder_Ledge_Soup::InsertLedge(IVP_Compact_Ledge* ledge)
     m_Ledges.Add(ledge);
 }
 
-// IVP_SurfaceBuilder_Ledge_Soup::CompileNode() -- FUN_0636b5e0
-// (.text:0636b5e0-0636b698, thiscall, RET 4). Writes one ledgetree node per
+// IVP_SurfaceBuilder_Ledge_Soup::CompileNode() -- the routine
+// (module storage-0636b698, thiscall, RET 4). Writes one ledgetree node per
 // BuildNode, depth first (left son directly after its parent), and returns it.
 // The node's ledge is an IVP_Compact_Ledge inside the compiled blob (repointed
 // by MergeLedgesIntoSurface): +4 is its LedgetreeNodeOffset back-link, +8 its
@@ -509,9 +505,9 @@ IVP_Compact_Ledgetree_Node* IVP_SurfaceBuilder_Ledge_Soup::CompileNode(BuildNode
 }
 
 // IVP_SurfaceBuilder_Ledge_Soup::CompileTree() -- ported.
-//
-// Retail: FUN_0636b740 (Common.dll+0x636b740..0x636b767, decomp-tracker item
-// 3631, 14 insns, Common.dll.txt:472499-472516). Thin wrapper: looks up
+
+// baseline: the routine (Common.dll+0x636b740..0x636b767, implementation tracker item
+// 3631, 14 insns, Common). Thin wrapper: looks up
 // m_BuildTreeScratch's "current count" field (+2, word) as the ROOT entry's
 // index, reads that entry's payload pointer (entry base = scratch +
 // index*8, payload at +4 -- matches the 8-byte entry shape word prev-idx@0 /
@@ -519,7 +515,7 @@ IVP_Compact_Ledgetree_Node* IVP_SurfaceBuilder_Ledge_Soup::CompileNode(BuildNode
 // the header and in item 3620/3621's notes), compiles the whole tree from it
 // via CompileNode(), then zeroes the scratch array's count/root-index field
 // to mark the tree consumed (matches `MOV word ptr [EAX+2],0x0`, 472513).
-// The retail function's EAX=1 return value (472514) is never consulted at
+// The baseline function's EAX=1 return value (472514) is never consulted at
 // its only real call site (Compile()'s pseudocode discards it), so this is
 // ported as void.
 void IVP_SurfaceBuilder_Ledge_Soup::CompileTree()
@@ -529,19 +525,19 @@ void IVP_SurfaceBuilder_Ledge_Soup::CompileTree()
     const uint16_t RootIndex = (uint16_t)Scratch[0].NextIndexOrCount;
     CompileNode(Scratch[RootIndex].Payload);
 
-    // :0636b758-:0636b75b -- the scratch root is consumed. (The retail EAX = 1
+    // :0636b758-:0636b75b -- the scratch root is consumed. (The baseline EAX = 1
     // is discarded by the only caller, :0636a11e.)
     Scratch[0].NextIndexOrCount = 0;
 }
 
 // IVP_SurfaceBuilder_Ledge_Soup::FreeBuildState() -- ported.
-//
-// Retail: FUN_0636a2b0 (Common.dll+0x636a2b0..0x636a34b, decomp-tracker item
-// 3620, 53 insns, Common.dll.txt:470427-470490). Final teardown step of
+
+// baseline: the routine (Common.dll+0x636a2b0..0x636a34b, implementation tracker item
+// 3620, 53 insns, Common). Final teardown step of
 // Compile(), called last (matches the previously-decoded Compile() pseudocode
 // in the header comment above this file).
-//
-// Step-by-step correspondence to the raw disassembly:
+
+// Step-by-step correspondence to the raw analysis:
 //  1. (470434-470446) Frees m_VectorC's backing array via the generic
 //     sentinel/null/heap-pointer check -- byte-identical to this codebase's
 //     existing IVP_U_Vector<T>::Clear() (same "elems == this+1 sentinel"
@@ -554,19 +550,19 @@ void IVP_SurfaceBuilder_Ledge_Soup::CompileTree()
 //     3620/3621's notes for why only one of the two vectors gets a
 //     per-element free pass).
 //  2. (470451-470479) Loops i=0..m_VectorF.n_elems-1 calling operator delete
-//     on every element (FUN_06391d5a; the nodes come from operator_new), THEN
+//     on every element (the routine; the nodes come from operator_new), THEN
 //     frees m_VectorF's own backing array via the same generic Clear() logic
 //     as step 1 (`LEA EDX,[ESI+0x94]` == &m_VectorF + 8, the matching
 //     sentinel for a vector based at +0x8c).
 //  3. (470480-470486) Frees the raw m_BuildTreeScratch array (this[+0x14],
-//     allocated by FUN_0636a350/item 3621) directly and nulls the pointer --
+//     allocated by the routine/item 3621) directly and nulls the pointer --
 //     this is NOT an IVP_U_Vector, just a bare malloc'd buffer, so it gets a
 //     plain free()+null rather than a Clear() call.
 void IVP_SurfaceBuilder_Ledge_Soup::FreeBuildState()
 {
     m_VectorC.Clear();
 
-    // :0636a2d9-0636a302: FUN_06391d5a (operator delete) on every node; the
+    // :0636a2d9-0636a302: the routine (operator delete) on every node; the
     // count is re-read each pass (unsigned word, JBE skips an empty vector).
     for (int i = 0; i < m_VectorF.Len(); ++i)
         delete m_VectorF[i];
@@ -580,48 +576,48 @@ void IVP_SurfaceBuilder_Ledge_Soup::FreeBuildState()
 }
 
 // IVP_SurfaceBuilder_Ledge_Soup::SplitBuildNodeList() -- FULLY ported.
-//
-// Retail: FUN_0636a860 (Common.dll+0x636a860..0x636b189, decomp-tracker item
+
+// baseline: the routine (Common.dll+0x636a860..0x636b189, implementation tracker item
 // 3624, 689 insns -- the largest function in Compile()'s whole dependency
 // chain, and the class's own flagged "highest-risk dense-FP-math function").
-//
-// Full trace by cmn-soup 2026-10-08 (.text:0636a860-0636b189). Dispatch on
+
+// Full trace by cmn-soup 2026-10-08 (module storage-0636b189). Dispatch on
 // the list's n_elems (word): == 1 returns elems[0] (:0636a882-0636a898).
-//
+
 // Shared internal-node setup (:0636a89d-0636a9df):
-//  - FUN_0636a720(list, &m_BBoxMin, &m_BBoxMax): the class-wide bbox fields
+//  - the routine(list, &m_BBoxMin, &m_BBoxMax): the class-wide bbox fields
 //    are reused as scratch.
-//  - local_78 = set_interpolate(p1 = max, p2 = min, 0.5f) (FUN_06347e00);
-//    its 4th dword is never written in retail (uninitialised stack).
+//  - local_78 = set_interpolate(p1 = max, p2 = min, 0.5f) (the routine);
+//    its 4th dword is never written in baseline (uninitialised stack).
 //  - v = max - center as floats (local_3c); radius = float(real_length(v))
-//    (FSTP local_b8); scaled = float(DAT_063ee788 * radius) (FSTP local_c4).
+//    (FSTP local_b8); scaled = float(the field * radius) (FSTP local_c4).
 //  - node = operator_new(0x28) zeroed, appended to m_VectorF; +0x14 =
 //    radius, +0x00 = 0, +0x04..+0x10 = the 4 dwords of local_78 (the 4th
-//    is retail stack garbage -- deterministic 0 here, see the body),
+//    is baseline stack garbage -- deterministic 0 here, see the body),
 //    +0x1c = 0.
 //  - octant[k] = byte(ftol((max[k] - center[k]) / scaled)) + 1, ratio on
 //    the x87 stack (FDIV by the float `scaled`).
 // n_elems == 2 (:0636a9e2-0636aab9): two zeroed stack vectors A / B get
-// elems[0] / elems[1] (FUN_063441a0 grow), Child0 = recurse(A), Child1 =
-// recurse(B), ++m_SplitNodeCount, both vectors cleared (FUN_063449d0, B
+// elems[0] / elems[1] (the routine grow), Child0 = recurse(A), Child1 =
+// recurse(B), ++m_SplitNodeCount, both vectors cleared (the routine, B
 // first) -- the destructors below.
 // n_elems > 2 (:0636aabe-0636b16f):
 //  - six operator_new(8) headers {memsize = n, n_elems = 0, elems =
 //    malloc(n*4) or null}: low[0..2] (local_a8/a4/a0), high[0..2]
-//    (local_98/94/90). After the last one the EH state is -1: retail does
+//    (local_98/94/90). After the last one the EH state is -1: baseline does
 //    not unwind them on an exception.
 //  - per axis: sum = 0.0f + each center[axis] on the x87 stack (ascending);
 //    mean = float(sum / n) (FILD n; FDIVR); low = float(mean - eps), high =
-//    float(mean + eps) (DAT_063a5610). preferLow (local_b8) = 1.
+//    float(mean + eps) (the field). preferLow (local_b8) = 1.
 //    Each element i: v < low (or unordered) -> low; v > high -> high; else
 //    neighbour = elems[i-1] if i == n-1 else elems[i+1]: neighbour < low
 //    (or unordered) -> high; neighbour > high -> low; else low empty ->
 //    low; high empty -> high; preferLow -> low (preferLow = 0); else high
 //    (preferLow = 1).
-//  - FUN_0636a720(low, &lmin, &lmax), FUN_0636a720(high, &hmin, &hmax);
+//  - the routine(low, &lmin, &lmax), the routine(high, &hmin, &hmax);
 //    score[axis] = float(((|hz|*|hy|)*|hx|) + ((|lz|*|ly|)*|lx|)), every
 //    extent and product on the x87 stack.
-//  - best = DAT_063a58cc (float), chosen = 0; for i = 0..2: when best >
+//  - best = the field (float), chosen = 0; for i = 0..2: when best >
 //    score[i] (TEST AH,0x41; JNZ skip): chosen = i if both buckets are
 //    non-empty, and best = score[i] regardless.
 //  - Child0 = recurse(low[chosen]), Child1 = recurse(high[chosen]); the six
@@ -633,13 +629,13 @@ IVP_SurfaceBuilder_Ledge_Soup::BuildNode* IVP_SurfaceBuilder_Ledge_Soup::SplitBu
         return list[0];
 
     // ---- Shared internal-node setup (:0636a89d-0636a9df). ----
-    ComputeNodeListBounds(list, &m_BBoxMin.X, &m_BBoxMax.X); // FUN_0636a720(list, this+0x30, this+0x40)
+    ComputeNodeListBounds(list, &m_BBoxMin.X, &m_BBoxMax.X); // (list, this+0x30, this+0x40)
 
     const IVP_U_Point* ScratchMin = reinterpret_cast<const IVP_U_Point*>(&m_BBoxMin);
     const IVP_U_Point* ScratchMax = reinterpret_cast<const IVP_U_Point*>(&m_BBoxMax);
 
     // local_78. Its 4th dword is never written by set_interpolate and is
-    // copied into node+0x10 below: retail copies uninitialised stack there
+    // copied into node+0x10 below: baseline copies uninitialised stack there
     // (no reader of BuildNode+0x10 exists); the port copies a zero.
     IVP_U_Point Center = {};
     Center.set_interpolate(ScratchMax, ScratchMin, 0.5f);            // :0636a8b8
@@ -649,7 +645,7 @@ IVP_SurfaceBuilder_Ledge_Soup::BuildNode* IVP_SurfaceBuilder_Ledge_Soup::SplitBu
     HalfDiagonal.k[1] = ScratchMax->k[1] - Center.k[1];
     HalfDiagonal.k[2] = ScratchMax->k[2] - Center.k[2];
     const float Radius = (float)(HalfDiagonal.real_length());                                  // :0636a8fe, FSTP local_b8
-    const float Scaled = (float)((double)(BitsToFloat(0x3B83126Fu)) * Radius);       // DAT_063ee788, FSTP local_c4
+    const float Scaled = (float)((double)(BitsToFloat(0x3B83126Fu)) * Radius);       // , FSTP local_c4
 
     BuildNode* node = new BuildNode();
     m_VectorF.Add(node);
@@ -663,9 +659,9 @@ IVP_SurfaceBuilder_Ledge_Soup::BuildNode* IVP_SurfaceBuilder_Ledge_Soup::SplitBu
     node->Ledge = nullptr;                                            // :0636a990
 
     // :0636a997-0636a9df: FLD max[k]; FSUB center[k]; FDIV scaled; ftol; INC AL.
-    node->Octant[0] = static_cast<uint8_t>(static_cast<uint8_t>(RetailFtol(((double)(ScratchMax->k[0]) - Center.k[0]) / Scaled)) + 1);
-    node->Octant[1] = static_cast<uint8_t>(static_cast<uint8_t>(RetailFtol(((double)(ScratchMax->k[1]) - Center.k[1]) / Scaled)) + 1);
-    node->Octant[2] = static_cast<uint8_t>(static_cast<uint8_t>(RetailFtol(((double)(ScratchMax->k[2]) - Center.k[2]) / Scaled)) + 1);
+    node->Octant[0] = static_cast<uint8_t>(static_cast<uint8_t>(baselineFtol(((double)(ScratchMax->k[0]) - Center.k[0]) / Scaled)) + 1);
+    node->Octant[1] = static_cast<uint8_t>(static_cast<uint8_t>(baselineFtol(((double)(ScratchMax->k[1]) - Center.k[1]) / Scaled)) + 1);
+    node->Octant[2] = static_cast<uint8_t>(static_cast<uint8_t>(baselineFtol(((double)(ScratchMax->k[2]) - Center.k[2]) / Scaled)) + 1);
 
     if (list.n_elems == 2)
     {
@@ -679,7 +675,7 @@ IVP_SurfaceBuilder_Ledge_Soup::BuildNode* IVP_SurfaceBuilder_Ledge_Soup::SplitBu
         node->Child1 = SplitBuildNodeList(BucketB);
 
         ++m_SplitNodeCount;
-        return node; // FUN_063449d0 on B, then A: the destructors (reverse order)
+        return node; // on B, then A: the destructors (reverse order)
     }
 
     // ---- :0636aabe-0636b16f ----
@@ -693,14 +689,14 @@ IVP_SurfaceBuilder_Ledge_Soup::BuildNode* IVP_SurfaceBuilder_Ledge_Soup::SplitBu
     BucketHigh[1] = new IVP_U_Vector<BuildNode>(Count);
     BucketHigh[2] = new IVP_U_Vector<BuildNode>(Count);
 
-    const float kMeanEpsilon = BitsToFloat(0x358637BDu); // DAT_063a5610
+    const float kMeanEpsilon = BitsToFloat(0x358637BDu);
     float Score[3];                                      // local_68
 
     for (int32_t Axis = 0; Axis < 3; ++Axis)
     {
         // :0636ace8-0636ad29
         const int32_t N = list.n_elems;
-        double Sum = (double)(BitsToFloat(0x00000000u)); // DAT_063a53d4
+        double Sum = (double)(BitsToFloat(0x00000000u));
         for (int32_t I = 0; I < N; ++I)
             Sum += GetCenterAxis(list[I], Axis);
         const float Mean = (float)(Sum / (double)(N)); // local_80
@@ -784,7 +780,7 @@ IVP_SurfaceBuilder_Ledge_Soup::BuildNode* IVP_SurfaceBuilder_Ledge_Soup::SplitBu
 
     // :0636afe5-0636b01a
     int32_t ChosenAxis = 0;                              // ESI
-    float RunningBest = BitsToFloat(0x60AD78ECu);        // DAT_063a58cc
+    float RunningBest = BitsToFloat(0x60AD78ECu);
     for (int32_t Axis = 0; Axis < 3; ++Axis)
     {
         if (RunningBest > Score[Axis])
@@ -811,35 +807,35 @@ IVP_SurfaceBuilder_Ledge_Soup::BuildNode* IVP_SurfaceBuilder_Ledge_Soup::SplitBu
 }
 
 // IVP_SurfaceBuilder_Ledge_Soup::FinalizeBuildTree() -- ported.
-//
-// Retail: FUN_0636a640 (Common.dll+0x636a640..0x636a710, decomp-tracker item
-// 3622, 66 insns, Common.dll.txt:470804-470882). Compile()'s SECOND callee,
+
+// baseline: the routine (Common.dll+0x636a640..0x636a710, implementation tracker item
+// 3622, 66 insns, Common). Compile()'s SECOND callee,
 // called right after BuildLeafNodes().
-//
-// [2026-09-09 D101] Full raw disassembly re-traced instruction-by-
+
+// [2026-09-09 D101] Full raw analysis re-traced instruction-by-
 // instruction this pass, CORRECTING D81's original summary in two ways:
 //  - There is NO "ancestor-chain condition" gating which scratch entries get
-//    collected (D81's guess) -- the loop (Common.dll.txt:470834-470853)
+//    collected (D81's guess) -- the loop (Common)
 //    unconditionally walks m_BuildTreeScratch's singly-linked chain (starting
 //    at entry[0].NextIndexOrCount, the current root index) and pushes EVERY
 //    visited entry's Payload into a stack-local IVP_U_Vector<BuildNode*>-
-//    shaped list, grown via the same FUN_063441a0 Realloc this codebase's
+//    shaped list, grown via the same the routine Realloc this codebase's
 //    own IVP_U_Vector<T>::Realloc() already matches byte-for-byte -- reused
 //    directly here (localList) rather than hand-transcribing the raw
-//    grow/free-sentinel pointer arithmetic (Common.dll.txt:470839-470846,
+//    grow/free-sentinel pointer arithmetic (Common,
 //    470864-470882).
 //  - The float parameter (1.0f at both real call sites) is NEVER READ
 //    anywhere in this function's body -- no x87 instruction appears at all
 //    in the whole 66-instruction span, and the only stack arg forwarded to
-//    SplitBuildNodeList()/FUN_0636a860 below is the local list's address, not
+//    SplitBuildNodeList()/the routine below is the local list's address, not
 //    the float. D81's guess that "the float 1.0f threshold argument flows
-//    into [FUN_0636a860]" was wrong; the parameter is genuinely dead in this
+//    into [the routine]" was wrong; the parameter is genuinely dead in this
 //    build. Kept here only for call-site signature fidelity with Compile()'s
-//    `FUN_0636a640(this, 1.0f)`.
-//
+//    `the routine(this, 1.0f)`.
+
 // One more finding with downstream consequences: this function
 // UNCONDITIONALLY SEEDS this->m_SplitNodeCount (+0x8) = this->m_LeafCount
-// (+0x4) right before calling the splitter (Common.dll.txt:470855-470860,
+// (+0x4) right before calling the splitter (Common,
 // `MOV EDX,[EDI+4]; MOV [EDI+8],EDX`) -- NOT a simple zero-init. This
 // CORRECTS D99's assumption (recorded in item 3625's own notes) that
 // m_SplitNodeCount is "provably 0" for the always-true single-ledge case: it
@@ -870,8 +866,8 @@ void IVP_SurfaceBuilder_Ledge_Soup::FinalizeBuildTree(float /*unusedThreshold --
     localList.Clear();
 }
 
-// IVP_SurfaceBuilder_Ledge_Soup::CopyLedgeIntoSurface(). Retail FUN_0636b3a0
-// (.text:0636b3a0-0636b513), called once per build node by
+// IVP_SurfaceBuilder_Ledge_Soup::CopyLedgeIntoSurface(). baseline the routine
+// (module storage-0636b513), called once per build node by
 // MergeLedgesIntoSurface().
 //  - No vertex hash (+0x7c == 0): REP MOVSD/MOVSB of
 //    (src[+8] >> 8) << 4 bytes; returns that size (re-read from src[+8]).
@@ -879,10 +875,10 @@ void IVP_SurfaceBuilder_Ledge_Soup::FinalizeBuildTree(float /*unusedThreshold --
 //    triangles only); then for every triangle of the copy (count read from
 //    the copy, triangles ascending) and each of its 3 edges: the source point
 //    srcPoints + (edge & 0xffff) * 16 is looked up in the hash
-//    (FUN_0636cfa0 index, FUN_06352580 find); found -> the edge's start index
+//    (the routine index, the routine find); found -> the edge's start index
 //    becomes (found - base) >> 4 (SAR, masked to 16 bits); not found -> start
 //    index = [+0x78], the point (16 bytes) is copied to base + [+0x78] * 16,
-//    [+0x78]++ and the copy is inserted (FUN_063523d0). Finally
+//    [+0x78]++ and the copy is inserted (the routine). Finally
 //    dest.CPointOffset = base - dest and the header size is returned.
 uint32_t IVP_SurfaceBuilder_Ledge_Soup::CopyLedgeIntoSurface(const void* sourceLedge, void* destCursor)
 {
@@ -931,30 +927,30 @@ uint32_t IVP_SurfaceBuilder_Ledge_Soup::CopyLedgeIntoSurface(const void* sourceL
 }
 
 // IVP_SurfaceBuilder_Ledge_Soup::MergeLedgesIntoSurface() -- ported.
-//
-// Retail: FUN_0636b520 (Common.dll+0x636b520..0x636b5d2, decomp-tracker item
-// 3628, 75 insns, Common.dll.txt:472237-472323). Called from
+
+// baseline: the routine (Common.dll+0x636b520..0x636b5d2, implementation tracker item
+// 3628, 75 insns, Common). Called from
 // BuildCompactSurface() (item 3625) partway through the blob build.
-//
-// [2026-09-09 D101] Full raw disassembly re-traced instruction-by-
+
+// [2026-09-09 D101] Full raw analysis re-traced instruction-by-
 // instruction this pass:
-//  - Loop 1 (Common.dll.txt:472248-472277) walks m_VectorC, gated on
-//    m_CompileOptions[2]==0 (the real retail default). For each BuildNode:
+//  - Loop 1 (Common) walks m_VectorC, gated on
+//    m_CompileOptions[2]==0 (the real baseline default). For each BuildNode:
 //    reads its dual-phase m_LedgeOrDestOffset as the SOURCE ledge pointer,
 //    immediately overwrites that same field with the CURRENT output cursor
-//    (Common.dll.txt:472261, `MOV [EAX+0x1c],EDI` -- BEFORE the copy call,
+//    (Common, `MOV [EAX+0x1c],EDI` -- BEFORE the copy call,
 //    confirming the dual-phase field becomes a destination POINTER, not a
 //    relative offset, at this point in the pipeline), calls
 //    CopyLedgeIntoSurface() to copy/merge it into the blob at the cursor,
 //    advances the cursor by the returned size, then -- only when
-//    m_CompileOptions[1]==1 (the real retail default) and the source ledge
+//    m_CompileOptions[1]==1 (the real baseline default) and the source ledge
 //    pointer was non-null -- frees the original source ledge via
-//    FUN_06343ff0 (already-ported aligned-free, item 2751).
-//  - Loop 2 (.text:0636b575-0636b5aa) walks m_VectorB the same way, with NO
+// (already-ported aligned-free, item 2751).
+//  - Loop 2 (module storage-0636b5aa) walks m_VectorB the same way, with NO
 //    options[2] gating and NO options[1] test: the source ledge is freed
 //    whenever it is non-null (TEST EBX,EBX; JZ only). m_VectorB holds the
-//    root convex hull queued by BuildRootConvexHull() (FUN_0636a1e0).
-//  - Tail (Common.dll.txt:472305-472319): frees and resets m_Ledges via the
+//    root convex hull queued by BuildRootConvexHull() (the routine).
+//  - Tail (Common): frees and resets m_Ledges via the
 //    exact same empty-sentinel-aware logic this codebase's
 //    IVP_U_Vector<T>::Clear() already implements (confirmed byte-identical:
 //    `CMP EAX,[ESI+0x20]` is precisely m_Ledges's own "elems == this+1"
@@ -975,7 +971,7 @@ void IVP_SurfaceBuilder_Ledge_Soup::MergeLedgesIntoSurface()
             const uint32_t size = CopyLedgeIntoSurface(sourceLedge, cursor);
             cursor += size;
             if (options[1] == 1 && sourceLedge != nullptr)
-                ivp_free_aligned(sourceLedge); // FUN_06343ff0
+                ivp_free_aligned(sourceLedge);
         }
     }
 
@@ -987,23 +983,23 @@ void IVP_SurfaceBuilder_Ledge_Soup::MergeLedgesIntoSurface()
         const uint32_t size = CopyLedgeIntoSurface(sourceLedge, cursor);
         cursor += size;
         if (sourceLedge != nullptr)
-            ivp_free_aligned(sourceLedge); // FUN_06343ff0
+            ivp_free_aligned(sourceLedge);
     }
 
     m_Ledges.Clear();
 }
 
-// IVP_SurfaceBuilder_Ledge_Soup::BuildCompactSurface(). Retail FUN_0636b190
-// (.text:0636b190-0636b378), Compile()'s fourth callee. Step comments in the
+// IVP_SurfaceBuilder_Ledge_Soup::BuildCompactSurface(). baseline the routine
+// (module storage-0636b378), Compile()'s fourth callee. Step comments in the
 // body. Header packing: blob[+0x1c] = ((dataBytes + splitNodeBytes + 0x30)
 //     << 8) | (blob[+0x1c]'s pre-existing LOW BYTE) -- note this reads an
-//     as-yet-unwritten byte of the freshly malloc'd blob (FUN_06343fc0 does
+//     as-yet-unwritten byte of the freshly malloc'd blob (the routine does
 //     not zero memory, and nothing before this point writes blob+0x1c),
-//     faithfully reproducing retail's own read of technically-uninitialized
+//     faithfully reproducing baseline's own read of technically-uninitialized
 //     memory rather than "fixing" it to zero. blob[+0x20] = byteTotal + 0x30
 //     (offset to the CompactTreeNode array, deliberately WITHOUT the
 //     splitNodeBytes term -- confirmed by separately tracing EAX at
-//     Common.dll.txt:472027 `ADD EAX,0x30`, which only ever held byteTotal at
+//     Common `ADD EAX,0x30`, which only ever held byteTotal at
 //     that point, unlike the +0x1c computation a few lines earlier which
 //     explicitly adds both terms). blob[+0x24..+0x2c] = 0.
 //     m_CompactNodeCursor (+0x80) = blob_base + blob[+0x20].
@@ -1015,7 +1011,7 @@ bool IVP_SurfaceBuilder_Ledge_Soup::BuildCompactSurface()
     int32_t TriangleTotal = 0;    // EDI: summed ledge NTriangles (MOVSX).
     int32_t totalNodeCount = 0;   // local_18
 
-    // .text:0636b1ad-0636b1eb: m_VectorC only when options[2] == 0.
+    // m_VectorC only when options[2] == 0.
     if (options[2] == 0)
     {
         const int32_t CountC = m_VectorC.Len();
@@ -1031,7 +1027,7 @@ bool IVP_SurfaceBuilder_Ledge_Soup::BuildCompactSurface()
         }
     }
 
-    // .text:0636b1ed-0636b21e: m_VectorB always.
+    // m_VectorB always.
     const int32_t CountB = m_VectorB.Len();
     if (CountB > 0)
     {
@@ -1044,16 +1040,16 @@ bool IVP_SurfaceBuilder_Ledge_Soup::BuildCompactSurface()
         }
     }
 
-    // .text:0636b220-0636b25d: EBX = m_SplitNodeCount * 0x1c.
+    // EBX = m_SplitNodeCount * 0x1c.
     const uint32_t splitNodeBytes = (uint32_t)m_SplitNodeCount * sizeof(IVP_Compact_Ledgetree_Node);
     const uint32_t allocSize = (splitNodeBytes + byteTotal + 0x3f) & ~static_cast<uint32_t>(0xF);
 
-    void* blob = ivp_malloc_aligned(allocSize, 0x10); // FUN_06343fc0
+    void* blob = ivp_malloc_aligned(allocSize, 0x10);
     m_CompactSurface = blob;
     if (blob == nullptr)
-        return false; // .text:0636b247: returns 0.
+        return false; // returns 0.
 
-    // .text:0636b25e-0636b2f1: the vertex hash is built when more than one
+    // the vertex hash is built when more than one
     // ledge is merged with options[2] == 0 and options[3] in {1, 2}; with
     // another options[3] value +0x74 / +0x7c are left as they are.
     if (totalNodeCount > 1 && options[2] == 0)
@@ -1084,9 +1080,9 @@ bool IVP_SurfaceBuilder_Ledge_Soup::BuildCompactSurface()
     m_VertexWriteCursor = static_cast<uint8_t*>(blob) + 0x30;
     m_VertexDedupCount = 0;
 
-    MergeLedgesIntoSurface(); // FUN_0636b520
+    MergeLedgesIntoSurface();
 
-    // .text:0636b306-0636b329: with a hash, delete it (slot 1, flag 1) and
+    // with a hash, delete it (slot 1, flag 1) and
     // size the data area as (pooled points + ledges + triangles) * 16.
     uint32_t leadingOffset;
     if (m_VertexDedupIndex != nullptr)
@@ -1103,10 +1099,10 @@ bool IVP_SurfaceBuilder_Ledge_Soup::BuildCompactSurface()
     uint8_t* blobHeader = static_cast<uint8_t*>(blob);
 
     // Reads blob[+0x1c]'s pre-existing low byte -- this is technically
-    // uninitialized memory (FUN_06343fc0 does not zero the block, and
+    // uninitialized memory (the routine does not zero the block, and
     // nothing before this point writes blob+0x1c; MergeLedgesIntoSurface()
     // only ever writes starting at blob+0x30). Faithfully reproduces
-    // retail's own read rather than "fixing" it to a clean zero.
+    // baseline's own read rather than "fixing" it to a clean zero.
     const uint32_t existingLowByte = *reinterpret_cast<uint32_t*>(blobHeader + 0x1c) & 0xFFu;
     const uint32_t packedTotalSize = leadingOffset + splitNodeBytes + 0x30;
     *reinterpret_cast<uint32_t*>(blobHeader + 0x1c) = (packedTotalSize << 8) | existingLowByte;
@@ -1123,7 +1119,7 @@ bool IVP_SurfaceBuilder_Ledge_Soup::BuildCompactSurface()
 }
 
 // IVP_SurfaceBuilder_Ledge_Soup::ComponentwiseMin3() / ComponentwiseMax3().
-// Retail FUN_06348040 / FUN_06348070: components walked z, y, x;
+// / the routine: components walked z, y, x;
 // FLD other[i]; FCOMP this[i].
 //  - min: TEST AH,0x1; JZ skip -> copies when C0 is set, i.e. other < this OR
 //    the compare is unordered.
@@ -1148,13 +1144,13 @@ void IVP_SurfaceBuilder_Ledge_Soup::ComponentwiseMax3(float inout[3], const floa
 }
 
 // IVP_SurfaceBuilder_Ledge_Soup::ComputeBoundingSphereMassPropertiesFallback().
-// Retail LAB_0636d866, the tail of FUN_0636d6f0 (.text:0636d866-0636d93d):
-//  - FUN_0635aa60(leaves[0], &min, &max) seeds the box;
-//  - EDI = count-1; while (EDI > 0) { FUN_0635aa60(leaves[EDI], &lmin, &lmax);
-//    FUN_06348040(min, lmin); FUN_06348070(max, lmax); --EDI; };
-//  - FUN_06347e00(centerOfMass, min, max, 0.5f);
+// , the tail of the routine (module storage-0636d93d):
+//  - the routine(leaves[0], &min, &max) seeds the box;
+//  - EDI = count-1; while (EDI > 0) { the routine(leaves[EDI], &lmin, &lmax);
+// (min, lmin); the routine(max, lmax); --EDI; };
+//  - the routine(centerOfMass, min, max, 0.5f);
 //  - d_i = min_i - max_i; len = FSQRT(d2*d2 + d1*d1 + d0*d0) on the x87
-//    stack; v = len*0.5f; v = v*v; v = v*0.5f (DAT_063a5460); the one x87
+//    stack; v = len*0.5f; v = v*v; v = v*0.5f (the field); the one x87
 //    value is stored (FSTP / FST dword) into all three inertia components.
 void IVP_SurfaceBuilder_Ledge_Soup::ComputeBoundingSphereMassPropertiesFallback(
     const IVP_SurfaceManager_OutList& leaves,
@@ -1173,7 +1169,7 @@ void IVP_SurfaceBuilder_Ledge_Soup::ComputeBoundingSphereMassPropertiesFallback(
         ComponentwiseMax3(BBoxMax.k, leafMax);
     }
 
-    // :0636d8dd FUN_06347e00(this = com; p1 = min, p2 = max, 0.5f): writes k[0..2] only.
+    // :0636d8dd the routine(this = com; p1 = min, p2 = max, 0.5f): writes k[0..2] only.
     reinterpret_cast<IVP_U_Point*>(outCenterOfMass)->set_interpolate(&BBoxMin, &BBoxMax, 0.5f);
     const float* bboxMin = BBoxMin.k;
     const float* bboxMax = BBoxMax.k;
@@ -1191,7 +1187,7 @@ void IVP_SurfaceBuilder_Ledge_Soup::ComputeBoundingSphereMassPropertiesFallback(
     outRotationInertia[2] = Isotropic;
 }
 
-// FUN_0636d360 (.text:0636d360-0636d502), thiscall on the accumulator,
+// (module storage-0636d502), thiscall on the accumulator,
 // (ledge, triangle), RET 8. Straight-line code:
 //   P0 = edge0, P1 = next(edge0), P2 = prev(edge0).
 //   b = P2 - P0 spilled as floats; a = P1 - P0 kept on the x87 stack.
@@ -1200,7 +1196,7 @@ void IVP_SurfaceBuilder_Ledge_Soup::ComputeBoundingSphereMassPropertiesFallback(
 //   D = float((n.z*z0 + n.x*x0) + n.y*y0).
 //   acc+0x10 = float(((n.z^2 + n.y^2) + n.x^2) + acc+0x10);
 //   acc+0x14 = float(D + acc+0x14).
-//   q = D * 0.25f (DAT_063a5674) stays on the stack; for P0, P1, P2 in turn
+//   q = D * 0.25f (the field) stays on the stack; for P0, P1, P2 in turn
 //   every moment component becomes float(q*p + moment), each rounded once.
 void IVP_SurfaceBuilder_Ledge_Soup::AccumulateTriangleVolume(FVolumeIntegralAccumulator& Acc, const IVP_Compact_Ledge* Ledge,
                                                              const IVP_Compact_Triangle* Triangle)
@@ -1227,7 +1223,7 @@ void IVP_SurfaceBuilder_Ledge_Soup::AccumulateTriangleVolume(FVolumeIntegralAccu
                                            Acc.NormalQuadSum);
     Acc.Volume6 = (float)((double)(D) + Acc.Volume6);
 
-    const double Q = (double)(D) * (double)(BitsToFloat(0x3E800000u)); // DAT_063a5674 = 0.25f
+    const double Q = (double)(D) * (double)(BitsToFloat(0x3E800000u)); // = 0.25f
     const IVP_U_Float_Point* const Points[3] = { P0, P1, P2 };
     for (int32_t I = 0; I < 3; ++I)
     {
@@ -1240,7 +1236,7 @@ void IVP_SurfaceBuilder_Ledge_Soup::AccumulateTriangleVolume(FVolumeIntegralAccu
     }
 }
 
-// FUN_0636d510 (.text:0636d510-0636d53e), thiscall on the accumulator,
+// (module storage-0636d53e), thiscall on the accumulator,
 // (ledge), RET 4: triangles ascending; the signed word count is re-read
 // every pass (MOVSX), JLE skips a non-positive count.
 void IVP_SurfaceBuilder_Ledge_Soup::AccumulateLedgeVolume(FVolumeIntegralAccumulator& Acc, const IVP_Compact_Ledge* Ledge)
@@ -1250,7 +1246,7 @@ void IVP_SurfaceBuilder_Ledge_Soup::AccumulateLedgeVolume(FVolumeIntegralAccumul
         AccumulateTriangleVolume(Acc, Ledge, Triangle);
 }
 
-// FUN_0636d550 (.text:0636d550-0636d573), thiscall on the accumulator,
+// (module storage-0636d573), thiscall on the accumulator,
 // (leaves), RET 4: ESI = count - 1; JS skip; leaves DESCENDING.
 void IVP_SurfaceBuilder_Ledge_Soup::AccumulateVolumeIntegral(FVolumeIntegralAccumulator& Acc, const IVP_SurfaceManager_OutList& Leaves)
 {
@@ -1258,20 +1254,20 @@ void IVP_SurfaceBuilder_Ledge_Soup::AccumulateVolumeIntegral(FVolumeIntegralAccu
         AccumulateLedgeVolume(Acc, static_cast<const IVP_Compact_Ledge*>(Leaves.Elems[I]));
 }
 
-// FUN_0636d040 (.text:0636d040-0636d358), thiscall on the 4-dword
+// (module storage-0636d358), thiscall on the 4-dword
 // {Csys, mass, sumA, sumB} accumulator, (ledge, triangle, A, B, C), RET 0x14.
-// See the header for the variable map; every term below is retail's x87
+// See the header for the variable map; every term below is baseline's x87
 // order. Values on the x87 stack are double, FSTP dword spills are float.
 void IVP_SurfaceBuilder_Ledge_Soup::AccumulateTriangleAxisIntegral(FAxisIntegralAccumulator& Acc, const IVP_Compact_Ledge* Ledge,
                                                                    const IVP_Compact_Triangle* Triangle,
                                                                    int32_t AxisA, int32_t AxisB, int32_t AxisC)
 {
-    const double kEpsilon = (double)(BitsToFloat(0x358637BDu));   // DAT_063a5610
-    const double kHalf = (double)(BitsToFloat(0x3F000000u));      // DAT_063a5460
-    const double kMinusHalf = (double)(BitsToFloat(0xBF000000u)); // DAT_063a56f0
-    const double kQuarter = (double)(BitsToFloat(0x3E800000u));   // DAT_063a5674
-    const double kOneThird = (double)(BitsToFloat(0x3EAAAAABu));  // DAT_063a58f4
-    const double kOneFifth = (double)(BitsToFloat(0x3E4CCCCDu));  // DAT_063a5748
+    const double kEpsilon = (double)(BitsToFloat(0x358637BDu));
+    const double kHalf = (double)(BitsToFloat(0x3F000000u));
+    const double kMinusHalf = (double)(BitsToFloat(0xBF000000u));
+    const double kQuarter = (double)(BitsToFloat(0x3E800000u));
+    const double kOneThird = (double)(BitsToFloat(0x3EAAAAABu));
+    const double kOneFifth = (double)(BitsToFloat(0x3E4CCCCDu));
 
     // :0636d04f-0636d067: the face normal of edge0, normalised in place (the
     // normize result is not tested).
@@ -1388,10 +1384,10 @@ void IVP_SurfaceBuilder_Ledge_Soup::AccumulateTriangleAxisIntegral(FAxisIntegral
     Acc.SumB = (float)((double)(TriSumB) + Acc.SumB);
 }
 
-// FUN_0636d580 (.text:0636d580-0636d649), cdecl (leaves, A, B, C, csys,
-// &n1, &mass, &n2). FUN_0636d000 builds {csys, 0, 0, 0}; leaves DESCENDING
+// (module storage-0636d649), cdecl (leaves, A, B, C, csys,
+// &n1, &mass, &n2). the routine builds {csys, 0, 0, 0}; leaves DESCENDING
 // (param_5 reused as the counter), triangles ascending (signed word count,
-// re-read each pass). Tail: FLD mass; FCOMP 1e-10f (DAT_063a53d8); TEST
+// re-read each pass). Tail: FLD mass; FCOMP 1e-10f (the field); TEST
 // AH,0x1; JZ normal -> mass < eps or unordered gives mass = 0, n1 = 0,
 // n2 = 1.0f; otherwise n1 = sumA / mass, mass, n2 = sumB / mass.
 void IVP_SurfaceBuilder_Ledge_Soup::AccumulateAxisIntegral(const IVP_SurfaceManager_OutList& Leaves, int32_t AxisA, int32_t AxisB,
@@ -1408,7 +1404,7 @@ void IVP_SurfaceBuilder_Ledge_Soup::AccumulateAxisIntegral(const IVP_SurfaceMana
             AccumulateTriangleAxisIntegral(Acc, Ledge, Triangle, AxisA, AxisB, AxisC);
     }
 
-    if (!(Acc.Mass >= BitsToFloat(0x2EDBE6FFu))) // DAT_063a53d8
+    if (!(Acc.Mass >= BitsToFloat(0x2EDBE6FFu)))
     {
         *OutRawMass = 0.0f;
         *OutNormalized1 = 0.0f;
@@ -1423,29 +1419,29 @@ void IVP_SurfaceBuilder_Ledge_Soup::AccumulateAxisIntegral(const IVP_SurfaceMana
 
 // IVP_SurfaceBuilder_Ledge_Soup::ComputeMassProperties() -- FULLY PORTED
 // (both the bounding-sphere fallback AND the true Mirtich normal path).
-// Retail FUN_0636d6f0, decomp-tracker item 3660 (Common.dll+0x636d6f0..
-// 0x636d93d, 188 insns, Common.dll.txt:475819-476040) -- Mirtich's algorithm
+// , implementation tracker item 3660 (Common.dll+0x636d6f0..
+// , 188 insns, Common) -- Mirtich's algorithm
 // ("Fast and Accurate Computation of Polyhedral Mass Properties", Brian
 // Mirtich, 1996). See the header declaration comment for the full
 // control-flow summary.
-// FUN_0628be10 (this = out; vec, scale) is out[i] = float(scale * vec[i]);
+// (this = out; vec, scale) is out[i] = float(scale * vec[i]);
 // it is written inline below, like its other two file-local copies in this
 // port (common_physys.cpp PhySys_Vec3Scale, ivp_friction_solver.cpp).
 bool IVP_SurfaceBuilder_Ledge_Soup::ComputeMassProperties(const IVP_SurfaceManager_OutList& leaves,
                                                             float outCenterOfMass[3], float outRotationInertia[3])
 {
-    // .text:0636d6f6-0636d717: local_50 is an IVP_U_Matrix (the eh vector
+    // local_50 is an IVP_U_Matrix (the eh vector
     // constructor over its three rows is a no-op ctor), set to identity by
-    // FUN_063481b0; the accumulator is built by FUN_0636d020.
+    // ; the accumulator is built by the routine.
     IVP_U_Matrix Csys;
     Csys.init();
     FVolumeIntegralAccumulator Accumulator;
 
-    // .text:0636d728: FUN_0636d550(&accumulator, leaves).
+    // the routine(&accumulator, leaves).
     AccumulateVolumeIntegral(Accumulator, leaves);
 
-    // .text:0636d72d-0636d74c: FLD acc[4]; FSQRT; FLD ST0; FMUL ST1; FMUL ST1;
-    // FMUL DAT_063a5914 -> metric (x87, not rounded); FLD acc[5]; FCOMPP
+    // FLD acc[4]; FSQRT; FLD ST0; FMUL ST1; FMUL ST1;
+    // FMUL the field -> metric (x87, not rounded); FLD acc[5]; FCOMPP
     // (ST0 = acc[5] vs ST1 = metric); TEST AH,0x41; JNZ fallback.
     // C0|C3 = acc[5] < metric, acc[5] == metric or unordered -> fallback;
     // the Mirtich path is taken only when acc[5] > metric.
@@ -1457,14 +1453,14 @@ bool IVP_SurfaceBuilder_Ledge_Soup::ComputeMassProperties(const IVP_SurfaceManag
         return false;
     }
 
-    // .text:0636d752: FUN_063481b0 again.
+    // the routine again.
     Csys.init();
 
-    // .text:0636d75b-0636d7b4: scale = float(1.0f / acc[5]) (FSTP dword
-    // [ESP]); FUN_0628be10(this = local_8c; acc, scale) writes
+    // scale = float(1.0f / acc[5]) (FSTP dword
+    // [ESP]); the routine(this = local_8c; acc, scale) writes
     // com.k[i] = float(scale * acc[i]) and leaves local_8c's 4th dword
     // unwritten. com goes to *outCenterOfMass and its 4 dwords to Csys.vv
-    // (retail copies uninitialised stack into vv.hesse, which vimult4 never
+    // (baseline copies uninitialised stack into vv.hesse, which vimult4 never
     // reads; the port copies a zero).
     const float InvVolume = (float)(1.0 / (double)(Accumulator.Volume6));
     IVP_U_Point Com = {};
@@ -1479,7 +1475,7 @@ bool IVP_SurfaceBuilder_Ledge_Soup::ComputeMassProperties(const IVP_SurfaceManag
     Csys.vv.k[2] = Com.k[2];
     Csys.vv.k[3] = Com.k[3];
 
-    // .text:0636d7b7-0636d81c: FUN_0636d580(leaves, 0,1,2, &Csys, &local_78, &local_7c, &B1),
+    // the routine(leaves, 0,1,2, &Csys, &local_78, &local_7c, &B1),
     // (1,2,0, &local_74, &local_7c, &B2), (2,0,1, &local_70, &local_7c, &B3);
     // only the last out-parameter is read later.
     float Normalized1[3];
@@ -1491,7 +1487,7 @@ bool IVP_SurfaceBuilder_Ledge_Soup::ComputeMassProperties(const IVP_SurfaceManag
     AccumulateAxisIntegral(leaves, 1, 2, 0, &Csys, &Normalized1[1], &RawMass, &B2);
     AccumulateAxisIntegral(leaves, 2, 0, 1, &Csys, &Normalized1[2], &RawMass, &B3);
 
-    // .text:0636d821-0636d857: squares stay on the x87 stack;
+    // squares stay on the x87 stack;
     // x = sqrt(B3^2 + B2^2), y = sqrt(B3^2 + B1^2), z = sqrt(B1^2 + B2^2).
     const double B1Sq = (double)(B1) * B1;
     const double B2Sq = (double)(B2) * B2;
@@ -1502,28 +1498,28 @@ bool IVP_SurfaceBuilder_Ledge_Soup::ComputeMassProperties(const IVP_SurfaceManag
     return true;
 }
 
-// Retail FUN_0636d650 (.text:0636d650-0636d6e9): collects every leaf ledge of
+// (module storage-0636d6e9): collects every leaf ledge of
 // the compiled surface into a local growable array {capacity 0x80, count 0,
-// malloc(0x200)} through FUN_0635abf0, runs FUN_0636d6f0 on it and frees the
+// malloc(0x200)} through the routine, runs the routine on it and frees the
 // array (unless it is the inline sentinel) on both the normal and the unwind
-// path; returns FUN_0636d6f0's result. FLedgeSoupLeafList owns the buffer
+// path; returns the routine's result. FLedgeSoupLeafList owns the buffer
 // the same way (RAII covers the unwind funclet).
 bool IVP_SurfaceBuilder_Ledge_Soup::ComputeSurfaceMassProperties(const void* CompiledSurface,
                                                                    float outCenterOfMass[3], float outRotationInertia[3])
 {
-    FLedgeSoupLeafList Leaves(0x80); // {0x80, 0, FUN_06343f70(0x200)}
-    IVP_Compact_Ledge_Solver::get_all_ledges(static_cast<const IVP_Compact_Surface*>(CompiledSurface), &Leaves.List); // :0636d699 FUN_0635abf0
+    FLedgeSoupLeafList Leaves(0x80); // {0x80, 0, the routine(0x200)}
+    IVP_Compact_Ledge_Solver::get_all_ledges(static_cast<const IVP_Compact_Surface*>(CompiledSurface), &Leaves.List); // :0636d699 the routine
     return ComputeMassProperties(Leaves.List, outCenterOfMass, outRotationInertia);
 }
 
 // IVP_SurfaceBuilder_Ledge_Soup::AccumulateLeafLedgeRadii() -- ported.
-//
-// Retail: FUN_0635ac10, decomp-tracker item 3311 (Common.dll+0x635ac10..
-// 0x635ad93, 134 insns, Common.dll.txt:444256-444416). See the header's own
+
+// baseline: the routine, implementation tracker item 3311 (Common.dll+0x635ac10..
+// , 134 insns, Common). See the header's own
 // declaration comment for the high-level summary; full instruction-by-
 // instruction derivation below.
-//
-// Per triangle: N = FUN_0635b940(edge0), inv = 1 / |N|^2; per edge start
+
+// Per triangle: N = the routine(edge0), inv = 1 / |N|^2; per edge start
 // point: d = p - com, local_28 = max(|d|^2), local_24 = max(|d x N|^2 * inv)
 // (squared distance from the line com + t*N). Tail (also reached with no
 // triangles): *upper = max(*upper, sqrt(local_28)); when the aux POINTER is
@@ -1540,7 +1536,7 @@ void IVP_SurfaceBuilder_Ledge_Soup::AccumulateLeafLedgeRadii(const IVP_Compact_L
     const IVP_Compact_Triangle* Triangle = leaf->GetFirstTriangle();
     for (int32_t Remaining = leaf->GetNTriangles(); Remaining > 0; --Remaining, ++Triangle)
     {
-        // :0635ac42-0635ac76: N = FUN_0635b940(edge0, leaf, &N);
+        // :0635ac42-0635ac76: N = the routine(edge0, leaf, &N);
         // inv = 1.0f / ((N.y^2 + N.z^2) + N.x^2) stays on the x87 stack.
         IVP_U_Point N; // local_10
         IVP_Compact_Ledge_Solver::calc_hesse_vec_object_not_normized(Triangle->GetFirstEdge(), leaf, &N);
@@ -1581,17 +1577,17 @@ void IVP_SurfaceBuilder_Ledge_Soup::AccumulateLeafLedgeRadii(const IVP_Compact_L
 }
 
 // IVP_SurfaceBuilder_Ledge_Soup::ComputeSurfaceRadii() -- ported.
-//
-// Retail: FUN_0635ada0, decomp-tracker item 3312 (Common.dll+0x635ada0..
-// 0x635ae52, 60 insns, Common.dll.txt:444431-444506). See the header's own
+
+// baseline: the routine, implementation tracker item 3312 (Common.dll+0x635ada0..
+// , 60 insns, Common). See the header's own
 // declaration comment for the centerOfMass-provenance correction to item
-// 3630's notes. Control flow (.text:0635ada0-0635ae52):
+// 3630's notes. Control flow (module storage-0635ae52):
 //  - *outUpperLimitRadius = 0.0f, then *outAuxRadiusMetric = 0.0f.
-//  - Local big vector {0x400, 0, FUN_06343f70(0x1000)} (FLedgeSoupLeafList;
+//  - Local big vector {0x400, 0, the routine(0x1000)} (FLedgeSoupLeafList;
 //    its destructor is the inlined free, EH state 0 covers the unwind path).
-//  - FUN_0635abf0 = IVP_Compact_Ledge_Solver::get_all_ledges(surface, &list).
+//  - the routine = IVP_Compact_Ledge_Solver::get_all_ledges(surface, &list).
 //  - Loop every collected leaf DESCENDING (ESI = count-1 down to 0,
-//    .text:0635adf7-0635ae1d), calling AccumulateLeafLedgeRadii() with
+// ), calling AccumulateLeafLedgeRadii() with
 //    centerOfMass forwarded unchanged and both accumulators.
 void IVP_SurfaceBuilder_Ledge_Soup::ComputeSurfaceRadii(const void* CompiledSurface, const float centerOfMass[3],
                                                           float* outUpperLimitRadius, float* outAuxRadiusMetric)
@@ -1599,41 +1595,41 @@ void IVP_SurfaceBuilder_Ledge_Soup::ComputeSurfaceRadii(const void* CompiledSurf
     *outUpperLimitRadius = 0.0f; // :0635adc6
     *outAuxRadiusMetric = 0.0f;  // :0635adcd
 
-    FLedgeSoupLeafList Leaves(0x400); // {0x400, 0, FUN_06343f70(0x1000)}
-    IVP_Compact_Ledge_Solver::get_all_ledges(static_cast<const IVP_Compact_Surface*>(CompiledSurface), &Leaves.List); // :0635adf2 FUN_0635abf0
+    FLedgeSoupLeafList Leaves(0x400); // {0x400, 0, the routine(0x1000)}
+    IVP_Compact_Ledge_Solver::get_all_ledges(static_cast<const IVP_Compact_Surface*>(CompiledSurface), &Leaves.List); // :0635adf2 the routine
 
     for (int32_t i = Leaves.List.Count - 1; i >= 0; --i)
         AccumulateLeafLedgeRadii(static_cast<const IVP_Compact_Ledge*>(Leaves.List.Elems[i]), centerOfMass,
                                  outUpperLimitRadius, outAuxRadiusMetric);
 }
 
-// Retail FUN_0636b6a0 (.text:0636b6a0-0636b73b): Compile()'s mass-property
+// (module storage-0636b73b): Compile()'s mass-property
 // step between CompileTree() and FreeBuildState(). Writes centerOfMass
 // (+0x0), rotationInertia (+0xc), upper_limit_radius (+0x18) into the
 // compiled surface header and splices a bucket byte into the low byte of the
 // packed size/flags dword at +0x1c.
 void IVP_SurfaceBuilder_Ledge_Soup::ApplyMassPropertyHeader()
 {
-    // .text:0636b6a7-0636b6b4: FUN_0636d650(surface, &com, &inertia); its
+    // the routine(surface, &com, &inertia); its
     // return value is ignored.
     float CenterOfMass[3];
     float RotationInertia[3];
     ComputeSurfaceMassProperties(m_CompactSurface, CenterOfMass, RotationInertia);
 
-    // .text:0636b6b9-0636b6cb: FUN_0635ada0(surface, &com, &upper, &aux).
+    // the routine(surface, &com, &upper, &aux).
     float UpperLimitRadius;
     float AuxRadiusMetric;
     ComputeSurfaceRadii(m_CompactSurface, CenterOfMass, &UpperLimitRadius, &AuxRadiusMetric);
 
-    // .text:0636b6d0-0636b706: dword copies, inertia to +0xc..+0x14 first,
+    // dword copies, inertia to +0xc..+0x14 first,
     // then com to +0x0..+0x8, then upper to +0x18.
     uint8_t* Blob = static_cast<uint8_t*>(m_CompactSurface);
     std::memcpy(Blob + 0xc, RotationInertia, sizeof(RotationInertia));
     std::memcpy(Blob + 0x0, CenterOfMass, sizeof(CenterOfMass));
     std::memcpy(Blob + 0x18, &UpperLimitRadius, sizeof(UpperLimitRadius));
 
-    // .text:0636b709-0636b734: FLD upper; FMUL DAT_063a54b4; FDIVR aux;
-    // FADD 1.0f (DAT_063a53d0); ftol (truncation of the x87 value);
+    // FLD upper; FMUL the field; FDIVR aux;
+    // FADD 1.0f (the field); ftol (truncation of the x87 value);
     // [+0x1c] = (old & ~0xff) | (result & 0xff).
     const double Scaled = (double)(UpperLimitRadius) * (double)(BitsToFloat(0x3B83126Fu));
     const double Bucket = (double)(AuxRadiusMetric) / Scaled + 1.0;
@@ -1650,19 +1646,19 @@ void IVP_SurfaceBuilder_Ledge_Soup::ApplyMassPropertyHeader()
 // + its two producers, ComputeMassProperties()/ComputeSurfaceRadii()) is now
 // wired in for real too -- see the header's own comment on this declaration
 // and the inlined evidence comment right before the call below.
-//
-// Retail: FUN_0636a0b0 (Common.dll+0x6636a0b0..0x6636a189, decomp-tracker
+
+// baseline: the routine (Common.dll+0x6636a0b0..0x6636a189, implementation tracker
 // item 3617). This closes out the whole multi-lane
 // IVP_SurfaceBuilder_Ledge_Soup investigation (D78/D81/D91/D94/D96/D98/D99/
 // D101/D103/D122/D150/D155/D156) -- every direct callee is now either ported
-// or a documented, asserted, provably-unreachable-in-retail gap.
-//
+// or a documented, asserted, provably-unreachable-in-baseline gap.
+
 // [2026-09-09 D101] Matches the pseudocode already recorded at the top of
-// this file (decoded by an earlier D101 pass over the raw disassembly),
+// this file (decoded by an earlier D101 pass over the raw analysis),
 // wired up to the now-ported callees:
-// Retail FUN_0636a190 (.text:0636a190-0636a1d5), thiscall with an unused
+// (module storage-0636a1d5), thiscall with an unused
 // `this`: while (Node) { if (Node->ledge) { OutLedges.Add(ledge)
-// (FUN_063556b0); return; } if (Node->Child0) recurse(Child0);
+// (the routine); return; } if (Node->Child0) recurse(Child0);
 // Node = Node->Child1; }.
 void IVP_SurfaceBuilder_Ledge_Soup::CollectNodeLedges(IVP_U_Vector<IVP_Compact_Ledge>& OutLedges, const BuildNode* Node)
 {
@@ -1679,13 +1675,13 @@ void IVP_SurfaceBuilder_Ledge_Soup::CollectNodeLedges(IVP_U_Vector<IVP_Compact_L
     }
 }
 
-// Retail FUN_0636a1e0 (.text:0636a1e0-0636a2a0): root = scratch[scratch[0]
+// (module storage-0636a2a0): root = scratch[scratch[0]
 // .NextIndexOrCount (word, zero-extended)].Payload; a local hull builder
-// (FUN_0636ca00: ledge vector with 0x80 preallocated slots) collects every
-// ledge below the root (FUN_0636a190) and FUN_0636cf70 builds their convex
+// (the routine: ledge vector with 0x80 preallocated slots) collects every
+// ledge below the root (the routine) and the routine builds their convex
 // hull; the hull is appended to m_Ledges, stored as the root's ledge and the
 // root is appended to m_VectorB; the builder's vector is released by
-// FUN_063449d0 (EH state 0 -> RAII here).
+// (EH state 0 -> RAII here).
 void IVP_SurfaceBuilder_Ledge_Soup::BuildRootConvexHull()
 {
     const BuildTreeScratchEntry* Scratch = static_cast<const BuildTreeScratchEntry*>(m_BuildTreeScratch);
@@ -1703,8 +1699,8 @@ void IVP_SurfaceBuilder_Ledge_Soup::BuildRootConvexHull()
 
 void* IVP_SurfaceBuilder_Ledge_Soup::Compile(const void* options)
 {
-    // Retail defaults to a CALLER-FRAME local {0,1,0,1} block when no
-    // options are supplied (Common.dll+0x6636a0b0's own disasm) -- this
+    // baseline defaults to a CALLER-FRAME local {0,1,0,1} block when no
+    // options are supplied (Common.dll+0x6636a0b0's own analysis) -- this
     // local array has the exact same call-scoped lifetime here (valid for
     // the duration of this Compile() call, which is all every downstream
     // reader needs, since m_CompileOptions is only ever read by this
@@ -1720,29 +1716,29 @@ void* IVP_SurfaceBuilder_Ledge_Soup::Compile(const void* options)
     BuildLeafNodes();
     FinalizeBuildTree(1.0f);
 
-    // .text:0636a104-0636a110: options[0] != 0 and more than one ledge ->
-    // FUN_0636a1e0 (n_elems compared unsigned: JBE skips when <= 1).
+    // options[0] != 0 and more than one ledge ->
+    // (n_elems compared unsigned: JBE skips when <= 1).
     const int32_t* optArr = static_cast<const int32_t*>(m_CompileOptions);
     if (optArr[0] != 0 && m_Ledges.n_elems > 1)
         BuildRootConvexHull();
 
-    BuildCompactSurface(); // FUN_0636b190, return value ignored (.text:0636a117)
+    BuildCompactSurface(); // , return value ignored (module storage)
     CompileTree();
 
-    // FUN_0636b6a0/item 3630 (mass-property header post-process): now wired
-    // in for real. [2026-09-10] Verified against raw disasm
-    // (Common.dll.txt:470239-470245) that retail FUN_0636a0b0 calls
-    // FUN_0636b190 (BuildCompactSurface) -> FUN_0636b740 (CompileTree) ->
-    // FUN_0636b6a0 (this step) -> FUN_0636a2b0 (FreeBuildState), in exactly
+    // /item 3630 (mass-property header post-process): now wired
+    // in for real. [2026-09-10] Verified against raw analysis
+    // (Common) that baseline the routine calls
+    // (BuildCompactSurface) -> the routine (CompileTree) ->
+    // (this step) -> the routine (FreeBuildState), in exactly
     // that order -- confirming this is the real wiring point, not just the
-    // header comment's own claim. FUN_0636b6a0 itself (Common.dll.txt:
-    // 472444-472493) calls FUN_0636d650 (item 3659, ComputeMassProperties's
-    // leaf-collection+compute driver) then FUN_0635ada0 (item 3312,
+    // header comment's own claim. the routine itself (Common:
+    // 472444-472493) calls the routine (item 3659, ComputeMassProperties's
+    // leaf-collection+compute driver) then the routine (item 3312,
     // ComputeSurfaceRadii) then writes the 4 results into the compiled
     // blob's header -- exactly the sequence below, now that both producers
     // (items 3660/3312) are fully ported. Matches the pseudocode already
     // recorded in this class's header declaration comment for Compile().
-    ApplyMassPropertyHeader(); // FUN_0636b6a0
+    ApplyMassPropertyHeader();
 
     FreeBuildState();
 
@@ -1759,9 +1755,9 @@ void* IVP_SurfaceBuilder_Ledge_Soup::Compile(const void* options)
             const uint8_t* header = static_cast<const uint8_t*>(result);
             const int32_t packedSize = *reinterpret_cast<const int32_t*>(header + 0x1c);
             const int32_t byteSize = packedSize >> 8;
-            void* newBlock = ivp_malloc_aligned(static_cast<unsigned>(byteSize), 0x10); // FUN_06343fc0
+            void* newBlock = ivp_malloc_aligned(static_cast<unsigned>(byteSize), 0x10);
             std::memcpy(newBlock, result, static_cast<size_t>(byteSize));
-            ivp_free_aligned(result); // FUN_06343ff0
+            ivp_free_aligned(result);
             result = newBlock;
         }
     }

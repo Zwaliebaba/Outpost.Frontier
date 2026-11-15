@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "StdAfx.h"
@@ -16,14 +12,14 @@
 #include <stdio.h>
 #include <string.h>
 
-// CFLSummaryForm TU, retail .text:0040e8b0..0040f9e9.
+// CFLSummaryForm TU, baseline module storage..0040f9e9.
 
 namespace
 {
-	// The banner's text colour (.text:0040f820, 0040f9b0).
+	// The banner's text colour (module storage, 0040f9b0).
 	const COLORREF GBannerTextColor = 0xe0c387;
 
-	// Inlined twice in retail (.text:0040ef56..0040efb7 and 0040f103..0040f164): puts Text
+	// Inlined twice in baseline (module storage..0040efb7 and 0040f103..0040f164): puts Text
 	// into the banner, then invalidates the banner's rectangle in the form and the banner
 	// itself and updates both.
 	void ShowBannerText(CWnd* Form, CRichEditCtrl& Banner, const wchar_t* Text)
@@ -41,8 +37,8 @@ namespace
 
 // IMPLEMENT_DYNCREATE(CFLSummaryForm, CFormView) spelled out (MFC 14 afx.h IMPLEMENT_DYNCREATE
 // -> IMPLEMENT_RUNTIMECLASS, _AFXDLL branch) with the one difference that the runtime class name
-// is "FLSummaryForm": retail's CRuntimeClass .rdata:0041d69c points at .data:00425944
-// "FLSummaryForm" (no C), schema 0xFFFF, CreateObject .text:0040e8b0, _GetBaseClass .text:0040e910.
+// is "FLSummaryForm": baseline's CRuntimeClass module storage points at module storage
+// "FLSummaryForm" (no C), schema 0xFFFF, CreateObject module storage, _GetBaseClass module storage.
 CObject* PASCAL CFLSummaryForm::CreateObject()
 {
 	return new CFLSummaryForm;
@@ -78,13 +74,13 @@ CRuntimeClass* CFLSummaryForm::GetRuntimeClass() const
 }
 #endif
 
-// .rdata:0041d700 (entries .rdata:0041d6b8).
+// (entries module storage).
 BEGIN_MESSAGE_MAP(CFLSummaryForm, CFormView)
 	ON_WM_TIMER()
 	ON_WM_CTLCOLOR()
 END_MESSAGE_MAP()
 
-// .text:0040e930. Retail leaves ShownStats, bInitialized and the two resource handles
+// . baseline leaves ShownStats, bInitialized and the two resource handles
 // unwritten until OnInitialUpdate; the port clears bInitialized here so the timer and OnUpdate
 // paths never read an indeterminate bool.
 CFLSummaryForm::CFLSummaryForm()
@@ -93,13 +89,13 @@ CFLSummaryForm::CFLSummaryForm()
 	bInitialized = false;
 }
 
-// .text:0040ec60 — the strings, the font and the brush, then the controls, are released by
-// their destructors in reverse declaration order, as retail does explicitly.
+// — the strings, the font and the brush, then the controls, are released by
+// their destructors in reverse declaration order, as baseline does explicitly.
 CFLSummaryForm::~CFLSummaryForm()
 {
 }
 
-// .text:0040edc0
+
 void CFLSummaryForm::DoDataExchange(CDataExchange* DX)
 {
 	DDX_Control(DX, 0x42b, Banner);
@@ -109,7 +105,7 @@ void CFLSummaryForm::DoDataExchange(CDataExchange* DX)
 	DDX_Control(DX, 0x425, LoadBar);
 }
 
-// .text:0040ee50
+
 void CFLSummaryForm::ScrollMarquee()
 {
 	if (!bInitialized || GApp == NULL)
@@ -129,7 +125,7 @@ void CFLSummaryForm::ScrollMarquee()
 	ShowBannerText(this, Banner, Marquee.c_str());
 }
 
-// .text:0040f030
+
 void CFLSummaryForm::Refresh()
 {
 	if (!bInitialized || GApp == NULL || GApp->IsShuttingDown())
@@ -212,7 +208,7 @@ void CFLSummaryForm::Refresh()
 	ShownStats = Stats;
 }
 
-// .text:0040f3d0
+
 void CFLSummaryForm::OnInitialUpdate()
 {
 	bInitialized = false;
@@ -296,7 +292,7 @@ void CFLSummaryForm::OnInitialUpdate()
 	Refresh();
 }
 
-// .text:0040f950
+
 void CFLSummaryForm::OnTimer(UINT_PTR IdEvent)
 {
 	if (IdEvent == 0x2001)
@@ -312,13 +308,13 @@ void CFLSummaryForm::OnTimer(UINT_PTR IdEvent)
 	Default();
 }
 
-// .text:0040f980
+
 void CFLSummaryForm::OnUpdate(CView* Sender, LPARAM Hint, CObject* HintObject)
 {
 	Refresh();
 }
 
-// .text:0040f990 — statics get the banner colour on a transparent background; statics, the
+// — statics get the banner colour on a transparent background; statics, the
 // dialog, edits and message boxes paint with the background brush; everything else keeps the
 // base brush.
 HBRUSH CFLSummaryForm::OnCtlColor(CDC* Dc, CWnd* Wnd, UINT CtlColor)

@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "StdAfx.h"
@@ -17,14 +13,14 @@
 #include "UniverseChatDlg.h"
 #include "ServerNewsDlg.h"
 #include "ServerConfigDlg.h"
-#include "OutpostServerCmdLine.h"    // COutpostServerCommandLineInfo (ParseParam .text:00413880)
+#include "OutpostServerCmdLine.h"    // COutpostServerCommandLineInfo (ParseParam module storage)
 #include "Motd.h"               // GMotd
 #include "ResourceStrings.h"    // AddResourceDll, LoadIdsString
-#include "CrashReport.h"        // InstallCrashHandler (.text:004090f0)
+#include "CrashReport.h"        // InstallCrashHandler (module storage)
 
-#include "dalib_core.h"         // DALib::Startup / OpenData / CloseData / Shutdown, CriticalWarningFn
-#include "dalib_net.h"          // CGunWrapper, IGunHost
-#include "dacom.h"              // DACOM_GetDllVersion
+#include "neuronruntime_core.h"         // NeuronRuntime::Startup / OpenData / CloseData / Shutdown, CriticalWarningFn
+#include "neuronruntime_net.h"          // CGunWrapper, IGunHost
+#include "neuroncomponents.h"              // NEURONCOMPONENTS_GetDllVersion
 #include "remoteclient.h"       // SetRemoteClient*, GetRemoteClientPort, SetServerLogFunction
 #include "server_iserverimpl.h" // Server
 #include "server_playerdb.h"    // Players
@@ -40,57 +36,57 @@
 #include <mmsystem.h>
 #include <vector>
 
-// OutpostServer.exe application TU (retail .text:0040ab90..0040d7ff, statics included).
+// OutpostServer.exe application TU (baseline module storage..0040d7ff, statics included).
 
-COutpostServerApp theApp;            // .data:00426c58 (constructed by .text:0040af50)
-COutpostServerApp* GApp = NULL;      // .data:004278b8
+COutpostServerApp theApp;            // (constructed by module storage)
+COutpostServerApp* GApp = NULL;
 
-// .data:00427868 — guards GunWrapper and the gun thread's work (static init .text:0040af80).
+// — guards GunWrapper and the gun thread's work (static init module storage).
 HANDLE GAppMutex = CreateMutexA(NULL, FALSE, NULL);
-// .data:0042788c — the named "OutpostFrontierCoopMutex" (static init .text:0040af10). Nothing reads
+// — the named "OutpostFrontierCoopMutex" (static init module storage). Nothing reads
 // the handle; holding the named mutex for the process lifetime is its only effect.
 HANDLE GCoopMutex = CreateMutexA(NULL, FALSE, "OutpostFrontierCoopMutex");
-// .data:0042789c — held by the server thread around IServerImpl::Update (static init
-// .text:0040cf70); LockServer / UnlockServer below.
+// — held by the server thread around IServerImpl::Update (static init
+// ); LockServer / UnlockServer below.
 HANDLE GServerMutex = CreateMutexA(NULL, FALSE, NULL);
 
-int GServerRunning = 0;         // .data:004278b4 — server and gun thread loop while set
-HANDLE GServerThread = NULL;    // .data:004278ac
-DWORD GServerThreadId = 0;      // .data:004278b0
-HANDLE GGunThread = NULL;       // .data:004278bc
+int GServerRunning = 0;         // — server and gun thread loop while set
+HANDLE GServerThread = NULL;
+DWORD GServerThreadId = 0;
+HANDLE GGunThread = NULL;
 
-// .data:004278c4 — the CGunWrapper status the gun thread last logged.
+// — the CGunWrapper status the gun thread last logged.
 static int GLastGunStatus = 0;
-// .data:004278c8 — server frames run since startup (incremented by the server thread, no reader).
+// — server frames run since startup (incremented by the server thread, no reader).
 static unsigned int GServerFrameCount = 0;
-// .data:00425548 — the server thread's frame period in seconds (1/30). Retail keeps it in
-// writable .data but nothing writes it (only the two reads at .text:0040cda0 / 0040cdb4).
+// — the server thread's frame period in seconds (1/30). baseline keeps it in
+// writable .data but nothing writes it (only the two reads at module storage / 0040cdb4).
 static float GServerFramePeriod = 0.0333333351f;
 
-// .data:004278a0 (vtable .rdata:0041d030, set by the static initializer .text:0040b340) — the
+// (vtable module storage, set by the static initializer module storage) — the
 // loading screen InitInstance registers with Common: both slots are a bare RET
-// (.text:0040b350 / 0040b360), so Common's progress refreshes do nothing in the server.
+// (module storage / 0040b360), so Common's progress refreshes do nothing in the server.
 class FServerLoadingScreen : public ILoadingScreen
 {
 public:
-	virtual void Refresh() override {}   // .text:0040b350
-	virtual void Slot01() override {}    // .text:0040b360 — ILoadingScreen +0x04, never called
+	virtual void Refresh() override {}
+	virtual void Slot01() override {}    // — ILoadingScreen +0x04, never called
 };
 static FServerLoadingScreen GServerLoadingScreen;
 
-// .text:0040afa0
+
 void LockApp()
 {
 	WaitForSingleObject(GAppMutex, INFINITE);
 }
 
-// .text:0040afb0
+
 void UnlockApp()
 {
 	ReleaseMutex(GAppMutex);
 }
 
-// .text:0040cf90 — takes the server mutex; a thread other than the server thread keeps its
+// — takes the server mutex; a thread other than the server thread keeps its
 // message queue pumped while it waits.
 void LockServer()
 {
@@ -112,14 +108,14 @@ void LockServer()
 	}
 }
 
-// .text:0040d040
+
 void UnlockServer()
 {
 	ReleaseMutex(GServerMutex);
 }
 
-// The wizard's About box (ctor inlined at .text:0040ca60, dtor 0040ca80, vtable
-// .rdata:0041d1d0, empty DoDataExchange 0040cab0, empty message map .rdata:0041d018).
+// The wizard's About box (ctor inlined at module storage, dtor 0040ca80, vtable
+// , empty DoDataExchange 0040cab0, empty message map module storage).
 class CAboutDlg : public CDialog
 {
 public:
@@ -136,7 +132,7 @@ protected:
 BEGIN_MESSAGE_MAP(CAboutDlg, CDialog)
 END_MESSAGE_MAP()
 
-// .rdata:0041cdb8 — ids from ServerResources.dll's menu 128.
+// — ids from ServerInterface.dll's menu 128.
 BEGIN_MESSAGE_MAP(COutpostServerApp, CWinApp)
 	ON_COMMAND(ID_APP_ABOUT, &COutpostServerApp::OnAppAbout)
 	ON_COMMAND(32771, &COutpostServerApp::OnDebugDebug)
@@ -163,14 +159,14 @@ BEGIN_MESSAGE_MAP(COutpostServerApp, CWinApp)
 	ON_COMMAND(ID_FILE_PRINT_SETUP, &CWinApp::OnFilePrintSetup)
 END_MESSAGE_MAP()
 
-// .text:0040b370
+
 COutpostServerApp::COutpostServerApp()
 	: CWinApp(NULL)
 {
 	GApp = this;
 }
 
-// .text:0040b420
+
 COutpostServerApp::~COutpostServerApp()
 {
 	if (RichEditModule != NULL)
@@ -188,7 +184,7 @@ COutpostServerApp::~COutpostServerApp()
 	}
 }
 
-// .text:0040b740 — installed as DALib's CriticalWarningFn by InitInstance. Shows the warning
+// — installed as NeuronRuntime's CriticalWarningFn by InitInstance. Shows the warning
 // with Yes/No; anything but Yes ends the process.
 static bool __cdecl CriticalWarning(unsigned int Code, const char* Text)
 {
@@ -215,7 +211,7 @@ static bool __cdecl CriticalWarning(unsigned int Code, const char* Text)
 	return true;
 }
 
-// .text:0040be90 — runs IServerImpl::Startup; exit code 1 when it succeeded.
+// — runs IServerImpl::Startup; exit code 1 when it succeeded.
 static UINT __cdecl StartupThreadProc(LPVOID)
 {
 	HRESULT Result = CoInitialize(NULL);
@@ -227,7 +223,7 @@ static UINT __cdecl StartupThreadProc(LPVOID)
 	return bStarted;
 }
 
-// .text:0040b710 — runs IServerImpl::Shutdown.
+// — runs IServerImpl::Shutdown.
 static UINT __cdecl ShutdownThreadProc(LPVOID)
 {
 	HRESULT Result = CoInitialize(NULL);
@@ -239,8 +235,8 @@ static UINT __cdecl ShutdownThreadProc(LPVOID)
 	return 1;
 }
 
-// .text:0040afc0 — the list-server (gun) thread: once a second, under GAppMutex, creates the
-// CGunWrapper when there is none, pumps it and logs its status changes. Retail returns with a
+// — the list-server (gun) thread: once a second, under GAppMutex, creates the
+// CGunWrapper when there is none, pumps it and logs its status changes. baseline returns with a
 // plain RET (cdecl) although CreateThread calls it stdcall; the port declares it WINAPI.
 static DWORD WINAPI GunThreadProc(LPVOID)
 {
@@ -320,7 +316,7 @@ static DWORD WINAPI GunThreadProc(LPVOID)
 	return 0;
 }
 
-// The FPU setup of InitInstance (.text:0040bae3) and the server thread (.text:0040cc6c):
+// The FPU setup of InitInstance (module storage) and the server thread (module storage):
 // "unmask FPU exceptions" clears the zero-divide / overflow / invalid masks of the current
 // control word, otherwise every exception is masked with 53-bit precision.
 static void SetupServerFpu(bool bUnmaskExceptions)
@@ -336,7 +332,7 @@ static void SetupServerFpu(bool bUnmaskExceptions)
 	}
 }
 
-// .text:0040cb40 — the server thread: loads motd.dat, then runs IServerImpl::Update /
+// — the server thread: loads motd.dat, then runs IServerImpl::Update /
 // ElapseTime at 30 Hz under GServerMutex, handing the run permission back and forth with the
 // local client, and records the frame time and ServerStats in the document.
 static DWORD WINAPI ServerThreadProc(LPVOID)
@@ -354,7 +350,7 @@ static DWORD WINAPI ServerThreadProc(LPVOID)
 		fclose(MotdFile);
 		size_t Length = wcslen(MotdText);
 		GMotd.assign(MotdText, Length);
-		// Retail pushes &GMotd (.text:0040cc4e), which ApplyServerNews ignores.
+		// baseline pushes &GMotd (module storage), which ApplyServerNews ignores.
 		ApplyServerNews();
 	}
 
@@ -413,7 +409,7 @@ static DWORD WINAPI ServerThreadProc(LPVOID)
 }
 
 
-// .text:0040b840
+
 BOOL COutpostServerApp::InitInstance()
 {
 	HMODULE EulaModule = LoadLibraryA("..\\EBUEula.dll");
@@ -452,7 +448,7 @@ BOOL COutpostServerApp::InitInstance()
 	unsigned int Major;
 	unsigned int Minor;
 	unsigned int Build;
-	if (DACOM_GetDllVersion(ModulePath, &Major, &Minor, &Build) != 0)
+	if (NEURONCOMPONENTS_GetDllVersion(ModulePath, &Major, &Minor, &Build) != 0)
 	{
 		Major = 1;
 		Minor = 0;
@@ -460,7 +456,7 @@ BOOL COutpostServerApp::InitInstance()
 	}
 	GServerVersion = (((Minor & 0xff) | (Major << 8)) << 16) | (Build & 0xffff);
 
-	HMODULE ResourceModule = LoadLibraryA("ServerResources.dll");
+	HMODULE ResourceModule = LoadLibraryA("ServerInterface.dll");
 	if (ResourceModule != NULL)
 	{
 		AfxSetResourceHandle(ResourceModule);
@@ -475,7 +471,7 @@ BOOL COutpostServerApp::InitInstance()
 		AfxMessageBox(100, 0, (UINT)-1);
 		return FALSE;
 	}
-	// .text:0040b9e4 CWinApp::Enable3dControls: obsolete in MFC 14 (3-D controls are always
+	// CWinApp::Enable3dControls: obsolete in MFC 14 (3-D controls are always
 	// on), so there is nothing to call.
 
 	if (RichEditModule == NULL)
@@ -488,8 +484,8 @@ BOOL COutpostServerApp::InitInstance()
 		}
 	}
 
-	AddResourceDll(LoadLibraryA("resources.dll"));
-	InstallCrashHandler(L"OutpostServer");   // .text:0040ba20 (u"" .data:004256a0)
+	AddResourceDll(LoadLibraryA("UiText.dll"));
+	InstallCrashHandler(L"OutpostServer");   // (u"" module storage)
 
 	ServerControl.SetTitle("OutpostServer -");
 	SetRegistryKey("Microsoft");
@@ -523,7 +519,7 @@ BOOL COutpostServerApp::InitInstance()
 	{
 		CString Name;
 		LoadStringChecked(Name, 0xf00d);
-		// .text:0040bc1f calls the virtual CWnd::Create (vtbl+0x5c); CFormView::Create is
+		// calls the virtual CWnd::Create (vtbl+0x5c); CFormView::Create is
 		// protected in MFC 14, so dispatch through the public CWnd declaration.
 		((CWnd*)SummaryForm)->Create(NULL, Name, WS_CHILD, Rect, m_pMainWnd, AFX_IDW_PANE_FIRST + 1, &Context);
 		::SendMessageA(SummaryForm->m_hWnd, WM_INITIALUPDATE, 0, 0);
@@ -552,11 +548,11 @@ BOOL COutpostServerApp::InitInstance()
 	::RedrawWindow(m_pMainWnd->m_hWnd, NULL, NULL, RDW_UPDATENOW | RDW_ALLCHILDREN);
 	::RedrawWindow(SummaryForm->m_hWnd, NULL, NULL, RDW_UPDATENOW | RDW_ALLCHILDREN);
 
-	if (!DALib::Startup(NULL, "DACOMsrv.ini"))
+	if (!NeuronRuntime::Startup(NULL, "NEURONCOMPONENTSsrv.ini"))
 	{
 		return FALSE;
 	}
-	// Retail passes theApp's own buffers (.data:00427133 / 00427237).
+	// baseline passes theApp's own buffers (module storage / 00427237).
 	ReadOutpostFrontierIni(ServerControl.IniPath);
 	ReadOutpostFrontierIni(ServerControl.LocalServerIniPath);
 
@@ -578,22 +574,22 @@ BOOL COutpostServerApp::InitInstance()
 	return TRUE;
 }
 
-// .text:0040b6f0
+
 int COutpostServerApp::ExitInstance()
 {
-	DALib::CloseData();
-	DALib::Shutdown(NULL);
+	NeuronRuntime::CloseData();
+	NeuronRuntime::Shutdown(NULL);
 	return 0;
 }
 
-// .text:0040d670 — PollStartupThread inlined, its result unused.
+// — PollStartupThread inlined, its result unused.
 BOOL COutpostServerApp::OnIdle(LONG Count)
 {
 	PollStartupThread();
 	return CWinApp::OnIdle(Count);
 }
 
-// .text:0040b510
+
 bool COutpostServerApp::BeginShutdown()
 {
 	if (bShuttingDown)
@@ -668,7 +664,7 @@ bool COutpostServerApp::BeginShutdown()
 	return true;
 }
 
-// .text:0040b6a0
+
 bool COutpostServerApp::PollShutdownThread()
 {
 	if (ShutdownThread != NULL)
@@ -687,7 +683,7 @@ bool COutpostServerApp::PollShutdownThread()
 	return true;
 }
 
-// .text:0040c100
+
 bool COutpostServerApp::PollStartupThread()
 {
 	if (StartupThread == NULL)
@@ -714,7 +710,7 @@ bool COutpostServerApp::PollStartupThread()
 	return OnServerStartupFinished(bStarted);
 }
 
-// .text:0040bf20
+
 void COutpostServerApp::WaitForStartupThread()
 {
 	if (bStartupPending)
@@ -724,7 +720,7 @@ void COutpostServerApp::WaitForStartupThread()
 	}
 }
 
-// .text:0040bf50
+
 bool COutpostServerApp::OnServerStartupFinished(bool bStarted)
 {
 	if (bStarted)
@@ -738,7 +734,7 @@ bool COutpostServerApp::OnServerStartupFinished(bool bStarted)
 			ServerLogf(ErrorCode{ 0x100004 }, (LPCTSTR)Text);
 		}
 		ServerControl.SetLogLevel(SavedLevel);
-		// KERNEL32 CreateThread (.text:0040bff7); the CWinThread member hides the name here.
+		// KERNEL32 CreateThread (module storage); the CWinThread member hides the name here.
 		GServerThread = ::CreateThread(NULL, 0, ServerThreadProc, NULL, 0, &GServerThreadId);
 		if (GServerThread == NULL)
 		{
@@ -750,7 +746,7 @@ bool COutpostServerApp::OnServerStartupFinished(bool bStarted)
 	}
 	SetRemoteClientSessionName(ServerControl.ServerName.c_str());
 	SetRemoteClientPassword(ServerControl.ServerPassword.c_str());
-	// .text:0040c09a..0040c0cf: (AllowPvp, AllowNewPlayers, exe version, description,
+	// (AllowPvp, AllowNewPlayers, exe version, description,
 	// server id, server signature); remoteclient.h's parameter names lag (see FLS-E handoff).
 	SetRemoteClientResponseData(ServerControl.GetAllowPvp() != 0, ServerControl.GetAllowNewPlayers() != 0,
 		(int)GServerVersion, ServerControl.ServerDescription.c_str(), Server.GetServerID(),
@@ -759,7 +755,7 @@ bool COutpostServerApp::OnServerStartupFinished(bool bStarted)
 	return true;
 }
 
-// .text:0040c190 — returns whether a [OutpostFrontier] "Data path" was found (and opened).
+// — returns whether a [OutpostFrontier] "Data path" was found (and opened).
 bool COutpostServerApp::ReadOutpostFrontierIni(const char* Path)
 {
 	INI_Reader Reader;
@@ -774,7 +770,7 @@ bool COutpostServerApp::ReadOutpostFrontierIni(const char* Path)
 				{
 					if (Reader.is_value("Data path"))
 					{
-						DALib::OpenData(Reader.get_value_string());
+						NeuronRuntime::OpenData(Reader.get_value_string());
 						bDataPath = true;
 					}
 					else if (Reader.is_value("AppGUID"))
@@ -800,7 +796,7 @@ bool COutpostServerApp::ReadOutpostFrontierIni(const char* Path)
 			}
 			else if (Reader.is_header("Server"))
 			{
-				// Retail tests "death_penalty" and ignores the answer (.text:0040c330..0040c343).
+				// baseline tests "death_penalty" and ignores the answer (module storage..0040c343).
 				while (Reader.read_value())
 				{
 					Reader.is_value("death_penalty");
@@ -821,7 +817,7 @@ bool COutpostServerApp::ReadOutpostFrontierIni(const char* Path)
 	return bDataPath;
 }
 
-// .text:0040c6f0 — publishes the session description to the list server through the gun
+// — publishes the session description to the list server through the gun
 // host: the session name, then "GameOpts" (ports, max players, password flag, PvP, new
 // players, signature, server id) and "GameDesc" (the description).
 bool COutpostServerApp::UpdateGunReport()
@@ -872,7 +868,7 @@ LPCTSTR COutpostServerApp::GetServerTitle() const
 	return ServerControl.Title;
 }
 
-// .text:0040d420
+
 CView* COutpostServerApp::SwitchView()
 {
 	CFrameWnd* Frame = (CFrameWnd*)m_pMainWnd;
@@ -916,45 +912,45 @@ CView* COutpostServerApp::SwitchView()
 	return OldView;
 }
 
-// .text:0040cae0
+
 void COutpostServerApp::OnAppAbout()
 {
 	CAboutDlg AboutDlg;
 	AboutDlg.DoModal();
 }
 
-// .text:0040cf50
+
 void COutpostServerApp::OnDebugDebug()
 {
 }
 
-// .text:0040cf40
+
 void COutpostServerApp::OnDebugAiDebugger()
 {
 }
 
-// .text:0040cf60 / 0040d410
+// / 0040d410
 void COutpostServerApp::OnUpdateDisabled(CCmdUI* CmdUI)
 {
 	CmdUI->Enable(FALSE);
 }
 
-// .text:0040d050 / 0040d230 / 0040d290 / 0040d2f0 / 0040d3e0 — enabled once the startup
+// / 0040d230 / 0040d290 / 0040d2f0 / 0040d3e0 — enabled once the startup
 // thread has finished.
 void COutpostServerApp::OnUpdateNeedsServer(CCmdUI* CmdUI)
 {
 	CmdUI->Enable(StartupThread == NULL);
 }
 
-// .text:0040d070 — modal "Manage Accounts & Characters" (the dialog's dtor is inlined at
-// 0040d0aa..0040d131; its out-of-line copy is 0040d150).
+// — modal "Manage Accounts & Characters" (the dialog's dtor is inlined at
+// ; its out-of-line copy is 0040d150).
 void COutpostServerApp::OnEditAccounts()
 {
 	CAccountsDlg AccountsDlg(NULL);
 	AccountsDlg.DoModal();
 }
 
-// .text:0040d1f0 — the modeless "Choose A Player" box: brought to the front when it already
+// — the modeless "Choose A Player" box: brought to the front when it already
 // exists, created otherwise.
 void COutpostServerApp::OnChatPlayer()
 {
@@ -968,7 +964,7 @@ void COutpostServerApp::OnChatPlayer()
 	GChoosePlayerDlg.ShowWindow(SW_SHOW);
 }
 
-// .text:0040d250 — the modeless "Select A Star System" box, as OnChatPlayer.
+// — the modeless "Select A Star System" box, as OnChatPlayer.
 void COutpostServerApp::OnChatStarSystem()
 {
 	if (GSelectStarSystemDlg.m_hWnd != NULL)
@@ -981,7 +977,7 @@ void COutpostServerApp::OnChatStarSystem()
 	GSelectStarSystemDlg.ShowWindow(SW_SHOW);
 }
 
-// .text:0040d2b0 — the modeless universe chat box (dialog 0x92, .data:0042a6a8), as
+// — the modeless universe chat box (dialog 0x92, module storage), as
 // OnChatPlayer.
 void COutpostServerApp::OnChatUniverse()
 {
@@ -995,7 +991,7 @@ void COutpostServerApp::OnChatUniverse()
 	GUniverseChatDlg.ShowWindow(SW_SHOW);
 }
 
-// .text:0040d310 — modal "Edit Server News" (dtor inlined at 0040d34a..0040d36d, out-of-line
+// — modal "Edit Server News" (dtor inlined at 0040d34a..0040d36d, out-of-line
 // copy 0040d390).
 void COutpostServerApp::OnServerNews()
 {
@@ -1003,13 +999,13 @@ void COutpostServerApp::OnServerNews()
 	NewsDlg.DoModal();
 }
 
-// .text:0040d400 — "Crash Me": a deliberate write through a null pointer.
+// — "Crash Me": a deliberate write through a null pointer.
 void COutpostServerApp::OnDebugCrashMe()
 {
 	*(volatile char*)0 = 0;
 }
 
-// .text:0040d580
+
 void COutpostServerApp::OnUpdateViewConsole(CCmdUI* CmdUI)
 {
 	if (((CFrameWnd*)m_pMainWnd)->GetActiveView() == MainView)
@@ -1022,7 +1018,7 @@ void COutpostServerApp::OnUpdateViewConsole(CCmdUI* CmdUI)
 	CmdUI->SetCheck(0);
 }
 
-// .text:0040d5c0
+
 void COutpostServerApp::OnUpdateViewStatusSummary(CCmdUI* CmdUI)
 {
 	if (((CFrameWnd*)m_pMainWnd)->GetActiveView() == SummaryForm)
@@ -1035,7 +1031,7 @@ void COutpostServerApp::OnUpdateViewStatusSummary(CCmdUI* CmdUI)
 	CmdUI->SetCheck(0);
 }
 
-// .text:0040d600
+
 void COutpostServerApp::OnSwitchView()
 {
 	SwitchView();

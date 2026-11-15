@@ -39,19 +39,19 @@
   <ItemDefinitionGroup>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <AdditionalDependencies>dacom.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>neuroncomponents.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="..\include\x86math.h" />
-    <ClInclude Include="..\include\dacom.h" />
+    <ClInclude Include="..\include\neuroncomponents.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="x86math.cpp" />
-    <ClCompile Include="dacom_stricmp.cpp" />
+    <ClCompile Include="neuroncomponents_stricmp.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\dacom\dacom.vcxproj">
+    <ProjectReference Include="..\neuroncomponents\neuroncomponents.vcxproj">
       <Project>{8F3A1B20-9C4D-4E5F-A617-B8C9D0E1F203}</Project>
     </ProjectReference>
   </ItemGroup>

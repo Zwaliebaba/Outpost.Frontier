@@ -11,7 +11,7 @@
   </ItemDefinitionGroup>
   <!-- Release keeps iterator debugging on (level 1, checked iterators): with any level above 0
        a modern std container carries a proxy pointer in the dword where VC6 STL kept its
-       allocator, so std::string / vector / list / map are retail-sized and the retail field
+       allocator, so std::string / vector / list / map are baseline-sized and the baseline field
        offsets asserted across src/include hold. Level 0 drops that dword and shifts every
        field after a container by 4. Debug and DebugASan keep the _DEBUG default (2), which
        has the same layout. -->
@@ -32,11 +32,11 @@
       <PreprocessorDefinitions>OUTPOST_FRONTIER_WIDESCREEN_SUPPORT;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
   </ItemDefinitionGroup>
-  <!-- Port-only Direct3D 9 extensions: the client's hooks (RP9.vcxproj itself turns into an empty
+  <!-- Port-only Direct3D 9 extensions: the client's hooks (DX9RENDERER.vcxproj itself turns into an empty
        Utility project when the property is off). -->
-  <ItemDefinitionGroup Condition="'$(OutpostFrontierRp9)'=='1' and '$(MSBuildProjectName)'=='OutpostFrontier'">
+  <ItemDefinitionGroup Condition="'$(OutpostFrontierDx9Renderer)'=='1' and '$(MSBuildProjectName)'=='OutpostFrontier'">
     <ClCompile>
-      <PreprocessorDefinitions>OUTPOST_FRONTIER_RP9;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>OUTPOST_FRONTIER_DX9RENDERER;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
   </ItemDefinitionGroup>
   <!-- Port-only walk mode in base rooms: only the client (OutpostFrontier.exe) reads the define. -->
@@ -55,7 +55,7 @@
        path resolves as from bin\). Debug builds go to bin_debug\ and Release to bin\.
        Use MSBuildThisFileDirectory (this file lives in src\) — not SolutionDir —
        so a standalone vcxproj build does not spill into src\bin\.
-       Resource-only DLLs skip ASan (no CRT). Retail EXE\ DLLs via DllPath are not instrumented.
+       Resource-only DLLs skip ASan (no CRT). baseline EXE\ DLLs via DllPath are not instrumented.
        FlASanOutDir has no trailing slash: quoting $(OutDir) in Exec would eat the closing quote. -->
   <PropertyGroup Condition="'$(Configuration)'=='DebugASan'">
     <FlASanOutDir>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\binasan'))</FlASanOutDir>

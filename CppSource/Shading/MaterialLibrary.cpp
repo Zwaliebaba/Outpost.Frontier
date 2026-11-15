@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "MaterialLibrary.h"
@@ -19,10 +15,10 @@ FMaterialLibraryController::FMaterialLibraryController(FMaterialLibrary* InOwner
 {
 }
 
-GENRESULT DACOM_API FMaterialLibraryController::QueryInterface(const char* Iid, void** Out)
+GENRESULT NEURONCOMPONENTS_API FMaterialLibraryController::QueryInterface(const char* Iid, void** Out)
 {
-    // LAB_06ecf100: raw map06ed2fe0 contains only offsets0/4 and a null sentinel.
-    IDAComponent* Face;
+    // raw map06ed2fe0 contains only offsets0/4 and a null sentinel.
+    INeuronComponent* Face;
     if (std::strcmp(Iid, Iids::MaterialLibrary) == 0)
         Face = Owner;
     else if (std::strcmp(Iid, Iids::AggregateComponent) == 0)
@@ -37,15 +33,15 @@ GENRESULT DACOM_API FMaterialLibraryController::QueryInterface(const char* Iid, 
     return GR_OK;
 }
 
-unsigned long DACOM_API FMaterialLibraryController::AddRef()
+unsigned long NEURONCOMPONENTS_API FMaterialLibraryController::AddRef()
 {
-    // Shared ICF FUN_06ecb930. Factory f06d always installs the owning library.
+    // Shared ICF the routine. Factory f06d always installs the owning library.
     return ++Owner->RefCount;
 }
 
-unsigned long DACOM_API FMaterialLibraryController::Release()
+unsigned long NEURONCOMPONENTS_API FMaterialLibraryController::Release()
 {
-    // LAB_06ecf1c0: zero never wraps, and destructor callbacks observe count one.
+    // zero never wraps, and destructor callbacks observe count one.
     if (Owner->RefCount > 0)
         --Owner->RefCount;
     const unsigned long Result = Owner->RefCount;
@@ -60,22 +56,22 @@ unsigned long DACOM_API FMaterialLibraryController::Release()
 
 FLibraryAggregate::FLibraryAggregate() : Owner(nullptr) {}
 
-GENRESULT DACOM_API FLibraryAggregate::QueryInterface(const char* Iid, void** Out)
+GENRESULT NEURONCOMPONENTS_API FLibraryAggregate::QueryInterface(const char* Iid, void** Out)
 {
     return Owner->QueryInterface(Iid, Out);
 }
 
-unsigned long DACOM_API FLibraryAggregate::AddRef()
+unsigned long NEURONCOMPONENTS_API FLibraryAggregate::AddRef()
 {
     return Owner->AddRef();
 }
 
-unsigned long DACOM_API FLibraryAggregate::Release()
+unsigned long NEURONCOMPONENTS_API FLibraryAggregate::Release()
 {
     return Owner->Release();
 }
 
-GENRESULT DACOM_API FLibraryAggregate::Initialize()
+GENRESULT NEURONCOMPONENTS_API FLibraryAggregate::Initialize()
 {
     if (Owner->OwnerBatcher != nullptr)
         return Owner->OwnerBatcher->StartupFromOuter();
@@ -84,17 +80,17 @@ GENRESULT DACOM_API FLibraryAggregate::Initialize()
 
 GENRESULT FMaterialLibrary::InitializeFromDescriptor(const FMaterialAggregateDesc* Desc)
 {
-    // FUN_06ecbfb0: mandatory descriptor, copy +8 outer into library +40.
+    // mandatory descriptor, copy +8 outer into library +40.
     Outer = Desc->OuterAt8;
     return GR_OK;
 }
 
-GENRESULT FMaterialLibrary::InitializeBase(IDAComponent* InOuter)
+GENRESULT FMaterialLibrary::InitializeBase(INeuronComponent* InOuter)
 {
-    // FUN_06ecc1f0: the base initialization path is distinct from batcher startup.
+    // the base initialization path is distinct from batcher startup.
     Outer = InOuter;
     IProfileParser* Parser = nullptr;
-    const GENRESULT Result = DACOM_Acquire()->QueryInterface(
+    const GENRESULT Result = NEURONCOMPONENTS_Acquire()->QueryInterface(
         Iids::ProfileParser, (void**)&Parser);
     if (Result < 0)
     {
@@ -117,7 +113,7 @@ FMaterialLibrary::FMaterialLibrary()
 
 GENRESULT FMaterialLibrary::ClearRuntime()
 {
-    // 06ecc270: clear map rules and group payloads; retain the master map.
+    // clear map rules and group payloads; retain the master map.
     MapRules.clear();
     Groups.clear();
     return (GENRESULT)-1;
@@ -125,7 +121,7 @@ GENRESULT FMaterialLibrary::ClearRuntime()
 
 FMaterialLibrary::~FMaterialLibrary()
 {
-    // 06ecbe70: container cleanup only; material payloads have no Release here.
+    // container cleanup only; material payloads have no Release here.
     MapRules.clear();
     Groups.clear();
     CrcMap.clear();
@@ -133,32 +129,32 @@ FMaterialLibrary::~FMaterialLibrary()
 
 static_assert(offsetof(FMaterialLibrary, Aggregate) == 0x04, "IAggregateComponent at library+4");
 
-GENRESULT DACOM_API FMaterialLibrary::QueryInterface(const char* Iid, void** Out)
+GENRESULT NEURONCOMPONENTS_API FMaterialLibrary::QueryInterface(const char* Iid, void** Out)
 {
     // Dedicated +44 controller; embedded library points to its batcher face.
     return ControllingUnknown->QueryInterface(Iid, Out);
 }
 
-unsigned long DACOM_API FMaterialLibrary::AddRef()
+unsigned long NEURONCOMPONENTS_API FMaterialLibrary::AddRef()
 {
     // Dedicated +44 controller; embedded library points to its batcher face.
     return ControllingUnknown->AddRef();
 }
 
-unsigned long DACOM_API FMaterialLibrary::Release()
+unsigned long NEURONCOMPONENTS_API FMaterialLibrary::Release()
 {
     // Dedicated +44 controller; embedded library points to its batcher face.
     return ControllingUnknown->Release();
 }
 
-GENRESULT DACOM_API FMaterialLibrary::AddMapRule(int Key, const char* Pattern, const char* TypeName)
+GENRESULT NEURONCOMPONENTS_API FMaterialLibrary::AddMapRule(int Key, const char* Pattern, const char* TypeName)
 {
-    // LAB_06ecd1d0 and LAB_06ecd3e0: 0 is a name rule; 1 is a type rule.
+    // and the branch: 0 is a name rule; 1 is a type rule.
     char Message[0x2000];
     _snprintf(Message, sizeof(Message), "Adding material map: %s:%s:%s",
               Key == 1 ? "Type" : "Name", Pattern, TypeName);
     FDUMP(0x100003, "%s(%d) : NOTICE:General:%s",
-          "C:\\work\\builds\\dalibs\\dalibs-build\\build\\Src\\Shading\\Materials\\MaterialLibrary.cpp",
+          "Shading\\Materials\\MaterialLibrary.cpp",
           0x362, Message);
     FMaterialMapRule Rule;
     char TypeCopy[64];
@@ -173,7 +169,7 @@ GENRESULT DACOM_API FMaterialLibrary::AddMapRule(int Key, const char* Pattern, c
     return GR_OK;
 }
 
-GENRESULT DACOM_API FMaterialLibrary::FindMapRule(int Key, const char* Pattern, void* /*Unused*/,
+GENRESULT NEURONCOMPONENTS_API FMaterialLibrary::FindMapRule(int Key, const char* Pattern, void* /*Unused*/,
                                                   char* OutType)
 {
     for (size_t Index = 0; Index < MapRules.size(); ++Index)
@@ -188,7 +184,7 @@ GENRESULT DACOM_API FMaterialLibrary::FindMapRule(int Key, const char* Pattern, 
     return GR_GENERIC;
 }
 
-GENRESULT DACOM_API FMaterialLibrary::RemapType(const char* Name, const char* Type,
+GENRESULT NEURONCOMPONENTS_API FMaterialLibrary::RemapType(const char* Name, const char* Type,
                                                 void* /*Unused*/, char* OutType)
 {
     for (size_t Index = 0; Index < MapRules.size(); ++Index)
@@ -205,7 +201,7 @@ GENRESULT DACOM_API FMaterialLibrary::RemapType(const char* Name, const char* Ty
     return (GENRESULT)-1;
 }
 
-GENRESULT DACOM_API FMaterialLibrary::RemoveMapRule(int Key, const char* Pattern)
+GENRESULT NEURONCOMPONENTS_API FMaterialLibrary::RemoveMapRule(int Key, const char* Pattern)
 {
     for (size_t Index = 0; Index < MapRules.size(); ++Index)
     {
@@ -218,7 +214,7 @@ GENRESULT DACOM_API FMaterialLibrary::RemoveMapRule(int Key, const char* Pattern
     return GR_GENERIC;
 }
 
-GENRESULT DACOM_API FMaterialLibrary::AllocateGroup(unsigned long* OutId)
+GENRESULT NEURONCOMPONENTS_API FMaterialLibrary::AllocateGroup(unsigned long* OutId)
 {
     FMaterialGroup& Group = Groups[NextGroupId];
     Group.Id = NextGroupId;
@@ -230,10 +226,10 @@ GENRESULT DACOM_API FMaterialLibrary::AllocateGroup(unsigned long* OutId)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FMaterialLibrary::LoadFromFileSystem(void* FileSystem, void* Extra)
+GENRESULT NEURONCOMPONENTS_API FMaterialLibrary::LoadFromFileSystem(void* FileSystem, void* Extra)
 {
     unsigned long* OutGroupId = (unsigned long*)Extra;
-    const char* SourceFile = "C:\\work\\builds\\dalibs\\dalibs-build\\build\\Src\\Shading\\Materials\\MaterialLibrary.cpp";
+    const char* SourceFile = "Shading\\Materials\\MaterialLibrary.cpp";
     if (FileSystem == nullptr)
     {
         FDUMP(0x100002, "%s(%d) : WARNING:General:%s", SourceFile, 0x195,
@@ -277,7 +273,7 @@ GENRESULT DACOM_API FMaterialLibrary::LoadFromFileSystem(void* FileSystem, void*
             if (ChildName[0] == '.' ||
                 (FindData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0)
                 continue;
-            const unsigned long Crc = DACOM_CRC::GetCRC32(ChildName);
+            const unsigned long Crc = NEURONCOMPONENTS_CRC::GetCRC32(ChildName);
             FMaterialLibraryRecord* Slot = FindByCrc(Crc);
             if (Slot != nullptr)
             {
@@ -359,12 +355,12 @@ GENRESULT DACOM_API FMaterialLibrary::LoadFromFileSystem(void* FileSystem, void*
     return GR_OK;
 }
 
-GENRESULT DACOM_API FMaterialLibrary::UnsupportedOperation(void* /*Arg1*/, void* /*Arg2*/)
+GENRESULT NEURONCOMPONENTS_API FMaterialLibrary::UnsupportedOperation(void* /*Arg1*/, void* /*Arg2*/)
 {
     return (GENRESULT)0xFFFFFFF9u;
 }
 
-GENRESULT DACOM_API FMaterialLibrary::DeleteGroup(int GroupId)
+GENRESULT NEURONCOMPONENTS_API FMaterialLibrary::DeleteGroup(int GroupId)
 {
     if (GroupId == -1)
         return (GENRESULT)-1;
@@ -413,7 +409,7 @@ GENRESULT DACOM_API FMaterialLibrary::DeleteGroup(int GroupId)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FMaterialLibrary::ApplyVerifyGroup(int GroupId, void* Context, void* Extra)
+GENRESULT NEURONCOMPONENTS_API FMaterialLibrary::ApplyVerifyGroup(int GroupId, void* Context, void* Extra)
 {
     if (GroupId == -1)
         return (GENRESULT)-1;
@@ -438,7 +434,7 @@ GENRESULT DACOM_API FMaterialLibrary::ApplyVerifyGroup(int GroupId, void* Contex
     return GR_OK;
 }
 
-GENRESULT DACOM_API FMaterialLibrary::ResolveTexturesGroup(int GroupId, float Delta)
+GENRESULT NEURONCOMPONENTS_API FMaterialLibrary::ResolveTexturesGroup(int GroupId, float Delta)
 {
     if (GroupId == -1)
         return (GENRESULT)-1;
@@ -463,7 +459,7 @@ GENRESULT DACOM_API FMaterialLibrary::ResolveTexturesGroup(int GroupId, float De
     return GR_OK;
 }
 
-GENRESULT DACOM_API FMaterialLibrary::SetGroupName(int GroupId, const char* Name)
+GENRESULT NEURONCOMPONENTS_API FMaterialLibrary::SetGroupName(int GroupId, const char* Name)
 {
     if (GroupId == -1 || GroupId == 0)
         return (GENRESULT)-1;
@@ -480,7 +476,7 @@ GENRESULT DACOM_API FMaterialLibrary::SetGroupName(int GroupId, const char* Name
     return GR_OK;
 }
 
-GENRESULT DACOM_API FMaterialLibrary::GetGroupName(int GroupId, char* Buffer, unsigned long Size)
+GENRESULT NEURONCOMPONENTS_API FMaterialLibrary::GetGroupName(int GroupId, char* Buffer, unsigned long Size)
 {
     if (GroupId == -1 || GroupId == 0)
         return (GENRESULT)-1;
@@ -507,7 +503,7 @@ FCrcSlot* FMaterialLibrary::FindByCrc(unsigned long Crc)
 
 void FMaterialLibrary::StoreCrc(unsigned long Crc, IMaterial* Material)
 {
-    // 06ecc42d..06ecc449: store the material, take its reference, set count=1.
+    // store the material, take its reference, set count=1.
     FCrcSlot& Slot = CrcMap[Crc];
     Slot.Crc = Crc;
     Slot.Material = Material;
@@ -541,10 +537,10 @@ const char* FMaterialLibrary::ResolveType(const char* Name, const char* Type)
     return Candidate;
 }
 
-GENRESULT DACOM_API FMaterialLibrary::FindOrCreate(const char* Name, const char* Type,
-                                                  IDAComponent* AggregateOuter, IMaterial** Out)
+GENRESULT NEURONCOMPONENTS_API FMaterialLibrary::FindOrCreate(const char* Name, const char* Type,
+                                                  INeuronComponent* AggregateOuter, IMaterial** Out)
 {
-    const unsigned long Crc = DACOM_CRC::GetCRC32(Name);
+    const unsigned long Crc = NEURONCOMPONENTS_CRC::GetCRC32(Name);
     FMaterialLibraryRecord* Record = FindByCrc(Crc);
     if (Record == nullptr)
     {
@@ -558,9 +554,9 @@ GENRESULT DACOM_API FMaterialLibrary::FindOrCreate(const char* Name, const char*
     return GR_OK;
 }
 
-GENRESULT DACOM_API FMaterialLibrary::FindMaterialByCrc(void* Query, IMaterial** Out)
+GENRESULT NEURONCOMPONENTS_API FMaterialLibrary::FindMaterialByCrc(void* Query, IMaterial** Out)
 {
-    // LAB_06ecd5c0: a miss leaves the caller's output untouched.
+    // a miss leaves the caller's output untouched.
     const unsigned long Crc = ((unsigned long*)Query)[1];
     FCrcSlot* Slot = FindByCrc(Crc);
     if (Slot == nullptr)
@@ -570,7 +566,7 @@ GENRESULT DACOM_API FMaterialLibrary::FindMaterialByCrc(void* Query, IMaterial**
     return GR_OK;
 }
 
-GENRESULT DACOM_API FMaterialLibrary::AddMaterial(int GroupId, void* Record, IMaterial* Material)
+GENRESULT NEURONCOMPONENTS_API FMaterialLibrary::AddMaterial(int GroupId, void* Record, IMaterial* Material)
 {
     const unsigned long Crc = ((unsigned long*)Record)[1];
     FMaterialGroup* Group = nullptr;
@@ -579,7 +575,7 @@ GENRESULT DACOM_API FMaterialLibrary::AddMaterial(int GroupId, void* Record, IMa
         Group = FindGroup((unsigned long)GroupId);
         if (Group == nullptr)
             return (GENRESULT)-1;
-        // The retail group append precedes the master lookup and its error path.
+        // The baseline group append precedes the master lookup and its error path.
         Group->Members.push_back(Crc);
     }
     FCrcSlot* Slot = FindByCrc(Crc);
@@ -601,7 +597,7 @@ GENRESULT DACOM_API FMaterialLibrary::AddMaterial(int GroupId, void* Record, IMa
     return GR_OK;
 }
 
-GENRESULT DACOM_API FMaterialLibrary::RemoveMaterial(unsigned long GroupId, void* Record)
+GENRESULT NEURONCOMPONENTS_API FMaterialLibrary::RemoveMaterial(unsigned long GroupId, void* Record)
 {
     const unsigned long Crc = ((unsigned long*)Record)[1];
     FCrcSlot* Slot = FindByCrc(Crc);
@@ -640,21 +636,21 @@ GENRESULT DACOM_API FMaterialLibrary::RemoveMaterial(unsigned long GroupId, void
         Slot->Material->Release();
         Slot->Material = nullptr;
     }
-    // 06ecd7c7 unconditionally re-reads the resolved record, even on a miss.
+    // unconditionally re-reads the resolved record, even on a miss.
     if ((int)Slot->RefCount <= 1)
         CrcMap.erase(Crc);
     return Result;
 }
 
-GENRESULT DACOM_API FMaterialLibrary::GetGroupCount(unsigned long* OutCount)
+GENRESULT NEURONCOMPONENTS_API FMaterialLibrary::GetGroupCount(unsigned long* OutCount)
 {
-    // LAB_06ecd830 reads the RB-tree node count at this+0x38 and includes the
+    // reads the RB-tree node count at this+0x38 and includes the
     // reserved all-materials group at ordinal zero.
     *OutCount = (unsigned long)Groups.size() + 1;
     return GR_OK;
 }
 
-GENRESULT DACOM_API FMaterialLibrary::EnumGroup(unsigned long Index, unsigned long* OutId)
+GENRESULT NEURONCOMPONENTS_API FMaterialLibrary::EnumGroup(unsigned long Index, unsigned long* OutId)
 {
     const unsigned long Count = (unsigned long)Groups.size() + 1;
     if (Index >= Count)
@@ -671,7 +667,7 @@ GENRESULT DACOM_API FMaterialLibrary::EnumGroup(unsigned long Index, unsigned lo
     return GR_OK;
 }
 
-GENRESULT DACOM_API FMaterialLibrary::GetGroupMaterialCount(unsigned long GroupId, int* OutCount)
+GENRESULT NEURONCOMPONENTS_API FMaterialLibrary::GetGroupMaterialCount(unsigned long GroupId, int* OutCount)
 {
     if (GroupId == (unsigned long)-1)
         return (GENRESULT)-1;
@@ -687,7 +683,7 @@ GENRESULT DACOM_API FMaterialLibrary::GetGroupMaterialCount(unsigned long GroupI
     return GR_OK;
 }
 
-GENRESULT DACOM_API FMaterialLibrary::EnumGroupMaterial(unsigned long GroupId, unsigned long Index,
+GENRESULT NEURONCOMPONENTS_API FMaterialLibrary::EnumGroupMaterial(unsigned long GroupId, unsigned long Index,
                                                          IMaterial** Out)
 {
     if (GroupId == (unsigned long)-1)
@@ -753,7 +749,7 @@ static unsigned char GGlobalMaterialRecordsInitialized = 0;
 
 static void DestroyGlobalMaterialRecords()
 {
-    // FUN_06ecf780: release storage and clear it; the lazy guard stays set.
+    // release storage and clear it; the lazy guard stays set.
     delete[] GGlobalMaterialRecords.Data;
     GGlobalMaterialRecords.Data = nullptr;
     GGlobalMaterialRecords.SizeBytes = 0;
@@ -762,7 +758,7 @@ static void DestroyGlobalMaterialRecords()
 
 static FGlobalMaterialRecordBuffer& GlobalMaterialRecords()
 {
-    // FUN_06ecf670: set the guard BEFORE allocation, also on failure/reentry.
+    // set the guard BEFORE allocation, also on failure/reentry.
     // Register teardown only after the five records have been published.
     if ((GGlobalMaterialRecordsInitialized & 1) == 0)
     {
@@ -832,7 +828,7 @@ static void ReserveGlobalRecords(FGlobalMaterialRecordBuffer& Records, unsigned 
 static void AppendGlobalRecords(FGlobalMaterialRecordBuffer& Records, unsigned long Count,
                                 const FGlobalMaterialRecord& Value)
 {
-    // df00 has only two retail callers (dbc6, f4f9), both insert at end.
+    // df00 has only two baseline callers (dbc6, f4f9), both insert at end.
     const unsigned long Available = (unsigned long)((long)(Records.CapacityBytes - Records.SizeBytes) >> 3);
     if (Available >= Count)
     {
@@ -898,7 +894,7 @@ unsigned long GetMaterialGlobalRecordValue(unsigned long Index)
     return GlobalMaterialRecords().Record(Index)->Value;
 }
 
-GENRESULT DACOM_API FMaterialLibrary::SetGlobalRecord(unsigned long Index,
+GENRESULT NEURONCOMPONENTS_API FMaterialLibrary::SetGlobalRecord(unsigned long Index,
                                                        const unsigned long* Value)
 {
     // Full daa0..dc05: no range/input guard, including wrapping resize/erase.
@@ -915,26 +911,26 @@ GENRESULT DACOM_API FMaterialLibrary::SetGlobalRecord(unsigned long Index,
     return GR_OK;
 }
 
-GENRESULT DACOM_API FMaterialLibrary::SetGlobalRecordValue(unsigned long Index,
+GENRESULT NEURONCOMPONENTS_API FMaterialLibrary::SetGlobalRecordValue(unsigned long Index,
                                                             const unsigned long* Value)
 {
     FGlobalMaterialRecordBuffer& Records = GlobalMaterialRecords();
     unsigned long* RecordValue = (unsigned long*)((uintptr_t)Records.Data +
         Index * sizeof(FGlobalMaterialRecord) + offsetof(FGlobalMaterialRecord, Value));
-    // 06ecdc1c-06ecdc30: only the computed address is tested.
+    // only the computed address is tested.
     if (RecordValue == nullptr)
         return (GENRESULT)-1;
     *RecordValue = *Value;
     return GR_OK;
 }
 
-GENRESULT DACOM_API FMaterialLibrary::GetGlobalRecordValue(unsigned long Index,
+GENRESULT NEURONCOMPONENTS_API FMaterialLibrary::GetGlobalRecordValue(unsigned long Index,
                                                             unsigned long* OutValue)
 {
     FGlobalMaterialRecordBuffer& Records = GlobalMaterialRecords();
     const unsigned long* RecordValue = (const unsigned long*)((uintptr_t)Records.Data +
         Index * sizeof(FGlobalMaterialRecord) + offsetof(FGlobalMaterialRecord, Value));
-    // 06ecdc4c-06ecdc60: the caller's output is mandatory on success.
+    // the caller's output is mandatory on success.
     if (RecordValue == nullptr)
         return (GENRESULT)-1;
     *OutValue = *RecordValue;
@@ -943,10 +939,10 @@ GENRESULT DACOM_API FMaterialLibrary::GetGlobalRecordValue(unsigned long Index,
 
 FMaterialLibraryRecord* FMaterialLibrary::CreateGenericRecord(const char* Name, const char* Type,
                                                                unsigned char bRemap,
-                                                               IDAComponent* AggregateOuter)
+                                                               INeuronComponent* AggregateOuter)
 {
-    // 06ecc2d0: CRC is computed before truncating/lowercasing the name.
-    const unsigned long Crc = DACOM_CRC::GetCRC32(Name);
+    // CRC is computed before truncating/lowercasing the name.
+    const unsigned long Crc = NEURONCOMPONENTS_CRC::GetCRC32(Name);
     char NameCopy[0x40];
     std::strncpy(NameCopy, Name, sizeof(NameCopy));
     NameCopy[sizeof(NameCopy) - 1] = '\0';
@@ -960,15 +956,15 @@ FMaterialLibraryRecord* FMaterialLibrary::CreateGenericRecord(const char* Name, 
         std::strcpy(SelectedType, TypeCopy);
 
     FMaterialAggregateDesc Desc = {};
-    IDAComponent* Inner;
+    INeuronComponent* Inner;
     Desc.Size = sizeof(Desc);
     Desc.NameAt4 = SelectedType;
     Desc.OuterAt8 = AggregateOuter;
     Desc.InnerOutAtC = (void**)&Inner;
-    IDAComponent* Created = nullptr;
+    INeuronComponent* Created = nullptr;
     IMaterial* Material = nullptr;
     FMaterialLibraryRecord* Record = nullptr;
-    const GENRESULT Result = DACOM_Acquire()->CreateInstance(
+    const GENRESULT Result = NEURONCOMPONENTS_Acquire()->CreateInstance(
         (AGGDESC*)&Desc, (void**)&Created);
     if (Result < 0)
     {
@@ -976,7 +972,7 @@ FMaterialLibraryRecord* FMaterialLibrary::CreateGenericRecord(const char* Name, 
         std::snprintf(Message, sizeof(Message),
             "Unable to create material '%s' ('%s', '%s')\n", NameCopy, TypeCopy, SelectedType);
         FDUMP(0x100002, "%s(%d) : WARNING:General:%s",
-            "C:\\work\\builds\\dalibs\\dalibs-build\\build\\Src\\Shading\\Materials\\MaterialLibrary.cpp",
+            "Shading\\Materials\\MaterialLibrary.cpp",
             0x14F, Message);
         return nullptr;
     }
@@ -996,15 +992,15 @@ FMaterialLibraryRecord* FMaterialLibrary::CreateGenericRecord(const char* Name, 
     return Record;
 }
 
-FMaterialLibraryRecord* DACOM_API FMaterialLibrary::CreateAfterMap(const char* Name, const char* Type,
+FMaterialLibraryRecord* NEURONCOMPONENTS_API FMaterialLibrary::CreateAfterMap(const char* Name, const char* Type,
                                                                 unsigned char bRemap,
-                                                                IDAComponent* AggregateOuter)
+                                                                INeuronComponent* AggregateOuter)
 {
     if (OwnerBatcher == nullptr)
         return CreateGenericRecord(Name, Type, bRemap, AggregateOuter);
 
-    // 06ec9aa0: override selects a wrapper after ordinary material remapping.
-    const unsigned long Crc = DACOM_CRC::GetCRC32(Name);
+    // override selects a wrapper after ordinary material remapping.
+    const unsigned long Crc = NEURONCOMPONENTS_CRC::GetCRC32(Name);
     char NameCopy[0x40];
     std::strncpy(NameCopy, Name, sizeof(NameCopy));
     NameCopy[sizeof(NameCopy) - 1] = '\0';
@@ -1036,16 +1032,16 @@ FMaterialLibraryRecord* DACOM_API FMaterialLibrary::CreateAfterMap(const char* N
         return CreateGenericRecord(NameCopy, SelectedType, 0, AggregateOuter);
 
     FMaterialAggregateDesc Desc = {};
-    IDAComponent* Inner;
+    INeuronComponent* Inner;
     Desc.Size = sizeof(Desc);
     Desc.NameAt4 = "BatchedMaterial";
     Desc.OuterAt8 = AggregateOuter;
     Desc.InnerOutAtC = (void**)&Inner;
-    IDAComponent* Created = nullptr;
+    INeuronComponent* Created = nullptr;
     IMaterial* Material = nullptr;
     IBatchedMaterial* Batched = nullptr;
     FMaterialLibraryRecord* Record = nullptr;
-    if (DACOM_Acquire()->CreateInstance((AGGDESC*)&Desc,
+    if (NEURONCOMPONENTS_Acquire()->CreateInstance((AGGDESC*)&Desc,
                                       (void**)&Created) >= 0)
     {
         if (Created->QueryInterface(Iids::Material, (void**)&Material) >= 0)
@@ -1069,7 +1065,7 @@ FMaterialLibraryRecord* DACOM_API FMaterialLibrary::CreateAfterMap(const char* N
                         "Unable to set super type for '%s' (%s) [%s]\n",
                         NameCopy, TypeCopy, SelectedType);
                     FDUMP(0x100003, "%s(%d) : NOTICE:General:%s",
-                        "C:\\work\\builds\\dalibs\\dalibs-build\\build\\Src\\Shading\\Materials\\MaterialBatcher.cpp",
+                        "Shading\\Materials\\MaterialBatcher.cpp",
                         0x441, Message);
                 }
                 if (Batched != nullptr)
@@ -1086,9 +1082,9 @@ FMaterialLibraryRecord* DACOM_API FMaterialLibrary::CreateAfterMap(const char* N
 
 GENRESULT FMaterialLibrary::ParseMaterialMap()
 {
-    // FUN_06ecbfe0: this parser independently acquires its own ProfileParser.
+    // this parser independently acquires its own ProfileParser.
     IProfileParser* Parser = nullptr;
-    const GENRESULT Result = DACOM_Acquire()->QueryInterface(
+    const GENRESULT Result = NEURONCOMPONENTS_Acquire()->QueryInterface(
         Iids::ProfileParser, (void**)&Parser);
     if (Result >= 0)
     {

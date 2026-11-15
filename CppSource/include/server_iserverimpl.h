@@ -1,24 +1,20 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // server_iserverimpl.h -- Server.dll's IServerImpl and its exported instance `Server`.
-//
-// Retail Server.dll exports the whole class (`??0IServerImpl@@`, `??4`, the two `??_7`
+
+// baseline Server.dll exports the whole class (`??0IServerImpl@@`, `??4`, the two `??_7`
 // vftables, every IServer override, PushToServer, SubmitChat, the non-virtual GetServerStats)
 // and the object itself as the undecorated data export `Server`. OutpostServer.exe calls the
 // members directly through its import table with ECX = &Server (Startup / Shutdown / Update /
 // ElapseTime / GetServerStats / GetServerID / GetServerSig) or ECX = &Server + 4, the
 // IChatServer subobject (SubmitChat from the chat dialogs).
-//
+
 // rpclocal.dll exports a DIFFERENT struct of the same name and layout prefix
 // (src/include/rpc_iserver.h). The two never meet in one translation unit: this header is for
 // Server.dll and its direct importers (OutpostServer.exe / RemoteClient.dll), rpc_iserver.h
 // for the rpclocal / RemoteServer proxies.
 // That is also why common_server.h does not include this header.
-//
+
 // Closure: server_iserver.h (IServer, IChatServer, SERVER_API) and common_server_types.h
 // (ServerStats, the parameter structs). It must never reach common_server.h /
 // common_cobject.h, so MFC translation units can include it.
@@ -36,14 +32,14 @@
 #define SERVER_ISERVERIMPL_API __declspec(dllimport)
 #endif
 
-// C4275: IServer / IChatServer are not exported themselves -- as in retail, which exports no
+// C4275: IServer / IChatServer are not exported themselves -- as in baseline, which exports no
 // IServer / IChatServer symbol.
 #pragma warning(push)
 #pragma warning(disable : 4275)
 
 // ===========================================================================
-// IServerImpl -- retail .data:Server (06d8facc), TWELVE bytes: IServer vptr at +0x00
-// (??_7IServerImpl@@6BIServer@@@, .rdata:06d65bcc, 93 entries -- IServer's 92 plus
+// IServerImpl -- baseline .data:Server (06d8facc), TWELVE bytes: IServer vptr at +0x00
+// (??_7IServerImpl@@6BIServer@@@, module storage, 93 entries -- IServer's 92 plus
 // PushToServer), IChatServer vptr at +0x04 (??_7IServerImpl@@6BIChatServer@@@, one entry,
 // SubmitChat), one dword at +0x08. Bodies: src/Server/IServerImpl.cpp.
 // ===========================================================================
@@ -143,19 +139,19 @@ public:
     void DumpPacketStats(const char* Name) override;
     void Dock(const unsigned int& BaseId, const unsigned int& SessionId) override;
 
-    // Slot 92 (+0x170, .rdata:06d65d3c): IServerImpl's OWN virtual, not an IServer override.
+    // Slot 92 (+0x170, module storage): IServerImpl's OWN virtual, not an IServer override.
     virtual void PushToServer(CDAPacket* Packet);
 
     // --- IChatServer --- ?SubmitChat@IServerImpl@@UAEXUCHAT_ID@@KPBX0H@Z (0x06d191b0, RET 0x14)
     void SubmitChat(CHAT_ID Sender, unsigned long Size, const void* Data, CHAT_ID Target, int SystemId) override;
 
     // ?GetServerStats@IServerImpl@@QAEXAAUServerStats@@@Z -- public NON-virtual
-    // (.text:06d45af0..06d45b36).
+    // (module storage..06d45b36).
     void GetServerStats(ServerStats& OutStats);
 
     // ??0IServerImpl@@QAE@XZ (0x06cef560), ??0IServerImpl@@QAE@ABU0@@Z (0x06cef580),
     // ??4IServerImpl@@QAEAAU0@ABU0@@Z (0x06cef5b0). User-declared so the compiler does not
-    // also generate and export move members retail does not have.
+    // also generate and export move members baseline does not have.
     IServerImpl() : Field_0x8(0) {}
     IServerImpl(const IServerImpl& Other)
         : IServer(Other), IChatServer(Other), Field_0x8(Other.Field_0x8) {}

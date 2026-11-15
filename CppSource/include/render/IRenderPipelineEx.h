@@ -1,20 +1,16 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
-// Port-only Direct3D 9 extensions of the render pipeline (RP9.dll). Retail has nothing like
-// this: RP8.dll (Direct3D 8, the retail pipeline) does not answer these IIDs, so a consumer
+// Port-only Direct3D 9 extensions of the render pipeline (DX9RENDERER.dll). baseline has nothing like
+// this: DX8RENDERER.dll (Direct3D 8, the baseline pipeline) does not answer these IIDs, so a consumer
 // QueryInterfaces the pipeline for Iids::RenderPipelineEx / Iids::RPDrawEx and, on failure,
-// keeps its old (fixed-function) algorithm unchanged. See docs/re/rp9.md, "Ex extensions".
-//
+// keeps its old (fixed-function) algorithm unchanged. See implementation notes, "Ex extensions".
+
 // The API is generic GPU plumbing (programmable shaders, render targets, volume textures, the
 // scene depth as a texture) -- it knows nothing about nebulae or particles. Every type here is
 // D3D-version neutral, so D3D8-branch translation units (the exe) can include it.
-//
+
 // Lifetime rules:
 // - Handles are opaque and owned by the pipeline. They survive device loss / Reset
 //   (CreateBuffers): render targets and the scene depth are recreated behind the same handle.
@@ -25,7 +21,7 @@
 // - Render states inside a pass are set with the ordinary IRenderPipeline::SetRenderState
 //   (Direct3D 8 numbering, like everywhere else); they are restored at EndExPass.
 
-#include "dacom.h"
+#include "neuroncomponents.h"
 
 #include <cstddef>
 
@@ -140,77 +136,77 @@ struct FRPExPassDesc
 };
 
 // DirectX 9 resource / pipeline extensions. IID: Iids::RenderPipelineEx.
-struct IRenderPipelineEx : IDAComponent
+struct IRenderPipelineEx : INeuronComponent
 {
     // Device capabilities relevant to the extensions (Out->Size: see FRPExCaps). Fails outside
     // the device lifetime (GR_GENERIC) and for Out->Size < RPExCapsSizeV1 (GR_INVALID_PARMS).
-    virtual GENRESULT DACOM_API GetExCaps(FRPExCaps* Out) = 0;
+    virtual GENRESULT NEURONCOMPONENTS_API GetExCaps(FRPExCaps* Out) = 0;
 
     // Compiles Path (FileSystem-relative, e.g. "SHADERS\\debug_depth.hlsl") as vs_3_0 VsEntry
     // and ps_3_0 PsEntry; #include is resolved through the same FileSystem (first next to the
     // file, then from the FileSystem root). A handle is returned even when compilation fails
     // (result GR_GENERIC, the compiler text is logged as an ERROR): the program is unusable
     // until ReloadExPrograms compiles it. FileSystem is AddRef'd and kept for reloads.
-    virtual GENRESULT DACOM_API CreateExProgram(IFileSystem* FileSystem, const char* Path,
+    virtual GENRESULT NEURONCOMPONENTS_API CreateExProgram(IFileSystem* FileSystem, const char* Path,
                                                 const char* VsEntry, const char* PsEntry,
                                                 FRPExProgram** Out) = 0;
-    virtual GENRESULT DACOM_API DestroyExProgram(FRPExProgram* Program) = 0;
+    virtual GENRESULT NEURONCOMPONENTS_API DestroyExProgram(FRPExProgram* Program) = 0;
     // Re-reads and recompiles every program. A program that fails keeps its previous
     // bytecode and shaders (error logged). GR_OK only when all compiled.
-    virtual GENRESULT DACOM_API ReloadExPrograms() = 0;
+    virtual GENRESULT NEURONCOMPONENTS_API ReloadExPrograms() = 0;
 
-    virtual GENRESULT DACOM_API CreateExRenderTarget(const FRPExRenderTargetDesc* Desc,
+    virtual GENRESULT NEURONCOMPONENTS_API CreateExRenderTarget(const FRPExRenderTargetDesc* Desc,
                                                      FRPExTexture** Out) = 0;
     // A managed volume texture, one mip level. Data is Width*Height*Depth texels, rows and
     // slices tightly packed (L8: 1 byte, A8R8G8B8 / G16R16F / R32F: 4, R16F: 2, FP16 RGBA: 8).
-    virtual GENRESULT DACOM_API CreateExVolumeTexture(unsigned long Width, unsigned long Height,
+    virtual GENRESULT NEURONCOMPONENTS_API CreateExVolumeTexture(unsigned long Width, unsigned long Height,
                                                       unsigned long Depth, ERPExFormat Format,
                                                       const void* Data, FRPExTexture** Out) = 0;
     // Render targets and volume textures only (the scene depth belongs to the pipeline).
-    virtual GENRESULT DACOM_API DestroyExTexture(FRPExTexture* Texture) = 0;
-    virtual GENRESULT DACOM_API GetExTextureSize(FRPExTexture* Texture, unsigned long* OutWidth,
+    virtual GENRESULT NEURONCOMPONENTS_API DestroyExTexture(FRPExTexture* Texture) = 0;
+    virtual GENRESULT NEURONCOMPONENTS_API GetExTextureSize(FRPExTexture* Texture, unsigned long* OutWidth,
                                                  unsigned long* OutHeight) = 0;
     // The scene depth buffer as a texture (hardware depth in .r, point sampling). Fails with
     // GR_GENERIC when the device has no INTZ support -- the depth buffer is then the ordinary
     // auto depth-stencil surface and cannot be sampled.
-    virtual GENRESULT DACOM_API GetSceneDepth(FRPExTexture** Out) = 0;
+    virtual GENRESULT NEURONCOMPONENTS_API GetSceneDepth(FRPExTexture** Out) = 0;
 
     // Pass bracketing. Inside a pass: programs, Ex texture bindings, constants, Ex draws.
     // Passes do not nest.
-    virtual GENRESULT DACOM_API BeginExPass(const FRPExPassDesc* Desc) = 0;
-    virtual GENRESULT DACOM_API EndExPass() = 0;
+    virtual GENRESULT NEURONCOMPONENTS_API BeginExPass(const FRPExPassDesc* Desc) = 0;
+    virtual GENRESULT NEURONCOMPONENTS_API EndExPass() = 0;
     // Switches the colour target inside a pass (nullptr = back buffer); bKeepDepth binds the
     // scene depth surface, otherwise none. The viewport becomes the whole target.
-    virtual GENRESULT DACOM_API SetExRenderTarget(FRPExTexture* ColorTarget,
+    virtual GENRESULT NEURONCOMPONENTS_API SetExRenderTarget(FRPExTexture* ColorTarget,
                                                   unsigned long bKeepDepth) = 0;
 
     // nullptr returns to fixed function. Pass only; a program that never compiled fails.
-    virtual GENRESULT DACOM_API BindExProgram(FRPExProgram* Program) = 0;
-    virtual GENRESULT DACOM_API SetExVertexConstants(unsigned long StartRegister,
+    virtual GENRESULT NEURONCOMPONENTS_API BindExProgram(FRPExProgram* Program) = 0;
+    virtual GENRESULT NEURONCOMPONENTS_API SetExVertexConstants(unsigned long StartRegister,
                                                      const float* Data,
                                                      unsigned long Vector4Count) = 0;
-    virtual GENRESULT DACOM_API SetExPixelConstants(unsigned long StartRegister,
+    virtual GENRESULT NEURONCOMPONENTS_API SetExPixelConstants(unsigned long StartRegister,
                                                     const float* Data,
                                                     unsigned long Vector4Count) = 0;
     // Sampler 0..15; Texture nullptr unbinds. Binding the scene depth while it is the bound
     // depth surface unbinds the depth surface for the rest of the pass.
-    virtual GENRESULT DACOM_API BindExTexture(unsigned long Sampler, FRPExTexture* Texture,
+    virtual GENRESULT NEURONCOMPONENTS_API BindExTexture(unsigned long Sampler, FRPExTexture* Texture,
                                               const FRPExSamplerState* State) = 0;
     // An IRenderPipeline / IRPTexture texture handle (CreateTexture, LoadTexture, LoadCubemap).
-    virtual GENRESULT DACOM_API BindExPipelineTexture(unsigned long Sampler, void* Handle,
+    virtual GENRESULT NEURONCOMPONENTS_API BindExPipelineTexture(unsigned long Sampler, void* Handle,
                                                       const FRPExSamplerState* State) = 0;
 };
 
 // DirectX 9 drawing extensions. IID: Iids::RPDrawEx. Pass only; a program must be bound.
-struct IRPDrawEx : IDAComponent
+struct IRPDrawEx : INeuronComponent
 {
     // Two triangles covering the viewport, FVF XYZ|TEX1: position in clip space (z 0) already
     // shifted by D3D9's half pixel for the current colour target, TEXCOORD0 (0,0) top-left ..
     // (1,1) bottom-right. The vertex shader passes the position through (see
     // DATA_EXTRA/SHADERS/common.hlsli, RPExFullscreenVS).
-    virtual GENRESULT DACOM_API DrawFullscreenQuad() = 0;
+    virtual GENRESULT NEURONCOMPONENTS_API DrawFullscreenQuad() = 0;
     // DrawPrimitiveUP with the caller's FVF (D3DPRIMITIVETYPE / D3DFVF values are the same in
     // Direct3D 8 and 9). Count is the vertex count, as in IRenderPipeline::DrawPrimitive.
-    virtual GENRESULT DACOM_API DrawExPrimitiveUp(unsigned long Prim, unsigned long Fvf,
+    virtual GENRESULT NEURONCOMPONENTS_API DrawExPrimitiveUp(unsigned long Prim, unsigned long Fvf,
                                                   const void* Verts, unsigned long Count) = 0;
 };

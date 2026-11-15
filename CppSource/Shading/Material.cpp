@@ -1,13 +1,9 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "Material.h"
 #include "MaterialAnimation.h"
 #include "MaterialLibrary.h"
-#include "engine/engbase.h"
+#include "engine/sceneruntime.h"
 
 #include <cmath>
 #include <cstdlib>
@@ -15,64 +11,64 @@
 #include <cstring>
 #include <string>
 
-// Retail DAT_06ed188c, bytes read from EXE/Shading.dll.
+// , bytes read from EXE/Shading.dll.
 static const unsigned long GDetailTable_06ed188c[] = {0x89, 0x1, 0x1D, 0x0, 0x1B, 0x0, 0x0, 0x0};
-// Retail DAT_06ed18ac, bytes read from EXE/Shading.dll.
+// , bytes read from EXE/Shading.dll.
 static const unsigned long GDetailTable_06ed18ac[] = {0x89, 0x1, 0x1D, 0x0, 0x1B, 0x1, 0x13, 0x5, 0x14, 0x6, 0x0, 0x0};
-// Retail DAT_06ed18dc, bytes read from EXE/Shading.dll.
+// , bytes read from EXE/Shading.dll.
 static const unsigned long GDetailTable_06ed18dc[] = {0x1, 0x4, 0x2, 0x2, 0x3, 0x0, 0x4, 0x4, 0x5, 0x2, 0x6, 0x0, 0x0, 0x0};
-// Retail DAT_06ed1914, bytes read from EXE/Shading.dll.
+// , bytes read from EXE/Shading.dll.
 static const unsigned long GDetailTable_06ed1914[] = {0x1, 0x5, 0x2, 0x2, 0x3, 0x1, 0x4, 0x4, 0x5, 0x2, 0x6, 0x1, 0x0, 0x0};
-// Retail DAT_06ed194c, bytes read from EXE/Shading.dll.
+// , bytes read from EXE/Shading.dll.
 static const unsigned long GDetailTable_06ed194c[] = {0x1, 0x1, 0x2, 0x2, 0x3, 0x1, 0x4, 0x1, 0x5, 0x2, 0x6, 0x1, 0x0, 0x0};
-// Retail DAT_06ed1e7c, bytes read from EXE/Shading.dll.
+// , bytes read from EXE/Shading.dll.
 static const unsigned long GDetailTable_06ed1e7c[] = {0x89, 0x1, 0x1D, 0x0, 0x1B, 0x0, 0x0, 0x0};
-// Retail DAT_06ed1e9c, bytes read from EXE/Shading.dll.
+// , bytes read from EXE/Shading.dll.
 static const unsigned long GDetailTable_06ed1e9c[] = {0x89, 0x0, 0x1D, 0x0, 0x1B, 0x1, 0x13, 0x5, 0x14, 0x6, 0x0, 0x0};
-// Retail DAT_06ed1ecc, bytes read from EXE/Shading.dll.
+// , bytes read from EXE/Shading.dll.
 static const unsigned long GDetailTable_06ed1ecc[] = {0x1, 0x4, 0x2, 0x2, 0x3, 0x0, 0x4, 0x4, 0x5, 0x2, 0x6, 0x0, 0x0, 0x0};
-// Retail DAT_06ed1f04, bytes read from EXE/Shading.dll.
+// , bytes read from EXE/Shading.dll.
 static const unsigned long GDetailTable_06ed1f04[] = {0x1, 0x5, 0x2, 0x2, 0x3, 0x1, 0x4, 0x4, 0x5, 0x2, 0x6, 0x1, 0x0, 0x0};
-// Retail DAT_06ed1f3c, bytes read from EXE/Shading.dll.
+// , bytes read from EXE/Shading.dll.
 static const unsigned long GDetailTable_06ed1f3c[] = {0x1, 0x2, 0x2, 0x2, 0x3, 0x0, 0x4, 0x2, 0x5, 0x2, 0x6, 0x0, 0x0, 0x0};
-// Retail DAT_06ed1f74, bytes read from EXE/Shading.dll.
+// , bytes read from EXE/Shading.dll.
 static const unsigned long GDetailTable_06ed1f74[] = {0x1, 0x1, 0x2, 0x2, 0x3, 0x1, 0x4, 0x1, 0x5, 0x2, 0x6, 0x1, 0x0, 0x0};
-// Retail DAT_06ed220c, bytes read from EXE/Shading.dll.
+// , bytes read from EXE/Shading.dll.
 static const unsigned long GDetailTable_06ed220c[] = {0x89, 0x1, 0x1D, 0x0, 0x1B, 0x0, 0x0, 0x0};
-// Retail DAT_06ed222c, bytes read from EXE/Shading.dll.
+// , bytes read from EXE/Shading.dll.
 static const unsigned long GDetailTable_06ed222c[] = {0x89, 0x1, 0x1D, 0x0, 0x1B, 0x1, 0x13, 0x5, 0x14, 0x6, 0x0, 0x0};
-// Retail DAT_06ed225c, bytes read from EXE/Shading.dll.
+// , bytes read from EXE/Shading.dll.
 static const unsigned long GDetailTable_06ed225c[] = {0x1, 0x4, 0x2, 0x2, 0x3, 0x0, 0x4, 0x4, 0x5, 0x2, 0x6, 0x0, 0x0, 0x0};
-// Retail DAT_06ed2294, bytes read from EXE/Shading.dll.
+// , bytes read from EXE/Shading.dll.
 static const unsigned long GDetailTable_06ed2294[] = {0x1, 0x5, 0x2, 0x2, 0x3, 0x1, 0x4, 0x4, 0x5, 0x2, 0x6, 0x1, 0x0, 0x0};
-// Retail DAT_06ed22cc, bytes read from EXE/Shading.dll.
+// , bytes read from EXE/Shading.dll.
 static const unsigned long GDetailTable_06ed22cc[] = {0x1, 0x1, 0x2, 0x2, 0x3, 0x1, 0x4, 0x1, 0x5, 0x2, 0x6, 0x1, 0x0, 0x0};
 
-// LAB_06eb81e0: all four tables decoded from their own retail PE bytes.
+// all four tables decoded from their own baseline PE bytes.
 static const unsigned long GDetailMapTable_06ed1a9c[] = {0x89, 1, 0x1D, 0, 0x1B, 0, 0, 0};
 static const unsigned long GDetailMapTable_06ed1abc[] = {1, 4, 2, 2, 3, 0, 4, 4, 5, 2, 6, 0, 0, 0};
 static const unsigned long GDetailMapTable_06ed1af4[] = {1, 5, 2, 2, 3, 1, 4, 4, 5, 2, 6, 1, 0, 0};
 static const unsigned long GDetailMapTable_06ed1b2c[] = {1, 1, 2, 2, 3, 1, 4, 1, 5, 2, 6, 1, 0, 0};
 
-// Own retail PE state tables for material Bind callbacks.
+// Own baseline PE state tables for material Bind callbacks.
 static const unsigned long GBindTable_06ed209c[] = {0x8D, 0x0, 0x0, 0x0};
 static const unsigned long GBindTable_06ed20ac[] = {0x1, 0x2, 0x2, 0x2, 0x3, 0x0, 0x4, 0x2, 0x5, 0x2, 0x6, 0x0, 0x0, 0x0};
 static const unsigned long GBindTable_06ed20e4[] = {0x1, 0x1, 0x2, 0x2, 0x3, 0x1, 0x4, 0x1, 0x5, 0x2, 0x6, 0x1, 0x0, 0x0};
 static const unsigned long GBindTable_06ed206c[] = {0x89, 0x0, 0x1D, 0x0, 0x1B, 0x1, 0x13, 0x9, 0x14, 0x1, 0x0, 0x0};
 
-// Own retail PE state tables for material Bind callbacks.
+// Own baseline PE state tables for material Bind callbacks.
 static const unsigned long GBindTable_06ed26dc[] = {0x1, 0x4, 0x2, 0x2, 0x3, 0x0, 0x4, 0x4, 0x5, 0x2, 0x6, 0x0, 0x0, 0x0};
 static const unsigned long GBindTable_06ed2714[] = {0x1, 0x1, 0x2, 0x2, 0x3, 0x1, 0x4, 0x1, 0x5, 0x2, 0x6, 0x1, 0x0, 0x0};
 static const unsigned long GBindTable_06ed26ac[] = {0x89, 0x1, 0x1D, 0x0, 0x1B, 0x1, 0x13, 0x5, 0x14, 0x6, 0x0, 0x0};
 static const unsigned long GBindTable_06ed268c[] = {0x89, 0x1, 0x1D, 0x0, 0x1B, 0x0, 0x0, 0x0};
 
-// Own retail PE state tables for material Bind callbacks.
+// Own baseline PE state tables for material Bind callbacks.
 static const unsigned long GBindTable_06ed1484[] = {0x89, 0x1, 0x1D, 0x0, 0x1B, 0x0, 0x0, 0x0};
 static const unsigned long GBindTable_06ed14a4[] = {0x1, 0x4, 0x2, 0x2, 0x3, 0x0, 0x4, 0x4, 0x5, 0x2, 0x6, 0x0, 0x0, 0x0};
 static const unsigned long GBindTable_06ed14dc[] = {0x1, 0x5, 0x2, 0x2, 0x3, 0x1, 0x4, 0x4, 0x5, 0x2, 0x6, 0x1, 0x0, 0x0};
 static const unsigned long GBindTable_06ed1514[] = {0x1, 0x1, 0x2, 0x2, 0x3, 0x1, 0x4, 0x1, 0x5, 0x2, 0x6, 0x1, 0x0, 0x0};
 
-// Own retail PE state tables for material Bind callbacks.
+// Own baseline PE state tables for material Bind callbacks.
 static const unsigned long GBindTable_06ed16cc[] = {0x89, 0x1, 0x1D, 0x0, 0x1B, 0x0, 0x0, 0x0};
 static const unsigned long GBindTable_06ed16ec[] = {0x1, 0x4, 0x2, 0x2, 0x3, 0x0, 0x4, 0x4, 0x5, 0x2, 0x6, 0x0, 0x0, 0x0};
 static const unsigned long GBindTable_06ed1724[] = {0x1, 0x7, 0x2, 0x2, 0x3, 0x1, 0x4, 0x4, 0x5, 0x2, 0x6, 0x1, 0x0, 0x0};
@@ -82,7 +78,7 @@ static const unsigned long GBindTable_06ed1c84[] = {0x1, 0x4, 0x2, 0x2, 0x3, 0x0
 static const unsigned long GBindTable_06ed1cbc[] = {0x1, 0x1, 0x2, 0x2, 0x3, 0x1, 0x4, 0x1, 0x5, 0x2, 0x6, 0x1, 0x0, 0x0};
 static const unsigned long GBindTable_06ed1c54[] = {0x89, 0x1, 0x1D, 0x0, 0x1B, 0x1, 0x13, 0x2, 0x14, 0x2, 0x0, 0x0};
 
-// FUN_06eb7120: one texture block, four calls in the original order.
+// one texture block, four calls in the original order.
 static void BindDetailTexture(IRenderPipeline* Pipeline, const FTexBlock& Block,
                               unsigned long Stage)
 {
@@ -129,7 +125,7 @@ static void SetDetailTileTransform(IRenderPipeline* Pipeline, float TileRate)
 
 bool FMaterial::ApplyDetailPassState(unsigned long Pass)
 {
-    // FUN_06eb71f0: +0x74 is the pass count, +0x79 is stage-1 verification.
+    // +0x74 is the pass count, +0x79 is stage-1 verification.
     if (DetailPassCount == 1)
     {
         SetMaterialBlock(Pipeline, &DiffuseR);
@@ -168,7 +164,7 @@ bool FMaterial::ApplyDetailPassState(unsigned long Pass)
 
 bool FMaterial::ApplyIllumDetailPassState(unsigned long Pass)
 {
-    // FUN_06eb9b10: no pass-count test; pass 1 always uses the third block.
+    // no pass-count test; pass 1 always uses the third block.
     if (Pass == 0)
     {
         SetMaterialBlock(Pipeline, &DiffuseR);
@@ -202,7 +198,7 @@ bool FMaterial::ApplyIllumDetailPassState(unsigned long Pass)
 
 bool FMaterial::ApplyMaskedDetailPassState(unsigned long Pass)
 {
-    // FUN_06ebb890: mode 1 ignores the requested pass.
+    // mode 1 ignores the requested pass.
     if (DetailPassCount == 1)
     {
         SetMaterialBlock(Pipeline, &DiffuseR);
@@ -238,12 +234,12 @@ bool FMaterial::ApplyMaskedDetailPassState(unsigned long Pass)
     return true;
 }
 
-// Raw retail tables at 06ed1140/1178 and 06ed23fc/2434 are identical.
+// Raw baseline tables at 06ed1140/1178 and 06ed23fc/2434 are identical.
 static const unsigned long GAtmosphereNebulaTss0[] = {
     1, 4, 2, 2, 3, 0, 4, 4, 5, 2, 6, 0, 0, 0};
 static const unsigned long GAtmosphereNebulaTss1[] = {
     1, 1, 2, 2, 3, 1, 4, 1, 5, 2, 6, 1, 0, 0};
-// Raw retail RS tables 06ed1100 and 06ed23cc.
+// Raw baseline RS tables 06ed1100 and 06ed23cc.
 static const unsigned long GAtmosphereRs[] = {0x89, 1, 0x1D, 0, 0x1B, 1, 0x13, 5, 0x14, 6, 0, 0};
 static const unsigned long GNebulaRs[] = {0x89, 0, 0x1D, 0, 0x1B, 1, 0x13, 5, 0x14, 2, 0, 0};
 
@@ -291,7 +287,7 @@ bool IsSinglePassPropertySchemaFamily(const char* FactoryName)
     return false;
 }
 
-// FUN_06eb2a60 clears only metadata, tags and first payload words.
+// clears only metadata, tags and first payload words.
 FShadingPropertyRecord* ConstructPropertyRecord(FShadingPropertyRecord* Record)
 {
     Record->Current.Type = 0;
@@ -318,7 +314,7 @@ void ReleaseSchemaPayload(FShadingPropertyValue& Value)
 {
     if (Value.Type == 6)
     {
-        IDAComponent* Component = (IDAComponent*)(Value.Payload0);
+        INeuronComponent* Component = (INeuronComponent*)(Value.Payload0);
         Value.Payload0 = 0;
         if (Component != nullptr)
             Component->Release();
@@ -392,7 +388,7 @@ void SetSinglePassPropertyRecord(FShadingPropertyRecord& Record, unsigned long F
     Record.Flags = Flags;
     Record.Name = Name;
     Record.Description = Description;
-    // The retail instruction stores ESI itself (06ed56c4), not [ESI].
+    // The baseline instruction stores ESI itself (06ed56c4), not [ESI].
     Record.Callback = GPropertyMetadata_06ed56c4;
     Record.Current.Assign(CurrentType, Current);
     Record.Default.Assign(DefaultType, Default);
@@ -563,7 +559,7 @@ void InitializeIllumDetailPropertySchema()
         ConstructPropertyRecords(GIllumDetailPropertySchema, 18);
         std::atexit(DestroyIllumDetailPropertySchema);
     }
-    // The second retail guard tests record zero Current.Type, independently.
+    // The second baseline guard tests record zero Current.Type, independently.
     if (GIllumDetailPropertySchema[0].Current.Type != 0)
         return;
     InitializeDetailPropertyRecords(GIllumDetailPropertySchema);
@@ -582,7 +578,7 @@ void InitializeMaskedDetailPropertySchema()
         ConstructPropertyRecords(GMaskedDetailPropertySchema, 18);
         std::atexit(DestroyMaskedDetailPropertySchema);
     }
-    // The second retail guard tests record zero Current.Type, independently.
+    // The second baseline guard tests record zero Current.Type, independently.
     if (GMaskedDetailPropertySchema[0].Current.Type != 0)
         return;
     InitializeDetailPropertyRecords(GMaskedDetailPropertySchema);
@@ -646,13 +642,13 @@ void InitializeDetail2PassPropertySchema()
         ConstructPropertyRecords(GDetail2PassPropertySchema, 13);
         std::atexit(DestroyDetail2PassPropertySchema);
     }
-    // The second retail guard tests record zero Current.Type, independently.
+    // The second baseline guard tests record zero Current.Type, independently.
     if (GDetail2PassPropertySchema[0].Current.Type != 0)
         return;
     InitializeDetail2PassPropertyRecords(GDetail2PassPropertySchema);
 }
 
-// LAB_06eb7ce0/7d00: independently recovered from every store and raw PE payload.
+// /7d00: independently recovered from every store and raw PE payload.
 void DestroyDetailMapPropertySchema()
 {
     DestroyPropertyRecords(GDetailMapPropertySchema, 13);
@@ -727,7 +723,7 @@ void AssignOverlappingZeroAddressMode(void* TypeAddress, unsigned long& Payload)
         }
         else if (PreviousType == 6)
         {
-            IDAComponent* Component = (IDAComponent*)Payload;
+            INeuronComponent* Component = (INeuronComponent*)Payload;
             Payload = 0;
             if (Component != nullptr)
                 Component->Release();
@@ -795,7 +791,7 @@ void InitializeBtDetailPropertySchema()
     SetSinglePassPropertyRecord(GBtDetailPropertySchema[12], 0x20000, "Bt_flags", "DetailTexture U Address Mode",
                                 9, nullptr, 9, nullptr, 9, nullptr);
 
-    // 06eb4d94/4d99: flags alias the Atmosphere construction guard; the
+    // /4d99: flags alias the Atmosphere construction guard; the
     // following words overlap record zero and are published in setter order.
     GbAtmospherePropertySchemaInitialized = false;
     FShadingPropertyRecord& Atmosphere = GAtmospherePropertySchema[0];
@@ -807,7 +803,7 @@ void InitializeBtDetailPropertySchema()
     AssignOverlappingZeroAddressMode(&Atmosphere.Default.Payload3, Atmosphere.Saved.Type);
 }
 
-// LAB_06ebc3f0 / LAB_06eba540: each own raw PE table verified independently.
+// / the branch: each own raw PE table verified independently.
 void InitializeTexturePropertyRecords(FShadingPropertyRecord* Records)
 {
     SetSinglePassPropertyRecord(Records[0], 0, "Dt_name", "Texture Name",
@@ -822,7 +818,7 @@ void InitializeTexturePropertyRecords(FShadingPropertyRecord* Records)
 
 void DestroyNebulaPropertySchema()
 {
-    // FUN_06ebc720: four records in reverse Saved/Default/Current order.
+    // four records in reverse Saved/Default/Current order.
     DestroyPropertyRecords(GNebulaPropertySchema, 4);
 }
 
@@ -841,7 +837,7 @@ void InitializeNebulaPropertySchema()
 
 void DestroyLightMapPropertySchema()
 {
-    // FUN_06ebaab0: separate four-record table and registration.
+    // separate four-record table and registration.
     DestroyPropertyRecords(GLightMapPropertySchema, 4);
 }
 
@@ -969,9 +965,9 @@ FMaterial* FMaterialInner::OwnerFromThis()
                                         offsetof(FMaterial, Inner));
 }
 
-GENRESULT DACOM_API FMaterialInner::QueryInterface(const char* Iid, void** Out)
+GENRESULT NEURONCOMPONENTS_API FMaterialInner::QueryInterface(const char* Iid, void** Out)
 {
-    // LAB_06ebe3a0; raw PE table 06ed28f0 = {IMaterial, 0, nullptr, 0}.
+    // ; raw PE table 06ed28f0 = {IMaterial, 0, nullptr, 0}.
     FMaterial* Owner = OwnerFromThis();
     if (std::strcmp(Iid, Iids::Material) == 0)
     {
@@ -983,14 +979,14 @@ GENRESULT DACOM_API FMaterialInner::QueryInterface(const char* Iid, void** Out)
     return GR_INTERFACE_UNSUPPORTED;
 }
 
-unsigned long DACOM_API FMaterialInner::AddRef()
+unsigned long NEURONCOMPONENTS_API FMaterialInner::AddRef()
 {
     return ++OwnerFromThis()->RefCount;
 }
 
-unsigned long DACOM_API FMaterialInner::Release()
+unsigned long NEURONCOMPONENTS_API FMaterialInner::Release()
 {
-    // LAB_06eb65f0: the inner count never delegates to the aggregate outer.
+    // the inner count never delegates to the aggregate outer.
     FMaterial* Owner = OwnerFromThis();
     if (Owner->RefCount != 0)
         --Owner->RefCount;
@@ -1069,13 +1065,13 @@ FMaterial::FMaterial(const char* InFactoryName, const char* InClassName, EMateri
 FMaterial::~FMaterial() noexcept(false)
 {
     const bool bSinglePass = IsSinglePassPropertySchemaFamily(FactoryName);
-    // FUN_06ebe490: the held animation is released before any texture group.
+    // the held animation is released before any texture group.
     if (bSinglePass && MatAnim != nullptr)
     {
         MatAnim->Release();
         MatAnim = nullptr;
     }
-    // FUN_06ebc150: forward group release uses the live count.
+    // forward group release uses the live count.
     for (unsigned long Index = 0; Index < TexCount; ++Index)
     {
         if (TexBlocks[Index].TextureId != -1)
@@ -1136,40 +1132,40 @@ void FMaterial::ConfigureAggregation(FMaterialAggregateDesc* Desc)
 {
     Outer = Desc->OuterAt8;
     if (Outer != nullptr)
-        *Desc->InnerOutAtC = (IDAComponent*)(&Inner);
+        *Desc->InnerOutAtC = (INeuronComponent*)(&Inner);
 }
 
-GENRESULT DACOM_API FMaterial::QueryInterface(const char* Iid, void** Out)
+GENRESULT NEURONCOMPONENTS_API FMaterial::QueryInterface(const char* Iid, void** Out)
 {
     return Outer != nullptr ? Outer->QueryInterface(Iid, Out) : Inner.QueryInterface(Iid, Out);
 }
 
-unsigned long DACOM_API FMaterial::AddRef()
+unsigned long NEURONCOMPONENTS_API FMaterial::AddRef()
 {
     return Outer != nullptr ? Outer->AddRef() : Inner.AddRef();
 }
 
-unsigned long DACOM_API FMaterial::Release()
+unsigned long NEURONCOMPONENTS_API FMaterial::Release()
 {
     return Outer != nullptr ? Outer->Release() : Inner.Release();
 }
 
-GENRESULT DACOM_API FMaterial::InnerQueryInterface(const char* Iid, void** Out)
+GENRESULT NEURONCOMPONENTS_API FMaterial::InnerQueryInterface(const char* Iid, void** Out)
 {
     return Inner.QueryInterface(Iid, Out);
 }
-unsigned long DACOM_API FMaterial::InnerAddRef()
+unsigned long NEURONCOMPONENTS_API FMaterial::InnerAddRef()
 {
     return Inner.AddRef();
 }
-unsigned long DACOM_API FMaterial::InnerRelease()
+unsigned long NEURONCOMPONENTS_API FMaterial::InnerRelease()
 {
     return Inner.Release();
 }
 
-GENRESULT DACOM_API FMaterial::Initialize(IDAComponent* Component)
+GENRESULT NEURONCOMPONENTS_API FMaterial::Initialize(INeuronComponent* Component)
 {
-    // FUN_06eb1200: these are borrowed component pointers after immediate Release.
+    // these are borrowed component pointers after immediate Release.
     if (Component == nullptr)
         return GR_GENERIC;
     if (Component->QueryInterface(Iids::TextureLibraryA, (void**)&TexLib) < 0)
@@ -1224,7 +1220,7 @@ GENRESULT FMaterial::InitializeOwnedSchema()
 
 namespace
 {
-    // FUN_06eb3450 / FUN_06eb3510: scalar output is committed only on full success.
+    // / the routine: scalar output is committed only on full success.
     GENRESULT ReadSinglePassWord(IFileSystem* FileSystem, const char* Name, unsigned long* Output,
                                  bool bFloat = false)
     {
@@ -1258,7 +1254,7 @@ namespace
 
 namespace
 {
-    // FUN_06eb35d0: vector reads write directly; optional count is in float elements.
+    // vector reads write directly; optional count is in float elements.
     GENRESULT ReadSinglePassVector(IFileSystem* FileSystem, const char* Name,
                                    unsigned long Count, void* Out, unsigned long* OutCount)
     {
@@ -1285,7 +1281,7 @@ namespace
 
 namespace
 {
-    // FUN_06eb36b0 publishes allocation before Read, including on a failed read.
+    // publishes allocation before Read, including on a failed read.
     GENRESULT ReadSinglePassString(IFileSystem* FileSystem, const char* Name,
                                    unsigned long Size, char** Out)
     {
@@ -1312,7 +1308,7 @@ namespace
 
 GENRESULT FMaterial::LoadDeclaredSchema(IFileSystem* FileSystem)
 {
-    // LAB_06eb1370: walk the actual schema in order; no aliases or early texture resolve.
+    // walk the actual schema in order; no aliases or early texture resolve.
     void* Table;
     const unsigned long Count = GetParameterTable(&Table);
     FShadingPropertyRecord* Records = (FShadingPropertyRecord*)Table;
@@ -1348,7 +1344,7 @@ GENRESULT FMaterial::LoadDeclaredSchema(IFileSystem* FileSystem)
                 Value.Assign(Value.Type, RawString);
                 delete[] RawString;
             }
-            // Retail's failed read does not transfer RawString into Value.
+            // baseline's failed read does not transfer RawString into Value.
             break;
         }
         case 8:
@@ -1370,7 +1366,7 @@ GENRESULT FMaterial::LoadDeclaredSchema(IFileSystem* FileSystem)
             break;
         }
         default:
-            // Retail type6 and unknown tags fall through to the property store.
+            // baseline type6 and unknown tags fall through to the property store.
             break;
         }
         if (Result >= 0)
@@ -1380,15 +1376,15 @@ GENRESULT FMaterial::LoadDeclaredSchema(IFileSystem* FileSystem)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FMaterial::LoadFromFileSystem(void* FileSystem)
+GENRESULT NEURONCOMPONENTS_API FMaterial::LoadFromFileSystem(void* FileSystem)
 {
-    // LAB_06eb1370: every family walks its actual table, including Null's zero count.
+    // every family walks its actual table, including Null's zero count.
     return LoadDeclaredSchema((IFileSystem*)FileSystem);
 }
 
 namespace
 {
-    // FUN_06eb3780 (word), 3840 (float elements), 3900 (bytes).
+    // (word), 3840 (float elements), 3900 (bytes).
     GENRESULT WriteMaterialPropertyBytes(IFileSystem* FileSystem, const char* Name,
                                          const void* Buffer, unsigned long Size)
     {
@@ -1409,9 +1405,9 @@ namespace
     }
 }
 
-GENRESULT DACOM_API FMaterial::SaveProperties(void* FileSystem)
+GENRESULT NEURONCOMPONENTS_API FMaterial::SaveProperties(void* FileSystem)
 {
-    // FUN_06eb1720: table-driven snapshot, then write, then typed cleanup.
+    // table-driven snapshot, then write, then typed cleanup.
     void* Table;
     const unsigned long Count = GetParameterTable(&Table);
     FShadingPropertyRecord* Records = (FShadingPropertyRecord*)Table;
@@ -1482,7 +1478,7 @@ GENRESULT DACOM_API FMaterial::SaveProperties(void* FileSystem)
                                 (Record.Flags & 0x40000) != 0;
                 if (!bV)
                     Packed = (Packed & ~3UL) | (Value.Payload0 & 3UL);
-                // Retail 196c..1979 jumps to 1936: U also writes the V bits.
+                // baseline 196c..1979 jumps to 1936: U also writes the V bits.
                 Packed = (Packed & ~0xCUL) | ((Value.Payload0 << 2) & 0xCUL);
             }
             WriteResult = WriteMaterialPropertyBytes(Files, Record.Name, &Packed, 4);
@@ -1501,14 +1497,14 @@ GENRESULT DACOM_API FMaterial::SaveProperties(void* FileSystem)
 
 GENRESULT FMaterial::ApplyVerifyMatAnim()
 {
-    // LAB_06ebd810..d8ac: retain the QI output across the whole verification.
+    // ..d8ac: retain the QI output across the whole verification.
     IMatAnimLibrary* AnimationLibrary = nullptr; // formerly LibraryRaw
     const GENRESULT QueryResult = Pipeline->QueryInterface(Iids::MatAnimLibrary, (void**)&AnimationLibrary);
     if (QueryResult >= 0)
     {
         unsigned long Query[2];
         Query[0] = (unsigned long)InstanceName;
-        Query[1] = DACOM_CRC::GetCRC32(InstanceName);
+        Query[1] = NEURONCOMPONENTS_CRC::GetCRC32(InstanceName);
         if (MatAnim != nullptr)
         {
             MatAnim->Release();
@@ -1527,7 +1523,7 @@ GENRESULT FMaterial::ApplyVerifyMatAnim()
 
 GENRESULT FMaterial::ApplyVerifyDetailFamily()
 {
-    // LAB_06eb6ef0 / LAB_06ebb680: two verifies, then single-pass fallback.
+    // / the branch: two verifies, then single-pass fallback.
     DetailPassCount = 2;
     bDetailMultiPassEnabled = GetMaterialGlobalRecordValue(0) >= 1;
     Setup();
@@ -1566,7 +1562,7 @@ GENRESULT FMaterial::ApplyVerifyDetailFamily()
 
 GENRESULT FMaterial::ApplyVerifyIllumDetail()
 {
-    // LAB_06eb9920 returns zero on accepted pass configurations, not Verify's value.
+    // returns zero on accepted pass configurations, not Verify's value.
     DetailPassCount = 2;
     bDetailMultiPassEnabled = GetMaterialGlobalRecordValue(0) >= 1;
     Setup();
@@ -1604,7 +1600,7 @@ GENRESULT FMaterial::ApplyVerifyIllumDetail()
     return Result;
 }
 
-GENRESULT DACOM_API FMaterial::ApplyVerify(void* Context, void* Extra)
+GENRESULT NEURONCOMPONENTS_API FMaterial::ApplyVerify(void* Context, void* Extra)
 {
     if (BindKind == BindNull)
         return GR_OK;
@@ -1616,7 +1612,7 @@ GENRESULT DACOM_API FMaterial::ApplyVerify(void* Context, void* Extra)
         return ApplyVerifyIllumDetail();
     if (BindKind == BindBtDetail)
     {
-        // LAB_06eb52b0: global base+4 is record 0.Value.
+        // global base+4 is record 0.Value.
         bSecondaryTextureEnabled = GetMaterialGlobalRecordValue(0) >= 1;
         Setup();
         bSecondaryTextureVerified = true;
@@ -1642,7 +1638,7 @@ GENRESULT DACOM_API FMaterial::ApplyVerify(void* Context, void* Extra)
     }
     if (BindKind == BindDcDtEt)
     {
-        // LAB_06eb63b0: global base+14 is record 2.Value.
+        // global base+14 is record 2.Value.
         bSecondaryTextureEnabled = GetMaterialGlobalRecordValue(2) >= 1;
         Setup();
         Bind(nullptr);
@@ -1666,7 +1662,7 @@ GENRESULT DACOM_API FMaterial::ApplyVerify(void* Context, void* Extra)
     }
     if (BindKind == BindDetailMap)
     {
-        // LAB_06eb80d0 belongs to DetailMapMaterial, with two distinct flags.
+        // belongs to DetailMapMaterial, with two distinct flags.
         bDetailMultiPassEnabled = GetMaterialGlobalRecordValue(0) >= 1;
         Setup();
         bDetailSecondStageVerified = true;
@@ -1691,7 +1687,7 @@ GENRESULT DACOM_API FMaterial::ApplyVerify(void* Context, void* Extra)
     }
     if (BindKind == BindAtmosphere)
     {
-        // LAB_06eb2cb0 verifies once, preserving the resolved readiness byte.
+        // verifies once, preserving the resolved readiness byte.
         Setup();
         const unsigned char SavedReady = bAtmosphereReady;
         bAtmosphereReady = 1;
@@ -1703,13 +1699,13 @@ GENRESULT DACOM_API FMaterial::ApplyVerify(void* Context, void* Extra)
             char Message[0x2000];
             std::sprintf(Message, "failed to verify %s", InstanceName);
             FDUMP(0x100003, "%s(%d) : NOTICE:General:%s",
-                "C:\\work\\builds\\dalibs\\dalibs-build\\build\\Src\\Shading\\Materials\\AtmosphereMaterial.cpp",
+                "Shading\\Materials\\AtmosphereMaterial.cpp",
                 0x97, Message);
         }
         Teardown(nullptr);
         return Result;
     }
-    // LAB_06eb3aa0: the remaining families use the strict shared lifecycle.
+    // the remaining families use the strict shared lifecycle.
     Setup();
     Bind(nullptr);
     const GENRESULT Result = Pipeline->VerifyState();
@@ -1717,11 +1713,11 @@ GENRESULT DACOM_API FMaterial::ApplyVerify(void* Context, void* Extra)
     return Result;
 }
 
-GENRESULT DACOM_API FMaterial::ResolveTextures(float /*Delta*/)
+GENRESULT NEURONCOMPONENTS_API FMaterial::ResolveTextures(float /*Delta*/)
 {
     if (BindKind == BindAtmosphere)
     {
-        // LAB_06eb2c40: unsigned count, mandatory block/library on lookup.
+        // unsigned count, mandatory block/library on lookup.
         for (unsigned long Index = 0; Index < TexCount; ++Index)
         {
             FTexBlock& Entry = TexBlocks[Index];
@@ -1734,7 +1730,7 @@ GENRESULT DACOM_API FMaterial::ResolveTextures(float /*Delta*/)
         bAtmosphereReady = GetMaterialGlobalRecordValue(1) >= 1 ? 1 : 0;
         return GR_OK;
     }
-    // LAB_06eb3ae0: stride 0x2C, TexLib +0x70(id, -1, out=+8). id==-1 → handle 0.
+    // stride 0x2C, TexLib +0x70(id, -1, out=+8). id==-1 → handle 0.
     for (unsigned long Index = 0; Index < TexCount; ++Index)
     {
         FTexBlock* Entry = &TexBlocks[Index];
@@ -1754,7 +1750,7 @@ GENRESULT DACOM_API FMaterial::ResolveTextures(float /*Delta*/)
 
 void FMaterial::BindDcDtTables(void* Context)
 {
-    // FUN_06ebd8b0: all SinglePass variants share this body.
+    // all SinglePass variants share this body.
     BindMaterialAndContext(Pipeline, &DiffuseR, Context);
     BindDetailTexture(Pipeline, TexBlocks[0], 0);
     ApplyDetailTable(Pipeline, GBindTable_06ed26dc, true, 0);
@@ -1775,7 +1771,7 @@ void FMaterial::BindDcDtTables(void* Context)
 
 void FMaterial::BindLightMapTables(void* Context)
 {
-    // FUN_06eba720: 123 own instructions, unconditional stage tables.
+    // 123 own instructions, unconditional stage tables.
     BindMaterialAndContext(Pipeline, &DiffuseR, Context);
     ApplyDetailTable(Pipeline, GBindTable_06ed209c, false, 0);
     BindDetailTexture(Pipeline, TexBlocks[0], 0);
@@ -1786,7 +1782,7 @@ void FMaterial::BindLightMapTables(void* Context)
 
 void FMaterial::BindNebulaTables(void* Context)
 {
-    // FUN_06ebc600: material first, then the optional mesh COLORVERTEX write.
+    // material first, then the optional mesh COLORVERTEX write.
     SetMaterialBlock(Pipeline, &DiffuseR);
     if (Context != nullptr)
     {
@@ -1806,7 +1802,7 @@ void FMaterial::BindNebulaTables(void* Context)
 
 void FMaterial::BindAtmosphereTables()
 {
-    // FUN_06eb2b40: caller tests readiness; dependencies are mandatory.
+    // caller tests readiness; dependencies are mandatory.
     SetMaterialBlock(Pipeline, &DiffuseR);
     FTexBlock* Block = &TexBlocks[0];
     PipeSetTexture(Pipeline, 0, Block->Handle);
@@ -1820,7 +1816,7 @@ void FMaterial::BindAtmosphereTables()
 
 void FMaterial::BindDcDtEtTables(void* Context)
 {
-    // FUN_06eb61e0: enabled flag and the SECOND block's id control stage 1.
+    // enabled flag and the SECOND block's id control stage 1.
     BindMaterialAndContext(Pipeline, &DiffuseR, Context);
     ApplyDetailTable(Pipeline, GBindTable_06ed16cc, false, 0);
     BindDetailTexture(Pipeline, TexBlocks[0], 0);
@@ -1838,7 +1834,7 @@ void FMaterial::BindDcDtEtTables(void* Context)
 
 void FMaterial::BindEcEtTables(void* Context)
 {
-    // FUN_06eb8a40: mandatory material, optional marker, block0, fixed tables.
+    // mandatory material, optional marker, block0, fixed tables.
     BindMaterialAndContext(Pipeline, &DiffuseR, Context);
     BindDetailTexture(Pipeline, TexBlocks[0], 0);
     ApplyDetailTable(Pipeline, GBindTable_06ed1c84, true, 0);
@@ -1848,7 +1844,7 @@ void FMaterial::BindEcEtTables(void* Context)
 
 void FMaterial::BindDetailMapTables(void* Context)
 {
-    // LAB_06eb81e0: mandatory material first, then optional mesh marker.
+    // mandatory material first, then optional mesh marker.
     SetMaterialBlock(Pipeline, &DiffuseR);
     if (Context != nullptr)
     {
@@ -1878,7 +1874,7 @@ void FMaterial::BindDetailMapTables(void* Context)
 
 void FMaterial::BindBtDetailTables(void* Context)
 {
-    // FUN_06eb5100: +69 alone selects the optional second-stage body.
+    // +69 alone selects the optional second-stage body.
     BindMaterialAndContext(Pipeline, &DiffuseR, Context);
     ApplyDetailTable(Pipeline, GBindTable_06ed1484, false, 0);
     BindDetailTexture(Pipeline, TexBlocks[0], 0);
@@ -1893,9 +1889,9 @@ void FMaterial::BindBtDetailTables(void* Context)
     ApplyDetailTable(Pipeline, GBindTable_06ed1514, true, DisabledStage);
 }
 
-GENRESULT DACOM_API FMaterial::Bind(void* Context)
+GENRESULT NEURONCOMPONENTS_API FMaterial::Bind(void* Context)
 {
-    // LAB_06ec9560: Null and the two-pass families bind without side effects.
+    // Null and the two-pass families bind without side effects.
     if (BindKind == BindNull || BindKind == BindStub)
         return GR_OK;
 
@@ -1946,7 +1942,7 @@ GENRESULT DACOM_API FMaterial::Bind(void* Context)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FMaterial::Teardown(void* Context)
+GENRESULT NEURONCOMPONENTS_API FMaterial::Teardown(void* Context)
 {
     if (BindKind == BindNull)
         return GR_OK;
@@ -1965,12 +1961,12 @@ GENRESULT DACOM_API FMaterial::Teardown(void* Context)
         return GR_OK;
     }
 
-    // FUN_06eb50a0 resets all six stage-1 states before inspecting Context.
+    // resets all six stage-1 states before inspecting Context.
     if (BindKind == BindBtDetail)
         ApplyDetailTable(Pipeline, GBindTable_06ed1514, true, 1);
 
-    // FUN_06ebda30: only SinglePass owns the animated TSS reset, before
-    // reading Context. LAB_06eb1a10 has only the conditional COLORVERTEX reset.
+    // only SinglePass owns the animated TSS reset, before
+    // reading Context. the branch has only the conditional COLORVERTEX reset.
     if (IsSinglePassPropertySchemaFamily(FactoryName) && MatAnim != nullptr)
         Pipeline->SetTextureStageState(0, D3DTSS_TEXTURETRANSFORMFLAGS, 0);
     if (Context != nullptr)
@@ -1984,13 +1980,13 @@ GENRESULT DACOM_API FMaterial::Teardown(void* Context)
 
 static I3DMathEngine* AcquireMathEngine()
 {
-    // FUN_06ed0b10 creates on every call; each caller owns its lazy global.
+    // creates on every call; each caller owns its lazy global.
     FMathDesc Desc;
     Desc.Size = sizeof(Desc);
     Desc.InterfaceName = "3DMathEngine";
     Desc.Implementation = nullptr;
     void* Created;
-    ICOManager* Manager = DACOM_Acquire();
+    ICOManager* Manager = NEURONCOMPONENTS_Acquire();
     Manager->CreateInstance((AGGDESC*)(&Desc), &Created);
     return (I3DMathEngine*)Created;
 }
@@ -2006,7 +2002,7 @@ static void NegateTwoPassNormals(const FRpVertexSrcDesc* Source, unsigned long S
                                  unsigned long Count, void* Vertices, unsigned long DestStride,
                                  unsigned long DestPosSize)
 {
-    // LAB_06ebe1ff: read original source normals, not the copied destination.
+    // read original source normals, not the copied destination.
     uintptr_t Destination = (uintptr_t)Vertices + DestPosSize;
     if ((Source->Flags & 4) != 0)
     {
@@ -2041,7 +2037,7 @@ static void NegateTwoPassNormals(const FRpVertexSrcDesc* Source, unsigned long S
 GENRESULT FMaterial::SubmitDcDtTwoSecondPass(void* Context, unsigned long PrimType, unsigned long Start,
                                             unsigned long Count, unsigned long IbStart, unsigned long IndexSpan)
 {
-    // LAB_06ebe0d2..06ebe38d: the caller has already tested first result and source presence.
+    // the caller has already tested first result and source presence.
     FMaterialSubmitContext* SubmitContext = (FMaterialSubmitContext*)Context;
     const FRpVertexSrcDesc* Source = SubmitContext->SourceVertices;
     IVertexBufferManager* Manager = VBMgr;
@@ -2071,14 +2067,14 @@ GENRESULT FMaterial::SubmitDcDtTwoSecondPass(void* Context, unsigned long PrimTy
     return Result;
 }
 
-// DAT_06ed44cc aliases the Ec string as word zero of this cull lookup.
+// aliases the Ec string as word zero of this cull lookup.
 static const unsigned long GBtDetailTwoCullFlip[4] = {0x00006345, 1, 3, 2};
 
 GENRESULT FMaterial::SubmitBtDetailTwoSecondPass(void* Context, unsigned long PrimType,
                                                 unsigned long Start, unsigned long Count,
                                                 unsigned long IbStart, unsigned long IndexSpan)
 {
-    // LAB_06eb5655..593a: no alpha-state scope surrounds this second pass.
+    // ..593a: no alpha-state scope surrounds this second pass.
     FMaterialSubmitContext* SubmitContext = (FMaterialSubmitContext*)Context;
     const FRpVertexSrcDesc* Source = SubmitContext->SourceVertices;
     FVertexMemoryLock Lock;
@@ -2118,7 +2114,7 @@ GENRESULT FMaterial::SubmitBtDetailTwoSecondPass(void* Context, unsigned long Pr
 GENRESULT FMaterial::SubmitAtmosphereLock(void* Context, unsigned long PrimType, unsigned long Start,
                                           unsigned long Count, unsigned long IbStart, unsigned long IndexSpan)
 {
-    // LAB_06eb2d40: readiness is the only early success branch.
+    // readiness is the only early success branch.
     if (bAtmosphereReady == 0)
         return GR_OK;
     FMaterialSubmitContext* SubmitContext = (FMaterialSubmitContext*)Context;
@@ -2244,7 +2240,7 @@ GENRESULT FMaterial::SubmitAtmosphereLock(void* Context, unsigned long PrimType,
         IndexSpan, 0);
     Pipeline->SetRenderState(D3DRS_ZFUNC, SavedZFunc);
     Pipeline->SetRenderState(D3DRS_ZWRITEENABLE, SavedZWrite);
-    // Own DAT_06ed1130 raw words {0x8D,0,0,0}, regardless of mesh marker.
+    // Own the field raw words {0x8D,0,0,0}, regardless of mesh marker.
     Pipeline->SetRenderState(D3DRS_COLORVERTEX, 0);
     return GR_OK;
 }
@@ -2254,7 +2250,7 @@ GENRESULT FMaterial::SubmitIndexedListing(FMaterialSubmitContext* Context,
                                          unsigned long Count, unsigned long IbStart,
                                          unsigned long IndexSpan)
 {
-    // FUN_06eb59a0: only the listing pointer is optional.
+    // only the listing pointer is optional.
     if (Context->VbListing == nullptr)
         return -1;
     return Pipeline->DrawIndexedPrimitiveVb(PrimType, Context->VbListing->VertexBuffer,
@@ -2268,7 +2264,7 @@ GENRESULT FMaterial::SubmitCopiedVertices(FMaterialSubmitContext* Context,
                                          unsigned long Count, unsigned long IbStart,
                                          unsigned long IndexSpan)
 {
-    // FUN_06eb59f0: all dependencies are mandatory; only lock failure exits early.
+    // all dependencies are mandatory; only lock failure exits early.
     const FRpVertexSrcDesc* Source = Context->SourceVertices;
     IVertexBufferManager* Manager = VBMgr;
     FVertexMemoryLock Lock;
@@ -2292,7 +2288,7 @@ GENRESULT FMaterial::SubmitKernel(void* Context, unsigned long PrimType, unsigne
                                   unsigned long Count, unsigned long IbStart, unsigned long IndexSpan,
                                   unsigned long Flags)
 {
-    // FUN_06eb3b90: direct draw, indexed listing, then vertex-copy fallback.
+    // direct draw, indexed listing, then vertex-copy fallback.
     FMaterialSubmitContext* SubmitContext = (FMaterialSubmitContext*)Context;
     GENRESULT Result = -1;
     if ((Flags & 0x100) != 0)
@@ -2312,7 +2308,7 @@ GENRESULT FMaterial::SubmitAlphaTest(void* Context, unsigned long PrimType, unsi
                                      unsigned long Count, unsigned long IbStart, unsigned long IndexSpan,
                                      unsigned long Flags)
 {
-    // LAB_06ebda80: alpha scope surrounds the complete FUN_06eb3b90 draw route.
+    // alpha scope surrounds the complete the routine draw route.
     const bool bSetAlphaTest = bAlphatest != 0 && (Flags & 0x400) == 0;
     int Saved18;
     int Saved19;
@@ -2336,7 +2332,7 @@ GENRESULT FMaterial::SubmitAlphaTest(void* Context, unsigned long PrimType, unsi
     return Result;
 }
 
-GENRESULT DACOM_API FMaterial::Submit(void* Context, unsigned long PrimType, unsigned long Start, unsigned long Count, unsigned long Zero, unsigned long Field, unsigned long Flags)
+GENRESULT NEURONCOMPONENTS_API FMaterial::Submit(void* Context, unsigned long PrimType, unsigned long Start, unsigned long Count, unsigned long Zero, unsigned long Field, unsigned long Flags)
 {
     if (SubmitKind == SubmitNull)
         return GR_OK;
@@ -2346,7 +2342,7 @@ GENRESULT DACOM_API FMaterial::Submit(void* Context, unsigned long PrimType, uns
         return SubmitAtmosphereLock(Context, PrimType, Start, Count, Zero, Field);
     if (SubmitKind == SubmitLightMap)
     {
-        // LAB_06eba860: temporary ZFUNC=4; all draw/lock results are discarded.
+        // temporary ZFUNC=4; all draw/lock results are discarded.
         int Saved17;
         Pipeline->GetRenderState(D3DRS_ZFUNC, &Saved17);
         Pipeline->SetRenderState(D3DRS_ZFUNC, 4);
@@ -2356,7 +2352,7 @@ GENRESULT DACOM_API FMaterial::Submit(void* Context, unsigned long PrimType, uns
     }
     if (SubmitKind == SubmitIllumDetail2Pass)
     {
-        // LAB_06eb9e40: first pass ALPHATEST=0 in either mode.
+        // first pass ALPHATEST=0 in either mode.
         int Saved0F;
         Pipeline->GetRenderState(D3DRS_ALPHATESTENABLE, &Saved0F);
         Pipeline->SetRenderState(D3DRS_ALPHATESTENABLE, 0);
@@ -2393,7 +2389,7 @@ GENRESULT DACOM_API FMaterial::Submit(void* Context, unsigned long PrimType, uns
     }
     if (SubmitKind == SubmitMaskedDetail2Pass)
     {
-        // LAB_06ebbc40: one-pass fallback, or two unconditional kernel draws.
+        // one-pass fallback, or two unconditional kernel draws.
         int Saved0F;
         Pipeline->GetRenderState(D3DRS_ALPHATESTENABLE, &Saved0F);
         Pipeline->SetRenderState(D3DRS_ALPHATESTENABLE, DetailPassCount == 1 ? 0 : 1);
@@ -2429,7 +2425,7 @@ GENRESULT DACOM_API FMaterial::Submit(void* Context, unsigned long PrimType, uns
     }
     if (SubmitKind == SubmitDetail2Pass)
     {
-        // LAB_06eb7560: mode 1 draws once; mode 2 always draws both passes.
+        // mode 1 draws once; mode 2 always draws both passes.
         int Saved0F;
         Pipeline->GetRenderState(D3DRS_ALPHATESTENABLE, &Saved0F);
         Pipeline->SetRenderState(D3DRS_ALPHATESTENABLE, DetailPassCount == 1 ? 0 : 1);
@@ -2466,7 +2462,7 @@ GENRESULT DACOM_API FMaterial::Submit(void* Context, unsigned long PrimType, uns
     }
     if (SubmitKind == SubmitBtDetailTwo)
     {
-        // LAB_06eb55b0: a successful first pass and source descriptor enable pass two.
+        // a successful first pass and source descriptor enable pass two.
         const GENRESULT Result = SubmitKernel(Context, PrimType, Start, Count, Zero, Field, Flags);
         if (Result < 0 || ((FMaterialSubmitContext*)Context)->SourceVertices == nullptr)
             return Result;
@@ -2476,7 +2472,7 @@ GENRESULT DACOM_API FMaterial::Submit(void* Context, unsigned long PrimType, uns
         return SubmitAlphaTest(Context, PrimType, Start, Count, Zero, Field, Flags);
     if (SubmitKind == SubmitDcDtTwo)
     {
-        // LAB_06ebdfc0: restore first-pass alpha scope before the result/mesh tests.
+        // restore first-pass alpha scope before the result/mesh tests.
         const GENRESULT Result =
             SubmitAlphaTest(Context, PrimType, Start, Count, Zero, Field, Flags);
         if (Result < 0 || ((FMaterialSubmitContext*)Context)->SourceVertices == nullptr)
@@ -2486,9 +2482,9 @@ GENRESULT DACOM_API FMaterial::Submit(void* Context, unsigned long PrimType, uns
     return SubmitKernel(Context, PrimType, Start, Count, Zero, Field, Flags);
 }
 
-GENRESULT DACOM_API FMaterial::SetName(const char* Name)
+GENRESULT NEURONCOMPONENTS_API FMaterial::SetName(const char* Name)
 {
-    // LAB_06eb1a50: release first, then copy at most 0x40 bytes including NUL.
+    // release first, then copy at most 0x40 bytes including NUL.
     delete[] InstanceName;
     InstanceName = nullptr;
     if (Name == nullptr)
@@ -2504,9 +2500,9 @@ GENRESULT DACOM_API FMaterial::SetName(const char* Name)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FMaterial::GetName(char* Out, unsigned long Size)
+GENRESULT NEURONCOMPONENTS_API FMaterial::GetName(char* Out, unsigned long Size)
 {
-    // LAB_06eb1ac0 RET 0xC: GetName(outBuf, size).
+    // RET 0xC: GetName(outBuf, size).
     if (InstanceName == nullptr)
         return GR_GENERIC;
     std::strncpy(Out, InstanceName, Size);
@@ -2514,7 +2510,7 @@ GENRESULT DACOM_API FMaterial::GetName(char* Out, unsigned long Size)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FMaterial::CopyClassName(char* Out, unsigned long Size)
+GENRESULT NEURONCOMPONENTS_API FMaterial::CopyClassName(char* Out, unsigned long Size)
 {
     if (ClassName() == nullptr)
         return GR_GENERIC;
@@ -2523,15 +2519,15 @@ GENRESULT DACOM_API FMaterial::CopyClassName(char* Out, unsigned long Size)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FMaterial::GetPassCount(int* Out)
+GENRESULT NEURONCOMPONENTS_API FMaterial::GetPassCount(int* Out)
 {
-    // LAB_06eb6e60 reads live +0x74; illum/masked use shared +0x78 accessor.
+    // reads live +0x74; illum/masked use shared +0x78 accessor.
     *Out = (SubmitKind == SubmitDetail2Pass || SubmitKind == SubmitIllumDetail2Pass ||
             SubmitKind == SubmitMaskedDetail2Pass) ? (int)DetailPassCount : 1;
     return GR_OK;
 }
 
-GENRESULT DACOM_API FMaterial::GetRenderFlags(unsigned long* Out)
+GENRESULT NEURONCOMPONENTS_API FMaterial::GetRenderFlags(unsigned long* Out)
 {
     if (BindKind == BindAtmosphere)
         *Out = 0xA2;
@@ -2541,9 +2537,9 @@ GENRESULT DACOM_API FMaterial::GetRenderFlags(unsigned long* Out)
         *Out = 8;
     else if (SubmitKind == SubmitDcDtTwo ||
              (FactoryName != nullptr && std::strcmp(FactoryName, "EcEtTwo") == 0))
-        *Out = bAlphablend ? 0x03 : 0x01; // LAB_06ebdfa0
+        *Out = bAlphablend ? 0x03 : 0x01;
     else if (BindKind == BindDcDtEt)
-        *Out = bAlphablend ? 0x4A : 0x48; // LAB_06eb6150
+        *Out = bAlphablend ? 0x4A : 0x48;
     else if (BindKind == BindNebula)
         *Out = FactoryName != nullptr && std::strcmp(FactoryName, "NebulaTwo") == 0 ?
                0x03UL : 0x0AUL; // c950 / a700: both collapse the alpha branch
@@ -2552,23 +2548,23 @@ GENRESULT DACOM_API FMaterial::GetRenderFlags(unsigned long* Out)
         const bool bTwo = FactoryName != nullptr &&
                           std::strcmp(FactoryName, "BtDetailMapTwoMaterial") == 0;
         const unsigned long Base = bTwo ? 0x41UL : 0x48UL;
-        *Out = Base | (bAlphablend ? 2UL : 0UL); // LAB_06eb5590 / LAB_06eb6150
+        *Out = Base | (bAlphablend ? 2UL : 0UL); // / the branch
     }
     else
         *Out = (BindKind == BindLightMap) ? 0xA : (bAlphablend ? 0xA : 8);
     return GR_OK;
 }
 
-GENRESULT DACOM_API FMaterial::GetParameterCount(unsigned long* OutCount)
+GENRESULT NEURONCOMPONENTS_API FMaterial::GetParameterCount(unsigned long* OutCount)
 {
-    // LAB_06eb1b50 RET 0x8: slot 27 (PUSH 0) → *OutCount.
+    // RET 0x8: slot 27 (PUSH 0) → *OutCount.
     *OutCount = GetParameterTable(nullptr);
     return GR_OK;
 }
 
 static void CopyPropertyValue(FShadingPropertyValue* Destination, const FShadingPropertyValue* Source)
 {
-    // FUN_06eb1d40: capture the tag, then release before reading the live source payload.
+    // capture the tag, then release before reading the live source payload.
     const unsigned long Type = Source->Type;
     Destination->SetType(Type);
     switch (Type)
@@ -2600,8 +2596,8 @@ static void CopyPropertyValue(FShadingPropertyValue* Destination, const FShading
     }
     case 6:
     {
-        IDAComponent* Component = (IDAComponent*)(Source->Payload0);
-        IDAComponent* Previous = (IDAComponent*)(Destination->Payload0);
+        INeuronComponent* Component = (INeuronComponent*)(Source->Payload0);
+        INeuronComponent* Previous = (INeuronComponent*)(Destination->Payload0);
         Destination->Payload0 = (unsigned long)Component;
         if (Component != nullptr)
             Component->AddRef();
@@ -2612,9 +2608,9 @@ static void CopyPropertyValue(FShadingPropertyValue* Destination, const FShading
     }
 }
 
-GENRESULT DACOM_API FMaterial::GetParameterDescriptor(unsigned long Index, void* OutDesc)
+GENRESULT NEURONCOMPONENTS_API FMaterial::GetParameterDescriptor(unsigned long Index, void* OutDesc)
 {
-    // LAB_06eb1b70: index is checked before the mandatory schema/output is used.
+    // index is checked before the mandatory schema/output is used.
     FShadingPropertyRecord* Destination = (FShadingPropertyRecord*)OutDesc;
     void* Base;
     const unsigned long Count = GetParameterTable(&Base);
@@ -2632,7 +2628,7 @@ GENRESULT DACOM_API FMaterial::GetParameterDescriptor(unsigned long Index, void*
     return GR_OK;
 }
 
-GENRESULT DACOM_API FMaterial::GetParameterValue(unsigned long Index, void* InOutDesc)
+GENRESULT NEURONCOMPONENTS_API FMaterial::GetParameterValue(unsigned long Index, void* InOutDesc)
 {
     FShadingPropertyValue* Result = (FShadingPropertyValue*)InOutDesc;
     void* Base;
@@ -2670,7 +2666,7 @@ GENRESULT DACOM_API FMaterial::GetParameterValue(unsigned long Index, void* InOu
     case 5:
     case 7:
     {
-        // The retail type-5/7 branch releases an existing same-type string
+        // The baseline type-5/7 branch releases an existing same-type string
         // before making a ProcessHeap copy of the NUL-terminated live value.
         const char* Source = *(const char* const*)Target;
         if (Result->Payload0 != 0)
@@ -2687,8 +2683,8 @@ GENRESULT DACOM_API FMaterial::GetParameterValue(unsigned long Index, void* InOu
     }
     case 6:
     {
-        IDAComponent* Component = *(IDAComponent**)Target;
-        IDAComponent* Previous = (IDAComponent*)(Result->Payload0);
+        INeuronComponent* Component = *(INeuronComponent**)Target;
+        INeuronComponent* Previous = (INeuronComponent*)(Result->Payload0);
         Result->Payload0 = (unsigned long)Component;
         if (Component != nullptr)
             Component->AddRef();
@@ -2697,7 +2693,7 @@ GENRESULT DACOM_API FMaterial::GetParameterValue(unsigned long Index, void* InOu
         break;
     }
     default:
-        // Retail's default switch arm (caseD_a) still copies the first live
+        // baseline's default switch arm (caseD_a) still copies the first live
         // dword into the value payload for unknown/future property types.
         Result->Payload0 = *(unsigned long*)Target;
         break;
@@ -2705,7 +2701,7 @@ GENRESULT DACOM_API FMaterial::GetParameterValue(unsigned long Index, void* InOu
     return GR_OK;
 }
 
-GENRESULT DACOM_API FMaterial::SetParameterValue(unsigned long Index, void* Value)
+GENRESULT NEURONCOMPONENTS_API FMaterial::SetParameterValue(unsigned long Index, void* Value)
 {
     void* Base;
     const unsigned long Count = GetParameterTable(&Base);
@@ -2738,7 +2734,7 @@ void* __thiscall FMaterial::ScalarDeletingDestructor(unsigned char bDelete)
 
 GENRESULT __thiscall FMaterial::InitializeFromDescriptor(void* Arg)
 {
-    // FUN_06eb2b10 RET 0x4: Atmosphere CreateInstance writes byte this+0x74 = 1.
+    // RET 0x4: Atmosphere CreateInstance writes byte this+0x74 = 1.
     if (BindKind == BindAtmosphere)
         bAtmosphereReady = 1;
     return GR_OK;
@@ -2751,13 +2747,13 @@ GENRESULT __thiscall FMaterial::ApplyInitialRenderStates(void* Arg)
 
 GENRESULT __thiscall FMaterial::Setup()
 {
-    // LAB_06eb2090..21f3: the actual slot24 owner of texture verification.
+    // ..21f3: the actual slot24 owner of texture verification.
     struct FTextureQuery
     {
         const char* Name;
         unsigned long Crc;
     };
-    void* Record; // Retail output scratch is not pre-cleared before Slot12.
+    void* Record; // baseline output scratch is not pre-cleared before Slot12.
     for (unsigned long Index = 0; Index < TexCount; ++Index)
     {
         FTexBlock* Block = &TexBlocks[Index];
@@ -2771,7 +2767,7 @@ GENRESULT __thiscall FMaterial::Setup()
         {
             FTextureQuery Query;
             Query.Name = Block->Name;
-            Query.Crc = DACOM_CRC::GetCRC32(Block->Name);
+            Query.Crc = NEURONCOMPONENTS_CRC::GetCRC32(Block->Name);
             if (Library->FindTextureByCrc(&Query, &Record) >= 0)
             {
                 int FrameCount;
@@ -2786,7 +2782,7 @@ GENRESULT __thiscall FMaterial::Setup()
             }
             else
             {
-                // Retail compares exactly seven bytes, including the terminating NUL.
+                // baseline compares exactly seven bytes, including the terminating NUL.
                 bSuppressNotice = std::strncmp(Block->Name, "(None)", 7) == 0;
             }
         }
@@ -2802,7 +2798,7 @@ GENRESULT __thiscall FMaterial::Setup()
     bAlphatest = 0;
     if (bAlphablend != 0)
         return GR_OK;
-    int FormatIndex = 0; // FUN_06ed0b60(0), fixed DAT_06ed51d8 first entry.
+    int FormatIndex = 0; // (0), fixed the field first entry.
     const unsigned long Handle = TexBlocks[0].Handle;
     if (Handle == 0)
         return GR_OK;
@@ -2870,7 +2866,7 @@ bool __thiscall FMaterial::ValueWithinDeclaredRange(unsigned long Index, void* E
 
 GENRESULT __thiscall FMaterial::StoreParameterValue(unsigned long Index, void* Entry, void* Value)
 {
-    // FUN_06eb23c0: the target guard covers typed copy only.
+    // the target guard covers typed copy only.
     const FShadingPropertyValue* Typed = (const FShadingPropertyValue*)Value;
     const FShadingPropertyRecord* Record = (const FShadingPropertyRecord*)Entry;
     void* Target = GetParameterAddress(Index);
@@ -2912,9 +2908,9 @@ GENRESULT __thiscall FMaterial::StoreParameterValue(unsigned long Index, void* E
         }
         case 6:
         {
-            IDAComponent** ComponentTarget = (IDAComponent**)Target;
-            IDAComponent* Previous = *ComponentTarget;
-            IDAComponent* Component = (IDAComponent*)(Typed->Payload0);
+            INeuronComponent** ComponentTarget = (INeuronComponent**)Target;
+            INeuronComponent* Previous = *ComponentTarget;
+            INeuronComponent* Component = (INeuronComponent*)(Typed->Payload0);
             *ComponentTarget = Component;
             if (Component != nullptr)
                 Component->AddRef();
@@ -2934,7 +2930,7 @@ GENRESULT __thiscall FMaterial::StoreParameterValue(unsigned long Index, void* E
     if (SubmitKind == SubmitDetail2Pass || BindKind == BindDetailMap ||
         SubmitKind == SubmitIllumDetail2Pass || SubmitKind == SubmitMaskedDetail2Pass)
     {
-        // FUN_06eb6c40 / FUN_06ebb3f0 tail after every name-keyed post-effect.
+        // / the routine tail after every name-keyed post-effect.
         if (Index == 6)
             DetailFlipU = (int)DetailFlipU > 0 ? 1UL : 0UL;
         else if (Index == 7)
@@ -2962,7 +2958,7 @@ unsigned long __thiscall FMaterial::GetParameterTable(void** OutBase)
 
     if (BindKind == BindAtmosphere)
     {
-        // LAB_06eb25c0 / 06eb28ce: optional OutBase receives DAT_06ed7ca0,
+        // / 06eb28ce: optional OutBase receives the field,
         // then the function returns exactly 9.
         FShadingPropertyRecord* Schema = GetAtmospherePropertySchema();
         if (OutBase != nullptr)
@@ -3027,18 +3023,18 @@ unsigned long __thiscall FMaterial::GetParameterTable(void** OutBase)
     }
     if (OutBase != nullptr)
         *OutBase = nullptr;
-    return 0; // LAB_06eb3da0: NullMaterial has no properties.
+    return 0; // NullMaterial has no properties.
 }
 
 void* __thiscall FMaterial::GetParameterAddress(unsigned long Index)
 {
-    // FUN_06eb1a00 is NullMaterial slot 28: always return null.
+    // is NullMaterial slot 28: always return null.
     if (BindKind == BindNull)
         return nullptr;
 
     if (BindKind == BindNebula || BindKind == BindLightMap)
     {
-        // LAB_06ebc5a0: actual texture block, not fields of the material itself.
+        // actual texture block, not fields of the material itself.
         switch (Index)
         {
         case 0: return &TexBlocks[0].Name;
@@ -3077,7 +3073,7 @@ void* __thiscall FMaterial::GetParameterAddress(unsigned long Index)
     }
     if (BindKind == BindEcEt)
     {
-        // LAB_06eb89e0: EcEt's five-record table addresses Emissive at
+        // EcEt's five-record table addresses Emissive at
         // +0x50 and the single Et texture block at +0x18/+1C/+20/+24.
         switch (Index)
         {
@@ -3097,7 +3093,7 @@ void* __thiscall FMaterial::GetParameterAddress(unsigned long Index)
     }
     if (BindKind == BindDcDtEt)
     {
-        // LAB_06eb5dd0's nine records map Ac, then the diffuse and emissive
+        // 's nine records map Ac, then the diffuse and emissive
         // texture name/flags/address fields in the two embedded blocks.
         switch (Index)
         {
@@ -3144,7 +3140,7 @@ void* __thiscall FMaterial::GetParameterAddress(unsigned long Index)
         default: return nullptr;
         }
     }
-    // LAB_06eb6b80 is shared by DetailMapMaterial and DetailMap2Dm1Msk2Pass.
+    // is shared by DetailMapMaterial and DetailMap2Dm1Msk2Pass.
     if (SubmitKind == SubmitDetail2Pass || BindKind == BindDetailMap)
     {
         switch (Index)
@@ -3165,7 +3161,7 @@ void* __thiscall FMaterial::GetParameterAddress(unsigned long Index)
         default: return nullptr;
         }
     }
-    // LAB_06ebb2e0: all 18 targets, including the distinct third texture block.
+    // all 18 targets, including the distinct third texture block.
     if (SubmitKind == SubmitIllumDetail2Pass || SubmitKind == SubmitMaskedDetail2Pass)
     {
         switch (Index)
@@ -3210,7 +3206,7 @@ void* __thiscall FMaterial::GetParameterAddress(unsigned long Index)
             return nullptr;
         }
     }
-    // LAB_06ebd770: ten SinglePass targets; unsigned out-of-range returns null.
+    // ten SinglePass targets; unsigned out-of-range returns null.
     switch (Index)
     {
     case 0:
@@ -3240,7 +3236,7 @@ void* __thiscall FMaterial::GetParameterAddress(unsigned long Index)
 
 void FMaterial::ApplyOcFlag()
 {
-    // FUN_06eb6c40 / FUN_06eb23c0 name "Oc". Listing 06eb6d63–06eb6dfc.
+    // / the routine name "Oc". Listing 06eb6d63–06eb6dfc.
     const bool bOpacityBlend = (Opacity < 1.0f);
     bAlphablend = bOpacityBlend ? 1 : 0;
     bAlphatest = 0;
@@ -3249,7 +3245,7 @@ void FMaterial::ApplyOcFlag()
     const unsigned long Handle = TexBlocks[0].Handle;
     if (Handle == 0)
         return;
-    // FUN_06ed0b60(0) → index of DAT_06ed51d8 value 0 = 0. Pipeline +0xC8 overwrites.
+    // (0) → index of the field value 0 = 0. Pipeline +0xC8 overwrites.
     int FormatIndex = 0;
     const GENRESULT Result = Pipeline->GetTextureFormat((void*)Handle, &FormatIndex);
     if (Result < 0)
@@ -3272,7 +3268,7 @@ FBatchedMaterial* FBatchedFace::OwnerFromThis()
                                                offsetof(FBatchedMaterial, Batched));
 }
 
-GENRESULT DACOM_API FBatchedFace::QueryInterface(const char* Iid, void** Out)
+GENRESULT NEURONCOMPONENTS_API FBatchedFace::QueryInterface(const char* Iid, void** Out)
 {
     FBatchedMaterial* Owner = OwnerFromThis();
     if (Owner == nullptr)
@@ -3280,21 +3276,21 @@ GENRESULT DACOM_API FBatchedFace::QueryInterface(const char* Iid, void** Out)
     return Owner->QueryInterface(Iid, Out);
 }
 
-unsigned long DACOM_API FBatchedFace::AddRef()
+unsigned long NEURONCOMPONENTS_API FBatchedFace::AddRef()
 {
     FBatchedMaterial* Owner = OwnerFromThis();
     return Owner->AddRef();
 }
 
-unsigned long DACOM_API FBatchedFace::Release()
+unsigned long NEURONCOMPONENTS_API FBatchedFace::Release()
 {
     FBatchedMaterial* Owner = OwnerFromThis();
     return Owner->Release();
 }
 
-GENRESULT DACOM_API FBatchedFace::CreateInnerMaterial(void* Name)
+GENRESULT NEURONCOMPONENTS_API FBatchedFace::CreateInnerMaterial(void* Name)
 {
-    // LAB_06eb4380: retained controller and borrowed public material are distinct.
+    // retained controller and borrowed public material are distinct.
     FBatchedMaterial* Owner = OwnerFromThis();
     if (Owner->InnerController != nullptr)
     {
@@ -3308,7 +3304,7 @@ GENRESULT DACOM_API FBatchedFace::CreateInnerMaterial(void* Name)
     Desc.InnerOutAtC = (void**)(&Owner->InnerController);
     Desc.ExtraAt10 = nullptr;
     void* Created = nullptr;
-    const GENRESULT Result = DACOM_Acquire()->CreateInstance((AGGDESC*)(&Desc), &Created);
+    const GENRESULT Result = NEURONCOMPONENTS_Acquire()->CreateInstance((AGGDESC*)(&Desc), &Created);
     if (Result >= 0)
     {
         if (Owner->InnerController->QueryInterface(Iids::Material,
@@ -3319,7 +3315,7 @@ GENRESULT DACOM_API FBatchedFace::CreateInnerMaterial(void* Name)
         }
         else if (Created != nullptr)
         {
-            ((IDAComponent*)Created)->Release();
+            ((INeuronComponent*)Created)->Release();
         }
     }
     else
@@ -3328,27 +3324,27 @@ GENRESULT DACOM_API FBatchedFace::CreateInnerMaterial(void* Name)
         std::sprintf(Message, "Batched material references invalid super type (%s)\n",
                      (const char*)Name);
         FDUMP(0x100003, "%s(%d) : NOTICE:General:%s",
-              "C:\\work\\builds\\dalibs\\dalibs-build\\build\\Src\\Shading\\Materials\\BatchedMaterial.cpp", 0x159,
+              "Shading\\Materials\\BatchedMaterial.cpp", 0x159,
               Message);
     }
     return GR_OK;
 }
 
-GENRESULT DACOM_API FBatchedFace::SetBatchBin(void* Value)
+GENRESULT NEURONCOMPONENTS_API FBatchedFace::SetBatchBin(void* Value)
 {
     FBatchedMaterial* Owner = OwnerFromThis();
     Owner->Field8 = (unsigned long)Value;
     return GR_OK;
 }
 
-GENRESULT DACOM_API FBatchedFace::GetBatchBin(void** Out)
+GENRESULT NEURONCOMPONENTS_API FBatchedFace::GetBatchBin(void** Out)
 {
     FBatchedMaterial* Owner = OwnerFromThis();
     *Out = (void*)(Owner->Field8);
     return GR_OK;
 }
 
-GENRESULT DACOM_API FBatchedFace::Bind(void* Context)
+GENRESULT NEURONCOMPONENTS_API FBatchedFace::Bind(void* Context)
 {
     IMaterial* Inner = OwnerFromThis() != nullptr ? OwnerFromThis()->InnerMaterial() : nullptr;
     if (Inner == nullptr)
@@ -3356,7 +3352,7 @@ GENRESULT DACOM_API FBatchedFace::Bind(void* Context)
     return Inner->Bind(Context);
 }
 
-GENRESULT DACOM_API FBatchedFace::Teardown(void* Context)
+GENRESULT NEURONCOMPONENTS_API FBatchedFace::Teardown(void* Context)
 {
     IMaterial* Inner = OwnerFromThis() != nullptr ? OwnerFromThis()->InnerMaterial() : nullptr;
     if (Inner == nullptr)
@@ -3364,7 +3360,7 @@ GENRESULT DACOM_API FBatchedFace::Teardown(void* Context)
     return Inner->Teardown(Context);
 }
 
-GENRESULT DACOM_API FBatchedFace::Submit(void* Context, unsigned long PrimType, unsigned long Start,
+GENRESULT NEURONCOMPONENTS_API FBatchedFace::Submit(void* Context, unsigned long PrimType, unsigned long Start,
                                         unsigned long Count, unsigned long Zero, unsigned long Field,
                                         unsigned long Flags)
 {
@@ -3381,7 +3377,7 @@ FBatchedMaterial::FBatchedMaterial()
 
 FBatchedMaterial::~FBatchedMaterial() noexcept(false)
 {
-    // FUN_06eb3e50: release the factory controller, then clear the borrowed face.
+    // release the factory controller, then clear the borrowed face.
     if (InnerController != nullptr)
     {
         InnerController->Release();
@@ -3407,11 +3403,11 @@ FBatchedMaterial* FBatchedController::OwnerFromThis()
                                                offsetof(FBatchedMaterial, Controller));
 }
 
-GENRESULT DACOM_API FBatchedController::QueryInterface(const char* Iid, void** Out)
+GENRESULT NEURONCOMPONENTS_API FBatchedController::QueryInterface(const char* Iid, void** Out)
 {
-    // LAB_06eb4640: native direct entries mirror table06ed1320 offsets0 and4.
+    // native direct entries mirror table06ed1320 offsets0 and4.
     FBatchedMaterial* Owner = OwnerFromThis();
-    IDAComponent* Face;
+    INeuronComponent* Face;
     if (std::strcmp(Iid, Iids::Material) == 0)
         Face = (IMaterial*)Owner;
     else if (std::strcmp(Iid, Iids::BatchedMaterial) == 0)
@@ -3426,12 +3422,12 @@ GENRESULT DACOM_API FBatchedController::QueryInterface(const char* Iid, void** O
     return GR_OK;
 }
 
-unsigned long DACOM_API FBatchedController::AddRef()
+unsigned long NEURONCOMPONENTS_API FBatchedController::AddRef()
 {
     return ++OwnerFromThis()->RefCount;
 }
 
-unsigned long DACOM_API FBatchedController::Release()
+unsigned long NEURONCOMPONENTS_API FBatchedController::Release()
 {
     FBatchedMaterial* Owner = OwnerFromThis();
     if (Owner->RefCount != 0)
@@ -3450,7 +3446,7 @@ unsigned long DACOM_API FBatchedController::Release()
 
 GENRESULT FBatchedMaterial::InitializeFromDescriptor(FMaterialAggregateDesc* Desc)
 {
-    // FUN_06eb3e80, also called by factory4530 after controller publication.
+    // , also called by factory4530 after controller publication.
     InnerController = nullptr;
     Inner = nullptr;
     Field8 = 0xFFFFFFFFu;
@@ -3461,54 +3457,54 @@ void FBatchedMaterial::ConfigureAggregation(FMaterialAggregateDesc* Desc)
 {
     Outer = Desc->OuterAt8;
     if (Outer != nullptr)
-        *Desc->InnerOutAtC = (IDAComponent*)(&Controller);
+        *Desc->InnerOutAtC = (INeuronComponent*)(&Controller);
 }
 
-GENRESULT DACOM_API FBatchedMaterial::QueryInterface(const char* Iid, void** Out)
+GENRESULT NEURONCOMPONENTS_API FBatchedMaterial::QueryInterface(const char* Iid, void** Out)
 {
     return Outer != nullptr ? Outer->QueryInterface(Iid, Out) : Controller.QueryInterface(Iid, Out);
 }
 
-unsigned long DACOM_API FBatchedMaterial::AddRef()
+unsigned long NEURONCOMPONENTS_API FBatchedMaterial::AddRef()
 {
     return Outer != nullptr ? Outer->AddRef() : Controller.AddRef();
 }
 
-unsigned long DACOM_API FBatchedMaterial::Release()
+unsigned long NEURONCOMPONENTS_API FBatchedMaterial::Release()
 {
     return Outer != nullptr ? Outer->Release() : Controller.Release();
 }
 
-GENRESULT DACOM_API FBatchedMaterial::InnerQueryInterface(const char* Iid, void** Out)
+GENRESULT NEURONCOMPONENTS_API FBatchedMaterial::InnerQueryInterface(const char* Iid, void** Out)
 {
     return Controller.QueryInterface(Iid, Out);
 }
-unsigned long DACOM_API FBatchedMaterial::InnerAddRef()
+unsigned long NEURONCOMPONENTS_API FBatchedMaterial::InnerAddRef()
 {
     return Controller.AddRef();
 }
-unsigned long DACOM_API FBatchedMaterial::InnerRelease()
+unsigned long NEURONCOMPONENTS_API FBatchedMaterial::InnerRelease()
 {
     return Controller.Release();
 }
 
-GENRESULT DACOM_API FBatchedMaterial::Initialize(IDAComponent* Component)
+GENRESULT NEURONCOMPONENTS_API FBatchedMaterial::Initialize(INeuronComponent* Component)
 {
-    // FUN_06eb3ea0: direct out-parameter writes persist even on failed QI.
+    // direct out-parameter writes persist even on failed QI.
     if (Component->QueryInterface(Iids::MaterialBatcher, &Batcher) < 0)
     {
         FDUMP(0x100001, "%s(%d) : ERROR:General:%s",
-              "C:\\work\\builds\\dalibs\\dalibs-build\\build\\Src\\Shading\\Materials\\BatchedMaterial.cpp", 0x77,
+              "Shading\\Materials\\BatchedMaterial.cpp", 0x77,
               "BatchedMaterial: initialize: unable to acquire IID_IMaterialBatcher");
         return GR_GENERIC;
     }
-    ((IDAComponent*)Batcher)->Release();
+    ((INeuronComponent*)Batcher)->Release();
     if (Inner == nullptr)
         return GR_GENERIC;
     return Inner->Initialize(Component);
 }
 
-GENRESULT DACOM_API FBatchedMaterial::LoadFromFileSystem(void* FileSystem)
+GENRESULT NEURONCOMPONENTS_API FBatchedMaterial::LoadFromFileSystem(void* FileSystem)
 {
     if (Inner == nullptr)
         return GR_GENERIC;
@@ -3517,7 +3513,7 @@ GENRESULT DACOM_API FBatchedMaterial::LoadFromFileSystem(void* FileSystem)
     return Inner->LoadFromFileSystem(FileSystem);
 }
 
-GENRESULT DACOM_API FBatchedMaterial::SaveProperties(void* FileSystem)
+GENRESULT NEURONCOMPONENTS_API FBatchedMaterial::SaveProperties(void* FileSystem)
 {
     if (Inner == nullptr)
         return GR_GENERIC;
@@ -3526,12 +3522,12 @@ GENRESULT DACOM_API FBatchedMaterial::SaveProperties(void* FileSystem)
     return Inner->SaveProperties(FileSystem);
 }
 
-GENRESULT DACOM_API FBatchedMaterial::ApplyVerify(void* Context, void* Extra)
+GENRESULT NEURONCOMPONENTS_API FBatchedMaterial::ApplyVerify(void* Context, void* Extra)
 {
     if (Inner == nullptr)
         return GR_GENERIC;
     const GENRESULT Result = Inner->ApplyVerify(Context, Extra);
-    // FUN_06eb40f0 caches bit 1 of the low render-flags byte after the first
+    // caches bit 1 of the low render-flags byte after the first
     // successful verification.  Field8==-1 is the one-shot sentinel.
     if (Field8 == 0xFFFFFFFF && Result >= 0)
     {
@@ -3542,30 +3538,30 @@ GENRESULT DACOM_API FBatchedMaterial::ApplyVerify(void* Context, void* Extra)
     return Result;
 }
 
-GENRESULT DACOM_API FBatchedMaterial::ResolveTextures(float Delta)
+GENRESULT NEURONCOMPONENTS_API FBatchedMaterial::ResolveTextures(float Delta)
 {
     if (Inner == nullptr)
         return GR_GENERIC;
     return Inner->ResolveTextures(Delta);
 }
 
-GENRESULT DACOM_API FBatchedMaterial::Bind(void* Context)
+GENRESULT NEURONCOMPONENTS_API FBatchedMaterial::Bind(void* Context)
 {
     if (Inner == nullptr)
         return GR_GENERIC;
     return Inner->Bind(Context);
 }
 
-GENRESULT DACOM_API FBatchedMaterial::Teardown(void* Context)
+GENRESULT NEURONCOMPONENTS_API FBatchedMaterial::Teardown(void* Context)
 {
     if (Inner == nullptr)
         return GR_GENERIC;
     return Inner->Teardown(Context);
 }
 
-GENRESULT DACOM_API FBatchedMaterial::Submit(void* Context, unsigned long PrimType, unsigned long Start, unsigned long Count, unsigned long Zero, unsigned long Field, unsigned long Flags)
+GENRESULT NEURONCOMPONENTS_API FBatchedMaterial::Submit(void* Context, unsigned long PrimType, unsigned long Start, unsigned long Count, unsigned long Zero, unsigned long Field, unsigned long Flags)
 {
-    // LAB_06eb4180: only the inner material is optional; the batcher is initialized.
+    // only the inner material is optional; the batcher is initialized.
     if (Inner == nullptr)
         return GR_GENERIC;
 
@@ -3578,7 +3574,7 @@ GENRESULT DACOM_API FBatchedMaterial::Submit(void* Context, unsigned long PrimTy
         const FMaterialSubmitContext* SubmitContext = (const FMaterialSubmitContext*)Context;
         const FTransform* View = (const FTransform*)(SubmitContext->View);
         const FVector* Translation = &((const FTransform*)(SubmitContext->World))->Translation;
-        static I3DMathEngine* GBatchedMathEngine = nullptr; // retail DAT_06ed56c8
+        static I3DMathEngine* GBatchedMathEngine = nullptr;
         Flags |= 0x20;
         if (GBatchedMathEngine == nullptr)
             GBatchedMathEngine = AcquireMathEngine();
@@ -3592,7 +3588,7 @@ GENRESULT DACOM_API FBatchedMaterial::Submit(void* Context, unsigned long PrimTy
                                                          (void*)DepthBits, Flags);
 }
 
-GENRESULT DACOM_API FBatchedMaterial::SetName(const char* Name)
+GENRESULT NEURONCOMPONENTS_API FBatchedMaterial::SetName(const char* Name)
 {
     // Forwards like the sibling slots above (Slot5/ApplyVerify/.../CopyName).
     if (Inner == nullptr)
@@ -3600,28 +3596,28 @@ GENRESULT DACOM_API FBatchedMaterial::SetName(const char* Name)
     return Inner->SetName(Name);
 }
 
-GENRESULT DACOM_API FBatchedMaterial::GetName(char* Out, unsigned long Size)
+GENRESULT NEURONCOMPONENTS_API FBatchedMaterial::GetName(char* Out, unsigned long Size)
 {
     if (Inner == nullptr)
         return GR_GENERIC;
     return Inner->GetName(Out, Size);
 }
 
-GENRESULT DACOM_API FBatchedMaterial::CopyClassName(char* Out, unsigned long Size)
+GENRESULT NEURONCOMPONENTS_API FBatchedMaterial::CopyClassName(char* Out, unsigned long Size)
 {
     if (Inner == nullptr)
         return GR_GENERIC;
     return Inner->CopyClassName(Out, Size);
 }
 
-GENRESULT DACOM_API FBatchedMaterial::GetPassCount(int* Out)
+GENRESULT NEURONCOMPONENTS_API FBatchedMaterial::GetPassCount(int* Out)
 {
     if (Inner == nullptr)
         return GR_GENERIC;
     return Inner->GetPassCount(Out);
 }
 
-GENRESULT DACOM_API FBatchedMaterial::GetRenderFlags(unsigned long* Out)
+GENRESULT NEURONCOMPONENTS_API FBatchedMaterial::GetRenderFlags(unsigned long* Out)
 {
     if (Inner == nullptr)
         return GR_GENERIC;
@@ -3632,28 +3628,28 @@ GENRESULT DACOM_API FBatchedMaterial::GetRenderFlags(unsigned long* Out)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FBatchedMaterial::GetParameterCount(unsigned long* OutCount)
+GENRESULT NEURONCOMPONENTS_API FBatchedMaterial::GetParameterCount(unsigned long* OutCount)
 {
     if (Inner == nullptr)
         return GR_GENERIC;
     return Inner->GetParameterCount(OutCount);
 }
 
-GENRESULT DACOM_API FBatchedMaterial::GetParameterDescriptor(unsigned long Index, void* OutDesc)
+GENRESULT NEURONCOMPONENTS_API FBatchedMaterial::GetParameterDescriptor(unsigned long Index, void* OutDesc)
 {
     if (Inner == nullptr)
         return GR_GENERIC;
     return Inner->GetParameterDescriptor(Index, OutDesc);
 }
 
-GENRESULT DACOM_API FBatchedMaterial::GetParameterValue(unsigned long Index, void* InOutDesc)
+GENRESULT NEURONCOMPONENTS_API FBatchedMaterial::GetParameterValue(unsigned long Index, void* InOutDesc)
 {
     if (Inner == nullptr)
         return GR_GENERIC;
     return Inner->GetParameterValue(Index, InOutDesc);
 }
 
-GENRESULT DACOM_API FBatchedMaterial::SetParameterValue(unsigned long Index, void* Value)
+GENRESULT NEURONCOMPONENTS_API FBatchedMaterial::SetParameterValue(unsigned long Index, void* Value)
 {
     if (Inner == nullptr)
         return GR_GENERIC;
@@ -3778,7 +3774,7 @@ FMaterial* AsShadingFMaterial(IMaterial* Material)
     void* Batched = nullptr;
     if (Material->QueryInterface(Iids::BatchedMaterial, &Batched) == GR_OK && Batched != nullptr)
     {
-        ((IDAComponent*)Batched)->Release();
+        ((INeuronComponent*)Batched)->Release();
         return nullptr;
     }
     const char* ClassName = Material->ClassName();

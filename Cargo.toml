@@ -1,0 +1,23 @@
+[workspace]
+resolver = "3"
+members = [
+    "apps/outpost-frontier",
+    "apps/outpost-server",
+    "crates/game-app",
+    "crates/game-logic",
+    "crates/neuron-client",
+    "crates/neuron-core",
+    "crates/neuron-server",
+]
+
+[workspace.package]
+edition = "2024"
+version = "0.1.0"
+publish = false
+
+[workspace.dependencies]
+game-app = { path = "crates/game-app" }
+game-logic = { path = "crates/game-logic" }
+neuron-client = { path = "crates/neuron-client" }
+neuron-core = { path = "crates/neuron-core" }
+neuron-server = { path = "crates/neuron-server" }

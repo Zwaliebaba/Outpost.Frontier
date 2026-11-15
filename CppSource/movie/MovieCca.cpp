@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "MovieCca.h"
@@ -12,24 +8,24 @@
 #include <stddef.h>
 #include <windows.h>
 
-// 0x06ac8d40. Defined in MovieFieldHigh.cpp.
+// . Defined in MovieFieldHigh.cpp.
 int __stdcall LimbBitLength(int Limbs, int Count);
 
 static_assert(sizeof(FRngState) == 0x120u, "rng state");
 static_assert(sizeof(OSVERSIONINFOA) == 0x94u, "version info");
 static_assert(offsetof(OSVERSIONINFOA, dwPlatformId) == 0x10u, "platform id");
 
-// DAT_06add3c0, DAT_06add3c4, DAT_06add3c8. Initial bytes from the listing.
+// , the field, the field. Initial bytes from the listing.
 static unsigned int GPoolCapacity = 0x200u;
 static unsigned int GPoolIndex = 0x4000u;
 static unsigned int GPlatformNt = 1u;
 
-// DAT_06ae0ad8, DAT_06ae0ae0 (0x50 bytes), DAT_06ae0b30 (RC4 box, indices at +0x100).
+// , the field (0x50 bytes), the field (RC4 box, indices at +0x100).
 static unsigned int GUserNameLength = 0u;
 static unsigned char GRngSeed[0x50];
 static unsigned char GRc4Box[0x102];
 
-// DAT_06ae0c34, DAT_06ae0c38, DAT_06ae0d58 (0x10), DAT_06ae0d68 (0x101).
+// , the field, the field (0x10), the field (0x101).
 static unsigned int GComputerNameLength = 0u;
 static FRngState GRngState;
 static unsigned char GComputerName[0x10];
@@ -41,14 +37,14 @@ typedef void (__stdcall* FRtlInitUnicodeString)(void* Destination, const wchar_t
 typedef int (__stdcall* FGetCursorPos)(void* Point);
 typedef long (__stdcall* FGetMessageTime)();
 
-// DAT_06ae0e6c, DAT_06ae0e70, DAT_06ae0e74, DAT_06ae0e78, DAT_06ae0e7c.
+// , the field, the field, the field, the field.
 static FNtQuerySystemInformation GNtQuerySystemInformation = 0;
 static FNtOpenFile GNtOpenFile = 0;
 static FRtlInitUnicodeString GRtlInitUnicodeString = 0;
 static FGetCursorPos GGetCursorPos = 0;
 static FGetMessageTime GGetMessageTime = 0;
 
-// DAT_06ae0e80, DAT_06ae0e84.
+// , the field.
 static unsigned int GRngReady = 0u;
 static unsigned int GPlatformReady = 0u;
 
@@ -175,7 +171,7 @@ static bool AppendSystemInfo(unsigned char*& Cursor, unsigned int& Remaining, un
     return Commit(Cursor, Remaining, Returned);
 }
 
-// 0x06acd1bf. RET 0. Cached after the first call. 1 means the NT branch.
+// . RET 0. Cached after the first call. 1 means the NT branch.
 static unsigned int __stdcall QueryRngPlatform()
 {
     OSVERSIONINFOA Version;
@@ -231,7 +227,7 @@ static unsigned int __stdcall QueryRngPlatform()
     return GPlatformNt;
 }
 
-// 0x06acd11d. RET 0x10. Opens \Device\KsecDD and issues IOCTL 0x390008.
+// . RET 0x10. Opens \Device\KsecDD and issues IOCTL 0x390008.
 // Returns the DeviceIoControl result. Every miss returns 0.
 static int __stdcall ReadKsecRandom(void* Input, unsigned int InputLength, void* Output, unsigned int* OutputLength)
 {
@@ -448,7 +444,7 @@ static unsigned int CollectEntropy(unsigned char* Entropy, const unsigned char* 
     return Remaining;
 }
 
-// 0x06accca6. RET 0x10.
+// . RET 0x10.
 // Ksec success returns 1. Otherwise the 0xE00 buffer is mixed into the seed,
 // the previous seed keys RC4 over the new seed, and that ciphertext is written
 // back. The output is then RC4'd under the new seed. The box is cleared
@@ -476,7 +472,7 @@ static int __stdcall GatherRngBytes(const unsigned char* Seed, unsigned int Seed
     return Mixed;
 }
 
-// 0x06accbd0. RET 8.
+// . RET 8.
 // Stirs Data into the pool. When the cursor is not below the capacity, refills
 // the RC4 box from 0x100 gathered bytes and clears those bytes. Returns the
 // byte count written, 0 on a failed stir or refill, or 1 after forcing the
@@ -521,7 +517,7 @@ static unsigned int __stdcall ReadRngChunk(unsigned char* Data, unsigned int* Co
     return *Count;
 }
 
-// 0x06accb95. RET 0xC. The first argument is unread.
+// . RET 0xC. The first argument is unread.
 static int __stdcall ReadRngStream(unsigned int, unsigned char* Output, unsigned int Length)
 {
     unsigned int Done = 0u;
@@ -541,7 +537,7 @@ static int __stdcall ReadRngStream(unsigned int, unsigned char* Output, unsigned
     return 1;
 }
 
-// 0x06accb47. RET 8. Always returns 1. Copies min(Count, pool size) bytes
+// . RET 8. Always returns 1. Copies min(Count, pool size) bytes
 // from the pool when both arguments are non-zero and the pool query succeeds.
 static int __stdcall CopyRngPrefix(void* Dest, unsigned int Count)
 {
@@ -565,7 +561,7 @@ static int __stdcall CopyRngPrefix(void* Dest, unsigned int Count)
     return 1;
 }
 
-// 0x06accaf0. RET 8. Always returns 1.
+// . RET 8. Always returns 1.
 // The first call inits the global pool (step 7, mode 1, flags 0) and reads
 // 0x50 seed bytes. A following call only stirs when both slots are present
 // and the length dword is non-zero.
@@ -584,7 +580,7 @@ static int __stdcall StirRngSeed(unsigned int* DataSlot, unsigned int* LengthSlo
     return 1;
 }
 
-// 0x06acca22. RET 0xC. Magic other than 0x10 returns 0.
+// . RET 0xC. Magic other than 0x10 returns 0.
 // Bit 0 of Flags selects GatherRngBytes; otherwise the pool stream is used.
 // When Data and Length are both non-zero they are stirred in and then the
 // pool prefix is copied over that buffer. The return is the fill result.
@@ -618,7 +614,7 @@ static int __stdcall FillRngBuffer(FRngRequest* Request, unsigned char* Output, 
     return Result;
 }
 
-// 0x06acca95. RET 0x10.
+// . RET 0x10.
 void __stdcall GenerateRngBytes(unsigned int* Seed, unsigned int* SeedLength, unsigned char* Output, unsigned int Length)
 {
     FRngRequest Request;
@@ -638,7 +634,7 @@ void __stdcall GenerateRngBytes(unsigned int* Seed, unsigned int* SeedLength, un
     *SeedLength = Request.Length;
 }
 
-// 0x06acd2b0. RET 0x1C.
+// . RET 0x1C.
 // Work is 0x251c bytes: the square at +0, the shift slot at +0x100, the product scratch at +0x200.
 // Square becomes P*P - (Q<<2). The loop walks exponent bits from (bit length - 2) down to 0.
 void __stdcall LadderLucasModulo(unsigned int* First, unsigned int* Second, unsigned int* Third, unsigned int Count, unsigned int* Fourth, unsigned int* Fifth, unsigned int* Context)

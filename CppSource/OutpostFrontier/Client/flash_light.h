@@ -1,13 +1,9 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
 // The blinking light ("FlashLight") a light equipment item on a room prop carries, and the set
-// of them a Gf::ObjectProp keeps at +0x74. Retail OutpostFrontier.exe 0x00557700..0x005585d0,
+// of them a Gf::ObjectProp keeps at +0x74. baseline OutpostFrontier.exe 0x00557700..0x005585d0,
 // Client\supt\LightsCamera.cpp's neighbourhood (no path string of its own).
 
 #include "common_csys.h"
@@ -26,28 +22,28 @@ namespace Archetype
 // (Archetype::Light's Root+0x04, client_cliobj.cpp FCliEQLight).
 struct FFlashLight
 {
-    // FUN_00557700 (thiscall, RET 4).
+    // (thiscall, RET 4).
     explicit FFlashLight(Archetype::ICliObj* Companion);
 
-    // FUN_00557630 (thiscall, RET 0x1c) -- the explicit form the room flashlights use
-    // (FUN_0044a3a0): Color / MinColor by pointer, then period, starting phase, blink duration,
+    // (thiscall, RET 0x1c) -- the explicit form the room flashlights use
+    // (the routine): Color / MinColor by pointer, then period, starting phase, blink duration,
     // bulb size and glow size. The flare cone is left 0.
     FFlashLight(Vector const* InColor, Vector const* InMinColor, float Period, float InPhase,
                 float BlinkDuration, float InBulbSize, float InGlowSize);
 
-    // FUN_00557810 (thiscall, RET 4) -- +0x4c = Frame's matrix (its +0x0c), +0x70 its
+    // (thiscall, RET 4) -- +0x4c = Frame's matrix (its +0x0c), +0x70 its
     // position (its +0x00).
     void SetFrame(Csys const& Frame);
 
-    // FUN_00557860 (thiscall, RET 4) -- advance the blink phase by Delta * Rate (wrapped into
+    // (thiscall, RET 4) -- advance the blink phase by Delta * Rate (wrapped into
     // [0, 1)) and rebuild both colours from it.
     void Update(float Delta);
 
-    // FUN_005579b0 (thiscall, RET 4) -- the first flare pass (the "shine" texture): a
+    // (thiscall, RET 4) -- the first flare pass (the "shine" texture): a
     // camera-facing quad of half-size GlowSize in GlowColor, scaled by the flare cone term when
     // +0x44 > +0x48. Nothing for a black GlowColor.
     void DrawShine(ICamera* Camera);
-    // FUN_00557d70 (thiscall, RET 4) -- the second pass (the "b" texture): a camera-facing quad
+    // (thiscall, RET 4) -- the second pass (the "b" texture): a camera-facing quad
     // of half-size BulbSize in BlendColor. Nothing for a black BlendColor.
     void DrawBulb(ICamera* Camera);
 
@@ -75,39 +71,39 @@ struct FFlashLightEntry
     int HardpointIndex;        // +0x04 index into the owner's HardpointSummary
 };
 
-// Retail: an allocator byte, then a VC6 std::list<FFlashLightEntry*> (head +0x04, size +0x08).
+// baseline: an allocator byte, then a VC6 std::list<FFlashLightEntry*> (head +0x04, size +0x08).
 struct FFlashLightSet
 {
-    // FUN_00558180 (thiscall, no arguments).
+    // (thiscall, no arguments).
     FFlashLightSet();
-    // FUN_005581b0 -- delete every light and entry, then the list.
+    // delete every light and entry, then the list.
     ~FFlashLightSet();
 
-    // FUN_005582a0 -- delete every light and entry and empty the list.
+    // delete every light and entry and empty the list.
     void Clear();
-    // FUN_00558310 (thiscall, RET 8) -- a new light for Companion bound to HardpointIndex.
+    // (thiscall, RET 8) -- a new light for Companion bound to HardpointIndex.
     void Add(Archetype::ICliObj* Companion, int HardpointIndex);
-    // FUN_00558470 (thiscall, RET 8) -- place every light on its hardpoint's current world
+    // (thiscall, RET 8) -- place every light on its hardpoint's current world
     // frame and advance it by Delta.
     void Update(HardpointSummary const* Hardpoints, float Delta);
-    // FUN_00558580 (thiscall, RET 4) -- the first 0x20 lights into FUN_00558000.
+    // (thiscall, RET 4) -- the first 0x20 lights into the routine.
     void Draw(ICamera* Camera);
 
     std::list<FFlashLightEntry*> Entries;
 };
 
-// FUN_00558000 (cdecl) -- the flashlight flares: the EFFECTS and FLASHLIGHTS options and a
-// non-empty list, then two quad passes over it -- FUN_005579b0 with the "shine" texture, then
-// FUN_00557d70 with the "b" texture -- between viewport / camera / state setup and the state
-// restore. Callers: FUN_00558580 and the room draw FUN_0044b570 (RoomControl +0x81c / +0x101c).
+// (cdecl) -- the flashlight flares: the EFFECTS and FLASHLIGHTS options and a
+// non-empty list, then two quad passes over it -- the routine with the "shine" texture, then
+// with the "b" texture -- between viewport / camera / state setup and the state
+// restore. Callers: the routine and the room draw the routine (RoomControl +0x81c / +0x101c).
 void DrawFlashlightFlares(FFlashLight* const* Lights, int Count, ICamera* Camera);
 
-// DAT_006799c0 / DAT_006799c4 -- the flare textures ("b" and "shine" in fx\efx.txm), texture
+// / the field -- the flare textures ("b" and "shine" in fx\efx.txm), texture
 // records of ITextureLibrary2 slot 12. Null outside a base.
 extern void* G_FlashlightBulbTexture;
 extern void* G_FlashlightShineTexture;
 
-// FUN_00557550 -- load both flare textures. Caller: FUN_005588a0 (entering a base).
+// load both flare textures. Caller: the routine (entering a base).
 void LoadFlashlightTextures();
-// FUN_005575e0 -- release them (TextureLib slot 14) and clear the globals. Caller: FUN_00558a50.
+// release them (TextureLib slot 14) and clear the globals. Caller: the routine.
 void ReleaseFlashlightTextures();

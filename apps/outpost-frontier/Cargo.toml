@@ -1,0 +1,12 @@
+[package]
+name = "outpost-frontier"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+game-app.workspace = true
+
+[[bin]]
+name = "OutpostFrontier"
+path = "src/main.rs"

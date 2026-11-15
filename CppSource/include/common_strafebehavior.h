@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -9,69 +5,69 @@
 #include "common_exports.h"
 #include "common_behavior.h" // Behavior
 #include "common_idea.h"     // MoveIdea, FaceIdea, AfterburnerIdea -- the three real embedded
-                             // sub-objects (their ctors FUN_062d4e60 / FUN_062d6750 / FUN_062da500)
+                             // sub-objects (their ctors the routine / the routine / the routine)
 
 #include <cstddef>
 
 struct IObjInspect;          // common_iface.h -- SelectStrafePoint's second argument
 
 // ============================================================================
-// StrafeBehavior -- behavior type 13 ("Strafe"), factory body at .text:062d1cc0
-// (`PUSH 0x1bc; CALL operator_new; ... CALL FUN_062c9540`). RTTI: COL at vftable-4 names
+// StrafeBehavior -- behavior type 13 ("Strafe"), factory body at module storage
+// (`PUSH 0x1bc; CALL operator_new; ... CALL the routine`). RTTI: COL at vftable-4 names
 // ".?AVStrafeBehavior@@", a single-inheritance child of Behavior.
-//
-// Vtable .rdata:0639f9dc, 27 slots. Overrides of Behavior's table (raw .rdata dwords,
+
+// Vtable module storage, 27 slots. Overrides of Behavior's table (raw .rdata dwords,
 // 2026-10-08):
-//    0  FUN_062c95c0  scalar-deleting dtor around FUN_062c95e0
-//    1  LAB_062c9660  SetContext
-//    3  LAB_062ca1e0  Slot3
-//    4  FUN_062ca310  Slot4
-//    5  LAB_062c9720  Slot5
-//    7  LAB_062c9d20  Slot7
-//   10  LAB_062c96e0  Slot10
+//    0  the routine  scalar-deleting dtor around the routine
+//    1  the branch  SetContext
+//    3  the branch  Slot3
+//    4  the routine  Slot4
+//    5  the branch  Slot5
+//    7  the branch  Slot7
+//   10  the branch  Slot10
 // Every other slot is Behavior's own entry.
 // ============================================================================
 class StrafeBehavior : public Behavior
 {
 public:
-    // FUN_062c9540: FUN_062d2020(TypeId), MoveIdea +0x70, FaceIdea +0xe8,
+    // the routine(TypeId), MoveIdea +0x70, FaceIdea +0xe8,
     // AfterburnerIdea +0x1a8, vptr, +0x60 = 2, +0x48 = 2.
     explicit StrafeBehavior(int InTypeId);
-    // FUN_062c95e0 (slot 0 FUN_062c95c0 is the scalar-deleting thunk): the two embedded
+    // (slot 0 the routine is the scalar-deleting thunk): the two embedded
     // ideas' BaseWatcher teardowns (+0xfc, +0x84) and ~Behavior -- the members' own dtors.
     ~StrafeBehavior() override;
 
     StrafeBehavior(StrafeBehavior const&) = delete;
     StrafeBehavior& operator=(StrafeBehavior const&) = delete;
 
-    // Slot 1, LAB_062c9660 (RET 0xc): FUN_062d2090; on success the three ideas' slot 0
+    // Slot 1, the branch (RET 0xc): the routine; on success the three ideas' slot 0
     // (FaceIdea, MoveIdea, AfterburnerIdea, in that order) with (Owner, Sys, Manager),
     // then +0x60 = 2, +0x48 = 2, byte +0x64 = 0, +0x6c = 0, +0x68 = 999. Returns the
     // binder's result.
     bool SetContext(void* Owner, void* Manager, void* Sys) override;
 
-    // Slot 3, LAB_062ca1e0: FUN_062d20d0, SetCruiseLock(1, 3), the angular trigger range
+    // Slot 3, the branch: the routine, SetCruiseLock(1, 3), the angular trigger range
     // (+0x2c), the ship's forward extent (+0x44), the strafe direction (-column 2), and the
     // personality's StrafeParams into +0x34/+0x58/+0x5c; +0x48 = 2.
     void Slot3() override;
 
-    // Slot 4, FUN_062ca310: MoveIdea.PublishTargetId(0), the three ideas' Commit
-    // (MoveIdea, FaceIdea, AfterburnerIdea), then `JMP FUN_062d20f0`.
+    // Slot 4, the routine: MoveIdea.PublishTargetId(0), the three ideas' Commit
+    // (MoveIdea, FaceIdea, AfterburnerIdea), then `JMP the routine`.
     void Slot4() override;
 
-    // Slot 5, LAB_062c9720 (RET 4, argument unread): 1 (and +0x60 = 1) when the gun
+    // Slot 5, the branch (RET 4, argument unread): 1 (and +0x60 = 1) when the gun
     // convergence gate is clear, the target is a ship-class object, this ship is one too,
     // and the target's speed squared is <= 400; else 2; 3 with +0x29. Stored at +0x0c.
     int Slot5(float Unused) override;
 
-    // Slot 7, LAB_062c9d20 (Common.dll.txt 197576-197942), 354 instructions.
+    // Slot 7, the branch (Common), 354 instructions.
     int Slot7() override;
 
-    // Slot 10, LAB_062c96e0 (RET 4): Op non-null and FUN_062e74a0(Sys+0x34, Op+0xc) non-null
+    // Slot 10, the branch (RET 4): Op non-null and the routine(Sys+0x34, Op+0xc) non-null
     // -> Flags28 |= 2, true; else Flags28 &= ~2, false.
     bool Slot10(void* DirectiveOp) override;
 
-    // FUN_062c9810 (item 1365), thiscall, RET 8. Mode 0 aims at Target (or its subtarget),
+    // (item 1365), thiscall, RET 8. Mode 0 aims at Target (or its subtarget),
     // mode 1 picks a point StrafeDistance34 off to the side; both arms hand the point to the
     // MoveIdea and FaceIdea, and every path ends with StrafeMode48 = Mode.
     void SelectStrafePoint(int Mode, IObjInspect const* Target);
@@ -108,9 +104,9 @@ public:
     unsigned char Pad65[0x68 - 0x65];
     int Field68;                 // +0x68. SetContext: 999.
     int Field6c;                 // +0x6c. SetContext: 0.
-    MoveIdea SubObjectA;         // +0x70,  ctor FUN_062d4e60
-    FaceIdea SubObjectB;         // +0xe8,  ctor FUN_062d6750
-    AfterburnerIdea SubObjectC;  // +0x1a8, ctor FUN_062da500
+    MoveIdea SubObjectA;         // +0x70,  ctor the routine
+    FaceIdea SubObjectB;         // +0xe8,  ctor the routine
+    AfterburnerIdea SubObjectC;  // +0x1a8, ctor the routine
 };
 
 static_assert(offsetof(StrafeBehavior, TypeId) == 0x04, "StrafeBehavior::TypeId offset");
@@ -138,4 +134,4 @@ static_assert(offsetof(StrafeBehavior, Field6c) == 0x6c, "StrafeBehavior::Field6
 static_assert(offsetof(StrafeBehavior, SubObjectA) == 0x70, "StrafeBehavior::SubObjectA offset");
 static_assert(offsetof(StrafeBehavior, SubObjectB) == 0xe8, "StrafeBehavior::SubObjectB offset");
 static_assert(offsetof(StrafeBehavior, SubObjectC) == 0x1a8, "StrafeBehavior::SubObjectC offset");
-static_assert(sizeof(StrafeBehavior) == 0x1bc, "StrafeBehavior size must match retail 0x1bc");
+static_assert(sizeof(StrafeBehavior) == 0x1bc, "StrafeBehavior size must match baseline 0x1bc");

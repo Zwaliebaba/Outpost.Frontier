@@ -1,0 +1,33 @@
+Lua 3.2.2 vendored for SceneScript IScriptEngine slot 4 (undump + VM).
+
+Source: https://www.lua.org/ftp/lua-3.2.2.tar.gz
+Date: 2000-02-22
+SHA-256: 4e04059f43acdcde5f7fd491c731df9279dac87d288a08c6eaeb31760c9876e0
+
+License: PUC-Rio / TeCGraf 1994–1999 (see COPYRIGHT). Permissive; not MIT Lua 5.x.
+
+Copied unmodified from the tarball:
+  include/lua.h, luadebug.h, lualib.h, lauxlib.h
+  src/lapi.c, lstate.c, ldo.c, lundump.c, lvm.c, ltable.c, lgc.c,
+  lstring.c, lobject.c, lmem.c, lfunc.c, ltm.c, lzio.c, llex.c,
+  lbuiltin.c, lauxlib.c, lbuffer.c, plus matching headers / lopcodes.h
+  src/lib/lmathlib.c, src/lib/liolib.c, src/lib/lstrlib.c
+
+Not copied (baseline DllMain does not lua_strlibopen):
+  src/lua/*, src/luac/*, src/lib/ldblib.c,
+  src/lib/linit.c (that linit opens strlib)
+
+lstrlib.c is compiled so liolib can link luaI_classend / luaI_singlematch.
+lua_strlibopen is never called (same as baseline DllMain).
+
+lparser_stub.c includes the shared Lua 3.2.2 parser from
+CppSource/luaprofile/lua32/src/lparser.c. SceneScript uses that parser
+to evaluate text scripts.
+
+SceneScript additions (not PUC-Rio):
+  lparser_stub.c — one-line #include of the shared luaprofile lparser.c
+  (historically a luaY_parser-errors stub, no longer)
+
+SceneScript alterations of PUC-Rio files (plainly marked):
+  include/lua.h — LUA_VERSION "Lua 3.2"; stock 3.2.2 was "Lua 3.2.2"
+  src/llex.c — added #include <stdio.h> for MSVC sprintf

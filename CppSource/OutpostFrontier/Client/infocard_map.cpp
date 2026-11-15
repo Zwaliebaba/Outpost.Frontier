@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "infocard_map.h"
@@ -9,11 +5,11 @@
 #include "common_ini.h"   // INI_Reader
 #include "common_misc.h"  // GetFileSysPath
 
-FInfocardMap* G_InfocardMap = nullptr; // DAT_0066d320
+FInfocardMap* G_InfocardMap = nullptr;
 
 void FInfocardMap::Load()
 {
-    // FUN_004583a0: GetFileSysPath of "interface\InfocardMap.ini", open, then every header.
+    // GetFileSysPath of "interface\InfocardMap.ini", open, then every header.
     char Path[0x100];
     GetFileSysPath(Path, "interface\\InfocardMap.ini", nullptr);
     INI_Reader Reader;
@@ -23,7 +19,7 @@ void FInfocardMap::Load()
     }
     do
     {
-        // 0x00458427..0x0045844c: only [InfocardMapTable], and only when it has a value.
+        // only [InfocardMapTable], and only when it has a value.
         if (!Reader.is_header("InfocardMapTable") || !Reader.read_value())
         {
             continue;
@@ -34,7 +30,7 @@ void FInfocardMap::Load()
             {
                 continue;
             }
-            // 0x0045846c..0x0045851e: key = ftol(value 0), ExtraIds = ftol(value 1); values
+            // key = ftol(value 0), ExtraIds = ftol(value 1); values
             // 2..4 are read only when not empty (INI_Reader::is_value_empty), else 1.
             unsigned const Key = static_cast<unsigned>(static_cast<int>(Reader.get_value_float(0)));
             FInfocardMapEntry Entry;
@@ -54,17 +50,17 @@ void FInfocardMap::Load()
             {
                 Entry.Field_0x0c = static_cast<int>(Reader.get_value_float(4));
             }
-            // 0x00458520..0x00458615: the unique insert (FUN_00458d00) -- a key already in the
+            // the unique insert (the routine) -- a key already in the
             // tree keeps its first line (0x00458602).
             Entries.insert(std::pair<unsigned const, FInfocardMapEntry>(Key, Entry));
         } while (Reader.read_value());
     } while (Reader.read_header());
-    // 0x00458649..: INI_Reader's FileMap / buffer teardown -- its destructor here.
+    // ..: INI_Reader's FileMap / buffer teardown -- its destructor here.
 }
 
 void InfocardMapCreate()
 {
-    // FUN_00458790: operator_new(0x14), the empty map, FUN_004583a0, stored in DAT_0066d320.
+    // operator_new(0x14), the empty map, the routine, stored in the field.
     if (G_InfocardMap != nullptr)
     {
         return;
@@ -76,7 +72,7 @@ void InfocardMapCreate()
 
 void InfocardMapDestroy()
 {
-    // FUN_00458860: FUN_004582e0 (clear) + FUN_005b7e1d, then DAT_0066d320 = 0.
+    // the routine (clear) + the routine, then the field = 0.
     FInfocardMap* const Map = G_InfocardMap;
     if (Map == nullptr)
     {
@@ -88,7 +84,7 @@ void InfocardMapDestroy()
 
 bool InfocardMapFind(unsigned Key, FInfocardMapEntry const** OutEntry)
 {
-    // FUN_00458890: no singleton -> false; lower_bound (FUN_0052c7a0), end or Key < node key is
+    // no singleton -> false; lower_bound (the routine), end or Key < node key is
     // a miss; a hit writes &node +0x10.
     FInfocardMap const* const Map = G_InfocardMap;
     if (Map == nullptr)

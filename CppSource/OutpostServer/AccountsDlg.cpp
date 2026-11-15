@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "StdAfx.h"
@@ -14,17 +10,17 @@
 namespace
 {
 	// Character rows store their distance below the account row (1, 2, ...); account rows
-	// store the CAccount pointer. Retail tells them apart with an unsigned `<= 0x80`.
+	// store the CAccount pointer. baseline tells them apart with an unsigned `<= 0x80`.
 	const DWORD_PTR MaxCharacterRowData = 0x80;
 }
 
-// .text:00412aa0
+
 CAccountsDlg::CAccountsDlg(CWnd* Parent)
 	: CDialog(IDD, Parent)
 {
 }
 
-// .text:00412b90
+
 void CAccountsDlg::DoDataExchange(CDataExchange* DX)
 {
 	DDX_Control(DX, 3, DeleteAccountButton);
@@ -34,18 +30,18 @@ void CAccountsDlg::DoDataExchange(CDataExchange* DX)
 	DDX_Control(DX, 1040, AccountList);
 }
 
-// Message map .rdata:0041dec8.
+// Message map module storage.
 BEGIN_MESSAGE_MAP(CAccountsDlg, CDialog)
-	ON_WM_MEASUREITEM()                             // 00412c50
-	ON_LBN_SELCHANGE(1040, &CAccountsDlg::OnSelChangeList) // 00412f00
-	ON_BN_CLICKED(1029, &CAccountsDlg::OnEditAccount)      // 00413030
-	ON_LBN_DBLCLK(1040, &CAccountsDlg::OnDblClkList)       // 00413180
-	ON_BN_CLICKED(2, &CAccountsDlg::OnDeleteCharacter)     // 00413190
-	ON_BN_CLICKED(3, &CAccountsDlg::OnDeleteAccount)       // 00413380
-	ON_WM_CTLCOLOR()                                // 00413440
+	ON_WM_MEASUREITEM()
+	ON_LBN_SELCHANGE(1040, &CAccountsDlg::OnSelChangeList)
+	ON_BN_CLICKED(1029, &CAccountsDlg::OnEditAccount)
+	ON_LBN_DBLCLK(1040, &CAccountsDlg::OnDblClkList)
+	ON_BN_CLICKED(2, &CAccountsDlg::OnDeleteCharacter)
+	ON_BN_CLICKED(3, &CAccountsDlg::OnDeleteAccount)
+	ON_WM_CTLCOLOR()
 END_MESSAGE_MAP()
 
-// .text:00412c30
+
 BOOL CAccountsDlg::OnInitDialog()
 {
 	CDialog::OnInitDialog();
@@ -53,7 +49,7 @@ BOOL CAccountsDlg::OnInitDialog()
 	return TRUE;
 }
 
-// .text:00412c50 — rows are as tall as the list box's regular font.
+// — rows are as tall as the list box's regular font.
 void CAccountsDlg::OnMeasureItem(int IDCtl, LPMEASUREITEMSTRUCT MeasureInfo)
 {
 	if (IDCtl != 1040)
@@ -70,7 +66,7 @@ void CAccountsDlg::OnMeasureItem(int IDCtl, LPMEASUREITEMSTRUCT MeasureInfo)
 	MeasureInfo->itemHeight = Metrics.tmHeight;
 }
 
-// .text:00412d20
+
 void CAccountsDlg::UpdateAccountStyle(CAccount* Account)
 {
 	bool bBold;
@@ -94,12 +90,12 @@ void CAccountsDlg::UpdateAccountStyle(CAccount* Account)
 	::InvalidateRect(m_hWnd, nullptr, TRUE);
 }
 
-// .text:00412d90
+
 void CAccountsDlg::RefreshAccountList()
 {
 	const HWND List = AccountList.m_hWnd;
 	const LRESULT Selection = ::SendMessageA(List, LB_GETCURSEL, 0, 0);
-	::SendMessageA(List, LB_GETTOPINDEX, 0, 0); // result unused in retail
+	::SendMessageA(List, LB_GETTOPINDEX, 0, 0); // result unused in baseline
 	::SendMessageA(List, LB_RESETCONTENT, 0, 0);
 	LockServer();
 	std::map<CiWString, CAccount*>::iterator It = Players.m_AccountNameMap.begin();
@@ -125,7 +121,7 @@ void CAccountsDlg::RefreshAccountList()
 	UnlockServer();
 }
 
-// .text:00412f00
+
 void CAccountsDlg::OnSelChangeList()
 {
 	const HWND List = AccountList.m_hWnd;
@@ -176,7 +172,7 @@ void CAccountsDlg::OnSelChangeList()
 	}
 }
 
-// .text:00413030
+
 void CAccountsDlg::OnEditAccount()
 {
 	const HWND List = AccountList.m_hWnd;
@@ -203,13 +199,13 @@ void CAccountsDlg::OnEditAccount()
 	OnSelChangeList();
 }
 
-// .text:00413180 — JMP 00413030.
+// — JMP 00413030.
 void CAccountsDlg::OnDblClkList()
 {
 	OnEditAccount();
 }
 
-// .text:00413190
+
 void CAccountsDlg::OnDeleteCharacter()
 {
 	CAreYouSureDlg Confirm(nullptr);
@@ -244,7 +240,7 @@ void CAccountsDlg::OnDeleteCharacter()
 	OnSelChangeList();
 }
 
-// .text:00413380
+
 void CAccountsDlg::OnDeleteAccount()
 {
 	CAreYouSureDlg Confirm(nullptr);
@@ -265,7 +261,7 @@ void CAccountsDlg::OnDeleteAccount()
 	OnSelChangeList();
 }
 
-// .text:00413440 — the "* Red accounts are banned" label is drawn red.
+// — the "* Red accounts are banned" label is drawn red.
 HBRUSH CAccountsDlg::OnCtlColor(CDC* DC, CWnd* Wnd, UINT CtlColor)
 {
 	HBRUSH Brush = CDialog::OnCtlColor(DC, Wnd, CtlColor);

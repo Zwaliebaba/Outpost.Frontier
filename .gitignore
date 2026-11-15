@@ -1,10 +1,20 @@
-# Local paths to the game installation and the extracted inputs (Tools/Extract)
+# Local configuration and imported resources
 local.json
+/ResourceInputs/
 __pycache__/
+
+# Build output
+/target/
 Build/
-.vs/
-*.user
+/CppSource/obj/
+/bin/
+/bin_debug/
+/binasan/
 Tools/Recorder/bin/
 Tools/Recorder/obj/
 Tools/Vectors/bin/
 Tools/Vectors/obj/
+
+# Visual Studio local settings
+.vs/
+*.user

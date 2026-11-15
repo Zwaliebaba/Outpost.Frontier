@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "StdAfx.h"
@@ -12,39 +8,39 @@
 
 namespace
 {
-	// Control id of the list box (ServerResources.dll dialog 150).
+	// Control id of the list box (ServerInterface.dll dialog 150).
 	const int SystemListId = 1040;
 }
 
-// .text:004061e0 (static initializer: ctor with a null parent, then atexit(00406200)).
+// (static initializer: ctor with a null parent, then atexit(00406200)).
 CSelectStarSystemDlg GSelectStarSystemDlg;
 
-// .text:00406260
+
 CSelectStarSystemDlg::CSelectStarSystemDlg(CWnd* Parent)
 	: CDialog(IDD, Parent)
 {
 }
 
-// .text:004062e0 — retail's null test on the list pointer is the compiler's adjustment from
+// — baseline's null test on the list pointer is the compiler's adjustment from
 // the CFLListBox (+0x60) to its CWnd part (+0x64).
 void CSelectStarSystemDlg::DoDataExchange(CDataExchange* DX)
 {
 	DDX_Control(DX, SystemListId, SystemList);
 }
 
-// Message map .rdata:0041c4e8: LBN_DBLCLK 1040 -> 00406450, WM_MEASUREITEM -> 00406460.
+// Message map module storage: LBN_DBLCLK 1040 -> 00406450, WM_MEASUREITEM -> 00406460.
 BEGIN_MESSAGE_MAP(CSelectStarSystemDlg, CDialog)
 	ON_LBN_DBLCLK(SystemListId, &CSelectStarSystemDlg::OnDblClkSystemList)
 	ON_WM_MEASUREITEM()
 END_MESSAGE_MAP()
 
-// .text:00406450 — a double click is the virtual OnOK (vtable +0xcc).
+// — a double click is the virtual OnOK (vtable +0xcc).
 void CSelectStarSystemDlg::OnDblClkSystemList()
 {
 	OnOK();
 }
 
-// .text:00406340 — fills the list with every system that has at least one player.
+// — fills the list with every system that has at least one player.
 BOOL CSelectStarSystemDlg::OnInitDialog()
 {
 	CDialog::OnInitDialog();
@@ -52,15 +48,15 @@ BOOL CSelectStarSystemDlg::OnInitDialog()
 	return TRUE;
 }
 
-// .text:00406360 — the dialog is modeless: Cancel destroys the window (vtable +0x60).
+// — the dialog is modeless: Cancel destroys the window (vtable +0x60).
 void CSelectStarSystemDlg::OnCancel()
 {
 	DestroyWindow();
 }
 
-// .text:00406370 — opens (or brings to front) the chat window of the selected system (the
+// — opens (or brings to front) the chat window of the selected system (the
 // row's item data), then destroys this window; with no selection only the window is destroyed.
-// Retail takes no server lock here.
+// baseline takes no server lock here.
 void CSelectStarSystemDlg::OnOK()
 {
 	const int Selection = (int)::SendMessage(SystemList.m_hWnd, LB_GETCURSEL, 0, 0);
@@ -85,7 +81,7 @@ void CSelectStarSystemDlg::OnOK()
 	DestroyWindow();
 }
 
-// .text:00406460 — list rows are as tall as the list's regular font.
+// — list rows are as tall as the list's regular font.
 void CSelectStarSystemDlg::OnMeasureItem(int IDCtl, LPMEASUREITEMSTRUCT MeasureInfo)
 {
 	if (IDCtl != SystemListId)

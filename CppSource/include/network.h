@@ -1,19 +1,15 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 // network.h - DirectPlay 8 transport layer types shared by RemoteClient.dll and remoteserver.dll
-// Both DLLs are built from the same codebase (E:\FL\Scratch\Source\Network\)
+// Both DLLs are built from the same codebase (Network\)
 // with different #defines (OUTPOST_SERVER for RemoteClient.dll).
 
 #include <vector>
 #include <windows.h>
 
 // Forward declarations for external DirectPlay and interface types
-#include "dalib_net.h"
+#include "neuronruntime_net.h"
 
 class IClient;
 class IChatClient;
@@ -21,7 +17,7 @@ struct IServer;
 class IChatServer;
 // ============================================================================
 // f) Protocol packet opcodes (all 161 unique opcodes / 162 packet classes)
-//
+
 // Channels:
 //   Channel 1: Common (bidirectional) — 0x10000 | id  (21 opcodes)
 //   Channel 2: Server -> Client       — 0x20000 | id  (81 opcodes)
@@ -212,7 +208,7 @@ enum EFlPacket : unsigned int
 
 // ============================================================================
 // h) remoteserver.dll (client-side DirectPlay 8 transport) C exports
-//
+
 // Undecorated C exports returning the client's RPC connection to the remote server.
 // ============================================================================
 extern "C" {

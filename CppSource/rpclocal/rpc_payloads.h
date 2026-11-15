@@ -1,45 +1,41 @@
-﻿// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
-// Author: Giperion.
+﻿// Author: Giperion.
 
-// rpc_payloads.h -- per-packet-type payload layouts (the retail wire format).
-//
+// rpc_payloads.h -- per-packet-type payload layouts (the baseline wire format).
+
 // Ground truth for every layout in this file and in rpc_payload_ch1.cpp is the raw
-// listing EXE/Disasm/rpclocal.dll.txt, read from BOTH ends of each packet type:
-//
+// listing rpclocal, read from BOTH ends of each packet type:
+
 //   * the sender -- the body of the IClient slot that allocates the packet through
-//     FUN_06d96300(Serializer, Channel, Opcode, &OutPacket) and then writes the payload
+// (Serializer, Channel, Opcode, &OutPacket) and then writes the payload
 //     from packet+0x20 on;
 //   * the receiver -- the matching case inside IServerImpl::HandlePacket (0x06d81170),
 //     which reads those same bytes back, rebuilds the argument struct on its own stack
-//     and calls exactly one slot of the real IClient (.data:0x06dbbcd8) or of the chat
-//     client (.data:0x06dbbcd4).
-//
+//     and calls exactly one slot of the real IClient (module storage) or of the chat
+//     client (module storage).
+
 // A third, independent check on every layout is the packet class's own operator new()
 // size, already written out in the registry (rpc_packet_registry.cpp): payload size ==
 // that size minus the 0x20-byte CDAPacket base. All 21 channel-1 types agree on all
 // three readings; the static_asserts below encode that agreement.
-//
-// What retail does NOT give us: the names of the IClient slots. rpclocal decorates none
+
+// What baseline does NOT give us: the names of the IClient slots. rpclocal decorates none
 // of the 126 methods; src/include/rpc_iclient.h names and types each of them from the
 // sender, receiver and caller bodies (2026-10-16). A sender that does `MOV EAX,[A1];
 // MOV [pkt+0x20],EAX` proves that its second argument is a pointer and that the first
 // dword behind it lands at payload+0x00. The Marshal side of the codecs below reads the
-// sender's arguments as that retail stack image -- one dword per argument slot, a
+// sender's arguments as that baseline stack image -- one dword per argument slot, a
 // reference or pointer as its address -- which FLocalClientProxy (rpc_client_proxy.cpp)
 // builds explicitly from the typed parameters.
-//
-// Retail's own first argument (a session/client id) is never forwarded: every receive
+
+// baseline's own first argument (a session/client id) is never forwarded: every receive
 // case pushes the literal 1 in its place. That is reproduced verbatim.
 #pragma once
 
 #include "rpc_transport.h"
 #include "common_server_types.h"
-// Retail rpclocal.dll imports FmtStr::flatten / FmtStr::unflatten / ~FmtStr /
-// FmtStr::Val::get_flattened_size from COMMON.DLL (import table at .rdata:06db3008,
-// 06db3094, 06db30dc, 06db30e0). The port does the same -- see the family note further
+// baseline rpclocal.dll imports FmtStr::flatten / FmtStr::unflatten / ~FmtStr /
+// FmtStr::Val::get_flattened_size from COMMON.DLL (import table at module storage,
+// , 06db30dc, 06db30e0). The port does the same -- see the family note further
 // down, next to FPayloadServerSetReputation.
 #include "common_text.h"
 #include "rpc_iclient_args.h"   // FServerSetReputationInfo, Reputation::Relation
@@ -56,18 +52,18 @@ class IChatClient;
 // Codec table entry
 // ===========================================================================
 
-// Packs the sender's raw argument dwords into the retail payload. Returns false when the
+// Packs the sender's raw argument dwords into the baseline payload. Returns false when the
 // arguments cannot be marshalled (a null struct pointer, a payload that is too small).
 typedef bool (*FRpcMarshalFn)(FPacketBase* Packet, const unsigned int* Args, unsigned int ArgCount);
 
-// Rebuilds the retail argument list out of the payload and makes the one call retail's
+// Rebuilds the baseline argument list out of the payload and makes the one call baseline's
 // HandlePacket case makes. Returns false when the packet cannot be delivered.
 typedef bool (*FRpcDeliverFn)(const FPacketBase* Packet, IClient* Client, IChatClient* ChatClient);
 
 struct FRpcPayloadCodec {
     unsigned short Channel;
     unsigned short Opcode;
-    const char* Name;              // the retail FLPACKET_* string
+    const char* Name;              // the baseline FLPACKET_* string
     unsigned short PayloadSize;    // registry size minus the 0x20 base
     FRpcMarshalFn Marshal;
     FRpcDeliverFn Deliver;
@@ -78,8 +74,8 @@ struct FRpcPayloadCodec {
 extern "C" __declspec(dllexport) const FRpcPayloadCodec* RpcFindPayloadCodec(unsigned int Channel, unsigned int Opcode);
 
 // ===========================================================================
-// Typed payload access. Unchecked, as retail's own field stores are: the packet is the
-// concrete class the registry built, whose size is retail's operator new argument.
+// Typed payload access. Unchecked, as baseline's own field stores are: the packet is the
+// concrete class the registry built, whose size is baseline's operator new argument.
 // ===========================================================================
 template<typename T>
 inline bool RpcPayloadWrite(FPacketBase* Packet, unsigned int Offset, const T& Value) {
@@ -104,7 +100,7 @@ inline T RpcPayloadRead(const FPacketBase* Packet, unsigned int Offset) {
 
 // ===========================================================================
 // Channel-1 payload structures.
-//
+
 // These are the bytes ON THE WIRE, not the argument structs -- for several types the two
 // differ (FLPACKET_COMMON_UPDATEOBJECT reorders its fields, FLPACKET_COMMON_SETTARGET
 // packs its two 16-bit ids behind the two 32-bit ids). Each one carries the sender and
@@ -118,8 +114,8 @@ struct FPayloadCommonUpdateObject {
     unsigned char Field_0x00;
     unsigned char Pad_0x01[3];
     unsigned int ObjectId;       // +0x04  <- argument struct +0x00
-    Vector Position;             // +0x08  <- FUN_06d8f510 (3-dword copier), struct +0x14
-    Quaternion Orientation;      // +0x14  <- FUN_06d8f4f0 (4-dword copier), struct +0x04
+    Vector Position;             // +0x08  <- the routine (3-dword copier), struct +0x14
+    Quaternion Orientation;      // +0x14  <- the routine (4-dword copier), struct +0x04
     // TODO: semantics unproven. The receiver reads both with FLD/FST, so both are floats.
     // The IServer-direction mirror of this struct (SSPObjUpdateInfo in
     // common_server_types.h) narrows a double `Timestamp` into the first of the two and carries an
@@ -133,19 +129,19 @@ static_assert(sizeof(FPayloadCommonUpdateObject) == 0x2c, "UPDATEOBJECT payload 
 // The struct the sender reads and the receiver rebuilds (0x2c bytes, same fields in a
 // different order), FCommonUpdateObjectInfo, is declared once in
 // src/include/rpc_iclient_args.h: Server.dll builds it in StarSystem::sp_obj_update
-// (FUN_06d0bbc0) from the IServer-side SSPObjUpdateInfo.
+// (the routine) from the IServer-side SSPObjUpdateInfo.
 
 // ch1 op 0x02 FLPACKET_COMMON_FIREWEAPON, packet size 0x40 -> payload 0x20.
 // Sender 0x06d8b310 (IClient+0x000), receiver case 2 of the channel-1 switch.
-// Field for field retail's XFireWeaponInfo layout (the packet class embeds the same VC6
+// Field for field baseline's XFireWeaponInfo layout (the packet class embeds the same VC6
 // vector at payload +0x10). The port's XFireWeaponInfo holds a std::vector, so this wire
-// mirror keeps the retail triple itself; the hardpoint ELEMENTS are always copied into a
-// block the packet owns (freed by the packet dtor FUN_06d9b020), and the receivers copy
+// mirror keeps the baseline triple itself; the hardpoint ELEMENTS are always copied into a
+// block the packet owns (freed by the packet dtor the routine), and the receivers copy
 // them back out into the argument struct's own std::vector.
 struct FPayloadCommonFireWeapon {
     unsigned int ObjectId;                    // +0x00
     Vector TargetPos;                         // +0x04
-    FRetailVector<unsigned short> Hardpoints; // +0x10  element stride 2
+    FbaselineVector<unsigned short> Hardpoints; // +0x10  element stride 2
 };
 static_assert(sizeof(FPayloadCommonFireWeapon) == 0x20, "FIREWEAPON payload 0x20");
 
@@ -213,7 +209,7 @@ static_assert(sizeof(FPayloadCommonGoTradelane) == 0x10, "GOTRADELANE payload 0x
 // Sender 0x06d8bd10 (IClient+0x01c), receiver caseD_10 at 0x06d839fe.
 // IClient's four-argument slot only serializes the ship id; its two ring fields stay zero.
 // The opposite IServerImpl sender 06d8e770 writes all three payload dwords at
-// 06d8e791 / 06d8e79c / 06d8e7a7. Both receivers forward all three fields.
+// / 06d8e79c / 06d8e7a7. Both receivers forward all three fields.
 struct FPayloadCommonStopTradelane {
     unsigned int Field_0x00;   // +0x00  <- the sender's 2nd argument
     unsigned int Field_0x04;   // +0x04  entrance ring (IServer); zero (IClient)
@@ -223,22 +219,22 @@ static_assert(sizeof(FPayloadCommonStopTradelane) == 0x0c, "STOPTRADELANE payloa
 
 // The buffer family -- ch1 ops 0x11, 0x13, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1c, packet
 // size 0x2c -> payload 0x0c. Senders 0x06d8b4f0 / 0x06d8b540 / 0x06d8b590 / 0x06d8b7a0 /
-// 0x06d8b610 / 0x06d8b7f0 / 0x06d8b890 / 0x06d8b840. Every receiver is the same four
+// / 0x06d8b7f0 / 0x06d8b890 / 0x06d8b840. Every receiver is the same four
 // instructions: RealClient->vt[slot](1, payload+0x00, payload+0x04).
-//
+
 // Ownership is carried by payload+0x08, and the one reader of it is the class destructor,
-// identical in all eight classes (0x13's is FUN_06d9b1a0, the others its siblings at
-// 06d9b0e0 / 06d9b260 / 06d9b320 / 06d9b4c0 / 06d9b580 / 06d9b640 / 06d9b700):
-//   06d9b1a3  MOV  AL,[ESI + 0x28] / TEST AL,AL / JZ   ; not owned -> leave it
-//   06d9b1b0  MOV  EAX,[ESI + 0x20] / TEST EAX,EAX / JZ
-//   06d9b1b8  CALL FUN_06db1dc2 (= free)              ; owned -> free the block
-//   06d9b1c0  MOV  [ESI + 0x20],0
+// identical in all eight classes (0x13's is the routine, the others its siblings at
+// / 06d9b260 / 06d9b320 / 06d9b4c0 / 06d9b580 / 06d9b640 / 06d9b700):
+// MOV  AL,[ESI + 0x28] / TEST AL,AL / JZ   ; not owned -> leave it
+// MOV  EAX,[ESI + 0x20] / TEST EAX,EAX / JZ
+// CALL the routine (= free)              ; owned -> free the block
+// MOV  [ESI + 0x20],0
 // The constructors (e.g. 06d9b150) zero both +0x20 and +0x28. The IClient senders:
 //   * 0x16 REQUEST_BEST_PATH and 0x18 REQUEST_PLAYER_STATS operator_new(Size), copy the
 //     caller's bytes in and set the flag -- the packet owns its copy;
 //   * 0x13 / 0x17 / 0x19 / 0x1a / 0x1c store the CALLER's pointer and set the flag
 //     (e.g. 06d8b573 `MOV byte ptr [EDX+0x28],1`) -- the packet takes the caller's block
-//     over and frees it. Every retail caller in Server.dll hands them a fresh
+//     over and frees it. Every baseline caller in Server.dll hands them a fresh
 //     operator_new block and never touches it again;
 //   * 0x11 SET_WEAPON_GROUP stores the caller's pointer and leaves the flag at zero --
 //     the one member that borrows, so it alone must be delivered before the call returns.
@@ -253,7 +249,7 @@ static_assert(sizeof(FPayloadCommonBuffer) == 0x0c, "buffer-family payload 0x0c"
 
 // ch1 op 0x12 FLPACKET_COMMON_PLAYER_TRADE, packet size 0x44 -> payload 0x24.
 // Eight senders, 0x06d8b8e0 / 0x06d8b980 / 0x06d8b930 / 0x06d8b9d0 / 0x06d8ba20 /
-// 0x06d8baa0 / 0x06d8bb10 / 0x06d8bb60, all writing the same packet type with a different
+// / 0x06d8bb10 / 0x06d8bb60, all writing the same packet type with a different
 // bitmask in payload+0x00; receiver sub-switch at 0x06d8375d. Each sub-type writes only
 // the fields it needs and leaves the rest at the constructor's zeros.
 struct FPayloadCommonPlayerTrade {
@@ -293,7 +289,7 @@ static_assert(sizeof(FPayloadCommonActivateThrusters) == 0x08, "ACTIVATETHRUSTER
 
 // ch1 op 0x1b FLPACKET_COMMON_POP_UP_DIALOG, packet size 0x34 -> payload 0x14.
 // Sender 0x06d8b690 (IClient+0x17c), receiver caseD_1b at 0x06d835e3.
-// Retail walks each FmtStr's node list, sizes it, operator_new()s that many bytes and
+// baseline walks each FmtStr's node list, sizes it, operator_new()s that many bytes and
 // calls COMMON.DLL::FmtStr::flatten into them; the receiver calls FmtStr::unflatten back
 // out. See rpc_payload_ch1.cpp for why the port cannot do that yet.
 struct FPayloadCommonPopUpDialog {
@@ -312,12 +308,12 @@ struct FPayloadCommonTractorObjects {
     unsigned int ObjectId;                  // +0x00
     unsigned short TractorEquipId;          // +0x04
     unsigned short Pad_0x06;                // +0x06
-    FRetailVector<unsigned int> TargetIds;  // +0x08  element stride 4
+    FbaselineVector<unsigned int> TargetIds;  // +0x08  element stride 4
 };
 static_assert(sizeof(FPayloadCommonTractorObjects) == 0x18, "TRACTOROBJECTS payload 0x18");
 
 // payload 0x0c: ch2 0x3d FLPACKET_SERVER_REMOTEOBJECTCARGOUPDATE. The first dword is
-// the equipment handle FUN_06d8fa90 hangs off packet+0x20 (see rpc_containers.h); the
+// the equipment handle the routine hangs off packet+0x20 (see rpc_containers.h); the
 // other two fields are written straight by the sender at 0x06d8c076 (a single byte at
 // +0x04) and 0x06d8c081 (a dword at +0x08), and read back by caseD_3d at 0x06d82a64
 // and 0x06d82a7d. Registry size 0x2c.
@@ -336,29 +332,29 @@ extern const unsigned int GChannel1CodecCount;
 
 // ===========================================================================
 // Channel-2 payload structures (server -> client).
-//
+
 // Recovered exactly like channel 1, from three independent readings:
 //   * the sender -- the body of the IClient slot in rpclocal that allocates the packet
-//     with FUN_06d96300(Serializer, 2, Opcode, &OutPacket) and writes from packet+0x20;
+//     with the routine(Serializer, 2, Opcode, &OutPacket) and writes from packet+0x20;
 //   * the receiver -- the matching case of the channel-2 switch inside
-//     IServerImpl::HandlePacket (jump table at .text:0x06d83b44, EBP = the packet), which
+//     IServerImpl::HandlePacket (jump table at module storage, EBP = the packet), which
 //     reads those same bytes back and calls exactly one slot of the real IClient
-//     (.data:0x06dbbcd8);
+//     (module storage);
 //   * the registry size -- payload == the type's operator new() size minus the 0x20 base.
-//
+
 // Two channel-2 conventions differ from channel 1 and are reproduced verbatim:
-//
-//   1. Retail replaces the sender's first argument with a literal 1 on the way out, as on
+
+//   1. baseline replaces the sender's first argument with a literal 1 on the way out, as on
 //      channel 1 -- but for one family of types it passes that 1 BY REFERENCE
 //      (LEA EAX,[local] ; MOV [local],1 ; PUSH EAX), because the slot takes uint const&.
 //      Those same senders dereference their own first argument before handing it to
 //      slot 9 (MOV EAX,[ECX]). Each codec below notes which convention its type uses.
 //   2. Four types (0x02, 0x06, 0x0a, 0x21) do not rebuild the argument struct on the
-//      receiver's stack at all: retail copies the fields into FILE-STATIC storage in
+//      receiver's stack at all: baseline copies the fields into FILE-STATIC storage in
 //      .data and passes the address of that. Reproduced as found -- it is not re-entrant
-//      in retail either.
-//
-// Field names: where the packet carries exactly one value and the retail FLPACKET_* name
+//      in baseline either.
+
+// Field names: where the packet carries exactly one value and the baseline FLPACKET_* name
 // says what it is, the field is named after the packet (SETSHIPARCH -> ShipArchId). Every
 // other field keeps Field_0xNN plus its proven primitive width; rpclocal decorates none of
 // the IClient methods, so nothing stronger is available.
@@ -393,9 +389,9 @@ struct FPayloadServerDwordPair {
 };
 static_assert(sizeof(FPayloadServerDwordPair) == 0x08, "ch2 dword-pair payload 0x08");
 
-// payload 0x08: a sized blob the packet OWNS. Written by FUN_06d97b00, which does
+// payload 0x08: a sized blob the packet OWNS. Written by the routine, which does
 // operator new(Size) + REP MOVSD/MOVSB, stores the block at packet+0x24 and the length at
-// packet+0x20. The matching packet destructor (e.g. FUN_06d974c0) frees packet+0x24.
+// packet+0x20. The matching packet destructor (e.g. the routine) frees packet+0x24.
 struct FPayloadServerBlob {
     unsigned int Size;   // +0x00
     void* Buffer;        // +0x04  owned by the packet
@@ -403,7 +399,7 @@ struct FPayloadServerBlob {
 static_assert(sizeof(FPayloadServerBlob) == 0x08, "ch2 blob payload 0x08");
 
 // payload 0x08: the same blob with the two fields the other way round. Written by
-// FUN_06d90a00 -- byte for byte the mirror of FUN_06d97b00, block at packet+0x20 and
+// byte for byte the mirror of the routine, block at packet+0x20 and
 // length at packet+0x24. Only FLPACKET_SERVER_GFUPDATEAMBIENTSCRIPT uses it, and its
 // receiver reads the fields in the matching (reversed) order, so the difference is real.
 struct FPayloadServerBlobReversed {
@@ -416,7 +412,7 @@ static_assert(sizeof(FPayloadServerBlobReversed) == 0x08, "ch2 reversed-blob pay
 
 // ch2 0x06 FLPACKET_SERVER_DESTROYOBJECT, size 0x28 -> payload 0x08.
 // Sender 0x06d89140 (IClient+0x0dc), receiver caseD_6 at 0x06d81f6a.
-// The receiver stores into .data:0x06dbb824/0x06dbb828 and passes that address; it writes
+// The receiver stores into module storage/0x06dbb828 and passes that address; it writes
 // the second field as a zero-extended DWORD, which is byte-identical to writing the byte
 // and clearing the three padding bytes.
 struct FPayloadServerDestroyObject {
@@ -432,15 +428,15 @@ static_assert(sizeof(FPayloadServerDestroyObject) == 0x08, "DESTROYOBJECT payloa
 // ch2 0x07 FLPACKET_SERVER_LAUNCH, size 0x48 -> payload 0x28.
 // Sender 0x06d8a080 (IClient+0x0f0), receiver caseD_7 at 0x06d81951.
 // The wire REORDERS: three leading dwords, then the Vector from arg+0x1c (copied by
-// FUN_06d8f510, the 3-dword copier), then the Quaternion from arg+0x0c (FUN_06d8f4f0, the
+// , the 3-dword copier), then the Quaternion from arg+0x0c (the routine, the
 // 4-dword copier). The receiver puts all ten dwords back exactly where they came from --
 // the two mappings are strict inverses, which is what pins this layout down.
 struct FPayloadServerLaunch {
     unsigned int Field_0x00;    // +0x00  <- arg +0x00. TODO: semantics unproven.
     unsigned int Field_0x04;    // +0x04  <- arg +0x04. TODO: semantics unproven.
     unsigned int Field_0x08;    // +0x08  <- arg +0x08. TODO: semantics unproven.
-    Vector Position;            // +0x0c  <- arg +0x1c (FUN_06d8f510)
-    Quaternion Orientation;     // +0x18  <- arg +0x0c (FUN_06d8f4f0)
+    Vector Position;            // +0x0c  <- arg +0x1c (the routine)
+    Quaternion Orientation;     // +0x18  <- arg +0x0c (the routine)
 };
 static_assert(sizeof(FPayloadServerLaunch) == 0x28, "LAUNCH payload 0x28");
 
@@ -449,7 +445,7 @@ static_assert(sizeof(FPayloadServerLaunch) == 0x28, "LAUNCH payload 0x28");
 
 // ch2 0x0a FLPACKET_SERVER_ACTIVATEOBJECT, size 0x2c -> payload 0x0c.
 // Sender 0x06d89770 (IClient+0x0e0), receiver caseD_a at 0x06d823ab (statics
-// .data:0x06dbb8f4 / 0x06dbb8f8 / 0x06dbb8fc). The payload IS the argument
+// / 0x06dbb8f8 / 0x06dbb8fc). The payload IS the argument
 // struct Server.dll builds, so FPayloadServerActivateObject is declared once,
 // in src/include/rpc_iclient_args.h (2026-09-24, claude:srv-sys).
 
@@ -475,7 +471,7 @@ static_assert(sizeof(FPayloadServerRequestCreateShipResp) == 0x08, "REQUESTCREAT
 // Sender 0x06d8a180 (IClient+0x0c4), receiver caseD_2c at 0x06d81ac1.
 // Eighteen fields; the wire swaps the two four-dword groups at arg+0x10 and arg+0x1c, and
 // carries arg+0x0c as a WORD (the receiver reads a word back and leaves the upper half of
-// its local untouched -- retail's own gap, reproduced).
+// its local untouched -- baseline's own gap, reproduced).
 struct FPayloadServerCreateMine {
     unsigned int Field_0x00;    // +0x00  <- arg +0x00
     unsigned int Field_0x04;    // +0x04  <- arg +0x04
@@ -500,14 +496,14 @@ struct FPayloadServerCreateMine {
 static_assert(sizeof(FPayloadServerCreateMine) == 0x48, "CREATEMINE payload 0x48");
 
 // The argument struct is Server.dll's FServerCreateProjectileInfo (server_createinfo.h,
-// built by FUN_06d07c80); the private mirror FServerCreateMineInfo of the same 0x48 bytes
+// built by the routine); the private mirror FServerCreateMineInfo of the same 0x48 bytes
 // was folded onto it 2026-10-16. Its +0x0e half never crosses the wire.
 
 // ch2 0x2e FLPACKET_SERVER_SETADDITEM, size 0x40 -> payload 0x20.
 // Sender 0x06d885c0 (IClient+0x068) under a SEH frame, receiver caseD_2e at 0x06d819ed.
 // The sender fans a Common.dll EquipDesc out into scalars and, unless
 // EquipDesc::is_internal(), copies the hardpoint STRING into a block the packet owns
-// (FUN_06d97470: operator new(len+1), packet+0x3c = block, packet+0x28 = len+1).
+// (the routine: operator new(len+1), packet+0x3c = block, packet+0x28 = len+1).
 // The receiver rebuilds the EquipDesc with the matching setters and calls
 // StringAlloc(hardpoint, 0) before set_hardpoint.
 struct FPayloadServerSetAddItem {
@@ -563,7 +559,7 @@ static_assert(sizeof(FPayloadServerSetMissionObjectiveState) == 0x0c, "SETMISSIO
 
 // ch2 0x38 FLPACKET_SERVER_ITEMTRACTORED, size 0x2c -> payload 0x0c:
 // FPayloadServerItemTractored is declared once in src/include/rpc_iclient_args.h
-// (Server.dll builds it in StarSystem::tractor_loot, FUN_06d0ed40).
+// (Server.dll builds it in StarSystem::tractor_loot, the routine).
 
 // ch2 0x3c FLPACKET_SERVER_REPAIROBJECT, size 0x2c -> payload 0x0c.
 // Sender 0x06d8bfe0 (IClient+0x150), receiver caseD_3c at 0x06d82b55.
@@ -639,11 +635,11 @@ static_assert(sizeof(FPayloadServerSetGuidedTarget) == 0x0c, "SETGUIDEDTARGET pa
 
 // ch2 0x51 FLPACKET_SERVER_USE_ITEM, size 0x28 -> payload 0x08:
 // FPayloadServerUseItem is declared once in src/include/rpc_iclient_args.h
-// (Server.dll builds it in StarSystem::use_item, FUN_06d0efe0).
+// (Server.dll builds it in StarSystem::use_item, the routine).
 
 // ch2 0x01 FLPACKET_SERVER_CONNECTRESPONSE, size 0x24 -> payload 0x04.
-// Sender 0x06d8eff0 -- NOT an IClient slot: retail sends this one from inside the pump
-// FUN_06d8efc0 the first time it runs, and writes a literal 1 into the only field
+// Sender 0x06d8eff0 -- NOT an IClient slot: baseline sends this one from inside the pump
+// the first time it runs, and writes a literal 1 into the only field
 // (`MOV dword [ECX+0x20],1`), then calls slot 9 with a literal 1 as well.
 // Receiver caseD_1 at 0x06d816d8 is the ONE channel-2 case that does not push a leading
 // 1: it calls `RealClient->vt[+0x2c](payload+0x00)` with a single argument.
@@ -654,7 +650,7 @@ static_assert(sizeof(FPayloadServerConnectResponse) == 0x04, "CONNECTRESPONSE pa
 
 // ch2 0x08 FLPACKET_SERVER_CHARSELECTVERIFIED, size 0x30 -> payload 0x10.
 // Sender 0x06d8a030 (IClient+0x38), receiver caseD_8 at 0x06d81828. A straight copy of a
-// 0x10-byte argument struct with one hole: neither side touches +0x04, so retail delivers
+// 0x10-byte argument struct with one hole: neither side touches +0x04, so baseline delivers
 // whatever was on the receiver's stack there. The port zeroes it -- the same harmless
 // deviation already recorded for CREATEMINE and REPAIROBJECT.
 struct FPayloadServerCharSelectVerified {
@@ -667,8 +663,8 @@ static_assert(sizeof(FPayloadServerCharSelectVerified) == 0x10, "CHARSELECTVERIF
 
 // ch2 0x22 FLPACKET_SERVER_SYSTEM_SWITCH_IN, size 0x44 -> payload 0x24.
 // Sender 0x06d8a8b0 (IClient+0xe8), receiver caseD_22 at 0x06d822c6 (file-static
-// .data:0x06dbb91c). The payload IS the argument struct Server.dll builds
-// (FUN_06d0cc00), so FPayloadServerSystemSwitchIn is declared once, in
+// ). The payload IS the argument struct Server.dll builds
+// (the routine), so FPayloadServerSystemSwitchIn is declared once, in
 // src/include/rpc_iclient_args.h (2026-09-24, claude-code:w5-server-06d0).
 
 // ch2 0x2a FLPACKET_SERVER_ADJUSTATTITUDE, size 0x28 -> payload 0x08.
@@ -704,25 +700,25 @@ struct FPayloadServerSetMusic {
 static_assert(sizeof(FPayloadServerSetMusic) == 0x18, "SET_MUSIC payload 0x18");
 
 // ===========================================================================
-// The two multi-slot channel-2 opcodes. Retail fans each of them out over several
+// The two multi-slot channel-2 opcodes. baseline fans each of them out over several
 // IClient slots and picks the slot from a field of the payload itself, exactly the way
 // channel 1's PLAYER_TRADE does -- the discriminator is in the packet, not in the
 // routing header.
 // ===========================================================================
 
 // ch2 0x52 FLPACKET_SERVER_PLAYERLIST, size 0x30 -> payload 0x10.
-//
-// Discriminator: the dword at payload+0x00, read by the receiver at .text:0x06d83102
+
+// Discriminator: the dword at payload+0x00, read by the receiver at module storage
 // (`MOV EAX,[EBP+0x20]`) and compared against 0, 1 and 2 in that order. The packet's own
 // constructor (0x06d9ec60) seeds it with 3, i.e. an unfilled PLAYERLIST falls through to
-// retail's default branch and delivers nothing -- so 3 is "no message", not a fourth kind.
-//
+// baseline's default branch and delivers nothing -- so 3 is "no message", not a fourth kind.
+
 //   Kind 0 (sender 0x06d8c5b0, IClient+0x1c0): slot 112, no payload at all.
 //   Kind 1 (sender 0x06d8c500, IClient+0x1b8): slot 110, (1, Name, Field_0x08, bool).
 //   Kind 2 (sender 0x06d8c560, IClient+0x1bc): slot 111, (1, Field_0x08).
-//
+
 // Name is a WIDE string the packet OWNS: all three senders reach it through the same
-// setter FUN_06d99950, which does `free(old)` + `_wcsdup(param_1)` into packet+0x24 and
+// setter the routine, which does `free(old)` + `_wcsdup(param_1)` into packet+0x24 and
 // stores param_2 into packet+0x28. Kind 2 passes a null first parameter (it pushes the
 // zero left in EAX by the allocation's own success test), kind 0 passes two nulls --
 // which is why only kind 1 ever carries a string, and why the receiver only reads
@@ -740,10 +736,10 @@ static_assert(sizeof(FPayloadServerPlayerList) == 0x10, "PLAYERLIST payload 0x10
 // RemoteClient / RemoteServer encode and decode the same discriminator.
 
 // The two containers MISCOBJUPDATE carries are the real standard ones.
-//
-// Text is retail's VC6 basic_string<unsigned short> -- WIDE, not narrow. Proof, all from
+
+// Text is baseline's VC6 basic_string<unsigned short> -- WIDE, not narrow. Proof, all from
 // rpclocal's own import table and the codec bytes:
-//   * the sender FUN_06d98b20 calls ?_Split@?$basic_string@GU?$char_traits@G@std@@...
+//   * the sender the routine calls ?_Split@?$basic_string@GU?$char_traits@G@std@@...
 //     (06d98b52 -> [06db315c]), ?_Grow@?$basic_string@G...@ (06d98b8a -> [06db316c])
 //     and ?_Eos@?$basic_string@G...@ (06d98b97 -> [06db3158]) -- `@G` is
 //     `unsigned short`, not `@D`;
@@ -754,47 +750,47 @@ static_assert(sizeof(FPayloadServerPlayerList) == 0x10, "PLAYERLIST payload 0x10
 //     terminates with a WORD (06d992c9) and measures the result with MSVCRT wcslen
 //     (06d992d2).
 // The port holds std::wstring (project rule: modern std types, wchar_t for wide text).
-//
-// Ids is retail's VC6 std::vector<unsigned int>: the ctor zeroes packet+0x58..+0x64 and
-// FUN_06d98cf0 reaches the insertion point through `MOV ECX,[ESI+0x60]` (= _Last) while
+
+// Ids is baseline's VC6 std::vector<unsigned int>: the ctor zeroes packet+0x58..+0x64 and
+// reaches the insertion point through `MOV ECX,[ESI+0x60]` (= _Last) while
 // passing `ESI+0x58` as the container, which is vector::insert(_Last, 1, value) --
 // push_back. The port holds std::vector<unsigned int>.
-//
+
 // Both are members of FPacket_FLPACKET_SERVER_MISCOBJUPDATE (rpc_packet_registry.cpp),
-// built by its constructor (retail 0x06d9edc0) and torn down by its destructor.
+// built by its constructor (baseline 0x06d9edc0) and torn down by its destructor.
 
 // ch2 0x54 FLPACKET_SERVER_MISCOBJUPDATE, size 0x6c -> payload 0x4c.
-//
+
 // Discriminator: a BITMASK at payload+0x00, two bytes wide. The receiver (caseD_54 at
-// .text:0x06d8316d) tests it seven times in a fixed order and may therefore fire more
+// ) tests it seven times in a fixed order and may therefore fire more
 // than one slot from a single packet; each of the eight senders sets exactly the bits its
 // own fields need, through nine one-line setters that all do `OR byte [this+0x20], bit`
 // plus one store:
-//
-//   FUN_06d98af0  0x0001 -> +0x14 dword        FUN_06d98b20  0x0010 -> +0x20 std::string
-//   FUN_06d98b00  0x0002 -> +0x18/+0x1c pair   FUN_06d98ae0  0x0020 -> +0x34 dword
-//   FUN_06d98ad0  0x0004 -> +0x04 dword        FUN_06d98ce0  0x0040 -> +0x0c word
-//   FUN_06d98ac0  0x0008 -> +0x08 dword        FUN_06d98cd0  0x0080 -> +0x10 dword
-//   FUN_06d98cf0  0x0100 -> +0x38 vector push_back (it ORs byte [this+0x21], 0x01)
-//
+
+// 0x0001 -> +0x14 dword        the routine  0x0010 -> +0x20 std::string
+// 0x0002 -> +0x18/+0x1c pair   the routine  0x0020 -> +0x34 dword
+// 0x0004 -> +0x04 dword        the routine  0x0040 -> +0x0c word
+// 0x0008 -> +0x08 dword        the routine  0x0080 -> +0x10 dword
+// 0x0100 -> +0x38 vector push_back (it ORs byte [this+0x21], 0x01)
+
 // Bit 0x0008 is never tested by the receiver: it only marks that +0x08 was filled. The
 // slot choice for bit 0x0001 depends on bit 0x0004 -- that pair is the one real fork:
-//
+
 //   0x0009 (sender 0x06d8c1f0) -> slot 113 (1, Field_0x08, Field_0x14)
 //   0x0005 (sender 0x06d8c390) -> slot 118 (1, Field_0x04, Field_0x14)
-//
+
 // Full sender -> mask -> slot map, all eight confirmed against their receiver branch:
-//   0x06d8c1f0 IClient+0x1c4  mask 0x0009  slot 113
-//   0x06d8c290 IClient+0x1c8  mask 0x0002  slot 114
-//   0x06d8c430 IClient+0x1cc  mask 0x0010  slot 115 (const basic_string<G>&)
-//   0x06d8c240 IClient+0x1d0  mask 0x0028  slot 116
-//   0x06d8c2e0 IClient+0x1d4  mask 0x0044  slot 117 (the word is zero-extended)
-//   0x06d8c390 IClient+0x1d8  mask 0x0005  slot 118
-//   0x06d8c3e0 IClient+0x1dc  mask 0x0084  slot 119
-//   0x06d8c330 IClient+0x1e0  mask 0x0100  slot 120 (const std::vector<uint>&)
+// IClient+0x1c4  mask 0x0009  slot 113
+// IClient+0x1c8  mask 0x0002  slot 114
+// IClient+0x1cc  mask 0x0010  slot 115 (const basic_string<G>&)
+// IClient+0x1d0  mask 0x0028  slot 116
+// IClient+0x1d4  mask 0x0044  slot 117 (the word is zero-extended)
+// IClient+0x1d8  mask 0x0005  slot 118
+// IClient+0x1dc  mask 0x0084  slot 119
+// IClient+0x1e0  mask 0x0100  slot 120 (const std::vector<uint>&)
 struct FPayloadServerMiscObjUpdate {
     unsigned short Flags;             // +0x00  ctor zeroes this word and nothing more
-    unsigned short Pad_0x02;          // +0x02  retail leaves these two bytes uninitialised
+    unsigned short Pad_0x02;          // +0x02  baseline leaves these two bytes uninitialised
     unsigned int Field_0x04;          // +0x04  flag 0x0004
     unsigned int Field_0x08;          // +0x08  flag 0x0008
     unsigned short Field_0x0c;        // +0x0c  flag 0x0040
@@ -803,7 +799,7 @@ struct FPayloadServerMiscObjUpdate {
     unsigned int Field_0x14;          // +0x14  flag 0x0001
     unsigned int Field_0x18;          // +0x18  flag 0x0002
     unsigned int Field_0x1c;          // +0x1c  flag 0x0002
-    // From here on the offsets in the NAMES are retail's; the port's members after Text
+    // From here on the offsets in the NAMES are baseline's; the port's members after Text
     // sit wherever std::wstring's size puts them.
     std::wstring Text;                // +0x20  flag 0x0010
 
@@ -811,12 +807,12 @@ struct FPayloadServerMiscObjUpdate {
     unsigned int Field_0x34;          // +0x34  flag 0x0020; the ctor seeds it with -1
     std::vector<unsigned int> Ids;    // +0x38  flag 0x0100
     // +0x48 is the Ids ELEMENT COUNT, and the earlier "no sender writes it" here was
-    // wrong -- it is written on a second hop the port had collapsed away. FUN_06d98cf0,
+    // wrong -- it is written on a second hop the port had collapsed away. the routine,
     // the vector push_back helper, ends with
-    //     06d98d1e  MOV EAX,[EDI + 0x8]     ; End
-    //     06d98d21  SUB EAX,param_1         ; - Begin
-    //     06d98d23  SAR EAX,0x2             ; / 4
-    //     06d98d27  MOV byte ptr [ESI + 0x68],AL
+    // MOV EAX,[EDI + 0x8]     ; End
+    // SUB EAX,param_1         ; - Begin
+    // SAR EAX,0x2             ; / 4
+    // MOV byte ptr [ESI + 0x68],AL
     // (and 06d98d17 stores a plain 0 when Begin is null). The codec slots depend on it:
     // the encoder writes this byte before the elements (06d99017) and the decoder uses
     // it as the loop bound (06d9960d `MOVZX ECX,byte ptr [EBP+0x68]`), so a zero here
@@ -824,7 +820,7 @@ struct FPayloadServerMiscObjUpdate {
     unsigned char Field_0x48;         // +0x48
     unsigned char Pad_0x49[3];        // +0x49
 };
-// Retail payload 0x4c (registry 0x6c). The port's is larger (std::wstring / std::vector
+// baseline payload 0x4c (registry 0x6c). The port's is larger (std::wstring / std::vector
 // are not VC6's 0x10 bytes each); FPacket_FLPACKET_SERVER_MISCOBJUPDATE holds it as a
 // typed member, so the class is 0x20 + sizeof(this struct), not operator new(0x6c).
 
@@ -839,7 +835,7 @@ const unsigned short kMiscObjUpdateFlagField_0x10 = 0x0080;
 const unsigned short kMiscObjUpdateFlagIds        = 0x0100;
 
 // The sender variant, prepended to the argument dwords the way SendTradePacket prepends
-// PLAYER_TRADE's sub-type. One value per retail sender slot (113..120), in slot order,
+// PLAYER_TRADE's sub-type. One value per baseline sender slot (113..120), in slot order,
 // named after the IClient::SendServerMiscObjUpdate* suffix.
 const unsigned int kMiscObjUpdateVariant_ObjectGroup = 0u;   // slot 113
 const unsigned int kMiscObjUpdateVariant_Mission     = 1u;   // slot 114
@@ -851,35 +847,35 @@ const unsigned int kMiscObjUpdateVariant_System      = 6u;   // slot 119
 const unsigned int kMiscObjUpdateVariant_Formation   = 7u;   // slot 120
 
 // ===========================================================================
-// ch2 0x05 FLPACKET_SERVER_DAMAGEOBJECT -- retail registry 0x40, payload 0x20 (the port
+// ch2 0x05 FLPACKET_SERVER_DAMAGEOBJECT -- baseline registry 0x40, payload 0x20 (the port
 // sizes it from FPayloadServerDamageObject, see there).
-//
+
 // Sender 0x06d88c10 (IClient+0x0fc, RET 0xc -- three arguments after this), receiver
 // caseD_5 at 0x06d81ed4. The payload is { dword, a std::list, a four-field tail }:
-//
-//   06d88c2d  MOV EDX,[ESP+0x10]   ; A1
-//   06d88c35  MOV [ECX+0x20],EDX   ; payload+0x00 = A1
-//   06d88c31  MOV EAX,[ESP+0x14]   ; A2
-//   06d88c3d  CALL FUN_06d90390    ; FUN_06d90390(packet, A2)
-//
-// and FUN_06d90390 opens with "LEA EBP,[this+0x24]", i.e. it assigns into payload+0x04.
-// Its body is the retail three-phase std::list assignment; the node it allocates is
+
+// MOV EDX,[ESP+0x10]   ; A1
+// MOV [ECX+0x20],EDX   ; payload+0x00 = A1
+// MOV EAX,[ESP+0x14]   ; A2
+// CALL the routine    ; the routine(packet, A2)
+
+// and the routine opens with "LEA EBP,[this+0x24]", i.e. it assigns into payload+0x04.
+// Its body is the baseline three-phase std::list assignment; the node it allocates is
 // "PUSH 0x14 ; CALL operator_new" (06d90413), and the value copy right after it moves
 // exactly three dwords (06d90437..06d90445: [EBX+0x8], [EBX+0xc], [EBX+0x10]). So the
 // node is 0x14 = 8 bytes of links + a 0x0c-byte value. Its tail, 06d90459..06d90474,
 // copies one BYTE from source+0x0c and three dwords from source+0x10/+0x14/+0x18.
-//
-// The receiver FUN_06d90290 is the byte-for-byte mirror (same 0x14 node, same
+
+// The receiver the routine is the byte-for-byte mirror (same 0x14 node, same
 // +0x0c/+0x10/+0x14/+0x18 tail), which closes the three-way check together with the
 // registry size: 0x04 + 0x0c + 0x10 == 0x20 == 0x40 - 0x20.
-//
-// NOTE the tail is copied SHALLOW in both directions -- retail never deep-copies or
+
+// NOTE the tail is copied SHALLOW in both directions -- baseline never deep-copies or
 // frees it, so it is four plain fields and NOT a std::vector, whatever its
 // { byte, ptr, ptr, ptr } shape suggests.
 
 // The 0x0c-byte list element. Three dwords.
-//
-// UPDATED 2026-09-17 by the CREATESHIP/CREATESOLAR header codec FUN_06da4020, the first
+
+// UPDATED 2026-09-17 by the CREATESHIP/CREATESOLAR header codec the routine, the first
 // thing in rpclocal that CONSTRUCTS one instead of copying it. 06da4883..06da487f build
 // the default value before the stream overwrites it:
 //   +0x00 <- COMMON.DLL::SUBOBJ_ID_NONE, loaded through the data import at [06db3100]
@@ -888,8 +884,8 @@ const unsigned int kMiscObjUpdateVariant_Formation   = 7u;   // slot 120
 //   +0x04 <- 0xbf800000 (06da4877), i.e. -1.0f -- a float, and -1 is DamageEntry's
 //            "untouched" health, matching common_goods.h's DamageEntry;
 //   +0x08 <- 0 (06da487f, from an EBX that 06da4856 had just zeroed).
-// The encoder FUN_06da3720 ships them as word(+0x00), dword(+0x08), FLOAT(+0x04) --
-// 06da3f9d / 06da3fc6 / 06da3fee -- so only the low half of +0x00 travels.
+// The encoder the routine ships them as word(+0x00), dword(+0x08), FLOAT(+0x04) --
+// / 06da3fc6 / 06da3fee -- so only the low half of +0x00 travels.
 // The types stay `unsigned int` because every other user moves all three as raw dwords;
 // the codec bit-casts. TODO: retype +0x04 to float and +0x00 to a ushort pair once the
 // remaining movers are ported and can be changed in one pass.
@@ -906,34 +902,34 @@ struct FRpcDamageEntryNode {
     FRpcDamageEntryNode* Prev;      // +0x04
     FRpcDamageEntryMirror Value;    // +0x08
 };
-static_assert(sizeof(FRpcDamageEntryNode) == 0x14, "retail damage list node is operator new(0x14)");
+static_assert(sizeof(FRpcDamageEntryNode) == 0x14, "baseline damage list node is operator new(0x14)");
 
-// Same 0x0c retail std::list header as the collision-group one in rpc_containers.h.
+// Same 0x0c baseline std::list header as the collision-group one in rpc_containers.h.
 struct FRpcDamageEntryList {
     unsigned char Allocator;        // +0x00
     unsigned char Pad_0x01[3];      // +0x01
     FRpcDamageEntryNode* Head;      // +0x04  dummy node
     unsigned int Size;              // +0x08
 };
-static_assert(sizeof(FRpcDamageEntryList) == 0x0c, "retail std::list header is 0x0c");
+static_assert(sizeof(FRpcDamageEntryList) == 0x0c, "baseline std::list header is 0x0c");
 
-// The 0x1c-byte retail image of Common.dll's DamageList. Nothing references it any more:
+// The 0x1c-byte baseline image of Common.dll's DamageList. Nothing references it any more:
 // DAMAGEOBJECT's payload holds the real DamageList (below), and the CREATESHIP /
 // CREATESOLAR create-info record (src/include/server_createinfo.h) holds the real one too.
-// It is kept only as the documented wire image of the retail layout.
-//
+// It is kept only as the documented wire image of the baseline layout.
+
 // IDENTIFIED 2026-09-18: this is Common.dll's DamageList, not a rpclocal-local shape.
 // CREATESHIP's constructor builds one at packet+0x80 by calling the export itself --
-// 06d9ccf3 `CALL dword ptr [->COMMON.DLL::DamageList::...]`, .rdata:06db310c, whose
+// `CALL dword ptr [->COMMON.DLL::DamageList::...]`, module storage, whose
 // XREF header reads `06d9ccf3(R),06d9e6c8(R)` and whose undecorated name in the same
 // listing block is `??0DamageList@@QAE@XZ` -- and the next store in that constructor is
-// 06d9ccfd `MOV byte ptr [ESI + 0x9c],BL`, which fixes the size at 0x1c. Matching it
+// `MOV byte ptr [ESI + 0x9c],BL`, which fixes the size at 0x1c. Matching it
 // against common_misc.h's published DamageList gives the four tail fields their
 // meanings: +0x0c bDestroyed (hence the BYTE copy), +0x10 DamageCause,
 // +0x14 InflictorId, +0x18 InflictorOwner.
-//
+
 // The NAMES below stay Field_0xNN on purpose. This struct is the WIRE image: its list is
-// the retail 0x0c header with hand-laid 0x14 nodes, where the port's own DamageList
+// the baseline 0x0c header with hand-laid 0x14 nodes, where the port's own DamageList
 // holds a std::list<DamageEntry> plus a separate Count and has no fixed size. Retyping
 // the four would invite someone to substitute the real class, which does not have this
 // layout. TODO: rename once a converter to and from common_misc.h's DamageList exists.
@@ -949,13 +945,13 @@ struct FRpcDamageListMirror {
 static_assert(sizeof(FRpcDamageListMirror) == 0x1c, "DAMAGEOBJECT argument struct 0x1c");
 
 // ch2 0x05 DAMAGEOBJECT holds the real Common.dll DamageList (common_misc.h), declared
-// once there. Retail's packet ctor 06d9c8d0 builds exactly that object in place at
+// once there. baseline's packet ctor 06d9c8d0 builds exactly that object in place at
 // packet+0x24 (06d9c90f..06d9c935: the list's operator new(0x14) dummy, _Size 0, the byte
 // at +0x30 and the three dwords behind it), its sender assigns the caller's DamageList
-// into it (FUN_06d90290) and the receiver assigns it into a stack DamageList built by
-// COMMON.DLL's own ctor (06d81ee3). The port's DamageList is modern-std shaped (no retail
+// into it (the routine) and the receiver assigns it into a stack DamageList built by
+// COMMON.DLL's own ctor (06d81ee3). The port's DamageList is modern-std shaped (no baseline
 // ABI), so its size follows the build's std::list: 0x1c in Release, 0x20 in Debug and
-// DebugASan (the iterator-debugging container proxy). Retail's class is `PUSH 0x40`
+// DebugASan (the iterator-debugging container proxy). baseline's class is `PUSH 0x40`
 // (payload 0x20); the port sizes the class as the 0x20 packet header plus this struct
 // (rpc_packet_registry.cpp), so the block always holds it. It is the class's typed
 // member, built and destroyed with it.
@@ -963,7 +959,7 @@ struct FPayloadServerDamageObject {
     unsigned int Field_0x00;        // +0x00  the 2nd argument, by value
     DamageList Damage;              // +0x04
 };
-// The offset contract, not retail's byte count: the payload starts right after the
+// The offset contract, not baseline's byte count: the payload starts right after the
 // 0x20-byte packet header, and the list object follows the one argument dword.
 static_assert(sizeof(FPacketBase) == 0x20, "payload starts at packet+0x20");
 static_assert(offsetof(FPayloadServerDamageObject, Damage) == sizeof(unsigned int),
@@ -971,18 +967,18 @@ static_assert(offsetof(FPayloadServerDamageObject, Damage) == sizeof(unsigned in
 
 // ===========================================================================
 // ch2 0x28 FLPACKET_SERVER_CREATELOOT -- registry 0x34, payload 0x14.
-//
+
 // Sender 0x06d8aae0 (IClient+0x0c0, RET 8), receiver caseD_28 at 0x06d811c8.
 // The payload is { dword, byte, a std::list of 0x48-byte records }; the list header
-// sits at payload+0x08 because the accessor FUN_06d931b0 is "LEA EAX,[this+0x28]", and
-// push_back FUN_06d93160 allocates "PUSH 0x50 ; operator_new" per node and bumps the
+// sits at payload+0x08 because the accessor the routine is "LEA EAX,[this+0x28]", and
+// push_back the routine allocates "PUSH 0x50 ; operator_new" per node and bumps the
 // count at packet+0x30 (== header+0x08). 0x04 + 0x04 + 0x0c == 0x14 == 0x34 - 0x20.
-//
+
 // Sender and receiver both walk an ARRAY of 0x48-byte records on the caller's side
 // ("ADD ESI,0x48" at 06d8ac14, "ADD EDI,0x48" at 06d81237) and a std::list of the same
 // records on the wire.
-//
-// RETAIL TRANSPOSITION, reproduced here on purpose (see docs/re/deviations.md):
+
+// BASELINE TRANSPOSITION, reproduced here on purpose (see implementation notes):
 // the two directions do NOT agree on one adjacent field pair.
 //   sender   06d8abe3 "MOV EDX,[ESI+0x28]" (record+0x30) -> 06d8abe6 "MOV [ESP+0x48]" (wire+0x38)
 //   sender   06d8abea "MOV EAX,[ESI+0x24]" (record+0x2c) -> 06d8abed "MOV [ESP+0x4c]" (wire+0x3c)
@@ -991,12 +987,12 @@ static_assert(offsetof(FPayloadServerDamageObject, Damage) == sizeof(unsigned in
 // Every one of the other sixteen field moves is a strict inverse; only this pair swaps.
 
 // The record as the CALLER holds it is Server.dll's FServerLootDesc (server_createinfo.h),
-// 0x48 bytes, default-constructed on the receiving side by FUN_06d840d0 (which zeroes
+// 0x48 bytes, default-constructed on the receiving side by the routine (which zeroes
 // +0x00..+0x1b and sets +0x44 = 1, +0x45 = +0x46 = 0). Its +0x0c is moved as a word by
 // both sides, and its +0x44 never travels -- the wire has no slot for it. (The private
 // mirror FRpcLootDescMirror was folded onto it 2026-10-16.)
 
-// The record as it travels: FUN_06d93280 copies 0x46 bytes of it, the node is
+// The record as it travels: the routine copies 0x46 bytes of it, the node is
 // operator new(0x50) so the value is padded back out to 0x48.
 struct FRpcLootWireRecord {
     unsigned int Field_0x00;        // +0x00 <- record+0x00
@@ -1028,7 +1024,7 @@ struct FRpcLootWireNode {
     FRpcLootWireNode* Prev;         // +0x04
     FRpcLootWireRecord Value;       // +0x08
 };
-static_assert(sizeof(FRpcLootWireNode) == 0x50, "retail loot list node is operator new(0x50)");
+static_assert(sizeof(FRpcLootWireNode) == 0x50, "baseline loot list node is operator new(0x50)");
 
 struct FRpcLootWireList {
     unsigned char Allocator;        // +0x00
@@ -1036,7 +1032,7 @@ struct FRpcLootWireList {
     FRpcLootWireNode* Head;         // +0x04
     unsigned int Size;              // +0x08
 };
-static_assert(sizeof(FRpcLootWireList) == 0x0c, "retail std::list header is 0x0c");
+static_assert(sizeof(FRpcLootWireList) == 0x0c, "baseline std::list header is 0x0c");
 
 struct FPayloadServerCreateLoot {
     unsigned int Field_0x00;        // +0x00 <- argument+0x00 (06d8ab03/06d8ab09)
@@ -1055,12 +1051,12 @@ static_assert(sizeof(FPayloadServerCreateLoot) == 0x14, "CREATELOOT payload 0x14
 
 // ===========================================================================
 // ch2 0x2d FLPACKET_SERVER_CREATECOUNTER -- registry 0x68, payload 0x48.
-//
+
 // Sender 0x06d8a270 (IClient+0x0cc, RET 8), receiver caseD_2d at 0x06d81ce9. Eighteen
 // field moves each way and the receiver is the strict inverse of the sender on all
 // eighteen, which is what promotes this layout from "read" to "checked". The argument
 // struct is 0x48 as well; only the ORDER differs.
-//
+
 // The receiver passes the literal 1 by REFERENCE (06d81d8d MOV [ESP+0x1e4],1 then
 // LEA EDX,[ESP+0x1e4] ; PUSH EDX), and so does the sender, which dereferences its own
 // first argument (06d8a34a MOV ECX,[ESP+0xc] ; MOV EAX,[ECX] ; PUSH EAX).
@@ -1093,7 +1089,7 @@ static_assert(sizeof(FPayloadServerCreateCounter) == 0x48, "CREATECOUNTER payloa
 
 // ===========================================================================
 // ch2 0x37 FLPACKET_SERVER_CREATEGUIDED -- registry 0x58, payload 0x38.
-//
+
 // Sender 0x06d8a730 (IClient+0x0c8, RET 8), receiver caseD_37 at 0x06d81da6. Fourteen
 // moves each way, strict inverses. The permutation is a clean rotation: the argument's
 // first eight dwords go to payload+0x18.., and its tail +0x20..+0x34 comes back at
@@ -1119,26 +1115,26 @@ struct FPayloadServerCreateGuided {
 static_assert(sizeof(FPayloadServerCreateGuided) == 0x38, "CREATEGUIDED payload 0x38");
 
 // The argument struct is FServerCreateGuidedInfo in src/include/server_createinfo.h -- the
-// record Server.dll's FUN_06d07d40 builds and this module's sender 0x06d8a730 reads. It
+// record Server.dll's the routine builds and this module's sender 0x06d8a730 reads. It
 // is declared once, there; rpc_containers.h pulls that header in.
 
 // ===========================================================================
 // ch2 0x32 FLPACKET_SERVER_REQUESTSPACESCRIPT -- registry 0x3c, payload 0x1c.
-//
+
 // Sender 0x06d8aa40 (IClient+0x0f8, RET 8), receiver caseD_32 at 0x06d81c7d. Unlike its
 // neighbours this one passes the literal 1 by VALUE (06d81cdc PUSH 0x1), matching the
 // sender, which pushes its own first argument unchanged (06d8aac3/06d8aaca).
-//
+
 // The string: the sender strlen()s argument+0x04 with the usual SCASB.REPNE and hands
-// (buffer, strlen) to FUN_06d989b0, which does operator_new(len+1), copies len+1
+// (buffer, strlen) to the routine, which does operator_new(len+1), copies len+1
 // bytes, stores the POINTER at packet+0x38 (payload+0x18) and the COUNT len+1 at
 // packet+0x24 (payload+0x04). The receiver copies it back into a 0x104-byte field of
 // the argument struct (06d81cbf..06d81ccd, a byte loop that stops on NUL).
-//
+
 // The field at payload+0x14 is a two-value ENUM REMAP, and the two sides agree:
 //   sender   06d8aa84  argument+0x114 == 1 -> payload+0x14 = 1
-//            06d8aa98  argument+0x114 == 2 -> payload+0x14 = 0
-//            (anything else leaves the byte UNINITIALISED in retail; this port zeroes it)
+// argument+0x114 == 2 -> payload+0x14 = 0
+//            (anything else leaves the byte UNINITIALISED in baseline; this port zeroes it)
 //   receiver 06d81ca4  payload+0x14 == 0 -> argument+0x114 = 2, else 1
 //                      (CMP AL,BL ; SETZ DL ; INC EDX)
 struct FPayloadServerRequestSpaceScript {
@@ -1155,13 +1151,13 @@ static_assert(sizeof(FPayloadServerRequestSpaceScript) == 0x1c, "REQUESTSPACESCR
 
 // The argument record (FServerRequestSpaceScriptInfo, 0x118) and kRequestSpaceScriptNameSize
 // are declared once, in src/include/rpc_iclient_args.h (included above): Server.dll builds the
-// record and OutpostFrontier.exe's LAB_0053d9d0 reads it.
+// record and OutpostFrontier.exe's the branch reads it.
 
 // ===========================================================================
 // ch2 0x4e FLPACKET_SERVER_SETDIRECTIVE -- registry 0xb4, payload 0x94.
-//
+
 // The payload is IClient slot 100's argument struct verbatim (receiver caseD_4e at
-// 0x06d81c3b: `MOV ECX,0x25 ; REP MOVSD` from packet+0x20). Server.dll builds that struct
+// `MOV ECX,0x25 ; REP MOVSD` from packet+0x20). Server.dll builds that struct
 // in pub::AI::SubmitDirective, so FPayloadServerSetDirective is declared once, in
 // src/include/rpc_iclient_args.h (included above), with the field types Server.dll's
 // builder proves.
@@ -1169,41 +1165,41 @@ static_assert(sizeof(FPayloadServerRequestSpaceScript) == 0x1c, "REQUESTSPACESCR
 // ===========================================================================
 // The flattened-FmtStr family: ch2 0x29, 0x2b (no FmtStr, but the same relation list),
 // 0x34, 0x35 and 0x45.
-//
-// THE "BLOCKED ON FmtStr::unflatten" NOTE WAS STALE. Retail rpclocal.dll imports exactly
+
+// THE "BLOCKED ON FmtStr::unflatten" NOTE WAS STALE. baseline rpclocal.dll imports exactly
 // four FmtStr entry points from COMMON.DLL and no more -- read off the import table in
-// EXE/Disasm/rpclocal.dll.txt:
-//
-//   .rdata:06db30dc  ?flatten@FmtStr@@QBEHPAXI@Z              (listing line 103363)
-//   .rdata:06db3008  ?unflatten@FmtStr@@QAEHPAXI@Z            (listing line 103066)
-//   .rdata:06db3094  ??1FmtStr@@QAE@XZ                        (listing line 103262)
-//   .rdata:06db30e0  ?get_flattened_size@Val@FmtStr@@QBEIXZ   (listing line 103368)
-//
+// rpclocal:
+
+// ?flatten@FmtStr@@QBEHPAXI@Z              (listing line 103363)
+// ?unflatten@FmtStr@@QAEHPAXI@Z            (listing line 103066)
+// ??1FmtStr@@QAE@XZ                        (listing line 103262)
+// ?get_flattened_size@Val@FmtStr@@QBEIXZ   (listing line 103368)
+
 // All four already exist in the port with signatures that demangle to exactly those
 // prototypes (src/include/common_text.h lines 168, 209, 238, 239). What actually blocked
 // these types was rpclocal.vcxproj linking only kernel32 and user32 -- a property of the
-// port, never of retail: retail rpclocal's own import table names COMMON.DLL, DACOM.DLL,
+// port, never of baseline: baseline rpclocal's own import table names COMMON.DLL, NEURONCOMPONENTS.DLL,
 // KERNEL32.DLL, MSVCP60.DLL and MSVCRT.DLL. So the project now links Common.lib (which
 // src/Server/Server.vcxproj already did) and these codecs call the real FmtStr.
-//
+
 // Independent check on the port's FmtStr::Val::get_flattened_size: the senders that do
 // NOT call the export inline the identical arithmetic, six instructions, five separate
 // copies (0x06d8ade2 for 0x34, 0x06d8afa0 for 0x45, 0x06d8b070 and 0x06d8b170 for 0x35,
-// 0x06d8b6d0 for ch1 0x1b):
-//
+// for ch1 0x1b):
+
 //   MOVZX EAX,word ptr [ESI+0x8] ; CMP EAX,0x21 ; JZ recurse
 //   XOR EDX,EDX ; CMP EAX,0x4e ; SETZ DL ; DEC EDX ; AND EDX,0xfffffff0 ; ADD EDX,0x17
-//
+
 // tag == 0x4e -> DL=1 -> EDX=0 -> 0 -> 0x17; anything else -> EDX=-1 -> 0xfffffff0 ->
 // 7; tag == 0x21 -> the recursive walk plus 3. That is byte for byte what
 // FmtStr::Val::get_flattened_size in src/Common/common_fmtstr.cpp computes. (The tracker note on item 202115 stated the
 // two constants the other way round -- 0x4e -> 7, else -> 0x17. It is wrong; corrected.)
-//
+
 // Per-FmtStr base is 6: the mad-lib id dword plus the ushort node count, the two fields
 // FmtStr::unflatten reads back first (src/Common/common_fmtstr.cpp).
 
 // The 8-byte element the reputation types carry. Server.dll's caller allocates the whole
-// array as operator new(Reputation::group_count() * 8) (Server.dll.c:89953) and fills it
+// array as operator new(Reputation::group_count() * 8) (Server) and fills it
 // through Reputation::Vibe::Get; both ends of the wire copy exactly two dwords per
 // element and nothing in rpclocal ever interprets them.
 // It is the WIRE view of Common.dll's Reputation::Relation {GroupId, Feeling} -- both
@@ -1219,9 +1215,9 @@ static_assert(sizeof(FRpcRelation) == 0x08, "reputation relation element is 8 by
 static_assert(sizeof(FRpcRelation) == sizeof(::Reputation::Relation),
               "FRpcRelation is the wire view of Reputation::Relation");
 
-// Retail's list node is operator new(0xc) and its value is a POINTER to a separately
+// baseline's list node is operator new(0xc) and its value is a POINTER to a separately
 // operator new(8)'d element -- std::list<Relation*>, not std::list<Relation>. Sender
-// 0x06d88e81..0x06d88ec0 allocates the 8 bytes, copies the pair in and links the node;
+// allocates the 8 bytes, copies the pair in and links the node;
 // receiver 0x06d814c8..0x06d814f3 copies the pair out and frees the value straight away.
 struct FRpcRelationNode {
     FRpcRelationNode* Next;         // +0x00
@@ -1229,7 +1225,7 @@ struct FRpcRelationNode {
     FRpcRelation* Value;            // +0x08
 };
 static_assert(sizeof(FRpcRelationNode) == 0x0c,
-              "retail relation list node is operator new(0xc)");
+              "baseline relation list node is operator new(0xc)");
 
 struct FRpcRelationList {
     unsigned char Allocator;        // +0x00  VC6 allocator<T>: one byte, never read back
@@ -1238,11 +1234,11 @@ struct FRpcRelationList {
     unsigned int Size;              // +0x08
 };
 static_assert(sizeof(FRpcRelationList) == 0x0c,
-              "retail std::list header is 0x0c: allocator, head, size");
+              "baseline std::list header is 0x0c: allocator, head, size");
 
 // ===========================================================================
 // ch2 0x29 FLPACKET_SERVER_SETREPUTATION -- registry 0x68, payload 0x48.
-//
+
 // Sender 0x06d88d70 (IClient+0x108, RET 8), receiver caseD_29 at 0x06d813cf, which calls
 // IClient vtable +0x108 -- the same slot, so this is a straight relay and the argument
 // struct is identical on both sides. Verified field by field in both directions.
@@ -1257,7 +1253,7 @@ struct FPayloadServerSetReputation {
     // fields. The constructor seeds them 1, 2, 4, 8, 0x10 -- and the earlier claim
     // here that "+0x18 the ctor does not even seed this one" was WRONG: 06d9d2dc
     // `MOV EAX,0x2` / 06d9d2e1 `MOV dword ptr [ESI+0x38],EAX` is the seed, and
-    // packet+0x38 is payload+0x18. Both codec slots (LAB_06d91ed0 / LAB_06d92350,
+    // packet+0x38 is payload+0x18. Both codec slots (the branch / the branch,
     // ported in rpc_wire_ch2.cpp) read the VALUES out of these five and test them
     // against the mask byte at +0x34; nothing ever uses a literal.
     unsigned int Field_0x14;        // +0x14  ctor seeds 1     06d9d2ef
@@ -1265,44 +1261,44 @@ struct FPayloadServerSetReputation {
     unsigned int Field_0x1c;        // +0x1c  ctor seeds 4     06d9d2f2
     unsigned int Field_0x20;        // +0x20  ctor seeds 8     06d9d2f9
     unsigned int Field_0x24;        // +0x24  ctor seeds 0x10  06d9d300
-    FRpcRelationList Relations;     // +0x28  packet+0x48..+0x53 (FUN_06d92760 / FUN_06d927e0)
+    FRpcRelationList Relations;     // +0x28  packet+0x48..+0x53 (the routine / the routine)
     unsigned char Field_0x34;       // +0x34  the presence MASK; ctor clears it (06d9d323)
                                     //        and the ENCODER rebuilds it (06d91f1c..)
     unsigned char Pad_0x35[3];      // +0x35
     unsigned int VibeHandle;        // +0x38  06d88db2 <- arg+0x00
     unsigned int Field_0x3c;        // +0x3c  06d88dbc <- arg+0x08 ; ctor seeds 0xffffffff
-    unsigned int DisplayNameLength; // +0x40  FUN_06d92710: wcslen(arg+0x48) + 1, in wchar_t
+    unsigned int DisplayNameLength; // +0x40  the routine: wcslen(arg+0x48) + 1, in wchar_t
     wchar_t* DisplayName;           // +0x44  operator new((len+1)*4) -- see the note below
 };
 static_assert(sizeof(FPayloadServerSetReputation) == 0x48, "SETREPUTATION payload 0x48");
 
 // The struct Server.dll hands to IClient slot 66. Recovered from Server.dll's own two
-// call sites (Server.dll.c:89944-89970 and 89989-90015): both build it on the stack,
+// call sites (Server and 89989-90015): both build it on the stack,
 // both agree on every offset, and the trailing wide name measures 0x30 bytes in both
 // frames (local_3c..local_c, and local_b4..local_84).
-//
-// Two retail quirks, reproduced: the single-player branch never fills +0x04, and the
+
+// Two baseline quirks, reproduced: the single-player branch never fills +0x04, and the
 // other branch never fills +0x08/+0x0c -- each path only sets what its own producer
 // (Reputation::Vibe::Get vs Reputation::Vibe::AttitudeTowards) hands back, and the
 // sender then serializes +0x00, +0x04 and +0x08 regardless. +0x0c is filled by Get and
 // is NEVER serialized by anything.
-//
+
 // The struct itself (FServerSetReputationInfo) crosses into Server.dll, which builds
 // it, so it is declared once in src/include/rpc_iclient_args.h (2026-09-24,
 // claude:srv-pdb).
 
 // ===========================================================================
 // ch2 0x2b FLPACKET_SERVER_SETGROUPFEELINGS -- registry 0x34, payload 0x14.
-//
+
 // Sender 0x06d8a5c0 (IClient+0x148, RET 8), receiver caseD_2b at 0x06d815bb, which calls
 // IClient vtable +0x148 -- again the same slot, so again a straight relay. No FmtStr on
-// this one: the name travels as a NARROW string through FUN_06d91850 (operator new(n) +
+// this one: the name travels as a NARROW string through the routine (operator new(n) +
 // strncpy, size at packet+0x24), and the relation list is the same std::list<Relation*>.
 // ===========================================================================
 struct FPayloadServerSetGroupFeelings {
-    char* Name;                     // +0x00  FUN_06d91850: operator new(strlen+1) + strncpy
+    char* Name;                     // +0x00  the routine: operator new(strlen+1) + strncpy
     unsigned int NameSize;          // +0x04  strlen(arg+0x00) + 1, from the REPNE SCASB
-    FRpcRelationList Relations;     // +0x08  packet+0x28..+0x33 (FUN_06d91ca0 / FUN_06d91d20)
+    FRpcRelationList Relations;     // +0x08  packet+0x28..+0x33 (the routine / the routine)
 };
 static_assert(sizeof(FPayloadServerSetGroupFeelings) == 0x14,
               "SETGROUPFEELINGS payload 0x14");
@@ -1312,9 +1308,9 @@ static_assert(sizeof(FPayloadServerSetGroupFeelings) == 0x14,
 
 // ===========================================================================
 // ch2 0x34 FLPACKET_SERVER_REPLACEMISSIONOBJECTIVE -- registry 0x30, payload 0x10.
-//
+
 // Sender 0x06d8ad90 (IClient+0x11c, RET 8), receiver caseD_34 at 0x06d82494 -> IClient
-// vtable +0x11c. The packet destructor (FUN_06d9d7d0) frees packet+0x2c and nothing else.
+// vtable +0x11c. The packet destructor (the routine) frees packet+0x2c and nothing else.
 // ===========================================================================
 struct FPayloadServerReplaceMissionObjective {
     unsigned int Field_0x00;        // +0x00  06d8adba <- arg+0x00
@@ -1330,9 +1326,9 @@ static_assert(sizeof(FPayloadServerReplaceMissionObjective) == 0x10,
 
 // ===========================================================================
 // ch2 0x45 FLPACKET_SERVER_SET_MISSION_MESSAGE -- registry 0x2c, payload 0x0c.
-//
+
 // Sender 0x06d8af60 (IClient+0x118, RET 8), receiver caseD_45 at 0x06d82623 -> IClient
-// vtable +0x118. The packet destructor (FUN_06d9d9e0) frees packet+0x24.
+// vtable +0x118. The packet destructor (the routine) frees packet+0x24.
 // ===========================================================================
 struct FPayloadServerSetMissionMessage {
     unsigned int TextSize;          // +0x00  06d8afd0
@@ -1347,14 +1343,14 @@ static_assert(sizeof(FPayloadServerSetMissionMessage) == 0x0c,
 
 // ===========================================================================
 // ch2 0x35 FLPACKET_SERVER_SETMISSIONOBJECTIVES -- registry 0x48, payload 0x28.
-//
+
 // Sender 0x06d8b020 (IClient+0x120, RET 8), receiver caseD_35 at 0x06d826c9 -> IClient
 // vtable +0x120. Two top-level FmtStrs plus a list of per-objective records, each record
 // its own operator new(0xc) holding one more flattened FmtStr and a state byte.
 // ===========================================================================
 struct FRpcMissionObjectiveRecord {
     unsigned char State;            // +0x00  06d8b15d
-    unsigned char Pad_0x01[3];      // +0x01  retail news 0xc and writes only byte 0 here
+    unsigned char Pad_0x01[3];      // +0x01  baseline news 0xc and writes only byte 0 here
     unsigned int TextSize;          // +0x04  06d8b1a0
     void* TextBuffer;               // +0x08  06d8b1b2
 };
@@ -1367,7 +1363,7 @@ struct FRpcMissionObjectiveNode {
     FRpcMissionObjectiveRecord* Value;  // +0x08  again a POINTER, not an inline value
 };
 static_assert(sizeof(FRpcMissionObjectiveNode) == 0x0c,
-              "retail objective list node is operator new(0xc)");
+              "baseline objective list node is operator new(0xc)");
 
 struct FRpcMissionObjectiveList {
     unsigned char Allocator;        // +0x00
@@ -1376,7 +1372,7 @@ struct FRpcMissionObjectiveList {
     unsigned int Size;              // +0x08
 };
 static_assert(sizeof(FRpcMissionObjectiveList) == 0x0c,
-              "retail std::list header is 0x0c: allocator, head, size");
+              "baseline std::list header is 0x0c: allocator, head, size");
 
 struct FPayloadServerSetMissionObjectives {
     unsigned int Field_0x00;        // +0x00  06d8b04b <- arg+0x00
@@ -1385,7 +1381,7 @@ struct FPayloadServerSetMissionObjectives {
     void* TextABuffer;              // +0x0c  06d8b0b3
     unsigned int TextBSize;         // +0x10  06d8b100  flattened size of arg+0x24
     void* TextBBuffer;              // +0x14  06d8b111
-    unsigned int Count;             // +0x18  NOT written directly: FUN_06d8fc10 increments
+    unsigned int Count;             // +0x18  NOT written directly: the routine increments
                                     //        packet+0x38 on every push_back, in lockstep
                                     //        with the list size at packet+0x44
     FRpcMissionObjectiveList Objectives;  // +0x1c  packet+0x3c..+0x47
@@ -1400,25 +1396,25 @@ static_assert(sizeof(FPayloadServerSetMissionObjectives) == 0x28,
 
 // ===========================================================================
 // ch2 0x4d FLPACKET_SERVER_LOADHINT -- registry 0x2c, payload 0x0c.
-//
+
 // THE "BLOCKED ON CostumeHint" NOTE WAS STALE TOO. The port already has the whole class:
 // src/include/common_goods.h (BaseHint 0x08 with Kind at +0x04, CostumeHint 0x3c
 // with Data[13] at +0x08) and src/Common/common_baseproperties.cpp (Serialize,
-// UnSerialize, CleanUp). The virtual ORDER matches retail exactly: rpclocal substitutes
-// its own four-slot vtable at .rdata:06db3740 and its three non-destructor slots are
+// UnSerialize, CleanUp). The virtual ORDER matches baseline exactly: rpclocal substitutes
+// its own four-slot vtable at module storage and its three non-destructor slots are
 // import thunks -- +0x04 -> CostumeHint::Serialize, +0x08 -> CostumeHint::UnSerialize,
 // +0x0c -> CostumeHint::CleanUp -- which is the order common_goods.h declares them in.
-//
+
 // Sender 0x06d8a3c0 (IClient+0x144, RET 8): calls the hint's own vtable+0x04 (Serialize)
-// into a stack pointer, FUN_06d90a00 copies the returned bytes into a packet-owned block
+// into a stack pointer, the routine copies the returned bytes into a packet-owned block
 // (operator new(Size) at packet+0x20, Size at packet+0x24), packet+0x28 takes
 // BaseHint::Kind, then vtable+0x0c (CleanUp) releases the serializer's buffer.
-//
+
 // Receiver caseD_4d at 0x06d81ba3: `MOV EAX,[EBP+0x28] ; DEC EAX ; JNZ` -- only Kind == 1
 // builds anything. Then operator new(0x3c), CostumeHint::CostumeHint(), the vtable swap,
 // UnSerialize(packet+0x20, packet+0x24), IClient+0x144 with the literal 1 BY REFERENCE,
 // and the deleting destructor. Kind != 1 still calls the slot, with a null hint.
-//
+
 // The vtable swap (06d81bd4) is reproduced by FRpcLocalCostumeHint in rpc_payload_ch2.cpp:
 // a member-less derived class local to rpclocal, whose ctor stores this module's vftable
 // after COMMON's ctor and whose deleting dtor frees with this module's operator delete.
@@ -1431,33 +1427,33 @@ static_assert(sizeof(FPayloadServerLoadHint) == 0x0c, "LOADHINT payload 0x0c");
 
 // ===========================================================================
 // ch2 0x55 FLPACKET_SERVER_OBJECTCARGOUPDATE -- registry 0x34, payload 0x14.
-//
+
 // THE "BLOCKED ON FIVE COMMON.DLL SETTERS" NOTE WAS STALE AS WELL, with one real
 // residual that has now been fixed. The receiver (caseD_55, 0x06d82abd) uses SEVEN
 // EquipDesc entry points, all imported by name:
-//
-//   .rdata:06db3004 ??0EquipDesc@@QAE@XZ          -> common_goods.h EquipDesc()
-//   .rdata:06db3088 ?set_id@EquipDesc@@QAEXG@Z    -> set_id
-//   .rdata:06db308c ?set_arch_id@...QAEXI@Z       -> set_arch_id
-//   .rdata:06db3084 ?set_count@...QAEXH@Z         -> set_count  <-- WAS MISSING, added
-//   .rdata:06db3080 ?set_status@...QAEXM@Z        -> set_status
-//   .rdata:06db3070 ?make_internal@...QAEXXZ      -> make_internal
-//   .rdata:06db307c ?set_equipped@...QAEX_N@Z     -> set_equipped
-//
+
+// ??0EquipDesc@@QAE@XZ          -> common_goods.h EquipDesc()
+// ?set_id@EquipDesc@@QAEXG@Z    -> set_id
+// ?set_arch_id@...QAEXI@Z       -> set_arch_id
+// ?set_count@...QAEXH@Z         -> set_count  <-- WAS MISSING, added
+// ?set_status@...QAEXM@Z        -> set_status
+// ?make_internal@...QAEXXZ      -> make_internal
+// ?set_equipped@...QAEX_N@Z     -> set_equipped
+
 // Six of the seven were already in the port; only EquipDesc::set_count(int) was absent.
-// It is retail RVA 0xdbad0, one instruction (`MOV [this+0x14],arg`), and is now declared
+// It is baseline RVA 0xdbad0, one instruction (`MOV [this+0x14],arg`), and is now declared
 // in src/include/common_goods.h and defined in src/Common/common_equipdesc.cpp.
-//
+
 // Sender 0x06d8c0f0 (IClient+0x158, RET 0xc -> three dword args after this) reads its
 // EquipDesc argument field by field, and the offsets it reads are EXACTLY the port's
 // EquipDesc layout: Id at +0x02 (06d8c118), ArchId at +0x04 (06d8c124), Count at +0x14
 // (06d8c12e, truncated to a word on the wire), Health at +0x10 (06d8c13a), bMission at
 // +0x18 (06d8c144). A fourth, independent confirmation of common_goods.h's EquipDesc.
-//
+
 // The session id is passed BY REFERENCE and dereferenced by the sender (06d8c14b
 // `MOV ECX,[ESP+0xc]` then 06d8c159 `MOV EAX,[ECX] ; PUSH EAX`), and the receiver puts
 // the literal 1 back BY REFERENCE (06d82b35).
-//
+
 // Three fields of the EquipDesc never reach the wire and are re-created from constants:
 // make_internal() (the hardpoint), set_equipped(false) and whatever the ctor leaves.
 struct FPayloadServerObjectCargoUpdate {
@@ -1474,21 +1470,21 @@ static_assert(sizeof(FPayloadServerObjectCargoUpdate) == 0x14,
 
 // ===========================================================================
 // The 0x34 "four dwords, eight ids, a count" block
-//
+
 // Two unrelated-looking places carry the same 13-dword struct, which is what fixes its
 // shape:
-//
+
 //   * ch2 0x4f SENDCOMM passes it BY VALUE. The sender copies 13 dwords off its own
 //     argument list into a stack scratch buffer (06d89007 "MOV ECX,0xd" / 06d89014
 //     "REP MOVSD") and lays the four leading dwords at packet+0x2c..+0x38, the array at
 //     packet+0x3c and the count at packet+0x5c (06d8903f "MOV [EAX+0x30],EDX" with EAX
-//     == packet+0x2c). The receiver's accessor FUN_06d841c0 is literally
+//     == packet+0x2c). The receiver's accessor the routine is literally
 //     "LEA ESI,[this+0x2c] ; MOV ECX,0xd ; REP MOVSD" back out again.
 //   * ch2 0x03 CHARACTERINFO holds TWO of them inline in its 0x2dc record, at record
 //     +0x274 and +0x2a8: four dwords, then the array at +0x284 / +0x2b8, then the count
 //     at +0x2a4 / +0x2d8 (06d84782..06d847b7 and 06d84807..06d84837). 0x274 + 0x34 ==
 //     0x2a8 and 0x2a8 + 0x34 == 0x2dc, i.e. the record ends exactly on the second one.
-//
+
 // The array capacity is 8 in both: (count offset - array offset) / 4.
 // ===========================================================================
 struct FRpcIdArrayBlock {
@@ -1503,42 +1499,42 @@ static_assert(sizeof(FRpcIdArrayBlock) == 0x34,
               "the id block is 13 dwords: four fields, eight ids and a count");
 
 // ch2 0x4f FLPACKET_SERVER_SENDCOMM -- registry 0x78, payload 0x58.
-//
+
 // Sender 0x06d88fc0 (IClient+0x110), "RET 0x5c" == 23 dword arguments after `this`;
 // receiver caseD_4f at 0x06d8306c. Argument numbering below is A0..A22 with A0 the
 // session id, which as always never travels: the receiver pushes the literal 1 for it
 // (06d830dc) and the sender reads it back out of its own frame only to hand it to the
 // send slot (06d890e2 "MOV ECX,[ESP+0x4c]").
-//
+
 // The four-way reading is unusually clean here because the receiver reaches every field
 // through a one-instruction accessor:
-//
-//   A1  packet+0x20  FUN_06d841a0  "MOV EAX,[ECX+0x20] ; RET"
-//   A2  packet+0x24  FUN_06d90a40  "MOV EAX,[ECX+0x24] ; RET"
-//   A3  packet+0x28  FUN_06d841b0  "MOV EAX,[ECX+0x28] ; RET"
-//   A4..A16          FUN_06d841c0  the 13-dword block at packet+0x2c
-//   A17 packet+0x60  FUN_06d841e0  "MOV EAX,[ECX+0x60] ; RET"
-//   A18 packet+0x64  FUN_06d841f0  "MOV EAX,[ECX+0x64] ; RET"
-//   A19 packet+0x68  FUN_06d84200  "MOVSX EAX,byte ptr [ECX+0x68] ; RET"
-//   A20 packet+0x6c  FUN_06d84210  "MOV EAX,[ECX+0x6c] ; RET"
-//   A21 packet+0x70  FUN_06d84220  "FLD dword ptr [ECX+0x70] ; RET"
+
+//   A1  packet+0x20  the routine  "MOV EAX,[ECX+0x20] ; RET"
+//   A2  packet+0x24  the routine  "MOV EAX,[ECX+0x24] ; RET"
+//   A3  packet+0x28  the routine  "MOV EAX,[ECX+0x28] ; RET"
+//   A4..A16          the routine  the 13-dword block at packet+0x2c
+//   A17 packet+0x60  the routine  "MOV EAX,[ECX+0x60] ; RET"
+//   A18 packet+0x64  the routine  "MOV EAX,[ECX+0x64] ; RET"
+//   A19 packet+0x68  the routine  "MOVSX EAX,byte ptr [ECX+0x68] ; RET"
+//   A20 packet+0x6c  the routine  "MOV EAX,[ECX+0x6c] ; RET"
+//   A21 packet+0x70  the routine  "FLD dword ptr [ECX+0x70] ; RET"
 //   A22              not read at all -- caseD_4f pushes 0 (06d83083)
-//
-// Two retail facts worth spelling out, both proven by the bytes above:
+
+// Two baseline facts worth spelling out, both proven by the bytes above:
 //   * BufferCount is a BYTE on the wire even though the sender takes it as a dword.
-//     06d8909b is "MOV byte ptr [EDI+0x68],BL", and the reader sign-extends it with
+// is "MOV byte ptr [EDI+0x68],BL", and the reader sign-extends it with
 //     MOVSX. A count of 0x80..0xff therefore arrives NEGATIVE at the slot. The port
 //     reproduces the truncation and the sign extension exactly.
 //   * Field_0x54 is written (06d890db "MOV [EAX+0x74],CL") and the DELIVERY path never
 //     reads it back -- caseD_4f pushes 0 in its place (06d83083).
-//
+
 //     CORRECTED 2026-09-17: an earlier wave concluded from that alone that it is "a dead
-//     field of the retail wire format". IT IS NOT DEAD. The wire codec pair
+//     field of the baseline wire format". IT IS NOT DEAD. The wire codec pair
 //     (rpc_wire_ch2.cpp) uses it as the discriminator for the entire id block: the
 //     encoder emits it at 06dad0e2, re-reads it at 06dad0ea and jumps over
-//     payload+0x0c..+0x3c when it is zero (06dad0ef "JZ LAB_06dad1b6"); the decoder
+//     payload+0x0c..+0x3c when it is zero (06dad0ef "JZ the branch"); the decoder
 //     writes it at 06dad40a and branches the same way at 06dad40d, zeroing the block
-//     when it is clear (LAB_06dad4dd). The constructor FUN_06d9eab0 even DEFAULTS it to
+//     when it is clear (the branch). The constructor the routine even DEFAULTS it to
 //     1 (06d9eab7 "MOV EDX,0x1" / 06d9eae4 "MOV byte ptr [EAX+0x74],DL"). "The receiver
 //     does not read it" was true of one of the three readers.
 struct FPayloadServerSendComm {
@@ -1551,7 +1547,7 @@ struct FPayloadServerSendComm {
     unsigned char BufferCount;      // +0x48 <- LOW BYTE of A19
     unsigned char Pad_0x49[3];      // +0x49
     unsigned int Field_0x4c;        // +0x4c <- A20
-    // The float travels as its four raw bytes. Retail moves it with FLD/FSTP on both
+    // The float travels as its four raw bytes. baseline moves it with FLD/FSTP on both
     // sides and the IClient slot takes it as a stack dword, so bits are the whole story.
     unsigned int Field_0x50Bits;    // +0x50 <- A21
     unsigned char Field_0x54;       // +0x54 <- LOW BYTE of A22; never read back
@@ -1568,37 +1564,37 @@ extern const unsigned int GChannel2CodecCount;
 
 // ===========================================================================
 // Channel-3 payload structures (client -> server, the IServer direction).
-//
+
 // Ground truth, three readings per type, exactly as for channels 1 and 2:
-//
-//   1. the SENDER -- the body of the IServerImpl slot in EXE/Disasm/rpclocal.dll.c /
-//      .txt that calls FUN_06d96300(Serializer, 3, Opcode, &OutPacket) and then writes
+
+//   1. the SENDER -- the body of the IServerImpl slot in rpclocal /
+//      .txt that calls the routine(Serializer, 3, Opcode, &OutPacket) and then writes
 //      the payload from packet+0x20 on;
-//   2. the RECEIVER -- the matching case of the channel-3 switch inside FUN_06d86a70
+//   2. the RECEIVER -- the matching case of the channel-3 switch inside the routine
 //      (the client-side dispatcher, 1518 instructions), which reads those same bytes
 //      back and calls exactly one vtable slot of the real IServer inside Server.dll
-//      (.data:DAT_06dbbd24 == DAT_06dbbd5c);
+//      (.data:the field == the field);
 //   3. the SIZE -- the packet class's own operator new() argument from the registry
 //      (rpc_packet_registry.cpp): payload == that size minus the 0x20-byte base.
-//
+
 // Where the sender permutes its argument struct (OBJCOLLISION, BADLANDSOBJCOLLISION,
 // REQMODIFYITEM, REQINVINCIBILITY, CREATENEWCHAR) the receiver's permutation is the
 // strict inverse -- the hardest of the three checks, and it holds for all five.
-//
-// A fourth reading is available on this channel and was used: the retail IServer
-// vtable in src/include/common_server.h (IServer card in decomp-tracker) gives the slot
+
+// A fourth reading is available on this channel and was used: the baseline IServer
+// vtable in src/include/common_server.h (IServer card in implementation tracker) gives the slot
 // offset AND the parameter list of every call the receiver makes, so the recovered
 // field order has to agree with a signature recovered independently. All 50 closed
 // types agree.
-//
+
 // ARGUMENT ORDER NOTE. On channels 1 and 2 the first argument is the session/client id
 // and the receiver replaces it with a literal 1. Channel 3 is the other way round: the
 // session id is usually the LAST argument of the IServer method, it is never
 // serialized, and the receiver puts its own param_1 (the connection id the pump passes
 // in) back in that place. A handful of methods take the session FIRST instead
 // (InterfaceItemUsed, RTCDone, AbortMission, MissionSaveB, SetManeuver) -- for those
-// retail serializes the SECOND argument. Every codec below says which.
-//
+// baseline serializes the SECOND argument. Every codec below says which.
+
 // Marshal() argument convention for channel 3: Args[i] is the i-th dword argument
 // after this, in the order src/include/common_server.h declares it.
 // ===========================================================================
@@ -1639,25 +1635,25 @@ static_assert(sizeof(FPayloadClientDwordQuad) == 0x10, "ch3 dword-quad payload 0
 // --- per-opcode shapes ----------------------------------------------------
 
 // ch3 0x01 FLPACKET_CLIENT_LOGIN, packet size 0x424 -> payload 0x404.
-// Sender IServerImpl::Login 0x06d8cc70, receiver caseD_1 of FUN_06d86a70.
-//
+// Sender IServerImpl::Login 0x06d8cc70, receiver caseD_1 of the routine.
+
 // The sender wcscpy's the account out of SLoginInfo+0x00 into a wchar_t[256] stack
 // buffer, wcscpy's a SECOND wide string out of SLoginInfo+0xa0 into the next
 // wchar_t[256], puts the byte at SLoginInfo+0xc0 behind them and blits 0x402 bytes
 // (0x100 dwords plus one trailing word) into the packet. The receiver copies the same
 // 0x402 bytes back out, then wcsncpy's the first string into a file-static SLoginInfo
-// at .data:0x06dbba38 with a cap of 0x28 wide characters, the second into that same
-// struct at +0xa0 with a cap of 0x10, NUL-terminates both (.data:0x06dbba86 and
-// 0x06dbbaf6, i.e. +0x4e and +0xbe) and stores the flag byte at +0xc0.
-//
-// That is two independent readings of the SAME retail struct, and they disagree with
+// at module storage with a cap of 0x28 wide characters, the second into that same
+// struct at +0xa0 with a cap of 0x10, NUL-terminates both (module storage and
+// , i.e. +0x4e and +0xbe) and stores the flag byte at +0xc0.
+
+// That is two independent readings of the SAME baseline struct, and they disagree with
 // src/include/common_server_types.h, which declares SLoginInfo as a single
 // wchar_t AccountName[96] covering +0x00..+0xbf. The second wide string at +0xa0 is
 // real -- both the sender and the receiver touch it -- so AccountName cannot be longer
 // than 0x50 wide characters. The overall 0xc8 size in that header is right; the field
 // break is not. Reported rather than changed: it is a cross-module header.
-//
-// DEVIATION: retail blits the whole 0x402-byte stack window, so everything past each
+
+// DEVIATION: baseline blits the whole 0x402-byte stack window, so everything past each
 // string's NUL is uninitialised stack. The marshal below zeroes the payload first.
 struct FPayloadClientLogin {
     wchar_t AccountName[0x100];   // +0x000  wcscpy'd, receiver re-caps it at 0x28 wchars
@@ -1728,7 +1724,7 @@ static_assert(sizeof(FPayloadClientMissionResponse) == 0x0c, "MISSIONRESPONSE pa
 
 // ch3 0x18 FLPACKET_CLIENT_REQADDITEM, size 0x38 -> payload 0x18.
 // Sender IServerImpl::ReqAddItem 0x06d8d230. The hardpoint string goes through the
-// block writer FUN_06d9a160, which does operator new(len), REP MOVSD/MOVSB, then
+// block writer the routine, which does operator new(len), REP MOVSD/MOVSB, then
 // [packet+0x34] = block and [packet+0x28] = len -- i.e. payload+0x14 and payload+0x08.
 // The packet OWNS that copy, so this type is self-contained.
 // Receiver caseD_18 calls IServer+0x78 (slot 30) as
@@ -1737,7 +1733,7 @@ static_assert(sizeof(FPayloadClientMissionResponse) == 0x0c, "MISSIONRESPONSE pa
 struct FPayloadClientReqAddItem {
     unsigned int ArchId;          // +0x00
     int Count;                    // +0x04
-    unsigned int HardpointSize;   // +0x08  written by FUN_06d9a160
+    unsigned int HardpointSize;   // +0x08  written by the routine
     float Health;                 // +0x0c
     unsigned char bMounted;       // +0x10
     unsigned char Pad_0x11[3];
@@ -1746,13 +1742,13 @@ struct FPayloadClientReqAddItem {
 static_assert(sizeof(FPayloadClientReqAddItem) == 0x18, "REQADDITEM payload 0x18");
 
 // ch3 0x1a FLPACKET_CLIENT_REQMODIFYITEM, size 0x38 -> payload 0x18.
-// Sender IServerImpl::ReqModifyItem 0x06d8d300, block writer FUN_06d9a5f0 (same code as
-// FUN_06d9a160 except the length lands at [packet+0x24] = payload+0x04). Note that the
+// Sender IServerImpl::ReqModifyItem 0x06d8d300, block writer the routine (same code as
+// except the length lands at [packet+0x24] = payload+0x04). Note that the
 // first three fields are in a DIFFERENT order from REQADDITEM: Count leads, the equip id
 // sits at +0x08. Receiver caseD_1a reads them back in that order.
 struct FPayloadClientReqModifyItem {
     int Count;                    // +0x00
-    unsigned int HardpointSize;   // +0x04  written by FUN_06d9a5f0
+    unsigned int HardpointSize;   // +0x04  written by the routine
     unsigned int EquipId;         // +0x08  zero-extended from a ushort, read back as a word
     float Health;                 // +0x0c
     unsigned char bMounted;       // +0x10
@@ -1763,7 +1759,7 @@ static_assert(sizeof(FPayloadClientReqModifyItem) == 0x18, "REQMODIFYITEM payloa
 
 // ch3 0x1e FLPACKET_CLIENT_SAVEGAME, size 0x228 -> payload 0x208.
 // Sender IServerImpl::SaveGame 0x06d8db10: CHARACTER_ID::operator= into packet+0x20,
-// then FUN_06d9aab0(packet, description, wcslen+1) -- that writer allocates
+// then the routine(packet, description, wcslen+1) -- that writer allocates
 // (count * 2) bytes (LEA EBX,[EAX + EAX*0x1]), copies them, and stores the block at
 // [packet+0x220] and the WIDE-CHARACTER count at [packet+0x224]. Receiver caseD_1e
 // calls IServer+0xe8 (slot 58) with (packet+0x20, *(packet+0x220), Session) -- it never
@@ -1791,43 +1787,43 @@ static_assert(sizeof(FPayloadClientMineAsteroid) == 0x1c, "MINEASTEROID payload 
 
 // ===========================================================================
 // ch3 0x22 FLPACKET_CLIENT_DBGCREATESHIP, size 0x90 -> payload 0x70.
-//
+
 // SIZE CORRECTION, 2026-09-17, on the bytes. The tracker note that identified this
 // type's two codec slots said "size 0x70 -> payload 0x50". It is not: the factory
-// FUN_06d9f680 does `06d9f685 PUSH 0x90 ; 06d9f690 CALL operator_new` before handing
-// the block to the ctor FUN_06da0e20, so the object is 0x90 and the payload is 0x70.
+// does `06d9f685 PUSH 0x90 ; 06d9f690 CALL operator_new` before handing
+// the block to the ctor the routine, so the object is 0x90 and the payload is 0x70.
 // rpc_packet_registry.cpp already had 0x90 from the same instruction and was right.
 // The layout below then closes the loop from the other end: the highest packet offset
 // either codec touches is +0x8c, a dword, i.e. the payload's last four bytes at
 // +0x6c..+0x6f. Every one of the 0x70 bytes is accounted for and none spills over.
-//
+
 // WHERE THE LAYOUT COMES FROM -- four independent readings, no guessing:
-//   1. the ENCODER LAB_06db0560 (vtable +0x04), field by field;
-//   2. the DECODER LAB_06db0b30 (vtable +0x08), which is its strict inverse;
-//   3. the CTOR FUN_06da0e20, for which fields have defaults;
-//   4. the DTOR FUN_06db0500, which frees exactly four pointers -- packet+0x60,
+//   1. the ENCODER the branch (vtable +0x04), field by field;
+//   2. the DECODER the branch (vtable +0x08), which is its strict inverse;
+//   3. the CTOR the routine, for which fields have defaults;
+//   4. the DTOR the routine, which frees exactly four pointers -- packet+0x60,
 //      +0x88, +0x8c and +0x84 (06db0503 / 06db0519 / 06db052c / 06db053f, each
-//      null-checked and passed to FUN_06db1dc2 = operator delete). Those four and only
+//      null-checked and passed to the routine = operator delete). Those four and only
 //      those four are the packet-owned blocks, which is what pins the pointer fields
 //      apart from the plain dwords.
-//
+
 // CTOR DEFAULTS, and a correction to the same tracker note. It claimed the ctor
 // "zeroes +0x20..+0x2c"; it does not touch +0x20, +0x24, +0x28, +0x2c or +0x30 at all.
-// What FUN_06da0e20 actually writes is: +0x04 = 1, +0x08 = +0x10 = +0x1c = 0 (base
+// What the routine actually writes is: +0x04 = 1, +0x08 = +0x10 = +0x1c = 0 (base
 // fields), then +0x34..+0x48 = 0, +0x4c = 0x3f800000, +0x50..+0x6c = 0 and
-// +0x70..+0x8c = 0. So payload+0x00..+0x10 are left UNINITIALIZED by retail, and the
+// +0x70..+0x8c = 0. So payload+0x00..+0x10 are left UNINITIALIZED by baseline, and the
 // single non-zero default is the 1.0f at payload+0x2c -- the w of the orientation
 // quaternion, i.e. the identity rotation. FPacket_FLPACKET_CLIENT_DBGCREATESHIP in
 // rpc_packet_registry.cpp reproduces it.
-//
+
 // THE COPIERS settle three of the fields' types without a sender to read:
-//   * payload+0x14 and +0x20 go through FUN_06d8f510, the three-dword copier this port
+//   * payload+0x14 and +0x20 go through the routine, the three-dword copier this port
 //     already maps to Vector (06db06b7 / 06db070c out, 06db0c6f / 06db0ca1 back);
-//   * payload+0x2c goes through FUN_06d8f4f0, the four-dword copier mapped to
+//   * payload+0x2c goes through the routine, the four-dword copier mapped to
 //     Quaternion (06db0766 out, 06db0cd3 back). The ctor's 1.0f lands on its first
 //     dword, which is Quaternion's w -- an identity default, and the one cross-check
 //     that this really is a quaternion and not four loose dwords.
-//
+
 // FOUR VARIABLE-LENGTH BLOCKS, each a dword count followed by that many ELEMENTS. The
 // element width is read off the encoder's cursor arithmetic, not assumed:
 //   * payload+0x44 count -> payload+0x40 block, 06db07e9 `ADD EAX,EAX` and 06db0814
@@ -1839,12 +1835,12 @@ static_assert(sizeof(FPayloadClientMineAsteroid) == 0x1c, "MINEASTEROID payload 
 //   * payload+0x60 count -> payload+0x64 block, 06db0a6a `SHL EAX,0x2` and 06db0fb3 --
 //     FOUR bytes per element, a dword array.
 // Count and pointer are NOT adjacent for three of the four; the counts sit in the
-// middle of the record and their pointers are parked at the end. That is retail's own
+// middle of the record and their pointers are parked at the end. That is baseline's own
 // field order, which is why this is not a {Size, Buffer} pair family like
 // FPayloadClientBlob and cannot be folded into one.
-//
+
 // The five leading dwords and the four at +0x50..+0x5c carry no sender and no receiver
-// anywhere in retail -- FLPACKET_CLIENT_DBGCREATESHIP is registered but never built in
+// anywhere in baseline -- FLPACKET_CLIENT_DBGCREATESHIP is registered but never built in
 // the release image, and the ch3 dispatcher answers it with an FDUMP. Only the codecs'
 // widths are proven, so they stay Field_0xNN with the width they are read at.
 struct FPayloadClientDbgCreateShip {
@@ -1853,9 +1849,9 @@ struct FPayloadClientDbgCreateShip {
     unsigned int Field_0x08;        // +0x08  dword, 06db061d / 06db0bf4
     unsigned int Field_0x0c;        // +0x0c  dword, 06db0647 / 06db0c1e
     unsigned int Field_0x10;        // +0x10  dword, 06db0671 / 06db0c48
-    Vector Field_0x14;              // +0x14  FUN_06d8f510
-    Vector Field_0x20;              // +0x20  FUN_06d8f510
-    Quaternion Orientation;         // +0x2c  FUN_06d8f4f0, ctor default {1,0,0,0}
+    Vector Field_0x14;              // +0x14  the routine
+    Vector Field_0x20;              // +0x20  the routine
+    Quaternion Orientation;         // +0x2c  the routine, ctor default {1,0,0,0}
     unsigned int Field_0x3c;        // +0x3c  dword, 06db07a1 / 06db0d09
     wchar_t* NameChars;             // +0x40  packet-owned, freed at 06db0503
     unsigned int NameCharCount;     // +0x44  in wide characters
@@ -1874,10 +1870,10 @@ static_assert(sizeof(FPayloadClientDbgCreateShip) == 0x70, "DBGCREATESHIP payloa
 
 // ch3 0x25 FLPACKET_CLIENT_DBGDESTROYOBJECT, size 0x28 -> payload 0x08.
 // No sender anywhere in the release image: the only instruction in rpclocal that writes
-// 0x30025 is the type's own constructor FUN_06da0f90 at 06da0faa, and the ch3 dispatcher
+// 0x30025 is the type's own constructor the routine at 06da0faa, and the ch3 dispatcher
 // answers the opcode with an FDUMP. The layout therefore comes from the codec pair alone
-// (LAB_06db12c0 / LAB_06db13e0), which touches a dword at payload+0x00 (06db1330 /
-// 06db1444) and a word at payload+0x04 (06db1365 / 06db146e) and nothing else. Widths
+// (the branch / the branch), which touches a dword at payload+0x00 (06db1330 /
+// ) and a word at payload+0x04 (06db1365 / 06db146e) and nothing else. Widths
 // are proven; meanings are not, so the fields keep their offsets for names.
 struct FPayloadClientDbgDestroyObject {
     unsigned int Field_0x00;      // +0x00  dword
@@ -1887,7 +1883,7 @@ struct FPayloadClientDbgDestroyObject {
 static_assert(sizeof(FPayloadClientDbgDestroyObject) == 0x08, "DBGDESTROYOBJECT payload 0x08");
 
 // ch3 0x27 FLPACKET_CLIENT_TRADERESPONSE, size 0x28 -> payload 0x08.
-// Sender IServerImpl::TradeResponse 0x06d8dad0 uses FUN_06d97b00, the very same block
+// Sender IServerImpl::TradeResponse 0x06d8dad0 uses the routine, the very same block
 // writer channel 2 uses for its blob family: length at payload+0x00, owned copy at
 // payload+0x04. Receiver caseD_27 calls IServer+0xb0 (slot 44) as
 // TradeResponse(payload+0x04, payload+0x00, Session).
@@ -1898,20 +1894,20 @@ struct FPayloadClientBlob {
 static_assert(sizeof(FPayloadClientBlob) == 0x08, "TRADERESPONSE payload 0x08");
 
 // ch3 0x2d FLPACKET_CLIENT_DBGCONSOLE, size 0xa4 -> payload 0x84.
-// Encoder LAB_06db1670, decoder LAB_06db17a0, both transcribed in rpc_wire_fields.cpp.
+// Encoder the branch, decoder the branch, both transcribed in rpc_wire_fields.cpp.
 // Only two fields, and the split is fixed by the two reservations the encoder makes:
-// 06db16be `ADD EDX,0x4` for the leading dword and 06db16f4 `ADD EDX,0x80` for the run
+// `ADD EDX,0x4` for the leading dword and 06db16f4 `ADD EDX,0x80` for the run
 // that follows, which 06db1720 `MOV ECX,0x20` + 06db1728 `MOVSD.REP ES:EDI,ESI` copies
 // from 06db1725 `LEA ESI,[EBP + 0x24]` == payload+0x04. 4 + 128 == 0x84 exactly, so
 // there is no third field and no tail padding.
-//
+
 // The 128-byte run is copied WHOLE, not as a NUL-terminated string: there is no SCASB
 // and no length prefix anywhere in either direction, unlike ch3 0x06/0x3a. So the
 // trailing bytes past the terminator go out on the wire as they sit in the packet.
 // Kept as a char array rather than narrowed to a string for that reason.
-//
+
 // Field_0x00 keeps its placeholder name: the type is debug-only -- DeliverDbgConsole in
-// rpc_payload_ch3.cpp reports "encountered in release mode" -- so no retail sender in
+// rpc_payload_ch3.cpp reports "encountered in release mode" -- so no baseline sender in
 // this module writes either field, and nothing fixes the dword's meaning.
 struct FPayloadClientDbgConsole {
     unsigned int Field_0x00;      // +0x00  TODO: name unknown, no sender in rpclocal
@@ -1920,9 +1916,9 @@ struct FPayloadClientDbgConsole {
 static_assert(sizeof(FPayloadClientDbgConsole) == 0x84, "DBGCONSOLE payload 0x84");
 
 // ch3 0x31 FLPACKET_CLIENT_REQUEST_EVENT, size 0x34 -> payload 0x14.
-// Sender IServerImpl::RequestEvent 0x06d8eaf0. Retail TRUNCATES both the int first
+// Sender IServerImpl::RequestEvent 0x06d8eaf0. baseline TRUNCATES both the int first
 // argument and the ulong fifth argument to a single byte on the wire, and the receiver
-// reads them back as bytes -- a real retail information loss, reproduced here.
+// reads them back as bytes -- a real baseline information loss, reproduced here.
 struct FPayloadClientRequestEvent {
     unsigned char EventType;      // +0x00  <- int, truncated
     unsigned char Pad_0x01[3];
@@ -1951,13 +1947,13 @@ static_assert(sizeof(FPayloadClientRequestCancel) == 0x10, "REQUEST_CANCEL paylo
 // wcsncpy(scratch, (wchar_t*)Info, 0x40) -- 0x80 bytes -- zeroes the last wide character,
 // copies the four dwords out of SCreateCharacterInfo+0x30..+0x3c into scratch+0x80..+0x8c
 // and blits 0x24 dwords into the packet. Receiver caseD_39 wcscpy's the name into a
-// file-static SCreateCharacterInfo at .data:0x06dbbb10 and puts wire+0x80..+0x8c back at
+// file-static SCreateCharacterInfo at module storage and puts wire+0x80..+0x8c back at
 // struct +0x30..+0x3c, i.e. the strict inverse of the sender's field moves.
-//
+
 // The name window on the WIRE is 0x80 bytes while SCreateCharacterInfo::Name is only
-// 0x30 (both facts are retail: the wcsncpy count over-reads a NUL-terminated field into
+// 0x30 (both facts are baseline: the wcsncpy count over-reads a NUL-terminated field into
 // a 0x80-byte stack buffer). The marshal below copies only the 0x30 bytes the struct
-// actually owns and zeroes the rest, which is the one place we are tidier than retail.
+// actually owns and zeroes the rest, which is the one place we are tidier than baseline.
 struct FPayloadClientCreateNewChar {
     wchar_t Name[0x40];           // +0x00 .. +0x7f
     unsigned int Field_0x80;      // +0x80  <- SCreateCharacterInfo+0x30
@@ -2008,24 +2004,24 @@ static_assert(sizeof(FPayloadClientInvincibility) == 0x08, "REQINVINCIBILITY pay
 struct IServer;
 class IChatServer;
 
-// The interfaces Server.dll handed back, cached exactly where retail caches them:
-// .data:0x06dbbd24 (IServer, an alias of 0x06dbbd5c) and .data:0x06dbbd20
+// The interfaces Server.dll handed back, cached exactly where baseline caches them:
+// (IServer, an alias of 0x06dbbd5c) and module storage
 // (IChatServer, from 0x06dbbd60). IServerImpl::Startup publishes both, Shutdown clears
-// them, and FUN_06d86a70 is their only reader. Defined in rpc_payload_ch3.cpp.
+// them, and the routine is their only reader. Defined in rpc_payload_ch3.cpp.
 extern IServer* GRealServer;
 extern IChatServer* GRealChatServer;
 
-// Rebuilds the retail argument list out of the payload and makes the single IServer
-// call that FUN_06d86a70's matching case makes. SessionId is the dispatcher's own
-// param_1, which retail substitutes wherever the session id was dropped.
+// Rebuilds the baseline argument list out of the payload and makes the single IServer
+// call that the routine's matching case makes. SessionId is the dispatcher's own
+// param_1, which baseline substitutes wherever the session id was dropped.
 typedef bool (*FRpcServerDeliverFn)(const FPacketBase* Packet, IServer* Server, unsigned int SessionId);
 
 struct FRpcServerCodec {
     unsigned short Channel;
     unsigned short Opcode;
-    const char* Name;              // the retail FLPACKET_* string
+    const char* Name;              // the baseline FLPACKET_* string
     unsigned short PayloadSize;    // registry size minus the 0x20 base
-    FRpcMarshalFn Marshal;         // nullptr for the debug types retail never sends
+    FRpcMarshalFn Marshal;         // nullptr for the debug types baseline never sends
     FRpcServerDeliverFn Deliver;
 };
 
@@ -2036,7 +2032,7 @@ extern const unsigned int GChannel3CodecCount;
 // nullptr when this type's channel-3 layout is not recovered yet.
 const FRpcServerCodec* RpcFindServerCodec(unsigned int Channel, unsigned int Opcode);
 
-// The port of retail FUN_06d86a70: the client-side dispatcher for channels 1 and 3.
+// The port of baseline the routine: the client-side dispatcher for channels 1 and 3.
 // Returns true when the packet was routed into a real IServer slot.
 bool RpcDispatchToServer(FPacketBase* Packet, unsigned int SessionId);
 

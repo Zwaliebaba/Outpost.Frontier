@@ -1,30 +1,26 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
-// Retail ShipViewControl (RTTI .?AUShipViewControl@@ : WinControl) -- the rotating 3D ship
+// baseline ShipViewControl (RTTI .?AUShipViewControl@@ : WinControl) -- the rotating 3D ship
 // preview of the NeuroNet inventory / dealer / ship-dealer windows: the ship mesh in its own
 // camera and light rig, drawn into a screen rectangle, with the mounted equipment shown on the
 // hardpoints (FEquipVisualSet) and a "mountpoint" marker mesh per hardpoint.
-//
-// WINFACTORY<ShipViewControl> "ShipViewControl": ctor FUN_005870f0 (vftable 0x005e4d60), Create
-// FUN_00587160 (operator_new(0x570), FUN_005836a0, slot 9). Built directly by
-// WinControl::CreateShipViewControl (FUN_005a1020 -> Init FUN_005842a0).
-//
+
+// WINFACTORY<ShipViewControl> "ShipViewControl": ctor the routine (vftable 0x005e4d60), Create
+// (operator_new(0x570), the routine, slot 9). Built directly by
+// WinControl::CreateShipViewControl (the routine -> Init the routine).
+
 // vftable 0x005e4bcc (45 slots) -- WinControl's with these overrides:
-//    0 FUN_00583b70 scalar deleting dtor (FUN_00583c30)
-//    4 LAB_00584bd0 HitTest           5 LAB_004b5020 (Win3D's SetPosition, not WinControl's)
-//    6 LAB_005846b0 Slot6             9 FUN_00583e30 Create        11 LAB_00584740 Update
-//   13 LAB_00584470 Draw             19 LAB_005846a0 (JMP FUN_005a0650, WinControl's MouseEvent)
-//   42 LAB_005864c0 SetProperty
+//    0 the routine scalar deleting dtor (the routine)
+//    4 the branch HitTest           5 the branch (Win3D's SetPosition, not WinControl's)
+//    6 the branch Slot6             9 the routine Create        11 the branch Update
+//   13 the branch Draw             19 the branch (JMP the routine, WinControl's MouseEvent)
+//   42 the branch SetProperty
 // UIShipViewControl (vftable 0x005e59a4) derives from this class and replaces slots 0 / 8 / 9
 // (ui_ship_view_control.h).
-//
-// Layout (ctor FUN_005836a0, size 0x570):
+
+// Layout (ctor the routine, size 0x570):
 //   +0x32c ID_String ship nickname          +0x330 FClientMeshHolder (the ship mesh)
 //   +0x358 object orientation[9]            +0x37c object_ypr[3] (degrees)
 //   +0x388 FSpaceCamera (0xc0)              +0x448 ambient RGBA bytes {0,0,0,0xff}
@@ -34,20 +30,20 @@
 //   +0x4a4 camera distance                  +0x4a8 bounds centre[3]
 //   +0x4b4 vertical FOV (25.0)              +0x4b8 framed engine instance (-1)
 //   +0x4bc wire_color, +0x4c0 rect_color, +0x4c4 {0xc3,0xb8,0x20,0xff} (RGBA bytes)
-//   +0x4c8 EquipDescList (retail VC6 std::list<EquipDesc>, 0xc bytes)
+//   +0x4c8 EquipDescList (baseline VC6 std::list<EquipDesc>, 0xc bytes)
 //   +0x4d4 FEquipVisualSet*                 +0x4d8 accumulated rotation[3]
 //   +0x4e4 rot_speed[3]                     +0x4f0 -1, +0x4f4 0, +0x4f8 0 (Reset)
 //   +0x4fc selected hp class, +0x500 selected weapon, +0x504 selected shield generator
 //   +0x508 selected instance (-1), +0x50c selected radius, +0x510 selected extent radius
-//   +0x518 flags: bit2 show_rect, bit3 show_wireframe (also property 0x19), bit4 (FUN_00585bd0),
-//          bit5 (FUN_00585cd0 / 00585d20 / 00585d90)
+//   +0x518 flags: bit2 show_rect, bit3 show_wireframe (also property 0x19), bit4 (the routine),
+//          bit5 (the routine / 00585d20 / 00585d90)
 //   +0x51c mode (property 0x4c; ctor 2)     +0x520 drag ypr[3], +0x52c last drag angles[3]
 //   +0x538 std::vector<FClientMeshHolder*>  mountpoint marker per hardpoint
-//   +0x54c std::vector<int>                 hp types of one hardpoint (FUN_00586560)
+//   +0x54c std::vector<int>                 hp types of one hardpoint (the routine)
 //   +0x55c byte (ctor 0)                    +0x560 std::vector<FShipViewHpEntry> (0x20 each)
-//
+
 // The port's EquipDescList and std::vector members are Common's / the current CRT's, so the
-// offsets from +0x4c8 on are retail's for reference only (no retail ABI, AGENTS.md).
+// offsets from +0x4c8 on are baseline's for reference only (no baseline ABI, AGENTS.md).
 
 #include "wincontrol_base.h"
 
@@ -70,116 +66,116 @@ namespace Archetype
     struct Equipment;
 }
 
-// One row of the hardpoint list FUN_00586b70 builds (retail element 0x20 bytes; element dtor
-// FUN_00455e90 / FUN_00587dc0 frees the VC6 string).
+// One row of the hardpoint list the routine builds (baseline element 0x20 bytes; element dtor
+// / the routine frees the VC6 string).
 struct FShipViewHpEntry
 {
-    int Ids;          // +0x00 DAT_00615244[k] -- the hp-type caption IDS
+    int Ids;          // +0x00 the field[k] -- the hp-type caption IDS
     std::string Name; // +0x04 the hardpoint name (VC6 std::string, 0x10 bytes)
-    int SortKey;      // +0x14 the DAT_00615240 row while sorting; 0 in the stored copy
-    int Group;        // +0x18 FUN_00586800's grouping of the hp type (0 / 1 / 2)
-    int Class;        // +0x1c FUN_00585b10's class of the hp type (0..9)
+    int SortKey;      // +0x14 the the field row while sorting; 0 in the stored copy
+    int Group;        // +0x18 the routine's grouping of the hp type (0 / 1 / 2)
+    int Class;        // +0x1c the routine's class of the hp type (0..9)
 };
 
-// FUN_005835f0 (cdecl) -- the hp class of an equipment archetype for the ship view: 0 when the
+// (cdecl) -- the hp class of an equipment archetype for the ship view: 0 when the
 // archetype is unknown, 1 for an item without a hp type, 4 (and *OutWeapon) for hp types 4, 0xa
 // and 0xd, otherwise the hp type itself -- and *OutShield when it is 5..8 on a ShieldGenerator.
 int ShipViewEquipmentHpClass(unsigned ArchId, Archetype::Equipment const** OutWeapon,
                              Archetype::Equipment const** OutShield);
-// FUN_00583690 -- the same for an EquipDesc (its ArchId at +4), tail-jumping into the above.
+// the same for an EquipDesc (its ArchId at +4), tail-jumping into the above.
 int ShipViewEquipDescHpClass(EquipDesc const* Desc, Archetype::Equipment const** OutWeapon,
                              Archetype::Equipment const** OutShield);
-// FUN_00585b10 (cdecl) -- the hardpoint class shown for an hp type (switch table 0x00585b90).
+// (cdecl) -- the hardpoint class shown for an hp type (switch table 0x00585b90).
 int ShipViewHpTypeClass(int HpType);
-// FUN_00584710 -- the row count of the hp-type caption table DAT_00615240 (0x3c).
+// the row count of the hp-type caption table the field (0x3c).
 int ShipViewHpTypeTableCount();
-// FUN_00584720 -- DAT_00615240[Index].HpType, 0 outside 0..0x3b.
+// the field[Index].HpType, 0 outside 0..0x3b.
 int ShipViewHpTypeTableType(int Index);
 
 class ShipViewControl : public WinControl
 {
 public:
-    // FUN_005836a0
+
     ShipViewControl();
-    // FUN_00583c30
+
     ~ShipViewControl() override;
 
-    // FUN_005842a0 (RET 0x24) -- the argument list of FUN_005a1020 after the name. RectColor /
+    // (RET 0x24) -- the argument list of the routine after the name. RectColor /
     // WireColor point at RGBA byte quads.
     void Init(float const* NewRotSpeed, float const* NewOffset, float const* NewYpr,
               float const* NewViewSize, char const* Hardpoint, bool bShowRect, bool bShowWire,
               unsigned const* RectColor, unsigned const* WireColor);
 
     // --- Win3D / WinControl overrides ---
-    bool HitTest(float const* Ray) override;                       // slot 4  LAB_00584bd0
-    void SetPosition(float const* NewPosition) override;           // slot 5  LAB_004b5020
-    bool Slot6(unsigned A) override;                               // slot 6  LAB_005846b0
-    bool Create(Win3D* NewParent, void* Data) override;            // slot 9  FUN_00583e30
-    void Update() override;                                        // slot 11 LAB_00584740
-    void Draw() override;                                          // slot 13 LAB_00584470
-    intptr_t SetProperty(int Msg, uintptr_t A, uintptr_t B) override; // slot 42 LAB_005864c0
+    bool HitTest(float const* Ray) override;                       // slot 4  the branch
+    void SetPosition(float const* NewPosition) override;           // slot 5  the branch
+    bool Slot6(unsigned A) override;                               // slot 6  the branch
+    bool Create(Win3D* NewParent, void* Data) override;            // slot 9  the routine
+    void Update() override;                                        // slot 11 the branch
+    void Draw() override;                                          // slot 13 the branch
+    intptr_t SetProperty(int Msg, uintptr_t A, uintptr_t B) override; // slot 42 the branch
 
-    // FUN_00583b90 -- clear the selection and the drag state; frame nothing.
+    // clear the selection and the drag state; frame nothing.
     void Reset();
-    // FUN_00584c80 (RET 4) -- mouse drag rotation: the mouse ray projected into the rect gives
+    // (RET 4) -- mouse drag rotation: the mouse ray projected into the rect gives
     // two angles; bStart records them, otherwise the difference turns +0x520.
     void DragRotate(bool bStart);
-    // FUN_00585070 (RET 4) -- +0x520 = Ypr.
+    // (RET 4) -- +0x520 = Ypr.
     void SetDragYpr(float const* Ypr);
-    // FUN_005850f0 (RET 4) -- replace the shown equipment (null: none) and the marker meshes.
+    // (RET 4) -- replace the shown equipment (null: none) and the marker meshes.
     void LoadEquipment(EquipDescList const* List);
-    // FUN_00585380 (RET 8) -- frame Instance: bounds, camera distance, camera placement.
+    // (RET 8) -- frame Instance: bounds, camera distance, camera placement.
     void SetInstance(long NewInstance, bool bFixedDistance);
-    // FUN_00585630 (RET 4) -- place the camera on the framed instance (mode 1 from the side,
+    // (RET 4) -- place the camera on the framed instance (mode 1 from the side,
     // mode 0 along its own z axis); other modes do nothing.
     void PlaceCamera(int PlaceMode);
-    // FUN_00585890 (RET 0x10) -- load Path into the ship holder, frame it and centre it.
-    // MaterialPath is handed to FUN_0059ec80 as its material-library path (may be null).
+    // (RET 0x10) -- load Path into the ship holder, frame it and centre it.
+    // MaterialPath is handed to the routine as its material-library path (may be null).
     bool LoadMesh(char const* Path, char const* MaterialPath, bool bFixedDistance,
                   bool bDpConnect);
-    // FUN_00585a90 (RET 0xc) -- LoadEquipment(null), then the ship archetype's mesh.
+    // (RET 0xc) -- LoadEquipment(null), then the ship archetype's mesh.
     bool LoadShip(ID_String const* ShipId, bool bFixedDistance, bool bDpConnect);
-    // FUN_00585bd0 (RET 0xc) -- select Instance (-1: no change); Unused is never read.
+    // (RET 0xc) -- select Instance (-1: no change); Unused is never read.
     void SelectInstance(long NewSelection, bool bFlag, int Unused);
-    // FUN_00585cd0 (RET 0x10) -- select a hp class / weapon / shield directly.
+    // (RET 0x10) -- select a hp class / weapon / shield directly.
     void SelectHpClass(int HpClass, Archetype::Equipment const* Weapon,
                        Archetype::Equipment const* Shield, bool bFlag);
-    // FUN_00585d20 (RET 8) -- select by an EquipDesc's archetype.
+    // (RET 8) -- select by an EquipDesc's archetype.
     void SelectEquipDesc(EquipDesc const* Desc, bool bFlag);
-    // FUN_00585d90 (RET 8) -- select by a good id.
+    // (RET 8) -- select by a good id.
     void SelectGood(unsigned GoodId, bool bFlag);
-    // FUN_00585e20 (RET 4) -- the hardpoint name of the attached item instance, or null.
+    // (RET 4) -- the hardpoint name of the attached item instance, or null.
     char const* GetHardpointOfInstance(long ItemInstance) const;
-    // FUN_00585e80 (RET 4) -- the item instance on the hardpoint named Name, or -1.
+    // (RET 4) -- the item instance on the hardpoint named Name, or -1.
     long GetInstanceOnHardpoint(char const* Name) const;
-    // FUN_00585ef0 (RET 8) -- FindHardpointForGood(Arch2Good(Desc->ArchId)), null for no Desc.
+    // (RET 8) -- FindHardpointForGood(Arch2Good(Desc->ArchId)), null for no Desc.
     char const* FindHardpointForEquipDesc(EquipDesc const* Desc, bool bFirstMatch) const;
-    // FUN_00585f20 (RET 8) -- a hardpoint of the ship that can take GoodId.
+    // (RET 8) -- a hardpoint of the ship that can take GoodId.
     char const* FindHardpointForGood(unsigned GoodId, bool bFirstMatch) const;
-    // FUN_00586310 (RET 8) -- the screen rect of the view box around Position.
+    // (RET 8) -- the screen rect of the view box around Position.
     void ComputeScreenRect(float const* Position, bool bSetCamera);
-    // FUN_00586510 (RET 4) -- is HpType among the +0x54c hp types.
+    // (RET 4) -- is HpType among the +0x54c hp types.
     bool HasHpType(int HpType) const;
-    // FUN_00586560 (RET 4) -- +0x54c = the hp types whose legal hardpoints include HpName.
+    // (RET 4) -- +0x54c = the hp types whose legal hardpoints include HpName.
     void CollectHpTypes(char const* HpName);
-    // FUN_00586800 (RET 4) -- does any +0x54c hp type fall in Group.
+    // (RET 4) -- does any +0x54c hp type fall in Group.
     bool HasHpTypeGroup(int Group) const;
-    // FUN_005868c0 / 005868e0 / 00586900 / 00586a10 (RET 4) -- the Init fields one at a time.
+    // / 005868e0 / 00586900 / 00586a10 (RET 4) -- the Init fields one at a time.
     void SetViewSize(float const* NewViewSize);
     void SetRotSpeed(float const* NewRotSpeed);
     void SetObjectYpr(float const* NewYpr);
     void SetAttachPosition(float const* NewPosition);
-    // FUN_00586a30 / 00586a50 (RET 4) -- flag bits 2 / 3.
+    // / 00586a50 (RET 4) -- flag bits 2 / 3.
     void SetShowRect(bool bShow);
     void SetShowWireframe(bool bShow);
-    // FUN_00586a70 / 00586af0 (RET 4) -- RGBA floats 0..1 into the byte colours.
+    // / 00586af0 (RET 4) -- RGBA floats 0..1 into the byte colours.
     void SetRectColor(float const* Rgba);
     void SetWireColor(float const* Rgba);
-    // FUN_00586b70 -- rebuild +0x560 from the hardpoints of the shown equipment.
+    // rebuild +0x560 from the hardpoints of the shown equipment.
     void BuildHardpointList();
-    // FUN_00587050 -- +0x560's size.
+    // +0x560's size.
     int GetHardpointListCount() const;
-    // FUN_00587070 (RET 4) -- &+0x560[Index], null out of range.
+    // (RET 4) -- &+0x560[Index], null out of range.
     FShipViewHpEntry const* GetHardpointListEntry(int Index) const;
 
     ID_String ShipId;                          // +0x32c

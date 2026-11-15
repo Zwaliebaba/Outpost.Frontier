@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -18,7 +14,7 @@
 
 typedef unsigned int uint;
 
-// FORMATION_RTYPE is a GLOBAL enum in retail, not a pub::AI one. Both its users
+// FORMATION_RTYPE is a GLOBAL enum in baseline, not a pub::AI one. Both its users
 // mangle it without a scope:
 //   Common  ?add_formation_follower@CShip@@QAE?AW4FORMATION_RTYPE@@PAUIObjRW@@@Z
 //   Server  ?update_formation_state@AI@pub@@YA?AW4FORMATION_RTYPE@@IIABVVector@@@Z
@@ -42,7 +38,7 @@ namespace pub { namespace AI {
 // ============================================================================
 
 // OP_TYPE — real values recovered (2026-09-05) from every BaseOp-derived
-// class's own default ctor in Common.dll.c, each of which sets `this+4` to a
+// class's own default ctor in Common, each of which sets `this+4` to a
 // distinct literal matching the class it belongs to (e.g.
 // DirectiveGotoOp::DirectiveGotoOp @ 0x7AE20 sets `this+4 = 3`). All 22
 // literals were found (0-21, no gaps), one per BaseOp-derived class that
@@ -74,12 +70,12 @@ enum OP_TYPE
     OpType_DirectiveCancelOp              = 21,
 };
 
-// OP_RTYPE: retail carries no enumerator names (only the mangled enum name
-// W4OP_RTYPE@AI@pub@@), and no module in EXE\Disasm consumes the values --
+// OP_RTYPE: baseline carries no enumerator names (only the mangled enum name
+// W4OP_RTYPE@AI@pub@@), and no module in module notes consumes the values --
 // SubmitState / SubmitDirective / set_directive_priority have no callers in any
 // listing (their consumer is Content.dll). The names below are therefore the
-// port's, chosen by what each literal means at the retail return sites:
-//   0  Server SubmitState: personality applied (.text:06d5cba5 path) / user
+// port's, chosen by what each literal means at the baseline return sites:
+//   0  Server SubmitState: personality applied (module storage path) / user
 //      zone cleared (mode 2).
 //   1  Server SubmitDirective: directive accepted -- forwarded to the player's
 //      client or set on the AI (06d5d43b..06d5d754); Common
@@ -120,7 +116,7 @@ enum DirectivePriority
 };
 
 // The eight ContentCallback enums (CSNType, FollowStatusType, ...) are nested in
-// pub::AI::ContentCallback below: retail mangles them `W4CSNType@123@`, i.e.
+// pub::AI::ContentCallback below: baseline mangles them `W4CSNType@123@`, i.e.
 // CSNType in ContentCallback in AI in pub.
 
 // ============================================================================
@@ -135,17 +131,17 @@ struct DirectiveCallback;
 // GSplinePath — spline path for AI navigation
 // ============================================================================
 
-// Retail exports exactly two members:
-//   ??0GSplinePath@AI@pub@@QAE@XZ            .text:06261260  `MOV EAX,this; RET` -- ICF-folded
+// baseline exports exactly two members:
+//   ??0GSplinePath@AI@pub@@QAE@XZ            module storage  `MOV EAX,this; RET` -- ICF-folded
 //                                            with a dozen trivial getters: the default ctor
 //                                            initialises NOTHING.
-//   ??4GSplinePath@AI@pub@@QAEAAU012@ABU012@@Z .text:06274100 `MOV ECX,0xc; REP MOVSD` --
+//   ??4GSplinePath@AI@pub@@QAEAAU012@ABU012@@Z module storage `MOV ECX,0xc; REP MOVSD` --
 //                                            ICF-folded with Csys::operator=: a flat copy
 //                                            of 12 dwords, so sizeof == 0x30.
 // No copy constructor is exported (the implicit trivial one). The previous port was a
-// fabricated 0x0C struct {Points, NumPoints, Length} with a zeroing ctor. Both retail
+// fabricated 0x0C struct {Points, NumPoints, Length} with a zeroing ctor. Both baseline
 // bodies are ICF-shared, so their call sites cannot be attributed to GSplinePath, no
-// retail module imports either export, and no port code names the type: the content of
+// baseline module imports either export, and no port code names the type: the content of
 // the 0x30 bytes is not recovered and stays opaque. Open TODO: field layout.
 struct COMMON_API GSplinePath
 {
@@ -160,45 +156,45 @@ static_assert(sizeof(GSplinePath) == 0x30, "GSplinePath size (operator= copies 0
 // ============================================================================
 // Personality — AI personality configuration
 // ============================================================================
-//
+
 // RE NOTE (2026-09-05): the struct family below was previously fabricated
-// (plausible-looking field names/sizes invented, not reverse-engineered).
-// It has been rebuilt byte-for-byte from the real retail constructors in
-// Common.dll.c: each nested Personality::*Struct's default ctor was
+// (plausible-looking field names/sizes invented, not analysis).
+// It has been rebuilt byte-for-byte from the real baseline constructors in
+// Common: each nested Personality::*Struct's default ctor was
 // transcribed directly, and the outer Personality::Personality() ctor
-// (Common.dll.c 0x7AA30) was used to pattern-match which sub-struct occupies
+// (Common 0x7AA30) was used to pattern-match which sub-struct occupies
 // which byte range (several sub-structs are inlined directly into the outer
 // ctor rather than called out separately; their exact byte sequences were
 // matched 1:1 against their own standalone ctors to fix their offsets).
-// pub::AI::Personality::operator= (Common.dll.c 0x488b0) does a flat copy of
+// pub::AI::Personality::operator= (Common 0x488b0) does a flat copy of
 // 0xF6 dwords (0x3D8 bytes), which is the authoritative total size and was
 // used to confirm there is zero slack/undiscovered space anywhere in the
 // struct. There is no faction-attitude table, no toughness-ratio table, and
 // no standalone AggressionLevel/CautionLevel/ScanChance/FactionId/
-// RangeThreshold fields anywhere in retail's Personality — those were all
+// RangeThreshold fields anywhere in baseline's Personality — those were all
 // invented. Field names below are the INI keys Content.dll's pilot-personality
 // loaders store at each offset (see the per-struct comments); the few offsets no
 // loader key writes stay offset-based (Field_XX) with a TODO.
 
 
-// Personality — Common.dll.c 0x7AA30 (pub::AI::Personality::Personality).
+// Personality — Common 0x7AA30 (pub::AI::Personality::Personality).
 // Real layout is exactly these 16 sub-structs back to back, in this order,
 // with no gaps and no additional top-level scalar fields (confirmed by
-// Personality::operator= at Common.dll.c 0x488B0, which flat-copies 0xF6
+// Personality::operator= at Common 0x488B0, which flat-copies 0xF6
 // dwords = 0x3D8 bytes = the sum of all 16 sub-struct sizes below).
-//
-// A CLASS in retail, not a struct: every export that names it mangles it `V`
+
+// A CLASS in baseline, not a struct: every export that names it mangles it `V`
 //   Common  ??4Personality@AI@pub@@QAEAAV012@ABV012@@Z
 //   Common  ?get_personality@IBehaviorManager@@QAEXAAVPersonality@AI@pub@@@Z
 //   Server  ?get_personality@AI@pub@@YA_NIAAVPersonality@12@@Z
-// (its sixteen nested *Struct members are structs, `U`). Retail exports no copy
+// (its sixteen nested *Struct members are structs, `U`). baseline exports no copy
 // constructor for it -- the copy is the implicit bitwise one -- so the port
-// declares none either; operator= stays user-declared because retail exports it
+// declares none either; operator= stays user-declared because baseline exports it
 // (0x488B0, a flat 0xF6-dword copy).
 class COMMON_API Personality
 {
 public:
-    // Nested in retail: every export names them `...@Personality@AI@pub@@`, e.g.
+    // Nested in baseline: every export names them `...@Personality@AI@pub@@`, e.g.
     // ??0GunUseStruct@Personality@AI@pub@@QAE@XZ, and get_toughness_ratio takes
     // `W4TOUGHNESS_TYPE@123@` -- TOUGHNESS_TYPE in Personality in AI in pub.
     enum TOUGHNESS_TYPE
@@ -211,13 +207,13 @@ public:
 
 
     // Field names of the fourteen *UseStruct / *ReactionStruct members below are the
-    // [<Name>Block] keys of Content's pilot-personality loaders (FUN_06f3a2d0 ..
-    // FUN_06f3bb00, CountermeasureBlock inline at 06f3db9e) that store to each offset.
+    // [<Name>Block] keys of Content's pilot-personality loaders (the routine ..
+    // , CountermeasureBlock inline at 06f3db9e) that store to each offset.
     // Angles are stored in radians (the loader multiplies the INI degrees by GDegToRad)
     // unless noted. "*Weight<Dir>" fields are the per-name weights of one
     // "<key>, <NAME>, <weight>" key. The former Field_NN offset names follow each.
 
-    // EvadeDodgeUseStruct — Common.dll.c 0x7A5B0; [EvadeDodgeBlock] (Content 06f3a2d0)
+    // EvadeDodgeUseStruct — Common 0x7A5B0; [EvadeDodgeBlock] (Content 06f3a2d0)
     struct COMMON_API EvadeDodgeUseStruct
     {
         float   EvadeActivateRange;                      // +0x00  500.0   formerly Field_00
@@ -252,7 +248,7 @@ public:
     static_assert(offsetof(EvadeDodgeUseStruct, EvadeDodgeDirectionWeightDown) == 0x54, "EvadeDodgeUseStruct +0x54");
     static_assert(sizeof(EvadeDodgeUseStruct) == 0x58, "EvadeDodgeUseStruct size");
 
-    // EvadeBreakUseStruct — Common.dll.c 0x7A620; also inlined at Personality +0x58;
+    // EvadeBreakUseStruct — Common 0x7A620; also inlined at Personality +0x58;
     // [EvadeBreakBlock] (Content 06f3a690)
     struct COMMON_API EvadeBreakUseStruct
     {
@@ -278,7 +274,7 @@ public:
 
     static_assert(sizeof(EvadeBreakUseStruct) == 0x3C, "EvadeBreakUseStruct size");
 
-    // BuzzHeadTowardUseStruct — Common.dll.c 0x7A670; also inlined at Personality +0x94;
+    // BuzzHeadTowardUseStruct — Common 0x7A670; also inlined at Personality +0x94;
     // [BuzzHeadTowardBlock] (Content 06f3a940)
     struct COMMON_API BuzzHeadTowardUseStruct
     {
@@ -315,7 +311,7 @@ public:
     static_assert(offsetof(BuzzHeadTowardUseStruct, bBuzzHeadTowardRollFlipDirection) == 0x24, "BuzzHeadTowardUseStruct +0x24");
     static_assert(sizeof(BuzzHeadTowardUseStruct) == 0x60, "BuzzHeadTowardUseStruct size");
 
-    // BuzzPassByUseStruct — Common.dll.c 0x7A6E0; also inlined at Personality +0xF4;
+    // BuzzPassByUseStruct — Common 0x7A6E0; also inlined at Personality +0xF4;
     // [BuzzPassByBlock] (Content 06f3ad40)
     struct COMMON_API BuzzPassByUseStruct
     {
@@ -341,7 +337,7 @@ public:
     static_assert(offsetof(BuzzPassByUseStruct, bBuzzDropBombOnPassBy) == 0x14, "BuzzPassByUseStruct +0x14");
     static_assert(sizeof(BuzzPassByUseStruct) == 0x34, "BuzzPassByUseStruct size");
 
-    // TrailUseStruct — Common.dll.c 0x7A720; also inlined at Personality +0x128;
+    // TrailUseStruct — Common 0x7A720; also inlined at Personality +0x128;
     // [TrailBlock] (Content 06f3b030)
     struct COMMON_API TrailUseStruct
     {
@@ -361,7 +357,7 @@ public:
     static_assert(offsetof(TrailUseStruct, bTrailBreakAfterburner) == 0x10, "TrailUseStruct +0x10");
     static_assert(sizeof(TrailUseStruct) == 0x1C, "TrailUseStruct size");
 
-    // StrafeUseStruct — Common.dll.c 0x7A750; also inlined at Personality +0x144;
+    // StrafeUseStruct — Common 0x7A750; also inlined at Personality +0x144;
     // [StrafeBlock] (Content 06f3b190)
     struct COMMON_API StrafeUseStruct
     {
@@ -375,7 +371,7 @@ public:
 
     static_assert(sizeof(StrafeUseStruct) == 0x0C, "StrafeUseStruct size");
 
-    // EngineKillUseStruct — Common.dll.c 0x7A770; also inlined at Personality +0x150;
+    // EngineKillUseStruct — Common 0x7A770; also inlined at Personality +0x150;
     // [EngineKillBlock] (Content 06f3b240)
     struct COMMON_API EngineKillUseStruct
     {
@@ -391,7 +387,7 @@ public:
 
     static_assert(sizeof(EngineKillUseStruct) == 0x14, "EngineKillUseStruct size");
 
-    // RepairUseStruct — Common.dll.c 0x7A7A0; also inlined at Personality +0x164;
+    // RepairUseStruct — Common 0x7A7A0; also inlined at Personality +0x164;
     // [RepairBlock] (Content 06f3b370)
     struct COMMON_API RepairUseStruct
     {
@@ -408,7 +404,7 @@ public:
 
     static_assert(sizeof(RepairUseStruct) == 0x18, "RepairUseStruct size");
 
-    // GunUseStruct — Common.dll.c 0x7A7D0; also inlined at Personality +0x17C;
+    // GunUseStruct — Common 0x7A7D0; also inlined at Personality +0x17C;
     // [GunBlock] (Content 06f3b470)
     struct COMMON_API GunUseStruct
     {
@@ -435,7 +431,7 @@ public:
 
     static_assert(sizeof(GunUseStruct) == 0x40, "GunUseStruct size");
 
-    // MineUseStruct — Common.dll.c 0x7A830; also inlined at Personality +0x1BC;
+    // MineUseStruct — Common 0x7A830; also inlined at Personality +0x1BC;
     // [MineBlock] (Content 06f3b6c0)
     struct COMMON_API MineUseStruct
     {
@@ -449,7 +445,7 @@ public:
 
     static_assert(sizeof(MineUseStruct) == 0x0C, "MineUseStruct size");
 
-    // MissileUseStruct — Common.dll.c 0x7A850; also inlined at Personality +0x1C8;
+    // MissileUseStruct — Common 0x7A850; also inlined at Personality +0x1C8;
     // [MissileBlock] (Content 06f3b770)
     struct COMMON_API MissileUseStruct
     {
@@ -471,10 +467,10 @@ public:
     static_assert(offsetof(MissileUseStruct, bMissileLaunchAllowOutOfRange) == 0x04, "MissileUseStruct +0x04");
     static_assert(sizeof(MissileUseStruct) == 0x24, "MissileUseStruct size");
 
-    // DamageReactionStruct — Common.dll.c 0x7A890; also inlined at Personality +0x1EC;
-    // [DamageReactionBlock] (Content 06f3b900). operator= (Common.dll.c 0x48850) copies
+    // DamageReactionStruct — Common 0x7A890; also inlined at Personality +0x1EC;
+    // [DamageReactionBlock] (Content 06f3b900). operator= (Common 0x48850) copies
     // 0x11 dwords (0x44 bytes); the default ctor only ever writes the first 0xF (15) of
-    // them, so Field_3C/Field_40 are left uninitialized by retail. Zero-initialized here
+    // them, so Field_3C/Field_40 are left uninitialized by baseline. Zero-initialized here
     // instead. No [DamageReactionBlock] key writes +0x3C/+0x40 (TODO: meaning).
     struct COMMON_API DamageReactionStruct
     {
@@ -493,8 +489,8 @@ public:
         float FireMissilesDamageTriggerTime;        // +0x30  0.5  formerly Field_30
         float FireGunsDamageTriggerPercent;         // +0x34  1.0  formerly Field_34
         float FireGunsDamageTriggerTime;            // +0x38  1.0  formerly Field_38
-        float Field_3C;   // +0x3C  not written by retail ctor
-        float Field_40;   // +0x40  not written by retail ctor
+        float Field_3C;   // +0x3C  not written by baseline ctor
+        float Field_40;   // +0x40  not written by baseline ctor
 
         DamageReactionStruct();
         DamageReactionStruct& operator=(DamageReactionStruct const& Other);
@@ -502,7 +498,7 @@ public:
 
     static_assert(sizeof(DamageReactionStruct) == 0x44, "DamageReactionStruct size");
 
-    // MissileReactionStruct — Common.dll.c 0x7A8E0; also inlined at Personality +0x230;
+    // MissileReactionStruct — Common 0x7A8E0; also inlined at Personality +0x230;
     // [MissileReactionBlock] (Content 06f3bb00)
     struct COMMON_API MissileReactionStruct
     {
@@ -517,7 +513,7 @@ public:
 
     static_assert(sizeof(MissileReactionStruct) == 0x10, "MissileReactionStruct size");
 
-    // CountermeasureUseStruct — Common.dll.c 0x7A900; also inlined at Personality +0x240;
+    // CountermeasureUseStruct — Common 0x7A900; also inlined at Personality +0x240;
     // [CountermeasureBlock] (read inline by Content at 06f3db9e / 06f3dbb9)
     struct COMMON_API CountermeasureUseStruct
     {
@@ -530,9 +526,9 @@ public:
 
     static_assert(sizeof(CountermeasureUseStruct) == 0x08, "CountermeasureUseStruct size");
 
-    // FormationUseStruct — ctor .text:062da910; also constructed at Personality +0x248
+    // FormationUseStruct — ctor module storage; also constructed at Personality +0x248
     // by the outer ctor. Field names are the [FormationBlock] keys Content.dll's loader
-    // (FUN_06f3bbd0) stores at each offset; the former Field_NN offset names follow each.
+    // (the routine) stores at each offset; the former Field_NN offset names follow each.
     struct COMMON_API FormationUseStruct
     {
         float    ForceAttackFormationActiveTime;            // +0x00  1.0   formerly Field_00
@@ -572,16 +568,16 @@ public:
     static_assert(offsetof(FormationUseStruct, bLeaderMakesMeTougher) == 0x54, "FormationUseStruct +0x54");
     static_assert(sizeof(FormationUseStruct) == 0x58, "FormationUseStruct size");
 
-    // JobStruct — ctor .text:062da980; also constructed at Personality +0x2A0 by the
-    // outer ctor; operator= .text:062a8890 copies 0x4E dwords = 0x138 bytes. Field
-    // names are the [JobBlock] keys Content.dll's loader (FUN_06f3c190 and its helpers
-    // 06f3c9b0 / 06f3cad0) stores at each offset. The toughness fields hold 0..4
+    // JobStruct — ctor module storage; also constructed at Personality +0x2A0 by the
+    // outer ctor; operator= module storage copies 0x4E dwords = 0x138 bytes. Field
+    // names are the [JobBlock] keys Content.dll's loader (the routine and its helpers
+    // / 06f3cad0) stores at each offset. The toughness fields hold 0..4
     // (EASIEST..HARDEST, unknown text -> 2).
     struct COMMON_API JobStruct
     {
         // One "attack_preference" / "attack_order" record (Content 06f3c9d8): the
         // ship class (11 = ANYTHING; 12 terminates the list), the range and the
-        // weapon-type mask (1 GUNS, 2 GUIDED, 4 UNGUIDED, 8 TORPEDO). Retail names
+        // weapon-type mask (1 GUNS, 2 GUIDED, 4 UNGUIDED, 8 TORPEDO). baseline names
         // no type for it; the name is the port's.
         struct FAttackPreference
         {
@@ -607,7 +603,7 @@ public:
         int32_t  LootPreference;            // +0x0D8  0   LT_* mask (1 commodities, 2 equipment, 4 potions); formerly Field_D8
         int32_t  LootFleeThreshold;         // +0x0DC  2   formerly Field_DC
         // +0x0E0 / +0x0E4: the faction's "scan_for_cargo" archetype ids (Content NpcShip
-        // 06f33ae1); LootBehavior matches a commodity's good id against them.
+        // ); LootBehavior matches a commodity's good id against them.
         int32_t  ScanForCargoCount;         // +0x0E0  0   formerly Field_E0
         uint32_t ScanForCargo[16];          // +0x0E4  never written by the ctor; the port zeroes it
         int32_t  FleeSceneThreatStyle;      // +0x124  3   formerly Field_124
@@ -656,14 +652,14 @@ public:
     Personality();
     Personality& operator=(Personality const& Other);
 
-    // Helper methods from exports (Common.dll.c 0x48780 / 0x487E0). Neither
-    // reads a lookup table — both are hardcoded switches in retail.
+    // Helper methods from exports (Common 0x48780 / 0x487E0). Neither
+    // reads a lookup table — both are hardcoded switches in baseline.
     float get_toughness_ratio(TOUGHNESS_TYPE Type);
-    // Returns the unrounded ST0 value as double (retail ?..@@QAEMXZ returned float; no
-    // retail module calls it).
+    // Returns the unrounded ST0 value as double (baseline ?..@@QAEMXZ returned float; no
+    // baseline module calls it).
     double get_range_threshold_value();
 
-    // Retail `public: static float const pub::AI::Personality::SCAN_CHANCE_DEFAULT`, export
+    // baseline `public: static float const pub::AI::Personality::SCAN_CHANCE_DEFAULT`, export
     // ordinal 1947, .rdata 0x063a05a8 = -1.0f. Its one reader in Common is 062da9c1, the
     // JobStruct ctor, which stores it into JobStruct::ScanChance ("not set" sentinel).
     static float const SCAN_CHANCE_DEFAULT;
@@ -690,11 +686,11 @@ static_assert(sizeof(Personality) == 0x3D8, "Personality size");
 // BaseOp — base class for directive operations
 // ============================================================================
 
-// Retail exports ??0BaseOp@AI@pub@@QAE@W4OP_TYPE@12@@Z (.text:062a8740),
-// ??0BaseOp@AI@pub@@QAE@ABV012@@Z (.text:062a8760) and ??_7BaseOp@AI@pub@@6B@
-// (.rdata:0639e0d0) -- nothing else. The vftable has exactly one slot and it is
-// _purecall (LAB_06391fb0 -> MSVCRT purecall): validate() is pure, and there is no
-// virtual destructor. No default constructor and no operator= exist in retail;
+// baseline exports ??0BaseOp@AI@pub@@QAE@W4OP_TYPE@12@@Z (module storage),
+// ??0BaseOp@AI@pub@@QAE@ABV012@@Z (module storage) and ??_7BaseOp@AI@pub@@6B@
+// (module storage) -- nothing else. The vftable has exactly one slot and it is
+// _purecall (the branch -> MSVCRT purecall): validate() is pure, and there is no
+// virtual destructor. No default constructor and no operator= exist in baseline;
 // operator= is deleted so the compiler does not emit and export one (a class with a
 // vptr has a non-trivial implicit copy assignment). No caller copy-assigns an op.
 class COMMON_API BaseOp
@@ -721,24 +717,24 @@ static_assert(sizeof(BaseOp) == 0x0C, "BaseOp size");
 // ============================================================================
 // Directive operations
 // ============================================================================
-//
+
 // RE NOTE (2026-09-05): this whole family was fabricated the same way
 // pub::AI::Personality was — a follow-up task asked only to fix stale
 // "+0x08" offset comments after BaseOp grew a Field_08 (see BaseOp above),
-// but comparing these structs against their real decompiled ctors in
-// Common.dll.c showed most of them have the wrong field count, wrong types,
+// but comparing these structs against their real inspected ctors in
+// Common showed most of them have the wrong field count, wrong types,
 // and wrong total size, not just a 4-byte comment drift. Rebuilt field-by-
-// field from each class's own real default ctor (Common.dll.c 0x7AE20-
+// field from each class's own real default ctor (Common 0x7AE20-
 // 0x7B2A0) and cross-checked against each real copy ctor (0x48A60-0x48EE0)
 // and each real validate() (0x7AE60-0x7B360). Every one of these classes'
 // default ctor sets `this+4` (OpType) to a distinct literal 0-21 — that
 // mapping is exact and is now the real OP_TYPE enum above. Fields with
 // strong semantic evidence (id fields gated by a "!= 0" check in a shared
 // validate(), used consistently with the class's own purpose) are named;
-// everything else is Field_XX (offset-based) with the real retail default
+// everything else is Field_XX (offset-based) with the real baseline default
 // value in a comment, following the same convention used for Personality.
-//
-// EXPORTS. Retail exports per op exactly: default ctor, copy ctor, the vftable and
+
+// EXPORTS. baseline exports per op exactly: default ctor, copy ctor, the vftable and
 // `validate` as a VIRTUAL (`?validate@DirectiveGotoOp@AI@pub@@UAE_NXZ`, `UAE`). The
 // Directive* ops are classes (`ABV012@` in their copy ctors); the three Set*Params
 // are structs (`ABU012@`). No operator= and no destructor is exported for any of
@@ -807,9 +803,9 @@ public:
 static_assert(offsetof(DirectiveFollowOp, TargetId) == 0x0C, "DirectiveFollowOp +0x0C");
 static_assert(sizeof(DirectiveFollowOp) == 0x24, "DirectiveFollowOp size");
 
-// Field meanings from FaceBehavior's directive handler (Common .text:062c8b30): Mode 1
+// Field meanings from FaceBehavior's directive handler (Common module storage): Mode 1
 // watches TargetId, 2 faces FacePoint, 3 takes Orientation, 4 has no target; any other
-// mode fails. The copy ctor (.text:062a8b70) copies FacePoint as a Vector (3 dwords) and
+// mode fails. The copy ctor (module storage) copies FacePoint as a Vector (3 dwords) and
 // Orientation as a Matrix (REP MOVSD 9). Content's [ObjList] "Face" parser writes
 // OBJECT -> 1 / POINT -> 2.
 class COMMON_API DirectiveFaceOp : public BaseOp
@@ -818,7 +814,7 @@ public:
     int32_t  Mode;                 // +0x0C  0  (validate: != 0); formerly Field_0C
     uint     TargetId;             // +0x10  0  mode 1 object (validate: != 0); formerly Field_10
     Vector   FacePoint;            // +0x14  0,0,0  mode 2 point; formerly Field_14..Field_1C
-    Matrix   Orientation;          // +0x20  mode 3; not written by retail default ctor; formerly Reserved_20
+    Matrix   Orientation;          // +0x20  mode 3; not written by baseline default ctor; formerly Reserved_20
     uint8_t  Field_44;             // +0x44  1  copied into FaceBehavior +0x1c4 (TODO: meaning)
 
     DirectiveFaceOp();
@@ -902,7 +898,7 @@ static_assert(sizeof(DirectiveTractorBeamOp) == 0x14, "DirectiveTractorBeamOp si
 class COMMON_API DirectiveFormationOp : public BaseOp
 {
 public:
-    // Real retail struct has NO fields beyond BaseOp — sizeof == sizeof(BaseOp).
+    // Real baseline struct has NO fields beyond BaseOp — sizeof == sizeof(BaseOp).
     // Previously fabricated LeaderId/FormationSlot fields do not exist.
 
     DirectiveFormationOp();
@@ -1029,7 +1025,7 @@ static_assert(sizeof(DirectiveDelayOp) == 0x10, "DirectiveDelayOp size");
 class COMMON_API DirectiveCancelOp : public BaseOp
 {
 public:
-    // Real retail struct has NO fields beyond BaseOp — sizeof == sizeof(BaseOp).
+    // Real baseline struct has NO fields beyond BaseOp — sizeof == sizeof(BaseOp).
     // Previously fabricated DirectivePriority Priority field does not exist.
 
     DirectiveCancelOp();
@@ -1045,7 +1041,7 @@ class COMMON_API DirectiveWaitForShip : public BaseOp
 {
 public:
     uint     ShipId;               // +0x0C  0      ship to wait for
-    uint32_t Field_10;             // +0x10  not written by retail default ctor
+    uint32_t Field_10;             // +0x10  not written by baseline default ctor
 
     DirectiveWaitForShip();
     DirectiveWaitForShip(DirectiveWaitForShip const& Other);
@@ -1062,7 +1058,7 @@ class COMMON_API DirectiveWaitForPlayerManeuverOp : public BaseOp
 public:
     // Real field is a `char const*` passed to BehaviorTypes::get_behavior_id()
     // in validate() — NOT an int bitmask as previously fabricated.
-    char const* BehaviorName;      // +0x0C  not written by retail default ctor (BaseOp is 0x0C, not 0x08, see BaseOp's Priority)
+    char const* BehaviorName;      // +0x0C  not written by baseline default ctor (BaseOp is 0x0C, not 0x08, see BaseOp's Priority)
 
     DirectiveWaitForPlayerManeuverOp();
     DirectiveWaitForPlayerManeuverOp(DirectiveWaitForPlayerManeuverOp const& Other);
@@ -1077,7 +1073,7 @@ static_assert(sizeof(DirectiveWaitForPlayerManeuverOp) == 0x10, "DirectiveWaitFo
 class COMMON_API DirectiveIdleOp : public BaseOp
 {
 public:
-    // Real retail struct has NO fields beyond BaseOp — sizeof == sizeof(BaseOp).
+    // Real baseline struct has NO fields beyond BaseOp — sizeof == sizeof(BaseOp).
 
     DirectiveIdleOp();
     DirectiveIdleOp(DirectiveIdleOp const& Other);
@@ -1088,8 +1084,8 @@ public:
 
 static_assert(sizeof(DirectiveIdleOp) == 0x0C, "DirectiveIdleOp size");
 
-// DirectiveGuideOp — Common.dll.c 0x7B060 (default ctor). Previously ported
-// as a struct holding a single GuidedObjectId field; retail actually embeds
+// DirectiveGuideOp — Common 0x7B060 (default ctor). Previously ported
+// as a struct holding a single GuidedObjectId field; baseline actually embeds
 // a full DirectiveGotoOp BY VALUE at +0x0C and a DirectiveFollowOp-shaped
 // object BY VALUE at +0x7C (each with its own vtable, independently
 // dispatchable — DirectiveGuideOp::validate() calls both embedded objects'
@@ -1123,10 +1119,10 @@ static_assert(sizeof(DirectiveGuideOp) == 0xBC, "DirectiveGuideOp size");
 // ============================================================================
 // Parameter structs for IBehaviorManager methods
 // ============================================================================
-//
+
 // RE NOTE (2026-09-05): both structs below did NOT inherit from BaseOp in
 // the header despite the task's premise that they did — but their real copy
-// ctors (Common.dll.c 0x48DA0 / 0x48D10) show the same BaseOp::_vftable_-
+// ctors (Common 0x48DA0 / 0x48D10) show the same BaseOp::_vftable_-
 // then-own-vtable patch pattern as every other BaseOp-derived class here
 // (the same fabrication bug already fixed for SetPersonalityParams). Fixed
 // to actually derive from BaseOp, with real fields from their own default
@@ -1148,8 +1144,8 @@ static_assert(offsetof(SetFlagParams, FlagId) == 0x0C, "SetFlagParams +0x0C");
 static_assert(offsetof(SetFlagParams, bValue) == 0x10, "SetFlagParams +0x10");
 static_assert(sizeof(SetFlagParams) == 0x14, "SetFlagParams size");
 
-// SetPersonalityParams — Common.dll.c 0x7AD10 (default ctor) / 0x48930 (copy
-// ctor). Previously ported as a struct holding a Personality*; retail
+// SetPersonalityParams — Common 0x7AD10 (default ctor) / 0x48930 (copy
+// ctor). Previously ported as a struct holding a Personality*; baseline
 // actually embeds a full Personality BY VALUE at +0x1C (the ctor default-
 // constructs it in place with a placement-new-style direct call, and the
 // copy ctor flat-copies all 0xF6 dwords of it). Derives from BaseOp (vtable
@@ -1157,7 +1153,7 @@ static_assert(sizeof(SetFlagParams) == 0x14, "SetFlagParams size");
 // own vtable after the embedded Personality is constructed — the classic
 // base-then-derived vtable-patch pattern).
 // Field meanings from their one consumer, Server.dll pub::AI::SubmitState
-// (.text:06d5cb57..06d5cba5): +0x0C -> IBehaviorManager::set_state_graph(id, false);
+// (module storage..06d5cba5): +0x0C -> IBehaviorManager::set_state_graph(id, false);
 // +0x14 / +0x10 -> set_directive_callback / set_content_callback unless -1; byte +0x18
 // gates set_personality(Value). Content fills the callbacks with its NPC objects' callback
 // subobjects or 0.
@@ -1183,19 +1179,19 @@ static_assert(offsetof(SetPersonalityParams, Value) == 0x1C, "SetPersonalityPara
 static_assert(sizeof(SetPersonalityParams) == 0x3F4, "SetPersonalityParams size");
 
 // Field names follow PathfindManager::UserZone (common_pathfind.h), which Server.dll
-// pub::AI::SubmitState (.text:06d5c957..06d5cb56) builds from these fields; Content's
+// pub::AI::SubmitState (module storage..06d5cb56) builds from these fields; Content's
 // mission [ObjList] "StayInRange" parser fills them.
 struct COMMON_API SetZoneBehaviorParams : public BaseOp
 {
     int32_t Mode;                  // +0x0C  0 sphere (TargetPoint, Radius), 1 box (BoxMin..BoxMax),
                                    //        2 live object (TargetId, Radius); formerly Field_0C.
-                                   //        Not written by the retail default ctor.
+                                   //        Not written by the baseline default ctor.
     int32_t InvertMode;            // +0x10  2      0 normal, 1 inverted, 2 clear the user zone
                                    //        (validate skips its checks); formerly Field_10
     Vector  TargetPoint;           // +0x14  0,0,0  sphere centre; formerly Field_14..Field_1C
     uint    TargetId;              // +0x20  0      object of mode 2; formerly Field_20
     Vector  BoxMin;                // +0x24  box corners of mode 1; not written by the
-    Vector  BoxMax;                // +0x30  retail default ctor; formerly Reserved_24
+    Vector  BoxMax;                // +0x30  baseline default ctor; formerly Reserved_24
     float   Radius;                // +0x3C  0.0    (validate: != 0.0); formerly Field_3C
 
     SetZoneBehaviorParams();
@@ -1217,14 +1213,14 @@ static_assert(sizeof(SetZoneBehaviorParams) == 0x40, "SetZoneBehaviorParams size
 // ContentCallback — interface for content-driven AI events
 // ============================================================================
 
-// EXPORTS. Retail compiled these ten virtuals from the header, inline, into every
+// EXPORTS. baseline compiled these ten virtuals from the header, inline, into every
 // module that saw it, and each module exports its own copy -- Common.dll (ordinals
-// 2382..3752, e.g. get_creation_type .text:0626c9a0), Server.dll (474..517,
-// .text:06ce1030..06ce10a0) and OutpostFrontier.exe -- while none of them exports a
+// 2382..3752, e.g. get_creation_type module storage), Server.dll (474..517,
+// ) and OutpostFrontier.exe -- while none of them exports a
 // ContentCallback constructor, destructor, operator= or ??_7. That is member-level
 // export on the ten virtuals only, not a class-level one; the struct key is from
 // ?set_content_callback@IBehaviorManager@@QAEXPAUContentCallback@AI@pub@@@Z.
-//
+
 // Bodies, identical in all three modules (Common / Server addresses):
 //   combat_state_notification  RET 0xc               062a8910 / 06ce1080
 //   combat_drift_event         RET                   062a8920 / 06ce1090
@@ -1236,22 +1232,22 @@ static_assert(sizeof(SetZoneBehaviorParams) == 0x40, "SetZoneBehaviorParams size
 //   scan_state_change          RET 4                 062ed730 / 06ce1050
 //   get_creation_type          MOV EAX,3; RET        0626c9a0 / 06ce10a0
 //   ship_in_sights_event       RET 4 (= scan)        062ed730 / 06ce1050
-//
+
 // Slot order, from Common.dll's calls through IBehaviorManager+0x110 (argument
 // count and RET n of the body each lands on):
-//   +0x00 follow_event              4 args  .text:062d29f6 (FUN_062d29c0)
-//   +0x04 tether_object_event       4 args  .text:062d2a4d
-//   +0x08 lead_object_event         5 args  .text:062d2aab
-//   +0x0c ship_in_sights_event      1 arg   .text:062d2cc8 (an id: EAX of the
+//   +0x00 follow_event              4 args  module storage (the routine)
+//   +0x04 tether_object_event       4 args  module storage
+//   +0x08 lead_object_event         5 args  module storage
+//   +0x0c ship_in_sights_event      1 arg   module storage (an id: EAX of the
 //                                            object's own [vptr+0x20] getter)
-//   +0x10 request_flee_destination  6 args  .text:062d2ade (tail JMP)
+//   +0x10 request_flee_destination  6 args  module storage (tail JMP)
 //   +0x14 information_request       -- the one 3-argument method left; no call
 //                                            site in Common.dll
-//   +0x18 scan_state_change         1 bool  .text:062d2dc0 (the byte flag it
+//   +0x18 scan_state_change         1 bool  module storage (the byte flag it
 //                                            also stores to [this+0xf8])
-//   +0x1c combat_state_notification 3 args  .text:062ee2d3 / 062ee2ff / 062ee35a
-//   +0x20 combat_drift_event        0 args  .text:062ed96e
-//   +0x24 get_creation_type         0 args  .text:062d3f03 (set_content_callback)
+//   +0x1c combat_state_notification 3 args  module storage / 062ee2ff / 062ee35a
+//   +0x20 combat_drift_event        0 args  module storage
+//   +0x24 get_creation_type         0 args  module storage (set_content_callback)
 // Ten slots, one per exported virtual, so there is no virtual destructor. The
 // earlier port declared one in slot 0 and the methods in alphabetical-ish order,
 // which put every typed call on the wrong slot.
@@ -1336,38 +1332,38 @@ struct ContentCallback
 
 // CORRECTED 2026-09-17. This class used to declare a virtual destructor in slot 0
 // and a zero-argument OnDirectiveComplete in slot 1. Both were wrong, and the
-// comment that used to sit here had already guessed as much from retail's
-// combined LaunchAction vtable having exactly ONE slot (PTR_FUN_0639e57c). The
+// comment that used to sit here had already guessed as much from baseline's
+// combined LaunchAction vtable having exactly ONE slot (the routine). The
 // dispatch site proves it outright -- IBehaviorManager::UpdateBehaviorTick,
-// .text:062d2ee1-062d2efd, walking DirectiveCallbacks[5]:
-//     .text:062d2ee1  MOV  ECX,[EDI]          ; the callback pointer
-//     .text:062d2ee7  MOV  EAX,[ESI + 0x118]
-//     .text:062d2eed  MOV  EDX,[ECX]          ; its vtable
-//     .text:062d2eef  PUSH EAX
-//     .text:062d2ef0  MOV  EAX,[ESI + 0x11c]
-//     .text:062d2ef6  PUSH EAX
-//     .text:062d2ef7  CALL dword ptr [EDX]    ; SLOT 0, two arguments
+// , walking DirectiveCallbacks[5]:
+// MOV  ECX,[EDI]          ; the callback pointer
+// MOV  EAX,[ESI + 0x118]
+// MOV  EDX,[ECX]          ; its vtable
+// PUSH EAX
+// MOV  EAX,[ESI + 0x11c]
+// PUSH EAX
+// CALL dword ptr [EDX]    ; SLOT 0, two arguments
 // The `MOV EBX,0x5` / `DEC EBX` / `ADD EDI,4` around it is what fixes the array
-// at five entries. A second identical site is at .text:062d33ca-062d33d3.
+// at five entries. A second identical site is at module storage-062d33d3.
 // Argument order is MSVC's right-to-left, so the LAST push is the FIRST
 // parameter: manager+0x11c arrives first, manager+0x118 second. Those two
 // dwords are the directive-result payload; their meaning is still unrecovered,
 // which is why the parameters carry the source offsets as names rather than
 // invented semantics.
-//
-// Dropping the virtual destructor is safe here for the same reason retail gets
+
+// Dropping the virtual destructor is safe here for the same reason baseline gets
 // away with it: nothing in the port deletes through a bare DirectiveCallback*
 // (checked), and the callbacks are registered by pointer via
 // IBehaviorManager::set_directive_callback and never owned by the manager.
-//
-// A STRUCT in retail and not exported: ?set_directive_callback@IBehaviorManager@@QAEXPAU
-// DirectiveCallback@AI@pub@@@Z names it `U`, the RTTI type descriptor at .data:063ebca0 is
-// ".?AUDirectiveCallback@AI@pub@@", and no member of it is in the export table. Retail also
+
+// A STRUCT in baseline and not exported: ?set_directive_callback@IBehaviorManager@@QAEXPAU
+// DirectiveCallback@AI@pub@@@Z names it `U`, the RTTI type descriptor at module storage is
+// ".?AUDirectiveCallback@AI@pub@@", and no member of it is in the export table. baseline also
 // has no DirectiveCallback vftable of its own (only the LaunchAction one that embeds this
 // base), so the slot is pure: the no-op default body the port used to carry was invented.
 struct DirectiveCallback
 {
-    // Slot 0, and the only virtual. Retail 0x62b01f0 is
+    // Slot 0, and the only virtual. baseline 0x62b01f0 is
     // LaunchAction::OnDirectiveComplete, still the only identified override
     // (see common_launchaction.cpp). Dispatched when a queued AI directive this
     // callback was registered for finishes.

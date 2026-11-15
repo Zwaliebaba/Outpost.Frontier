@@ -1,14 +1,10 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // Content.dll TU24 (06ed5390-06ed5a70): solar NPCs (see NpcCreate.h).
 
 #include "NpcCreate.h"
-#include "BaseDB.h"               // FindContentBaseInfo (TU17 FUN_06eac0c0)
-#include "PilotPersonalities.h"   // GetPilotPersonality (TU45 FUN_06f3e020)
+#include "BaseDB.h"               // FindContentBaseInfo (TU17 the routine)
+#include "PilotPersonalities.h"   // GetPilotPersonality (TU45 the routine)
 #include "SystemInfo.h"           // FSystemInfo::SystemId
 #include "ContentStaticIds.h"     // TU24's 16 static-init thunks 06ed5390-06ed5570
 #include "common_id.h"
@@ -16,12 +12,12 @@
 #include "common_newchar.h"       // pub::StateGraph::get_state_graph
 #include "common_server.h"
 
-// FUN_06ed5590 (06ed5590-06ed571f). Result starts true and is cleared only when no key
+// (06ed5590-06ed571f). Result starts true and is cleared only when no key
 // matched:
 //   "nickname": Desc->Nickname = get_value_string() (TString<0x30>: null -> empty,
 //               else strlen clamped to 0x2f).
 //   "base":     only while Desc->Base is null: GetBaseID(local, get_value_string()),
-//               Desc->Base = FUN_06eac0c0(&local).
+//               Desc->Base = the routine(&local).
 //   "reputation": GetReputationGroup(Desc->ReputationGroup, get_value_string()).
 //   otherwise Desc's CommReferrable slot 2 (read_comm_ini_data) first; when it returns
 //   false: "pilot": GetPilotPersonality(CreateID(value), &Desc->Personality) == true ->
@@ -67,17 +63,17 @@ bool __cdecl ParseSolarNpcKey(INI_Reader* Reader, FSolarNpcDesc* Desc)
     return bResult;
 }
 
-// The ctor inlined at 06ed5883-06ed58ae (inside the new-expression of FUN_06ed5720): base
-// FUN_06eb6be0 (its unused argument is the Group local), vptr 06fb61a0, then the reputation
+// The ctor inlined at 06ed5883-06ed58ae (inside the new-expression of the routine): base
+// (its unused argument is the Group local), vptr 06fb61a0, then the reputation
 // of the solar's nickname and its affiliation -- both under EH state 2 (06fab223 base dtor,
-// 06fab218 operator delete).
+// operator delete).
 FSolarNpcReputation::FSolarNpcReputation(char const* Nickname, unsigned int const& Group)
 {
     pub::Reputation::GetReputation(Reputation, Nickname);
     pub::Reputation::SetAffiliation(Reputation, Group);
 }
 
-// FUN_06ed5720 (06ed5720-06ed58d8). Order: TU20 ctor with &Desc's parameters (null-checked
+// (06ed5720-06ed58d8). Order: TU20 ctor with &Desc's parameters (null-checked
 // base conversion); CommReferrable default (+0x11c = 0, +0x120 = 0); ContentCallback vptr;
 // +0x164 = 0; +0x168 = Desc->StateGraph; Personality ctor; final vptrs; +0x544 =
 // Desc->bHasPersonality and, when set, the 0x3d8-byte personality copy; SpaceObjId =
@@ -108,14 +104,14 @@ FSolarNpc::FSolarNpc(FSolarNpcDesc const* Desc)
     }
 }
 
-// 06ed59f0.
+// .
 bool FSolarNpc::Slot04()
 {
     return Field_0x164;
 }
 
-// LAB_06ed5a00 (06ed5a00-06ed5a60), ContentCallback +0x1c. Message block (0x10, stack
-// 06ed5a13-06ed5a31) = {Type, Param1, Param2, FUN_06eea860(this - 0x160)->SystemId};
+// (06ed5a00-06ed5a60), ContentCallback +0x1c. Message block (0x10, stack
+// ) = {Type, Param1, Param2, the routine(this - 0x160)->SystemId};
 // +0x164 = (Type == 0); the controller id local (the reused Type slot) = 0; then
 // pub::Controller::_SendMessage(&0, 0x1001, &block).
 void FSolarNpc::combat_state_notification(CSNType Type, uint Param1, uint Param2)
@@ -130,7 +126,7 @@ void FSolarNpc::combat_state_notification(CSNType Type, uint Param1, uint Param2
     pub::Controller::_SendMessage(Controller, pub::Controller::EMessage::CombatState, &Msg);
 }
 
-// FUN_06ed5940 (06ed5940-06ed5959): +8 ? vtbl[+8](1) (scalar deleting dtor), +8 = 0.
+// (06ed5940-06ed5959): +8 ? vtbl[+8](1) (scalar deleting dtor), +8 = 0.
 void FSolarNpc::DeleteReputationHandle()
 {
     if (ReputationHandle != nullptr)
@@ -138,7 +134,7 @@ void FSolarNpc::DeleteReputationHandle()
     ReputationHandle = nullptr;
 }
 
-// FUN_06ed5960 (06ed5960-06ed59e6): only when +8 is set, bSubmit, and StateGraph != -1:
+// (06ed5960-06ed59e6): only when +8 is set, bSubmit, and StateGraph != -1:
 // SetPersonalityParams P (default ctor); P+0xc = StateGraph, P+0x10 = &ContentCallback
 // subobject (+0x160), P+0x14 = 0, P+0x18 = bHasPersonality; the personality copied in when
 // set; pub::AI::SubmitState(SpaceObjId, &P) (result dropped).

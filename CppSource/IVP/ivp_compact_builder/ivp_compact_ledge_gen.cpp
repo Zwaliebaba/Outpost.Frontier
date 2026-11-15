@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "ivp_compact_ledge_gen.h"
@@ -18,11 +14,11 @@
 
 // Raw port in src/IVP/ivp_collision/ivp_mindist_limiter.cpp: the
 // IVP_Compact_Triangle constructor (16 zero bytes).
-extern "C" void* FUN_0635aa20(void* param_1_00);
+extern "C" void* InitializeCompactTriangle(void* param_1_00);
 
 namespace
 {
-    // FUN_0635aa50 (.text:0635aa50-0635aa5d, thiscall): the IVP_Compact_Ledge
+    // (module storage-0635aa5d, thiscall): the IVP_Compact_Ledge
     // constructor -- four zero dwords over the 16-byte header. Its only caller
     // is generate_compact_ledge (0637a6b1).
     void IVP_Compact_Ledge_Construct(IVP_Compact_Ledge* Ledge)
@@ -37,7 +33,7 @@ namespace
     static_assert(sizeof(IVP_Tri_Edge*) == 4, "edge_hash keys are 4-byte edge pointers");
 }
 
-// FUN_0637a2e0 (.text:0637a2e0-0637a32a): both vectors {0, 0, null}, then
+// (module storage-0637a32a): both vectors {0, 0, null}, then
 // REP STOSD 0xc zero dwords over the whole object.
 IVP_Compact_Ledge_Generator::IVP_Compact_Ledge_Generator()
     : point_hash(nullptr)
@@ -51,12 +47,12 @@ IVP_Compact_Ledge_Generator::IVP_Compact_Ledge_Generator()
 {
 }
 
-// FUN_0637a750 (.text:0637a750-0637a86f): calc_hesse on every triangle of the
-// input vector; points vector released (FUN_06343fb0 unless inline); point
+// (module storage-0637a86f): calc_hesse on every triangle of the
+// input vector; points vector released (the routine unless inline); point
 // hash deleted through its vtable (slot 1, flag 1); edge hash destroyed
 // (06356a70) and freed; every compact triangle operator-deleted; then the
 // compact triangle vector and the point vector are released (explicitly and
-// again by their member destructors, as retail does).
+// again by their member destructors, as baseline does).
 IVP_Compact_Ledge_Generator::~IVP_Compact_Ledge_Generator()
 {
     for (int32_t I = 0; I < n_triangles; ++I)
@@ -81,7 +77,7 @@ IVP_Compact_Ledge_Generator::~IVP_Compact_Ledge_Generator()
     c_triangles.Clear();
 }
 
-// FUN_0637a330 (.text:0637a330-0637a696).
+// (module storage-0637a696).
 // 1. triangles = Triangles, n_triangles = its count; hash size = 16, doubled
 //    while below n_triangles * 3 / 2 (signed division) when that exceeds 16;
 //    point_hash = new FPolygonPointHash(size).
@@ -137,7 +133,7 @@ int32_t IVP_Compact_Ledge_Generator::prepare_compact_ledge(IVP_U_Vector<IVP_Tria
     {
         IVP_Triangle* const Triangle = Triangles->elems[I];
         IVP_Compact_Triangle* const CompactTriangle =
-            static_cast<IVP_Compact_Triangle*>(FUN_0635aa20(::operator new(0x10)));
+            static_cast<IVP_Compact_Triangle*>(InitializeCompactTriangle(::operator new(0x10)));
 
         uint32_t Info = CompactTriangle->TriInfo;
         Info ^= (static_cast<uint32_t>(Triangle->index) ^ Info) & 0xfffu;
@@ -189,7 +185,7 @@ int32_t IVP_Compact_Ledge_Generator::prepare_compact_ledge(IVP_U_Vector<IVP_Tria
     return (n_points + n_triangles + 1) << 4;
 }
 
-// FUN_0637a6a0 (.text:0637a6a0-0637a74b): compact_ledge = Buffer; header
+// (module storage-0637a74b): compact_ledge = Buffer; header
 // zeroed (0635aa50); n_triangles (+0xc word); the compact triangles copied
 // (4 dwords each) from +0x10; c_point_offset = their end; each point x, y, z
 // copied and +0xc = 0; dword +8 = ((size >> 4) << 8) | (old & 0xf3) | 4.

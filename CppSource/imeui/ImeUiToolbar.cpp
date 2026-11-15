@@ -1,13 +1,9 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "ImeUiCore.h"
 #include <cmath>
 
-// FUN_06715600: sixteen 0x20-byte XYZRHW/color vertices, then the symbol font.
+// sixteen 0x20-byte XYZRHW/color vertices, then the symbol font.
 struct FIMEToolbarVertex
 {
     float X;
@@ -19,8 +15,8 @@ struct FIMEToolbarVertex
 };
 static_assert(sizeof(FIMEToolbarVertex) == 0x20, "IME draw-fan vertex stride");
 
-static double GToolbarLastTick = 0.0; // DAT_0671cee0; written only by this function.
-static unsigned GToolbarPhase = 0;   // DAT_0671cfc0; zero-initialized retail .data.
+static double GToolbarLastTick = 0.0; // ; written only by this function.
+static unsigned GToolbarPhase = 0;   // ; zero-initialized baseline .data.
 
 void ImeUi_RenderToolbar(const _IMEUI_APPEARANCE& Appearance, const RECT& Bounding,
                         int ScreenWidth, int ScreenHeight, const DWORD& State,
@@ -30,7 +26,7 @@ void ImeUi_RenderToolbar(const _IMEUI_APPEARANCE& Appearance, const RECT& Boundi
     const float Diameter = static_cast<float>(Appearance.SymbolHeight);
     const double Radius = static_cast<double>(Diameter) * 0.5;
     FIMEToolbarVertex Vertices[16] = {};
-    // Screen dimensions are loaded as zero-extended qwords by retail FILD.
+    // Screen dimensions are loaded as zero-extended qwords by baseline FILD.
     const double Width = static_cast<unsigned>(ScreenWidth);
     const double Height = static_cast<unsigned>(ScreenHeight);
     switch (Appearance.SymbolPosition)
@@ -102,13 +98,13 @@ void ImeUi_RenderToolbar(const _IMEUI_APPEARANCE& Appearance, const RECT& Boundi
     }
     GDrawFan(Vertices, 16);
 
-    // Retail rereads SymbolHeight after the callback, and uses Language&3ff.
+    // baseline rereads SymbolHeight after the callback, and uses Language&3ff.
     double FontHeight = static_cast<double>(Appearance.SymbolHeight) * 0.625f;
     if ((Language & 0x3ff) == 0x12 && bActive) FontHeight *= 0.800000011920928955078125f;
     CImeUiFont_Base* Font = Appearance.SymbolFont;
     if (!Font) return;
     FontHeight *= 1.33333337306976318359375f;
-    Font->SetHeight(static_cast<int>(FontHeight)); // retail ftol truncates.
+    Font->SetHeight(static_cast<int>(FontHeight)); // baseline ftol truncates.
     Appearance.SymbolFont->SetColor((static_cast<unsigned>(Appearance.SymbolAlpha) << 24) | Appearance.SymbolBackgroundColor);
     const wchar_t* Text = State == 1 ? Symbol : L"A";
     int TextWidth;

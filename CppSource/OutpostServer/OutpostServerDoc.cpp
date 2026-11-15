@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "StdAfx.h"
@@ -10,12 +6,12 @@
 #include "CntrItem.h"
 #include "OutpostServer.h"
 
-// IMPLEMENT_DYNCREATE(COutpostServerDoc, CRichEditDoc): retail CRuntimeClass .rdata:0041d2bc
+// IMPLEMENT_DYNCREATE(COutpostServerDoc, CRichEditDoc): baseline CRuntimeClass module storage
 // {"COutpostServerDoc", 0x234, 0xffff, CreateObject 0040d800, _GetBaseClass 0040d8c0};
 // GetRuntimeClass 0040d8d0.
 IMPLEMENT_DYNCREATE(COutpostServerDoc, CRichEditDoc)
 
-// .rdata:0041d338 (GetMessageMap 0040d8f0); the base map is COleServerDoc's because
+// (GetMessageMap 0040d8f0); the base map is COleServerDoc's because
 // CRichEditDoc declares none of its own.
 BEGIN_MESSAGE_MAP(COutpostServerDoc, CRichEditDoc)
 	ON_UPDATE_COMMAND_UI(ID_OLE_EDIT_LINKS, &CRichEditDoc::OnUpdateEditLinksMenu)
@@ -23,7 +19,7 @@ BEGIN_MESSAGE_MAP(COutpostServerDoc, CRichEditDoc)
 	ON_UPDATE_COMMAND_UI_RANGE(ID_OLE_VERB_FIRST, ID_OLE_VERB_LAST, &CRichEditDoc::OnUpdateObjectVerbMenu)
 END_MESSAGE_MAP()
 
-// .text:0040d900 (inlined into CreateObject 0040d800).
+// (inlined into CreateObject 0040d800).
 COutpostServerDoc::COutpostServerDoc()
 {
 	Load = 33;
@@ -38,7 +34,7 @@ COutpostServerDoc::COutpostServerDoc()
 	memset(&Stats, 0, sizeof(Stats));
 }
 
-// .text:0040d990
+
 COutpostServerDoc::~COutpostServerDoc()
 {
 	if (Mutex != NULL)
@@ -48,32 +44,32 @@ COutpostServerDoc::~COutpostServerDoc()
 	}
 }
 
-// .text:0040d9c0
+
 BOOL COutpostServerDoc::OnNewDocument()
 {
 	return CRichEditDoc::OnNewDocument() ? TRUE : FALSE;
 }
 
-// .text:0040d9d0
+
 CRichEditCntrItem* COutpostServerDoc::CreateClientItem(REOBJECT* Preo) const
 {
 	return new COutpostServerCntrItem(Preo, (COutpostServerDoc*)this);
 }
 
-// .text:0040da40 — plain text, not RTF.
+// — plain text, not RTF.
 void COutpostServerDoc::Serialize(CArchive& Ar)
 {
 	m_bRTF = FALSE;
 	CRichEditDoc::Serialize(Ar);
 }
 
-// .text:0040da70
+
 BOOL COutpostServerDoc::SaveModified()
 {
 	return TRUE;
 }
 
-// .text:0040da80 — the document title is always the server's title string.
+// — the document title is always the server's title string.
 void COutpostServerDoc::SetTitle(LPCTSTR Title)
 {
 	if (GApp != NULL)
@@ -83,7 +79,7 @@ void COutpostServerDoc::SetTitle(LPCTSTR Title)
 	CRichEditDoc::SetTitle(Title);
 }
 
-// .text:0040daa0
+
 int COutpostServerDoc::GetLoad()
 {
 	if (Mutex != NULL)
@@ -96,7 +92,7 @@ int COutpostServerDoc::GetLoad()
 	return Load;
 }
 
-// .text:0040dae0
+
 int COutpostServerDoc::GetAverageLoad()
 {
 	if (Mutex != NULL)
@@ -119,7 +115,7 @@ int COutpostServerDoc::GetAverageLoad()
 	return AverageLoad;
 }
 
-// .text:0040db50
+
 bool COutpostServerDoc::SetLoad(int NewLoad)
 {
 	if (Mutex != NULL)
@@ -144,7 +140,7 @@ bool COutpostServerDoc::SetLoad(int NewLoad)
 	return true;
 }
 
-// .text:0040dbe0
+
 bool COutpostServerDoc::SetStats(const ServerStats* NewStats)
 {
 	if (Mutex != NULL)
@@ -162,7 +158,7 @@ bool COutpostServerDoc::SetStats(const ServerStats* NewStats)
 	return true;
 }
 
-// .text:0040dc50
+
 void COutpostServerDoc::GetStats(ServerStats* OutStats)
 {
 	if (Mutex != NULL)
@@ -175,7 +171,7 @@ void COutpostServerDoc::GetStats(ServerStats* OutStats)
 	*OutStats = Stats;
 }
 
-// .text:0040dcb0 — the rich-edit selection always comes from the app's main view.
+// — the rich-edit selection always comes from the app's main view.
 COleClientItem* COutpostServerDoc::GetPrimarySelectedItem(CView* View)
 {
 	if (View != GApp->GetMainView())

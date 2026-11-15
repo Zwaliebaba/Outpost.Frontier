@@ -1,13 +1,9 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "knowledge_map.h"
 
-#include "character_select_equip.h" // GetPlayerVisitFlagsRetail / SetPlayerVisitFlagsRetail (FUN_004c4da0 / FUN_004c4e00)
-#include "globals.h"                // CopyBoundedString (FUN_00417c50)
+#include "character_select_equip.h" // GetPlayerVisitFlagsbaseline / SetPlayerVisitFlagsbaseline (the routine / the routine)
+#include "globals.h"                // CopyBoundedString (the routine)
 
 #include "common_id.h"         // CreateID
 #include "common_ini.h"        // INI_Reader
@@ -19,11 +15,11 @@
 
 #include <stdint.h>
 
-FKnowledgeMap* G_KnowledgeMap = nullptr; // DAT_0066d334
+FKnowledgeMap* G_KnowledgeMap = nullptr;
 
 namespace
 {
-    // The find every method inlines (FUN_0052c7a0 / FUN_00432240 / FUN_0041bd10 lower_bound,
+    // The find every method inlines (the routine / the routine / the routine lower_bound,
     // then `end or Key < node key` is a miss).
     FKnowledgeMapEntry const* KnowledgeFind(FKnowledgeMap const* Map, unsigned Key)
     {
@@ -41,22 +37,22 @@ namespace
     void KnowledgeMarkLine(unsigned Id, unsigned char Flags)
     {
         unsigned char Known = 0;
-        if (GetPlayerVisitFlagsRetail(Id, &Known, 0, 0)) // 0x00459261
+        if (GetPlayerVisitFlagsbaseline(Id, &Known, 0, 0))
         {
             if (static_cast<unsigned char>(Flags & Known) == Flags)
             {
                 return;
             }
-            SetPlayerVisitFlagsRetail(Id, static_cast<unsigned char>(Known | Flags), true);
+            SetPlayerVisitFlagsbaseline(Id, static_cast<unsigned char>(Known | Flags), true);
             return;
         }
-        SetPlayerVisitFlagsRetail(Id, Flags, true);
+        SetPlayerVisitFlagsbaseline(Id, Flags, true);
     }
 }
 
 void FKnowledgeMap::Load()
 {
-    // FUN_00459470.
+    // .
     char Path[0x100];
     GetFileSysPath(Path, "interface\\KnowledgeMap.ini", nullptr);
     INI_Reader Reader;
@@ -76,7 +72,7 @@ void FKnowledgeMap::Load()
             {
                 continue;
             }
-            // 0x0045953a..0x00459587: key = ftol(value 0), Id = CreateID(value 1),
+            // key = ftol(value 0), Id = CreateID(value 1),
             // Flags = low byte of ftol(value 2).
             unsigned const Key = static_cast<unsigned>(static_cast<int>(Reader.get_value_float(0)));
             unsigned Id = CreateID(Reader.get_value_string(1));
@@ -84,7 +80,7 @@ void FKnowledgeMap::Load()
                 static_cast<unsigned char>(static_cast<int>(Reader.get_value_float(2)));
             if ((Flags & 0x40) != 0)
             {
-                // 0x0045958d..0x004595d2: a faction -- Reputation::get_id of the nickname as a
+                // a faction -- Reputation::get_id of the nickname as a
                 // TString<16> (empty for a missing value).
                 char const* const Nickname = Reader.get_value_string(1);
                 TString<16> Name;
@@ -97,7 +93,7 @@ void FKnowledgeMap::Load()
                 Id = Reputation::get_id(Name);
             }
 
-            // 0x004595d4..0x0045964f: a new key gets a tree node; a known one a link after its
+            // a new key gets a tree node; a known one a link after its
             // first line.
             std::map<unsigned, FKnowledgeMapEntry>::iterator const It = Entries.find(Key);
             if (It == Entries.end())
@@ -120,7 +116,7 @@ void FKnowledgeMap::Load()
 
 void FKnowledgeMap::MarkKnown(unsigned Key)
 {
-    // FUN_00459210 (RET 4).
+    // (RET 4).
     FKnowledgeMapEntry const* const Entry = KnowledgeFind(this, Key);
     if (Entry == nullptr)
     {
@@ -136,11 +132,11 @@ void FKnowledgeMap::MarkKnown(unsigned Key)
 
 bool FKnowledgeMap::Resolve(FmtStr const* Text, unsigned* OutId, unsigned char* OutFlags)
 {
-    // FUN_004592b0 (RET 0xc).
+    // (RET 0xc).
     FKnowledgeMapEntry const* Entry = KnowledgeFind(this, Text->MadLibId);
     if (Entry == nullptr)
     {
-        // 0x004592fc..0x0045940f: the values in list order; the jump table 0x00459424 over
+        // the values in list order; the jump table 0x00459424 over
         // TypeTag - 0x42 (0x00459438).
         for (FmtStr::Val const* Val = Text->Head; Val != nullptr; Val = Val->Next)
         {
@@ -149,7 +145,7 @@ bool FKnowledgeMap::Resolve(FmtStr const* Text, unsigned* OutId, unsigned char* 
             {
             case 0x73: // 's'
                 Key = Val->Value;
-                // 0x00459331..0x00459338: marked known through DAT_0066d334 first.
+                // marked known through the field first.
                 G_KnowledgeMap->MarkKnown(Key);
                 break;
             case 0x53: // 'S'
@@ -175,7 +171,7 @@ bool FKnowledgeMap::Resolve(FmtStr const* Text, unsigned* OutId, unsigned char* 
             return false;
         }
     }
-    // 0x004592de..0x004592f3
+
     *OutId = Entry->Id;
     *OutFlags = Entry->Flags;
     return true;
@@ -183,7 +179,7 @@ bool FKnowledgeMap::Resolve(FmtStr const* Text, unsigned* OutId, unsigned char* 
 
 void KnowledgeMapCreate()
 {
-    // FUN_00459830.
+    // .
     if (G_KnowledgeMap != nullptr)
     {
         return;
@@ -195,19 +191,19 @@ void KnowledgeMapCreate()
 
 void KnowledgeMapDestroy()
 {
-    // FUN_00459900.
+    // .
     FKnowledgeMap* const Map = G_KnowledgeMap;
     if (Map == nullptr)
     {
         return;
     }
-    delete Map; // FUN_00459060 + FUN_005b7e1d
+    delete Map; // + the routine
     G_KnowledgeMap = nullptr;
 }
 
 void KnowledgeMapReveal(unsigned Key)
 {
-    // FUN_00459930.
+    // .
     if (G_KnowledgeMap != nullptr)
     {
         G_KnowledgeMap->MarkKnown(Key);
@@ -216,15 +212,15 @@ void KnowledgeMapReveal(unsigned Key)
 
 void KnowledgeMapRevealFmtStr(FmtStr const* Text)
 {
-    // FUN_00459950.
+    // .
     if (G_KnowledgeMap == nullptr)
     {
         return;
     }
     G_KnowledgeMap->MarkKnown(Text->MadLibId);
 
-    // 0x0045996c..0x00459a4e: the jump table 0x00459a5c over TypeTag - 0x21 (0x00459a78).
-    // DAT_0066d334 is re-read for every call.
+    // the jump table 0x00459a5c over TypeTag - 0x21 (0x00459a78).
+    // is re-read for every call.
     for (FmtStr::Val const* Val = Text->Head; Val != nullptr; Val = Val->Next)
     {
         switch (Val->TypeTag)
@@ -272,7 +268,7 @@ void KnowledgeMapRevealFmtStr(FmtStr const* Text)
 
 bool KnowledgeMapLookupFmtStr(FmtStr const* Text, unsigned* OutId, unsigned char* OutFlags)
 {
-    // FUN_00459ad0.
+    // .
     if (G_KnowledgeMap == nullptr)
     {
         return false;

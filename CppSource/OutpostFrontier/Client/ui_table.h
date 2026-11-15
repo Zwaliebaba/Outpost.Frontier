@@ -1,26 +1,22 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
-// Retail UITable (RTTI .?AUUITable@@ : Win3D, vftable 0x005e5744) -- a PAGE_*.txt grid: row and
+// baseline UITable (RTTI .?AUUITable@@ : Win3D, vftable 0x005e5744) -- a PAGE_*.txt grid: row and
 // column edges the mouse can drag, one optional BaseRichTextWin per cell laid out on the grid,
 // a selectable / hoverable row highlight and a line frame.
-//
-// Built by WINFACTORY<UITable> DAT_0067da00 (static init LAB_00599220 -> FUN_00599250 "UITable",
-// atexit LAB_00599240 -> FUN_00579380; vftable 0x005e57b8, Create FUN_005992c0 =
-// operator_new(0x13c)). Constructor FUN_00597cd0 (Win3D ctor inlined), destructor FUN_00597ed0
-// (scalar deleting FUN_00597eb0).
-//
+
+// Built by WINFACTORY<UITable> the field (static init the branch -> the routine "UITable",
+// atexit the branch -> the routine; vftable 0x005e57b8, Create the routine =
+// operator_new(0x13c)). Constructor the routine (Win3D ctor inlined), destructor the routine
+// (scalar deleting the routine).
+
 // vftable 0x005e5744 overrides (the rest are Win3D's):
-//   0 FUN_00597eb0 dtor, 4 LAB_00599160 HitTest, 5 LAB_00598850 SetPosition,
-//   8 LAB_005987e0 SetTransform, 9 LAB_00598490 Create, 11 LAB_005988c0 Update,
-//   13 FUN_00598c40 Draw, 19 LAB_00599090 MouseEvent
-//
-// Retail layout (0x13c; the port keeps the members, not the VC6 vector layout):
+//   0 the routine dtor, 4 the branch HitTest, 5 the branch SetPosition,
+//   8 the branch SetTransform, 9 the branch Create, 11 the branch Update,
+//   13 the routine Draw, 19 the branch MouseEvent
+
+// baseline layout (0x13c; the port keeps the members, not the VC6 vector layout):
 //   +0x07c Width, +0x080 Height (payload [0], [1])
 //   +0x084 vector<BaseRichTextWin*> cells, Rows * Columns, index Columns * Row + Col
 //   +0x094 vector<float> row edges (payload +0x08 entries; y, 0 at the top, going negative)
@@ -44,10 +40,10 @@
 
 class BaseRichTextWin;
 
-// One +0x0b4 element (8 bytes). The copy constructor is retail's FUN_005999d0: it copies byte 1
+// One +0x0b4 element (8 bytes). The copy constructor is baseline's the routine: it copies byte 1
 // and the handle but NOT byte 0, so an element built by copy (every element vector::resize adds,
 // and every element moved by a reallocation) keeps whatever byte 0 the allocator returned. The
-// copy assignment (inlined in FUN_00599610 / FUN_005998f0) copies both bytes and the handle.
+// copy assignment (inlined in the routine / the routine) copies both bytes and the handle.
 struct FUiTableRow
 {
     // Create's prototype row (0x00598625..0x0059862a): {1, 1, null}.
@@ -61,7 +57,7 @@ struct FUiTableRow
         : bSelectable(Other.bSelectable)
         , Payload(Other.Payload)
     {
-        // FUN_005999d0: byte 0 is left untouched.
+        // byte 0 is left untouched.
     }
 
     FUiTableRow& operator=(FUiTableRow const& Other)
@@ -72,7 +68,7 @@ struct FUiTableRow
         return *this;
     }
 
-    // FUN_005987a0 -- the handle's release.
+    // the handle's release.
     ~FUiTableRow()
     {
     }
@@ -85,32 +81,32 @@ struct FUiTableRow
 class UiTable : public Win3D
 {
 public:
-    // FUN_00597cd0
+
     UiTable();
-    // FUN_00597ed0 (scalar deleting FUN_00597eb0)
+    // (scalar deleting the routine)
     ~UiTable() override;
 
-    // slot 4 LAB_00599160
+    // slot 4 the branch
     bool HitTest(float const* Ray) override;
-    // slot 5 LAB_00598850
+    // slot 5 the branch
     void SetPosition(float const* NewPosition) override;
-    // slot 8 LAB_005987e0
+    // slot 8 the branch
     void SetTransform(float const* Transform) override;
-    // slot 9 LAB_00598490 (RET 8)
+    // slot 9 the branch (RET 8)
     bool Create(Win3D* NewParent, void* Data) override;
-    // slot 11 LAB_005988c0
+    // slot 11 the branch
     void Update() override;
-    // slot 13 FUN_00598c40
+    // slot 13 the routine
     void Draw() override;
-    // slot 19 LAB_00599090 (RET 4)
+    // slot 19 the branch (RET 4)
     bool MouseEvent(FWin3DMouseEvent const* Event) override;
 
-    // FUN_00597ff0 (RET 8) -- move column edge Index (1..count-1) to X, clamped between its
+    // (RET 8) -- move column edge Index (1..count-1) to X, clamped between its
     // neighbours; false for edge 0 or an index out of range.
     bool SetColumnEdge(unsigned Index, float X);
-    // FUN_00598100 (RET 8) -- the same for row edge Index and Y.
+    // (RET 8) -- the same for row edge Index and Y.
     bool SetRowEdge(unsigned Index, float Y);
-    // FUN_00598210 (RET 0x10) -- place and size the cells of rows [RowStart, RowStart + RowCount)
+    // (RET 0x10) -- place and size the cells of rows [RowStart, RowStart + RowCount)
     // and columns [ColStart, ColStart + ColCount); a zero count means "to the end".
     void Layout(unsigned RowStart, unsigned RowCount, unsigned ColStart, unsigned ColCount);
 

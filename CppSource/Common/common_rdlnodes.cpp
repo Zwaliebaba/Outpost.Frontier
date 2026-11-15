@@ -1,15 +1,11 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // RDLNode and its twelve node classes (NullNode .. RDLRefNode) -- split out of common_text.cpp
-// (retail RichDisplayList.cpp) in CMN-SPLIT phase B.
+// (baseline RichDisplayList.cpp) in CMN-SPLIT phase B.
 
 #include "common_text.h"
 #include "common_text_internal.h"
-#include "dacom.h"
+#include "neuroncomponents.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -43,7 +39,7 @@ RDLNode::~RDLNode()
 {
 }
 
-// The 24 node-type queries. Every base body is Common.dll.txt 0x06325390 (ICF-folded,
+// The 24 node-type queries. Every base body is Common 0x06325390 (ICF-folded,
 // ordinals 917-940): `XOR EAX,EAX; RET` -- not this class. Each subclass overrides its own
 // pair with 0x06261260 `MOV EAX,ECX; RET` (defined next to that class below).
 RDLNode::operator TextNode*() { return nullptr; }
@@ -120,7 +116,7 @@ NullNode::NullNode(const NullNode& Other) : RDLNode(Other) {}
 // the constructor is skipped (TEST EAX,EAX / JZ -> return 0) -- `new (std::nothrow)`.
 RDLNode* NullNode::Clone() const
 {
-    // .text:06328630: operator new(4), vftable stamped.
+    // operator new(4), vftable stamped.
     return new (std::nothrow) NullNode(*this);
 }
 
@@ -138,13 +134,13 @@ bool NullNode::SplitAtSize(const TextRenderContext&, int, unsigned int, RDLNode*
 
 // --- TRANode ---
 
-// DAT_0640957c — retail's default TRANode attribute mask, same shared global consolidated as
+// — baseline's default TRANode attribute mask, same shared global consolidated as
 // GDefaultTextAttribsPacked (common_text_internal.h; TextRenderContext ctor). A default-constructed
 // TRANode starts with this in Attrs.Packed rather than 0.
 
 TRANode::TRANode() : RDLNode()
 {
-    // RVA 0xC8650. Unused08 is left uninitialized by retail (never read anywhere); the port
+    // RVA 0xC8650. Unused08 is left uninitialized by baseline (never read anywhere); the port
     // zeroes it.
     Attrs.Packed = GDefaultTextAttribsPacked;
     Unused08 = 0;
@@ -165,7 +161,7 @@ TRANode::TRANode(const TextRenderAttributes& InAttrs, unsigned int InMask, unsig
 
 TRANode::TRANode(const TRANode& Other) : RDLNode(Other)
 {
-    // .text:06325490: +0x04, +0x0C and +0x10 copied; +0x08 is not (the port zeroes it).
+    // +0x04, +0x0C and +0x10 copied; +0x08 is not (the port zeroes it).
     Attrs = Other.Attrs;
     Unused08 = 0;
     Mask = Other.Mask;
@@ -174,7 +170,7 @@ TRANode::TRANode(const TRANode& Other) : RDLNode(Other)
 
 TRANode& TRANode::operator=(const TRANode& Other)
 {
-    // .text:063254c0: +0x04, +0x0C, +0x10 copied, no self test.
+    // +0x04, +0x0C, +0x10 copied, no self test.
     Attrs = Other.Attrs;
     Mask = Other.Mask;
     DefaultMask = Other.DefaultMask;
@@ -189,16 +185,16 @@ void TRANode::set_attributes(const TextRenderAttributes& InAttrs, unsigned int I
     Attrs.Packed = InAttrs.Packed & InMask;
 }
 
-// Retail accessors (ICF-folded one-liners): +0x04 attributes, +0x0C mask, +0x10 default mask.
-const TextRenderAttributes& TRANode::get_attributes() { return Attrs; }        // 0x0632e7a0
-unsigned int TRANode::get_mask() { return Mask; }                              // 0x0629fb90
-void TRANode::set_mask(unsigned int InMask) { Mask = InMask; }                 // 0x06332f40
-unsigned int TRANode::get_default_mask() { return DefaultMask; }               // 0x06263a70
-void TRANode::set_default_mask(unsigned int InMask) { DefaultMask = InMask; }  // 0x06332f50
+// baseline accessors (ICF-folded one-liners): +0x04 attributes, +0x0C mask, +0x10 default mask.
+const TextRenderAttributes& TRANode::get_attributes() { return Attrs; }
+unsigned int TRANode::get_mask() { return Mask; }
+void TRANode::set_mask(unsigned int InMask) { Mask = InMask; }
+unsigned int TRANode::get_default_mask() { return DefaultMask; }
+void TRANode::set_default_mask(unsigned int InMask) { DefaultMask = InMask; }
 
 RDLNode* TRANode::Clone() const
 {
-    // .text:06328710: the 3-argument constructor inlined, not a field copy -- the clone's
+    // the 3-argument constructor inlined, not a field copy -- the clone's
     // attributes are re-masked by the mask (+0x4 = src+0x4 & src+0xc), +0xc / +0x10 copied.
     return new (std::nothrow) TRANode(Attrs, Mask, DefaultMask);
 }
@@ -243,7 +239,7 @@ void TRANode::GetElementPos(int, TextRenderContext&, int& OutPos) const
 }
 
 // RVA 0xC9810 — ICF-folded with all non-text node SplitAtSize implementations.
-// Retail body: *OutLeft = nullptr; *OutRight = nullptr; return false;
+// baseline body: *OutLeft = nullptr; *OutRight = nullptr; return false;
 bool TRANode::SplitAtSize(const TextRenderContext&, int, unsigned int, RDLNode*& OutLeft, RDLNode*& OutRight) const
 {
     OutLeft = nullptr;
@@ -252,25 +248,25 @@ bool TRANode::SplitAtSize(const TextRenderContext&, int, unsigned int, RDLNode*&
 }
 
 // --- TextNode ---
-//
-// Retail keeps one VC6 basic_string<unsigned short> at +0x04 (ctor 0x06328750 zeroes the
+
+// baseline keeps one VC6 basic_string<unsigned short> at +0x04 (ctor 0x06328750 zeroes the
 // allocator byte and the pointer/length/reserve dwords); the port holds a std::wstring. The
 // MSVCP60 reference-count, _Tidy/_Grow/_Xran/_Xlen calls in the listings are that string's
 // own inlined members; each function below names the std::wstring operation it performs.
 
 TextNode::TextNode() : RDLNode()
 {
-    // .text:06328750: an empty string.
+    // an empty string.
 }
 
 TextNode::TextNode(const TextNode& Other) : RDLNode(Other), Text(Other.Text)
 {
-    // .text:06325540: string copy-construct.
+    // string copy-construct.
 }
 
 TextNode::TextNode(const std::wstring& InText, int Len) : RDLNode()
 {
-    // .text:06328770-063288d4: `if (Len < 0) Len = InText.size();` then
+    // `if (Len < 0) Len = InText.size();` then
     // Text.assign(InText, 0, Len) -- the count is clamped to InText.size() (063287c3..063287cc).
     if (Len < 0)
     {
@@ -281,7 +277,7 @@ TextNode::TextNode(const std::wstring& InText, int Len) : RDLNode()
 
 TextNode::TextNode(const wchar_t* InText, int Len) : RDLNode()
 {
-    // .text:063288e0-063289df: `if (Len < 0) Len = wcslen(InText);` then Text.assign(InText, Len).
+    // `if (Len < 0) Len = wcslen(InText);` then Text.assign(InText, Len).
     if (Len < 0)
     {
         Len = (int)wcslen(InText);
@@ -291,19 +287,19 @@ TextNode::TextNode(const wchar_t* InText, int Len) : RDLNode()
 
 TextNode::~TextNode()
 {
-    // .text:063289f0: releases the string.
+    // releases the string.
 }
 
 TextNode& TextNode::operator=(const TextNode& Other)
 {
-    // .text:063256c0: string assign.
+    // string assign.
     Text = Other.Text;
     return *this;
 }
 
 void TextNode::set_text(const std::wstring& InText, int Len)
 {
-    // .text:06328a40-06328b8f: `if (Len < 0) Len = InText.size();` then
+    // `if (Len < 0) Len = InText.size();` then
     // Text.assign(InText, 0, Len), the count clamped to InText.size().
     if (Len < 0)
     {
@@ -314,7 +310,7 @@ void TextNode::set_text(const std::wstring& InText, int Len)
 
 void TextNode::set_text(const wchar_t* InText, int Len)
 {
-    // .text:06328ba0-06328c55: `if (Len < 0) Len = wcslen(InText);` then Text.assign(InText, Len).
+    // `if (Len < 0) Len = wcslen(InText);` then Text.assign(InText, Len).
     if (Len < 0)
     {
         Len = (int)wcslen(InText);
@@ -324,7 +320,7 @@ void TextNode::set_text(const wchar_t* InText, int Len)
 
 void TextNode::append_text(const wchar_t* InText, int Len)
 {
-    // .text:06328c60-06328d1f: Text.append(InText, Len) with Len taken as unsigned -- 0 is a
+    // Text.append(InText, Len) with Len taken as unsigned -- 0 is a
     // no-op (JBE at 06328c87), a negative Len fails the length check (_Xlen at 06328c81) the
     // same way std::wstring::append throws length_error.
     Text.append(InText, (std::wstring::size_type)Len);
@@ -332,44 +328,44 @@ void TextNode::append_text(const wchar_t* InText, int Len)
 
 void TextNode::append_text(const std::wstring& InText, int Len)
 {
-    // .text:06328d30-06328e04: count = min(InText.size(), unsigned Len) (06328d38..06328d48),
+    // count = min(InText.size(), unsigned Len) (06328d38..06328d48),
     // then append that many characters from the start of InText.
     Text.append(InText, 0, (std::wstring::size_type)Len);
 }
 
 const std::wstring& TextNode::get_text() const
 {
-    // .text:0632e7a0: LEA EAX,[ECX+0x4].
+    // LEA EAX,[ECX+0x4].
     return Text;
 }
 
 RDLNode* TextNode::Clone() const
 {
-    // .text:06329130: operator new(0x14), then the string copy-construct inlined.
+    // operator new(0x14), then the string copy-construct inlined.
     return new (std::nothrow) TextNode(*this);
 }
 
 void TextNode::Execute(TextRenderContext& Ctx, bool bHighlight)
 {
-    // .text:06328e10: Ctx.vtbl[+0x18] = execute_text(Text.c_str(), bHighlight, Text.size()).
+    // Ctx.vtbl[+0x18] = execute_text(Text.c_str(), bHighlight, Text.size()).
     Ctx.execute_text(Text.c_str(), bHighlight, (int)Text.size());
 }
 
 void TextNode::GetVisualSize(const TextRenderContext& Ctx, VisualSize& Size) const
 {
-    // .text:06328e40: Ctx.vtbl[+0x0C] = get_text_visual_size(Text.c_str(), Size, Text.size()).
+    // Ctx.vtbl[+0x0C] = get_text_visual_size(Text.c_str(), Size, Text.size()).
     Ctx.get_text_visual_size(Text.c_str(), Size, (int)Text.size());
 }
 
 void TextNode::GetElementSize(int& OutSize) const
 {
-    // .text:06328e70: MOV EAX,[this+0xC] -- the string length.
+    // MOV EAX,[this+0xC] -- the string length.
     OutSize = (int)Text.size();
 }
 
 void TextNode::GetElementPos(int Index, TextRenderContext& Ctx, int& OutPos) const
 {
-    // .text:06328e80-06328edc: the bound comes from this node's own virtual GetElementSize
+    // the bound comes from this node's own virtual GetElementSize
     // (vtbl+0x10); for 0 <= Index < count, measure the first Index characters and return the
     // width (the first dword of the VisualSize); otherwise 0.
     int Count = 0;
@@ -387,22 +383,22 @@ void TextNode::GetElementPos(int Index, TextRenderContext& Ctx, int& OutPos) con
 }
 
 // Helper shared by TextNode::SplitAtSize and TextPtrNode::SplitAtSize.
-// Replicates FUN_06328f20: calls get_text_fit (vtable+0x14) to measure how many
+// Replicates the routine: calls get_text_fit (vtable+0x14) to measure how many
 // characters fit within MaxWidth, then (unless SplitFlags bit 0 is set) backward-scans
 // for whitespace to find a word-boundary split point. Creates two new TextNodes
 // (left = [0..split], right = [split..end]). Returns true if split succeeded.
-//
+
 // SplitFlags -- added 2026-09-10 (item 72966 / LayoutRichText pass) after confirming
-// SplitAtSize's real retail signature carries a 5th (uint) argument. Traced directly
-// into FUN_06328f20's body: `TEST byte ptr [ESP+0x44],0x1; JNZ LAB_06328fa4` at
-// Common.dll.txt 0x06328f71/0x06328f76 skips the whole backward whitespace-scan block
+// SplitAtSize's real baseline signature carries a 5th (uint) argument. Traced directly
+// into the routine's body: `TEST byte ptr [ESP+0x44],0x1; JNZ the branch` at
+// Common 0x06328f71/0x06328f76 skips the whole backward whitespace-scan block
 // (0x06328f78-0x06328f9e) when bit 0 of this flag is set, using the raw get_text_fit
 // count as the split position unmodified. Bit 0 clear (the only value LayoutRichText's
 // one confirmed call site at 0x06326cad ever passes -- a literal 0) runs the scan, i.e.
 // this port's pre-existing behavior below is exactly the bit-0-clear path. Other bits
 // of SplitFlags are unconfirmed -- not guessed at, not read here.
-//
-// 2026-10-08 (CMN-TEXT) full re-trace of FUN_06328f20 (.text:06328f20-06329126, cdecl, 7 args
+
+// 2026-10-08 (CMN-TEXT) full re-trace of the routine (module storage-06329126, cdecl, 7 args
 // (Text, Len, Ctx, MaxSize, Flags, OutLeft*, OutRight*)):
 //   Fit = 0; Ctx.get_text_fit(Text, MaxSize, Fit, 0, <stack VisualSize>, Len) (vtbl+0x14);
 //   Fit >= Len (signed) -> both outputs 0, false;
@@ -411,7 +407,7 @@ void TextNode::GetElementPos(int Index, TextRenderContext& Ctx, int& OutPos) con
 //   Fit == 0 -> both outputs 0, false;
 //   Left = new TextNode(Text, Fit); Right = new TextNode(Text + Fit, Len - Fit) (both inlined:
 //     a negative length means wcslen); *OutLeft = Left, *OutRight = Right, true.
-// The previous port split at the raw fit count when no whitespace was found (retail fails the
+// The previous port split at the raw fit count when no whitespace was found (baseline fails the
 // split instead) and returned early on an empty / null text without calling get_text_fit.
 static bool SplitTextAtSize(const wchar_t* Text, int TextLen,
                             const TextRenderContext& Ctx, int MaxWidth,
@@ -462,8 +458,8 @@ static bool SplitTextAtSize(const wchar_t* Text, int TextLen,
 bool TextNode::SplitAtSize(const TextRenderContext& Ctx, int MaxSize, unsigned int SplitFlags,
                             RDLNode*& OutLeft, RDLNode*& OutRight) const
 {
-    // RVA 0xC8EE0 — a pure forwarding thunk in retail (Common.dll.txt 0x06328ee0-0x06328f13):
-    // pushes this + all 5 args unmodified into FUN_06328f20 (SplitTextAtSize below).
+    // RVA 0xC8EE0 — a pure forwarding thunk in baseline (Common 0x06328ee0-0x06328f13):
+    // pushes this + all 5 args unmodified into the routine (SplitTextAtSize below).
     return SplitTextAtSize(Text.c_str(), (int)Text.size(),
                            Ctx, MaxSize, SplitFlags, OutLeft, OutRight);
 }
@@ -472,21 +468,21 @@ bool TextNode::SplitAtSize(const TextRenderContext& Ctx, int MaxSize, unsigned i
 
 TextPtrNode::TextPtrNode() : RDLNode()
 {
-    // .text:06329300: +0x04 / +0x08 = 0.
+    // +0x04 / +0x08 = 0.
     TextPtr = nullptr;
     TextLen = 0;
 }
 
 TextPtrNode::TextPtrNode(const TextPtrNode& Other) : RDLNode(Other)
 {
-    // .text:06325890: +0x04 / +0x08 copied.
+    // +0x04 / +0x08 copied.
     TextPtr = Other.TextPtr;
     TextLen = Other.TextLen;
 }
 
 TextPtrNode::TextPtrNode(const wchar_t* Text, int Len) : RDLNode()
 {
-    // RVA 0xC9320 -- BUG FIX: retail clamps a negative Len to wcslen(Text),
+    // RVA 0xC9320 -- BUG FIX: baseline clamps a negative Len to wcslen(Text),
     // it does not store it verbatim (same pattern as TextNode::set_text).
     if (Len < 0)
     {
@@ -498,7 +494,7 @@ TextPtrNode::TextPtrNode(const wchar_t* Text, int Len) : RDLNode()
 
 void TextPtrNode::set_text(const wchar_t* Text, int Len)
 {
-    // RVA 0xC9350 -- BUG FIX: same negative-Len-means-wcslen clamp as retail.
+    // RVA 0xC9350 -- BUG FIX: same negative-Len-means-wcslen clamp as baseline.
     if (Len < 0)
     {
         Len = (int)wcslen(Text);
@@ -509,19 +505,19 @@ void TextPtrNode::set_text(const wchar_t* Text, int Len)
 
 const wchar_t* TextPtrNode::get_text() const
 {
-    // 0x062d1ad0 (ICF-folded): MOV EAX,[ECX+0x4]; RET.
+    // (ICF-folded): MOV EAX,[ECX+0x4]; RET.
     return TextPtr;
 }
 
 int TextPtrNode::get_text_length() const
 {
-    // 0x062a66a0 (ICF-folded): MOV EAX,[ECX+0x8]; RET.
+    // (ICF-folded): MOV EAX,[ECX+0x8]; RET.
     return TextLen;
 }
 
 RDLNode* TextPtrNode::Clone() const
 {
-    // .text:06329470: the (Text, Len) constructor inlined, not the copy constructor -- a
+    // the (Text, Len) constructor inlined, not the copy constructor -- a
     // negative length is replaced by wcslen.
     return new (std::nothrow) TextPtrNode(TextPtr, TextLen);
 }
@@ -540,13 +536,13 @@ void TextPtrNode::GetVisualSize(const TextRenderContext& Ctx, VisualSize& Size) 
 
 void TextPtrNode::GetElementSize(int& OutSize) const
 {
-    // Common.dll.c 0xc93d0: *param_1 = *(this+0x8) (TextLen).
+    // Common 0xc93d0: *param_1 = *(this+0x8) (TextLen).
     OutSize = TextLen;
 }
 
 void TextPtrNode::GetElementPos(int Index, TextRenderContext& Ctx, int& OutPos) const
 {
-    // .text:063293e0: Count = this->GetElementSize() (vtbl+0x10, TextLen); out of [0, Count)
+    // Count = this->GetElementSize() (vtbl+0x10, TextLen); out of [0, Count)
     // writes 0, otherwise Ctx vtbl+0xc (TextPtr, &Size, Index) and Width. No null test of TextPtr.
     int Count = 0;
     GetElementSize(Count);
@@ -565,19 +561,19 @@ void TextPtrNode::GetElementPos(int Index, TextRenderContext& Ctx, int& OutPos) 
 bool TextPtrNode::SplitAtSize(const TextRenderContext& Ctx, int MaxSize, unsigned int SplitFlags,
                                RDLNode*& OutLeft, RDLNode*& OutRight) const
 {
-    // .text:06329440: forwards ([this+4], [this+8], Ctx, MaxSize, Flags, OutLeft, OutRight) to
-    // FUN_06328f20 (SplitTextAtSize).
+    // forwards ([this+4], [this+8], Ctx, MaxSize, Flags, OutLeft, OutRight) to
+    // (SplitTextAtSize).
     return SplitTextAtSize(TextPtr, TextLen, Ctx, MaxSize, SplitFlags,
                            OutLeft, OutRight);
 }
 
 // --- AttribStackNode ---
 
-// Common.dll.c 0xc94b0: retail default-constructs the operation to 3 (neither push nor pop),
+// Common 0xc94b0: baseline default-constructs the operation to 3 (neither push nor pop),
 // not 0.
 AttribStackNode::AttribStackNode() : RDLNode() { Operation = (Op)3; }
 
-// Common.dll.c 0xc94c0: stores the caller-supplied Op verbatim (no validation/clamping).
+// Common 0xc94c0: stores the caller-supplied Op verbatim (no validation/clamping).
 AttribStackNode::AttribStackNode(Op op) : RDLNode() { Operation = op; }
 
 AttribStackNode::AttribStackNode(const AttribStackNode& Other) : RDLNode(Other)
@@ -587,30 +583,30 @@ AttribStackNode::AttribStackNode(const AttribStackNode& Other) : RDLNode(Other)
 
 AttribStackNode& AttribStackNode::operator=(const AttribStackNode& Other)
 {
-    // .text:06325980: +0x04 copied, no self test.
+    // +0x04 copied, no self test.
     Operation = Other.Operation;
     return *this;
 }
 
 AttribStackNode::Op AttribStackNode::get_operation()
 {
-    // 0x062d1ad0 (ICF-folded): MOV EAX,[ECX+0x4]; RET.
+    // (ICF-folded): MOV EAX,[ECX+0x4]; RET.
     return Operation;
 }
 
 void AttribStackNode::set_operation(Op op)
 {
-    // 0x06309b30 (ICF-folded): MOV EAX,[ESP+4]; MOV [ECX+0x4],EAX; RET 4.
+    // (ICF-folded): MOV EAX,[ESP+4]; MOV [ECX+0x4],EAX; RET 4.
     Operation = op;
 }
 
-RDLNode* AttribStackNode::Clone() const { return new (std::nothrow) AttribStackNode(*this); } // .text:063295b0
+RDLNode* AttribStackNode::Clone() const { return new (std::nothrow) AttribStackNode(*this); }
 
 void AttribStackNode::Execute(TextRenderContext& Ctx, bool)
 {
-    // .text:063294e0: switch on the operation, each case the inlined body of the matching
-    // TextRenderContext attribute-stack call. 0 = push_front(CurrentAttrs) (LAB_06329561),
-    // 1 = pop_front (LAB_06329533), 2 = erase every node (06329506 loop); anything else nothing.
+    // switch on the operation, each case the inlined body of the matching
+    // TextRenderContext attribute-stack call. 0 = push_front(CurrentAttrs) (the branch),
+    // 1 = pop_front (the branch), 2 = erase every node (06329506 loop); anything else nothing.
     switch ((int)Operation)
     {
     case 0:
@@ -646,10 +642,10 @@ ImageNode::ImageNode(const ImageNode& Other) : RDLNode(Other) { Img = Other.Img;
 // RVA 0xC95F0 — the pointer goes straight into +0x04, no lookup.
 ImageNode::ImageNode(TextRenderContext::Image const* InImg) : RDLNode() { Img = InImg; }
 
-// Common.dll.c 0xc9610: clears Img (non-owning pointer -- not deleted) before chaining
+// Common 0xc9610: clears Img (non-owning pointer -- not deleted) before chaining
 // to ~RDLNode(). Functionally equivalent to the implicit default dtor this class had
 // before, since nothing reads Img after this point either way; added explicitly to
-// match retail 1:1.
+// match baseline 1:1.
 ImageNode::~ImageNode()
 {
     Img = nullptr;
@@ -657,27 +653,27 @@ ImageNode::~ImageNode()
 
 ImageNode& ImageNode::operator=(const ImageNode& Other)
 {
-    // .text:06325980 (ICF-shared with AttribStackNode/JustifyNode::operator=): +0x04 copied,
+    // (ICF-shared with AttribStackNode/JustifyNode::operator=): +0x04 copied,
     // no self test.
     Img = Other.Img;
     return *this;
 }
 
-RDLNode* ImageNode::Clone() const { return new (std::nothrow) ImageNode(*this); } // .text:063296c0
+RDLNode* ImageNode::Clone() const { return new (std::nothrow) ImageNode(*this); }
 
 void ImageNode::Execute(TextRenderContext& Ctx, bool bHighlight)
 {
-    // .text:06329620: Ctx.vtbl[+0x1C](Img, bHighlight) -- the image pointer and this call's
+    // Ctx.vtbl[+0x1C](Img, bHighlight) -- the image pointer and this call's
     // flag go straight through, no null check.
     Ctx.execute_image(Img, bHighlight);
 }
 
-TextRenderContext::Image const* ImageNode::get_image() { return Img; }         // 0x062d1ad0
-void ImageNode::set_image(TextRenderContext::Image const* InImg) { Img = InImg; } // 0x06309b30
+TextRenderContext::Image const* ImageNode::get_image() { return Img; }
+void ImageNode::set_image(TextRenderContext::Image const* InImg) { Img = InImg; }
 
 void ImageNode::GetVisualSize(const TextRenderContext&, VisualSize& Size) const
 {
-    // .text:06329640: no image -> all four zero. Otherwise Width = ftol(DAT_063ed66c (ScaleY)
+    // no image -> all four zero. Otherwise Width = ftol(the field (ScaleY)
     // * Img->Width), then Height = Ascent = ftol(ScaleY * Img->Height), Descent = 0.
     if (Img == nullptr)
     {
@@ -710,7 +706,7 @@ bool ImageNode::SplitAtSize(const TextRenderContext&, int, unsigned int, RDLNode
 
 PositionNode::PositionNode() : RDLNode()
 {
-    // .text:063296f0: both flag bytes and both float dwords zeroed.
+    // both flag bytes and both float dwords zeroed.
     bRelH = false; bRelV = false; PosV = 0.0f; PosH = 0.0f;
 }
 
@@ -725,7 +721,7 @@ PositionNode::PositionNode(const PositionNode& Other) : RDLNode(Other)
 
 PositionNode& PositionNode::operator=(const PositionNode& Other)
 {
-    // .text:06325a20: bytes +4/+5 then dwords +8/+0xC copied, no self test.
+    // bytes +4/+5 then dwords +8/+0xC copied, no self test.
     bRelH = Other.bRelH;
     bRelV = Other.bRelV;
     PosV = Other.PosV;
@@ -740,18 +736,18 @@ void PositionNode::set_pos(float H, float V)
     PosV = V;
 }
 
-bool PositionNode::is_rel_h() { return bRelH; }         // 0x06329740
-bool PositionNode::is_rel_v() { return bRelV; }         // 0x06329750
-float PositionNode::get_pos_h() { return PosH; }        // 0x06261db0
-float PositionNode::get_pos_v() { return PosV; }        // 0x06261da0
-void PositionNode::set_pos_h(float H) { PosH = H; }     // 0x06332f40
-void PositionNode::set_pos_v(float V) { PosV = V; }     // 0x0631d940
+bool PositionNode::is_rel_h() { return bRelH; }
+bool PositionNode::is_rel_v() { return bRelV; }
+float PositionNode::get_pos_h() { return PosH; }
+float PositionNode::get_pos_v() { return PosV; }
+void PositionNode::set_pos_h(float H) { PosH = H; }
+void PositionNode::set_pos_v(float V) { PosV = V; }
 void PositionNode::set_rel_h(bool bRel) { bRelH = bRel; }
 void PositionNode::set_rel_v(bool bRel) { bRelV = bRel; }
 
 RDLNode* PositionNode::Clone() const
 {
-    // .text:06329830: the default constructor (all four fields zeroed) inside the null-checked
+    // the default constructor (all four fields zeroed) inside the null-checked
     // new-expression, then the four fields copied UNCONDITIONALLY -- a failed allocation writes
     // through null (deterministic fault, reproduced). The floats go through FLD/FSTP: PosV is
     // loaded first, PosH stored first.
@@ -781,7 +777,7 @@ void PositionNode::Execute(TextRenderContext& Ctx, bool)
 
 void PositionNode::GetVisualSize(const TextRenderContext&, VisualSize& Size) const
 {
-    // .text:063297c0: all four zeroed, then Width = ftol(PosH) when bRelH and
+    // all four zeroed, then Width = ftol(PosH) when bRelH and
     // Height = ftol(PosV) when bRelV (truncation toward zero).
     Size.Width = 0; Size.Height = 0; Size.Ascent = 0; Size.Descent = 0;
     if (bRelH)
@@ -803,21 +799,21 @@ bool PositionNode::SplitAtSize(const TextRenderContext&, int, unsigned int, RDLN
 
 // --- ParagraphNode ---
 
-// Common.dll.c 0xc5ab0
+// Common 0xc5ab0
 ParagraphNode::ParagraphNode() : RDLNode() {}
 ParagraphNode::ParagraphNode(const ParagraphNode& Other) : RDLNode(Other) {}
 
-RDLNode* ParagraphNode::Clone() const { return new (std::nothrow) ParagraphNode(*this); } // .text:063298b0
+RDLNode* ParagraphNode::Clone() const { return new (std::nothrow) ParagraphNode(*this); }
 
 void ParagraphNode::Execute(TextRenderContext&, bool)
 {
-    // Vtable slot +0x4 of ??_7ParagraphNode@@6B@ (.rdata:063a4298) is the ICF-shared `RET 8`
+    // Vtable slot +0x4 of ??_7ParagraphNode@@6B@ (module storage) is the ICF-shared `RET 8`
     // at 0x0628f050.
 }
 
 void ParagraphNode::GetVisualSize(const TextRenderContext& Ctx, VisualSize& Size) const
 {
-    // .text:06329880: a line break measures as an empty run one text line tall -- Width = 0,
+    // a line break measures as an empty run one text line tall -- Width = 0,
     // Height = Ctx vtbl+0x08 (get_cell_height), then Ctx vtbl+0x10 (get_font_metrics) writes
     // Ascent and Descent.
     Size.Width = 0;
@@ -834,7 +830,7 @@ bool ParagraphNode::SplitAtSize(const TextRenderContext&, int, unsigned int, RDL
 
 // --- JustifyNode ---
 
-// RVA 0xC98D0: MOV [EAX+0x4],arg. The default argument (TextJustifyLeft, 0) is retail's own:
+// RVA 0xC98D0: MOV [EAX+0x4],arg. The default argument (TextJustifyLeft, 0) is baseline's own:
 // its exported `default constructor closure' 0x06325af0 is `PUSH 0; CALL 063298d0; RET`.
 JustifyNode::JustifyNode(TextJustify Mode) : RDLNode()
 {
@@ -847,7 +843,7 @@ JustifyNode::JustifyNode(const JustifyNode& Other) : RDLNode(Other)
 
 JustifyNode& JustifyNode::operator=(const JustifyNode& Other)
 {
-    // .text:06325980 (ICF-shared with AttribStackNode/ImageNode::operator=): +0x04 copied,
+    // (ICF-shared with AttribStackNode/ImageNode::operator=): +0x04 copied,
     // no self test.
     JustifyMode = Other.JustifyMode;
     return *this;
@@ -855,21 +851,21 @@ JustifyNode& JustifyNode::operator=(const JustifyNode& Other)
 
 TextJustify JustifyNode::get_justify()
 {
-    // 0x062d1ad0 (ICF-folded): MOV EAX,[ECX+0x4]; RET.
+    // (ICF-folded): MOV EAX,[ECX+0x4]; RET.
     return JustifyMode;
 }
 
 void JustifyNode::set_justify(TextJustify Mode)
 {
-    // 0x06309b30 (ICF-folded): MOV EAX,[ESP+4]; MOV [ECX+0x4],EAX; RET 4.
+    // (ICF-folded): MOV EAX,[ESP+4]; MOV [ECX+0x4],EAX; RET 4.
     JustifyMode = Mode;
 }
 
-RDLNode* JustifyNode::Clone() const { return new (std::nothrow) JustifyNode(*this); } // .text:063298f0
+RDLNode* JustifyNode::Clone() const { return new (std::nothrow) JustifyNode(*this); }
 
 void JustifyNode::Execute(TextRenderContext&, bool)
 {
-    // RVA 0xC98C0 (ICF-folded to 0x2F050) — no-op in retail
+    // RVA 0xC98C0 (ICF-folded to 0x2F050) — no-op in baseline
 }
 
 void JustifyNode::GetVisualSize(const TextRenderContext&, VisualSize& Size) const
@@ -911,7 +907,7 @@ ClipNode::ClipNode(const ClipNode& Other) : RDLNode(Other)
 
 ClipNode& ClipNode::operator=(const ClipNode& Other)
 {
-    // .text:06325b40: the four RECT dwords at +4 copied in order, no self test.
+    // the four RECT dwords at +4 copied in order, no self test.
     ClipRect.left = Other.ClipRect.left;
     ClipRect.top = Other.ClipRect.top;
     ClipRect.right = Other.ClipRect.right;
@@ -921,7 +917,7 @@ ClipNode& ClipNode::operator=(const ClipNode& Other)
 
 void ClipNode::set_rect(tagRECT const& Rect)
 {
-    // RVA 0xC9970 -- retail reads Rect.left/top/right/bottom, not 4 int params.
+    // RVA 0xC9970 -- baseline reads Rect.left/top/right/bottom, not 4 int params.
     ClipRect.left = Rect.left;
     ClipRect.top = Rect.top;
     ClipRect.right = Rect.right;
@@ -930,11 +926,11 @@ void ClipNode::set_rect(tagRECT const& Rect)
 
 const tagRECT& ClipNode::get_rect()
 {
-    // 0x0632e7a0 (ICF-folded): LEA EAX,[ECX+0x4]; RET.
+    // (ICF-folded): LEA EAX,[ECX+0x4]; RET.
     return ClipRect;
 }
 
-RDLNode* ClipNode::Clone() const { return new (std::nothrow) ClipNode(*this); } // .text:063299c0
+RDLNode* ClipNode::Clone() const { return new (std::nothrow) ClipNode(*this); }
 
 void ClipNode::Execute(TextRenderContext& Ctx, bool)
 {
@@ -973,16 +969,16 @@ StyleNode::StyleNode(const StyleNode& Other) : RDLNode(Other)
 
 StyleNode& StyleNode::operator=(const StyleNode& Other)
 {
-    // .text:06325b90: word +4 copied, no self test.
+    // word +4 copied, no self test.
     StyleId = Other.StyleId;
     return *this;
 }
 
-// 0x06329a30: MOV AX,[ECX+0x4]; RET. Non-const in retail (QAE).
+// MOV AX,[ECX+0x4]; RET. Non-const in baseline (QAE).
 unsigned short StyleNode::get_style_id() { return StyleId; }
 void StyleNode::set_style_id(unsigned short Id) { StyleId = Id; }
 
-RDLNode* StyleNode::Clone() const { return new (std::nothrow) StyleNode(*this); } // .text:06329b10
+RDLNode* StyleNode::Clone() const { return new (std::nothrow) StyleNode(*this); }
 
 void StyleNode::Execute(TextRenderContext& Ctx, bool bHighlight)
 {
@@ -1003,25 +999,25 @@ bool StyleNode::SplitAtSize(const TextRenderContext&, int, unsigned int, RDLNode
 
 // --- RDLRefNode ---
 
-// 0x06325df0: MOV [EAX+0x4],arg -- binds the reference member.
+// MOV [EAX+0x4],arg -- binds the reference member.
 RDLRefNode::RDLRefNode(RenderDisplayList& Ref) : RDLNode(), List(Ref)
 {
 }
 
-// 0x06325e10: copies the +0x04 reference (the same list, not a copy of it).
+// copies the +0x04 reference (the same list, not a copy of it).
 RDLRefNode::RDLRefNode(const RDLRefNode& Other) : RDLNode(Other), List(Other.List)
 {
 }
 
 const RenderDisplayList& RDLRefNode::get_list()
 {
-    // 0x062d1ad0 (ICF-folded): MOV EAX,[ECX+0x4]; RET.
+    // (ICF-folded): MOV EAX,[ECX+0x4]; RET.
     return List;
 }
 
 void RDLRefNode::Update(float Dt)
 {
-    // .text:06329b70: from the referenced list's head->Next until the head, call each node's
+    // from the referenced list's head->Next until the head, call each node's
     // vtbl+8 (Update) with Dt. No null tests: the head always exists and nodes are never null.
     FRdlListNode* const Sentinel = List.NodeList;
     for (FRdlListNode* Cur = Sentinel->Next; Cur != Sentinel; Cur = Cur->Next)
@@ -1030,24 +1026,24 @@ void RDLRefNode::Update(float Dt)
     }
 }
 
-RDLNode* RDLRefNode::Clone() const { return new (std::nothrow) RDLRefNode(*this); } // .text:06329c40
+RDLNode* RDLRefNode::Clone() const { return new (std::nothrow) RDLRefNode(*this); }
 
 void RDLRefNode::Execute(TextRenderContext& Ctx, bool bHighlight)
 {
-    // .text:06329b40: the referenced list's execute inlined (every node's vtbl+0x04).
+    // the referenced list's execute inlined (every node's vtbl+0x04).
     List.execute(Ctx, bHighlight);
 }
 
 void RDLRefNode::GetVisualSize(const TextRenderContext&, VisualSize&) const
 {
-    // Vtable slot +0xc of ??_7RDLRefNode@@6B@ (.rdata:063a44c0) is the ICF-shared `RET 8` at
-    // 0x0628f050: Size is left exactly as the caller had it.
+    // Vtable slot +0xc of ??_7RDLRefNode@@6B@ (module storage) is the ICF-shared `RET 8` at
+    // Size is left exactly as the caller had it.
 }
 
 void RDLRefNode::GetElementSize(int& OutSize) const
 {
-    // .text:06329ba0: the referenced list's get_element_count inlined -- the sum of every
-    // node's vtbl+0x10, stored once at the end. No null tests in retail.
+    // the referenced list's get_element_count inlined -- the sum of every
+    // node's vtbl+0x10, stored once at the end. No null tests in baseline.
     FRdlListNode* const Sentinel = List.NodeList;
     int Accum = 0;
     for (FRdlListNode* Cur = Sentinel->Next; Cur != Sentinel; Cur = Cur->Next)
@@ -1061,7 +1057,7 @@ void RDLRefNode::GetElementSize(int& OutSize) const
 
 void RDLRefNode::GetElementPos(int Index, TextRenderContext& Ctx, int& OutPos) const
 {
-    // .text:06329bf0: the referenced list's get_element_pos(Ctx, Index, &H, &V, &Depth); true ->
+    // the referenced list's get_element_pos(Ctx, Index, &H, &V, &Depth); true ->
     // OutPos = ftol(H) (truncation), false -> 0. The three floats are stack scratch that
     // get_element_pos always writes; the port zero-initialises them.
     float OutH = 0.0f;

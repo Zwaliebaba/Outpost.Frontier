@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "ivp_calc_next_psi_solver.h"
@@ -17,7 +13,7 @@
 #include <cstdint>
 #include "../ivp_utility/ivp_signed_byte.h" // IVP_SignedLowByte
 
-// x87 convention for this file (/arch:IA32): every value retail keeps on the FPU stack is a
+// x87 convention for this file (/arch:IA32): every value baseline keeps on the FPU stack is a
 // `double` here, and a `float` only where the listing has FSTP/FST dword. FCOM outcomes are
 // written as the C++ comparison that is true exactly when the taken side is taken, NaN
 // included (an unordered FCOM sets C0, C2 and C3):
@@ -27,24 +23,24 @@
 
 namespace
 {
-    // .rdata constants, bit patterns read off Common.dll.txt.
-    const float GIvpOne = 1.0f;                          // DAT_063a53d0 (0x3f800000)
-    const float GIvpZero = 0.0f;                         // DAT_063a53d4 (0x00000000)
-    const float GIvpEpsilon = 0x1.b7cdfep-34f;           // DAT_063a53d8 (0x2edbe6ff, 1e-10f)
-    const float GIvpHullResetInterval = 10.0f;           // DAT_063a5400 (0x41200000)
-    const float GIvpHalf = 0.5f;                         // DAT_063a5460 (0x3f000000)
-    const float GIvpOneSixth = 0x1.555556p-3f;           // DAT_063a5624 (0x3e2aaaab)
-    const float GIvpHullGradientScale = 0x1.0000a8p+0f;  // DAT_063a5638 (0x3f800054, 1.00001f)
-    const float GIvpRotStepCountScale = 0x1.1ffffep+7f;  // DAT_063a563c (0x430fffff, 143.99998f)
-    const float GIvpRotStepThreshold = 0x1.c71c74p-6f;   // DAT_063a5640 (0x3ce38e3a, 1/36)
-    const float GIvpAsinFifthOrder = 0x1.9dd6e0p-2f;     // DAT_063a5644 (0x3eceeb70, 0.40414f)
+    // .rdata constants, bit patterns read off Common.
+    const float GIvpOne = 1.0f;                          // (0x3f800000)
+    const float GIvpZero = 0.0f;                         // (0x00000000)
+    const float GIvpEpsilon = 0x1.b7cdfep-34f;           // (0x2edbe6ff, 1e-10f)
+    const float GIvpHullResetInterval = 10.0f;           // (0x41200000)
+    const float GIvpHalf = 0.5f;                         // (0x3f000000)
+    const float GIvpOneSixth = 0x1.555556p-3f;           // (0x3e2aaaab)
+    const float GIvpHullGradientScale = 0x1.0000a8p+0f;  // (0x3f800054, 1.00001f)
+    const float GIvpRotStepCountScale = 0x1.1ffffep+7f;  // (0x430fffff, 143.99998f)
+    const float GIvpRotStepThreshold = 0x1.c71c74p-6f;   // (0x3ce38e3a, 1/36)
+    const float GIvpAsinFifthOrder = 0x1.9dd6e0p-2f;     // (0x3eceeb70, 0.40414f)
 
     bool IsEqualOrUnordered(float A, float B)
     {
         return !(A < B) && !(A > B);
     }
 
-    // FUN_062c4780: x*x + y*y + z*z, result left on the FPU stack.
+    // x*x + y*y + z*z, result left on the FPU stack.
     double QuadLength(const Vector& V)
     {
         const double X = V.x;
@@ -53,13 +49,13 @@ namespace
         return (X * X + Y * Y) + Z * Z;
     }
 
-    // FUN_06347e60: FSQRT of the same sum, result left on the FPU stack.
+    // FSQRT of the same sum, result left on the FPU stack.
     double RealLength(const Vector& V)
     {
         return std::sqrt(QuadLength(V));
     }
 
-    // FUN_0628be60 (thiscall, RET 0xc): this = A + B * Scale, each component rounded at its
+    // (thiscall, RET 0xc): this = A + B * Scale, each component rounded at its
     // own FSTP dword.
     void AddMultiple(Vector* Out, const Vector* A, const Vector* B, float Scale)
     {
@@ -71,8 +67,8 @@ namespace
         Out->z = Z;
     }
 
-    // The hull check retail inlines three times into FUN_06351f80 (:06351f9e-:06352015,
-    // :0635202e-:063520a5, :063520b3-:0635212a) and once into FUN_06351b90
+    // The hull check baseline inlines three times into the routine (:06351f9e-:06352015,
+    // :0635202e-:063520a5, :063520b3-:0635212a) and once into the routine
     // (:06351e02-:06351e79): fire the nearest synapse while the hull value has passed it
     // (at most 102 calls: the counter starts at 100 and is tested after each call,
     // `MOV EAX,EDI; DEC EDI; TEST EAX,EAX; JL`), then rebase the manager once its reset
@@ -109,7 +105,7 @@ namespace
         // is below the edit time (or unordered).
         if (!((double)Hull->TimeOfNextReset >= Hull->LastEditTimeHi))
         {
-            Hull->DrainAndShift(); // FUN_06352220
+            Hull->DrainAndShift();
             // FLD [+0x00]; FADD 10.0f; CALL ftol (truncation).
             Hull->TimeOfNextReset = (int32_t)((double)Hull->LastEditTimeHi + GIvpHullResetInterval);
         }
@@ -117,7 +113,7 @@ namespace
 }
 
 // ============================================================================
-// FUN_06351310 (.text:06351310-063516fd, RET 8).
+// (module storage-063516fd, RET 8).
 // ============================================================================
 void IVP_Calc_Next_PSI_Solver::calc_next_PSI_matrix(IVP_Event_Sim* EventSim, IVP_U_Vector<IVP_Hull_Manager>* ActiveHullManagers)
 {
@@ -165,7 +161,7 @@ void IVP_Calc_Next_PSI_Solver::calc_next_PSI_matrix(IVP_Event_Sim* EventSim, IVP
         }
         else if (!(Core->AxisLock != nullptr && IsEqualOrUnordered(Core->SpeedLimit, GIvpZero)))
         {
-            // :063513c7-:063513dc re-tests the outer condition (always true here; retail's
+            // :063513c7-:063513dc re-tests the outer condition (always true here; baseline's
             // inlined SDK test, kept as written). :063513de-:0635140c:
             //   q = |rot_speed|^2; m = inv_delta_time * max_angular_velocity_per_psi;
             //   FCOMPP q against m*m; TEST AH,0x41; JNZ skip -> fire when q > m*m.
@@ -218,7 +214,7 @@ void IVP_Calc_Next_PSI_Solver::calc_next_PSI_matrix(IVP_Event_Sim* EventSim, IVP
     Core->QWorldFCore = Core->QWorldFCoreNext;
 
     // :06351526-:06351602 -- q_next = q_next * q_core_f_core (Hamilton product, each
-    // component in retail's FPU order; z and w go through a dword store first, x and y are
+    // component in baseline's FPU order; z and w go through a dword store first, x and y are
     // stored straight off the stack).
     {
         const double Ax = Core->QWorldFCoreNext.x;
@@ -242,7 +238,7 @@ void IVP_Calc_Next_PSI_Solver::calc_next_PSI_matrix(IVP_Event_Sim* EventSim, IVP
     }
 
     // :06351608-:06351610
-    Core->QWorldFCoreNext.fast_normize(); // FUN_06351010
+    Core->QWorldFCoreNext.fast_normize();
 
     // :06351615-:0635161c
     calc_psi_rotation_axis(&QCoreFCore);
@@ -288,13 +284,13 @@ void IVP_Calc_Next_PSI_Solver::calc_next_PSI_matrix(IVP_Event_Sim* EventSim, IVP
         // FLD [+0x28]; FSUB ST0,ST1; FCOMP 0.0f; TEST AH,0x1; JZ skip.
         if (!((double)(Hull->PoolKeyThreshold) - NextValue >= GIvpZero))
         {
-            ActiveHullManagers->Add(Hull); // FUN_06352140 + store + INC n_elems
+            ActiveHullManagers->Add(Hull); // + store + INC n_elems
         }
     }
 }
 
 // ============================================================================
-// FUN_06351700 (.text:06351700-06351a48, RET 8).
+// (module storage-06351a48, RET 8).
 // ============================================================================
 void IVP_Calc_Next_PSI_Solver::calc_rotation_matrix(float DeltaTime, IVP_U_Quat* QCoreFCore)
 {
@@ -320,7 +316,7 @@ void IVP_Calc_Next_PSI_Solver::calc_rotation_matrix(float DeltaTime, IVP_U_Quat*
         }
 
         // :06351791-:0635179d
-        QCoreFCore->set_fast_rot_vector(RotSpeedPoint, SubDeltaTime); // FUN_06350aa0
+        QCoreFCore->set_fast_rot_vector(RotSpeedPoint, SubDeltaTime);
 
         // :063517a2-:063517c5
         const float CoeffX = (float)(((double)(Core->RotInertia.y) - Core->RotInertia.z) * Core->InvRotInertia.x);
@@ -391,7 +387,7 @@ void IVP_Calc_Next_PSI_Solver::calc_rotation_matrix(float DeltaTime, IVP_U_Quat*
 
         // :06351946
         IVP_U_Quat Rotation;
-        Rotation.set_rot_vector(&Other, DeltaTime); // FUN_06350b20
+        Rotation.set_rot_vector(&Other, DeltaTime);
 
         // :0635194b-:06351983 -- the wheel quaternion: sin(axis_speed * dt * 0.5) on the axis
         // (stored dword), cos = sqrt(1 - s*s) from the unrounded sine.
@@ -423,11 +419,11 @@ void IVP_Calc_Next_PSI_Solver::calc_rotation_matrix(float DeltaTime, IVP_U_Quat*
     }
 
     // :06351a2c-:06351a3c
-    QCoreFCore->set_rot_vector(reinterpret_cast<const IVP_U_Point*>(&Core->RotSpeed), DeltaTime); // FUN_06350b20
+    QCoreFCore->set_rot_vector(reinterpret_cast<const IVP_U_Point*>(&Core->RotSpeed), DeltaTime);
 }
 
 // ============================================================================
-// FUN_06351a50 (.text:06351a50-06351b86, RET 4).
+// (module storage-06351b86, RET 4).
 // ============================================================================
 void IVP_Calc_Next_PSI_Solver::calc_psi_rotation_axis(const IVP_U_Quat* QCoreFCore)
 {
@@ -480,7 +476,7 @@ void IVP_Calc_Next_PSI_Solver::calc_psi_rotation_axis(const IVP_U_Quat* QCoreFCo
 }
 
 // ============================================================================
-// FUN_06351b90 (.text:06351b90-06351eac, RET 0xc).
+// (module storage-06351eac, RET 0xc).
 // ============================================================================
 void IVP_Calc_Next_PSI_Solver::set_transformation(const IVP_U_Quat* Rotation, const IVP_U_Point* Position, int bOptimizeForRepeatedCalls)
 {
@@ -490,7 +486,7 @@ void IVP_Calc_Next_PSI_Solver::set_transformation(const IVP_U_Quat* Rotation, co
     // :06351b9d-:06351bba -- re-stamp the environment's current time with itself.
     const float CurrentTimeHi = Env->current_time.time_base;  // EDI
     const float CurrentTimeLo = Env->current_time.time_offset; // EBX
-    IVP_Environment_SetCurrentTime(Env, CurrentTimeHi, CurrentTimeLo); // FUN_0634ccd0
+    IVP_Environment_SetCurrentTime(Env, CurrentTimeHi, CurrentTimeLo);
 
     // :06351bbf-:06351c00 -- time since the last PSI, clamped up to delta_PSI_time.
     // FLD delta_time; FCOMP dt; TEST AH,0x41; JZ -> clamp when delta_time > dt.
@@ -513,7 +509,7 @@ void IVP_Calc_Next_PSI_Solver::set_transformation(const IVP_U_Quat* Rotation, co
     // :06351c0b-:06351c68 -- q_next = Rotation; delta = inv(q_last) * q_next; q_last = Rotation.
     Core->QWorldFCoreNext = *Rotation;
     IVP_U_Quat QDelta;
-    QDelta.set_inv_mult_quat(&Core->QWorldFCore, &Core->QWorldFCoreNext); // FUN_06351250
+    QDelta.set_inv_mult_quat(&Core->QWorldFCore, &Core->QWorldFCoreNext);
     Core->QWorldFCore = *Rotation;
 
     // :06351c6b-:06351c7c
@@ -542,7 +538,7 @@ void IVP_Calc_Next_PSI_Solver::set_transformation(const IVP_U_Quat* Rotation, co
     Core->MWorldFCore.vv.k[0] = Position->k[0];
     Core->MWorldFCore.vv.k[2] = Position->k[2];
     Core->MWorldFCore.vv.k[1] = Position->k[1];
-    Rotation->set_matrix(&Core->MWorldFCore); // FUN_06350bc0
+    Rotation->set_matrix(&Core->MWorldFCore);
 
     // :06351d24-:06351d73
     if (bOptimizeForRepeatedCalls != 0)
@@ -576,15 +572,15 @@ void IVP_Calc_Next_PSI_Solver::set_transformation(const IVP_U_Quat* Rotation, co
         // :06351dcc-:06351dec -- an object whose movement state byte is >= 8.
         if (IVP_SignedLowByte(Object->flags) >= 8)
         {
-            IVP_Real_Object_Free_Cache_Object(Object); // :06351dda FUN_0634d510 (cdecl)
-            Object->recalc_exact_mindists();           // :06351de5 FUN_063454b0
-            Object->recalc_invalid_mindists();         // :06351dec FUN_06345460
+            IVP_Real_Object_Free_Cache_Object(Object); // :06351dda the routine (cdecl)
+            Object->recalc_exact_mindists();           // :06351de5 the routine
+            Object->recalc_invalid_mindists();         // :06351dec the routine
         }
 
         // :06351df1-:06351dfd
         if (bOptimizeForRepeatedCalls == 0)
         {
-            Env->mindist_manager->RecheckOvElement(Object); // FUN_0634ebd0
+            Env->mindist_manager->RecheckOvElement(Object);
         }
 
         // :06351e02-:06351e79
@@ -598,13 +594,13 @@ void IVP_Calc_Next_PSI_Solver::set_transformation(const IVP_U_Quat* Rotation, co
 }
 
 // ============================================================================
-// FUN_06351eb0 (.text:06351eb0-06351f70, cdecl).
+// (module storage-06351f70, cdecl).
 // ============================================================================
 void IVP_Calc_Next_PSI_Solver::commit_all_calc_next_PSI_matrix(IVP_Environment* Environment,
                                                                IVP_U_Vector<IVP_Core>* CoresWhichNeedCalcNextPsi,
                                                                IVP_U_Vector<IVP_Hull_Manager>* ActiveHullManagers)
 {
-    // :06351eb3-:06351ef4 -- IVP_Event_Sim(env, env->delta_PSI_time). Retail leaves the
+    // :06351eb3-:06351ef4 -- IVP_Event_Sim(env, env->delta_PSI_time). baseline leaves the
     // fourth dword (sim_unit) as stack garbage; nothing below reads it.
     IVP_Event_Sim EventSim;
     EventSim.environment = Environment;
@@ -621,16 +617,16 @@ void IVP_Calc_Next_PSI_Solver::commit_all_calc_next_PSI_matrix(IVP_Environment* 
         EventSim.i_delta_time = Environment->inv_delta_time;
     }
 
-    // :06351ef8-:06351f65 -- last element first (retail unrolls the last two iterations).
+    // :06351ef8-:06351f65 -- last element first (baseline unrolls the last two iterations).
     for (int32_t Index = static_cast<int32_t>(CoresWhichNeedCalcNextPsi->n_elems) - 1; Index >= 0; --Index)
     {
         IVP_Calc_Next_PSI_Solver Solver(CoresWhichNeedCalcNextPsi->elems[Index]);
-        Solver.calc_next_PSI_matrix(&EventSim, ActiveHullManagers); // FUN_06351310
+        Solver.calc_next_PSI_matrix(&EventSim, ActiveHullManagers);
     }
 }
 
 // ============================================================================
-// FUN_06351f80 (.text:06351f80-06352131, cdecl).
+// (module storage-06352131, cdecl).
 // ============================================================================
 void IVP_Calc_Next_PSI_Solver::commit_all_hull_managers(IVP_Environment* /*Environment*/,
                                                         IVP_U_Vector<IVP_Hull_Manager>* ActiveHullManagers)

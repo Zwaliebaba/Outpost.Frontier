@@ -1,12 +1,8 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // CSetPasswordDlg — "Set Password" (dialog 0x8f): sets an account's password through
 // Players.SetAccountPassword, then shows COperationCompleteDlg.
-// Retail: ctor .text:00415af0, dtor 00415b80, vtable .rdata:0041e4f0, message map 0041e4e8 (empty).
+// baseline: ctor module storage, dtor 00415b80, vtable module storage, message map 0041e4e8 (empty).
 #pragma once
 
 class CAccount;

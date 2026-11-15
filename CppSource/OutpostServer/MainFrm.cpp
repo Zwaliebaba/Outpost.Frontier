@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "StdAfx.h"
@@ -16,29 +12,29 @@
 #include <sys/timeb.h>
 #include <string.h>
 
-// CMainFrame TU, retail .text:00411ea0..00412a80.
+// CMainFrame TU, baseline module storage..00412a80.
 
 namespace
 {
-	// .data:00425978 — the status bar panes: the stretching message pane and the uptime pane
-	// (0xe707, string 59143 "Time: 00:00:00" in ServerResources.dll).
+	// — the status bar panes: the stretching message pane and the uptime pane
+	// (0xe707, string 59143 "Time: 00:00:00" in ServerInterface.dll).
 	const UINT GStatusIndicators[] = { ID_SEPARATOR, 0xe707 };
 
-	// .data:00427d98 / .data:00428528 — RemoteClient's per-client counters at the last and the
+	// / module storage — RemoteClient's per-client counters at the last and the
 	// previous 1 s sample (16 records of 0x78 bytes each); OnTimer zeroes both once, guarded by
-	// .data:00428cb0.
+	// .
 	FClientStats GClientStats[0x10];
 	FClientStats GPrevClientStats[0x10];
 	bool GbClientStatsCleared = false;
 
-	// .rdata:0041dea8 (1/1024: bytes to KB) and .rdata:0041deb0 (0.001: bits to kbit).
+	// (1/1024: bytes to KB) and module storage (0.001: bits to kbit).
 	const double GBytesToKb = 0.0009765625;
 	const double GBitsToKbit = 0.001;
 }
 
 IMPLEMENT_DYNCREATE(CMainFrame, CFrameWnd)
 
-// .rdata:0041dda0 (entries .rdata:0041dd28).
+// (entries module storage).
 BEGIN_MESSAGE_MAP(CMainFrame, CFrameWnd)
 	ON_WM_CREATE()
 	ON_WM_TIMER()
@@ -46,7 +42,7 @@ BEGIN_MESSAGE_MAP(CMainFrame, CFrameWnd)
 	ON_UPDATE_COMMAND_UI(0xe707, &CMainFrame::OnUpdateUptime)
 END_MESSAGE_MAP()
 
-// .text:00411f40
+
 CMainFrame::CMainFrame()
 {
 	TotalBytes = 0;
@@ -60,12 +56,12 @@ CMainFrame::CMainFrame()
 	SampleTime = 0;
 	ClientCount = 0;
 	// winbase.h #defines GetCurrentTime() as GetTickCount(), so VC6 compiled CTime::GetCurrentTime
-	// into CTime::GetTickCount (the MFC42 import retail calls); ATL's CTime names it the same.
+	// into CTime::GetTickCount (the MFC42 import baseline calls); ATL's CTime names it the same.
 	StartTime = CTime::GetTickCount();
 	BandwidthLog = NULL;
 }
 
-// .text:00412020
+
 CMainFrame::~CMainFrame()
 {
 	if (BandwidthLog != NULL)
@@ -75,14 +71,14 @@ CMainFrame::~CMainFrame()
 	}
 }
 
-// .text:004120b0
+
 BOOL CMainFrame::LoadFrame(UINT IdResource, DWORD DefaultStyle, CWnd* ParentWnd, CCreateContext* Context)
 {
 	DefaultStyle &= ~WS_THICKFRAME;
 	return CFrameWnd::LoadFrame(IdResource, DefaultStyle, ParentWnd, Context);
 }
 
-// .text:004120d0
+
 int CMainFrame::OnCreate(LPCREATESTRUCT CreateStruct)
 {
 	if (CFrameWnd::OnCreate(CreateStruct) == -1)
@@ -107,13 +103,13 @@ int CMainFrame::OnCreate(LPCREATESTRUCT CreateStruct)
 	return 0;
 }
 
-// .text:00412180 — the base's answer normalised to 0/1.
+// — the base's answer normalised to 0/1.
 BOOL CMainFrame::PreCreateWindow(CREATESTRUCT& Cs)
 {
 	return CFrameWnd::PreCreateWindow(Cs) != 0 ? TRUE : FALSE;
 }
 
-// .text:004121a0 — "%.2f kbi, %.2f kbo" (0xf028).
+// — "%.2f kbi, %.2f kbo" (0xf028).
 void CMainFrame::OnUpdateTraffic(CCmdUI* CmdUI)
 {
 	CString Format;
@@ -123,7 +119,7 @@ void CMainFrame::OnUpdateTraffic(CCmdUI* CmdUI)
 	CmdUI->SetText(Text);
 }
 
-// .text:00412270 — "Connects: %02d" (0xf029).
+// — "Connects: %02d" (0xf029).
 void CMainFrame::OnUpdateConnects(CCmdUI* CmdUI)
 {
 	CString Format;
@@ -133,7 +129,7 @@ void CMainFrame::OnUpdateConnects(CCmdUI* CmdUI)
 	CmdUI->SetText(Text);
 }
 
-// .text:00412300 — "%03.2f kbp/s" (0xf02a).
+// — "%03.2f kbp/s" (0xf02a).
 void CMainFrame::OnUpdateThroughput(CCmdUI* CmdUI)
 {
 	CString Format;
@@ -143,7 +139,7 @@ void CMainFrame::OnUpdateThroughput(CCmdUI* CmdUI)
 	CmdUI->SetText(Text);
 }
 
-// .text:004123a0 — "PktOut: %05d" (0xf02b).
+// — "PktOut: %05d" (0xf02b).
 void CMainFrame::OnUpdatePacketsOut(CCmdUI* CmdUI)
 {
 	CString Format;
@@ -153,7 +149,7 @@ void CMainFrame::OnUpdatePacketsOut(CCmdUI* CmdUI)
 	CmdUI->SetText(Text);
 }
 
-// .text:00412430 — "PktIn: %05d" (0xf02c).
+// — "PktIn: %05d" (0xf02c).
 void CMainFrame::OnUpdatePacketsIn(CCmdUI* CmdUI)
 {
 	CString Format;
@@ -163,7 +159,7 @@ void CMainFrame::OnUpdatePacketsIn(CCmdUI* CmdUI)
 	CmdUI->SetText(Text);
 }
 
-// .text:004124c0 — the uptime pane: "%D:%H:%M:%S" since the frame was built. Retail measures
+// — the uptime pane: "%D:%H:%M:%S" since the frame was built. baseline measures
 // the text in the status bar's font and widens pane 0 (not the uptime pane) to that width
 // with SBPS_STRETCH added.
 void CMainFrame::OnUpdateUptime(CCmdUI* CmdUI)
@@ -200,7 +196,7 @@ void CMainFrame::OnUpdateUptime(CCmdUI* CmdUI)
 	CmdUI->Enable(TRUE);
 }
 
-// .text:00412670 — timer 0x111 (1 s): samples RemoteClient's per-client counters, sums them,
+// — timer 0x111 (1 s): samples RemoteClient's per-client counters, sums them,
 // appends a CSV row to the bandwidth log and computes the throughput. With no client, or more
 // than 16, the sample stops early and the message is not passed on.
 void CMainFrame::OnTimer(UINT_PTR IdEvent)
@@ -224,7 +220,7 @@ void CMainFrame::OnTimer(UINT_PTR IdEvent)
 
 		if (BandwidthLog != NULL)
 		{
-			// Retail's _timeb has a 32-bit time field (VC6 MSVCRT ftime).
+			// baseline's _timeb has a 32-bit time field (VC6 MSVCRT ftime).
 			struct __timeb32 Now;
 			_ftime32(&Now);
 			fprintf(BandwidthLog, "%d.%04d, %d", (int)Now.time, (int)Now.millitm, ClientCount);
@@ -275,7 +271,7 @@ void CMainFrame::OnTimer(UINT_PTR IdEvent)
 	Default();
 }
 
-// .text:004128b0
+
 void CMainFrame::OpenBandwidthLog(const char* Path)
 {
 	if (BandwidthLog != NULL)
@@ -301,7 +297,7 @@ void CMainFrame::OpenBandwidthLog(const char* Path)
 	fprintf(BandwidthLog, "\n");
 }
 
-// .text:00412950
+
 void CMainFrame::CloseBandwidthLog()
 {
 	if (BandwidthLog != NULL)
@@ -311,7 +307,7 @@ void CMainFrame::CloseBandwidthLog()
 	}
 }
 
-// .text:00412980
+
 void CMainFrame::OnClose()
 {
 	GApp->WaitForStartupThread();

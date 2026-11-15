@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "ivp_surface_builder_pointsoup.h"
@@ -21,40 +17,40 @@
 #include "../ivp_utility/ivp_vhash.h"
 #include "../ivp_utility/ivp_message_router.h"
 
-#include "../ivp_utility/ivp_malloc.h" // IVP's 16-byte aligned block allocator and its release (FUN_06343fc0 / FUN_06343ff0)
+#include "../ivp_utility/ivp_malloc.h" // IVP's 16-byte aligned block allocator and its release (the routine / the routine)
 
 extern "C" {
 #include "qhull_a.h"
 }
 
 // ============================================================================
-// Common.dll .text:0636b770-0636c9f2 (2026-10-08, claude-code:cmn-ivp4b).
-//
+// Common.dll module storage-0636c9f2 (2026-10-08, claude-code:cmn-ivp4b).
+
 // IVP debug router. The three "***" messages go through G_IVPMessageRouter
-// (DAT_0658c730, ivp_message_router.h) exactly as retail calls it; its
-// category levels are never set, so retail never prints them.
-//
-// qhull error sink. Retail calls qh_new_qhull (063784b0) with outfile and
+// (the field, ivp_message_router.h) exactly as baseline calls it; its
+// category levels are never set, so baseline never prints them.
+
+// qhull error sink. baseline calls qh_new_qhull (063784b0) with outfile and
 // errfile NULL (0636c40c / 0636c483). Its qhull reports errors through
-// FUN_06356960 instead of fprintf(qh ferr), and qh_errexit (06378600) skips
+// WriteHullDiagnostic instead of fprintf(qh ferr), and qh_errexit (06378600) skips
 // the whole report when qh ferr is NULL; src/qhull/vendor does the same.
 // ============================================================================
 
 namespace
 {
-    const float kDegenerateTriangle = IVP_BuilderBitsToFloat(0x358637bdu); // DAT_063a5610, 1e-6f
+    const float kDegenerateTriangle = IVP_BuilderBitsToFloat(0x358637bdu); // , 1e-6f
     const float kJoggleStart = IVP_BuilderBitsToFloat(0x2b8cbcccu);        // immediate at 0636c3d5, 1e-12f
-    const float kJoggleAdd = IVP_BuilderBitsToFloat(0x2b8cbcccu);          // DAT_063a5494, 1e-12f
-    const float kJoggleScale = IVP_BuilderBitsToFloat(0x3f99999au);        // DAT_063a5668, 1.2f
-    const float kJoggleLimit = IVP_BuilderBitsToFloat(0x3ca3d70au);        // DAT_063a5908, 0.02f
-    const float kMinusOne = IVP_BuilderBitsToFloat(0xbf800000u);           // DAT_063a5498 / immediates, -1.0f
-    const double kSmallAreaFactor = IVP_BuilderBitsToDouble(0x3f747ae140000000ull); // DAT_063a5900 (double), 0.005f widened
+    const float kJoggleAdd = IVP_BuilderBitsToFloat(0x2b8cbcccu);          // , 1e-12f
+    const float kJoggleScale = IVP_BuilderBitsToFloat(0x3f99999au);        // , 1.2f
+    const float kJoggleLimit = IVP_BuilderBitsToFloat(0x3ca3d70au);        // , 0.02f
+    const float kMinusOne = IVP_BuilderBitsToFloat(0xbf800000u);           // / immediates, -1.0f
+    const double kSmallAreaFactor = IVP_BuilderBitsToDouble(0x3f747ae140000000ull); // (double), 0.005f widened
 
-    // Point hash of the pointsoup builder, vtable .rdata:063a590c
+    // Point hash of the pointsoup builder, vtable module storage
     // {0636cfe0 compare, 0636c7c0 scalar deleting dtor}. Built on the stack
-    // by 0636c2c6 / 0636c61f as FUN_063522a0(0x400) + vtable store and
-    // destroyed by the non-deleting 06377e50 (vtable store, JMP FUN_063522f0).
-    // The retail class name is not in the binary.
+    // by 0636c2c6 / 0636c61f as the routine(0x400) + vtable store and
+    // destroyed by the non-deleting 06377e50 (vtable store, JMP the routine).
+    // The baseline class name is not in the binary.
     class FPointsoupPointHash : public IVP_VHash
     {
     public:
@@ -63,13 +59,13 @@ namespace
         {
         }
 
-        // FUN_0636cfe0.
+        // .
         int Compare(void* Elem0, void* Elem1) override
         {
             return IVP_PointHashCompare(Elem0, Elem1);
         }
 
-        // FUN_0636c7c0 -> FUN_06377e50.
+        // -> the routine.
         ~FPointsoupPointHash() override
         {
         }
@@ -88,7 +84,7 @@ IVP_Compact_Ledge* GPointsoupTriangleTemplate = nullptr;
 // IVP_SurMan_PS_Plane
 // ---------------------------------------------------------------------------
 
-// FUN_0636bce0 (.text:0636bce0-0636bdbc). p0 = points[0] (read before the
+// (module storage-0636bdbc). p0 = points[0] (read before the
 // count test). For i = 0..n-1 with next = points[(i + 1) % n]:
 // A = float(next - p_i), B = float(p_i - p0), C = 0628bed0 cross(A, B)
 // (float components), sum = float(((C.z*h.z + C.x*h.x) + C.y*h.y) + sum).
@@ -119,7 +115,7 @@ float IVP_SurMan_PS_Plane::get_area_size() const
     return Sum;
 }
 
-// FUN_0636bdc0 (.text:0636bdc0-0636be1e): sum += (dz^2 + dy^2) + dx^2 with
+// (module storage-0636be1e): sum += (dz^2 + dy^2) + dx^2 with
 // d = p_i - p_(i+1)%n, all on the x87 stack starting from 0.0f.
 double IVP_SurMan_PS_Plane::get_qlen_of_all_edges() const
 {
@@ -142,7 +138,7 @@ double IVP_SurMan_PS_Plane::get_qlen_of_all_edges() const
 // IVP_SurfaceBuilder_Pointsoup
 // ---------------------------------------------------------------------------
 
-// FUN_0636b770 (.text:0636b770-0636b7bd): the index of the first point whose
+// (module storage-0636b7bd): the index of the first point whose
 // x, y and z compare equal (FCOMP, TEST AH,0x40: equal or unordered), or 0
 // when there is none -- index 0 and "not found" are the same answer.
 int32_t IVP_SurfaceBuilder_Pointsoup::point_index(const IVP_U_Float_Point* Array, int32_t Count, const IVP_U_Float_Point* Point)
@@ -157,7 +153,7 @@ int32_t IVP_SurfaceBuilder_Pointsoup::point_index(const IVP_U_Float_Point* Array
     return 0;
 }
 
-// FUN_0636b7c0 (.text:0636b7c0-0636b826): the first line (ushort pair) equal
+// (module storage-0636b826): the first line (ushort pair) equal
 // to (A, B) -> *Revert = 0, or to (B, A) -> *Revert = 1; returns its index,
 // or 0 with *Revert untouched when there is none.
 int32_t IVP_SurfaceBuilder_Pointsoup::line_index(const void* Lines, int32_t Count, int32_t A, int32_t B, uint8_t* Revert)
@@ -181,10 +177,10 @@ int32_t IVP_SurfaceBuilder_Pointsoup::line_index(const void* Lines, int32_t Coun
     return 0;
 }
 
-// FUN_0636b830 (.text:0636b830-0636bcd5).
+// (module storage-0636bcd5).
 // Template points: operator new(n * 0x10); each input point is appended when
 // point_index returns 0 (a point equal to template point 0 is therefore
-// appended again, as retail). Lines: one per distinct point pair of every
+// appended again, as baseline). Lines: one per distinct point pair of every
 // plane outline, deduplicated through IVP_Hash(n_points_in * 2, 4, 0) keyed by
 // the ushort pair {max, min}; each kept as a calloc(1, 4) {a, b}, copied into
 // operator new(n_lines * 4) and freed. Surfaces: new IVP_Template_Surface[n]
@@ -284,7 +280,7 @@ IVP_Template_Polygon* IVP_SurfaceBuilder_Pointsoup::planes_to_template(IVP_U_Vec
         Indices[NOutline] = Indices[0];
         for (int32_t K = 0; K < NOutline; ++K)
         {
-            // Retail reuses a stale stack byte here; it is always overwritten,
+            // baseline reuses a stale stack byte here; it is always overwritten,
             // since every outline line was registered in the first pass.
             uint8_t Revert = 0;
             Surface.lines[K] =
@@ -299,7 +295,7 @@ IVP_Template_Polygon* IVP_SurfaceBuilder_Pointsoup::planes_to_template(IVP_U_Vec
     return Templ;
 }
 
-// FUN_0636be20 (.text:0636be20-0636c250).
+// (module storage-0636c250).
 // *Retry = 0. Every qhull facet (FORALLfacets) becomes an IVP_SurMan_PS_Plane
 // (normal[i] = float(facet->normal[i]) for i < hull_dim) whose points are the
 // qh_facet3vertex vertices (point ids collected; Used[id]++). With
@@ -435,7 +431,7 @@ IVP_Compact_Ledge* IVP_SurfaceBuilder_Pointsoup::try_to_build_convex_ledge_from_
     return Ledge;
 }
 
-// FUN_0636c260 (.text:0636c260-0636c7b4).
+// (module storage-0636c7b4).
 // Points are deduplicated (stack FPointsoupPointHash(0x400)) into a reduced
 // vector (malloc(n * 4), memsize n) and a double array calloc(n * 4, 8),
 // 3 doubles per point. Loop: "qhull Qs Pp C-0 W1e-14 E1.0e-18" while the
@@ -502,7 +498,7 @@ IVP_Compact_Ledge* IVP_SurfaceBuilder_Pointsoup::convert_pointsoup_to_compact_le
 
         if (!bBuilt)
         {
-            // LAB_0636c434..0636c455 (category 1, string 063ee8a8).
+            // (category 1, string 063ee8a8).
             if (G_IVPMessageRouter.IsCategoryEnabled(1) != 0)
             {
                 G_IVPMessageRouter.Report(1, "*** Qhull failed. Retrying with different parameters.\n");
@@ -602,8 +598,8 @@ IVP_Compact_Ledge* IVP_SurfaceBuilder_Pointsoup::convert_pointsoup_to_compact_le
     {
         free(Used);
     }
-    // 0636c72a..0636c753 (null result, category 1, string 063ee804) and
-    // 0636c756..0636c777 (category 1, string 063ee7e0).
+    // (null result, category 1, string 063ee804) and
+    // (category 1, string 063ee7e0).
     if (Result == nullptr)
     {
         if (G_IVPMessageRouter.IsCategoryEnabled(1) != 0)
@@ -618,12 +614,12 @@ IVP_Compact_Ledge* IVP_SurfaceBuilder_Pointsoup::convert_pointsoup_to_compact_le
     return Result;
 }
 
-// FUN_0636c800 (.text:0636c800-0636c99c).
-// The template ledge DAT_0658b008 is built once from the triangle
+// (module storage-0636c99c).
+// The template ledge the field is built once from the triangle
 // (0,0,1), (0,1,0), (0,0,-1) through 0636e0c0 ({0, 2, points}). Degenerate
 // test: A = float(p1 - p0), B = p2 - p0 (unrounded), C = (float(By*Az - Bz*Ay),
 // float(Bz*Ax - Bx*Az), Bx*Ay - By*Ax unrounded); (Cy^2 + Cz^2) + Cx^2 below
-// 1e-6f (or unordered) -> null. Otherwise an aligned copy (FUN_06343fc0 of
+// 1e-6f (or unordered) -> null. Otherwise an aligned copy (the routine of
 // ((tmpl[+8] >> 8) << 4) bytes, 16) of the template with points 0..2
 // overwritten by p0..p2 (x, y, z).
 IVP_Compact_Ledge* IVP_SurfaceBuilder_Pointsoup::single_tri_to_compact_ledge(const IVP_U_Float_Point* P0,
@@ -667,7 +663,7 @@ IVP_Compact_Ledge* IVP_SurfaceBuilder_Pointsoup::single_tri_to_compact_ledge(con
     const IVP_Compact_Ledge* const Template = GPointsoupTriangleTemplate;
     const uint32_t SizeWord = *reinterpret_cast<const uint32_t*>(reinterpret_cast<const uint8_t*>(Template) + 8);
     const unsigned Size = (SizeWord >> 8) << 4;
-    IVP_Compact_Ledge* const Copy = static_cast<IVP_Compact_Ledge*>(ivp_malloc_aligned(Size, 0x10)); // FUN_06343fc0
+    IVP_Compact_Ledge* const Copy = static_cast<IVP_Compact_Ledge*>(ivp_malloc_aligned(Size, 0x10));
     std::memcpy(Copy, GPointsoupTriangleTemplate, Size);
 
     IVP_U_Float_Point* const Out = Copy->GetPointArray();
@@ -683,7 +679,7 @@ IVP_Compact_Ledge* IVP_SurfaceBuilder_Pointsoup::single_tri_to_compact_ledge(con
     return Copy;
 }
 
-// FUN_0636c9a0 (.text:0636c9a0-0636c9f2): FSTCW / OR 0x300 / FLDCW -- the
+// (module storage-0636c9f2): FSTCW / OR 0x300 / FLDCW -- the
 // x87 precision control is set to 64-bit and not restored; fewer than 3
 // points -> null; exactly 3 -> single_tri_to_compact_ledge; else the qhull path.
 IVP_Compact_Ledge* IVP_SurfaceBuilder_Pointsoup::convert_pointsoup_to_compact_ledge(IVP_U_Vector<IVP_U_Float_Point>* Points)
@@ -705,7 +701,7 @@ void IVP_SurfaceBuilder_Pointsoup::Cleanup()
 {
     if (GPointsoupTriangleTemplate != nullptr)
     {
-        ivp_free_aligned(GPointsoupTriangleTemplate); // FUN_06343ff0
+        ivp_free_aligned(GPointsoupTriangleTemplate);
     }
     GPointsoupTriangleTemplate = nullptr;
 }
@@ -720,13 +716,13 @@ namespace
     }
 }
 
-// FUN_0636ca00 (.text:0636ca00-0636ca21).
+// (module storage-0636ca21).
 FLedgeConvexHullBuilder::FLedgeConvexHullBuilder()
-    : Ledges(static_cast<IVP_Compact_Ledge**>(malloc(0x200)), 0x80) // FUN_06343f70 = malloc
+    : Ledges(static_cast<IVP_Compact_Ledge**>(malloc(0x200)), 0x80) // = malloc
 {
 }
 
-// FUN_0636cf70 (.text:0636cf70-0636cf8a).
+// (module storage-0636cf8a).
 IVP_Compact_Ledge* FLedgeConvexHullBuilder::Build()
 {
     BuildHull();
@@ -735,15 +731,15 @@ IVP_Compact_Ledge* FLedgeConvexHullBuilder::Build()
     return Result;
 }
 
-// FUN_0636ca30 (.text:0636ca30-0636cbf4). Locals: a point hash
-// FUN_06356a40(0x400 buckets, key 0x10, default 0) and an empty
+// (module storage-0636cbf4). Locals: a point hash
+// (0x400 buckets, key 0x10, default 0) and an empty
 // IVP_U_Vector<IVP_U_Point>. Ledges are walked from the last to the first,
 // triangles in order, the 3 edge slots in order; a start point whose 16 bytes
 // are not in the hash yet is inserted (key and value = the point address) and
 // a fresh 0x10-byte point (operator_new; x, y, z copied, w left as allocated)
-// is appended. Result = FUN_0636c9a0(&points); then the points are deleted from
-// the last to the first (FUN_06391d5a), the vector is released (inline-sentinel
-// test) and the hash destroyed (FUN_06356a70).
+// is appended. Result = the routine(&points); then the points are deleted from
+// the last to the first (the routine), the vector is released (inline-sentinel
+// test) and the hash destroyed (the routine).
 void FLedgeConvexHullBuilder::BuildHull()
 {
     IVP_Hash PointHash(0x400, 0x10, 0);
@@ -778,18 +774,18 @@ void FLedgeConvexHullBuilder::BuildHull()
         ::operator delete(Points.elems[I]);
 }
 
-// FUN_0636cc00 (.text:0636cc00-0636cf3b). Three hashes (0x400 buckets each):
+// (module storage-0636cf3b). Three hashes (0x400 buckets each):
 // points (key 0x10, default -1), triangles (key 0xc, default 0), edges
 // (key 8, default 0).
 //  1. Input ledges from the last to the first, triangles in order: each start
 //     point gets an index (Find >= 0 keeps it; otherwise Insert(point, n++)).
-//     The triangle key {i0, i1, i2} (FUN_0636cf40) is inserted with the
+//     The triangle key {i0, i1, i2} (the routine) is inserted with the
 //     triangle address when absent; then for K = 0..2 the edge key
-//     {iK, i((K+1)%3)} (FUN_0636cf60) likewise.
+//     {iK, i((K+1)%3)} (the routine) likewise.
 //  2. Hull ledge (Result), triangles in order: indices by Find only; an absent
 //     triangle key ORs 0x80000000 into the triangle info dword; for K = 0..2
 //     an absent edge key ORs 0x80000000 into edge slot K. (Two counters of
-//     present / absent edges are kept by retail and never read.)
+//     present / absent edges are kept by baseline and never read.)
 void FLedgeConvexHullBuilder::MarkVirtualFeatures()
 {
     IVP_Hash PointHash(0x400, 0x10, 0xffffffffu);

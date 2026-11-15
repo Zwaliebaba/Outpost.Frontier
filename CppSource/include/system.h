@@ -1,19 +1,15 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
-#include "dacom.h"
+#include "neuroncomponents.h"
 
 // Aggregate that loads and initializes the components in the System profile section.
 struct ISystemContainer : IAggregateComponent
 {
     // +0x10 is also ISystemComponent::Shutdown on the shared vtable (src/system/system.cpp).
-    virtual GENRESULT DACOM_API Shutdown() = 0;                  // +0x10
-    virtual GENRESULT DACOM_API LoadSystemComponents() = 0;      // +0x14
-    virtual GENRESULT DACOM_API UnloadSystemComponents() = 0;    // +0x18
-    virtual GENRESULT DACOM_API AddComponent(AGGDESC* Desc) = 0; // +0x1C
+    virtual GENRESULT NEURONCOMPONENTS_API Shutdown() = 0;                  // +0x10
+    virtual GENRESULT NEURONCOMPONENTS_API LoadSystemComponents() = 0;      // +0x14
+    virtual GENRESULT NEURONCOMPONENTS_API UnloadSystemComponents() = 0;    // +0x18
+    virtual GENRESULT NEURONCOMPONENTS_API AddComponent(AGGDESC* Desc) = 0; // +0x1C
 };

@@ -1,12 +1,8 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "MovieD4.h"
 
-// Carry helpers. A 32x32 unsigned MUL is the retail MUL; the high half is EDX.
+// Carry helpers. A 32x32 unsigned MUL is the baseline MUL; the high half is EDX.
 
 static unsigned int AddCarry(unsigned int Left, unsigned int Right, unsigned int Carry, unsigned int* Sum)
 {
@@ -42,7 +38,7 @@ static unsigned int AbsoluteWord(unsigned int Left, unsigned int Right, unsigned
 }
 
 // 1 when (LowA, HighA) < (LowB, HighB) as a little-endian 64-bit value.
-// Retail compares the high words first, then the low words (0x06acdd18, 0x06acdaf0).
+// baseline compares the high words first, then the low words (0x06acdd18, 0x06acdaf0).
 static unsigned int HalfLess(unsigned int LowA, unsigned int HighA, unsigned int LowB, unsigned int HighB)
 {
     if (HighA != HighB)
@@ -52,7 +48,7 @@ static unsigned int HalfLess(unsigned int LowA, unsigned int HighA, unsigned int
     return (LowA < LowB) ? 1u : 0u;
 }
 
-// 0x06acd4c0. Square body 0x06acd4cf, multiply body 0x06acd503.
+// . Square body 0x06acd4cf, multiply body 0x06acd503.
 void __stdcall MultiplyOneLimbPairs(unsigned int* Left, unsigned int* Right, unsigned int* Product, unsigned int Count)
 {
     unsigned int Index;
@@ -84,7 +80,7 @@ void __stdcall MultiplyOneLimbPairs(unsigned int* Left, unsigned int* Right, uns
     }
 }
 
-// 0x06acd574. Both limbs are loaded before the first store.
+// . Both limbs are loaded before the first store.
 static void SquareTwoLimbs(unsigned int A0, unsigned int A1, unsigned int* Product)
 {
     unsigned int Lo00;
@@ -119,7 +115,7 @@ static void SquareTwoLimbs(unsigned int A0, unsigned int A1, unsigned int* Produ
     Product[3] = Out3;
 }
 
-// 0x06acd5f8. b0*a0, b1*a0, b0*a1, b1*a1, folded into four limbs.
+// . b0*a0, b1*a0, b0*a1, b1*a1, folded into four limbs.
 static void MultiplyTwoLimbs(unsigned int A0, unsigned int A1, unsigned int B0, unsigned int B1, unsigned int* Product)
 {
     unsigned int Lo00;
@@ -157,7 +153,7 @@ static void MultiplyTwoLimbs(unsigned int A0, unsigned int A1, unsigned int B0, 
     Product[3] = Out3;
 }
 
-// 0x06acd540.
+// .
 void __stdcall MultiplyTwoLimbPairs(unsigned int* Left, unsigned int* Right, unsigned int* Product, unsigned int Count)
 {
     unsigned int Index;
@@ -183,7 +179,7 @@ void __stdcall MultiplyTwoLimbPairs(unsigned int* Left, unsigned int* Right, uns
     }
 }
 
-// 0x06acd72c. Reads are repeated after stores so an overlapping product sees them.
+// . Reads are repeated after stores so an overlapping product sees them.
 static void SquareThreeLimbs(unsigned int* Value, unsigned int* Product)
 {
     unsigned int Lo;
@@ -241,7 +237,7 @@ static void SquareThreeLimbs(unsigned int* Value, unsigned int* Product)
     Product[5] = Limb2;
 }
 
-// 0x06acd7c8. Diagonal products, then (ai-aj)*(bi-bj).
+// . Diagonal products, then (ai-aj)*(bi-bj).
 // ADC EAX, ESP at 0x06acd908 and SBB EAX, ESP at 0x06acd92a cancel, so each is a carry of 0.
 static void MultiplyThreeLimbs(unsigned int* Left, unsigned int* Right, unsigned int* Product)
 {
@@ -377,7 +373,7 @@ static void MultiplyThreeLimbs(unsigned int* Left, unsigned int* Right, unsigned
     Product[5] = R5;
 }
 
-// 0x06acd6e0.
+// .
 void __stdcall MultiplyThreeLimbPairs(unsigned int* Left, unsigned int* Right, unsigned int* Product, unsigned int Count)
 {
     unsigned int Index;
@@ -399,7 +395,7 @@ void __stdcall MultiplyThreeLimbPairs(unsigned int* Left, unsigned int* Right, u
     }
 }
 
-// 0x06acd9a9. Square four limbs into eight.
+// . Square four limbs into eight.
 static void SquareFourLimbs(unsigned int* Value, unsigned int* Product)
 {
     unsigned int Lo;
@@ -520,7 +516,7 @@ static void SquareFourLimbs(unsigned int* Value, unsigned int* Product)
     Product[7] = R7;
 }
 
-// 0x06acdb14 and 0x06acdd72. Product of two positive 64-bit halves, then the
+// and 0x06acdd72. Product of two positive 64-bit halves, then the
 // absolute (hi-lo) cross is subtracted out of limbs 1..3. EDI on that subtract
 // is added back by the following ADC, so it contributes only a carry.
 static void ProductOfHalves(unsigned int DiffA0, unsigned int DiffA1, unsigned int DiffB0, unsigned int DiffB1, unsigned int* Piece0, unsigned int* Piece1, unsigned int* Piece2, unsigned int* Piece3)
@@ -570,7 +566,7 @@ static void ProductOfHalves(unsigned int DiffA0, unsigned int DiffA1, unsigned i
     *Piece3 = P3;
 }
 
-// 0x06acdb00 adds the half product at limb 2. 0x06acdd5e subtracts it.
+// adds the half product at limb 2. 0x06acdd5e subtracts it.
 static void ApplyHalfProduct(unsigned int* Product, unsigned int DiffA0, unsigned int DiffA1, unsigned int DiffB0, unsigned int DiffB1, unsigned int bSubtract)
 {
     unsigned int Piece0;
@@ -686,7 +682,7 @@ static void PlaceTwoByTwo(unsigned int* Left, unsigned int* Right, unsigned int*
     Product[3] = Limb3;
 }
 
-// 0x06acdbcf. Low pair, high pair folded into it, then the half-difference product.
+// . Low pair, high pair folded into it, then the half-difference product.
 static void MultiplyFourLimbs(unsigned int* Left, unsigned int* Right, unsigned int* Product)
 {
     unsigned int A0;
@@ -819,7 +815,7 @@ static void MultiplyFourLimbs(unsigned int* Left, unsigned int* Right, unsigned 
     ApplyHalfProduct(Product, DiffA0, DiffA1, DiffB0, DiffB1, 1u);
 }
 
-// 0x06acd960. ADD EAX,EAX / JZ skips Count 0 and Count 0x80000000.
+// . ADD EAX,EAX / JZ skips Count 0 and Count 0x80000000.
 void __stdcall MultiplyFourLimbPairs(unsigned int* Left, unsigned int* Right, unsigned int* Product, unsigned int Count)
 {
     unsigned int Index;
@@ -896,7 +892,7 @@ static void MultiplyEqualLimbs(unsigned int* Left, unsigned int* Right, unsigned
 // Square at 0x06acdfa2 / 0x06ace2be / 0x06ace676.
 // Cross terms are a[0]*a[1..] at Product[1], then a[k]*a[k+1..] added two limbs higher.
 // Just before a[0]*a[0] (0x06ace091, 0x06ace3ad, 0x06ace765) every limb matches that
-// walk except limb 0 and the top limb, which retail has not stored yet. The diagonal
+// walk except limb 0 and the top limb, which baseline has not stored yet. The diagonal
 // replaces both. Clearing the product first is that zero cross term, then the bytes
 // double the cross terms and add a[i]*a[i] at limb 2*i.
 static void SquareEqualLimbs(unsigned int* Value, unsigned int* Product, unsigned int Width)
@@ -967,19 +963,19 @@ static void WalkLimbPairs(unsigned int* Left, unsigned int* Right, unsigned int*
     }
 }
 
-// 0x06acde50. IMUL EAX,EAX,0x30.
+// . IMUL EAX,EAX,0x30.
 void __stdcall MultiplySixLimbPairs(unsigned int* Left, unsigned int* Right, unsigned int* Product, unsigned int Count)
 {
     WalkLimbPairs(Left, Right, Product, Count, 6u, 0x30u);
 }
 
-// 0x06ace120. IMUL EAX,EAX,0x40.
+// . IMUL EAX,EAX,0x40.
 void __stdcall MultiplyEightLimbPairs(unsigned int* Left, unsigned int* Right, unsigned int* Product, unsigned int Count)
 {
     WalkLimbPairs(Left, Right, Product, Count, 8u, 0x40u);
 }
 
-// 0x06ace440. IMUL EAX,EAX,0x60.
+// . IMUL EAX,EAX,0x60.
 void __stdcall MultiplyTwelveLimbPairs(unsigned int* Left, unsigned int* Right, unsigned int* Product, unsigned int Count)
 {
     WalkLimbPairs(Left, Right, Product, Count, 12u, 0x60u);

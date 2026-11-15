@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -11,16 +7,16 @@
 
 #include <cstddef>
 
-// Retail BeamEffect — RTTI ".?AUBeamEffect@@", vtable PTR_LAB_005d9dac
+// baseline BeamEffect — RTTI ".?AUBeamEffect@@", vtable the branch
 // (Client\space\Effect.cpp). Emits camera-facing cross-billboard laser geometry
-// into G_EffectVertexBatch (DAT_00674c7c). Texture nickname "code_beam".
+// into G_EffectVertexBatch (the field). Texture nickname "code_beam".
 
-// Beam archetype blob (FUN_0042e430 / FUN_0042e4a0 / FUN_0042e850) — sizeof 0x80.
+// Beam archetype blob (the routine / the routine / the routine) — sizeof 0x80.
 // Pointed by FBeamEffect::Arch. INI keys → offsets; geometry names kept where
 // builders already read them (SegmentMode / UvMode* = type / head|trail_texture).
 struct FBeamEffectArch
 {
-    char* Nickname;            // +0x00  StringAlloc'd (CacheString in retail)
+    char* Nickname;            // +0x00  StringAlloc'd (CacheString in baseline)
     int SegmentMode;           // +0x04  0=BeamSpear → single, 1=BeamBolt → multi
     int UvModeV;               // +0x08  head_texture: star=1 → V∈{0,.5}, else {.5,1}
     int UvModeU;               // +0x0C  trail_texture: thin=1 → U∈{0,.45}, else {.55,1}
@@ -48,15 +44,15 @@ struct FBeamEffectArch
     float Radius1;             // +0x64  tail_length
     float RadiusMid;           // +0x68  core_length
     float RadiusNear;          // +0x6C  core_width
-    float SecCoreWidth;        // +0x70  sec_core_width (FUN_0042e920 Bolt clamp)
+    float SecCoreWidth;        // +0x70  sec_core_width (the routine Bolt clamp)
     float RadiusTip;           // +0x74  head_width
     float RadiusNearAlt;       // +0x78  flash_size
-    float Pad7C;               // +0x7C  defaulted 1.0 in FUN_0042e430
+    float Pad7C;               // +0x7C  defaulted 1.0 in the routine
 };
 static_assert(sizeof(FBeamEffectArch) == 0x80, "BeamEffectArch 0x80");
 
-// Retail object through FUN_004f9540's last write at +0x80.
-// Transform at +0x10; BaseWatcher at +0x44 (FUN_004f9450 ADD ECX,0x44).
+// baseline object through the routine's last write at +0x80.
+// Transform at +0x10; BaseWatcher at +0x44 (the routine ADD ECX,0x44).
 // Link node at +0x60/+0x64/+0x68 (EffectTypeListLink); type id at +0x5C.
 struct FBeamEffect : FEffectBase
 {
@@ -91,47 +87,47 @@ static_assert(offsetof(FBeamEffect, Flags70) == 0x70, "Flags @ +0x70");
 struct FEffectArch; // vis_effect_arch.h
 struct FSpaceCamera; // space_camera.h
 
-// FUN_004f9540 — construct; increments DAT_00674f58.
+// — construct; increments the field.
 void BeamEffectConstruct(FBeamEffect* This, unsigned TypeId);
 
-// FUN_004f9510 (slot +0x20) around FUN_004f9450 — live count--, BaseWatcher::set(nullptr),
+// (slot +0x20) around the routine — live count--, BaseWatcher::set(nullptr),
 // FreeMemory&1 → Heap::Free on the 0x84 pool (EffectFree). No unlink: the bucket walk does it.
 void BeamEffectDestroy(FBeamEffect* This, int FreeMemory);
 
-// LAB_004f9600 — vtable[0] start(EffectArch*): VisBeam → Arch, type=0x2c, EffectTypeListLink.
+// — vtable[0] start(EffectArch*): VisBeam → Arch, type=0x2c, EffectTypeListLink.
 unsigned char BeamEffectStart(FBeamEffect* This, FEffectArch* EffectArch);
 
-// LAB_004f97a0 — vtable[+0x04]: arm death / freeze + Float7C clamp to DAT_006129cc.
+// — vtable[+0x04]: arm death / freeze + Float7C clamp to the field.
 void BeamEffectArmDeath(FBeamEffect* This);
 
-// LAB_004f9480 — vtable[+0x08]: world translation → Out; returns Float74 on ST0.
+// — vtable[+0x08]: world translation → Out; returns Float74 on ST0.
 float BeamEffectGetWorldPos(FBeamEffect* This, FVector* Out);
 
-// LAB_004f9980 — vtable[+0x14]: frustum / pbubble visibility → Flags70 bit0.
+// — vtable[+0x14]: frustum / pbubble visibility → Flags70 bit0.
 unsigned char BeamEffectUpdateVisibility(FBeamEffect* This, float Dt, FSpaceCamera* Cam);
 
-// LAB_004f9c20 — vtable[+0x18]: Progress78 / Float7C lifetime; 0 → death (Flags08 bit1).
+// — vtable[+0x18]: Progress78 / Float7C lifetime; 0 → death (Flags08 bit1).
 unsigned char BeamEffectTickDraw(FBeamEffect* This, float Dt, FSpaceCamera* Cam);
 
-// FUN_004f7d20 — attach Watchable (+8) + EngineIndex + local transform copy.
+// — attach Watchable (+8) + EngineIndex + local transform copy.
 void BeamEffectAttach(FBeamEffect* This, void* WatchableOwner, int EngineIndex,
                       FTransform const* LocalXform);
 
-// FUN_004f7a80 / FUN_004f7a90
+// / the routine
 void BeamEffectAddRef(FBeamEffect* This);
 int BeamEffectRelease(FBeamEffect* This);
 
-// LAB_004fa0a0 — vtable slot 7 (+0x1c). Stack arg is Cam (unused for T/Intensity).
+// — vtable slot 7 (+0x1c). Stack arg is Cam (unused for T/Intensity).
 unsigned char BeamEffectBuildGeometry(FBeamEffect* This, FSpaceCamera* Cam);
 
-// FUN_004fa270 — single-segment cross-billboard builder.
+// — single-segment cross-billboard builder.
 int BeamEffectBuildSingleSegment(FBeamEffect* This, FTransform const* WorldXform, float T,
                                  float Intensity);
 
-// FUN_004fb1e0 — multi builder; listing-verified (ESP+0x94 = B4 via SUB ESP alias;
-// UvU1-bits-as-index is a retail bug, reproduced).
+// — multi builder; listing-verified (ESP+0x94 = B4 via SUB ESP alias;
+// UvU1-bits-as-index is a baseline bug, reproduced).
 int BeamEffectBuildMultiSegment(FBeamEffect* This, FTransform const* WorldXform, float T,
                                 float Intensity);
 
-extern int G_BeamEffectLiveCount; // DAT_00674f58
-extern void* G_BeamEffectTexture; // DAT_00674f54 — FTexShape* from G_EffectShapeDB.Find("code_beam")
+extern int G_BeamEffectLiveCount;
+extern void* G_BeamEffectTexture; // — FTexShape* from G_EffectShapeDB.Find("code_beam")

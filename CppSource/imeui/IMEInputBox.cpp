@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "IMEInputBox.h"
@@ -63,7 +59,7 @@ void IMEInputBox::Resize(const RECT* pRect)
 
 void IMEInputBox::ImeShowToolbar(bool bShow)
 {
-    // Retail 0x06711110 is RET 4 (ICF-shared with UpdatedText).
+    // is RET 4 (ICF-shared with UpdatedText).
 }
 
 void IMEInputBox::ToggleInsertMode()

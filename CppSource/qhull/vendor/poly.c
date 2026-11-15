@@ -169,7 +169,7 @@ void qh_attachnewfacets (void ) {
 	visible->f.replace= newfacet;
 	qh_setreplace (horizon->neighbors, visible, newfacet);
       }else {
-	FUN_06356960 (/* retail 0636f1fd */ "qhull internal error (qh_attachnewfacets): couldn't find visible facet for horizon f%d of newfacet f%d\n",
+	WriteHullDiagnostic (  "qhull internal error (qh_attachnewfacets): couldn't find visible facet for horizon f%d of newfacet f%d\n",
 		 horizon->id, newfacet->id);
 	qh_errexit2 (qh_ERRqhull, horizon, newfacet);
       }
@@ -245,13 +245,13 @@ boolT qh_checkflipped (facetT *facet, realT *distp, boolT allerror) {
 void qh_delfacet(facetT *facet) {
   void **freelistp; /* used !qh_NOmem */
 
-  trace5((qh ferr, "qh_delfacet: delete f%d\n", facet->id)); /* retail 0636f3a0: IStracing >= 5 */
+  trace5((qh ferr, "qh_delfacet: delete f%d\n", facet->id)); /* IStracing >= 5 */
   if (facet == qh tracefacet)
     qh tracefacet= NULL;
   if (facet == qh GOODclosest)
     qh GOODclosest= NULL;
   qh_removefacet(facet);
-  /* retail 0636f3f1..0636f47e: normal and center are always freed (no tricoplanar sharing) */
+  /* normal and center are always freed (no tricoplanar sharing) */
   qh_memfree_(facet->normal, qh normal_size, freelistp);
   if (qh CENTERtype == qh_ASvoronoi) {   /* uses macro calls */
     qh_memfree_(facet->center, qh center_size, freelistp);
@@ -300,7 +300,7 @@ void qh_deletevisible (void /*qh visible_list*/) {
     qh_delfacet(visible);
   }
   if (numvisible != qh num_visible) {
-    FUN_06356960 (/* retail 0636f570 */ "qhull internal error (qh_deletevisible): qh num_visible %d is not number of visible facets %d\n",
+    WriteHullDiagnostic (  "qhull internal error (qh_deletevisible): qh num_visible %d is not number of visible facets %d\n",
              qh num_visible, numvisible);
     qh_errexit (qh_ERRqhull, NULL, NULL);
   }
@@ -375,7 +375,7 @@ setT *qh_facetintersect (facetT *facetA, facetT *facetB,
     }
   }
   if (i >= dim || j >= dim) {
-    FUN_06356960 (/* retail 0636f70e */ "qhull internal error (qh_facetintersect): f%d or f%d not in others neighbors\n",
+    WriteHullDiagnostic (  "qhull internal error (qh_facetintersect): f%d or f%d not in others neighbors\n",
             facetA->id, facetB->id);
     qh_errexit2 (qh_ERRqhull, facetA, facetB);
   }
@@ -472,7 +472,7 @@ facetT *qh_makenewfacet(setT *vertices, boolT toporient,facetT *horizon) {
   newfacet= qh_newfacet();
   newfacet->vertices= vertices;
   newfacet->toporient= toporient;
-  qh_setappend(&(newfacet->neighbors), horizon); /* retail 0636f8ec: unconditional, no NULL test */
+  qh_setappend(&(newfacet->neighbors), horizon); /* unconditional, no NULL test */
   qh_appendfacet(newfacet);
   return(newfacet);
 } /* makenewfacet */
@@ -584,7 +584,7 @@ facetT *qh_makenew_nonsimplicial (facetT *visible, vertexT *apex, int *numnew) {
       }else {  /* qh_attachnewfacets */
         if (neighbor->seen) {
 	  if (neighbor->simplicial) {
-	    FUN_06356960 (/* retail 0636fad0 */ "qhull internal error (qh_makenew_nonsimplicial): simplicial f%d sharing two ridges with f%d\n", 
+	    WriteHullDiagnostic (  "qhull internal error (qh_makenew_nonsimplicial): simplicial f%d sharing two ridges with f%d\n",
 	           neighbor->id, visible->id);
 	    qh_errexit2 (qh_ERRqhull, neighbor, visible);
 	  }
@@ -726,7 +726,7 @@ void qh_matchneighbor (facetT *newfacet, int newskip, int hashsize, int *hashcou
       if (SETelem_(newfacet->vertices, newskip) == 
           SETelem_(facet->vertices, skip)) {
         qh_precision ("two facets with the same vertices");
-        FUN_06356960 (/* retail 0636fe60 */ "qhull precision error: Vertex sets are the same for f%d and f%d.  Can not force output.\n",
+        WriteHullDiagnostic (  "qhull precision error: Vertex sets are the same for f%d and f%d.  Can not force output.\n",
           facet->id, newfacet->id);
         qh_errexit2 (qh_ERRprec, facet, newfacet);
       }
@@ -742,7 +742,7 @@ void qh_matchneighbor (facetT *newfacet, int newskip, int hashsize, int *hashcou
       }
       if (!qh PREmerge && !qh MERGEexact) {
         qh_precision ("a ridge with more than two neighbors");
-	FUN_06356960 (/* retail 0636ff27 */ "qhull precision error: facets f%d, f%d and f%d meet at a ridge with more than 2 neighbors.  Can not continue.\n",
+	WriteHullDiagnostic (  "qhull precision error: facets f%d, f%d and f%d meet at a ridge with more than 2 neighbors.  Can not continue.\n",
 		 facet->id, newfacet->id, getid_(matchfacet));
 	qh_errexit2 (qh_ERRprec, facet, newfacet);
       }
@@ -876,7 +876,7 @@ void qh_matchnewfacets (void /* qh newfacet_list */) {
     }
   }
   if (hashcount) {
-    FUN_06356960 (/* retail 063701e3 */ "qhull internal error (qh_matchnewfacets): %d neighbors did not match up\n",
+    WriteHullDiagnostic (  "qhull internal error (qh_matchnewfacets): %d neighbors did not match up\n",
         hashcount);
     qh_printhashtable (qh ferr);
     qh_errexit (qh_ERRqhull, NULL, NULL);
@@ -887,7 +887,7 @@ void qh_matchnewfacets (void /* qh newfacet_list */) {
       if (!facet)
         numfree++;
     }
-    FUN_06356960 (/* retail 06370252 */ "qh_matchnewfacets: %d new facets, %d unused hash entries .  hashsize %d\n",
+    WriteHullDiagnostic (  "qh_matchnewfacets: %d new facets, %d unused hash entries .  hashsize %d\n",
 	     numnew, numfree, qh_setsize (qh hash_table));
   }
 #endif /* !qh_NOtrace */
@@ -998,7 +998,7 @@ ridgeT *qh_newridge(void) {
   memset ((char *)ridge, 0, sizeof(ridgeT));
   zinc_(Ztotridges);
   if (qh ridge_id == 0xFFFFFF) {
-    FUN_06356960(/* retail 06370514 (retail text) */ "\
+    WriteHullDiagnostic(/* (baseline text) */ "\
 qhull warning: more than %d ridges.  Id field overflows and two ridges\n\
 may have the same identifier.  Otherwise output ok.\n", 0xFFFFFF);
   }

@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -9,14 +5,14 @@
 #include "common_id.h"
 
 // Content.dll per-TU static IDs.
-//
-// Every Content translation unit in retail starts with the same 16 dynamic
+
+// Every Content translation unit in baseline starts with the same 16 dynamic
 // initializers (_initterm thunks), e.g. TU51 06f57cb0..06f57e90 writing
-// DAT_06fd0e2c..DAT_06fd0df0, TU0 06ea1000..06ea11e0 writing
-// DAT_06fce960..DAT_06fce924: CreateID(<literal>) stored into a TU-private
+// ..the field, TU0 06ea1000..06ea11e0 writing
+// ..the field: CreateID(<literal>) stored into a TU-private
 // global. That is a header with internal-linkage globals included by every
 // source file. This header reproduces it: each including TU gets its own copy,
-// initialized in this declaration order, exactly like retail's per-TU thunks.
+// initialized in this declaration order, exactly like baseline's per-TU thunks.
 // ("default", present only in 26 of the TUs, comes from a different header and
 // is not part of this set.)
 

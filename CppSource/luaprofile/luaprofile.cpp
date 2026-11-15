@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "LuaProfileInternal.h"
@@ -18,14 +14,14 @@ extern "C"
 
 class FLuaObject;
 
-class FInnerUnknown final : public IDAComponent
+class FInnerUnknown final : public INeuronComponent
 {
 public:
     FInnerUnknown();
 
-    GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override;
-    unsigned long DACOM_API AddRef() override;
-    unsigned long DACOM_API Release() override;
+    GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override;
+    unsigned long NEURONCOMPONENTS_API AddRef() override;
+    unsigned long NEURONCOMPONENTS_API Release() override;
 
     unsigned long RefCount;
     FLuaObject* Owner;
@@ -37,22 +33,22 @@ public:
     FLuaObject();
     ~FLuaObject();
 
-    GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override;
-    unsigned long DACOM_API AddRef() override;
-    unsigned long DACOM_API Release() override;
+    GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override;
+    unsigned long NEURONCOMPONENTS_API AddRef() override;
+    unsigned long NEURONCOMPONENTS_API Release() override;
 
-    GENRESULT DACOM_API InvokeGlobal(const char* Name, FLuaTaggedValue* OutValue,
+    GENRESULT NEURONCOMPONENTS_API InvokeGlobal(const char* Name, FLuaTaggedValue* OutValue,
                                      int Argc, FLuaTaggedValue* const* Argv) override;
 
-    GENRESULT DACOM_API LoadFile(const char* Path, unsigned int Flags) override; // formerly UnnamedSlot3
-    int DACOM_API EnumerateSections(FSectionEnumCallback Callback, void* Context) override; // formerly UnnamedSlot4
-    void* DACOM_API OpenSection(const char* Name, unsigned int Flags) override;
-    int DACOM_API CloseSection(void* Handle) override;
-    int DACOM_API ReadLine(void* Handle, int Index, char* Buffer, unsigned int BufferSize) override;
-    int DACOM_API GetString(void* Handle, const char* Key, char* Buffer,
+    GENRESULT NEURONCOMPONENTS_API LoadFile(const char* Path, unsigned int Flags) override; // formerly UnnamedSlot3
+    int NEURONCOMPONENTS_API EnumerateSections(FSectionEnumCallback Callback, void* Context) override; // formerly UnnamedSlot4
+    void* NEURONCOMPONENTS_API OpenSection(const char* Name, unsigned int Flags) override;
+    int NEURONCOMPONENTS_API CloseSection(void* Handle) override;
+    int NEURONCOMPONENTS_API ReadLine(void* Handle, int Index, char* Buffer, unsigned int BufferSize) override;
+    int NEURONCOMPONENTS_API GetString(void* Handle, const char* Key, char* Buffer,
                             unsigned int BufferSize) override;
 
-    GENRESULT DACOM_API Initialize() override;
+    GENRESULT NEURONCOMPONENTS_API Initialize() override;
 
     void BindOuter(FLuaAggDesc* Desc);
     void OpenLuaVm();
@@ -61,7 +57,7 @@ public:
     lua_State* LuaState;
     FSectionHandle* SectionList;
     int ExtraLuaRef;
-    IDAComponent* Controlling;
+    INeuronComponent* Controlling;
     FInnerUnknown Inner;
 };
 
@@ -73,17 +69,17 @@ static_assert(offsetof(FLuaObject, Inner) == 0x1C, "inner IUnknown @ +0x1C");
 static_assert(sizeof(FLuaObject) == kLuaObjectSize, "calloc(1, 0x28)");
 static_assert(offsetof(FInnerUnknown, RefCount) == 4, "inner refcount @ object+0x20");
 static_assert(offsetof(FInnerUnknown, Owner) == 8, "inner back-ptr @ object+0x24");
-static_assert(offsetof(FLuaTaggedValue, Payload) == 8, "FUN_06801690 payload @ +8");
+static_assert(offsetof(FLuaTaggedValue, Payload) == 8, "module state payload @ +8");
 
 class FLuaFactory final : public IComponentFactory
 {
 public:
     FLuaFactory();
 
-    GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override;
-    unsigned long DACOM_API AddRef() override;
-    unsigned long DACOM_API Release() override;
-    GENRESULT DACOM_API CreateInstance(AGGDESC* Desc, void** Instance) override;
+    GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override;
+    unsigned long NEURONCOMPONENTS_API AddRef() override;
+    unsigned long NEURONCOMPONENTS_API Release() override;
+    GENRESULT NEURONCOMPONENTS_API CreateInstance(AGGDESC* Desc, void** Instance) override;
 
     unsigned long RefCount;
     const char* Name;
@@ -108,12 +104,12 @@ static_assert(sizeof(kGetTableLine) == 0xF8, "PE __get_table_line 0xF7 + NUL");
 static_assert(sizeof(kGetProfileLine) == 0xEB, "PE __get_profile_line 0xEA + NUL");
 
 static const char kFdumpPath[] =
-    "C:\\work\\builds\\dalibs\\dalibs-build\\build\\Src\\LuaProfile\\LuaProfile.cpp";
+    "LuaProfile\\LuaProfile.cpp";
 static const char kFdumpFmt[] = "%s(%d) : ERROR:General:%s";
 static const int kFdumpLine = 0x167;
 static const int kFdumpError = 0x100001;
 
-// LAB_06801120: FDUMP is called through the import with no null test.
+// FDUMP is called through the import with no null test.
 extern "C" static void LuaErrorMessage(void)
 {
     lua_Object Param = lua_getparam(1);
@@ -148,7 +144,7 @@ static bool ExactMatch(const char* Left, const char* Right)
     }
 }
 
-// Inlined REPNE SCASB strlen: every retail site has a non-null string here.
+// Inlined REPNE SCASB strlen: every baseline site has a non-null string here.
 static int StringLength(const char* Text)
 {
     return (int)(strlen(Text));
@@ -187,7 +183,7 @@ static void PushInvokeArg(FLuaTaggedValue* Rec)
     lua_pushnumber(Number);
 }
 
-// LAB_068013b0 tail (068014e2..06801587). The value string is fetched only where retail
+// tail (068014e2..06801587). The value string is fetched only where baseline
 // fetches it: after the key copy, and never when the key alone fills the buffer.
 static int FormatKeyValue(char* Buffer, unsigned int BufferSize, const char* Key, lua_Object ValueObj)
 {
@@ -224,9 +220,9 @@ static int FormatKeyValue(char* Buffer, unsigned int BufferSize, const char* Key
 
 FInnerUnknown::FInnerUnknown() : RefCount(1), Owner(nullptr) {}
 
-GENRESULT DACOM_API FInnerUnknown::QueryInterface(const char* Iid, void** Out)
+GENRESULT NEURONCOMPONENTS_API FInnerUnknown::QueryInterface(const char* Iid, void** Out)
 {
-    IDAComponent* Facet = nullptr;
+    INeuronComponent* Facet = nullptr;
     if (ExactMatch(kInnerILua, Iid))
         Facet = (ILua*)(Owner);
     else if (ExactMatch(kInnerProfileParser, Iid))
@@ -244,20 +240,20 @@ GENRESULT DACOM_API FInnerUnknown::QueryInterface(const char* Iid, void** Out)
     return GR_OK;
 }
 
-unsigned long DACOM_API FInnerUnknown::AddRef()
+unsigned long NEURONCOMPONENTS_API FInnerUnknown::AddRef()
 {
     ++RefCount;
     return RefCount;
 }
 
-unsigned long DACOM_API FInnerUnknown::Release()
+unsigned long NEURONCOMPONENTS_API FInnerUnknown::Release()
 {
     if (RefCount > 0)
         --RefCount;
     unsigned long Remaining = RefCount;
     if (Remaining == 0)
     {
-        // LAB_06801b00: the back-pointer is read but not cleared; the object dies with it.
+        // the back-pointer is read but not cleared; the object dies with it.
         RefCount = 1;
         FLuaObject* Object = Owner;
         if (Object != nullptr)
@@ -295,7 +291,7 @@ void FLuaObject::OpenLuaVm()
     lua_open();
     lua_dostring(kGetProfileLine);
     lua_dostring(kGetTableLine);
-    // Retail FUN_06801000: lua_pushcclosure(LAB_06801120, 0) + FUN_06801e80
+    // lua_pushcclosure(the branch, 0) + the routine
     // (lua_seterrormethod — hardcoded _ERRORMESSAGE).
     lua_pushcfunction(&LuaErrorMessage);
     lua_seterrormethod();
@@ -307,8 +303,8 @@ void FLuaObject::CloseLuaVm()
     lua_State* Ours = LuaState;
     lua_State* Previous = lua_setstate(Ours);
 
-    // FUN_06801080: the list head (+0x10) and the state (+0xC) are left as they are; the
-    // object is freed right after (LAB_06801b00).
+    // the list head (+0x10) and the state (+0xC) are left as they are; the
+    // object is freed right after (the branch).
     FSectionHandle* Node = SectionList;
     while (Node != nullptr)
     {
@@ -328,7 +324,7 @@ void FLuaObject::CloseLuaVm()
     ExtraLuaRef = -1;
 }
 
-// LAB_06801950 @ 068019e3: +0x18 = Desc->Outer; a null outer means +0x18 = &inner, else
+// @ 068019e3: +0x18 = Desc->Outer; a null outer means +0x18 = &inner, else
 // *Desc->InnerOut = &inner (no null test on InnerOut).
 void FLuaObject::BindOuter(FLuaAggDesc* Desc)
 {
@@ -339,23 +335,23 @@ void FLuaObject::BindOuter(FLuaAggDesc* Desc)
         *Desc->InnerOut = &Inner;
 }
 
-// LAB_06801b40/b50/b60 (+ the -4/-8 adjustors b70..bc0): tail-jump through +0x18, no test.
-GENRESULT DACOM_API FLuaObject::QueryInterface(const char* Iid, void** Out)
+// /b50/b60 (+ the -4/-8 adjustors b70..bc0): tail-jump through +0x18, no test.
+GENRESULT NEURONCOMPONENTS_API FLuaObject::QueryInterface(const char* Iid, void** Out)
 {
     return Controlling->QueryInterface(Iid, Out);
 }
 
-unsigned long DACOM_API FLuaObject::AddRef()
+unsigned long NEURONCOMPONENTS_API FLuaObject::AddRef()
 {
     return Controlling->AddRef();
 }
 
-unsigned long DACOM_API FLuaObject::Release()
+unsigned long NEURONCOMPONENTS_API FLuaObject::Release()
 {
     return Controlling->Release();
 }
 
-GENRESULT DACOM_API FLuaObject::InvokeGlobal(const char* Name, FLuaTaggedValue* OutValue,
+GENRESULT NEURONCOMPONENTS_API FLuaObject::InvokeGlobal(const char* Name, FLuaTaggedValue* OutValue,
                                            int Argc, FLuaTaggedValue* const* Argv)
 {
     // Lua 3.2 accepts mutable char pointers for these read-only string inputs.
@@ -399,7 +395,7 @@ GENRESULT DACOM_API FLuaObject::InvokeGlobal(const char* Name, FLuaTaggedValue* 
     return GR_OK;
 }
 
-GENRESULT DACOM_API FLuaObject::LoadFile(const char* Path, unsigned int Flags)
+GENRESULT NEURONCOMPONENTS_API FLuaObject::LoadFile(const char* Path, unsigned int Flags)
 {
     // Lua 3.2 accepts mutable char pointers for these read-only string inputs.
     if (Flags != 0)
@@ -411,7 +407,7 @@ GENRESULT DACOM_API FLuaObject::LoadFile(const char* Path, unsigned int Flags)
     return GR_OK;
 }
 
-int DACOM_API FLuaObject::EnumerateSections(FSectionEnumCallback Callback, void* Context)
+int NEURONCOMPONENTS_API FLuaObject::EnumerateSections(FSectionEnumCallback Callback, void* Context)
 {
     if (Callback == nullptr)
         return 0;
@@ -432,8 +428,8 @@ int DACOM_API FLuaObject::EnumerateSections(FSectionEnumCallback Callback, void*
                 ParserOrZero = nullptr;
             if (EnumCb(ParserOrZero, Name, Context) == 0)
             {
-                // Retail LAB_068011b0: callback 0 jumps to RET without restore
-                // of DAT_0680e604 (same as InvokeGlobal fail).
+                // callback 0 jumps to RET without restore
+                // of the field (same as InvokeGlobal fail).
                 return 0;
             }
         }
@@ -444,10 +440,10 @@ int DACOM_API FLuaObject::EnumerateSections(FSectionEnumCallback Callback, void*
     return 1;
 }
 
-void* DACOM_API FLuaObject::OpenSection(const char* Name, unsigned int Flags)
+void* NEURONCOMPONENTS_API FLuaObject::OpenSection(const char* Name, unsigned int Flags)
 {
     // Lua 3.2 accepts mutable char pointers for these read-only string inputs.
-    // LAB_06801250: only Flags is tested; Name is dereferenced unconditionally.
+    // only Flags is tested; Name is dereferenced unconditionally.
     if (Flags != 3)
         return nullptr;
 
@@ -483,7 +479,7 @@ void* DACOM_API FLuaObject::OpenSection(const char* Name, unsigned int Flags)
     return Handle;
 }
 
-int DACOM_API FLuaObject::CloseSection(void* Handle)
+int NEURONCOMPONENTS_API FLuaObject::CloseSection(void* Handle)
 {
     FSectionHandle* Target = (FSectionHandle*)(Handle);
     if (Target == nullptr)
@@ -514,7 +510,7 @@ int DACOM_API FLuaObject::CloseSection(void* Handle)
     return 0;
 }
 
-int DACOM_API FLuaObject::ReadLine(void* Handle, int Index, char* Buffer, unsigned int BufferSize)
+int NEURONCOMPONENTS_API FLuaObject::ReadLine(void* Handle, int Index, char* Buffer, unsigned int BufferSize)
 {
     // Lua 3.2 accepts mutable char pointers for these read-only string inputs.
     FSectionHandle* Target = (FSectionHandle*)(Handle);
@@ -560,7 +556,7 @@ int DACOM_API FLuaObject::ReadLine(void* Handle, int Index, char* Buffer, unsign
     return Copied;
 }
 
-int DACOM_API FLuaObject::GetString(void* Handle, const char* Key, char* Buffer, unsigned int BufferSize)
+int NEURONCOMPONENTS_API FLuaObject::GetString(void* Handle, const char* Key, char* Buffer, unsigned int BufferSize)
 {
     // Lua 3.2 accepts mutable char pointers for these read-only string inputs.
     FSectionHandle* Target = (FSectionHandle*)(Handle);
@@ -606,15 +602,15 @@ int DACOM_API FLuaObject::GetString(void* Handle, const char* Key, char* Buffer,
     return Length;
 }
 
-GENRESULT DACOM_API FLuaObject::Initialize()
+GENRESULT NEURONCOMPONENTS_API FLuaObject::Initialize()
 {
     return GR_OK;
 }
 
 FLuaFactory::FLuaFactory() : RefCount(1), Name(kComponentName) {}
 
-// LAB_068018e0: *Out = 0, compare 0x17 bytes, then *Out = this and AddRef via vt+4.
-GENRESULT DACOM_API FLuaFactory::QueryInterface(const char* Iid, void** Out)
+// *Out = 0, compare 0x17 bytes, then *Out = this and AddRef via vt+4.
+GENRESULT NEURONCOMPONENTS_API FLuaFactory::QueryInterface(const char* Iid, void** Out)
 {
     *Out = nullptr;
     if (!BytesMatch(Iid, Iids::ComponentFactory, kIidComponentFactoryBytes))
@@ -624,13 +620,13 @@ GENRESULT DACOM_API FLuaFactory::QueryInterface(const char* Iid, void** Out)
     return GR_OK;
 }
 
-unsigned long DACOM_API FLuaFactory::AddRef()
+unsigned long NEURONCOMPONENTS_API FLuaFactory::AddRef()
 {
     ++RefCount;
     return RefCount;
 }
 
-unsigned long DACOM_API FLuaFactory::Release()
+unsigned long NEURONCOMPONENTS_API FLuaFactory::Release()
 {
     if (RefCount > 0)
         --RefCount;
@@ -644,7 +640,7 @@ unsigned long DACOM_API FLuaFactory::Release()
     return Remaining;
 }
 
-GENRESULT DACOM_API FLuaFactory::CreateInstance(AGGDESC* Desc, void** Instance)
+GENRESULT NEURONCOMPONENTS_API FLuaFactory::CreateInstance(AGGDESC* Desc, void** Instance)
 {
     FLuaAggDesc* LuaDesc = (FLuaAggDesc*)(Desc);
     if (LuaDesc->Size != kAggDescSize || !ExactMatch(LuaDesc->Name, Name))
@@ -675,10 +671,10 @@ BOOL WINAPI DllMain(HINSTANCE Module, DWORD Reason, LPVOID /*Reserved*/)
 
         FLuaFactory* Factory = new (std::nothrow) FLuaFactory();
 
-        // FUN_06801870: RegisterComponent (vt+0x10) and the factory Release (vt+8) run with
-        // no null test on either the factory or DACOM_Acquire's result.
-        ICOManager* Dacom = DACOM_Acquire();
-        Dacom->RegisterComponent(Factory, kComponentName,
+        // RegisterComponent (vt+0x10) and the factory Release (vt+8) run with
+        // no null test on either the factory or NEURONCOMPONENTS_Acquire's result.
+        ICOManager* NeuronComponents = NEURONCOMPONENTS_Acquire();
+        NeuronComponents->RegisterComponent(Factory, kComponentName,
                                  (void*)(kRegisterPriority));
         Factory->Release();
     }

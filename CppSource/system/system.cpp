@@ -1,10 +1,6 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
-#include "dacom.h"
+#include "neuroncomponents.h"
 #include "luaprofile.h"
 #include "system.h"
 
@@ -26,14 +22,14 @@ static const int kLoadComponentsLine = 0x123;
 
 static const char kComponentName[] = "SystemContainer";  // s_SystemContainer_06f13080
 static const char kSystemSection[] = "System";            // s_System_06f13154
-static const char kStatusOk[] = "[OK]";                   // DAT_06f13140
+static const char kStatusOk[] = "[OK]";
 static const char kStatusFailed[] = "[FAILED]";           // s_[FAILED]_06f13148
-static const char kEmptyExtra[] = "";                     // DAT_06f13190 (zero dword)
+static const char kEmptyExtra[] = "";                     // (zero dword)
 static const char kLoadFormat[] = "SystemContainer: LoadSystemComponents: Loading '%s' [%s] returned %s";
-static const char kRetailSource[] =
-    "C:\\work\\builds\\dalibs\\dalibs-build\\build\\Src\\System\\SysContainer.cpp";
+static const char kbaselineSource[] =
+    "System\\SysContainer.cpp";
 static const char kFdumpPrefix[] = "%s(%d) : NOTICE:General:%s";
-static const unsigned int kFdumpScratchSize = 0x2000; // FUN_06f11480 _vsnprintf cap
+static const unsigned int kFdumpScratchSize = 0x2000; // _vsnprintf cap
 static const unsigned int kLineBufferSize = 0x100;    // ReadLine buffer @06f11246
 
 // AGGDESC size 0x14 used by this factory and when creating [System] children.
@@ -42,48 +38,48 @@ struct FSystemAggDesc
 {
     unsigned long Size;
     const char* Name;
-    IDAComponent* Outer;
-    IDAComponent** InnerOut;
+    INeuronComponent* Outer;
+    INeuronComponent** InnerOut;
     const char* Extra;
 };
 
 // Optional child lifecycle facet; cached pointers are borrowed after QI/Release.
-struct ISystemComponent : IDAComponent
+struct ISystemComponent : INeuronComponent
 {
-    virtual GENRESULT DACOM_API Initialize() = 0; // +0x0C — unused on children by this DLL
-    virtual GENRESULT DACOM_API Shutdown() = 0;   // +0x10
+    virtual GENRESULT NEURONCOMPONENTS_API Initialize() = 0; // +0x0C — unused on children by this DLL
+    virtual GENRESULT NEURONCOMPONENTS_API Shutdown() = 0;   // +0x10
 };
 
 // ISystemContainer (+0x10 Shutdown .. +0x1C AddComponent) is public: src/include/system.h.
 
 // Fans requests out to children and stops at the first GR_OK result.
-struct IDAConnectionPointContainer : IDAComponent
+struct IDAConnectionPointContainer : INeuronComponent
 {
-    virtual GENRESULT DACOM_API FindConnectionPoint(const char* Iid, void** Out) = 0; // +0x0C
-    virtual GENRESULT DACOM_API EnumConnectionPoints(void* Arg0, void* Arg1) = 0;     // +0x10
+    virtual GENRESULT NEURONCOMPONENTS_API FindConnectionPoint(const char* Iid, void** Out) = 0; // +0x0C
+    virtual GENRESULT NEURONCOMPONENTS_API EnumConnectionPoints(void* Arg0, void* Arg1) = 0;     // +0x10
 };
 
-// operator_new(0x14) node. Retail zeroes only Next/Inner (06f112d6/06f114ef); Object is the
+// operator_new(0x14) node. baseline zeroes only Next/Inner (06f112d6/06f114ef); Object is the
 // CreateInstance out-param, SystemComponent/Aggregate are the QI out-params.
 struct FComponentNode
 {
     FComponentNode* Next;
-    IDAComponent* Inner;
-    IDAComponent* Object;
+    INeuronComponent* Inner;
+    INeuronComponent* Object;
     ISystemComponent* SystemComponent;
     IAggregateComponent* Aggregate;
 };
 
 class FSystemContainer;
 
-class FInnerUnknown final : public IDAComponent
+class FInnerUnknown final : public INeuronComponent
 {
 public:
     FInnerUnknown();
 
-    GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override;
-    unsigned long DACOM_API AddRef() override;
-    unsigned long DACOM_API Release() override;
+    GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override;
+    unsigned long NEURONCOMPONENTS_API AddRef() override;
+    unsigned long NEURONCOMPONENTS_API Release() override;
 
     unsigned long RefCount;
     FSystemContainer* Outer;
@@ -95,25 +91,25 @@ public:
     FSystemContainer();
     ~FSystemContainer();
 
-    GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override;
-    unsigned long DACOM_API AddRef() override;
-    unsigned long DACOM_API Release() override;
+    GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override;
+    unsigned long NEURONCOMPONENTS_API AddRef() override;
+    unsigned long NEURONCOMPONENTS_API Release() override;
 
-    GENRESULT DACOM_API Initialize() override;
-    GENRESULT DACOM_API Shutdown() override;
-    GENRESULT DACOM_API LoadSystemComponents() override;
-    GENRESULT DACOM_API UnloadSystemComponents() override;
-    GENRESULT DACOM_API AddComponent(AGGDESC* Desc) override;
+    GENRESULT NEURONCOMPONENTS_API Initialize() override;
+    GENRESULT NEURONCOMPONENTS_API Shutdown() override;
+    GENRESULT NEURONCOMPONENTS_API LoadSystemComponents() override;
+    GENRESULT NEURONCOMPONENTS_API UnloadSystemComponents() override;
+    GENRESULT NEURONCOMPONENTS_API AddComponent(AGGDESC* Desc) override;
 
-    GENRESULT DACOM_API FindConnectionPoint(const char* Iid, void** Out) override;
-    GENRESULT DACOM_API EnumConnectionPoints(void* Arg0, void* Arg1) override;
+    GENRESULT NEURONCOMPONENTS_API FindConnectionPoint(const char* Iid, void** Out) override;
+    GENRESULT NEURONCOMPONENTS_API EnumConnectionPoints(void* Arg0, void* Arg1) override;
 
     GENRESULT BindOuter(FSystemAggDesc* Desc);
 
     FComponentNode* Head;
     FComponentNode* Tail;
     FInnerUnknown Inner;
-    IDAComponent* Controlling;
+    INeuronComponent* Controlling;
     unsigned long bAggregated;
     unsigned long bLoaded;
 };
@@ -132,10 +128,10 @@ class FSystemContainerFactory final : public IComponentFactory
 public:
     FSystemContainerFactory();
 
-    GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override;
-    unsigned long DACOM_API AddRef() override;
-    unsigned long DACOM_API Release() override;
-    GENRESULT DACOM_API CreateInstance(AGGDESC* Desc, void** Instance) override;
+    GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override;
+    unsigned long NEURONCOMPONENTS_API AddRef() override;
+    unsigned long NEURONCOMPONENTS_API Release() override;
+    GENRESULT NEURONCOMPONENTS_API CreateInstance(AGGDESC* Desc, void** Instance) override;
 
     unsigned long RefCount;
     const char* Name;
@@ -143,8 +139,8 @@ public:
 
 static_assert(sizeof(FSystemContainerFactory) == 0x0C, "factory is 0xC");
 
-ICOManager* GDacom = nullptr; // DAT_06f13194
-HMODULE GModule = nullptr;    // DAT_06f13198
+ICOManager* GNeuronComponents = nullptr;
+HMODULE GModule = nullptr;
 
 // Inlined smart-pointer release of node->Inner (06f111ac..b9, 06f11350..5c, 06f115ad..b9).
 static void ReleaseNodeInner(FComponentNode* Node)
@@ -156,7 +152,7 @@ static void ReleaseNodeInner(FComponentNode* Node)
     }
 }
 
-// FUN_06f11480: _vsnprintf(Buffer, 0x2000, Format, ...) and return Buffer. No forced terminator.
+// _vsnprintf(Buffer, 0x2000, Format, ...) and return Buffer. No forced terminator.
 static char* FormatNotice(char* Buffer, const char* Format, ...)
 {
     va_list Args;
@@ -185,7 +181,7 @@ static void LinkAndProbeNode(FSystemContainer* Container, FComponentNode* Node)
 
 FInnerUnknown::FInnerUnknown() : RefCount(1), Outer(nullptr) {}
 
-GENRESULT DACOM_API FInnerUnknown::QueryInterface(const char* Iid, void** Out)
+GENRESULT NEURONCOMPONENTS_API FInnerUnknown::QueryInterface(const char* Iid, void** Out)
 {
     struct FQiEntry
     {
@@ -193,11 +189,11 @@ GENRESULT DACOM_API FInnerUnknown::QueryInterface(const char* Iid, void** Out)
         unsigned long ByteOffset;
     };
     static const FQiEntry Table[] = {
-        {Iids::SystemContainer, 0},            // 06f1205c / 06f12060
-        {Iids::AggregateComponent, 0},         // 06f12064 / 06f12068
-        {Iids::SystemComponent, 0},            // 06f1206c / 06f12070
-        {Iids::DAConnectionPointContainer, 4}, // 06f12074 / 06f12078
-        {nullptr, 0},                          // 06f1207c
+        {Iids::SystemContainer, 0},            // / 06f12060
+        {Iids::AggregateComponent, 0},         // / 06f12068
+        {Iids::SystemComponent, 0},            // / 06f12070
+        {Iids::DAConnectionPointContainer, 4}, // / 06f12078
+        {nullptr, 0},
     };
 
     for (unsigned int Index = 0; Table[Index].Iid != nullptr; ++Index)
@@ -206,11 +202,11 @@ GENRESULT DACOM_API FInnerUnknown::QueryInterface(const char* Iid, void** Out)
         {
             unsigned char* Base = (unsigned char*)(Outer);
             unsigned long Offset = Table[Index].ByteOffset;
-            IDAComponent* Face = nullptr;
+            INeuronComponent* Face = nullptr;
             if ((Offset & 0x80000000u) != 0)
-                Face = *(IDAComponent**)(Base + (Offset & 0x7FFFFFFFu));
+                Face = *(INeuronComponent**)(Base + (Offset & 0x7FFFFFFFu));
             else
-                Face = (IDAComponent*)(Base + Offset);
+                Face = (INeuronComponent*)(Base + Offset);
             Face->AddRef();
             *Out = Face;
             return GR_OK;
@@ -229,16 +225,16 @@ GENRESULT DACOM_API FInnerUnknown::QueryInterface(const char* Iid, void** Out)
     return GR_INTERFACE_UNSUPPORTED;
 }
 
-// LAB_06f11990 (shared with the factory's AddRef).
-unsigned long DACOM_API FInnerUnknown::AddRef()
+// (shared with the factory's AddRef).
+unsigned long NEURONCOMPONENTS_API FInnerUnknown::AddRef()
 {
     ++RefCount;
     return RefCount;
 }
 
-// LAB_06f119a0: last release runs the container destructor (FUN_06f11130) and free()s the
+// last release runs the container destructor (the routine) and free()s the
 // calloc'd block.
-unsigned long DACOM_API FInnerUnknown::Release()
+unsigned long NEURONCOMPONENTS_API FInnerUnknown::Release()
 {
     if (RefCount > 0)
         --RefCount;
@@ -256,7 +252,7 @@ unsigned long DACOM_API FInnerUnknown::Release()
     return 0;
 }
 
-// Inline constructor in LAB_06f118a0 (06f11905..06f11928) on calloc'd memory: Inner.RefCount=1,
+// Inline constructor in the branch (06f11905..06f11928) on calloc'd memory: Inner.RefCount=1,
 // Inner.Outer=this, Controlling=&Inner; Head/Tail/bAggregated/bLoaded are calloc zeros.
 FSystemContainer::FSystemContainer()
     : Head(nullptr), Tail(nullptr), Controlling(nullptr), bAggregated(0), bLoaded(0)
@@ -265,30 +261,30 @@ FSystemContainer::FSystemContainer()
     Controlling = &Inner;
 }
 
-// FUN_06f11130: AddRef the controlling unknown, then UnloadSystemComponents (FUN_06f11190).
+// AddRef the controlling unknown, then UnloadSystemComponents (the routine).
 FSystemContainer::~FSystemContainer()
 {
     Controlling->AddRef();
     UnloadSystemComponents();
 }
 
-// FUN_06f11160 / 06f11170 / 06f11180: tail-jumps through Controlling (+0x1C).
-GENRESULT DACOM_API FSystemContainer::QueryInterface(const char* Iid, void** Out)
+// / 06f11170 / 06f11180: tail-jumps through Controlling (+0x1C).
+GENRESULT NEURONCOMPONENTS_API FSystemContainer::QueryInterface(const char* Iid, void** Out)
 {
     return Controlling->QueryInterface(Iid, Out);
 }
 
-unsigned long DACOM_API FSystemContainer::AddRef()
+unsigned long NEURONCOMPONENTS_API FSystemContainer::AddRef()
 {
     return Controlling->AddRef();
 }
 
-unsigned long DACOM_API FSystemContainer::Release()
+unsigned long NEURONCOMPONENTS_API FSystemContainer::Release()
 {
     return Controlling->Release();
 }
 
-GENRESULT DACOM_API FSystemContainer::Initialize()
+GENRESULT NEURONCOMPONENTS_API FSystemContainer::Initialize()
 {
     GENRESULT Result = GR_OK;
     FComponentNode* Previous = nullptr;
@@ -319,7 +315,7 @@ GENRESULT DACOM_API FSystemContainer::Initialize()
     return Result;
 }
 
-GENRESULT DACOM_API FSystemContainer::Shutdown()
+GENRESULT NEURONCOMPONENTS_API FSystemContainer::Shutdown()
 {
     GENRESULT Result = (GENRESULT)((intptr_t)((ISystemContainer*)(this)));
     FComponentNode* Node = Head;
@@ -333,15 +329,15 @@ GENRESULT DACOM_API FSystemContainer::Shutdown()
     return Result;
 }
 
-// LAB_06f111e0 (+ tail LAB_06f113d1): read [System] from the DACOM profile parser and
+// (+ tail the branch): read [System] from the NEURONCOMPONENTS profile parser and
 // aggregate one child per line ("Name [= Extra]").
-GENRESULT DACOM_API FSystemContainer::LoadSystemComponents()
+GENRESULT NEURONCOMPONENTS_API FSystemContainer::LoadSystemComponents()
 {
     if (bLoaded != 0)
         return GR_OK;
 
     IProfileParser* Parser = nullptr;
-    if (GDacom->QueryInterface(Iids::ProfileParser, (void**)(&Parser)) == GR_OK)
+    if (GNeuronComponents->QueryInterface(Iids::ProfileParser, (void**)(&Parser)) == GR_OK)
     {
         void* Section = Parser->OpenSection(kSystemSection, 3);
         if (Section != nullptr)
@@ -373,8 +369,8 @@ GENRESULT DACOM_API FSystemContainer::LoadSystemComponents()
                     } while (*Extra == ' ' || *Extra == '\t');
                 }
 
-                // 06f112c8: operator_new(0x14); retail has no null path (a null node faults at
-                // 06f112ef), so the throwing form is used here.
+                // operator_new(0x14); baseline has no null path (a null node faults at
+                // ), so the throwing form is used here.
                 FComponentNode* Node = new FComponentNode;
                 Node->Inner = nullptr;
                 Node->Next = nullptr;
@@ -392,7 +388,7 @@ GENRESULT DACOM_API FSystemContainer::LoadSystemComponents()
                     *Token = '\0';
 
                 const char* Status = nullptr;
-                if (GDacom->CreateInstance((AGGDESC*)(&Desc),
+                if (GNeuronComponents->CreateInstance((AGGDESC*)(&Desc),
                                            (void**)(&Node->Object)) != GR_OK)
                 {
                     Status = kStatusFailed;
@@ -406,7 +402,7 @@ GENRESULT DACOM_API FSystemContainer::LoadSystemComponents()
                 }
 
                 char Scratch[kFdumpScratchSize];
-                FDUMP((int)(kFdumpNotice), kFdumpPrefix, kRetailSource, kLoadComponentsLine,
+                FDUMP((int)(kFdumpNotice), kFdumpPrefix, kbaselineSource, kLoadComponentsLine,
                       FormatNotice(Scratch, kLoadFormat, Desc.Name,
                                    Desc.Extra != nullptr ? Desc.Extra : kEmptyExtra, Status));
             }
@@ -422,8 +418,8 @@ GENRESULT DACOM_API FSystemContainer::LoadSystemComponents()
     return GR_OK;
 }
 
-// FUN_06f11190: destroy nodes from the head; Head follows each deletion.
-GENRESULT DACOM_API FSystemContainer::UnloadSystemComponents()
+// destroy nodes from the head; Head follows each deletion.
+GENRESULT NEURONCOMPONENTS_API FSystemContainer::UnloadSystemComponents()
 {
     while (Head != nullptr)
     {
@@ -438,16 +434,16 @@ GENRESULT DACOM_API FSystemContainer::UnloadSystemComponents()
     return GR_OK;
 }
 
-// LAB_06f114b0: aggregate one child from a caller descriptor. Outer/InnerOut are borrowed for
+// aggregate one child from a caller descriptor. Outer/InnerOut are borrowed for
 // the CreateInstance call and restored on both exits. No Initialize call here.
-GENRESULT DACOM_API FSystemContainer::AddComponent(AGGDESC* Desc)
+GENRESULT NEURONCOMPONENTS_API FSystemContainer::AddComponent(AGGDESC* Desc)
 {
     if (Desc == nullptr)
         return GR_INVALID_PARMS;
 
     FSystemAggDesc* SystemDesc = (FSystemAggDesc*)(Desc);
-    IDAComponent* SavedOuter = SystemDesc->Outer;
-    IDAComponent** SavedInnerOut = SystemDesc->InnerOut;
+    INeuronComponent* SavedOuter = SystemDesc->Outer;
+    INeuronComponent** SavedInnerOut = SystemDesc->InnerOut;
 
     FComponentNode* Node = new (std::nothrow) FComponentNode;
     if (Node == nullptr)
@@ -457,7 +453,7 @@ GENRESULT DACOM_API FSystemContainer::AddComponent(AGGDESC* Desc)
 
     SystemDesc->Outer = (ISystemContainer*)(this);
     SystemDesc->InnerOut = &Node->Inner;
-    GENRESULT Result = GDacom->CreateInstance(Desc, (void**)(&Node->Object));
+    GENRESULT Result = GNeuronComponents->CreateInstance(Desc, (void**)(&Node->Object));
     if (Result != GR_OK)
     {
         SystemDesc->Outer = SavedOuter;
@@ -473,8 +469,8 @@ GENRESULT DACOM_API FSystemContainer::AddComponent(AGGDESC* Desc)
     return Result;
 }
 
-// FUN_06f11690: default -1, RET 0xC, stop on GR_OK. Args forwarded as-is.
-GENRESULT DACOM_API FSystemContainer::FindConnectionPoint(const char* Iid, void** Out)
+// default -1, RET 0xC, stop on GR_OK. Args forwarded as-is.
+GENRESULT NEURONCOMPONENTS_API FSystemContainer::FindConnectionPoint(const char* Iid, void** Out)
 {
     GENRESULT Result = GR_GENERIC;
     IDAConnectionPointContainer* Cached = nullptr;
@@ -500,8 +496,8 @@ GENRESULT DACOM_API FSystemContainer::FindConnectionPoint(const char* Iid, void*
     return Result;
 }
 
-// FUN_06f11710: default 1, RET 0xC, stop on GR_OK. Not OLE Enum (1 arg).
-GENRESULT DACOM_API FSystemContainer::EnumConnectionPoints(void* Arg0, void* Arg1)
+// default 1, RET 0xC, stop on GR_OK. Not OLE Enum (1 arg).
+GENRESULT NEURONCOMPONENTS_API FSystemContainer::EnumConnectionPoints(void* Arg0, void* Arg1)
 {
     GENRESULT Result = (GENRESULT)(1);
     IDAConnectionPointContainer* Cached = nullptr;
@@ -527,7 +523,7 @@ GENRESULT DACOM_API FSystemContainer::EnumConnectionPoints(void* Arg0, void* Arg
     return Result;
 }
 
-// FUN_06f110e0: refuse an Extra of exactly "SystemContainer" (CMPSB ECX=0x10 over the 16-byte
+// refuse an Extra of exactly "SystemContainer" (CMPSB ECX=0x10 over the 16-byte
 // literal incl. NUL == strcmp), else adopt the outer unknown when one is given.
 GENRESULT FSystemContainer::BindOuter(FSystemAggDesc* Desc)
 {
@@ -542,11 +538,11 @@ GENRESULT FSystemContainer::BindOuter(FSystemAggDesc* Desc)
     return GR_OK;
 }
 
-// Inline constructor in FUN_06f117a0 (06f117c0..06f117ce).
+// Inline constructor in the routine (06f117c0..06f117ce).
 FSystemContainerFactory::FSystemContainerFactory() : RefCount(1), Name(kComponentName) {}
 
-// LAB_06f11830: *Out = 0, CMPSB 0x17 bytes vs "1.11_IComponentFactory" (== strcmp).
-GENRESULT DACOM_API FSystemContainerFactory::QueryInterface(const char* Iid, void** Out)
+// *Out = 0, CMPSB 0x17 bytes vs "1.11_IComponentFactory" (== strcmp).
+GENRESULT NEURONCOMPONENTS_API FSystemContainerFactory::QueryInterface(const char* Iid, void** Out)
 {
     *Out = nullptr;
     if (strcmp(Iid, Iids::ComponentFactory) != 0)
@@ -556,14 +552,14 @@ GENRESULT DACOM_API FSystemContainerFactory::QueryInterface(const char* Iid, voi
     return GR_OK;
 }
 
-unsigned long DACOM_API FSystemContainerFactory::AddRef()
+unsigned long NEURONCOMPONENTS_API FSystemContainerFactory::AddRef()
 {
     ++RefCount;
     return RefCount;
 }
 
-// FUN_06f11870.
-unsigned long DACOM_API FSystemContainerFactory::Release()
+// .
+unsigned long NEURONCOMPONENTS_API FSystemContainerFactory::Release()
 {
     if (RefCount > 0)
         --RefCount;
@@ -574,8 +570,8 @@ unsigned long DACOM_API FSystemContainerFactory::Release()
     return 0;
 }
 
-// LAB_06f118a0.
-GENRESULT DACOM_API FSystemContainerFactory::CreateInstance(AGGDESC* Desc, void** Instance)
+// .
+GENRESULT NEURONCOMPONENTS_API FSystemContainerFactory::CreateInstance(AGGDESC* Desc, void** Instance)
 {
     FSystemAggDesc* SystemDesc = (FSystemAggDesc*)(Desc);
     if (SystemDesc->Size != kAggDescSize || strcmp(SystemDesc->Name, Name) != 0)
@@ -606,27 +602,27 @@ GENRESULT DACOM_API FSystemContainerFactory::CreateInstance(AGGDESC* Desc, void*
     return Result;
 }
 
-// FUN_06f117a0: operator_new(0xC) (silent return on null), register, drop the creation ref.
-static void RegisterSystemContainer(ICOManager* Dacom)
+// operator_new(0xC) (silent return on null), register, drop the creation ref.
+static void RegisterSystemContainer(ICOManager* NeuronComponents)
 {
     FSystemContainerFactory* Factory = new (std::nothrow) FSystemContainerFactory();
     if (Factory == nullptr)
         return;
-    Dacom->RegisterComponent(Factory, kComponentName, (void*)(kRegisterPriority));
+    NeuronComponents->RegisterComponent(Factory, kComponentName, (void*)(kRegisterPriority));
     Factory->Release();
 }
 
 BOOL WINAPI DllMain(HINSTANCE Instance, DWORD Reason, LPVOID)
 {
-    // FUN_06f117f0: DEC reason; JNZ → return 1. DETACH / THREAD_* are no-ops
-    // (no UnregisterComponent, no Release of DAT_06f13194).
+    // DEC reason; JNZ → return 1. DETACH / THREAD_* are no-ops
+    // (no UnregisterComponent, no Release of the field).
     if (Reason == DLL_PROCESS_ATTACH)
     {
         GModule = Instance;
         DisableThreadLibraryCalls(Instance);
-        GDacom = DACOM_Acquire();
-        // 06f11815: a second DACOM_Acquire call feeds the registration, not DAT_06f13194.
-        RegisterSystemContainer(DACOM_Acquire());
+        GNeuronComponents = NEURONCOMPONENTS_Acquire();
+        // a second NEURONCOMPONENTS_Acquire call feeds the registration, not the field.
+        RegisterSystemContainer(NEURONCOMPONENTS_Acquire());
     }
     return TRUE;
 }

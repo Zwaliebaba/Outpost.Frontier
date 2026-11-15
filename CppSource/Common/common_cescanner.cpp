@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // ScanList, CEScanner -- split out of common_cequip.cpp (CMN-B2).
@@ -23,8 +19,8 @@
 #include "common_spatial.h"  // ISpatialPartition (ScanList::add_in_range bucket query)
 #include "common_timing.h"   // Timing::GetGlobalTime (CEShieldGenerator / CEShield)
 #include "common_universe.h"
-#include "DALib.h"
-#include "dacom.h"
+#include "NeuronRuntime.h"
+#include "neuroncomponents.h"
 #include "../IVP/ivp_physics/ivp_real_object.h"
 #include "../IVP/ivp_physics/ivp_controller.h"  // IVP_Event_Sim (do_simulation_controller)
 
@@ -48,8 +44,8 @@ namespace
     const float kScannerOne = 1.0f;
 
     // IObjRW's Watchable base lives at +8: every ScanList member converts with
-    // `Obj ? Obj + 8 : 0` before BaseWatcher::set_pointer (.text:062c26a0-062c26a7 in add,
-    // 062c26f0-062c26f9 in remove, 062c2808-062c2817 in add_in_range).
+    // `Obj ? Obj + 8 : 0` before BaseWatcher::set_pointer (module storage-062c26a7 in add,
+    // in remove, 062c2808-062c2817 in add_in_range).
     Watchable const* ScannerWatchableOf(IObjRW* Obj)
     {
         return Obj;   // the IObjRW -> Watchable base conversion keeps null as null
@@ -60,7 +56,7 @@ namespace
 // ScanList
 // ============================================================
 
-// .text:062c2610: every BaseWatcher built with the null-target ctor (FUN_062c2920(0) through
+// every BaseWatcher built with the null-target ctor (the routine(0) through
 // the array-ctor helper), then Count = 0, Capacity = 0x100.
 ScanList::ScanList()
     : Count(0)
@@ -68,14 +64,14 @@ ScanList::ScanList()
 {
 }
 
-// .text:062948b0: for each of the 256 entries, zero it and, when the source watches something
+// for each of the 256 entries, zero it and, when the source watches something
 // (and that something is not the -8 sentinel), set_pointer to it -- the BaseWatcher copy
 // constructor, inlined; then Count and Capacity.
 ScanList::ScanList(ScanList const& Other)
     : Count(Other.Count)
     , Capacity(Other.Capacity)
 {
-    // .text:062948e6-062948fc: source target taken only when non-null and not the 8
+    // source target taken only when non-null and not the 8
     // sentinel (a null IObjRW + 8).
     for (int Index = 0; Index < 256; ++Index)
     {
@@ -85,10 +81,10 @@ ScanList::ScanList(ScanList const& Other)
     }
 }
 
-// .text:06294960: per entry, the source target (null when null or the 8 sentinel,
-// .text:06294973-06294986), set_pointer only when it differs from the current one
-// (.text:06294988), then Count and Capacity. Written out rather than through
-// BaseWatcher::operator=, which retail does not call here: that export (.text:06280ee0)
+// per entry, the source target (null when null or the 8 sentinel,
+// ), set_pointer only when it differs from the current one
+// (module storage), then Count and Capacity. Written out rather than through
+// BaseWatcher::operator=, which baseline does not call here: that export (module storage)
 // is a raw two-dword copy with no watcher-chain maintenance.
 ScanList& ScanList::operator=(ScanList const& Other)
 {
@@ -104,7 +100,7 @@ ScanList& ScanList::operator=(ScanList const& Other)
     return *this;
 }
 
-// .text:062c2660: only the bookkeeping. The entries keep their watch links -- a slot beyond
+// only the bookkeeping. The entries keep their watch links -- a slot beyond
 // the new Count is overwritten by the next add, and a destroyed target unlinks itself through
 // its own Watchable chain whatever Count says.
 void ScanList::reset()
@@ -113,7 +109,7 @@ void ScanList::reset()
     Capacity = 0x100;
 }
 
-// .text:062c2680: when Count < Capacity, take slot Count, bump Count, point it at Obj
+// when Count < Capacity, take slot Count, bump Count, point it at Obj
 // (set_pointer skipped when unchanged) and return true; else false.
 bool ScanList::add(IObjRW* Obj)
 {
@@ -125,7 +121,7 @@ bool ScanList::add(IObjRW* Obj)
     return true;
 }
 
-// .text:062c26c0: erase-remove compaction over [0, Count). An entry whose watched IObjRW
+// erase-remove compaction over [0, Count). An entry whose watched IObjRW
 // (Watched - 8) differs from Obj is written to the write cursor, which only advances on a
 // keep; Count becomes the number of survivors. Entries beyond it keep their old links.
 void ScanList::remove(IObjRW* Obj)
@@ -139,7 +135,7 @@ void ScanList::remove(IObjRW* Obj)
             : nullptr;
         if (WatchedOwner != Obj)
         {
-            // .text:062c26f0-062c26f9: the kept entry is rebuilt from the owner, so a watcher
+            // the kept entry is rebuilt from the owner, so a watcher
             // on the 8 sentinel (owner null) is written back as null.
             Entries[WriteIndex].set(ScannerWatchableOf(WatchedOwner));
             ++WriteIndex;
@@ -148,9 +144,9 @@ void ScanList::remove(IObjRW* Obj)
     Count = WriteIndex;
 }
 
-// .text:062c2720-062c2916 (Ghidra's decompilation is wrecked by the __chkstk probe for the
+// (analysis's analysis is wrecked by the __chkstk probe for the
 // 0x2030-byte frame; this follows the listing).
-//
+
 // Two-phase enumeration against Db, each candidate gated through Filt->add_obj (slot 0,
 // called unconditionally -- no null check on Filt) before it is appended:
 //   Phase 1 (TypeMask & 0xfdff): Db slot 3 (+0x0c) with 0xfdff returns a bucket; the bucket's
@@ -159,16 +155,16 @@ void ScanList::remove(IObjRW* Obj)
 //     the 0x2030-byte frame).
 //   Phase 2 (TypeMask & 0xffff0200): Db slot 0 get-first/get-next walk; distance checked here
 //     against Range^2 (FCOMP / TEST AH,5 / JP skip -- i.e. strictly closer than Range).
-// Phase 1 stops at a full list and falls through to phase 2 (.text:062c27ec -> 062c2842);
-// phase 2 returns at a full list (.text:062c28bd -> 062c2908). Returns the number appended.
+// Phase 1 stops at a full list and falls through to phase 2 (module storage -> 062c2842);
+// phase 2 returns at a full list (module storage -> 062c2908). Returns the number appended.
 int ScanList::add_in_range(Vector const& Pos, float Range, IObjDB* Db, unsigned TypeMask,
                            Filter* Filt)
 {
     float RangeSq = Range * Range;
     int Added = 0;
 
-    // .text:062c276a: IObjDB::GetBucket (+0x0c) with 0xfdff; .text:062c27a9: the bucket's
-    // ISpatialPartition::QuerySphere (+0x1c); .text:062c2859/062c28fa: IObjDB::GetNext (+0x00).
+    // IObjDB::GetBucket (+0x0c) with 0xfdff; module storage: the bucket's
+    // ISpatialPartition::QuerySphere (+0x1c); module storage/062c28fa: IObjDB::GetNext (+0x00).
     if (TypeMask & 0xfdffu)
     {
         void* Bucket = Db->GetBucket(0xfdffu);
@@ -212,7 +208,7 @@ int ScanList::add_in_range(Vector const& Pos, float Range, IObjDB* Db, unsigned 
     {
         Vector const* CandPos = &Candidate->get_position();
 
-        // .text:062c2879-062c28af: the deltas and the sum stay on the FPU stack, summed
+        // the deltas and the sum stay on the FPU stack, summed
         // (x^2 + y^2) + z^2, then FCOMP against the float RangeSq; TEST AH,5 + JP skips the
         // candidate for >= or unordered, so only an ordered "closer" falls through.
         double Dx = (double)CandPos->x - Pos.x;
@@ -238,7 +234,7 @@ int ScanList::add_in_range(Vector const& Pos, float Range, IObjDB* Db, unsigned 
 
 namespace
 {
-    // .text:0629f64d..0629f66d / 0629f742..0629f75f: a static CSolar gets the
+    // / 0629f742..0629f75f: a static CSolar gets the
     // restricted mask. Class 0x303 and byte +0x1a9 are CSolar and bDynamic.
     bool OwnerIsStaticSolar(CEqObj const* Owner)
     {
@@ -250,14 +246,14 @@ namespace
     }
 }
 
-// .text:0629f4e0: CEquip(TypeScanner=0x80000, ...), ScanList::ScanList at +0x24,
+// CEquip(TypeScanner=0x80000, ...), ScanList::ScanList at +0x24,
 // bMissionFlag at +0x82c, cargo vector and cached mask zeroed, both tables stamped
-// (.text:0629f55d/0629f563), CEquip::Activate(true).
+// (module storage/0629f563), CEquip::Activate(true).
 CEScanner::CEScanner(CEqObj* OwnerObj, unsigned short EquipId, Archetype::Scanner const* ArchObj,
                      bool bMissionFlag)
     : CInternalEquip(EquipTypeScanner, OwnerObj, EquipId, ArchObj, bMissionFlag)
 {
-    this->bMissionFlag = bMissionFlag;   // 0629f532: the argument byte
+    this->bMissionFlag = bMissionFlag;   // the argument byte
     CargoVecBegin = nullptr;
     CargoVecEnd = nullptr;
     CargoVecCapacityEnd = nullptr;
@@ -265,7 +261,7 @@ CEScanner::CEScanner(CEqObj* OwnerObj, unsigned short EquipId, Archetype::Scanne
     CEquip::Activate(true);
 }
 
-// .text:06294be0: the CEquip fields copied member by member (+0x04..+0x1c, the implicit copy
+// the CEquip fields copied member by member (+0x04..+0x1c, the implicit copy
 // constructor), the ScanList copy (its per-entry set_pointer loop inlined at 06294c60), the
 // mission byte, the cargo vector copy, the cached mask.
 CEScanner::CEScanner(CEScanner const& Other)
@@ -274,7 +270,7 @@ CEScanner::CEScanner(CEScanner const& Other)
     , Scans(Other.Scans)
     , bMissionFlag(Other.bMissionFlag)
 {
-    // .text:06294cc8-06294d5a: the VC6 vector<EquipDesc> copy. The block is sized exactly
+    // the VC6 vector<EquipDesc> copy. The block is sized exactly
     // (a negative size clamps to 0) and allocated even for an empty source; End and the
     // capacity end both land after the last copied element.
     int SrcSize = (Other.CargoVecBegin == nullptr) ? 0 : (int)(Other.CargoVecEnd - Other.CargoVecBegin);
@@ -301,13 +297,13 @@ CEScanner::~CEScanner()
     CargoVecEnd = nullptr;
     CargoVecCapacityEnd = nullptr;
 
-    // Retail destroys the BaseWatcher[256] array here (0x3f5dd) -- ~ScanList, which the
+    // baseline destroys the BaseWatcher[256] array here (0x3f5dd) -- ~ScanList, which the
     // compiler runs on the Scans member after this body.
 
     // Base ~CEquip called implicitly via CInternalEquip dtor chain.
 }
 
-// .text:0629f630..0629f6c2: functioning/database checks, static-solar mask,
+// functioning/database checks, static-solar mask,
 // uncached types, zone-adjusted range query, then cache OR.
 void CEScanner::scan_for_types(unsigned TypeMask)
 {
@@ -328,7 +324,7 @@ void CEScanner::scan_for_types(unsigned TypeMask)
     unsigned const NewTypes = EffectiveMask & ~CachedTypeMask;
 
     // Compute range: (1.0 - get_scanner_interference()) * Arch->RadarRange.
-    // 0629f695..0629f6a7: the subtraction/product stay on the FPU until
+    // the subtraction/product stay on the FPU until
     // the range argument is stored as a float. Even a zero type mask queries Db.
     double const Interference = Owner->get_scanner_interference();
     float const Range = (float)((kScannerOne - Interference) * ScannerArch()->RadarRange);
@@ -341,7 +337,7 @@ void CEScanner::scan_for_types(unsigned TypeMask)
     CachedTypeMask |= NewTypes;
 }
 
-// .text:0629f6d0: ScanList::reset on +0x24, zero cached mask.
+// ScanList::reset on +0x24, zero cached mask.
 void CEScanner::clear_cache()
 {
     Scans.reset();
@@ -382,7 +378,7 @@ bool CEScanner::Update(float Dt, unsigned Flags)
 
         unsigned NewTypes = EffectiveMask & ~CachedTypeMask;
 
-        // 0629f77e..0629f790: actual zone interference, one final range spill.
+        // actual zone interference, one final range spill.
         double const Interference = Owner->get_scanner_interference();
         float const Range = (float)((kScannerOne - Interference) * ScannerArch()->RadarRange);
 
@@ -397,7 +393,7 @@ Done:
     return CEquip::Update(Dt, Flags);
 }
 
-// .text:0629f7c0: slot 0 of CEScanner's ScanList::Filter table. Retail's `this` is the +0x20
+// slot 0 of CEScanner's ScanList::Filter table. baseline's `this` is the +0x20
 // Filter sub-object and the body recovers the CEScanner with this-0x20; the compiler does that
 // adjustment for us now that Filter is a real base. Self/untargetable objects are rejected;
 // distance needs another check only when the target has stronger interference than the owner.
@@ -410,12 +406,12 @@ bool CEScanner::add_obj(IObjRW* Obj)
 
     float const TargetInterference = Obj->get_scanner_interference();
     double const OwnerInterference = Owner->get_scanner_interference();
-    // 0629f80c..0629f815: FCOMP owner/target; TEST AH,5 + JP returns true
+    // FCOMP owner/target; TEST AH,5 + JP returns true
     // for owner >= target or unordered. add_in_range already applied the owner's range.
     if (!(OwnerInterference < TargetInterference))
         return true;
 
-    // 0629f817..0629f831: use target interference, then FSTP float range.
+    // use target interference, then FSTP float range.
     float const Range = (float)(((double)(kScannerOne) - TargetInterference) *
                                           ScannerArch()->RadarRange);
     Vector const& ObjPos = Obj->get_position();
@@ -424,36 +420,36 @@ bool CEScanner::add_obj(IObjRW* Obj)
     double const Dy = (double)(ObjPos.y) - OwnerPos.y;
     double const Dz = (double)(ObjPos.z) - OwnerPos.z;
     double const DistSq = (Dx * Dx + Dz * Dz) + Dy * Dy;
-    // 0629f85f..0629f86c: FCOMPP range^2/distance^2, TEST AH,5 + JP
+    // FCOMPP range^2/distance^2, TEST AH,5 + JP
     // accepts >= or unordered; only the ordered-less fall-through rejects.
     return !((double)(Range) * Range < DistSq);
 }
 
-// .text:0629f880..0629f896: zone-adjusted interference, FSUBR one, FMUL radar range.
+// zone-adjusted interference, FSUBR one, FMUL radar range.
 float CEScanner::GetRadarRange() const
 {
     double const Interference = Owner->get_scanner_interference();
     return (float)((kScannerOne - Interference) * ScannerArch()->RadarRange);
 }
 
-// .text:0629f8a0..0629f8b6: same zone-adjusted range, archetype cargo range at +0x78.
+// same zone-adjusted range, archetype cargo range at +0x78.
 float CEScanner::GetCargoScanRange() const
 {
     double const Interference = Owner->get_scanner_interference();
     return (float)((kScannerOne - Interference) * ScannerArch()->CargoScanRange);
 }
 
-// .text:0629f8c0..0629fb83: clear the previous result, check range/power, then
+// clear the previous result, check range/power, then
 // append each target equipment item's virtual GetEquipDesc output verbatim.
 CEScanner::ScanResult CEScanner::ScanCargo(CEqObj* Target)
 {
-    // 0629f8c8..0629f8f3: copy(End, End, Begin) returns Begin; the ICF-folded
+    // copy(End, End, Begin) returns Begin; the ICF-folded
     // _Destroy at 0628f050 is empty for EquipDesc. Capacity is retained even on failure.
     CargoVecEnd = CargoVecBegin;
     if (Target == nullptr)
         return ScanNoTarget;
 
-    // 0629f90e..0629f932: target interference is FSTP float; owner stays on the
+    // target interference is FSTP float; owner stays on the
     // FPU stack. FCOMP target/owner, TEST AH,0x41 + JNZ keeps owner when target
     // is <= owner or unordered; the greater fall-through replaces it with target.
     float const TargetInterference = Target->get_scanner_interference();
@@ -469,12 +465,12 @@ CEScanner::ScanResult CEScanner::ScanCargo(CEqObj* Target)
     double const Dy = (double)(TargetPos.y) - OwnerPos.y;
     double const Dz = (double)(TargetPos.z) - OwnerPos.z;
     double const DistSq = (Dy * Dy + Dz * Dz) + Dx * Dx;
-    // 0629f967..0629f980: FCOMPP range^2/distance^2; TEST AH,0x05 + JP
+    // FCOMPP range^2/distance^2; TEST AH,0x05 + JP
     // continues for >= or unordered. Only the ordered-less fall-through returns 0.
     if (Range * Range < DistSq)
         return ScanTooFar;
 
-    // 0629f98e..0629f995: FCOMP threshold/power; TEST AH,0x41 + JP returns 1
+    // FCOMP threshold/power; TEST AH,0x41 + JP returns 1
     // for greater or unordered; ordered <= falls through to the subtraction.
     float const Threshold = Scanner->PowerThreshold;
     if (!(Threshold <= Owner->Power))
@@ -485,7 +481,7 @@ CEScanner::ScanResult CEScanner::ScanCargo(CEqObj* Target)
     CEquip* Equip = Target->EquipManager.Traverse(Walk);
     while (Equip != nullptr)
     {
-        // 0629f9d4..0629f9e7: vtable+0x28 is GetEquipDesc(&Desc), returning bool.
+        // vtable+0x28 is GetEquipDesc(&Desc), returning bool.
         // CECargo supplies its real stack count; mounted equipment supplies count 1.
         EquipDesc Desc;
         if (!Equip->GetEquipDesc(Desc))
@@ -529,7 +525,7 @@ Archetype::Scanner const* CEScanner::ScannerArch() const
 }
 
 // Listing 0x3fba0: type == 0x80000 → static_cast. Both const and non-const overloads
-// share the same entry point in retail.
+// share the same entry point in baseline.
 CEScanner* __cdecl CEScanner::cast(CEquip* Equip)
 {
     if (Equip == nullptr || Equip->GetType() != EquipTypeScanner)

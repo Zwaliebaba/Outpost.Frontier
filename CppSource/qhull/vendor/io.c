@@ -45,7 +45,7 @@ void qh_produce_output(void) {
     qh_clearcenters (qh_ASvoronoi);
     qh_vertexneighbors();
   }
-  /* retail 06385439: qh_getarea runs BEFORE qh_findgood_all */
+  /* qh_getarea runs BEFORE qh_findgood_all */
   if (qh GETarea)
     qh_getarea(qh facet_list);
   qh_findgood_all (qh facet_list);
@@ -67,9 +67,9 @@ void qh_produce_output(void) {
     qh_printstatistics(qh ferr, "");
     qh_memstatistics (qh ferr);
     d_1= sizeof(setT) + (qh hull_dim - 1) * SETelemsize;
-    /* retail 063855bc: leading hashentry size is the literal 12 (the same 0xc that
+    /* leading hashentry size is the literal 12 (the same 0xc that
        qh_initqhull_mem registers with qh_memsize); the struct sizes are the port's own */
-    FUN_06356960(/* retail 063855bc */ "\
+    WriteHullDiagnostic(  "\
     size in bytes: hashentry %d merge %d ridge %d vertex %d facet %d\n\
          normal %d ridge vertices %d facet vertices or neighbors %d\n",
 	    0xc, sizeof(mergeT), sizeof(ridgeT),
@@ -77,7 +77,7 @@ void qh_produce_output(void) {
 	    qh normal_size, d_1, d_1 + SETelemsize);
   }
   if (qh_setsize ((setT*)qhmem.tempstack) != tempsize) {
-    FUN_06356960 (/* retail 063855ec */ "qhull internal error (qh_produce_output): temporary sets not empty (%d)\n",
+    WriteHullDiagnostic (  "qhull internal error (qh_produce_output): temporary sets not empty (%d)\n",
 	     qh_setsize ((setT*)qhmem.tempstack));
     qh_errexit (qh_ERRqhull, NULL, NULL);
   }
@@ -319,7 +319,7 @@ pointT *qh_detvnorm (vertexT *vertex, vertexT *vertexA, setT *centers, realT *of
       qh_setappend (&points, midpoint);
     simplex= points; 
   }else {
-    FUN_06356960(/* retail 06385917 */ "qh_detvnorm: too few points (%d) to compute separating plane\n", numcenters);
+    WriteHullDiagnostic(  "qh_detvnorm: too few points (%d) to compute separating plane\n", numcenters);
     qh_errexit (qh_ERRqhull, NULL, NULL);
   }
   i= 0;
@@ -376,7 +376,7 @@ pointT *qh_detvnorm (vertexT *vertex, vertexT *vertexA, setT *centers, realT *of
       else
 	angle= angle - 1.0;
       if (angle < 0.0)
-	angle= 0.0; /* retail 06385bb1..06385bb9 stores both zero dwords */
+	angle= 0.0; /* stores both zero dwords */
       trace4((qh ferr, "qh_detvnorm: points %d %d angle %2.2g nearzero %d\n",
                  pointid, pointidA, angle, nearzero));
       if (nearzero) {
@@ -987,7 +987,7 @@ void qh_order_vertexneighbors(vertexT *vertex) {
       }
     }
     if (!neighbor) {
-      FUN_06356960 (/* retail 06386aba */ "qhull internal error (qh_order_vertexneighbors): no neighbor of v%d for f%d\n",
+      WriteHullDiagnostic (  "qhull internal error (qh_order_vertexneighbors): no neighbor of v%d for f%d\n",
         vertex->id, facet->id);
       qh_errexit (qh_ERRqhull, facet, NULL);
     }
@@ -1028,7 +1028,7 @@ void qh_printafacet(FILE *fp, int format, facetT *facet, boolT printall) {
   vertexT *vertex, **vertexp;
   facetT *neighbor, **neighborp;
 
-  /* retail 06386b0d: return before inspecting the facet or incrementing output. */
+  /* return before inspecting the facet or incrementing output. */
   if (!fp)
     return;
   if (!printall && qh_skipfacet (facet))
@@ -1064,7 +1064,7 @@ void qh_printafacet(FILE *fp, int format, facetT *facet, boolT printall) {
       break;
     for (k= qh hull_dim; k--; ) {
       color[k]= (facet->normal[k]+1.0)/2.0;
-      /* 06386c84 TEST AH,1/JZ also replaces unordered values with -1. */
+      /* TEST AH,1/JZ also replaces unordered values with -1. */
       if (!(color[k] >= -1.0))
         color[k]= -1.0;
       minimize_(color[k], +1.0);
@@ -1121,7 +1121,7 @@ void qh_printafacet(FILE *fp, int format, facetT *facet, boolT printall) {
     }
     if (qh CDDoutput) {
       fprintf (fp, qh_REAL_1, -offset);
-      /* retail 06386ead..06386ed0 prints normals without changing their sign. */
+      /* prints normals without changing their sign. */
       for (k=0; k < qh hull_dim; k++) 
 	fprintf (fp, qh_REAL_1, facet->normal[k]);
     }else {
@@ -1227,7 +1227,7 @@ void qh_printbegin (FILE *fp, int format, facetT *facetlist, setT *facets, boolT
   setT *vertices;
   pointT *point, **pointp, *pointtemp;
 
-  /* Retail 063872c0..063872d1 (TEST EBX,EBX / JZ caseD_0 = epilogue): a NULL fp returns before
+  /* (TEST EBX,EBX / JZ caseD_0 = epilogue): a NULL fp returns before
      qh printoutnum is cleared and before qh_countfacets runs. */
   if (!fp)
     return;
@@ -1259,14 +1259,14 @@ void qh_printbegin (FILE *fp, int format, facetT *facetlist, setT *facets, boolT
     if (qh VORONOI && qh hull_dim > 3)  /* PRINTdim == DROPdim == hull_dim-1 */
       goto LABELnoformat;
     if (qh hull_dim == 2 && (qh PRINTridges || qh DOintersections))
-      FUN_06356960 (/* retail 063873e8 */ "qhull warning: output for ridges and intersections not implemented in 2-d\n");
+      WriteHullDiagnostic (  "qhull warning: output for ridges and intersections not implemented in 2-d\n");
     if (qh hull_dim == 4 && (qh PRINTinner || qh PRINTouter ||
 			     (qh PRINTdim == 4 && qh PRINTcentrums)))
-      FUN_06356960 (/* retail 06387421 */ "qhull warning: output for outer/inner planes and centrums not implemented in 4-d\n");
+      WriteHullDiagnostic (  "qhull warning: output for outer/inner planes and centrums not implemented in 4-d\n");
     if (qh PRINTdim == 4 && (qh PRINTspheres))
-      FUN_06356960 (/* retail 0638743f */ "qhull warning: output for vertices not implemented in 4-d\n");
+      WriteHullDiagnostic (  "qhull warning: output for vertices not implemented in 4-d\n");
     if (qh PRINTdim == 4 && qh DOintersections && qh PRINTnoplanes)
-      FUN_06356960 (/* retail 06387467 */ "qhull warning: 'Gnh' generates no output in 4-d\n");
+      WriteHullDiagnostic (  "qhull warning: 'Gnh' generates no output in 4-d\n");
     if (qh PRINTdim == 2) {
       fprintf(fp, "{appearance {linewidth 3} LIST # %s | %s\n",
 	      qh rbox_command, qh qhull_command);
@@ -1389,10 +1389,10 @@ void qh_printbegin (FILE *fp, int format, facetT *facetlist, setT *facets, boolT
     fprintf (fp, "%d\n", numfacets);
     break;
   case qh_PRINTincidences:
-    /* Retail 06387b74..06387b7b tests only qh VORONOI (b228) before the warning; upstream also
+    /* tests only qh VORONOI (b228) before the warning; upstream also
        required qh PRINTprecision. */
     if (qh VORONOI)
-      FUN_06356960 (/* retail 06387b82 */ "qhull warning: writing Delaunay.  Use 'p' or 'o' for Voronoi centers\n");
+      WriteHullDiagnostic (  "qhull warning: writing Delaunay.  Use 'p' or 'o' for Voronoi centers\n");
     qh printoutvar= qh vertex_id;  /* centrum id for non-simplicial facets */
     if (qh hull_dim <= 3)
       fprintf(fp, "%d\n", numfacets);
@@ -1412,7 +1412,7 @@ void qh_printbegin (FILE *fp, int format, facetT *facetlist, setT *facets, boolT
     if (qh hull_dim > 3)  /* qh_initbuffers also checks */
       goto LABELnoformat;
     if (qh VORONOI)
-      FUN_06356960 (/* retail 06387c22 */ "qhull warning: output is the Delaunay triangulation\n");
+      WriteHullDiagnostic (  "qhull warning: output is the Delaunay triangulation\n");
     fprintf(fp, "{\n");
     qh printoutvar= 0;   /* counts number of facets for notfirst */
     break;
@@ -1469,7 +1469,7 @@ void qh_printbegin (FILE *fp, int format, facetT *facetlist, setT *facets, boolT
   case qh_PRINTsummary:
   default:
   LABELnoformat:
-    FUN_06356960 (/* retail 06387e78 */ "qhull internal error (qh_printbegin): can not use this format for dimension %d\n",
+    WriteHullDiagnostic (  "qhull internal error (qh_printbegin): can not use this format for dimension %d\n",
          qh hull_dim);
     qh_errexit (qh_ERRqhull, NULL, NULL);
   }
@@ -1492,7 +1492,7 @@ void qh_printbegin (FILE *fp, int format, facetT *facetlist, setT *facets, boolT
 void qh_printcenter (FILE *fp, int format, char *string, facetT *facet) {
   int k, num;
 
-  /* Retail 06387f00..06387f08 (TEST EDX,EDX / JZ 0638806e): a NULL fp returns
+  /* (TEST EDX,EDX / JZ 0638806e): a NULL fp returns
      before anything is printed. */
   if (!fp)
     return;
@@ -1545,7 +1545,7 @@ void qh_printcentrum (FILE *fp, facetT *facet, realT radius) {
   vertexT *apex;
   int k;
 
-  /* Retail 06388080..06388099 (TEST EBX,EBX / JZ 0638835e, tempcentrum still 0 there):
+  /* (TEST EBX,EBX / JZ 0638835e, tempcentrum still 0 there):
      a NULL fp returns before anything is computed or printed. */
   if (!fp)
     return;
@@ -1608,12 +1608,12 @@ void qh_printend (FILE *fp, int format, facetT *facetlist, setT *facets, boolT p
   int num;
   facetT *facet, **facetp;
 
-  /* Retail 06388370..06388377 (TEST EBX,EBX / JZ caseD_8 = POP EBX; RET): a NULL fp returns
+  /* (TEST EBX,EBX / JZ caseD_8 = POP EBX; RET): a NULL fp returns
      before the "no facets printed" warning and before the format switch. */
   if (!fp)
     return;
   if (!qh printoutnum)
-    FUN_06356960 (/* retail 0638838b */ "qhull warning: no facets printed\n");
+    WriteHullDiagnostic (  "qhull warning: no facets printed\n");
   switch (format) {
   case qh_PRINTgeom:
     if (qh hull_dim == 4 && qh DROPdim < 0  && !qh PRINTnoplanes) {
@@ -1624,7 +1624,7 @@ void qh_printend (FILE *fp, int format, facetT *facetlist, setT *facets, boolT p
       FOREACHfacet_(facets) 
         qh_printend4geom (fp, facet, &num, printall);
       if (num != qh ridgeoutnum || qh printoutvar != qh ridgeoutnum) {
-	FUN_06356960 (/* retail 06388468 */ "qhull internal error (qh_printend): number of ridges %d != number printed %d and at end %d\n", qh ridgeoutnum, qh printoutvar, num);
+	WriteHullDiagnostic (  "qhull internal error (qh_printend): number of ridges %d != number printed %d and at end %d\n", qh ridgeoutnum, qh printoutvar, num);
 	qh_errexit (qh_ERRqhull, NULL, NULL);
       }
     }else
@@ -1670,11 +1670,11 @@ void qh_printend4geom (FILE *fp, facetT *facet, int *nump, boolT printall) {
   facetT *neighbor, **neighborp;
   ridgeT *ridge, **ridgep;
 
-  /* Retail 06388501..0638850a (TEST EAX,EAX / JZ 06388719, the common epilogue): a NULL fp
+  /* (TEST EAX,EAX / JZ 06388719, the common epilogue): a NULL fp
      leaves at once, before even the printall/visible tests, and *nump is NOT written.
      Upstream instead counts ridges when fp=NULL (qh_printbegin calls it that way,
-     retail 063874e9/06387518 push 0), so in retail qh ridgeoutnum ends up 0 -- very strange,
-     reproduced as retail has it.  The color loop and both fprintf calls are unconditional. */
+     baseline 063874e9/06387518 push 0), so in baseline qh ridgeoutnum ends up 0 -- very strange,
+     reproduced as baseline has it.  The color loop and both fprintf calls are unconditional. */
   if (!fp)
     return;
   if (!printall && qh_skipfacet(facet))
@@ -1769,7 +1769,7 @@ void qh_printextremes_2d (FILE *fp, facetT *facetlist, setT *facets, int printal
   facetT *facet, *startfacet, *nextfacet;
   vertexT *vertexA, *vertexB;
 
-  /* Retail 06388820..06388830 (TEST EBP,EBP / JZ 06388999 = epilogue): a NULL fp returns
+  /* (TEST EBP,EBP / JZ 06388999 = epilogue): a NULL fp returns
      before qh_countfacets and every other effect, including the visit-id bumps. */
   if (!fp)
     return;
@@ -1794,7 +1794,7 @@ void qh_printextremes_2d (FILE *fp, facetT *facetlist, setT *facets, int printal
       nextfacet= SETsecondt_(facet->neighbors, facetT);
     }
     if (facet->visitid == qh visit_id) {
-      FUN_06356960(/* retail 0638890d */ "qh_printextremes_2d: loop in facet list.  facet %d nextfacet %d\n",
+      WriteHullDiagnostic(  "qh_printextremes_2d: loop in facet list.  facet %d nextfacet %d\n",
                  facet->id, nextfacet->id);
       qh_errexit2 (qh_ERRqhull, facet, nextfacet);
     }
@@ -1913,7 +1913,7 @@ void qh_printfacet2geom_points(FILE *fp, pointT *point1, pointT *point2,
 			       facetT *facet, realT offset, realT color[3]) {
   pointT *p1= point1, *p2= point2;
 
-  /* Retail 06388c00..06388c1a (TEST EAX,EAX / JZ 06388d04 = epilogue): a NULL fp returns at once;
+  /* (TEST EAX,EAX / JZ 06388d04 = epilogue): a NULL fp returns at once;
      point1/point2 are not freed here either way (only the projected copies are). */
   if (!fp)
     return;
@@ -1946,7 +1946,7 @@ void qh_printfacet2math(FILE *fp, facetT *facet, int notfirst) {
   pointT *point0, *point1;
   realT mindist;
 
-  /* Retail 06388d10..06388d1a (TEST ESI,ESI / JZ 06388da9 = epilogue): a NULL fp returns
+  /* (TEST ESI,ESI / JZ 06388da9 = epilogue): a NULL fp returns
      before qh_facet2point allocates anything, so nothing is leaked or printed. */
   if (!fp)
     return;
@@ -2033,7 +2033,7 @@ void qh_printfacet3geom_points(FILE *fp, setT *points, facetT *facet, realT offs
   pointT *point, **pointp;
   setT *printpoints;
 
-  /* Retail 06389050..06389071 (TEST EDI,EDI / JZ 06389229 = epilogue, after qh_setsize only):
+  /* (TEST EDI,EDI / JZ 06389229 = epilogue, after qh_setsize only):
      a NULL fp returns at once. */
   if (!fp)
     return;
@@ -2138,7 +2138,7 @@ void qh_printfacet3math (FILE *fp, facetT *facet, int notfirst) {
   boolT firstpoint= True;
   realT dist;
 
-  /* Retail 063894b0..063894c4 (TEST ESI,ESI / JZ 06389634 = epilogue): a NULL fp returns
+  /* (TEST ESI,ESI / JZ 06389634 = epilogue): a NULL fp returns
      before qh_facet3vertex allocates anything. */
   if (!fp)
     return;
@@ -2182,7 +2182,7 @@ void qh_printfacet3vertex(FILE *fp, facetT *facet, int format) {
   vertexT *vertex, **vertexp;
   setT *vertices;
 
-  /* Retail 06389640..06389647 (TEST EDI,EDI / JZ 063896d0 = POP EDI; RET): a NULL fp returns
+  /* (TEST EDI,EDI / JZ 063896d0 = POP EDI; RET): a NULL fp returns
      before qh_facet3vertex allocates anything. */
   if (!fp)
     return;
@@ -2216,7 +2216,7 @@ void qh_printfacet4geom_nonsimplicial(FILE *fp, facetT *facet, realT color[3]) {
   int k;
   realT dist;
 
-  /* Retail 063896e0..063896f5 (TEST EBX,EBX / JZ 063898e8 = epilogue): a NULL fp returns
+  /* (TEST EBX,EBX / JZ 063898e8 = epilogue): a NULL fp returns
      before facet->visitid is touched. */
   if (!fp)
     return;
@@ -2272,7 +2272,7 @@ void qh_printfacet4geom_simplicial(FILE *fp, facetT *facet, realT color[3]) {
   vertexT *vertex, **vertexp;
   int k;
 
-  /* Retail 063898f0..06389906 (TEST EBX,EBX / JZ 06389ab9 = epilogue): a NULL fp returns
+  /* (TEST EBX,EBX / JZ 06389ab9 = epilogue): a NULL fp returns
      before facet->visitid is touched. */
   if (!fp)
     return;
@@ -2322,7 +2322,7 @@ void qh_printfacetNvertex_nonsimplicial(FILE *fp, facetT *facet, int id, int for
   vertexT *vertex, **vertexp;
   ridgeT *ridge, **ridgep;
 
-  /* Retail 06389ac0..06389ac7 (TEST EBP,EBP / JZ 06389be5 = epilogue): a NULL fp returns at once. */
+  /* (TEST EBP,EBP / JZ 06389be5 = epilogue): a NULL fp returns at once. */
   if (!fp)
     return;
   if (facet->visible && qh NEWfacets)
@@ -2355,7 +2355,7 @@ void qh_printfacetNvertex_nonsimplicial(FILE *fp, facetT *facet, int id, int for
 void qh_printfacetNvertex_simplicial(FILE *fp, facetT *facet, int format) {
   vertexT *vertex, **vertexp;
 
-  /* Retail 06389bf0..06389bf7 (TEST EBX,EBX / JZ 06389cec = epilogue): a NULL fp returns at once. */
+  /* (TEST EBX,EBX / JZ 06389cec = epilogue): a NULL fp returns at once. */
   if (!fp)
     return;
   if (format == qh_PRINToff || format == qh_PRINTtriangles)
@@ -2386,7 +2386,7 @@ void qh_printfacetheader(FILE *fp, facetT *facet) {
   facetT *neighbor, **neighborp;
   realT dist;
 
-  /* retail 06389cf8: no output or RANDOMdist changes for a null stream. */
+  /* no output or RANDOMdist changes for a null stream. */
   if (!fp)
     return;
   if (facet == qh_MERGEridge) {
@@ -2526,7 +2526,7 @@ void qh_printfacetridges(FILE *fp, facetT *facet) {
   ridgeT *ridge, **ridgep;
   int numridges= 0;
 
-  /* Retail 0638a270..0638a28a (TEST EBX,EBX / JZ 0638a471 = epilogue): a NULL fp returns at once. */
+  /* (TEST EBX,EBX / JZ 0638a471 = epilogue): a NULL fp returns at once. */
   if (!fp)
     return;
   if (facet->visible && qh NEWfacets) {
@@ -2587,13 +2587,13 @@ void qh_printfacets(FILE *fp, int format, facetT *facetlist, setT *facets, boolT
   coordT *center;
   realT outerplane, innerplane;
 
-  /* retail 0638a488: a null stream leaves RANDOMdist unchanged. */
+  /* a null stream leaves RANDOMdist unchanged. */
   if (!fp)
     return;
   qh old_randomdist= qh RANDOMdist;
   qh RANDOMdist= False;
   if (qh CDDoutput && (format == qh_PRINTcentrums || format == qh_PRINTpointintersect || format == qh_PRINToff))
-    FUN_06356960 (/* retail 0638a4c8 */ "qhull warning: CDD format is not available for centrums, halfspace\nintersections, and OFF file format.\n");
+    WriteHullDiagnostic (  "qhull warning: CDD format is not available for centrums, halfspace\nintersections, and OFF file format.\n");
   if (format == qh_PRINTnone)
     ; /* print nothing */
   else if (format == qh_PRINTaverage) {
@@ -2665,7 +2665,7 @@ void qh_printfacets(FILE *fp, int format, facetT *facetlist, setT *facets, boolT
     no message if qh_QUICKhelp
 */
 void qh_printhelp_degenerate(FILE *Fp) {
-  /* Retail 0638a940..0638aa0e: C0/TEST AH,1/JNZ selects less or unordered. */
+  /* C0/TEST AH,1/JNZ selects less or unordered. */
   if (qh MERGEexact || qh PREmerge || !(qh JOGGLEmax >= REALmax / 2)) {
     fprintf(Fp,
       "\n"
@@ -2734,7 +2734,7 @@ void qh_printhelp_singular(FILE *Fp) {
   realT Minimum, Maximum, *Coordinates, Distance;
   int PointIndex, Dimension;
 
-  /* Retail 0638aa1f..0638aa21: the null stream returns before any side effect. */
+  /* the null stream returns before any side effect. */
   if (!Fp)
     return;
   fprintf(Fp,
@@ -2789,7 +2789,7 @@ void qh_printhelp_singular(FILE *Fp) {
     Maximum = -REALmin;
     Coordinates = qh first_point + Dimension;
     for (PointIndex = qh num_points; PointIndex--; Coordinates += qh hull_dim) {
-      /* 0638abd3 TEST AH,1/JZ skips >=; unordered updates the maximum.
+      /* TEST AH,1/JZ skips >=; unordered updates the maximum.
          0638abe9 TEST AH,41/JNZ skips <= or unordered for the minimum. */
       if (!(Maximum >= *Coordinates))
         Maximum = *Coordinates;
@@ -2841,7 +2841,7 @@ void qh_printhyperplaneintersection(FILE *fp, facetT *facet1, facetT *facet2,
   int i, k;
   boolT nearzero1, nearzero2;
 
-  /* Retail 0638ac90..0638ac9c (TEST EAX,EAX / JZ 0638afd9 = epilogue): a NULL fp returns at once. */
+  /* (TEST EAX,EAX / JZ 0638afd9 = epilogue): a NULL fp returns at once. */
   if (!fp)
     return;
   costheta= qh_getangle(facet1->normal, facet2->normal);
@@ -2864,7 +2864,7 @@ void qh_printhyperplaneintersection(FILE *fp, facetT *facet1, facetT *facet2,
     if (nearzero1 || nearzero2)
       s= t= 0.0;
     for(k= qh hull_dim; k--; )
-      /* Retail 0638ae57..0638ae7f sums in a different order than upstream: FLD t; FMUL f2->normal[k];
+      /* sums in a different order than upstream: FLD t; FMUL f2->normal[k];
          FADD point[k]; then FLD s; FMUL f1->normal[k]; FADDP, i.e. (point + n2*t) + n1*s. */
       p[k]= vertex->point[k] + facet2->normal[k] * t + facet1->normal[k] * s;
     if (qh PRINTdim <= 3) {
@@ -2898,7 +2898,7 @@ void qh_printline3geom (FILE *fp, pointT *pointA, pointT *pointB, realT color[3]
   int k;
   realT pA[4], pB[4];
 
-  /* Retail 0638afe0..0638aff2 (TEST EDI,EDI / JZ 0638b12c = epilogue): a NULL fp returns before
+  /* (TEST EDI,EDI / JZ 0638b12c = epilogue): a NULL fp returns before
      qh_projectdim3 is called. */
   if (!fp)
     return;
@@ -2982,7 +2982,7 @@ void qh_printpointid(FILE *fp, char *string, int dim, pointT *point, int id) {
   int k;
   realT r; /*bug fix*/
 
-  /* Retail 0638b280..0638b29b (TEST EDI,EDI / JZ 0638b32a, then TEST ESI,ESI / JZ 0638b32a,
+  /* (TEST EDI,EDI / JZ 0638b32a, then TEST ESI,ESI / JZ 0638b32a,
      0638b32a = epilogue): a NULL fp returns as well as a NULL point. */
   if (!fp)
     return;
@@ -3145,7 +3145,7 @@ void qh_printpointvect2 (FILE *fp, pointT *point, coordT *normal, pointT *center
 */
 void qh_printridge(FILE *fp, ridgeT *ridge) {
 
-  /* Retail 0638b7f0..0638b7fb (TEST ESI,ESI / JZ 0638b880 = epilogue): a NULL fp returns at once. */
+  /* (TEST ESI,ESI / JZ 0638b880 = epilogue): a NULL fp returns at once. */
   if (!fp)
     return;
   fprintf(fp, "     - r%d", ridge->id);
@@ -3172,7 +3172,7 @@ void qh_printridge(FILE *fp, ridgeT *ridge) {
 void qh_printspheres(FILE *fp, setT *vertices, realT radius) {
   vertexT *vertex, **vertexp;
 
-  /* Retail 0638b890..0638b89f (TEST EDI,EDI / JZ 0638b935 = epilogue): a NULL fp returns before
+  /* (TEST EDI,EDI / JZ 0638b935 = epilogue): a NULL fp returns before
      qh printoutnum is incremented. */
   if (!fp)
     return;
@@ -3276,7 +3276,7 @@ void qh_printvdiagram (FILE *fp, int format, facetT *facetlist, setT *facets, bo
   qh_RIDGE innerouter= qh_RIDGEall;
   printvridgeT printvridge= NULL;
 
-  /* Retail 0638b940..0638b950 (TEST EBX,EBX / JZ 0638b9fa = epilogue): a NULL fp returns before the
+  /* (TEST EBX,EBX / JZ 0638b9fa = epilogue): a NULL fp returns before the
      format switch (so an unknown format is not reported either). */
   if (!fp)
     return;
@@ -3290,7 +3290,7 @@ void qh_printvdiagram (FILE *fp, int format, facetT *facetlist, setT *facets, bo
     innerouter= qh_RIDGEouter;
     printvridge= qh_printvnorm;
   }else {
-    FUN_06356960(/* retail 0638b98c */ "qh_printvdiagram: unknown print format %d.\n", format);
+    WriteHullDiagnostic(  "qh_printvdiagram: unknown print format %d.\n", format);
     qh_errexit (qh_ERRinput, NULL, NULL);
   }
   vertices= qh_markvoronoi (facetlist, facets, printall, &islower, &numcenters);
@@ -3361,7 +3361,7 @@ void qh_printvertex(FILE *fp, vertexT *vertex) {
   facetT *neighbor, **neighborp;
   realT r; /*bug fix*/
 
-  /* retail 0638baaf: a null output stream suppresses the whole print. */
+  /* a null output stream suppresses the whole print. */
   if (!fp)
     return;
   if (!vertex) {
@@ -3420,7 +3420,7 @@ void qh_printvertexlist (FILE *fp, char* string, facetT *facetlist,
 void qh_printvertices(FILE *fp, char* string, setT *vertices) {
   vertexT *vertex, **vertexp;
 
-  /* Retail 0638bc40..0638bc46 (TEST EDI,EDI / JZ 0638bcac = POP EDI; RET): a NULL fp returns at once. */
+  /* (TEST EDI,EDI / JZ 0638bcac = POP EDI; RET): a NULL fp returns at once. */
   if (!fp)
     return;
   fputs (string, fp);
@@ -3455,7 +3455,7 @@ void qh_printvneighbors (FILE *fp, facetT* facetlist, setT *facets, boolT printa
   facetT *facet, **facetp, *neighbor, **neighborp;
   pointT *point, **pointp;
 
-  /* Retail 0638bcc7..0638bcd2 (TEST EAX,EAX / JZ 0638bf6c = POP ESI; ADD ESP,0x20; RET, after the
+  /* (TEST EAX,EAX / JZ 0638bf6c = POP ESI; ADD ESP,0x20; RET, after the
      numpoints computation only): a NULL fp returns before qh_countfacets sets facet->visitid. */
   if (!fp)
     return;
@@ -3533,7 +3533,7 @@ void qh_printvoronoi (FILE *fp, int format, facetT *facetlist, setT *facets, boo
   boolT islower;
   unsigned int numfacets= (unsigned int) qh num_facets;
 
-  /* Retail 0638bf80..0638bf92 (TEST ESI,ESI / JZ 0638c3cb = POP ESI; ADD ESP,0x18; RET): a NULL fp
+  /* (TEST ESI,ESI / JZ 0638c3cb = POP ESI; ADD ESP,0x18; RET): a NULL fp
      returns before qh_markvoronoi renumbers visit ids. */
   if (!fp)
     return;
@@ -3653,7 +3653,7 @@ void qh_printvnorm (FILE *fp, vertexT *vertex, vertexT *vertexA, setT *centers, 
   realT offset;
   int k;
 
-  /* Retail 0638c3d0..0638c3df (TEST EBX,EBX / JZ 0638c492 = epilogue): a NULL fp returns before
+  /* (TEST EBX,EBX / JZ 0638c492 = epilogue): a NULL fp returns before
      qh_detvnorm. */
   if (!fp)
     return;
@@ -3682,7 +3682,7 @@ void qh_printvnorm (FILE *fp, vertexT *vertex, vertexT *vertexA, setT *centers, 
 void qh_printvridge (FILE *fp, vertexT *vertex, vertexT *vertexA, setT *centers, boolT unbounded) {
   facetT *facet, **facetp;
 
-  /* Retail 0638c4a0..0638c4a7 (TEST EDI,EDI / JZ 0638c525 = epilogue): a NULL fp returns at once. */
+  /* (TEST EDI,EDI / JZ 0638c525 = epilogue): a NULL fp returns at once. */
   if (!fp)
     return;
   fprintf (fp, "%d %d %d", qh_setsize (centers)+2,
@@ -4116,20 +4116,20 @@ void qh_setfeasible (int dim) {
   coordT *coords, value;
 
   if (!(s= qh feasible_string)) {
-    FUN_06356960(/* retail 0638c5c8 */ "\
+    WriteHullDiagnostic(  "\
 qhull input error: halfspace intersection needs a feasible point.\n\
 Either prepend the input with 1 point or use 'Hn,n,n'.  See manual.\n");
     qh_errexit (qh_ERRinput, NULL, NULL);
   }
   if (!(qh feasible_point= (pointT*)malloc (dim* sizeof(coordT)))) {
-    FUN_06356960(/* retail 0638c5fb */ "qhull error: insufficient memory for 'Hn,n,n'\n");
+    WriteHullDiagnostic(  "qhull error: insufficient memory for 'Hn,n,n'\n");
     qh_errexit(qh_ERRmem, NULL, NULL);
   }
   coords= qh feasible_point;
   while (*s) {
     value= qh_strtod (s, &s);
     if (++tokcount > dim) {
-      FUN_06356960 (/* retail 0638c65b */ "qhull input warning: more coordinates for 'H%s' than dimension %d\n",
+      WriteHullDiagnostic (  "qhull input warning: more coordinates for 'H%s' than dimension %d\n",
           qh feasible_string, dim);
       break;
     }

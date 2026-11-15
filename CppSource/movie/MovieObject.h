@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -21,7 +17,7 @@ struct FApproach2String
     uint32_t Capacity; // +0x0C
 };
 
-// PTR_LAB_06ada20c. Eleven thiscall slots. Slots after the scalar delete call __amsg_exit.
+// . Eleven thiscall slots. Slots after the scalar delete call __amsg_exit.
 // Destroy writes this vtable over the derived one; the compiler emits it for this base.
 struct FApproach2Base
 {
@@ -40,7 +36,7 @@ struct FApproach2Base
     FApproach2Base() {}
 };
 
-// PTR_FUN_06ada1e0. Same eleven slots. Retail operator new(0x20), then this constructor.
+// . Same eleven slots. baseline operator new(0x20), then this constructor.
 // Padding at +0x0E and string +0x01..+0x03 is not written.
 struct FApproach2Player : FApproach2Base
 {
@@ -48,7 +44,7 @@ struct FApproach2Player : FApproach2Base
 
     FApproach2Player();
     // Body is empty. The prologue only stores this class's vtable, which is what
-    // 0x06ac1120 does with `mov [this], PTR_FUN_06ada1e0` before it touches the fields.
+    // does with `mov [this], the routine` before it touches the fields.
     FApproach2Player(FVtableOnly) {}
 
     FApproach2Base* ScalarDelete(uint8_t Flags) override;
@@ -86,16 +82,16 @@ static_assert(offsetof(FApproach2Player, bStopped) == 0xC, "stopped");
 static_assert(offsetof(FApproach2Player, bError) == 0xD, "error");
 static_assert(offsetof(FApproach2Player, Path) == 0x10, "string");
 
-// DAT_06ae1208. Bit 0 is set by Approach2RegisterEmptyAtexit and Approach2RepeatEmptyAtexit.
+// . Bit 0 is set by Approach2RegisterEmptyAtexit and Approach2RepeatEmptyAtexit.
 extern uint8_t g_movieAtexitGuard;
 
 // stdcall WNDPROC of class MPMCIParent, RET 0x10.
 LRESULT __stdcall Approach2ParentWindowProc(HWND Hwnd, UINT Message, WPARAM WParam, LPARAM LParam);
 
-// Called from MediaPlayer::Startup only when DAT_06ae0930 == 2. Registers MPMCIParent.
+// Called from MediaPlayer::Startup only when the field == 2. Registers MPMCIParent.
 void __cdecl Approach2RegisterParentClass();
 
-// Called from MediaPlayer::Shutdown when DAT_06ae0930 == 2. UnregisterClass MPMCIParent.
+// Called from MediaPlayer::Shutdown when the field == 2. UnregisterClass MPMCIParent.
 void __cdecl Approach2UnregisterParentClass();
 
 // RET 4. VC6 string tidy. FreeBuffers == 0 only zeros the fields.
@@ -107,5 +103,5 @@ void  Approach2StringGrow(FApproach2String* This, uint32_t Size);
 // CRT initializer: guard bit 0, then atexit of the empty Movie_Nop.
 void __cdecl Approach2RegisterEmptyAtexit();
 
-// 0x06ac1a80. Second _initterm slot (06add008). Same body as Approach2RegisterEmptyAtexit.
+// . Second _initterm slot (06add008). Same body as Approach2RegisterEmptyAtexit.
 void __cdecl Approach2RepeatEmptyAtexit();

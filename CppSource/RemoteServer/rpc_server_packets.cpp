@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "rpc_packet.h"
@@ -37,7 +33,7 @@ FPacketBase::FPacketBase(unsigned int InPacketId) : PacketId(InPacketId) {
 FPacketBase::~FPacketBase() {}
 void FPacketBase::Dump(std::ostream& Out) const {}
 unsigned int FPacketBase::Encode(unsigned char** BufferHolder, unsigned int Capacity, unsigned int* OutLength) {
-    // 06bebec0: inline entry, cached header commit, Error=0, OutLength, stats, 0.
+    // inline entry, cached header commit, Error=0, OutLength, stats, 0.
     FRpcWireStream Stream(*this, BufferHolder, Capacity);
     Stream.PutHeader();
     return Stream.FinishEncodeSuccess(OutLength);
@@ -51,7 +47,7 @@ using FLPACKET_CLIENT_REQCHANGECASH = FRpcRequestChangeCashPacket;
 
 using FLPACKET_CLIENT_REQSETCASH = FRpcRequestSetCashPacket;
 
-// FUN_06be9250
+
 using FLPACKET_CLIENT_REQREMOVEITEM = FRpcRequestRemoveItemPacket;
 
 using FLPACKET_CLIENT_REQMODIFYITEM = FRpcRequestModifyItemPacket;

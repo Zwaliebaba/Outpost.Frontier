@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "common_misc.h"
@@ -16,12 +12,12 @@
 Heap::Heap(unsigned int ElementSize, int MaxFreeCount)
     : ElementSize(ElementSize), FreeList(nullptr), MaxFreeCount(MaxFreeCount), CurrentFreeCount(0)
 {
-    // Common.dll.c 80681-80690 (0x4d450).
+    // Common (0x4d450).
 }
 
 void* Heap::Malloc()
 {
-    // Common.dll.c RVA 0xae580. Pop the free list on a hit; otherwise a fresh malloc().
+    // Common RVA 0xae580. Pop the free list on a hit; otherwise a fresh malloc().
     if (FreeList != nullptr)
     {
         FFreeBlock* Block = FreeList;
@@ -34,7 +30,7 @@ void* Heap::Malloc()
 
 void Heap::Free(void* Ptr)
 {
-    // Common.dll.c RVA 0xae5a0. If the pool is full (MaxFreeCount >= 0 and already at/over
+    // Common RVA 0xae5a0. If the pool is full (MaxFreeCount >= 0 and already at/over
     // cap), just free() straight to the CRT. Otherwise stomp the whole block with the 0xCD
     // debug fill (dwords, then the tail bytes) and push it onto the free list.
     if (MaxFreeCount <= CurrentFreeCount && MaxFreeCount >= 0)
@@ -53,7 +49,7 @@ void Heap::Free(void* Ptr)
 
 void Heap::Shrink()
 {
-    // Common.dll.c RVA 0xae600. Frees every pooled block back to the CRT and empties the pool.
+    // Common RVA 0xae600. Frees every pooled block back to the CRT and empties the pool.
     FFreeBlock* Node = FreeList;
     while (Node != nullptr)
     {

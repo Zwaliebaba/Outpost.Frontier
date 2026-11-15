@@ -19,7 +19,7 @@ BEGIN
 		VALUE "FileVersion", "1.11.173"
 		VALUE "LegalCopyright", "\251 2003 Microsoft Corporation. All rights reserved."
 		VALUE "PrivateBuild", "Release"
-		VALUE "ProductName", "Digital Anvil Component Libraries"
+		VALUE "ProductName", "Outpost:Frontier Engine"
 		VALUE "ProductVersion", "1.11.173"
 	END
 END

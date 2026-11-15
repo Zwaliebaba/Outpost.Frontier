@@ -1,16 +1,12 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // Content.dll TU42 (06f31190-06f33300): NPC ship archetypes, NPC character
 // descriptions, mission [NPC] blocks, space_costume.
-//
-// Listing: DLLS\BIN\Content.dll.txt. The std::map template instantiations
-// retail emits for the two tables (insert FUN_06f32d50, _Insert FUN_06f32f60,
-// _Buynode FUN_06f331b0, iterator step FUN_06f331d0, pair copy FUN_06f33230,
-// map ctor FUN_06f32ce0, _Tidy LAB_06f32c20) are the std::map objects below.
+
+// Listing: DLLS\BIN\Content. The std::map template instantiations
+// baseline emits for the two tables (insert the routine, _Insert the routine,
+// _Buynode the routine, iterator step the routine, pair copy the routine,
+// map ctor the routine, _Tidy the branch) are the std::map objects below.
 
 #include "NpcShips.h"
 
@@ -44,7 +40,7 @@ int FNpcShipArch::GetLevel() const
     return Level;
 }
 
-// FUN_06f32510.
+// .
 void __cdecl LoadNpcShipArchs(INI_Reader* Reader, FNpcShipArchMap* Map)
 {
     while (Reader->read_header())
@@ -52,7 +48,7 @@ void __cdecl LoadNpcShipArchs(INI_Reader* Reader, FNpcShipArchMap* Map)
         if (!Reader->is_header("NPCShipArch"))
             continue;
 
-        // 06f32565-06f325a4: locals [ESP+0x30..0x54] and the key [ESP+0x18].
+        // locals [ESP+0x30..0x54] and the key [ESP+0x18].
         FNpcShipArch Arch;
         ID_String Key;
         Key.clear();
@@ -83,7 +79,7 @@ void __cdecl LoadNpcShipArchs(INI_Reader* Reader, FNpcShipArchMap* Map)
             }
             else if (Reader->is_value("npc_class"))
             {
-                // 06f32697-06f32728: every value, unique ids appended at the end.
+                // every value, unique ids appended at the end.
                 for (unsigned int Index = 0; !Reader->is_value_empty(Index); ++Index)
                 {
                     unsigned int ClassId = CreateID(Reader->get_value_string(Index));
@@ -95,7 +91,7 @@ void __cdecl LoadNpcShipArchs(INI_Reader* Reader, FNpcShipArchMap* Map)
             }
             else if (Reader->is_value("level"))
             {
-                // 06f32820-06f32842: skip to the first digit (or the end), atoi.
+                // skip to the first digit (or the end), atoi.
                 char const* Text = Reader->get_value_string(0);
                 while ((*Text < '0' || *Text > '9') && *Text != '\0')
                     ++Text;
@@ -103,18 +99,18 @@ void __cdecl LoadNpcShipArchs(INI_Reader* Reader, FNpcShipArchMap* Map)
             }
         }
 
-        // 06f32740-06f327a2: pair{Key, Arch} built, Map->insert(pair).
+        // pair{Key, Arch} built, Map->insert(pair).
         Map->insert(FNpcShipArchMap::value_type(Key.Id, Arch));
     }
 }
 
-// FUN_06f32850.
+// .
 void __cdecl ClearNpcShipArchs()
 {
     GNpcShipArchs.erase(GNpcShipArchs.begin(), GNpcShipArchs.end());
 }
 
-// FUN_06f32480.
+// .
 FNpcShipArch* __cdecl FindNpcShipArch(unsigned int const* Id, FNpcShipArchMap* Map)
 {
     FNpcShipArchMap::iterator It = Map->find(*Id);
@@ -123,7 +119,7 @@ FNpcShipArch* __cdecl FindNpcShipArch(unsigned int const* Id, FNpcShipArchMap* M
     return &It->second;
 }
 
-// FUN_06f324d0.
+// .
 FNpcShipArch* __cdecl FindNpcShipArchByShip(unsigned int ShipArchetype, FNpcShipArchMap* Map)
 {
     for (FNpcShipArchMap::iterator It = Map->begin(); It != Map->end(); ++It)
@@ -134,7 +130,7 @@ FNpcShipArch* __cdecl FindNpcShipArchByShip(unsigned int ShipArchetype, FNpcShip
     return nullptr;
 }
 
-// FUN_06f31390.
+// .
 bool __cdecl ParseSpaceCostume(Costume* OutCostume, INI_Reader* Reader)
 {
     OutCostume->PartIds[0] = pub::GF::GetBodyPart(Reader->get_value_string(0), 1);
@@ -148,7 +144,7 @@ bool __cdecl ParseSpaceCostume(Costume* OutCostume, INI_Reader* Reader)
     return OutCostume->PartIds[0] != 0 && OutCostume->PartIds[1] != 0;
 }
 
-// FUN_06f32920.
+// .
 FNpcCharacterDesc::FNpcCharacterDesc()
 {
     Appearance.PartIds[0] = 0;
@@ -162,12 +158,12 @@ FNpcCharacterDesc::FNpcCharacterDesc()
     Nickname.clear();
 }
 
-// FUN_06f32950.
+// .
 bool FNpcCharacterDesc::ParseValue(INI_Reader* Reader, ID_String* OutNickname)
 {
     if (Reader->is_value("base_appr"))
     {
-        // 06f32974-06f329a8: the costume is copied only when the id resolved.
+        // the costume is copied only when the id resolved.
         int CostumeId;
         if (pub::GetCostumeID(CostumeId, Reader->get_value_string()) == 0)
             pub::GF::GetCostumeByID(CostumeId, Appearance);
@@ -224,32 +220,32 @@ bool FNpcCharacterDesc::ParseValue(INI_Reader* Reader, ID_String* OutNickname)
     return false;
 }
 
-// FUN_06f32b50.
+// .
 bool FNpcCharacterDesc::IsComplete() const
 {
     return Appearance.PartIds[1] != 0 && Voice != 0 && IndividualName != 0;
 }
 
-// FUN_06f32b70.
+// .
 bool __cdecl LoadNpcCharacterDesc(ID_String* OutNickname, FNpcCharacterDesc* Desc, INI_Reader* Reader)
 {
     while (Reader->read_value())
         Desc->ParseValue(Reader, OutNickname);
 
-    // 06f32ba5-06f32bc6: FUN_06f32b50 inlined.
+    // the routine inlined.
     return !OutNickname->IsEmpty() && Desc->IsComplete();
 }
 
 namespace
 {
-    // FmtStr::Val::Value of a value node read as the dword retail loads ([node+4]).
+    // FmtStr::Val::Value of a value node read as the dword baseline loads ([node+4]).
     int NameValue(FmtStr::Val const* Node)
     {
         return (int)Node->Value;
     }
 }
 
-// FUN_06f322a0.
+// .
 bool __cdecl GetSecondNameValues(FmtStr const* /*First*/, FmtStr const* Second, int* OutA, int* OutB)
 {
     *OutB = 1;
@@ -260,7 +256,7 @@ bool __cdecl GetSecondNameValues(FmtStr const* /*First*/, FmtStr const* Second, 
     case 0x3f21:
     case 0x3f22:
     {
-        // 06f322d5: node2, node3.
+        // node2, node3.
         FmtStr::Val const* Node = Second->Head->Next;
         *OutA = NameValue(Node);
         *OutB = NameValue(Node->Next);
@@ -268,14 +264,14 @@ bool __cdecl GetSecondNameValues(FmtStr const* /*First*/, FmtStr const* Second, 
     }
     case 0x3f23:
     {
-        // 06f322d7: node1, node2.
+        // node1, node2.
         FmtStr::Val const* Node = Second->Head;
         *OutA = NameValue(Node);
         *OutB = NameValue(Node->Next);
         return true;
     }
     case 0x3f1e:
-        // 06f322e9: node4.
+        // node4.
         *OutB = NameValue(Second->Head->Next->Next->Next);
         return true;
     default:
@@ -283,7 +279,7 @@ bool __cdecl GetSecondNameValues(FmtStr const* /*First*/, FmtStr const* Second, 
     }
 }
 
-// FUN_06f32320.
+// .
 bool __cdecl GetSecondNameThirdValue(FmtStr const* /*First*/, FmtStr const* Second, int* Out)
 {
     *Out = 1;
@@ -293,7 +289,7 @@ bool __cdecl GetSecondNameThirdValue(FmtStr const* /*First*/, FmtStr const* Seco
     return true;
 }
 
-// FUN_06f32350.
+// .
 bool __cdecl GetFirstNameValue(FmtStr const* First, FmtStr const* /*Second*/, int* Out)
 {
     *Out = 1;
@@ -314,7 +310,7 @@ bool __cdecl GetFirstNameValue(FmtStr const* First, FmtStr const* /*Second*/, in
     }
 }
 
-// FUN_06f323c0.
+// .
 bool __cdecl GetFirstNameLastValue(FmtStr const* First, FmtStr const* /*Second*/, int* Out)
 {
     *Out = -1;
@@ -335,14 +331,14 @@ bool __cdecl GetFirstNameLastValue(FmtStr const* First, FmtStr const* /*Second*/
     }
 }
 
-// FUN_06f32420.
+// .
 bool __cdecl RollNpcNameValue(FmtStr const* /*First*/, FmtStr const* /*Second*/, int* Out)
 {
     *Out = rand() * 5 / 32768 + 1;
     return false;
 }
 
-// FUN_06f31430.
+// .
 FMsnNpc::FMsnNpc()
 {
     Affiliation = 0xFFFFFFFFu;
@@ -358,7 +354,7 @@ FMsnNpc::FMsnNpc()
     Nickname.clear();
 }
 
-// FUN_06f31470.
+// .
 bool __cdecl LoadMsnNpc(ID_String* OutNickname, FMsnNpc* Npc, INI_Reader* Reader)
 {
     Npc->Voice = 0;
@@ -378,7 +374,7 @@ bool __cdecl LoadMsnNpc(ID_String* OutNickname, FMsnNpc* Npc, INI_Reader* Reader
         }
         else if (Reader->is_value("space_costume"))
         {
-            // 06f314e3-06f31556: FUN_06f31390 inlined without its result.
+            // the routine inlined without its result.
             Npc->Appearance.PartIds[0] = pub::GF::GetBodyPart(Reader->get_value_string(0), 1);
             Npc->Appearance.PartIds[1] = pub::GF::GetBodyPart(Reader->get_value_string(1), 0);
             for (unsigned int Index = 2; !Reader->is_value_empty(Index); ++Index)

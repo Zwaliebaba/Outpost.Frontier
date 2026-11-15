@@ -1,12 +1,8 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "effect_vertex_batch.h"
 
-#include "DALib.h"
+#include "NeuronRuntime.h"
 #include "beam_effect.h"
 #include "common_csys.h"
 #include "common_misc.h"   // ICamera (EffectVertexBatchFlush, vt+0x40)
@@ -18,10 +14,10 @@
 #include <cstring>
 #include <new>
 
-// Retail DAT_00674c7c … DAT_00674cb4.
+// … the field.
 FEffectVertexBatch G_EffectVertexBatch = {};
 unsigned char G_EffectVertexBatchDtorOnce = 0;
-I3DMathEngine* G_EffectMathEngine = nullptr; // DAT_00674f50 (Effect.cpp math cache)
+I3DMathEngine* G_EffectMathEngine = nullptr; // (Effect.cpp math cache)
 
 namespace
 {
@@ -42,7 +38,7 @@ namespace
     constexpr unsigned kEffectFvf = 0x142;
     constexpr int kDefaultGrowth = 0x80;
 
-    // DAT_005d9a04 — SetTextureStageState stage 0: (type,value) chain, type starts at 1.
+    // — SetTextureStageState stage 0: (type,value) chain, type starts at 1.
     // Walked as: value=[p+4], next_type=[p+8], p+=8 until next_type==0.
     int const kTssStage0[] = {
         1, 4, // COLOROP = MODULATE
@@ -54,7 +50,7 @@ namespace
         0
     };
 
-    // DAT_005d9a3c — stage 1.
+    // — stage 1.
     int const kTssStage1[] = {
         1, 1, // COLOROP = DISABLE
         2, 2,
@@ -65,14 +61,14 @@ namespace
         0
     };
 
-    // DAT_005d99dc — SetRenderState chain, state starts at 0x8d.
+    // — SetRenderState chain, state starts at 0x8d.
     int const kRsSetup[] = {
         0x8d, 1, // COLORVERTEX = TRUE
         0x91, 1, // DIFFUSEMATERIALSOURCE = COLOR1
         0
     };
 
-    // DAT_005d99f4 — restore.
+    // — restore.
     int const kRsRestore[] = {
         0x8d, 0,
         0
@@ -83,11 +79,11 @@ namespace
         operator delete(Ptr);
     }
 
-    // The index-buffer growth body of FUN_004fcb40 (0x004fcb54..0x004fcba5), which the reset
+    // The index-buffer growth body of the routine (0x004fcb54..0x004fcba5), which the reset
     // and push paths repeat inline: operator new((cap + extra) * 2) -- VC6's MSVCRT operator new
     // returns null rather than throwing, and a null (TEST EBP,EBP / JZ) leaves the batch as it
     // is, which std::nothrow reproduces -- the old buffer's cap*2 bytes copied when there is
-    // one, the old buffer freed (FUN_005b7e1d, called even for null), then the new pointer and
+    // one, the old buffer freed (the routine, called even for null), then the new pointer and
     // capacity stored.
     void GrowIndexBuffer(FEffectVertexBatch* Batch, unsigned ExtraWords)
     {
@@ -128,7 +124,7 @@ namespace
         }
     }
 
-    // FUN_00425640 — ShapeDB thiscall: if Shape->Texture != 0, TextureLib->Slot22(record*,
+    // — ShapeDB thiscall: if Shape->Texture != 0, TextureLib->Slot22(record*,
     // frame, buf), return buf[0] GPU handle; else 0. G_BeamEffectTexture is FTexShape*.
     void* ResolveBeamTextureHandle(void* ShapeObj, int Frame)
     {
@@ -185,8 +181,8 @@ void EffectVertexBatchStaticShutdown()
 
 void EffectVertexBatchDestroy(FEffectVertexBatch* Batch)
 {
-    // FUN_0046e9c0 (thiscall): the pipeline released (vt+0x8) and cleared when there is one,
-    // then both buffers freed (FUN_005b7e1d, no null test) and cleared.
+    // (thiscall): the pipeline released (vt+0x8) and cleared when there is one,
+    // then both buffers freed (the routine, no null test) and cleared.
     if (Batch->Pipeline != nullptr)
     {
         Batch->Pipeline->Release();
@@ -200,10 +196,10 @@ void EffectVertexBatchDestroy(FEffectVertexBatch* Batch)
 
 void EffectVertexBatchGrowVertices(FEffectVertexBatch* Batch)
 {
-    // FUN_0046ecd0 (thiscall): nothing while count (+0x08) < capacity (+0x20) (unsigned, JC).
+    // (thiscall): nothing while count (+0x08) < capacity (+0x20) (unsigned, JC).
     // Else operator new((growth +0x1c + cap) * 0x18); VC6's operator new returns null instead of
     // throwing and a null leaves the batch untouched (std::nothrow here). The old cap*0x18 bytes
-    // are copied when the old buffer (+0x04) exists, the old buffer freed (FUN_005b7e1d, even
+    // are copied when the old buffer (+0x04) exists, the old buffer freed (the routine, even
     // for null), then +0x04 = the new buffer and +0x20 = cap + growth.
     if (static_cast<unsigned>(Batch->VertCount) < Batch->VertCapacity)
         return;
@@ -309,7 +305,7 @@ void EffectVertexBatchPushQuad(FEffectVertexBatch* Batch, unsigned short I0,
 
 void EffectVertexBatchSetColor(FEffectVertexBatch* Batch, float R, float G, float B)
 {
-    // FUN_004fc950 (thiscall, RET 0xc): each argument * 255.0 (double 0x005c89c0) through
+    // (thiscall, RET 0xc): each argument * 255.0 (double 0x005c89c0) through
     // ftol, the low byte stored -- R to +0x30, G to +0x31, B to +0x32 -- and 0xff to +0x33.
     Batch->ColorR = static_cast<unsigned char>(static_cast<long>(static_cast<double>(R) * 255.0));
     Batch->ColorG = static_cast<unsigned char>(static_cast<long>(static_cast<double>(G) * 255.0));
@@ -317,58 +313,58 @@ void EffectVertexBatchSetColor(FEffectVertexBatch* Batch, float R, float G, floa
     Batch->ColorA = 0xff;
 }
 
-// FUN_004f9de0 (cdecl: camera), listing-traced 0x004f9de0..0x004fa09e. Its sole caller is the
-// beam branch of FUN_004f7480 (0x004f76cd). It works on the Effect.cpp batch DAT_00674c7c
-// directly; DALib::Pipeline is re-read for every call and never tested.
+// (cdecl: camera), listing-traced 0x004f9de0..0x004fa09e. Its sole caller is the
+// beam branch of the routine (0x004f76cd). It works on the Effect.cpp batch the field
+// directly; NeuronRuntime::Pipeline is re-read for every call and never tested.
 void EffectVertexBatchFlush(ICamera* Cam)
 {
     FEffectVertexBatch* const Batch = &G_EffectVertexBatch;
 
-    // 0x004f9de1..0x004f9df3: stage 0 type 0xb = 0.
-    DALib::Pipeline->SetTextureStageState(0, 0xb, 0);
-    // 0x004f9df9..0x004f9e28 / 0x004f9e2a..0x004f9e58: DAT_005d9a04 on stage 0, DAT_005d9a3c on
-    // stage 1. 0x004f9e5a..0x004f9e86: the RS table DAT_005d99dc (0x8d first).
-    ApplyTssTable(DALib::Pipeline, 0, kTssStage0);
-    ApplyTssTable(DALib::Pipeline, 1, kTssStage1);
-    ApplyRsTable(DALib::Pipeline, kRsSetup);
+    // stage 0 type 0xb = 0.
+    NeuronRuntime::Pipeline->SetTextureStageState(0, 0xb, 0);
+    // / 0x004f9e2a..0x004f9e58: the field on stage 0, the field on
+    // stage 1. 0x004f9e5a..0x004f9e86: the RS table the field (0x8d first).
+    ApplyTssTable(NeuronRuntime::Pipeline, 0, kTssStage0);
+    ApplyTssTable(NeuronRuntime::Pipeline, 1, kTssStage1);
+    ApplyRsTable(NeuronRuntime::Pipeline, kRsSetup);
 
-    // 0x004f9e88..0x004f9eaa: slot 66 with FUN_00425640(DAT_00674f54, frame 0).
-    DALib::Pipeline->SetTextureStageTexture(0, ResolveBeamTextureHandle(G_BeamEffectTexture, 0));
+    // slot 66 with the routine(the field, frame 0).
+    NeuronRuntime::Pipeline->SetTextureStageTexture(0, ResolveBeamTextureHandle(G_BeamEffectTexture, 0));
 
-    // 0x004f9eb0..0x004f9f3f.
-    DALib::Pipeline->SetRenderState(D3DRS_CLIPPING, 1);  // CLIPPING
-    DALib::Pipeline->SetRenderState(D3DRS_CULLMODE, 1);  // CULLMODE = NONE
-    DALib::Pipeline->SetRenderState(D3DRS_ZENABLE, 1);   // ZENABLE
-    DALib::Pipeline->SetRenderState(D3DRS_ZWRITEENABLE, 0);   // ZWRITEENABLE
-    DALib::Pipeline->SetRenderState(D3DRS_ALPHABLENDENABLE, 1);  // ALPHABLENDENABLE
-    DALib::Pipeline->SetRenderState(D3DRS_SRCBLEND, 2);  // SRCBLEND = ONE
-    DALib::Pipeline->SetRenderState(D3DRS_DESTBLEND, 2);  // DESTBLEND = ONE
+    // .
+    NeuronRuntime::Pipeline->SetRenderState(D3DRS_CLIPPING, 1);  // CLIPPING
+    NeuronRuntime::Pipeline->SetRenderState(D3DRS_CULLMODE, 1);  // CULLMODE = NONE
+    NeuronRuntime::Pipeline->SetRenderState(D3DRS_ZENABLE, 1);   // ZENABLE
+    NeuronRuntime::Pipeline->SetRenderState(D3DRS_ZWRITEENABLE, 0);   // ZWRITEENABLE
+    NeuronRuntime::Pipeline->SetRenderState(D3DRS_ALPHABLENDENABLE, 1);  // ALPHABLENDENABLE
+    NeuronRuntime::Pipeline->SetRenderState(D3DRS_SRCBLEND, 2);  // SRCBLEND = ONE
+    NeuronRuntime::Pipeline->SetRenderState(D3DRS_DESTBLEND, 2);  // DESTBLEND = ONE
 
-    // 0x004f9f45..0x004f9f71: RS 0x89 read into the local, then set to 0.
+    // RS 0x89 read into the local, then set to 0.
     int SavedLighting = 0;
-    DALib::Pipeline->GetRenderState(D3DRS_LIGHTING, &SavedLighting);
-    DALib::Pipeline->SetRenderState(D3DRS_LIGHTING, 0);
+    NeuronRuntime::Pipeline->GetRenderState(D3DRS_LIGHTING, &SavedLighting);
+    NeuronRuntime::Pipeline->SetRenderState(D3DRS_LIGHTING, 0);
 
-    // 0x004f9f77..0x004f9f95: the camera's view (vt+0x40) as the modelview (slot 31, +0x7c).
-    IRenderPipeline* const ModelviewPipe = DALib::Pipeline;
+    // the camera's view (vt+0x40) as the modelview (slot 31, +0x7c).
+    IRenderPipeline* const ModelviewPipe = NeuronRuntime::Pipeline;
     ModelviewPipe->SetModelview(Cam->GetViewTransform());
 
-    // 0x004f9f98..0x004f9fc6: the batch's pipeline reference (+0x18, DAT_00674c94) released
-    // and cleared when set, then DALib::Pipeline taken with AddRef -- only when it is non-null
-    // (0x004f9fb6 TEST ESI,ESI / JZ, retail's own test on the smart-pointer assignment).
+    // the batch's pipeline reference (+0x18, the field) released
+    // and cleared when set, then NeuronRuntime::Pipeline taken with AddRef -- only when it is non-null
+    // (0x004f9fb6 TEST ESI,ESI / JZ, baseline's own test on the smart-pointer assignment).
     if (Batch->Pipeline != nullptr)
     {
         Batch->Pipeline->Release();
         Batch->Pipeline = nullptr;
     }
-    IRenderPipeline* const Taken = DALib::Pipeline;
+    IRenderPipeline* const Taken = NeuronRuntime::Pipeline;
     if (Taken != nullptr)
     {
         Batch->Pipeline = Taken;
         Taken->AddRef();
     }
 
-    // 0x004f9fcb..0x004fa00e: with a pipeline, slot 70 (+0x118) DrawIndexedPrimitiveUp(4, FVF
+    // with a pipeline, slot 70 (+0x118) DrawIndexedPrimitiveUp(4, FVF
     // +0x0c, vertices +0x04, count +0x08, indices +0x10, count +0x14, 0) -- no count or buffer
     // test -- then the reference released and cleared.
     if (Batch->Pipeline != nullptr)
@@ -383,10 +379,10 @@ void EffectVertexBatchFlush(ICamera* Cam)
         }
     }
 
-    // 0x004fa018..0x004fa099: RS 0x89 back, 0x1b = 0, 0xe = 1, 0x16 = 2, table DAT_005d99f4.
-    DALib::Pipeline->SetRenderState(D3DRS_LIGHTING, SavedLighting);
-    DALib::Pipeline->SetRenderState(D3DRS_ALPHABLENDENABLE, 0);
-    DALib::Pipeline->SetRenderState(D3DRS_ZWRITEENABLE, 1);
-    DALib::Pipeline->SetRenderState(D3DRS_CULLMODE, 2);
-    ApplyRsTable(DALib::Pipeline, kRsRestore);
+    // RS 0x89 back, 0x1b = 0, 0xe = 1, 0x16 = 2, table the field.
+    NeuronRuntime::Pipeline->SetRenderState(D3DRS_LIGHTING, SavedLighting);
+    NeuronRuntime::Pipeline->SetRenderState(D3DRS_ALPHABLENDENABLE, 0);
+    NeuronRuntime::Pipeline->SetRenderState(D3DRS_ZWRITEENABLE, 1);
+    NeuronRuntime::Pipeline->SetRenderState(D3DRS_CULLMODE, 2);
+    ApplyRsTable(NeuronRuntime::Pipeline, kRsRestore);
 }

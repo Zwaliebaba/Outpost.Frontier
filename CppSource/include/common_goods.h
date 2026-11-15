@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -10,7 +6,7 @@
 
 // Common.dll goods / markets / bases / loadouts / constants.
 // Linked into OutpostFrontier.exe. Not a Common.dll project. Not MSVCP60 STL.
-// See docs/re/common.md (goods, loadouts, bases, rooms).
+// See implementation notes (goods, loadouts, bases, rooms).
 
 #include "common_archetype.h"
 #include "common_csys.h"
@@ -19,7 +15,7 @@
 #include "common_net.h"        // Watchable
 #include "common_metalist.h"   // MetaList<T>, OwnerList<T> (GoodDescList)
 #include "common_weighted_vector.h" // weighted_vector<T>
-#include "thorn_iface.h"       // FThornEntitySnap, FThornLightProps (thorn.dll's published layouts)
+#include "scenescript_iface.h"       // FSceneScriptEntitySnap, FSceneScriptLightProps (scenescript.dll's published layouts)
 
 #include <cstdlib>
 #include <list>
@@ -33,30 +29,30 @@ struct GoodDescList;
 class EquipDescList;
 
 // ---------------------------------------------------------------------------
-// The retail names Common's exports give thorn.dll's entity descriptor (IScriptEngine slot 9)
-// and its two property tails, e.g. ?ThornGetRenderType@@YAKPBUThornEntity@@PBD@Z and
-// ?add_set_script_light@RoomData@@AAEXKABVCsys@@PBUThornLightProperties@@E@Z. The layouts are
-// the ones thorn_iface.h publishes; the names stay distinct types for the mangled signatures.
+// The baseline names Common's exports give scenescript.dll's entity descriptor (IScriptEngine slot 9)
+// and its two property tails, e.g. ?SceneScriptGetRenderType@@YAKPBUSceneScriptEntity@@PBD@Z and
+// ?add_set_script_light@RoomData@@AAEXKABVCsys@@PBUSceneScriptLightProperties@@E@Z. The layouts are
+// the ones scenescript_iface.h publishes; the names stay distinct types for the mangled signatures.
 // ---------------------------------------------------------------------------
-struct ThornEntity : FThornEntitySnap
+struct SceneScriptEntity : FSceneScriptEntitySnap
 {
 };
 
 // The LIGHT entity's tail at +0x44 (0x90 bytes).
-struct ThornLightProperties : FThornLightProps
+struct SceneScriptLightProperties : FSceneScriptLightProps
 {
 };
 
 // The CAMERA / MONITOR entity's tail at +0x44: fovh, near, far, aspect.
 // add_set_script_Camera (06275a50) reads the first three.
-struct ThornCameraProperties
+struct SceneScriptCameraProperties
 {
     float Fovh;      // +0x00 (entity +0x44)
     float NearPlane; // +0x04
     float FarPlane;  // +0x08
     float Aspect;    // +0x0c
 };
-static_assert(sizeof(ThornCameraProperties) == 0x10, "camera tail is four floats");
+static_assert(sizeof(SceneScriptCameraProperties) == 0x10, "camera tail is four floats");
 
 // ---------------------------------------------------------------------------
 // HardpointInfo — sizeof 0x48. From HardpointSummary::get_info stride.
@@ -84,8 +80,8 @@ static_assert(offsetof(HardpointInfo, ParentInstance) == 0x34, "parent instance 
 
 // ---------------------------------------------------------------------------
 // Hardpoint lookup -- 0xae940 / 0xae960 / 0xaeb70 / 0xaeba0.
-// The shared core walks the engine instance tree: DALib::Engine slot 25 turns the handle into
-// an instance, DALib::Hardpoint slot 3 answers a {name, CRC32} query against it, slot 15
+// The shared core walks the engine instance tree: NeuronRuntime::Engine slot 25 turns the handle into
+// an instance, NeuronRuntime::Hardpoint slot 3 answers a {name, CRC32} query against it, slot 15
 // releases the instance, and slot 54 enumerates children for the recursion. On a hit the
 // handle of the node it was found on comes back through OutHandle.
 // ---------------------------------------------------------------------------
@@ -104,7 +100,7 @@ COMMON_API void __cdecl HardpointToWorld(long Handle, HardpointInfo& Info);
 // ---------------------------------------------------------------------------
 // SetpointProperties — sizeof 0x24. Parsed from setpoint name convention
 // "zs/pc/Segment/00/Name/posture" (or "zg/..." for a zone-group setpoint).
-// Retail (0x1b190/0x1b1b0 ctor/clear): +0=bValid byte(0), +1=bZoneScript byte(0),
+// baseline (0x1b190/0x1b1b0 ctor/clear): +0=bValid byte(0), +1=bZoneScript byte(0),
 // +4=char_type(-1), +8=segment(str*), +0xC=zone(-1), +0x10=name[16], +0x20=posture(-1).
 // Confirmed by combine_to_name (0x1b660), the exact reverse of extract_from_name
 // (0x1b2b0): builds "Zs|Zg / pc|npc|rpc / Segment / %02d(Zone) / NameBuffer / posture".
@@ -124,7 +120,7 @@ struct COMMON_API SetpointProperties
 
     unsigned char bValid;       // +0x00  0 or 1 -- name matched zs/zg naming convention
     unsigned char bZoneScript;  // +0x01  1="zs/" prefix (zone/solar setpoint), 0="zg/" prefix (zone group)
-    unsigned char Pad02;        // +0x02  padding (retail leaves uninitialized; zeroed here)
+    unsigned char Pad02;        // +0x02  padding (baseline leaves uninitialized; zeroed here)
     unsigned char Pad03;        // +0x03  padding
     int CharType;               // +0x04  -1=none, 0=npc, 1=pc, 2=rpc
     char const* Segment;        // +0x08  malloc'd string
@@ -139,12 +135,12 @@ static_assert(sizeof(SetpointProperties) == 0x24, "SetpointProperties sizeof 0x2
 // Room sub-structures
 // ---------------------------------------------------------------------------
 
-// RoomCameraInfo — camera snapshot from Thorn or INI [Camera].
+// RoomCameraInfo — camera snapshot from SceneScript or INI [Camera].
 // Clear zeros name, sets identity Csys, fov=35, near=0.25, far=1e6.
 struct COMMON_API RoomCameraInfo
 {
     RoomCameraInfo();
-    // Retail exports operator= (0x06273370) but no copy ctor: the copy ctor is the implicit
+    // baseline exports operator= (0x06273370) but no copy ctor: the copy ctor is the implicit
     // trivial one (a raw member copy, Name shared), which is not exported. RoomData's own
     // copy (0x06261330) uses it for the embedded Camera.
     ~RoomCameraInfo();
@@ -162,14 +158,14 @@ struct COMMON_API RoomCameraInfo
 
 static_assert(sizeof(RoomCameraInfo) == 0x40, "RoomCameraInfo sizeof 0x40");
 
-// SetpointInfo — named position in a room (from Thorn type 7 or INI).
+// SetpointInfo — named position in a room (from SceneScript type 7 or INI).
 struct COMMON_API SetpointInfo
 {
     SetpointInfo();
-    // 0x062612d0: Name copied as a pointer, Frame copied, SetpointProperties copy ctor.
+    // Name copied as a pointer, Frame copied, SetpointProperties copy ctor.
     SetpointInfo(SetpointInfo const& Other);
     ~SetpointInfo();
-    // Retail exports no operator=; RoomData keeps setpoints as SetpointInfo* (retail +0x164).
+    // baseline exports no operator=; RoomData keeps setpoints as SetpointInfo* (baseline +0x164).
     SetpointInfo& operator=(SetpointInfo const& Other) = delete;
 
     void clear();
@@ -184,7 +180,7 @@ struct COMMON_API SetpointInfo
 struct COMMON_API CharPlaceInfo
 {
     CharPlaceInfo();
-    // Retail exports neither a copy ctor nor operator=: placements live behind pointers
+    // baseline exports neither a copy ctor nor operator=: placements live behind pointers
     // (RoomData::CharacterPlacements) and RoomData's own copy only copies those pointers.
     // (The implicit trivial copy ctor is not exported; operator= is deleted so that no
     // implicit copy assignment is exported either.)
@@ -197,13 +193,13 @@ struct COMMON_API CharPlaceInfo
     bool is_named(char const* Name) const;
 
     char const* Name;           // +0x00
-    // Retail also carries a Csys Frame (+0x04..+0x33, identity by default) and three
+    // baseline also carries a Csys Frame (+0x04..+0x33, identity by default) and three
     // fields sourced from the matching Setpoint's SetpointProperties (+0x34 CharType,
     // +0x38 Posture, +0x3c bZoneScript) here, ahead of StartScript at +0x40.
     // read_CharacterPlacement_block (INI [CharacterPlacement]) only ever supplies
     // Name/StartScript, leaving these three at their defaults; RoomData::read_set_script's
-    // post-loop over Setpoints (Common.dll.c 0x06278e20, called after the main Thorn
-    // entity loop, retail line ~28755-28783) is what actually populates them, for every
+    // post-loop over Setpoints (Common 0x06278e20, called after the main SceneScript
+    // entity loop, baseline line ~28755-28783) is what actually populates them, for every
     // Setpoint whose Props.bValid is set (i.e. its name matched the zs/zg convention).
     Csys Frame;                 // +0x04, identity by default
     int CharType;                // +0x34, default -1 -- copy of SetpointProperties::CharType
@@ -216,7 +212,7 @@ struct COMMON_API CharPlaceInfo
 struct COMMON_API ShipPlaceInfo
 {
     ShipPlaceInfo();
-    // Retail exports neither a copy ctor nor operator= (see CharPlaceInfo).
+    // baseline exports neither a copy ctor nor operator= (see CharPlaceInfo).
     ~ShipPlaceInfo();
 
     ShipPlaceInfo& operator=(ShipPlaceInfo const& Other) = delete;
@@ -238,9 +234,9 @@ static_assert(sizeof(ShipPlaceInfo) == 0x40, "ShipPlaceInfo sizeof 0x40");
 struct COMMON_API RoomButtonInfo
 {
     RoomButtonInfo();
-    // Retail exports neither a copy ctor nor operator=: RoomData keeps its hotspots as
-    // RoomButtonInfo* (vector at retail +0x194, filled by read_Hotspot_block through the
-    // allocate-and-append helper FUN_06279400).
+    // baseline exports neither a copy ctor nor operator=: RoomData keeps its hotspots as
+    // RoomButtonInfo* (vector at baseline +0x194, filled by read_Hotspot_block through the
+    // allocate-and-append helper the routine).
     ~RoomButtonInfo();
 
     RoomButtonInfo& operator=(RoomButtonInfo const& Other) = delete;
@@ -260,7 +256,7 @@ struct COMMON_API RoomButtonInfo
 
 static_assert(sizeof(RoomButtonInfo) == 0x2c, "RoomButtonInfo sizeof 0x2c");
 
-// RoomLightInfo — light entity from Thorn type 5.
+// RoomLightInfo — light entity from SceneScript type 5.
 struct COMMON_API RoomLightInfo
 {
     RoomLightInfo();
@@ -273,40 +269,40 @@ struct COMMON_API RoomLightInfo
 
     Csys Frame;         // +0x00, 0x30 bytes
     // +0x30 -- RoomData::add_set_script_light (0x15960) copies this from
-    // ThornLightProperties+0xC/+0x10/+0x14. PROVEN to be a DIRECTION, not an RGB colour
+    // SceneScriptLightProperties+0xC/+0x10/+0x14. PROVEN to be a DIRECTION, not an RGB colour
     // (this field was named Color until 2026-09-17): RoomData::read_set_script's named
     // "LtShadowSource"/"LtGlareSource" branch (0x14b40 @ 06274ec9-06274f74) reads the very
-    // same ThornLightProperties+0xC triple, multiplies it by the entity's orientation matrix
+    // same SceneScriptLightProperties+0xC triple, multiplies it by the entity's orientation matrix
     // and then normalizes it (FSQRT + FDIVR 1.0f) before storing it into RoomData's
     // Shadow/GlareLightDirection -- a colour is never rotated or normalized. Corroborated by
-    // the retail ctor/clear default of (0, 0, -1.0f), a unit -Z direction rather than any
+    // the baseline ctor/clear default of (0, 0, -1.0f), a unit -Z direction rather than any
     // meaningful colour.
     float Direction[3];
-    // +0x3C -- ThornLightProperties+0x28. Retail's named-light branch compares exactly this
+    // +0x3C -- SceneScriptLightProperties+0x28. baseline's named-light branch compares exactly this
     // dword against 3 (06274eb1 `CMP [ESP+0xd4],EBX` with EBX=3, set at 06274dd3) and takes
     // the rotate-the-direction path when it matches, versus copying the entity's own position
     // for every other value. So 3 selects directional-light semantics; the meaning of the
     // other values is not established by any call site in this module, hence the neutral name.
     int Mode;
-    // +0x40 -- ThornLightProperties+0x2C/+0x30/+0x34. PROVEN to be the RGB colour: the same
+    // +0x40 -- SceneScriptLightProperties+0x2C/+0x30/+0x34. PROVEN to be the RGB colour: the same
     // named-light branch stores this triple verbatim into RoomData::ShadowLightColor /
     // GlareLightColor (06274f9d / 062750cb) on both the mode==3 and mode!=3 paths, i.e. it is
     // the one field that survives unchanged regardless of the geometry interpretation.
     float Color[3];
-    // +0x4C, 0x58 bytes (22 dwords) -- the still-undecoded tail of ThornLightProperties
-    // (+0x38..+0x90). ThornLightProperties is only forward declared in this codebase and no
+    // +0x4C, 0x58 bytes (22 dwords) -- the still-undecoded tail of SceneScriptLightProperties
+    // (+0x38..+0x90). SceneScriptLightProperties is only forward declared in this codebase and no
     // other call site in Common.dll reads past +0x34, so these bytes are modeled opaquely
     // rather than by guessing field boundaries. Left uninitialized by the ctor/clear(),
-    // matching retail exactly (Common.dll.c 0x13410 / 0x13490 jump straight from +0x38 to
-    // +0xa4). TODO(full-port): decode against the Thorn-side writer that fills the struct.
+    // matching baseline exactly (Common 0x13410 / 0x13490 jump straight from +0x38 to
+    // +0xa4). TODO(full-port): decode against the SceneScript-side writer that fills the struct.
     unsigned char Opaque4C[0x58];
     // +0xA4 -- the 4th (unsigned char) parameter of add_set_script_light. In the one
-    // in-module producer, RoomData::read_set_script, it is the Thorn entity's own +0x40 byte
+    // in-module producer, RoomData::read_set_script, it is the SceneScript entity's own +0x40 byte
     // (0627510a `MOV BL,byte ptr [EBP+0x40]`). This is the byte the ctor/clear() zero via
     // `this[0xa4] = 0`. Its semantic meaning is not established by any call site, so the name
     // stays generic. Previously mismodeled as a Range/Type/Instance trio at +0x3C/+0x40/+0x44.
     unsigned char Type;
-    // +0xA5..+0xA7: trailing compiler alignment padding, not addressed by any retail code path.
+    // +0xA5..+0xA7: trailing compiler alignment padding, not addressed by any baseline code path.
 };
 
 static_assert(sizeof(RoomLightInfo) == 0xA8, "RoomLightInfo sizeof 0xA8");
@@ -316,11 +312,11 @@ static_assert(offsetof(RoomLightInfo, Color) == 0x40, "RoomLightInfo+0x40 colour
 static_assert(offsetof(RoomLightInfo, Opaque4C) == 0x4C, "RoomLightInfo+0x4C opaque tail");
 static_assert(offsetof(RoomLightInfo, Type) == 0xA4, "RoomLightInfo+0xA4 type byte");
 
-// RoomPropInfo — furniture/prop from Thorn type 1 (COMPOUND).
+// RoomPropInfo — furniture/prop from SceneScript type 1 (COMPOUND).
 struct COMMON_API RoomPropInfo
 {
     RoomPropInfo();
-    // Retail exports operator= (0x062612b0, a 0x15-dword block copy) but no copy ctor (the
+    // baseline exports operator= (0x062612b0, a 0x15-dword block copy) but no copy ctor (the
     // implicit trivial one is not exported).
     ~RoomPropInfo();
 
@@ -330,8 +326,8 @@ struct COMMON_API RoomPropInfo
     void destroy();
 
     // Field meanings from the one producer, RoomData::read_set_script's COMPOUND branch
-    // (FUN_062788b0 then .text:06274d4e..06274dcb), and the one consumer, OutpostFrontier.exe
-    // FUN_0044a030, which copies each into a Gf::ObjectProp (0x0044a0b7..0x0044a27f).
+    // (the routine then module storage..06274dcb), and the one consumer, OutpostFrontier.exe
+    // , which copies each into a Gf::ObjectProp (0x0044a0b7..0x0044a27f).
     char const* Template;       // +0x00 entity +0x3c (the archetype / PetalDB nickname)
     char const* Name;           // +0x04 entity +0x38
     int Category;               // +0x08 PetalInterfaceDatabase::get_category("category")
@@ -342,7 +338,7 @@ struct COMMON_API RoomPropInfo
     bool bRoomMain;             // +0x3F "hardpoint" user property, or category 0 -> prop +0x49
     unsigned char LightGroup;   // +0x40 entity +0x40 byte -> RoomObject +0x15
     unsigned char Layer;        // +0x41 entity +0x41 byte -> RoomObject +0x16
-    unsigned RenderType;        // +0x44 ThornGetRenderType(entity, 0) -> RoomObject +0x18
+    unsigned RenderType;        // +0x44 SceneScriptGetRenderType(entity, 0) -> RoomObject +0x18
     char const* Loadout;        // +0x48 "loadout" user property, or ""
     unsigned PriorityId;        // +0x4C CreateID("priority"), 0 without one; RtcSlider gate
     bool bRunningLights;        // +0x50 "running_lights" user property -> RoomObject +0x14
@@ -359,11 +355,11 @@ struct COMMON_API ExhaustNozzleInfo
 
     bool GetHardpointOffset_NS(Transform& Out) const;
 
-    // Fields as CEEngine's ctor fills each appended element (.text:06295d73-06295dad).
-    unsigned short SubObjId;     // +0x00  SUBOBJ_ID_NONE (0, .rdata:063a4aa4) = no hardpoint bound
-    unsigned short Pad02;        // +0x02  never written (retail inserts an uninitialised element)
-    int Index;                   // +0x04  N of "HpEngine0<N>" (.text:06295d7a)
-    long ParentInstance;         // +0x08  FindHardpoint_OS out handle (.text:06295d81)
+    // Fields as CEEngine's ctor fills each appended element (module storage-06295dad).
+    unsigned short SubObjId;     // +0x00  SUBOBJ_ID_NONE (0, module storage) = no hardpoint bound
+    unsigned short Pad02;        // +0x02  never written (baseline inserts an uninitialised element)
+    int Index;                   // +0x04  N of "HpEngine0<N>" (module storage)
+    long ParentInstance;         // +0x08  FindHardpoint_OS out handle (module storage)
     Transform Offset;            // +0x0C  hardpoint Orient then Position
 };
 
@@ -416,7 +412,7 @@ private:
     int FillCursor;              // +0x1C  array-fill cursor, 0..Count-1
 };
 
-// OutpostFrontier.exe FUN_00457f10 allocates operator new(0x20) for one.
+// OutpostFrontier.exe the routine allocates operator new(0x20) for one.
 static_assert(sizeof(HardpointSummary) == 0x20, "HardpointSummary sizeof 0x20");
 
 // ---------------------------------------------------------------------------
@@ -427,8 +423,8 @@ static_assert(sizeof(HardpointSummary) == 0x20, "HardpointSummary sizeof 0x20");
 // Property bag description structs
 struct MissionVendorOfferDescription
 {
-    // Content.dll FUN_06f04b10 (06f04b10-06f04b89, thiscall; the end of each loop pass of
-    // FUN_06f047e0 at 06f049cf and its EH state 5 funclet 06faccc2): FmtStr::destroy on +0x10,
+    // Content.dll the routine (06f04b10-06f04b89, thiscall; the end of each loop pass of
+    // at 06f049cf and its EH state 5 funclet 06faccc2): FmtStr::destroy on +0x10,
     // +0x28, +0x40, then the members' ~FmtStr (+0x40, +0x28, +0x10).
     ~MissionVendorOfferDescription()
     {
@@ -439,7 +435,7 @@ struct MissionVendorOfferDescription
 
     // +0x00. Renamed 2026-09-24 from MissionType: init() copies it to
     // MissionVendorProperties+0x04, which Server.dll's BaseDB::create_mission_vendor
-    // (FUN_06d14dc0, .text:06d14dcb `MOV EAX,[EDI+0x4]`) looks up in the BASE map.
+    // (the routine, module storage `MOV EAX,[EDI+0x4]`) looks up in the BASE map.
     unsigned BaseId;
     unsigned TargetId;
     unsigned SystemId;
@@ -448,7 +444,7 @@ struct MissionVendorOfferDescription
     FmtStr Description;
     FmtStr Briefing;
     unsigned IconTextureId;
-    // +0x5c. pub::GF::MissionVendorOfferCreate reads it (.text:06d1834a
+    // +0x5c. pub::GF::MissionVendorOfferCreate reads it (module storage
     // `MOV EAX,[ESI+0x5c]`) and hands it to BaseDB as the record's session
     // filter (0 = every session). init() does not touch it.
     unsigned Filter;
@@ -458,7 +454,7 @@ struct NewsBroadcastDescription
 {
     // +0x00. Renamed 2026-09-24 from IconId: init() copies it to
     // NewsBroadcastProperties+0x04, the key BaseDB::create_news_broadcast
-    // (FUN_06d15140, .text:06d1514b) looks up in the BASE map.
+    // (the routine, module storage) looks up in the BASE map.
     unsigned BaseId;
     bool bFlag1;
     bool bFlag2;
@@ -468,7 +464,7 @@ struct NewsBroadcastDescription
     FmtStr Audio;
     char const* LogoTexture;
     char const* AudioName;
-    // +0x5c. pub::GF::NewsBroadcastCreate's session filter (.text:06d1846a
+    // +0x5c. pub::GF::NewsBroadcastCreate's session filter (module storage
     // `MOV EAX,[ESI+0x5c]`); init() does not touch it.
     unsigned Filter;
 };
@@ -477,8 +473,8 @@ struct CharacterDescription
 {
     // NAMING NOTE (2026-09-17, Server.dll lane wave 8): this first dword is NOT
     // a system id. CharacterProperties::init copies it to Properties+0x08
-    // (Common.dll .text:0632dc20), and Server.dll's FUN_06d14870 reads exactly
-    // that field at .text:06d1487b and uses it as the key into BaseDB's
+    // (Common.dll module storage), and Server.dll's the routine reads exactly
+    // that field at module storage and uses it as the key into BaseDB's
     // LOCATION tree (BaseDB+0x1c, the one BaseDB::find_location uses). It is a
     // room/location id, exactly like AmbientScriptDescription::RoomId above.
     // Renamed 2026-09-24 (with CharacterProperties' Key / SessionId / RoomId).
@@ -486,7 +482,7 @@ struct CharacterDescription
     Costume Cost;
     // +0x38 / +0x44 / +0x4c renamed 2026-10-14 (were VoiceId / Field_0x44 / Field_0x4c):
     // init copies them to CharacterProperties' NameIds / BehaviorId / VoiceId
-    // (.text:0632dc25, 0632dc95, 0632dc9e). Content's FBarCharacter::Create (06ea7d20) stores
+    // (module storage, 0632dc95, 0632dc9e). Content's FBarCharacter::Create (06ea7d20) stores
     // the individual name into +0x38, -1 into +0x44 and the voice into +0x4c.
     unsigned NameIds;
     unsigned FactionId;
@@ -494,13 +490,13 @@ struct CharacterDescription
     unsigned BehaviorId;
     char const* Location;
     unsigned VoiceId;
-    // +0x50. Added 2026-09-17: the struct used to stop at +0x4c, but retail's
+    // +0x50. Added 2026-09-17: the struct used to stop at +0x4c, but baseline's
     // pub::GF::CharacterCreate reads one dword past that --
-    //   .text:06d17f6a  8b4650  MOV EAX,[ESI + 0x50]
-    //   .text:06d17f6d  50      PUSH EAX
-    // -- and hands it to FUN_06d14870, which passes it straight to FUN_06d120b0,
+    // 8b4650  MOV EAX,[ESI + 0x50]
+    // 50      PUSH EAX
+    // -- and hands it to the routine, which passes it straight to the routine,
     // which stores it as the new node's SESSION FILTER at node+0x04
-    // (.text:06d12205). FUN_06d11b50 tests that filter before every per-session
+    // (module storage). the routine tests that filter before every per-session
     // dispatch; 0 means "every session". CharacterProperties::init never touches
     // it, which is why it is a description field and not a properties field.
     unsigned Filter;
@@ -519,12 +515,12 @@ public:
     void init(MissionVendorOfferDescription const& Desc);
     void marshal(class MarshalBuffer* Buf) const;
     void unmarshal(class MarshalBuffer* Buf);
-    unsigned long get_key() const;  // retail ?get_key@...@@QBEKXZ (K = unsigned long)
+    unsigned long get_key() const;  // baseline ?get_key@...@@QBEKXZ (K = unsigned long)
     char const* get_icon_texture() const;
 
     // Public since 2026-09-24: Server.dll's BaseDB stamps the handle into Key
-    // (FUN_06d13070 .text:06d131c3 `MOV [EDI],ECX`) and keys the offer by
-    // BaseId; retail has no setter or getter for either.
+    // (the routine module storage `MOV [EDI],ECX`) and keys the offer by
+    // BaseId; baseline has no setter or getter for either.
     int Key;                    // +0x00  default -1
     unsigned BaseId;            // +0x04  (was MissionType; see the description)
     unsigned TargetId;          // +0x08
@@ -542,9 +538,9 @@ public:
 // 0x14 header + three FmtStr at 0x18 each = 0x5C, plus the icon id.
 static_assert(sizeof(MissionVendorProperties) == 0x60, "MissionVendorProperties sizeof 0x60");
 
-// Retail Common.dll class carrying a client's accept/decline response (with an optional
+// baseline Common.dll class carrying a client's accept/decline response (with an optional
 // FmtStr reason) to a mission vendor offer -- re-derived from its ctor/dtor/clear/destroy/
-// marshal/unmarshal/operator= (Common.dll.c 162870-163088). Not to be confused with the
+// marshal/unmarshal/operator= (Common). Not to be confused with the
 // unrelated free function pub::GF::MissionVendorAcceptance (server_pub.cpp), which sends
 // this same data (handle/accepted/reason/session) over the wire but does not use this
 // class's marshal format directly.
@@ -560,12 +556,12 @@ public:
     void destroy();
     void marshal(class MarshalBuffer* Buf) const;
     void unmarshal(class MarshalBuffer* Buf);
-    // 0x06261d90 ?get_key@MissionVendorAcceptance@@QBEKXZ: MOV EAX,[ECX] / RET (ICF-shared
+    // ?get_key@MissionVendorAcceptance@@QBEKXZ: MOV EAX,[ECX] / RET (ICF-shared
     // with AmbientScriptProperties::get_key and other "return the first dword" getters).
     unsigned long get_key() const;
 
-    // Public since 2026-09-24: Server.dll's FUN_06d13270 fills a local one
-    // field by field (.text:06d1329f .. .text:06d132bc) before marshalling it.
+    // Public since 2026-09-24: Server.dll's the routine fills a local one
+    // field by field (module storage .. module storage) before marshalling it.
     int Key;              // +0x00  default -1
     unsigned TargetId;     // +0x04
     bool bAccepted;        // +0x08
@@ -587,14 +583,14 @@ public:
     void init(NewsBroadcastDescription const& Desc);
     void marshal(class MarshalBuffer* Buf) const;
     void unmarshal(class MarshalBuffer* Buf);
-    unsigned long get_key() const;  // retail ?get_key@...@@QBEKXZ (K = unsigned long)
+    unsigned long get_key() const;  // baseline ?get_key@...@@QBEKXZ (K = unsigned long)
     char const* get_logo_texture() const;
 
-    // Public since 2026-09-24 (Server.dll's BaseDB stamps Key, FUN_06d13350
-    // .text:06d134a3, and keys the broadcast by BaseId).
-    // Re-derived from retail's ctor/dtor/clear/destroy/marshal/unmarshal/init (Common.dll.c
+    // Public since 2026-09-24 (Server.dll's BaseDB stamps Key, the routine
+    // , and keys the broadcast by BaseId).
+    // Re-derived from baseline's ctor/dtor/clear/destroy/marshal/unmarshal/init (Common
     // 163092-163539): the previous field list here (SourceId/Priority/Flags as three plain
-    // dwords, Headline at +0x14) did not match retail at all -- the real layout only has one
+    // dwords, Headline at +0x14) did not match baseline at all -- the real layout only has one
     // extra dword before the FmtStrs, split as two bools (mirroring NewsBroadcastDescription's
     // bFlag1/bFlag2) plus one dword, and there is a genuine 5th data member (a heap-owned
     // override string at +0x58, freed with malloc_strfree / copied with malloc_strcpy /
@@ -626,46 +622,46 @@ public:
     void init(CharacterDescription const& Desc);
     void marshal(class MarshalBuffer* Buf) const;
     void unmarshal(class MarshalBuffer* Buf);
-    unsigned long get_key() const;  // retail ?get_key@...@@QBEKXZ (K = unsigned long)
+    unsigned long get_key() const;  // baseline ?get_key@...@@QBEKXZ (K = unsigned long)
 
     // Public since 2026-09-24: Server.dll's BaseDB writes these directly
-    // (FUN_06d11ee0 / FUN_06d120b0 / FUN_06d14ac0); retail has no setters.
+    // (the routine / the routine / the routine); baseline has no setters.
     // Key, SessionId, RoomId and BehaviorId renamed the same day from RepId,
     // BaseId, SystemId and Field5C:
-    //   +0x00 the pool handle FUN_06d120b0 / FUN_06d11ee0 store (get_key()),
-    //   +0x04 the owning player's session (FUN_06d11ee0 .text:06d11f51, matched
-    //         by BaseDB::exit_location, FUN_06d143e0),
-    //   +0x08 the room (FUN_06d14870 .text:06d1487b keys the LOCATION map by it),
-    //   +0x5c the script-behaviour handle (FUN_06d14ac0 .text:06d14b5f).
+    //   +0x00 the pool handle the routine / the routine store (get_key()),
+    //   +0x04 the owning player's session (the routine module storage, matched
+    //         by BaseDB::exit_location, the routine),
+    //   +0x08 the room (the routine module storage keys the LOCATION map by it),
+    //   +0x5c the script-behaviour handle (the routine module storage).
     unsigned Key;               // +0x00
     unsigned SessionId;         // +0x04
     unsigned RoomId;            // +0x08
     // +0x0C / +0x10 / +0x58 renamed 2026-09-26 from ShipArchId / Rank / Affiliation: init
     // fills them from CharacterDescription's VoiceId / FactionId / Script, and OutpostFrontier.exe's
-    // CharacterObject reads +0x0C as the ids of the name it shows (FUN_00444290 0x004447f6,
-    // FUN_0041c770), +0x10 as the faction marked met on a click (FUN_00445c10 0x00445c32 and
-    // FUN_00445720 0x004459ee), and +0x58 as the idle script it plays (0x00444812).
+    // CharacterObject reads +0x0C as the ids of the name it shows (the routine 0x004447f6,
+    // ), +0x10 as the faction marked met on a click (the routine 0x00445c32 and
+    // 0x004459ee), and +0x58 as the idle script it plays (0x00444812).
     unsigned NameIds;           // +0x0C
     unsigned FactionId;         // +0x10
     wchar_t* NameWide;          // +0x14  wide string
     // +0x1c / +0x20 / +0x60 renamed 2026-10-14 from Field1C / Field20 / Field60. Server's
-    // BaseDB stores CharType 1 for a player (.text:06d1201a) and 0 for a placed character
-    // (.text:06d121fb), with the placement's posture (.text:06d12202); OutpostFrontier.exe's
+    // BaseDB stores CharType 1 for a player (module storage) and 0 for a placed character
+    // (module storage), with the placement's posture (module storage); OutpostFrontier.exe's
     // RoomControl matches both against the placement's char type and posture, and
     // CharacterObject treats CharType 1 as the shared-deform player. VoiceId is
-    // CreateID(voice) on the server (.text:06d12005) and Content's voice on a bar character.
+    // CreateID(voice) on the server (module storage) and Content's voice on a bar character.
     char* NameAnsi;             // +0x18  heap-owned (malloc_strcpy); the character-placement name
     unsigned CharType;          // +0x1C
     unsigned Posture;           // +0x20
     Costume Cost;               // +0x24  4+8+1 dwords = 0x34 bytes
-    char* Script;               // +0x58  heap-owned (malloc_strcpy); the idle script (Thorn file)
+    char* Script;               // +0x58  heap-owned (malloc_strcpy); the idle script (SceneScript file)
     unsigned BehaviorId;        // +0x5C
     unsigned VoiceId;           // +0x60
 };
 
 // AmbientScriptDescription — input to pub::GF::AmbientScriptCreate.
-// Retail: ?AmbientScriptCreate@GF@pub@@YAKABUAmbientScriptDescription@@@Z (Server.dll 0x384e0).
-// Layout re-derived from AmbientScriptProperties::init (Common.dll.c 163688-163710): init()
+// baseline: ?AmbientScriptCreate@GF@pub@@YAKABUAmbientScriptDescription@@@Z (Server.dll 0x384e0).
+// Layout re-derived from AmbientScriptProperties::init (Common): init()
 // reads offsets +0x00/+0x04/+0x08 as three plain dwords and +0x0c as a raw `char const*` (NOT
 // an FmtStr -- that field was previously misnamed/mistyped as one). Separately,
 // pub::GF::AmbientScriptCreate itself reads one dword at +0x10 and passes it on as the
@@ -679,13 +675,13 @@ struct AmbientScriptDescription
     unsigned Flags;       // +0x08  only the low byte is read (AmbientScriptProperties::init)
     char const* Name;     // +0x0C
     // +0x10. CORRECTED 2026-09-24: this is not an FmtStr. pub::GF::AmbientScriptCreate
-    // reads one dword here (.text:06d1851a `MOV EAX,[ESI+0x10]`) and FUN_06d15390 /
-    // FUN_06d12520 store it as the new record's session filter (record+0x04,
-    // .text:06d1267f), the value FUN_06d11b50 compares against each session id.
+    // reads one dword here (module storage `MOV EAX,[ESI+0x10]`) and the routine /
+    // store it as the new record's session filter (record+0x04,
+    // ), the value the routine compares against each session id.
     unsigned Filter;
 };
 
-// Common.dll.c 163560-163710 (ctor 0xbb7a0, dtor/destroy 0xbb7c0, clear 0xbb7f0,
+// Common (ctor 0xbb7a0, dtor/destroy 0xbb7c0, clear 0xbb7f0,
 // marshal 0xbb810, unmarshal 0xbb880, operator= 0xbb8e0, init 0xbb930). Backs
 // Server.dll's pub::GF::AmbientScriptCreate (see server_pub.cpp / BaseDB::create_ambient_script).
 // Same small "network property bag" shape as MissionVendorProperties/NewsBroadcastProperties
@@ -703,15 +699,15 @@ public:
     void init(AmbientScriptDescription const& Desc);
     void marshal(class MarshalBuffer* Buf) const;
     void unmarshal(class MarshalBuffer* Buf);
-    unsigned long get_key() const;  // retail ?get_key@...@@QBEKXZ (K = unsigned long)
+    unsigned long get_key() const;  // baseline ?get_key@...@@QBEKXZ (K = unsigned long)
 
-    // Re-derived from retail's ctor/dtor/clear/operator=/init (Common.dll.c 163560-163710).
+    // Re-derived from baseline's ctor/dtor/clear/operator=/init (Common).
     // Key defaults to -1 (never constructed via a description); init() resets it to 0 instead
-    // of -1 (a real, deliberate difference in retail -- verified byte-for-byte), since the
+    // of -1 (a real, deliberate difference in baseline -- verified byte-for-byte), since the
     // handle id itself isn't known until the object is copied onto the heap and linked into
-    // its room's ambient-script list by the registration helper (Server.dll FUN_06d12520,
+    // its room's ambient-script list by the registration helper (Server.dll the routine,
     // FRoomEntry::create_ambient_script), which overwrites Key with the allocated handle
-    // by a direct store (.text:06d1266f CALL init / .text:06d1267d MOV [EDI],ECX with
+    // by a direct store (module storage CALL init / module storage MOV [EDI],ECX with
     // EDI = &Props): the members are public, there is no setter.
     int Key;                // +0x00  default -1; 0 right after init(); handle id once registered
     unsigned RoomId;        // +0x04  from AmbientScriptDescription::RoomId
@@ -723,29 +719,29 @@ public:
 static_assert(sizeof(AmbientScriptProperties) == 0x14, "AmbientScriptProperties sizeof 0x14");
 
 // ---------------------------------------------------------------------------
-// AmbientScriptInfo -- retail Common.dll exports four members and nothing else
+// AmbientScriptInfo -- baseline Common.dll exports four members and nothing else
 // (ctor 0x06274130, dtor and destroy 0x06274140 -- one body, clear 0x062ee230).
-// No module of the retail game imports any of them (grep of every EXE\Disasm
+// No module of the baseline game imports any of them (grep of every module notes
 // listing), and inside Common.dll the ctor/dtor/destroy have no caller at all.
-// The two in-DLL CALLs to 0x062ee230 (.text:0628bda8 in
-// PhySys::CalcClosestPointOnSynapse, .text:062ed9d0 in the SystemManager ambient
+// The two in-DLL CALLs to 0x062ee230 (module storage in
+// PhySys::CalcClosestPointOnSynapse, module storage in the SystemManager ambient
 // gate) are /OPT:ICF folds of other types' "zero three dwords" members onto this
 // address: the first zeroes a Vector, the second a 3-int flag buffer whose +4
 // receives 1/2/3 -- not an owned string -- so neither object is an
 // AmbientScriptInfo.
-//
+
 // Layout: three dwords -- the one record of a room's "scene =" line. RoomData keeps
-// them behind pointers in its +0x1b4 vector: FUN_06279920 news 0xC bytes and zeroes the
+// them behind pointers in its +0x1b4 vector: the routine news 0xC bytes and zeroes the
 // three dwords (the ctor inlined), read_ambient_script (062753d9..062753e4) writes the
 // type to +0x00, malloc_strcpy's the script to +0x04 and stores the priority id at +0x08,
-// and the purge FUN_062798b0 frees +0x04 then the node (the dtor). OutpostFrontier.exe reads
-// the three fields directly (RoomControl scene start, FUN_0044a54d..0x0044a65f).
+// and the purge the routine frees +0x04 then the node (the dtor). OutpostFrontier.exe reads
+// the three fields directly (RoomControl scene start, the routine..0x0044a65f).
 // ---------------------------------------------------------------------------
 struct COMMON_API AmbientScriptInfo
 {
     AmbientScriptInfo();
     ~AmbientScriptInfo();
-    // Retail exports no operator= (dumpbin EXE\Common.dll: ctor, dtor, clear, destroy only),
+    // baseline exports no operator= (dumpbin EXE\Common.dll: ctor, dtor, clear, destroy only),
     // and nothing in src/ assigns an AmbientScriptInfo. Without this the implicit copy
     // assignment of a COMMON_API struct is exported. The implicit copy ctor is not exported
     // (absent from dumpbin bin\Common.dll), so it is left as is.
@@ -764,7 +760,7 @@ static_assert(sizeof(AmbientScriptInfo) == 0x0c, "AmbientScriptInfo sizeof 0x0c"
 // ---------------------------------------------------------------------------
 // CostumeHint / BaseHint — serializable hint structs
 // ---------------------------------------------------------------------------
-// Common.dll.c 0xb11e0/0xb11f0: BaseHint's own ctor/copy-ctor only ever touch the
+// Common 0xb11e0/0xb11f0: BaseHint's own ctor/copy-ctor only ever touch the
 // vtable ptr and this one dword at +0x04 -- confirmed BOTH by BaseHint's own copy
 // ctor (`*(this+4) = *(param+4)`) AND by CostumeHint's copy ctor (0xb1280), which
 // inlines BaseHint's copy first (`this+4 = param+4`) before looping its own 13
@@ -777,14 +773,14 @@ struct COMMON_API BaseHint
     virtual ~BaseHint();
     BaseHint& operator=(BaseHint const& Other);
 
-    // ??_7BaseHint@@6B@ (.rdata:063a3700): slot 0 = scalar deleting dtor (06311210),
+    // ??_7BaseHint@@6B@ (module storage): slot 0 = scalar deleting dtor (06311210),
     // slots 1..3 = 06391fb0 `JMP [->MSVCRT::_purecall]`. Order matches
-    // ??_7CostumeHint@@6B@ (.rdata:063a3714): Serialize, UnSerialize, CleanUp.
+    // ??_7CostumeHint@@6B@ (module storage): Serialize, UnSerialize, CleanUp.
     virtual unsigned Serialize(unsigned char** OutBuf) = 0;
     virtual void UnSerialize(unsigned char* Buf, unsigned Size) = 0;
     virtual void CleanUp(unsigned char* Buf) = 0;
 
-    // Retail's own BaseHint ctor/copy-ctor never initialize this (copy ctor only
+    // baseline's own BaseHint ctor/copy-ctor never initialize this (copy ctor only
     // copies whatever the source has); CostumeHint::CostumeHint() (0xb1370) sets it
     // to 1 explicitly, consistent with a type-tag/kind discriminator for the
     // BaseHint-derived hint family (CostumeHint is the only known subclass).
@@ -809,7 +805,7 @@ struct COMMON_API CostumeHint : public BaseHint
     // as one: the ctor (06311370) is the inline Costume ctor (part ids and count zeroed), the
     // copy ctor (06311280) copies all thirteen dwords, operator= (063112b0) is Costume's
     // count-bounded operator=, and Serialize / UnSerialize move exactly sizeof(Costume) = 0x34
-    // bytes. Content's FUN_06eba720 fills it from a dialog Costume.
+    // bytes. Content's the routine fills it from a dialog Costume.
     Costume Cost;               // +0x08..+0x3B
 };
 
@@ -817,11 +813,11 @@ static_assert(sizeof(CostumeHint) == 0x3C, "CostumeHint sizeof 0x3C (BaseHint + 
 static_assert(offsetof(CostumeHint, Cost) == 0x08, "CostumeHint+0x08 costume");
 
 // ---------------------------------------------------------------------------
-// CBase — lightweight CObject-holding base. Retail ctor/copy-ctor (0x48250/0x48260)
+// CBase — lightweight CObject-holding base. baseline ctor/copy-ctor (0x48250/0x48260)
 // only ever touch this+4 (Object); sizeof is vtable+Object == 8 bytes, confirmed by
 // IObjInspectImpl (common_iface.h) embedding it inline at +0x0C (CBase vtable) /
 // +0x10 (CObject* delegate) with no room for anything past Object. advise()/
-// notify_of_destruction() are real CBase methods but retail ICF-folds them to a
+// notify_of_destruction() are real CBase methods but baseline ICF-folds them to a
 // shared empty-body stub (ICF group @ 0x8d730) — ports as no-ops.
 struct COMMON_API CBase
 {
@@ -833,7 +829,7 @@ struct COMMON_API CBase
     void advise(bool bFlag);
     void cobject(CObject* Obj);
     CObject* cobject() const;
-    long get_index() const;  // retail ?get_index@CBase@@QBEJXZ (J = long)
+    long get_index() const;  // baseline ?get_index@CBase@@QBEJXZ (J = long)
     void notify_of_destruction(void* Ptr);
 
     CObject* Object;            // +0x04
@@ -844,23 +840,23 @@ struct IObjRW;
 // ---------------------------------------------------------------------------
 // BaseWatcher — intrusive watcher node for Watchable objects
 // ---------------------------------------------------------------------------
-// Retail Common.dll exports exactly five BaseWatcher members: ??0 (default), ??1, ??4, set,
+// baseline Common.dll exports exactly five BaseWatcher members: ??0 (default), ??1, ??4, set,
 // set_pointer. Its other members below (the IObjRW* / Watchable* const* ctors, target(),
-// get_watched_id()) are unexported retail code (FUN_062c2920 / FUN_062ed070 / FUN_062c2ab0) or
+// get_watched_id()) are unexported baseline code (the routine / the routine / the routine) or
 // inline, so the export is function-level, not class-level.
 struct BaseWatcher
 {
     COMMON_API BaseWatcher();
-    // Common.dll.c FUN_062c2920 (0x62920): retail overload that watches Target's
+    // Common the routine (0x62920): baseline overload that watches Target's
     // Watchable sub-object (at IObjRW+8) immediately, in one step. Used both as the
     // per-element constructor for ScanList's BaseWatcher[256] array (called with a
     // null Target there, degenerating to the default ctor) and directly elsewhere
     // (e.g. 0x062d47bb) with a real IObjRW*.
     explicit BaseWatcher(IObjRW* Target);
-    // Common.dll.c FUN_062ed070 (0x62ed070): a second constructor overload that
+    // Common the routine (0x62ed070): a second constructor overload that
     // dereferences a Watchable* const* directly (no +8 IObjRW adjustment, unlike
     // the IObjRW* overload above) and additionally guards against a literal 0x8
-    // sentinel value alongside null. Verified against raw disasm (Common.dll.txt
+    // sentinel value alongside null. Verified against raw analysis (Common
     // 253086-253125): zero Watched/Next, then `Watchable* V = *Src; if (V != nullptr
     // && V != (Watchable*)8) set_pointer(V);`. Sole call site (0x062e8720) sits in a
     // still-unprocessed cluster, but the constructor's own logic is fully verified
@@ -871,7 +867,7 @@ struct BaseWatcher
 
     COMMON_API void set(Watchable const* Target);
     Watchable const* target() const { return Watched; }
-    // Common.dll.c FUN_062c2ab0 (0x62ab0): 0 if nothing watched, else the watched
+    // Common the routine (0x62ab0): 0 if nothing watched, else the watched
     // IObjRW's unique id (vtable slot +0x20, the same "GetId" slot used throughout
     // this cluster -- see CEScanner::add_obj / ScanList::add_in_range).
     unsigned int get_watched_id() const;
@@ -880,7 +876,7 @@ protected:
     COMMON_API void set_pointer(Watchable const* Target);
 
 private:
-    // Watchable::unwatch (.text:063415e0) walks the chain and clears both fields of every node.
+    // Watchable::unwatch (module storage) walks the chain and clears both fields of every node.
     friend struct Watchable;
 
     Watchable const* Watched;   // +0x00
@@ -895,21 +891,21 @@ static_assert(sizeof(BaseWatcher) == 0x08, "BaseWatcher sizeof 0x08 (two 4-byte 
 struct COMMON_API EquipDesc
 {
     EquipDesc();
-    // 06263c60 -- a plain member-by-member copy. Worth having explicitly because retail
+    // a plain member-by-member copy. Worth having explicitly because baseline
     // exports it, and because the copy reads +0x00 as a BYTE and +0x02 as a WORD, which is
     // how we know Cached is one byte with a pad behind it rather than a short.
     EquipDesc(EquipDesc const& Other);
-    // 06263ca0 -- retail exports an explicit operator= too, but it's the same plain
+    // baseline exports an explicit operator= too, but it's the same plain
     // member-by-member copy as the copy ctor (no owned resources here to worry about).
     EquipDesc& operator=(EquipDesc const& Other) = default;
 
-    // ?CARGO_BAY_HP_NAME@EquipDesc@@2UCacheString@@B (.data:063fcf0c): the hardpoint name
-    // of the internal cargo bay. Set by the static initialiser at .text:06309bc0
+    // ?CARGO_BAY_HP_NAME@EquipDesc@@2UCacheString@@B (module storage): the hardpoint name
+    // of the internal cargo bay. Set by the static initialiser at module storage
     // (StringAlloc("BAY", false)); read by the ctor, make_internal, is_internal,
     // get_cargo_space_occupied and CECargo::Init.
     static CacheString const CARGO_BAY_HP_NAME;
 
-    // 06263be0/06263c00/06263c20/06263c40 -- retail compares only the Id field for all
+    // /06263c00/06263c20/06263c40 -- baseline compares only the Id field for all
     // four relational operators.
     bool operator==(EquipDesc const& Other) const { return Id == Other.Id; }
     bool operator!=(EquipDesc const& Other) const { return Id != Other.Id; }
@@ -918,7 +914,7 @@ struct COMMON_API EquipDesc
 
     unsigned short get_id() const;
     CacheString const& get_hardpoint() const;
-    // ADDED 2026-09-17 (wave 14). Retail exports all six of these by name and
+    // ADDED 2026-09-17 (wave 14). baseline exports all six of these by name and
     // the port had none of them; each one is a single load off the offset named
     // in its comment, read from Common.dll's own listing:
     //   ?get_arch_id@EquipDesc@@QBEIXZ    0xa9ad0 -> [this+0x04]
@@ -940,8 +936,8 @@ struct COMMON_API EquipDesc
     void set_arch_id(unsigned Arch);
     // 0xdbad0 ?set_count@EquipDesc@@QAEXH@Z -- `MOV EAX,[ESP+4] ; MOV [ECX+0x14],EAX ;
     // RET 4`, ICF-folded onto several other one-line "[this+0x14] = arg" setters. Added
-    // 2026-09-17 because retail rpclocal.dll imports it by name for ch2 op 0x55
-    // FLPACKET_SERVER_OBJECTCARGOUPDATE (rpclocal IAT .rdata:06db3084); it was the only
+    // 2026-09-17 because baseline rpclocal.dll imports it by name for ch2 op 0x55
+    // FLPACKET_SERVER_OBJECTCARGOUPDATE (rpclocal IAT module storage); it was the only
     // one of that receiver's seven EquipDesc entry points the port was missing.
     void set_count(int NewCount);
     void set_hardpoint(CacheString const& Hp);
@@ -954,7 +950,7 @@ struct COMMON_API EquipDesc
     // 0xa9b90 ?get_cargo_space_occupied@EquipDesc@@QBEMXZ (Common.dll). Only counts
     // toward cargo space when the item sits in the internal cargo-bay hardpoint;
     // externally-mounted equipment (guns, shields, etc.) always returns 0. Returns double
-    // (retail mangling M = float): the FILD Count * FMUL Volume product is left unrounded
+    // (baseline mangling M = float): the FILD Count * FMUL Volume product is left unrounded
     // in ST0 and OutpostFrontier.exe's callers consume it there (0x0047dd88 ftol, 0x004c1ca7
     // FSTP double).
     double get_cargo_space_occupied() const;
@@ -972,7 +968,7 @@ struct COMMON_API EquipDesc
 
 static_assert(sizeof(EquipDesc) == 0x20, "EquipDesc sizeof 0x20");
 
-// Retail Common.dll exports every member of this STL instantiation (VC6 std::list, 55
+// baseline Common.dll exports every member of this STL instantiation (VC6 std::list, 55
 // members, imported by name by OutpostFrontier.exe, Server.dll and rpclocal.dll). The port
 // exports the modern MSVC instantiation instead: the definition is in common_equipdesc.cpp; other modules
 // import it through this declaration. It must precede the first use that would implicitly
@@ -980,7 +976,7 @@ static_assert(sizeof(EquipDesc) == 0x20, "EquipDesc sizeof 0x20");
 #ifndef COMMON_EXPORTS
 extern template class COMMON_API std::list<EquipDesc>;
 #endif
-// Retail Common.dll exports every member of this STL instantiation (VC6 std::vector, 47
+// baseline Common.dll exports every member of this STL instantiation (VC6 std::vector, 47
 // members, imported by name by OutpostFrontier.exe, Server.dll and rpclocal.dll). The port
 // exports the modern MSVC instantiation instead: the definition is in common_equipdesc.cpp; other modules
 // import it through this declaration. It must precede the first use that would implicitly
@@ -989,24 +985,24 @@ extern template class COMMON_API std::list<EquipDesc>;
 extern template class COMMON_API std::vector<EquipDesc>;
 #endif
 
-// Retail VC6 vector: allocator byte + 3 pointers. Stride 0x20. Not std::vector.
+// baseline VC6 vector: allocator byte + 3 pointers. Stride 0x20. Not std::vector.
 // Default ctor (0x06266310, ??0EquipDescVector@@QAE@XZ) just zeroes all four dwords;
-// retail's linker /OPT:ICF-folded it onto the identical weighted_vector<unsigned>
+// baseline's linker /OPT:ICF-folded it onto the identical weighted_vector<unsigned>
 // default ctor (??0?$weighted_vector@I@@QAE@XZ) since both are "zero four dwords".
 struct COMMON_API EquipDescVector
 {
     EquipDescVector();
-    // 06263cf0 -- deep copy: allocates a buffer sized to Other's element count and copies
+    // deep copy: allocates a buffer sized to Other's element count and copies
     // each EquipDesc by value.
     EquipDescVector(EquipDescVector const& Other);
 
-    // 0x06269110 ??1EquipDescVector@@QAE@XZ (ICF-shared with the VC6 vector dtors and
+    // ??1EquipDescVector@@QAE@XZ (ICF-shared with the VC6 vector dtors and
     // ??1?$weighted_vector@I@@QAE@XZ): operator delete(Begin), then Begin/End/Cap = 0.
     // The buffer always comes from ::operator new (this struct's own members, Server's
     // pub::GetLoadout, rpclocal's RpcEquipVectorFromHandle / push-back).
     ~EquipDescVector();
 
-    // 0x06263d90 -- VC6 vector assignment: reuses the buffer when Other fits in size()
+    // VC6 vector assignment: reuses the buffer when Other fits in size()
     // or capacity() (element copy, End = Begin + n), otherwise frees it and copies into
     // an exactly-sized new buffer. AllocPad (+0) is not copied.
     EquipDescVector& operator=(EquipDescVector const& Other);
@@ -1030,7 +1026,7 @@ struct COMMON_API EquipDescVector
     // 0xaa350 ?traverse_equipment_type@EquipDescVector@@QAEPAUEquipDesc@@IPBU2@@Z.
     // Linear scan for the element whose ArchId == Type. Pass Prev == nullptr to get
     // the first match; pass a previously-returned pointer as Prev to get the NEXT
-    // match after it (retail: once the scan reaches the element == Prev, it clears
+    // match after it (baseline: once the scan reaches the element == Prev, it clears
     // its internal "looking for this one" flag and keeps scanning for the next hit).
     // Returns nullptr once no further match exists.
     EquipDesc* traverse_equipment_type(unsigned Type, EquipDesc const* Prev);
@@ -1045,10 +1041,10 @@ static_assert(sizeof(EquipDescVector) == 0x10, "EquipDescVector sizeof 0x10");
 static_assert(offsetof(EquipDescVector, Begin) == 4, "EquipDescVector+4 begin");
 
 // ---------------------------------------------------------------------------
-// EquipDescList — retail Common.dll class, imported by OutpostFrontier.exe as a
-// single client-side static singleton (OutpostFrontier.exe FUN_004c3ba0/LAB_004c3bc0
-// construct/destroy it at static init; FUN_004c4170/FUN_004c4260 call
-// add_equipment_item/find_equipment_item on it). Retail's container is a VC6
+// EquipDescList — baseline Common.dll class, imported by OutpostFrontier.exe as a
+// single client-side static singleton (OutpostFrontier.exe the routine/the branch
+// construct/destroy it at static init; the routine/the routine call
+// add_equipment_item/find_equipment_item on it). baseline's container is a VC6
 // std::list<EquipDesc>, and so is the port's (current-CRT std::list, not the VC6
 // node layout). The list matters: element addresses never move, and callers keep
 // raw EquipDesc pointers into it across inserts and erases of other elements --
@@ -1056,27 +1052,27 @@ static_assert(offsetof(EquipDescVector, Begin) == 4, "EquipDescVector+4 begin");
 // +0x58) while it adds to the same list (AddTargetItem 0x004c2380), and the trade
 // rows (CTradeEquipListLine +0x24) point into it between refreshes.
 // ---------------------------------------------------------------------------
-// A class in retail: Common.dll exports ??0EquipDescList@@QAE@ABV0@@Z and
+// A class in baseline: Common.dll exports ??0EquipDescList@@QAE@ABV0@@Z and
 // ?append@EquipDescList@@QAEXABV1@@Z, Server.dll/rpclocal ?ReqCargo@IServerImpl@@UAEXABVEquipDescList@@I@Z.
 class COMMON_API EquipDescList
 {
 public:
     EquipDescList();
-    // 06263f40/06263f70 -- retail's copy ctor deep-copies its VC6 std::list<EquipDesc>
+    // /06263f70 -- baseline's copy ctor deep-copies its VC6 std::list<EquipDesc>
     // node-by-node. std::list<EquipDesc>'s own copy ctor does the same deep copy in
     // the same order, so the implicit memberwise copy matches; declared `= default` explicitly
     // since EquipDescList also declares a destructor.
     EquipDescList(EquipDescList const& Other) = default;
     ~EquipDescList();
 
-    // Retail exports no clear(): callers empty the list with inlined std::list code
-    // (OutpostFrontier.exe FUN_004c4070, .text:004c4071-004c40ac), which is Items.clear() here.
+    // baseline exports no clear(): callers empty the list with inlined std::list code
+    // (OutpostFrontier.exe the routine, module storage-004c40ac), which is Items.clear() here.
 
     // 0xaa4d0 ?add_equipment_item@EquipDescList@@QAEHABUEquipDesc@@_N@Z. When
     // bCombinable and an existing element matches Desc's
     // ArchId+bMission+Owner+Hardpoint, folds Desc into it (same Health-aware
     // rule as EquipDescVector::add_equipment_item) and returns 1; otherwise
-    // appends a copy of Desc verbatim (retail does NOT assign it a fresh Id
+    // appends a copy of Desc verbatim (baseline does NOT assign it a fresh Id
     // here -- Desc.Id is copied as-is) and returns 0. Does not touch NextId.
     int add_equipment_item(EquipDesc const& Desc, bool bCombinable);
 
@@ -1085,9 +1081,9 @@ public:
     EquipDesc const* find_equipment_item(unsigned short Id) const;
 
     // 0xaa6e0 ?find_equipment_item@EquipDescList@@Q[AB]EP[AB]UEquipDesc@@ABUCacheString@@@Z
-    // (const/non-const overloads ICF-folded onto one retail body). Linear search by
-    // Hardpoint identity: retail compares the node's Hardpoint pointer directly
-    // against Hp.Value (CacheString values are interned in retail, so pointer
+    // (const/non-const overloads ICF-folded onto one baseline body). Linear search by
+    // Hardpoint identity: baseline compares the node's Hardpoint pointer directly
+    // against Hp.Value (CacheString values are interned in baseline, so pointer
     // identity is meaningful there); the port's Hardpoint field already stores that
     // same kind of pointer (see EquipDesc::is_internal's CARGO_BAY_HP_NAME pointer
     // comparison), so this is a faithful 1:1 port, not the content-based _stricmp
@@ -1107,7 +1103,7 @@ public:
     //    whose Count is already >= NeedCount, or nullptr.
     //  - otherwise: returns the non-mission, non-equipped item of Type whose Health
     //    is closest to (but not over) TargetHealth (smallest TargetHealth - Health,
-    //    capped at retail's 2.0f "nothing found yet" sentinel), or nullptr.
+    //    capped at baseline's 2.0f "nothing found yet" sentinel), or nullptr.
     EquipDesc const* find_matching_cargo(unsigned Type, int NeedCount, float TargetHealth) const;
 
     // 0xaa660 ?remove_equipment_item@EquipDescList@@QAEHGH@Z. CountToRemove == -1
@@ -1117,7 +1113,7 @@ public:
     int remove_equipment_item(unsigned short Id, int CountToRemove);
 
     // 0xaa8e0 ?get_cargo_space_occupied@EquipDescList@@QBEMXZ (Common.dll). Sum of
-    // EquipDesc::get_cargo_space_occupied() over every item (retail walks its VC6
+    // EquipDesc::get_cargo_space_occupied() over every item (baseline walks its VC6
     // list inline; the port just folds over Items).
     float get_cargo_space_occupied() const;
 
@@ -1128,31 +1124,31 @@ public:
     // vector's order.
     explicit EquipDescList(EquipDescVector const& Other);
 
-    // Retail's only member is a VC6 std::list<EquipDesc> (0x0c bytes: allocator byte,
-    // head, size -- OutpostFrontier.exe DAT_00672960/64/68). There is no id counter.
+    // baseline's only member is a VC6 std::list<EquipDesc> (0x0c bytes: allocator byte,
+    // head, size -- OutpostFrontier.exe the field/64/68). There is no id counter.
     // Walk it with iterators; element pointers stay valid until that element is erased.
     std::list<EquipDesc> Items;
 };
 
 // ---------------------------------------------------------------------------
-// GoodDesc / GoodDescList — retail Common.dll GOODS batch (trade negotiation
+// GoodDesc / GoodDescList — baseline Common.dll GOODS batch (trade negotiation
 // item records; consumed by TradeResponseInfo below and MarshalBuffer).
-//
+
 // GoodDesc is a flat 0x10-byte record (ctor 0x1bdc0, ??0GoodDesc@@QAE@XZ):
 // defaults {0, -1, 1.0f, 1.0f}. Field semantics recovered from add_good_item
 // (Common.dll 0xaa9d0): GoodId is the match key when combining two entries,
 // Count accumulates on combine. Price/Field0C are never observed set
 // independently of each other in any traced caller; named conservatively.
-//
-// Retail's type hierarchy: MetaList<GoodDesc> (non-owning) <- OwnerList<GoodDesc>
-// (frees each Data, .text:0627ca20) <- GoodDescList (no members of its own). All
+
+// baseline's type hierarchy: MetaList<GoodDesc> (non-owning) <- OwnerList<GoodDesc>
+// (frees each Data, module storage) <- GoodDescList (no members of its own). All
 // three are the templates in common_metalist.h; Common.dll exports the GoodDesc
 // instantiations of MetaList and OwnerList.
 // ---------------------------------------------------------------------------
 struct COMMON_API GoodDesc
 {
     // User-declared so that no implicit move members are generated and exported:
-    // VC6 had none, and retail exports exactly the copy assignment.
+    // VC6 had none, and baseline exports exactly the copy assignment.
     GoodDesc& operator=(GoodDesc const&) = default;
 
     GoodDesc() : GoodId(0), Count(-1), Price(1.0f), Field0C(1.0f) {}
@@ -1170,7 +1166,7 @@ struct COMMON_API GoodDesc
 
 static_assert(sizeof(GoodDesc) == 0x10, "GoodDesc sizeof 0x10");
 
-// OwnerList<GoodDesc>::free releases each element through ??3GoodDesc (.text:0627be93).
+// OwnerList<GoodDesc>::free releases each element through ??3GoodDesc (module storage).
 template <>
 inline void OwnerListDeleteData<GoodDesc>(GoodDesc* Data)
 {
@@ -1186,14 +1182,14 @@ extern template class COMMON_API OwnerList<GoodDesc>;
 
 struct COMMON_API GoodDescList : public OwnerList<GoodDesc>
 {
-    // .text:0627be30: OwnerList<GoodDesc>() inlined, then the GoodDescList vptr.
+    // OwnerList<GoodDesc>() inlined, then the GoodDescList vptr.
     GoodDescList();
 
-    // .text:0630e350: bUseHeap copied from Other, then a copy of every GoodDesc of
+    // bUseHeap copied from Other, then a copy of every GoodDesc of
     // Other appended.
     GoodDescList(GoodDescList const& Other);
 
-    // .text:0630e450: appends a copy of every GoodDesc of Other WITHOUT clearing this
+    // appends a copy of every GoodDesc of Other WITHOUT clearing this
     // list first, and returns a const reference.
     GoodDescList const& operator=(GoodDescList const& Other);
 };
@@ -1209,24 +1205,24 @@ COMMON_API int __cdecl add_good_item(unsigned int GoodId, int Count, float Price
 // if it was removed.
 COMMON_API int __cdecl remove_good_item(unsigned int GoodId, int Count, GoodDescList* List);
 
-// 0xaa990. Finds the entry with GoodId in List. Retail keeps overwriting its result on
+// 0xaa990. Finds the entry with GoodId in List. baseline keeps overwriting its result on
 // every match while walking the whole list rather than stopping at the first hit, so
 // this returns the LAST matching node/GoodDesc, not the first. Optionally reports the
 // owning node via OutNode (left untouched if List has no match and OutNode is null;
-// set to nullptr on no match otherwise). Does not null-check List, matching retail.
+// set to nullptr on no match otherwise). Does not null-check List, matching baseline.
 COMMON_API GoodDesc* __cdecl find_good_item(GoodDescList* List, unsigned int GoodId,
                                             MetaNode<GoodDesc>** OutNode);
 
 // ---------------------------------------------------------------------------
-// TradeResponseInfo — retail Common.dll GOODS batch network message
-// (Common.dll.c ~0x1bf70..0x1c400). Used by IServerImpl::TradeResponse
-// (retail 0x65840): unmarshals a wire buffer into one of these, holding the
+// TradeResponseInfo — baseline Common.dll GOODS batch network message
+// (Common ~0x1bf70..0x1c400). Used by IServerImpl::TradeResponse
+// (baseline 0x65840): unmarshals a wire buffer into one of these, holding the
 // two sides of a trade negotiation (goods offered / goods requested).
-//
-// Field00/Field04/bFlag08 are marshaled (retail's marshal(): put_void x2 then
+
+// Field00/Field04/bFlag08 are marshaled (baseline's marshal(): put_void x2 then
 // put_bool) but Field04 is notably left uninitialized by the default
-// constructor in retail (0x1bfe0) -- only Field00/bFlag08 are zeroed there,
-// matching a retail quirk we replicate rather than "fix". Named
+// constructor in baseline (0x1bfe0) -- only Field00/bFlag08 are zeroed there,
+// matching a baseline quirk we replicate rather than "fix". Named
 // conservatively since no caller in Common.dll sets them with a named
 // accessor (real semantics -- likely requester/responder session ids and an
 // accept/reject flag -- live in the Server-side trade logic, out of scope
@@ -1235,16 +1231,16 @@ COMMON_API GoodDesc* __cdecl find_good_item(GoodDescList* List, unsigned int Goo
 class COMMON_API TradeResponseInfo
 {
 public:
-    // .text:0627bfe0: Field00 and bFlag08 zeroed, Field04 not written, both lists
+    // Field00 and bFlag08 zeroed, Field04 not written, both lists
     // default-constructed.
     TradeResponseInfo() : Field00(0), bFlag08(false) {}
-    // .text:0627bf70: memberwise -- the three scalars, then GoodDescList's copy
+    // memberwise -- the three scalars, then GoodDescList's copy
     // constructor for each list.
     TradeResponseInfo(TradeResponseInfo const& Other) = default;
-    // .text:0627c010: destroy() inlined, then the two GoodDescList destructors.
+    // destroy() inlined, then the two GoodDescList destructors.
     ~TradeResponseInfo() { destroy(); }
 
-    // .text:0627c4c0: destroy() inlined, the three scalars copied, then
+    // destroy() inlined, the three scalars copied, then
     // GoodDescList::operator= (which appends) for each list. No self-assignment
     // check.
     TradeResponseInfo& operator=(TradeResponseInfo const& Other)
@@ -1258,7 +1254,7 @@ public:
         return *this;
     }
 
-    // .text:0627c1e0 -- retail's clear() is surprisingly shallow: it only resets
+    // baseline's clear() is surprisingly shallow: it only resets
     // Field00/bFlag08 and does NOT touch the goods lists or Field04.
     void clear()
     {
@@ -1266,7 +1262,7 @@ public:
         bFlag08 = false;
     }
 
-    // .text:0627c1f0 -- OwnerList<GoodDesc>::free() on both lists (inlined), then
+    // OwnerList<GoodDesc>::free() on both lists (inlined), then
     // clear() (Field00 = 0, bFlag08 = 0). Field04 is left alone.
     void destroy()
     {
@@ -1279,17 +1275,17 @@ public:
     void unmarshal(class MarshalBuffer* Buf);
 
     int Field00;                    // +0x00  default 0
-    int Field04;                    // +0x04  retail leaves this uninitialized by the default ctor
+    int Field04;                    // +0x04  baseline leaves this uninitialized by the default ctor
     bool bFlag08;                   // +0x08  default false
     GoodDescList OfferedGoods;      // +0x0C
     GoodDescList RequestedGoods;    // +0x20
 };
 
 static_assert(sizeof(GoodDescList) == 0x14, "GoodDescList sizeof 0x14");
-static_assert(sizeof(TradeResponseInfo) == 0x34, "TradeResponseInfo sizeof 0x34 (retail layout)");
+static_assert(sizeof(TradeResponseInfo) == 0x34, "TradeResponseInfo sizeof 0x34 (baseline layout)");
 
 // ---------------------------------------------------------------------------
-// GoodInfo — retail operator_new(0xC0). Port is not layout-compatible (no VC6
+// GoodInfo — baseline operator_new(0xC0). Port is not layout-compatible (no VC6
 // list<> of addons). Lookups key on Id / ArchId only.
 // ---------------------------------------------------------------------------
 enum EGoodCategory
@@ -1301,16 +1297,16 @@ enum EGoodCategory
     GoodCategoryUnknown = 0xFFFFFFFF,
 };
 
-// Retail GoodInfo derives from CommReferrable at +0x00: the ctor (.text:0626ff6e/0627001c) stores
-// CommReferrable's then GoodInfo's vptr, ??_7GoodInfo@@6B@ (.rdata:063993f8) is CommReferrable's
-// three slots unchanged, read_Good_block's last fallback is its slot 2 (.text:06270d5f), and
-// Server.dll pub::TranslateGoodToMsgIdPrefix calls slot 1 on the GoodInfo* (.text:06d5e068).
+// baseline GoodInfo derives from CommReferrable at +0x00: the ctor (module storage/0627001c) stores
+// CommReferrable's then GoodInfo's vptr, ??_7GoodInfo@@6B@ (module storage) is CommReferrable's
+// three slots unchanged, read_Good_block's last fallback is its slot 2 (module storage), and
+// Server.dll pub::TranslateGoodToMsgIdPrefix calls slot 1 on the GoodInfo* (module storage).
 struct COMMON_API GoodInfo : public CommReferrable
 {
     GoodInfo();
     ~GoodInfo();
 
-    // .text:06270230: true when AttachmentArchetype (+0x84) is a non-empty string.
+    // true when AttachmentArchetype (+0x84) is a non-empty string.
     bool has_visual_attachment() const { return AttachmentArchetype.Value[0] != '\0'; }
 
     unsigned Id;                    // nickname CreateID
@@ -1334,7 +1330,7 @@ struct COMMON_API GoodInfo : public CommReferrable
     int IdsName;
     int IdsInfo;
     unsigned HullGoodId;                // +0x90
-    // Retail +0x94 / +0xa0 / +0xac: three std::list<EquipDesc> filled by "addon" (no slot or
+    // baseline +0x94 / +0xa0 / +0xac: three std::list<EquipDesc> filled by "addon" (no slot or
     // anything else / "mid" / "high"). Kept as vectors; only the order of the elements matters.
     std::vector<EquipDesc> AddonLow;
     std::vector<EquipDesc> AddonMid;
@@ -1343,7 +1339,7 @@ struct COMMON_API GoodInfo : public CommReferrable
     int FreeAmmoCount;                  // +0xbc
 };
 
-// Retail layout (ctor 0x06270250, destroy 0x062704a0, find_by_* 0x062711d0..0x06271300):
+// baseline layout (ctor 0x06270250, destroy 0x062704a0, find_by_* ):
 // +0x00 std::list<GoodInfo*> (insertion order; get_list returns `this`), +0x0c
 // std::map<unsigned, GoodInfo*> keyed by GoodInfo::Id, +0x20 the same keyed by ArchId.
 class COMMON_API GoodInfoList
@@ -1352,9 +1348,9 @@ public:
     GoodInfoList();
     ~GoodInfoList();
 
-    // 0x062645e0 / 0x06264730: retail's compiler-generated memberwise copies -- the
+    // / 0x06264730: baseline's compiler-generated memberwise copies -- the
     // std::list<GoodInfo*> is copied node by node (the pointers, not the GoodInfos) and
-    // both maps are copied as trees. Shallow, exactly like retail: the copy shares the
+    // both maps are copied as trees. Shallow, exactly like baseline: the copy shares the
     // GoodInfo objects with the original.
     GoodInfoList(GoodInfoList const& Other) = default;
     GoodInfoList& operator=(GoodInfoList const& Other) = default;
@@ -1363,13 +1359,13 @@ public:
     void destroy();
 
     GoodInfo const* find_by_id(unsigned Id) const;
-    // 0x06271290 ?find_by_name@GoodInfoList@@QBEPBUGoodInfo@@PBD@Z: CreateID(Name), then
+    // ?find_by_name@GoodInfoList@@QBEPBUGoodInfo@@PBD@Z: CreateID(Name), then
     // the ById lookup of find_by_id.
     GoodInfo const* find_by_name(char const* Name) const;
     GoodInfo const* find_by_archetype(unsigned ArchId) const;
     GoodInfo const* find_by_ship_arch(unsigned ArchId) const;
 
-    // 0x06261260 ?get_list@GoodInfoList@@QBEPBV?$list@PAUGoodInfo@@...@std@@XZ:
+    // ?get_list@GoodInfoList@@QBEPBV?$list@PAUGoodInfo@@...@std@@XZ:
     // `MOV EAX,ECX ; RET` -- the list sits at offset 0.
     std::list<GoodInfo*> const* get_list() const;
 
@@ -1401,28 +1397,28 @@ COMMON_API bool __cdecl arch_is_combinable(unsigned int ArchId);
 // Market / bases
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
-// TransactionType -- retail's own `enum TransactionType`, proved real by the
+// TransactionType -- baseline's own `enum TransactionType`, proved real by the
 // mangling of BaseData::set_market_good,
 //   ?set_market_good@BaseData@@QAEXIHHW4TransactionType@@MMM@Z
 // where `W4TransactionType@@` is a global-scope enum passed by value as the
 // fourth parameter.
-//
+
 // The VALUES come from Server.dll's two filters over the market map, not from
 // any header. Both read the same dword, map-node+0x20, which is mapped
 // value +0x10:
-//   for sale  : .text:06d12ec4 MOV EAX,[ESI+0x20] / TEST EAX,EAX / JZ accept /
-//               .text:06d12ecb CMP EAX,0x2 / JNZ reject        -> 0 or 2
-//               (also .text:06d12f84/.text:06d12f8b, and .text:06d12dc9 with
+//   for sale  : module storage MOV EAX,[ESI+0x20] / TEST EAX,EAX / JZ accept /
+// CMP EAX,0x2 / JNZ reject        -> 0 or 2
+//               (also module storage/module storage, and module storage with
 //                `CMP ESI,0x2` in GetNumCommoditiesForSale's helper)
-//   in demand : .text:06d12e24 MOV EAX,[ESI+0x20] / TEST EAX,EAX / JZ accept /
-//               .text:06d12e2b CMP EAX,0x1 / JNZ reject        -> 0 or 1
-//               (also .text:06d12d70/.text:06d12d77 behind pub::Market::
+//   in demand : module storage MOV EAX,[ESI+0x20] / TEST EAX,EAX / JZ accept /
+// CMP EAX,0x1 / JNZ reject        -> 0 or 1
+//               (also module storage/module storage behind pub::Market::
 //                IsGoodInDemand)
 // So 0 means both directions, 1 demand-only, 2 sale-only, and anything else is
 // neither. The previous port had `TransactionBuy = 0, TransactionSell = 1`,
 // which is an invented pair that gets both the count and the meaning wrong.
-//
-// TODO: retail's own enumerator spellings are in no table we hold; these names
+
+// TODO: baseline's own enumerator spellings are in no table we hold; these names
 // are ours. The numeric values are not.
 // ---------------------------------------------------------------------------
 enum TransactionType
@@ -1434,48 +1430,48 @@ enum TransactionType
 
 // ---------------------------------------------------------------------------
 // MarketGoodInfo -- the mapped value of BaseData::Market. 0x1C bytes.
-//
+
 // The size and the field order are read off Common.dll's own bytes, not
 // inferred. BaseDataList::load_market_data (0x06265900) builds the record on
 // the stack at [ESP+0x30] and copies it with `MOV ECX,0x7` + `MOVSD.REP`
-// (.text:06265c95 and again at .text:06265cbf), 7 dwords = 0x1C:
-//
-//   +0x00  .text:06265c2b  MOV [ESP+0x30],ESI   ESI = GoodInfo+0x48, the good id
-//   +0x04  .text:06265c21  FLD  [EAX+0x58]      GoodList::find_by_id(id)->Price
-//          .text:06265c24  FMUL [ESP+0x20]      INI index 6, the price multiplier
-//          .text:06265c2f  CALL MSVCRT ftol     <-- TRUNCATED to an integer
-//          .text:06265c40  FILD / .text:06265c50 FSTP [ESP+0x34]
-//   +0x08  .text:06265c58  MOV [ESP+0x38],EAX   INI index 3 (int)
-//   +0x0c  .text:06265ca8  MOV [ESP+0x44],EBP   INI index 4 (int); ESP is 8 lower
+// (module storage and again at module storage), 7 dwords = 0x1C:
+
+//   +0x00  module storage  MOV [ESP+0x30],ESI   ESI = GoodInfo+0x48, the good id
+//   +0x04  module storage  FLD  [EAX+0x58]      GoodList::find_by_id(id)->Price
+// FMUL [ESP+0x20]      INI index 6, the price multiplier
+// CALL MSVCRT ftol     <-- TRUNCATED to an integer
+// FILD / module storage FSTP [ESP+0x34]
+//   +0x08  module storage  MOV [ESP+0x38],EAX   INI index 3 (int)
+//   +0x0c  module storage  MOV [ESP+0x44],EBP   INI index 4 (int); ESP is 8 lower
 //                                               there after two pushes, so the
 //                                               displacement 0x44 is record+0x0c
-//   +0x10  .text:06265c54  MOV [ESP+0x40],EDI   INI index 5 (TransactionType)
-//   +0x14  .text:06265c48  MOV [ESP+0x44],ECX   INI index 1 (float)
-//   +0x18  .text:06265c97  MOV [ESP+0x48],EDX   INI index 2 (float)
-//
-// INI index 7 is read and thrown away (.text:06265bbb get_value_float,
-// .text:06265bc0 `ddd8 FSTP ST0`). Index 6 is never stored; it only produces
+//   +0x10  module storage  MOV [ESP+0x40],EDI   INI index 5 (TransactionType)
+//   +0x14  module storage  MOV [ESP+0x44],ECX   INI index 1 (float)
+//   +0x18  module storage  MOV [ESP+0x48],EDX   INI index 2 (float)
+
+// INI index 7 is read and thrown away (module storage get_value_float,
+// `ddd8 FSTP ST0`). Index 6 is never stored; it only produces
 // the price at +0x04.
-//
+
 // Four independent confirmations of the 0x1C size, all on bytes:
 //   1. both `MOV ECX,0x7` + REP MOVSD above;
 //   2. the mangled return type of ?get_market@BaseData@@QBEPBV?$map@IUMarket
 //      GoodInfo@@U?$less@I@std@@V?$allocator@UMarketGoodInfo@@@3@@std@@XZ --
 //      the mapped type IS MarketGoodInfo;
 //   3. Server.dll walks the tree nodes directly and tests `_Isnil` at node+0x2d
-//      (.text:06d12ee4, .text:06d12fa4), so the node's value spans 0x0c..0x2b =
+//      (module storage, module storage), so the node's value spans 0x0c..0x2b =
 //      0x20 bytes = key(4) + mapped(0x1c), and the key sits at node+0x0c
-//      (.text:06d12d50 CMP EDX,[EAX+0xc]) with the mapped value at node+0x10
-//      (.text:06d12cfb ADD EAX,0x10);
+//      (module storage CMP EDX,[EAX+0xc]) with the mapped value at node+0x10
+//      (module storage ADD EAX,0x10);
 //   4. BaseData::set_market_good (0x06264b60) builds the identical 7-dword
 //      record and copies it into node+0x10 with the same `MOV ECX,7` + REP MOVSD
-//      (.text:06264d60 .. .text:06264d69).
-//
+//      (module storage .. module storage).
+
 // Field naming, and how sure each name is:
 //   GoodId / Price          -- certain (see above).
 //   MinInventory            -- certain: pub::Market::GetMinInventory's whole
 //                              body is a map find that returns [mapped+0x8]
-//                              (.text:06d12cbe MOV EAX,[EAX+0x8]).
+//                              (module storage MOV EAX,[EAX+0x8]).
 //   Field_0x0c              -- INI index 4. NO reader found: Server.dll exports
 //                              exactly seven pub::Market functions and none of
 //                              them touches +0x0c, and neither does any market
@@ -1493,7 +1489,7 @@ enum TransactionType
 struct COMMON_API MarketGoodInfo
 {
     // User-declared so that no implicit move members are generated and exported:
-    // VC6 had none, and retail exports exactly the copy assignment.
+    // VC6 had none, and baseline exports exactly the copy assignment.
     MarketGoodInfo& operator=(MarketGoodInfo const&) = default;
 
     MarketGoodInfo();
@@ -1512,39 +1508,39 @@ struct COMMON_API MarketGoodInfo
 
 // weighted_vector<T> lives in common_weighted_vector.h (included above).
 
-// thorn.dll IScriptEngine: declared in thorn_iface.h (included above).
+// scenescript.dll IScriptEngine: declared in scenescript_iface.h (included above).
 
-// Thorn glue -- E:\FL\Scratch\Source\Common\ThornScript.cpp.
+// SceneScript glue -- Common\SceneProgram.cpp.
 // All five accessors below share one shape: entity name from slot 7 (+0x1c), user property
 // from slot 33 (+0x84), 0 meaning "found".
-COMMON_API char const* __cdecl ThornGetUserString(IScriptEngine* Engine, int Index, char const* Key);
+COMMON_API char const* __cdecl SceneScriptGetUserString(IScriptEngine* Engine, int Index, char const* Key);
 // 0x1bd00 / 0x1bca0 -- the same lookup parsed with atol / atof.
-COMMON_API bool __cdecl ThornGetUserInt(IScriptEngine* Engine, int Index, char const* Key,
+COMMON_API bool __cdecl SceneScriptGetUserInt(IScriptEngine* Engine, int Index, char const* Key,
                                         int* Out);
-COMMON_API bool __cdecl ThornGetUserFloat(IScriptEngine* Engine, int Index, char const* Key,
+COMMON_API bool __cdecl SceneScriptGetUserFloat(IScriptEngine* Engine, int Index, char const* Key,
                                           float* Out);
 // 0x1bd60. Reads the flag byte at entity +0x42: bit 0 -> 1, bit 1 -> 2 (bit 1 wins), else 0.
-// The second parameter is accepted and ignored, exactly as in retail.
-COMMON_API unsigned long __cdecl ThornGetRenderType(ThornEntity const* Entity, char const* Unused);
-// 0x1b8f0. Creates the "IScriptEngine" component through DALib::Dacom, queries
+// The second parameter is accepted and ignored, exactly as in baseline.
+COMMON_API unsigned long __cdecl SceneScriptGetRenderType(SceneScriptEntity const* Entity, char const* Unused);
+// 0x1b8f0. Creates the "IScriptEngine" component through NeuronRuntime::NeuronComponents, queries
 // "1.11_IScriptEngine" off it, then feeds it the script file opened as a "DOS" filesystem.
-COMMON_API IScriptEngine* __cdecl ThornScriptLoad(char const* Path);
-// 0x1ba10 -- folded onto DAEngine_release_filesystem in retail: release through slot 2 and null.
-COMMON_API void __cdecl ThornScriptDestroy(IScriptEngine** Engine);
+COMMON_API IScriptEngine* __cdecl SceneProgramLoad(char const* Path);
+// 0x1ba10 -- folded onto DAEngine_release_filesystem in baseline: release through slot 2 and null.
+COMMON_API void __cdecl SceneProgramDestroy(IScriptEngine** Engine);
 // 0x1ba30. The first type-2 entity whose "actor" user property equals ActorName wins (with a
 // null ActorName: no actor property, or any actor except "player"); its Csys is
 // {x from +0x08, y from +0x44, z from +0x10} with the 3x3 at +0x14. Identity on a miss.
-COMMON_API Csys __cdecl ThornScriptGetCsys(IScriptEngine* Engine, char const* ActorName);
+COMMON_API Csys __cdecl SceneProgramGetCsys(IScriptEngine* Engine, char const* ActorName);
 
 class RoomData;
 
-// FlashLightSetInfo -- Common.dll.c 0x13bb0 ctor / 0x13bf0 dtor / 0x13c30 clear /
+// FlashLightSetInfo -- Common 0x13bb0 ctor / 0x13bf0 dtor / 0x13c30 clear /
 // 0x13d70 add_light_csys / 0x14120 unfixup. Per-object runtime table of resolved
 // flashlight-hardpoint frames (NOT RoomLightInfo -- that's a separate, unrelated
-// retail class at 0x13410 for static Thorn light entities in common_goods.h).
-//
+// baseline class at 0x13410 for static SceneScript light entities in common_goods.h).
+
 // Layout confirmed by reading clear()/dtor byte-for-byte: the two 64-slot Csys banks
-// (LightFrames/FinalFrames) are literally Csys::set_identity() (Common.dll.c 0x1170)
+// (LightFrames/FinalFrames) are literally Csys::set_identity() (Common 0x1170)
 // repeated inline -- same (0,0,0)/identity-3x3 bit pattern, field for field.
 struct COMMON_API FlashLightSetInfo
 {
@@ -1553,12 +1549,12 @@ public:
     ~FlashLightSetInfo();
 
     void clear();
-    // .text:06273bf0: the exported ?destroy@FlashLightSetInfo@@QAEXXZ and the destructor are
+    // the exported ?destroy@FlashLightSetInfo@@QAEXXZ and the destructor are
     // one ICF-folded body (free both string banks, then tail-jump into clear()).
     void destroy();
     void unfixup();
 
-    // 0x06273db0 ?fixup@FlashLightSetInfo@@QAEXJPBVHardpointSummary@@PBVRoomData@@@Z.
+    // ?fixup@FlashLightSetInfo@@QAEXJPBVHardpointSummary@@PBVRoomData@@@Z.
     // Resolves HardpointNames[]/SetpointNames[] (hardpoints of the room's compound instance,
     // then room setpoints) into LightFrames[0..NumLights), then appends to FinalFrames:
     // Mode 1 copies LightFrames verbatim (add_light_csys inlined), Mode 2 interpolates
@@ -1568,13 +1564,13 @@ public:
     void fixup(long Instance, HardpointSummary const* HpSum, RoomData const* Room);
 
 private:
-    // Private in retail (?add_light_csys@FlashLightSetInfo@@AAEXABVCsys@@@Z). fixup() inlines
+    // Private in baseline (?add_light_csys@FlashLightSetInfo@@AAEXABVCsys@@@Z). fixup() inlines
     // the same append rather than calling it.
     void add_light_csys(Csys const& LightFrame);
 
 public:
 
-    // Common.dll.c 0x13c30 (clear): 7 unconfirmed float params + a mode flag, defaulting
+    // Common 0x13c30 (clear): 7 unconfirmed float params + a mode flag, defaulting
     // to 1.0f, 1.0f, 1.0f, 2.0f, 0.1f, 0.2f, 1.0f, 0. Plausibly a spotlight-ish
     // color/range/cone-angle/intensity set given the class name, but nothing in the 4
     // ported functions reads them back and fixup() (see above) is unported, so that
@@ -1620,21 +1616,21 @@ static_assert(offsetof(FlashLightSetInfo, FinalFrames) == 0xE2C, "FlashLightSetI
 static_assert(sizeof(FlashLightSetInfo) == 0x1A2C, "FlashLightSetInfo sizeof 0x1A2C");
 
 // ---------------------------------------------------------------------------
-// RoomData -- one room of a base (E:\FL\Scratch\Source\Common\RoomData.cpp). Retail
-// sizeof 0x208; every field below is at its retail offset in retail order (the vectors are
+// RoomData -- one room of a base (Common\RoomData.cpp). baseline
+// sizeof 0x208; every field below is at its baseline offset in baseline order (the vectors are
 // 0x10 bytes in VC6, the port's std::vector differs in size, so the offsets after +0x134
 // are documentation, not layout). Records are owned through pointers in the vectors;
 // destroy() deletes them, clear() only drops them.
 //   ctor 06274150, dtor 06274300, copy ctor 06261330 and operator= 06261780 (both the
 //   compiler-generated memberwise copies: strings and record pointers are SHARED), clear
-//   06274540, destroy 062748d0.
+// , destroy 062748d0.
 // OutpostFrontier.exe and Server.dll read the fields directly.
 // ---------------------------------------------------------------------------
 class COMMON_API RoomData
 {
 public:
     RoomData();
-    // 0x06261330 / 0x06261780: memberwise. Strings and record pointers are copied as
+    // / 0x06261780: memberwise. Strings and record pointers are copied as
     // pointers (the copy shares them with Other), Animations by a 0x20-dword block copy, the
     // camera by RoomCameraInfo's implicit copy (06261762 REP MOVSD 0x10) in the copy ctor
     // and by RoomCameraInfo::operator= (06261d59) in the assignment.
@@ -1642,11 +1638,11 @@ public:
     ~RoomData();
     RoomData& operator=(RoomData const& Other) = default;
 
-    // 06277c50: read_from_ini(File) unless bLoaded, then bLoaded = true.
+    // read_from_ini(File) unless bLoaded, then bLoaded = true.
     void load();
     void unload();
-    // Retail 0x17c10 stores param_1 at +0x00 and param_2 at +0x04, and its only caller
-    // (BaseData::read_Room_block, .text:0626504f..06265058) passes (BaseData+0 = base id,
+    // baseline 0x17c10 stores param_1 at +0x00 and param_2 at +0x04, and its only caller
+    // (BaseData::read_Room_block, module storage..06265058) passes (BaseData+0 = base id,
     // CreateID("%X_%s") = room id, nickname, file). Parameter order fixed 2026-09-24.
     void init(unsigned NewBaseId, unsigned NewRoomId, char const* NewNickname, char const* NewFile);
     void clear();
@@ -1665,9 +1661,9 @@ public:
     RoomCameraInfo const* get_camera_info() const;
 
 private:
-    // Everything below is private in retail (`AAE` / `CAX` in the mangled names, e.g.
+    // Everything below is private in baseline (`AAE` / `CAX` in the mangled names, e.g.
     // ?read_from_ini@RoomData@@AAEXPBD@Z, ?make_setpoint_name_generic@RoomData@@CAXPBDPAD@Z).
-    // FlashLightSetInfo::fixup (Common.dll.c 0x13db0) calls apply_setpoint, so it is a friend.
+    // FlashLightSetInfo::fixup (Common 0x13db0) calls apply_setpoint, so it is a friend.
     friend struct FlashLightSetInfo;
 
     void warn(INI_Reader* Reader, bool bError);
@@ -1686,7 +1682,7 @@ private:
     void read_FlashLightLine_block(INI_Reader* Reader);
 
     void add_set_script_light(unsigned long Id, Csys const& Frame,
-                              ThornLightProperties const* Props, unsigned char Type);
+                              SceneScriptLightProperties const* Props, unsigned char Type);
     // The parameters in RoomPropInfo field order (+0x00 .. +0x50).
     void add_set_script_Prop(char const* Template, char const* Name, int Category,
                              Csys const& Frame, bool bVisible, bool bLit, bool bFog,
@@ -1694,11 +1690,11 @@ private:
                              unsigned long RenderType, char const* Loadout,
                              unsigned long PriorityId, bool bRunningLights);
     void add_set_script_Camera(unsigned long Id, Csys const& Frame, char const* Name,
-                               ThornCameraProperties const* Props);
+                               SceneScriptCameraProperties const* Props);
     void add_set_script_Setpoint(unsigned long Id, Csys const& Frame, char const* Name,
-                                 ThornEntity const* Entity);
+                                 SceneScriptEntity const* Entity);
 
-    // 06275bb0, called from fixup() only.
+    // , called from fixup() only.
     void setup_Camera();
     void unsetup_Camera();
 
@@ -1712,14 +1708,14 @@ private:
 
 public:
 
-    // Retail field map, in retail order. init (06277c10) writes +0x00..+0x10, read_RoomInfo_block
+    // baseline field map, in baseline order. init (06277c10) writes +0x00..+0x10, read_RoomInfo_block
     // (06275490) +0x14..+0xc8, read_Sound_block (06275860) +0xcc..+0xd5, read_set_script
     // (06274b40) +0xd8..+0x130 and the record vectors, read_Camera_block (06275aa0) +0x1c4,
     // setup_Camera (06275bb0) +0x1c8.
     unsigned BaseId;                    // +0x00
     unsigned RoomId;                    // +0x04
     // +0x08: set by init (0) and load (1). Neither the ctor nor clear() writes it (06274150,
-    // 06274540): it stays uninitialised until init, its only creator (BaseData::read_Room_block)
+    // ): it stays uninitialised until init, its only creator (BaseData::read_Room_block)
     // calling init right after the ctor.
     bool bLoaded;
     char* Nickname;                     // +0x0c  malloc_strcpy (init)
@@ -1738,7 +1734,7 @@ public:
     ID_String Ambient;                  // +0xd0  [Sound] ambient = id [, oneshot]
     bool bMusicLoop;                    // +0xd4  1 unless "oneshot"
     bool bAmbientLoop;                  // +0xd5  1 unless "oneshot"
-    // +0xd8: the set_script's ambient entity (Thorn type 9): three ints / 255.0. clear (1,1,1).
+    // +0xd8: the set_script's ambient entity (SceneScript type 9): three ints / 255.0. clear (1,1,1).
     Vector AmbientColor;
     // +0xe4..+0x108: the set_script light named "LtShadowSource"; +0x10c..+0x130 the one named
     // "LtGlareSource". The flag at +0xe5 / +0x10d is 1 when the light is directional (D3D light
@@ -1762,7 +1758,7 @@ public:
     std::vector<SetpointInfo*> Setpoints;           // +0x164 set_script setpoints (types 3, 7)
     std::vector<CharPlaceInfo*> CharacterPlacements; // +0x174 one per zs/zg setpoint
     // +0x184: [PlayerShipPlacement] and [ForSaleShipPlacement] in file order; the bytes +0x34 /
-    // +0x35 of the record tell them apart. OutpostFrontier.exe FUN_00448a60 indexes it directly.
+    // +0x35 of the record tell them apart. OutpostFrontier.exe the routine indexes it directly.
     std::vector<ShipPlaceInfo*> ShipPlacements;
     std::vector<RoomButtonInfo*> Hotspots;          // +0x194 [Hotspot]
     std::vector<FlashLightSetInfo*> FlashLightSets; // +0x1a4 [FlashlightSet] / [FlashlightLine]
@@ -1771,10 +1767,10 @@ public:
     RoomCameraInfo Camera;              // +0x1c8 the camera setup_Camera resolved
 };
 
-// Retail sizeof 0x30: +0x00 BaseId, +0x04 start room, +0x08 price_variance, +0x0c
+// baseline sizeof 0x30: +0x00 BaseId, +0x04 start room, +0x08 price_variance, +0x0c
 // ship_repair_cost, +0x10 market map, +0x24 list<RoomData*>. The copy ctor (06261de0) and
 // operator= (06261f20) are the compiler-generated memberwise ones: the room list is copied
-// pointer by pointer (FUN_0630cd00 is `*dst = *src`), so a copy SHARES the RoomData objects
+// pointer by pointer (the routine is `*dst = *src`), so a copy SHARES the RoomData objects
 // and assigning deletes none of the old ones.
 class COMMON_API BaseData
 {
@@ -1788,18 +1784,18 @@ public:
     float get_price_variance() const;
     float get_ship_repair_cost() const;
     unsigned get_start_location() const;
-    // .text:06261dc0: LEA EAX,[this+0x10] -- the market map.
+    // LEA EAX,[this+0x10] -- the market map.
     std::map<unsigned, MarketGoodInfo> const* get_market() const;
-    // .text:06261dd0 (both names, ICF): LEA EAX,[this+0x24] -- the room list.
+    // (both names, ICF): LEA EAX,[this+0x24] -- the room list.
     std::list<RoomData*>* get_room_data_list();
     std::list<RoomData*> const* get_const_room_data_list() const;
     void read_from_ini(char const* RelPath, unsigned BaseId);
-    // 0x06264b60 ?set_market_good@BaseData@@QAEXIHHW4TransactionType@@MMM@Z.
-    // Parameter order is retail's, read off the writes into the record, NOT
+    // ?set_market_good@BaseData@@QAEXIHHW4TransactionType@@MMM@Z.
+    // Parameter order is baseline's, read off the writes into the record, NOT
     // guessed from the struct: param 5 is the PRICE MULTIPLIER
-    // (.text:06264bdb FMUL [ESP+param_5], the same multiply the INI path does),
-    // param 6 lands at record+0x14 (.text:06264c71 MOV [ESP+0x68],EDX) and
-    // param 7 at record+0x18 (.text:06264c35 MOV [ESP+0x6c],EAX). The previous
+    // (module storage FMUL [ESP+param_5], the same multiply the INI path does),
+    // param 6 lands at record+0x14 (module storage MOV [ESP+0x68],EDX) and
+    // param 7 at record+0x18 (module storage MOV [ESP+0x6c],EAX). The previous
     // declaration had (MinLevel, MinRank, PriceMult) in those three slots,
     // i.e. the multiplier last instead of first.
     void set_market_good(unsigned GoodId, int MinInventory, int MaxInventory,
@@ -1807,9 +1803,9 @@ public:
                          float MinRep);
 
 private:
-    // 0x06264d80 -- [Base]/[BaseInfo] block: start_room, price_variance, ship_repair_cost.
+    // [Base]/[BaseInfo] block: start_room, price_variance, ship_repair_cost.
     void read_Base_block(INI_Reader* Reader);
-    // 0x06264ea0 -- [Room] block: allocates and appends one RoomData from nickname/file.
+    // [Room] block: allocates and appends one RoomData from nickname/file.
     void read_Room_block(INI_Reader* Reader);
 
 public:
@@ -1819,11 +1815,11 @@ public:
     float PriceVariance;            // +0x08
     float ShipRepairCost;           // +0x0c default 0.33
     std::map<unsigned, MarketGoodInfo> Market; // +0x10
-    // Retail +0x24: std::list<RoomData*> (the mangled return type of get_room_data_list).
+    // baseline +0x24: std::list<RoomData*> (the mangled return type of get_room_data_list).
     std::list<RoomData*> Rooms;
 };
 
-// Retail sizeof 0x34: +0x00 list<BaseData*>, +0x0c map base id -> BaseData*, +0x20 map room
+// baseline sizeof 0x34: +0x00 list<BaseData*>, +0x0c map base id -> BaseData*, +0x20 map room
 // id -> RoomData*. Both maps are filled by load() after every base has been read. Copy ctor
 // (06262150) and operator= (062622a0) are memberwise: the BaseData pointers are shared.
 class COMMON_API BaseDataList
@@ -1839,12 +1835,12 @@ public:
     BaseData* get_base_data(unsigned BaseId) const;
     RoomData* get_room_data(unsigned RoomId) const;
     RoomData* get_unloaded_room_data(unsigned RoomId) const;
-    // .text:06261260 (both names, ICF): MOV EAX,this -- the base list sits at +0x00.
+    // (both names, ICF): MOV EAX,this -- the base list sits at +0x00.
     std::list<BaseData*>* get_base_data_list();
     std::list<BaseData*> const* get_const_base_data_list() const;
 
 private:
-    // Retail +0x00: std::list<BaseData*> (the mangled return type of get_base_data_list).
+    // baseline +0x00: std::list<BaseData*> (the mangled return type of get_base_data_list).
     std::list<BaseData*> Bases;
     std::map<unsigned, BaseData*> ById;      // +0x0c
     std::map<unsigned, RoomData*> RoomById;  // +0x20
@@ -1863,13 +1859,13 @@ namespace Loadout
     struct COMMON_API Map
     {
         // User-declared so that no implicit move members are generated and exported:
-        // VC6 had none, and retail exports exactly the copy assignment.
+        // VC6 had none, and baseline exports exactly the copy assignment.
         Map& operator=(Map const&) = default;
 
         unsigned NicknameId;
         std::vector<EquipDesc> Items;
         // +0x14 (was `unsigned short NextEquipId`): Loadout::Load constructs it with
-        // EquipIdMaker() (.text:063116dc), resets it (06311785) and draws every item's id
+        // EquipIdMaker() (module storage), resets it (06311785) and draws every item's id
         // from CreateEquipID (063117d9 / 0631185a).
         SubObjectID::EquipIdMaker IdMaker;
     };
@@ -1884,7 +1880,7 @@ namespace Loadout
 }
 
 // ---------------------------------------------------------------------------
-// ReadConstants — globals use retail namespace names for mangles.
+// ReadConstants — globals use baseline namespace names for mangles.
 // ---------------------------------------------------------------------------
 COMMON_API bool __cdecl ReadConstants(char const* RelPath);
 
@@ -1894,7 +1890,7 @@ COMMON_API extern float LOOT_UNSEEN_LIFE_TIME;
 COMMON_API extern float LOOT_UNSEEN_RADIUS;
 COMMON_API extern float MUSIC_CROSS_FADE_DELAY;
 COMMON_API extern float JETTISONED_CARGO_VELOCITY;
-// SND_CARGO_JETTISONED and FIRE_FAILED_SOUND are ?<name>@@3UID_String@@A in retail, not
+// SND_CARGO_JETTISONED and FIRE_FAILED_SOUND are ?<name>@@3UID_String@@A in baseline, not
 // unsigned, and they are declared with the rest of the ID_String globals in common_misc.h.
 // They used to be declared here as plain unsigned as well, which gave the port two globals of
 // the same name and different type in two translation units.

@@ -1,12 +1,8 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "menu_ui_draw.h"
 
-#include "DALib.h"
+#include "NeuronRuntime.h"
 #include "render/IRenderPipeline.h"
 #include "screen_quad_state.h"
 
@@ -36,9 +32,9 @@ namespace
 
     IRenderPipeline* GetPipeline()
     {
-        if (DALib::Pipeline == nullptr)
+        if (NeuronRuntime::Pipeline == nullptr)
             return nullptr;
-        return DALib::Pipeline;
+        return NeuronRuntime::Pipeline;
     }
 
     void PipelineDrawPrimitive(unsigned long Prim, unsigned long Fvf, void* Verts,
@@ -59,7 +55,7 @@ namespace
         if (Pipe == nullptr)
             return;
 
-        // Seven arguments: slot 70 pops 0x20, and both retail call sites in OutpostFrontier.exe
+        // Seven arguments: slot 70 pops 0x20, and both baseline call sites in OutpostFrontier.exe
         // (0x004217b6, 0x00421973) push a trailing dword this one used to leave off.
         Pipe->DrawIndexedPrimitiveUp(Prim, static_cast<unsigned int>(Fvf), Verts, VertexCount,
                                      Indices, IndexCount, 0);
@@ -235,7 +231,7 @@ namespace
 
 void MenuSetup2DRenderState()
 {
-    // Retail FUN_00403ea0 state-apply half (cached). Geometry batch flush deferred.
+    // state-apply half (cached). Geometry batch flush deferred.
     ApplyScreenQuadRenderStates(GetPipeline());
 }
 
@@ -335,7 +331,7 @@ void MenuDrawNeuroNetButtonOverlay(int Left, int Top, int Right, int Bottom, voi
         HalfH = 4.f;
 
     const unsigned long Dark = 0xE0101820u;
-    // front_button.cmp bezel: segs 19/18/10/6/16 → idx 114/108/60/36/96 (retail UI draws).
+    // front_button.cmp bezel: segs 19/18/10/6/16 → idx 114/108/60/36/96 (baseline UI draws).
     DrawAnnulus(Cx, Cy, HalfW + 3.f, HalfH + 3.f, HalfW - 1.f, HalfH - 1.f, Dark, 19);
     DrawAnnulus(Cx, Cy, HalfW + 1.5f, HalfH + 1.5f, HalfW - 2.5f, HalfH - 2.5f, FrameArgb, 18);
     DrawAnnulus(Cx, Cy, HalfW - 2.f, HalfH - 2.f, HalfW - 5.f, HalfH - 5.f, Dark, 10);

@@ -22,7 +22,7 @@
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
-  <!-- Retail OutpostServer.exe is an MFC42 doc/view application linked against the ANSI
+  <!-- baseline OutpostServer.exe is an MFC42 doc/view application linked against the ANSI
        MFC42.DLL (imports by ordinal): dynamic MFC, multibyte character set. -->
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
@@ -44,7 +44,7 @@
     <CharacterSet>MultiByte</CharacterSet>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
-  <!-- dalib_net.h (DirectPlay8 types) needs dplay8.h from the DX8 SDK; appended last so the
+  <!-- neuronruntime_net.h (DirectPlay8 types) needs dplay8.h from the DX8 SDK; appended last so the
        Windows SDK basetsd.h wins. -->
   <PropertyGroup>
     <IncludePath>$(IncludePath);$(Dx8SdkDir)\include</IncludePath>
@@ -57,7 +57,7 @@
       <!-- Every translation unit includes StdAfx.h first (MFC must see windows.h first);
            no precompiled header, so a file another lane adds cannot break the PCH chain. -->
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
-      <!-- Retail OutpostServer.exe exports nothing; /sdl would add nothing here but keep it in
+      <!-- baseline OutpostServer.exe exports nothing; /sdl would add nothing here but keep it in
            line with OutpostFrontier.vcxproj. -->
       <SDLCheck>false</SDLCheck>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
@@ -65,8 +65,8 @@
     <Link>
       <SubSystem>Windows</SubSystem>
       <AdditionalLibraryDirectories>$(ProjectDir)..\..\bin;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>dacom.lib;DALib.lib;Common.lib;Server.lib;RemoteClient.lib;imm32.lib;winmm.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <!-- Retail OutpostServer.exe's 71-name export table: forwarders to Server/DALib/Common plus
+      <AdditionalDependencies>neuroncomponents.lib;NeuronRuntime.lib;Common.lib;Server.lib;RemoteClient.lib;imm32.lib;winmm.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <!-- baseline OutpostServer.exe's 71-name export table: forwarders to Server/NeuronRuntime/Common plus
            @57 ServerLogf (.text:0040e330). -->
       <ModuleDefinitionFile>OutpostServer.def</ModuleDefinitionFile>
     </Link>
@@ -153,10 +153,10 @@
     <Image Include="res\ICON128_1.ico" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\dacom\dacom.vcxproj">
+    <ProjectReference Include="..\neuroncomponents\neuroncomponents.vcxproj">
       <Project>{8F3A1B20-9C4D-4E5F-A617-B8C9D0E1F203}</Project>
     </ProjectReference>
-    <ProjectReference Include="..\DALib\DALib.vcxproj">
+    <ProjectReference Include="..\NeuronRuntime\NeuronRuntime.vcxproj">
       <Project>{9A4B2C31-0D5E-4F60-B728-C9DAE1F20415}</Project>
     </ProjectReference>
     <ProjectReference Include="..\Common\Common.vcxproj">
@@ -168,7 +168,7 @@
     <ProjectReference Include="..\RemoteClient\RemoteClient.vcxproj">
       <Project>{C1111111-2222-3333-4444-555555555555}</Project>
     </ProjectReference>
-    <ProjectReference Include="..\Resources\serverresources\serverresources.vcxproj">
+    <ProjectReference Include="..\Resources\serverinterface\serverinterface.vcxproj">
       <Project>{E1A10001-5E50-4A01-9C01-000000000008}</Project>
       <LinkLibraryDependencies>false</LinkLibraryDependencies>
     </ProjectReference>

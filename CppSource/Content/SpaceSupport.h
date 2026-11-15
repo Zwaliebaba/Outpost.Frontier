@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -20,7 +16,7 @@ struct FSpawnRequest;              // Populators.h
 struct FSystemInfo;                // SystemInfo.h (TU58)
 struct FSystemZone;                // SystemInfo.h (TU64)
 
-// FUN_06f65f10 (cdecl; caller TU29 FUN_06ef4eb0 06ef4f69; SpawnPlacement.cpp): places the
+// (cdecl; caller TU29 the routine 06ef4f69; SpawnPlacement.cpp): places the
 // formation Blocks for Request. Arrival (the formation's +0x44 flags, by value: the callee
 // frees it) is copied; an arrival adds cruising in (7) and -- unless the leader is a patrol-
 // path leader -- buzzing (8) instead of the trade lane (1). While Plan->Kind is 0 a random set
@@ -32,7 +28,7 @@ bool __cdecl PlaceSpawnFormation(FSpawnRequest const* Request, FSystemInfo* Syst
                                  unsigned int const* Faction,
                                  std::list<FContentNpcShipParams>* Blocks);
 
-// FUN_06f63cc0 (cdecl; callers TU29 FUN_06ef4eb0 06ef4f8f, TU60 06f83a38; SpawnPlacement.cpp):
+// (cdecl; callers TU29 the routine 06ef4f8f, TU60 06f83a38; SpawnPlacement.cpp):
 // the two trade targets of the leader's guide description (an FGuideDesc, not null-tested;
 // FGuideDesc::SetTargets) from the plan: a dock launch starts at the launcher; a trade-lane
 // arrival picks near the lane's far end, then a second target near its entry end or at the
@@ -42,15 +38,15 @@ bool __cdecl PlaceSpawnFormation(FSpawnRequest const* Request, FSystemInfo* Syst
 void __cdecl SetLeaderGuideTargets(FSystemInfo* System, FSpawnPlan* Plan,
                                    FContentNpcShipParams* Leader);
 
-// DAT_06fd1b9c (list object; head DAT_06fd1ba0, size DAT_06fd1ba4; static init LAB_06f5cc60,
-// atexit FUN_06f5cca0): NPC ships whose TU37 guide wants every SpaceSupport message. The TU37
-// guides register their ship (FUN_06f60d60, push_back) and unregister it by nulling its entry
-// (FUN_06f60da0); SpaceSupport's HandleMessage tail forwards each message to the non-null
-// entries (FContentNpcShip::ForwardToGuide, FUN_06f34c30) and then erases the null ones.
+// (list object; head the field, size the field; static init the branch,
+// atexit the routine): NPC ships whose TU37 guide wants every SpaceSupport message. The TU37
+// guides register their ship (the routine, push_back) and unregister it by nulling its entry
+// (the routine); SpaceSupport's HandleMessage tail forwards each message to the non-null
+// entries (FContentNpcShip::ForwardToGuide, the routine) and then erases the null ones.
 extern std::list<FContentNpcShip*> GSpaceSupportGuidedShips;
 
-// FUN_06f616e0 (cdecl; callers SpacePop 06f5b767 / 06f5bfff with (1, 0), TU53 06f61b4f,
-// 06f61b7c, 06f61e08, 06f61e30, 06f65be2, 06f65dd6): Position against the spheres (a point is
+// (cdecl; callers SpacePop 06f5b767 / 06f5bfff with (1, 0), TU53 06f61b4f,
+// , 06f61e08, 06f61e30, 06f65be2, 06f65dd6): Position against the spheres (a point is
 // inside a sphere when its distance is strictly below the radius). No vector -> true.
 // bAll && bInside: inside every sphere; bAll && !bInside: outside every sphere; !bAll &&
 // bInside: inside at least one; !bAll && !bInside: outside at least one.
@@ -61,8 +57,8 @@ bool __cdecl TestExclusionSpheres(float const* Position,
 struct FNnPathLeg;                 // MissionObject.h
 class Vector;                      // common_ini.h
 
-// FUN_06f5e910 (cdecl; only caller GameSupport msg 0x31 06eff291): BuildNnPath (SpacePaths.h,
-// FUN_06f5ea40) with the last seven arguments; when it returns false (no lane path needed)
+// (cdecl; only caller GameSupport msg 0x31 06eff291): BuildNnPath (SpacePaths.h,
+// ) with the last seven arguments; when it returns false (no lane path needed)
 // Legs is emptied and receives the single kind-1 leg From -> To (objects 0). Returns
 // BuildNnPath's result. The first argument is not read.
 bool __cdecl BuildBestPathLegs(unsigned int Unused, FSystemInfo* System, Vector const* From,

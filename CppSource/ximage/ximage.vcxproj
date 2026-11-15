@@ -47,12 +47,12 @@
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <AdditionalDependencies>dacom.lib;user32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>neuroncomponents.lib;user32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>$(OutDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="..\include\dacom.h" />
+    <ClInclude Include="..\include\neuroncomponents.h" />
     <ClInclude Include="..\include\render\IBigImage2.h" />
     <ClInclude Include="..\include\render\factory_names.h" />
     <ClInclude Include="..\include\render\render.h" />
@@ -65,7 +65,7 @@
     <ResourceCompile Include="ximage.rc" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\dacom\dacom.vcxproj">
+    <ProjectReference Include="..\neuroncomponents\neuroncomponents.vcxproj">
       <Project>{8F3A1B20-9C4D-4E5F-A617-B8C9D0E1F203}</Project>
     </ProjectReference>
   </ItemGroup>

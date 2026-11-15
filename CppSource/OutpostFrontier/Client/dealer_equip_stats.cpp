@@ -1,11 +1,7 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
-// Retail FUN_00484090 — dealer equipment stat / tip text.
-// Listing: OutpostFrontier.exe.txt 0x00484090–0x004854d8. Table: docs/re/dealer_equip_stats.md
+// — dealer equipment stat / tip text.
+// Listing: OutpostFrontier 0x00484090–0x004854d8. Table: implementation notes
 
 #include "dealer_equip_stats.h"
 
@@ -21,12 +17,12 @@
 
 namespace
 {
-    // The line and unit-suffix scratch are retail's shared DAT_0066fc60 / DAT_0066dc60
-    // (nn_text_scratch.h). FUN_00484090 itself only ever writes 0xff chars into them.
-    wchar_t* const G_DealerStatLine = G_NnTextScratchB; // DAT_0066fc60
-    wchar_t* const G_DealerStatUnit = G_NnTextScratchA; // DAT_0066dc60
+    // The line and unit-suffix scratch are baseline's shared the field / the field
+    // (nn_text_scratch.h). the routine itself only ever writes 0xff chars into them.
+    wchar_t* const G_DealerStatLine = G_NnTextScratchB;
+    wchar_t* const G_DealerStatUnit = G_NnTextScratchA;
 
-    // .rdata:DAT_005d1d00 / DAT_005d1cfc — thruster speed estimate.
+    // .rdata:the field / the field — thruster speed estimate.
     const float kThrusterSpeedBias = 48000.0f;
     const float kThrusterSpeedScale = 0.0016666667f; // 1/600
 

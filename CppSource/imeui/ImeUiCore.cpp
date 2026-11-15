@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "ImeUiCore.h"
@@ -120,7 +116,7 @@ static PFN_UNLOCKIMCC GUnlockImcc = NULL;
 bool ImeUi_Initialize(HWND Window, bool bDisabled)
 {
     GMessageWindow = Window;
-    #pragma warning(suppress: 4996) // Retail platform branch uses GetVersionExA.
+    #pragma warning(suppress: 4996) // baseline platform branch uses GetVersionExA.
     GetVersionExA(&GVersion);
     GbUnicodeIme = GVersion.dwPlatformId == VER_PLATFORM_WIN32_NT || GVersion.dwMajorVersion > 4 || (GVersion.dwMajorVersion == 4 && GVersion.dwMinorVersion > 0);
     HMODULE Library = LoadLibraryA("imm32.dll");
@@ -1076,7 +1072,7 @@ static DWORD GetImeId(unsigned Index)
                                 GImeId[0] = Id | Language;
                                 GImeId[1] = Version->dwFileVersionLS;
                                 free(Data);
-                                // Retail returns first ID on the first lookup, irrespective of Index.
+                                // baseline returns first ID on the first lookup, irrespective of Index.
                                 return GImeId[0];
                             }
                         }
@@ -1105,7 +1101,7 @@ static void SetupReadingApi()
         }
     }
 }
-// FUN_067142e0: synthesized cursor keys do not feed the client's normal key filtering.
+// synthesized cursor keys do not feed the client's normal key filtering.
 static void SendKey(unsigned Key, unsigned Count)
 {
     if (!Count) return;
@@ -1132,7 +1128,7 @@ static void MoveCompositionCaretToEnd()
     SendKey(VK_RIGHT, static_cast<unsigned>(wcslen(GComposition) - GCompositionCursor));
 }
 
-// FUN_06714360(HWND,bool,int), including the HWND obscured by the decompiler.
+// (HWND,bool,int), including the HWND obscured by the analysis tool.
 static void RemoveComposition(HWND Window, bool bAll, int NewLength)
 {
     if (GSupportLevel != 3) return;

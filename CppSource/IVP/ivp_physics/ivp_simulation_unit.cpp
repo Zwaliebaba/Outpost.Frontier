@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "ivp_simulation_unit.h"
@@ -17,22 +13,22 @@
 #include "../ivp_utility/ivp_signed_byte.h" // IVP_SignedLowByte
 
 // ============================================================================
-// FUN_06348e10: IVP_Simulation_Unit's real constructor. See the header's own
+// IVP_Simulation_Unit's real constructor. See the header's own
 // comment above the declaration for the full evidence trail (D-ivpenv-
 // staticobject pass, 2026-09-10).
 // ============================================================================
 IVP_Simulation_Unit::IVP_Simulation_Unit()
     : State(8)
-    , Prev(nullptr) // retail leaves this genuinely uninitialized; see header comment
+    , Prev(nullptr) // baseline leaves this genuinely uninitialized; see header comment
     , Next(nullptr) // ditto
 {
     // Cores: the Fixed<2> ctor -- elems = inline buffer (+0x14), memsize = 2, n_elems = 0
-    // (.text:06348e27-06348e35). ControllerBuckets: the default ctor -- {0, 0, null}
-    // (.text:06348e39-06348e41).
+    // (module storage-06348e35). ControllerBuckets: the default ctor -- {0, 0, null}
+    // (module storage-06348e41).
 }
 
 // ============================================================================
-// FUN_06348ef0: IVP_Simulation_Unit::remove_core. Common.dll.txt:414099-414138.
+// IVP_Simulation_Unit::remove_core. Common.
 // Backward linear search of Unit->Cores for `Core`, then shift-remove --
 // byte-for-byte the same algorithm as IVP_U_Vector<T>::RemoveElement, so
 // reused directly rather than hand-duplicated.
@@ -43,8 +39,8 @@ static void IVP_Simulation_Unit_Remove_Core(IVP_Simulation_Unit* Unit, IVP_Core*
 }
 
 // ============================================================================
-// FUN_06348c80: IVP_Simulation_Unit::find_controller_bucket_index.
-// Common.dll.txt:413799-413820. Backward linear search of ControllerBuckets
+// IVP_Simulation_Unit::find_controller_bucket_index.
+// Common. Backward linear search of ControllerBuckets
 // for the bucket keyed by `Controller` (compares bucket->Controller, i.e.
 // *(elems[i]), not the slot pointer itself -- confirmed via
 // `CMP dword ptr [ESI],EDX` where ESI=elems[i] and EDX=search key).
@@ -62,28 +58,28 @@ static int IVP_Simulation_Unit_Find_Controller_Bucket_Index(IVP_Simulation_Unit*
 }
 
 // ============================================================================
-// FUN_06348e60: IVP_Simulation_Unit::free_controller_bucket.
-// Common.dll.txt:414020-414062. Re-resolves the bucket index for `Controller`
-// (retail really does call FUN_06348c80 again here rather than reusing the
+// IVP_Simulation_Unit::free_controller_bucket.
+// Common. Re-resolves the bucket index for `Controller`
+// (baseline really does call the routine again here rather than reusing the
 // caller's index -- faithfully reproduced, not an accidental double search),
 // frees the bucket's own Cores vector buffer and the bucket record itself,
 // then removes the now-dangling slot from ControllerBuckets.
-//
+
 // Index<0 is defensive-only: every real call site (see
 // IVP_Simulation_Unit_Detach_Core below) only calls this after confirming a
-// matching bucket exists, so retail itself never null/underflow-guards this
+// matching bucket exists, so baseline itself never null/underflow-guards this
 // lookup here.
 // ============================================================================
 static void IVP_Simulation_Unit_Free_Controller_Bucket(IVP_Simulation_Unit* Unit, IVP_Controller* Controller)
 {
-    // cmn-ivp3d 2026-10-08: no not-found guard in retail (.text:06348e60-
-    // 06348eb5); an absent controller (index -1) reads elems[-1] and shifts
+    // cmn-ivp3d 2026-10-08: no not-found guard in baseline (module storage-
+    // ); an absent controller (index -1) reads elems[-1] and shifts
     // from -1 -- VERY STRANGE, REPRODUCED ON PURPOSE (the invented
     // `Index < 0 -> return` is gone).
     const int32_t Index = IVP_Simulation_Unit_Find_Controller_Bucket_Index(Unit, Controller);
 
     IVP_Sim_Unit_Controller_Bucket* const Bucket = Unit->ControllerBuckets.elems[Index];
-    delete Bucket; // :06348e77-:06348e83 null test, FUN_06348be0 (the Cores vector's Clear = member dtor), operator delete
+    delete Bucket; // :06348e77-:06348e83 null test, the routine (the Cores vector's Clear = member dtor), operator delete
 
     // :06348e8b-:06348eae: shift down while i < n-1 (n re-read), then n--.
     for (int32_t I = Index; I < static_cast<int32_t>(Unit->ControllerBuckets.n_elems) - 1; ++I)
@@ -94,8 +90,8 @@ static void IVP_Simulation_Unit_Free_Controller_Bucket(IVP_Simulation_Unit* Unit
 }
 
 // ============================================================================
-// FUN_06349430: raw intrusive doubly-linked-list unlink. Common.dll.txt:
-// 414798-414817. Structural twin of FUN_063493e0 (push-front, ported nowhere
+// raw intrusive doubly-linked-list unlink. Common:
+// 414798-414817. Structural twin of the routine (push-front, ported nowhere
 // yet -- not needed for the destructor path this pass covers). `HeadSlot` is
 // the address of whichever of the manager's two list-head pointers (+0x14 or
 // +0x1A4) currently owns `Node`.
@@ -121,9 +117,9 @@ static void IVP_Simulation_Unit_List_Unlink(IVP_Simulation_Unit* Node, IVP_Simul
 }
 
 // ============================================================================
-// FUN_06349380 (.text:06349380-063493d5, thiscall, RET 4):
+// (module storage-063493d5, thiscall, RET 4):
 // IVP_Sim_Units_Manager's constructor, cmn-phy8 2026-10-08. Store order as
-// retail: env (:06349389), +0x14 = 0 (:06349399), +0x1a4 = 0 (:0634939c),
+// baseline: env (:06349389), +0x14 = 0 (:06349399), +0x1a4 = 0 (:0634939c),
 // +0x04 = 9.0f (:063493ae), +0x08 = 0x3f3ae140 (:063493bd), +0x0c = 0.0f
 // (:063493cc), +0x10 = 0x3e99999a = 0.3f (:063493cf). +0x18..+0x1a3 stay as
 // operator_new left them.
@@ -134,17 +130,17 @@ IVP_Sim_Units_Manager::IVP_Sim_Units_Manager(IVP_Environment* Environment)
     sim_units_head = nullptr;
     still_units_head = nullptr;
     Field_0x04 = 9.0f;
-    Field_0x08 = 0.729999542f; // 0x3f3ae140 exactly
+    Field_0x08 = 0.729999542f; // exactly
     Field_0x0c = 0.0f;
-    Field_0x10 = 0.3f; // 0x3e99999a
+    Field_0x10 = 0.3f;
 }
 
 // ============================================================================
-// FUN_06349460 (.text:06349460-06349480, thiscall, RET 4):
+// (module storage-06349480, thiscall, RET 4):
 // IVP_Sim_Units_Manager::rem_sim_unit_from_manager. `SHL [Unit] 0x18; CMP
-// 0x8000000; JL` -- State low byte < 8 (signed) picks the +0x14 head, else
-// +0x1a4; then FUN_06349430(Unit, head). Callers 06348c4b, 06348d57,
-// 063494cc, 06349667.
+// ; JL` -- State low byte < 8 (signed) picks the +0x14 head, else
+// +0x1a4; then the routine(Unit, head). Callers 06348c4b, 06348d57,
+// , 06349667.
 // ============================================================================
 void IVP_Sim_Units_Manager::rem_sim_unit_from_manager(IVP_Simulation_Unit* Unit)
 {
@@ -156,8 +152,8 @@ void IVP_Sim_Units_Manager::rem_sim_unit_from_manager(IVP_Simulation_Unit* Unit)
 }
 
 // ============================================================================
-// FUN_063493e0: raw intrusive doubly-linked-list push-front. Common.dll.txt:
-// 414749-414763. Structural twin of FUN_06349430 (unlink, ported above as
+// raw intrusive doubly-linked-list push-front. Common:
+// 414749-414763. Structural twin of the routine (unlink, ported above as
 // IVP_Simulation_Unit_List_Unlink) -- confirmed byte-for-byte inverse of it:
 // `HeadSlot` is the address of whichever of the manager's two list-head
 // pointers (+0x14 / +0x1A4) `Node` is being pushed onto as the new head.
@@ -176,11 +172,11 @@ static void IVP_Simulation_Unit_List_Push_Front(IVP_Simulation_Unit* Node, IVP_S
 }
 
 // ============================================================================
-// FUN_06349400 (.text:06349400-06349420, thiscall, RET 4):
+// (module storage-06349420, thiscall, RET 4):
 // IVP_Sim_Units_Manager::add_sim_unit_to_manager. Same head selection as
 // rem_sim_unit_from_manager (`SHL 0x18; CMP 0x8000000; JL` -> +0x14, else
-// +0x1a4), then FUN_063493e0(Unit, head). Callers 063476d0, 063489cc,
-// 063494d8 (revive, State already 1), 0634967c.
+// +0x1a4), then the routine(Unit, head). Callers 063476d0, 063489cc,
+// (revive, State already 1), 0634967c.
 // ============================================================================
 void IVP_Sim_Units_Manager::add_sim_unit_to_manager(IVP_Simulation_Unit* Unit)
 {
@@ -192,27 +188,27 @@ void IVP_Sim_Units_Manager::add_sim_unit_to_manager(IVP_Simulation_Unit* Unit)
 }
 
 // ============================================================================
-// FUN_06348d80: IVP_Simulation_Unit::free_vector_buffers. Common.dll.txt:
-// 413933-413986 (SEH-framed in retail; dropped here per this codebase's
+// IVP_Simulation_Unit::free_vector_buffers. Common:
+// 413933-413986 (SEH-framed in baseline; dropped here per this codebase's
 // established convention for leaf cleanup with no throwing sub-calls). Frees
-// ControllerBuckets.elems first, then Cores.elems (matching retail's exact
+// ControllerBuckets.elems first, then Cores.elems (matching baseline's exact
 // order), each only if heap-allocated (not the inline small-buffer) --
 // byte-for-byte IVP_U_Vector<T>::Clear()'s own logic, so reused directly.
 // ============================================================================
-// cmn-ivp3d 2026-10-08: retail first runs FUN_06348b80 (clear the controller
+// cmn-ivp3d 2026-10-08: baseline first runs the routine (clear the controller
 // buckets, :06348da6) -- that call was missing. This is the unit's destructor
 // body (~IVP_Simulation_Unit); callers free the unit afterwards.
 void IVP_Simulation_Unit_Free_Vector_Buffers(IVP_Simulation_Unit* Unit)
 {
-    IVP_Simulation_Unit_Clear_Controller_Buckets(Unit); // :06348da6 FUN_06348b80
+    IVP_Simulation_Unit_Clear_Controller_Buckets(Unit); // :06348da6 the routine
     Unit->ControllerBuckets.Clear();                    // :06348dab-:06348dcf
     Unit->Cores.Clear();                                // :06348dd3-:06348dfd
 }
 
 // ============================================================================
-// FUN_06348cb0: IVP_Simulation_Unit::detach_core (orchestrator). See
+// IVP_Simulation_Unit::detach_core (orchestrator). See
 // ivp_simulation_unit.h for the full evidence chain and offsets. Called from
-// IVP_Core::~IVP_Core (FUN_063477e0, Common.dll.txt:411302-411306) via
+// IVP_Core::~IVP_Core (the routine, Common) via
 // IVP_Core_Remove_Object's real-destructor wiring in ivp_core.cpp.
 // ============================================================================
 void IVP_Simulation_Unit_Detach_Core(IVP_Simulation_Unit* Unit, IVP_Core* Core)
@@ -228,7 +224,7 @@ void IVP_Simulation_Unit_Detach_Core(IVP_Simulation_Unit* Unit, IVP_Core* Core)
         IVP_Controller* Controller = Core->Controllers.ElementAt(i);
 
         // :06348cdc-:06348d37 (cmn-ivp3d 2026-10-08: the invented
-        // `BucketIndex < 0 -> continue` is gone; retail indexes elems[-1]).
+        // `BucketIndex < 0 -> continue` is gone; baseline indexes elems[-1]).
         const int32_t BucketIndex = IVP_Simulation_Unit_Find_Controller_Bucket_Index(Unit, Controller);
         IVP_Sim_Unit_Controller_Bucket* const Bucket = Unit->ControllerBuckets.elems[BucketIndex];
         Bucket->Cores.RemoveElement(Core); // inlined generic remove
@@ -244,9 +240,9 @@ void IVP_Simulation_Unit_Detach_Core(IVP_Simulation_Unit* Unit, IVP_Core* Core)
     //    two vector buffers, then free the unit itself.
     if (Unit->Cores.n_elems == 0)
     {
-        Core->Environment->sim_units_manager->rem_sim_unit_from_manager(Unit); // Environment+0x08, FUN_06349460
+        Core->Environment->sim_units_manager->rem_sim_unit_from_manager(Unit); // Environment+0x08, the routine
         IVP_Simulation_Unit_Free_Vector_Buffers(Unit);
-        ::operator delete(Unit); // FUN_06391d5a (the unit comes from operator new)
+        ::operator delete(Unit); // (the unit comes from operator new)
     }
 }
 
@@ -257,7 +253,7 @@ void IVP_Simulation_Unit_Detach_Core(IVP_Simulation_Unit* Unit, IVP_Core* Core)
 // order they're declared there.
 // ============================================================================
 
-// FUN_06348860 (Common.dll.txt:413260-413283, decomp-tracker item 2908).
+// (Common, implementation tracker item 2908).
 bool IVP_Simulation_Unit_Has_Controller_Bucket(IVP_Simulation_Unit* Unit, IVP_Controller* Controller)
 {
     for (int i = static_cast<int>(Unit->ControllerBuckets.n_elems) - 1; i >= 0; --i)
@@ -270,7 +266,7 @@ bool IVP_Simulation_Unit_Has_Controller_Bucket(IVP_Simulation_Unit* Unit, IVP_Co
     return false;
 }
 
-// FUN_06348900 (Common.dll.txt:413297-413338, decomp-tracker item 2910).
+// (Common, implementation tracker item 2910).
 void IVP_Simulation_Unit_Create_Controller_Bucket(IVP_Simulation_Unit* Unit, IVP_Controller* Controller)
 {
     IVP_Sim_Unit_Controller_Bucket* Bucket = new IVP_Sim_Unit_Controller_Bucket();
@@ -278,18 +274,18 @@ void IVP_Simulation_Unit_Create_Controller_Bucket(IVP_Simulation_Unit* Unit, IVP
     Unit->ControllerBuckets.Add(Bucket);
 }
 
-// FUN_063488a0 (Common.dll.txt:413351-413387, decomp-tracker item 2909).
+// (Common, implementation tracker item 2909).
 void IVP_Simulation_Unit_Add_Core_To_Controller_Bucket(IVP_Simulation_Unit* Unit, IVP_Controller* Controller, IVP_Core* Core)
 {
-    // .text:063488a0-063488f2: inlined search (index -1 when absent, no
-    // test -- retail indexes elems[-1]; the invented guard is gone,
+    // inlined search (index -1 when absent, no
+    // test -- baseline indexes elems[-1]; the invented guard is gone,
     // cmn-ivp3d 2026-10-08), then IVP_U_Vector::add on the bucket's Cores.
     const int32_t Index = IVP_Simulation_Unit_Find_Controller_Bucket_Index(Unit, Controller);
     IVP_Sim_Unit_Controller_Bucket* const Bucket = Unit->ControllerBuckets.elems[Index];
     Bucket->Cores.Add(Core);
 }
 
-// FUN_063487f0 (Common.dll.txt:413186-413260, decomp-tracker item 2907).
+// (Common, implementation tracker item 2907).
 void IVP_Simulation_Unit_Rebuild_Controller_Buckets(IVP_Simulation_Unit* Unit)
 {
     for (int i = static_cast<int>(Unit->Cores.n_elems) - 1; i >= 0; --i)
@@ -307,7 +303,7 @@ void IVP_Simulation_Unit_Rebuild_Controller_Buckets(IVP_Simulation_Unit* Unit)
         }
     }
 
-    // FUN_063492c0 (decomp-tracker item 2935), now ported below as
+    // (implementation tracker item 2935), now ported below as
     // IVP_Simulation_Unit_Sort_Controller_Buckets_By_Priority -- wired in per
     // the TODO the concurrent lane that authored this function left here
     // (D-cluster-06347f50 pass, 2026-09-10; closed by D-cluster-06348f60,
@@ -315,12 +311,12 @@ void IVP_Simulation_Unit_Rebuild_Controller_Buckets(IVP_Simulation_Unit* Unit)
     IVP_Simulation_Unit_Sort_Controller_Buckets_By_Priority(Unit);
 }
 
-// FUN_06348b80 (Common.dll.txt:413433-413457, decomp-tracker item 2914).
+// (Common, implementation tracker item 2914).
 void IVP_Simulation_Unit_Clear_Controller_Buckets(IVP_Simulation_Unit* Unit)
 {
     for (int i = static_cast<int>(Unit->ControllerBuckets.n_elems) - 1; i >= 0; --i)
     {
-        // :06348b94-:06348bab: the null test is delete's; FUN_06348be0 (the
+        // :06348b94-:06348bab: the null test is delete's; the routine (the
         // Cores vector's Clear) is the member destructor, then operator
         // delete -- the bucket comes from `new` (06348900), so `delete`, not
         // free() (cmn-ivp3d 2026-10-08).
@@ -329,7 +325,7 @@ void IVP_Simulation_Unit_Clear_Controller_Buckets(IVP_Simulation_Unit* Unit)
     Unit->ControllerBuckets.Clear();
 }
 
-// FUN_06348ad0 (Common.dll.txt:413560-413644, decomp-tracker item 2913). See
+// (Common, implementation tracker item 2913). See
 // ivp_simulation_unit.h's own comment above the declaration for the vtable
 // slot-index caveat and why this branch is currently unreachable in practice.
 IVP_Core* IVP_Simulation_Unit_Find_Disconnected_Core(IVP_Simulation_Unit* Unit)
@@ -353,10 +349,10 @@ IVP_Core* IVP_Simulation_Unit_Find_Disconnected_Core(IVP_Simulation_Unit* Unit)
             continue;
         }
 
-        IVP_Core* const FirstMaster = FUN_063557c0(Cores->elems[0]);
+        IVP_Core* const FirstMaster = IVP_GetMergedCore(Cores->elems[0]);
         for (int32_t J = Count - 1; J >= 0; --J)
         {
-            IVP_Core* const Master = FUN_063557c0(Cores->elems[J]);
+            IVP_Core* const Master = IVP_GetMergedCore(Cores->elems[J]);
             if (Master != FirstMaster)
             {
                 Master->MergedCoreWhichReplacedIt = FirstMaster;
@@ -365,13 +361,13 @@ IVP_Core* IVP_Simulation_Unit_Find_Disconnected_Core(IVP_Simulation_Unit* Unit)
     }
 
     // Step 3 (:06348b48-:06348b77): the first core's master is taken with no
-    // count test (an empty unit reads elems[0], as retail -- the port's old
+    // count test (an empty unit reads elems[0], as baseline -- the port's old
     // `n == 0 -> return nullptr` was invented), then the first core whose
     // master differs is returned.
-    IVP_Core* const FirstMaster = FUN_063557c0(Unit->Cores.elems[0]);
+    IVP_Core* const FirstMaster = IVP_GetMergedCore(Unit->Cores.elems[0]);
     for (int32_t I = 0; I < static_cast<int32_t>(Unit->Cores.n_elems); ++I)
     {
-        IVP_Core* const Master = FUN_063557c0(Unit->Cores.elems[I]);
+        IVP_Core* const Master = IVP_GetMergedCore(Unit->Cores.elems[I]);
         if (Master != FirstMaster)
         {
             return Master;
@@ -380,8 +376,8 @@ IVP_Core* IVP_Simulation_Unit_Find_Disconnected_Core(IVP_Simulation_Unit* Unit)
     return nullptr;
 }
 
-// FUN_06348960 (Common.dll.txt:413401-413527, decomp-tracker item 2911).
-// Faithfully reproduces retail's own multi-pass control flow (see
+// (Common, implementation tracker item 2911).
+// Faithfully reproduces baseline's own multi-pass control flow (see
 // ivp_simulation_unit.h's header comment) rather than a "cleaned up"
 // re-derivation, since the peel-one-group-per-pass algorithm is genuinely
 // stateful across passes (the PendingMaster/NeedsAnotherPass carry).
@@ -390,18 +386,18 @@ void IVP_Simulation_Unit_Split_Off_Core_Group(IVP_Simulation_Unit* Unit, IVP_Cor
     for (;;)
     {
         IVP_Core* PendingMaster = nullptr; // ESI / local_18: first non-matching core's master seen this pass
-        bool NeedsAnotherPass = false;     // local_14 (as a bool -- retail's 0/1 dword)
+        bool NeedsAnotherPass = false;     // local_14 (as a bool -- baseline's 0/1 dword)
 
-        IVP_Simulation_Unit* NewUnit = new IVP_Simulation_Unit(); // operator_new(0x24) + FUN_06348e10
+        IVP_Simulation_Unit* NewUnit = new IVP_Simulation_Unit(); // operator_new(0x24) + the routine
         NewUnit->State = (NewUnit->State & 0xFFFFFF01u) | 1u;     // force low byte to 1 ("awake")
 
-        TargetMaster->Environment->sim_units_manager->add_sim_unit_to_manager(NewUnit); // Environment+0x08, FUN_06349400
+        TargetMaster->Environment->sim_units_manager->add_sim_unit_to_manager(NewUnit); // Environment+0x08, the routine
 
         int Index = 0;
         while (Index < static_cast<int>(Unit->Cores.n_elems))
         {
             IVP_Core* Core = Unit->Cores.ElementAt(Index);
-            IVP_Core* CurrentMaster = FUN_063557c0(Core);
+            IVP_Core* CurrentMaster = IVP_GetMergedCore(Core);
 
             if (CurrentMaster == TargetMaster)
             {
@@ -435,7 +431,7 @@ void IVP_Simulation_Unit_Split_Off_Core_Group(IVP_Simulation_Unit* Unit, IVP_Cor
     }
 }
 
-// FUN_06348aa0 (Common.dll.txt:413529-413551, decomp-tracker item 2912).
+// (Common, implementation tracker item 2912).
 void IVP_Simulation_Unit_Rebalance(IVP_Simulation_Unit* Unit)
 {
     IVP_Core* Disconnected = IVP_Simulation_Unit_Find_Disconnected_Core(Unit);
@@ -447,7 +443,7 @@ void IVP_Simulation_Unit_Rebalance(IVP_Simulation_Unit* Unit)
     }
 }
 
-// FUN_06348c10 (Common.dll.txt:413731-413767, decomp-tracker item 2916).
+// (Common, implementation tracker item 2916).
 void IVP_Simulation_Unit_Absorb_Cores_From(IVP_Simulation_Unit* Unit, IVP_Simulation_Unit* Source)
 {
     // EAX starts at 0 (:06348c19) and holds the last moved core's Environment
@@ -456,19 +452,19 @@ void IVP_Simulation_Unit_Absorb_Cores_From(IVP_Simulation_Unit* Unit, IVP_Simula
     for (int32_t I = 0; I < static_cast<int32_t>(Source->Cores.n_elems); ++I)
     {
         IVP_Core* const Core = Source->Cores.elems[I];
-        Unit->Cores.Add(Core); // FUN_06348ec0
+        Unit->Cores.Add(Core);
         Environment = Core->Environment;
         Core->OwningSimUnit = Unit;
     }
 
     // VERY STRANGE, REPRODUCED ON PURPOSE (:06348c47, cmn-ivp3d 2026-10-08):
     // the sim-unit manager is read off that environment with no test, so an
-    // empty Source dereferences null exactly as retail does. (The port used to
+    // empty Source dereferences null exactly as baseline does. (The port used to
     // skip the unlink in that case -- an invented guard.)
-    Environment->sim_units_manager->rem_sim_unit_from_manager(Source); // FUN_06349460
+    Environment->sim_units_manager->rem_sim_unit_from_manager(Source);
 }
 
-// FUN_06348c60 (Common.dll.txt:413779-413794, decomp-tracker item 2917).
+// (Common, implementation tracker item 2917).
 void IVP_Simulation_Unit_Merge_From(IVP_Simulation_Unit* Unit, IVP_Simulation_Unit* Source)
 {
     IVP_Simulation_Unit_Clear_Controller_Buckets(Unit);
@@ -483,13 +479,13 @@ void IVP_Simulation_Unit_Merge_From(IVP_Simulation_Unit* Unit, IVP_Simulation_Un
 // implements them in the same order they're declared there.
 // ============================================================================
 
-// FUN_06349210 (Common.dll.txt:414508-414590, decomp-tracker item 2934, 69
-// insns). Full raw trace: resolves the bucket for `Controller` (FUN_06348c80,
+// (Common, implementation tracker item 2934, 69
+// insns). Full raw trace: resolves the bucket for `Controller` (the routine,
 // same helper as IVP_Simulation_Unit_Find_Controller_Bucket_Index above),
 // then removes `Core` from that bucket's own Cores vector via the identical
 // backward-search-then-shift algorithm IVP_U_Vector<T>::RemoveElement already
 // implements (`Bucket->Cores.RemoveElement(Core)` reaches byte-identical
-// memory to retail's inlined removal here); if the bucket's Cores list is
+// memory to baseline's inlined removal here); if the bucket's Cores list is
 // left empty, frees the bucket via the SAME helper
 // IVP_Simulation_Unit_Free_Controller_Bucket already uses for the
 // destructor path (re-resolves the bucket index rather than reusing a
@@ -497,12 +493,12 @@ void IVP_Simulation_Unit_Merge_From(IVP_Simulation_Unit* Unit, IVP_Simulation_Un
 // helper's own documented precedent). This is, byte-for-byte, the same
 // per-controller body IVP_Simulation_Unit_Detach_Core already runs inline
 // in its own loop (above) -- provided here as the independently-callable,
-// correctly-named standalone form retail itself exposes.
+// correctly-named standalone form baseline itself exposes.
 void IVP_Simulation_Unit_Detach_Core_From_Controller_Bucket(IVP_Simulation_Unit* Unit,
                                                               IVP_Controller* Controller,
                                                               IVP_Core* Core)
 {
-    // cmn-ivp3d 2026-10-08: .text:06349210 has no not-found test (index -1
+    // cmn-ivp3d 2026-10-08: module storage has no not-found test (index -1
     // reads elems[-1]); the invented guard is gone. The emptied bucket is
     // freed inline with the SAME index (:06349274-:063492b6), not through a
     // second search.
@@ -521,7 +517,7 @@ void IVP_Simulation_Unit_Detach_Core_From_Controller_Bucket(IVP_Simulation_Unit*
     }
 }
 
-// FUN_063491d0 (Common.dll.txt:414468-414493, decomp-tracker item 2933, 21
+// (Common, implementation tracker item 2933, 21
 // insns). See ivp_simulation_unit.h's own comment above the declaration.
 void IVP_Simulation_Unit_Register_Core_With_Controller(IVP_Simulation_Unit* Unit,
                                                         IVP_Controller* Controller,
@@ -535,7 +531,7 @@ void IVP_Simulation_Unit_Register_Core_With_Controller(IVP_Simulation_Unit* Unit
     IVP_Simulation_Unit_Sort_Controller_Buckets_By_Priority(Unit);
 }
 
-// FUN_06349350 (Common.dll.txt:414675-414695, decomp-tracker item 2936, 15
+// (Common, implementation tracker item 2936, 15
 // insns, tiny). Swaps ControllerBuckets.elems[i] and ControllerBuckets.elems[j]
 // in place. Trivial helper for the insertion sort below -- defined ahead of
 // it since it's the sort's own callee.
@@ -547,10 +543,10 @@ void IVP_Simulation_Unit_Swap_Controller_Buckets(IVP_Simulation_Unit* Unit, int 
     Unit->ControllerBuckets.elems[j] = Bi;
 }
 
-// FUN_063492c0 (Common.dll.txt:414595-414661, decomp-tracker item 2935, 57
+// (Common, implementation tracker item 2935, 57
 // insns). Insertion-sort of Unit->ControllerBuckets by each bucket's own
 // Controller's get_controller_priority() virtual (signed enum return).
-// Preserves retail's exact
+// Preserves baseline's exact
 // control flow: outer index walks forward one step at a time; whenever
 // adjacent buckets [i],[i+1] compare out of order, swap them, then bubble the
 // moved element back toward index 0 while it's still greater than its new
@@ -583,7 +579,7 @@ void IVP_Simulation_Unit_Sort_Controller_Buckets_By_Priority(IVP_Simulation_Unit
     }
 }
 
-// FUN_063494f0 (Common.dll.txt:414913-414933, decomp-tracker item 2943, 15
+// (Common, implementation tracker item 2943, 15
 // insns, tiny). See ivp_simulation_unit.h's own comment above the
 // declaration -- byte-identical twin of IVP_Core::ensure_in_simulation()'s
 // own inline loop (ivp_core.cpp), provided here as the independently
@@ -593,13 +589,13 @@ void IVP_Simulation_Unit_Update_Cores_Last_Motion_Time(IVP_Simulation_Unit* Unit
 {
     for (int i = static_cast<int>(Unit->Cores.n_elems) - 1; i >= 0; --i)
     {
-        Unit->Cores.ElementAt(i)->update_time_of_last_motion(); // FUN_063470e0
+        Unit->Cores.ElementAt(i)->update_time_of_last_motion();
     }
 }
 
-// FUN_06349490's raw retail shape (ECX=SimUnit, stack=Environment*). See
+// 's raw baseline shape (ECX=SimUnit, stack=Environment*). See
 // ivp_simulation_unit.h's own comment above the declaration.
-// cmn-ivp3d 2026-10-08: re-traced .text:06349490-063494e8 (the library's
+// cmn-ivp3d 2026-10-08: re-traced module storage-063494e8 (the library's
 // sim_unit_revive_for_simulation); the invented `Unit == nullptr` and
 // `Environment != nullptr` guards are gone and the sleep test is the low
 // BYTE of State (`CMP byte [EDI],8`), not the whole dword. This is the one
@@ -631,14 +627,14 @@ void IVP_Simulation_Unit_Revive_If_Sleeping(IVP_Simulation_Unit* Unit, IVP_Envir
     // :063494bf-:063494e1.
     if (static_cast<uint8_t>(Unit->State) == 0x08)
     {
-        Environment->sim_units_manager->rem_sim_unit_from_manager(Unit); // 06349460
+        Environment->sim_units_manager->rem_sim_unit_from_manager(Unit);
         Unit->State = (Unit->State & 0xFFFFFF01u) | 0x1u;
-        Environment->sim_units_manager->add_sim_unit_to_manager(Unit);   // 06349400
+        Environment->sim_units_manager->add_sim_unit_to_manager(Unit);
     }
 }
 
 
-// FUN_063495e0 (Common.dll.txt:415037-415117, decomp-tracker item 2947, 71
+// (Common, implementation tracker item 2947, 71
 // insns). See ivp_simulation_unit.h's own comment above the declaration for
 // the full behavior summary. Full raw trace: Environment's current_time
 // (IVP_Environment+0xF8/+0xFC, ivp_environment.h) is read once up front and
@@ -648,9 +644,9 @@ void IVP_Simulation_Unit_Revive_If_Sleeping(IVP_Simulation_Unit* Unit, IVP_Envir
 // accumulated into Verdict (starts at 3, the "long idle" value -- so Verdict
 // only survives at 3 if EVERY core reported 3). If the whole unit's Cores
 // list is empty, the scan loop never executes and Verdict is left at its
-// initial 3 -- retail genuinely puts an empty unit to sleep unconditionally,
+// initial 3 -- baseline genuinely puts an empty unit to sleep unconditionally,
 // reproduced here as-is (matches the raw JS-to-sleep-section fallthrough at
-// Common.dll.txt:0634960d).
+// Commond).
 int IVP_Simulation_Unit_Update_Motion_And_Maybe_Sleep(IVP_Simulation_Unit* Unit, IVP_Environment* Environment)
 {
     const float TimeBase = Environment->current_time.time_base;
@@ -660,7 +656,7 @@ int IVP_Simulation_Unit_Update_Motion_And_Maybe_Sleep(IVP_Simulation_Unit* Unit,
     for (int i = static_cast<int>(Unit->Cores.n_elems) - 1; i >= 0; --i)
     {
         IVP_Core* Core = Unit->Cores.ElementAt(i);
-        int Result = Core->classify_motion_state(TimeBase, TimeOffset); // FUN_063478f0
+        int Result = Core->classify_motion_state(TimeBase, TimeOffset);
         Core->MovementState = (Core->MovementState & ~0xFFu) | (static_cast<uint32_t>(Result) & 0xFFu);
         Verdict &= Result;
     }
@@ -673,40 +669,40 @@ int IVP_Simulation_Unit_Update_Motion_And_Maybe_Sleep(IVP_Simulation_Unit* Unit,
     // Every core reported "long idle" (3) -- transition the whole unit to sleep.
     for (int i = static_cast<int>(Unit->Cores.n_elems) - 1; i >= 0; --i)
     {
-        Unit->Cores.ElementAt(i)->freeze_and_fire_object_frozen(); // FUN_0634b5e0 (:06349655-:0634965b)
+        Unit->Cores.ElementAt(i)->freeze_and_fire_object_frozen(); // (:06349655-:0634965b)
     }
 
     IVP_Sim_Units_Manager* const Manager = Environment->sim_units_manager; // Environment+0x08
-    Manager->rem_sim_unit_from_manager(Unit); // 06349460
+    Manager->rem_sim_unit_from_manager(Unit);
     Unit->State = (Unit->State & 0xFFFFFF08u) | 0x08u;
-    Manager->add_sim_unit_to_manager(Unit);   // 06349400
+    Manager->add_sim_unit_to_manager(Unit);
 
     return 1;
 }
 
-// FUN_063495c0 (Common.dll.txt:415020-415031, decomp-tracker item 2946, 10
+// (Common, implementation tracker item 2946, 10
 // insns, tiny). NOT one of this pass's own 19 assigned items, but closed
 // here as a direct dependency of item 2948 below -- its own 3 callees
 // (Clear/Rebuild_Controller_Buckets, Rebalance) are all ready as of this
 // pass; item 2946 was previously `blocked` on exactly those 3.
 void IVP_Simulation_Unit_Rebalance_And_Clear_Topology_Flag(IVP_Simulation_Unit* Unit)
 {
-    IVP_Simulation_Unit_Clear_Controller_Buckets(Unit);  // FUN_06348b80
-    IVP_Simulation_Unit_Rebuild_Controller_Buckets(Unit); // FUN_063487f0
-    IVP_Simulation_Unit_Rebalance(Unit);                   // FUN_06348aa0
+    IVP_Simulation_Unit_Clear_Controller_Buckets(Unit);
+    IVP_Simulation_Unit_Rebuild_Controller_Buckets(Unit);
+    IVP_Simulation_Unit_Rebalance(Unit);
     Unit->State &= 0xFFFFFCFFu; // clears bits 0x300 (the pair items 2926/2930 above set)
 }
 
-// FUN_063496a0 (.text:063496a0-063499af, thiscall on the unit, RET 8), the
+// (module storage-063499af, thiscall on the unit, RET 8), the
 // library's simulate_single_sim_unit_psi. Re-traced in full by cmn-ivp3d
-// (2026-10-08); the x87 terms are kept in double where retail keeps them on
+// (2026-10-08); the x87 terms are kept in double where baseline keeps them on
 // the FPU stack and rounded only at the FSTP dword.
 //   - EventSim->sim_unit = Unit; Env->vector_cores_frozen (+0xa4) busy word
 //     (+0x10) incremented; the current time halves (+0xf8 / +0xfc) and the
 //     controller bucket count (+0x1e) are read once up front.
-//   - Cores: retail runs n-1 .. 1 in the loop (`DEC EBX; CMP EBX,1; JL`)
+//   - Cores: baseline runs n-1 .. 1 in the loop (`DEC EBX; CMP EBX,1; JL`)
 //     and then index 0 unconditionally (:06349792) -- reproduced literally,
-//     so an empty unit reads elems[0] as retail does.
+//     so an empty unit reads elems[0] as baseline does.
 //   - Verdict = OR of the float bits of (1 - |speed|^2); `OR EDX,EBP; JGE`
 //     takes the non-negative arm.
 //   - Controller buckets, last first: slot 4 do_simulation_controller(
@@ -717,7 +713,7 @@ void IVP_Simulation_Unit_Rebalance_And_Clear_Topology_Flag(IVP_Simulation_Unit* 
 //     (06345460, :06349979).
 //   - State & 0x300 -> 063495c0; busy word decremented (re-read through
 //     EventSim->environment); the arena is rewound (06344070, reset_chunks).
-// The per-core body FUN_063496a0 runs twice (:063496f0-:0634978c in the loop,
+// The per-core body the routine runs twice (:063496f0-:0634978c in the loop,
 // :06349792-:06349828 for index 0). Returns the float bits of 1 - |speed|^2.
 static uint32_t IVP_Simulation_Unit_Psi_Core_Step(IVP_Core* Core, float TimeBase, float TimeOffset)
 {
@@ -726,20 +722,20 @@ static uint32_t IVP_Simulation_Unit_Psi_Core_Step(IVP_Core* Core, float TimeBase
         - *reinterpret_cast<const float*>(&Core->TimeOfLastPsi.time_base)) + TimeOffset)
         - *reinterpret_cast<const float*>(&Core->TimeOfLastPsi.time_offset));
 
-    Core->QWorldFCoreNext.set_matrix(&Core->MWorldFCore); // FUN_06350bc0 (+0xe4 -> +0xf4)
+    Core->QWorldFCoreNext.set_matrix(&Core->MWorldFCore); // (+0xe4 -> +0xf4)
 
-    // FUN_0628be60(this = +0x124, +0xb4, +0xc4, Alpha): each component is
+    // (this = +0x124, +0xb4, +0xc4, Alpha): each component is
     // `FLD s; FMUL dir; FADD base; FSTP` -- one rounding per component.
     Core->MWorldFCore.vv.set(
         (float)((double)(Alpha) * Core->DeltaWorldFCore.x + Core->PosWorldFCore.x),
         (float)((double)(Alpha) * Core->DeltaWorldFCore.y + Core->PosWorldFCore.y),
         (float)((double)(Alpha) * Core->DeltaWorldFCore.z + Core->PosWorldFCore.z));
 
-    Core->commit_speed_changes(); // FUN_06346dd0
+    Core->commit_speed_changes();
     Core->MovementState &= 0xFFFF00FFu; // +0x60
     Core->PendingImpactCount = 0;       // +0x64 (word)
 
-    // x*x + y*y, then + z*z, then FSUBR 1.0f (DAT_063a53d0), FSTP dword.
+    // x*x + y*y, then + z*z, then FSUBR 1.0f (the field), FSTP dword.
     const double SpeedMagSq = ((double)(Core->Speed.x) * Core->Speed.x
         + (double)(Core->Speed.y) * Core->Speed.y)
         + (double)(Core->Speed.z) * Core->Speed.z;
@@ -755,11 +751,11 @@ void IVP_Simulation_Unit_Process_One_Psi_Step(IVP_Event_Sim* EventSim, IVP_Simul
 
     IVP_Environment* Env = EventSim->environment;
     // CORRECTED 2026-09-17: these two counters live on DIFFERENT objects, and the port had
-    // both hanging off the pool. Retail:
-    //     .text:063496b3  MOV EAX,[EAX + 0xa4]        ; Env->vector_cores_frozen
-    //     .text:063496b9  INC word ptr [EAX + 0x10]   ; <- the arena's own +0x10 counter
-    //     .text:0634983e  MOV ESI,[ECX + 0x8]         ; ESI = the ENVIRONMENT
-    //     .text:06349841  DEC word ptr [ESI + 0x118]  ; <- an Environment field, not the pool's
+    // both hanging off the pool. baseline:
+    // MOV EAX,[EAX + 0xa4]        ; Env->vector_cores_frozen
+    // INC word ptr [EAX + 0x10]   ; <- the arena's own +0x10 counter
+    // MOV ESI,[ECX + 0x8]         ; ESI = the ENVIRONMENT
+    // DEC word ptr [ESI + 0x118]  ; <- an Environment field, not the pool's
     // vector_cores_frozen is a 0x14-byte IVP_U_Memory arena (see ivp_environment.h, proven
     // from the constructor's init_mem pair), so +0x118 on it was 0x104 bytes past the end of
     // the object. That mis-binding only became visible when the field stopped being `void*`.
@@ -779,7 +775,7 @@ void IVP_Simulation_Unit_Process_One_Psi_Step(IVP_Event_Sim* EventSim, IVP_Simul
     {
         Verdict |= IVP_Simulation_Unit_Psi_Core_Step(Unit->Cores.elems[I], TimeBase, TimeOffset);
     }
-    // Index 0 unconditionally (an empty unit reads elems[0], as retail).
+    // Index 0 unconditionally (an empty unit reads elems[0], as baseline).
     Verdict |= IVP_Simulation_Unit_Psi_Core_Step(Unit->Cores.elems[0], TimeBase, TimeOffset);
 
     bool CooldownExpired;
@@ -789,7 +785,7 @@ void IVP_Simulation_Unit_Process_One_Psi_Step(IVP_Event_Sim* EventSim, IVP_Simul
         --(*CooldownTimer);
         if (*CooldownTimer == 0)
         {
-            // :06349855-:06349874 -- FMUL -5.0f (DAT_063a549c) on the unrounded value, then
+            // :06349855-:06349874 -- FMUL -5.0f (the field) on the unrounded value, then
             // MSVCRT ftol (truncation toward zero), 0xf - result into the word.
             const double RandomValue = (double)(IVP_FastRandomFloat()) * -5.0f;
             const int32_t RandomInt = static_cast<int32_t>(RandomValue);
@@ -809,7 +805,7 @@ void IVP_Simulation_Unit_Process_One_Psi_Step(IVP_Event_Sim* EventSim, IVP_Simul
         Unit->State = StateVerdict;
         if ((StateVerdict & 0x3000u) != 0)
         {
-            IVP_Simulation_Unit_Update_Cores_Last_Motion_Time(Unit); // FUN_063494f0
+            IVP_Simulation_Unit_Update_Cores_Last_Motion_Time(Unit);
         }
         Unit->State &= 0xFFFFF3FFu;
 
@@ -839,8 +835,8 @@ void IVP_Simulation_Unit_Process_One_Psi_Step(IVP_Event_Sim* EventSim, IVP_Simul
     // Step 6: append every core into OutputCoreList. Reinterpreted as the
     // real IVP_U_Vector<IVP_Core> template (same memsize@0/n_elems@2/
     // elems@4 header every other Cores list in this cluster already uses)
-    // so Add() handles the Realloc-if-full growth exactly like retail's own
-    // FUN_063441a0 call, rather than a hand-duplicated partial copy.
+    // so Add() handles the Realloc-if-full growth exactly like baseline's own
+    // call, rather than a hand-duplicated partial copy.
     for (int i = static_cast<int>(Unit->Cores.n_elems) - 1; i >= 0; --i)
     {
         OutputCoreList->Add(Unit->Cores.ElementAt(i));
@@ -848,11 +844,11 @@ void IVP_Simulation_Unit_Process_One_Psi_Step(IVP_Event_Sim* EventSim, IVP_Simul
 
     if (CooldownExpired)
     {
-        IVP_Simulation_Unit_Update_Motion_And_Maybe_Sleep(Unit, Env); // FUN_063495e0
+        IVP_Simulation_Unit_Update_Motion_And_Maybe_Sleep(Unit, Env);
     }
 
     // :0634995b-:06349982: every object (+0x50 vector) of every core, last
-    // first: recalc_invalid_mindists (FUN_06345460).
+    // first: recalc_invalid_mindists (the routine).
     for (int32_t I = static_cast<int32_t>(Unit->Cores.n_elems) - 1; I >= 0; --I)
     {
         IVP_Core* const Core = Unit->Cores.elems[I];
@@ -864,20 +860,20 @@ void IVP_Simulation_Unit_Process_One_Psi_Step(IVP_Event_Sim* EventSim, IVP_Simul
 
     if ((Unit->State & 0x300u) != 0)
     {
-        IVP_Simulation_Unit_Rebalance_And_Clear_Topology_Flag(Unit); // FUN_063495c0, item 2946
+        IVP_Simulation_Unit_Rebalance_And_Clear_Topology_Flag(Unit); // , item 2946
     }
 
-    // :06349992-:063499a3 -- leave the arena and rewind it (FUN_06344070).
+    // :06349992-:063499a3 -- leave the arena and rewind it (the routine).
     --(*BusyCounter);
     Env->vector_cores_frozen->reset_chunks();
 }
 
 // ============================================================================
-// FUN_063499c0 (.text:063499c0-06349a57, RET 8): IVP_Sim_Units_Manager::
+// (module storage-06349a57, RET 8): IVP_Sim_Units_Manager::
 // simulate_sim_units_psi. `SimUnitsManager` is IVP_Environment+0x08; its active
 // list head is +0x14. Builds the IVP_Event_Sim (delta_time, i_delta_time,
-// environment; the sim_unit dword is written per unit by FUN_063496a0) and runs
-// FUN_063496a0 over the active list exactly in retail's register pipeline: the
+// environment; the sim_unit dword is written per unit by the routine) and runs
+// over the active list exactly in baseline's register pipeline: the
 // next three units are fetched before each call, the loop body processes the
 // oldest, and the last three are processed newest first (:06349a1d / :06349a2f /
 // :06349a41) -- for units A,B,C,D,E the order is A, B, E, D, C.

@@ -1,12 +1,8 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
-// Port-only (no retail counterpart): the ray-marched volumetric nebula. See nebula_volume.h and
-// docs/re/rp9.md, "Volumetric nebula".
-//
+// Port-only (no baseline counterpart): the ray-marched volumetric nebula. See nebula_volume.h and
+// implementation notes, "Volumetric nebula".
+
 // Frame flow (space_scene_obj_draw.cpp, SpaceObjDrawPass):
 //   SelectFieldControllers -> NebulaVolume::BeginFrame: the nebulae drawn this frame (inside
 //                              and, with exterior, within exterior_max_distance), nearest first;
@@ -15,37 +11,37 @@
 //   far plane               -> NebulaVolume::InsideFarPlane (fully inside: pushed out to where
 //                              the haze has hidden everything)
 //   star sphere             -> drawn also when fully inside (ShowsRealBackground)
-//   DrainBucket2Special     -> far ZItemNebula nodes: the retail exterior parts ask
+//   DrainBucket2Special     -> far ZItemNebula nodes: the baseline exterior parts ask
 //                              ReplacesExteriorBits / ReplacesFillSheets; a nebula beyond the
 //                              scene's far plane is ray-marched right there (DrawBackground,
 //                              painter order with the far solars, no depth test)
-//   DrainMeshAndAsteroids   -> the retail gates ask IsActive*/Replaces* (fog overlay quad,
+//   DrainMeshAndAsteroids   -> the baseline gates ask IsActive*/Replaces* (fog overlay quad,
 //                              per-object D3D fog, interior puff panels, the controller's bits
 //                              and fill sheets); the asteroid fields ask AsteroidSpawnReach
 //   NebulaVolume::Draw      -> per remaining nebula, farthest first: half-resolution ray march
 //                              against the INTZ scene depth, then a depth-aware full-resolution
 //                              composite onto the back buffer
-//   effects (alchemy)       -> drawn over the volume, as retail draws them over its fog
+//   effects (particlefx)       -> drawn over the volume, as baseline draws them over its fog
 //   clear colour            -> the system's space colour, not the fog colour
 //                              (ShowsRealBackground)
-//
+
 // Everything the shaders see is camera-relative (system coordinates reach +-200k, too far for
 // float precision); positions are subtracted in double here.
-// Compiled only with OUTPOST_FRONTIER_RP9 (src/Directory.Build.props).
-#ifdef OUTPOST_FRONTIER_RP9
+// Compiled only with OUTPOST_FRONTIER_DX9RENDERER (src/Directory.Build.props).
+#ifdef OUTPOST_FRONTIER_DX9RENDERER
 #include "nebula_volume.h"
 
 #include "cli_nebula.h"
 #include "render_ex.h"
 #include "star_sphere.h"
 
-#include "DALib.h"
+#include "NeuronRuntime.h"
 #include "common_csys.h"
 #include "common_ini.h"
 #include "common_misc.h" // ICamera
 #include "common_net.h"  // Exclusion::NebulaExclusionZoneMgr
 #include "common_universe.h"
-#include "dacom.h"
+#include "neuroncomponents.h"
 #include "engine_light.h" // the ship light of the lightning (GameLight)
 #include "render/IRenderPipeline.h"
 #include "render/IRenderPipelineEx.h"
@@ -124,7 +120,7 @@ namespace
     const int kMaxNebulae = 4;
 
     // Pixel shader instruction slots the volume needs (FRPExCaps::MaxPixelShaderSlots). PSRaymarch
-    // measured with fxc /T ps_3_0 (June 2010 SDK, the compiler generation of RP9's
+    // measured with fxc /T ps_3_0 (June 2010 SDK, the compiler generation of DX9RENDERER's
     // D3DXCompileShader): 1327 slots (24 texture, 1303 arithmetic) with the lightning point
     // lights (NEBULA_POINT_LIGHTS 1; 937 without). PSComposite is 179. Required = the larger
     // count plus ~25% headroom for edits; re-measure and raise this when the shader grows. The
@@ -154,10 +150,10 @@ namespace
     // nebula it belongs to; the shader takes kMaxPointLights per nebula). Sub-pulses per strike.
     const int kMaxStrikes = 4;
     const int kMaxStrikePulses = 4;
-    // Retail flashes every [Clouds] puff on its own lightning_gap timer (texture_panels.cpp);
+    // baseline flashes every [Clouds] puff on its own lightning_gap timer (texture_panels.cpp);
     // the volume has no puffs and counts the gap as this many independent sources.
     const double kCloudLightningSources = 4.0;
-    // Retail's [DynamicLightning] light: a directional GameLight of range 500000 (cli_nebula.cpp,
+    // baseline's [DynamicLightning] light: a directional GameLight of range 500000 (cli_nebula.cpp,
     // FNebulaEffect::Load); the volume's own ship light is built the same way.
     const float kShipLightRange = 500000.0f;
 
@@ -420,7 +416,7 @@ namespace
         {"lightning_colour", &FNebulaVolumeSettings::LightningColour},
     };
 
-    // Tuned so that Badlands (li01_badlands_nebula: [Fog] distance 1000, near 0, dark purple;
+    // Tuned so that Badlands (he01_badlands_nebula: [Fog] distance 1000, near 0, dark purple;
     // puff_radius 100; a 55 x 20 x 35 km ellipsoid) reads as lit cloud masses in a thin haze.
     FNebulaVolumeSettings DefaultSettings()
     {
@@ -696,7 +692,7 @@ namespace
     // The nebula whose [DynamicLightning] GameLight (+0x270) the strikes drive this frame
     // (NebulaAmbientTick leaves it alone: DrivesNebulaLight).
     FNebulaEffect* GDrivenNebula = nullptr;
-    // The lightning's own random numbers (xorshift32): retail's rand() sequence stays as it is.
+    // The lightning's own random numbers (xorshift32): baseline's rand() sequence stays as it is.
     unsigned int GRandomState = 0;
 
     LARGE_INTEGER GTimeOrigin = {};
@@ -718,7 +714,7 @@ namespace
         return V - std::floor(V);
     }
 
-    // "solar\\nebula\\li01_badlands_nebula.ini" -> "li01_badlands_nebula".
+    // "solar\\nebula\\he01_badlands_nebula.ini" -> "he01_badlands_nebula".
     void BaseName(char* Out, size_t OutSize, const char* Path)
     {
         Out[0] = '\0';
@@ -1094,7 +1090,7 @@ namespace
         if (!GbProgramsCreated)
         {
             GbProgramsCreated = true;
-            // A failed compile still returns a handle (RP9 logs the errors); it stays unusable
+            // A failed compile still returns a handle (DX9RENDERER logs the errors); it stays unusable
             // until a ReloadExPrograms compiles it.
             const GENRESULT RaymarchResult =
                 Ex->CreateExProgram(RenderEx::GetExtraData(), kNebulaVolumeShader, "VSMain",
@@ -1107,7 +1103,7 @@ namespace
             {
                 GbProgramFailed = true;
                 FDUMP(0x100002, "%s(%d) : WARNING:General:nebula volume shaders did not compile "
-                      "(errors above); retail interior fog until a shader reload",
+                      "(errors above); baseline interior fog until a shader reload",
                       kNebulaVolumeSource, __LINE__);
             }
         }
@@ -1389,7 +1385,7 @@ namespace
 
     // The camera's distance to the zone surface scaled by Scale (1 = the surface itself; the
     // drawn bound is larger, the shell's half-density surface smaller) along the line to its
-    // centre, as retail measures the immersion (FNebulaEffect::Update 0x0050706b..: length -
+    // centre, as baseline measures the immersion (FNebulaEffect::Update 0x0050706b..: length -
     // GetRadiusAlong); 0 inside.
     double SurfaceDistance(Universe::IZone const* Zone, double const* CamPos, double Scale)
     {
@@ -1416,7 +1412,7 @@ namespace
         return Radius[2] > Max ? Radius[2] : Max;
     }
 
-    // Inside an exclusion zone retail pushes the fog end out to its fog_far
+    // Inside an exclusion zone baseline pushes the fog end out to its fog_far
     // (FNebulaEffect::Update, 0x00507230..0x00507272); the same visibility means the haze
     // density times distance / span, times exclusion_density_scale.
     float ExclusionInsideScale(Exclusion::NebulaExclusionZone const* Excl,
@@ -1864,7 +1860,7 @@ namespace
         memset(GRaymarchConstants, 0, sizeof(GRaymarchConstants));
 
         // Camera: position, view rotation (world -> game view, column-vector convention:
-        // v = R p + T), projection as Win3DSetPerspective / RP9 SetPerspective build it.
+        // v = R p + T), projection as Win3DSetPerspective / DX9RENDERER SetPerspective build it.
         float const* const CamPosF = Camera->GetPosition();
         const double CamPos[3] = {CamPosF[0], CamPosF[1], CamPosF[2]};
         float const* const View = Camera->GetViewTransform();
@@ -2402,7 +2398,7 @@ namespace
         return nullptr;
     }
 
-    // The volume draws the nebula at full strength (the exterior fade band keeps retail too).
+    // The volume draws the nebula at full strength (the exterior fade band keeps baseline too).
     FVolumeEntry const* FullEntry(FNebulaEffect const* Nebula)
     {
         FVolumeEntry const* const Entry = FindEntry(Nebula);
@@ -2495,7 +2491,7 @@ namespace
                   Ex->BindExTexture(1, GVolumeTarget, &LinearClamp) == GR_OK;
         if (bOk)
         {
-            IRenderPipeline* const Pipe = DALib::Pipeline;
+            IRenderPipeline* const Pipe = NeuronRuntime::Pipeline;
             Pipe->SetRenderState(D3DRS_ALPHABLENDENABLE, 1);
             Pipe->SetRenderState(D3DRS_SRCBLEND, D3DBLEND_ONE);
             Pipe->SetRenderState(D3DRS_DESTBLEND, D3DBLEND_SRCALPHA);
@@ -2524,16 +2520,16 @@ namespace
     // Timing, colour and strength of a nebula's lightning, from its own INI (cli_nebula.cpp's
     // parsers): [Clouds] lightning_gap / lightning_duration / lightning_color /
     // lightning_intensity (the first block, raw +0x9c / +0xa0 / +0x90 / +0xdc) when the gap and
-    // duration are set -- retail flashes each puff on its own timer, so the gap counts
+    // duration are set -- baseline flashes each puff on its own timer, so the gap counts
     // kCloudLightningSources times -- else [BackgroundLightning] gap / duration / intensity
     // (+0x250 / +0x254 / +0x268), else 8 s / 0.4 s. The colour: lightning_colour, else the
     // [Clouds] lightning_color, [DynamicLightning] color (+0x280, when its duration +0x278 is
-    // set), [BackgroundLightning] color (+0x25c), as a hue half toward white (retail's colours
+    // set), [BackgroundLightning] color (+0x25c), as a hue half toward white (baseline's colours
     // are dim additive tints), else a pale blue. lightning_frequency_scale divides the gap,
     // lightning_duration_scale multiplies the duration.
     struct FLightningSource
     {
-        double Gap;      // s; each next strike after Gap * (0.8 .. 1.5), retail's random gap
+        double Gap;      // s; each next strike after Gap * (0.8 .. 1.5), baseline's random gap
         double Duration; // s
         float Hue[3];    // brightest channel 1
         float Intensity;
@@ -2944,7 +2940,7 @@ namespace
 
     // A nebula's [DynamicLightning] GameLight (+0x270; built by FNebulaEffect::Load only when
     // its duration +0x278 is above 0), or null.
-    FGameLight* RetailNebulaLight(FNebulaEffect const* Nebula)
+    FGameLight* baselineNebulaLight(FNebulaEffect const* Nebula)
     {
         if (Nebula == nullptr)
             return nullptr;
@@ -2956,14 +2952,14 @@ namespace
         return Duration > 0.0f ? Light : nullptr;
     }
 
-    // A lit GameLight (Flags bit 3) goes dark through its vtable slot 2, as retail does it.
+    // A lit GameLight (Flags bit 3) goes dark through its vtable slot 2, as baseline does it.
     void SwitchLightOff(FGameLight* Light)
     {
         if (Light != nullptr && (Light->Flags & 0x08) != 0)
             GameLightVirtualDisable(Light);
     }
 
-    // The volume's own ship light, built like retail's [DynamicLightning] light (directional,
+    // The volume's own ship light, built like baseline's [DynamicLightning] light (directional,
     // range 500000, FNebulaEffect::Load) but not lit yet. Two references of our own:
     // GameLightReleaseAll (space teardown) drops one from every lit light.
     bool EnsureShipLight()
@@ -3046,15 +3042,15 @@ namespace
             GController->GetFloat294() >= 1.0f &&
             ControllerEntry->Settings.LightningEnabled > 0.5f &&
             ControllerEntry->Settings.LightningLightsShips > 0.5f &&
-            RetailNebulaLight(GController) != nullptr)
+            baselineNebulaLight(GController) != nullptr)
             Driven = GController;
         if (GDrivenNebula != nullptr && GDrivenNebula != Driven)
-            SwitchLightOff(RetailNebulaLight(GDrivenNebula));
+            SwitchLightOff(baselineNebulaLight(GDrivenNebula));
         GDrivenNebula = Driven;
 
         FGameLight* Target = nullptr;
         if (Driven != nullptr)
-            Target = RetailNebulaLight(Driven);
+            Target = baselineNebulaLight(Driven);
         else if (Best >= 0 && GStrikes[Best].LightsShips >= 2 && EnsureShipLight())
             Target = GShipLight;
         if (GShipLight != nullptr && Target != GShipLight)
@@ -3098,7 +3094,7 @@ namespace
     // drawn, with the lightning off, or finished go; every drawn nebula with lightning_enabled
     // runs its scheduler (the next strike after its gap, sometimes a burst of 1..2 more right
     // after; [Debug] lightning_force: one after another, never far); the envelopes (with
-    // lightning_flicker: a random dip per frame, like retail's rand * rand flashes) and the ship
+    // lightning_flicker: a random dip per frame, like baseline's rand * rand flashes) and the ship
     // light are updated. With no entries every strike goes and the lights go dark.
     void UpdateLightning(ICamera* Camera)
     {
@@ -3328,7 +3324,7 @@ void NebulaVolume::LoadSettings(char const* IniPath)
 void NebulaVolume::OnProgramsReloaded()
 {
     // The next frame tries the programs again; a bind that still fails switches the volume off
-    // again (Draw), a compile that failed keeps logging its errors in RP9.
+    // again (Draw), a compile that failed keeps logging its errors in DX9RENDERER.
     GbProgramFailed = false;
 }
 
@@ -3528,9 +3524,9 @@ void NebulaVolume::BeginFrame(ICamera* Camera, FNebulaEffect* Controller, int En
                               bool bNebulaOption, float SceneFar)
 {
     SelectFrameEntries(Camera, Controller, Enclosure, bNebulaOption, SceneFar);
-    // Lightning: strikes of the drawn nebulae, the ship light (with no entry -- RP8, the
+    // Lightning: strikes of the drawn nebulae, the ship light (with no entry -- DX8RENDERER, the
     // volume off, nothing in range -- every strike goes and a light the strikes drove is left
-    // dark for retail).
+    // dark for baseline).
     UpdateLightning(Camera);
 }
 
@@ -3584,11 +3580,11 @@ bool NebulaVolume::ShowsRealBackground()
     return GbRealBackground;
 }
 
-float NebulaVolume::InsideFarPlane(float RetailFar, float MaxFar)
+float NebulaVolume::InsideFarPlane(float baselineFar, float MaxFar)
 {
     FVolumeEntry const* const Entry = FindEntry(GController);
     if (Entry == nullptr || !Entry->bInside || !(Entry->Settings.ExtendFarPlane > 0.5f))
-        return RetailFar;
+        return baselineFar;
     // 1.5 march caps: the haze has hidden everything there (march_end_transmittance^1.5), so
     // objects do not pop in at the plane; and past the extended asteroid spawn distance, so
     // the asteroid cubes are not cut by the plane.
@@ -3598,7 +3594,7 @@ float NebulaVolume::InsideFarPlane(float RetailFar, float MaxFar)
         Wanted = AsteroidFar;
     if (Wanted > MaxFar)
         Wanted = MaxFar;
-    return Wanted > RetailFar ? Wanted : RetailFar;
+    return Wanted > baselineFar ? Wanted : baselineFar;
 }
 
 float NebulaVolume::AsteroidSpawnReach(Universe::IZone const* FieldZone, float* OutFadeFraction)
@@ -3753,4 +3749,4 @@ void NebulaVolume::Draw(ICamera* Camera, float Near, float Far)
     GEntryCount = 0;
 }
 
-#endif // OUTPOST_FRONTIER_RP9
+#endif // OUTPOST_FRONTIER_DX9RENDERER

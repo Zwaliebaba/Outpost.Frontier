@@ -1,11 +1,7 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // Port-only: the in-flight HUD's corner windows at the edges of a widescreen surface. See
-// hud_widescreen.h; nothing here exists in retail.
+// hud_widescreen.h; nothing here exists in baseline.
 
 #include "hud_widescreen.h"
 
@@ -57,7 +53,7 @@ namespace
 
     // The NeuroNet buttons (top right). The bar sits at the edge; a button that opens a panel
     // flies from the bar into the header of the centred NeuroNet screen (the panel window is
-    // reparented under it, nn_main_button.cpp FUN_0045d370), so its share of the shift runs out
+    // reparented under it, nn_main_button.cpp the routine), so its share of the shift runs out
     // with the move, and a closing one gets it back on the way home. Returns that share.
     float NeuroNetShare(NN_MainButton const* Main, Win3D const* Object)
     {
@@ -115,7 +111,7 @@ namespace
             return;
 
         // The view is rebuilt first when dirty, then kept clean while sheared: v = V*w + T with
-        // the rows as output components (FUN_0040f390), so x' = x - s*z is row 0 minus s times
+        // the rows as output components (the routine), so x' = x - s*z is row 0 minus s times
         // row 2. A point at depth d = -z moves s*d sideways, which XScale (pixels per unit at
         // depth 1) turns into ShiftPx on screen at every depth.
         Cam->GetViewTransform();
@@ -137,7 +133,7 @@ namespace
 
     // The world-space immediate batch and the montage buttons are flushed at the end of the
     // frame with whatever view is current then; what was queued under the outgoing state goes
-    // out now (the same flushes FUN_0045a9f0 makes mid-frame, without its overlay setup).
+    // out now (the same flushes the routine makes mid-frame, without its overlay setup).
     void FlushQueuedWin3DBatches()
     {
         Win3DImmedBatchFlushAll();

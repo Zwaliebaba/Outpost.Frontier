@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "RandomMissionGen.h"
@@ -10,18 +6,18 @@
 #include "ContentStaticIds.h"
 #include "RandomEncounters.h"
 #include "RandomMissionDB.h"
-#include "Cargo.h"              // GetFactionShipLineArchs (TU44 FUN_06f357d0)
+#include "Cargo.h"              // GetFactionShipLineArchs (TU44 the routine)
 #include "EncounterParams.h"    // FEncounterShip
-#include "Encounters.h"         // FindFormation (FUN_06efd1a0)
+#include "Encounters.h"         // FindFormation (the routine)
 #include "FactionProps.h"       // GetFactionProps, GetFactionNames
 #include "NpcNames.h"           // FNpcNameRequest, BuildNpcName
 #include "NpcShips.h"           // FNpcShipArch
-#include "PilotPersonalities.h" // GetPilotPersonality (FUN_06f3e020)
+#include "PilotPersonalities.h" // GetPilotPersonality (the routine)
 #include "RandomMission.h"      // TRmRef overloads for the offer
 #include "RandomMissionOffer.h"
 #include "SystemInfo.h"         // FSystemInfo::SystemId (GetRmZoneAtPosition)
 #include "common_ini.h"
-#include "common_misc.h"        // random_inside_ring (FUN_06f9c100)
+#include "common_misc.h"        // random_inside_ring (the routine)
 #include "common_server.h"
 #include "common_weighted_vector.h"
 #include "msvcrt_compat.h"
@@ -40,10 +36,10 @@
 // TU63 -- solar formation pick
 // =======================================================================================
 
-// FUN_06f97d90 (06f97d90-06f9800b). Walks DAT_06fd0e34 (FUN_06f58f20) in key order. Per
-// formation the mandatory (FUN_06f593a0) and optional (FUN_06f592f0) slot types are
+// (06f97d90-06f9800b). Walks the field (the routine) in key order. Per
+// formation the mandatory (the routine) and optional (the routine) slot types are
 // collected; the formation is a candidate when every mandatory type is in SpawnTypes
-// (FUN_06eb5f30 != end) and every SpawnTypes entry is mandatory or optional. The 0x40th
+// (the routine != end) and every SpawnTypes entry is mandatory or optional. The 0x40th
 // candidate ends the walk at once (06f97ee7). No candidate -> null; otherwise
 // candidates[(rand() * count) / 0x8000] (IMUL, CDQ, AND EDX,0x7fff, ADD, SAR 0xf).
 FRmSolarFormation* __cdecl PickSolarFormation(std::vector<int> const* SpawnTypes)
@@ -105,14 +101,14 @@ FRmSolarFormation* __cdecl PickSolarFormation(std::vector<int> const* SpawnTypes
     return Candidates[Index];
 }
 
-// FUN_06f98010 (06f98010-06f98267, cdecl). pub::System::InZones(System +0x48, *Position,
+// (06f98010-06f98267, cdecl). pub::System::InZones(System +0x48, *Position,
 // 1.0, 0x14 slots); a vector of {zone, radius} reserved for the count (06f980a4-06f98123);
 // every zone whose pub::Zone::GetName succeeds with a non-zero name adds {zone,
-// pub::Zone::GetRadius(zone)} (FUN_06f96770). Best radius starts at -1.0 (0xbf800000): a
+// pub::Zone::GetRadius(zone)} (the routine). Best radius starts at -1.0 (0xbf800000): a
 // pair is taken when its radius is below it (TEST AH,0x5 + JNP: C0 alone) or the best is
-// still -1.0 (DAT_06fb5e84; TEST AH,0x44 + JP skips unless C3 alone). A found zone is
-// returned; otherwise the navmap cell: Size = 133333.0 (DAT_06fbcd10) / GetNavMapScale,
-// Cell = Size * 0.25 (DAT_06fbbb5c), both stored as float; column = ftol(floor((x + Size) /
+// still -1.0 (the field; TEST AH,0x44 + JP skips unless C3 alone). A found zone is
+// returned; otherwise the navmap cell: Size = 133333.0 (the field) / GetNavMapScale,
+// Cell = Size * 0.25 (the field), both stored as float; column = ftol(floor((x + Size) /
 // Cell)), row = ftol(floor((z + Size) / Cell)) (x87, the quotient stored as double for
 // floor); result row + column * 8 + 1.
 unsigned int __cdecl GetRmZoneAtPosition(FSystemInfo const* System, Vector const* Position)
@@ -166,12 +162,12 @@ unsigned int __cdecl GetRmZoneAtPosition(FSystemInfo const* System, Vector const
 // TU63 -- NpcRankToDiff / Diff2Money
 // =======================================================================================
 
-std::map<int, std::vector<float>> GRmNpcRankToDifficulty;   // DAT_06fd3cd4
-std::map<float, int> GRmDiff2Money;                        // DAT_06fd3cec
+std::map<int, std::vector<float>> GRmNpcRankToDifficulty;
+std::map<float, int> GRmDiff2Money;
 
-// FUN_06f98540 -- [RankAndFormationSizeToDifficulty] "NPCRank = rank, diff1, diff2, ...".
-// Each line inserts {rank, empty vector} (FUN_06fa0aa0, an existing rank is kept), looks
-// the rank up again (FUN_06f9faa0) and appends every value from index 1 on (FUN_06f937c0).
+// [RankAndFormationSizeToDifficulty] "NPCRank = rank, diff1, diff2, ...".
+// Each line inserts {rank, empty vector} (the routine, an existing rank is kept), looks
+// the rank up again (the routine) and appends every value from index 1 on (the routine).
 void __cdecl LoadNpcRankToDifficulty(INI_Reader* Reader)
 {
     while (Reader->read_header())
@@ -192,9 +188,9 @@ void __cdecl LoadNpcRankToDifficulty(INI_Reader* Reader)
     }
 }
 
-// FUN_06f98380 -- walks DAT_06fd3cec in key order to the first difficulty greater than
+// walks the field in key order to the first difficulty greater than
 // Difficulty (FCOMP + TEST AH,0x41 + JZ: key > Difficulty), then interpolates between the
-// previous entry and that one on the x87 stack and truncates (ftol) before FUN_06f35b50:
+// previous entry and that one on the x87 stack and truncates (ftol) before the routine:
 //   lo.money + (Difficulty - lo.key) / (hi.key - lo.key) * (hi.money - lo.money)
 // with the money difference an int (FIMUL) and lo.money added as an int (FIADD).
 unsigned int __cdecl RmDifficultyToMoney(float Difficulty)
@@ -205,13 +201,13 @@ unsigned int __cdecl RmDifficultyToMoney(float Difficulty)
 
     if (Hi == GRmDiff2Money.end())
     {
-        // 06f983bb: retail returns the map head node's value slot (+0x10), which the VC6
+        // baseline returns the map head node's value slot (+0x10), which the VC6
         // tree never constructs. TODO: no defined value exists; 0 is returned instead.
         return 0;
     }
 
-    // 06f983d1: FUN_06f00610 (iterator decrement, no nil check on the upward walk). From
-    // begin() retail steps onto the head node and reads its unconstructed key/value; only
+    // the routine (iterator decrement, no nil check on the upward walk). From
+    // begin() baseline steps onto the head node and reads its unconstructed key/value; only
     // when begin() is the root does the walk come back to begin() itself (lo == hi: x/0,
     // FIMUL 0 -> NaN, ftol -> 0). TODO: undefined case (needs Difficulty below the first
     // Diff2Money key, 0 in DATA); the port interpolates from {0, 0}.
@@ -232,7 +228,7 @@ unsigned int __cdecl RmDifficultyToMoney(float Difficulty)
     return RoundRmMoney(static_cast<unsigned int>(Money));
 }
 
-// TU44 FUN_06f35b50 (decompile-derived): for Amount > 100, split the decimal digits
+// TU44 the routine (inspect-derived): for Amount > 100, split the decimal digits
 // (least significant first), keep the two leading ones and, when the leading digit is
 // below 5, add 5 (third digit >= 5) or 0 in the unit below the second digit.
 unsigned int __cdecl RoundRmMoney(unsigned int Amount)
@@ -260,25 +256,25 @@ unsigned int __cdecl RoundRmMoney(unsigned int Amount)
 }
 
 // =======================================================================================
-// TU63 -- all reputation groups (DAT_06fd3cb8)
+// TU63 -- all reputation groups (the field)
 // =======================================================================================
 
-FRmAllGroupsEnumerator* GRmAllGroups = nullptr;   // DAT_06fd3d8c
+FRmAllGroupsEnumerator* GRmAllGroups = nullptr;
 
-// FUN_06f98bf0
+
 FRmAllGroupsEnumerator::FRmAllGroupsEnumerator()
     : bEnumerated(false)
 {
     GRmAllGroups = this;
 }
 
-// FUN_06f98c90: frees the vector and clears DAT_06fd3d8c.
+// frees the vector and clears the field.
 FRmAllGroupsEnumerator::~FRmAllGroupsEnumerator()
 {
     GRmAllGroups = nullptr;
 }
 
-// LAB_06f98c20: linear find; an absent group is appended (FUN_06f937c0). Always 1.
+// linear find; an absent group is appended (the routine). Always 1.
 char FRmAllGroupsEnumerator::Execute(unsigned int GroupId)
 {
     std::vector<unsigned int>::iterator It = Groups.begin();
@@ -292,27 +288,27 @@ char FRmAllGroupsEnumerator::Execute(unsigned int GroupId)
     return 1;
 }
 
-static FRmAllGroupsEnumerator GRmAllGroupsInstance;   // DAT_06fd3cb8
+static FRmAllGroupsEnumerator GRmAllGroupsInstance;
 
 // =======================================================================================
-// TU63 -- generator root (DAT_06fd3c78)
+// TU63 -- generator root (the field)
 // =======================================================================================
 
-FRandomMissionGenerator* GRandomMissionGenerator = nullptr;   // DAT_06fcf25c
+FRandomMissionGenerator* GRandomMissionGenerator = nullptr;
 
-// 06f9d574-06f9d57a: published before the members are built.
+// published before the members are built.
 FRmGeneratorRegistration::FRmGeneratorRegistration(FRandomMissionGenerator* Generator)
 {
     GRandomMissionGenerator = Generator;
 }
 
-// FUN_06f9fc10 (also inline at 06f9da41, after the generator's members).
+// (also inline at 06f9da41, after the generator's members).
 FRmGeneratorRegistration::~FRmGeneratorRegistration()
 {
     GRandomMissionGenerator = nullptr;
 }
 
-// FUN_06f9d550. Every table is opened with FUN_06f24280 and closed only when it opened;
+// . Every table is opened with the routine and closed only when it opened;
 // the reader is the ctor's stack INI_Reader (EH states 3..6 = its dtor).
 FRandomMissionGenerator::FRandomMissionGenerator()
     : FRmGeneratorRegistration(this)
@@ -323,11 +319,11 @@ FRandomMissionGenerator::FRandomMissionGenerator()
     INI_Reader Reader;
     if (OpenContentDataIni("RandomMissions\\NpcRankToDiff.ini", &Reader))
     {
-        LoadNpcRankToDifficulty(&Reader);                               // FUN_06f98540
+        LoadNpcRankToDifficulty(&Reader);
         Reader.close();
     }
 
-    // 06f9d65b-06f9d725: [Diff2Money] "Diff2Money = difficulty, money" -> FUN_06fa0860
+    // [Diff2Money] "Diff2Money = difficulty, money" -> the routine
     // (unique insert, value 0 float, value 1 int).
     if (OpenContentDataIni("RandomMissions\\Diff2Money.ini", &Reader))
     {
@@ -350,36 +346,36 @@ FRandomMissionGenerator::FRandomMissionGenerator()
 
     if (OpenContentDataIni("RandomMissions\\RMLootInfo.ini", &Reader))
     {
-        LoadRmLootInfo(&Reader);                                        // FUN_06f566a0
+        LoadRmLootInfo(&Reader);
         Reader.close();
     }
     if (OpenContentDataIni("RandomMissions\\SolarFormations.ini", &Reader))
     {
-        LoadSolarFormations(&Reader);                                   // FUN_06f58f30
+        LoadSolarFormations(&Reader);
         Reader.close();
     }
     if (OpenContentDataIni("RandomMissions\\KillableSolars.ini", &Reader))
     {
-        LoadKillableSolars(&Reader);                                    // FUN_06f95040
+        LoadKillableSolars(&Reader);
         Reader.close();
     }
     if (OpenContentDataIni("RandomMissions\\VignetteCriticalLoot.ini", &Reader))
     {
-        LoadVignetteCriticalLoot(&Reader);                              // FUN_06f95890
+        LoadVignetteCriticalLoot(&Reader);
         Reader.close();
     }
     if (OpenContentDataIni("RandomMissions\\VignetteParams.ini", &Reader))
     {
-        // 06f9d7e8: this->Load(&Reader), FUN_06f9ecb0 called directly (not through the
+        // this->Load(&Reader), the routine called directly (not through the
         // vtable).
         Load(&Reader);
         Reader.close();
     }
 }
 
-// FUN_06f9d970. When loaded: bLoaded/bLinked = 0, RootNodeId = -1, the +0x10 vector and
-// the +0x1c map are emptied; then the members are destroyed and DAT_06fcf25c is cleared
-// (the registration base, FUN_06f9fc10).
+// . When loaded: bLoaded/bLinked = 0, RootNodeId = -1, the +0x10 vector and
+// the +0x1c map are emptied; then the members are destroyed and the field is cleared
+// (the registration base, the routine).
 FRandomMissionGenerator::~FRandomMissionGenerator()
 {
     if (bLoaded)
@@ -392,10 +388,10 @@ FRandomMissionGenerator::~FRandomMissionGenerator()
     }
 }
 
-// LAB_06f9f600 (vtable slot 2, no arguments): unconditionally +0x04 / +0x05 = 0, +0x08 = -1,
+// (vtable slot 2, no arguments): unconditionally +0x04 / +0x05 = 0, +0x08 = -1,
 // the leaf id vector's end reset to its begin (inline erase), the node map emptied (size
-// non-zero and begin == leftmost: the subtree erase FUN_06fa38c0 + node dtor FUN_06fa58a0 +
-// head relink; otherwise the one-by-one erase loop FUN_06fa3b80 / FUN_06fa3470 -- both are
+// non-zero and begin == leftmost: the subtree erase the routine + node dtor the routine +
+// head relink; otherwise the one-by-one erase loop the routine / the routine -- both are
 // clear()).
 void FRandomMissionGenerator::Unload()
 {
@@ -406,11 +402,11 @@ void FRandomMissionGenerator::Unload()
     Nodes.clear();
 }
 
-// FUN_06f9ecb0 (vtable slot 1, RET 4). Every header builds a stack node; the three node
+// (vtable slot 1, RET 4). Every header builds a stack node; the three node
 // headers read their values exactly like the node's own Load (06f9ed95-06f9ee5b is an
-// inline copy of LAB_06f99e40, weight fix included); any other header skips straight to
+// inline copy of the branch, weight fix included); any other header skips straight to
 // the insert (06f9ee16 -> 06f9ee63), so it still adds a node keyed by NodeId (-1 unless a
-// node_id was read). Insert FUN_06fa0e70 is unique: an existing key keeps its node.
+// node_id was read). Insert the routine is unique: an existing key keeps its node.
 void FRandomMissionGenerator::Load(INI_Reader* Reader)
 {
     while (Reader->read_header())
@@ -423,19 +419,19 @@ void FRandomMissionGenerator::Load(INI_Reader* Reader)
         }
         Nodes.insert(std::make_pair(Node.NodeId, Node));
     }
-    Link();                                                             // FUN_06f9dd50
+    Link();
     bLoaded = true;
 }
 
-// FUN_06f9dd50. Runs once (bLinked).
+// . Runs once (bLinked).
 //  1. For every node, every child id gets the parent's NodeId appended to its Parents --
-//     through FUN_06f9fc20 (map operator[]), so a child id with no node of its own gets a
+//     through the routine (map operator[]), so a child id with no node of its own gets a
 //     default node (NodeId -1) inserted here.
 //  2. RootNodeId = the smallest key, then follow Parents[0] until a node has no parents.
 //  3. Every child of a node that is not implemented is disabled together with its subtree
-//     (FUN_06f9da60), in map order.
+//     (the routine), in map order.
 //  4. Implemented nodes without children are appended to LeafNodeIds (their NodeId).
-//  5. FUN_06f9dad0(RootNodeId).
+//  5. the routine(RootNodeId).
 // After step 1 every child id is a key, so the finds of steps 3/5 always hit.
 void FRandomMissionGenerator::Link()
 {
@@ -449,15 +445,15 @@ void FRandomMissionGenerator::Link()
         for (unsigned int Index = 0; Index < Parent.Children.size(); ++Index)
         {
             FRmVignetteNode& Child = Nodes[Parent.Children[Index]];
-            Child.Parents.insert(Child.Parents.end(), Parent.NodeId);  // FUN_06eb5770
+            Child.Parents.insert(Child.Parents.end(), Parent.NodeId);
         }
     }
 
-    // 06f9ddc6: head->left = begin.
+    // head->left = begin.
     RootNodeId = Nodes.begin()->first;
     for (;;)
     {
-        FRmVignetteNode& Node = Nodes.find(RootNodeId)->second;           // FUN_06f7b0f0
+        FRmVignetteNode& Node = Nodes.find(RootNodeId)->second;
         if (Node.Parents.empty())
             break;
         RootNodeId = Node.Parents[0];
@@ -485,15 +481,15 @@ void FRandomMissionGenerator::Link()
     {
         FRmVignetteNode& Node = It->second;
         if (Node.bImplemented && Node.Children.empty())
-            LeafNodeIds.insert(LeafNodeIds.end(), Node.NodeId);        // FUN_06f937c0
+            LeafNodeIds.insert(LeafNodeIds.end(), Node.NodeId);
     }
 
     PropagateDifficultyWindows(RootNodeId);
     bLinked = true;
 }
 
-// FUN_06f9da60 (RET 4): every implemented child is disabled and its own children follow
-// recursively. The lookup is lower_bound FUN_06fa7200 + key check, i.e. find.
+// (RET 4): every implemented child is disabled and its own children follow
+// recursively. The lookup is lower_bound the routine + key check, i.e. find.
 void FRandomMissionGenerator::DisableChildren(std::vector<unsigned int> const* ChildIds)
 {
     for (unsigned int Index = 0; Index < ChildIds->size(); ++Index)
@@ -507,13 +503,13 @@ void FRandomMissionGenerator::DisableChildren(std::vector<unsigned int> const* C
     }
 }
 
-// FUN_06f9dad0 (RET 4). A node whose window list is still empty gets its own difficulty
+// (RET 4). A node whose window list is still empty gets its own difficulty
 // window (06f9db05-06f9db38: the inline equal-window search of the empty list never
-// matches, then FUN_06f9f860). Each child then receives, uniquely (FUN_06f98d40), a copy of
-// every window of this node shifted by the child's own window (FUN_06f9dcb0), or just the
+// matches, then the routine). Each child then receives, uniquely (the routine), a copy of
+// every window of this node shifted by the child's own window (the routine), or just the
 // child's window when this node has none; the recursion goes into the child's NodeId
 // (map node +0x18), not the child id. Children created by Link's operator[] carry NodeId
-// -1 there; retail then searches -1 (and reads the map head node when no key -1 exists).
+// -1 there; baseline then searches -1 (and reads the map head node when no key -1 exists).
 void FRandomMissionGenerator::PropagateDifficultyWindows(unsigned int NodeId)
 {
     FRmVignetteNode& Node = Nodes.find(NodeId)->second;
@@ -535,10 +531,10 @@ void FRandomMissionGenerator::PropagateDifficultyWindows(unsigned int NodeId)
 
     for (unsigned int Index = 0; Index < Node.Children.size(); ++Index)
     {
-        // 06f9db57-06f9db8b: lower_bound FUN_06f2e220 + key check (find).
+        // lower_bound the routine + key check (find).
         FRmVignetteNode& Child = Nodes.find(Node.Children[Index])->second;
 
-        FRmDifficultyWindowList Shifted;                                // FUN_06fa0350 copy
+        FRmDifficultyWindowList Shifted;                                // copy
         Shifted.Windows = Node.Windows.Windows;
         if (Shifted.Windows.empty())
         {
@@ -572,26 +568,26 @@ FRmDifficultyWindow::FRmDifficultyWindow()
 {
 }
 
-// FUN_06f9d500
+
 FRmDifficultyWindow::FRmDifficultyWindow(float InMin, float InMax)
     : Min(InMin)
     , Max(InMax)
 {
 }
 
-// LAB_06f9cff0 (sdtor): no members to release.
+// (sdtor): no members to release.
 FRmDifficultyWindow::~FRmDifficultyWindow()
 {
 }
 
-// LAB_06f9cfa0: Min <= Difficulty (TEST AH,0x41 + JP: jump = Min > Difficulty or
+// Min <= Difficulty (TEST AH,0x41 + JP: jump = Min > Difficulty or
 // unordered -> 0) and Difficulty <= Max (same idiom).
 bool FRmDifficultyWindow::IsInRange(float Difficulty) const
 {
     return Min <= Difficulty && Difficulty <= Max;
 }
 
-// LAB_06f98cc0 (RET 4): this contains Other->Min, or this contains Other->Max, or Other
+// (RET 4): this contains Other->Min, or this contains Other->Max, or Other
 // contains this->Min -- all three through vtable slot 1.
 bool FRmDifficultyWindow::Overlaps(FRmDifficultyWindow const* Other) const
 {
@@ -604,40 +600,40 @@ bool FRmDifficultyWindow::Overlaps(FRmDifficultyWindow const* Other) const
     return false;
 }
 
-// LAB_06f98d10 (RET 4): "difficulty = min, max".
+// (RET 4): "difficulty = min, max".
 void FRmDifficultyWindow::Parse(INI_Reader* Reader)
 {
     Min = Reader->get_value_float(0);
     Max = Reader->get_value_float(1);
 }
 
-// LAB_06f9cfd0 (RET 8)
+// (RET 8)
 void FRmDifficultyWindow::Set(float InMin, float InMax)
 {
     Min = InMin;
     Max = InMax;
 }
 
-// FUN_06f98dc0 (RET 4): Other->Min == Min and Other->Max == Max (TEST AH,0x44 + JP:
+// (RET 4): Other->Min == Min and Other->Max == Max (TEST AH,0x44 + JP:
 // jump = not equal or unordered -> 0).
 bool FRmDifficultyWindow::Equals(FRmDifficultyWindow const* Other) const
 {
     return Other->Min == Min && Other->Max == Max;
 }
 
-// FUN_06f9dcb0 (RET 4): Min += Other->Min, Max += Other->Max.
+// (RET 4): Min += Other->Min, Max += Other->Max.
 void FRmDifficultyWindow::Add(FRmDifficultyWindow const* Other)
 {
     Min = Other->Min + Min;
     Max = Other->Max + Max;
 }
 
-// FUN_06f9dcd0: erases every node (element dtor through its vtable), frees the head.
+// erases every node (element dtor through its vtable), frees the head.
 FRmDifficultyWindowList::~FRmDifficultyWindowList()
 {
 }
 
-// FUN_06f98d40 (RET 4): appends a copy unless an element with equal Min and Max exists.
+// (RET 4): appends a copy unless an element with equal Min and Max exists.
 void FRmDifficultyWindowList::AddUnique(FRmDifficultyWindow const* Window)
 {
     for (std::list<FRmDifficultyWindow>::iterator It = Windows.begin(); It != Windows.end();
@@ -646,10 +642,10 @@ void FRmDifficultyWindowList::AddUnique(FRmDifficultyWindow const* Window)
         if (Window->Min == It->Min && Window->Max == It->Max)
             return;
     }
-    Windows.push_back(*Window);                                         // FUN_06fa4160
+    Windows.push_back(*Window);
 }
 
-// FUN_06f9f860 (RET 4): appends a copy.
+// (RET 4): appends a copy.
 void FRmDifficultyWindowList::PushBack(FRmDifficultyWindow const* Window)
 {
     Windows.push_back(*Window);
@@ -661,13 +657,13 @@ FRmOfferTextEntry::FRmOfferTextEntry()
 {
 }
 
-// Inline at FUN_06f998c0 06f99917-06f99947: bAppend 0, empty entries.
+// Inline at the routine 06f99917-06f99947: bAppend 0, empty entries.
 FRmOfferText::FRmOfferText()
     : bAppend(false)
 {
 }
 
-// FUN_06f99010 (RET 4). Value 0: "append" / "replace" (DACOM stricmp; anything else keeps
+// (RET 4). Value 0: "append" / "replace" (NEURONCOMPONENTS stricmp; anything else keeps
 // bAppend). From value 1 on, entries are built token by token: a new entry {0, 3, []}
 // starts whenever the previous one was closed. A token with atoi != 0 is the entry's
 // StrId, followed by parameter names looked up in GRmTextParamNames; the first name not in
@@ -690,7 +686,7 @@ void FRmOfferText::Parse(INI_Reader* Reader)
         if (bNewEntry)
         {
             bNewEntry = false;
-            Entries.insert(Entries.end(), FRmOfferTextEntry());         // FUN_06fa1eb0
+            Entries.insert(Entries.end(), FRmOfferTextEntry());
             Entry = &Entries.back();
         }
 
@@ -727,13 +723,13 @@ void FRmOfferText::Parse(INI_Reader* Reader)
     }
 }
 
-// LAB_06f99390: no entries.
+// no entries.
 bool FRmOfferText::IsEmpty() const
 {
     return Entries.empty();
 }
 
-// FUN_06f993c0 (06f993c0-06f9955c, RET 0x10). Per entry (+0x0c..+0x10, stride 0x18), by Form
+// (06f993c0-06f9955c, RET 0x10). Per entry (+0x0c..+0x10, stride 0x18), by Form
 // (+0x04): 1 (06f99452) builds when Params holds 1 and bFlag1 is set, else when Params holds
 // 2 and bFlag2 is set; 2 (06f9940b) builds when Params holds 1 and bFlag1 is clear, else
 // when Params holds 2 and bFlag2 is clear; 3 always builds; any other Form is skipped. A
@@ -785,8 +781,8 @@ void FRmOfferText::Build(bool bOfferGroupSingular, bool bHostileGroupSingular, F
     }
 }
 
-// FUN_06f99560 (RET 8). Value Index names the objective; the text is inserted uniquely
-// (FUN_06fa0590) as an empty FRmParamText and then parsed from Index + 1 (vtable slot 1),
+// (RET 8). Value Index names the objective; the text is inserted uniquely
+// (the routine) as an empty FRmParamText and then parsed from Index + 1 (vtable slot 1),
 // so a repeated objective re-parses the existing text. An unknown name uses the stack
 // slot holding this ([ESP+0x14] = the saved ECX) as the key. Always returns 0.
 char FRmObjectiveText::Parse(INI_Reader* Reader, unsigned int Index)
@@ -834,7 +830,7 @@ char FRmObjectiveText::Parse(INI_Reader* Reader, unsigned int Index)
     return 0;
 }
 
-// Inline at FUN_06f98df0 06f98f23-06f98f41: speaker 1, length 0, empty text.
+// Inline at the routine 06f98f23-06f98f41: speaker 1, length 0, empty text.
 FRmCommLine::FRmCommLine()
     : Speaker(1)
     , Length(0)
@@ -842,7 +838,7 @@ FRmCommLine::FRmCommLine()
     Text[0] = '\0';
 }
 
-// Inline at FUN_06f998c0 06f99b79-06f99ba4: {0, 1, 0, 0, 0, []}.
+// Inline at the routine 06f99b79-06f99ba4: {0, 1, 0, 0, 0, []}.
 FRmCommSequence::FRmCommSequence()
     : Trigger(0)
     , Target(1)
@@ -852,8 +848,8 @@ FRmCommSequence::FRmCommSequence()
 {
 }
 
-// FUN_06f98df0 (RET 4): "comm_sequence = trigger, target, f, f, f, {speaker, text}...".
-// Names are DACOM stricmp lookups (null rows skipped, no match keeps the default). For the
+// (RET 4): "comm_sequence = trigger, target, f, f, f, {speaker, text}...".
+// Names are NEURONCOMPONENTS stricmp lookups (null rows skipped, no match keeps the default). For the
 // triggers 13..16 a value 4 above 5.0 is clamped to 5.0 and value 3 to at most 5.0
 // (06f98ece: TEST AH,0x41 + JNZ = value 4 <= 5.0 or unordered -> no clamp; 06f98eed:
 // TEST AH,0x05 + JP = value 3 >= 5.0 or unordered -> 5.0). Line texts keep at most 0x3f
@@ -928,22 +924,22 @@ void FRmCommSequence::Parse(INI_Reader* Reader)
     }
 }
 
-// FUN_06f9efb0
+
 FRmVignetteParams::FRmVignetteParams()
     : Weight(0.0f)
     , AllowableZoneTypes(7)
 {
 }
 
-// FUN_06f9f100
+
 FRmVignetteParams::~FRmVignetteParams()
 {
 }
 
-// FUN_06f998c0 "offer_group" / "hostile_group" (06f99a17-06f99ab5 / 06f99acb-06f99b65):
-// value 0 "all" (DACOM stricmp) enumerates every group once into DAT_06fd3cb8 and assigns
-// its vector (FUN_06eb6560); otherwise every value's reputation group is inserted uniquely
-// (FUN_06f95e00).
+// "offer_group" / "hostile_group" (06f99a17-06f99ab5 / 06f99acb-06f99b65):
+// value 0 "all" (NEURONCOMPONENTS stricmp) enumerates every group once into the field and assigns
+// its vector (the routine); otherwise every value's reputation group is inserted uniquely
+// (the routine).
 static void ParseRmReputationGroups(INI_Reader* Reader, std::vector<unsigned int>* Groups)
 {
     if (_stricmp(Reader->get_value_string(0), "all") == 0)
@@ -968,7 +964,7 @@ static void ParseRmReputationGroups(INI_Reader* Reader, std::vector<unsigned int
     }
 }
 
-// FUN_06f998c0 (vtable slot 1, RET 4): returns 1 when the key was one of this block's,
+// (vtable slot 1, RET 4): returns 1 when the key was one of this block's,
 // 0 otherwise (06f99caa).
 char FRmVignetteParams::ParseKey(INI_Reader* Reader)
 {
@@ -979,7 +975,7 @@ char FRmVignetteParams::ParseKey(INI_Reader* Reader)
     }
     if (Reader->is_value("offer_text"))
     {
-        // FUN_06fa2db0 appends a {bAppend 0, []} element, then its slot 0 parses.
+        // appends a {bAppend 0, []} element, then its slot 0 parses.
         OfferTexts.insert(OfferTexts.end(), FRmOfferText());
         OfferTexts.back().Parse(Reader);
         return 1;
@@ -1016,7 +1012,7 @@ char FRmVignetteParams::ParseKey(INI_Reader* Reader)
     }
     if (Reader->is_value("comm_sequence"))
     {
-        // FUN_06fa30e0 appends a default element, then FUN_06f98df0 parses it.
+        // appends a default element, then the routine parses it.
         CommSequences.insert(CommSequences.end(), FRmCommSequence());
         CommSequences.back().Parse(Reader);
         return 1;
@@ -1038,8 +1034,8 @@ char FRmVignetteParams::ParseKey(INI_Reader* Reader)
     return 0;
 }
 
-// Inline at FUN_06f9ecb0 06f9ed00-06f9ed73 and FUN_06f9fc20: ID_String::clear on +0x04,
-// NodeId -1, empty vectors, implemented 1, window list FUN_06f9ef80, params FUN_06f9efb0,
+// Inline at the routine 06f9ed00-06f9ed73 and the routine: ID_String::clear on +0x04,
+// NodeId -1, empty vectors, implemented 1, window list the routine, params the routine,
 // +0x110 = -1.0f (0xbf800000).
 FRmVignetteNode::FRmVignetteNode()
     : NodeId(0xffffffffu)
@@ -1049,7 +1045,7 @@ FRmVignetteNode::FRmVignetteNode()
     Nickname.clear();
 }
 
-// LAB_06f99e40 (vtable slot 0, RET 4): every value goes to the common keys first, then to
+// (vtable slot 0, RET 4): every value goes to the common keys first, then to
 // the parameter block (vtable slot 1); a weight of exactly 0 becomes 1.0 (TEST AH,0x44 +
 // JP: jump = not equal or unordered).
 void FRmVignetteNode::Load(INI_Reader* Reader)
@@ -1063,7 +1059,7 @@ void FRmVignetteNode::Load(INI_Reader* Reader)
         Params.Weight = 1.0f;
 }
 
-// FUN_06f99d60 (RET 4): node_id / child_node (appended) / implemented / nickname or
+// (RET 4): node_id / child_node (appended) / implemented / nickname or
 // documentation (CreateID of value 0). 1 when the key was handled.
 bool FRmVignetteNode::ParseCommonKey(INI_Reader* Reader)
 {
@@ -1075,7 +1071,7 @@ bool FRmVignetteNode::ParseCommonKey(INI_Reader* Reader)
     if (Reader->is_value("child_node"))
     {
         unsigned int ChildId = static_cast<unsigned int>(Reader->get_value_int(0));
-        Children.insert(Children.end(), ChildId);                      // FUN_06f937c0
+        Children.insert(Children.end(), ChildId);
         return true;
     }
     if (Reader->is_value("implemented"))
@@ -1091,13 +1087,13 @@ bool FRmVignetteNode::ParseCommonKey(INI_Reader* Reader)
     return false;
 }
 
-static FRandomMissionGenerator GRandomMissionGeneratorInstance;   // DAT_06fd3c78
+static FRandomMissionGenerator GRandomMissionGeneratorInstance;
 
 // =======================================================================================
 // TU63 -- offer request, tree path, path filters
 // =======================================================================================
 
-// FUN_06f9cac0.
+// .
 FRmOfferQuery::FRmOfferQuery()
     : OfferGroup(-1)
     , EnemyGroup(0xffffffffu)
@@ -1115,7 +1111,7 @@ FRmOfferQuery::FRmOfferQuery()
     ObjectivePos.z = 0.0f;
 }
 
-// LAB_06f99ea0 (RET 4): one character per decision into a 0x400-byte stack buffer ('F' for
+// (RET 4): one character per decision into a 0x400-byte stack buffer ('F' for
 // 0, 'T' otherwise: SETZ / DEC / AND 0xe / ADD 0x46), no length check, then
 // fprintf(File, "tree_path = %s\n").
 void FRmTreePath::Save(FILE* File)
@@ -1131,7 +1127,7 @@ void FRmTreePath::Save(FILE* File)
     fprintf(File, "tree_path = %s\n", Text);
 }
 
-// FUN_06f99f10 (RET 4): only for "tree_path". Clears the bits, copies value 0 (at most
+// (RET 4): only for "tree_path". Clears the bits, copies value 0 (at most
 // 0x3ff characters; a null string reads as empty) and appends one bit per character,
 // 1 for 'T' and 0 for anything else.
 void FRmTreePath::Load(INI_Reader* Reader)
@@ -1168,19 +1164,19 @@ FRmPathFilter::FRmPathFilter()
 {
 }
 
-// FUN_06ea1450.
+// .
 int FRmPathFilter::Slot00() const
 {
     return 0;
 }
 
-// FUN_06f9a170: any of +0x05..+0x08 (random_mission at +0x04 does not count).
+// any of +0x05..+0x08 (random_mission at +0x04 does not count).
 bool FRmPathFilter::HasMissionType() const
 {
     return bDestroySolars || bAssassinate || bDestroyShips || bLootItem;
 }
 
-// FUN_06f9a1a0 (RET 8): only a taken branch (Bit != 0) is looked at. The node nickname is
+// (RET 8): only a taken branch (Bit != 0) is looked at. The node nickname is
 // compared with CreateID of each mission name in turn; a match sets that flag and returns
 // 1. No match: ID_String::IsEmpty on the nickname (result unused), 0.
 bool FRmPathFilter::ApplyNode(FRmVignetteNode const* Node, char Bit)
@@ -1217,9 +1213,9 @@ bool FRmPathFilter::ApplyNode(FRmVignetteNode const* Node, char Bit)
     return false;
 }
 
-// FUN_06f9a270: the first set flag of destroy_solars / assassinate / destroy_ships /
+// the first set flag of destroy_solars / assassinate / destroy_ships /
 // loot_item picks the new filter. Destroy-solars (0x1c) and assassinate (0x28, ctor
-// FUN_06f9b390) copy +0x04..+0x08 and clear their own flags; destroy-ships and loot-item
+// ) copy +0x04..+0x08 and clear their own flags; destroy-ships and loot-item
 // (0x0c) start with every flag cleared. None set: null.
 FRmPathFilter* FRmPathFilter::Specialize() const
 {
@@ -1250,7 +1246,7 @@ FRmPathFilter* FRmPathFilter::Specialize() const
     return nullptr;
 }
 
-// LAB_06f9a430: switch on Param - 1 through the byte table at 06f9a458 -- parameters 1..3
+// switch on Param - 1 through the byte table at 06f9a458 -- parameters 1..3
 // (OFFER_GROUP, HOSTILE_GROUP, BIG_SOLAR) and 9..13 (FACTION_HIT .. TARGET_ZONE) are
 // supported; anything else (unsigned index above 0xc included) is not.
 bool FRmPathFilter::SupportsTextParam(int Param) const
@@ -1280,13 +1276,13 @@ FRmDestroySolarsFilter::FRmDestroySolarsFilter()
 {
 }
 
-// FUN_06f06190: MOV AL,[ECX+0x10].
+// MOV AL,[ECX+0x10].
 bool FRmDestroySolarsFilter::HasMissionType() const
 {
     return bCavalry;
 }
 
-// LAB_06f9a470 (RET 8): Bit 0 -> 0. Otherwise the nickname is compared with CreateID of
+// (RET 8): Bit 0 -> 0. Otherwise the nickname is compared with CreateID of
 // the fourteen flag names in field order (+0x0c..+0x19); a match sets that flag and
 // returns 1. "branch" returns 1 without a flag. No match: ID_String::IsEmpty (result
 // unused), 0.
@@ -1322,7 +1318,7 @@ bool FRmDestroySolarsFilter::ApplyNode(FRmVignetteNode const* Node, char Bit)
     return false;
 }
 
-// FUN_06f9a690: a "cavalry" node swaps in the cavalry filter with every flag cleared
+// a "cavalry" node swaps in the cavalry filter with every flag cleared
 // (base flags included); otherwise null.
 FRmPathFilter* FRmDestroySolarsFilter::Specialize() const
 {
@@ -1331,7 +1327,7 @@ FRmPathFilter* FRmDestroySolarsFilter::Specialize() const
     return new FRmCavalryFilter();
 }
 
-// FUN_06f9abe0: switch on Param - 1 (byte table 06f9ac50, 0x18 entries): 1 -> false,
+// switch on Param - 1 (byte table 06f9ac50, 0x18 entries): 1 -> false,
 // 4 -> +0x0d, 5 -> +0x0f, 22 -> +0x12, 24 -> !+0x12; every other parameter falls into the
 // base table (second switch at 06f9ac1c, byte table 06f9ac70).
 bool FRmDestroySolarsFilter::SupportsTextParam(int Param) const
@@ -1353,49 +1349,49 @@ bool FRmDestroySolarsFilter::SupportsTextParam(int Param) const
     }
 }
 
-// Slot 6 of 06fbd034 / 06fbd164, LAB_06ee9e10 (ICF: MOV EAX,1; RET).
+// Slot 6 of 06fbd034 / 06fbd164, the branch (ICF: MOV EAX,1; RET).
 int FRmDestroySolarsFilter::Slot06() const
 {
     return 1;
 }
 
-// FUN_06ea1480.
+// .
 bool FRmCavalryFilter::HasMissionType() const
 {
     return false;
 }
 
-// FUN_06f9a6f0 (RET 8).
+// (RET 8).
 bool FRmCavalryFilter::ApplyNode(FRmVignetteNode const* /*Node*/, char /*Bit*/)
 {
     return false;
 }
 
-// FUN_06ea1480.
+// .
 bool FRmDestroyShipsFilter::HasMissionType() const
 {
     return false;
 }
 
-// FUN_06f9a6f0 (RET 8).
+// (RET 8).
 bool FRmDestroyShipsFilter::ApplyNode(FRmVignetteNode const* /*Node*/, char /*Bit*/)
 {
     return false;
 }
 
-// FUN_06ea1480.
+// .
 bool FRmLootItemFilter::HasMissionType() const
 {
     return false;
 }
 
-// FUN_06f9a6f0 (RET 8).
+// (RET 8).
 bool FRmLootItemFilter::ApplyNode(FRmVignetteNode const* /*Node*/, char /*Bit*/)
 {
     return false;
 }
 
-// Node names of LAB_06f9b3f0 in flag order (+0x0c..+0x26).
+// Node names of the branch in flag order (+0x0c..+0x26).
 char const* const GRmAssassinateNodeNames[27] = {
     "assassinate_ship", "assassinate_solar", "target_drops_critical_loot", "bring_back_loot",
     "tractor_in_loot", "destroy_loot", "target_spawns_with_wave", "pre_battle",
@@ -1408,27 +1404,27 @@ char const* const GRmAssassinateNodeNames[27] = {
     "friendly_ships_after_30_s", "friendly_ships_come_in_to_whoop_up",
 };
 
-// FUN_06f9b390: +0x0c..+0x26 cleared.
+// +0x0c..+0x26 cleared.
 FRmAssassinateFilter::FRmAssassinateFilter()
 {
     for (int Index = 0; Index < 27; ++Index)
         Flags[Index] = false;
 }
 
-// LAB_06f9a400: MOV AL,[ECX+0xc]; NEG; SBB EAX,EAX; ADD 3 -> 2 when assassinate_ship,
+// MOV AL,[ECX+0xc]; NEG; SBB EAX,EAX; ADD 3 -> 2 when assassinate_ship,
 // else 3.
 int FRmAssassinateFilter::Slot00() const
 {
     return Flags[0] ? 2 : 3;
 }
 
-// FUN_06ea1480.
+// .
 bool FRmAssassinateFilter::HasMissionType() const
 {
     return false;
 }
 
-// FUN_06f9b3f0 (RET 8): same shape as LAB_06f9a470 over GRmAssassinateNodeNames, then
+// (RET 8): same shape as the branch over GRmAssassinateNodeNames, then
 // "branch" (1, no flag), then ID_String::IsEmpty (result unused) and 0.
 bool FRmAssassinateFilter::ApplyNode(FRmVignetteNode const* Node, char Bit)
 {
@@ -1449,13 +1445,13 @@ bool FRmAssassinateFilter::ApplyNode(FRmVignetteNode const* Node, char Bit)
     return false;
 }
 
-// FUN_06ea1450 (slot 3): null.
+// (slot 3): null.
 FRmPathFilter* FRmAssassinateFilter::Specialize() const
 {
     return nullptr;
 }
 
-// FUN_06f9ba50: switch on Param - 1 (byte table 06f9bac4, 0x18 entries): 1, 3, 19 ->
+// switch on Param - 1 (byte table 06f9bac4, 0x18 entries): 1, 3, 19 ->
 // pre_battle (+0x13); 20 -> target_spawns_at_pre_battle (+0x14); 4, 5, 21, 24 -> false;
 // 22 -> target_spawns_at_main_battle && main_battle_non_target_wave (+0x1b, +0x1c);
 // 23 -> +0x1b; the rest falls into the base table (06f9bae4).
@@ -1489,8 +1485,8 @@ bool FRmAssassinateFilter::SupportsTextParam(int Param) const
 
 namespace
 {
-    // {path, weight} entry of the tree path pick (8 bytes, vector insert FUN_06f96770; the
-    // local is a plain vector, unwind FUN_06eec8d0 at Unwind@06fb19a0).
+    // {path, weight} entry of the tree path pick (8 bytes, vector insert the routine; the
+    // local is a plain vector, unwind the routine at Unwind@06fb19a0).
     struct FRmWeightedPath
     {
         FRmTreePath* Path;
@@ -1498,16 +1494,16 @@ namespace
     };
 }
 
-// FUN_06f9cb00 (RET 4). Every leaf whose offer_group list holds Query->OfferGroup and
-// whose hostile_group list holds Query->EnemyGroup (FUN_06eb5f30) and one of whose
+// (RET 4). Every leaf whose offer_group list holds Query->OfferGroup and
+// whose hostile_group list holds Query->EnemyGroup (the routine) and one of whose
 // difficulty windows contains Query->Difficulty (vtable slot 1) becomes a {node id,
 // weight} candidate of a Common weighted_vector<unsigned int> local (unwind
-// Unwind@06fb1950 = the ??1?$weighted_vector@I@@ import; insert FUN_06f96770). The leaf
-// lookup is FUN_06f2e220 without an end check, as retail. An empty candidate vector
+// Unwind@06fb1950 = the ??1?$weighted_vector@I@@ import; insert the routine). The leaf
+// lookup is the routine without an end check, as baseline. An empty candidate vector
 // (begin null or size 0, 06f9cc4e / 06f9cc5f) gives -1. The weighted pick 06f9cc61-06f9ccd2
 // is weighted_vector::Pick inlined: Target = rand() * (1/32768) * sum, the first candidate
 // whose running sum is >= Target wins (TEST AH,0x41 + JNP: Target <= sum); a zero sum
-// (TEST AH,0x44 + JNP) and a run past the last candidate both give end(), and retail then
+// (TEST AH,0x44 + JNP) and a run past the last candidate both give end(), and baseline then
 // returns the dword just after the last candidate (06f9ccd2, MOV ESI,[ECX]).
 unsigned int FRandomMissionGenerator::PickOfferNode(FRmOfferQuery const* Query)
 {
@@ -1544,20 +1540,20 @@ unsigned int FRandomMissionGenerator::PickOfferNode(FRmOfferQuery const* Query)
     std::pair<unsigned int, float> const* Picked = Candidates.Pick();
     if (Picked != Candidates.Items.data() + Candidates.Items.size())
         return Picked->first;
-    // TODO: retail returns the dword after the last candidate (undefined); a zero sum is
-    // unreachable while every node weight is forced non-zero (FUN_06f99e40), a run past the
+    // TODO: baseline returns the dword after the last candidate (undefined); a zero sum is
+    // unreachable while every node weight is forced non-zero (the routine), a run past the
     // end only through float rounding of Target against the running sum.
     return 0xffffffffu;
 }
 
-// FUN_06f9cd00 (RET 0x18; Window by value). The decision bits of the current branch live in
-// the function-static list DAT_06fd3ca8 (guard DAT_06fd3cb4 bit 0, atexit FUN_06f9d010).
-// A node without parents (FUN_06fa3db0 == 0) appends a new path (vtable 06fb7750) holding a
+// (RET 0x18; Window by value). The decision bits of the current branch live in
+// the function-static list the field (guard the field bit 0, atexit the routine).
+// A node without parents (the routine == 0) appends a new path (vtable 06fb7750) holding a
 // copy of that list. Otherwise, for every parent: bit = (parent's first child == NodeId);
 // the parent is taken when one of its windows overlaps Window (vtable slot 2) and its
 // offer_group list is empty or holds OfferGroup; the bit is pushed in front, the window is
 // shifted by the parent's difficulty (min - parent max, max - parent min) and the parent
-// recursed into; the bit is popped afterwards. Node lookups have no end check, as retail.
+// recursed into; the bit is popped afterwards. Node lookups have no end check, as baseline.
 void FRandomMissionGenerator::CollectTreePaths(std::vector<FRmTreePath>* OutPaths,
                                                unsigned int NodeId, FRmDifficultyWindow Window,
                                                int OfferGroup)
@@ -1601,11 +1597,11 @@ void FRandomMissionGenerator::CollectTreePaths(std::vector<FRmTreePath>* OutPath
     }
 }
 
-// FUN_06f9d070 (RET 4). Each path starts at weight 1.0 and walks from RootNodeId: bit 1
+// (RET 4). Each path starts at weight 1.0 and walks from RootNodeId: bit 1
 // multiplies by the node's first-child chance and goes to Children[0], any other bit
 // multiplies by (1 - chance) and goes to Children[1]. A chance of exactly -1.0
 // (CMP 0xbf800000) means 1 / child count (FILD qword, FDIVR 1.0). Products are rounded to
-// float (FSTP) at every step. Weighted pick as in FUN_06f9cb00; returns the path.
+// float (FSTP) at every step. Weighted pick as in the routine; returns the path.
 FRmTreePath* FRandomMissionGenerator::PickTreePath(std::vector<FRmTreePath>* Paths)
 {
     std::vector<FRmWeightedPath> Weighted;
@@ -1647,7 +1643,7 @@ FRmTreePath* FRandomMissionGenerator::PickTreePath(std::vector<FRmTreePath>* Pat
     float const Total = static_cast<float>(Sum);
     if (Sum == 0.0)
     {
-        // TODO: retail returns the dword after the last entry (undefined), which its caller
+        // TODO: baseline returns the dword after the last entry (undefined), which its caller
         // then dereferences.
         return nullptr;
     }
@@ -1662,12 +1658,12 @@ FRmTreePath* FRandomMissionGenerator::PickTreePath(std::vector<FRmTreePath>* Pat
         if (static_cast<double>(Target) <= Accum)
             return It->Path;
     }
-    // TODO: retail returns the dword after the last entry (undefined).
+    // TODO: baseline returns the dword after the last entry (undefined).
     return nullptr;
 }
 
-// FUN_06f9d2b0 (RET 0x10). Collects every path from OfferNodeId up to the root through
-// windows overlapping [Difficulty, Difficulty] (FUN_06f9d500), then copies the weighted
+// (RET 0x10). Collects every path from OfferNodeId up to the root through
+// windows overlapping [Difficulty, Difficulty] (the routine), then copies the weighted
 // pick into OutPath (vector assignment, skipped when source and target are the same).
 // Returns 1 as soon as at least one path exists.
 bool FRandomMissionGenerator::ChooseTreePath(FRmTreePath* OutPath, unsigned int OfferNodeId,
@@ -1691,9 +1687,9 @@ bool FRandomMissionGenerator::ChooseTreePath(FRmTreePath* OutPath, unsigned int 
 // TU63 -- voice properties
 // =======================================================================================
 
-std::vector<FVoiceProperties> GVoiceProperties;   // DAT_06fd3d90
+std::vector<FVoiceProperties> GVoiceProperties;
 
-// FUN_06fa6760 -- [mVoiceProp] sections; called by LoadContentGameTables (FUN_06efe300) for
+// [mVoiceProp] sections; called by LoadContentGameTables (the routine) for
 // audio\voices_space_male.ini, voices_space_female.ini, voices_recognizable.ini and
 // missions\voice_properties.ini.
 void __cdecl LoadVoiceProperties(INI_Reader* Reader)
@@ -1706,7 +1702,7 @@ void __cdecl LoadVoiceProperties(INI_Reader* Reader)
         if (!Reader->is_header("mVoiceProp"))
             continue;
 
-        // EBP: the record being filled -- an existing element of DAT_06fd3d90, or a heap
+        // EBP: the record being filled -- an existing element of the field, or a heap
         // record (operator new 0x1c) that is copied in at the end of the section and freed.
         FVoiceProperties* Record = nullptr;
         std::unique_ptr<FVoiceProperties> Fresh;
@@ -1717,7 +1713,7 @@ void __cdecl LoadVoiceProperties(INI_Reader* Reader)
             if (Reader->is_value("voice"))
             {
                 pub::GetVoiceID(VoiceId, Reader->get_value_string());
-                // 06fa67eb-06fa680f: linear search by VoiceId (+0x00).
+                // linear search by VoiceId (+0x00).
                 FVoiceProperties* Found = nullptr;
                 for (std::vector<FVoiceProperties>::iterator It = GVoiceProperties.begin();
                      It != GVoiceProperties.end(); ++It)
@@ -1735,7 +1731,7 @@ void __cdecl LoadVoiceProperties(INI_Reader* Reader)
                 }
                 else
                 {
-                    // 06fa6811-06fa6888: new record, +0/+4 zero, empty map.
+                    // new record, +0/+4 zero, empty map.
                     Fresh.reset(new FVoiceProperties());
                     Fresh->VoiceId = 0;
                     Fresh->Flags = 0;
@@ -1745,7 +1741,7 @@ void __cdecl LoadVoiceProperties(INI_Reader* Reader)
             }
             else if (Reader->is_value("gender"))
             {
-                // DACOM stricmp for "male", then a case-sensitive REPE CMPSB for "female".
+                // NEURONCOMPONENTS stricmp for "male", then a case-sensitive REPE CMPSB for "female".
                 char const* Value = Reader->get_value_string();
                 if (_stricmp(Value, "male") == 0)
                     Record->Flags |= 0x1;
@@ -1754,7 +1750,7 @@ void __cdecl LoadVoiceProperties(INI_Reader* Reader)
             }
             else if (Reader->is_value("supports_roles"))
             {
-                // 06fa6914-06fa6ae9: every value compared case-sensitively (REPE CMPSB over
+                // every value compared case-sensitively (REPE CMPSB over
                 // the literal including its terminator).
                 for (unsigned int Index = 0; !Reader->is_value_empty(Index); ++Index)
                 {
@@ -1791,22 +1787,22 @@ void __cdecl LoadVoiceProperties(INI_Reader* Reader)
             }
             else if (Reader->is_value("permutation_count"))
             {
-                // 06fa6b03-06fa6c12: unique insert into the record's map (existing key kept).
+                // unique insert into the record's map (existing key kept).
                 unsigned int Key = pub::GetNicknameId(Reader->get_value_string(0));
                 int Count = Reader->get_value_int(1);
                 Record->PermutationCounts.insert(std::make_pair(Key, Count));
             }
         }
 
-        // 06fa6c2b-06fa6cf1: a section that did not name an existing voice appends a copy of
-        // its record (FUN_06fa6ee0(end, 1, EBP), EBP dereferenced unconditionally), then the
+        // a section that did not name an existing voice appends a copy of
+        // its record (the routine(end, 1, EBP), EBP dereferenced unconditionally), then the
         // heap record is destroyed.
         if (!bExisting)
             GVoiceProperties.insert(GVoiceProperties.end(), *Record);
     }
 }
 
-// FUN_06fa6de0 (thiscall on the record) -- lower_bound on the map at +8 (FUN_06fa7200), exact
+// (thiscall on the record) -- lower_bound on the map at +8 (the routine), exact
 // key -> mapped count, else 0. Callers 06eeaf71 / 06eeb068 (GCS).
 int FVoiceProperties::GetPermutationCount(unsigned int const* NicknameId) const
 {
@@ -1816,14 +1812,14 @@ int FVoiceProperties::GetPermutationCount(unsigned int const* NicknameId) const
     return It->second;
 }
 
-// FUN_06fa6e30 (thiscall on the record) -- (Flags & Mask) == Mask (AND/SUB/NEG/SBB/INC).
+// (thiscall on the record) -- (Flags & Mask) == Mask (AND/SUB/NEG/SBB/INC).
 // 21 callers (GCS TU25, TU38, TU48).
 bool FVoiceProperties::SupportsRoles(unsigned int Mask) const
 {
     return (Flags & Mask) == Mask;
 }
 
-// FUN_06fa6e50 -- linear search of DAT_06fd3d90 by voice id; null on a miss. 21 callers
+// linear search of the field by voice id; null on a miss. 21 callers
 // (GCS TU25, TU38, TU48).
 FVoiceProperties* __cdecl FindVoiceProperties(unsigned int const* VoiceId)
 {
@@ -1842,25 +1838,25 @@ FVoiceProperties* __cdecl FindVoiceProperties(unsigned int const* VoiceId)
 
 namespace
 {
-    // .rdata DAT_06fbcc58 (single player) and DAT_06fbcc7c (multiplayer), indexed by the
+    // .rdata the field (single player) and the field (multiplayer), indexed by the
     // formation size: nine floats each, stored back to back (06f98a48 / 06f98a51).
     float const GRmFormationSizeWeights[18] = {
         0.0f, 0.0f, 3.0f, 9.0f, 6.0f, 2.0f, 1.0f, 1.0f, 1.0f,
         0.0f, 0.0f, 2.0f, 3.0f, 9.0f, 6.0f, 4.0f, 2.0f, 1.0f,
     };
 
-    // The 0x10-byte candidate of FUN_06f98780 (vector insert FUN_06f69d50).
+    // The 0x10-byte candidate of the routine (vector insert the routine).
     struct FRmFormationSizeChoice
     {
         FRmShipSize Size;
         float Weight;
     };
 
-    // DAT_06fd3d88: the counter of the "Vignette_solar_%X" nicknames (FUN_06f9af40,
-    // FUN_06f9bb00).
+    // the counter of the "Vignette_solar_%X" nicknames (the routine,
+    // ).
     unsigned int GRmVignetteSolarCounter = 0;
-    // DAT_06fd3d00: the .data buffer both solar spawners format the nickname into (0x20 bytes
-    // up to DAT_06fd3d20).
+    // the .data buffer both solar spawners format the nickname into (0x20 bytes
+    // up to the field).
     char GRmVignetteSolarName[0x20];
 
     // .rdata 06fbcbf8: the pilots of vignette solars, 0x18 bytes apart (06f9b141-06f9b14c).
@@ -1871,21 +1867,21 @@ namespace
         "pilot_rm_solar_hardest",
     };
 
-    // 06f9eb29-06f9ebca (x87): Difficulty -> offer +0x2c. At or above DAT_06fbccd0 (FCOM +
-    // TEST AH,0x5 + JP: not less, NaN included) ln(D) * DAT_06fbcca8 + DAT_06fbcca0 (FLDLN2 /
-    // FYL2X); below it D * DAT_06fbccb8 + (D^3 * DAT_06fbccc8 - D^2 * DAT_06fbccc0) -
-    // DAT_06fbccb0. A negative result becomes 0 (TEST AH,0x5 + JP keeps >= 0); floor(x +
-    // DAT_06fb74e0) is truncated by ftol, and a rank below 1 becomes 1 (TEST AH,0x41 + JNZ
+    // (x87): Difficulty -> offer +0x2c. At or above the field (FCOM +
+    // TEST AH,0x5 + JP: not less, NaN included) ln(D) * + the field (FLDLN2 /
+    // FYL2X); below it D * + (D^3 * - D^2 * ) -
+    // . A negative result becomes 0 (TEST AH,0x5 + JP keeps >= 0); floor(x +
+    // ) is truncated by ftol, and a rank below 1 becomes 1 (TEST AH,0x41 + JNZ
     // keeps 1 <= rank).
     float RemapRmOfferDifficulty(float Difficulty)
     {
-        double const LogThreshold = 0.900376;       // DAT_06fbccd0 3feccfe1'54434e33
-        double const LogScale = 6.3693;             // DAT_06fbcca8 40197a29'c779a6b5
-        double const LogOffset = 13.668;            // DAT_06fbcca0 402b5604'189374bc
-        double const CubeScale = 15.193;            // DAT_06fbccc8 402e62d0'e5604189
-        double const SquareScale = 28.236;          // DAT_06fbccc0 403c3c6a'7ef9db23
-        double const LinearScale = 28.682;          // DAT_06fbccb8 403cae97'8d4fdf3b
-        double const CubicOffset = 1.0113;          // DAT_06fbccb0 3ff02e48'e8a71de7
+        double const LogThreshold = 0.900376;       // 3feccfe1'54434e33
+        double const LogScale = 6.3693;             // 40197a29'c779a6b5
+        double const LogOffset = 13.668;            // 402b5604'189374bc
+        double const CubeScale = 15.193;            // 402e62d0'e5604189
+        double const SquareScale = 28.236;          // 403c3c6a'7ef9db23
+        double const LinearScale = 28.682;          // 403cae97'8d4fdf3b
+        double const CubicOffset = 1.0113;          // 3ff02e48'e8a71de7
 
         double const D = static_cast<double>(Difficulty);
         double Mapped = 0.0;
@@ -1903,11 +1899,11 @@ namespace
     }
 }
 
-// FUN_06f98780 (06f98780-06f98bc5, cdecl). The candidate classes are the one id
-// CreateID("class_fighter") (a fresh vector, FUN_06eb5f30 find + FUN_06eae440 insert);
-// FUN_06f357d0 lists the faction's archs that fit it. Every arch level (+0x24) that is not 0
-// is flagged (a 0x1a-byte array, no bound check, as retail). Per flagged level 1..25 the
-// NpcRankToDiff vector (map operator[], FUN_06f9faa0) is walked for the first difficulty
+// (06f98780-06f98bc5, cdecl). The candidate classes are the one id
+// CreateID("class_fighter") (a fresh vector, the routine find + the routine insert);
+// lists the faction's archs that fit it. Every arch level (+0x24) that is not 0
+// is flagged (a 0x1a-byte array, no bound check, as baseline). Per flagged level 1..25 the
+// NpcRankToDiff vector (map operator[], the routine) is walked for the first difficulty
 // above Difficulty (TEST AH,0x41 + JZ); at index 0 or when none is above, the level gets no
 // count; otherwise the nearer neighbour wins (B = d[i] - D against A = D - d[i-1]: TEST
 // AH,0x5 + JNP keeps i when B < A, else i - 1) and the count is that index + 1. Per level
@@ -1916,9 +1912,9 @@ namespace
 // running sum >= target); a zero sum, an empty vector or no pick set only Out->Count = 0.
 // Every level 1..25 gets count -1 before its flag test (06f98899), so a level without a
 // count is skipped by the second loop (JL 1). The class-id local is a bare vector<uint> in
-// retail (ctor FUN_06ead6a0, dtor FUN_06eec8d0); FUN_06f357d0 reads only its +0x00 vector,
+// baseline (ctor the routine, dtor the routine); the routine reads only its +0x00 vector,
 // which is FEncounterShip::ShipClasses here. The weight index is the count (at most 8 with
-// DATA\RANDOMMISSIONS\npcranktodiff.ini's eight values per rank; retail does not bound it).
+// DATA\RANDOMMISSIONS\npcranktodiff.ini's eight values per rank; baseline does not bound it).
 void __cdecl PickRmShipFormationSize(FRmShipSize* Out, float Difficulty, unsigned int Faction)
 {
     FEncounterShip Line;
@@ -1937,7 +1933,7 @@ void __cdecl PickRmShipFormationSize(FRmShipSize* Out, float Difficulty, unsigne
     int Counts[0x1a];
     for (int Level = 1; Level <= 0x19; ++Level)
     {
-        Counts[Level] = -1;                                             // 06f98899
+        Counts[Level] = -1;
         if (bLevels[Level] == 0)
             continue;
         std::vector<float> const& Diffs = GRmNpcRankToDifficulty[Level];
@@ -1998,30 +1994,30 @@ void __cdecl PickRmShipFormationSize(FRmShipSize* Out, float Difficulty, unsigne
 
 namespace
 {
-    // DAT_06fd3d84: the counter of the "Vignette_ship_%X" nicknames (FUN_06f97580).
+    // the counter of the "Vignette_ship_%X" nicknames (the routine).
     unsigned int GRmVignetteShipCounter = 0;
-    // DAT_06fd3d20: the .data buffer FUN_06f97580 formats the nickname into (0x20 bytes: the
-    // TU's static-ID globals follow at DAT_06fd3d40..DAT_06fd3d80, written by the thunks
-    // 06f97360..06f97560).
+    // the .data buffer the routine formats the nickname into (0x20 bytes: the
+    // TU's static-ID globals follow at the field..the field, written by the thunks
+    // ).
     char GRmVignetteShipName[0x20];
 }
 
-// FUN_06f97580 (06f97580-06f979af, cdecl, 12 dwords). Count 0 -> false (06f975a7).
+// (06f97580-06f979af, cdecl, 12 dwords). Count 0 -> false (06f975a7).
 // GetFactionProps(&GroupId) (unchecked) ->GetFormation(&CreateID("fighters"), &Group +0x80)
-// (FUN_06f4f3d0, result ignored); the slot budget = FindFormation(&Group +0x80) (FUN_06efd1a0,
+// (the routine, result ignored); the slot budget = FindFormation(&Group +0x80) (the routine,
 // unchecked) slot count (0 with no slot vector; 0x34 per slot). A 0x10-byte class-id vector
-// local (only the ShipClasses vector of FEncounterShip is read by FUN_06f35890) gets
-// CreateID("class_fighter") and CreateID of "D%d" with the level (DAT_06fbcd00; level 0 copies
-// "D1", DAT_06fbcd04) into an 8-byte stack buffer, each inserted when absent (FUN_06eb5f30 find,
-// FUN_06eae440 insert). FUN_06f35890(GroupId, &classes, -1) null -> false. bMatchLevel: level 0
-// -> false, |arch +0x24 - level| >= 2 (CDQ/XOR/SUB abs) -> false. The ship local (FUN_06f862e0,
+// local (only the ShipClasses vector of FEncounterShip is read by the routine) gets
+// CreateID("class_fighter") and CreateID of "D%d" with the level (the field; level 0 copies
+// "D1", the field) into an 8-byte stack buffer, each inserted when absent (the routine find,
+// insert). the routine(GroupId, &classes, -1) null -> false. bMatchLevel: level 0
+// -> false, |arch +0x24 - level| >= 2 (CDQ/XOR/SUB abs) -> false. The ship local (the routine,
 // EH state 1): +0x50 = 1, Npc +0x88 = GroupId, Npc +0x90 = arch +0x00. Per ship 0..Count-1 while
-// the slot budget (post-decrement) was > 0: the first ship appends *Loot (FUN_06fa13d0) when
+// the slot budget (post-decrement) was > 0: the first ship appends *Loot (the routine) when
 // Loot is set, +0xd8 = FirstField_0xd8, +0xdc = FirstField_0xdc and, for 2, +0x50 = 0 and +0xd4
-// = TargetName; later ships clear the loot vector (FUN_06f93d80 / FUN_06f936d0), +0xd8 =
-// OtherField_0xd8, +0xdc = OtherField_0xdc, +0x50 = 1, +0xd4 = 0. Then sprintf(DAT_06fd3d20,
-// "Vignette_ship_%X", DAT_06fd3d84++), the nickname assigned (FUN_06ea9f40, 0x30), the ship
-// appended to Group +0x84 (FUN_06fa1760). The ship local and the class vector are destroyed;
+// = TargetName; later ships clear the loot vector (the routine / the routine), +0xd8 =
+// OtherField_0xd8, +0xdc = OtherField_0xdc, +0x50 = 1, +0xd4 = 0. Then sprintf(the field,
+// "Vignette_ship_%X", the field++), the nickname assigned (the routine, 0x30), the ship
+// appended to Group +0x84 (the routine). The ship local and the class vector are destroyed;
 // true.
 bool __cdecl BuildRmShips(FRmShipGroup* Group, unsigned int GroupId, FRmShipSize Size,
                           int FirstField_0xd8, int OtherField_0xd8, int FirstField_0xdc,
@@ -2104,21 +2100,21 @@ bool __cdecl BuildRmShips(FRmShipGroup* Group, unsigned int GroupId, FRmShipSize
     return true;
 }
 
-// FUN_06f979b0 (06f979b0-06f97d89, cdecl, 6 dwords). Component +0x0c = 1; the group is the
+// (06f979b0-06f97d89, cdecl, 6 dwords). Component +0x0c = 1; the group is the
 // offer group (Query +0x00) when bFriendly, else the hostile group (+0x04). A default ship group
-// (FUN_06f865e0 temp, EH state 0) is appended to Component +0x34 (FUN_06fa1b10) and filled:
+// (the routine temp, EH state 0) is appended to Component +0x34 (the routine) and filled:
 // +0x00 = block +0x00, +0x02 = block +0x03, +0x04 = block +0x18, +0x08 = block +0x1c, +0x34 =
-// *Position, +0x40 = 0.9f (0x3f666666, friendly) / -0.9f (DAT_06fbcbd4), +0x0c =
-// FUN_06f75f30(&DestSys). Ship values (+0xd8): first / others 0 / 0; block +0x02 -> 2 / 2;
+// *Position, +0x40 = 0.9f (0x3f666666, friendly) / -0.9f (the field), +0x0c =
+// (&DestSys). Ship values (+0xd8): first / others 0 / 0; block +0x02 -> 2 / 2;
 // then block +0x01 -> 2 / 0. Loot: block +0x04 set, or else the bonus drop chance
-// (FUN_06f56150) above rand() * (1/32768) stored as float (FCOMP + TEST AH,0x41 + JNZ: not
+// (the routine) above rand() * (1/32768) stored as float (FCOMP + TEST AH,0x41 + JNZ: not
 // above -> none). The loot local (inline FRmLootSpawn template, EH state 1) when looted: Info
-// +0x60 = 0; critical (block +0x04): FUN_06f95cd0(group, block +0x14), +0xfc = 2, +0x104 = the
-// record, +0x100 = block +0x14, archetype = record +0x0c, units 1; else FUN_06f564d0(Query
+// +0x60 = 0; critical (block +0x04): the routine(group, block +0x14), +0xfc = 2, +0x104 = the
+// record, +0x100 = block +0x14, archetype = record +0x0c, units 1; else the routine(Query
 // +0x04, Query +0x18) (unchecked), +0xfc = 1, +0x100 / +0x104 = 0, archetype = record +0x00,
 // units = (rand() * (max - min + 1)) / 0x8000 + min; then +0xe4 = 1, system = DestSys,
-// +0xd8..+0xe0 = 0, hit points scale = rand() * (1/32768) * 0.7f (DAT_06fbcd08, double) +
-// 0.3f (DAT_06fbbc10, double) stored as float. FUN_06f97580(group, group id, block size,
+// +0xd8..+0xe0 = 0, hit points scale = rand() * (1/32768) * 0.7f (the field, double) +
+// 0.3f (the field, double) stored as float. the routine(group, group id, block size,
 // first, others, block +0x01 ? 2 : 1, 1, the loot or null, TargetName, !bFriendly).
 bool __cdecl BuildRmShipGroup(FRmOfferQuery const* Query, FRmShipComponent* Component,
                               FRmShipBlock const* Block, Vector const* Position,
@@ -2203,7 +2199,7 @@ bool __cdecl BuildRmShipGroup(FRmOfferQuery const* Query, FRmShipComponent* Comp
                         FirstField_0xdc, 1, LootArg, TargetName, !bFriendly);
 }
 
-// FUN_06f9a410 (RET 8): a held offer is released through its interface at +0x04 and the
+// (RET 8): a held offer is released through its interface at +0x04 and the
 // pointer cleared; the base filter never creates an offer.
 bool FRmPathFilter::CreateOffer(FRmOfferQuery const* /*Query*/, FRmOffer** OutOffer)
 {
@@ -2215,22 +2211,22 @@ bool FRmPathFilter::CreateOffer(FRmOfferQuery const* /*Query*/, FRmOffer** OutOf
     return false;
 }
 
-// FUN_06f9a700 (06f9a700-06f9abd3, RET 8). new 0x218 + FUN_06f88240(1) into a local holder
+// (06f9a700-06f9abd3, RET 8). new 0x218 + the routine(1) into a local holder
 // (AddRef, then the new reference dropped: 06f9a763-06f9a77e); General active (+0xc4), type
-// 1 (+0x54); the solars (FUN_06f9ac80, its result is the first success value); the ship
+// 1 (+0x54); the solars (the routine, its result is the first success value); the ship
 // component's position = the objective position (06f9a7a4-06f9a7d5). Shares (x87): Divisor
-// = at_installation + after_30_s + waves * 0.5 (DAT_06fb605c), at least 1.0 (TEST AH,0x41 +
-// JNZ keeps it when 1.0 <= it); HostileShare = 0.6 (DAT_06fbd180) / Divisor * Difficulty,
+// = at_installation + after_30_s + waves * 0.5 (the field), at least 1.0 (TEST AH,0x41 +
+// JNZ keeps it when 1.0 <= it); HostileShare = 0.6 (the field) / Divisor * Difficulty,
 // FriendlyShare = HostileShare * 0.5, both stored as float. Then one ship block per flag:
 // hostile at installation (+0x13: block +0/+2 = pk_hostile_ships), friendly at installation
 // (+0x17: +0x18/+0x1c = 1), hostile after 30 s (+0x14: +0/+2 = pk flag; +0x18/+0x1c = 3/1
 // with at_installation, else 1/8), friendly after 30 s (+0x18: +0x18/+0x1c = 1/9), hostile
 // waves (+0x15: +2 = pk flag; +0x18/+0x1c = 3/1 when (at_installation or after_30_s) and
-// rand() is odd, else 1/0xf0). Each block's size comes from FUN_06f98780 (hostile: the
+// rand() is odd, else 1/0xf0). Each block's size comes from the routine (hostile: the
 // enemy group and HostileShare; friendly: the offer group and FriendlyShare; a friendly block
 // with no count gets count 1 and, with level 0, level 1 -- on a copy of the block). Last the
 // offer goes to *OutOffer (the old one released, the new one AddRef'ed when they differ) and
-// the holder is released. Each block goes to FUN_06f979b0 (Query, the ship component, the
+// the holder is released. Each block goes to the routine (Query, the ship component, the
 // block, the position local, friendly, 0) and its result is ANDed into the success byte.
 bool FRmDestroySolarsFilter::CreateOffer(FRmOfferQuery const* Query, FRmOffer** OutOffer)
 {
@@ -2362,15 +2358,15 @@ bool FRmDestroySolarsFilter::CreateOffer(FRmOfferQuery const* Query, FRmOffer** 
     return bSuccess;
 }
 
-// FUN_06f9ac80 (06f9ac80-06f9af37, thiscall RET 8). The component's position = the
+// (06f9ac80-06f9af37, thiscall RET 8). The component's position = the
 // objective position, active. The solar types: 0 when big_solar (+0xc), 1 when
-// defensive_solars (+0xe) (FUN_06eb5f30 find + insert). PickSolarFormation (FUN_06f97d90)
+// defensive_solars (+0xe) (the routine find + insert). PickSolarFormation (the routine)
 // null -> false. pub::System::GetNestedProperties(DestSys, position). Per type the difficulty
-// is scaled (each product stored as float): type 0 by 0.4 (DAT_06fbd188) when
-// hostile_ships_at_installation and by 0.6 (DAT_06fbd180) when defensive_solars; type 1 by
-// 0.4 when hostile_ships_at_installation and by 0.39999998 (DAT_06fbd184) when big_solar;
+// is scaled (each product stored as float): type 0 by 0.4 (the field) when
+// hostile_ships_at_installation and by 0.6 (the field) when defensive_solars; type 1 by
+// 0.4 when hostile_ships_at_installation and by 0.39999998 (the field) when big_solar;
 // PickKillableSolar(enemy group, type, the nested properties, scaled) null -> false;
-// {entry, scaled} appended (FUN_06f96770). Then SpawnSolars(Query, EnemyGroup, Difficulty,
+// {entry, scaled} appended (the routine). Then SpawnSolars(Query, EnemyGroup, Difficulty,
 // formation, the entries, &Solars->Solars) and true.
 bool FRmDestroySolarsFilter::FillSolarSpawns(FRmOfferQuery const* Query,
                                              FRmSolarComponent* Solars) const
@@ -2427,18 +2423,18 @@ bool FRmDestroySolarsFilter::FillSolarSpawns(FRmOfferQuery const* Query,
     return true;
 }
 
-// FUN_06f9af40 (06f9af40-06f9b388, thiscall RET 0x18). For every entry {solar, scaled} in
+// (06f9af40-06f9b388, thiscall RET 0x18). For every entry {solar, scaled} in
 // order: the mode is 2 when the solar's type is 0 and pk_big_solar (+0xd), or 1 and
 // pk_defensive_solars (+0xf), else 0. For each formation slot of the solar's type, while
 // nothing of this entry was spawned yet or the committed difficulty is below Difficulty: a
-// solar (FUN_06f852e0) named "Vignette_solar_%X" (DAT_06fd3d88++, at most 0x2f characters)
+// solar (the routine) named "Vignette_solar_%X" (the field++, at most 0x2f characters)
 // of EnemyGroup, the slot's orientation (9 dwords) at the slot position + the objective
 // position, the entry's archetype / loadout; fraction = (scaled - min) / (max - min) capped
 // at 0.999 (0x3f7fbe77, TEST AH,0x1 + JNZ keeps the lower); pilot
-// pilot_rm_solar_*[ftol(choices * fraction)] (CreateID, FUN_06f3e020 into the personality),
-// +0x4c8 = -0.9 (DAT_06fbcbd0), bPilot 1, DestSys, mode, hit points ftol((max - min) *
+// pilot_rm_solar_*[ftol(choices * fraction)] (CreateID, the routine into the personality),
+// +0x4c8 = -0.9 (the field), bPilot 1, DestSys, mode, hit points ftol((max - min) *
 // fraction + min), type, entry; the entry's used difficulty += scaled, then the solar is
-// appended (operator new 0x500 + FUN_06fa3ec0 copy). A slot loop ends once used + committed
+// appended (operator new 0x500 + the routine copy). A slot loop ends once used + committed
 // reach Difficulty; committed += used per entry.
 void FRmDestroySolarsFilter::SpawnSolars(
     FRmOfferQuery const* Query, unsigned int EnemyGroup, float Difficulty,
@@ -2513,7 +2509,7 @@ void FRmDestroySolarsFilter::SpawnSolars(
                 Solar.Hitpoints = static_cast<int>(
                     (static_cast<double>(Arch->HitpointsMax) - Arch->HitpointsMin) * Fraction +
                     Arch->HitpointsMin);
-                // 06f9b1c6-06f9b1fa: the local's (empty) loot vector cleared.
+                // the local's (empty) loot vector cleared.
                 Solar.Loot.clear();
                 Solar.SolarType = Arch->SolarType;
                 Solar.Arch = Arch;
@@ -2527,19 +2523,19 @@ void FRmDestroySolarsFilter::SpawnSolars(
     }
 }
 
-// FUN_06f9b790 (06f9b790-06f9ba45, RET 8). new 0x218 + FUN_06f88240(Flags[0] ? 2 : 3)
+// (06f9b790-06f9ba45, RET 8). new 0x218 + the routine(Flags[0] ? 2 : 3)
 // (NEG/SBB/ADD 3) into a local holder (AddRef, the new reference dropped); success starts
 // true; General active; type Flags[0] ? (Flags[3] ? 4 : Flags[4] ? 5 : Flags[5] ? 3 : 2) : 0;
-// a copy of the query whose difficulty is scaled by 0.9 (DAT_06fbd3e4) when Flags[2] and
+// a copy of the query whose difficulty is scaled by 0.9 (the field) when Flags[2] and
 // Flags[3]. With Flags[0]: the enemy group's male first names (GetFactionNames(&group)+0x18,
-// FUN_06f4f050 empty test) must exist, the target name's gender = 1 and BuildNpcName(group, a
+// empty test) must exist, the target name's gender = 1 and BuildNpcName(group, a
 // default request, &TargetName, true) must succeed -- else the holder is released and false.
 // Then the target count (Flags[7]: Flags[0x13] ? Flags[0x15] + 1 : Flags[9] + Flags[8]; plus
 // Flags[0x13] ? Flags[0x12] + 2 * Flags[0x17] : Flags[0x11] + Flags[0x12] + Flags[0x10] +
 // Flags[0xf]) splits the difficulty (difficulty / ((count + 1.0) * 0.5) when non-zero, else
-// 0) between FUN_06f9c100 (the target ships, only with Flags[7]; its result replaces the
-// success byte) and FUN_06f9c410 (ships and solars, ANDed); then *OutOffer takes the offer as
-// in FUN_06f9a700 and the holder is released.
+// 0) between the routine (the target ships, only with Flags[7]; its result replaces the
+// success byte) and the routine (ships and solars, ANDed); then *OutOffer takes the offer as
+// in the routine and the holder is released.
 bool FRmAssassinateFilter::CreateOffer(FRmOfferQuery const* Query, FRmOffer** OutOffer)
 {
     FRmVignetteOffer* const NewOffer = new FRmVignetteOffer(Flags[0] ? 2 : 3);
@@ -2579,7 +2575,7 @@ bool FRmAssassinateFilter::CreateOffer(FRmOfferQuery const* Query, FRmOffer** Ou
             return false;
     }
 
-    // 06f9b923-06f9b997: the target count and the difficulty share (FILD, FADD 1.0, FMUL 0.5,
+    // the target count and the difficulty share (FILD, FADD 1.0, FMUL 0.5,
     // FDIVR the scaled difficulty, FSTP float); 0 without a count.
     int Count = 0;
     if (Flags[7])
@@ -2595,7 +2591,7 @@ bool FRmAssassinateFilter::CreateOffer(FRmOfferQuery const* Query, FRmOffer** Ou
         Share = static_cast<float>(static_cast<double>(Scaled.Difficulty) /
                                    ((static_cast<double>(Count) + 1.0) * 0.5));
 
-    // 06f9b99e-06f9b9ec: the target ships replace the success byte; the ship groups are ANDed.
+    // the target ships replace the success byte; the ship groups are ANDed.
     bool bSuccess = true;
     if (Flags[7])
         bSuccess = FillTargetShips(&Scaled, &Offer->TargetShips, Share, &Offer->TargetName);
@@ -2603,7 +2599,7 @@ bool FRmAssassinateFilter::CreateOffer(FRmOfferQuery const* Query, FRmOffer** Ou
         FillShipGroups(&Scaled, &Offer->Ships, Share, &Offer->Solars, &Offer->TargetName);
     bSuccess = bSuccess && bShips;
 
-    // 06f9b9f9-06f9ba2f: *OutOffer takes the offer (the old one released, the new one
+    // *OutOffer takes the offer (the old one released, the new one
     // AddRef'ed when they differ); the holder is released on return.
     if (*OutOffer != Offer)
     {
@@ -2620,8 +2616,8 @@ bool FRmAssassinateFilter::CreateOffer(FRmOfferQuery const* Query, FRmOffer** Ou
 
 namespace
 {
-    // The inline block templates of FUN_06f9c100 / FUN_06f9c410: the five flag bytes, the size
-    // zeroed (difficulty DAT_06fbcbc0 0.0), +0x14 = 0 and the two ints.
+    // The inline block templates of the routine / the routine: the five flag bytes, the size
+    // zeroed (difficulty the field 0.0), +0x14 = 0 and the two ints.
     void ResetRmShipBlock(FRmShipBlock* Block, unsigned char Field00, unsigned char Field01,
                           unsigned char Field02, unsigned char Field03, unsigned char Field04,
                           int Field18, int Field1c)
@@ -2639,7 +2635,7 @@ namespace
         Block->Field_0x1c = Field1c;
     }
 
-    // The friendly block fix of FUN_06f9c410 (as FUN_06f9a700): a copy of the block; with no
+    // The friendly block fix of the routine (as the routine): a copy of the block; with no
     // count, level 0 becomes 1 and the count 1.
     FRmShipBlock CopyFriendlyRmShipBlock(FRmShipBlock const* Block)
     {
@@ -2665,11 +2661,11 @@ namespace
     }
 }
 
-// FUN_06f9c100 (06f9c100-06f9c406, thiscall RET 0x10). +0x50 / +0x54 start 0 / -1. The
-// position = objective + random_inside_ring(6000.0 (DAT_06fbcbcc), 6000.0 - 500.0
-// (DAT_06fbd3e8), 300.0) (float adds), also written to TargetShips +0x44. With pk_all_ships
+// (06f9c100-06f9c406, thiscall RET 0x10). +0x50 / +0x54 start 0 / -1. The
+// position = objective + random_inside_ring(6000.0 (the field), 6000.0 - 500.0
+// (the field), 300.0) (float adds), also written to TargetShips +0x44. With pk_all_ships
 // (+0x1f): pre_battle_wave_runs (+0x16) sets 2 / 1; a block {1,0,1,0,0, +0x18 0, +0x1c -1}
-// sized for Share against the hostile group gives the success byte (FUN_06f979b0, not
+// sized for Share against the hostile group gives the success byte (the routine, not
 // friendly, no name); pre_battle_wave_2 (+0x21) re-sizes the same block with +0x18 / +0x1c =
 // 3 / 1 and ANDs a second group. Otherwise: pre_battle_non_target_wave (+0x15) builds the same
 // first block (and, without target_spawns_at_pre_battle (+0x14), +0x50 = pre_battle_wave_runs
@@ -2677,7 +2673,7 @@ namespace
 // target_drops_critical_loot, +0x14 the critical kind, +0x1c -1, +0x18: 3 / 1 when the
 // non-target wave ran and its last group has more than one ship (0x88888889 / 0xf0), 2 / 8
 // when it ran with fewer, else 0}, +0x50 / +0x54 = 3 / 0x63, sized for Share * 1.5
-// (DAT_06fb6058) and built with TargetName. The two ints are stored last.
+// (the field) and built with TargetName. The two ints are stored last.
 bool FRmAssassinateFilter::FillTargetShips(FRmOfferQuery const* Query,
                                            FRmTargetShipComponent* TargetShips, float Share,
                                            FNpcNameParams* TargetName) const
@@ -2771,9 +2767,9 @@ bool FRmAssassinateFilter::FillTargetShips(FRmOfferQuery const* Query,
     return bSuccess;
 }
 
-// FUN_06f9c410 (06f9c410-06f9caaf, thiscall RET 0x14). defensive_solars_at_main_battle
-// (+0x1a) -> the success byte = FUN_06f9bee0(Query, Solars). Ships +0x44 = the objective
-// position (also the position local); FriendlyShare = Share * 0.5 (DAT_06fb605c, float).
+// (06f9c410-06f9caaf, thiscall RET 0x14). defensive_solars_at_main_battle
+// (+0x1a) -> the success byte = the routine(Query, Solars). Ships +0x44 = the objective
+// position (also the position local); FriendlyShare = Share * 0.5 (the field, float).
 // With pk_all_ships (+0x1f) -- hostile block {1,0,1,0,0, 0 / -1}, friendly block {0,0,0,0,0,
 // 2 / 1}, both sized from zero once -- in order: main_battle_wave_1 (+0x22) a hostile group
 // (Share, hostile group); friendly_ships_at_main_battle (+0x24) a friendly group (FriendlyShare,
@@ -2784,7 +2780,7 @@ bool FRmAssassinateFilter::FillTargetShips(FRmOfferQuery const* Query,
 // the same size, and return. Without pk_all_ships: main_battle_non_target_wave (+0x1c) a
 // hostile group {t,0,t,0,0, 0 / -1} with t = target_spawns_at_main_battle; that flag (+0x1b)
 // the target's group {1,1,0,1, target_drops_critical_loot, +0x14 the critical kind; 2 / 0x2d
-// with the non-target wave, else 0 / -1} sized for Share * 1.5 (x 1.3, DAT_06fbd3ec, without
+// with the non-target wave, else 0 / -1} sized for Share * 1.5 (x 1.3, the field, without
 // the wave) and built with TargetName; wave_just_after_main_battle_starts (+0x1d) {0..} 2 /
 // 0xf0; continuous_reenforcements {0..} 2 / 0x78. Every group result is ANDed in; the size
 // picks reuse each block, so a failed pick keeps the previous level.
@@ -2923,12 +2919,12 @@ bool FRmAssassinateFilter::FillShipGroups(FRmOfferQuery const* Query, FRmShipCom
     return bSuccess;
 }
 
-// FUN_06f9bee0 (06f9bee0-06f9c0fd, thiscall RET 8). Count = (rand() * 3) / 0x8000 + 1;
-// Solars +0x0c = 1, +0x34 = the objective position. Types {1} (FUN_06eb5f30 find +
-// FUN_06eae440 insert); PickSolarFormation null -> false. GetNestedProperties(DestSys,
-// position); Total = Difficulty * 0.25 (DAT_06fbbb5c, float); PerSolar = Total / Count
+// (06f9bee0-06f9c0fd, thiscall RET 8). Count = (rand() * 3) / 0x8000 + 1;
+// Solars +0x0c = 1, +0x34 = the objective position. Types {1} (the routine find +
+// insert); PickSolarFormation null -> false. GetNestedProperties(DestSys,
+// position); Total = Difficulty * 0.25 (the field, float); PerSolar = Total / Count
 // (FILD, FDIVR, float); PickKillableSolar(hostile group, 1, props, PerSolar) null -> false;
-// {entry, PerSolar} appended (FUN_06f96770); FUN_06f9bb00(Query, hostile group, Total,
+// {entry, PerSolar} appended (the routine); the routine(Query, hostile group, Total,
 // formation, entries, Solars +0x40); true. The two vectors are locals (EH states 0 / 1).
 bool FRmAssassinateFilter::FillDefensiveSolars(FRmOfferQuery const* Query,
                                                FRmSolarComponent* Solars) const
@@ -2963,9 +2959,9 @@ bool FRmAssassinateFilter::FillDefensiveSolars(FRmOfferQuery const* Query,
     return true;
 }
 
-// FUN_06f9bb00 (06f9bb00-06f9bed8, thiscall RET 0x18): FUN_06f9af40 instruction for
+// (06f9bb00-06f9bed8, thiscall RET 0x18): the routine instruction for
 // instruction except that no pk mode is computed -- each solar's +0x4d8 is 0. The nickname
-// goes through DAT_06fd3d00 and DAT_06fd3d88 as there; the solar local's empty loot vector is
+// goes through the field and the field as there; the solar local's empty loot vector is
 // cleared before the append (06f9bd5c-06f9bd90), a no-op on the fresh local.
 void FRmAssassinateFilter::SpawnSolars(
     FRmOfferQuery const* Query, unsigned int EnemyGroup, float Difficulty,
@@ -3041,13 +3037,13 @@ void FRmAssassinateFilter::SpawnSolars(
     }
 }
 
-// FUN_06f9f6d0 (RET 0xc). FUN_06f4d5e0(DestSys) first, then a held offer is released
+// (RET 0xc). the routine(DestSys) first, then a held offer is released
 // ((Offer + 4)->Release) and cleared. The query must have OfferGroup and EnemyGroup set,
 // Reward > 0 (signed), RepReward > 0 (TEST AH,0x41 + JNZ fails on <= and NaN), RepHit < 0
 // (TEST AH,0x5 + JP fails on >= and NaN), OfferBase, 0 <= Difficulty (TEST AH,0x1 + JNZ)
 // and Difficulty <= 100 (TEST AH,0x41 + JP fails only above), ObjectiveZone, a non-zero
 // |ObjectivePos|^2 (unrounded x87 sum, TEST AH,0x44 + JNP fails only on == 0), PlayerId
-// and DestSys. Then FUN_06f9cb00 (-1 fails), FUN_06f9d2b0 and FUN_06f9e9b0, whose result
+// and DestSys. Then the routine (-1 fails), the routine and the routine, whose result
 // is returned.
 bool FRandomMissionGenerator::BuildOffer(FRmOfferQuery const* Query, FRmOffer** OutOffer,
                                          FRmTreePath* OutPath)
@@ -3097,17 +3093,17 @@ bool FRandomMissionGenerator::BuildOffer(FRmOfferQuery const* Query, FRmOffer** 
     return BuildOfferFromPath(OutPath, Query, OutOffer);
 }
 
-// FUN_06f9e9b0 (RET 0xc). A base path filter (new 0xc, vtable 06fbcf6c) walks the path from
+// (RET 0xc). A base path filter (new 0xc, vtable 06fbcf6c) walks the path from
 // RootNodeId: a node whose allowable_zone_types misses the objective zone's vignette type
-// (FUN_06f75f30 -> FUN_06f72cb0 -> zone+0x14, both unchecked as retail) fails. Each node
+// (the routine -> the routine -> zone+0x14, both unchecked as baseline) fails. Each node
 // goes to ApplyNode(node, bit); when that and HasMissionType are both true the filter is
 // replaced by Specialize() (the old one freed with plain operator delete). Bit 1 steps to
 // Children[0], anything else to Children[1]. The last filter's CreateOffer must succeed with
 // a non-null offer (06f9eaf5-06f9eb08); the offer then gets (06f9eb0e-06f9ec09) the system,
 // the groups, the remapped difficulty, reward, reputation hit and reward, the offer base,
 // the offer group's mc_costume (GetFactionProps, not null-tested) and the "mc_leg_m01"
-// voice; the texts and objectives (FUN_06f9e1f0); for machine types 1..3 the comm sequences
-// (FUN_06f9e770).
+// voice; the texts and objectives (the routine); for machine types 1..3 the comm sequences
+// (the routine).
 bool FRandomMissionGenerator::BuildOfferFromPath(FRmTreePath const* Path,
                                                  FRmOfferQuery const* Query,
                                                  FRmOffer** OutOffer)
@@ -3149,10 +3145,10 @@ bool FRandomMissionGenerator::BuildOfferFromPath(FRmTreePath const* Path,
         unsigned int const OfferGroup = static_cast<unsigned int>(Query->OfferGroup);
         Offer->McCostume = GetFactionProps(&OfferGroup)->McCostume;
         pub::GetVoiceID(Offer->VoiceId, "mc_leg_m01");
-        // 06f9ec0f-06f9ec23: FUN_06f9e1f0(Query, Path, the filter, *OutOffer, OutOffer).
+        // the routine(Query, Path, the filter, *OutOffer, OutOffer).
         BuildOfferTexts(Query, Path, Filter, *OutOffer, OutOffer);
-        // 06f9ec28-06f9ec7f: *OutOffer read again; machine types 1..3 (signed JLE 0 / JG 3) --
-        // a local holder (AddRef), its by-value copy (AddRef) for FUN_06f9e770, which releases
+        // *OutOffer read again; machine types 1..3 (signed JLE 0 / JG 3) --
+        // a local holder (AddRef), its by-value copy (AddRef) for the routine, which releases
         // it; then the local is released.
         FRmOffer* const Built = *OutOffer;
         if (Built->MachineType > 0 && Built->MachineType <= 3)
@@ -3167,19 +3163,19 @@ bool FRandomMissionGenerator::BuildOfferFromPath(FRmTreePath const* Path,
     return bBuilt;
 }
 
-// FUN_06f9e1f0 (06f9e1f0-06f9e593, RET 0x14; caller FUN_06f9e9b0 06f9ec23). Text is
-// (*OutOffer)+0x3c. First the bSingularNickname bytes (FFactionProps +0x98, FUN_06f50650) of
+// (06f9e1f0-06f9e593, RET 0x14; caller the routine 06f9ec23). Text is
+// (*OutOffer)+0x3c. First the bSingularNickname bytes (FFactionProps +0x98, the routine) of
 // the offer group (Query +0x00) and the hostile group (Query +0x04); the local objective text
-// (vtable 06fbd510, map ctor FUN_06f9f8b0, EH state 0) and Text->begin_mad_lib(0x50001). From
-// the root node (FUN_06f7b0f0 find, unchecked) down Path, per node:
+// (vtable 06fbd510, map ctor the routine, EH state 0) and Text->begin_mad_lib(0x50001). From
+// the root node (the routine find, unchecked) down Path, per node:
 //  1. 06f9e2b5-06f9e36e: every objective text of the node (+0x40 params +0x18, map size
 //     +0x6c, head +0x60) is inserted uniquely into the local map as {key, empty text}
-//     (FUN_06f9e5a0 temp, FUN_06f9e5f0 pair copy, insert FUN_06f9f920, both temps destroyed
-//     by FUN_06f85550, EH states 2 / 1) and the mapped text is then assigned member-wise
-//     (FmtStr::operator=, +0x1c, vector assign FUN_06eb6560) -- a later node wins.
+//     (the routine temp, the routine pair copy, insert the routine, both temps destroyed
+//     by the routine, EH states 2 / 1) and the mapped text is then assigned member-wise
+//     (FmtStr::operator=, +0x1c, vector assign the routine) -- a later node wins.
 //  2. 06f9e374-06f9e445: with offer texts (+0x48 params +0x08, non-null begin and a non-zero
 //     count), one is picked: index 0 for a single entry, else (rand() * count) / 0x8000 (IMUL,
-//     CDQ, AND 0x7fff, SAR 0xf). FUN_06eedfe0 (the count) is tested again and its zero branch
+//     CDQ, AND 0x7fff, SAR 0xf). the routine (the count) is tested again and its zero branch
 //     would take the end pointer -- unreachable after the count test. A "replace" text (+0x04
 //     zero) first resets Text (FmtStr::destroy, six dwords zeroed by REP STOSD,
 //     begin_mad_lib(0x50001)); then its slot 2 (Build) appends with the two singular flags,
@@ -3188,10 +3184,10 @@ bool FRandomMissionGenerator::BuildOfferFromPath(FRmTreePath const* Path,
 //     (slot 3) are assigned to the offer's +0x58 / +0x88 (FmtStr::operator=, +0x1c, vector
 //     assign).
 //  4. 06f9e4b3-06f9e4fe: no children ends the walk; otherwise the path byte 1 steps to
-//     Children[0], anything else to Children[1] (FUN_06f7b0f0 find, unchecked), and the path
-//     pointer advances (no end check, as FUN_06f9e770).
-// Then FUN_06f9dee0(Query, OutOffer, &local, Filter) (06f9e503-06f9e524), Text->end_mad_lib
-// and the local map freed (erase FUN_06fa07a0, the head and nil nodes).
+//     Children[0], anything else to Children[1] (the routine find, unchecked), and the path
+//     pointer advances (no end check, as the routine).
+// Then the routine(Query, OutOffer, &local, Filter) (06f9e503-06f9e524), Text->end_mad_lib
+// and the local map freed (erase the routine, the head and nil nodes).
 void FRandomMissionGenerator::BuildOfferTexts(FRmOfferQuery const* Query,
                                               FRmTreePath const* Path, FRmPathFilter* Filter,
                                               FRmOffer* Source, FRmOffer** OutOffer)
@@ -3254,20 +3250,20 @@ void FRandomMissionGenerator::BuildOfferTexts(FRmOfferQuery const* Query,
     Text->end_mad_lib();
 }
 
-// FUN_06f9dee0 (06f9dee0-06f9e1a9, RET 0x10). A local holder takes *OutOffer (FUN_06fa0330 on
+// (06f9dee0-06f9e1a9, RET 0x10). A local holder takes *OutOffer (the routine on
 // the empty holder, AddRef; EH state 0, released at 06f9e182). The four component objective
 // maps are read off the holder unchecked: General +0xd4, Solars +0x160, TargetShips +0x108,
-// Ships +0x1ac. Per text in key order (head +8, FUN_06ed1c80):
-//  - keys 1..3 (guide_to_*): new 0x5c FUN_06f855f0(&text) (EH state 1), then its slot 10
+// Ships +0x1ac. Per text in key order (head +8, the routine):
+//  - keys 1..3 (guide_to_*): new 0x5c the routine(&text) (EH state 1), then its slot 10
 //    (Query->DestSys, 0x44d, Query->ObjectivePos by value); any other key: new 0x70
-//    FUN_06f858c0(&text) (EH state 2).
+// (&text) (EH state 2).
 //  - the map: switch on key - 1 (byte table 06f9e1c0, jump table 06f9e1ac): 1, 2, 9..13 ->
 //    General; 4, 5 -> Solars; 3, 19..21 -> TargetShips; 22..24 -> Ships; every other key keeps
-//    ECX 0 (06f9e01f) and the insert then reads through a null map, as retail.
+//    ECX 0 (06f9e01f) and the insert then reads through a null map, as baseline.
 //  - the key: 19 / 22 -> 6, 20 / 23 -> 7, 21 / 24 -> 8 (second switch 06f9e04a, table
-//    06f9e1d8); else unchanged.
-//  - unique insert {key, objective} (inline FUN_06f21210 path, 06f9e06c-06f9e154); the result
-//    is dropped, so an objective whose key is already present is leaked, as retail.
+// ); else unchanged.
+//  - unique insert {key, objective} (inline the routine path, 06f9e06c-06f9e154); the result
+//    is dropped, so an objective whose key is already present is leaked, as baseline.
 void FRandomMissionGenerator::BuildObjectives(FRmOfferQuery const* Query, FRmOffer** OutOffer,
                                               FRmObjectiveText const* Texts,
                                               FRmPathFilter* /*Filter*/)
@@ -3348,17 +3344,17 @@ void FRandomMissionGenerator::BuildObjectives(FRmOfferQuery const* Query, FRmOff
     }
 }
 
-// FUN_06f9e770 (06f9e770-06f9e9a7, RET 8; caller FUN_06f9e9b0 06f9ec66). From the root node
-// (FUN_06f7b0f0 find, unchecked) down Path: per comm sequence of the node (+0x40 params
-// +0xc0, 0x24 each) a local conversation (FUN_06f849f0) is appended by copy to the vignette
-// offer's General list (+0xc8, FUN_06fa02a0 -> FUN_06fa3df0) and destroyed (FUN_06ee2b70);
+// (06f9e770-06f9e9a7, RET 8; caller the routine 06f9ec66). From the root node
+// (the routine find, unchecked) down Path: per comm sequence of the node (+0x40 params
+// +0xc0, 0x24 each) a local conversation (the routine) is appended by copy to the vignette
+// offer's General list (+0xc8, the routine -> the routine) and destroyed (the routine);
 // the list's last element (the `&node->value != null` test at 06f9e819 is the compiler's)
 // gets slot 7 = the trigger, slot 11 = MinDelay + (MaxDelay - MinDelay) * rand() / 32768
-// (x87: FILD, FMUL DAT_06fb4448, FLD max, FSUB min, FMULP, FADD min, FSTP float), and per
+// (x87: FILD, FMUL the field, FLD max, FSUB min, FMULP, FADD min, FSTP float), and per
 // {speaker, text} a new FRmLine (+0x44 the sequence's target, +0x40 the speaker, the text
-// through the TString assign FUN_06ea9f40; the `!= -8` test at 06f9e89d is again the
-// compiler's) appended to its lines (FUN_06f937c0). A node with children steps to
-// Children[0] when the path byte is 1, else Children[1] (FUN_06fa7200 lower bound; a missing
+// through the TString assign the routine; the `!= -8` test at 06f9e89d is again the
+// compiler's) appended to its lines (the routine). A node with children steps to
+// Children[0] when the path byte is 1, else Children[1] (the routine lower bound; a missing
 // id would read the end node, as the port's find), and the path pointer advances. At the end
 // the holder argument is released (06f9e980-06f9e992, also the unwind state 0).
 void FRandomMissionGenerator::BuildCommSequences(FRmTreePath const* Path, TRmRef<FRmOffer> Offer)

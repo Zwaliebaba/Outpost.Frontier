@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #define RPCLOCAL_EXPORTS
@@ -25,7 +21,7 @@ namespace
     FPacketSerializer* GRemotePacketSerializer = nullptr;
 }
 
-// 06be12a0: access alone does not register any packet types or add a reference.
+// access alone does not register any packet types or add a reference.
 FPacketSerializer* RpcGetRemotePacketSerializer()
 {
     if (GRemotePacketSerializer == nullptr) {
@@ -34,7 +30,7 @@ FPacketSerializer* RpcGetRemotePacketSerializer()
     return GRemotePacketSerializer;
 }
 
-// Retail remoteserver.dll ??0IServerImpl@@QAE@XZ (.text:06bd11b0): the two vptrs and
+// baseline remoteserver.dll ??0IServerImpl@@QAE@XZ (module storage): the two vptrs and
 // `MOV dword ptr [EAX + 0x8],0x0` (06bd11b9) -- the serializer starts out null.
 IServerImpl::IServerImpl() : Serializer(nullptr) {}
 IServerImpl::IServerImpl(const IServerImpl& Other) { Serializer = Other.Serializer; }
@@ -56,7 +52,7 @@ unsigned int FRpcRefObject::Release() {
 }
 FPacketSerializer::FPacketSerializer()
 {
-    // 06be1357 is inside the construction EH region: dictionary exceptions
+    // is inside the construction EH region: dictionary exceptions
     // unwind the map/base and the new-expression frees the unpublished storage.
     RpcServerBuildHardpointDictionary();
 }
@@ -91,29 +87,29 @@ void RpcDispatchMsgs(IServerImpl* Server, const unsigned char* Data, unsigned in
 }
 
 
-// Retail remoteserver.dll FUN_06be1750 -- the same body as rpclocal's FUN_06d96300
+// baseline remoteserver.dll the routine -- the same body as rpclocal's the routine
 // (src/rpclocal/rpc_transport.cpp):
-//   06be1755 TEST out / 06be175d MOV EAX,0x4 ; RET 0xc      -- null out pointer
-//   06be1766..06be1774  id = (MOVZX Channel word << 16) | MOVZX Opcode word
-//   06be1784..06be17b1  lower_bound + key compare = find; the head node -> 0x19
-//   06be17b3 MOV EAX,[node+0x10] / 06be17b6 PUSH out / 06be17b7 CALL [EAX]
+// TEST out / 06be175d MOV EAX,0x4 ; RET 0xc      -- null out pointer
+// id = (MOVZX Channel word << 16) | MOVZX Opcode word
+// lower_bound + key compare = find; the head node -> 0x19
+// MOV EAX,[node+0x10] / 06be17b6 PUSH out / 06be17b7 CALL [EAX]
 // The old stub here returned 0 without producing a packet, so every caller wrote
 // through a null CDAPacket*. The base constructor leaves Serializer null; the
 // concrete network Server's Startup creates it and installs the packet registries.
 int FPacketSerializer::Allocate(unsigned int Channel, unsigned int Opcode, FPacketBase** OutPacket)
 {
     if (OutPacket == nullptr) {
-        return kPacketAllocateNullOut;                  // 06be175d MOV EAX,0x4
+        return kPacketAllocateNullOut;                  // MOV EAX,0x4
     }
     const unsigned int PacketId = ((Channel & 0xffffu) << 16) | (Opcode & 0xffffu);
     std::map<unsigned int, FPacketTypeInfo*>::const_iterator It = Types.find(PacketId);
     if (It == Types.end()) {
-        return kPacketAllocateUnknownType;              // 06be17c2 MOV EAX,0x19
+        return kPacketAllocateUnknownType;              // MOV EAX,0x19
     }
-    return It->second->Factory(OutPacket);              // 06be17b7 CALL dword ptr [EAX]
+    return It->second->Factory(OutPacket);              // CALL dword ptr [EAX]
 }
 
-// 06bd8140..06bd8312: object/position stores, deep vector<ushort> assignment,
+// object/position stores, deep vector<ushort> assignment,
 // then virtual PushToServer. The packet owns its copy of all hardpoint IDs.
 void IServerImpl::FireWeapon(unsigned int PlayerId, const XFireWeaponInfo& Info) {
     FPacketBase* Packet = nullptr;
@@ -232,7 +228,7 @@ void IServerImpl::ElapseTime(float Dt) {
 void IServerImpl::SetActiveConnection(EFLConnection Conn) {
 }
 
-// 06bd9df0: the exported base answers true without reading either connection.
+// the exported base answers true without reading either connection.
 bool IServerImpl::SwapConnections(EFLConnection ConnA, EFLConnection ConnB) {
     return true;
 }
@@ -434,7 +430,7 @@ void IServerImpl::ReqAddItem(unsigned int ArchId, const char* Hardpoint, int Cou
         int* CountDestination = &TypedPacket->Count;
         float* HealthDestination = &TypedPacket->Health;
         unsigned char Mounted;
-        // 06bd75bd..75db: FLD precedes both integer stores; FSTP follows them.
+        // ..75db: FLD precedes both integer stores; FSTP follows them.
         __asm {
             fld Health
             mov eax, ArchId
@@ -472,7 +468,7 @@ void IServerImpl::ReqModifyItem(unsigned short EquipId, const char* Hardpoint, i
         int* CountDestination = &TypedPacket->Count;
         float* HealthDestination = &TypedPacket->Health;
         unsigned char Mounted;
-        // 06bd768d..76ad: retain MOVZX and the stores between FLD and FSTP.
+        // ..76ad: retain MOVZX and the stores between FLD and FSTP.
         __asm {
             fld Health
             movzx eax, EquipId
@@ -683,7 +679,7 @@ void IServerImpl::SPObjUpdate(const SSPObjUpdateInfo& Info, unsigned int Session
     if (Serializer->Allocate(1, 0x01, &Packet) == 0) {
         const double* TimeSource = &Info.Timestamp;
         float NarrowedTime;
-        // 06bd7fc6/7fcc narrows before any packet payload store.
+        // /7fcc narrows before any packet payload store.
         __asm {
             mov eax, TimeSource
             fld qword ptr [eax]

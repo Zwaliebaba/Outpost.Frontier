@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // IVP_VHash / IVP_VHash_Store bodies and the CRC-32 table they share with
@@ -18,7 +14,7 @@
 #include <cstdlib>
 
 // ============================================================================
-// The CRC-32 table (retail DAT_063edcdc), filled by a dynamic initializer.
+// The CRC-32 table (baseline the field), filled by a dynamic initializer.
 // This TU takes common_stubs.cpp's place at the top of Common.vcxproj, so the
 // initializer keeps its former relative order (no load-time reader exists).
 // ============================================================================
@@ -48,37 +44,37 @@ namespace
 }
 
 // ============================================================================
-// IVP_VHash (the "Robin Hood value-set"), Common.dll.txt:430291-430720.
-//
+// IVP_VHash (the "Robin Hood value-set"), Common.
+
 // Distinct from IVP_VHash_Store below: this one stores no separate key/value
 // pair, only a single caller-supplied element pointer per slot, tagged by a
 // caller-supplied 32-bit hash. Identified and traced by lane D102
-// (2026-09-09, decomp-tracker items 3170-3176) from Common.dll.txt and the
-// Ghidra pseudocode (Common.dll.c:208870-209040).
-//
+// (2026-09-09, implementation tracker items 3170-3176) from Common and the
+// analysis pseudocode (Common).
+
 // Slot array (+0x0c), 8 bytes per slot:
 //   +0x0 HashIndex  caller's hash OR'd with 0x80000000 ("occupied" marker);
 //                   only ever compared against another already-tagged hash,
 //                   so the OR is applied again at each compare site exactly
-//                   like retail
+//                   like baseline
 //   +0x4 Elem       caller's element; null means "slot empty"
 // The count dword (+0x08) keeps the element count in its low 24 bits and a
 // "not owned / already released" flag in its top byte.
-//
+
 // The two "carried displacement" primitives (Rehash, AddElem) and the two
 // query primitives (RemoveElem, FindElem) are transliterated line-for-line
-// against Common.dll.c's variable-tracked pseudocode (not "cleaned up"):
+// against Common's variable-tracked pseudocode (not "cleaned up"):
 // Robin Hood carried-displacement swap order, and the backward-shift
 // deletion's wraparound-boundary refDist precomputation, are both easy to
 // get subtly wrong from a paraphrase.
-//
-// RemoveElem reproduces one retail quirk: if its probe loop reaches an empty
+
+// RemoveElem reproduces one baseline quirk: if its probe loop reaches an empty
 // slot without a comparator hit (the caller asked to remove an element that
-// is not present), retail writes through a literal null pointer
-// (Common.dll.txt:430561, `MOV dword ptr [DAT_00000000],0x0`) -- an
+// is not present), baseline writes through a literal null pointer
+// (Common, `MOV dword ptr [the field],0x0`) -- an
 // intentional crash/assert-via-fault for a contract violation, confirmed
 // against the raw listing. Reproduced the same way. FindElem, by contrast,
-// has a real empty-slot bailout in retail and returns null.
+// has a real empty-slot bailout in baseline and returns null.
 // ============================================================================
 
 namespace
@@ -89,7 +85,7 @@ namespace
         void* value;      // +0x4
     };
 
-    // Common.dll.txt:430291-430720's shared "increment/decrement the low 24
+    // Common's shared "increment/decrement the low 24
     // bits of a count-and-flags dword while preserving its top flag byte"
     // idiom (`(new+-1 ^ old) & 0xffffff ^ new`, generalized here to any
     // desired new low-24-bit value rather than literally +1/-1, matching
@@ -101,7 +97,7 @@ namespace
     }
 }
 
-// Common.dll.c 0x6352320 / Common.dll.txt:430367-430440 (Common.dll.c
+// Common 0x6352320 / Common (Common
 // 208870-208905). Grows the table to exactly `param_1` buckets and rehashes
 // every occupied old entry back in through AddElem, then frees the old bucket
 // array unless the "not owned" flag is set (post-grow, that flag is always
@@ -111,12 +107,12 @@ namespace
 // count's low 24 bits back to their pre-rehash value (the actual element
 // count is unchanged by growing) while keeping whatever flag byte resulted
 // from the rehash loop.
-void IVP_VHash::Rehash(int param_1) // formerly extern "C" FUN_06352320
+void IVP_VHash::Rehash(int param_1) // formerly extern "C" the routine
 {
     int oldMask = SizeMm;
     FVHashElem* oldBuckets = static_cast<FVHashElem*>(Elems);
     SizeMm = param_1 - 1;
-    Elems = calloc(static_cast<size_t>(param_1), 0x8); // FUN_06343f80
+    Elems = calloc(static_cast<size_t>(param_1), 0x8);
     unsigned preRehashCount = NElemsAndFlags;
 
     if (oldMask >= 0)
@@ -137,12 +133,12 @@ void IVP_VHash::Rehash(int param_1) // formerly extern "C" FUN_06352320
     NElemsAndFlags = ReplaceLow24PreserveTopByte(NElemsAndFlags, preRehashCount & 0xffffffu);
     if (((NElemsAndFlags & 0xff000000u) == 0) && (oldBuckets != nullptr))
     {
-        free(oldBuckets); // FUN_06343fb0
+        free(oldBuckets);
     }
     NElemsAndFlags &= 0xffffffu;
 }
 
-// Common.dll.c 0x63523d0 / Common.dll.txt:430453-430531 (Common.dll.c
+// Common 0x63523d0 / Common (Common
 // 208909-208951). Insert-with-auto-grow: doubles the table first (to
 // `2*mask+2` buckets) if the load factor would reach 50%, then performs the
 // raw Robin Hood carried-displacement insert -- probing forward from
@@ -152,8 +148,8 @@ void IVP_VHash::Rehash(int param_1) // formerly extern "C" FUN_06352320
 // resident forward to keep probing. `param_1`=value, `param_2`=hash (already
 // tagged with 0x80000000 by the caller, matching the multiplicative hash
 // `(x*0x3e9>>0x10)+x*0x4b | 0x80000000` seen at every call site in
-// Common.dll.c).
-void IVP_VHash::AddElem(void* param_1, unsigned param_2) // formerly extern "C" FUN_063523d0
+// Common).
+void IVP_VHash::AddElem(void* param_1, unsigned param_2) // formerly extern "C" the routine
 {
     int mask = SizeMm;
     int doubledCount = static_cast<int>((NElemsAndFlags & 0xffffffu)) * 2;
@@ -196,7 +192,7 @@ void IVP_VHash::AddElem(void* param_1, unsigned param_2) // formerly extern "C" 
     slot->hashTag = hash;
 }
 
-// Common.dll.c 0x6352480 / Common.dll.txt:430539-430650 (Common.dll.c
+// Common 0x6352480 / Common (Common
 // 208957-209014). Find-and-remove: probes forward from `hash & mask`,
 // calling the installed comparator (vtable slot 0, Compare(storedValue,
 // queryArg), thiscall with `this` = the container itself) on every hash-tag
@@ -206,8 +202,8 @@ void IVP_VHash::AddElem(void* param_1, unsigned param_2) // formerly extern "C" 
 // array's wraparound, exactly mirroring IVP_VHash_Store's erase below.
 // `param_1`=queryArg, `param_2`=hash. See the cluster note above for the
 // intentional null-deref if the element being removed is not present (a
-// retail contract-violation assert, not reproduced as a bounds check).
-void* IVP_VHash::RemoveElem(void* param_1, unsigned param_2) // formerly extern "C" FUN_06352480
+// baseline contract-violation assert, not reproduced as a bounds check).
+void* IVP_VHash::RemoveElem(void* param_1, unsigned param_2) // formerly extern "C" the routine
 {
     unsigned idx = param_2 & static_cast<unsigned>(SizeMm);
     FVHashElem* slot;
@@ -217,7 +213,7 @@ void* IVP_VHash::RemoveElem(void* param_1, unsigned param_2) // formerly extern 
         slot = &buckets[idx];
         if (slot->value == nullptr)
         {
-            // Retail: MOV dword ptr [DAT_00000000],0x0 -- intentional
+            // baseline: MOV dword ptr [the field],0x0 -- intentional
             // null-pointer-write assert/crash on a contract violation
             // (removing a value that was never inserted). See cluster note.
             *reinterpret_cast<volatile int*>(0) = 0;
@@ -286,15 +282,15 @@ void* IVP_VHash::RemoveElem(void* param_1, unsigned param_2) // formerly extern 
     return removedValue;
 }
 
-// Common.dll.c 0x6352580 / Common.dll.txt:430662-430720 (Common.dll.c
-// 209018-209040, decomp-tracker item 2976's former blocker).
+// Common 0x6352580 / Common (Common
+// 209018-209040, implementation tracker item 2976's former blocker).
 // Find-only: same probe+comparator loop as RemoveElem above but, unlike
 // that function, has a real empty-slot bailout (returns null) instead of
-// asserting -- this is the plain Get()/Contains() entry point, which retail
+// asserting -- this is the plain Get()/Contains() entry point, which baseline
 // calls speculatively (e.g. to check membership before deciding whether to
 // insert or remove), so hitting an empty slot here is an expected outcome,
 // not a contract violation.
-void* IVP_VHash::FindElem(void* param_1, unsigned param_2) // formerly extern "C" FUN_06352580
+void* IVP_VHash::FindElem(void* param_1, unsigned param_2) // formerly extern "C" the routine
 {
     unsigned idx = param_2 & static_cast<unsigned>(SizeMm);
     FVHashElem* buckets = static_cast<FVHashElem*>(Elems);
@@ -323,21 +319,21 @@ void* IVP_VHash::FindElem(void* param_1, unsigned param_2) // formerly extern "C
     return slot->value;
 }
 
-// FUN_063522f0 (the non-deleting ~IVP_VHash) is IVP_VHash::~IVP_VHash in ivp_vhash.h; the
-// derived FUN_0636cf90 (vtable 063a58f8 stamp, JMP 063522f0) is
+// (the non-deleting ~IVP_VHash) is IVP_VHash::~IVP_VHash in ivp_vhash.h; the
+// derived the routine (vtable 063a58f8 stamp, JMP 063522f0) is
 // FLedgeSoupPointHash::~FLedgeSoupPointHash in ivp_surface_builder_ledge_soup.cpp. The raw
 // extern "C" copies that used to stand here had no caller and were deleted 2026-10-14.
 
-// Common.dll.txt:448769-448793 (decomp-tracker item 3359). Standalone,
+// Common (implementation tracker item 3359). Standalone,
 // separately-CALLed copy of the byte-at-a-time CRC-32-over-4-raw-bytes hash
 // that IVP_VHash_Store inlines at four call sites (HashKey_063edcdc(key) |
-// 0x80000000) -- identical CRC table (DAT_063edcdc), identical 0xffffffff
+// ) -- identical CRC table (the field), identical 0xffffffff
 // init, identical final "occupied" tag. Confirmed byte-for-byte against the
 // raw listing (PUSH ESI / OR EAX,0xffffffff / MOV ESI,4 / 4x table-lookup
 // loop over the 4 raw bytes of the input dword / OR EAX,0x80000000 / POP ESI
 // / RET 4). Caller: IVP_Cluster_Manager's table lookups
 // (ivp_cluster_manager.cpp), which feed the result to IVP_VHash::FindElem.
-unsigned __fastcall IVP_VHash_HashPointer(unsigned param_1) // formerly extern "C" FUN_0635d4d0
+unsigned __fastcall IVP_VHash_HashPointer(unsigned param_1) // formerly extern "C" the routine
 {
     return HashKey_063edcdc(param_1) | 0x80000000u;
 }
@@ -345,16 +341,16 @@ unsigned __fastcall IVP_VHash_HashPointer(unsigned param_1) // formerly extern "
 // ============================================================================
 // IVP_VHash_Store, 0x63525f0-0x6352a10: a pointer/handle -> pointer map
 // (Robin Hood open addressing, keys hashed through the CRC-32 table above).
-//
+
 // Distinct from the multiplicative-hash (`(x*0x3e9>>0x10)+x*0x4b`) IVP_VHash
 // value-set above (vtable'd, 8-byte {hash, value} slots, dozens of unrelated
 // call sites).
-//
+
 // Header layout (20 bytes): see ivp_vhash.h. A null `Value` means "slot
 // empty" throughout (find/grow use it as the occupied test); insert instead
 // tests `Key != null` for the same thing -- both hold given this container's
 // actual keys/values (pointers, refcounts) are never legitimately zero, and
-// each raw function matches Ghidra's own choice of which field it happened
+// each raw function matches analysis's own choice of which field it happened
 // to still have in a register.
 // ============================================================================
 
@@ -368,16 +364,16 @@ namespace
     };
 }
 
-// Common.dll.c 0x63525f0: constructor. Allocates `capacity` buckets up front
+// Common 0x63525f0: constructor. Allocates `capacity` buckets up front
 // (no small-buffer optimization at construction time).
-IVP_VHash_Store::IVP_VHash_Store(int param_1) // formerly extern "C" FUN_063525f0
+IVP_VHash_Store::IVP_VHash_Store(int param_1) // formerly extern "C" the routine
 {
     SizeMm = param_1 - 1;
     Size = param_1;
     NElems = 0;
     Field_0x10 = nullptr;
-    // FUN_06343f80 is calloc(count, size) -- it mallocs then zero-fills via
-    // rep stosd/stosb (confirmed against Common.dll.txt ~404900-404919), not
+    // is calloc(count, size) -- it mallocs then zero-fills via
+    // rep stosd/stosb (confirmed against Common ~404900-404919), not
     // a plain malloc. The zero-fill is load-bearing here: this container's
     // "slot empty" test throughout is `value == 0` (see the header comment
     // above), so an unzeroed bucket array would make find()/grow() read
@@ -385,28 +381,28 @@ IVP_VHash_Store::IVP_VHash_Store(int param_1) // formerly extern "C" FUN_063525f
     ElemsStore = calloc(static_cast<size_t>(param_1), 0xc);
 }
 
-// Common.dll.c 0x6352620 (aka thunk_FUN_06352620, same body folded by
+// Common 0x6352620 (aka thunk_FUN_06352620, same body folded by
 // /OPT:ICF): destructor -- frees the bucket array unless it is the
 // (always-null-here) Field_0x10 pointer.
-IVP_VHash_Store::~IVP_VHash_Store() // formerly extern "C" FUN_06352620
+IVP_VHash_Store::~IVP_VHash_Store() // formerly extern "C" the routine
 {
     if (ElemsStore != Field_0x10 && ElemsStore != nullptr)
     {
-        free(ElemsStore); // FUN_06343fb0
+        free(ElemsStore);
         ElemsStore = nullptr;
     }
 }
 
-// Common.dll.c 0x6352650: doubles the table and rehashes every occupied
+// Common 0x6352650: doubles the table and rehashes every occupied
 // entry through the raw insert, then frees the old bucket array. Called
 // from the raw insert when load factor would reach 50%.
-void IVP_VHash_Store::Rehash(int param_1) // formerly extern "C" FUN_06352650
+void IVP_VHash_Store::Rehash(int param_1) // formerly extern "C" the routine
 {
     FVHashStoreElem* oldBuckets = static_cast<FVHashStoreElem*>(ElemsStore);
     int oldCapacity = Size;
     Size = param_1;
     SizeMm = param_1 - 1;
-    ElemsStore = calloc(static_cast<size_t>(param_1), 0xc); // FUN_06343f80 is calloc, not malloc -- see note in the ctor
+    ElemsStore = calloc(static_cast<size_t>(param_1), 0xc); // is calloc, not malloc -- see note in the ctor
     int savedCount = NElems;
     if (oldCapacity > 0)
     {
@@ -421,24 +417,24 @@ void IVP_VHash_Store::Rehash(int param_1) // formerly extern "C" FUN_06352650
     NElems = savedCount;
     if (oldBuckets != Field_0x10 && oldBuckets != nullptr)
     {
-        free(oldBuckets); // FUN_06343fb0
+        free(oldBuckets);
     }
 }
 
-// Common.dll.c 0x63526d0: CRC32-hash a raw 4-byte key and unconditionally
+// Common 0x63526d0: CRC32-hash a raw 4-byte key and unconditionally
 // insert (key, value), tagging the hash as "generated" (top bit set).
-void IVP_VHash_Store::AddElem(void* param_1, void* param_2) // formerly extern "C" FUN_063526d0
+void IVP_VHash_Store::AddElem(void* param_1, void* param_2) // formerly extern "C" the routine
 {
     unsigned hash = HashKey_063edcdc((unsigned)param_1) | 0x80000000;
     AddElem(param_1, param_2, hash);
 }
 
-// Common.dll.c 0x6352720: raw Robin Hood insert. `param_1`/`param_3` are the
+// Common 0x6352720: raw Robin Hood insert. `param_1`/`param_3` are the
 // caller-supplied key and its pre-hashed probe value (top bit already set);
 // `param_2` is the payload. Transliterated line-for-line against
-// Common.dll.c:209133-209179 (rather than "cleaned up") since Robin Hood
+// Common (rather than "cleaned up") since Robin Hood
 // swap/carry order is easy to get subtly wrong.
-void IVP_VHash_Store::AddElem(void* param_1, void* param_2, unsigned param_3) // formerly extern "C" FUN_06352720
+void IVP_VHash_Store::AddElem(void* param_1, void* param_2, unsigned param_3) // formerly extern "C" the routine
 {
     if (Size <= NElems * 2)
     {
@@ -479,22 +475,22 @@ void IVP_VHash_Store::AddElem(void* param_1, void* param_2, unsigned param_3) //
     puVar1->hash = param_3;
 }
 
-// Common.dll.c 0x63527e0: CRC32-hash a raw 4-byte key and erase it.
-// Ghidra types this void (matching its only caller's usage), but the
-// underlying raw erase does return the removed value via EAX at the retail
+// Common 0x63527e0: CRC32-hash a raw 4-byte key and erase it.
+// analysis types this void (matching its only caller's usage), but the
+// underlying raw erase does return the removed value via EAX at the baseline
 // ABI level, so this is typed to return it too rather than discard it.
-void* IVP_VHash_Store::RemoveElem(void* param_1) // formerly extern "C" FUN_063527e0
+void* IVP_VHash_Store::RemoveElem(void* param_1) // formerly extern "C" the routine
 {
     unsigned hash = HashKey_063edcdc((unsigned)param_1) | 0x80000000;
     return RemoveElem(param_1, hash);
 }
 
-// Common.dll.c 0x6352830: raw Robin Hood erase (backward-shift deletion).
+// Common 0x6352830: raw Robin Hood erase (backward-shift deletion).
 // Returns the removed entry's value. Transliterated line-for-line against
-// Common.dll.c:209206-209264, including the `refDist` precomputation from
-// the wraparound-boundary bucket (index == mask) that the retail code uses
+// Common, including the `refDist` precomputation from
+// the wraparound-boundary bucket (index == mask) that the baseline code uses
 // to get probe-distance comparisons right across the array wraparound.
-void* IVP_VHash_Store::RemoveElem(void* param_1, unsigned param_2) // formerly extern "C" FUN_06352830
+void* IVP_VHash_Store::RemoveElem(void* param_1, unsigned param_2) // formerly extern "C" the routine
 {
     FVHashStoreElem* buckets = static_cast<FVHashStoreElem*>(ElemsStore);
     unsigned mask = static_cast<unsigned>(SizeMm);
@@ -562,19 +558,19 @@ void* IVP_VHash_Store::RemoveElem(void* param_1, unsigned param_2) // formerly e
     return removedValue;
 }
 
-// Common.dll.c 0x6352930: CRC32-hash a raw 4-byte key and look it up.
-// Ghidra types this void, but its callers capture the return value, so the
+// Common 0x6352930: CRC32-hash a raw 4-byte key and look it up.
+// analysis types this void, but its callers capture the return value, so the
 // underlying raw find's result genuinely propagates through this tail call at
-// the retail ABI level -- typed accordingly.
-void* IVP_VHash_Store::FindElem(void* param_1) // formerly extern "C" FUN_06352930
+// the baseline ABI level -- typed accordingly.
+void* IVP_VHash_Store::FindElem(void* param_1) // formerly extern "C" the routine
 {
     unsigned hash = HashKey_063edcdc((unsigned)param_1) | 0x80000000;
     return FindElem(param_1, hash);
 }
 
-// Common.dll.c 0x6352980: raw find. The probe count is bounded by the
-// capacity exactly as in retail (`CMP EDX,EDI; JL`) -- not a port guard.
-void* IVP_VHash_Store::FindElem(void* param_1, unsigned param_2) // formerly extern "C" FUN_06352980
+// Common 0x6352980: raw find. The probe count is bounded by the
+// capacity exactly as in baseline (`CMP EDX,EDI; JL`) -- not a port guard.
+void* IVP_VHash_Store::FindElem(void* param_1, unsigned param_2) // formerly extern "C" the routine
 {
     int probes = 0;
     if (Size > 0)
@@ -600,11 +596,11 @@ void* IVP_VHash_Store::FindElem(void* param_1, unsigned param_2) // formerly ext
     return nullptr;
 }
 
-// Common.dll.c 0x63529e0: update the value for an existing key; a no-op
+// Common 0x63529e0: update the value for an existing key; a no-op
 // (not an insert) if the key is not present. Used by
 // IVP_Controller_Phantom's contact dispatch to bump/decrement a per-pair
 // reference count once the pair is already registered.
-void IVP_VHash_Store::ChangeElem(void* param_1, void* param_2) // formerly extern "C" FUN_063529e0
+void IVP_VHash_Store::ChangeElem(void* param_1, void* param_2) // formerly extern "C" the routine
 {
     unsigned crc = HashKey_063edcdc((unsigned)param_1);
     if (Size > 0)

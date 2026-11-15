@@ -1,2 +1,4 @@
-# The test vectors are read line by line; keep them byte-identical on every checkout.
-Source/Tests/Vectors/*.tsv text eol=lf
+*.rs text eol=lf
+*.toml text eol=lf
+/Cargo.lock text eol=lf
+/.github/workflows/*.yml text eol=lf

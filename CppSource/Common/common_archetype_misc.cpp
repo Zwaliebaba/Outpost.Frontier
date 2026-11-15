@@ -1,11 +1,7 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // Archetype::Asteroid, DynamicAsteroid, MotorData, Explosion and the explosion map -- split out of
-// common_archetype.cpp (retail Archetype.cpp, one TU) in CMN-SPLIT phase B.
+// common_archetype.cpp (baseline Archetype.cpp, one TU) in CMN-SPLIT phase B.
 
 #include "common_archetype.h"
 #include "common_archetype_internal.h"
@@ -16,8 +12,8 @@
 #include "common_misc.h"
 #include "common_phyarch.h"
 #include "common_universe.h"
-#include "DALib.h"
-#include "dacom.h"
+#include "NeuronRuntime.h"
+#include "neuroncomponents.h"
 #include "readfile.h"
 
 #include <cstddef>
@@ -71,7 +67,7 @@ namespace Archetype
 
     AClassType Asteroid::get_class_type() const
     {
-        // Common.dll.c 0xfd90 (Archetype::Asteroid::get_class_type): return 4.
+        // Common 0xfd90 (Archetype::Asteroid::get_class_type): return 4.
         return AClassAsteroid;
     }
 
@@ -81,7 +77,7 @@ namespace Archetype
         ObjectType = 0x40000000;
     }
 
-    // Common.dll.txt 0x062fa0b0-0x062fa0bf: Root::read(Reader), result normalised with SETNZ.
+    // Common 0x062fa0b0-0x062fa0bf: Root::read(Reader), result normalised with SETNZ.
     bool DynamicAsteroid::read(INI_Reader& Reader)
     {
         return Root::read(Reader) != false;
@@ -89,7 +85,7 @@ namespace Archetype
 
     AClassType DynamicAsteroid::get_class_type() const
     {
-        // Common.dll.c 0xfe80 (Archetype::DynamicAsteroid::get_class_type): return 5.
+        // Common 0xfe80 (Archetype::DynamicAsteroid::get_class_type): return 5.
         return AClassDynamicAsteroid;
     }
 
@@ -104,7 +100,7 @@ namespace Archetype
 
     void MotorData::redefine(MotorData const& Other)
     {
-        // Retail vtable 063a1ecc slot 1 = 062f7ba0 (left undisassembled by Ghidra; decoded from
+        // baseline vtable 063a1ecc slot 1 = 062f7ba0 (left uninspected by analysis; decoded from
         // the raw bytes): for accel (+0x0c), lifetime (+0x10) and delay (+0x08) in that order,
         // `FLD Other; FCOMP this; FNSTSW; TEST AH,0x44; JNP skip` -- equal skips, unequal or
         // unordered copies the dword. The nickname is not touched. RET 4.
@@ -118,7 +114,7 @@ namespace Archetype
 
     bool MotorData::read(INI_Reader& Reader)
     {
-        // Retail 062f7b00..062f7b99. "nickname" uses the no-argument get_value_string
+        // . "nickname" uses the no-argument get_value_string
         // (062f7b1a -> 06310b70, the whole value).
         if (Reader.is_value("nickname"))
         {
@@ -147,7 +143,7 @@ namespace Archetype
         return false;
     }
 
-    // Common.dll.txt 0x0630b730-0x0630b7b2: Nickname = *InNickname; Radius, Impulse,
+    // Common 0x0630b730-0x0630b7b2: Nickname = *InNickname; Radius, Impulse,
     // HullDamage, EnergyDamage = 0; Process = 1; Lifetime = 0; LifetimeMax = 10000.0f; empty
     // effect list; NumChildPieces = 0; DebrisImpulse = 5.0f; InnardsDebrisStartTime = -1.0f;
     // InnardsDebrisNum/Radius = 0; both vectors empty -- exactly reset()'s values.
@@ -220,14 +216,14 @@ namespace Archetype
         }
         if (Reader.is_value("process"))
         {
-            // 0630b94c..0630b99b: the 3-entry table 063ed218 {none 2, shatter 0, disappear 1},
-            // DACOM.DLL stricmp, first match stored at +0x14; no match leaves it.
+            // the 3-entry table 063ed218 {none 2, shatter 0, disappear 1},
+            // NEURONCOMPONENTS.DLL stricmp, first match stored at +0x14; no match leaves it.
             char const* Text = Reader.get_value_string();
-            if (CallDacomStricmp(Text, "none") == 0)
+            if (CallNeuronComponentsStricmp(Text, "none") == 0)
                 Process = 2;
-            else if (CallDacomStricmp(Text, "shatter") == 0)
+            else if (CallNeuronComponentsStricmp(Text, "shatter") == 0)
                 Process = 0;
-            else if (CallDacomStricmp(Text, "disappear") == 0)
+            else if (CallNeuronComponentsStricmp(Text, "disappear") == 0)
                 Process = 1;
             return true;
         }
@@ -243,7 +239,7 @@ namespace Archetype
         }
         if (Reader.is_value("num_child_pieces"))
         {
-            // 0630ba34: ftol on the unrounded get_value_float result (value_num = same read).
+            // ftol on the unrounded get_value_float result (value_num = same read).
             NumChildPieces = (int)Reader.value_num(0);
             return true;
         }

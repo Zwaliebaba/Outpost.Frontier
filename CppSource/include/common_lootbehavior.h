@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -19,29 +15,29 @@ struct IObjRW;
 
 // ============================================================================
 // LootBehavior -- behavior type 16 ("Loot", GDescLoot in common_behaviortypes.cpp), factory body
-// .text:062d1df7 (`PUSH 0x180; CALL operator_new; ... CALL FUN_062ce400`). RTTI: the COL at
-// vftable-4 of .rdata:0639fdbc names ".?AVLootBehavior@@", single inheritance from Behavior.
-//
+// (`PUSH 0x180; CALL operator_new; ... CALL the routine`). RTTI: the COL at
+// vftable-4 of module storage names ".?AVLootBehavior@@", single inheritance from Behavior.
+
 // Re-ported from the listing 2026-10-08 (claude-code:cmn-ai5). Until then slots 3/4/5/10 were
-// unbound members, the candidate search (FUN_062ce870 / FUN_062ce740) and the tractor calls
-// (FUN_062ecd90 / FUN_062ece40) were no-op stand-ins, and Update skipped the live branch.
-//
-// Constructor FUN_062ce400 builds MoveIdea +0x2c (FUN_062d4e60, EH 0) and FaceIdea +0xa4
-// (FUN_062d6750, EH 1), the loot-target slot at +0x174 (EH 4), the vptr and its scalars.
-//
-// Vtable .rdata:0639fdbc, 27 slots. Overrides of Behavior's table:
-//    0  FUN_062ce4a0  scalar-deleting dtor around FUN_062ce4c0
-//    1  LAB_062ce550  SetContext
-//    3  LAB_062cd5d0  Slot3 (`JMP FUN_062d20d0`, shared with IdleBehavior)
-//    4  FUN_062ce660  Slot4
-//    5  FUN_062ce6b0  Slot5
-//    7  LAB_062ceb50  Slot7
-//   10  FUN_062cedd0  Slot10
+// unbound members, the candidate search (the routine / the routine) and the tractor calls
+// (the routine / the routine) were no-op stand-ins, and Update skipped the live branch.
+
+// Constructor the routine builds MoveIdea +0x2c (the routine, EH 0) and FaceIdea +0xa4
+// (the routine, EH 1), the loot-target slot at +0x174 (EH 4), the vptr and its scalars.
+
+// Vtable module storage, 27 slots. Overrides of Behavior's table:
+//    0  the routine  scalar-deleting dtor around the routine
+//    1  the branch  SetContext
+//    3  the branch  Slot3 (`JMP the routine`, shared with IdleBehavior)
+//    4  the routine  Slot4
+//    5  the routine  Slot5
+//    7  the branch  Slot7
+//   10  the routine  Slot10
 // ============================================================================
 class LootBehavior : public Behavior
 {
 public:
-    // The +0x174 record FUN_062ce870 receives by pointer: the loot object being collected and
+    // The +0x174 record the routine receives by pointer: the loot object being collected and
     // a byte at +8 that Slot10 sets and the search / release paths clear.
     struct FLootTarget
     {
@@ -50,32 +46,32 @@ public:
         unsigned char Pad09[3];
     };
 
-    // FUN_062ce400 (.text:062ce400-062ce48f).
+    // (module storage-062ce48f).
     explicit LootBehavior(int InTypeId);
-    // FUN_062ce4c0: set_pointer(0) on +0x174, +0xb8 (FaceIdea's watcher), +0x40 (MoveIdea's)
-    // -- the members' own destructors -- then FUN_062d2080.
+    // set_pointer(0) on +0x174, +0xb8 (FaceIdea's watcher), +0x40 (MoveIdea's)
+    // -- the members' own destructors -- then the routine.
     ~LootBehavior() override;
 
     LootBehavior(LootBehavior const&) = delete;
     LootBehavior& operator=(LootBehavior const&) = delete;
 
-    // Slot 1, LAB_062ce550 (RET 0xc).
+    // Slot 1, the branch (RET 0xc).
     bool SetContext(void* Owner, void* Manager, void* Sys) override;
-    // Slot 3, LAB_062cd5d0: `JMP FUN_062d20d0`.
+    // Slot 3, the branch: `JMP the routine`.
     void Slot3() override;
-    // Slot 4, FUN_062ce660.
+    // Slot 4, the routine.
     void Slot4() override;
-    // Slot 5, FUN_062ce6b0 (RET 4, argument unread). Result stored at +0x0c.
+    // Slot 5, the routine (RET 4, argument unread). Result stored at +0x0c.
     int Slot5(float Unused) override;
-    // Slot 7, LAB_062ceb50. Result stored at +0x10 (except the "collected" exit).
+    // Slot 7, the branch. Result stored at +0x10 (except the "collected" exit).
     int Slot7() override;
-    // Slot 10, FUN_062cedd0 (RET 4).
+    // Slot 10, the routine (RET 4).
     bool Slot10(void* DirectiveOp) override;
 
-    // FUN_062ce740 (RET 4, non-virtual): true unless the loot object is a nearly-empty
+    // (RET 4, non-virtual): true unless the loot object is a nearly-empty
     // container already claimed by another ship's LootBehavior.
     bool IsLootUnclaimed(IObjRW* Loot);
-    // FUN_062ce870 (RET 4, non-virtual): pick the nearest collectable loot into Slot.
+    // (RET 4, non-virtual): pick the nearest collectable loot into Slot.
     bool AcquireLootTarget(FLootTarget* Slot);
 
     // ---- Behavior's own +0x04..+0x2b block, still declared per class ----

@@ -1,23 +1,19 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
 // Port-only (OUTPOST_FRONTIER_WIDESCREEN_SUPPORT): the in-flight HUD's corner windows pushed out to
-// the edges of a widescreen surface, the job retail-era HudShift did by patching the exe.
-//
+// the edges of a widescreen surface, the job baseline-era HudShift did by patching the exe.
+
 // Under Hor+ (widescreen.h) the Win3D interface keeps a 4:3 layout in the middle of the
-// surface. The windows stay where retail puts them in the world; what moves is the picture:
+// surface. The windows stay where baseline puts them in the world; what moves is the picture:
 // while a corner window is drawn, updated or offered the mouse, the Win3D camera
-// (DAT_0067dbf8) is sheared so that every point, whatever its depth, lands ShiftPx pixels to
+// (the field) is sheared so that every point, whatever its depth, lands ShiftPx pixels to
 // the side -- the view transform gets x' = x + s * depth (s = ShiftPx / XScale) and the
 // screen centre moves by ShiftPx, so meshes (whose view the material batcher captures at
 // submission), Project / Unproject (text, screen quads, sub-viewports) and mouse rays all
 // agree. Nothing in a window's own placement code changes.
-//
+
 // The windows: HUD_Status and the NeuroNet buttons (NN_MainButton; a button flying into a
 // centred NeuroNet screen loses its shift with the move, and the panel under it has none) to
 // the right; HUD_Target, HUD_ContactList and the comm window (HUD_Receiver) to the

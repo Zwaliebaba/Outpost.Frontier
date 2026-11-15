@@ -1,10 +1,6 @@
-﻿// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
-// Author: Giperion.
+﻿// Author: Giperion.
 
-// DataConfig -- retail DataConfig.cpp (startup 0x06308e60, shutdown 0x06309850). Declared
+// DataConfig -- baseline DataConfig.cpp (startup 0x06308e60, shutdown 0x06309850). Declared
 // in common_dataconfig.h.
 #include "common_dataconfig.h"
 #include "common_archetype.h"  // Archetype::Load* / Free / FreeExplosions
@@ -15,15 +11,15 @@
 #include "common_newchar.h"    // NewChar::TheDB, RtcSlider, pub::StateGraph
 #include "common_reputation.h" // Reputation::Startup / Shutdown, costume descriptions
 #include "common_universe.h"   // Universe::Startup / Shutdown
-#include "DALib.h"             // DALib::Data
-#include "dacom.h"             // FDUMP
+#include "NeuronRuntime.h"             // NeuronRuntime::Data
+#include "neuroncomponents.h"             // FDUMP
 
 namespace
 {
-    const char kDataConfigSource[] = "E:\\FL\\Scratch\\Source\\Common\\DataConfig.cpp";
+    const char kDataConfigSource[] = "Common\\DataConfig.cpp";
     const unsigned long kPathChars = 0x104;
 
-    // DAT_063fcee8 — DataConfig startup refcount. BSS 0 until first successful startup.
+    // — DataConfig startup refcount. BSS 0 until first successful startup.
     int GDataConfigRefCount = 0;
 
     const char kFmtEquipmentEmpty[] =
@@ -95,7 +91,7 @@ namespace
             GetFileSysPath(FullPath, Reader.get_value_string(), nullptr);
             if (Loadout::Load(FullPath, false) == 0)
             {
-                // 0630918e-063091ad: called through the FDUMP pointer with no test.
+                // called through the FDUMP pointer with no test.
                 FDUMP(0x100002, kFmtLoadoutsEmpty, kDataConfigSource, 0x8e, FullPath);
             }
         }
@@ -151,7 +147,7 @@ namespace
         else if (Reader.is_value("NewCharDB"))
         {
             GetFileSysPath(FullPath, Reader.get_value_string(), nullptr);
-            // 063093e9-063093f9: TheDB->Load (+0x38), no null test.
+            // TheDB->Load (+0x38), no null test.
             NewChar::TheDB->Load(FullPath);
         }
         else if (Reader.is_value("RtcSlider"))
@@ -165,15 +161,15 @@ namespace
 int __cdecl DataConfig::startup(char const* IniPath, Archetype::ICliObjFactory* Factory,
                                 ProgressCB* Progress)
 {
-    // Retail: if DAT_063fcee8 != 0, increment and return 0 (no Data check).
+    // baseline: if the field != 0, increment and return 0 (no Data check).
     if (GDataConfigRefCount != 0)
     {
         GDataConfigRefCount += 1;
         return 0;
     }
 
-    // 06308e7f-06308e95: the refcount is incremented before the test (open fail still
-    // counts). No DALib::Data test -- the former guard was invented (CMN-S2 AIS 2026-10-14).
+    // the refcount is incremented before the test (open fail still
+    // counts). No NeuronRuntime::Data test -- the former guard was invented (CMN-S2 AIS 2026-10-14).
     GDataConfigRefCount = 1;
 
     INI_Reader Reader;
@@ -184,7 +180,7 @@ int __cdecl DataConfig::startup(char const* IniPath, Archetype::ICliObjFactory* 
         {
             do
             {
-                // 06308ef5: the abort byte is tested before each section.
+                // the abort byte is tested before each section.
                 if (bAbort)
                     break;
 
@@ -192,11 +188,11 @@ int __cdecl DataConfig::startup(char const* IniPath, Archetype::ICliObjFactory* 
                 {
                     do
                     {
-                        // 06308f30: and before each value.
+                        // and before each value.
                         if (bAbort)
                             break;
 
-                        // 06308f38-06308f5d: a non-zero callback answer sets the abort byte and
+                        // a non-zero callback answer sets the abort byte and
                         // jumps to the read_value at 06309432 -- the value is not dispatched, but
                         // the reader still advances once more before the loops leave.
                         if (Progress != nullptr &&
@@ -240,6 +236,6 @@ void __cdecl DataConfig::shutdown()
     Reputation::Shutdown();
     FuseDB::Shutdown();
     WeaponModDB_destroy();
-    // 06309894-0630989c: tail jump to TheDB->Shutdown (+0x14), no null test.
+    // tail jump to TheDB->Shutdown (+0x14), no null test.
     NewChar::TheDB->Shutdown();
 }

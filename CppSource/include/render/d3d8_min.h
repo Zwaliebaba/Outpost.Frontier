@@ -1,21 +1,17 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
 #if defined(RP_DIRECT3D9)
 
-// RP9.dll (src/RP9) only: the public render interfaces speak the Direct3D 8 "language"
+// DX9RENDERER.dll (src/DX9RENDERER) only: the public render interfaces speak the Direct3D 8 "language"
 // (D3DLIGHT8, D3DMATERIAL8, D3DRENDERSTATETYPE, D3D8 texture-stage numbers, FVF codes), but
-// d3d8types.h and d3d9types.h cannot share one translation unit. RP9 therefore sees the
+// d3d8types.h and d3d9types.h cannot share one translation unit. DX9RENDERER therefore sees the
 // interface through Direct3D 9 types whose layout is identical to the D3D8 ones; it translates
-// everything else (state numbers, device blobs) itself. See docs/re/rp9.md.
-//
+// everything else (state numbers, device blobs) itself. See implementation notes.
+
 // <d3d9.h> must resolve to the Windows SDK header: the DirectX SDK (June 2010) include
-// directory, which also ships an older d3d9.h, is appended after the Windows SDK in RP9.vcxproj.
+// directory, which also ships an older d3d9.h, is appended after the Windows SDK in DX9RENDERER.vcxproj.
 // Include this header before any d3dx9*.h -- d3dx9.h pulls "d3d9.h" by quoted path, and the
 // shared include guard (_D3D9_H_) then keeps the SDK copy.
 
@@ -41,10 +37,10 @@ static_assert(sizeof(D3DRENDERSTATETYPE) == 4, "D3DRENDERSTATETYPE is one dword"
 // DirectX 8 SDK headers. Include the SDK file by quoted path so d3d8types.h /
 // d3d8caps.h resolve next to it. Do NOT add DX8\include to /I — that SDK ships
 // an old basetsd.h that breaks Windows 10 winnt.h (PVOID64).
-//
-// Default SDK: $(Dx8SdkDir) = repo-root dx8/ = DirectX 8.1 SDK (D3D_SDK_VERSION 220). Retail
-// rp8.dll statically links the 8.1 D3DX (D3DXSaveSurfaceToFile chain, FUN_06d2f880) but calls
-// Direct3DCreate8 with the literal 0x78 (120, rp8.dll.txt 06d05db7), so RP8 passes 0x78 too
+
+// Default SDK: $(Dx8SdkDir) = repo-root dx8/ = DirectX 8.1 SDK (D3D_SDK_VERSION 220). baseline
+// dx8renderer.dll statically links the 8.1 D3DX (D3DXSaveSurfaceToFile chain, the routine) but calls
+// Direct3DCreate8 with the literal 0x78 (120, dx8renderer 06d05db7), so DX8RENDERER passes 0x78 too
 // and does not use D3D_SDK_VERSION.
 
 #ifndef DIRECT3D_VERSION

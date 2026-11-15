@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -12,7 +8,7 @@
 class FRpcWireStream;
 
 // One equipment wire record, operator new(0x18) in every producer (RC 06b38210,
-// 06b3a510, 06b4fb10). Member order is the record's, not the wire's.
+// , 06b4fb10). Member order is the record's, not the wire's.
 struct FRpcServerEquipRecord {
     unsigned int ArchId;          // +0x00 EquipDesc +0x04
     int Count;                    // +0x04 EquipDesc +0x14
@@ -24,8 +20,8 @@ struct FRpcServerEquipRecord {
     char* Hardpoint;              // +0x14 operator new(HardpointSize)
 };
 
-// The 4-byte object retail allocates with operator new(4): it owns a list of records
-// that is created on the first push_back (RC 06b3a820). Retail's list is VC6
+// The 4-byte object baseline allocates with operator new(4): it owns a list of records
+// that is created on the first push_back (RC 06b3a820). baseline's list is VC6
 // std::list<record*>; the port keeps its own std::list of the same record pointers.
 // The destructor is RC 06b3a450 / RS 06bdc790 (every EH funclet runs it on a stack
 // handle): free each record's hardpoint, then the record, then the list.

@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -11,44 +7,44 @@
 // builds for every saved character, the list IClient slot 13 (ch2 0x03
 // FLPACKET_SERVER_CHARACTERINFO) carries, and the ONE declaration Server.dll,
 // rpclocal.dll and OutpostFrontier.exe all read it through.
-//
-// NAMES. Retail's own, from RTTI. Server.dll's IServerImpl::CharacterInfoReq
-// stamps .rdata:06d6ada8 on its 0x18-byte local (.text:06d45288) and, in the
-// teardown, .rdata:06d6ada0 (.text:06d4531d). The locators behind them:
-//   .rdata:06d6ada4 -> 06d70910, type .rdata:06d7091c
-//       -> .data:06d8d0ec ".?AV?$OwnerList@UCharacterInfo@CCharacterSet@@@@"
-//   .rdata:06d6ad9c -> 06d70954, type .rdata:06d70960
-//       -> .data:06d8d128 ".?AV?$MetaList@UCharacterInfo@CCharacterSet@@@@"
+
+// NAMES. baseline's own, from RTTI. Server.dll's IServerImpl::CharacterInfoReq
+// stamps module storage on its 0x18-byte local (module storage) and, in the
+// teardown, module storage (module storage). The locators behind them:
+// -> 06d70910, type module storage
+//       -> module storage ".?AV?$OwnerList@UCharacterInfo@CCharacterSet@@@@"
+// -> 06d70954, type module storage
+//       -> module storage ".?AV?$MetaList@UCharacterInfo@CCharacterSet@@@@"
 // and 06d70910's base list names MetaList<> as OwnerList<>'s base
-// (.rdata:06d70924). OutpostFrontier.exe carries the same two descriptors
-// (.data:00615b24 / 00615b5c). So the record is `struct
+// (module storage). OutpostFrontier.exe carries the same two descriptors
+// (module storage / 00615b5c). So the record is `struct
 // CCharacterSet::CharacterInfo` and the list is OwnerList<> of it -- the
 // template in common_metalist.h, whose MetaList<GoodDesc> bodies are
 // instruction-for-instruction what this instantiation compiled to:
-//   * CharacterInfoReq's teardown (.text:06d452c0 .. .text:06d45341) is
-//     OwnerList::free (record destructor FUN_06d45e50 + free, Data = 0, then
-//     the nodes through FUN_06d0f970 = free_node) followed by MetaList's
+//   * CharacterInfoReq's teardown (module storage .. module storage) is
+//     OwnerList::free (record destructor the routine + free, Data = 0, then
+//     the nodes through the routine = free_node) followed by MetaList's
 //     destructor (the MetaList vptr, then the pool drain);
-//   * the builder's FUN_06d5b0b0 / FUN_06d5a930 / FUN_06d11850 are prepend /
-//     append / alloc_node, and its inline link at .text:06d49eda .. 06d49ef1
+//   * the builder's the routine / the routine / the routine are prepend /
+//     append / alloc_node, and its inline link at module storage .. 06d49ef1
 //     is insert_after;
-//   * rpclocal's FUN_06d852e0 / FUN_06d85340 (vtables .rdata:06db3758 /
-//     06db3754) are ~MetaList / ~OwnerList of the same instantiation;
-//   * OutpostFrontier.exe's FUN_005ae700 is append.
-//
+//   * rpclocal's the routine / the routine (vtables module storage /
+// ) are ~MetaList / ~OwnerList of the same instantiation;
+//   * OutpostFrontier.exe's the routine is append.
+
 // WHAT THE 0x18 OBJECT IS. The OwnerList sits at +0x00 with ITS OWN vptr as
 // the complete-object vptr (the locator at 06d70910 has offset 0), so whatever
 // encloses it adds no virtual function; the only other field is the dword at
 // +0x14. That the enclosing type is CCharacterSet itself is the natural reading
 // of the RTTI (CharacterInfo is nested in it) but is NOT proven by a descriptor
 // of its own -- CCharacterSet has none, because it is not polymorphic.
-//
-// MODERN TYPES. Retail's two strings are MSVCP60 basic_string<unsigned short>
+
+// MODERN TYPES. baseline's two strings are MSVCP60 basic_string<unsigned short>
 // (VC6 spelled wchar_t that way) and its two lists are VC6 std::list; the port
 // uses std::wstring and std::list, so the record is not 0x2dc bytes here and no
-// offset below is a byte offset of the port's struct. They are retail's record
+// offset below is a byte offset of the port's struct. They are baseline's record
 // offsets, kept because every reader in every module is written against them.
-// Only the ORDER and the VALUES are retail's.
+// Only the ORDER and the VALUES are baseline's.
 // ===========================================================================
 
 #include "common_server_types.h"   // CHARACTER_ID
@@ -63,14 +59,14 @@ public:
     struct CharacterInfo;
 
     // +0x00 .. +0x13. bUseHeap is false on every constructor in all three
-    // modules (CharacterInfoReq's inline stores .text:06d45278 .. 06d45284;
-    // rpclocal FUN_06d852c0 with `PUSH EBP` = 0 at .text:06d844ad).
+    // modules (CharacterInfoReq's inline stores module storage .. 06d45284;
+    // rpclocal the routine with `PUSH EBP` = 0 at module storage).
     OwnerList<CharacterInfo> Characters;
 
     // +0x14. Server fills it from PlayerData::save_failure_count (+0x344) and
-    // then zeroes the counter (.text:06d49f21 .. .text:06d49f39); rpclocal
+    // then zeroes the counter (module storage .. module storage); rpclocal
     // carries it as the payload's first dword (06d89e9d / 06d84a93);
-    // OutpostFrontier.exe copies it to its connect context +0x1cc (.text:005aac82).
+    // OutpostFrontier.exe copies it to its connect context +0x1cc (module storage).
     // CharacterInfoReq never writes it when its bool is true (the local is
     // uninitialised there); the port's constructor zeroes it.
     unsigned int SaveFailureCount;
@@ -81,22 +77,22 @@ public:
     CCharacterSet();
 };
 
-// The record. Server.dll FUN_06d499c0 builds it from a PlayerData::FSavedCharacter
-// (the per-field source is named on each member); OutpostFrontier.exe FUN_005aa9c0
-// copies it member by member (.text:005aab18 .. .text:005aac5b) and FUN_005ab250
+// The record. Server.dll the routine builds it from a PlayerData::FSavedCharacter
+// (the per-field source is named on each member); OutpostFrontier.exe the routine
+// copies it member by member (module storage .. module storage) and the routine
 // reads it at character select.
 struct CCharacterSet::CharacterInfo
 {
-    CHARACTER_ID Id;                 // +0x000 the saved_characters key (.text:06d49bdc)
+    CHARACTER_ID Id;                 // +0x000 the saved_characters key (module storage)
     // +0x200 / +0x201: stricmp(FileName, "Restart.fl") == 0 and
-    // stricmp(FileName, "AutoSave.fl") == 0 (.text:06d49bee / .text:06d49c05,
+    // stricmp(FileName, "AutoSave.fl") == 0 (module storage / module storage,
     // `NEG / SBB / INC`). Also the first two keys of the list's sort order.
     unsigned char bIsRestart;        // +0x200
     unsigned char bIsAutoSave;       // +0x201
     std::wstring Name;               // +0x204 <- FSavedCharacter::Name
     std::wstring Description;        // +0x214 <- ::Description; L"" for the autosave
     unsigned int DescripStrId;       // +0x224 <- ::DescripStrId; 0x65c for the autosave
-    // +0x228 / +0x22c: a FILETIME -- CompareFileTime reads it at .text:06d4999d.
+    // +0x228 / +0x22c: a FILETIME -- CompareFileTime reads it at module storage.
     unsigned int TimestampLow;       // +0x228 <- ::TimestampLow  (dwLowDateTime)
     unsigned int TimestampHigh;      // +0x22c <- ::TimestampHigh (dwHighDateTime)
     unsigned int ShipArchetype;      // +0x230 <- ::ShipArchetype
@@ -106,25 +102,25 @@ struct CCharacterSet::CharacterInfo
     int NumMissionFailures;          // +0x240 <- ::NumMissionFailures
     float HullStatus;                // +0x244 <- ::HullStatus
     // +0x248 is a COMMON.DLL EquipDescList: the inlined constructor calls
-    // ??0EquipDescList@@QAE@XZ on it (Server .text:06d49b56 via .rdata:06d648f0,
-    // rpclocal .text:06d845b0 via .rdata:06db30b8), and rpclocal's EH map destroys it
+    // ??0EquipDescList@@QAE@XZ on it (Server module storage via module storage,
+    // rpclocal module storage via module storage), and rpclocal's EH map destroys it
     // with the imported ~EquipDescList (Unwind@06db2349, ECX = record+0x248). In
     // OutpostFrontier.exe the same member's ctor/operator= are expanded to the underlying
-    // std::list<EquipDesc> imports (.text:005aaa9a, .text:005aabe7).
+    // std::list<EquipDesc> imports (module storage, module storage).
     EquipDescList Equipment;                     // +0x248 <- ::Equipment
     std::list<CollisionGroupDesc> CollisionGroups; // +0x254 <- ::CollisionGroups
-    unsigned int SystemId;           // +0x260 <- ::SystemId   (.text:06d49dab)
-    unsigned int BaseId;             // +0x264 <- ::BaseId     (.text:06d49db7)
-    unsigned int LocationId;         // +0x268 <- ::LocationId (.text:06d49dc3)
-    unsigned int VoiceId;            // +0x26c <- CreateID(::Voice's text) (.text:06d49dd6)
-    unsigned int Rank;               // +0x270 <- ::Rank       (.text:06d49de2)
-    Costume ComCostume;              // +0x274 <- ::ComCostume  (.text:06d49e3a)
-    Costume BaseCostume;             // +0x2a8 <- ::BaseCostume (.text:06d49dee)
+    unsigned int SystemId;           // +0x260 <- ::SystemId   (module storage)
+    unsigned int BaseId;             // +0x264 <- ::BaseId     (module storage)
+    unsigned int LocationId;         // +0x268 <- ::LocationId (module storage)
+    unsigned int VoiceId;            // +0x26c <- CreateID(::Voice's text) (module storage)
+    unsigned int Rank;               // +0x270 <- ::Rank       (module storage)
+    Costume ComCostume;              // +0x274 <- ::ComCostume  (module storage)
+    Costume BaseCostume;             // +0x2a8 <- ::BaseCostume (module storage)
 
-    // The constructor both Server (.text:06d49ae1 .. .text:06d49bb7) and
-    // OutpostFrontier.exe (.text:005aaa27 .. .text:005aab00) inline: the key's first
+    // The constructor both Server (module storage .. module storage) and
+    // OutpostFrontier.exe (module storage .. module storage) inline: the key's first
     // byte, both flags and every dword are zeroed, the two Costumes go through
-    // their constructor (FUN_06d0a060 / FUN_004cdc10: the four parts and the
+    // their constructor (the routine / the routine: the four parts and the
     // count, not the accessory slots). Each costume copy reads accessory ids
     // only up to AccessoryCount; the remaining slots stay unwritten.
     CharacterInfo()
@@ -149,18 +145,18 @@ struct CCharacterSet::CharacterInfo
 };
 
 // OwnerList<T>::free deletes its elements through OwnerListDeleteData. This
-// record has real members, and retail's free runs its destructor before the
-// free: Server FUN_06d45e50 + FUN_06d5ffb0 (.text:06d452eb / .text:06d452f1),
-// rpclocal FUN_06d85340's record pass (the two lists, the two strings, then the
-// block, .text:06d85396 .. .text:06d853d3).
+// record has real members, and baseline's free runs its destructor before the
+// free: Server the routine + the routine (module storage / module storage),
+// rpclocal the routine's record pass (the two lists, the two strings, then the
+// block, module storage .. module storage).
 template <>
 inline void OwnerListDeleteData<CCharacterSet::CharacterInfo>(CCharacterSet::CharacterInfo* Data)
 {
     delete Data;
 }
 
-// The retail Costume assignment every CharacterInfo copy uses (Server inline at
-// .text:06d49df4 .. .text:06d49e7f, OutpostFrontier.exe FUN_0053c250): the four
+// The baseline Costume assignment every CharacterInfo copy uses (Server inline at
+// .. module storage, OutpostFrontier.exe the routine): the four
 // parts, the count, then only `count` accessory ids, with a SIGNED count test
 // (`JLE` / `JL`).
 inline void CharacterInfoCopyCostume(Costume& Dest, Costume const& Source)

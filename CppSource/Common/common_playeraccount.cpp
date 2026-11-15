@@ -1,13 +1,9 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // Common.dll CPlayerAccount: the MD5-hashed player account kept in the registry, and its text
 // key. Split out of common_net.cpp.
-//
-// MD5Hash is in DALib (src/DALib/md5hash.cpp) -- not duplicated here.
+
+// MD5Hash is in NeuronRuntime (src/NeuronRuntime/md5hash.cpp) -- not duplicated here.
 
 #pragma comment(lib, "winmm.lib")  // For timeGetTime() (also used by common_physys.cpp)
 #pragma comment(lib, "rpcrt4.lib") // For UuidCreate() in SeedMachineHash
@@ -29,7 +25,7 @@ namespace
 {
     const char kAccountKeyPath[] = "Software\\Microsoft\\Microsoft Games\\OutpostFrontier\\1.0";
 
-    // FUN_06306fe0: _vsnprintf into the caller's 0x2000-byte buffer, returning the buffer
+    // _vsnprintf into the caller's 0x2000-byte buffer, returning the buffer
     // (no terminator of its own). The text-key functions hand the result to
     // OutputDebugStringA.
     char* FormatDebugLine(char* Buffer, const char* Format, ...)
@@ -48,7 +44,7 @@ namespace
         return Str + strlen(Str) - 4;
     }
 
-    // FUN_06306720: seeds Hash with the machine's DigitalProductId (Windows 9x key first,
+    // seeds Hash with the machine's DigitalProductId (Windows 9x key first,
     // then the NT key; a UuidCreate fallback when neither has one) and the user name
     // (timeGetTime as text when GetUserNameA fails). Always returns true.
     bool SeedMachineHash(MD5Hash& Hash)
@@ -133,13 +129,13 @@ CPlayerAccount::~CPlayerAccount()
 
 void CPlayerAccount::SetAcctIndex(unsigned long Index)
 {
-    // 0x062a8920: a single RET. Retail ignores Index and leaves g_dwAccountIndex untouched.
+    // a single RET. baseline ignores Index and leaves g_dwAccountIndex untouched.
     (void)Index;
 }
 
 void CPlayerAccount::TossHashes()
 {
-    // 0x063065a0: each non-null hash goes through its scalar deleting destructor and the
+    // each non-null hash goes through its scalar deleting destructor and the
     // pointer is cleared.
     if (HashName != nullptr)
     {
@@ -155,9 +151,9 @@ void CPlayerAccount::TossHashes()
 
 void CPlayerAccount::GenerateAccount(const char* Name)
 {
-    // 0x063065d0: fresh hashes; HashName = machine seed + Name (when non-null), and
+    // fresh hashes; HashName = machine seed + Name (when non-null), and
     // HashVerify = MD5 of HashName's text. AsString is called twice for the text (once for
-    // its length, once for the pointer), as retail does.
+    // its length, once for the pointer), as baseline does.
     TossHashes();
     HashName = new MD5Hash();
     HashVerify = new MD5Hash();
@@ -179,7 +175,7 @@ void CPlayerAccount::GenerateAccount(const char* Name)
 
 bool CPlayerAccount::LoadAccount()
 {
-    // 0x063063a0: fresh hashes, then MPAccountName / MPAccountNameSig from HKCU (0x400-byte
+    // fresh hashes, then MPAccountName / MPAccountNameSig from HKCU (0x400-byte
     // reads); true once the key opened, whether or not the values were there.
     TossHashes();
     HashName = new MD5Hash();
@@ -206,7 +202,7 @@ bool CPlayerAccount::LoadAccount()
 
 bool CPlayerAccount::LoadAccountFromStrings(const char* NameHash, const char* VerifyHash)
 {
-    // 0x063062c0
+
     TossHashes();
     HashName = new MD5Hash();
     HashVerify = new MD5Hash();
@@ -217,7 +213,7 @@ bool CPlayerAccount::LoadAccountFromStrings(const char* NameHash, const char* Ve
 
 bool CPlayerAccount::VerifyAccount()
 {
-    // 0x06306870: with both hashes present, MD5 of HashName's text must equal HashVerify.
+    // with both hashes present, MD5 of HashName's text must equal HashVerify.
     if (HashName == nullptr || HashVerify == nullptr)
         return false;
 
@@ -230,8 +226,8 @@ bool CPlayerAccount::VerifyAccount()
 
 bool CPlayerAccount::GenerateTextKey(char* OutKey)
 {
-    // 0x06306df0: OutKey = MD5(machine seed [+ account index]) text + "-" + the last four
-    // characters of the MD5 of that text. The three debug lines are retail's own.
+    // OutKey = MD5(machine seed [+ account index]) text + "-" + the last four
+    // characters of the MD5 of that text. The three debug lines are baseline's own.
     char DebugLine[0x2000];
     MD5Hash KeyHash;
     if (!SeedMachineHash(KeyHash))
@@ -249,7 +245,7 @@ bool CPlayerAccount::GenerateTextKey(char* OutKey)
     VerifyHash.AddData((void*)RawKey, (unsigned long)strlen(RawKey));
     VerifyHash.CalcValue();
 
-    // 06306f2a: the '-' goes on OutKey's terminator (word store 2D 00 at the NUL).
+    // the '-' goes on OutKey's terminator (word store 2D 00 at the NUL).
     strcpy(OutKey, RawKey);
     strcat(OutKey, "-");
 
@@ -261,7 +257,7 @@ bool CPlayerAccount::GenerateTextKey(char* OutKey)
 
 bool CPlayerAccount::SetTextKey(char* Key)
 {
-    // 0x06307010. Key's first 0x23 bytes are MD5-hashed; the last four characters of that
+    // . Key's first 0x23 bytes are MD5-hashed; the last four characters of that
     // text must equal the string at Key+0x24, or nothing is written. Then, under HKCU,
     // "InstallKey" = Key, "MPAccountName" = MD5(Key) text and "MPAccountNameSig" = MD5 of
     // that text -- the two values LoadAccount reads back.
@@ -302,12 +298,12 @@ bool CPlayerAccount::SetTextKey(char* Key)
 
 bool CPlayerAccount::GetTextKey(char* OutKey)
 {
-    // 0x06307310. Reads "InstallKey" (up to 0x29 bytes) and, when the same checksum as
+    // . Reads "InstallKey" (up to 0x29 bytes) and, when the same checksum as
     // SetTextKey holds, copies it into OutKey. RegCloseKey runs on every path, the failed
     // open included (with the handle still 0).
     HKEY Key = nullptr;
     bool bResult = false;
-    // Retail's stack buffer is 0x2c bytes and uninitialised; the port zeroes it.
+    // baseline's stack buffer is 0x2c bytes and uninitialised; the port zeroes it.
     char Buffer[0x2c] = {};
     if (RegOpenKeyExA(HKEY_CURRENT_USER, kAccountKeyPath, 0, KEY_QUERY_VALUE, &Key) ==
         ERROR_SUCCESS)
@@ -332,7 +328,7 @@ bool CPlayerAccount::GetTextKey(char* OutKey)
 
 const char* CPlayerAccount::GetAccountNameChar()
 {
-    // 0x06306920
+
     if (HashName != nullptr)
         return HashName->AsString();
     return "";
@@ -340,7 +336,7 @@ const char* CPlayerAccount::GetAccountNameChar()
 
 const char* CPlayerAccount::GetAccountNameSigChar()
 {
-    // 0x06306ab0
+
     if (HashVerify != nullptr)
         return HashVerify->AsString();
     return "";

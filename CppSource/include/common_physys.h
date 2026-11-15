@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -9,10 +5,10 @@
 #include "common_exports.h"
 
 // Common.dll PhySys — full PHYS batch port (Wave 2).
-// Listing RVAs from the Common.dll export table; RE from EXE/Disasm/Common.dll.c.
-// Retail physics is IVP (Innovative Physics); we port observable Common-layer behavior.
+// Listing RVAs from the Common.dll export table; RE from Common.
+// baseline physics is IVP (Innovative Physics); we port observable Common-layer behavior.
 // Deep IVP calls (ivp_* internals) are stubbed with FULLPORT-DEFERRED[IVP].
-// See docs/re/common_physys.md.
+// See implementation notes.
 
 #include "common_ini.h"
 #include "common_csys.h"
@@ -26,7 +22,7 @@ struct CBeam;
 
 struct IObjDB;
 
-// Quaternion for RCBegin / RCSet. Retail uses 4 floats (W,X,Y,Z) matching FQuaternion.
+// Quaternion for RCBegin / RCSet. baseline uses 4 floats (W,X,Y,Z) matching FQuaternion.
 class Quaternion
 {
 public:
@@ -45,7 +41,7 @@ namespace PhyArch
 
 // The two IVP SDK types PhySys's collision filter is spelled in terms of. The SDK is not part
 // of the port and neither type is ever dereferenced here; they exist so that
-// ?m_pCollisionFilter@PhySys@@3P6A?AW4IVP_BOOL@@PAVIVP_Real_Object@@0@ZA mangles the way retail
+// ?m_pCollisionFilter@PhySys@@3P6A?AW4IVP_BOOL@@PAVIVP_Real_Object@@0@ZA mangles the way baseline
 // does. IVP_BOOL is IVP's own boolean enum, IVP_Real_Object its rigid body.
 enum IVP_BOOL
 {
@@ -55,7 +51,7 @@ enum IVP_BOOL
 
 class IVP_Real_Object;
 
-// PhySys::Controller is an IVP_Controller_Independent in retail, so three more SDK spellings
+// PhySys::Controller is an IVP_Controller_Independent in baseline, so three more SDK spellings
 // leak into its mangled names:
 //   ?core_is_going_to_be_deleted_event@Controller@PhySys@@MAEXPAVIVP_Core@@@Z
 //   ?get_controller_priority@Controller@PhySys@@MAE?AW4IVP_CONTROLLER_PRIORITY@@XZ
@@ -64,7 +60,7 @@ class IVP_Real_Object;
 class IVP_Core;
 template <class T> class IVP_U_Vector;
 
-// More IVP classes that retail's exported PhySys names spell at global scope:
+// More IVP classes that baseline's exported PhySys names spell at global scope:
 //   ?GetCurrentTime@PhySys@@YA?AVIVP_Time@@I@Z                     (defined in ivp_core.h)
 //   ?mindist_entered_volume@PhyCollisionStateManager@PhySys@@UAEXPAVIVP_Controller_Phantom@@PAVIVP_Mindist_Base@@@Z
 //   ?get_other_object@PhyCollisionStateManager@PhySys@@IAEPAVIVP_Real_Object@@PAVIVP_Mindist_Base@@@Z
@@ -77,13 +73,13 @@ class IVP_Controller_Phantom;
 // common_ivp_controller.h (only the name is needed here).
 class IVP_Event_Sim;
 
-// Retail's golem force controller, CObject+0x60. RTTI-confirmed global-scope class name (see
+// baseline's golem force controller, CObject+0x60. RTTI-confirmed global-scope class name (see
 // PhySys::GolemSetTargetPosition below for the COL trail). Defined in common_controllergolem.cpp.
 class FLControllerGolem;
 
-// IVP_Controller -- PhySys::Controller's base (retail CHD: PhySys::Controller,
+// IVP_Controller -- PhySys::Controller's base (baseline CHD: PhySys::Controller,
 // IVP_Controller_Dependent, IVP_Controller) -- and the IVP_CONTROLLER_PRIORITY enum its
-// slot 5 returns (moved there 2026-09-25; the value 0x5dc is still retail's, 06285c80).
+// slot 5 returns (moved there 2026-09-25; the value 0x5dc is still baseline's, 06285c80).
 #include "common_ivp_controller.h"
 // IVP_Listener_Phantom -- PhyCollisionStateManager's base (RTTI COL 063a6948:
 // PhyCollisionStateManager, IVP_Listener_Phantom at 0).
@@ -131,12 +127,12 @@ namespace PhySys
     // Global collision filter function pointer (0x19C0C0).
     // ?m_pCollisionFilter@PhySys@@3P6A?AW4IVP_BOOL@@PAVIVP_Real_Object@@0@ZA. The IVP SDK is
     // not part of the port, so the two types are declared but never defined -- enough for the
-    // pointer to have retail's exact type, which is all the ABI needs.
+    // pointer to have baseline's exact type, which is all the ABI needs.
     typedef IVP_BOOL(__cdecl* FCollisionFilter)(IVP_Real_Object* A, IVP_Real_Object* B);
     COMMON_API extern FCollisionFilter m_pCollisionFilter;
 
     // ---- CreateParms ----
-    // CShip::init_physics stack -> BuildIVP_Real. 13 dwords (Common.dll.c copy loop @ 0x28970).
+    // CShip::init_physics stack -> BuildIVP_Real. 13 dwords (Common copy loop @ 0x28970).
     struct CreateParms
     {
         float Mass;                  // +0x00  arch Root+0x20
@@ -145,11 +141,11 @@ namespace PhySys
         // +0x14. MISNOMER, kept only because renaming it sweeps src/Common/common_casteroid.*
         // and CAsteroid+0xf4 (which carries the same value under the same wrong name). This is
         // the STAR-SYSTEM id, not a collision group: BuildIVP_Sphere and ReMakePhysicalR copy
-        // it straight onto CObject+0x50 (.text:06289471 / 0628a681, `MOV EDX,[EBP+0x14]` then
+        // it straight onto CObject+0x50 (module storage / 0628a681, `MOV EDX,[EBP+0x14]` then
         // `MOV [EDI+0x50],EDX` right after the BodyPtr store at +0x54), and CObject+0x50 is
-        // then handed to PhySys::GetCurrentTime(unsigned) at .text:0627e261 as the key into
-        // the systems map DAT_063fc098 -- the same unsigned key PhySys::Startup(unsigned) and
-        // Update(unsigned,float) take, compared unsigned at .text:06289a8e (`CMP EDX,[EAX+0xc]`
+        // then handed to PhySys::GetCurrentTime(unsigned) at module storage as the key into
+        // the systems map the field -- the same unsigned key PhySys::Startup(unsigned) and
+        // Update(unsigned,float) take, compared unsigned at module storage (`CMP EDX,[EAX+0xc]`
         // + JC). common_cobject.cpp already fills it from IObjDB's get-system accessor.
         // OPEN TODO: rename to SystemId across CreateParms, CAsteroid+0xf4 and CAsteroidCube.
         unsigned CollisionGroupId;   // +0x14
@@ -168,15 +164,15 @@ namespace PhySys
     static_assert(offsetof(CreateParms, Inertia) == 0x28, "CreateParms+0x28");
 
     // ---- DetachParms ----
-    // Detach (.text:06284910) passes Parms through unchanged to FUN_062847e0 (0x0628496b).
+    // Detach (module storage) passes Parms through unchanged to the routine (0x0628496b).
     // CORRECTED 2026-09-25 (exe-w3a): the block is 0x2c bytes, not an empty placeholder. Both
-    // retail builders fill the same fields:
-    //   Common FUN_06284690 (.text:06284732..06284784, the per-child default parms) and
-    //   OutpostFrontier.exe FUN_00536c20 (.text:00536d93..00536dfd, the explosion's piece detach):
+    // baseline builders fill the same fields:
+    //   Common the routine (module storage..06284784, the per-child default parms) and
+    //   OutpostFrontier.exe the routine (module storage..00536dfd, the explosion's piece detach):
     //   +0x00 DEFAULT_LINEAR_DAMPING; +0x04 DEFAULT_ANGULAR_DAMPING; +0x10 byte 0; +0x18 1.0f
     //   (the exe then overwrites it with radius * 200); +0x1c byte 0; +0x20 Vector 0.
-    // The consumer FUN_062847e0 reads them back: the byte at +0x10 is a NUL-terminated name
-    // (a non-zero first byte -> FUN_06348720(&Parms+0x10), 0x0628481f..06284832, the same
+    // The consumer the routine reads them back: the byte at +0x10 is a NUL-terminated name
+    // (a non-zero first byte -> the routine(&Parms+0x10), 0x0628481f..06284832, the same
     // helper CreatePhantom calls on PhantomParms+0x06); +0x18 (06284837); the +0x1c flag
     // gating +0x20..+0x28 (0628483e..06284846); +0x00..+0x0c (06284882..062848a8). The same
     // tail as CreateParms (+0x1e name, +0x26 flag, +0x28 Vector), so the names follow it.
@@ -199,21 +195,21 @@ namespace PhySys
 
     // ---- CObjectCB ----
     // The phantom intruder callback that PhantomParms+0x40 carries. RTTI ".?AUCObjectCB@PhySys@@"
-    // (Common .data:063eb71c, Server .data:06d8878c): a base class of Server's
-    // SrvAsteroid::MedMine (its COL .rdata:06d6cf3c puts the sub-object at +0x60) and of
-    // Common's CEShieldGenerator (.rdata:063a7d74) and SphereIntruderChecker (base-class
-    // descriptor .rdata:063aa90c in its array 063aa93c).
-    // CreatePhantom stores the pointer at phantom+0x10 (Common .text:0628b19b), and Common's
-    // phantom listener (vtable .rdata:0639c30c) is its only caller:
-    //   .text:0628aa70  CB = [this+0x10]; obj = [arg2+0xa4] (IVP_Real_Object client_data,
+    // (Common module storage, Server module storage): a base class of Server's
+    // SrvAsteroid::MedMine (its COL module storage puts the sub-object at +0x60) and of
+    // Common's CEShieldGenerator (module storage) and SphereIntruderChecker (base-class
+    // descriptor module storage in its array 063aa93c).
+    // CreatePhantom stores the pointer at phantom+0x10 (Common module storage), and Common's
+    // phantom listener (vtable module storage) is its only caller:
+    // CB = [this+0x10]; obj = [arg2+0xa4] (IVP_Real_Object client_data,
     //                   the CObject); both non-null -> CALL [CB vtable + 0x00](obj), RET 8
-    //   .text:0628aa90  the same shape -> CALL [CB vtable + 0x04](obj)
-    //   .text:0628aab0  [this+0x10] = 0 (the phantom is going away; CB is not called)
-    // MedMine's bodies (.text:06d04fb0 counts a ship in, .text:06d05070 counts it out) say
-    // what the two slots mean. The vtable has exactly these two entries (.rdata:06d67a54 /
-    // .rdata:06d67a58, then the next table's COL) -- no destructor.
+    // the same shape -> CALL [CB vtable + 0x04](obj)
+    // [this+0x10] = 0 (the phantom is going away; CB is not called)
+    // MedMine's bodies (module storage counts a ship in, module storage counts it out) say
+    // what the two slots mean. The vtable has exactly these two entries (module storage /
+    // , then the next table's COL) -- no destructor.
     // The names come from Common's exports: SphereIntruderChecker derives only from CObjectCB
-    // and its vftable (.rdata:063a4964) has exactly two slots, `?added@SphereIntruderChecker@@MAE
+    // and its vftable (module storage) has exactly two slots, `?added@SphereIntruderChecker@@MAE
     // XPAUCObject@@@Z` (06332420) and `?deleted@...` (062ed730) -- protected virtual overrides of
     // these two, so the base slots carry the same names.
     struct CObjectCB
@@ -224,19 +220,19 @@ namespace PhySys
 
     // ---- PhantomParms ----
     // CreatePhantom @ 0x2aac0 / 0x2b0a0 / 0x2b200 all take PhantomParms const&.
-    // Fields extracted from ctor stores in Common.dll.c.
-    //
+    // Fields extracted from ctor stores in Common.
+
     // CORRECTED 2026-09-24 (w5-C, Server.dll MedMine): the block is 0x44 bytes, not 0x28, and
     // +0x04 is two bytes, not a dword. Both stack builders fill every field:
-    //   Server FUN_06d04d60 (.text:06d04d6a .. 06d04de9) and Common FUN_0629cb70
-    //   (.text:0629cbb3 .. 0629cc5f): +0x00 system id; +0x04/+0x05 bytes; +0x06 a
+    //   Server the routine (module storage .. 06d04de9) and Common the routine
+    //   (module storage .. 0629cc5f): +0x00 system id; +0x04/+0x05 bytes; +0x06 a
     //   NUL-terminated name (Common strcpy's PhySys::GetCollisionGroup into it at
-    //   .text:0629cc2f, Server stores only its first byte = 0); +0x10 Vector; +0x1c a Matrix
+    // , Server stores only its first byte = 0); +0x10 Vector; +0x1c a Matrix
     //   (both builders store the identity: 1.0f at +0x1c/+0x2c/+0x3c); +0x40 a listener
     //   pointer (Server: the MedMine's own listener sub-object at +0x60).
-    // The consumer, CreatePhantom(Parms, float) (Common .text:0628b0a0), reads +0x00 (the
-    // system map key, 0628b0f0), MOVZX +0x04 (0628b0e2), +0x06 (FUN_06348720, 0628b0dd),
-    // MOVZX +0x05 (0628b174), +0x10 / +0x1c (FUN_0628c860, 0628b163) and +0x40 (0628b191,
+    // The consumer, CreatePhantom(Parms, float) (Common module storage), reads +0x00 (the
+    // system map key, 0628b0f0), MOVZX +0x04 (0628b0e2), +0x06 (the routine, 0628b0dd),
+    // MOVZX +0x05 (0628b174), +0x10 / +0x1c (the routine, 0628b163) and +0x40 (0628b191,
     // stored at phantom+0x10 when non-null).
     struct PhantomParms
     {
@@ -258,9 +254,9 @@ namespace PhySys
         CObject* Object;           // +0x00
         Vector Point;              // +0x04
         Vector Normal;             // +0x10
-        // +0x1c: a part id, not a distance. FUN_0628d1a0 stores the IVP hit's +0x14 object's
-        // +4 dword here, or 0 when that pointer is null (.text:0628d3da..0628d3e8); the exe's
-        // camera ray pick FUN_0051ddd0 matches it against the CObject PartMap's PartId words
+        // +0x1c: a part id, not a distance. the routine stores the IVP hit's +0x14 object's
+        // +4 dword here, or 0 when that pointer is null (module storage..0628d3e8); the exe's
+        // camera ray pick the routine matches it against the CObject PartMap's PartId words
         // (0x0051de62..0x0051de67 is_shield_part, 0x0051def4..0x0051defa part_to_inst).
         unsigned PartId;           // +0x1c
     };
@@ -269,20 +265,20 @@ namespace PhySys
 
     // ---- CollisionEvent ----
     // GetCollisions output range [Begin, End) -- the std::vector at world+0x20
-    // (map node +0x30/+0x34, .text:06289a59 / 06289a62).
-    //
+    // (map node +0x30/+0x34, module storage / 06289a62).
+
     // 0x34 bytes, not 0x28. The world copy constructor sizes that vector with the
-    // /0x34 idiom and `IMUL EAX,EAX,0x34` (.text:0628ec3f .. 0628ec58), its insert
-    // is FUN_0628fa40 (same idiom, .text:0628fa55 ..), and Server.dll's consumer
-    // steps by `ADD EAX,0x34` (.text:06ce3552). The producer at .text:0628c42b ..
-    // 0628c547 builds the element from an IVP collision record R:
+    // /0x34 idiom and `IMUL EAX,EAX,0x34` (module storage .. 0628ec58), its insert
+    // is the routine (same idiom, module storage ..), and Server.dll's consumer
+    // steps by `ADD EAX,0x34` (module storage). The producer at module storage ..
+    // builds the element from an IVP collision record R:
     //   +0x00 / +0x04  the two CObjects (core +0xa4 of R+0x30 / R+0x34)
     //   +0x08 / +0x0c  their part ids (hash lookups of R+0x38 / R+0x3c)
     //   +0x10          R+0x20 .. R+0x28
     //   +0x1c          R+0x00 .. R+0x08
     //   +0x28          R+0x10 .. R+0x18
     // Server.dll reads +0x10 as the shared contact point and negates +0x1c and
-    // +0x28 for side B (.text:06ce3616 .. 06ce367b); their physical meaning is
+    // +0x28 for side B (module storage .. 06ce367b); their physical meaning is
     // not derived, hence the offset names.
     struct CollisionEvent
     {
@@ -302,36 +298,36 @@ namespace PhySys
     static_assert(sizeof(CollisionEvent) == 0x34, "PhySys::CollisionEvent sizeof 0x34");
 
     // ---- IVP_Time ----
-    // There is no PhySys::IVP_Time. Retail's export ?GetCurrentTime@PhySys@@YA?AVIVP_Time@@I@Z
+    // There is no PhySys::IVP_Time. baseline's export ?GetCurrentTime@PhySys@@YA?AVIVP_Time@@I@Z
     // returns the GLOBAL class IVP_Time, IVP's split-precision stamp {float time_base; float
     // time_offset;} (src/IVP/ivp_physics/ivp_core.h, forward-declared above). The float-pair
-    // layout is proven by FLControllerGolem's integrator (.text:06343170-06343185: FLD
+    // layout is proven by FLControllerGolem's integrator (module storage-06343185: FLD
     // [env+0xf8]; FSUB [this+0x64]; FADD [env+0xfc]; FSUB [this+0x68]) and by the golem storing
-    // the pair at +0x64. GetCurrentTime itself (.text:06289aa7-06289ac4) copies the two dwords.
+    // the pair at +0x64. GetCurrentTime itself (module storage-06289ac4) copies the two dwords.
     // The port used to keep a private copy of the struct in this namespace; that duplicate
     // declaration is gone, and callers include ivp_core.h for the complete type.
 
     // ---- Controller (MI base for CShip @ +0x1a4) ----
     // ctor 0x25b50, dtor 0x25b90. Vtable at .rdata 0x13B60C.
-    // Retail's vftable has 7 slots, not 3+dtor -- confirmed via RTTI class hierarchy
+    // baseline's vftable has 7 slots, not 3+dtor -- confirmed via RTTI class hierarchy
     // (COL 0639b608 -> CHD 063a681c -> base array 063a680c): PhySys::Controller
     // derives from IVP_Controller_Dependent, which derives from IVP_Controller (the
     // third-party Ipion physics SDK base, declared in common_ivp_controller.h).
     // The 3 extra vtable slots between
     // core_is_going_to_be_deleted_event and get_controller_priority are IVP_Controller's:
-    // slot 1 (LAB_0627cd20, `FLD 1.0; RET`) and slot 3 (a `RET 0x8` no-op) are its
-    // un-overridden defaults, and slot 4 (.rdata:0639b61c, _purecall) is
+    // slot 1 (the branch, `FLD 1.0; RET`) and slot 3 (a `RET 0x8` no-op) are its
+    // un-overridden defaults, and slot 4 (module storage, _purecall) is
     // do_simulation_controller, declared below as pure because every concrete controller
     // overrides it (CShip, CEEngine, CEThruster, CSteering, CNudgeEngine, CStrafeEngine,
     // JumpInAction, LaunchAction, LaneAction).
-    //
+
     // DERIVES FROM IVP_Controller since 2026-09-25 (claude-code:g-vt1). Until then this struct
     // declared its own virtuals -- destructor, core_is_going_to_be_deleted_event,
     // do_simulation_controller, get_controller_priority, get_associated_controlled_cores --
-    // i.e. FIVE slots with the destructor first, against retail's seven in IVP order. Every
+    // i.e. FIVE slots with the destructor first, against baseline's seven in IVP order. Every
     // controller subclass therefore had its overrides in the wrong slots (Server.dll's Mine /
-    // Guided tables .rdata:06d6622c / 06d66700 put do_simulation_controller at +0x10 and the
-    // deleting destructor at +0x18, exactly as .rdata:0639b60c here). The slot order now
+    // Guided tables module storage / 06d66700 put do_simulation_controller at +0x10 and the
+    // deleting destructor at +0x18, exactly as module storage here). The slot order now
     // comes from IVP_Controller (common_ivp_controller.h):
     //   +0x00 core_is_going_to_be_deleted_event  this class (06285c30)
     //   +0x04 get_minimum_simulation_frequency    IVP_Controller's default (0627cd20, 1.0f)
@@ -340,13 +336,13 @@ namespace PhySys
     //   +0x10 do_simulation_controller            pure (_purecall)
     //   +0x14 get_controller_priority             this class (06285c80)
     //   +0x18 destructor                          this class (0627cd50)
-    // DIRECT BASE IS IVP_Controller_Dependent since 2026-09-25 (claude-code:h-ivp), as retail's
+    // DIRECT BASE IS IVP_Controller_Dependent since 2026-09-25 (claude-code:h-ivp), as baseline's
     // CHD 063a681c lists it (Controller, IVP_Controller_Dependent, IVP_Controller -- the same
     // three BCDs sit inside Server.dll's Mine BCA 06d6c6b8 and Guided BCA 06d6c808). That class
     // adds no slot and no field (ivp_controller.h has the destructor-chain proof), so the
     // seven slots above and the +0x04 field offset are unchanged; what changes is the RTTI
     // chain every Controller-derived class emits.
-    // C4275: IVP_Controller_Dependent is not exported; retail Common.dll exports no IVP_*
+    // C4275: IVP_Controller_Dependent is not exported; baseline Common.dll exports no IVP_*
     // symbol either, only PhySys::Controller's own members.
 #pragma warning(push)
 #pragma warning(disable : 4275)
@@ -367,22 +363,22 @@ namespace PhySys
         void rotate(Vector const& Torque, float Dt);
 
     protected:
-        // All four are protected in retail (M = protected virtual, I = protected non-virtual).
+        // All four are protected in baseline (M = protected virtual, I = protected non-virtual).
         // get_associated_controlled_cores is COMDAT-folded with a pile of other one-line
         // accessors at 0632e7a0 whose whole body is LEA EAX,[this+4] -- it hands back the
         // IVP_U_Vector that the three fields below ARE: memsize, n_elems, elems, which is
         // exactly IVP_U_Vector's own layout (ivp_u_vector.h: memsize@+0, n_elems@+2,
         // elems@+4).
-        // Declared in RETAIL SLOT ORDER (see the table above); all are IVP_Controller
+        // Declared in BASELINE SLOT ORDER (see the table above); all are IVP_Controller
         // overrides, so the declaration order here no longer decides the slots -- it only
         // mirrors them.
         void core_is_going_to_be_deleted_event(IVP_Core* Core) override;              // +0x00
         IVP_U_Vector<IVP_Core>* get_associated_controlled_cores() override;           // +0x08
-        // IVP_Controller slot 4 (.rdata:0639b61c): _purecall in this class's own table, so
-        // PhySys::Controller is abstract in retail and exports no body for it. Every
+        // IVP_Controller slot 4 (module storage): _purecall in this class's own table, so
+        // PhySys::Controller is abstract in baseline and exports no body for it. Every
         // concrete controller overrides it (the six exported overrides are protected, CShip's
-        // private). Nothing in the port dispatches this slot yet -- retail's dispatcher is
-        // the per-PSI loop FUN_063496a0 (.text:063498fa-0634990d), not ported.
+        // private). Nothing in the port dispatches this slot yet -- baseline's dispatcher is
+        // the per-PSI loop the routine (module storage-0634990d), not ported.
         void do_simulation_controller(IVP_Event_Sim* EventSim,
                                       IVP_U_Vector<IVP_Core>* CoreList) override = 0;  // +0x10
         IVP_CONTROLLER_PRIORITY get_controller_priority() override;                    // +0x14
@@ -391,7 +387,7 @@ namespace PhySys
     public:
         // +0x04: the controlled cores (memsize +0x04, n_elems +0x06, elems +0x08), the vector
         // get_associated_controlled_cores hands to IVP. Register adds the object's core
-        // (.text:06285cb0, grown through FUN_063441a0); the destructor, UnRegister and
+        // (module storage, grown through the routine); the destructor, UnRegister and
         // core_is_going_to_be_deleted_event detach the controller and empty it.
         IVP_U_Vector<IVP_Core> Cores; // +0x04
         unsigned PadC;                // +0x0c  never written by the ctor; copied as a dword
@@ -403,8 +399,8 @@ namespace PhySys
     // ---- PhyCollisionStateManager ----
     // Manages per-object collision enable/disable via IVP mindist callbacks.
     // sizeof 0x14 from operator_new(0x14) in BuildIVP_Sphere @ 0x29370.
-    // vtable .rdata:0639b864 (COL 063a6948), the three IVP_Listener_Phantom slots
-    // 062816e0 / 06281740 / 062ed730 and no destructor slot.
+    // vtable module storage (COL 063a6948), the three IVP_Listener_Phantom slots
+    // / 06281740 / 062ed730 and no destructor slot.
 #pragma warning(push)
 #pragma warning(disable : 4275)
     class COMMON_API PhyCollisionStateManager : public IVP_Listener_Phantom
@@ -420,7 +416,7 @@ namespace PhySys
         bool get_desired_collision_state() const;
         bool get_actual_collision_state() const;
         void update(float Dt);
-        // .text:062817c0 (thiscall, RET 8): the CObjects (or, with bRoot, their roots) behind
+        // (thiscall, RET 8): the CObjects (or, with bRoot, their roots) behind
         // every mindist inside this object's phantom, added to Out; returns Out's count.
         int get_intruding_cobjs(bool bRoot, CheapSet<CObject*, std::less<CObject*>>& Out);
 
@@ -436,7 +432,7 @@ namespace PhySys
     private:
         CObject* OwnerObject;         // +0x04
         unsigned IntruderCount;       // +0x08  phantom intruders inside
-        // +0x0c: a float, not a count -- update() (.text:062816c3..062816ca) adds Dt to it
+        // +0x0c: a float, not a count -- update() (module storage..062816ca) adds Dt to it
         // while IntruderCount != 0 and stores dword 0 when the phantom is torn down.
         float IntruderTime;           // +0x0c
         unsigned char CollisionType;  // +0x10  from Archetype::Root+0x39
@@ -451,7 +447,7 @@ namespace PhySys
     COMMON_API void __cdecl Shutdown(unsigned SystemId);
 
     // ---- Update ----
-    // 0x299c0: world lookup, FUN_0628ca80(Dt) = IVP environment simulate step.
+    // 0x299c0: world lookup, the routine(Dt) = IVP environment simulate step.
     COMMON_API void __cdecl Update(unsigned SystemId, float Dt);
 
     // ---- Build hulls ----
@@ -459,33 +455,33 @@ namespace PhySys
     COMMON_API void __cdecl BuildIVP_Sphere(CObject* Object, float Radius, CreateParms const& Parms);
 
     // ---- FLControllerGolem (CObject+0x60) ----
-    // Retail class name is RTTI-confirmed, not a guess: the leaf vftable installed at
-    // .text:06288fae is .rdata:0639c1c8, its Complete Object Locator sits at [0639c1c8-4] =
-    // 0639c1c4 -> 063a70e0, whose +0xC type-descriptor pointer (.rdata:063a70ec) is
-    // .data:063eb0f8 = ".?AVFLControllerGolem@@". Earlier tracker notes on items 2729-2743
+    // baseline class name is RTTI-confirmed, not a guess: the leaf vftable installed at
+    // is module storage, its Complete Object Locator sits at [0639c1c8-4] =
+    // -> 063a70e0, whose +0xC type-descriptor pointer (module storage) is
+    // = ".?AVFLControllerGolem@@". Earlier tracker notes on items 2729-2743
     // called this cluster "PhySys::Golem" -- that name was invented before anyone read the
     // COL, and is wrong.
-    //
+
     // The class is a genuine IVP_Controller: its constructor registers itself into the body's
-    // core via IVP_Core::register_controller (FUN_06349020 -> FUN_06349180) and its destructor
-    // detaches via FUN_06349030 -> FUN_06349110. It therefore derives from IVP_Controller, and
+    // core via IVP_Core::register_controller (the routine -> the routine) and its destructor
+    // detaches via the routine -> the routine. It therefore derives from IVP_Controller, and
     // its full definition lives in common_controllergolem.cpp rather than here: this header is pulled
     // into Server.dll and OutpostFrontier.exe translation units (common_cobject.h, common_server.h,
     // space_scene_load.cpp) that have no src/IVP include path, and dragging ivp_controller.h
     // across that boundary is not worth it for three call sites. The three entry points below
-    // are port-local free functions standing in for retail's __thiscall methods. None of the
-    // four functions below is a retail export (all are FUN_ addresses), so none is COMMON_API.
+    // are port-local free functions standing in for baseline's __thiscall methods. None of the
+    // four functions below is a baseline export (all are FUN_ addresses), so none is COMMON_API.
     // (The class itself is declared at global scope above -- ".?AVFLControllerGolem@@" has no
     // namespace qualifier, so it is NOT PhySys::FLControllerGolem.)
 
-    // FUN_06343580 (.text:06343580-063435e9, __thiscall, RET 0xc).
+    // (module storage-063435e9, __thiscall, RET 0xc).
     // set_target_position(TargetPosition, TargetSpeed, Time).
     void __cdecl GolemSetTargetPosition(::FLControllerGolem* Golem,
                                                   Vector const& TargetPosition,
                                                   Vector const& TargetSpeed,
                                                   IVP_Time const& Time);
 
-    // FUN_06343670 (.text:06343670-063436f1, __thiscall, RET 0x10).
+    // (module storage-063436f1, __thiscall, RET 0x10).
     // set_target_quaternion(TargetQuat, Time, TargetRotQuatOrNull, DeltaTime). Both quaternion
     // arguments are 4 floats in IVP's (X,Y,Z,W) order, NOT FQuaternion's (W,X,Y,Z).
     void __cdecl GolemSetTargetQuaternion(::FLControllerGolem* Golem,
@@ -494,29 +490,29 @@ namespace PhySys
                                                     float const* TargetRotQuatOrNull,
                                                     float DeltaTime);
 
-    // FUN_06343cc0 (.text:06343cc0-06343f63, __cdecl, 191 insns / 676 bytes; decomp-tracker
+    // (module storage-06343f63, __cdecl, 191 insns / 676 bytes; implementation tracker
     // Common.dll item 2746). "Beam this body onto an absolute world pose by re-seating its
     // fixed offset inside its own IVP_Core" -- see the definition in common_controllergolem.cpp for the
     // full instruction-level derivation.
-    //
-    // Retail's argument list is (ReferenceBody, Body, Quat, Position, Unused). The fifth
-    // argument is pushed by BOTH of the DLL's two call sites (.text:0627e1ec inside
-    // AnimDB::Update's TransformState==2 arm, and .text:06343926 inside FUN_06343700) and read
+
+    // baseline's argument list is (ReferenceBody, Body, Quat, Position, Unused). The fifth
+    // argument is pushed by BOTH of the DLL's two call sites (module storage inside
+    // AnimDB::Update's TransformState==2 arm, and module storage inside the routine) and read
     // by NOTHING in the body -- the callee's frame only ever touches [ESP+param_1..param_4] --
     // so it is dropped here rather than carried as a dead parameter.
-    //
-    // ReferenceBodyOrNull is retail's param_1, an IVP_Real_Object* whose cached narrow-phase
+
+    // ReferenceBodyOrNull is baseline's param_1, an IVP_Real_Object* whose cached narrow-phase
     // world transform pre-multiplies the requested pose. It is the literal constant 0 at both
     // call sites (verified instruction-by-instruction, not inferred) -- see the definition.
-    //
+
     // Quat is 4 floats in IVP's (X,Y,Z,W) order, same convention as GolemSetTargetQuaternion.
-    // Retail always returns 1 and neither call site inspects the result.
+    // baseline always returns 1 and neither call site inspects the result.
     bool __cdecl BeamBodyToWorldPose(IVP_Real_Object* ReferenceBodyOrNull,
                                      IVP_Real_Object* Body,
                                      float const WorldQuat[4],
                                      Vector const& WorldPosition);
 
-    // FUN_06288e60 (.text:06288e60-062890cd, __cdecl). The per-child-part physics finalize:
+    // (module storage-062890cd, __cdecl). The per-child-part physics finalize:
     // switches on CreateParms::Type (+0x18), builds and primes the golem for mode 1, and for
     // mode 2 welds the child body into its root's core. See its definition in
     // common_controllergolem.cpp for what is and is not ported.
@@ -620,31 +616,31 @@ namespace Collision
 
 // ---- SphereIntruderChecker ----
 // A phantom listener that collects the CObjects a probe sphere touches. RTTI
-// ".?AVSphereIntruderChecker@@" (.data:063eda28): class hierarchy 063aa948 has two bases --
-// itself and PhySys::CObjectCB at offset 0 (base-class array 063aa93c). Retail layout: +0x00
-// the vftable .rdata:063a4964 (added / deleted), +0x04 a VC6 std::list<CObject*> (allocator
+// ".?AVSphereIntruderChecker@@" (module storage): class hierarchy 063aa948 has two bases --
+// itself and PhySys::CObjectCB at offset 0 (base-class array 063aa93c). baseline layout: +0x00
+// the vftable module storage (added / deleted), +0x04 a VC6 std::list<CObject*> (allocator
 // byte +0x04, head +0x08, size +0x0c), sizeof 0x10. The port holds a current std::list (No
-// retail ABI); no other module allocates the class.
+// baseline ABI); no other module allocates the class.
 class COMMON_API SphereIntruderChecker : public PhySys::CObjectCB
 {
 public:
-    // 06332470: the list's default constructor, then the vftable.
+    // the list's default constructor, then the vftable.
     SphereIntruderChecker();
-    // 063324a0: the list's copy constructor (a fresh head, every element appended in order).
+    // the list's copy constructor (a fresh head, every element appended in order).
     SphereIntruderChecker(SphereIntruderChecker const& Other);
-    // 06332610: the list's destructor (no vftable store; CObjectCB has no destructor).
+    // the list's destructor (no vftable store; CObjectCB has no destructor).
     ~SphereIntruderChecker();
 
-    // 06332530: `if (&Intruders != &Other.Intruders) Intruders = Other.Intruders` (VC6
+    // `if (&Intruders != &Other.Intruders) Intruders = Other.Intruders` (VC6
     // list::operator=: overwrite in place, erase the excess, append the rest).
     SphereIntruderChecker& operator=(SphereIntruderChecker const& Other);
 
-    // 06332660 (RET 0x10): clear the list, probe a sphere phantom of Radius at Center in system
+    // (RET 0x10): clear the list, probe a sphere phantom of Radius at Center in system
     // SystemId with this as its listener, drop adjacent duplicates, copy the result into Out.
     void check_sphere(unsigned SystemId, Vector const& Center, float Radius, std::list<CObject*>& Out);
 
 protected:
-    // Retail: ?added@SphereIntruderChecker@@MAEXPAUCObject@@@Z / ?deleted@... (M = protected
+    // baseline: ?added@SphereIntruderChecker@@MAEXPAUCObject@@@Z / ?deleted@... (M = protected
     // virtual), CObjectCB's two slots.
     virtual void added(CObject* Object) override;
     virtual void deleted(CObject* Object) override;
@@ -653,12 +649,12 @@ private:
     std::list<CObject*> Intruders;  // +0x04
 };
 
-// ---- Instance detach helpers (retail FUN_0628a410 / FUN_0628a050, not exported) ----
+// ---- Instance detach helpers (baseline the routine / the routine, not exported) ----
 // Both unlink InstanceId's joint from its parent instance. When the instance is its owning
 // CObject's own root: DetachInstanceInPlace releases that object, DetachInstance makes it a free
 // physics body (PhySys::Detach) and returns it. Otherwise the instance is a sub-part of the owner:
 // DetachInstanceInPlace erases the PartMap entries below it and destroys the instance,
-// DetachInstance splits it off into a new object (FUN_0628a0c0, PhySys_SplitInstance).
+// DetachInstance splits it off into a new object (the routine, PhySys_SplitInstance).
 // Bodies: src/Common/common_physys_build.cpp (end of file).
 void __cdecl DetachInstanceInPlace(long InstanceId);
 CObject* __cdecl DetachInstance(long InstanceId, PhySys::DetachParms const& Parms);

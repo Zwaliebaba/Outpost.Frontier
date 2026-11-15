@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "ClientImpl.h"
@@ -50,7 +46,7 @@ void CClientImpl::SendServerSetShipArch(unsigned int ClientId, unsigned int Ship
 
 // CHARACTERINFO record build for SendServerCharacterInfo, the first hop (RC 06b353cf..06b35906). The
 // id block from an inline Costume (06b355f8..06b356e5 for +0x274 <- src+0x274,
-// 06b3569a.. for +0x278 <- src+0x2a8): operator new(0x18) whose test only skips the
+// .. for +0x278 <- src+0x2a8): operator new(0x18) whose test only skips the
 // zero stores (a null block is written through, reproduced on purpose), four part ids
 // in the order [1],[0],[2],[3], the count, then for an unsigned non-zero count a bare
 // operator new(count * 4) and a copy that is not bounded by the eight slots.
@@ -81,37 +77,37 @@ static FRpcServerCharacterIdBlock* RpcServerCharacterIdBlockFromCostume(const Co
     return Block;
 }
 
-// One wire record from one CCharacterSet::CharacterInfo. Retail builds it twice: hop 1
+// One wire record from one CCharacterSet::CharacterInfo. baseline builds it twice: hop 1
 // here into a stack list, hop 2 (06b42690, = rpclocal 06d955c0) deep-copies every non-null
 // value into the packet and derives +0x260 from the equipment list's size. Every hop
 // re-allocates, so one hop plus that postscript yields the same record.
 static void RpcServerCharacterRecordFromInfo(FRpcServerCharacterRecord* Record,
     const CCharacterSet::CharacterInfo* Source) {
-    Record->Name = Source->Id;                                    // 06b354af
-    Record->Field_0x200 = Source->bIsRestart;                     // 06b354bf raw byte
-    Record->Field_0x201 = Source->bIsAutoSave;                    // 06b354cf raw byte
-    Record->TextA = Source->Name;                                 // 06b354ef assign
-    Record->TextB = Source->Description;                          // 06b35510 assign
+    Record->Name = Source->Id;
+    Record->Field_0x200 = Source->bIsRestart;                     // raw byte
+    Record->Field_0x201 = Source->bIsAutoSave;                    // raw byte
+    Record->TextA = Source->Name;                                 // assign
+    Record->TextB = Source->Description;                          // assign
     Record->Field_0x224 = Source->DescripStrId;
     Record->Field_0x228 = Source->TimestampLow;
     Record->Field_0x22c = Source->TimestampHigh;
     Record->Field_0x230 = Source->ShipArchetype;
     Record->Field_0x234 = static_cast<unsigned int>(Source->Money);
-    Record->Field_0x238 = Source->SystemId;                       // 06b35570 <- +0x260
-    Record->Field_0x244 = Source->VoiceId;                        // 06b35580 <- +0x26c
-    Record->Field_0x248 = Source->Rank;                           // 06b35590 <- +0x270
-    Record->Field_0x23c = Source->BaseId;                         // 06b355a0 <- +0x264
-    Record->Field_0x240 = Source->LocationId;                     // 06b355b0 <- +0x268
-    std::memcpy(&Record->Field_0x250, &Source->HullStatus, 4u);   // 06b355c0 integer move
+    Record->Field_0x238 = Source->SystemId;                       // <- +0x260
+    Record->Field_0x244 = Source->VoiceId;                        // <- +0x26c
+    Record->Field_0x248 = Source->Rank;                           // <- +0x270
+    Record->Field_0x23c = Source->BaseId;                         // <- +0x264
+    Record->Field_0x240 = Source->LocationId;                     // <- +0x268
+    std::memcpy(&Record->Field_0x250, &Source->HullStatus, 4u);   // integer move
     Record->Field_0x254 = static_cast<unsigned int>(Source->NumKills);             // <- +0x238
     Record->Field_0x258 = static_cast<unsigned int>(Source->NumMissionFailures);   // <- +0x240
     Record->Field_0x25c = static_cast<unsigned int>(Source->NumMissionSuccesses);  // <- +0x23c
     Record->BlockA = RpcServerCharacterIdBlockFromCostume(Source->ComCostume);
     Record->BlockB = RpcServerCharacterIdBlockFromCostume(Source->BaseCostume);
-    // 06b357d4..06b3588c: one 0x18 record per EquipDesc, no filter.
+    // one 0x18 record per EquipDesc, no filter.
     for (std::list<EquipDesc>::const_iterator It = Source->Equipment.Items.begin();
          It != Source->Equipment.Items.end(); ++It) {
-        // 06b357ea: the new-expression test only skips the zero stores; a null record
+        // the new-expression test only skips the zero stores; a null record
         // is written through, reproduced on purpose.
         FRpcServerEquipRecord* E = static_cast<FRpcServerEquipRecord*>(
             ::operator new(sizeof(FRpcServerEquipRecord), std::nothrow));
@@ -125,31 +121,31 @@ static void RpcServerCharacterRecordFromInfo(FRpcServerCharacterRecord* Record,
             E->bEquipped = 0;
             E->Field_0x0f = 0;
         }
-        E->ArchId = It->ArchId;                                   // 06b35816
-        E->Count = It->Count;                                     // 06b3581b
-        RpcServerX87CopyFloat(&E->Health, &It->Health);           // 06b3581e FLD/FSTP
-        E->Id = It->Id;                                           // 06b35828
-        E->bEquipped = It->bEquipped;                             // 06b3582f raw byte
-        // 06b35832 / 06b35835: EquipDesc +0x18 (bMission) copied as a raw byte.
+        E->ArchId = It->ArchId;
+        E->Count = It->Count;
+        RpcServerX87CopyFloat(&E->Health, &It->Health);           // FLD/FSTP
+        E->Id = It->Id;
+        E->bEquipped = It->bEquipped;                             // raw byte
+        // / 06b35835: EquipDesc +0x18 (bMission) copied as a raw byte.
         std::memcpy(&E->Field_0x0f, &It->bMission, 1u);
-        // 06b35842..06b3586d: strlen + 1 bytes allocated (bare), strcpy, and the
+        // strlen + 1 bytes allocated (bare), strcpy, and the
         // size stored as strlen + 1 truncated to a word.
         const unsigned int Length = static_cast<unsigned int>(std::strlen(It->Hardpoint)) + 1u;
         E->Hardpoint = static_cast<char*>(::operator new(Length, std::nothrow));
         const char* Text = It->Hardpoint;
         char* Out = E->Hardpoint;
         char Value;
-        do {                                                      // 06b35857..06b3585f
+        do {
             Value = *Text++;
             *Out++ = Value;
         } while (Value != '\0');
         E->HardpointSize = static_cast<unsigned short>(Length);
-        Record->Equipment.PushBack(E);                            // 06b3587c
+        Record->Equipment.PushBack(E);
     }
     // Hop 2's postscript: +0x260 = low byte of the equipment list size, or 0.
     Record->Field_0x260 = (Record->Equipment.Records != nullptr)
         ? static_cast<unsigned char>(Record->Equipment.Records->size() & 0xffu) : 0u;
-    // 06b358e2..06b35906: list<CollisionGroupDesc>::operator= from src+0x254.
+    // list<CollisionGroupDesc>::operator= from src+0x254.
     Record->CollisionGroups = Source->CollisionGroups;
 }
 
@@ -160,7 +156,7 @@ static void RpcServerCharacterRecordFromInfo(FRpcServerCharacterRecord* Record,
 // PREVIOUS entry's copy again, so hop 2 ships that record twice; the port converts the
 // previous source again (same bytes). Before the first record that copy is an
 // uninitialised stack slot; the port reads it as null, which hop 2 skips: a
-// nondeterministic retail read made deterministic. Then +0x20 = SaveFailureCount
+// nondeterministic baseline read made deterministic. Then +0x20 = SaveFailureCount
 // (06b35968) and PushToClient (06b35979). The stack list teardown follows the send.
 void CClientImpl::SendServerCharacterInfo(unsigned int ClientId, const CCharacterSet& Characters) {
     FPacketBase* Packet = nullptr;
@@ -175,7 +171,7 @@ void CClientImpl::SendServerCharacterInfo(unsigned int ClientId, const CCharacte
             Info = Previous;
             if (Info == nullptr) continue;
         }
-        // 06b353df operator new(0x27c); the test (06b353ed / 06b353f4) only skips the
+        // operator new(0x27c); the test (06b353ed / 06b353f4) only skips the
         // ctor, the conversion runs on the result either way: reproduced on purpose.
         FRpcServerCharacterRecord* Record = new (std::nothrow) FRpcServerCharacterRecord();
         RpcServerCharacterRecordFromInfo(Record, Info);
@@ -194,8 +190,8 @@ void CClientImpl::SendServerDamageObject(unsigned int ClientId, unsigned int Obj
     FPacketBase* Packet = nullptr;
     if (Serializer->Allocate(2, 5, &Packet) == 0) {
         FRpcServerDamageObjectPacket* Typed = static_cast<FRpcServerDamageObjectPacket*>(Packet);
-        Typed->ObjectId = ObjectId;                                            // 06b34685
-        Typed->Damage = Damage;                                                // 06b3468d
+        Typed->ObjectId = ObjectId;
+        Typed->Damage = Damage;
         PushToClient(ClientId, Packet->AsRaw());
     }
 }
@@ -443,41 +439,41 @@ static void RpcServerCreateShipSetDisplayName(FRpcServerCreateShipPacket* Packet
 // towards Info's second group. The two FmtStr locals die B then A (EH funclets).
 void CClientImpl::SendServerCreateShip(unsigned int ClientId, const CShipCreateInfo& Info) {
     FPacketBase* Packet = nullptr;
-    if (Serializer->Allocate(2, 4, &Packet) != 0) return;                     // 06b34efb
+    if (Serializer->Allocate(2, 4, &Packet) != 0) return;
     FRpcServerCreateShipPacket* Typed = static_cast<FRpcServerCreateShipPacket*>(Packet);
-    RpcServerCreateObjectFill(&Info, &Typed->Object);                        // 06b34f13
-    Typed->bUsingTradelane = Info.bUsingTradelane;                           // 06b34f1c
-    Typed->OwnerPlayer = Info.OwnerPlayer;                                   // 06b34f2c
-    Typed->Field_0xc0 = static_cast<unsigned short>(Info.Field_0xb0 & 0xffffu);        // 06b34f38
-    Typed->ReputationRank = static_cast<unsigned char>(Info.ReputationRank & 0xffu);   // 06b34f4a
-    std::memcpy(&Typed->Throttle, &Info.Throttle, 4u);                       // 06b34f5a
-    std::memcpy(&Typed->Velocity, &Info.Velocity, 12u);                      // 06b34f6a..
+    RpcServerCreateObjectFill(&Info, &Typed->Object);
+    Typed->bUsingTradelane = Info.bUsingTradelane;
+    Typed->OwnerPlayer = Info.OwnerPlayer;
+    Typed->Field_0xc0 = static_cast<unsigned short>(Info.Field_0xb0 & 0xffffu);
+    Typed->ReputationRank = static_cast<unsigned char>(Info.ReputationRank & 0xffu);
+    std::memcpy(&Typed->Throttle, &Info.Throttle, 4u);
+    std::memcpy(&Typed->Velocity, &Info.Velocity, 12u);                      // ..
     std::memcpy(&Typed->AngularVelocity, &Info.AngularVelocity, 12u);        // ..06b34fc4
-    Typed->bMarkedBy = Info.bMarkedBy;                                       // 06b34fca
-    Typed->Field_0xc4 = static_cast<unsigned short>(Info.Field_0xd8 & 0xffffu);        // 06b34fda
-    if (!SinglePlayer()) {                                                   // 06b34fef
-        FmtStr NameA;                                                        // 06b35000
-        FmtStr NameB;                                                        // 06b35044
-        const wchar_t* DisplayName = nullptr;                                // 06b350a0
+    Typed->bMarkedBy = Info.bMarkedBy;
+    Typed->Field_0xc4 = static_cast<unsigned short>(Info.Field_0xd8 & 0xffffu);
+    if (!SinglePlayer()) {
+        FmtStr NameA;
+        FmtStr NameB;
+        const wchar_t* DisplayName = nullptr;
         Reputation::Vibe::GetName(Typed->Object.VibeGroupId, NameA, NameB, DisplayName);
-        if (DisplayName != nullptr && std::wcslen(DisplayName) != 0) {      // 06b350b1 / 06b350bf
-            RpcServerCreateShipSetDisplayName(Typed, DisplayName);           // 06b350cc
+        if (DisplayName != nullptr && std::wcslen(DisplayName) != 0) {      // / 06b350bf
+            RpcServerCreateShipSetDisplayName(Typed, DisplayName);
         } else {
-            Typed->NameASize = RpcGetFlattenedFmtStrSize(NameA);             // 06b350d6..06b35120
+            Typed->NameASize = RpcGetFlattenedFmtStrSize(NameA);
             Typed->NameA = static_cast<unsigned char*>(
-                ::operator new(Typed->NameASize, std::nothrow));             // 06b35123
-            NameA.flatten(Typed->NameA, Typed->NameASize);                   // 06b35137
-            Typed->NameBSize = RpcGetFlattenedFmtStrSize(NameB);             // 06b3513d..06b35184
+                ::operator new(Typed->NameASize, std::nothrow));
+            NameA.flatten(Typed->NameA, Typed->NameASize);
+            Typed->NameBSize = RpcGetFlattenedFmtStrSize(NameB);
             Typed->NameB = static_cast<unsigned char*>(
-                ::operator new(Typed->NameBSize, std::nothrow));             // 06b35187
-            NameB.flatten(Typed->NameB, Typed->NameBSize);                   // 06b3519b
+                ::operator new(Typed->NameBSize, std::nothrow));
+            NameB.flatten(Typed->NameB, Typed->NameBSize);
         }
         Reputation::Vibe::GetAffiliation(Typed->Object.VibeGroupId, Typed->Affiliation,
-            false);                                                          // 06b351ba
+            false);
         Reputation::Vibe::AttitudeTowards(Typed->Object.VibeGroupId, Info.VibeOtherGroupId,
-            Typed->Attitude);                                                // 06b351d6
+            Typed->Attitude);
     }
-    PushToClient(ClientId, Packet->AsRaw());                                 // 06b3520c
+    PushToClient(ClientId, Packet->AsRaw());
 }
 
 // ===== end SERVER 0x01..0x1f (RS-P1) =====
@@ -489,7 +485,7 @@ void CClientImpl::SendServerCreateShip(unsigned int ClientId, const CShipCreateI
 #include <new>
 // Native senders: allocate through the serializer at this+0x08 (06b3b480), fill the
 // typed packet, hand it to PushToClient, which takes ownership. An allocation failure
-// sends nothing. Where retail dereferences the first argument (the client id passed BY
+// sends nothing. Where baseline dereferences the first argument (the client id passed BY
 // REFERENCE) the body says so.
 
 // RC 06b33ef0, IClient +0x60, RET 8: SETEQUIPMENT. Equipment is an EquipDescVector. The
@@ -520,7 +516,7 @@ void CClientImpl::SendServerSetCargo(unsigned int ClientId, const EquipDescVecto
 // RC 06b34010, IClient +0x68, RET 0xc: SETADDITEM 0x2e. Item is an EquipDesc. Native
 // order: +0x20 = ArchId, +0x30 = MOVZX Id, +0x34 = Health through FLD/FSTP, +0x24 =
 // Count, the two raw bytes +0x38 / +0x39, +0x2c = AddResult; then, unless is_internal(),
-// 06b3cd50(hardpoint, strlen(hardpoint)).
+// (hardpoint, strlen(hardpoint)).
 void CClientImpl::SendServerSetAddItem(unsigned int ClientId, int AddResult, const EquipDesc& Item) {
     FPacketBase* Packet = nullptr;
     if (Serializer->Allocate(2, 0x2e, &Packet) == 0) {
@@ -559,7 +555,7 @@ void CClientImpl::SendServerSetMissionObjectiveState(const unsigned int& ClientI
 // RC 06b36500, IClient +0xf8, RET 8: REQUESTSPACESCRIPT 0x32. Info is a
 // FServerRequestSpaceScriptInfo: +0x20 = [Info], +0x28..+0x30 = [Info+0x108..+0x110];
 // [Info+0x114] == 1 -> Mode = 1, == 2 -> Mode = 0, else the ctor's 1 stays; then
-// 06b44240(Info+4, strlen(Info+4)). PushToClient(ClientId by value).
+// (Info+4, strlen(Info+4)). PushToClient(ClientId by value).
 void CClientImpl::SendServerRequestSpaceScript(unsigned int ClientId, const FServerRequestSpaceScriptInfo& Info) {
     FPacketBase* Packet = nullptr;
     if (Serializer->Allocate(2, 0x32, &Packet) == 0) {
@@ -604,7 +600,7 @@ void CClientImpl::SendServerReplaceMissionObjective(const unsigned int& ClientId
 // TextB = the flattened FmtStrs at Info+0x0c / Info+0x24 (size, operator new, flatten);
 // then per entry i < [Info+8]: record = operator new(0xc) (Size/Data zeroed when it is
 // non-null), State = entry byte +0x18, the entry FmtStr flattened into the record, and
-// 06b44e20 appends it (Count++). Client id by reference: PushToClient gets the referenced id.
+// appends it (Count++). Client id by reference: PushToClient gets the referenced id.
 void CClientImpl::SendServerSetMissionObjectives(const unsigned int& ClientId,
                                                  const FServerSetMissionObjectivesInfo& Info) {
     FPacketBase* Packet = nullptr;
@@ -662,7 +658,7 @@ void CClientImpl::SendServerGFUpdateChar(unsigned int ClientId, const unsigned c
 }
 
 // RC 06b344f0, IClient +0xa4, RET 0xc: GFMISSIONVENDORACCEPTANCE 0x20; set helper
-// 06b3dcc0. Same body as SendServerGFScriptBehavior except the opcode.
+// . Same body as SendServerGFScriptBehavior except the opcode.
 void CClientImpl::SendServerGFMissionVendorAcceptance(unsigned int ClientId, const unsigned char* Data, unsigned int Size) {
     FPacketBase* Packet = nullptr;
     if (Serializer->Allocate(2, 0x20, &Packet) == 0) {
@@ -687,9 +683,9 @@ void CClientImpl::SendServerExplodeAsteroidMine(unsigned int ClientId, const FMi
 }
 
 // RC 06b36370, IClient +0xe8, RET 8: SYSTEM_SWITCH_IN 0x22. Info is a
-// FPayloadServerSystemSwitchIn. Retail first stages Position/Orientation in stack
+// FPayloadServerSystemSwitchIn. baseline first stages Position/Orientation in stack
 // temps (initialised to zero / identity before the allocation) and copies them with
-// 06b3a160 / 06b39ec0; every move is an integer one, so the direct copies are the same.
+// / 06b39ec0; every move is an integer one, so the direct copies are the same.
 void CClientImpl::SendServerSystemSwitchIn(unsigned int ClientId, const FPayloadServerSystemSwitchIn& Info) {
     FPacketBase* Packet = nullptr;
     if (Serializer->Allocate(2, 0x22, &Packet) == 0) {
@@ -767,7 +763,7 @@ void CClientImpl::SendServerAdjustAttitude(unsigned int ClientId, const FPayload
 }
 
 // RC 06b361f0, IClient +0xc8, RET 8: CREATEGUIDED 0x37. Info is a FServerCreateGuidedInfo;
-// every field is an integer dword/word copy (no x87), in retail order. Client id by
+// every field is an integer dword/word copy (no x87), in baseline order. Client id by
 // reference: PushToClient gets the referenced id (06b362ab).
 void CClientImpl::SendServerCreateGuided(const unsigned int& ClientId, const FServerCreateGuidedInfo& Info) {
     FPacketBase* Packet = nullptr;
@@ -792,7 +788,7 @@ void CClientImpl::SendServerCreateGuided(const unsigned int& ClientId, const FSe
 }
 
 // RC 06b35d30, IClient +0xcc, RET 8: CREATECOUNTER 0x2d. Info is a
-// FServerCreateProjectileInfo; integer copies in retail order (Position before
+// FServerCreateProjectileInfo; integer copies in baseline order (Position before
 // Orientation). Client id by reference: PushToClient gets the referenced id (06b35e11).
 void CClientImpl::SendServerCreateCounter(const unsigned int& ClientId, const FServerCreateProjectileInfo& Info) {
     FPacketBase* Packet = nullptr;
@@ -988,7 +984,7 @@ void CClientImpl::SendServerSetGroupFeelings(unsigned int ClientId, const FServe
 // ObjectId = ObjectId; a stack equipment handle built after the allocation from the
 // EquipDescVector Cargo with bAll = 0 (06b37b4a), only unequipped items, then assigned
 // (06b45710); PushToClient(the client id BY REFERENCE); the handle is destroyed by
-// 06b3a450 on every exit, the EH funclet included.
+// on every exit, the EH funclet included.
 void CClientImpl::SendServerRemoteObjectCargoUpdate(const unsigned int& ClientId, unsigned int ObjectId,
                                                     const EquipDescVector& Cargo, unsigned char Flag) {
     FPacketBase* Packet = nullptr;
@@ -1332,14 +1328,14 @@ void CClientImpl::SendServerSetCollisionGroups(unsigned int ClientId, const std:
 }
 
 // RS-P9: RC 06b34a80, 0x4f SENDCOMM, by value (RET 0x5c = 23 dwords). CommCostume is a
-// Costume passed by value (13 dwords); retail copies it to a stack local (REP MOVSD) and the
+// Costume passed by value (13 dwords); baseline copies it to a stack local (REP MOVSD) and the
 // accessory loop reads that local: Ids[i] = local[4 + i] for i < the count (stored to +0x5c
-// first and re-read each pass, signed). Past the 13-dword local lies retail's own frame --
+// first and re-read each pass, signed). Past the 13-dword local lies baseline's own frame --
 // the return address, then the 23 argument dwords -- so Frame reproduces that memory for
 // counts up to 33: i = 8 rewrites the count with itself, i = 9 writes the return-address slot
 // into +0x60 (overwritten by CommType below, so its value is unobservable and 0 here), i = 10
-// puts ClientId into +0x64, which is then handed to operator delete, as retail does. Counts
-// above 33 read past Frame as retail reads past its caller's arguments (undefined; writes past
+// puts ClientId into +0x64, which is then handed to operator delete, as baseline does. Counts
+// above 33 read past Frame as baseline reads past its caller's arguments (undefined; writes past
 // the 0x78-byte packet already start at i = 15 in both). Then: +0x60 = CommType; a held array
 // is deleted; operator new(TextCount * 4) with no null test; the low byte of TextCount;
 // TextCount dwords copied from TextIds (signed bound, not re-read); +0x6c = Mood; Duration
@@ -1354,10 +1350,10 @@ void CClientImpl::SendServerSendComm(unsigned int ClientId, unsigned int SenderI
         Typed->Field_0x20 = SenderId;
         Typed->Field_0x24 = ReceiverId;
         Typed->Field_0x28 = VoiceId;
-        // The retail frame image as raw dwords: the costume local, the return-address slot,
+        // The baseline frame image as raw dwords: the costume local, the return-address slot,
         // then the 23 argument dwords (the costume a second time among them). The pointer,
         // float and bool arguments enter as their stack-slot bits; the bool's slot holds 0/1
-        // here where retail's upper three bytes are whatever its caller pushed (Frame[36] is
+        // here where baseline's upper three bytes are whatever its caller pushed (Frame[36] is
         // read only at a count of 33).
         static_assert(sizeof(Costume) == 13 * sizeof(unsigned int), "Costume is 13 dwords");
         unsigned int Frame[37];

@@ -1,10 +1,6 @@
-﻿// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
-// Author: Giperion.
+﻿// Author: Giperion.
 
-// TractorArm -- one grab arm of a CETractor (retail CETractor TU, 0x0629d870-0x0629df10).
+// TractorArm -- one grab arm of a CETractor (baseline CETractor TU, 0x0629d870-0x0629df10).
 // The class is declared in common_cequip.h, right after CETractor.
 #include "common_cequip.h"
 #include "common_cobject.h" // CLoot, CSimple::SelfWatchable
@@ -15,7 +11,7 @@
 
 namespace
 {
-    // CLoot* -> its CSimple::SelfWatchable (+0x9c), null staying null (retail's ADD 0x9c with
+    // CLoot* -> its CSimple::SelfWatchable (+0x9c), null staying null (baseline's ADD 0x9c with
     // the null test, e.g. 0629dedf-0629dee6).
     Watchable const* LootWatchable(CLoot* Target)
     {
@@ -32,8 +28,8 @@ TractorArm::TractorArm(CETractor* OwnerTractor)
     , Timer(0.0f)
     , ErrorCode(TractorOk)
 {
-    // Common.dll.c 0x3db80 (65311-65327). TargetWatch (BaseWatcher) default-constructs to a
-    // null/unlinked watcher, matching retail's `this+8 = 0; this+0xc = 0`.
+    // Common 0x3db80 (65311-65327). TargetWatch (BaseWatcher) default-constructs to a
+    // null/unlinked watcher, matching baseline's `this+8 = 0; this+0xc = 0`.
 }
 
 TractorArm::TractorArm(TractorArm const& Other)
@@ -43,7 +39,7 @@ TractorArm::TractorArm(TractorArm const& Other)
     , Timer(Other.Timer)
     , ErrorCode(Other.ErrorCode)
 {
-    // Listing 0x0629d890-0x0629d91c. TargetWatch starts null; retail relinks through the CLoot
+    // Listing 0x0629d890-0x0629d91c. TargetWatch starts null; baseline relinks through the CLoot
     // round trip (Watched -> Watched - 0x9c -> + 0x9c, each step tested, 0629d8c5-0629d8e3), so
     // a watched pointer equal to 0x9c (a CLoot at address 0, very strange) is not relinked.
     CLoot* Target = Other.GetTarget();
@@ -54,7 +50,7 @@ TractorArm::TractorArm(TractorArm const& Other)
 TractorArm& TractorArm::operator=(TractorArm const& Other)
 {
     // Listing 0x0629d920-0x0629d97e: the new pointer goes through the same CLoot round trip as
-    // the copy ctor (0629d932-0629d94e); BaseWatcher::set's `!= Watched` test is retail's
+    // the copy ctor (0629d932-0629d94e); BaseWatcher::set's `!= Watched` test is baseline's
     // CMP / JZ at 0629d94e.
     Owner = Other.Owner;
     State = Other.State;
@@ -67,7 +63,7 @@ TractorArm& TractorArm::operator=(TractorArm const& Other)
 
 TractorArm::~TractorArm()
 {
-    // Common.dll.c 0x3dbd0 (65331-65363): retail's own body explicitly unwatches and resets
+    // Common 0x3dbd0 (65331-65363): baseline's own body explicitly unwatches and resets
     // fields, then the compiler-emitted member destructor for the embedded BaseWatcher does
     // the same unwatch check again (harmless no-op the second time). TargetWatch's real
     // destructor runs automatically after this body, reproducing that redundant second check.
@@ -80,7 +76,7 @@ TractorArm::~TractorArm()
 
 CLoot* TractorArm::GetTarget() const
 {
-    // Common.dll.c 0x3d870 (65123-65131).
+    // Common 0x3d870 (65123-65131).
     Watchable const* Watched = TargetWatch.target();
     if (Watched == nullptr)
         return nullptr;
@@ -91,7 +87,7 @@ CLoot* TractorArm::GetTarget() const
 
 void TractorArm::SetTarget(CLoot* Target)
 {
-    // Common.dll.c 0x3ded0 (65508-65532).
+    // Common 0x3ded0 (65508-65532).
     TargetWatch.set(LootWatchable(Target));
     PullOffset = Vector{0.0f, 0.0f, 0.0f};
     Timer = 0.0f;
@@ -101,7 +97,7 @@ void TractorArm::SetTarget(CLoot* Target)
 
 void TractorArm::TurnOff()
 {
-    // Common.dll.c 0x3dea0 (65488-65504).
+    // Common 0x3dea0 (65488-65504).
     TargetWatch.set(nullptr);
     State = MODE_0;
     PullOffset = Vector{0.0f, 0.0f, 0.0f};
@@ -111,8 +107,8 @@ void TractorArm::TurnOff()
 
 void TractorArm::Update(float Dt)
 {
-    // Common.dll.c 0x3dc40 (65369-65458). Cross-checked against the raw .txt listing to recover
-    // FUN_0629de50's and the Vec3Assign call's real (Ghidra-dropped) arguments: FUN_0629de50 is
+    // Common 0x3dc40 (65369-65458). Cross-checked against the raw .txt listing to recover
+    // 's and the Vec3Assign call's real (analysis-dropped) arguments: the routine is
     // the same owner-Transform-composed-with-HpXform operation as CETractor::GetSourcePos (see
     // ResolveTractorSourceXform's comment in common_cetractor.cpp), reused here via that public
     // accessor. Mode machine: MODE_1 pulls the target toward the beam source at up to
@@ -140,7 +136,7 @@ void TractorArm::Update(float Dt)
         Vector const Delta{Target->WorldPosition.x - Candidate.x, Target->WorldPosition.y - Candidate.y,
                             Target->WorldPosition.z - Candidate.z};
 
-        // 0629dd18-0629dd93: dx and dz are rounded to float (FSTP), dy, MaxStep, the sum
+        // dx and dz are rounded to float (FSTP), dy, MaxStep, the sum
         // (dz^2 + dy^2) + dx^2 and Frac stay on the FPU. FCOMPP DistSq vs MaxStep^2, TEST AH,0x41
         // / JNZ: only "greater" pulls; below, equal or unordered snap. dx * Frac is added
         // unrounded, dy * Frac and dz * Frac are rounded to float before their adds.
@@ -165,7 +161,7 @@ void TractorArm::Update(float Dt)
         PullOffset.z = Target->WorldPosition.z - SourcePos.z;
         Owner->Notify(INotify::Event_0x17, this);
         State = MODE_2;
-        Timer = ACQUIRE_DELAY;   // 0629de02
+        Timer = ACQUIRE_DELAY;
         return;
     }
 
@@ -179,11 +175,11 @@ void TractorArm::Update(float Dt)
 
 Vector TractorArm::GetTipPos() const
 {
-    // Common.dll.c 0x3df10 (65539-65589). Mode 1 (actively pulling): tip = beam source + the
+    // Common 0x3df10 (65539-65589). Mode 1 (actively pulling): tip = beam source + the
     // in-flight PullOffset accumulated so far. Mode 2 (target locked at the tip, countdown
     // running): tip = the target's own current world position (it sits exactly at the tip by
     // construction once MODE_2 is entered) -- falls back to the beam source itself if the
-    // watched target is gone (0629df5c-0629df6a). Retail's read of the literal 0x2c/0x30/0x34
+    // watched target is gone (0629df5c-0629df6a). baseline's read of the literal 0x2c/0x30/0x34
     // (0629df89) sits behind a re-test of the pointer already tested non-null, so it is dead.
     // Mode 0 (idle) and any other mode: tip = the beam source itself.
     if (State == MODE_1)
@@ -206,6 +202,6 @@ Vector TractorArm::GetTipPos() const
 // Declared in common_cequip.h with the class; moved here from common_cequip.cpp (CMN-B2).
 // ACQUIRE_DELAY is stored into TractorArm+0x1c at 0629de02 when the arm enters Mode 2 (the
 // countdown before the towed CLoot is consumed). GRAB_TOLERANCE_SQUARED has no reader anywhere
-// in Common.dll -- it is exported but dead in retail, ported for symbol parity only.
+// in Common.dll -- it is exported but dead in baseline, ported for symbol parity only.
 float const TractorArm::ACQUIRE_DELAY = 1.0f;
 float const TractorArm::GRAB_TOLERANCE_SQUARED = 1.0f;

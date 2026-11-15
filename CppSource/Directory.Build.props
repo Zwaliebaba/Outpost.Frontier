@@ -4,11 +4,11 @@
     <OutpostFrontierEnableTickProfile Condition="'$(OutpostFrontierEnableTickProfile)'==''">0</OutpostFrontierEnableTickProfile>
     <!-- Port-only "Beta 2" on-screen label, OUTPOST_FRONTIER_BETA_LABEL; off by default. -->
     <OutpostFrontierBetaLabel Condition="'$(OutpostFrontierBetaLabel)'==''">0</OutpostFrontierBetaLabel>
-    <!-- Port-only widescreen (Hor+) support, OUTPOST_FRONTIER_WIDESCREEN_SUPPORT; 0 builds retail's 4:3-only client. -->
+    <!-- Port-only widescreen (Hor+) support, OUTPOST_FRONTIER_WIDESCREEN_SUPPORT; 0 builds baseline's 4:3-only client. -->
     <OutpostFrontierWidescreenSupport Condition="'$(OutpostFrontierWidescreenSupport)'==''">1</OutpostFrontierWidescreenSupport>
-    <!-- Port-only Direct3D 9 rendering (RP9.dll + the client's Ex hooks: volumetric nebula),
-         OUTPOST_FRONTIER_RP9; 0 builds neither RP9.dll nor the client hooks (docs/re/rp9.md). -->
-    <OutpostFrontierRp9 Condition="'$(OutpostFrontierRp9)'==''">0</OutpostFrontierRp9>
+    <!-- Port-only Direct3D 9 rendering (DX9RENDERER.dll + the client's Ex hooks: volumetric nebula),
+         OUTPOST_FRONTIER_DX9RENDERER; 0 builds neither DX9RENDERER.dll nor the client hooks (implementation notes). -->
+    <OutpostFrontierDx9Renderer Condition="'$(OutpostFrontierDx9Renderer)'==''">0</OutpostFrontierDx9Renderer>
     <!-- Port-only walk mode in base rooms (docs/walk_mode.md), OUTPOST_FRONTIER_WALK_MODE; off by default. -->
     <OutpostFrontierWalkMode Condition="'$(OutpostFrontierWalkMode)'==''">0</OutpostFrontierWalkMode>
     <PlatformToolset>v143</PlatformToolset>
@@ -25,9 +25,9 @@
     <!-- DirectX 8.1 SDK (repo-root dx8/, gitignored). Headers via IncludePath append
          (old basetsd.h must not precede the Windows 10 SDK). Override: /p:Dx8SdkDir=... -->
     <Dx8SdkDir Condition="'$(Dx8SdkDir)'==''">$(MSBuildThisFileDirectory)..\dx8</Dx8SdkDir>
-    <!-- DirectX SDK June 2010 (RP9 only: D3DX9 headers/import lib, DxErr, d3dx9_43 redist cab).
+    <!-- DirectX SDK June 2010 (DX9RENDERER only: D3DX9 headers/import lib, DxErr, d3dx9_43 redist cab).
          Defaults to the installer's DXSDK_DIR (with or without a trailing slash). Its Include dir holds an
-         older d3d9.h, so RP9.vcxproj appends it after the Windows SDK. Override: /p:Dx9SdkDir=... -->
+         older d3d9.h, so DX9RENDERER.vcxproj appends it after the Windows SDK. Override: /p:Dx9SdkDir=... -->
     <Dx9SdkDir Condition="'$(Dx9SdkDir)'==''">$(DXSDK_DIR)</Dx9SdkDir>
   </PropertyGroup>
   <ItemDefinitionGroup>
@@ -39,11 +39,11 @@
       <RuntimeLibrary Condition="'$(Configuration)'=='Debug' or '$(Configuration)'=='DebugASan'">MultiThreadedDebugDLL</RuntimeLibrary>
       <RuntimeLibrary Condition="'$(Configuration)'=='Release'">MultiThreadedDLL</RuntimeLibrary>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <!-- x87 floating point (/arch:IA32), as the VC6-built retail modules. Retail leaves
-           FPU_PRESERVE off (EXE\dacom.ini; rp8.dll reads the key at .text:06d06bb4), so
+      <!-- x87 floating point (/arch:IA32), as the VC6-built baseline modules. baseline leaves
+           FPU_PRESERVE off (EXE\neuroncomponents.ini; dx8renderer.dll reads the key at .text:06d06bb4), so
            Direct3D 8 CreateDevice drops the main thread's x87 precision control to 24-bit and
            never restores it. x87 code inherits that; SSE2 code ignores the control word and
-           would keep 53-bit doubles where retail has 24-bit. -->
+           would keep 53-bit doubles where baseline has 24-bit. -->
       <EnableEnhancedInstructionSet>NoExtensions</EnableEnhancedInstructionSet>
       <FloatingPointModel>Precise</FloatingPointModel>
     </ClCompile>

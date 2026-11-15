@@ -1,19 +1,15 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
-// Retail modules import atoi/atol/_wtoi from the system MSVCRT.DLL (e.g. Common.dll
-// .text:06310851, Server.dll .text:06d47626, OutpostFrontier.exe .text:005ab80c). Those are the
+// baseline modules import atoi/atol/_wtoi from the system MSVCRT.DLL (e.g. Common.dll
+// , Server.dll module storage, OutpostFrontier.exe module storage). Those are the
 // classic atox.c/wtox.c loops: skip whitespace, one optional sign, then
 // total = 10*total + digit with NO overflow check, so the 32-bit total wraps modulo 2^32.
 // The port links the UCRT, whose atoi/_wtoi saturate to INT_MAX/INT_MIN since VS2015.
-// Data files store 32-bit hash ids in decimal (e.g. ship_archetype = 2806013121) and retail
+// Data files store 32-bit hash ids in decimal (e.g. ship_archetype = 2806013121) and baseline
 // reads them back through that wrap; the UCRT would clamp them to 0x7fffffff.
-//
+
 // Measured against the system msvcrt.dll (2026-09-26, every byte / every BMP code unit):
 //   atoi/atol: "2806013121" -> -1488954175, "4294967296" -> 0, "-2806013121" -> 1488954175,
 //              "99999999999" -> 1215752191. Whitespace is exactly 0x09-0x0d and 0x20;

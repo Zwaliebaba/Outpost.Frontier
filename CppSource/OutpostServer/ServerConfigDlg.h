@@ -1,18 +1,14 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
-// CServerConfigDlg — "Server Configuration" (dialog 0x84 in ServerResources.dll): server name,
+// CServerConfigDlg — "Server Configuration" (dialog 0x84 in ServerInterface.dll): server name,
 // description, password, player limit and three options. OnInitDialog loads the last settings
 // from OutpostServer.cfg in the local user directory; OnOK validates them, hands them to the app's
 // FServerControl and writes OutpostServer.cfg back.
-// Retail: the only instance is a local of COutpostServerApp::InitInstance, built inline there
-// (.text:0040bd6c: CDialog::CDialog(0x84, NULL), vtable .rdata:0041d0e0 stored at 0040bd7b);
-// dtor .text:0040be80 (a bare JMP CDialog::~CDialog), scalar deleting dtor 0040be60. The class
+// baseline: the only instance is a local of COutpostServerApp::InitInstance, built inline there
+// (module storage: CDialog::CDialog(0x84, NULL), vtable module storage stored at 0040bd7b);
+// dtor module storage (a bare JMP CDialog::~CDialog), scalar deleting dtor 0040be60. The class
 // has no message map of its own (vtable +0x30 is MFC's CDialog::GetMessageMap) and its
-// DoDataExchange slot is the ICF-folded empty `RET 4` at .text:00407040. No RTTI or string names
+// DoDataExchange slot is the ICF-folded empty `RET 4` at module storage. No RTTI or string names
 // the class; the name follows the dialog caption.
 #pragma once
 
@@ -24,11 +20,11 @@ public:
 	explicit CServerConfigDlg(CWnd* Parent = nullptr);
 
 protected:
-	virtual void DoDataExchange(CDataExchange* DX);   // .text:00407040
-	virtual BOOL OnInitDialog();                      // .text:004067f0
-	virtual void OnOK();                              // .text:00406b70
+	virtual void DoDataExchange(CDataExchange* DX);
+	virtual BOOL OnInitDialog();
+	virtual void OnOK();
 
-	// Controls fetched with GetDlgItem by OnInitDialog (MFC temporary wrappers, as retail).
+	// Controls fetched with GetDlgItem by OnInitDialog (MFC temporary wrappers, as baseline).
 	CWnd* MaxPlayersSpin;         // +0x60, control 1011 (msctls_updown32)
 	CWnd* ServerNameEdit;         // +0x64, control 1006 (RICHEDIT20W)
 	CWnd* DescriptionEdit;        // +0x68, control 1007 (RICHEDIT20W)

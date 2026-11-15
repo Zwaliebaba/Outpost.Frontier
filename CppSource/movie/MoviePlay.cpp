@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "MoviePlay.h"
@@ -17,64 +13,64 @@
 
 // Bytes read from EXE\movie.dll (image base 0x06ac0000).
 
-// CLSID_FilterGraph {E436EBB3-524F-11CE-9F53-0020AF0BA770} DAT_06adb22c
+// CLSID_FilterGraph {E436EBB3-524F-11CE-9F53-0020AF0BA770} the field
 static const GUID GClsidFilterGraph =
 	{0xE436EBB3, 0x524F, 0x11CE, {0x9F, 0x53, 0x00, 0x20, 0xAF, 0x0B, 0xA7, 0x70}};
 
-// CLSID_WMAsfReader {187463A0-5BB7-11D3-ACBE-0080C75E246E} DAT_06adb21c
+// CLSID_WMAsfReader {187463A0-5BB7-11D3-ACBE-0080C75E246E} the field
 static const GUID GClsidWmAsfReader =
 	{0x187463A0, 0x5BB7, 0x11D3, {0xAC, 0xBE, 0x00, 0x80, 0xC7, 0x5E, 0x24, 0x6E}};
 
-// IID_IGraphBuilder {56A868A9-0AD4-11CE-B03A-0020AF0BA770} DAT_06adb1ac
+// IID_IGraphBuilder {56A868A9-0AD4-11CE-B03A-0020AF0BA770} the field
 static const GUID GIidGraphBuilder =
 	{0x56A868A9, 0x0AD4, 0x11CE, {0xB0, 0x3A, 0x00, 0x20, 0xAF, 0x0B, 0xA7, 0x70}};
 
-// IID_IBaseFilter {56A86895-0AD4-11CE-B03A-0020AF0BA770} DAT_06adb1cc
+// IID_IBaseFilter {56A86895-0AD4-11CE-B03A-0020AF0BA770} the field
 static const GUID GIidBaseFilter =
 	{0x56A86895, 0x0AD4, 0x11CE, {0xB0, 0x3A, 0x00, 0x20, 0xAF, 0x0B, 0xA7, 0x70}};
 
-// IID_IFileSourceFilter {56A868A6-0AD4-11CE-B03A-0020AF0BA770} DAT_06adb1bc
+// IID_IFileSourceFilter {56A868A6-0AD4-11CE-B03A-0020AF0BA770} the field
 static const GUID GIidFileSourceFilter =
 	{0x56A868A6, 0x0AD4, 0x11CE, {0xB0, 0x3A, 0x00, 0x20, 0xAF, 0x0B, 0xA7, 0x70}};
 
-// IID_IMediaControl {56A868B1-0AD4-11CE-B03A-0020AF0BA770} DAT_06adb20c
+// IID_IMediaControl {56A868B1-0AD4-11CE-B03A-0020AF0BA770} the field
 static const GUID GIidMediaControl =
 	{0x56A868B1, 0x0AD4, 0x11CE, {0xB0, 0x3A, 0x00, 0x20, 0xAF, 0x0B, 0xA7, 0x70}};
 
-// IID_IVideoWindow {56A868B4-0AD4-11CE-B03A-0020AF0BA770} DAT_06adb1ec
+// IID_IVideoWindow {56A868B4-0AD4-11CE-B03A-0020AF0BA770} the field
 static const GUID GIidVideoWindow =
 	{0x56A868B4, 0x0AD4, 0x11CE, {0xB0, 0x3A, 0x00, 0x20, 0xAF, 0x0B, 0xA7, 0x70}};
 
-// IID_IBasicVideo {56A868B5-0AD4-11CE-B03A-0020AF0BA770} DAT_06adb1dc
+// IID_IBasicVideo {56A868B5-0AD4-11CE-B03A-0020AF0BA770} the field
 static const GUID GIidBasicVideo =
 	{0x56A868B5, 0x0AD4, 0x11CE, {0xB0, 0x3A, 0x00, 0x20, 0xAF, 0x0B, 0xA7, 0x70}};
 
-// IID_IMediaEventEx {56A868C0-0AD4-11CE-B03A-0020AF0BA770} DAT_06adb1fc
+// IID_IMediaEventEx {56A868C0-0AD4-11CE-B03A-0020AF0BA770} the field
 static const GUID GIidMediaEventEx =
 	{0x56A868C0, 0x0AD4, 0x11CE, {0xB0, 0x3A, 0x00, 0x20, 0xAF, 0x0B, 0xA7, 0x70}};
 
-// IID_IObjectWithSite {FC4801A3-2BA9-11CF-A229-00AA003D7352} DAT_06ada970
+// IID_IObjectWithSite {FC4801A3-2BA9-11CF-A229-00AA003D7352} the field
 static const GUID GIidObjectWithSite =
 	{0xFC4801A3, 0x2BA9, 0x11CF, {0xA2, 0x29, 0x00, 0xAA, 0x00, 0x3D, 0x73, 0x52}};
 
-// IID_IUnknown {00000000-0000-0000-C000-000000000046} DAT_06ada960
+// IID_IUnknown {00000000-0000-0000-C000-000000000046} the field
 static const GUID GIidUnknown =
 	{0x00000000, 0x0000, 0x0000, {0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}};
 
-// IID_IServiceProvider {6D5140C1-7436-11CE-8034-00AA006009FA} DAT_06ada980
+// IID_IServiceProvider {6D5140C1-7436-11CE-8034-00AA006009FA} the field
 static const GUID GIidServiceProvider =
 	{0x6D5140C1, 0x7436, 0x11CE, {0x80, 0x34, 0x00, 0xAA, 0x00, 0x60, 0x09, 0xFA}};
 
-// IID_IWMReader {96406BD6-2B2B-11D3-B36B-00C04F6108FF} DAT_06add108
+// IID_IWMReader {96406BD6-2B2B-11D3-B36B-00C04F6108FF} the field
 static const GUID GIidWmReader =
 	{0x96406BD6, 0x2B2B, 0x11D3, {0xB3, 0x6B, 0x00, 0xC0, 0x4F, 0x61, 0x08, 0xFF}};
 
-// IID_IWMAuthorizer {D9B67D36-A9AD-4EB4-BAEF-DB284EF5504C} DAT_06ada760
+// IID_IWMAuthorizer {D9B67D36-A9AD-4EB4-BAEF-DB284EF5504C} the field
 static const GUID GIidWmAuthorizer =
 	{0xD9B67D36, 0xA9AD, 0x4EB4, {0xBA, 0xEF, 0xDB, 0x28, 0x4E, 0xF5, 0x50, 0x4C}};
 
-// DAT_06add1d0. Four certificate records follow at DAT_06add1d8, stride 0x78.
-// DAT_06add23c is DAT_06add1d8 + 0x64.
+// . Four certificate records follow at the field, stride 0x78.
+// is the field + 0x64.
 static int GAuthorizerCertCount = 4;
 
 static const unsigned char GAuthorizerCerts[4 * 0x78] =
@@ -111,8 +107,8 @@ static const unsigned char GAuthorizerCerts[4 * 0x78] =
 	0xAC, 0x5E, 0x06, 0xA6, 0x6F, 0xA0, 0x4A, 0x64, 0x26, 0xAF, 0xA4, 0x93, 0xB1, 0xD9, 0xFC, 0x46
 };
 
-// __FILE__ baked into FUN_06ac1e50 at 06ada718.
-static const char GMoviePlayerSourceFile[] = "E:\\FL\\Scratch\\Source\\Movie\\MoviePlayer.cpp";
+// __FILE__ baked into the routine at 06ada718.
+static const char GMoviePlayerSourceFile[] = "Movie\\MoviePlayer.cpp";
 
 // IServiceProvider is IUnknown plus QueryService. IWMAuthorizer is IUnknown plus the three cert slots.
 // Both are stdcall: Quartz PUSHes the object and the method RETs 4/8/0xC/0x10.
@@ -161,15 +157,15 @@ static bool GuidsMatch(const GUID* Left, const GUID* Right)
 		&& LeftWords[3] == RightWords[3];
 }
 
-// FUN_06ac23fc. thiscall ctor. RefCount starts at 1. Inner is 0.
+// . thiscall ctor. RefCount starts at 1. Inner is 0.
 FAuthorizer::FAuthorizer()
 {
 	Inner = nullptr;
 	RefCount = 1;
 }
 
-// FUN_06ac2410. Drops Inner when Release hits zero.
-// Retail rewrites the vfptr with PTR_FUN_06ada770 first. The compiler vfptr is already that table.
+// . Drops Inner when Release hits zero.
+// baseline rewrites the vfptr with the routine first. The compiler vfptr is already that table.
 void FAuthorizer::ClearInner()
 {
 	void* Held = Inner;
@@ -180,13 +176,13 @@ void FAuthorizer::ClearInner()
 	}
 }
 
-// FUN_06ac242c. IUnknown::AddRef. RET 4.
+// . IUnknown::AddRef. RET 4.
 ULONG STDMETHODCALLTYPE FAuthorizer::AddRef()
 {
 	return (unsigned long)InterlockedIncrement(&RefCount);
 }
 
-// FUN_06ac243d. IUnknown::Release. RET 4. Deletes on a zero return from the decrement.
+// . IUnknown::Release. RET 4. Deletes on a zero return from the decrement.
 ULONG STDMETHODCALLTYPE FAuthorizer::Release()
 {
 	long Count = InterlockedDecrement(&RefCount);
@@ -199,7 +195,7 @@ ULONG STDMETHODCALLTYPE FAuthorizer::Release()
 	return 0;
 }
 
-// FUN_06ac2468. QueryInterface. IID_IUnknown or IID_IWMAuthorizer. RET 0xC.
+// . QueryInterface. IID_IUnknown or IID_IWMAuthorizer. RET 0xC.
 // Failure stores NULL through Out.
 HRESULT STDMETHODCALLTYPE FAuthorizer::QueryInterface(REFIID Iid, void** Out)
 {
@@ -248,7 +244,7 @@ static long ForwardInnerAuthorizer(void* Inner, int Slot, void* Arg0, void* Arg1
 	return Authorizer->GetCert((unsigned long)(ULONG_PTR)Arg0, (unsigned char**)Arg1);
 }
 
-// FUN_06ac24b2. IWMAuthorizer::GetCertCount. RET 8.
+// . IWMAuthorizer::GetCertCount. RET 8.
 HRESULT STDMETHODCALLTYPE FAuthorizer::GetCertCount(DWORD* Count)
 {
 	if (Count == nullptr)
@@ -263,8 +259,8 @@ HRESULT STDMETHODCALLTYPE FAuthorizer::GetCertCount(DWORD* Count)
 	return 0;
 }
 
-// FUN_06ac24e1. IWMAuthorizer::GetCert. RET 0xC.
-// Copies 0x19 dwords from DAT_06add1d8 + Index * 0x78.
+// . IWMAuthorizer::GetCert. RET 0xC.
+// Copies 0x19 dwords from the field + Index * 0x78.
 HRESULT STDMETHODCALLTYPE FAuthorizer::GetCert(DWORD Index, BYTE** CertOut)
 {
 	if (CertOut == nullptr)
@@ -296,7 +292,7 @@ HRESULT STDMETHODCALLTYPE FAuthorizer::GetCert(DWORD Index, BYTE** CertOut)
 	return 0;
 }
 
-// FUN_06ac2549. IWMAuthorizer::GetSharedData. RET 0x14.
+// . IWMAuthorizer::GetSharedData. RET 0x14.
 // Calls Movie_06ac2ae0 / 28e0 / 3060 / 2e40 / 2b30 (MovieGraph.h).
 HRESULT STDMETHODCALLTYPE FAuthorizer::GetSharedData(DWORD CertIndex, const BYTE* SharedData, BYTE* Cert, BYTE** OutShared)
 {
@@ -383,7 +379,7 @@ HRESULT STDMETHODCALLTYPE FAuthorizer::GetSharedData(DWORD CertIndex, const BYTE
 	return 0;
 }
 
-// FUN_06ac23a0. Builds an IWMAuthorizer and QI's it for IID_IUnknown into *OutUnknown.
+// . Builds an IWMAuthorizer and QI's it for IID_IUnknown into *OutUnknown.
 // A failed QI becomes 0x8000FFFF. RET 4.
 static long __stdcall CreateAuthorizer(void** OutUnknown)
 {
@@ -405,19 +401,19 @@ static long __stdcall CreateAuthorizer(void** OutUnknown)
 	return Hr;
 }
 
-// FUN_06ac1ea3. RefCount starts at 0; the following AddRef stores 1. The vfptr is the compiler table.
+// . RefCount starts at 0; the following AddRef stores 1. The vfptr is the compiler table.
 FServiceProvider::FServiceProvider()
 {
 	RefCount = 0;
 }
 
-// FUN_06ac1aa0. AddRef. JMP InterlockedIncrement(&RefCount).
+// . AddRef. JMP InterlockedIncrement(&RefCount).
 ULONG STDMETHODCALLTYPE FServiceProvider::AddRef()
 {
 	return (unsigned long)InterlockedIncrement(&RefCount);
 }
 
-// FUN_06ac1ac0. Release. operator delete when the stored count is 0. RET 4.
+// . Release. operator delete when the stored count is 0. RET 4.
 ULONG STDMETHODCALLTYPE FServiceProvider::Release()
 {
 	long Count = InterlockedDecrement(&RefCount);
@@ -429,7 +425,7 @@ ULONG STDMETHODCALLTYPE FServiceProvider::Release()
 	return 0;
 }
 
-// FUN_06ac1af0. QueryInterface. IID_IUnknown or IID_IServiceProvider. RET 0xC.
+// . QueryInterface. IID_IUnknown or IID_IServiceProvider. RET 0xC.
 // Does not write Out on E_NOINTERFACE.
 HRESULT STDMETHODCALLTYPE FServiceProvider::QueryInterface(REFIID Iid, void** Out)
 {
@@ -446,7 +442,7 @@ HRESULT STDMETHODCALLTYPE FServiceProvider::QueryInterface(REFIID Iid, void** Ou
 	return (long)0x80004002;
 }
 
-// FUN_06ac1b60. IServiceProvider::QueryService. RET 0x10.
+// . IServiceProvider::QueryService. RET 0x10.
 // Succeeds only for service IID_IWMReader and riid IID_IUnknown.
 HRESULT STDMETHODCALLTYPE FServiceProvider::QueryService(REFGUID Service, REFIID Iid, void** Out)
 {
@@ -470,7 +466,7 @@ HRESULT STDMETHODCALLTYPE FServiceProvider::QueryService(REFGUID Service, REFIID
 
 static LRESULT CALLBACK MoviePlaybackWndProc(HWND Hwnd, UINT Message, WPARAM WParam, LPARAM LParam);
 
-// FUN_06ac1e50. Approach 0. Run() is inside this function; it returns while playback continues.
+// . Approach 0. Run() is inside this function; it returns while playback continues.
 long __cdecl BuildAndRunWmAsfGraph(HWND Hwnd, int Fullscreen, const char* Path)
 {
 	long Hr = 0;
@@ -725,7 +721,7 @@ Epilogue:
 	return Hr;
 }
 
-// LAB_06ac1cf0. Subclass proc installed by BuildAndRunWmAsfGraph. RET 0x10.
+// . Subclass proc installed by BuildAndRunWmAsfGraph. RET 0x10.
 static LRESULT CALLBACK MoviePlaybackWndProc(HWND Hwnd, UINT Message, WPARAM WParam, LPARAM LParam)
 {
 	if (Message <= 0x86)

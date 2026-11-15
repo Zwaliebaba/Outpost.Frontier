@@ -1,11 +1,7 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "TextureLibrary.h"
-#include "msvcrt_compat.h" // MsvcrtAtoi: retail MSVCRT.DLL wraps mod 2^32, the UCRT saturates
+#include "msvcrt_compat.h" // MsvcrtAtoi: baseline MSVCRT.DLL wraps mod 2^32, the UCRT saturates
 
 #include <cmath>
 #include <cstdarg>
@@ -28,7 +24,7 @@ namespace
     static const unsigned long kFourCcDaa4 = 0x34414144u;
     static const unsigned long kFourCcDaa8 = 0x38414144u;
 
-    // DAT_06ed57c4 stride 0x34. FUN_06ebea90 pairs (value, mask=-1 if set).
+    // stride 0x34. the routine pairs (value, mask=-1 if set).
     struct FTextureFormatMap
     {
         unsigned long Value[6];
@@ -39,9 +35,9 @@ namespace
     std::vector<FTextureFormatMap> GFormatMaps;
 
     // Profile numbers accept a narrower syntax than general C integer parsing.
-    char GProfileValue[0x401]; // DAT_06ed5860 shared profile scratch.
+    char GProfileValue[0x401]; // shared profile scratch.
 
-    unsigned long ParseRetailProfileInteger(char* Value)
+    unsigned long ParsebaselineProfileInteger(char* Value)
     {
         const size_t Span = std::strspn(Value, "0123456789truefalsynoxTRUEFALSYNOX+-");
         if (Span != 0)
@@ -55,7 +51,7 @@ namespace
         return (unsigned long)MsvcrtAtoi(Value);
     }
 
-    // FUN_06ec09a0: the supplied output survives a failed parser acquisition.
+    // the supplied output survives a failed parser acquisition.
     unsigned long ReadProfileInteger(ICOManager* Manager, IProfileParser* SuppliedParser,
                                      const char* SectionName, const char* Key,
                                      unsigned long DefaultValue, unsigned long* Out)
@@ -78,7 +74,7 @@ namespace
         if (Section != nullptr)
         {
             if (Parser->GetString(Section, Key, GProfileValue, 0x400) != 0)
-                *Value = ParseRetailProfileInteger(GProfileValue);
+                *Value = ParsebaselineProfileInteger(GProfileValue);
             Parser->CloseSection(Section);
         }
         const unsigned long Result = *Value;
@@ -112,7 +108,7 @@ namespace
 
     void FormatMapLoadDefaults()
     {
-        // FUN_06ebec10 hardcoded rows before IProfileParser "TextureFormatMaps".
+        // hardcoded rows before IProfileParser "TextureFormatMaps".
         FormatMapClear();
         FormatMapAppend(8, 8, 8, 8, -1, 0, kFourCcDaop);
         FormatMapAppend(-1, -1, -1, -1, 1, 0, kFourCcDaa1);
@@ -138,7 +134,7 @@ namespace
         SkipFormatMapCharacters(Cursor, "1234567890*");
         *Cursor = '\0';
         if (bAdvance)
-            ++Cursor; // Includes a NUL terminator: retail does not restore it.
+            ++Cursor; // Includes a NUL terminator: baseline does not restore it.
         return std::strchr(Start, '*') == nullptr ? MsvcrtAtoi(Start) : -1;
     }
 
@@ -182,7 +178,7 @@ namespace
         void* Section = Parser->OpenSection("TextureFormatMaps", 3);
         if (Section == nullptr)
             return;
-        char Line[1024]; // Retail ReadLine buffer is not cleared between reads.
+        char Line[1024]; // baseline ReadLine buffer is not cleared between reads.
         unsigned long LineIndex = 0;
         while (Parser->ReadLine(Section, LineIndex, Line, sizeof(Line)) != 0)
         {
@@ -194,9 +190,9 @@ namespace
 
     GENRESULT InitializeFormatMaps()
     {
-        // FUN_06ebec10: defaults precede the independent profile-parser QI.
+        // defaults precede the independent profile-parser QI.
         FormatMapLoadDefaults();
-        ICOManager* Manager = DACOM_Acquire();
+        ICOManager* Manager = NEURONCOMPONENTS_Acquire();
         IProfileParser* Parser = nullptr;
         if (Manager->QueryInterface(Iids::ProfileParser,
                                     (void**)&Parser) >= 0)
@@ -208,7 +204,7 @@ namespace
 
     int FourCcToFormatId(unsigned long FourCc)
     {
-        // FUN_06ed0b80: scan DAT_06ed51d8 ids 9…0x15, miss → 0.
+        // scan the field ids 9…0x15, miss → 0.
         for (int Index = 9; Index < kPixelFormatFourCcCount; ++Index)
         {
             if (kPixelFormatFourCc[Index] == FourCc)
@@ -225,7 +221,7 @@ namespace
         unsigned long ExpansionShift;
     };
 
-    // Full private DAT_06ed5230 record, including masks and shifts. This is
+    // Full private the field record, including masks and shifts. This is
     // texture conversion data, not a VC6 container or a cross-DLL structure.
     struct FTextureFormatDescriptor
     {
@@ -261,7 +257,7 @@ namespace
 
     const FTextureFormatDescriptor* TextureFormatDescriptor(int FormatId)
     {
-        // FUN_06ed0ba0: signed JLE keeps all indices <=14; no lower guard.
+        // signed JLE keeps all indices <=14; no lower guard.
         return &GTextureFormatDescriptors[FormatId > 14 ? 0 : FormatId];
     }
 
@@ -277,7 +273,7 @@ namespace
 
     bool FormatMapRowMatches(const FTextureFormatMap& Row, int SrcId)
     {
-        // FUN_06ebf110. Id==1 uses constant 8 on the first four pairs; else DAT_06ed5230.
+        // . Id==1 uses constant 8 on the first four pairs; else the field.
         if (SrcId == 1)
         {
             if ((Row.Mask[0] & 8) != Row.Value[0])
@@ -329,7 +325,7 @@ namespace
                                 unsigned long Red, unsigned long Green, unsigned long Blue,
                                 unsigned long Alpha)
     {
-        // FUN_06ed0bc0: nine physical descriptors, independent of profile remaps.
+        // nine physical descriptors, independent of profile remaps.
         for (int Index = 0; Index < 9; ++Index)
         {
             const FTextureFormatDescriptor* Descriptor = TextureFormatDescriptor(Index);
@@ -342,7 +338,7 @@ namespace
                 return true;
             }
         }
-        *OutFormat = 0; // FUN_06ed0b60(D3DFMT_UNKNOWN).
+        *OutFormat = 0; // (D3DFMT_UNKNOWN).
         return false;
     }
 
@@ -371,7 +367,7 @@ namespace
     bool DecodeTgaTexture(const unsigned char* Blob, unsigned long* OutFormat,
                           unsigned char* Palette, unsigned char** OutPixels)
     {
-        // FUN_06ebf2b0: native source pixels, palette and byte-oriented origin branches.
+        // native source pixels, palette and byte-oriented origin branches.
         if (!IsTgaHeaderSupported(Blob))
             return false;
         GetTgaSourceFormat(Blob, OutFormat);
@@ -417,7 +413,7 @@ namespace
         }
         else
         {
-            // Retail reverses each byte, not each multi-byte pixel.
+            // baseline reverses each byte, not each multi-byte pixel.
             for (int Row = 0; Row < Height; ++Row)
             {
                 const int DestinationRow = bBit5 ? Row : Height - Row - 1;
@@ -462,7 +458,7 @@ namespace
 
     void InitializePlayback(FTexturePlayback* Entry, FTextureEntry* Source)
     {
-        // FUN_06ebe5d0: active rate initially aliases the source TileRate.
+        // active rate initially aliases the source TileRate.
         Entry->Source = Source;
         Entry->bUseLocalRate = false;
         Entry->PlaybackDirection = 1.0f;
@@ -485,7 +481,7 @@ namespace
 
     GENRESULT SetPlaybackFrame(FTexturePlayback* Entry, unsigned int Index)
     {
-        // FUN_06ebe940: query the live source count; no cached-count update.
+        // query the live source count; no cached-count update.
         if (Entry->Source->Frames.data() == nullptr || Index >= Entry->Source->Frames.size())
             return GR_GENERIC;
         Entry->CurrentFrame = Index;
@@ -515,7 +511,7 @@ namespace
 
     void SetPlaybackElapsed(FTexturePlayback* Entry, float Seconds)
     {
-        // FUN_06ebe8c0 computes fmod even for an empty source; it writes the
+        // computes fmod even for an empty source; it writes the
         // result before calling the bounds setter and discards that return.
         Entry->ElapsedTime = (double)Seconds;
         const double Count = (double)Entry->Source->Frames.size();
@@ -527,7 +523,7 @@ namespace
 
     void AdvancePlayback(FTexturePlayback* Entry, float Milliseconds)
     {
-        // FUN_06ebe660 retains x87 precision across FST double and later comparisons.
+        // retains x87 precision across FST double and later comparisons.
         if (Entry->FrameCount == 0)
             Entry->FrameCount = (unsigned int)Entry->Source->Frames.size();
         if (Entry->FrameCount <= 1)
@@ -673,27 +669,27 @@ namespace
 
 FTexLibAggregate::FTexLibAggregate() : Owner(nullptr) {}
 
-GENRESULT DACOM_API FTexLibAggregate::QueryInterface(const char* Iid, void** Out)
+GENRESULT NEURONCOMPONENTS_API FTexLibAggregate::QueryInterface(const char* Iid, void** Out)
 {
     return Owner->QueryInterface(Iid, Out);
 }
 
-unsigned long DACOM_API FTexLibAggregate::AddRef()
+unsigned long NEURONCOMPONENTS_API FTexLibAggregate::AddRef()
 {
     return Owner->AddRef();
 }
 
-unsigned long DACOM_API FTexLibAggregate::Release()
+unsigned long NEURONCOMPONENTS_API FTexLibAggregate::Release()
 {
     return Owner->Release();
 }
 
 FTextureLibraryController::FTextureLibraryController(FTextureLibrary* InOwner) : Owner(InOwner) {}
 
-GENRESULT DACOM_API FTextureLibraryController::QueryInterface(const char* Iid, void** Out)
+GENRESULT NEURONCOMPONENTS_API FTextureLibraryController::QueryInterface(const char* Iid, void** Out)
 {
-    // LAB_06ec6880: strict IID map; matched face AddRef precedes publishing Out.
-    IDAComponent* Face = nullptr;
+    // strict IID map; matched face AddRef precedes publishing Out.
+    INeuronComponent* Face = nullptr;
     if (std::strcmp(Iid, Iids::TextureLibraryA) == 0 ||
         std::strcmp(Iid, Iids::TextureLibrary2) == 0)
         Face = Owner;
@@ -709,14 +705,14 @@ GENRESULT DACOM_API FTextureLibraryController::QueryInterface(const char* Iid, v
     return GR_OK;
 }
 
-unsigned long DACOM_API FTextureLibraryController::AddRef()
+unsigned long NEURONCOMPONENTS_API FTextureLibraryController::AddRef()
 {
     return ++Owner->RefCount;
 }
 
-unsigned long DACOM_API FTextureLibraryController::Release()
+unsigned long NEURONCOMPONENTS_API FTextureLibraryController::Release()
 {
-    // LAB_06ec6940 is this non-delegating face, not public Release.
+    // is this non-delegating face, not public Release.
     // This embedded controller is constructed with its mandatory owner.
     if (Owner->RefCount != 0)
         --Owner->RefCount;
@@ -730,9 +726,9 @@ unsigned long DACOM_API FTextureLibraryController::Release()
     return Next;
 }
 
-GENRESULT DACOM_API FTexLibAggregate::Initialize()
+GENRESULT NEURONCOMPONENTS_API FTexLibAggregate::Initialize()
 {
-    // The incoming face is retail object+4: +2c/+30/+34 here are
+    // The incoming face is baseline object+4: +2c/+30/+34 here are
     // the owner's three ability dwords, not its readiness byte at +2c.
     Owner->bSquareTexturesOnly = 0;
     Owner->MaxTextureWidth = 0;
@@ -741,9 +737,9 @@ GENRESULT DACOM_API FTexLibAggregate::Initialize()
         Iids::RenderPipeline8B, (void**)&Owner->Pipeline);
     if (PipelineResult < 0)
     {
-        // .text:06ec071a .. 06ec073c: FDUMP(0x100001, "%s(%d) : ERROR:General:%s", __FILE__, 0x308, msg).
+        // FDUMP(0x100001, "%s(%d) : ERROR:General:%s", __FILE__, 0x308, msg).
         FDUMP(0x100001, "%s(%d) : ERROR:General:%s",
-              "C:\\work\\builds\\dalibs\\dalibs-build\\build\\Src\\Shading\\TextureLibrary\\TextureLibrary.cpp", 0x308,
+              "Shading\\TextureLibrary\\TextureLibrary.cpp", 0x308,
               "TextureLibrary: init: unable to acquire IID_IRenderPipeline");
         return GR_GENERIC;
     }
@@ -751,7 +747,7 @@ GENRESULT DACOM_API FTexLibAggregate::Initialize()
 
     InitializeFormatMaps();
 
-    ICOManager* Manager = DACOM_Acquire();
+    ICOManager* Manager = NEURONCOMPONENTS_Acquire();
     IProfileParser* Parser = nullptr;
     if (Manager->QueryInterface(Iids::ProfileParser,
                                 (void**)&Parser) >= 0)
@@ -771,7 +767,7 @@ GENRESULT DACOM_API FTexLibAggregate::Initialize()
             if (Section != nullptr)
             {
                 if (LocalParser->GetString(Section, "TEXTURE_LOD_LOAD", GProfileValue, 0x400) != 0)
-                    Value = ParseRetailProfileInteger(GProfileValue);
+                    Value = ParsebaselineProfileInteger(GProfileValue);
                 LocalParser->CloseSection(Section);
             }
         }
@@ -795,7 +791,7 @@ FTextureLibrary::FTextureLibrary()
 
 GENRESULT FTextureLibrary::RefreshDeviceAbilities()
 {
-    // FUN_06ec0b80: refresh all three out fields regardless of HRESULT.
+    // refresh all three out fields regardless of HRESULT.
     Pipeline->QueryDeviceAbility(5, &bSquareTexturesOnly);
     Pipeline->QueryDeviceAbility(6, &MaxTextureWidth);
     Pipeline->QueryDeviceAbility(7, &MaxTextureHeight);
@@ -815,7 +811,7 @@ void FTextureLibrary::DestroyEntry(FTextureEntry* Entry)
 
 int FTextureLibrary::ReleaseEntryReference(FTextureEntry* Entry, bool bCleanup)
 {
-    // FUN_06ec0bd0: recursion precedes the signed decrement and propagates flag.
+    // recursion precedes the signed decrement and propagates flag.
     if (Entry->Frames.data() != nullptr && Entry->Frames.size() > 1)
     {
         for (size_t Index = 0; Index < Entry->Children.size(); ++Index)
@@ -826,9 +822,9 @@ int FTextureLibrary::ReleaseEntryReference(FTextureEntry* Entry, bool bCleanup)
     if (Remaining > 0 || !bCleanup)
         return Remaining;
 
-    const unsigned long Key = DACOM_CRC::GetCRC32(Entry->GetName());
+    const unsigned long Key = NEURONCOMPONENTS_CRC::GetCRC32(Entry->GetName());
     const std::map<unsigned long, FTextureEntry*>::iterator Found = CanonicalRecords.find(Key);
-    FTextureEntry* Indexed = Found->second; // Retail trusts the name-map lookup.
+    FTextureEntry* Indexed = Found->second; // baseline trusts the name-map lookup.
     DestroyEntry(Indexed);
     CanonicalRecords.erase(Found);
     return Remaining;
@@ -836,15 +832,15 @@ int FTextureLibrary::ReleaseEntryReference(FTextureEntry* Entry, bool bCleanup)
 
 void FTextureLibrary::StoreByNameCrc(FTextureEntry* Entry)
 {
-    // FUN_06ec0e50: unique unsigned CRC key; duplicate insertion leaves payload.
-    Entry->Crc = DACOM_CRC::GetCRC32(Entry->GetName());
+    // unique unsigned CRC key; duplicate insertion leaves payload.
+    Entry->Crc = NEURONCOMPONENTS_CRC::GetCRC32(Entry->GetName());
     CanonicalRecords.insert(std::make_pair(Entry->Crc, Entry));
 }
 
 bool FTextureLibrary::CreateTextureRecord(unsigned long GpuHandle, const char* Name,
                                           FTextureEntry** Out, bool bRetain)
 {
-    // FUN_06ec0f10 publishes before filling the two owned vectors.
+    // publishes before filling the two owned vectors.
     FTextureEntry* Entry = new FTextureEntry();
     Entry->SetName(Name);
     *Out = Entry;
@@ -864,14 +860,14 @@ bool FTextureLibrary::CreateTextureRecord(unsigned long GpuHandle, const char* N
 
 FTextureLibrary::~FTextureLibrary()
 {
-    // FUN_06ec0540 clears format maps and containers; canonical payloads are
+    // clears format maps and containers; canonical payloads are
     // released by GarbageCollect, not by the tree-node destructor (06ec4870).
     Pipeline = nullptr;
     AggregateOwner = nullptr;
     FormatMapClear();
     ActivePlayback.clear();
     PlaybackRecords.clear();
-    // Retail's shared VC6 allocator cache is private container storage; the
+    // baseline's shared VC6 allocator cache is private container storage; the
     // native maps release their own storage without reproducing that cache.
     CanonicalRecords.clear();
     GroupRecords.clear();
@@ -879,26 +875,26 @@ FTextureLibrary::~FTextureLibrary()
 
 GENRESULT FTextureLibrary::InitializeFromDescriptor(const FSystemAggDesc* Desc)
 {
-    // FUN_06ec0bc0: no QI, allocation or aggregate Initialize call.
+    // no QI, allocation or aggregate Initialize call.
     AggregateOwner = Desc->Outer;
     return GR_OK;
 }
 
-GENRESULT DACOM_API FTextureLibrary::QueryInterface(const char* Iid, void** Out)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::QueryInterface(const char* Iid, void** Out)
 {
-    IDAComponent* Controlling = Outer != nullptr ? Outer : &Controller;
+    INeuronComponent* Controlling = Outer != nullptr ? Outer : &Controller;
     return Controlling->QueryInterface(Iid, Out);
 }
 
-unsigned long DACOM_API FTextureLibrary::AddRef()
+unsigned long NEURONCOMPONENTS_API FTextureLibrary::AddRef()
 {
-    IDAComponent* Controlling = Outer != nullptr ? Outer : &Controller;
+    INeuronComponent* Controlling = Outer != nullptr ? Outer : &Controller;
     return Controlling->AddRef();
 }
 
-unsigned long DACOM_API FTextureLibrary::Release()
+unsigned long NEURONCOMPONENTS_API FTextureLibrary::Release()
 {
-    IDAComponent* Controlling = Outer != nullptr ? Outer : &Controller;
+    INeuronComponent* Controlling = Outer != nullptr ? Outer : &Controller;
     return Controlling->Release();
 }
 
@@ -964,7 +960,7 @@ GENRESULT FTextureLibrary::LoadLegacyTextureRecord(IFileSystem* RootFileSystem,
     if (ReadTextureProperty(TextureFileSystem, "FPS", &StoredFramesPerSecond, 4))
         FramesPerSecond = StoredFramesPerSecond;
     unsigned long FrameCount = 0;
-    // Retail's late-property failures deliberately do not release earlier child refs.
+    // baseline's late-property failures deliberately do not release earlier child refs.
     if (!ReadTextureProperty(TextureFileSystem, "Frame count", &FrameCount, 4))
         return GR_GENERIC;
     FTextureFrame DefaultFrame = {};
@@ -1050,7 +1046,7 @@ namespace
 
         ~FTextureFileMap()
         {
-            // FUN_06ec02b0: mapping and file handles are both CloseFile resources.
+            // mapping and file handles are both CloseFile resources.
             if (File != -1)
             {
                 if (Mapping != -1)
@@ -1075,7 +1071,7 @@ namespace
 
         void Advance()
         {
-            // FUN_06ec0310: no dimension floor and no block-grid recalculation.
+            // no dimension floor and no block-grid recalculation.
             Pixels += Bytes;
             Bytes >>= 2;
             if (Bytes < MinimumBlock)
@@ -1090,13 +1086,13 @@ namespace
         char Message[8192];
         std::sprintf(Message, Format, Name, Mip);
         FDUMP(0x100002, "%s(%d) : WARNING:General:%s",
-              "C:\\work\\builds\\dalibs\\dalibs-build\\build\\Src\\Shading\\TextureLibrary\\DX8TexLoader_inl.h",
+              "Shading\\TextureLibrary\\DX8TexLoader_inl.h",
               Line, Message);
     }
 
     unsigned long D3dFormatToTextureFormat(unsigned long Format)
     {
-        // FUN_06ed0b60 searches all 22 entries, including ordinary RGB formats.
+        // searches all 22 entries, including ordinary RGB formats.
         for (int Index = 0; Index < kPixelFormatFourCcCount; ++Index)
             if (kPixelFormatFourCc[Index] == Format)
                 return Index;
@@ -1119,7 +1115,7 @@ namespace
 
 unsigned long FTextureLibrary::SelectTextureMipLevels(unsigned long* Width, unsigned long* Height)
 {
-    // FUN_06ec1110, unused argument omitted from this internal native helper.
+    // , unused argument omitted from this internal native helper.
     unsigned long Count = 0;
     const unsigned long Limit = GenericSlots[4];
     if (Limit != 0)
@@ -1137,7 +1133,7 @@ unsigned long FTextureLibrary::SelectTextureMipLevels(unsigned long* Width, unsi
 GENRESULT FTextureLibrary::SelectTextureDimensions(unsigned long Width, unsigned long Height,
                                                   unsigned long* OutWidth, unsigned long* OutHeight)
 {
-    // FUN_06ec0d50: publish inputs before zero rejection, then power-of-two/square policy.
+    // publish inputs before zero rejection, then power-of-two/square policy.
     *OutWidth = Width;
     *OutHeight = Height;
     if (Width == 0 || Height == 0)
@@ -1164,7 +1160,7 @@ GENRESULT FTextureLibrary::SelectTextureDimensions(unsigned long Width, unsigned
 
 GENRESULT FTextureLibrary::LoadDdsTexture(IFileSystem* FileSystem, const char* Name, void** OutHandle)
 {
-    // FUN_06ebfd20. Keep the original source format and native mapped DDS mip cursor.
+    // . Keep the original source format and native mapped DDS mip cursor.
     FTextureFileMap Map(FileSystem, "MIPS");
     if (Map.File == -1 || Map.Mapping == -1 || Map.View == nullptr)
         return -8;
@@ -1234,7 +1230,7 @@ GENRESULT FTextureLibrary::LoadDdsTexture(IFileSystem* FileSystem, const char* N
     unsigned int UploadFormat = SourceFormat;
     for (unsigned long Level = 0; Level < Levels; ++Level)
     {
-        // Retail divides the linear byte size by the WIDTH block count.
+        // baseline divides the linear byte size by the WIDTH block count.
         const unsigned long Pitch = bPitch ? (Header[0x58 / 4] >> 3) * Cursor.Width
             : Cursor.Bytes / ((Cursor.Width + 3) >> 2);
         if (Pipeline->SetTextureLevelData(Handle, Level, Cursor.Width, Cursor.Height, Pitch,
@@ -1246,7 +1242,7 @@ GENRESULT FTextureLibrary::LoadDdsTexture(IFileSystem* FileSystem, const char* N
         }
         Cursor.Advance();
     }
-    // Upload errors do not destroy the allocated handle in this retail implementation.
+    // Upload errors do not destroy the allocated handle in this baseline implementation.
     *OutHandle = Handle;
     return Handle != nullptr ? GR_OK : GR_GENERIC;
 }
@@ -1288,7 +1284,7 @@ namespace
 
         ~FTextureTgaMap()
         {
-            // FUN_06ebfca0: array teardown visits all ten records in reverse.
+            // array teardown visits all ten records in reverse.
             CloseResources();
         }
 
@@ -1316,7 +1312,7 @@ namespace
 
     FTextureTgaMap* TgaMappedResources()
     {
-        // DAT_06ed56f8..06ed57bf: lazy persistent records, including failed mappings.
+        // lazy persistent records, including failed mappings.
         static FTextureTgaMap Records[10];
         return Records;
     }
@@ -1329,14 +1325,14 @@ namespace
         std::vsprintf(Message, Format, Arguments);
         va_end(Arguments);
         FDUMP(0x100002, "%s(%d) : WARNING:General:%s",
-              "C:\\work\\builds\\dalibs\\dalibs-build\\build\\Src\\Shading\\TextureLibrary\\DX8TexLoader_inl.h",
+              "Shading\\TextureLibrary\\DX8TexLoader_inl.h",
               Line, Message);
     }
 }
 
 GENRESULT FTextureLibrary::LoadTgaTexture(IFileSystem* FileSystem, const char* Name, void** OutHandle)
 {
-    // FUN_06ebf670: wildcard enumeration and source-format uploads, not sequential MIP0.
+    // wildcard enumeration and source-format uploads, not sequential MIP0.
     WIN32_FIND_DATAA FindData;
     const int FindHandle = FileSystem->FindFirst("MIP*",
                                              &FindData);
@@ -1350,7 +1346,7 @@ GENRESULT FTextureLibrary::LoadTgaTexture(IFileSystem* FileSystem, const char* N
         if (FindData.cFileName[4] != '\0')
         {
             TextureTgaWarning(0x9d, "load_tga_mips: %s: too many mips; switch file to dxtn", Name);
-            return -8; // Retail retains mappings and the find handle on this early return.
+            return -8; // baseline retains mappings and the find handle on this early return.
         }
         const int Index = (signed char)FindData.cFileName[3] - '0';
         if (Index >= LargestIndex)
@@ -1435,7 +1431,7 @@ GENRESULT FTextureLibrary::LoadTgaTexture(IFileSystem* FileSystem, const char* N
 
 GENRESULT FTextureLibrary::ProbeTextureCubemap(IFileSystem* FileSystem, void** OutHandle)
 {
-    // FUN_06ec0360, IRPTexture slot7; only unsupported-format -7 becomes loader -8.
+    // , IRPTexture slot7; only unsupported-format -7 becomes loader -8.
     IRPTexture* Texture = nullptr;
     GENRESULT Result = GR_GENERIC;
     if (Pipeline->QueryInterface(Iids::RPTexture, (void**)&Texture) == GR_OK)
@@ -1453,7 +1449,7 @@ GENRESULT FTextureLibrary::LoadTextureRecord(IFileSystem* RootFileSystem, FFileS
                                             FTextureEntry** Out, bool bRetain)
 {
     const char* ChildName = Desc->Path;
-    FTextureEntry* Existing = FindEntryByCrc(DACOM_CRC::GetCRC32(ChildName));
+    FTextureEntry* Existing = FindEntryByCrc(NEURONCOMPONENTS_CRC::GetCRC32(ChildName));
     if (Existing != nullptr)
     {
         *Out = Existing;
@@ -1483,7 +1479,7 @@ GENRESULT FTextureLibrary::LoadTextureRecord(IFileSystem* RootFileSystem, FFileS
         char Message[8192];
         std::sprintf(Message, "load texture: file contains an old or unknown format, ignoring\n%s", ChildName);
         FDUMP(0x100002, "%s(%d) : WARNING:General:%s",
-              "C:\\work\\builds\\dalibs\\dalibs-build\\build\\Src\\Shading\\TextureLibrary\\TextureLibrary.cpp",
+              "Shading\\TextureLibrary\\TextureLibrary.cpp",
               0x54b, Message);
     }
     if (Handle != nullptr && Result >= 0)
@@ -1499,7 +1495,7 @@ GENRESULT FTextureLibrary::LoadTextureRecord(IFileSystem* RootFileSystem, FFileS
     return Result;
 }
 
-GENRESULT DACOM_API FTextureLibrary::LoadTextureLibrary(void* FileSystem, const char* Name)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::LoadTextureLibrary(void* FileSystem, const char* Name)
 {
     RefreshDeviceAbilities();
     IFileSystem* Source = AsFileSystem(FileSystem);
@@ -1512,13 +1508,13 @@ GENRESULT DACOM_API FTextureLibrary::LoadTextureLibrary(void* FileSystem, const 
     return Result;
 }
 
-GENRESULT DACOM_API FTextureLibrary::LoadTextureGroup(void* FileSystem, int* OutGroupId)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::LoadTextureGroup(void* FileSystem, int* OutGroupId)
 {
     IFileSystem* Source = AsFileSystem(FileSystem);
     if (Source == nullptr)
     {
         FDUMP(0x100002, "%s(%d) : WARNING:General:%s",
-              "C:\\work\\builds\\dalibs\\dalibs-build\\build\\Src\\Shading\\TextureLibrary\\TextureLibrary.cpp",
+              "Shading\\TextureLibrary\\TextureLibrary.cpp",
               0x58e, "IFileSystem argument is NULL in load_library");
         return GR_GENERIC; // Output is unchanged on this early return.
     }
@@ -1550,7 +1546,7 @@ GENRESULT DACOM_API FTextureLibrary::LoadTextureGroup(void* FileSystem, int* Out
                         char Message[0x2000];
                         _snprintf(Message, sizeof(Message), "failed to load '%s'", FindData.cFileName);
                         FDUMP(0x100002, "%s(%d) : WARNING:General:%s",
-                              "C:\\work\\builds\\dalibs\\dalibs-build\\build\\Src\\Shading\\TextureLibrary\\TextureLibrary.cpp",
+                              "Shading\\TextureLibrary\\TextureLibrary.cpp",
                               0x5b4, Message);
                     }
                 }
@@ -1597,7 +1593,7 @@ FTextureEntry* FTextureLibrary::FindEntryByCrc(unsigned long Crc)
 
 void FTextureLibrary::AddRefEntryRecursive(FTextureEntry* Entry)
 {
-    // FUN_06ebe560 retains the record first, then all children of multi-frame records.
+    // retains the record first, then all children of multi-frame records.
     Entry->RefCount = (int)((unsigned int)Entry->RefCount + 1u);
     if (Entry->Frames.data() == nullptr || Entry->Frames.size() <= 1)
         return;
@@ -1616,7 +1612,7 @@ static void WriteEmptyFrame(unsigned long* Out)
 
 static GENRESULT ReadPlaybackFrame(FTexturePlayback* Playback, unsigned int Frame, unsigned long* Out)
 {
-    // FUN_06ebe7f0: cache count lazily, then select the child via the frame's first word.
+    // cache count lazily, then select the child via the frame's first word.
     if (Playback->FrameCount == 0)
         Playback->FrameCount = (unsigned int)Playback->Source->Frames.size();
     const unsigned int Count = Playback->FrameCount;
@@ -1636,9 +1632,9 @@ static GENRESULT ReadPlaybackFrame(FTexturePlayback* Playback, unsigned int Fram
     return GR_OK;
 }
 
-GENRESULT DACOM_API FTextureLibrary::GetFrame(int Id, int Frame, unsigned long* Out)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::GetFrame(int Id, int Frame, unsigned long* Out)
 {
-    // FUN_06ec3310 ignores the frame core's return for a valid ID.
+    // ignores the frame core's return for a valid ID.
     FTexturePlayback* Playback = FindPlayback(Id);
     if (Playback == nullptr)
         return GR_GENERIC;
@@ -1646,9 +1642,9 @@ GENRESULT DACOM_API FTextureLibrary::GetFrame(int Id, int Frame, unsigned long* 
     return GR_OK;
 }
 
-GENRESULT DACOM_API FTextureLibrary::GetTextureFrame(void* Tex, int Frame, unsigned long* Out)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::GetTextureFrame(void* Tex, int Frame, unsigned long* Out)
 {
-    // LAB_06ec2ee0: canonical source; only -2 selects the last frame.
+    // canonical source; only -2 selects the last frame.
     FTextureEntry* Source = (FTextureEntry*)Tex;
     if (Source != nullptr)
     {
@@ -1668,10 +1664,10 @@ GENRESULT DACOM_API FTextureLibrary::GetTextureFrame(void* Tex, int Frame, unsig
     return GR_GENERIC;
 }
 
-GENRESULT DACOM_API FTextureLibrary::FindTextureByCrc(void* Query, void** OutTex)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::FindTextureByCrc(void* Query, void** OutTex)
 {
-    // LAB_06ec2810 RET 0xC: CRC at Query+4 → map this+0x54 (FUN_06ecaa00).
-    // Hit: FUN_06ebe560(tex) then *OutTex = node+0x10. Miss: EAX=-1.
+    // RET 0xC: CRC at Query+4 → map this+0x54 (the routine).
+    // Hit: the routine(tex) then *OutTex = node+0x10. Miss: EAX=-1.
     const unsigned long Crc = *(unsigned long*)((unsigned char*)Query + 4);
     FTextureEntry* Entry = FindEntryByCrc(Crc);
     if (Entry == nullptr)
@@ -1685,9 +1681,9 @@ GENRESULT DACOM_API FTextureLibrary::FindTextureByCrc(void* Query, void** OutTex
     return GR_OK;
 }
 
-GENRESULT DACOM_API FTextureLibrary::PickGpuFormat(const unsigned long* Src, unsigned long* OutId)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::PickGpuFormat(const unsigned long* Src, unsigned long* OutId)
 {
-    // LAB_06ec37f0 directly forwards to FUN_06ebf110.
+    // directly forwards to the routine.
     const int SrcId = (int)*Src;
     if (SrcId >= 10 && SrcId <= 14)
     {
@@ -1707,21 +1703,21 @@ GENRESULT DACOM_API FTextureLibrary::PickGpuFormat(const unsigned long* Src, uns
 
 // --- Cycle 6 high-confidence accessors -----------------
 
-GENRESULT DACOM_API FTextureLibrary::SetGenericSlot(int Index, unsigned long Value)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::SetGenericSlot(int Index, unsigned long Value)
 {
-    // LAB_06ec0d10: no bounds branch in the indexed write.
+    // no bounds branch in the indexed write.
     GenericSlots[Index] = Value;
     return GR_OK;
 }
 
-GENRESULT DACOM_API FTextureLibrary::GetGenericSlot(int Index, unsigned long* Out)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::GetGenericSlot(int Index, unsigned long* Out)
 {
-    // LAB_06ec0d30: no bounds or output-null branch.
+    // no bounds or output-null branch.
     *Out = GenericSlots[Index];
     return GR_OK;
 }
 
-GENRESULT DACOM_API FTextureLibrary::GarbageCollect(int GroupId)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::GarbageCollect(int GroupId)
 {
     if (GroupId != 0)
     {
@@ -1748,9 +1744,9 @@ GENRESULT DACOM_API FTextureLibrary::GarbageCollect(int GroupId)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FTextureLibrary::TickAllPlayback(int Unused, float DeltaSeconds)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::TickAllPlayback(int Unused, float DeltaSeconds)
 {
-    // LAB_06ec2060: signed-ID order, shared rounded millisecond argument.
+    // signed-ID order, shared rounded millisecond argument.
     if (Unused != 0)
         return GR_OK;
     if (!ActivePlayback.empty())
@@ -1765,7 +1761,7 @@ GENRESULT DACOM_API FTextureLibrary::TickAllPlayback(int Unused, float DeltaSeco
     return GR_OK;
 }
 
-GENRESULT DACOM_API FTextureLibrary::GetGroupPixelFormat(void* Record, void* Unused, int* OutFormat)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::GetGroupPixelFormat(void* Record, void* Unused, int* OutFormat)
 {
     (void)Unused;
     FTextureEntry* Entry = (FTextureEntry*)Record;
@@ -1779,7 +1775,7 @@ GENRESULT DACOM_API FTextureLibrary::GetGroupPixelFormat(void* Record, void* Unu
     return GR_GENERIC;
 }
 
-GENRESULT DACOM_API FTextureLibrary::SetGroupName(int Id, const char* Name)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::SetGroupName(int Id, const char* Name)
 {
     if (Id == -1 || Id == 0)
         return GR_GENERIC;
@@ -1790,7 +1786,7 @@ GENRESULT DACOM_API FTextureLibrary::SetGroupName(int Id, const char* Name)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FTextureLibrary::GetGroupName(int Id, char* Buf, unsigned long Size)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::GetGroupName(int Id, char* Buf, unsigned long Size)
 {
     if (Id == -1 || Id == 0)
         return GR_GENERIC;
@@ -1807,22 +1803,22 @@ GENRESULT DACOM_API FTextureLibrary::GetGroupName(int Id, char* Buf, unsigned lo
     return GR_OK;
 }
 
-GENRESULT DACOM_API FTextureLibrary::FindOrCreateByName(const char* Name, void** OutTex)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::FindOrCreateByName(const char* Name, void** OutTex)
 {
-    // LAB_06ec2760 returns -1 on an existing CRC; only a miss creates then queries.
-    const unsigned long NameCrc = DACOM_CRC::GetCRC32(Name);
+    // returns -1 on an existing CRC; only a miss creates then queries.
+    const unsigned long NameCrc = NEURONCOMPONENTS_CRC::GetCRC32(Name);
     if (FindEntryByCrc(NameCrc) != nullptr)
         return GR_GENERIC;
     FTextureEntry* Entry;
     CreateTextureRecord(0, Name, &Entry, false);
-    const unsigned long Query[2] = { 0, DACOM_CRC::GetCRC32(Name) };
+    const unsigned long Query[2] = { 0, NEURONCOMPONENTS_CRC::GetCRC32(Name) };
     // The query stays read-only; the shared lookup has an opaque mutable signature.
     return FindTextureByCrc(const_cast<unsigned long*>(Query), OutTex);
 }
 
-GENRESULT DACOM_API FTextureLibrary::CreatePlaybackGroup(void* SourceRecord, int* OutId)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::CreatePlaybackGroup(void* SourceRecord, int* OutId)
 {
-    // LAB_06ec3050: canonical retention precedes optional ID allocation.
+    // canonical retention precedes optional ID allocation.
     if (OutId != nullptr)
         *OutId = -1;
     FTextureEntry* Source = (FTextureEntry*)SourceRecord;
@@ -1843,9 +1839,9 @@ GENRESULT DACOM_API FTextureLibrary::CreatePlaybackGroup(void* SourceRecord, int
     return GR_OK;
 }
 
-GENRESULT DACOM_API FTextureLibrary::ReleaseTextureRecord(void* Record)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::ReleaseTextureRecord(void* Record)
 {
-    // LAB_06ec2870: Record==0 → −1; else FUN_06ec0bd0(Record, flag=1) and return 0.
+    // Record==0 → −1; else the routine(Record, flag=1) and return 0.
     // Arg is the texture record pointer (Slot12 OutTex), not an integer id.
     if (Record == nullptr)
         return GR_GENERIC;
@@ -1853,9 +1849,9 @@ GENRESULT DACOM_API FTextureLibrary::ReleaseTextureRecord(void* Record)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FTextureLibrary::AddRefById(int Id)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::AddRefById(int Id)
 {
-    // FUN_06ec3140: the ID record owns its own count; source count is unchanged.
+    // the ID record owns its own count; source count is unchanged.
     FTexturePlayback* Playback = FindPlayback(Id);
     if (Playback == nullptr)
         return GR_GENERIC;
@@ -1865,7 +1861,7 @@ GENRESULT DACOM_API FTextureLibrary::AddRefById(int Id)
 
 int FTextureLibrary::ReleasePlaybackReference(int Id)
 {
-    // FUN_06ec31a0: unsigned decrement is unconditional, including zero.
+    // unsigned decrement is unconditional, including zero.
     const std::map<int, FTexturePlayback>::iterator Found = PlaybackRecords.find(Id);
     if (Id == -1 || Found == PlaybackRecords.end())
         return -1;
@@ -1879,15 +1875,15 @@ int FTextureLibrary::ReleasePlaybackReference(int Id)
     return (int)Remaining;
 }
 
-GENRESULT DACOM_API FTextureLibrary::DecRefById(int Id)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::DecRefById(int Id)
 {
-    // LAB_06ec3260 maps exactly -1 to failure; other signed counts return 0.
+    // maps exactly -1 to failure; other signed counts return 0.
     return ReleasePlaybackReference(Id) == -1 ? GR_GENERIC : GR_OK;
 }
 
-GENRESULT DACOM_API FTextureLibrary::CopyName(void* Node, char* Buf, unsigned long Size)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::CopyName(void* Node, char* Buf, unsigned long Size)
 {
-    // LAB_06ec2890: clear first, then copy only min(strlen, unsigned(Size-1)).
+    // clear first, then copy only min(strlen, unsigned(Size-1)).
     *Buf = '\0';
     FTextureEntry* Entry = (FTextureEntry*)Node;
     if (Entry == nullptr)
@@ -1914,9 +1910,9 @@ static FTextureFrame* FindMutableFrame(FTextureEntry* Entry, int Index)
     return &Entry->Frames[Selected];
 }
 
-GENRESULT DACOM_API FTextureLibrary::SetFrameHandle(void* Record, int Index, unsigned long Handle)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::SetFrameHandle(void* Record, int Index, unsigned long Handle)
 {
-    // LAB_06ec2bf0: the first word is a child index, never a GPU handle.
+    // the first word is a child index, never a GPU handle.
     FTextureFrame* Frame = FindMutableFrame((FTextureEntry*)Record, Index);
     if (Frame == nullptr)
         return GR_GENERIC;
@@ -1924,7 +1920,7 @@ GENRESULT DACOM_API FTextureLibrary::SetFrameHandle(void* Record, int Index, uns
     return GR_OK;
 }
 
-GENRESULT DACOM_API FTextureLibrary::SetFrameRect(void* Record, int Index, float U0, float V0,
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::SetFrameRect(void* Record, int Index, float U0, float V0,
                                                   float U1, float V1)
 {
     FTextureFrame* Frame = FindMutableFrame((FTextureEntry*)Record, Index);
@@ -1937,9 +1933,9 @@ GENRESULT DACOM_API FTextureLibrary::SetFrameRect(void* Record, int Index, float
     return GR_OK;
 }
 
-GENRESULT DACOM_API FTextureLibrary::SetTileRate(void* Record, float Value)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::SetTileRate(void* Record, float Value)
 {
-    // LAB_06ec2fc0: record+0xc = value.
+    // record+0xc = value.
     FTextureEntry* Entry = (FTextureEntry*)Record;
     if (Entry == nullptr)
         return GR_GENERIC;
@@ -1947,9 +1943,9 @@ GENRESULT DACOM_API FTextureLibrary::SetTileRate(void* Record, float Value)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FTextureLibrary::GetTileRate(void* Record, float* Out)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::GetTileRate(void* Record, float* Out)
 {
-    // LAB_06ec2fe0: *out=record+0xc.
+    // *out=record+0xc.
     *Out = 0.0f;
     FTextureEntry* Entry = (FTextureEntry*)Record;
     if (Entry == nullptr)
@@ -1958,23 +1954,23 @@ GENRESULT DACOM_API FTextureLibrary::GetTileRate(void* Record, float* Out)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FTextureLibrary::GetFrameCount(void* Record, int* Out)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::GetFrameCount(void* Record, int* Out)
 {
-    // LAB_06ec3000: *out=(end-begin)/0x14.
+    // *out=(end-begin)/0x14.
     *Out = 0;
     FTextureEntry* Entry = (FTextureEntry*)Record;
     if (Entry == nullptr)
         return GR_GENERIC;
-    // LAB_06ec3016: null begin returns -1; an allocated empty range succeeds.
+    // null begin returns -1; an allocated empty range succeeds.
     if (Entry->Frames.data() == nullptr)
         return GR_GENERIC;
     *Out = (int)Entry->Frames.size();
     return GR_OK;
 }
 
-GENRESULT DACOM_API FTextureLibrary::SetElapsedTime(int Id, float Seconds)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::SetElapsedTime(int Id, float Seconds)
 {
-    // FUN_06ebe8c0 via slot 29: absolute set, then recompute current frame.
+    // via slot 29: absolute set, then recompute current frame.
     FTexturePlayback* Entry = FindPlayback(Id);
     if (Entry == nullptr)
         return GR_GENERIC;
@@ -1982,9 +1978,9 @@ GENRESULT DACOM_API FTextureLibrary::SetElapsedTime(int Id, float Seconds)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FTextureLibrary::GetElapsedTime(int Id, float* Out)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::GetElapsedTime(int Id, float* Out)
 {
-    // Retail ID miss leaves Out untouched, including Id == -1.
+    // baseline ID miss leaves Out untouched, including Id == -1.
     if (Id == -1)
         return GR_GENERIC;
     FTexturePlayback* Entry = FindPlayback(Id);
@@ -1994,9 +1990,9 @@ GENRESULT DACOM_API FTextureLibrary::GetElapsedTime(int Id, float* Out)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FTextureLibrary::SetFrameIndex(int Id, unsigned int Index)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::SetFrameIndex(int Id, unsigned int Index)
 {
-    // FUN_06ebe940: bounds-checked write of the current frame index.
+    // bounds-checked write of the current frame index.
     FTexturePlayback* Entry = FindPlayback(Id);
     if (Entry == nullptr)
         return GR_GENERIC;
@@ -2004,9 +2000,9 @@ GENRESULT DACOM_API FTextureLibrary::SetFrameIndex(int Id, unsigned int Index)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FTextureLibrary::GetFrameIndex(int Id, unsigned int* Out)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::GetFrameIndex(int Id, unsigned int* Out)
 {
-    // Retail ID miss leaves Out untouched, including Id == -1.
+    // baseline ID miss leaves Out untouched, including Id == -1.
     if (Id == -1)
         return GR_GENERIC;
     FTexturePlayback* Entry = FindPlayback(Id);
@@ -2016,9 +2012,9 @@ GENRESULT DACOM_API FTextureLibrary::GetFrameIndex(int Id, unsigned int* Out)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FTextureLibrary::SetLocalRate(int Id, float Value)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::SetLocalRate(int Id, float Value)
 {
-    // FUN_06ebe980: store a local rate and redirect the active-rate alias to it.
+    // store a local rate and redirect the active-rate alias to it.
     // This only recomputes duration; elapsed/current-frame remain untouched.
     FTexturePlayback* Entry = FindPlayback(Id);
     if (Entry == nullptr)
@@ -2029,9 +2025,9 @@ GENRESULT DACOM_API FTextureLibrary::SetLocalRate(int Id, float Value)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FTextureLibrary::GetEffectiveRate(int Id, float* Out)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::GetEffectiveRate(int Id, float* Out)
 {
-    // Retail ID miss leaves Out untouched, including Id == -1.
+    // baseline ID miss leaves Out untouched, including Id == -1.
     if (Id == -1)
         return GR_GENERIC;
     FTexturePlayback* Entry = FindPlayback(Id);
@@ -2041,9 +2037,9 @@ GENRESULT DACOM_API FTextureLibrary::GetEffectiveRate(int Id, float* Out)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FTextureLibrary::SetWrapMode(int Id, int Mode)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::SetWrapMode(int Id, int Mode)
 {
-    // LAB_06ec3620: record+0x44 = mode (0 clamp, 1 loop, 2 ping-pong). The
+    // record+0x44 = mode (0 clamp, 1 loop, 2 ping-pong). The
     // setter does not recompute elapsed time or the current frame.
     FTexturePlayback* Entry = FindPlayback(Id);
     if (Entry == nullptr)
@@ -2052,7 +2048,7 @@ GENRESULT DACOM_API FTextureLibrary::SetWrapMode(int Id, int Mode)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FTextureLibrary::GetWrapMode(int Id, int* Out)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::GetWrapMode(int Id, int* Out)
 {
     FTexturePlayback* Entry = FindPlayback(Id);
     if (Entry == nullptr)
@@ -2061,9 +2057,9 @@ GENRESULT DACOM_API FTextureLibrary::GetWrapMode(int Id, int* Out)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FTextureLibrary::AdvanceTime(int Id, float DeltaSeconds)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::AdvanceTime(int Id, float DeltaSeconds)
 {
-    // FUN_06ec3700 rounds seconds*1000 to float before the millisecond core.
+    // rounds seconds*1000 to float before the millisecond core.
     FTexturePlayback* Entry = FindPlayback(Id);
     if (Entry == nullptr)
         return GR_GENERIC;
@@ -2072,18 +2068,18 @@ GENRESULT DACOM_API FTextureLibrary::AdvanceTime(int Id, float DeltaSeconds)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FTextureLibrary::PeekNextGroupId(unsigned long* Out)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::PeekNextGroupId(unsigned long* Out)
 {
-    // LAB_06ec2240 reads tree size +0x4c, not allocation counter +0x50.
+    // reads tree size +0x4c, not allocation counter +0x50.
     *Out = (unsigned long)GroupRecords.size() + 1u;
     return GR_OK;
 }
 
-GENRESULT DACOM_API FTextureLibrary::GetSubCount(int Id, int* Out)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::GetSubCount(int Id, int* Out)
 {
     if (Id == 0)
     {
-        // Retail +0x64 is the size of the canonical CRC tree +0x54.
+        // baseline +0x64 is the size of the canonical CRC tree +0x54.
         *Out = (int)CanonicalRecords.size();
         return GR_OK;
     }
@@ -2094,7 +2090,7 @@ GENRESULT DACOM_API FTextureLibrary::GetSubCount(int Id, int* Out)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FTextureLibrary::EnumTexture(int Id, int Index, void** OutRecord)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::EnumTexture(int Id, int Index, void** OutRecord)
 {
     if (Id == 0)
     {
@@ -2112,17 +2108,17 @@ GENRESULT DACOM_API FTextureLibrary::EnumTexture(int Id, int Index, void** OutRe
             AddRefEntryRecursive(It->second);
             *OutRecord = It->second;
         }
-        // 06ec23ee resets ESI before returning, independent of the ordinal.
+        // resets ESI before returning, independent of the ordinal.
         return GR_OK;
     }
     FTextureGroup* Group = FindGroup(Id);
     if (Group == nullptr || (unsigned int)Index >= Group->Members.size())
         return GR_GENERIC;
     ResolveTextureRecord(Group->Members[(unsigned int)Index], OutRecord);
-    return GR_OK; // Retail discards the resolver HRESULT.
+    return GR_OK; // baseline discards the resolver HRESULT.
 }
 
-GENRESULT DACOM_API FTextureLibrary::AddSubTexture(int GroupId, void* Record)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::AddSubTexture(int GroupId, void* Record)
 {
     if (GroupId == 0)
         return GR_GENERIC;
@@ -2136,7 +2132,7 @@ GENRESULT DACOM_API FTextureLibrary::AddSubTexture(int GroupId, void* Record)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FTextureLibrary::RemoveSubTexture(int GroupId, void* Record)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::RemoveSubTexture(int GroupId, void* Record)
 {
     if (GroupId == 0)
         return GR_GENERIC;
@@ -2158,14 +2154,14 @@ GENRESULT DACOM_API FTextureLibrary::RemoveSubTexture(int GroupId, void* Record)
             }
             ++Index;
         }
-        // 06ec26f0 jumps to the end comparison without increment on failure.
+        // jumps to the end comparison without increment on failure.
     }
     return GR_GENERIC;
 }
 
-GENRESULT DACOM_API FTextureLibrary::AllocateNewTextureId(int* OutId)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::AllocateNewTextureId(int* OutId)
 {
-    // FUN_06ec1950 creates an empty named-group payload, no canonical texture.
+    // creates an empty named-group payload, no canonical texture.
     FTextureGroup& Group = GroupRecords.try_emplace(NextId).first->second;
     Group.SetName(nullptr);
     Group.Members.clear();
@@ -2174,12 +2170,12 @@ GENRESULT DACOM_API FTextureLibrary::AllocateNewTextureId(int* OutId)
     return GR_OK;
 }
 
-// --- TextureLibrary slots recovered from the retail vtable/listing ---
+// --- TextureLibrary slots recovered from the baseline vtable/listing ---
 
-GENRESULT DACOM_API FTextureLibrary::SetRecordName(void* Record, const char* Name)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::SetRecordName(void* Record, const char* Name)
 {
-    // LAB_06ec28e0 probes the incoming name, then erases that node before renaming Record.
-    const unsigned long Key = DACOM_CRC::GetCRC32(Name);
+    // probes the incoming name, then erases that node before renaming Record.
+    const unsigned long Key = NEURONCOMPONENTS_CRC::GetCRC32(Name);
     const std::map<unsigned long, FTextureEntry*>::iterator Found = CanonicalRecords.find(Key);
     FTextureEntry* Entry = (FTextureEntry*)Record;
     if (Found == CanonicalRecords.end() || Entry == nullptr)
@@ -2189,7 +2185,7 @@ GENRESULT DACOM_API FTextureLibrary::SetRecordName(void* Record, const char* Nam
     StoreByNameCrc(Entry);
     return GR_OK;
 }
-GENRESULT DACOM_API FTextureLibrary::SetSubTexture(void* Record, int Index, int TextureId)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::SetSubTexture(void* Record, int Index, int TextureId)
 {
     FTextureEntry* Parent = (FTextureEntry*)Record;
     if (Parent == nullptr)
@@ -2211,7 +2207,7 @@ GENRESULT DACOM_API FTextureLibrary::SetSubTexture(void* Record, int Index, int 
     {
         if (ChildIndex < Parent->Children.size())
             ReleaseEntryReference(Parent->Children[ChildIndex], true);
-        // 2a5c sets ECX=EBP: retail retains the parent, not the replacement child.
+        // 2a5c sets ECX=EBP: baseline retains the parent, not the replacement child.
         if (Parent != Child)
             AddRefEntryRecursive(Parent);
         if (Parent->Children.size() < RequiredCount)
@@ -2230,9 +2226,9 @@ GENRESULT DACOM_API FTextureLibrary::SetSubTexture(void* Record, int Index, int 
     }
     return GR_OK;
 }
-GENRESULT DACOM_API FTextureLibrary::ResolveTextureRecord(int Id, void** Out)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::ResolveTextureRecord(int Id, void** Out)
 {
-    // FUN_06ec3290 retains Source before proving it is indexed by name.
+    // retains Source before proving it is indexed by name.
     FTexturePlayback* Playback = FindPlayback(Id);
     if (Playback == nullptr)
         return GR_GENERIC;
@@ -2249,7 +2245,7 @@ GENRESULT DACOM_API FTextureLibrary::ResolveTextureRecord(int Id, void** Out)
     }
     return GR_GENERIC;
 }
-GENRESULT DACOM_API FTextureLibrary::EnumGroup(int Index, int* OutId)
+GENRESULT NEURONCOMPONENTS_API FTextureLibrary::EnumGroup(int Index, int* OutId)
 {
     if ((unsigned int)Index >= (unsigned int)GroupRecords.size() + 1u)
         return GR_GENERIC;

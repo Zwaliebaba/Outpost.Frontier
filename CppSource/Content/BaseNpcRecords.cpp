@@ -1,13 +1,9 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // Content.dll TU22 (06ed3d90-06ed4220): the parsers and offer tests of the GF_NPC
 // "bribe" / "know" / "rumor" records of missions\mbases.ini (types in BaseDB.h; their
-// loader FUN_06ea7f60 is TU17, BaseDB.cpp). The TU opens with its own 16 static-ID
-// initializers 06ed3d90-06ed3f70 (DAT_06fcf058..DAT_06fcf01c) = ContentStaticIds.h.
+// loader the routine is TU17, BaseDB.cpp). The TU opens with its own 16 static-ID
+// initializers 06ed3d90-06ed3f70 (the field..the field) = ContentStaticIds.h.
 
 #include "ContentStaticIds.h"
 
@@ -22,7 +18,7 @@
 
 namespace
 {
-    // FUN_06ed4010 06ed4029-06ed4057 / 06ed4070-06ed409e: the value of the first
+    // 06ed4029-06ed4057 / 06ed4070-06ed409e: the value of the first
     // GContentStageNames entry whose name matches (all 43 entries, null names skipped);
     // Default when none does.
     int FindStageValue(char const* Name, int Default)
@@ -39,10 +35,10 @@ namespace
     }
 }
 
-// DAT_06fce350 (read only by FUN_06ed3f90 06ed3f97 and FUN_06ed4100 06ed411d).
+// (read only by the routine 06ed3f97 and the routine 06ed411d).
 float const GBaseNpcRepThresholds[4] = { 0.0f, 0.2f, 0.4f, 0.6f };
 
-// FUN_06ed41c0 (06ed41c0-06ed4215).
+// (06ed41c0-06ed4215).
 bool FBaseNpcBribe::Parse(INI_Reader* Reader)
 {
     if (pub::Reputation::GetReputationGroup(Group, Reader->get_value_string(0)) != 0)
@@ -54,8 +50,8 @@ bool FBaseNpcBribe::Parse(INI_Reader* Reader)
     return true;
 }
 
-// FUN_06ed4160 (06ed4160-06ed41ae). 06ed4187 calls IAT 06fb35e8 =
-// ?GetReputation@Reputation@pub@@YAHABHABIAAM@Z (result ignored). FCOMP DAT_06fb60ac
+// (06ed4160-06ed41ae). 06ed4187 calls IAT 06fb35e8 =
+// ?GetReputation@Reputation@pub@@YAHABHABIAAM@Z (result ignored). FCOMP the field
 // (0.6), TEST AH,5 / JP: not below (or unordered) -> 0; below -> 1.
 bool FBaseNpcBribe::IsOffered(FContentPlayerStateBase const* Player) const
 {
@@ -65,7 +61,7 @@ bool FBaseNpcBribe::IsOffered(FContentPlayerStateBase const* Player) const
     return Feeling < 0.6f;
 }
 
-// FUN_06ed3f90 (06ed3f90-06ed3fc0). FCOMP threshold, TEST AH,1 / JNZ: below (or
+// (06ed3f90-06ed3fc0). FCOMP threshold, TEST AH,1 / JNZ: below (or
 // unordered) -> 0.
 bool FBaseNpcKnow::IsOffered(FContentPlayerState const* Player, float Feeling) const
 {
@@ -74,7 +70,7 @@ bool FBaseNpcKnow::IsOffered(FContentPlayerState const* Player, float Feeling) c
     return Player->FindRumor(static_cast<unsigned int>(Field_0x04)) == 0;
 }
 
-// FUN_06ed3fd0 (06ed3fd0-06ed400b).
+// (06ed3fd0-06ed400b).
 bool FBaseNpcKnow::Parse(INI_Reader* Reader)
 {
     Field_0x08 = Reader->get_value_int(0);
@@ -84,10 +80,10 @@ bool FBaseNpcKnow::Parse(INI_Reader* Reader)
     return RepLevel < 4;
 }
 
-// FUN_06ed4010 (06ed4010-06ed40f5).
+// (06ed4010-06ed40f5).
 bool FBaseNpcRumor::Parse(INI_Reader* Reader)
 {
-    // Retail keeps the stage in the stack slot of the Reader argument, never
+    // baseline keeps the stage in the stack slot of the Reader argument, never
     // initialised: a name missing from the table leaves the Reader pointer bits
     // (06ed4053), and a missing second name repeats the first result (06ed409e).
     int Stage = static_cast<int>(reinterpret_cast<intptr_t>(Reader));
@@ -97,7 +93,7 @@ bool FBaseNpcRumor::Parse(INI_Reader* Reader)
     ToStage = Stage;
     RepLevel = Reader->get_value_int(2);
 
-    // 06ed40b4-06ed40ec: values 3.. into Ids until the first empty one. Retail has no
+    // values 3.. into Ids until the first empty one. baseline has no
     // bound on the 8 slots; missions\mbases.ini never gives more than one id.
     unsigned int Index = 3;
     while (!Reader->is_value_empty(Index))
@@ -108,7 +104,7 @@ bool FBaseNpcRumor::Parse(INI_Reader* Reader)
     return true;
 }
 
-// FUN_06ed4100 (06ed4100-06ed415b). Stage bounds are signed (JL / JG); the rumor test is
+// (06ed4100-06ed415b). Stage bounds are signed (JL / JG); the rumor test is
 // unsigned (CMP EAX,1 / JNC).
 int FBaseNpcRumor::GetWeight(FContentPlayerState const* Player, float Feeling) const
 {

@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "MovieWide.h"
@@ -9,7 +5,7 @@
 #include "MovieField.h"
 #include "MovieFieldMid.h"
 
-// DAT_06ae097c. Defined in MovieGraph.cpp.
+// . Defined in MovieGraph.cpp.
 extern int GMovieGraphCode;
 
 long __stdcall AddLimbs(unsigned int* Left, int LeftCount, unsigned int* Right, int RightCount, int Sum);
@@ -78,7 +74,7 @@ static unsigned int Movie_SubBorrow(unsigned int Minuend, unsigned int Subtrahen
     return (Minuend < Need) ? 1u : 0u;
 }
 
-// 0x06ac86a0
+
 // MUL, then ADD the running carry. The high half is the next carry. Count 0 returns 0.
 unsigned int __stdcall Movie_StoreScaledLimbs(int Source, unsigned int Digit, unsigned int* Dest, int Count)
 {
@@ -102,7 +98,7 @@ unsigned int __stdcall Movie_StoreScaledLimbs(int Source, unsigned int Digit, un
     return Carry;
 }
 
-// 0x06ac86f0
+
 // Count <= 2 writes the low limbs with 32-bit IMUL and drops the add carry (06ac8888).
 // Count >= 3 fills the 0x428-byte stack image: diagonal products at ESP+0x10, limb copies
 // at ESP+0x220 and ESP+0x324. Cross terms are |Li-L0|*|Rj-R0| added at a sign-adjusted index.
@@ -299,7 +295,7 @@ void __stdcall Movie_MultiplyLowLimbs(unsigned int* Left, unsigned int* Right, u
     }
 }
 
-// 0x06ac8910
+
 // The listing pairs limbs with SBB, then propagates the borrow. A cleared borrow copies
 // the untouched tail when Dest is not Left. The final borrow is 0 or 1.
 long __stdcall Movie_SubtractLimbsWide(unsigned int* Left, int LeftCount, unsigned int* Right, int RightCount, int Sum)
@@ -347,7 +343,7 @@ long __stdcall Movie_SubtractLimbsWide(unsigned int* Left, int LeftCount, unsign
     return 0;
 }
 
-// 0x06ac8a40
+
 // The longer vector is the left operand of AddLimbs. A nonzero carry becomes one more limb.
 unsigned int __stdcall Movie_AddLimbsLength(unsigned int* Left, unsigned int LeftCount, unsigned int* Right, unsigned int RightCount, int Dest)
 {
@@ -371,7 +367,7 @@ unsigned int __stdcall Movie_AddLimbsLength(unsigned int* Left, unsigned int Lef
     return Length;
 }
 
-// 0x06ac8d90
+
 // The longer vector is scaled once per limb of the shorter. Carries land at Dest[LongCount + k].
 void __stdcall Movie_MultiplySchoolbook(unsigned int* Left, unsigned int LeftCount, unsigned int* Right, unsigned int RightCount, unsigned int* Dest)
 {
@@ -411,10 +407,10 @@ void __stdcall Movie_MultiplySchoolbook(unsigned int* Left, unsigned int LeftCou
     }
 }
 
-// 0x06ac8e40
+
 // Workspace is 0x808 bytes: slots of 0x100 hold the two operands and the two coefficients,
 // the quotient sits at +0x400, and the remainder at +0x608. Status 0x27, 0x25, or 0x26.
-// 0x06ac91ab returns the gcd length without freeing the block.
+// returns the gcd length without freeing the block.
 unsigned int __stdcall Movie_ExtendedEuclidLimbs(unsigned int* OperandA, unsigned int CountA, unsigned int* OperandB, unsigned int CountB, unsigned int* Coefficient, unsigned int* QuotientOut, unsigned int* Gcd, unsigned int* Product)
 {
     unsigned int SigA;

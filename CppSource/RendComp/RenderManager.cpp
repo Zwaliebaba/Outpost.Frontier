@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "RendComp.h"
@@ -17,21 +13,21 @@
 #include <new>
 #include <utility>
 
-// Engine aggregate descriptor as FUN_06c34b90 reads it: +8 the controlling outer (the engine,
-// null when not aggregated), +0xC where the inner non-delegating IDAComponent is written back,
-// +0x14 the system container (FUN_06c32350).
+// Engine aggregate descriptor as the routine reads it: +8 the controlling outer (the engine,
+// null when not aggregated), +0xC where the inner non-delegating INeuronComponent is written back,
+// +0x14 the system container (the routine).
 struct FAggDesc18
 {
     unsigned long Size;
     const char* Name;
-    IDAComponent* Outer;
+    INeuronComponent* Outer;
     void** InnerOut;
     const char* Value;
-    IDAComponent* Parent;
+    INeuronComponent* Parent;
 };
 
-// IRenderer Slot7 flag bits (LAB_06c32a80).
-static const unsigned long kDrawPickSwitch = 0x08;     // pick the LOD by distance (FUN_06c32040)
+// IRenderer Slot7 flag bits (the branch).
+static const unsigned long kDrawPickSwitch = 0x08;     // pick the LOD by distance (the routine)
 static const unsigned long kDrawRotateOffset = 0x10;   // rotate the matrix offset by its own 3x3
 static const unsigned long kDrawConjugate = 0x20;      // matrix := World * matrix * World^-1
 static const unsigned long kDrawMatrixReady = 0x40;    // the matrix is used as given
@@ -39,8 +35,8 @@ static const unsigned long kDrawKeepCurrent = 0x80;    // draw the current LOD
 static const unsigned long kDrawNoCull = 0x100;        // skip ICamera ClassifySphere, rank 4
 static const unsigned long kDrawNoChildren = 0x2000;   // do not recurse into child instances
 
-// The archetype map (retail VC6 std::map<int, FLodSet> at +8, head +0xC, helpers FUN_06c34170 /
-// 06c34380 / 06c34ab0 / 06c2a270). Every lookup in the listing is lower_bound plus a key compare,
+// The archetype map (baseline VC6 std::map<int, FLodSet> at +8, head +0xC, helpers the routine /
+// / 06c34ab0 / 06c2a270). Every lookup in the listing is lower_bound plus a key compare,
 // i.e. find.
 typedef std::map<int, FLodSet> FArchetypeMap;
 
@@ -57,59 +53,59 @@ public:
     FRenderManager();
     ~FRenderManager();
 
-    GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override;
-    unsigned long DACOM_API AddRef() override;
-    unsigned long DACOM_API Release() override;
+    GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override;
+    unsigned long NEURONCOMPONENTS_API AddRef() override;
+    unsigned long NEURONCOMPONENTS_API Release() override;
 
-    int DACOM_API Initialize() override;
-    int DACOM_API CreateArchetype(void* Arg1, void* Arg2) override;
-    int DACOM_API DuplicateArchetype(void* Arg1, void* Arg2) override;
-    int DACOM_API DestroyArchetype(void* Arg1) override;
-    int DACOM_API QueryArchetype(void* Arg1, const char* Iid, void** Out) override;
-    int DACOM_API CreateInstance(void* Arg1, void* Arg2) override;
-    int DACOM_API DestroyInstance(void* Arg1) override;
-    int DACOM_API UpdateInstance(void* Arg1, void* Arg2) override;
-    int DACOM_API QueryInstance(void* Arg1, const char* Iid, void** Out) override;
-    int DACOM_API Notify(void* Arg1) override;
+    int NEURONCOMPONENTS_API Initialize() override;
+    int NEURONCOMPONENTS_API CreateArchetype(void* Arg1, void* Arg2) override;
+    int NEURONCOMPONENTS_API DuplicateArchetype(void* Arg1, void* Arg2) override;
+    int NEURONCOMPONENTS_API DestroyArchetype(void* Arg1) override;
+    int NEURONCOMPONENTS_API QueryArchetype(void* Arg1, const char* Iid, void** Out) override;
+    int NEURONCOMPONENTS_API CreateInstance(void* Arg1, void* Arg2) override;
+    int NEURONCOMPONENTS_API DestroyInstance(void* Arg1) override;
+    int NEURONCOMPONENTS_API UpdateInstance(void* Arg1, void* Arg2) override;
+    int NEURONCOMPONENTS_API QueryInstance(void* Arg1, const char* Iid, void** Out) override;
+    int NEURONCOMPONENTS_API Notify(void* Arg1) override;
 
-    int DACOM_API QueryGeometry(void* A, float Lod, void* C, void* D, void* E, void* F, void* G) override; // formerly Slot3
-    int DACOM_API GetBounds(void* Id, float Lod, void* Out) override; // formerly Slot4
-    int DACOM_API GetCentroid(void* Id, float Lod, void* Out) override; // formerly Slot5
-    int DACOM_API NoOp(void* A, void* B, void* C, void* D, void* E, void* F, void* G) override; // formerly Slot6
-    int DACOM_API RenderInstance(void* Camera, void* Inst, float Threshold, unsigned long Flags, void* Matrix,
+    int NEURONCOMPONENTS_API QueryGeometry(void* A, float Lod, void* C, void* D, void* E, void* F, void* G) override; // formerly Slot3
+    int NEURONCOMPONENTS_API GetBounds(void* Id, float Lod, void* Out) override; // formerly Slot4
+    int NEURONCOMPONENTS_API GetCentroid(void* Id, float Lod, void* Out) override; // formerly Slot5
+    int NEURONCOMPONENTS_API NoOp(void* A, void* B, void* C, void* D, void* E, void* F, void* G) override; // formerly Slot6
+    int NEURONCOMPONENTS_API RenderInstance(void* Camera, void* Inst, float Threshold, unsigned long Flags, void* Matrix,
                         void* Extra) override;
-    int DACOM_API GetInstanceLodCount(void* Inst, void* Out) override; // formerly Slot8
-    int DACOM_API GetInstanceCurrentLod(void* Inst, void* Out) override; // formerly Slot9
-    int DACOM_API SetInstanceLod(void* Inst, int Index) override; // formerly Slot10
-    int DACOM_API GetArchetypeLodCount(void* Id, int* Out) override; // formerly Slot11
-    int DACOM_API GetArchetypeCurrentLod(void* Id, int* Out) override; // formerly Slot12
-    int DACOM_API SetArchetypeLod(void* Id, int Index) override; // formerly Slot13
-    int DACOM_API GetArchetypeLodRange(void* Id, int Index, void* OutA, void* OutB) override; // formerly Slot14
-    int DACOM_API SetArchetypeLodRange(void* Id, int Index, float A, float B) override; // formerly Slot15
-    int DACOM_API GetInstanceLodRange(void* Inst, int Index, void* OutA, void* OutB) override; // formerly Slot16
-    int DACOM_API SetInstanceLodRange(void* Inst, int Index, float A, float B) override; // formerly Slot17
-    int DACOM_API QueryGeometryAtLod(void* A, void* B, void* C, void* D, void* E, void* F, void* G) override; // formerly Slot18
-    int DACOM_API SetArchetypeRootLodSelection(void* Id, void* Unused, unsigned long Flags) override; // formerly Slot19
-    int DACOM_API SetInstanceRootLodSelection(void* Id, void* A, void* B) override; // formerly Slot20
-    int DACOM_API GetArchetypeRootLodSelection(void* Key, void* Unused, unsigned long* Out) override; // formerly Slot21
-    int DACOM_API GetInstanceRootLodSelection(void* Id, void* A, void* B) override; // formerly Slot22
+    int NEURONCOMPONENTS_API GetInstanceLodCount(void* Inst, void* Out) override; // formerly Slot8
+    int NEURONCOMPONENTS_API GetInstanceCurrentLod(void* Inst, void* Out) override; // formerly Slot9
+    int NEURONCOMPONENTS_API SetInstanceLod(void* Inst, int Index) override; // formerly Slot10
+    int NEURONCOMPONENTS_API GetArchetypeLodCount(void* Id, int* Out) override; // formerly Slot11
+    int NEURONCOMPONENTS_API GetArchetypeCurrentLod(void* Id, int* Out) override; // formerly Slot12
+    int NEURONCOMPONENTS_API SetArchetypeLod(void* Id, int Index) override; // formerly Slot13
+    int NEURONCOMPONENTS_API GetArchetypeLodRange(void* Id, int Index, void* OutA, void* OutB) override; // formerly Slot14
+    int NEURONCOMPONENTS_API SetArchetypeLodRange(void* Id, int Index, float A, float B) override; // formerly Slot15
+    int NEURONCOMPONENTS_API GetInstanceLodRange(void* Inst, int Index, void* OutA, void* OutB) override; // formerly Slot16
+    int NEURONCOMPONENTS_API SetInstanceLodRange(void* Inst, int Index, float A, float B) override; // formerly Slot17
+    int NEURONCOMPONENTS_API QueryGeometryAtLod(void* A, void* B, void* C, void* D, void* E, void* F, void* G) override; // formerly Slot18
+    int NEURONCOMPONENTS_API SetArchetypeRootLodSelection(void* Id, void* Unused, unsigned long Flags) override; // formerly Slot19
+    int NEURONCOMPONENTS_API SetInstanceRootLodSelection(void* Id, void* A, void* B) override; // formerly Slot20
+    int NEURONCOMPONENTS_API GetArchetypeRootLodSelection(void* Key, void* Unused, unsigned long* Out) override; // formerly Slot21
+    int NEURONCOMPONENTS_API GetInstanceRootLodSelection(void* Id, void* A, void* B) override; // formerly Slot22
 
-    // Non-delegating inner IDAComponent (retail this+0x34, vtable PTR_LAB_06c368b0:
-    // LAB_06c34cb0 / LAB_06c306b0 / LAB_06c34d70). The engine keeps this one in its component
+    // Non-delegating inner INeuronComponent (baseline this+0x34, vtable the branch:
+    // / the branch / the branch). The engine keeps this one in its component
     // list; the outer interfaces above forward QI/AddRef/Release to Outer.
-    struct FInner : public IDAComponent
+    struct FInner : public INeuronComponent
     {
         unsigned long RefCount; // +0x38
         FRenderManager* Owner;  // +0x3C
 
-        GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override;
-        unsigned long DACOM_API AddRef() override;
-        unsigned long DACOM_API Release() override;
+        GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override;
+        unsigned long NEURONCOMPONENTS_API AddRef() override;
+        unsigned long NEURONCOMPONENTS_API Release() override;
     };
 
     FArchetypeMap Archetypes; // +0x08
-    IDAComponent* Parent;     // +0x28, FUN_06c32350 from AGGDESC+0x14
-    IDAComponent* Outer;      // +0x30, AGGDESC+8, or &Inner when not aggregated
+    INeuronComponent* Parent;     // +0x28, the routine from AGGDESC+0x14
+    INeuronComponent* Outer;      // +0x30, AGGDESC+8, or &Inner when not aggregated
     FInner Inner;             // +0x34
     unsigned char bPluginsLoaded;
     FPluginNode PluginSentinel;
@@ -123,8 +119,8 @@ public:
     int SetParentFromDesc(FAggDesc18* Desc);
 };
 
-// FUN_06c31f30: drop both arrays, then CurrentLod = 0 and LodCount = Count; a non-zero Count
-// gets Count entries seeded {-1, 0} (FUN_06c31e40) and Count + 1 switch floats. Retail leaves
+// drop both arrays, then CurrentLod = 0 and LodCount = Count; a non-zero Count
+// gets Count entries seeded {-1, 0} (the routine) and Count + 1 switch floats. baseline leaves
 // the switch floats uninitialised (operator new); the port's vector zero-fills them.
 void LodSetResize(FLodSet& Set, int Count)
 {
@@ -141,7 +137,7 @@ void LodSetResize(FLodSet& Set, int Count)
     Set.Switch.assign((size_t)Count + 1, 0.0f);
 }
 
-// FUN_06c31eb0: resize to the source's count, copy every entry and switch value (the last
+// resize to the source's count, copy every entry and switch value (the last
 // switch value too, only when the count is positive), then the flag byte.
 void LodSetAssign(FLodSet& Dest, const FLodSet& Src)
 {
@@ -160,7 +156,7 @@ void LodSetAssign(FLodSet& Dest, const FLodSet& Src)
     Dest.bFlag = Src.bFlag;
 }
 
-// FUN_06c32040: Distance < 0 (ordered) -> none. Otherwise the first LOD whose upper switch value
+// Distance < 0 (ordered) -> none. Otherwise the first LOD whose upper switch value
 // Switch[i + 1] is >= Distance (FCOMP + TEST AH,1 + JZ: C0 clear, an unordered compare never
 // matches); none -> null.
 FLodEntry* LodSetPick(FLodSet& Set, float Distance)
@@ -175,7 +171,7 @@ FLodEntry* LodSetPick(FLodSet& Set, float Distance)
     return nullptr;
 }
 
-// FUN_06c32090 (+ the inner seed FUN_06c34b90 writes @ 06c34c00..06c34c10). DAT_06c37d4c
+// (+ the inner seed the routine writes @ 06c34c00..06c34c10). the field
 // (G_Engine) is zeroed here; it is a borrowed pointer, see Initialize.
 FRenderManager::FRenderManager()
     : Parent(nullptr)
@@ -219,19 +215,19 @@ FRenderManager::~FRenderManager()
     UnloadPlugins();
 }
 
-// Outer IEngineComponent / IRenderer2 IUnknown: FUN_06c34db0 / 06c34dc0 / 06c34dd0 and the
-// IRenderer2 thunks LAB_06c34e30 / 40 / 50 forward to the controlling outer at +0x30.
-GENRESULT DACOM_API FRenderManager::QueryInterface(const char* Iid, void** Out)
+// Outer IEngineComponent / IRenderer2 IUnknown: the routine / 06c34dc0 / 06c34dd0 and the
+// IRenderer2 thunks the branch / 40 / 50 forward to the controlling outer at +0x30.
+GENRESULT NEURONCOMPONENTS_API FRenderManager::QueryInterface(const char* Iid, void** Out)
 {
     return Outer->QueryInterface(Iid, Out);
 }
 
-unsigned long DACOM_API FRenderManager::AddRef()
+unsigned long NEURONCOMPONENTS_API FRenderManager::AddRef()
 {
     return Outer->AddRef();
 }
 
-unsigned long DACOM_API FRenderManager::Release()
+unsigned long NEURONCOMPONENTS_API FRenderManager::Release()
 {
     return Outer->Release();
 }
@@ -251,13 +247,13 @@ static const FRenderManagerIidEntry G_RenderManagerIidMap[] = {
     {nullptr, 0},
 };
 
-GENRESULT DACOM_API FRenderManager::FInner::QueryInterface(const char* Iid, void** Out)
+GENRESULT NEURONCOMPONENTS_API FRenderManager::FInner::QueryInterface(const char* Iid, void** Out)
 {
     for (int Index = 0; G_RenderManagerIidMap[Index].Iid != nullptr; ++Index)
     {
         if (std::strcmp(G_RenderManagerIidMap[Index].Iid, Iid) != 0)
             continue;
-        IDAComponent* Found = nullptr;
+        INeuronComponent* Found = nullptr;
         if (G_RenderManagerIidMap[Index].bRenderer != 0)
             Found = (IRenderer2*)Owner;
         else
@@ -270,16 +266,16 @@ GENRESULT DACOM_API FRenderManager::FInner::QueryInterface(const char* Iid, void
     return GR_INTERFACE_UNSUPPORTED;
 }
 
-// LAB_06c306b0 (shared with the factory vtable 06c367e8).
-unsigned long DACOM_API FRenderManager::FInner::AddRef()
+// (shared with the factory vtable 06c367e8).
+unsigned long NEURONCOMPONENTS_API FRenderManager::FInner::AddRef()
 {
     RefCount += 1;
     return RefCount;
 }
 
-// LAB_06c34d70: decrement if non-zero; on zero pin the count at 1 for the teardown, destroy
-// the owner (FUN_06c32130 + free) and return 0.
-unsigned long DACOM_API FRenderManager::FInner::Release()
+// decrement if non-zero; on zero pin the count at 1 for the teardown, destroy
+// the owner (the routine + free) and return 0.
+unsigned long NEURONCOMPONENTS_API FRenderManager::FInner::Release()
 {
     if (RefCount > 0)
         RefCount -= 1;
@@ -291,9 +287,9 @@ unsigned long DACOM_API FRenderManager::FInner::Release()
     return 0;
 }
 
-// FUN_06c33bf0: Release every plugin (no null test), then unlink and free every node,
+// Release every plugin (no null test), then unlink and free every node,
 // counting down; the loaded flag goes back to 0. Callers: the dtor (06c3225f) and a reload
-// in FUN_06c33a10 (06c33a22).
+// in the routine (06c33a22).
 int FRenderManager::UnloadPlugins()
 {
     FPluginNode* Walk = PluginSentinel.Next;
@@ -321,9 +317,9 @@ int FRenderManager::LoadPlugins()
     if (bPluginsLoaded != 0)
         UnloadPlugins();
     IProfileParser* Parser = nullptr;
-    if (DACOM_Acquire()->QueryInterface(Iids::ProfileParser, (void**)(&Parser)) < 0)
+    if (NEURONCOMPONENTS_Acquire()->QueryInterface(Iids::ProfileParser, (void**)(&Parser)) < 0)
     {
-        // 06c37c10: the retail message ends in "\n" (unlike the section-not-found one below).
+        // the baseline message ends in "\n" (unlike the section-not-found one below).
         RendCompFdumpAt(kFdumpWarning, G_FileRenderMgr, 0x563,
                         "RenderMgr: load_engine_components: unable to acquire IID_IProfileParser\n");
         ReleaseIf(Parser);
@@ -350,16 +346,16 @@ int FRenderManager::LoadPlugins()
                 Cut += 1;
             *Cut = '\0';
 
-            // 06c33a39 / 06c33b28..06c33b38.
+            // / 06c33b28..06c33b38.
             FRenderPluginDesc Desc;
             Desc.Size = 0x10;
             Desc.Name = Line;
             Desc.Parent = Parent;
             Desc.Engine = G_Engine;
             void* Child = nullptr;
-            if (DACOM_Acquire()->CreateInstance((AGGDESC*)(&Desc), &Child) >= 0)
+            if (NEURONCOMPONENTS_Acquire()->CreateInstance((AGGDESC*)(&Desc), &Child) >= 0)
             {
-                // 06c33b5a..06c33b92: push_back, the value copied as is (FUN_06c27640).
+                // push_back, the value copied as is (the routine).
                 FPluginNode* Node = new FPluginNode();
                 Node->Plugin = (IRenderComponent*)Child;
                 Node->Next = &PluginSentinel;
@@ -377,7 +373,7 @@ int FRenderManager::LoadPlugins()
     return 0;
 }
 
-int DACOM_API FRenderManager::Initialize()
+int NEURONCOMPONENTS_API FRenderManager::Initialize()
 {
     if (Parent == nullptr)
         return -1;
@@ -438,7 +434,7 @@ int FRenderManager::MultiLevel(int Id, void* FileArg)
     {
         const unsigned long Bytes = Child->GetSize((unsigned long)SwitchHandle, 0);
         SwitchCount = Bytes >> 2;
-        // Retail allocates Bytes / 4 * 4 and reads Bytes (06c33d74..06c33d9d).
+        // baseline allocates Bytes / 4 * 4 and reads Bytes (06c33d74..06c33d9d).
         SwitchData = (float*)new unsigned char[SwitchCount * sizeof(float)];
         unsigned long ReadOut = 0;
         if (Child->Read((unsigned long)SwitchHandle, SwitchData, Bytes, &ReadOut, 0) == 0)
@@ -514,7 +510,7 @@ int FRenderManager::MultiLevel(int Id, void* FileArg)
     return 0;
 }
 
-// FUN_06c33fe0 (thiscall, RET 8: Id, File). The archetype's set must be in the map (else -1).
+// (thiscall, RET 8: Id, File). The archetype's set must be in the map (else -1).
 // The first plugin in list order whose Claim (+0xC) is not -1 becomes the only LOD: one entry
 // {handle, plugin}, switch {0, 1e6} (0x49742400). No claimant -> -1.
 int FRenderManager::WalkPlugins(int Id, void* File)
@@ -538,10 +534,10 @@ int FRenderManager::WalkPlugins(int Id, void* File)
     return -1;
 }
 
-// LAB_06c32520 (IEngineComponent slot 4, RET 0xC: Id, File). An empty set is inserted under Id;
+// (IEngineComponent slot 4, RET 0xC: Id, File). An empty set is inserted under Id;
 // an Id already present -> 0. MultiLevel, then the single-LOD plugin walk; either succeeding ->
 // 1. Both failing erase the entry again -> 0.
-int DACOM_API FRenderManager::CreateArchetype(void* Arg1, void* Arg2)
+int NEURONCOMPONENTS_API FRenderManager::CreateArchetype(void* Arg1, void* Arg2)
 {
     const int Id = ArchetypeKey(Arg1);
     std::pair<FArchetypeMap::iterator, bool> Inserted =
@@ -556,7 +552,7 @@ int DACOM_API FRenderManager::CreateArchetype(void* Arg1, void* Arg2)
     return 0;
 }
 
-int DACOM_API FRenderManager::DuplicateArchetype(void* Arg1, void* Arg2)
+int NEURONCOMPONENTS_API FRenderManager::DuplicateArchetype(void* Arg1, void* Arg2)
 {
     FArchetypeMap::iterator Source = Archetypes.find(ArchetypeKey(Arg2));
     if (Source == Archetypes.end())
@@ -577,10 +573,10 @@ int DACOM_API FRenderManager::DuplicateArchetype(void* Arg1, void* Arg2)
     return 0;
 }
 
-// LAB_06c327a0 (IEngineComponent slot 6, RET 8: Id). Missing -> nothing. Every LOD handle goes to
-// its plugin's DestroyHandle (+0x14), then the map entry is erased. Retail returns EAX as left by
+// (IEngineComponent slot 6, RET 8: Id). Missing -> nothing. Every LOD handle goes to
+// its plugin's DestroyHandle (+0x14), then the map entry is erased. baseline returns EAX as left by
 // the erase helper; the port returns 0.
-int DACOM_API FRenderManager::DestroyArchetype(void* Arg1)
+int NEURONCOMPONENTS_API FRenderManager::DestroyArchetype(void* Arg1)
 {
     FArchetypeMap::iterator Found = Archetypes.find(ArchetypeKey(Arg1));
     if (Found == Archetypes.end())
@@ -593,7 +589,7 @@ int DACOM_API FRenderManager::DestroyArchetype(void* Arg1)
     return 0;
 }
 
-int DACOM_API FRenderManager::QueryArchetype(void* Arg1, const char* Iid, void** Out)
+int NEURONCOMPONENTS_API FRenderManager::QueryArchetype(void* Arg1, const char* Iid, void** Out)
 {
     FLodSet* Set = FindSet(ArchetypeKey(Arg1));
     if (Set == nullptr)
@@ -607,7 +603,7 @@ int DACOM_API FRenderManager::QueryArchetype(void* Arg1, const char* Iid, void**
     return Entry.Plugin->QueryHandle(Entry.Handle, Iid, Out);
 }
 
-int DACOM_API FRenderManager::CreateInstance(void* Arg1, void* Arg2)
+int NEURONCOMPONENTS_API FRenderManager::CreateInstance(void* Arg1, void* Arg2)
 {
     FLodSet* Set = FindSet(ArchetypeKey(Arg2));
     if (Set == nullptr)
@@ -624,7 +620,7 @@ int DACOM_API FRenderManager::CreateInstance(void* Arg1, void* Arg2)
     return 1;
 }
 
-int DACOM_API FRenderManager::DestroyInstance(void* Arg1)
+int NEURONCOMPONENTS_API FRenderManager::DestroyInstance(void* Arg1)
 {
     void* Arch = G_Engine->GetInstanceArchetype(Arg1);
     if (Arch == kNoArchetype)
@@ -639,15 +635,15 @@ int DACOM_API FRenderManager::DestroyInstance(void* Arg1)
     return 0;
 }
 
-// LAB_06c32a40 (IEngineComponent slot 10): every plugin's Slot9 (+0x24) with both arguments.
-int DACOM_API FRenderManager::UpdateInstance(void* Arg1, void* Arg2)
+// (IEngineComponent slot 10): every plugin's Slot9 (+0x24) with both arguments.
+int NEURONCOMPONENTS_API FRenderManager::UpdateInstance(void* Arg1, void* Arg2)
 {
     for (FPluginNode* Walk = PluginSentinel.Next; Walk != &PluginSentinel; Walk = Walk->Next)
         Walk->Plugin->UpdateMeshInstance(Arg1, Arg2);
     return 0;
 }
 
-int DACOM_API FRenderManager::QueryInstance(void* Arg1, const char* Iid, void** Out)
+int NEURONCOMPONENTS_API FRenderManager::QueryInstance(void* Arg1, const char* Iid, void** Out)
 {
     void* Arch = G_Engine->GetInstanceArchetype(Arg1);
     if (Arch == kNoArchetype)
@@ -665,8 +661,8 @@ int DACOM_API FRenderManager::QueryInstance(void* Arg1, const char* Iid, void** 
     return Entry.Plugin->QueryMeshInstance(Arg1, Entry.Handle, Iid, Out);
 }
 
-// LAB_06c324f0 (IEngineComponent slot 12): every plugin's Slot11 (+0x2c) with the argument.
-int DACOM_API FRenderManager::Notify(void* Arg1)
+// (IEngineComponent slot 12): every plugin's Slot11 (+0x2c) with the argument.
+int NEURONCOMPONENTS_API FRenderManager::Notify(void* Arg1)
 {
     for (FPluginNode* Walk = PluginSentinel.Next; Walk != &PluginSentinel; Walk = Walk->Next)
         Walk->Plugin->UpdateMeshInstances(Arg1);
@@ -674,7 +670,7 @@ int DACOM_API FRenderManager::Notify(void* Arg1)
 }
 
 // formerly Slot3
-int DACOM_API FRenderManager::QueryGeometry(void* A, float Lod, void* C, void* D, void* E, void* F, void* G)
+int NEURONCOMPONENTS_API FRenderManager::QueryGeometry(void* A, float Lod, void* C, void* D, void* E, void* F, void* G)
 {
     FLodSet* Set = FindSet(ArchetypeKey(A));
     if (Set == nullptr)
@@ -687,10 +683,10 @@ int DACOM_API FRenderManager::QueryGeometry(void* A, float Lod, void* C, void* D
     return Entry->Plugin->QueryGeometry(Entry->Handle, LodBits, C, D, E, F, G) & 0xFF;
 }
 
-// LAB_06c33350 (IRenderer slot 4, RET 0x10). Archetype missing or no LOD for Lod -> 0; else the
+// (IRenderer slot 4, RET 0x10). Archetype missing or no LOD for Lod -> 0; else the
 // LOD's plugin Slot13 (+0x34)(Handle, Lod, Out), low byte.
 // formerly Slot4
-int DACOM_API FRenderManager::GetBounds(void* Id, float Lod, void* Out)
+int NEURONCOMPONENTS_API FRenderManager::GetBounds(void* Id, float Lod, void* Out)
 {
     FLodSet* Set = FindSet(ArchetypeKey(Id));
     if (Set == nullptr)
@@ -701,9 +697,9 @@ int DACOM_API FRenderManager::GetBounds(void* Id, float Lod, void* Out)
     return Entry->Plugin->GetBounds(Entry->Handle, Lod, Out) & 0xFF;
 }
 
-// LAB_06c333d0 (IRenderer slot 5, RET 0x10). As slot 4 with the plugin's Slot14 (+0x38).
+// (IRenderer slot 5, RET 0x10). As slot 4 with the plugin's Slot14 (+0x38).
 // formerly Slot5
-int DACOM_API FRenderManager::GetCentroid(void* Id, float Lod, void* Out)
+int NEURONCOMPONENTS_API FRenderManager::GetCentroid(void* Id, float Lod, void* Out)
 {
     FLodSet* Set = FindSet(ArchetypeKey(Id));
     if (Set == nullptr)
@@ -714,16 +710,16 @@ int DACOM_API FRenderManager::GetCentroid(void* Id, float Lod, void* Out)
     return Entry->Plugin->GetCentroid(Entry->Handle, Lod, Out) & 0xFF;
 }
 
-// LAB_06c33450: XOR EAX,EAX; RET 0x20.
+// XOR EAX,EAX; RET 0x20.
 // formerly Slot6
-int DACOM_API FRenderManager::NoOp(void* /*A*/, void* /*B*/, void* /*C*/, void* /*D*/, void* /*E*/, void* /*F*/,
+int NEURONCOMPONENTS_API FRenderManager::NoOp(void* /*A*/, void* /*B*/, void* /*C*/, void* /*D*/, void* /*E*/, void* /*F*/,
                                     void* /*G*/)
 {
     return 0;
 }
 
 // formerly Slot7
-int DACOM_API FRenderManager::RenderInstance(void* CameraArg, void* Inst, float Threshold, unsigned long Flags,
+int NEURONCOMPONENTS_API FRenderManager::RenderInstance(void* CameraArg, void* Inst, float Threshold, unsigned long Flags,
                                     void* MatrixArg, void* Extra)
 {
     if (Threshold < 0.0f)
@@ -875,10 +871,10 @@ int DACOM_API FRenderManager::RenderInstance(void* CameraArg, void* Inst, float 
     return Rank;
 }
 
-// LAB_06c33460 (IRenderer slot 8, RET 0xC). Instance archetype (IEngine +0x64, -1 -> -1,
+// (IRenderer slot 8, RET 0xC). Instance archetype (IEngine +0x64, -1 -> -1,
 // ReleaseHandle +0x3c) forwarded to slot 11 (+0x2c): the LOD count.
 // formerly Slot8
-int DACOM_API FRenderManager::GetInstanceLodCount(void* Inst, void* Out)
+int NEURONCOMPONENTS_API FRenderManager::GetInstanceLodCount(void* Inst, void* Out)
 {
     void* Arch = G_Engine->GetInstanceArchetype(Inst);
     if (Arch == kNoArchetype)
@@ -887,9 +883,9 @@ int DACOM_API FRenderManager::GetInstanceLodCount(void* Inst, void* Out)
     return GetArchetypeLodCount(Arch, (int*)Out);
 }
 
-// LAB_06c334b0 (IRenderer slot 9, RET 0xC). As slot 8, forwarded to slot 12 (+0x30).
+// (IRenderer slot 9, RET 0xC). As slot 8, forwarded to slot 12 (+0x30).
 // formerly Slot9
-int DACOM_API FRenderManager::GetInstanceCurrentLod(void* Inst, void* Out)
+int NEURONCOMPONENTS_API FRenderManager::GetInstanceCurrentLod(void* Inst, void* Out)
 {
     void* Arch = G_Engine->GetInstanceArchetype(Inst);
     if (Arch == kNoArchetype)
@@ -899,7 +895,7 @@ int DACOM_API FRenderManager::GetInstanceCurrentLod(void* Inst, void* Out)
 }
 
 // formerly Slot10
-int DACOM_API FRenderManager::SetInstanceLod(void* Inst, int Index)
+int NEURONCOMPONENTS_API FRenderManager::SetInstanceLod(void* Inst, int Index)
 {
     void* Arch = G_Engine->GetInstanceArchetype(Inst);
     if (Arch == kNoArchetype)
@@ -922,9 +918,9 @@ int DACOM_API FRenderManager::SetInstanceLod(void* Inst, int Index)
     return Result;
 }
 
-// LAB_06c335b0 (IRenderer slot 11, RET 0xC): set missing -> -1; *Out = LodCount, 0.
+// (IRenderer slot 11, RET 0xC): set missing -> -1; *Out = LodCount, 0.
 // formerly Slot11
-int DACOM_API FRenderManager::GetArchetypeLodCount(void* Id, int* Out)
+int NEURONCOMPONENTS_API FRenderManager::GetArchetypeLodCount(void* Id, int* Out)
 {
     FLodSet* Set = FindSet(ArchetypeKey(Id));
     if (Set == nullptr)
@@ -933,9 +929,9 @@ int DACOM_API FRenderManager::GetArchetypeLodCount(void* Id, int* Out)
     return 0;
 }
 
-// LAB_06c33610 (IRenderer slot 12, RET 0xC): set missing -> -1; *Out = CurrentLod, 0.
+// (IRenderer slot 12, RET 0xC): set missing -> -1; *Out = CurrentLod, 0.
 // formerly Slot12
-int DACOM_API FRenderManager::GetArchetypeCurrentLod(void* Id, int* Out)
+int NEURONCOMPONENTS_API FRenderManager::GetArchetypeCurrentLod(void* Id, int* Out)
 {
     FLodSet* Set = FindSet(ArchetypeKey(Id));
     if (Set == nullptr)
@@ -944,10 +940,10 @@ int DACOM_API FRenderManager::GetArchetypeCurrentLod(void* Id, int* Out)
     return 0;
 }
 
-// LAB_06c33670 (IRenderer slot 13, RET 0xC): set missing or Index > LodCount (signed) -> -1;
+// (IRenderer slot 13, RET 0xC): set missing or Index > LodCount (signed) -> -1;
 // CurrentLod = Index, 0.
 // formerly Slot13
-int DACOM_API FRenderManager::SetArchetypeLod(void* Id, int Index)
+int NEURONCOMPONENTS_API FRenderManager::SetArchetypeLod(void* Id, int Index)
 {
     FLodSet* Set = FindSet(ArchetypeKey(Id));
     if (Set == nullptr || Index > Set->LodCount)
@@ -956,10 +952,10 @@ int DACOM_API FRenderManager::SetArchetypeLod(void* Id, int Index)
     return 0;
 }
 
-// LAB_06c33780 (IRenderer slot 14, RET 0x14): set missing or Index >= LodCount -> -1;
+// (IRenderer slot 14, RET 0x14): set missing or Index >= LodCount -> -1;
 // *OutA = Switch[Index], *OutB = Switch[Index + 1], 0.
 // formerly Slot14
-int DACOM_API FRenderManager::GetArchetypeLodRange(void* Id, int Index, void* OutA, void* OutB)
+int NEURONCOMPONENTS_API FRenderManager::GetArchetypeLodRange(void* Id, int Index, void* OutA, void* OutB)
 {
     FLodSet* Set = FindSet(ArchetypeKey(Id));
     if (Set == nullptr || Index >= Set->LodCount)
@@ -969,10 +965,10 @@ int DACOM_API FRenderManager::GetArchetypeLodRange(void* Id, int Index, void* Ou
     return 0;
 }
 
-// LAB_06c33800 (IRenderer slot 15, RET 0x14): A > B or unordered (TEST AH,0x41 + JP) -> -1; set
+// (IRenderer slot 15, RET 0x14): A > B or unordered (TEST AH,0x41 + JP) -> -1; set
 // missing or Index >= LodCount -> -1; Switch[Index] = A, Switch[Index + 1] = B, 0.
 // formerly Slot15
-int DACOM_API FRenderManager::SetArchetypeLodRange(void* Id, int Index, float A, float B)
+int NEURONCOMPONENTS_API FRenderManager::SetArchetypeLodRange(void* Id, int Index, float A, float B)
 {
     if (!(A <= B))
         return -1;
@@ -984,9 +980,9 @@ int DACOM_API FRenderManager::SetArchetypeLodRange(void* Id, int Index, float A,
     return 0;
 }
 
-// LAB_06c336e0 (IRenderer slot 16, RET 0x14): instance archetype as slot 8, forwarded to slot 14.
+// (IRenderer slot 16, RET 0x14): instance archetype as slot 8, forwarded to slot 14.
 // formerly Slot16
-int DACOM_API FRenderManager::GetInstanceLodRange(void* Inst, int Index, void* OutA, void* OutB)
+int NEURONCOMPONENTS_API FRenderManager::GetInstanceLodRange(void* Inst, int Index, void* OutA, void* OutB)
 {
     void* Arch = G_Engine->GetInstanceArchetype(Inst);
     if (Arch == kNoArchetype)
@@ -995,9 +991,9 @@ int DACOM_API FRenderManager::GetInstanceLodRange(void* Inst, int Index, void* O
     return GetArchetypeLodRange(Arch, Index, OutA, OutB);
 }
 
-// LAB_06c33730 (IRenderer slot 17, RET 0x14): instance archetype as slot 8, forwarded to slot 15.
+// (IRenderer slot 17, RET 0x14): instance archetype as slot 8, forwarded to slot 15.
 // formerly Slot17
-int DACOM_API FRenderManager::SetInstanceLodRange(void* Inst, int Index, float A, float B)
+int NEURONCOMPONENTS_API FRenderManager::SetInstanceLodRange(void* Inst, int Index, float A, float B)
 {
     void* Arch = G_Engine->GetInstanceArchetype(Inst);
     if (Arch == kNoArchetype)
@@ -1006,10 +1002,10 @@ int DACOM_API FRenderManager::SetInstanceLodRange(void* Inst, int Index, float A
     return SetArchetypeLodRange(Arch, Index, A, B);
 }
 
-// LAB_06c332b0 (IRenderer slot 18, RET 0x20): set missing or B >= LodCount (signed) -> 0;
+// (IRenderer slot 18, RET 0x20): set missing or B >= LodCount (signed) -> 0;
 // else LOD B's plugin Slot12 (+0x30) with (Handle, 1.0f bits, C, D, E, F, G), low byte.
 // formerly Slot18
-int DACOM_API FRenderManager::QueryGeometryAtLod(void* A, void* B, void* C, void* D, void* E, void* F, void* G)
+int NEURONCOMPONENTS_API FRenderManager::QueryGeometryAtLod(void* A, void* B, void* C, void* D, void* E, void* F, void* G)
 {
     FLodSet* Set = FindSet(ArchetypeKey(A));
     if (Set == nullptr)
@@ -1021,10 +1017,10 @@ int DACOM_API FRenderManager::QueryGeometryAtLod(void* A, void* B, void* C, void
     return Entry.Plugin->QueryGeometry(Entry.Handle, 0x3f800000, C, D, E, F, G) & 0xFF;
 }
 
-// FUN_06c33890 (IRenderer slot 19, RET 0x10): set missing -> -1; flag byte = bit 0 of the low
+// (IRenderer slot 19, RET 0x10): set missing -> -1; flag byte = bit 0 of the low
 // byte of Flags, 0.
 // formerly Slot19
-int DACOM_API FRenderManager::SetArchetypeRootLodSelection(void* Id, void* /*Unused*/, unsigned long Flags)
+int NEURONCOMPONENTS_API FRenderManager::SetArchetypeRootLodSelection(void* Id, void* /*Unused*/, unsigned long Flags)
 {
     FLodSet* Set = FindSet(ArchetypeKey(Id));
     if (Set == nullptr)
@@ -1033,9 +1029,9 @@ int DACOM_API FRenderManager::SetArchetypeRootLodSelection(void* Id, void* /*Unu
     return 0;
 }
 
-// LAB_06c33900 (IRenderer slot 20, RET 0x10): instance archetype as slot 8, forwarded to slot 19.
+// (IRenderer slot 20, RET 0x10): instance archetype as slot 8, forwarded to slot 19.
 // formerly Slot20
-int DACOM_API FRenderManager::SetInstanceRootLodSelection(void* Id, void* A, void* B)
+int NEURONCOMPONENTS_API FRenderManager::SetInstanceRootLodSelection(void* Id, void* A, void* B)
 {
     void* Arch = G_Engine->GetInstanceArchetype(Id);
     if (Arch == kNoArchetype)
@@ -1044,10 +1040,10 @@ int DACOM_API FRenderManager::SetInstanceRootLodSelection(void* Id, void* A, voi
     return SetArchetypeRootLodSelection(Arch, A, (unsigned long)((uintptr_t)B));
 }
 
-// LAB_06c33950 (IRenderer slot 21, RET 0x10): *Out = 0 first; set missing -> -1; flag on ->
+// (IRenderer slot 21, RET 0x10): *Out = 0 first; set missing -> -1; flag on ->
 // *Out |= 1; 0.
 // formerly Slot21
-int DACOM_API FRenderManager::GetArchetypeRootLodSelection(void* Key, void* /*Unused*/, unsigned long* Out)
+int NEURONCOMPONENTS_API FRenderManager::GetArchetypeRootLodSelection(void* Key, void* /*Unused*/, unsigned long* Out)
 {
     *Out = 0;
     FLodSet* Set = FindSet(ArchetypeKey(Key));
@@ -1058,9 +1054,9 @@ int DACOM_API FRenderManager::GetArchetypeRootLodSelection(void* Key, void* /*Un
     return 0;
 }
 
-// LAB_06c339c0 (IRenderer slot 22, RET 0x10): instance archetype as slot 8, forwarded to slot 21.
+// (IRenderer slot 22, RET 0x10): instance archetype as slot 8, forwarded to slot 21.
 // formerly Slot22
-int DACOM_API FRenderManager::GetInstanceRootLodSelection(void* Id, void* A, void* B)
+int NEURONCOMPONENTS_API FRenderManager::GetInstanceRootLodSelection(void* Id, void* A, void* B)
 {
     void* Arch = G_Engine->GetInstanceArchetype(Id);
     if (Arch == kNoArchetype)
@@ -1069,7 +1065,7 @@ int DACOM_API FRenderManager::GetInstanceRootLodSelection(void* Id, void* A, voi
     return GetArchetypeRootLodSelection(Arch, A, (unsigned long*)B);
 }
 
-// FUN_06c32350: the system container from AGGDESC+0x14, AddRef'd; none -> -2.
+// the system container from AGGDESC+0x14, AddRef'd; none -> -2.
 int FRenderManager::SetParentFromDesc(FAggDesc18* Desc)
 {
     if (Desc == nullptr || Desc->Parent == nullptr)
@@ -1079,7 +1075,7 @@ int FRenderManager::SetParentFromDesc(FAggDesc18* Desc)
     return GR_OK;
 }
 
-GENRESULT DACOM_API RenderManagerFactoryCreate(FDacomFactory* This, AGGDESC* Desc, void** Out)
+GENRESULT NEURONCOMPONENTS_API RenderManagerFactoryCreate(FNeuronComponentsFactory* This, AGGDESC* Desc, void** Out)
 {
     FAggDesc18* Extended = (FAggDesc18*)Desc;
     if (Extended->Size != 0x18 || std::strcmp(Extended->Name, This->Name) != 0)
@@ -1096,7 +1092,7 @@ GENRESULT DACOM_API RenderManagerFactoryCreate(FDacomFactory* This, AGGDESC* Des
     }
     Object->Outer = Extended->Outer;
     if (Object->Outer != nullptr)
-        *Extended->InnerOut = (IDAComponent*)(&Object->Inner);
+        *Extended->InnerOut = (INeuronComponent*)(&Object->Inner);
     else
         Object->Outer = &Object->Inner;
 

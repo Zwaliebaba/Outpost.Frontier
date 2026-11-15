@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "effect_type_list.h"
@@ -52,7 +48,7 @@ namespace
 
 void EffectTypeBucketPushFront(FEffectTypeBucket* Bucket, void* Node)
 {
-    // FUN_004fc920(this=Bucket, Node): only the node is tested (004fc924).
+    // (this=Bucket, Node): only the node is tested (004fc924).
     if (Node == nullptr)
         return;
 
@@ -72,7 +68,7 @@ void EffectTypeBucketPushFront(FEffectTypeBucket* Bucket, void* Node)
 
 void EffectTypeListLink(void* Effect)
 {
-    // FUN_004f7af0 (thiscall on the effect; no null test, no range test on the type id).
+    // (thiscall on the effect; no null test, no range test on the type id).
     if (*EffectLinkSelf(Effect) != nullptr)
         return;
     if ((*EffectFlags(Effect) & 2u) != 0)
@@ -88,8 +84,8 @@ void EffectTypeListLink(void* Effect)
 
 void EffectTypeListUnlinkAndRelease(void* Effect)
 {
-    // The sequence retail writes out at 0x004f7910 (bucket walk), 0x004f716a (FUN_004f7140) and
-    // 0x004f73ea (FUN_004f73c0): only a linked effect is touched; +0x68 is cleared FIRST, the
+    // The sequence baseline writes out at 0x004f7910 (bucket walk), 0x004f716a (the routine) and
+    // (the routine): only a linked effect is touched; +0x68 is cleared FIRST, the
     // +0x60 node is unlinked from bucket[+0x5c], the bucket count drops, then the reference the
     // link held is released -- signed DEC, `JG` keeps it, otherwise the object's own slot +0x20
     // runs with 1 (delete).
@@ -135,7 +131,7 @@ void EffectTypeListUnlinkAndRelease(void* Effect)
 
 void EffectTypeListKillAll()
 {
-    // FUN_004f73c0 (and the first half of FUN_004f7140): for every bucket, as long as it has a
+    // (and the first half of the routine): for every bucket, as long as it has a
     // head, take the head's effect (node +8, i.e. Effect+0x68), run its slot +4 (kill -- which
     // links it if needed), then unlink it and drop the link's reference. The head is re-read
     // each time, so the loop ends when the bucket is empty.

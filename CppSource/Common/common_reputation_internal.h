@@ -1,12 +1,8 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
-// Common-internal declarations shared by the three TUs of retail's Reputation.cpp /
+// Common-internal declarations shared by the three TUs of baseline's Reputation.cpp /
 // CharDescrip.cpp cluster: common_costume.cpp, common_reputation.cpp and common_vibe.cpp.
 // Nothing here is exported; everything is defined in common_reputation.cpp.
 
@@ -17,7 +13,7 @@
 
 namespace CmnReputation
 {
-    // A record of the group registry DAT_064018ec (std::map keyed by the 16-bit MakeId value;
+    // A record of the group registry the field (std::map keyed by the 16-bit MakeId value;
     // record = node+0x10): +0x00 nickname TString<16>, +0x14 ids_name, +0x18 ids_info,
     // +0x1c ids_short_name, +0x20 feelings map (Reputation::Startup 0631eb11-0631eba1).
     struct FGroup
@@ -36,5 +32,5 @@ namespace CmnReputation
     void EnsureStoryFactionIds();
 }
 
-// The DACOM.DLL stricmp import retail calls (common_dacom_stricmp.cpp).
-int CallDacomStricmp(const char* Left, const char* Right);
+// The NEURONCOMPONENTS.DLL stricmp import baseline calls (common_neuroncomponents_stricmp.cpp).
+int CallNeuronComponentsStricmp(const char* Left, const char* Right);

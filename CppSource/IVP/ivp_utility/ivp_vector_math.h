@@ -1,14 +1,10 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
 #include "common_ini.h" // For Vector
 
-// Inline operator overloads for OutpostFrontier's Vector class 
+// Inline operator overloads for OutpostFrontier's Vector class
 // These are used heavily in IVP's original Havok physics math (impact solver, exact simplex, etc)
 // but OutpostFrontier's Vector struct does not have them by default.
 

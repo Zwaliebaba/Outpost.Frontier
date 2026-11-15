@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include <stddef.h>
@@ -11,7 +7,7 @@
 #include <stdexcept>
 #include <windows.h>
 
-// movie.dll CRT helpers. Addresses are EXE/Disasm/movie.dll.txt.
+// movie.dll CRT helpers. Addresses are movie.
 
 static const int GMovieLockCount = 0x30;
 static CRITICAL_SECTION* GMovieLockTable[GMovieLockCount];
@@ -41,7 +37,7 @@ static void MovieAmsgExit(int RuntimeError);
 static void* MovieNhMalloc(unsigned int Size, int NhFlag);
 static void MovieHeapFree(void* Block);
 
-// FUN_06ad22e5. InitializeCriticalSection on the four static lock objects.
+// . InitializeCriticalSection on the four static lock objects.
 // Table 06add57c..06add63c. Slots: 1, 9, 0xD, 0x11.
 static void MovieInitStaticLocks()
 {
@@ -60,13 +56,13 @@ static void MovieInitStaticLocks()
     GMovieLocksReady = 1;
 }
 
-// FUN_06ad23db. LeaveCriticalSection(table[index]).
+// . LeaveCriticalSection(table[index]).
 static void MovieUnlock(int Index)
 {
     LeaveCriticalSection(GMovieLockTable[Index]);
 }
 
-// FUN_06ad237a. Create the CRITICAL_SECTION on first use, then enter it.
+// . Create the CRITICAL_SECTION on first use, then enter it.
 static void MovieLock(int Index)
 {
     CRITICAL_SECTION** Slot = &GMovieLockTable[Index];
@@ -92,19 +88,19 @@ static void MovieLock(int Index)
     EnterCriticalSection(*Slot);
 }
 
-// FUN_06ad157a. _lock(0xD).
+// . _lock(0xD).
 static void MovieLockOnexit()
 {
     MovieLock(0x0D);
 }
 
-// FUN_06ad1583. _unlock(0xD).
+// . _unlock(0xD).
 static void MovieUnlockOnexit()
 {
     MovieUnlock(0x0D);
 }
 
-// FUN_06ad52bc. DAT_06ae1090 starts 0, so this returns 0 until a handler is stored.
+// . the field starts 0, so this returns 0 until a handler is stored.
 static int (__cdecl* GMovieNewHandler)(unsigned int) = nullptr;
 static int GMovieNewMode = 0;
 static int GMovieMbCodePage = 1;
@@ -124,7 +120,7 @@ static int MovieCallNewHandler(unsigned int Size)
     return 0;
 }
 
-// Word at DAT_06add75a + byte*2. PTR_DAT_06add750 holds 06add75a.
+// Word at the field + byte*2. the field holds 06add75a.
 // 0x20 is 0x48, 0x09..0x0D are 0x28, 0x00..0x1F and 0x7F are 0x20, '0'..'9' are 0x84.
 // 'A'..'F' are 0x81, 'G'..'Z' are 0x01, 'a'..'f' are 0x82, 'g'..'z' are 0x02.
 // 0x80..0xFF are 0. The other bytes below 0x80 are 0x10.
@@ -169,11 +165,11 @@ static uint16_t MovieCtypeWord(unsigned int Byte)
     return 0x10;
 }
 
-// FUN_06ad3817 for a byte (char+1 <= 0x100): load the ctype word, AND the mask.
-// DAT_06addc10 starts at 1, so strtol's JLE path does this directly.
+// for a byte (char+1 <= 0x100): load the ctype word, AND the mask.
+// starts at 1, so strtol's JLE path does this directly.
 static unsigned int MovieCtypeMask(unsigned int Byte, unsigned int Mask)
 {
-    // Both the JLE path and FUN_06ad3817's byte path (char+1 <= 0x100) load this word.
+    // Both the JLE path and the routine's byte path (char+1 <= 0x100) load this word.
     unsigned int Word = (unsigned int)MovieCtypeWord(Byte & 0xFF);
     if (GMovieMbCodePage <= 1)
     {
@@ -182,11 +178,11 @@ static unsigned int MovieCtypeMask(unsigned int Byte, unsigned int Mask)
     return Word & Mask;
 }
 
-// FUN_06ad7b6b. DAT_06ae1128 caches the probe. DAT_06ae0f74 is the code page, image 0.
+// . the field caches the probe. the field is the code page, image 0.
 static int GMovieLcMapKind = 0;
 static unsigned int GMovieLcCodePage = 0;
 
-// FUN_06ad7d8f. Stop at a zero or after Count bytes. A zero returns the offset; otherwise Count.
+// . Stop at a zero or after Count bytes. A zero returns the offset; otherwise Count.
 static int MovieLcMapBound(const char* Text, int Count)
 {
     const char* Cursor = Text;
@@ -215,8 +211,8 @@ static int MovieLcMapBound(const char* Text, int Count)
     return (int)(Cursor - Text);
 }
 
-// FUN_06ad7b6b. Mode 2 is LCMapStringA. Mode 1 (06ad7c1d) is MultiByteToWideChar, LCMapStringW, WideCharToMultiByte.
-// FUN_06acf7c0 sizes the stack buffers. The filters at 06ad7c7b and 06ad7d2f return 1 and the handlers zero the pointer.
+// . Mode 2 is LCMapStringA. Mode 1 (06ad7c1d) is MultiByteToWideChar, LCMapStringW, WideCharToMultiByte.
+// sizes the stack buffers. The filters at 06ad7c7b and 06ad7d2f return 1 and the handlers zero the pointer.
 static int MovieLcMapString(unsigned int Locale, unsigned int Flags, const char* Source, int SourceCount, char* Dest, int DestCount, unsigned int CodePage, int MultiFlag)
 {
     if (GMovieLcMapKind == 0)
@@ -332,7 +328,7 @@ static int MovieLcMapString(unsigned int Locale, unsigned int Flags, const char*
     return Written;
 }
 
-// FUN_06ad8c00. C locale is ASCII. Otherwise a lower-case ctype bit reaches LCMapString.
+// . C locale is ASCII. Otherwise a lower-case ctype bit reaches LCMapString.
 static unsigned int MovieCrtToUpperOs(unsigned int Byte)
 {
     if (GMovieLocaleUseOs == 0)
@@ -386,7 +382,7 @@ static unsigned int MovieCrtToUpperOs(unsigned int Byte)
     return ((unsigned int)(unsigned char)Out[1] << 8) | (unsigned int)(unsigned char)Out[0];
 }
 
-// FUN_06ad8b91. DAT_06ae0f64 == 0 subtracts 0x20 from 'a'..'z'. 06ad8baf locks and calls 06ad8c00.
+// . the field == 0 subtracts 0x20 from 'a'..'z'. 06ad8baf locks and calls 06ad8c00.
 static unsigned int MovieCrtToUpper(unsigned int Byte)
 {
     if (GMovieLocaleUseOs == 0)
@@ -417,7 +413,7 @@ static unsigned int MovieCrtToUpper(unsigned int Byte)
     return Result;
 }
 
-// FUN_06ad641e / FUN_06ad6435. The fourth argument pushed by 06ad641e is 0.
+// / the routine. The fourth argument pushed by 06ad641e is 0.
 static int MovieCrtStrtol(const char* Text, char** End, int Base)
 {
     unsigned int Flags = 0;
@@ -610,7 +606,7 @@ static void MovieSbhSetBit(FMovieSbhGroup* Group, uint8_t* Header, int Region, i
     }
 }
 
-// FUN_06ad4091. Allocate the group table (0x140 bytes) and set the threshold.
+// . Allocate the group table (0x140 bytes) and set the threshold.
 static int MovieSbhInit(unsigned int Threshold)
 {
     GMovieSbhGroups = (FMovieSbhGroup*)HeapAlloc(GMovieCrtHeap, 0, 0x140);
@@ -626,7 +622,7 @@ static int MovieSbhInit(unsigned int Threshold)
     return 1;
 }
 
-// FUN_06ad4736. Grow the group vector and reserve a 1MB region.
+// . Grow the group vector and reserve a 1MB region.
 static FMovieSbhGroup* MovieSbhGrow()
 {
     if (GMovieSbhCount == GMovieSbhCapacity)
@@ -660,7 +656,7 @@ static FMovieSbhGroup* MovieSbhGrow()
     return Group;
 }
 
-// FUN_06ad47e7. Commit one 32KB page inside the reserved region.
+// . Commit one 32KB page inside the reserved region.
 static int MovieSbhCommit(FMovieSbhGroup* Group)
 {
     uint8_t* Header = Group->Header;
@@ -723,7 +719,7 @@ static int MovieSbhCommit(FMovieSbhGroup* Group)
     return Region;
 }
 
-// FUN_06ad442d. V6 small-block allocate. Prologue checked at 06ad442d-06ad44a2.
+// . V6 small-block allocate. Prologue checked at 06ad442d-06ad44a2.
 static void* MovieSbhAlloc(unsigned int Size)
 {
     FMovieSbhGroup* End = GMovieSbhGroups + GMovieSbhCount;
@@ -864,7 +860,7 @@ static void* MovieSbhAlloc(unsigned int Size)
     return User + 1;
 }
 
-// FUN_06ad40d9. Group whose 1MB region contains the pointer, or null.
+// . Group whose 1MB region contains the pointer, or null.
 static FMovieSbhGroup* MovieSbhFind(void* Block)
 {
     FMovieSbhGroup* Group = GMovieSbhGroups;
@@ -881,7 +877,7 @@ static FMovieSbhGroup* MovieSbhFind(void* Block)
     return nullptr;
 }
 
-// FUN_06ad4104. Return a V6 block to its size class. Body from the decompile.
+// . Return a V6 block to its size class. Body from the inspect.
 static void MovieSbhFree(FMovieSbhGroup* Group, void* Block)
 {
     uint8_t* Header = Group->Header;
@@ -999,7 +995,7 @@ static void MovieSbhFree(FMovieSbhGroup* Group, void* Block)
     }
 }
 
-// FUN_06ad2b38. Byte at NT headers + 0x1A (MajorLinkerVersion).
+// . Byte at NT headers + 0x1A (MajorLinkerVersion).
 static void MovieReadLinkerVersion(uint8_t* Out)
 {
     *(uint32_t*)Out = 0;
@@ -1030,7 +1026,7 @@ static void MovieUpperAscii(char* Text)
     }
 }
 
-// FUN_06ad2b65. NT major >= 5 returns 1. Else the environment override, else 2 or 3.
+// . NT major >= 5 returns 1. Else the environment override, else 2 or 3.
 static int MovieChooseHeapKind()
 {
     OSVERSIONINFOEXA Version;
@@ -1153,7 +1149,7 @@ static void MovieOldSbhImage()
     GMovieOldSbhImageReady = 1;
 }
 
-// FUN_06ad4d1c. MEM_RELEASE the region. The static descriptor's region is set back to -1.
+// . MEM_RELEASE the region. The static descriptor's region is set back to -1.
 static void MovieOldSbhRelease(FMovieOldSbhDesc* Desc)
 {
     VirtualFree(Desc->Region, 0, 0x8000);
@@ -1171,7 +1167,7 @@ static void MovieOldSbhRelease(FMovieOldSbhDesc* Desc)
     Desc->Region = MovieOldSbhSentinelValue();
 }
 
-// FUN_06ad4d72. Decommit full 4KB pages, up to Limit of them, walking the descriptor list backward.
+// . Decommit full 4KB pages, up to Limit of them, walking the descriptor list backward.
 static void MovieOldSbhTrim(int Limit)
 {
     MovieOldSbhImage();
@@ -1238,7 +1234,7 @@ static void MovieOldSbhTrim(int Limit)
     }
 }
 
-// FUN_06ad4bd8. Reserve 4MB and commit the first 64KB. Region == -1 reuses the static descriptor.
+// . Reserve 4MB and commit the first 64KB. Region == -1 reuses the static descriptor.
 static FMovieOldSbhDesc* MovieOldSbhInit()
 {
     MovieOldSbhImage();
@@ -1322,7 +1318,7 @@ static FMovieOldSbhDesc* MovieOldSbhInit()
     return Desc;
 }
 
-// FUN_06ad4e34. Descriptor and page that own the pointer, plus the class byte inside the page.
+// . Descriptor and page that own the pointer, plus the class byte inside the page.
 static uint8_t* MovieOldSbhFind(void* Block, FMovieOldSbhDesc** OutDesc, uint8_t** OutPage)
 {
     MovieOldSbhImage();
@@ -1355,7 +1351,7 @@ static uint8_t* MovieOldSbhFind(void* Block, FMovieOldSbhDesc** OutDesc, uint8_t
     return (uint8_t*)PageBits + 8 + (Delta >> 4);
 }
 
-// FUN_06ad4e8b. Add the freed class back onto the page and trim after 0x20 full pages.
+// . Add the freed class back onto the page and trim after 0x20 full pages.
 static void MovieOldSbhFree(FMovieOldSbhDesc* Desc, uint8_t* Page, uint8_t* Header)
 {
     int Index = (int)((Page - Desc->Region) >> 12);
@@ -1373,14 +1369,14 @@ static void MovieOldSbhFree(FMovieOldSbhDesc* Desc, uint8_t* Page, uint8_t* Head
     }
 }
 
-// 06ad51eb. User pointer from the class byte: (header + 8) << 4 - page * 15.
+// . User pointer from the class byte: (header + 8) << 4 - page * 15.
 static uint8_t* MovieOldSbhUser(uint8_t* Page, uint8_t* Header)
 {
     uintptr_t Encoded = ((uintptr_t)(Header + 8) << 4) - ((uintptr_t)Page * 15u);
     return (uint8_t*)Encoded;
 }
 
-// FUN_06ad50d8. Carve Class bytes out of one committed page. 0 means this page cannot.
+// . Carve Class bytes out of one committed page. 0 means this page cannot.
 static uint8_t* MovieOldSbhCarve(uint8_t* Page, unsigned int FreeCount, unsigned int Class)
 {
     unsigned int Run = *(uint32_t*)(Page + 4);
@@ -1497,7 +1493,7 @@ static uint8_t* MovieOldSbhCarve(uint8_t* Page, unsigned int FreeCount, unsigned
     return nullptr;
 }
 
-// FUN_06ad4ed0. Class is the size already shifted right by 4. A miss is 0.
+// . Class is the size already shifted right by 4. A miss is 0.
 static uint8_t* MovieOldSbhAlloc(unsigned int Class)
 {
     MovieOldSbhImage();
@@ -1653,7 +1649,7 @@ static uint8_t* MovieOldSbhAlloc(unsigned int Class)
     return Page + 0x100;
 }
 
-// FUN_06ad2cad. HeapCreate, then the small-block init when the kind is 2 or 3.
+// . HeapCreate, then the small-block init when the kind is 2 or 3.
 static int MovieHeapInit(int SerializeFlag)
 {
     DWORD Options = 0;
@@ -1688,7 +1684,7 @@ static int MovieHeapInit(int SerializeFlag)
     return 1;
 }
 
-// FUN_06ad2d0a. Kind 3 releases each region and the group table. Kind 2 walks the descriptor ring. Then HeapDestroy.
+// . Kind 3 releases each region and the group table. Kind 2 walks the descriptor ring. Then HeapDestroy.
 static void MovieHeapShutdown()
 {
     if (GMovieHeapKind == 3)
@@ -1736,7 +1732,7 @@ static unsigned int MovieRoundHeapSize(unsigned int Size)
     return Size;
 }
 
-// FUN_06ad0991. Mode 1 (NT >= 5) is HeapAlloc. Mode 3 uses the V6 heap.
+// . Mode 1 (NT >= 5) is HeapAlloc. Mode 3 uses the V6 heap.
 static void* MovieHeapAlloc(unsigned int Size)
 {
     if (GMovieHeapKind == 3)
@@ -1790,7 +1786,7 @@ static void* MovieHeapAlloc(unsigned int Size)
     return HeapAlloc(GMovieCrtHeap, 0, Size);
 }
 
-// FUN_06ad5414. calloc. Kind 3 and kind 2 are zeroed after the small-block alloc; the heap path uses flags 8.
+// . calloc. Kind 3 and kind 2 are zeroed after the small-block alloc; the heap path uses flags 8.
 static void* MovieCrtCalloc(unsigned int Count, unsigned int Size)
 {
     unsigned int Product = Count * Size;
@@ -1856,7 +1852,7 @@ static void* MovieCrtCalloc(unsigned int Count, unsigned int Size)
     }
 }
 
-// 06ad0965 __nh_malloc. Does not throw.
+// __nh_malloc. Does not throw.
 static void* MovieNhMalloc(unsigned int Size, int NhFlag)
 {
     if (Size > 0xFFFFFFE0u)
@@ -1877,7 +1873,7 @@ static void* MovieNhMalloc(unsigned int Size, int NhFlag)
     }
 }
 
-// FUN_06ad07b3. Mode 1 is HeapFree. A null pointer returns.
+// . Mode 1 is HeapFree. A null pointer returns.
 static void MovieHeapFree(void* Block)
 {
     if (Block == nullptr)
@@ -1958,7 +1954,7 @@ static const FMovieRuntimeError GMovieRuntimeErrors[] = {
     { 0xFF, "runtime error " }
 };
 
-// FUN_06ad6790. Load user32 MessageBoxA / GetActiveWindow / GetLastActivePopup.
+// . Load user32 MessageBoxA / GetActiveWindow / GetLastActivePopup.
 static int MovieRuntimeMessageBox(const char* Text, const char* Caption, unsigned int Flags)
 {
     static int (WINAPI* GMessageBoxA)(HWND, LPCSTR, LPCSTR, UINT) = nullptr;
@@ -1991,7 +1987,7 @@ static int MovieRuntimeMessageBox(const char* Text, const char* Caption, unsigne
     return GMessageBoxA(Owner, Text, Caption, Flags);
 }
 
-// FUN_06ad2df1. MessageBox, or WriteFile when the error mode asks for the console.
+// . MessageBox, or WriteFile when the error mode asks for the console.
 static void MovieRuntimeError(unsigned int Code)
 {
     int Count = (int)(sizeof(GMovieRuntimeErrors) / sizeof(GMovieRuntimeErrors[0]));
@@ -2034,7 +2030,7 @@ static void MovieRuntimeError(unsigned int Code)
     MovieRuntimeMessageBox(Message, "Microsoft Visual C++ Runtime Library", 0x12010);
 }
 
-// FUN_06ad2db8. Extra report before the numbered message. Not taken while both
+// . Extra report before the numbered message. Not taken while both
 // mode globals stay 0.
 static void MovieRuntimeErrorBanner()
 {
@@ -2049,13 +2045,13 @@ static void MovieRuntimeErrorBanner()
     }
 }
 
-// 06ad532e. SetUnhandledExceptionFilter(saved).
+// . SetUnhandledExceptionFilter(saved).
 static void MovieRestoreUnhandledFilter()
 {
     SetUnhandledExceptionFilter(GMovieSavedFilter);
 }
 
-// 06ad890c when DAT_06ae2440 <= 0: lock 2, unlock 2. The FILE walk is not taken.
+// when the field <= 0: lock 2, unlock 2. The FILE walk is not taken.
 static void MovieFlushStreams()
 {
     MovieLock(2);
@@ -2067,7 +2063,7 @@ static void MovieFlushStreams()
     MovieUnlock(2);
 }
 
-// 06ad5c72. Called from the slow exit range, not from __exit (param_2 != 0).
+// . Called from the slow exit range, not from __exit (param_2 != 0).
 static void MovieCrtTermIo()
 {
     MovieFlushStreams();
@@ -2093,7 +2089,7 @@ static void MovieCallInitterm(void (__cdecl** Begin)(), void (__cdecl** End)())
 static void (__cdecl* GMoviePreTerms[2])() = { nullptr, MovieCrtTermIo };
 static void (__cdecl* GMovieTerms[2])() = { nullptr, MovieRestoreUnhandledFilter };
 
-// FUN_06ad14d5. __exit passes (code, 1, 0): skip the onexit walk, run the
+// . __exit passes (code, 1, 0): skip the onexit walk, run the
 // second terminator, ExitProcess.
 static void MovieDoExit(unsigned int Code, int SkipOnexit, int QuickFlag)
 {
@@ -2137,7 +2133,7 @@ static void MovieDoExit(unsigned int Code, int SkipOnexit, int QuickFlag)
     ExitProcess(Code);
 }
 
-// 06ad14b5 __exit.
+// __exit.
 static void MovieExit(int Code)
 {
     MovieDoExit((unsigned int)Code, 1, 0);
@@ -2150,7 +2146,7 @@ struct FMovieXcptAct
     uint32_t Handler;
 };
 
-// DAT_06adfc80. Ten records, then the separate counts at 06adfcf8 / 06adfcfc / 06adfd04.
+// . Ten records, then the separate counts at 06adfcf8 / 06adfcfc / 06adfd04.
 static FMovieXcptAct GMovieXcptAct[0x0A] = {
     {0xC0000005u, 0x0Bu, 0},
     {0xC000001Du, 0x04u, 0},
@@ -2171,14 +2167,14 @@ static void (__cdecl* GMovieSigBreak)(int) = nullptr;
 static void (__cdecl* GMovieSigAbrt)(int) = nullptr;
 static void (__cdecl* GMovieSigTerm)(int) = nullptr;
 
-// FUN_06ad136e. The new per-thread block points at the exception-action table.
+// . The new per-thread block points at the exception-action table.
 static void MovieInitPtd(uint8_t* Ptd)
 {
     *(uint32_t*)(Ptd + 0x50) = (uint32_t)(uintptr_t)GMovieXcptAct;
     *(uint32_t*)(Ptd + 0x14) = 1;
 }
 
-// FUN_06ad1381. TlsGetValue of DAT_06add570. A miss allocates 0x74 bytes and stores the thread id.
+// . TlsGetValue of the field. A miss allocates 0x74 bytes and stores the thread id.
 static uint8_t* MovieGetPtd()
 {
     DWORD Saved = GetLastError();
@@ -2201,7 +2197,7 @@ static uint8_t* MovieGetPtd()
     return Ptd;
 }
 
-// FUN_06ad12fc. TlsAlloc, then the first per-thread block. 0 if either step fails.
+// . TlsAlloc, then the first per-thread block. 0 if either step fails.
 static int MovieInitThreadData()
 {
     MovieInitStaticLocks();
@@ -2226,13 +2222,13 @@ static int MovieInitThreadData()
     return 1;
 }
 
-// FUN_06ad24de. errno lives at ptd + 8.
+// . errno lives at ptd + 8.
 static int* MovieErrnoSlot()
 {
     return (int*)(MovieGetPtd() + 8);
 }
 
-// FUN_06ad79e5. 12-byte records; the signal number is at +4. A miss is 0.
+// . 12-byte records; the signal number is at +4. A miss is 0.
 static uint8_t* MovieFindXcpt(int Signal, uint8_t* Table)
 {
     int Count = GMovieXcptCount;
@@ -2260,7 +2256,7 @@ static uint8_t* MovieFindXcpt(int Signal, uint8_t* Table)
     return nullptr;
 }
 
-// FUN_06ad7863. _raise. 0x16 reads DAT_06ae1118. 0 is SIG_DFL and calls __exit(3). 1 is SIG_IGN.
+// . _raise. 0x16 reads the field. 0 is SIG_DFL and calls __exit(3). 1 is SIG_IGN.
 static int MovieRaise(int Signal)
 {
     void (__cdecl* Handler)(int) = nullptr;
@@ -2382,8 +2378,8 @@ static int MovieRaise(int Signal)
     return 0;
 }
 
-// FUN_06ad089c. Frame 06ad089f-06ad08b8. Filter 06ad08e4 returns 1; 06ad08e8 restores ESP and falls into 06ad08ef.
-// Level 0's handler is 06ad08f8, which jumps to FUN_06ad52a5.
+// . Frame 06ad089f-06ad08b8. Filter 06ad08e4 returns 1; 06ad08e8 restores ESP and falls into 06ad08ef.
+// Level 0's handler is 06ad08f8, which jumps to the routine.
 static void MovieCppTerminate()
 {
     __try
@@ -2410,7 +2406,7 @@ static void MovieCppTerminate()
     }
 }
 
-// FUN_06ad5373. 1 when IsBadCodePtr says the pointer is code.
+// . 1 when IsBadCodePtr says the pointer is code.
 static int MovieFilterIsCode(void* Pointer)
 {
     if (IsBadCodePtr((FARPROC)Pointer) != 0)
@@ -2420,7 +2416,7 @@ static int MovieFilterIsCode(void* Pointer)
     return 1;
 }
 
-// FUN_06ad52d7. C++ exception 0xE06D7363 / 0x19930520 jumps to 06ad089c.
+// . C++ exception 0xE06D7363 / 0x19930520 jumps to 06ad089c.
 static LONG WINAPI MovieUnhandledFilter(EXCEPTION_POINTERS* Pointers)
 {
     EXCEPTION_RECORD* Record = Pointers->ExceptionRecord;
@@ -2438,7 +2434,7 @@ static LONG WINAPI MovieUnhandledFilter(EXCEPTION_POINTERS* Pointers)
     return 0;
 }
 
-// LAB_06ad531d. Install the filter and keep whatever was there before.
+// . Install the filter and keep whatever was there before.
 // .CRT$XI initializers are int(*)() and a nonzero return aborts DLL load.
 static int __cdecl MovieInstallExceptionFilter()
 {
@@ -2446,7 +2442,7 @@ static int __cdecl MovieInstallExceptionFilter()
     return 0;
 }
 
-// 06acff18 __amsg_exit.
+// __amsg_exit.
 static void MovieAmsgExit(int RuntimeError)
 {
     if (GMovieErrorMode == 1 || (GMovieErrorMode == 0 && GMovieAppType == 1))
@@ -2457,7 +2453,7 @@ static void MovieAmsgExit(int RuntimeError)
     MovieExit(0xFF);
 }
 
-// LAB_06acf888. malloc(0x80). Failure is __amsg_exit(0x18).
+// . malloc(0x80). Failure is __amsg_exit(0x18).
 // .CRT$XI initializers are int(*)(). The pointer stored in GMovieOnexitEnd is nonzero,
 // and the UCRT treats that leftover as a failed initializer.
 static int __cdecl MovieInitOnexitTable()
@@ -2495,7 +2491,7 @@ static unsigned int MovieMsize(void* Block)
     return (unsigned int)HeapSize(GMovieCrtHeap, 0, Block);
 }
 
-// FUN_06ad48e2. Grow or shrink a V6 block in place. 0 means the block was not resized.
+// . Grow or shrink a V6 block in place. 0 means the block was not resized.
 static int MovieSbhResize(FMovieSbhGroup* Group, void* Block, unsigned int Size)
 {
     uint8_t* Header = Group->Header;
@@ -2593,7 +2589,7 @@ static int MovieSbhResize(FMovieSbhGroup* Group, void* Block, unsigned int Size)
     return 1;
 }
 
-// FUN_06ad51fc. Shrink or grow an old-heap block inside its page. 0 means allocate a new one.
+// . Shrink or grow an old-heap block inside its page. 0 means allocate a new one.
 static int MovieOldSbhResize(FMovieOldSbhDesc* Desc, uint8_t* Page, uint8_t* Header, unsigned int Class)
 {
     unsigned int Have = *Header;
@@ -2664,7 +2660,7 @@ static unsigned int MovieHeapCopyLength(void* Block, unsigned int Size, int OldK
     return Have;
 }
 
-// FUN_06ad15a6. _realloc. Kind 1 is HeapReAlloc with flags 0 after the 16-byte round.
+// . _realloc. Kind 1 is HeapReAlloc with flags 0 after the 16-byte round.
 static void* MovieHeapRealloc(void* Block, unsigned int Size)
 {
     if (Block == nullptr)
@@ -2841,7 +2837,7 @@ static void* MovieHeapRealloc(void* Block, unsigned int Size)
     }
 }
 
-// FUN_06acf7f8. Lock 0xD around the table update.
+// . Lock 0xD around the table update.
 static void (__cdecl* MovieOnexitRegister(void (__cdecl* Callback)()))()
 {
     MovieLockOnexit();
@@ -2876,38 +2872,38 @@ static void (__cdecl* MovieOnexitRegister(void (__cdecl* Callback)()))()
     return Result;
 }
 
-// FUN_06acf3d0. PUSH arg; CALL FUN_06ad07b3; POP ECX; RET.
+// . PUSH arg; CALL the routine; POP ECX; RET.
 void __cdecl MovieOperatorDelete(void* Block) // formerly Movie_06acf3d0
 {
     MovieHeapFree(Block);
 }
 
-// 06acf3db. PUSH 1; PUSH size; CALL __nh_malloc; POP; POP; RET.
+// . PUSH 1; PUSH size; CALL __nh_malloc; POP; POP; RET.
 void* __cdecl MovieOperatorNew(unsigned int Size) // formerly Movie_06acf3db
 {
     return MovieNhMalloc(Size, 1);
 }
 
-// FUN_06ad970e. Throw of length_error("string too long"). No in-DLL typed catch.
+// . Throw of length_error("string too long"). No in-DLL typed catch.
 void __cdecl MovieThrowStringTooLong() // formerly Movie_06ad970e
 {
     throw std::length_error("string too long");
 }
 
-// FUN_06acf876. PUSH callback; CALL FUN_06acf7f8; (result != 0) - 1.
+// . PUSH callback; CALL the routine; (result != 0) - 1.
 int __cdecl MovieRegisterAtexit(void (__cdecl* Callback)()) // formerly Movie_06acf876
 {
     void (__cdecl* Stored)() = MovieOnexitRegister(Callback);
     return (Stored != nullptr) - 1;
 }
 
-// LAB_06acf7ef. PUSH 0x19; CALL __amsg_exit; POP ECX; RET. RET is not reached.
+// . PUSH 0x19; CALL __amsg_exit; POP ECX; RET. RET is not reached.
 void __cdecl MovieAbortRuntime() // formerly Movie_06acf7ef
 {
     MovieAmsgExit(0x19);
 }
 
-// FUN_06acfda2. PROCESS_ATTACH calls FUN_06ad12fc. A zero result calls FUN_06ad2d0a and returns 0.
+// . PROCESS_ATTACH calls the routine. A zero result calls the routine and returns 0.
 BOOL WINAPI DllMain(HINSTANCE Module, DWORD Reason, LPVOID Reserved)
 {
     (void)Module;

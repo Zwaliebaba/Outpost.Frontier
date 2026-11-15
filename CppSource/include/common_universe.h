@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -10,7 +6,7 @@
 
 // Common.dll Universe::Startup / Shutdown — Systems.cpp.
 // Linked into OutpostFrontier.exe. Maps are ours (std::map), not VC6.
-// See docs/re/common.md (Universe).
+// See implementation notes (Universe).
 
 #include "common_id.h"
 #include "common_ini.h"
@@ -82,8 +78,8 @@ namespace Universe
     struct IZone;
 
     // One jump connection of a system: the 0x20-byte record the universe loader pushes onto
-    // SYSTEM+0x54's vector after every [Object] carrying a `goto` key (FUN_06337250
-    // .text:06338155-063381cb, push_back FUN_0633e770). ISystem slots 13/14 hand them out;
+    // SYSTEM+0x54's vector after every [Object] carrying a `goto` key (the routine
+    // , push_back the routine). ISystem slots 13/14 hand them out;
     // Server.dll pub::System::EnumerateConnections is the only reader.
     struct FSystemConnection
     {
@@ -96,7 +92,7 @@ namespace Universe
     };
     static_assert(sizeof(FSystemConnection) == 0x20, "FSystemConnection size is 0x20");
 
-    // One [Object] record of a system file as FUN_06336380 reads it (memset 0x118, then the
+    // One [Object] record of a system file as the routine reads it (memset 0x118, then the
     // keys below). ISystem slots 15/16 hand them out from the shared object pool; Server.dll
     // pub::System::EnumerateObjects and pub::GF::GetBasePosition are the readers.
     struct FSystemObject
@@ -117,8 +113,8 @@ namespace Universe
     static_assert(sizeof(FSystemObject) == 0x118, "FSystemObject size is 0x118");
 
     // One entry of SYSTEM+0x80's zone list: the INI_Reader state captured at the zone's
-    // [Zone] header (.text:063375c8) and the zone as it sits in the zone map (list node
-    // +0x08 / +0xc10). FUN_0633e920 appends it only when the zone map insert succeeded.
+    // [Zone] header (module storage) and the zone as it sits in the zone map (list node
+    // +0x08 / +0xc10). the routine appends it only when the zone map insert succeeded.
     struct FSystemZone
     {
         INI_Reader::State State;
@@ -126,19 +122,19 @@ namespace Universe
     };
 
     // Universe::ISystem -- the interface of Common.dll's SYSTEM (RTTI .?AUSYSTEM@@, primary
-    // vftable .rdata:063a5144, 22 slots, no destructor slot). Retail ISystem carries no data;
+    // vftable module storage, 22 slots, no destructor slot). baseline ISystem carries no data;
     // SYSTEM (src/Common/common_universe_internal.h, common_universe_system.cpp) is ISystem + CommReferrable + the tables the
     // slots hand out. The data members below are the port's storage for the scalar slots
     // (0, 2, 3, 4, 5, 17, 18/19, 20): they stay on the interface because about seventy
     // readers across Common, Server and OutpostFrontier read them directly. SYSTEM's slots return
     // exactly these fields, so both paths agree. Slots are named after the field or behaviour
-    // their retail body shows.
+    // their baseline body shows.
     struct ISystem
     {
         virtual unsigned GetId() const = 0;                  // +0x00 062969c0  [+0x4c] id (formerly Slot00)
         // +0x04 0633afa0: ADD ECX,4; JMP CommReferrable::GetMsgIdPrefix. The same name as
-        // CommReferrable's slot 1, so SYSTEM's one override fills both tables, as in retail
-        // (the CommReferrable-side thunk LAB_063415d0 subtracts 4 and lands here).
+        // CommReferrable's slot 1, so SYSTEM's one override fills both tables, as in baseline
+        // (the CommReferrable-side thunk the branch subtracts 4 and lands here).
         virtual TString<64> const& GetMsgIdPrefix() const = 0;
         virtual char const* GetNickname() const = 0;         // +0x08 063390f0  [+0x50] nickname (formerly Slot02)
         virtual int GetStridName() const = 0;                // +0x0c 0633aff0  [+0x68] strid_name (formerly Slot03)
@@ -164,10 +160,10 @@ namespace Universe
         virtual IZone const* GetSmallestZoneWithPropertiesAt(Vector const* Point, unsigned Mask) const = 0;
         // +0x34 0633b790: the number of FSystemConnection records (formerly Slot13).
         virtual int GetConnectionCount() const = 0;
-        // +0x38 0633b7b0: copies connection [Index] when it exists; retail returns false on
+        // +0x38 0633b7b0: copies connection [Index] when it exists; baseline returns false on
         // every path (formerly Slot14).
         virtual bool GetConnection(unsigned Index, FSystemConnection* Out) const = 0;
-        // +0x3c 0633b7f0: loads the shared object pool from this system's file (FUN_06336750)
+        // +0x3c 0633b7f0: loads the shared object pool from this system's file (the routine)
         // unless it already holds it, then the pool's 0x118-byte record count (formerly Slot15).
         virtual int GetObjectCount() const = 0;
         // +0x40 0633b840 (RET 8): copies object [Index] of the pool; false past either count
@@ -189,11 +185,11 @@ namespace Universe
         Vector Pos;
     };
 
-    // Universe::IBase -- the interface of Common.dll's BASE (vftable .rdata:063a4d5c, 27 slots,
+    // Universe::IBase -- the interface of Common.dll's BASE (vftable module storage, 27 slots,
     // no destructor slot; the universe loader builds one per [Base] block of universe.ini,
-    // FUN_06337250 .text:063386d0-06338cc9). Every slot is a one-instruction getter/setter of
+    // module storage-06338cc9). Every slot is a one-instruction getter/setter of
     // a BASE field and is named after that field's universe.ini key.
-    // As with ISystem and IZone, the data members stay on the interface in retail BASE's offset
+    // As with ISystem and IZone, the data members stay on the interface in baseline BASE's offset
     // order because readers across Common, Server and OutpostFrontier read them directly; the slots
     // return exactly these fields.
     struct IBase
@@ -234,11 +230,11 @@ namespace Universe
         int StridName;                 // +0x0c "strid_name"
         char const* File;              // +0x10 CacheString (StringAlloc'd "file")
         unsigned SystemId;             // +0x14 ID_String "system"
-        std::string BgcsBaseRunBy;     // +0x18 "BGCS_base_run_by" (a std::string in retail too)
+        std::string BgcsBaseRunBy;     // +0x18 "BGCS_base_run_by" (a std::string in baseline too)
         // +0x28 / +0x2c: the nickname and the visit byte of the system [Object] that carries
         // this base (base = this base, ids_name == strid_name), stored through slots 25/26 by
-        // FUN_06337250 .text:06338225 / .text:06338231. The [Base] reader zeroes both
-        // (.text:0633877c / .text:06338780).
+        // module storage / module storage. The [Base] reader zeroes both
+        // (module storage / module storage).
         unsigned SpaceObjectId;        // +0x28
         unsigned char SpaceObjectVisit;// +0x2c
         unsigned ShipSml[3];           // +0x30 ship_sml_01..03
@@ -253,10 +249,10 @@ namespace Universe
         bool bAutosaveForbidden;       // +0x6c
     };
 
-    // FUN_063362d0 table PTR_s_sphere_063edb80: name -> int (stricmp).
+    // table PTR_s_sphere_063edb80: name -> int (stricmp).
     // 0 = invalid / miss. CONFIRMED (2026-09-10, d216:izone-shape-investigate lane,
-    // decomp-tracker items 2574/11429): the retail IZone-shape-base class's vtable slot
-    // 0x18 (PTR_LAB_063a5094+0x18, Common.dll.txt:568507) is ICF-folded byte-identical
+    // implementation tracker items 2574/11429): the baseline IZone-shape-base class's vtable slot
+    // 0x18 (the branch+0x18, Common) is ICF-folded byte-identical
     // with Archetype::Root::GetRef, `MOV EAX,[this+0x3c]; RET` -- i.e. it just returns
     // this enum's value directly, matching the field this port names `Shape` below
     // exactly (populated by ParseZoneShape, common_universe.cpp). See
@@ -275,30 +271,30 @@ namespace Universe
 
     // Universe::IZoneImmersion / Universe::IZone -- the interface of Common.dll's ZONE (RTTI
     // .?AUZONE@@ : .?AUIZone@Universe@@ : .?AUIZoneImmersion@Universe@@, single inheritance,
-    // one vftable .rdata:063a5094 of 37 slots +0x00..+0x90). There is NO destructor slot:
-    // ZONE's destructor FUN_06339010 is non-virtual and is called directly (06337dee,
-    // 0639774d). The concrete class is ZONE (src/include/common_zone.h,
+    // one vftable module storage of 37 slots +0x00..+0x90). There is NO destructor slot:
+    // ZONE's destructor the routine is non-virtual and is called directly (06337dee,
+    // ). The concrete class is ZONE (src/include/common_zone.h,
     // src/Common/common_zone.cpp); nothing outside Common.dll constructs one.
-    //
-    // Retail interfaces carry no data. The data members below are the port's storage for the
-    // getter slots: they stay on the interface, in retail ZONE's offset order, because about
+
+    // baseline interfaces carry no data. The data members below are the port's storage for the
+    // getter slots: they stay on the interface, in baseline ZONE's offset order, because about
     // a hundred and fifty readers across Common, Server and OutpostFrontier read them directly
     // (the same arrangement as ISystem above). Every slot that returns one of them returns
-    // exactly that field, so both paths agree. The offsets in the comments are retail ZONE's.
-    //
+    // exactly that field, so both paths agree. The offsets in the comments are baseline ZONE's.
+
     // Slot names come from the Server.dll pub::Zone export that forwards to the slot (for
     // example ?InZone@Zone@pub@@ calls slot +0x34 and nothing else) or, where no export
-    // forwards, from the field or behaviour the retail body shows. +0x20 keeps the placeholder
+    // forwards, from the field or behaviour the baseline body shows. +0x20 keeps the placeholder
     // (the meaning of its flag bits is unproven).
     struct IZoneImmersion
     {
-        // +0x00 LAB_0633ac30. 0.0f when Point is outside the bounding sphere (slot +0x30) or
+        // +0x00 the branch. 0.0f when Point is outside the bounding sphere (slot +0x30) or
         // when ClassifyPoint (slot +0x48) is >= 1; otherwise 1.0f, or the edge ramp
         // (1 - ClassifyPoint) / EdgeFraction inside the outer EdgeFraction band.
-        //
-        // Slots +0x00, +0x3c, +0x40 and +0x48 return double: retail leaves the result on the
+
+        // Slots +0x00, +0x3c, +0x40 and +0x48 return double: baseline leaves the result on the
         // x87 stack unrounded and its callers consume it there (for example the nebula
-        // exclusion check FCOMPs slot +0x00 against 1.0 at .text:062bcce6).
+        // exclusion check FCOMPs slot +0x00 against 1.0 at module storage).
         virtual double GetImmersion(Vector const& Point) const = 0; // (formerly Slot00)
     };
 
@@ -385,12 +381,12 @@ namespace Universe
         CmnAsteroid::LootableZoneEntry* OwnedLootEntry = nullptr; // +0x84 slot +0x8c's record (malloc'd)
         bool bPathLabel;                   // +0x88
         // +0x8c the faction population: one {MakeId(faction), weight} pair per `faction =`
-        // line (FUN_06337250 .text:06337c38-06337cac). Freed by the destructor (.text:0633906a).
+        // line (the routine module storage-06337cac). Freed by the destructor (module storage).
         weighted_vector<unsigned int> Population;
         unsigned char Visit;               // +0x9c
         int IdsName;                       // +0xa0
         int IdsInfo;                       // +0xa4
-        // (No nickname text: retail ZONE keeps only the id at +0x04; get_zone(system, name)
+        // (No nickname text: baseline ZONE keeps only the id at +0x04; get_zone(system, name)
         // hashes the name it is given.)
     };
 

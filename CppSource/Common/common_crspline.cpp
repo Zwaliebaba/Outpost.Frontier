@@ -1,13 +1,9 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
-// Common.dll ICRSplineSegment (retail 0x063327f0-0x06332df0): Catmull-Rom spline
+// Common.dll ICRSplineSegment (baseline 0x063327f0-0x06332df0): Catmull-Rom spline
 // evaluation, arc length and parameter search. See src/include/common_aisteer.h for the
 // field-layout writeup.
-//
+
 // Precision follows the listing: every Vector helper result (scale, negate, add, subtract,
 // three-float constructor) is stored as float; values that stay on the x87 stack (chord
 // components, sums of squares, the final sum of calculate_spline_vector) are double.
@@ -18,7 +14,7 @@
 
 namespace
 {
-    // One component of calculate_spline_vector, in retail's term order (063327f0-06332b9f):
+    // One component of calculate_spline_vector, in baseline's term order (063327f0-06332b9f):
     //   0.5 * (2*P1 + ((-P0 + P2)*T + ((2P0 - 5P1 + 4P2 - P3)*T2 + (3P1 + -P0 - 3P2 + P3)*T3)))
     // The two inner sums are added before the 2*P1 term; the last add and the * 0.5 run on
     // the stack.
@@ -52,7 +48,7 @@ Vector ICRSplineSegment::calculate_spline_vector(float T)
 
 Vector ICRSplineSegment::calculate_spline_tangent(float T)
 {
-    // 06332bb0: the 0.001 offset is a double (0639c9f0); the shifted T goes out as float.
+    // the 0.001 offset is a double (0639c9f0); the shifted T goes out as float.
     Vector const A = calculate_spline_vector((float)((double)T - 0.001));
     Vector const B = calculate_spline_vector((float)((double)T + 0.001));
 
@@ -73,7 +69,7 @@ Vector ICRSplineSegment::calculate_spline_tangent(float T)
 
 void ICRSplineSegment::calculate_arclength()
 {
-    // 06332c60. The first chord is measured from the raw P0, not from spline(0) == P1.
+    // . The first chord is measured from the raw P0, not from spline(0) == P1.
     float PrevX = P0.x, PrevY = P0.y, PrevZ = P0.z;
     float const Step = (float)(1.0 / (double)SampleCount);
     ArcLength = 0.0f;
@@ -92,12 +88,12 @@ void ICRSplineSegment::calculate_arclength()
 
 float ICRSplineSegment::get_spline_length()
 {
-    // 06332d30. The first chord is measured from P1 here, unlike calculate_arclength.
+    // . The first chord is measured from P1 here, unlike calculate_arclength.
     float PrevX = P1.x, PrevY = P1.y, PrevZ = P1.z;
     float Total = 0.0f;
     for (unsigned i = 1; i <= SampleCount; ++i)
     {
-        // очень странно: retail computes the parameter with an unsigned integer DIV
+        // очень странно: baseline computes the parameter with an unsigned integer DIV
         // (06332d66), so T is 0 for every step but the last, which is 1.
         Vector const V = calculate_spline_vector((float)(i / SampleCount));
         double const Dx = (double)V.x - PrevX;
@@ -113,8 +109,8 @@ float ICRSplineSegment::get_spline_length()
 
 float ICRSplineSegment::get_t_from_point(Vector const& Point, float StartT, float StepT)
 {
-    // 06332df0. A forward line search: step T while the squared distance to Point does not
-    // get worse, and return the last accepted T. Can loop forever, as retail.
+    // . A forward line search: step T while the squared distance to Point does not
+    // get worse, and return the last accepted T. Can loop forever, as baseline.
     // The first distance sums dx^2 + dz^2 + dy^2 and is stored as float; the loop sums
     // dz^2 + dy^2 + dx^2 and compares the unstored value (FCOM float, TEST AH,0x41, JZ:
     // stop only when greater; equal or unordered keeps going).

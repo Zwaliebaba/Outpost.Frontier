@@ -1,16 +1,12 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
 // IVP_SurfaceManager_Polygon -- the surface manager of every polygon (object_type 2) real
 // object: it answers the IVP_SurfaceManager queries from one compiled IVP_Compact_Surface.
-//
-// Retail evidence:
-//   * RTTI: vtable .rdata:0639c2dc, COL 063a731c -> TD .data:063eb134
+
+// baseline evidence:
+//   * RTTI: vtable module storage, COL 063a731c -> TD module storage
 //     ".?AVIVP_SurfaceManager_Polygon@@"; the destructor 0634ad60 re-stamps 0639c2dc and
 //     tail-jumps into the base destructor 0635d440.
 //   * vtable 0639c2dc, 11 slots (same order as the base table 063a56ac):
@@ -25,7 +21,7 @@
 //     PhySys::PhySurfaceManager (vtable 0639c258, new(0xc), 0628a14b-0628a165) derives from
 //     it, adding an owner pointer at +0x08 and overriding slots 4/5/6/9.
 //   * PhySys calls the base implementations of slots 4/5/6 directly (06285f35 -> 0634ab90,
-//     06285faa -> 0634ac50, 06285e94/06285ead -> 0634a500 / 0634a4e0).
+// -> 0634ac50, 06285e94/06285ead -> 0634a500 / 0634a4e0).
 
 #include <cstdint>
 #include "ivp_surface_manager.h"
@@ -37,10 +33,10 @@ class IVP_Compact_Surface;
 class IVP_SurfaceManager_Polygon : public IVP_SurfaceManager
 {
 public:
-    // Inlined in retail (see above): stores the surface, installs the vtable.
+    // Inlined in baseline (see above): stores the surface, installs the vtable.
     explicit IVP_SurfaceManager_Polygon(const IVP_Compact_Surface* CompactSurface);
 
-    // 0634ad60 (+ the scalar deleting wrapper 0628b050). Only restores the vptr.
+    // (+ the scalar deleting wrapper 0628b050). Only restores the vptr.
     ~IVP_SurfaceManager_Polygon() override;
 
     // Slot 0, 0634ad40: the root's ledge when the root is terminal, otherwise the root's
@@ -64,7 +60,7 @@ public:
                                       void* Param4, void* Param5,
                                       IVP_SurfaceManager_OutList* OutList) override;
 
-    // Slot 5, 0634ac50: every terminal ledge of the surface (FUN_0635abf0).
+    // Slot 5, 0634ac50: every terminal ledge of the surface (the routine).
     void get_all_terminal_ledges(IVP_SurfaceManager_OutList* OutList) override;
 
     // Slot 6, 0634ab60: Param1 = IVP_Ray_Solver*, Param2 = IVP_Real_Object*.

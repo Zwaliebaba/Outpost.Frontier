@@ -1,12 +1,8 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
-// The frame walk and the per-object submit (FUN_00539980, IRenderer2::Slot7) live in
+// The frame walk and the per-object submit (the routine, IRenderer2::Slot7) live in
 // space_scene_obj_draw.h.
 
 // Legacy foreign space_scene_load SpaceSceneDraw hook — no-op (proxies abolished).

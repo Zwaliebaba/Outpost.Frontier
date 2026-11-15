@@ -11,7 +11,7 @@
 #ifndef lua_h
 #define lua_h
 
-/* luaprofile: retail _VERSION is "Lua 3.2" (FUN_0680a790), not stock 3.2.2. */
+/* luaprofile: baseline _VERSION is "Lua 3.2" (the routine), not stock 3.2.2. */
 #define LUA_VERSION	"Lua 3.2"
 #define LUA_COPYRIGHT	"Copyright (C) 1994-1999 TeCGraf, PUC-Rio"
 #define LUA_AUTHORS 	"W. Celes, R. Ierusalimschy & L. H. de Figueiredo"

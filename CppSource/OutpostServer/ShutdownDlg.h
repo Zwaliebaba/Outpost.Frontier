@@ -1,13 +1,9 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // CShutdownDlg — the modeless "Please wait while the server shuts down..." box (dialog 0xa0 in
-// ServerResources.dll). Retail keeps one by value in COutpostServerApp at +0xbac and polls a worker
+// ServerInterface.dll). baseline keeps one by value in COutpostServerApp at +0xbac and polls a worker
 // thread of the app once a second until it has finished, then closes itself.
-// Retail: ctor .text:00415e40, vtable .rdata:0041e628, message map .rdata:0041e620.
+// baseline: ctor module storage, vtable module storage, message map module storage.
 #pragma once
 
 class CShutdownDlg : public CDialog
@@ -18,13 +14,13 @@ public:
 	// Which app worker thread the timer waits for (the dword at +0x60).
 	enum EWaitThread
 	{
-		WaitStartupThread = 0,  // COutpostServerApp::PollStartupThread  (.text:0040c100)
-		WaitShutdownThread = 1, // COutpostServerApp::PollShutdownThread (.text:0040b6a0)
+		WaitStartupThread = 0,  // COutpostServerApp::PollStartupThread  (module storage)
+		WaitShutdownThread = 1, // COutpostServerApp::PollShutdownThread (module storage)
 	};
 
 	explicit CShutdownDlg(CWnd* Parent = nullptr);
 
-	// .text:00415ed0
+
 	void SetWaitThread(int Thread) { WaitThread = Thread; }
 
 protected:

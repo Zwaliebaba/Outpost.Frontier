@@ -1,25 +1,21 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
-// Retail StaticControl (RTTI .?AUStaticControl@@ : WinControl, StaticControl.cpp) -- the
+// baseline StaticControl (RTTI .?AUStaticControl@@ : WinControl, StaticControl.cpp) -- the
 // NeuroNet / HUD mesh that only draws: frames, gauges, cargo bars, the menu "bImg" plates.
-//
+
 // vftable 0x005e4d7c (45 slots). Overrides of WinControl (slot -> function):
-//   0 FUN_00587f40 (scalar deleting around FUN_00587f60), 5 LAB_005896b0 SetPosition,
-//   7 LAB_00588d00 SetOrientation, 9 LAB_00587fc0 Create (the INI parser), 11 LAB_00588e80
-//   Update, 13 LAB_00588770 Draw, 19 FUN_00588fe0 MouseEvent, 34 FUN_005897d0 ShowToolTip,
-//   42 LAB_00589050 SetProperty. Slots 15 / 16 stay Win3D's RET 4, slot 4 WinControl's
-//   FUN_005a0340; slot 44 is WinControl's LAB_00585090.
-// WINFACTORY<StaticControl> DAT_0067c504 "StaticControl": static init LAB_00587e10 (ctor
-// FUN_005899b0 + atexit LAB_00587e30 -> FUN_00579380), Create FUN_00589a20
-// (operator_new(0x420) + FUN_00587e40, slot 9, scalar delete on failure).
-//
-// Layout (ctor FUN_00587e40 after FUN_0059f860):
+//   0 the routine (scalar deleting around the routine), 5 the branch SetPosition,
+//   7 the branch SetOrientation, 9 the branch Create (the INI parser), 11 the branch
+//   Update, 13 the branch Draw, 19 the routine MouseEvent, 34 the routine ShowToolTip,
+//   42 the branch SetProperty. Slots 15 / 16 stay Win3D's RET 4, slot 4 WinControl's
+// ; slot 44 is WinControl's the branch.
+// WINFACTORY<StaticControl> the field "StaticControl": static init the branch (ctor
+// + atexit the branch -> the routine), Create the routine
+// (operator_new(0x420) + the routine, slot 9, scalar delete on failure).
+
+// Layout (ctor the routine after the routine):
 //   +0x000 WinControl (0x32c)
 //   +0x32c current roll, +0x330 current pitch, +0x334 current yaw (radians; the instance's
 //          orientation is the parent orientation turned by these three, SetOrientation)
@@ -29,18 +25,18 @@
 //          0xc (nothing in this class reads it), +0x348 use the two colours at +0x410 / +0x414
 //          (property 0x18), +0x349 "enable_rotation", +0x34a "no_clear_render" (ctor 1; not
 //          read by this class), +0x34b "render_to_window", +0x34c "zclear"
-//   +0x350 the render-to-window camera (FUN_0040f150 base camera, vftable 0x005c8944, 0xc0)
+//   +0x350 the render-to-window camera (the routine base camera, vftable 0x005c8944, 0xc0)
 //   +0x410 mesh colour RGBA, +0x414 wire colour RGBA (property 0x18)
 //   +0x418 "force_radius" (the draw scale is force_radius / the instance's radius)
 //   +0x41c "rotation_speed" (radians per second added to the yaw while rotation is on)
 //   size 0x420
-//
+
 // The port-only menu adapter (the seven-argument Init, the screen rect, ButtonId,
 // ContainsScreenPoint) is gone with its last user, menu_ui_widgets' FOverlayNav /
 // CreateWinStaticChrome (the flat NN_Preferences shell, 2026-09-26); menu_enter_state's case-18
-// chrome uses the retail 15-argument Init. The flat registry's own StaticControl
+// chrome uses the baseline 15-argument Init. The flat registry's own StaticControl
 // (MenuUiCreateStaticControl[Ex]) and the caption-id adapter ApplyIdsCaption are gone too
-// (2026-09-26): their only user was the briefing window, now LAB_0043d170 itself
+// (2026-09-26): their only user was the briefing window, now the branch itself
 // (mission_briefing.cpp).
 
 #include "space_camera.h"
@@ -53,30 +49,30 @@
 class NnStaticControl : public WinControl
 {
 public:
-    // FUN_00587e40
+
     NnStaticControl();
-    // FUN_00587f60 (slot 0 FUN_00587f40 is its scalar deleting wrapper)
+    // (slot 0 the routine is its scalar deleting wrapper)
     ~NnStaticControl() override;
 
-    // slot 5 LAB_005896b0 (RET 4)
+    // slot 5 the branch (RET 4)
     void SetPosition(float const* NewPosition) override;
-    // slot 7 LAB_00588d00 (RET 4)
+    // slot 7 the branch (RET 4)
     void SetOrientation(float const* NewOrientation) override;
-    // slot 9 LAB_00587fc0 (RET 8) -- Data is the INI_Reader positioned on this control's section
+    // slot 9 the branch (RET 8) -- Data is the INI_Reader positioned on this control's section
     bool Create(Win3D* NewParent, void* Data) override;
-    // slot 11 LAB_00588e80
+    // slot 11 the branch
     void Update() override;
-    // slot 13 LAB_00588770
+    // slot 13 the branch
     void Draw() override;
-    // slot 19 FUN_00588fe0 (RET 4)
+    // slot 19 the routine (RET 4)
     bool MouseEvent(FWin3DMouseEvent const* Event) override;
-    // slot 34 FUN_005897d0
+    // slot 34 the routine
     void ShowToolTip() override;
-    // slot 42 LAB_00589050 (RET 0xc)
+    // slot 42 the branch (RET 0xc)
     intptr_t SetProperty(int Msg, uintptr_t A, uintptr_t B) override;
 
-    // FUN_00588540 (RET 0x3c). Callers: WinControl::CreateStaticControl FUN_005a0db0
-    // (0x005a0e19) and LAB_0043d170 (0x0043d222, the briefing window, mission_briefing.cpp).
+    // (RET 0x3c). Callers: WinControl::CreateStaticControl the routine
+    // (0x005a0e19) and the branch (0x0043d222, the briefing window, mission_briefing.cpp).
     // ForceRadius / RotationSpeed arrive as ints and are stored as floats (FILD).
     void Init(char const* NewMeshPath, float const* NewOffset, char const* Hardpoint,
               float const* NewHalfExtents, unsigned char bNewNoZEnable, unsigned char bNewZClear,

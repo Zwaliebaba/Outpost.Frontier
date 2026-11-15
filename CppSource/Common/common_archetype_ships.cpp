@@ -1,11 +1,7 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // Archetype::DamageObjInfo(List), ShieldLink, CollisionGroup, EqObj, Solar, Ship -- split out of
-// common_archetype.cpp (retail Archetype.cpp, one TU) in CMN-SPLIT phase B.
+// common_archetype.cpp (baseline Archetype.cpp, one TU) in CMN-SPLIT phase B.
 
 #include "common_archetype.h"
 #include "common_archetype_internal.h"
@@ -16,8 +12,8 @@
 #include "common_misc.h"
 #include "common_phyarch.h"
 #include "common_universe.h"
-#include "DALib.h"
-#include "dacom.h"
+#include "NeuronRuntime.h"
+#include "neuroncomponents.h"
 #include "readfile.h"
 
 #include <cstddef>
@@ -33,11 +29,11 @@ namespace Archetype
 {
     namespace
     {
-        // FUN_062fbb90 (item 1955) + listing PTR_s_berth_063eca00 -- 8-entry name/value table
+        // (item 1955) + listing PTR_s_berth_063eca00 -- 8-entry name/value table
         // consulted by EqObj::read's "docking_sphere" case (value index 0). No match -> Type=0
         // (unlike LookupHpType's miss-defaults-to-4; docking_sphere has no such fallback in
-        // retail -- FUN_062f9700-equivalent EqObj::read masks the found value with the bool
-        // result of FUN_062fbb90, so a miss yields 0, not the last/uninitialized table slot).
+        // baseline -- the routine-equivalent EqObj::read masks the found value with the bool
+        // result of the routine, so a miss yields 0, not the last/uninitialized table slot).
         struct FDockTypeEntry
         {
             char const* Text;
@@ -61,8 +57,8 @@ namespace Archetype
             return kTable;
         }
 
-        // FUN_062fbb90 (thiscall on the table, RET 0xc: Name, &Out, Count): a null entry name is
-        // skipped, otherwise DACOM.DLL stricmp(Name, entry) == 0 stores the value and returns
+        // (thiscall on the table, RET 0xc: Name, &Out, Count): a null entry name is
+        // skipped, otherwise NEURONCOMPONENTS.DLL stricmp(Name, entry) == 0 stores the value and returns
         // true; no match -> false with Out untouched. No guard on Name or Out.
         bool TryLookupDockType(char const* Name, unsigned* OutValue)
         {
@@ -72,7 +68,7 @@ namespace Archetype
             {
                 if (Table[Index].Text == nullptr)
                     continue;
-                if (CallDacomStricmp(Name, Table[Index].Text) == 0)
+                if (CallNeuronComponentsStricmp(Name, Table[Index].Text) == 0)
                 {
                     *OutValue = Table[Index].Value;
                     return true;
@@ -84,7 +80,7 @@ namespace Archetype
 
     namespace
     {
-        const char kArchetypeSource[] = "E:\\FL\\Scratch\\Source\\Common\\Archetype.cpp";
+        const char kArchetypeSource[] = "Common\\Archetype.cpp";
 
         struct FNamedType
         {
@@ -92,7 +88,7 @@ namespace Archetype
             unsigned Type;
         };
 
-        // PTR_DAT_063ec968, 19 entries, stride 8, uVar15 < 0x98.
+        // , 19 entries, stride 8, uVar15 < 0x98.
         const FNamedType kCollisionGroupTypes[] = {
             {"Fin", 2},
             {"Top_Fin", 4},
@@ -133,8 +129,8 @@ namespace Archetype
             {"armor", 0x1000000}
         };
 
-        // FUN_062f9b10's two table walks (062f9bc0..062f9bfa "type", 062f9e62..062f9ece
-        // "linked_equip"): a null table name is skipped, otherwise DACOM stricmp(Name, entry) == 0
+        // 's two table walks (062f9bc0..062f9bfa "type", 062f9e62..062f9ece
+        // "linked_equip"): a null table name is skipped, otherwise NEURONCOMPONENTS stricmp(Name, entry) == 0
         // returns the entry's value; no match -> the default.
         unsigned LookupNamedType(char const* Name, FNamedType const* Table, unsigned Count,
                                  unsigned DefaultValue)
@@ -142,14 +138,14 @@ namespace Archetype
             unsigned Index = 0;
             for (; Index < Count; ++Index)
             {
-                if (Table[Index].Name != nullptr && CallDacomStricmp(Name, Table[Index].Name) == 0)
+                if (Table[Index].Name != nullptr && CallNeuronComponentsStricmp(Name, Table[Index].Name) == 0)
                     return Table[Index].Type;
             }
             return DefaultValue;
         }
 
         // The per-entry test of DamageObjInfoList::IsValid (0626f8d0..0626f8db) and of
-        // FUN_062f9b10's two post-loop walks (062f9eb2..062f9ec1, 062f9f20..062f9f2f): the
+        // 's two post-loop walks (062f9eb2..062f9ec1, 062f9f20..062f9f2f): the
         // hardpoint string's first byte is 0 (CMP byte [Value],0, no null test), or the id's
         // low 30 bits are 0.
         bool DamageObjUnmatched(DamageObjInfo const& Info)
@@ -161,11 +157,11 @@ namespace Archetype
             return false;
         }
 
-        // FUN_062f9700's two shapes. *_hp (062f971c..062f986f): a non-empty list whose last
+        // 's two shapes. *_hp (062f971c..062f986f): a non-empty list whose last
         // entry's hardpoint string is "" (CMP byte [Value],0 -- no null test) gets the new value
         // there; otherwise a new entry {hp, cleared id} is appended. *_obj (062f9752..062f97cc,
-        // 062f9887..062f9924): the last entry's ID_String::IsEmpty (Id == 0, 06333e50) decides.
-        // Retail reads the value after the test; reading it first changes nothing (one call
+        // ): the last entry's ID_String::IsEmpty (Id == 0, 06333e50) decides.
+        // baseline reads the value after the test; reading it first changes nothing (one call
         // either way).
         void FillOrPushHp(std::vector<DamageObjInfo>& List, char const* Hp)
         {
@@ -193,9 +189,9 @@ namespace Archetype
             List.push_back(Info);
         }
 
-        // FUN_062f9700 (cdecl: reader, dmg list, group-dmg list). Every value goes through the
+        // (cdecl: reader, dmg list, group-dmg list). Every value goes through the
         // no-argument get_value_string (06310b70, the whole value). Returns true for the four
-        // keys, false otherwise. The retail list keeps its own size at +0x08; the port mirrors it
+        // keys, false otherwise. The baseline list keeps its own size at +0x08; the port mirrors it
         // in DmgCount / GroupDmgCount.
         bool ReadDamagePair(INI_Reader& Reader, CollisionGroup* Group)
         {
@@ -241,7 +237,7 @@ namespace Archetype
         }
     }
 
-    // Common.dll.txt 0xf8a0 (??0DamageObjInfo@Archetype@@QAE@XZ): CacheString::clear on the
+    // Common 0xf8a0 (??0DamageObjInfo@Archetype@@QAE@XZ): CacheString::clear on the
     // hardpoint at +0 (stores the StringCache pool's shared empty string), ID_String::clear on +4.
     DamageObjInfo::DamageObjInfo()
     {
@@ -249,7 +245,7 @@ namespace Archetype
         Arch.clear();
     }
 
-    // Common.dll.txt 0x20ee0 (??0DamageObjInfo@Archetype@@QAE@ABU01@@Z, the same bytes also
+    // Common 0x20ee0 (??0DamageObjInfo@Archetype@@QAE@ABU01@@Z, the same bytes also
     // serve ??4): copies the dword at +0 and the dword at +4.
     DamageObjInfo::DamageObjInfo(DamageObjInfo const& Other)
         : Hardpoint(Other.Hardpoint)
@@ -257,9 +253,9 @@ namespace Archetype
     {
     }
 
-    // Common.dll.txt 0xc6c0 (??0ShieldLink@Archetype@@QAE@XZ): ShieldArch.clear(), EquipId =
+    // Common 0xc6c0 (??0ShieldLink@Archetype@@QAE@XZ): ShieldArch.clear(), EquipId =
     // SUBOBJ_ID_NONE, CacheString::clear on the hardpoint, empty vector. Pad06 is not written
-    // by retail.
+    // by baseline.
     ShieldLink::ShieldLink()
     {
         ShieldArch.clear();
@@ -267,37 +263,37 @@ namespace Archetype
         Hardpoint.clear();
     }
 
-    // Common.dll.c 23240-23245 (0xf840): unsigned compare, Hardpoint not considered.
+    // Common (0xf840): unsigned compare, Hardpoint not considered.
     bool DamageObjInfo::operator<(DamageObjInfo const& Other) const
     {
         return Arch.Id < Other.Arch.Id;
     }
 
-    // Common.dll.c 23228-23233 (0xf820): Arch id equality, Hardpoint not considered.
+    // Common (0xf820): Arch id equality, Hardpoint not considered.
     bool DamageObjInfo::operator==(DamageObjInfo const& Other) const
     {
         return Arch.Id == Other.Arch.Id;
     }
 
-    // Common.dll.c 23252-23257 (0xf860): Arch id inequality, Hardpoint not considered.
+    // Common (0xf860): Arch id inequality, Hardpoint not considered.
     bool DamageObjInfo::operator!=(DamageObjInfo const& Other) const
     {
         return Arch.Id != Other.Arch.Id;
     }
 
-    // Common.dll.c 23264-23273 (0xf880): unsigned greater-than on Arch id, Hardpoint not considered.
+    // Common (0xf880): unsigned greater-than on Arch id, Hardpoint not considered.
     bool DamageObjInfo::operator>(DamageObjInfo const& Other) const
     {
         return Other.Arch.Id < Arch.Id;
     }
 
-    // Common.dll.c 23292-23307 (0xf8c0): every entry must have a non-empty Hardpoint string
-    // and a nonzero Arch id (masked to its low 30 bits, matching retail's raw `& 0x3fffffff`
+    // Common (0xf8c0): every entry must have a non-empty Hardpoint string
+    // and a nonzero Arch id (masked to its low 30 bits, matching baseline's raw `& 0x3fffffff`
     // node-flags check); an empty list is trivially valid. Reuses DamageObjUnmatched (above,
     // this file's anonymous namespace) which already encodes the exact same per-entry test
     // for the "prune stale entries" callers.
-    // Common.dll.txt 0xf8f0 (??0DamageObjInfoList@Archetype@@QAE@XZ): stores the allocator
-    // byte (uninitialised stack byte in retail), allocates the empty head node at +0x04 and
+    // Common 0xf8f0 (??0DamageObjInfoList@Archetype@@QAE@XZ): stores the allocator
+    // byte (uninitialised stack byte in baseline), allocates the empty head node at +0x04 and
     // zeroes the size at +0x08.
     DamageObjInfoList::DamageObjInfoList()
         : Items(new std::vector<DamageObjInfo>())
@@ -305,7 +301,7 @@ namespace Archetype
     {
     }
 
-    // Common.dll.txt 0xf920 (??0DamageObjInfoList@Archetype@@QAE@ABV01@@Z, the same bytes as
+    // Common 0xf920 (??0DamageObjInfoList@Archetype@@QAE@ABV01@@Z, the same bytes as
     // list<CollisionGroupDesc>'s copy ctor): copies the allocator byte, allocates a fresh head,
     // then appends a copy of each of Other's elements in order, incrementing the size per node.
     DamageObjInfoList::DamageObjInfoList(DamageObjInfoList const& Other)
@@ -315,7 +311,7 @@ namespace Archetype
         Pad0[0] = Other.Pad0[0];
     }
 
-    // Common.dll.txt 0x468e0 (??1DamageObjInfoList@Archetype@@QAE@XZ): unlinks and frees every
+    // Common 0x468e0 (??1DamageObjInfoList@Archetype@@QAE@XZ): unlinks and frees every
     // node, frees the head, zeroes head (+0x04) and size (+0x08).
     DamageObjInfoList::~DamageObjInfoList()
     {
@@ -324,7 +320,7 @@ namespace Archetype
         Count = 0;
     }
 
-    // Common.dll.txt 0xf9b0 (??4DamageObjInfoList@Archetype@@QAEAAV01@ABV01@@Z): returns at once
+    // Common 0xf9b0 (??4DamageObjInfoList@Archetype@@QAEAAV01@ABV01@@Z): returns at once
     // on self-assignment; otherwise overwrites this list's nodes with Other's elements in order,
     // erases this list's surplus nodes (size decremented per node) or appends Other's remaining
     // elements (size incremented per node). The vector assignment is the same element-wise
@@ -401,7 +397,7 @@ namespace Archetype
         , LinkedEquipType(0)
         , LinkedEquipHealth(0.0f)
     {
-        // 062f9950 / 062f9961: Id = SUBOBJ_ID_NONE, and +0x08 goes through CacheString::clear,
+        // / 062f9961: Id = SUBOBJ_ID_NONE, and +0x08 goes through CacheString::clear,
         // i.e. the StringCache pool's shared empty string, not a literal. The three lists are
         // built empty by their own ctors.
         Id = SUBOBJ_ID_NONE;
@@ -413,7 +409,7 @@ namespace Archetype
     }
 
     CollisionGroup::CollisionGroup(CollisionGroup const& Other)
-        // Common.dll.c 23433-23492 (0xfa70): allocates three fresh empty VC6 std::list<>
+        // Common (0xfa70): allocates three fresh empty VC6 std::list<>
         // sentinel nodes (Next+0x44/+0x50/+0x5c) then copies Other's list contents into
         // them -- same net effect as constructing empty vectors and assigning, which is
         // what the port's owned-vector members already give us via their own copy.
@@ -435,10 +431,10 @@ namespace Archetype
         , SeparationExplosion(Other.SeparationExplosion)
         , DebrisType(Other.DebrisType)
         , ExplosionResistance(Other.ExplosionResistance)
-        // 0626fb00..0626fb94: each list copies Other's allocator byte, gets a fresh head, and
+        // each list copies Other's allocator byte, gets a fresh head, and
         // the insert of Other's [first, head) counts its size up from 0 -- the size is the
         // number of elements copied, not Other's size field. The lists are built in order and
-        // retail's unwind funclet (LAB_06392756) destroys the ones already built if a later
+        // baseline's unwind funclet (the branch) destroys the ones already built if a later
         // allocation throws, as the member destructors do here.
         , DmgObjs(Other.DmgObjs)
         , GroupDmgObjs(Other.GroupDmgObjs)
@@ -455,12 +451,12 @@ namespace Archetype
 
     CollisionGroup& CollisionGroup::operator=(CollisionGroup const& Other)
     {
-        // Common.dll.c 23500-23579 (0xfbc0): retail reuses existing VC6 std::list<> nodes
+        // Common (0xfbc0): baseline reuses existing VC6 std::list<> nodes
         // in place (walking both lists together, overwriting node payloads, then
         // erase()/insert()-ing the size difference) for the three list members
         // (DmgObjs@+0x40, GroupDmgObjs@+0x4c, Fuses@+0x58) -- net observable effect is
         // simply "this list's contents become a copy of Other's list's contents", which
-        // std::vector's own operator= already gives us. Also note retail copies the
+        // std::vector's own operator= already gives us. Also note baseline copies the
         // intrusive Next(+0x00) pointer too -- reproduced faithfully even though copying
         // list-linkage during an element assignment looks unusual; CollisionGroup::operator=
         // has no traced call site in this codebase (folded, XREF-orphaned like most of the
@@ -494,8 +490,8 @@ namespace Archetype
         return *this;
     }
 
-    // FUN_062f9b10 (062f9b10..062f9fb9), cdecl(reader, owner, id). Both callers (LoadShips
-    // 062f30c4, LoadSolar 062f3b07) pass a non-null owner. "obj", "type", "separation_explosion"
+    // (062f9b10..062f9fb9), cdecl(reader, owner, id). Both callers (LoadShips
+    // , LoadSolar 062f3b07) pass a non-null owner. "obj", "type", "separation_explosion"
     // and "debris_type" read the no-argument get_value_string (06310b70, the whole value);
     // "fuse" and "linked_equip" the indexed one.
     void ReadCollisionGroup(INI_Reader& Reader, EqObj* Owner, unsigned short GroupId)
@@ -612,7 +608,7 @@ namespace Archetype
         , ShieldIdNext(0xfff0)
         , ShieldLinks(nullptr)
         , Fuses(nullptr)
-        , bNomad(false)
+        , bVeilborn(false)
         , bDockingCamera(true)
     {
         memset(Pad62, 0, sizeof(Pad62));
@@ -626,12 +622,12 @@ namespace Archetype
         Fuses = new std::vector<FGroupFuse>();
     }
 
-    // Common.dll.txt 0x91460-0x91665 (??0EqObj@Archetype@@QAE@ABU01@@Z). Retail runs
+    // Common 0x91460-0x91665 (??0EqObj@Archetype@@QAE@ABU01@@Z). baseline runs
     // Root(0), the ShieldIdMaker ctor at +0x60, builds the empty shield-link vector (+0x64..
     // +0x70), the empty fuse list (fresh 0x14-byte sentinel at +0x78) and the empty docking-
     // sphere vector (+0x84), stores the EqObj vptr, then performs EqObj::operator= inline:
     // Root::operator=, the docking-sphere vector assignment and the CollisionGroup chain clone
-    // (+0x5c is only ever written by that clone). Retail UB: bNomad (+0x80) and bDockingCamera
+    // (+0x5c is only ever written by that clone). baseline UB: bVeilborn (+0x80) and bDockingCamera
     // (+0x81) are never written, so they keep whatever the allocation held. The port keeps the
     // copy deterministic and gives them the default ctor's values (false / true).
     EqObj::EqObj(EqObj const& Other)
@@ -640,7 +636,7 @@ namespace Archetype
         , ShieldIdNext(0xfff0)
         , ShieldLinks(new std::vector<ShieldLink>())
         , Fuses(new std::vector<FGroupFuse>())
-        , bNomad(false)
+        , bVeilborn(false)
         , bDockingCamera(true)
     {
         memset(Pad62, 0, sizeof(Pad62));
@@ -668,30 +664,30 @@ namespace Archetype
         Fuses = nullptr;
     }
 
-    // Common.dll.txt:261602-261819. CORRECTED (D51, 2026-09-09): real retail logic backing
+    // Common. CORRECTED (D51, 2026-09-09): real baseline logic backing
     // Ship/Solar "inherit=" (Archetype::LoadShips 0x062f2d43 / Archetype::LoadSolar
-    // 0x062f383d) -- see tracker item 71899's notes for the full XREF trail that overturned
+    // ) -- see tracker item 71899's notes for the full XREF trail that overturned
     // the prior "confirmed dead" verdict.
-    //
-    // Traced field-by-field against the raw disasm:
-    //   - calls Root::operator= first for the base-class part (Common.dll.txt:261628).
-    //   - DockingSpheres (+0x84): retail inlines a std::vector<DockingSphere>::operator=
-    //     (FUN_06316ac0/FUN_062fba30/FUN_062fd2b0 growth/copy helpers) -- fully subsumed by
+
+    // Traced field-by-field against the raw analysis:
+    //   - calls Root::operator= first for the base-class part (Common).
+    //   - DockingSpheres (+0x84): baseline inlines a std::vector<DockingSphere>::operator=
+    //     (the routine/the routine/the routine growth/copy helpers) -- fully subsumed by
     //     this port's own std::vector<DockingSphere>'s assignment operator (same precedent as
-    //     tracker item 1980's finding for the sibling FUN_062fd2b0 caller).
-    //   - CollisionGroups (+0x5c): retail heap-allocates and copy-constructs a fresh node per
+    //     tracker item 1980's finding for the sibling the routine caller).
+    //   - CollisionGroups (+0x5c): baseline heap-allocates and copy-constructs a fresh node per
     //     donor node (operator_new(0x6c) + CollisionGroup::CollisionGroup(*donor_node)) and
-    //     relinks them into a new chain (Common.dll.txt:261777-261819) -- ported the same way
-    //     using CollisionGroup's existing copy ctor. Like retail, this does NOT free/merge into
+    //     relinks them into a new chain (Common) -- ported the same way
+    //     using CollisionGroup's existing copy ctor. Like baseline, this does NOT free/merge into
     //     a pre-existing destination chain first (both known callers -- LoadShips/LoadSolar --
     //     assign into a freshly-constructed, still-empty EqObj, so this never leaks in practice;
     //     documented here rather than silently relied upon).
-    //   - ShieldIdNext (+0x60) / ShieldLinks (+0x68) / Fuses (+0x74) / bNomad (+0x80) /
-    //     bDockingCamera (+0x81): confirmed by direct disasm read that retail's real function
-    //     body never references these offsets at all -- this is retail's own actual (partial)
+    //   - ShieldIdNext (+0x60) / ShieldLinks (+0x68) / Fuses (+0x74) / bVeilborn (+0x80) /
+    //     bDockingCamera (+0x81): confirmed by direct analysis read that baseline's real function
+    //     body never references these offsets at all -- this is baseline's own actual (partial)
     //     copy behavior, not a missed field. Left untouched here to match exactly.
-    //
-    // Returns EqObj const&, matching retail's mangled return type.
+
+    // Returns EqObj const&, matching baseline's mangled return type.
     EqObj const& EqObj::operator=(EqObj const& Other)
     {
         Root::operator=(Other);
@@ -717,7 +713,7 @@ namespace Archetype
         return *this;
     }
 
-    // Common.dll.txt 0x062f1c60: `JMP Archetype::Root::redefine` -- EqObj adds nothing.
+    // Common 0x062f1c60: `JMP Archetype::Root::redefine` -- EqObj adds nothing.
     void EqObj::redefine(Root const& Other)
     {
         Root::redefine(Other);
@@ -736,8 +732,8 @@ namespace Archetype
 
         if (Reader.is_value("docking_sphere"))
         {
-            // .text:062f1898..062f1938 (table lookup FUN_062fbb90 is item 1955, push helper
-            // FUN_062fc710). value(0) -> Type via the retail 8-entry berth/moor/ring/pad/
+            // (table lookup the routine is item 1955, push helper
+            // ). value(0) -> Type via the baseline 8-entry berth/moor/ring/pad/
             // jump/airlock table (no match -> 0), value(1) -> HardpointName (record +0x04,
             // StringAlloc'd, then _strlwr'd in place), value(2) -> Radius, optional value(3)
             // -> AnimName (record +0x08, StringAlloc'd).
@@ -762,10 +758,10 @@ namespace Archetype
 
         if (Reader.is_value("fuse"))
         {
-            // Common.dll.c 126077-126091 (EqObj::read's own body). Same element shape and
+            // Common (EqObj::read's own body). Same element shape and
             // same per-value parsing as CollisionGroup::Fuses (ReadCollisionGroup's own
             // "fuse" case above): value(0) -> CreateID'd Fuse.Fuse.Id, value(1)/value(2) ->
-            // Value1/Value2. Stored in the heap Fuses vector at retail's own +0x74 slot
+            // Value1/Value2. Stored in the heap Fuses vector at baseline's own +0x74 slot
             // (see EqObj's declaration, common_archetype.h).
             FGroupFuse Fuse;
             Fuse.Fuse.Id = CreateID(Reader.get_value_string(0));
@@ -786,7 +782,7 @@ namespace Archetype
             Link.ShieldArch.Id = CreateID(ArchName);
             ++ShieldIdNext;
             Link.EquipId = ShieldIdNext;
-            // .text:062f1a66 / 062f1a9b: StringAlloc(value, false) into the CacheStrings.
+            // / 062f1a9b: StringAlloc(value, false) into the CacheStrings.
             Link.Hardpoint.Value = StringAlloc(Reader.get_value_string(1), false);
             unsigned ValueIndex = 2;
             while (!Reader.is_value_empty(ValueIndex))
@@ -800,9 +796,9 @@ namespace Archetype
             return true;
         }
 
-        if (Reader.is_value("nomad"))
+        if (Reader.is_value("veilborn"))
         {
-            bNomad = Reader.get_value_bool(0);
+            bVeilborn = Reader.get_value_bool(0);
             return true;
         }
 
@@ -831,7 +827,7 @@ namespace Archetype
         CollisionGroup* Group = CollisionGroups;
         while (Group != nullptr)
         {
-            // .text:062f1ee6: interned StringCache pointers are compared, not their text.
+            // interned StringCache pointers are compared, not their text.
             if (Group->ObjName == Name.Value)
                 return Group;
             Group = Group->Next;
@@ -850,7 +846,7 @@ namespace Archetype
         return Cursor != nullptr;
     }
 
-    // Common.dll.c 0x91f00. See header comment: archetype-level list, every group
+    // Common 0x91f00. See header comment: archetype-level list, every group
     // reported at full (1.0f) health since the archetype carries no per-instance damage.
     bool EqObj::get_undamaged_collision_group_list(std::list<CollisionGroupDesc>& OutDescs) const
     {
@@ -868,7 +864,7 @@ namespace Archetype
 
     bool EqObj::dock_terminal_valid(int Index) const
     {
-        // Common.dll.c 0xc950: retail treats DockingSpheres as a raw MSVC vector
+        // Common 0xc950: baseline treats DockingSpheres as a raw MSVC vector
         // (begin +0x84, end +0x88, cap +0x8c) and checks
         // Index != -1 && end != null && (unsigned)Index < (end-begin)/sizeof(element).
         // Our std::vector<DockingSphere> gives the same containment check via size().
@@ -892,12 +888,12 @@ namespace Archetype
 
     Solar::~Solar()
     {
-        // Retail 0626d230 is `JMP EqObj::~EqObj`: Solar's own members are all scalars.
+        // is `JMP EqObj::~EqObj`: Solar's own members are all scalars.
     }
 
     bool Solar::read(INI_Reader& Reader)
     {
-        // Retail 062f3470..062f357d. No "inherit" case: LoadSolar handles that key before calling
+        // . No "inherit" case: LoadSolar handles that key before calling
         // read() (062f3705). The three string keys use the no-argument get_value_string
         // (06310b70, the whole value), not the indexed one.
         if (EqObj::read(Reader))
@@ -952,11 +948,11 @@ namespace Archetype
 
     AClassType Solar::get_class_type() const
     {
-        // Common.dll.c 0x71740 (Archetype::Solar::get_class_type): return 2.
+        // Common 0x71740 (Archetype::Solar::get_class_type): return 2.
         return AClassSolar;
     }
 
-    // .rdata:063a08ac (exported ?MAX_EXHAUST_NOZZLES@Ship@Archetype@@2HB): int 9.
+    // (exported ?MAX_EXHAUST_NOZZLES@Ship@Archetype@@2HB): int 9.
     int const Ship::MAX_EXHAUST_NOZZLES = 9;
 
     Ship::Ship(ICliObj* InCompanion)
@@ -979,26 +975,26 @@ namespace Archetype
         , StrafeForce(0.0f)
         , StrafePowerUsage(0.0f)
         , MaxBankAngle(0.0f)
-        , LegalHps()                        // retail zeroes the vector header at +0x130
+        , LegalHps()                        // baseline zeroes the vector header at +0x130
         , NanobotLimit(-1)
         , ShieldBatteryLimit(-1)
     {
         BayDoorAnim.clear();
         HpBaySurface.clear();
         HpBayExternal.clear();
-        // Common.dll.c 126545-126546: defaults to "HpHeadlight", not empty.
+        // Common: defaults to "HpHeadlight", not empty.
         HpTractorSource.Value = StringAlloc("HpHeadlight", false);
     }
 
     Ship::~Ship()
     {
-        // Common.dll.c 0xd000: retail's +0x130 is a VC6 std::vector whose 0x14-byte elements each
-        // own an inner VC6 vector<CacheString> (its _First at element+8). Retail frees each inner
+        // Common 0xd000: baseline's +0x130 is a VC6 std::vector whose 0x14-byte elements each
+        // own an inner VC6 vector<CacheString> (its _First at element+8). baseline frees each inner
         // buffer, nulls that element's three pointers, then frees the outer buffer. The port holds
         // the same data in LegalHps, so ~vector does all of that; the CacheString values themselves
-        // are StringAlloc'd pool strings, which retail does not free here either.
-        //
-        // Retail additionally appears to run `MetaList<>::operator=(element+4, elem)` over each
+        // are StringAlloc'd pool strings, which baseline does not free here either.
+
+        // baseline additionally appears to run `MetaList<>::operator=(element+4, elem)` over each
         // inner range before freeing it -- an earlier note called that "not understood". It sits
         // exactly where VC6 inlines `vector<CacheString>::_Destroy(first,last)`, and CacheString is
         // a single pointer with no destructor, so there is no observable effect to reproduce. This
@@ -1008,7 +1004,7 @@ namespace Archetype
 
     bool Ship::read(INI_Reader& Reader)
     {
-        // Retail 062f21b0..062f27e4. No "inherit" case: LoadShips handles that key before calling
+        // . No "inherit" case: LoadShips handles that key before calling
         // read() (062f2ae0). The four CacheString keys use the no-argument get_value_string
         // (06310b70, the whole value); hp_type uses the indexed one (06310a30).
         if (EqObj::read(Reader))
@@ -1128,11 +1124,11 @@ namespace Archetype
 
         if (Reader.is_value("max_bank_angle"))
         {
-            // 062f2504..062f2526: get_value_float's result stays on the x87 stack unrounded
-            // (value_num is the same body); FCOM [DAT_063a15b4] = 180.0f, TEST AH,0x41, JNZ keeps
+            // get_value_float's result stays on the x87 stack unrounded
+            // (value_num is the same body); FCOM [the field] = 180.0f, TEST AH,0x41, JNZ keeps
             // less / equal / unordered, the fall-through (greater) loads 180.0f; FMUL float
-            // [DAT_0639d210] = 0x3c8efa35; FSTP float. The product is formed in double and
-            // rounded once to float; retail forms it at the x87 precision-control width.
+            // [the field] = 0x3c8efa35; FSTP float. The product is formed in double and
+            // rounded once to float; baseline forms it at the x87 precision-control width.
             double Degrees = Reader.value_num(0);
             if (Degrees > 180.0)
                 Degrees = 180.0;
@@ -1140,20 +1136,20 @@ namespace Archetype
             return true;
         }
 
-        // .text:062f2531: `LEA ECX,[ESI+0x94]; CALL [EAX+8]` -- the CommReferrable subobject's
+        // `LEA ECX,[ESI+0x94]; CALL [EAX+8]` -- the CommReferrable subobject's
         // slot 2, a virtual call.
         if (read_comm_ini_data(Reader))
             return true;
 
-        // Common.dll .text:062f2549 .. .text:062f27cc -- the "hp_type" directive.
+        // Common.dll module storage .. module storage -- the "hp_type" directive.
         //   hp_type = <class name>, <hardpoint>, <hardpoint>, ...
-        // .text:062f256a walks the 63-entry {name, value} table at .data:063eca40 (0x1f8 bytes,
-        // stride 8, stricmp through DACOM.DLL) looking for the class name; a name that is not in
-        // the table is swallowed and the line ignored (.text:062f2598 returns AL=1), and so is a
-        // table value of 0 (.text:062f25a6). On a hit retail push_backs one default element onto
-        // the vector at this+0x130 (.text:062f25d5), writes the class into element+0x00
-        // (.text:062f2600) and then appends StringAlloc'd hardpoint names from INI index 1 upward
-        // until is_value_empty (.text:062f2612 .. .text:062f27c6).
+        // walks the 63-entry {name, value} table at module storage (0x1f8 bytes,
+        // stride 8, stricmp through NEURONCOMPONENTS.DLL) looking for the class name; a name that is not in
+        // the table is swallowed and the line ignored (module storage returns AL=1), and so is a
+        // table value of 0 (module storage). On a hit baseline push_backs one default element onto
+        // the vector at this+0x130 (module storage), writes the class into element+0x00
+        // (module storage) and then appends StringAlloc'd hardpoint names from INI index 1 upward
+        // until is_value_empty (module storage .. module storage).
         if (Reader.is_value("hp_type"))
         {
             unsigned Value = 0;
@@ -1177,7 +1173,7 @@ namespace Archetype
         return false;
     }
 
-    // 0x929a0 (.text:062f29a0). Retail walks [this+0x134, this+0x138) with a 0x14 stride, compares
+    // 0x929a0 (module storage). baseline walks [this+0x134, this+0x138) with a 0x14 stride, compares
     // element+0x00 against Type and returns element+0x04 -- the inner vector -- or null. Note it
     // returns the vector even when that vector is empty; only "no element of this class at all"
     // yields null. Server.dll's reason-3 cheat check depends on exactly that distinction.
@@ -1191,9 +1187,9 @@ namespace Archetype
         return nullptr;
     }
 
-    // Common.dll.c 0x927f0. Only copies HpBaySurface/HpBayExternal/HpTractorSource and the
+    // Common 0x927f0. Only copies HpBaySurface/HpBayExternal/HpTractorSource and the
     // physics scalars (hold_size .. max_bank_angle); BayDoorAnim/IdsInfo1-3/ShipClass/
-    // NumExhaustNozzles/StrafePowerUsage are NOT touched by retail's redefine either.
+    // NumExhaustNozzles/StrafePowerUsage are NOT touched by baseline's redefine either.
     void Ship::redefine(Root const& Other)
     {
         Root::redefine(Other);
@@ -1232,13 +1228,13 @@ namespace Archetype
 
     AClassType Ship::get_class_type() const
     {
-        // Common.dll.c 0xc9a0 (Archetype::Ship::get_class_type): return 3.
+        // Common 0xc9a0 (Archetype::Ship::get_class_type): return 3.
         return AClassShip;
     }
 }
 
 // ===========================================================================
-// Explicit STL instantiation exported like retail's. Retail Common.dll exports all 55
+// Explicit STL instantiation exported like baseline's. baseline Common.dll exports all 55
 // members of its VC6 std::list<CollisionGroupDesc>; OutpostFrontier.exe, Server.dll and
 // rpclocal.dll import them by name. The port exports the modern instantiation; the
 // importing declaration is in common_archetype.h.

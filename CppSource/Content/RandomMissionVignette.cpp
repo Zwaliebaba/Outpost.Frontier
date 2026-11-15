@@ -1,15 +1,11 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
-// TU61 -- the vignette runtime machine's state machine (FRmVignetteMachine::Slot2, FUN_06f8c460,
-// 5106 insns) and its helpers FUN_06f8bc70..FUN_06f8c3c0 / FUN_06f90b40 / FUN_06f90b70, plus the
+// TU61 -- the vignette runtime machine's state machine (FRmVignetteMachine::Slot2, the routine,
+// 5106 insns) and its helpers the routine..the routine / the routine / the routine, plus the
 // two TU61 trigger classes it builds (vtables 06fbca40 / 06fbca84). Content.md section 7, lane
 // CNT-RM. Declarations in RandomMissionMachine.h.
-//
-// FUN_06f8c460 is one function in retail; the port splits it by state (Handle*), each piece
+
+// is one function in baseline; the port splits it by state (Handle*), each piece
 // keeps its listing range. The objective keys the machine uses (the generator's
 // FRmObjectiveMap keys): 1 the target ship marker, 2 the main battle marker, 3 the target
 // component's "going to main" marker (shown as key 2), 4 / 5 the big / other solars, 6 / 7 the
@@ -36,13 +32,13 @@
 
 #include <cstring>
 
-// LAB_06f84280 (TU61 static init): FLD 3500.0 (DAT_06fbc2c8), FADD 6000.0 (DAT_06fbc2b4), FSTP.
+// (TU61 static init): FLD 3500.0 (the field), FADD 6000.0 (the field), FSTP.
 float GRmVignetteOuterRadius = 3500.0f + 6000.0f;
 
 namespace
 {
-    // DAT_06fd3c0c (.bss, 0): the cookie counter of FUN_06f8c460's function-local statics
-    // (guard bytes DAT_06fd3b68 / DAT_06fd3b44); every cookie is the counter's value the first
+    // (.bss, 0): the cookie counter of the routine's function-local statics
+    // (guard bytes the field / the field); every cookie is the counter's value the first
     // time its code is reached, post-incremented.
     unsigned int GRmVignetteNextCookie = 0;
 
@@ -51,13 +47,13 @@ namespace
         return GRmVignetteNextCookie++;
     }
 
-    // 06f8c481-06f8c4d6: the three statics initialised on every entry of FUN_06f8c460, in this
-    // order (guard bits 1, 2, 4 of DAT_06fd3b68).
+    // the three statics initialised on every entry of the routine, in this
+    // order (guard bits 1, 2, 4 of the field).
     struct FRmVignetteEntryCookies
     {
-        unsigned int LeaveArea;     // DAT_06fd3b64: FRmProximityLeaveTrigger of the combat area
-        unsigned int ReenterArea;   // DAT_06fd3b60: FRmProximityTrigger back into the area
-        unsigned int Countdown;     // DAT_06fd3b5c: FRmTimerTrigger of the countdown
+        unsigned int LeaveArea;     // FRmProximityLeaveTrigger of the combat area
+        unsigned int ReenterArea;   // FRmProximityTrigger back into the area
+        unsigned int Countdown;     // FRmTimerTrigger of the countdown
     };
 
     FRmVignetteEntryCookies const& RmVignetteEntryCookies()
@@ -68,7 +64,7 @@ namespace
         return Cookies;
     }
 
-    // The message test FUN_06f8c460 repeats for every message: event type 3, the delivery state
+    // The message test the routine repeats for every message: event type 3, the delivery state
     // -1 or the current one (direct field reads or the get_delivery_state import), then the
     // message type.
     StateMachineMessage const* RmMessageOf(StateMachine const* Machine, SMEventData const* Event,
@@ -84,7 +80,7 @@ namespace
         return Message;
     }
 
-    // A trigger-fired message (DAT_06fd3a18) whose +0x1c is Cookie.
+    // A trigger-fired message (the field) whose +0x1c is Cookie.
     FRmTriggerFiredMessage const* RmFiredTriggerOf(StateMachine const* Machine,
                                                    SMEventData const* Event, unsigned int Cookie)
     {
@@ -118,7 +114,7 @@ namespace
         return Event->get_event_type() < 4 && Event->get_event_type() == 1;
     }
 
-    // FUN_06f90b40 (and its inline copies): a group to spawn (+0x00 set) that is not spawned
+    // (and its inline copies): a group to spawn (+0x00 set) that is not spawned
     // yet (+0x01 clear).
     bool RmHasUnspawnedGroup(std::vector<FRmShipGroup> const* Groups)
     {
@@ -140,7 +136,7 @@ namespace
         return &Offer->Ships.Position;
     }
 
-    // FUN_06f931c0 / FUN_06f930a0: the objective of Key in a component's map (insert of
+    // / the routine: the objective of Key in a component's map (insert of
     // {Key, null} when missing, as operator[]).
     FRmParamText* RmComponentObjective(FRmOfferComponent* Component, int Key)
     {
@@ -160,7 +156,7 @@ FRmShipCountTrigger::FRmShipCountTrigger(unsigned int InCookie, unsigned int InO
 {
 }
 
-// LAB_06f92dd0 (06f92dd0-06f92e46, RET 8). JG: a count above Threshold does not fire.
+// (06f92dd0-06f92e46, RET 8). JG: a count above Threshold does not fire.
 bool FRmShipCountTrigger::OnArmed(SMEventData const* Event, int const& State)
 {
     if (State != 1)
@@ -180,7 +176,7 @@ bool FRmShipCountTrigger::OnArmed(SMEventData const* Event, int const& State)
     return false;
 }
 
-// LAB_06f92e50 (06f92e50-06f92e79).
+// (06f92e50-06f92e79).
 int FRmShipCountTrigger::CountAlive()
 {
     int Count = 0;
@@ -202,7 +198,7 @@ FRmShipHealthTrigger::FRmShipHealthTrigger(unsigned int InCookie, unsigned int I
 {
 }
 
-// FUN_06f92ed0 (06f92ed0-06f92fe5, RET 8).
+// (06f92ed0-06f92fe5, RET 8).
 bool FRmShipHealthTrigger::OnArmed(SMEventData const* Event, int const& State)
 {
     if (State != 1)
@@ -218,7 +214,7 @@ bool FRmShipHealthTrigger::OnArmed(SMEventData const* Event, int const& State)
     if (Controller == nullptr)
         return false;
 
-    // 06f92f38-06f92f71: the record of the damaged object (parms +0x00, read once before the
+    // the record of the damaged object (parms +0x00, read once before the
     // walk), of this trigger's kind.
     FSubObjDamageEvent const* Damage = static_cast<FSubObjDamageEvent const*>(Controller->DataPtr);
     FRmSpawnRecord* Record = nullptr;
@@ -236,10 +232,10 @@ bool FRmShipHealthTrigger::OnArmed(SMEventData const* Event, int const& State)
     if (static_cast<FRmShipRecord*>(Record)->Kind != Kind)
         return true;
 
-    // 06f92f73-06f92fd0: ftol(current / max * -100.0) (DAT_06fbcab8 = 0xc2c80000) and
+    // ftol(current / max * -100.0) (the field = 0xc2c80000) and
     // ftol(RelativeDamage * -100.0) (parms +0x1c = hit points lost / max hit points, Server
-    // .text:06ceb5d8-06ceb5f3); their difference below Threshold fires with the record as the
-    // activator. Retail keeps both products on the x87 stack (FLD / FDIV / FMUL, no store) and
+    // ); their difference below Threshold fires with the record as the
+    // activator. baseline keeps both products on the x87 stack (FLD / FDIV / FMUL, no store) and
     // truncates them with _ftol; the doubles below are x87 registers as well (/arch:IA32), so
     // the thread's precision control rounds them the same way, and a store of such a value to
     // a double is exact.
@@ -259,8 +255,8 @@ bool FRmShipHealthTrigger::OnArmed(SMEventData const* Event, int const& State)
     return true;
 }
 
-// LAB_06f92ff0 (06f92ff0-06f93074): ftol(current / max * 100.0) (DAT_06fb8574 = 0x42c80000),
-// kept on the x87 stack as in retail (see OnArmed above). The end of the list is re-read every
+// (06f92ff0-06f93074): ftol(current / max * 100.0) (the field = 0x42c80000),
+// kept on the x87 stack as in baseline (see OnArmed above). The end of the list is re-read every
 // iteration (06f93061), as std::list::end() here.
 int FRmShipHealthTrigger::GetLowestHealth()
 {
@@ -289,7 +285,7 @@ int FRmShipHealthTrigger::GetLowestHealth()
 // FRmVignetteMachine helpers
 // =======================================================================================
 
-// FUN_06f8bc70 (06f8bc70-06f8bd8a). The alive flagged ships are looked up again by id
+// (06f8bc70-06f8bd8a). The alive flagged ships are looked up again by id
 // (Ships->Records slot 2) before their flags are cleared.
 void FRmVignetteMachine::ClearShipTargets()
 {
@@ -308,7 +304,7 @@ void FRmVignetteMachine::ClearShipTargets()
     }
 }
 
-// FUN_06f8bd90 (06f8bd90-06f8beaa).
+// (06f8bd90-06f8beaa).
 void FRmVignetteMachine::ClearSolarTargets()
 {
     RemoveObjective(4);
@@ -326,7 +322,7 @@ void FRmVignetteMachine::ClearSolarTargets()
     }
 }
 
-// FUN_06f8beb0 (06f8beb0-06f8c1f7, RET 0xc). Retail has no end test after the group search
+// (06f8beb0-06f8c1f7, RET 0xc). baseline has no end test after the group search
 // (06f8bee0-06f8bef0); every caller passes the serial of one of Component's groups.
 void FRmVignetteMachine::SpawnGroupWithTriggers(unsigned int Serial, FRmShipComponent* Component,
                                                 unsigned int Cookie)
@@ -339,12 +335,12 @@ void FRmVignetteMachine::SpawnGroupWithTriggers(unsigned int Serial, FRmShipComp
     if (Group->Field_0x02 != 0)
         ClearShipTargets();
 
-    // 06f8bf0b-06f8bf44: slot 24, the group's records, their objectives.
+    // slot 24, the group's records, their objectives.
     SpawnShipGroup(&*Group, Group != Component->Groups.begin());
     FRmRecordList Members = Ships->QueryGroup(Group->Serial);
     MarkGroupTargets(&Members, &Component->Objectives);
 
-    // 06f8bf49-06f8c025: the first-spawn comm sequences. Field_0x40 > 0.0 (FCOMP 0.0, TEST
+    // the first-spawn comm sequences. Field_0x40 > 0.0 (FCOMP 0.0, TEST
     // AH,0x41 + JNZ: less, equal or unordered go to the hostile side) is a friendly group.
     if (Group->Field_0x40 > 0.0f)
     {
@@ -380,7 +376,7 @@ void FRmVignetteMachine::SpawnGroupWithTriggers(unsigned int Serial, FRmShipComp
         }
     }
 
-    // 06f8c02c-06f8c193: the next group not spawned yet gets a trigger for "all ships dead"
+    // the next group not spawned yet gets a trigger for "all ships dead"
     // and, by its +0x04 mode, a delayed cookie (2) or a "Field_0x08 ships left" trigger (3).
     std::vector<FRmShipGroup>::iterator Next = Group + 1;
     while (Next != Component->Groups.end() && Next->Field_0x01 != 0)
@@ -406,7 +402,7 @@ void FRmVignetteMachine::SpawnGroupWithTriggers(unsigned int Serial, FRmShipComp
     }
 }
 
-// FUN_06f8c200 (06f8c200-06f8c326, RET 4). No null test on the record.
+// (06f8c200-06f8c326, RET 4). No null test on the record.
 void FRmVignetteMachine::OnFlaggedShipsLost(unsigned int ObjectId)
 {
     FRmShipRecord* Record = static_cast<FRmShipRecord*>(Ships->Records.FindById(ObjectId));
@@ -425,7 +421,7 @@ void FRmVignetteMachine::OnFlaggedShipsLost(unsigned int ObjectId)
     }
 }
 
-// FUN_06f8c330 (06f8c330-06f8c3bd): the inline finds of 7, 4, 6 and 5.
+// (06f8c330-06f8c3bd): the inline finds of 7, 4, 6 and 5.
 bool FRmVignetteMachine::HasTargetObjectives()
 {
     if (FindObjective(7) != ActiveObjectives.end())
@@ -439,7 +435,7 @@ bool FRmVignetteMachine::HasTargetObjectives()
     return false;
 }
 
-// FUN_06f8c3c0 (06f8c3c0-06f8c455, RET 8): the player map's lower_bound (FUN_06f2e220) and key
+// (06f8c3c0-06f8c455, RET 8): the player map's lower_bound (the routine) and key
 // test; a mapped player with a ship gets IN_SPACE_IN_SYSTEM when SystemId is this machine's
 // (slot 8), else IN_SPACE_NOT_IN_SYSTEM.
 void FRmVignetteMachine::SendSystemConversations(unsigned int InPlayerId, unsigned int SystemId)
@@ -457,13 +453,13 @@ void FRmVignetteMachine::SendSystemConversations(unsigned int InPlayerId, unsign
         VignetteOffer->General.SendConversations(RmCommInSpaceNotInSystem, this, Player);
 }
 
-// FUN_06f90b70 (06f90b70-06f90f1d, RET 8). Retail reads Members' first record without an empty
+// (06f90b70-06f90f1d, RET 8). baseline reads Members' first record without an empty
 // test (06f90db1-06f90dbd); the spawn always gives the group a record.
 void FRmVignetteMachine::MarkGroupTargets(FRmRecordList* Members, FRmObjectiveMap* Map)
 {
     bool bMarked = false;
 
-    // 06f90b91-06f90bb5: the first member flagged as a target (Flags bit 1).
+    // the first member flagged as a target (Flags bit 1).
     FRmShipRecord* Flagged = nullptr;
     for (std::list<FRmSpawnRecord*>::iterator It = Members->Records.begin();
          It != Members->Records.end(); ++It)
@@ -476,21 +472,21 @@ void FRmVignetteMachine::MarkGroupTargets(FRmRecordList* Members, FRmObjectiveMa
     }
     if (Flagged != nullptr)
     {
-        // 06f90bb5-06f90bcc: SETNZ (Kind != 1) + 6 -- defensive ships 6, any other kind 7.
+        // SETNZ (Kind != 1) + 6 -- defensive ships 6, any other kind 7.
         int const Key = (Flagged->Kind != 1 ? 1 : 0) + 6;
         std::vector<FRmObjective*>::iterator Active = FindObjective(Key);
         unsigned int const SystemId = Offer->System->SystemId;
         if (Active == ActiveObjectives.end())
         {
-            // 06f90bfc-06f90d00: the component's objective marks the members, then the inline
-            // AddObjective (FUN_06ecfc30 push_back on +0x68).
+            // the component's objective marks the members, then the inline
+            // AddObjective (the routine push_back on +0x68).
             static_cast<FRmObjectiveType3*>(Map->Objectives[Key])
                 ->SetTargetRecords(Members, GetMissionPlayers(), 2, SystemId, Position);
             AddObjective(Key, static_cast<FRmObjective*>(Map->Objectives[Key]));
         }
         else
         {
-            // 06f90d0f-06f90da1: the active objective marks every alive flagged ship of the
+            // the active objective marks every alive flagged ship of the
             // kind, and is rebuilt.
             FRmRecordList SameKind = Ships->Query(Flagged->Kind, 2, 2);
             static_cast<FRmObjectiveType3*>(*Active)
@@ -501,7 +497,7 @@ void FRmVignetteMachine::MarkGroupTargets(FRmRecordList* Members, FRmObjectiveMa
         bMarked = true;
     }
 
-    // 06f90db1-06f90f08: a hostile group (first member's attitude < 0.0: FCOMP 0.0, TEST
+    // a hostile group (first member's attitude < 0.0: FCOMP 0.0, TEST
     // AH,0x5 + JP skips greater, equal and unordered) gets the component's objective 8 when it
     // has one, nothing was marked above and none of 8, 6, 7 is active.
     FRmSpawnRecord* const First = Members->Records.front();
@@ -521,17 +517,17 @@ void FRmVignetteMachine::MarkGroupTargets(FRmRecordList* Members, FRmObjectiveMa
 }
 
 // =======================================================================================
-// FRmVignetteMachine::Slot2 (FUN_06f8c460)
+// FRmVignetteMachine::Slot2 (the routine)
 // =======================================================================================
 
-// FUN_06f8c460 (06f8c460-06f90a32, RET 8).
+// (06f8c460-06f90a32, RET 8).
 bool FRmVignetteMachine::Slot2(SMEventData const* Event, int const& State)
 {
     RmVignetteEntryCookies();
     if (State < 0)
         return HandleAnyState(Event);
 
-    // 06f8c3bd-06f8d3f7: states 0..2 are the base's slots 13..15, their result dropped.
+    // states 0..2 are the base's slots 13..15, their result dropped.
     if (State == 0)
     {
         OnState0(Event, State);
@@ -568,20 +564,20 @@ bool FRmVignetteMachine::Slot2(SMEventData const* Event, int const& State)
     return false;
 }
 
-// 06f8c4e8-06f8d3ba: the messages of every state.
+// the messages of every state.
 bool FRmVignetteMachine::HandleAnyState(SMEventData const* Event)
 {
     FRmVignetteEntryCookies const& Cookies = RmVignetteEntryCookies();
 
-    // 06f8c4e8-06f8c518: controller message 0x20 -> slot 16.
+    // controller message 0x20 -> slot 16.
     if (RmControllerOf(Event, EMessage::Heartbeat) != nullptr)
     {
         RefreshObjectives();
         return true;
     }
 
-    // 06f8c51b-06f8c584: a comm sequence conversation (DAT_06fd3b74) goes to the GCS manager
-    // (DAT_06fcf1b0) when valid (slot 2).
+    // a comm sequence conversation (the field) goes to the GCS manager
+    // (the field) when valid (slot 2).
     if (StateMachineMessage const* Message = RmMessageOf(this, Event, GRmMsgType06fd3b74))
     {
         FRmConversationBase* const Conversation =
@@ -591,7 +587,7 @@ bool FRmVignetteMachine::HandleAnyState(SMEventData const* Event)
         return true;
     }
 
-    // 06f8c587-06f8c5f8: controller messages 0x36 {system, player} and 0x3b {system, ..,
+    // controller messages 0x36 {system, player} and 0x3b {system, ..,
     // player}.
     if (SMControllerEvent const* Controller = RmControllerOf(Event, EMessage::SpaceEnter))
     {
@@ -606,7 +602,7 @@ bool FRmVignetteMachine::HandleAnyState(SMEventData const* Event)
         return true;
     }
 
-    // 06f8c5fb-06f8c661: controller message 0xa {player} of a mapped player -> slot 20.
+    // controller message 0xa {player} of a mapped player -> slot 20.
     if (SMControllerEvent const* Controller = RmControllerOf(Event, EMessage::GroupMemberJoined))
     {
         unsigned int const* PlayerId = static_cast<unsigned int const*>(Controller->DataPtr);
@@ -617,7 +613,7 @@ bool FRmVignetteMachine::HandleAnyState(SMEventData const* Event)
         return true;
     }
 
-    // 06f8c664-06f8c733: a player left (DAT_06fd3b70): slot 28 with a one-player vector.
+    // a player left (the field): slot 28 with a one-player vector.
     if (StateMachineMessage const* Message = RmMessageOf(this, Event, GRmMsgPlayerLeft))
     {
         unsigned int const PlayerId = static_cast<FRmPlayerLeftMessage const*>(Message)->PlayerId;
@@ -631,7 +627,7 @@ bool FRmVignetteMachine::HandleAnyState(SMEventData const* Event)
         return true;
     }
 
-    // 06f8c736-06f8c799: controller message 5 {player} of a mapped player -> slot 21.
+    // controller message 5 {player} of a mapped player -> slot 21.
     if (SMControllerEvent const* Controller = RmControllerOf(Event, EMessage::PlayerLoad))
     {
         unsigned int const* PlayerId = static_cast<unsigned int const*>(Controller->DataPtr);
@@ -643,7 +639,7 @@ bool FRmVignetteMachine::HandleAnyState(SMEventData const* Event)
         return true;
     }
 
-    // 06f8c79c-06f8c84b: controller message 0x27 {ship, base} (docked): in single player,
+    // controller message 0x27 {ship, base} (docked): in single player,
     // once the area was reached, a mapped player's dock fails the mission (13).
     if (SMControllerEvent const* Controller = RmControllerOf(Event, EMessage::Msg0x27))
     {
@@ -663,7 +659,7 @@ bool FRmVignetteMachine::HandleAnyState(SMEventData const* Event)
         return true;
     }
 
-    // 06f8c84e-06f8cb2d: the critical loot was spawned (DAT_06fd3b98): the solar / ship target
+    // the critical loot was spawned (the field): the solar / ship target
     // objectives go away, state 12, and the loot's objective (0xa or 0xb by its +0x6c) marks
     // it -- the active one rebuilt, else the offer's added.
     if (StateMachineMessage const* Message = RmMessageOf(this, Event, GRmMsgType06fd3b98))
@@ -708,8 +704,8 @@ bool FRmVignetteMachine::HandleAnyState(SMEventData const* Event)
         return true;
     }
 
-    // 06f8cb30-06f8cc5c: controller message 0x39 {.., player +0xc, position +0x14} (a player's
-    // ship destroyed) of a mapped player inside 1e8 squared of the area (DAT_06fbc2f4; TEST
+    // controller message 0x39 {.., player +0xc, position +0x14} (a player's
+    // ship destroyed) of a mapped player inside 1e8 squared of the area (the field; TEST
     // AH,0x5 + JP skips greater, equal and unordered): the mission's slot 32 (player count
     // decremented) at 0 fails it -- GLOBAL_FAIL_OTHER, reason 2 (single player) or 3.
     if (SMControllerEvent const* Controller = RmControllerOf(Event, EMessage::ObjectDestroyed))
@@ -721,7 +717,7 @@ bool FRmVignetteMachine::HandleAnyState(SMEventData const* Event)
             return true;
         Vector const* Killed = reinterpret_cast<Vector const*>(&Parms[5]);
         Vector const Delta = SubtractVectors(*Killed, Position);
-        // 06f8cb97-06f8cbb4: (x*x + z*z) + y*y on the x87 stack (FADDP twice), in that order.
+        // (x*x + z*z) + y*y on the x87 stack (FADDP twice), in that order.
         double const DistanceSq = (static_cast<double>(Delta.x) * Delta.x +
                                    static_cast<double>(Delta.z) * Delta.z) +
                                   static_cast<double>(Delta.y) * Delta.y;
@@ -735,9 +731,9 @@ bool FRmVignetteMachine::HandleAnyState(SMEventData const* Event)
         return true;
     }
 
-    // 06f8cc5f-06f8cf06: the players left the combat area: LEFT_COMBAT_AREA, the countdown
+    // the players left the combat area: LEFT_COMBAT_AREA, the countdown
     // objective 9, a trigger back into the area (AreaRadius - 250), the countdown timer and the
-    // 5 s tick DAT_06fd3b7c.
+    // 5 s tick the field.
     if (FRmTriggerFiredMessage const* Fired = RmFiredTriggerOf(this, Event, Cookies.LeaveArea))
     {
         if (Fired->bFinal)
@@ -761,7 +757,7 @@ bool FRmVignetteMachine::HandleAnyState(SMEventData const* Event)
         return true;
     }
 
-    // 06f8cf09-06f8d087: back in the area: REENTERED_COMBAT_AREA, slot 17, the countdown
+    // back in the area: REENTERED_COMBAT_AREA, slot 17, the countdown
     // objective removed and deleted, a new leave trigger (AreaRadius + 250).
     if (FRmTriggerFiredMessage const* Fired = RmFiredTriggerOf(this, Event, Cookies.ReenterArea))
     {
@@ -785,7 +781,7 @@ bool FRmVignetteMachine::HandleAnyState(SMEventData const* Event)
         return true;
     }
 
-    // 06f8d08a-06f8d1be: the countdown ran out: when (GRmMultiplayerDelay - 1.0) <= the time
+    // the countdown ran out: when (GRmMultiplayerDelay - 1.0) <= the time
     // since the players left (FCOMPP, TEST AH,0x41 + JP skips greater and unordered):
     // GLOBAL_FAIL_COMBAT_RANGE, reason 0xb (single player) or 0xc.
     if (FRmTriggerFiredMessage const* Fired = RmFiredTriggerOf(this, Event, Cookies.Countdown))
@@ -808,9 +804,9 @@ bool FRmVignetteMachine::HandleAnyState(SMEventData const* Event)
         return true;
     }
 
-    // 06f8d1c1-06f8d348: the 5 s tick (DAT_06fd3b7c): the countdown objective is taken out and,
+    // the 5 s tick (the field): the countdown objective is taken out and,
     // while time is left (FCOM 0.0, TEST AH,0x41 + JNZ: less, equal or unordered stop), put
-    // back at the front with the remaining seconds; the tick is sent again. Retail reads the
+    // back at the front with the remaining seconds; the tick is sent again. baseline reads the
     // objective without an end test (06f8d263): the tick only runs while it is active.
     if (RmMessageOf(this, Event, GRmMsgType06fd3b7c) != nullptr)
     {
@@ -834,7 +830,7 @@ bool FRmVignetteMachine::HandleAnyState(SMEventData const* Event)
         return true;
     }
 
-    // 06f8d34b-06f8d3ba: a ship destroyed (DAT_06fd3ba8): its loot (slot 26).
+    // a ship destroyed (the field): its loot (slot 26).
     if (StateMachineMessage const* Message = RmMessageOf(this, Event, GRmMsgType06fd3ba8))
     {
         unsigned int const ObjectId = static_cast<FRmShipMessage const*>(Message)->ObjectId;
@@ -887,11 +883,11 @@ bool FRmVignetteMachine::HandleStart(SMEventData const* Event)
 // State 8 (06f8d6ed-06f8d9b2): the target ships' pre-battle.
 bool FRmVignetteMachine::HandlePreBattle(SMEventData const* Event)
 {
-    static unsigned int const CookieTargetFar = RmNextVignetteCookie();     // DAT_06fd3b58
-    static unsigned int const CookieTargetNear = RmNextVignetteCookie();    // DAT_06fd3b54
+    static unsigned int const CookieTargetFar = RmNextVignetteCookie();
+    static unsigned int const CookieTargetNear = RmNextVignetteCookie();
 
-    // 06f8d726-06f8d875: the area moves to the target; triggers at 2500 (DAT_06fbc2c4) and
-    // 10000 (DAT_06fbc2ec).
+    // the area moves to the target; triggers at 2500 (the field) and
+    // 10000 (the field).
     if (RmIsEnterEvent(Event))
     {
         Position = VignetteOffer->TargetShips.Position;
@@ -906,7 +902,7 @@ bool FRmVignetteMachine::HandlePreBattle(SMEventData const* Event)
         return true;
     }
 
-    // 06f8d878-06f8d8f3 (+ 06f8efb2): a player within 10000: the population is kept out of the
+    // (+ 06f8efb2): a player within 10000: the population is kept out of the
     // target's 10000 sphere; the area is reached.
     if (FRmTriggerFiredMessage const* Fired = RmFiredTriggerOf(this, Event, CookieTargetFar))
     {
@@ -918,7 +914,7 @@ bool FRmVignetteMachine::HandlePreBattle(SMEventData const* Event)
         return true;
     }
 
-    // 06f8d8f8-06f8d9b2: a player within 2500: PLAYER_IN_PRE_BATTLE_SPAWN_RANGE, the marker
+    // a player within 2500: PLAYER_IN_PRE_BATTLE_SPAWN_RANGE, the marker
     // objective 1 goes, state 9.
     if (FRmTriggerFiredMessage const* Fired = RmFiredTriggerOf(this, Event, CookieTargetNear))
     {
@@ -936,12 +932,12 @@ bool FRmVignetteMachine::HandlePreBattle(SMEventData const* Event)
 // State 9 (06f8d9b5-06f8e5b6): the fight with the target ships.
 bool FRmVignetteMachine::HandleTargetBattle(SMEventData const* Event)
 {
-    static unsigned int const CookieNextGroup = RmNextVignetteCookie();     // DAT_06fd3b50
-    static unsigned int const CookieTargetDone = RmNextVignetteCookie();    // DAT_06fd3b4c
+    static unsigned int const CookieNextGroup = RmNextVignetteCookie();
+    static unsigned int const CookieTargetDone = RmNextVignetteCookie();
     FRmVignetteEntryCookies const& Cookies = RmVignetteEntryCookies();
     FRmVignetteOffer* const Vignette = VignetteOffer.Get();
 
-    // 06f8d9f0-06f8dd9a: the leave trigger (AreaRadius + 250); the first target group spawns,
+    // the leave trigger (AreaRadius + 250); the first target group spawns,
     // the delayed ones (+0x04 == 1) get their cookie after +0x08 seconds; the end condition of
     // the target fight by the component's +0x50 (1 timer, 2 ship count, 3 ship health).
     if (RmIsEnterEvent(Event))
@@ -985,7 +981,7 @@ bool FRmVignetteMachine::HandleTargetBattle(SMEventData const* Event)
         return true;
     }
 
-    // 06f8dd9d-06f8e052: the target fight is over once every target group spawned: with no
+    // the target fight is over once every target group spawned: with no
     // ship alive SUCCESS_KILLED_ALL_GOING_TO_MAIN (or straight to state 5 when the main ships
     // have nothing to spawn), else SUCCESS_NOT_KILLED_ALL_GOING_TO_MAIN; the target
     // component's objective 3 marks the main battle (key 2, at the front); state 10.
@@ -995,7 +991,7 @@ bool FRmVignetteMachine::HandleTargetBattle(SMEventData const* Event)
             RemoveMachine(Fired->Sender);
         if (RmHasUnspawnedGroup(&VignetteOffer->TargetShips.Groups))
             return true;
-        // 06f8de2f-06f8de3d: Query(0, 2, 2) is built and kept to the end unread.
+        // Query(0, 2, 2) is built and kept to the end unread.
         FRmRecordList Flagged = Ships->Query(0, 2, 2);
         bool bNoneAlive = false;
         {
@@ -1028,7 +1024,7 @@ bool FRmVignetteMachine::HandleTargetBattle(SMEventData const* Event)
         return true;
     }
 
-    // 06f8e055-06f8e15c: the next target group, unless every group spawned and no target
+    // the next target group, unless every group spawned and no target
     // objective (7, 4, 6, 5) is left.
     if (FRmTriggerFiredMessage const* Fired = RmFiredTriggerOf(this, Event, CookieNextGroup))
     {
@@ -1046,7 +1042,7 @@ bool FRmVignetteMachine::HandleTargetBattle(SMEventData const* Event)
         return true;
     }
 
-    // 06f8e15f-06f8e1c9: a delayed target group (DAT_06fd3b78).
+    // a delayed target group (the field).
     if (StateMachineMessage const* Message = RmMessageOf(this, Event, GRmMsgType06fd3b78))
     {
         SpawnGroupWithTriggers(static_cast<FRmCookieMessage const*>(Message)->Cookie,
@@ -1054,11 +1050,11 @@ bool FRmVignetteMachine::HandleTargetBattle(SMEventData const* Event)
         return true;
     }
 
-    // 06f8e1cc-06f8e200: a whole group destroyed (DAT_06fd3ba4) is taken.
+    // a whole group destroyed (the field) is taken.
     if (RmMessageOf(this, Event, GRmMsgType06fd3ba4) != nullptr)
         return true;
 
-    // 06f8e206-06f8e411: the flagged ships of a group died (DAT_06fd3ba0): once every target
+    // the flagged ships of a group died (the field): once every target
     // group spawned and at most the countdown is active, the countdown goes, and the main
     // battle starts (KILLED_ALL, objective 3 as 2, state 10) or, with no main ships to spawn,
     // state 5.
@@ -1091,9 +1087,9 @@ bool FRmVignetteMachine::HandleTargetBattle(SMEventData const* Event)
         return true;
     }
 
-    // 06f8e414-06f8e5b6: the exit to state 10 (PendingState): AreaRadius grows to
+    // the exit to state 10 (PendingState): AreaRadius grows to
     // GRmVignetteOuterRadius and every alive ship leaves its formation for the main battle:
-    // StayInRange 2000 (DAT_06fbc2cc) of the centre, then GotoVec there (750, -1.0, cruise).
+    // StayInRange 2000 (the field) of the centre, then GotoVec there (750, -1.0, cruise).
     if (Event->get_event_type() < 4 && Event->get_event_type() == 2)
     {
         if (PendingState != 10)
@@ -1126,14 +1122,14 @@ bool FRmVignetteMachine::HandleTargetBattle(SMEventData const* Event)
 // State 10 (06f8e5b9-06f8f0f3): on the way to the main battle.
 bool FRmVignetteMachine::HandleApproachMain(SMEventData const* Event)
 {
-    static unsigned int const CookieMainShips = RmNextVignetteCookie();     // DAT_06fd3b48
-    static unsigned int const CookieMainFar = RmNextVignetteCookie();       // DAT_06fd3b40
-    static unsigned int const CookieMainNear = RmNextVignetteCookie();      // DAT_06fd3b3c
+    static unsigned int const CookieMainShips = RmNextVignetteCookie();
+    static unsigned int const CookieMainFar = RmNextVignetteCookie();
+    static unsigned int const CookieMainNear = RmNextVignetteCookie();
     FRmVignetteEntryCookies const& Cookies = RmVignetteEntryCookies();
 
-    // 06f8e612-06f8e91e: the objectives still at the old centre (every |delta|^2 <= 1.0;
+    // the objectives still at the old centre (every |delta|^2 <= 1.0;
     // TEST AH,0x41 + JP skips greater and unordered) move to the main battle's; the area moves;
-    // the leave trigger when there was a target; triggers at 7500 (DAT_06fbc2b0) and 10000.
+    // the leave trigger when there was a target; triggers at 7500 (the field) and 10000.
     if (RmIsEnterEvent(Event))
     {
         Vector const* CenterPtr = RmMainBattleCenter(VignetteOffer.Get());
@@ -1174,7 +1170,7 @@ bool FRmVignetteMachine::HandleApproachMain(SMEventData const* Event)
         return true;
     }
 
-    // 06f8e921-06f8ea7a: the flagged ships of a group died (DAT_06fd3ba0): with every main
+    // the flagged ships of a group died (the field): with every main
     // group spawned and no target, loot or dock objective left, state 5.
     if (StateMachineMessage const* Message = RmMessageOf(this, Event, GRmMsgType06fd3ba0))
     {
@@ -1195,7 +1191,7 @@ bool FRmVignetteMachine::HandleApproachMain(SMEventData const* Event)
         return true;
     }
 
-    // 06f8ea7d-06f8ed76: a solar destroyed (DAT_06fd3b9c): the last flagged solar of its type
+    // a solar destroyed (the field): the last flagged solar of its type
     // takes objective 4 (type 0) or 5 (type 1); with no flagged solar left the lone objective 8
     // goes; then, once nothing else is left, the countdown goes and state 5.
     if (StateMachineMessage const* Message = RmMessageOf(this, Event, GRmMsgType06fd3b9c))
@@ -1229,7 +1225,7 @@ bool FRmVignetteMachine::HandleApproachMain(SMEventData const* Event)
             FindObjective(0xc) != ActiveObjectives.end() ||
             FindObjective(0xd) != ActiveObjectives.end())
             return true;
-        // 06f8ec7b-06f8ecb0: the key 7 search through the FUN_06f90a40 getter.
+        // the key 7 search through the the routine getter.
         std::vector<FRmObjective*>::iterator Big = ActiveObjectives.begin();
         while (Big != ActiveObjectives.end() && (*Big)->Key != 7)
             ++Big;
@@ -1248,7 +1244,7 @@ bool FRmVignetteMachine::HandleApproachMain(SMEventData const* Event)
         return true;
     }
 
-    // 06f8ed7b-06f8eee6: a player within 7500: PLAYER_IN_MAIN_BATTLE_SOLAR_SPAWN_RANGE, the
+    // a player within 7500: PLAYER_IN_MAIN_BATTLE_SOLAR_SPAWN_RANGE, the
     // solars spawn (slot 22), a trigger at 2500 for the ships.
     if (FRmTriggerFiredMessage const* Fired = RmFiredTriggerOf(this, Event, CookieMainShips))
     {
@@ -1264,7 +1260,7 @@ bool FRmVignetteMachine::HandleApproachMain(SMEventData const* Event)
         return true;
     }
 
-    // 06f8eeeb-06f8efd5: a player within 10000: the exclusion sphere; the area is reached.
+    // a player within 10000: the exclusion sphere; the area is reached.
     if (FRmTriggerFiredMessage const* Fired = RmFiredTriggerOf(this, Event, CookieMainFar))
     {
         if (Fired->bFinal)
@@ -1275,7 +1271,7 @@ bool FRmVignetteMachine::HandleApproachMain(SMEventData const* Event)
         return true;
     }
 
-    // 06f8efd8-06f8f0b3: a player within 2500: PLAYER_IN_MAIN_BATTLE_SHIP_SPAWN_RANGE, state 11.
+    // a player within 2500: PLAYER_IN_MAIN_BATTLE_SHIP_SPAWN_RANGE, state 11.
     if (FRmTriggerFiredMessage const* Fired = RmFiredTriggerOf(this, Event, CookieMainNear))
     {
         if (Fired->bFinal)
@@ -1286,7 +1282,7 @@ bool FRmVignetteMachine::HandleApproachMain(SMEventData const* Event)
         return true;
     }
 
-    // 06f8f0b6-06f8f0f3: the exit drops the main battle marker (key 2; PUSH EAX with the event
+    // the exit drops the main battle marker (key 2; PUSH EAX with the event
     // type 2).
     if (Event->is_sm_event() && Event->get_event_type() == 2)
     {
@@ -1299,10 +1295,10 @@ bool FRmVignetteMachine::HandleApproachMain(SMEventData const* Event)
 // State 11 (06f8f0f6-06f8f895): the main battle.
 bool FRmVignetteMachine::HandleMainBattle(SMEventData const* Event)
 {
-    static unsigned int const CookieNextGroup = RmNextVignetteCookie();     // DAT_06fd3b38
+    static unsigned int const CookieNextGroup = RmNextVignetteCookie();
     FRmVignetteEntryCookies const& Cookies = RmVignetteEntryCookies();
 
-    // 06f8f120-06f8f4d6: AreaRadius 3500; the flagged solars of type 1 (objective 5) and 0
+    // AreaRadius 3500; the flagged solars of type 1 (objective 5) and 0
     // (objective 4) are marked; the first main group spawns unless delayed, every delayed group
     // gets its cookie; the leave trigger.
     if (Event->is_sm_event() && Event->get_event_type() == 1)
@@ -1347,7 +1343,7 @@ bool FRmVignetteMachine::HandleMainBattle(SMEventData const* Event)
         return true;
     }
 
-    // 06f8f4d9-06f8f5c0: the next main group (FUN_06f90b40 / FUN_06f8c330 gate).
+    // the next main group (the routine / the routine gate).
     if (FRmTriggerFiredMessage const* Fired = RmFiredTriggerOf(this, Event, CookieNextGroup))
     {
         if (Fired->bFinal)
@@ -1358,7 +1354,7 @@ bool FRmVignetteMachine::HandleMainBattle(SMEventData const* Event)
         return true;
     }
 
-    // 06f8f5c3-06f8f654: a delayed main group (DAT_06fd3b78).
+    // a delayed main group (the field).
     if (StateMachineMessage const* Message = RmMessageOf(this, Event, GRmMsgType06fd3b78))
     {
         SpawnGroupWithTriggers(static_cast<FRmCookieMessage const*>(Message)->Cookie,
@@ -1367,7 +1363,7 @@ bool FRmVignetteMachine::HandleMainBattle(SMEventData const* Event)
     }
 
     // The common end of 06f8f6e0-06f8f71b / 06f8f845-06f8f895 (06f8f87c, 06f8f884, 06f8ed3d,
-    // 06f8ed50): with no objective or only the countdown, state 5 (the countdown removed).
+    // ): with no objective or only the countdown, state 5 (the countdown removed).
     struct FTail
     {
         static bool Run(FRmVignetteMachine* Machine)
@@ -1389,7 +1385,7 @@ bool FRmVignetteMachine::HandleMainBattle(SMEventData const* Event)
         }
     };
 
-    // 06f8f657-06f8f71d: the flagged ships of a group died (DAT_06fd3ba0).
+    // the flagged ships of a group died (the field).
     if (StateMachineMessage const* Message = RmMessageOf(this, Event, GRmMsgType06fd3ba0))
     {
         OnFlaggedShipsLost(static_cast<FRmShipMessage const*>(Message)->ObjectId);
@@ -1398,7 +1394,7 @@ bool FRmVignetteMachine::HandleMainBattle(SMEventData const* Event)
         return FTail::Run(this);
     }
 
-    // 06f8f720-06f8f895: a solar destroyed (DAT_06fd3b9c).
+    // a solar destroyed (the field).
     if (StateMachineMessage const* Message = RmMessageOf(this, Event, GRmMsgType06fd3b9c))
     {
         unsigned int const SolarId = static_cast<FRmSolarMessage const*>(Message)->ObjectId;
@@ -1426,15 +1422,15 @@ bool FRmVignetteMachine::HandleMainBattle(SMEventData const* Event)
 // State 12 (06f8f89a-06f9059a): the critical loot.
 bool FRmVignetteMachine::HandleCriticalLoot(SMEventData const* Event)
 {
-    // 06f8f8a3-06f8f8d1: the enter event and controller message 0x27 are taken (the "any
+    // the enter event and controller message 0x27 are taken (the "any
     // state" dock failure does not apply here).
     if (Event->is_sm_event() && Event->get_event_type() == 1)
         return true;
     if (RmControllerOf(Event, EMessage::Msg0x27) != nullptr)
         return true;
 
-    // 06f8f8d7-06f8fa82: a mapped player with a ship left (DAT_06fd3b70): the critical loot he
-    // holds (state 4) is dropped next to his ship (DAT_06fd3b6c to the loot machine). False:
+    // a mapped player with a ship left (the field): the critical loot he
+    // holds (state 4) is dropped next to his ship (the field to the loot machine). False:
     // the "any state" handler runs as well.
     if (StateMachineMessage const* Message = RmMessageOf(this, Event, GRmMsgPlayerLeft))
     {
@@ -1457,7 +1453,7 @@ bool FRmVignetteMachine::HandleCriticalLoot(SMEventData const* Event)
         return false;
     }
 
-    // The DAT_06fd3b6c drop of the loot record's holder (06f8fa0c-06f8fa5f and its copies).
+    // The the field drop of the loot record's holder (06f8fa0c-06f8fa5f and its copies).
     struct FDrop
     {
         static void Send(FRmVignetteMachine* Machine, FRmLootRecord* Record)
@@ -1469,7 +1465,7 @@ bool FRmVignetteMachine::HandleCriticalLoot(SMEventData const* Event)
         }
     };
 
-    // 06f8fa85-06f8fec6: the loot picked up (DAT_06fd3b90 {loot, ship}). Mode 1: dropped again.
+    // the loot picked up (the field {loot, ship}). Mode 1: dropped again.
     // Mode 2: a mission player has it -> objective 0xb goes, state 5. Mode 3: a mission player
     // has it -> objective 0xb goes, the dock of the offer base becomes objective 0xc. A
     // non-mission picker gets it dropped again.
@@ -1499,7 +1495,7 @@ bool FRmVignetteMachine::HandleCriticalLoot(SMEventData const* Event)
             return true;
         }
 
-        // 06f8fb6f-06f8fcce: the dock object of the offer base (FUN_06eac4d0, its out
+        // the dock object of the offer base (the routine, its out
         // position being the buffer the holder's ship position was read into).
         FContentPlayerState* Holder = FindContentPlayerState(Record->HolderId);
         FContentBase* Base = FindContentBaseInfo(&VignetteOffer->OfferBase);
@@ -1518,7 +1514,7 @@ bool FRmVignetteMachine::HandleCriticalLoot(SMEventData const* Event)
         return true;
     }
 
-    // 06f8fec9-06f9024b: the loot created again (DAT_06fd3b84): mode 3 -> objectives 0xc and
+    // the loot created again (the field): mode 3 -> objectives 0xc and
     // 0xb go, the offer's objective 0xb marks the loot; modes 1 / 2 -> the active objective 0xa
     // / 0xb marks every alive critical loot of the mode and is rebuilt (no end test, 06f901c0).
     if (StateMachineMessage const* Message = RmMessageOf(this, Event, GRmMsgType06fd3b84))
@@ -1559,7 +1555,7 @@ bool FRmVignetteMachine::HandleCriticalLoot(SMEventData const* Event)
         return true;
     }
 
-    // 06f9024e-06f9031c: the loot destroyed by a player (DAT_06fd3b94 {loot, ship}): mode 1 ->
+    // the loot destroyed by a player (the field {loot, ship}): mode 1 ->
     // objective 0xa goes, state 5; modes 2 / 3 -> objective 0xb goes,
     // GLOBAL_FAIL_DESTROYED_CRITICAL_LOOT, reason 4 / 5, state 6.
     if (StateMachineMessage const* Message = RmMessageOf(this, Event, GRmMsgType06fd3b94))
@@ -1584,7 +1580,7 @@ bool FRmVignetteMachine::HandleCriticalLoot(SMEventData const* Event)
         return true;
     }
 
-    // 06f9037e-06f90420: the loot destroyed otherwise (DAT_06fd3b80): reason 6 / 7 / 8 by
+    // the loot destroyed otherwise (the field): reason 6 / 7 / 8 by
     // mode (unchanged for another mode), state 6.
     if (StateMachineMessage const* Message = RmMessageOf(this, Event, GRmMsgType06fd3b80))
     {
@@ -1601,8 +1597,8 @@ bool FRmVignetteMachine::HandleCriticalLoot(SMEventData const* Event)
         return true;
     }
 
-    // 06f90423-06f904ee: controller message 0x39 of a mapped player (parms +0xc) holding the
-    // first critical loot (state 4): reason 9, state 6. False either way. Retail reads the
+    // controller message 0x39 of a mapped player (parms +0xc) holding the
+    // first critical loot (state 4): reason 9, state 6. False either way. baseline reads the
     // first record without an empty test: in state 12 a critical loot record exists.
     if (SMControllerEvent const* Controller = RmControllerOf(Event, EMessage::ObjectDestroyed))
     {
@@ -1620,7 +1616,7 @@ bool FRmVignetteMachine::HandleCriticalLoot(SMEventData const* Event)
         return false;
     }
 
-    // 06f904f1-06f9059a: the holder docked (DAT_06fd3b88 {loot, ship, base}): mode 3 at the
+    // the holder docked (the field {loot, ship, base}): mode 3 at the
     // offer base -> objective 0xc goes, state 5; elsewhere reason 10, state 6.
     if (StateMachineMessage const* Message = RmMessageOf(this, Event, GRmMsgType06fd3b88))
     {
@@ -1643,7 +1639,7 @@ bool FRmVignetteMachine::HandleCriticalLoot(SMEventData const* Event)
 }
 
 // State 5 (06f9059f-06f90770): succeeded. GLOBAL_SUCCESS and a 5 s timeout; on the timeout
-// slot 27, DAT_06fd3bb4 to the mission after 0.001 s, state 7.
+// slot 27, the field to the mission after 0.001 s, state 7.
 bool FRmVignetteMachine::HandleSucceeded(SMEventData const* Event)
 {
     FRmVignetteEntryCookies const& Cookies = RmVignetteEntryCookies();

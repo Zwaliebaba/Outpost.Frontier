@@ -42,12 +42,12 @@
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <AdditionalDependencies>dacom.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>neuroncomponents.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>$(ProjectDir)..\..\bin;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="..\include\dacom.h" />
+    <ClInclude Include="..\include\neuroncomponents.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="system.cpp" />
@@ -56,7 +56,7 @@
     <ResourceCompile Include="system.rc" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\dacom\dacom.vcxproj">
+    <ProjectReference Include="..\neuroncomponents\neuroncomponents.vcxproj">
       <Project>{8F3A1B20-9C4D-4E5F-A617-B8C9D0E1F203}</Project>
     </ProjectReference>
   </ItemGroup>

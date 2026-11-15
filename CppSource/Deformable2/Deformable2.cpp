@@ -1,13 +1,9 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "Deformable2.h"
-#include "EyeMaterial.h"     // RegisterEyeMaterialFactory (FUN_065fdfd0)
+#include "EyeMaterial.h"     // RegisterEyeMaterialFactory (the routine)
 #include "common_misc.h"   // ICamera (GetViewTransform +0x40, ClassifySphere +0x3C)
-#include "msvcrt_compat.h" // MsvcrtAtoi: retail MSVCRT.DLL wraps mod 2^32, the UCRT saturates
+#include "msvcrt_compat.h" // MsvcrtAtoi: baseline MSVCRT.DLL wraps mod 2^32, the UCRT saturates
 
 #include <cstddef>
 #include <cstdarg>
@@ -27,10 +23,10 @@ namespace
     {
         if (FDUMP != nullptr)
         {
-            // .data:06602070 (PE bytes; the listing truncates it): the __FILE__ of the three
+            // (PE bytes; the listing truncates it): the __FILE__ of the three
             // Initialize sites 065f1b7c (0xB5), 065f1c27 (0xCC), 065f1d3c (0xF4).
             FDUMP(0x100001, "%s(%d) : ERROR:General:%s",
-                  "C:\\work\\builds\\dalibs\\dalibs-build\\build\\Src\\Deformable2\\Deformable.cpp",
+                  "Deformable2\\Deformable.cpp",
                   Line, Message);
         }
     }
@@ -42,7 +38,7 @@ namespace
         return std::strcmp(Left, Right) == 0;
     }
 
-    void ReleaseInterface(IDAComponent*& Pointer)
+    void ReleaseInterface(INeuronComponent*& Pointer)
     {
         if (Pointer == nullptr)
             return;
@@ -53,28 +49,28 @@ namespace
     template <typename T>
     void ReleaseInterface(T*& Pointer)
     {
-        IDAComponent* Component = Pointer;
+        INeuronComponent* Component = Pointer;
         ReleaseInterface(Component);
         Pointer = nullptr;
     }
 }
 
-// DAT_06603128 .. DAT_0660314c — module cache written by FUN_065f1810 / FUN_065f1900 / LAB_065f1bf0.
-static IDAComponent* G_System = nullptr;
+// .. the field — module cache written by the routine / the routine / the branch.
+static INeuronComponent* G_System = nullptr;
 static IMaterialLibrary* G_MaterialLibrary = nullptr; // formerly G_MaterialLib
 static IRenderPipeline* G_Pipeline = nullptr;
-// EngBase's IEngine, acquired by QI. Every slot this module calls (+0x20, +0x24,
+// SceneRuntime's IEngine, acquired by QI. Every slot this module calls (+0x20, +0x24,
 // +0x30, +0x3C, +0x48, +0x60) is IEngine's.
 IEngine* G_Engine = nullptr;
-// EngBase's IAnimation2, acquired by QI (Iids::Animation2).
+// SceneRuntime's IAnimation2, acquired by QI (Iids::Animation2).
 static IAnimation2* G_Animation = nullptr;
-// EngBase's IChannel, the facet at Animation+8. All five slots this module drives
-// (3, 5, 6, 7, 15) match engbase.h's declaration argument for argument.
+// SceneRuntime's IChannel, the facet at Animation+8. All five slots this module drives
+// (3, 5, 6, 7, 15) match sceneruntime.h's declaration argument for argument.
 static IChannel* G_Channel = nullptr;
 static IRenderer2* G_Renderer = nullptr;
 static IRPVertexBuffer* G_VertexBuffer = nullptr;
 static IRPIndexBuffer* G_IndexBuffer = nullptr;
-static I3DMathEngine* G_MathEngine = nullptr; // DAT_066033a8 FUN_06600de0
+static I3DMathEngine* G_MathEngine = nullptr; // the routine
 static float G_DeformRate = 0.0f;
 
 
@@ -86,21 +82,21 @@ static float G_IkNewRot[G_IkMaxJoints + 1][9];
 
 // Source paths used by diagnostics.
 static const char* const G_FdumpFileDeformableMesh =
-    "C:\\work\\builds\\dalibs\\dalibs-build\\build\\Src\\Deformable2\\DeformableMesh.cpp";
+    "Deformable2\\DeformableMesh.cpp";
 static const char* const G_FdumpFileDeformablePart =
-    "C:\\work\\builds\\dalibs\\dalibs-build\\build\\Src\\Deformable2\\DeformablePart.cpp";
+    "Deformable2\\DeformablePart.cpp";
 static const char* const G_FdumpFileDeformablePartArchetype =
-    "C:\\work\\builds\\dalibs\\dalibs-build\\build\\Src\\Deformable2\\DeformablePartArchetype.cpp";
+    "Deformable2\\DeformablePartArchetype.cpp";
 static const char* const G_FdumpFileMat =
-    "C:\\work\\builds\\dalibs\\dalibs-build\\build\\Src\\Deformable2\\Mat.h";
-// .data:06602570 and .data:066026dc, read from the PE bytes (the listing truncates both): the
-// __FILE__ and message FUN_065f5400 pushes at line 0x44D.
+    "Deformable2\\Mat.h";
+// and module storage, read from the PE bytes (the listing truncates both): the
+// __FILE__ and message the routine pushes at line 0x44D.
 static const char* const G_FdumpFileDeformableObject =
-    "C:\\work\\builds\\dalibs\\dalibs-build\\build\\Src\\Deformable2\\DeformableObject.cpp";
+    "Deformable2\\DeformableObject.cpp";
 static const char* const G_StartAimBlocked = "deform::start_aim(): instance blocked -- exiting";
-// .data:066029e8 (PE bytes): the __FILE__ FUN_065fb030 pushes at line 0x15.
+// (PE bytes): the __FILE__ the routine pushes at line 0x15.
 static const char* const G_FdumpFileDeformIk =
-    "C:\\work\\builds\\dalibs\\dalibs-build\\build\\Src\\Deformable2\\deformIK.cpp";
+    "Deformable2\\deformIK.cpp";
 static const char* const G_RateCharset = "0123456789truefalsynoxTRUEFALSYNOX+-";
 static const float G_RandToUnit = 3.051851e-05f;
 static const int G_PartDescStride = 0x18;
@@ -110,8 +106,8 @@ static const unsigned long G_ParseTagUtf = 0x112;
 static const char* const G_ParentNode = "..";
 
 
-// DAT_06603158: the mesh cache -- an STL map from CRC32(name) to the mesh (FUN_065f2a40 find,
-// FUN_065f2ab0 insert, FUN_065f3440/3320 + FUN_065f2cc0 erase). Both kinds of FDeformMesh
+// the mesh cache -- an STL map from CRC32(name) to the mesh (the routine find,
+// insert, the routine/3320 + the routine erase). Both kinds of FDeformMesh
 // live in it. The port uses the current std::map; no VC6 layout is kept.
 static std::map<unsigned long, FDeformMesh*> G_MeshCache;
 
@@ -119,13 +115,13 @@ static int MeshTotalIndexCount(FMeshArchetype* Arch);
 static int MeshVertexCapacity(FMeshArchetype* Arch);
 static unsigned char ComputeMeshBoundSphere(FMeshArchetype* Arch, float* OutRadius, float* OutCenter);
 
-// FUN_065f28e0 (thiscall): INC [this+4].
+// (thiscall): INC [this+4].
 static void AddRefDeformMesh(FDeformMesh* Mesh)
 {
     Mesh->RefCount += 1;
 }
 
-// FUN_065f28f0 (thiscall), 065f28f0..2a23: DEC [this+4]; still positive -> return it.
+// (thiscall), 065f28f0..2a23: DEC [this+4]; still positive -> return it.
 static int ReleaseDeformMesh(FDeformMesh* Mesh)
 {
     Mesh->RefCount -= 1;
@@ -137,50 +133,50 @@ static int ReleaseDeformMesh(FDeformMesh* Mesh)
     return Remaining;
 }
 
-// PTR_LAB_06601378 -- the base's slots.
+// the base's slots.
 FDeformMesh::FDeformMesh(const char* Name)
     : RefCount(1)
-    , NameCrc(DACOM_CRC::GetCRC32(Name))
+    , NameCrc(NEURONCOMPONENTS_CRC::GetCRC32(Name))
 {
 }
 
-// LAB_065f8ca0: XOR EAX,EAX; RET.
+// XOR EAX,EAX; RET.
 int FDeformMesh::GetIndexCount()
 {
     return 0;
 }
 
-// LAB_065f8ca0 (the same body in slot 1).
+// (the same body in slot 1).
 int FDeformMesh::GetVertexCapacity()
 {
     return 0;
 }
 
-// LAB_065f8cb0: XOR AL,AL; RET 4.
+// XOR AL,AL; RET 4.
 unsigned char FDeformMesh::FillIndexBuffer(FDeformIbDesc* /*Ib*/)
 {
     return 0;
 }
 
-// LAB_065f8cc0: XOR AL,AL; RET 0xC -- three arguments, as FUN_065f69d0 pushes them.
+// XOR AL,AL; RET 0xC -- three arguments, as the routine pushes them.
 unsigned char FDeformMesh::Skin(FLodHolder* /*Holder*/, FDeformVbDesc* /*Vb*/,
                                 unsigned char /*bForce*/)
 {
     return 0;
 }
 
-// LAB_065f8cd0: XOR AL,AL; RET 8.
+// XOR AL,AL; RET 8.
 unsigned char FDeformMesh::GetBoundSphere(float* /*OutRadius*/, float* /*OutCenter*/)
 {
     return 0;
 }
 
-// FUN_065f8ce0: restores the base vtable, operator delete on bit 0 -- no fields to free.
+// restores the base vtable, operator delete on bit 0 -- no fields to free.
 FDeformMesh::~FDeformMesh()
 {
 }
 
-// FUN_065f9170 (thiscall, 065f9170..9186): [ECX] non-null -> Release (vt+8), [ECX] = 0. The
+// (thiscall, 065f9170..9186): [ECX] non-null -> Release (vt+8), [ECX] = 0. The
 // slot pointer itself is not tested (until 2026-09-30 the port returned for a null slot).
 static void ReleaseFaceGroupMaterialSlot(IMaterial** MaterialSlot)
 {
@@ -191,7 +187,7 @@ static void ReleaseFaceGroupMaterialSlot(IMaterial** MaterialSlot)
     *MaterialSlot = nullptr;
 }
 
-// FUN_065f9430 (thiscall, 065f9430..944b): operator delete(+4), then +4/+8/+0xC = 0. The list
+// (thiscall, 065f9430..944b): operator delete(+4), then +4/+8/+0xC = 0. The list
 // pointer is not tested (until 2026-09-30 the port returned for a null list).
 static void DestroyBoneVertexList(FBoneVertexList* List)
 {
@@ -201,7 +197,7 @@ static void DestroyBoneVertexList(FBoneVertexList* List)
     List->CapacityEnd = nullptr;
 }
 
-// FUN_065f9ba0 (thiscall RET 4, 065f9ba0..9bce) with flags 0: operator delete(+4), +4/+8/+0xC
+// (thiscall RET 4, 065f9ba0..9bce) with flags 0: operator delete(+4), +4/+8/+0xC
 // = 0; bit 0 of the flags would also delete the list. No test of the list pointer (until
 // 2026-09-30 the port returned for a null list).
 static void DestroyVertexRemapList(FVertexRemapList* List)
@@ -212,7 +208,7 @@ static void DestroyVertexRemapList(FVertexRemapList* List)
     List->CapacityEnd = nullptr;
 }
 
-// FUN_065f8b90 listing 17402–17511 (reached through FUN_065f8b70, vtable slot 6): restore the
+// listing 17402–17511 (reached through the routine, vtable slot 6): restore the
 // mesh vtable, free counted FaceGroups/BoneVerts, unconditional delete of stream buffers, 9ba0
 // remap walk, FaceFlags, then the base vtable (~FDeformMesh).
 FMeshArchetype::~FMeshArchetype()
@@ -279,7 +275,7 @@ FMeshArchetype::~FMeshArchetype()
     UvDeform = nullptr;
 }
 
-// PTR_LAB_0660135c slot 0 (LAB_065f8b40) and slot 1 (LAB_065f8b60).
+// slot 0 (the branch) and slot 1 (the branch).
 int FMeshArchetype::GetIndexCount()
 {
     return MeshTotalIndexCount(this);
@@ -290,7 +286,7 @@ int FMeshArchetype::GetVertexCapacity()
     return MeshVertexCapacity(this);
 }
 
-// Slot 4 (LAB_065f8d00, RET 8).
+// Slot 4 (the branch, RET 8).
 unsigned char FMeshArchetype::GetBoundSphere(float* OutRadius, float* OutCenter)
 {
     return ComputeMeshBoundSphere(this, OutRadius, OutCenter);
@@ -326,7 +322,7 @@ static void FsFindClose(IFileSystem* Fs, int Finder)
     Fs->FindClose((unsigned long)Finder);
 }
 
-// FUN_065f71c0: texcoord extra from FVF bits 8–11 count, sizes at bit 16+.
+// texcoord extra from FVF bits 8–11 count, sizes at bit 16+.
 static int FvfTexcoordBytes(unsigned long Fvf)
 {
     int Bytes = 0;
@@ -355,7 +351,7 @@ static int FvfTexcoordBytes(unsigned long Fvf)
     return Bytes;
 }
 
-// FUN_065f7220: D3DFVF_DIFFUSE (0x40) / D3DFVF_SPECULAR (0x80).
+// D3DFVF_DIFFUSE (0x40) / D3DFVF_SPECULAR (0x80).
 static int FvfColorBytes(unsigned long Fvf)
 {
     int Bytes = 0;
@@ -366,7 +362,7 @@ static int FvfColorBytes(unsigned long Fvf)
     return Bytes;
 }
 
-// LAB_065f6bf0 FVF stride. ParseTag 0x112 → xyz 0xC + nrm 0xC + uv0 8 = 0x20.
+// FVF stride. ParseTag 0x112 → xyz 0xC + nrm 0xC + uv0 8 = 0x20.
 static int ComputeFvfStride(unsigned long Fvf)
 {
     int Position = 0;
@@ -380,7 +376,7 @@ static int ComputeFvfStride(unsigned long Fvf)
     return Position + Normal + FvfColorBytes(Fvf) + FvfTexcoordBytes(Fvf);
 }
 
-// FUN_065f96b0 call-site in FUN_065f89e0: insert 1 ushort at vector finish (push_back).
+// call-site in the routine: insert 1 ushort at vector finish (push_back).
 static void BoneListPush(FBoneVertexList* List, unsigned short VertexIndex)
 {
     if (List == nullptr)
@@ -411,7 +407,7 @@ static void BoneListPush(FBoneVertexList* List, unsigned short VertexIndex)
     List->Finish += 1;
 }
 
-// FUN_065f89e0 tail, 065f8a27..8ac2: a counted array of Holder+8 (the bound bone count)
+// tail, 065f8a27..8ac2: a counted array of Holder+8 (the bound bone count)
 static void BuildBoneVertexLists(FMeshArchetype* Arch, FLodHolder* Holder, IFileSystem* Fs)
 {
     const int BoneCount = Holder->BindCursor;
@@ -474,10 +470,10 @@ static void RemapListPush(FVertexRemapList* List, unsigned int PointIndex)
     List->Finish += 1;
 }
 
-// FUN_065f75f0: remap[PointIndices[i]].push(i). vector<uint> @ mesh+0x64.
+// remap[PointIndices[i]].push(i). vector<uint> @ mesh+0x64.
 static void BuildVertexRemap(FMeshArchetype* Arch)
 {
-    // FUN_065f75f0 (cdecl: mesh), 065f75f0..7757: +0x24 (VertexCount) == 0 -> return. The
+    // (cdecl: mesh), 065f75f0..7757: +0x24 (VertexCount) == 0 -> return. The
     if (Arch->VertexCount == 0)
         return;
 
@@ -499,13 +495,13 @@ static void BuildVertexRemap(FMeshArchetype* Arch)
     }
 }
 
-// FUN_065f7590: if group+8 Material live, vtable+0x50 GetName, 12-byte cmpsb vs "EyeMaterial"
+// if group+8 Material live, vtable+0x50 GetName, 12-byte cmpsb vs "EyeMaterial"
 // → group+0x20 = 0. No Pad0C write. No vertex UV offset.
 static void BindUvBoneIdsToFaceGroups(FMeshArchetype* Arch)
 {
-    // FUN_065f7590 (cdecl: mesh), 065f7590..75eb: for i < +0x18 (JLE on entry, JL loop, count
+    // (cdecl: mesh), 065f7590..75eb: for i < +0x18 (JLE on entry, JL loop, count
     // re-read): group+8 non-null -> slot 20 ClassName, REPE CMPSB 12 bytes vs "EyeMaterial"
-    // (.data:06602790), equal -> group+0x20 = 0. AL = 1. No other tests.
+    // (module storage), equal -> group+0x20 = 0. AL = 1. No other tests.
     for (int Index = 0; Index < Arch->FaceGroupCount; ++Index)
     {
         FFaceGroup* Group = &Arch->FaceGroups[Index];
@@ -520,7 +516,7 @@ static void BindUvBoneIdsToFaceGroups(FMeshArchetype* Arch)
     }
 }
 
-// PTR_LAB_0660135c slot 0 LAB_065f8b40, 065f8b40..8b58: EAX = 0; +0x18 > 0 (JLE) -> add
+// slot 0 the branch, 065f8b40..8b58: EAX = 0; +0x18 > 0 (JLE) -> add
 // group +0x1C for each face group (+0x1C, stride 0x24). No tests of the mesh or the groups
 // (until 2026-09-30 the port returned 0 for a null mesh or a null group array).
 static int MeshTotalIndexCount(FMeshArchetype* Arch)
@@ -531,7 +527,7 @@ static int MeshTotalIndexCount(FMeshArchetype* Arch)
     return Total;
 }
 
-// PTR_LAB_0660135c slot 1 LAB_065f8b60: EAX = [this+0x20] + [this+0x10]. No test (until
+// slot 1 the branch: EAX = [this+0x20] + [this+0x10]. No test (until
 // 2026-09-30 the port returned 0 for a null mesh, and added the skin pair count its own
 // loader stored in +0x20 -- see Field_0x20).
 static int MeshVertexCapacity(FMeshArchetype* Arch)
@@ -543,7 +539,7 @@ static void WriteVec3(float* Dest, float X, float Y, float Z);
 static void ScaleVec3(float* Out, const float* In, float Scale);
 static void SubVec3(float* Out, const float* A, const float* B);
 
-// LAB_065f8d00, the DFM mesh's slot 4 (thiscall RET 8: OutRadius, OutCenter), 065f8d00..90b8:
+// , the DFM mesh's slot 4 (thiscall RET 8: OutRadius, OutCenter), 065f8d00..90b8:
 static unsigned char ComputeMeshBoundSphere(FMeshArchetype* Arch, float* OutRadius, float* OutCenter)
 {
     if (Arch->SphereReady == 0)
@@ -644,7 +640,7 @@ static unsigned char ComputeMeshBoundSphere(FMeshArchetype* Arch, float* OutRadi
     return 1;
 }
 
-// FUN_065f6ad0: out[i] = weight * matrix[i] (12 floats).
+// out[i] = weight * matrix[i] (12 floats).
 static void ScaleBoneMatrix(float* Out, const float* Matrix, float Weight)
 {
     int Index = 0;
@@ -655,8 +651,8 @@ static void ScaleBoneMatrix(float* Out, const float* Matrix, float Weight)
     }
 }
 
-// FUN_065f6b00: out[i] += weight * matrix[i].
-// FUN_065f6b00: 12 x (FLD Weight, FMUL m[i], FADD out[i], FSTP float out[i]) -- one rounding.
+// out[i] += weight * matrix[i].
+// 12 x (FLD Weight, FMUL m[i], FADD out[i], FSTP float out[i]) -- one rounding.
 static void AccumulateBoneMatrix(float* Out, const float* Matrix, float Weight)
 {
     int Index = 0;
@@ -668,10 +664,10 @@ static void AccumulateBoneMatrix(float* Out, const float* Matrix, float Weight)
     }
 }
 
-// FUN_065f6b30: out = M3x4 * point (translation m[9..11]).
+// out = M3x4 * point (translation m[9..11]).
 static void TransformPoint(float* Out, const float* Matrix, const float* Point)
 {
-    // Point is re-read per row, as retail does (matters only if Out aliases it).
+    // Point is re-read per row, as baseline does (matters only if Out aliases it).
     Out[0] = (float)((((double)Matrix[2] * Point[2] +
                                   (double)Matrix[1] * Point[1]) +
                                  (double)Matrix[0] * Point[0]) +
@@ -686,8 +682,8 @@ static void TransformPoint(float* Out, const float* Matrix, const float* Point)
                                 Matrix[11]);
 }
 
-// FUN_065f6b90: out = M3x3 * direction (no translation).
-// FUN_065f6b90 (cdecl: Out, M, D), 065f6b90..6bec: as 6b30 without the translation terms,
+// out = M3x3 * direction (no translation).
+// (cdecl: Out, M, D), 065f6b90..6bec: as 6b30 without the translation terms,
 // same summation order.
 static void TransformDirection(float* Out, const float* Matrix, const float* Direction)
 {
@@ -702,7 +698,7 @@ static void TransformDirection(float* Out, const float* Matrix, const float* Dir
                                 (double)Matrix[7] * Direction[1]);
 }
 
-// FUN_065f70b0 thiscall RET 4: dest = -this[0..2] (FCHS stack 2,1,0).
+// thiscall RET 4: dest = -this[0..2] (FCHS stack 2,1,0).
 static void NegateVec3(const float* Source, float* Dest)
 {
     Dest[0] = -Source[0];
@@ -710,8 +706,8 @@ static void NegateVec3(const float* Source, float* Dest)
     Dest[2] = -Source[2];
 }
 
-// FUN_065f70d0 thiscall RET 4: 3x3 transpose into 9 floats (m0,m3,m6 / m1,m4,m7 / m2,m5,m8).
-// FUN_065f70d0: every element is loaded before the first store (FPU dump), so an in-place
+// thiscall RET 4: 3x3 transpose into 9 floats (m0,m3,m6 / m1,m4,m7 / m2,m5,m8).
+// every element is loaded before the first store (FPU dump), so an in-place
 // transpose works; the copy below keeps that.
 static void Transpose3x3(const float* Source, float* Dest)
 {
@@ -728,10 +724,10 @@ static void Transpose3x3(const float* Source, float* Dest)
     Dest[8] = Copy[8];
 }
 
-// FUN_065f90c0 listing 17907–17959: stosd 0x1C dwords, type=6, xyz 0xC/0x18, nrm=verts+0xC, UV0 if +0x50.
+// listing 17907–17959: stosd 0x1C dwords, type=6, xyz 0xC/0x18, nrm=verts+0xC, UV0 if +0x50.
 static void FillMeshStreamDesc(FMeshArchetype* This, FRpVertexSrcDesc* Out)
 {
-    // FUN_065f90c0: STOSD 0x1C zero dwords, then the fields below. No tests.
+    // STOSD 0x1C zero dwords, then the fields below. No tests.
     std::memset(Out, 0, sizeof(FRpVertexSrcDesc));
     Out->SrcFvf = This->ParseTag;
     Out->Flags = 6;
@@ -777,7 +773,7 @@ static unsigned char EnsurePartVertexBuffer(FDeformVbDesc* Vb, IRPVertexBuffer* 
                : 0;
 }
 
-// LAB_065f6bf0, the DFM mesh's slot 3 (thiscall RET 0xC: Holder, &part+0x14, bForce),
+// , the DFM mesh's slot 3 (thiscall RET 0xC: Holder, &part+0x14, bForce),
 unsigned char FMeshArchetype::Skin(FLodHolder* Holder, FDeformVbDesc* Vb, unsigned char bForce)
 {
     const float* const Root =
@@ -920,10 +916,10 @@ unsigned char FMeshArchetype::Skin(FLodHolder* Holder, FDeformVbDesc* Vb, unsign
     return 1;
 }
 
-// FUN_065f7340 thiscall face-group, RET 8: context, accumulated IB start.
+// thiscall face-group, RET 8: context, accumulated IB start.
 static int DrawFaceGroup(FFaceGroup* Group, FMaterialSubmitContext* Context, int StartIndex)
 {
-    // 065f7340..739a: +0x1C == 0 (JBE) -> 0. NumVerts = +0x14 - +0x10 + 1; ctx+0x20 = +0xC;
+    // ..739a: +0x1C == 0 (JBE) -> 0. NumVerts = +0x14 - +0x10 + 1; ctx+0x20 = +0xC;
     // Material (+8) +0x20 (ctx), +0x28 (ctx, Kind, IndexMin, NumVerts, Start, IndexCount,
     // 0x100), +0x24 (ctx); EAX = NumVerts. No tests of the context or the material.
     if (Group->IndexCount == 0)
@@ -939,7 +935,7 @@ static int DrawFaceGroup(FFaceGroup* Group, FMaterialSubmitContext* Context, int
     return NumVerts;
 }
 
-// LAB_065f73a0, the DFM mesh's slot 5 (thiscall RET 8: Camera, Part), 065f73a0..758d. Frame
+// , the DFM mesh's slot 5 (thiscall RET 8: Camera, Part), 065f73a0..758d. Frame
 unsigned char FMeshArchetype::Draw(ICamera* Camera, FDeformPart* Part)
 {
     FBoneRuntime* const BoneSlots = Part->Lod->BoneSlots;
@@ -985,7 +981,7 @@ unsigned char FMeshArchetype::Draw(ICamera* Camera, FDeformPart* Part)
     Context.Indices = nullptr;
     Context.VbListing = &Part->Vb.Listing;
     Context.IbScratch = &Part->Ib.Scratch;
-    // Retail leaves +0x1C as stack garbage; the port cannot reproduce that and stores 0.
+    // baseline leaves +0x1C as stack garbage; the port cannot reproduce that and stores 0.
     Context.ReplacedMaterial = nullptr;
     Context.Field20 = nullptr;
 
@@ -1013,7 +1009,7 @@ unsigned char FMeshArchetype::Draw(ICamera* Camera, FDeformPart* Part)
     return 1;
 }
 
-// LAB_065f7240, the DFM mesh's slot 2 (thiscall RET 4: &part+0x24), 065f7240..732e.
+// , the DFM mesh's slot 2 (thiscall RET 4: &part+0x24), 065f7240..732e.
 unsigned char FMeshArchetype::FillIndexBuffer(FDeformIbDesc* Ib)
 {
     const int IndexCount = GetIndexCount();
@@ -1053,20 +1049,20 @@ unsigned char FMeshArchetype::FillIndexBuffer(FDeformIbDesc* Ib)
 
 static int ReleaseLodHolder(FLodHolder* Holder);
 
-// FUN_065f6760 (thiscall), the part dtor, 065f6760..67ea.
+// (thiscall), the part dtor, 065f6760..67ea.
 void FDeformPart::Reset() // formerly DestroyPart
 {
-    // 065f6761..678e: IRPVertexBuffer +0x10 DestroyVb(&part+0x14), part+0x20 = 0;
+    // ..678e: IRPVertexBuffer +0x10 DestroyVb(&part+0x14), part+0x20 = 0;
     // the interfaces and freed the CPU copies of its scaffold (PreparePartGpuLayout).
     G_VertexBuffer->DestroyVb(&Vb.Listing.VertexBuffer);
     Vb.Capacity = 0;
     G_IndexBuffer->DestroyIb(&Ib.Scratch.IndexBuffer);
     Ib.Capacity = 0;
 
-    // 065f6791: FUN_065f17e0 on +0 with no null test.
+    // the routine on +0 with no null test.
     ReleaseLodHolder(Lod);
-    // 065f6798..67d2: the counted mesh array, last to first; each live entry through
-    // FUN_065f28f0 and zeroed, then the block (header at -4).
+    // ..67d2: the counted mesh array, last to first; each live entry through
+    // and zeroed, then the block (header at -4).
     if (Meshes != nullptr)
     {
         int* Header = (int*)Meshes - 1;
@@ -1082,8 +1078,8 @@ void FDeformPart::Reset() // formerly DestroyPart
         }
         delete[] (unsigned char*)Header;
     }
-    // 065f67d6..67e1: +0 is released a second time when still set, then zeroed. The holder
-    // carries two references for the part -- FUN_065f36c0 creates it at 1 and FUN_065f67f0
+    // ..67e1: +0 is released a second time when still set, then zeroed. The holder
+    // carries two references for the part -- the routine creates it at 1 and the routine
     // AddRefs it -- so this is the second of the pair, not a double free.
     if (Lod != nullptr)
     {
@@ -1092,7 +1088,7 @@ void FDeformPart::Reset() // formerly DestroyPart
     }
 }
 
-// FUN_065f7c70 (thiscall, 065f7c70..7c96): +0 = 4, +4..+0x1C = 0, +0x20 = -1. No tests.
+// (thiscall, 065f7c70..7c96): +0 = 4, +4..+0x1C = 0, +0x20 = -1. No tests.
 static void ConstructFaceGroup(FFaceGroup* Group)
 {
     Group->Kind = 4;
@@ -1106,12 +1102,12 @@ static void ConstructFaceGroup(FFaceGroup* Group)
     Group->UvBoneIndex = 0xFFFFFFFF;
 }
 
-// FUN_065f7d70: tristrip shorts → triangle list. Not skin.
+// tristrip shorts → triangle list. Not skin.
 static void ExpandTristrip(const unsigned short* Strip, int StripCount, unsigned short* Out,
                            int* OutCount)
 {
-    // FUN_065f7d70 (cdecl), 065f7d70..7dfb: *OutCount = 0; Limit = Count - 2 tested unsigned
-    // (JBE: only 0 skips -- a Count below 2 wraps, as in retail); no pointer tests.
+    // (cdecl), 065f7d70..7dfb: *OutCount = 0; Limit = Count - 2 tested unsigned
+    // (JBE: only 0 skips -- a Count below 2 wraps, as in baseline); no pointer tests.
     *OutCount = 0;
     const unsigned int Limit = (unsigned int)(StripCount - 2);
     if (Limit == 0)
@@ -1143,7 +1139,7 @@ static void ExpandTristrip(const unsigned short* Strip, int StripCount, unsigned
     } while (Walk < (unsigned int)(StripCount - 2));
 }
 
-// FUN_065f7e00: min/max + rebase. Index table wiring, not skin.
+// min/max + rebase. Index table wiring, not skin.
 static void RebaseFaceIndices(FFaceGroup* Group)
 {
     unsigned short* Indices = Group->Indices;
@@ -1165,7 +1161,7 @@ static void RebaseFaceIndices(FFaceGroup* Group)
         Indices[Index] = (unsigned short)(Indices[Index] - Base);
 }
 
-// FUN_065f8b00 (thiscall RET 4) on the calloc(1, 0x84) block of FUN_065f26f0: +4 = 1,
+// (thiscall RET 4) on the calloc(1, 0x84) block of the routine: +4 = 1,
 FMeshArchetype::FMeshArchetype(const char* Name)
     : FDeformMesh(Name)
 {
@@ -1173,9 +1169,9 @@ FMeshArchetype::FMeshArchetype(const char* Name)
     NameHint = (unsigned char)((uintptr_t)Name);
 }
 
-// The 0x14-byte mapped node FUN_065f7760 keeps on its stack twice (Material_name at
+// The 0x14-byte mapped node the routine keeps on its stack twice (Material_name at
 // [ESP+0x20], Tristrip_indices at [ESP+0x3c]): an open handle, its size, a file mapping and
-// a view of it, and the FileSystem they came from, AddRef'd (FUN_065f9150).
+// a view of it, and the FileSystem they came from, AddRef'd (the routine).
 struct FMappedFileNode
 {
     int Handle;         // +0x00 IFileSystem +0x7C, -1 none
@@ -1185,7 +1181,7 @@ struct FMappedFileNode
     IFileSystem* Fs;    // +0x10
 };
 
-// FUN_065f9150 (thiscall RET 4): +0 = the pointer, AddRef when non-null.
+// (thiscall RET 4): +0 = the pointer, AddRef when non-null.
 static void HoldFileSystem(IFileSystem** Slot, IFileSystem* Fs)
 {
     *Slot = Fs;
@@ -1193,7 +1189,7 @@ static void HoldFileSystem(IFileSystem** Slot, IFileSystem* Fs)
         Fs->AddRef();
 }
 
-// FUN_065f9170 (thiscall): Release a non-null +0 and zero it.
+// (thiscall): Release a non-null +0 and zero it.
 static void DropFileSystem(IFileSystem** Slot)
 {
     if (*Slot != nullptr)
@@ -1203,9 +1199,9 @@ static void DropFileSystem(IFileSystem** Slot)
     }
 }
 
-// FUN_065f7d10 / FUN_065f7ca0 (thiscall, the node's dtor -- 7ca0 repeats the final release,
+// / the routine (thiscall, the node's dtor -- 7ca0 repeats the final release,
 // a no-op after the first): Handle != -1 -> (Mapping != -1 -> (View -> Fs +0x44 (View), View =
-// 0); Fs +0x10 (Mapping)); Fs +0x10 (Handle), Handle = -1. Then FUN_065f9170 on Fs.
+// 0); Fs +0x10 (Mapping)); Fs +0x10 (Handle), Handle = -1. Then the routine on Fs.
 static void CloseMappedFileNode(FMappedFileNode* Node)
 {
     if (Node->Handle != -1)
@@ -1225,7 +1221,7 @@ static void CloseMappedFileNode(FMappedFileNode* Node)
     DropFileSystem(&Node->Fs);
 }
 
-// The open-and-map sequence FUN_065f7760 inlines twice (065f795a..79bc, 065f7aba..7b18):
+// The open-and-map sequence the routine inlines twice (065f795a..79bc, 065f7aba..7b18):
 // +0x7C on the node's FileSystem; a handle -> Size = +0x28 (h, 0), Mapping = +0x3C (h, 0, 2, 0,
 // 0, 0); a mapping -> View = +0x40 (Mapping, 4, 0, 0, 0).
 static void OpenMappedFileNode(FMappedFileNode* Node, const char* NodeName)
@@ -1243,7 +1239,7 @@ static void OpenMappedFileNode(FMappedFileNode* Node, const char* NodeName)
         Node->Fs->MapFileView((unsigned long)Node->Mapping, 4, 0, 0, 0))));
 }
 
-// FUN_065f8360 (thiscall RET 4: Fs): +0x10 = Fs, AddRef when non-null; Handle = -1, Size = 0,
+// (thiscall RET 4: Fs): +0x10 = Fs, AddRef when non-null; Handle = -1, Size = 0,
 // View = 0. Mapping is not touched (every reader tests Handle first).
 static void InitMappedFileNode(FMappedFileNode* Node, IFileSystem* Fs)
 {
@@ -1253,7 +1249,7 @@ static void InitMappedFileNode(FMappedFileNode* Node, IFileSystem* Fs)
     Node->View = nullptr;
 }
 
-// FUN_065f8390 (thiscall RET 8: name, find handle), 065f8390..846d: the 0x34 desc of
+// (thiscall RET 8: name, find handle), 065f8390..846d: the 0x34 desc of
 static int MapFileNode(FMappedFileNode* Node, const char* NodeName, unsigned long FindHandle)
 {
     FFileSystemDesc Desc;
@@ -1273,7 +1269,7 @@ static int MapFileNode(FMappedFileNode* Node, const char* NodeName, unsigned lon
     return -1;
 }
 
-// FUN_065f7760 (thiscall on the mesh, RET 4: Fs), 065f7760..7c68, 0x425c-byte frame.
+// (thiscall on the mesh, RET 4: Fs), 065f7760..7c68, 0x425c-byte frame.
 static bool LoadFaceGroups(FMeshArchetype* Arch, IFileSystem* Fs)
 {
     if (Fs->OpenNode("Face_groups") == 0)
@@ -1339,10 +1335,10 @@ static bool LoadFaceGroups(FMeshArchetype* Arch, IFileSystem* Fs)
                 }
                 else
                 {
-                    Group->MaterialCrc = DACOM_CRC::GetCRC32(MaterialName);
+                    Group->MaterialCrc = NEURONCOMPONENTS_CRC::GetCRC32(MaterialName);
                     FEngineName Query;
                     Query.Text = MaterialName;
-                    Query.Crc = DACOM_CRC::GetCRC32(MaterialName);
+                    Query.Crc = NEURONCOMPONENTS_CRC::GetCRC32(MaterialName);
                     if (G_MaterialLibrary
                             ->FindMaterialByCrc(&Query, &Group->Material) < 0)
                     {
@@ -1413,11 +1409,11 @@ static bool LoadFaceGroups(FMeshArchetype* Arch, IFileSystem* Fs)
         }
         FsFindClose(Fs, Finder);
     }
-    Fs->OpenNode(G_ParentNode); // 065f7c53
+    Fs->OpenNode(G_ParentNode);
     return true;
 }
 
-// FUN_065f7e80 (thiscall on the mesh, RET 4: Fs), 065f7e80..835b, 0x7c-byte frame.
+// (thiscall on the mesh, RET 4: Fs), 065f7e80..835b, 0x7c-byte frame.
 static bool LoadGeometry(FMeshArchetype* Arch, IFileSystem* Fs)
 {
     if (Fs->OpenNode("Geometry") == 0)
@@ -1553,11 +1549,11 @@ static bool LoadGeometry(FMeshArchetype* Arch, IFileSystem* Fs)
     CloseMappedFileNode(&WeightNode);
     CloseMappedFileNode(&IdNode);
     CloseMappedFileNode(&CountNode);
-    Fs->OpenNode(G_ParentNode); // 065f8349
+    Fs->OpenNode(G_ParentNode);
     return true;
 }
 
-// FUN_065f8480 (thiscall on the mesh, RET 4: Fs), 065f8480..89d5, 0x108-byte frame.
+// (thiscall on the mesh, RET 4: Fs), 065f8480..89d5, 0x108-byte frame.
 static bool LoadUvDeformTables(FMeshArchetype* Arch, IFileSystem* Fs)
 {
     if (Fs->OpenNode("Geometry") == 0)
@@ -1654,11 +1650,11 @@ static bool LoadUvDeformTables(FMeshArchetype* Arch, IFileSystem* Fs)
     CloseMappedFileNode(&PlaneNode);
     CloseMappedFileNode(&VertexCountNode);
     CloseMappedFileNode(&BoneIdNode);
-    Fs->OpenNode(G_ParentNode); // 065f89c0
+    Fs->OpenNode(G_ParentNode);
     return true;
 }
 
-// FUN_065f89e0 (thiscall on the mesh, RET 8: Holder, Fs), 065f89e0..8af9. Each loader in turn,
+// (thiscall on the mesh, RET 8: Holder, Fs), 065f89e0..8af9. Each loader in turn,
 static bool LoadMeshTables(FMeshArchetype* Mesh, FLodHolder* Holder, IFileSystem* Fs)
 {
     if (!LoadFaceGroups(Mesh, Fs))
@@ -1678,7 +1674,7 @@ static bool LoadMeshTables(FMeshArchetype* Mesh, FLodHolder* Holder, IFileSystem
     return true;
 }
 
-// FUN_065fdc60 (reached through FUN_065fdca0, vtable slot 6): wrapper vtable, +0xC != -1 ->
+// (reached through the routine, vtable slot 6): wrapper vtable, +0xC != -1 ->
 // IEngine +0x3C on it; +0x10 non-null -> Release, +0x10 = 0; then the base vtable.
 FVmeshWrapper::~FVmeshWrapper()
 {
@@ -1691,8 +1687,8 @@ FVmeshWrapper::~FVmeshWrapper()
     }
 }
 
-// FUN_065fdcc0 (thiscall RET 0xC): +4 = 1, +8 = CRC32(name) (the base ctor), +0xC = handle,
-// +0x10 = the VMesh part, AddRef'd when non-null; vtable PTR_LAB_066013dc.
+// (thiscall RET 0xC): +4 = 1, +8 = CRC32(name) (the base ctor), +0xC = handle,
+// +0x10 = the VMesh part, AddRef'd when non-null; vtable the branch.
 FVmeshWrapper::FVmeshWrapper(const char* Name, void* Handle, IVMeshPart* Part)
     : FDeformMesh(Name)
     , EngineHandle(Handle)
@@ -1702,14 +1698,14 @@ FVmeshWrapper::FVmeshWrapper(const char* Name, void* Handle, IVMeshPart* Part)
         Part->AddRef();
 }
 
-// FUN_065fdf80 (thiscall on Dest, RET 4: Src): MOVSD 0xC dwords (0x30). No tests (until
+// (thiscall on Dest, RET 4: Src): MOVSD 0xC dwords (0x30). No tests (until
 // 2026-09-30 the port returned on a null pointer).
 static void VmeshCopy12(void* Dest, const void* Src)
 {
     std::memcpy(Dest, Src, 0x30);
 }
 
-// FUN_065f28b0 (cdecl): _vsnprintf(Buffer, 0x2000, Format, ...) and return Buffer. Every
+// (cdecl): _vsnprintf(Buffer, 0x2000, Format, ...) and return Buffer. Every
 // caller hands it a 0x2000-byte stack buffer.
 char* FormatDeformMessage(char* Buffer, const char* Format, ...)
 {
@@ -1720,11 +1716,11 @@ char* FormatDeformMessage(char* Buffer, const char* Format, ...)
     return Buffer;
 }
 
-// FUN_065f26f0 (cdecl: Holder, MeshFs, Name, bFlag70), 065f26f0..28a1.
+// (cdecl: Holder, MeshFs, Name, bFlag70), 065f26f0..28a1.
 static FDeformMesh* LoadDeformMesh(FLodHolder* Holder, IFileSystem* MeshFs, const char* Name,
                                    unsigned char bFlag70)
 {
-    const unsigned long Key = DACOM_CRC::GetCRC32(Name);
+    const unsigned long Key = NEURONCOMPONENTS_CRC::GetCRC32(Name);
     std::map<unsigned long, FDeformMesh*>::iterator Found = G_MeshCache.find(Key);
     if (Found != G_MeshCache.end())
     {
@@ -1745,7 +1741,7 @@ static FDeformMesh* LoadDeformMesh(FLodHolder* Holder, IFileSystem* MeshFs, cons
         ReleaseDeformMesh(Mesh);
         FEngineName ArchName;
         ArchName.Text = Name;
-        ArchName.Crc = DACOM_CRC::GetCRC32(Name);
+        ArchName.Crc = NEURONCOMPONENTS_CRC::GetCRC32(Name);
         void* Handle = G_Engine->CreateArchetypeHandle(&ArchName, MeshFs);
         IVMeshPart* Library = nullptr;
         // This query ABI accepts the const IID as an opaque mutable token.
@@ -1774,7 +1770,7 @@ static FDeformMesh* LoadDeformMesh(FLodHolder* Holder, IFileSystem* MeshFs, cons
     return Result;
 }
 
-// FUN_065f13e0 thiscall: 3x4 identity (diag 1.0f).
+// thiscall: 3x4 identity (diag 1.0f).
 static void WriteIdentity3x4(float* Matrix)
 {
     std::memset(Matrix, 0, 12 * sizeof(float));
@@ -1783,9 +1779,9 @@ static void WriteIdentity3x4(float* Matrix)
     Matrix[8] = 1.0f;
 }
 
-// The skeleton ctor FUN_065f36c0 inlines at 065f3879..38c4: operator new(0x1e88), +0 = 1.0f,
-// +4 = 0, each of the 150 bones' +0 = -1 (FUN_065f3e70 on +4 is an empty ctor -- the matrices
-// stay uninitialised until FUN_065f1100 copies them), +0x1e80 = -1, +0x1e84 = 1.
+// The skeleton ctor the routine inlines at 065f3879..38c4: operator new(0x1e88), +0 = 1.0f,
+// +4 = 0, each of the 150 bones' +0 = -1 (the routine on +4 is an empty ctor -- the matrices
+// stay uninitialised until the routine copies them), +0x1e80 = -1, +0x1e84 = 1.
 static FSkeleton* ConstructSkeleton()
 {
     FSkeleton* Skel = new FSkeleton;
@@ -1802,8 +1798,8 @@ static FSkeleton* ConstructSkeleton()
     return Skel;
 }
 
-// FUN_065f10c0 (thiscall), 065f10c0..10fd: IEngine +0x3C on each loaded bone's +0 handle,
-// then on +0x1e80 -- unconditionally, -1 included (a skeleton whose FUN_065f1100 failed still
+// (thiscall), 065f10c0..10fd: IEngine +0x3C on each loaded bone's +0 handle,
+// then on +0x1e80 -- unconditionally, -1 included (a skeleton whose the routine failed still
 // passes its -1 here). Until 2026-09-30 the port skipped null/-1 handles and a null engine.
 static void DestroySkeletonHandles(FSkeleton* Skel)
 {
@@ -1817,7 +1813,7 @@ static void DestroySkeletonHandles(FSkeleton* Skel)
     G_Engine->ReleaseHandle(Skel->EngineHandle);
 }
 
-// FUN_065f1410 thiscall RET 0.
+// thiscall RET 0.
 static void AddRefSkeleton(FSkeleton* Skel)
 {
     if (Skel == nullptr)
@@ -1825,7 +1821,7 @@ static void AddRefSkeleton(FSkeleton* Skel)
     Skel->RefCount += 1;
 }
 
-// FUN_065f1420 thiscall: DEC ref, if <=0 then 10c0 + operator_delete.
+// thiscall: DEC ref, if <=0 then 10c0 + operator_delete.
 static int ReleaseSkeleton(FSkeleton* Skel)
 {
     if (Skel == nullptr)
@@ -1840,7 +1836,7 @@ static int ReleaseSkeleton(FSkeleton* Skel)
     return Remaining;
 }
 
-// FUN_065f1470 thiscall RET 0: delete BoneSlots, ReleaseSkeleton, null +0.
+// thiscall RET 0: delete BoneSlots, ReleaseSkeleton, null +0.
 static void DestroyLodHolderBody(FLodHolder* Holder)
 {
     if (Holder == nullptr)
@@ -1857,7 +1853,7 @@ static void DestroyLodHolderBody(FLodHolder* Holder)
     }
 }
 
-// FUN_065f17d0 thiscall RET 0: INC holder+0xC.
+// thiscall RET 0: INC holder+0xC.
 static void AddRefLodHolder(FLodHolder* Holder)
 {
     if (Holder == nullptr)
@@ -1865,7 +1861,7 @@ static void AddRefLodHolder(FLodHolder* Holder)
     Holder->RefCount += 1;
 }
 
-// FUN_065f17e0 thiscall: DEC +0xC, if <=0 then 1470 + operator_delete.
+// thiscall: DEC +0xC, if <=0 then 1470 + operator_delete.
 static int ReleaseLodHolder(FLodHolder* Holder)
 {
     if (Holder == nullptr)
@@ -1880,7 +1876,7 @@ static int ReleaseLodHolder(FLodHolder* Holder)
     return Remaining;
 }
 
-// FUN_065f1100 (thiscall on the skeleton, RET 8: Name, Fs), 065f1100..13d3.
+// (thiscall on the skeleton, RET 8: Name, Fs), 065f1100..13d3.
 static bool LoadSkeleton(FSkeleton* Skel, const char* Name, IFileSystem* Fs)
 {
     WIN32_FIND_DATAA FindData;
@@ -1917,12 +1913,12 @@ static bool LoadSkeleton(FSkeleton* Skel, const char* Name, IFileSystem* Fs)
                 }
                 const GENRESULT Result = bRead ? 0 : (GENRESULT)0x80004005;
                 if (bSkeletonNode != 0)
-                    Fs->OpenNode(G_ParentNode); // 065f12c4
+                    Fs->OpenNode(G_ParentNode);
                 if (Result >= 0)
                 {
                     FEngineName BoneName;
                     BoneName.Text = FindData.cFileName;
-                    BoneName.Crc = DACOM_CRC::GetCRC32(FindData.cFileName);
+                    BoneName.Crc = NEURONCOMPONENTS_CRC::GetCRC32(FindData.cFileName);
                     Bone->Parent = (int)((ptrdiff_t)(
                         G_Engine->CreateArchetypeHandle(&BoneName, Child)));
                     Skel->BoneCount += 1;
@@ -1934,38 +1930,38 @@ static bool LoadSkeleton(FSkeleton* Skel, const char* Name, IFileSystem* Fs)
         FsFindClose(Fs, Finder);
     }
 
-    IDAComponent* Saved = nullptr;
+    INeuronComponent* Saved = nullptr;
     G_Engine->GetSearchPath((void**)(&Saved));
     G_Engine->SetFilesystem(Fs);
     FEngineName SkelName;
     SkelName.Text = Name;
-    SkelName.Crc = DACOM_CRC::GetCRC32(Name);
+    SkelName.Crc = NEURONCOMPONENTS_CRC::GetCRC32(Name);
     Skel->EngineHandle = G_Engine->CreateArchetypeHandle(&SkelName, Fs);
     G_Engine->SetFilesystem(Saved);
     Saved->Release();
     return Skel->EngineHandle != G_InvalidEngineHandle;
 }
 
-// --- FBoneRuntime : IInstanceTransform, vtable PTR_LAB_066010a0 (14 slots) ---
-// Every slot is stdcall with the engine instance as its first argument (EngBase pushes it);
+// --- FBoneRuntime : IInstanceTransform, vtable the branch (14 slots) ---
+// Every slot is stdcall with the engine instance as its first argument (SceneRuntime pushes it);
 // only slot 0 uses it. None of them tests `this` or a pointer argument.
 
-// FUN_065f16a0 (1 instruction, RET 8): slots 1 and 2, and the ICF-shared empty body of
+// (1 instruction, RET 8): slots 1 and 2, and the ICF-shared empty body of
 // several IEngineComponent slots. EAX is not set; the port answers 0.
-static unsigned long DACOM_API BoneRuntimeRet8(void* /*This*/, void* /*A*/)
+static unsigned long NEURONCOMPONENTS_API BoneRuntimeRet8(void* /*This*/, void* /*A*/)
 {
     return 0;
 }
 
-// LAB_065f1790 (1 instruction, RET 0xC): slot 11 SetUser, shared with IEngineComponent
+// (1 instruction, RET 0xC): slot 11 SetUser, shared with IEngineComponent
 // slots 5/10. EAX is not set.
-static void DACOM_API BoneRuntimeRetC(void* /*This*/, void* /*A*/, void* /*B*/)
+static void NEURONCOMPONENTS_API BoneRuntimeRetC(void* /*This*/, void* /*A*/, void* /*B*/)
 {
 }
 
 static void WriteIdentity3x3(float* Matrix);
 
-// The per-slot body of the FUN_065f1550 construct loop (065f15a0..15c8): +4 = -1 (065f15a3),
+// The per-slot body of the the routine construct loop (065f15a0..15c8): +4 = -1 (065f15a3),
 FBoneRuntime::FBoneRuntime()
 {
     Instance = G_InvalidEngineHandle;
@@ -1978,28 +1974,28 @@ FBoneRuntime::FBoneRuntime()
     Matrix[11] = 0.0f;
 }
 
-// LAB_065f1690 (RET 8), slot 0: [this+4] = the instance.
-GENRESULT DACOM_API FBoneRuntime::Init(void* InInstance)
+// (RET 8), slot 0: [this+4] = the instance.
+GENRESULT NEURONCOMPONENTS_API FBoneRuntime::Init(void* InInstance)
 {
     Instance = InInstance;
     return GR_OK; // EAX = this (065f1690 loads it); nobody reads it
 }
 
-// FUN_065f16a0, slot 1.
-GENRESULT DACOM_API FBoneRuntime::AddRef(void* InInstance)
+// , slot 1.
+GENRESULT NEURONCOMPONENTS_API FBoneRuntime::AddRef(void* InInstance)
 {
     return (GENRESULT)(BoneRuntimeRet8(this, InInstance));
 }
 
-// FUN_065f16a0, slot 2.
-GENRESULT DACOM_API FBoneRuntime::Release(void* InInstance)
+// , slot 2.
+GENRESULT NEURONCOMPONENTS_API FBoneRuntime::Release(void* InInstance)
 {
     return (GENRESULT)(BoneRuntimeRet8(this, InInstance));
 }
 
-// LAB_065f16b0 (RET 0xC), slot 3: three dwords of Position to +0x30; bit 0 of +0x3c set ->
+// (RET 0xC), slot 3: three dwords of Position to +0x30; bit 0 of +0x3c set ->
 // |= 2.
-GENRESULT DACOM_API FBoneRuntime::SetPosition(void* /*InInstance*/, const float* Position)
+GENRESULT NEURONCOMPONENTS_API FBoneRuntime::SetPosition(void* /*InInstance*/, const float* Position)
 {
     float* const Dest = LocalTransform + 9;
     Dest[0] = Position[0];
@@ -2010,15 +2006,15 @@ GENRESULT DACOM_API FBoneRuntime::SetPosition(void* /*InInstance*/, const float*
     return GR_OK; // EAX = the byte read (065f16cc); nobody reads it
 }
 
-// LAB_065f16e0 (RET 8), slot 4: this + 0x30.
-float* DACOM_API FBoneRuntime::GetPosition(void* /*InInstance*/)
+// (RET 8), slot 4: this + 0x30.
+float* NEURONCOMPONENTS_API FBoneRuntime::GetPosition(void* /*InInstance*/)
 {
     return LocalTransform + 9;
 }
 
-// LAB_065f16f0 (RET 0xC), slot 5: REP MOVSD of 9 dwords Rows -> +0x0C, always (065f1707);
+// (RET 0xC), slot 5: REP MOVSD of 9 dwords Rows -> +0x0C, always (065f1707);
 // the bit 0 test made before it (065f16f7) only decides the |= 2 after it (065f170b).
-GENRESULT DACOM_API FBoneRuntime::SetOrientation(void* /*InInstance*/, const float* Rows)
+GENRESULT NEURONCOMPONENTS_API FBoneRuntime::SetOrientation(void* /*InInstance*/, const float* Rows)
 {
     const unsigned char Flags = this->Flags;
     std::memcpy(LocalTransform, Rows, 9 * sizeof(float));
@@ -2027,15 +2023,15 @@ GENRESULT DACOM_API FBoneRuntime::SetOrientation(void* /*InInstance*/, const flo
     return GR_OK;
 }
 
-// LAB_065f1720 (RET 8), slots 6 and 8: this + 0x0C.
-float* DACOM_API FBoneRuntime::GetOrientation(void* /*InInstance*/)
+// (RET 8), slots 6 and 8: this + 0x0C.
+float* NEURONCOMPONENTS_API FBoneRuntime::GetOrientation(void* /*InInstance*/)
 {
     return LocalTransform;
 }
 
-// LAB_065f1730 (RET 0xC), slot 7: REP MOVSD of 12 dwords (rotation + position) -> +0x0C,
+// (RET 0xC), slot 7: REP MOVSD of 12 dwords (rotation + position) -> +0x0C,
 // always (065f1747); bit 0 tested before (065f1737) decides only the |= 2 (065f174b).
-GENRESULT DACOM_API FBoneRuntime::SetMatrix(void* /*InInstance*/, const float* InMatrix)
+GENRESULT NEURONCOMPONENTS_API FBoneRuntime::SetMatrix(void* /*InInstance*/, const float* InMatrix)
 {
     const unsigned char Flags = this->Flags;
     std::memcpy(LocalTransform, InMatrix, 12 * sizeof(float));
@@ -2044,15 +2040,15 @@ GENRESULT DACOM_API FBoneRuntime::SetMatrix(void* /*InInstance*/, const float* I
     return GR_OK;
 }
 
-// LAB_065f1720, slot 8 (the same body as slot 6).
-float* DACOM_API FBoneRuntime::GetMatrix(void* /*InInstance*/)
+// , slot 8 (the same body as slot 6).
+float* NEURONCOMPONENTS_API FBoneRuntime::GetMatrix(void* /*InInstance*/)
 {
     return LocalTransform;
 }
 
-// LAB_065f1760 (RET 0x10), slot 9: *[ESP+0xC] = 0 and the three dwords at [ESP+0x10] = 0 --
+// (RET 0x10), slot 9: *[ESP+0xC] = 0 and the three dwords at [ESP+0x10] = 0 --
 // the second and third arguments; the instance is not read.
-GENRESULT DACOM_API FBoneRuntime::GetExtra(void* /*InInstance*/, float* OutExtra, float* OutVec)
+GENRESULT NEURONCOMPONENTS_API FBoneRuntime::GetExtra(void* /*InInstance*/, float* OutExtra, float* OutVec)
 {
     *(unsigned long*)OutExtra = 0;
     ((unsigned long*)OutVec)[0] = 0;
@@ -2061,29 +2057,29 @@ GENRESULT DACOM_API FBoneRuntime::GetExtra(void* /*InInstance*/, float* OutExtra
     return GR_OK; // EAX = OutVec (065f1768); nobody reads it
 }
 
-// LAB_065f1780 (1 instruction, RET 0x10), slot 10.
-GENRESULT DACOM_API FBoneRuntime::SetExtra(void* /*InInstance*/, float /*Extra*/,
+// (1 instruction, RET 0x10), slot 10.
+GENRESULT NEURONCOMPONENTS_API FBoneRuntime::SetExtra(void* /*InInstance*/, float /*Extra*/,
                                            const float* /*Vec*/)
 {
     return GR_OK;
 }
 
-// LAB_065f1790 (RET 0xC), slot 11.
-GENRESULT DACOM_API FBoneRuntime::SetUser(void* InInstance, unsigned long User)
+// (RET 0xC), slot 11.
+GENRESULT NEURONCOMPONENTS_API FBoneRuntime::SetUser(void* InInstance, unsigned long User)
 {
     BoneRuntimeRetC(this, InInstance, (void*)((ptrdiff_t)User));
     return GR_OK;
 }
 
-// LAB_065f17a0 (RET 8), slot 12: XOR EAX,EAX.
-unsigned long DACOM_API FBoneRuntime::GetUser(void* /*InInstance*/)
+// (RET 8), slot 12: XOR EAX,EAX.
+unsigned long NEURONCOMPONENTS_API FBoneRuntime::GetUser(void* /*InInstance*/)
 {
     return 0;
 }
 
-// LAB_065f17b0 (RET 8), slot 13: bit 1 of +0x3c set -> AL = 0; else |= 2 and EAX =
+// (RET 8), slot 13: bit 1 of +0x3c set -> AL = 0; else |= 2 and EAX =
 // (~byte) & 1 (NOT AL; AND EAX,1 -- the AND clears EAX's upper bytes).
-unsigned long DACOM_API FBoneRuntime::MarkWorldDirty(void* /*InInstance*/) // formerly Slot13
+unsigned long NEURONCOMPONENTS_API FBoneRuntime::MarkWorldDirty(void* /*InInstance*/) // formerly Slot13
 {
     unsigned char Flags = this->Flags;
     if ((Flags & 2u) != 0)
@@ -2095,15 +2091,15 @@ unsigned long DACOM_API FBoneRuntime::MarkWorldDirty(void* /*InInstance*/) // fo
 
 static I3DMathEngine* AcquireMathEngine();
 
-// The FUN_065f1550 construct loop body for one slot. The memset stands in for the operator
-// new garbage in the fields retail leaves unwritten (+0x0C..+0x3B). No test of the slot.
+// The the routine construct loop body for one slot. The memset stands in for the operator
+// new garbage in the fields baseline leaves unwritten (+0x0C..+0x3B). No test of the slot.
 static void InitBoneRuntimeSlot(FBoneRuntime* Slot)
 {
     std::memset((void*)Slot, 0, sizeof(FBoneRuntime));
     new (Slot) FBoneRuntime();
 }
 
-// FUN_065f1660 thiscall RET 0, 065f1660..1683: +0x00 / +0x10 / +0x20 = 1.0f, the other six
+// thiscall RET 0, 065f1660..1683: +0x00 / +0x10 / +0x20 = 1.0f, the other six
 // dwords of the 3x3 = 0. No test (until 2026-09-30 the port returned on a null matrix).
 static void WriteIdentity3x3(float* Matrix)
 {
@@ -2113,7 +2109,7 @@ static void WriteIdentity3x3(float* Matrix)
     Matrix[8] = 1.0f;
 }
 
-// FUN_065f1030 thiscall RET 0x4 (InverseRoot), 065f1030..10b2: math (DAT_06603120,
+// thiscall RET 0x4 (InverseRoot), 065f1030..10b2: math (the field,
 static void ComposeBoneWorldMatrix(FBoneRuntime* Slot, const float* InverseRoot)
 {
     float Local[12];
@@ -2130,7 +2126,7 @@ static void ComposeBoneWorldMatrix(FBoneRuntime* Slot, const float* InverseRoot)
     std::memcpy(Slot->Matrix, World, sizeof(World));
 }
 
-// FUN_065f14a0 (thiscall on the holder, RET 8: Index, BoneInst), 065f14a0..14e3: slot =
+// (thiscall on the holder, RET 8: Index, BoneInst), 065f14a0..14e3: slot =
 static FBoneRuntime* BindOneBoneRuntime(FLodHolder* Holder, int Index, void* BoneInst)
 {
     FBoneRuntime* Slot = &Holder->BoneSlots[Index];
@@ -2154,7 +2150,7 @@ static float G_SvdMaxArg2 = 0.0f;
 static int G_SvdMinArg1 = 0;
 static int G_SvdMinArg2 = 0;
 
-// FUN_065f9e00 (cdecl-shaped, ECX unused, RET 8: two floats), 065f9e00..9ec0. The answer is
+// (cdecl-shaped, ECX unused, RET 8: two floats), 065f9e00..9ec0. The answer is
 static double SvdPythag(float Left, float Right)
 {
     const double AbsLeft = std::fabs((double)Left);
@@ -2178,7 +2174,7 @@ static double SvdPythag(float Left, float Right)
     return std::sqrt(RatioF * RatioF + 1.0) * (double)AbsRight;
 }
 
-// FUN_065f9ed0 (cdecl: Value, Anorm): FLD Value, FADD Anorm, FSTP float, FCOMP Anorm; equal ->
+// (cdecl: Value, Anorm): FLD Value, FADD Anorm, FSTP float, FCOMP Anorm; equal ->
 // AL 1. A float + float rounded once to float is what SSE float addition gives.
 static bool SvdIsNegligible(float Value, float Anorm)
 {
@@ -2207,7 +2203,7 @@ static double SvdNegSignOf(double Value, bool bSignNegative)
     return -Magnitude;
 }
 
-// FUN_065f9f00 (thiscall on the source matrix, RET 0xC: A, W, V), 065f9f00..ac45: Golub-Reinsch
+// (thiscall on the source matrix, RET 0xC: A, W, V), 065f9f00..ac45: Golub-Reinsch
 static unsigned char SvdCmp(FSvdMatrix* Source, float* A, float* W, float* V)
 {
     float Rv1[12];
@@ -2332,7 +2328,7 @@ static unsigned char SvdCmp(FSvdMatrix* Source, float* A, float* W, float* V)
         I = L;
     }
 
-    // 065fa340..a506: right-hand transforms into V, i from n-1 down; g (float) and l carry.
+    // ..a506: right-hand transforms into V, i from n-1 down; g (float) and l carry.
     I = Source->ColCount - 1;
     while (I >= 0)
     {
@@ -2384,8 +2380,8 @@ static unsigned char SvdCmp(FSvdMatrix* Source, float* A, float* W, float* V)
         I -= 1;
     }
 
-    // 065fa50c..a6f0: left-hand transforms into A, i from min(m, n)-1 down (IMIN through
-    // DAT_066032a4 / DAT_066032a0).
+    // ..a6f0: left-hand transforms into A, i from min(m, n)-1 down (IMIN through
+    // / the field).
     G_SvdMinArg1 = Source->RowCount;
     G_SvdMinArg2 = Source->ColCount;
     const int MinDim = (G_SvdMinArg1 < G_SvdMinArg2) ? G_SvdMinArg1 : G_SvdMinArg2;
@@ -2443,14 +2439,14 @@ static unsigned char SvdCmp(FSvdMatrix* Source, float* A, float* W, float* V)
         I -= 1;
     }
 
-    // 065fa6f6..ac39: diagonalisation, k from n-1 down, its from 1.
+    // ..ac39: diagonalisation, k from n-1 down, its from 1.
     int K = Source->ColCount - 1;
     while (K >= 0)
     {
         int Its = 1;
         for (;;)
         {
-            // 065fa720..a789: l from k down. |rv1[l]| negligible -> no cancellation;
+            // ..a789: l from k down. |rv1[l]| negligible -> no cancellation;
             // |W[l-1]| negligible (or l ran below 0) -> cancellation with this l.
             bool bCancel = true;
             int Nm = K - 1;
@@ -2469,7 +2465,7 @@ static unsigned char SvdCmp(FSvdMatrix* Source, float* A, float* W, float* V)
             }
             if (bCancel && L <= K)
             {
-                // 065fa789..a899: c (float) = 0, s (on the FPU, double) = 1.
+                // ..a899: c (float) = 0, s (on the FPU, double) = 1.
                 float Cos = 0.0f;
                 double Sin = 1.0;
                 for (int Row = L; Row <= K; ++Row)
@@ -2494,11 +2490,11 @@ static unsigned char SvdCmp(FSvdMatrix* Source, float* A, float* W, float* V)
                 }
             }
 
-            // 065fa8ae..a8c2
+            // ..a8c2
             const float Z = W[K];
             if (L == K)
             {
-                // 065fabdf..ac23: TEST AH,5 + JP -- only "below zero" falls through.
+                // ..ac23: TEST AH,5 + JP -- only "below zero" falls through.
                 if ((double)Z < 0.0)
                 {
                     W[K] = -Z;
@@ -2510,7 +2506,7 @@ static unsigned char SvdCmp(FSvdMatrix* Source, float* A, float* W, float* V)
             if (Its == G_SvdMaxIter)
                 return 0;
 
-            // 065fa8c8..a98b: shift from the bottom 2x2 minor.
+            // ..a98b: shift from the bottom 2x2 minor.
             float X = W[L];
             Nm = K - 1;
             float Y = W[Nm];
@@ -2529,7 +2525,7 @@ static unsigned char SvdCmp(FSvdMatrix* Source, float* A, float* W, float* V)
             float Cos = 1.0f;
             float Sin = 1.0f;
 
-            // 065fa9e0..ab9f: the QR sweep; every quantity is stored as float between steps.
+            // ..ab9f: the QR sweep; every quantity is stored as float between steps.
             for (int J = L; J <= Nm; ++J)
             {
                 const int Next = J + 1;
@@ -2571,7 +2567,7 @@ static unsigned char SvdCmp(FSvdMatrix* Source, float* A, float* W, float* V)
                     SvdCell(A, Jj, Next) = (float)(Az * Cos - Ay * Sin);
                 }
             }
-            // 065fabb4..abd7
+            // ..abd7
             W[K] = X;
             Rv1[L] = 0.0f;
             Rv1[K] = F;
@@ -2605,7 +2601,7 @@ static void SvdMulABt(const FSvdMatrix* Left, const FSvdMatrix* Right, FSvdMatri
     // Listing 065fad30: Out.n = Right.m, but the EBP loop bound is Right.n (+0x244).
     const int OutCols = Right->ColCount;
     const int Inner = Left->ColCount;
-    // 065fad40..ad5f: the cell is zeroed and then accumulated in place -- FLD Right, FMUL Left,
+    // ..ad5f: the cell is zeroed and then accumulated in place -- FLD Right, FMUL Left,
     // FADD cell, FSTP float -- so each step rounds once (the product never does on its own).
     for (int Row = 0; Row < Rows; ++Row)
     {
@@ -2621,7 +2617,7 @@ static void SvdMulABt(const FSvdMatrix* Left, const FSvdMatrix* Right, FSvdMatri
     }
 }
 
-// FUN_065fadb0 (thiscall on the source matrix, RET 4: Out), 065fadb0..aedf: Out.m = Source.n,
+// (thiscall on the source matrix, RET 4: Out), 065fadb0..aedf: Out.m = Source.n,
 static void SvdPseudoInverse(FSvdMatrix* Source, FSvdMatrix* Out)
 {
     Out->RowCount = Source->ColCount;
@@ -2661,7 +2657,7 @@ static void SvdPseudoInverse(FSvdMatrix* Source, FSvdMatrix* Out)
     SvdMulABt(&Scaled, &Work, Out);
 }
 
-// FUN_065f9d70 transpose; FUN_065faef0 A*B; FUN_065fafc0 A*x.
+// transpose; the routine A*B; the routine A*x.
 static void SvdTranspose(const FSvdMatrix* Source, FSvdMatrix* Out)
 {
     Out->RowCount = Source->ColCount;
@@ -2686,7 +2682,7 @@ static void SvdMulAB(const FSvdMatrix* Left, const FSvdMatrix* Right, FSvdMatrix
     {
         for (int Col = 0; Col < Cols; ++Col)
         {
-            // 065faf52..af6f: cell = 0, then FLD / FMUL / FADD cell / FSTP float per step.
+            // ..af6f: cell = 0, then FLD / FMUL / FADD cell / FSTP float per step.
             float Sum = 0.0f;
             for (int K = 0; K < Inner; ++K)
                 Sum = (float)((double)Left->Cell[Row][K] *
@@ -2705,7 +2701,7 @@ static void SvdMulVec(const FSvdMatrix* Left, const float* Vec, float* Out)
     *(int*)(Out + 12) = Rows;
     for (int Row = 0; Row < Rows; ++Row)
     {
-        // 065fafe3..b002: out = 0, then FLD / FMUL / FADD out / FSTP float per step.
+        // ..b002: out = 0, then FLD / FMUL / FADD out / FSTP float per step.
         float Sum = 0.0f;
         for (int Col = 0; Col < Cols; ++Col)
             Sum = (float)((double)Vec[Col] *
@@ -2715,13 +2711,13 @@ static void SvdMulVec(const FSvdMatrix* Left, const float* Vec, float* Out)
     }
 }
 
-// FUN_06600de0: CreateInstance AGGDESC 0xC "3DMathEngine" (Ghidra returns ICOManager — wrong).
+// CreateInstance AGGDESC 0xC "3DMathEngine" (analysis returns ICOManager — wrong).
 static I3DMathEngine* AcquireMathEngine()
 {
-    // Retail keeps one lazily-filled cache per call site (DAT_06603170, DAT_066031a4,
+    // baseline keeps one lazily-filled cache per call site (the field, the field,
     if (G_MathEngine != nullptr)
         return G_MathEngine;
-    ICOManager* Manager = DACOM_Acquire();
+    ICOManager* Manager = NEURONCOMPONENTS_Acquire();
     FIkMathDesc Desc;
     Desc.Size = 0xC;
     Desc.Name = G_Name3DMathEngine;
@@ -2732,7 +2728,7 @@ static I3DMathEngine* AcquireMathEngine()
     return G_MathEngine;
 }
 
-// The math engine calls the IK solvers make, each through DAT_066033a8 (FUN_06600de0 on first
+// The math engine calls the IK solvers make, each through the field (the routine on first
 // use, no other test) at every call site. Float-array views of the engine's typed slots; they
 // add no checks.
 static void IkMathMulMatrix(float* Out9, const float* Left9, const float* Right9)
@@ -2761,10 +2757,10 @@ static void IkMathQuatToMatrix(float* Out9, const float* Quat4)
                                             *(const FQuaternion*)Quat4); // +0x54
 }
 
-// FUN_065f7120: DAT_066031a4 / FUN_06600de0; math+0x38(tmp,a,b); copy vec3 to dest.
+// the field / the routine; math+0x38(tmp,a,b); copy vec3 to dest.
 void MathTransformVec3(float* Dest, const float* A, const float* B)
 {
-    // FUN_065f7120 (cdecl: Dest, A, B), 065f7120..7168: math (DAT_066031a4, FUN_06600de0 on
+    // (cdecl: Dest, A, B), 065f7120..7168: math (the field, the routine on
     // first use) +0x38 (&Tmp, A, B), Tmp copied to Dest. No tests.
     I3DMathEngine* Math = AcquireMathEngine();
     float Tmp[3];
@@ -2807,7 +2803,7 @@ static void IkCopy4(float* Dest, const float* Src)
     Dest[3] = Src[3];
 }
 
-// FUN_065fb480 (ECX = vec), 065fb480..b4a0: ((x*x + y*y) + z*z), FSQRT, returned in ST0 --
+// (ECX = vec), 065fb480..b4a0: ((x*x + y*y) + z*z), FSQRT, returned in ST0 --
 // a double, never rounded to float (until 2026-09-30 the port computed and returned float).
 static double IkLen3(const float* Vec)
 {
@@ -2817,7 +2813,7 @@ static double IkLen3(const float* Vec)
     return std::sqrt(X * X + Y * Y + Z * Z);
 }
 
-// FUN_065fb4b0 (cdecl: Dest, A, B), 065fb4b0..b4ea: each component is a difference of two
+// (cdecl: Dest, A, B), 065fb4b0..b4ea: each component is a difference of two
 // products formed on the FPU (double) and stored once as float (until 2026-09-30 the port
 // rounded each product to float first).
 static void IkCross3(float* Dest, const float* Left, const float* Right)
@@ -2830,7 +2826,7 @@ static void IkCross3(float* Dest, const float* Left, const float* Right)
     Dest[2] = (float)Z;
 }
 
-// FUN_065fb4f0: columns → 3×3.
+// columns → 3×3.
 static void IkColsToMat(float* Out9, const float* Col0, const float* Col1, const float* Col2)
 {
     Out9[0] = Col0[0];
@@ -2844,7 +2840,7 @@ static void IkColsToMat(float* Out9, const float* Col0, const float* Col1, const
     Out9[8] = Col2[2];
 }
 
-// FUN_065fb100 (cdecl: Out, Dir, Parent 3x3, flags byte), 065fb100..b479, 0x54-byte frame.
+// (cdecl: Out, Dir, Parent 3x3, flags byte), 065fb100..b479, 0x54-byte frame.
 static void IkLookAt(float* Out9, const float* Dir, const float* Parent9, unsigned char Flags)
 {
     float Col0[3] = {0.0f, 0.0f, 0.0f};
@@ -2898,13 +2894,13 @@ static void IkLookAt(float* Out9, const float* Dir, const float* Parent9, unsign
     IkColsToMat(Out9, Col0, Col1, Col2);
 }
 
-// FUN_065fbc90: quat → 2×log axis (acos / sin).
-// DAT_066013b0: the double widening of 1e-5f (bytes 00000080b5f8e43e).
+// quat → 2×log axis (acos / sin).
+// the double widening of 1e-5f (bytes 00000080b5f8e43e).
 static const double G_IkLogEps = (double)1.0e-5f;
-// DAT_06601348: the double 1e-5 (bytes f168e388b5f8e43e).
+// the double 1e-5 (bytes f168e388b5f8e43e).
 static const double G_IkExpEps = 1.0e-5;
 
-// FUN_065fbc90 (cdecl: Out3, Quat wxyz), 065fbc90..bd21: FLD 1.0f, FSUB w, FABS, FCOMP double
+// (cdecl: Out3, Quat wxyz), 065fbc90..bd21: FLD 1.0f, FSUB w, FABS, FCOMP double
 static void IkQuatLogVec(float* Out3, const float* Quat)
 {
     const double W = (double)Quat[0];
@@ -2921,7 +2917,7 @@ static void IkQuatLogVec(float* Out3, const float* Quat)
     Out3[2] = (float)(Scale * (double)Quat[3]);
 }
 
-// FUN_065fbd30 (cdecl: Out4 wxyz, Axis), 065fbd30..bde4: Len = sqrt((x*x + y*y) + z*z) inline
+// (cdecl: Out4 wxyz, Axis), 065fbd30..bde4: Len = sqrt((x*x + y*y) + z*z) inline
 static void IkQuatExp(float* Out4, const float* Axis)
 {
     const double Len = IkLen3(Axis);
@@ -2941,7 +2937,7 @@ static void IkQuatExp(float* Out4, const float* Axis)
     Out4[3] = (float)(Scale * (double)Axis[2]);
 }
 
-// FUN_065fbdf0 (cdecl: Out3, A, B -- wxyz), 065fbdf0..bf35: dot = ((A3B3 + A2B2) + A1B1) + A0B0
+// (cdecl: Out3, A, B -- wxyz), 065fbdf0..bf35: dot = ((A3B3 + A2B2) + A1B1) + A0B0
 static void IkQuatLog(float* Out3, const float* QuatA, const float* QuatB)
 {
     const double Dot = (double)QuatA[3] * QuatB[3] +
@@ -2976,7 +2972,7 @@ static void IkQuatLog(float* Out3, const float* QuatA, const float* QuatB)
     Out3[2] = Log3[2] + Log3[2];
 }
 
-// The root-bone read retail inlines (065f41e4, 065f5017, 065f507c, ...): +8 (PartArray) null
+// The root-bone read baseline inlines (065f41e4, 065f5017, 065f507c, ...): +8 (PartArray) null
 // -> -1, else [[[+8]]+4]+4 -- PartArray is the only test.
 static int FirstBoneInstance(FDeformInstance* Instance)
 {
@@ -2986,7 +2982,7 @@ static int FirstBoneInstance(FDeformInstance* Instance)
         (ptrdiff_t)(Instance->PartArray[0].Lod->BoneSlots[0].Instance));
 }
 
-// FUN_065f5950, thiscall (the instance in ECX, never read) RET 0x4 (Node), 065f5950..a5:
+// , thiscall (the instance in ECX, never read) RET 0x4 (Node), 065f5950..a5:
 static void StopAimNode(FIkListNode* Node)
 {
     if (Node == (FIkListNode*)((ptrdiff_t)-1))
@@ -3003,11 +2999,11 @@ static void StopAimNode(FIkListNode* Node)
     }
 }
 
-// DAT_066013a8 (PE bytes 00 00 00 36): the float 0x36000000 = 2^-19, written out exactly
+// (PE bytes 00 00 00 36): the float 0x36000000 = 2^-19, written out exactly
 // (the old 1.907349e-06f literal is not guaranteed to round to the same float).
 static const float G_IkGimbalEps = 1.9073486328125e-06f;
 
-// The Euler rebuild FUN_065f5400 (065f57e5..587c) and FUN_065fb900 inline with the same
+// The Euler rebuild the routine (065f57e5..587c) and the routine inline with the same
 static void IkEulerRebuild(float* Out9, float Yaw, float Pitch, float Roll)
 {
     const double SinY = std::sin((double)Yaw);
@@ -3030,7 +3026,7 @@ static void IkEulerRebuild(float* Out9, float Yaw, float Pitch, float Roll)
     Out9[8] = (float)(CosP * CosY);
 }
 
-// FUN_065fb090: count of yaw/pitch/roll outside [min,max] on Relative.
+// count of yaw/pitch/roll outside [min,max] on Relative.
 static int IkEulerOutOfRange(const float* Bone, float Yaw, float Pitch, float Roll)
 {
     int Count = 0;
@@ -3043,7 +3039,7 @@ static int IkEulerOutOfRange(const float* Bone, float Yaw, float Pitch, float Ro
     return Count;
 }
 
-// FUN_065fbb90 (cdecl: OutYaw, OutPitch, OutRoll, Mat9, bAlt byte), 065fbb90..bc89: the
+// (cdecl: OutYaw, OutPitch, OutRoll, Mat9, bAlt byte), 065fbb90..bc89: the
 static void IkEulerExtract(float* OutYaw, float* OutPitch, float* OutRoll, const float* Mat9,
                            bool bAlt)
 {
@@ -3078,7 +3074,7 @@ static void IkEulerExtract(float* OutYaw, float* OutPitch, float* OutRoll, const
     *OutRoll = (float)(std::atan2(M3, M0));
 }
 
-// FUN_065fb900 (cdecl: Out9, Bone, Mat9), 065fb900..bb86. Answers Out9 (EAX).
+// (cdecl: Out9, Bone, Mat9), 065fb900..bb86. Answers Out9 (EAX).
 static float* IkEulerClamp(float* Out9, const float* Bone, const float* Mat9)
 {
     float Yaw = 0.0f;
@@ -3143,7 +3139,7 @@ static float* IkEulerClamp(float* Out9, const float* Bone, const float* Mat9)
 
 // Shared helpers for the two damped-least-squares solvers.
 
-// FSvdMatrix-shaped vectors (FUN_065fafc0 writes its row count into the thirteenth dword).
+// FSvdMatrix-shaped vectors (the routine writes its row count into the thirteenth dword).
 struct FIkVec
 {
     float Cell[12];
@@ -3297,7 +3293,7 @@ static void IkDlsStepJoints(FIkEvent* Event, int JointIters, const float* Delta,
     }
 }
 
-// The squared residual (065fcc4f..cc79 / 065fda4f..da79): 0.0 (DAT_06601318) on the FPU, then
+// The squared residual (065fcc4f..cc79 / 065fda4f..da79): 0.0 (the field) on the FPU, then
 // for i < TaskDim Sum += (Error_i - Achieved_i)^2 with the difference and its square in double.
 static double IkDlsResidual(const FIkVec* Error, const FIkVec* Achieved, int TaskDim)
 {
@@ -3346,7 +3342,7 @@ static void IkDlsWriteQuats(FIkEvent* Event, int JointIters)
     }
 }
 
-// FUN_065fb030, thiscall (Event) RET 0x4 (JointCount), 065fb030..8c. A 0x2000-byte stack
+// , thiscall (Event) RET 0x4 (JointCount), 065fb030..8c. A 0x2000-byte stack
 static bool SetIkJointCount(FIkEvent* Event, unsigned int JointCount)
 {
     if (JointCount > (unsigned int)G_IkMaxJoints)
@@ -3361,18 +3357,18 @@ static bool SetIkJointCount(FIkEvent* Event, unsigned int JointCount)
     return true;
 }
 
-static int DACOM_API IkApply(FIkEvent* Event, float* OutQuat, int MatchId, FIkApplyGate* Gate,
+static int NEURONCOMPONENTS_API IkApply(FIkEvent* Event, float* OutQuat, int MatchId, FIkApplyGate* Gate,
                              float Time);
 
-// LAB_065fb540, the IK event's only table slot (06601340): EngBase's FUN_0661b420 calls it on
+// , the IK event's only table slot (06601340): SceneRuntime's the routine calls it on
 // the channel owner with (sampled value, channel key, bind descriptor, time).
-int DACOM_API FIkEvent::Apply(float* Sampled, unsigned long ChannelKey, void* BindDesc, float Time)
+int NEURONCOMPONENTS_API FIkEvent::Apply(float* Sampled, unsigned long ChannelKey, void* BindDesc, float Time)
 {
     return IkApply(this, Sampled, (int)ChannelKey,
                    (FIkApplyGate*)BindDesc, Time);
 }
 
-// FUN_065fbf40 (thiscall, RET 0), 065fbf40..bfb5: vtable = 06601340 (the compiler's own reset
+// (thiscall, RET 0), 065fbf40..bfb5: vtable = 06601340 (the compiler's own reset
 FIkEvent::~FIkEvent()
 {
     int Index = 0;
@@ -3423,7 +3419,7 @@ static void UnlinkListNode(FDeformInstance* Instance, FIkListNode* Node)
 }
 
 // The payload teardown every list walker inlines (065f4c9d, 065f4d60, 065f4e2d): Active != 0
-// -> Event non-null -> FUN_065fbf40 + operator delete, +4 = 0; Active == 0 -> IAnimation2
+// -> Event non-null -> the routine + operator delete, +4 = 0; Active == 0 -> IAnimation2
 // +0x28 (DestroyScript) on +4 with no test, +4 = -1.
 static void DestroyNodePayload(FIkListNode* Node)
 {
@@ -3431,7 +3427,7 @@ static void DestroyNodePayload(FIkListNode* Node)
     {
         FIkEvent* Event = Node->Event;
         if (Event != nullptr)
-            delete Event;                                        // FUN_065fbf40 + operator delete
+            delete Event;                                        // + operator delete
         Node->Event = nullptr;
         return;
     }
@@ -3447,7 +3443,7 @@ static void DeleteListNode(FDeformInstance* Instance, FIkListNode* Node)
     delete Node;
 }
 
-// FUN_065f4c80 (thiscall, RET 0), 065f4c80..4d20: from +0xC, next = +0x10 taken first; each
+// (thiscall, RET 0), 065f4c80..4d20: from +0xC, next = +0x10 taken first; each
 // node: payload teardown, unlink, delete. No test of the instance.
 static void DestroyAllList(FDeformInstance* Instance)
 {
@@ -3460,7 +3456,7 @@ static void DestroyAllList(FDeformInstance* Instance)
     }
 }
 
-// FUN_065f4d30 (thiscall, RET 4: Handle), 065f4d30..4dd8: the first node whose +4 equals
+// (thiscall, RET 4: Handle), 065f4d30..4dd8: the first node whose +4 equals
 // Handle gets the payload teardown, unlink and delete; then return. No match -> nothing.
 static void DestroyListByHandle(FDeformInstance* Instance, int Handle)
 {
@@ -3478,7 +3474,7 @@ static void DestroyListByHandle(FDeformInstance* Instance, int Handle)
     }
 }
 
-// FUN_065f4de0 (thiscall, RET 0), 065f4de0..4ef9. Per node (next taken first):
+// (thiscall, RET 0), 065f4de0..4ef9. Per node (next taken first):
 static void SweepExpiredList(FDeformInstance* Instance)
 {
     FIkListNode* Node = Instance->ListHead;
@@ -3506,7 +3502,7 @@ static void SweepExpiredList(FDeformInstance* Instance)
     }
 }
 
-// FUN_065f6930: Current = Meshes[lod] or null; LodIndex = lod; toggle Flags bit0.
+// Current = Meshes[lod] or null; LodIndex = lod; toggle Flags bit0.
 static bool SelectPartLod(FDeformPart* Part, int LodIndex)
 {
     FDeformMesh* Old = Part->Current;
@@ -3524,21 +3520,21 @@ static bool SelectPartLod(FDeformPart* Part, int LodIndex)
         Part->LodIndex = LodIndex;
         return Old != Part->Current;
     }
-    // 065f6978..6989: MOV EDX,1; XOR BL,DL; AND BL,DL; XOR BL,AL -- bit 0 becomes 1 whatever
+    // ..6989: MOV EDX,1; XOR BL,DL; AND BL,DL; XOR BL,AL -- bit 0 becomes 1 whatever
     // it was (until 2026-09-30 the port toggled it, clearing a set bit).
     Part->Flags = (unsigned char)(Part->Flags | 1);
     Part->LodIndex = LodIndex;
     return Old != Part->Current;
 }
 
-// FUN_065f69c0
-// FUN_065f69c0 (thiscall, RET 4 -- the argument is never read): OR byte [this+0x30],2; AL=1.
+
+// (thiscall, RET 4 -- the argument is never read): OR byte [this+0x30],2; AL=1.
 static void MarkPartSkinDirty(FDeformPart* Part)
 {
     Part->Flags = (unsigned char)(Part->Flags | 2);
 }
 
-// FUN_065f69d0 (thiscall on the part, RET 8: Camera, Unused), 065f69d0..6ac2. The second
+// (thiscall on the part, RET 8: Camera, Unused), 065f69d0..6ac2. The second
 // select_ib a base vertex of 0, and FDUMPed two port-only messages for null interfaces.
 static unsigned char DrawPartLive(FDeformPart* Part, ICamera* Camera, void* /*Unused*/)
 {
@@ -3574,7 +3570,7 @@ static unsigned char DrawPartLive(FDeformPart* Part, ICamera* Camera, void* /*Un
 static void WriteVec3(float* Dest, float X, float Y, float Z);
 static void ScaleVec3(float* Out, const float* In, float Scale);
 
-// FUN_065f45d0 (thiscall on the quaternion {w,x,y,z}, RET 8: Axis, Angle), 065f45d0..464f:
+// (thiscall on the quaternion {w,x,y,z}, RET 8: Axis, Angle), 065f45d0..464f:
 static void AxisAngleToQuat(float* Quat, const float* Axis, float Angle)
 {
     const double Half = (double)Angle * 0.5;
@@ -3588,7 +3584,7 @@ static void AxisAngleToQuat(float* Quat, const float* Axis, float Angle)
     Quat[3] = Scale * Axis[2];
 }
 
-// FUN_065f41d0 (thiscall on the instance, RET 0x24: P1..P9 = Name, Extra, ArgC, ArgD, ArgE,
+// (thiscall on the instance, RET 0x24: P1..P9 = Name, Extra, ArgC, ArgD, ArgE,
 static int PlayInstanceAnim(FDeformInstance* Instance, void* Name, void* Extra, void* ArgC, void* ArgD,
                             void* ArgE, void* ArgF, void* ArgG, void* ArgH, void* ScriptOrNull)
 {
@@ -3619,7 +3615,7 @@ static int PlayInstanceAnim(FDeformInstance* Instance, void* Name, void* Extra, 
         IRootData* Root = nullptr;
         if (G_Animation->QueryInterface(Iids::RootData, (void**)&Root) == 0)
         {
-            // 065f42af..42dc: the pushes, last first, are 1.0f, ArgF, ArgD, ArgE, ArgC, ArgG,
+            // ..42dc: the pushes, last first, are 1.0f, ArgF, ArgD, ArgE, ArgC, ArgG,
             // &Vec, Handle.
             const unsigned char bTouched = Root->Eval(
                 (unsigned long)Handle, Vec,
@@ -3691,7 +3687,7 @@ static int PlayInstanceAnim(FDeformInstance* Instance, void* Name, void* Extra, 
     return Handle;
 }
 
-// FUN_065f4580 thiscall RET 0xC: [this]=p1, [this+4]=p2, [this+8]=p3.
+// thiscall RET 0xC: [this]=p1, [this+4]=p2, [this+8]=p3.
 static void WriteVec3(float* Dest, float X, float Y, float Z)
 {
     Dest[0] = X;
@@ -3699,7 +3695,7 @@ static void WriteVec3(float* Dest, float X, float Y, float Z)
     Dest[2] = Z;
 }
 
-// FUN_065f45a0 cdecl: out = in * s.
+// cdecl: out = in * s.
 static void ScaleVec3(float* Out, const float* In, float Scale)
 {
     Out[0] = In[0] * Scale;
@@ -3707,7 +3703,7 @@ static void ScaleVec3(float* Out, const float* In, float Scale)
     Out[2] = In[2] * Scale;
 }
 
-// FUN_065f4c50 cdecl: out = a - b.
+// cdecl: out = a - b.
 static void SubVec3(float* Out, const float* A, const float* B)
 {
     Out[0] = A[0] - B[0];
@@ -3715,7 +3711,7 @@ static void SubVec3(float* Out, const float* A, const float* B)
     Out[2] = A[2] - B[2];
 }
 
-// FUN_065f4660 thiscall RET 0x24 (Name, Extra, Time, ArgD, ArgE, ArgF, ArgG, ArgH, Joint),
+// thiscall RET 0x24 (Name, Extra, Time, ArgD, ArgE, ArgF, ArgG, ArgH, Joint),
 static int PlayInstanceAnimChain(FDeformInstance* Instance, void* Name, void* Extra, void* ArgC,
                                  void* ArgD, void* ArgE, void* ArgF, void* ArgG, void* ArgH,
                                  void* Joint)
@@ -3733,7 +3729,7 @@ static int PlayInstanceAnimChain(FDeformInstance* Instance, void* Name, void* Ex
 
     void* const Stop = (void*)((ptrdiff_t)(FirstBoneInstance(Instance)));
 
-    // EngBase FAnimBindOut {Kind, Extra, Typed, Instance}; +0x10 of the frame is outside it.
+    // SceneRuntime FAnimBindOut {Kind, Extra, Typed, Instance}; +0x10 of the frame is outside it.
     unsigned long Query[4];
     Query[0] = 0;
     Query[1] = 0;
@@ -3841,9 +3837,9 @@ static int PlayInstanceAnimChain(FDeformInstance* Instance, void* Name, void* Ex
     return PlayHandle;
 }
 
-// The locals both solvers share, by their frame slots (FUN_065fc000 / FUN_065fce60). Nothing
+// The locals both solvers share, by their frame slots (the routine / the routine). Nothing
 // in the frame is cleared: J, the vectors, TargetPos / TargetMat when their flag is clear and
-// Held3 before the first unlocked joint hold whatever was there, as in retail.
+// Held3 before the first unlocked joint hold whatever was there, as in baseline.
 struct FIkDlsFrame
 {
     bool bPos;               // [0x13] / [0x13]  Flags28 bit 5
@@ -3898,8 +3894,8 @@ static bool IkDlsOriOff(const FIkDlsFrame* Frame)
 }
 
 // The dimension stores before the first round (065fc323..c3a6 / 065fd172..d1e3). The J
-// counts are the only ones that are read as stored; FUN_065f9d70, FUN_065faef0 and
-// FUN_065fafc0 rewrite the others.
+// counts are the only ones that are read as stored; the routine, the routine and
+// rewrite the others.
 static void IkDlsSetup(FIkDlsFrame* Frame)
 {
     Frame->Block.J.RowCount = Frame->TaskDim;
@@ -4023,7 +4019,7 @@ static bool IkDlsRound(FIkDlsFrame* Frame, FIkEvent* Event)
     return !(ErrDelta >= 0.0f);
 }
 
-// FUN_065fc000 (thiscall on the event, RET 0; LAB_065fb540 calls it for a chain of two or more
+// (thiscall on the event, RET 0; the branch calls it for a chain of two or more
 static void IkSolveDls(FIkEvent* Event)
 {
     FIkDlsFrame Frame;
@@ -4122,7 +4118,7 @@ static void IkSolveDls(FIkEvent* Event)
     IkDlsWriteQuats(Event, Frame.JointIters);
 }
 
-// FUN_065fce60 (thiscall on the event, RET 0; LAB_065fb540 calls it for a chain of two or more
+// (thiscall on the event, RET 0; the branch calls it for a chain of two or more
 static void IkSolveDlsAlt(FIkEvent* Event)
 {
     FIkDlsFrame Frame;
@@ -4206,7 +4202,7 @@ static void IkSolveDlsAlt(FIkEvent* Event)
     IkDlsWriteQuats(Event, Frame.JointIters);
 }
 
-// The single-joint body LAB_065fb540 inlines (065fb5f3..b879; Bone = the IEngine +0xC4 result
+// The single-joint body the branch inlines (065fb5f3..b879; Bone = the IEngine +0xC4 result
 static void IkSolveSingleJoint(FIkEvent* Event, FIkApplyGate* Gate, const float* Bone)
 {
     void* const Joint = (void*)((ptrdiff_t)Gate->JointAt0C);
@@ -4282,8 +4278,8 @@ static void IkSolveSingleJoint(FIkEvent* Event, FIkApplyGate* Gate, const float*
     IkCopy4(Event->Quats, Q);
 }
 
-// LAB_065fb540 (IK event vtable slot 0, thiscall RET 0x10: OutQuat, MatchId, Gate, Time),
-static int DACOM_API IkApply(FIkEvent* Event, float* OutQuat, int MatchId, FIkApplyGate* Gate,
+// (IK event vtable slot 0, thiscall RET 0x10: OutQuat, MatchId, Gate, Time),
+static int NEURONCOMPONENTS_API IkApply(FIkEvent* Event, float* OutQuat, int MatchId, FIkApplyGate* Gate,
                              float Time)
 {
     (void)Time;
@@ -4330,7 +4326,7 @@ static int DACOM_API IkApply(FIkEvent* Event, float* OutQuat, int MatchId, FIkAp
     return 0;
 }
 
-// FUN_065f5400, thiscall (Instance) RET 0x8 (Desc, PlayExtra), 065f5400..065f5943; called
+// , thiscall (Instance) RET 0x8 (Desc, PlayExtra), 065f5400..065f5943; called
 static FIkListNode* AllocAimEvent(FDeformInstance* Instance, const unsigned char* Desc,
                                   void* PlayExtra)
 {
@@ -4395,7 +4391,7 @@ static FIkListNode* AllocAimEvent(FDeformInstance* Instance, const unsigned char
     LinkListNode(Instance, Node);
     Node->Active = 1;
 
-    // 065f55c6..0601: operator new 0x44 (not cleared), then the inlined constructor -- +0x24,
+    // ..0601: operator new 0x44 (not cleared), then the inlined constructor -- +0x24,
     // +0x34 &= ~1, +0x20, the table 06601340 (installed by `new FIkEvent`), +0x3C = 0.
     FIkEvent* Event = new FIkEvent;
     Event->TargetB = *(void* const*)(Desc + 0x14);
@@ -4451,19 +4447,19 @@ static FIkListNode* AllocAimEvent(FDeformInstance* Instance, const unsigned char
         G_Channel->Play(Key, (float*)PlayBlob);
 
         const float* Relative = (const float*)(G_Engine->GetInstanceRelative(JointInstance));
-        // 065f57ad..57e1: FLD hi, FADD lo, FMUL double 0.5 (DAT_06601338), FSTP float.
+        // ..57e1: FLD hi, FADD lo, FMUL double 0.5 (the field), FSTP float.
         const float Yaw = (float)(
             ((double)Relative[0x50 / 4] + (double)Relative[0x4C / 4]) * 0.5);
         const float Pitch = (float)(
             ((double)Relative[0x58 / 4] + (double)Relative[0x54 / 4]) * 0.5);
         const float Roll = (float)(
             ((double)Relative[0x44 / 4] + (double)Relative[0x40 / 4]) * 0.5);
-        // 065f57e5..587c: written into BindMats[i], then overwritten whole at 065f58d8 before
+        // ..587c: written into BindMats[i], then overwritten whole at 065f58d8 before
         // anything reads it -- the listing does both, and so does the port.
         IkEulerRebuild(Event->BindMats + Index * 9, Yaw, Pitch, Roll);
 
-        // Retail's target is [E+0x78] with the matrix at [E+0x88]: a loose joint (seven
-        // floats from EngBase's GetJointParams) runs into the matrix slot before
+        // baseline's target is [E+0x78] with the matrix at [E+0x88]: a loose joint (seven
+        // floats from SceneRuntime's GetJointParams) runs into the matrix slot before
         // QuaternionToMatrix rewrites it, so the buffer here holds seven.
         float JointQuat[7];
         G_Engine->GetJointParams(JointInstance, 0, JointQuat);
@@ -4487,7 +4483,7 @@ static FIkListNode* AllocAimEvent(FDeformInstance* Instance, const unsigned char
     return Node;
 }
 
-// FUN_065f14f0: parent-link walk from BindCursor. Not CCD / svdcmp.
+// parent-link walk from BindCursor. Not CCD / svdcmp.
 static bool LinkBoneByParent(FLodHolder* Holder, void* BoneInst, int Parent)
 {
     FSkeleton* Skel = Holder->Skeleton;
@@ -4505,16 +4501,16 @@ static bool LinkBoneByParent(FLodHolder* Holder, void* BoneInst, int Parent)
     Holder->BindCursor = Cursor;
     FBoneRuntime* Slot = BindOneBoneRuntime(Holder, Cursor, BoneInst);
     Holder->BindCursor = Holder->BindCursor + 1;
-    return Slot != nullptr; // 065f153a SETNZ on FUN_065f14a0's result
+    return Slot != nullptr; // SETNZ on the routine's result
 }
 
-// LAB_065f1450 cdecl: thiscall FUN_065f14f0(this=arg3, bone=arg1, parent=arg2).
+// cdecl: thiscall the routine(this=arg3, bone=arg1, parent=arg2).
 static bool __cdecl BoneLinkCallbackThunk(void* BoneInst, int Parent, FLodHolder* Holder)
 {
     return LinkBoneByParent(Holder, BoneInst, Parent);
 }
 
-// FUN_065f1d90 cdecl: DAT_06603150=param_1, DAT_06603154=param_2.
+// cdecl: the field=param_1, the field=param_2.
 static bool (__cdecl* G_BoneLinkFn)(void*, int, FLodHolder*) = nullptr;
 static FLodHolder* G_BoneLinkHolder = nullptr;
 
@@ -4524,7 +4520,7 @@ static void RegisterBoneLinkCallback(bool (__cdecl* Fn)(void*, int, FLodHolder*)
     G_BoneLinkHolder = Holder;
 }
 
-// FUN_065f1550 (thiscall on the holder, RET 4: Skel), 065f1550..1657, AL = 1 always.
+// (thiscall on the holder, RET 4: Skel), 065f1550..1657, AL = 1 always.
 unsigned char FLodHolder::AttachSkeleton(FSkeleton* Skel) // formerly AttachLodSkeleton
 {
     if (Skeleton != Skel)
@@ -4572,7 +4568,7 @@ unsigned char FLodHolder::AttachSkeleton(FSkeleton* Skel) // formerly AttachLodS
     return 1;
 }
 
-// FUN_065f67f0 (thiscall on the part, RET 0xC: Holder, Meshes, Count), 065f67f0..68b9, AL = 1.
+// (thiscall on the part, RET 0xC: Holder, Meshes, Count), 065f67f0..68b9, AL = 1.
 unsigned char FDeformPart::BindMeshes(FLodHolder* Holder, FDeformMesh** InMeshes, int Count) // formerly BindMeshesToPart
 {
     if (Lod != Holder)
@@ -4620,7 +4616,7 @@ unsigned char FDeformPart::BindMeshes(FLodHolder* Holder, FDeformMesh** InMeshes
     return 1;
 }
 
-// FUN_065fdfb0 (cdecl: the IMaterialLibrary), 065fdfb0..dfcb: FUN_065fdfd0 (result dropped),
+// (cdecl: the IMaterialLibrary), 065fdfb0..dfcb: the routine (result dropped),
 // then +0xC (0, "^eye*", "EyeMaterial"). No test.
 static void BindEyeMaterials(IMaterialLibrary* MaterialLib)
 {
@@ -4629,7 +4625,7 @@ static void BindEyeMaterials(IMaterialLibrary* MaterialLib)
                                                        G_EyeMaterialName);
 }
 
-// FUN_065f1df0: Release Pipeline / MatLib / IB / VB only (listing order).
+// Release Pipeline / MatLib / IB / VB only (listing order).
 static void ReleaseRenderCaches()
 {
     ReleaseInterface(G_Pipeline);
@@ -4638,7 +4634,7 @@ static void ReleaseRenderCaches()
     ReleaseInterface(G_VertexBuffer);
 }
 
-// FUN_065f1810 DAT_06603128..DAT_06603140 store 0, no Release.
+// the field..the field store 0, no Release.
 static void ZeroModuleInterfaceCaches()
 {
     G_System = nullptr;
@@ -4650,7 +4646,7 @@ static void ZeroModuleInterfaceCaches()
     G_Renderer = nullptr;
 }
 
-// FUN_065f18d0: 1df0 + Release Extra14. Anim/Engine/Channel/Renderer are non-owning after QI+Release.
+// 1df0 + Release Extra14. Anim/Engine/Channel/Renderer are non-owning after QI+Release.
 static void ReleaseComponentCaches()
 {
     ReleaseRenderCaches();
@@ -4660,14 +4656,14 @@ static void ReleaseComponentCaches()
 // Reused parser buffer; a failed read leaves its contents unchanged.
 static char G_DeformRateValue[0x400];
 
-// FUN_065f1900's value parse, 065f19cd..1b11: the 36-character charset (.data:06602138) is
+// 's value parse, 065f19cd..1b11: the 36-character charset (module storage) is
 static unsigned long ParseDeformRateValue(char* Text)
 {
     const size_t Span = strspn(Text, G_RateCharset);
     if (Span != 0)
         Text[Span] = '\0';
 
-    if (_stricmp(Text, "true") == 0) // DACOM's stricmp is _stricmp (DacomStricmp)
+    if (_stricmp(Text, "true") == 0) // NEURONCOMPONENTS's stricmp is _stricmp (NeuronComponentsStricmp)
         return 1;
     if (_stricmp(Text, "yes") == 0)
         return 1;
@@ -4692,7 +4688,7 @@ static void ApplyParsedRate(unsigned long Rate)
         G_DeformRate = (float)(1.0 / (double)Rate);
 }
 
-// FUN_065f1900 (thiscall on the component, RET 4: Desc), 065f1900..1be5.
+// (thiscall on the component, RET 4: Desc), 065f1900..1be5.
 static GENRESULT ApplyCreateInstanceInit(FDeformableObject* Object, FAggDesc18* Desc)
 {
     G_System = Desc->SystemAt14;
@@ -4700,9 +4696,9 @@ static GENRESULT ApplyCreateInstanceInit(FDeformableObject* Object, FAggDesc18* 
         return GR_GENERIC;
 
     G_System->AddRef();
-    ICOManager* Dacom = DACOM_Acquire();
+    ICOManager* NeuronComponents = NEURONCOMPONENTS_Acquire();
     IProfileParser* First = nullptr;
-    if (Dacom->QueryInterface(Iids::ProfileParser, (void**)(&First)) >= 0)
+    if (NeuronComponents->QueryInterface(Iids::ProfileParser, (void**)(&First)) >= 0)
     {
         IProfileParser* Parser = nullptr; // the holder at entry+4
         if (First != nullptr)
@@ -4713,9 +4709,9 @@ static GENRESULT ApplyCreateInstanceInit(FDeformableObject* Object, FAggDesc18* 
         unsigned long Rate = 0;
         bool bParse = true;
         if (Parser == nullptr &&
-            Dacom->QueryInterface(Iids::ProfileParser, (void**)(&Parser)) != 0)
+            NeuronComponents->QueryInterface(Iids::ProfileParser, (void**)(&Parser)) != 0)
         {
-            Rate = (unsigned long)((ptrdiff_t)Parser); // 065f1b23
+            Rate = (unsigned long)((ptrdiff_t)Parser);
             bParse = false;
         }
         if (bParse)
@@ -4728,7 +4724,7 @@ static GENRESULT ApplyCreateInstanceInit(FDeformableObject* Object, FAggDesc18* 
                 Parser->CloseSection(Section);
             }
         }
-        if (Parser != nullptr) // FUN_065f9170
+        if (Parser != nullptr)
         {
             Parser->Release();
             Parser = nullptr;
@@ -4750,10 +4746,10 @@ static GENRESULT ApplyCreateInstanceInit(FDeformableObject* Object, FAggDesc18* 
     return GR_OK;
 }
 
-// One QI of LAB_065f1bf0: straight into the module cache (no pre-clear, no test of Source or
+// One QI of the branch: straight into the module cache (no pre-clear, no test of Source or
 // of the answer pointer); a negative result (the JGE not taken) -> FDUMP ERROR at Line,
-// FUN_065f1df0, false.
-static bool QueryRequired(IDAComponent* Source, const char* Iid, void** Out, int Line,
+// , false.
+static bool QueryRequired(INeuronComponent* Source, const char* Iid, void** Out, int Line,
                           const char* Error)
 {
     if (Source->QueryInterface(Iid, Out) >= 0)
@@ -4763,21 +4759,21 @@ static bool QueryRequired(IDAComponent* Source, const char* Iid, void** Out, int
     return false;
 }
 
-// FUN_065f6720
-// FUN_065f6720 (thiscall): dwords +0..+0x30 = 0, then byte +0x30 |= 1. No test.
+
+// (thiscall): dwords +0..+0x30 = 0, then byte +0x30 |= 1. No test.
 static void ConstructPart(FDeformPart* Part)
 {
     std::memset(Part, 0, sizeof(FDeformPart));
     Part->Flags = 1;
 }
 
-static GENRESULT DACOM_API StubRet8(void* /*This*/, void* /*A*/);
+static GENRESULT NEURONCOMPONENTS_API StubRet8(void* /*This*/, void* /*A*/);
 
-// IChannelSink slot 0 (EngBase FUN_0661b420 OnKeys).
-void DACOM_API FDeformInstance::OnKeys(unsigned long ChannelKey, void* Context,
+// IChannelSink slot 0 (SceneRuntime the routine OnKeys).
+void NEURONCOMPONENTS_API FDeformInstance::OnKeys(unsigned long ChannelKey, void* Context,
                                        FChannelKeyBatch* Batch)
 {
-    // FUN_065f5210 (RET 0x10), 065f5210..5281: +0x18 null -> return (EAX = that 0). Cookie (the
+    // (RET 0x10), 065f5210..5281: +0x18 null -> return (EAX = that 0). Cookie (the
     if (UserAt18 == nullptr)
         return;
     unsigned long Cookie = 0;
@@ -4799,20 +4795,20 @@ void DACOM_API FDeformInstance::OnKeys(unsigned long ChannelKey, void* Context,
     UserAt18->OnKeys(Cookie, Context, Batch);
 }
 
-// IChannelSink slot 1. LAB_065f5290 (RET 0xC), 065f5290..52a4: +0x18 null -> return (EAX = that
+// IChannelSink slot 1. the branch (RET 0xC), 065f5290..52a4: +0x18 null -> return (EAX = that
 // 0); else replace this with +0x18 and JMP its slot 1.
-void DACOM_API FDeformInstance::OnOpaqueNotification(void* A, void* B) // formerly Slot01
+void NEURONCOMPONENTS_API FDeformInstance::OnOpaqueNotification(void* A, void* B) // formerly Slot01
 {
     if (UserAt18 == nullptr)
         return;
     UserAt18->OnOpaqueNotification(A, B);
 }
 
-// IChannelSink slot 2 (EngBase FUN_0661b420 OnLoop): match anim, +0x60 duration, half-angle
+// IChannelSink slot 2 (SceneRuntime the routine OnLoop): match anim, +0x60 duration, half-angle
 // quat, Math+0x54, UserAt18 slot 2.
-void DACOM_API FDeformInstance::OnLoop(unsigned long ChannelKey, float* Transform, void* Context)
+void NEURONCOMPONENTS_API FDeformInstance::OnLoop(unsigned long ChannelKey, float* Transform, void* Context)
 {
-    // LAB_065f52b0 (RET 0x10), 065f52b0..53f5. First node with Active == 0 and IAnimation2
+    // (RET 0x10), 065f52b0..53f5. First node with Active == 0 and IAnimation2
     float* const Xform = Transform;
     int Handle = -1;
     FIkListNode* Node = ListHead;
@@ -4858,7 +4854,7 @@ void DACOM_API FDeformInstance::OnLoop(unsigned long ChannelKey, float* Transfor
     UserAt18->OnLoop(ChannelKey, Xform, Context);
 }
 
-// FUN_065f3650
+
 static void ConstructInstanceBody(FDeformInstance* Instance)
 {
     Instance->PartCount = 0;
@@ -4876,7 +4872,7 @@ static void ConstructInstanceBody(FDeformInstance* Instance)
         Instance->RateCookie = G_DeformRate;
 }
 
-// LAB_065f59b0 cdecl thunk: user(fn)(bone_inst, hp_info, user_data).
+// cdecl thunk: user(fn)(bone_inst, hp_info, user_data).
 struct FHardpointWalkCtx
 {
     void* UserFn;
@@ -4905,7 +4901,7 @@ struct FHardpointConnectContext
     IHardpoint* Hardpoint;
 };
 
-// LAB_065f3540 (cdecl: BoneInst, Name, Context), 065f3540..363b. {CRC32(Name), {-1, -1}} is
+// (cdecl: BoneInst, Name, Context), 065f3540..363b. {CRC32(Name), {-1, -1}} is
 static void __cdecl HardpointConnectCallback(void* BoneInst, char const* Name, void* Context)
 {
     FHardpointConnectContext* Ctx = (FHardpointConnectContext*)Context;
@@ -4913,7 +4909,7 @@ static void __cdecl HardpointConnectCallback(void* BoneInst, char const* Name, v
     Unset.First = G_InvalidEngineHandle;
     Unset.Second = G_InvalidEngineHandle;
     std::pair<std::map<unsigned long, FHardpointInstancePair>::iterator, bool> Inserted =
-        Ctx->Pairs.insert(std::make_pair(DACOM_CRC::GetCRC32(Name), Unset));
+        Ctx->Pairs.insert(std::make_pair(NEURONCOMPONENTS_CRC::GetCRC32(Name), Unset));
     FHardpointInstancePair* Pair = &Inserted.first->second;
     if (Pair->First == G_InvalidEngineHandle)
     {
@@ -4923,10 +4919,10 @@ static void __cdecl HardpointConnectCallback(void* BoneInst, char const* Name, v
     Pair->Second = BoneInst;
     FHardpointKey KeyA;
     KeyA.Name = Name;
-    KeyA.Crc = DACOM_CRC::GetCRC32(Name);
+    KeyA.Crc = NEURONCOMPONENTS_CRC::GetCRC32(Name);
     FHardpointKey KeyB;
     KeyB.Name = Name;
-    KeyB.Crc = DACOM_CRC::GetCRC32(Name);
+    KeyB.Crc = NEURONCOMPONENTS_CRC::GetCRC32(Name);
     if (Ctx->Hardpoint->ConnectHardpoints(Pair->First, &KeyA, Pair->Second, &KeyB) != 0)
     {
         char Message[0x2000];
@@ -4936,7 +4932,7 @@ static void __cdecl HardpointConnectCallback(void* BoneInst, char const* Name, v
     }
 }
 
-// FUN_065f59d0 (thiscall on the instance, RET 8: UserFn, UserData), 065f59d0..5ada.
+// (thiscall on the instance, RET 8: UserFn, UserData), 065f59d0..5ada.
 static unsigned char WalkInstanceHardpoints(FDeformInstance* Instance, void* UserFn,
                                             void* UserData)
 {
@@ -4974,7 +4970,7 @@ static unsigned char WalkInstanceHardpoints(FDeformInstance* Instance, void* Use
     return 1;
 }
 
-// FUN_065f36c0 (thiscall on the instance, RET 0x10: Parts, Arg2, Arg3), 065f36c0..3e61, AL = 1.
+// (thiscall on the instance, RET 0x10: Parts, Arg2, Arg3), 065f36c0..3e61, AL = 1.
 static bool ConnectInstanceParts(FDeformInstance* Instance, int* Parts, void* Arg3, void* Arg4)
 {
     Instance->UserAt18 = (IChannelSink*)Arg3;
@@ -5011,7 +5007,7 @@ static bool ConnectInstanceParts(FDeformInstance* Instance, int* Parts, void* Ar
             Created = Factory->CreateInstance((AGGDESC*)(&RootDesc),
                                               (void**)(&RootFs));
         else
-            Created = DACOM_Acquire()->CreateInstance((AGGDESC*)(&RootDesc),
+            Created = NEURONCOMPONENTS_Acquire()->CreateInstance((AGGDESC*)(&RootDesc),
                                                       (void**)(&RootFs));
         if (Created < 0)
         {
@@ -5147,7 +5143,7 @@ static bool ConnectInstanceParts(FDeformInstance* Instance, int* Parts, void* Ar
                 }
             }
         }
-        // 065f3961..3985 / 065f3c29..3c44: the skeleton reference taken by the ctor, then RootFs.
+        // ..3985 / 065f3c29..3c44: the skeleton reference taken by the ctor, then RootFs.
         ReleaseSkeleton(Skel);
         if (RootFs != nullptr)
         {
@@ -5192,7 +5188,7 @@ static bool ConnectInstanceParts(FDeformInstance* Instance, int* Parts, void* Ar
     return true;
 }
 
-// FUN_065f3ed0 (thiscall on the instance), 065f3ed0..3fc5.
+// (thiscall on the instance), 065f3ed0..3fc5.
 static void TeardownInstance(FDeformInstance* Instance)
 {
     FIkListNode* Node = Instance->ListHead;
@@ -5201,7 +5197,7 @@ static void TeardownInstance(FDeformInstance* Instance)
         if (Node->Active != 0)
         {
             if (Node->Event != nullptr)
-                delete Node->Event;                              // FUN_065fbf40 + operator delete
+                delete Node->Event;                              // + operator delete
             Node->Event = nullptr;
         }
         else
@@ -5236,9 +5232,9 @@ static void TeardownInstance(FDeformInstance* Instance)
     Instance->PartCount = 0;
 }
 
-// --- inner IDAComponent @ +0x0C (FDeformableInner: LAB_065f2400 / 065fe060 / 065f24c0) ---
+// --- inner INeuronComponent @ +0x0C (FDeformableInner: the branch / 065fe060 / 065f24c0) ---
 
-// .rdata:066012d0 (PE bytes): {IID string, offset from the owner}, null-terminated. An offset
+// (PE bytes): {IID string, offset from the owner}, null-terminated. An offset
 // with bit 31 set would name a pointer member instead of an embedded facet; none here does.
 struct FInnerIidEntry
 {
@@ -5255,8 +5251,8 @@ static const FInnerIidEntry G_InnerIidTable[] = {
     {nullptr, 0},
 };
 
-// LAB_065f2400 (RET 0xC), 065f2400..24af: walk the table with an inlined strcmp; hit ->
-GENRESULT DACOM_API FDeformableInner::QueryInterface(const char* Iid, void** Out)
+// (RET 0xC), 065f2400..24af: walk the table with an inlined strcmp; hit ->
+GENRESULT NEURONCOMPONENTS_API FDeformableInner::QueryInterface(const char* Iid, void** Out)
 {
     int Index = 0;
     while (G_InnerIidTable[Index].Iid != nullptr)
@@ -5265,11 +5261,11 @@ GENRESULT DACOM_API FDeformableInner::QueryInterface(const char* Iid, void** Out
         {
             unsigned char* OwnerBytes = (unsigned char*)Owner;
             const int Offset = G_InnerIidTable[Index].Offset;
-            IDAComponent* Facet = nullptr;
+            INeuronComponent* Facet = nullptr;
             if (Offset < 0)
-                Facet = *(IDAComponent**)(OwnerBytes + (Offset & 0x7fffffff));
+                Facet = *(INeuronComponent**)(OwnerBytes + (Offset & 0x7fffffff));
             else
-                Facet = (IDAComponent*)(OwnerBytes + Offset);
+                Facet = (INeuronComponent*)(OwnerBytes + Offset);
             Facet->AddRef();
             *Out = Facet;
             return GR_OK;
@@ -5280,17 +5276,17 @@ GENRESULT DACOM_API FDeformableInner::QueryInterface(const char* Iid, void** Out
     return GR_INTERFACE_UNSUPPORTED;
 }
 
-// LAB_065fe060 (ICF-shared): ++[this+4], EAX = the new count.
-unsigned long DACOM_API FDeformableInner::AddRef()
+// (ICF-shared): ++[this+4], EAX = the new count.
+unsigned long NEURONCOMPONENTS_API FDeformableInner::AddRef()
 {
     RefCount += 1;
     return RefCount;
 }
 
-// LAB_065f24c0 (RET 4), 065f24c0..24f8: [this+4] > 0 (unsigned, JBE) -> decrement; still
-// non-zero -> return it. Zero -> [this+4] = 1; owner [this+8] non-null -> FUN_065f18d0 on it
+// (RET 4), 065f24c0..24f8: [this+4] > 0 (unsigned, JBE) -> decrement; still
+// non-zero -> return it. Zero -> [this+4] = 1; owner [this+8] non-null -> the routine on it
 // + operator delete; return 0.
-unsigned long DACOM_API FDeformableInner::Release()
+unsigned long NEURONCOMPONENTS_API FDeformableInner::Release()
 {
     if (RefCount > 0)
         RefCount -= 1;
@@ -5305,70 +5301,70 @@ unsigned long DACOM_API FDeformableInner::Release()
     return 0;
 }
 
-// --- IDeformable @ +0: QI/AddRef/Release delegate to [this+8] (LAB_065f2500) ---
+// --- IDeformable @ +0: QI/AddRef/Release delegate to [this+8] (the branch) ---
 
-// LAB_065f2500/2510/2520: [ESP+4] = [this+8] (Controlling), JMP [vtable+0/4/8] -- no tests.
-static GENRESULT DACOM_API DeformableQueryInterface(FDeformableObject* This, const char* Iid,
+// /2510/2520: [ESP+4] = [this+8] (Controlling), JMP [vtable+0/4/8] -- no tests.
+static GENRESULT NEURONCOMPONENTS_API DeformableQueryInterface(FDeformableObject* This, const char* Iid,
                                                     void** Out)
 {
-    IDAComponent* Controlling = This->Controlling;
+    INeuronComponent* Controlling = This->Controlling;
     return Controlling->QueryInterface(Iid, Out);
 }
 
-static unsigned long DACOM_API DeformableAddRef(FDeformableObject* This)
+static unsigned long NEURONCOMPONENTS_API DeformableAddRef(FDeformableObject* This)
 {
     return This->Controlling->AddRef();
 }
 
-static unsigned long DACOM_API DeformableRelease(FDeformableObject* This)
+static unsigned long NEURONCOMPONENTS_API DeformableRelease(FDeformableObject* This)
 {
     return This->Controlling->Release();
 }
 
 // Shared fail stubs. First arg is this; RET = (1 + extra) * 4, EAX = -1.
-static GENRESULT DACOM_API StubRet8(void* /*This*/, void* /*A*/)
+static GENRESULT NEURONCOMPONENTS_API StubRet8(void* /*This*/, void* /*A*/)
 {
     return GR_GENERIC;
 }
 
-static GENRESULT DACOM_API StubRetC(void* /*This*/, void* /*A*/, void* /*B*/)
+static GENRESULT NEURONCOMPONENTS_API StubRetC(void* /*This*/, void* /*A*/, void* /*B*/)
 {
     return GR_GENERIC;
 }
 
-static GENRESULT DACOM_API StubRet10(void* /*This*/, void* /*A*/, void* /*B*/, void* /*C*/)
+static GENRESULT NEURONCOMPONENTS_API StubRet10(void* /*This*/, void* /*A*/, void* /*B*/, void* /*C*/)
 {
     return GR_GENERIC;
 }
 
-static GENRESULT DACOM_API StubRet14(void* /*This*/, void* /*A*/, void* /*B*/, void* /*C*/,
+static GENRESULT NEURONCOMPONENTS_API StubRet14(void* /*This*/, void* /*A*/, void* /*B*/, void* /*C*/,
                                      void* /*D*/)
 {
     return GR_GENERIC;
 }
 
-static GENRESULT DACOM_API StubRet20(void* /*This*/, void* /*A*/, void* /*B*/, void* /*C*/,
+static GENRESULT NEURONCOMPONENTS_API StubRet20(void* /*This*/, void* /*A*/, void* /*B*/, void* /*C*/,
                                      void* /*D*/, void* /*E*/, void* /*F*/, void* /*G*/)
 {
     return GR_GENERIC;
 }
 
-static GENRESULT DACOM_API StubRet28(void* /*This*/, void* /*A*/, void* /*B*/, void* /*C*/,
+static GENRESULT NEURONCOMPONENTS_API StubRet28(void* /*This*/, void* /*A*/, void* /*B*/, void* /*C*/,
                                      void* /*D*/, void* /*E*/, void* /*F*/, void* /*G*/, void* /*H*/,
                                      void* /*I*/)
 {
     return GR_GENERIC;
 }
 
-static GENRESULT DACOM_API DeformableCreate(FDeformable* /*This*/, void** OutInstance,
+static GENRESULT NEURONCOMPONENTS_API DeformableCreate(FDeformable* /*This*/, void** OutInstance,
                                             int* Parts, void* Arg3, void* Arg4, void* /*Arg5*/)
 {
     // Reject an empty parts table before constructing an instance.
     if (Parts[0] <= 0)
         return GR_INVALID_PARMS;
 
-    // `new FDeformInstance` sets the vtable FUN_065f3650 stores first (PTR_FUN_06601308 --
-    // EngBase calls it back as the playback's script); ConstructInstanceBody does the rest.
+    // `new FDeformInstance` sets the vtable the routine stores first (the routine --
+    // SceneRuntime calls it back as the playback's script); ConstructInstanceBody does the rest.
     // The raw operator new used before left the vtable pointer uninitialised.
     FDeformInstance* Instance = new FDeformInstance;
     ConstructInstanceBody(Instance);
@@ -5383,17 +5379,17 @@ static GENRESULT DACOM_API DeformableCreate(FDeformable* /*This*/, void** OutIns
     return GR_GENERIC;
 }
 
-static GENRESULT DACOM_API DeformableCreateAlias(FDeformable* This, void** OutInstance,
+static GENRESULT NEURONCOMPONENTS_API DeformableCreateAlias(FDeformable* This, void** OutInstance,
                                                  int* Parts, void* Arg3, void* Arg4, void* Arg5)
 {
-    // LAB_065f1860: JMP [vtable+0x0C]
+    // JMP [vtable+0x0C]
     return DeformableCreate(This, OutInstance, Parts, Arg3, Arg4, Arg5);
 }
 
-static GENRESULT DACOM_API DeformableDestroy(FDeformable* /*This*/, FDeformInstance* Instance)
+static GENRESULT NEURONCOMPONENTS_API DeformableDestroy(FDeformable* /*This*/, FDeformInstance* Instance)
 {
-    // FUN_065f1ed0 (RET 8): null -> -1. FUN_065f3ed0, then FUN_065f3640 -- the dtor, which
-    // restores the vtable and JMPs to FUN_065f3ed0 again (a no-op on the emptied instance) --
+    // (RET 8): null -> -1. the routine, then the routine -- the dtor, which
+    // restores the vtable and JMPs to the routine again (a no-op on the emptied instance) --
     // then delete, 0.
     if (Instance == nullptr)
         return GR_GENERIC;
@@ -5419,7 +5415,7 @@ static GENRESULT DACOM_API DeformableDestroy(FDeformable* /*This*/, FDeformInsta
 
 static unsigned char PartBoundSphere(FDeformPart* Part, float* OutRadius, float* OutCenter);
 
-// FUN_065f4070 (thiscall on the instance, RET 0x14: Unused, Camera, OutLod, RenderArg,
+// (thiscall on the instance, RET 0x14: Unused, Camera, OutLod, RenderArg,
 static void DrawInstanceParts(FDeformInstance* Instance, void* /*Unused*/, ICamera* Camera,
                               int* OutLod, void* RenderArg, unsigned long Flags)
 {
@@ -5497,7 +5493,7 @@ static void DrawInstanceParts(FDeformInstance* Instance, void* /*Unused*/, ICame
 
 
 
-// FUN_065f68c0 (thiscall on the part, RET 8: OutRadius, OutCenter), 065f68c0..6926: slot 4
+// (thiscall on the part, RET 8: OutRadius, OutCenter), 065f68c0..6926: slot 4
 static unsigned char PartBoundSphere(FDeformPart* Part, float* OutRadius, float* OutCenter)
 {
     const unsigned char bOk = Part->Meshes[0]->GetBoundSphere(OutRadius, OutCenter);
@@ -5520,8 +5516,8 @@ static unsigned char PartBoundSphere(FDeformPart* Part, float* OutRadius, float*
 
 // --- IEngineComponent helpers (compiler builds IEC vtable + this-4 thunks) ---
 
-// LAB_065f1bf0 (IEngineComponent slot 3, RET 4), 065f1bf0..1d81. FUN_065f1df0 first. Then
-static GENRESULT DACOM_API EngineInitialize(void* /*EngineThis*/)
+// (IEngineComponent slot 3, RET 4), 065f1bf0..1d81. the routine first. Then
+static GENRESULT NEURONCOMPONENTS_API EngineInitialize(void* /*EngineThis*/)
 {
     ReleaseRenderCaches();
 
@@ -5557,18 +5553,18 @@ static GENRESULT DACOM_API EngineInitialize(void* /*EngineThis*/)
     return GR_OK;
 }
 
-static GENRESULT DACOM_API EngineUpdateOk(void* /*This*/, void* /*A*/, void* /*B*/)
+static GENRESULT NEURONCOMPONENTS_API EngineUpdateOk(void* /*This*/, void* /*A*/, void* /*B*/)
 {
     return GR_OK;
 }
 
-static GENRESULT DACOM_API EngineStub10(void* /*This*/, void* /*A*/, void* /*B*/, void* /*C*/)
+static GENRESULT NEURONCOMPONENTS_API EngineStub10(void* /*This*/, void* /*A*/, void* /*B*/, void* /*C*/)
 {
     return GR_GENERIC;
 }
 
-// LAB_065f1dc0 RET 0xC. cdecl DAT_06603150(arg1, arg2, DAT_06603154); EAX=0 if fn null.
-static GENRESULT DACOM_API EngineCallbackTrampoline(void* /*This*/, void* Arg1, void* Arg2)
+// RET 0xC. cdecl the field(arg1, arg2, the field); EAX=0 if fn null.
+static GENRESULT NEURONCOMPONENTS_API EngineCallbackTrampoline(void* /*This*/, void* Arg1, void* Arg2)
 {
     if (G_BoneLinkFn == nullptr)
         return GR_OK;
@@ -5577,67 +5573,67 @@ static GENRESULT DACOM_API EngineCallbackTrampoline(void* /*This*/, void* Arg1, 
 }
 
 
-GENRESULT DACOM_API FDeformableObject::QueryInterface(const char* Iid, void** Out)
+GENRESULT NEURONCOMPONENTS_API FDeformableObject::QueryInterface(const char* Iid, void** Out)
 {
     return DeformableQueryInterface(this, Iid, Out);
 }
 
-unsigned long DACOM_API FDeformableObject::AddRef()
+unsigned long NEURONCOMPONENTS_API FDeformableObject::AddRef()
 {
     return DeformableAddRef(this);
 }
 
-unsigned long DACOM_API FDeformableObject::Release()
+unsigned long NEURONCOMPONENTS_API FDeformableObject::Release()
 {
     return DeformableRelease(this);
 }
 
-// FUN_065f1810 (thiscall, RET 0), 065f1810..1852: +4 = 066011ac (IEngineComponent's own
+// (thiscall, RET 0), 065f1810..1852: +4 = 066011ac (IEngineComponent's own
 // table), +0 = 06601110, +4 = 066010dc (the compiler installs its three tables), then
-// DAT_06603128..DAT_06603140 = 0 with no Release.
+// ..the field = 0 with no Release.
 FDeformable::FDeformable()
 {
     ZeroModuleInterfaceCaches();
 }
 
-// FUN_065f18d0 (thiscall, RET 0), 065f18d0..18fb: +0 = 06601110, +4 = 066010dc, FUN_065f1df0,
-// DAT_06603128 non-null -> Release, = 0. Called by FUN_065f22f0's failure path and the inner
+// (thiscall, RET 0), 065f18d0..18fb: +0 = 06601110, +4 = 066010dc, the routine,
+// non-null -> Release, = 0. Called by the routine's failure path and the inner
 // Release (065f23a7 / 065f24e7), always right before operator delete.
 FDeformable::~FDeformable()
 {
     ReleaseComponentCaches();
 }
 
-GENRESULT DACOM_API FDeformable::Create(void** OutInstance, int* Parts, void* Arg3, void* Arg4,
+GENRESULT NEURONCOMPONENTS_API FDeformable::Create(void** OutInstance, int* Parts, void* Arg3, void* Arg4,
                                                void* Arg5)
 {
     return DeformableCreate(this, OutInstance, Parts, Arg3, Arg4, Arg5);
 }
 
-GENRESULT DACOM_API FDeformable::CreateUnused(void* A, void* B, void* C, void* D, void* E,
+GENRESULT NEURONCOMPONENTS_API FDeformable::CreateUnused(void* A, void* B, void* C, void* D, void* E,
                                                       void* F, void* G)
 {
     return StubRet20(this, A, B, C, D, E, F, G);
 }
 
-GENRESULT DACOM_API FDeformable::CreateAlias(void** OutInstance, int* Parts, void* Arg3,
+GENRESULT NEURONCOMPONENTS_API FDeformable::CreateAlias(void** OutInstance, int* Parts, void* Arg3,
                                                    void* Arg4, void* Arg5)
 {
     return DeformableCreateAlias(this, OutInstance, Parts, Arg3, Arg4, Arg5);
 }
 
-GENRESULT DACOM_API FDeformable::Destroy(void* Instance)
+GENRESULT NEURONCOMPONENTS_API FDeformable::Destroy(void* Instance)
 {
     return DeformableDestroy(this, (FDeformInstance*)Instance);
 }
 
-GENRESULT DACOM_API FDeformable::Play(void* Instance, int* Out, void* Name, void* Extra,
+GENRESULT NEURONCOMPONENTS_API FDeformable::Play(void* Instance, int* Out, void* Name, void* Extra,
                                                void* ArgC, void* ArgD, void* ArgE, void* ArgF,
                                                void* ArgG, void* ArgH, void* Script) // formerly DeformableSlot7
 {
     FDeformInstance* DeformInstance = (FDeformInstance*)Instance;
-    // LAB_065f1f00 (RET 0x30), 065f1f00..1f4d: null DeformInstance -> -1 without touching *Out;
-    // else FUN_065f41d0, *Out = result unchecked, -1 -> -1 else 0.
+    // (RET 0x30), 065f1f00..1f4d: null DeformInstance -> -1 without touching *Out;
+    // else the routine, *Out = result unchecked, -1 -> -1 else 0.
     if (DeformInstance == nullptr)
         return GR_GENERIC;
     const int Handle =
@@ -5648,13 +5644,13 @@ GENRESULT DACOM_API FDeformable::Play(void* Instance, int* Out, void* Name, void
     return GR_OK;
 }
 
-GENRESULT DACOM_API FDeformable::PlayAlt(void* Instance, int* Out, void* Name, void* Extra,
+GENRESULT NEURONCOMPONENTS_API FDeformable::PlayAlt(void* Instance, int* Out, void* Name, void* Extra,
                                                 void* ArgC, void* ArgD, void* ArgE, void* ArgF,
                                                 void* ArgG, void* ArgH, void* Script) // formerly DeformableSlot8
 {
     FDeformInstance* DeformInstance = (FDeformInstance*)Instance;
-    // LAB_065f1f50 (RET 0x30), 065f1f50..1f9d: null DeformInstance -> -1 without touching *Out;
-    // else FUN_065f4660, *Out = result unchecked, -1 -> -1 else 0.
+    // (RET 0x30), 065f1f50..1f9d: null DeformInstance -> -1 without touching *Out;
+    // else the routine, *Out = result unchecked, -1 -> -1 else 0.
     if (DeformInstance == nullptr)
         return GR_GENERIC;
     const int Handle =
@@ -5665,31 +5661,31 @@ GENRESULT DACOM_API FDeformable::PlayAlt(void* Instance, int* Out, void* Name, v
     return GR_OK;
 }
 
-GENRESULT DACOM_API FDeformable::DestroyAll(void* Instance) // formerly DeformableSlot9
+GENRESULT NEURONCOMPONENTS_API FDeformable::DestroyAll(void* Instance) // formerly DeformableSlot9
 {
     FDeformInstance* DeformInstance = (FDeformInstance*)Instance;
-    // LAB_065f1fa0 → FUN_065f4c80.
+    // → the routine.
     if (DeformInstance == nullptr)
         return GR_GENERIC;
     DestroyAllList(DeformInstance);
     return GR_OK;
 }
 
-GENRESULT DACOM_API FDeformable::DestroyHandle(void* Instance, int Handle) // formerly DeformableSlot10
+GENRESULT NEURONCOMPONENTS_API FDeformable::DestroyHandle(void* Instance, int Handle) // formerly DeformableSlot10
 {
     FDeformInstance* DeformInstance = (FDeformInstance*)Instance;
-    // LAB_065f1fc0 → FUN_065f4d30.
+    // → the routine.
     if (DeformInstance == nullptr)
         return GR_GENERIC;
     DestroyListByHandle(DeformInstance, Handle);
     return GR_OK;
 }
 
-GENRESULT DACOM_API FDeformable::StartAim(void* Instance, void** Out, unsigned char* AimDesc,
+GENRESULT NEURONCOMPONENTS_API FDeformable::StartAim(void* Instance, void** Out, unsigned char* AimDesc,
                                                  void* Arg3) // formerly DeformableSlot11
 {
     FDeformInstance* DeformInstance = (FDeformInstance*)Instance;
-    // LAB_065f1fe0 RET 0x14 -> FUN_065f5400 start_aim. Only DeformInstance is tested (065f1fe4); a
+    // RET 0x14 -> the routine start_aim. Only DeformInstance is tested (065f1fe4); a
     if (DeformInstance == nullptr)
         return GR_GENERIC;
 
@@ -5700,31 +5696,31 @@ GENRESULT DACOM_API FDeformable::StartAim(void* Instance, void** Out, unsigned c
     return GR_OK;
 }
 
-GENRESULT DACOM_API FDeformable::StopAim(void* Instance, void* Node) // formerly DeformableSlot12
+GENRESULT NEURONCOMPONENTS_API FDeformable::StopAim(void* Instance, void* Node) // formerly DeformableSlot12
 {
     FDeformInstance* DeformInstance = (FDeformInstance*)Instance;
     FIkListNode* AimNode = (FIkListNode*)Node;
-    // LAB_065f2010 → FUN_065f5950 stop_aim (node, not Event).
+    // → the routine stop_aim (node, not Event).
     if (DeformInstance == nullptr || AimNode == nullptr)
         return GR_GENERIC;
     StopAimNode(AimNode);
     return GR_OK;
 }
 
-GENRESULT DACOM_API FDeformable::Unused13(void* A)
+GENRESULT NEURONCOMPONENTS_API FDeformable::Unused13(void* A)
 {
     return StubRet8(this, A);
 }
 
-GENRESULT DACOM_API FDeformable::Unused14(void* A)
+GENRESULT NEURONCOMPONENTS_API FDeformable::Unused14(void* A)
 {
     return StubRet8(this, A);
 }
 
-GENRESULT DACOM_API FDeformable::SetLod(void* Instance, float Dt, int* LodIds) // formerly DeformableSlot15
+GENRESULT NEURONCOMPONENTS_API FDeformable::SetLod(void* Instance, float Dt, int* LodIds) // formerly DeformableSlot15
 {
     FDeformInstance* DeformInstance = (FDeformInstance*)Instance;
-    // LAB_065f2040 (RET 0x10): null DeformInstance -> -1; else FUN_065f3fd0(LodIds, Dt), 0.
+    // (RET 0x10): null DeformInstance -> -1; else the routine(LodIds, Dt), 0.
     if (DeformInstance == nullptr)
         return GR_GENERIC;
     unsigned char bChanged = 0;
@@ -5751,11 +5747,11 @@ GENRESULT DACOM_API FDeformable::SetLod(void* Instance, float Dt, int* LodIds) /
     return GR_OK;
 }
 
-GENRESULT DACOM_API FDeformable::Draw(void* Instance, void* Camera, void* UnusedB,
+GENRESULT NEURONCOMPONENTS_API FDeformable::Draw(void* Instance, void* Camera, void* UnusedB,
                                               void* RenderArg, int* OutLod, unsigned int Flags) // formerly DeformableSlot16
 {
     FDeformInstance* DeformInstance = (FDeformInstance*)Instance;
-    // LAB_065f2070 (RET 0x1C) -> FUN_065f4070(inst, B, A, D, C, E), then 0. A null DeformInstance
+    // (RET 0x1C) -> the routine(inst, B, A, D, C, E), then 0. A null DeformInstance
     // stores 0 to *OutLod (065f207c, no test) and returns -1.
     if (DeformInstance == nullptr)
     {
@@ -5766,15 +5762,15 @@ GENRESULT DACOM_API FDeformable::Draw(void* Instance, void* Camera, void* Unused
     return GR_OK;
 }
 
-GENRESULT DACOM_API FDeformable::Unused17(void* A, void* B, void* C, void* D)
+GENRESULT NEURONCOMPONENTS_API FDeformable::Unused17(void* A, void* B, void* C, void* D)
 {
     return StubRet14(this, A, B, C, D);
 }
 
-GENRESULT DACOM_API FDeformable::GetFirstBone(void* Instance, int* Out) // formerly DeformableSlot18
+GENRESULT NEURONCOMPONENTS_API FDeformable::GetFirstBone(void* Instance, int* Out) // formerly DeformableSlot18
 {
     FDeformInstance* DeformInstance = (FDeformInstance*)Instance;
-    // LAB_065f20b0 (RET 0xC), 065f20b0..20ed: null DeformInstance -> *Out = -1, return -1;
+    // (RET 0xC), 065f20b0..20ed: null DeformInstance -> *Out = -1, return -1;
     // PartArray (+8) null -> *Out = -1, return 0; else *Out = PartArray[0].Lod->BoneSlots[0]
     // .Instance ([[[+8]]+4]+4, no further tests), return 0. *Out is never tested.
     if (DeformInstance == nullptr)
@@ -5792,10 +5788,10 @@ GENRESULT DACOM_API FDeformable::GetFirstBone(void* Instance, int* Out) // forme
     return GR_OK;
 }
 
-GENRESULT DACOM_API FDeformable::SetPosePos(void* Instance, float* Pos3) // formerly DeformableSlot19
+GENRESULT NEURONCOMPONENTS_API FDeformable::SetPosePos(void* Instance, float* Pos3) // formerly DeformableSlot19
 {
     FDeformInstance* DeformInstance = (FDeformInstance*)Instance;
-    // LAB_065f20f0 (RET 0xC): null DeformInstance -> -1; else FUN_065f4f00(Pos3), 0.
+    // (RET 0xC): null DeformInstance -> -1; else the routine(Pos3), 0.
     if (DeformInstance == nullptr)
         return GR_GENERIC;
     SweepExpiredList(DeformInstance);
@@ -5847,10 +5843,10 @@ GENRESULT DACOM_API FDeformable::SetPosePos(void* Instance, float* Pos3) // form
     return GR_OK;
 }
 
-GENRESULT DACOM_API FDeformable::SetPoseOri(void* Instance, void* Ori) // formerly DeformableSlot20
+GENRESULT NEURONCOMPONENTS_API FDeformable::SetPoseOri(void* Instance, void* Ori) // formerly DeformableSlot20
 {
     FDeformInstance* DeformInstance = (FDeformInstance*)Instance;
-    // LAB_065f2110 (RET 0xC): null DeformInstance -> -1; else FUN_065f5050(Ori), 0.
+    // (RET 0xC): null DeformInstance -> -1; else the routine(Ori), 0.
     if (DeformInstance == nullptr)
         return GR_GENERIC;
     FIkListNode* Node = DeformInstance->ListHead;
@@ -5867,25 +5863,25 @@ GENRESULT DACOM_API FDeformable::SetPoseOri(void* Instance, void* Ori) // former
     return GR_OK;
 }
 
-GENRESULT DACOM_API FDeformable::Unused21(void* A, void* B)
+GENRESULT NEURONCOMPONENTS_API FDeformable::Unused21(void* A, void* B)
 {
     return StubRetC(this, A, B);
 }
 
-GENRESULT DACOM_API FDeformable::Unused22(void* A, void* B)
+GENRESULT NEURONCOMPONENTS_API FDeformable::Unused22(void* A, void* B)
 {
     return StubRetC(this, A, B);
 }
 
-GENRESULT DACOM_API FDeformable::Unused23(void* A, void* B)
+GENRESULT NEURONCOMPONENTS_API FDeformable::Unused23(void* A, void* B)
 {
     return StubRetC(this, A, B);
 }
 
-GENRESULT DACOM_API FDeformable::SetHeight(void* Instance, float Height) // formerly DeformableSlot24
+GENRESULT NEURONCOMPONENTS_API FDeformable::SetHeight(void* Instance, float Height) // formerly DeformableSlot24
 {
     FDeformInstance* DeformInstance = (FDeformInstance*)Instance;
-    // LAB_065f2150 (RET 0xC): null DeformInstance -> -1; else FUN_065f50b0(Height), 0.
+    // (RET 0xC): null DeformInstance -> -1; else the routine(Height), 0.
     if (DeformInstance == nullptr)
         return GR_GENERIC;
     DeformInstance->Offset20 = Height;
@@ -5939,16 +5935,16 @@ GENRESULT DACOM_API FDeformable::SetHeight(void* Instance, float Height) // form
     return GR_OK;
 }
 
-GENRESULT DACOM_API FDeformable::Unused25(void* A, void* B, void* C, void* D)
+GENRESULT NEURONCOMPONENTS_API FDeformable::Unused25(void* A, void* B, void* C, void* D)
 {
     return StubRet14(this, A, B, C, D);
 }
 
-GENRESULT DACOM_API FDeformable::GetListCount(void* Instance, int* Out) // formerly DeformableSlot26
+GENRESULT NEURONCOMPONENTS_API FDeformable::GetListCount(void* Instance, int* Out) // formerly DeformableSlot26
 {
     FDeformInstance* DeformInstance = (FDeformInstance*)Instance;
-    // LAB_065f2170 (RET 0xC), 065f2170..2195: null DeformInstance -> *Out = 0, return -1; else
-    // FUN_065f51d0 (FUN_065f4de0 sweep, EAX = +0x14 list count), *Out = EAX, return 0. *Out
+    // (RET 0xC), 065f2170..2195: null DeformInstance -> *Out = 0, return -1; else
+    // (the routine sweep, EAX = +0x14 list count), *Out = EAX, return 0. *Out
     // is never tested.
     if (DeformInstance == nullptr)
     {
@@ -5960,10 +5956,10 @@ GENRESULT DACOM_API FDeformable::GetListCount(void* Instance, int* Out) // forme
     return GR_OK;
 }
 
-GENRESULT DACOM_API FDeformable::CopyList(void* Instance, int* Out) // formerly DeformableSlot27
+GENRESULT NEURONCOMPONENTS_API FDeformable::CopyList(void* Instance, int* Out) // formerly DeformableSlot27
 {
     FDeformInstance* DeformInstance = (FDeformInstance*)Instance;
-    // LAB_065f21a0 → FUN_065f51e0 copy node+4.
+    // → the routine copy node+4.
     if (DeformInstance == nullptr || Out == nullptr)
         return GR_GENERIC;
     FIkListNode* Node = DeformInstance->ListHead;
@@ -5977,46 +5973,46 @@ GENRESULT DACOM_API FDeformable::CopyList(void* Instance, int* Out) // formerly 
     return GR_OK;
 }
 
-GENRESULT DACOM_API FDeformable::Unused28(void* A, void* B)
+GENRESULT NEURONCOMPONENTS_API FDeformable::Unused28(void* A, void* B)
 {
     return StubRetC(this, A, B);
 }
 
-GENRESULT DACOM_API FDeformable::Unused29(void* A, void* B, void* C, void* D, void* E,
+GENRESULT NEURONCOMPONENTS_API FDeformable::Unused29(void* A, void* B, void* C, void* D, void* E,
                                                  void* F, void* G, void* H, void* I)
 {
     return StubRet28(this, A, B, C, D, E, F, G, H, I);
 }
 
-GENRESULT DACOM_API FDeformable::Unused30(void* A, void* B)
+GENRESULT NEURONCOMPONENTS_API FDeformable::Unused30(void* A, void* B)
 {
     return StubRetC(this, A, B);
 }
 
-GENRESULT DACOM_API FDeformable::Unused31(void* A, void* B)
+GENRESULT NEURONCOMPONENTS_API FDeformable::Unused31(void* A, void* B)
 {
     return StubRetC(this, A, B);
 }
 
-GENRESULT DACOM_API FDeformable::Unused32(void* A, void* B)
+GENRESULT NEURONCOMPONENTS_API FDeformable::Unused32(void* A, void* B)
 {
     return StubRetC(this, A, B);
 }
 
-GENRESULT DACOM_API FDeformable::Unused33(void* A, void* B, void* C)
+GENRESULT NEURONCOMPONENTS_API FDeformable::Unused33(void* A, void* B, void* C)
 {
     return StubRet10(this, A, B, C);
 }
 
-GENRESULT DACOM_API FDeformable::Unused34(void* A, void* B, void* C, void* D)
+GENRESULT NEURONCOMPONENTS_API FDeformable::Unused34(void* A, void* B, void* C, void* D)
 {
     return StubRet14(this, A, B, C, D);
 }
 
-GENRESULT DACOM_API FDeformable::GetOffset(void* Instance, float* Out) // formerly DeformableSlot35
+GENRESULT NEURONCOMPONENTS_API FDeformable::GetOffset(void* Instance, float* Out) // formerly DeformableSlot35
 {
     FDeformInstance* DeformInstance = (FDeformInstance*)Instance;
-    // LAB_065f2130 (RET 0xC), 065f2130..2149: null DeformInstance -> -1; else *Out = +0x20 (no
+    // (RET 0xC), 065f2130..2149: null DeformInstance -> -1; else *Out = +0x20 (no
     // test of Out), 0.
     if (DeformInstance == nullptr)
         return GR_GENERIC;
@@ -6024,20 +6020,20 @@ GENRESULT DACOM_API FDeformable::GetOffset(void* Instance, float* Out) // former
     return GR_OK;
 }
 
-GENRESULT DACOM_API FDeformable::WalkHardpoints(void* Instance, void* UserFn, void* UserData) // formerly DeformableSlot36
+GENRESULT NEURONCOMPONENTS_API FDeformable::WalkHardpoints(void* Instance, void* UserFn, void* UserData) // formerly DeformableSlot36
 {
     FDeformInstance* DeformInstance = (FDeformInstance*)Instance;
-    // LAB_065f21d0 → FUN_065f59d0 RET 0x8. Wrapper RET 0x10: null inst → -1, else GR_OK.
+    // → the routine RET 0x8. Wrapper RET 0x10: null inst → -1, else GR_OK.
     if (DeformInstance == nullptr)
         return GR_GENERIC;
     WalkInstanceHardpoints(DeformInstance, UserFn, UserData);
     return GR_OK;
 }
 
-GENRESULT DACOM_API FDeformable::GetMeshStats(void* Instance, unsigned int* Out) // formerly DeformableSlot37
+GENRESULT NEURONCOMPONENTS_API FDeformable::GetMeshStats(void* Instance, unsigned int* Out) // formerly DeformableSlot37
 {
     FDeformInstance* DeformInstance = (FDeformInstance*)Instance;
-    // LAB_065f21f0 → FUN_065f5ae0 mesh stats. Mesh+0x10 not required.
+    // → the routine mesh stats. Mesh+0x10 not required.
     if (DeformInstance == nullptr || Out == nullptr)
         return GR_GENERIC;
     if (DeformInstance->PartCount <= 0)
@@ -6062,9 +6058,9 @@ GENRESULT DACOM_API FDeformable::GetMeshStats(void* Instance, unsigned int* Out)
         FDeformMesh* Mesh = Part->Current;
         if (Mesh != nullptr)
         {
-            // 065f5b58..5b99: slots 1 and 0 through the vtable, then +0x24, +0x40, +0x44 and
+            // ..5b99: slots 1 and 0 through the vtable, then +0x24, +0x40, +0x44 and
             // +0x48 read straight off the object -- for a VMesh wrapper (0x14 bytes) that is
-            // past its end, as it is in retail.
+            // past its end, as it is in baseline.
             Out[2] += (unsigned int)(Mesh->GetVertexCapacity());
             Out[3] += (unsigned int)(Mesh->GetIndexCount());
             const unsigned int* Raw = (const unsigned int*)Mesh;
@@ -6078,11 +6074,11 @@ GENRESULT DACOM_API FDeformable::GetMeshStats(void* Instance, unsigned int* Out)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FDeformable::GetBoundSphere(void* Instance, float* OutRadius,
+GENRESULT NEURONCOMPONENTS_API FDeformable::GetBoundSphere(void* Instance, float* OutRadius,
                                                       float* OutCenter) // formerly DeformableSlot38
 {
     FDeformInstance* DeformInstance = (FDeformInstance*)Instance;
-    // LAB_065f2220 (RET 0x10): EAX = -1 (ESI); null DeformInstance -> -1; FUN_065f5bc0(OutRadius,
+    // (RET 0x10): EAX = -1 (ESI); null DeformInstance -> -1; the routine(OutRadius,
     if (DeformInstance == nullptr || DeformInstance->PartCount <= 0)
         return GR_GENERIC;
 
@@ -6120,63 +6116,63 @@ GENRESULT DACOM_API FDeformable::GetBoundSphere(void* Instance, float* OutRadius
     return GR_OK;
 }
 
-int DACOM_API FDeformable::Initialize()
+int NEURONCOMPONENTS_API FDeformable::Initialize()
 {
     return (int)(EngineInitialize(this));
 }
 
-int DACOM_API FDeformable::CreateArchetype(void* Arg1, void* Arg2)
+int NEURONCOMPONENTS_API FDeformable::CreateArchetype(void* Arg1, void* Arg2)
 {
     return (int)(EngineUpdateOk(this, Arg1, Arg2));
 }
 
-int DACOM_API FDeformable::DuplicateArchetype(void* Arg1, void* Arg2)
+int NEURONCOMPONENTS_API FDeformable::DuplicateArchetype(void* Arg1, void* Arg2)
 {
     BoneRuntimeRetC(this, Arg1, Arg2);
     return 0;
 }
 
-int DACOM_API FDeformable::DestroyArchetype(void* Arg1)
+int NEURONCOMPONENTS_API FDeformable::DestroyArchetype(void* Arg1)
 {
     return (int)(BoneRuntimeRet8(this, Arg1));
 }
 
-int DACOM_API FDeformable::QueryArchetype(void* Arg1, const char* Iid, void** Out)
+int NEURONCOMPONENTS_API FDeformable::QueryArchetype(void* Arg1, const char* Iid, void** Out)
 {
     // The callback ABI carries the const IID through an opaque mutable token.
     return (int)(EngineStub10(this, Arg1, const_cast<char*>(Iid), Out));
 }
 
-int DACOM_API FDeformable::CreateInstance(void* Arg1, void* Arg2)
+int NEURONCOMPONENTS_API FDeformable::CreateInstance(void* Arg1, void* Arg2)
 {
     return (int)(EngineCallbackTrampoline(this, Arg1, Arg2));
 }
 
-int DACOM_API FDeformable::DestroyInstance(void* Arg1)
+int NEURONCOMPONENTS_API FDeformable::DestroyInstance(void* Arg1)
 {
     return (int)(BoneRuntimeRet8(this, Arg1));
 }
 
-int DACOM_API FDeformable::UpdateInstance(void* Arg1, void* Arg2)
+int NEURONCOMPONENTS_API FDeformable::UpdateInstance(void* Arg1, void* Arg2)
 {
     BoneRuntimeRetC(this, Arg1, Arg2);
     return 0;
 }
 
-int DACOM_API FDeformable::QueryInstance(void* Arg1, const char* Iid, void** Out)
+int NEURONCOMPONENTS_API FDeformable::QueryInstance(void* Arg1, const char* Iid, void** Out)
 {
     // The callback ABI carries the const IID through an opaque mutable token.
     return (int)(EngineStub10(this, Arg1, const_cast<char*>(Iid), Out));
 }
 
-int DACOM_API FDeformable::Notify(void* Arg1)
+int NEURONCOMPONENTS_API FDeformable::Notify(void* Arg1)
 {
     return (int)(BoneRuntimeRet8(this, Arg1));
 }
 
 // --- factory ---
 
-GENRESULT DACOM_API FDeformableFactory::QueryInterface(const char* Iid, void** Out)
+GENRESULT NEURONCOMPONENTS_API FDeformableFactory::QueryInterface(const char* Iid, void** Out)
 {
     if (Out != nullptr)
         *Out = nullptr;
@@ -6189,13 +6185,13 @@ GENRESULT DACOM_API FDeformableFactory::QueryInterface(const char* Iid, void** O
     return GR_OK;
 }
 
-unsigned long DACOM_API FDeformableFactory::AddRef()
+unsigned long NEURONCOMPONENTS_API FDeformableFactory::AddRef()
 {
     RefCount += 1;
     return RefCount;
 }
 
-unsigned long DACOM_API FDeformableFactory::Release()
+unsigned long NEURONCOMPONENTS_API FDeformableFactory::Release()
 {
     if (RefCount != 0)
         RefCount -= 1;
@@ -6210,12 +6206,12 @@ unsigned long DACOM_API FDeformableFactory::Release()
     return Remaining;
 }
 
-static GENRESULT DACOM_API FactoryCreateInstance(FDeformableFactory* This, AGGDESC* Desc,
+static GENRESULT NEURONCOMPONENTS_API FactoryCreateInstance(FDeformableFactory* This, AGGDESC* Desc,
                                                  void** Out)
 {
-    // FUN_065f22f0 (RET 0xC), 065f22f0..23fb. Size != 0x18 or strcmp(desc+4, factory+8) != 0
+    // (RET 0xC), 065f22f0..23fb. Size != 0x18 or strcmp(desc+4, factory+8) != 0
     // -> *Out = 0, 0xFFFFFFFD. operator new(0x18) (VC6 MSVCRT: null on failure, tested at
-    // 065f2352) null -> *Out = 0, 0xFFFFFFFC. No test of This, Desc, Out or either name.
+    // ) null -> *Out = 0, 0xFFFFFFFC. No test of This, Desc, Out or either name.
     FAggDesc18* Extended = (FAggDesc18*)Desc;
     if (Extended->Size != 0x18 || std::strcmp(Extended->NameAt4, This->Name) != 0)
     {
@@ -6231,17 +6227,17 @@ static GENRESULT DACOM_API FactoryCreateInstance(FDeformableFactory* This, AGGDE
         return GR_OUT_OF_MEMORY;
     }
 
-    // FUN_065f1810 is FDeformable's constructor (it zeroes the module caches); the final
-    Object->Inner.RefCount = 1;                                  // 065f2366
-    Object->Inner.Owner = Object;                                // 065f236d
-    IDAComponent* const InnerUnknown = &Object->Inner;
+    // is FDeformable's constructor (it zeroes the module caches); the final
+    Object->Inner.RefCount = 1;
+    Object->Inner.Owner = Object;
+    INeuronComponent* const InnerUnknown = &Object->Inner;
 
     if (Extended->Outer == nullptr)
-        Object->Controlling = InnerUnknown;                      // 065f2387
+        Object->Controlling = InnerUnknown;
     else
     {
-        // 065f23c5: *InnerOut = &inner with no test (only the failure path tests it).
-        Object->Controlling = (IDAComponent*)Extended->Outer;
+        // *InnerOut = &inner with no test (only the failure path tests it).
+        Object->Controlling = (INeuronComponent*)Extended->Outer;
         *Extended->InnerOut = InnerUnknown;
     }
 
@@ -6261,16 +6257,16 @@ static GENRESULT DACOM_API FactoryCreateInstance(FDeformableFactory* This, AGGDE
 
 struct FDeformableComponentFactory : FDeformableFactory
 {
-    GENRESULT DACOM_API CreateInstance(AGGDESC* Desc, void** Out) override;
+    GENRESULT NEURONCOMPONENTS_API CreateInstance(AGGDESC* Desc, void** Out) override;
 };
 
-GENRESULT DACOM_API FDeformableComponentFactory::CreateInstance(AGGDESC* Desc, void** Out)
+GENRESULT NEURONCOMPONENTS_API FDeformableComponentFactory::CreateInstance(AGGDESC* Desc, void** Out)
 {
     return FactoryCreateInstance(this, Desc, Out);
 }
 
 // Saves one render state on construction and puts it back on destruction: the three
-// {pipeline, state, old value} triples LAB_065fdd10 keeps at ESP+0x24 / +0x30 / +0x18 and
+// {pipeline, state, old value} triples the branch keeps at ESP+0x24 / +0x30 / +0x18 and
 // restores in reverse order before it returns (065fdf29..06d).
 struct FSavedRenderState
 {
@@ -6293,12 +6289,12 @@ struct FSavedRenderState
     FSavedRenderState& operator=(const FSavedRenderState&) = delete;
 };
 
-// DAT_06602a60: 1 in .data and never written (four reads, all in LAB_065fdd10). It gates the
+// 1 in .data and never written (four reads, all in the branch). It gates the
 // bone palette and feeds D3DRS_SOFTWAREVERTEXPROCESSING / D3DRS_INDEXEDVERTEXBLENDENABLE and,
 // as 3 or 0, D3DRS_VERTEXBLEND.
 static unsigned long G_VmeshPaletteSkinning = 1;
 
-// LAB_065fdd10, the VMesh wrapper's slot 5 (thiscall RET 8: Camera, Part), 065fdd10..df7a.
+// , the VMesh wrapper's slot 5 (thiscall RET 8: Camera, Part), 065fdd10..df7a.
 unsigned char FVmeshWrapper::Draw(ICamera* Camera, FDeformPart* Part)
 {
     FLodHolder* const Holder = Part->Lod;
@@ -6345,17 +6341,17 @@ BOOL WINAPI DllMain(HINSTANCE Instance, DWORD Reason, LPVOID /*Reserved*/)
 {
     if (Reason == DLL_PROCESS_ATTACH)
     {
-        // FUN_065f2250 (RET 0xC), 065f2250..22b8: reason 1 -> DisableThreadLibraryCalls,
+        // (RET 0xC), 065f2250..22b8: reason 1 -> DisableThreadLibraryCalls,
         DisableThreadLibraryCalls(Instance);
-        ICOManager* Dacom = DACOM_Acquire();
+        ICOManager* NeuronComponents = NEURONCOMPONENTS_Acquire();
 
         FDeformableComponentFactory* Factory = new FDeformableComponentFactory();
         Factory->RefCount = 1;
         Factory->Name = G_DeformableComponentName;
-        Dacom->RegisterComponent((IDAComponent*)Factory, G_DeformableComponentName,
+        NeuronComponents->RegisterComponent((INeuronComponent*)Factory, G_DeformableComponentName,
                                  (void*)0x80000000);
         Factory->Release();
-        Dacom->Release();
+        NeuronComponents->Release();
     }
     return TRUE;
 }

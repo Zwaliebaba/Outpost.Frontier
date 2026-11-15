@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // TriMesh archetype, vertex streams and face groups.
@@ -18,7 +14,7 @@
 // Streams and descriptors
 // ---------------------------------------------------------------------------------------
 
-// FUN_06c23dc0 (cdecl): delete the element and index arrays, zero all five dwords.
+// (cdecl): delete the element and index arrays, zero all five dwords.
 void TriMeshStreamFree(FRpVertexStream* Stream)
 {
     delete[] Stream->Base;
@@ -30,7 +26,7 @@ void TriMeshStreamFree(FRpVertexStream* Stream)
     Stream->Count = 0;
 }
 
-// FUN_06c24c60 (cdecl; source, dest, index count): ByteSize / Stride / Count copied; the elements
+// (cdecl; source, dest, index count): ByteSize / Stride / Count copied; the elements
 // (Count * Stride bytes) and the index array (IndexCount dwords) duplicated when present.
 void TriMeshStreamCopy(const FRpVertexStream* Source, FRpVertexStream* Dest, unsigned long IndexCount)
 {
@@ -55,7 +51,7 @@ void TriMeshStreamCopy(const FRpVertexStream* Source, FRpVertexStream* Dest, uns
         Dest->IndexArray = nullptr;
 }
 
-// FUN_06c23f90 (cdecl): free the five streams, then zero the whole 0x70 descriptor.
+// (cdecl): free the five streams, then zero the whole 0x70 descriptor.
 void TriMeshDescFree(FRpVertexSrcDesc* Desc)
 {
     TriMeshStreamFree(&Desc->Position);
@@ -66,7 +62,7 @@ void TriMeshDescFree(FRpVertexSrcDesc* Desc)
     std::memset(Desc, 0, sizeof(FRpVertexSrcDesc));
 }
 
-// FUN_06c29190 / FUN_06c24be0 (cdecl; source, dest; two identical bodies): Flags, SrcFvf and
+// / the routine (cdecl; source, dest; two identical bodies): Flags, SrcFvf and
 // SrcCount copied, each stream duplicated with SrcCount indices.
 static void TriMeshDescCopy(const FRpVertexSrcDesc* Source, FRpVertexSrcDesc* Dest)
 {
@@ -85,7 +81,7 @@ static FRpVertexSrcDesc* TriMeshDescNew()
     return new FRpVertexSrcDesc{};
 }
 
-// FUN_06c29250 (cdecl; desc, channel bits): false when a requested channel has no index array
+// (cdecl; desc, channel bits): false when a requested channel has no index array
 // (1 position +0x10, 8 normal +0x24, 2 tex0 +0x4C, 4 tex1 +0x60, 0x10 diffuse +0x38).
 static bool TriMeshDescHasIndexArrays(const FRpVertexSrcDesc* Desc, unsigned char Channels)
 {
@@ -106,7 +102,7 @@ static bool TriMeshDescHasIndexArrays(const FRpVertexSrcDesc* Desc, unsigned cha
 // Face groups
 // ---------------------------------------------------------------------------------------
 
-// FUN_06c276a0: Type 4, Bucket 4, everything else 0.
+// Type 4, Bucket 4, everything else 0.
 // formerly TriMeshGroupInit
 void FTriMeshGroup::Initialize()
 {
@@ -135,7 +131,7 @@ static FTriMeshGroup* TriMeshGroupNew()
     return Group;
 }
 
-// FUN_06c29000 (thiscall): with no extra streams yet, a zeroed 0x10 count block (+0x34) and a
+// (thiscall): with no extra streams yet, a zeroed 0x10 count block (+0x34) and a
 // zeroed 0x50 block of four streams (+0x38).
 // formerly TriMeshGroupAllocExtras
 void FTriMeshGroup::AllocateExtraStreams()
@@ -146,7 +142,7 @@ void FTriMeshGroup::AllocateExtraStreams()
     ExtraStreams = new FRpVertexStream[ExtraStreamCount]{};
 }
 
-// FUN_06c29040 (thiscall): with extra streams, delete the count block, free the four streams and
+// (thiscall): with extra streams, delete the count block, free the four streams and
 // delete their block.
 // formerly TriMeshGroupFreeExtras
 void FTriMeshGroup::FreeExtraStreams()
@@ -161,7 +157,7 @@ void FTriMeshGroup::FreeExtraStreams()
     ExtraStreams = nullptr;
 }
 
-// FUN_06c27910 (thiscall, RET 0xC; count, indices, angles): both arrays deleted and cleared, the
+// (thiscall, RET 0xC; count, indices, angles): both arrays deleted and cleared, the
 // count zeroed; a non-zero count copies Count ushorts and, with angles, Count / 2 floats.
 // formerly TriMeshGroupSetEdges
 void FTriMeshGroup::SetEdges(unsigned long Count, const unsigned short* Indices, const float* Angles)
@@ -184,7 +180,7 @@ void FTriMeshGroup::SetEdges(unsigned long Count, const unsigned short* Indices,
     this->EdgeCount = Count;
 }
 
-// FUN_06c278b0 (thiscall, RET 8; count, indices): the index array replaced by a copy, Min/Max 0.
+// (thiscall, RET 8; count, indices): the index array replaced by a copy, Min/Max 0.
 // formerly TriMeshGroupSetIndices
 void FTriMeshGroup::SetIndices(unsigned long Count, const unsigned short* Source)
 {
@@ -200,7 +196,7 @@ void FTriMeshGroup::SetIndices(unsigned long Count, const unsigned short* Source
     this->IndexCount = Count;
 }
 
-// FUN_06c27a20 (thiscall): a non-zero MinIndex is added back onto every index, then cleared.
+// (thiscall): a non-zero MinIndex is added back onto every index, then cleared.
 // formerly TriMeshGroupUnrebase
 void FTriMeshGroup::Unrebase()
 {
@@ -212,8 +208,8 @@ void FTriMeshGroup::Unrebase()
     this->MinIndex = 0;
 }
 
-// FUN_06c279a0 (thiscall): FUN_06c27a20, then Min/Max seeded from the first and the last index
-// (read even when IndexCount is 0, as retail), widened over every index, and Min subtracted.
+// (thiscall): the routine, then Min/Max seeded from the first and the last index
+// (read even when IndexCount is 0, as baseline), widened over every index, and Min subtracted.
 // formerly TriMeshGroupRebase
 void FTriMeshGroup::Rebase()
 {
@@ -303,7 +299,7 @@ void FTriMeshGroup::CopyFrom(const FTriMeshGroup* Source)
         this->FreeExtraStreams();
 }
 
-// operator new(0x40) + FUN_06c276e0 (the copy ctor: FUN_06c276a0, then FUN_06c27780).
+// operator new(0x40) + the routine (the copy ctor: the routine, then the routine).
 FTriMeshGroup* TriMeshGroupCopy(const FTriMeshGroup* Source)
 {
     FTriMeshGroup* Group = TriMeshGroupNew();
@@ -311,7 +307,7 @@ FTriMeshGroup* TriMeshGroupCopy(const FTriMeshGroup* Source)
     return Group;
 }
 
-// FUN_06c27a50 (thiscall, RET 4): Type and CRC copied, the material swapped (Release; AddRef when
+// (thiscall, RET 4): Type and CRC copied, the material swapped (Release; AddRef when
 // the source has one), +0x0C copied.
 // formerly TriMeshGroupAssignHeader
 void FTriMeshGroup::CopyHeader(const FTriMeshGroup* Source)
@@ -351,7 +347,7 @@ bool FTriMeshGroup::HasChannels(unsigned long Channels) const
     return TriMeshDescHasIndexArrays(this->Vertices, (unsigned char)Channels);
 }
 
-// FUN_06c29090 (thiscall): a type-5 strip becomes a type-4 list. Degenerate triangles are
+// (thiscall): a type-5 strip becomes a type-4 list. Degenerate triangles are
 // dropped, odd strip positions swap the last two corners.
 // formerly TriMeshGroupStripToList
 void FTriMeshGroup::ConvertStripToList()
@@ -394,7 +390,7 @@ void FTriMeshGroup::ConvertStripToList()
 
 static const GENRESULT kTriMeshReadFailed = (GENRESULT)0x80004005;
 
-// FUN_06c249d0 (file, name, buffer size, buffer): at most Size - 1 bytes; success needs the read
+// (file, name, buffer size, buffer): at most Size - 1 bytes; success needs the read
 // to report exactly that many, and then terminates the string.
 static GENRESULT TriMeshReadString(IFileSystem* File, const char* Name, unsigned long Size, char* Buffer)
 {
@@ -419,7 +415,7 @@ static GENRESULT TriMeshReadString(IFileSystem* File, const char* Name, unsigned
     return (bOk != 0) ? GR_OK : kTriMeshReadFailed;
 }
 
-// FUN_06c271f0 (file, name, out): four bytes; only an exact 4-byte read stores.
+// (file, name, out): four bytes; only an exact 4-byte read stores.
 static GENRESULT TriMeshReadInt(IFileSystem* File, const char* Name, unsigned long* Out)
 {
     FFileSystemDesc Desc;
@@ -440,7 +436,7 @@ static GENRESULT TriMeshReadInt(IFileSystem* File, const char* Name, unsigned lo
     return (bOk != 0) ? GR_OK : kTriMeshReadFailed;
 }
 
-// FUN_06c27390: FUN_06c271f0 for a float (FLD/FSTP of the four bytes).
+// the routine for a float (FLD/FSTP of the four bytes).
 static GENRESULT TriMeshReadFloat(IFileSystem* File, const char* Name, float* Out)
 {
     FFileSystemDesc Desc;
@@ -461,7 +457,7 @@ static GENRESULT TriMeshReadFloat(IFileSystem* File, const char* Name, float* Ou
     return (bOk != 0) ? GR_OK : kTriMeshReadFailed;
 }
 
-// FUN_06c27450 (2-byte elements) / FUN_06c27530 (4) / FUN_06c272b0 (8): Count = Size / element,
+// (2-byte elements) / the routine (4) / the routine (8): Count = Size / element,
 // a Count * element buffer, one read of the whole leaf size. A non-zero read result stores the
 // count and the buffer (the read length is not checked); a zero result deletes the buffer.
 template<typename ElementType>
@@ -515,7 +511,7 @@ FTriMeshArch::FTriMeshArch()
     ResetMesh();
 }
 
-// FUN_06c22550. The reset (FUN_06c23ea0), the three interfaces released in the order +0x224,
+// . The reset (the routine), the three interfaces released in the order +0x224,
 // +0x220, +0x21C, the two UV0 arrays deleted and the UV0 block zeroed; the vector storage
 // (already emptied by the reset) is freed by std::vector.
 FTriMeshArch::~FTriMeshArch()
@@ -573,13 +569,13 @@ int FTriMeshArch::Reset()
 }
 
 // ---------------------------------------------------------------------------------------
-// IDAComponent
+// INeuronComponent
 // ---------------------------------------------------------------------------------------
 
-// FUN_06c26530 (RET 0xC): exact compares, no AddRef. "1.11_IMesh" and "1.11_IDAComponent" ->
+// (RET 0xC): exact compares, no AddRef. "1.11_IMesh" and "1.11_INeuronComponent" ->
 // this, "1.11_IMatHookUp" -> +4, "1.11_IRenderableMesh" -> +8, each 0. A miss is -1 with Out
 // untouched. (The null-this answers of the +4/+8 cases cannot occur for a C++ object.)
-GENRESULT DACOM_API FTriMeshArch::QueryInterface(const char* Iid, void** Out)
+GENRESULT NEURONCOMPONENTS_API FTriMeshArch::QueryInterface(const char* Iid, void** Out)
 {
     if (std::strcmp(Iid, Iids::Mesh) == 0)
     {
@@ -596,7 +592,7 @@ GENRESULT DACOM_API FTriMeshArch::QueryInterface(const char* Iid, void** Out)
         *Out = (IRenderableMesh*)(&RenderableFacet);
         return GR_OK;
     }
-    if (std::strcmp(Iid, Iids::DAComponent) == 0)
+    if (std::strcmp(Iid, Iids::NeuronComponent) == 0)
     {
         *Out = (IMesh*)this;
         return GR_OK;
@@ -604,51 +600,51 @@ GENRESULT DACOM_API FTriMeshArch::QueryInterface(const char* Iid, void** Out)
     return (GENRESULT)-1;
 }
 
-// FUN_06c2b100 (06c3614c / 06c36150): MOV EAX,1. The archetype is not reference counted.
-unsigned long DACOM_API FTriMeshArch::AddRef()
+// (06c3614c / 06c36150): MOV EAX,1. The archetype is not reference counted.
+unsigned long NEURONCOMPONENTS_API FTriMeshArch::AddRef()
 {
     return 1;
 }
 
-unsigned long DACOM_API FTriMeshArch::Release()
+unsigned long NEURONCOMPONENTS_API FTriMeshArch::Release()
 {
     return 1;
 }
 
-// LAB_06c27660 / LAB_06c27670: this - 4, then the archetype QI / FUN_06c2b100.
-GENRESULT DACOM_API FTriMeshArch::FHookFacet::QueryInterface(const char* Iid, void** Out)
+// / the branch: this - 4, then the archetype QI / the routine.
+GENRESULT NEURONCOMPONENTS_API FTriMeshArch::FHookFacet::QueryInterface(const char* Iid, void** Out)
 {
     return Owner->QueryInterface(Iid, Out);
 }
 
-unsigned long DACOM_API FTriMeshArch::FHookFacet::AddRef()
+unsigned long NEURONCOMPONENTS_API FTriMeshArch::FHookFacet::AddRef()
 {
     return 1;
 }
 
-unsigned long DACOM_API FTriMeshArch::FHookFacet::Release()
+unsigned long NEURONCOMPONENTS_API FTriMeshArch::FHookFacet::Release()
 {
     return 1;
 }
 
-// LAB_06c27680 / LAB_06c27690: this - 8, then the archetype QI / FUN_06c2b100.
-GENRESULT DACOM_API FTriMeshArch::FRenderableFacet::QueryInterface(const char* Iid, void** Out)
+// / the branch: this - 8, then the archetype QI / the routine.
+GENRESULT NEURONCOMPONENTS_API FTriMeshArch::FRenderableFacet::QueryInterface(const char* Iid, void** Out)
 {
     return Owner->QueryInterface(Iid, Out);
 }
 
-unsigned long DACOM_API FTriMeshArch::FRenderableFacet::AddRef()
+unsigned long NEURONCOMPONENTS_API FTriMeshArch::FRenderableFacet::AddRef()
 {
     return 1;
 }
 
-unsigned long DACOM_API FTriMeshArch::FRenderableFacet::Release()
+unsigned long NEURONCOMPONENTS_API FTriMeshArch::FRenderableFacet::Release()
 {
     return 1;
 }
 
-// The query IMaterialLibrary Slot16 takes: only +4 is read; retail's +0 is the address of
-// "???" (DAT_06c37330).
+// The query IMaterialLibrary Slot16 takes: only +4 is read; baseline's +0 is the address of
+// "???" (the field).
 struct FTriMeshMaterialQuery
 {
     const char* Name;
@@ -656,7 +652,7 @@ struct FTriMeshMaterialQuery
 };
 
 // formerly Slot3
-int DACOM_API FTriMeshArch::FHookFacet::HookUpMaterials()
+int NEURONCOMPONENTS_API FTriMeshArch::FHookFacet::HookUpMaterials()
 {
     FTriMeshArch* Arch = Owner;
     if (Arch->MaterialLibrary == nullptr)
@@ -720,23 +716,23 @@ int DACOM_API FTriMeshArch::FHookFacet::HookUpMaterials()
     return (bFailed != 0) ? -1 : 0;
 }
 
-// LAB_06c23df0 (RET 8): *Out = the shared descriptor's SrcCount (+0x88).
+// (RET 8): *Out = the shared descriptor's SrcCount (+0x88).
 // formerly Slot3
-int DACOM_API FTriMeshArch::FRenderableFacet::GetVertexCount(int* Out)
+int NEURONCOMPONENTS_API FTriMeshArch::FRenderableFacet::GetVertexCount(int* Out)
 {
     *Out = (int)(Owner->Vertices.SrcCount);
     return 0;
 }
 
 // formerly Slot4
-int DACOM_API FTriMeshArch::FRenderableFacet::CopyVertexData(void* Dest, unsigned int Fvf, unsigned int StartVertex, unsigned int VertexCount)
+int NEURONCOMPONENTS_API FTriMeshArch::FRenderableFacet::CopyVertexData(void* Dest, unsigned int Fvf, unsigned int StartVertex, unsigned int VertexCount)
 {
     return (int)(Owner->VbManager->CopyVertexData(Dest, Fvf, &Owner->Vertices, StartVertex, VertexCount));
 }
 
-// LAB_06c23e80 (RET 8): *Out = the first group's index count (the vector is not checked).
+// (RET 8): *Out = the first group's index count (the vector is not checked).
 // formerly Slot5
-int DACOM_API FTriMeshArch::FRenderableFacet::GetIndexCount(int* Out)
+int NEURONCOMPONENTS_API FTriMeshArch::FRenderableFacet::GetIndexCount(int* Out)
 {
     FTriMeshGroup* First = Owner->Groups.data()[0];
     *Out = (int)First->IndexCount;
@@ -744,7 +740,7 @@ int DACOM_API FTriMeshArch::FRenderableFacet::GetIndexCount(int* Out)
 }
 
 // formerly Slot6
-int DACOM_API FTriMeshArch::FRenderableFacet::CopyIndices(unsigned short** Dest, int Count)
+int NEURONCOMPONENTS_API FTriMeshArch::FRenderableFacet::CopyIndices(unsigned short** Dest, int Count)
 {
     FTriMeshGroup* First = Owner->Groups.data()[0];
     if ((unsigned long)Count != First->IndexCount)
@@ -754,12 +750,12 @@ int DACOM_API FTriMeshArch::FRenderableFacet::CopyIndices(unsigned short** Dest,
 }
 
 // ---------------------------------------------------------------------------------------
-// IMesh (PTR_FUN_06c36148)
+// IMesh (the routine)
 // ---------------------------------------------------------------------------------------
 
-// FUN_06c225f0 (RET 4): the reset; a negative result -> -1, else +0x1E4 = 0 and 0.
+// (RET 4): the reset; a negative result -> -1, else +0x1E4 = 0 and 0.
 // formerly Slot3
-int DACOM_API FTriMeshArch::ResetMesh()
+int NEURONCOMPONENTS_API FTriMeshArch::ResetMesh()
 {
     if (Reset() < 0)
         return -1;
@@ -767,39 +763,39 @@ int DACOM_API FTriMeshArch::ResetMesh()
     return 0;
 }
 
-// FUN_06c2f5e0 (RET 4): XOR EAX,EAX.
+// (RET 4): XOR EAX,EAX.
 // formerly Slot4
-int DACOM_API FTriMeshArch::NoOp()
+int NEURONCOMPONENTS_API FTriMeshArch::NoOp()
 {
     return 0;
 }
 
-// FUN_06c22620 (RET 8): the IMatHookUp facet's Slot3 (the hook-up, result dropped); flag bit 2
-// calls FUN_06c2e3e0, which is empty. 0.
+// (RET 8): the IMatHookUp facet's Slot3 (the hook-up, result dropped); flag bit 2
+// calls the routine, which is empty. 0.
 // formerly Slot5
-int DACOM_API FTriMeshArch::RefreshMaterials(unsigned long /*Flags*/)
+int NEURONCOMPONENTS_API FTriMeshArch::RefreshMaterials(unsigned long /*Flags*/)
 {
     HookFacet.HookUpMaterials();
     return 0;
 }
 
-// LAB_06c22650: OR EAX,-1; RET 8.
+// OR EAX,-1; RET 8.
 // formerly Slot6
-int DACOM_API FTriMeshArch::RejectOperation(void* /*A*/)
+int NEURONCOMPONENTS_API FTriMeshArch::RejectOperation(void* /*A*/)
 {
     return -1;
 }
 
-// FUN_06c22660: OR EAX,-1; RET 4.
+// OR EAX,-1; RET 4.
 // formerly Slot7
-int DACOM_API FTriMeshArch::RejectOperation()
+int NEURONCOMPONENTS_API FTriMeshArch::RejectOperation()
 {
     return -1;
 }
 
-// LAB_06c22670 (RET 8): *Out = the group count (0 for a vector that never allocated). 0.
+// (RET 8): *Out = the group count (0 for a vector that never allocated). 0.
 // formerly Slot8
-int DACOM_API FTriMeshArch::GetFaceGroupCount(int* Out)
+int NEURONCOMPONENTS_API FTriMeshArch::GetFaceGroupCount(int* Out)
 {
     if (Groups.data() == nullptr)
     {
@@ -810,10 +806,10 @@ int DACOM_API FTriMeshArch::GetFaceGroupCount(int* Out)
     return 0;
 }
 
-// LAB_06c226a0 (RET 0xC): open an edit on group Index. An edit already open, no vector or an
+// (RET 0xC): open an edit on group Index. An edit already open, no vector or an
 // index past the end -> -1. Else EditMode = Mode, the cursor on the group, 0.
 // formerly Slot9
-int DACOM_API FTriMeshArch::OpenFaceGroup(int Index, int Mode)
+int NEURONCOMPONENTS_API FTriMeshArch::OpenFaceGroup(int Index, int Mode)
 {
     if (!CursorAtEnd())
         return -1;
@@ -825,7 +821,7 @@ int DACOM_API FTriMeshArch::OpenFaceGroup(int Index, int Mode)
 }
 
 // formerly Slot10
-int DACOM_API FTriMeshArch::CloseFaceGroup()
+int NEURONCOMPONENTS_API FTriMeshArch::CloseFaceGroup()
 {
     if (CursorAtEnd())
         return -1;
@@ -840,10 +836,10 @@ int DACOM_API FTriMeshArch::CloseFaceGroup()
     return 0;
 }
 
-// FUN_06c22740 (RET 8): with no edit open, a new group of type A is appended (FUN_06c26fa0) and
+// (RET 8): with no edit open, a new group of type A is appended (the routine) and
 // the cursor put at the end; else -1.
 // formerly Slot11
-int DACOM_API FTriMeshArch::AddFaceGroup(void* A)
+int NEURONCOMPONENTS_API FTriMeshArch::AddFaceGroup(void* A)
 {
     if (!CursorAtEnd())
         return -1;
@@ -855,7 +851,7 @@ int DACOM_API FTriMeshArch::AddFaceGroup(void* A)
 }
 
 // formerly Slot12
-int DACOM_API FTriMeshArch::RemoveFaceGroup(int Index)
+int NEURONCOMPONENTS_API FTriMeshArch::RemoveFaceGroup(int Index)
 {
     Cursor = Groups.size();
     if (Groups.data() == nullptr)
@@ -865,9 +861,9 @@ int DACOM_API FTriMeshArch::RemoveFaceGroup(int Index)
     return 0;
 }
 
-// LAB_06c22800 (RET 8): no edit -> -1; *Out = the group's Type dword.
+// (RET 8): no edit -> -1; *Out = the group's Type dword.
 // formerly Slot13
-int DACOM_API FTriMeshArch::GetFaceGroupPrimitiveType(unsigned int* Out)
+int NEURONCOMPONENTS_API FTriMeshArch::GetFaceGroupPrimitiveType(unsigned int* Out)
 {
     if (CursorAtEnd())
         return -1;
@@ -875,10 +871,10 @@ int DACOM_API FTriMeshArch::GetFaceGroupPrimitiveType(unsigned int* Out)
     return 0;
 }
 
-// LAB_06c22830 (RET 8): no edit -> -1. A group with a CRC hands out its material (AddRef'd when
+// (RET 8): no edit -> -1. A group with a CRC hands out its material (AddRef'd when
 // present); without a CRC *Out = 0. 0.
 // formerly Slot14
-int DACOM_API FTriMeshArch::GetFaceGroupMaterial(IMaterial** Out)
+int NEURONCOMPONENTS_API FTriMeshArch::GetFaceGroupMaterial(IMaterial** Out)
 {
     if (CursorAtEnd())
         return -1;
@@ -896,7 +892,7 @@ int DACOM_API FTriMeshArch::GetFaceGroupMaterial(IMaterial** Out)
 }
 
 // formerly Slot15
-int DACOM_API FTriMeshArch::SetFaceGroupMaterial(IMaterial* Material)
+int NEURONCOMPONENTS_API FTriMeshArch::SetFaceGroupMaterial(IMaterial* Material)
 {
     if (CursorAtEnd())
         return -1;
@@ -928,13 +924,13 @@ int DACOM_API FTriMeshArch::SetFaceGroupMaterial(IMaterial* Material)
     Group->Material->AddRef();
     char MaterialName[0x40];
     if (NewMaterial->GetName(MaterialName, 0x40) == 0)
-        Group->MaterialCrc = DACOM_CRC::GetCRC32(MaterialName);
+        Group->MaterialCrc = NEURONCOMPONENTS_CRC::GetCRC32(MaterialName);
     return 0;
 }
 
-// LAB_06c22960 (RET 8): no edit -> -1; *Out = the group's +0x0C.
+// (RET 8): no edit -> -1; *Out = the group's +0x0C.
 // formerly Slot16
-int DACOM_API FTriMeshArch::GetFaceGroupMaterialContext(void** Out)
+int NEURONCOMPONENTS_API FTriMeshArch::GetFaceGroupMaterialContext(void** Out)
 {
     if (CursorAtEnd())
         return -1;
@@ -942,9 +938,9 @@ int DACOM_API FTriMeshArch::GetFaceGroupMaterialContext(void** Out)
     return 0;
 }
 
-// LAB_06c22990 (RET 8): no edit -> -1; the group's +0x0C = A.
+// (RET 8): no edit -> -1; the group's +0x0C = A.
 // formerly Slot17
-int DACOM_API FTriMeshArch::SetFaceGroupMaterialContext(void* A)
+int NEURONCOMPONENTS_API FTriMeshArch::SetFaceGroupMaterialContext(void* A)
 {
     if (CursorAtEnd())
         return -1;
@@ -952,10 +948,10 @@ int DACOM_API FTriMeshArch::SetFaceGroupMaterialContext(void* A)
     return 0;
 }
 
-// FUN_06c229c0 (RET 8): no edit -> -1; a channel the group lacks (FUN_06c28f50) -> 0xFFFFFFF8;
-// else the group made private in mode 2 (FUN_06c26610), 0.
+// (RET 8): no edit -> -1; a channel the group lacks (the routine) -> 0xFFFFFFF8;
+// else the group made private in mode 2 (the routine), 0.
 // formerly Slot18
-int DACOM_API FTriMeshArch::OpenFaceGroupChannels(unsigned long Flags)
+int NEURONCOMPONENTS_API FTriMeshArch::OpenFaceGroupChannels(unsigned long Flags)
 {
     if (CursorAtEnd())
         return -1;
@@ -965,15 +961,15 @@ int DACOM_API FTriMeshArch::OpenFaceGroupChannels(unsigned long Flags)
     return 0;
 }
 
-// LAB_06c22a00 (RET 4): 0 while an edit is open, -1 otherwise.
+// (RET 4): 0 while an edit is open, -1 otherwise.
 // formerly Slot19
-int DACOM_API FTriMeshArch::CloseFaceGroupChannels()
+int NEURONCOMPONENTS_API FTriMeshArch::CloseFaceGroupChannels()
 {
     return CursorAtEnd() ? -1 : 0;
 }
 
 // formerly Slot20
-int DACOM_API FTriMeshArch::LockFaceGroupChannels(unsigned long Mask)
+int NEURONCOMPONENTS_API FTriMeshArch::LockFaceGroupChannels(unsigned long Mask)
 {
     if (CursorAtEnd())
         return -1;
@@ -1003,7 +999,7 @@ int DACOM_API FTriMeshArch::LockFaceGroupChannels(unsigned long Mask)
 }
 
 // formerly Slot21
-int DACOM_API FTriMeshArch::UnlockFaceGroupChannels()
+int NEURONCOMPONENTS_API FTriMeshArch::UnlockFaceGroupChannels()
 {
     if (CursorAtEnd())
         return -1;
@@ -1022,7 +1018,7 @@ int DACOM_API FTriMeshArch::UnlockFaceGroupChannels()
 }
 
 // formerly Slot22
-int DACOM_API FTriMeshArch::GetFaceGroupData(int Channel, void** A, void** B, void** C, void** D)
+int NEURONCOMPONENTS_API FTriMeshArch::GetFaceGroupData(int Channel, void** A, void** B, void** C, void** D)
 {
     if (CursorAtEnd())
         return -1;
@@ -1120,7 +1116,7 @@ static void TriMeshStreamWrite(FRpVertexStream* Stream, const unsigned char* Src
 }
 
 // formerly Slot23
-int DACOM_API FTriMeshArch::SetFaceGroupData(int Channel, void* A, void* B, void* C, void* D)
+int NEURONCOMPONENTS_API FTriMeshArch::SetFaceGroupData(int Channel, void* A, void* B, void* C, void* D)
 {
     if (CursorAtEnd())
         return -1;
@@ -1193,7 +1189,7 @@ static int TriMeshLockedSlot(unsigned long Channel)
 }
 
 // formerly Slot24
-int DACOM_API FTriMeshArch::GetFaceGroupIndices(int Channel, void** A, void** B)
+int NEURONCOMPONENTS_API FTriMeshArch::GetFaceGroupIndices(int Channel, void** A, void** B)
 {
     if (CursorAtEnd())
         return -1;
@@ -1217,7 +1213,7 @@ int DACOM_API FTriMeshArch::GetFaceGroupIndices(int Channel, void** A, void** B)
 }
 
 // formerly Slot25
-int DACOM_API FTriMeshArch::SetFaceGroupIndices(int Channel, void* Src, int Count)
+int NEURONCOMPONENTS_API FTriMeshArch::SetFaceGroupIndices(int Channel, void* Src, int Count)
 {
     if (CursorAtEnd())
         return -1;
@@ -1238,10 +1234,10 @@ int DACOM_API FTriMeshArch::SetFaceGroupIndices(int Channel, void* Src, int Coun
     return 0;
 }
 
-// LAB_06c23550 (RET 0xC): no edit -> -1. Selector 1: *Out = index count; 2: *Out = EdgeCount;
+// (RET 0xC): no edit -> -1. Selector 1: *Out = index count; 2: *Out = EdgeCount;
 // anything else -> -1.
 // formerly Slot26
-int DACOM_API FTriMeshArch::GetFaceGroupIndexCount(int Selector, void** Out)
+int NEURONCOMPONENTS_API FTriMeshArch::GetFaceGroupIndexCount(int Selector, void** Out)
 {
     if (CursorAtEnd())
         return -1;
@@ -1260,7 +1256,7 @@ int DACOM_API FTriMeshArch::GetFaceGroupIndexCount(int Selector, void** Out)
 }
 
 // formerly Slot27
-int DACOM_API FTriMeshArch::SetFaceGroupIndexCount(int Selector, int Count)
+int NEURONCOMPONENTS_API FTriMeshArch::SetFaceGroupIndexCount(int Selector, int Count)
 {
     if (CursorAtEnd())
         return -1;
@@ -1283,7 +1279,7 @@ int DACOM_API FTriMeshArch::SetFaceGroupIndexCount(int Selector, int Count)
 }
 
 // formerly Slot28
-int DACOM_API FTriMeshArch::AddFaceGroupChannels(unsigned long Flags)
+int NEURONCOMPONENTS_API FTriMeshArch::AddFaceGroupChannels(unsigned long Flags)
 {
     if (CursorAtEnd())
         return -1;
@@ -1363,7 +1359,7 @@ int DACOM_API FTriMeshArch::AddFaceGroupChannels(unsigned long Flags)
 }
 
 // formerly Slot29
-int DACOM_API FTriMeshArch::RemoveFaceGroupChannels(unsigned long Flags)
+int NEURONCOMPONENTS_API FTriMeshArch::RemoveFaceGroupChannels(unsigned long Flags)
 {
     if (CursorAtEnd())
         return -1;
@@ -1435,10 +1431,10 @@ int DACOM_API FTriMeshArch::RemoveFaceGroupChannels(unsigned long Flags)
 }
 
 // ---------------------------------------------------------------------------------------
-// Loader (FUN_06c23fd0)
+// Loader (the routine)
 // ---------------------------------------------------------------------------------------
 
-// One pool of the "Geometry" node, inline in retail: Count = Size / ElementSize, a Count *
+// One pool of the "Geometry" node, inline in baseline: Count = Size / ElementSize, a Count *
 // ElementSize buffer, one read of the whole leaf. A non-zero read keeps the buffer (Pool) and
 // reports the count; a zero read deletes it. Returns false when the leaf is missing.
 template<typename ElementType>
@@ -1544,7 +1540,7 @@ int FTriMeshArch::Load(IFileSystem* File, IRenderPipeline* InPipeline, IVertexBu
             TriMeshReadCornerIndices(File, "UV0_indices", &Vertices, &Vertices.Tex[0]);
         }
 
-        // UV1 is allocated through the vector-new helper (FUN_06c22410, trivial 8-byte element).
+        // UV1 is allocated through the vector-new helper (the routine, trivial 8-byte element).
         if (TriMeshReadPool(File, "UV1", 0x8, &Buffer, &Count, &bRead) && bRead)
         {
             Vertices.Tex[1].Count = Count;
@@ -1610,7 +1606,7 @@ int FTriMeshArch::Load(IFileSystem* File, IRenderPipeline* InPipeline, IVertexBu
                 else
                 {
                     _strlwr(MaterialName);
-                    Group->MaterialCrc = DACOM_CRC::GetCRC32(MaterialName);
+                    Group->MaterialCrc = NEURONCOMPONENTS_CRC::GetCRC32(MaterialName);
                 }
                 TriMeshReadArray(File, "Tristrip_indices", 1, &Group->IndexCount,
                                  &Group->Indices);
@@ -1680,7 +1676,7 @@ int FTriMeshArch::Load(IFileSystem* File, IRenderPipeline* InPipeline, IVertexBu
 }
 
 // ---------------------------------------------------------------------------------------
-// Clone (FUN_06c24aa0)
+// Clone (the routine)
 // ---------------------------------------------------------------------------------------
 
 int FTriMeshArch::Clone(FTriMeshArch** Out)
@@ -1719,7 +1715,7 @@ int FTriMeshArch::Clone(FTriMeshArch** Out)
 // Channel locking (IMesh Slot20 / Slot21)
 // ---------------------------------------------------------------------------------------
 
-// The per-vertex index array a channel locks (FUN_06c25e30 / FUN_06c26000): 1 position, 8 normal,
+// The per-vertex index array a channel locks (the routine / the routine): 1 position, 8 normal,
 // 2 tex0, 4 tex1, 0x10 diffuse; 0x4000..0x20000 extra stream 0..3. Null for anything else.
 static const unsigned long** TriMeshChannelIndexArray(FTriMeshGroup* Group, unsigned long Channel)
 {
@@ -1794,7 +1790,7 @@ int FTriMeshArch::UnlockChannel(unsigned long Channel)
     return 0;
 }
 
-// FUN_06c261b0: no edge angles -> -1. Locked[5] (+0x204) = new((EdgeCount >> 1) * 2) holding
+// no edge angles -> -1. Locked[5] (+0x204) = new((EdgeCount >> 1) * 2) holding
 // 0, 1, 2, ... 0.
 int FTriMeshArch::LockEdgeAngles()
 {
@@ -1808,7 +1804,7 @@ int FTriMeshArch::LockEdgeAngles()
     return 0;
 }
 
-// FUN_06c26200: Locked[5] deleted and cleared. 0.
+// Locked[5] deleted and cleared. 0.
 int FTriMeshArch::UnlockEdgeAngles()
 {
     delete[] (const unsigned char*)Locked[5];
@@ -1820,7 +1816,7 @@ int FTriMeshArch::UnlockEdgeAngles()
 // Counts, bounds
 // ---------------------------------------------------------------------------------------
 
-// FUN_06c26220: triangles over every group (a strip counts IndexCount - 2, a list IndexCount / 3).
+// triangles over every group (a strip counts IndexCount - 2, a list IndexCount / 3).
 int FTriMeshArch::TriangleCount()
 {
     unsigned long Total = 0;
@@ -1835,7 +1831,7 @@ int FTriMeshArch::TriangleCount()
     return (int)Total;
 }
 
-// FUN_06c26260: vertices over every group -- a private descriptor's SrcCount each time, the
+// vertices over every group -- a private descriptor's SrcCount each time, the
 // shared descriptor's once.
 int FTriMeshArch::VertexCount()
 {
@@ -1855,7 +1851,7 @@ int FTriMeshArch::VertexCount()
     return (int)Total;
 }
 
-// FUN_06c265f0 (thiscall, RET 4): *Out = +0x1E4; AL = (+0x1E4 != 0).
+// (thiscall, RET 4): *Out = +0x1E4; AL = (+0x1E4 != 0).
 bool FTriMeshArch::GetPrebuiltListing(void** Out)
 {
     *Out = Field_0x1E4;
@@ -1929,7 +1925,7 @@ int FTriMeshArch::GetCenter(float* Out)
             Center[1] = Point[1] + Center[1];
             Center[2] = Point[2] + Center[2];
         }
-        // FILD of the zero-extended count, FDIVR 1.0f (DAT_06c361ec); held on the x87 stack.
+        // FILD of the zero-extended count, FDIVR 1.0f (the field); held on the x87 stack.
         const double Scale = 1.0 / (double)Count;
         Center[0] = (float)(Scale * Center[0]);
         Center[1] = (float)(Scale * Center[1]);
@@ -1971,7 +1967,7 @@ int FTriMeshArch::GetSphere(float* OutCenter, float* OutRadius)
         for (unsigned long Index = 1; Index < Count; ++Index)
         {
             const float* Point = Points + Index * 3;
-            // 06c25997: TEST AH,0x5 / JP -- fall-through (strictly less) takes the new minimum.
+            // TEST AH,0x5 / JP -- fall-through (strictly less) takes the new minimum.
             if (Point[0] < Points[MinX * 3])
                 MinX = Index;
             else if (Point[0] > Points[MaxX * 3])
@@ -1991,11 +1987,11 @@ int FTriMeshArch::GetSphere(float* OutCenter, float* OutRadius)
         const float SumX = Points[MinX * 3] + Points[MaxX * 3];
         const float SumY = Points[MaxY * 3 + 1] + Points[MinY * 3 + 1];
         const float SumZ = Points[MaxZ * 3 + 2] + Points[MinZ * 3 + 2];
-        // FUN_06c25d10 (Out = In * 0.5f), each product stored as float.
+        // (Out = In * 0.5f), each product stored as float.
         SphereCenter[0] = 0.5f * SumX;
         SphereCenter[1] = 0.5f * SumY;
         SphereCenter[2] = 0.5f * SumZ;
-        // 06c25acf..06c25b35: the largest extent, ties going to the later operand (TEST AH,0x41 /
+        // the largest extent, ties going to the later operand (TEST AH,0x41 /
         // JNZ takes the second value when the first is not greater).
         float Largest = 0.0f;
         const float LargerXY = (ExtentX > ExtentY) ? ExtentX : ExtentY;
@@ -2009,14 +2005,14 @@ int FTriMeshArch::GetSphere(float* OutCenter, float* OutRadius)
         for (unsigned long Index = 0; Index < Count; ++Index)
         {
             const float* Point = Points + Index * 3;
-            // FUN_06c25ce0: Delta = Point - Centre, stored as float.
+            // Delta = Point - Centre, stored as float.
             const float DeltaX = Point[0] - SphereCenter[0];
             const float DeltaY = Point[1] - SphereCenter[1];
             const float DeltaZ = Point[2] - SphereCenter[2];
             const double DistanceSquared = (double)DeltaY * DeltaY +
                                            (double)DeltaZ * DeltaZ +
                                            (double)DeltaX * DeltaX;
-            // 06c25b83: FCOM r^2 / TEST AH,0x41 / JNZ skips a point that is not outside.
+            // FCOM r^2 / TEST AH,0x41 / JNZ skips a point that is not outside.
             if (!(DistanceSquared > (double)RadiusSquared))
                 continue;
             const double Distance = std::sqrt(DistanceSquared);
@@ -2025,8 +2021,8 @@ int FTriMeshArch::GetSphere(float* OutCenter, float* OutRadius)
             SphereRadius = (float)NewRadius;
             RadiusSquared = (float)(NewRadius * NewRadius);
             const float Toward = (float)((double)DistanceFloat - NewRadius);
-            // FUN_06c25d10 twice (Point * (d - r'), Centre * r'), summed, FUN_06c25cc0, then each
-            // component times 1 / d (FLD 1.0f, FDIV d) and FUN_06c25cc0 again.
+            // twice (Point * (d - r'), Centre * r'), summed, the routine, then each
+            // component times 1 / d (FLD 1.0f, FDIV d) and the routine again.
             const float PartX = Toward * Point[0];
             const float PartY = Toward * Point[1];
             const float PartZ = Toward * Point[2];
@@ -2054,7 +2050,7 @@ int FTriMeshArch::GetSphere(float* OutCenter, float* OutRadius)
 // Vertex compaction (private / shared descriptors)
 // ---------------------------------------------------------------------------------------
 
-// FUN_06c26c40 (cdecl; map, count, sentinel): every entry equal to the sentinel is renumbered
+// (cdecl; map, count, sentinel): every entry equal to the sentinel is renumbered
 // 0, 1, 2, ... in order.
 static void TriMeshDenseMap(long* Map, long Count, long Sentinel)
 {
@@ -2242,7 +2238,7 @@ void FTriMeshGroup::PrivatizeVertices()
         TriMeshDescCopy(this->SharedVertices, this->Vertices);
 }
 
-// FUN_06c26610: in EditMode 2 the edited group is made private (FUN_06c27aa0). 0.
+// in EditMode 2 the edited group is made private (the routine). 0.
 int FTriMeshArch::PrivatizeCursorGroup()
 {
     if (EditMode == 2)
@@ -2281,7 +2277,7 @@ int FTriMeshArch::ShareGroupVertices(bool bAll)
 }
 
 // Copies Count elements of Bytes bytes from Source (at SourceStride) to Dest + (Offset + i) *
-// DestStride -- the element loops of FUN_06c25140.
+// DestStride -- the element loops of the routine.
 static void TriMeshAppendElements(unsigned char* Dest, unsigned long DestStride, unsigned long Offset,
                                   const unsigned char* Source, unsigned long SourceStride, unsigned long Count,
                                   unsigned long Bytes)
@@ -2290,7 +2286,7 @@ static void TriMeshAppendElements(unsigned char* Dest, unsigned long DestStride,
         std::memcpy(Dest + (Element + Offset) * DestStride, Source + SourceStride * Element, Bytes);
 }
 
-// The index loops of FUN_06c25140: Dest[VertexOffset + v] = Source[v] + ElementOffset.
+// The index loops of the routine: Dest[VertexOffset + v] = Source[v] + ElementOffset.
 static void TriMeshAppendIndices(unsigned long* Dest, unsigned long VertexOffset, const unsigned long* Source,
                                  unsigned long VertexCount, unsigned long ElementOffset)
 {
@@ -2655,7 +2651,7 @@ int FTriMeshArch::SplitByPlane(const float* Plane, float PlaneD, unsigned char S
     return -1;
 }
 
-// FUN_06c28ed0 (cdecl; stream, old vertex count, new vertex count): the element buffer grows by
+// (cdecl; stream, old vertex count, new vertex count): the element buffer grows by
 // (New - Old) elements (Count elements copied over), the index array is reallocated to New dwords
 // (Old copied over). Count is not changed.
 static void TriMeshStreamGrow(FRpVertexStream* Stream, unsigned long OldCount, unsigned long NewCount)
@@ -2670,7 +2666,7 @@ static void TriMeshStreamGrow(FRpVertexStream* Stream, unsigned long OldCount, u
     Stream->IndexArray = Indices;
 }
 
-// One corner of FUN_06c27cc0's output: ByteSize bytes appended to the stream, the vertex's index
+// One corner of the routine's output: ByteSize bytes appended to the stream, the vertex's index
 // slot set to the element just written.
 static void TriMeshStreamAppend(FRpVertexStream* Stream, unsigned long Vertex, const unsigned char* Source)
 {
@@ -2686,7 +2682,7 @@ static const unsigned char* TriMeshStreamElement(const FRpVertexStream* Stream, 
     return Stream->Base + Indices[Vertex] * Stream->Stride;
 }
 
-// One output vertex of FUN_06c27cc0 (06c28990..06c28c1b for the front, ..06c28e89 for the back):
+// One output vertex of the routine (06c28990..06c28c1b for the front, ..06c28e89 for the back):
 // position always, normal / tex0 / tex1 / diffuse per the source FVF, then the group gets the new
 // vertex's index and SrcCount grows.
 static void TriMeshClipEmit(FRpVertexSrcDesc* Desc, FTriMeshGroup* Group, const unsigned char* Position,
@@ -2734,7 +2730,7 @@ static float TriMeshHalfSum(float A, float B)
     return (float)(((double)A + (double)B) * 0.5);
 }
 
-// The midpoint's z in all three FUN_06c27cc0 cases (06c2812d / 06c2841a / 06c2870f): the sum is
+// The midpoint's z in all three the routine cases (06c2812d / 06c2841a / 06c2870f): the sum is
 // FSTP'd to a float local first, then FLD / FMUL 0.5f / FSTP float.
 static float TriMeshHalfSumStored(float A, float B)
 {
@@ -2938,7 +2934,7 @@ void FTriMeshGroup::ClipStraddling(FTriMeshGroup* Front, FTriMeshGroup* Back, co
             ColorB[0] = MidC; ColorB[1] = C[B1]; ColorB[2] = C[B2];
         }
 
-        // 06c2897f: NOT AL / AND AL,1 on Class >> shift, then 06c2899b TEST / JNZ to the B tables:
+        // NOT AL / AND AL,1 on Class >> shift, then 06c2899b TEST / JNZ to the B tables:
         // the front takes B when that class bit is clear (0x88, 0x108, 0x208), A when it is set.
         const bool bFrontTakesB = ((Class >> SideShift) & 1) == 0;
         for (int CornerIndex = 0; CornerIndex < 3; ++CornerIndex)

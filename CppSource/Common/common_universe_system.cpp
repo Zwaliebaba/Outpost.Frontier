@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "common_universe.h"
@@ -17,8 +13,8 @@
 #include "common_reputation.h" // Reputation::Vibe static store (FreeStatic / Begin / EndStaticLoad)
 #include "common_zone.h"   // ZONE, the concrete IZone
 
-#include "DALib.h"
-#include "dacom.h"
+#include "NeuronRuntime.h"
+#include "neuroncomponents.h"
 #include "readfile.h"
 
 #include <list>
@@ -30,7 +26,7 @@
 #include <vector>
 
 // ============================================================================
-// SYSTEM -- Universe::ISystem's implementation (vftable .rdata:063a5144)
+// SYSTEM -- Universe::ISystem's implementation (vftable module storage)
 // ============================================================================
 
 namespace CmnUniverse
@@ -39,10 +35,10 @@ namespace CmnUniverse
     //   zone vt+0x10 GetPos, vt+0x1c GetProperties, vt+0x30 GetRadius,
     //   vt+0x34 InZone (SYSTEM slots 10-12 always pass Margin 0), vt+0x54 HasPhysicalEffect.
 
-    // 0x60ad78ec, the starting "best radius" of slots 10-12.
+    // , the starting "best radius" of slots 10-12.
     float const kNoZoneRadius = 1.0e20f;
 
-    // FUN_06337250 .text:06337376-06337441 (the stack SYSTEM's construction).
+    // module storage-06337441 (the stack SYSTEM's construction).
     SYSTEM::SYSTEM()
         : Spatial(nullptr)
         , SpaceMusicId(0)
@@ -54,11 +50,11 @@ namespace CmnUniverse
         IdsInfo = 0;            // +0x6c
         Visit = 0;              // +0x64
         NavMapScale = 1.0f;     // +0x90 = 0x3f800000
-        // +0x74 (pos) is not written by retail's construction; LoadUniverseIni gives the stack
+        // +0x74 (pos) is not written by baseline's construction; LoadUniverseIni gives the stack
         // SYSTEM the previous block's position (FUniverseLoadCarry).
     }
 
-    // FUN_0633aee0: FreeSpatial the zone tree, then the zone list and the connection vector
+    // FreeSpatial the zone tree, then the zone list and the connection vector
     // are released (their std:: destructors here).
     SYSTEM::~SYSTEM()
     {
@@ -313,8 +309,8 @@ namespace CmnUniverse
         return (int)Connections.size();
     }
 
-    // Slot 14, 0633b7b0 (RET 8): copy connection [Index] (8 dwords) when it exists. Retail
-    // returns false on every path (XOR AL,AL at .text:0633b7de).
+    // Slot 14, 0633b7b0 (RET 8): copy connection [Index] (8 dwords) when it exists. baseline
+    // returns false on every path (XOR AL,AL at module storage).
     bool SYSTEM::GetConnection(unsigned Index, Universe::FSystemConnection* Out) const
     {
         if (Index < Connections.size())

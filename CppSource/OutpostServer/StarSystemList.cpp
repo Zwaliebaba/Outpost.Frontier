@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // Non-MFC TU on purpose: SysDB::SysMap needs server_sysdb.h, whose closure declares
@@ -15,14 +11,14 @@
 
 #include <cwchar>
 
-// OutpostServer.cpp (.text:0040cf90 / 0040d040); OutpostServer.h cannot be included here (it is MFC).
+// OutpostServer.cpp (module storage / 0040d040); OutpostServer.h cannot be included here (it is MFC).
 void LockServer();
 void UnlockServer();
 
-// .text:00417700 — LockServer; Universe::get_system(SystemId); SysDB::SysMap find (lower_bound
-// 00417e80 plus the key test); found: the system's strid_name (ISystem +0x0c) through the
+// — LockServer; Universe::get_system(SystemId); SysDB::SysMap find (lower_bound
+// plus the key test); found: the system's strid_name (ISystem +0x0c) through the
 // resource DLL table, the same steps as LoadIdsString 004176b0 inlined; not found: L"???"
-// (.rdata:00425a60). Tail call UnlockServer. get_system's result is used without a null test.
+// (module storage). Tail call UnlockServer. get_system's result is used without a null test.
 void GetSystemName(unsigned int SystemId, wchar_t* Buf, int BufChars)
 {
 	LockServer();
@@ -38,7 +34,7 @@ void GetSystemName(unsigned int SystemId, wchar_t* Buf, int BufChars)
 	UnlockServer();
 }
 
-// .text:004177d0 — the per-system name lookup is GetSystemName inlined (0041786c..004178ff,
+// — the per-system name lookup is GetSystemName inlined (0041786c..004178ff,
 // buffer 0x400 characters); the list add is IFLListBox slot 0.
 void FillStarSystemList(unsigned int MinPlayers, IFLListBox* List)
 {

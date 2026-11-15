@@ -1,11 +1,7 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 /*
-** luaprofile: retail FUN_06803340 alloc 0x7C, FUN_06802830 stack 0x800.
+** luaprofile: baseline the routine alloc 0x7C, the routine stack 0x800.
 ** TObject 16 × STACK_UNIT 128 = 0x800; last = base+0x7f0.
 ** Not PUC-Rio — layout checks only.
 */

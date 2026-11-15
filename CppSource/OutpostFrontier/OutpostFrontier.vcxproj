@@ -39,7 +39,7 @@
   <ImportGroup Label="PropertySheets">
     <Import Project="..\OutpostFrontier.Diagnostics.props" />
   </ImportGroup>
-  <!-- dalib_net.h (DirectPlay8 network classes OutpostFrontier.exe exports like retail) needs
+  <!-- neuronruntime_net.h (DirectPlay8 network classes OutpostFrontier.exe exports like baseline) needs
        dplay8.h from the DX8 SDK; appended last so the Windows SDK basetsd.h wins. -->
   <PropertyGroup>
     <IncludePath>$(IncludePath);$(Dx8SdkDir)\include</IncludePath>
@@ -48,13 +48,13 @@
     <ClCompile>
       <AdditionalIncludeDirectories>$(ProjectDir)..\include;$(ProjectDir)..\Content;$(ProjectDir)..\imeui;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <!-- OUTPOST_FRONTIER_EXPORTS selects the declarations OutpostFrontier.exe exports itself
-           (retail OutpostFrontier.exe carries a 69-name export table, no .def): see the
+           (baseline OutpostFrontier.exe carries a 69-name export table, no .def): see the
            export macros in src/include/rpc_iclient.h and src/include/common_exports.h. -->
       <PreprocessorDefinitions>OUTPOST_FRONTIER_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <!-- /sdl makes the compiler give every dllexport class with data members an
            exported __autoclassinit2 member (bin\Server.dll showed 12 before Server.vcxproj
-           turned it off). Retail OutpostFrontier.exe exports none, and the exe must export
-           exactly the names retail exports. -->
+           turned it off). baseline OutpostFrontier.exe exports none, and the exe must export
+           exactly the names baseline exports. -->
       <SDLCheck>false</SDLCheck>
       <MultiProcessorCompilation Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</MultiProcessorCompilation>
       <MultiProcessorCompilation Condition="'$(Configuration)|$(Platform)'=='DebugASan|Win32'">true</MultiProcessorCompilation>
@@ -63,7 +63,7 @@
     <Link>
       <SubSystem>Windows</SubSystem>
       <AdditionalLibraryDirectories>$(ProjectDir)..\bin;$(ProjectDir)..\..\bin;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>dacom.lib;DALib.lib;Common.lib;imeui.lib;ole32.lib;gdi32.lib;user32.lib;advapi32.lib;shell32.lib;winmm.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>neuroncomponents.lib;NeuronRuntime.lib;Common.lib;imeui.lib;ole32.lib;gdi32.lib;user32.lib;advapi32.lib;shell32.lib;winmm.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <ResourceCompile>
       <AdditionalIncludeDirectories>$(ProjectDir)resources;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
@@ -162,7 +162,7 @@
     <ClInclude Include="Client\client_explosion.h" />
     <ClInclude Include="Client\client_land_action.h" />
     <ClInclude Include="Client\particle_effect.h" />
-    <ClInclude Include="Client\alchemy_float_forward.h" />
+    <ClInclude Include="Client\particlefx_float_forward.h" />
     <ClInclude Include="Client\effect_type_info.h" />
     <ClInclude Include="Client\effect_type_list.h" />
     <ClInclude Include="Client\tradelane_fx.h" />
@@ -229,16 +229,16 @@
     <ClInclude Include="Client\room_camera.h" />
     <ClInclude Include="Client\gf_script.h" />
     <ClInclude Include="Client\gf_script_object.h" />
-    <ClInclude Include="Client\gf_thorn_component.h" />
-    <ClInclude Include="Client\gf_thorn_compound.h" />
-    <ClInclude Include="Client\gf_thorn_deformable.h" />
+    <ClInclude Include="Client\gf_scenescript_component.h" />
+    <ClInclude Include="Client\gf_scenescript_compound.h" />
+    <ClInclude Include="Client\gf_scenescript_deformable.h" />
     <ClInclude Include="Client\gf_character_object.h" />
-    <ClInclude Include="Client\gf_thorn_camera.h" />
-    <ClInclude Include="Client\gf_thorn_light.h" />
-    <ClInclude Include="Client\gf_thorn_marker.h" />
-    <ClInclude Include="Client\gf_thorn_psys.h" />
-    <ClInclude Include="Client\gf_thorn_scene.h" />
-    <ClInclude Include="Client\gf_thorn_sound.h" />
+    <ClInclude Include="Client\gf_scenescript_camera.h" />
+    <ClInclude Include="Client\gf_scenescript_light.h" />
+    <ClInclude Include="Client\gf_scenescript_marker.h" />
+    <ClInclude Include="Client\gf_scenescript_psys.h" />
+    <ClInclude Include="Client\gf_scenescript_scene.h" />
+    <ClInclude Include="Client\gf_scenescript_sound.h" />
     <ClInclude Include="Client\gf_object_ship.h" />
     <ClInclude Include="Client\lights_camera.h" />
     <ClInclude Include="Client\menu_sound_arch.h" />
@@ -370,7 +370,7 @@
     <ClCompile Include="Client\cli_tractor_beam.cpp" />
     <ClCompile Include="Client\fl_fx_mesh.cpp" />
     <ClCompile Include="Client\particle_effect.cpp" />
-    <ClCompile Include="Client\alchemy_float_forward.cpp">
+    <ClCompile Include="Client\particlefx_float_forward.cpp">
       <BasicRuntimeChecks>Default</BasicRuntimeChecks>
       <Optimization>MaxSpeed</Optimization>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
@@ -430,17 +430,17 @@
     <ClCompile Include="Client\room_camera.cpp" />
     <ClCompile Include="Client\gf_script.cpp" />
     <ClCompile Include="Client\gf_script_object.cpp" />
-    <ClCompile Include="Client\gf_thorn_component.cpp" />
-    <ClCompile Include="Client\gf_thorn_compound.cpp" />
-    <ClCompile Include="Client\gf_thorn_deformable.cpp" />
+    <ClCompile Include="Client\gf_scenescript_component.cpp" />
+    <ClCompile Include="Client\gf_scenescript_compound.cpp" />
+    <ClCompile Include="Client\gf_scenescript_deformable.cpp" />
     <ClCompile Include="Client\gf_character_object.cpp" />
     <ClCompile Include="Client\gf_script_spawn.cpp" />
-    <ClCompile Include="Client\gf_thorn_camera.cpp" />
-    <ClCompile Include="Client\gf_thorn_light.cpp" />
-    <ClCompile Include="Client\gf_thorn_marker.cpp" />
-    <ClCompile Include="Client\gf_thorn_psys.cpp" />
-    <ClCompile Include="Client\gf_thorn_scene.cpp" />
-    <ClCompile Include="Client\gf_thorn_sound.cpp" />
+    <ClCompile Include="Client\gf_scenescript_camera.cpp" />
+    <ClCompile Include="Client\gf_scenescript_light.cpp" />
+    <ClCompile Include="Client\gf_scenescript_marker.cpp" />
+    <ClCompile Include="Client\gf_scenescript_psys.cpp" />
+    <ClCompile Include="Client\gf_scenescript_scene.cpp" />
+    <ClCompile Include="Client\gf_scenescript_sound.cpp" />
     <ClCompile Include="Client\gf_object_ship.cpp" />
     <ClCompile Include="Client\lights_camera.cpp" />
     <ClCompile Include="Client\menu_sound_arch.cpp" />
@@ -466,9 +466,9 @@
     <ClCompile Include="Client\jump_effect.cpp" />
     <ClCompile Include="Client\best_path.cpp" />
     <ClCompile Include="Client\client_cliobj.cpp" />
-    <!-- Static-init order (retail XC table): the material cache (client_cliobj.cpp, slot
+    <!-- Static-init order (baseline XC table): the material cache (client_cliobj.cpp, slot
          0x0060f0bc) is built before the VisEffect map (vis_effect_arch.cpp, slot 0x0060f19c), so
-         ~FVisEffectArch (FUN_0042edb0) still finds it at exit. MSVC runs .CRT$XCU in link order,
+         ~FVisEffectArch still finds it at exit. MSVC runs .CRT$XCU in link order,
          which is this order: keep vis_effect_arch.cpp after client_cliobj.cpp. -->
     <ClCompile Include="Client\vis_effect_arch.cpp" />
     <ClCompile Include="Client\client_mesh_load.cpp" />
@@ -547,10 +547,10 @@
     <Image Include="resources\ICON103_1.ico" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\dacom\dacom.vcxproj">
+    <ProjectReference Include="..\neuroncomponents\neuroncomponents.vcxproj">
       <Project>{8F3A1B20-9C4D-4E5F-A617-B8C9D0E1F203}</Project>
     </ProjectReference>
-    <ProjectReference Include="..\DALib\DALib.vcxproj">
+    <ProjectReference Include="..\NeuronRuntime\NeuronRuntime.vcxproj">
       <Project>{9A4B2C31-0D5E-4F60-B728-C9DAE1F20415}</Project>
     </ProjectReference>
     <ProjectReference Include="..\Common\Common.vcxproj">

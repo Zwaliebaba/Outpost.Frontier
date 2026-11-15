@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // server_iserver.h -- IServer (the 92-slot server interface), IChatServer, Server.dll's
@@ -19,29 +15,29 @@
 
 // ===========================================================================
 // IServer — exactly 92 slots (+0x000 .. +0x16c).
-//
-// Ground truth (retail listings; IServer card in decomp-tracker):
-//   * IServer's own abstract table, Server.dll .rdata:06d65d4c .. 06d65eb8 (COL at
-//     06d65d48 -> 06d6c49c, TD IServer; stored by IServerImpl's copy ctor at 06cef586), holds
-//     (0x16c / 4) + 1 = 92 entries, every one _purecall (LAB_06d5fff0).
-//   * IServerImpl's primary table is one entry longer: Server.dll .rdata:06d65bcc ..
-//     06d65d3c (COLs 06d65bc8 / 06d65d40 -> 93 entries), rpclocal.dll .rdata:06db3450 ..
-//     06db35c0, byte-for-byte the same extent. The 93rd entry (+0x170) is
+
+// Ground truth (baseline listings; IServer card in implementation tracker):
+//   * IServer's own abstract table, Server.dll module storage .. 06d65eb8 (COL at
+// -> 06d6c49c, TD IServer; stored by IServerImpl's copy ctor at 06cef586), holds
+//     (0x16c / 4) + 1 = 92 entries, every one _purecall (the branch).
+//   * IServerImpl's primary table is one entry longer: Server.dll module storage ..
+// (COLs 06d65bc8 / 06d65d40 -> 93 entries), rpclocal.dll module storage ..
+// , byte-for-byte the same extent. The 93rd entry (+0x170) is
 //     PushToServer, IServerImpl's OWN virtual -- it is not declared here, but by each
 //     IServerImpl (src/include/server_iserverimpl.h, src/include/rpc_iserver.h).
 //   * every name and parameter list comes from the module's own mangled export
 //     comment; every arity was re-checked against the callee's RET n (n / 4 =
 //     dword arguments after `this`), and all agree.
-//
+
 // The old slots 93..101 (UnknownSlot93, GetServerStats, SwapConnections,
 // ReqCargo, SetActiveConnection, PushToServer, TradeAbort, GetServerStats2,
-// NewCharacterInfoReq) do not exist in retail: they were duplicates of slots
+// NewCharacterInfoReq) do not exist in baseline: they were duplicates of slots
 // 13/14/21/29 and of IServerImpl's own PushToServer, invented while /OPT:ICF folding
 // hid those five bodies.
 // GetServerStats is not virtual either — ?GetServerStats@IServerImpl@@QAEXAAUServerStats@@@Z
 // carries "QAE" (public, non-virtual); it is exported but absent from both vtables.
-//
-// ARGUMENT ORDER is taken from the retail bodies, not guessed. Retail's habit is
+
+// ARGUMENT ORDER is taken from the baseline bodies, not guessed. baseline's habit is
 // "payload first, session id last", but it is NOT universal (InterfaceItemUsed,
 // RTCDone, AbortMission, PopUpDialog, InitiateTrade, RequestTrade, StopTradelane,
 // MissionSaveB, SetWeaponGroup take the session FIRST). Each such case is settled
@@ -92,7 +88,7 @@ struct IServer {
 
     // Slot 13 (+0x034) — RET 4. Was "AppendCharacterNames"; resolved by intersecting
     // the two modules' /OPT:ICF fold groups (Server 0x06ce1050 x rpclocal 0x06d8eae0).
-    // Both bodies are a bare RET — a genuine retail no-op.
+    // Both bodies are a bare RET — a genuine baseline no-op.
     virtual void SetActiveConnection(EFLConnection Conn) = 0;
 
     // Slot 14 (+0x038) — RET 8. Was "GetCharactersForAccount".
@@ -197,8 +193,8 @@ struct IServer {
     virtual void GFGoodSell(const SGFGoodSellInfo& Info, unsigned int SessionId) = 0;
 
     // Slot 47 (+0x0bc) — RET 8. Arg0 is the player's SHIP, not the gate: Server.dll
-    // .text:06cef67e looks it up and .text:06cef6b2 requires its CSimple+0xb4 owner to be
-    // SessionId; the gate is the ship's +0x90 (.text:06cef6be).
+    // looks it up and module storage requires its CSimple+0xb4 owner to be
+    // SessionId; the gate is the ship's +0x90 (module storage).
     virtual void SystemSwitchOutComplete(unsigned int ShipObjectId, unsigned int SessionId) = 0;
 
     // Slot 48 (+0x0c0) — RET 8. Server.dll 0x0fb20 validates param_2 as the session.
@@ -237,7 +233,7 @@ struct IServer {
     // Slot 57 (+0x0e4) — RET 16
     virtual void SPRequestInvincibility(unsigned int ShipId, unsigned char bInvincible, InvincibilityReason Reason, unsigned int SessionId) = 0;
 
-    // Slot 58 (+0x0e8) — RET 12. Retail PBG = VC6's `unsigned short const *`, a wide string.
+    // Slot 58 (+0x0e8) — RET 12. baseline PBG = VC6's `unsigned short const *`, a wide string.
     virtual void SaveGame(const CHARACTER_ID& CharId, const wchar_t* Description, unsigned int SessionId) = 0;
 
     // Slot 59 (+0x0ec) — RET 8. rpclocal 0x06d8db70 serializes only Arg1, so the
@@ -289,7 +285,7 @@ struct IServer {
     // Slot 74 (+0x128) — RET 8. rpclocal serializes Arg1 only => session is first.
     // Arg1 = the button the player answered a mission pop-up with: 1 yes, 2 no, 4 later,
     // 8 close/ok (OutpostFrontier.exe NeuroNetMissionMessage 0x0048affc / 0x0048b043 / 0x0048b08c /
-    // 0x0048b0f0, and 4 when another panel takes the pop-up down, 0x0048ae2c) -- the same bits
+    // , and 4 when another panel takes the pop-up down, 0x0048ae2c) -- the same bits
     // Content's Cnd_PopUpDialog tests (YES 1 / NO 2 / LATER 4 / CLOSE 8).
     virtual void PopUpDialog(unsigned int SessionId, unsigned int Arg1) = 0;
 
@@ -345,7 +341,7 @@ struct IServer {
     // rpclocal serializes *Arg0 only (ch3 op 0x24) => Arg1 is the session id.
     virtual void Dock(const unsigned int& BaseId, const unsigned int& SessionId) = 0;
 
-    // No slot 92 here: IServer's table (.rdata:06d65d4c) ends at +0x16c. +0x170,
+    // No slot 92 here: IServer's table (module storage) ends at +0x16c. +0x170,
     // PushToServer(CDAPacket*) RET 4, is declared by each IServerImpl as its own virtual.
 
     // NOT a vtable slot: ?GetServerStats@IServerImpl@@QAEXAAUServerStats@@@Z is
@@ -354,22 +350,22 @@ struct IServer {
 };
 
 // IChatServer — chat interface (dual inheritance with IServer in IServerImpl)
-// Retail vtable at ??_7IServerImpl@@6BIChatServer@@@
+// baseline vtable at ??_7IServerImpl@@6BIChatServer@@@
 class IChatServer {
 public:
-    // Retail ?SubmitChat@IServerImpl@@UAEXUCHAT_ID@@KPBX0H@Z (Server 0x06d191b0,
+    // baseline ?SubmitChat@IServerImpl@@UAEXUCHAT_ID@@KPBX0H@Z (Server 0x06d191b0,
     // RET 0x14). The `unsigned long` is the BYTE SIZE of Data, a BinaryRDL buffer
     // (SubmitChat hands both to BinaryRDLReader::extract_text_from_buffer), not a
     // message type. SystemId is -1 when the caller has none (rpclocal's CHATMSG).
     virtual void SubmitChat(CHAT_ID Sender, unsigned long Size, const void* Data, CHAT_ID Target, int SystemId) = 0;
 };
 
-// Retail Server.dll exports ordinals 485-487, zero-initialised .data words
+// baseline Server.dll exports ordinals 485-487, zero-initialised .data words
 // (06d8f608 / 06d8f60c / 06d8f604) that nothing inside Server.dll ever writes: a
 // host installs them. IServerImpl::SubmitChat calls them, cdecl, with the decoded
 // chat text and a player or system id -- see src/Server/server_chat.cpp.
-// OutpostServer.exe's chat dialogs install them (universe: .text:00418249..0041825a).
-// Retail mangles the text as `unsigned short*` (VC6 wchar); the port uses wchar_t.
+// OutpostServer.exe's chat dialogs install them (universe: module storage..0041825a).
+// baseline mangles the text as `unsigned short*` (VC6 wchar); the port uses wchar_t.
 extern SERVER_API void (__cdecl* g_pPrivateChatHook)(wchar_t* Text, int PlayerId);
 extern SERVER_API void (__cdecl* g_pSystemChatHook)(wchar_t* Text, int SystemId);
 extern SERVER_API void (__cdecl* g_pUniverseChatHook)(wchar_t* Text, int PlayerId);

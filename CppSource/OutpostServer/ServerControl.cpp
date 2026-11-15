@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "StdAfx.h"
@@ -13,13 +9,13 @@
 
 #include "ServerControl.h"
 
-// .data:004278c0
+
 unsigned int GServerVersion = 0;
 
-// .data:00425420 -> .data:00425424 "SrvLocal-"
+// -> module storage "SrvLocal-"
 static const char* GLocalServerPrefix = "SrvLocal-";
 
-// .data:00425fd8 -- an empty wide string the ctor assigns to ServerName / ServerDescription.
+// an empty wide string the ctor assigns to ServerName / ServerDescription.
 static const wchar_t GEmptyWide[1] = { 0 };
 
 bool LoadStringChecked(CString& Out, UINT Id)
@@ -32,7 +28,7 @@ bool LoadStringChecked(CString& Out, UINT Id)
 	return bLoaded;
 }
 
-// .text:00401440. The order of the stores follows the listing.
+// . The order of the stores follows the listing.
 FServerControl::FServerControl()
 	: ServerPassword()
 	, MaxConsoleLines(100000)
@@ -72,13 +68,13 @@ FServerControl::FServerControl()
 	memset(BandwidthLogPath, 0, sizeof(BandwidthLogPath));
 	memset(LocalServerIniPath, 0, sizeof(LocalServerIniPath));
 
-	// .text:004016fd: insert(end, 1, 0x10000) on the empty vector.
+	// insert(end, 1, 0x10000) on the empty vector.
 	LogCategories.insert(LogCategories.end(), 1, 0x10000);
 
 	memset(&AppGuid, 0, sizeof(AppGuid));
 }
 
-// .text:00401730: close the log, then the members are destroyed in reverse order
+// close the log, then the members are destroyed in reverse order
 // (vector +0x770, wstrings +0x75c / +0x74c, string +0x738, wstring +0x618).
 FServerControl::~FServerControl()
 {
@@ -93,14 +89,14 @@ FServerControl::~FServerControl()
 	}
 }
 
-// .text:004018b0: copies the 16 bytes, always succeeds.
+// copies the 16 bytes, always succeeds.
 bool FServerControl::SetAppGuid(const GUID* Guid)
 {
 	AppGuid = *Guid;
 	return true;
 }
 
-// .text:004018e0
+
 bool FServerControl::SetIniPath(const char* Path)
 {
 	if (*Path == '\0')
@@ -123,7 +119,7 @@ bool FServerControl::SetIniPath(const char* Path)
 	return true;
 }
 
-// .text:00401a20. A 0x104-character path passes the length test, so retail's copy writes its
+// . A 0x104-character path passes the length test, so baseline's copy writes its
 // terminator into StartupInfo.IniPath[0]; the copy goes through the struct base to keep that.
 bool FServerControl::SetClientModulePath(const char* ModulePath)
 {
@@ -140,7 +136,7 @@ bool FServerControl::SetClientModulePath(const char* ModulePath)
 	return true;
 }
 
-// .text:00401a70
+
 bool FServerControl::SetMaxPlayers(unsigned int MaxPlayers)
 {
 	if (MaxPlayers == 0)
@@ -151,7 +147,7 @@ bool FServerControl::SetMaxPlayers(unsigned int MaxPlayers)
 	return true;
 }
 
-// .text:00401a90. Retail stores the new stream even when the open failed (failbit set);
+// . baseline stores the new stream even when the open failed (failbit set);
 // bLogOpen only tracks that the allocation succeeded.
 bool FServerControl::OpenLog(const char* FileName)
 {
@@ -173,7 +169,7 @@ bool FServerControl::OpenLog(const char* FileName)
 	return bLogOpen;
 }
 
-// .text:00401c70
+
 bool FServerControl::CloseLog()
 {
 	if (!bLogOpen)
@@ -189,7 +185,7 @@ bool FServerControl::CloseLog()
 	return true;
 }
 
-// .text:00401cb0: ostream::write then the inlined ostream::flush.
+// ostream::write then the inlined ostream::flush.
 bool FServerControl::WriteLog(const char* Data, int Count)
 {
 	if (!bLogOpen || LogFile == nullptr)
@@ -201,14 +197,14 @@ bool FServerControl::WriteLog(const char* Data, int Count)
 	return true;
 }
 
-// .text:00401d40: insert(end, 1, Value) (the vector growth is inlined in retail).
+// insert(end, 1, Value) (the vector growth is inlined in baseline).
 bool FServerControl::AddLogCategory(int Category)
 {
 	LogCategories.insert(LogCategories.end(), 1, Category);
 	return true;
 }
 
-// .text:00401f00
+
 bool FServerControl::SetLogLevel(int Level)
 {
 	if (Level > 0 && Level < 8)
@@ -219,7 +215,7 @@ bool FServerControl::SetLogLevel(int Level)
 	return false;
 }
 
-// .text:00401f20
+
 bool FServerControl::SetMaxConsoleLines(unsigned int Value)
 {
 	if (Value != 0 && Value <= 100000)
@@ -230,7 +226,7 @@ bool FServerControl::SetMaxConsoleLines(unsigned int Value)
 	return false;
 }
 
-// .text:00401f40
+
 bool FServerControl::SetConsoleTrimLines(unsigned int Value)
 {
 	if (Value != 0 && Value <= MaxConsoleLines - 1)
@@ -241,7 +237,7 @@ bool FServerControl::SetConsoleTrimLines(unsigned int Value)
 	return false;
 }
 
-// .text:00401f70. x87: FCOMP 60.0 / TEST AH,0x41 / JNZ continues when Rate <= 60 (or unordered);
+// . x87: FCOMP 60.0 / TEST AH,0x41 / JNZ continues when Rate <= 60 (or unordered);
 // FCOMP 1.0 / TEST AH,0x5 / JP continues when Rate is not below 1.0 (or unordered).
 bool FServerControl::SetUpdateRate(float Rate)
 {
@@ -257,7 +253,7 @@ bool FServerControl::SetUpdateRate(float Rate)
 	return true;
 }
 
-// .text:00401fc0: Title = sprintf(string 0xf027, Prefix, major, minor, build), cut to 0xff bytes.
+// Title = sprintf(string 0xf027, Prefix, major, minor, build), cut to 0xff bytes.
 bool FServerControl::SetTitle(const char* Prefix)
 {
 	if (Prefix == nullptr || *Prefix == '\0')
@@ -282,73 +278,73 @@ bool FServerControl::SetTitle(const char* Prefix)
 	return true;
 }
 
-// .text:004020e0
+
 bool FServerControl::SetListServerHost(const char* HostName)
 {
 	ListServerHost.assign(HostName);
 	return true;
 }
 
-// .text:004021a0
+
 bool FServerControl::SetListServerPort(int Port)
 {
 	ListServerPort = Port;
 	return true;
 }
 
-// .text:004021b0
+
 bool FServerControl::SetServerName(const wchar_t* Name)
 {
 	ServerName.assign(Name);
 	return true;
 }
 
-// .text:00402270
+
 bool FServerControl::SetServerDescription(const wchar_t* Text)
 {
 	ServerDescription.assign(Text);
 	return true;
 }
 
-// .text:00402330
+
 bool FServerControl::SetServerPort(unsigned int Port)
 {
 	StartupInfo.Port = Port;
 	return true;
 }
 
-// .text:00402340
+
 void FServerControl::SetBandwidthLogPath(const char* Path)
 {
 	strncpy(BandwidthLogPath, Path, 0x104);
 	BandwidthLogPath[0x103] = '\0';
 }
 
-// .text:00402370
+
 void FServerControl::SetAllowNewPlayers(unsigned char Value)
 {
 	StartupInfo.bAllowNewPlayers = Value;
 }
 
-// .text:00402380: returns the raw byte.
+// returns the raw byte.
 unsigned char FServerControl::GetAllowNewPlayers() const
 {
 	return StartupInfo.bAllowNewPlayers;
 }
 
-// .text:00402390
+
 void FServerControl::SetAllowPvp(unsigned char Value)
 {
 	StartupInfo.bAllowPvp = Value;
 }
 
-// .text:004023a0
+
 unsigned char FServerControl::GetAllowPvp() const
 {
 	return StartupInfo.bAllowPvp;
 }
 
-// .text:004023b0
+
 void FServerControl::SetAutoAcceptConfig(bool bValue)
 {
 	bAutoAcceptConfig = bValue;

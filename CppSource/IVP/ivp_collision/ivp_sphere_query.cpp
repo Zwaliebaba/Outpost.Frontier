@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "ivp_sphere_query.h"
@@ -20,21 +16,21 @@
 
 namespace
 {
-    // DAT_0658ab48: the hit flag the ledge-tree walk sets (0635072b) and collect_objects_in_node
+    // the hit flag the ledge-tree walk sets (0635072b) and collect_objects_in_node
     // clears before the walk (06350977) and reads back after it (063509ac). Nothing else
     // references it.
     int32_t G_bLedgeTreeSphereHit = 0;
 
-    // DAT_063a5460 (.rdata, raw bytes 00 00 00 3f): 0.5f.
+    // (.rdata, raw bytes 00 00 00 3f): 0.5f.
     const float G_Half = 0.5f;
 
-    // FUN_06350630 (.text:06350630-0635068a, cdecl): 1 when the sphere (P, RadiusP) touches the
+    // (module storage-0635068a, cdecl): 1 when the sphere (P, RadiusP) touches the
     // sphere (Q, RadiusQ).
-    //   0635063b-0635064b  dx = P.x - Q.x, dy = P.y - Q.y, dz = P.z - Q.z (the FST of dz into
+    // dx = P.x - Q.x, dy = P.y - Q.y, dz = P.z - Q.z (the FST of dz into
     //                      local_8 is a dead store)
-    //   0635064f-06350653  R = RadiusP + RadiusQ
-    //   06350657-0635066b  D = (dz*dz + dy*dy) + dx*dx; FCOMPP R*R against D
-    //   06350675-0635067a  TEST AH,0x1 (C0); JZ -> return 1. C0 is set when R*R < D or the compare
+    // R = RadiusP + RadiusQ
+    // D = (dz*dz + dy*dy) + dx*dx; FCOMPP R*R against D
+    // TEST AH,0x1 (C0); JZ -> return 1. C0 is set when R*R < D or the compare
     //                      is unordered, so the fall-through (return 0) is "less or NaN".
     int32_t IVP_SphereTouchesSphere(const IVP_U_Point* P, float RadiusP, const IVP_U_Point* Q, float RadiusQ)
     {
@@ -50,17 +46,17 @@ namespace
         return 0;
     }
 
-    // FUN_06350690 (.text:06350690-0635073c, cdecl): walks a compact ledge tree from Node and
+    // (module storage-0635073c, cdecl): walks a compact ledge tree from Node and
     // sets G_bLedgeTreeSphereHit when the sphere (P, Radius) reaches a terminal node, or any
     // node once Depth reaches MaxDepth. The right son is followed in the loop, the left son
     // (Node + 1, +0x1c) by recursion.
-    //   063506a3           ChildDepth (EDI) = Depth + 1
-    //   063506a6-063506ce  dx = P.x - center.x; dy = P.y - center.y; dz = P.z - center.z
+    // ChildDepth (EDI) = Depth + 1
+    // dx = P.x - center.x; dy = P.y - center.y; dz = P.z - center.z
     //                      (center.y / center.z go through float stack slots -- the same values)
-    //   063506d2-063506d6  R = node radius (+0x14) + Radius
-    //   063506da-063506fd  D = (dz*dz + dy*dy) + dx*dx; C0 (R*R < D or unordered) -> return
-    //   063506ff-0635070a  Depth >= MaxDepth (JGE), or offset_right_node == 0 -> flag = 1, return
-    //   0635070c-06350726  recurse on the left son with ChildDepth; Node = right son; ++Depth,
+    // R = node radius (+0x14) + Radius
+    // D = (dz*dz + dy*dy) + dx*dx; C0 (R*R < D or unordered) -> return
+    // Depth >= MaxDepth (JGE), or offset_right_node == 0 -> flag = 1, return
+    // recurse on the left son with ChildDepth; Node = right son; ++Depth,
     //                      ++ChildDepth; loop
     void IVP_LedgeTreeSphereWalk(const IVP_Compact_Ledgetree_Node* Node, const IVP_U_Point* P, float Radius,
                                  int32_t Depth, int32_t MaxDepth)
@@ -90,15 +86,15 @@ namespace
     }
 }
 
-// FUN_06350740:
-//   06350743-0635075f  Center = Record->Center (y / x through FLD/FSTP float, z as a dword)
-//   06350765-06350768  Radius = Record->Radius (dword)
-//   06350774-0635077b  MaxLedgeTreeDepth = Record->MaxLedgeTreeDepth
-//   06350777-0635078a  TreeManager = Environment->ov_tree_manager (+0x14); Root = its
+
+// Center = Record->Center (y / x through FLD/FSTP float, z as a dword)
+// Radius = Record->Radius (dword)
+// MaxLedgeTreeDepth = Record->MaxLedgeTreeDepth
+// TreeManager = Environment->ov_tree_manager (+0x14); Root = its
 //                      CurrentRoot (+0x178)
-//   06350790-063507a9  HalfSize (local_10..local_8) = (Radius, Radius, Radius)
-//   063507ad-063507cd  QueryCenter (local_20..local_18) = Center
-//   063507d1           collect_objects_in_node(Root, &HalfSize, &QueryCenter) -- the last PUSH
+// HalfSize (local_10..local_8) = (Radius, Radius, Radius)
+// QueryCenter (local_20..local_18) = Center
+// collect_objects_in_node(Root, &HalfSize, &QueryCenter) -- the last PUSH
 //                      (Root) is the first argument, &local_10 the second, &local_20 the third.
 void IVP_Sphere_Object_Query::collect_objects(const FIVP_Sphere_Query_Record* Record, IVP_Environment* Environment)
 {
@@ -123,32 +119,32 @@ void IVP_Sphere_Object_Query::collect_objects(const FIVP_Sphere_Query_Record* Re
     collect_objects_in_node(Root, &HalfSize, &QueryCenter);
 }
 
-// FUN_063507e0:
-//   063507ec-063507fd  TreeManager->node_cell_bounds(Node, &Origin (local_10), &Extent (local_3c))
-//   06350802-06350838  Half = Extent * 0.5f kept on the stack; its float copies go to
+
+// TreeManager->node_cell_bounds(Node, &Origin (local_10), &Extent (local_3c))
+// Half = Extent * 0.5f kept on the stack; its float copies go to
 //                      local_20/1c/18; NodeCenter (local_30/2c/28) = float(Half + Origin[i])
-//   0635083c-0635088b  per axis: |NodeCenter[i] - QueryCenter[i]| against float(Half) +
+// per axis: |NodeCenter[i] - QueryCenter[i]| against float(Half) +
 //                      HalfSize[i]; TEST AH,0x1 (C0) JNZ -> return, i.e. leave when
 //                      Half + HalfSize < |...| or unordered
-//   06350891-06350a15  every element (Node+0x22 count, +0x24 elems): Object = element->
+// every element (Node+0x22 count, +0x24 elems): Object = element->
 //                      real_object (+0x24);
-//                        Delta = Center - core->MWorldFCore.vv (FUN_0628bea0, float stores);
+//                        Delta = Center - core->MWorldFCore.vv (the routine, float stores);
 //                        R = Radius + core->UpperLimitRadius (local_38 + local_34);
 //                        D = (dz*dz + dy*dy) + dx*dx; C0 -> next element (06350a08);
-//                        Slot = the inlined FUN_06353510 (ResolveNarrowPhaseCacheSlot: lazy
-//                        0634d530, ++RefCount, conditional 0634d640);
-//                        Local = FUN_0634d860(Slot, &Center) (world -> slot space);
+//                        Slot = the inlined the routine (ResolveNarrowPhaseCacheSlot: lazy
+// , ++RefCount, conditional 0634d640);
+//                        Local = the routine(Slot, &Center) (world -> slot space);
 //                        flag = 0 (06350977);
 //                        object_type 2: walk the polygon's ledge tree (surface manager +0x80 ->
 //                          +0x04 compact surface -> + offset_ledgetree_root) from depth 0 to
 //                          MaxLedgeTreeDepth, result = the flag;
-//                        object_type 3: result = FUN_06350630(&Local, Radius, &core->vv,
+//                        object_type 3: result = the routine(&Local, Radius, &core->vv,
 //                          core->UpperLimitRadius) -- Local is in slot space and core->vv in
-//                          world space, exactly as retail passes them;
+//                          world space, exactly as baseline passes them;
 //                        any other type: no test, result skipped (063509b9 -> 06350a01);
-//                        result != 0 -> Found.Add(Object) (grows through FUN_063441a0);
+//                        result != 0 -> Found.Add(Object) (grows through the routine);
 //                        --Slot->RefCount (06350a01, inline DEC).
-//   06350a23-06350a4f  every child (Node+0x1a count, +0x1c elems): recurse with the same
+// every child (Node+0x1a count, +0x1c elems): recurse with the same
 //                      HalfSize / QueryCenter.
 // No pointer is tested anywhere.
 void IVP_Sphere_Object_Query::collect_objects_in_node(IVP_OV_Node* Node, const IVP_U_Point* HalfSize,

@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -23,7 +19,7 @@ namespace CmnSysMgr
         std::memcpy(Dst, &Value, sizeof(float));
     }
 
-    // The module-wide "watcher holds a live object" test: retail reads the watched pointer,
+    // The module-wide "watcher holds a live object" test: baseline reads the watched pointer,
     // tests it for 0, subtracts 8 (the Watchable -> IObjRW downcast) and tests again, so the
     // literal 8 counts as empty as well.
     inline bool IsWatcherLive(BaseWatcher const& Watcher)
@@ -33,7 +29,7 @@ namespace CmnSysMgr
     }
 
     // `EAX = [W]; ECX = EAX ? EAX - 8 : 0` -- the object behind a watcher, or null. Callers
-    // that dereference it without a test do so exactly where retail does.
+    // that dereference it without a test do so exactly where baseline does.
     inline IObjRW* WatchedObject(BaseWatcher const& Watcher)
     {
         return ObjRwFromWatchable(const_cast<Watchable*>(Watcher.target()));

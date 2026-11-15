@@ -1,14 +1,10 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
 #include "render/IBigImage2.h"
 
-// Minimal 2D UI draw helpers (pipeline slot 69 / 70). The big-image tile callback FUN_00404720
+// Minimal 2D UI draw helpers (pipeline slot 69 / 70). The big-image tile callback the routine
 // is ScreenQuadDrawBigImageTile in screen_quad_state.h.
 // FVF 0x1C4: XYZRHW + DIFFUSE + SPECULAR + TEX1 (stride 32).
 

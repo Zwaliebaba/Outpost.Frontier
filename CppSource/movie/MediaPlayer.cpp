@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "MediaPlayer.h"
@@ -12,28 +8,28 @@
 #include <cstring>
 #include <new>
 
-// 0x06acf3db. movie.dll operator new: __nh_malloc(size, 1). Null on failure, does not throw.
+// . movie.dll operator new: __nh_malloc(size, 1). Null on failure, does not throw.
 void* __cdecl MovieOperatorNew(unsigned int Size);
 
-// FUN_06acf3d0. movie.dll operator delete: push arg, call the heap free, pop, ret.
+// . movie.dll operator delete: push arg, call the heap free, pop, ret.
 void __cdecl MovieOperatorDelete(void* Block);
 
 // Global state variables initialization
 int g_stateFlag = 0;
-FApproach2Player* g_playerObject = nullptr; // DAT_06ae092c
-IGraphBuilder* g_graphBuilder = nullptr; // DAT_06ae0940
-IMediaEventEx* g_mediaEventEx = nullptr; // DAT_06ae0934
-IMediaControl* g_mediaControl = nullptr; // DAT_06ae0938
-IBasicVideo* g_basicVideo = nullptr; // DAT_06ae0944
-IVideoWindow* g_videoWindow = nullptr; // DAT_06ae093c
+FApproach2Player* g_playerObject = nullptr;
+IGraphBuilder* g_graphBuilder = nullptr;
+IMediaEventEx* g_mediaEventEx = nullptr;
+IMediaControl* g_mediaControl = nullptr;
+IBasicVideo* g_basicVideo = nullptr;
+IVideoWindow* g_videoWindow = nullptr;
 int g_initSuccess = 0;
 unsigned char g_playing = 0;
 HWND g_hwndParent = nullptr;
 WNDPROC g_originalWndProc = nullptr;
-IUnknown* g_serviceProvider = nullptr; // DAT_06ae0948
-HMODULE g_movieModule = nullptr; // DAT_06ae0904
+IUnknown* g_serviceProvider = nullptr;
+HMODULE g_movieModule = nullptr;
 
-// 0x06ac16a0
+
 bool __cdecl Movie_LogNegativeCode(long Code, const char* File, int Line)
 {
     char Buffer[0x400];
@@ -51,13 +47,13 @@ bool __cdecl Movie_LogNegativeCode(long Code, const char* File, int Line)
     return Code < 0;
 }
 
-// 0x06ac1bd0
+
 bool __cdecl Movie_IsPlaying()
 {
     return g_playing != 0;
 }
 
-// 0x06ac1ce0
+
 void __cdecl Movie_Nop()
 {
 }
@@ -88,7 +84,7 @@ static void ReleaseApproach2Object()
     g_playerObject = nullptr;
 }
 
-// 0x06ac1be0
+
 void __cdecl Movie_ReleaseComAndRestoreWndProc()
 {
     IMediaEventEx* Video = g_mediaEventEx;

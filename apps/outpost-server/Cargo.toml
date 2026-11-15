@@ -1,0 +1,12 @@
+[package]
+name = "outpost-server"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+game-logic.workspace = true
+
+[[bin]]
+name = "OutpostServer"
+path = "src/main.rs"

@@ -1,22 +1,18 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
-// Port-only (no retail counterpart): the client side of the Direct3D 9 render extensions.
-// See render_ex.h and docs/re/rp9.md, "Ex extensions".
-// Compiled only with OUTPOST_FRONTIER_RP9 (src/Directory.Build.props).
-#ifdef OUTPOST_FRONTIER_RP9
+// Port-only (no baseline counterpart): the client side of the Direct3D 9 render extensions.
+// See render_ex.h and implementation notes, "Ex extensions".
+// Compiled only with OUTPOST_FRONTIER_DX9RENDERER (src/Directory.Build.props).
+#ifdef OUTPOST_FRONTIER_DX9RENDERER
 #include "render_ex.h"
 
 #include "nebula_volume.h"
 
-#include "DALib.h"
+#include "NeuronRuntime.h"
 #include "common_ini.h"  // INI_Reader
 #include "common_misc.h" // GetFileSysPath
-#include "dacom.h"
-#include "dacom_iids.h"
+#include "neuroncomponents.h"
+#include "neuroncomponents_iids.h"
 #include "globals.h"     // g_display.data_path ([OutpostFrontier] data path)
 #include "readfile.h"    // IFileSystem
 #include "render/IRenderPipeline.h"
@@ -30,7 +26,7 @@
 namespace
 {
     const char kRenderExSource[] = "render_ex.cpp";
-    // The port's own data lives outside the retail DATA tree, in DATA_EXTRA next to it
+    // The port's own data lives outside the baseline DATA tree, in DATA_EXTRA next to it
     // ([OutpostFrontier] data path "..\DATA" -> "..\DATA_EXTRA"), so an install only adds the folder.
     const char kExtraDataDir[] = "DATA_EXTRA";
     // DATA_EXTRA-relative (GExtraData is the FileSystem rooted at that directory).
@@ -87,7 +83,7 @@ namespace
         Out[OutSize - 1] = '\0';
     }
 
-    // The DOS FileSystem over DATA_EXTRA, described like DALib::OpenData's over DATA.
+    // The DOS FileSystem over DATA_EXTRA, described like NeuronRuntime::OpenData's over DATA.
     IFileSystem* OpenExtraData(const char* Path)
     {
         FFileSystemAggDesc Desc = {};
@@ -101,8 +97,8 @@ namespace
         Desc.Field20 = 0x08000080;
         Desc.Field30 = 0xFFFFFFFF;
         IFileSystem* FileSystem = nullptr;
-        if (DALib::Dacom == nullptr ||
-            DALib::Dacom->CreateInstance((AGGDESC*)(&Desc), (void**)(&FileSystem)) != GR_OK)
+        if (NeuronRuntime::NeuronComponents == nullptr ||
+            NeuronRuntime::NeuronComponents->CreateInstance((AGGDESC*)(&Desc), (void**)(&FileSystem)) != GR_OK)
             return nullptr;
         return FileSystem;
     }
@@ -196,7 +192,7 @@ namespace
 
     // Once a second (wall clock). volumetric.ini changed: [Debug] and the nebula volume
     // settings are re-read and apply from the next frame. A shader changed: every Ex program is
-    // recompiled (RP9 keeps the old code of one that fails and logs the compiler errors).
+    // recompiled (DX9RENDERER keeps the old code of one that fails and logs the compiler errors).
     void PollHotReload()
     {
         const DWORD Now = GetTickCount();
@@ -268,7 +264,7 @@ namespace
         }
         if (!GbDepthProgramTried)
         {
-            // A failed compile still returns a handle (errors logged by RP9); it binds once a
+            // A failed compile still returns a handle (errors logged by DX9RENDERER); it binds once a
             // ReloadExPrograms compiles it.
             GbDepthProgramTried = true;
             Ex->CreateExProgram(GExtraData, kDebugDepthShader, "VSMain", "PSMain",
@@ -280,7 +276,7 @@ namespace
         // The projection the scene was drawn with. GetProjection returns the transpose of the
         // device matrix: row 2 is the z_clip row, row 3 the w row.
         float Projection[16];
-        if (DALib::Pipeline->GetProjection(Projection) != GR_OK)
+        if (NeuronRuntime::Pipeline->GetProjection(Projection) != GR_OK)
             return;
         const float ProjZ[4] = {Projection[10], Projection[11], Projection[14], Projection[15]};
         const float DepthView[4] = {LinearDepth(ProjZ, 0.0f), LinearDepth(ProjZ, 1.0f),
@@ -314,19 +310,19 @@ namespace
 
 void RenderEx::Startup()
 {
-    if (DALib::Pipeline == nullptr)
+    if (NeuronRuntime::Pipeline == nullptr)
         return;
     IRenderPipelineEx* PipelineEx = nullptr;
-    if (DALib::Pipeline->QueryInterface(Iids::RenderPipelineEx, (void**)(&PipelineEx)) != GR_OK ||
+    if (NeuronRuntime::Pipeline->QueryInterface(Iids::RenderPipelineEx, (void**)(&PipelineEx)) != GR_OK ||
         PipelineEx == nullptr)
     {
-        // DirectX8 (RP8.dll): the retail rendering path, nothing else to do.
+        // DirectX8 (DX8RENDERER.dll): the baseline rendering path, nothing else to do.
         FDUMP(0x100003, "%s(%d) : NOTICE:General:render pipeline has no Direct3D 9 extensions",
               kRenderExSource, __LINE__);
         return;
     }
     IRPDrawEx* DrawEx = nullptr;
-    if (DALib::Pipeline->QueryInterface(Iids::RPDrawEx, (void**)(&DrawEx)) != GR_OK ||
+    if (NeuronRuntime::Pipeline->QueryInterface(Iids::RPDrawEx, (void**)(&DrawEx)) != GR_OK ||
         DrawEx == nullptr)
     {
         PipelineEx->Release();
@@ -335,7 +331,7 @@ void RenderEx::Startup()
         return;
     }
     // Shaders and volumetric.ini come from DATA_EXTRA; without it there is nothing to draw the
-    // extensions with, so they stay off and every retail path runs.
+    // extensions with, so they stay off and every baseline path runs.
     char ExtraPath[MAX_PATH] = {};
     BuildExtraDataPath(ExtraPath, sizeof(ExtraPath));
     const DWORD ExtraAttributes = GetFileAttributesA(ExtraPath);
@@ -445,4 +441,4 @@ void RenderEx::AfterSpaceScene()
         DrawSceneDepthView();
 }
 
-#endif // OUTPOST_FRONTIER_RP9
+#endif // OUTPOST_FRONTIER_DX9RENDERER

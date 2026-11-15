@@ -48,7 +48,7 @@
   <ItemDefinitionGroup>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <AdditionalDependencies>dacom.lib;ole32.lib;dsound.lib;msacm32.lib;winmm.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>neuroncomponents.lib;ole32.lib;dsound.lib;msacm32.lib;winmm.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>$(Dx8SdkDir)\lib;$(OutDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
@@ -56,7 +56,7 @@
     <ClInclude Include="SoundManagerInternal.h" />
     <ClInclude Include="..\include\soundmanager.h" />
     <ClInclude Include="..\include\audio\dsound8.h" />
-    <ClInclude Include="..\include\dacom.h" />
+    <ClInclude Include="..\include\neuroncomponents.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="SoundManager.cpp" />
@@ -65,7 +65,7 @@
     <ResourceCompile Include="SoundManager.rc" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\dacom\dacom.vcxproj">
+    <ProjectReference Include="..\neuroncomponents\neuroncomponents.vcxproj">
       <Project>{8F3A1B20-9C4D-4E5F-A617-B8C9D0E1F203}</Project>
     </ProjectReference>
   </ItemGroup>

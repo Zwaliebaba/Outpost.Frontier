@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -22,7 +18,7 @@ typedef void (*PFN_DRAWFAN)(void* Layout, unsigned Count);
 typedef void (*PFN_SENDCHAR)(unsigned Character);
 typedef void (*PFN_SENDKEY)(unsigned Key);
 
-// Global IME UI engine functions matching retail disassembly
+// Global IME UI engine functions matching baseline analysis
 bool ImeUi_Initialize(HWND Window, bool bDisabled = false);
 void ImeUi_Uninitialize();
 void ImeUi_SetState(bool bState);

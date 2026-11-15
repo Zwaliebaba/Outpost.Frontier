@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -9,7 +5,7 @@
 // Common.dll-internal helpers shared by the BaseIdea family TUs that were split out of
 // common_idea.cpp (CMN-SPLIT stage 1, 2026-10-14): common_idea.cpp, common_moveidea.cpp,
 // common_faceidea.cpp, common_splinemoveidea.cpp, common_dodgeidea.cpp,
-// common_breakawayidea.cpp, common_dodgemissileidea.cpp. None of these is a retail
+// common_breakawayidea.cpp, common_dodgemissileidea.cpp. None of these is a baseline
 // function of its own; until the split they lived in common_idea.cpp's anonymous
 // namespace. Consumers write `using namespace CmnIdea;` after their includes.
 
@@ -35,39 +31,39 @@ namespace CmnIdea
     }
 
     // Shared by MoveIdea::SetPosition/SetWatchObject/Commit and (independently)
-    // by SplineMoveIdea's own SetContext/Commit (common_splinemoveidea.cpp): retail reaches an
+    // by SplineMoveIdea's own SetContext/Commit (common_splinemoveidea.cpp): baseline reaches an
     // external "owning slot array" through `*(BaseIdea::Context + 0xc)` and then
     // writes fixed offsets inside it (+0x64 for an object id, +0x200..+0x208 for
     // a Vector). This is the same array common_behavior.h models as
     // FormationMoveFx::SlotOwner -- which independently confirms that class's
     // "SlotOwner" at +0x0c is nothing but BaseIdea::Context under another name.
-    //
-    // Context is the IBehaviorManager and its +0x0c the owned PathfindManager; retail
+
+    // Context is the IBehaviorManager and its +0x0c the owned PathfindManager; baseline
     // dereferences both levels unguarded (e.g. 062d584e/062d5865), and so does this.
     inline unsigned char* SlotArrayOf(void* Context)
     {
         return *reinterpret_cast<unsigned char**>(static_cast<unsigned char*>(Context) + 0x0c);
     }
 
-    // BaseIdea::Handle is the owning SystemManager: retail reaches its SelfTarget as
+    // BaseIdea::Handle is the owning SystemManager: baseline reaches its SelfTarget as
     // `[this+8] + 0x14fc` and its ThrustManager as `[this+8] + 0x18` with plain ADDs and
     // never tests Handle. (The former NavBlockOf / NavOwnerIfaceOf / ComponentThisOf
     // helpers are gone: callers write Handle->SelfTarget / Handle->Thrust.)
 
-    // FUN_062e4bb0 (decomp-tracker item 1749). MoveIdea::Update's
-    // TargetKind48 == 1 arm calls it at .text:062d50a2 as
-    // FUN_062e4bb0(NavBlock, WatchedOuter) and squares the result to get its
+    // (implementation tracker item 1749). MoveIdea::Update's
+    // TargetKind48 == 1 arm calls it at module storage as
+    // (NavBlock, WatchedOuter) and squares the result to get its
     // distance gate.
-    //
+
     // CLOSED 2026-09-17 (claude:common-steering-close). Item 1749 is now ported
     // for real as GetInterceptClearanceOfIface (common_aisteer.h, common_aiintercept.cpp), next to
     // the GetInterceptClearance / IsWithinInterceptRangeOfIface family it belongs
     // to, and this helper is a thin forwarder rather than the 0x7effffff sentinel
     // stand-in it used to be. The DEVIATION note that lived here is gone with it:
     // the real clearance is computed now.
-    //
-    // Both retail sites (062d50a2, 062d92ea) push `[this+8]+0x14fc` and the
-    // `raw ? raw-8 : 0` watched object straight into FUN_062e4bb0 with no test,
+
+    // Both baseline sites (062d50a2, 062d92ea) push `[this+8]+0x14fc` and the
+    // `raw ? raw-8 : 0` watched object straight into the routine with no test,
     // and both keep the ST0 return unrounded (062d50a7 squares it, 062d92f9
     // FCOMPs it), so this forwards unguarded and returns double.
     inline double NavInterceptClearanceOfIface(FAiTarget* NavBlock, IObjInspect const* TargetIface)

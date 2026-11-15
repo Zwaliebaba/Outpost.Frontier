@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "MaterialAnimation.h"
@@ -81,7 +77,7 @@ static void InitializeMaFileDesc(FFileSystemDesc* Desc, const char* Name)
 
 static void ParseMaKeys(void* FileSystem, FMaKeyBlock* Block)
 {
-    // FUN_06ec6a60..6cb3: scalar reads commit only on success with four bytes;
+    // ..6cb3: scalar reads commit only on success with four bytes;
     // array reads retain their published allocation regardless of read result/size.
     IFileSystem* Fs = AsFileSystem(FileSystem);
     FFileSystemDesc Desc;
@@ -161,7 +157,7 @@ FImaData::~FImaData()
     ClearKeyBlock(&Keys);
 }
 
-GENRESULT DACOM_API FImaData::QueryInterface(const char* Iid, void** Out)
+GENRESULT NEURONCOMPONENTS_API FImaData::QueryInterface(const char* Iid, void** Out)
 {
     if (std::strcmp(Iid, kIidImaData) != 0)
     {
@@ -173,12 +169,12 @@ GENRESULT DACOM_API FImaData::QueryInterface(const char* Iid, void** Out)
     return GR_OK;
 }
 
-unsigned long DACOM_API FImaData::AddRef()
+unsigned long NEURONCOMPONENTS_API FImaData::AddRef()
 {
     return ++RefCount;
 }
 
-unsigned long DACOM_API FImaData::Release()
+unsigned long NEURONCOMPONENTS_API FImaData::Release()
 {
     if (RefCount != 0)
         --RefCount;
@@ -192,12 +188,12 @@ unsigned long DACOM_API FImaData::Release()
     return Next;
 }
 
-FMaKeyBlock* DACOM_API FImaData::KeyBlock()
+FMaKeyBlock* NEURONCOMPONENTS_API FImaData::KeyBlock()
 {
     return &Keys;
 }
 
-void DACOM_API FImaData::CrcOut(unsigned long* Out)
+void NEURONCOMPONENTS_API FImaData::CrcOut(unsigned long* Out)
 {
     *Out = NameCrc;
 }
@@ -218,7 +214,7 @@ FImaInstance::~FImaInstance()
     }
 }
 
-GENRESULT DACOM_API FImaInstance::QueryInterface(const char* Iid, void** Out)
+GENRESULT NEURONCOMPONENTS_API FImaInstance::QueryInterface(const char* Iid, void** Out)
 {
     if (std::strcmp(Iid, kIidImaInstance) != 0)
     {
@@ -230,12 +226,12 @@ GENRESULT DACOM_API FImaInstance::QueryInterface(const char* Iid, void** Out)
     return GR_OK;
 }
 
-unsigned long DACOM_API FImaInstance::AddRef()
+unsigned long NEURONCOMPONENTS_API FImaInstance::AddRef()
 {
     return ++RefCount;
 }
 
-unsigned long DACOM_API FImaInstance::Release()
+unsigned long NEURONCOMPONENTS_API FImaInstance::Release()
 {
     if (RefCount != 0)
         --RefCount;
@@ -260,20 +256,20 @@ void FImaInstance::AttachData(FImaData* NewData)
         Data->AddRef();
 }
 
-FMaKeyBlock* DACOM_API FImaInstance::GetKeyBlock()
+FMaKeyBlock* NEURONCOMPONENTS_API FImaInstance::GetKeyBlock()
 {
     return Data->KeyBlock();
 }
 
-void DACOM_API FImaInstance::ResetTime()
+void NEURONCOMPONENTS_API FImaInstance::ResetTime()
 {
     Frame = 0;
     Time = 0.0f;
 }
 
-void DACOM_API FImaInstance::Tick(float Dt)
+void NEURONCOMPONENTS_API FImaInstance::Tick(float Dt)
 {
-    // 06ec72b7 TEST AH,0x41 / JNZ: not-greater (including unordered) returns.
+    // TEST AH,0x41 / JNZ: not-greater (including unordered) returns.
     if (Data == nullptr || !(Dt > 0.0f))
         return;
     FMaKeyBlock* Block = GetKeyBlock();
@@ -292,9 +288,9 @@ void DACOM_API FImaInstance::Tick(float Dt)
     }
 }
 
-unsigned char DACOM_API FImaInstance::FillUvMatrix(float* Out)
+unsigned char NEURONCOMPONENTS_API FImaInstance::FillUvMatrix(float* Out)
 {
-    // LAB_06ec7330..06ec742a: only Out==null has an early return.
+    // only Out==null has an early return.
     if (Out == nullptr)
         return 0;
     std::memset(Out, 0, 16 * sizeof(float));
@@ -304,7 +300,7 @@ unsigned char DACOM_API FImaInstance::FillUvMatrix(float* Out)
     Out[15] = 1.0f;
     FMaKeyBlock* Block = Data->KeyBlock();
 
-    // DAT_06ed1284 = float 0: Frame==0 initializes all four key values to 0.
+    // = float 0: Frame==0 initializes all four key values to 0.
     float KeyA = 0.0f;
     float KeyB = 0.0f;
     float KeyC = 0.0f;
@@ -323,33 +319,33 @@ unsigned char DACOM_API FImaInstance::FillUvMatrix(float* Out)
     const float ValueB = (float)((double)Delta.Field8 * Time + KeyB);
     const double ValueC = (double)Delta.FieldC * Time + KeyC;
     const float ValueD = (float)((double)Delta.Field10 * Time + KeyD);
-    // 06ec73f7/73fe load and multiply A before 06ec7401 writes Out[6].
+    // /73fe load and multiply A before 06ec7401 writes Out[6].
     const double ValueAProduct = (double)Delta.Field4 * Time;
     Out[6] = ValueB;
     Out[2] = (float)(ValueAProduct + KeyA);
-    Out[0] = (float)(ValueC + 1.0); // DAT_06ed2bd8 = double 1
+    Out[0] = (float)(ValueC + 1.0); // = double 1
     Out[5] = (float)((double)ValueD + 1.0);
     return 1;
 }
 
 FMatAnimAggregate::FMatAnimAggregate() : Owner(nullptr) {}
 
-GENRESULT DACOM_API FMatAnimAggregate::QueryInterface(const char* Iid, void** Out)
+GENRESULT NEURONCOMPONENTS_API FMatAnimAggregate::QueryInterface(const char* Iid, void** Out)
 {
     return Owner->QueryInterface(Iid, Out);
 }
 
-unsigned long DACOM_API FMatAnimAggregate::AddRef()
+unsigned long NEURONCOMPONENTS_API FMatAnimAggregate::AddRef()
 {
     return Owner->AddRef();
 }
 
-unsigned long DACOM_API FMatAnimAggregate::Release()
+unsigned long NEURONCOMPONENTS_API FMatAnimAggregate::Release()
 {
     return Owner->Release();
 }
 
-GENRESULT DACOM_API FMatAnimAggregate::Initialize()
+GENRESULT NEURONCOMPONENTS_API FMatAnimAggregate::Initialize()
 {
     return GR_OK;
 }
@@ -359,10 +355,10 @@ FMaterialAnimationController::FMaterialAnimationController(FMaterialAnimation* I
 {
 }
 
-GENRESULT DACOM_API FMaterialAnimationController::QueryInterface(const char* Iid, void** Out)
+GENRESULT NEURONCOMPONENTS_API FMaterialAnimationController::QueryInterface(const char* Iid, void** Out)
 {
-    // LAB_06ec8020: immutable map at 06ed2c00 has offsets 0 and 4 only.
-    IDAComponent* Face;
+    // immutable map at 06ed2c00 has offsets 0 and 4 only.
+    INeuronComponent* Face;
     if (std::strcmp(Iid, Iids::MatAnimLibrary) == 0)
         Face = (IMatAnimLibrary*)Owner;
     else if (std::strcmp(Iid, Iids::AggregateComponent) == 0)
@@ -377,12 +373,12 @@ GENRESULT DACOM_API FMaterialAnimationController::QueryInterface(const char* Iid
     return GR_OK;
 }
 
-unsigned long DACOM_API FMaterialAnimationController::AddRef()
+unsigned long NEURONCOMPONENTS_API FMaterialAnimationController::AddRef()
 {
     return ++Owner->RefCount;
 }
 
-unsigned long DACOM_API FMaterialAnimationController::Release()
+unsigned long NEURONCOMPONENTS_API FMaterialAnimationController::Release()
 {
     if (Owner->RefCount != 0)
         --Owner->RefCount;
@@ -391,7 +387,7 @@ unsigned long DACOM_API FMaterialAnimationController::Release()
     {
         FMaterialAnimation* DeleteOwner = Owner;
         DeleteOwner->RefCount = 1;
-        // LAB_06ec80e0 keeps its owning-object pointer live during teardown.
+        // keeps its owning-object pointer live during teardown.
         delete DeleteOwner;
     }
     return Next;
@@ -409,27 +405,27 @@ FMaterialAnimation::~FMaterialAnimation()
         if (CrcMap[Index].Data != nullptr)
         {
             CrcMap[Index].Data->Release();
-            CrcMap[Index].Data = nullptr; // FUN_06ec8240 clears after Release.
+            CrcMap[Index].Data = nullptr; // clears after Release.
         }
     }
     CrcMap.clear(); // Reset the native count after releasing every payload.
 }
 
-GENRESULT DACOM_API FMaterialAnimation::QueryInterface(const char* Iid, void** Out)
+GENRESULT NEURONCOMPONENTS_API FMaterialAnimation::QueryInterface(const char* Iid, void** Out)
 {
-    IDAComponent* Controlling = Outer != nullptr ? Outer : &Controller;
+    INeuronComponent* Controlling = Outer != nullptr ? Outer : &Controller;
     return Controlling->QueryInterface(Iid, Out);
 }
 
-unsigned long DACOM_API FMaterialAnimation::AddRef()
+unsigned long NEURONCOMPONENTS_API FMaterialAnimation::AddRef()
 {
-    IDAComponent* Controlling = Outer != nullptr ? Outer : &Controller;
+    INeuronComponent* Controlling = Outer != nullptr ? Outer : &Controller;
     return Controlling->AddRef();
 }
 
-unsigned long DACOM_API FMaterialAnimation::Release()
+unsigned long NEURONCOMPONENTS_API FMaterialAnimation::Release()
 {
-    IDAComponent* Controlling = Outer != nullptr ? Outer : &Controller;
+    INeuronComponent* Controlling = Outer != nullptr ? Outer : &Controller;
     return Controlling->Release();
 }
 
@@ -467,9 +463,9 @@ void FMaterialAnimation::StoreData(unsigned long Crc, FImaData* Data)
         Data->AddRef();
 }
 
-void* DACOM_API FMaterialAnimation::LoadAnimationGroup(void* FileSystem)
+void* NEURONCOMPONENTS_API FMaterialAnimation::LoadAnimationGroup(void* FileSystem)
 {
-    // LAB_06ec6e40..7083: child filesystem creation, never parent-node mutation.
+    // ..7083: child filesystem creation, never parent-node mutation.
     IFileSystem* Fs = AsFileSystem(FileSystem);
     if (Fs->OpenNode("MaterialAnim") == 0)
         return nullptr;
@@ -484,7 +480,7 @@ void* DACOM_API FMaterialAnimation::LoadAnimationGroup(void* FileSystem)
             const char* ChildName = FindData.cFileName;
             if ((FindData.dwFileAttributes & 0x10) != 0 && ChildName[0] != '.')
             {
-                const unsigned long Crc = DACOM_CRC::GetCRC32(ChildName);
+                const unsigned long Crc = NEURONCOMPONENTS_CRC::GetCRC32(ChildName);
                 FImaData* Data = new FImaData();
                 Data->NameCrc = Crc;
                 FFileSystemDesc Desc;
@@ -495,7 +491,7 @@ void* DACOM_API FMaterialAnimation::LoadAnimationGroup(void* FileSystem)
                     (AGGDESC*)&Desc, (void**)&ChildFs);
                 if (Result >= 0)
                 {
-                    // ParseMaKeys always succeeds in retail, including missing key files.
+                    // ParseMaKeys always succeeds in baseline, including missing key files.
                     ParseMaKeys(ChildFs, Data->KeyBlock());
                     if (Group == nullptr)
                         Group = new FMatAnimLoadGroup();
@@ -505,7 +501,7 @@ void* DACOM_API FMaterialAnimation::LoadAnimationGroup(void* FileSystem)
                     Entry.Data = Data;
                     Data->AddRef(); // Temporary smart-pointer source (06ec7010).
                     Group->Entries.push_back(Entry);
-                    Data->AddRef(); // Copied group payload (FUN_06ec7460).
+                    Data->AddRef(); // Copied group payload (the routine).
                     Data->Release(); // Temporary source (06ec7035).
                 }
                 Data->Release();
@@ -514,18 +510,18 @@ void* DACOM_API FMaterialAnimation::LoadAnimationGroup(void* FileSystem)
             }
         } while (FileSystemFindNext(FileSystem, Find, &FindData) != 0);
     }
-    // Retail calls OpenNode("..") after enumeration; there is no FindClose call.
+    // baseline calls OpenNode("..") after enumeration; there is no FindClose call.
     Fs->OpenNode("..");
     return Group;
 }
 
-GENRESULT DACOM_API FMaterialAnimation::UnloadAnimationGroup(void* Arg)
+GENRESULT NEURONCOMPONENTS_API FMaterialAnimation::UnloadAnimationGroup(void* Arg)
 {
     if (Arg == nullptr || Arg == (void*)(uintptr_t)-1)
         return GR_OK;
 
     FMatAnimLoadGroup* Group = (FMatAnimLoadGroup*)Arg;
-    // LAB_06ec70c0: remove every live CRC before releasing any group reference.
+    // remove every live CRC before releasing any group reference.
     for (size_t EntryIndex = 0; EntryIndex < Group->Entries.size(); ++EntryIndex)
     {
         unsigned long Crc;
@@ -544,7 +540,7 @@ GENRESULT DACOM_API FMaterialAnimation::UnloadAnimationGroup(void* Arg)
                 Data->Release();
         }
     }
-    // FUN_06ec75d0 unlinks each group node before releasing its payload.
+    // unlinks each group node before releasing its payload.
     while (!Group->Entries.empty())
     {
         FImaData* Data = Group->Entries.front().Data;
@@ -556,9 +552,9 @@ GENRESULT DACOM_API FMaterialAnimation::UnloadAnimationGroup(void* Arg)
     return GR_OK;
 }
 
-GENRESULT DACOM_API FMaterialAnimation::CreateAnimationInstance(int /*Unused*/, void* Query, IImaInstance** OutInstance)
+GENRESULT NEURONCOMPONENTS_API FMaterialAnimation::CreateAnimationInstance(int /*Unused*/, void* Query, IImaInstance** OutInstance)
 {
-    // LAB_06ec7190..7275: lookup miss leaves the caller's output untouched.
+    // ..7275: lookup miss leaves the caller's output untouched.
     const unsigned long Crc = *(const unsigned long*)((const unsigned char*)Query + 4);
     size_t MapIndex = 0;
     while (MapIndex < CrcMap.size() && CrcMap[MapIndex].Crc != Crc)
@@ -566,13 +562,13 @@ GENRESULT DACOM_API FMaterialAnimation::CreateAnimationInstance(int /*Unused*/, 
     if (MapIndex == CrcMap.size())
         return GR_GENERIC;
     FImaInstance* Inst = new FImaInstance();
-    // Reload map payload after construction, as retail does after linking the instance.
+    // Reload map payload after construction, as baseline does after linking the instance.
     Inst->AttachData(CrcMap[MapIndex].Data);
     *OutInstance = Inst;
     return GR_OK;
 }
 
-GENRESULT DACOM_API FMaterialAnimation::TickAnimationInstances(int Filter, float Dt)
+GENRESULT NEURONCOMPONENTS_API FMaterialAnimation::TickAnimationInstances(int Filter, float Dt)
 {
     if (Filter != -1)
         return GR_OK;

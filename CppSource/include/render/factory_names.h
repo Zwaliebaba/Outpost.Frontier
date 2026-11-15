@@ -1,24 +1,20 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
 // Factory registration names for RENDER DLLs -- the strings RegisterComponent /
 // CreateInstance take, not interface ids. The IIDs that used to share this file moved
-// to dacom_iids.h on 2026-09-16; these are a different namespace of strings and stay.
-// Sources: docs/re/render.md, docs/re/shading.md.
+// to neuroncomponents_iids.h on 2026-09-16; these are a different namespace of strings and stay.
+// Sources: implementation notes, implementation notes.
 // Do not invent names.
 
 namespace Render
 {
 namespace Factory
 {
-    // RP8
+    // DX8RENDERER
     static const char DirectX8[] = "DirectX8";
-    // RP9 (port-only Direct3D 9 mirror of RP8; docs/re/rp9.md)
+    // DX9RENDERER (port-only Direct3D 9 mirror of DX8RENDERER; implementation notes)
     static const char DirectX9[] = "DirectX9";
 
     // Shading libraries / services
@@ -63,7 +59,7 @@ namespace Factory
     // ximage
     static const char BigImage[] = "BigImage";
 
-    // flmaterials
+    // surfacematerials
     static const char BackdropMaterial[] = "BackdropMaterial";
     static const char StarsphereMaterial[] = "StarsphereMaterial";
     static const char CloakMaterial[] = "CloakMaterial";
@@ -76,8 +72,8 @@ namespace Factory
     static const char GfGlassMaterial[] = "GFGlassMaterial";
     static const char HudIconMaterial[] = "HUDIconMaterial";
     static const char HudAnimMaterial[] = "HUDAnimMaterial";
-    static const char NomadMaterial[] = "NomadMaterial";
-    static const char NomadMaterialNoBendy[] = "NomadMaterialNoBendy";
+    static const char VeilbornMaterial[] = "VeilbornMaterial";
+    static const char VeilbornMaterialNoBendy[] = "VeilbornMaterialNoBendy";
     static const char PlanetWaterMaterial[] = "PlanetWaterMaterial";
     static const char ShadowMaterial[] = "ShadowMaterial";
     static const char VisibleCounterMaterial[] = "VisibleCounterMaterial";

@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -12,16 +8,16 @@
 namespace pub {
 namespace Controller {
 
-// Values and names from Server.dll's priority table at .data:06d8d080 (five 0x14-byte
-// rows {char[16] name, int value}), read by FUN_06d43840 for the [Initial * DLLs]
+// Values and names from Server.dll's priority table at module storage (five 0x14-byte
+// rows {char[16] name, int value}), read by the routine for the [Initial * DLLs]
 // `DLL` rows; Controller::Create keeps the list ordered by it, lowest value first.
 enum PRIORITY { HIGHEST = 0, ABOVE_NORMAL = 1, NORMAL = 2, BELOW_NORMAL = 3, LOWEST = 4 };
 
-// The message id of _SendMessage and IDLL::HandleMessage (Content.dll's controllers). Retail
+// The message id of _SendMessage and IDLL::HandleMessage (Content.dll's controllers). baseline
 // has no names for these; a name here comes from the sending function (the IServer method,
 // the ContentCallback method), from the Cnd_* key that Content's mission triggers bind to the
-// id (FUN_06ebb850, 06ebb890-06ebce72), or from the payload. Ids 0x00..0x41 are sent by
-// Server.dll (through FUN_06d43650, i.e. _SendMessage(&0u, id, data), unless noted), 0x1000..
+// id (the routine, 06ebb890-06ebce72), or from the payload. Ids 0x00..0x41 are sent by
+// Server.dll (through the routine, i.e. _SendMessage(&0u, id, data), unless noted), 0x1000..
 // 0x1011 by Content.dll. Neither module sends 0x0e, 0x0f or 0x34, and no port receiver has a
 // case for them.
 // Each line: sender .text address(es) in Server.dll / Content.dll, then the payload.
@@ -86,9 +82,9 @@ enum class EMessage : int
     SpaceEnter            = 0x36, // IServerImpl::PlayerLaunch 06cf017e: {system, player, launch object, launch kind} (Cnd_SpaceEnter)
     SpaceExit             = 0x37, // StarSystem on_object_destroyed (the player's ship) 06d0b22b: {system, player} (Cnd_SpaceExit)
     DeathFuseLit          = 0x38, // death fuse 06ce812a 06cec66a: FDeathFuseEvent
-    ObjectDestroyed       = 0x39, // 06ce833b 06cf2702 06d00523: FObjectDestroyedEvent (Cnd_Destroyed)
-    SystemExit            = 0x3a, // 06cf16cf 06d0883e 06d088ee 06d176f4 06d49a5a 06d4a50f 06d4a6e4 06d54391 06d54450: {system, destination system, player} (Cnd_SystemExit)
-    SystemEnter           = 0x3b, // 06cef9b2 06cf176f 06d1773a 06d455a6: {system, from system, player, arrival object, position} (Cnd_SystemEnter)
+    ObjectDestroyed       = 0x39, // 06cf2702 06d00523: FObjectDestroyedEvent (Cnd_Destroyed)
+    SystemExit            = 0x3a, // 06d0883e 06d088ee 06d176f4 06d49a5a 06d4a50f 06d4a6e4 06d54391 06d54450: {system, destination system, player} (Cnd_SystemExit)
+    SystemEnter           = 0x3b, // 06cf176f 06d1773a 06d455a6: {system, from system, player, arrival object, position} (Cnd_SystemEnter)
     SystemLoaded          = 0x3c, // StarSystem load 06d07101: &system
     SystemUnloaded        = 0x3d, // StarSystem shutdown / last player out 06d07157 06d08873 06d08923: &system
     TimerExpired          = 0x3e, // pub::SetTimer expiry 06d5e014 (to the timer's own controller): TimerExpired
@@ -101,7 +97,7 @@ enum class EMessage : int
     NpcTurnedHostile      = 0x1003, // Content attitude sweep 06f70c13 06f70cf5: {object, other, system}
     FleeRequest           = 0x1004, // Content request_flee_destination 06f34ed0: {ship, reason, system}
     DamageReputation      = 0x1005, // Content combat reputation 06f70316 06f70409 06f7044b: {provoked, attacker, victim, system}
-    // TODO(name): Content FUN_06f34100 06f341d4, when an NPC ship's comm-line counter
+    // TODO(name): Content the routine 06f341d4, when an NPC ship's comm-line counter
     // (+0x1b8, counted down per finished comm line) reaches 0: {ship, a dword of its first
     // directive picked by directive type, 1} to the ship's controller.
     Msg0x1006             = 0x1006,
@@ -118,7 +114,7 @@ enum class EMessage : int
     TetherObject          = 0x1011, // Content tether_object_event 06f343e8 (also a mission-trigger tick, 06eb8fa7): {object, object, 0, 0} (Cnd_TetherBroke)
 };
 
-// Content.dll StoryLauncher (LAB_06ea6f50) passes a polymorphic parameter object
+// Content.dll StoryLauncher (the branch) passes a polymorphic parameter object
 // whose payload is the player ID read from message 7. Server forwards it unchanged.
 struct CreateParms { virtual ~CreateParms() = default; };
 struct FStoryCreateParms final : CreateParms { unsigned int PlayerId; };
@@ -136,9 +132,9 @@ SERVER_API int __cdecl SetTimer(const unsigned int& Flid, const Controller::Time
 } // namespace pub
 
 // Server.dll-internal, not exported: pub::Controller::_SendMessage's dispatch core
-// (IServerImpl.cpp, retail 0x06d44080). Retail FUN_06d43650 is only
+// (IServerImpl.cpp, baseline 0x06d44080). baseline the routine is only
 // _SendMessage(&0u, MsgId, MsgData), so Server.dll calls Server_ControllerDispatch(0, ...)
-// for it. (Server_SendMessage, the port's Common.dll-exported "C wrapper for FUN_06d43650"
+// for it. (Server_SendMessage, the port's Common.dll-exported "C wrapper for the routine"
 // over a handler table nobody filled, is gone.)
 extern "C" int __cdecl Server_ControllerDispatch(unsigned int Flid, pub::Controller::EMessage MsgId,
                                                  const void* MsgData);

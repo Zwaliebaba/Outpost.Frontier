@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "MovieMod.h"
@@ -14,31 +10,31 @@
 // Callees this file does not define. Signatures are the pushes at the call
 // sites (stdcall: the caller does not adjust ESP).
 
-// 0x06ac3110. RET 0xC. Zeros Groups * Field[0] dwords and returns 1.
+// . RET 0xC. Zeros Groups * Field[0] dwords and returns 1.
 long __stdcall Movie_ZeroFieldGroups(unsigned int* Dest, int Groups, int* Field);
 
-// 0x06ac3140. RET 0x10. Copies Groups * Field[0] dwords from First to Second and returns 1.
+// . RET 0x10. Copies Groups * Field[0] dwords from First to Second and returns 1.
 long __stdcall Movie_CopyFieldGroups(unsigned int* First, unsigned int* Second, int Groups, int* Field);
 
-// 0x06ac7e60. RET 0x8. 06ac69a0 takes the nonzero EAX as success and skips the slot write.
+// . RET 0x8. 06ac69a0 takes the nonzero EAX as success and skips the slot write.
 long __stdcall Movie_FieldElementIsUnit(int Limbs, int* FieldHolder);
 
-// 0x06ac7f20. RET 0x10. Pushes are Sign, FieldHolder, SlotLimbs, Limbs.
+// . RET 0x10. Pushes are Sign, FieldHolder, SlotLimbs, Limbs.
 long __stdcall Movie_CopyOrNegatePair(unsigned int* Limbs, unsigned int* SlotLimbs, int* FieldHolder, int Sign);
 
-// 0x06ac7760. RET 0x14. Pushes are Sign, Context, Slot, Limbs, Saved. EAX is ignored here.
+// . RET 0x14. Pushes are Sign, Context, Slot, Limbs, Saved. EAX is ignored here.
 void __stdcall Movie_AssignWindowSlot(unsigned int* Saved, unsigned int* Limbs, int Slot, int* Context, int Sign);
 
-// 0x06ac8190. RET 0x8. Defined in MovieFieldHigh.cpp.
+// . RET 0x8. Defined in MovieFieldHigh.cpp.
 long __stdcall StoreFieldUnit(unsigned int* Dest, int* FieldHolder);
 
-// 0x06ac6bb0. RET 0x10. Defined in MovieFieldHigh.cpp. Fourth push is the scratch base.
+// . RET 0x10. Defined in MovieFieldHigh.cpp. Fourth push is the scratch base.
 long __stdcall SeedFieldWork(unsigned int* Value, unsigned int* Work, int* FieldHolder, unsigned int* Upper);
 
-// 0x06ac7210. Defined in MovieFieldHigh.cpp.
+// . Defined in MovieFieldHigh.cpp.
 long __stdcall MultiplyFieldLimbs(unsigned int* Left, unsigned int* Right, int* FieldHolder, unsigned int* Scratch);
 
-// 0x06ac7570. RET 0xC. The third argument is popped and not read.
+// . RET 0xC. The third argument is popped and not read.
 long __stdcall Movie_LoadFieldOne(unsigned int* Work, int* FieldHolder, unsigned int* Scratch);
 
 // Slot stride is 0x14f dwords (0x53c bytes). Work+0x53c0 is the scratch passed to the products.
@@ -47,7 +43,7 @@ static unsigned int* Movie_ExponentSlot(unsigned int* Work, unsigned int Index)
     return Work + Index * 0x14fu;
 }
 
-// 0x06ac61a0. Walks Context[2] records of stride 0x410. The state dword is at
+// . Walks Context[2] records of stride 0x410. The state dword is at
 // byte +0x881c and the 0x100-byte buffers start at +0xe958. A zero flag at
 // *Context returns immediately. The second pass clears Context[2], then for
 // each record applies the state formula and may call 0x06ac69a0.
@@ -64,7 +60,7 @@ void __stdcall Movie_AdvanceFieldRecordStates(int* Context)
         return;
     }
 
-    // Local400, Local300, Local200. Retail lays these out as 0x100, 0x100, 0x200 bytes.
+    // Local400, Local300, Local200. baseline lays these out as 0x100, 0x100, 0x200 bytes.
     unsigned int Work[64 + 64 + 128];
     unsigned int* Local400 = Work;
     unsigned int* Local300 = Work + 64;
@@ -84,7 +80,7 @@ void __stdcall Movie_AdvanceFieldRecordStates(int* Context)
             unsigned int* At2N = AtN + LimbCount;
             unsigned int* At3N = At2N + LimbCount;
             int StepOk = 0;
-            // 06ac622b. State 1 copies the second limb group. State 2 subtracts.
+            // . State 1 copies the second limb group. State 2 subtracts.
             // Any other state zeros the buffer; that call's EAX is ignored.
             if (State == 1)
             {
@@ -131,7 +127,7 @@ void __stdcall Movie_AdvanceFieldRecordStates(int* Context)
             }
 
             int StoredIndex = 0;
-            // 06ac632b. A zero buffer becomes state 4. A repeat of the previous
+            // . A zero buffer becomes state 4. A repeat of the previous
             // buffer reuses that slot. Otherwise the buffer is appended.
             if (Movie_FieldLimbsAreZero((int)Buffer, Field) != 0)
             {
@@ -241,7 +237,7 @@ void __stdcall Movie_AdvanceFieldRecordStates(int* Context)
         }
     }
 
-    // 06ac6518. The saved record count still bounds the second pass.
+    // . The saved record count still bounds the second pass.
     Context[2] = 0;
     if (RecordCount == 0)
     {
@@ -268,7 +264,7 @@ void __stdcall Movie_AdvanceFieldRecordStates(int* Context)
         unsigned int* At3N = At2N + LimbCount;
         unsigned int StateSlot = (unsigned int)(State - 1);
         int EnterSlot = 0;
-        // 06ac6594. Table at 06ac698c: state 1, state 2, state 3, state 4.
+        // . Table at 06ac698c: state 1, state 2, state 3, state 4.
         // State 0 and states above 4 take the JA at 06ac658e.
         if (StateSlot > 3u)
         {
@@ -371,7 +367,7 @@ void __stdcall Movie_AdvanceFieldRecordStates(int* Context)
             }
         }
 
-        // 06ac6903. Slot is the dword at +0x8820. The counter stride is 0x204.
+        // . Slot is the dword at +0x8820. The counter stride is 0x204.
         if (EnterSlot != 0)
         {
             if (Slot > 0 && Slot <= Context[3])
@@ -409,8 +405,8 @@ void __stdcall Movie_AdvanceFieldRecordStates(int* Context)
     }
 }
 
-// 0x06ac69a0. Depth is the dword at byte +0x11158. Slot limbs are at +0x114 + Slot*0x204.
-// 06ac69c4 leaves EAX = Slot when *Context is 0. Every other path increments the depth,
+// . Depth is the dword at byte +0x11158. Slot limbs are at +0x114 + Slot*0x204.
+// leaves EAX = Slot when *Context is 0. Every other path increments the depth,
 // merges the step into *Context as 0 or 1 (06ac6a65), then decrements the depth (06ac6a81).
 long __stdcall Movie_CommitFieldSlot(unsigned int* Limbs, int Slot, unsigned int* Context, int Sign)
 {
@@ -426,7 +422,7 @@ long __stdcall Movie_CommitFieldSlot(unsigned int* Limbs, int Slot, unsigned int
     unsigned int Depth = Context[0x4456];
     Context[0x4456] = Depth + 1u;
     unsigned int Step = Flag;
-    // 06ac69dc and 06ac69e1. Depths other than 0 and 1 fail the step.
+    // and 06ac69e1. Depths other than 0 and 1 fail the step.
     if (Depth != 0u && Depth != 1u)
     {
         Step = 0u;
@@ -435,7 +431,7 @@ long __stdcall Movie_CommitFieldSlot(unsigned int* Limbs, int Slot, unsigned int
     {
         if (Movie_FieldElementIsUnit((int)SlotLimbs, (int*)FieldHolder) != 0)
         {
-            // 06ac6a16. NEG / SBB / NEG collapses the callee's EAX to 0 or 1.
+            // . NEG / SBB / NEG collapses the callee's EAX to 0 or 1.
             long Blended = Movie_CopyOrNegatePair(Limbs, SlotLimbs, (int*)FieldHolder, Sign);
             if (Blended != 0)
             {
@@ -459,7 +455,7 @@ long __stdcall Movie_CommitFieldSlot(unsigned int* Limbs, int Slot, unsigned int
             {
                 Step = 0u;
             }
-            // 06ac6a4f falls through to 0x06ac7760 from both the success and the failure side.
+            // falls through to 0x06ac7760 from both the success and the failure side.
             Movie_AssignWindowSlot(Saved, Limbs, Slot, (int*)Context, Sign);
         }
     }
@@ -474,7 +470,7 @@ long __stdcall Movie_CommitFieldSlot(unsigned int* Limbs, int Slot, unsigned int
     return (long)Result;
 }
 
-// 0x06ac6b70. 06ac6b7a calls 0x06ac61a0 while *Context is live and Context[2] is 0x14.
+// . 06ac6b7a calls 0x06ac61a0 while *Context is live and Context[2] is 0x14.
 // The returned index is the count before the increment at 06ac6b93.
 int __stdcall Movie_AllocateFieldRecord(int* Context)
 {
@@ -499,7 +495,7 @@ int __stdcall Movie_AllocateFieldRecord(int* Context)
     return Index;
 }
 
-// 0x06ac6a90. High is Limbs + 2 * Field[0] (LEA [edx+ecx*8] at 06ac6aa7).
+// . High is Limbs + 2 * Field[0] (LEA [edx+ecx*8] at 06ac6aa7).
 // A nonzero zero-test returns that EAX (06ac6ab9). Slot 0 returns 0.
 // Field+0x12c matching the high half tail-calls 0x06ac69a0. Otherwise the
 // record at Index * 0x410 gets state 1, the slot, and the sign, and three
@@ -536,7 +532,7 @@ long __stdcall Movie_QueueOrCommitFieldLimbs(unsigned int* Limbs, unsigned int S
     *reinterpret_cast<unsigned int*>(Record + 0x8818) = Sign;
     unsigned int* Counter = Context + Slot * 0x81u + 0xc5u;
     *Counter = *Counter + 1u;
-    // 06ac6b3e. A dead flag skips the copy. Both failure sides store 0 at 06ac6b67.
+    // . A dead flag skips the copy. Both failure sides store 0 at 06ac6b67.
     if (Context[0] != 0u &&
         Movie_CopyFieldGroups(Limbs, (unsigned int*)(Record + 0x8418), 3, Field) != 0)
     {
@@ -547,7 +543,7 @@ long __stdcall Movie_QueueOrCommitFieldLimbs(unsigned int* Limbs, unsigned int S
     return 0;
 }
 
-// 0x06ac6c90. Multiplies two paired values. A zero high half copies the other
+// . Multiplies two paired values. A zero high half copies the other
 // operand (5 groups) and returns that copy's EAX. Otherwise the halves are
 // squared or copied into Scratch at n..6n, and Field[2] >= 2 selects the
 // product formula (CMP [field+8], 2 / SETGE at 06ac6cc3).
@@ -568,7 +564,7 @@ long __stdcall Movie_MultiplyPairedLimbs(unsigned int* Left, unsigned int* Right
         ModeAtLeast2 = 1;
     }
 
-    // 06ac6cd9 and 06ac6ce5. Both results are overwritten before they are tested.
+    // and 06ac6ce5. Both results are overwritten before they are tested.
     Movie_FieldLimbsEqual((int)LeftTail, (int)Constant, Field);
     Movie_FieldLimbsEqual((int)RightTail, (int)Constant, Field);
     if (Movie_FieldLimbsAreZero((int)LeftTail, Field) != 0)
@@ -694,7 +690,7 @@ long __stdcall Movie_MultiplyPairedLimbs(unsigned int* Left, unsigned int* Right
         return 0;
     }
 
-    // 06ac705f. A failed step above arrives here with EAX clear and returns 0
+    // . A failed step above arrives here with EAX clear and returns 0
     // before either formula's first call.
     if (ModeAtLeast2 != 0)
     {
@@ -727,7 +723,7 @@ long __stdcall Movie_MultiplyPairedLimbs(unsigned int* Left, unsigned int* Right
     return 0;
 }
 
-// 0x06ac6c40. 06ac6c55 is limb count * 5. Both callees must return nonzero; success is EAX = 1.
+// . 06ac6c55 is limb count * 5. Both callees must return nonzero; success is EAX = 1.
 long __stdcall Movie_SeedAndMultiplyLimbs(unsigned int* Left, unsigned int* Value, unsigned int* Dest, unsigned int* FieldHolder, unsigned int* Scratch)
 {
     int* Field = (int*)FieldHolder[0];
@@ -744,8 +740,8 @@ long __stdcall Movie_SeedAndMultiplyLimbs(unsigned int* Left, unsigned int* Valu
     return 1;
 }
 
-// 0x06ac94c0. Strips leading zero limbs. Fewer than two limbs tail-calls
-// 0x06ac9a30. Otherwise widths 3..7 are costed, and width 8 with a non-null
+// . Strips leading zero limbs. Fewer than two limbs tail-calls
+// . Otherwise widths 3..7 are costed, and width 8 with a non-null
 // Dest exponentiates at the cheapest width. Return is squares + multiplies.
 int __stdcall Movie_ExponentiateByWindow(unsigned int* Base, unsigned int* Exponent, unsigned int ExponentLimbs, unsigned int* Dest, unsigned int* Context)
 {
@@ -845,7 +841,7 @@ int __stdcall Movie_ExponentiateByWindow(unsigned int* Base, unsigned int* Expon
             }
         }
 
-        // 06ac970c. JA is unsigned. The switch at 06ac9729 is Window & 3;
+        // . JA is unsigned. The switch at 06ac9729 is Window & 3;
         // 0, 1 and 3 share 06ac9730, and 2 is 06ac9746.
         if (Window > Span * 3u - 2u)
         {

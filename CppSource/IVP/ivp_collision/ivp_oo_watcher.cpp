@@ -1,16 +1,12 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
-// IVP_OO_Watcher / IVP_Synapse_OO -- Common.dll .text:06369a00-06369e68
+// IVP_OO_Watcher / IVP_Synapse_OO -- Common.dll module storage-06369e68
 // (cmn-ivp2b, 2026-10-08). See ivp_oo_watcher.h for the class layout and the
-// retail vtables.
+// baseline vtables.
 
 #include "ivp_oo_watcher.h"
 
-#include "ivp_mindist_create.h"                 // IVP_Create_Exact_Mindists (FUN_0634e0b0)
+#include "ivp_mindist_create.h"                 // IVP_Create_Exact_Mindists (the routine)
 #include "../ivp_physics/ivp_real_object.h"     // IVP_Real_Object, IVP_Hull_Manager
 #include "../ivp_physics/ivp_environment.h"     // IVP_Environment, IVP_Range_Manager
 #include "../ivp_physics/ivp_core.h"            // IVP_Time
@@ -26,7 +22,7 @@ static_assert(offsetof(IVP_OO_Watcher, mindists) == 0x38, "IVP_OO_Watcher+0x38")
 
 namespace
 {
-    // DAT_063a58cc, bits 0x60ad78ec: the library's P_FLOAT_MAX (1e20f). Added
+    // , bits 0x60ad78ec: the library's P_FLOAT_MAX (1e20f). Added
     // to the first key so a freshly initialised synapse never fires before
     // the constructor's own hull_limit_exceeded_event re-keys it.
     constexpr float GSynapseOOInitialKeyBias = 1.0e20f;
@@ -48,7 +44,7 @@ namespace
 // IVP_Synapse_OO
 // ============================================================================
 
-// FUN_06369b70 (.text:06369b70-06369bca, RET 8). Stack args (watcher, object):
+// (module storage-06369bca, RET 8). Stack args (watcher, object):
 // the ctor pushes the object first and the watcher last (:06369c74/:06369c75).
 void IVP_Synapse_OO::init_synapse_oo(IVP_OO_Watcher* Watcher, IVP_Real_Object* Object)
 {
@@ -57,27 +53,27 @@ void IVP_Synapse_OO::init_synapse_oo(IVP_OO_Watcher* Watcher, IVP_Real_Object* O
     const IVP_Environment* Environment = Object->environment;
     const float TimeHi = Environment->current_time.time_base;              // env+0xf8
     const float TimeLo = Environment->current_time.time_offset;            // env+0xfc
-    // :06369b90-:06369bb2 -- the key plus DAT_063a58cc, then FUN_06362f90 on
+    // :06369b90-:06369bb2 -- the key plus the field, then the routine on
     // object+0x64 (hull_manager+0x20, the hull pool) with this as payload.
     const float Key = HullKeyAtTime(Object->hull_manager, TimeHi, TimeLo, GSynapseOOInitialKeyBias);
     HullPoolSlot = Object->hull_manager.PoolInsert(this, Key);             // :06369bbb
     watcher = Watcher;                                                     // :06369bbe
 }
 
-// FUN_06369b30 (.text:06369b30-06369b49): restamp this class's vptr (the
-// compiler does that), then FUN_06363280 on object+0x64 with the stored slot.
+// (module storage-06369b49): restamp this class's vptr (the
+// compiler does that), then the routine on object+0x64 with the stored slot.
 IVP_Synapse_OO::~IVP_Synapse_OO()
 {
     object->hull_manager.PoolRemove(static_cast<uint16_t>(HullPoolSlot));
 }
 
-// LAB_06369a00 (.text:06369a00-06369a0a, RET 8).
+// (module storage-06369a0a, RET 8).
 void IVP_Synapse_OO::hull_limit_exceeded_event(IVP_Hull_Manager* /*HullManager*/, float /*HullIntrusionValue*/)
 {
     watcher->hull_limit_exceeded_event();
 }
 
-// LAB_06369b20 (.text:06369b20-06369b29, RET 4) -> FUN_06369bd0
+// (module storage-06369b29, RET 4) -> the routine
 // (`TEST ECX,ECX; JZ; PUSH 1; CALL [EAX+0x10]`).
 void IVP_Synapse_OO::hull_manager_is_going_to_be_deleted_event(IVP_Hull_Manager* /*HullManager*/)
 {
@@ -89,10 +85,10 @@ void IVP_Synapse_OO::hull_manager_is_going_to_be_deleted_event(IVP_Hull_Manager*
 // IVP_OO_Watcher
 // ============================================================================
 
-// FUN_06369be0 (.text:06369be0-06369ca6, RET 0xc). Order of the retail body:
+// (module storage-06369ca6, RET 0xc). Order of the baseline body:
 // IVP_Collision's inlined ctor (+0x08 = delegator, +0x10 = +0x0c = -1; +0x04
 // is not written), the delegator base vptr at +0x14, the synapse array (vptrs
-// only), the vector (memsize 8, n_elems 0, elems = FUN_06343f70(0x20) =
+// only), the vector (memsize 8, n_elems 0, elems = the routine(0x20) =
 // malloc), the derived vptrs, init_synapse_oo on both synapses, and finally
 // hull_limit_exceeded_event.
 IVP_OO_Watcher::IVP_OO_Watcher(IVP_Collision_Delegator* Delegator, IVP_Real_Object* Object0, IVP_Real_Object* Object1)
@@ -105,14 +101,14 @@ IVP_OO_Watcher::IVP_OO_Watcher(IVP_Collision_Delegator* Delegator, IVP_Real_Obje
     hull_limit_exceeded_event();                // :06369c8a
 }
 
-// FUN_06369ce0 (.text:06369ce0-06369da6). Body: delete every mindist from the
+// (module storage-06369da6). Body: delete every mindist from the
 // top down (`CALL [EDX+0x10]` with 1, null entries skipped; each deletion calls
 // back into collision_is_going_to_be_deleted_event below and shrinks the
 // vector), then report this record to its own delegator (`[this+8]->slot0
-// (this)`). The rest of the retail function is the member/base teardown the
+// (this)`). The rest of the baseline function is the member/base teardown the
 // compiler emits here in the same order: the vector's inline-buffer-aware
 // clear (:06369d3b-:06369d71), the `eh vector destructor iterator` over both
-// synapses (FUN_06391dfc with FUN_06369b30, :06369d7c), the delegator vptr at
+// synapses (the routine with the routine, :06369d7c), the delegator vptr at
 // +0x14 and IVP_Collision's vptr.
 IVP_OO_Watcher::~IVP_OO_Watcher()
 {
@@ -125,7 +121,7 @@ IVP_OO_Watcher::~IVP_OO_Watcher()
     delegator->collision_is_going_to_be_deleted_event(this);                       // :06369d33-:06369d39
 }
 
-// FUN_06369a10 (.text:06369a10-06369b1a, plain RET).
+// (module storage-06369b1a, plain RET).
 void IVP_OO_Watcher::hull_limit_exceeded_event()
 {
     IVP_Real_Object* Object0 = synapses[0].object;          // :06369a17
@@ -139,7 +135,7 @@ void IVP_OO_Watcher::hull_limit_exceeded_event()
     float Range1;
     Environment->range_manager->get_coll_range_intra_objects(Object0, Object1, &Range0, &Range1);
 
-    // :06369a3c-:06369a6a -- FUN_0634e0b0(obj0, obj1, (float)(R0 + R1),
+    // :06369a3c-:06369a6a -- the routine(obj0, obj1, (float)(R0 + R1),
     // &mindists, 0, 0, 0, 0, delegator = this+0x14), cdecl (ADD ESP,0x24).
     const float ScanRadius = (float)((double)(Range0) + Range1); // FLD / FADD / FSTP float
     IVP_Create_Exact_Mindists(Object0, Object1, ScanRadius, &mindists,
@@ -151,8 +147,8 @@ void IVP_OO_Watcher::hull_limit_exceeded_event()
     const float TimeHi = Environment->current_time.time_base;   // env+0xf8
     const float TimeLo = Environment->current_time.time_offset; // env+0xfc
 
-    // :06369a8c-:06369ab9 -- side 0: FUN_06363280(synapse0 slot) then
-    // FUN_06362f90(synapse0, key + R0) on obj0+0x64; the slot goes to +0x1c.
+    // :06369a8c-:06369ab9 -- side 0: the routine(synapse0 slot) then
+    // (synapse0, key + R0) on obj0+0x64; the slot goes to +0x1c.
     Object0->hull_manager.PoolRemove(static_cast<uint16_t>(synapses[0].HullPoolSlot));
     synapses[0].HullPoolSlot = Object0->hull_manager.PoolInsert(
         &synapses[0], HullKeyAtTime(Object0->hull_manager, TimeHi, TimeLo, Range0));
@@ -163,24 +159,24 @@ void IVP_OO_Watcher::hull_limit_exceeded_event()
         &synapses[1], HullKeyAtTime(Object1->hull_manager, TimeHi, TimeLo, Range1));
 }
 
-// LAB_06369e20 (.text:06369e20-06369e2f, RET 4).
+// (module storage-06369e2f, RET 4).
 void IVP_OO_Watcher::get_objects(IVP_Real_Object* Out[2])
 {
     Out[0] = synapses[0].object; // +0x20
     Out[1] = synapses[1].object; // +0x30
 }
 
-// LAB_06369e40 (.text:06369e40-06369e51, RET 4).
+// (module storage-06369e51, RET 4).
 void IVP_OO_Watcher::get_ledges(const IVP_Compact_Ledge* Out[2])
 {
     Out[0] = nullptr;
     Out[1] = nullptr;
 }
 
-// LAB_06369db0 (.text:06369db0-06369e1b, RET 4), `this` = the +0x14
+// (module storage-06369e1b, RET 4), `this` = the +0x14
 // sub-object. The swap-with-last removal of the collision from `mindists`
 // through the collision's own two back-indices -- the same shape as
-// IVP_OV_Element::remove_oo_collision (FUN_0635c250).
+// IVP_OV_Element::remove_oo_collision (the routine).
 void IVP_OO_Watcher::collision_is_going_to_be_deleted_event(IVP_Collision* Collision)
 {
     // :06369db6-:06369dcf -- IndexInElement0 is trusted only when in range

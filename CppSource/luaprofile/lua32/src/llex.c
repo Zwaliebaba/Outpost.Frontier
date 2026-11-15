@@ -6,7 +6,7 @@
 
 
 #include <ctype.h>
-#include <stdio.h> /* Thorn: MSVC needs a prototype for sprintf (stock 3.2.2 omitted it). */
+#include <stdio.h> /* SceneScript: MSVC needs a prototype for sprintf (stock 3.2.2 omitted it). */
 #include <string.h>
 
 #include "lauxlib.h"
@@ -116,19 +116,19 @@ static void skipspace (LexState *LS) {
     next(LS);
 }
 
-static int thorn_condition_name_char (int c) {
-  /* Retail FUN_06f52140 uses the CRT ctype mask 0x103 (with the
+static int scenescript_condition_name_char (int c) {
+  /* uses the CRT ctype mask 0x103 (with the
   ** multibyte and single-byte CRT paths converging on this predicate). */
   return _isctype((unsigned char)c, 0x103) != 0;
 }
 
 static int checkcond (LexState *LS, char *buff) {
-  /* Thorn retail FUN_06f52140: validate $if names through the current
+  /* SceneScript baseline the routine: validate $if names through the current
   ** multibyte ctype table, allow '_', then resolve nil/1/global symbols. */
   static char *opts[] = {"nil", "1", NULL};
   int i = luaL_findstring(buff, opts);
   if (i >= 0) return i;
-  else if (thorn_condition_name_char((unsigned char)buff[0]) || buff[0] == '_')
+  else if (scenescript_condition_name_char((unsigned char)buff[0]) || buff[0] == '_')
     return luaS_globaldefined(buff);
   else {
     luaX_syntaxerror(LS, "invalid $if condition", buff);
@@ -156,7 +156,7 @@ static void inclinenumber (LexState *LS);
 
 
 static void ifskip (LexState *LS) {
-  /* Thorn retail FUN_06f52270: consume conditional-input frames, invoke
+  /* SceneScript baseline the routine: consume conditional-input frames, invoke
   ** the nested parser callback for token 10, and advance the source cursor. */
   while (LS->ifstate[LS->iflevel].skip) {
     if (LS->current == '\n')

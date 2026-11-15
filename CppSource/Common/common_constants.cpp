@@ -1,13 +1,9 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // Common.dll ReadConstants and the constants it fills (EngineEquipConsts, ShieldEquipConsts,
 // ThrusterEquipConsts, PhySys, the [Constants] TestValue / TestString). Split out of
 // common_goods.cpp.
-//
+
 // Static-initialisation order: GTestString and ThrusterEquipConsts::INTERIOR/EXTERIOR_SOUND_NAME
 // are dynamically initialised; this TU follows common_equipdesc.cpp and precedes
 // common_loadout.cpp and common_goodinfo.cpp, as in the former common_goods.cpp.
@@ -18,8 +14,8 @@
 #include "common_ini.h"
 #include "common_misc.h"   // GetFileSysPath
 #include "common_physys.h" // PhySys constants (DEFAULT_LINEAR_DAMPING, etc.)
-#include "DALib.h"
-#include "dacom.h"
+#include "NeuronRuntime.h"
+#include "neuroncomponents.h"
 
 #include <cstring>
 
@@ -27,7 +23,7 @@ using CmnGoods::kPathChars;
 
 namespace
 {
-    const char kConstantsSource[] = "E:\\FL\\Scratch\\Source\\Common\\Constants.cpp";
+    const char kConstantsSource[] = "Common\\Constants.cpp";
 
     struct FFloatKey
     {
@@ -156,13 +152,13 @@ extern int WALLA_PRIORITY_CUTOFF;
 
 namespace
 {
-    // [Constants] TestValue: .data:063ed180, compiled-in 0x40490e56 (3.1415f). Written by
+    // [Constants] TestValue: module storage, compiled-in 0x40490e56 (3.1415f). Written by
     // ReadConstants (06304a53), read by nothing.
     float GTestValue = 3.1415f;
 
-    // [Constants] TestString: a fixed 0x80-byte string -- length at .data:063fce20, text at
-    // .data:063fce24 -- seeded with "sample" by the static initializer 063048d0 and refilled
-    // by ReadConstants through FUN_06306020 (copy at most size-1 chars, NUL, return the
+    // [Constants] TestString: a fixed 0x80-byte string -- length at module storage, text at
+    // seeded with "sample" by the static initializer 063048d0 and refilled
+    // by ReadConstants through the routine (copy at most size-1 chars, NUL, return the
     // length). Read by nothing else in the module.
     struct FFixedString80
     {
@@ -170,7 +166,7 @@ namespace
         char Text[0x80];
     };
 
-    // FUN_06306020(dest, size, src): a null source copies nothing and returns 0 (the
+    // (dest, size, src): a null source copies nothing and returns 0 (the
     // destination is left as it was); otherwise min(strlen, size - 1) chars, a NUL, that
     // count returned.
     unsigned CopyBounded(char* Dest, unsigned Size, char const* Source)
@@ -198,14 +194,14 @@ namespace
 
 namespace EngineEquipConsts
 {
-    // Common.dll.txt 0x63eb5cc-0x63eb5dc: these 5 constants live in .data with real nonzero
-    // compiled-in defaults (verified from Ghidra's own float annotations), unlike the rest of
+    // Common 0x63eb5cc-0x63eb5dc: these 5 constants live in .data with real nonzero
+    // compiled-in defaults (verified from analysis's own float annotations), unlike the rest of
     // this namespace's fields below which are genuinely zero-initialized .bss. Found while
-    // porting CEEngine::GetCruiseDrag (Common.dll.c 0x363e0, which FADDs this global directly)
+    // porting CEEngine::GetCruiseDrag (Common 0x363e0, which FADDs this global directly)
     // -- a prior port revision had all of these defaulted to 0.0f and, worse, some call sites
-    // (GetCruiseDrag, GetCruiseThrust) had hardcoded the retail constant as a literal instead
+    // (GetCruiseDrag, GetCruiseThrust) had hardcoded the baseline constant as a literal instead
     // of reading the (wrongly-zeroed) global, masking the bug for those two call sites only.
-    // Each is still INI-overridable via the values-loader around Common.dll.c line ~142193.
+    // Each is still INI-overridable via the values-loader around Common line ~142193.
     float CRUISING_SPEED = 300.0f;
     float CRUISE_ACCEL_TIME = 5.0f;
     float CRUISE_DRAG = 3.0f;
@@ -228,7 +224,7 @@ namespace ShieldEquipConsts
 
 namespace ThrusterEquipConsts
 {
-    // Common.dll.c LAB_0629d3c0/LAB_0629d3e0: retail's static initializers set these to
+    // Common the branch/the branch: baseline's static initializers set these to
     // CreateID("interior_thruster_sound")/CreateID("exterior_thruster_sound") as hardcoded
     // defaults *before* ReadConstants() applies any ini override below, not zero.
     ID_String INTERIOR_SOUND_NAME = {CreateID("interior_thruster_sound")};
@@ -242,9 +238,9 @@ namespace ThrusterEquipConsts
 
 namespace PhySys
 {
-    // Retail defaults re-derived by reading the raw .data bytes at each DAT_ address in
-    // Common.dll.txt (0x063eb318-0x063eb35c) - a prior pass had left every one of these
-    // zero-initialized, which did not match the compiled-in retail values.
+    // baseline defaults re-derived by reading the raw .data bytes at each DAT_ address in
+    // Common (0x063eb318-0x063eb35c) - a prior pass had left every one of these
+    // zero-initialized, which did not match the compiled-in baseline values.
     float PHYSICAL_SIM_RATE = 16.0f;
     int MAX_SPAWNED_MINDIST_COUNT = 100;
     float ANOM_LIMITS_MAX_VELOCITY = 1000.0f;
@@ -256,27 +252,27 @@ namespace PhySys
     float RMGR_LOOK_AHEAD_MAX_RADIUS_WORLD = 5.0f;
     float RMGR_LOOK_AHEAD_MIN_DISTANCE_WORLD = 100.0f;
     float RMGR_LOOK_AHEAD_MAX_DISTANCE_WORLD = 1000.0f;
-    // CRT initializer LAB_06290890: DAT_0639c418 (2.1f) / PHYSICAL_SIM_RATE,
-    // rounded by FSTP into DAT_063fc0f8. The PE's zero-filled storage is not the runtime default.
+    // CRT initializer the branch: the field (2.1f) / PHYSICAL_SIM_RATE,
+    // rounded by FSTP into the field. The PE's zero-filled storage is not the runtime default.
     float RMGR_LOOK_AHEAD_MIN_SECONDS_WORLD = (float)((double)2.1f / PHYSICAL_SIM_RATE);
     float RMGR_LOOK_AHEAD_TIME_INTRA = 0.5f;
     float RMGR_LOOK_AHEAD_MAX_RADIUS_INTRA = 0.89999998f;
     float RMGR_LOOK_AHEAD_MIN_DISTANCE_INTRA = 5.0f;
     float RMGR_LOOK_AHEAD_MAX_DISTANCE_INTRA = 50.0f;
-    // CRT initializer LAB_062908b0 performs the same division for DAT_063fc0f4.
+    // CRT initializer the branch performs the same division for the field.
     float RMGR_LOOK_AHEAD_MIN_SECONDS_INTRA = (float)((double)2.1f / PHYSICAL_SIM_RATE);
 }
 
 
-// 0x06304990 ?ReadConstants@@YA_NPBD@Z. Path through GetFileSysPath with *DALib::Data; an
+// ?ReadConstants@@YA_NPBD@Z. Path through GetFileSysPath with *NeuronRuntime::Data; an
 // unopenable file returns false with no message; otherwise every block is read and true is
-// returned (the reader is never closed explicitly, its destructor does it). The retail body is
+// returned (the reader is never closed explicitly, its destructor does it). The baseline body is
 // one long is_value chain per block; the port walks key tables per block, which tests the same
 // names against the same destinations -- the order of is_value tests has no side effect.
 bool __cdecl ReadConstants(char const* RelPath)
 {
     char FullPath[kPathChars];
-    GetFileSysPath(FullPath, RelPath, DALib::Data);
+    GetFileSysPath(FullPath, RelPath, NeuronRuntime::Data);
 
     INI_Reader Reader;
     if (!Reader.open(FullPath, false))
@@ -395,7 +391,7 @@ bool __cdecl ReadConstants(char const* RelPath)
             {
                 if (Reader.is_value("TestString"))
                 {
-                    // 06304a70-06304a9e: a null value empties the string (length 0, first
+                    // a null value empties the string (length 0, first
                     // byte 0); otherwise the bounded copy into the 0x80 buffer.
                     char const* const Text = Reader.get_value_string();
                     if (Text == nullptr)

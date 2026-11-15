@@ -1,14 +1,10 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
-// Retail E:\FL\Scratch\Source\Client\cmn\mouse.cpp (.text 0x0041d970..0x004207a0): the
+// baseline Client\cmn\mouse.cpp (.text 0x0041d970..0x004207a0): the
 // DirectInput8 mouse, its event queue, and the named software cursors. See input_manager.h for
 // the three pieces of state and the flags byte.
-//
-// x87 note: retail evaluates every axis and quad formula on the x87 stack (64-bit mantissa) and
+
+// x87 note: baseline evaluates every axis and quad formula on the x87 stack (64-bit mantissa) and
 // rounds only where it stores to a float. The port evaluates the same expressions in double and
 // rounds at the same stores; the two agree except in the last bits of a double.
 
@@ -22,14 +18,14 @@
 #include "widescreen.h"   // port-only (OUTPOST_FRONTIER_WIDESCREEN_SUPPORT)
 #include "hud_command_dispatch.h"
 #include "menu_keymap_config.h"
-#include "nn_modal.h" // NnMainButtonOnUnclaimedMouse (FUN_0045a270)
+#include "nn_modal.h" // NnMainButtonOnUnclaimedMouse (the routine)
 #include "texture_shapes.h"
 #include "win3d_immediate.h"
 
-#include "DALib.h"
+#include "NeuronRuntime.h"
 #include "common_ini.h"
 #include "common_tstring.h"
-#include "dacom.h"
+#include "neuroncomponents.h"
 #include "readfile.h"
 #include "render/IRenderPipeline.h"
 
@@ -45,19 +41,19 @@
 #include <stdlib.h>
 #include <string.h>
 
-// DirectInput8Create, and IID_IDirectInput8A / GUID_SysMouse / c_dfDIMouse2 (retail links the
+// DirectInput8Create, and IID_IDirectInput8A / GUID_SysMouse / c_dfDIMouse2 (baseline links the
 // same three statically: .rdata 0x005e752c, 0x005e74ec, 0x005e772c).
 #pragma comment(lib, "dinput8.lib")
 #pragma comment(lib, "dxguid.lib")
 
-static_assert(sizeof(DIDEVICEOBJECTDATA) == 0x14, "FUN_0041fa10 walks 0x14-byte records");
-static_assert(sizeof(DIMOUSESTATE2) == 0x14, "FUN_0041fd90 reads 0x14 bytes into +0x2c");
+static_assert(sizeof(DIDEVICEOBJECTDATA) == 0x14, "module state walks 0x14-byte records");
+static_assert(sizeof(DIMOUSESTATE2) == 0x14, "module state reads 0x14 bytes into +0x2c");
 
 namespace
 {
-    char const kMouseCpp[] = "E:\\FL\\Scratch\\Source\\Client\\cmn\\mouse.cpp"; // 005c952c
+    char const kMouseCpp[] = "Client\\cmn\\mouse.cpp";
 
-    // The flags byte at +0x14 (DAT_006167cc).
+    // The flags byte at +0x14 (the field).
     unsigned char const kMouseActive = 0x01;
     unsigned char const kMouseAbsolute = 0x02;
     unsigned char const kMouseAcquired = 0x04;
@@ -66,23 +62,23 @@ namespace
     unsigned char const kMouseNeedsPoll = 0x20;
     unsigned char const kMouseBuffered = 0x40;
 
-    // FUN_00420060 / its inlined copies: the buffered-data size they ask for.
+    // / its inlined copies: the buffered-data size they ask for.
     unsigned const kMouseBufferEntries = 0x80;
     unsigned const kMouseButtonCount = 8;
-    // FUN_0041f150 0x0041f2fb: the wheel is queued as "button" 8.
+    // 0x0041f2fb: the wheel is queued as "button" 8.
     unsigned const kMouseWheelButton = 8;
-    // FUN_0041fa10 0x0041fb06 / 0x0041fb12: the double-click slop, in pixels, per axis.
+    // 0x0041fb06 / 0x0041fb12: the double-click slop, in pixels, per axis.
     int const kDoubleClickSlop = 4;
-    // FUN_0041df30 0x0041e099: at most 0x14 cursors are kept.
+    // 0x0041e099: at most 0x14 cursors are kept.
     unsigned const kMaxCursors = 0x14;
 
     // .rdata 0x005c9680 (double) and 0x005c967c (float, 1/120): the axis and wheel scales.
     double const kAxisScale = 0.00125;
     float const kWheelScale = 0.008333333767950535f;
-    // .rdata 0x005c8d30 (float): the cursor quad's surface-width scale in FUN_0041d9c0.
+    // .rdata 0x005c8d30 (float): the cursor quad's surface-width scale in the routine.
     float const kCursorQuadScale = 0.0012499999720603228f;
 
-    // The render states FUN_0041f150 saves and forces around the cursor quad.
+    // The render states the routine saves and forces around the cursor quad.
     int const kRsZEnable = 7;
     int const kRsAlphaTestEnable = 0xf;
     int const kRsSrcBlend = 0x13;
@@ -90,28 +86,28 @@ namespace
     int const kRsCullMode = 0x16;
     int const kRsAlphaBlendEnable = 0x1b;
 
-    // The mouse object at DAT_006167b8 (0x74 bytes). Retail constructs it on first use behind
-    // DAT_0061682c bit 0 (FUN_0041e740, then atexit LAB_0041e880 -> FUN_004a2d30, which only
+    // The mouse object at the field (0x74 bytes). baseline constructs it on first use behind
+    // bit 0 (the routine, then atexit the branch -> the routine, which only
     // destroys the list). The constructor has no effect beyond these stores, so the port holds
-    // it as a namespace-scope object: zero-initialised like retail's .bss, then the stores below.
+    // it as a namespace-scope object: zero-initialised like baseline's .bss, then the stores below.
     struct FMouseDevice
     {
-        // +0x04 head / +0x08 size: 0x2c-byte nodes, the event at node+8 (FUN_004207b0 /
-        // FUN_0041f850 / FUN_0041f8a0 insert before the sentinel; FUN_0041ef20 pops the front).
+        // +0x04 head / +0x08 size: 0x2c-byte nodes, the event at node+8 (the routine /
+        // / the routine insert before the sentinel; the routine pops the front).
         std::list<FMouseEvent> Events;
-        IDirectInput8A* DirectInput;   // +0x0c DAT_006167c4
-        IDirectInputDevice8A* Device;  // +0x10 DAT_006167c8
-        unsigned char Flags;           // +0x14 DAT_006167cc
-        int AbsoluteBase[3];           // +0x18 / +0x1c / +0x20 -- FUN_0041f7b0, absolute mode only
-        unsigned BufferSize;           // +0x24 DAT_006167dc
-        DIDEVICEOBJECTDATA* Buffer;    // +0x28 DAT_006167e0
+        IDirectInput8A* DirectInput;   // +0x0c the field
+        IDirectInputDevice8A* Device;  // +0x10 the field
+        unsigned char Flags;           // +0x14 the field
+        int AbsoluteBase[3];           // +0x18 / +0x1c / +0x20 -- the routine, absolute mode only
+        unsigned BufferSize;           // +0x24 the field
+        DIDEVICEOBJECTDATA* Buffer;    // +0x28 the field
         DIMOUSESTATE2 State;           // +0x2c
-        unsigned DoubleClickTime;      // +0x40 DAT_006167f8
+        unsigned DoubleClickTime;      // +0x40 the field
         unsigned LastPressTime[kMouseButtonCount]; // +0x44
         float Remainder[3];            // +0x64 / +0x68 / +0x6c -- sub-pixel carry per axis
-        bool bMoved;                   // +0x70 DAT_00616828 -- written only (0x0041f2a0 / 0x0041f2af)
+        bool bMoved;                   // +0x70 the field -- written only (0x0041f2a0 / 0x0041f2af)
 
-        // FUN_0041e740: +0x0c, +0x10, the +0x14 dword, +0x68, +0x64, +0x24, +0x44..+0x63, +0x28
+        // +0x0c, +0x10, the +0x14 dword, +0x68, +0x64, +0x24, +0x44..+0x63, +0x28
         // and the +0x70 byte. +0x6c, +0x18..+0x20, +0x2c..+0x40 are left as the .bss gave them.
         FMouseDevice()
             : DirectInput(nullptr)
@@ -129,37 +125,37 @@ namespace
         }
     };
 
-    FMouseDevice G_Mouse;              // DAT_006167b8
+    FMouseDevice G_Mouse;
 
-    bool G_bDeviceCreated = false;     // DAT_00616854
-    bool G_bCursorsReady = false;      // DAT_00616855
-    bool G_bInputActive = false;       // DAT_0061685c
-    int G_DispatchDepth = 0;           // DAT_00616860 -- FUN_0041ef20 nesting; written only
+    bool G_bDeviceCreated = false;
+    bool G_bCursorsReady = false;
+    bool G_bInputActive = false;
+    int G_DispatchDepth = 0;           // the routine nesting; written only
 
-    int G_CursorX = 0;                 // DAT_00616840
-    int G_CursorY = 0;                 // DAT_00616844
-    int G_CursorZ = 0;                 // DAT_00616848
-    int G_MouseWheel = 0;              // DAT_0061684c
-    unsigned G_MouseButtons = 0;       // DAT_00616850
+    int G_CursorX = 0;
+    int G_CursorY = 0;
+    int G_CursorZ = 0;
+    int G_MouseWheel = 0;
+    unsigned G_MouseButtons = 0;
 
-    // DAT_006107d0 -- the axis multiplier, .data 1.0f; written only by LAB_0041d970.
+    // the axis multiplier, .data 1.0f; written only by the branch.
     float G_MouseSpeed = 1.0f;
-    // DAT_006107d4 / DAT_006107d8 -- the cursor position at the last press, .data -777 / -777.
+    // / the field -- the cursor position at the last press, .data -777 / -777.
     int G_LastClickX = -777;
     int G_LastClickY = -777;
-    // DAT_006107dc -- .data 01; FUN_0041dd90 / FUN_0041dda0.
+    // .data 01; the routine / the routine.
     unsigned char G_MouseCursorDrawFlag = 1;
 
-    // The cursor record FUN_0041df30 allocates (operator new 0x90) and FUN_0041e550 constructs.
+    // The cursor record the routine allocates (operator new 0x90) and the routine constructs.
     struct FMouseCursor
     {
-        TString<32> Name;       // +0x00 "nickname" (FUN_00420750)
-        FTexShape* Shape;       // +0x24 resolved by FUN_0041dae0 from ShapeName
-        TString<24> ShapeName;  // +0x28 "shape" (FUN_00417c50, 0x18)
+        TString<32> Name;       // +0x00 "nickname" (the routine)
+        FTexShape* Shape;       // +0x24 resolved by the routine from ShapeName
+        TString<24> ShapeName;  // +0x28 "shape" (the routine, 0x18)
         float HotspotX;         // +0x44 "hotspot" [0]
         float HotspotY;         // +0x48 "hotspot" [1]
         unsigned char Color[4]; // +0x4c "color" R, G, B, A (each 0..0xff; A 0 reads as 0xff)
-        int Blend;              // +0x50 "blend" -- the FUN_0041f150 blend-mode switch
+        int Blend;              // +0x50 "blend" -- the the routine blend-mode switch
         float Scale;            // +0x54 "scale"
         float Angle;            // +0x58 "angle", or Spin * time
         float Spin;             // +0x5c "spin"
@@ -168,10 +164,10 @@ namespace
         float Fps;              // +0x68 "anim" [2]
         TString<32> AnimName;   // +0x6c "anim" [0] -- a printf format taking the frame
     };
-    static_assert(sizeof(FMouseCursor) == 0x90, "FUN_0041df30 allocates 0x90 bytes");
+    static_assert(sizeof(FMouseCursor) == 0x90, "module state allocates 0x90 bytes");
 
-    // FUN_0041e550. Fps (+0x68) is not written by retail; operator new leaves it as it finds it.
-    // The port zeroes it -- it is read only after "anim" has stored it (FUN_0041dae0 tests
+    // . Fps (+0x68) is not written by baseline; operator new leaves it as it finds it.
+    // The port zeroes it -- it is read only after "anim" has stored it (the routine tests
     // AnimName first).
     void CursorConstruct(FMouseCursor* Cursor)
     {
@@ -197,12 +193,12 @@ namespace
         Cursor->Fps = 0.0f;
     }
 
-    FMouseCursor* G_Cursors[kMaxCursors] = {}; // DAT_00616744
-    unsigned G_CursorCount = 0;                 // DAT_00616740 (LAB_0041dc10)
-    FMouseCursor* G_CurrentCursor = nullptr;    // DAT_00616858
-    TString<32> G_DefaultCursorName = {0, {0}}; // DAT_00616794 (LAB_0041dc00)
+    FMouseCursor* G_Cursors[kMaxCursors] = {};
+    unsigned G_CursorCount = 0;                 // (the branch)
+    FMouseCursor* G_CurrentCursor = nullptr;
+    TString<32> G_DefaultCursorName = {0, {0}}; // (the branch)
 
-    // FUN_0041e5a0.
+    // .
     int ClampColorByte(int Value)
     {
         if (Value < 0)
@@ -212,10 +208,10 @@ namespace
         return Value;
     }
 
-    // FUN_00420620 -- vsprintf into a 0x18-byte stack buffer, then TString<24> assignment
-    // (length clamped to 0x17). Retail's vsprintf is unbounded and a longer result overruns its
+    // vsprintf into a 0x18-byte stack buffer, then TString<24> assignment
+    // (length clamped to 0x17). baseline's vsprintf is unbounded and a longer result overruns its
     // frame; the port bounds the format to the same buffer, which gives the same string for
-    // every result retail survives.
+    // every result baseline survives.
     void FormatShapeName(TString<24>* Out, char const* Format, ...)
     {
         char Buffer[0x18];
@@ -227,8 +223,8 @@ namespace
         *Out = Buffer;
     }
 
-    // FUN_0041f8a0's / FUN_0041fd00's event: -1 - button in Key (0 for an index past the table,
-    // which then leaves the three flag bytes unwritten), the flags, bMove 0, the index. Retail
+    // 's / the routine's event: -1 - button in Key (0 for an index past the table,
+    // which then leaves the three flag bytes unwritten), the flags, bMove 0, the index. baseline
     // builds it in an uninitialised stack slot; the fields no reader touches are zero here.
     void BuildButtonEvent(FMouseEvent* Event, unsigned ButtonIndex, bool bDown, bool bDouble)
     {
@@ -247,7 +243,7 @@ namespace
         Event->Record.Byte1A = bDouble ? 1 : 0;
     }
 
-    // FUN_0041f8a0 (thiscall, RET 0xc): build and queue a button / wheel event.
+    // (thiscall, RET 0xc): build and queue a button / wheel event.
     void QueueButtonEvent(unsigned ButtonIndex, bool bDown, bool bDouble)
     {
         FMouseEvent Event;
@@ -255,7 +251,7 @@ namespace
         G_Mouse.Events.push_back(Event);
     }
 
-    // FUN_0041f850: queue a move event -- only +0x1c is written.
+    // queue a move event -- only +0x1c is written.
     void QueueMoveEvent()
     {
         FMouseEvent Event;
@@ -265,7 +261,7 @@ namespace
     }
 
     // Unacquire the device (when there is one), drop the acquired / exclusive bits and empty the
-    // queue: the prologue FUN_0041e790, FUN_0041f720 and FUN_004201a0(0) share.
+    // queue: the prologue the routine, the routine and the routine(0) share.
     void UnacquireAndFlush()
     {
         if (G_Mouse.Device != nullptr)
@@ -274,7 +270,7 @@ namespace
         G_Mouse.Events.clear();
     }
 
-    // FUN_0041e790 (thiscall, RET 4): resize the DirectInput buffer. Nothing happens when the
+    // (thiscall, RET 4): resize the DirectInput buffer. Nothing happens when the
     // size is already right. SetProperty is called on the device without a null test.
     bool SetBufferSize(unsigned Entries)
     {
@@ -303,9 +299,9 @@ namespace
         return true;
     }
 
-    // FUN_00420060 (thiscall, RET 8; the first argument, the window, is not read). No HRESULT is
+    // (thiscall, RET 8; the first argument, the window, is not read). No HRESULT is
     // tested: a failed DirectInput8Create leaves +0x0c null and the next call faults, as in
-    // retail.
+    // baseline.
     void CreateDevice(bool bBuffered)
     {
         G_Mouse.DoubleClickTime = GetDoubleClickTime();
@@ -321,7 +317,7 @@ namespace
             SetBufferSize(kMouseBufferEntries);
     }
 
-    // The `if (!DAT_00616854) { DAT_00616854 = 1; FUN_00420060(DAT_0067eca0, 1); }` block every
+    // The `if (!the field) { the field = 1; the routine(the field, 1); }` block every
     // entry point opens with (inlined in most of them).
     void EnsureDevice()
     {
@@ -331,7 +327,7 @@ namespace
         CreateDevice(true);
     }
 
-    // FUN_004201a0 (thiscall, RET 4).
+    // (thiscall, RET 4).
     void SetActive(bool bActive)
     {
         if (bActive)
@@ -392,7 +388,7 @@ namespace
         }
     }
 
-    // FUN_0041f720: take the device exclusive and foreground once. SetCooperativeLevel is called
+    // take the device exclusive and foreground once. SetCooperativeLevel is called
     // without a null test on the device.
     bool SetExclusive()
     {
@@ -407,7 +403,7 @@ namespace
         return (G_Mouse.Flags & kMouseExclusive) != 0;
     }
 
-    // FUN_0041f7b0: acquire while the game window is in front, retrying up to 100 times while
+    // acquire while the game window is in front, retrying up to 100 times while
     // DirectInput answers DIERR_INPUTLOST; in absolute mode latch the axis base.
     bool Acquire()
     {
@@ -436,7 +432,7 @@ namespace
         return (G_Mouse.Flags & kMouseAcquired) != 0;
     }
 
-    // FILD DAT_00610850 / FMUL double 0.00125 / FMUL float DAT_006107d0 -- kept unrounded.
+    // FILD the field / FMUL double 0.00125 / FMUL float the field -- kept unrounded.
     double AxisScale()
     {
         return static_cast<double>(static_cast<int>(G_RenderSurfaceWidth)) * kAxisScale *
@@ -459,7 +455,7 @@ namespace
         *Pos += Whole;
     }
 
-    // The press bookkeeping FUN_0041fa10 (0x0041fabe..0x0041fb1e) and FUN_0041fd90
+    // The press bookkeeping the routine (0x0041fabe..0x0041fb1e) and the routine
     // (0x0041ff37..0x0041ffa2) inline: a press within the double-click time of the previous one
     // on this button, and within four pixels of the previous press on either axis, is a double
     // click; the button's time is then pulled back by one double-click time so a third press does
@@ -482,7 +478,7 @@ namespace
         return false;
     }
 
-    // A button changed state: keep DAT_00616850, detect the double click on a press, queue it.
+    // A button changed state: keep the field, detect the double click on a press, queue it.
     void OnButtonChange(unsigned ButtonIndex, bool bDown, unsigned Timestamp)
     {
         unsigned const Bit = 1u << ButtonIndex;
@@ -497,8 +493,8 @@ namespace
         QueueButtonEvent(ButtonIndex, bDown, bDouble);
     }
 
-    // FUN_0041fa10: drain the DirectInput buffer. Axis records are skipped in buffered mode
-    // (FUN_0041fd90 reads the axes from the immediate state instead); buttons always count, with
+    // drain the DirectInput buffer. Axis records are skipped in buffered mode
+    // (the routine reads the axes from the immediate state instead); buttons always count, with
     // the record's own timestamp.
     bool ReadBuffered()
     {
@@ -556,8 +552,8 @@ namespace
         return bOk;
     }
 
-    // FUN_0041fd90: the immediate state -- all three axes, then every button whose bit in
-    // DAT_00616850 disagrees with the device, stamped with the frame time FUN_0042d670.
+    // the immediate state -- all three axes, then every button whose bit in
+    // disagrees with the device, stamped with the frame time the routine.
     bool ReadImmediate()
     {
         HRESULT const Result = G_Mouse.Device->GetDeviceState(0x14, &G_Mouse.State);
@@ -586,7 +582,7 @@ namespace
         return bOk;
     }
 
-    // FUN_0041f970 (thiscall, RET 8): keep a moved cursor on the surface. Without flags bit 0x10
+    // (thiscall, RET 8): keep a moved cursor on the surface. Without flags bit 0x10
     // (a windowed session) leaving the surface asks the caller to release the mouse instead.
     bool ClampOrRelease(int Dx, int Dy)
     {
@@ -629,7 +625,7 @@ namespace
         return bRelease;
     }
 
-    // FUN_0041dae0 (thiscall on the cursor, RET 8: ShapeDB, time). An animated cursor picks its
+    // (thiscall on the cursor, RET 8: ShapeDB, time). An animated cursor picks its
     // frame from the elapsed time and re-formats its shape name; the shape is looked up whenever
     // it is not resolved; a spinning cursor's angle follows the time.
     void CursorAnimate(FMouseCursor* Cursor, FShapeDB* ShapeDB, float Time)
@@ -637,7 +633,7 @@ namespace
         if (Cursor->AnimName.Length != 0 &&
             (Cursor->FrameCount > 1 || Cursor->ShapeName.Length == 0))
         {
-            // 0x0041dafe: FCOMP 0.0 / TEST AH,0x44 / JNP -- skipped only when Fps equals 0.
+            // FCOMP 0.0 / TEST AH,0x44 / JNP -- skipped only when Fps equals 0.
             if (!(Cursor->Fps == 0.0f))
             {
                 unsigned const Tick =
@@ -651,8 +647,8 @@ namespace
 
         if (Cursor->Shape == nullptr)
         {
-            // The ShapeDB.h:0xf2 find, inlined (key FUN_004205c0, cache FUN_00420690, lookup
-            // FUN_004206c0, warning with ShapeDB.h's full path).
+            // The ShapeDB.h:0xf2 find, inlined (key the routine, cache the routine, lookup
+            // , warning with ShapeDB.h's full path).
             FTexShape* const Shape = ShapeDB->Find(Cursor->ShapeName.Data, kShapeDbHeaderFull);
             Cursor->Shape = Shape;
             if (Shape == nullptr)
@@ -662,12 +658,12 @@ namespace
             }
         }
 
-        // 0x0041dbd7: the same equality test on Spin.
+        // the same equality test on Spin.
         if (!(Cursor->Spin == 0.0f))
             Cursor->Angle = Time * Cursor->Spin;
     }
 
-    // FUN_0041d9c0 (thiscall on the cursor, RET 0xc: out[8], x, y): the four corners of the
+    // (thiscall on the cursor, RET 0xc: out[8], x, y): the four corners of the
     // cursor quad, rotated by Angle about the hotspot and scaled by Scale and the surface width.
     bool CursorComputeQuad(FMouseCursor const* Cursor, float* Out, int X, int Y)
     {
@@ -720,8 +716,8 @@ namespace
         return Cursor->Shape != nullptr;
     }
 
-    // FUN_00405840's object: {Pipeline, State, Saved}. Built in place (GetRenderState, slot
-    // 0xf4) and restored by FUN_00405840 (SetRenderState, slot 0xf0).
+    // 's object: {Pipeline, State, Saved}. Built in place (GetRenderState, slot
+    // 0xf4) and restored by the routine (SetRenderState, slot 0xf0).
     struct FRenderStateSave
     {
         IRenderPipeline* Pipeline;
@@ -729,11 +725,11 @@ namespace
         int Saved;
     };
 
-    // Build the saver from the current DALib::Pipeline, then force Value through the saver's own
+    // Build the saver from the current NeuronRuntime::Pipeline, then force Value through the saver's own
     // pipeline and state (the MOV EAX,[ESP+..] / PUSH [ESP+..] pair after every GetRenderState).
     void RenderStateSaveAndSet(FRenderStateSave* Save, int State, int Value)
     {
-        Save->Pipeline = DALib::Pipeline;
+        Save->Pipeline = NeuronRuntime::Pipeline;
         Save->State = State;
         Save->Pipeline->GetRenderState((D3DRENDERSTATETYPE)State, &Save->Saved);
         Save->Pipeline->SetRenderState((D3DRENDERSTATETYPE)Save->State, Value);
@@ -744,7 +740,7 @@ namespace
         Save->Pipeline->SetRenderState((D3DRENDERSTATETYPE)Save->State, Save->Saved);
     }
 
-    // FUN_0041f150 0x0041f30a..0x0041f6e4: animate and draw the cursor in use.
+    // 0x0041f30a..0x0041f6e4: animate and draw the cursor in use.
     void DrawCursor()
     {
         if (G_MouseCursorDrawFlag == 0)
@@ -752,7 +748,7 @@ namespace
 
         if (G_CurrentCursor != nullptr)
         {
-            float const Time = static_cast<float>(GetClientElapsedTime()); // FUN_0042d660
+            float const Time = static_cast<float>(GetClientElapsedTime());
             CursorAnimate(G_CurrentCursor, &G_MouseShapeDB, Time);
         }
 
@@ -764,7 +760,7 @@ namespace
         if (Shape == nullptr)
             return;
 
-        Win3DSetOrtho2D(); // FUN_004225e0
+        Win3DSetOrtho2D();
 
         FRenderStateSave ZEnable;
         RenderStateSaveAndSet(&ZEnable, kRsZEnable, 0);
@@ -773,13 +769,13 @@ namespace
         FRenderStateSave AlphaTest;
         RenderStateSaveAndSet(&AlphaTest, kRsAlphaTestEnable, 0);
 
-        Win3DBindTexture(TexShapeGetGpuHandle(Shape, 0)); // FUN_00425640 / FUN_004220a0
+        Win3DBindTexture(TexShapeGetGpuHandle(Shape, 0)); // / the routine
         unsigned char FilterToken = 0;                    // the ECX both filter calls get
-        Win3DSetTextureFilterLinear(&FilterToken);         // FUN_004223d0
-        Win3DSetTextureFilterPoint();                      // FUN_00422410
-        Win3DColor4ubv(G_CurrentCursor->Color);            // FUN_00421ba0
+        Win3DSetTextureFilterLinear(&FilterToken);
+        Win3DSetTextureFilterPoint();
+        Win3DColor4ubv(G_CurrentCursor->Color);
 
-        // 0x0041f47c..0x0041f4c2: the blend switch on +0x50 (table 0x0041f700).
+        // the blend switch on +0x50 (table 0x0041f700).
         int SourceBlend = 2;
         int DestBlend = 1;
         switch (G_CurrentCursor->Blend)
@@ -839,7 +835,7 @@ namespace
         RenderStateRestore(&ZEnable);
     }
 
-    // FUN_0041df30(Path, BaseDir): every [Cursor] section with a nickname becomes a cursor record.
+    // (Path, BaseDir): every [Cursor] section with a nickname becomes a cursor record.
     void LoadCursors(char const* Path, IFileSystem* BaseDir)
     {
         INI_Reader Reader;
@@ -864,7 +860,7 @@ namespace
             if (!Reader.is_header("Cursor") || !Reader.read_value())
                 continue;
 
-            // 0x0041e027: skip to the nickname; a section without one is dropped.
+            // skip to the nickname; a section without one is dropped.
             bool bHasNickname = false;
             do
             {
@@ -880,9 +876,9 @@ namespace
             char const* const Nickname = Reader.get_value_string(0);
             FMouseCursor* const Cursor = static_cast<FMouseCursor*>(operator new(0x90));
             CursorConstruct(Cursor);
-            Cursor->Name = Nickname; // FUN_00420750
+            Cursor->Name = Nickname;
 
-            // 0x0041e099: past 0x14 cursors the record is still filled but never stored.
+            // past 0x14 cursors the record is still filled but never stored.
             if (G_CursorCount < kMaxCursors)
             {
                 G_Cursors[G_CursorCount] = Cursor;
@@ -964,7 +960,7 @@ namespace
 
 void ClientInputOnMouseMove()
 {
-    // FUN_0041e890: gated on DAT_0061685c; the device ensure and FUN_004201a0(1) inlined.
+    // gated on the field; the device ensure and the routine(1) inlined.
     if (!G_bInputActive)
         return;
     EnsureDevice();
@@ -973,7 +969,7 @@ void ClientInputOnMouseMove()
 
 void ClientInputOnFocusGained()
 {
-    // FUN_0041eac0.
+    // .
     EnsureDevice();
     SetActive(true);
     G_bInputActive = true;
@@ -984,7 +980,7 @@ void ClientInputOnFocusLost()
 #ifdef OUTPOST_FRONTIER_WALK_MODE
     BaseWalkFocusLost();
 #endif
-    // FUN_0041ecf0.
+    // .
     EnsureDevice();
     SetActive(false);
     G_bInputActive = false;
@@ -992,27 +988,27 @@ void ClientInputOnFocusLost()
 
 void MouseSetEnabled(bool bEnable, int Width, int Height, bool bFullscreen)
 {
-    // FUN_00420350 (cdecl). Width and Height are pushed by both callers and never read.
+    // (cdecl). Width and Height are pushed by both callers and never read.
     (void)Width;
     (void)Height;
 
     if (!bEnable)
     {
-        // 0x00420360..0x004204d4: the device ensure, FUN_004201a0(0) inlined, DAT_0061685c = 0.
+        // the device ensure, the routine(0) inlined, the field = 0.
         EnsureDevice();
         SetActive(false);
         G_bInputActive = false;
         return;
     }
 
-    // 0x004204d5: a windowed session only takes the mouse while the window has the focus.
+    // a windowed session only takes the mouse while the window has the focus.
     if (!bFullscreen && GetFocus() != g_client.window)
         return;
 
     EnsureDevice();
     G_Mouse.Flags = static_cast<unsigned char>((G_Mouse.Flags & ~kMouseClampToSurface) |
                                                (bFullscreen ? kMouseClampToSurface : 0));
-    // 0x00420550..0x0042059e: retail repeats the object / device ensure; both are no-ops now.
+    // baseline repeats the object / device ensure; both are no-ops now.
     EnsureDevice();
     SetActive(true);
     G_bInputActive = true;
@@ -1020,7 +1016,7 @@ void MouseSetEnabled(bool bEnable, int Width, int Height, bool bFullscreen)
 
 void MouseDispatchEvents()
 {
-    // FUN_0041ef20.
+    // .
     EnsureDevice();
     ++G_DispatchDepth;
     while (!G_Mouse.Events.empty())
@@ -1035,12 +1031,12 @@ void MouseDispatchEvents()
 
         if (Event.bMove != 0)
         {
-            HudPostCommand(5, 0); // FUN_005763b0(5, 0)
+            HudPostCommand(5, 0); // (5, 0)
             continue;
         }
         if (Event.Record.Key == 0)
             continue;
-        // 0x0041f106: an unclaimed left press goes to FUN_0045a270(WM_LBUTTONDOWN, 0, 0).
+        // an unclaimed left press goes to the routine(WM_LBUTTONDOWN, 0, 0).
         if (!KeyMapRouteMouseEvent(&Event.Record) && Event.ButtonIndex == 0 &&
             Event.Record.Byte18 != 0)
         {
@@ -1052,7 +1048,7 @@ void MouseDispatchEvents()
 
 void MouseFrameUpdate()
 {
-    // FUN_0041f150 -- nothing at all until the cursors are loaded (DAT_00616855).
+    // nothing at all until the cursors are loaded (the field).
     if (!G_bCursorsReady)
         return;
 
@@ -1067,7 +1063,7 @@ void MouseFrameUpdate()
         int const StartY = G_CursorY;
         int const StartZ = G_CursorZ;
 
-        // 0x0041f218..0x0041f26c: buffered mode reads the buffer (its result lands in bit 2 for
+        // buffered mode reads the buffer (its result lands in bit 2 for
         // a moment) and then the immediate state; otherwise the buffer when there is one, else
         // the immediate state. The last read decides bit 2.
         bool bRead = false;
@@ -1109,7 +1105,7 @@ void MouseFrameUpdate()
             QueueMoveEvent();
         }
 
-        // 0x0041f2d5: the wheel delta is published and queued one notch at a time.
+        // the wheel delta is published and queued one notch at a time.
         G_MouseWheel = Wheel;
         if (Wheel < 0)
             Wheel = -Wheel;
@@ -1122,16 +1118,16 @@ void MouseFrameUpdate()
 
 void MouseInitCursors()
 {
-    // FUN_0041e5c0.
-    G_MouseShapeDB.Load("mouse.ini", DALib::Data); // FUN_00425b30
-    LoadCursors("mouse.ini", DALib::Data);         // FUN_0041df30
+    // .
+    G_MouseShapeDB.Load("mouse.ini", NeuronRuntime::Data);
+    LoadCursors("mouse.ini", NeuronRuntime::Data);
     G_bCursorsReady = true;
     MouseSetCursor("DEFAULT", false);
 }
 
 void MouseShutdown()
 {
-    // FUN_0041e610. The device ensure runs first, so a session that never created the device
+    // . The device ensure runs first, so a session that never created the device
     // creates it here only to release it.
     EnsureDevice();
     if (G_Mouse.Device != nullptr)
@@ -1157,19 +1153,19 @@ void MouseShutdown()
         G_Cursors[Index] = nullptr;
     }
     G_CursorCount = 0;
-    G_MouseShapeDB.Clear(); // FUN_00425a20
+    G_MouseShapeDB.Clear();
     G_bCursorsReady = false;
 }
 
 void MouseSetCursor(char const* Name, bool bSetDefault)
 {
-    // FUN_0041dde0.
+    // .
     if (bSetDefault)
         G_DefaultCursorName = Name;
 
     if (!G_bCursorsReady)
         return;
-    // 0x0041de4a: the cursor already in use is left alone. (A null Name reaches DACOM stricmp
+    // the cursor already in use is left alone. (A null Name reaches NEURONCOMPONENTS stricmp
     // here only while a cursor is set; no caller in the PE passes one.)
     if (G_CurrentCursor != nullptr && _stricmp(G_CurrentCursor->Name.Data, Name) == 0)
         return;
@@ -1197,14 +1193,14 @@ void MouseSetCursor(char const* Name, bool bSetDefault)
     if (Found == G_CurrentCursor)
         return;
     G_CurrentCursor = Found;
-    // 0x0041df0f: restart the animation (0 % FrameCount).
+    // restart the animation (0 % FrameCount).
     if (Found != nullptr && Found->FrameCount != 0)
         Found->Frame = 0 % Found->FrameCount;
 }
 
 bool MouseIsArrowCursor()
 {
-    // FUN_0041ddb0.
+    // .
     return G_CurrentCursor != nullptr && _stricmp(G_CurrentCursor->Name.Data, "Arrow") == 0;
 }
 
@@ -1223,11 +1219,11 @@ unsigned GetClientMouseButtons()
     return G_MouseButtons;
 }
 
-// LAB_0041d970 -- apply of the perf option "mouse_speed": clamp to [DAT_005c7474 = 0.0,
-// DAT_005c75dc = 1.0] (0041d978 / 0041d993), then * DAT_005c94fc (1.75) + DAT_005c94f8 (0.25)
-// into DAT_006107d0. The x87 FMUL/FADD round once, on the FSTP; the double arithmetic here is
+// apply of the perf option "mouse_speed": clamp to [the field = 0.0,
+// = 1.0] (0041d978 / 0041d993), then * (1.75) + the field (0.25)
+// into the field. The x87 FMUL/FADD round once, on the FSTP; the double arithmetic here is
 // exact up to that same single rounding. A NaN fails both compares and passes through, as in
-// retail.
+// baseline.
 void ApplyMouseSpeedOption(float Value)
 {
     float Clamped = Value;
@@ -1267,12 +1263,12 @@ unsigned GetClientDoubleClickTime()
 
 unsigned char GetClientMouseCursorDrawFlag()
 {
-    // FUN_0041dd90.
+    // .
     return G_MouseCursorDrawFlag;
 }
 
 void SetClientMouseCursorDrawFlag(unsigned char Value)
 {
-    // FUN_0041dda0.
+    // .
     G_MouseCursorDrawFlag = Value;
 }

@@ -1,12 +1,8 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
-#include "dacom.h"
+#include "neuroncomponents.h"
 #include "render/IRenderPipeline.h"
 
 #include <cstddef>
@@ -14,30 +10,30 @@
 struct FRpVertexSrcDesc;
 
 // Shared material contract. Keep the declared calling conventions and slot order.
-struct IMaterial : IDAComponent
+struct IMaterial : INeuronComponent
 {
-    virtual GENRESULT DACOM_API Initialize(IDAComponent* Outer) = 0;
-    virtual GENRESULT DACOM_API LoadFromFileSystem(void* FileSystem) = 0;
-    virtual GENRESULT DACOM_API SaveProperties(void* FileSystem) = 0;
-    virtual GENRESULT DACOM_API ApplyVerify(void* Context, void* Extra) = 0;
+    virtual GENRESULT NEURONCOMPONENTS_API Initialize(INeuronComponent* Outer) = 0;
+    virtual GENRESULT NEURONCOMPONENTS_API LoadFromFileSystem(void* FileSystem) = 0;
+    virtual GENRESULT NEURONCOMPONENTS_API SaveProperties(void* FileSystem) = 0;
+    virtual GENRESULT NEURONCOMPONENTS_API ApplyVerify(void* Context, void* Extra) = 0;
     // Refresh texture handles; animated materials also advance by Delta.
-    virtual GENRESULT DACOM_API ResolveTextures(float Delta) = 0;
-    virtual GENRESULT DACOM_API Bind(void* Context) = 0;
-    virtual GENRESULT DACOM_API Teardown(void* Context) = 0;
-    virtual GENRESULT DACOM_API Submit(void* Context, unsigned long PrimType,
+    virtual GENRESULT NEURONCOMPONENTS_API ResolveTextures(float Delta) = 0;
+    virtual GENRESULT NEURONCOMPONENTS_API Bind(void* Context) = 0;
+    virtual GENRESULT NEURONCOMPONENTS_API Teardown(void* Context) = 0;
+    virtual GENRESULT NEURONCOMPONENTS_API Submit(void* Context, unsigned long PrimType,
                                        unsigned long Start, unsigned long Count,
                                        unsigned long IbStart, unsigned long IndexSpan,
                                        unsigned long Flags) = 0;
-    virtual GENRESULT DACOM_API SetName(const char* Name) = 0;
-    virtual GENRESULT DACOM_API GetName(char* Out, unsigned long Size) = 0;
-    virtual GENRESULT DACOM_API CopyClassName(char* Out, unsigned long Size) = 0;
-    virtual GENRESULT DACOM_API GetPassCount(int* Out) = 0;
-    virtual GENRESULT DACOM_API GetRenderFlags(unsigned long* Out) = 0;
-    virtual GENRESULT DACOM_API GetParameterCount(unsigned long* OutCount) = 0;
+    virtual GENRESULT NEURONCOMPONENTS_API SetName(const char* Name) = 0;
+    virtual GENRESULT NEURONCOMPONENTS_API GetName(char* Out, unsigned long Size) = 0;
+    virtual GENRESULT NEURONCOMPONENTS_API CopyClassName(char* Out, unsigned long Size) = 0;
+    virtual GENRESULT NEURONCOMPONENTS_API GetPassCount(int* Out) = 0;
+    virtual GENRESULT NEURONCOMPONENTS_API GetRenderFlags(unsigned long* Out) = 0;
+    virtual GENRESULT NEURONCOMPONENTS_API GetParameterCount(unsigned long* OutCount) = 0;
     // OutDesc receives one kMaterialParamDescSize-byte property descriptor.
-    virtual GENRESULT DACOM_API GetParameterDescriptor(unsigned long Index, void* OutDesc) = 0;
-    virtual GENRESULT DACOM_API GetParameterValue(unsigned long Index, void* InOutDesc) = 0;
-    virtual GENRESULT DACOM_API SetParameterValue(unsigned long Index, void* Value) = 0;
+    virtual GENRESULT NEURONCOMPONENTS_API GetParameterDescriptor(unsigned long Index, void* OutDesc) = 0;
+    virtual GENRESULT NEURONCOMPONENTS_API GetParameterValue(unsigned long Index, void* InOutDesc) = 0;
+    virtual GENRESULT NEURONCOMPONENTS_API SetParameterValue(unsigned long Index, void* Value) = 0;
     virtual const char* __thiscall ClassName() = 0;
     virtual void* __thiscall ScalarDeletingDestructor(unsigned char bDelete) = 0;
     virtual GENRESULT __thiscall InitializeFromDescriptor(void* Arg) = 0;
@@ -51,9 +47,9 @@ struct IMaterial : IDAComponent
     virtual unsigned long __thiscall GetParameterTable(void** OutBase) = 0;
     // Return the live backing address of the indexed property.
     virtual void* __thiscall GetParameterAddress(unsigned long Index) = 0;
-    virtual GENRESULT DACOM_API InnerQueryInterface(const char* Iid, void** Out) = 0;
-    virtual unsigned long DACOM_API InnerAddRef() = 0;
-    virtual unsigned long DACOM_API InnerRelease() = 0;
+    virtual GENRESULT NEURONCOMPONENTS_API InnerQueryInterface(const char* Iid, void** Out) = 0;
+    virtual unsigned long NEURONCOMPONENTS_API InnerAddRef() = 0;
+    virtual unsigned long NEURONCOMPONENTS_API InnerRelease() = 0;
 };
 static const unsigned long kMaterialParamDescSize = 0x4C;
 // Descriptor shared by material factories and their controlling outer component.
@@ -61,7 +57,7 @@ struct FMaterialAggregateDesc
 {
     unsigned long Size;
     const char* NameAt4;
-    IDAComponent* OuterAt8;
+    INeuronComponent* OuterAt8;
     void** InnerOutAtC;
     const char* ExtraAt10;
 };

@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // Rect and the Rect / ViewRect / RECT conversions -- split out of common_text.cpp in CMN-SPLIT
@@ -10,7 +6,7 @@
 #include "common_text.h"
 
 // ============================================================================
-// Rect — all methods from Ghidra, straightforward arithmetic.
+// Rect — all methods from analysis, straightforward arithmetic.
 // ============================================================================
 
 Rect::Rect()
@@ -119,12 +115,12 @@ int Rect::height() const
 void Rect::get_center(int* OutX, int* OutY) const
 {
     // RVA 0xBE2A0. BUG FIX (2026-09-06, batch10a): this previously read
-    // `Left + Width / 2` / `Top + Height / 2`, which is off by one from retail for
-    // even Width/Height. Retail computes `(2*Left + Width - 1)` (resp. Height) via
+    // `Left + Width / 2` / `Top + Height / 2`, which is off by one from baseline for
+    // even Width/Height. baseline computes `(2*Left + Width - 1)` (resp. Height) via
     // LEA then divides by 2 with a CDQ/SUB/SAR sequence that reproduces C's
     // truncating signed division exactly -- i.e. `(2*Left + Width - 1) / 2`, NOT
     // `Left + Width / 2`. These differ by 1 whenever Width/Height is even (e.g.
-    // Left=0, Width=4: retail center.x = (0+4-1)/2 = 1, the old code gave 2).
+    // Left=0, Width=4: baseline center.x = (0+4-1)/2 = 1, the old code gave 2).
     if (OutX)
     {
         *OutX = (2 * Left + Width - 1) / 2;
@@ -171,7 +167,7 @@ bool operator!=(Rect const& A, Rect const& B)
 
 ViewRect __cdecl Rect_to_ViewRect(Rect const& In)
 {
-    // Common.dll.txt:0631e5f0. Right/Bottom are inclusive, hence the -1.
+    // Commone5f0. Right/Bottom are inclusive, hence the -1.
     ViewRect Out;
     Out.Left = In.Left;
     Out.Top = In.Top;
@@ -182,7 +178,7 @@ ViewRect __cdecl Rect_to_ViewRect(Rect const& In)
 
 Rect __cdecl ViewRect_to_Rect(ViewRect const& In)
 {
-    // Common.dll.txt:0631e620, the exact inverse.
+    // Commone620, the exact inverse.
     Rect Out;
     Out.Left = In.Left;
     Out.Top = In.Top;

@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -19,68 +15,68 @@ struct IObjRW;
 
 // ============================================================================
 // TrailBehavior -- behavior type 3 ("Trail", GDescTrail in common_behaviortypes.cpp). RTTI: COL
-// .rdata:063a8f24 at vftable-4 names ".?AVTrailBehavior@@"; its ClassHierarchyDescriptor
+// at vftable-4 names ".?AVTrailBehavior@@"; its ClassHierarchyDescriptor
 // (063a8f14, numBaseClasses 2) is [TrailBehavior, Behavior], single inheritance at offset 0.
-//
+
 // Re-ported from the listing 2026-10-08 (claude-code:cmn-ai5). Until then the slot-4 body
 // lived in the destructor, slots 3/5/6/8/10/12/14 were unbound members or missing, the
 // +0x2c sub-object was the invented FormationMoveFx, the +0x1c0 AfterburnerIdea was a byte
 // buffer, and Update ran on no-op stand-ins.
-//
-// Constructor FUN_062ca350 builds, in this order (EH states 0..4):
-//   +0x02c  MatchThrottle2Idea  FUN_062d5aa0
-//   +0x088  FaceIdea            FUN_062d6750
-//   +0x148  MoveIdea            FUN_062d4e60
-//   +0x1c0  AfterburnerIdea     FUN_062da500
+
+// Constructor the routine builds, in this order (EH states 0..4):
+//   +0x02c  MatchThrottle2Idea  the routine
+//   +0x088  FaceIdea            the routine
+//   +0x148  MoveIdea            the routine
+//   +0x1c0  AfterburnerIdea     the routine
 // then the bare BaseWatcher at +0x1d4 (EH state 5), the vptr 0639fa6c and its scalars.
-//
-// Vtable .rdata:0639fa6c, 27 slots. Overrides of Behavior's table (vtd.py, raw .rdata):
-//    0  FUN_062ca4a0  scalar-deleting dtor around FUN_062ca4c0
-//    1  LAB_062ca570  SetContext
-//    3  LAB_062ca640  Slot3
-//    4  FUN_062ca7b0  Slot4
-//    5  LAB_062ca820  Slot5
-//    6  LAB_062ca940  evaluate
-//    7  LAB_062caa60  Slot7 (the per-tick update)
-//    8  LAB_062caa40  Slot8
-//   10  LAB_062cb110  Slot10
-//   12  FUN_062cb170  set_direction
-//   14  LAB_062cb2a0  set_cruise
+
+// Vtable module storage, 27 slots. Overrides of Behavior's table (vtd.py, raw .rdata):
+//    0  the routine  scalar-deleting dtor around the routine
+//    1  the branch  SetContext
+//    3  the branch  Slot3
+//    4  the routine  Slot4
+//    5  the branch  Slot5
+//    6  the branch  evaluate
+//    7  the branch  Slot7 (the per-tick update)
+//    8  the branch  Slot8
+//   10  the branch  Slot10
+//   12  the routine  set_direction
+//   14  the branch  set_cruise
 // Every other slot is Behavior's own entry.
 // ============================================================================
 class TrailBehavior : public Behavior
 {
 public:
-    // FUN_062ca350 (.text:062ca350-062ca496).
+    // (module storage-062ca496).
     explicit TrailBehavior(int InTypeId);
-    // FUN_062ca4c0: set_pointer(0) on +0x1d4, +0x15c (MoveIdea's watcher), +0x9c (FaceIdea's)
+    // set_pointer(0) on +0x1d4, +0x15c (MoveIdea's watcher), +0x9c (FaceIdea's)
     // and +0x40 (MatchThrottle2Idea's) -- the members' own destructors in reverse order --
-    // then FUN_062d2080 (~Behavior).
+    // then the routine (~Behavior).
     ~TrailBehavior() override;
 
     TrailBehavior(TrailBehavior const&) = delete;
     TrailBehavior& operator=(TrailBehavior const&) = delete;
 
-    // Slot 1, LAB_062ca570 (RET 0xc).
+    // Slot 1, the branch (RET 0xc).
     bool SetContext(void* Owner, void* Manager, void* Sys) override;
-    // Slot 3, LAB_062ca640 (RET 0): re-arm from the personality's TrailUseStruct.
+    // Slot 3, the branch (RET 0): re-arm from the personality's TrailUseStruct.
     void Slot3() override;
-    // Slot 4, FUN_062ca7b0 (RET 0): release everything, then Behavior::Slot4.
+    // Slot 4, the routine (RET 0): release everything, then Behavior::Slot4.
     void Slot4() override;
-    // Slot 5, LAB_062ca820 (RET 4, argument unread). Result stored at +0x0c.
+    // Slot 5, the branch (RET 4, argument unread). Result stored at +0x0c.
     int Slot5(float Unused) override;
-    // Slot 6, LAB_062ca940 (RET 4, argument unread): retarget the owner's target for the
+    // Slot 6, the branch (RET 4, argument unread): retarget the owner's target for the
     // player trail.
     EvaluateResult evaluate(unsigned int Context) override;
-    // Slot 7, LAB_062caa60 (516 instructions). Result stored at +0x10.
+    // Slot 7, the branch (516 instructions). Result stored at +0x10.
     int Slot7() override;
-    // Slot 8, LAB_062caa40 (RET 0): MatchThrottle2Idea::Slot2(DeltaTime) while it drives.
+    // Slot 8, the branch (RET 0): MatchThrottle2Idea::Slot2(DeltaTime) while it drives.
     void Slot8() override;
-    // Slot 10, LAB_062cb110 (RET 4): take the DirectiveTrailOp's target and distance.
+    // Slot 10, the branch (RET 4): take the DirectiveTrailOp's target and distance.
     bool Slot10(void* DirectiveOp) override;
-    // Slot 12, FUN_062cb170 (RET 4).
+    // Slot 12, the routine (RET 4).
     void set_direction(Vector const& Dir) override;
-    // Slot 14, LAB_062cb2a0: `ADD ECX,0x2c; JMP FUN_062d6700` -- MatchThrottle2Idea::SetFlag38.
+    // Slot 14, the branch: `ADD ECX,0x2c; JMP the routine` -- MatchThrottle2Idea::SetFlag38.
     void set_cruise(bool bOn) override;
 
     // ---- Behavior's own +0x04..+0x2b block, still declared per class ----
@@ -178,4 +174,4 @@ static_assert(offsetof(TrailBehavior, DirectionZ238) == 0x238, "TrailBehavior::D
 static_assert(offsetof(TrailBehavior, bMatchThrottle23c) == 0x23c, "TrailBehavior::bMatchThrottle23c offset");
 static_assert(offsetof(TrailBehavior, Field240) == 0x240, "TrailBehavior::Field240 offset");
 static_assert(offsetof(TrailBehavior, CatchUpRange244) == 0x244, "TrailBehavior::CatchUpRange244 offset");
-static_assert(sizeof(TrailBehavior) == 0x248, "TrailBehavior size must match retail 0x248");
+static_assert(sizeof(TrailBehavior) == 0x248, "TrailBehavior size must match baseline 0x248");

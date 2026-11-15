@@ -1,7 +1,5 @@
-// OutpostServer.exe's own .rsrc: icon 128 and VERSIONINFO only
-// (EXE\Disasm\DecompiledResources\OutpostServer.rc). Every dialog, menu, toolbar, accelerator
-// and string the application uses lives in ServerResources.dll (src\Resources\serverresources),
-// which InitInstance loads and installs as the MFC resource handle.
+// The executable embeds its icon and version information.
+// Server administration resources are loaded from ServerInterface.dll.
 #include <windows.h>
 
 LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL

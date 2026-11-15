@@ -160,17 +160,17 @@ struct qhmemT {               /* global memory management variables */
 #endif
 
 /*-------------------------------------------------------------
-  FUN_06356960 (src/Common/common_stubs.cpp): the IVP message printf
+  WriteHullDiagnostic (src/Common/common_stubs.cpp): the IVP message printf
     (vsprintf into a stack buffer, OutputDebugStringA).
 
   notes:
-    Retail Common.dll links an "ipion 99/07/10" qhull in which most error
+    baseline Common.dll links an "ipion 99/07/10" qhull in which most error
     reports go through this function instead of fprintf(qh ferr, ...);
     traces and some warnings still fprintf to qh ferr.  Every converted
-    site names its retail call address in a comment.  qhull is a static
+    site names its baseline call address in a comment.  qhull is a static
     library linked only into Common.dll, which defines this function.
 */
-void FUN_06356960(const char *Format, ...);
+void WriteHullDiagnostic(const char *Format, ...);
 
 /*=============== prototypes in alphabetical order ============*/
 

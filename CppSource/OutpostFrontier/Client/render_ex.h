@@ -1,17 +1,13 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
 // Port-only: the client side of the Direct3D 9 render extensions (render/IRenderPipelineEx.h,
-// RP9.dll). Retail has no such code. With the DirectX8 pipeline (RP8.dll, the retail one) the
+// DX9RENDERER.dll). baseline has no such code. With the DirectX8 pipeline (DX8RENDERER.dll, the baseline one) the
 // QueryInterface fails, IsAvailable() stays false and every hook below returns at once, so the
-// retail algorithms run unchanged. Settings: DATA_EXTRA/VOLUMETRIC/volumetric.ini; shaders:
+// baseline algorithms run unchanged. Settings: DATA_EXTRA/VOLUMETRIC/volumetric.ini; shaders:
 // DATA_EXTRA/SHADERS/ (DATA_EXTRA sits next to the [OutpostFrontier] data path directory). See
-// docs/re/rp9.md, "Ex extensions".
+// implementation notes, "Ex extensions".
 
 struct FRPExCaps;
 struct IFileSystem;
@@ -20,16 +16,16 @@ struct IRPDrawEx;
 
 namespace RenderEx
 {
-    // After DALib::Startup and the pipeline's Startup: QueryInterface the Ex interfaces and read
+    // After NeuronRuntime::Startup and the pipeline's Startup: QueryInterface the Ex interfaces and read
     // DATA_EXTRA/VOLUMETRIC/volumetric.ini.
     void Startup();
-    // Before DALib::Shutdown: destroys the client's Ex objects (NebulaVolume's too) and
+    // Before NeuronRuntime::Shutdown: destroys the client's Ex objects (NebulaVolume's too) and
     // releases the interfaces.
     void Shutdown();
 
     // True when the pipeline answered both Ex interfaces (Direct3D 9) and DATA_EXTRA was found.
     bool IsAvailable();
-    // The FileSystem rooted at DATA_EXTRA (the port's own data next to the retail DATA:
+    // The FileSystem rooted at DATA_EXTRA (the port's own data next to the baseline DATA:
     // SHADERS\, VOLUMETRIC\); nullptr unless IsAvailable().
     IFileSystem* GetExtraData();
     IRenderPipelineEx* GetPipelineEx();

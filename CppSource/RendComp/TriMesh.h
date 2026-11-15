@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -28,8 +24,8 @@ enum ETriMeshTriangleClass : unsigned long
     TriMeshTriangleBackFrontFront = 0x208,
 };
 
-// One face group: operator new(0x40) + FUN_06c276a0 (Type 4, Bucket 4, every other dword 0).
-// Copy ctor FUN_06c276e0, assignment FUN_06c27780, dtor FUN_06c27720.
+// One face group: operator new(0x40) + the routine (Type 4, Bucket 4, every other dword 0).
+// Copy ctor the routine, assignment the routine, dtor the routine.
 struct FTriMeshGroup
 {
     static constexpr unsigned long ExtraStreamCount = 4;
@@ -54,19 +50,19 @@ struct FTriMeshGroup
 
     unsigned long Type;                // +0x00 D3D primitive type: 4 list, 5 strip
     unsigned long MaterialCrc;         // +0x04 CRC of the lower-cased "Material_name"
-    IMaterial* Material;               // +0x08 bound by the hook-up (LAB_06c262a0)
+    IMaterial* Material;               // +0x08 bound by the hook-up (the branch)
     void* Field_0x0C;                  // +0x0C IMesh Slot16 reads / Slot17 writes it; Draw puts it
                                        //       in submit ctx+0x20. TODO: meaning (no reader here)
-    unsigned long MinIndex;            // +0x10 FUN_06c279a0: smallest raw index, subtracted out
-    unsigned long MaxIndex;            // +0x14 FUN_06c279a0: largest raw index
+    unsigned long MinIndex;            // +0x10 the routine: smallest raw index, subtracted out
+    unsigned long MaxIndex;            // +0x14 the routine: largest raw index
     unsigned short* Indices;           // +0x18 "Face_indices" / "Tristrip_indices", rebased
     unsigned long IndexCount;          // +0x1C
-    unsigned short* EdgeIndices;       // +0x20 "Edge_indices" (position indices, FUN_06c26700)
+    unsigned short* EdgeIndices;       // +0x20 "Edge_indices" (position indices, the routine)
     float* EdgeAngles;                 // +0x24 "Edge_angles", EdgeCount / 2 entries
     unsigned long EdgeCount;           // +0x28
     FRpVertexSrcDesc* Vertices;        // +0x2C the vertex source this group draws from
     FRpVertexSrcDesc* SharedVertices;  // +0x30 the archetype's +0x1C; == Vertices when shared
-    unsigned long* ExtraIndexCounts;   // +0x34 new(0x10) (FUN_06c29000): per extra stream count
+    unsigned long* ExtraIndexCounts;   // +0x34 new(0x10) (the routine): per extra stream count
     FRpVertexStream* ExtraStreams;     // +0x38 new(0x50): four streams, IMesh channels 0x4000..
     unsigned long Bucket;              // +0x3C hook-up sort key 0..4 (IMaterial flags)
 };
@@ -88,18 +84,18 @@ struct FTriMeshUvAnim
 static_assert(sizeof(FTriMeshUvAnim) == 0x1C, "TriMesh UV0 animation block is 0x1C bytes");
 
 
-// Group-level helpers (cdecl / thiscall in retail).
-FTriMeshGroup* TriMeshGroupCopy(const FTriMeshGroup* Source);                // new + FUN_06c276e0
-void TriMeshStreamFree(FRpVertexStream* Stream);                             // FUN_06c23dc0
+// Group-level helpers (cdecl / thiscall in baseline).
+FTriMeshGroup* TriMeshGroupCopy(const FTriMeshGroup* Source);                // new + the routine
+void TriMeshStreamFree(FRpVertexStream* Stream);
 void TriMeshStreamCopy(const FRpVertexStream* Source, FRpVertexStream* Dest,
-                       unsigned long IndexCount);                            // FUN_06c24c60
-void TriMeshDescFree(FRpVertexSrcDesc* Desc);                                // FUN_06c23f90
+                       unsigned long IndexCount);
+void TriMeshDescFree(FRpVertexSrcDesc* Desc);
 
 class FTriMeshArch : public IMesh
 {
 public:
-    // +0x04: vtable PTR_LAB_06c36134 (4 slots). QI/AddRef/Release are the this-4 thunks
-    // LAB_06c27660 / LAB_06c27670 (FUN_06c2b100 = 1); Slot3 is the material hook-up.
+    // +0x04: vtable the branch (4 slots). QI/AddRef/Release are the this-4 thunks
+    // / the branch (the routine = 1); Slot3 is the material hook-up.
     class FHookFacet : public IMatHookUp
     {
     public:
@@ -107,14 +103,14 @@ public:
 
         explicit FHookFacet(FTriMeshArch* InOwner) : Owner(InOwner) {}
 
-        GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override;
-        unsigned long DACOM_API AddRef() override;
-        unsigned long DACOM_API Release() override;
-        int DACOM_API HookUpMaterials() override; // LAB_06c262a0 // formerly Slot3
+        GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override;
+        unsigned long NEURONCOMPONENTS_API AddRef() override;
+        unsigned long NEURONCOMPONENTS_API Release() override;
+        int NEURONCOMPONENTS_API HookUpMaterials() override; // // formerly Slot3
     };
 
-    // +0x08: vtable PTR_LAB_06c36118 (7 slots). QI/AddRef/Release are the this-8 thunks
-    // LAB_06c27680 / LAB_06c27690.
+    // +0x08: vtable the branch (7 slots). QI/AddRef/Release are the this-8 thunks
+    // / the branch.
     class FRenderableFacet : public IRenderableMesh
     {
     public:
@@ -122,97 +118,97 @@ public:
 
         explicit FRenderableFacet(FTriMeshArch* InOwner) : Owner(InOwner) {}
 
-        GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override;
-        unsigned long DACOM_API AddRef() override;
-        unsigned long DACOM_API Release() override;
-        int DACOM_API GetVertexCount(int* Out) override;                         // LAB_06c23df0 // formerly Slot3
-        int DACOM_API CopyVertexData(void* Dest, unsigned int Fvf, unsigned int StartVertex, unsigned int VertexCount) override; // LAB_06c23e10 // formerly Slot4
-        int DACOM_API GetIndexCount(int* Out) override;                         // LAB_06c23e80 // formerly Slot5
-        int DACOM_API CopyIndices(unsigned short** Dest, int Count) override;           // LAB_06c23e40 // formerly Slot6
+        GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override;
+        unsigned long NEURONCOMPONENTS_API AddRef() override;
+        unsigned long NEURONCOMPONENTS_API Release() override;
+        int NEURONCOMPONENTS_API GetVertexCount(int* Out) override;                         // // formerly Slot3
+        int NEURONCOMPONENTS_API CopyVertexData(void* Dest, unsigned int Fvf, unsigned int StartVertex, unsigned int VertexCount) override; // // formerly Slot4
+        int NEURONCOMPONENTS_API GetIndexCount(int* Out) override;                         // // formerly Slot5
+        int NEURONCOMPONENTS_API CopyIndices(unsigned short** Dest, int Count) override;           // // formerly Slot6
     };
 
     FHookFacet HookFacet;                  // +0x04
     FRenderableFacet RenderableFacet;      // +0x08
     // +0x0C..+0x18: VC6 std::vector<FTriMeshGroup*> (allocator byte, first, last, end).
     std::vector<FTriMeshGroup*> Groups;
-    FRpVertexSrcDesc Vertices;             // +0x1C the shared vertex source (loader, FUN_06c25140)
+    FRpVertexSrcDesc Vertices;             // +0x1C the shared vertex source (loader, the routine)
     FTriMeshUvAnim UvAnim;                 // +0x8C
     unsigned long Flags;                   // +0xA8 bit0 loaded, bit1 sphere cached, bit2 box
                                            //       cached, bit3 centroid computed
     char Name[0x104];                      // +0xAC the node path (IFileSystem +0xA4)
-    float Center[3];                       // +0x1B0 FUN_06c25d40
+    float Center[3];                       // +0x1B0 the routine
     float Box[6];                          // +0x1BC max x, min x, max y, min y, max z, min z
-    float SphereCenter[3];                 // +0x1D4 FUN_06c258c0
+    float SphereCenter[3];                 // +0x1D4 the routine
     float SphereRadius;                    // +0x1E0 -1.0f after a reset
-    void* Field_0x1E4;                     // +0x1E4 FUN_06c265f0 hands it to Draw as a ready
+    void* Field_0x1E4;                     // +0x1E4 the routine hands it to Draw as a ready
                                            //       vertex listing; only ever zeroed. TODO
-    // +0x1E8 the edit cursor, retail a Group** into the vector; the port keeps the index and
-    // treats Cursor == Groups.size() as retail's "cursor == end".
+    // +0x1E8 the edit cursor, baseline a Group** into the vector; the port keeps the index and
+    // treats Cursor == Groups.size() as baseline's "cursor == end".
     size_t Cursor;
     unsigned long LockedMask;              // +0x1EC channels locked by IMesh Slot20
     unsigned short* Locked[10];            // +0x1F0..+0x214 per-channel locked index copies
     int EditMode;                          // +0x218 IMesh Slot9 mode (2 = private geometry)
-    IMaterialLibrary* MaterialLibrary;     // +0x21C DAT_06c37d54 (loader FUN_06c26d90)
-    IRenderPipeline* Pipeline;           // +0x220 DAT_06c37d50
-    IVertexBufferManager* VbManager;       // +0x224 DAT_06c37d64
+    IMaterialLibrary* MaterialLibrary;     // +0x21C the field (loader the routine)
+    IRenderPipeline* Pipeline;           // +0x220 the field
+    IVertexBufferManager* VbManager;       // +0x224 the field
 
-    FTriMeshArch();                        // FUN_06c22440
-    ~FTriMeshArch();                       // FUN_06c22550
+    FTriMeshArch();
+    ~FTriMeshArch();
 
     bool CursorAtEnd() const { return Cursor == Groups.size(); }
 
-    // Non-interface members (thiscall in retail).
-    int Reset();                                                     // FUN_06c23ea0
+    // Non-interface members (thiscall in baseline).
+    int Reset();
     int Load(IFileSystem* File, IRenderPipeline* InPipeline, IVertexBufferManager* InVbManager,
-             IMaterialLibrary* InLibrary, int bTristrips);           // FUN_06c23fd0
-    int Clone(FTriMeshArch** Out);                                   // FUN_06c24aa0
+             IMaterialLibrary* InLibrary, int bTristrips);
+    int Clone(FTriMeshArch** Out);
     int SplitByPlane(const float* Plane, float PlaneD, unsigned char SplitFlags,
-                     FTriMeshArch** OutFront, FTriMeshArch** OutBack); // FUN_06c24d00
-    int CompactVertices();                                           // FUN_06c25140
-    int GetBox(float* Out);                                          // FUN_06c25790
-    int GetSphere(float* OutCenter, float* OutRadius);               // FUN_06c258c0
-    int GetCenter(float* Out);                                       // FUN_06c25d40
-    int LockChannel(unsigned long Channel);                          // FUN_06c25e30
-    int UnlockChannel(unsigned long Channel);                        // FUN_06c26000
-    int LockEdgeAngles();                                            // FUN_06c261b0
-    int UnlockEdgeAngles();                                          // FUN_06c26200
-    int TriangleCount();                                             // FUN_06c26220
-    int VertexCount();                                               // FUN_06c26260
-    bool GetPrebuiltListing(void** Out);                             // FUN_06c265f0
-    int PrivatizeCursorGroup();                                      // FUN_06c26610
-    int ShareGroupVertices(bool bAll);                               // FUN_06c26630
+                     FTriMeshArch** OutFront, FTriMeshArch** OutBack);
+    int CompactVertices();
+    int GetBox(float* Out);
+    int GetSphere(float* OutCenter, float* OutRadius);
+    int GetCenter(float* Out);
+    int LockChannel(unsigned long Channel);
+    int UnlockChannel(unsigned long Channel);
+    int LockEdgeAngles();
+    int UnlockEdgeAngles();
+    int TriangleCount();
+    int VertexCount();
+    bool GetPrebuiltListing(void** Out);
+    int PrivatizeCursorGroup();
+    int ShareGroupVertices(bool bAll);
 
-    // IDAComponent (FUN_06c26530 / FUN_06c2b100).
-    GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override;
-    unsigned long DACOM_API AddRef() override;
-    unsigned long DACOM_API Release() override;
+    // INeuronComponent (the routine / the routine).
+    GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override;
+    unsigned long NEURONCOMPONENTS_API AddRef() override;
+    unsigned long NEURONCOMPONENTS_API Release() override;
 
-    // IMesh, table PTR_FUN_06c36148.
-    int DACOM_API ResetMesh() override;                                           // FUN_06c225f0 // formerly Slot3
-    int DACOM_API NoOp() override;                                           // FUN_06c2f5e0 // formerly Slot4
-    int DACOM_API RefreshMaterials(unsigned long Flags) override;                        // FUN_06c22620 // formerly Slot5
-    int DACOM_API RejectOperation(void* A) override;                                    // LAB_06c22650 // formerly Slot6
-    int DACOM_API RejectOperation() override;                                           // FUN_06c22660 // formerly Slot7
-    int DACOM_API GetFaceGroupCount(int* Out) override;                                   // LAB_06c22670 // formerly Slot8
-    int DACOM_API OpenFaceGroup(int Index, int Mode) override;                        // LAB_06c226a0 // formerly Slot9
-    int DACOM_API CloseFaceGroup() override;                                          // FUN_06c226f0 // formerly Slot10
-    int DACOM_API AddFaceGroup(void* A) override;                                   // FUN_06c22740 // formerly Slot11
-    int DACOM_API RemoveFaceGroup(int Index) override;                                 // FUN_06c227a0 // formerly Slot12
-    int DACOM_API GetFaceGroupPrimitiveType(unsigned int* Out) override;                                // LAB_06c22800 // formerly Slot13
-    int DACOM_API GetFaceGroupMaterial(IMaterial** Out) override;                           // LAB_06c22830 // formerly Slot14
-    int DACOM_API SetFaceGroupMaterial(IMaterial* Material) override;                    // LAB_06c22880 // formerly Slot15
-    int DACOM_API GetFaceGroupMaterialContext(void** Out) override;                                // LAB_06c22960 // formerly Slot16
-    int DACOM_API SetFaceGroupMaterialContext(void* A) override;                                   // LAB_06c22990 // formerly Slot17
-    int DACOM_API OpenFaceGroupChannels(unsigned long Flags) override;                       // FUN_06c229c0 // formerly Slot18
-    int DACOM_API CloseFaceGroupChannels() override;                                          // LAB_06c22a00 // formerly Slot19
-    int DACOM_API LockFaceGroupChannels(unsigned long Mask) override;                        // LAB_06c22a20 // formerly Slot20
-    int DACOM_API UnlockFaceGroupChannels() override;                                          // FUN_06c22c50 // formerly Slot21
-    int DACOM_API GetFaceGroupData(int Channel, void** A, void** B, void** C, void** D) override; // LAB_06c22d50 // formerly Slot22
-    int DACOM_API SetFaceGroupData(int Channel, void* A, void* B, void* C, void* D) override;     // LAB_06c22fe0 // formerly Slot23
-    int DACOM_API GetFaceGroupIndices(int Channel, void** A, void** B) override;           // LAB_06c23650 // formerly Slot24
-    int DACOM_API SetFaceGroupIndices(int Channel, void* Src, int Count) override;         // LAB_06c237c0 // formerly Slot25
-    int DACOM_API GetFaceGroupIndexCount(int Selector, void** Out) override;                  // LAB_06c23550 // formerly Slot26
-    int DACOM_API SetFaceGroupIndexCount(int Selector, int Count) override;                   // FUN_06c235a0 // formerly Slot27
-    int DACOM_API AddFaceGroupChannels(unsigned long Flags) override;                       // FUN_06c23970 // formerly Slot28
-    int DACOM_API RemoveFaceGroupChannels(unsigned long Flags) override;                       // LAB_06c23bd0 // formerly Slot29
+    // IMesh, table the routine.
+    int NEURONCOMPONENTS_API ResetMesh() override;                                           // // formerly Slot3
+    int NEURONCOMPONENTS_API NoOp() override;                                           // // formerly Slot4
+    int NEURONCOMPONENTS_API RefreshMaterials(unsigned long Flags) override;                        // // formerly Slot5
+    int NEURONCOMPONENTS_API RejectOperation(void* A) override;                                    // // formerly Slot6
+    int NEURONCOMPONENTS_API RejectOperation() override;                                           // // formerly Slot7
+    int NEURONCOMPONENTS_API GetFaceGroupCount(int* Out) override;                                   // // formerly Slot8
+    int NEURONCOMPONENTS_API OpenFaceGroup(int Index, int Mode) override;                        // // formerly Slot9
+    int NEURONCOMPONENTS_API CloseFaceGroup() override;                                          // // formerly Slot10
+    int NEURONCOMPONENTS_API AddFaceGroup(void* A) override;                                   // // formerly Slot11
+    int NEURONCOMPONENTS_API RemoveFaceGroup(int Index) override;                                 // // formerly Slot12
+    int NEURONCOMPONENTS_API GetFaceGroupPrimitiveType(unsigned int* Out) override;                                // // formerly Slot13
+    int NEURONCOMPONENTS_API GetFaceGroupMaterial(IMaterial** Out) override;                           // // formerly Slot14
+    int NEURONCOMPONENTS_API SetFaceGroupMaterial(IMaterial* Material) override;                    // // formerly Slot15
+    int NEURONCOMPONENTS_API GetFaceGroupMaterialContext(void** Out) override;                                // // formerly Slot16
+    int NEURONCOMPONENTS_API SetFaceGroupMaterialContext(void* A) override;                                   // // formerly Slot17
+    int NEURONCOMPONENTS_API OpenFaceGroupChannels(unsigned long Flags) override;                       // // formerly Slot18
+    int NEURONCOMPONENTS_API CloseFaceGroupChannels() override;                                          // // formerly Slot19
+    int NEURONCOMPONENTS_API LockFaceGroupChannels(unsigned long Mask) override;                        // // formerly Slot20
+    int NEURONCOMPONENTS_API UnlockFaceGroupChannels() override;                                          // // formerly Slot21
+    int NEURONCOMPONENTS_API GetFaceGroupData(int Channel, void** A, void** B, void** C, void** D) override; // // formerly Slot22
+    int NEURONCOMPONENTS_API SetFaceGroupData(int Channel, void* A, void* B, void* C, void* D) override;     // // formerly Slot23
+    int NEURONCOMPONENTS_API GetFaceGroupIndices(int Channel, void** A, void** B) override;           // // formerly Slot24
+    int NEURONCOMPONENTS_API SetFaceGroupIndices(int Channel, void* Src, int Count) override;         // // formerly Slot25
+    int NEURONCOMPONENTS_API GetFaceGroupIndexCount(int Selector, void** Out) override;                  // // formerly Slot26
+    int NEURONCOMPONENTS_API SetFaceGroupIndexCount(int Selector, int Count) override;                   // // formerly Slot27
+    int NEURONCOMPONENTS_API AddFaceGroupChannels(unsigned long Flags) override;                       // // formerly Slot28
+    int NEURONCOMPONENTS_API RemoveFaceGroupChannels(unsigned long Flags) override;                       // // formerly Slot29
 };

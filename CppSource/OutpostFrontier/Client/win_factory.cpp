@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "win_factory.h"
@@ -12,7 +8,7 @@
 
 namespace
 {
-    // Retail DAT_0067dcec — head of the factory list (next at factory+0x4). Zero-initialised
+    // — head of the factory list (next at factory+0x4). Zero-initialised
     // before any dynamic initializer runs, so WINFACTORY<T> globals may register from their
     // own static constructors in any order.
     WinFactory* G_WinFactoryHead = nullptr;
@@ -22,8 +18,8 @@ WinFactory::WinFactory(char const* Name)
     : Next(nullptr)
     , NameLength(0)
 {
-    // FUN_0059c360-shaped ctor: +0x8 = 0, +0xc = 0, +0x4 = 0; Name != 0 → strlen clamped to
-    // 0x1f, REP MOVSD/MOVSB copy, NUL; +0x8 = length; FUN_0059dab0(this).
+    // -shaped ctor: +0x8 = 0, +0xc = 0, +0x4 = 0; Name != 0 → strlen clamped to
+    // 0x1f, REP MOVSD/MOVSB copy, NUL; +0x8 = length; the routine(this).
     ClassName[0] = '\0';
     unsigned Length = 0;
     if (Name != nullptr)
@@ -40,20 +36,20 @@ WinFactory::WinFactory(char const* Name)
 
 WinFactory::~WinFactory()
 {
-    // FUN_00579380
+
     WinFactoryUnregister(this);
 }
 
 void WinFactoryRegister(WinFactory* Factory)
 {
-    // FUN_0059dab0
+
     Factory->Next = G_WinFactoryHead;
     G_WinFactoryHead = Factory;
 }
 
 void WinFactoryUnregister(WinFactory* Factory)
 {
-    // FUN_0059dad0: find Factory keeping the previous node; not found → return; unlink from
+    // find Factory keeping the previous node; not found → return; unlink from
     // prev->next or the head; Factory->next = 0.
     WinFactory* Prev = nullptr;
     WinFactory* Walk = G_WinFactoryHead;
@@ -76,7 +72,7 @@ void WinFactoryUnregister(WinFactory* Factory)
 Win3D* WinFactoryCreate(char const* Nickname, char const* ClassName, Win3D* Parent,
                         void* Payload)
 {
-    // FUN_0059db20
+
     if (ClassName == nullptr)
         return nullptr;
 
@@ -91,12 +87,12 @@ Win3D* WinFactoryCreate(char const* Nickname, char const* ClassName, Win3D* Pare
     if (Factory == nullptr)
         return nullptr;
 
-    // 0059db95 factory vftable[0](Parent, Payload).
+    // factory vftable[0](Parent, Payload).
     Win3D* Widget = Factory->Create(Parent, Payload);
     if (Widget == nullptr)
         return nullptr;
 
-    // 0059dba3..0059dbe1: widget +0x14 = length, +0x18 = name (clamped to 0x1f chars; a null
+    // widget +0x14 = length, +0x18 = name (clamped to 0x1f chars; a null
     // Nickname gives the empty name) -- Win3D::SetName is that inline copy.
     Widget->SetName(Nickname);
     return Widget;

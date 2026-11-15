@@ -1,12 +1,8 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
-// CAreYouSureDlg -- dialog 142 "Are you sure?" (ServerResources.dll). Retail ctor
-// .text:00402770, scalar deleting dtor .text:00402790, vtable .rdata:0041c0b8, empty message
-// map .rdata:0041c094 (base CDialog). No members past CDialog.
+// CAreYouSureDlg -- dialog 142 "Are you sure?" (ServerInterface.dll). baseline ctor
+// , scalar deleting dtor module storage, vtable module storage, empty message
+// map module storage (base CDialog). No members past CDialog.
 #pragma once
 
 class CAreYouSureDlg : public CDialog
@@ -14,10 +10,10 @@ class CAreYouSureDlg : public CDialog
 public:
 	enum { IDD = 142 };
 
-	CAreYouSureDlg(CWnd* Parent = NULL);   // .text:00402770
+	CAreYouSureDlg(CWnd* Parent = NULL);
 
 protected:
-	virtual void DoDataExchange(CDataExchange* DX);   // .text:004027c0 (empty: RET 4)
+	virtual void DoDataExchange(CDataExchange* DX);   // (empty: RET 4)
 
 	DECLARE_MESSAGE_MAP()
 };

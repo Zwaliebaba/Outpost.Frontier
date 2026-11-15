@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "RandomEncounters.h"
@@ -10,21 +6,21 @@
 #include "ContentInternal.h"    // ContentAcquire3DMathEngine
 #include "ContentPlayerState.h"
 #include "ContentStaticIds.h"
-#include "DockQueues.h"     // PlaceFormationBlocks (FUN_06f66c80)
+#include "DockQueues.h"     // PlaceFormationBlocks (the routine)
 #include "EncounterParams.h"    // FEncounterShip
-#include "Encounters.h"     // FindFormation (FUN_06efd1a0), SetMatrixIdentity
+#include "Encounters.h"     // FindFormation (the routine), SetMatrixIdentity
 #include "Guides.h"         // FGuideDesc, FSpawnPlan
 #include "MissionObject.h"  // FMissionDirectiveList
 #include "NpcNames.h"       // PickNpcNameGender, BuildNpcName, CreateNpcNameReputation
 #include "NpcShip.h"        // FContentNpcShipParams, ApplyNpcShipArch, ApplyNpcShipFaction
 #include "NpcShips.h"       // FNpcShipArch
 #include "PatrolPaths.h"    // FPatrolPath::GetZoneSegments
-#include "RefHandle.h"      // TRefHandle (FUN_06f28e10 holders)
-#include "MissionCnd.h"     // GetObjectDistanceSq (FUN_06f242e0)
+#include "RefHandle.h"      // TRefHandle (the routine holders)
+#include "MissionCnd.h"     // GetObjectDistanceSq (the routine)
 #include "MissionObjList.h" // CreateObjListDirective, FObjListDelay (TU40)
 #include "ObjListDirective.h"
 #include "RandomMissionDB.h"
-#include "SpaceSupport.h"   // SetLeaderGuideTargets (TU53 FUN_06f63cc0)
+#include "SpaceSupport.h"   // SetLeaderGuideTargets (TU53 the routine)
 #include "SystemInfo.h"     // FSystemInfo, FSystemZone
 #include "common_csys.h"    // Matrix (pub::SpaceObj::GetLocation)
 #include "common_ini.h"
@@ -44,27 +40,27 @@
 // TU62 -- killable solars and vignette critical loot
 // =======================================================================================
 
-std::map<unsigned int, FRmKillableSolar> GRmKillableSolars;   // DAT_06fd3c20
-std::vector<FRmCriticalLoot> GRmCriticalLoot;                  // DAT_06fd3c10
+std::map<unsigned int, FRmKillableSolar> GRmKillableSolars;
+std::vector<FRmCriticalLoot> GRmCriticalLoot;
 
 std::pair<std::vector<unsigned int>::iterator, bool> __cdecl RmInsertUnique(
     std::vector<unsigned int>* Values, unsigned int const& Value)
 {
-    // 06f95e03-06f95e21: linear find over [begin, end).
+    // linear find over [begin, end).
     std::vector<unsigned int>::iterator It = std::find(Values->begin(), Values->end(), Value);
     if (It != Values->end())
-        return std::make_pair(It, false);                     // 06f95e6b
-    // 06f95e25 FUN_06f937c0(end, 1, &Value), then the same find again (06f95e30-06f95e49);
+        return std::make_pair(It, false);
+    // the routine(end, 1, &Value), then the same find again (06f95e30-06f95e49);
     // it always hits the element just appended.
     Values->insert(Values->end(), Value);
     return std::make_pair(Values->end() - 1, true);
 }
 
-// FUN_06f95040 -- RandomMissions\KillableSolars.ini, called by the generator ctor 06f9d794.
+// RandomMissions\KillableSolars.ini, called by the generator ctor 06f9d794.
 void __cdecl LoadKillableSolars(INI_Reader* Reader)
 {
     // [ESP+0x5c] -- GetMaxHitPoints out-slot; one frame slot for every section, so a failed
-    // lookup compares against the previous section's value (retail: indeterminate before the
+    // lookup compares against the previous section's value (baseline: indeterminate before the
     // first successful call; the port starts from 0).
     int MaxHitPoints = 0;
 
@@ -73,7 +69,7 @@ void __cdecl LoadKillableSolars(INI_Reader* Reader)
         if (!Reader->is_header("KillableSolar"))
             continue;
 
-        // 06f9508b-06f950d9: ID_String::clear, SolarType -1, zeroes, PilotChoices 1.
+        // ID_String::clear, SolarType -1, zeroes, PilotChoices 1.
         FRmKillableSolar Entry;
         Entry.Nickname.clear();
         Entry.SolarType = -1;
@@ -96,8 +92,8 @@ void __cdecl LoadKillableSolars(INI_Reader* Reader)
             }
             else if (Reader->is_value("solar_type"))
             {
-                // 06f95132-06f95162: inline walk of PTR_s_big_solar_06fce748 (4 rows), null
-                // names skipped, DACOM stricmp(value, name); miss leaves SolarType.
+                // inline walk of PTR_s_big_solar_06fce748 (4 rows), null
+                // names skipped, NEURONCOMPONENTS stricmp(value, name); miss leaves SolarType.
                 char const* Value = Reader->get_value_string();
                 for (unsigned int Index = 0; Index < 4; ++Index)
                 {
@@ -121,7 +117,7 @@ void __cdecl LoadKillableSolars(INI_Reader* Reader)
                 }
                 else
                 {
-                    // 06f952c5-06f9537e: every value -> reputation group, appended unique.
+                    // every value -> reputation group, appended unique.
                     Entry.bAnyFaction = 0;
                     for (unsigned int Index = 0; !Reader->is_value_empty(Index); ++Index)
                     {
@@ -141,7 +137,7 @@ void __cdecl LoadKillableSolars(INI_Reader* Reader)
             }
             else if (Reader->is_value("hitpoints"))
             {
-                // 06f953dd-06f9541f: FILD int -> float; a missing second value copies the first.
+                // FILD int -> float; a missing second value copies the first.
                 Entry.HitpointsMin = static_cast<float>(Reader->get_value_int(0));
                 if (Reader->is_value_empty(1))
                     Entry.HitpointsMax = Entry.HitpointsMin;
@@ -169,7 +165,7 @@ void __cdecl LoadKillableSolars(INI_Reader* Reader)
                         Entry.ZoneTypeMask |= 0x200;
                     else if (_stricmp(Value, "crystal") == 0)
                         Entry.ZoneTypeMask |= 0x800;
-                    // 06f95517: a last stricmp against "all" whose result is discarded.
+                    // a last stricmp against "all" whose result is discarded.
                 }
             }
             else if (Reader->is_value("pilot_choices"))
@@ -178,7 +174,7 @@ void __cdecl LoadKillableSolars(INI_Reader* Reader)
             }
         }
 
-        // 06f95179-06f9522d: reject incomplete or out-of-range entries.
+        // reject incomplete or out-of-range entries.
         if (Entry.Nickname.IsEmpty())
             continue;
         if (Entry.SolarType == -1)
@@ -198,7 +194,7 @@ void __cdecl LoadKillableSolars(INI_Reader* Reader)
         if (!(Entry.DifficultyMax <= 100.0f))                     // TEST AH,0x41 / JP
             continue;
 
-        // 06f95233-06f95263: clamp both hit point bounds to the archetype maximum when the
+        // clamp both hit point bounds to the archetype maximum when the
         // upper bound exceeds it (FILD int vs float on the x87 stack, FST/FSTP float).
         pub::GetMaxHitPoints(Entry.ArchetypeId, MaxHitPoints);
         if (static_cast<double>(Entry.HitpointsMax) > static_cast<double>(MaxHitPoints))
@@ -207,12 +203,12 @@ void __cdecl LoadKillableSolars(INI_Reader* Reader)
             Entry.HitpointsMax = static_cast<float>(MaxHitPoints);
         }
 
-        // 06f95561-06f9560b: FUN_06f95ef0 map insert-unique keyed by the nickname id.
+        // the routine map insert-unique keyed by the nickname id.
         GRmKillableSolars.insert(std::make_pair(Entry.Nickname.Id, Entry));
     }
 }
 
-// FUN_06f956c0 -- random killable solar for (faction, solar type, zone mask, difficulty);
+// random killable solar for (faction, solar type, zone mask, difficulty);
 // callers 06f9ae50 / 06f9c012 (TU63).
 FRmKillableSolar* __cdecl PickKillableSolar(unsigned int Faction, int SolarType,
                                             unsigned int ZoneTypeMask, float Difficulty)
@@ -243,12 +239,12 @@ FRmKillableSolar* __cdecl PickKillableSolar(unsigned int Faction, int SolarType,
         FCandidate Candidate;
         Candidate.Entry = &Entry;
         Candidate.Difficulty = Difficulty;
-        Candidates.insert(Candidates.end(), Candidate);           // FUN_06f96770(end, 1, &c)
+        Candidates.insert(Candidates.end(), Candidate);           // (end, 1, &c)
     }
 
     if (Candidates.empty())
         return nullptr;
-    // 06f957be-06f957e7: one candidate -> index 0 without calling rand; otherwise
+    // one candidate -> index 0 without calling rand; otherwise
     // (rand() * Count) / 0x8000 (CDQ / AND EDX,0x7fff / SAR 15).
     int Count = static_cast<int>(Candidates.size());
     int Index = 0;
@@ -257,8 +253,8 @@ FRmKillableSolar* __cdecl PickKillableSolar(unsigned int Faction, int SolarType,
     return Candidates[Index].Entry;
 }
 
-// FUN_06f95890 -- RandomMissions\VignetteCriticalLoot.ini, called by the generator ctor
-// 06f9d7bd.
+// RandomMissions\VignetteCriticalLoot.ini, called by the generator ctor
+// .
 void __cdecl LoadVignetteCriticalLoot(INI_Reader* Reader)
 {
     while (Reader->read_header())
@@ -266,8 +262,8 @@ void __cdecl LoadVignetteCriticalLoot(INI_Reader* Reader)
         if (!Reader->is_header("critical_loot"))
             continue;
 
-        // 06f958d8-06f9596b: push_back of a fresh record, then fill the new back() element.
-        // Retail leaves WhyDesired and ArchetypeId of the temporary unset (stack contents);
+        // push_back of a fresh record, then fill the new back() element.
+        // baseline leaves WhyDesired and ArchetypeId of the temporary unset (stack contents);
         // the port zeroes them. The temporary dies right after the insert (unwind map
         // FuncInfo_06fc6c20: state -1 at 06f95941, before the value loop).
         {
@@ -277,7 +273,7 @@ void __cdecl LoadVignetteCriticalLoot(INI_Reader* Reader)
             Fresh.Name = 0;
             Fresh.ArchetypeId = 0;
             Fresh.bAnyFaction = 0;
-            GRmCriticalLoot.insert(GRmCriticalLoot.end(), Fresh);   // FUN_06f969c0(end, 1, &rec)
+            GRmCriticalLoot.insert(GRmCriticalLoot.end(), Fresh);   // (end, 1, &rec)
         }
         FRmCriticalLoot* Record = &GRmCriticalLoot.back();
 
@@ -315,7 +311,7 @@ void __cdecl LoadVignetteCriticalLoot(INI_Reader* Reader)
             }
             else if (Reader->is_value("type"))
             {
-                // 06f95ae7-06f95c5a: destroy 1, tractor 2, return 3, each appended unique;
+                // destroy 1, tractor 2, return 3, each appended unique;
                 // other words ignored.
                 for (unsigned int Index = 0; !Reader->is_value_empty(Index); ++Index)
                 {
@@ -331,7 +327,7 @@ void __cdecl LoadVignetteCriticalLoot(INI_Reader* Reader)
     }
 }
 
-// FUN_06f95cd0 -- random critical loot record for (faction, type); caller 06f97bd1 (TU63).
+// random critical loot record for (faction, type); caller 06f97bd1 (TU63).
 FRmCriticalLoot* __cdecl PickCriticalLoot(unsigned int Faction, unsigned int Type)
 {
     std::vector<FRmCriticalLoot*> Candidates;
@@ -343,7 +339,7 @@ FRmCriticalLoot* __cdecl PickCriticalLoot(unsigned int Faction, unsigned int Typ
             continue;
         if (std::find(It->Types.begin(), It->Types.end(), Type) == It->Types.end())
             continue;
-        Candidates.insert(Candidates.end(), &*It);               // FUN_06f937c0(end, 1, &p)
+        Candidates.insert(Candidates.end(), &*It);               // (end, 1, &p)
     }
 
     if (Candidates.empty())
@@ -363,7 +359,7 @@ FRmCriticalLoot* __cdecl PickCriticalLoot(unsigned int Faction, unsigned int Typ
 namespace
 {
     // The "formation" lines of both dumps (06f81da4-06f81e3f, 06f80fda-06f8107b): Header with
-    // (nickname, +0x08, min, max), then ", %u, %f" (ship class id FUN_06f580d0, weight) per
+    // (nickname, +0x08, min, max), then ", %u, %f" (ship class id the routine, weight) per
     // ship choice, then "\n". bNameAsNumber: the TL format prints get_string()'s pointer with
     // %u.
     void DumpRandEncFormations(FILE* File, FRandEncParams* Params, char const* Header,
@@ -392,18 +388,18 @@ namespace
         }
     }
 
-    // DAT_06fb6060: degrees to radians (float).
+    // degrees to radians (float).
     float const GRandEncDegToRad = 0.017453292f;
 
-    // DAT_06fd3b34: TU60's own cached math engine (FUN_06fa8fa0 on first use; the TU31 one is
-    // DAT_06fcf384, the TU53 one DAT_06fd1c70 -- one cache per TU, the same engine).
+    // TU60's own cached math engine (the routine on first use; the TU31 one is
+    // , the TU53 one the field -- one cache per TU, the same engine).
     I3DMathEngine* GRandEncLaneMathEngine = nullptr;
 
-    // DAT_06fb7b40: the turn of a spawned formation towards its target, (double)(float)pi
+    // the turn of a spawned formation towards its target, (double)(float)pi
     // (shared with TU31).
     double const GRandEncLaneTurnAngle = 3.1415927410125732;
 
-    // FUN_06f83ec0 (cdecl): *Out = TransformMatrix(*Matrix, *Source) through a local (math
+    // (cdecl): *Out = TransformMatrix(*Matrix, *Source) through a local (math
     // engine slot +0x2c).
     void TransformByMatrix(FVector* Out, FMatrix const* Matrix, FVector const* Source)
     {
@@ -414,7 +410,7 @@ namespace
         *Out = Result;
     }
 
-    // FUN_06f83f10 (cdecl): *Out = MulMatrix(*A, *B) through a local (slot +0x20), copied as
+    // (cdecl): *Out = MulMatrix(*A, *B) through a local (slot +0x20), copied as
     // 9 dwords.
     void MultiplyMatrices(FMatrix* Out, FMatrix const* A, FMatrix const* B)
     {
@@ -425,8 +421,8 @@ namespace
         *Out = Result;
     }
 
-    // FUN_06f24370 (cdecl; only caller the SP Accept 06f80841): the squared distance from
-    // the object to Point (by value), -1.0f (DAT_06fb5e84) when pub::SpaceObj::GetLocation
+    // (cdecl; only caller the SP Accept 06f80841): the squared distance from
+    // the object to Point (by value), -1.0f (the field) when pub::SpaceObj::GetLocation
     // fails. Summed on the x87 stack as (dz^2 + dy^2) + dx^2 and returned unrounded.
     double GetObjectDistanceSqTo(unsigned int const* ObjectId, Vector Point)
     {
@@ -442,7 +438,7 @@ namespace
 
     // One default spawn point of the SP Accept (06f80932-06f80a89): y = (rand() * 201) >> 15
     // loaded as a qword with a zero high dword (FILD) and stored as float; pushed with
-    // FUN_06f7ae20 at the end of +0x28.
+    // at the end of +0x28.
     void PushDefaultSpawnPoint(FRandEncParams* Params, float X, float Z, float Weight)
     {
         int const Y = std::rand() * 0xc9 / 32768;
@@ -456,11 +452,11 @@ namespace
 
     // The stretch of the lane the player travelled, inlined twice in the TL Accept
     // (06f81ff3-06f82125 and 06f82224-06f82333): the first ring equal to +0xb0 (the exit)
-    // gets pub::SpaceObj::GetTradelaneNextAndPrev (the result is not tested; retail's two
+    // gets pub::SpaceObj::GetTradelaneNextAndPrev (the result is not tested; baseline's two
     // out locals are uninitialised, the port's start at 0). Its "next" being +0xac (the
     // entry) means travel towards the lane's start: +0xa8 = -1 and the rings before the exit
-    // stay (copy/erase FUN_06f6a380 + FUN_06ea1490), without the first; otherwise +0xa8 = 1
-    // and the rings from the exit on stay, without the last (FUN_06f83f60). The second
+    // stay (copy/erase the routine + the routine), without the first; otherwise +0xa8 = 1
+    // and the rings from the exit on stay, without the last (the routine). The second
     // erase needs a non-empty vector. No exit ring on the lane: nothing changes.
     void TrimTravelledRings(FRandEncTLParams* Lane, std::vector<FTradeLaneRing>* Rings)
     {
@@ -489,7 +485,7 @@ namespace
     }
 
     // One default spawn point of the TL Accept (06f82345-06f82541): x as given, y 0, z =
-    // Direction * ZScale (IMUL, FILD, FSTP float); pushed with FUN_06f7ae20.
+    // Direction * ZScale (IMUL, FILD, FSTP float); pushed with the routine.
     void PushLaneSpawnPoint(FRandEncTLParams* Lane, float X, int ZScale, float Weight)
     {
         FRandEncPosition Point;
@@ -501,9 +497,9 @@ namespace
     }
 
     // The attacker filter of the SP Accept (06f80c95-06f80ced / 06f80d49-06f80da0): a copy
-    // of Populated (FUN_06f53080), Allowed cleared (FUN_06fa8370 over [begin, end)), then
+    // of Populated (the routine), Allowed cleared (the routine over [begin, end)), then
     // every pair whose group is hostile to Vibe (GetVibeFeelingMask & 4) is appended
-    // (FUN_06f81960); the copy is destroyed (FUN_06f15350).
+    // (the routine); the copy is destroyed (the routine).
     void CollectHostilePairs(std::list<std::pair<unsigned int, float>> const* Populated,
                              int Vibe, std::list<std::pair<unsigned int, float>>* Allowed)
     {
@@ -519,12 +515,12 @@ namespace
 
     // The formation values shared by both parses (SP "formation" 06f81365-06f8163e, TL
     // "formation" / "saved_formation" 06f82ece-06f8323a); the caller has set the nickname id
-    // and the formation (FUN_06efd1a0). Value 1 float, values 2 / 3 the ship count range, then
+    // and the formation (the routine). Value 1 float, values 2 / 3 the ship count range, then
     // from value 4 pairs of (ship class name, weight) while is_value_empty is false: a known,
-    // non-empty ship class (FUN_06f58080 on CreateID of the name) adds a choice {its members,
-    // weight}. SP copies the name through a 0x40 string first (FUN_06ea9f40); TL skips a pair
-    // whose weight value is empty. The copy pushed into +0x44 (FUN_06f79c40 / FUN_06f83fb0 +
-    // FUN_06f7d6d0) gets +0x24 = value 1; the local's inner list is then erased.
+    // non-empty ship class (the routine on CreateID of the name) adds a choice {its members,
+    // weight}. SP copies the name through a 0x40 string first (the routine); TL skips a pair
+    // whose weight value is empty. The copy pushed into +0x44 (the routine / the routine +
+    // ) gets +0x24 = value 1; the local's inner list is then erased.
     void ParseRandEncFormationValues(INI_Reader* Reader, FRandEncParams* Params,
                                      FRandEncFormation* Formation, bool bLaneRules)
     {
@@ -571,22 +567,22 @@ namespace
     }
 }
 
-// LAB_06f5e540: MOV EAX,3.
+// MOV EAX,3.
 int FRandEncTLParams::GetType()
 {
     return 3;
 }
 
-// FUN_06f83af0 (06f83af0-06f83eaf, RET 4): pub::SpaceObj::DrainShields on the ring (+0xb4,
+// (06f83af0-06f83eaf, RET 4): pub::SpaceObj::DrainShields on the ring (+0xb4,
 // result not read), then with bForced the base body (06f83b2d). Otherwise: +0x9c = 0, the
-// location of +0x88 (result not read), a copy of the spawn points (FUN_06efc7d0), the turn
-// matrix of DAT_06fb7b40, an identity placement (FUN_06efc7a0) and one "Delay" directive
+// location of +0x88 (result not read), a copy of the spawn points (the routine), the turn
+// matrix of the field, an identity placement (the routine) and one "Delay" directive
 // (factory type 1) of 25 s with Op +0x08 = 1 in a local list with its own reference. Per
 // formation to spawn: a weighted point of the copy (RandEncPickWeighted) turned by the
-// ring's orientation (FUN_06f83ec0) and added to its position (FUN_06f0bb80) gives the
+// ring's orientation (the routine) and added to its position (the routine) gives the
 // placement's translation; the point leaves the copy; the rotation is turn * orientation
-// (FUN_06f83f10); SpawnLaneFormation(-1, the list, null, null). Afterwards +0x38 = 0, the
-// directive holder is released, the list torn down (FUN_06ed2a00), the copy freed.
+// (the routine); SpawnLaneFormation(-1, the list, null, null). Afterwards +0x38 = 0, the
+// directive holder is released, the list torn down (the routine), the copy freed.
 void FRandEncTLParams::Spawn(bool bForced)
 {
     pub::SpaceObj::DrainShields(TargetTradelane);
@@ -596,7 +592,7 @@ void FRandEncTLParams::Spawn(bool bForced)
         return;
     }
 
-    // 06f83b37-06f83b69. Retail leaves the location unset when GetLocation fails; the port
+    // . baseline leaves the location unset when GetLocation fails; the port
     // starts it at zero.
     Vector TargetPosition = {0.0f, 0.0f, 0.0f};
     Matrix TargetRotation;
@@ -608,7 +604,7 @@ void FRandEncTLParams::Spawn(bool bForced)
     static_assert(sizeof(Matrix) == sizeof(FMatrix), "Matrix is 3x3 floats");
     std::memcpy(&TargetMatrix, &TargetRotation, sizeof(FMatrix));
 
-    // 06f83b6e-06f83bb1: rows {cos, 0, sin}, {0, 1, 0}, {-sin, 0, cos}.
+    // rows {cos, 0, sin}, {0, 1, 0}, {-sin, 0, cos}.
     float const TurnCos = static_cast<float>(std::cos(GRandEncLaneTurnAngle));
     float const TurnSin = static_cast<float>(std::sin(GRandEncLaneTurnAngle));
     FMatrix Turn;
@@ -622,27 +618,27 @@ void FRandEncTLParams::Spawn(bool bForced)
     Turn.D[2][1] = 0.0f;
     Turn.D[2][2] = TurnCos;
 
-    // 06f83bb5-06f83bd1
+
     FTransform Placement;
     SetMatrixIdentity(&Placement.Rotation);
     Placement.Translation.X = 0.0f;
     Placement.Translation.Y = 0.0f;
     Placement.Translation.Z = 0.0f;
 
-    // 06f83bba-06f83c43: the list, then the directive holder (FUN_06f28e10 on it while still
+    // the list, then the directive holder (the routine on it while still
     // empty, a no-op).
     FMissionDirectiveList LeaderDirectives;
     TRefHandle<FObjListDirective> Leader;
     CreateObjListDirective(1, &Leader.Pointer);
     FObjListDelay* const Delay = static_cast<FObjListDelay*>(Leader.Pointer);
-    Delay->SetDelay(25.0f);                                                // FUN_06f27940
+    Delay->SetDelay(25.0f);
     Delay->Op.Priority = 1;                                                // +0x114
-    LeaderDirectives.Items.push_back(Leader.Pointer);                      // FUN_06f1e390
+    LeaderDirectives.Items.push_back(Leader.Pointer);
     Leader->AddRef();
 
     for (int Index = 0; Index < FormationsToSpawn; ++Index)
     {
-        // 06f83c53-06f83d37. With nothing picked (an empty copy or a zero sum) retail goes on
+        // . With nothing picked (an empty copy or a zero sum) baseline goes on
         // with the list head's uninitialised value and frees the head itself (undefined);
         // the port skips that formation.
         std::list<FRandEncPosition>::iterator const Picked =
@@ -650,25 +646,25 @@ void FRandEncTLParams::Spawn(bool bForced)
         if (Picked == FreePositions.end())
             continue;
 
-        // 06f83d39-06f83d93
+
         FVector PointOffset;
         FVector const Point = {Picked->Position.x, Picked->Position.y, Picked->Position.z};
         TransformByMatrix(&PointOffset, &TargetMatrix, &Point);
-        Placement.Translation.X = TargetPosition.x + PointOffset.X;       // FUN_06f0bb80
+        Placement.Translation.X = TargetPosition.x + PointOffset.X;
         Placement.Translation.Y = TargetPosition.y + PointOffset.Y;
         Placement.Translation.Z = TargetPosition.z + PointOffset.Z;
 
-        // 06f83d82-06f83dcb: the node unlinked and freed, size--.
+        // the node unlinked and freed, size--.
         FreePositions.erase(Picked);
 
-        // 06f83dbf-06f83e0a
+
         FMatrix Rotation;
         MultiplyMatrices(&Rotation, &Turn, &TargetMatrix);
         Placement.Rotation = Rotation;
         SpawnLaneFormation(&Placement, -1, &LeaderDirectives.Items, nullptr, nullptr);
     }
 
-    // 06f83e1e-06f83e36: +0x38 = 0, the holder released inline and cleared.
+    // +0x38 = 0, the holder released inline and cleared.
     FormationsToSpawn = 0;
     if (Leader.Pointer != nullptr)
     {
@@ -677,13 +673,13 @@ void FRandEncTLParams::Spawn(bool bForced)
     }
 }
 
-// FUN_06f832b0 (06f832b0-06f83acd, RET 0x14).
+// (06f832b0-06f83acd, RET 0x14).
 bool FRandEncTLParams::SpawnLaneFormation(FTransform const* Placement, int Count,
                                           std::list<FObjListDirective*> const* Directives,
                                           std::list<FRandEncShipChoice> const* Choices,
                                           std::list<TString<0x30>>* Names)
 {
-    // 06f832d1-06f833b0. With nothing picked retail writes the count into the list head's
+    // . With nothing picked baseline writes the count into the list head's
     // uninitialised value and spawns from it (undefined); the port creates nothing.
     std::list<FRandEncFormation>::iterator const Picked =
         RandEncPickWeighted(&Formations, &FRandEncFormation::Weight);
@@ -691,7 +687,7 @@ bool FRandEncTLParams::SpawnLaneFormation(FTransform const* Placement, int Count
         return true;
     FRandEncFormation& Formation = *Picked;
 
-    // 06f833b2-06f833e5: Count -1 -> min + (rand() * range) >> 15.
+    // Count -1 -> min + (rand() * range) >> 15.
     if (Count == -1)
     {
         int const Min = Formation.MinCount;
@@ -700,31 +696,31 @@ bool FRandEncTLParams::SpawnLaneFormation(FTransform const* Placement, int Count
     }
     Formation.Count = Count;
 
-    std::list<FContentNpcShipParams> Blocks;                               // FUN_06ef6b80
+    std::list<FContentNpcShipParams> Blocks;
     for (int Index = 0; Index < Formation.Count; ++Index)
     {
-        // 06f83418-06f8345e: the block (FUN_06f33500, EH state 1), then a name block at
-        // [ESP+0xd8] (two FmtStr, +0x30 = 0, +0x34 = -1; EH states 2/3, dtor FUN_06ef4e60)
+        // the block (the routine, EH state 1), then a name block at
+        // [ESP+0xd8] (two FmtStr, +0x30 = 0, +0x34 = -1; EH states 2/3, dtor the routine)
         // that is never read. It dies at the end of the iteration after the push_back
         // (06f837fa-06f8380b), or before the block on the no-arch skip (06f8384e-06f8385f).
         FContentNpcShipParams Params;
         FNpcNameParams UnusedName;
 
-        // 06f8345e-06f834d3
+
         if (Names == nullptr)
         {
             char Nickname[0x60];
             std::sprintf(Nickname, "rand_enc_ship_%d", ShipNameCounter);
             ++ShipNameCounter;
-            Params.Nickname = Nickname;                                    // FUN_06ed0160
+            Params.Nickname = Nickname;
         }
         else
         {
             Params.Nickname = Names->front().Data;
-            Names->pop_front();                                            // FUN_06ecfe80
+            Names->pop_front();
         }
 
-        // 06f834d8-06f83552: controller, placement, +0x104 = DAT_06fbc18c (24.0f), labels.
+        // controller, placement, +0x104 = the field (24.0f), labels.
         Params.ControllerId = ControllerId;
         std::memcpy(&Params.Orientation, &Placement->Rotation, sizeof(FMatrix));
         Params.Position.x = Placement->Translation.X;
@@ -733,11 +729,11 @@ bool FRandEncTLParams::SpawnLaneFormation(FTransform const* Placement, int Count
         Params.Field_0x104 = 24.0f;
         for (std::list<unsigned int>::iterator Label = Labels.begin(); Label != Labels.end();
              ++Label)
-            Params.Field_0x118.push_back(*Label);                          // FUN_06f1e390
+            Params.Field_0x118.push_back(*Label);
 
-        // 06f83554-06f83645: the ship classes -- a weighted ship choice (retail reads the
+        // the ship classes -- a weighted ship choice (baseline reads the
         // list head's value when nothing is picked; the port leaves them empty) or Choices'
-        // Index-th element -- passed straight to FUN_06f35890 (only its classes are read).
+        // Index-th element -- passed straight to the routine (only its classes are read).
         FEncounterShip Line;
         if (Choices == nullptr)
         {
@@ -754,20 +750,20 @@ bool FRandEncTLParams::SpawnLaneFormation(FTransform const* Placement, int Count
             Line.ShipClasses = Choice->ShipClasses;
         }
 
-        // 06f83648-06f8365b: no arch -> this ship is skipped (06f83847).
+        // no arch -> this ship is skipped (06f83847).
         FNpcShipArch* const Arch =
             PickFactionShipLineArch(static_cast<unsigned int>(AttackerRep), &Line, -1);
         if (Arch == nullptr)
             continue;
 
-        // 06f83661-06f8373c: a named pilot of the attacker faction; the arch with the
+        // a named pilot of the attacker faction; the arch with the
         // encounter's pilot (+0x18); the job's scan chance 1.0 (+0x4f4); the name reputation.
         // The name block [ESP+0xa0] (EH states 4/5) dies right after the level store, before
         // the leader directives (06f83756-06f83767), hence its own scope.
         {
             FNpcNameParams Name;
-            PickNpcNameGender(static_cast<unsigned int>(AttackerRep), &Name);  // FUN_06f319b0
-            FNpcNameRequest Request;                                           // FUN_06f31650
+            PickNpcNameGender(static_cast<unsigned int>(AttackerRep), &Name);
+            FNpcNameRequest Request;
             if (BuildNpcName(static_cast<unsigned int>(AttackerRep), &Request, &Name, true))
             {
                 ApplyNpcShipFaction(static_cast<unsigned int>(AttackerRep), Name.Gender, &Params);
@@ -775,16 +771,16 @@ bool FRandEncTLParams::SpawnLaneFormation(FTransform const* Placement, int Count
                 Params.Personality.JobParams.ScanChance = 1.0f;
                 if (Params.ReputationHandle != nullptr)
                 {
-                    Params.ReputationHandle->Release();                        // FUN_06f28e10
+                    Params.ReputationHandle->Release();
                     Params.ReputationHandle = nullptr;
                 }
-                CreateNpcNameReputation(&Name, &Params.ReputationHandle);      // FUN_06f31910
+                CreateNpcNameReputation(&Name, &Params.ReputationHandle);
             }
             Params.Level = Arch->Level;                                        // arch +0x24
         }
 
-        // 06f83771-06f837d6: the leader gets the directives (FUN_06ed2a00 on the fresh block,
-        // the assign FUN_06f93490, slot 0 AddRef on each).
+        // the leader gets the directives (the routine on the fresh block,
+        // the assign the routine, slot 0 AddRef on each).
         if (Index == 0)
         {
             for (std::list<FObjListDirective*>::const_iterator It = Directives->begin();
@@ -794,12 +790,12 @@ bool FRandEncTLParams::SpawnLaneFormation(FTransform const* Placement, int Count
                 (*It)->AddRef();
             }
         }
-        Blocks.push_back(Params);                                          // FUN_06efc860
+        Blocks.push_back(Params);
     }
 
-    // 06f838d3-06f83953: a random segment of the ring zone's path (FUN_06fa8130,
-    // FUN_06f37ea0; its result is not read) and the placement plan (defaults FUN_06f83ad0).
-    // Retail indexes the segments without an emptiness test and the first block without
+    // a random segment of the ring zone's path (the routine,
+    // ; its result is not read) and the placement plan (defaults the routine).
+    // baseline indexes the segments without an emptiness test and the first block without
     // one either.
     FPatrolPath* const Path = TargetZone->GetPath();
     std::vector<FPatrolPathSegment> Segments;
@@ -813,7 +809,7 @@ bool FRandEncTLParams::SpawnLaneFormation(FTransform const* Placement, int Count
     Plan.DockTarget = 0;
     Plan.Path = Path;
 
-    // 06f8395f-06f83996: the direction (rand() * 2) >> 15 -> 0: -1, 1: +1 (NEG / SBB / AND 2 /
+    // the direction (rand() * 2) >> 15 -> 0: -1, 1: +1 (NEG / SBB / AND 2 /
     // DEC), and the point it heads for.
     Plan.PathDirection = ((std::rand() * 2 / 32768) != 0) ? 1 : -1;
     if (Plan.PathDirection == 1)
@@ -821,7 +817,7 @@ bool FRandEncTLParams::SpawnLaneFormation(FTransform const* Placement, int Count
     else
         Plan.PathTargetPoint = Segment.FirstPoint;
 
-    // 06f8399d-06f83a26: a new type 3 guide description (FUN_06f06200) held by the first
+    // a new type 3 guide description (the routine) held by the first
     // block (its own reference from new is never dropped), the plan copied into it
     // (REP MOVSD 0xe) and the ring's zone.
     FContentNpcShipParams& Leader = Blocks.front();
@@ -840,18 +836,18 @@ bool FRandEncTLParams::SpawnLaneFormation(FTransform const* Placement, int Count
     static_cast<FGuideDesc*>(Leader.GuideDesc.Pointer)->Plan = Plan;
     static_cast<FGuideDesc*>(Leader.GuideDesc.Pointer)->WanderZone = &TargetZone->ZoneId;
 
-    // 06f83a29-06f83a38: TU53 FUN_06f63cc0(System (+0x8), &Desc->Plan (+0x10), the leader
+    // TU53 the routine(System (+0x8), &Desc->Plan (+0x10), the leader
     // block) -- the two trade targets of the leader's guide.
     SetLeaderGuideTargets(System, &static_cast<FGuideDesc*>(Leader.GuideDesc.Pointer)->Plan,
                           &Leader);
 
-    // 06f83a3d-06f83a66
+
     PlaceFormationBlocks(&Blocks, Formation.Formation, Placement);
     System->CreateNpcShips(&Blocks, 0, nullptr);
     return true;
 }
 
-// FUN_06f81d50 (06f81d50-06f81ec4, RET 4).
+// (06f81d50-06f81ec4, RET 4).
 void FRandEncTLParams::Dump(FILE* File)
 {
     std::fprintf(File, "encounter_type = %s\n", "TL_Attack");
@@ -870,13 +866,13 @@ void FRandEncTLParams::Dump(FILE* File)
         std::fprintf(File, "pilot_id = %u\n", PilotId.Id);
 }
 
-// LAB_06ee9660: MOV EAX,2.
+// MOV EAX,2.
 int FRandEncSPParams::GetType()
 {
     return 2;
 }
 
-// FUN_06f80f10 (06f80f10-06f8111b, RET 4). "time" prints +0xb8 before +0xb4.
+// (06f80f10-06f8111b, RET 4). "time" prints +0xb8 before +0xb4.
 void FRandEncSPParams::Dump(FILE* File)
 {
     std::fprintf(File, "encounter_type = %s\n", "SP_Attack");
@@ -906,7 +902,7 @@ void FRandEncSPParams::Dump(FILE* File)
         std::fprintf(File, "pilot_id = %u\n", PilotId.Id);
 }
 
-// FUN_06f81ed0 (06f81ed0-06f82b7a, RET 0xc). The result is the local byte [ESP+0x1b]; only
+// (06f81ed0-06f82b7a, RET 0xc). The result is the local byte [ESP+0x1b]; only
 // message 0x20 ever sets it.
 bool FRandEncTLPopulator::Accept(FRandEncParams* Params, pub::Controller::EMessage MessageId,
                                  void const* MessageParms)
@@ -916,7 +912,7 @@ bool FRandEncTLPopulator::Accept(FRandEncParams* Params, pub::Controller::EMessa
 
     if (MessageId == pub::Controller::EMessage::SpaceExit)
     {
-        // 06f81f04-06f81f11: slot 5 through the vtable.
+        // slot 5 through the vtable.
         Reset(Params);
         return bTrigger;
     }
@@ -927,16 +923,16 @@ bool FRandEncTLPopulator::Accept(FRandEncParams* Params, pub::Controller::EMessa
         if (bAttackArmed)
             return bTrigger;
         unsigned int const* const Parms = static_cast<unsigned int const*>(MessageParms);
-        std::vector<FTradeLaneRing> Rings;                  // [ESP+0x1c], FUN_06ead6a0
+        std::vector<FTradeLaneRing> Rings;                  // [ESP+0x1c], the routine
 
-        // 06f81f38-06f81f64: only the encounter player's ship.
+        // only the encounter player's ship.
         FContentPlayerShip* const Ship = Lane->Player->ShipObject;
         if (Ship == nullptr || Parms[0] != Ship->SpaceObjId)
             return bTrigger;
 
         if (Lane->TargetTradelane == 0)
         {
-            // 06f81f7e-06f81fa6: the attack chance, rand() * 101 >> 15 against +0xa0; a
+            // the attack chance, rand() * 101 >> 15 against +0xa0; a
             // failed roll raises the chance by 15.
             int const Roll = std::rand() * 0x65 / 32768;
             if (Roll > Lane->TlAttackChance)
@@ -944,15 +940,15 @@ bool FRandEncTLPopulator::Accept(FRandEncParams* Params, pub::Controller::EMessa
                 Lane->TlAttackChance += 15;
                 return bTrigger;
             }
-            // 06f81fab-06f81fd6
+
             Lane->EntryRing = Parms[1];
             Lane->ExitRing = Parms[2];
             FSystemInfo* const System = FindSystemInfo(&Parms[3]);
             Lane->System = System;
-            System->GetTradeLaneRingsByRing(&Lane->EntryRing, &Rings);     // FUN_06f77bd0
+            System->GetTradeLaneRingsByRing(&Lane->EntryRing, &Rings);
             TrimTravelledRings(Lane, &Rings);
 
-            // 06f82129-06f821d1: a random ring of the stretch (FUN_06f2fb70 is the size; its
+            // a random ring of the stretch (the routine is the size; its
             // zero branch 06f8215b is unreachable after the emptiness test).
             if (Rings.empty())
                 return bTrigger;
@@ -965,7 +961,7 @@ bool FRandEncTLPopulator::Accept(FRandEncParams* Params, pub::Controller::EMessa
         }
         else
         {
-            // 06f821d6-06f82333: a scripted ring keeps its id; the direction is still derived
+            // a scripted ring keeps its id; the direction is still derived
             // from the lane of that ring (the trimmed rings are not read afterwards).
             Lane->TargetObjectId = Lane->TargetTradelane;
             Lane->EntryRing = Parms[1];
@@ -976,7 +972,7 @@ bool FRandEncTLPopulator::Accept(FRandEncParams* Params, pub::Controller::EMessa
             TrimTravelledRings(Lane, &Rings);
         }
 
-        // 06f82338-06f82541: six default spawn points along the travel direction.
+        // six default spawn points along the travel direction.
         if (Lane->Positions.size() == 0)
         {
             PushLaneSpawnPoint(Lane, 0.0f, 3000, 80.0f);
@@ -987,7 +983,7 @@ bool FRandEncTLPopulator::Accept(FRandEncParams* Params, pub::Controller::EMessa
             PushLaneSpawnPoint(Lane, 0.0f, 6750, 5.0f);
         }
 
-        // 06f82546-06f825a2
+
         if (Lane->PilotId.IsEmpty())
             Lane->PilotId.Id = CreateID("pilot_0");
         if (Lane->FormationsToSpawn == 0)
@@ -1003,7 +999,7 @@ bool FRandEncTLPopulator::Accept(FRandEncParams* Params, pub::Controller::EMessa
 
         if (Lane->AttackerRep == -1)
         {
-            // 06f825b3-06f82610: the zone at the attacked ring (GetLocation's result is not
+            // the zone at the attacked ring (GetLocation's result is not
             // tested) must be populated.
             Vector Position;
             Matrix Orientation;
@@ -1016,9 +1012,9 @@ bool FRandEncTLPopulator::Accept(FRandEncParams* Params, pub::Controller::EMessa
             if (Population == nullptr)
                 return false;
 
-            // 06f82615-06f827db: per formation to spawn, a weighted formation; the factions
-            // flying any of its ship classes (GetNpcClassFactions), each once (FUN_06eb5f30 +
-            // FUN_06eb5770).
+            // per formation to spawn, a weighted formation; the factions
+            // flying any of its ship classes (GetNpcClassFactions), each once (the routine +
+            // ).
             std::vector<unsigned int> ClassFactions;
             for (int Index = 0; Index < Lane->FormationsToSpawn; ++Index)
             {
@@ -1042,7 +1038,7 @@ bool FRandEncTLPopulator::Accept(FRandEncParams* Params, pub::Controller::EMessa
                 }
             }
 
-            // 06f827e7-06f82870: the zone's population pairs of those factions.
+            // the zone's population pairs of those factions.
             std::list<std::pair<unsigned int, float>> Populated;    // [ESP+0x78]
             std::list<std::pair<unsigned int, float>> Allowed;      // [ESP+0x2c]
             {
@@ -1057,11 +1053,11 @@ bool FRandEncTLPopulator::Accept(FRandEncParams* Params, pub::Controller::EMessa
                 }
             }
 
-            // 06f82875-06f828fb: those hostile to the player (FUN_06f33f80).
+            // those hostile to the player (the routine).
             int const Vibe = Lane->Player->GetReputation();
             CollectHostilePairs(&Populated, Vibe, &Allowed);
 
-            // 06f82900-06f82a60: none -> the ring is dropped (+0xb4 = 0) and nothing is
+            // none -> the ring is dropped (+0xb4 = 0) and nothing is
             // armed; else a random attacker and the ship choices it cannot fly erased.
             if (Allowed.size() == 0)
             {
@@ -1087,20 +1083,20 @@ bool FRandEncTLPopulator::Accept(FRandEncParams* Params, pub::Controller::EMessa
                                            &Choice->ShipClasses))
                         ++Choice;
                     else
-                        Choice = Formation->ShipChoices.erase(Choice);  // FUN_06f81940 + free
+                        Choice = Formation->ShipChoices.erase(Choice);  // + free
                 }
             }
         }
 
-        // 06f829f2-06f82a27
+
         bAttackArmed = true;
         return false;
     }
 
     if (MessageId == pub::Controller::EMessage::Heartbeat)
     {
-        // 06f82ab9-06f82af4: armed -> fire once the player's ship is within 10000 of the ring:
-        // the squared distance (FUN_06f242e0, -1.0 when a location fails) through ftol (the
+        // armed -> fire once the player's ship is within 10000 of the ring:
+        // the squared distance (the routine, -1.0 when a location fails) through ftol (the
         // low dword of the truncated 64-bit value) against 100000000 (JG, signed).
         if (bAttackArmed)
         {
@@ -1111,7 +1107,7 @@ bool FRandEncTLPopulator::Accept(FRandEncParams* Params, pub::Controller::EMessa
             if (Truncated <= 100000000)
                 bTrigger = true;
         }
-        // 06f82af9-06f82b40: without a target (+0x84 masked with 0x3fffffff) the named ship
+        // without a target (+0x84 masked with 0x3fffffff) the named ship
         // (FindObjectIdByName on +8 with the controller id) or else the player's ship.
         if ((Lane->GotoTargetId & 0x3fffffff) == 0)
         {
@@ -1134,14 +1130,14 @@ bool FRandEncTLPopulator::Accept(FRandEncParams* Params, pub::Controller::EMessa
 
     if (MessageId == pub::Controller::EMessage::SystemEnter)
     {
-        // 06f82b42-06f82b5d: JG 0x32 skips.
+        // JG 0x32 skips.
         if (Lane->TlAttackChance <= 0x32)
             Lane->TlAttackChance = Lane->TlAttackChanceReadIn;
     }
     return bTrigger;
 }
 
-// FUN_06f82b90 (06f82b90-06f83276, RET 8). Same frame as the SP parse (state saved and
+// (06f82b90-06f83276, RET 8). Same frame as the SP parse (state saved and
 // restored, [RandomEncounter] / [MsnRandEnc] with a value), with the lane keys.
 void FRandEncTLPopulator::Parse(INI_Reader* Reader, FRandEncParams* Params)
 {
@@ -1163,7 +1159,7 @@ void FRandEncTLPopulator::Parse(INI_Reader* Reader, FRandEncParams* Params)
             }
             else if (Reader->is_value("target_ship_name"))
             {
-                Lane->TargetShipName = Reader->get_value_string(0);         // FUN_06ea9f40 0x30
+                Lane->TargetShipName = Reader->get_value_string(0);         // 0x30
             }
             else if (Reader->is_value("attacker_rep_name"))
             {
@@ -1185,7 +1181,7 @@ void FRandEncTLPopulator::Parse(INI_Reader* Reader, FRandEncParams* Params)
             }
             else if (Reader->is_value("tl_attack_chance"))
             {
-                // 06f82d33-06f82d47: both chances from value 0.
+                // both chances from value 0.
                 Lane->TlAttackChanceReadIn = Reader->get_value_int(0);
                 Lane->TlAttackChance = Reader->get_value_int(0);
             }
@@ -1195,7 +1191,7 @@ void FRandEncTLPopulator::Parse(INI_Reader* Reader, FRandEncParams* Params)
             }
             else if (Reader->is_value("formation") || Reader->is_value("saved_formation"))
             {
-                // 06f82ece-06f830e5: "formation" names both by value 0; "saved_formation" gives
+                // "formation" names both by value 0; "saved_formation" gives
                 // the ids as numbers (value 0 for both).
                 FRandEncFormation Formation;
                 Formation.Nickname.clear();
@@ -1242,7 +1238,7 @@ void FRandEncTLPopulator::Parse(INI_Reader* Reader, FRandEncParams* Params)
     Reader->set_state(Saved);
 }
 
-// LAB_06f83280 (RET 4): +8 = 0; Params +0x84 = 0, +0xa0 = +0xa4, +0xb4 = 0.
+// (RET 4): +8 = 0; Params +0x84 = 0, +0xa0 = +0xa4, +0xb4 = 0.
 void FRandEncTLPopulator::Reset(FRandEncParams* Params)
 {
     FRandEncTLParams* const Lane = static_cast<FRandEncTLParams*>(Params);
@@ -1252,7 +1248,7 @@ void FRandEncTLPopulator::Reset(FRandEncParams* Params)
     Lane->TargetTradelane = 0;
 }
 
-// FUN_06f80680 (06f80680-06f80f04, RET 0xc). The result is the local byte [ESP+0x13].
+// (06f80680-06f80f04, RET 0xc). The result is the local byte [ESP+0x13].
 bool FRandEncSPPopulator::Accept(FRandEncParams* Params, pub::Controller::EMessage MessageId,
                                  void const* MessageParms)
 {
@@ -1261,14 +1257,14 @@ bool FRandEncSPPopulator::Accept(FRandEncParams* Params, pub::Controller::EMessa
 
     if (MessageId != pub::Controller::EMessage::Heartbeat)
     {
-        // 06f806b6-06f806ce: 0x37 -> slot 5 through the vtable.
+        // 0x37 -> slot 5 through the vtable.
         if (MessageId == pub::Controller::EMessage::SpaceExit)
             Reset(Params);
         return bTrigger;
     }
 
-    // 06f806d3-06f80714: a player with a ship object and a system; the ship's HasField120
-    // (FUN_06f57710) stops the encounter.
+    // a player with a ship object and a system; the ship's HasField120
+    // (the routine) stops the encounter.
     FContentPlayerState* const Player = Space->Player;
     if (Player == nullptr)
         return bTrigger;
@@ -1279,8 +1275,8 @@ bool FRandEncSPPopulator::Accept(FRandEncParams* Params, pub::Controller::EMessa
     if (Ship->HasField120())
         return bTrigger;
 
-    // 06f8071a-06f80766: +8 = the player's system; without a target (+0x84, masked with
-    // 0x3fffffff) the named ship (FindObjectIdByName with the controller id) or else the
+    // +8 = the player's system; without a target (+0x84, masked with
+    // ) the named ship (FindObjectIdByName with the controller id) or else the
     // player's ship becomes both +0x84 and +0x88.
     FSystemInfo* const System = Player->GetSystemRecord();
     Space->System = System;
@@ -1301,12 +1297,12 @@ bool FRandEncSPPopulator::Accept(FRandEncParams* Params, pub::Controller::EMessa
         Space->TargetObjectId = TargetId;
     }
 
-    // 06f8076c-06f80856: the activation. An unset type becomes "time".
+    // the activation. An unset type becomes "time".
     if (Space->ActivationType == 0)
         Space->ActivationType = 2;
     if (Space->ActivationType == 2)
     {
-        // 06f80795-06f807ec: FCOMP DAT_06fb444c (0.0) + TEST AH,0x44 + JP -- only an exact 0
+        // FCOMP the field (0.0) + TEST AH,0x44 + JP -- only an exact 0
         // falls through and picks the threshold between the ftol'd bounds ([0] high, [1] low).
         if (Space->CumulativeTime == 0.0f)
         {
@@ -1316,7 +1312,7 @@ bool FRandEncSPPopulator::Accept(FRandEncParams* Params, pub::Controller::EMessa
             Space->CumulativeTime = static_cast<float>(
                 static_cast<long long>(static_cast<unsigned int>(Picked)));
         }
-        // 06f807f2-06f8081e: FCOMP + TEST AH,0x1 + JNZ -- below the threshold (or unordered)
+        // FCOMP + TEST AH,0x1 + JNZ -- below the threshold (or unordered)
         // the message's seconds are added; otherwise both are zeroed and the encounter fires.
         if (!(ElapsedTime >= Space->CumulativeTime))
         {
@@ -1331,7 +1327,7 @@ bool FRandEncSPPopulator::Accept(FRandEncParams* Params, pub::Controller::EMessa
     }
     else if (Space->ActivationType == 1)
     {
-        // 06f80825-06f80856: FILD range, FCOMPP + TEST AH,0x1 + JNZ -- fires unless the range
+        // FILD range, FCOMPP + TEST AH,0x1 + JNZ -- fires unless the range
         // is below the squared distance (or unordered).
         double const DistanceSq =
             GetObjectDistanceSqTo(&Space->GotoTargetId, Space->ActivationLocation);
@@ -1339,7 +1335,7 @@ bool FRandEncSPPopulator::Accept(FRandEncParams* Params, pub::Controller::EMessa
             bTrigger = true;
     }
 
-    // 06f8085d-06f808b7: without an attacker_rep the target's zone must be populated; this
+    // without an attacker_rep the target's zone must be populated; this
     // runs whether or not the activation fired.
     weighted_vector<unsigned int> const* Population = nullptr;
     if (Space->AttackerRep == -1)
@@ -1358,11 +1354,11 @@ bool FRandEncSPPopulator::Accept(FRandEncParams* Params, pub::Controller::EMessa
     if (!bTrigger)
         return bTrigger;
 
-    // 06f808c8-06f808e5
+
     if (Space->PilotId.IsEmpty())
         Space->PilotId.Id = CreateID("pilot_0");
 
-    // 06f808e7-06f80924: the formation count, the range defaulting to 1..3.
+    // the formation count, the range defaulting to 1..3.
     if (Space->FormationsToSpawn == 0)
     {
         if (Space->NumFormsMin == 0)
@@ -1374,7 +1370,7 @@ bool FRandEncSPPopulator::Accept(FRandEncParams* Params, pub::Controller::EMessa
         Space->FormationsToSpawn = std::rand() * (Max - Min + 1) / 32768 + Min;
     }
 
-    // 06f80929-06f80a89: three default spawn points behind the target.
+    // three default spawn points behind the target.
     if (Space->Positions.size() == 0)
     {
         PushDefaultSpawnPoint(Space, 0.0f, -3000.0f, 80.0f);
@@ -1385,8 +1381,8 @@ bool FRandEncSPPopulator::Accept(FRandEncParams* Params, pub::Controller::EMessa
     if (Space->AttackerRep != -1)
         return bTrigger;
 
-    // 06f80a98-06f80b7b: every faction that flies one of the ship classes of any formation
-    // (GetNpcClassFactions per ship choice), each once (FUN_06eb5f30 find + FUN_06f937c0).
+    // every faction that flies one of the ship classes of any formation
+    // (GetNpcClassFactions per ship choice), each once (the routine find + the routine).
     std::vector<unsigned int> ClassFactions;
     for (std::list<FRandEncFormation>::iterator Formation = Space->Formations.begin();
          Formation != Space->Formations.end(); ++Formation)
@@ -1406,8 +1402,8 @@ bool FRandEncSPPopulator::Accept(FRandEncParams* Params, pub::Controller::EMessa
         }
     }
 
-    // 06f80b81-06f80c36: the zone's population pairs whose faction is in that set, in
-    // population order (a copy of the weighted vector is walked, FUN_06f1e440 appends).
+    // the zone's population pairs whose faction is in that set, in
+    // population order (a copy of the weighted vector is walked, the routine appends).
     std::list<std::pair<unsigned int, float>> Populated;
     std::list<std::pair<unsigned int, float>> Allowed;
     {
@@ -1422,8 +1418,8 @@ bool FRandEncSPPopulator::Accept(FRandEncParams* Params, pub::Controller::EMessa
         }
     }
 
-    // 06f80c3b-06f80da2: those hostile to the target -- the player's reputation
-    // (FUN_06f33f80) when the target is the player's ship, else pub::SpaceObj::GetRep (its
+    // those hostile to the target -- the player's reputation
+    // (the routine) when the target is the player's ship, else pub::SpaceObj::GetRep (its
     // result is not tested; the port's GetRep writes 0 before any failure).
     if (Player->ShipObject->SpaceObjId == Space->GotoTargetId)
     {
@@ -1437,7 +1433,7 @@ bool FRandEncSPPopulator::Accept(FRandEncParams* Params, pub::Controller::EMessa
         CollectHostilePairs(&Populated, Vibe, &Allowed);
     }
 
-    // 06f80db3-06f80e71: none -> no spawn; else a random one becomes the attacker and every
+    // none -> no spawn; else a random one becomes the attacker and every
     // ship choice that faction cannot fly (FactionHasNpcClass) is erased from its formation.
     if (Allowed.size() == 0)
     {
@@ -1463,13 +1459,13 @@ bool FRandEncSPPopulator::Accept(FRandEncParams* Params, pub::Controller::EMessa
                                    &Choice->ShipClasses))
                 ++Choice;
             else
-                Choice = Formation->ShipChoices.erase(Choice);    // FUN_06f81940 + free
+                Choice = Formation->ShipChoices.erase(Choice);    // + free
         }
     }
     return bTrigger;
 }
 
-// FUN_06f81120 (06f81120-06f818c6, RET 8). The reader's state is saved first and restored at
+// (06f81120-06f818c6, RET 8). The reader's state is saved first and restored at
 // the end (get_state / set_state); only a [RandomEncounter] or [MsnRandEnc] section with a
 // value is read.
 void FRandEncSPPopulator::Parse(INI_Reader* Reader, FRandEncParams* Params)
@@ -1488,7 +1484,7 @@ void FRandEncSPPopulator::Parse(INI_Reader* Reader, FRandEncParams* Params)
             }
             else if (Reader->is_value("activation_type"))
             {
-                // 06f811ee-06f8130f: only while no activation was read (+0xa0 == 0).
+                // only while no activation was read (+0xa0 == 0).
                 char const* const Type = Reader->get_value_string(0);
                 if (_stricmp(Type, "location") == 0)
                 {
@@ -1505,7 +1501,7 @@ void FRandEncSPPopulator::Parse(INI_Reader* Reader, FRandEncParams* Params)
                 }
                 else if (_stricmp(Type, "time") == 0 && Space->ActivationType == 0)
                 {
-                    // 06f8129f-06f81309: [1] = value 1, [0] = value 2; the start time is a
+                    // [1] = value 1, [0] = value 2; the start time is a
                     // (rand() * range) >> 15 pick between their truncations, loaded as a qword
                     // with a zero high dword (FILD).
                     Space->ActivationTime[1] = Reader->get_value_float(1);
@@ -1520,11 +1516,11 @@ void FRandEncSPPopulator::Parse(INI_Reader* Reader, FRandEncParams* Params)
             }
             else if (Reader->is_value("target_ship_name"))
             {
-                Space->TargetShipName = Reader->get_value_string(0);        // FUN_06ea9f40 0x30
+                Space->TargetShipName = Reader->get_value_string(0);        // 0x30
             }
             else if (Reader->is_value("formation"))
             {
-                // 06f81365-06f813d6: value 0 is both the nickname and the formation.
+                // value 0 is both the nickname and the formation.
                 FRandEncFormation Formation;
                 Formation.Nickname.clear();
                 Formation.Nickname.Id = CreateID(Reader->get_value_string(0));
@@ -1534,7 +1530,7 @@ void FRandEncSPPopulator::Parse(INI_Reader* Reader, FRandEncParams* Params)
             }
             else if (Reader->is_value("formation_position"))
             {
-                // 06f8165a-06f816e7: weight 1.0f.
+                // weight 1.0f.
                 FRandEncPosition Position;
                 Position.Position.x = Reader->get_value_float(0);
                 Position.Position.y = Reader->get_value_float(1);
@@ -1544,7 +1540,7 @@ void FRandEncSPPopulator::Parse(INI_Reader* Reader, FRandEncParams* Params)
             }
             else if (Reader->is_value("orientation"))
             {
-                // 06f81700-06f8172f: degrees (DAT_06fb6060) and an optional distance.
+                // degrees (the field) and an optional distance.
                 Space->SpawnAngle = static_cast<float>(
                     static_cast<double>(Reader->get_value_float(0)) * GRandEncDegToRad);
                 if (!Reader->is_value_empty(1))
@@ -1574,7 +1570,7 @@ void FRandEncSPPopulator::Parse(INI_Reader* Reader, FRandEncParams* Params)
             }
             else if (Reader->is_value("num_forms"))
             {
-                // 06f81808-06f81844
+
                 Space->NumFormsMin = Reader->get_value_int(0);
                 Space->NumFormsMax = Reader->get_value_int(1);
                 Space->FormationsToSpawn =
@@ -1583,7 +1579,7 @@ void FRandEncSPPopulator::Parse(INI_Reader* Reader, FRandEncParams* Params)
             }
             else if (Reader->is_value("arrival_obj"))
             {
-                // 06f81858-06f81888: a number as is, else a nickname.
+                // a number as is, else a nickname.
                 if (MsvcrtAtoi(Reader->get_value_string(0)) != 0)
                     Space->DockTarget = static_cast<unsigned int>(Reader->get_value_int(0));
                 else
@@ -1594,7 +1590,7 @@ void FRandEncSPPopulator::Parse(INI_Reader* Reader, FRandEncParams* Params)
     Reader->set_state(Saved);
 }
 
-// LAB_06f818d0 (RET 4): Params +0x84 = 0, +0xbc = 0; +8 = 0.
+// (RET 4): Params +0x84 = 0, +0xbc = 0; +8 = 0.
 void FRandEncSPPopulator::Reset(FRandEncParams* Params)
 {
     FRandEncSPParams* const Space = static_cast<FRandEncSPParams*>(Params);

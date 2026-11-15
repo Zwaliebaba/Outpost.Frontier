@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -16,12 +12,12 @@ public:
     FImaData();
     ~FImaData();
 
-    GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override;
-    unsigned long DACOM_API AddRef() override;
-    unsigned long DACOM_API Release() override;
+    GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override;
+    unsigned long NEURONCOMPONENTS_API AddRef() override;
+    unsigned long NEURONCOMPONENTS_API Release() override;
 
-    FMaKeyBlock* DACOM_API KeyBlock() override;
-    void DACOM_API CrcOut(unsigned long* Out) override;
+    FMaKeyBlock* NEURONCOMPONENTS_API KeyBlock() override;
+    void NEURONCOMPONENTS_API CrcOut(unsigned long* Out) override;
 
     unsigned long NameCrc; // +4
     FMaKeyBlock Keys;      // +8
@@ -38,20 +34,20 @@ public:
     FImaInstance();
     ~FImaInstance();
 
-    GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override;
-    unsigned long DACOM_API AddRef() override;
-    unsigned long DACOM_API Release() override;
+    GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override;
+    unsigned long NEURONCOMPONENTS_API AddRef() override;
+    unsigned long NEURONCOMPONENTS_API Release() override;
 
     void AttachData(FImaData* NewData);
-    FMaKeyBlock* DACOM_API GetKeyBlock() override;
-    void DACOM_API ResetTime() override;
-    void DACOM_API Tick(float Dt) override;
-    unsigned char DACOM_API FillUvMatrix(float* Out) override;
+    FMaKeyBlock* NEURONCOMPONENTS_API GetKeyBlock() override;
+    void NEURONCOMPONENTS_API ResetTime() override;
+    void NEURONCOMPONENTS_API Tick(float Dt) override;
+    unsigned char NEURONCOMPONENTS_API FillUvMatrix(float* Out) override;
 
     FImaData* Data;        // +4
     float Time;            // +8
     unsigned long Frame;   // +C
-    FImaInstance* Next;    // +10 DAT_06ed57e4 walk
+    FImaInstance* Next;    // +10 the field walk
     FImaInstance* Prev;    // +14
     unsigned long RefCount; // +18
 };
@@ -65,16 +61,16 @@ static_assert(offsetof(FImaInstance, RefCount) == 0x18, "IMAInstance ref +18");
 
 class FMaterialAnimation;
 
-// Retail non-delegating IUnknown at MaterialAnimation+0x20 (LAB_06ec8020 / PTR_LAB_06ed2b68).
+// baseline non-delegating IUnknown at MaterialAnimation+0x20 (the branch / the branch).
 // Factory writes this to AGGDESC InnerOut when Outer is set — not the Aggregate face at +4.
-class FMaterialAnimationController final : public IDAComponent
+class FMaterialAnimationController final : public INeuronComponent
 {
 public:
     explicit FMaterialAnimationController(FMaterialAnimation* InOwner);
 
-    GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override;
-    unsigned long DACOM_API AddRef() override;
-    unsigned long DACOM_API Release() override;
+    GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override;
+    unsigned long NEURONCOMPONENTS_API AddRef() override;
+    unsigned long NEURONCOMPONENTS_API Release() override;
 
     FMaterialAnimation* Owner;
 };
@@ -84,10 +80,10 @@ class FMatAnimAggregate final : public IAggregateComponent
 public:
     FMatAnimAggregate();
 
-    GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override;
-    unsigned long DACOM_API AddRef() override;
-    unsigned long DACOM_API Release() override;
-    GENRESULT DACOM_API Initialize() override;
+    GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override;
+    unsigned long NEURONCOMPONENTS_API AddRef() override;
+    unsigned long NEURONCOMPONENTS_API Release() override;
+    GENRESULT NEURONCOMPONENTS_API Initialize() override;
 
     FMaterialAnimation* Owner;
 };
@@ -104,18 +100,18 @@ public:
     FMaterialAnimation();
     ~FMaterialAnimation();
 
-    GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override;
-    unsigned long DACOM_API AddRef() override;
-    unsigned long DACOM_API Release() override;
-    void* DACOM_API LoadAnimationGroup(void* FileSystem) override;
-    GENRESULT DACOM_API UnloadAnimationGroup(void* Arg) override;
-    GENRESULT DACOM_API CreateAnimationInstance(int Unused, void* Query, IImaInstance** OutInstance) override;
-    GENRESULT DACOM_API TickAnimationInstances(int Filter, float Dt) override;
+    GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override;
+    unsigned long NEURONCOMPONENTS_API AddRef() override;
+    unsigned long NEURONCOMPONENTS_API Release() override;
+    void* NEURONCOMPONENTS_API LoadAnimationGroup(void* FileSystem) override;
+    GENRESULT NEURONCOMPONENTS_API UnloadAnimationGroup(void* Arg) override;
+    GENRESULT NEURONCOMPONENTS_API CreateAnimationInstance(int Unused, void* Query, IImaInstance** OutInstance) override;
+    GENRESULT NEURONCOMPONENTS_API TickAnimationInstances(int Filter, float Dt) override;
 
     FMatAnimAggregate Aggregate; // +4
     unsigned long RefCount;
-    IDAComponent* Outer; // retail controlling unknown at +0x1C
-    FMaterialAnimationController Controller; // retail non-delegating unknown @ +0x20
+    INeuronComponent* Outer; // baseline controlling unknown at +0x1C
+    FMaterialAnimationController Controller; // baseline non-delegating unknown @ +0x20
     std::vector<FCrcAnimSlot> CrcMap;
 
     FImaData* FindData(unsigned long Crc) const;

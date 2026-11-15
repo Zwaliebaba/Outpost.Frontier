@@ -1,15 +1,11 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // Common.dll BaseWatcher (one link of a Watchable's watcher chain). Split out of
-// common_goods.cpp. (The FUN_062ec590 / 5b0 / 5d0 / 610 / 650 accessors that passed through
+// common_goods.cpp. (The the routine / 5b0 / 5d0 / 610 / 650 accessors that passed through
 // this file are FGunConvergenceStateBlock members in common_gunconvergence.cpp.)
-//
-// Retail's three "clear the BaseWatcher embedded at +0x14 / +0x28 / +0x8" helpers
-// (FUN_062c3040 / FUN_062c5c20 / FUN_062d27b0) are called only from EH unwind funclets
+
+// baseline's three "clear the BaseWatcher embedded at +0x14 / +0x28 / +0x8" helpers
+// (the routine / the routine / the routine) are called only from EH unwind funclets
 // (Unwind@06394a48 .. Unwind@0639536e): they are the compiler's member destructor on the
 // exception path. In the port the BaseWatcher members' own destructor (set(nullptr)) runs
 // there, so those helpers have no body of their own here.
@@ -31,10 +27,10 @@ BaseWatcher::BaseWatcher(IObjRW* Target)
     : Watched(nullptr)
     , Next(nullptr)
 {
-    // Common.dll.c FUN_062c2920 (0x62920). Retail: zero Watched/Next, then if
+    // Common the routine (0x62920). baseline: zero Watched/Next, then if
     // Target != null, set_pointer(Target+8) -- Target+8 is IObjRW's Watchable
     // sub-object, same "+8" convention used everywhere else in this cluster
-    // (ScanList::add/remove, ScannerAddEntry/ScannerRemoveEntry). Retail also has
+    // (ScanList::add/remove, ScannerAddEntry/ScannerRemoveEntry). baseline also has
     // a redundant "(Watchable*)(param_1+8) != 0" check that can never be false
     // once param_1 != 0 (pointer arithmetic on a non-null pointer can't yield
     // null here), so it's omitted.
@@ -49,8 +45,8 @@ BaseWatcher::BaseWatcher(Watchable* const* Src)
     : Watched(nullptr)
     , Next(nullptr)
 {
-    // Common.dll.c FUN_062ed070 (0x62ed070). Verified against raw disasm
-    // (Common.dll.txt:253086-253125): dereferences Src once (no +8 adjustment,
+    // Common the routine (0x62ed070). Verified against raw analysis
+    // (Common): dereferences Src once (no +8 adjustment,
     // unlike the IObjRW* overload above) and additionally treats the literal
     // pointer value 0x8 as a sentinel alongside null.
     Watchable* V = *Src;
@@ -65,7 +61,7 @@ BaseWatcher::~BaseWatcher()
 
 BaseWatcher& BaseWatcher::operator=(BaseWatcher const& Other)
 {
-    // .text:06280ee0: a raw copy of both dwords (Watched, Next). It does not unlink from the
+    // a raw copy of both dwords (Watched, Next). It does not unlink from the
     // old chain or link into the new one.
     Watched = Other.Watched;
     Next = Other.Next;
@@ -80,11 +76,11 @@ void BaseWatcher::set(Watchable const* Target)
 
 void BaseWatcher::set_pointer(Watchable const* Target)
 {
-    // Retail 0xe1610: unlink `this` from whatever chain it is currently in --
+    // baseline 0xe1610: unlink `this` from whatever chain it is currently in --
     // that chain is rooted at Watched->Head, NOT at this->Next (a prior version
     // of this port walked from `Next`, which never finds `this` and, worse,
     // never fixes up Watched->Head when `this` is the head of its chain --
-    // leaving a dangling head pointer. Retail instead walks a "pointer to the
+    // leaving a dangling head pointer. baseline instead walks a "pointer to the
     // slot that currently holds `this`" starting at &Watched->Head, chasing
     // ->Next, exactly like the pointer-to-pointer idiom below).
     if (Watched != nullptr)
@@ -107,14 +103,14 @@ void BaseWatcher::set_pointer(Watchable const* Target)
 
 unsigned int BaseWatcher::get_watched_id() const
 {
-    // FUN_062c2ab0, Common.dll.txt .text:062c2ab0-062c2ac4 (thiscall, no args):
-    //   062c2ab0-062c2ab4  EAX = Watched; 0 -> return 0
-    //   062c2ab6-062c2abb  ECX = Watched - 8 (the Watchable -> IObjRW downcast); 0 -> return 0
-    //   062c2abd-062c2abf  tail JMP [vt + 0x20] with ECX = the IObjRW: IObjInspect slot 8,
+    // , Common module storage-062c2ac4 (thiscall, no args):
+    // EAX = Watched; 0 -> return 0
+    // ECX = Watched - 8 (the Watchable -> IObjRW downcast); 0 -> return 0
+    // tail JMP [vt + 0x20] with ECX = the IObjRW: IObjInspect slot 8,
     //                      get_id(), a plain thiscall virtual (common_iface.h).
-    // The port used to call slot +0x20 through a DACOM_API (__stdcall) pointer with `this`
+    // The port used to call slot +0x20 through a NEURONCOMPONENTS_API (__stdcall) pointer with `this`
     // pushed on the stack: get_id then ran with a garbage ECX (wild Object read on docking,
-    // CMN-BUG11) and the stack came back 4 bytes off. The typed call below is retail's.
+    // CMN-BUG11) and the stack came back 4 bytes off. The typed call below is baseline's.
     IObjRW* const Owner = ObjRwFromWatchable(const_cast<Watchable*>(Watched));
     if (Owner == nullptr)
         return 0;

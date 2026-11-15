@@ -1,12 +1,8 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
-#include "dacom.h"
+#include "neuroncomponents.h"
 #include "soundstreamer.h"
 #include "audio/dsound8.h"
 #include <mmreg.h>
@@ -22,42 +18,42 @@ static const unsigned int kFdumpError = 0x100001;
 static const unsigned int kFdumpWarning = 0x100002;
 static const unsigned int kFdumpNotice = 0x100003;
 
-// .data:06efe070: __FILE__ of the StreamingSound handle code (FDUMP sites 06ef101d, 17ec, 18f6,
+// __FILE__ of the StreamingSound handle code (FDUMP sites 06ef101d, 17ec, 18f6,
 // 1b0c, 1b3d, 1bc7, 1c7f, 206d).
-static const char kRetailSource[] =
-    "C:\\work\\builds\\dalibs\\dalibs-build\\build\\Src\\SoundStreamer\\NewStream.cpp";
-// .data:06efe320: __FILE__ of the streamer object code (device init 06ef2e00 and CreateStream
-// 06ef3060: FDUMP sites 06ef2e80/2e9a, 2efe/2f18, 2fc5, 2ff6, 303c, 31ae).
+static const char kbaselineSource[] =
+    "SoundStreamer\\NewStream.cpp";
+// __FILE__ of the streamer object code (device init 06ef2e00 and CreateStream
+// FDUMP sites 06ef2e80/2e9a, 2efe/2f18, 2fc5, 2ff6, 303c, 31ae).
 static const char kStreamerSource[] =
-    "C:\\work\\builds\\dalibs\\dalibs-build\\build\\Src\\SoundStreamer\\SoundStreamer.cpp";
+    "SoundStreamer\\SoundStreamer.cpp";
 static const char kFdumpErrorFmt[] = "%s(%d) : ERROR:General:%s";
 static const char kFdumpWarningFmt[] = "%s(%d) : WARNING:General:%s";
 static const char kFdumpNoticeFmt[] = "%s(%d) : NOTICE:General:%s";
 
 static const GUID kClsidDirectSound = {
     0x47D4D946, 0x62E8, 0x11CF, {0x93, 0xBC, 0x44, 0x45, 0x53, 0x54, 0x00, 0x00}};
-static const GUID kIidDirectSoundRetail = {
+static const GUID kIidDirectSoundbaseline = {
     0x279AFA83, 0x4981, 0x11CE, {0xA5, 0x21, 0x00, 0x20, 0xAF, 0x0B, 0xE5, 0x60}};
 
 struct FStreamerAggDesc
 {
     unsigned long Size;
     const char* Name;
-    IDAComponent* Outer;
-    IDAComponent** InnerOut;
+    INeuronComponent* Outer;
+    INeuronComponent** InnerOut;
     const char* Extra;
 };
 
 class FSoundStreamer;
 
-class FStreamerInner final : public IDAComponent
+class FStreamerInner final : public INeuronComponent
 {
 public:
     FStreamerInner();
 
-    GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override;
-    unsigned long DACOM_API AddRef() override;
-    unsigned long DACOM_API Release() override;
+    GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override;
+    unsigned long NEURONCOMPONENTS_API AddRef() override;
+    unsigned long NEURONCOMPONENTS_API Release() override;
 
     unsigned long RefCount;
     FSoundStreamer* Self;
@@ -68,23 +64,23 @@ class FSoundStreamerFactory final : public IComponentFactory
 public:
     FSoundStreamerFactory();
 
-    GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override;
-    unsigned long DACOM_API AddRef() override;
-    unsigned long DACOM_API Release() override;
-    GENRESULT DACOM_API CreateInstance(AGGDESC* Desc, void** Instance) override;
+    GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override;
+    unsigned long NEURONCOMPONENTS_API AddRef() override;
+    unsigned long NEURONCOMPONENTS_API Release() override;
+    GENRESULT NEURONCOMPONENTS_API CreateInstance(AGGDESC* Desc, void** Instance) override;
 
     unsigned long RefCount;
     const char* Name;
 };
 
-// Heap handle — retail StreamingSound 0x110 (FUN_06ef1200 / FUN_06ef13d0).
+// Heap handle — baseline StreamingSound 0x110 (the routine / the routine).
 struct FStreamingSound
 {
     char* Path;                      // +0x00
     unsigned long PathLen;           // +0x04
     unsigned long PathCap;           // +0x08
     unsigned long PathPad;           // +0x0C
-    IDAComponent* FileSystem;        // +0x10
+    INeuronComponent* FileSystem;        // +0x10
     unsigned long FileHandle;        // +0x14
     unsigned long MapHandle;         // +0x18
     unsigned char* MappedView;       // +0x1C
@@ -96,7 +92,7 @@ struct FStreamingSound
     unsigned char bBufferReady;      // +0x84
     unsigned char bLoop;             // +0x85
     unsigned char bWantPlay;         // +0x86
-    unsigned char bOwnedMap;         // +0x87 retail owned-map flag; port uses FS view
+    unsigned char bOwnedMap;         // +0x87 baseline owned-map flag; port uses FS view
     long Volume;                     // +0x88
     long Pan;                        // +0x8C
     unsigned long FactSamples;       // +0x90
@@ -129,7 +125,7 @@ struct FStreamingSound
     unsigned long BytesPerSec;       // +0xF0
     unsigned long EndMarkF4;         // +0xF4 drain start (play cursor at EOF)
     unsigned long EndMarkF8;         // +0xF8 drain end (write cursor); -1 = not armed
-    unsigned long SilenceBytes;      // +0xFC FUN_06ef1ee0 remaining silence
+    unsigned long SilenceBytes;      // +0xFC the routine remaining silence
     void* LockPtr1;                  // +0x100
     unsigned long LockBytes1;        // +0x104
     void* LockPtr2;                  // +0x108
@@ -142,25 +138,25 @@ public:
     FSoundStreamer();
     ~FSoundStreamer();
 
-    GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override;
-    unsigned long DACOM_API AddRef() override;
-    unsigned long DACOM_API Release() override;
+    GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override;
+    unsigned long NEURONCOMPONENTS_API AddRef() override;
+    unsigned long NEURONCOMPONENTS_API Release() override;
 
-    int DACOM_API InitializeDevice(FStreamerInitDesc* Desc) override;
-    void* DACOM_API CreateStream(const char* Path, IDAComponent* FileSystem,
+    int NEURONCOMPONENTS_API InitializeDevice(FStreamerInitDesc* Desc) override;
+    void* NEURONCOMPONENTS_API CreateStream(const char* Path, INeuronComponent* FileSystem,
                                  unsigned long Flags) override;
-    GENRESULT DACOM_API DestroyStream(void* Handle) override;
-    GENRESULT DACOM_API StopStream(void* Handle) override;
-    GENRESULT DACOM_API StartStream(void* Handle) override;
-    GENRESULT DACOM_API SetVolume(void* Handle, long Volume) override;
-    GENRESULT DACOM_API GetVolume(void* Handle, long* Out) override;
-    unsigned long DACOM_API QueryStatus(void* Handle) override;
-    unsigned long DACOM_API GetReserved58() override;
-    unsigned long DACOM_API GetReserved5C() override;
-    GENRESULT DACOM_API SetPan(void* Handle, long Pan) override;
-    GENRESULT DACOM_API GetPan(void* Handle, long* Out) override;
+    GENRESULT NEURONCOMPONENTS_API DestroyStream(void* Handle) override;
+    GENRESULT NEURONCOMPONENTS_API StopStream(void* Handle) override;
+    GENRESULT NEURONCOMPONENTS_API StartStream(void* Handle) override;
+    GENRESULT NEURONCOMPONENTS_API SetVolume(void* Handle, long Volume) override;
+    GENRESULT NEURONCOMPONENTS_API GetVolume(void* Handle, long* Out) override;
+    unsigned long NEURONCOMPONENTS_API QueryStatus(void* Handle) override;
+    unsigned long NEURONCOMPONENTS_API GetReserved58() override;
+    unsigned long NEURONCOMPONENTS_API GetReserved5C() override;
+    GENRESULT NEURONCOMPONENTS_API SetPan(void* Handle, long Pan) override;
+    GENRESULT NEURONCOMPONENTS_API GetPan(void* Handle, long* Out) override;
 
-    GENRESULT DACOM_API Initialize() override;
+    GENRESULT NEURONCOMPONENTS_API Initialize() override;
 
     void BindOuter(FStreamerAggDesc* Desc);
     void ShutdownDevice();
@@ -168,10 +164,10 @@ public:
     void PumpOneStream(FStreamingSound* Stream);
     void MovePendingActive();
     bool OpenOwnDirectSound();
-    bool LoadWav(FStreamingSound* Stream, const char* Path, IDAComponent* FileSystem); // FUN_06ef1560
-    bool OpenAcmStream(FStreamingSound* Stream);                                      // FUN_06ef13d0
-    void FillStreamBlock(FStreamingSound* Stream, unsigned long Want);                // FUN_06ef27a0
-    void ReleaseStreamResources(FStreamingSound* Stream); // FUN_06ef1120 + 3910 / 3ea0 / 3ec0
+    bool LoadWav(FStreamingSound* Stream, const char* Path, INeuronComponent* FileSystem);
+    bool OpenAcmStream(FStreamingSound* Stream);
+    void FillStreamBlock(FStreamingSound* Stream, unsigned long Want);
+    void ReleaseStreamResources(FStreamingSound* Stream); // + 3910 / 3ea0 / 3ec0
 
     IDirectSound* DirectSound;    // +0x08
     HWND Window;                  // +0x0C
@@ -194,7 +190,7 @@ public:
     HANDLE WorkerThread;          // +0x60
     unsigned long ThreadFlags;    // +0x64 bit0 started, bit1 exited, bit7 stop
     HANDLE WakeEvent;             // +0x68
-    IDAComponent* Controlling;    // +0x6C
+    INeuronComponent* Controlling;    // +0x6C
     FStreamerInner Inner;         // +0x70
 };
 

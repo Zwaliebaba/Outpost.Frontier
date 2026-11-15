@@ -47,10 +47,10 @@
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
-      <!-- Common.lib: retail rpclocal.dll imports COMMON.DLL (FmtStr::flatten,
+      <!-- Common.lib: baseline rpclocal.dll imports COMMON.DLL (FmtStr::flatten,
            FmtStr::unflatten, ~FmtStr and FmtStr::Val::get_flattened_size, IAT slots
            .rdata:06db30dc / 06db3008 / 06db3094 / 06db30e0), so linking it here is what
-           retail does, not a new dependency. Common.dll does not import rpclocal.dll in
+           baseline does, not a new dependency. Common.dll does not import rpclocal.dll in
            either direction, so there is no cycle. -->
       <AdditionalDependencies>kernel32.lib;user32.lib;Common.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
@@ -83,15 +83,15 @@
     <ClCompile Include="rpc_packet_dump.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <!-- Retail rpclocal.dll imports DACOM.DLL::FDUMP (ordinal 13, IAT slot
+    <!-- baseline rpclocal.dll imports NEURONCOMPONENTS.DLL::FDUMP (ordinal 13, IAT slot
          .rdata:06db311c) and calls it from five sites: 06d86b0f, 06d86b40, 06d86b70,
-         06d86be0 (the debug-only channel-3 cases of FUN_06d86a70) and 06d8f265
+         06d86be0 (the debug-only channel-3 cases) and 06d8f265
          (IServerImpl::Startup, LoadLibrary failure). Referenced as a project the same
-         way Server, Common and the rest link dacom.lib. -->
-    <ProjectReference Include="..\dacom\dacom.vcxproj">
+         way Server, Common and the rest link neuroncomponents.lib. -->
+    <ProjectReference Include="..\neuroncomponents\neuroncomponents.vcxproj">
       <Project>{8F3A1B20-9C4D-4E5F-A617-B8C9D0E1F203}</Project>
     </ProjectReference>
-    <!-- Common.lib is linked above (retail imports COMMON.DLL FmtStr exports); the
+    <!-- Common.lib is linked above (baseline imports COMMON.DLL FmtStr exports); the
          reference makes MSBuild build Common before rpclocal links against it, the
          same way OutpostFrontier.vcxproj orders itself after Common. -->
     <ProjectReference Include="..\Common\Common.vcxproj">

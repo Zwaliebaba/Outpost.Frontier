@@ -1,11 +1,7 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // Archetype::Launcher, Gun, MineDropper, CounterMeasureDropper, Projectile, Munition, Mine,
-// CounterMeasure -- split out of common_archetype.cpp (retail Archetype.cpp, one TU) in CMN-SPLIT
+// CounterMeasure -- split out of common_archetype.cpp (baseline Archetype.cpp, one TU) in CMN-SPLIT
 // phase B.
 
 #include "common_archetype.h"
@@ -17,8 +13,8 @@
 #include "common_misc.h"
 #include "common_phyarch.h"
 #include "common_universe.h"
-#include "DALib.h"
-#include "dacom.h"
+#include "NeuronRuntime.h"
+#include "neuroncomponents.h"
 #include "readfile.h"
 #include "x87_trig.h" // X87CosF (Munition::read seeker_fov_deg, 062f723c FCOS; FSTP float)
 
@@ -44,7 +40,7 @@ namespace Archetype
         }
     }
 
-    // Common.dll.txt 0x062f6f90: `EAX = [this+0x7c]; if (EAX == 0) EAX = this`.
+    // Common 0x062f6f90: `EAX = [this+0x7c]; if (EAX == 0) EAX = this`.
     Equipment* Projectile::get_loot_appearance()
     {
         if (LootAppearance != nullptr)
@@ -126,7 +122,7 @@ namespace Archetype
         return AClassLauncher;
     }
 
-    // Retail 0626e8d0: Root::operator=, the Equipment shape +0x5c..+0x6c, then dwords
+    // Root::operator=, the Equipment shape +0x5c..+0x6c, then dwords
     // +0x70..+0x9c (the AttachedEquipment six, then Launcher's six) inline. No self test.
     Launcher& Launcher::operator=(Launcher const& Other)
     {
@@ -143,7 +139,7 @@ namespace Archetype
     Gun::Gun(ICliObj* InCompanion)
         : Launcher(InCompanion)
         , DispersionAngle(0.0f)
-        , TurnRate(0.2617994f)  // 062f636c stores 0x3e860a92 (15 degrees in radians)
+        , TurnRate(0.2617994f)  // stores 0x3e860a92 (15 degrees in radians)
         , AzimuthMin(0.0f)
         , AzimuthMax(0.0f)
         , ElevationMin(0.0f)
@@ -179,7 +175,7 @@ namespace Archetype
         , bRangeCached(Other.bRangeCached)
         , CachedMunitionRange(Other.CachedMunitionRange)
     {
-        // Retail 0x0626ea00: Root::Root(Other), +0x5c..+0xb4 and the bytes +0xb8/+0xb9/+0xba
+        // Root::Root(Other), +0x5c..+0xb4 and the bytes +0xb8/+0xb9/+0xba
         // copied (+0xbb is not), the allocator byte at +0xbc copied, the array copied, then the
         // byte +0xcc and +0xd0.
         memset(PadBc, 0, sizeof(PadBc));
@@ -193,8 +189,8 @@ namespace Archetype
 
     Gun& Gun::operator=(Gun const& Other)
     {
-        // Retail 0x0626ebe0: Root::operator=, then +0x5c..+0xb4 and the bytes +0xb8..+0xba in
-        // order (no self test), the array unless it is the same vector (.text:0626ece5; the
+        // Root::operator=, then +0x5c..+0xb4 and the bytes +0xb8..+0xba in
+        // order (no self test), the array unless it is the same vector (module storage; the
         // allocator byte at +0xbc is not copied), then the byte +0xcc and +0xd0.
         Equipment::operator=(Other);
         SeparationExplosion = Other.SeparationExplosion;
@@ -230,7 +226,7 @@ namespace Archetype
 
     Gun::~Gun()
     {
-        // Common.dll.c 0xee50: free the dynamic array living at +0xc0 before Root's base
+        // Common 0xee50: free the dynamic array living at +0xc0 before Root's base
         // destructor runs.
         free(HpGunTypesBegin);
         HpGunTypesBegin = nullptr;
@@ -240,7 +236,7 @@ namespace Archetype
 
     namespace
     {
-        // Common.dll.c 0x96550 hp_gun_type push. VC6 vector<unsigned> push_back: grow by
+        // Common 0x96550 hp_gun_type push. VC6 vector<unsigned> push_back: grow by
         // doubling (1 if empty/size<2) when full, else append in place. Mirrors
         // PushShieldHpType for ShieldGenerator::HpShieldTypes* above.
         void PushGunHpType(Gun& Weapon, unsigned Value)
@@ -276,7 +272,7 @@ namespace Archetype
 
         if (Reader.is_value("dispersion_angle"))
         {
-            // 062f6406: FMUL float [DAT_0639d210] on the unrounded get_value_float result
+            // FMUL float [the field] on the unrounded get_value_float result
             // (value_num = the same read without the float rounding), one FSTP float.
             DispersionAngle = (float)(Reader.value_num(0) * (double)0.017453292f);
             return true;
@@ -290,14 +286,14 @@ namespace Archetype
 
         if (Reader.is_value("turn_rate"))
         {
-            // 062f645a: same as dispersion_angle.
+            // same as dispersion_angle.
             TurnRate = (float)(Reader.value_num(0) * (double)0.017453292f);
             return true;
         }
 
         if (Reader.is_value("gun_azimuth"))
         {
-            // 062f6480..062f64d5: the difference stays on the x87 stack and is compared with 0.0f (TEST AH,5 / JNP: below -> leave), 360.0
+            // the difference stays on the x87 stack and is compared with 0.0f (TEST AH,5 / JNP: below -> leave), 360.0
             // (TEST AH,0x41 / JZ: above -> leave) and 1.0f (below -> leave); anything else,
             // unordered included, sets the flag.
             // The max is stored with FST (rounded) but the FSUB float [min] runs on the
@@ -313,7 +309,7 @@ namespace Archetype
 
         if (Reader.is_value("gun_elevation"))
         {
-            // 062f64f6..062f654b: same three tests as gun_azimuth.
+            // same three tests as gun_azimuth.
             ElevationMin = Reader.get_value_float(0);
             double const MaxRaw = Reader.value_num(1);
             ElevationMax = (float)MaxRaw;
@@ -349,7 +345,7 @@ namespace Archetype
             TurnRate = Donor->TurnRate;
     }
 
-    // Retail 0x967f0. Turret guns report HpTypeTurret; otherwise, if a projectile archetype
+    // baseline 0x967f0. Turret guns report HpTypeTurret; otherwise, if a projectile archetype
     // is linked, look it up in GEquipmentDb and return the linked Munition's own HpType field
     // (+0xa8) -- this is a direct field read, not a vcall to Munition::get_hp_type(). Compiler
     // inlined ArchDB::Get's own FDUMP-on-miss (line 0x3c matches ArchDB::Get's error site).
@@ -359,7 +355,7 @@ namespace Archetype
             return HpTypeTurret;
         if (ProjectileArchetype.IsEmpty())
             return HpTypeNone;
-        // 062f6819-062f6887: ArchDB::Get(unsigned) inlined (its miss dump at 0x3c). A hit reads
+        // ArchDB::Get(unsigned) inlined (its miss dump at 0x3c). A hit reads
         // record->+0xa8 raw; a miss does XOR EAX,EAX / MOV EAX,[EAX+0xa8] (062f6877) -- the
         // same read through null, a deterministic fault, reproduced here (no null test).
         Equipment* Found = GEquipmentDb.Get(ProjectileArchetype.Id);
@@ -368,7 +364,7 @@ namespace Archetype
 
     HpAttachmentType Gun::get_hp_type_by_index(int Index) const
     {
-        // DAT_063ecc38 — 24 dwords, Common.dll.txt 063ecc38. Empty list only.
+        // — 24 dwords, Commonecc38. Empty list only.
         static HpAttachmentType const kEmptyGunHpTypes[24] = {
             HpTypeGun,            HpTypeGunSpecial1,    HpTypeGunSpecial2,    HpTypeGunSpecial3,
             HpTypeGunSpecial4,    HpTypeGunSpecial5,    HpTypeGunSpecial6,    HpTypeGunSpecial7,
@@ -387,7 +383,7 @@ namespace Archetype
                 return kEmptyGunHpTypes[Index];
             return HpTypeNone;
         }
-        // Retail UB (owner rule: deterministic in the port): 062f68f8 `CMP EDX,EAX; JG` accepts
+        // baseline UB (owner rule: deterministic in the port): 062f68f8 `CMP EDX,EAX; JG` accepts
         // Index == Count and reads the dword just past the array's end. The port answers 0 for
         // that index, as for every other out-of-range one; every in-range index is identical.
         if (Index >= 0 && (unsigned)Index < Count)
@@ -410,7 +406,7 @@ namespace Archetype
         return AClassMineDropper;
     }
 
-    // Retail 0xd450, folded with Power::get_class_type.
+    // baseline 0xd450, folded with Power::get_class_type.
     HpAttachmentType MineDropper::get_hp_type() const
     {
         return HpTypeMineDropper;
@@ -422,7 +418,7 @@ namespace Archetype
     {
     }
 
-    // Common.dll.c 0x96cd0.
+    // Common 0x96cd0.
     bool CounterMeasureDropper::read(INI_Reader& Reader)
     {
         if (Launcher::read(Reader))
@@ -431,7 +427,7 @@ namespace Archetype
         if (!Reader.is_value("ai_range"))
             return false;
 
-        // 062f6cfb: FLD ST0 / FMUL ST1 square the unrounded get_value_float result, then FSTP float.
+        // FLD ST0 / FMUL ST1 square the unrounded get_value_float result, then FSTP float.
         // value_num is the same read without the float rounding (text atof / BINI int are not
         // float-exact).
         double Range = Reader.value_num(0);
@@ -439,7 +435,7 @@ namespace Archetype
         return true;
     }
 
-    // Common.dll.c 0x96d20.
+    // Common 0x96d20.
     void CounterMeasureDropper::redefine(Root const& Other)
     {
         Launcher::redefine(Other);
@@ -453,7 +449,7 @@ namespace Archetype
         return AClassCounterMeasureDropper;
     }
 
-    // Retail 0xdb50, folded with Engine::get_class_type.
+    // baseline 0xdb50, folded with Engine::get_class_type.
     HpAttachmentType CounterMeasureDropper::get_hp_type() const
     {
         return HpTypeCountermeasureDropper;
@@ -522,10 +518,10 @@ namespace Archetype
         return AClassProjectile;
     }
 
-    // Retail Archetype::Projectile::operator= (Common.dll.c 22914-22930) -- part of the
-    // "inherit=" copy family, though FUN_062f3ea0 itself never calls it directly (Munition/
+    // baseline Archetype::Projectile::operator= (Common) -- part of the
+    // "inherit=" copy family, though the routine itself never calls it directly (Munition/
     // Mine/CounterMeasure::operator= each inline the equivalent copy instead); see
-    // Equipment::InheritFrom. Retail 0626f250: Root::operator=, the Equipment shape
+    // Equipment::InheritFrom. baseline 0626f250: Root::operator=, the Equipment shape
     // +0x5c..+0x6c, +0x70, +0x74, bytes +0x78 / +0x79, +0x7c. No self test.
     Projectile& Projectile::operator=(Projectile const& Other)
     {
@@ -590,11 +586,11 @@ namespace Archetype
 
         if (Reader.is_value("seeker"))
         {
-            // 062f715e..062f71c4: DACOM.DLL stricmp("dumb", value) / stricmp("lock", value).
+            // NEURONCOMPONENTS.DLL stricmp("dumb", value) / stricmp("lock", value).
             char const* Kind = Reader.get_value_string();
-            if (CallDacomStricmp("dumb", Kind) == 0)
+            if (CallNeuronComponentsStricmp("dumb", Kind) == 0)
                 Seeker = 1;
-            else if (CallDacomStricmp("lock", Kind) == 0)
+            else if (CallNeuronComponentsStricmp("lock", Kind) == 0)
                 Seeker = 2;
             else
                 Seeker = 0;
@@ -620,7 +616,7 @@ namespace Archetype
 
         if (Reader.is_value("seeker_fov_deg"))
         {
-            // 062f7234: FMUL float [DAT_0639d210] (0x3c8efa35 = 0.017453292f) then FCOS on the
+            // FMUL float [the field] (0x3c8efa35 = 0.017453292f) then FCOS on the
             // unrounded get_value_float result (value_num = same read without the float
             // rounding), FSTP float.
             double Deg = Reader.value_num(0);
@@ -636,7 +632,7 @@ namespace Archetype
 
         if (Reader.is_value("detonation_dist"))
         {
-            // 062f7286: FLD ST0 / FMUL ST1 on the unrounded get_value_float result.
+            // FLD ST0 / FMUL ST1 on the unrounded get_value_float result.
             double Dist = Reader.value_num(0);
             DetonationDistSq = (float)(Dist * Dist);
             return true;
@@ -659,39 +655,39 @@ namespace Archetype
 
     long Munition::BEAM_ARCH_INDEX = -1;
 
-    // Port-only names for code retail inlines into its two callers (they need the protected
+    // Port-only names for code baseline inlines into its two callers (they need the protected
     // static): the LoadEquipment tail 062f930e..062f9347 and Archetype::Free 062fab7f..062fab98.
     void Munition::LoadBeamArchIdx()
     {
-        // 062f930e: still -1 -> {"BEAM_ARCH", GetCRC32("BEAM_ARCH")} to IEngine slot 11
+        // still -1 -> {"BEAM_ARCH", GetCRC32("BEAM_ARCH")} to IEngine slot 11
         // (+0x2c, CreateCompoundArchetype); the result is stored as is. No engine test.
         if (BEAM_ARCH_INDEX != -1)
             return;
 
         FEngineArchetypeName Name;
         Name.Text = "BEAM_ARCH";
-        Name.Crc = DACOM_CRC::GetCRC32("BEAM_ARCH");
-        BEAM_ARCH_INDEX = (long)DALib::Engine->CreateCompoundArchetype(&Name);
+        Name.Crc = NEURONCOMPONENTS_CRC::GetCRC32("BEAM_ARCH");
+        BEAM_ARCH_INDEX = (long)NeuronRuntime::Engine->CreateCompoundArchetype(&Name);
     }
 
     void Munition::FreeBeamArchIdx()
     {
-        // 062fab7f: not -1 -> IEngine slot 15 (+0x3c, ReleaseHandle), then -1. No engine test.
+        // not -1 -> IEngine slot 15 (+0x3c, ReleaseHandle), then -1. No engine test.
         if (BEAM_ARCH_INDEX == -1)
             return;
-        DALib::Engine->ReleaseHandle((void*)BEAM_ARCH_INDEX);
+        NeuronRuntime::Engine->ReleaseHandle((void*)BEAM_ARCH_INDEX);
         BEAM_ARCH_INDEX = -1;
     }
 
     bool Munition::load()
     {
-        // 062f7450: no DA_archetype -> take the shared BEAM_ARCH handle and AddRef it through
+        // no DA_archetype -> take the shared BEAM_ARCH handle and AddRef it through
         // IEngine slot 14 (+0x38) unconditionally (even while it is still -1), count the load,
         // true. Otherwise the inlined body of Root::load.
         if (DaArchetype.Value[0] == '\0')
         {
             EngineIndex = BEAM_ARCH_INDEX;
-            DALib::Engine->AddRefHandle((void*)EngineIndex);
+            NeuronRuntime::Engine->AddRefHandle((void*)EngineIndex);
             LoadCount += 1;
             return true;
         }
@@ -700,14 +696,14 @@ namespace Archetype
 
     void Munition::free_resources()
     {
-        // 062f7580: no DA_archetype -> release the BEAM_ARCH reference (IEngine slot 15, +0x3c)
+        // no DA_archetype -> release the BEAM_ARCH reference (IEngine slot 15, +0x3c)
         // when held, then the companion's slot 6. Otherwise the inlined body of
         // Root::free_resources.
         if (DaArchetype.Value[0] == '\0')
         {
             if (EngineIndex != -1)
             {
-                DALib::Engine->ReleaseHandle((void*)EngineIndex);
+                NeuronRuntime::Engine->ReleaseHandle((void*)EngineIndex);
                 EngineIndex = -1;
             }
             CliObjFreeResources(Companion);
@@ -743,7 +739,7 @@ namespace Archetype
         return AClassMunition;
     }
 
-    // Retail 0xc9a0, folded with Ship::get_class_type / Mine::get_hp_type /
+    // baseline 0xc9a0, folded with Ship::get_class_type / Mine::get_hp_type /
     // CounterMeasure::get_hp_type -- all return the same unnamed constant 3. NOTE: this is
     // distinct from the HpType field (+0xa8), which Gun::get_hp_type() reads directly off a
     // linked Munition record; this virtual is Munition's own (unrelated) attachment-type tag.
@@ -752,8 +748,8 @@ namespace Archetype
         return HpTypeMunition;
     }
 
-    // Retail Archetype::Munition::operator= (Common.dll.c 127993) -- one leaf of the
-    // "inherit=" shape-copy family; see Equipment::InheritFrom. Retail 0626f3e0:
+    // baseline Archetype::Munition::operator= (Common) -- one leaf of the
+    // "inherit=" shape-copy family; see Equipment::InheritFrom. baseline 0626f3e0:
     // Root::operator=, the Equipment and Projectile shapes inline (+0x5c..+0x7c), dwords
     // +0x80..+0xa8, byte +0xac. No self test.
     Munition& Munition::operator=(Munition const& Other)
@@ -850,8 +846,8 @@ namespace Archetype
         return HpTypeMunition;
     }
 
-    // Retail Archetype::Mine::operator= (Common.dll.c 127996) -- one leaf of the "inherit="
-    // shape-copy family; see Equipment::InheritFrom. Retail 0626f5f0: Root::operator=,
+    // baseline Archetype::Mine::operator= (Common) -- one leaf of the "inherit="
+    // shape-copy family; see Equipment::InheritFrom. baseline 0626f5f0: Root::operator=,
     // +0x5c..+0x7c inline, dwords +0x80..+0x90. No self test.
     Mine& Mine::operator=(Mine const& Other)
     {
@@ -917,8 +913,8 @@ namespace Archetype
         return AClassCounterMeasure;
     }
 
-    // Retail Archetype::CounterMeasure::operator= (Common.dll.c 127999) -- one leaf of the
-    // "inherit=" shape-copy family; see Equipment::InheritFrom. Retail 0626f790:
+    // baseline Archetype::CounterMeasure::operator= (Common) -- one leaf of the
+    // "inherit=" shape-copy family; see Equipment::InheritFrom. baseline 0626f790:
     // Root::operator=, +0x5c..+0x7c inline, dwords +0x80..+0x88. No self test.
     CounterMeasure& CounterMeasure::operator=(CounterMeasure const& Other)
     {
@@ -934,7 +930,7 @@ namespace Archetype
         return HpTypeMunition;
     }
 
-    // Common.dll.c 0x96910. Memoized in bRangeCached/CachedMunitionRange (Gun+0xcc/+0xd0).
+    // Common 0x96910. Memoized in bRangeCached/CachedMunitionRange (Gun+0xcc/+0xd0).
     // No motor: range = Munition::Lifetime * MuzzleVelocity. With a motor: delay-phase coast
     // + accelerated burn distance + post-burn coast at the burned-up-to velocity.
     float Gun::get_munition_range() const
@@ -971,9 +967,9 @@ namespace Archetype
             return CachedMunitionRange;
         }
 
-        // 062f6a9e..062f6afa: the whole sum stays on the x87 stack (the intermediate FSTs into
+        // the whole sum stays on the x87 stack (the intermediate FSTs into
         // +0xd0 are overwritten); only the final value is rounded to float. Same operation
-        // order as retail, intermediates in double:
+        // order as baseline, intermediates in double:
         //   Sum  = Delay*Mv;  Sum += ((L*L)*Accel)*0.5;  Sum += Mv*L;
         //   +0xd0 = float(((MuniLifetime - L) * (L*Accel + Mv)) + Sum)
         double const Mv = MuzzleVelocity;

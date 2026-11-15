@@ -1,12 +1,8 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // IFLListBox — the 10-slot abstract base at offset 0 of CFLListBox (pure vtable 0041dcd8).
 // Kept free of MFC types so that non-MFC translation units (StarSystemList.cpp) can fill a list
-// through it. Retail names are unknown; slot order is retail's.
+// through it. baseline names are unknown; slot order is baseline's.
 #pragma once
 
 #include <windows.h>          // DWORD_PTR, COLORREF

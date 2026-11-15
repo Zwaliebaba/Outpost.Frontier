@@ -1,18 +1,14 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
-// Retail Client/Space/JumpEffect.cpp — Nebula renderable (operator_new 0x2d0).
-// See docs/re/OutpostFrontier.md (Space section).
-//
+// baseline Client/Space/JumpEffect.cpp — Nebula renderable (operator_new 0x2d0).
+// See implementation notes (Space section).
+
 // Layout notes (trees):
-//   +0x04  VC6 tree nodes 0x5c (FUN_00509c30) — root@+0x08, head@+0x0c, count@+0x14
-//   +0x38  zone_shell map (FUN_004e7f60, VC6 nodes 0x18) — a real std::map in the port
-//   +0x270 GameLight* ambient (FUN_00537a90), driven by FUN_005097c0
+//   +0x04  VC6 tree nodes 0x5c (the routine) — root@+0x08, head@+0x0c, count@+0x14
+//   +0x38  zone_shell map (the routine, VC6 nodes 0x18) — a real std::map in the port
+//   +0x270 GameLight* ambient (the routine), driven by the routine
 
 #include "common_net.h"
 #include "common_universe.h"
@@ -21,7 +17,7 @@
 #include <cstddef>
 #include <map>
 
-// FUN_00550180 — Clouds subobject (SpaceTerrainRenderComp), sizeof 0x12c.
+// — Clouds subobject (SpaceTerrainRenderComp), sizeof 0x12c.
 // Also allocated by TexturePanels::Load for nested [Clouds] / Exterior panels.
 struct FNebulaClouds
 {
@@ -30,20 +26,20 @@ struct FNebulaClouds
 
 static_assert(sizeof(FNebulaClouds) == 0x12c, "Clouds component 0x12c");
 
-// DAT_00679860 -- SpaceTerrainRenderComp.cpp's lazily filled I3DMathEngine (FUN_005b73e0 on
-// first use). Readers: FUN_0054c8b0 (0x0054cb06, the band rings in cli_asteroid.cpp),
-// FUN_00550d40 (0x00550e2f, 0x0055123e) and FUN_00551500 (0x0055156e, 0x005519f3, 0x00551b94).
+// SpaceTerrainRenderComp.cpp's lazily filled I3DMathEngine (the routine on
+// first use). Readers: the routine (0x0054cb06, the band rings in cli_asteroid.cpp),
+// (0x00550e2f, 0x0055123e) and the routine (0x0055156e, 0x005519f3, 0x00551b94).
 struct I3DMathEngine;
 extern I3DMathEngine* G_CloudsMath;
 
-void NebulaCloudsConstruct(FNebulaClouds* Clouds);                 // FUN_00550180
+void NebulaCloudsConstruct(FNebulaClouds* Clouds);
 void NebulaCloudsParseIni(FNebulaClouds* Clouds, class INI_Reader& Reader,
-                          FShapeDB* Shapes); // FUN_00550240
-void NebulaCloudsReleaseBits(FNebulaClouds* Clouds);               // FUN_005501e0 / 00550cf0
-void NebulaCloudsRebuildBits(FNebulaClouds* Clouds);               // FUN_00550b60 (+ FUN_00550040)
-void NebulaCloudsApplyDetail(FNebulaClouds* Clouds, float Detail); // FUN_005524a0
-void NebulaCloudsRegenExcluded(FNebulaClouds* Clouds, void* ExclusionCtx); // FUN_005513b0
-// FUN_00550d40 (__thiscall, RET 0x10) — per-frame puff update: fade, cull, sort, respawn,
+                          FShapeDB* Shapes);
+void NebulaCloudsReleaseBits(FNebulaClouds* Clouds);               // / 00550cf0
+void NebulaCloudsRebuildBits(FNebulaClouds* Clouds);               // (+ the routine)
+void NebulaCloudsApplyDetail(FNebulaClouds* Clouds, float Detail);
+void NebulaCloudsRegenExcluded(FNebulaClouds* Clouds, void* ExclusionCtx);
+// (__thiscall, RET 0x10) — per-frame puff update: fade, cull, sort, respawn,
 // drift, move; active count at +0x14. Camera is an ICamera (vt+0x0c / vt+0x10).
 void NebulaCloudsUpdate(FNebulaClouds* Clouds, void* Camera, float Dt, float Visibility,
                         Exclusion::NebulaExclusionZoneMgr* ExclusionMgr);
@@ -174,35 +170,35 @@ FNebulaEffect* NebulaConstruct(FNebulaEffect* This);
 FNebulaEffect* NebulaCreate();
 void NebulaDestroy(FNebulaEffect* Nebula);
 
-// LAB_00509ac0
+
 void NebulaSetDetail(FNebulaEffect* Nebula, float Detail);
 
-// FUN_00506600
+
 void NebulaRebuild(FNebulaEffect* Nebula);
 
-// FUN_00506cc0
+
 void NebulaShutdown(FNebulaEffect* Nebula);
 
-// LAB_00506f20 — vtable +0x08 (RET 8). Arg1 = camera ([ESP+0x3c] after the prologue, its
+// — vtable +0x08 (RET 8). Arg1 = camera ([ESP+0x3c] after the prologue, its
 // vt+0xc gives the position); arg2 = frame dt, stored to +0x1c (506f20 MOV EAX,[ESP+8]).
-// Caller: StarSysUpdate FUN_00554eb0 (PUSH dt; PUSH cam; CALL [EDX+8]).
+// Caller: StarSysUpdate the routine (PUSH dt; PUSH cam; CALL [EDX+8]).
 void NebulaUpdate(FNebulaEffect* Nebula, void* Camera, float Dt);
 
-// FUN_00507340 — bolt segment basis re-orient
+// — bolt segment basis re-orient
 void NebulaOrientBolts(FNebulaEffect* Nebula, float Tx, float Ty, float Tz);
 
-// FUN_005074e0 — exclusion-shell fog frustum draw (+0x5c FTexShape*)
+// — exclusion-shell fog frustum draw (+0x5c FTexShape*)
 void NebulaUpdateBoltCamera(FNebulaEffect* Nebula, float CamX, float CamY, float CamZ);
 
-// FUN_00507ed0 — bolt draw (Win3D quads + Pipeline RS 0x18)
+// — bolt draw (Win3D quads + Pipeline RS 0x18)
 void NebulaDrawBolts(FNebulaEffect* Nebula, void* Camera);
 
-// FUN_00504cf0 — full object destructor body
+// — full object destructor body
 void NebulaDestruct(FNebulaEffect* Nebula);
 
-// FUN_00509b80 — PerfOptions "Nebula" apply: set global detail, walk StarSys list.
+// — PerfOptions "Nebula" apply: set global detail, walk StarSys list.
 void NebulaApplyGlobalDetail(float Detail);
 
-// FUN_00422440 (cdecl) — fog colour from float RGB (x255, clamped) and the raw float bits of
+// (cdecl) — fog colour from float RGB (x255, clamped) and the raw float bits of
 // FogStart / FogEnd into D3DRS 0x22 / 0x24 / 0x25, fog modes by pipeline state 0xd, FOGENABLE.
 void FogApplyColorAndRange(float const* Rgb3, float FogStart, float FogEnd);

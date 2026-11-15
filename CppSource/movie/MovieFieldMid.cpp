@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "MovieFieldMid.h"
@@ -20,10 +16,10 @@ long __stdcall StoreFieldUnit(unsigned int* Dest, int* FieldHolder);
 long __stdcall CompareLimbs(int Left, unsigned int LeftCount, int Right, int RightCount);
 long __stdcall ReduceLimbsBelow(int Source, unsigned char* Dest, unsigned int Count);
 
-// 0x06ac52f0
+
 // One-limb division. A leading dividend limb below the divisor is the starting remainder
 // and, when Quotient is nonzero, a zero digit. Count below 2 with no reciprocal uses
-// 0x06ac5050. Otherwise the reciprocal (built by 0x06ac54d0 when absent) estimates each digit.
+// . Otherwise the reciprocal (built by 0x06ac54d0 when absent) estimates each digit.
 // The slow path's quotient slot keeps its previous value when 0x06ac5050 returns on status 9.
 unsigned int __stdcall Movie_DivideByLimb(unsigned int* Dividend, unsigned int DivisorLimb, unsigned int* Reciprocal, unsigned int Quotient, int DividendCount)
 {
@@ -110,7 +106,7 @@ unsigned int __stdcall Movie_DivideByLimb(unsigned int* Dividend, unsigned int D
     return Remainder;
 }
 
-// 0x06ac7570
+
 // Field+0x12c is the odd constant installed by 0x06ac32b0. Two copies, then three zero groups.
 long __stdcall Movie_LoadFieldOne(unsigned int* Work, int* FieldHolder, unsigned int* Scratch)
 {
@@ -133,7 +129,7 @@ long __stdcall Movie_LoadFieldOne(unsigned int* Work, int* FieldHolder, unsigned
     return 1;
 }
 
-// 0x06ac75d0
+
 // NEG / SBB / NEG on the unit path folds any nonzero 0x06ac8190 result to 1.
 long __stdcall Movie_ScalePairByTail(unsigned int* First, unsigned int* Second, int* FieldHolder, unsigned int* Scratch)
 {
@@ -173,7 +169,7 @@ long __stdcall Movie_ScalePairByTail(unsigned int* First, unsigned int* Second, 
     return 1;
 }
 
-// 0x06ac7680
+
 // Counters live at State[Index * 0x81 + 0xC5]. JLE rejects a counter that is not positive.
 // State[4] is the field holder passed to 0x06ac7e60. State[2] > 0x12 (unsigned) runs 0x06ac61a0.
 void __stdcall Movie_RecordWindowSumDiff(unsigned int* SumSlot, unsigned int* DiffSlot, int First, int Second, int* State)
@@ -216,7 +212,7 @@ void __stdcall Movie_RecordWindowSumDiff(unsigned int* SumSlot, unsigned int* Di
     Movie_AssignWindowSlot(SumSlot, DiffSlot, Second, State, -1);
 }
 
-// 0x06ac7760
+
 // Limb count is captured before 0x06ac6b70. A failed copy still writes the record header and increments the slot counter.
 // The saved State[0] is replaced by 0/1 only on the record path. Early rejects leave State[0] unchanged.
 void __stdcall Movie_AssignWindowSlot(unsigned int* First, unsigned int* Second, int Slot, int* State, int Sign)
@@ -274,7 +270,7 @@ static long Movie_Flag(long Value)
     return 0;
 }
 
-// 0x06ac7a3d. Kind 2/3 epilogue. The XOR runs even when the multiplies returned 0,
+// . Kind 2/3 epilogue. The XOR runs even when the multiplies returned 0,
 // reading whatever the stack buffers hold.
 static long Movie_MixBinaryElements(unsigned int* Left, unsigned int* Right, unsigned int* Dest, unsigned int* FieldHolder, int* Field, int Count, unsigned int* TempA, unsigned int* TempB, unsigned int* TempC, int Succeeded)
 {
@@ -322,7 +318,7 @@ static long Movie_MixBinaryElements(unsigned int* Left, unsigned int* Right, uns
     return Keep;
 }
 
-// 0x06ac7d67. Kind 1 tail after the common product is in TempB.
+// . Kind 1 tail after the common product is in TempB.
 static long Movie_FinishKind1Add(unsigned int* Left, unsigned int* Right, unsigned int* Dest, int* Field, int Count, unsigned int* TempA, unsigned int* TempB, unsigned int* TempC)
 {
     unsigned int* FieldWords = (unsigned int*)Field;
@@ -359,7 +355,7 @@ static long Movie_FinishKind1Add(unsigned int* Left, unsigned int* Right, unsign
     return 1;
 }
 
-// 0x06ac78a0
+
 long __stdcall Movie_AddFieldElements(unsigned int* Left, unsigned int* Right, unsigned int* Dest, int Sign, unsigned int* FieldHolder)
 {
     int* Field = (int*)FieldHolder[0];
@@ -505,7 +501,7 @@ long __stdcall Movie_AddFieldElements(unsigned int* Left, unsigned int* Right, u
     return Movie_MixBinaryElements(Left, Right, Dest, FieldHolder, Field, Count, TempA, TempB, TempC, 1);
 }
 
-// 0x06ac7e60
+
 // Kind 1 compares each half with Field[4] from the top limb (CMP / SBB / OR 1, then reject any difference).
 // Any other kind returns 1 only when all 2*Count limbs are 0 (SETZ).
 long __stdcall Movie_FieldElementIsUnit(int Limbs, int* FieldHolder)
@@ -556,7 +552,7 @@ long __stdcall Movie_FieldElementIsUnit(int Limbs, int* FieldHolder)
     return 1;
 }
 
-// 0x06ac7f20
+
 // NEG / SBB / NEG on both call results. Sign is compared with CMP, so only +1 and -1 match.
 long __stdcall Movie_CopyOrNegatePair(unsigned int* Source, unsigned int* Dest, int* FieldHolder, int Sign)
 {
@@ -571,7 +567,7 @@ long __stdcall Movie_CopyOrNegatePair(unsigned int* Source, unsigned int* Dest, 
     return 0;
 }
 
-// 0x06ac7f80
+
 // A unit source copies its high half. Kind 1 otherwise negates the high half.
 // Any other kind adds the low half to the high half. The low half is then copied.
 long __stdcall Movie_NegateFieldPair(unsigned int* Source, unsigned int* Dest, int* FieldHolder)
@@ -604,7 +600,7 @@ long __stdcall Movie_NegateFieldPair(unsigned int* Source, unsigned int* Dest, i
     return 1;
 }
 
-// 0x06ac8200
+
 // Kind 1 builds 0x1B * Right^3 and (Left+Left)^2, then Left * that sum + the cube, and rejects a zero.
 // Kinds 2 and 3 reject a zero Right. Success copies both inputs over those temporaries.
 // Record[0] = Field is stored before the copies and is left in place if a copy returns 0.
@@ -669,7 +665,7 @@ long __stdcall Movie_CommitFieldPair(unsigned int* Left, unsigned int* Right, un
     return 1;
 }
 
-// 0x06ac8300
+
 // BSR of (gap | 1), which cannot be zero. 0x06aca450 rewrites that dword until the top bits fit in the gap.
 unsigned int __stdcall Movie_DrawBoundedLimb(unsigned int Minuend, unsigned int Subtrahend)
 {
@@ -697,8 +693,8 @@ unsigned int __stdcall Movie_DrawBoundedLimb(unsigned int Minuend, unsigned int 
     return Drawn + Minuend;
 }
 
-// 0x06ac8410
-// 0x06ac8a90 against the dword 1. A non-positive result, or a zero top limb, zeros Dest and sets status 0x30.
+
+// against the dword 1. A non-positive result, or a zero top limb, zeros Dest and sets status 0x30.
 // Otherwise 0x06ac8360 runs until Dest has a nonzero limb.
 void __stdcall Movie_FillRandomBelow(int Source, void* Dest, unsigned int Count)
 {
@@ -731,7 +727,7 @@ void __stdcall Movie_FillRandomBelow(int Source, void* Dest, unsigned int Count)
     while (Index == 0u);
 }
 
-// 0x06ac8490
+
 // MUL, then ADD the buffer limb, then ADD the carry. The two ADC-from-zero steps fit in 64 bits.
 unsigned int __stdcall Movie_AddScaledLimbs(int Source, unsigned int Scale, unsigned int* Buffer, int Count)
 {
@@ -757,7 +753,7 @@ unsigned int __stdcall Movie_AddScaledLimbs(int Source, unsigned int Scale, unsi
     return Carry;
 }
 
-// 0x06ac85c0
+
 // SAR of -Count selects the odd limb. Pairs then use ADC. The second right limb of a pair is read
 // before the first limb is stored. Count 0 returns 0. The final ADC EAX,EAX is the carry, 0 or 1.
 long __stdcall Movie_AddLimbsCarry(unsigned int* Left, unsigned int* Right, int Dest, int Count)
@@ -824,7 +820,7 @@ long __stdcall Movie_AddLimbsCarry(unsigned int* Left, unsigned int* Right, int 
     return (long)Carry;
 }
 
-// 0x06ac8630
+
 // SUB / SBB the product, then SUB / SBB the running borrow. NEG of that high dword is the next borrow.
 unsigned int __stdcall Movie_SubtractScaledLimbs(int Source, unsigned int Digit, unsigned int* Buffer, int Count)
 {

@@ -1,17 +1,13 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
-// Retail FUN_00484090 — Equipment/Ship Dealer item-stat / tip text builder.
-// Full branch table: docs/re/dealer_equip_stats.md
+// — Equipment/Ship Dealer item-stat / tip text builder.
+// Full branch table: implementation notes
 
 #include "common_text.h"
 
-// OutRdl receives one AppendTextMaybeXmlRdl (FUN_0057e2c0) per finished line.
-// bEmitLabels / bEmitValues match retail param_3 / param_4 (caller splits label vs value columns).
+// OutRdl receives one AppendTextMaybeXmlRdl (the routine) per finished line.
+// bEmitLabels / bEmitValues match baseline param_3 / param_4 (caller splits label vs value columns).
 void BuildDealerEquipmentStatText(RenderDisplayList& OutRdl, unsigned ArchId, bool bEmitLabels,
                                   bool bEmitValues);

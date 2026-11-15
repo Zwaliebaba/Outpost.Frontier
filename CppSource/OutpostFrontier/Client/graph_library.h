@@ -1,27 +1,23 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
-// GraphLibrary -- E:\FL\Scratch\Source\Client\cmn\GraphLibrary.cpp.
-//
+// GraphLibrary -- Client\cmn\GraphLibrary.cpp.
+
 // Named keyframe curves ("IGraph") loaded from the [IGraph] sections of the file DATA's
-// OutpostFrontier.ini names under `igraph =` (FUN_005b0c30 @ 005b0ee1 -> FUN_004197e0). The library
-// is a std::list<GraphData> (DAT_0061669c allocator byte, DAT_006166a0 sentinel node,
-// DAT_006166a4 size) built by the static initializer LAB_00419050 and torn down twice: first by
-// FUN_00419e50 from the client atexit chain (005b2286), then by the static destructor
-// LAB_00419090.
-//
+// OutpostFrontier.ini names under `igraph =` (the routine @ 005b0ee1 -> the routine). The library
+// is a std::list<GraphData> (the field allocator byte, the field sentinel node,
+// size) built by the static initializer the branch and torn down twice: first by
+// from the client atexit chain (005b2286), then by the static destructor
+// .
+
 // [LightSource] names its ambient_curve / atten_curve / color_curve by nickname; the engine
-// light resolves them through GraphLibraryFind (FUN_00419760), which AddRefs the curve it
+// light resolves them through GraphLibraryFind (the routine), which AddRefs the curve it
 // returns.
-//
-// This is an ordinary C++ object, not a DACOM component: every slot takes `this` in ECX
-// (__thiscall). The abstract IGraph vtable is PTR_LAB_005c8f4c (ten _purecall entries, so no
-// virtual destructor); GraphData's is PTR_LAB_005c8eb4.
+
+// This is an ordinary C++ object, not a NEURONCOMPONENTS component: every slot takes `this` in ECX
+// (__thiscall). The abstract IGraph vtable is the branch (ten _purecall entries, so no
+// virtual destructor); GraphData's is the branch.
 
 #include <string>
 
@@ -56,7 +52,7 @@ struct FGraphDesc
     FGraphPoint* Data;
 };
 
-// FUN_004197e0 "type" values.
+// "type" values.
 enum EGraphElemType
 {
     GraphElem_Integer = 1,
@@ -67,31 +63,31 @@ enum EGraphElemType
 class IGraph
 {
 public:
-    virtual char const* GetName() = 0;                                        // 0  LAB_004191d0
-    virtual int GetElemType() = 0;                                            // 1  FUN_00415070 (ICF)
-    virtual unsigned GetCount() = 0;                                          // 2  LAB_004191e0
-    virtual FGraphRange* GetRange() = 0;                                      // 3  LAB_00431680 (ICF)
-    virtual FGraphDesc* GetDesc(FGraphDesc* Out) = 0;                         // 4  LAB_004191f0
-    virtual void SetData(FGraphDesc const* Desc) = 0;                         // 5  FUN_00419210
+    virtual char const* GetName() = 0;                                        // 0  the branch
+    virtual int GetElemType() = 0;                                            // 1  the routine (ICF)
+    virtual unsigned GetCount() = 0;                                          // 2  the branch
+    virtual FGraphRange* GetRange() = 0;                                      // 3  the branch (ICF)
+    virtual FGraphDesc* GetDesc(FGraphDesc* Out) = 0;                         // 4  the branch
+    virtual void SetData(FGraphDesc const* Desc) = 0;                         // 5  the routine
     // Returned in ST0 unrounded (00419452): callers either FSTP it to a float (0041064e) or
     // multiply with it first (00410934), so the port keeps the double.
-    virtual double Evaluate(float T, FGraphRange const* Range) = 0;           // 6  LAB_004192f0
-    virtual unsigned EvaluateColor(float T, FGraphRange const* Range) = 0;    // 7  LAB_00419500
-    virtual int AddRef() = 0;                                                 // 8  LAB_00419160
-    virtual int Release() = 0;                                                // 9  LAB_00419170
+    virtual double Evaluate(float T, FGraphRange const* Range) = 0;           // 6  the branch
+    virtual unsigned EvaluateColor(float T, FGraphRange const* Range) = 0;    // 7  the branch
+    virtual int AddRef() = 0;                                                 // 8  the branch
+    virtual int Release() = 0;                                                // 9  the branch
 };
 
-// GraphData, 0x30 bytes in retail. Lives by value inside the library's list node (node + 8).
+// GraphData, 0x30 bytes in baseline. Lives by value inside the library's list node (node + 8).
 class FGraphData : public IGraph
 {
 public:
-    // FUN_00419d20. ElemType is deliberately left unset, as in retail: SetData writes it before
+    // . ElemType is deliberately left unset, as in baseline: SetData writes it before
     // anything reads it.
     FGraphData();
-    // FUN_00419f50 (reached from FUN_00419ec0's node construct): memberwise copy -- the name,
+    // (reached from the routine's node construct): memberwise copy -- the name,
     // then +0x14..+0x2C verbatim, so the key buffer is shared, not duplicated.
     FGraphData(FGraphData const& Other);
-    // FUN_00419100: free the key buffer, then the name.
+    // free the key buffer, then the name.
     ~FGraphData();
 
     char const* GetName() override;
@@ -105,7 +101,7 @@ public:
     int AddRef() override;
     int Release() override;
 
-    // FUN_00419d50: name a fresh graph and take the library's reference. Refused once the
+    // name a fresh graph and take the library's reference. Refused once the
     // graph has references or keys.
     bool SetName(char const* NewName);
 
@@ -120,16 +116,16 @@ private:
     int RefCount;         // +0x2C
 };
 
-// FUN_00419460 -- __thiscall on an FGraphRange: clamp T into [Min, Max - 0.001] or wrap it
+// __thiscall on an FGraphRange: clamp T into [Min, Max - 0.001] or wrap it
 // into [0, Max - Min).
 double GraphRangeWrap(FGraphRange const* Range, float T);
-// FUN_004194e0 -- __thiscall on an FGraphRange: (T - Min) / (Max - Min).
+// __thiscall on an FGraphRange: (T - Min) / (Max - Min).
 double GraphRangeNormalize(FGraphRange const* Range, float T);
 
-// FUN_00419760 -- find by nickname (case-insensitive), AddRef and return; null plus an FDUMP
+// find by nickname (case-insensitive), AddRef and return; null plus an FDUMP
 // warning when absent.
 IGraph* GraphLibraryFind(char const* Name);
-// FUN_004197e0 -- load every [IGraph] section of Path; returns the number of graphs created.
+// load every [IGraph] section of Path; returns the number of graphs created.
 int GraphLibraryLoad(char const* Path);
-// FUN_00419e50 -- release every graph until the library is empty.
+// release every graph until the library is empty.
 void GraphLibraryShutdown();

@@ -1,17 +1,13 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
 // The camera block inside a ship archetype's client companion (Archetype::Root + 0x04, the
 // ICliObj). Written by the ship ini value handler at 0x0040763f .. 0x00407816, and read back
-// by the third-person camera's attach (FUN_00518af0 at 0x00518b75).
-//
+// by the third-person camera's attach (the routine at 0x00518b75).
+
 // These are the only ICliObj fields the port needs so far, so the struct covers just them and
-// records their retail offsets rather than pretending to be the whole companion.
+// records their baseline offsets rather than pretending to be the whole companion.
 
 class INI_Reader;
 
@@ -39,15 +35,15 @@ struct FShipCameraParams
 };
 
 // The three turn angles are clamped to [0, 90] DEGREES and then converted to radians
-// (DAT_005c7474 = 0.0, DAT_005c77f0 = 90.0, DAT_005c77f4 = 0.01745329238474369f).
+// (the field = 0.0, the field = 90.0, the field = 0.01745329238474369f).
 float ShipCameraClampTurnAngle(float Degrees);
 
 // One step of the ship ini value handler, covering only the camera keys. Returns true when the
-// current value was one of them. Retail tests them in this order, each with its own early
+// current value was one of them. baseline tests them in this order, each with its own early
 // return, inside a much longer is_value chain.
 bool ShipCameraParamsReadValue(FShipCameraParams* Params, INI_Reader* Reader);
 
-// The state a fresh companion starts in. Retail zero-fills the companion on allocation and
+// The state a fresh companion starts in. baseline zero-fills the companion on allocation and
 // never assigns camera defaults, so an ini with no camera keys leaves every field at zero --
 // including the offset, which is why every shipped ship entry carries camera_offset.
 void ShipCameraParamsClear(FShipCameraParams* Params);

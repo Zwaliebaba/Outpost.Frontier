@@ -1,25 +1,21 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
-// Retail Intro.cpp Image (`E:\FL\Scratch\Source\Client\Interface\Intro.cpp`, 0x00565010 ..
-// 0x00565d90): a full-screen picture held in an ximage.dll BigImage. Three users:
+// baseline Intro.cpp Image (`Client\Interface\Intro.cpp`, 0x00565010 ..
+// ): a full-screen picture held in an ximage.dll BigImage. Three users:
 //   - InitializeEngine's startup screen, a stack local (vptr at 0x005b1a1e, Load 0x005b1a5a,
 //     Draw 0x005b1a7d / 0x005b1aa6, Release 0x005b1ab9, dtor 0x005b1c07);
-//   - the loading screen DAT_0067c3b8 (+0x04, built by FUN_00579220 through FUN_00565d90);
+//   - the loading screen the field (+0x04, built by the routine through the routine);
 //   - IntroFocus +0x210, the menu logo (ctor 0x0057384d, Load 0x005738f6, Draw 0x005742dd,
-//     Release inlined at 0x00573e90, dtor FUN_005737c0).
+//     Release inlined at 0x00573e90, dtor the routine).
 
 struct IBigImage2;
 
-// RTTI .?AUIImage@@, vftable 0x005e2708: {LAB_00565090 deleting dtor, _purecall, _purecall}.
+// RTTI .?AUIImage@@, vftable 0x005e2708: {the branch deleting dtor, _purecall, _purecall}.
 struct IImage
 {
-    // FUN_00565080 (body) / LAB_00565090 (deleting): only the vptr store.
+    // (body) / the branch (deleting): only the vptr store.
     virtual ~IImage();
     // slot 1
     virtual bool Load(char const* Path) = 0;
@@ -27,28 +23,28 @@ struct IImage
     virtual void Draw() = 0;
 };
 
-// RTTI .?AUImage@@, vftable 0x005e2718: {FUN_005650b0, FUN_00565430, FUN_00565a10}. 0x18 bytes
-// (operator new(0x18) in FUN_00565d90).
+// RTTI .?AUImage@@, vftable 0x005e2718: {the routine, the routine, the routine}. 0x18 bytes
+// (operator new(0x18) in the routine).
 struct Image : public IImage
 {
     // Inlined at every construction (0x00565d9e, 0x00573847, 0x005b1a16): vptr, +0x14 = 0.
     // +0x04..+0x13 are not written.
     Image();
-    // FUN_00565010 (FUN_005650b0 deleting).
+    // (the routine deleting).
     ~Image() override;
 
-    // FUN_00565430 (RET 4): by the extension after the last '.', "bmp" (DACOM stricmp) goes to
+    // (RET 4): by the extension after the last '.', "bmp" (NEURONCOMPONENTS stricmp) goes to
     // LoadBmp; everything else, including no extension, to LoadTga.
     bool Load(char const* Path) override;
-    // FUN_00565a10: nothing without a BigImage; otherwise the 2D ortho set-up, seven saved
+    // nothing without a BigImage; otherwise the 2D ortho set-up, seven saved
     // render states, two texture stages, and the BigImage drawn over the whole surface.
     void Draw() override;
 
-    // FUN_005650d0: release the BigImage and clear +0x14.
+    // release the BigImage and clear +0x14.
     void Release();
-    // FUN_005650f0 (RET 4): LoadImageA the DIB <data path>[\]<TgaPath><Path> into a BigImage.
+    // (RET 4): LoadImageA the DIB <data path>[\]<TgaPath><Path> into a BigImage.
     bool LoadBmp(char const* Path);
-    // FUN_00565490 (RET 4): map the TGA through a "FileSystem" rooted at TgaPath and build a
+    // (RET 4): map the TGA through a "FileSystem" rooted at TgaPath and build a
     // BigImage from the mapped pixels (32-bit formats only).
     bool LoadTga(char const* Path);
 
@@ -62,9 +58,9 @@ private:
     Image& operator=(Image const&) = delete;
 };
 
-static_assert(sizeof(void*) != 4 || sizeof(Image) == 0x18, "retail Image is 0x18 bytes");
+static_assert(sizeof(void*) != 4 || sizeof(Image) == 0x18, "baseline Image is 0x18 bytes");
 
-// FUN_00565d90 (cdecl): operator new(0x18); on success vptr + BigImage = 0. Caller FUN_00579220.
+// (cdecl): operator new(0x18); on success vptr + BigImage = 0. Caller the routine.
 Image* CreateImage();
 
 #ifdef OUTPOST_FRONTIER_WIDESCREEN_SUPPORT

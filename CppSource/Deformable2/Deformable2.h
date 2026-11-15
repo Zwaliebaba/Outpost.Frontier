@@ -1,23 +1,19 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
-#include "dacom.h"
+#include "neuroncomponents.h"
 #include "readfile.h"
 #include "x86math.h"
 #include "luaprofile.h"
-#include "engine/engbase.h"
+#include "engine/sceneruntime.h"
 #include "render/IRenderPipeline.h"
 #include "render/IMaterial.h"
 #include "render/rendcomp.h"
 #include "render/shading.h"
 #include <cstddef>
 
-// Unversioned aliases from EXE/Disasm/deformable2.dll.txt .data -- retail accepts both the
+// Unversioned aliases from deformable2 .data -- baseline accepts both the
 // "1.11_"-stamped ids (Iids::Deformable, Iids::EngineComponent) and these bare names.
 static const char* const G_IidDeformableShort = "IDeformable";
 static const char* const G_IidEngineComponentShort = "IEngineComponent";
@@ -54,11 +50,11 @@ struct FUtfHeader
 
 static_assert(sizeof(FUtfHeader) == 0x38, "UTF header must be 0x38");
 
-// FUN_065f3e80 / FUN_065f36c0 FileSystem AGGDESC 0x34
+// / the routine FileSystem AGGDESC 0x34
 // FileSystem desc and IFileSystem itself come from ReadFile.dll's published ABI
 // (src/include/readfile.h) -- this module used to keep its own copy.
 
-// FUN_065f7c70 face group 0x24. +0x10/+0x14 min/max after FUN_065f7e00.
+// face group 0x24. +0x10/+0x14 min/max after the routine.
 struct FUvDeformBinding;
 
 struct FFaceGroup
@@ -71,12 +67,12 @@ struct FFaceGroup
     unsigned long IndexMax;
     unsigned short* Indices;
     unsigned long IndexCount;
-    unsigned long UvBoneIndex; // +0x20 FUN_065f7590: -1 none; 0 = EyeMaterial
+    unsigned long UvBoneIndex; // +0x20 the routine: -1 none; 0 = EyeMaterial
 };
 
 static_assert(sizeof(FFaceGroup) == 0x24, "face group must be 0x24");
 
-// FUN_065f8480 zip of 9 Geometry streams. Draw lookup by BoneId, not vertex UV offset.
+// zip of 9 Geometry streams. Draw lookup by BoneId, not vertex UV offset.
 struct FUvDeformRecord
 {
     int BoneId;
@@ -94,19 +90,19 @@ static_assert(sizeof(FUvDeformRecord) == 0x24, "UV-deform record must be 0x24");
 
 struct FBoneRuntime;
 
-// The triple LAB_065f73a0 keeps on its stack (ESP+0x1C) and hangs off a UV-deformed face
-// group's +0x0C, which FUN_065f7340 hands the material as context +0x20. The draw zeroes all
+// The triple the branch keeps on its stack (ESP+0x1C) and hangs off a UV-deformed face
+// group's +0x0C, which the routine hands the material as context +0x20. The draw zeroes all
 // three, fills the first two per group, and copies the third into mesh +0x48 afterwards.
 struct FUvDeformBinding
 {
     FUvDeformRecord* Record;   // UvDeform[group +0x20]
     FBoneRuntime* Bone;        // BoneSlots[Record->BoneId]
-    // EyeMaterial Bind (LAB_065fff20, 066001a3 INC [ESI+8]) counts every eye texture
+    // EyeMaterial Bind (the branch, 066001a3 INC [ESI+8]) counts every eye texture
     // transform it sets.
     unsigned long EyeUvTransformCount;
 };
 
-// Bone_id_chain + Bone_weight_chain pair. LAB_065f6bf0 applies as skin.
+// Bone_id_chain + Bone_weight_chain pair. the branch applies as skin.
 struct FSkinPair
 {
     int BoneId;
@@ -123,7 +119,7 @@ struct FSkinVertex
 
 static_assert(sizeof(FSkinVertex) == 8, "skin vertex must be 8");
 
-// FUN_065f89e0 / FUN_065f96b0: per-bone std::vector<ushort> of vertex indices (invert, not skin apply).
+// / the routine: per-bone std::vector<ushort> of vertex indices (invert, not skin apply).
 struct FBoneVertexList
 {
     unsigned char Pad00;
@@ -135,7 +131,7 @@ struct FBoneVertexList
 
 static_assert(sizeof(FBoneVertexList) == 0x10, "bone vertex list must be 0x10");
 
-// FUN_065f75f0: per-vertex vector<uint> of Point_indices slots (mesh+0x64).
+// per-vertex vector<uint> of Point_indices slots (mesh+0x64).
 struct FVertexRemapList
 {
     unsigned char Pad00[4];
@@ -162,17 +158,17 @@ struct FDeformMesh
     explicit FDeformMesh(const char* Name);
     virtual int GetIndexCount();                                              // 0 +0x00
     virtual int GetVertexCapacity();                                          // 1 +0x04
-    // 2 +0x08 RET 4 -- the part's index-buffer descriptor (&part+0x24), FUN_065f69d0 065f6a7b.
+    // 2 +0x08 RET 4 -- the part's index-buffer descriptor (&part+0x24), the routine 065f6a7b.
     virtual unsigned char FillIndexBuffer(FDeformIbDesc* Ib);
-    // 3 +0x0C RET 0xC -- (part+0 holder, &part+0x14, a flag byte), FUN_065f69d0 065f6a20..23.
-    // The flag goes over as a whole dword (EBX) but LAB_065f6bf0 reads only its low byte.
+    // 3 +0x0C RET 0xC -- (part+0 holder, &part+0x14, a flag byte), the routine 065f6a20..23.
+    // The flag goes over as a whole dword (EBX) but the branch reads only its low byte.
     virtual unsigned char Skin(FLodHolder* Holder, FDeformVbDesc* Vb, unsigned char bForce);
     virtual unsigned char GetBoundSphere(float* OutRadius, float* OutCenter); // 4 +0x10
     virtual unsigned char Draw(ICamera* Camera, FDeformPart* Part) = 0;       // 5 +0x14
     virtual ~FDeformMesh();                                                   // 6 +0x18
 };
 
-// FUN_065f8b00 on calloc(1, 0x84). Vtable PTR_LAB_0660135c.
+// on calloc(1, 0x84). Vtable the branch.
 struct FMeshArchetype : FDeformMesh
 {
     explicit FMeshArchetype(const char* Name);
@@ -189,9 +185,9 @@ struct FMeshArchetype : FDeformMesh
     unsigned long* PointIndices;         // +0x14
     int FaceGroupCount;         // +0x18
     FFaceGroup* FaceGroups;     // +0x1C counted body
-    // +0x20: read only by slot 1 (LAB_065f8b60, added to +0x10). No MOV/LEA/arith write to
+    // +0x20: read only by slot 1 (the branch, added to +0x10). No MOV/LEA/arith write to
     // [reg+0x20] of the mesh anywhere in deformable2.dll (the 065f7e80 loader does not store
-    // the pair count), so it stays 0 from the calloc of FUN_065f26f0.
+    // the pair count), so it stays 0 from the calloc of the routine.
     unsigned long Field_0x20;   // +0x20 TODO: meaning (never written)
     int VertexCount;            // +0x24 Points bytes / 0xC
     void* Vertices;             // +0x28 count * 0x18
@@ -207,15 +203,15 @@ struct FMeshArchetype : FDeformMesh
     int UvCount;                // +0x4C  UV0 bytes >> 3
     void* UvData;               // +0x50  count * 8
     unsigned long* UvIndices;            // +0x54  UV0_indices
-    int UvDeformCount;          // +0x58 FUN_065f8480 rows
+    int UvDeformCount;          // +0x58 the routine rows
     FUvDeformRecord* UvDeform;  // +0x5C count * 0x24
     unsigned char NameHint;     // +0x60 vector pad
     unsigned char Pad61[3];
-    FVertexRemapList* RemapStart;    // +0x64 FUN_065f75f0
+    FVertexRemapList* RemapStart;    // +0x64 the routine
     FVertexRemapList* RemapFinish;   // +0x68
     FVertexRemapList* RemapCapacity; // +0x6C
     unsigned char Flag70;       // +0x70
-    unsigned char SphereReady;  // +0x71 LAB_065f8d00 cache
+    unsigned char SphereReady;  // +0x71 the branch cache
     unsigned char Pad72[2];
     float SphereCenter[3];      // +0x74
     float SphereRadius;         // +0x80
@@ -237,7 +233,7 @@ static_assert(offsetof(FMeshArchetype, SphereCenter) == 0x74, "sphere center +74
 static_assert(offsetof(FMeshArchetype, SphereRadius) == 0x80, "sphere radius +80");
 
 
-// FUN_065fdcc0 IVMeshLibrary wrapper 0x14. Vtable PTR_LAB_066013dc.
+// IVMeshLibrary wrapper 0x14. Vtable the branch.
 struct FVmeshWrapper : FDeformMesh
 {
     FVmeshWrapper(const char* Name, void* Handle, IVMeshPart* Part);
@@ -247,19 +243,19 @@ struct FVmeshWrapper : FDeformMesh
     void* EngineHandle;          // +0x0C IEngine +0x30 archetype handle
     // +0x10 AddRef'd in the ctor: what IEngine +0x48 answers for "1.11_IVMeshLibrary" on the
     // archetype -- RendComp's VMesh part answers that IID with its IVMeshPart face
-    // (FVMeshPart::QueryInterface, LAB_06c31d10), and LAB_065fdd10 calls its +0x0C Draw.
+    // (FVMeshPart::QueryInterface, the branch), and the branch calls its +0x0C Draw.
     IVMeshPart* VMeshPart;
 };
 
 static_assert(sizeof(FVmeshWrapper) == 0x14, "VMesh wrapper must be 0x14");
 
-// The EyeMaterial classes (LAB_065fe070 operator new(0x78)) live in EyeMaterial.h/.cpp.
+// The EyeMaterial classes (the branch operator new(0x78)) live in EyeMaterial.h/.cpp.
 
 // Shared between Deformable2.cpp and EyeMaterial.cpp (module-internal, not exported).
-extern IEngine* G_Engine;                                        // DAT_06603134
-char* FormatDeformMessage(char* Buffer, const char* Format, ...); // FUN_065f28b0
-void MathTransformVec3(float* Dest, const float* A, const float* B); // FUN_065f7120
-void FillFileDesc(FFileSystemDesc* Desc, const char* Path);      // FUN_065f3e80
+extern IEngine* G_Engine;
+char* FormatDeformMessage(char* Buffer, const char* Format, ...);
+void MathTransformVec3(float* Dest, const float* A, const float* B);
+void FillFileDesc(FFileSystemDesc* Desc, const char* Path);
 
 
 // Aggregate descriptor used to create the Deformable component.
@@ -270,109 +266,109 @@ struct FAggDesc18
     void* Outer;
     void** InnerOut;
     unsigned long Pad10;
-    IDAComponent* SystemAt14;
+    INeuronComponent* SystemAt14;
 };
 
-// Factory FUN_065f2250: operator_new(0xC). CreateInstance stays on derived types.
+// Factory the routine: operator_new(0xC). CreateInstance stays on derived types.
 struct FDeformableFactory : IComponentFactory
 {
     unsigned long RefCount;
     const char* Name;
 
-    GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override;
-    unsigned long DACOM_API AddRef() override;
-    unsigned long DACOM_API Release() override;
+    GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override;
+    unsigned long NEURONCOMPONENTS_API AddRef() override;
+    unsigned long NEURONCOMPONENTS_API Release() override;
 };
 
-// Shared implementation and its concrete DACOM aggregate wrapper.
+// Shared implementation and its concrete NEURONCOMPONENTS aggregate wrapper.
 struct FDeformable : IDeformable, IEngineComponent
 {
-    FDeformable();  // FUN_065f1810
-    ~FDeformable(); // FUN_065f18d0
+    FDeformable();
+    ~FDeformable();
 
-    GENRESULT DACOM_API Create(void** OutInstance, int* Parts, void* Arg3, void* Arg4,
+    GENRESULT NEURONCOMPONENTS_API Create(void** OutInstance, int* Parts, void* Arg3, void* Arg4,
                                 void* Arg5) override;
-    GENRESULT DACOM_API CreateUnused(void* A, void* B, void* C, void* D, void* E, void* F,
+    GENRESULT NEURONCOMPONENTS_API CreateUnused(void* A, void* B, void* C, void* D, void* E, void* F,
                                        void* G) override;
-    GENRESULT DACOM_API CreateAlias(void** OutInstance, int* Parts, void* Arg3, void* Arg4,
+    GENRESULT NEURONCOMPONENTS_API CreateAlias(void** OutInstance, int* Parts, void* Arg3, void* Arg4,
                                       void* Arg5) override;
-    GENRESULT DACOM_API Destroy(void* Instance) override;
-    GENRESULT DACOM_API Play(void* Instance, int* Out, void* Name, void* Extra, void* ArgC,
+    GENRESULT NEURONCOMPONENTS_API Destroy(void* Instance) override;
+    GENRESULT NEURONCOMPONENTS_API Play(void* Instance, int* Out, void* Name, void* Extra, void* ArgC,
                               void* ArgD, void* ArgE, void* ArgF, void* ArgG, void* ArgH,
                               void* Script) override;
-    GENRESULT DACOM_API PlayAlt(void* Instance, int* Out, void* Name, void* Extra, void* ArgC,
+    GENRESULT NEURONCOMPONENTS_API PlayAlt(void* Instance, int* Out, void* Name, void* Extra, void* ArgC,
                                   void* ArgD, void* ArgE, void* ArgF, void* ArgG, void* ArgH,
                                   void* Script) override;
-    GENRESULT DACOM_API DestroyAll(void* Instance) override;
-    GENRESULT DACOM_API DestroyHandle(void* Instance, int Handle) override;
-    GENRESULT DACOM_API StartAim(void* Instance, void** Out, unsigned char* AimDesc,
+    GENRESULT NEURONCOMPONENTS_API DestroyAll(void* Instance) override;
+    GENRESULT NEURONCOMPONENTS_API DestroyHandle(void* Instance, int Handle) override;
+    GENRESULT NEURONCOMPONENTS_API StartAim(void* Instance, void** Out, unsigned char* AimDesc,
                                   void* Arg3) override;
-    GENRESULT DACOM_API StopAim(void* Instance, void* Node) override;
-    GENRESULT DACOM_API Unused13(void* A) override;
-    GENRESULT DACOM_API Unused14(void* A) override;
-    GENRESULT DACOM_API SetLod(void* Instance, float Dt, int* LodIds) override;
-    GENRESULT DACOM_API Draw(void* Instance, void* Camera, void* UnusedB, void* RenderArg,
+    GENRESULT NEURONCOMPONENTS_API StopAim(void* Instance, void* Node) override;
+    GENRESULT NEURONCOMPONENTS_API Unused13(void* A) override;
+    GENRESULT NEURONCOMPONENTS_API Unused14(void* A) override;
+    GENRESULT NEURONCOMPONENTS_API SetLod(void* Instance, float Dt, int* LodIds) override;
+    GENRESULT NEURONCOMPONENTS_API Draw(void* Instance, void* Camera, void* UnusedB, void* RenderArg,
                               int* OutLod, unsigned int Flags) override;
-    GENRESULT DACOM_API Unused17(void* A, void* B, void* C, void* D) override;
-    GENRESULT DACOM_API GetFirstBone(void* Instance, int* Out) override;
-    GENRESULT DACOM_API SetPosePos(void* Instance, float* Pos3) override;
-    GENRESULT DACOM_API SetPoseOri(void* Instance, void* Ori) override;
-    GENRESULT DACOM_API Unused21(void* A, void* B) override;
-    GENRESULT DACOM_API Unused22(void* A, void* B) override;
-    GENRESULT DACOM_API Unused23(void* A, void* B) override;
-    GENRESULT DACOM_API SetHeight(void* Instance, float Height) override;
-    GENRESULT DACOM_API Unused25(void* A, void* B, void* C, void* D) override;
-    GENRESULT DACOM_API GetListCount(void* Instance, int* Out) override;
-    GENRESULT DACOM_API CopyList(void* Instance, int* Out) override;
-    GENRESULT DACOM_API Unused28(void* A, void* B) override;
-    GENRESULT DACOM_API Unused29(void* A, void* B, void* C, void* D, void* E, void* F, void* G,
+    GENRESULT NEURONCOMPONENTS_API Unused17(void* A, void* B, void* C, void* D) override;
+    GENRESULT NEURONCOMPONENTS_API GetFirstBone(void* Instance, int* Out) override;
+    GENRESULT NEURONCOMPONENTS_API SetPosePos(void* Instance, float* Pos3) override;
+    GENRESULT NEURONCOMPONENTS_API SetPoseOri(void* Instance, void* Ori) override;
+    GENRESULT NEURONCOMPONENTS_API Unused21(void* A, void* B) override;
+    GENRESULT NEURONCOMPONENTS_API Unused22(void* A, void* B) override;
+    GENRESULT NEURONCOMPONENTS_API Unused23(void* A, void* B) override;
+    GENRESULT NEURONCOMPONENTS_API SetHeight(void* Instance, float Height) override;
+    GENRESULT NEURONCOMPONENTS_API Unused25(void* A, void* B, void* C, void* D) override;
+    GENRESULT NEURONCOMPONENTS_API GetListCount(void* Instance, int* Out) override;
+    GENRESULT NEURONCOMPONENTS_API CopyList(void* Instance, int* Out) override;
+    GENRESULT NEURONCOMPONENTS_API Unused28(void* A, void* B) override;
+    GENRESULT NEURONCOMPONENTS_API Unused29(void* A, void* B, void* C, void* D, void* E, void* F, void* G,
                                   void* H, void* I) override;
-    GENRESULT DACOM_API Unused30(void* A, void* B) override;
-    GENRESULT DACOM_API Unused31(void* A, void* B) override;
-    GENRESULT DACOM_API Unused32(void* A, void* B) override;
-    GENRESULT DACOM_API Unused33(void* A, void* B, void* C) override;
-    GENRESULT DACOM_API Unused34(void* A, void* B, void* C, void* D) override;
-    GENRESULT DACOM_API GetOffset(void* Instance, float* Out) override;
-    GENRESULT DACOM_API WalkHardpoints(void* Instance, void* UserFn, void* UserData) override;
-    GENRESULT DACOM_API GetMeshStats(void* Instance, unsigned int* Out) override;
-    GENRESULT DACOM_API GetBoundSphere(void* Instance, float* OutRadius, float* OutCenter) override;
-    int DACOM_API Initialize() override;
-    int DACOM_API CreateArchetype(void* Arg1, void* Arg2) override;
-    int DACOM_API DuplicateArchetype(void* Arg1, void* Arg2) override;
-    int DACOM_API DestroyArchetype(void* Arg1) override;
-    int DACOM_API QueryArchetype(void* Arg1, const char* Iid, void** Out) override;
-    int DACOM_API CreateInstance(void* Arg1, void* Arg2) override;
-    int DACOM_API DestroyInstance(void* Arg1) override;
-    int DACOM_API UpdateInstance(void* Arg1, void* Arg2) override;
-    int DACOM_API QueryInstance(void* Arg1, const char* Iid, void** Out) override;
-    int DACOM_API Notify(void* Arg1) override;
+    GENRESULT NEURONCOMPONENTS_API Unused30(void* A, void* B) override;
+    GENRESULT NEURONCOMPONENTS_API Unused31(void* A, void* B) override;
+    GENRESULT NEURONCOMPONENTS_API Unused32(void* A, void* B) override;
+    GENRESULT NEURONCOMPONENTS_API Unused33(void* A, void* B, void* C) override;
+    GENRESULT NEURONCOMPONENTS_API Unused34(void* A, void* B, void* C, void* D) override;
+    GENRESULT NEURONCOMPONENTS_API GetOffset(void* Instance, float* Out) override;
+    GENRESULT NEURONCOMPONENTS_API WalkHardpoints(void* Instance, void* UserFn, void* UserData) override;
+    GENRESULT NEURONCOMPONENTS_API GetMeshStats(void* Instance, unsigned int* Out) override;
+    GENRESULT NEURONCOMPONENTS_API GetBoundSphere(void* Instance, float* OutRadius, float* OutCenter) override;
+    int NEURONCOMPONENTS_API Initialize() override;
+    int NEURONCOMPONENTS_API CreateArchetype(void* Arg1, void* Arg2) override;
+    int NEURONCOMPONENTS_API DuplicateArchetype(void* Arg1, void* Arg2) override;
+    int NEURONCOMPONENTS_API DestroyArchetype(void* Arg1) override;
+    int NEURONCOMPONENTS_API QueryArchetype(void* Arg1, const char* Iid, void** Out) override;
+    int NEURONCOMPONENTS_API CreateInstance(void* Arg1, void* Arg2) override;
+    int NEURONCOMPONENTS_API DestroyInstance(void* Arg1) override;
+    int NEURONCOMPONENTS_API UpdateInstance(void* Arg1, void* Arg2) override;
+    int NEURONCOMPONENTS_API QueryInstance(void* Arg1, const char* Iid, void** Out) override;
+    int NEURONCOMPONENTS_API Notify(void* Arg1) override;
 };
 
 // Nondelegating unknown owned by the concrete aggregate.
 struct FDeformableObject;
 
-struct FDeformableInner : IDAComponent
+struct FDeformableInner : INeuronComponent
 {
     unsigned long RefCount;    // +0x04 (object +0x10)
     FDeformableObject* Owner;  // +0x08 (object +0x14)
 
-    GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override;
-    unsigned long DACOM_API AddRef() override;
-    unsigned long DACOM_API Release() override;
+    GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override;
+    unsigned long NEURONCOMPONENTS_API AddRef() override;
+    unsigned long NEURONCOMPONENTS_API Release() override;
 };
 
-// Component FUN_065f22f0: operator_new(0x18). IDeformable @ +0, IEngineComponent @ +4.
+// Component the routine: operator_new(0x18). IDeformable @ +0, IEngineComponent @ +4.
 struct FDeformableObject : FDeformable
 {
-    IDAComponent* Controlling; // +0x08 descriptor outer or the inner unknown
+    INeuronComponent* Controlling; // +0x08 descriptor outer or the inner unknown
     FDeformableInner Inner;  // +0x0C
 
-    GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override;
-    unsigned long DACOM_API AddRef() override;
-    unsigned long DACOM_API Release() override;
+    GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override;
+    unsigned long NEURONCOMPONENTS_API AddRef() override;
+    unsigned long NEURONCOMPONENTS_API Release() override;
 };
 
-// FUN_065f36c0 ctor: 150 * 0x34 + header. FUN_065f13e0 identity at bone+4.
+// ctor: 150 * 0x34 + header. the routine identity at bone+4.
 struct FBoneSlot
 {
     int Parent;
@@ -403,23 +399,23 @@ struct FBoneRuntime : IInstanceTransform
     unsigned char FlagPadding[3];
     float Matrix[12];         // +0x40
 
-    // The per-slot body of the FUN_065f1550 construct loop (065f15a0..15c8).
+    // The per-slot body of the the routine construct loop (065f15a0..15c8).
     FBoneRuntime();
 
-    GENRESULT DACOM_API Init(void* InInstance) override;                              // LAB_065f1690
-    GENRESULT DACOM_API AddRef(void* InInstance) override;                            // FUN_065f16a0
-    GENRESULT DACOM_API Release(void* InInstance) override;                           // FUN_065f16a0
-    GENRESULT DACOM_API SetPosition(void* InInstance, const float* Position) override; // LAB_065f16b0
-    float* DACOM_API GetPosition(void* InInstance) override;                          // LAB_065f16e0
-    GENRESULT DACOM_API SetOrientation(void* InInstance, const float* Rows) override;  // LAB_065f16f0
-    float* DACOM_API GetOrientation(void* InInstance) override;                       // LAB_065f1720
-    GENRESULT DACOM_API SetMatrix(void* InInstance, const float* InMatrix) override;   // LAB_065f1730
-    float* DACOM_API GetMatrix(void* InInstance) override;                            // LAB_065f1720
-    GENRESULT DACOM_API GetExtra(void* InInstance, float* OutExtra, float* OutVec) override; // LAB_065f1760
-    GENRESULT DACOM_API SetExtra(void* InInstance, float Extra, const float* Vec) override;  // LAB_065f1780
-    GENRESULT DACOM_API SetUser(void* InInstance, unsigned long User) override;       // LAB_065f1790
-    unsigned long DACOM_API GetUser(void* InInstance) override;                       // LAB_065f17a0
-    unsigned long DACOM_API MarkWorldDirty(void* InInstance) override; // formerly Slot13
+    GENRESULT NEURONCOMPONENTS_API Init(void* InInstance) override;
+    GENRESULT NEURONCOMPONENTS_API AddRef(void* InInstance) override;
+    GENRESULT NEURONCOMPONENTS_API Release(void* InInstance) override;
+    GENRESULT NEURONCOMPONENTS_API SetPosition(void* InInstance, const float* Position) override;
+    float* NEURONCOMPONENTS_API GetPosition(void* InInstance) override;
+    GENRESULT NEURONCOMPONENTS_API SetOrientation(void* InInstance, const float* Rows) override;
+    float* NEURONCOMPONENTS_API GetOrientation(void* InInstance) override;
+    GENRESULT NEURONCOMPONENTS_API SetMatrix(void* InInstance, const float* InMatrix) override;
+    float* NEURONCOMPONENTS_API GetMatrix(void* InInstance) override;
+    GENRESULT NEURONCOMPONENTS_API GetExtra(void* InInstance, float* OutExtra, float* OutVec) override;
+    GENRESULT NEURONCOMPONENTS_API SetExtra(void* InInstance, float Extra, const float* Vec) override;
+    GENRESULT NEURONCOMPONENTS_API SetUser(void* InInstance, unsigned long User) override;
+    unsigned long NEURONCOMPONENTS_API GetUser(void* InInstance) override;
+    unsigned long NEURONCOMPONENTS_API MarkWorldDirty(void* InInstance) override; // formerly Slot13
 };
 
 static_assert(sizeof(FBoneRuntime) == 0x70, "bone runtime must be 0x70");
@@ -427,12 +423,12 @@ static_assert(offsetof(FBoneRuntime, LocalTransform) == 0x0C, "bone local transf
 static_assert(offsetof(FBoneRuntime, Flags) == 0x3C, "bone flag byte +3c");
 static_assert(offsetof(FBoneRuntime, Matrix) == 0x40, "bone world matrix +40");
 
-// FUN_065f1550 LOD/skel holder 0x10.
+// LOD/skel holder 0x10.
 struct FLodHolder
 {
     FSkeleton* Skeleton;
     FBoneRuntime* BoneSlots;
-    int BindCursor;              // +8 FUN_065f14f0 walk (also slot count after bind)
+    int BindCursor;              // +8 the routine walk (also slot count after bind)
     int RefCount;
 
     unsigned char AttachSkeleton(FSkeleton* Skel); // formerly AttachLodSkeleton
@@ -440,7 +436,7 @@ struct FLodHolder
 
 static_assert(sizeof(FLodHolder) == 0x10, "LOD holder must be 0x10");
 
-// FUN_065f9f00 / FUN_065fadb0: 12-stride Golub SVD (IK Jacobian ≤ 4×3).
+// / the routine: 12-stride Golub SVD (IK Jacobian ≤ 4×3).
 static const int G_SvdMaxDim = 12;
 static const int G_SvdMaxIter = 30;
 static const int G_IkMaxJoints = 4;
@@ -456,14 +452,14 @@ static_assert(sizeof(FSvdMatrix) == 0x248, "SVD matrix must be 0x248");
 static_assert(offsetof(FSvdMatrix, RowCount) == 0x240, "SVD rows +240");
 static_assert(offsetof(FSvdMatrix, ColCount) == 0x244, "SVD cols +244");
 
-// FUN_065f5400 list node 0x14. FUN_065fb030 IK event 0x44.
+// list node 0x14. the routine IK event 0x44.
 // Mixed list @ instance+0x0C: Active==0 animation handle @+4; Active!=0 FIkEvent*.
 struct FIkListNode
 {
-    unsigned char Active; // +0 = 0 anim (FUN_065f41d0); 1 IK (FUN_065f5400)
+    unsigned char Active; // +0 = 0 anim (the routine); 1 IK (the routine)
     unsigned char Pad01[3];
     struct FIkEvent* Event; // +4 handle or FIkEvent*
-    unsigned long Extra8;   // +8 FUN_065f41d0 local
+    unsigned long Extra8;   // +8 the routine local
     FIkListNode* Prev; // +0xC
     FIkListNode* Next; // +0x10
 };
@@ -475,12 +471,12 @@ static_assert(offsetof(FIkListNode, Extra8) == 0x08, "list node extra +8");
 struct FIkEvent : IChannelOwner
 {
     FIkEvent() {}            // the inlined constructor's field writes stay at the call site
-    ~FIkEvent();             // FUN_065fbf40
+    ~FIkEvent();
     FIkEvent(const FIkEvent&) = delete;
     FIkEvent& operator=(const FIkEvent&) = delete;
 
-    // LAB_065fb540 (vtable +0x00).
-    int DACOM_API Apply(float* Sampled, unsigned long ChannelKey, void* BindDesc,
+    // (vtable +0x00).
+    int NEURONCOMPONENTS_API Apply(float* Sampled, unsigned long ChannelKey, void* BindDesc,
                         float Time) override;
 
     FIkListNode* Owner;      // +0x04
@@ -499,7 +495,7 @@ struct FIkEvent : IChannelOwner
     unsigned char Pad35[3];
     float Damp38;            // +0x38 desc+0x18
     int Tick3C;              // +0x3C
-    int JointCount;          // +0x40 FUN_065fb030
+    int JointCount;          // +0x40 the routine
 };
 
 static_assert(sizeof(FIkEvent) == 0x44, "IK event must be 0x44");
@@ -509,7 +505,7 @@ static_assert(offsetof(FIkEvent, Flags34) == 0x34, "IK flags34 +34");
 static_assert(offsetof(FIkEvent, Damp38) == 0x38, "IK damp +38");
 static_assert(offsetof(FIkEvent, JointCount) == 0x40, "IK joint count +40");
 
-// LAB_065fb540 arg4: +0 skip DLS; +0xC joint for +0xC4/+0xD4.
+// arg4: +0 skip DLS; +0xC joint for +0xC4/+0xD4.
 struct FIkApplyGate
 {
     int SkipFlag;
@@ -546,18 +542,18 @@ struct FDeformIbDesc
 static_assert(sizeof(FDeformVbDesc) == 0x10, "part VB descriptor is 0x10");
 static_assert(sizeof(FDeformIbDesc) == 0xC, "part IB descriptor is 0xC");
 
-// FUN_065f6720 constructs it (13 zero dwords, then byte +0x30 |= 1).
+// constructs it (13 zero dwords, then byte +0x30 |= 1).
 struct FDeformPart
 {
     FLodHolder* Lod;             // +0x00
     FDeformMesh* Current;        // +0x04
-    FDeformMesh** Meshes;        // +0x08 counted body (FUN_065f67f0)
+    FDeformMesh** Meshes;        // +0x08 counted body (the routine)
     int MeshCount;               // +0x0C
     int LodIndex;                // +0x10
     FDeformVbDesc Vb;            // +0x14
     FDeformIbDesc Ib;            // +0x24
-    // Bit 0: the LOD changed (FUN_065f6930) -- rebuild both buffers; bit 1: the skin is
-    // stale (FUN_065f69c0). FUN_065f69d0 clears both after a draw.
+    // Bit 0: the LOD changed (the routine) -- rebuild both buffers; bit 1: the skin is
+    // stale (the routine). the routine clears both after a draw.
     unsigned char Flags;         // +0x30 = 1
     unsigned char Pad31[3];
 
@@ -573,23 +569,23 @@ static_assert(sizeof(FDeformPart) == 0x34, "part is 0x34");
 // Playback notifications forward to the caller-provided channel sink.
 struct FDeformInstance : IChannelSink
 {
-    //                       // +0x00 PTR_FUN_06601308 (3 slots), the compiler's table now
+    //                       // +0x00 the routine (3 slots), the compiler's table now
     int PartCount;           // +0x04
     FDeformPart* PartArray;  // +0x08 counted array body (header at -4)
     FIkListNode* ListHead;          // +0x0C
     FIkListNode* ListTail;          // +0x10
     int ListCount;           // +0x14
-    IChannelSink* UserAt18;  // +0x18 Create arg3 (FUN_065f36c0 param_2)
-    void* UserAt1C;          // +0x1C Create arg4 (FUN_065f36c0 param_3)
-    float Offset20;          // +0x20 FUN_065f50b0 set; pose Y add
-    float Offset24;          // +0x24 FUN_065f4de0: bone+0x34 − Offset20
-    float RateCookie;        // +0x28 DAT_0660314c / rand phase
+    IChannelSink* UserAt18;  // +0x18 Create arg3 (the routine param_2)
+    void* UserAt1C;          // +0x1C Create arg4 (the routine param_3)
+    float Offset20;          // +0x20 the routine set; pose Y add
+    float Offset24;          // +0x24 the routine: bone+0x34 − Offset20
+    float RateCookie;        // +0x28 the field / rand phase
 
-    void DACOM_API OnKeys(unsigned long ChannelKey, void* Context,
-                          FChannelKeyBatch* Batch) override;                 // FUN_065f5210
-    void DACOM_API OnOpaqueNotification(void* A, void* B) override; // formerly Slot01
-    void DACOM_API OnLoop(unsigned long ChannelKey, float* Transform,
-                          void* Context) override;                           // LAB_065f52b0
+    void NEURONCOMPONENTS_API OnKeys(unsigned long ChannelKey, void* Context,
+                          FChannelKeyBatch* Batch) override;
+    void NEURONCOMPONENTS_API OnOpaqueNotification(void* A, void* B) override; // formerly Slot01
+    void NEURONCOMPONENTS_API OnLoop(unsigned long ChannelKey, float* Transform,
+                          void* Context) override;
 };
 
 static_assert(sizeof(FDeformableFactory) == 0x0C, "factory must be 0xC");

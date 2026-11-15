@@ -1,10 +1,6 @@
-﻿// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
-// Author: Giperion.
+﻿// Author: Giperion.
 
-// Async -- the synchronous work-item service (retail 0x062fd400-0x062fd5e0, plus the
+// Async -- the synchronous work-item service (baseline 0x062fd400-0x062fd5e0, plus the
 // ICF-shared DumpWorkQueue / WorkQueueSize bodies). Declared in common_async.h.
 #include "common_async.h"
 
@@ -20,7 +16,7 @@ namespace Async
 {
     void __cdecl Startup()
     {
-        // Common.dll.c Async::Startup @ 0x9d5d0
+        // Common Async::Startup @ 0x9d5d0
         ++g_async_refcount;
     }
 
@@ -31,40 +27,40 @@ namespace Async
 
     Action::Action(bool bInDeleteWhenDone)
     {
-        // 0x062fd400: +0x04 = argument, +0x08 = 0.
+        // +0x04 = argument, +0x08 = 0.
         bDeleteWhenDone = bInDeleteWhenDone;
         hEvent = nullptr;
     }
 
     Action::Action(Action const& Other)
     {
-        // 0x062fd420: copies both fields, the event handle included.
+        // copies both fields, the event handle included.
         bDeleteWhenDone = Other.bDeleteWhenDone;
         hEvent = Other.hEvent;
     }
 
     Action::~Action()
     {
-        // 0x062fd540
+
         if (hEvent != nullptr)
             CloseHandle(hEvent);
     }
 
     void* Action::operator new(size_t Size)
     {
-        // 0x062fd560: JMP msvcrt malloc
+        // JMP msvcrt malloc
         return malloc(Size);
     }
 
     void Action::operator delete(void* Ptr)
     {
-        // 0x062fd570: JMP msvcrt free
+        // JMP msvcrt free
         free(Ptr);
     }
 
     bool __cdecl AddWork(Action* Work)
     {
-        // 0x062fd580
+
         if (!Work->bDeleteWhenDone)
             Work->hEvent = CreateEventA(nullptr, FALSE, FALSE, nullptr);
 
@@ -72,7 +68,7 @@ namespace Async
 
         if (Work->bDeleteWhenDone)
         {
-            // 062fd5aa: vtable+4 with flag 1 -- the scalar deleting destructor.
+            // vtable+4 with flag 1 -- the scalar deleting destructor.
             delete Work;
             return true;
         }
@@ -83,12 +79,12 @@ namespace Async
 
     void __cdecl DumpWorkQueue()
     {
-        // 0x062a8920: RET
+        // RET
     }
 
     int __cdecl WorkQueueSize()
     {
-        // 0x06325390: XOR EAX,EAX; RET
+        // XOR EAX,EAX; RET
         return 0;
     }
 }

@@ -4,17 +4,17 @@ VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "OutpostFrontier", "OutpostFrontier\OutpostFrontier.vcxproj", "{7E2C0A19-8B3C-4D4E-9516-A7B8C9D0E1F2}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "dacom", "dacom\dacom.vcxproj", "{8F3A1B20-9C4D-4E5F-A617-B8C9D0E1F203}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "neuroncomponents", "neuroncomponents\neuroncomponents.vcxproj", "{8F3A1B20-9C4D-4E5F-A617-B8C9D0E1F203}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "DALib", "DALib\DALib.vcxproj", "{9A4B2C31-0D5E-4F60-B728-C9DAE1F20415}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "NeuronRuntime", "NeuronRuntime\NeuronRuntime.vcxproj", "{9A4B2C31-0D5E-4F60-B728-C9DAE1F20415}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Common", "Common\Common.vcxproj", "{C0A4E8B1-2D5F-4A17-9C36-E8B0D1F2A405}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "EngBase", "EngBase\EngBase.vcxproj", "{B4E8A017-3C5D-4F21-9A86-E7D1C0B4A592}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "SceneRuntime", "SceneRuntime\SceneRuntime.vcxproj", "{B4E8A017-3C5D-4F21-9A86-E7D1C0B4A592}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "ReadFile", "ReadFile\ReadFile.vcxproj", "{B7E4D12A-6F90-4C3B-9E1A-8D5C2A4B6E70}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "alchemy", "alchemy\alchemy.vcxproj", "{B7E4D91A-3C5F-4A82-9E16-F2C8D0A1B405}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "particlefx", "particlefx\particlefx.vcxproj", "{B7E4D91A-3C5F-4A82-9E16-F2C8D0A1B405}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Deformable2", "Deformable2\Deformable2.vcxproj", "{B7D4E2A1-5C38-4F91-8E26-A9B0C1D2E3F4}"
 EndProject
@@ -32,39 +32,39 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "qhull", "qhull\qhull.vcxpro
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Content", "Content\Content.vcxproj", "{E8B4C102-6D7A-4E91-A5C3-B0F1D2849E17}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Thorn", "Thorn\Thorn.vcxproj", "{A8C31E47-6D2B-4F90-9E14-B7C5A0D3E618}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "SceneScript", "SceneScript\SceneScript.vcxproj", "{A8C31E47-6D2B-4F90-9E14-B7C5A0D3E618}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "SoundManager", "SoundManager\SoundManager.vcxproj", "{C8D1E4A0-2B7F-4C91-9E35-A6B0D1C2E814}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "SoundStreamer", "SoundStreamer\SoundStreamer.vcxproj", "{C8D1E4A1-2B7F-4C91-9E35-A6B0D1C2E815}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "RP8", "RP8\RP8.vcxproj", "{A1B2C3D4-E5F6-4789-8A0B-1C2D3E4F5A60}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "DX8RENDERER", "DX8RENDERER\DX8RENDERER.vcxproj", "{A1B2C3D4-E5F6-4789-8A0B-1C2D3E4F5A60}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "RP9", "RP9\RP9.vcxproj", "{2E2460CC-3158-46C3-A5F3-445D2D6C6401}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "DX9RENDERER", "DX9RENDERER\DX9RENDERER.vcxproj", "{2E2460CC-3158-46C3-A5F3-445D2D6C6401}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "RendComp", "RendComp\RendComp.vcxproj", "{7C9E4A12-8B3D-4F61-9E20-C5D8A1B4F307}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Shading", "Shading\Shading.vcxproj", "{C4E81B30-7A2D-4F11-9C55-A1B2C3D4E5F6}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "flmaterials", "flmaterials\flmaterials.vcxproj", "{C4E8A1B2-7D3F-4A90-9B1C-5E6F0A2D8C17}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "surfacematerials", "surfacematerials\surfacematerials.vcxproj", "{C4E8A1B2-7D3F-4A90-9B1C-5E6F0A2D8C17}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "ximage", "ximage\ximage.vcxproj", "{F1A82C14-6E4B-4D91-A703-B8C5D0E2F405}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "resources", "Resources\resources\resources.vcxproj", "{E1A10001-5E50-4A01-9C01-000000000007}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "UiText", "Resources\UiText\UiText.vcxproj", "{E1A10001-5E50-4A01-9C01-000000000007}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "InfoCards", "Resources\InfoCards\InfoCards.vcxproj", "{E1A10001-5E50-4A01-9C01-000000000001}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "FieldGuideText", "Resources\FieldGuideText\FieldGuideText.vcxproj", "{E1A10001-5E50-4A01-9C01-000000000001}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MiscText", "Resources\MiscText\MiscText.vcxproj", "{E1A10001-5E50-4A01-9C01-000000000002}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "DialogueText", "Resources\DialogueText\DialogueText.vcxproj", "{E1A10001-5E50-4A01-9C01-000000000002}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "NameResources", "Resources\NameResources\NameResources.vcxproj", "{E1A10001-5E50-4A01-9C01-000000000003}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "NameCatalog", "Resources\NameCatalog\NameCatalog.vcxproj", "{E1A10001-5E50-4A01-9C01-000000000003}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "EquipResources", "Resources\EquipResources\EquipResources.vcxproj", "{E1A10001-5E50-4A01-9C01-000000000004}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "EquipmentCatalog", "Resources\EquipmentCatalog\EquipmentCatalog.vcxproj", "{E1A10001-5E50-4A01-9C01-000000000004}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "OfferBribeResources", "Resources\OfferBribeResources\OfferBribeResources.vcxproj", "{E1A10001-5E50-4A01-9C01-000000000005}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "NegotiationText", "Resources\NegotiationText\NegotiationText.vcxproj", "{E1A10001-5E50-4A01-9C01-000000000005}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MiscTextInfo2", "Resources\MiscTextInfo2\MiscTextInfo2.vcxproj", "{E1A10001-5E50-4A01-9C01-000000000006}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "InterfaceExtras", "Resources\InterfaceExtras\InterfaceExtras.vcxproj", "{E1A10001-5E50-4A01-9C01-000000000006}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "serverresources", "Resources\serverresources\serverresources.vcxproj", "{E1A10001-5E50-4A01-9C01-000000000008}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "serverinterface", "Resources\serverinterface\serverinterface.vcxproj", "{E1A10001-5E50-4A01-9C01-000000000008}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "movie", "movie\movie.vcxproj", "{ABEDC862-E944-9257-C6D9-CF679785D867}"
 EndProject

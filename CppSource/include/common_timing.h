@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -10,7 +6,7 @@
 
 #include <cstddef>
 
-// Timing -- retail CTiming.cpp, defined in common_timing.cpp.
+// Timing -- baseline CTiming.cpp, defined in common_timing.cpp.
 // Free functions: __cdecl (MSVC mangle YA...). Delta methods: __thiscall (QAE...).
 
 namespace Timing
@@ -22,9 +18,9 @@ namespace Timing
     COMMON_API void __cdecl UpdateGlobalTime(double Dt);
     COMMON_API double __cdecl GetGlobalTime();
 
-    // Common.dll.c Timing::GetMachineSpeed @ 0xa7f20. Lazily measures the CPU's
+    // Common Timing::GetMachineSpeed @ 0xa7f20. Lazily measures the CPU's
     // clock speed in Hz (RDTSC-based) on first call and caches it in a signed
-    // global (retail sentinel: negative == not yet measured); every later call
+    // global (baseline sentinel: negative == not yet measured); every later call
     // just returns the cached value truncated to int.
     COMMON_API int __cdecl GetMachineSpeed();
 
@@ -34,7 +30,7 @@ namespace Timing
     {
     public:
         // User-declared so that no implicit move members are generated and exported:
-        // VC6 had none, and retail exports exactly the copy assignment.
+        // VC6 had none, and baseline exports exactly the copy assignment.
         Delta& operator=(Delta const&) = default;
 
         Delta();

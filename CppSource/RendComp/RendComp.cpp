@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "RendComp.h"
@@ -14,7 +10,7 @@
 #include <cstring>
 #include <new>
 
-#pragma comment(lib, "dacom.lib")
+#pragma comment(lib, "neuroncomponents.lib")
 
 IRenderPipeline* G_Pipeline = nullptr;
 IRPDraw* G_Draw = nullptr;
@@ -25,10 +21,10 @@ IMaterialLibrary* G_MaterialLibrary = nullptr;
 IEngine* G_Engine = nullptr;
 
 // The per-caller 3DMathEngine caches (RendComp.h, MathEngineCached).
-I3DMathEngine* G_MathTriMeshDraw = nullptr; // DAT_06c37cc0
-I3DMathEngine* G_MathSphere = nullptr;      // DAT_06c37cc8
-I3DMathEngine* G_MathVMesh = nullptr;       // DAT_06c37d44
-I3DMathEngine* G_MathRenderMgr = nullptr;   // DAT_06c37d48
+I3DMathEngine* G_MathTriMeshDraw = nullptr;
+I3DMathEngine* G_MathSphere = nullptr;
+I3DMathEngine* G_MathVMesh = nullptr;
+I3DMathEngine* G_MathRenderMgr = nullptr;
 
 struct FRendCompXform
 {
@@ -50,11 +46,11 @@ inline float* AsFloat12(FRendCompXform* Xform)
     return (float*)Xform;
 }
 
-// LogStream::LogEvent is dacom.dll's export (dacom.def, declared in dacom.h); the local
+// LogStream::LogEvent is neuroncomponents.dll's export (neuroncomponents.def, declared in neuroncomponents.h); the local
 // definition that used to sit here shadowed it with a log-file writer.
 
-// Retail pushes (Message, Line, __FILE__, fmt, Flags) and calls through the FDUMP import with
-// no null check (e.g. FUN_06c2dd20 @ 06c2de02..06c2de1f).
+// baseline pushes (Message, Line, __FILE__, fmt, Flags) and calls through the FDUMP import with
+// no null check (e.g. the routine @ 06c2de02..06c2de1f).
 void RendCompFdumpAt(int Flags, const char* File, int Line, const char* Message)
 {
     const char* Format = G_FdumpFmtNotice;
@@ -86,7 +82,7 @@ int FileOpenNode(void* File, const char* Name)
     return AsFileSystem(File)->OpenNode(Name); // +0x60
 }
 
-// Retail closes every handle it opened with vt+0x10 directly (e.g. FUN_06c249d0 after
+// baseline closes every handle it opened with vt+0x10 directly (e.g. the routine after
 // its vt+0x7c open). There is no "handle 0 means leave the node" rule and no null test:
 // ReadFile's handle 0 names the current file, and an open never returns it.
 int FileClose(void* File, int Handle)
@@ -151,13 +147,13 @@ int FileOpenByName(void* File, const char* ChildName)
         AsFileSystem(File)->OpenByDesc((FFileSystemDesc*)(&Desc)); // +0x7C
     if (Handle != -1)
         return Handle;
-    // UTF +0x7C is a stub: OpenNode + current handle 0 (EngBase FileSystemReadNamed).
+    // UTF +0x7C is a stub: OpenNode + current handle 0 (SceneRuntime FileSystemReadNamed).
     if (FileOpenNode(File, ChildName) == 0)
         return -1;
     return 0;
 }
 
-// FUN_06c24980 (thiscall desc, RET 8): +4 = ComponentName, +8..+0x33 zeroed, Access 0x80000000,
+// (thiscall desc, RET 8): +4 = ComponentName, +8..+0x33 zeroed, Access 0x80000000,
 // ShareMode 1, Creation 3, Flags 0x8000080, Path, Size 0x34, +0x30 = -1.
 FFileSystemDesc* FileDescInit(FFileSystemDesc* Desc, const char* Path, const char* ComponentName)
 {
@@ -173,7 +169,7 @@ FFileSystemDesc* FileDescInit(FFileSystemDesc* Desc, const char* Path, const cha
     return Desc;
 }
 
-void* QueryIid(IDAComponent* Object, const char* Iid)
+void* QueryIid(INeuronComponent* Object, const char* Iid)
 {
     if (Object == nullptr || Iid == nullptr)
         return nullptr;
@@ -183,18 +179,18 @@ void* QueryIid(IDAComponent* Object, const char* Iid)
     return Out;
 }
 
-void ReleaseIf(IDAComponent* Object)
+void ReleaseIf(INeuronComponent* Object)
 {
     if (Object != nullptr)
         Object->Release();
 }
 
-// FUN_06c34e60 (06c34e60..06c34e98): desc at ESP+4 {0xC, "3DMathEngine", 0}, out at ESP+0;
-// DACOM_Acquire's result is dereferenced unchecked and the CreateInstance result is ignored.
-// Retail's out slot is uninitialised stack; the port's starts at nullptr.
+// (06c34e60..06c34e98): desc at ESP+4 {0xC, "3DMathEngine", 0}, out at ESP+0;
+// NEURONCOMPONENTS_Acquire's result is dereferenced unchecked and the CreateInstance result is ignored.
+// baseline's out slot is uninitialised stack; the port's starts at nullptr.
 I3DMathEngine* AcquireMathEngine()
 {
-    ICOManager* Manager = DACOM_Acquire();
+    ICOManager* Manager = NEURONCOMPONENTS_Acquire();
     FMathDesc Desc;
     Desc.Size = 0xC;
     Desc.InterfaceName = "3DMathEngine";
@@ -241,7 +237,7 @@ void PipelineApplySubmit(ICamera* Camera, void* Inst, const void* Transform,
     G_Pipeline->SetWorld((const float*)World);
 }
 
-// FUN_06c33090 (thiscall on Src, RET 4): Dest = -Src. Only caller IRenderer Slot7.
+// (thiscall on Src, RET 4): Dest = -Src. Only caller IRenderer Slot7.
 void VectorNegate3(const float* Src, float* Dest)
 {
     Dest[0] = -Src[0];
@@ -249,7 +245,7 @@ void VectorNegate3(const float* Src, float* Dest)
     Dest[2] = -Src[2];
 }
 
-// FUN_06c330b0 (thiscall on Src, RET 4): Dest = the transpose of Src's 3x3; returns Dest.
+// (thiscall on Src, RET 4): Dest = the transpose of Src's 3x3; returns Dest.
 float* TransposeXform3x3(const float* Src12, float* Dest9)
 {
     Dest9[0] = Src12[0];
@@ -264,7 +260,7 @@ float* TransposeXform3x3(const float* Src12, float* Dest9)
     return Dest9;
 }
 
-// FUN_06c33100 (cdecl, Dest, Matrix, Vec): the math engine (DAT_06c37d48, created on first use)
+// (cdecl, Dest, Matrix, Vec): the math engine (the field, created on first use)
 // slot 14 +0x38 TransposeTransform into a local, copied to Dest; returns Dest. No fallback.
 float* TransformPoint3(float* Dest3, const float* Matrix12, const float* Vec3)
 {
@@ -277,7 +273,7 @@ float* TransformPoint3(float* Dest3, const float* Matrix12, const float* Vec3)
     return Dest3;
 }
 
-GENRESULT DACOM_API PluginFactoryCreate(FDacomFactory* This, AGGDESC* Desc, void** Out)
+GENRESULT NEURONCOMPONENTS_API PluginFactoryCreate(FNeuronComponentsFactory* This, AGGDESC* Desc, void** Out)
 {
     FRenderPluginDesc* Extended = (FRenderPluginDesc*)Desc;
     if (Extended->Size != 0x10 || std::strcmp(Extended->Name, This->Name) != 0)
@@ -290,10 +286,10 @@ GENRESULT DACOM_API PluginFactoryCreate(FDacomFactory* This, AGGDESC* Desc, void
     return CreateSphereMeshPlugin(Extended, Out);
 }
 
-// LAB_06c221d0 (slot 0 of every RendComp factory vtable): *Out = 0, then a 0x17-byte
+// (slot 0 of every RendComp factory vtable): *Out = 0, then a 0x17-byte
 // REPE CMPSB against "1.11_IComponentFactory" (NUL included, so an exact match); miss -> -3,
 // hit -> *Out = this, AddRef through the vtable, 0.
-GENRESULT DACOM_API FDacomFactory::QueryInterface(const char* Iid, void** Out)
+GENRESULT NEURONCOMPONENTS_API FNeuronComponentsFactory::QueryInterface(const char* Iid, void** Out)
 {
     *Out = nullptr;
     if (std::strcmp(Iid, Iids::ComponentFactory) != 0)
@@ -303,16 +299,16 @@ GENRESULT DACOM_API FDacomFactory::QueryInterface(const char* Iid, void** Out)
     return GR_OK;
 }
 
-// LAB_06c306b0: ++[this+4], return it.
-unsigned long DACOM_API FDacomFactory::AddRef()
+// ++[this+4], return it.
+unsigned long NEURONCOMPONENTS_API FNeuronComponentsFactory::AddRef()
 {
     RefCount += 1;
     return RefCount;
 }
 
-// FUN_06c2a3a0: decrement when above 0; still non-zero -> return it; zero -> pin the count
-// at 1, operator delete (FUN_06c34ea0), return 0.
-unsigned long DACOM_API FDacomFactory::Release()
+// decrement when above 0; still non-zero -> return it; zero -> pin the count
+// at 1, operator delete (the routine), return 0.
+unsigned long NEURONCOMPONENTS_API FNeuronComponentsFactory::Release()
 {
     if (RefCount > 0)
         RefCount -= 1;
@@ -325,73 +321,73 @@ unsigned long DACOM_API FDacomFactory::Release()
 
 // Slot 3: the factory's own CreateInstance -- RenderManagerFactoryCreate,
 // VMeshLibraryFactoryCreate, VMeshWireFactoryCreate, VMeshPluginFactoryCreate
-// (PTR_LAB_06c36414, FUN_06c2dae0) or PluginFactoryCreate, chosen by the registrar below.
-GENRESULT DACOM_API FDacomFactory::CreateInstance(AGGDESC* Desc, void** Out)
+// (the branch, the routine) or PluginFactoryCreate, chosen by the registrar below.
+GENRESULT NEURONCOMPONENTS_API FNeuronComponentsFactory::CreateInstance(AGGDESC* Desc, void** Out)
 {
     return Create(this, Desc, Out);
 }
 
 namespace
 {
-    void RegisterFactoryUnchecked(FDacomFactoryCreateFn Create, const char* Name, const char* Iid)
+    void RegisterFactoryUnchecked(FNeuronComponentsFactoryCreateFn Create, const char* Name, const char* Iid)
     {
-        FDacomFactory* Factory = new (std::nothrow) FDacomFactory(Create);
+        FNeuronComponentsFactory* Factory = new (std::nothrow) FNeuronComponentsFactory(Create);
         if (Factory == nullptr)
             return;
         Factory->RefCount = 1;
         Factory->Name = Name != nullptr ? Name : Iid;
-        ICOManager* Manager = DACOM_Acquire();
+        ICOManager* Manager = NEURONCOMPONENTS_Acquire();
         Manager->RegisterComponent(static_cast<IComponentFactory*>(Factory), Name,
                                    (void*)G_RegisterPriority);
         Factory->Release();
     }
 
-    FDacomFactory* RegisterFactoryChecked(FDacomFactoryCreateFn Create, const char* Name,
+    FNeuronComponentsFactory* RegisterFactoryChecked(FNeuronComponentsFactoryCreateFn Create, const char* Name,
                                           const char* Iid)
     {
-        FDacomFactory* Factory = new FDacomFactory(Create);
+        FNeuronComponentsFactory* Factory = new FNeuronComponentsFactory(Create);
         Factory->RefCount = 1;
         Factory->Name = Name != nullptr ? Name : Iid;
-        ICOManager* Manager = DACOM_Acquire();
+        ICOManager* Manager = NEURONCOMPONENTS_Acquire();
         if (Manager != nullptr)
             Manager->RegisterComponent(static_cast<IComponentFactory*>(Factory), Name,
                                        (void*)G_RegisterPriority);
         return Factory;
     }
 
-    // FUN_06c2ecf0.
+    // .
     void RegisterVMeshLibrary()
     {
         RegisterFactoryUnchecked(&VMeshLibraryFactoryCreate, G_NameVMeshLibrary, Iids::VMeshLibrary);
     }
 
-    // FUN_06c2f490.
+    // .
     void RegisterVMeshWire()
     {
         RegisterFactoryUnchecked(&VMeshWireFactoryCreate, G_NameVMeshWire, nullptr);
     }
 
-    // FUN_06c21a90.
+    // .
     void RegisterTriMesh()
     {
-        FDacomFactory* Factory =
+        FNeuronComponentsFactory* Factory =
             RegisterFactoryChecked(&PluginFactoryCreate, G_NameTriMesh, Iids::RenderComponent);
         Factory->Release();
     }
 
-    // FUN_06c2a000.
+    // .
     void RegisterSphereMesh()
     {
-        FDacomFactory* Factory =
+        FNeuronComponentsFactory* Factory =
             RegisterFactoryChecked(&PluginFactoryCreate, G_NameSphereMesh, Iids::RenderComponent);
         Factory->Release();
     }
 
-    // FUN_06c2dae0: registers VMesh, then VMeshLibrary and VMeshWire, and only then releases
+    // registers VMesh, then VMeshLibrary and VMeshWire, and only then releases
     // its own factory.
     void RegisterVMesh()
     {
-        FDacomFactory* Factory =
+        FNeuronComponentsFactory* Factory =
             RegisterFactoryChecked(&VMeshPluginFactoryCreate, G_NameVMesh, Iids::RenderComponent);
         RegisterVMeshLibrary();
         RegisterVMeshWire();
@@ -403,8 +399,8 @@ BOOL APIENTRY DllMain(HMODULE Module, DWORD Reason, LPVOID /*Reserved*/)
 {
     if (Reason == DLL_PROCESS_ATTACH)
     {
-        // FUN_06c34080: RenderManager inline (06c34093), then FUN_06c21a90, FUN_06c2a000,
-        // FUN_06c2dae0 (which chains FUN_06c2ecf0 and FUN_06c2f490).
+        // RenderManager inline (06c34093), then the routine, the routine,
+        // (which chains the routine and the routine).
         DisableThreadLibraryCalls(Module);
         RegisterFactoryUnchecked(&RenderManagerFactoryCreate, G_NameRenderManager, Iids::Renderer2);
         RegisterTriMesh();

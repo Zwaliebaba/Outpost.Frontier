@@ -1,17 +1,13 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
-// Retail third-person camera: the object at in-flight-controller + 0x1b0, vtable .rdata
-// 0x005dbb14, size 0x218 (the gap to the turret camera at + 0x3c8).
-//
+// baseline third-person camera: the object at in-flight-controller + 0x1b0, vtable .rdata
+// , size 0x218 (the gap to the turret camera at + 0x3c8).
+
 // The first twenty slots are the shared base camera interface (space_camera.h); past them the
 // vtable is HUDCamera's (.rdata 0x005dc08c) with four of its own:
-//
+
 //   +0x48  0x0051b700   shared with HUDCamera
 //   +0x4c  0x0051b3f0   shared with HUDCamera
 //   +0x50  0x0051c8b0   shared with HUDCamera
@@ -38,8 +34,8 @@ enum EThirdPersonCameraSlot
     kTpCamSlotUpdate  = 0x6c
 };
 
-// Field names below are the port's; the OFFSETS are retail's, each traced to the ctor
-// (0x00518600), the attach (0x00518af0) or the solver (FUN_00518f20).
+// Field names below are the port's; the OFFSETS are baseline's, each traced to the ctor
+// (0x00518600), the attach (0x00518af0) or the solver (the routine).
 struct FThirdPersonCamera : FHudCamera
 {
     char const* GetName() override;
@@ -50,7 +46,7 @@ struct FThirdPersonCamera : FHudCamera
     void DrawScene(unsigned LayerFlags, unsigned Param2) override;
     bool OnEvent(unsigned MsgId) override;
 
-    // +0x000 .. +0x100. Retail's ctor at 0x00518600 chains straight into FUN_0051ca80, so
+    // +0x000 .. +0x100. baseline's ctor at 0x00518600 chains straight into the routine, so
     // everything below +0x100 -- including the object watcher at +0xc0 and the velocity at
     // +0xdc -- belongs to the two intermediate classes, not to this one.
 
@@ -60,7 +56,7 @@ struct FThirdPersonCamera : FHudCamera
     float HardpointPos[3];              // +0x100
     float HardpointOrient[9];           // +0x10c
 
-    float TranslationCache[3];          // +0x130  the placement FUN_00518f20 produced; it is
+    float TranslationCache[3];          // +0x130  the placement the routine produced; it is
                                         //         also what the output transform's translation
                                         //         is copied from
     unsigned char bCameraLevelEnabled;  // +0x13c  gates the auto-level branch; ctor sets 1
@@ -91,7 +87,7 @@ struct FThirdPersonCamera : FHudCamera
     float VerticalTurnDownAngle;        // +0x1e4  ICliObj +0x80 (radians)
     float TurnLookAheadSlerpAmount;     // +0x1e8  ICliObj +0x84
 
-    // The speed tracker FUN_00518f20 runs every frame. None of these come from the ini.
+    // The speed tracker the routine runs every frame. None of these come from the ini.
     float PrevSpeed;                    // +0x1ec  last frame's speed, for the acceleration
     float LookAheadMultiplier;          // +0x1f0  ctor 0.05f
     float AccelerationLimit;            // +0x1f4  ctor 40.0f; scaled by the slack
@@ -139,41 +135,41 @@ static_assert(offsetof(FThirdPersonCamera, SpeedSlack) == 0x1fc, "TP +0x1fc");
 static_assert(offsetof(FThirdPersonCamera, TurnRateScale) == 0x200, "TP +0x200");
 
 
-// FUN_005187d0. Opens the cockpit ini and validates it; returns false when the file is missing
-// or the aspect ratio is off, which is exactly when retail emits its two FDUMP warnings.
+// . Opens the cockpit ini and validates it; returns false when the file is missing
+// or the aspect ratio is off, which is exactly when baseline emits its two FDUMP warnings.
 bool ThirdPersonCameraLoad(FThirdPersonCamera* Cam, const char* CockpitIniPath);
 
 // Slot 0x54 (0x005187c0): the class name, a plain .rdata literal.
 const char* ThirdPersonCameraGetName();
 
-// FUN_0051a190 -- slot 0 of the ThirdPerson Event::Handler face (+0xf8, table 0x005dbb0c):
-// blocked mouse pick -> false; HUDCamera's FUN_0051d7f0 first; event 0x3f flips +0x13c and hands
+// slot 0 of the ThirdPerson Event::Handler face (+0xf8, table 0x005dbb0c):
+// blocked mouse pick -> false; HUDCamera's the routine first; event 0x3f flips +0x13c and hands
 // it to the watched ship's IBehaviorManager::update_level_camera, answering true.
 bool ThirdPersonCameraOnEvent(FThirdPersonCamera* Cam, unsigned MsgId);
 
-// FUN_00518600: HUDCamera's ctor, the two vptrs, then this class's defaults (see the .cpp).
+// HUDCamera's ctor, the two vptrs, then this class's defaults (see the .cpp).
 void ThirdPersonCameraConstruct(FThirdPersonCamera* Cam);
 
-// Slot 0x64 (FUN_00518ad0, thiscall RET 4): register the face for event 0x3f, then HUDCamera's
-// activate (FUN_0051cad0) -- its answer.
+// Slot 0x64 (the routine, thiscall RET 4): register the face for event 0x3f, then HUDCamera's
+// activate (the routine) -- its answer.
 bool ThirdPersonCameraActivate(FThirdPersonCamera* Cam, const int* ViewRect4);
 
-// Slot 0x58 (LAB_00518af0, thiscall RET 4): HUDCamera's attach, the ship companion's camera
+// Slot 0x58 (the branch, thiscall RET 4): HUDCamera's attach, the ship companion's camera
 // block, the target's orientation copies and world transform, the HpCockpit hardpoint (or the
 // fallback), then a reset solve from an identity view into the world transform and +0x130.
 // With nothing watched it only warns (Cockpit.cpp 0x3c9). Either way +0x214 ends up 1.
 void ThirdPersonCameraAttach(FThirdPersonCamera* Cam, void* Object);
 
-// Slot 0x6c (LAB_00518e40, thiscall RET 4): unless the attach just ran (+0x214), solve from an
+// Slot 0x6c (the branch, thiscall RET 4): unless the attach just ran (+0x214), solve from an
 // identity view into the world transform (warning at Cockpit.cpp 0x3e9 when there is no ship);
 // then HUDCamera's update, and +0x214 cleared.
 void ThirdPersonCameraUpdate(FThirdPersonCamera* Cam, float DeltaSeconds);
 
-// FUN_0051a140 (cdecl): Out9 = A9 * B9 through DAT_00675220's I3DMathEngine::MulMatrix into a
+// (cdecl): Out9 = A9 * B9 through the field's I3DMathEngine::MulMatrix into a
 // local, copied out; returns Out9. Callers: 0x00519b34 (the solver below) and 0x0055c5c9.
 float* CockpitMulMatrix(float* Out9, const float* A9, const float* B9);
 
-// FUN_00518f20 (thiscall RET 0xc): the chase-camera solver. Out12 = {3x3, position}; false (Out12
+// (thiscall RET 0xc): the chase-camera solver. Out12 = {3x3, position}; false (Out12
 // untouched) when the watcher does not hold a client ship. bReset seeds the speed tracker, the
 // level axis and the orientation history from the ship.
 bool ThirdPersonCameraSolve(FThirdPersonCamera* Cam, float* Out12, float DeltaSeconds, bool bReset);

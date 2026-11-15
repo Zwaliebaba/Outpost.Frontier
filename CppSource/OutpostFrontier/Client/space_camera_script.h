@@ -1,49 +1,45 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
-// ScriptCamera -- the in-flight camera a Thorn script drives (cutscenes, tradelane rides,
-// jump sequences). Retail source is `E:\FL\Scratch\Source\Client\space\scriptcam.cpp`, which the
+// ScriptCamera -- the in-flight camera a SceneScript script drives (cutscenes, tradelane rides,
+// jump sequences). baseline source is `Client\space\scriptcam.cpp`, which the
 // binary still carries because the load-failure warning prints it.
-//
+
 // It is the last class in the camera hierarchy the port had not touched, and the vtable settles
 // where it sits: 0x005dc164 is identical to FGameCamera's 0x005dbf5c in every slot except five,
 // so ScriptCamera derives from FGameCamera directly -- NOT from FHudCamera, which the other four
 // concrete cameras use. The five overrides are:
-//
+
 //   0x54  0x0051e070   the class name, "ScriptCamera"
 //   0x60  0x0051e810   "is this camera finished?"
 //   0x64  0x0051e4c0   activate: build the script and bind its entities
 //   0x68  0x0051e660   deactivate: tear the script down again
 //   0x6c  0x0051e740   per-frame update
-//
-// The camera owns two heap objects, and both are DACOM components: their shared slot 0 returns
-// the IID "1.11_IGeoTransformControl" (read at 0x0051e830), which is how a Thorn script moves
+
+// The camera owns two heap objects, and both are NEURONCOMPONENTS components: their shared slot 0 returns
+// the IID "1.11_IGeoTransformControl" (read at 0x0051e830), which is how a SceneScript script moves
 // something. One drives the camera itself, the other drives the object the script calls
 // `main_object`. So a script animates two transforms and the camera reads them back.
 
 #include "space_camera_game.h"
 
-#include "thorn_controls.h"
+#include "scenescript_controls.h"
 
 #include <stddef.h>
 
-// The camera's own transform sink -- retail's 0x38-byte heap object with vtable 0x005dc140.
+// The camera's own transform sink -- baseline's 0x38-byte heap object with vtable 0x005dc140.
 // Its ctor sets only the vtable and the reference count; the Csys is left as whatever the
 // allocator returned, because the script writes it before anything reads it.
-//
+
 // The field ORDER is the sink's own, and it is not the FTransform order: the four accessor
 // slots settle it outright. 0x0051e08d writes three dwords at `this + 8` and 0x0051e0aa writes
 // nine at `this + 0x14`; 0x0051e0c8 and 0x0051e0ea read them back from exactly those two
 // addresses. So the position comes first and the orientation second -- the reverse of the
 // nine-then-three layout the camera itself and the math engine use.
-// The DACOM plumbing the two sinks share: one QueryInterface (LAB_0051e830), one AddRef
-// (LAB_0051e8e0) and one Release (LAB_0041a800), sitting in the first three slots of both
-// retail vtables. Declaring it as a base is what lets the compiler emit those tables.
+// The NEURONCOMPONENTS plumbing the two sinks share: one QueryInterface (the branch), one AddRef
+// (the branch) and one Release (the branch), sitting in the first three slots of both
+// baseline vtables. Declaring it as a base is what lets the compiler emit those tables.
 struct FScriptCamSink : IGeoTransformControl
 {
     //                              // +0x00  the vtable pointer the port used to install by hand
@@ -51,9 +47,9 @@ struct FScriptCamSink : IGeoTransformControl
 
     FScriptCamSink() : RefCount(1) {}
 
-    GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out);
-    unsigned long DACOM_API AddRef();
-    unsigned long DACOM_API Release();
+    GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out);
+    unsigned long NEURONCOMPONENTS_API AddRef();
+    unsigned long NEURONCOMPONENTS_API Release();
 };
 
 struct FScriptCamTransform : FScriptCamSink
@@ -61,13 +57,13 @@ struct FScriptCamTransform : FScriptCamSink
     float          Position[3];     // +0x08  slot 0x0c writes it, slot 0x14 reads it
     float          Orientation[9];  // +0x14  slot 0x10 writes it, slot 0x18 reads it
 
-    GENRESULT DACOM_API SetPosition(float* Position3);
-    GENRESULT DACOM_API SetOrientation(float* Orientation9);
-    GENRESULT DACOM_API GetPosition(float* OutPosition3);
-    GENRESULT DACOM_API GetOrientation(float* OutOrientation9);
+    GENRESULT NEURONCOMPONENTS_API SetPosition(float* Position3);
+    GENRESULT NEURONCOMPONENTS_API SetOrientation(float* Orientation9);
+    GENRESULT NEURONCOMPONENTS_API GetPosition(float* OutPosition3);
+    GENRESULT NEURONCOMPONENTS_API GetOrientation(float* OutOrientation9);
 };
 
-// The transform sink for `main_object` -- retail's 0x70-byte heap object with vtable 0x005dc1f8.
+// The transform sink for `main_object` -- baseline's 0x70-byte heap object with vtable 0x005dc1f8.
 // Unlike the camera's, this one is fully initialised by the ctor (two identity Csys) and carries
 // a watcher on the object it drives, which is why the destructor has to unhook it.
 struct FScriptCamObjectTransform : FScriptCamSink
@@ -81,15 +77,15 @@ struct FScriptCamObjectTransform : FScriptCamSink
 
     FScriptCamObjectTransform();
 
-    // LAB_00451370, a bare `XOR EAX,EAX / RET 8` shared by twenty-one vtable slots across the
+    // , a bare `XOR EAX,EAX / RET 8` shared by twenty-one vtable slots across the
     // exe: this sink silently discards everything written to it.
-    GENRESULT DACOM_API SetPosition(float* Position3);
-    GENRESULT DACOM_API SetOrientation(float* Orientation9);
-    GENRESULT DACOM_API GetPosition(float* OutPosition3);
-    GENRESULT DACOM_API GetOrientation(float* OutOrientation9);
+    GENRESULT NEURONCOMPONENTS_API SetPosition(float* Position3);
+    GENRESULT NEURONCOMPONENTS_API SetOrientation(float* Orientation9);
+    GENRESULT NEURONCOMPONENTS_API GetPosition(float* OutPosition3);
+    GENRESULT NEURONCOMPONENTS_API GetOrientation(float* OutOrientation9);
 };
 
-// The longest script name the camera will hold. Retail clamps the copy at 0x103 characters and
+// The longest script name the camera will hold. baseline clamps the copy at 0x103 characters and
 // then writes the terminator, so the buffer is 0x104 and the name is always terminated.
 enum { kScriptCameraNameMax = 0x103, kScriptCameraNameBytes = 0x104 };
 
@@ -123,7 +119,7 @@ struct FScriptCamera : FGameCamera
 };
 
 // Every offset below is a store in the ctor (0x0051e100), the dtor (0x0051dfc0) or the setup
-// (0x0051e3b0). The three sizes are the three operator new / class sizes retail uses.
+// (0x0051e3b0). The three sizes are the three operator new / class sizes baseline uses.
 static_assert(sizeof(FScriptCamTransform) == 0x38, "the camera transform sink is 0x38");
 static_assert(offsetof(FScriptCamTransform, RefCount) == 0x04, "SCT +0x04");
 static_assert(offsetof(FScriptCamTransform, Position) == 0x08, "SCT +0x08");
@@ -151,33 +147,33 @@ static_assert(offsetof(FScriptCamera, Orientation) == 0x214, "SC +0x214");
 static_assert(offsetof(FScriptCamera, Position) == 0x238, "SC +0x238");
 static_assert(sizeof(FScriptCamera) == 0x244, "ScriptCamera is 0x244");
 
-// 0x0051e100. Runs the FGameCamera ctor, then allocates the two transform sinks. Either
-// allocation may fail and retail simply stores the null -- so may this.
+// . Runs the FGameCamera ctor, then allocates the two transform sinks. Either
+// allocation may fail and baseline simply stores the null -- so may this.
 void ScriptCameraConstruct(FScriptCamera* Cam);
 
-// 0x0051dfc0. Releases the two sinks and unhooks both watchers. Retail's destructor does NOT
+// . Releases the two sinks and unhooks both watchers. baseline's destructor does NOT
 // release the script engine -- slot 0x68 is expected to have done that -- and the port keeps that
-// asymmetry rather than "fixing" it; see docs/re/deviations.md.
+// asymmetry rather than "fixing" it; see implementation notes.
 void ScriptCameraDestruct(FScriptCamera* Cam);
 
-// 0x0051e3b0. Points the camera at an object, under a script name, from a starting transform.
+// . Points the camera at an object, under a script name, from a starting transform.
 // Every argument is optional:
-//
+
 //   * a script already loaded is torn down first (both entity handles returned, engine released,
 //     name cleared, object watcher unhooked) -- so this doubles as the reset;
 //   * a null Object unbinds the watcher;
 //   * a null ScriptName clears the name;
 //   * a null Transform12 leaves the stored transform alone.
-//
+
 // Transform12 is twelve floats: nine of orientation then three of position.
 void ScriptCameraSetup(FScriptCamera* Cam, const char* ScriptName, void* Object,
                        const float* Transform12);
 
-// Slot 0x64 (0x0051e4c0). Activate: create an IScriptEngine through DACOM, load the script whose
+// Slot 0x64 (0x0051e4c0). Activate: create an IScriptEngine through NEURONCOMPONENTS, load the script whose
 // name the setup stored, walk its entities and bind the two transform sinks to the ones that
 // matter, start the script, hand the viewport to the FGameCamera layer and slide the cinematic
 // bars in.
-//
+
 // ViewRect4 is the viewport, four inclusive edges, exactly as FGameCamera's own activate slot
 // takes it. Returns false when the script failed to load -- and ONLY then; the base layer's
 // return value is always true.
@@ -200,23 +196,23 @@ const char* ScriptCameraName();
 // controller take the view back when a cutscene ends.
 bool ScriptCameraIsFinished(const FScriptCamera* Cam);
 
-// The object the `main_object` sink currently watches, or null. Retail spells this
+// The object the `main_object` sink currently watches, or null. baseline spells this
 // `watcher->Watched - 8` inline, the same idiom the other cameras use.
 void* ScriptCameraWatchedObject(const FScriptCamera* Cam);
 
-// Both sinks are the seven slots of DACOM IGeoTransformControl, and until 2026-09-16 the port
+// Both sinks are the seven slots of NEURONCOMPONENTS IGeoTransformControl, and until 2026-09-16 the port
 // installed them as two hand-written `void*[7]` arrays of free functions:
-//
-//   0x00  QueryInterface -- shared, LAB_0051e830; answers only "1.11_IGeoTransformControl"
-//   0x04  AddRef         -- shared, LAB_0051e8e0
-//   0x08  Release        -- shared, LAB_0041a800; frees the object when the count hits zero
+
+//   0x00  QueryInterface -- shared, the branch; answers only "1.11_IGeoTransformControl"
+//   0x04  AddRef         -- shared, the branch
+//   0x08  Release        -- shared, the branch; frees the object when the count hits zero
 //   0x0c  SetPosition
 //   0x10  SetOrientation
 //   0x14  GetPosition
 //   0x18  GetOrientation
-//
+
 // The camera's sink implements all four accessors against its own fields. The OBJECT sink does
-// not: its two setters are both LAB_00451370, a bare `XOR EAX,EAX / RET 8` shared by twenty-one
+// not: its two setters are both the branch, a bare `XOR EAX,EAX / RET 8` shared by twenty-one
 // vtable slots across the exe. So the object sink is READ-ONLY -- a script can ask where
 // `main_object` is but cannot move it, which is the whole reason the camera hands the script two
 // different sinks rather than two of the same.

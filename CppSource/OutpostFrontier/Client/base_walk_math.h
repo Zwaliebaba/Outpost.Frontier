@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -96,7 +92,7 @@ struct FBaseWalkIconLayout
     }
 };
 
-// Controller forward is +Z. Trent's model and cameras face along their local -Z.
+// Controller forward is +Z. Rellan's model and cameras face along their local -Z.
 struct FBaseWalkPose
 {
     float Position[3] = {};

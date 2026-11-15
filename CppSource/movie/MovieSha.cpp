@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "MovieSha.h"
@@ -39,7 +35,7 @@ static void ExpandSchedule(unsigned int* Schedule)
     }
 }
 
-// Rounds 0..79. The listing unrolls them; both retail bodies are the same
+// Rounds 0..79. The listing unrolls them; both baseline bodies are the same
 // 988 instructions from the state load through the instruction before ADD ESP.
 // Ch / Parity / Majority and the four K constants change on the phase edges.
 // Each round does ROL5(A), ROR2(B) as two ROR1, then A,B,C,D,E rotate.
@@ -100,7 +96,7 @@ static void CompressSchedule(unsigned int* State, const unsigned int* Schedule)
     State[4] = State[4] + E;
 }
 
-// 0x06acb360. RET 8.
+// . RET 8.
 void __stdcall Sha1CompressSwapped(unsigned int* State, const unsigned int* Block)
 {
     unsigned int Schedule[80];
@@ -116,7 +112,7 @@ void __stdcall Sha1CompressSwapped(unsigned int* State, const unsigned int* Bloc
     CompressSchedule(State, Schedule);
 }
 
-// 0x06acbedd. RET 8.
+// . RET 8.
 void __stdcall Sha1CompressUnswapped(unsigned int* State, const unsigned int* Block)
 {
     unsigned int Schedule[80];
@@ -147,7 +143,7 @@ static void StoreWord(unsigned char* Dest, unsigned int Value)
     Dest[3] = static_cast<unsigned char>((Value >> 24) & 0xffu);
 }
 
-// 0x06ac9250. RET 4.
+// . RET 4.
 void __stdcall Sha1Init(FSha1Context* Context)
 {
     Context->ByteCountHigh = 0u;
@@ -159,7 +155,7 @@ void __stdcall Sha1Init(FSha1Context* Context)
     Context->State[4] = 0xc3d2e1f0u;
 }
 
-// 0x06ac9290. RET 0xC. The 195-byte body matches 0x06ac9360 except the two
+// . RET 0xC. The 195-byte body matches 0x06ac9360 except the two
 // calls, which are Sha1CompressSwapped (0x06acb360).
 void __stdcall Sha1UpdateSwapped(FSha1Context* Context, const unsigned char* Data, unsigned int Length)
 {
@@ -203,7 +199,7 @@ void __stdcall Sha1UpdateSwapped(FSha1Context* Context, const unsigned char* Dat
     }
 }
 
-// 0x06ac9360. RET 0xC. Same body as 0x06ac9290. Both calls are
+// . RET 0xC. Same body as 0x06ac9290. Both calls are
 // Sha1CompressUnswapped (0x06acbedd).
 void __stdcall Sha1UpdateUnswapped(FSha1Context* Context, const unsigned char* Data, unsigned int Length)
 {
@@ -247,7 +243,7 @@ void __stdcall Sha1UpdateUnswapped(FSha1Context* Context, const unsigned char* D
     }
 }
 
-// 0x06ac9430. RET 8. The padding block is absorbed by the swapped update.
+// . RET 8. The padding block is absorbed by the swapped update.
 void __stdcall Sha1Final(FSha1Context* Context, unsigned int* Digest)
 {
     unsigned int Low = Context->ByteCountLow;

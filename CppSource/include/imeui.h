@@ -1,15 +1,11 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
 // imeui.dll public surface вЂ” IMEFocus crosses into OutpostFrontier.exe.
 // Declared once here; src/imeui/IMEFocus.h is a thin redirect.
-//
-// Retail layout (imeui.dll ctor 067112c0 + client FUN_00564060):
+
+// baseline layout (imeui.dll ctor 067112c0 + client the routine):
 //   +0x00 vtable
 //   +0x04 byte copied from constructor HWND; padding through +0x07
 //   +0x08 list dummy node* (intrusive, node+0x08 = IMEInputBox*)
@@ -37,16 +33,16 @@ class CImeUiFont;
 // ---------------------------------------------------------------------------------------------
 // CCaret / CInputBox / IMEInputBox -- the input-box half of imeui.dll. OutpostFrontier.exe derives
 // its own box from IMEInputBox (FLImeInputBox, vftable 0x005e2250), so the classes are public.
-// The access specifiers are part of the retail exported names (`U` public virtual, `M`
+// The access specifiers are part of the baseline exported names (`U` public virtual, `M`
 // protected virtual, `I` protected). Full classes are exported by IMEUI_API.
-//
-// Retail vtables (EXE\Disasm\imeui.dll.txt 0x06717188 / 0x067171b4):
+
+// baseline vtables (imeui 0x06717188 / 0x067171b4):
 //   CInputBox    0 dtor, 1 OnSetFocus, 2 OnKillFocus, 3 Resize, 4 HandleKey, 5 CharFilter,
 //                6 UpdatedText (folded with ImeShowToolbar's RET 4 body), 7 ToggleInsertMode,
 //                8 MoveCaret, 9 CalcCaretPos (_purecall in CInputBox), 10 RecalcCaretPos
 //   IMEInputBox  the same eleven, then 11 and 12 _purecall and 13 ImeShowToolbar.
 // Slot 11 is called by IMEFocus::Draw (0x067113fb) on every registered box with the draw
-// context; slot 12 by the IME font's draw (FUN_06712410, 0x0671242e) on its owner box with
+// context; slot 12 by the IME font's draw (the routine, 0x0671242e) on its owner box with
 // (x, y, colour, text). OutpostFrontier.exe's box overrides both (0x0053e4a0, 0x005643f0).
 
 class IMEUI_API CCaret
@@ -162,7 +158,7 @@ public:
     CImeUiFont* m_pFont;        // +0x90
 };
 
-// Retail font contract, tables 06717140 and 067171ec: five methods, no destructor slot.
+// baseline font contract, tables 06717140 and 067171ec: five methods, no destructor slot.
 class CImeUiFont_Base
 {
 public:
@@ -198,7 +194,7 @@ struct _IMEUI_APPEARANCE
 static_assert(sizeof(_IMEUI_APPEARANCE) == 0x3c, "IME appearance field contract");
 typedef struct _IMEUI_APPEARANCE IMEUI_APPEARANCE;
 
-// Intrusive list node вЂ” retail operator_new(0xc) in IMEFocus ctor.
+// Intrusive list node вЂ” baseline operator_new(0xc) in IMEFocus ctor.
 struct FIMEBoxNode
 {
     FIMEBoxNode* Next; // +0x00
@@ -216,10 +212,10 @@ public:
 
     IMEFocus& operator=(const IMEFocus& other);
 
-    // Client overwrites vtable PTR_FUN_005e2210:
-    // +0x00 FUN_00564150 dtor, +0x04 LAB_00563e70 DrawRect, +0x08 LAB_00563cf0 DrawTextW.
+    // Client overwrites vtable the routine:
+    // +0x00 the routine dtor, +0x04 the branch DrawRect, +0x08 the branch DrawTextW.
     virtual void DrawRect(int X1, int Y1, int X2, int Y2, DWORD Color) = 0;
-    // LAB_06711150 push order в†’ (TextW, Color, LayoutBuf, EntryCount).
+    // push order в†’ (TextW, Color, LayoutBuf, EntryCount).
     // Layout entries are 0x20 bytes (float X/Y + RGB at +0x10); Count>1 draws underlines.
     virtual void DrawTextW(const wchar_t* Text, unsigned Color, void* Layout, unsigned Count) = 0;
 
@@ -264,4 +260,4 @@ public:
 #pragma pack(pop)
 
 static_assert(sizeof(void*) == 4, "IMEFocus is 32-bit");
-static_assert(sizeof(IMEFocus) == 0x18, "retail IMEFocus base through +0x17");
+static_assert(sizeof(IMEFocus) == 0x18, "baseline IMEFocus base through +0x17");

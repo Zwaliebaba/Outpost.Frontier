@@ -1,32 +1,28 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
-// Retail NN_GroupControl (RTTI .?AVNN_GroupControl@@ : WinControl) -- the multiplayer group /
-// trade request window. One instance: ChatInit (FUN_004690c0) builds it through
-// WINFACTORY<NN_GroupControl> DAT_0066d8f4 ("NN_GroupControl", create FUN_0046c000,
-// operator_new(0x4a4)) and keeps it in DAT_0066da84 (G_ChatGroupControl).
-//
+// baseline NN_GroupControl (RTTI .?AVNN_GroupControl@@ : WinControl) -- the multiplayer group /
+// trade request window. One instance: ChatInit (the routine) builds it through
+// WINFACTORY<NN_GroupControl> the field ("NN_GroupControl", create the routine,
+// operator_new(0x4a4)) and keeps it in the field (G_ChatGroupControl).
+
 // vftable 0x005cf124 (45 slots, WinControl's except):
-//   0 FUN_00460090 (scalar deleting dtor around FUN_00460170)
-//   9 FUN_00460550 Create           10 LAB_00460540 (JMP FUN_0059fb60, WinControl::Destroy)
-//  11 FUN_00462ba0 Update           12 LAB_00462ab0 UpdateInactive
-//  23 FUN_00462a40 Slot23           42 LAB_00462bd0 SetProperty
+//   0 the routine (scalar deleting dtor around the routine)
+//   9 the routine Create           10 the branch (JMP the routine, WinControl::Destroy)
+//  11 the routine Update           12 the branch UpdateInactive
+//  23 the routine Slot23           42 the branch SetProperty
 // The IDataViewOwner face at +0x7c keeps WinControl's two entries.
-//
-// Layout (ctor FUN_0045fd70):
+
+// Layout (ctor the routine):
 //   +0x000 WinControl (0x32c)
-//   +0x32c FChatChannelTable* (FUN_00460520; the chat's DAT_0066da7c)
+//   +0x32c FChatChannelTable* (the routine; the chat's the field)
 //   +0x330 the table generation last shown
 //   +0x334 CHAT_ID of the request on show (G_ChatIdNone when none)
 //   +0x338 its ship id (0: a group invitation, else a trade request)
 //   +0x33c dword, ctor 0, no other access in the listing
-//   +0x340 set<CHAT_ID> -- the local player's group (0x14 VC6 tree; ctor FUN_0046d100)
-//   +0x354 list<FNnGroupRequest> -- pending requests, oldest first (FUN_00489f40 sentinel)
+//   +0x340 set<CHAT_ID> -- the local player's group (0x14 VC6 tree; ctor the routine)
+//   +0x354 list<FNnGroupRequest> -- pending requests, oldest first (the routine sentinel)
 //   +0x360 .. +0x480  25 RenderDisplayList texts (ENnGroupText)
 //   +0x48c BtnClose, +0x490 BtnLeave, +0x494 BtnAccept, +0x498 BtnDecline,
 //   +0x49c RichTextWin "RequestDisplay", +0x4a0 RichTextWin "AttentionTitle"
@@ -49,7 +45,7 @@ struct FNnGroupRequest
     unsigned ShipId;    // +0x10 0 = group invitation, else the trading ship's object id
 };
 
-// The 25 texts at +0x360 + 0xc * index, in address order. FUN_00460550 loads them.
+// The 25 texts at +0x360 + 0xc * index, in address order. the routine loads them.
 enum ENnGroupText
 {
     kNnGroupTextLeaveGroup = 0,         // +0x360 style 0x828b, IDS 0x60020
@@ -83,32 +79,32 @@ enum ENnGroupText
 class NnGroupControl : public WinControl
 {
 public:
-    // FUN_0045fd70
+
     NnGroupControl();
-    // FUN_00460170
+
     ~NnGroupControl() override;
 
-    // slot 9 FUN_00460550 (RET 8)
+    // slot 9 the routine (RET 8)
     bool Create(Win3D* NewParent, void* Data) override;
-    // slot 11 FUN_00462ba0
+    // slot 11 the routine
     void Update() override;
-    // slot 12 LAB_00462ab0
+    // slot 12 the branch
     void UpdateInactive() override;
-    // slot 23 FUN_00462a40 (RET 0xc) -- 0xef01 / 0xef02
+    // slot 23 the routine (RET 0xc) -- 0xef01 / 0xef02
     bool Slot23(unsigned Msg, unsigned A, unsigned B) override;
-    // slot 42 LAB_00462bd0 (RET 0xc) -- 0x26, a child button clicked
+    // slot 42 the branch (RET 0xc) -- 0x26, a child button clicked
     intptr_t SetProperty(int Msg, uintptr_t A, uintptr_t B) override;
 
-    // FUN_00460520 (RET 4) -- +0x32c = Table, then FUN_00462e30.
+    // (RET 4) -- +0x32c = Table, then the routine.
     void SetChannelTable(FChatChannelTable* Table);
-    // FUN_00462a30 (thiscall on a control) -- Flags |= 3. Create calls it on BtnDecline.
+    // (thiscall on a control) -- Flags |= 3. Create calls it on BtnDecline.
     static void ShowControl(Win3D* Control);
-    // FUN_00462e30 -- show the oldest request (or "no invitations") and the buttons that go
+    // show the oldest request (or "no invitations") and the buttons that go
     // with it.
     void RefreshRequestDisplay();
-    // FUN_004632f0 (RET 4) -- a trade request from the ship ShipId (ChatGroupTradeRequestReceived).
+    // (RET 4) -- a trade request from the ship ShipId (ChatGroupTradeRequestReceived).
     void AddTradeRequest(unsigned ShipId);
-    // FUN_00463630 (RET 8) -- the group wire message (ChatDispatchIncoming, channel {4, 1}).
+    // (RET 8) -- the group wire message (ChatDispatchIncoming, channel {4, 1}).
     void HandleInviteMessage(void const* Buffer, unsigned SizeBytes);
 
     FChatChannelTable* ChannelTable;            // +0x32c
@@ -131,8 +127,8 @@ private:
     NnGroupControl& operator=(NnGroupControl const&) = delete;
 };
 
-// FUN_0045e360 (cdecl) -- one 8-byte group-channel record {Opcode, Player's low word} from this
+// (cdecl) -- one 8-byte group-channel record {Opcode, Player's low word} from this
 // player (G_ChatServer SubmitChat to G_ChatIdGroupInvite, system id -1); nothing without a chat
 // server. Caller: HUD_Target's invite command 0xc9 (0x004e2cb7, opcode 0 with the target's
-// owner). LAB_00462bd0 builds the same record inline for opcodes 1 and 2.
+// owner). the branch builds the same record inline for opcodes 1 and 2.
 void NnGroupSendWireMessage(unsigned Opcode, CHAT_ID Player);

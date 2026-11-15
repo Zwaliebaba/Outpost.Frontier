@@ -1,35 +1,31 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "nn_blocking_dialog.h"
 
 #include "globals.h"            // PushClientTimingPause / PopClientTimingPause
-#include "input_manager.h"      // MouseSetCursor (FUN_0041dde0)
+#include "input_manager.h"      // MouseSetCursor (the routine)
 #include "nn_modal.h"
-#include "space_letterbox.h"    // IsLetterboxVisible (FUN_0041a3e0)
+#include "space_letterbox.h"    // IsLetterboxVisible (the routine)
 #include "win3d.h"
-#include "win3d_renderables.h"  // Win3DFlushBeforeOverlayDraw (FUN_0045a9f0)
+#include "win3d_renderables.h"  // Win3DFlushBeforeOverlayDraw (the routine)
 #include "win_factory.h"
 
-// Retail DAT_0066db9c -- WINFACTORY<BlockingDialog> static (LAB_00472150 -> FUN_00474750; Create
-// FUN_004747c0; atexit LAB_00472170 -> FUN_00579380).
+// WINFACTORY<BlockingDialog> static (the branch -> the routine; Create
+// ; atexit the branch -> the routine).
 WINFACTORY<BlockingDialog> G_BlockingDialogFactory("BlockingDialog");
 
 BlockingDialog::BlockingDialog()
     : bCursorDrawFlag(1)
 {
-    // FUN_004747c0 004747fb..0047481e: FUN_0059f860, vptrs, byte +0x32c = 1, FUN_0042d6c0,
-    // INC DAT_0067dccc.
+    // 004747fb..0047481e: the routine, vptrs, byte +0x32c = 1, the routine,
+    // INC the field.
     PushClientTimingPause();
     G_ModalCaptureCount = G_ModalCaptureCount + 1;
 }
 
 BlockingDialog::~BlockingDialog()
 {
-    // FUN_00474420: DEC DAT_0067dccc, FUN_0059d8c0(0), FUN_0042d6d0; then FUN_0059fa50 as the
+    // DEC the field, the routine(0), the routine; then the routine as the
     // base-class destructor.
     G_ModalCaptureCount = G_ModalCaptureCount - 1;
     Win3DSetKeyFocus(nullptr);
@@ -38,35 +34,35 @@ BlockingDialog::~BlockingDialog()
 
 bool BlockingDialog::Create(Win3D* NewParent, void* Data)
 {
-    // FUN_00474490 (RET 8).
-    // 00474494..0047449d: FUN_0041dde0("Arrow", 0) -- the Mouse.cpp cursor shape.
+    // (RET 8).
+    // the routine("Arrow", 0) -- the Mouse.cpp cursor shape.
     MouseSetCursor("Arrow", false);
 
-    // 004744a2 / 004744a9
+    // / 004744a9
     DrawLayer = 0x64;
     DrawSubLayer = 6;
-    // 004744b0..004744bc
+
     bCursorDrawFlag = NnModalPauseGame();
     Win3DSetKeyFocus(this);
-    // 004744c1..004744f7: +0xb4 = {2.0f, 2.0f, 0.0f}.
+    // +0xb4 = {2.0f, 2.0f, 0.0f}.
     HalfExtents[0] = 2.0f;
     HalfExtents[1] = 2.0f;
     HalfExtents[2] = 0.0f;
 
-    // 00474502: FUN_004b5060, SETNZ.
+    // the routine, SETNZ.
     return Win3D::Create(NewParent, Data);
 }
 
 void BlockingDialog::Draw()
 {
-    // FUN_00488960.
-    Win3DFlushBeforeOverlayDraw(); // FUN_0045a9f0
-    WinControl::Draw();            // JMP FUN_005a0760
+    // .
+    Win3DFlushBeforeOverlayDraw();
+    WinControl::Draw();            // JMP the routine
 }
 
 void BlockingDialogOpen()
 {
-    // FUN_00474520.
+    // .
     if (Win3DFindByClassName("BlockingDialog") != nullptr)
         return;
     Win3D* const Created =
@@ -81,12 +77,12 @@ void BlockingDialogOpen()
 
 void BlockingDialogClose()
 {
-    // FUN_00474590.
+    // .
     Win3D* const Found = Win3DFindByClassName("BlockingDialog");
     if (Found == nullptr)
         return;
     BlockingDialog* const Dialog = static_cast<BlockingDialog*>(Found);
-    // 004745a4..004745ad
+
     if (IsLetterboxVisible())
         Dialog->bCursorDrawFlag = 0;
     NnModalResumeGame(Dialog->bCursorDrawFlag);

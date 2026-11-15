@@ -1,31 +1,27 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
-// Retail Client\Space\GateTunnel.cpp (path string .rdata 0x005da560) -- the jump tunnel a
+// baseline Client\Space\GateTunnel.cpp (path string .rdata 0x005da560) -- the jump tunnel a
 // player ship flies through, loaded from the [Data] gate_tunnels INI and driven by the
 // JumpShipEffect (Ship +0x188) that finds it by its jump_tunnel id.
-//
-// Class GateTunnel: operator new(0x2b8), constructor FUN_004fee30, vtable 0x005da71c
-//   slot 0 FUN_004ff070  scalar deleting destructor (body FUN_004ff0d0)
-//   slot 1 FUN_00501080  EnterState0 -- reset the clocks and the ship
-//   slot 2 LAB_005010b0  EnterState1 -- rebuild every curve, create the tunnel light
-//   slot 3 LAB_00501290  EnterState2 -- restart the speed clock
-//   slot 4 FUN_005012a0  EnterState3 -- release the tunnel light
-// and its members SetState FUN_004ff360, SetShip FUN_004ff3b0, Update FUN_004ff3c0, Draw
-// FUN_004ffab0 (+ BuildFrame FUN_004ffbb0, EmitLayer FUN_004ffe50), RebuildPath FUN_00500a80,
-// RebuildColorOffsets FUN_00500de0. The nine 0x28-byte spline curves are FGateTunnelCurve
-// (FUN_00501720 / FUN_005012e0 / FUN_00501470 / FUN_00501750 / FUN_00501810, the solver
-// FUN_005018a0 and the cubic FUN_00501c40). The list DAT_00674f9c is filled by GateTunnelIniLoad
-// (FUN_004fe1c0, 0x0054ac92) and emptied by GateTunnelsClear (FUN_004fe180, 0x0054afbb).
-//
-// Layout note: retail's curves hold VC6 std::vectors (allocator byte, first, last, end); the
-// port holds ours, so the class is not byte-compatible with retail past +0xc8 and nothing may
-// address it by raw offset. Offsets below are retail's, for tracing.
+
+// Class GateTunnel: operator new(0x2b8), constructor the routine, vtable 0x005da71c
+//   slot 0 the routine  scalar deleting destructor (body the routine)
+//   slot 1 the routine  EnterState0 -- reset the clocks and the ship
+//   slot 2 the branch  EnterState1 -- rebuild every curve, create the tunnel light
+//   slot 3 the branch  EnterState2 -- restart the speed clock
+//   slot 4 the routine  EnterState3 -- release the tunnel light
+// and its members SetState the routine, SetShip the routine, Update the routine, Draw
+// (+ BuildFrame the routine, EmitLayer the routine), RebuildPath the routine,
+// RebuildColorOffsets the routine. The nine 0x28-byte spline curves are FGateTunnelCurve
+// (the routine / the routine / the routine / the routine / the routine, the solver
+// and the cubic the routine). The list the field is filled by GateTunnelIniLoad
+// (the routine, 0x0054ac92) and emptied by GateTunnelsClear (the routine, 0x0054afbb).
+
+// Layout note: baseline's curves hold VC6 std::vectors (allocator byte, first, last, end); the
+// port holds ours, so the class is not byte-compatible with baseline past +0xc8 and nothing may
+// address it by raw offset. Offsets below are baseline's, for tracing.
 
 #include "common_csys.h"
 #include "common_id.h"
@@ -47,36 +43,36 @@ struct FGateTunnelCoeff
     float C3; // +0x0c
 };
 
-// FUN_00501c40 (thiscall on the segment, RET 4) -- the cubic at T, left on the FPU.
+// (thiscall on the segment, RET 4) -- the cubic at T, left on the FPU.
 double GateTunnelCoeffEval(FGateTunnelCoeff const* Coeff, float T);
 
-// FUN_005018a0 (cdecl) -- the natural-end cubic spline through Y[0..N] (tridiagonal solve for
+// (cdecl) -- the natural-end cubic spline through Y[0..N] (tridiagonal solve for
 // the tangents D, then Out[i] = {Y[i], D[i], 3(Y[i+1]-Y[i]) - 2D[i] - D[i+1],
 // 2(Y[i]-Y[i+1]) + D[i] + D[i+1]}). Out is emptied and resized to N segments.
 void GateTunnelSolveSpline(float const* Y, int N, std::vector<FGateTunnelCoeff>* Out);
 
-// A random spline (0x28 bytes in retail): the control values, their segments and the range new
+// A random spline (0x28 bytes in baseline): the control values, their segments and the range new
 // control values are drawn from.
 struct FGateTunnelCurve
 {
-    // FUN_00501720 + the ctor's `[+0x20] = 0, [+0x24] = 1.0f`.
+    // + the ctor's `[+0x20] = 0, [+0x24] = 1.0f`.
     FGateTunnelCurve();
 
-    // FUN_00501810 (thiscall, RET 4) -- the curve at T in [0, 1]: T == 1 gives the last control
+    // (thiscall, RET 4) -- the curve at T in [0, 1]: T == 1 gives the last control
     // value, anything else the segment floor(Count * T) at the fraction. Left on the FPU.
     double Sample(float T) const;
 
-    // FUN_005012e0 (thiscall, RET 0x14) -- Count control values drawn uniformly from
+    // (thiscall, RET 0x14) -- Count control values drawn uniformly from
     // [Minimum, Maximum] (which become the curve's range), the first ZeroHead and the last
     // ZeroTail forced to 0, then the spline.
     void Randomize(int Count, float Minimum, float Maximum, int ZeroHead, int ZeroTail);
 
-    // FUN_00501470 (thiscall, RET 4) -- with Shift >= 8 and at least 8 control values: the
+    // (thiscall, RET 4) -- with Shift >= 8 and at least 8 control values: the
     // last Shift values move to the front, the rest are redrawn from the range, the spline is
     // rebuilt, and -((Count - Shift) / (Count - 1)) (integer division) comes back; otherwise 0.
     double Scroll(int Shift);
 
-    // FUN_00501750 (thiscall, RET 0xc) -- Count control values read from Source with a Stride
+    // (thiscall, RET 0xc) -- Count control values read from Source with a Stride
     // of floats, then the spline.
     void SetFromSamples(int Count, float const* Source, int Stride);
 
@@ -86,8 +82,8 @@ struct FGateTunnelCurve
     float Maximum;                           // +0x24
 };
 
-// One render layer (0x34 bytes, two at +0xc). Constructor LAB_004ff090 and destructor
-// FUN_00426de0 are FTextureRef's; the rest is set by the loader's [layer] section.
+// One render layer (0x34 bytes, two at +0xc). Constructor the branch and destructor
+// are FTextureRef's; the rest is set by the loader's [layer] section.
 struct FGateTunnelLayer
 {
     FTextureRef Texture;  // +0x00 texture (a G_EffectShapeDB shape's record)
@@ -107,9 +103,9 @@ struct FGateTunnelLayer
 // A struct (not a class) because jump_effect.h forward-declares it as one.
 struct FGateTunnel
 {
-    // FUN_004fee30.
+    // .
     FGateTunnel();
-    // slot 0: FUN_004ff070 / FUN_004ff0d0.
+    // slot 0: the routine / the routine.
     virtual ~FGateTunnel();
     // slots 1..4, reached through SetState.
     virtual void EnterState0();
@@ -120,21 +116,21 @@ struct FGateTunnel
     FGateTunnel(FGateTunnel const&) = delete;
     FGateTunnel& operator=(FGateTunnel const&) = delete;
 
-    // FUN_004ff360 (thiscall, RET 4): State = NewState, then slot 1 + NewState for 0..3.
+    // (thiscall, RET 4): State = NewState, then slot 1 + NewState for 0..3.
     // Callers: the JumpShipEffect methods 0x00503eb4 / 0x00504221 / 0x00504481 / 0x00504652.
     void SetState(int NewState);
-    // FUN_004ff3c0 (thiscall, RET 4). Caller: FUN_00503cd0 (0x00503cf8).
+    // (thiscall, RET 4). Caller: the routine (0x00503cf8).
     void Update(float Dt);
-    // FUN_004ffab0 (thiscall, RET 4). Caller: FUN_00504890, the JumpShipEffect's tunnel draw.
+    // (thiscall, RET 4). Caller: the routine, the JumpShipEffect's tunnel draw.
     void Draw(FSpaceCamera* Camera);
-    // FUN_004ffbb0 (thiscall, RET 8): the path frame at T -- columns (left, up, forward), the
+    // (thiscall, RET 8): the path frame at T -- columns (left, up, forward), the
     // point on the path as translation.
     void BuildFrame(FTransform* Out, float T) const;
-    // FUN_004ffe50 (thiscall, RET 0x10): one layer's ring strips from T0 to T1.
+    // (thiscall, RET 0x10): one layer's ring strips from T0 to T1.
     void EmitLayer(float T0, float T1, FGateTunnelLayer* Layer, int LayerIndex);
-    // FUN_00500a80 (thiscall, RET 4).
+    // (thiscall, RET 4).
     void RebuildPath(int Shift);
-    // FUN_00500de0 (thiscall, RET 4).
+    // (thiscall, RET 4).
     void RebuildColorOffsets(int Shift);
 
     ID_String Id;                  // +0x004 nickname ("default")
@@ -166,8 +162,8 @@ struct FGateTunnel
     FGateTunnelCurve ColorOffsetR; // +0x1b8 [min_rgb.x, max_rgb.x]
     FGateTunnelCurve ColorOffsetG; // +0x1e0 [min_rgb.y, max_rgb.y]
     FGateTunnelCurve ColorOffsetB; // +0x208 [min_rgb.z, max_rgb.z]; EmitLayer reads R for B
-    Transform Frame;               // +0x230 the path's world frame (FUN_00503440 sets it)
-    FClientShipGameobj* Ship;      // +0x260 FUN_004ff3b0
+    Transform Frame;               // +0x230 the path's world frame (the routine sets it)
+    FClientShipGameobj* Ship;      // +0x260 the routine
     float SpeedClock;              // +0x264
     unsigned Field_0x268;          // +0x268 TODO: no reader or writer found yet
     int SegmentIndex;              // +0x26c
@@ -179,31 +175,31 @@ struct FGateTunnel
     Vector LightDirection;         // +0x2ac
 };
 
-// DAT_00674f98 (allocator byte; first DAT_00674f9c, last DAT_00674fa0, end DAT_00674fa4) -- the
-// loaded tunnels, a VC6 vector of pointers built by the static initializer LAB_004fe0c0
-// (FUN_0059ec40). Its atexit destructor (LAB_004fe0e0 -> FUN_004fe0f0) owns the elements: every
+// (allocator byte; first the field, last the field, end the field) -- the
+// loaded tunnels, a VC6 vector of pointers built by the static initializer the branch
+// (the routine). Its atexit destructor (the branch -> the routine) owns the elements: every
 // non-null tunnel still listed is deleted through slot 0 before the storage is freed.
 struct FGateTunnelList : std::vector<FGateTunnel*>
 {
     FGateTunnelList() = default;
     FGateTunnelList(FGateTunnelList const&) = delete;
     FGateTunnelList& operator=(FGateTunnelList const&) = delete;
-    // FUN_004fe0f0.
+    // .
     ~FGateTunnelList();
 };
 extern FGateTunnelList G_GateTunnels;
 
-// FUN_004fedd0 (cdecl) -- the tunnel whose +4 id equals *Id, else FDUMP 0x100002 (line 0xfc)
-// and null. Caller: FUN_00503440 (0x0050377f).
+// (cdecl) -- the tunnel whose +4 id equals *Id, else FDUMP 0x100002 (line 0xfc)
+// and null. Caller: the routine (0x0050377f).
 FGateTunnel* GateTunnelFind(ID_String const* Id);
 
-// FUN_004ff3b0 (thiscall, RET 4) -- +0x260 = Ship. Caller: FUN_00503440 (0x005037c0).
+// (thiscall, RET 4) -- +0x260 = Ship. Caller: the routine (0x005037c0).
 void GateTunnelSetShip(FGateTunnel* Tunnel, FClientShipGameobj* Ship);
 
-// FUN_004fe1c0 (cdecl, the resolved path) -- [gate_tunnel] / [layer] sections into
+// (cdecl, the resolved path) -- [gate_tunnel] / [layer] sections into
 // G_GateTunnels. Caller: the space init at 0x0054ac92.
 void GateTunnelIniLoad(char const* Path);
 
-// FUN_004fe180 (cdecl) -- every tunnel deleted through its slot 0, then end = begin. Caller:
+// (cdecl) -- every tunnel deleted through its slot 0, then end = begin. Caller:
 // the space teardown at 0x0054afbb.
 void GateTunnelsClear();

@@ -1,11 +1,7 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // TU57 (06f70dd0-06f71fc0): trigger state machines and the machine group of the TU61
-// random-mission runtime (docs/re/content.md, TU map, lane CNT-RM). Declarations in
+// random-mission runtime (implementation notes, TU map, lane CNT-RM). Declarations in
 // RandomMissionRuntime.h.
 
 #include "ContentStaticIds.h"       // TU57's 16 static-init thunks 06f70dd0-06f70fb0
@@ -14,7 +10,7 @@
 
 #include "BehaviorCmds.h"           // FContentShipBase (FContentPlayerShip's base)
 #include "ContentInternal.h"        // GetContentGameTime, GetContentTimeDistance
-#include "ContentMessageRouter.h"   // GMessageRouter (DAT_06fcf254)
+#include "ContentMessageRouter.h"   // GMessageRouter (the field)
 #include "ContentPlayerState.h"     // FContentPlayerState, FContentPlayerShip
 #include "NpcBase.h"                // FContentSpaceObj::GetPosition
 #include "SystemInfo.h"             // FSystemInfo::SystemId
@@ -23,7 +19,7 @@
 
 #include <algorithm>
 
-// LAB_06f70fd0: StateMachineMessage::GenerateUniqueMessageType inlined.
+// StateMachineMessage::GenerateUniqueMessageType inlined.
 unsigned int const GRmMsgTriggerFired = StateMachineMessage::GenerateUniqueMessageType();
 
 namespace
@@ -51,7 +47,7 @@ namespace
 // FRmTriggerFiredMessage
 // =======================================================================================
 
-// Inline at 06f71283-06f712a5: StateMachineMessage(DAT_06fd3a18), then the three fields.
+// Inline at 06f71283-06f712a5: StateMachineMessage(the field), then the three fields.
 FRmTriggerFiredMessage::FRmTriggerFiredMessage(unsigned int InCookie, bool bInFinal,
                                                unsigned int InActivator)
     : StateMachineMessage(GRmMsgTriggerFired)
@@ -61,7 +57,7 @@ FRmTriggerFiredMessage::FRmTriggerFiredMessage(unsigned int InCookie, bool bInFi
 {
 }
 
-// FUN_06f71840.
+// .
 StateMachineMessage* FRmTriggerFiredMessage::clone() const
 {
     return new FRmTriggerFiredMessage(*this);
@@ -71,7 +67,7 @@ StateMachineMessage* FRmTriggerFiredMessage::clone() const
 // FRmTrigger
 // =======================================================================================
 
-// FUN_06f70ff0 (RET 0x10). +0x30 is not written (only read after Fire stores it).
+// (RET 0x10). +0x30 is not written (only read after Fire stores it).
 FRmTrigger::FRmTrigger(unsigned int InCookie, unsigned int InOwnerId, bool bInOneShot,
                        float InRearmDelay)
     : StateMachineMessageHandler(GMessageRouter)
@@ -82,7 +78,7 @@ FRmTrigger::FRmTrigger(unsigned int InCookie, unsigned int InOwnerId, bool bInOn
 {
 }
 
-// LAB_06f71090 (RET 8): the state value picks the slot; the slot's result is dropped.
+// (RET 8): the state value picks the slot; the slot's result is dropped.
 bool FRmTrigger::Slot2(SMEventData const* Event, int const& State)
 {
     if (State < 0)
@@ -100,13 +96,13 @@ bool FRmTrigger::Slot2(SMEventData const* Event, int const& State)
     return false;
 }
 
-// FUN_06f71080 (RET 4; ICF with every other +0x20 setter).
+// (RET 4; ICF with every other +0x20 setter).
 void FRmTrigger::SetActivator(unsigned int InActivator)
 {
     Activator = InActivator;
 }
 
-// LAB_06f71100 (RET 8): state 0 and an enter event (type < 4, == 1) -> state 1.
+// (RET 8): state 0 and an enter event (type < 4, == 1) -> state 1.
 bool FRmTrigger::OnIdle(SMEventData const* Event, int const& State)
 {
     if (State == 0 && Event->get_event_type() < 4 && Event->get_event_type() == 1)
@@ -117,7 +113,7 @@ bool FRmTrigger::OnIdle(SMEventData const* Event, int const& State)
     return false;
 }
 
-// LAB_06f71140 (RET 8): state 2 and an enter event -> Fire (slot 10); one-shot -> state 4;
+// (RET 8): state 2 and an enter event -> Fire (slot 10); one-shot -> state 4;
 // otherwise RearmDelay > 0 -> state 3, else state 1 (FCOMP 0.0, TEST AH,0x41 + JNZ: less,
 // equal or unordered -> state 1).
 bool FRmTrigger::OnFired(SMEventData const* Event, int const& State)
@@ -137,8 +133,8 @@ bool FRmTrigger::OnFired(SMEventData const* Event, int const& State)
     return true;
 }
 
-// FUN_06f711c0 (RET 8): state 3 and the 0x20 heartbeat (controller event) -> once the time
-// since LastFireTime (FUN_06efec20 against FUN_06efec10) exceeds RearmDelay (as double;
+// (RET 8): state 3 and the 0x20 heartbeat (controller event) -> once the time
+// since LastFireTime (the routine against the routine) exceeds RearmDelay (as double;
 // TEST AH,0x41 + JNZ: less, equal or unordered keep waiting) -> state 1. True for every
 // heartbeat in state 3.
 bool FRmTrigger::OnRearmWait(SMEventData const* Event, int const& State)
@@ -156,14 +152,14 @@ bool FRmTrigger::OnRearmWait(SMEventData const* Event, int const& State)
     return true;
 }
 
-// LAB_06f9a6f0 (ICF: XOR AL,AL; RET 8).
+// (ICF: XOR AL,AL; RET 8).
 bool FRmTrigger::OnDone(SMEventData const* /*Event*/, int const& /*State*/)
 {
     return false;
 }
 
-// LAB_06f71240: LastFireTime = the game time (FST); the message's final flag is bOneShot
-// unless the time is the -1.0 sentinel (FCOMP DAT_06fb78f0, TEST AH,0x44 + JNP: equal ->
+// LastFireTime = the game time (FST); the message's final flag is bOneShot
+// unless the time is the -1.0 sentinel (FCOMP the field, TEST AH,0x44 + JNP: equal ->
 // 0); sent to OwnerId through the MessageHandler side's send_delayed_message with 0.01 s.
 void FRmTrigger::Fire()
 {
@@ -179,7 +175,7 @@ void FRmTrigger::Fire()
 // FRmProximityTrigger
 // =======================================================================================
 
-// FUN_06f712e0 (RET 0x18).
+// (RET 0x18).
 FRmProximityTrigger::FRmProximityTrigger(unsigned int InCookie, unsigned int InOwnerId,
                                          unsigned int InSystemId, Vector const* InCenter,
                                          float InRadius,
@@ -192,7 +188,7 @@ FRmProximityTrigger::FRmProximityTrigger(unsigned int InCookie, unsigned int InO
 {
 }
 
-// LAB_06f713f0 (RET 8): state 1 and the 0x20 heartbeat. The first player with a ship in
+// (RET 8): state 1 and the 0x20 heartbeat. The first player with a ship in
 // SystemId (system record +0x48, not null-tested) whose squared distance is <= RadiusSq
 // (TEST AH,0x41 + JNP: less or equal) becomes the activator (slot 4, its ship id) and the
 // state goes to 2. True for every heartbeat in state 1.
@@ -224,14 +220,14 @@ bool FRmProximityTrigger::OnArmed(SMEventData const* Event, int const& State)
 // FRmTimerTrigger
 // =======================================================================================
 
-// FUN_06f714d0 (RET 0xc).
+// (RET 0xc).
 FRmTimerTrigger::FRmTimerTrigger(unsigned int InCookie, unsigned int InOwnerId, float InDelay)
     : FRmTrigger(InCookie, InOwnerId, true, 1.0f)
     , Delay(InDelay)
 {
 }
 
-// LAB_06f71560 (RET 8): state 1. Enter event (type < 4, == 1): an SMM_TIMEOUT message to
+// (RET 8): state 1. Enter event (type < 4, == 1): an SMM_TIMEOUT message to
 // itself after Delay (send_delayed_message_to_me, scope 1, target 0) -> true. Message
 // event (type 3) carrying that timeout for this state -> state 2, true. Otherwise false.
 bool FRmTimerTrigger::OnArmed(SMEventData const* Event, int const& State)
@@ -259,7 +255,7 @@ bool FRmTimerTrigger::OnArmed(SMEventData const* Event, int const& State)
 // FRmProximityLeaveTrigger
 // =======================================================================================
 
-// FUN_06f71660 (RET 0x18).
+// (RET 0x18).
 FRmProximityLeaveTrigger::FRmProximityLeaveTrigger(
     unsigned int InCookie, unsigned int InOwnerId, unsigned int InSystemId,
     Vector const* InCenter, float InRadius, std::vector<FContentPlayerState*> const* InPlayers)
@@ -271,9 +267,9 @@ FRmProximityLeaveTrigger::FRmProximityLeaveTrigger(
 {
 }
 
-// LAB_06f71740 (RET 8): state 1 and the 0x20 heartbeat. A player ship of SystemId within
+// (RET 8): state 1 and the 0x20 heartbeat. A player ship of SystemId within
 // RadiusSq (FCOM, TEST AH,0x41 + JNP: less or equal) -> true at once, nothing changes.
-// Otherwise every such ship closer than DAT_06fb781c (1e10; FCOMP, TEST AH,0x05 + JP: only
+// Otherwise every such ship closer than the field (1e10; FCOMP, TEST AH,0x05 + JP: only
 // "less" falls through) is remembered, the last one becomes the activator (slot 4) when
 // there is one, and the state goes to 2.
 bool FRmProximityLeaveTrigger::OnArmed(SMEventData const* Event, int const& State)
@@ -307,13 +303,13 @@ bool FRmProximityLeaveTrigger::OnArmed(SMEventData const* Event, int const& Stat
 // FRmMachineGroup
 // =======================================================================================
 
-// FUN_06f718b0 (RET 4).
+// (RET 4).
 FRmMachineGroup::FRmMachineGroup(IMessageRouter* InRouter)
     : StateMachineGroup(InRouter)
 {
 }
 
-// FUN_06f71920: the front id is removed (slot 5 of the group's own table) and erased until
+// the front id is removed (slot 5 of the group's own table) and erased until
 // each vector is empty; the buffers are freed; ~StateMachineGroup.
 FRmMachineGroup::~FRmMachineGroup()
 {
@@ -329,7 +325,7 @@ FRmMachineGroup::~FRmMachineGroup()
     }
 }
 
-// FUN_06f71bd0 (RET 4): slot 4 add_state_machine, then vector insert(end, 1, &id).
+// (RET 4): slot 4 add_state_machine, then vector insert(end, 1, &id).
 void FRmMachineGroup::AddStateMachine(StateMachineMessageHandler* Machine)
 {
     add_state_machine(Machine);
@@ -337,7 +333,7 @@ void FRmMachineGroup::AddStateMachine(StateMachineMessageHandler* Machine)
     StateMachines.insert(StateMachines.end(), 1, Id);
 }
 
-// FUN_06f71da0 (RET 4).
+// (RET 4).
 void FRmMachineGroup::AddMachine(StateMachineMessageHandler* Machine)
 {
     add_state_machine(Machine);
@@ -345,7 +341,7 @@ void FRmMachineGroup::AddMachine(StateMachineMessageHandler* Machine)
     Machines.insert(Machines.end(), 1, Id);
 }
 
-// FUN_06f71af0 (RET 4).
+// (RET 4).
 void FRmMachineGroup::RemoveMachine(unsigned int Id)
 {
     remove_state_machine(Id);
@@ -359,7 +355,7 @@ void FRmMachineGroup::RemoveMachine(unsigned int Id)
     Machines.erase(std::remove(Machines.begin(), Machines.end(), Id), Machines.end());
 }
 
-// LAB_06f71a30. The events are stack SMEventData (Content's copy of the table 06fb7620).
+// . The events are stack SMEventData (Content's copy of the table 06fb7620).
 void FRmMachineGroup::handle_state_change()
 {
     while (bPendingChange)

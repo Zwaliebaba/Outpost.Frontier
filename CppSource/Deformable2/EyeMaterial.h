@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -17,27 +13,27 @@ struct FMaterialParamValue
     int Type;                // +0x00
     unsigned long Value[4];  // +0x04
 
-    // FUN_065ffc20 per cell / the inline pattern at 065fe373: Type = 0, Value[0] = 0 (the other
+    // per cell / the inline pattern at 065fe373: Type = 0, Value[0] = 0 (the other
     // three dwords are left as they were).
     FMaterialParamValue();
-    // 065fe373..e391 / 065fe6cb..e6ee: default construction, then Clear() when the wanted type
+    // ..e391 / 065fe6cb..e6ee: default construction, then Clear() when the wanted type
     // is not 0, then Type = InType. Value[0] is 0 either way.
     explicit FMaterialParamValue(int InType);
-    // FUN_065fe5c0 at every scope exit (065fe52e, 065fe8c2, ...), and per cell in FUN_066002c0.
+    // at every scope exit (065fe52e, 065fe8c2, ...), and per cell in the routine.
     ~FMaterialParamValue();
 
-    // FUN_065fef00 (thiscall RET 4); inlined twice in LAB_065fed30.
+    // (thiscall RET 4); inlined twice in the branch.
     FMaterialParamValue& operator=(const FMaterialParamValue& Src);
     FMaterialParamValue(const FMaterialParamValue&) = delete;
 
-    // FUN_065fe5c0: 5/7 HeapFree Value[0]; 6 Release; Value[0] = 0 in every case.
+    // 5/7 HeapFree Value[0]; 6 Release; Value[0] = 0 in every case.
     void Clear();
-    // FUN_065fe620 (thiscall RET 4): HeapFree Value[0], then a HeapAlloc copy of Src (null Src
+    // (thiscall RET 4): HeapFree Value[0], then a HeapAlloc copy of Src (null Src
     // leaves 0).
     void DupString(const char* Src);
-    // FUN_065fe930 (thiscall RET 4): Value[0] = NewCom, AddRef it, Release the old one.
-    void SwapCom(IDAComponent* NewCom);
-    // FUN_065ffab0 (thiscall RET 8: Type, Arg). Arg is the value itself for 1/8/9/10, a pointer
+    // (thiscall RET 4): Value[0] = NewCom, AddRef it, Release the old one.
+    void SwapCom(INeuronComponent* NewCom);
+    // (thiscall RET 8: Type, Arg). Arg is the value itself for 1/8/9/10, a pointer
     // to the value for 2/3/4, the string for 5/7 and the object for 6.
     void Set(int InType, unsigned long Arg);
 };
@@ -52,14 +48,14 @@ struct FMaterialParamDesc
                               //       pick the U / V bit pair of an address-mode dword (type 9)
     const char* Key;          // +0x04 file key ("Dc", "Dt_name", ...)
     const char* Name;         // +0x08 display name
-    const char* Description;  // +0x0C every EyeMaterial entry: the empty string .data:066031ac
+    const char* Description;  // +0x0C every EyeMaterial entry: the empty string module storage
     FMaterialParamValue Value; // +0x10 default
     FMaterialParamValue Min;   // +0x24
     FMaterialParamValue Max;   // +0x38
 
-    // FUN_065ffc20 (thiscall, no args): the four header dwords and every cell's Type/Value[0].
+    // (thiscall, no args): the four header dwords and every cell's Type/Value[0].
     FMaterialParamDesc();
-    // The body of FUN_066002c0 per entry: the header is zeroed, then the cells are cleared
+    // The body of the routine per entry: the header is zeroed, then the cells are cleared
     // Max, Min, Value -- member destruction order.
     ~FMaterialParamDesc();
     FMaterialParamDesc(const FMaterialParamDesc&) = delete;
@@ -75,7 +71,7 @@ static_assert(offsetof(FMaterialParamDesc, Value) == 0x10, "descriptor value cel
 static_assert(offsetof(FMaterialParamDesc, Min) == 0x24, "descriptor min cell +0x24");
 static_assert(offsetof(FMaterialParamDesc, Max) == 0x38, "descriptor max cell +0x38");
 
-// One texture row (0x2C bytes), one per type-7 parameter (FUN_065fe1b0 counts them).
+// One texture row (0x2C bytes), one per type-7 parameter (the routine counts them).
 struct FMaterialTextureRow
 {
     char* Name;                 // +0x00 owned char[] from StoreParameterValue
@@ -89,7 +85,7 @@ struct FMaterialTextureRow
     unsigned char bSingleFrame; // +0x28 Setup: GetFrameCount == 1
     unsigned char Pad29[3];
 
-    // 065fe2c0..e2dc: Name 0, Handle -1, Frame 0, +0x1C 4, +0x20 0, +0x24 0, +0x28 0.
+    // ..e2dc: Name 0, Handle -1, Frame 0, +0x1C 4, +0x20 0, +0x24 0, +0x28 0.
     FMaterialTextureRow();
     // Rows release their owned name buffers in reverse array order.
     ~FMaterialTextureRow();
@@ -121,41 +117,41 @@ static_assert(offsetof(FMaterialColors, Specular) == 0x20, "material specular +0
 static_assert(offsetof(FMaterialColors, Emissive) == 0x30, "material emissive +0x30");
 static_assert(offsetof(FMaterialColors, Power) == 0x40, "material power +0x40");
 
-// Retail vtable 06601598.
+// baseline vtable 06601598.
 class FEyeMaterialImpl : public IMaterial
 {
 public:
     FEyeMaterialImpl();
     virtual ~FEyeMaterialImpl();
 
-    GENRESULT DACOM_API Initialize(IDAComponent* Outer) override;             // FUN_065fe1b0
-    GENRESULT DACOM_API LoadFromFileSystem(void* FileSystem) override;        // LAB_065fe320
-    GENRESULT DACOM_API SaveProperties(void* FileSystem) override;            // FUN_065fe680
-    GENRESULT DACOM_API ApplyVerify(void* Context, void* Extra) override;     // FUN_065fe960
-    GENRESULT DACOM_API ResolveTextures(float Delta) override;                  // LAB_065fe9a0
-    GENRESULT DACOM_API Bind(void* Context) override;                         // FUN_06600af0
-    GENRESULT DACOM_API Teardown(void* Context) override;                     // LAB_06600b40
-    GENRESULT DACOM_API Submit(void* Context, unsigned long PrimType, unsigned long Start,
+    GENRESULT NEURONCOMPONENTS_API Initialize(INeuronComponent* Outer) override;
+    GENRESULT NEURONCOMPONENTS_API LoadFromFileSystem(void* FileSystem) override;
+    GENRESULT NEURONCOMPONENTS_API SaveProperties(void* FileSystem) override;
+    GENRESULT NEURONCOMPONENTS_API ApplyVerify(void* Context, void* Extra) override;
+    GENRESULT NEURONCOMPONENTS_API ResolveTextures(float Delta) override;
+    GENRESULT NEURONCOMPONENTS_API Bind(void* Context) override;
+    GENRESULT NEURONCOMPONENTS_API Teardown(void* Context) override;
+    GENRESULT NEURONCOMPONENTS_API Submit(void* Context, unsigned long PrimType, unsigned long Start,
                                unsigned long Count, unsigned long IbStart,
-                               unsigned long IndexSpan, unsigned long Flags) override; // LAB_065fea00
-    GENRESULT DACOM_API SetName(const char* InName) override;                 // LAB_065fec10
-    GENRESULT DACOM_API GetName(char* Out, unsigned long Size) override;      // LAB_065fec80
-    GENRESULT DACOM_API CopyClassName(char* Out, unsigned long Size) override; // FUN_065fecc0
-    GENRESULT DACOM_API GetPassCount(int* Out) override;                            // LAB_065fed00
-    GENRESULT DACOM_API GetParameterCount(unsigned long* OutCount) override;  // LAB_065fed10
-    GENRESULT DACOM_API GetParameterDescriptor(unsigned long Index, void* OutDesc) override; // LAB_065fed30
-    GENRESULT DACOM_API GetParameterValue(unsigned long Index, void* InOutDesc) override;    // FUN_065ff060
-    GENRESULT DACOM_API SetParameterValue(unsigned long Index, void* Value) override;        // LAB_065ff1f0
-    void* __thiscall ScalarDeletingDestructor(unsigned char bDelete) override; // FUN_06600a30
-    GENRESULT __thiscall InitializeFromDescriptor(void* Arg) override;                           // FUN_06600ba0
-    GENRESULT __thiscall ApplyInitialRenderStates(void* Arg) override;                           // FUN_06600ba0
-    GENRESULT __thiscall Setup() override;                                     // LAB_065ff250
+                               unsigned long IndexSpan, unsigned long Flags) override;
+    GENRESULT NEURONCOMPONENTS_API SetName(const char* InName) override;
+    GENRESULT NEURONCOMPONENTS_API GetName(char* Out, unsigned long Size) override;
+    GENRESULT NEURONCOMPONENTS_API CopyClassName(char* Out, unsigned long Size) override;
+    GENRESULT NEURONCOMPONENTS_API GetPassCount(int* Out) override;
+    GENRESULT NEURONCOMPONENTS_API GetParameterCount(unsigned long* OutCount) override;
+    GENRESULT NEURONCOMPONENTS_API GetParameterDescriptor(unsigned long Index, void* OutDesc) override;
+    GENRESULT NEURONCOMPONENTS_API GetParameterValue(unsigned long Index, void* InOutDesc) override;
+    GENRESULT NEURONCOMPONENTS_API SetParameterValue(unsigned long Index, void* Value) override;
+    void* __thiscall ScalarDeletingDestructor(unsigned char bDelete) override;
+    GENRESULT __thiscall InitializeFromDescriptor(void* Arg) override;
+    GENRESULT __thiscall ApplyInitialRenderStates(void* Arg) override;
+    GENRESULT __thiscall Setup() override;
     bool __thiscall ValueWithinDeclaredRange(unsigned long Index, void* Entry,
-                                             void* Value) override;          // LAB_065ff470
+                                             void* Value) override;
     GENRESULT __thiscall StoreParameterValue(unsigned long Index, void* Entry,
-                                             void* Value) override;          // FUN_065ff550
-    unsigned long __thiscall GetParameterTable(void** OutBase) override;      // LAB_06600b80
-    void* __thiscall GetParameterAddress(unsigned long Index) override;       // FUN_06600ba0
+                                             void* Value) override;
+    unsigned long __thiscall GetParameterTable(void** OutBase) override;
+    void* __thiscall GetParameterAddress(unsigned long Index) override;
 
     IRenderPipeline* Pipeline;          // +0x04
     ITextureLibrary2* TextureLib;         // +0x08
@@ -170,47 +166,47 @@ public:
     unsigned char Pad66[2];
 
 protected:
-    // The tail of LAB_065ff250 (065ff3bb..f46d) and, inlined a second time, of FUN_065ff550
+    // The tail of the branch (065ff3bb..f46d) and, inlined a second time, of the routine
     // behind the "Oc" key (065ff675..f721). Returns the value Setup leaves in EAX.
     GENRESULT UpdateTranslucency();
 };
 
 // The inner (non-delegating) unknown at +0x6C. Its vtable is 0660156c (IMaterial slots
-// 29..31 of 066014f8): LAB_06600910 / LAB_065fe060 / LAB_066009d0.
+// 29..31 of 066014f8): the branch / the branch / the branch.
 class FEyeMaterial;
 
-struct FEyeMaterialInner : IDAComponent
+struct FEyeMaterialInner : INeuronComponent
 {
     unsigned long RefCount;  // +0x04 (object +0x70) = 1 at construction
     FEyeMaterial* Owner;     // +0x08 (object +0x74)
 
-    GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override;
-    unsigned long DACOM_API AddRef() override;
-    unsigned long DACOM_API Release() override;
+    GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override;
+    unsigned long NEURONCOMPONENTS_API AddRef() override;
+    unsigned long NEURONCOMPONENTS_API Release() override;
 };
 
 static_assert(sizeof(FEyeMaterialInner) == 0xC, "EyeMaterial inner unknown is 0xC bytes");
 
-// Retail vtable 066014f8.
+// baseline vtable 066014f8.
 class FEyeMaterial : public FEyeMaterialImpl
 {
 public:
     FEyeMaterial();
 
-    GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override; // LAB_06600a00
-    unsigned long DACOM_API AddRef() override;                                // LAB_06600a10
-    unsigned long DACOM_API Release() override;                               // LAB_06600a20
-    GENRESULT DACOM_API Bind(void* Context) override;                         // LAB_065fff20
-    GENRESULT DACOM_API Teardown(void* Context) override;                     // LAB_06600270
-    GENRESULT DACOM_API GetRenderFlags(unsigned long* Out) override;          // LAB_065ffef0
-    const char* __thiscall ClassName() override;                              // LAB_065fff10
-    unsigned long __thiscall GetParameterTable(void** OutBase) override;      // LAB_065ff750
-    void* __thiscall GetParameterAddress(unsigned long Index) override;       // LAB_065ffe60
-    GENRESULT DACOM_API InnerQueryInterface(const char* Iid, void** Out) override;
-    unsigned long DACOM_API InnerAddRef() override;
-    unsigned long DACOM_API InnerRelease() override;
+    GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override;
+    unsigned long NEURONCOMPONENTS_API AddRef() override;
+    unsigned long NEURONCOMPONENTS_API Release() override;
+    GENRESULT NEURONCOMPONENTS_API Bind(void* Context) override;
+    GENRESULT NEURONCOMPONENTS_API Teardown(void* Context) override;
+    GENRESULT NEURONCOMPONENTS_API GetRenderFlags(unsigned long* Out) override;
+    const char* __thiscall ClassName() override;
+    unsigned long __thiscall GetParameterTable(void** OutBase) override;
+    void* __thiscall GetParameterAddress(unsigned long Index) override;
+    GENRESULT NEURONCOMPONENTS_API InnerQueryInterface(const char* Iid, void** Out) override;
+    unsigned long NEURONCOMPONENTS_API InnerAddRef() override;
+    unsigned long NEURONCOMPONENTS_API InnerRelease() override;
 
-    IDAComponent* Controlling;  // +0x68 desc+8, or &Inner when that is null
+    INeuronComponent* Controlling;  // +0x68 desc+8, or &Inner when that is null
     FEyeMaterialInner Inner;    // +0x6C
 };
 

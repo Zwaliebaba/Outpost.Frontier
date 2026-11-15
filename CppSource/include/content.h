@@ -1,15 +1,11 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
 #include "common_server_controller.h"
 
-// Content.dll — shared Server controller interface (docs/re/content.md).
-// Not a DACOM component: no RegisterComponent, no 1.11_* IID.
+// Content.dll — shared Server controller interface (implementation notes).
+// Not a NEURONCOMPONENTS component: no RegisterComponent, no 1.11_* IID.
 
 struct IDLL
 {
@@ -17,21 +13,21 @@ struct IDLL
     IDLL(IDLL const& Other);
     IDLL& operator=(IDLL const& Other);
 
-    // Slot 0 — message handler (retail thiscall, RET 8). Slot 1 — dtor.
+    // Slot 0 — message handler (baseline thiscall, RET 8). Slot 1 — dtor.
     virtual void HandleMessage(pub::Controller::EMessage MessageId, void const* Parms) = 0;
     virtual ~IDLL();
 };
 
 // Story's one-slot secondary facet, passed to mission controllers by their
-// CreateParms. Retail Story+4 uses vtable 06fb4270 -> LAB_06ea6280.
+// CreateParms. baseline Story+4 uses vtable 06fb4270 -> the branch.
 struct IStoryMissionEvents
 {
     virtual void OnMissionEvent(unsigned int EventKind, unsigned int Chapter,
                                 unsigned int ControllerId) = 0;
 };
 
-// FUN_06ea6ba0 builds this polymorphic parameter object on the stack.
-// FUN_06eb75a0 reads PlayerId at +4 and StoryEvents at +8 before returning.
+// builds this polymorphic parameter object on the stack.
+// reads PlayerId at +4 and StoryEvents at +8 before returning.
 struct FStoryMissionCreateParms final : pub::Controller::CreateParms
 {
     unsigned int PlayerId;

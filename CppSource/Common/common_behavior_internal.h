@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -17,7 +13,7 @@
 
 namespace CmnBehavior
 {
-    // IObjInspect::is_player on Sys->ExternalIface (no null tests, as retail).
+    // IObjInspect::is_player on Sys->ExternalIface (no null tests, as baseline).
     bool FollowerExternalIfaceIsPlayer(SystemManager* Sys);
 
     // `[obj+0x4c] & 0x503 == 0x503` -- the object if it is a ship, else null.

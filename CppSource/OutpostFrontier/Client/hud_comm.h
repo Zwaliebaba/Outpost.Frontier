@@ -1,42 +1,38 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
 // -------------------------------------------------------------------------------------------
-// HUD_Comm -- retail Client\Space\HUD_Comm.cpp (FDUMP path .rdata 0x005d7220), OutpostFrontier.exe
-// 0x004ca640..0x004cefe0 (the EngineCharacter half of the range, 0x004c98a0..0x004ca610, is
+// HUD_Comm -- baseline Client\Space\HUD_Comm.cpp (FDUMP path .rdata 0x005d7220), OutpostFrontier.exe
+// (the EngineCharacter half of the range, 0x004c98a0..0x004ca610, is
 // engine_character.cpp), plus Client\space\radio.h's comm inbox (FDUMP path .rdata 0x005decec)
-// that IClient::SendComm LAB_0053bfb0 fills.
-//
+// that IClient::SendComm the branch fills.
+
 // The one element is HUD_Receiver (RTTI .?AUHUD_Receiver@@ : Win3D @0, HUDItem @0x7c; 0x5b8
-// bytes). Its factory is the static HUDFACTORY<HUD_Receiver> DAT_00673578 ("Receiver"; XC entry
-// LAB_004cc850, ctor FUN_004cd270, atexit LAB_004cc870 -> FUN_004cf010), vftable 0x005d74d0
-// whose Create FUN_004cd2e0 is operator new(0x5b8) + FUN_004cd350 and the HUDItem face.
-//
+// bytes). Its factory is the static HUDFACTORY<HUD_Receiver> the field ("Receiver"; XC entry
+// , ctor the routine, atexit the branch -> the routine), vftable 0x005d74d0
+// whose Create the routine is operator new(0x5b8) + the routine and the HUDItem face.
+
 // vftables:
-//   Win3D face 0x005d764c (28 slots) -- overrides 0 FUN_004ce8d0 (scalar deleting dtor around
-//     FUN_004ce8f0), 11 FUN_004cd9d0 Update, 12 FUN_00406d10 (`JMP [EAX+0x2c]`: UpdateInactive
-//     is Update), 13 FUN_004cd8a0 Draw; every other slot is Win3D's 0x005d5544 entry.
-//   HUDItem face 0x005d761c (11 slots) -- overrides 0 LAB_004cee70 (ECX -= 0x7c, JMP
-//     FUN_004ce8d0) and 3 FUN_004cdf30 Init (both inbox counts zeroed, true).
-//
+//   Win3D face 0x005d764c (28 slots) -- overrides 0 the routine (scalar deleting dtor around
+// ), 11 the routine Update, 12 the routine (`JMP [EAX+0x2c]`: UpdateInactive
+//     is Update), 13 the routine Draw; every other slot is Win3D's 0x005d5544 entry.
+//   HUDItem face 0x005d761c (11 slots) -- overrides 0 the branch (ECX -= 0x7c, JMP
+// ) and 3 the routine Init (both inbox counts zeroed, true).
+
 // It owns two comm channels. Channel A (+0xb4) is the one with a window: the talking head
 // (EngineCharacter body, a HUD_genericcomm.3db corner frame, the static noise) and the caption
 // TextControl. Channel B (+0x284) only speaks. Slot A (+0x454) feeds channel A from the player's
-// inbox DAT_00673f48 (messages the player's ship sends or receives), slot B (+0x464) feeds
-// channel B from DAT_006735c0 (everything else).
-//
-// Holes, not scaffolds (see the decomp tracker, epic:hud-comm):
+// inbox the field (messages the player's ship sends or receives), slot B (+0x464) feeds
+// channel B from the field (everything else).
+
+// Holes, not scaffolds (see the implementation tracker, epic:hud-comm):
 //   * (closed 2026-09-25) Voice lines: FVoiceMsg is now an Archetype::ISound (sound_archetype.h)
-//     and PlayLine hands it to FUN_00428680 (PlayClientSoundArch) as retail does.
-//   * (closed 2026-09-26) The talking head: Appearance (FUN_004cb250) resolves each voice script
-//     through gf\CharacterInfo.cpp's script database (character_info.h, FUN_004356c0 /
-//     FUN_00434e90) and plays it with IDeformable slot 7. The database is filled by
-//     LoadCharacterInfo / PreloadCharacterScripts (FUN_004354e0 / FUN_004355e0).
+//     and PlayLine hands it to the routine (PlayClientSoundArch) as baseline does.
+//   * (closed 2026-09-26) The talking head: Appearance (the routine) resolves each voice script
+//     through gf\CharacterInfo.cpp's script database (character_info.h, the routine /
+// ) and plays it with IDeformable slot 7. The database is filled by
+//     LoadCharacterInfo / PreloadCharacterScripts (the routine / the routine).
 // -------------------------------------------------------------------------------------------
 
 #include "client_mesh_load.h"   // FClientMeshHolder
@@ -69,9 +65,9 @@ struct ISoundSource;
 // comm type and +0x88 the mood.
 struct FCommMessage
 {
-    // FUN_004cdc30 -- the four costume parts and the accessory count 0, TextCount 1, +0x88 and
-    // +0x90 zero; nothing else is written (FUN_004cdc10 is the costume-only half). The port
-    // zeroes the rest too: retail leaves it as whatever the stack or .bss held.
+    // the four costume parts and the accessory count 0, TextCount 1, +0x88 and
+    // +0x90 zero; nothing else is written (the routine is the costume-only half). The port
+    // zeroes the rest too: baseline leaves it as whatever the stack or .bss held.
     FCommMessage();
 
     unsigned Sender;          // +0x00 object id
@@ -91,18 +87,18 @@ static_assert(offsetof(FCommMessage, VoiceId) == 0x3c, "comm message +0x3c voice
 static_assert(offsetof(FCommMessage, TextIds) == 0x44, "comm message +0x44 text ids");
 static_assert(offsetof(FCommMessage, TextCount) == 0x84, "comm message +0x84 count");
 static_assert(offsetof(FCommMessage, Result) == 0x94, "comm message +0x94 result");
-static_assert(sizeof(FCommMessage) == 0x98, "retail comm message is 0x98 bytes");
+static_assert(sizeof(FCommMessage) == 0x98, "baseline comm message is 0x98 bytes");
 
 // A fixed 16-record queue (0x984 bytes).
 struct FCommInbox
 {
-    // LAB_004c9820 / LAB_004c9860 -- FUN_004cdc30 on every record, Count = 0.
+    // / the branch -- the routine on every record, Count = 0.
     FCommInbox();
 
-    // FUN_004cde50 (thiscall, RET 4) -- false when empty, else Out = the head (FUN_004ce810's
+    // (thiscall, RET 4) -- false when empty, else Out = the head (the routine's
     // copy, inlined).
     bool Peek(FCommMessage* Out) const;
-    // FUN_004cdc60 (thiscall, RET 4) -- false when empty, else Out = the head, every other
+    // (thiscall, RET 4) -- false when empty, else Out = the head, every other
     // record moved down one and Count - 1.
     bool Pop(FCommMessage* Out);
 
@@ -110,39 +106,39 @@ struct FCommInbox
     FCommMessage Records[16];     // +0x04
 };
 
-// DAT_00673f48 -- the player's inbox; DAT_006735c0 -- everyone else's.
+// the player's inbox; the field -- everyone else's.
 extern FCommInbox G_CommInboxPlayer;
 extern FCommInbox G_CommInboxOther;
 
-// FUN_004ce810 (thiscall on To, RET 4) -- the record copy every queue move uses: the costume's
-// accessory ids only up to its count (FUN_0053c250's rule), every other field whole.
+// (thiscall on To, RET 4) -- the record copy every queue move uses: the costume's
+// accessory ids only up to its count (the routine's rule), every other field whole.
 void CommCopyMessage(FCommMessage* To, FCommMessage const* From);
-// FUN_0053c250 (thiscall on To, RET 4) -- the four parts, the count, and only the first Count
+// (thiscall on To, RET 4) -- the four parts, the count, and only the first Count
 // accessory ids; the rest of To keeps what it had.
 void CommCopyCostume(Costume* To, Costume const* From);
 
-// LAB_0053bfb0 -- IClient::SendServerSendComm (slot 68, +0x110, thiscall, RET 0x5c): the
+// IClient::SendServerSendComm (slot 68, +0x110, thiscall, RET 0x5c): the
 // server's SendComm. PlayerId (the client id) and bUnused (the trailing byte argument) are not
 // read. SenderCostume is the costume IClient passes by value (13 of the 23 dwords). TextIds /
 // TextCount are copied, the rest go straight into the record. The record is queued in the
-// player's inbox when the player's ship (FUN_0054baf0, slot 8) is the sender or the receiver,
+// player's inbox when the player's ship (the routine, slot 8) is the sender or the receiver,
 // else in the other inbox; a full inbox FDUMPs radio.h line 0x7c.
 void ClientSendComm(unsigned PlayerId, unsigned Sender, unsigned Receiver, unsigned VoiceId,
                     Costume const& SenderCostume, unsigned CaptionIds, unsigned const* TextIds,
                     int TextCount, unsigned PermutationIds, float Linger, bool bUnused);
 
 // ============================================================================================
-// Spaceflight ducking shared by both channels (DAT_006735a4..DAT_006735b0).
+// Spaceflight ducking shared by both channels (the field..the field).
 // ============================================================================================
 struct FCommDuck
 {
-    float TargetDb;       // +0x00 DAT_006735a4
-    float CurrentDb;      // +0x04 DAT_006735a8 -- channel B's +0x1c follows it every frame
-    float FadeRemaining;  // +0x08 DAT_006735ac, -1 = no fade (ClientSoundFadeDb)
-    int RefCount;         // +0x0c DAT_006735b0
+    float TargetDb;       // +0x00 the field
+    float CurrentDb;      // +0x04 the field -- channel B's +0x1c follows it every frame
+    float FadeRemaining;  // +0x08 the field, -1 = no fade (ClientSoundFadeDb)
+    int RefCount;         // +0x0c the field
 
-    // FUN_004ca670 (thiscall) -- --RefCount; at zero the fade back to 0 dB over
-    // DAT_006108f8 (SoundCFG.ini ducking_comm_up_time, 0.25 s) starts. Every caller runs
+    // (thiscall) -- --RefCount; at zero the fade back to 0 dB over
+    // (SoundCFG.ini ducking_comm_up_time, 0.25 s) starts. Every caller runs
     // PopClientSoundDucking first.
     void Release();
 };
@@ -165,21 +161,21 @@ struct FCommLine
 class FCommVoice
 {
 public:
-    // The first half of FUN_004ca690: the watcher built and set(0), the line vector, then
-    // FUN_004ca910.
+    // The first half of the routine: the watcher built and set(0), the line vector, then
+    // .
     FCommVoice();
-    // FUN_004ca800 (the unwind form; HUD_Receiver's dtor inlines the same steps): the static
-    // stopped and released, every line's source stopped and released (FUN_00489dc0), the
-    // ducking dropped, FUN_004ca910, the vector freed, the watcher cleared.
+    // (the unwind form; HUD_Receiver's dtor inlines the same steps): the static
+    // stopped and released, every line's source stopped and released (the routine), the
+    // ducking dropped, the routine, the vector freed, the watcher cleared.
     ~FCommVoice();
 
-    // FUN_004ca910 -- the watcher cleared (set_pointer(0) when set), +0x0c..+0x1c zero,
+    // the watcher cleared (set_pointer(0) when set), +0x0c..+0x1c zero,
     // +0x08 = 1, +0x20 = 1.
     void ResetState();
-    // FUN_004caae0 -- per line: Msg slot 4 when bAcquired == 1, the source stopped and
+    // per line: Msg slot 4 when bAcquired == 1, the source stopped and
     // released; then the vector emptied.
     void StopLines();
-    // FUN_004cbb40 -- the static stopped and released, StopLines, the ducking dropped, then
+    // the static stopped and released, StopLines, the ducking dropped, then
     // ResetState's body inline (with the watcher's set_pointer(0) first).
     void StopVoice();
     // The static-source release every stop path inlines: vt+0x60 Stop, vt+0x08 Release, null.
@@ -187,16 +183,16 @@ public:
     // The ducking-drop every stop path inlines (0x004ca894..0x004ca8ba and its copies).
     void DropDucking();
 
-    // FUN_004cae10 (thiscall, RET 0x1c) -- queue Msg's lines (in the permutation order read
+    // (thiscall, RET 0x1c) -- queue Msg's lines (in the permutation order read
     // from +0x88's resource string) and start the first. bStaticSound adds "comm_static_1",
     // bDuck ducks the mix, bPositional pans by the speaker's position. Out* get the sender,
     // the receiver and the last queued message id when anything was queued.
     void Play(FCommMessage const* Msg, bool bStaticSound, bool bDuck, bool bPositionalArg,
               unsigned* OutSender, unsigned* OutReceiver, unsigned* OutLastMsgId);
-    // FUN_004cbfc0 (thiscall, RET 4) -- start Line (FUN_00428680 with the channel's play key);
+    // (thiscall, RET 4) -- start Line (the routine with the channel's play key);
     // on failure the 3 s timer runs instead. Returns true.
     bool PlayLine(FCommLine* Line);
-    // FUN_004cc060 (thiscall, RET 0xc; `this` is not read) -- the pan of a listener-space
+    // (thiscall, RET 0xc; `this` is not read) -- the pan of a listener-space
     // offset: 0 when the speaker is more than ~10 degrees above/below or within 0.1 of the
     // listener, else F * 100 * -sin(a) / max(cos(a), F * 0.01) with a = atan2(-x, |y|) * R / 180,
     // F / R being SoundCFG.ini's spaceflight_dialogue_pan_factor / _range (20 / 90).
@@ -214,7 +210,7 @@ public:
     float DuckDb;                 // +0x1c -- channel B: G_CommDuck.CurrentDb every frame
     unsigned char bPositional;    // +0x20
     unsigned char Pad21[3];
-    // +0x24 retail VC6 vector<FCommLine> (allocator byte, first, last, end) and +0x34 the
+    // +0x24 baseline VC6 vector<FCommLine> (allocator byte, first, last, end) and +0x34 the
     // iterator of the line playing; the port keeps a std::vector and an index.
     std::vector<FCommLine> Lines;
     size_t Cursor;
@@ -227,19 +223,19 @@ private:
 class FCommWindow
 {
 public:
-    // The window half of FUN_004ca690.
+    // The window half of the routine.
     FCommWindow();
-    // FUN_004cab70 -- FUN_0059eee0 on the corner holder when it has an instance, then its
-    // destructor FUN_0059ef20 (the same release again).
+    // the routine on the corner holder when it has an instance, then its
+    // destructor the routine (the same release again).
     ~FCommWindow();
 
-    // FUN_004ccbd0 (thiscall, RET 4) -- corner / btn_pos / win_pos / win_size / fly_time /
+    // (thiscall, RET 4) -- corner / btn_pos / win_pos / win_size / fly_time /
     // static; false for any other key.
     bool ReadIni(INI_Reader& Reader);
-    // FUN_004ccde0 (thiscall, RET 4) -- the four corner transforms from the open fraction and
+    // (thiscall, RET 4) -- the four corner transforms from the open fraction and
     // Rect from Cam's projection of corners 0 and 3.
     void Layout(ICamera* Cam);
-    // FUN_004cd160 -- ambient white, then the corner mesh drawn at each of the four transforms.
+    // ambient white, then the corner mesh drawn at each of the four transforms.
     void DrawCorners();
 
     unsigned char bOpen;          // +0x00
@@ -267,39 +263,39 @@ private:
 class FCommChannel : public FCommVoice
 {
 public:
-    // FUN_004ca690.
+    // .
     FCommChannel();
-    // FUN_004ca940 (the unwind form; HUD_Receiver's dtor inlines it): Reset's body, then the
+    // (the unwind form; HUD_Receiver's dtor inlines it): Reset's body, then the
     // window's and the voice's destructors.
     ~FCommChannel();
 
-    // FUN_004cabd0 -- CommText's tree deleted, StopVoice's body, body = 0 and +0x174 / +0x1c0..
+    // CommText's tree deleted, StopVoice's body, body = 0 and +0x174 / +0x1c0..
     // +0x1cc zeroed. The window stays as it is.
     void Reset();
-    // FUN_004cad10 (thiscall, RET 8) -- Reset without deleting the window state, then
+    // (thiscall, RET 8) -- Reset without deleting the window state, then
     // Play(Msg, 0, 0, bPositional) and the message's linger.
     void PlayNoPortrait(FCommMessage const* Msg, bool bPositionalArg);
-    // FUN_004cb250 (thiscall, RET 0x48) -- open the window on Speaker: the talking head from
+    // (thiscall, RET 0x48) -- open the window on Speaker: the talking head from
     // SpeakerCostume (perf option slot 5 above 0), the caption text control under Parent with
     // the pilot name / group name / object name and NameIds.
     void Appearance(CObject* SpeakerObject, CObject* ReceiverUnused, Costume SpeakerCostume,
                     unsigned InNameIds, FVoiceProfile* Profile, Win3D* Parent);
-    // FUN_004cbc40 (thiscall, RET 4) -- advance the lines; true while the channel is idle (the
+    // (thiscall, RET 4) -- advance the lines; true while the channel is idle (the
     // window closed or closing, the speaker gone, the linger run out). On the busy-to-idle edge
     // single player gets CommComplete SUCCESS.
     bool TickVoice(float Dt);
-    // FUN_004cc140 (thiscall, RET 8) -- open/close requests, Layout on the Win3D camera, Cam's
+    // (thiscall, RET 8) -- open/close requests, Layout on the Win3D camera, Cam's
     // viewport from corners 0 and 3, the head advanced by Dt in 0.2 s steps, and the window
     // closed once the speaker is gone.
     void WindowTick(float Dt, FGameCamera* Cam);
-    // FUN_004cc2c0 -- close the window, CommComplete CANCELLED in single player, StopVoice.
+    // close the window, CommComplete CANCELLED in single player, StopVoice.
     void Cancel();
     // The window close every path inlines (0x004cc28c..0x004cc2ab): requests, body = 0 and the
     // caption hidden.
     void CloseWindow();
-    // FUN_004cc440 -- the chrome rectangle around WinPos (line list, additive).
+    // the chrome rectangle around WinPos (line list, additive).
     void DrawFrame();
-    // FUN_004cc660 (thiscall, RET 0xc) -- the backdrop quad and the head through Cam with Light.
+    // (thiscall, RET 0xc) -- the backdrop quad and the head through Cam with Light.
     void DrawPortrait(FGameCamera* Cam, FEngineLight* Light, void* BackdropTexture);
 
     FCommWindow Window;               // +0x38
@@ -333,7 +329,7 @@ struct FCommSlot
     unsigned char Pad0e[2];
 };
 
-// FUN_004cc9a0 (cdecl) -- the [HUD] static_txm noise over Rect, blended by static_blend.
+// (cdecl) -- the [HUD] static_txm noise over Rect, blended by static_blend.
 void CommDrawStatic(int const* Rect);
 
 // ============================================================================================
@@ -342,29 +338,29 @@ void CommDrawStatic(int const* Rect);
 class HUD_Receiver : public Win3D, public HUDItem
 {
 public:
-    // FUN_004cd350 (thiscall, RET 4).
+    // (thiscall, RET 4).
     explicit HUD_Receiver(INI_Reader& Reader);
-    // FUN_004ce8f0 (scalar deleting FUN_004ce8d0; HUDItem thunk LAB_004cee70).
+    // (scalar deleting the routine; HUDItem thunk the branch).
     ~HUD_Receiver() override;
 
-    // Win3D slot 11 FUN_004cd9d0.
+    // Win3D slot 11 the routine.
     void Update() override;
-    // Win3D slot 12 FUN_00406d10 -- `JMP [EAX+0x2c]`, i.e. Update.
+    // Win3D slot 12 the routine -- `JMP [EAX+0x2c]`, i.e. Update.
     void UpdateInactive() override;
-    // Win3D slot 13 FUN_004cd8a0.
+    // Win3D slot 13 the routine.
     void Draw() override;
-    // HUDItem slot 3 FUN_004cdf30 -- both inbox counts zeroed; true.
+    // HUDItem slot 3 the routine -- both inbox counts zeroed; true.
     bool Init() override;
 
-    // FUN_004ce000 (thiscall, RET 8) -- start Msg on Slot's channel.
+    // (thiscall, RET 8) -- start Msg on Slot's channel.
     void Dispatch(FCommSlot* Slot, FCommMessage* Msg);
-    // FUN_004ce4c0 (thiscall, RET 8) -- the per-frame slot logic; channel A's copy is inlined
-    // into Update (0x004cda5d..0x004cdbad) with FUN_004cdf40 called instead of inlined.
+    // (thiscall, RET 8) -- the per-frame slot logic; channel A's copy is inlined
+    // into Update (0x004cda5d..0x004cdbad) with the routine called instead of inlined.
     void UpdateSlot(FCommSlot* Slot, float Dt);
-    // FUN_004cdf40 (thiscall, RET 4; `this` is not read) -- the highest voice-message priority
+    // (thiscall, RET 4; `this` is not read) -- the highest voice-message priority
     // of Msg's lines, -100 without one (or without the voice).
     static int MaxVoicePriority(FCommMessage const* Msg);
-    // FUN_004cdfc0 (thiscall, RET 4; `this` is not read) -- in single player,
+    // (thiscall, RET 4; `this` is not read) -- in single player,
     // CommComplete(sender, receiver, last text id, Msg->Result).
     static void CommCancelled(FCommMessage const* Msg);
 
@@ -385,23 +381,23 @@ private:
     HUD_Receiver& operator=(HUD_Receiver const&) = delete;
 };
 
-// DAT_006748f8 -- the live HUD_Receiver, or null (ctor 0x004cd813, dtor 0x004ce9d9).
+// the live HUD_Receiver, or null (ctor 0x004cd813, dtor 0x004ce9d9).
 void* GetHudCommInstance();
 void SetHudCommInstance(void* Instance);
 
-// FUN_004cc880 (cdecl) -- with a live HUD_Receiver: true when the CSimple channel B watches,
+// (cdecl) -- with a live HUD_Receiver: true when the CSimple channel B watches,
 // else the one channel A watches, has id ObjectId. Callers: 0x004d27af, 0x004d39ca
-// (HUD_ContactList), 0x004ec17a (HUD_Targetable_Objects FUN_004ebf70), 0x004ef0e8, 0x004f09a9.
+// (HUD_ContactList), 0x004ec17a (HUD_Targetable_Objects the routine), 0x004ef0e8, 0x004f09a9.
 bool HudCommIsWatchedObjectId(unsigned ObjectId);
-// FUN_004cc8d0 (cdecl) -- channel A's window is open and the letterbox is down. Callers:
-// 0x0045ad7b, 0x0045add4.
+// (cdecl) -- channel A's window is open and the letterbox is down. Callers:
+// , 0x0045add4.
 bool HudCommIsWindowOpen();
-// FUN_004cc900 (cdecl) -- with a live HUD_Receiver, build (or find) the body of Costume in the
+// (cdecl) -- with a live HUD_Receiver, build (or find) the body of Costume in the
 // EngineCharacter cache; FDUMP line 0x119 when it cannot be built. Caller: 0x0053de92.
 void HudCommPreloadCostume(Costume const* SpeakerCostume);
 
-// FUN_004a2c50 (retail NavMap; cdecl) -- a registered Win3D named "NeuroNetNavMap" exists. Kept
+// (baseline NavMap; cdecl) -- a registered Win3D named "NeuroNetNavMap" exists. Kept
 // here until NavMap.cpp is ported; its one traced caller is HUD_Receiver::Draw.
 bool IsNeuroNetNavMapOpen();
-// FUN_0054bc90 (retail space.cpp) GetSpaceScriptCameraLatch now lives in space_camera.{h,cpp}
-// next to its writer FUN_0054bb10 (SetupSpaceScriptCamera).
+// (baseline space.cpp) GetSpaceScriptCameraLatch now lives in space_camera.{h,cpp}
+// next to its writer the routine (SetupSpaceScriptCamera).

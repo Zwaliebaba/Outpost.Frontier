@@ -1,14 +1,10 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "hud_weapon_groups.h"
 
-#include "hud_command_dispatch.h" // FSpaceCommand, SpaceSendCommand (FUN_0054bcb0)
-#include "login_mgr.h"            // G_Server (DAT_0067ecd0)
-#include "player_spawn.h"         // GetPlayerConnectionId (DAT_00673344)
+#include "hud_command_dispatch.h" // FSpaceCommand, SpaceSendCommand (the routine)
+#include "login_mgr.h"            // G_Server (the field)
+#include "player_spawn.h"         // GetPlayerConnectionId (the field)
 
 #include "common_cequip.h"
 #include "common_cobject.h"
@@ -24,7 +20,7 @@ FWeaponGroups G_WeaponGroups;
 namespace
 {
     // The toggle record 0x004f59ed..0x004f5a1c / 0x004f5b38..0x004f5b67: ten zero dwords, id
-    // 0x19, +0x10 the equipment id, +0x14 = 2, +0x26 = 1, through FUN_0054bcb0.
+    // 0x19, +0x10 the equipment id, +0x14 = 2, +0x26 = 1, through the routine.
     void SendToggleCommand(unsigned short EquipId)
     {
         FSpaceCommand Command;
@@ -40,12 +36,12 @@ namespace
 FWeaponGroups::FWeaponGroups()
     : Current(0)
 {
-    // FUN_004f53b0: the watcher, the list and the text zeroed, +0x28 = 0.
+    // the watcher, the list and the text zeroed, +0x28 = 0.
 }
 
 FWeaponGroups::~FWeaponGroups()
 {
-    // FUN_004f5410: every non-null group through FUN_004e5620 and freed, the list emptied;
+    // every non-null group through the routine and freed, the list emptied;
     // then the text, the list's buffer and the watcher (set_pointer(0) when set) -- the member
     // destructors, in that order.
     DeleteGroups();
@@ -87,7 +83,7 @@ CObject* FWeaponGroups::GetShipObject() const
 
 void FWeaponGroups::SetShip(IObjRW* NewShip)
 {
-    // FUN_004f5520.
+    // .
     Watchable const* const Watched = (NewShip == nullptr)
         ? nullptr
         : reinterpret_cast<Watchable const*>(reinterpret_cast<unsigned char const*>(NewShip) + 8);
@@ -96,7 +92,7 @@ void FWeaponGroups::SetShip(IObjRW* NewShip)
 
 int FWeaponGroups::FindGroupIndex(int Id) const
 {
-    // FUN_004f5540.
+    // .
     int const Count = static_cast<int>(Groups.size());
     for (int Index = 0; Index < Count; ++Index)
     {
@@ -110,7 +106,7 @@ int FWeaponGroups::FindGroupIndex(int Id) const
 
 void FWeaponGroups::StoreActive(int Id)
 {
-    // FUN_004f5580. 0x004f559c..0x004f5645: the group, or a new one appended.
+    // . 0x004f559c..0x004f5645: the group, or a new one appended.
     FWeaponGroup* Group = nullptr;
     int const Count = static_cast<int>(Groups.size());
     for (int Index = 0; Index < Count; ++Index)
@@ -123,19 +119,19 @@ void FWeaponGroups::StoreActive(int Id)
     }
     if (Group != nullptr)
     {
-        // 0x004f5601..0x004f562b: FUN_004f6650 / FUN_004e5810 -- erase all.
+        // the routine / the routine -- erase all.
         Group->Hardpoints.erase(Group->Hardpoints.begin(), Group->Hardpoints.end());
     }
     else
     {
         Group = new FWeaponGroup;
         Group->Id = Id;
-        Groups.insert(Groups.end(), Group); // FUN_00537260
+        Groups.insert(Groups.end(), Group);
     }
 
-    // 0x004f564a..0x004f576c: the watched CEqObj's launchers (mask 0xe0); the hardpoint (slot
+    // the watched CEqObj's launchers (mask 0xe0); the hardpoint (slot
     // +0x60 GetParentHPName) is read first, then IsActive (slot +0x04); an active one's name is
-    // appended (FUN_004e5ab0).
+    // appended (the routine).
     CObject* const Object = GetShipObject();
     if (Object != nullptr && (static_cast<unsigned>(Object->ObjectClass) & 0x103u) == 0x103u)
     {
@@ -155,13 +151,13 @@ void FWeaponGroups::StoreActive(int Id)
         }
     }
 
-    // 0x004f5772: every exit sends.
+    // every exit sends.
     SendToServer();
 }
 
 int FWeaponGroups::GetGroupEquipIds(int Id, unsigned short* OutIds, int MaxIds)
 {
-    // FUN_004f5790.
+    // .
     int const Index = FindGroupIndex(Id);
     if (Index == -1)
     {
@@ -183,11 +179,11 @@ int FWeaponGroups::GetGroupEquipIds(int Id, unsigned short* OutIds, int MaxIds)
     {
         char const* const Hardpoint =
             static_cast<CExternalEquip*>(Equip)->GetParentHPName().Value;
-        // 0x004f5892..0x004f58ed: the first matching name stores the id; a mismatch with the
+        // the first matching name stores the id; a mismatch with the
         // output already full moves on to the next launcher.
         for (int NameIndex = 0; NameIndex < NameCount; ++NameIndex)
         {
-            if (_stricmp(Group->Hardpoints[NameIndex].c_str(), Hardpoint) == 0) // DACOM stricmp
+            if (_stricmp(Group->Hardpoints[NameIndex].c_str(), Hardpoint) == 0) // NEURONCOMPONENTS stricmp
             {
                 OutIds[Found] = Equip->Id;
                 ++Found;
@@ -205,7 +201,7 @@ int FWeaponGroups::GetGroupEquipIds(int Id, unsigned short* OutIds, int MaxIds)
 
 void FWeaponGroups::Activate(int Id)
 {
-    // FUN_004f5920.
+    // .
     int const Index = FindGroupIndex(Id);
     CObject* const Object = GetShipObject();
     if (Object == nullptr || (static_cast<unsigned>(Object->ObjectClass) & 0x103u) != 0x103u)
@@ -217,7 +213,7 @@ void FWeaponGroups::Activate(int Id)
 
     if (Index == -1)
     {
-        // 0x004f596a..0x004f5a31: no such group -- toggle every active launcher off. The
+        // no such group -- toggle every active launcher off. The
         // hardpoint is fetched (slot +0x60) and not used.
         CEquip* Equip = EqObj->EquipManager.Traverse(Walk);
         while (Equip != nullptr)
@@ -232,7 +228,7 @@ void FWeaponGroups::Activate(int Id)
         return;
     }
 
-    // 0x004f5a3d..0x004f5c0c
+
     FWeaponGroup const* const Group = Groups[Index];
     int const NameCount = static_cast<int>(Group->Hardpoints.size());
     CEquip* Equip = EqObj->EquipManager.Traverse(Walk);
@@ -244,7 +240,7 @@ void FWeaponGroups::Activate(int Id)
         bool bInGroup = false;
         for (int NameIndex = 0; NameIndex < NameCount; ++NameIndex)
         {
-            if (_stricmp(Group->Hardpoints[NameIndex].c_str(), Hardpoint) == 0) // DACOM stricmp
+            if (_stricmp(Group->Hardpoints[NameIndex].c_str(), Hardpoint) == 0) // NEURONCOMPONENTS stricmp
             {
                 bInGroup = true;
                 break;
@@ -254,7 +250,7 @@ void FWeaponGroups::Activate(int Id)
         {
             SendToggleCommand(Equip->Id);
 
-            // 0x004f5b6c..0x004f5bf6: the watched ship (class & 0x503), not tested for null
+            // the watched ship (class & 0x503), not tested for null
             // before use; a launcher that is active now and is a gun is aimed at the ship's
             // target through the watched object's IObjAffect slot 17 (+0x44).
             CShip* ShipObject = nullptr;
@@ -284,10 +280,10 @@ void FWeaponGroups::Activate(int Id)
 
 void FWeaponGroups::SendToServer()
 {
-    // FUN_004f5c20. 0x004f5c26..0x004f5c7d: erase(0, npos).
+    // . 0x004f5c26..0x004f5c7d: erase(0, npos).
     Text.erase(0, std::string::npos);
 
-    // 0x004f5c81..0x004f5da0: one line per hardpoint, groups in list order.
+    // one line per hardpoint, groups in list order.
     int const Count = static_cast<int>(Groups.size());
     for (int Index = 0; Index < Count; ++Index)
     {
@@ -300,10 +296,10 @@ void FWeaponGroups::SendToServer()
             Text.append(Line, std::strlen(Line));
         }
     }
-    // 0x004f5da6..0x004f5e09: DAT_005cb7d0 "\n".
+    // the field "\n".
     Text.append("\n", 1);
 
-    // 0x004f5e0d..0x004f5e3b: IServer slot 70 (+0x118) with DAT_00673344 and strlen(c_str()).
+    // IServer slot 70 (+0x118) with the field and strlen(c_str()).
     char const* const Data = Text.c_str();
     G_Server->SetWeaponGroup(GetPlayerConnectionId(),
                              reinterpret_cast<unsigned char*>(const_cast<char*>(Data)),
@@ -312,17 +308,17 @@ void FWeaponGroups::SendToServer()
 
 void FWeaponGroups::ReadFromServer(char const* Data, int Size)
 {
-    // FUN_004f5e50. 0x004f5e6c..0x004f5ea9: FUN_004f6150(1) on each group, FUN_0042ec80.
+    // . 0x004f5e6c..0x004f5ea9: the routine(1) on each group, the routine.
     DeleteGroups();
 
-    // 0x004f5eae..0x004f6132: lines "<digits> , <name>" -- every compare is unsigned; a
+    // lines "<digits> , <name>" -- every compare is unsigned; a
     // control character (< 0x20) where a digit or a comma is expected ends the parse, and one
     // inside a name ends that name (the control run after it is skipped).
     unsigned char const* Cursor = reinterpret_cast<unsigned char const*>(Data);
     int Left = Size;
     while (Left > 0)
     {
-        // 0x004f5ec4..0x004f5ee2: to the first digit.
+        // to the first digit.
         while (Left > 0)
         {
             unsigned char const Char = *Cursor;
@@ -338,7 +334,7 @@ void FWeaponGroups::ReadFromServer(char const* Data, int Size)
             --Left;
         }
 
-        // 0x004f5eea..0x004f5f09: the id.
+        // the id.
         int Id = 0;
         bool bStoppedOnDigitEnd = false;
         while (Left > 0)
@@ -356,7 +352,7 @@ void FWeaponGroups::ReadFromServer(char const* Data, int Size)
 
         if (bStoppedOnDigitEnd)
         {
-            // 0x004f5f11..0x004f5f36: to the comma.
+            // to the comma.
             bool bAtComma = false;
             while (Left > 0)
             {
@@ -375,7 +371,7 @@ void FWeaponGroups::ReadFromServer(char const* Data, int Size)
             }
             if (bAtComma)
             {
-                // 0x004f5f3a..0x004f5f5a: past the commas and spaces.
+                // past the commas and spaces.
                 while (Left > 0)
                 {
                     unsigned char const Char = *Cursor;
@@ -389,7 +385,7 @@ void FWeaponGroups::ReadFromServer(char const* Data, int Size)
             }
         }
 
-        // 0x004f5f5c..0x004f5fcb: the name, spaces dropped, up to a control character; then
+        // the name, spaces dropped, up to a control character; then
         // past the control run.
         std::string Name;
         while (Left > 0)
@@ -397,7 +393,7 @@ void FWeaponGroups::ReadFromServer(char const* Data, int Size)
             unsigned char const Char = *Cursor;
             if (Char < 0x20)
             {
-                // 0x004f5f9c..0x004f5fc9: the first loop stops at once (the character is
+                // the first loop stops at once (the character is
                 // <= 0x20), the second skips while below 0x20.
                 while (Left > 0 && *Cursor > 0x20)
                 {
@@ -419,8 +415,8 @@ void FWeaponGroups::ReadFromServer(char const* Data, int Size)
             --Left;
         }
 
-        // 0x004f5fcf..0x004f60c1: the group with this id (appended when missing) gets the name
-        // (a copy through c_str(), FUN_004e5ab0 at the end).
+        // the group with this id (appended when missing) gets the name
+        // (a copy through c_str(), the routine at the end).
         FWeaponGroup* Group = nullptr;
         int const Count = static_cast<int>(Groups.size());
         for (int Index = 0; Index < Count; ++Index)
@@ -435,7 +431,7 @@ void FWeaponGroups::ReadFromServer(char const* Data, int Size)
         {
             Group = new FWeaponGroup;
             Group->Id = Id;
-            Groups.insert(Groups.end(), Group); // FUN_00537260
+            Groups.insert(Groups.end(), Group);
         }
         char const* const NameText = Name.c_str();
         Group->Hardpoints.insert(Group->Hardpoints.end(), 1,
@@ -445,26 +441,26 @@ void FWeaponGroups::ReadFromServer(char const* Data, int Size)
 
 int FWeaponGroups::GetCurrent() const
 {
-    // FUN_004f6170.
+    // .
     return Current;
 }
 
 void FWeaponGroups::SetCurrent(int Group)
 {
-    // FUN_004f6180.
+    // .
     Current = Group;
 }
 
 void FWeaponGroups::Clear()
 {
-    // FUN_004f6190: delete every group, erase all, then a tail jump into FUN_004f5c20.
+    // delete every group, erase all, then a tail jump into the routine.
     DeleteGroups();
     SendToServer();
 }
 
 void FWeaponGroups::AddHardpoint(int Id, char const* Hardpoint)
 {
-    // FUN_004f6200.
+    // .
     int const Index = FindGroupIndex(Id);
     if (Index == -1)
     {
@@ -474,12 +470,12 @@ void FWeaponGroups::AddHardpoint(int Id, char const* Hardpoint)
     int const NameCount = static_cast<int>(Group->Hardpoints.size());
     for (int NameIndex = 0; NameIndex < NameCount; ++NameIndex)
     {
-        if (_stricmp(Group->Hardpoints[NameIndex].c_str(), Hardpoint) == 0) // DACOM stricmp
+        if (_stricmp(Group->Hardpoints[NameIndex].c_str(), Hardpoint) == 0) // NEURONCOMPONENTS stricmp
         {
             return;
         }
     }
-    // 0x004f62b1..0x004f631a: string(Hardpoint), appended (FUN_004e5ab0).
+    // string(Hardpoint), appended (the routine).
     Group->Hardpoints.insert(Group->Hardpoints.end(), 1,
                              std::string(Hardpoint, std::strlen(Hardpoint)));
     SendToServer();
@@ -487,7 +483,7 @@ void FWeaponGroups::AddHardpoint(int Id, char const* Hardpoint)
 
 void FWeaponGroups::RemoveHardpoint(char const* Hardpoint)
 {
-    // FUN_004f6380. The group count is read once; ids 0 .. Count - 1 are looked up afresh.
+    // . The group count is read once; ids 0 .. Count - 1 are looked up afresh.
     int const Count = static_cast<int>(Groups.size());
     for (int GroupId = 0; GroupId < Count; ++GroupId)
     {
@@ -500,9 +496,9 @@ void FWeaponGroups::RemoveHardpoint(char const* Hardpoint)
         int NameCount = static_cast<int>(Group->Hardpoints.size());
         for (int NameIndex = 0; NameIndex < NameCount; ++NameIndex)
         {
-            if (_stricmp(Group->Hardpoints[NameIndex].c_str(), Hardpoint) == 0) // DACOM stricmp
+            if (_stricmp(Group->Hardpoints[NameIndex].c_str(), Hardpoint) == 0) // NEURONCOMPONENTS stricmp
             {
-                // 0x004f6458..0x004f65f6: the later names shift down, the last is destroyed,
+                // the later names shift down, the last is destroyed,
                 // and the same index is looked at again.
                 Group->Hardpoints.erase(Group->Hardpoints.begin() + NameIndex);
                 --NameCount;

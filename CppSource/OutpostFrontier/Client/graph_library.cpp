@@ -1,13 +1,9 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "graph_library.h"
 
 #include "common_ini.h"
-#include "dacom.h"
+#include "neuroncomponents.h"
 #include "globals.h"
 
 #include <windows.h>
@@ -19,21 +15,21 @@
 
 namespace
 {
-    char const* const kGraphLibraryCpp = "E:\\FL\\Scratch\\Source\\Client\\cmn\\GraphLibrary.cpp";
+    char const* const kGraphLibraryCpp = "Client\\cmn\\GraphLibrary.cpp";
 
-    // DAT_005c75f8 (double 0.001): how far below Max a clamped parameter stops.
+    // (double 0.001): how far below Max a clamped parameter stops.
     double const kGraphClampMargin = 0.001;
 
-    // DAT_0061065c, initialised to 1 and only ever read (004193f3, 00419606): non-zero
+    // , initialised to 1 and only ever read (004193f3, 00419606): non-zero
     // interpolates between the bracketing keys, zero snaps to the nearer one.
     unsigned char G_bGraphInterpolate = 1;
 
-    // DAT_0061669c / DAT_006166a0 / DAT_006166a4. Constructed by LAB_00419050 and destroyed by
-    // LAB_00419090 in retail -- the static constructor/destructor of this object.
+    // / the field / the field. Constructed by the branch and destroyed by
+    // in baseline -- the static constructor/destructor of this object.
     std::list<FGraphData> G_GraphLibrary;
 
     // The bracketing-key search shared by slots 6 and 7 (004193a7..004193f3 and
-    // 004195ba..00419606): Lo/Hi end up as the two key indices around X.
+    // ): Lo/Hi end up as the two key indices around X.
     void FindBracketingKeys(FGraphPoint const* Keys, unsigned Count, double X, int& OutLo,
                             int& OutHi)
     {
@@ -77,7 +73,7 @@ namespace
     }
 }
 
-// FUN_00419460.
+// .
 double GraphRangeWrap(FGraphRange const* Range, float T)
 {
     if (Range->bClamp != 0)
@@ -93,12 +89,12 @@ double GraphRangeWrap(FGraphRange const* Range, float T)
         return Limit;
     }
 
-    float const Span = Range->Max - Range->Min;                                  // 004194a6
-    double const Frac = (static_cast<double>(T) - Range->Min) / Span;            // 004194b5
+    float const Span = Range->Max - Range->Min;
+    double const Frac = (static_cast<double>(T) - Range->Min) / Span;
     return fabs(Frac - floor(Frac)) * Span;
 }
 
-// FUN_004194e0.
+// .
 double GraphRangeNormalize(FGraphRange const* Range, float T)
 {
     return (static_cast<double>(T) - Range->Min) /
@@ -128,31 +124,31 @@ FGraphData::~FGraphData()
     }
 }
 
-// LAB_004191d0.
+// .
 char const* FGraphData::GetName()
 {
     return Name.c_str();
 }
 
-// FUN_00415070 (folded with CGunWrapper::GetBrowser): `MOV EAX,[ECX+0x14]`.
+// (folded with CGunWrapper::GetBrowser): `MOV EAX,[ECX+0x14]`.
 int FGraphData::GetElemType()
 {
     return ElemType;
 }
 
-// LAB_004191e0.
+// .
 unsigned FGraphData::GetCount()
 {
     return Count;
 }
 
-// LAB_00431680 (folded): `LEA EAX,[ECX+0x20]`.
+// (folded): `LEA EAX,[ECX+0x20]`.
 FGraphRange* FGraphData::GetRange()
 {
     return &Range;
 }
 
-// LAB_004191f0, RET 4.
+// , RET 4.
 FGraphDesc* FGraphData::GetDesc(FGraphDesc* Out)
 {
     Out->ElemType = ElemType;
@@ -161,7 +157,7 @@ FGraphDesc* FGraphData::GetDesc(FGraphDesc* Out)
     return Out;
 }
 
-// FUN_00419210, RET 4.
+// , RET 4.
 void FGraphData::SetData(FGraphDesc const* Desc)
 {
     ElemType = Desc->ElemType;
@@ -172,14 +168,14 @@ void FGraphData::SetData(FGraphDesc const* Desc)
     {
         if (NewCount != 0)
         {
-            // 00419243 also tests (Data != 0 && NewCount == Count) before reallocating; that
+            // also tests (Data != 0 && NewCount == Count) before reallocating; that
             // cannot hold inside this branch, so the realloc always runs.
             Data = static_cast<FGraphPoint*>(realloc(Data, NewCount * sizeof(FGraphPoint)));
             Count = NewCount;
         }
         else if (Data != nullptr)
         {
-            // 00419265: Count is left as it was.
+            // Count is left as it was.
             free(Data);
             Data = nullptr;
         }
@@ -188,7 +184,7 @@ void FGraphData::SetData(FGraphDesc const* Desc)
     if (!bSameBuffer)
         memcpy(Data, Desc->Data, Desc->Count * sizeof(FGraphPoint));
 
-    // 00419298: X extent of the keys, reading Count (not Desc->Count) keys.
+    // X extent of the keys, reading Count (not Desc->Count) keys.
     Range.Max = Data[0].X;
     Range.Min = Data[0].X;
     for (unsigned Index = 1; Index < Count; ++Index)
@@ -201,13 +197,13 @@ void FGraphData::SetData(FGraphDesc const* Desc)
     }
 }
 
-// LAB_004192f0, RET 8.
+// , RET 8.
 double FGraphData::Evaluate(float T, FGraphRange const* Caller)
 {
     double X;
     if (Caller != nullptr)
     {
-        // 00419303..00419381 is FUN_00419460 inlined with the result stored as a float, then
+        // is the routine inlined with the result stored as a float, then
         // mapped from the caller's range onto this curve's X extent.
         float const Wrapped = static_cast<float>(GraphRangeWrap(Caller, T));
         X = GraphRangeNormalize(Caller, Wrapped) *
@@ -235,7 +231,7 @@ double FGraphData::Evaluate(float T, FGraphRange const* Caller)
     return (1.0 - Weight) * HiKey.Value + LoKey.Value * Weight;
 }
 
-// LAB_00419500, RET 8.
+// , RET 8.
 unsigned FGraphData::EvaluateColor(float T, FGraphRange const* Caller)
 {
     double X;
@@ -261,9 +257,9 @@ unsigned FGraphData::EvaluateColor(float T, FGraphRange const* Caller)
     double Weight;
     if (Span > 0.0)
     {
-        // 0041963c..00419640: FXCH / FSUB [Lo] / FDIVRP -- the weight here is measured from the
+        // FXCH / FSUB [Lo] / FDIVRP -- the weight here is measured from the
         // LOW key, (X - Lo.X) / Span, the opposite of slot 6's (Hi.X - X) / Span, while the
-        // blend below still puts (1 - Weight) on the high key. Retail's colour curves therefore
+        // blend below still puts (1 - Weight) on the high key. baseline's colour curves therefore
         // run backwards between keys; kept as is.
         Weight = (X - LoKey.X) / Span;
     }
@@ -283,27 +279,27 @@ unsigned FGraphData::EvaluateColor(float T, FGraphRange const* Caller)
                                        ((LoBits >> 8) & 0xffu) * Weight);
     int const Blue = static_cast<int>((HiBits & 0xffu) * HiWeight + (LoBits & 0xffu) * Weight);
 
-    // 004196ba..0041974e: the alpha result is shifted in without the 0xFF mask the others get.
+    // the alpha result is shifted in without the 0xFF mask the others get.
     unsigned Packed = static_cast<unsigned>(Red) & 0xffu;
     Packed = (Packed | (static_cast<unsigned>(Alpha) << 8)) << 8;
     Packed = (Packed | (static_cast<unsigned>(Green) & 0xffu)) << 8;
     return (static_cast<unsigned>(Blue) & 0xffu) | Packed;
 }
 
-// LAB_00419160.
+// .
 int FGraphData::AddRef()
 {
     return ++RefCount;
 }
 
-// LAB_00419170.
+// .
 int FGraphData::Release()
 {
     int const NewCount = --RefCount;
     if (NewCount != 0)
         return NewCount;
 
-    // Walk the library for the node holding `this`; erase runs FUN_00419100 and frees the node.
+    // Walk the library for the node holding `this`; erase runs the routine and frees the node.
     for (std::list<FGraphData>::iterator It = G_GraphLibrary.begin(); It != G_GraphLibrary.end();
          ++It)
     {
@@ -353,8 +349,8 @@ int GraphLibraryLoad(char const* Path)
         return Created;
     }
 
-    // [ESP+0x30] length / [ESP+0x34] text: the {len, char[0x80]} name buffer FUN_00417c50
-    // fills; [ESP+0x1650]: the key array, 0x2000 bytes, which retail fills without a bound.
+    // [ESP+0x30] length / [ESP+0x34] text: the {len, char[0x80]} name buffer the routine
+    // fills; [ESP+0x1650]: the key array, 0x2000 bytes, which baseline fills without a bound.
     unsigned NameLen = 0;
     char Name[0x80];
     Name[0] = '\0';
@@ -457,7 +453,7 @@ int GraphLibraryLoad(char const* Path)
                 if (!bDuplicate)
                 {
                     {
-                        // 00419a7f..00419aad: construct a temporary, push_back a copy of it,
+                        // construct a temporary, push_back a copy of it,
                         // destroy the temporary.
                         FGraphData Temp;
                         G_GraphLibrary.push_back(Temp);

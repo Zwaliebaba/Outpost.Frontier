@@ -119,7 +119,7 @@ void *qh_memalloc(int insize) {
 	  bufsize= qhmem.BUFsize;
         qhmem.totshort += bufsize;
 	if (!(newbuffer= malloc(bufsize))) {
-	  FUN_06356960(/* retail 06377ef9 */ "qhull error (qh_memalloc): insufficient memory\n");
+	  WriteHullDiagnostic(  "qhull error (qh_memalloc): insufficient memory\n");
 	  qh_errexit(qhmem_ERRmem, NULL, NULL);
 	} 
 	*((void **)newbuffer)= qhmem.curbuffer;  /* prepend newbuffer to curbuffer 
@@ -136,7 +136,7 @@ void *qh_memalloc(int insize) {
     }
   }else {                     /* long allocation */
     if (!qhmem.indextable) {
-      FUN_06356960 (/* retail 06377f50 */ "qhull internal error (qh_memalloc): qhmem has not been initialized.\n");
+      WriteHullDiagnostic (  "qhull internal error (qh_memalloc): qhmem has not been initialized.\n");
       qh_errexit(qhmem_ERRqhull, NULL, NULL);
     }
     outsize= insize;
@@ -146,11 +146,11 @@ void *qh_memalloc(int insize) {
     if (qhmem.maxlong < qhmem.totlong)
       qhmem.maxlong= qhmem.totlong;
     if (!(object= malloc(outsize))) {
-      FUN_06356960(/* retail 06377fac */ "qhull error (qh_memalloc): insufficient memory\n");
+      WriteHullDiagnostic(  "qhull error (qh_memalloc): insufficient memory\n");
       qh_errexit(qhmem_ERRmem, NULL, NULL);
     }
     if (qhmem.IStracing >= 5)
-      FUN_06356960 (/* retail 06377fcd */ "qh_memalloc long: %d bytes at %p\n", outsize, object);
+      WriteHullDiagnostic (  "qh_memalloc long: %d bytes at %p\n", outsize, object);
   }
   return (object);
 } /* memalloc */
@@ -189,7 +189,7 @@ void qh_memfree(void *object, int size) {
     qhmem .totlong -= size;
     free (object);
     if (qhmem.IStracing >= 5)
-      FUN_06356960 (/* retail 0637804b: PUSH 0x0 for the %p argument (not the freed object) */ "qh_memfree long: %d bytes at %p\n", size, (void *)0);
+      WriteHullDiagnostic (/* PUSH 0x0 for the %p argument (not the freed object) */ "qh_memfree long: %d bytes at %p\n", size, (void *)0);
   }
 } /* memfree */
 
@@ -232,7 +232,7 @@ void qh_meminit (FILE *ferr) {
   
   memset((char *)&qhmem, 0, sizeof qhmem);  /* every field is 0, FALSE, NULL */
   qhmem.ferr= ferr;
-  /* retail 06378110: memset of 0x1a dwords, then ferr (+0x34); no sizeof(void*) check in this build */
+  /* memset of 0x1a dwords, then ferr (+0x34); no sizeof(void*) check in this build */
 } /* meminit */
 
 /*-<a                             href="qh-mem.htm#TOC"
@@ -254,17 +254,17 @@ void qh_meminitbuffers (int tracelevel, int alignment, int numsizes, int bufsize
   qhmem.BUFinit= bufinit;
   qhmem.ALIGNmask= alignment-1;
   if (qhmem.ALIGNmask & ~qhmem.ALIGNmask) {
-    FUN_06356960 (/* retail 06378173 */ "qhull internal error (qh_meminit): memory alignment %d is not a power of 2\n", alignment);
+    WriteHullDiagnostic (  "qhull internal error (qh_meminit): memory alignment %d is not a power of 2\n", alignment);
     qh_errexit (qhmem_ERRqhull, NULL, NULL);
   }
   qhmem.sizetable= (int *) calloc (numsizes, sizeof(int));
   qhmem.freelists= (void **) calloc (numsizes, sizeof(void *));
   if (!qhmem.sizetable || !qhmem.freelists) {
-    FUN_06356960(/* retail 063781b6 */ "qhull error (qh_meminit): insufficient memory\n");
+    WriteHullDiagnostic(  "qhull error (qh_meminit): insufficient memory\n");
     qh_errexit (qhmem_ERRmem, NULL, NULL);
   }
   if (qhmem.IStracing >= 1)
-    FUN_06356960 (/* retail 063781d8 */ "qh_meminitbuffers: memory initialized with alignment %d\n", alignment);
+    WriteHullDiagnostic (  "qh_meminitbuffers: memory initialized with alignment %d\n", alignment);
 } /* meminitbuffers */
 
 /*-<a                             href="qh-mem.htm#TOC"
@@ -279,12 +279,12 @@ void qh_memsetup (void) {
   qsort(qhmem.sizetable, qhmem.TABLEsize, sizeof(int), qh_intcompare);
   qhmem.LASTsize= qhmem.sizetable[qhmem.TABLEsize-1];
   if (qhmem .LASTsize >= qhmem .BUFsize || qhmem.LASTsize >= qhmem .BUFinit) {
-    FUN_06356960 (/* retail 0637823d */ "qhull error (qh_memsetup): largest mem size %d is >= buffer size %d or initial buffer size %d\n",
+    WriteHullDiagnostic (  "qhull error (qh_memsetup): largest mem size %d is >= buffer size %d or initial buffer size %d\n",
             qhmem .LASTsize, qhmem .BUFsize, qhmem .BUFinit);
     qh_errexit(qhmem_ERRmem, NULL, NULL);
   }
   if (!(qhmem.indextable= (int *)malloc((qhmem.LASTsize+1) * sizeof(int)))) {
-    FUN_06356960(/* retail 06378273 */ "qhull error (qh_memsetup): insufficient memory\n");
+    WriteHullDiagnostic(  "qhull error (qh_memsetup): insufficient memory\n");
     qh_errexit(qhmem_ERRmem, NULL, NULL);
   }
   for(k=qhmem.LASTsize+1; k--; )
@@ -308,7 +308,7 @@ void qh_memsize(int size) {
   int k;
 
   if (qhmem .LASTsize) {
-    FUN_06356960 (/* retail 063782fe */ "qhull error (qh_memsize): called after qhmem_setup\n");
+    WriteHullDiagnostic (  "qhull error (qh_memsize): called after qhmem_setup\n");
     qh_errexit (qhmem_ERRqhull, NULL, NULL);
   }
   size= (size + qhmem.ALIGNmask) & ~qhmem.ALIGNmask;
@@ -319,7 +319,7 @@ void qh_memsize(int size) {
   if (qhmem.TABLEsize < qhmem.NUMsizes)
     qhmem.sizetable[qhmem.TABLEsize++]= size;
   else
-    FUN_06356960(/* retail 0637836a */ "qhull warning (memsize): free list table has room for only %d sizes\n", qhmem.NUMsizes);
+    WriteHullDiagnostic(  "qhull warning (memsize): free list table has room for only %d sizes\n", qhmem.NUMsizes);
 } /* memsize */
 
 
@@ -336,7 +336,7 @@ void qh_memstatistics (FILE *fp) {
   int i, count, totfree= 0;
   void *object;
 
-  /* Retail 06378380 (TEST EBP,EBP / JZ 063784ac): a NULL fp returns before anything is done. */
+  /* (TEST EBP,EBP / JZ 063784ac): a NULL fp returns before anything is done. */
   if (!fp)
     return;
   for (i=0; i < qhmem.TABLEsize; i++) {
@@ -364,7 +364,7 @@ void qh_memstatistics (FILE *fp) {
 	   qhmem .BUFsize, qhmem .BUFinit);
   if (qhmem.cntlarger) {
     fprintf (fp, "%7d calls to qh_setlarger\n%7.2g     average copy size\n",
-	   /* retail 06378437: FILD totlarger / FIDIV cntlarger / FSTP qword -> a double quotient */
+	   /* FILD totlarger / FIDIV cntlarger / FSTP qword -> a double quotient */
 	   qhmem.cntlarger, ((double) qhmem.totlarger)/ qhmem.cntlarger);
     fprintf (fp, "  freelists (bytes->count):");
   }

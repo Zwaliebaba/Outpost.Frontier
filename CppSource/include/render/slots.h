@@ -1,14 +1,10 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
 // Evidenced vtable slot indices (byte offset / 4). __stdcall, this on the stack.
 // Names only from FDUMP / IMaterialImpl.h / domain docs. Unknown stays SlotN.
-// Do not guess D3DFMT / D3DRS names. Sources: docs/re/{rp8,shading,rendcomp,flmaterials,ximage,render}.md.
+// Do not guess D3DFMT / D3DRS names. Sources: docs/re/{dx8renderer,shading,rendcomp,surfacematerials,ximage,render}.md.
 
 namespace Render
 {
@@ -46,7 +42,7 @@ namespace Render
         EngineComponentSlot12 = 12,
     };
 
-    // Consumed by RENDER; implemented in dacom / luaprofile, not here.
+    // Consumed by RENDER; implemented in neuroncomponents / luaprofile, not here.
     enum EProfileParserSlot
     {
         ProfileParserQueryInterface = 0,
@@ -60,14 +56,14 @@ namespace Render
         GetKey = 8,       // +0x20
     };
 
-    // IRenderPipeline — 77 slots. FDUMP names (docs/re/render.md).
+    // IRenderPipeline — 77 slots. FDUMP names (implementation notes).
     enum ERenderPipeline8BSlot
     {
         PipelineQueryInterface = 0,
         PipelineAddRef = 1,
         PipelineRelease = 2,
         Startup = 3,
-        Slot4 = 4, // DALib Shutdown (Pipeline+0x10); no FDUMP name
+        Slot4 = 4, // NeuronRuntime Shutdown (Pipeline+0x10); no FDUMP name
         Slot5 = 5,
         GetPipelineState = 6,
         GetDeviceInfo = 7,
@@ -143,7 +139,7 @@ namespace Render
         PipelineSlotCount = 77,
     };
 
-    // query_device_ability indices (RP8 FUN_06d19530). 0–3, 19, 20 have no strings.
+    // query_device_ability indices (DX8RENDERER the routine). 0–3, 19, 20 have no strings.
     enum EDeviceAbility
     {
         AbilitySlot0 = 0,
@@ -190,7 +186,7 @@ namespace Render
     // IGammaControl — 8 slots. Strings set_gamma_function / set_gamma_ramp /
     // get_gamma_ramp exist; slot numbers are not evidenced.
 
-    // IMaterial — 29 slots (Shading + flmaterials). C++ name only for initialize / bind.
+    // IMaterial — 29 slots (Shading + surfacematerials). C++ name only for initialize / bind.
     enum EMaterialSlot
     {
         MaterialQueryInterface = 0,
@@ -209,13 +205,13 @@ namespace Render
         MaterialSlot13 = 13, // copy name via slot 20
         MaterialSlot14 = 14,
         MaterialSlot15 = 15,
-        MaterialSlot16 = 16, // +0x40 LAB_06eb1b50 writes slot-27 property count
+        MaterialSlot16 = 16, // +0x40 the branch writes slot-27 property count
         MaterialSlot17 = 17,
         MaterialSlot18 = 18,
         MaterialSlot19 = 19,
         MaterialSlot20 = 20, // class-name getter
         MaterialSlot21 = 21,
-        MaterialSlot22 = 22, // Atmosphere FUN_06eb2b10: Field74 byte = 1
+        MaterialSlot22 = 22, // Atmosphere the routine: Field74 byte = 1
         MaterialSlot23 = 23,
         MaterialSlot24 = 24, // setup before bind
         MaterialSlot25 = 25,
@@ -234,7 +230,7 @@ namespace Render
         MaterialLibrarySlot3 = 3,  // +0x0C bind pattern→type RET 0x10 (Deformable2 EyeMaterial)
         MaterialLibrarySlot7 = 7,  // unnamed (CRC map; not boot load)
         MaterialLibrarySlot8 = 8,  // load "Material library" + "Type" + CreateInstance
-        MaterialLibrarySlot15 = 15, // find-or-create (flmaterials override)
+        MaterialLibrarySlot15 = 15, // find-or-create (surfacematerials override)
         MaterialLibrarySlot16 = 16, // +0x40 FindByCrc (query+4), no create
         MaterialLibrarySlot18 = 18, // unnamed (CRC insert-or-replace)
         MaterialLibrarySlot23 = 23, // unnamed (reserve stride-8)
@@ -315,7 +311,7 @@ namespace Render
         RenderComponentSlotCount = 18,
     };
 
-    // IBigImage2 / IBigImage — 12 slots, same this. Names from docs/re/render.md / client.
+    // IBigImage2 / IBigImage — 12 slots, same this. Names from implementation notes / client.
     enum EBigImage2Slot
     {
         BigImageQueryInterface = 0,

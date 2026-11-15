@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "IMEFocus.h"
@@ -10,7 +6,7 @@
 #include <cwchar>
 
 static IMEFocus* GIMEFocusSingleton = NULL;
-// Separate symbol-font table 06717140: height/draw/position are retail no-ops.
+// Separate symbol-font table 06717140: height/draw/position are baseline no-ops.
 class FSymbolFont : public CImeUiFont_Base
 {
 public:
@@ -32,7 +28,7 @@ public:
     wchar_t Symbol[5];
     unsigned Color;
 };
-static FSymbolFont GSymbolFont; // DAT_06719390
+static FSymbolFont GSymbolFont;
 static IMEUI_APPEARANCE GDefaultAppearance;
 static bool GbDefaultAppearanceReady = false;
 static wchar_t GResourceStrings[4][1024];
@@ -64,7 +60,7 @@ struct FIMEListConstructionGuard
     bool bComplete;
 };
 
-// FUN_067121e0: invalid hex characters repeat the preceding digit (ESI).
+// invalid hex characters repeat the preceding digit (ESI).
 static unsigned ParseAppearanceNumber(const wchar_t* Text)
 {
     unsigned Value = 0;
@@ -112,8 +108,8 @@ static void StaticDrawRect(int X1, int Y1, int X2, int Y2, DWORD Color)
         GIMEFocusSingleton->DrawRect(X1, Y1, X2, Y2, Color);
 }
 
-// ImeUiCore still emits (x,y,text,Color); bridge to retail DrawTextW arity.
-// Count==1 skips the underline loop in LAB_00563cf0 — degenerate layout entry.
+// ImeUiCore still emits (x,y,text,Color); bridge to baseline DrawTextW arity.
+// Count==1 skips the underline loop in the branch — degenerate layout entry.
 static void StaticDrawFan(void* Layout, unsigned Count)
 {
     if (GIMEFocusSingleton != nullptr)
@@ -132,8 +128,8 @@ static void StaticSendKey(unsigned Key)
         GIMEFocusSingleton->OnKeyDown(Key);
 }
 
-// FUN_06712310/06712380: suppress and restore the operating-system language bar.
-// GUIDs are the raw bytes at retail 06717494 and 06717804.
+// /06712380: suppress and restore the operating-system language bar.
+// GUIDs are the raw bytes at baseline 06717494 and 06717804.
 static const CLSID GLangBarClass = {0xebb08c45,0x6c4a,0x4fdc,{0xae,0x53,0x4e,0xb8,0xc4,0xc7,0xdb,0x8e}};
 static DWORD GLangBarStatus = 0;
 
@@ -188,7 +184,7 @@ static bool CheckAnyIME()
 
 IMEFocus::IMEFocus(HWND Window)
 {
-    // Retail IMEFocus::IMEFocus @ 067112c0 — field order through +0x17.
+    // baseline IMEFocus::IMEFocus @ 067112c0 — field order through +0x17.
     Field04 = static_cast<BYTE>(reinterpret_cast<UINT_PTR>(Window));
 
     FIMEBoxNode* Dummy = new FIMEBoxNode();
@@ -467,7 +463,7 @@ int IMEFocus::NumInputBoxes() const
 
 IMEInputBox* IMEFocus::RegisterInputBox(IMEInputBox* InputBox)
 {
-    // Retail 06711480 — insert before list head (push_back on circular list).
+    // — insert before list head (push_back on circular list).
     if (InputBox == NULL)
         return NULL;
     if (m_pActiveInputBox == NULL)

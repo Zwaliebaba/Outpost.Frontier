@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -14,7 +10,7 @@ namespace Archetype
     struct ICliObjFactory;
 }
 
-// Common.dll.c DataConfig::startup @ 0xa8e60 / shutdown @ 0xa9850
+// Common DataConfig::startup @ 0xa8e60 / shutdown @ 0xa9850
 // ?startup@DataConfig@@YAHPBDPAUICliObjFactory@Archetype@@PAUProgressCB@1@@Z
 // ?shutdown@DataConfig@@YAXXZ
 // ProgressCB is nested in DataConfig (mangle @1). ICliObjFactory / ICliObj nested in Archetype.
@@ -22,8 +18,8 @@ namespace DataConfig
 {
     // RTTI .?AUProgressCB@DataConfig@@. startup (Common.dll 0x06308f38..0x06308f52) calls
     // slot 0, thiscall, with each [Data] value string when the pointer is non-null; a nonzero
-    // EAX aborts the scan and startup returns 1. The only retail implementation is
-    // OutpostFrontier.exe's DataConfigPump (vftable 0x005e6ab8 = {LAB_005b1fe0}, one slot).
+    // EAX aborts the scan and startup returns 1. The only baseline implementation is
+    // OutpostFrontier.exe's DataConfigPump (vftable 0x005e6ab8 = {the branch}, one slot).
     struct ProgressCB
     {
         virtual int Slot00(char const* ValueString) = 0; // +0x00

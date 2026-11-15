@@ -1,12 +1,8 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "RendComp.h"
 #include "TriMesh.h"         // the TriMesh archetype (FTriMeshArch)
-#include "msvcrt_compat.h" // MsvcrtAtoi: retail MSVCRT.DLL wraps mod 2^32, the UCRT saturates
+#include "msvcrt_compat.h" // MsvcrtAtoi: baseline MSVCRT.DLL wraps mod 2^32, the UCRT saturates
 #include "common_misc.h"     // ICamera (the sphere draw reads the camera)
 #include "render/shading.h" // IMaterialLibrary, FShadingPropertyValue (the sphere archetype)
 
@@ -29,7 +25,7 @@ static int IrcHandleOk(void* Handle)
     return 1;
 }
 
-// LAB_06c215a0 after PUSH ESI: switch [ESP+0x14] = 3rd stdcall arg after this (A),
+// after PUSH ESI: switch [ESP+0x14] = 3rd stdcall arg after this (A),
 // flags [ESP+0x18] = B, Out [ESP+0x20] = D. Header names 2nd arg Mode; that slot is Lod.
 static int IrcSlot12CanWrite(int QueryMode, unsigned long Flags, void* Out)
 {
@@ -46,7 +42,7 @@ static int IrcSlot12CanWrite(int QueryMode, unsigned long Flags, void* Out)
 
 class FTriMeshAnim;
 
-// DAT_06c37cac (five dwords, written at 06c2967b / read back at 06c29805): the archetype's
+// (five dwords, written at 06c2967b / read back at 06c29805): the archetype's
 // texcoord-0 stream (+0x5C) saved while a TriMesh instance with a UV0 track draws.
 static FRpVertexStream G_TriMeshSavedUv0;
 
@@ -82,7 +78,7 @@ public:
     void TickAllInstances(void* Arg);
     void DestroyInstanceMap();
 
-    GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override
+    GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override
     {
         if (std::strcmp(Iid, Iids::RenderComponent) != 0)
         {
@@ -95,13 +91,13 @@ public:
         return GR_OK;
     }
 
-    unsigned long DACOM_API AddRef() override
+    unsigned long NEURONCOMPONENTS_API AddRef() override
     {
         RefCount += 1;
         return RefCount;
     }
 
-    unsigned long DACOM_API Release() override
+    unsigned long NEURONCOMPONENTS_API Release() override
     {
         if (RefCount != 0)
             RefCount -= 1;
@@ -115,22 +111,22 @@ public:
     }
 
     // formerly Slot4
-    int DACOM_API CloneHandle(void* /*Handle*/) override
+    int NEURONCOMPONENTS_API CloneHandle(void* /*Handle*/) override
     {
         return (int)G_HandleFail;
     }
 
     // formerly Slot6
-    int DACOM_API QueryHandle(void* Handle, const char* Iid, void** Out) override
+    int NEURONCOMPONENTS_API QueryHandle(void* Handle, const char* Iid, void** Out) override
     {
         if (Handle == nullptr || Handle == (void*)G_HandleFail)
             return -1;
-        IDAComponent* Object = (IDAComponent*)Handle;
+        INeuronComponent* Object = (INeuronComponent*)Handle;
         return Object->QueryInterface(Iid, Out);
     }
 
     // formerly Slot7
-    int DACOM_API CreateMeshInstance(void* /*InstId*/, void* Handle) override
+    int NEURONCOMPONENTS_API CreateMeshInstance(void* /*InstId*/, void* Handle) override
     {
         if (Handle == nullptr || Handle == (void*)G_HandleFail)
             return 0;
@@ -138,20 +134,20 @@ public:
     }
 
     // formerly Slot8
-    int DACOM_API DestroyMeshInstance(void* InstId, void* /*Handle*/) override
+    int NEURONCOMPONENTS_API DestroyMeshInstance(void* InstId, void* /*Handle*/) override
     {
         DropInstance(InstId);
         return 0;
     }
 
     // formerly Slot9
-    int DACOM_API UpdateMeshInstance(void* /*InstId*/, void* /*Arg*/) override
+    int NEURONCOMPONENTS_API UpdateMeshInstance(void* /*InstId*/, void* /*Arg*/) override
     {
         return 0;
     }
 
     // formerly Slot10
-    int DACOM_API QueryMeshInstance(void* InstId, void* /*Handle*/, const char* Iid, void** Out) override
+    int NEURONCOMPONENTS_API QueryMeshInstance(void* InstId, void* /*Handle*/, const char* Iid, void** Out) override
     {
         LookupCount += 1;
         FTriMeshAnim* Anim = FindInstance(InstId);
@@ -161,13 +157,13 @@ public:
     }
 
     // formerly Slot11
-    int DACOM_API UpdateMeshInstances(void* /*InstId*/) override
+    int NEURONCOMPONENTS_API UpdateMeshInstances(void* /*InstId*/) override
     {
         return 0;
     }
 
     // formerly Slot12
-    int DACOM_API QueryGeometry(void* Handle, int /*Lod*/, void* A, void* B, void* /*C*/, void* Out,
+    int NEURONCOMPONENTS_API QueryGeometry(void* Handle, int /*Lod*/, void* A, void* B, void* /*C*/, void* Out,
                          void* /*E*/) override
     {
         if (IrcHandleOk(Handle) == 0)
@@ -180,7 +176,7 @@ public:
     }
 
     // formerly Slot13
-    int DACOM_API GetBounds(void* Handle, float /*Lod*/, void* /*Out*/) override
+    int NEURONCOMPONENTS_API GetBounds(void* Handle, float /*Lod*/, void* /*Out*/) override
     {
         if (Handle == nullptr || Handle == (void*)G_HandleFail)
             return 0;
@@ -188,16 +184,16 @@ public:
     }
 
     // formerly Slot14
-    int DACOM_API GetCentroid(void* Handle, float /*Lod*/, void* /*Out*/) override
+    int NEURONCOMPONENTS_API GetCentroid(void* Handle, float /*Lod*/, void* /*Out*/) override
     {
         if (Handle == nullptr || Handle == (void*)G_HandleFail)
             return 0;
         return 1;
     }
 
-    // SphereMesh LAB_06c29bc0: invalid handle → AL=0; else FUN_06c2aef0 (always -1) → AL=0.
+    // SphereMesh the branch: invalid handle → AL=0; else the routine (always -1) → AL=0.
     // formerly Slot15
-    int DACOM_API SplitByPlane(void* Handle, void* /*A*/, void* /*B*/, void* /*C*/, void* /*D*/, void* /*E*/,
+    int NEURONCOMPONENTS_API SplitByPlane(void* Handle, void* /*A*/, void* /*B*/, void* /*C*/, void* /*D*/, void* /*E*/,
                          void* /*F*/) override
     {
         if (IrcHandleOk(Handle) == 0)
@@ -205,21 +201,21 @@ public:
         return 0;
     }
 
-    // FUN_06c21a00 (TriMesh table 06c36114; SphereMesh overrides it). Defined after
+    // (TriMesh table 06c36114; SphereMesh overrides it). Defined after
     // FTriMeshAnim.
-    int DACOM_API BindMeshInstance(void* InstId, void* Handle) override; // formerly Slot17
+    int NEURONCOMPONENTS_API BindMeshInstance(void* InstId, void* Handle) override; // formerly Slot17
 };
 
-// DAT_06c37d80: the 0x400-byte buffer FUN_06c211a0 reads the "Tristrips" value into.
+// the 0x400-byte buffer the routine reads the "Tristrips" value into.
 static char G_TriMeshProfileValue[0x400];
 
 static GENRESULT TriMeshPluginReadProfile(int* Flag, const FRenderPluginDesc* Desc)
 {
     if (Desc->Parent == nullptr || Desc->Engine == nullptr)
         return (GENRESULT)0xFFFFFFFE;
-    ICOManager* Dacom = DACOM_Acquire();
+    ICOManager* NeuronComponents = NEURONCOMPONENTS_Acquire();
     IProfileParser* First = nullptr;
-    if (Dacom->QueryInterface(Iids::ProfileParser, (void**)(&First)) < 0)
+    if (NeuronComponents->QueryInterface(Iids::ProfileParser, (void**)(&First)) < 0)
     {
         if (First != nullptr)
             First->Release();
@@ -232,7 +228,7 @@ static GENRESULT TriMeshPluginReadProfile(int* Flag, const FRenderPluginDesc* De
         Parser->AddRef();
     }
     if (Parser != nullptr ||
-        Dacom->QueryInterface(Iids::ProfileParser, (void**)(&Parser)) == 0)
+        NeuronComponents->QueryInterface(Iids::ProfileParser, (void**)(&Parser)) == 0)
     {
         *Flag = 1;
         void* Section = Parser->OpenSection(G_NameTriMesh, 3);
@@ -289,27 +285,27 @@ public:
         {
         }
 
-        // LAB_06c29ac0: this - 4, then LAB_06c29a00.
-        GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override
+        // this - 4, then the branch.
+        GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override
         {
             return Owner->QueryInterface(Iid, Out);
         }
 
-        // LAB_06c27670: this - 4, then FUN_06c2b100 (MOV EAX,1).
-        unsigned long DACOM_API AddRef() override
+        // this - 4, then the routine (MOV EAX,1).
+        unsigned long NEURONCOMPONENTS_API AddRef() override
         {
             return 1;
         }
 
-        unsigned long DACOM_API Release() override
+        unsigned long NEURONCOMPONENTS_API Release() override
         {
             return 1;
         }
 
-        // LAB_06c29830: EAX = [this+0xC] (instance +0x10, the live archetype); the stack `this`
+        // EAX = [this+0xC] (instance +0x10, the live archetype); the stack `this`
         // becomes archetype+4 (its IMatHookUp facet) and the call jumps to that facet's slot 3.
         // formerly Slot3
-        int DACOM_API HookUpMaterials() override
+        int NEURONCOMPONENTS_API HookUpMaterials() override
         {
             return Owner->MeshLive->HookFacet.HookUpMaterials();
         }
@@ -325,19 +321,19 @@ public:
         {
         }
 
-        // LAB_06c29ad0: this - 8, then LAB_06c29a00.
-        GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override
+        // this - 8, then the branch.
+        GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override
         {
             return Owner->QueryInterface(Iid, Out);
         }
 
-        // LAB_06c27690: this - 8, then FUN_06c2b100 (MOV EAX,1).
-        unsigned long DACOM_API AddRef() override
+        // this - 8, then the routine (MOV EAX,1).
+        unsigned long NEURONCOMPONENTS_API AddRef() override
         {
             return 1;
         }
 
-        unsigned long DACOM_API Release() override
+        unsigned long NEURONCOMPONENTS_API Release() override
         {
             return 1;
         }
@@ -398,11 +394,11 @@ public:
     FAnimFacet AnimFacet;         // +0x08
     FTriMeshArch* Mesh;           // +0x0C
     FTriMeshArch* MeshLive;       // +0x10
-    FRpVertexStream* UvTrack;     // +0x14 operator new(0x14), FUN_06c24c60 copy of the UV0 stream
-    float Clock;                  // +0x18 UV0_anim clock (LAB_06c293a0)
+    FRpVertexStream* UvTrack;     // +0x14 operator new(0x14), the routine copy of the UV0 stream
+    float Clock;                  // +0x18 UV0_anim clock (the branch)
     void* InstId;                 // +0x1C
 
-    // FUN_06c292b0: +0x10, +0xC, +0x14, +0x18 = 0, +0x1C = -1.
+    // +0x10, +0xC, +0x14, +0x18 = 0, +0x1C = -1.
     FTriMeshAnim()
         : HookFacet(this)
         , AnimFacet(this)
@@ -414,9 +410,9 @@ public:
     {
     }
 
-    // FUN_06c29310 (RET 8; archetype, InstId): +0x10 = +0xC = archetype, +0x1C = InstId; an
+    // (RET 8; archetype, InstId): +0x10 = +0xC = archetype, +0x1C = InstId; an
     // archetype with UV0_anim lookup entries (+0x8C, unsigned > 0) also gets a 0x14 track copied
-    // from its texcoord-0 stream (+0x5C) with SrcCount (+0x88) indices (FUN_06c24c60). Returns 0.
+    // from its texcoord-0 stream (+0x5C) with SrcCount (+0x88) indices (the routine). Returns 0.
     int Init(FTriMeshArch* InMesh, void* InInstId)
     {
         MeshLive = InMesh;
@@ -430,7 +426,7 @@ public:
         return 0;
     }
 
-    // FUN_06c29360: +0x10 = +0xC = 0, +0x1C = -1; a track is freed (FUN_06c23dc0), deleted and
+    // +0x10 = +0xC = 0, +0x1C = -1; a track is freed (the routine), deleted and
     // cleared. Returns 0.
     int Reset()
     {
@@ -516,13 +512,13 @@ public:
         return 1;
     }
 
-    // FUN_06c292f0: the vtables reset, then FUN_06c29360.
+    // the vtables reset, then the routine.
     virtual ~FTriMeshAnim()
     {
         Reset();
     }
 
-    GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override
+    GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override
     {
         if (RendCompIidEqual(Iid, Iids::Mesh))
         {
@@ -534,7 +530,7 @@ public:
             *Out = (IMatHookUp*)(&HookFacet);
             return GR_OK;
         }
-        if (RendCompIidEqual(Iid, Iids::DAComponent))
+        if (RendCompIidEqual(Iid, Iids::NeuronComponent))
         {
             *Out = (IMesh*)this;
             return GR_OK;
@@ -547,153 +543,153 @@ public:
         return (GENRESULT)-1;
     }
 
-    // FUN_06c2b100 (06c36224 / 06c36228): MOV EAX,1.
-    unsigned long DACOM_API AddRef() override
+    // (06c36224 / 06c36228): MOV EAX,1.
+    unsigned long NEURONCOMPONENTS_API AddRef() override
     {
         return 1;
     }
 
-    unsigned long DACOM_API Release() override
+    unsigned long NEURONCOMPONENTS_API Release() override
     {
         return 1;
     }
 
-    // LAB_06c29850..LAB_06c299f0: `this` on the stack replaced by [this+0x10] (the live
+    // ..the branch: `this` on the stack replaced by [this+0x10] (the live
     // archetype), then a jump to the same slot of its IMesh table.
     // formerly Slot3
-    int DACOM_API ResetMesh() override
+    int NEURONCOMPONENTS_API ResetMesh() override
     {
         return MeshLive->ResetMesh();
     }
     // formerly Slot4
-    int DACOM_API NoOp() override
+    int NEURONCOMPONENTS_API NoOp() override
     {
         return MeshLive->NoOp();
     }
     // formerly Slot5
-    int DACOM_API RefreshMaterials(unsigned long Flags) override
+    int NEURONCOMPONENTS_API RefreshMaterials(unsigned long Flags) override
     {
         return MeshLive->RefreshMaterials(Flags);
     }
-    // LAB_06c29880: MOV EAX,0xFFFFFFF9; RET 8.
+    // MOV EAX,0xFFFFFFF9; RET 8.
     // formerly Slot6
-    int DACOM_API RejectOperation(void*) override
+    int NEURONCOMPONENTS_API RejectOperation(void*) override
     {
         return -7;
     }
-    // LAB_06c29890: MOV EAX,0xFFFFFFF9; RET 4.
+    // MOV EAX,0xFFFFFFF9; RET 4.
     // formerly Slot7
-    int DACOM_API RejectOperation() override
+    int NEURONCOMPONENTS_API RejectOperation() override
     {
         return -7;
     }
     // formerly Slot8
-    int DACOM_API GetFaceGroupCount(int* Out) override
+    int NEURONCOMPONENTS_API GetFaceGroupCount(int* Out) override
     {
         return MeshLive->GetFaceGroupCount(Out);
     }
     // formerly Slot9
-    int DACOM_API OpenFaceGroup(int Index, int Mode) override
+    int NEURONCOMPONENTS_API OpenFaceGroup(int Index, int Mode) override
     {
         return MeshLive->OpenFaceGroup(Index, Mode);
     }
     // formerly Slot10
-    int DACOM_API CloseFaceGroup() override
+    int NEURONCOMPONENTS_API CloseFaceGroup() override
     {
         return MeshLive->CloseFaceGroup();
     }
     // formerly Slot11
-    int DACOM_API AddFaceGroup(void* A) override
+    int NEURONCOMPONENTS_API AddFaceGroup(void* A) override
     {
         return MeshLive->AddFaceGroup(A);
     }
     // formerly Slot12
-    int DACOM_API RemoveFaceGroup(int Index) override
+    int NEURONCOMPONENTS_API RemoveFaceGroup(int Index) override
     {
         return MeshLive->RemoveFaceGroup(Index);
     }
     // formerly Slot13
-    int DACOM_API GetFaceGroupPrimitiveType(unsigned int* Out) override
+    int NEURONCOMPONENTS_API GetFaceGroupPrimitiveType(unsigned int* Out) override
     {
         return MeshLive->GetFaceGroupPrimitiveType(Out);
     }
     // formerly Slot14
-    int DACOM_API GetFaceGroupMaterial(IMaterial** Out) override
+    int NEURONCOMPONENTS_API GetFaceGroupMaterial(IMaterial** Out) override
     {
         return MeshLive->GetFaceGroupMaterial(Out);
     }
     // formerly Slot15
-    int DACOM_API SetFaceGroupMaterial(IMaterial* Material) override
+    int NEURONCOMPONENTS_API SetFaceGroupMaterial(IMaterial* Material) override
     {
         return MeshLive->SetFaceGroupMaterial(Material);
     }
     // formerly Slot16
-    int DACOM_API GetFaceGroupMaterialContext(void** Out) override
+    int NEURONCOMPONENTS_API GetFaceGroupMaterialContext(void** Out) override
     {
         return MeshLive->GetFaceGroupMaterialContext(Out);
     }
     // formerly Slot17
-    int DACOM_API SetFaceGroupMaterialContext(void* A) override
+    int NEURONCOMPONENTS_API SetFaceGroupMaterialContext(void* A) override
     {
         return MeshLive->SetFaceGroupMaterialContext(A);
     }
     // formerly Slot18
-    int DACOM_API OpenFaceGroupChannels(unsigned long Flags) override
+    int NEURONCOMPONENTS_API OpenFaceGroupChannels(unsigned long Flags) override
     {
         return MeshLive->OpenFaceGroupChannels(Flags);
     }
     // formerly Slot19
-    int DACOM_API CloseFaceGroupChannels() override
+    int NEURONCOMPONENTS_API CloseFaceGroupChannels() override
     {
         return MeshLive->CloseFaceGroupChannels();
     }
     // formerly Slot20
-    int DACOM_API LockFaceGroupChannels(unsigned long Mask) override
+    int NEURONCOMPONENTS_API LockFaceGroupChannels(unsigned long Mask) override
     {
         return MeshLive->LockFaceGroupChannels(Mask);
     }
     // formerly Slot21
-    int DACOM_API UnlockFaceGroupChannels() override
+    int NEURONCOMPONENTS_API UnlockFaceGroupChannels() override
     {
         return MeshLive->UnlockFaceGroupChannels();
     }
     // formerly Slot22
-    int DACOM_API GetFaceGroupData(int Channel, void** A, void** B, void** C, void** D) override
+    int NEURONCOMPONENTS_API GetFaceGroupData(int Channel, void** A, void** B, void** C, void** D) override
     {
         return MeshLive->GetFaceGroupData(Channel, A, B, C, D);
     }
     // formerly Slot23
-    int DACOM_API SetFaceGroupData(int Channel, void* A, void* B, void* C, void* D) override
+    int NEURONCOMPONENTS_API SetFaceGroupData(int Channel, void* A, void* B, void* C, void* D) override
     {
         return MeshLive->SetFaceGroupData(Channel, A, B, C, D);
     }
     // formerly Slot24
-    int DACOM_API GetFaceGroupIndices(int Channel, void** A, void** B) override
+    int NEURONCOMPONENTS_API GetFaceGroupIndices(int Channel, void** A, void** B) override
     {
         return MeshLive->GetFaceGroupIndices(Channel, A, B);
     }
     // formerly Slot25
-    int DACOM_API SetFaceGroupIndices(int Channel, void* Src, int Count) override
+    int NEURONCOMPONENTS_API SetFaceGroupIndices(int Channel, void* Src, int Count) override
     {
         return MeshLive->SetFaceGroupIndices(Channel, Src, Count);
     }
     // formerly Slot26
-    int DACOM_API GetFaceGroupIndexCount(int Selector, void** Out) override
+    int NEURONCOMPONENTS_API GetFaceGroupIndexCount(int Selector, void** Out) override
     {
         return MeshLive->GetFaceGroupIndexCount(Selector, Out);
     }
     // formerly Slot27
-    int DACOM_API SetFaceGroupIndexCount(int Selector, int Count) override
+    int NEURONCOMPONENTS_API SetFaceGroupIndexCount(int Selector, int Count) override
     {
         return MeshLive->SetFaceGroupIndexCount(Selector, Count);
     }
     // formerly Slot28
-    int DACOM_API AddFaceGroupChannels(unsigned long Flags) override
+    int NEURONCOMPONENTS_API AddFaceGroupChannels(unsigned long Flags) override
     {
         return MeshLive->AddFaceGroupChannels(Flags);
     }
     // formerly Slot29
-    int DACOM_API RemoveFaceGroupChannels(unsigned long Flags) override
+    int NEURONCOMPONENTS_API RemoveFaceGroupChannels(unsigned long Flags) override
     {
         return MeshLive->RemoveFaceGroupChannels(Flags);
     }
@@ -714,8 +710,8 @@ static float TickArgAsFloat(void* Arg)
     return Value;
 }
 
-// FUN_06c25730 (thiscall on the archetype, RET 8; InstId, out): *Out = 0; operator new(0x20) +
-// FUN_06c292b0, FUN_06c29310(archetype, InstId); a negative init -> -1 (the instance is not
+// (thiscall on the archetype, RET 8; InstId, out): *Out = 0; operator new(0x20) +
+// , the routine(archetype, InstId); a negative init -> -1 (the instance is not
 // freed); else *Out = the instance, 0.
 static int TriMeshCreateInstance(FTriMeshArch* Arch, void* InstId, FTriMeshAnim** Out)
 {
@@ -771,7 +767,7 @@ void FRenderPlugin::TickInstance(void* InstId, void* Arg)
     FTriMeshAnim* Anim = FindInstance(InstId);
     if (Anim == nullptr)
         return;
-    // FUN_06c21940 @ 06c2199a: thiscall on the instance's ITriMeshAnim facet (+8), vt+0xC.
+    // @ 06c2199a: thiscall on the instance's ITriMeshAnim facet (+8), vt+0xC.
     Anim->AnimFacet.AdvanceUvAnimation(TickArgAsFloat(Arg));
 }
 
@@ -797,7 +793,7 @@ FRenderPlugin::~FRenderPlugin()
 }
 
 // formerly Slot17
-int DACOM_API FRenderPlugin::BindMeshInstance(void* InstId, void* Handle)
+int NEURONCOMPONENTS_API FRenderPlugin::BindMeshInstance(void* InstId, void* Handle)
 {
     if (Handle == (void*)((intptr_t)-1) || Handle == nullptr)
         return -1;
@@ -815,7 +811,7 @@ int DACOM_API FRenderPlugin::BindMeshInstance(void* InstId, void* Handle)
 class FTriMeshPlugin : public FRenderPlugin
 {
 public:
-    int Tristrips; // retail +0x30: FUN_06c211a0 fills it, Claim LAB_06c21450 passes it on
+    int Tristrips; // baseline +0x30: the routine fills it, Claim the branch passes it on
 
     FTriMeshPlugin()
         : Tristrips(1)
@@ -834,16 +830,16 @@ public:
         }
     }
 
-    // FUN_06c211a0, see TriMeshPluginReadProfile.
+    // , see TriMeshPluginReadProfile.
     GENRESULT Initialize(const FRenderPluginDesc* Desc)
     {
         return TriMeshPluginReadProfile(&Tristrips, Desc);
     }
 
-    // LAB_06c214d0 (RET 8): handle -1 or 0 -> -1. The clone (FUN_06c24aa0) writes into the
+    // (RET 8): handle -1 or 0 -> -1. The clone (the routine) writes into the
     // cleared argument slot; a negative result or a null clone -> -1, else the clone.
     // formerly Slot4
-    int DACOM_API CloneHandle(void* Handle) override
+    int NEURONCOMPONENTS_API CloneHandle(void* Handle) override
     {
         if (Handle == (void*)G_HandleFail || Handle == nullptr)
             return (int)G_HandleFail;
@@ -854,7 +850,7 @@ public:
     }
 
     // formerly Slot7
-    int DACOM_API CreateMeshInstance(void* InstId, void* Handle) override
+    int NEURONCOMPONENTS_API CreateMeshInstance(void* InstId, void* Handle) override
     {
         if (IrcHandleOk(Handle) == 0)
             return 0;
@@ -880,20 +876,20 @@ public:
     }
 
     // formerly Slot9
-    int DACOM_API UpdateMeshInstance(void* InstId, void* Arg) override
+    int NEURONCOMPONENTS_API UpdateMeshInstance(void* InstId, void* Arg) override
     {
         TickInstance(InstId, Arg);
         return 0;
     }
 
     // formerly Slot11
-    int DACOM_API UpdateMeshInstances(void* InstId) override
+    int NEURONCOMPONENTS_API UpdateMeshInstances(void* InstId) override
     {
         TickAllInstances(InstId);
         return 0;
     }
 
-    int DACOM_API Claim(void* File) override
+    int NEURONCOMPONENTS_API Claim(void* File) override
     {
         FTriMeshArch* Arch = new FTriMeshArch();
         if (Arch->ResetMesh() >= 0 &&
@@ -904,9 +900,9 @@ public:
         return (int)G_HandleFail;
     }
 
-    // FUN_06c21510 (RET 8): a handle other than -1 and 0 gets the dtor FUN_06c22550 and free --
+    // (RET 8): a handle other than -1 and 0 gets the dtor the routine and free --
     // no reference count. EAX is not set on the way out; the port returns 0.
-    int DACOM_API DestroyHandle(void* Handle) override
+    int NEURONCOMPONENTS_API DestroyHandle(void* Handle) override
     {
         if (Handle == (void*)G_HandleFail || Handle == nullptr)
             return 0;
@@ -914,10 +910,10 @@ public:
         return 0;
     }
 
-    // LAB_06c215a0 (RET 0x20): mode in A (0 / 2 triangle count FUN_06c26220, 3 vertex count
-    // FUN_06c26260), flags in B (low 12 bits 3 and bit 0x4000), Out in D; AL 1 when written.
+    // (RET 0x20): mode in A (0 / 2 triangle count the routine, 3 vertex count
+    // ), flags in B (low 12 bits 3 and bit 0x4000), Out in D; AL 1 when written.
     // formerly Slot12
-    int DACOM_API QueryGeometry(void* Handle, int /*Lod*/, void* A, void* B, void* /*C*/, void* Out,
+    int NEURONCOMPONENTS_API QueryGeometry(void* Handle, int /*Lod*/, void* A, void* B, void* /*C*/, void* Out,
                          void* /*E*/) override
     {
         if (IrcHandleOk(Handle) == 0)
@@ -935,10 +931,10 @@ public:
         return 1;
     }
 
-    // LAB_06c21620 (RET 0x10): handle -1 or 0 -> 0; else the box (FUN_06c25790, result not
+    // (RET 0x10): handle -1 or 0 -> 0; else the box (the routine, result not
     // checked) and 1.
     // formerly Slot13
-    int DACOM_API GetBounds(void* Handle, float /*Lod*/, void* Out) override
+    int NEURONCOMPONENTS_API GetBounds(void* Handle, float /*Lod*/, void* Out) override
     {
         if (IrcHandleOk(Handle) == 0)
             return 0;
@@ -946,10 +942,10 @@ public:
         return 1;
     }
 
-    // LAB_06c219a0 (RET 0x10): handle -1 or 0 -> 0; else the centroid (FUN_06c25d40, result
+    // (RET 0x10): handle -1 or 0 -> 0; else the centroid (the routine, result
     // not checked) and 1.
     // formerly Slot14
-    int DACOM_API GetCentroid(void* Handle, float /*Lod*/, void* Out) override
+    int NEURONCOMPONENTS_API GetCentroid(void* Handle, float /*Lod*/, void* Out) override
     {
         if (IrcHandleOk(Handle) == 0)
             return 0;
@@ -958,7 +954,7 @@ public:
     }
 
     // formerly Slot15
-    int DACOM_API SplitByPlane(void* Handle, void* A, void* B, void* C, void* D, void* E, void* /*F*/) override
+    int NEURONCOMPONENTS_API SplitByPlane(void* Handle, void* A, void* B, void* C, void* D, void* E, void* /*F*/) override
     {
         if (IrcHandleOk(Handle) == 0)
             return 0;
@@ -982,7 +978,7 @@ public:
     }
 
     // formerly Slot16
-    int DACOM_API RenderInstance(ICamera* Camera, void* /*Handle*/, void* Inst, unsigned long Flags,
+    int NEURONCOMPONENTS_API RenderInstance(ICamera* Camera, void* /*Handle*/, void* Inst, unsigned long Flags,
                          void* Transform, void* Extra) override
     {
         LookupCount += 1;
@@ -1001,7 +997,7 @@ public:
 };
 
 // ---------------------------------------------------------------------------------------
-// SphereMesh (retail FDUMP path Src\RendComp\SphereMesh\SphereMeshArchetype.cpp).
+// SphereMesh (baseline FDUMP path Src\RendComp\SphereMesh\SphereMeshArchetype.cpp).
 // ---------------------------------------------------------------------------------------
 
 // Sphere archetype and material hooks.
@@ -1017,7 +1013,7 @@ public:
                                   //       names, 0 where the name did not load
     IMaterialLibrary* Library;    // +0x18 the load's library argument, AddRef'd
 
-    // FUN_06c2a950: +0x18/+4/+0x14/+8 = 0, then the reset FUN_06c2a9a0.
+    // +0x18/+4/+0x14/+8 = 0, then the reset the routine.
     FSphereHandle()
         : Materials(nullptr)
         , Sides(0)
@@ -1027,7 +1023,7 @@ public:
         ResetChecked();
     }
 
-    // FUN_06c2a970: the reset, then the library Released and cleared.
+    // the reset, then the library Released and cleared.
     ~FSphereHandle()
     {
         Reset();
@@ -1038,7 +1034,7 @@ public:
         }
     }
 
-    // FUN_06c2a9b0: Radius = -1.0f; with a name array every name is freed and the array
+    // Radius = -1.0f; with a name array every name is freed and the array
     // deleted; every set material Released and cleared; the material array deleted; Sides = 0.
     // Returns 0.
     int Reset()
@@ -1065,7 +1061,7 @@ public:
         return 0;
     }
 
-    // FUN_06c2a9a0: the reset's result as 0 (>= 0) or -1.
+    // the reset's result as 0 (>= 0) or -1.
     int ResetChecked()
     {
         return (Reset() >= 0) ? 0 : -1;
@@ -1200,8 +1196,8 @@ public:
                             }
                             else if (Value.Type == 6)
                             {
-                                IDAComponent* Component =
-                                    (IDAComponent*)Value.Payload0;
+                                INeuronComponent* Component =
+                                    (INeuronComponent*)Value.Payload0;
                                 Value.Payload0 = 0;
                                 if (Component != nullptr)
                                     Component->Release();
@@ -1211,13 +1207,13 @@ public:
                 }
             }
         }
-        File->OpenNode(".."); // 06c2aeb3: PUSH DAT_06c37250 = ".." (2E 2E 00)
+        File->OpenNode(".."); // PUSH the field = ".." (2E 2E 00)
         return 0;
     }
 
-    // FUN_06c2b020: "1.11_IMatHookUp" -> *Out = the archetype, 0; anything else -> -1 with
+    // "1.11_IMatHookUp" -> *Out = the archetype, 0; anything else -> -1 with
     // *Out untouched. No AddRef.
-    GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override
+    GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override
     {
         if (RendCompIidEqual(Iid, Iids::MatHookUp))
         {
@@ -1227,19 +1223,19 @@ public:
         return (GENRESULT)-1;
     }
 
-    // FUN_06c2b100: MOV EAX,1.
-    unsigned long DACOM_API AddRef() override
+    // MOV EAX,1.
+    unsigned long NEURONCOMPONENTS_API AddRef() override
     {
         return 1;
     }
 
-    unsigned long DACOM_API Release() override
+    unsigned long NEURONCOMPONENTS_API Release() override
     {
         return 1;
     }
 
     // formerly Slot3
-    int DACOM_API HookUpMaterials() override
+    int NEURONCOMPONENTS_API HookUpMaterials() override
     {
         struct FMaterialQuery
         {
@@ -1254,7 +1250,7 @@ public:
             IMaterial* Previous = Materials[Index];
             FMaterialQuery Query;
             Query.Name = MaterialNames[Index];
-            Query.Crc = DACOM_CRC::GetCRC32(Query.Name);
+            Query.Crc = NEURONCOMPONENTS_CRC::GetCRC32(Query.Name);
             if (Library->FindMaterialByCrc(&Query, &Materials[Index]) != 0)
             {
                 Materials[Index] = nullptr;
@@ -1269,7 +1265,7 @@ public:
     }
 };
 
-// DAT_06c37ccc: a byte the sphere draw reads (06c2bf60) to skip the atmosphere pass. Nothing in
+// a byte the sphere draw reads (06c2bf60) to skip the atmosphere pass. Nothing in
 // rendcomp.dll writes it (one XREF, the read) and it is not exported, so it stays 0.
 static unsigned char G_SphereNoAtmosphere = 0;
 
@@ -1321,7 +1317,7 @@ static void SphereFaceRotation(FTransform& Out, int Face, float HalfPi)
     const float S = (float)Sin;
     if (!bAboutX)
     {
-        // 06c2bd27: [c 0 s; 0 1 0; -s 0 c], translation untouched (it stays 0).
+        // [c 0 s; 0 1 0; -s 0 c], translation untouched (it stays 0).
         Out.Rotation.D[0][0] = C;
         Out.Rotation.D[0][1] = 0.0f;
         Out.Rotation.D[0][2] = S;
@@ -1333,7 +1329,7 @@ static void SphereFaceRotation(FTransform& Out, int Face, float HalfPi)
         Out.Rotation.D[2][2] = C;
         return;
     }
-    // 06c2bd6f: [1 0 0; 0 c -s; 0 s c], translation zeroed.
+    // [1 0 0; 0 c -s; 0 s c], translation zeroed.
     Out.Translation.X = 0.0f;
     Out.Translation.Y = 0.0f;
     Out.Translation.Z = 0.0f;
@@ -1352,11 +1348,11 @@ static void SphereFaceRotation(FTransform& Out, int Face, float HalfPi)
 struct FSphereMaterialSlot
 {
     IMaterial* Material;        // +0x00
-    unsigned long BaseVertex;   // +0x04 FUN_06c2c690 argument 4; IMaterial::Submit Start
-    unsigned long VertexCount;  // +0x08 vertices written by FUN_06c2c690; Submit Count
-    unsigned short* Indices;    // +0x0C realloc'd by FUN_06c2c690, freed by FUN_06c2c660;
+    unsigned long BaseVertex;   // +0x04 the routine argument 4; IMaterial::Submit Start
+    unsigned long VertexCount;  // +0x08 vertices written by the routine; Submit Count
+    unsigned short* Indices;    // +0x0C realloc'd by the routine, freed by the routine;
                                 //       the submit context's CPU indices (+0x10)
-    unsigned long IndexCount;   // +0x10 indices written by FUN_06c2c690; Submit IndexSpan
+    unsigned long IndexCount;   // +0x10 indices written by the routine; Submit IndexSpan
 
     FSphereMaterialSlot()
         : Material(nullptr)
@@ -1367,7 +1363,7 @@ struct FSphereMaterialSlot
     {
     }
 
-    // FUN_06c2c660: Release +0 (vt+8) and clear it if set, then free(+0xC) and clear it.
+    // Release +0 (vt+8) and clear it if set, then free(+0xC) and clear it.
     void ReleaseContents()
     {
         if (Material != nullptr)
@@ -1379,7 +1375,7 @@ struct FSphereMaterialSlot
         Indices = nullptr;
     }
 
-    // One index store of FUN_06c2c690: the value (ftol of a float index) as a word at
+    // One index store of the routine: the value (ftol of a float index) as a word at
     // Indices[IndexCount], then IndexCount + 1.
     void PushIndex(int Value)
     {
@@ -1387,7 +1383,7 @@ struct FSphereMaterialSlot
         IndexCount += 1;
     }
 
-    // One vertex store of FUN_06c2c690 at BaseVertex + VertexCount: position = normal * Radius
+    // One vertex store of the routine at BaseVertex + VertexCount: position = normal * Radius
     // (each product rounded to float), the unit normal, texcoord (S, T) rounded to float.
     // Streams: Desc+4 position (12 bytes), Desc+0x18 normal (12), Desc+0x40 texcoord 0 (8).
     void WriteVertex(FRpVertexSrcDesc* Desc, float Nx, float Ny, float Nz, float Radius, double S,
@@ -1427,19 +1423,19 @@ struct FSphereMaterialSlot
         }
         switch (Face)
         {
-        case 0: // 06c2c70f
+        case 0:
             Corner[0][0] *= -1.0f;
             Corner[0][1] *= -1.0f;
             Corner[1][1] *= -1.0f;
             Corner[2][0] *= -1.0f;
             break;
-        case 1: // 06c2c74c
+        case 1:
             Corner[0][1] *= -1.0f;
             Corner[1][1] *= -1.0f;
             Corner[1][2] *= -1.0f;
             Corner[3][2] *= -1.0f;
             break;
-        case 2: // 06c2c789
+        case 2:
             Corner[0][1] *= -1.0f;
             Corner[0][2] *= -1.0f;
             Corner[1][0] *= -1.0f;
@@ -1449,7 +1445,7 @@ struct FSphereMaterialSlot
             Corner[3][0] *= -1.0f;
             Corner[3][2] *= -1.0f;
             break;
-        case 3: // 06c2c7fe
+        case 3:
             Corner[0][0] *= -1.0f;
             Corner[0][1] *= -1.0f;
             Corner[0][2] *= -1.0f;
@@ -1459,13 +1455,13 @@ struct FSphereMaterialSlot
             Corner[2][2] *= -1.0f;
             Corner[3][0] *= -1.0f;
             break;
-        case 4: // 06c2c873
+        case 4:
             Corner[0][0] *= -1.0f;
             Corner[2][2] *= -1.0f;
             Corner[2][0] *= -1.0f;
             Corner[3][2] *= -1.0f;
             break;
-        case 5: // 06c2c8ad
+        case 5:
             Corner[0][0] *= -1.0f;
             Corner[0][1] *= -1.0f;
             Corner[0][2] *= -1.0f;
@@ -1559,7 +1555,7 @@ struct FSphereMaterialSlot
 
             if (N <= 0)
                 return;
-            // 06c2cd10: per cell of the even rows, four triangles round the odd-row centre M:
+            // per cell of the even rows, four triangles round the odd-row centre M:
             // (A0, A1, M), (A1, C+1, M), (C+1, C, M), (C, A0, M).
             int Base = 0;
             for (int Outer = N; Outer != 0; --Outer)
@@ -1652,7 +1648,7 @@ struct FSphereMaterialSlot
 
         if (N <= 0)
             return;
-        // 06c2d1a2: per cell P (row, column) with Q = P + Width below it, two triangles:
+        // per cell P (row, column) with Q = P + Width below it, two triangles:
         // odd (row + column) -> (P, P+1, Q), (P+1, Q+1, Q); even -> (P, Q+1, Q), (P, P+1, Q+1).
         int Base = 0;
         for (int Row = 0; Row < N; ++Row)
@@ -1699,33 +1695,33 @@ public:
         {
         }
 
-        // LAB_06c2c600: SUB [ESP+4],4; JMP FUN_06c2c230.
-        GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override
+        // SUB [ESP+4],4; JMP the routine.
+        GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override
         {
             return Owner->QueryInterface(Iid, Out);
         }
 
-        // LAB_06c27670 -> FUN_06c2b100: returns 1.
-        unsigned long DACOM_API AddRef() override
+        // -> the routine: returns 1.
+        unsigned long NEURONCOMPONENTS_API AddRef() override
         {
             return 1;
         }
 
-        unsigned long DACOM_API Release() override
+        unsigned long NEURONCOMPONENTS_API Release() override
         {
             return 1;
         }
 
-        // FUN_06c2b350.
+        // .
         // formerly Slot3
-        int DACOM_API HookUpMaterials() override
+        int NEURONCOMPONENTS_API HookUpMaterials() override
         {
             return Owner->HookUpMaterials();
         }
     };
 
     FHook Hook;                   // +0x04
-    unsigned long Flags;          // +0x08 bit 1: rebuild requested (Slot07/09/11); FUN_06c2c430
+    unsigned long Flags;          // +0x08 bit 1: rebuild requested (Slot07/09/11); the routine
                                   //       clears it and sets bit 0 after a rebuild
     float Radius;                 // +0x0C archetype radius; ISphereMesh Slot09/10; the
                                   //       tessellation radius and the level formula's scale
@@ -1735,20 +1731,20 @@ public:
                                   //       camera distance by it before the level update.
                                   //       TODO: a name (a detail bias; the exe's level_of_detail
                                   //       option writes it through Slot03)
-    int LevelMin;                 // +0x1C 3, lower clamp of FUN_06c2c430
-    int LevelMax;                 // +0x20 9, upper clamp of FUN_06c2c430; ISphereMesh Slot07/08
-    int Field_0x24;               // +0x24 0. TODO: meaning (FUN_06c2b230 writes 0; no other
+    int LevelMin;                 // +0x1C 3, lower clamp of the routine
+    int LevelMax;                 // +0x20 9, upper clamp of the routine; ISphereMesh Slot07/08
+    int Field_0x24;               // +0x24 0. TODO: meaning (the routine writes 0; no other
                                   //       access in 06c29ae0..06c2d330)
-    int CachedLevel;              // +0x28 -1, level of the current tessellation (FUN_06c2c430)
+    int CachedLevel;              // +0x28 -1, level of the current tessellation (the routine)
     std::list<FSphereMaterialSlot*> MaterialSlots; // +0x2C..+0x34 (VC6 list: allocator, head, size)
     std::list<void*> List_0x38;   // +0x38..+0x40: built by the ctor and freed by the dtor; no
                                   //       other access in the sphere code (06c2af00..06c2c690)
-    FRpVertexSrcDesc Desc;        // +0x44..+0xB3: 0x1C dwords zeroed by FUN_06c2b110 and
-    unsigned long VertexCount;    // +0xB4 vertices the streams are sized for (FUN_06c2c430)
+    FRpVertexSrcDesc Desc;        // +0x44..+0xB3: 0x1C dwords zeroed by the routine and
+    unsigned long VertexCount;    // +0xB4 vertices the streams are sized for (the routine)
     unsigned char bHasAtmosphere; // +0xB8 more than 6 archetype materials
 
-    // FUN_06c2b110: vtables, both lists empty, 0x1C dwords at +0x44 zeroed, then
-    // FUN_06c2b230(0, -1).
+    // vtables, both lists empty, 0x1C dwords at +0x44 zeroed, then
+    // (0, -1).
     FSphereAnim()
         : Hook(this)
         , Flags(0)
@@ -1767,13 +1763,13 @@ public:
         Init(nullptr, (void*)((intptr_t)-1));
     }
 
-    // FUN_06c2b190: FUN_06c2b3c0, then both lists are emptied and their heads freed.
+    // the routine, then both lists are emptied and their heads freed.
     ~FSphereAnim()
     {
         Reset();
     }
 
-    // FUN_06c2b3c0: +8 = 0, +0x10 = 0, +0x14 = -1; every material record gets FUN_06c2c660 and
+    // +8 = 0, +0x10 = 0, +0x14 = -1; every material record gets the routine and
     // is freed, the list is emptied; +0xB4 = 0; the three +0x48/+0x5C/+0x84 streams are freed
     // and cleared. Returns 0.
     int Reset()
@@ -1924,12 +1920,12 @@ public:
         {
             FTransform Product; // ESP+0x23C
             MathEngineCached(G_MathSphere)->MulTransform(Product, *Matrix, *World);
-            const FTransform Local = Product; // ESP+0x26C, FUN_06c2c610
+            const FTransform Local = Product; // ESP+0x26C, the routine
             MathEngineCached(G_MathSphere)->MulTransform(Modelview, *View, Local);
         }
         else
             MathEngineCached(G_MathSphere)->MulTransform(Modelview, *View, *World);
-        FTransform Oriented = Modelview;  // ESP+0x20C, FUN_06c2c610
+        FTransform Oriented = Modelview;  // ESP+0x20C, the routine
         FTransform Pipelined = Oriented;  // ESP+0x29C
         const float ScaledRadius = Arch->Scale * Arch->Radius; // ESP+0x98
         const float ArchRadius = Arch->Radius;                 // ESP+0x50
@@ -1954,7 +1950,7 @@ public:
         }
 
         const float* CameraPos = Camera->GetPosition();
-        FVector ToCamera; // ESP+0x54, FUN_06c25cc0
+        FVector ToCamera; // ESP+0x54, the routine
         ToCamera.X = CameraPos[0] - World->Translation.X;
         ToCamera.Y = CameraPos[1] - World->Translation.Y;
         ToCamera.Z = CameraPos[2] - World->Translation.Z;
@@ -1993,7 +1989,7 @@ public:
             bVisible[Corner] = (Dot > Threshold) ? 1 : 0;
         }
 
-        // 06c2bab0: the modelview origin into a local nothing reads afterwards (as retail).
+        // the modelview origin into a local nothing reads afterwards (as baseline).
         FVector Origin;
         Origin.X = 0.0f;
         Origin.Y = 0.0f;
@@ -2016,7 +2012,7 @@ public:
             Lock.Listing.VertexBuffer = nullptr;
 
         const float HalfPi = (float)(3.141592653589793 * 0.5); // ESP+0x10
-        // ESP+0x9C. +0x18 is never written by retail (a stack leftover); the port passes 0.
+        // ESP+0x9C. +0x18 is never written by baseline (a stack leftover); the port passes 0.
         FMaterialSubmitContext Context;
         Context.Inst = InstId;
         Context.World = nullptr;
@@ -2108,7 +2104,7 @@ public:
                                (double)ToCamera.X * Corners[Corner].X;
             bVisible[Corner] = (Dot > AtmosphereThreshold) ? 1 : 0;
         }
-        Context.Field20 = G_Engine; // 06c2bff2: DAT_06c37d4c
+        Context.Field20 = G_Engine; // the field
         FTransform AtmosphereWorld; // ESP+0x26C
         for (int Face = 0; Face < 6; ++Face)
         {
@@ -2139,9 +2135,9 @@ public:
         return true;
     }
 
-    // FUN_06c2c230: "1.11_ISphereMesh" -> *Out = this, 0. "1.11_IMatHookUp" -> this+4 (a null
+    // "1.11_ISphereMesh" -> *Out = this, 0. "1.11_IMatHookUp" -> this+4 (a null
     // this gives *Out = 0), 0. Anything else -> -1 with *Out untouched. No AddRef.
-    GENRESULT DACOM_API QueryInterface(const char* Iid, void** Out) override
+    GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override
     {
         if (RendCompIidEqual(Iid, Iids::SphereMesh))
         {
@@ -2156,101 +2152,101 @@ public:
         return (GENRESULT)-1;
     }
 
-    // FUN_06c2b100: MOV EAX,1 -- the plugin's instance map owns the object.
-    unsigned long DACOM_API AddRef() override
+    // MOV EAX,1 -- the plugin's instance map owns the object.
+    unsigned long NEURONCOMPONENTS_API AddRef() override
     {
         return 1;
     }
 
-    unsigned long DACOM_API Release() override
+    unsigned long NEURONCOMPONENTS_API Release() override
     {
         return 1;
     }
 
-    // LAB_06c2c2a0: +0x18 = Value; 0.
+    // +0x18 = Value; 0.
     // formerly Slot03
-    int DACOM_API SetLodDistanceScale(float Value) override
+    int NEURONCOMPONENTS_API SetLodDistanceScale(float Value) override
     {
         Field_0x18 = Value;
         return 0;
     }
 
-    // LAB_06c2c2b0: *Out = +0x18; 0.
+    // *Out = +0x18; 0.
     // formerly Slot04
-    int DACOM_API GetLodDistanceScale(float* Out) override
+    int NEURONCOMPONENTS_API GetLodDistanceScale(float* Out) override
     {
         *Out = Field_0x18;
         return 0;
     }
 
-    // LAB_06c2c2d0: XOR EAX,EAX; RET 8.
+    // XOR EAX,EAX; RET 8.
     // formerly Slot05
-    int DACOM_API NoOp05(void* /*Arg*/) override
+    int NEURONCOMPONENTS_API NoOp05(void* /*Arg*/) override
     {
         return 0;
     }
 
-    // LAB_06c2c2d0 again (06c36360).
+    // again (06c36360).
     // formerly Slot06
-    int DACOM_API NoOp06(void* /*Arg*/) override
+    int NEURONCOMPONENTS_API NoOp06(void* /*Arg*/) override
     {
         return 0;
     }
 
-    // LAB_06c2c2e0: +0x20 = Value; +8 |= 2; 0.
+    // +0x20 = Value; +8 |= 2; 0.
     // formerly Slot07
-    int DACOM_API SetMaxTessellationLevel(int Value) override
+    int NEURONCOMPONENTS_API SetMaxTessellationLevel(int Value) override
     {
         LevelMax = Value;
         Flags |= 2;
         return 0;
     }
 
-    // LAB_06c2c300: *Out = +0x20; 0.
+    // *Out = +0x20; 0.
     // formerly Slot08
-    int DACOM_API GetMaxTessellationLevel(int* Out) override
+    int NEURONCOMPONENTS_API GetMaxTessellationLevel(int* Out) override
     {
         *Out = LevelMax;
         return 0;
     }
 
-    // LAB_06c2c320: +0x0C = Value; +8 |= 2; 0.
+    // +0x0C = Value; +8 |= 2; 0.
     // formerly Slot09
-    int DACOM_API SetRadius(float Value) override
+    int NEURONCOMPONENTS_API SetRadius(float Value) override
     {
         Radius = Value;
         Flags |= 2;
         return 0;
     }
 
-    // LAB_06c2c340: *Out = +0x0C; 0.
+    // *Out = +0x0C; 0.
     // formerly Slot10
-    int DACOM_API GetRadius(float* Out) override
+    int NEURONCOMPONENTS_API GetRadius(float* Out) override
     {
         *Out = Radius;
         return 0;
     }
 
-    // LAB_06c2c360: +8 |= 2; returns -1; the argument is not read.
+    // +8 |= 2; returns -1; the argument is not read.
     // formerly Slot11
-    int DACOM_API RequestRebuild(void* /*Arg*/) override
+    int NEURONCOMPONENTS_API RequestRebuild(void* /*Arg*/) override
     {
         Flags |= 2;
         return -1;
     }
 
-    // LAB_06c2c370: *Out = +0x34 (record count); 0.
+    // *Out = +0x34 (record count); 0.
     // formerly Slot12
-    int DACOM_API GetMaterialCount(int* OutCount) override
+    int NEURONCOMPONENTS_API GetMaterialCount(int* OutCount) override
     {
         *OutCount = (int)(MaterialSlots.size());
         return 0;
     }
 
-    // LAB_06c2c390: walk +0x30 to the Index-th record (list end first -> -1). The record takes
+    // walk +0x30 to the Index-th record (list end first -> -1). The record takes
     // Material; the new one is AddRef'd if set, the old one Released if set. 0.
     // formerly Slot13
-    int DACOM_API SetMaterial(int Index, IMaterial* Material) override
+    int NEURONCOMPONENTS_API SetMaterial(int Index, IMaterial* Material) override
     {
         int Position = 0;
         for (std::list<FSphereMaterialSlot*>::iterator Walk = MaterialSlots.begin();
@@ -2272,10 +2268,10 @@ public:
         return -1;
     }
 
-    // LAB_06c2c3e0: *Out = 0 first; walk +0x30 to the Index-th record (list end first -> -1);
+    // *Out = 0 first; walk +0x30 to the Index-th record (list end first -> -1);
     // *Out = its material, AddRef'd if set; 0.
     // formerly Slot14
-    int DACOM_API GetMaterial(int Index, IMaterial** Out) override
+    int NEURONCOMPONENTS_API GetMaterial(int Index, IMaterial** Out) override
     {
         *Out = nullptr;
         int Position = 0;
@@ -2300,7 +2296,7 @@ class FSphereMeshPlugin : public FRenderPlugin
 {
 public:
     std::map<void*, FSphereAnim*> SphereMap;
-    // Retail keeps one last-hit cache (+0x24 node / +0x28 flag) per plugin. The port's base
+    // baseline keeps one last-hit cache (+0x24 node / +0x28 flag) per plugin. The port's base
     // cache is typed for FTriMeshAnim, so the sphere plugin keeps its own pointer and shares
     // bLastHit / LastHitKey / LookupCount / HitCount with the base.
     FSphereAnim* LastHitSphere;
@@ -2310,7 +2306,7 @@ public:
     {
     }
 
-    // The FUN_06c29f70 lookup over the sphere map: cached key -> HitCount++, else map find and
+    // The the routine lookup over the sphere map: cached key -> HitCount++, else map find and
     // on a hit the cache is set. The caller bumps LookupCount (+4), as for the TriMesh map.
     FSphereAnim* FindSphereCached(void* InstId)
     {
@@ -2328,9 +2324,9 @@ public:
         return LastHitSphere;
     }
 
-    // FUN_06c29f70 (the SphereMesh table entry 06c362e8); see FRenderPlugin::Slot10.
+    // (the SphereMesh table entry 06c362e8); see FRenderPlugin::Slot10.
     // formerly Slot10
-    int DACOM_API QueryMeshInstance(void* InstId, void* /*Handle*/, const char* Iid, void** Out) override
+    int NEURONCOMPONENTS_API QueryMeshInstance(void* InstId, void* /*Handle*/, const char* Iid, void** Out) override
     {
         LookupCount += 1;
         FSphereAnim* Anim = FindSphereCached(InstId);
@@ -2339,7 +2335,7 @@ public:
         return (Anim->QueryInterface(Iid, Out) >= 0) ? 0 : -1;
     }
 
-    // FUN_06c2a6c0 at refcount 0 only erases the map nodes (FUN_06c2a2e0 / FUN_06c21b10) and
+    // at refcount 0 only erases the map nodes (the routine / the routine) and
     // frees the head/nil nodes and the plugin; the instances in the map are not released or
     // freed, and nothing is reported. SphereMap's own destructor does exactly the node part.
     ~FSphereMeshPlugin()
@@ -2355,19 +2351,19 @@ public:
     }
 
     // formerly Slot7
-    int DACOM_API CreateMeshInstance(void* InstId, void* Handle) override
+    int NEURONCOMPONENTS_API CreateMeshInstance(void* InstId, void* Handle) override
     {
         if (Handle == nullptr || Handle == (void*)G_HandleFail)
             return 0;
         FSphereHandle* Sphere = (FSphereHandle*)Handle;
-        // FUN_06c2af00: operator new(0xBC) (null -> -1) + FUN_06c2b110, then FUN_06c2b230 Init;
-        // a failed Init returns -1 WITHOUT freeing the instance (retail leaks it, so does the port).
+        // operator new(0xBC) (null -> -1) + the routine, then the routine Init;
+        // a failed Init returns -1 WITHOUT freeing the instance (baseline leaks it, so does the port).
         FSphereAnim* Anim = new (std::nothrow) FSphereAnim();
         if (Anim == nullptr)
             return 0;
         if (Anim->Init(Sphere, InstId) < 0)
             return 0;
-        // FUN_06c2afb0: centre zeroed; radius < 0.0f (TEST AH,1 / JNZ, unordered included) ->
+        // centre zeroed; radius < 0.0f (TEST AH,1 / JNZ, unordered included) ->
         // extent = radius, else Scale * Radius.
         float Center[3];
         Center[0] = 0.0f;
@@ -2377,9 +2373,9 @@ public:
         if (0.0f <= Sphere->Radius)
             Extent = Sphere->Scale * Sphere->Radius;
         G_Engine->SetInstanceExtent(InstId, 1, Extent, Center);
-        // FUN_06c2a060: a non-multi insert. An InstId already mapped keeps its old node and the
-        // new instance leaks; the returned iterator is never end(), so retail's == end branch
-        // (FUN_06c2b3c0 on the instance, return 0) cannot run.
+        // a non-multi insert. An InstId already mapped keeps its old node and the
+        // new instance leaks; the returned iterator is never end(), so baseline's == end branch
+        // (the routine on the instance, return 0) cannot run.
         std::pair<std::map<void*, FSphereAnim*>::iterator, bool> Inserted =
             SphereMap.insert(std::map<void*, FSphereAnim*>::value_type(InstId, Anim));
         LastHitKey = Inserted.first->first;
@@ -2389,7 +2385,7 @@ public:
     }
 
     // formerly Slot8
-    int DACOM_API DestroyMeshInstance(void* InstId, void* /*Handle*/) override
+    int NEURONCOMPONENTS_API DestroyMeshInstance(void* InstId, void* /*Handle*/) override
     {
         LookupCount += 1;
         FSphereAnim* Anim = FindSphereCached(InstId);
@@ -2403,7 +2399,7 @@ public:
         return 0;
     }
 
-    int DACOM_API Claim(void* File) override
+    int NEURONCOMPONENTS_API Claim(void* File) override
     {
         FSphereHandle* Handle = new (std::nothrow) FSphereHandle();
         if (Handle == nullptr)
@@ -2416,9 +2412,9 @@ public:
         return -1;
     }
 
-    // FUN_06c29b90 (RET 8): a handle other than -1 and 0 gets the archetype dtor FUN_06c2a970
+    // (RET 8): a handle other than -1 and 0 gets the archetype dtor the routine
     // and free -- no reference count. EAX is not set on the way out; the port returns 0.
-    int DACOM_API DestroyHandle(void* Handle) override
+    int NEURONCOMPONENTS_API DestroyHandle(void* Handle) override
     {
         if (Handle == nullptr || Handle == (void*)G_HandleFail)
             return 0;
@@ -2427,7 +2423,7 @@ public:
     }
 
     // formerly Slot12
-    int DACOM_API QueryGeometry(void* Handle, int /*Lod*/, void* A, void* B, void* /*C*/, void* Out,
+    int NEURONCOMPONENTS_API QueryGeometry(void* Handle, int /*Lod*/, void* A, void* B, void* /*C*/, void* Out,
                          void* /*E*/) override
     {
         if (IrcHandleOk(Handle) == 0)
@@ -2441,7 +2437,7 @@ public:
     }
 
     // formerly Slot13
-    int DACOM_API GetBounds(void* Handle, float /*Lod*/, void* Out) override
+    int NEURONCOMPONENTS_API GetBounds(void* Handle, float /*Lod*/, void* Out) override
     {
         if (IrcHandleOk(Handle) == 0)
             return 0;
@@ -2466,10 +2462,10 @@ public:
         return 1;
     }
 
-    // LAB_06c29f40 (RET 0x10) -> AL: handle -1/0 -> 0; else FUN_06c2aff0 zeroes the three
+    // (RET 0x10) -> AL: handle -1/0 -> 0; else the routine zeroes the three
     // floats at Out, and 1.
     // formerly Slot14
-    int DACOM_API GetCentroid(void* Handle, float /*Lod*/, void* Out) override
+    int NEURONCOMPONENTS_API GetCentroid(void* Handle, float /*Lod*/, void* Out) override
     {
         if (IrcHandleOk(Handle) == 0)
             return 0;
@@ -2481,7 +2477,7 @@ public:
     }
 
     // formerly Slot16
-    int DACOM_API RenderInstance(ICamera* Camera, void* /*Handle*/, void* Inst, unsigned long /*Flags*/,
+    int NEURONCOMPONENTS_API RenderInstance(ICamera* Camera, void* /*Handle*/, void* Inst, unsigned long /*Flags*/,
                          void* Matrix, void* Extra) override
     {
         LookupCount += 1;
@@ -2494,16 +2490,16 @@ public:
                    : 0;
     }
 
-    // LAB_06c29ff0: OR EAX,-1; RET 0xC. The sphere plugin binds nothing.
+    // OR EAX,-1; RET 0xC. The sphere plugin binds nothing.
     // formerly Slot17
-    int DACOM_API BindMeshInstance(void* /*Inst*/, void* /*Handle*/) override
+    int NEURONCOMPONENTS_API BindMeshInstance(void* /*Inst*/, void* /*Handle*/) override
     {
         return -1;
     }
 };
 
-// LAB_06c22210 after its AGGDESC checks: calloc(1, 0x38) failure -> *Out = 0, -4; ctor, then
-// FUN_06c211a0; a non-zero result runs the dtor FUN_06c21080, frees the plugin, *Out = 0 and is
+// after its AGGDESC checks: calloc(1, 0x38) failure -> *Out = 0, -4; ctor, then
+// ; a non-zero result runs the dtor the routine, frees the plugin, *Out = 0 and is
 // returned; otherwise *Out = the plugin and that (zero) result is returned.
 GENRESULT CreateTriMeshPlugin(const FRenderPluginDesc* Desc, void** Out)
 {
@@ -2524,8 +2520,8 @@ GENRESULT CreateTriMeshPlugin(const FRenderPluginDesc* Desc, void** Out)
     return Result;
 }
 
-// LAB_06c2a3d0 after its AGGDESC checks: calloc(1, 0x34) failure -> *Out = 0, -4; ctor, then
-// FUN_06c2d720 (AGGDESC +8 and +0xC must be set, else -2); a non-zero result clears the
+// after its AGGDESC checks: calloc(1, 0x34) failure -> *Out = 0, -4; ctor, then
+// (AGGDESC +8 and +0xC must be set, else -2); a non-zero result clears the
 // instance map, frees the plugin, *Out = 0 and is returned; otherwise *Out = the plugin, 0.
 GENRESULT CreateSphereMeshPlugin(const FRenderPluginDesc* Desc, void** Out)
 {

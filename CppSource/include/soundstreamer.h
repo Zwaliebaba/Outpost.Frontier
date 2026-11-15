@@ -1,16 +1,12 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
-#include "dacom.h"
+#include "neuroncomponents.h"
 #include "audio/dsound8.h"
 
-// soundstreamer.dll public ABI. Source: EXE/Disasm/soundstreamer.dll,
-// docs/re/audio.md. DALib holds the live streamer and drives the device through it;
+// soundstreamer.dll public ABI. Source: soundstreamer.dll,
+// implementation notes. NeuronRuntime holds the live streamer and drives the device through it;
 // everything private to the port stays in src/SoundStreamer/SoundStreamerInternal.h.
 
 struct FStreamerInitDesc
@@ -23,19 +19,19 @@ struct FStreamerInitDesc
     float Gain;                // +0x14; 0 → 1.0f
 };
 
-struct IStreamer2 : IDAComponent
+struct IStreamer2 : INeuronComponent
 {
-    virtual int DACOM_API InitializeDevice(FStreamerInitDesc* Desc) = 0; // +0x0C BOOL
-    virtual void* DACOM_API CreateStream(const char* Path, IDAComponent* FileSystem,
+    virtual int NEURONCOMPONENTS_API InitializeDevice(FStreamerInitDesc* Desc) = 0; // +0x0C BOOL
+    virtual void* NEURONCOMPONENTS_API CreateStream(const char* Path, INeuronComponent* FileSystem,
                                          unsigned long Flags) = 0; // +0x10
-    virtual GENRESULT DACOM_API DestroyStream(void* Handle) = 0;   // +0x14
-    virtual GENRESULT DACOM_API StopStream(void* Handle) = 0;      // +0x18
-    virtual GENRESULT DACOM_API StartStream(void* Handle) = 0;     // +0x1C
-    virtual GENRESULT DACOM_API SetVolume(void* Handle, long Volume) = 0; // +0x20
-    virtual GENRESULT DACOM_API GetVolume(void* Handle, long* Out) = 0;   // +0x24
-    virtual unsigned long DACOM_API QueryStatus(void* Handle) = 0;        // +0x28
-    virtual unsigned long DACOM_API GetReserved58() = 0;                  // +0x2C
-    virtual unsigned long DACOM_API GetReserved5C() = 0;                  // +0x30
-    virtual GENRESULT DACOM_API SetPan(void* Handle, long Pan) = 0;       // +0x34
-    virtual GENRESULT DACOM_API GetPan(void* Handle, long* Out) = 0;      // +0x38
+    virtual GENRESULT NEURONCOMPONENTS_API DestroyStream(void* Handle) = 0;   // +0x14
+    virtual GENRESULT NEURONCOMPONENTS_API StopStream(void* Handle) = 0;      // +0x18
+    virtual GENRESULT NEURONCOMPONENTS_API StartStream(void* Handle) = 0;     // +0x1C
+    virtual GENRESULT NEURONCOMPONENTS_API SetVolume(void* Handle, long Volume) = 0; // +0x20
+    virtual GENRESULT NEURONCOMPONENTS_API GetVolume(void* Handle, long* Out) = 0;   // +0x24
+    virtual unsigned long NEURONCOMPONENTS_API QueryStatus(void* Handle) = 0;        // +0x28
+    virtual unsigned long NEURONCOMPONENTS_API GetReserved58() = 0;                  // +0x2C
+    virtual unsigned long NEURONCOMPONENTS_API GetReserved5C() = 0;                  // +0x30
+    virtual GENRESULT NEURONCOMPONENTS_API SetPan(void* Handle, long Pan) = 0;       // +0x34
+    virtual GENRESULT NEURONCOMPONENTS_API GetPan(void* Handle, long* Out) = 0;      // +0x38
 };

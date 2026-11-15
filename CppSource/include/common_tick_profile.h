@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -34,7 +30,7 @@ struct FPhysicsTickProfile
 
 namespace PhySys
 {
-    // Diagnostic extension to the port's export surface, absent in retail.
+    // Diagnostic extension to the port's export surface, absent in baseline.
     // Borrowed on this thread only; caller restores the previous sink before destruction.
     COMMON_API FPhysicsTickProfile* __cdecl SetTickProfile(FPhysicsTickProfile* Profile);
 }

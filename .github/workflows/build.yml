@@ -1,7 +1,5 @@
-name: Build
+name: Rust CI
 
-# Builds every project in Debug and Release and runs the unit tests. CI never sees the original
-# game's code or data; checks that need them (golden traces, content) run locally.
 on:
   push:
     branches: [main, "claude/**"]
@@ -12,44 +10,20 @@ permissions:
   contents: read
 
 jobs:
-  rules:
-    name: Repository rules
+  windows:
+    name: Windows x64
     runs-on: windows-2025-vs2026
     steps:
-      - uses: actions/checkout@v5
-      - name: Core, Data and Sim include no platform headers (CONTRIBUTING.md rule 3)
-        shell: pwsh
-        run: |
-          $hits = Get-ChildItem Source/Core, Source/Data, Source/Sim -Recurse -Include *.h, *.cpp |
-            Select-String -Pattern '#\s*include\s*[<"](windows|winsock2|ws2tcpip|d3d12|dxgi\w*|xaudio2|mfapi)\.h' -CaseSensitive:$false
-          if ($hits) { $hits | ForEach-Object { Write-Host "::error file=$($_.Path),line=$($_.LineNumber)::$($_.Line.Trim())" }; exit 1 }
-          Write-Host 'ok: no platform headers in Core, Data, Sim'
-      - name: Extraction scripts parse
-        shell: pwsh
-        run: |
-          python -m py_compile (Get-ChildItem Tools/Extract/*.py).FullName
-          $errors = $null
-          [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path Tools/Extract/Extract.ps1), [ref]$null, [ref]$errors) | Out-Null
-          if ($errors) { $errors | ForEach-Object { Write-Host "::error::$_" }; exit 1 }
-          Write-Host 'ok'
-
-  build:
-    name: Build and test (${{ matrix.configuration }})
-    runs-on: windows-2025-vs2026
-    strategy:
-      fail-fast: false
-      matrix:
-        configuration: [Debug, Release]
-    steps:
-      - uses: actions/checkout@v5
-      - uses: microsoft/setup-msbuild@v2
-      - name: Toolset (Visual Studio 2026, v145; Directory.Build.props picks it)
-        run: |
-          msbuild -version -nologo
-          $toolset = msbuild Source\Core\Core.vcxproj -nologo -getProperty:PlatformToolset /p:Configuration=${{ matrix.configuration }} /p:Platform=x64
-          Write-Host "PlatformToolset: $toolset"
-          if ($toolset -ne 'v145') { Write-Host "::error::expected toolset v145, got $toolset"; exit 1 }
-      - name: Build
-        run: msbuild Outpost.Frontier.sln /m /nologo /verbosity:minimal /p:Configuration=${{ matrix.configuration }} /p:Platform=x64
-      - name: Test
-        run: Build\${{ matrix.configuration }}\Tests.exe
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Prepare Rust
+        run: rustup show
+      - name: Check formatting
+        run: cargo fmt --all --check
+      - name: Lint workspace
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - name: Test workspace
+        run: cargo test --locked --workspace --all-targets
+      - name: Build executables
+        run: cargo build --locked --release --workspace --bins

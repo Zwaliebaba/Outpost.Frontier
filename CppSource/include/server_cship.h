@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -9,10 +5,10 @@
 #include "server_cobject.h"
 
 // CShip — ship game object (inherits CEqObj in Common.dll)
-// Layout reconstructed from Common.dll.c constructor CShip::CShip() at 0x50670
+// Layout reconstructed from Common constructor CShip::CShip() at 0x50670
 // Type flags: 0x503 (ship)
 // Total size: ~0x2DC bytes
-//
+
 // Inheritance: GameObject → EqObj → CEqObj → CShip
 // Server.dll imports CShip methods via IAT from Common.dll
 // This header provides the field layout and inline method stubs for Server.dll use
@@ -49,8 +45,8 @@ struct FCShipCreateParms {
     unsigned int TradelaneFlag;   // +0xf4: initial tradelane state (bool as uint)
 };
 
-// FCShip — complete field layout matching retail CShip
-// Offsets verified against Common.dll.c constructor and method implementations
+// FCShip — complete field layout matching baseline CShip
+// Offsets verified against Common constructor and method implementations
 struct FCShip {
     // === CEqObj base (0x00 - 0x1A3) ===
     // +0x00: vtable pointer (CEqObj vtable)
@@ -74,8 +70,8 @@ struct FCShip {
     unsigned int TypeFlags;
     // +0x50: unidentified dword (see FCObject::Field_0x50)
     unsigned int Field_0x50;
-    // +0x54: physics body pointer — retail reads [CObject + 0x54]
-    // (pub::SpaceObj::AddImpulse, .text:06cf90f1)
+    // +0x54: physics body pointer — baseline reads [CObject + 0x54]
+    // (pub::SpaceObj::AddImpulse, module storage)
     void* PhysicsBody;
     unsigned char Reserved_58[0x30];
     // +0x88: archetype pointer (Archetype::Ship*)
@@ -257,7 +253,7 @@ static const unsigned int CSHIP_SIZE = 0x2DC;
 
 // ===========================================================================
 // CShip method stubs — match Common.dll exports used by Server.dll
-// These are inline implementations based on retail field access patterns
+// These are inline implementations based on baseline field access patterns
 // ===========================================================================
 
 // CShip::is_player — returns bool at this+0x2BD
@@ -278,7 +274,7 @@ inline float CShip_get_throttle(const FCShip* ship) {
 }
 
 // CShip::get_target — returns IObjRW* from BaseWatcher at this+0x220
-// Retail: if *(this+0x220) != 0, return (IObjRW*)(*(this+0x220) - 8)
+// baseline: if *(this+0x220) != 0, return (IObjRW*)(*(this+0x220) - 8)
 inline void* CShip_get_target(const FCShip* ship) {
     if (!ship || !ship->TargetWatcher) return nullptr;
     return (void*)((char*)ship->TargetWatcher - 8);
@@ -290,11 +286,11 @@ inline unsigned short CShip_get_sub_target(const FCShip* ship) {
     return ship->SubTarget;
 }
 
-// CShip::is_using_tradelane — returns bool at this+0x2BC (retail: this[700])
-// Note: retail offset 700 * sizeof(CShip) maps to byte at +0x2BC area
+// CShip::is_using_tradelane — returns bool at this+0x2BC (baseline: this[700])
+// Note: baseline offset 700 * sizeof(CShip) maps to byte at +0x2BC area
 inline bool CShip_is_using_tradelane(const FCShip* ship) {
     if (!ship) return false;
-    // Retail reads this[700] which is byte at offset ~0x2BC
+    // baseline reads this[700] which is byte at offset ~0x2BC
     // Our struct uses explicit field; check TradelaneSpeed > 0 as proxy
     return ship->TradelaneSpeed > 0.0f;
 }
@@ -306,7 +302,7 @@ inline EStrafeDir CShip_get_strafe_dir(const FCShip* ship) {
 }
 
 // CShip::get_cargo_hold_remaining — computes remaining cargo space
-// Retail: traverse equip mgr with mask 0x1FF0000, sum occupied space,
+// baseline: traverse equip mgr with mask 0x1FF0000, sum occupied space,
 //   subtract from archetype cargo hold size at *(arch+0x100)
 inline float CShip_get_cargo_hold_remaining(const FCShip* ship) {
     if (!ship || !ship->ArchetypePtr) return 0.0f;

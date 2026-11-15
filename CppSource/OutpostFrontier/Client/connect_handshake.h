@@ -1,17 +1,13 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
-// Retail HandleConnectError (.text:005a8760, export ordinal 69): stores the DirectPlay
-// connect HRESULT in .data:0067ea50 -- `MOV EAX,[ESP+4]; MOV [0067ea50],EAX; RET`, so
-// __cdecl with one 4-byte argument. Its only caller is retail remoteserver.dll, which
-// imports it by name (IAT .rdata:06c0b124) from the CDPClient::OnConnect override at
-// .text:06bd98e0 whenever the HRESULT is non-zero. Undecorated export, hence extern "C".
+// baseline HandleConnectError (module storage, export ordinal 69): stores the DirectPlay
+// connect HRESULT in module storage -- `MOV EAX,[ESP+4]; MOV [0067ea50],EAX; RET`, so
+// __cdecl with one 4-byte argument. Its only caller is baseline remoteserver.dll, which
+// imports it by name (IAT module storage) from the CDPClient::OnConnect override at
+// whenever the HRESULT is non-zero. Undecorated export, hence extern "C".
 extern "C" __declspec(dllexport) void __cdecl HandleConnectError(long Result);
 
-// WaitForServerResponse (.text:005a89b0) is declared in login_mgr.h next to the globals it
+// WaitForServerResponse (module storage) is declared in login_mgr.h next to the globals it
 // polls and defined in connect_handshake.cpp.

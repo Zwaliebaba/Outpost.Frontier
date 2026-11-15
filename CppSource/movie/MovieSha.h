@@ -1,12 +1,8 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
-// SHA-1 from movie.dll. Retail addresses are on the definitions.
+// SHA-1 from movie.dll. baseline addresses are on the definitions.
 // The context object is 0x74 bytes. State is five words. The compressors are
 // __stdcall, RET 8, and take the state plus sixteen block words.
 

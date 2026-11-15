@@ -144,13 +144,13 @@
 #error unknown clock option
 #endif
 
-/* Retail Common.dll's qhull never calls clock(): qh_CPUclock is the constant 1
+/* baseline Common.dll's qhull never calls clock(): qh_CPUclock is the constant 1
    (qh_qhull 0637d527 stores 1 into qh hulltime; qh_errexit 06378645 computes
    1 - qh hulltime; qh_initqhull_start 06377690 has no clock call). */
 #undef qh_CPUclock
 #define qh_CPUclock 1
 
-/* Retail never divides the CPU "ticks" either: qh_tracemerging 063919b0 passes the
+/* baseline never divides the CPU "ticks" either: qh_tracemerging 063919b0 passes the
    constant 1.0 (push 0x3ff00000,0 = 1/qh_SECticks) and qh_buildtracing 0637dff0 prints
    (float)(1 - qh hulltime) straight from FILD/FSTP with no FDIV, so qh_SECticks is 1. */
 #undef qh_SECticks
@@ -659,7 +659,7 @@
     qh_SEARCHdist -- when is facet coplanar with the best facet?
     qh_USEfindbestnew -- when to use qh_findbestnew for qh_partitionpoint()
 */
-/* retail has no qh_DISToutside macro: qh_partitionall (0637ea6f) and qh_findbestnew (063806e6) compute
+/* baseline has no qh_DISToutside macro: qh_partitionall (0637ea6f) and qh_findbestnew (063806e6) compute
    !MERGING -> MINoutside, MERGING -> max(4.0 * MINoutside, max_outside + max_outside) inline.
    The 3.1 definition with the qh_USEfindbestnew factor was removed. */
 
@@ -736,7 +736,7 @@
 
     Conservative estimate.  Don't actually see problems until it is -1.0
 */
-#define qh_MAXnarrow -0.98  /* retail 06373107: FCOMP against the .rdata double 063a5948 = -0.98 (3.1 has -0.99999999) */
+#define qh_MAXnarrow -0.98  /* FCOMP against the .rdata double 063a5948 = -0.98 (3.1 has -0.99999999) */
 
 /*-<a                             href="qh-user.htm#TOC"
   >--------------------------------</a><a name="WARNnarrow">-</a>
@@ -748,7 +748,7 @@
     this is a conservative estimate.  
     Don't actually see problems until it is -1.0.  See qh-impre.htm
 */
-#define qh_WARNnarrow -0.9999  /* retail 06373141: .rdata double 063a5938 = -0.9999 (3.1 has -0.999999999999999) */
+#define qh_WARNnarrow -0.9999  /* .rdata double 063a5938 = -0.9999 (3.1 has -0.999999999999999) */
 
 /*-<a                             href="qh-user.htm#TOC"
   >--------------------------------</a><a name="ZEROdelaunay">-</a>

@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "ivp_impact.h"
@@ -9,31 +5,31 @@
 #include "ivp_core.h"
 #include "ivp_real_object.h"
 #include "ivp_contact_point.h"                 // IVP_Try_To_Generate_Managed_Friction, the contact point helpers
-#include "ivp_cluster_manager.h"               // fire_event_pre_collision (FUN_0634b030)
+#include "ivp_cluster_manager.h"               // fire_event_pre_collision (the routine)
 #include "ivp_listener.h"                      // IVP_Event_Collision
 #include "ivp_mindist_settings.h"
 #include "ivp_controller.h"                    // IVP_Event_Sim
 #include "ivp_calc_next_psi_solver.h"
-#include "../ivp_collision/ivp_listmanager_topology.h" // FUN_0635a1e0 / FUN_06358c50 / FUN_06355c10
+#include "../ivp_collision/ivp_listmanager_topology.h" // / the routine / the routine
 #include "x87_trig.h"
 #include <cmath>
 #include <cstdint>
 #include "../ivp_utility/ivp_signed_byte.h" // IVP_SignedLowByte
 
 // The impact system, cmn-ivp3e 2026-10-08. Every function below was traced
-// against Common.dll.txt instruction by instruction; the x87 convention of the
+// against Common instruction by instruction; the x87 convention of the
 // IVP lanes holds: a value kept on the FPU stack is double here, every
 // `FSTP float` is a float rounding.
 
 namespace
 {
-    const float GIvpEpsilon = 0x1.b7cdfep-34f;  // DAT_063a53d8 (0x2edbe6ff, 1e-10f)
-    const float GIvpOne = 1.0f;                 // DAT_063a53d0 (0x3f800000)
-    const float GIvpHalf = 0.5f;                // DAT_063a5460 (0x3f000000)
-    const float GIvpOneTwentyFourth = 0x1.555556p-5f; // DAT_063a5660 (0x3d2aaaab)
+    const float GIvpEpsilon = 0x1.b7cdfep-34f;  // (0x2edbe6ff, 1e-10f)
+    const float GIvpOne = 1.0f;                 // (0x3f800000)
+    const float GIvpHalf = 0.5f;                // (0x3f000000)
+    const float GIvpOneTwentyFourth = 0x1.555556p-5f; // (0x3d2aaaab)
 
-    // The kinetic energy of a core, as FUN_06358680 computes it inline four
-    // times (.text:06358762-063587dd for Objects[0]'s core, 063587e3-06358866
+    // The kinetic energy of a core, as the routine computes it inline four
+    // times (module storage-063587dd for Objects[0]'s core, 063587e3-06358866
     // for Objects[1]'s, 06358971-063589e1 and 063589e3-06358a5e after the
     // impact). Both instruction orders reduce to the same expression:
     //   linear     = (((v.z*v.z + v.y*v.y) + v.x*v.x) * Mass) * 0.5
@@ -56,7 +52,7 @@ namespace
 }
 
 // ---------------------------------------------------------------------------
-// FUN_06358c00 (.text:06358c00-06358c48, 25 insns, RET 0x10).
+// (module storage-06358c48, 25 insns, RET 0x10).
 //   FLD p2; FSQRT; FADD 1.0f; FMUL p1        -> t = (sqrt(OrthComp) + 1) * FrictionVal
 //   FLD ST0; FLD1; FPATAN                    -> a = atan(t / 1)
 //   FLD ST0; FMULP                           -> a2 = a*a
@@ -77,12 +73,12 @@ void IVP_Impact_Solver_Long_Term_Get_Cos_Sin_For_Impact(float FrictionVal, float
 }
 
 // ---------------------------------------------------------------------------
-// FUN_06358d60 (.text:06358d60-06358edd, 99 insns, thiscall, RET 0xc).
+// (module storage-06358edd, 99 insns, thiscall, RET 0xc).
 // ECX = the long-term contact data (ESI). The 0x110-byte IVP_Impact_Solver is
 // the local at ESP+0x1c (local_110); local_120 is a negated copy of the
-// normal. FUN_06273bc0(&solver+0x84, 0x10, 2, Csys::Csys) at :06358d7b is the
+// normal. the routine(&solver+0x84, 0x10, 2, Csys::Csys) at :06358d7b is the
 // MSVC vector-constructor iterator with a ctor that is `MOV EAX,ECX; RET`
-// (.text:06261260): no state, nothing to port.
+// (module storage): no state, nothing to port.
 //   :06358d80-06358de0  contact core 1 (+0x74) null: the normal is negated
 //     into local_120, Cores = {Objects[1]->core, contact core 0 (+0x70)},
 //     obj points = {&CoordOS[1], &CoordOS[0]}, normal = &local_120.
@@ -90,14 +86,14 @@ void IVP_Impact_Solver_Long_Term_Get_Cos_Sin_For_Impact(float FrictionVal, float
 //     when null; contact core 1}, obj points in order, normal = this.
 //   :06358e28-06358e40  Restitution (+0xfc) = +0x60 (also kept in local_124),
 //     the speed pointer (+0x10c) = this+0x10, UseFrictionConeBlend (+0xd4) = 0.
-//   :06358e4b-06358e93  both cores' +0x10 null: FUN_06358c00(Cp->+0x44,
-//     +0x60, &+0x100, &+0x104), then FUN_06359380(&solver, Cp) when the byte
-//     Cp->+0x34 is non-zero. Either core's +0x10 set: FUN_06358c00(0, +0x60,
+//   :06358e4b-06358e93  both cores' +0x10 null: the routine(Cp->+0x44,
+//     +0x60, &+0x100, &+0x104), then the routine(&solver, Cp) when the byte
+//     Cp->+0x34 is non-zero. Either core's +0x10 set: the routine(0, +0x60,
 //     &+0x100, &+0x104).
-//   :06358eb5-06358ed0  FUN_063578a0(&solver, PushedCores, 1,
+//   :06358eb5-06358ed0  the routine(&solver, PushedCores, 1,
 //     MOVSX word +0x52, RescueSpeedVal).
 // No null test anywhere: a null contact core 0 in the first branch is read
-// through (`[ECX+0x10]`) exactly as retail does.
+// through (`[ECX+0x10]`) exactly as baseline does.
 // ---------------------------------------------------------------------------
 void IVP_Impact_Solver_Long_Term_Do_Impact_Long_Term(IVP_Impact_Solver_Long_Term* LongTerm, IVP_Core* PushedCores[2],
                                                      float RescueSpeedVal, IVP_Contact_Point* Cp)
@@ -142,7 +138,7 @@ void IVP_Impact_Solver_Long_Term_Do_Impact_Long_Term(IVP_Impact_Solver_Long_Term
                                                             &ImpactSolver.NormalCoeff, &ImpactSolver.TangentCoeff);
         if (Cp->SolverMode != 0)
         {
-            IVP_Impact_Solver_Calc_Second_Friction(&ImpactSolver, Cp); // FUN_06359380
+            IVP_Impact_Solver_Calc_Second_Friction(&ImpactSolver, Cp);
         }
     }
     else
@@ -151,34 +147,34 @@ void IVP_Impact_Solver_Long_Term_Do_Impact_Long_Term(IVP_Impact_Solver_Long_Term
                                                             &ImpactSolver.NormalCoeff, &ImpactSolver.TangentCoeff);
     }
 
-    ImpactSolver.DoImpactSystem(PushedCores, 1, static_cast<int32_t>(LongTerm->Status), RescueSpeedVal); // FUN_063578a0
+    ImpactSolver.DoImpactSystem(PushedCores, 1, static_cast<int32_t>(LongTerm->Status), RescueSpeedVal);
 }
 
 // ---------------------------------------------------------------------------
-// FUN_06358680 (.text:06358680-06358aff, 293 insns, cdecl, plain RET). EH frame
-// LAB_06398148 for the three impact-system vectors.
+// (module storage-06358aff, 293 insns, cdecl, plain RET). EH frame
+// for the three impact-system vectors.
 //   :06358698-063586d6  SimUnitNotDestroy = (int)(ObjA->flags << 24) <
-//     0x08000000 ? ObjB->core->+0x15c : ObjA->core->+0x15c (signed compare of
+// ? ObjB->core->+0x15c : ObjA->core->+0x15c (signed compare of
 //     the low flags byte).
-//   :063586dd-063586ec  Cp = FUN_06356bc0(Mindist, &Fs, &HavingNew,
+//   :063586dd-063586ec  Cp = the routine(Mindist, &Fs, &HavingNew,
 //     SimUnitNotDestroy, 1); LongTerm = Cp->+0x40 (EBX).
-//   :063586fe-06358704  Pair = FUN_06356280(Fs, ObjA->core, ObjB->core).
+//   :063586fe-06358704  Pair = the routine(Fs, ObjA->core, ObjB->core).
 //   :0635870b-0635874c  Env = Mindist->synapse[0].l_obj (+0x28)->environment;
 //     the pair's last impact time (+0x1c/+0x20) is saved and replaced by
 //     Env->current_time.
-//   :0635873b-06358755  RescueSpeed = float(FUN_06359560(Cp, ObjA->environment)).
+//   :0635873b-06358755  RescueSpeed = float(the routine(Cp, ObjA->environment)).
 //   :06358759-06358866  energies before, float (local_74 / local_70).
-//   :0635886c           FUN_06358d60(LongTerm, &PushedCores, RescueSpeed, Cp).
+//   :0635886c           the routine(LongTerm, &PushedCores, RescueSpeed, Cp).
 //   :06358871-063588d5  LongTerm speed (+0x10..+0x18) saved, negated when
 //     ObjB->core has (Flags & 0xc).
-//   :063588d7-0635896c  impact system on the stack; FUN_06358f40(&System,
+//   :063588d7-0635896c  impact system on the stack; the routine(&System,
 //     Mindist, Fs, Pair, Cp); its three vectors destroyed.
 //   :06358971-06358a73  +0x48 = float(E0' - float E0) with E0' unrounded,
 //     +0x4c = float(float E1' - float E1).
 //   :06358a76-06358aa4  event {dt, Env, LongTerm}, dt = ((now.base -
 //     old.base) + now.offset) - old.offset; the saved speed is written back.
-//   :06358aa7-06358ae2  FUN_0634cf60(Env, &Event); for ObjA then ObjB with
-//     flags bit 0x2000: FUN_0634b030(Env->cluster_manager, Obj, &Event).
+//   :06358aa7-06358ae2  the routine(Env, &Event); for ObjA then ObjB with
+//     flags bit 0x2000: the routine(Env->cluster_manager, Obj, &Event).
 // ---------------------------------------------------------------------------
 void IVP_Mindist_Do_Impact(IVP_Ledge_Mindist* Mindist, IVP_Real_Object* ObjA, IVP_Real_Object* ObjB)
 {
@@ -190,10 +186,10 @@ void IVP_Mindist_Do_Impact(IVP_Ledge_Mindist* Mindist, IVP_Real_Object* ObjA, IV
     IVP_ListManager* Fs;
     int32_t HavingNewDist;
     IVP_Contact_Point* const Cp =
-        IVP_Try_To_Generate_Managed_Friction(Mindist, &Fs, &HavingNewDist, SimUnitNotDestroy, 1); // FUN_06356bc0
+        IVP_Try_To_Generate_Managed_Friction(Mindist, &Fs, &HavingNewDist, SimUnitNotDestroy, 1);
     IVP_Impact_Solver_Long_Term* const LongTerm = Cp->Owner;
 
-    IVP_ListManager_CorePairEntry* const Pair = Fs->FindCorePairEntryExact(CoreA, CoreB); // FUN_06356280
+    IVP_ListManager_CorePairEntry* const Pair = Fs->FindCorePairEntryExact(CoreA, CoreB);
 
     IVP_Environment* const Env = Mindist->synapse[0].l_obj->environment;
     // +0x1c/+0x20 of the core pair is an IVP_Time (Ipion last_impact_time).
@@ -203,7 +199,7 @@ void IVP_Mindist_Do_Impact(IVP_Ledge_Mindist* Mindist, IVP_Real_Object* ObjA, IV
     *LastImpactTime = NowTime;
 
     const float RescueSpeed =
-        (float)(IVP_Contact_Point_Get_Rescue_Speed_Impact(Cp, ObjA->environment)); // FUN_06359560
+        (float)(IVP_Contact_Point_Get_Rescue_Speed_Impact(Cp, ObjA->environment));
 
     IVP_Core* const Core0 = LongTerm->Objects[0]->core;
     IVP_Core* const Core1 = LongTerm->Objects[1]->core;
@@ -211,7 +207,7 @@ void IVP_Mindist_Do_Impact(IVP_Ledge_Mindist* Mindist, IVP_Real_Object* ObjA, IV
     const float EnergyBefore1 = (float)(IVP_Impact_Core_Energy(Core1));
 
     IVP_Core* PushedCores[2];
-    IVP_Impact_Solver_Long_Term_Do_Impact_Long_Term(LongTerm, PushedCores, RescueSpeed, Cp); // FUN_06358d60
+    IVP_Impact_Solver_Long_Term_Do_Impact_Long_Term(LongTerm, PushedCores, RescueSpeed, Cp);
 
     Vector SavedSpeed = LongTerm->Speed;
     if ((CoreB->Flags & 0xcu) != 0)
@@ -223,7 +219,7 @@ void IVP_Mindist_Do_Impact(IVP_Ledge_Mindist* Mindist, IVP_Real_Object* ObjA, IV
 
     {
         IVP_Impact_System ImpactSystem;
-        ImpactSystem.init_and_solve_impact_system(Mindist, Fs, Pair, Cp); // FUN_06358f40
+        ImpactSystem.init_and_solve_impact_system(Mindist, Fs, Pair, Cp);
     }
 
     const double EnergyAfter0 = IVP_Impact_Core_Energy(Core0);
@@ -238,10 +234,10 @@ void IVP_Mindist_Do_Impact(IVP_Ledge_Mindist* Mindist, IVP_Real_Object* ObjA, IV
     Event.contact_situation = reinterpret_cast<IVP_Contact_Situation*>(LongTerm);
     LongTerm->Speed = SavedSpeed;
 
-    IVP_Environment_Notify_Listeners_C8(Env, &Event); // FUN_0634cf60
+    IVP_Environment_Notify_Listeners_C8(Env, &Event);
     if ((ObjA->flags & 0x2000u) != 0)
     {
-        Env->cluster_manager->fire_event_pre_collision(ObjA, &Event); // FUN_0634b030
+        Env->cluster_manager->fire_event_pre_collision(ObjA, &Event);
     }
     if ((ObjB->flags & 0x2000u) != 0)
     {
@@ -250,16 +246,16 @@ void IVP_Mindist_Do_Impact(IVP_Ledge_Mindist* Mindist, IVP_Real_Object* ObjA, IV
 }
 
 // ---------------------------------------------------------------------------
-// FUN_06358f40 (.text:06358f40-0635907e, 120 insns, RET 0x10).
+// (module storage-0635907e, 120 insns, RET 0x10).
 //   :06358f41-06358f7b  Core0 = Cp->Object1->core, Core1 = Cp->Object2->core;
 //     ImpactsWhileSystem = 0; AssociatedFs = Fs; LEnvironment =
 //     Pair->CoreA->Environment.
 //   :06358f7d-06358f8f  Core0 non-null and neither (Flags & 0xc) nor
 //     (Flags & 0x300): add_pushed_core_with_pairs_except(Core0, Pair).
 //   :06358f94-06358fc7  Pair->CoreA dynamic in the same sense: SyncedCores.add
-//     (FUN_063441a0 grows when n_elems >= memsize).
+//     (the routine grows when n_elems >= memsize).
 //   :06358fcb-06358fde  Core1 likewise; :06358fe3-06359012 Pair->CoreB likewise.
-//   :06359016-06359026  Pairs.add(Pair) (FUN_06359090); FUN_06358ee0(Pair, Cp).
+//   :06359016-06359026  Pairs.add(Pair) (the routine); the routine(Pair, Cp).
 //   :0635902b-06359056  while test_loop_all_pairs() == 1: ++Count;
 //     ++ImpactsWhileSystem; past 5000 (`JG`) Mindist's slot 4 (the deleting
 //     destructor) with 1 when Mindist is non-null, then leave the loop.
@@ -278,7 +274,7 @@ void IVP_Impact_System::init_and_solve_impact_system(IVP_Ledge_Mindist* Mindist,
 
     if (Core0 != nullptr && (Core0->Flags & 0xcu) == 0 && (Core0->Flags & 0x300u) == 0)
     {
-        add_pushed_core_with_pairs_except(Core0, Pair); // FUN_063590e0
+        add_pushed_core_with_pairs_except(Core0, Pair);
     }
     IVP_Core* const PairCoreA = Pair->CoreA;
     if ((PairCoreA->Flags & 0xcu) == 0 && (PairCoreA->Flags & 0x300u) == 0)
@@ -295,11 +291,11 @@ void IVP_Impact_System::init_and_solve_impact_system(IVP_Ledge_Mindist* Mindist,
         SyncedCores.Add(PairCoreB);
     }
 
-    Pairs.Add(Pair);                     // FUN_06359090
-    recalc_pair_dists_except(Pair, Cp);  // FUN_06358ee0
+    Pairs.Add(Pair);
+    recalc_pair_dists_except(Pair, Cp);
 
     int32_t Count = 0;
-    if (test_loop_all_pairs() == 1) // FUN_063591a0
+    if (test_loop_all_pairs() == 1)
     {
         for (;;)
         {
@@ -320,17 +316,17 @@ void IVP_Impact_System::init_and_solve_impact_system(IVP_Ledge_Mindist* Mindist,
         }
     }
 
-    LEnvironment->counter_50 += Count + 1; // .text:06359067-0635906f
-    recalc_all_affected_cores(); // FUN_063596b0
+    LEnvironment->counter_50 += Count + 1;
+    recalc_all_affected_cores();
 }
 
 // ---------------------------------------------------------------------------
-// FUN_06358ee0 (.text:06358ee0-06358f3a, 37 insns, RET 8). this is spilled
+// (module storage-06358f3a, 37 insns, RET 8). this is spilled
 // to local_4 and read back only for AssociatedFs (+0x20). n_elems of the
 // pair's dist vector is read once (zero-extended word), elems every pass.
-// For every dist except CpNot, last first: FUN_0635a1e0(Cp); LongTerm =
-// Cp->+0x40 (read after that call); FUN_06358c50(Cp, LongTerm); when
-// (LongTerm->dword+0x54 & 0x300) == 0x100: FUN_06355490(AssociatedFs, Cp).
+// For every dist except CpNot, last first: the routine(Cp); LongTerm =
+// Cp->+0x40 (read after that call); the routine(Cp, LongTerm); when
+// (LongTerm->dword+0x54 & 0x300) == 0x100: the routine(AssociatedFs, Cp).
 // ---------------------------------------------------------------------------
 void IVP_Impact_System::recalc_pair_dists_except(IVP_ListManager_CorePairEntry* Pair,
                                                  IVP_Contact_Point* CpNot)
@@ -342,18 +338,18 @@ void IVP_Impact_System::recalc_pair_dists_except(IVP_ListManager_CorePairEntry* 
         {
             continue;
         }
-        IVP_UpdatePairRecordContactFrame(Cp);            // FUN_0635a1e0
+        IVP_UpdatePairRecordContactFrame(Cp);
         IVP_Impact_Solver_Long_Term* const LongTerm = Cp->Owner;
-        IVP_PopulatePairRecordIntoOwner(Cp, LongTerm);   // FUN_06358c50
+        IVP_PopulatePairRecordIntoOwner(Cp, LongTerm);
         if ((LongTerm->FrictionIsBroken & 0x3u) == 0x1u)
         {
-            AssociatedFs->RemoveDistFromSystem(Cp);      // FUN_06355490
+            AssociatedFs->RemoveDistFromSystem(Cp);
         }
     }
 }
 
 // ---------------------------------------------------------------------------
-// FUN_063590c0 (.text:063590c0-063590d6, 7 insns, RET 4). ECX is replaced by
+// (module storage-063590d6, 7 insns, RET 4). ECX is replaced by
 // the argument before use. `SHL EAX,0x18; CMP EAX,0x8000000; JGE` -- the core
 // is synchronised when the signed low byte of MovementState (+0x60) is below 8.
 // ---------------------------------------------------------------------------
@@ -361,19 +357,19 @@ void IVP_Impact_System::synchronize_core_if_simulated(IVP_Core* Core)
 {
     if (IVP_SignedLowByte(Core->MovementState) < 8)
     {
-        Core->recalc_interpolated_frame(); // FUN_06347240 (Ipion synchronize_with_rot_z)
+        Core->recalc_interpolated_frame(); // (Ipion synchronize_with_rot_z)
     }
 }
 
 // ---------------------------------------------------------------------------
-// FUN_063590e0 (.text:063590e0-0635916a, 54 insns, RET 8).
+// (module storage-0635916a, 54 insns, RET 8).
 //   :063590e6-0635910c  PushedCores.add(Core).
 //   :06359110-06359116  Core->+0x1b4->WasPushedDuringImpactSystem = 1.
 //   :0635911d-06359164  n = AssociatedFs->CorePairEntries.n_elems (read once),
 //     last first, elems re-read from AssociatedFs every pass: a pair that has
 //     Core as CoreA or CoreB, is not PairNot, is not already in Pairs
-//     (FUN_06359170) and whose FUN_06355c10(Pair, AssociatedFs) is > 0 is
-//     added to Pairs (FUN_06359090).
+//     (the routine) and whose the routine(Pair, AssociatedFs) is > 0 is
+//     added to Pairs (the routine).
 // ---------------------------------------------------------------------------
 void IVP_Impact_System::add_pushed_core_with_pairs_except(IVP_Core* Core, IVP_ListManager_CorePairEntry* PairNot)
 {
@@ -391,20 +387,20 @@ void IVP_Impact_System::add_pushed_core_with_pairs_except(IVP_Core* Core, IVP_Li
         {
             continue;
         }
-        if (Pairs.Contains(Pair)) // FUN_06359170
+        if (Pairs.Contains(Pair))
         {
             continue;
         }
-        if (IVP_ListManager_RefreshAttachedCtxAndCountLive(Pair, AssociatedFs) > 0) // FUN_06355c10
+        if (IVP_ListManager_RefreshAttachedCtxAndCountLive(Pair, AssociatedFs) > 0)
         {
-            Pairs.Add(Pair); // FUN_06359090
+            Pairs.Add(Pair);
         }
     }
 }
 
 // ---------------------------------------------------------------------------
-// FUN_063591a0 (.text:063591a0-06359332, 144 insns, no arguments).
-//   :063591a3-063591c7  Best = G_IVP_MindistSettings+0x108 (DAT_0658ab18),
+// (module storage-06359332, 144 insns, no arguments).
+//   :063591a3-063591c7  Best = G_IVP_MindistSettings+0x108 (the field),
 //     BestCp = BestPair = null; n = Pairs.n_elems read once; empty -> 0.
 //   :063591cd-06359203  per pair (last first, elems re-read): the pair is
 //     skipped when the two cores' packed state bits intersect:
@@ -412,19 +408,19 @@ void IVP_Impact_System::add_pushed_core_with_pairs_except(IVP_Core* Core, IVP_Li
 //       A = (int)(CoreA->Flags << 28) >> 6        | CoreA->MovementState << 16
 //     (`SHL 0x1c; SAR 6` on both flags words, `TEST EAX,EBP; JNZ`).
 //   :06359205-0635924c  per dist of the pair (last first): a long-term state
-//     byte (+0x54) other than 1 -> ++LEnvironment->+0x60 and FUN_063595c0(Cp);
+//     byte (+0x54) other than 1 -> ++LEnvironment->+0x60 and the routine(Cp);
 //     then `FLD +0x5c; FCOMP Best; TEST AH,1; JZ` -- the dist becomes the best
 //     one when its priority is below Best (or unordered).
 //   :0635925d-0635925f  no best dist -> 0.
 //   :06359265-063592b8  for the best dist's contact core 1 then 0 (+0x74,
 //     +0x70, re-read through Cp->+0x40 each time): a non-null core whose
-//     +0x1b4 is null is added to SyncedCores and synchronised (FUN_063590c0).
-//   :063592ba-063592ce  ++LongTerm->+0x52; FUN_06358d60(LongTerm,
+//     +0x1b4 is null is added to SyncedCores and synchronised (the routine).
+//   :063592ba-063592ce  ++LongTerm->+0x52; the routine(LongTerm,
 //     &PushedCores, LongTerm->+0x58, Cp).
 //   :063592d3-0635931a  for PushedCores[1] then [0]: non-null, neither
 //     (Flags & 0xc) nor (Flags & 0x300): WasPushedDuringImpactSystem == 0 ->
 //     add_pushed_core_with_pairs_except(Core, BestPair), else
-//     FUN_06359340(Core). Returns 1.
+// (Core). Returns 1.
 // ---------------------------------------------------------------------------
 int32_t IVP_Impact_System::test_loop_all_pairs()
 {
@@ -451,8 +447,8 @@ int32_t IVP_Impact_System::test_loop_all_pairs()
             IVP_Contact_Point* const Cp = Pair->AttachedCtx.elems[CpIndex];
             if (Cp->Owner->StateProcessed != 1)
             {
-                ++LEnvironment->counter_60; // .text:0635921f
-                IVP_Contact_Point_Calc_Impact_Priority(Cp); // FUN_063595c0
+                ++LEnvironment->counter_60;
+                IVP_Contact_Point_Calc_Impact_Priority(Cp);
             }
             const float Priority = Cp->Owner->WinnerPriority;
             if (!(Priority >= BestPriority))
@@ -477,14 +473,14 @@ int32_t IVP_Impact_System::test_loop_all_pairs()
             continue;
         }
         SyncedCores.Add(Core);
-        synchronize_core_if_simulated(Core); // FUN_063590c0
+        synchronize_core_if_simulated(Core);
     }
 
     IVP_Impact_Solver_Long_Term* const LongTerm = BestCp->Owner;
     ++LongTerm->Status;
     IVP_Core* PushedCoresOfImpact[2];
     IVP_Impact_Solver_Long_Term_Do_Impact_Long_Term(BestCp->Owner, PushedCoresOfImpact,
-                                                    BestCp->Owner->LastImpactTimeStep, BestCp); // FUN_06358d60
+                                                    BestCp->Owner->LastImpactTimeStep, BestCp);
 
     for (int32_t Side = 1; Side >= 0; --Side)
     {
@@ -495,19 +491,19 @@ int32_t IVP_Impact_System::test_loop_all_pairs()
         }
         if (static_cast<IVP_Old_Sync_Rot_Z*>(Core->FastSimUnitData)->WasPushedDuringImpactSystem == 0)
         {
-            add_pushed_core_with_pairs_except(Core, BestPair); // FUN_063590e0
+            add_pushed_core_with_pairs_except(Core, BestPair);
         }
         else
         {
-            clear_processed_state_of_core_dists(Core); // FUN_06359340
+            clear_processed_state_of_core_dists(Core);
         }
     }
     return 1;
 }
 
 // ---------------------------------------------------------------------------
-// FUN_06359340 (.text:06359340-06359370, 19 insns, RET 4).
-// Info = Core->find_object_hash_entry(AssociatedFs) (FUN_06347c40, no null
+// (module storage-06359370, 19 insns, RET 4).
+// Info = Core->find_object_hash_entry(AssociatedFs) (the routine, no null
 // test of the result); for every dist of Info (n_elems read once, elems every
 // pass, last first): `AND dword [LongTerm+0x54],0xffffff00` -- the state byte
 // becomes 0.
@@ -523,10 +519,10 @@ void IVP_Impact_System::clear_processed_state_of_core_dists(IVP_Core* Core)
 }
 
 // ---------------------------------------------------------------------------
-// FUN_063596b0 (.text:063596b0-0635984e, 121 insns, no arguments). The SEH
-// frame (LAB_0639818b) guards the stack hull-manager vector only.
+// (module storage-0635984e, 121 insns, no arguments). The SEH
+// frame (the branch) guards the stack hull-manager vector only.
 //   :063596cb-063596fe  SyncedCores, last first: WasPushedDuringImpactSystem
-//     == 0 -> FUN_063473b0 (restore); +0x1b4 = 0 either way.
+//     == 0 -> the routine (restore); +0x1b4 = 0 either way.
 //   :06359700-0635974e  Delta = float(((next_psi.base - now.base) +
 //     next_psi.offset) - now.offset) from LEnvironment +0xf8..+0x104.
 //   :0635973a-06359749  IVP_U_Vector_Fixed<IVP_Hull_Manager, 0x100> on the
@@ -534,12 +530,12 @@ void IVP_Impact_System::clear_processed_state_of_core_dists(IVP_Core* Core)
 //   :06359752-063597d6  PushedCores, last first, cores without (Flags & 0xc):
 //     event sim {Delta, float(1/Delta), Env} when Delta > 1e-10 (`TEST AH,0x41;
 //     JNZ`), else {Env->delta_time, Env->inv_delta_time, Env} (its +0xc is
-//     never written); FUN_06351310 on a solver holding the core; +0x1b4 = 0;
-//     FUN_06359340(Core).
-//   :063597d8-063597e0  FUN_06351f80(Env, &HullManagers) (cdecl).
+//     never written); the routine on a solver holding the core; +0x1b4 = 0;
+// (Core).
+//   :063597d8-063597e0  the routine(Env, &HullManagers) (cdecl).
 //   :063597e5-0635981b  the hull vector's destructor (free when not inline).
 //   :06359815-06359834  PushedCores, last first, cores without (Flags & 0xc):
-//     FUN_06347be0.
+// .
 // ---------------------------------------------------------------------------
 void IVP_Impact_System::recalc_all_affected_cores()
 {
@@ -548,7 +544,7 @@ void IVP_Impact_System::recalc_all_affected_cores()
         IVP_Core* const Core = SyncedCores.elems[Index];
         if (static_cast<IVP_Old_Sync_Rot_Z*>(Core->FastSimUnitData)->WasPushedDuringImpactSystem == 0)
         {
-            Core->restore_fast_sim_snapshot(); // FUN_063473b0
+            Core->restore_fast_sim_snapshot();
         }
         Core->FastSimUnitData = nullptr;
     }
@@ -580,11 +576,11 @@ void IVP_Impact_System::recalc_all_affected_cores()
                 EventSim.i_delta_time = LEnvironment->inv_delta_time;
             }
             IVP_Calc_Next_PSI_Solver Solver(Core);
-            Solver.calc_next_PSI_matrix(&EventSim, &ActiveHullManagers); // FUN_06351310
+            Solver.calc_next_PSI_matrix(&EventSim, &ActiveHullManagers);
             Core->FastSimUnitData = nullptr;
-            clear_processed_state_of_core_dists(Core); // FUN_06359340
+            clear_processed_state_of_core_dists(Core);
         }
-        IVP_Calc_Next_PSI_Solver::commit_all_hull_managers(LEnvironment, &ActiveHullManagers); // FUN_06351f80
+        IVP_Calc_Next_PSI_Solver::commit_all_hull_managers(LEnvironment, &ActiveHullManagers);
     }
 
     for (int32_t Index = static_cast<int32_t>(PushedCores.n_elems) - 1; Index >= 0; --Index)
@@ -592,7 +588,7 @@ void IVP_Impact_System::recalc_all_affected_cores()
         IVP_Core* const Core = PushedCores.elems[Index];
         if ((Core->Flags & 0xcu) == 0)
         {
-            Core->notify_objects_and_cache_env_field(); // FUN_06347be0
+            Core->notify_objects_and_cache_env_field();
         }
     }
 }

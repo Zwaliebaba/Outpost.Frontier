@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "StdAfx.h"
@@ -11,14 +7,14 @@
 #include "OutpostServer.h"
 #include "server_playerdb.h"
 
-// .text:00409200 — CButton +0x60, CFLListBox +0xa0 (0040fad0), CButton +0x140, CButton +0x180,
+// — CButton +0x60, CFLListBox +0xa0 (0040fad0), CButton +0x140, CButton +0x180,
 // CRichEditCtrl +0x1c0; Account (+0x200) is not written.
 CEditAccountDlg::CEditAccountDlg(CWnd* Parent)
 	: CDialog(IDD, Parent)
 {
 }
 
-// .text:00409390
+
 void CEditAccountDlg::DoDataExchange(CDataExchange* DX)
 {
 	DDX_Control(DX, 1044, BannedCheck);
@@ -27,16 +23,16 @@ void CEditAccountDlg::DoDataExchange(CDataExchange* DX)
 	DDX_Control(DX, 1037, AccountNameEdit);
 }
 
-// Message map .rdata:0041cb70.
+// Message map module storage.
 BEGIN_MESSAGE_MAP(CEditAccountDlg, CDialog)
-	ON_LBN_SELCHANGE(1040, &CEditAccountDlg::OnSelChangeCharacterList) // 00409410
-	ON_LBN_SELCANCEL(1040, &CEditAccountDlg::OnSelCancelCharacterList) // 00409420
-	ON_BN_CLICKED(1041, &CEditAccountDlg::OnDeleteCharacter)           // 004094e0
-	ON_WM_MEASUREITEM()                                                // 00409610
-	ON_BN_CLICKED(1045, &CEditAccountDlg::OnKickAccount)               // 00409770
+	ON_LBN_SELCHANGE(1040, &CEditAccountDlg::OnSelChangeCharacterList)
+	ON_LBN_SELCANCEL(1040, &CEditAccountDlg::OnSelCancelCharacterList)
+	ON_BN_CLICKED(1041, &CEditAccountDlg::OnDeleteCharacter)
+	ON_WM_MEASUREITEM()
+	ON_BN_CLICKED(1045, &CEditAccountDlg::OnKickAccount)
 END_MESSAGE_MAP()
 
-// .text:00409430
+
 BOOL CEditAccountDlg::OnInitDialog()
 {
 	CDialog::OnInitDialog();
@@ -53,19 +49,19 @@ BOOL CEditAccountDlg::OnInitDialog()
 	return TRUE;
 }
 
-// .text:00409410
+
 void CEditAccountDlg::OnSelChangeCharacterList()
 {
 	DeleteCharacterButton.EnableWindow(TRUE);
 }
 
-// .text:00409420
+
 void CEditAccountDlg::OnSelCancelCharacterList()
 {
 	DeleteCharacterButton.EnableWindow(FALSE);
 }
 
-// .text:004094e0
+
 void CEditAccountDlg::OnDeleteCharacter()
 {
 	CAreYouSureDlg Confirm(nullptr);
@@ -88,7 +84,7 @@ void CEditAccountDlg::OnDeleteCharacter()
 	DeleteCharacterButton.EnableWindow(FALSE);
 }
 
-// .text:00409610 — rows are as tall as the list box's regular font.
+// — rows are as tall as the list box's regular font.
 void CEditAccountDlg::OnMeasureItem(int IDCtl, LPMEASUREITEMSTRUCT MeasureInfo)
 {
 	if (IDCtl != 1040)
@@ -105,7 +101,7 @@ void CEditAccountDlg::OnMeasureItem(int IDCtl, LPMEASUREITEMSTRUCT MeasureInfo)
 	MeasureInfo->itemHeight = Metrics.tmHeight;
 }
 
-// .text:004096e0 — the "Banned" box is applied only when it differs from the account's state
+// — the "Banned" box is applied only when it differs from the account's state
 // (m_bNotBanned equal to the check state means they disagree).
 void CEditAccountDlg::OnOK()
 {
@@ -121,8 +117,8 @@ void CEditAccountDlg::OnOK()
 	CDialog::OnOK();
 }
 
-// .text:00409770 — "Kick Account From Server": applies the "Banned" box like OnOK, but with the
-// account access lock taken unconditionally, then closes the dialog with IDCANCEL. Retail does
+// — "Kick Account From Server": applies the "Banned" box like OnOK, but with the
+// account access lock taken unconditionally, then closes the dialog with IDCANCEL. baseline does
 // nothing else here (no logout call of its own).
 void CEditAccountDlg::OnKickAccount()
 {

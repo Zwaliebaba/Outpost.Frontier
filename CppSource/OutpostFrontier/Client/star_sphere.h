@@ -1,24 +1,20 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
-// Retail SunEffect / StarSphere — OutpostFrontier.exe PTR_FUN_005db658 (7 slots).
+// baseline SunEffect / StarSphere — OutpostFrontier.exe the routine (7 slots).
 // Source path (embedded): Client\space\StarSphere.h. Epic: star-sphere.
-// Distinct from TexturePanels (PTR_LAB_005db1b4) and from skybox "star_sphere" perf option.
-//
-// Layout from FUN_00510d10 ctor + LAB_00511020 Load stores. Child at +0x14 is 0x30c
-// (FUN_0050d300); glow descriptors at +0x10/+0x0c are 0x50 (star_glow / star_center).
+// Distinct from TexturePanels (the branch) and from skybox "star_sphere" perf option.
+
+// Layout from the routine ctor + the branch Load stores. Child at +0x14 is 0x30c
+// (the routine); glow descriptors at +0x10/+0x0c are 0x50 (star_glow / star_center).
 
 #include <cstddef>
 
-// FUN_004215b0 — write identity 3×3 into Out9 (nine floats, no translation).
+// — write identity 3×3 into Out9 (nine floats, no translation).
 void Win3DIdentityRotation3x3(float* Out9);
 
-// FUN_00422690 (cdecl) — GWin3DModelview = ObjectOrNull ? view(vt+0x40, __stdcall) * Matrix12
+// (cdecl) — GWin3DModelview = ObjectOrNull ? view(vt+0x40, __stdcall) * Matrix12
 // : Matrix12; pipeline state 7 set -> SetModelview, else SetView(view or identity) +
 // SetWorld(Matrix12). ObjectOrNull is a camera (TexturePanelsDrawPiece 0050b6ba) or null
 // (DrawClouds 005518c6, the UI tables).
@@ -27,7 +23,7 @@ void Win3DBindModelview(void* ObjectOrNull, float const* Matrix12);
 // Star-glow CacheString-ish record (0x50). Shape name: length@+0, chars@+4 (0x20).
 struct FStarGlowDesc
 {
-    unsigned ShapeLen;       // +0x00  FUN_00417c50 return length
+    unsigned ShapeLen;       // +0x00  the routine return length
     char ShapeName[0x20];    // +0x04
     float Scale;             // +0x24
     float InnerColor[3];     // +0x28
@@ -40,15 +36,15 @@ struct FStarGlowDesc
 };
 static_assert(sizeof(FStarGlowDesc) == 0x50, "star_glow desc 0x50");
 
-// SunEffect body at StarSphere+0x14 (operator_new 0x30c, FUN_0050d300).
+// SunEffect body at StarSphere+0x14 (operator_new 0x30c, the routine).
 struct FSunEffectBody
 {
     unsigned char Raw[0x30c];
 };
 static_assert(sizeof(FSunEffectBody) == 0x30c, "SunEffect body 0x30c");
 
-// Lens-flare / spines child shell (0x40). Load parsers FUN_0050f3a0 / 0050fba0 fill
-// the element ranges; draw (FUN_0050f850 / 00510160) walks [Begin, End).
+// Lens-flare / spines child shell (0x40). Load parsers the routine / 0050fba0 fill
+// the element ranges; draw (the routine / 00510160) walks [Begin, End).
 struct FStarFxChild40
 {
     unsigned char Raw[0x40];
@@ -60,8 +56,8 @@ struct FStarSphere;
 // StarEffects::Star — seven thiscall virtual methods.
 struct FStarSphere
 {
-    explicit FStarSphere(IObjInspect* InOwner); // FUN_00510d10
-    virtual ~FStarSphere();                     // +0x00 FUN_00510ef0 / FUN_00510f10
+    explicit FStarSphere(IObjInspect* InOwner);
+    virtual ~FStarSphere();                     // +0x00 the routine / the routine
     virtual int Load(char const* IniPath, char const* Nickname); // +0x04
     virtual void UpdateIntensity(float Dt);                     // +0x08
     virtual void DrawSimple(void* Camera);                      // +0x0c
@@ -81,8 +77,8 @@ struct FStarSphere
     float ZoneOcclusionFadeIn;       // +0x28  default 2
     float ZoneOcclusionFadeOut;      // +0x2c  default 2
     float Field30;                   // +0x30  pi
-    float ZoneOcclusion;             // +0x34  approaches FUN_00511b90
-    float Field38;                   // +0x38  1 − FUN_0050f2a0(SunBody)
+    float ZoneOcclusion;             // +0x34  approaches the routine
+    float Field38;                   // +0x38  1 − the routine(SunBody)
     unsigned char Pad3C[0x24];       // +0x3c .. +0x5f
     float Dt;                        // +0x60  UpdateIntensity stores Dt (RET 4)
     float Intensity;                 // +0x64  default 1
@@ -100,31 +96,31 @@ static_assert(offsetof(FStarSphere, Intensity) == 0x64, "Intensity +0x64");
 static_assert(offsetof(FStarSphere, WorldPos) == 0x68, "WorldPos +0x68");
 static_assert(offsetof(FStarSphere, PixelScale) == 0x88, "PixelScale +0x88");
 
-// DAT_0067509c — SunEffect perf quality (LAB_00510bf0). Draw/DrawFlare gate on > 0.
+// — SunEffect perf quality (the branch). Draw/DrawFlare gate on > 0.
 extern float G_SunEffectQuality;
 
-// FUN_0050c950 — parse [star_glow] nickname into Desc from IniPath. Returns 0 on ok.
+// — parse [star_glow] nickname into Desc from IniPath. Returns 0 on ok.
 int StarGlowLoadFromIni(FStarGlowDesc* Desc, char const* IniPath, char const* Nickname);
-// FUN_0050d420 — parse [lens_glow] into SunBody. Returns 0 on ok.
+// — parse [lens_glow] into SunBody. Returns 0 on ok.
 int LensGlowLoadFromIni(FSunEffectBody* Body, char const* IniPath, char const* Nickname);
-// FUN_0050f3a0 — parse [lens_flare] into child at StarSphere+0x18. Returns 0 on ok.
+// — parse [lens_flare] into child at StarSphere+0x18. Returns 0 on ok.
 int LensFlareLoadFromIni(FStarFxChild40* Flare, char const* IniPath, char const* Nickname);
-// FUN_0050fba0 — parse [spines] into child at StarSphere+0x1c. Returns 0 on ok.
+// — parse [spines] into child at StarSphere+0x1c. Returns 0 on ok.
 int SpinesLoadFromIni(FStarFxChild40* Spines, char const* IniPath, char const* Nickname);
-// FUN_0050d930 — bake corona ring positions/UVs after lens_glow load.
+// — bake corona ring positions/UVs after lens_glow load.
 int SunBodyBakeCorona(FSunEffectBody* Body);
-// FUN_0050d300
+
 FSunEffectBody* SunEffectBodyInit(FSunEffectBody* Body);
-// FUN_00510f90 — solar\\StarArch.ini path + Pipeline block + shapes load.
+// — solar\\StarArch.ini path + Pipeline block + shapes load.
 void LoadSolarStarArchIni();
-// FUN_00511010 — clear the StarArch ShapeDB (DAT_006750a0); called by the space teardown
-// FUN_0054aec0 (DestroySpaceState, 0x0054afb6).
+// — clear the StarArch ShapeDB (the field); called by the space teardown
+// (DestroySpaceState, 0x0054afb6).
 void ClearSolarStarArchShapes();
 
 
-// The live star list, a std::list<FStarSphere*> at DAT_0067517c: allocator byte, head (the
-// sentinel, DAT_00675180), size (DAT_00675184). Its static initializer FUN_0050c580 allocates the
-// self-linked sentinel and registers LAB_0050c5c0, which frees every node and the sentinel.
+// The live star list, a std::list<FStarSphere*> at the field: allocator byte, head (the
+// sentinel, the field), size (the field). Its static initializer the routine allocates the
+// self-linked sentinel and registers the branch, which frees every node and the sentinel.
 struct FStarSphereListNode
 {
     FStarSphereListNode* Next; // +0x00
@@ -133,26 +129,26 @@ struct FStarSphereListNode
 };
 struct FStarSphereList
 {
-    unsigned char AllocatorByte;   // +0x00 DAT_0067517c
+    unsigned char AllocatorByte;   // +0x00 the field
     unsigned char Pad01[3];
-    FStarSphereListNode* Sentinel; // +0x04 DAT_00675180
-    int Count;                     // +0x08 DAT_00675184
+    FStarSphereListNode* Sentinel; // +0x04 the field
+    int Count;                     // +0x08 the field
 };
 
-// FUN_0050c620 -- &DAT_0067517c. Walked by the cockpit env-fx passes (FUN_0051c970 / 0051c9e0)
-// and the field draw (space_scene_obj_draw.cpp), and by the SunEffect perf apply LAB_00510bf0.
+// &the field. Walked by the cockpit env-fx passes (the routine / 0051c9e0)
+// and the field draw (space_scene_obj_draw.cpp), and by the SunEffect perf apply the branch.
 FStarSphereList* StarSphereList();
-// FUN_0050c630 (cdecl) -- new FStarSphere (0x8c, FUN_00510d10 with Owner), appended to the list;
-// returns the list's last element. Caller: the solar ini reader FUN_005485c0 ("star").
+// (cdecl) -- new FStarSphere (0x8c, the routine with Owner), appended to the list;
+// returns the list's last element. Caller: the solar ini reader the routine ("star").
 FStarSphere* StarSphereCreateListed(IObjInspect* Owner);
-// FUN_0050c6e0 -- slot 0 (deleting destructor, flag 1) on every non-null element, then every
-// node erased. Caller: StarSys leave FUN_00554ab0 at 0x00554c12.
+// slot 0 (deleting destructor, flag 1) on every non-null element, then every
+// node erased. Caller: StarSys leave the routine at 0x00554c12.
 void StarSphereDestroyAll();
-// FUN_005125f0 (thiscall on the sphere, RET 4) -- the owner's (+4) IObjInspect slot 0
-// get_position copied into *Out; returns Out. No tests. Callers: the Ship draw LAB_00546050
-// (0x00546206) and the Solar radius slot FUN_00548110 (0x00548125).
+// (thiscall on the sphere, RET 4) -- the owner's (+4) IObjInspect slot 0
+// get_position copied into *Out; returns Out. No tests. Callers: the Ship draw the branch
+// (0x00546206) and the Solar radius slot the routine (0x00548125).
 class Vector;
 Vector* StarSphereGetOwnerPosition(FStarSphere const* Sphere, Vector* Out);
-// FUN_00512620 (thiscall on the sphere) -- max(glow scale, centre scale or 0) * Radius; the glow
-// is read with no test. Caller: the Solar radius slot FUN_00548110 (0x00548144).
+// (thiscall on the sphere) -- max(glow scale, centre scale or 0) * Radius; the glow
+// is read with no test. Caller: the Solar radius slot the routine (0x00548144).
 float StarSphereMaxGlowScale(FStarSphere const* Sphere);

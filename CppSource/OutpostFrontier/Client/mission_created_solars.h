@@ -1,26 +1,22 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
-// Universe\MissionCreatedSolars.ini -- the positions and infocards of the bases that missions
+// Universe\MissionCreatedSolars.ini -- the positions and fieldguidetext of the bases that missions
 // create at run time (they have no [Object] in a system file). Loaded once, on first use, into
-// the vector DAT_0066dc08 (static init LAB_00476bf0, atexit LAB_00476c20).
-//
+// the vector the field (static init the branch, atexit the branch).
+
 //   [MissionCreatedSolar]
 //   base     = <base nickname>
 //   ids_info = <ids>
 //   pos      = x, y, z
-//
-// Readers: the nav map's base / solar position lookups (FUN_0048d780, FUN_00491e10) and the
+
+// Readers: the nav map's base / solar position lookups (the routine, the routine) and the
 // NN base-info code at 0x0047503c.
 
 #include <vector>
 
-// One record, 0x14 bytes (FUN_00476c40 0x00476dd5..0x00476e03).
+// One record, 0x14 bytes (the routine 0x00476dd5..0x00476e03).
 struct FMissionCreatedSolar
 {
     unsigned BaseId; // +0x00 CreateID(base)
@@ -28,16 +24,16 @@ struct FMissionCreatedSolar
     int IdsInfo;     // +0x10 ftol(ids_info)
 };
 
-// DAT_0066dc08 (allocator byte) / DAT_0066dc0c.. (first, last, end).
+// (allocator byte) / the field.. (first, last, end).
 extern std::vector<FMissionCreatedSolar> G_MissionCreatedSolars;
-// DAT_0066dc59 -- the load latch (set before the file is opened, so a missing file is not
+// the load latch (set before the file is opened, so a missing file is not
 // retried).
 extern unsigned char G_bMissionCreatedSolarsLoaded;
 
-// FUN_00476c40 -- once: read MissionCreatedSolars.ini; a record is pushed as soon as a section
+// once: read MissionCreatedSolars.ini; a record is pushed as soon as a section
 // has given all three keys (and the three flags start over).
 void LoadMissionCreatedSolars();
 
-// FUN_00476fe0 (cdecl) -- load, then the first record for BaseId: its position into OutPos
+// (cdecl) -- load, then the first record for BaseId: its position into OutPos
 // (3 floats) and its ids_info into OutIdsInfo. False (nothing written) when there is none.
 bool FindMissionCreatedSolar(unsigned BaseId, float* OutPos, int* OutIdsInfo);

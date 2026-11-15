@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "CInputBox.h"
@@ -110,7 +106,7 @@ bool CInputBox::CharFilter(unsigned short Character) const
 
 void CInputBox::UpdatedText(const unsigned short* pText)
 {
-    // Retail 0x06711110 is RET 4 (ICF-shared with ImeShowToolbar).
+    // is RET 4 (ICF-shared with ImeShowToolbar).
 }
 
 void CInputBox::ToggleInsertMode()
@@ -175,7 +171,7 @@ unsigned short* CInputBox::GetTitle()
 
 void CInputBox::SetTitle(unsigned short* Title)
 {
-    // Retail passes 0x3f to lstrcpynW despite a 32-WCHAR inline title.
+    // baseline passes 0x3f to lstrcpynW despite a 32-WCHAR inline title.
     lstrcpynW(reinterpret_cast<wchar_t*>(m_Title), reinterpret_cast<wchar_t*>(Title), 0x3f);
 }
 

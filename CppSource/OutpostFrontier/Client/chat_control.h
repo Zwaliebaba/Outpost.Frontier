@@ -1,25 +1,21 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
 
-// ChatControl -- the NeuroNet chat panel (RTTI .?AVChatControl@@ : WinControl). Retail
+// ChatControl -- the NeuroNet chat panel (RTTI .?AVChatControl@@ : WinControl). baseline
 // `NN_Chat.cpp`. NN_MainButton opens it by class name for panel 0x68 (0x0045cfda /
-// 0x0045d37b -> WinFactoryCreate(Name, Name, ...)).
-//
-// Retail:
-//   WINFACTORY<ChatControl> DAT_0066d450, static init LAB_00464d90 (registrar FUN_0046c4e0,
-//   atexit LAB_00464db0); create FUN_0046c550: operator_new(0x3d0), ctor FUN_00464dc0.
+// -> WinFactoryCreate(Name, Name, ...)).
+
+// baseline:
+//   WINFACTORY<ChatControl> the field, static init the branch (registrar the routine,
+//   atexit the branch); create the routine: operator_new(0x3d0), ctor the routine.
 //   vftable 0x005cfac4 (WinControl's except):
-//      0 FUN_00464f20 (scalar deleting around the dtor FUN_00464f40)
-//      9 LAB_004670c0 Create          10 FUN_00467030 Destroy
-//     11 FUN_00468260 Update          12 LAB_004682f0 UpdateInactive (Win3D's, shared)
-//     23 LAB_00467f10 Slot23          42 LAB_00468220 SetProperty
+//      0 the routine (scalar deleting around the dtor the routine)
+//      9 the branch Create          10 the routine Destroy
+//     11 the routine Update          12 the branch UpdateInactive (Win3D's, shared)
+//     23 the branch Slot23          42 the branch SetProperty
 //   The IDataViewOwner face at +0x7c keeps WinControl's entries.
-//
+
 // Layout past WinControl (0x32c):
 //   +0x32c dword, ctor 0, no other access      +0x330 table generation last shown
 //   +0x334 / +0x340 / +0x34c / +0x358 RenderDisplayLists: the History / Broadcast / Private
@@ -41,7 +37,7 @@
 class MsgWin;
 class RichTextWin;
 
-// One list entry FUN_00465110 / FUN_004669c0 build on the stack (alloca(Names.size() * 12)).
+// One list entry the routine / the routine build on the stack (alloca(Names.size() * 12)).
 struct FChatControlEntry
 {
     unsigned Key;               // +0x0 CHAT_ID::Id
@@ -52,10 +48,10 @@ struct FChatControlEntry
 class ChatControl : public WinControl
 {
 public:
-    // Retail ChatControl::RowData (RTTI .?AVRowData@ChatControl@@ : UIFastTable::RefCounter),
-    // vftable 0x005cfc98 = {FUN_0056ae70} (scalar deleting around the RefCounter dtor
-    // FUN_00467ee0). Construction is inlined in Create (0x00467907..0x00467924): RefCount 1,
-    // +0x8 zeroed, then +0x8 = DAT_0066da40 (G_ChatIdChannel1). 0xc bytes.
+    // baseline ChatControl::RowData (RTTI .?AVRowData@ChatControl@@ : UIFastTable::RefCounter),
+    // vftable 0x005cfc98 = {the routine} (scalar deleting around the RefCounter dtor
+    // ). Construction is inlined in Create (0x00467907..0x00467924): RefCount 1,
+    // +0x8 zeroed, then +0x8 = the field (G_ChatIdChannel1). 0xc bytes.
     class RowData : public UiFastTableRefCounter
     {
     public:
@@ -67,29 +63,29 @@ public:
         CHAT_ID ChatId;     // +0x08 -- the row's chat target
     };
 
-    // FUN_00464dc0
+
     ChatControl();
-    // FUN_00464f40
+
     ~ChatControl() override;
 
-    // slot 9 LAB_004670c0 (RET 8)
+    // slot 9 the branch (RET 8)
     bool Create(Win3D* NewParent, void* Data) override;
-    // slot 10 FUN_00467030
+    // slot 10 the routine
     void Destroy() override;
-    // slot 11 FUN_00468260
+    // slot 11 the routine
     void Update() override;
-    // slot 23 LAB_00467f10 (RET 0xc) -- 0xef01 / 0xef02 / 0x300d / 0xf001 / 0xf002
+    // slot 23 the branch (RET 0xc) -- 0xef01 / 0xef02 / 0x300d / 0xf001 / 0xf002
     bool Slot23(unsigned Msg, unsigned A, unsigned B) override;
-    // slot 42 LAB_00468220 (RET 0xc) -- 0x26 on BtnCCClose
+    // slot 42 the branch (RET 0xc) -- 0x26 on BtnCCClose
     intptr_t SetProperty(int Msg, uintptr_t A, uintptr_t B) override;
 
-    // FUN_00468310 -- the two lists' item counts from the name table.
+    // the two lists' item counts from the name table.
     void RefreshCounts();
-    // FUN_00465110 (RET 8) -- the broadcast channel rows from FirstItem.
+    // (RET 8) -- the broadcast channel rows from FirstItem.
     void FillBroadcast(int FirstItem, unsigned VisibleRows);
-    // FUN_004669c0 (RET 8) -- the private list: header row, then two rows per player.
+    // (RET 8) -- the private list: header row, then two rows per player.
     void FillPrivate(int FirstItem, unsigned VisibleRows);
-    // FUN_00465ab0 (RET 0xc) -- one player's two rows of the private list.
+    // (RET 0xc) -- one player's two rows of the private list.
     void RenderPrivateRow(unsigned Row, FChatControlEntry const* Entry, bool bEnabled);
 
     int Field_0x32c;                        // +0x32c ctor 0; TODO: meaning (no other access)

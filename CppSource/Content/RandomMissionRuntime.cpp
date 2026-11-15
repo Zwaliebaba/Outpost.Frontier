@@ -1,12 +1,8 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "RandomMissionRuntime.h"
 
-#include "ContentMessageRouter.h"   // GMessageRouter (DAT_06fcf254)
+#include "ContentMessageRouter.h"   // GMessageRouter (the field)
 #include "FactionProps.h"           // GetFactionNames, FFactionNames
 #include "NpcShips.h"               // GetSecondNameValues & co (TU42 name readers)
 #include "RandomEncounters.h"       // FRmKillableSolar, FRmCriticalLoot
@@ -21,55 +17,55 @@
 #include <string.h>
 
 // =======================================================================================
-// TU61 message types (static initialisers LAB_06f842a0 ... LAB_06f84520, 0x20 apart, in
-// this order). Retail increments the exported generator itself; the port calls the exported
+// TU61 message types (static initialisers the branch ... the branch, 0x20 apart, in
+// this order). baseline increments the exported generator itself; the port calls the exported
 // Common function that does the same (StateMachineMessage::GenerateUniqueMessageType).
 // =======================================================================================
 
-unsigned int const GRmMsgStartMachine = StateMachineMessage::GenerateUniqueMessageType();      // 06f842a0
-unsigned int const GRmMsgMachineStarted = StateMachineMessage::GenerateUniqueMessageType();    // 06f842c0
-unsigned int const GRmMsgMachineSucceeded = StateMachineMessage::GenerateUniqueMessageType();  // 06f842e0
-unsigned int const GRmMsgMachineFailed = StateMachineMessage::GenerateUniqueMessageType();     // 06f84300
-unsigned int const GRmMsgRefreshObjectives = StateMachineMessage::GenerateUniqueMessageType(); // 06f84320
-unsigned int const GRmMsgType06fd3ba8 = StateMachineMessage::GenerateUniqueMessageType();      // 06f84340
-unsigned int const GRmMsgType06fd3ba4 = StateMachineMessage::GenerateUniqueMessageType();      // 06f84360
-unsigned int const GRmMsgType06fd3ba0 = StateMachineMessage::GenerateUniqueMessageType();      // 06f84380
-unsigned int const GRmMsgType06fd3b9c = StateMachineMessage::GenerateUniqueMessageType();      // 06f843a0
-unsigned int const GRmMsgType06fd3b98 = StateMachineMessage::GenerateUniqueMessageType();      // 06f843c0
-unsigned int const GRmMsgType06fd3b94 = StateMachineMessage::GenerateUniqueMessageType();      // 06f843e0
-unsigned int const GRmMsgType06fd3b90 = StateMachineMessage::GenerateUniqueMessageType();      // 06f84400
-unsigned int const GRmMsgType06fd3b8c = StateMachineMessage::GenerateUniqueMessageType();      // 06f84420
-unsigned int const GRmMsgType06fd3b88 = StateMachineMessage::GenerateUniqueMessageType();      // 06f84440
-unsigned int const GRmMsgType06fd3b84 = StateMachineMessage::GenerateUniqueMessageType();      // 06f84460
-unsigned int const GRmMsgType06fd3b80 = StateMachineMessage::GenerateUniqueMessageType();      // 06f84480
-unsigned int const GRmMsgType06fd3b7c = StateMachineMessage::GenerateUniqueMessageType();      // 06f844a0
-unsigned int const GRmMsgType06fd3b78 = StateMachineMessage::GenerateUniqueMessageType();      // 06f844c0
-unsigned int const GRmMsgType06fd3b74 = StateMachineMessage::GenerateUniqueMessageType();      // 06f844e0
-unsigned int const GRmMsgPlayerLeft = StateMachineMessage::GenerateUniqueMessageType();        // 06f84500
-unsigned int const GRmMsgType06fd3b6c = StateMachineMessage::GenerateUniqueMessageType();      // 06f84520
+unsigned int const GRmMsgStartMachine = StateMachineMessage::GenerateUniqueMessageType();
+unsigned int const GRmMsgMachineStarted = StateMachineMessage::GenerateUniqueMessageType();
+unsigned int const GRmMsgMachineSucceeded = StateMachineMessage::GenerateUniqueMessageType();
+unsigned int const GRmMsgMachineFailed = StateMachineMessage::GenerateUniqueMessageType();
+unsigned int const GRmMsgRefreshObjectives = StateMachineMessage::GenerateUniqueMessageType();
+unsigned int const GRmMsgType06fd3ba8 = StateMachineMessage::GenerateUniqueMessageType();
+unsigned int const GRmMsgType06fd3ba4 = StateMachineMessage::GenerateUniqueMessageType();
+unsigned int const GRmMsgType06fd3ba0 = StateMachineMessage::GenerateUniqueMessageType();
+unsigned int const GRmMsgType06fd3b9c = StateMachineMessage::GenerateUniqueMessageType();
+unsigned int const GRmMsgType06fd3b98 = StateMachineMessage::GenerateUniqueMessageType();
+unsigned int const GRmMsgType06fd3b94 = StateMachineMessage::GenerateUniqueMessageType();
+unsigned int const GRmMsgType06fd3b90 = StateMachineMessage::GenerateUniqueMessageType();
+unsigned int const GRmMsgType06fd3b8c = StateMachineMessage::GenerateUniqueMessageType();
+unsigned int const GRmMsgType06fd3b88 = StateMachineMessage::GenerateUniqueMessageType();
+unsigned int const GRmMsgType06fd3b84 = StateMachineMessage::GenerateUniqueMessageType();
+unsigned int const GRmMsgType06fd3b80 = StateMachineMessage::GenerateUniqueMessageType();
+unsigned int const GRmMsgType06fd3b7c = StateMachineMessage::GenerateUniqueMessageType();
+unsigned int const GRmMsgType06fd3b78 = StateMachineMessage::GenerateUniqueMessageType();
+unsigned int const GRmMsgType06fd3b74 = StateMachineMessage::GenerateUniqueMessageType();
+unsigned int const GRmMsgPlayerLeft = StateMachineMessage::GenerateUniqueMessageType();
+unsigned int const GRmMsgType06fd3b6c = StateMachineMessage::GenerateUniqueMessageType();
 
-// FUN_06f86d90 (RET 4): StateMachineMessage(DAT_06fd3bb0), +0x1c = Reason, vtable 06fbc81c.
+// (RET 4): StateMachineMessage(the field), +0x1c = Reason, vtable 06fbc81c.
 FRmMachineFailedMessage::FRmMachineFailedMessage(int InReason)
     : StateMachineMessage(GRmMsgMachineFailed)
     , Reason(InReason)
 {
 }
 
-// FUN_06f86de0: operator new(0x20) (StateMachineMessage::operator new); on success the copy
+// operator new(0x20) (StateMachineMessage::operator new); on success the copy
 // ctor and +0x1c; a failed new returns null.
 StateMachineMessage* FRmMachineFailedMessage::clone() const
 {
     return new FRmMachineFailedMessage(*this);
 }
 
-// FUN_06f86e40 (RET 4): StateMachineMessage(DAT_06fd3b70), +0x1c = PlayerId, vtable 06fbc824.
+// (RET 4): StateMachineMessage(the field), +0x1c = PlayerId, vtable 06fbc824.
 FRmPlayerLeftMessage::FRmPlayerLeftMessage(unsigned int InPlayerId)
     : StateMachineMessage(GRmMsgPlayerLeft)
     , PlayerId(InPlayerId)
 {
 }
 
-// FUN_06f86e70: as FUN_06f86de0.
+// as the routine.
 StateMachineMessage* FRmPlayerLeftMessage::clone() const
 {
     return new FRmPlayerLeftMessage(*this);
@@ -136,21 +132,21 @@ FRmNamedValue const GRmCommTargetNames[12] = {
 // TU61 -- text with parameters (vtable 06fbc700)
 // =======================================================================================
 
-// Inline ctor at every owner (e.g. FUN_06f9efb0 +0x30/+0x60, FUN_06f99560): FmtStr zeroed
-// (FUN_06eac680 shape), StrId 0, empty vector.
+// Inline ctor at every owner (e.g. the routine +0x30/+0x60, the routine): FmtStr zeroed
+// (the routine shape), StrId 0, empty vector.
 FRmParamText::FRmParamText()
     : StrId(0)
 {
 }
 
-// FUN_06f85550: frees the vector, then FmtStr::~FmtStr on +0x04.
+// frees the vector, then FmtStr::~FmtStr on +0x04.
 FRmParamText::~FRmParamText()
 {
 }
 
-// FUN_06f84540 (RET 8): StrId = int value Index; every following value is looked up in
-// GRmTextParamNames (DACOM stricmp, null names skipped) and its value appended. A name not
-// in the table appends the previous lookup's value; for the first value that is retail's
+// (RET 8): StrId = int value Index; every following value is looked up in
+// GRmTextParamNames (NEURONCOMPONENTS stricmp, null names skipped) and its value appended. A name not
+// in the table appends the previous lookup's value; for the first value that is baseline's
 // uninitialised stack slot [ESP+0x10] -- TODO: no defined value exists, the port uses 0
 // (FSTRING_PARAM_NONE).
 void FRmParamText::Parse(INI_Reader* Reader, unsigned int Index)
@@ -175,7 +171,7 @@ void FRmParamText::Parse(INI_Reader* Reader, unsigned int Index)
     }
 }
 
-// LAB_06f84740 (06f84740-06f8478b, RET 4). Text's mad-lib id (+0x08) already set -> nothing
+// (06f84740-06f8478b, RET 4). Text's mad-lib id (+0x08) already set -> nothing
 // is rebuilt; otherwise begin_mad_lib(StrId), Source slot 0 (GetTextParam) per parameter
 // (+0x24..+0x28) into Text, end_mad_lib. Returns &Text either way.
 FmtStr* FRmParamText::Build(IRmTextParamSource* Source)
@@ -190,7 +186,7 @@ FmtStr* FRmParamText::Build(IRmTextParamSource* Source)
     return &Text;
 }
 
-// LAB_06f85430: StrId == 0.
+// StrId == 0.
 bool FRmParamText::IsEmpty() const
 {
     return StrId == 0;
@@ -200,22 +196,22 @@ bool FRmParamText::IsEmpty() const
 // TU61 -- the random-mission offer (RandomMissionOffer.h)
 // =======================================================================================
 
-unsigned int GRmShipGroupSerial = 0;                            // DAT_06fd3c08
+unsigned int GRmShipGroupSerial = 0;
 
-// FUN_06f89400 (RET 4). The members' defaults are the ctor's stores; +0x2c..+0x38 are not
-// written by retail (see the header).
+// (RET 4). The members' defaults are the ctor's stores; +0x2c..+0x38 are not
+// written by baseline (see the header).
 FRmOffer::FRmOffer(int InMachineType)
     : MachineType(InMachineType)
 {
 }
 
-// FUN_06f883e0: FailureText (+0x88: vector freed, FmtStr), RewardText (+0x58), Text (+0x3c),
+// FailureText (+0x88: vector freed, FmtStr), RewardText (+0x58), Text (+0x3c),
 // then the +0x04 vptr back to 06fb43f8.
 FRmOffer::~FRmOffer()
 {
 }
 
-// FUN_06f89550 (RET 8): switch (Param - 1), bound 0xd.
+// (RET 8): switch (Param - 1), bound 0xd.
 bool FRmOffer::GetTextParam(int Param, FmtStr* Out)
 {
     switch (Param)
@@ -232,7 +228,7 @@ bool FRmOffer::GetTextParam(int Param, FmtStr* Out)
     case 7:     // REWARD_MONEY: append_int(+0x30)
         Out->append_int(static_cast<unsigned int>(Reward));
         return true;
-    case 8:     // FACTION_REWARD: ftol(+0x38 * 100.0f DAT_06fb8574), x87 product (exact in double)
+    case 8:     // FACTION_REWARD: ftol(+0x38 * 100.0f the field), x87 product (exact in double)
         Out->append_int(static_cast<unsigned int>(
             static_cast<int>(static_cast<double>(RepReward) * 100.0)));
         return true;
@@ -262,7 +258,7 @@ bool FRmOffer::GetTextParam(int Param, FmtStr* Out)
 // TU61 comm sequence lines and conversations (06f84790-06f84d60)
 // =======================================================================================
 
-// FUN_06f84790 (06f84790-06f847b8): FUN_06ed6180(0), +0x40 / +0x44 / +0x48 = 0, +0x4c = 0
+// (06f84790-06f847b8): the routine(0), +0x40 / +0x44 / +0x48 = 0, +0x4c = 0
 // (the empty text), +0x8c = 0, vtable 06fbc648.
 FRmLine::FRmLine()
     : FGcsPlayerListLine(nullptr)
@@ -274,7 +270,7 @@ FRmLine::FRmLine()
     Text.Data[0] = '\0';
 }
 
-// FUN_06f849c0 (06f849c0-06f849e0): FUN_06ed6710 (called directly) true and +0x8c non-zero
+// (06f849c0-06f849e0): the routine (called directly) true and +0x8c non-zero
 // -> 1, else 0.
 bool FRmLine::CanPlay()
 {
@@ -283,7 +279,7 @@ bool FRmLine::CanPlay()
     return false;
 }
 
-// FUN_06f84820 (06f84820-06f849b2): new 0x90 and a member-wise copy -- the FGcsLine part
+// (06f84820-06f849b2): new 0x90 and a member-wise copy -- the FGcsLine part
 // (the text ids copied), vptr 06fb6268, the player ids copied, vptr 06fb623c, +0x40, +0x44,
 // the text (0x11 dwords), +0x8c, vptr 06fbc648. A failed new returns null.
 FGcsCloneableLine* FRmLine::Clone()
@@ -291,8 +287,8 @@ FGcsCloneableLine* FRmLine::Clone()
     return new FRmLine(*this);
 }
 
-// FUN_06f84a20 (06f84a20-06f84bd6): a local vector gets each line's slot 5 copy appended
-// (FUN_06f937c0 insert(end, 1, &copy)); the inlined vector assign then makes it Lines (the
+// (06f84a20-06f84bd6): a local vector gets each line's slot 5 copy appended
+// (the routine insert(end, 1, &copy)); the inlined vector assign then makes it Lines (the
 // old buffer freed, the old pointers not deleted), and the local buffer is freed.
 void FRmConversationBase::CloneLines()
 {
@@ -305,7 +301,7 @@ void FRmConversationBase::CloneLines()
     Lines = Copies;
 }
 
-// FUN_06f84c00 (06f84c00-06f84c31): +0x18 zero -> false; a line whose slot 1 fails ->
+// (06f84c00-06f84c31): +0x18 zero -> false; a line whose slot 1 fails ->
 // false; otherwise true.
 bool FRmConversation::IsValid()
 {
@@ -319,7 +315,7 @@ bool FRmConversation::IsValid()
     return true;
 }
 
-// FUN_06f84c40 (06f84c40-06f84d15): new 0x24, member copy (+0x04 byte, the line pointers,
+// (06f84c40-06f84d15): new 0x24, member copy (+0x04 byte, the line pointers,
 // vptr 06fbc690, +0x14, +0x18, +0x1c, +0x20, vptr 06fbc660), then the copy's slot 6
 // (06f84d00).
 FRmConversationBase* FRmConversation::Clone()
@@ -329,37 +325,37 @@ FRmConversationBase* FRmConversation::Clone()
     return Copy;
 }
 
-// FUN_06f71080 (RET 4; one ICF body for every class storing its argument at +0x20).
+// (RET 4; one ICF body for every class storing its argument at +0x20).
 void FRmConversation::SetTrigger(int InTrigger)
 {
     Trigger = InTrigger;
 }
 
-// LAB_06f84d30.
+// .
 int FRmConversation::GetTrigger()
 {
     return Trigger;
 }
 
-// LAB_06f84d40.
+// .
 void FRmConversation::MarkReady()
 {
     bReady = true;
 }
 
-// LAB_06f84d50 (FLD float: the value goes out on the FPU stack).
+// (FLD float: the value goes out on the FPU stack).
 float FRmConversation::GetDelay()
 {
     return Delay;
 }
 
-// LAB_06f84d60 (RET 4).
+// (RET 4).
 void FRmConversation::SetDelay(float InDelay)
 {
     Delay = InDelay;
 }
 
-// FUN_06f89230: every held objective is deleted through its vtable slot 0 (with 1) and its
+// every held objective is deleted through its vtable slot 0 (with 1) and its
 // slot cleared (06f89270-06f89281); then the tree nodes and the head/nil nodes are freed.
 FRmObjectiveMap::~FRmObjectiveMap()
 {
@@ -374,57 +370,57 @@ FRmObjectiveMap::~FRmObjectiveMap()
     }
 }
 
-// FUN_06f84d70: MessageHandler(DAT_06fcf254) (it registers with the router), +0x0c = 0, the
-// empty list (0x2c-byte head node), the empty objective map (FUN_06f891a0 inline), vtables
-// 06fbc6cc at +0x1c and 06fbc6ac.
+// MessageHandler(the field) (it registers with the router), +0x0c = 0, the
+// empty list (0x2c-byte head node), the empty objective map (the routine inline), vtables
+// at +0x1c and 06fbc6ac.
 FRmOfferComponent::FRmOfferComponent()
     : MessageHandler(GMessageRouter)
 {
 }
 
-// FUN_06f84e60: the objective map (FUN_06f89230), the list (each element's slot 0 with 0,
+// the objective map (the routine), the list (each element's slot 0 with 0,
 // node freed), the head node, ~MessageHandler.
 FRmOfferComponent::~FRmOfferComponent()
 {
 }
 
-// FUN_06ebf6f0 (RET 4): no body.
+// (RET 4): no body.
 void FRmOfferComponent::receive_message(StateMachineMessage* /*Msg*/)
 {
 }
 
-// FUN_06f88500: every group's ship vector (FUN_06f93370: slot 0 with 0 per ship, stride
+// every group's ship vector (the routine: slot 0 with 0 per ship, stride
 // 0xf0), the group buffer, then the component (objective map, list, MessageHandler).
 FRmShipComponent::~FRmShipComponent()
 {
 }
 
-// FUN_06f88500 through vtable 06fbc8dc (ICF with the ship component's).
+// through vtable 06fbc8dc (ICF with the ship component's).
 FRmTargetShipComponent::~FRmTargetShipComponent()
 {
 }
 
-// FUN_06f88620: the solar list (FUN_06f93d10 per node, the head freed), then the objective
+// the solar list (the routine per node, the head freed), then the objective
 // map, the event list and ~MessageHandler.
 FRmSolarComponent::~FRmSolarComponent()
 {
 }
 
-// FUN_06f862e0: the FMissionShip template (vtable 06fb60a8 first), FUN_06f31430 on +0x88,
+// the FMissionShip template (vtable 06fb60a8 first), the routine on +0x88,
 // +0xd4 = 0, +0xd8 = 2, +0xdc = 1, the loot vector empty, vtable 06fbc7a0.
 FRmShipSpawn::FRmShipSpawn()
 {
 }
 
-// FUN_06f86420: the loot vector (each loot's label list freed), then the FMissionShip dtor
+// the loot vector (each loot's label list freed), then the FMissionShip dtor
 // (vtable 06fb60a8, guide released, cargo, directives, labels).
 FRmShipSpawn::~FRmShipSpawn()
 {
 }
 
-// FUN_06f865e0: +0 = 1, +1/+2 = 0, +4 = 0, +8 = -1, +0xc = 0, identity 3x3 at +0x10, +0x34
-// zero, +0x40 = -2.0f (DAT_06fbc2e8), +0x44/+0x48 = 0 (empty name), +0x78 = 0, +0x7c = -1,
-// +0x80 = CreateID("transport_liberty"), the ship vector empty, +0x94 = ++DAT_06fd3c08.
+// +0 = 1, +1/+2 = 0, +4 = 0, +8 = -1, +0xc = 0, identity 3x3 at +0x10, +0x34
+// zero, +0x40 = -2.0f (the field), +0x44/+0x48 = 0 (empty name), +0x78 = 0, +0x7c = -1,
+// +0x80 = CreateID("transport_helion"), the ship vector empty, +0x94 = ++the field.
 FRmShipGroup::FRmShipGroup()
 {
     Orientation.D[0][0] = 1.0f;
@@ -441,30 +437,30 @@ FRmShipGroup::FRmShipGroup()
     Position.z = 0.0f;
     Name.Length = 0;
     Name.Data[0] = '\0';
-    Formation.Id = CreateID("transport_liberty");
+    Formation.Id = CreateID("transport_helion");
     ++GRmShipGroupSerial;
     Serial = GRmShipGroupSerial;
 }
 
-// FUN_06f88240 (RET 4): FRmOffer(InMachineType), then +0xb8 the general component (inline:
-// MessageHandler, +0xc = 0, list FUN_06f93640, map FUN_06f1f4f0), +0xec the target ship
-// component (FUN_06f84d70, vector FUN_06eac620, +0x50 = 0, +0x54 = -1, +0xc = 0), +0x144 the
-// solar component (inline base, FUN_06f891a0, list FUN_06f93430), +0x190 the ship component
-// (FUN_06f84d70, vector), +0x1e0/+0x1f8 FmtStr (FUN_06eac680), +0x210 = 0, +0x214 = -1;
+// (RET 4): FRmOffer(InMachineType), then +0xb8 the general component (inline:
+// MessageHandler, +0xc = 0, list the routine, map the routine), +0xec the target ship
+// component (the routine, vector the routine, +0x50 = 0, +0x54 = -1, +0xc = 0), +0x144 the
+// solar component (inline base, the routine, list the routine), +0x190 the ship component
+// (the routine, vector), +0x1e0/+0x1f8 FmtStr (the routine), +0x210 = 0, +0x214 = -1;
 // vtables 06fbc898 / 06fbc88c last. Unwind states 1..0xc follow this member order.
 FRmVignetteOffer::FRmVignetteOffer(int InMachineType)
     : FRmOffer(InMachineType)
 {
 }
 
-// FUN_06f88710: vtables 06fbc898 / 06fbc88c, FUN_06f88940, then TargetName (+0x1f8, +0x1e0),
+// vtables 06fbc898 / 06fbc88c, the routine, then TargetName (+0x1f8, +0x1e0),
 // Ships, Solars, TargetShips, General (member dtors inlined), then ~FRmOffer.
 FRmVignetteOffer::~FRmVignetteOffer()
 {
     ReleaseTargetName();
 }
 
-// FUN_06f88940 (06f88940-06f88ac7). Nothing when neither name part has a mad lib (+0x1e4 and
+// (06f88940-06f88ac7). Nothing when neither name part has a mad lib (+0x1e4 and
 // +0x1fc zero). Otherwise the target ship groups (+0x124..+0x128), then -- when no ship there
 // has +0xd4 set -- the ship groups (+0x1c8..+0x1cc) are searched for the first ship with
 // +0xd4 != 0; its group's +0x01 is read. A found ship in a group with +0x01 set keeps the
@@ -524,7 +520,7 @@ void FRmVignetteOffer::ReleaseTargetName()
     Names->ReleaseFormationDesig(Desig, DesigNumber, true);
 }
 
-// FUN_06f89650 (06f89650-06f896e1).
+// (06f89650-06f896e1).
 void FRmVignetteOffer::CountCriticalLoot(std::vector<FRmShipGroup> const* Groups,
                                          FRmCriticalLoot const** OutLoot,
                                          int* InOutCount) const
@@ -549,7 +545,7 @@ void FRmVignetteOffer::CountCriticalLoot(std::vector<FRmShipGroup> const* Groups
     }
 }
 
-// LAB_06f896f0 (RET 8). The base offer's answer first (FUN_06f89550); otherwise switch
+// (RET 8). The base offer's answer first (the routine); otherwise switch
 // (Param - 3), bound 0xa:
 //   3 BIG_SOLAR: the first solar (+0x188 list) of type 0 -> append_installation(its
 //     KillableSolars entry's string id); none -> false.

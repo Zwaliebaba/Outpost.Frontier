@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "ivp_ov_element.h"
@@ -15,7 +11,7 @@
 #include "ivp_cluster_manager.h" // IVP_Universe_Manager (environment->universe_manager)
 #include "../ivp_compact_builder/ivp_compact_ledge.h"
 #include "../ivp_collision/ivp_oo_watcher.h" // IVP_OO_Watcher (delegate_collisions_for_object)
-#include "../ivp_utility/ivp_core_trap.h" // IVP_CoreTrap (LAB_0634dc00)
+#include "../ivp_utility/ivp_core_trap.h" // IVP_CoreTrap (the branch)
 
 #include <cassert>
 #include <cmath>
@@ -28,40 +24,40 @@
 // ============================================================================
 // Lane claude:w18-ivp, 2026-09-17; OV-tree half completed by lane
 // claude:w19-ovtree the same day.
-//
+
 // Address ranges verified instruction by instruction for this file:
-//   FUN_0635c020   Common.dll.txt:0635c020-0635c06a   (IVP_OV_Element ctor,     item 3330)
-//   FUN_0635c070   Common.dll.txt:0635c070-0635c08b   (deleting dtor thunk,     item 3331)
-//   FUN_0635c090   Common.dll.txt:0635c090-0635c127   (real dtor,               item 3332)
-//   FUN_0635c130   Common.dll.txt:0635c130-0635c1d1   (hull re-key,             item 3333)
-//   FUN_0634ebd0   Common.dll.txt:0634ebd0-0634f13a   (RecheckOvElement,        item 3111)
-//   FUN_0634f140   Common.dll.txt:0634f140-0634f172   (partner hash,            item 3112)
-//   FUN_0634f180   Common.dll.txt:0634f180-0634f204   (RebuildOvElement,        item 3113)
-//   FUN_0635d2e0   Common.dll.txt:0635d2e0-0635d358   (remove_ov_element,       item 3353)
-//   FUN_063505a0   Common.dll.txt:063505a0-063505de   (collision slot swap)
+// Commonc020-0635c06a   (IVP_OV_Element ctor,     item 3330)
+// Commonc070-0635c08b   (deleting dtor thunk,     item 3331)
+// Commonc090-0635c127   (real dtor,               item 3332)
+// Commonc130-0635c1d1   (hull re-key,             item 3333)
+// Commonebd0-0634f13a   (RecheckOvElement,        item 3111)
+// Commonf140-0634f172   (partner hash,            item 3112)
+// Commonf180-0634f204   (RebuildOvElement,        item 3113)
+// Commond2e0-0635d358   (remove_ov_element,       item 3353)
+// Commona0-063505de   (collision slot swap)
 // ---- added by claude:w19-ovtree, every one read from first byte to RET ----
-//   FUN_0635c2c0   Common.dll.txt:0635c2c0-0635c300   (IVP_OV_Node ctor,        item 3337)
-//   FUN_0635c310   Common.dll.txt:0635c310-0635c40e   (IVP_OV_Node dtor,        item 3338)
-//   FUN_0635c590   Common.dll.txt:0635c590-0635c615   (cell_contains,           item 3343)
-//   FUN_0635c620   Common.dll.txt:0635c620-0635c8c1   (compute_query_cell,      item 3344)
-//   FUN_0635c8d0   Common.dll.txt:0635c8d0-0635c972   (cell_overlaps,           item 3345)
-//   FUN_0635c980   Common.dll.txt:0635c980-0635c9cd   (find_deepest_container,  item 3346)
-//   FUN_0635c9d0   Common.dll.txt:0635c9d0-0635cbc9   (link_node_under,         item 3347)
-//   FUN_0635cbd0   Common.dll.txt:0635cbd0-0635cdc9   (grow_root,               item 3348)
-//   FUN_0635cdd0   Common.dll.txt:0635cdd0-0635ce80   (collect_subtree,         item 3349)
-//   FUN_0635ce90   Common.dll.txt:0635ce90-0635d021   (collect_touching,        item 3350)
-//   FUN_0635d030   Common.dll.txt:0635d030-0635d25e   (insert_ov_element,       item 3351)
-//   FUN_0635d270   Common.dll.txt:0635d270-0635d2d3   (collapse_empty_node,     item 3352)
-//   FUN_0635d360   Common.dll.txt:0635d360-0635d3a8   (node_cell_bounds,        item 3354)
-//   FUN_06369200   Common.dll.txt:06369200-0636922f   (IVP_OV_HashNodeKey,      item 3594)
+// Commonc2c0-0635c300   (IVP_OV_Node ctor,        item 3337)
+// Commonc310-0635c40e   (IVP_OV_Node dtor,        item 3338)
+// Commonc590-0635c615   (cell_contains,           item 3343)
+// Commonc620-0635c8c1   (compute_query_cell,      item 3344)
+// Commonc8d0-0635c972   (cell_overlaps,           item 3345)
+// Commonc980-0635c9cd   (find_deepest_container,  item 3346)
+// Commonc9d0-0635cbc9   (link_node_under,         item 3347)
+// Commoncbd0-0635cdc9   (grow_root,               item 3348)
+// Commoncdd0-0635ce80   (collect_subtree,         item 3349)
+// Commonce90-0635d021   (collect_touching,        item 3350)
+// Commond030-0635d25e   (insert_ov_element,       item 3351)
+// Commond270-0635d2d3   (collapse_empty_node,     item 3352)
+// Commond360-0635d3a8   (node_cell_bounds,        item 3354)
+// Commonf   (IVP_OV_HashNodeKey,      item 3594)
 // ============================================================================
 
 namespace
 {
     // The multiplicative spread every hash site in this cluster shares:
     // `EDX = h >> 8 (arithmetic); EAX = EDX << 10; EAX -= EDX; EAX += h`,
-    // i.e. (h >> 8) * 0x3ff + h. Appears inline at Common.dll.txt:0634edee-
-    // :0634edfa and :0634eee9-:0634eef3, and as the tail of FUN_0634f140.
+    // i.e. (h >> 8) * 0x3ff + h. Appears inline at Commonedee-
+    // :0634edfa and :0634eee9-:0634eef3, and as the tail of the routine.
     // Returned UNMASKED at every one of those three sites.
     inline uint32_t SpreadHash(uint32_t Value)
     {
@@ -69,10 +65,10 @@ namespace
         return static_cast<uint32_t>(Shifted * 0x3ff) + Value;
     }
 
-    // FUN_063505a0 (Common.dll.txt:063505a0-063505de). Swaps two slots of an
+    // (Commona0-063505de). Swaps two slots of an
     // IVP_OV_Element::collision_fvector and repairs each moved record's own
     // "which slot am I in" back-index. Each IVP_Collision carries two such
-    // indices (one per participating element); retail picks whichever of the
+    // indices (one per participating element); baseline picks whichever of the
     // two currently equals the old slot, which is how it works without
     // knowing which side of the pair this vector belongs to.
     void SwapCollisionSlots(IVP_U_Vector<IVP_Collision>* Vector, int32_t IndexA, int32_t IndexB)
@@ -95,29 +91,29 @@ namespace
 }
 
 // The node hash (IVP_OV_Tree_Hash, an IVP_VHash) is driven through the
-// IVP_VHash members AddElem / RemoveElem / FindElem (FUN_063523d0 /
-// FUN_06352480 / FUN_06352580, ivp_utility/ivp_vhash.cpp). Each stores the
+// IVP_VHash members AddElem / RemoveElem / FindElem (the routine /
+// / the routine, ivp_utility/ivp_vhash.cpp). Each stores the
 // node pointer AND hands it to the comparator; the hash tag is the
 // caller-computed IVP_OV_HashNodeKey.
 
 namespace
 {
-    // FUN_0635c570 (Common.dll.txt:0635c570-0635c583; formerly the extern "C"
-    // FUN_0635c570 in the former src/Common/common_stubs.cpp): `(param_1 >> 0x17 & 0xff)
+    // (Commonc570-0635c583; formerly the extern "C"
+    // in the former src/Common/common_stubs.cpp): `(param_1 >> 0x17 & 0xff)
     // - 0x7f` -- the unbiased IEEE-754 exponent of a float handed over as its
     // raw bit pattern (bits 23-30 minus the 127 bias), i.e. floor(log2(|x|))
-    // for a normal. One stack-passed uint, no this-pointer; retail pops it
+    // for a normal. One stack-passed uint, no this-pointer; baseline pops it
     // (RET 4), the port keeps __cdecl. Sole caller: compute_query_cell
-    // (FUN_0635c620) below.
+    // (the routine) below.
     int __cdecl IvpFloatExponent(unsigned param_1)
     {
         return (int)((param_1 >> 0x17) & 0xff) - 0x7f;
     }
 
     // ------------------------------------------------------------------------
-    // FUN_06369200's lookup table (retail .data:DAT_063edcdc, the standard
+    // 's lookup table (baseline .data:the field, the standard
     // reflected CRC-32 table with polynomial 0xEDB88320). The IVP hash
-    // containers share a byte-identical copy of the same retail global,
+    // containers share a byte-identical copy of the same baseline global,
     // g_Crc32Table_063edcdc (ivp_utility/ivp_crc32.h, defined in
     // ivp_vhash.cpp); this TU still builds its own. Merging the two is a
     // separate behaviour-neutral cleanup.
@@ -141,7 +137,7 @@ namespace
     const OvCrc32Table g_OvCrc32Table;
 
     // ------------------------------------------------------------------------
-    // Retail indexes IVP_OV_Tree_Manager's power-of-two table straight off the
+    // baseline indexes IVP_OV_Tree_Manager's power-of-two table straight off the
     // manager base with no bound check -- `LEA ECX,[ESI + EAX*4]` at
     // :0635c653 and `FLD [ECX + EDX*4 + 0xa0]` at :0635cca1 / :0635d367. Both
     // index expressions can, at the extreme ends of their input range
@@ -149,9 +145,9 @@ namespace
     // table and read QueryCell.CellX or the dword in front of the object. These
     // two helpers reproduce that addressing exactly, through the object base,
     // rather than indexing the array out of bounds.
-    //   ScaleAt  : the raw table slot, as FUN_0635c620 addresses it.
+    //   ScaleAt  : the raw table slot, as the routine addresses it.
     //   CellSizeAt: CellSizeTable[Level + 40] == 2^Level == one cell's world
-    //               size at that level, as FUN_0635cbd0/FUN_0635d360 address it.
+    //               size at that level, as the routine/the routine address it.
     // ------------------------------------------------------------------------
     inline float ScaleAt(const IVP_OV_Tree_Manager* Self, int32_t Index)
     {
@@ -171,8 +167,8 @@ namespace
 
     // ------------------------------------------------------------------------
     // The sphere test both collectors share, byte-identical at
-    // :0635cdf0-:0635ce2b (FUN_0635cdd0) and :0635ceb1-:0635ceec (FUN_0635ce90).
-    //
+    // :0635cdf0-:0635ce2b (the routine) and :0635ceb1-:0635ceec (the routine).
+
     // The x87 stream builds dx/dy/dz and the SUM of the two radii and keeps all
     // four on the FPU stack (double); the distance is summed (dz*dz + dy*dy) +
     // dx*dx. `FCOMPP` leaves flags for ST0 (rsum*rsum) against ST1 (dist^2), and
@@ -190,14 +186,14 @@ namespace
     }
 
     // ------------------------------------------------------------------------
-    // FUN_0635c9d0's per-axis child pick, written out once instead of three
+    // 's per-axis child pick, written out once instead of three
     // times (:0635ca26-:0635ca6b for X, :0635ca6b-:0635cab0 for Y,
     // :0635cab0-:0635caef for Z -- three byte-identical blocks).
-    //
+
     // A node is two cells wide, so splitting one produces THREE overlapping
     // children at 2C, 2C+1 and 2C+2. `Delta` is the parent's level minus the
     // target's; the child's own level is one finer, hence the (Delta - 1) shift
-    // in the second test. Retail phrases the first test as
+    // in the second test. baseline phrases the first test as
     // `Target >= (C+1) << Delta`, which is the same boundary as
     // `Target >= (2C+2) << (Delta-1)`.
     // ------------------------------------------------------------------------
@@ -212,7 +208,7 @@ namespace
 }
 
 // ----------------------------------------------------------------------------
-// FUN_0634f140 (decomp-tracker item 3112).
+// (implementation tracker item 3112).
 // ----------------------------------------------------------------------------
 uint32_t IVP_HashCollisionPartner(IVP_Collision* Collision, IVP_Real_Object* Object)
 {
@@ -232,14 +228,14 @@ uint32_t IVP_HashCollisionPartner(IVP_Collision* Collision, IVP_Real_Object* Obj
 // IVP_OV_Element
 // ============================================================================
 
-// FUN_0635c020 (decomp-tracker item 3330).
+// (implementation tracker item 3330).
 IVP_OV_Element::IVP_OV_Element(IVP_Real_Object* Owner)
 {
     // :0635c024 / :0635c047 -- the two vptr stores (IVP_Listener_Hull's
-    // 063a5694, then 063a5680) are the compiler's.
+    // , then 063a5680) are the compiler's.
 
     // :0635c02e-:0635c03d. NOTE the element's collision vector does NOT use an
-    // inline buffer: retail malloc's 0x40 bytes (16 slots) up front, which is
+    // inline buffer: baseline malloc's 0x40 bytes (16 slots) up front, which is
     // why the destructor's `elems != this+0x30` inline-buffer guard always
     // takes the free path in practice.
     collision_fvector.memsize = 0x10;
@@ -254,11 +250,11 @@ IVP_OV_Element::IVP_OV_Element(IVP_Real_Object* Owner)
     real_object = Owner;    // :0635c05c
     radius = -1.0f;         // :0635c060 (the literal bit pattern 0xbf800000)
 
-    // HullPoolSlot (+0x04) and Pad1C (+0x1c) are not written here, as in retail;
+    // HullPoolSlot (+0x04) and Pad1C (+0x1c) are not written here, as in baseline;
     // HullPoolSlot is only read after InsertIntoHullManager has set it.
 }
 
-// FUN_0635c090 (decomp-tracker item 3332). FUN_0635c070/item 3331 is just the
+// (implementation tracker item 3332). the routine/item 3331 is just the
 // compiler's scalar deleting destructor around this one (`call this; if (flag
 // & 1) operator delete(this)`), which C++ `delete` expresses directly.
 IVP_OV_Element::~IVP_OV_Element()
@@ -272,7 +268,7 @@ IVP_OV_Element::~IVP_OV_Element()
 
     IVP_Environment* Env = real_object->environment; // :0635c0d0-:0635c0d3
 
-    // :0635c0d6-:0635c0d7 -- FUN_0634caf0(this=Env, param_1=real_object): every
+    // :0635c0d6-:0635c0d7 -- the routine(this=Env, param_1=real_object): every
     // collision delegator's object_is_removed_from_collision_detection.
     IVP_Environment_Notify_Vector12c_Slot4(Env, real_object);
 
@@ -285,22 +281,22 @@ IVP_OV_Element::~IVP_OV_Element()
     collision_fvector.Clear();
 }
 
-// LAB_0635c1e0 (.text:0635c1e0-0635c1ef, RET 8): EAX = +0x24 (the object),
+// (module storage-0635c1ef, RET 8): EAX = +0x24 (the object),
 // PUSH it, ECX = object->environment(+0x18)->mindist_manager(+0x10), CALL
-// FUN_0634ebd0. Neither argument is read.
+// . Neither argument is read.
 void IVP_OV_Element::hull_limit_exceeded_event(IVP_Hull_Manager* /*HullManager*/, float /*HullIntrusionValue*/)
 {
     real_object->environment->mindist_manager->RecheckOvElement(real_object);
 }
 
-// LAB_0634dc10 (.text:0634dc10-0634dc1b, RET 4): `TEST ECX,ECX; JZ` then
+// (module storage-0634dc1b, RET 4): `TEST ECX,ECX; JZ` then
 // `this->slot4(1)` -- the deleting destructor.
 void IVP_OV_Element::hull_manager_is_going_to_be_deleted_event(IVP_Hull_Manager* /*HullManager*/)
 {
     delete this;
 }
 
-// FUN_0635c130 (decomp-tracker item 3333).
+// (implementation tracker item 3333).
 void IVP_OV_Element::InsertIntoHullManager(IVP_Hull_Manager* NewHullMgr, float KeyBias)
 {
     // :0635c136-:0635c142. The environment's split-precision "now".
@@ -311,7 +307,7 @@ void IVP_OV_Element::InsertIntoHullManager(IVP_Hull_Manager* NewHullMgr, float K
     IVP_Hull_Manager* Mgr = hull_manager; // :0635c149
     if (Mgr != nullptr)
     {
-        // :0635c158-:0635c16a. Retail IGNORES the NewHullMgr argument on this
+        // :0635c158-:0635c16a. baseline IGNORES the NewHullMgr argument on this
         // path (it is always the same object's own manager anyway) and simply
         // re-keys the existing slot: drop it, then insert a fresh one.
         Mgr->PoolRemove(static_cast<uint16_t>(HullPoolSlot));
@@ -336,11 +332,11 @@ void IVP_OV_Element::InsertIntoHullManager(IVP_Hull_Manager* NewHullMgr, float K
     HullPoolSlot = Mgr->PoolInsert(this, Key);
 }
 
-// FUN_0635c200 (.text:0635c200-0635c248, RET 4), cmn-phy5 2026-10-08.
+// (module storage-0635c248, RET 4), cmn-phy5 2026-10-08.
 void IVP_OV_Element::add_oo_collision(IVP_Collision* Collision)
 {
     // :0635c200-:0635c224 -- `CMP n_elems,memsize; JC` skips the realloc
-    // (FUN_063441a0), then elems[n_elems] = Collision.
+    // (the routine), then elems[n_elems] = Collision.
     const int32_t Index = static_cast<int32_t>(collision_fvector.n_elems);
     collision_fvector.Add(Collision);
 
@@ -351,7 +347,7 @@ void IVP_OV_Element::add_oo_collision(IVP_Collision* Collision)
         Collision->IndexInElement1 = Index; // :0635c240
 }
 
-// FUN_0635c250 (.text:0635c250-0635c2bb, RET 4), cmn-phy5 2026-10-08.
+// (module storage-0635c2bb, RET 4), cmn-phy5 2026-10-08.
 void IVP_OV_Element::remove_oo_collision(IVP_Collision* Collision)
 {
     // :0635c256-:0635c26f -- IndexInElement0 is trusted only when it is in
@@ -383,31 +379,31 @@ void IVP_OV_Element::remove_oo_collision(IVP_Collision* Collision)
 // (vtable 063a5760) -- see src/IVP/ivp_collision/ivp_collision.h.
 // ============================================================================
 
-// LAB_0634dc00 (.text:0634dc00-0634dc0a): `MOV dword ptr [0],0; RET 4`.
+// (module storage-0634dc0a): `MOV dword ptr [0],0; RET 4`.
 void IVP_Collision::simulate_time_event(IVP_Environment* /*Environment*/)
 {
-    IVP_CoreTrap(); // 0634dc00
+    IVP_CoreTrap();
 }
 
-// LAB_0634dc10 (.text:0634dc10-0634dc1b, RET 4): `TEST ECX,ECX; JZ; PUSH 1;
+// (module storage-0634dc1b, RET 4): `TEST ECX,ECX; JZ; PUSH 1;
 // CALL [EAX+0x10]` -- delete this; the argument is not read.
 void IVP_Collision::delegator_is_going_to_be_deleted_event(IVP_Collision_Delegator* /*Delegator*/)
 {
     delete this;
 }
 
-// LAB_06360c40 (.text:06360c40-06360c7c, RET 4).
+// (module storage-06360c7c, RET 4).
 void IVP_Collision_Delegator_Root_Mindist::collision_is_going_to_be_deleted_event(IVP_Collision* Collision)
 {
     IVP_Real_Object* Objects[2];
     Collision->get_objects(Objects);                         // :06360c4b-:06360c52 (slot 1)
     IVP_OV_Element* Element0 = Objects[0]->ov_element;       // :06360c5d
     IVP_OV_Element* Element1 = Objects[1]->ov_element;       // :06360c63
-    Element0->remove_oo_collision(Collision);                // :06360c6a FUN_0635c250
+    Element0->remove_oo_collision(Collision);                // :06360c6a the routine
     Element1->remove_oo_collision(Collision);                // :06360c72
 }
 
-// LAB_06360c00 (.text:06360c00-06360c2a, RET 4): every collision filed on
+// (module storage-06360c2a, RET 4): every collision filed on
 // the object's OV element, top down, gets slot 3 with this delegator.
 // n_elems is read once (`MOV SI,word ptr [EDI+0x2a]`); elems is re-read each
 // pass (:06360c18).
@@ -421,7 +417,7 @@ void IVP_Collision_Delegator_Root_Mindist::object_is_removed_from_collision_dete
     }
 }
 
-// FUN_06360c80 (.text:06360c80-06360dba, RET 8).
+// (module storage-06360dba, RET 8).
 IVP_Collision* IVP_Collision_Delegator_Root_Mindist::delegate_collisions_for_object(IVP_Real_Object* BaseObject,
                                                                                  IVP_Real_Object* CollidingElement)
 {
@@ -440,31 +436,31 @@ IVP_Collision* IVP_Collision_Delegator_Root_Mindist::delegate_collisions_for_obj
         IVP_Ledge_Mindist* Mindist;
         if ((Ledge0->SizeAndFlags & 3) == 0 &&
             (Ledge1->SizeAndFlags & 3) == 0)
-            Mindist = new IVP_Ledge_Mindist(Environment, this);     // :06360cdf-:06360d00 FUN_0634dd10
+            Mindist = new IVP_Ledge_Mindist(Environment, this);     // :06360cdf-:06360d00 the routine
         else
-            Mindist = new IVP_Complex_Mindist(Environment, this);   // :06360d07-:06360d28 FUN_06362ab0
+            Mindist = new IVP_Complex_Mindist(Environment, this);   // :06360d07-:06360d28 the routine
 
-        // :06360d31-:06360d4f -- FUN_0634def0(Base, Colliding, ledge0+0x14,
+        // :06360d31-:06360d4f -- the routine(Base, Colliding, ledge0+0x14,
         // ledge1+0x14): the first triangle's first edge of each ledge.
         Mindist->init_mindist(BaseObject, CollidingElement, Ledge0->GetFirstEdge(), Ledge1->GetFirstEdge());
         Collision = Mindist;
     }
     else
     {
-        // :06360d5a-:06360d7e -- operator_new(0x40) + FUN_06369be0(this,
+        // :06360d5a-:06360d7e -- operator_new(0x40) + the routine(this,
         // BaseObject, CollidingElement) (pushes EBP, EBX, ESI: ESI = this,
         // EBX = BaseObject, EBP = CollidingElement): the library's
         // object-pair watcher for objects without a single convex ledge.
         Collision = new IVP_OO_Watcher(this, BaseObject, CollidingElement);
     }
 
-    // :06360d8c-:06360da1 -- FUN_0635c200 on both objects' OV elements.
+    // :06360d8c-:06360da1 -- the routine on both objects' OV elements.
     BaseObject->ov_element->add_oo_collision(Collision);
     CollidingElement->ov_element->add_oo_collision(Collision);
     return Collision;
 }
 
-// LAB_06360c30 (.text:06360c30-06360c3b, RET 4): `if (this) this->slot1(1)`
+// (module storage-06360c3b, RET 4): `if (this) this->slot1(1)`
 // -- delete this. The argument is not read.
 void IVP_Collision_Delegator_Root_Mindist::environment_is_going_to_be_deleted_event(IVP_Environment* /*Environment*/)
 {
@@ -475,7 +471,7 @@ void IVP_Collision_Delegator_Root_Mindist::environment_is_going_to_be_deleted_ev
 // IVP_OV_Tree_Manager
 // ============================================================================
 
-// FUN_0635d2e0 (decomp-tracker item 3353, Common.dll.txt:0635d2e0-0635d358).
+// (implementation tracker item 3353, Commond2e0-0635d358).
 // This is the function whose "unknowable side effects" item 3111's inherited
 // blocker_reason was built on. It writes exactly ONE field of the element.
 void IVP_OV_Tree_Manager::remove_ov_element(IVP_OV_Element* Element)
@@ -486,7 +482,7 @@ void IVP_OV_Tree_Manager::remove_ov_element(IVP_OV_Element* Element)
 
     Element->node = nullptr; // :0635d2f0 -- the ONLY write this function makes to the element.
 
-    // :0635d2f7-:0635d33b. Retail inlines an ordered remove-by-value over the
+    // :0635d2f7-:0635d33b. baseline inlines an ordered remove-by-value over the
     // node's element vector: find the slot holding this element scanning
     // BACKWARD, then shift everything after it down by one. Note it decrements
     // n_elems before the shift and re-reads it inside the shift loop, so a
@@ -513,16 +509,16 @@ void IVP_OV_Tree_Manager::remove_ov_element(IVP_OV_Element* Element)
 }
 
 // ----------------------------------------------------------------------------
-// FUN_0635c620 (decomp-tracker item 3344, Common.dll.txt:0635c620-0635c8c1,
+// (implementation tracker item 3344, Commonc620-0635c8c1,
 // 207 insns -- read end to end).
-//
+
 // Pick the coarsest subdivision level at which the element's bounding box
 // spans at most two cells per axis, and write the resulting cell key into
 // QueryCell. Then, if the caller offered a LARGER radius than the one that was
 // just fitted, try that larger radius one level coarser as well: if it also
-// fits, retail prefers it, because filing an element with a generous radius is
+// fits, baseline prefers it, because filing an element with a generous radius is
 // what keeps it from having to be re-filed on every small move.
-//
+
 // Returns whichever radius the key ends up describing -- MinRadius on the
 // normal path, MaxRadius only when the wider retry succeeded. That return
 // value becomes IVP_OV_Element::radius and, in RecheckOvElement, the hull key.
@@ -530,14 +526,14 @@ void IVP_OV_Tree_Manager::remove_ov_element(IVP_OV_Element* Element)
 float IVP_OV_Tree_Manager::compute_query_cell(IVP_OV_Element* Element, float MinRadius, float MaxRadius)
 {
     // :0635c629-:0635c63e. The starting level is the IEEE exponent of TWICE
-    // the radius (`FLD r; FADD ST0,ST0`), plus one. `FUN_0635c570` takes the
+    // the radius (`FLD r; FADD ST0,ST0`), plus one. `the routine` takes the
     // float's raw bits (IvpFloatExponent), so the doubled value has to be
     // punned, not converted.
     const float Doubled = MinRadius + MinRadius;
     uint32_t DoubledBits = 0;
     std::memcpy(&DoubledBits, &Doubled, sizeof(DoubledBits));
 
-    int32_t LevelPlus1 = IvpFloatExponent(DoubledBits) + 1; // :0635c637-:0635c63e, FUN_0635c570
+    int32_t LevelPlus1 = IvpFloatExponent(DoubledBits) + 1; // :0635c637-:0635c63e, the routine
     if (LevelPlus1 < -0x28)                             // :0635c63f-:0635c644
         LevelPlus1 = -0x28;
 
@@ -552,12 +548,12 @@ float IVP_OV_Tree_Manager::compute_query_cell(IVP_OV_Element* Element, float Min
     int32_t YMin = 0;
     int32_t ZMin = 0;
 
-    for (;;) // LAB_0635c65a
+    for (;;)
     {
         const double Inv = (double)(ScaleAt(this, TableIndex)); // :0635c65e
 
         // Per axis: floor((c - r) * inv) and ceil((c + r) * inv). The level is
-        // acceptable only while the two are at most two cells apart. Retail
+        // acceptable only while the two are at most two cells apart. baseline
         // spells the max side as `r + c` and the min side as `c - r`; the
         // reciprocal is an exact power of two, so both products are exact.
         XMin = FloorToInt(((double)(Element->CenterX) - MinRadius) * Inv); // :0635c667-:0635c685
@@ -584,7 +580,7 @@ float IVP_OV_Tree_Manager::compute_query_cell(IVP_OV_Element* Element, float Min
             continue;
         }
 
-        break; // LAB_0635c748
+        break;
     }
 
     // :0635c748-:0635c776. Commit the key. Level and LevelPlus1 are written as
@@ -604,7 +600,7 @@ float IVP_OV_Tree_Manager::compute_query_cell(IVP_OV_Element* Element, float Min
     if (MinRadius >= MaxRadius)
         return MinRadius;
 
-    // LAB_0635c78a. Exactly ONE extra level is tried -- this is not a loop.
+    // . Exactly ONE extra level is tried -- this is not a loop.
     const int32_t WideLevelPlus1 = LevelPlus1 + 1;                             // :0635c78a
     const double WideInv = (double)(ScaleAt(this, 0x29 - WideLevelPlus1)); // :0635c78b-:0635c795
 
@@ -620,7 +616,7 @@ float IVP_OV_Tree_Manager::compute_query_cell(IVP_OV_Element* Element, float Min
     if (CeilToInt(((double)(Element->CenterZ) + MaxRadius) * WideInv) > WideZMin + 2)        // :0635c859-:0635c881
         return MinRadius; // :0635c883
 
-    // LAB_0635c88f. The wider radius fits too, so the key describes it instead.
+    // . The wider radius fits too, so the key describes it instead.
     QueryCell.CellX = WideXMin;             // :0635c89a
     QueryCell.CellY = WideYMin;             // :0635c8aa
     QueryCell.CellZ = WideZMin;             // :0635c8b0
@@ -630,14 +626,14 @@ float IVP_OV_Tree_Manager::compute_query_cell(IVP_OV_Element* Element, float Min
 }
 
 // ----------------------------------------------------------------------------
-// FUN_0635c590 (item 3343, Common.dll.txt:0635c590-0635c615, 71 insns).
-//
+// (item 3343, Commonc590-0635c615, 71 insns).
+
 // Scale `Coarse` down by `LevelDelta` levels and ask whether it fully contains
 // `Fine`. Both nodes are two cells wide, so at the fine level `Coarse` occupies
 // the inclusive index range [C << d, (C << d) + (2 << d) - 2] -- the `- 2` is
 // there because `Fine` itself already takes up two of those cells.
-//
-// Retail is a bare __stdcall (RET 0xc); the caller's `MOV ECX,ESI` is a
+
+// baseline is a bare __stdcall (RET 0xc); the caller's `MOV ECX,ESI` is a
 // leftover this-pointer that the body clobbers at :0635c596 without reading,
 // which is why this is a static member here.
 // ----------------------------------------------------------------------------
@@ -657,8 +653,8 @@ bool IVP_OV_Tree_Manager::cell_contains(const IVP_OV_Node* Coarse, const IVP_OV_
 }
 
 // ----------------------------------------------------------------------------
-// FUN_0635c8d0 (item 3345, Common.dll.txt:0635c8d0-0635c972, 81 insns).
-//
+// (item 3345, Commonc8d0-0635c972, 81 insns).
+
 // The same scaling as cell_contains, but a half-open AABB overlap:
 // [F, F + 2) against [C << d, (C + 2) << d). Also a bare __stdcall.
 // ----------------------------------------------------------------------------
@@ -673,8 +669,8 @@ bool IVP_OV_Tree_Manager::cell_overlaps(const IVP_OV_Node* Coarse, const IVP_OV_
 }
 
 // ----------------------------------------------------------------------------
-// FUN_0635cbd0 (item 3348, Common.dll.txt:0635cbd0-0635cdc9, 172 insns).
-//
+// (item 3348, Commoncbd0-0635cdc9, 172 insns).
+
 // Replace CurrentRoot with a fresh cell one level COARSER that still contains
 // the old root, and adopt the old root as its only child. Called in a loop by
 // insert_ov_element until the root has grown far enough to swallow a new cell.
@@ -686,7 +682,7 @@ void IVP_OV_Tree_Manager::grow_root(const IVP_OV_Node* Target)
     if (OldRoot->LevelPlus1 > 0x28) // :0635cbf3-:0635cbfe
         std::printf("*** ERROR *** Excessive sizelevel (%d) for element\n", OldRoot->LevelPlus1); // :0635cc00-:0635cc06
 
-    IVP_OV_Node* NewRoot = new IVP_OV_Node(); // :0635cc15-:0635cc34 (operator new(0x28) + FUN_0635c2c0)
+    IVP_OV_Node* NewRoot = new IVP_OV_Node(); // :0635cc15-:0635cc34 (operator new(0x28) + the routine)
 
     // :0635cc36-:0635cc6f. MSVC's signed `x % 2`, which is -1 for a negative
     // odd coordinate, 0 for an even one and +1 for a positive odd one
@@ -711,7 +707,7 @@ void IVP_OV_Tree_Manager::grow_root(const IVP_OV_Node* Target)
     //   * A negative ODD coordinate needs one more step left, because the
     //     round-toward-zero halving above moved it the wrong way.
     //   * An EVEN coordinate has a free choice: both C/2 and C/2 - 1 produce a
-    //     parent that covers the old root, so retail breaks the tie toward
+    //     parent that covers the old root, so baseline breaks the tie toward
     //     `Target` -- if the parent's origin would sit to the RIGHT of the
     //     target's, step it one cell left. `FCOMPP` + `TEST AH,0x41` (C3|C0,
     //     i.e. equal-or-less) with `JNZ skip` means the step happens only on a
@@ -733,7 +729,7 @@ void IVP_OV_Tree_Manager::grow_root(const IVP_OV_Node* Target)
         NewRoot->CellZ -= 1;                                                          // :0635cd52
 
     // :0635cd56-:0635cd68. A brand-new node has no children, so this warning
-    // can never fire here; retail's check is simply generic. Note it triggers
+    // can never fire here; baseline's check is simply generic. Note it triggers
     // at >= 27, whereas link_node_under's copy triggers at > 27.
     if (NewRoot->Children.n_elems >= 0x1b)
         std::printf("*** ERROR *** : Mehr als 27 Kinder *********************************\n");
@@ -742,14 +738,14 @@ void IVP_OV_Tree_Manager::grow_root(const IVP_OV_Node* Target)
     OldRoot->Parent = NewRoot;      // :0635cd94
 
     // :0635cd97-:0635cda8. Register the new cell under its own key hash.
-    NodeHash->AddElem(NewRoot, IVP_OV_HashNodeKey(NewRoot)); // FUN_063523d0
+    NodeHash->AddElem(NewRoot, IVP_OV_HashNodeKey(NewRoot));
 
     CurrentRoot = NewRoot; // :0635cdb6
 }
 
 // ----------------------------------------------------------------------------
-// FUN_0635c980 (item 3346, Common.dll.txt:0635c980-0635c9cd, 37 insns).
-//
+// (item 3346, Commonc980-0635c9cd, 37 insns).
+
 // Walk down from `Start` for as long as some child still contains `Target`,
 // and return the deepest node reached. Note the level delta is measured for
 // the CHILDREN of the current node (one level finer), hence the extra -1.
@@ -758,7 +754,7 @@ IVP_OV_Node* IVP_OV_Tree_Manager::find_deepest_container(IVP_OV_Node* Start, con
 {
     IVP_OV_Node* Current = Start; // :0635c983
 
-    for (;;) // LAB_0635c98d
+    for (;;)
     {
         const int32_t ChildDelta = Current->Level - Target->Level - 1; // :0635c991-:0635c997
 
@@ -777,13 +773,13 @@ IVP_OV_Node* IVP_OV_Tree_Manager::find_deepest_container(IVP_OV_Node* Start, con
         }
 
         if (!Descended)
-            return Current; // LAB_0635c9c6
+            return Current;
     }
 }
 
 // ----------------------------------------------------------------------------
-// FUN_0635c9d0 (item 3347, Common.dll.txt:0635c9d0-0635cbc9, 171 insns).
-//
+// (item 3347, Commonc9d0-0635cbc9, 171 insns).
+
 // Splice `Node` in underneath `Ancestor`, materialising every intermediate
 // cell on the way down. Each new intermediate is registered in the key hash
 // exactly like a root grown by grow_root.
@@ -795,7 +791,7 @@ void IVP_OV_Tree_Manager::link_node_under(IVP_OV_Node* Ancestor, IVP_OV_Node* No
 
     while (Delta != 1) // :0635c9fb-:0635c9fe / :0635cb67-:0635cb6c
     {
-        // LAB_0635ca05.
+        // .
         IVP_OV_Node* Child = new IVP_OV_Node();                    // :0635ca05-:0635ca24
         Child->CellX = PickChildCoord(Parent->CellX, Node->CellX, Delta); // :0635ca26-:0635ca6b
         Child->CellY = PickChildCoord(Parent->CellY, Node->CellY, Delta); // :0635ca6b-:0635cab0
@@ -805,7 +801,7 @@ void IVP_OV_Tree_Manager::link_node_under(IVP_OV_Node* Ancestor, IVP_OV_Node* No
         Child->Parent = Parent;                                    // :0635cb00
 
         Parent->Children.Add(Child);                               // :0635cb03-:0635cb24
-        NodeHash->AddElem(Child, IVP_OV_HashNodeKey(Child)); // :0635cb28-:0635cb39, FUN_063523d0
+        NodeHash->AddElem(Child, IVP_OV_HashNodeKey(Child)); // :0635cb28-:0635cb39, the routine
 
         if (Parent->Children.n_elems > 0x1b)                       // :0635cb3e-:0635cb46
             std::printf("*** ERROR *** Excessive amount of children: %d\n",
@@ -815,7 +811,7 @@ void IVP_OV_Tree_Manager::link_node_under(IVP_OV_Node* Ancestor, IVP_OV_Node* No
         Delta = Child->LevelPlus1 - Node->LevelPlus1;              // :0635cb5d-:0635cb64
     }
 
-    // LAB_0635cb73. `Node` is now exactly one level below `Parent`.
+    // . `Node` is now exactly one level below `Parent`.
     Node->Parent = Parent;         // :0635cb76
     Parent->Children.Add(Node);    // :0635cb79-:0635cb95
 
@@ -825,8 +821,8 @@ void IVP_OV_Tree_Manager::link_node_under(IVP_OV_Node* Ancestor, IVP_OV_Node* No
 }
 
 // ----------------------------------------------------------------------------
-// FUN_0635cdd0 (item 3349, Common.dll.txt:0635cdd0-0635ce80, 73 insns).
-//
+// (item 3349, Commoncdd0-0635ce80, 73 insns).
+
 // Append every element in `Node`'s entire subtree whose sphere touches
 // `Element`'s to CollectVector. Used once the caller already knows the whole
 // subtree is in range, so there is no further pruning.
@@ -845,13 +841,13 @@ void IVP_OV_Tree_Manager::collect_subtree(const IVP_OV_Element* Element, IVP_OV_
 }
 
 // ----------------------------------------------------------------------------
-// FUN_0635ce90 (item 3350, Common.dll.txt:0635ce90-0635d021, 154 insns).
-//
+// (item 3350, Commonce90-0635d021, 154 insns).
+
 // The same collect as collect_subtree for this node's own elements, but the
 // descent is pruned: only children that can actually reach `Target` are walked,
 // and the child that IS `Target` hands off to collect_subtree because
 // everything below it is in range by construction.
-//
+
 // Which of the two sides of the overlap test is the "coarse" one flips with
 // the level relation, which is why there are two near-identical halves.
 // ----------------------------------------------------------------------------
@@ -881,7 +877,7 @@ void IVP_OV_Tree_Manager::collect_touching(const IVP_OV_Element* Element, IVP_OV
     }
     else
     {
-        // LAB_0635cfb0. Now the TARGET is the coarse side of the test.
+        // . Now the TARGET is the coarse side of the test.
         const int32_t Delta = Target->Level - Node->Level + 1; // :0635cfb0-:0635cfb6
         for (int32_t I = 0; I < static_cast<int32_t>(Node->Children.n_elems); ++I) // :0635cfb7-:0635d01b
         {
@@ -895,13 +891,13 @@ void IVP_OV_Tree_Manager::collect_touching(const IVP_OV_Element* Element, IVP_OV
 }
 
 // ----------------------------------------------------------------------------
-// FUN_0635d030 (decomp-tracker item 3351, Common.dll.txt:0635d030-0635d25e,
+// (implementation tracker item 3351, Commond030-0635d25e,
 // 179 insns -- read end to end).
-//
+
 // File `Element` into the subdivision at a level chosen from its own radius,
 // growing or subdividing the tree as needed, and (when `TouchingOut` is given)
 // collect every element whose sphere touches it. Returns the radius the
-// element was actually filed at, which is what retail leaves on the x87 stack.
+// element was actually filed at, which is what baseline leaves on the x87 stack.
 // ----------------------------------------------------------------------------
 float IVP_OV_Tree_Manager::insert_ov_element(IVP_OV_Element* Element,
                                              float MinRadius,
@@ -909,7 +905,7 @@ float IVP_OV_Tree_Manager::insert_ov_element(IVP_OV_Element* Element,
                                              IVP_U_Vector<IVP_OV_Element>* TouchingOut)
 {
     if (Element == nullptr)  // :0635d04b-:0635d051
-        return 0.0f;         // :0635d053 (.rdata:DAT_063a53d4, raw bytes 00 00 00 00)
+        return 0.0f;         // :0635d053 (.rdata:the field, raw bytes 00 00 00 00)
 
     // :0635d05e-:0635d074. Choose the cell and remember the radius it describes.
     const float FiledRadius = compute_query_cell(Element, MinRadius, MaxRadius);
@@ -917,9 +913,9 @@ float IVP_OV_Tree_Manager::insert_ov_element(IVP_OV_Element* Element,
 
     // :0635d077-:0635d094. Does that cell already exist? Both the hash tag and
     // the comparator argument are the embedded QueryCell: the tag is the CRC of
-    // its first 20 bytes and the comparator (LAB_06369240) compares the first
+    // its first 20 bytes and the comparator (the branch) compares the first
     // four dwords of the stored node against those of the key.
-    IVP_OV_Node* Node = (IVP_OV_Node*)NodeHash->FindElem(&QueryCell, IVP_OV_HashNodeKey(&QueryCell)); // FUN_06352580
+    IVP_OV_Node* Node = (IVP_OV_Node*)NodeHash->FindElem(&QueryCell, IVP_OV_HashNodeKey(&QueryCell));
 
     if (Node != nullptr)
     {
@@ -946,14 +942,14 @@ float IVP_OV_Tree_Manager::insert_ov_element(IVP_OV_Element* Element,
             // publish `TouchingOut` into CollectVector and does NOT gather --
             // there is nothing to gather against yet.
             CurrentRoot = Node;
-            NodeHash->AddElem(Node, IVP_OV_HashNodeKey(Node)); // FUN_063523d0
-            return FiledRadius; // -> LAB_0635d248
+            NodeHash->AddElem(Node, IVP_OV_HashNodeKey(Node));
+            return FiledRadius; // -> the branch
         }
 
         // :0635d173-:0635d19b. Coarsen the root until it swallows the new cell.
         // A root FINER than the new cell (`root->Level < Node->Level`) cannot
         // even be asked the containment question, so it short-circuits straight
-        // to another growth step -- retail's own `JL LAB_0635d193`.
+        // to another growth step -- baseline's own `JL the branch`.
         while (CurrentRoot->Level < Node->Level ||
                !cell_contains(CurrentRoot, Node, CurrentRoot->Level - Node->Level))
         {
@@ -967,20 +963,20 @@ float IVP_OV_Tree_Manager::insert_ov_element(IVP_OV_Element* Element,
             // same cell). Re-file into the root and destroy the temporary.
             CurrentRoot->Elements.Add(Element); // :0635d1ab-:0635d1ca
             Element->node = CurrentRoot;        // :0635d1d0-:0635d1d6
-            delete Node;                        // :0635d1db-:0635d1e8 (FUN_0635c310 + FUN_06391d5a)
+            delete Node;                        // :0635d1db-:0635d1e8 (the routine + the routine)
             Node = CurrentRoot;                 // :0635d1eb-:0635d1f1
         }
         else
         {
             // :0635d1f7-:0635d221. Register the cell, then splice it under the
             // deepest already-existing node that still contains it.
-            NodeHash->AddElem(Node, IVP_OV_HashNodeKey(Node)); // :0635d1f7-:0635d209, FUN_063523d0
+            NodeHash->AddElem(Node, IVP_OV_HashNodeKey(Node)); // :0635d1f7-:0635d209, the routine
             link_node_under(find_deepest_container(CurrentRoot, Node), Node);                   // :0635d20e-:0635d221
         }
     }
 
     // :0635d22a-:0635d243. The out-vector is handed to the recursion through
-    // the manager rather than as an argument; retail writes it even when it is
+    // the manager rather than as an argument; baseline writes it even when it is
     // null, so this port does too.
     CollectVector = TouchingOut;
     if (TouchingOut != nullptr)
@@ -990,8 +986,8 @@ float IVP_OV_Tree_Manager::insert_ov_element(IVP_OV_Element* Element,
 }
 
 // ----------------------------------------------------------------------------
-// FUN_0635d270 (item 3352, Common.dll.txt:0635d270-0635d2d3, 37 insns).
-//
+// (item 3352, Commond270-0635d2d3, 37 insns).
+
 // Delete `Node` if it has become completely empty and return its former parent
 // so the caller can keep collapsing upward; null when nothing was collapsed.
 // ----------------------------------------------------------------------------
@@ -1005,24 +1001,24 @@ IVP_OV_Node* IVP_OV_Tree_Manager::collapse_empty_node(IVP_OV_Node* Node)
     if (Node->Parent == nullptr)     // :0635d28f-:0635d294
         CurrentRoot = nullptr;       // :0635d296
 
-    // :0635d2a1-:0635d2b3. Unregister the cell. FUN_06352480 is the value-set's
+    // :0635d2a1-:0635d2b3. Unregister the cell. the routine is the value-set's
     // find-AND-remove entry point, which faults deliberately if the value is
     // not present -- every node in the tree was registered on the way in.
-    NodeHash->RemoveElem(Node, IVP_OV_HashNodeKey(Node)); // FUN_06352480
+    NodeHash->RemoveElem(Node, IVP_OV_HashNodeKey(Node));
 
-    IVP_OV_Node* Parent = Node->Parent; // :0635d2ba (read AFTER the unregister, as retail does)
+    IVP_OV_Node* Parent = Node->Parent; // :0635d2ba (read AFTER the unregister, as baseline does)
     delete Node;                        // :0635d2bf-:0635d2cc
     return Parent;                      // :0635d2cf
 }
 
 // ----------------------------------------------------------------------------
-// FUN_0635d360 (item 3354, Common.dll.txt:0635d360-0635d3a8, 17 insns).
-//
+// (item 3354, Commond360-0635d3a8, 17 insns).
+
 // Decode a cell back into world space. A node is two cells wide, so its edge
 // length is 2^(Level+1) == CellSizeTable[LevelPlus1 + 40], and the same scalar
-// serves all three axes (retail emits one float, not three).
-//
-// Its two retail callers (:0634a84b and :063507fd) are the ray solver
+// serves all three axes (baseline emits one float, not three).
+
+// Its two baseline callers (:0634a84b and :063507fd) are the ray solver
 // (ivp_ray_solver.cpp) and the sphere query (ivp_sphere_query.cpp).
 // ----------------------------------------------------------------------------
 void IVP_OV_Tree_Manager::node_cell_bounds(const IVP_OV_Node* Node, float* OriginOut3, float* ExtentOut) const
@@ -1037,10 +1033,10 @@ void IVP_OV_Tree_Manager::node_cell_bounds(const IVP_OV_Node* Node, float* Origi
 // IVP_OV_Node
 // ============================================================================
 
-// FUN_0635c2c0 (decomp-tracker item 3337, Common.dll.txt:0635c2c0-0635c300).
+// (implementation tracker item 3337, Commonc2c0-0635c300).
 // Zeroes Parent and both vector headers -- and nothing else. CellX/CellY/CellZ,
 // Level and LevelPlus1 are deliberately left as raw allocation scratch, exactly
-// as in retail: every construction site fills them in immediately afterwards.
+// as in baseline: every construction site fills them in immediately afterwards.
 IVP_OV_Node::IVP_OV_Node()
     : Parent(nullptr) // :0635c2ef
 {
@@ -1051,11 +1047,11 @@ IVP_OV_Node::IVP_OV_Node()
 
 // ----------------------------------------------------------------------------
 // IVP_OV_Tree_Hash / IVP_OV_Tree_Manager ctor and dtor (cmn-phy7 2026-10-08;
-// the ctor was the raw FUN_0635c410 "AnomalyManager0635c410" in
+// the ctor was the raw the routine "AnomalyManager0635c410" in
 // common_stubs.cpp, the dtor a FULLPORT-DEFERRED gap in ~IVP_Environment).
 // ----------------------------------------------------------------------------
 
-// LAB_06369240 (.text:06369240-0636926?, RET 8): stored node vs probe node,
+// (module storage-0636926?, RET 8): stored node vs probe node,
 // +0x0c first, then +0x00, +0x04, +0x08; 0 on the first mismatch, else 1.
 int IVP_OV_Tree_Hash::Compare(void* Elem0, void* Elem1)
 {
@@ -1076,7 +1072,7 @@ int IVP_OV_Tree_Hash::Compare(void* Elem0, void* Elem1)
     return Stored->CellZ == Probe->CellZ ? 1 : 0;
 }
 
-// FUN_0635c410.
+// .
 IVP_OV_Tree_Manager::IVP_OV_Tree_Manager()
 {
     // :0635c42c-:0635c436 -- QueryCell's ctor (0635c2c0) ran as a member.
@@ -1085,8 +1081,8 @@ IVP_OV_Tree_Manager::IVP_OV_Tree_Manager()
     NodeHash = new IVP_OV_Tree_Hash(0x100); // :0635c43b-:0635c47c, stored at :0635c498
 
     // :0635c486-:0635c4c0 -- two x87 accumulators seeded with 1.0f
-    // (DAT_063a53d0): one doubled (FADD ST0,ST0) and stored upward from +0xa0,
-    // one multiplied by 0.5f (DAT_063a5460) and stored downward from +0xa0,
+    // (the field): one doubled (FADD ST0,ST0) and stored upward from +0xa0,
+    // one multiplied by 0.5f (the field) and stored downward from +0xa0,
     // 0x29 rounds. Every value is an exact power of two, so the float stores
     // are exact.
     float Upward = 1.0f;
@@ -1100,7 +1096,7 @@ IVP_OV_Tree_Manager::IVP_OV_Tree_Manager()
     }
 }
 
-// FUN_0635c500.
+// .
 IVP_OV_Tree_Manager::~IVP_OV_Tree_Manager()
 {
     if (NodeHash != nullptr)
@@ -1111,11 +1107,11 @@ IVP_OV_Tree_Manager::~IVP_OV_Tree_Manager()
     // :0635c536-:0635c54e -- ~QueryCell (0635c310) runs as the member's dtor.
 }
 
-// FUN_0635c310 (item 3338, Common.dll.txt:0635c310-0635c40e, 89 insns).
+// (item 3338, Commonc310-0635c40e, 89 insns).
 IVP_OV_Node::~IVP_OV_Node()
 {
     // :0635c32f-:0635c386. Unlink from the parent's child vector: scan BACKWARD
-    // for ourselves, then decrement the count and shift the tail down. Retail
+    // for ourselves, then decrement the count and shift the tail down. baseline
     // decrements before the shift and re-reads the count inside the loop, and
     // it runs the shift even when the scan found nothing (the index is then -1)
     // -- the same shape as remove_ov_element's own inlined copy, reproduced
@@ -1139,12 +1135,12 @@ IVP_OV_Node::~IVP_OV_Node()
     // :0635c388-:0635c3ab. Destroy every child. Taking slot 0 over and over
     // terminates because each child's own destructor runs the unlink above and
     // shrinks THIS node's vector. A null slot only skips the delete and re-tests
-    // the count (:0635c395 -> LAB_0635c3a7), exactly as retail.
+    // the count (:0635c395 -> the branch), exactly as baseline.
     while (Children.n_elems != 0) // :0635c388-:0635c38c / :0635c3a7-:0635c3ab
     {
         IVP_OV_Node* Child = Children.elems[0]; // :0635c38e-:0635c391
         if (Child != nullptr)                   // :0635c393-:0635c395
-            delete Child; // :0635c399 (FUN_0635c310) + :0635c39f (FUN_06391d5a)
+            delete Child; // :0635c399 (the routine) + :0635c39f (the routine)
     }
 
     // :0635c3ad-:0635c3fd. Both vector headers torn down the standard
@@ -1156,7 +1152,7 @@ IVP_OV_Node::~IVP_OV_Node()
 }
 
 // ----------------------------------------------------------------------------
-// FUN_06369200 (item 3594, Common.dll.txt:06369200-0636922f, 17 insns).
+// (item 3594, Commonf, 17 insns).
 // ----------------------------------------------------------------------------
 uint32_t IVP_OV_HashNodeKey(const IVP_OV_Node* Node)
 {
@@ -1176,9 +1172,9 @@ uint32_t IVP_OV_HashNodeKey(const IVP_OV_Node* Node)
 // ============================================================================
 
 // ----------------------------------------------------------------------------
-// FUN_0634ebd0 (decomp-tracker item 3111, Common.dll.txt:0634ebd0-0634f13a,
+// (implementation tracker item 3111, Commonebd0-0634f13a,
 // 411 insns). The whole range was read and ported this pass.
-//
+
 // The object has moved (or has just acquired collision geometry): re-file its
 // OV element in the spatial subdivision, then reconcile the set of pairwise
 // collision records hanging off the element against the set of objects that
@@ -1187,22 +1183,22 @@ uint32_t IVP_OV_HashNodeKey(const IVP_OV_Node* Node)
 // collision_fvector, everything past that is deleted, and every genuinely new
 // partner is handed to the environment's collision delegators to build a
 // fresh record for.
-//
+
 // The gap that used to be recorded here -- "insert_ov_element is a stub, so
 // TouchingElements always comes back empty and this function tears down every
 // existing collision record" -- is CLOSED as of 2026-09-17 (lane
 // claude:w19-ovtree): the whole OV tree above is ported, so the collect really
 // does come back populated now.
-//
+
 // Note the self-pair is expected in that result: the element being inserted is
 // already filed in its own cell by the time collect_touching runs, and it
-// trivially passes its own sphere test (dx=dy=dz=0). Retail relies on the
+// trivially passes its own sphere test (dx=dy=dz=0). baseline relies on the
 // `Object->original_core == OtherObj->original_core` gate below to drop it --
 // that is not a missing guard.
 // ----------------------------------------------------------------------------
 // ----------------------------------------------------------------------------
-// FUN_06350390 / FUN_063503c0 -- IVP_Mindist_Manager ctor / dtor (cmn-phy7
-// 2026-10-08; the ctor was the raw FUN_06350390 in common_stubs.cpp, the dtor
+// / the routine -- IVP_Mindist_Manager ctor / dtor (cmn-phy7
+// 2026-10-08; the ctor was the raw the routine in common_stubs.cpp, the dtor
 // a FULLPORT-DEFERRED gap in ~IVP_Environment).
 // ----------------------------------------------------------------------------
 IVP_Mindist_Manager::IVP_Mindist_Manager(IVP_Environment* Environment)
@@ -1251,8 +1247,8 @@ void IVP_Mindist_Manager::RecheckOvElement(IVP_Real_Object* Object)
     IVP_U_Vector_Fixed<IVP_OV_Element, 128> TouchingElements;
 
     IVP_OV_Element* Element = Object->ov_element; // :0634ec1e
-    if (Element == nullptr)                       // :0634ec31 -> LAB_0634f10b
-        return;                                   // retail only runs the vector destructor here.
+    if (Element == nullptr)                       // :0634ec31 -> the branch
+        return;                                   // baseline only runs the vector destructor here.
 
     IVP_OV_Tree_Manager* Tree = environment->ov_tree_manager; // :0634ec37
     IVP_Core* Core = Object->core; // :0634ec3d
@@ -1264,7 +1260,7 @@ void IVP_Mindist_Manager::RecheckOvElement(IVP_Real_Object* Object)
 
     // :0634ec53-:0634ec7a -- refresh the element's cached center from the
     // core's world matrix translation (IVP_Core::MWorldFCore.vv == core+0x124).
-    // Retail moves the first component through the x87 stack and the other two
+    // baseline moves the first component through the x87 stack and the other two
     // as raw dwords; all three are floats.
     Element->CenterX = Core->MWorldFCore.vv.x;
     Element->CenterY = Core->MWorldFCore.vv.y;
@@ -1272,7 +1268,7 @@ void IVP_Mindist_Manager::RecheckOvElement(IVP_Real_Object* Object)
 
     IVP_Hull_Manager* HullMgr = &Object->hull_manager; // :0634ec74 (`LEA EAX,[EBX+0x44]`)
 
-    if (InListenerCallback != 0) // :0634ec81 -> LAB_0634f0e1
+    if (InListenerCallback != 0) // :0634ec81 -> the branch
     {
         // Re-entrant path: we are inside the +0x2c listener's own callback, so
         // do the bare minimum -- re-file at the core's own radius, collecting
@@ -1292,7 +1288,7 @@ void IVP_Mindist_Manager::RecheckOvElement(IVP_Real_Object* Object)
     }
 
     // :0634ec8b-:0634ec97. Environment+0x1c's vtable slot 1 takes the object
-    // and returns a float collision range; retail adds the core's own radius
+    // and returns a float collision range; baseline adds the core's own radius
     // to it straight away.
     // IVP_Range_Manager::get_coll_range_in_world (slot 1); its x87 result is
     // FADDed with the radius and only then FSTP'd as a float (:0634eca2).
@@ -1301,7 +1297,7 @@ void IVP_Mindist_Manager::RecheckOvElement(IVP_Real_Object* Object)
 
     // :0634ec9a-:0634ecca. Environment+0x2c's vtable slot 0 is a "this object
     // is about to be re-filed at this center/radius" notification, dispatched
-    // only for objects that are actually movable ((flags & 7) != 0 -- retail
+    // only for objects that are actually movable ((flags & 7) != 0 -- baseline
     // sign-extends the low byte first, which does not change the test) and
     // guarded against re-entry by InListenerCallback.
     IVP_Universe_Manager* const UniverseManager = environment->universe_manager; // env+0x2c
@@ -1324,10 +1320,10 @@ void IVP_Mindist_Manager::RecheckOvElement(IVP_Real_Object* Object)
     // :0634ed03-:0634ed1e. Environment+0x18's vtable slot 0 is the pairwise
     // "may these two objects be collision-tested against each other" predicate
     // used further down.
-    //
+
     // SETTLED 2026-09-17 (lane claude:w19-ovtree): env+0x18 is IVP's COLLISION
-    // FILTER, not a statistic manager -- its constructor FUN_0634bcb0 builds an
-    // 8-byte {vtable, owned-by-env flag} object whose slot 0, FUN_0634bc60,
+    // FILTER, not a statistic manager -- its constructor the routine builds an
+    // 8-byte {vtable, owned-by-env flag} object whose slot 0, the routine,
     // compares the two objects' 8-byte `coll_group_ident` strings at
     // IVP_Real_Object+0x84 and refuses the pair when they match. That is stock
     // IVP_Collision_Filter_Coll_Group_Ident. The field was called
@@ -1465,12 +1461,12 @@ void IVP_Mindist_Manager::RecheckOvElement(IVP_Real_Object* Object)
 
         if (Found == -1)
         {
-            // LAB_0634efaf -- no record yet, remember the partner.
+            // no record yet, remember the partner.
             NewPartners.Add(OtherObj); // :0634efaf-:0634efd5
             continue;
         }
 
-        // LAB_0634ef3d -- a record already exists; compact it down to the
+        // a record already exists; compact it down to the
         // KeptCount cursor, keeping the table's slot -> index mapping intact.
         if (Found > KeptCount) // :0634ef41/:0634ef43
         {
@@ -1478,7 +1474,7 @@ void IVP_Mindist_Manager::RecheckOvElement(IVP_Real_Object* Object)
             uint32_t CursorSlot = IVP_HashCollisionPartner(CollAtCursor, Object)
                                 & static_cast<uint32_t>(Mask); // :0634ef52-:0634ef68
 
-            // Retail sign-extends the table entry (MOVSX) and compares it
+            // baseline sign-extends the table entry (MOVSX) and compares it
             // against the FULL 32-bit cursor, so this probe is written the
             // same way rather than truncating the cursor to 16 bits.
             while (static_cast<int32_t>(static_cast<int16_t>(Table[CursorSlot])) != KeptCount) // :0634ef6a-:0634ef82
@@ -1516,7 +1512,7 @@ void IVP_Mindist_Manager::RecheckOvElement(IVP_Real_Object* Object)
         }
     }
 
-    // :0634f061-:0634f0df -- teardown, in retail's own order.
+    // :0634f061-:0634f0df -- teardown, in baseline's own order.
     NewPartners.Clear();
     if (TableOnHeap && Table != nullptr)
         std::free(Table);
@@ -1524,15 +1520,15 @@ void IVP_Mindist_Manager::RecheckOvElement(IVP_Real_Object* Object)
 }
 
 // ----------------------------------------------------------------------------
-// FUN_0634f180 (decomp-tracker item 3113, Common.dll.txt:0634f180-0634f204).
+// (implementation tracker item 3113, Commonf180-0634f204).
 // Throw away whatever OV element the object had and build a fresh one, then
-// immediately re-file it. Its own caller is FUN_06344d50 (item 2783,
+// immediately re-file it. Its own caller is the routine (item 2783,
 // IVP_Real_Object::SetCollisionGeomEnabled's Enable path), whose note has been
 // asking "what does re-enabling actually build" since D227 -- this is it.
 // ----------------------------------------------------------------------------
 void IVP_Mindist_Manager::RebuildOvElement(IVP_Real_Object* Object)
 {
-    // :0634f19d-:0634f1ab -- retail dispatches vtable slot 4 with arg 1, the
+    // :0634f19d-:0634f1ab -- baseline dispatches vtable slot 4 with arg 1, the
     // scalar deleting destructor; `delete` is the same thing here (see
     // IVP_OV_Element::vtable's comment).
     if (Object->ov_element != nullptr)
@@ -1543,7 +1539,7 @@ void IVP_Mindist_Manager::RebuildOvElement(IVP_Real_Object* Object)
     void* Raw = ::operator new(0x30);                    // :0634f1ae-:0634f1ba
     Object->ov_element = (Raw != nullptr)                 // :0634f1c6/:0634f1d0
                        ? new (Raw) IVP_OV_Element(Object) // :0634f1d5
-                       : nullptr;                         // LAB_0634f1dc
+                       : nullptr;
 
     RecheckOvElement(Object); // :0634f1ef
 }

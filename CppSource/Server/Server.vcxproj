@@ -41,8 +41,8 @@
       <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>_WINDOWS;_USRDLL;SERVER_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <!-- /sdl makes the compiler give every dllexport class an exported
-           __autoclassinit2 member. Retail Server.dll exports none, and the
-           module exports exactly the names retail exports. -->
+           __autoclassinit2 member. baseline Server.dll exports none, and the
+           module exports exactly the names baseline exports. -->
       <SDLCheck>false</SDLCheck>
       <MultiProcessorCompilation Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</MultiProcessorCompilation>
       <MultiProcessorCompilation Condition="'$(Configuration)|$(Platform)'=='DebugASan|Win32'">true</MultiProcessorCompilation>
@@ -79,16 +79,16 @@
     <ClCompile Include="server_basedb.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <!-- Retail Server.dll imports DACOM.DLL::FDUMP at 97 call sites
+    <!-- baseline Server.dll imports NEURONCOMPONENTS.DLL::FDUMP at 97 call sites
          (the thunk at 0x06d64a44), so the dependency is part of the module's
          real import table, not a convenience. Referenced as a project the same
-         way Common, DALib, ReadFile and the rest do it. -->
-    <ProjectReference Include="..\dacom\dacom.vcxproj">
+         way Common, NeuronRuntime, ReadFile and the rest do it. -->
+    <ProjectReference Include="..\neuroncomponents\neuroncomponents.vcxproj">
       <Project>{8F3A1B20-9C4D-4E5F-A617-B8C9D0E1F203}</Project>
     </ProjectReference>
-    <!-- Retail Server.dll imports DALIB.DLL::??1MD5Hash@@UAE@XZ: its own exported
-         MD5Hash deleting destructor (md5hash.h, MD5HASH_API) calls DALib's. -->
-    <ProjectReference Include="..\DALib\DALib.vcxproj">
+    <!-- baseline Server.dll imports NEURONRUNTIME.DLL::??1MD5Hash@@UAE@XZ: its own exported
+         MD5Hash deleting destructor (md5hash.h, MD5HASH_API) calls NeuronRuntime's. -->
+    <ProjectReference Include="..\NeuronRuntime\NeuronRuntime.vcxproj">
       <Project>{9A4B2C31-0D5E-4F60-B728-C9DAE1F20415}</Project>
     </ProjectReference>
   </ItemGroup>

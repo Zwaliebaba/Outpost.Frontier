@@ -1,17 +1,13 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "vis_effect_arch.h"
 
-#include "alchemy.h"
-#include "client_cliobj.h" // Archetype::ResolveMaterialEntry (FUN_0041aa50) / ReleaseMaterialEntrySlot (FUN_0041b030)
+#include "particlefx.h"
+#include "client_cliobj.h" // Archetype::ResolveMaterialEntry (the routine) / ReleaseMaterialEntrySlot (the routine)
 #include "common_id.h"
 #include "common_ini.h"
-#include "dacom.h"
-#include "DALib.h"
+#include "neuroncomponents.h"
+#include "NeuronRuntime.h"
 #include "effect_type_info.h"
 #include "menu_sound_arch.h"
 #include "readfile.h"
@@ -33,18 +29,18 @@ namespace
     static const unsigned kBrightMinBits = 0x3c23d70a; // 0.01f
     static const unsigned kOneBits = 0x3f800000;       // 1.0f
 
-    // DAT_006164b0 -- the EffectArch registry, a std::map keyed by the nickname's CreateID
-    // (unsigned compare, FUN_0052c7a0 / FUN_0046d6d0) holding operator-new'd EffectArchs.
-    // Built by the static initializer LAB_0040e9c0, destroyed through atexit LAB_0040e9f0.
+    // the EffectArch registry, a std::map keyed by the nickname's CreateID
+    // (unsigned compare, the routine / the routine) holding operator-new'd EffectArchs.
+    // Built by the static initializer the branch, destroyed through atexit the branch.
     std::map<unsigned, FEffectArch*> G_EffectArchs;
 
-    // DAT_00667e14 -- set by FUN_0042e290 once the FxRuntime is bound, cleared by FUN_0042e2f0.
+    // set by the routine once the FxRuntime is bound, cleared by the routine.
     bool G_bFxRuntimeBound = false;
 
-    // s_E:\FL\Scratch\Source\Client\cmn\EffectArch.cpp_005c84cc.
-    char const kEffectArchCpp[] = "E:\\FL\\Scratch\\Source\\Client\\cmn\\EffectArch.cpp";
+    // s_Client\cmn\EffectArch.cpp_005c84cc.
+    char const kEffectArchCpp[] = "Client\\cmn\\EffectArch.cpp";
 
-    // The nickname id as retail's ID_String::get_string formats it.
+    // The nickname id as baseline's ID_String::get_string formats it.
     char const* EffectArchNickname(FEffectArch const* Arch)
     {
         ID_String Name;
@@ -52,8 +48,8 @@ namespace
         return Name.get_string();
     }
 
-    // Client\cmn\ALELib.cpp. The map DAT_00616440 is ordered by stricmp (FUN_004016f0 /
-    // FUN_00401130); its value is { use count (node + 0x10), handle (node + 0x14) }.
+    // Client\cmn\ALELib.cpp. The map the field is ordered by stricmp (the routine /
+    // ); its value is { use count (node + 0x10), handle (node + 0x14) }.
     struct FAleNameLess
     {
         bool operator()(std::string const& A, std::string const& B) const
@@ -68,29 +64,29 @@ namespace
         int Handle;
     };
 
-    std::map<std::string, FAleLibEntry, FAleNameLess> G_AleLib; // DAT_00616440
-    int G_AleLibNextHandle = 1;                                 // DAT_006101d0 (.data init 1)
+    std::map<std::string, FAleLibEntry, FAleNameLess> G_AleLib;
+    int G_AleLibNextHandle = 1;                                 // (.data init 1)
 
-    // DAT_00667df0 -- Client\cmn\VisEffectArch.cpp's VisEffect map, built by the static
-    // initializer LAB_0042d8f0 and torn down through atexit LAB_0042d920. Node: key at +0x0c,
-    // the VisEffect by value at +0x10. Retail keys it by the StringAlloc'd nickname POINTER
-    // (unsigned compare: FUN_0042f0f0 0x0042f110..0x0042f117 CMP / SETC, lower bound
-    // FUN_0052c7a0, find FUN_0042dd20). StringAlloc(Text, false) interns through Common's
-    // StringCache, a map ordered by stricmp (Common FUN_06333ea0), so two keys are one entry
+    // Client\cmn\VisEffectArch.cpp's VisEffect map, built by the static
+    // initializer the branch and torn down through atexit the branch. Node: key at +0x0c,
+    // the VisEffect by value at +0x10. baseline keys it by the StringAlloc'd nickname POINTER
+    // (unsigned compare: the routine 0x0042f110..0x0042f117 CMP / SETC, lower bound
+    // , find the routine). StringAlloc(Text, false) interns through Common's
+    // StringCache, a map ordered by stricmp (Common the routine), so two keys are one entry
     // exactly when their texts are stricmp-equal, and every empty text is the one shared empty
     // string. The port's StringAlloc does not intern (ledger "INI_Reader", StringAlloc line), so
     // the key here is the text itself under the same stricmp: the same entries and the same
     // lookups. Only the iteration order differs, and nothing but the exit teardown walks it.
-    // Teardown order as in retail's XC table: G_AleLib (slot 0x0060f010, above in this file)
+    // Teardown order as in baseline's XC table: G_AleLib (slot 0x0060f010, above in this file)
     // and the material cache (client_cliobj.cpp, slot 0x0060f0bc, linked before this file --
     // see the note in OutpostFrontier.vcxproj) are built first, so both outlive this map, whose
-    // ~FVisEffectArch (FUN_0042edb0) releases through them.
+    // ~FVisEffectArch (the routine) releases through them.
     std::map<std::string, FVisEffectArch, FAleNameLess> G_VisEffects;
 
-    // DAT_00667d78 -- the BeamSpear / BeamBolt map, the same shape: built by the static
+    // the BeamSpear / BeamBolt map, the same shape: built by the static
     // initializer at 0x0042e320, torn down through atexit 0x0042e350, keyed by the StringAlloc'd
-    // nickname pointer (operator[] FUN_0042ed30, find FUN_0042e9e0 through FUN_0052c7a0's
-    // lower bound), the value (FUN_0042e430 defaults) at node + 0x10. Keyed here by the text
+    // nickname pointer (operator[] the routine, find the routine through the routine's
+    // lower bound), the value (the routine defaults) at node + 0x10. Keyed here by the text
     // under stricmp for the reason given on G_VisEffects.
     std::map<std::string, FBeamEffectArch, FAleNameLess> G_BeamArches;
 
@@ -107,7 +103,7 @@ namespace
         Dest[DestChars - 1] = '\0';
     }
 
-    // 5-char retail strncmp style (counts down including NUL for short words).
+    // 5-char baseline strncmp style (counts down including NUL for short words).
     bool Match5(char const* Value, char const* Literal)
     {
         if (Value == nullptr || Literal == nullptr)
@@ -128,7 +124,7 @@ namespace
         return bEqual;
     }
 
-    // FUN_0042e1d0 (thiscall) -- resolve one material-cache entry per texture name, in order.
+    // (thiscall) -- resolve one material-cache entry per texture name, in order.
     // A name that does not resolve is reported and erased from the name list (the iterator
     // stays put); a resolved one is appended to TextureSlots. Returns the last iteration's
     // outcome, false for an empty list.
@@ -138,32 +134,32 @@ namespace
         size_t Index = 0;
         while (Index != Vis->Textures.size())
         {
-            // 0x0042e1f0: FUN_0041aa50(name, 1, -1).
+            // the routine(name, 1, -1).
             Archetype::FCliMaterialEntry* const Slot =
                 Archetype::ResolveMaterialEntry(Vis->Textures[Index].c_str(), true, 0xffffffffu);
             bOk = Slot != nullptr;
             if (bOk)
             {
-                // 0x0042e21e: FUN_00537260 -- push_back.
+                // the routine -- push_back.
                 Vis->TextureSlots.push_back(Slot);
                 ++Index;
             }
             else
             {
-                // 0x0042e230: the "%s" before the name is the .rdata literal "temp".
+                // the "%s" before the name is the .rdata literal "temp".
                 FDUMP(0x100001,
                       "%s(%d) : *** ERROR: [VisEffect] %s: Failed to load texture library: %s.  "
                       "Removing from txm list.",
-                      "E:\\FL\\Scratch\\Source\\Client\\cmn\\VisEffectArch.cpp", 0x166, "temp",
+                      "Client\\cmn\\VisEffectArch.cpp", 0x166, "temp",
                       Vis->Textures[Index].c_str());
-                // 0x0042e25b..0x0042e275: erase in place.
+                // erase in place.
                 Vis->Textures.erase(Vis->Textures.begin() + static_cast<ptrdiff_t>(Index));
             }
         }
         return bOk;
     }
 
-    // 0x0042e0bc..0x0042e0fe and 0x0042e16f..0x0042e1af: FUN_0041b030 on every slot, then
+    // and 0x0042e16f..0x0042e1af: the routine on every slot, then
     // end = begin.
     void VisEffectArchReleaseTextures(FVisEffectArch* Vis)
     {
@@ -172,7 +168,7 @@ namespace
         Vis->TextureSlots.clear();
     }
 
-    // FUN_0042e430 — default TrailAppearance / BeamEffectArch (all 1.0f).
+    // — default TrailAppearance / BeamEffectArch (all 1.0f).
     void BeamArchInitDefaults(FBeamEffectArch* Arch)
     {
         memset(Arch, 0, sizeof(*Arch));
@@ -186,7 +182,7 @@ namespace
             F[Index] = 1.0f;
     }
 
-    // FUN_0042e920 — clamp lengths vs core_width and brightness to [0.01, 1].
+    // — clamp lengths vs core_width and brightness to [0.01, 1].
     void BeamArchClamp(FBeamEffectArch* Arch)
     {
         if (Arch->Radius0 < Arch->RadiusNear)
@@ -235,7 +231,7 @@ namespace
         Dest[2] = B * kColorScale;
     }
 
-    // FUN_0042e4a0 — one INI value into an open BeamSpear/Bolt arch.
+    // — one INI value into an open BeamSpear/Bolt arch.
     bool BeamArchParseValue(FBeamEffectArch* Arch, INI_Reader* Reader)
     {
         if (Reader->is_value("tip_color"))
@@ -344,9 +340,9 @@ namespace
 
     FBeamEffectArch* BeamArchFindOrInsert(char const* Nickname)
     {
-        // FUN_0042ed30 (thiscall on DAT_00667d78, RET 4): the map's operator[] -- a default
-        // value from FUN_0042e430 (0x0042ed55), the pair built (FUN_0042efc0) and inserted
-        // unless the key is present (FUN_0042f720); the node's value (+0x10) either way. An
+        // (thiscall on the field, RET 4): the map's operator[] -- a default
+        // value from the routine (0x0042ed55), the pair built (the routine) and inserted
+        // unless the key is present (the routine); the node's value (+0x10) either way. An
         // existing entry is returned untouched.
         std::map<std::string, FBeamEffectArch, FAleNameLess>::iterator Found =
             G_BeamArches.find(std::string(Nickname));
@@ -360,7 +356,7 @@ namespace
         return &Inserted.first->second;
     }
 
-    // FUN_0042e850 (cdecl) -- one [BeamSpear] / [BeamBolt] section; both headers reach it from
+    // (cdecl) -- one [BeamSpear] / [BeamBolt] section; both headers reach it from
     // the one call at 0x0040ed09. Returns whether an arch was selected (0x0042e90e..0x0042e913).
     bool LoadBeamSection(INI_Reader* Reader)
     {
@@ -370,12 +366,12 @@ namespace
         {
             if (Reader->is_value("nickname"))
             {
-                // 0x0042e881..0x0042e8b8: StringAlloc(value, false), FUN_0042ed30 on it, and the
+                // StringAlloc(value, false), the routine on it, and the
                 // arch's first field takes the StringAlloc'd pointer.
                 char* const Nick = StringAlloc(Reader->get_value_string(), false);
                 Current = BeamArchFindOrInsert(Nick);
                 Current->Nickname = Nick;
-                // 0x0042e8ba..0x0042e8dd: the kind from the reader's current header --
+                // the kind from the reader's current header --
                 // "BeamSpear" 0, "BeamBolt" 1, anything else leaves +0x04 as it was.
                 if (Reader->is_header("BeamSpear"))
                     Current->SegmentMode = 0;
@@ -393,7 +389,7 @@ namespace
         return Current != nullptr;
     }
 
-    // FUN_00402180 -- _vsnprintf into a 0x2000-byte buffer; FUN_0040e300 hands the text to
+    // _vsnprintf into a 0x2000-byte buffer; the routine hands the text to
     // INI_Reader::log_link.
     void EffectArchLogLink(INI_Reader* Reader, char const* Format, char const* A, char const* B)
     {
@@ -402,20 +398,20 @@ namespace
         Reader->log_link(Buffer);
     }
 
-    // FUN_0040e300 (thiscall on the arch, RET 4) -- one INI value into an open [Effect] arch;
+    // (thiscall on the arch, RET 4) -- one INI value into an open [Effect] arch;
     // true for every key it knows (a failed lookup included), false otherwise.
     bool EffectArchParseValue(FEffectArch* Effect, INI_Reader* Reader)
     {
-        // 0x0040e31c..0x0040e349: CreateID into +0x04.
+        // CreateID into +0x04.
         if (Reader->is_value("nickname"))
         {
             Effect->NicknameId = CreateID(Reader->get_value_string());
             return true;
         }
-        // 0x0040e34c..0x0040e43b.
+        // .
         if (Reader->is_value("effect_type"))
         {
-            // FUN_004fd500 into +0x00; 0x2f (unknown): log_link("") and an error.
+            // into +0x00; 0x2f (unknown): log_link("") and an error.
             int const TypeIndex = EffectTypeIndexFromName(Reader->get_value_string());
             Effect->EffectType = TypeIndex;
             if (TypeIndex == kEffectTypeCount)
@@ -425,7 +421,7 @@ namespace
                       "unknown effect type");
                 return true;
             }
-            // FUN_004fd560; no info -> an error naming the index.
+            // ; no info -> an error naming the index.
             FEffectTypeInfo const* const Info = EffectTypeInfoByIndex(TypeIndex);
             if (Info == nullptr)
             {
@@ -434,7 +430,7 @@ namespace
                       kEffectArchCpp, 0x47, Effect->EffectType);
                 return true;
             }
-            // 0x0040e3bc..0x0040e3fd: FCOMP run_time (+0x18) vs 0.0, TEST AH,5 / JP -- no jump
+            // FCOMP run_time (+0x18) vs 0.0, TEST AH,5 / JP -- no jump
             // (C0 only: ordered less) raises bit 0 of +0x50, the jump (not less, or
             // unordered) clears it.
             if (Info->RunTime < 0.0f)
@@ -443,7 +439,7 @@ namespace
                 Effect->Flags50 = static_cast<unsigned char>(Effect->Flags50 & ~1u);
             return true;
         }
-        // 0x0040e43e..0x0040e4b7: StringAlloc'd name looked up (FUN_0042dd20) into +0x08; a hit
+        // StringAlloc'd name looked up (the routine) into +0x08; a hit
         // also copies the VisEffect's first field (its nickname) into +0x0c.
         if (Reader->is_value("vis_effect"))
         {
@@ -458,7 +454,7 @@ namespace
             }
             return true;
         }
-        // 0x0040e4ba..0x0040e4ea: the same lookup into +0x10; a miss reports the same
+        // the same lookup into +0x10; a miss reports the same
         // [VisEffect] text (it jumps back into vis_effect's test).
         if (Reader->is_value("vis_generic"))
         {
@@ -471,7 +467,7 @@ namespace
             }
             return true;
         }
-        // 0x0040e4ec..0x0040e538: FUN_0042e9e0 into +0x14.
+        // the routine into +0x14.
         if (Reader->is_value("vis_beam"))
         {
             char const* const Name = StringAlloc(Reader->get_value_string(), false);
@@ -483,7 +479,7 @@ namespace
             }
             return true;
         }
-        // 0x0040e53d..0x0040e590: CreateID, FUN_0042ae40 into +0x18; a miss names both ids.
+        // CreateID, the routine into +0x18; a miss names both ids.
         if (Reader->is_value("snd_effect"))
         {
             char const* const Name = Reader->get_value_string();
@@ -498,7 +494,7 @@ namespace
             }
             return true;
         }
-        // 0x0040e595..0x0040e603: a null string empties the name; otherwise at most 0x1f
+        // a null string empties the name; otherwise at most 0x1f
         // characters are copied, terminated, and the length stored at +0x1c.
         if (Reader->is_value("lgt_effect"))
         {
@@ -517,7 +513,7 @@ namespace
             Effect->LgtEffectLen = static_cast<unsigned>(Len);
             return true;
         }
-        // 0x0040e606..0x0040e675: get_value_float(0) stored as it is (FSTP float).
+        // get_value_float(0) stored as it is (FSTP float).
         if (Reader->is_value("lgt_range_scale"))
         {
             Effect->LgtRangeScale = Reader->get_value_float(0);
@@ -533,7 +529,7 @@ namespace
             Effect->LgtRadius = Reader->get_value_float(0);
             return true;
         }
-        // 0x0040e678..0x0040e6b6: three ftol'd floats into the bytes +0x4c..+0x4e.
+        // three ftol'd floats into the bytes +0x4c..+0x4e.
         if (Reader->is_value("lgt_color"))
         {
             Effect->LgtColorR = static_cast<unsigned char>(static_cast<long>(Reader->get_value_float(0)));
@@ -544,7 +540,7 @@ namespace
         return false;
     }
 
-    // The four bytes +0x4c..+0x4f as the one dword FUN_0040e6e0 compares and prints.
+    // The four bytes +0x4c..+0x4f as the one dword the routine compares and prints.
     unsigned EffectArchColorDword(FEffectArch const* Arch)
     {
         return (static_cast<unsigned>(Arch->LgtColorA) << 24) |
@@ -553,7 +549,7 @@ namespace
                static_cast<unsigned>(Arch->LgtColorR);
     }
 
-    // The dword +0x50..+0x53 FUN_0040e6e0 compares and copies.
+    // The dword +0x50..+0x53 the routine compares and copies.
     unsigned EffectArchFlagsDword(FEffectArch const* Arch)
     {
         return static_cast<unsigned>(Arch->Flags50) |
@@ -562,23 +558,23 @@ namespace
                (static_cast<unsigned>(Arch->Pad51[2]) << 24);
     }
 
-    // FUN_0040e6e0 (thiscall on the registered arch, RET 4) -- a reload's copy of an [Effect]
+    // (thiscall on the registered arch, RET 4) -- a reload's copy of an [Effect]
     // merged into the registered one: every field that differs is warned about, then copied.
     void EffectArchMerge(FEffectArch* Existing, FEffectArch const* Incoming)
     {
-        // 0x0040e6e5..0x0040e735: VisEffect (+0x08); the new one is named by its +0x08 (the
+        // VisEffect (+0x08); the new one is named by its +0x08 (the
         // StringAlloc'd ale name), "NULL" without one. +0x08 and +0x0c copied.
         if (Incoming->VisEffect != Existing->VisEffect)
         {
             char const* const NewName =
-                Incoming->VisEffect != nullptr ? Incoming->VisEffect->AlchemyPath : "NULL";
+                Incoming->VisEffect != nullptr ? Incoming->VisEffect->ParticleFxPath : "NULL";
             FDUMP(0x100002, "%s(%d) : *** WARNING: %s: 'vis_effect' changed to %s",
                   kEffectArchCpp, 0x89, EffectArchNickname(Existing), NewName);
             Existing->VisEffect = Incoming->VisEffect;
             Existing->VisEffectName = Incoming->VisEffectName;
         }
 
-        // 0x0040e738..0x0040e77a: SoundArch (+0x18), the new one named by its slot 1 (+0x04,
+        // SoundArch (+0x18), the new one named by its slot 1 (+0x04,
         // the file name), "NULL" without one. The pointer is copied; nothing is acquired.
         if (Incoming->SndEffect != Existing->SndEffect)
         {
@@ -591,7 +587,7 @@ namespace
             Existing->SndEffect = Incoming->SndEffect;
         }
 
-        // 0x0040e77d..0x0040e825: the light names compared byte by byte (strcmp); a change
+        // the light names compared byte by byte (strcmp); a change
         // prints (old, new) and copies at most 0x1f characters with the length at +0x1c.
         if (strcmp(Existing->LgtEffect, Incoming->LgtEffect) != 0)
         {
@@ -605,7 +601,7 @@ namespace
             Existing->LgtEffectLen = static_cast<unsigned>(Len);
         }
 
-        // 0x0040e828..0x0040e8aa: FCOMP / TEST AH,0x44 / JNP skips only on "equal" (C3 alone);
+        // FCOMP / TEST AH,0x44 / JNP skips only on "equal" (C3 alone);
         // a difference or an unordered pair prints (old, new) as doubles and copies.
         if (Incoming->LgtRangeScale != Existing->LgtRangeScale)
         {
@@ -624,7 +620,7 @@ namespace
             Existing->LgtTimeScale = Incoming->LgtTimeScale;
         }
 
-        // 0x0040e8ad..0x0040e8dc: the colour as one dword.
+        // the colour as one dword.
         unsigned const OldColor = EffectArchColorDword(Existing);
         unsigned const NewColor = EffectArchColorDword(Incoming);
         if (NewColor != OldColor)
@@ -637,7 +633,7 @@ namespace
             Existing->LgtColorA = Incoming->LgtColorA;
         }
 
-        // 0x0040e8df..0x0040e91e.
+        // .
         if (Incoming->LgtRadius != Existing->LgtRadius)
         {
             FDUMP(0x100002, "%s(%d) : *** WARNING: %2.f: 'lgt_radius' changed to %2.f.",
@@ -646,7 +642,7 @@ namespace
             Existing->LgtRadius = Incoming->LgtRadius;
         }
 
-        // 0x0040e921..0x0040e950: the flags dword.
+        // the flags dword.
         unsigned const OldFlags = EffectArchFlagsDword(Existing);
         unsigned const NewFlags = EffectArchFlagsDword(Incoming);
         if (NewFlags != OldFlags)
@@ -660,27 +656,27 @@ namespace
         }
     }
 
-    // FUN_0040eac0's [Effect] branch (0x0040eb4a..0x0040ec93).
+    // 's [Effect] branch (0x0040eb4a..0x0040ec93).
     void LoadEffectSection(INI_Reader* Reader, bool bReload)
     {
-        // 0x0040eb4a..0x0040eba9: operator new(0x58) and the inlined FUN_0040e250 (a failed
-        // new leaves a null arch, which the value loop then writes through, as retail).
+        // operator new(0x58) and the inlined the routine (a failed
+        // new leaves a null arch, which the value loop then writes through, as baseline).
         FEffectArch* const Arch = static_cast<FEffectArch*>(operator new(sizeof(FEffectArch)));
         if (Arch != nullptr)
             EffectArchConstruct(Arch);
 
-        // 0x0040ebab..0x0040ebd6: every value through FUN_0040e300.
+        // every value through the routine.
         while (Reader->read_value())
             EffectArchParseValue(Arch, Reader);
 
-        // 0x0040ebd8..0x0040ebfe: FUN_0046d6d0 -- insert {+0x04, arch}; a new key is done.
+        // the routine -- insert {+0x04, arch}; a new key is done.
         std::pair<std::map<unsigned, FEffectArch*>::iterator, bool> const Inserted =
             G_EffectArchs.insert(std::make_pair(Arch->NicknameId, Arch));
         if (Inserted.second)
             return;
 
-        // 0x0040ec04..0x0040ec46: the key exists -- a reload merges into the registered arch
-        // (FUN_0040e6e0), otherwise the second version is refused with a warning.
+        // the key exists -- a reload merges into the registered arch
+        // (the routine), otherwise the second version is refused with a warning.
         if (bReload)
         {
             EffectArchMerge(Inserted.first->second, Arch);
@@ -693,7 +689,7 @@ namespace
                   kEffectArchCpp, 0xfc, EffectArchNickname(Arch));
         }
 
-        // 0x0040ec49..0x0040ec8e: the unused copy destroyed (inlined FUN_0040e2a0) and freed.
+        // the unused copy destroyed (inlined the routine) and freed.
         if (Arch != nullptr)
         {
             EffectArchDestruct(Arch);
@@ -701,33 +697,33 @@ namespace
         }
     }
 
-    // FUN_0042e290 (cdecl) -- once (DAT_00667e14), with an FxRuntime: IFxRuntime +0x10 and
-    // +0x0c get DALib::Alchemy, +0x14 gets DALib::FxEffectLibrary.
+    // (cdecl) -- once (the field), with an FxRuntime: IFxRuntime +0x10 and
+    // +0x0c get NeuronRuntime::ParticleFx, +0x14 gets NeuronRuntime::FxEffectLibrary.
     void VisEffectBindFxRuntime()
     {
         if (G_bFxRuntimeBound)
             return;
         G_bFxRuntimeBound = true;
-        if (DALib::FxRuntime == nullptr)
+        if (NeuronRuntime::FxRuntime == nullptr)
             return;
-        DALib::FxRuntime->BindUnknown(DALib::Alchemy);
-        DALib::FxRuntime->BindAlchemy(DALib::Alchemy);
-        DALib::FxRuntime->BindEffectLibrary(DALib::FxEffectLibrary);
+        NeuronRuntime::FxRuntime->BindUnknown(NeuronRuntime::ParticleFx);
+        NeuronRuntime::FxRuntime->BindParticleFx(NeuronRuntime::ParticleFx);
+        NeuronRuntime::FxRuntime->BindEffectLibrary(NeuronRuntime::FxEffectLibrary);
     }
 
-    // FUN_0042e2f0 (cdecl) -- DALib::Alchemy vt+0x24 (ClearNodeLibrary) and
-    // DALib::FxEffectLibrary vt+0x24 (ClearEffects), each when present; the bind latch drops.
+    // (cdecl) -- NeuronRuntime::ParticleFx vt+0x24 (ClearNodeLibrary) and
+    // NeuronRuntime::FxEffectLibrary vt+0x24 (ClearEffects), each when present; the bind latch drops.
     void VisEffectUnbindFxRuntime()
     {
-        if (DALib::Alchemy != nullptr)
-            DALib::Alchemy->ClearNodeLibrary();
-        if (DALib::FxEffectLibrary != nullptr)
-            DALib::FxEffectLibrary->ClearEffects();
+        if (NeuronRuntime::ParticleFx != nullptr)
+            NeuronRuntime::ParticleFx->ClearNodeLibrary();
+        if (NeuronRuntime::FxEffectLibrary != nullptr)
+            NeuronRuntime::FxEffectLibrary->ClearEffects();
         G_bFxRuntimeBound = false;
     }
 
-    // FUN_0042dc40 -- one [VisEffect] section: "nickname" selects the entry (find-or-insert,
-    // FUN_0042eaa0 on DAT_00667df0); every other key goes to FUN_0042de30 on the selected
+    // one [VisEffect] section: "nickname" selects the entry (find-or-insert,
+    // on the field); every other key goes to the routine on the selected
     // entry, and keys before the first nickname are dropped. Returns whether an entry was
     // selected (0x0042dcc1..0x0042dcc6 SETNZ); the one caller (0x0040ecdf) drops it.
     bool VisEffectLoadSection(INI_Reader* Reader)
@@ -739,9 +735,9 @@ namespace
         {
             if (Reader->is_value("nickname"))
             {
-                // 0x0042dc7b..0x0042dca4: StringAlloc(value, false); FUN_0042eaa0 on
-                // DAT_00667df0 finds the entry or inserts a default one (the node build
-                // 0x0042eac5..0x0042eb07), and its first field takes the StringAlloc'd pointer
+                // StringAlloc(value, false); the routine on
+                // finds the entry or inserts a default one (the node build
+                // ), and its first field takes the StringAlloc'd pointer
                 // either way.
                 char const* const Nick = StringAlloc(Reader->get_value_string(), false);
                 Entry = &G_VisEffects[std::string(Nick)];
@@ -749,25 +745,25 @@ namespace
             }
             else if (Entry != nullptr)
             {
-                // FUN_0042de30 (thiscall, RET 4): the first matching key wins.
+                // (thiscall, RET 4): the first matching key wins.
                 if (Reader->is_value("effect_crc"))
                 {
-                    // 0x0042de51: get_value_int(0) into +0x04.
+                    // get_value_int(0) into +0x04.
                     Entry->EffectCrc = static_cast<unsigned long>(Reader->get_value_int(0));
                 }
                 else if (Reader->is_value("has_alpha"))
                 {
-                    // 0x0042de70..0x0042de82: bit 0 of +0x1c = get_value_bool(0).
+                    // bit 0 of +0x1c = get_value_bool(0).
                     Entry->bHasAlpha = Reader->get_value_bool(0);
                 }
-                else if (Reader->is_value("alchemy"))
+                else if (Reader->is_value("particlefx"))
                 {
-                    // 0x0042de9a..0x0042deb9: StringAlloc'd name into +0x08.
-                    CopyZ(Entry->AlchemyPath, MAX_PATH, Reader->get_value_string());
+                    // StringAlloc'd name into +0x08.
+                    CopyZ(Entry->ParticleFxPath, MAX_PATH, Reader->get_value_string());
                 }
                 else if (Reader->is_value("textures"))
                 {
-                    // 0x0042ded3..0x0042e06c: StringAlloc'd name appended to +0x0c.
+                    // StringAlloc'd name appended to +0x0c.
                     char const* const Texture = Reader->get_value_string();
                     Entry->Textures.push_back(std::string(Texture != nullptr ? Texture : ""));
                 }
@@ -780,52 +776,52 @@ namespace
 
 int EffectArchLoadIni(char const* Path, bool bReload)
 {
-    // FUN_0040eac0. 0x0040eae1: FUN_0042e290 binds the FxRuntime (once).
+    // . 0x0040eae1: the routine binds the FxRuntime (once).
     VisEffectBindFxRuntime();
 
-    // 0x0040eae6: the registry size now (DAT_006164c0); the answer is the growth.
+    // the registry size now (the field); the answer is the growth.
     size_t const OldCount = G_EffectArchs.size();
 
-    // 0x0040eaf3..0x0040eb29: an INI_Reader on the stack; a file that does not open, or one
+    // an INI_Reader on the stack; a file that does not open, or one
     // without a first header, reads nothing.
     INI_Reader Reader;
     if (Reader.open(Path, false) && Reader.read_header())
     {
         do
         {
-            // 0x0040eb31..0x0040ed09: the section headers in retail's test order.
+            // the section headers in baseline's test order.
             if (Reader.is_header("Effect"))
             {
                 LoadEffectSection(&Reader, bReload);
             }
             else if (Reader.is_header("EffectLOD"))
             {
-                LoadEffectLodSection(&Reader);  // FUN_0042dae0
+                LoadEffectLodSection(&Reader);
             }
             else if (Reader.is_header("EffectType"))
             {
-                LoadEffectTypeSection(&Reader); // FUN_004fd5a0
+                LoadEffectTypeSection(&Reader);
             }
             else if (Reader.is_header("VisEffect"))
             {
-                VisEffectLoadSection(&Reader);  // FUN_0042dc40
+                VisEffectLoadSection(&Reader);
             }
             else if (Reader.is_header("BeamSpear") || Reader.is_header("BeamBolt"))
             {
-                // 0x0040ece6..0x0040ed09: either beam header reaches the one FUN_0042e850 call,
+                // either beam header reaches the one the routine call,
                 // which reads the kind from the header itself.
                 LoadBeamSection(&Reader);
             }
         } while (Reader.read_header());
     }
 
-    // 0x0040ed25..0x0040ede7: the INI_Reader goes out of scope; the growth is returned.
+    // the INI_Reader goes out of scope; the growth is returned.
     return static_cast<int>(G_EffectArchs.size() - OldCount);
 }
 
 void EffectArchConstruct(FEffectArch* Arch)
 {
-    // FUN_0040e250 (and 0x0040eb66..0x0040eba0 inline).
+    // (and 0x0040eb66..0x0040eba0 inline).
     Arch->EffectType = 0;          // +0x00
     Arch->NicknameId = 0;          // +0x04  ID_String()
     Arch->VisEffect = nullptr;     // +0x08
@@ -851,8 +847,8 @@ void EffectArchConstruct(FEffectArch* Arch)
 
 void EffectArchDestruct(FEffectArch* Arch)
 {
-    // FUN_0040e2a0 (and 0x0040ec51..0x0040ec8b / 0x0040ef4e..0x0040efa0 inline): with
-    // references still out, warn and drop every one of them (FUN_0040e990's body).
+    // (and 0x0040ec51..0x0040ec8b / 0x0040ef4e..0x0040efa0 inline): with
+    // references still out, warn and drop every one of them (the routine's body).
     int Dangling = Arch->RefCount;
     if (Dangling <= 0)
         return;
@@ -869,8 +865,8 @@ void EffectArchDestruct(FEffectArch* Arch)
 
 void EffectArchShutdown()
 {
-    // FUN_0040ef30. 0x0040ef36..0x0040efe7: in key order, every non-null arch destroyed
-    // (inlined FUN_0040e2a0) and freed; the nodes stay until the clear below.
+    // . 0x0040ef36..0x0040efe7: in key order, every non-null arch destroyed
+    // (inlined the routine) and freed; the nodes stay until the clear below.
     for (std::map<unsigned, FEffectArch*>::iterator It = G_EffectArchs.begin();
          It != G_EffectArchs.end(); ++It)
     {
@@ -881,18 +877,18 @@ void EffectArchShutdown()
         operator delete(Arch);
     }
 
-    // 0x0040efee..0x0040f073: every node erased (FUN_0040f0d0 for the whole tree, else
-    // FUN_0046c8c0 one by one), the size back to 0.
+    // every node erased (the routine for the whole tree, else
+    // one by one), the size back to 0.
     G_EffectArchs.clear();
 
-    // 0x0040f040 / 0x0040f079: JMP FUN_0042e2f0.
+    // / 0x0040f079: JMP the routine.
     VisEffectUnbindFxRuntime();
 }
 
 FVisEffectArch* FindVisEffectByNickname(char const* Nickname)
 {
-    // FUN_0042dd20 (cdecl; retail takes the StringAlloc'd CacheString by address): the lower
-    // bound of DAT_00667df0 (FUN_0052c7a0), a hit when it is not the head and the key is not
+    // (cdecl; baseline takes the StringAlloc'd CacheString by address): the lower
+    // bound of the field (the routine), a hit when it is not the head and the key is not
     // below the node's (0x0042dd3a..0x0042dd47); the VisEffect at node + 0x10, else null. Every
     // caller passes a StringAlloc result, which is never null (an empty text is a valid key).
     std::map<std::string, FVisEffectArch, FAleNameLess>::iterator Found =
@@ -904,10 +900,10 @@ FVisEffectArch* FindVisEffectByNickname(char const* Nickname)
 
 FBeamEffectArch* FindBeamEffectArchByNickname(char const* Nickname)
 {
-    // FUN_0042e9e0 (cdecl, &StringAlloc'd CacheString): the lower bound of DAT_00667d78
-    // (FUN_0052c7a0), a hit when it is not the head (DAT_00667d7c) and the key is not below
+    // (cdecl, &StringAlloc'd CacheString): the lower bound of the field
+    // (the routine), a hit when it is not the head (the field) and the key is not below
     // the node's (0x0042e9fa..0x0042ea07); node + 0x10, else null. The one caller (vis_beam,
-    // 0x0040e4ec..) passes a StringAlloc result.
+    // ..) passes a StringAlloc result.
     std::map<std::string, FBeamEffectArch, FAleNameLess>::iterator Found =
         G_BeamArches.find(std::string(Nickname));
     if (Found == G_BeamArches.end())
@@ -917,13 +913,13 @@ FBeamEffectArch* FindBeamEffectArchByNickname(char const* Nickname)
 
 FEffectArch* FindEffectArch(unsigned const* NicknameId)
 {
-    // FUN_0040f080 (cdecl). 0x0040f082..0x0040f08c: FUN_0052c7a0, lower_bound on the
-    // DAT_006164b0 registry with the key read through the pointer.
+    // (cdecl). 0x0040f082..0x0040f08c: the routine, lower_bound on the
+    // registry with the key read through the pointer.
     std::map<unsigned, FEffectArch*>::iterator const Found = G_EffectArchs.lower_bound(*NicknameId);
-    // 0x0040f097..0x0040f0b9: end, or a key below the node's (unsigned JC), is a miss.
+    // end, or a key below the node's (unsigned JC), is a miss.
     if (Found == G_EffectArchs.end() || *NicknameId < Found->first)
         return nullptr;
-    // 0x0040f0bb: the node's value (+0x10).
+    // the node's value (+0x10).
     return Found->second;
 }
 
@@ -937,50 +933,50 @@ FEffectArch* FindEffectArchByNickname(char const* Nickname)
 
 void EffectArchAddRef(FEffectArch* Arch, unsigned UnusedArg)
 {
-    // FUN_0040e960. 0x0040e963: VisEffect (+0x08) non-null -> FUN_0042e080; its result is
+    // . 0x0040e963: VisEffect (+0x08) non-null -> the routine; its result is
     // not read.
     (void)UnusedArg;
     if (Arch->VisEffect != nullptr)
         VisEffectArchAddRef(Arch->VisEffect);
-    // 0x0040e96f: SoundArch (+0x18) non-null -> vt+0x0c (slot 3, FUN_0042b840 acquire).
+    // SoundArch (+0x18) non-null -> vt+0x0c (slot 3, the routine acquire).
     if (Arch->SndEffect != nullptr)
         AcquireClientSoundArch(Arch->SndEffect);
-    // 0x0040e97b.
+    // .
     Arch->RefCount = Arch->RefCount + 1;
 }
 
 void EffectArchRelease(FEffectArch* Arch)
 {
-    // FUN_0040e990. 0x0040e993: VisEffect non-null -> FUN_0042e160; result not read.
+    // . 0x0040e993: VisEffect non-null -> the routine; result not read.
     if (Arch->VisEffect != nullptr)
         VisEffectArchRelease(Arch->VisEffect);
-    // 0x0040e99f: SoundArch -> vt+0x10 (slot 4, FUN_0042b8a0 release).
+    // SoundArch -> vt+0x10 (slot 4, the routine release).
     if (Arch->SndEffect != nullptr)
         ReleaseClientSoundArch(Arch->SndEffect);
-    // 0x0040e9ab.
+    // .
     Arch->RefCount = Arch->RefCount - 1;
 }
 
 FVisEffectArch::~FVisEffectArch()
 {
-    // FUN_0042edb0, listing-traced 0x0042edb0..0x0042ee6f (ESI = the VisEffect at pair + 4).
-    // 0x0042edcf..0x0042edde: only a VisEffect still referenced (+0x20 > 0) gives anything back.
+    // , listing-traced 0x0042edb0..0x0042ee6f (ESI = the VisEffect at pair + 4).
+    // only a VisEffect still referenced (+0x20 > 0) gives anything back.
     if (RefCount > 0)
     {
-        // 0x0042ede3..0x0042ee21: FUN_0041b030 on every texture slot (bound re-read each step),
-        // then the list emptied (end = begin) -- the loop FUN_0042e160 has too.
+        // the routine on every texture slot (bound re-read each step),
+        // then the list emptied (end = begin) -- the loop the routine has too.
         VisEffectArchReleaseTextures(this);
-        // 0x0042ee24..0x0042ee30: FUN_00401300(+0x24), then +0x24 = -1.
+        // the routine(+0x24), then +0x24 = -1.
         AleLibRelease(AleHandle);
         AleHandle = -1;
     }
-    // 0x0042ee38..0x0042ee60: both vector buffers freed (+0x2c texture slots, +0x10 texture
+    // both vector buffers freed (+0x2c texture slots, +0x10 texture
     // names) -- the std::vector members' own destructors.
 }
 
 bool VisEffectArchAddRef(FVisEffectArch* Vis)
 {
-    // FUN_0042e080. 0x0042e084: a live reference only counts up (and answers false).
+    // . 0x0042e084: a live reference only counts up (and answers false).
     bool bLoaded = false;
     if (Vis->RefCount > 0)
     {
@@ -988,27 +984,27 @@ bool VisEffectArchAddRef(FVisEffectArch* Vis)
         return bLoaded;
     }
 
-    // 0x0042e091..0x0042e0b9: texture slots are rebuilt when their count differs from the
+    // texture slots are rebuilt when their count differs from the
     // texture names (both empty vectors count 0).
     if (Vis->TextureSlots.size() != Vis->Textures.size())
     {
         VisEffectArchReleaseTextures(Vis);
-        // 0x0042e103: FUN_0042e1d0; its answer is not read.
+        // the routine; its answer is not read.
         VisEffectArchLoadTextures(Vis);
     }
 
-    // 0x0042e109: an empty ale name is an error; the count still goes up.
-    if (Vis->AlchemyPath[0] == '\0')
+    // an empty ale name is an error; the count still goes up.
+    if (Vis->ParticleFxPath[0] == '\0')
     {
         FDUMP(0x100001, "%s(%d) : *** ERROR: %s",
-              "E:\\FL\\Scratch\\Source\\Client\\cmn\\VisEffectArch.cpp", 0x13a,
+              "Client\\cmn\\VisEffectArch.cpp", 0x13a,
               "[VisEffect]: Missing ale file name!");
         Vis->RefCount += 1;
         return bLoaded;
     }
 
-    // 0x0042e114: FUN_00401160(&ale name) -> +0x24.
-    Vis->AleHandle = AleLibLoad(Vis->AlchemyPath);
+    // the routine(&ale name) -> +0x24.
+    Vis->AleHandle = AleLibLoad(Vis->ParticleFxPath);
     if (Vis->AleHandle != -1)
         bLoaded = true;
     Vis->RefCount += 1;
@@ -1017,14 +1013,14 @@ bool VisEffectArchAddRef(FVisEffectArch* Vis)
 
 bool VisEffectArchRelease(FVisEffectArch* Vis)
 {
-    // FUN_0042e160. 0x0042e163: --count; anything but zero answers false.
+    // . 0x0042e163: --count; anything but zero answers false.
     Vis->RefCount -= 1;
     if (Vis->RefCount != 0)
         return false;
 
-    // 0x0042e16f..0x0042e1af: every texture slot released, the list emptied.
+    // every texture slot released, the list emptied.
     VisEffectArchReleaseTextures(Vis);
-    // 0x0042e1b2..0x0042e1be: FUN_00401300(+0x24), then +0x24 = -1.
+    // the routine(+0x24), then +0x24 = -1.
     AleLibRelease(Vis->AleHandle);
     Vis->AleHandle = -1;
     return true;
@@ -1032,12 +1028,12 @@ bool VisEffectArchRelease(FVisEffectArch* Vis)
 
 int AleLibLoad(char const* AleName)
 {
-    // FUN_00401160 (cdecl; retail takes the CacheString by address and reads its char*).
-    // 0x0040117d: an empty name is refused outright.
+    // (cdecl; baseline takes the CacheString by address and reads its char*).
+    // an empty name is refused outright.
     if (AleName[0] == '\0')
         return -1;
 
-    // 0x0040119a..0x004011c0: a registered name gains a use and hands back its handle.
+    // a registered name gains a use and hands back its handle.
     int Handle = -1;
     std::map<std::string, FAleLibEntry, FAleNameLess>::iterator Found =
         G_AleLib.find(std::string(AleName));
@@ -1049,12 +1045,12 @@ int AleLibLoad(char const* AleName)
     if (Handle != -1)
         return Handle;
 
-    // 0x004011ce: nothing more without DALib::Alchemy.
-    if (DALib::Alchemy == nullptr)
+    // nothing more without NeuronRuntime::ParticleFx.
+    if (NeuronRuntime::ParticleFx == nullptr)
         return Handle;
 
-    // 0x004011df..0x00401244: the DALib::OpenData-shaped FileSystem desc (as FUN_00420dd0
-    // builds it), created through DALib::Data vt+0xc.
+    // the NeuronRuntime::OpenData-shaped FileSystem desc (as the routine
+    // builds it), created through NeuronRuntime::Data vt+0xc.
     FFileSystemAggDesc Desc;
     memset(&Desc, 0, sizeof(Desc));
     Desc.Size = 0x34;
@@ -1067,16 +1063,16 @@ int AleLibLoad(char const* AleName)
     Desc.Field30 = 0xffffffffu;
 
     void* FsOut = nullptr;
-    if (static_cast<IFileSystem*>(DALib::Data)
+    if (static_cast<IFileSystem*>(NeuronRuntime::Data)
             ->CreateInstance(reinterpret_cast<AGGDESC*>(&Desc), &FsOut) == 0)
     {
         IFileSystem* const Filesys = static_cast<IFileSystem*>(FsOut);
-        // 0x0040124b: Alchemy vt+0xc (LoadNodeLibrary), 0x0040125e: FxEffectLibrary vt+0x20
+        // ParticleFx vt+0xc (LoadNodeLibrary), 0x0040125e: FxEffectLibrary vt+0x20
         // (LoadAle); neither result is read.
-        DALib::Alchemy->LoadNodeLibrary(Filesys);
-        DALib::FxEffectLibrary->LoadAle(Filesys);
+        NeuronRuntime::ParticleFx->LoadNodeLibrary(Filesys);
+        NeuronRuntime::FxEffectLibrary->LoadAle(Filesys);
 
-        // 0x00401270..0x004012a6: a fresh handle, registered with one use.
+        // a fresh handle, registered with one use.
         Handle = G_AleLibNextHandle;
         G_AleLibNextHandle += 1;
         FAleLibEntry Entry;
@@ -1086,12 +1082,12 @@ int AleLibLoad(char const* AleName)
     }
     else
     {
-        // 0x004012b0.
+        // .
         FDUMP(0x100001, "%s(%d) : *** ERROR: Failed to load %s.",
-              "E:\\FL\\Scratch\\Source\\Client\\cmn\\ALELib.cpp", 0x5c, AleName);
+              "Client\\cmn\\ALELib.cpp", 0x5c, AleName);
     }
 
-    // 0x004012cf..0x004012e2: the file system is released whichever way it went.
+    // the file system is released whichever way it went.
     if (FsOut != nullptr)
         static_cast<IFileSystem*>(FsOut)->Release();
     return Handle;
@@ -1099,11 +1095,11 @@ int AleLibLoad(char const* AleName)
 
 int AleLibRelease(int Handle)
 {
-    // FUN_00401300 (cdecl). 0x00401309: -1 is answered with -1.
+    // (cdecl). 0x00401309: -1 is answered with -1.
     if (Handle == -1)
         return -1;
 
-    // 0x0040130e..0x00401338: linear walk for the entry holding Handle; none -> -1.
+    // linear walk for the entry holding Handle; none -> -1.
     std::map<std::string, FAleLibEntry, FAleNameLess>::iterator It = G_AleLib.begin();
     while (It != G_AleLib.end())
     {
@@ -1114,21 +1110,21 @@ int AleLibRelease(int Handle)
     if (It == G_AleLib.end())
         return -1;
 
-    // 0x0040133f..0x00401371: one use fewer; below zero is an error. Nothing is unloaded.
+    // one use fewer; below zero is an error. Nothing is unloaded.
     It->second.RefCount -= 1;
     int const Count = It->second.RefCount;
     if (Count != 0 && Count < 0)
     {
         FDUMP(0x100001, "%s(%d) : *** ERROR: %s ref count < 0!",
-              "E:\\FL\\Scratch\\Source\\Client\\cmn\\ALELib.cpp", 0x7d, It->first.c_str());
+              "Client\\cmn\\ALELib.cpp", 0x7d, It->first.c_str());
     }
     return Count;
 }
 
 int AleLibShutdown()
 {
-    // FUN_00401380 (cdecl, no arguments).
-    // 0x00401397..0x004013d8: an in-order walk; a positive use count (node + 0x10, JLE skips
+    // (cdecl, no arguments).
+    // an in-order walk; a positive use count (node + 0x10, JLE skips
     // zero and below) is reported with the name and the count, and counted (EBX).
     int Dangling = 0;
     std::map<std::string, FAleLibEntry, FAleNameLess>::iterator It = G_AleLib.begin();
@@ -1137,14 +1133,14 @@ int AleLibShutdown()
         if (It->second.RefCount > 0)
         {
             FDUMP(0x100002, "%s(%d) : *** WARNING: ALELib::Shutdown(): %s has %d dangling refs.",
-                  "E:\\FL\\Scratch\\Source\\Client\\cmn\\ALELib.cpp", 0x96, It->first.c_str(),
+                  "Client\\cmn\\ALELib.cpp", 0x96, It->first.c_str(),
                   It->second.RefCount);
             ++Dangling;
         }
     }
 
-    // 0x004013da..0x00401445: erase(begin, end) -- whole-tree free (FUN_00401b50 per subtree)
-    // or node by node; the map ends empty. The handle counter DAT_006101d0 is left alone.
+    // erase(begin, end) -- whole-tree free (the routine per subtree)
+    // or node by node; the map ends empty. The handle counter the field is left alone.
     G_AleLib.clear();
     return Dangling;
 }

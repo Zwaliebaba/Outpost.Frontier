@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 // Common.dll PUB batch — pub::AI namespace implementations.
@@ -24,12 +20,12 @@ namespace pub { namespace AI {
 
 GSplinePath::GSplinePath()
 {
-    // .text:06261260: `MOV EAX,this; RET` -- nothing is initialised.
+    // `MOV EAX,this; RET` -- nothing is initialised.
 }
 
 GSplinePath& GSplinePath::operator=(GSplinePath const& Other)
 {
-    // .text:06274100: `MOV ECX,0xc; MOV EDI,this; REP MOVSD` -- 12 dwords, no self-check.
+    // `MOV ECX,0xc; MOV EDI,this; REP MOVSD` -- 12 dwords, no self-check.
     std::memcpy(this, &Other, sizeof(GSplinePath));
     return *this;
 }
@@ -39,10 +35,10 @@ GSplinePath& GSplinePath::operator=(GSplinePath const& Other)
 // ============================================================================
 
 // RE NOTE (2026-09-05): every sub-struct below was rebuilt byte-for-byte from
-// the real retail default ctors in Common.dll.c (see common_pub.h for the
+// the real baseline default ctors in Common (see common_pub.h for the
 // full methodology note and per-struct addresses). Each ctor here writes the
-// exact retail hex constant at each offset; operator= is a raw memberwise
-// copy (equivalent to retail's dword-copy loops, since every one of these
+// exact baseline hex constant at each offset; operator= is a raw memberwise
+// copy (equivalent to baseline's dword-copy loops, since every one of these
 // structs is a plain-old-data value type with no pointers).
 
 Personality::EvadeDodgeUseStruct::EvadeDodgeUseStruct()
@@ -216,7 +212,7 @@ Personality::RepairUseStruct::RepairUseStruct()
 
 Personality::RepairUseStruct& Personality::RepairUseStruct::operator=(RepairUseStruct const& Other)
 {
-    // 06263b40 (ICF-shared with MarshalBuffer::operator=): REP MOVSD of 6 dwords, no self test.
+    // (ICF-shared with MarshalBuffer::operator=): REP MOVSD of 6 dwords, no self test.
     UseShieldRepairPreDelay = Other.UseShieldRepairPreDelay;
     UseShieldRepairAtDamagePercent = Other.UseShieldRepairAtDamagePercent;
     UseShieldRepairPostDelay = Other.UseShieldRepairPostDelay;
@@ -300,8 +296,8 @@ Personality::DamageReactionStruct::DamageReactionStruct()
     , FireMissilesDamageTriggerTime(0.5f)
     , FireGunsDamageTriggerPercent(1.0f)
     , FireGunsDamageTriggerTime(1.0f)
-    , Field_3C(0.0f) // not written by retail ctor
-    , Field_40(0.0f) // not written by retail ctor
+    , Field_3C(0.0f) // not written by baseline ctor
+    , Field_40(0.0f) // not written by baseline ctor
 {
 }
 
@@ -372,7 +368,7 @@ Personality::FormationUseStruct& Personality::FormationUseStruct::operator=(Form
     return *this;
 }
 
-// .text:062da980. Retail writes AttackPreferences[0], AttackPreferences[1].ShipClass and
+// . baseline writes AttackPreferences[0], AttackPreferences[1].ShipClass and
 // AttackSubtargetOrder[0..1] only; the rest of both arrays, bWaitForLeaderTarget and
 // ScanForCargo are left as they were. The port zeroes them (over-initialisation).
 Personality::JobStruct::JobStruct()
@@ -408,7 +404,7 @@ Personality::JobStruct::JobStruct()
 
 Personality::JobStruct& Personality::JobStruct::operator=(JobStruct const& Other)
 {
-    // .text:062a8890: REP MOVSD of 0x4E dwords, no self test.
+    // REP MOVSD of 0x4E dwords, no self test.
     std::memcpy(this, &Other, sizeof(*this));
     return *this;
 }
@@ -417,7 +413,7 @@ Personality::JobStruct& Personality::JobStruct::operator=(JobStruct const& Other
 // Personality
 // ============================================================================
 
-// Export ordinal 1947, retail .rdata 0x063a05a8 = -1.0f. Seed for JobStruct::ScanChance
+// Export ordinal 1947, baseline .rdata 0x063a05a8 = -1.0f. Seed for JobStruct::ScanChance
 // (loaded at 062da9c1 and stored to JobStruct+0x130); see common_pub.h for the write-up.
 float const Personality::SCAN_CHANCE_DEFAULT = -1.0f;
 
@@ -441,7 +437,7 @@ Personality::Personality()
 {
 }
 
-// No user copy constructor: retail exports none (see common_pub.h); the
+// No user copy constructor: baseline exports none (see common_pub.h); the
 // implicit one is the same bitwise copy this file used to spell out by hand.
 
 Personality& Personality::operator=(Personality const& Other)
@@ -452,7 +448,7 @@ Personality& Personality::operator=(Personality const& Other)
 
 float Personality::get_toughness_ratio(TOUGHNESS_TYPE Type)
 {
-    // Common.dll.c 0x48780 — a hardcoded switch, not a table lookup.
+    // Common 0x48780 — a hardcoded switch, not a table lookup.
     switch (Type)
     {
     case ToughnessDefault: return 0.15f;
@@ -466,8 +462,8 @@ float Personality::get_toughness_ratio(TOUGHNESS_TYPE Type)
 
 double Personality::get_range_threshold_value()
 {
-    // .text:062a87e0: FLD float 5000.0 (DAT_0639e0c8), then for JobParams.Field_00 == 1 /
-    // == 2 FMUL double 2/3 (DAT_0639e0f0) / 1/3 (DAT_0639e0e8), returned unrounded in ST0.
+    // FLD float 5000.0 (the field), then for JobParams.Field_00 == 1 /
+    // == 2 FMUL double 2/3 (the field) / 1/3 (the field), returned unrounded in ST0.
     double const Base = 5000.0f;
     if (JobParams.Field_00 == 1)
         return Base * 0.66666666666666663;
@@ -536,7 +532,7 @@ DirectiveGotoOp::DirectiveGotoOp(DirectiveGotoOp const& Other)
 
 bool DirectiveGotoOp::validate()
 {
-    // Common.dll.c 0x7aea0 — the NaN-safe-squared-magnitude checks in retail
+    // Common 0x7aea0 — the NaN-safe-squared-magnitude checks in baseline
     // collapse to plain "!= 0.0f" comparisons under IEEE-754 (NaN compares
     // unequal to everything, including itself).
     if (Field_1C != 0 &&
@@ -579,7 +575,7 @@ bool DirectiveFollowOp::validate()
 }
 
 DirectiveFaceOp::DirectiveFaceOp()
-    // .text:062dafb0 stores Mode, TargetId, FacePoint (z, y, x) and Field_44 = 1 only;
+    // stores Mode, TargetId, FacePoint (z, y, x) and Field_44 = 1 only;
     // Orientation stays as it was. The port zeroes it (over-initialisation).
     : BaseOp(OpType_DirectiveFaceOp)
     , Mode(0)
@@ -591,7 +587,7 @@ DirectiveFaceOp::DirectiveFaceOp()
 }
 
 DirectiveFaceOp::DirectiveFaceOp(DirectiveFaceOp const& Other)
-    // .text:062a8b70: BaseOp words, Mode, TargetId, FacePoint (3 dwords), Orientation
+    // BaseOp words, Mode, TargetId, FacePoint (3 dwords), Orientation
     // (REP MOVSD 9), the byte at +0x44.
     : BaseOp(Other)
     , Mode(Other.Mode)
@@ -604,7 +600,7 @@ DirectiveFaceOp::DirectiveFaceOp(DirectiveFaceOp const& Other)
 
 bool DirectiveFaceOp::validate()
 {
-    // Common.dll.c 0x7afe0
+    // Common 0x7afe0
     if (Mode == 0)
         return false;
     if (Mode == 1 && TargetId == 0)
@@ -698,7 +694,7 @@ DirectiveFormationOp::DirectiveFormationOp(DirectiveFormationOp const& Other)
 
 bool DirectiveFormationOp::validate()
 {
-    return true; // Common.dll.c 0x1a710 (shared with Cancel/DrasticEvade/Idle)
+    return true; // Common 0x1a710 (shared with Cancel/DrasticEvade/Idle)
 }
 
 DirectiveEvadeOp::DirectiveEvadeOp()
@@ -748,7 +744,7 @@ DirectiveDrasticEvadeOp::DirectiveDrasticEvadeOp(DirectiveDrasticEvadeOp const& 
 
 bool DirectiveDrasticEvadeOp::validate()
 {
-    return true; // Common.dll.c 0x1a710 (shared with Cancel/Formation/Idle)
+    return true; // Common 0x1a710 (shared with Cancel/Formation/Idle)
 }
 
 DirectiveDockOp::DirectiveDockOp()
@@ -777,7 +773,7 @@ DirectiveDockOp::DirectiveDockOp(DirectiveDockOp const& Other)
 
 bool DirectiveDockOp::validate()
 {
-    // Common.dll.c 0x7b100
+    // Common 0x7b100
     if (DockObjectId == 0)
         return false;
     if (Field_14 != 0 && DockPortIndex == -1)
@@ -805,7 +801,7 @@ DirectiveLaunchOp::DirectiveLaunchOp(DirectiveLaunchOp const& Other)
 
 bool DirectiveLaunchOp::validate()
 {
-    // Common.dll.c 0x7b160
+    // Common 0x7b160
     if (LaunchObjectId == 0)
         return false;
     if (Field_10 == -1)
@@ -863,7 +859,7 @@ DirectiveCancelOp::DirectiveCancelOp(DirectiveCancelOp const& Other)
 
 bool DirectiveCancelOp::validate()
 {
-    return true; // Common.dll.c 0x1a710 (shared with DrasticEvade/Formation/Idle)
+    return true; // Common 0x1a710 (shared with DrasticEvade/Formation/Idle)
 }
 
 DirectiveWaitForShip::DirectiveWaitForShip()
@@ -899,7 +895,7 @@ DirectiveWaitForPlayerManeuverOp::DirectiveWaitForPlayerManeuverOp(DirectiveWait
 
 bool DirectiveWaitForPlayerManeuverOp::validate()
 {
-    // Common.dll.c 0x7b230
+    // Common 0x7b230
     int id = BehaviorTypes::get_behavior_id(BehaviorName);
     return id < 0x15 && id != -1;
 }
@@ -916,12 +912,12 @@ DirectiveIdleOp::DirectiveIdleOp(DirectiveIdleOp const& Other)
 
 bool DirectiveIdleOp::validate()
 {
-    return true; // Common.dll.c 0x1a710 (shared with Cancel/DrasticEvade/Formation)
+    return true; // Common 0x1a710 (shared with Cancel/DrasticEvade/Formation)
 }
 
-// DirectiveGuideOp — Common.dll.c 0x7b2a0. Embeds a default-constructed
+// DirectiveGuideOp — Common 0x7b2a0. Embeds a default-constructed
 // DirectiveGotoOp at +0x0C and a default-constructed DirectiveFollowOp at
-// +0x7C (retail writes the latter's fields inline rather than calling
+// +0x7C (baseline writes the latter's fields inline rather than calling
 // DirectiveFollowOp's ctor, but the values it writes are byte-for-byte
 // DirectiveFollowOp's own defaults).
 DirectiveGuideOp::DirectiveGuideOp()
@@ -952,7 +948,7 @@ DirectiveGuideOp::DirectiveGuideOp(DirectiveGuideOp const& Other)
 
 bool DirectiveGuideOp::validate()
 {
-    // Common.dll.c 0x7b350 — dispatches through both embedded objects' own
+    // Common 0x7b350 — dispatches through both embedded objects' own
     // (real) vtables; calling their validate() directly is equivalent.
     return GotoParams.validate() && FollowParams.validate();
 }
@@ -960,10 +956,10 @@ bool DirectiveGuideOp::validate()
 // ============================================================================
 // Parameter structs
 // ============================================================================
-//
+
 // RE NOTE (2026-09-05): SetFlagParams and SetZoneBehaviorParams did not
 // derive from BaseOp in the previous port despite their real copy ctors
-// (Common.dll.c 0x48DA0 / 0x48D10) showing the same BaseOp::_vftable_-then-
+// (Common 0x48DA0 / 0x48D10) showing the same BaseOp::_vftable_-then-
 // own-vtable patch pattern as every other class here. See common_pub.h.
 
 SetFlagParams::SetFlagParams()
@@ -1005,12 +1001,12 @@ SetPersonalityParams::SetPersonalityParams(SetPersonalityParams const& Other)
 
 bool SetPersonalityParams::validate()
 {
-    // Common.dll.c 0x7ad50 — checks StateGraphId against its -1 default sentinel.
+    // Common 0x7ad50 — checks StateGraphId against its -1 default sentinel.
     return StateGraphId != -1;
 }
 
 SetZoneBehaviorParams::SetZoneBehaviorParams()
-    // .text:062dad60 writes neither Mode nor the box; the port zeroes them (over-initialisation).
+    // writes neither Mode nor the box; the port zeroes them (over-initialisation).
     : BaseOp(OpType_SetZoneBehaviorParams)
     , Mode(0)
     , InvertMode(2)
@@ -1036,7 +1032,7 @@ SetZoneBehaviorParams::SetZoneBehaviorParams(SetZoneBehaviorParams const& Other)
 
 bool SetZoneBehaviorParams::validate()
 {
-    // .text:062dad90. Radius: `TEST AH,0x44; JP` continues on not-equal and on NaN.
+    // . Radius: `TEST AH,0x44; JP` continues on not-equal and on NaN.
     // TargetPoint: ((x*x + y*y) + z*z) on the FPU stack, `TEST AH,0x41; JNZ` -> false
     // unless the sum is greater than 0 (NaN -> false).
     if (InvertMode != 2)
@@ -1055,13 +1051,13 @@ bool SetZoneBehaviorParams::validate()
 
 // ============================================================================
 // ContentCallback -- the ten virtuals are header-inline (common_pub.h), as in
-// retail, which compiled and exported them in each module that saw the header.
+// baseline, which compiled and exported them in each module that saw the header.
 // ============================================================================
 
 // ============================================================================
 // DirectiveCallback
 // ============================================================================
 
-// Pure in retail (no DirectiveCallback vftable exists); nothing to define here.
+// Pure in baseline (no DirectiveCallback vftable exists); nothing to define here.
 
 }} // namespace pub::AI

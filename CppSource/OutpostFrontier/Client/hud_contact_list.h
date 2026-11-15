@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #pragma once
@@ -11,22 +7,22 @@
 // target panel swaps in (HUD_Target mode 0) and the formation list (mode 2): up to eight rows of
 // icon / range / name, a scroll bar and five filter buttons (important, ships, solars, loot,
 // all).
-//
+
 // RTTI HUD_ContactList : HUDItem @0, WinControl @0x38 (IDataViewOwner @0xb4), Event::Handler
 // @0x364. Size 0x478 (operator new at 0x004d46b6).
 // vftables:
-//   HUDItem face 0x005d7a5c (11 slots) -- overrides 0 FUN_004cf5b0 (scalar deleting dtor around
-//     FUN_004cf5d0) and 6 FUN_004d0170 Render.
-//   WinControl face 0x005d79a4 (45 slots) -- overrides 0 LAB_004d4aa0 (thunk, ECX -= 0x38, into
-//     FUN_004cf5b0), 9 FUN_004cf6a0 Create, 11 LAB_004d3db0 Update, 12 LAB_004d3dd0
-//     UpdateInactive, 13 LAB_004d24b0 Draw, 42 LAB_004cfdf0 SetProperty; every other slot is
+//   HUDItem face 0x005d7a5c (11 slots) -- overrides 0 the routine (scalar deleting dtor around
+// ) and 6 the routine Render.
+//   WinControl face 0x005d79a4 (45 slots) -- overrides 0 the branch (thunk, ECX -= 0x38, into
+// ), 9 the routine Create, 11 the branch Update, 12 the branch
+//     UpdateInactive, 13 the branch Draw, 42 the branch SetProperty; every other slot is
 //     WinControl's 0x005e5e44 entry.
-//   Handler 0x005d798c -- LAB_004d3e30 OnEvent.
-//
-// Factory: the static HUDFACTORY<HUD_ContactList> DAT_00674910 ("ContactList"; XC entry
-// LAB_004cefe0 runs the ctor FUN_004d4630 and registers LAB_004cf000 with atexit ->
-// FUN_004cf010, the unlink), vftable whose Create FUN_004d46a0 is operator new(0x478) +
-// FUN_004cf390.
+//   Handler 0x005d798c -- the branch OnEvent.
+
+// Factory: the static HUDFACTORY<HUD_ContactList> the field ("ContactList"; XC entry
+// runs the ctor the routine and registers the branch with atexit ->
+// , the unlink), vftable whose Create the routine is operator new(0x478) +
+// .
 // -------------------------------------------------------------------------------------------
 
 #include "event_handler.h"
@@ -49,23 +45,23 @@ struct FButtonMontageTile;
 struct FFontString;
 struct IObjRW;
 
-// DAT_0067494c -- "rebuild the contact list on the next Draw". Written 1 by FUN_004bcbf0
+// "rebuild the contact list on the next Draw". Written 1 by the routine
 // (0x004bcbfc; the best-path -> player-waypoint rebuild, not ported yet, so nothing in the
 // port raises it), cleared by the ctor (0x004cf590) and by Draw when it consumes it
 // (0x004d2532).
 extern unsigned char G_bHudContactListRefreshRequested;
 
-// One row source of the list (retail element 0x1c bytes in a VC6 std::list node of 0x24).
+// One row source of the list (baseline element 0x1c bytes in a VC6 std::list node of 0x24).
 struct FHudContactEntry
 {
-    // FUN_004cf030 (thiscall, RET 0x14) -- see the .cpp: the watcher takes Obj, and the
-    // distance, id and "is the player's target listed" latch (DAT_006748fc) come from the kind.
+    // (thiscall, RET 0x14) -- see the .cpp: the watcher takes Obj, and the
+    // distance, id and "is the player's target listed" latch (the field) come from the kind.
     FHudContactEntry(int InKind, IObjRW* Obj, float InDistance, unsigned InId, int InIndex);
-    // FUN_004d49b0 (node copy-construct, and the same body inlined at 0x004d2267 /
-    // 0x004d23ec): Kind, a fresh watcher on the other's target (BaseWatcher::set_pointer when it
-    // watches something, FUN_004d4a40), then Distance, Id, Index and the watch-list byte.
+    // (node copy-construct, and the same body inlined at 0x004d2267 /
+    // ): Kind, a fresh watcher on the other's target (BaseWatcher::set_pointer when it
+    // watches something, the routine), then Distance, Id, Index and the watch-list byte.
     FHudContactEntry(FHudContactEntry const& Other);
-    // FUN_004d0470 -- the watcher's release (~BaseWatcher); nothing else.
+    // the watcher's release (~BaseWatcher); nothing else.
 
     // Watcher.target() - 8, or null: the IObjRW the row stands for.
     IObjRW* Object() const;
@@ -85,40 +81,40 @@ private:
 class HUD_ContactList : public HUDItem, public WinControl, public EventHandler
 {
 public:
-    // FUN_004cf390 (thiscall, RET 4) -- the reader is not read.
+    // (thiscall, RET 4) -- the reader is not read.
     explicit HUD_ContactList(INI_Reader& Reader);
-    // FUN_004cf5d0 (scalar deleting FUN_004cf5b0; WinControl-face thunk LAB_004d4aa0)
+    // (scalar deleting the routine; WinControl-face thunk the branch)
     ~HUD_ContactList() override;
 
-    // HUDItem slot 6 FUN_004d0170 (RET 8) -- follow the target panel's mode: shown in modes 0
+    // HUDItem slot 6 the routine (RET 8) -- follow the target panel's mode: shown in modes 0
     // and 2; a mode change swaps the filter buttons for the formation title.
     void Render(FSpaceCamera* Camera, float DeltaSeconds) override;
 
-    // WinControl slot 9 FUN_004cf6a0 (RET 8) -- build the rows, the filter buttons and the scroll
+    // WinControl slot 9 the routine (RET 8) -- build the rows, the filter buttons and the scroll
     // bar; look the icon tiles up.
     bool Create(Win3D* NewParent, void* Data) override;
-    // WinControl slot 11 LAB_004d3db0 -- Win3D's child walk unless the mouse pick is blocked.
+    // WinControl slot 11 the branch -- Win3D's child walk unless the mouse pick is blocked.
     void Update() override;
-    // WinControl slot 12 LAB_004d3dd0 -- show the window when it should be up, then Win3D's
+    // WinControl slot 12 the branch -- show the window when it should be up, then Win3D's
     // inactive child walk.
     void UpdateInactive() override;
-    // WinControl slot 13 LAB_004d24b0 -- rebuild every 3 s (or when dirty), then refresh or lay
+    // WinControl slot 13 the branch -- rebuild every 3 s (or when dirty), then refresh or lay
     // out the visible rows and draw.
     void Draw() override;
-    // WinControl slot 42 LAB_004cfdf0 (RET 0xc) -- 0x26 click, 0x27 double click, 0x3e scroll.
+    // WinControl slot 42 the branch (RET 0xc) -- 0x26 click, 0x27 double click, 0x3e scroll.
     intptr_t SetProperty(int Msg, uintptr_t A, uintptr_t B) override;
 
-    // Event::Handler slot 0 LAB_004d3e30 (RET 4) -- 0x1d next / 0x1e previous contact.
+    // Event::Handler slot 0 the branch (RET 4) -- 0x1d next / 0x1e previous contact.
     bool OnEvent(unsigned MsgId) override;
 
-    // FUN_004cffa0 (thiscall on the HUDItem face, RET 4) -- select row Index of the list.
+    // (thiscall on the HUDItem face, RET 4) -- select row Index of the list.
     void SelectEntry(int Index);
-    // FUN_004d0490 (thiscall on the HUDItem face) -- rebuild Contacts.
+    // (thiscall on the HUDItem face) -- rebuild Contacts.
     void RebuildContacts();
-    // FUN_004d3fd0 (thiscall, RET 4; `this` is not read) -- the row kind of an object, -1 for
+    // (thiscall, RET 4; `this` is not read) -- the row kind of an object, -1 for
     // none. Callers: RebuildContacts 0x004d216e / 0x004d236d.
     int ClassifyContact(CSimple const* Object);
-    // FUN_004d0250 (thiscall, RET 8) -- push a ship row for Ship / its client object Gameobj.
+    // (thiscall, RET 8) -- push a ship row for Ship / its client object Gameobj.
     void AddShipEntry(CShip const* Ship, FClientGameobj* Gameobj);
 
     FButtonMontageTile* Tiles[16];     // +0x368 (WinControl +0x330) per-kind icon tile
@@ -127,9 +123,9 @@ public:
     WinControl* RangeTexts[8];         // +0x3cc (+0x394) "ContactListRangeText%d"
     WinControl* NameTexts[8];          // +0x3ec (+0x3b4) "ContactListNameText%d"
     UiScroll* Scroll;                  // +0x40c (+0x3d4) "ContactListScroll"
-    // +0x410 (+0x3d8) -- retail VC6 std::list<entry> (allocator byte, head +0x414, size
+    // +0x410 (+0x3d8) -- baseline VC6 std::list<entry> (allocator byte, head +0x414, size
     // +0x418, 0xc bytes). The port's std::list has another size, so the offsets below are the
-    // retail ones, not this build's.
+    // baseline ones, not this build's.
     std::list<FHudContactEntry> Contacts;
     unsigned ScrollPos;                // +0x41c (+0x3e4) ctor 0; first visible row
     float RebuildTimer;                // +0x420 (+0x3e8) ctor 3.0f

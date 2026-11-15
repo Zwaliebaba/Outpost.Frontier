@@ -1,7 +1,3 @@
-// OutpostFrontier is a reimplementation of the original 2003 game client and engine,
-// faithful to the behaviour of the original game.
-// This file was reconstructed by reverse engineering the original game's version 1.1 binaries,
-// developed by Digital Anvil.
 // Author: Giperion.
 
 #include "ui_fast_table.h"
@@ -16,9 +12,9 @@
 #include "win3d_immediate.h"
 #include "win_factory.h"
 
-#include "DALib.h"
+#include "NeuronRuntime.h"
 #include "common_csys.h"
-#include "dacom.h"
+#include "neuroncomponents.h"
 #include "render/IRenderPipeline.h"
 #include "x86math.h"
 
@@ -30,7 +26,7 @@
 
 namespace
 {
-    // DAT_0067d95c -- this TU's lazily acquired 3DMathEngine (FUN_005b73e0).
+    // this TU's lazily acquired 3DMathEngine (the routine).
     I3DMathEngine* G_UiFastTableMath = nullptr;
 
     I3DMathEngine* UiFastTableMath()
@@ -40,28 +36,28 @@ namespace
         return G_UiFastTableMath;
     }
 
-    char const kUiFastTableSource[] = "E:\\FL\\Scratch\\Source\\Client\\Interface\\UIFastTable.cpp";
+    char const kUiFastTableSource[] = "Client\\Interface\\UIFastTable.cpp";
 
-    // .data DAT_00615550 / DAT_00615554 / DAT_00615558, read only by the constructor
+    // .data the field / the field / the field, read only by the constructor
     // (0x0058c83e..0x0058c861), each copied as one dword.
     unsigned long const kUiFastTableFrameRgba = 0xff00ff00ul;
     unsigned long const kUiFastTableSelectedRgba = 0xa00000a0ul;
     unsigned long const kUiFastTableHoveredRgba = 0x80808080ul;
 
     // The seven render states both halves of Draw set (0x0058eb41..0x0058ebd3 and
-    // 0x0058edf0..0x0058ee83): pipeline slot +0xf0.
+    // ): pipeline slot +0xf0.
     void UiFastTableSetDrawStates()
     {
-        DALib::Pipeline->SetRenderState(D3DRS_ZENABLE, 0);
-        DALib::Pipeline->SetRenderState(D3DRS_ZWRITEENABLE, 0);
-        DALib::Pipeline->SetRenderState(D3DRS_CULLMODE, 1);
-        DALib::Pipeline->SetRenderState(D3DRS_LIGHTING, 0);
-        DALib::Pipeline->SetRenderState(D3DRS_SRCBLEND, 5);
-        DALib::Pipeline->SetRenderState(D3DRS_DESTBLEND, 6);
-        DALib::Pipeline->SetRenderState(D3DRS_ALPHABLENDENABLE, 1);
+        NeuronRuntime::Pipeline->SetRenderState(D3DRS_ZENABLE, 0);
+        NeuronRuntime::Pipeline->SetRenderState(D3DRS_ZWRITEENABLE, 0);
+        NeuronRuntime::Pipeline->SetRenderState(D3DRS_CULLMODE, 1);
+        NeuronRuntime::Pipeline->SetRenderState(D3DRS_LIGHTING, 0);
+        NeuronRuntime::Pipeline->SetRenderState(D3DRS_SRCBLEND, 5);
+        NeuronRuntime::Pipeline->SetRenderState(D3DRS_DESTBLEND, 6);
+        NeuronRuntime::Pipeline->SetRenderState(D3DRS_ALPHABLENDENABLE, 1);
     }
 
-    // The Font::String copy FUN_00590b40 inlines (0x00590bf9..0x00590cb9).
+    // The Font::String copy the routine inlines (0x00590bf9..0x00590cb9).
     void UiFastTableCopyFontString(FFontString* Self, FFontString const* Other)
     {
         Self->Text = nullptr;
@@ -69,7 +65,7 @@ namespace
         if (Other->Text != nullptr)
         {
             unsigned const Length = static_cast<unsigned>(wcslen(Other->Text));
-            // FUN_004142a0(Length + 1): the fresh buffer is empty, so malloc, first char 0.
+            // (Length + 1): the fresh buffer is empty, so malloc, first char 0.
             unsigned const Need = Length + 1;
             if (Need > Self->Capacity)
             {
@@ -88,14 +84,14 @@ namespace
             Self->Text[Length] = L'\0';
         }
         Self->Field08 = Other->Field08;
-        // +0x0c is the child vector's allocator byte; +0x0d..+0x0f are not written by retail.
+        // +0x0c is the child vector's allocator byte; +0x0d..+0x0f are not written by baseline.
         Self->Field0C = Other->Field0C;
         Self->Pad0D[0] = 0;
         Self->Pad0D[1] = 0;
         Self->Pad0D[2] = 0;
 
-        // 0x00590c55..0x00590c95: operator_new(count * 8) (a zero count still allocates), then
-        // FUN_00591420 = FUN_00418f10 per slot: copy the pointer and the kind byte, AddRef (slot 0
+        // operator_new(count * 8) (a zero count still allocates), then
+        // = the routine per slot: copy the pointer and the kind byte, AddRef (slot 0
         // of either child class) when the pointer is set.
         int Count = 0;
         if (Other->ChildBegin != nullptr)
@@ -129,12 +125,12 @@ namespace
     }
 }
 
-// Retail DAT_0067d924 -- WINFACTORY<UIFastTable> (LAB_0058f940 -> FUN_0058fac0; Create
-// FUN_0058fb30 = operator_new(0x578) + FUN_0058c6e0 + slot 9, scalar delete on false).
+// WINFACTORY<UIFastTable> (the branch -> the routine; Create
+// = operator_new(0x578) + the routine + slot 9, scalar delete on false).
 WINFACTORY<UiFastTable> G_UIFastTableFactory("UIFastTable");
 
-// Retail DAT_0067d8f8 -- WINFACTORY<UIScrollTable> (LAB_0058f970 -> FUN_0058fbd0; Create
-// FUN_0058fc40 = operator_new(0x58c) + FUN_0058c6e0 + the UIScrollTable fields, then slot 9).
+// WINFACTORY<UIScrollTable> (the branch -> the routine; Create
+// = operator_new(0x58c) + the routine + the UIScrollTable fields, then slot 9).
 WINFACTORY<UiScrollTable> G_UIScrollTableFactory("UIScrollTable");
 
 // ---------------------------------------------------------------------------------------------
@@ -143,12 +139,12 @@ WINFACTORY<UiScrollTable> G_UIScrollTableFactory("UIScrollTable");
 
 UiFastTableRefCounter::~UiFastTableRefCounter()
 {
-    // FUN_00467ee0 -- vftable back to 0x005cfd94, nothing else.
+    // vftable back to 0x005cfd94, nothing else.
 }
 
 unsigned UiFastTableRefCounter::Release()
 {
-    // FUN_00599980
+
     if (RefCount > 0)
         --RefCount;
     if (RefCount != 0)
@@ -161,7 +157,7 @@ unsigned UiFastTableRefCounter::Release()
 UiFastTableRefPtr::UiFastTableRefPtr(UiFastTableRefPtr const& Other)
     : Object(nullptr)
 {
-    // FUN_005999d0 00599a3e..00599a49
+    // 00599a3e..00599a49
     Object = Other.Object;
     if (Object != nullptr)
         Object->AddRef();
@@ -174,7 +170,7 @@ UiFastTableRefPtr::~UiFastTableRefPtr()
 
 UiFastTableRefPtr& UiFastTableRefPtr::operator=(UiFastTableRefPtr const& Other)
 {
-    // FUN_00590400
+
     if (Object != nullptr)
     {
         Object->Release();
@@ -188,8 +184,8 @@ UiFastTableRefPtr& UiFastTableRefPtr::operator=(UiFastTableRefPtr const& Other)
 
 UiFastTableRefCounter* UiFastTableRefPtr::Assign(UiFastTableRefCounter* Raw)
 {
-    // FUN_00575520: 0x0057552a CMP [this],Raw / JZ -> return. The Release at 0x00575532..
-    // 0x0057554f is FUN_00599980 inlined (dec if > 0, at zero RefCount = 1 + deleting dtor).
+    // 0x0057552a CMP [this],Raw / JZ -> return. The Release at 0x00575532..
+    // is the routine inlined (dec if > 0, at zero RefCount = 1 + deleting dtor).
     if (Object != Raw)
     {
         if (Object != nullptr)
@@ -206,7 +202,7 @@ UiFastTableRefCounter* UiFastTableRefPtr::Assign(UiFastTableRefCounter* Raw)
 
 void UiFastTableRefPtr::Reset()
 {
-    // FUN_00599a60
+
     if (Object == nullptr)
         return;
     Object->Release();
@@ -219,8 +215,8 @@ void UiFastTableRefPtr::Reset()
 
 FUiFastTableTip::FUiFastTableTip()
 {
-    // The caption and the Font::String (FUN_004144b0): FToolTipHoverInfo's own ctor.
-    ToolTipHoverReset(&Info); // FUN_004963a0
+    // The caption and the Font::String (the routine): FToolTipHoverInfo's own ctor.
+    ToolTipHoverReset(&Info);
     for (int Axis = 0; Axis < 3; ++Axis)
     {
         Info.WorldPos[Axis] = 0.0f;
@@ -230,8 +226,8 @@ FUiFastTableTip::FUiFastTableTip()
 
 FUiFastTableTip::FUiFastTableTip(FUiFastTableTip const& Other)
 {
-    // FUN_00590b40. Info starts empty (FToolTipHoverInfo's ctor: caption null, the
-    // Font::String's fields reset); the copy below overwrites every field retail writes.
+    // . Info starts empty (FToolTipHoverInfo's ctor: caption null, the
+    // Font::String's fields reset); the copy below overwrites every field baseline writes.
     Info.Ids = Other.Info.Ids;
     Info.IdsAlt = Other.Info.IdsAlt;
     if (Other.Info.CaptionW != nullptr)
@@ -267,7 +263,7 @@ FUiFastTableTip::FUiFastTableTip(FUiFastTableTip const& Other)
 
 FUiFastTableTip::~FUiFastTableTip()
 {
-    // FUN_00444ee0: the Font::String at +0x10 (FUN_00444e50 inlined), then the caption --
+    // the Font::String at +0x10 (the routine inlined), then the caption --
     // ~FToolTipHoverInfo on the Info member.
 }
 
@@ -309,7 +305,7 @@ UiFastTable::UiFastTable()
     , CellMarginX(2)
     , CellMarginY(2)
 {
-    // FUN_0058c6e0 after BaseRichTextWin's ctor (FUN_005793e0): empty vectors, +0x504 identity
+    // after BaseRichTextWin's ctor (the routine): empty vectors, +0x504 identity
     // with zero translation, the stores above (+0x548 is written as the integer 0), then an
     // inlined erase of the whole (empty) tip vector -- a no-op -- and +0x570 = +0x574 = 2.
     for (int Index = 0; Index < 12; ++Index)
@@ -321,10 +317,10 @@ UiFastTable::UiFastTable()
 
 UiFastTable::~UiFastTable()
 {
-    // FUN_0058ca00: every tip (FUN_00444ee0) and the tip storage, every row handle
-    // (FUN_00599a60) and the row storage, the column then the row edges, every cell
-    // (FUN_0058e360) and the cell storage -- the members' own destructors in reverse declaration
-    // order -- then BaseRichTextWin's (FUN_00579620).
+    // every tip (the routine) and the tip storage, every row handle
+    // (the routine) and the row storage, the column then the row edges, every cell
+    // (the routine) and the cell storage -- the members' own destructors in reverse declaration
+    // order -- then BaseRichTextWin's (the routine).
 }
 
 FVector UiFastTable::RayToLocal(float const* Ray) const
@@ -343,13 +339,13 @@ FVector UiFastTable::RayToLocal(float const* Ray) const
 
 void UiFastTable::SetDrawColumnLines(bool bDraw)
 {
-    // FUN_0058cb70
+
     bDrawColumnLines = bDraw ? 1 : 0;
 }
 
 void UiFastTable::SetBorders(bool bLeft, bool bRight, bool bTop, bool bBottom)
 {
-    // FUN_0058cb80
+
     bBorderTop = bTop ? 1 : 0;
     bBorderBottom = bBottom ? 1 : 0;
     bBorderLeft = bLeft ? 1 : 0;
@@ -358,20 +354,20 @@ void UiFastTable::SetBorders(bool bLeft, bool bRight, bool bTop, bool bBottom)
 
 void UiFastTable::SetHeaderRows(unsigned Rows)
 {
-    // FUN_0058cbb0
+
     if (!RowEdges.empty() && Rows < RowEdges.size())
         HeaderRows = Rows;
 }
 
 void UiFastTable::SetRowHighlights(bool bQuads)
 {
-    // FUN_0058cbe0
+
     bRowHighlights = bQuads ? 1 : 0;
 }
 
 bool UiFastTable::ClearCell(unsigned Row, unsigned Column)
 {
-    // FUN_0058cbf0
+
     if (RowEdges.empty() || Row >= RowEdges.size())
         return false;
     if (ColEdges.empty() || Column >= ColEdges.size())
@@ -386,7 +382,7 @@ bool UiFastTable::ClearCell(unsigned Row, unsigned Column)
 
 bool UiFastTable::GetCell(unsigned Row, unsigned Column, FUiFastTableCell** OutCell)
 {
-    // FUN_0058cd00
+
     if (RowEdges.empty() || Row >= RowEdges.size())
         return false;
     if (ColEdges.empty() || Column >= ColEdges.size())
@@ -400,7 +396,7 @@ bool UiFastTable::GetCell(unsigned Row, unsigned Column, FUiFastTableCell** OutC
 
 void UiFastTable::InvalidateCell(unsigned Row, unsigned Column)
 {
-    // FUN_0058cdb0 -- no test against the cell count; tail jump into FUN_0057a620(1, 1).
+    // no test against the cell count; tail jump into the routine(1, 1).
     if (RowEdges.empty() || Row >= RowEdges.size())
         return;
     if (ColEdges.empty() || Column >= ColEdges.size())
@@ -410,7 +406,7 @@ void UiFastTable::InvalidateCell(unsigned Row, unsigned Column)
 
 void UiFastTable::SetCellSpanToEnd(unsigned Row, unsigned Column, bool bSpan)
 {
-    // FUN_0058ce10
+
     if (RowEdges.empty() || Row >= RowEdges.size())
         return;
     if (ColEdges.empty() || Column >= ColEdges.size())
@@ -423,7 +419,7 @@ void UiFastTable::SetCellSpanToEnd(unsigned Row, unsigned Column, bool bSpan)
 
 bool UiFastTable::SetColumnEdge(unsigned Index, float X)
 {
-    // FUN_0058ceb0. Both limits are rounded to float before the tests (0x0058cef5, 0x0058cf1e).
+    // . Both limits are rounded to float before the tests (0x0058cef5, 0x0058cf1e).
     if (Index == 0 || ColEdges.empty() || Index >= ColEdges.size())
         return false;
     double const Gap2 = static_cast<double>(GrabDistance) + GrabDistance;
@@ -431,12 +427,12 @@ bool UiFastTable::SetColumnEdge(unsigned Index, float X)
     float const Lo = static_cast<float>(Gap2 + ColEdges[Prev]);
     float const Next = Index + 1 == ColEdges.size() ? Width : ColEdges[Index + 1];
     float const Hi = static_cast<float>(Next - Gap2);
-    // 0x0058cf2e TEST AH,5 / JP: below Lo -> Lo; 0x0058cf41 TEST AH,0x41 / JNZ: above Hi -> Hi.
+    // TEST AH,5 / JP: below Lo -> Lo; 0x0058cf41 TEST AH,0x41 / JNZ: above Hi -> Hi.
     if (X < Lo)
         X = Lo;
     else if (X > Hi)
         X = Hi;
-    // 0x0058cf51 TEST AH,0x44 / JNP skips the store only when equal.
+    // TEST AH,0x44 / JNP skips the store only when equal.
     if (X != ColEdges[Index])
     {
         ColEdges[Index] = X;
@@ -451,14 +447,14 @@ bool UiFastTable::SetColumnEdge(unsigned Index, float X)
 
 bool UiFastTable::SetRowEdge(unsigned Index, float Y)
 {
-    // FUN_0058cfb0
+
     if (Index == 0 || RowEdges.empty() || Index >= RowEdges.size())
         return false;
     double const Gap2 = static_cast<double>(GrabDistance) + GrabDistance;
     unsigned const Prev = Index - 1;
     float const Lo = static_cast<float>(RowEdges[Prev] - Gap2);
     // The lower limit stays on the x87 stack (0x0058d01b FADDP, compared at 0x0058d021). For the
-    // last edge retail adds +Height, not -Height (the same as UITable's FUN_00598100): the limit
+    // last edge baseline adds +Height, not -Height (the same as UITable's the routine): the limit
     // is then above every edge, the first test always clamps to it and the second clamps to Lo.
     double const Hi = static_cast<double>(Index + 1 == RowEdges.size() ? Height
                                                                         : RowEdges[Index + 1])
@@ -479,7 +475,7 @@ bool UiFastTable::SetRowEdge(unsigned Index, float Y)
     return true;
 }
 
-// FUN_0058c370. Each vector is copied into an _alloca buffer first (0x0058c3b4..0x0058c3e1).
+// . Each vector is copied into an _alloca buffer first (0x0058c3b4..0x0058c3e1).
 bool FUiFastTableEdges::SaveToRegistry(FRegKeyStack* Stack) const
 {
     size_t const ColBytes = Cols.size() * sizeof(float);
@@ -503,11 +499,11 @@ bool FUiFastTableEdges::SaveToRegistry(FRegKeyStack* Stack) const
 
 namespace
 {
-    // One half of FUN_0058c470 (0x0058c477..0x0058c5b6 for "Columns", 0x0058c5b9..0x0058c6c4
+    // One half of the routine (0x0058c477..0x0058c5b6 for "Columns", 0x0058c5b9..0x0058c6c4
     // for "Rows"): size query, _alloca((size + 3) & ~3), the read, and -- only when both
     // queries agree -- the vector emptied, resized to size / 4 (SHR: unsigned) and filled.
     // A failed query or a type other than REG_BINARY counts as size -1 (OR reg,-1) on both
-    // reads, so a missing value compares equal and resizes to 0x3fffffff, as in retail.
+    // reads, so a missing value compares equal and resizes to 0x3fffffff, as in baseline.
     void LoadEdgeVector(FRegKeyStack* Stack, char const* Name, std::vector<float>& Edges)
     {
         DWORD Type = 0;
@@ -536,7 +532,7 @@ namespace
     }
 }
 
-// FUN_0058c470.
+// .
 bool FUiFastTableEdges::LoadFromRegistry(FRegKeyStack* Stack)
 {
     LoadEdgeVector(Stack, "Columns", Cols);
@@ -546,7 +542,7 @@ bool FUiFastTableEdges::LoadFromRegistry(FRegKeyStack* Stack)
 
 FUiFastTableRow* UiFastTable::GetRow(unsigned Row)
 {
-    // FUN_0058d0b0
+
     if (RowEdges.empty() || Row >= RowEdges.size())
         return nullptr;
     return &Rows[Row];
@@ -554,22 +550,22 @@ FUiFastTableRow* UiFastTable::GetRow(unsigned Row)
 
 void UiFastTable::GetEdges(FUiFastTableEdges* Out)
 {
-    // FUN_0058d0f0: the column vector's assignment inline (skipped for self-assignment), then
-    // FUN_005595c0 for the rows.
+    // the column vector's assignment inline (skipped for self-assignment), then
+    // for the rows.
     Out->Cols = ColEdges;
     Out->Rows = RowEdges;
 }
 
 void UiFastTable::SetEdges(FUiFastTableEdges const* In)
 {
-    // FUN_0058d250
+
     if (In->Cols.size() != ColEdges.size() || In->Rows.size() != RowEdges.size())
     {
         FDUMP(0x100003, "%s(%d) : NOTICE:General:%s", kUiFastTableSource, 0x1c9,
               "Table state does not match table.\n");
         return;
     }
-    // 0x0058d2dd..0x0058d2f5: the first column edges compared twice, the same way (TEST AH,0x44
+    // the first column edges compared twice, the same way (TEST AH,0x44
     // / JP: unequal or unordered). Both elements are read without an emptiness test.
     float const* const InCols = In->Cols.data();
     float const* const OwnCols = ColEdges.data();
@@ -587,13 +583,13 @@ void UiFastTable::SetEdges(FUiFastTableEdges const* In)
 
 void UiFastTable::ClearSelection()
 {
-    // FUN_0058d4a0
+
     bSelected = 0;
 }
 
 bool UiFastTable::SelectRow(unsigned Row)
 {
-    // FUN_0058d4b0
+
     if (RowEdges.empty() || Row >= RowEdges.size())
         return false;
     FUiFastTableRow const& State = Rows[Row];
@@ -609,7 +605,7 @@ bool UiFastTable::SelectRow(unsigned Row)
 
 bool UiFastTable::GetSelectedRow(unsigned* OutRow)
 {
-    // FUN_0058d540
+
     if (bSelected == 0)
         return false;
     *OutRow = SelectedRow;
@@ -618,13 +614,13 @@ bool UiFastTable::GetSelectedRow(unsigned* OutRow)
 
 void UiFastTable::SetFrameColor(unsigned long const* Rgba)
 {
-    // FUN_0058d560
+
     FrameRgba = *Rgba;
 }
 
 void UiFastTable::SetGrabDistance(float Distance)
 {
-    // FUN_0058d570: 0x0058d57e TEST AH,1 / JNZ skips the store while the CURRENT distance is
+    // 0x0058d57e TEST AH,1 / JNZ skips the store while the CURRENT distance is
     // below zero (or unordered).
     if (GrabDistance >= 0.0f)
         GrabDistance = Distance;
@@ -632,31 +628,31 @@ void UiFastTable::SetGrabDistance(float Distance)
 
 void UiFastTable::SetResizable(bool bRows, bool bColumns)
 {
-    // FUN_0058d590
+
     bRowsResizable = bRows ? 1 : 0;
     bColumnsResizable = bColumns ? 1 : 0;
 }
 
 void UiFastTable::SetCellMargins(int X, int Y)
 {
-    // FUN_0058d5b0
+
     CellMarginX = X;
     CellMarginY = Y;
 }
 
 void UiFastTable::SetLayoutFlag(bool bFlag)
 {
-    // FUN_0058d5d0
+
     bLayoutFlag = bFlag ? 1 : 0;
 }
 
 void UiFastTable::SetTipMode(int Mode)
 {
-    // FUN_0058d5e0
+
     if (Mode == TipMode)
         return;
     TipMode = Mode;
-    // FUN_005908a0(begin, end): the whole vector erased.
+    // (begin, end): the whole vector erased.
     Tips.clear();
 
     unsigned Count = 0;
@@ -678,17 +674,17 @@ void UiFastTable::SetTipMode(int Mode)
     }
     if (bResize)
     {
-        // resize(Count, prototype): FUN_00590500 inserts copies at the end, FUN_005908a0 erases
+        // resize(Count, prototype): the routine inserts copies at the end, the routine erases
         // the tail. The vector is empty here, so only the insert can run.
         FUiFastTableTip const Prototype;
         Tips.resize(Count, Prototype);
     }
 
-    // 0x0058d896..0x0058d8c8: every record reset, keyed this + 1 + index, IdsAlt 0.
+    // every record reset, keyed this + 1 + index, IdsAlt 0.
     int Key = static_cast<int>(reinterpret_cast<intptr_t>(this)) + 1;
     for (std::vector<FUiFastTableTip>::iterator It = Tips.begin(); It != Tips.end(); ++It)
     {
-        ToolTipHoverReset(&It->Info); // FUN_004963a0
+        ToolTipHoverReset(&It->Info);
         It->Info.Ids = Key;
         It->Info.IdsAlt = 0;
         ++Key;
@@ -697,7 +693,7 @@ void UiFastTable::SetTipMode(int Mode)
 
 FToolTipHoverInfo* UiFastTable::GetToolTipHoverInfo()
 {
-    // LAB_0058d8f0
+
     if (TipMode == 0)
         return &HoverInfo;
     return nullptr;
@@ -705,7 +701,7 @@ FToolTipHoverInfo* UiFastTable::GetToolTipHoverInfo()
 
 FToolTipHoverInfo* UiFastTable::GetRowTip(unsigned Row)
 {
-    // FUN_0058d910
+
     if (TipMode != 2 || Tips.empty() || Row >= Tips.size())
         return nullptr;
     return &Tips[Row].Info;
@@ -713,7 +709,7 @@ FToolTipHoverInfo* UiFastTable::GetRowTip(unsigned Row)
 
 FToolTipHoverInfo* UiFastTable::GetCellTip(unsigned Row, unsigned Column)
 {
-    // FUN_0058d960
+
     if (TipMode != 3)
         return nullptr;
     unsigned const Index = static_cast<unsigned>(ColEdges.size()) * Row + Column;
@@ -724,20 +720,20 @@ FToolTipHoverInfo* UiFastTable::GetCellTip(unsigned Row, unsigned Column)
 
 bool UiFastTable::Relayout()
 {
-    // FUN_0058d9d0. Called by RebuildLayoutIfDirty right after it emptied LayoutList.
+    // . Called by RebuildLayoutIfDirty right after it emptied LayoutList.
     int const ColCount = static_cast<int>(ColEdges.size());
     int const RowCount = static_cast<int>(RowEdges.size());
-    // Two _alloca arrays in retail: rows + 1 then columns + 1 ints.
+    // Two _alloca arrays in baseline: rows + 1 then columns + 1 ints.
     std::vector<int> PixRows(static_cast<unsigned>(RowCount + 1));
     std::vector<int> PixCols(static_cast<unsigned>(ColCount + 1));
 
     float M[16];
-    DALib::Pipeline->GetProjection(M);
+    NeuronRuntime::Pipeline->GetProjection(M);
     int ViewX = 0;
     int ViewY = 0;
     int ViewW = 0;
     int ViewH = 0;
-    DALib::Pipeline->GetViewportRect(&ViewX, &ViewY, &ViewW, &ViewH);
+    NeuronRuntime::Pipeline->GetViewportRect(&ViewX, &ViewY, &ViewW, &ViewH);
 
     FTransform const& Xform = *reinterpret_cast<FTransform const*>(Orientation);
 
@@ -750,11 +746,11 @@ bool UiFastTable::Relayout()
         Local.Z = 0.0f;
         FVector World;
         UiFastTableMath()->TransformXform(World, Xform, Local);
-        // 0x0058daf8..0x0058db17: w = (M12 x + M14 z) + M13 y + M15, stored as a float.
+        // w = (M12 x + M14 z) + M13 y + M15, stored as a float.
         float const W = static_cast<float>(
             (static_cast<double>(M[12]) * World.X + static_cast<double>(M[14]) * World.Z)
             + static_cast<double>(M[13]) * World.Y + M[15]);
-        // 0x0058db1a..0x0058db36: x = (M2 z + M1 y) + M0 x + M3, kept on the x87 stack.
+        // x = (M2 z + M1 y) + M0 x + M3, kept on the x87 stack.
         double const ClipX =
             (static_cast<double>(M[2]) * World.Z + static_cast<double>(M[1]) * World.Y)
             + static_cast<double>(M[0]) * World.X + M[3];
@@ -764,7 +760,7 @@ bool UiFastTable::Relayout()
                 Index > 0 ? PixCols[static_cast<unsigned>(Index - 1)] : 0;
             continue;
         }
-        // 0x0058db6c..0x0058db8f: ClipX * (1 / w), then (1 - that) * view width * 0.5 + view x,
+        // ClipX * (1 / w), then (1 - that) * view width * 0.5 + view x,
         // minus the first column's pixel for every later column; ftol.
         double const Ndc = ClipX * (1.0 / W);
         double Pixel = (1.0 - Ndc) * ViewW * 0.5 + ViewX;
@@ -784,11 +780,11 @@ bool UiFastTable::Relayout()
         Local.Z = 0.0f;
         FVector World;
         UiFastTableMath()->TransformXform(World, Xform, Local);
-        // 0x0058dc18..0x0058dc37: w = (M12 x + M13 y) + M14 z + M15, stored as a float.
+        // w = (M12 x + M13 y) + M14 z + M15, stored as a float.
         float const W = static_cast<float>(
             (static_cast<double>(M[12]) * World.X + static_cast<double>(M[13]) * World.Y)
             + static_cast<double>(M[14]) * World.Z + M[15]);
-        // 0x0058dc3a..0x0058dc56: y = (M4 x + M5 y) + M6 z + M7.
+        // y = (M4 x + M5 y) + M6 z + M7.
         double const ClipY =
             (static_cast<double>(M[4]) * World.X + static_cast<double>(M[5]) * World.Y)
             + static_cast<double>(M[6]) * World.Z + M[7];
@@ -798,7 +794,7 @@ bool UiFastTable::Relayout()
                 Index > 0 ? PixRows[static_cast<unsigned>(Index - 1)] : 0;
             continue;
         }
-        // 0x0058dc8b..0x0058dcb9: (ClipY * (1 / w) + 1) * view height * 0.5 + view y, minus the
+        // (ClipY * (1 / w) + 1) * view height * 0.5 + view y, minus the
         // first row's pixel for every later row; ftol.
         double const Ndc = ClipY * (1.0 / W);
         double Pixel = (Ndc + 1.0) * ViewH * 0.5 + ViewY;
@@ -846,7 +842,7 @@ bool UiFastTable::Relayout()
 
 bool UiFastTable::Create(Win3D* NewParent, void* Data)
 {
-    // FUN_0058e000 -- BaseRichTextWin's Create with NO payload (0x0058e020 PUSH 0).
+    // BaseRichTextWin's Create with NO payload (0x0058e020 PUSH 0).
     bool const bResult = BaseRichTextWin::Create(NewParent, nullptr);
     if (Data != nullptr)
     {
@@ -875,13 +871,13 @@ bool UiFastTable::Create(Win3D* NewParent, void* Data)
         for (unsigned Index = 0; !ColEdges.empty() && Index < ColEdges.size(); ++Index)
             ColEdges[Index] = static_cast<float>(static_cast<double>(Index) * ColumnStep);
     }
-    SetNormSize(Width, Height);   // FUN_00579cc0
+    SetNormSize(Width, Height);
     return bResult;
 }
 
 void UiFastTable::SetTransform(float const* Transform)
 {
-    // LAB_0058e470: slot 7 and slot 5 (both virtual), +0x504 = GeneralInverse(+0x3c) (the W
+    // slot 7 and slot 5 (both virtual), +0x504 = GeneralInverse(+0x3c) (the W
     // out-parameter lands in the argument slot), then the layout dirtied when the grid is not
     // empty.
     SetOrientation(Transform);
@@ -897,7 +893,7 @@ void UiFastTable::SetTransform(float const* Transform)
 
 void UiFastTable::SetPosition(float const* NewPosition)
 {
-    // LAB_0058e510: BaseRichTextWin's SetPosition (FUN_0057b0a0), then the same inverse and dirty
+    // BaseRichTextWin's SetPosition (the routine), then the same inverse and dirty
     // test as SetTransform.
     BaseRichTextWin::SetPosition(NewPosition);
     float W = 0.0f;
@@ -911,10 +907,10 @@ void UiFastTable::SetPosition(float const* NewPosition)
 
 void UiFastTable::Update()
 {
-    // FUN_0058e5a0. The cursor-shape calls FUN_0041dde0("Stretch" / "Arrow", 0) sit where retail
+    // . The cursor-shape calls the routine("Stretch" / "Arrow", 0) sit where baseline
     // makes them (0x0058e64b, 0x0058e67a, 0x0058e94e, 0x0058e9cb, 0x0058ea33, 0x0058eaab,
-    // 0x0058eb1d).
-    BaseRichTextWin::Update();   // FUN_0057b0e0
+    // ).
+    BaseRichTextWin::Update();
 
     if (Win3DGetCapture() == this && bDragging != 0)
     {
@@ -925,12 +921,12 @@ void UiFastTable::Update()
         if (bDragColumn != 0)
         {
             SetColumnEdge(DragEdge, static_cast<float>(static_cast<double>(Local.X) + DragOffset));
-            MouseSetCursor("Stretch", false); // FUN_0041dde0("Stretch", 0)
+            MouseSetCursor("Stretch", false); // ("Stretch", 0)
         }
         else
         {
             SetRowEdge(DragEdge, static_cast<float>(static_cast<double>(Local.Y) + DragOffset));
-            MouseSetCursor("Arrow", false); // FUN_0041dde0("Arrow", 0)
+            MouseSetCursor("Arrow", false); // ("Arrow", 0)
         }
         return;
     }
@@ -945,7 +941,7 @@ void UiFastTable::Update()
     bHovered = 0;
     bDragArmed = 0;
     bDragging = 0;
-    // 0x0058e6ef..0x0058e768: 0 <= x < Width and -Height < y <= 0, else nothing more.
+    // 0 <= x < Width and -Height < y <= 0, else nothing more.
     if (!(Local.X >= 0.0f))
         return;
     if (!(Local.X < Width))
@@ -956,7 +952,7 @@ void UiFastTable::Update()
     if (!(Local.Y > Bottom))
         return;
 
-    // 0x0058e76f..0x0058e7e7: the column under x. The first edge is read without an emptiness
+    // the column under x. The first edge is read without an emptiness
     // test (0x0058e775 MOV EAX,[EDI]); the count is taken once.
     float const* const ColData = ColEdges.data();
     float ColPrev = ColData[0];
@@ -965,8 +961,8 @@ void UiFastTable::Update()
     for (unsigned Index = 0; Index < ColCount; ++Index)
     {
         ColNext = Index + 1 < ColCount ? ColData[Index + 1] : Width;
-        // 0x0058e7c0 TEST AH,1 / JNZ: left of this column (or unordered) -> next;
-        // 0x0058e7cf TEST AH,5 / JNP: left of the next edge -> found.
+        // TEST AH,1 / JNZ: left of this column (or unordered) -> next;
+        // TEST AH,5 / JNP: left of the next edge -> found.
         if (Local.X >= ColPrev && Local.X < ColNext)
         {
             HoverColumn = Index;
@@ -975,7 +971,7 @@ void UiFastTable::Update()
         ColPrev = ColNext;
     }
 
-    // 0x0058e7ed..0x0058e85c: the row under y, the same way (edges go down).
+    // the row under y, the same way (edges go down).
     float const* const RowData = RowEdges.data();
     float RowPrev = RowData[0];
     float RowNext = 0.0f;
@@ -983,8 +979,8 @@ void UiFastTable::Update()
     for (unsigned Index = 0; Index < RowCount; ++Index)
     {
         RowNext = Index + 1 < RowCount ? RowData[Index + 1] : Bottom;
-        // 0x0058e835 TEST AH,0x41 / JP: above this edge (or unordered) -> next;
-        // 0x0058e844 TEST AH,0x41 / JZ: below the next edge -> found.
+        // TEST AH,0x41 / JP: above this edge (or unordered) -> next;
+        // TEST AH,0x41 / JZ: below the next edge -> found.
         if (Local.Y <= RowPrev && Local.Y > RowNext)
         {
             HoverRow = Index;
@@ -993,7 +989,7 @@ void UiFastTable::Update()
         RowPrev = RowNext;
     }
 
-    // 0x0058e862..0x0058e907: the ToolTip record for what is under the mouse.
+    // the ToolTip record for what is under the mouse.
     if (bToolTipEnabled != 0)
     {
         FToolTipHoverInfo* Info = nullptr;
@@ -1022,19 +1018,19 @@ void UiFastTable::Update()
             else
                 Info = nullptr;
         }
-        // 0x0058e8fc CMP [ECX+4],0 -- read through the record without a null test.
+        // CMP [ECX+4],0 -- read through the record without a null test.
         if (Info->IdsAlt != 0)
-            NnToolTipFeedHover(Info);   // FUN_004be370
+            NnToolTipFeedHover(Info);
     }
 
-    // 0x0058e90a..0x0058e9f8: column edges -- only in rows at or below the header rows.
+    // column edges -- only in rows at or below the header rows.
     if (bColumnsResizable != 0 && HoverRow >= HeaderRows)
     {
         unsigned const Column = HoverColumn;
         if (Column > 0 && static_cast<double>(Local.X) - ColPrev < GrabDistance)
         {
             // The column's left edge.
-            MouseSetCursor("Stretch", false); // FUN_0041dde0("Stretch", 0)
+            MouseSetCursor("Stretch", false); // ("Stretch", 0)
             DragOffset = static_cast<float>(static_cast<double>(ColPrev) - Local.X);
             bDragArmed = 1;
             DragEdge = Column;
@@ -1050,7 +1046,7 @@ void UiFastTable::Update()
                 double const Distance = static_cast<double>(ColNext) - Local.X;
                 if (Distance < GrabDistance)
                 {
-                    MouseSetCursor("Stretch", false); // FUN_0041dde0("Stretch", 0)
+                    MouseSetCursor("Stretch", false); // ("Stretch", 0)
                     bDragArmed = 1;
                     DragEdge = Column + 1;
                     DragOffset = static_cast<float>(Distance);
@@ -1061,7 +1057,7 @@ void UiFastTable::Update()
         }
     }
 
-    // 0x0058e9fe..0x0058ead7: row edges.
+    // row edges.
     if (bRowsResizable != 0)
     {
         unsigned const Row = HoverRow;
@@ -1071,7 +1067,7 @@ void UiFastTable::Update()
             double const Distance = static_cast<double>(RowPrev) - Local.Y;
             if (Distance < GrabDistance)
             {
-                MouseSetCursor("Stretch", false); // FUN_0041dde0("Stretch", 0)
+                MouseSetCursor("Stretch", false); // ("Stretch", 0)
                 bDragColumn = 0;
                 bDragArmed = 1;
                 DragEdge = Row;
@@ -1084,13 +1080,13 @@ void UiFastTable::Update()
             unsigned const Count = static_cast<unsigned>(RowEdges.size());
             if (Row < Count - 2)
             {
-                // The row's bottom edge. Retail stores y - edge as the offset (0x0058ea8c FLD y,
+                // The row's bottom edge. baseline stores y - edge as the offset (0x0058ea8c FLD y,
                 // FSUB edge), the opposite sign of the three other cases, so a drag of this edge
-                // starts twice the grab distance away from it. Kept as retail has it.
+                // starts twice the grab distance away from it. Kept as baseline has it.
                 double const Distance = static_cast<double>(Local.Y) - RowNext;
                 if (Distance < GrabDistance)
                 {
-                    MouseSetCursor("Stretch", false); // FUN_0041dde0("Stretch", 0)
+                    MouseSetCursor("Stretch", false); // ("Stretch", 0)
                     bDragColumn = 0;
                     bDragArmed = 1;
                     DragEdge = Row + 1;
@@ -1101,14 +1097,14 @@ void UiFastTable::Update()
         }
     }
 
-    // 0x0058eadd..0x0058eb10: hover the row when it allows it.
+    // hover the row when it allows it.
     unsigned const Row = HoverRow;
     if (!RowEdges.empty() && Row < RowEdges.size() && Rows[Row].bHoverable != 0)
     {
         HoveredRow = Row;
         bHovered = 1;
     }
-    MouseSetCursor("Arrow", false); // FUN_0041dde0("Arrow", 0)
+    MouseSetCursor("Arrow", false); // ("Arrow", 0)
 }
 
 void UiFastTable::DrawRowQuad(unsigned long const* Rgba, unsigned Row) const
@@ -1132,8 +1128,8 @@ void UiFastTable::DrawRowQuad(unsigned long const* Rgba, unsigned Row) const
 
 void UiFastTable::Draw()
 {
-    // LAB_0058eb30
-    Win3DBindModelview(nullptr, Orientation);   // FUN_00422690(0, this + 0x3c)
+
+    Win3DBindModelview(nullptr, Orientation);   // (0, this + 0x3c)
     UiFastTableSetDrawStates();
     if (bRowHighlights != 0)
     {
@@ -1143,7 +1139,7 @@ void UiFastTable::Draw()
             DrawRowQuad(&HoveredRgba, HoveredRow);
     }
 
-    BaseRichTextWin::Draw();   // FUN_0057ab10
+    BaseRichTextWin::Draw();
 
     Win3DBindModelview(nullptr, Orientation);
     UiFastTableSetDrawStates();
@@ -1202,7 +1198,7 @@ void UiFastTable::Draw()
     if (bRowHighlights != 0 || bHovered == 0)
         return;
 
-    // 0x0058f09f..0x0058f1fa: without quads the hovered row is outlined -- together with the
+    // without quads the hovered row is outlined -- together with the
     // neighbouring rows of the same non-zero group -- in the pulsing amber.
     unsigned First = HoveredRow;
     unsigned Last = HoveredRow;
@@ -1215,7 +1211,7 @@ void UiFastTable::Draw()
             ++Last;
     }
     unsigned long Color = 0;
-    NnUiPulseBlendFromArgb(&Color, G_NnPaletteArgb_679ba4);   // FUN_00561f20(&c, DAT_00679ba4)
+    NnUiPulseBlendFromArgb(&Color, G_NnPaletteArgb_679ba4);   // (&c, the field)
     Win3DColor4ubv(reinterpret_cast<unsigned char const*>(&Color));
     Win3DBegin(kWin3DLineLoop);
     Win3DVertex3f(ColEdges[0], RowEdges[First], 0.0f);
@@ -1235,15 +1231,15 @@ void UiFastTable::Draw()
 
 void UiFastTable::MouseLeave(float const* /*Ray*/)
 {
-    // LAB_0058f210: FUN_0041dde0("Arrow", 0) and nothing else (RET 4).
+    // the routine("Arrow", 0) and nothing else (RET 4).
     MouseSetCursor("Arrow", false);
 }
 
 bool UiFastTable::MouseEvent(FWin3DMouseEvent const* Event)
 {
-    // LAB_0058f230
+
     if (Event->Field0 != -1)
-        return WinControl::MouseEvent(Event);   // FUN_005a0650
+        return WinControl::MouseEvent(Event);
 
     if (Event->Field1 == 3)
     {
@@ -1285,11 +1281,11 @@ bool UiFastTable::MouseEvent(FWin3DMouseEvent const* Event)
         }
         else if (bDragArmed != 0)
         {
-            Win3DPushCapture(this);   // FUN_0059d8d0
+            Win3DPushCapture(this);
             bDragging = 1;
             return true;
         }
-        // 0x0058f37e: the press lands on a cell that is not selected -- (row << 16) | column to
+        // the press lands on a cell that is not selected -- (row << 16) | column to
         // the parent, which is read without a null test.
         Parent->Slot23(0xf001u, Self, (HoverRow << 16) | HoverColumn);
         return true;
@@ -1298,7 +1294,7 @@ bool UiFastTable::MouseEvent(FWin3DMouseEvent const* Event)
     if (Win3DGetCapture() == this && bDragging != 0)
     {
         bDragging = 0;
-        Win3DRemoveCapture(this);   // FUN_0059d960
+        Win3DRemoveCapture(this);
         return true;
     }
     return WinControl::MouseEvent(Event);
@@ -1306,7 +1302,7 @@ bool UiFastTable::MouseEvent(FWin3DMouseEvent const* Event)
 
 bool UiFastTable::HitTest(float const* Ray)
 {
-    // LAB_0058f3e0: the given ray on the table plane, in table space, inside
+    // the given ray on the table plane, in table space, inside
     // [0, Width) x (-Height, 0].
     FVector const Local = RayToLocal(Ray);
     if (!(Local.X >= 0.0f))
@@ -1335,15 +1331,15 @@ UiScrollTable::UiScrollTable()
 
 UiScrollTable::~UiScrollTable()
 {
-    // FUN_0058f4d0: the UIFastTable destructor inlined; nothing of its own.
+    // the UIFastTable destructor inlined; nothing of its own.
 }
 
 bool UiScrollTable::Create(Win3D* NewParent, void* Data)
 {
-    // FUN_0058f7a0
+
     if (!UiFastTable::Create(NewParent, Data))
         return false;
-    ScrollBar = CreateScrollBarV();   // FUN_00579aa0
+    ScrollBar = CreateScrollBarV();
     SetItemCount(static_cast<unsigned>(RowEdges.size()), 0);
     ScrollBar->SetValue(0.0f);
     return true;
@@ -1351,7 +1347,7 @@ bool UiScrollTable::Create(Win3D* NewParent, void* Data)
 
 void UiScrollTable::SetItemCount(unsigned NewItemCount, unsigned NewFixedRows)
 {
-    // FUN_0058f640
+
     ItemCount = NewItemCount;
     FixedRows = NewFixedRows;
     unsigned const Visible = static_cast<unsigned>(RowEdges.size()) - NewFixedRows;
@@ -1374,13 +1370,13 @@ void UiScrollTable::SetItemCount(unsigned NewItemCount, unsigned NewFixedRows)
 
 int UiScrollTable::GetFirstItem()
 {
-    // FUN_0058f730
+
     return static_cast<int>(ScrollBar->GetValue());
 }
 
 void UiScrollTable::SetCallback(FUiScrollTableCallback NewCallback, void* Context)
 {
-    // FUN_0058f740
+
     Callback = NewCallback;
     CallbackContext = Context;
     if (NewCallback == nullptr)
@@ -1391,7 +1387,7 @@ void UiScrollTable::SetCallback(FUiScrollTableCallback NewCallback, void* Contex
 
 void UiScrollTable::SetScrollBarGap(float Gap)
 {
-    // FUN_0058f810: (Gap + width, 0, 0) through the table's 3x3 (3DMathEngine +0x2c), handed to
+    // (Gap + width, 0, 0) through the table's 3x3 (3DMathEngine +0x2c), handed to
     // the bar's SetOffset (+0x7c) by value, then the bar placed with the table's transform
     // (+0x20).
     ScrollBarGap = Gap;
@@ -1410,8 +1406,8 @@ void UiScrollTable::SetScrollBarGap(float Gap)
 
 bool UiScrollTable::Slot23(unsigned Msg, unsigned A, unsigned B)
 {
-    // LAB_0058f8b0: the own scrollbar's value change goes to the callback; the base class's
-    // horizontal bar (+0x3f4) is swallowed; anything else is BaseRichTextWin's (FUN_0057afd0).
+    // the own scrollbar's value change goes to the callback; the base class's
+    // horizontal bar (+0x3f4) is swallowed; anything else is BaseRichTextWin's (the routine).
     if (Msg == 0xf005u)
     {
         if (A == static_cast<unsigned>(reinterpret_cast<uintptr_t>(ScrollBar)))
