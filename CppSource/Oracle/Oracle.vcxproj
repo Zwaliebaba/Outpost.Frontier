@@ -51,6 +51,10 @@
     <ClCompile Include="oracle_main.cpp" />
     <ClCompile Include="oracle_stricmp.cpp" />
     <ClCompile Include="oracle_support.cpp" />
+    <!-- P1.3: ReadFile.dll's source is compiled into oracle_vfs.cpp, which registers its
+         factories through its DllMain; its stricmp import shim is compiled in beside it. -->
+    <ClCompile Include="oracle_vfs.cpp" />
+    <ClCompile Include="..\ReadFile\NeuronComponentsStricmp.cpp" />
     <!-- Common.dll does not export MsvcrtAtof; the same source is compiled in. -->
     <ClCompile Include="..\Common\msvcrt_atof.cpp" />
   </ItemGroup>

@@ -79,7 +79,8 @@ pub enum VfsError {
     },
     /// A seek the backend refuses (result -1).
     SeekFailed,
-    /// The memory backend's failure, which sets no error code.
+    /// A failure that sets no error code: the memory backend's, or a DOS
+    /// find whose pattern does not join.
     Failed,
     /// `CreateInstance` result -1 (`GR_GENERIC`).
     Generic,

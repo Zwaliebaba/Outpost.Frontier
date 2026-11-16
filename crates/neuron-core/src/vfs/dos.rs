@@ -202,14 +202,16 @@ impl FileSystem for DosFileSystem {
     /// The reconstruction's `FindFirst` fails whenever the pattern joins
     /// (it tests the join's result the wrong way round), so a directory
     /// file system finds nothing. Where the join fails the C++ passes the
-    /// partial path to the system, which finds no file either.
+    /// partial path to the system and returns its failure without an error
+    /// code; that the system finds nothing there is assumed (divergence
+    /// register).
     fn find(&self, pattern: &[u8]) -> Result<Vec<FindEntry>, VfsError> {
         if self.file.is_some() {
             return Err(VfsError::FileNotFound);
         }
         match self.join(pattern) {
             Some(_) => Err(VfsError::BadPathname),
-            None => Err(VfsError::FileNotFound),
+            None => Err(VfsError::Failed),
         }
     }
 

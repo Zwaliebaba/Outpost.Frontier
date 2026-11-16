@@ -80,3 +80,6 @@ namespace oracle
 }
 
 // Suite entry points of later work packages, called from main() in order.
+
+// P1.3 (oracle_vfs.cpp): the UTF container and the file systems of ReadFile.
+void RunVfsSuites();
