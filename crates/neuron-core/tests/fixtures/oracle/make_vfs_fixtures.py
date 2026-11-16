@@ -377,6 +377,12 @@ def utf_ops():
             'readself 1', 'pop', 'clone ' + h('\\Animation\\Script\\'), 'find ' + h('*'),
             'clonefind ' + h('w*') + ' 0', 'self', 'pop', 'pop', 'map 0 0',
             'clonefind ' + h('*') + ' 3', 'self', 'pop',
+            # A node whose own path is "\\" passes the factory test: it opens
+            # archives instead of cloning.
+            'clone ' + h('\\'), 'syspath 260', 'curpath 260', 'find ' + h('*'),
+            'clone ' + h('vfs/utf/clamp.utf'), 'syspath 260', 'find ' + h('*'), 'pop',
+            'clone ' + h('Mesh'), 'clone ' + h('missing.utf'), 'pop',
+            'clone ' + h(''), 'syspath 260', 'pop', 'clone ' + h('/'), 'syspath 260', 'pop',
         ]
     lines += [
         'archive ' + h('vfs/utf/clamp.utf'),

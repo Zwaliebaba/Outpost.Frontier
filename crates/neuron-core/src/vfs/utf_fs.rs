@@ -23,6 +23,8 @@ pub(crate) struct UtfShared {
     /// The archive file's creation, access and write times, which compact
     /// records report as their own. `None` for an archive made from memory.
     pub(crate) times: Option<[u64; 3]>,
+    /// The host the archive was opened from; see `create_child`.
+    pub(crate) host: Option<Host>,
 }
 
 /// A UTF archive, or a node of one made with
@@ -54,11 +56,16 @@ impl UtfFileSystem {
     fn with_archive(
         archive: UtfArchive,
         times: Option<[u64; 3]>,
+        host: Option<Host>,
         path: &[u8],
         access: u32,
     ) -> Self {
         let mut fs = Self {
-            shared: Arc::new(UtfShared { archive, times }),
+            shared: Arc::new(UtfShared {
+                archive,
+                times,
+                host,
+            }),
             root: NodeRef::ROOT,
             root_pos: 0,
             clone: false,
@@ -72,11 +79,17 @@ impl UtfFileSystem {
         fs
     }
 
-    fn from_file(bytes: Vec<u8>, times: [u64; 3], desc: &FsDesc<'_>) -> Result<Self, VfsError> {
+    fn from_file(
+        host: &Host,
+        bytes: Vec<u8>,
+        times: [u64; 3],
+        desc: &FsDesc<'_>,
+    ) -> Result<Self, VfsError> {
         let archive = UtfArchive::parse(bytes).map_err(|_| VfsError::OpenFailed)?;
         Ok(Self::with_archive(
             archive,
             Some(times),
+            Some(host.clone()),
             desc.path,
             desc.access,
         ))
@@ -95,7 +108,7 @@ impl UtfFileSystem {
             return Err(VfsError::Generic);
         }
         let file = host.read_file(desc.path).map_err(|_| VfsError::Generic)?;
-        Self::from_file(file.data, file.times, desc)
+        Self::from_file(host, file.data, file.times, desc)
     }
 
     /// The UTF factory with a directory as the parent: the archive at
@@ -111,7 +124,7 @@ impl UtfFileSystem {
         }
         let made = make_path(dir_path, desc.path);
         let file = host.read_file(&made).map_err(|_| VfsError::Generic)?;
-        Self::from_file(file.data, file.times, desc)
+        Self::from_file(host, file.data, file.times, desc)
     }
 
     /// The UTF factory with a memory file system as the parent: the
@@ -137,7 +150,13 @@ impl UtfFileSystem {
         if archive.layout() == Layout::Compact {
             return Err(VfsError::OpenFailed);
         }
-        Ok(Self::with_archive(archive, None, desc.path, desc.access))
+        Ok(Self::with_archive(
+            archive,
+            None,
+            None,
+            desc.path,
+            desc.access,
+        ))
     }
 
     /// An archive from bytes, with no file behind it: compact records then
@@ -148,7 +167,13 @@ impl UtfFileSystem {
     /// The bytes are not an archive.
     pub fn from_bytes(bytes: impl Into<Arc<[u8]>>, path: &[u8]) -> Result<Self, VfsError> {
         let archive = UtfArchive::parse(bytes)?;
-        Ok(Self::with_archive(archive, None, path, super::GENERIC_READ))
+        Ok(Self::with_archive(
+            archive,
+            None,
+            None,
+            path,
+            super::GENERIC_READ,
+        ))
     }
 
     /// The archive.
@@ -252,9 +277,22 @@ impl FileSystem for UtfFileSystem {
     /// result is not checked) and walked from this file system's node, or
     /// the found record. The new file system's own path is `desc.path`, its
     /// access this one's masked with `desc.access`.
+    ///
+    /// The C++ decides between cloning and opening a new archive by testing
+    /// whether the own path is exactly `\`, which is how it recognises its
+    /// registered factory. A node made with the path `""`, `\` or `/` has
+    /// that own path, so it opens `desc.path` as a new archive relative to
+    /// the host's current directory instead, as the factory does. An
+    /// archive made from memory has no host and fails there.
     fn create_child(&self, desc: &FsDesc<'_>) -> Result<Box<dyn FileSystem>, VfsError> {
         if refuses(desc) {
             return Err(VfsError::Generic);
+        }
+        if self.own_path == b"\\" {
+            return match &self.shared.host {
+                Some(host) => Ok(Box::new(Self::open(host, desc)?)),
+                None => Err(VfsError::Generic),
+            };
         }
         let (_, dest) = join_root_buffer(&self.current_path, desc.path, JOIN_CHARS);
         let node = self

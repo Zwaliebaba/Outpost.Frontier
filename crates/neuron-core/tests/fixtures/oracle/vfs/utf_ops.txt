@@ -119,6 +119,23 @@ map 0 0
 clonefind 2a 3
 self
 pop
+clone 5c
+syspath 260
+curpath 260
+find 2a
+clone 7666732f7574662f636c616d702e757466
+syspath 260
+find 2a
+pop
+clone 4d657368
+clone 6d697373696e672e757466
+pop
+clone -
+syspath 260
+pop
+clone 2f
+syspath 260
+pop
 archive 7666732f7574662f636f6d706163742e757466
 self
 syspath 260
@@ -238,6 +255,23 @@ pop
 map 0 0
 clonefind 2a 3
 self
+pop
+clone 5c
+syspath 260
+curpath 260
+find 2a
+clone 7666732f7574662f636c616d702e757466
+syspath 260
+find 2a
+pop
+clone 4d657368
+clone 6d697373696e672e757466
+pop
+clone -
+syspath 260
+pop
+clone 2f
+syspath 260
 pop
 archive 7666732f7574662f636c616d702e757466
 find 2a
