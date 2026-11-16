@@ -288,7 +288,7 @@ MATCH = [
     (b'.hidden', b'*'), (b'.hidden', b'.*'), (b'a.b.c', b'*.c'), (b'a.b.c', b'a.*.c'),
     (b'x' * 300, b'*'), (b'x' * 300, b'x*'), (b'y' * 262, b'y' * 262), (b'y' * 263, b'y' * 263),
     (b'z' * 270 + b'.e', b'*.e'), (b'*', b'\\*'), (b'a*b', b'a*b'), (b'aXb', b'a*b*'),
-    (b'a' * 40, b'*a' * 20 + b'b'), (b'name.ext', b'NAME.EXT'), (b'name', b'*?'),
+    (b'a' * 12, b'*a' * 4 + b'b'), (b'a' * 12 + b'b', b'*a' * 4 + b'b'), (b'name.ext', b'NAME.EXT'), (b'name', b'*?'),
 ]
 
 
