@@ -88,3 +88,6 @@ void RunMathSuites();
 // (oracle_catalog.cpp, work package P1.6): a separate mode, not a suite.
 // Its output is game text and is never committed.
 void RunCatalogDump();
+
+// P1.9, oracle_net.cpp: wire primitives and quantisers.
+void RunNetSuites();

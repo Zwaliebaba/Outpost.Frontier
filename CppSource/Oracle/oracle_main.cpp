@@ -476,5 +476,6 @@ int main(int Argc, char** Argv)
     EngineIni();
     IniReader();
     RunMathSuites();
+    RunNetSuites();
     return GFailed ? 1 : 0;
 }

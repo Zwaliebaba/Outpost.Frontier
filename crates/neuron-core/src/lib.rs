@@ -6,6 +6,7 @@ pub mod id;
 pub mod ini;
 pub mod math;
 pub mod msvcrt;
+pub mod net;
 pub mod num;
 pub mod rng;
 
