@@ -825,17 +825,17 @@ bool InitializeEngine(const FClientCommandLine* CommandLine)
     if (static_cast<unsigned>(g_display.width) >= 0x500u)
     {
         if (g_display.color_bpp == 0x20)
-            SplashPath = "../Data/Interface/Intro/images/startupscreen_1280.tga";
+            SplashPath = "data/Interface/Intro/images/startupscreen_1280.tga";
         else
-            SplashPath = "../Data/Interface/Intro/images/startupscreen_1280_16.bmp";
+            SplashPath = "data/Interface/Intro/images/startupscreen_1280_16.bmp";
     }
     else if (g_display.color_bpp == 0x20)
     {
-        SplashPath = "../Data/Interface/Intro/images/startupscreen.tga";
+        SplashPath = "data/Interface/Intro/images/startupscreen.tga";
     }
     else
     {
-        SplashPath = "../Data/Interface/Intro/images/startupscreen_16.bmp";
+        SplashPath = "data/Interface/Intro/images/startupscreen_16.bmp";
     }
 
     // the loading screen the field is registered with Common.dll,

@@ -67,7 +67,7 @@ namespace
     // keys TryBindKey refuses (Shift, Ctrl, Alt, Esc, F1, -1, LWin, RWin).
     int const kForbiddenKeys[8] = {0x10, 0x11, 0x12, 0x1b, 0x70, -1, 0x5b, 0x5c};
 
-    char const kKeyListPath[] = "../Data/interface/keylist.ini";
+    char const kKeyListPath[] = "data/interface/keylist.ini";
     char const kPerfOptionsFile[] = "PerfOptions.ini";
 
     void ShowControl(Win3D* Control)
@@ -2043,7 +2043,7 @@ namespace
             Option->Apply(Option->Value);
     }
 
-    char const kOptListPath[] = "../Data/interface/optlist.ini";
+    char const kOptListPath[] = "data/interface/optlist.ini";
 
     // The widget the "OptToggleText[Row]" slot resolves to: baseline indexes +0x61c + Row * 4
     // without a range check, so the Row -1 its seed / defaults / preset callers pass lands on

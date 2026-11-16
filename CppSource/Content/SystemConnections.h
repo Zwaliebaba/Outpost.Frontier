@@ -67,7 +67,7 @@ void __cdecl LoadSystemPathSection(INI_Reader* Reader, FSystemPathTable* Table);
 // bWrite: the three ini files are written afterwards (the routine).
 void __cdecl BuildSystemPathTables(bool bWrite);
 
-// (cdecl): the three tables into ..\data\Universe\*.ini, systems by nickname.
+// (cdecl): the three tables into data\Universe\*.ini, systems by nickname.
 void __cdecl WriteSystemPathTables();
 
 // (cdecl): Out += the destination systems of SystemId's connections of Type

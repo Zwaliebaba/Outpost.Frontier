@@ -75,9 +75,13 @@ bin\          Release build output, plus the runtime files listed below
 DATA_EXTRA\   optional: shaders and settings for the volumetric nebula
 ```
 
-The client starts in `bin\` and expects `..\DATA`. It probes
-`..\DATA\CHARACTERS\ANIMATIONS\FACIALMALE.ANM`; when that file is missing it
-starts `OutpostServer.exe` instead and exits.
+The client switches to its own folder and expects the game data in `data\`
+there, beside the executable (the default `data path` is `.\data`; the
+original looked in `..\DATA`). It probes
+`data\CHARACTERS\ANIMATIONS\FACIALMALE.ANM`; when that file is missing it
+starts `OutpostServer.exe` instead and exits. Run the binaries from a folder
+that holds `data\` (a copy of `DATA\`, or a junction to it), the INI files and
+`EBUEula.dll`. `DATA_EXTRA\` then also sits beside the executable.
 
 Copy these files from `EXE\` to `bin\`, where present:
 

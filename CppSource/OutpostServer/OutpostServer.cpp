@@ -431,10 +431,10 @@ BOOL COutpostServerApp::InitInstance()
 		MessageBoxA(NULL, "OutpostFrontier failed to find EBUEula entry point.", "Notice", MB_ICONHAND);
 		return FALSE;
 	}
-	const char* WarrantyPath = GetFileAttributesA("..\\Warranty.rtf") != INVALID_FILE_ATTRIBUTES
-		? "..\\Warranty.rtf" : NULL;
+	const char* WarrantyPath = GetFileAttributesA("Warranty.rtf") != INVALID_FILE_ATTRIBUTES
+		? "Warranty.rtf" : NULL;
 	int bAccepted = EbuEula("Software\\Microsoft\\Microsoft Games\\OutpostFrontier\\1.0",
-		"..\\EULA.rtf", WarrantyPath, 1);
+		"EULA.rtf", WarrantyPath, 1);
 	FreeLibrary(EulaModule);
 	if (bAccepted == 0)
 	{

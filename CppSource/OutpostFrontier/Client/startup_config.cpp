@@ -44,7 +44,7 @@ void LoadStartupConfig(DisplaySettings* Options, const FClientCommandLine* Comma
 
     // .
     Options->ini_path.Length = CopyBoundedString(Options->ini_path.Text, 0x104, "OutpostFrontier.ini");
-    Options->data_path.Length = CopyBoundedString(Options->data_path.Text, 0x104, "..\\Data");
+    Options->data_path.Length = CopyBoundedString(Options->data_path.Text, 0x104, ".\\data");
 
     // , in baseline's store order.
     Options->field_878 = 0;

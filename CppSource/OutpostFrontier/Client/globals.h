@@ -47,7 +47,7 @@ struct DisplaySettings
     // by the scatter loop at 0x005621c0. See game_options.h.
     int options[0x46];
     FClientPathString ini_path;       // +0x140  "OutpostFrontier.ini" (text is the field)
-    FClientPathString data_path;      // +0x248  "..\\Data" / [OutpostFrontier] data path (the field)
+    FClientPathString data_path;      // +0x248  ".\\data" / [OutpostFrontier] data path (the field)
     FClientPathString movie_files[3]; // +0x350  [Startup] movie_file, first three only
     FClientPathString gate_tunnels;   // +0x668  [Data] gate_tunnels
     FClientPathString jump_effect;    // +0x770  [Data] jump_effect

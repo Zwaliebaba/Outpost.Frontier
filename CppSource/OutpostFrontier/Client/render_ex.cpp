@@ -27,7 +27,7 @@ namespace
 {
     const char kRenderExSource[] = "render_ex.cpp";
     // The port's own data lives outside the baseline DATA tree, in DATA_EXTRA next to it
-    // ([OutpostFrontier] data path "..\DATA" -> "..\DATA_EXTRA"), so an install only adds the folder.
+    // ([OutpostFrontier] data path ".\data" -> ".\DATA_EXTRA"), so an install only adds the folder.
     const char kExtraDataDir[] = "DATA_EXTRA";
     // DATA_EXTRA-relative (GExtraData is the FileSystem rooted at that directory).
     const char kVolumetricIni[] = "VOLUMETRIC\\volumetric.ini";
@@ -67,7 +67,7 @@ namespace
     unsigned long long GIniStamp = 0;
     unsigned long long GShaderStamp = 0;
 
-    // "<parent of the data path>DATA_EXTRA": "..\DATA" -> "..\DATA_EXTRA",
+    // "<parent of the data path>DATA_EXTRA": ".\data" -> ".\DATA_EXTRA",
     // "D:\Games\FL\DATA\" -> "D:\Games\FL\DATA_EXTRA", "DATA" -> "DATA_EXTRA".
     void BuildExtraDataPath(char* Out, size_t OutSize)
     {

@@ -479,7 +479,7 @@ void __cdecl WriteSystemPathTables()
     Reader.close();
 
     // EBP = the first file (the field = "wt").
-    FILE* AllFile = fopen("..\\data\\Universe\\systems_shortest_path.ini", "wt");
+    FILE* AllFile = fopen("data\\Universe\\systems_shortest_path.ini", "wt");
     bool const bAllFileOpened = AllFile != nullptr;
     if (AllFile != nullptr)
     {
@@ -496,7 +496,7 @@ void __cdecl WriteSystemPathTables()
     // they belong. When the first fopen failed, EBP is null and the lines are not written (the
     // port does not reproduce the null-stream call; it drops them). The port never touches
     // the closed stream.
-    FILE* GateFile = fopen("..\\data\\Universe\\shortest_legal_path.ini", "wt");
+    FILE* GateFile = fopen("data\\Universe\\shortest_legal_path.ini", "wt");
     if (GateFile != nullptr)
     {
         WriteSystemPathFile(GateFile, bAllFileOpened, GSystemPathsGate, Names);
@@ -504,7 +504,7 @@ void __cdecl WriteSystemPathTables()
     }
 
     // EBP = the third file, used for every line.
-    FILE* HoleFile = fopen("..\\data\\Universe\\shortest_illegal_path.ini", "wt");
+    FILE* HoleFile = fopen("data\\Universe\\shortest_illegal_path.ini", "wt");
     if (HoleFile != nullptr)
     {
         WriteSystemPathFile(HoleFile, true, GSystemPathsHole, Names);

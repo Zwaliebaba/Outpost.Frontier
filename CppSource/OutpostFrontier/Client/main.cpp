@@ -368,8 +368,8 @@ namespace
 
     // / module storage -- writable char arrays in baseline (only the routine
     // reads them), handed to EBUEula as-is.
-    char G_EulaFile[] = "..\\EULA.rtf";
-    char G_WarrantyFile[] = "..\\Warranty.rtf";
+    char G_EulaFile[] = "EULA.rtf";
+    char G_WarrantyFile[] = "Warranty.rtf";
 
     // EBUEula.dll's "EBUEula" export as the routine calls it: cdecl (ADD ESP,0x10 after the
     // call at 0x005b2f31), four arguments, an int result tested for non-zero. EBUEula.dll is the
@@ -402,8 +402,8 @@ namespace
         exit(1);
     }
 
-    // (module storage-005b2f4e): the EULA gate WinMain runs after the ..\DATA
-    // probe (0x005b30bc). False (EBUEula returned 0) makes WinMain return 1.
+    // (module storage-005b2f4e): the EULA gate WinMain runs after the data
+    // folder probe (0x005b30bc). False (EBUEula returned 0) makes WinMain return 1.
     bool RunEulaGate()
     {
         // "..\EBUEula.dll", then "EBUEula.dll"; neither -> fatal box.
@@ -424,12 +424,12 @@ namespace
             EulaLoadFailureExit();
         }
 
-        // GetFileAttributesA("..\Warranty.rtf"); INC / NEG / SBB / AND
+        // GetFileAttributesA("Warranty.rtf"); INC / NEG / SBB / AND
         // -> the path when the attributes are not INVALID_FILE_ATTRIBUTES, else null.
         char* const Warranty =
             (GetFileAttributesA(G_WarrantyFile) != INVALID_FILE_ATTRIBUTES) ? G_WarrantyFile : nullptr;
 
-        // EBUEula(module storage registry key, "..\EULA.rtf",
+        // EBUEula(module storage registry key, "EULA.rtf",
         // warranty-or-null, 1).
         int const Result =
             EulaFn("Software\\Microsoft\\Microsoft Games\\OutpostFrontier\\1.0", G_EulaFile, Warranty, 1);
@@ -709,8 +709,8 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE /*prev*/, LPSTR cmd, int /*show
         _makepath(Folder, Drive, Dir, nullptr, nullptr);
         SetCurrentDirectoryA(Folder);
 
-        // baseline probes ..\DATA after the chdir above (DebugASan runs from binasan\, a sibling of bin\).
-        if (_access("..\\DATA\\CHARACTERS\\ANIMATIONS\\FACIALMALE.ANM", 0) != 0)
+        // Probes data\ next to the exe, after the chdir above (baseline probed ..\DATA).
+        if (_access("data\\CHARACTERS\\ANIMATIONS\\FACIALMALE.ANM", 0) != 0)
         {
             STARTUPINFOA StartupInfo;
             memset(&StartupInfo, 0, sizeof(StartupInfo));
