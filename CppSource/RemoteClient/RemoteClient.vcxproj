@@ -72,6 +72,9 @@
     <ProjectReference Include="..\neuroncomponents\neuroncomponents.vcxproj">
       <Project>{8F3A1B20-9C4D-4E5F-A617-B8C9D0E1F203}</Project>
     </ProjectReference>
+    <ProjectReference Include="..\rpclocal\rpclocal.vcxproj">
+      <Project>{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}</Project>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

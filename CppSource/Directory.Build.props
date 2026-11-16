@@ -11,7 +11,8 @@
     <OutpostFrontierDx9Renderer Condition="'$(OutpostFrontierDx9Renderer)'==''">0</OutpostFrontierDx9Renderer>
     <!-- Port-only walk mode in base rooms (docs/walk_mode.md), OUTPOST_FRONTIER_WALK_MODE; off by default. -->
     <OutpostFrontierWalkMode Condition="'$(OutpostFrontierWalkMode)'==''">0</OutpostFrontierWalkMode>
-    <PlatformToolset>v143</PlatformToolset>
+    <!-- Visual Studio 2026 toolset; OutpostServer also needs its MFC component. -->
+    <PlatformToolset>v145</PlatformToolset>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
     <CharacterSet>MultiByte</CharacterSet>
     <!-- Output dir name per configuration: Release -> bin, Debug -> bin_debug, DebugASan -> binasan.
@@ -22,9 +23,11 @@
     <OutDir>$(MSBuildThisFileDirectory)..\$(FlBinDirName)\</OutDir>
     <IntDir>$(MSBuildThisFileDirectory)obj\$(MSBuildProjectName)\$(Configuration)\</IntDir>
     <PreferredToolArchitecture>x86</PreferredToolArchitecture>
-    <!-- DirectX 8.1 SDK (repo-root dx8/, gitignored). Headers via IncludePath append
-         (old basetsd.h must not precede the Windows 10 SDK). Override: /p:Dx8SdkDir=... -->
-    <Dx8SdkDir Condition="'$(Dx8SdkDir)'==''">$(MSBuildThisFileDirectory)..\dx8</Dx8SdkDir>
+    <!-- DirectX 8.1 SDK: repo-root dx8/ (gitignored, design/reference-build.md), else CppSource/DX8/.
+         Headers via IncludePath append (old basetsd.h must not precede the Windows 10 SDK).
+         Override: /p:Dx8SdkDir=... -->
+    <Dx8SdkDir Condition="'$(Dx8SdkDir)'=='' and Exists('$(MSBuildThisFileDirectory)..\dx8\include')">$(MSBuildThisFileDirectory)..\dx8</Dx8SdkDir>
+    <Dx8SdkDir Condition="'$(Dx8SdkDir)'==''">$(MSBuildThisFileDirectory)DX8</Dx8SdkDir>
     <!-- DirectX SDK June 2010 (DX9RENDERER only: D3DX9 headers/import lib, DxErr, d3dx9_43 redist cab).
          Defaults to the installer's DXSDK_DIR (with or without a trailing slash). Its Include dir holds an
          older d3d9.h, so DX9RENDERER.vcxproj appends it after the Windows SDK. Override: /p:Dx9SdkDir=... -->
