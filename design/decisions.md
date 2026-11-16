@@ -19,6 +19,7 @@ through a decision record under `design/adr/`.
 | O8 | Servers are found by direct connect only. No LAN discovery and no internet list | LAN discovery; a new master list service |
 | O9 | The dedicated server is headless, with a config file and a command console | A terminal dashboard; a native GUI |
 | O10 | `CppSource/` stays intact until the Rust build is complete and is deleted in one commit | Deletion per library from a tagged reference; deletion per phase |
+| O11 | Decided 2026-11-16. The DirectX 8.1 SDK headers and libraries are committed in `CppSource/DX8/`, so the reference build works from a clone. They are deleted with the C++ in P7.3 | Keeping the SDK outside the repository in an ignored `dx8\` folder, as first planned |
 
 ## Technical decisions
 

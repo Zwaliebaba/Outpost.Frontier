@@ -169,7 +169,7 @@ and 3.
 | ID | Work | Where it runs | Size |
 | --- | --- | --- | --- |
 | P0.1 | Harden the workspace: pin the toolchain, add workspace lints and the unsafe policy, `cargo-deny`, the `game-sim` crate, the corrected crate graph, an `xtask` crate for tooling, a host-target test job in CI, the test-data conventions. Update `AGENTS.md`, `README.md` and the port map | Anywhere | M |
-| P0.2 | Restore the 32-bit C++ Release build. Needs Visual Studio with the v145 toolset and MFC for x86, the DirectX 8.1 SDK in `dx8\`, Python, and the original `DATA` and `EXE` trees. Record the steps in `design/reference-build.md`. Permitted changes to `CppSource/` are build fixes and oracle instrumentation only | Owner's Windows machine | M |
+| P0.2 | Restore the 32-bit C++ Release build. Needs Visual Studio with the v145 toolset and MFC for x86, the DirectX 8.1 SDK in `CppSource\DX8\` (committed, decision O11), Python, and the original `DATA` and `EXE` trees. Record the steps in `design/reference-build.md`. Permitted changes to `CppSource/` are build fixes and oracle instrumentation only | Owner's Windows machine | M |
 | P0.3 | Read the facts the repository cannot answer from the real installation and record them in `design/facts.md` (list below) | Owner's Windows machine | S |
 | P0.4 | Build the oracle harness: a console program that links the C++ DLLs and dumps vectors, a `+oracle` mode in the C++ client for interface-tree and screenshot dumps, and a logging proxy for the renderer interface that records call traces. Emit the first synthetic suites | Owner's Windows machine | L |
 
