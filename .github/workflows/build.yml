@@ -18,7 +18,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Prepare Rust
-        run: rustup show
+        run: rustup toolchain install
       - name: Check formatting
         run: cargo fmt --all --check
       - name: Lint workspace
@@ -27,3 +27,37 @@ jobs:
         run: cargo test --locked --workspace --all-targets
       - name: Build executables
         run: cargo build --locked --release --workspace --bins
+
+  host:
+    # Everything outside the Windows platform modules must build and test on
+    # any host (design/migration-plan.md section 7).
+    name: Linux host
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Prepare Rust
+        run: rustup toolchain install
+      - name: Lint workspace
+        run: cargo clippy --locked --workspace --all-targets --target host-tuple -- -D warnings
+      - name: Test workspace
+        run: cargo test --locked --workspace --all-targets --target host-tuple
+
+  policy:
+    name: Policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Prepare Rust
+        run: rustup toolchain install
+      - name: Check crate graph, legacy APIs and unsafe placement
+        run: cargo xtask check-policy
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+      - name: Check dependencies
+        run: cargo deny check

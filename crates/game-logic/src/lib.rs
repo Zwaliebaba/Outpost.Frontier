@@ -1,4 +1,5 @@
 //! Outpost:Frontier server startup and authoritative game rules.
+#![forbid(unsafe_code)]
 
 use std::io::{self, Write};
 
