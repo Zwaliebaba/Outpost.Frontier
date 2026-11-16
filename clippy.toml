@@ -1,0 +1,5 @@
+# design/decisions.md T11: no fused multiply-add anywhere.
+disallowed-methods = [
+    { path = "f32::mul_add", reason = "fused multiply-add changes rounding (decision T11)" },
+    { path = "f64::mul_add", reason = "fused multiply-add changes rounding (decision T11)" },
+]

@@ -8,13 +8,19 @@ Plan for migrating the C++ code base in `CppSource/` to the Rust workspace.
 | [decisions.md](decisions.md) | Owner decisions and technical decisions with the alternatives rejected |
 | [library-ledger.md](library-ledger.md) | All 39 C++ projects and shared source groups: disposition, Rust destination, work packages, status |
 | [verification.md](verification.md) | Fidelity tiers, the oracle, test data handling, CI, definition of done, gates |
+| [reference-build.md](reference-build.md) | How to build and run the C++ as the reference: DirectX 8.1 SDK, folder layout, build, run |
+| [facts.md](facts.md) | Facts to collect from the original installation (P0.3) |
+| [divergences.md](divergences.md) | Deliberate differences between the Rust port and the C++ |
 | [assessment/](assessment/) | Evidence: eight assessments of the C++ tree, made on 2026-11-15 |
 
-Until work package P0.1 updates `AGENTS.md` and `docs/port-map.md`, this
-plan takes precedence where they disagree. The differences are the new
-`game-sim` crate, the message catalog living in `game-sim` instead of
-`neuron-core`, and `OutpostFrontier.exe` linking `game-logic` for single
-player.
+## Progress
+
+| Work package | State |
+| --- | --- |
+| P0.1 Workspace hardening | Done: pinned toolchain, workspace lints, `game-sim` crate, `xtask check-policy`, `cargo-deny`, host and policy CI jobs, updated `AGENTS.md`, `README.md` and port map |
+| P0.2 Reference build | Waiting for the owner's Windows machine; steps in [reference-build.md](reference-build.md) |
+| P0.3 Facts | Waiting for P0.2; form in [facts.md](facts.md) |
+| P0.4 Oracle harness | Not started |
 
 ## Assessments
 

@@ -1,42 +1,46 @@
 # C++ to Rust port map
 
-The Rust workspace uses five libraries and two thin executable packages.
+The Rust workspace uses six libraries and two thin executable packages.
 The table assigns all 39 projects in
 [the C++ solution](../CppSource/OutpostFrontier.sln) and its shared source
-groups to their destination. These are implementation boundaries for future
-ports. The current Rust entry points exercise the crate dependencies.
+groups to their destination, following the
+[migration plan](../design/migration-plan.md). Per-project detail, work
+packages and status are in the [library ledger](../design/library-ledger.md).
 
 | C++ source group | Rust destination | Responsibility |
 | --- | --- | --- |
-| `neuroncomponents`, `system` | NeuronCore | Component startup and lifetime. Express dependencies through Rust modules, constructors, and traits. |
-| `NeuronRuntime` | NeuronCore, NeuronClient, NeuronServer | Shared packet and system services in core. Keep rendering and audio handles in the client engine and host services in the server engine. |
-| `Common` | NeuronCore, NeuronServer, NeuronClient, GameLogic, GameApp | Put shared configuration, IDs, data and simulation primitives in core. Put persistence and host services in the server engine, presentation helpers in the client engine, and game-specific rules and UI flow in the game crates. |
-| `IVP`, `qhull`, `x86math` | NeuronCore | Collision queries, hull geometry, vectors, transforms, and physics. Capture numeric tolerances at the public interfaces. |
-| `SceneRuntime` | NeuronCore, NeuronClient | Put shared model hierarchies, transforms, and hardpoints in core. Put scene playback and presentation adapters in the client engine. |
-| `ReadFile`, `luaprofile`, `zlib` | NeuronCore | Filesystem and container readers, profile parsing, and compression. |
-| `rpclocal`, `RemoteCommon` | NeuronCore, NeuronClient, NeuronServer | Share message definitions and codecs. Keep queue and connection ownership with the engine endpoint that uses it. |
+| `neuroncomponents`, `system` | NeuronCore, NeuronClient | INI parser, name CRC and ASCII comparison in core. The component manager and system container are replaced by the client's `Engine` value, which builds the subsystems in a fixed order. |
+| `NeuronRuntime` | NeuronCore, NeuronClient, NeuronServer | Wire framing, the transport interface and the MD5 text form in core. The QUIC connection in the client and the QUIC host in the server. The DirectPlay and list-server wrappers are not ported. |
+| `Common` | NeuronCore, GameSim, GameLogic, NeuronClient, GameApp | IDs, INI and BINI, utilities and `.sur` reading in core. Game data, object model, equipment, AI and wire types in GameSim. Trade and reputation rules in GameLogic. Text rendering in the client engine; client-only helpers in GameApp. |
+| `IVP`, `qhull` | NeuronCore | Physics facade over `parry3d` and the project's own solver. Neither library is ported; the compact-surface layout is read as a file format. |
+| `x86math` | NeuronCore | Vectors, matrices, quaternions and transforms in the original operation order. |
+| `SceneRuntime` | NeuronCore | Instance tree, compound models, hardpoints, joints and animation. No renderer dependence. |
+| `ReadFile`, `zlib` | NeuronCore | File systems and the UTF container. `flate2` replaces zlib for network batches. |
+| `luaprofile`, `MemoryDiagnostics` | — | Not ported. |
+| `rpclocal`, `RemoteCommon` | NeuronCore, GameSim | The loopback transport in core and one set of message codecs in GameSim. The codec copy in `rpclocal` is not ported. |
 | `RemoteServer` | NeuronClient | Client-side connection to a server and delivery of incoming events. |
 | `RemoteClient` | NeuronServer | Server-side connection handling and delivery of events to connected clients. |
-| `Server` | NeuronServer, GameLogic | Server lifecycle, sessions, and save storage in the engine. Authoritative world updates, character actions, and game rules in GameLogic. |
-| `Content` | GameLogic | Missions, encounters, factions, NPC behavior, and rewards. |
-| `particlefx`, `Deformable2`, `surfacematerials` | NeuronClient | Particles, skinned geometry, and surface materials. |
-| `DX8RENDERER`, `DX9RENDERER`, `RendComp`, `Shading`, `ximage` | NeuronClient | Graphics device integration, rendering interfaces, draw batching, texture handling, and material animation. |
-| `SceneScript`, `movie` | NeuronClient, GameApp | Scene script evaluation and media playback in the engine. Game-specific scene selection and transitions in GameApp. |
-| `SoundManager`, `SoundStreamer`, `imeui` | NeuronClient | Audio playback, mixing and streaming, and platform text input. |
-| `UiText`, `FieldGuideText`, `DialogueText`, `EquipmentCatalog`, `InterfaceExtras` | GameApp | Client UI, guide entries, dialogue, equipment names, and menu text. |
-| `NameCatalog`, `NegotiationText` | GameLogic, GameApp | Game rule and content identifiers in GameLogic, with localized presentation in GameApp. |
-| `serverinterface` | GameLogic | Server administration labels and resources. |
-| `OutpostFrontier` | GameApp, NeuronClient, `outpost-frontier` | Game and menu flow in GameApp, platform and engine integration in NeuronClient, process startup in the executable package. |
-| `OutpostServer` | GameLogic, NeuronServer, `outpost-server` | Administration and game configuration in GameLogic, host lifecycle in NeuronServer, process startup in the executable package. |
-| `MemoryDiagnostics` | NeuronCore, NeuronClient | Shared diagnostic interfaces and client-specific instrumentation. |
-| `include` | Owning Rust crate | Define shared types in core. Expose engine or game interfaces from the crate that owns them. |
+| `Server` | NeuronServer, GameLogic | Server lifecycle, sessions, save storage, accounts and the controller bus in the engine. World updates, objects, players and replication in GameLogic. |
+| `Content` | GameLogic | Missions, encounters, factions, NPC behavior, random missions and rewards. |
+| `particlefx`, `Deformable2`, `surfacematerials` | NeuronCore, NeuronClient | Data parsing in core. Particles, skinning and surface materials in the client engine. |
+| `DX8RENDERER`, `DX9RENDERER`, `RendComp`, `Shading`, `ximage` | NeuronCore, NeuronClient | Image and mesh parsing in core. The Direct3D 12 renderer, fixed-function emulation, materials, batching and textures in the client engine. Neither legacy renderer is ported. |
+| `SceneScript`, `movie` | NeuronClient, GameApp | Lua 3.2 evaluator, scene timeline and Media Foundation playback in the engine. Game-specific scene selection and transitions in GameApp. |
+| `SoundManager`, `SoundStreamer`, `imeui` | NeuronClient | XAudio2 playback, mixing arithmetic, streaming, the edit-box model and IME positioning. |
+| `UiText`, `FieldGuideText`, `DialogueText`, `EquipmentCatalog`, `InterfaceExtras` | NeuronCore, GameApp | Catalog loader in core. Client UI, guide entries, dialogue, equipment names and menu text as catalogs built from `resources/text/`. |
+| `NameCatalog`, `NegotiationText` | NeuronCore, GameApp, GameLogic | Catalogs as above. GameLogic keeps the numeric text IDs and never resolves text. |
+| `serverinterface` | `outpost-server` | Strings for the admin console. The MFC dialogs are dropped. |
+| `OutpostFrontier` | GameApp, NeuronClient, `outpost-frontier` | Game and menu flow in GameApp, platform and engine integration in NeuronClient, process startup and in-process server wiring in the executable package. |
+| `OutpostServer` | GameLogic, NeuronServer, `outpost-server` | Admin operations in GameLogic, host lifecycle in NeuronServer, config file and command console in the executable package. |
+| `include` | Owning Rust crate | Each header follows its library. `x87_trig.h` is not ported. |
 
 C++ project files and resource import scripts describe build inputs.
-Cargo, the Windows workflow, and the Rust crate manifests define the new build.
+Cargo, CI, and the Rust crate manifests define the new build.
 
 Keep numeric resource IDs and serialized field widths consistent when a port
 consumes an existing format. Design Rust types around the fields and behavior
-of that format so the same implementation works on Windows x64.
+of that format so the same implementation works on Windows x64. Only layouts
+that are formats (files, save text, wire payloads) are preserved; in-memory
+layouts of the C++ are not.
 
 ## Content names
 

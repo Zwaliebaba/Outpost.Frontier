@@ -1,2 +1,7 @@
 [build]
 target = "x86_64-pc-windows-msvc"
+
+[alias]
+# Workspace tooling runs on the machine's own target, also where the default
+# build target is Windows.
+xtask = "run --quiet --package xtask --target host-tuple --"

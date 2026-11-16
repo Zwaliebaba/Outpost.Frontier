@@ -138,15 +138,21 @@ Initial allow-list: `windows`, `quinn`, `rustls`, `rcgen`, `tokio`
 `cargo-deny` enforces licences and advisories. Additions need a line in
 this register.
 
+The permitted licences are listed in `deny.toml`. In use so far: `toml`,
+in `xtask` only.
+
 Math types are the project's own (`neuron-core::math`) so operation order
 stays under control; conversion to `nalgebra` happens at the `parry3d`
 boundary only.
 
 ### T14 — Unsafe code
 
-`unsafe` is denied in `game-sim`, `game-logic` and `game-app`. It is
+`unsafe` is forbidden in `game-sim`, `game-logic`, `game-app`,
+`neuron-server` and the executables, and denied everywhere else. It may be
 allowed in `neuron-client` platform modules and for memory mapping in
-`neuron-core`, with a safety comment on every block.
+`neuron-core`, with a safety comment on every block. The directories that may
+allow it are listed in `xtask/src/scan.rs`; the work package that adds an
+FFI module adds its directory there.
 
 ### T15 — Strings
 
