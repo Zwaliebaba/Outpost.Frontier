@@ -67,6 +67,10 @@ or observable behavior.
 
 - Vectors made from synthetic input go in `<crate>/tests/vectors/`,
   hand-made fixtures in `<crate>/tests/fixtures/`. Both are committed.
+- Committed vectors are the C++ oracle's output. CI's oracle job rebuilds
+  `CppSource/Oracle` and fails when its output differs from them. Rewrite
+  them from Rust (`OUTPOST_BLESS_VECTORS=1`) only to add a suite, never to
+  make a failing comparison pass.
 - Never commit original game data or vectors derived from the original
   data. Tests that need them read `OUTPOST_DATA_DIR` or `OUTPOST_ORACLE_DIR`
   and return early with a printed notice when the variable is unset.

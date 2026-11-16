@@ -115,8 +115,10 @@ fix the detail.
   vectors.
 - No fused multiply-add contraction and no fast-math anywhere.
 - `neuron-core::num` supplies truncating and round-to-even float-to-int
-  conversions with x86 overflow results, the wrapping `atoi`, the legacy
-  `atof` and the VC6 `%g` formatter.
+  conversions with x86 overflow results. `neuron-core::msvcrt` supplies the
+  wrapping `atoi` and `_wtoi`, the legacy `atof` and the Universal C
+  Runtime `%g` the reference formats with. The VC6 number formatters of
+  `msvcrt_numeric_format.h` port with their users (P4.13, P4.14).
 - The CRT random generator is an explicit value passed to its users, not a
   process global. Draw order is preserved where a saved seed rebuilds state
   (random missions).

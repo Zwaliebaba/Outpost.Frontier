@@ -162,3 +162,12 @@ oracle instrumentation of work package P0.4.
 
 Fill in [facts.md](facts.md) (work package P0.3). Gate G0 also needs the
 oracle harness of work package P0.4.
+
+The harness is the `Oracle` project in the solution's `Tools` folder. It
+needs no game data. To run it by hand after a Release build:
+
+```powershell
+New-Item -ItemType Directory -Force oracle-out
+.\bin\Oracle.exe "$PWD\crates\neuron-core\tests\fixtures\oracle" "$PWD\oracle-out"
+git diff --no-index crates\neuron-core\tests\vectors oracle-out
+```

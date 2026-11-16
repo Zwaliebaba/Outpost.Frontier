@@ -61,3 +61,40 @@ jobs:
           tool: cargo-deny
       - name: Check dependencies
         run: cargo deny check
+
+  oracle:
+    # Builds the C++ oracle harness (design/migration-plan.md P0.4) and checks
+    # that it reproduces the committed vectors byte for byte. Removed with the
+    # C++ in P7.3.
+    name: Oracle vectors
+    runs-on: windows-2025-vs2026
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Build the oracle harness
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
+          & $msbuild CppSource\OutpostFrontier.sln '/t:Tools\Oracle' /m /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Run the oracle harness
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force oracle-out | Out-Null
+          & .\bin\Oracle.exe "$PWD\crates\neuron-core\tests\fixtures\oracle" "$PWD\oracle-out"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Compare with the committed vectors
+        shell: pwsh
+        run: |
+          git diff --no-index --stat crates/neuron-core/tests/vectors oracle-out
+          git diff --no-index crates/neuron-core/tests/vectors oracle-out
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Keep the oracle output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oracle-vectors
+          path: oracle-out
+          if-no-files-found: ignore
