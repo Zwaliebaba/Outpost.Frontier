@@ -143,8 +143,17 @@ Initial allow-list: `windows`, `quinn`, `rustls`, `rcgen`, `tokio`
 `cargo-deny` enforces licences and advisories. Additions need a line in
 this register.
 
-The permitted licences are listed in `deny.toml`. In use so far: `toml`,
-in `xtask` only.
+The permitted licences are listed in `deny.toml`. In use so far:
+
+- `toml`, in `xtask` only.
+- `flate2` 1.1 (MIT or Apache-2.0; `rust_backend`, that is `miniz_oxide`):
+  `neuron-core::net::frame`, compressed batches only (P1.9).
+- `md-5` 0.10 (MIT or Apache-2.0; default features off):
+  `neuron-core::util::md5` (P1.5). The C++ MD5 was checked against RFC 1321
+  and is standard.
+- `tracing` 0.1 (MIT; `std` feature only, no attribute macros):
+  `neuron-core::diag` (P1.5). `tracing-subscriber` is not used; the
+  channel subscriber is written in `diag`.
 
 Math types are the project's own (`neuron-core::math`) so operation order
 stays under control; conversion to `nalgebra` happens at the `parry3d`

@@ -39,7 +39,12 @@ written as hexadecimal bit patterns, so comparison never depends on decimal
 formatting.
 
 Synthetic inputs live in each crate's `tests/fixtures/oracle/`, written by
-the script beside them. The harness and the crate's `oracle_vectors` test
+the scripts beside them (`make_fixtures.py` for P1.1 and P1.2,
+`make_<module>_fixtures.py` for later suites). Each later suite has its own
+`oracle_<module>.cpp` in the harness and `tests/oracle_<module>.rs` in the
+crate. Tier B suites compare the committed values within the bound the
+test states; where NaN payloads are not part of the port, both sides write
+every NaN as one pattern. The harness and the crate's `oracle_vectors` test
 render the same suites from them; the committed `tests/vectors/` files must
 equal both. `OUTPOST_BLESS_VECTORS=1 cargo test --test oracle_vectors`
 rewrites the files from the Rust port. That is only for adding a suite: the
@@ -81,7 +86,7 @@ runner with the data can automate this; it is optional.
 | Windows (existing) | `x86_64-pc-windows-msvc` | format check, clippy with warnings denied, tests, release build of both executables |
 | Host (added in P0.1) | the runner's native target | tests for `neuron-core`, `game-sim`, `neuron-server`, `game-logic` and the platform-neutral parts of the client crates |
 | Policy (added in P0.1) | — | `cargo-deny`; a scan that fails on legacy API names, `asm!`, or `unsafe` outside the permitted modules |
-| Oracle (added in P0.4) | `Win32` C++ build | builds `CppSource/Oracle`, runs it on the committed inputs and fails unless its output equals the committed vectors byte for byte; removed in P7.3 |
+| Oracle (added in P0.4) | `Win32` C++ build | builds `CppSource/Oracle`, runs it on the committed inputs and fails unless its output equals the committed vectors byte for byte; runs the data-dump mode on a synthetic installation; builds the eight resource DLLs and compares every string and card with the catalogs `cargo xtask catalog` builds (P1.6; that dump is game text and is not uploaded); removed in P7.3 |
 
 ## Definition of done for a work package
 
