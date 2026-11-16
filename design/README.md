@@ -21,8 +21,8 @@ Plan for migrating the C++ code base in `CppSource/` to the Rust workspace.
 | P0.2 Reference build | In progress: Debug and Release `Win32` build without errors on toolset v145 (commit `a86a199`). Open: the run on the original data, which is the Gate G0 check. Steps in [reference-build.md](reference-build.md) |
 | P0.3 Facts | Waiting for P0.2; form in [facts.md](facts.md) |
 | P0.4 Oracle harness | In progress: the console harness in `CppSource/Oracle/` covers name hashing, IDs, number parsing and formatting, the random generator and both INI parsers; CI's oracle job builds it and checks the committed vectors. Open: a data dump, the `+oracle` client mode, the renderer proxy |
-| P1.1 Core primitives | In progress, started before G0 (migration plan section 6): `hash`, `id`, `msvcrt`, `num`, `rng` in `neuron-core`. Open: oracle confirmation in CI, the string cache |
-| P1.2 INI formats | In progress, started before G0: `neuron-core::ini` (engine parser, `INI_Reader` text and BINI). Open: oracle confirmation in CI, a run over the original `DATA` tree |
+| P1.1 Core primitives | In progress, started before G0 (migration plan section 6): `hash`, `id`, `msvcrt`, `num`, `rng` in `neuron-core`. Oracle vectors confirmed in CI (CI run 43875971760, first harness build). Open: the string cache |
+| P1.2 INI formats | In progress, started before G0: `neuron-core::ini` (engine parser, `INI_Reader` text and BINI). Oracle vectors confirmed in CI (CI run 43875971760). Open: a run over the original `DATA` tree |
 
 ## Assessments
 
