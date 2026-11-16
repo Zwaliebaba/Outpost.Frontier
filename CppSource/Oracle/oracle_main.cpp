@@ -464,5 +464,6 @@ int main(int Argc, char** Argv)
     Rand();
     EngineIni();
     IniReader();
+    RunMathSuites();
     return GFailed ? 1 : 0;
 }

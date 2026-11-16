@@ -3,6 +3,7 @@
 pub mod hash;
 pub mod id;
 pub mod ini;
+pub mod math;
 pub mod msvcrt;
 pub mod num;
 pub mod rng;

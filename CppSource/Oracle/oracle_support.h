@@ -80,3 +80,6 @@ namespace oracle
 }
 
 // Suite entry points of later work packages, called from main() in order.
+
+// P1.4, oracle_math.cpp: neuron-core::math against x86math.dll.
+void RunMathSuites();
