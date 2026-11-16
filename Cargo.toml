@@ -26,6 +26,7 @@ neuron-core = { path = "crates/neuron-core" }
 neuron-server = { path = "crates/neuron-server" }
 
 # External crates. Each one needs an entry in design/decisions.md (T13).
+flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
 toml = "0.9"
 
 [workspace.lints.rust]

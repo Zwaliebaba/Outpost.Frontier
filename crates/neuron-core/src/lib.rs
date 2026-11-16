@@ -4,6 +4,7 @@ pub mod hash;
 pub mod id;
 pub mod ini;
 pub mod msvcrt;
+pub mod net;
 pub mod num;
 pub mod rng;
 

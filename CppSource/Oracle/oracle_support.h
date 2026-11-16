@@ -80,3 +80,6 @@ namespace oracle
 }
 
 // Suite entry points of later work packages, called from main() in order.
+
+// P1.9, oracle_net.cpp: wire primitives and quantisers.
+void RunNetSuites();
