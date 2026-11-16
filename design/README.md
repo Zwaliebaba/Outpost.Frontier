@@ -18,11 +18,13 @@ Plan for migrating the C++ code base in `CppSource/` to the Rust workspace.
 | Work package | State |
 | --- | --- |
 | P0.1 Workspace hardening | Done: pinned toolchain, workspace lints, `game-sim` crate, `xtask check-policy`, `cargo-deny`, host and policy CI jobs, updated `AGENTS.md`, `README.md` and port map |
-| P0.2 Reference build | In progress: Debug and Release `Win32` build without errors on toolset v145 (commit `a86a199`). Open: the run on the original data, which is the Gate G0 check. Steps in [reference-build.md](reference-build.md) |
-| P0.3 Facts | Waiting for P0.2; form in [facts.md](facts.md) |
-| P0.4 Oracle harness | In progress: the console harness in `CppSource/Oracle/` covers name hashing, IDs, number parsing and formatting, the random generator and both INI parsers; CI's oracle job builds it, checks the committed vectors and runs the data-dump pipeline on a synthetic tree. The data dump (`Oracle.exe dump`) is built. Open: running the data dump on the original installation, the `+oracle` client mode, the renderer proxy |
+| P0.2 Reference build | Done: Debug and Release `Win32` build on toolset v145 (commit `a86a199`); single player runs on the original data (commit `816f556a`), the Gate G0 check. Steps and fixes in [reference-build.md](reference-build.md). The plain-text save writer in that commit is decision O12 |
+| P0.3 Facts | Done: F1 to F13 recorded in [facts.md](facts.md); F14 moved to the P2.0 design spike |
+| P0.4 Oracle harness | Done: the console harness in `CppSource/Oracle/` covers name hashing, IDs, number parsing and formatting, the random generator and both INI parsers; CI's oracle job builds it and checks the committed vectors. The data dump of the master in `outdir\` (1256 INI files) equals the Rust dump. Later work packages add their own suites |
+| P0.5 Client instrumentation | Not started: the `+oracle` client mode and the renderer logging proxy, split from P0.4 on 2026-11-16. Needed before P4.0 and Gate G4; not part of G0 |
+| Gate G0 | Passed 2026-11-16 ([migration plan](migration-plan.md) section 6) |
 | P1.1 Core primitives | In progress, started before G0 (migration plan section 6): `hash`, `id`, `msvcrt`, `num`, `rng` in `neuron-core`. Oracle vectors confirmed in CI. The string cache moved to P2.1. Open: acceptance at Gate G1 |
-| P1.2 INI formats | In progress, started before G0: `neuron-core::ini` (engine parser, `INI_Reader` text and BINI). Oracle vectors confirmed in CI. Open: the data dump on the original installation ([reference-build.md](reference-build.md) section 7) |
+| P1.2 INI formats | In progress, started before G0: `neuron-core::ini` (engine parser, `INI_Reader`; text only, decision O13). Oracle vectors confirmed in CI; the data dump of the master in `outdir\` shows 0 differences. Open: acceptance at Gate G1 |
 
 ## Assessments
 

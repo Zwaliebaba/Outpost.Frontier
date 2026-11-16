@@ -1,5 +1,5 @@
 //! INI formats (work package P1.2): the engine configuration parser and the
-//! game INI reader for text and BINI files.
+//! game INI reader.
 
 mod engine;
 mod number;

@@ -1,6 +1,6 @@
 //! The Universal C Runtime's `%g` conversion.
 //!
-//! The C++ formats BINI float parameters with `sprintf("%g")` from the
+//! The C++ formats floating-point numbers with `sprintf("%g")` from the
 //! Universal C Runtime. It prints the exact binary value rounded to the
 //! precision, an exact halfway case to even, with an exponent of at least
 //! two digits. Rust's own formatting differs in layout, so the digits are

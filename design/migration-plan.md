@@ -73,7 +73,7 @@ OutpostServer.exe ─────> game-logic
 
 | Crate | Owns | Platform code |
 | --- | --- | --- |
-| `neuron-core` | Hashes and IDs, INI and BINI readers, file system and UTF container, math, asset data parsers, scene and animation runtime, physics core, wire primitives and the `Transport` trait, text catalog loader, diagnostics | None. Builds and tests on any host |
+| `neuron-core` | Hashes and IDs, INI readers, file system and UTF container, math, asset data parsers, scene and animation runtime, physics core, wire primitives and the `Transport` trait, text catalog loader, diagnostics | None. Builds and tests on any host |
 | `game-sim` (new) | Game data (archetypes, universe, goods, reputation), object model, equipment, flight AI, the 162-message protocol | None |
 | `neuron-server` | Save container, account store, session slots, controller bus and timers, QUIC host, tick driver | Sockets only |
 | `game-logic` | Authoritative world, players, missions, encounters, NPCs, random missions, admin operations | None |
@@ -171,7 +171,8 @@ and 3.
 | P0.1 | Harden the workspace: pin the toolchain, add workspace lints and the unsafe policy, `cargo-deny`, the `game-sim` crate, the corrected crate graph, an `xtask` crate for tooling, a host-target test job in CI, the test-data conventions. Update `AGENTS.md`, `README.md` and the port map | Anywhere | M |
 | P0.2 | Restore the 32-bit C++ Release build. Needs Visual Studio with the v145 toolset and MFC for x86, the DirectX 8.1 SDK in `CppSource\DX8\` (committed, decision O11), Python, and the original `DATA` and `EXE` trees. Record the steps in `design/reference-build.md`. Permitted changes to `CppSource/` are build fixes and oracle instrumentation only | Owner's Windows machine | M |
 | P0.3 | Read the facts the repository cannot answer from the real installation and record them in `design/facts.md` (list below) | Owner's Windows machine | S |
-| P0.4 | Build the oracle harness: a console program that links the C++ DLLs and dumps vectors, a `+oracle` mode in the C++ client for interface-tree and screenshot dumps, and a logging proxy for the renderer interface that records call traces. Emit the first synthetic suites | Owner's Windows machine | L |
+| P0.4 | Build the oracle harness: a console program that links the C++ DLLs and dumps vectors, and a data-dump mode that runs it over the installation. Emit the first synthetic suites. Each later work package adds the suites and dump modes it needs | Owner's Windows machine | L |
+| P0.5 | Client instrumentation: a `+oracle` mode in the C++ client for interface-tree and screenshot dumps, and a logging proxy for the renderer interface that records call traces. Split from P0.4 on 2026-11-16; not part of Gate G0. Runs alongside Phases 1 to 4 and is needed before P4.0 fixes the trace format, and in any case before Gate G4 | Owner's Windows machine | M |
 
 Facts for P0.3: the `[Libraries]` and `[System]` lists of the engine INI;
 the `[Resources]` DLL order that fixes text ID prefixes; the `local_server`
@@ -183,6 +184,14 @@ keeps one object world or two (see P2.0).
 **Gate G0.** The C++ build runs the game on the original data. The harness
 produces vectors for at least name hashing, INI parsing and one data dump.
 CI runs format, lint, Windows tests and host-target tests.
+
+G0 passed on 2026-11-16. The game ran on the original data with commit
+`816f556a`; the oracle vectors for hashing, IDs, numbers, the random
+generator and both INI parsers pass in CI; the data dump of all 1256 INI
+files in the master copy (`outdir\`) equals the Rust dump; all four CI jobs
+passed on that commit. Facts F1 to F13 are recorded; F14 moved to P2.0. Evidence is
+in [reference-build.md](reference-build.md) sections 5 to 7 and in
+[facts.md](facts.md).
 
 If P0.2 fails for good (for example, a required closed binary cannot be
 found), the fallback is decision O3's second option: vectors transliterated
@@ -206,7 +215,7 @@ only the real `DATA` tree shows.
 | ID | C++ source | Rust destination | Size | Tier |
 | --- | --- | --- | --- | --- |
 | P1.1 | Name CRC and `stricmp` (`neuroncomponents`); `CreateID`, `MakeId`, `MakeLocationID`, sub-object ranges (`Common`); `msvcrt_compat.h`; legacy `atof` and the UCRT `%g`; float-to-int helpers; CRT random generator | `hash`, `id`, `msvcrt`, `num`, `rng` | S | A |
-| P1.2 | Engine INI parser (`neuroncomponents`); game INI reader, BINI, legacy `atof` (`Common`) | `ini` | M | A |
+| P1.2 | Engine INI parser (`neuroncomponents`); game INI reader, legacy `atof` (`Common`) | `ini` | M | A |
 | P1.3 | `ReadFile`: directory, UTF and memory file systems, search path | `vfs`, `utf` | M | A |
 | P1.4 | `x86math` kernels in original operation order | `math` | M | B |
 | P1.5 | `FDUMP` log sink, error callbacks, timing, tick-profile spans; rect, spline, MD5 text form | `diag`, `time`, `util` | S | A |
@@ -340,7 +349,8 @@ branch, CI is green, and the legacy scan is part of CI.
 ## 7. Working rules during the migration
 
 - `CppSource/` is frozen. The only permitted changes are build fixes and
-  oracle instrumentation from Phase 0.
+  oracle instrumentation from Phase 0. The plain-text save writer
+  (decision O12) is the one recorded exception.
 - One work package is one or more pull requests against the owning crate.
   Each updates the ledger.
 - Unknown fields in the reconstruction (about 11,000) are carried as

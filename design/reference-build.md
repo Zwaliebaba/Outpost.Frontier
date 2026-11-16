@@ -15,7 +15,7 @@ libraries are committed in `CppSource\DX8\` (decision O11).
 | Python 3 | On `PATH`. Needed only by the Debug and DebugASan configurations |
 | DirectX 8.1 SDK | Headers and libraries, committed in `CppSource\DX8\` (section 2) |
 | DirectPlay | Windows optional feature (section 5) |
-| Original installation | Its `DATA` and `EXE` folders (section 3) |
+| Original installation | Its game files, kept as the master copy in `outdir\` (section 3) |
 
 The current Windows SDK already provides DirectSound, DirectInput,
 DirectDraw, DirectShow and `dxguid.lib`. The DirectX 8.1 SDK is needed only
@@ -62,23 +62,34 @@ ignored by git.
 
 ```text
 dx8\          optional: a local DirectX 8.1 SDK that overrides CppSource\DX8\
-DATA\         the installation's DATA folder, unchanged
-EXE\          the installation's EXE folder, unchanged
+outdir\       the master copy of the game files: data\ (the installation's
+              DATA folder), the INI files, the .fl templates and
+              flconfigdatabase.txt
 bin\          Release build output, plus the runtime files listed below
+bin_debug\    Debug build output; copy_dev_ini.py fills it from bin\
 DATA_EXTRA\   optional: shaders and settings for the volumetric nebula
 ```
+
+`outdir\` is the reference for every game file. The run folders are copies
+of it and may carry local edits; the oracle reads `outdir\`.
 
 The client switches to its own folder and expects the game data in `data\`
 there, beside the executable (the default `data path` is `.\data`; the
 original looked in `..\DATA`). It probes
 `data\CHARACTERS\ANIMATIONS\FACIALMALE.ANM`; when that file is missing it
 starts `OutpostServer.exe` instead and exits. Run the binaries from a folder
-that holds `data\` (a copy of `DATA\`, or a junction to it) and the INI
-files. `DATA_EXTRA\` then also sits beside the executable. The client and
+that holds `data\` (a copy of `outdir\data\`, or a junction to it) and the
+INI files. `DATA_EXTRA\` then also sits beside the executable. The client and
 server no longer show the original licence screen, so they need neither
 `EBUEula.dll` nor `EULA.rtf` and `Warranty.rtf`.
 
-Copy these files from `EXE\` to `bin\`, where present:
+On the owner's machine the run folders differ from `outdir\` in three
+values: the client INI comments out the three `[Startup] movie_file` lines
+and names `intro` by an absolute path into the run folder, and
+`data\INTERFACE\intro.ini` sets `bDrawScripts = false` (the master has
+`true`), so the main menu shows no intro scene.
+
+Copy these files from `outdir\` to `bin\`, where present:
 
 | Files | Why |
 | --- | --- |
@@ -88,7 +99,7 @@ Copy these files from `EXE\` to `bin\`, where present:
 
 Do not copy the original game DLLs. The build produces its own.
 
-The INI files name DLLs. In the copies in `bin\`, every DLL name must be one
+The INI files name DLLs. In `outdir\` and its copies, every DLL name must be one
 that this build produces: the engine INI's `[Libraries]` list, the client
 INI's `[Resources]` list and `local_server` key, and the server's
 `[Initial SP DLLs]` and `[Initial MP DLLs]` rows. The build produces these
@@ -144,7 +155,8 @@ change in [facts.md](facts.md).
    ```
 
 2. Start `bin\OutpostFrontier.exe` with `bin\` as the working directory.
-3. Single player: start a new game and fly. This is the Gate G0 check.
+3. Single player: start a new game and fly. This is the Gate G0 check;
+   it passed on 2026-11-16 with commit `816f556a`.
 4. Dedicated server: start `bin\OutpostServer.exe`; connect a client to
    `127.0.0.1`.
 
@@ -156,17 +168,19 @@ values under `HKCU\Software\Microsoft\Microsoft Games\OutpostFrontier\1.0`.
 
 Record every problem and its fix in this section, with the commit that
 fixed it. The only changes allowed in `CppSource/` are build fixes and the
-oracle instrumentation of work package P0.4.
+oracle instrumentation of work packages P0.4 and P0.5. The one exception is
+the plain-text save writer of commit `816f556a`, recorded as decision O12.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | `MSB8041` (MFC libraries are required) when building `OutpostServer` with toolset v143 | The Visual Studio 2026 installation has MFC only for v145 | The solution uses toolset v145 (commit `a86a199`) |
 | `LNK1181` (cannot open input file) for `Common.lib`, `Server.lib`, `rpclocal.lib` or `NeuronRuntime.lib` in a parallel build (`/m`) | `Server`, `RemoteServer` and `RemoteClient` linked these libraries without project references, so MSBuild could build them too late | Project references added (commit `a86a199`) |
+| With `bDrawScripts = false` in `intro.ini`, the main menu is not drawn and has no mouse cursor | `MenuStateDriverUpdate` returned before it began the frame when `bDrawScripts` is clear, and the cursor was set only on the path that enters the intro base (`client_state.cpp`) | The menu frame is always drawn and only the intro scene work depends on `bDrawScripts`; the cursor is set before that test (commit `816f556a`). With `bDrawScripts = true` the menu behaves as before |
 
 ## 7. Then
 
-Fill in [facts.md](facts.md) (work package P0.3). Gate G0 also needs the
-oracle harness of work package P0.4.
+Fill in [facts.md](facts.md) (work package P0.3; done on 2026-11-16). Gate
+G0 also needs the oracle harness of work package P0.4.
 
 The harness is the `Oracle` project in the solution's `Tools` folder. Its
 synthetic suites need no game data. To run them by hand after a Release
@@ -180,32 +194,42 @@ git diff --no-index crates\neuron-core\tests\vectors oracle-out
 
 ### Data dump
 
-The data dump runs both INI readers over the installation and compares the
-Rust port with the C++ (work package P1.2, Gate G0). It reads every `.ini`
-file under `DATA\` and `EXE\`. It writes one dump per file, about the size
-of the INI files themselves or larger, into a folder outside the
-repository. None of it may be committed. From the repository root, after a
+The data dump runs both INI readers over the master in `outdir\` and
+compares the Rust port with the C++ (work package P1.2, Gate G0). Both
+programs read a folder that holds `DATA` and `EXE`: every `.ini` file under
+them through the game reader, and the files directly in `EXE` through the
+engine parser as well. Make that folder outside the repository from a
+junction to `outdir\data` and a copy of the master's INI files. The dump
+writes one file per INI file, about the size of the INI files themselves or
+larger. None of it may be committed. From the repository root, after a
 Release build:
 
 ```powershell
-.\bin\Oracle.exe dump "$PWD" "$env:TEMP\outpost-oracle"
+$root = "$env:TEMP\outpost-data"
+New-Item -ItemType Directory -Force "$root\EXE" | Out-Null
+New-Item -ItemType Junction -Path "$root\DATA" -Target "$PWD\outdir\data" | Out-Null
+Copy-Item outdir\*.ini "$root\EXE\"
+.\bin\Oracle.exe dump $root "$env:TEMP\outpost-oracle"
 ```
 
 ```powershell
-$env:OUTPOST_DATA_DIR = "$PWD"; $env:OUTPOST_ORACLE_DIR = "$env:TEMP\outpost-oracle"
+$env:OUTPOST_DATA_DIR = $root; $env:OUTPOST_ORACLE_DIR = "$env:TEMP\outpost-oracle"
 cargo test --release -p neuron-core --test data_dump -- --nocapture
 ```
 
 The test prints a summary and writes it to `rust-result.txt` in the oracle
-folder: how many files are text and BINI, which could not be opened, and
-the first differences, if any. Attach that file to the pull request that
-closes P1.2. CI runs the same pipeline on a small synthetic tree, so a
-failure here comes from the data.
+folder: how many files opened, which could not be opened, and the first
+differences, if any. Attach that file to the pull request that closes P1.2.
+CI runs the same pipeline on a small synthetic tree, so a failure here
+comes from the data.
 
-To read values for [facts.md](facts.md), including from BINI files,
-`cargo xtask ini` lists files or folders through the same reader:
+Result on 2026-11-16, from `outdir\`: 1256 files, all opened; 3 also
+through the engine parser; 1259 dumps compared, 0 differ.
+
+To read values for [facts.md](facts.md), `cargo xtask ini` lists files or
+folders through the same reader:
 
 ```powershell
-cargo xtask ini EXE --grep Libraries
+cargo xtask ini outdir --grep Libraries
 ```
 

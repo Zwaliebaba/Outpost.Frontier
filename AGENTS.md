@@ -7,7 +7,8 @@ and `OutpostServer`. The toolchain is pinned in `rust-toolchain.toml`.
 The C++ code base in `CppSource/` is being migrated to this workspace. The
 plan, decisions and per-library ledger are in [design/](design/README.md).
 `CppSource/` is frozen: change it only to fix the reference build or to add
-oracle instrumentation (design/migration-plan.md, Phase 0).
+oracle instrumentation (design/migration-plan.md, Phase 0). The plain-text
+save writer is the one recorded exception (design/decisions.md O12).
 
 ## Ownership and dependencies
 

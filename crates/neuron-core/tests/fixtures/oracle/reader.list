@@ -1,7 +1,4 @@
 # Files read with INI_Reader, from the file and from memory.
 ini/basic.ini
 ini/crlf_only.ini
-ini/badheader.bini
 ini/empty.ini
-ini/values.bini
-ini/truncated.bini

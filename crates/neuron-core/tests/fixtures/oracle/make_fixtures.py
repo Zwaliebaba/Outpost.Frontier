@@ -172,70 +172,7 @@ TEXT_INI = {
         b'tail = 1'
     ),
     'ini/crlf_only.ini': b'[a]\r\rx=1\r\n\r\ny=2\n\n\rz=3',
-    'ini/badheader.bini': b'BINI\x01\x00\x00\x00\xff\x00\x00\x00[s]\nx=1\n',
     'ini/empty.ini': b'',
-}
-
-
-def bini(blocks, strings, string_table_offset=None, truncate=None):
-    """blocks: [(name_offset, [(name_offset, [(type, payload_bytes)])])]."""
-    body = b''
-    for name, values in blocks:
-        body += struct.pack('<HH', name, len(values))
-        for value_name, params in values:
-            body += struct.pack('<HB', value_name, len(params))
-            for kind, payload in params:
-                body += bytes([kind]) + payload
-    table = 12 + len(body) if string_table_offset is None else string_table_offset
-    data = b'BINI' + struct.pack('<II', 1, table) + body + strings
-    if truncate is not None:
-        data = data[:truncate]
-    return data
-
-
-def p_byte(v):
-    return (0, bytes([v, 0xAA, 0xBB, 0xCC]))
-
-
-def p_int(v):
-    return (1, struct.pack('<i', v))
-
-
-def p_float(v):
-    return (2, struct.pack('<f', v))
-
-
-def p_float_bits(bits):
-    return (2, struct.pack('<I', bits))
-
-
-def p_str(offset):
-    return (3, struct.pack('<I', offset))
-
-
-STRINGS = b'Ship\x00nickname\x00li_elite\x00hp\x00flags\x00true\x00FALSE\x0012abc\x00Other\x00' \
-          b'empty\x00weird\x00'
-S = {s: STRINGS.index(s.encode() + b'\x00') for s in
-     ['Ship', 'nickname', 'li_elite', 'hp', 'flags', 'true', 'FALSE', '12abc', 'Other',
-      'empty', 'weird']}
-
-BINI = {
-    'ini/values.bini': bini([
-        (S['Ship'], [
-            (S['nickname'], [p_str(S['li_elite'])]),
-            (S['hp'], [p_int(-7), p_byte(200), p_float(1.5), p_float(0.1), p_float(1e10),
-                       p_float(-0.0), p_float(3e-5), p_float(123456789.0)]),
-            (S['flags'], [p_str(S['true']), p_str(S['FALSE']), p_str(S['12abc']), p_byte(0),
-                          p_int(0), p_float(0.0), p_float_bits(0x7FC00000)]),
-            (S['empty'], []),
-            (S['weird'], [p_int(5), (7, b'\x01\x02\x03\x04'), p_float(2.5), (9, b'\x00' * 4)]),
-        ]),
-        (S['Other'], []),
-        (S['Ship'], [(S['hp'], [p_float(-1e30), p_float(4294967296.0), p_float(1e20)])]),
-    ], STRINGS),
-    'ini/truncated.bini': bini([
-        (0, [(0, [p_int(1), p_int(2)]), (1, [p_int(3), p_float(4.0), p_int(5)])]),
-    ], b'', string_table_offset=12 + 4 + 3 + 10 + 3 + 15 - 6, truncate=12 + 4 + 3 + 10 + 3 + 15 - 5),
 }
 
 
@@ -253,10 +190,10 @@ def main():
         write(name, data)
     write('engine.list', ('# Engine INI files, parsed with the profile parser.\n' +
                           ''.join(n + '\n' for n in ENGINE if n != 'engine/sub.ini')).encode())
-    for name, data in {**TEXT_INI, **BINI}.items():
+    for name, data in TEXT_INI.items():
         write(name, data)
     write('reader.list', ('# Files read with INI_Reader, from the file and from memory.\n' +
-                          ''.join(n + '\n' for n in {**TEXT_INI, **BINI})).encode())
+                          ''.join(n + '\n' for n in TEXT_INI)).encode())
 
 
 main()

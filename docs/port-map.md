@@ -11,7 +11,7 @@ packages and status are in the [library ledger](../design/library-ledger.md).
 | --- | --- | --- |
 | `neuroncomponents`, `system` | NeuronCore, NeuronClient | INI parser, name CRC and ASCII comparison in core. The component manager and system container are replaced by the client's `Engine` value, which builds the subsystems in a fixed order. |
 | `NeuronRuntime` | NeuronCore, NeuronClient, NeuronServer | Wire framing, the transport interface and the MD5 text form in core. The QUIC connection in the client and the QUIC host in the server. The DirectPlay and list-server wrappers are not ported. |
-| `Common` | NeuronCore, GameSim, GameLogic, NeuronClient, GameApp | IDs, INI and BINI, utilities and `.sur` reading in core. Game data, object model, equipment, AI and wire types in GameSim. Trade and reputation rules in GameLogic. Text rendering in the client engine; client-only helpers in GameApp. |
+| `Common` | NeuronCore, GameSim, GameLogic, NeuronClient, GameApp | IDs, INI, utilities and `.sur` reading in core. Game data, object model, equipment, AI and wire types in GameSim. Trade and reputation rules in GameLogic. Text rendering in the client engine; client-only helpers in GameApp. |
 | `IVP`, `qhull` | NeuronCore | Physics facade over `parry3d` and the project's own solver. Neither library is ported; the compact-surface layout is read as a file format. |
 | `x86math` | NeuronCore | Vectors, matrices, quaternions and transforms in the original operation order. |
 | `SceneRuntime` | NeuronCore | Instance tree, compound models, hardpoints, joints and animation. No renderer dependence. |
