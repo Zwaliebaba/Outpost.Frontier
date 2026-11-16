@@ -50,8 +50,12 @@
   <ItemGroup>
     <ClCompile Include="oracle_main.cpp" />
     <ClCompile Include="oracle_stricmp.cpp" />
+    <ClCompile Include="oracle_support.cpp" />
     <!-- Common.dll does not export MsvcrtAtof; the same source is compiled in. -->
     <ClCompile Include="..\Common\msvcrt_atof.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="oracle_support.h" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\neuroncomponents\neuroncomponents.vcxproj">
