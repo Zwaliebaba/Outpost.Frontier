@@ -94,3 +94,6 @@ void RunNetSuites();
 
 // P1.5 (oracle_util.cpp): rect, spline, MD5 text form, Timing::Delta, ErrorHandler.
 void RunUtilSuites();
+
+// P1.3 (oracle_vfs.cpp): the UTF container and the file systems of ReadFile.
+void RunVfsSuites();

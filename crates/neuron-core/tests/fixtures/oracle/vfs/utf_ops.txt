@@ -1,0 +1,294 @@
+# UTF file-system operations: op hex-argument [number]
+archive 7666732f7574662f66756c6c2e757466
+self
+syspath 260
+syspath 4
+curpath 260
+attr 4d657368
+attr 6d6573685c47454f4d45545259
+attr 6d6573685c737068657265
+attr 6e6f6e65
+attr 5c
+attr 2e2e
+attr 4d6573685c
+find 2a
+find 2a2e2a
+find 2a2e747874
+find 4d6573685c47656f6d657472795c2a2e747874
+find 5c416e696d6174696f6e5c5363726970745c4d49502a
+find 416e696d6174696f6e5c5363726970745c2a2e6c6f643f
+find 6e6f6e655c2a
+find 7a65726f5c2a
+find 6e6f7468696e672a
+find 456d7074795c2a
+find 2a2e42494e
+find e92a
+find 622a
+find 3f
+find 6e6f657874
+find 647570
+open 4d4553485c67656f6d657472795c564d65736844617461
+open 445550
+open 7a65726f
+open 4d657368
+open 6d697373696e67
+open 2e2e5c78
+open 5c4d6573685c537068657265
+resolve 78 260
+resolve 2e2e 260
+resolve 616263 4
+node 4d657368
+resolve 78 260
+find 2a
+find 47656f6d657472795c2a
+find 5c416e696d6174696f6e5c2a
+open 737068657265
+open 47656f6d657472795c726561646d652e747874
+open 5c4d6573685c537068657265
+attr 737068657265
+attr 5c647570
+node 47656f6d65747279
+resolve 79 260
+find 2a
+node 2e2e
+resolve 79 260
+node 2e2e
+node 2e2e
+node 6d697373696e67
+node 4d6573685c537068657265
+resolve 7a 260
+node 2e2e
+node 5c
+find 2a
+clone 4d657368
+self
+syspath 260
+curpath 260
+curpath 3
+find 2a
+attr 537068657265
+open 737068657265
+clone 67656f6d657472795c
+syspath 260
+curpath 260
+find 2a
+clonefind 2a2e747874 1
+self
+syspath 260
+curpath 260
+seek 0 4
+readself 4
+seek 1 2
+readself 100
+seek 2 3
+readself 2
+seek 0 100
+readself 1
+map 0 0
+map 2 3
+map 2 100
+pop
+clonefind 762a 0
+self
+pop
+clone 6d697373696e67
+clone 726561646d652e747874
+self
+map 0 0
+pop
+pop
+node 47656f6d65747279
+clone 726561646d652e747874
+self
+pop
+pop
+clone 4d6573685c537068657265
+self
+curpath 260
+readself 4
+readself 100
+readself 1
+pop
+clone 5c416e696d6174696f6e5c5363726970745c
+find 2a
+clonefind 772a 0
+self
+pop
+pop
+map 0 0
+clonefind 2a 3
+self
+pop
+clone 5c
+syspath 260
+curpath 260
+find 2a
+clone 7666732f7574662f636c616d702e757466
+syspath 260
+find 2a
+pop
+clone 4d657368
+clone 6d697373696e672e757466
+pop
+clone -
+syspath 260
+pop
+clone 2f
+syspath 260
+pop
+archive 7666732f7574662f636f6d706163742e757466
+self
+syspath 260
+syspath 4
+curpath 260
+attr 4d657368
+attr 6d6573685c47454f4d45545259
+attr 6d6573685c737068657265
+attr 6e6f6e65
+attr 5c
+attr 2e2e
+attr 4d6573685c
+find 2a
+find 2a2e2a
+find 2a2e747874
+find 4d6573685c47656f6d657472795c2a2e747874
+find 5c416e696d6174696f6e5c5363726970745c4d49502a
+find 416e696d6174696f6e5c5363726970745c2a2e6c6f643f
+find 6e6f6e655c2a
+find 7a65726f5c2a
+find 6e6f7468696e672a
+find 456d7074795c2a
+find 2a2e42494e
+find e92a
+find 622a
+find 3f
+find 6e6f657874
+find 647570
+open 4d4553485c67656f6d657472795c564d65736844617461
+open 445550
+open 7a65726f
+open 4d657368
+open 6d697373696e67
+open 2e2e5c78
+open 5c4d6573685c537068657265
+resolve 78 260
+resolve 2e2e 260
+resolve 616263 4
+node 4d657368
+resolve 78 260
+find 2a
+find 47656f6d657472795c2a
+find 5c416e696d6174696f6e5c2a
+open 737068657265
+open 47656f6d657472795c726561646d652e747874
+open 5c4d6573685c537068657265
+attr 737068657265
+attr 5c647570
+node 47656f6d65747279
+resolve 79 260
+find 2a
+node 2e2e
+resolve 79 260
+node 2e2e
+node 2e2e
+node 6d697373696e67
+node 4d6573685c537068657265
+resolve 7a 260
+node 2e2e
+node 5c
+find 2a
+clone 4d657368
+self
+syspath 260
+curpath 260
+curpath 3
+find 2a
+attr 537068657265
+open 737068657265
+clone 67656f6d657472795c
+syspath 260
+curpath 260
+find 2a
+clonefind 2a2e747874 1
+self
+syspath 260
+curpath 260
+seek 0 4
+readself 4
+seek 1 2
+readself 100
+seek 2 3
+readself 2
+seek 0 100
+readself 1
+map 0 0
+map 2 3
+map 2 100
+pop
+clonefind 762a 0
+self
+pop
+clone 6d697373696e67
+clone 726561646d652e747874
+self
+map 0 0
+pop
+pop
+node 47656f6d65747279
+clone 726561646d652e747874
+self
+pop
+pop
+clone 4d6573685c537068657265
+self
+curpath 260
+readself 4
+readself 100
+readself 1
+pop
+clone 5c416e696d6174696f6e5c5363726970745c
+find 2a
+clonefind 772a 0
+self
+pop
+pop
+map 0 0
+clonefind 2a 3
+self
+pop
+clone 5c
+syspath 260
+curpath 260
+find 2a
+clone 7666732f7574662f636c616d702e757466
+syspath 260
+find 2a
+pop
+clone 4d657368
+clone 6d697373696e672e757466
+pop
+clone -
+syspath 260
+pop
+clone 2f
+syspath 260
+pop
+archive 7666732f7574662f636c616d702e757466
+find 2a
+open 6c6f6e67
+open 696e73696465
+open 6f757473696465
+clone 6c6f6e67
+self
+readself 5
+seek 0 8
+readself 4
+pop
+clone 696e73696465
+map 0 0
+map 1 2
+pop
+clone 6f757473696465
+self
+pop
+archive 7666732f7574662f6261645f6d616769632e757466

@@ -478,5 +478,6 @@ int main(int Argc, char** Argv)
     RunMathSuites();
     RunNetSuites();
     RunUtilSuites();
+    RunVfsSuites();
     return GFailed ? 1 : 0;
 }
