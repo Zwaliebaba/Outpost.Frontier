@@ -5,8 +5,15 @@ version.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
-[dependencies]
-flate2.workspace = true
-
 [lints]
 workspace = true
+
+[features]
+# Port-only tick profiler (decision O7): times the client tick sections and
+# enters a `tracing` span per section. Off by default.
+tick-profile = []
+
+[dependencies]
+flate2.workspace = true
+md-5.workspace = true
+tracing.workspace = true

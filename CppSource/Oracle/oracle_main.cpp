@@ -477,5 +477,6 @@ int main(int Argc, char** Argv)
     IniReader();
     RunMathSuites();
     RunNetSuites();
+    RunUtilSuites();
     return GFailed ? 1 : 0;
 }

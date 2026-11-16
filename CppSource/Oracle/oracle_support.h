@@ -91,3 +91,6 @@ void RunCatalogDump();
 
 // P1.9, oracle_net.cpp: wire primitives and quantisers.
 void RunNetSuites();
+
+// P1.5 (oracle_util.cpp): rect, spline, MD5 text form, Timing::Delta, ErrorHandler.
+void RunUtilSuites();

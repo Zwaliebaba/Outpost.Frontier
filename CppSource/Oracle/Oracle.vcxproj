@@ -53,6 +53,10 @@
     <ClCompile Include="oracle_math.cpp" />
     <ClCompile Include="oracle_stricmp.cpp" />
     <ClCompile Include="oracle_support.cpp" />
+    <ClCompile Include="oracle_util.cpp" />
+    <ClCompile Include="oracle_util_md5.cpp" />
+    <ClCompile Include="oracle_util_spline.cpp" />
+    <ClCompile Include="oracle_util_timing.cpp" />
     <!-- Common.dll does not export MsvcrtAtof; the same source is compiled in. -->
     <ClCompile Include="..\Common\msvcrt_atof.cpp" />
     <!-- P1.9: the RemoteCommon codecs and their packet base, compiled in as RemoteClient.dll
