@@ -80,3 +80,6 @@ namespace oracle
 }
 
 // Suite entry points of later work packages, called from main() in order.
+
+// P1.5 (oracle_util.cpp): rect, spline, MD5 text form, Timing::Delta, ErrorHandler.
+void RunUtilSuites();
