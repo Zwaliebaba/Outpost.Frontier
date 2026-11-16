@@ -48,6 +48,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="oracle_catalog.cpp" />
     <ClCompile Include="oracle_main.cpp" />
     <ClCompile Include="oracle_stricmp.cpp" />
     <ClCompile Include="oracle_support.cpp" />

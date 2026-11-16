@@ -80,3 +80,8 @@ namespace oracle
 }
 
 // Suite entry points of later work packages, called from main() in order.
+
+// Oracle.exe catalog <resource DLL directory> <output directory>
+// (oracle_catalog.cpp, work package P1.6): a separate mode, not a suite.
+// Its output is game text and is never committed.
+void RunCatalogDump();
