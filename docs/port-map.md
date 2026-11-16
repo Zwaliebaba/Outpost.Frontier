@@ -15,7 +15,7 @@ packages and status are in the [library ledger](../design/library-ledger.md).
 | `IVP`, `qhull` | NeuronCore | Physics facade over `parry3d` and the project's own solver. Neither library is ported; the compact-surface layout is read as a file format. |
 | `x86math` | NeuronCore | Vectors, matrices, quaternions and transforms in the original operation order (`math`). Common's vector and matrix helpers build on the same types. |
 | `SceneRuntime` | NeuronCore | Instance tree, compound models, hardpoints, joints and animation. No renderer dependence. |
-| `ReadFile`, `zlib` | NeuronCore | File systems and the UTF container. `flate2` replaces zlib for network batches. |
+| `ReadFile`, `zlib` | NeuronCore | The UTF container (`utf`); the file-system trait, the directory, UTF and memory backends, the search path and the path rules (`vfs`). `flate2` replaces zlib for network batches (`net::frame`). |
 | `luaprofile`, `MemoryDiagnostics` | — | Not ported. |
 | `rpclocal`, `RemoteCommon` | NeuronCore, GameSim | The loopback transport, field primitives and quantisers (`net`) in core and one set of message codecs in GameSim. The codec copy in `rpclocal` is not ported. |
 | `RemoteServer` | NeuronClient | Client-side connection to a server and delivery of incoming events. |

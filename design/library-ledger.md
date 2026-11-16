@@ -18,7 +18,7 @@ Line counts are C++ source and header lines from the assessment, rounded.
 | 2 | `system` | 0.6k | Delete; start-up order moves into the engine constructor | `neuron-client::engine` | P4.16 | not started |
 | 3 | `NeuronRuntime` | 2.3k | Rewrite the transport on QUIC. Port the MD5 text form. Delete the DirectPlay wrapper and the list-server wrapper | `neuron-core::net`; `neuron-server::net`; `neuron-client::{net, engine}` | P1.5, P1.9, P3.8, P4.16 | in progress: MD5 text form in `neuron-core::util::md5` and the host error callbacks in `neuron-core::diag::callbacks` (P1.5); framing, handshake, `Transport` trait and loopback in `neuron-core::net` (P1.9). QUIC host and connection follow in P3.8 |
 | 4 | `zlib` | 27k vendor | Delete; `flate2` for network batches | `neuron-core::net` | P1.9 | in progress: `flate2` compresses batches in `neuron-core::net::frame` (P1.9) |
-| 5 | `ReadFile` | 3.5k | Port the UTF reader; redesign the file-system interface | `neuron-core::{vfs, utf}` | P1.3 | not started |
+| 5 | `ReadFile` | 3.5k | Port the UTF reader; redesign the file-system interface | `neuron-core::{vfs, utf}` | P1.3 | in progress: `neuron-core::{utf, vfs}` (P1.3); seven oracle suites. Not ported: component plumbing, the 14 stub slots, the sticky error state (errors return per call) |
 | 6 | `luaprofile` | 0.7k + 7.9k Lua | Delete; no consumer. Its Lua parser source informs P4.14 | — | — | not started |
 | 7 | `x86math` | 1.5k | Port kernels in original operation order | `neuron-core::math` | P1.4 | in progress: every `I3DMathEngine` method ported in `neuron-core::math` (P1.4); oracle vectors equal the C++ output in CI |
 | 8 | `MemoryDiagnostics` | 1.2k | Delete; standalone tool | — | — | not started |
