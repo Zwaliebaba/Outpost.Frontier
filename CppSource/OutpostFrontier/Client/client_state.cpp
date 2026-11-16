@@ -183,6 +183,9 @@ namespace
             Nav.ActivePage = nullptr;
             Nav.LogoImage.Load(GetIntroConfigState()->Logo.Text);
 
+            MouseSetCursor("Arrow", true);
+            SetClientMouseCursorDrawFlag(1);
+
             // with bDrawScripts (the field) and latch != 4, the intro
             // base is entered. 0x00573919 sets LocationController+0x5a before any base work;
             // LoadLocationBase reads it through `this+0x5a` at 0x004398a4 and returns before
@@ -200,8 +203,6 @@ namespace
                     BaseNickname = "Intro3_Base";
                 unsigned const BaseId = Universe::get_base_id(BaseNickname);
 
-                MouseSetCursor("Arrow", true);   // ("Arrow", 1) (0x00573947)
-                SetClientMouseCursorDrawFlag(1); // (1) (0x0057394e)
                 Nav.Flag22c = 0;
                 Nav.Field230 = 0.0f;
                 SetClientAudioMode(3);           // (3) (0x00573961)

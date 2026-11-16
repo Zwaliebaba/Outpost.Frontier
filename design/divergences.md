@@ -20,3 +20,7 @@ platform dependence*, *numeric policy* (decision T11), or *owner decision*
 | D7 | `neuron-core::ini::reader` | A BINI parameter of unknown type formats as the last number any reader in the process formatted (one static buffer) | It formats as the last number this reader formatted | Undefined behaviour in the reference (stale shared buffer) | Differs only when readers interleave and a file holds unknown parameter types |
 | D8 | `neuron-core::ini::reader` | `read_header` skips unread values with a signed 16-bit index; a block with more than 32767 values loops for ever | Skipping stops when the index wraps | Undefined behaviour in the reference | None for blocks up to 32767 values |
 | D9 | `neuron-core::ini::reader` | `set_state` with a state saved from the other file kind reinterprets the union | `IniReader::set_state` ignores a state of the other kind | Undefined behaviour in the reference | None for callers that restore their own state |
+
+The C++ server now writes character saves and the single-player restart file
+as plain-text INI. This deliberately changes the original FLS1 output format.
+The loader still reads existing FLS1 saves and templates.

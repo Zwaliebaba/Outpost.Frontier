@@ -85,7 +85,7 @@ bool __cdecl PlayerData_LoadSelectedCharacter(PlayerData& Slot,
 // (thiscall, `RET 4`), called only by
 // PlayerDB::create_new_character (module storage): expands the exe-side
 // NewCharacter.fl / MPNewCharacter.fl template into
-// <account dir>\<the routine(Info.Name)>.fl, FLS1-encodes it, and on success
+// <account dir>\<the routine(Info.Name)>.fl as plain text, and on success
 // reloads it into Slot.saved_characters through the routine.
 bool __cdecl PlayerData_CreateNewCharacter(PlayerData& Slot, SCreateCharacterInfo const& Info);
 

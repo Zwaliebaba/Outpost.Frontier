@@ -1918,11 +1918,6 @@ bool __cdecl PlayerData_SerializeToFile(PlayerSlot& Player, char const* FileName
     //   MOV  EAX,dword ptr [ESP + 0x28]    ; the writer's FILE*
     //   TEST byte ptr [EAX + 0xc],0x20     ; _flag & _IOERR -- an inlined ferror
     //   JZ   the branch
-    // When it is set baseline FDUMPs "*** WARNING: Error writing ..." from
-    // PlayerData.cpp line 0xc6d (module storage pushes 0xc6d), still runs the
-    // whole encode-and-rewrite below, and then unlinks what it just wrote
-    // (module storage) so the broken file can never be loaded back. Both arms
-    // encode; the only difference is the unlink.
     // -----------------------------------------------------------------------
     bool const WriteFailed = Writer.HadWriteError();
     if (WriteFailed) {
@@ -1932,24 +1927,6 @@ bool __cdecl PlayerData_SerializeToFile(PlayerSlot& Player, char const* FileName
               "Server\\PlayerDB.cpp", 0xc6d, WritePath);
     }
 
-    // -----------------------------------------------------------------------
-    // .. module storage -- THE "FLS1" CONTAINER.
-
-    // CORRECTED 2026-09-17 (wave 18): this is NOT multiplayer-only, which is
-    // what deviation (2) used to say. The encode runs on the fall-through with
-    // no mode test anywhere between the latch and it -- module storage through
-    // is the routine / the routine / fclose / fopen "wb" /
-    // fprintf "FLS1" / fwrite / fclose and contains no call at all to
-    // COMMON.DLL::SinglePlayer. The first SinglePlayer call after the latch is
-    // , and module storage `JNZ the branch` makes it guard only
-    // the two lines below it. Checked against the data as well: of the fifty
-    // character files this machine holds, forty-nine begin with the bytes
-    // `46 4c 53 31` and decode with this cipher, and every one of those is a
-    // SinglePlayer save. The single exception is EXE\mpnewcharacter.fl, which is
-    // a hand-authored template that was never encoded.
-
-    // Close() is baseline's the routine and does the whole sequence.
-    // -----------------------------------------------------------------------
     Writer.Close();
 
     if (WriteFailed) {

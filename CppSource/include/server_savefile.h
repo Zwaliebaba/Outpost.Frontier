@@ -158,7 +158,7 @@ struct SaveGame {
 // SaveGame_Writer -- baseline .?AUSaveGame_Writer@@, the concrete writer
 // (vtable module storage, COL 06d70a5c). Bases in baseline declaration order.
 
-// Open() is baseline's module storage fopen; Close() is baseline's module storage.
+// The writer saves text directly. Legacy decoding lives on the SaveGame base.
 // ---------------------------------------------------------------------------
 struct SaveGame_Writer : public SaveGame, public ISave {
 public:
@@ -169,35 +169,10 @@ public:
     // then the path and the SaveGame part.
     ~SaveGame_Writer();
 
-    // .. module storage -- fopen(path, "w+t"). The mode operand is
-    // .rdata:the field, which the listing prints as `;= 77h  w` because it
-    // shows only the first byte. The real bytes there are `77 2b 74 00`, i.e.
-    // "w+t" -- read/write text. It has to be readable: Close() reads the file
-    // back through this same handle before encoding it.
+    // Open a plain-text save for writing.
     bool Open(char const* InPath);
 
-    // read the whole file back, encode it in place, then
-    // rewrite the same path as "FLS1" + ciphertext. Idempotent: a second call
-    // with no open file does nothing (module storage `JZ the branch`).
     void Close();
-
-    // (thiscall on the writer, plain RET; callers
-    // PlayerDB::create_restart_file module storage and module storage). The
-    // first half of Close() as a function of its own: with the FILE* set,
-    // fseek end / ftell / fseek 0, the buffer resized to that size (inlined as
-    // erase / zero-append), fread through the SAME handle, resized to what was
-    // read, then the FLS1 cipher over it. It neither closes nor rewrites.
-    void ReadBackAndEncode();
-
-    // CloseFile() (the routine) is SaveGame's: the writer's callers
-    // (module storage / module storage) pass writer+4 in ECX.
-
-    // The closeout create_restart_file inlines twice after ReadBackAndEncode +
-    // CloseFile (module storage .. 06d539e5 and module storage .. 06d53a8d):
-    // fopen(path, "wb" module storage), fprintf(f, "FLS1") with the magic as
-    // the whole format, fwrite(buffer, 1, size, f), fclose, FILE* = 0. No test
-    // of the fopen result, as in baseline. Not a baseline function of its own.
-    void RewriteEncoded();
 
     // `f6400c20 TEST byte ptr [EAX + 0xc],0x20`. EAX is the FILE*,
     // +0x0c is MSVCRT's `_flag` and 0x20 is _IOERR -- an inlined ferror(). baseline

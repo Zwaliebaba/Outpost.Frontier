@@ -109,12 +109,6 @@ SaveGame_Writer::SaveGame_Writer()
 }
 
 SaveGame_Writer::~SaveGame_Writer() {
-    // (vptr = module storage, then the body): when the
-    // FILE* is still set, the routine(0), the routine, fclose, fopen(path,
-    // "wb"), fprintf "FLS1", fwrite, fclose, FILE* = 0 -- the same effect as
-    // , which is exactly what the inline copy of this destructor on
-    // PlayerData_SerializeToFile's open-failure exit calls (module storage).
-    // Then the path string and the SaveGame part (string only) are torn down.
     Close();
 }
 
@@ -123,16 +117,7 @@ bool SaveGame_Writer::Open(char const* InPath) {
     // path straight away (module storage / module storage `SCASB.REPNE`) and all
     // callers pass a local char buffer.
     Path = InPath;                                           // assign
-    // "w+t", not "w". The mode string is .rdata:the field and its real bytes
-    // are `77 2b 74 00`; the listing shows only `;= 77h  w` because it truncates
-    // after the first byte. The "+" is load-bearing -- Close() reads the file
-    // back through this same handle -- and so is the "t": the text-mode write
-    // expands "\n" to CRLF and the text-mode read-back collapses it again, so
-    // the bytes that finally get encoded are LF-only. That is exactly what real
-    // saves show: every character file this machine's baseline client wrote is
-    // LF-only, while EXE\newplayer.fl, which was encoded offline by a tool, has
-    // CRLF throughout.
-    File = fopen(InPath, "w+t");                             // , stored at module storage
+    File = fopen(InPath, "wt");
     return File != nullptr;                                 // TEST / module storage JNZ
 }
 
@@ -148,69 +133,7 @@ bool SaveGame_Writer::HadWriteError() const {
 }
 
 void SaveGame_Writer::Close() {
-    // (module storage .. module storage), thiscall on the
-    // writer; ESI = this+4 is the SaveGame part (module storage `LEA ESI,[EBP+4]`).
-    if (File == nullptr)
-        return;                                             // `JZ the branch`
-
-    // .. module storage -- fseek(f,0,SEEK_END), ftell,
-    // fseek(f,0,SEEK_SET), resize(size) (module storage), the writable pointer
-    // (module storage), fread(p,1,size,f) (module storage), resize(read)
-    // (module storage). That is the routine with Offset 0, inlined here (the
-    // destructor's copy the routine CALLs it instead, module storage).
-    // Unconditional, as in baseline: no test of ftell's result. The handle is
-    // TEXT mode, so fread returns fewer bytes than ftell reported by exactly the
-    // number of CRs it swallowed, and the second resize trims to that.
-    ReadTail(0);
-
-    Encode();                                               // CALL the routine on this+4
-
-    CloseFile();                                            // , the routine inlined
-
-    // .. module storage -- reopen the SAME path "wb"
-    // (.rdata:the field, real bytes `77 62 00` = "wb"), the four magic bytes
-    // through fprintf as the bare format, fwrite the ciphertext, fclose,
-    // FILE* = 0. baseline does not check this fopen (module storage stores EAX,
-    // hands it straight to fprintf) and the fwrite at
-    // is unconditional.
-    RewriteEncoded();
-}
-
-void SaveGame_Writer::ReadBackAndEncode() {
-    // (module storage .. module storage). Ported 2026-09-24
-    // (claude-code:w5-server-06d4).
-    if (File == nullptr)
-        return;                                             // JZ the branch
-
-    fseek(File, 0, SEEK_END);
-    long const Size = ftell(File);
-    fseek(File, 0, SEEK_SET);
-
-    // .. module storage: MSVCP60's resize(Size) inlined -- an
-    // erase at Size when Size <= length (CMP/JA unsigned), otherwise an append of
-    // (Size - length) zero bytes behind the _Xlen check.
-    Contents.resize(static_cast<size_t>(Size));
-    // .. module storage: the writable pointer (the empty-string
-    // static when _Ptr is null), then fread(p, 1, Size, File).
-    size_t const Got = fread(&Contents[0], 1, static_cast<size_t>(Size), File);
-    // .. module storage: resize(Got) inlined the same way. The
-    // handle is text mode ("w+t"), so Got is short of Size by the CRs dropped.
-    Contents.resize(Got);
-
-    // .. module storage: length re-read, the COW split / freeze of
-    // _Ptr, then the cipher loop -- the routine's body inlined (signed JLE /
-    // JL on the length, key "Gene"[i & 3] + i, | 0x80, XOR).
-    Server_FLS1Transform(&Contents[0], static_cast<int>(Contents.size()));
-}
-
-void SaveGame_Writer::RewriteEncoded() {
-    // PlayerDB::create_restart_file module storage .. module storage (and its
-    // copy at module storage .. module storage).
-    File = fopen(Path.c_str(), "wb");                   // , module storage
-    fprintf(File, Server_FLS1Magic);                      // , magic as the format
-    fwrite(Contents.data(), 1, Contents.size(), File);
-    fclose(File);
-    File = nullptr;
+    CloseFile();
 }
 
 FILE* SaveGame_Writer::GetFile() const {

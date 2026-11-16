@@ -866,46 +866,46 @@ int MenuStateDriverUpdate(FMenuNavState* Nav, float DeltaSeconds)
     {
         return TransitionCode; // TEST BL,BL / JNZ 0x00574340
     }
-    // the field (bDrawScripts) clear -> 0x00574340.
-    if (!GetIntroConfigState()->bDrawScripts)
-        return TransitionCode;
-
-    // the frame time as a double, capped at 0.2 (the field): FCOMP /
-    // TEST AH,0x41 / JNZ keeps it when not greater (or unordered); the fall-through stores 0.2.
-    double Dt = static_cast<double>(DeltaSeconds);
-    if (Dt > 0.2)
-        Dt = 0.2;
-    // +0x230 (float) + Dt; the sum rounded to float is kept
-    // ([ESP+0x18]), floor(sum * 1000.0) (the field) are the whole milliseconds, +0x230 =
-    // float(sum_f - ms * 0.001) (the field, FSUBP ST1,ST0), and ftol(ms) goes to the routine
-    // on the field.
-    double const Sum = static_cast<double>(Nav->Field230) + Dt;
-    float const SumAsFloat = static_cast<float>(Sum);
-    double const Milliseconds = floor(Sum * 1000.0);
-    Nav->Field230 = static_cast<float>(static_cast<double>(SumAsFloat) - Milliseconds * 0.001);
-    G_GfScriptManager.Update(static_cast<int>(Milliseconds));
-
-    // the capped time as a float (EBX) to the routine on the field.
-    float const DtFloat = static_cast<float>(Dt);
-    TickClientLocationController(DtFloat);
-
-    // every RoomObject (the routine's list) whose +0x04 is clear gets
-    // slot 5 (+0x14) with the capped double.
-    std::list<FRoomObject*>& Objects = GetRoomObjectList();
-    for (std::list<FRoomObject*>::iterator It = Objects.begin(); It != Objects.end(); ++It)
+    const bool DrawIntroScene = GetIntroConfigState()->bDrawScripts;
+    if (DrawIntroScene)
     {
-        FRoomObject* const Object = *It;
-        if (Object->bNoUpdate == 0)
-            Object->Update(Dt);
-    }
+        // the frame time as a double, capped at 0.2 (the field): FCOMP /
+        // TEST AH,0x41 / JNZ keeps it when not greater (or unordered); the fall-through stores 0.2.
+        double Dt = static_cast<double>(DeltaSeconds);
+        if (Dt > 0.2)
+            Dt = 0.2;
+        // +0x230 (float) + Dt; the sum rounded to float is kept
+        // ([ESP+0x18]), floor(sum * 1000.0) (the field) are the whole milliseconds, +0x230 =
+        // float(sum_f - ms * 0.001) (the field, FSUBP ST1,ST0), and ftol(ms) goes to the routine
+        // on the field.
+        double const Sum = static_cast<double>(Nav->Field230) + Dt;
+        float const SumAsFloat = static_cast<float>(Sum);
+        double const Milliseconds = floor(Sum * 1000.0);
+        Nav->Field230 = static_cast<float>(static_cast<double>(SumAsFloat) - Milliseconds * 0.001);
+        G_GfScriptManager.Update(static_cast<int>(Milliseconds));
 
-    // the routine(the routine(), DtFloat) -- the room camera's
-    // letterbox; the routine(DtFloat) -- the fade; the routine with the uncapped argument
-    // ([ESP+0x434]).
-    UpdateRoomLetterbox(static_cast<FRoomCamera*>(static_cast<ICamera*>(GetClientRoomCamera())),
-                        DtFloat);
-    UpdateFade(DtFloat);
-    TickMaterialAnimationPlayback(DeltaSeconds);
+        // the capped time as a float (EBX) to the routine on the field.
+        float const DtFloat = static_cast<float>(Dt);
+        TickClientLocationController(DtFloat);
+
+        // every RoomObject (the routine's list) whose +0x04 is clear gets
+        // slot 5 (+0x14) with the capped double.
+        std::list<FRoomObject*>& Objects = GetRoomObjectList();
+        for (std::list<FRoomObject*>::iterator It = Objects.begin(); It != Objects.end(); ++It)
+        {
+            FRoomObject* const Object = *It;
+            if (Object->bNoUpdate == 0)
+                Object->Update(Dt);
+        }
+
+        // the routine(the routine(), DtFloat) -- the room camera's
+        // letterbox; the routine(DtFloat) -- the fade; the routine with the uncapped argument
+        // ([ESP+0x434]).
+        UpdateRoomLetterbox(static_cast<FRoomCamera*>(static_cast<ICamera*>(GetClientRoomCamera())),
+                            DtFloat);
+        UpdateFade(DtFloat);
+        TickMaterialAnimationPlayback(DeltaSeconds);
+    }
 
     // the frame, only when the routine begins one (JZ 0x0057431b).
     if (BeginClientRenderFrame())
@@ -914,7 +914,8 @@ int MenuStateDriverUpdate(FMenuNavState* Nav, float DeltaSeconds)
         Win3DSetViewport(nullptr, kIntroCpp, 0x1ac7);           // (0x005742a5)
         Win3DSetPipelineClearColor(0.0f, 0.0f, 0.0f, 1.0f);     // (0x005742b5)
         ClearWin3DBuffers(kWin3DClearColour | kWin3DClearDepth); // (0x4100)
-        DrawClientLocation();                                   // on the field
+        if (DrawIntroScene)
+            DrawClientLocation();
 #ifdef OUTPOST_FRONTIER_WIDESCREEN_SUPPORT
         // Port-only: the logo sits in the top left of its 4:3 picture and goes with the main
         // menu column to the left edge (hud_widescreen.cpp).
@@ -927,7 +928,7 @@ int MenuStateDriverUpdate(FMenuNavState* Nav, float DeltaSeconds)
         ClearWin3DBuffers(kWin3DClearDepth);                    // (0x100)
         Win3DDrawAll();                                         // (0x005742ed)
         // the routine clear -> the routine(the routine()).
-        if (!IsClientServerTickPaused())
+        if (DrawIntroScene && !IsClientServerTickPaused())
             DrawFade(static_cast<ICamera*>(GetClientRoomCamera()));
         Sleep(0);
         EndClientRenderScene();

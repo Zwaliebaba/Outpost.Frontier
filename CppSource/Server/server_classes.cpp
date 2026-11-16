@@ -3465,11 +3465,8 @@ void PlayerDB::LockAccountAccess(CiWString& Name) {
 // (*NeuronRuntime::Data)->GetFileSysPath +0x84, then
 //                   _makepath(buf, 0, buf, the field = initial_world, 0)
 // fopen(world, "rt"):
-//     open   -> 0x200-byte fread/fwrite copy into the writer while a full block
-//               came back, fclose, result = 1; writer file set ->
-// , the routine, the "wb" FLS1 rewrite
-//     closed -> FDUMP line 0x155e "for reading" on the world path; writer file
-//               set -> the same encode + rewrite; remove(restart); false
+//     open   -> append the world data, then close the plain-text save
+//     closed -> log the failure, close the save and remove it
 // Severity: module storage loads 0x100002 directly, the other two build it with
 // (0x10000, 2).
 // The port's "rb" template open, its fallback-only DATA path, its size check,
@@ -3556,23 +3553,14 @@ bool PlayerDB::create_restart_file(const char* AccountDir) {
                     fwrite(Block, 1, Got, Save.File);                       // [writer+4], 06d5394f
             } while (Got >= 0x200);                                         // JNC
             fclose(World);
-            bResult = true;
-            if (Save.File != nullptr) {                                     // [writer+4], 06d53970
-                Save.ReadBackAndEncode();
-                Save.CloseFile();                                           // the routine on writer+4
-                Save.RewriteEncoded();
-            }
-            return bResult;                                                 // , 06d53b3b
+            Save.Close();
+            return true;
         }
 
         FDUMP(0x100002,
               "%s(%d) : *** WARNING: Failed to open '%s' for reading.\n",
               SourceFile, 0x155e, WorldPath);
-        if (Save.File != nullptr) {                                         // [writer+4], 06d53a21
-            Save.ReadBackAndEncode();
-            Save.CloseFile();                                               // the routine on writer+4
-            Save.RewriteEncoded();
-        }
+        Save.Close();
         remove(RestartPath);
         return bResult;
     }
