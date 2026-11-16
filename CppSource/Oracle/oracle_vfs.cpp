@@ -21,6 +21,9 @@ namespace
     // Reads larger than this are not attempted (none of the fixtures needs one).
     const unsigned long ReadLimit = 0x10000;
 
+    // The script line being executed, reported if a step raises an exception.
+    std::string GVfsLine;
+
     void RegisterReadFile()
     {
         static bool bRegistered = false;
@@ -337,6 +340,7 @@ namespace
             const std::string Op = Line.substr(0, Space);
             const std::string Rest = Space == std::string::npos ? std::string() : Line.substr(Space + 1);
             const std::vector<std::string> T = Tokens(Rest);
+            GVfsLine = Line;
             const std::string Fields = Execute(Op, T);
             Out.Line("{\"op\":\"" + Op + "\",\"arg\":\"" + Rest + "\"" + (Fields.empty() ? "" : ",") + Fields + "}");
         }
@@ -710,16 +714,58 @@ namespace
         for (const std::string& Line : InputLines(Input))
             Script.Run(Line);
     }
+
+    void UtfOps()
+    {
+        RunScript("vfs/utf_ops.txt", "utf_ops.jsonl");
+    }
+
+    void DosOps()
+    {
+        RunScript("vfs/dos_ops.txt", "vfs_dos.jsonl");
+    }
+
+    void MemOps()
+    {
+        RunScript("vfs/mem_ops.txt", "vfs_mem.jsonl");
+    }
+
+    // Runs one step under SEH; no C++ objects live in this frame. Returns the
+    // exception code, or 0.
+    DWORD GuardedStep(void (*Step)())
+    {
+        __try
+        {
+            Step();
+            return 0;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return GetExceptionCode();
+        }
+    }
+
+    void Step(const char* Name, void (*Fn)())
+    {
+        GVfsLine.clear();
+        const DWORD Code = GuardedStep(Fn);
+        if (Code != 0)
+        {
+            fprintf(stderr, "vfs: exception %08lx in %s, last script line: %s\n", (unsigned long)Code, Name,
+                    GVfsLine.c_str());
+            GFailed = true;
+        }
+    }
 }
 
 void RunVfsSuites()
 {
-    RegisterReadFile();
-    VfsJoin();
-    VfsMatch();
-    VfsDosTime();
-    UtfTree();
-    RunScript("vfs/utf_ops.txt", "utf_ops.jsonl");
-    RunScript("vfs/dos_ops.txt", "vfs_dos.jsonl");
-    RunScript("vfs/mem_ops.txt", "vfs_mem.jsonl");
+    Step("RegisterReadFile", RegisterReadFile);
+    Step("VfsJoin", VfsJoin);
+    Step("VfsMatch", VfsMatch);
+    Step("VfsDosTime", VfsDosTime);
+    Step("UtfTree", UtfTree);
+    Step("utf_ops", UtfOps);
+    Step("dos_ops", DosOps);
+    Step("mem_ops", MemOps);
 }
