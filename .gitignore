@@ -3,6 +3,14 @@ local.json
 /ResourceInputs/
 __pycache__/
 
+# Third-party files for the C++ reference build (design/migration-plan.md, P0.2).
+# Never commit these: the DirectX 8.1 SDK and the original game files are not
+# redistributable.
+/dx8/
+/DATA/
+/DATA_EXTRA/
+/EXE/
+
 # Build output
 /target/
 Build/

@@ -1,4 +1,5 @@
 //! Outpost:Frontier client startup and game-specific presentation.
+#![forbid(unsafe_code)]
 
 use std::io::{self, Write};
 

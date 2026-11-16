@@ -1,5 +1,7 @@
 [toolchain]
-channel = "stable"
+# Pinned (design/decisions.md T13). Raise deliberately, together with
+# workspace.package.rust-version in Cargo.toml.
+channel = "1.100.0"
 profile = "minimal"
 components = ["rustfmt", "clippy"]
 targets = ["x86_64-pc-windows-msvc"]

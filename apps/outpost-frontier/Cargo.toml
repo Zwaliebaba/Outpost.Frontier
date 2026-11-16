@@ -2,10 +2,14 @@
 name = "outpost-frontier"
 edition.workspace = true
 version.workspace = true
+rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
 game-app.workspace = true
+
+[lints]
+workspace = true
 
 [[bin]]
 name = "OutpostFrontier"

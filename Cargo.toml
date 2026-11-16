@@ -5,14 +5,17 @@ members = [
     "apps/outpost-server",
     "crates/game-app",
     "crates/game-logic",
+    "crates/game-sim",
     "crates/neuron-client",
     "crates/neuron-core",
     "crates/neuron-server",
+    "xtask",
 ]
 
 [workspace.package]
 edition = "2024"
 version = "0.1.0"
+rust-version = "1.100"
 publish = false
 
 [workspace.dependencies]
@@ -21,3 +24,19 @@ game-logic = { path = "crates/game-logic" }
 neuron-client = { path = "crates/neuron-client" }
 neuron-core = { path = "crates/neuron-core" }
 neuron-server = { path = "crates/neuron-server" }
+
+# External crates. Each one needs an entry in design/decisions.md (T13).
+toml = "0.9"
+
+[workspace.lints.rust]
+# Unsafe code is denied everywhere. Only the modules listed in xtask's
+# policy may allow it (design/decisions.md T14). Pure crates forbid it.
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+
+[workspace.lints.clippy]
+undocumented_unsafe_blocks = "deny"
+# A finished work package contains no placeholder code.
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
