@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 
 mod graph;
+mod ini;
 mod lexer;
 mod scan;
 mod workspace;
@@ -14,18 +15,24 @@ usage: cargo xtask <command>
 
 commands:
   check-policy   check the crate graph, lint settings, legacy API use and
-                 the placement of unsafe code";
+                 the placement of unsafe code
+";
+
+fn usage() -> String {
+    format!("{USAGE}{}", ini::USAGE)
+}
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("check-policy") if args.len() == 1 => check_policy(),
+        Some("ini") => ini::run(&args[1..]),
         Some("help" | "--help" | "-h") => {
-            println!("{USAGE}");
+            println!("{}", usage());
             ExitCode::SUCCESS
         }
         _ => {
-            eprintln!("{USAGE}");
+            eprintln!("{}", usage());
             ExitCode::from(2)
         }
     }
