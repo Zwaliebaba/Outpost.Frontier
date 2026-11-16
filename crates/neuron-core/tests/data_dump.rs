@@ -1,8 +1,8 @@
 //! The INI readers on the original game data (work package P1.2, Gates G0
 //! and G1).
 //!
-//! `OUTPOST_DATA_DIR` names the folder that holds the installation's `DATA`
-//! and `EXE` folders (the repository root in the reference-build layout).
+//! `OUTPOST_DATA_DIR` names a folder that holds `DATA` and `EXE`, made from
+//! the master copy in `outdir/` (design/reference-build.md section 7).
 //! The test reads every `.ini` file under them with [`IniReader`], and every
 //! `.ini` file directly in `EXE` with the engine parser, and renders the
 //! same dumps as `Oracle.exe dump`. With `OUTPOST_ORACLE_DIR` set to that
@@ -61,11 +61,7 @@ fn reader_dump(root: &Path, relative: &str, stats: &mut Stats) -> Vec<String> {
         u8::from(open)
     )];
     if open {
-        if reader.is_bini() {
-            stats.bini += 1;
-        } else {
-            stats.text += 1;
-        }
+        stats.opened += 1;
         dump_reader(&mut reader, false, &mut lines);
     } else {
         stats.not_opened.push(relative.to_owned());
@@ -88,8 +84,7 @@ fn engine_dump(root: &Path, relative: &str) -> Vec<String> {
 
 #[derive(Default)]
 struct Stats {
-    text: usize,
-    bini: usize,
+    opened: usize,
     engine: usize,
     not_opened: Vec<String>,
     lines: usize,
@@ -179,10 +174,9 @@ fn original_data() {
     let _ = writeln!(summary, "original-data dump of {}", root.display());
     let _ = writeln!(
         summary,
-        "{} files: {} text, {} BINI, {} not opened; {} also through the engine parser; {} dump lines",
+        "{} files: {} opened, {} not opened; {} also through the engine parser; {} dump lines",
         files.len(),
-        stats.text,
-        stats.bini,
+        stats.opened,
         stats.not_opened.len(),
         stats.engine,
         stats.lines

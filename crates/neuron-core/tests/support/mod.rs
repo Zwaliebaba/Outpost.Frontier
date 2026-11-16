@@ -58,8 +58,7 @@ pub fn dump_engine(
 
 /// Every section and value an open reader yields, then a `find_header`
 /// of each section name in upper case. `extra_param` also reads one
-/// parameter past the last; only text readers may do that, since the C++
-/// shows a message box for BINI.
+/// parameter past the last.
 pub fn dump_reader(reader: &mut IniReader, extra_param: bool, lines: &mut Vec<String>) {
     let mut headers = Vec::new();
     while reader.read_header() {

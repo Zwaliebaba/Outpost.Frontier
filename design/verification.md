@@ -8,7 +8,7 @@ data, so the reference has to be built (Phase 0).
 
 | Tier | Meaning | Comparison | Typical content |
 | --- | --- | --- | --- |
-| A | Bit-exact | Byte or value equality | Hashes and IDs, INI and BINI parsing, number parsing and formatting, UTF container, asset parsers, save container and save text, account directory names, wire encodings and quantisers, the random generator, money and worth rules, asteroid cube IDs, mission script parsing, text catalogs, interface layout trees |
+| A | Bit-exact | Byte or value equality | Hashes and IDs, INI parsing, number parsing and formatting, UTF container, asset parsers, save text and `FLS1` decoding (decision O12), account directory names, wire encodings and quantisers, the random generator, money and worth rules, asteroid cube IDs, mission script parsing, text catalogs, interface layout trees |
 | B | Equal within tolerance | Per-value absolute or relative bound, stated in the test | Math kernels, animation and curve evaluation, audio attenuation and pan, camera solving, dead reckoning, physics scenarios, AI scenarios, mission runtime traces |
 | C | Visually equivalent | Image difference under a threshold, then owner play-test | Rendering, materials, particles, text rasterising, effects |
 
@@ -24,8 +24,8 @@ event times within a stated number of ticks).
 
 ## The oracle
 
-Built in work package P0.4, in `CppSource/Oracle/`, and deleted with the
-C++ in P7.3.
+Built in work packages P0.4 (the console harness in `CppSource/Oracle/`)
+and P0.5 (the client instrumentation), and deleted with the C++ in P7.3.
 
 | Part | What it produces |
 | --- | --- |

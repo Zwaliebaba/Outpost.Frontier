@@ -15,12 +15,11 @@ platform dependence*, *numeric policy* (decision T11), or *owner decision*
 | D2 | `neuron-core::ini::engine` | The lexer copies a word into a 1024-byte buffer without a bound; a longer word overwrites the length that follows it | A word may be any length; the phrase limits then apply | Undefined behaviour in the reference | None for words up to 1024 bytes |
 | D3 | `neuron-core::ini::engine` | `@include` nests without a limit; an include cycle overflows the stack | Nesting deeper than 64 returns `EngineIniError::IncludeTooDeep` | Undefined behaviour in the reference | An include cycle is reported instead of crashing |
 | D4 | `neuron-core::ini::engine` | `_splitpath` on an `@include` name whose directory part is 256 bytes or more calls the invalid-parameter handler, which ends the process | The path is composed as for shorter names | Undefined behaviour in the reference | None for directory parts under 256 bytes |
-| D5 | `neuron-core::ini::reader` | BINI calls without a current block or value (`read_value` before `read_header`, `get_num_parameters`, `is_header`, `get_header_ptr` and the value getters) read through a null pointer (`common_ini.cpp`) | They return false, zero or an empty string | Undefined behaviour in the reference | None for callers that read a header first |
-| D6 | `neuron-core::ini::reader` | BINI names, string offsets and parameters are read without bounds checks; past the end of the file the reader sees the zero-filled rest of the mapped page, or faults beyond it | Bytes past the end of the file read as zero; a string ends at the end of the file | Undefined behaviour in the reference | None where the reference does not fault; the oracle checks a truncated file |
-| D7 | `neuron-core::ini::reader` | A BINI parameter of unknown type formats as the last number any reader in the process formatted (one static buffer) | It formats as the last number this reader formatted | Undefined behaviour in the reference (stale shared buffer) | Differs only when readers interleave and a file holds unknown parameter types |
-| D8 | `neuron-core::ini::reader` | `read_header` skips unread values with a signed 16-bit index; a block with more than 32767 values loops for ever | Skipping stops when the index wraps | Undefined behaviour in the reference | None for blocks up to 32767 values |
-| D9 | `neuron-core::ini::reader` | `set_state` with a state saved from the other file kind reinterprets the union | `IniReader::set_state` ignores a state of the other kind | Undefined behaviour in the reference | None for callers that restore their own state |
+| D10 | `neuron-core::ini::reader` | `INI_Reader::open` decodes a file that starts with a binary INI header (`common_ini.cpp`) | Every file is read as text | Owner decision O13 | None for the game data, which has only text INI files |
 
-The C++ server now writes character saves and the single-player restart file
-as plain-text INI. This deliberately changes the original FLS1 output format.
-The loader still reads existing FLS1 saves and templates.
+D5 to D9 described the reader's binary INI path. That path was removed
+with decision O13, so the rows are gone; the IDs are not reused.
+
+The reference's save writer was changed on purpose (decision O12): it
+writes plain text instead of `FLS1`. The port matches the changed
+reference, so that change is not a divergence here.

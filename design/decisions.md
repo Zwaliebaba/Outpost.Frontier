@@ -20,6 +20,8 @@ through a decision record under `design/adr/`.
 | O9 | The dedicated server is headless, with a config file and a command console | A terminal dashboard; a native GUI |
 | O10 | `CppSource/` stays intact until the Rust build is complete and is deleted in one commit | Deletion per library from a tagged reference; deletion per phase |
 | O11 | Decided 2026-11-16. The DirectX 8.1 SDK headers and libraries are committed in `CppSource/DX8/`, so the reference build works from a clone. They are deleted with the C++ in P7.3 | Keeping the SDK outside the repository in an ignored `dx8\` folder, as first planned |
+| O12 | Decided 2026-11-16. Saves are written as plain-text INI. The C++ reference server writes character saves, new characters from the templates and the single-player restart file as text instead of the `FLS1` cipher container (commit `816f556a`); the Rust port does the same. Both builds still read `FLS1` files, so existing saves and the shipped templates load. This is the one change to the reference's behaviour beyond build fixes and oracle instrumentation | Keeping the original `FLS1` writer in the reference and in the port; reverting the C++ change |
+| O13 | Decided 2026-11-16. The game data is text only: every INI file in the master copy (`outdir\`) is text. The port reads INI files as text and has no binary INI reader; the C++ reference keeps its decoder, which the data never reaches (divergence D10) | Porting the binary INI reader and keeping its oracle suites |
 
 ## Technical decisions
 
@@ -200,9 +202,10 @@ events.
 
 ### T18 — Saves
 
-The save container and text schema are written and read exactly, so saves
-move between the C++ and Rust builds in both directions until the C++ is
-deleted.
+The save text schema is written and read exactly, so saves move between
+the C++ and Rust builds in both directions until the C++ is deleted. Both
+write plain text (decision O12); both read the `FLS1` container as well, so
+saves written by the original game and the shipped templates still load.
 
 ### T19 — Time step
 

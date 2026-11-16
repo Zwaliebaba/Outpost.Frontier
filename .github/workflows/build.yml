@@ -101,7 +101,7 @@ jobs:
           $f = "crates\neuron-core\tests\fixtures\oracle"
           New-Item -ItemType Directory -Force "$root\DATA\SHIPS", "$root\EXE" | Out-Null
           Copy-Item "$f\ini\basic.ini" "$root\DATA\basic.ini"
-          Copy-Item "$f\ini\values.bini" "$root\DATA\SHIPS\values.ini"
+          Copy-Item "$f\ini\crlf_only.ini" "$root\DATA\SHIPS\crlf_only.ini"
           Copy-Item "$f\ini\empty.ini" "$root\DATA\Empty.INI"
           Copy-Item "$f\engine\include.ini", "$f\engine\sub.ini", "$f\engine\basic.ini" "$root\EXE\"
           & .\bin\Oracle.exe dump $root $out

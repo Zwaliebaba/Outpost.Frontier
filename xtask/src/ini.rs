@@ -1,4 +1,4 @@
-//! `cargo xtask ini`: a readable listing of game INI files, text or BINI,
+//! `cargo xtask ini`: a readable listing of game INI files,
 //! for reading facts from the original installation (design/facts.md).
 //! It uses the ported reader, so it shows what the game reads.
 
@@ -9,7 +9,7 @@ use std::process::ExitCode;
 use neuron_core::ini::IniReader;
 
 pub const USAGE: &str = "  ini <path>... [--grep <text>]
-                 list the sections and values of INI files (text or BINI);
+                 list the sections and values of INI files;
                  a folder is searched for .ini files. With --grep, only the
                  values whose section, name or parameters contain the text
                  (any case) are shown, each with its file and section";
@@ -52,10 +52,7 @@ fn list(path: &Path, grep: Option<&str>) -> bool {
         return false;
     }
     if grep.is_none() {
-        println!(
-            "== {name} ({})",
-            if reader.is_bini() { "BINI" } else { "text" }
-        );
+        println!("== {name}");
     }
     while reader.read_header() {
         let header = show(&reader.header());
