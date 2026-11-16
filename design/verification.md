@@ -38,6 +38,13 @@ Vector files are line-oriented text (one JSON object per line) with floats
 written as hexadecimal bit patterns, so comparison never depends on decimal
 formatting.
 
+Synthetic inputs live in each crate's `tests/fixtures/oracle/`, written by
+the script beside them. The harness and the crate's `oracle_vectors` test
+render the same suites from them; the committed `tests/vectors/` files must
+equal both. `OUTPOST_BLESS_VECTORS=1 cargo test --test oracle_vectors`
+rewrites the files from the Rust port. That is only for adding a suite: the
+oracle job then shows whether the C++ agrees.
+
 ## Where test data lives
 
 | Kind | Location | Runs in CI |
@@ -48,9 +55,10 @@ formatting.
 | Vectors derived from the original data | Outside the repository; path in `OUTPOST_ORACLE_DIR` | No |
 
 Tests that need the last two are skipped with a printed notice when the
-variables are unset. `cargo xtask verify <work-package>` runs a package's
-full set on a machine that has the data and writes a short result file that
-is attached to the pull request closing the package. A self-hosted Windows
+variables are unset. On a machine with the data they run a package's full
+set and write a short result file that is attached to the pull request
+closing the package; for P1.2 this is the `data_dump` test after
+`Oracle.exe dump` ([reference-build.md](reference-build.md) section 7). A self-hosted Windows
 runner with the data can automate this; it is optional.
 
 ## Test kinds
@@ -73,6 +81,7 @@ runner with the data can automate this; it is optional.
 | Windows (existing) | `x86_64-pc-windows-msvc` | format check, clippy with warnings denied, tests, release build of both executables |
 | Host (added in P0.1) | the runner's native target | tests for `neuron-core`, `game-sim`, `neuron-server`, `game-logic` and the platform-neutral parts of the client crates |
 | Policy (added in P0.1) | — | `cargo-deny`; a scan that fails on legacy API names, `asm!`, or `unsafe` outside the permitted modules |
+| Oracle (added in P0.4) | `Win32` C++ build | builds `CppSource/Oracle`, runs it on the committed inputs and fails unless its output equals the committed vectors byte for byte; removed in P7.3 |
 
 ## Definition of done for a work package
 

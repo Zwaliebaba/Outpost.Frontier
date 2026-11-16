@@ -14,7 +14,7 @@ Line counts are C++ source and header lines from the assessment, rounded.
 
 | # | C++ project | Lines | Disposition | Rust destination | Work packages | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `neuroncomponents` | 2.8k | Port the INI parser, name CRC and `stricmp`. Delete the component manager and the regular-expression component | `neuron-core::{ini, hash, diag}`; `neuron-client::engine` | P1.1, P1.2, P1.5, P4.16 | not started |
+| 1 | `neuroncomponents` | 2.8k | Port the INI parser, name CRC and `stricmp`. Delete the component manager and the regular-expression component | `neuron-core::{ini, hash, diag}`; `neuron-client::engine` | P1.1, P1.2, P1.5, P4.16 | in progress: name CRC, `stricmp` and the INI parser ported; oracle vectors confirmed in CI. `GetCRC32(begin, end)` is not ported: it never returns for a non-empty range and has no caller |
 | 2 | `system` | 0.6k | Delete; start-up order moves into the engine constructor | `neuron-client::engine` | P4.16 | not started |
 | 3 | `NeuronRuntime` | 2.3k | Rewrite the transport on QUIC. Port the MD5 text form. Delete the DirectPlay wrapper and the list-server wrapper | `neuron-core::net`; `neuron-server::net`; `neuron-client::{net, engine}` | P1.5, P1.9, P3.8, P4.16 | not started |
 | 4 | `zlib` | 27k vendor | Delete; `flate2` for network batches | `neuron-core::net` | P1.9 | not started |
@@ -23,7 +23,7 @@ Line counts are C++ source and header lines from the assessment, rounded.
 | 7 | `x86math` | 1.5k | Port kernels in original operation order | `neuron-core::math` | P1.4 | not started |
 | 8 | `MemoryDiagnostics` | 1.2k | Delete; standalone tool | — | — | not started |
 | 9 | `qhull` | 24k vendor | Delete; box and pyramid shapes come from `parry3d` | `neuron-core::physics` | P2.3 | not started |
-| 10 | `Common` | 105k + 38k headers | Split by sub-module, see below | `neuron-core`, `game-sim`, `game-logic`, `neuron-client`, `game-app` | P1.1, P1.2, P1.5, P1.7, P2.1–P2.5, P4.12 | not started |
+| 10 | `Common` | 105k + 38k headers | Split by sub-module, see below | `neuron-core`, `game-sim`, `game-logic`, `neuron-client`, `game-app` | P1.1, P1.2, P1.5, P1.7, P2.1–P2.5, P4.12 | in progress: IDs, INI, BINI and `atof` ported (P1.1, P1.2) |
 | 11 | `SceneRuntime` | 10k | Port whole; it makes no renderer calls | `neuron-core::{scene, anim}` | P1.8 | not started |
 | 12 | `SceneScript` | 18k + 6.6k Lua | Port the timeline engine; replace the Lua C interpreter with a Rust evaluator | `neuron-client::scene_script` | P4.14 | not started |
 | 13 | `particlefx` | 25k | Port; data parsing to core, simulation and drawing to client | `neuron-core::fx_data`; `neuron-client::render::particles` | P1.7, P4.8 | not started |
@@ -68,15 +68,16 @@ All eight become text catalogs built from sources moved to
 | --- | --- | --- | --- |
 | `IVP/` (compiled into `Common`) | 50k | Delete. Only the compact-surface layout is kept, as a file format | P1.7, P2.3 |
 | `RemoteCommon/` | 5.8k | Port once as the protocol codecs | P2.2 |
-| `include/` | 57k | Each header follows its owning library. `msvcrt_compat.h`, `msvcrt_numeric_format.h` port in P1.1; `x87_trig.h` is not ported (decision T11) | per owner |
+| `include/` | 57k | Each header follows its owning library. `msvcrt_compat.h` ports in P1.1; `msvcrt_numeric_format.h` ports with its users in P4.13 and P4.14; `x87_trig.h` is not ported (decision T11) | per owner |
 | Build files (`Directory.Build.*`, `*.vcxproj`, `*.props`, Python scripts) | — | Not ported. `import_windows_resources.py` is superseded by the catalog build | P1.6 |
 
 ## `Common` by sub-module
 
 | Sub-module | Lines | Rust destination | Work package |
 | --- | --- | --- | --- |
-| IDs, string cache | 0.8k | `neuron-core::id` | P1.1 |
-| INI, BINI, `atof`, text files | 3.7k | `neuron-core::ini` | P1.2 |
+| IDs | 0.7k | `neuron-core::id`. Ported; oracle vectors confirmed in CI | P1.1 |
+| String cache | 0.1k | `game-sim::data`. Moved from P1.1 on 2026-11-16: all its users arrive in P2.1 | P2.1 |
+| INI, BINI, `atof`, text files | 3.7k | `neuron-core::ini`, `neuron-core::msvcrt`. Ported; oracle vectors confirmed in CI, the run over the original `DATA` tree is open | P1.2 |
 | Utilities (timing, rect, spline, heap, async, state machine) | 4.9k | `neuron-core::{time, util}`; the pool allocator, async shim and critical-section wrapper are deleted | P1.5 |
 | Constants, data config | (in above) | `game-sim::data` | P2.1 |
 | Archetypes, loadouts, fuses | 12.2k | `game-sim::data` | P2.1 |
