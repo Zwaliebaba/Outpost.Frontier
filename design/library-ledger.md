@@ -75,7 +75,8 @@ All eight become text catalogs built from sources moved to
 
 | Sub-module | Lines | Rust destination | Work package |
 | --- | --- | --- | --- |
-| IDs, string cache | 0.8k | `neuron-core::id`. IDs ported; the string cache is still open | P1.1 |
+| IDs | 0.7k | `neuron-core::id`. Ported; oracle vectors confirmed in CI | P1.1 |
+| String cache | 0.1k | `game-sim::data`. Moved from P1.1 on 2026-11-16: all its users arrive in P2.1 | P2.1 |
 | INI, BINI, `atof`, text files | 3.7k | `neuron-core::ini`, `neuron-core::msvcrt`. Ported; oracle vectors confirmed in CI, the run over the original `DATA` tree is open | P1.2 |
 | Utilities (timing, rect, spline, heap, async, state machine) | 4.9k | `neuron-core::{time, util}`; the pool allocator, async shim and critical-section wrapper are deleted | P1.5 |
 | Constants, data config | (in above) | `game-sim::data` | P2.1 |

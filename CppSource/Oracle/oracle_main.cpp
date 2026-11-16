@@ -7,7 +7,10 @@
 // committed vectors must equal this program's output byte for byte.
 //
 // Usage: Oracle.exe <fixture directory> <output directory>
-// Both paths must be absolute: the program changes into the fixture
+//        Oracle.exe dump <data directory> <output directory>
+// The second form dumps the original installation's INI files for
+// crates/neuron-core/tests/data_dump.rs; its output must never be committed.
+// Both paths must be absolute: the program changes into the input
 // directory so that the engine parser and INI_Reader see relative names.
 
 #include <windows.h>
@@ -19,6 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -159,12 +163,25 @@ namespace
         return Value < 0 ? -1 : (Value > 0 ? 1 : 0);
     }
 
+    void MakeParentDirectories(const std::string& Path)
+    {
+        for (size_t Index = 1; Index < Path.size(); ++Index)
+        {
+            if ((Path[Index] == '\\' || Path[Index] == '/') && Path[Index - 1] != ':')
+                CreateDirectoryA(Path.substr(0, Index).c_str(), nullptr);
+        }
+    }
+
     class Suite
     {
     public:
-        explicit Suite(const char* Name)
+        // A suite file in the output directory.
+        explicit Suite(const char* Name) : Suite(GOutputDir + "\\" + Name) {}
+
+        // A file at a full path; missing directories are created.
+        explicit Suite(const std::string& Path)
         {
-            const std::string Path = GOutputDir + "\\" + Name;
+            MakeParentDirectories(Path);
             File = fopen(Path.c_str(), "wb");
             if (File == nullptr)
             {
@@ -343,19 +360,23 @@ namespace
         }
     }
 
-    void EngineIni()
+    IProfileParser* AcquireParser()
     {
-        Suite Out("engine_ini.jsonl");
         IProfileParser* Parser = nullptr;
         if (NEURONCOMPONENTS_Acquire()->QueryInterface(Iids::ProfileParser, (void**)(&Parser)) < 0 ||
             Parser == nullptr)
         {
             fprintf(stderr, "no profile parser\n");
             GFailed = true;
-            return;
+            return nullptr;
         }
+        return Parser;
+    }
+
+    // The parser's result and database for one file.
+    void DumpEngineFile(IProfileParser* Parser, const std::string& File, Suite& Out)
+    {
         static const char* const Results[] = {"ok", "generic", "breakpoint", "fault"};
-        for (const std::string& File : InputLines("engine.list"))
         {
             const int Result = GuardedLoad(Parser, File.c_str());
             Out.Line(Format("{\"file\":\"%s\",\"result\":\"%s\"}", File.c_str(), Results[Result]));
@@ -382,6 +403,16 @@ namespace
                 Parser->CloseSection(Section);
             }
         }
+    }
+
+    void EngineIni()
+    {
+        Suite Out("engine_ini.jsonl");
+        IProfileParser* Parser = AcquireParser();
+        if (Parser == nullptr)
+            return;
+        for (const std::string& File : InputLines("engine.list"))
+            DumpEngineFile(Parser, File, Out);
     }
 
     // --- INI_Reader --------------------------------------------------------------------
@@ -475,17 +506,100 @@ namespace
             }
         }
     }
+
+    // --- Original data ----------------------------------------------------------------
+
+    // .ini files under Relative (a name longer than four bytes ending in .ini in
+    // any case), as '/'-separated paths. crates/neuron-core/tests/data_dump.rs
+    // applies the same rule.
+    void ListIniFiles(const std::string& Relative, std::vector<std::string>& Out)
+    {
+        WIN32_FIND_DATAA Found;
+        HANDLE Search = FindFirstFileA((Relative + "/*").c_str(), &Found);
+        if (Search == INVALID_HANDLE_VALUE)
+            return;
+        do
+        {
+            const std::string Name = Found.cFileName;
+            if (Name == "." || Name == "..")
+                continue;
+            const std::string Child = Relative + "/" + Name;
+            if ((Found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
+                ListIniFiles(Child, Out);
+            else if (Name.size() > 4 && _stricmp(Name.c_str() + Name.size() - 4, ".ini") == 0)
+                Out.push_back(Child);
+        } while (FindNextFileA(Search, &Found));
+        FindClose(Search);
+    }
+
+    std::string OutputFile(const char* Kind, const std::string& Relative)
+    {
+        std::string Path = GOutputDir + "\\" + Kind + "\\" + Relative + ".jsonl";
+        for (char& Ch : Path)
+        {
+            if (Ch == '/')
+                Ch = '\\';
+        }
+        return Path;
+    }
+
+    // Every .ini file under DATA and EXE through INI_Reader, and every .ini file
+    // directly in EXE through the engine parser, one dump per file. Run from the
+    // folder that holds DATA and EXE. Nothing it writes may be committed.
+    void DumpData()
+    {
+        std::vector<std::string> Files;
+        ListIniFiles("DATA", Files);
+        ListIniFiles("EXE", Files);
+        std::sort(Files.begin(), Files.end());
+        if (Files.empty())
+        {
+            fprintf(stderr, "no .ini files under DATA or EXE in %s\n", GFixtureDir.c_str());
+            GFailed = true;
+            return;
+        }
+        {
+            Suite List(GOutputDir + "\\files.txt");
+            for (const std::string& File : Files)
+                List.Line(File);
+        }
+        IProfileParser* Parser = AcquireParser();
+        size_t Engine = 0;
+        for (const std::string& File : Files)
+        {
+            {
+                Suite Out(OutputFile("reader", File));
+                INI_Reader* Reader = new INI_Reader();
+                const bool bOpen = Reader->open(File.c_str(), false);
+                Out.Line("{\"file\":\"" + File + "\",\"open\":\"" + (bOpen ? "1" : "0") + "\"}");
+                if (bOpen)
+                    DumpReader(*Reader, false, Out);
+                delete Reader;
+            }
+            const bool bEngine = File.compare(0, 4, "EXE/") == 0 && File.find('/', 4) == std::string::npos;
+            if (bEngine && Parser != nullptr)
+            {
+                Suite Out(OutputFile("engine", File));
+                DumpEngineFile(Parser, File, Out);
+                ++Engine;
+            }
+        }
+        printf("dumped %u files, %u also through the engine parser\n", (unsigned int)Files.size(),
+               (unsigned int)Engine);
+    }
 }
 
 int main(int Argc, char** Argv)
 {
-    if (Argc != 3)
+    const bool bDump = Argc == 4 && strcmp(Argv[1], "dump") == 0;
+    if (Argc != 3 && !bDump)
     {
-        fprintf(stderr, "usage: Oracle.exe <fixture directory> <output directory>\n");
+        fprintf(stderr, "usage: Oracle.exe <fixture directory> <output directory>\n"
+                        "       Oracle.exe dump <data directory> <output directory>\n");
         return 2;
     }
-    GFixtureDir = Argv[1];
-    GOutputDir = Argv[2];
+    GFixtureDir = Argv[bDump ? 2 : 1];
+    GOutputDir = Argv[bDump ? 3 : 2];
     if (!SetCurrentDirectoryA(GFixtureDir.c_str()))
     {
         fprintf(stderr, "cannot enter %s\n", GFixtureDir.c_str());
@@ -497,6 +611,11 @@ int main(int Argc, char** Argv)
     _controlfp_s(&Control, _PC_53, _MCW_PC);
     FDUMP = OracleDump;
 
+    if (bDump)
+    {
+        DumpData();
+        return GFailed ? 1 : 0;
+    }
     Names();
     StricmpPairs();
     Numbers();

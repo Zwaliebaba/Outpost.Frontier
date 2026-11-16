@@ -9,8 +9,10 @@ Paths are relative to the repository root, laid out as in section 3 of the
 reference-build guide.
 
 The data INI files may be binary (they then start with the bytes `BINI`).
-Text search does not work on those; leave such rows `open` until the INI
-reader of work package P1.2 or the oracle can dump them.
+Text search does not work on those. `cargo xtask ini <file or folder>`
+lists text and BINI files alike through the ported reader, and
+`--grep <text>` shows only the values that contain the text, with their
+file and section.
 
 | ID | Fact | Where to look | Needed by | Value | Status |
 | --- | --- | --- | --- | --- | --- |
@@ -29,13 +31,14 @@ reader of work package P1.2 or the oracle can dump them.
 | F13 | Feature switches used for the reference build | The MSBuild command line | P0.4 | | open |
 | F14 | Does single player keep one shared object world or two? | Observed with the oracle harness | P2.0 | | open |
 
-The following commands help with F6 and F5 in PowerShell:
+The following commands help with F6 and F5 in PowerShell, from the
+repository root:
 
 ```powershell
 # F6: count .thn files by first byte (27 = compiled, anything else = text)
 Get-ChildItem DATA -Recurse -Filter *.thn |
   ForEach-Object { [IO.File]::ReadAllBytes($_.FullName)[0] } | Group-Object
 
-# F5: text INI files that mention the key
-Get-ChildItem DATA -Recurse -Filter *.ini | Select-String -Pattern PHYSICAL_SIM_RATE
+# F5: every INI file, text or BINI, that sets the key
+cargo xtask ini DATA --grep PHYSICAL_SIM_RATE
 ```

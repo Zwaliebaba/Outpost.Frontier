@@ -163,11 +163,44 @@ oracle instrumentation of work package P0.4.
 Fill in [facts.md](facts.md) (work package P0.3). Gate G0 also needs the
 oracle harness of work package P0.4.
 
-The harness is the `Oracle` project in the solution's `Tools` folder. It
-needs no game data. To run it by hand after a Release build:
+The harness is the `Oracle` project in the solution's `Tools` folder. Its
+synthetic suites need no game data. To run them by hand after a Release
+build:
 
 ```powershell
 New-Item -ItemType Directory -Force oracle-out
 .\bin\Oracle.exe "$PWD\crates\neuron-core\tests\fixtures\oracle" "$PWD\oracle-out"
 git diff --no-index crates\neuron-core\tests\vectors oracle-out
 ```
+
+### Data dump
+
+The data dump runs both INI readers over the installation and compares the
+Rust port with the C++ (work package P1.2, Gate G0). It reads every `.ini`
+file under `DATA\` and `EXE\`. It writes one dump per file, about the size
+of the INI files themselves or larger, into a folder outside the
+repository. None of it may be committed. From the repository root, after a
+Release build:
+
+```powershell
+.\bin\Oracle.exe dump "$PWD" "$env:TEMP\outpost-oracle"
+```
+
+```powershell
+$env:OUTPOST_DATA_DIR = "$PWD"; $env:OUTPOST_ORACLE_DIR = "$env:TEMP\outpost-oracle"
+cargo test --release -p neuron-core --test data_dump -- --nocapture
+```
+
+The test prints a summary and writes it to `rust-result.txt` in the oracle
+folder: how many files are text and BINI, which could not be opened, and
+the first differences, if any. Attach that file to the pull request that
+closes P1.2. CI runs the same pipeline on a small synthetic tree, so a
+failure here comes from the data.
+
+To read values for [facts.md](facts.md), including from BINI files,
+`cargo xtask ini` lists files or folders through the same reader:
+
+```powershell
+cargo xtask ini EXE --grep Libraries
+```
+

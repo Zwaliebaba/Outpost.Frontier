@@ -55,9 +55,10 @@ oracle job then shows whether the C++ agrees.
 | Vectors derived from the original data | Outside the repository; path in `OUTPOST_ORACLE_DIR` | No |
 
 Tests that need the last two are skipped with a printed notice when the
-variables are unset. `cargo xtask verify <work-package>` runs a package's
-full set on a machine that has the data and writes a short result file that
-is attached to the pull request closing the package. A self-hosted Windows
+variables are unset. On a machine with the data they run a package's full
+set and write a short result file that is attached to the pull request
+closing the package; for P1.2 this is the `data_dump` test after
+`Oracle.exe dump` ([reference-build.md](reference-build.md) section 7). A self-hosted Windows
 runner with the data can automate this; it is optional.
 
 ## Test kinds

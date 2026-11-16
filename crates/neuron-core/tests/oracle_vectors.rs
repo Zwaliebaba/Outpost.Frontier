@@ -10,15 +10,16 @@
 //! Do that only to add a suite; the oracle job then decides whether the
 //! new file is right.
 
-use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+mod support;
+
+use support::{bits32, dump_engine, dump_reader, hex};
+
 use neuron_core::hash::{continued_name_crc32, continued_name_crc32_byte, name_crc32, stricmp};
 use neuron_core::id::{create_id, make_id, make_location_id};
-use neuron_core::ini::{
-    EngineIni, EngineIniError, IniReader, is_number, parse_number, string_index, value_num,
-};
+use neuron_core::ini::{EngineIni, IniReader, is_number, parse_number, string_index, value_num};
 use neuron_core::msvcrt::{atof, atoi, format_g, wtoi};
 use neuron_core::num::{round_even_to_i32, trunc_to_i32, trunc_to_i32_via_i64, trunc_to_i64};
 use neuron_core::rng::CrtRand;
@@ -51,19 +52,8 @@ fn unhex(text: &str) -> Vec<u8> {
         .collect()
 }
 
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().fold(String::new(), |mut out, b| {
-        let _ = write!(out, "{b:02x}");
-        out
-    })
-}
-
 fn sign(ordering: core::cmp::Ordering) -> i32 {
     ordering as i32
-}
-
-fn bits32(value: i32) -> u32 {
-    u32::from_ne_bytes(value.to_ne_bytes())
 }
 
 fn bits64(value: i64) -> u64 {
@@ -224,102 +214,10 @@ fn engine_ini() {
             fs::read(fixtures().join(relative)).ok()
         };
         let mut ini = EngineIni::new();
-        // An empty file maps to nothing and reads as an empty buffer.
-        let result = match ini.load_named(file.as_bytes(), &source, &mut loader) {
-            Ok(()) => "ok",
-            Err(EngineIniError::IncludeWithoutName) => "generic",
-            Err(EngineIniError::Breakpoint) => "breakpoint",
-            Err(EngineIniError::KeyBeforeSection) => "fault",
-            Err(EngineIniError::IncludeTooDeep) => "too_deep",
-        };
-        lines.push(format!("{{\"file\":\"{file}\",\"result\":\"{result}\"}}"));
-        for section in ini.sections() {
-            lines.push(format!("{{\"section\":\"{}\"}}", hex(&section.name)));
-            let Some(first) = ini.section(&section.name) else {
-                continue;
-            };
-            for line in (0..)
-                .map_while(|i| first.line(i))
-                .take_while(|l| !l.is_empty())
-            {
-                let key = line
-                    .windows(3)
-                    .position(|w| w == b" = ")
-                    .map_or(&line[..], |end| &line[..end]);
-                let value = first.value(key).unwrap_or_default();
-                lines.push(format!(
-                    "{{\"line\":\"{}\",\"value\":\"{}\"}}",
-                    hex(&line),
-                    hex(value)
-                ));
-            }
-        }
+        let result = ini.load_named(file.as_bytes(), &source, &mut loader);
+        dump_engine(&file, &ini, result, &mut lines);
     }
     check_suite("engine_ini.jsonl", &lines);
-}
-
-fn dump_reader(reader: &mut IniReader, extra_param: bool, lines: &mut Vec<String>) {
-    let mut headers = Vec::new();
-    while reader.read_header() {
-        let header = reader.header();
-        lines.push(format!("{{\"header\":\"{}\"}}", hex(&header)));
-        headers.push(header);
-        while reader.read_value() {
-            let name = reader.name();
-            let line = reader.line();
-            let count = reader.num_parameters();
-            let whole = reader.value_string();
-            let wide: String = reader
-                .value_wide()
-                .iter()
-                .map(|u| format!("{u:04x}"))
-                .collect();
-            let line_num = reader.line_num();
-            let tell = reader.tell();
-            let end = reader.is_end();
-            let dumps = reader.take_reports().len();
-            lines.push(format!(
-                "{{\"name\":\"{}\",\"line\":\"{}\",\"n\":\"{count}\",\"str\":\"{}\",\"wide\":\"{wide}\",\"line_num\":\"{line_num}\",\"tell\":\"{tell}\",\"end\":\"{}\",\"dumps\":\"{dumps}\"}}",
-                hex(&name),
-                hex(&line),
-                hex(&whole),
-                u8::from(end),
-            ));
-            let limit = if extra_param { count + 1 } else { count };
-            for index in 0..limit {
-                let s = reader.value_string_at(index);
-                let i = reader.value_int(index);
-                let f = reader.value_float(index);
-                let b = reader.value_bool(index);
-                let e = reader.is_value_empty(index);
-                let dumps = reader.take_reports().len();
-                lines.push(format!(
-                    "{{\"param\":\"{index}\",\"s\":\"{}\",\"i\":\"{:08x}\",\"f\":\"{:016x}\",\"b\":\"{}\",\"e\":\"{}\",\"dumps\":\"{dumps}\"}}",
-                    hex(&s),
-                    bits32(i),
-                    f.to_bits(),
-                    u8::from(b),
-                    u8::from(e),
-                ));
-            }
-        }
-    }
-    for header in headers {
-        let query = header.to_ascii_uppercase();
-        let found = reader.find_header(&query);
-        let first = if found && reader.read_value() {
-            reader.name()
-        } else {
-            Vec::new()
-        };
-        lines.push(format!(
-            "{{\"find\":\"{}\",\"found\":\"{}\",\"first\":\"{}\"}}",
-            hex(&query),
-            u8::from(found),
-            hex(&first)
-        ));
-    }
-    reader.take_reports();
 }
 
 #[test]
