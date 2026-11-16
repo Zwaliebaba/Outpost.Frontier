@@ -87,7 +87,9 @@ namespace
         memcpy(&Out, &W[At], sizeof(T));
     }
 
-    // The f32 words of a value, each as eight lower-case hex digits.
+    // The f32 words of a value, each as eight lower-case hex digits. Every
+    // NaN is written as 7fc00000: the suites are Tier B, any NaN matches any
+    // NaN, and x87 NaN sign propagation is not part of the port.
     std::string HexWords(const void* Data, size_t Bytes)
     {
         std::string Out;
@@ -95,6 +97,8 @@ namespace
         {
             unsigned int Bits;
             memcpy(&Bits, (const unsigned char*)(Data) + Offset, sizeof(Bits));
+            if ((Bits & 0x7F800000u) == 0x7F800000u && (Bits & 0x007FFFFFu) != 0)
+                Bits = 0x7FC00000u;
             Out += Format("%08x", Bits);
         }
         return Out;

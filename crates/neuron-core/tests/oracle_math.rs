@@ -52,9 +52,12 @@ fn words(line: &str) -> Vec<f32> {
         .collect()
 }
 
+/// Output words as hex. Every NaN is written as `7fc00000`, as the harness
+/// does: x87 NaN sign propagation is not part of the port.
 fn hex_words(values: &[f32]) -> String {
     values.iter().fold(String::new(), |mut out, v| {
-        let _ = write!(out, "{:08x}", v.to_bits());
+        let bits = if v.is_nan() { 0x7FC0_0000 } else { v.to_bits() };
+        let _ = write!(out, "{bits:08x}");
         out
     })
 }
