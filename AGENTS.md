@@ -67,10 +67,16 @@ or observable behavior.
 
 - Vectors made from synthetic input go in `<crate>/tests/vectors/`,
   hand-made fixtures in `<crate>/tests/fixtures/`. Both are committed.
-- Never commit original game data, the DirectX SDK, or vectors derived from
-  the original data. Tests that need them read `OUTPOST_DATA_DIR` or
-  `OUTPOST_ORACLE_DIR` and return early with a printed notice when the
-  variable is unset.
+- Committed vectors are the C++ oracle's output. CI's oracle job rebuilds
+  `CppSource/Oracle` and fails when its output differs from them. Rewrite
+  them from Rust (`OUTPOST_BLESS_VECTORS=1`) only to add a suite, never to
+  make a failing comparison pass.
+- Never commit original game data or vectors derived from the original
+  data. Tests that need them read `OUTPOST_DATA_DIR` or `OUTPOST_ORACLE_DIR`
+  and return early with a printed notice when the variable is unset.
+- The DirectX 8.1 SDK headers and libraries in `CppSource/DX8/` are
+  committed for the reference build (design/decisions.md O11). Commit no
+  other SDK, and do not use these files outside `CppSource/`.
 - Record every deliberate difference from the C++ behaviour in
   [design/divergences.md](design/divergences.md).
 

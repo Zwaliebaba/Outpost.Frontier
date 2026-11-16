@@ -169,7 +169,7 @@ and 3.
 | ID | Work | Where it runs | Size |
 | --- | --- | --- | --- |
 | P0.1 | Harden the workspace: pin the toolchain, add workspace lints and the unsafe policy, `cargo-deny`, the `game-sim` crate, the corrected crate graph, an `xtask` crate for tooling, a host-target test job in CI, the test-data conventions. Update `AGENTS.md`, `README.md` and the port map | Anywhere | M |
-| P0.2 | Restore the 32-bit C++ Release build. Needs Visual Studio with the v145 toolset and MFC for x86, the DirectX 8.1 SDK in `dx8\`, Python, and the original `DATA` and `EXE` trees. Record the steps in `design/reference-build.md`. Permitted changes to `CppSource/` are build fixes and oracle instrumentation only | Owner's Windows machine | M |
+| P0.2 | Restore the 32-bit C++ Release build. Needs Visual Studio with the v145 toolset and MFC for x86, the DirectX 8.1 SDK in `CppSource\DX8\` (committed, decision O11), Python, and the original `DATA` and `EXE` trees. Record the steps in `design/reference-build.md`. Permitted changes to `CppSource/` are build fixes and oracle instrumentation only | Owner's Windows machine | M |
 | P0.3 | Read the facts the repository cannot answer from the real installation and record them in `design/facts.md` (list below) | Owner's Windows machine | S |
 | P0.4 | Build the oracle harness: a console program that links the C++ DLLs and dumps vectors, a `+oracle` mode in the C++ client for interface-tree and screenshot dumps, and a logging proxy for the renderer interface that records call traces. Emit the first synthetic suites | Owner's Windows machine | L |
 
@@ -189,11 +189,23 @@ found), the fallback is decision O3's second option: vectors transliterated
 from the C++ source plus tests against real data. That weakens every
 Tier B and C claim and must be recorded as a change to this plan.
 
+**Phase 1 before Gate G0.** Decided 2026-11-16: work packages P1.1 and P1.2
+start while Phase 0 is open, together with the part of P0.4 they need. The
+console harness in `CppSource/Oracle/` covers name hashing, IDs, number
+parsing and formatting, the random generator and both INI parsers, and CI's
+oracle job builds it and checks the committed vectors on every push. A
+Phase 1 package started this way stays `in progress` until its oracle
+vectors pass in CI and its data-dependent tests pass on the original data;
+tests written from the C++ source alone count as provisional. The other
+Phase 1 packages wait for G0: P1.4 needs x87 results the source cannot
+give, P1.6 needs fact F3, and P1.7 and P1.8 need the format variants that
+only the real `DATA` tree shows.
+
 ### Phase 1 — core formats and primitives (`neuron-core`)
 
 | ID | C++ source | Rust destination | Size | Tier |
 | --- | --- | --- | --- | --- |
-| P1.1 | Name CRC and `stricmp` (`neuroncomponents`); `CreateID`, `MakeId`, `MakeLocationID`, sub-object ranges (`Common`); `msvcrt_compat.h`, `msvcrt_numeric_format.h`; float-to-int helpers; CRT random generator | `hash`, `id`, `msvcrt`, `num`, `rng` | S | A |
+| P1.1 | Name CRC and `stricmp` (`neuroncomponents`); `CreateID`, `MakeId`, `MakeLocationID`, sub-object ranges (`Common`); `msvcrt_compat.h`; legacy `atof` and the UCRT `%g`; float-to-int helpers; CRT random generator | `hash`, `id`, `msvcrt`, `num`, `rng` | S | A |
 | P1.2 | Engine INI parser (`neuroncomponents`); game INI reader, BINI, legacy `atof` (`Common`) | `ini` | M | A |
 | P1.3 | `ReadFile`: directory, UTF and memory file systems, search path | `vfs`, `utf` | M | A |
 | P1.4 | `x86math` kernels in original operation order | `math` | M | B |
@@ -262,8 +274,8 @@ oracle. A random mission offer rebuilt from a saved seed equals the oracle.
 | P4.10 | `SoundManager`, `SoundStreamer`: decode, mixer arithmetic, voice ranking, XAudio2 device, streaming, reverb | `audio` | L | B for arithmetic |
 | P4.11 | Raw Input mouse, keyboard routing, cursor; `imeui` edit-box model and IME positioning | `input`, `text_input` | M | — |
 | P4.12 | Client font code: DirectWrite rasteriser, atlas, font config; rich-text display lists and markup | `text` | L | C |
-| P4.13 | Client UI toolkit: control tree, 62 control factories, INI and page-text loaders, draw layers, modal stack, typed messages, immediate-mode layer, widescreen anchoring | `ui` | XL | A for layout dumps, C for output |
-| P4.14 | `SceneScript`: Lua 3.2 evaluator, script loader, curves, motion paths, timeline and events | `scene_script` | XL | A for load, B for playback |
+| P4.13 | Client UI toolkit: control tree, 62 control factories, INI and page-text loaders, draw layers, modal stack, typed messages, immediate-mode layer, widescreen anchoring; number-string formatting (`MsvcrtNumericVsnprintf` in `msvcrt_numeric_format.h`) | `ui` | XL | A for layout dumps, C for output |
+| P4.14 | `SceneScript`: Lua 3.2 evaluator and its number text (`MsvcrtFormatLuaNumber` in `msvcrt_numeric_format.h`), script loader, curves, motion paths, timeline and events | `scene_script` | XL | A for load, B for playback |
 | P4.15 | `movie`: Media Foundation playback of the startup clips | `media` | S | — |
 | P4.16 | `neuroncomponents`, `system`, `NeuronRuntime::Startup`: the `Engine` value, construction and drop order | `engine` | S | — |
 

@@ -2,8 +2,9 @@
 
 How to build and run the C++ code base in `CppSource/` as the reference for
 the migration (work package P0.2 in the [migration plan](migration-plan.md)).
-This needs a Windows machine, the DirectX 8.1 SDK and an original
-installation of the game. None of these can be committed.
+This needs a Windows machine and an original installation of the game. The
+installation must not be committed. The DirectX 8.1 SDK headers and
+libraries are committed in `CppSource\DX8\` (decision O11).
 
 ## 1. Requirements
 
@@ -12,7 +13,7 @@ installation of the game. None of these can be committed.
 | Windows | 10 or 11, x64 |
 | Visual Studio | 2026, workload *Desktop development with C++*, with the individual components *MSVC v145 build tools (x86 and x64)*, *C++ MFC for v145 build tools (x86 and x64)* and a Windows 10 or 11 SDK. The solution sets toolset `v145` and builds `Win32` only |
 | Python 3 | On `PATH`. Needed only by the Debug and DebugASan configurations |
-| DirectX 8.1 SDK | Headers and libraries in `dx8\` (section 2) |
+| DirectX 8.1 SDK | Headers and libraries, committed in `CppSource\DX8\` (section 2) |
 | DirectPlay | Windows optional feature (section 5) |
 | Original installation | Its `DATA` and `EXE` folders (section 3) |
 
@@ -22,41 +23,33 @@ for Direct3D 8, D3DX 8 and DirectPlay 8.
 
 ## 2. DirectX 8.1 SDK
 
-Microsoft no longer distributes the SDK. The Internet Archive holds the
-signed original as item
+The SDK's `include` and `lib` folders are committed in `CppSource\DX8\`
+(commit `fd5f6c1`). A clone needs no further step.
+
+The build takes the SDK from the first of these that applies:
+
+1. the path passed to MSBuild as `/p:Dx8SdkDir=<path>`;
+2. `dx8\` at the repository root, when `dx8\include` exists. The folder is
+   ignored by git;
+3. `CppSource\DX8\`.
+
+Do not add the SDK's `include` folder to a project's additional include
+directories: the SDK's old `basetsd.h` breaks the current Windows headers.
+The projects append it after the Windows SDK through `$(Dx8SdkDir)` in
+`CppSource\Directory.Build.props`.
+
+Microsoft no longer distributes the SDK. To check or replace the committed
+files, the Internet Archive holds the signed original as item
 [`dx81sdk_full`](https://archive.org/details/dx81sdk_full)
-(`dx81sdk_full.exe`, about 166 MB, dated 2001-11-03).
+(`dx81sdk_full.exe`, about 166 MB, dated 2001-11-03). Check its signature
+before use:
 
-1. Download `dx81sdk_full.exe`.
-2. Check the signature:
+```powershell
+Get-AuthenticodeSignature .\dx81sdk_full.exe | Format-List Status, SignerCertificate
+```
 
-   ```powershell
-   Get-AuthenticodeSignature .\dx81sdk_full.exe | Format-List Status, SignerCertificate
-   ```
-
-   The signer must be Microsoft. A certificate from 2001 can report as
-   expired; `HashMismatch` or `NotSigned` means the file is not the
-   original.
-3. Extract it rather than install it. Try 7-Zip on the `.exe` first. If it
-   cannot open the file, run the installer and take the files from the
-   folder it installs to.
-4. Copy the SDK's `include` and `lib` folders to `dx8\include` and
-   `dx8\lib` at the repository root. `dx8\` is ignored by git.
-5. Check that the needed files are present. The command prints nothing when
-   they are all there:
-
-   ```powershell
-   'include\d3d8.h', 'include\d3d8types.h', 'include\d3d8caps.h',
-   'include\d3dx8tex.h', 'include\dplay8.h', 'include\dpaddr.h',
-   'lib\d3d8.lib', 'lib\d3dx8.lib' |
-     Where-Object { -not (Test-Path (Join-Path dx8 $_)) }
-   ```
-
-Do not add `dx8\include` to a project's additional include directories: the
-SDK's old `basetsd.h` breaks the current Windows headers. The projects
-append it after the Windows SDK through `$(Dx8SdkDir)` in
-`CppSource\Directory.Build.props`. To keep the SDK elsewhere, pass
-`/p:Dx8SdkDir=<path>` to MSBuild.
+The signer must be Microsoft. A certificate from 2001 can report as
+expired; `HashMismatch` or `NotSigned` means the file is not the original.
 
 `d3dx8.lib` is the reason the real SDK is needed. It is a static library of
 texture code built with Visual C++ 6. The project files already work around
@@ -68,7 +61,7 @@ All paths are relative to the repository root. Every folder below is
 ignored by git.
 
 ```text
-dx8\          DirectX 8.1 SDK: include\ and lib\
+dx8\          optional: a local DirectX 8.1 SDK that overrides CppSource\DX8\
 DATA\         the installation's DATA folder, unchanged
 EXE\          the installation's EXE folder, unchanged
 bin\          Release build output, plus the runtime files listed below
@@ -162,9 +155,19 @@ oracle instrumentation of work package P0.4.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| — | — | — |
+| `MSB8041` (MFC libraries are required) when building `OutpostServer` with toolset v143 | The Visual Studio 2026 installation has MFC only for v145 | The solution uses toolset v145 (commit `a86a199`) |
+| `LNK1181` (cannot open input file) for `Common.lib`, `Server.lib`, `rpclocal.lib` or `NeuronRuntime.lib` in a parallel build (`/m`) | `Server`, `RemoteServer` and `RemoteClient` linked these libraries without project references, so MSBuild could build them too late | Project references added (commit `a86a199`) |
 
 ## 7. Then
 
 Fill in [facts.md](facts.md) (work package P0.3). Gate G0 also needs the
 oracle harness of work package P0.4.
+
+The harness is the `Oracle` project in the solution's `Tools` folder. It
+needs no game data. To run it by hand after a Release build:
+
+```powershell
+New-Item -ItemType Directory -Force oracle-out
+.\bin\Oracle.exe "$PWD\crates\neuron-core\tests\fixtures\oracle" "$PWD\oracle-out"
+git diff --no-index crates\neuron-core\tests\vectors oracle-out
+```

@@ -2,3 +2,6 @@
 *.toml text eol=lf
 /Cargo.lock text eol=lf
 /.github/workflows/*.yml text eol=lf
+# Test inputs and vectors are compared byte for byte: never convert line endings.
+/crates/*/tests/fixtures/** -text
+/crates/*/tests/vectors/** -text
