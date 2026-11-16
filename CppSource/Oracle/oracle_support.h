@@ -83,3 +83,8 @@ namespace oracle
 
 // P1.4, oracle_math.cpp: neuron-core::math against x86math.dll.
 void RunMathSuites();
+
+// Oracle.exe catalog <resource DLL directory> <output directory>
+// (oracle_catalog.cpp, work package P1.6): a separate mode, not a suite.
+// Its output is game text and is never committed.
+void RunCatalogDump();
