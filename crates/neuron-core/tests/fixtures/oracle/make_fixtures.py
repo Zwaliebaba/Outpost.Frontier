@@ -12,7 +12,14 @@ import struct
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
+# Device names Windows refuses as file names, with or without an extension.
+RESERVED = {'con', 'prn', 'aux', 'nul'} | {'com%d' % i for i in range(1, 10)} | {'lpt%d' % i for i in range(1, 10)}
+
+
 def write(name, data):
+    for part in name.split('/'):
+        if part.split('.')[0].lower() in RESERVED:
+            raise SystemExit('reserved Windows file name: ' + name)
     path = os.path.join(HERE, *name.split('/'))
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, 'wb') as f:
@@ -130,7 +137,7 @@ ENGINE = {
     'engine/long_name.ini': b'[' + b'n' * 0x3FE + b']\n',
     'engine/eof.ini': b'[s]\na = 1\xffb = 2\n',
     'engine/comment_ff.ini': b'[s]\na = 1 ; note \xff more\nb = 2\n',
-    'engine/nul.ini': b'[s]\nab\x00cd = v\x00w x\nnext = 1\n',
+    'engine/nul_byte.ini': b'[s]\nab\x00cd = v\x00w x\nnext = 1\n',
     'engine/high.ini': b'[\xe9t\xe9]\n\xc9 = \x80\x81\n',
     'engine/no_newline.ini': b'[s]\nlast = 1',
     'engine/empty.ini': b'',

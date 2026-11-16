@@ -50,7 +50,7 @@
 {"file":"engine/comment_ff.ini","result":"ok"}
 {"section":"73"}
 {"line":"61203d2031","value":"31"}
-{"file":"engine/nul.ini","result":"ok"}
+{"file":"engine/nul_byte.ini","result":"ok"}
 {"section":"73"}
 {"line":"6162203d207620","value":"7620"}
 {"line":"6e657874203d2031","value":"31"}

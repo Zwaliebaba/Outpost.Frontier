@@ -10,7 +10,7 @@ engine/long_value.ini
 engine/long_name.ini
 engine/eof.ini
 engine/comment_ff.ini
-engine/nul.ini
+engine/nul_byte.ini
 engine/high.ini
 engine/no_newline.ini
 engine/empty.ini
