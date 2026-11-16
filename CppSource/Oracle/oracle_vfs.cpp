@@ -574,8 +574,10 @@ namespace
                     Fields += ",\"path\":\"" + HexC(Buffer) + "\"";
                     if (strcmp(Kind, "dos-file") == 0)
                         Fields += "," + SelfFields(Fs);
+                    Fs->Release();
                 }
-                Fs->Release();
+                // A nested wrapper is leaked, as in Created(): releasing it would
+                // release its parent, a search-path root, twice.
                 return Fields;
             }
             if (Op == "mem")
