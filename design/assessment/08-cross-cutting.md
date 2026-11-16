@@ -15,7 +15,7 @@ rebrand commit `89eda18` renamed the modules and scrubbed many addresses to the 
 
 | Item | Finding |
 |---|---|
-| Toolset | `v143`, Win32 only, C++17, `CharacterSet=MultiByte`, `/W3 /sdl`, `/MD` or `/MDd` (`Directory.Build.props`) |
+| Toolset | `v145`, Win32 only, C++17, `CharacterSet=MultiByte`, `/W3 /sdl`, `/MD` or `/MDd` (`Directory.Build.props`) |
 | FP | `/arch:IA32` + `/fp:precise` tree-wide. Exceptions: `particlefx_math.cpp` is `/fp:fast`; three TUs are SSE2 (`particlefx_float_forward.cpp` ×2, `SceneScriptControlCalls.cpp`) |
 | Configs | `Release→..\bin`, `Debug→..\bin_debug`, `DebugASan→..\binasan` (all at repo root, git-ignored) |
 | Layout pin | Release sets `_ITERATOR_DEBUG_LEVEL=1` so `std::` containers keep the VC6 size and the "baseline field offsets asserted across src/include hold" (`Directory.Build.targets`) |

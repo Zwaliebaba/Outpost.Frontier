@@ -10,7 +10,7 @@ installation of the game. None of these can be committed.
 | Item | Detail |
 | --- | --- |
 | Windows | 10 or 11, x64 |
-| Visual Studio | 2022 or later, workload *Desktop development with C++*, with the individual components *MSVC v143 build tools (x86 and x64)*, *C++ MFC for v143 build tools (x86 and x64)* and a Windows 10 or 11 SDK. The solution sets toolset `v143` and builds `Win32` only |
+| Visual Studio | 2026, workload *Desktop development with C++*, with the individual components *MSVC v145 build tools (x86 and x64)*, *C++ MFC for v145 build tools (x86 and x64)* and a Windows 10 or 11 SDK. The solution sets toolset `v145` and builds `Win32` only |
 | Python 3 | On `PATH`. Needed only by the Debug and DebugASan configurations |
 | DirectX 8.1 SDK | Headers and libraries in `dx8\` (section 2) |
 | DirectPlay | Windows optional feature (section 5) |
