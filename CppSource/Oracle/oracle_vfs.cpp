@@ -368,9 +368,11 @@ namespace
                 return Format("\"result\":\"%ld\"", Result);
             }
             const char* Kind = KindName(Fs);
-            if (strcmp(Kind, "nested") == 0)
-                Fs->Release();
-            else
+            // A nested wrapper is never released: its destructor releases the
+            // parent twice after one AddRef (ReadFile.cpp, FDosFileSystem), which
+            // frees the parent the script goes on using (divergence D29). The
+            // harness leaks it instead.
+            if (strcmp(Kind, "nested") != 0)
                 Stack.push_back(Fs);
             return std::string("\"result\":\"0\",\"kind\":\"") + Kind + "\"";
         }
