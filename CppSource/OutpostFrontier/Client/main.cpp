@@ -366,79 +366,6 @@ namespace
         return bContinue;
     }
 
-    // / module storage -- writable char arrays in baseline (only the routine
-    // reads them), handed to EBUEula as-is.
-    char G_EulaFile[] = "EULA.rtf";
-    char G_WarrantyFile[] = "Warranty.rtf";
-
-    // EBUEula.dll's "EBUEula" export as the routine calls it: cdecl (ADD ESP,0x10 after the
-    // call at 0x005b2f31), four arguments, an int result tested for non-zero. EBUEula.dll is the
-    // The crash reporting DLL is loaded from bin\.
-    typedef int(__cdecl* FEBUEulaFn)(const char* RegKey, char* EulaFile, char* WarrantyFile,
-                                     int Arg4);
-
-    // The failure tail the routine carries twice (0x005b2d94..0x005b2e3b after both
-    // LoadLibraryA calls fail, 0x005b2e5e..0x005b2f09 after GetProcAddress fails): caption ids
-    // 0xd1 and message ids 0xd9 from the resources (the routine with the field) with the
-    // built-in fallbacks, the render device dropped (the routine(1)), the cursor forced
-    // visible, MessageBoxW(the field, message, caption, 0x10030), exit(1). No text is
-    // appended. GetProcAddress / MessageBoxW go through baseline's lazy import thunks
-    // / the routine (kernel32 / user32 by name) -- the same APIs.
-    __declspec(noreturn) void EulaLoadFailureExit()
-    {
-        wchar_t Caption[0x100];
-        if (GetIdsStringWWithRawFallback(0xd1, Caption, 0x100) == 0)
-            wcscpy(Caption, L"OutpostFrontier Fatal Error");
-
-        wchar_t Message[0x1000];
-        if (GetIdsStringWWithRawFallback(0xd9, Message, 0x1000) == 0)
-            wcscpy(Message, L"OutpostFrontier has encountered a fatal error and will now terminate.\n");
-
-        ShutdownRenderMgr(true);
-        while (ShowCursor(TRUE) < 0)
-        {
-        }
-        MessageBoxW(g_client.window, Message, Caption, 0x10030);
-        exit(1);
-    }
-
-    // (module storage-005b2f4e): the EULA gate WinMain runs after the data
-    // folder probe (0x005b30bc). False (EBUEula returned 0) makes WinMain return 1.
-    bool RunEulaGate()
-    {
-        // "..\EBUEula.dll", then "EBUEula.dll"; neither -> fatal box.
-        HMODULE Eula = LoadLibraryA("..\\EBUEula.dll");
-        if (Eula == nullptr)
-        {
-            Eula = LoadLibraryA("EBUEula.dll");
-            if (Eula == nullptr)
-                EulaLoadFailureExit();
-        }
-
-        // GetProcAddress(module, "EBUEula"); a miss frees the module
-        // first, then the same fatal box.
-        FEBUEulaFn const EulaFn = reinterpret_cast<FEBUEulaFn>(GetProcAddress(Eula, "EBUEula"));
-        if (EulaFn == nullptr)
-        {
-            FreeLibrary(Eula);
-            EulaLoadFailureExit();
-        }
-
-        // GetFileAttributesA("Warranty.rtf"); INC / NEG / SBB / AND
-        // -> the path when the attributes are not INVALID_FILE_ATTRIBUTES, else null.
-        char* const Warranty =
-            (GetFileAttributesA(G_WarrantyFile) != INVALID_FILE_ATTRIBUTES) ? G_WarrantyFile : nullptr;
-
-        // EBUEula(module storage registry key, "EULA.rtf",
-        // warranty-or-null, 1).
-        int const Result =
-            EulaFn("Software\\Microsoft\\Microsoft Games\\OutpostFrontier\\1.0", G_EulaFile, Warranty, 1);
-
-        // FreeLibrary, then SETNZ on the result.
-        FreeLibrary(Eula);
-        return Result != 0;
-    }
-
     // the assert callback WinMain hands ErrorHandler::activate. In a fullscreen
     // session (the field) with a registered Win3D (the routine) the message goes to the
     // NN_Error modal the routine and the result is 4 + (its bool) (005b0b1c..005b0b29);
@@ -726,10 +653,7 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE /*prev*/, LPSTR cmd, int /*show
             return 1;
         }
 
-        // the routine, the EULA gate; declined -> return EDI, which
-        // still holds the 1 loaded at 0x005b2f79.
-        if (!RunEulaGate())
-            return 1;
+        // The baseline EULA gate (EBUEula.dll showing EULA.rtf / Warranty.rtf) is removed.
 
         // Global NeuronRuntime data exports ?FatalErrorFn@@3P6AXIPBD@ZA / ?CriticalWarningFn@@3P6A_NIPBD@ZA
         // (not in namespace NeuronRuntime), stored at 0x005b30e2 / 0x005b30ee.

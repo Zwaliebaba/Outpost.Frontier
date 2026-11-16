@@ -73,8 +73,10 @@ there, beside the executable (the default `data path` is `.\data`; the
 original looked in `..\DATA`). It probes
 `data\CHARACTERS\ANIMATIONS\FACIALMALE.ANM`; when that file is missing it
 starts `OutpostServer.exe` instead and exits. Run the binaries from a folder
-that holds `data\` (a copy of `DATA\`, or a junction to it), the INI files,
-`EBUEula.dll` and `EULA.rtf` (`Warranty.rtf` is optional). `DATA_EXTRA\` then also sits beside the executable.
+that holds `data\` (a copy of `DATA\`, or a junction to it) and the INI
+files. `DATA_EXTRA\` then also sits beside the executable. The client and
+server no longer show the original licence screen, so they need neither
+`EBUEula.dll` nor `EULA.rtf` and `Warranty.rtf`.
 
 Copy these files from `EXE\` to `bin\`, where present:
 
@@ -83,7 +85,6 @@ Copy these files from `EXE\` to `bin\`, where present:
 | `*.ini` | Engine, client, server and resource configuration |
 | `NewPlayer.fl`, `NewCharacter.fl`, `MPNewCharacter.fl` | Templates for new single-player games and characters |
 | `flconfigdatabase.txt` | Read by the Direct3D 8 renderer |
-| `EBUEula.dll` | The client exits with a fatal error without it. It is an original binary that was not reconstructed |
 
 Do not copy the original game DLLs. The build produces its own.
 

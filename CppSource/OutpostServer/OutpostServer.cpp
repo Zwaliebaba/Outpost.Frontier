@@ -412,35 +412,7 @@ static DWORD WINAPI ServerThreadProc(LPVOID)
 
 BOOL COutpostServerApp::InitInstance()
 {
-	HMODULE EulaModule = LoadLibraryA("..\\EBUEula.dll");
-	if (EulaModule == NULL)
-	{
-		EulaModule = LoadLibraryA("EBUEula.dll");
-		if (EulaModule == NULL)
-		{
-			MessageBoxA(NULL, "OutpostFrontier failed to attach to EBUEula.dll.", "Notice", MB_ICONHAND);
-			return FALSE;
-		}
-	}
-	typedef int (__cdecl* FEbuEula)(const char* RegistryKey, const char* EulaPath,
-		const char* WarrantyPath, int Flag);
-	FEbuEula EbuEula = (FEbuEula)GetProcAddress(EulaModule, "EBUEula");
-	if (EbuEula == NULL)
-	{
-		FreeLibrary(EulaModule);
-		MessageBoxA(NULL, "OutpostFrontier failed to find EBUEula entry point.", "Notice", MB_ICONHAND);
-		return FALSE;
-	}
-	const char* WarrantyPath = GetFileAttributesA("Warranty.rtf") != INVALID_FILE_ATTRIBUTES
-		? "Warranty.rtf" : NULL;
-	int bAccepted = EbuEula("Software\\Microsoft\\Microsoft Games\\OutpostFrontier\\1.0",
-		"EULA.rtf", WarrantyPath, 1);
-	FreeLibrary(EulaModule);
-	if (bAccepted == 0)
-	{
-		return FALSE;
-	}
-
+	// The baseline EULA gate (EBUEula.dll showing EULA.rtf / Warranty.rtf) is removed.
 	CriticalWarningFn = CriticalWarning;
 
 	char ModulePath[0x104] = {};
