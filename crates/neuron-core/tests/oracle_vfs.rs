@@ -20,8 +20,8 @@ use neuron_core::utf::{
 };
 use neuron_core::vfs::path::join_root_buffer;
 use neuron_core::vfs::{
-    FileSystem, FsDesc, FsKind, GENERIC_READ, Host, MemFileSystem, MemSource, SearchPath,
-    SeekOrigin, UtfFileSystem, VfsError, VfsFile, create_file_system,
+    ATTRIBUTE_DIRECTORY, FileSystem, FsDesc, FsKind, GENERIC_READ, Host, MemFileSystem, MemSource,
+    SearchPath, SeekOrigin, UtfFileSystem, VfsError, VfsFile, create_file_system,
 };
 use support::{check_suite, fixtures, hex, input_lines, unhex};
 
@@ -395,19 +395,34 @@ impl Script {
             }
             "find" => {
                 let pattern = arg(t[0]);
+                // As the harness: a directory's entries are sorted and keep
+                // only the directory bit (divergences D31, D37).
+                let dos = matches!(self.top().kind(), FsKind::DosDirectory | FsKind::DosFile);
                 let result = self.top().find(&pattern);
                 let (count, err) = match &result {
                     Ok(entries) => (entries.len(), 0x12),
                     Err(e) => (0, e.code()),
                 };
-                for entry in result.iter().flatten() {
-                    self.lines.push(format!(
-                        "{{\"op\":\"entry\",\"name\":\"{}\",\"attr\":\"{:08x}\",\"size\":\"{:08x}\"}}",
-                        hex(&entry.data.name),
-                        entry.data.attributes,
-                        entry.data.size
-                    ));
+                let mut entries: Vec<String> = result
+                    .iter()
+                    .flatten()
+                    .map(|entry| {
+                        let attributes = if dos {
+                            entry.data.attributes & ATTRIBUTE_DIRECTORY
+                        } else {
+                            entry.data.attributes
+                        };
+                        format!(
+                            "{{\"op\":\"entry\",\"name\":\"{}\",\"attr\":\"{attributes:08x}\",\"size\":\"{:08x}\"}}",
+                            hex(&entry.data.name),
+                            entry.data.size
+                        )
+                    })
+                    .collect();
+                if dos {
+                    entries.sort();
                 }
+                self.lines.extend(entries);
                 format!("\"count\":\"{count}\",\"err\":\"{err:x}\"")
             }
             "open" => {

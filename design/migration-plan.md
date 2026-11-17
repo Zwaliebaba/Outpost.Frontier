@@ -349,8 +349,9 @@ branch, CI is green, and the legacy scan is part of CI.
 ## 7. Working rules during the migration
 
 - `CppSource/` is frozen. The only permitted changes are build fixes and
-  oracle instrumentation from Phase 0. The plain-text save writer
-  (decision O12) is the one recorded exception.
+  oracle instrumentation from Phase 0. The recorded exceptions are the
+  plain-text save writer (decision O12) and the directory `FindFirst` fix
+  (decision O14).
 - One work package is one or more pull requests against the owning crate.
   Each updates the ledger.
 - Unknown fields in the reconstruction (about 11,000) are carried as

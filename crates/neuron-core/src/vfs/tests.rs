@@ -70,7 +70,18 @@ fn directory_file_systems() {
         root.path_attributes(b"nothing"),
         Err(VfsError::FileNotFound)
     );
-    assert_eq!(root.find(b"*"), Err(VfsError::BadPathname));
+    // Decision O14: a directory lists its entries, '.' and '..' first.
+    let names: Vec<Vec<u8>> = root
+        .find(b"*")
+        .unwrap()
+        .into_iter()
+        .map(|e| e.data.name)
+        .collect();
+    assert_eq!(&names[..2], &[b".".to_vec(), b"..".to_vec()]);
+    assert!(names.iter().any(|n| n == b"Sub"));
+    assert!(root.find(b"*").unwrap().iter().all(|e| e.token.is_none()));
+    assert_eq!(root.find(b"*.none"), Err(VfsError::FileNotFound));
+    assert_eq!(root.find(b"missing\\*"), Err(VfsError::PathNotFound));
     assert_eq!(root.current_path(64), Ok(b"\\".to_vec()));
 
     root.open_node(b"sub").unwrap();

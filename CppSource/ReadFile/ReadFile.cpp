@@ -1918,17 +1918,21 @@ namespace
                 return -1;
             }
             char Resolved[0x105] = {};
-            if (JoinRoot(RootPath, Pattern, Resolved, 0x104) != 0)
+            // Decision O14 (design/decisions.md): the reconstruction tested
+            // the join the wrong way round (!= 0, so every pattern that joins
+            // failed) and compared the find handle with nullptr instead of
+            // INVALID_HANDLE_VALUE. Both are fixed here and in the Rust port.
+            if (JoinRoot(RootPath, Pattern, Resolved, 0x104) == 0)
             {
                 LastError = 0xa1;
                 return -1;
             }
             const HANDLE Found =
                 FindFirstFileA(Resolved, FindData);
-            if (Found == nullptr)
+            if (Found == INVALID_HANDLE_VALUE)
             {
                 CopyNestedLastError();
-                return 0;
+                return -1;
             }
             return (int)((unsigned long)(Found));
         }

@@ -12,6 +12,8 @@
 
 #include "oracle_support.h"
 
+#include <algorithm>
+
 #include "../ReadFile/ReadFile.cpp"
 
 using namespace oracle;
@@ -511,14 +513,18 @@ namespace
                 const int Find = Fs->FindFirst(CStr(Pattern), &Data);
                 if (Find == -1)
                     return Format("\"count\":\"0\",\"err\":\"%lx\"", ErrorSince(Fs, Before));
-                unsigned long Count = 0;
+                // A directory lists in the host file system's order and with
+                // whatever attribute bits the checkout left: its entries are
+                // sorted and keep only the directory bit (divergences D31, D37).
+                const bool bDos = dynamic_cast<FDosFileSystem*>(Fs) != nullptr;
+                std::vector<std::string> Entries;
                 unsigned long Error = 0;
                 for (;;)
                 {
-                    Out.Line("{\"op\":\"entry\",\"name\":\"" + HexC(Data.cFileName) +
-                             Format("\",\"attr\":\"%08lx\",\"size\":\"%08lx\"}", Data.dwFileAttributes,
-                                    Data.nFileSizeLow));
-                    ++Count;
+                    const unsigned long Attributes = bDos ? Data.dwFileAttributes & 0x10 : Data.dwFileAttributes;
+                    Entries.push_back("{\"op\":\"entry\",\"name\":\"" + HexC(Data.cFileName) +
+                                      Format("\",\"attr\":\"%08lx\",\"size\":\"%08lx\"}", Attributes,
+                                             Data.nFileSizeLow));
                     memset(&Data, 0, sizeof(Data));
                     if (Fs->FindNext((unsigned long)Find, &Data) == 0)
                     {
@@ -527,6 +533,11 @@ namespace
                     }
                 }
                 Fs->FindClose((unsigned long)Find);
+                if (bDos)
+                    std::sort(Entries.begin(), Entries.end());
+                for (const std::string& Entry : Entries)
+                    Out.Line(Entry);
+                const unsigned long Count = (unsigned long)Entries.size();
                 return Format("\"count\":\"%lu\",\"err\":\"%lx\"", Count, Error);
             }
             if (Op == "open")

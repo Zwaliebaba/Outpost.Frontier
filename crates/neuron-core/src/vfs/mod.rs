@@ -33,6 +33,7 @@ mod utf_fs;
 pub use dos::DosFileSystem;
 pub use host::{
     ATTRIBUTE_DIRECTORY, ATTRIBUTE_NORMAL, ATTRIBUTE_READONLY, Host, HostEntry, HostFile,
+    HostFindEntry, win32_match,
 };
 pub use mem::{MemFileSystem, MemSource};
 pub use search::{SEARCH_PATH_CHARS, SearchPath, split_search_entry, split_search_path};
@@ -56,6 +57,9 @@ pub const MAX_PATH: usize = 260;
 pub enum VfsError {
     /// Last error 2 (`ERROR_FILE_NOT_FOUND`).
     FileNotFound,
+    /// Last error 3 (`ERROR_PATH_NOT_FOUND`): a directory find whose
+    /// directory does not exist.
+    PathNotFound,
     /// Last error 5 (`ERROR_ACCESS_DENIED`): an operation the backend
     /// refuses.
     AccessDenied,
@@ -109,6 +113,7 @@ impl VfsError {
     pub const fn code(self) -> u32 {
         match self {
             Self::FileNotFound => 2,
+            Self::PathNotFound => 3,
             Self::AccessDenied => 5,
             Self::InvalidHandle => 6,
             Self::NoMoreFiles => 0x12,
@@ -131,6 +136,7 @@ impl core::fmt::Display for VfsError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::FileNotFound => f.write_str("file not found"),
+            Self::PathNotFound => f.write_str("path not found"),
             Self::AccessDenied => f.write_str("operation not supported by this file system"),
             Self::InvalidHandle => f.write_str("invalid handle"),
             Self::NoMoreFiles => f.write_str("no more files"),
@@ -230,8 +236,9 @@ impl FindData {
 pub struct FindEntry {
     /// What `FindFirst` / `FindNext` wrote.
     pub data: FindData,
-    /// Opens the entry itself, as the find handle does.
-    pub token: FindToken,
+    /// Opens the entry itself, as the find handle does. `None` for a
+    /// directory file system's entry: its find handle opens nothing.
+    pub token: Option<FindToken>,
 }
 
 /// The `FileSystem` descriptor callers fill (`FFileSystemDesc`, size 0x34).
@@ -271,10 +278,10 @@ impl<'a> FsDesc<'a> {
         self
     }
 
-    /// The same request for a found entry.
+    /// The same request for a found entry ([`FindEntry::token`]).
     #[must_use]
-    pub const fn with_found(mut self, token: FindToken) -> Self {
-        self.found = Some(token);
+    pub const fn with_found(mut self, token: Option<FindToken>) -> Self {
+        self.found = token;
         self
     }
 

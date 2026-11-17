@@ -386,7 +386,7 @@ impl FileSystem for UtfFileSystem {
             .map(|node| {
                 Ok(FindEntry {
                     data: self.find_data(node)?,
-                    token: self.token(node),
+                    token: Some(self.token(node)),
                 })
             })
             .collect()

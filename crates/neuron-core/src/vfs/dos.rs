@@ -6,8 +6,8 @@ use super::path::{
 };
 use super::stream::DosStream;
 use super::{
-    ATTRIBUTE_DIRECTORY, FileSystem, FindEntry, FsDesc, FsKind, GENERIC_WRITE, Host, SeekOrigin,
-    UtfFileSystem, VfsError, VfsFile,
+    ATTRIBUTE_DIRECTORY, ATTRIBUTE_NORMAL, ATTRIBUTE_READONLY, FileSystem, FindData, FindEntry,
+    FsDesc, FsKind, GENERIC_WRITE, Host, MAX_PATH, SeekOrigin, UtfFileSystem, VfsError, VfsFile,
 };
 use crate::hash::c_str;
 
@@ -199,20 +199,45 @@ impl FileSystem for DosFileSystem {
             .ok_or(VfsError::FileNotFound)
     }
 
-    /// The reconstruction's `FindFirst` fails whenever the pattern joins
-    /// (it tests the join's result the wrong way round), so a directory
-    /// file system finds nothing. Where the join fails the C++ passes the
-    /// partial path to the system and returns its failure without an error
-    /// code; that the system finds nothing there is assumed (divergence
-    /// register).
+    /// `FindFirst` and `FindNext` over the host directory: the pattern is
+    /// joined to the root and listed as `FindFirstFileA` lists it
+    /// ([`Host::find`]). A pattern that does not join fails with error
+    /// 0xA1. The reconstruction tested the join the wrong way round and so
+    /// never listed anything; decision O14 fixed that here and in the C++.
     fn find(&self, pattern: &[u8]) -> Result<Vec<FindEntry>, VfsError> {
         if self.file.is_some() {
             return Err(VfsError::FileNotFound);
         }
-        match self.join(pattern) {
-            Some(_) => Err(VfsError::BadPathname),
-            None => Err(VfsError::Failed),
-        }
+        let resolved = self.join(pattern).ok_or(VfsError::BadPathname)?;
+        Ok(self
+            .host
+            .find(&resolved)?
+            .into_iter()
+            .map(|entry| {
+                let kind = if entry.is_dir {
+                    ATTRIBUTE_DIRECTORY
+                } else {
+                    ATTRIBUTE_NORMAL
+                };
+                let mut name = entry.name;
+                name.truncate(MAX_PATH - 1);
+                FindEntry {
+                    data: FindData {
+                        attributes: kind
+                            | if entry.readonly {
+                                ATTRIBUTE_READONLY
+                            } else {
+                                0
+                            },
+                        times: entry.times.map(Some),
+                        // nFileSizeLow.
+                        size: (entry.size & u64::from(u32::MAX)) as u32,
+                        name,
+                    },
+                    token: None,
+                }
+            })
+            .collect())
     }
 
     /// Joins to the root path from the prefix on: `\` plus whatever

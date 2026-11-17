@@ -21,6 +21,13 @@
 //! Paths must be UTF-8. Other Win32 rules (trailing dots and spaces,
 //! device names, short names, the 260-character limit) are not reproduced
 //! (divergence register).
+//!
+//! [`Host::find`] stands for `FindFirstFileA` / `FindNextFileA`: the last
+//! component is a pattern matched with the Win32 wildcard rules
+//! ([`win32_match`]) against the directory's entries, `.` and `..`
+//! included. Entries come in byte order of their names, not in the order
+//! of the host's file system (divergence D37), and short (8.3) names are
+//! not matched.
 
 use std::fs;
 use std::io;
@@ -53,6 +60,111 @@ pub struct HostEntry {
     pub is_dir: bool,
     /// Whether it is read-only.
     pub readonly: bool,
+}
+
+/// One entry [`Host::find`] returns, as `WIN32_FIND_DATAA` describes it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HostFindEntry {
+    /// The name, `.` and `..` included.
+    pub name: Vec<u8>,
+    /// Whether it is a directory.
+    pub is_dir: bool,
+    /// Whether it is read-only.
+    pub readonly: bool,
+    /// The size; 0 for a directory.
+    pub size: u64,
+    /// Creation, last access and last write times as `FILETIME` counts.
+    pub times: [u64; 3],
+}
+
+/// One element of a pattern after the Win32 layer has translated it for
+/// `FsRtlIsNameInExpression`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Wild {
+    /// `*` not followed by `.`: any run of characters.
+    Star,
+    /// `*` followed by `.` (`DOS_STAR`): any run that does not take the
+    /// name's last `.`.
+    DosStar,
+    /// `?` (`DOS_QM`): one character, or nothing at a `.` or at the end.
+    DosQm,
+    /// `.` followed by `?`, `*` or the end (`DOS_DOT`): a `.`, or nothing
+    /// at the end of the name.
+    DosDot,
+    /// Any other byte, compared without ASCII case.
+    Byte(u8),
+}
+
+fn translate(pattern: &[u8]) -> Vec<Wild> {
+    pattern
+        .iter()
+        .enumerate()
+        .map(|(i, &b)| {
+            let next = pattern.get(i + 1).copied();
+            match b {
+                b'*' if next == Some(b'.') => Wild::DosStar,
+                b'*' => Wild::Star,
+                b'?' => Wild::DosQm,
+                b'.' if matches!(next, None | Some(b'?' | b'*')) => Wild::DosDot,
+                other => Wild::Byte(other),
+            }
+        })
+        .collect()
+}
+
+/// Whether `name` matches `pattern` as `FindFirstFileA` matches it: the
+/// pattern translated as the Win32 layer does (`?` to `DOS_QM`, `*` before
+/// a `.` to `DOS_STAR`, a `.` before `?`, `*` or the end to `DOS_DOT`),
+/// then matched as `FsRtlIsNameInExpression` matches, without ASCII case.
+/// So `*.*` matches every name, `*.` the names without an extension, and
+/// `Ship?.utf` both `Ship.utf` and `Ships.utf`.
+#[must_use]
+pub fn win32_match(pattern: &[u8], name: &[u8]) -> bool {
+    let pattern = translate(pattern);
+    let last_dot = name.iter().rposition(|&b| b == b'.');
+    // reachable[n]: the pattern prefix so far can end at name position n.
+    let mut reachable = vec![false; name.len() + 1];
+    reachable[0] = true;
+    for wild in pattern {
+        let mut next = vec![false; name.len() + 1];
+        for n in 0..=name.len() {
+            if !reachable[n] {
+                continue;
+            }
+            match wild {
+                Wild::Star => next[n..].iter_mut().for_each(|r| *r = true),
+                Wild::DosStar => {
+                    next[n] = true;
+                    let mut end = n;
+                    while end < name.len() && Some(end) != last_dot {
+                        end += 1;
+                        next[end] = true;
+                    }
+                }
+                Wild::DosQm => {
+                    if n == name.len() || name[n] == b'.' {
+                        next[n] = true;
+                    } else {
+                        next[n + 1] = true;
+                    }
+                }
+                Wild::DosDot => {
+                    if n == name.len() {
+                        next[n] = true;
+                    } else if name[n] == b'.' {
+                        next[n + 1] = true;
+                    }
+                }
+                Wild::Byte(b) => {
+                    if n < name.len() && name[n].eq_ignore_ascii_case(&b) {
+                        next[n + 1] = true;
+                    }
+                }
+            }
+        }
+        reachable = next;
+    }
+    reachable[name.len()]
 }
 
 /// A file read whole, with its creation, access and write times as
@@ -238,14 +350,92 @@ impl Host {
         }
         let data = fs::read(&entry.path).map_err(|e| host_error(&e))?;
         let meta = fs::metadata(&entry.path).map_err(|e| host_error(&e))?;
-        let write = meta.modified().map_or(0, system_time_to_file_time);
-        let times = [
-            meta.created().map_or(write, system_time_to_file_time),
-            meta.accessed().map_or(write, system_time_to_file_time),
-            write,
-        ];
-        Ok(HostFile { data, times })
+        Ok(HostFile {
+            data,
+            times: times_of(&meta),
+        })
     }
+
+    /// `FindFirstFileA(path)` and the `FindNextFileA` calls after it: the
+    /// entries of the directory `path` names up to its last separator whose
+    /// names match the last component ([`win32_match`]), in byte order of
+    /// their names. A directory that is not a volume root also lists `.`
+    /// and `..`.
+    ///
+    /// # Errors
+    ///
+    /// [`VfsError::PathNotFound`] when the directory part names no
+    /// directory, [`VfsError::FileNotFound`] when nothing matches or the
+    /// pattern is empty, [`VfsError::NonUtf8Path`] for a path that is not
+    /// UTF-8, or the host error.
+    pub fn find(&self, path: &[u8]) -> Result<Vec<HostFindEntry>, VfsError> {
+        let path = c_str(path);
+        if core::str::from_utf8(path).is_err() {
+            return Err(VfsError::NonUtf8Path);
+        }
+        let split = path.iter().rposition(|&b| is_separator(b) || b == b':');
+        let (directory, pattern) = match split {
+            Some(at) => (&path[..=at], &path[at + 1..]),
+            None => (&b""[..], path),
+        };
+        if pattern.is_empty() {
+            return Err(VfsError::FileNotFound);
+        }
+        let directory_path = if directory.is_empty() {
+            self.cwd.clone()
+        } else {
+            match self.locate(directory)? {
+                Some(entry) if entry.is_dir => entry.path,
+                _ => return Err(VfsError::PathNotFound),
+            }
+        };
+        let meta = fs::metadata(&directory_path).map_err(|e| host_error(&e))?;
+        let mut entries = Vec::new();
+        if directory_path.parent().is_some() {
+            for name in [&b"."[..], b".."] {
+                entries.push(HostFindEntry {
+                    name: name.to_vec(),
+                    is_dir: true,
+                    readonly: false,
+                    size: 0,
+                    times: times_of(&meta),
+                });
+            }
+        }
+        for item in fs::read_dir(&directory_path).map_err(|e| host_error(&e))? {
+            let item = item.map_err(|e| host_error(&e))?;
+            let Ok(name) = item.file_name().into_string() else {
+                continue;
+            };
+            let Ok(meta) = fs::metadata(item.path()) else {
+                continue;
+            };
+            entries.push(HostFindEntry {
+                name: name.into_bytes(),
+                is_dir: meta.is_dir(),
+                readonly: meta.permissions().readonly(),
+                size: if meta.is_dir() { 0 } else { meta.len() },
+                times: times_of(&meta),
+            });
+        }
+        entries.retain(|entry| win32_match(pattern, &entry.name));
+        if entries.is_empty() {
+            return Err(VfsError::FileNotFound);
+        }
+        entries.sort_by(|a, b| a.name.cmp(&b.name));
+        Ok(entries)
+    }
+}
+
+/// Creation, last access and last write times; a time the host does not
+/// keep is the last write time.
+fn times_of(meta: &fs::Metadata) -> [u64; 3] {
+    let write = meta.modified().map_or(0, system_time_to_file_time);
+    [
+        meta.created().map_or(write, system_time_to_file_time),
+        meta.accessed().map_or(write, system_time_to_file_time),
+        write,
+    ]
 }
 
 #[cfg(test)]
@@ -280,6 +470,76 @@ mod tests {
             host.read_file(b"Data\\none").unwrap_err(),
             VfsError::FileNotFound
         );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn win32_wildcards() {
+        let all = |p: &[u8]| {
+            [
+                &b"."[..],
+                b"..",
+                b"Deep",
+                b"plain.cmp",
+                b"Ship.utf",
+                b"Ships.utf",
+                b"a.b.c",
+            ]
+            .iter()
+            .filter(|n| win32_match(p, n))
+            .map(|n| String::from_utf8_lossy(n).into_owned())
+            .collect::<Vec<_>>()
+        };
+        let names = |v: &[&str]| v.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+        let every = names(&[
+            ".",
+            "..",
+            "Deep",
+            "plain.cmp",
+            "Ship.utf",
+            "Ships.utf",
+            "a.b.c",
+        ]);
+        assert_eq!(all(b"*"), every);
+        assert_eq!(all(b"*.*"), every);
+        assert_eq!(all(b"*."), names(&[".", "..", "Deep"]));
+        assert_eq!(all(b"Ship?.utf"), names(&["Ship.utf", "Ships.utf"]));
+        assert_eq!(all(b"SHIP.UTF"), names(&["Ship.utf"]));
+        assert_eq!(all(b"*.c"), names(&["a.b.c"]));
+        assert_eq!(all(b"*.b"), Vec::<String>::new());
+        // DOS_QM never takes a '.', so '.' and '..' match no run of '?'.
+        assert_eq!(all(b"?"), Vec::<String>::new());
+        assert_eq!(all(b"????"), names(&["Deep"]));
+        assert_eq!(all(b"p*"), names(&["plain.cmp"]));
+        assert_eq!(all(b"*s*"), names(&["Ship.utf", "Ships.utf"]));
+    }
+
+    #[test]
+    fn finds_like_find_first_file() {
+        let dir = scratch("find");
+        fs::write(dir.join("Data").join("note.txt"), b"abc").unwrap();
+        let host = Host::new(&dir);
+        let names = |p: &[u8]| -> Vec<Vec<u8>> {
+            host.find(p).unwrap().into_iter().map(|e| e.name).collect()
+        };
+        assert_eq!(
+            names(b"data\\*"),
+            vec![
+                b".".to_vec(),
+                b"..".to_vec(),
+                b"Ships".to_vec(),
+                b"note.txt".to_vec()
+            ]
+        );
+        let note = &host.find(b"Data\\NOTE.*").unwrap()[0];
+        assert_eq!((note.size, note.is_dir), (3, false));
+        assert!(host.find(b"Data\\Ships").unwrap()[0].is_dir);
+        assert_eq!(
+            host.find(b"Data\\*.zip").unwrap_err(),
+            VfsError::FileNotFound
+        );
+        assert_eq!(host.find(b"Nope\\*").unwrap_err(), VfsError::PathNotFound);
+        assert_eq!(host.find(b"Data\\").unwrap_err(), VfsError::FileNotFound);
         let _ = fs::remove_dir_all(&dir);
     }
 }
