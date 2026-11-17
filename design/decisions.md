@@ -184,6 +184,8 @@ The permitted licences are listed in `deny.toml`. In use so far:
 - `tracing` 0.1 (MIT; `std` feature only, no attribute macros):
   `neuron-core::diag` (P1.5). `tracing-subscriber` is not used; the
   channel subscriber is written in `diag`.
+- `proptest` 1 (MIT or Apache-2.0; default features off, `std` only):
+  a dev-dependency of `game-sim`, the protocol property tests (P2.2).
 
 Math types are the project's own (`neuron-core::math`) so operation order
 stays under control; conversion to `nalgebra` happens at the `parry3d`

@@ -840,7 +840,11 @@ fn create_equip(g: &mut Gen, index: usize) -> CreateEquip {
         _ => 256 + i32::try_from(g.u32() % 0x1000).unwrap_or(0),
     };
     // Health: exactly 1.0 for even records.
-    let health = if index.is_multiple_of(2) { 1.0 } else { g.unit() };
+    let health = if index.is_multiple_of(2) {
+        1.0
+    } else {
+        g.unit()
+    };
     let _arch_id = g.u32();
     let id = if index.is_multiple_of(2) {
         g.u16() & 0xff

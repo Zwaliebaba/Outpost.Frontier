@@ -44,6 +44,16 @@
 //! [`WireContext`] selects the form; each message documents its fields that
 //! travel in one form only.
 //!
+//! `rpclocal` itself never encodes: it hands its payload structs over, and
+//! those keep engine values where the wire quantises (the throttle, hit
+//! points and orientations of the create messages, `UPDATEOBJECT`'s
+//! orientation). The typed single-player path of the loopback transport
+//! (P3) has to carry those values; these types hold wire values only.
+//!
+//! The channel enums are not [`neuron_core::net::wire::WireMessage`]s:
+//! their codecs need a [`WireContext`], which that trait has no place for.
+//! The transports take an adapter that binds one (P3.8).
+//!
 //! # Differences from the C++
 //!
 //! The decoders check every length against the input and fail with a

@@ -38,7 +38,7 @@ namespace
 {
     // --- Shared fills ----------------------------------------------------------
 
-    unsigned char* Bytes(Gen& G, unsigned int Count)
+    unsigned char* RandomBytes(Gen& G, unsigned int Count)
     {
         if (Count == 0)
             return nullptr;
@@ -171,7 +171,7 @@ namespace
             Packet.BorrowData(nullptr, 0);
             return;
         }
-        Packet.AdoptData(Bytes(G, Length), Length);
+        Packet.AdoptData(RandomBytes(G, Length), Length);
     }
 
     template<typename T>
@@ -180,7 +180,7 @@ namespace
         T* Packet = new T();
         if (Case != 0)
         {
-            Packet->Data = Bytes(G, Length);
+            Packet->Data = RandomBytes(G, Length);
             Packet->Size = Length;
         }
         return Packet;
@@ -292,7 +292,7 @@ namespace
         {
             FRpcChatMsgPacket* P = new FRpcChatMsgPacket();
             const unsigned int Size = Case == 0 ? 0u : 5u;
-            P->Data = Bytes(G, Size);
+            P->Data = RandomBytes(G, Size);
             P->DataSize = Size;
             P->TargetId = G.U32();
             P->Field_0x04 = G.U32();
@@ -433,9 +433,9 @@ namespace
         {
             FRpcPopUpDialogPacket* P = new FRpcPopUpDialogPacket();
             const unsigned int Size = Case == 0 ? 0u : 3u;
-            P->DataA = Bytes(G, Size);
+            P->DataA = RandomBytes(G, Size);
             P->SizeA = Size;
-            P->DataB = Bytes(G, Size);
+            P->DataB = RandomBytes(G, Size);
             P->SizeB = Size;
             P->Field_0x10 = G.U32();
             return P;
@@ -643,9 +643,9 @@ namespace
             }
             P->WideCount = Wide;
             P->DataSizeA = bLong ? 2u : 0u;
-            P->DataA = Bytes(G, P->DataSizeA);
+            P->DataA = RandomBytes(G, P->DataSizeA);
             P->DataSizeB = bLong ? 5u : 0u;
-            P->DataB = Bytes(G, P->DataSizeB);
+            P->DataB = RandomBytes(G, P->DataSizeB);
             P->Field_0x50 = G.U32();
             P->Field_0x54 = G.U32();
             P->Field_0x58 = G.U32();
@@ -658,7 +658,7 @@ namespace
         {
             FRpcDebugLoadSystemPacket* P = new FRpcDebugLoadSystemPacket();
             P->DataSize = bLong ? 6u : 0u;
-            P->Data = reinterpret_cast<char*>(Bytes(G, P->DataSize));
+            P->Data = reinterpret_cast<char*>(RandomBytes(G, P->DataSize));
             return P;
         }
         case 0x30025u:
@@ -980,9 +980,9 @@ namespace
                 P->DisplayNameLength = 7;
             }
             P->NameASize = Case == 2 ? 6u : 0u;
-            P->NameA = Bytes(G, P->NameASize);
+            P->NameA = RandomBytes(G, P->NameASize);
             P->NameBSize = Case == 2 ? 3u : 0u;
-            P->NameB = Bytes(G, P->NameBSize);
+            P->NameB = RandomBytes(G, P->NameBSize);
             P->Affiliation = G.U32();
             P->Attitude = G.Unit();
             return P;
@@ -1094,11 +1094,11 @@ namespace
                 P->SetDisplayName(Name, 6);
             }
             if (Case == 1)
-                Block(P->NameA, Bytes(G, 8), 8);
+                Block(P->NameA, RandomBytes(G, 8), 8);
             else
                 Block(P->NameA, ZeroBytes(4), 4);
             if (Case == 1)
-                Block(P->NameB, Bytes(G, 5), 5);
+                Block(P->NameB, RandomBytes(G, 5), 5);
             else
                 Block(P->NameB, ZeroBytes(4), 4);
             const unsigned int Counts[3] = {0u, 3u, 300u};
@@ -1194,7 +1194,7 @@ namespace
             P->Field_0x00 = G.U32();
             P->State = G.U32();
             P->TextSize = bLong ? 13u : 0u;
-            P->TextData = Bytes(G, P->TextSize);
+            P->TextData = RandomBytes(G, P->TextSize);
             return P;
         }
         case 0x20035u:
@@ -1202,15 +1202,15 @@ namespace
             FRpcServerSetMissionObjectivesPacket* P = new FRpcServerSetMissionObjectivesPacket();
             P->Field_0x00 = G.U32();
             P->State = G.U32();
-            Block(P->TextA, Bytes(G, bLong ? 7u : 0u), bLong ? 7u : 0u);
-            Block(P->TextB, Bytes(G, bLong ? 2u : 0u), bLong ? 2u : 0u);
+            Block(P->TextA, RandomBytes(G, bLong ? 7u : 0u), bLong ? 7u : 0u);
+            Block(P->TextB, RandomBytes(G, bLong ? 2u : 0u), bLong ? 2u : 0u);
             for (unsigned int Index = 0; Index < (bLong ? 3u : 0u); ++Index)
             {
                 FRpcServerMissionObjectiveRecord* R = static_cast<FRpcServerMissionObjectiveRecord*>(
                     ::operator new(sizeof(FRpcServerMissionObjectiveRecord)));
                 R->State = G.U8();
                 R->Size = Index * 3u;
-                R->Data = Bytes(G, R->Size);
+                R->Data = RandomBytes(G, R->Size);
                 P->PushObjective(R);
             }
             return P;
@@ -1274,9 +1274,9 @@ namespace
             P->Affiliation = G.U32();
             P->Attitude = G.Unit();
             P->NameASize = bLong ? 6u : 0u;
-            P->NameA = Bytes(G, P->NameASize);
+            P->NameA = RandomBytes(G, P->NameASize);
             P->NameBSize = bLong ? 3u : 0u;
-            P->NameB = Bytes(G, P->NameBSize);
+            P->NameB = RandomBytes(G, P->NameBSize);
             return P;
         }
         case 0x20044u:
@@ -1293,7 +1293,7 @@ namespace
             FRpcServerSetMissionMessagePacket* P = new FRpcServerSetMissionMessagePacket();
             P->Type = G.U32();
             P->TextSize = bLong ? 11u : 0u;
-            P->TextData = Bytes(G, P->TextSize);
+            P->TextData = RandomBytes(G, P->TextSize);
             return P;
         }
         case 0x20046u:
@@ -1339,7 +1339,7 @@ namespace
             FRpcServerLoadHintPacket* P = new FRpcServerLoadHintPacket();
             P->Kind = G.U32();
             P->Size = bLong ? 10u : 0u;
-            P->Data = Bytes(G, P->Size);
+            P->Data = RandomBytes(G, P->Size);
             return P;
         }
         case 0x2004eu:
@@ -1548,9 +1548,9 @@ namespace
                         GFailed = true;
                         continue;
                     }
-                    const std::string Bytes = Encoded(*Packet, Label.c_str());
+                    const std::string Encoding = Encoded(*Packet, Label.c_str());
                     delete Packet;
-                    Out.Line("{\"in\":\"" + Label + "\",\"out\":\"" + Bytes + "\"}");
+                    Out.Line("{\"in\":\"" + Label + "\",\"out\":\"" + Encoding + "\"}");
                 }
             }
         }

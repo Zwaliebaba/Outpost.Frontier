@@ -337,7 +337,7 @@ namespace
             W.put_bool(true);
             W.put_bool(false);
             W.put_FL_ID(Id);
-            const std::string Bytes = Written(W);
+            const std::string Encoding = Written(W);
             MarshalBuffer R;
             R.use_read_buffer(Storage, W.get_num_written());
             const unsigned int RB = R.get_U8();
@@ -348,7 +348,7 @@ namespace
             const unsigned int B1 = R.get_bool() ? 1u : 0u;
             const unsigned int B2 = R.get_bool() ? 1u : 0u;
             const unsigned int RId = R.get_FL_ID();
-            Out.Line("{\"in\":\"marshal 0\",\"out\":\"" + Bytes + "\",\"values\":\"" +
+            Out.Line("{\"in\":\"marshal 0\",\"out\":\"" + Encoding + "\",\"values\":\"" +
                      Format("%02x.%04x.%08x.%08x.%08x.%u.%u.%08x", RB, RS, RD, RI, RF, B1, B2, RId) + "\"}");
         }
 
@@ -368,7 +368,7 @@ namespace
             W.put_wstring(nullptr);
             W.put_wstring(L"Hi!");
             W.put_string(Text);
-            const std::string Bytes = Written(W);
+            const std::string Encoding = Written(W);
             MarshalBuffer R;
             R.use_read_buffer(Storage, W.get_num_written());
             std::string Values = StringValue(R.get_string());
@@ -379,7 +379,7 @@ namespace
             Values += "." + WideValue(R.get_wstring());
             Values += "." + WideValue(R.get_wstring());
             Values += "." + StringValue(R.get_string());
-            Out.Line("{\"in\":\"marshal 1\",\"out\":\"" + Bytes + "\",\"values\":\"" + Values + "\"}");
+            Out.Line("{\"in\":\"marshal 1\",\"out\":\"" + Encoding + "\",\"values\":\"" + Values + "\"}");
         }
 
         // Case 2: costume and lists (marshal_lists), then what reading them back gives.
@@ -422,7 +422,7 @@ namespace
             W.put_Costume(C);
             W.put_GoodDescList(Goods);
             W.put_EquipDescList(Equip);
-            const std::string Bytes = Written(W);
+            const std::string Encoding = Written(W);
             MarshalBuffer R;
             R.use_read_buffer(Storage, W.get_num_written());
             const Costume C2 = R.get_Costume();
@@ -434,7 +434,7 @@ namespace
             B.put_Costume(C2);
             B.put_GoodDescList(Goods2);
             B.put_EquipDescList(Equip2);
-            Out.Line("{\"in\":\"marshal 2\",\"out\":\"" + Bytes + "\",\"back\":\"" + Written(B) + "\"}");
+            Out.Line("{\"in\":\"marshal 2\",\"out\":\"" + Encoding + "\",\"back\":\"" + Written(B) + "\"}");
         }
 
         // Case 3: a format string (fmt_case 2 of protocol_fmtstr).
@@ -447,7 +447,7 @@ namespace
             W.use_write_buffer(Storage, (int)sizeof(Storage));
             W.put_FmtStr(Text);
             W.put_U8(0x5a);
-            const std::string Bytes = Written(W);
+            const std::string Encoding = Written(W);
             MarshalBuffer R;
             R.use_read_buffer(Storage, W.get_num_written());
             const FmtStr Back = R.get_FmtStr();
@@ -457,7 +457,7 @@ namespace
             B.use_write_buffer(BackStorage, (int)sizeof(BackStorage));
             B.put_FmtStr(Back);
             B.put_U8(Tail);
-            Out.Line("{\"in\":\"marshal 3\",\"out\":\"" + Bytes + "\",\"back\":\"" + Written(B) + "\"}");
+            Out.Line("{\"in\":\"marshal 3\",\"out\":\"" + Encoding + "\",\"back\":\"" + Written(B) + "\"}");
         }
 
         // Case 4: reads of a crafted buffer.
