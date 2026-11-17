@@ -312,6 +312,7 @@ impl World {
         };
         if let Some(m) = &mut equip.mount {
             m.hardpoint = hardpoint.to_vec();
+            m.connected = true;
             m.instance = Some(instance);
             m.position = data.position();
             m.orientation = data.orientation();

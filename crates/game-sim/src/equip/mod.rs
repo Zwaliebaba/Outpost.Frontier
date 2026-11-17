@@ -188,6 +188,8 @@ pub enum EquipEvent {
 pub struct Mount {
     /// The hardpoint name.
     pub hardpoint: Vec<u8>,
+    /// The hardpoint was found (`ConnectionIndex` is not -1).
+    pub connected: bool,
     /// The instance the hardpoint was found on.
     pub instance: Option<InstanceId>,
     /// The hardpoint's position in that instance's space.
@@ -508,13 +510,11 @@ impl Equip {
         let Some(mount) = &self.mount else {
             return false;
         };
-        if mount.instance.is_none() {
+        if !mount.connected {
             return false;
         }
         match &self.attached {
-            Some(a) => a
-                .attachment
-                .is_some_and(|att| att.root_instance().is_some()),
+            Some(a) => a.attachment.is_some(),
             None => true,
         }
     }
@@ -624,7 +624,7 @@ impl Equip {
         self.destroyed = true;
         self.notify(EquipEvent::Destroying);
         if let Some(mount) = &mut self.mount {
-            mount.instance = None;
+            mount.connected = false;
         }
     }
 
