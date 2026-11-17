@@ -15,6 +15,22 @@ P2.1) into this directory. Run it from anywhere; the output is committed.
     zone_points.list
                     x y z as f32 bit patterns: the points and directions the
                     zone suite queries every zone with
+    zone_queries/universe.ini, zone_queries/systems/zq.ini
+                    one system with a zone of every shape (edge fractions
+                    set) and the exclusion zones, for the zone_queries and
+                    exclusion_zones suites (which also read zone_points.list)
+    zone_segments.list
+                    start and end, six f32 bit patterns per line
+    zone_frustums.list
+                    a frustum per line: rotation rows, apex, angle x,
+                    angle y, distance (15 f32 bit patterns)
+    zone_spheres.list
+                    centre and radius, four f32 bit patterns per line
+    exclusion.list  the exclusion suite's observers ("o x y z") and query
+                    points ("q x y z"), f32 bit patterns
+    spatial.list    the spatial suite's script: new, add, array, remove,
+                    clear and the sphere, ray, frustum and zone-tree queries
+                    (see oracle_vectors.rs spatial), floats as bit patterns
 """
 
 import math
@@ -216,6 +232,233 @@ def zones():
     write("zone_points.list", lines)
 
 
+CENTRES = [(0, 0, 0), (5000, 0, 0), (-5000, 100, 0), (0, 0, 8000), (0, 3000, -8000),
+           (10000, 0, 10000), (-10000, 0, 10000), (10000, 0, -10000), (-10000, 0, -10000),
+           (20000, 0, 0)]
+
+
+def hexes(values):
+    return " ".join("%08x" % f32(v) for v in values)
+
+
+def zone_queries():
+    os.makedirs(os.path.join(HERE, "zone_queries", "systems"), exist_ok=True)
+    universe = [
+        "[System]",
+        "nickname = zq",
+        "msg_id_prefix = gcs_refer_system_zq",
+        "file = systems\\zq.ini",
+    ]
+    zones = [
+        ("q_sphere", "SPHERE", "1000", "0, 0, 0", None, "0.25"),
+        ("q_ellipsoid", "ELLIPSOID", "3000, 1000, 2000", "5000, 0, 0", None, "0.5"),
+        ("q_ellipsoid_rot", "ELLIPSOID", "3000, 1000, 2000", "-5000, 100, 0", "0, 45, 0", "0.1"),
+        ("q_box", "BOX", "2000, 1000, 4000", "0, 0, 8000", None, "0.3"),
+        ("q_box_rot", "BOX", "2000, 1000, 4000", "0, 3000, -8000", "30, 0, 60", None),
+        ("q_cylinder", "CYLINDER", "1500, 3000", "10000, 0, 10000", None, "0.2"),
+        ("q_cylinder_rot", "CYLINDER", "1500, 3000", "-10000, 0, 10000", "90, 0, 0", "0.6"),
+        ("q_ring", "RING", "4000, 2000, 1000", "10000, 0, -10000", None, "0.4"),
+        ("q_ring_rot", "RING", "4000, 2000, 1000", "-10000, 0, -10000", "0, 0, 33", "0.05"),
+        ("q_none", "WEDGE", "100", "20000, 0, 0", None, None),
+        ("x_a", "SPHERE", "200", "300, 0, 0", None, "0.5"),
+        ("x_b", "ELLIPSOID", "200, 100, 150", "-400, 100, 0", None, "0.2"),
+        ("x_c", "BOX", "100, 100, 100", "0, -500, 0", None, None),
+        ("x_d", "SPHERE", "300", "5500, 0, 0", None, "0.3"),
+        ("x_far", "SPHERE", "100", "30000, 30000, 0", None, "0.1"),
+        ("x_edge", "SPHERE", "400", "0, 800, 0", None, "0.3"),
+    ]
+    extras = {
+        "q_sphere": ["property_flags = 128"],
+        "q_ellipsoid": ["property_flags = 1"],
+        "q_box": ["property_flags = 32768"],
+        "q_cylinder": ["damage = 3"],
+        "x_a": ["property_flags = 64"],
+        "x_b": ["property_flags = 2"],
+        "x_edge": ["property_flags = 4", "damage = 5"],
+    }
+    system = []
+    for name, shape, size, pos, rotate, edge in zones:
+        system += ["[Zone]", "nickname = " + name, "pos = " + pos, "shape = " + shape, "size = " + size]
+        if rotate:
+            system.append("rotate = " + rotate)
+        if edge:
+            system.append("edge_fraction = " + edge)
+        system += extras.get(name, [])
+        system.append("")
+    write(os.path.join("zone_queries", "universe.ini"), universe)
+    write(os.path.join("zone_queries", "systems", "zq.ini"), system)
+
+    rel = [((-20000, 0, 0), (20000, 0, 0)), ((0, -20000, 10), (0, 20000, 10)),
+           ((-5000, -3000, -4000), (5000, 3000, 4000)), ((-20000, 9000, 0), (20000, 9000, 0)),
+           ((-20000, 0, 0), (-15000, 0, 0)), ((0, 0, 0), (20000, 0, 0)),
+           ((300, -6000, 200), (300, 6000, 200)), ((3000, 0, -20000), (3000, 0, 20000))]
+    lines = ["# start x y z, end x y z as f32 bits"]
+    for c in CENTRES:
+        for a, b in rel:
+            lines.append(hexes([c[0] + a[0], c[1] + a[1], c[2] + a[2], c[0] + b[0], c[1] + b[1], c[2] + b[2]]))
+    write("zone_segments.list", lines)
+
+    r = 0.70710677
+    rotations = [
+        [1, 0, 0, 0, 1, 0, 0, 0, 1],
+        [0, 0, 1, 0, 1, 0, -1, 0, 0],
+        [-1, 0, 0, 0, 1, 0, 0, 0, -1],
+        [0, 0, -1, 0, 1, 0, 1, 0, 0],
+        [1, 0, 0, 0, 0, -1, 0, 1, 0],
+        [r, 0, r, 0, 1, 0, -r, 0, r],
+    ]
+    apexes = [(0, 0, 30000), (30000, 0, 0), (0, 30000, 0), (0, 0, 0), (5000, 0, -3000), (-10000, 0, 20000)]
+    angles = [(1.0, 0.75), (0.3, 0.2), (2.0, 1.5)]
+    lines = ["# rotation rows (9), apex (3), angle x, angle y, distance as f32 bits"]
+    for rot in rotations:
+        for apex in apexes:
+            for ax, ay in angles:
+                for distance in [40000, 9000]:
+                    lines.append(hexes(rot + list(apex) + [ax, ay, distance]))
+    write("zone_frustums.list", lines)
+
+    rel = [((0, 0, 0), 10), ((2500, 0, 0), 100), ((2500, 0, 0), 1000), ((0, 5000, 0), 3000),
+           ((9000, 9000, 9000), 50), ((1600, 0, 0), 200), ((0, 0, 2600), 700), ((3500, 0, 0), 600)]
+    lines = ["# centre x y z, radius as f32 bits"]
+    for c in CENTRES:
+        for o, radius in rel:
+            lines.append(hexes([c[0] + o[0], c[1] + o[1], c[2] + o[2], radius]))
+    write("zone_spheres.list", lines)
+
+    lines = ["# o x y z: an observer the managers sort for; q x y z: a query point"]
+    observers = [(0, 0, 0), (2000, 0, 0), (-3000, 500, 0), (0, 0, 40000), (5600, 0, 0), (30000, 29000, 0)]
+    queries = [(0, 0, 0), (300, 0, 0), (350, 50, 0), (-400, 100, 0), (-420, 120, 10), (0, -500, 0),
+               (0, -480, 30), (0, 800, 0), (0, 700, 100), (0, 1150, 0), (5500, 0, 0), (5650, 0, 0),
+               (30000, 30000, 0), (900, 0, 0), (2000, 0, 0)]
+    for o in observers:
+        lines.append("o " + hexes(o))
+        for q in queries:
+            lines.append("q " + hexes(q))
+    write("exclusion.list", lines)
+
+
+class Lcg:
+    def __init__(self, seed):
+        self.state = seed
+
+    def unit(self):
+        self.state = (self.state * 1103515245 + 12345) & 0xFFFFFFFF
+        return ((self.state >> 8) & 0xFFFF) / 65535.0
+
+    def range(self, low, high):
+        return low + (high - low) * self.unit()
+
+
+def spatial():
+    rng = Lcg(2026)
+    lines = ["# new <type>; add <obj> x y z r; array obj:x:y:z:r ...; remove <obj>; clear;",
+             "# sphere x y z r; ray ox oy oz dx dy dz length; frustum <15 words>; tree x y z r"]
+
+    def entry(spread=20000.0):
+        return (rng.range(-spread, spread), rng.range(-spread * 0.2, spread * 0.2),
+                rng.range(-spread, spread), rng.range(10.0, 3000.0))
+
+    def sphere():
+        x, y, z, _ = entry(22000.0)
+        lines.append("sphere " + hexes([x, y, z, rng.range(0.0, 6000.0)]))
+
+    def ray():
+        x, y, z, _ = entry(25000.0)
+        d = [rng.range(-1.0, 1.0), rng.range(-0.3, 0.3), rng.range(-1.0, 1.0)]
+        n = math.sqrt(sum(c * c for c in d)) or 1.0
+        lines.append("ray " + hexes([x, y, z] + [c / n for c in d] + [rng.range(1000.0, 60000.0)]))
+
+    def frustum():
+        yaw = rng.range(0.0, 2 * math.pi)
+        c, s_ = math.cos(yaw), math.sin(yaw)
+        rot = [c, 0, s_, 0, 1, 0, -s_, 0, c]
+        x, y, z, _ = entry(20000.0)
+        lines.append("frustum " + hexes(rot + [x, y, z, rng.range(0.3, 2.0), rng.range(0.2, 1.5),
+                                               rng.range(2000.0, 40000.0)]))
+
+    def queries(spheres, rays, frustums):
+        for _ in range(spheres):
+            sphere()
+        for _ in range(rays):
+            ray()
+        for _ in range(frustums):
+            frustum()
+
+    def add(obj, e):
+        lines.append("add %d %s" % (obj, hexes(e)))
+
+    def array(first, entries):
+        lines.append("array " + " ".join("%d:%s" % (first + i, hexes(e).replace(" ", ":"))
+                                         for i, e in enumerate(entries)))
+
+    # A: one by one, with removals.
+    lines.append("new BSP")
+    for obj in range(1, 121):
+        add(obj, entry())
+        if obj % 20 == 0:
+            queries(6, 4, 1)
+    for obj in range(3, 120, 8):
+        lines.append("remove %d" % obj)
+    queries(10, 8, 6)
+    lines.append("remove 9999")
+    lines.append("clear")
+    queries(2, 2, 1)
+    for obj in range(200, 205):
+        add(obj, entry())
+    queries(4, 4, 1)
+
+    # B: built from an array, then added to; a second array is dropped.
+    lines.append("new bsp")
+    array(300, [entry() for _ in range(150)])
+    queries(12, 10, 6)
+    for obj in range(500, 530):
+        add(obj, entry())
+    queries(8, 8, 2)
+    array(600, [entry() for _ in range(5)])
+    queries(3, 0, 0)
+
+    # C: the linear partition.
+    lines.append("new Linear")
+    array(700, [entry() for _ in range(40)])
+    for obj in range(800, 810):
+        add(obj, entry())
+    lines.append("remove 805")
+    queries(8, 2, 2)
+    lines.append("clear")
+    queries(1, 0, 0)
+
+    # D: coincident and collinear positions. (Nine coincident entries would
+    # make the reference split the same leaf for ever.)
+    lines.append("new BSP")
+    for obj in range(900, 906):
+        add(obj, (100.0, 50.0, -30.0, 5.0))
+    for obj in range(920, 930):
+        add(obj, (float(obj - 920) * 10.0, 0.0, 0.0, 2.0))
+    lines.append("sphere " + hexes([100.0, 50.0, -30.0, 1.0]))
+    lines.append("sphere " + hexes([0.0, 0.0, 0.0, 500.0]))
+    lines.append("ray " + hexes([-100.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1000.0]))
+    lines.append("ray " + hexes([100.0, 50.0, -100.0, 0.0, 0.0, 1.0, 1000.0]))
+
+    # E: a root leaf from a small array, then overflowed by adds.
+    lines.append("new BSP")
+    array(1000, [entry(3000.0) for _ in range(5)])
+    queries(3, 3, 1)
+    for obj in range(1010, 1030):
+        add(obj, entry(3000.0))
+        if obj % 5 == 0:
+            queries(2, 2, 0)
+
+    # F: names without a partition.
+    lines.append("new QuadTree")
+    lines.append("new Octree")
+
+    # The zone tree of system zq.
+    for c in CENTRES + [(300, 0, 0), (0, 800, 0), (-400, 100, 0), (5500, 0, 0), (0, -500, 0)]:
+        for o, r in [((0, 0, 0), 0.0), ((150, 0, 0), 10.0), ((0, 700, 0), 300.0), ((2000, 0, 0), 2500.0)]:
+            lines.append("tree " + hexes([c[0] + o[0], c[1] + o[1], c[2] + o[2], r]))
+    write("spatial.list", lines)
+
+
 def main():
     write("asteroid.list", asteroid())
     write("orient.list", orient())
@@ -224,6 +467,8 @@ def main():
     write("feelings.ini", feelings())
     write("reputation.list", reputation())
     zones()
+    zone_queries()
+    spatial()
 
 
 if __name__ == "__main__":
