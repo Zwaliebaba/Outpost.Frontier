@@ -41,11 +41,7 @@ namespace ParticleFxImpl
     const void* kRegisterPriority = reinterpret_cast<void*>(0x80000000);
 
     const char kAleNodeName[] = "ALEffectLib";
-    // The node name the .ale files use (and the baseline binary reads); the module rename
-    // had turned it into "ParticleFxNodeLibrary", which no data file has, so no node library
-    // loaded. Restored by owner decision O16 (design/decisions.md), an approved change to the
-    // frozen reference.
-    const char kNodeLibName[] = "AlchemyNodeLibrary";
+    const char kNodeLibName[] = "ParticleFxNodeLibrary";
     const char kFxNodeFactory[] = "FxNode";
     const char kColideTypo[] = "FxColideField";
     const char kCollideFixed[] = "FxCollideField";
