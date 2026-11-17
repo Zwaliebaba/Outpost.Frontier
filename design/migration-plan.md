@@ -256,7 +256,14 @@ Order and review (owner, 2026-11-17): P2.0 comes first and stops for the
 owner to approve its decision records. P2.1, P2.2 and P2.3 then run in
 parallel, followed by P2.4 and then P2.5. Each work package is one pull
 request. P2.3 follows O19: free flight transliterated from IVP, contacts
-through `parry3d` and the project's solver.
+through `parry3d` and the project's solver. From 2026-11-17 the owner lets
+Claude merge a Phase 2 pull request once its CI and the real-data runs are
+green; new decision records and new divergence rows still wait for the
+owner. P2.5 starts with the parts that need no world (steering
+mathematics, intercept, ray-cast helpers, the state-graph data) and the
+harness's world-snapshot recorder while P2.4 is open. Before Gate G2 the
+protocol suites also drive the C++ decoders, so that decoding is checked
+against the C++ as encoding is.
 
 **Gate G2.** A headless program loads a star system from the original data,
 spawns ships and runs scripted scenarios (fly to a point, dock, fire,

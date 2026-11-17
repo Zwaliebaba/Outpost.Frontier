@@ -9,7 +9,10 @@ Reasons are one of: *undefined behaviour in the reference*, *legacy
 platform dependence*, *numeric policy* (decision T11), *owner decision*
 (cite its ID), or *technical decision* (cite its ID; added 2026-11-17).
 
-The owner accepted D11 on 2026-11-17.
+The owner accepted D11 on 2026-11-17. On the same day the owner accepted
+D87 to D117 and D150 to D156: the rows that replace undefined behaviour of
+the reference as a class, and the design rows one by one (D87 to D93, D95,
+D96, D98, D99, D107, D117 and D156).
 
 | ID | Area | C++ behaviour | Rust behaviour | Reason | Observable effect |
 | --- | --- | --- | --- | --- | --- |
