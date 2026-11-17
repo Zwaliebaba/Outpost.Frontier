@@ -15,6 +15,11 @@ P2.1) into this directory. Run it from anywhere; the output is committed.
     zone_points.list
                     x y z as f32 bit patterns: the points and directions the
                     zone suite queries every zone with
+    object_math.list
+                    the object-model suite (P2.4): "look x y z" (LookMatrix),
+                    "ttt px py pz vx vy vz speed" (CEGun::ComputeTimeToTgt),
+                    "nudge x y z" (CNudgeEngine::SetNudgeVec), "axis x y z"
+                    (CSteering::SetAxisThrottle), floats as f32 hex
 """
 
 import math
@@ -216,6 +221,28 @@ def zones():
     write("zone_points.list", lines)
 
 
+def object_math():
+    lines = ["# kind, then f32 bit patterns (see oracle_game_suites.cpp)"]
+    dirs = [(0, 0, -1), (0, 0, 1), (1, 0, 0), (-1, 0, 0), (0, 1, 0), (0, -1, 0), (3, 4, 0),
+            (0.00001, 0, 0), (0.00005, 0.00005, 0), (0, 0, 0), (1e-5, 1e-5, -1), (-750, 3.36, -0.96),
+            (0.48, -0.6, 0.64), (12345.6, -0.001, 99.5), (1e-30, 1e-30, 1e-30), (-0.5, 0.5, 0.70710678)]
+    for d in dirs:
+        lines.append("look %08x %08x %08x" % (f32(d[0]), f32(d[1]), f32(d[2])))
+    shots = [((0, 0, -750), (0, 0, 0), 750), ((0, 0, -400), (0, 0, -80), 750), ((100, 0, -400), (10, 0, 0), 750),
+             ((0, 0, -10), (0, 0, -1000), 750), ((0, 0, 0), (0, 0, 0), 750), ((500, 200, -300), (-30, 5, 20), 600),
+             ((0, 0, -400), (0, 0, 750), 750), ((1, 1, 1), (0, 0, 0), 0), ((-200, 0, 0), (100, 0, 0), 80)]
+    for p, v, sp in shots:
+        lines.append("ttt %08x %08x %08x %08x %08x %08x %08x" % (f32(p[0]), f32(p[1]), f32(p[2]),
+                                                                 f32(v[0]), f32(v[1]), f32(v[2]), f32(sp)))
+    vecs = [(0, 0, 0), (1, 0, 0), (3, 4, 0), (0.5, 0.5, 0.5), (0.6, 0.8, 0), (0.6, 0.8, 0.0001),
+            (0.00005, 0, 0), (0.0002, 0, 0), (-2, 0.25, 7), (1.0000001, 0, 0), (0.7, -0.7, 0.2)]
+    for v in vecs:
+        lines.append("nudge %08x %08x %08x" % (f32(v[0]), f32(v[1]), f32(v[2])))
+    for v in vecs + [(1e-7, 0, 0), (2e-6, 0, 0), (-1.5, 1.5, -0.25)]:
+        lines.append("axis %08x %08x %08x" % (f32(v[0]), f32(v[1]), f32(v[2])))
+    return lines
+
+
 def main():
     write("asteroid.list", asteroid())
     write("orient.list", orient())
@@ -224,6 +251,7 @@ def main():
     write("feelings.ini", feelings())
     write("reputation.list", reputation())
     zones()
+    write("object_math.list", object_math())
 
 
 if __name__ == "__main__":

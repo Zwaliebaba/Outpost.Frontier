@@ -160,7 +160,12 @@ fn destruction_is_deferred_and_handles_expire() {
     world.step(system, 1.0 / 30.0);
     assert!(world.get(ship).is_none());
     assert!(world.find(id).is_none());
-    assert!(world.take_events().iter().any(|e| matches!(e, WorldEvent::Destroyed { id: d, .. } if *d == id)));
+    assert!(
+        world
+            .take_events()
+            .iter()
+            .any(|e| matches!(e, WorldEvent::Destroyed { id: d, .. } if *d == id))
+    );
     // A new object reuses the slot under a new generation.
     let again = fighter(&mut world, system, Vector::new(0.0, 0.0, 0.0));
     assert_eq!(again.index(), ship.index());
@@ -191,5 +196,8 @@ fn a_blast_damages_shield_then_hull() {
     }
     let after = world.inspect(ship).map_or(0.0, |i| i.hit_pts);
     println!("hull {before} -> {after_first} -> {after}");
-    assert!(after < before, "the hull takes damage once the shield is down");
+    assert!(
+        after < before,
+        "the hull takes damage once the shield is down"
+    );
 }
