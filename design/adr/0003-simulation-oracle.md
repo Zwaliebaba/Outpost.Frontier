@@ -125,6 +125,13 @@ Decision O19 transliterates free flight from IVP. Facts from the C++
 
 ## Consequences
 
+- The per-PSI free-flight records (point 5) have a fixed layout, written
+  down in [sim-records.md](../sim-records.md) by P2.3: one `psi.jsonl` per
+  scenario, one line per core per PSI with the core state in and out
+  (field names, `IVP_Core` offsets, units, floats as hex bit patterns), the
+  movement-check flag and the pushes of the force controllers in call
+  order. The controller inputs travel in an optional `controllers` field
+  that P2.4 defines. `neuron-core`'s `sim_replay` test reads them.
 - The harness reuses the real server object wrappers and Content's
   controller, so the oracle exercises the reference code paths; the cost is
   the stub client DLL and the hooks.
