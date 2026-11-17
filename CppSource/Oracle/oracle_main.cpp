@@ -434,6 +434,7 @@ namespace
         printf("dumped %u files, %u also through the engine parser\n", (unsigned int)Files.size(),
                (unsigned int)Engine);
         RunVfsDataDump(AllFiles);
+        RunSurDataDump(AllFiles);
     }
 }
 
@@ -485,5 +486,6 @@ int main(int Argc, char** Argv)
     RunNetSuites();
     RunUtilSuites();
     RunVfsSuites();
+    RunSurSuites();
     return GFailed ? 1 : 0;
 }

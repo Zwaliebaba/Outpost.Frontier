@@ -1,0 +1,20 @@
+# the .sur files of the sur suite, written by make_sur_fixtures.py
+sur/basic.sur
+sur/tree.sur
+sur/odd.sur
+sur/empty_ledge.sur
+sur/shared.sur
+sur/deep.sur
+sur/multi.sur
+sur/duplicate.sur
+sur/unknown.sur
+sur/nul_tag.sur
+sur/old_format.sur
+sur/version_one.sur
+sur/version_nan.sur
+sur/version_minus.sur
+sur/version_short.sur
+sur/tag_short.sur
+sur/empty.sur
+sur/header_only.sur
+sur/tail.sur

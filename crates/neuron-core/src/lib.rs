@@ -10,6 +10,7 @@ pub mod msvcrt;
 pub mod net;
 pub mod num;
 pub mod rng;
+pub mod sur;
 pub mod time;
 pub mod utf;
 pub mod util;
