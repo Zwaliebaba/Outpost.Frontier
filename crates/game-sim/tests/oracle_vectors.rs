@@ -26,6 +26,7 @@ use game_sim::data::asteroid::{
 use game_sim::data::reputation::{Relation, Reputation};
 use game_sim::data::string_cache::{CacheString, StringCache};
 use game_sim::data::universe::{Universe, UniverseCx};
+use game_sim::data::vibe::VibeDb;
 use neuron_core::ini::IniReader;
 use neuron_core::math::{Matrix, Vector};
 use neuron_core::vfs::Host;
@@ -169,9 +170,13 @@ fn zones() {
     let mut reports = Reports::default();
     let archetypes = ArchetypeDb::default();
     let mut universe = Universe::default();
+    let reputation = Reputation::default();
+    let mut vibes = VibeDb::default();
     let mut cx = UniverseCx {
         strings: &mut strings,
         archetypes: &archetypes,
+        reputation: &reputation,
+        vibes: &mut vibes,
         reports: &mut reports,
     };
     universe.startup(&source, b"zones\\universe.ini", &mut cx);

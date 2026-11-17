@@ -5,11 +5,10 @@
 // NeuronRuntime::OpenData does), reads the [Data] list of
 // EXE\OutpostFrontier.ini and dispatches each value to Common's own loader,
 // in order, as DataConfig::startup does. DataConfig::startup itself is not
-// called: it also runs loaders that belong to later work packages
-// (bodyparts, costumes, PetalDB, WeaponModDB, NewCharDB, RtcSlider, the AI
-// state graph), some of which need objects the harness does not create.
-// GameData::load in crates/game-sim skips the same keys, so both sides
-// intern the same strings in the same order.
+// called: it also loads the AI state graph (work package P2.5), and
+// WeaponModDB_load is not exported. GameData::load in crates/game-sim
+// dispatches the same keys, so both sides intern the same strings in the
+// same order.
 //
 // Each database is then written as one or more dumps of kind <kind>, the
 // files listed in <output>\<kind>\files.txt; the Rust test
@@ -38,6 +37,7 @@
 #include "common_reputation.h"
 #include "common_universe.h"
 #include "common_fuses.h"
+#include "common_newchar.h"
 
 #include <algorithm>
 #include <set>
@@ -166,6 +166,26 @@ namespace
     std::set<unsigned int> GLoadoutIds;
     // The [ObjectTable] records of the PetalDB file: room 0, cart 5, prop 6.
     std::set<unsigned int> GPetalIds[7];
+    // The set and set_less names of the [RtcSlider] sections of the RtcSlider
+    // files (render_character.rs rtc_names).
+    std::set<unsigned int> GRtcNames;
+
+    void ScanRtcNames(const char* FullPath)
+    {
+        INI_Reader Reader;
+        if (!Reader.open(FullPath, false))
+            return;
+        while (Reader.read_header())
+        {
+            if (!Reader.is_header("RtcSlider"))
+                continue;
+            while (Reader.read_value())
+            {
+                if (Reader.is_value("set") || Reader.is_value("set_less"))
+                    GRtcNames.insert(CreateID(Reader.get_value_string(0)));
+            }
+        }
+    }
 
     void ScanPetalIds(const char* FullPath)
     {
@@ -241,11 +261,10 @@ namespace
         }
     }
 
-    // DispatchDataValue (common_dataconfig.cpp) for the loaders work package
-    // P2.1 ports, with the same GetFileSysPath calls and no factory. Keys of
-    // later work packages are skipped, as GameData::load skips them.
-    // WeaponModDB_load is not exported, so that key is skipped here too; it
-    // interns nothing, so the other databases do not depend on it.
+    // DispatchDataValue (common_dataconfig.cpp), with the same GetFileSysPath
+    // calls and no factory. WeaponModDB_load is not exported, so that key is
+    // skipped here; it interns nothing, so the other databases do not depend
+    // on it.
     void DispatchDataValue(INI_Reader& Reader)
     {
         char FullPath[0x104];
@@ -286,6 +305,16 @@ namespace
             ScanIds(FullPath);
             Loadout::Load(FullPath, false);
         }
+        else if (Reader.is_value("bodyparts"))
+        {
+            GetFileSysPath(FullPath, Reader.get_value_string(), nullptr);
+            LoadBodypartDescriptions(FullPath);
+        }
+        else if (Reader.is_value("costumes"))
+        {
+            GetFileSysPath(FullPath, Reader.get_value_string(), nullptr);
+            LoadCostumeDescriptions(FullPath);
+        }
         else if (Reader.is_value("bases"))
         {
             BaseDataList_load();
@@ -319,6 +348,17 @@ namespace
             GetFileSysPath(FullPath, Reader.get_value_string(), nullptr);
             ScanIds(FullPath);
             Archetype::LoadSimples(FullPath, false, nullptr);
+        }
+        else if (Reader.is_value("NewCharDB"))
+        {
+            GetFileSysPath(FullPath, Reader.get_value_string(), nullptr);
+            NewChar::TheDB->Load(FullPath);
+        }
+        else if (Reader.is_value("RtcSlider"))
+        {
+            GetFileSysPath(FullPath, Reader.get_value_string(), nullptr);
+            ScanRtcNames(FullPath);
+            RtcSlider::load(FullPath);
         }
     }
 
@@ -479,8 +519,8 @@ void RunGameDataDump(const std::vector<std::string>& Files)
         // No engine INI under the dump root (the synthetic tree of build.yml):
         // every kind lists no files, as the Rust test does.
         printf("game data: no EXE\\OutpostFrontier.ini, nothing loaded\n");
-        static const char* const kKinds[] = {"constants", "goods", "loadouts", "reputation", "archetypes",
-                                             "universe", "bases", "fuses"};
+        static const char* const kKinds[] = {"constants", "goods",    "loadouts",   "reputation", "archetypes",
+                                             "universe",  "bases",    "fuses",      "characters", "vibes"};
         for (const char* Name : kKinds)
             FGameKind Empty(Name);
         CloseGameData();
@@ -514,6 +554,14 @@ void RunGameDataDump(const std::vector<std::string>& Files)
     {
         FGameKind K("fuses");
         DumpFuses(K, GPetalIds);
+    }
+    {
+        FGameKind K("characters");
+        DumpCharacters(K, GRtcNames);
+    }
+    {
+        FGameKind K("vibes");
+        DumpVibes(K);
     }
     CloseGameData();
     printf("dumped the game databases\n");

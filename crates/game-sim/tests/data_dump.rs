@@ -13,7 +13,9 @@ mod support;
 use support::data::{Report, Tolerance, data_dirs};
 use support::game::{self, Loaded};
 use support::render::Render;
+use support::render_character as character;
 
+use game_sim::data::config::{DataConfig, DataKind};
 use neuron_core::vfs::Host;
 
 /// The fields compared within a bound rather than as text (Tier B): a
@@ -159,4 +161,54 @@ fn data_dump_fuses() {
             .petals(&loaded.data.petals),
         },
     );
+}
+
+/// The `DATA` tree of the dump root.
+fn data_source() -> Host {
+    let root = std::env::var_os("OUTPOST_DATA_DIR").unwrap_or_default();
+    Host::new(std::path::Path::new(&root).join("DATA"))
+}
+
+#[test]
+fn data_dump_characters() {
+    let files = [
+        "bodyparts",
+        "accessories",
+        "costumes",
+        "new_char",
+        "rtc_slider",
+    ];
+    run("characters", &files, |loaded, file| {
+        let d = &loaded.data;
+        match file {
+            "bodyparts" => character::bodyparts(&d.costumes),
+            "accessories" => character::accessories(&d.costumes),
+            "costumes" => character::costumes(&d.costumes),
+            "new_char" => character::new_char(&d.new_char),
+            _ => {
+                let root = std::env::var_os("OUTPOST_DATA_DIR").unwrap_or_default();
+                let config = DataConfig::read(
+                    &Host::new(std::path::Path::new(&root)),
+                    game::ENGINE_INI.as_bytes(),
+                )
+                .unwrap_or_default();
+                let rtc: Vec<Vec<u8>> = config
+                    .entries
+                    .iter()
+                    .filter(|e| DataKind::of(&e.key) == Some(DataKind::RtcSlider))
+                    .map(|e| e.value.clone())
+                    .collect();
+                let names = character::rtc_names(&data_source(), &rtc);
+                character::rtc_slider(&d.rtc_slider, &names)
+            }
+        }
+    });
+}
+
+#[test]
+fn data_dump_vibes() {
+    run("vibes", &["vibes"], |loaded, _| {
+        let probes = character::object_ids(&loaded.data, &data_source());
+        character::vibes(&loaded.data.vibes, &probes)
+    });
 }
