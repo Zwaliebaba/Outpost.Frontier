@@ -115,11 +115,18 @@ jobs:
           & .\bin\Oracle.exe "$PWD\crates\neuron-core\tests\fixtures\oracle" "$PWD\oracle-out"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Compare with the committed vectors
+        # The harness writes the game-sim suites (P2.2) to oracle-out\game-sim;
+        # each crate's vectors are compared with its own directory.
         shell: pwsh
         run: |
+          New-Item -ItemType Directory -Force oracle-out-game-sim | Out-Null
+          if (Test-Path oracle-out\game-sim) { Move-Item oracle-out\game-sim\* oracle-out-game-sim; Remove-Item oracle-out\game-sim }
           git diff --no-index --stat crates/neuron-core/tests/vectors oracle-out
           git diff --no-index crates/neuron-core/tests/vectors oracle-out
-          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $core = $LASTEXITCODE
+          git diff --no-index --stat crates/game-sim/tests/vectors oracle-out-game-sim
+          git diff --no-index crates/game-sim/tests/vectors oracle-out-game-sim
+          if ($core -ne 0 -or $LASTEXITCODE -ne 0) { exit 1 }
       - name: Check the data-dump mode on a synthetic installation
         # The same pipeline .github/workflows/data.yml runs on the original
         # data in outdir/, on a tree made from fixtures.
@@ -182,5 +189,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: oracle-vectors
-          path: oracle-out
+          path: |
+            oracle-out
+            oracle-out-game-sim
           if-no-files-found: ignore
