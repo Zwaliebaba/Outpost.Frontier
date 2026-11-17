@@ -207,6 +207,10 @@ impl MovementCheck {
 /// carry the previous PSI's.
 pub const UNIT_ACTIVE: u32 = 1;
 
+/// A simulation unit's flag bits that mark a changed controller set
+/// (0x100, 0x200); the unit clears them at the end of its PSI.
+pub const UNIT_TOPOLOGY_CHANGED: u32 = 0x300;
+
 /// The core part of `simulate_single_sim_unit_psi` for a unit, up to the
 /// controllers: the core step, then the unit's fast and slow bits. A slow
 /// PSI after a fast one restarts the core's motion clock.
@@ -237,17 +241,24 @@ pub fn unit_psi_end(
     motion_check: bool,
     elapsed_limit: f32,
 ) -> bool {
-    if !motion_check {
-        return false;
-    }
-    let result = core.classify_motion_state(now, elapsed_limit);
-    core.movement_state = (core.movement_state & !0xFF) | (result as u32 & 0xFF);
-    if result & 3 != 3 {
-        return false;
-    }
-    core.stop_movement();
-    *unit_state = (*unit_state & 0xFFFF_FF08) | MOVEMENT_FROZEN;
-    true
+    let slept = motion_check && {
+        let result = core.classify_motion_state(now, elapsed_limit);
+        core.movement_state = (core.movement_state & !0xFF) | (result as u32 & 0xFF);
+        if result & 3 == 3 {
+            core.stop_movement();
+            *unit_state = (*unit_state & 0xFFFF_FF08) | MOVEMENT_FROZEN;
+            true
+        } else {
+            false
+        }
+    };
+    // The unit's tail: when a controller was added or removed (bits 0x300),
+    // `IVP_Simulation_Unit_Rebalance_And_Clear_Topology_Flag` rebuilds the
+    // controller buckets and clears the bits, asleep or not
+    // (`ivp_simulation_unit.cpp:861`, `:693`). The buckets are the world's
+    // controller order, which needs no rebuild here.
+    *unit_state &= !UNIT_TOPOLOGY_CHANGED;
+    slept
 }
 
 /// `revive_pass` and `mark_active_and_sync_objects` for a frozen core
@@ -268,6 +279,26 @@ pub const MOTION_IDLE_TIME: f32 = 0.3;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unit_psi_end_clears_the_topology_bits() {
+        let mut core = Core::default();
+        for motion_check in [false, true] {
+            let mut unit = UNIT_ACTIVE | 0x100;
+            unit_psi_end(
+                &mut core,
+                &mut unit,
+                IvpTime::new(0.0, 0.0),
+                motion_check,
+                MOTION_IDLE_TIME,
+            );
+            assert_eq!(
+                unit & UNIT_TOPOLOGY_CHANGED,
+                0,
+                "motion check {motion_check}"
+            );
+        }
+    }
 
     #[test]
     fn clock_runs_one_psi_per_step() {
