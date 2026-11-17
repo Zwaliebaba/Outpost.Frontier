@@ -258,6 +258,9 @@ pub struct DamageTarget<'a> {
     pub shield_hull_damage_factor: f32,
     /// A death fuse burns.
     pub death_fuse_burning: bool,
+    /// The archetype's `explosion_resistance` (explosion damage on the
+    /// hull and the power).
+    pub explosion_resistance: f32,
     /// `CEShield::GetWeaponModifier(weapon_type)` of a shield, unrounded.
     pub shield_modifier: &'a dyn Fn(SubObjId, u32) -> f64,
 }
@@ -716,6 +719,221 @@ pub fn munition_hit(
     damage_power(t, munition.energy_damage, list);
 }
 
+/// An explosion's damage event (`ExplosionDamageEvent`): where, and the
+/// archetype's radius and damage.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Blast {
+    /// The centre.
+    pub position: neuron_core::math::Vector,
+    /// `radius`.
+    pub radius: f32,
+    /// `hull_damage`.
+    pub hull_damage: f32,
+    /// `energy_damage`.
+    pub energy_damage: f32,
+}
+
+/// The spheres the explosion passes measure against: the hull's
+/// explosion-damage sphere (`get_explosion_dmg_bounding_sphere`), the
+/// physical sphere (`get_physical_radius_r`), and each attached item's and
+/// collision group's (`GetRadius`, `GetCenterOfMass`).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BlastSpheres {
+    /// The hull's sphere.
+    pub hull: (f32, neuron_core::math::Vector),
+    /// The physical sphere.
+    pub physical: (f32, neuron_core::math::Vector),
+    /// The attached items' spheres.
+    pub equipment: Vec<(SubObjId, f32, neuron_core::math::Vector)>,
+    /// The collision groups' spheres.
+    pub groups: Vec<(SubObjId, f32, neuron_core::math::Vector)>,
+}
+
+/// `EqObj_ExplosionBand`: 3 within a ninth of the radius squared, 2 within
+/// four ninths, 1 within the radius, else 0; `distance` is the squared
+/// centre distance less the target's squared radius, floored at 0.
+#[must_use]
+pub fn explosion_band(distance: f64, radius_sq: f32, middle: f32, inner: f32) -> i32 {
+    let distance = if distance > 0.0 { distance } else { 0.0 };
+    if distance < e(inner) {
+        3
+    } else if distance < e(middle) {
+        2
+    } else if distance < e(radius_sq) {
+        1
+    } else {
+        0
+    }
+}
+
+fn bands(blast: &Blast) -> (f32, f32, f32) {
+    let radius_sq = r(e(blast.radius) * e(blast.radius));
+    let middle = r(e(radius_sq) * e(4.0f32 / 9.0));
+    let inner = r(e(radius_sq) * e(1.0f32 / 9.0));
+    (radius_sq, middle, inner)
+}
+
+fn sphere_distance(
+    p: neuron_core::math::Vector,
+    radius: f32,
+    center: neuron_core::math::Vector,
+    order_xz: bool,
+) -> f64 {
+    let dx = e(p.x) - e(center.x);
+    let dy = e(p.y) - e(center.y);
+    let dz = e(p.z) - e(center.z);
+    let sum = if order_xz {
+        (dz * dz + dx * dx) + dy * dy
+    } else {
+        (dz * dz + dy * dy) + dx * dx
+    };
+    sum - e(radius) * e(radius)
+}
+
+/// `EqObj::explosion_hit`: a functioning shield absorbs the whole blast
+/// (`explosion_hit_shield`); otherwise the hull, the attached items and
+/// collision groups, and the power take their bands' share.
+pub fn explosion_hit(
+    t: &DamageTarget<'_>,
+    blast: &Blast,
+    spheres: &BlastSpheres,
+    list: &mut DamageList,
+    in_group: &dyn Fn(&ArchGroup, Option<InstanceId>) -> bool,
+    mount_of: &dyn Fn(SubObjId) -> Option<InstanceId>,
+) {
+    let (radius_sq, middle, inner) = bands(blast);
+    let third = e(1.0f32 / 3.0);
+    // `explosion_hit_shield`.
+    let mut shielded = false;
+    for slot in t.equipment.traverse(types::SHIELD, false) {
+        let Some(equip) = t.equipment.get(slot) else {
+            continue;
+        };
+        let EquipKind::Shield(s) = &equip.kind else {
+            continue;
+        };
+        let status = crate::equip::shield::ShieldStatus {
+            active: equip.is_active(),
+            disabled: false,
+            destroyed: equip.is_destroyed(),
+            attached: true,
+        };
+        if !s.is_functioning(status) {
+            continue;
+        }
+        shielded = true;
+        let Some(&(_, radius, center)) =
+            spheres.equipment.iter().find(|(id, _, _)| *id == equip.id)
+        else {
+            continue;
+        };
+        let band = explosion_band(
+            sphere_distance(blast.position, radius, center, true),
+            radius_sq,
+            middle,
+            inner,
+        );
+        if band == 0 {
+            continue;
+        }
+        let amount = r((e(blast.hull_damage) * e(t.shield_hull_damage_factor)
+            + e(blast.energy_damage))
+            * (f64::from(band) * third));
+        damage_shield(
+            t,
+            equip.id,
+            r(e(equip.arch.explosion_resistance) * e(amount)),
+            list,
+        );
+    }
+    if shielded {
+        return;
+    }
+    // `explosion_hit_hull`.
+    let (radius, center) = spheres.hull;
+    let band = explosion_band(
+        sphere_distance(blast.position, radius, center, true),
+        radius_sq,
+        middle,
+        inner,
+    );
+    if band != 0 {
+        let amount = r(f64::from(band) * third * e(blast.hull_damage));
+        damage_hull(t, r(e(t.explosion_resistance) * e(amount)), list);
+    }
+    // `explosion_hit_subobjs`: the attached items (mask 0x1ee0), then the
+    // groups.
+    for slot in t.equipment.traverse(0x1ee0, false) {
+        let Some(equip) = t.equipment.get(slot) else {
+            continue;
+        };
+        let Some(&(_, radius, center)) =
+            spheres.equipment.iter().find(|(id, _, _)| *id == equip.id)
+        else {
+            continue;
+        };
+        let band = explosion_band(
+            sphere_distance(blast.position, radius, center, false),
+            radius_sq,
+            middle,
+            inner,
+        );
+        if band == 0 {
+            continue;
+        }
+        let amount = r(f64::from(band) * third * e(blast.hull_damage));
+        damage_equip(
+            t,
+            equip.id,
+            r(e(equip.arch.explosion_resistance) * e(amount)),
+            list,
+        );
+    }
+    for group in t.groups {
+        let Some(&(_, radius, center)) = spheres.groups.iter().find(|(id, _, _)| *id == group.id)
+        else {
+            continue;
+        };
+        let band = explosion_band(
+            sphere_distance(blast.position, radius, center, false),
+            radius_sq,
+            middle,
+            inner,
+        );
+        if band == 0 {
+            continue;
+        }
+        let amount = r(f64::from(band) * third * e(blast.hull_damage));
+        damage_group(
+            t,
+            group.id,
+            r(e(group.explosion_resistance) * e(amount)),
+            list,
+            in_group,
+            mount_of,
+        );
+    }
+    // `explosion_hit_power`.
+    if t.max_power < 0.0 || blast.energy_damage == 0.0 {
+        return;
+    }
+    let (radius, center) = spheres.physical;
+    let band = explosion_band(
+        sphere_distance(blast.position, radius, center, true),
+        radius_sq,
+        middle,
+        inner,
+    );
+    if band == 0 {
+        return;
+    }
+    damage_power(
+        t,
+        r(f64::from(band) * third * e(blast.energy_damage) * e(t.explosion_resistance)),
+        list,
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -741,6 +959,7 @@ mod tests {
             player_group_scale: 1.0,
             shield_hull_damage_factor: 0.5,
             death_fuse_burning: false,
+            explosion_resistance: 1.0,
             shield_modifier: f,
         }
     }
@@ -810,6 +1029,32 @@ mod tests {
         );
         assert!(l.destroyed);
         assert_eq!(l.hit_pts_left(SUBOBJ_ID_ROOT), 0.0);
+    }
+
+    #[test]
+    fn blasts_fall_off_in_thirds() {
+        assert_eq!(explosion_band(0.0, 900.0, 400.0, 100.0), 3);
+        assert_eq!(explosion_band(200.0, 900.0, 400.0, 100.0), 2);
+        assert_eq!(explosion_band(800.0, 900.0, 400.0, 100.0), 1);
+        assert_eq!(explosion_band(900.0, 900.0, 400.0, 100.0), 0);
+        let m = EquipManager::default();
+        let f = |_, _| 1.0;
+        let t = target(&m, &[], &f);
+        let blast = Blast {
+            position: neuron_core::math::Vector::ZERO,
+            radius: 30.0,
+            hull_damage: 90.0,
+            energy_damage: 30.0,
+        };
+        let spheres = BlastSpheres {
+            hull: (5.0, neuron_core::math::Vector::ZERO),
+            physical: (5.0, neuron_core::math::Vector::ZERO),
+            ..BlastSpheres::default()
+        };
+        let mut l = DamageList::new(CAUSE_EXPLOSION, 7, 0);
+        explosion_hit(&t, &blast, &spheres, &mut l, &|_, _| false, &|_| None);
+        assert_eq!(l.hit_pts_left(SUBOBJ_ID_ROOT), 10.0);
+        assert_eq!(l.hit_pts_left(SUBOBJ_ID_POWER), 20.0);
     }
 
     #[test]

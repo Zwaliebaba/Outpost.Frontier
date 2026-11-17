@@ -477,6 +477,20 @@ impl World {
             player_group_scale: g.player_collision_group_hit_pts_scale,
             shield_hull_damage_factor: self.data.constants.shield.hull_damage_factor,
             death_fuse_burning: false,
+            explosion_resistance: self
+                .data
+                .archetypes
+                .ships
+                .get(&o.archetype)
+                .map(|a| a.eq_obj.root.explosion_resistance)
+                .or_else(|| {
+                    self.data
+                        .archetypes
+                        .solars
+                        .get(&o.archetype)
+                        .map(|a| a.eq_obj.root.explosion_resistance)
+                })
+                .unwrap_or(1.0),
             shield_modifier: &modifier,
         };
         let in_group = |g: &damage::ArchGroup, i: Option<neuron_core::scene::InstanceId>| {
@@ -546,6 +560,116 @@ impl World {
         self.sync_shield_collisions(h);
         if list.destroyed && !weapons_offline {
             self.destroy(h, list.inflictor_id);
+        }
+    }
+
+    /// The sphere of an object's body (centre of mass and the core's
+    /// radius), or its position and centred radius without one.
+    fn body_sphere(&self, h: ObjHandle) -> (f32, Vector) {
+        let Some(o) = self.objects.get(h) else {
+            return (0.0, Vector::ZERO);
+        };
+        if let (Some(body), Some(w)) = (o.physical.body, self.physics.world(o.physical.system))
+            && let (Some(core), Some(center)) = (w.core(body), w.center_of_mass(body))
+        {
+            return (core.upper_limit_radius, center);
+        }
+        (o.engine.radius, o.engine.position)
+    }
+
+    /// The sphere of an instance subtree (`GetInstanceExtent`), in world
+    /// space.
+    fn instance_sphere(
+        &mut self,
+        instance: Option<neuron_core::scene::InstanceId>,
+    ) -> Option<(f32, Vector)> {
+        let instance = instance?;
+        let (radius, center) = self.scene.instance_extent(Some(instance), 0);
+        if radius < 0.0 {
+            return None;
+        }
+        let t = self.scene.instance_transform(Some(instance));
+        Some((radius, neuron_core::math::transform_xform(&t, center)))
+    }
+
+    /// `StarSystem::explode`'s damage part: every equipped object whose
+    /// body sphere meets the blast takes `EqObj::explosion_hit`, the
+    /// spheres taken from its body and instance tree (divergence
+    /// register), and the list is applied.
+    pub fn explode(
+        &mut self,
+        system: u32,
+        blast: &damage::Blast,
+        inflictor: u32,
+        skip: Option<ObjHandle>,
+    ) {
+        let candidates: Vec<ObjHandle> = self
+            .objects_in(system)
+            .into_iter()
+            .filter(|h| Some(*h) != skip)
+            .filter(|h| {
+                self.objects
+                    .get(*h)
+                    .is_some_and(|o| !o.dead && o.equipped.is_some())
+            })
+            .collect();
+        let inflictor_owner = self
+            .find(inflictor)
+            .and_then(|i| self.objects.get(i))
+            .map_or(0, |o| o.simple.owner_player);
+        for h in candidates {
+            let hull = self.body_sphere(h);
+            let reach = f64::from(blast.radius) + f64::from(hull.0);
+            let d = [
+                f64::from(blast.position.x) - f64::from(hull.1.x),
+                f64::from(blast.position.y) - f64::from(hull.1.y),
+                f64::from(blast.position.z) - f64::from(hull.1.z),
+            ];
+            if d[0] * d[0] + d[1] * d[1] + d[2] * d[2] > reach * reach {
+                continue;
+            }
+            let (mounts, groups): (Vec<_>, Vec<_>) =
+                match self.objects.get(h).and_then(|o| o.equipped.as_deref()) {
+                    Some(eq) => (
+                        eq.equipment
+                            .iter()
+                            .map(|e| {
+                                (
+                                    e.id,
+                                    e.attached
+                                        .as_ref()
+                                        .and_then(|a| a.attachment)
+                                        .and_then(|a| a.root_instance()),
+                                )
+                            })
+                            .collect(),
+                        eq.arch_groups
+                            .iter()
+                            .map(|g| (g.id, g.root_instance))
+                            .collect(),
+                    ),
+                    None => (Vec::new(), Vec::new()),
+                };
+            let mut spheres = damage::BlastSpheres {
+                hull,
+                physical: hull,
+                ..damage::BlastSpheres::default()
+            };
+            for (id, instance) in mounts {
+                if let Some((r, c)) = self.instance_sphere(instance) {
+                    spheres.equipment.push((id, r, c));
+                }
+            }
+            for (id, instance) in groups {
+                if let Some((r, c)) = self.instance_sphere(instance) {
+                    spheres.groups.push((id, r, c));
+                }
+            }
+            let mut list = DamageList::new(damage::CAUSE_EXPLOSION, inflictor, inflictor_owner);
+            self.with_damage_target(h, |t, in_group, mount_of| {
+                damage::explosion_hit(t, blast, &spheres, &mut list, in_group, mount_of);
+            });
+            self.apply_damage_list(h, &list);
         }
     }
 

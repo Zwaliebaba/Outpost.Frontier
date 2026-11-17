@@ -143,3 +143,53 @@ fn guns_fire_bullets_that_hit_a_target() {
             .all(|h| !world.is_projectile(*h))
     );
 }
+
+#[test]
+fn destruction_is_deferred_and_handles_expire() {
+    let Some(mut world) = support::world::world(WorldConfig::default()) else {
+        return;
+    };
+    let system = create_id(b"he01");
+    world.load_system(system);
+    let ship = fighter(&mut world, system, Vector::new(0.0, 0.0, 0.0));
+    let id = world.get(ship).unwrap().simple.id;
+    assert_eq!(world.find(id), Some(ship));
+    world.destroy(ship, 0);
+    // Still readable until the reap at the end of the tick.
+    assert!(world.inspect(ship).is_some_and(|i| i.dead));
+    world.step(system, 1.0 / 30.0);
+    assert!(world.get(ship).is_none());
+    assert!(world.find(id).is_none());
+    assert!(world.take_events().iter().any(|e| matches!(e, WorldEvent::Destroyed { id: d, .. } if *d == id)));
+    // A new object reuses the slot under a new generation.
+    let again = fighter(&mut world, system, Vector::new(0.0, 0.0, 0.0));
+    assert_eq!(again.index(), ship.index());
+    assert_ne!(again, ship);
+}
+
+#[test]
+fn a_blast_damages_shield_then_hull() {
+    let Some(mut world) = support::world::world(WorldConfig::default()) else {
+        return;
+    };
+    let system = create_id(b"he01");
+    world.load_system(system);
+    let ship = fighter(&mut world, system, Vector::new(0.0, 0.0, 0.0));
+    let blast = game_sim::object::damage::Blast {
+        position: Vector::new(0.0, 0.0, 20.0),
+        radius: 60.0,
+        hull_damage: 400.0,
+        energy_damage: 0.0,
+    };
+    let before = world.inspect(ship).unwrap().hit_pts;
+    world.explode(system, &blast, 0, None);
+    let after_first = world.inspect(ship).unwrap().hit_pts;
+    // The functioning shield takes the first blast whole.
+    assert_eq!(after_first, before);
+    for _ in 0..10 {
+        world.explode(system, &blast, 0, None);
+    }
+    let after = world.inspect(ship).map_or(0.0, |i| i.hit_pts);
+    println!("hull {before} -> {after_first} -> {after}");
+    assert!(after < before, "the hull takes damage once the shield is down");
+}

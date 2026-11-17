@@ -204,6 +204,7 @@ fn replay(case: &Case, record: &Json, consts: &Constants) -> Option<DamageList> 
         player_group_scale: g.player_collision_group_hit_pts_scale,
         shield_hull_damage_factor: consts.shield.hull_damage_factor,
         death_fuse_burning: false,
+        explosion_resistance: 1.0,
         shield_modifier: &modifier,
     };
     let mut list = DamageList::new(cause, 0, 0);

@@ -526,7 +526,12 @@ impl World {
     /// `CNonPhysAttachment::EnableCollisions` (and the physical one's): the
     /// item's part leaves or rejoins the owner's part map, its shield flag
     /// kept across.
-    pub(crate) fn set_attachment_collisions(&mut self, owner: ObjHandle, equip: SubObjId, enable: bool) {
+    pub(crate) fn set_attachment_collisions(
+        &mut self,
+        owner: ObjHandle,
+        equip: SubObjId,
+        enable: bool,
+    ) {
         let Some(o) = self.objects.get_mut(owner) else {
             return;
         };
@@ -555,7 +560,12 @@ impl World {
                         instance: Some(instance),
                         shield_part: cached,
                     });
-                } else if let Some(pos) = o.physical.part_map.iter().position(|p| p.instance == Some(instance)) {
+                } else if let Some(pos) = o
+                    .physical
+                    .part_map
+                    .iter()
+                    .position(|p| p.instance == Some(instance))
+                {
                     let removed = o.physical.part_map.remove(pos);
                     state.cached_shield_flag = removed.shield_part;
                 }
@@ -575,16 +585,19 @@ impl World {
         let Some(eq) = self.objects.get(owner).and_then(|o| o.equipped.as_deref()) else {
             return;
         };
-        let changes: Vec<(SubObjId, bool)> = eq
-            .equipment
-            .iter()
-            .filter_map(|e| match (&e.kind, e.attached.as_ref().and_then(|a| a.attachment)) {
-                (EquipKind::Shield(s), Some(Attachment::NonPhysical { collisions, .. })) if collisions != s.online => {
-                    Some((e.id, s.online))
-                }
-                _ => None,
-            })
-            .collect();
+        let changes: Vec<(SubObjId, bool)> =
+            eq.equipment
+                .iter()
+                .filter_map(
+                    |e| match (&e.kind, e.attached.as_ref().and_then(|a| a.attachment)) {
+                        (
+                            EquipKind::Shield(s),
+                            Some(Attachment::NonPhysical { collisions, .. }),
+                        ) if collisions != s.online => Some((e.id, s.online)),
+                        _ => None,
+                    },
+                )
+                .collect();
         for (id, on) in changes {
             self.set_attachment_collisions(owner, id, on);
         }
