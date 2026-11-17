@@ -122,6 +122,10 @@ void RunSurSuites();
 // SceneRuntime.dll. Runs after RunVfsSuites, which registers ReadFile.
 void RunAnimSuites();
 
+// P1.7 (oracle_fx_data.cpp): node and effect libraries of .ale files through
+// particlefx.dll. Needs the UTF factory RunVfsSuites registers.
+void RunFxDataSuites();
+
 // Data dumps of later work packages, called by Oracle.exe dump after the INI
 // dumps. Files is every file under DATA and EXE, sorted; each dump picks its
 // own, writes <output>\<kind>\<file>.jsonl per file and <output>\<kind>\files.txt,
@@ -139,3 +143,8 @@ void RunSurDataDump(const std::vector<std::string>& Files);
 // P1.7 (oracle_anim.cpp): every UTF container whose Animation node
 // IAnimation2::OpenScript opens, through SceneRuntime.dll; kind "anim".
 void RunAnimDataDump(const std::vector<std::string>& Files);
+
+// P1.7 (oracle_fx_data.cpp): every .ale file (a UTF container) through
+// particlefx.dll's FxNodeLibrary and FxEffectLibrary; kind "fx". Runs after
+// RunVfsDataDump, which registers the UTF factory.
+void RunFxDataDump(const std::vector<std::string>& Files);

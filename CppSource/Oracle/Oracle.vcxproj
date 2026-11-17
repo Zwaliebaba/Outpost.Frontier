@@ -62,6 +62,9 @@
     <ClCompile Include="oracle_vfs.cpp" />
     <!-- P1.7: loads SceneRuntime.dll at run time and reads its objects through SceneRuntime.h. -->
     <ClCompile Include="oracle_anim.cpp" />
+    <!-- P1.7: particlefx.dll is loaded at run time (it exports nothing); this file only
+         includes its private interface header. -->
+    <ClCompile Include="oracle_fx_data.cpp" />
     <ClCompile Include="..\ReadFile\NeuronComponentsStricmp.cpp" />
     <!-- Common.dll does not export MsvcrtAtof; the same source is compiled in. -->
     <ClCompile Include="..\Common\msvcrt_atof.cpp" />
@@ -109,6 +112,12 @@
     <!-- SceneRuntime.dll exports nothing: built for oracle_anim.cpp, which loads it at run time. -->
     <ProjectReference Include="..\SceneRuntime\SceneRuntime.vcxproj">
       <Project>{B4E8A017-3C5D-4F21-9A86-E7D1C0B4A592}</Project>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+    <!-- particlefx.dll exports nothing: built for oracle_fx_data.cpp, which loads it at run time. -->
+    <ProjectReference Include="..\particlefx\particlefx.vcxproj">
+      <Project>{B7E4D91A-3C5F-4A82-9E16-F2C8D0A1B405}</Project>
       <LinkLibraryDependencies>false</LinkLibraryDependencies>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
     </ProjectReference>

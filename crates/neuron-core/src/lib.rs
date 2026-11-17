@@ -3,6 +3,7 @@
 pub mod anim;
 pub mod catalog;
 pub mod diag;
+pub mod fx_data;
 pub mod hash;
 pub mod id;
 pub mod ini;
