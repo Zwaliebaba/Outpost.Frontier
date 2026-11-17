@@ -101,6 +101,12 @@ unsigned KeyMapGetActionNicknameId(char const* Nickname);
 char const* KeyMapGetActionNickname(unsigned NicknameId);
 unsigned KeyMapGetActiveGroupCount();
 
+// Oracle instrumentation (P0.5, oracle_mode.cpp): the KeyCmd list, the [KeyMap] groups and
+// the active groups, read-only.
+std::list<FKeyCmd> const& KeyMapOracleCommands();
+std::list<FKeyMapGroup> const& KeyMapOracleGroups();
+std::list<FKeyMapGroup*> const& KeyMapOracleActiveGroups();
+
 // Out-blob filled by the routine / the routine (NicknameId + first binding).
 struct FKeyBindingLookup
 {

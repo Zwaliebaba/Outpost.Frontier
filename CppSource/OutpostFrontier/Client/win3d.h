@@ -174,6 +174,9 @@ Win3D* Win3DFindByClassName(char const* ClassName);
 Win3D* Win3DFindByName(char const* Name);
 // first registered object, or 0.
 Win3D* Win3DGetFirstRegistered();
+// Oracle instrumentation (P0.5, oracle_mode.cpp): Visit(object, Context) for every registry
+// entry in registry order, null payloads skipped. Read-only; Visit must not change the registry.
+void Win3DForEachRegistered(void (*Visit)(Win3D* Object, void* Context), void* Context);
 // copy the cached mouse ray the field/d0/d4 into Out; returns Out.
 float* Win3DGetMouseRay(float* Out);
 // the ray itself (the routine / the routine push its address).

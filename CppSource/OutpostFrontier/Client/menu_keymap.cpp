@@ -1,6 +1,7 @@
 // Author: Giperion.
 
 #include "menu_keymap_config.h"
+#include "oracle_mode.h" // Oracle instrumentation (P0.5)
 #ifdef OUTPOST_FRONTIER_WALK_MODE
 #include "base_walk.h"
 #endif
@@ -542,10 +543,11 @@ namespace
         if (G_bKeyMapLoaded)
             return;
         int Loaded = LoadKeyMapIni("interface/KeyMap.ini", true);
+        OracleOnKeyMapLoaded("base", Loaded); // Oracle instrumentation (P0.5)
         if (Loaded == 0)
             return; // baseline still resolves the group after a failed load
         G_bKeyMapLoaded = true;
-        LoadUserKeyMapIni(EnsureUserKeyMapPath());
+        OracleOnKeyMapLoaded("user", LoadUserKeyMapIni(EnsureUserKeyMapPath())); // (P0.5)
     }
 }
 
@@ -869,6 +871,22 @@ char const* KeyMapGetActionNickname(unsigned NicknameId)
 unsigned KeyMapGetActiveGroupCount()
 {
     return static_cast<unsigned>(GActiveGroups.size());
+}
+
+// Oracle instrumentation (P0.5, oracle_mode.cpp): read-only views of the parsed key map.
+std::list<FKeyCmd> const& KeyMapOracleCommands()
+{
+    return GKeyCmds;
+}
+
+std::list<FKeyMapGroup> const& KeyMapOracleGroups()
+{
+    return GKeyMapGroups;
+}
+
+std::list<FKeyMapGroup*> const& KeyMapOracleActiveGroups()
+{
+    return GActiveGroups;
 }
 
 bool KeyMapFindActiveBinding(unsigned NicknameId, FKeyBindingLookup* Out)

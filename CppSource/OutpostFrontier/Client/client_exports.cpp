@@ -12,6 +12,7 @@
 // exports translation unit is what emits them (MD5HASH_API = dllexport under
 // OUTPOST_FRONTIER_EXPORTS). Every other member resolves to NeuronRuntime.lib's import thunks.
 #include "md5hash.h"
+#include "oracle_mode.h" // Oracle instrumentation (P0.5)
 
 // IClient special members — same trivial bodies Server/rpclocal define for their
 // own link of this abstract base (exe does not import Server's copies).
@@ -32,12 +33,14 @@ IClientImpl Client;
 // (ordinal 68): `MOV EAX,Client; RET`.
 extern "C" __declspec(dllexport) IClient* GetClientInterface()
 {
-    return static_cast<IClient*>(&Client);
+    // Oracle instrumentation (P0.5): the logging proxy under `+oracle`, else &Client.
+    return OracleWrapClientInterface(static_cast<IClient*>(&Client));
 }
 
 // (ordinal 67): `MOV EAX,Client+4; RET` -- the IChatClient
 // sub-object of Client.
 extern "C" __declspec(dllexport) IChatClient* GetChatClientInterface()
 {
-    return static_cast<IChatClient*>(&Client);
+    // Oracle instrumentation (P0.5): the logging proxy under `+oracle`, else Client+4.
+    return OracleWrapChatClientInterface(static_cast<IChatClient*>(&Client));
 }

@@ -1,6 +1,7 @@
 // Author: Giperion.
 
 #include "ui_page_desc.h"
+#include "oracle_mode.h" // Oracle instrumentation (P0.5)
 
 #include <ctype.h>
 #include <locale.h>
@@ -377,5 +378,6 @@ bool FUiPageDesc::LoadFromFile(char const* FullPath)
 
     // restore from the kept string.
     setlocale(LC_NUMERIC, SavedLocale.c_str());
+    OracleOnPageDescLoaded(FullPath, bOk, &Data); // Oracle instrumentation (P0.5)
     return bOk;
 }
