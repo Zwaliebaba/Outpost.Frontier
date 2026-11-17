@@ -71,6 +71,8 @@
     <ClCompile Include="oracle_vfs.cpp" />
     <!-- P1.7: loads SceneRuntime.dll at run time and reads its objects through SceneRuntime.h. -->
     <ClCompile Include="oracle_anim.cpp" />
+    <!-- P1.8: the Engine, Hardpoint and Animation components of the same SceneRuntime.dll. -->
+    <ClCompile Include="oracle_scene.cpp" />
     <!-- P1.7: particlefx.dll is loaded at run time (it exports nothing); this file only
          includes its private interface header. -->
     <ClCompile Include="oracle_fx_data.cpp" />

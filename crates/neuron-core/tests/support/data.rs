@@ -174,6 +174,48 @@ impl Report {
         }
     }
 
+    /// Compares the lines rendered for `relative` with the oracle's as
+    /// [`Report::check`] does, except that the fields `tolerance.keys`
+    /// names hold comma-separated `f32` bit patterns (eight hex digits
+    /// each) compared within the tolerance (Tier B). Any NaN matches any
+    /// NaN.
+    pub fn check_within(&mut self, relative: &str, lines: &[String], tolerance: &Tolerance) {
+        self.lines += lines.len();
+        let Some(oracle) = &self.oracle else {
+            return;
+        };
+        self.compared += 1;
+        let path = oracle.join(&self.kind).join(format!("{relative}.jsonl"));
+        let text = match fs::read(&path) {
+            Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+            Err(error) => {
+                self.mismatches
+                    .push(format!("{relative}: no oracle dump ({error})"));
+                return;
+            }
+        };
+        let want: Vec<&str> = text.lines().collect();
+        for (index, (want, got)) in want.iter().zip(lines).enumerate() {
+            if let Err(why) = tolerance.compare_line(want, got) {
+                let cut = |s: &str| s.chars().take(200).collect::<String>();
+                self.mismatches.push(format!(
+                    "{relative} line {}: {why}\n  oracle: {}\n  rust:   {}",
+                    index + 1,
+                    cut(want),
+                    cut(got)
+                ));
+                return;
+            }
+        }
+        if want.len() != lines.len() {
+            self.mismatches.push(format!(
+                "{relative}: oracle has {} lines, rust {}",
+                want.len(),
+                lines.len()
+            ));
+        }
+    }
+
     /// Prints the summary, writes it to `<oracle>/rust-<kind>.txt`, and
     /// fails when any dump differs.
     pub fn finish(self) {
@@ -216,4 +258,99 @@ impl Report {
             self.mismatches.len()
         );
     }
+}
+
+/// The bound of [`Report::check_within`]: a float field matches when it is
+/// within `ulps` units in the last place, or within `absolute` of the
+/// oracle's value (for results that cancel to near zero).
+pub struct Tolerance {
+    /// The fields that hold float lists.
+    pub keys: &'static [&'static str],
+    /// The distance in units in the last place.
+    pub ulps: u32,
+    /// The absolute distance.
+    pub absolute: f32,
+}
+
+impl Tolerance {
+    /// Whether two dump lines agree: the same fields in the same order,
+    /// equal text except in the float fields, which are compared word by
+    /// word.
+    pub fn compare_line(&self, want: &str, got: &str) -> Result<(), String> {
+        if want == got {
+            return Ok(());
+        }
+        let (Some(want_pairs), Some(got_pairs)) = (pairs(want), pairs(got)) else {
+            return Err("not a dump line".to_owned());
+        };
+        if want_pairs.len() != got_pairs.len() {
+            return Err("field count".to_owned());
+        }
+        for ((wk, wv), (gk, gv)) in want_pairs.iter().zip(&got_pairs) {
+            if wk != gk {
+                return Err(format!("field {wk} / {gk}"));
+            }
+            if wv == gv {
+                continue;
+            }
+            if !self.keys.contains(&wk.as_str()) {
+                return Err(format!("{wk} differs"));
+            }
+            let w: Vec<&str> = wv.split(',').collect();
+            let g: Vec<&str> = gv.split(',').collect();
+            if w.len() != g.len() {
+                return Err(format!("{wk} length"));
+            }
+            for (i, (a, b)) in w.iter().zip(&g).enumerate() {
+                let (Some(a), Some(b)) = (float_bits(a), float_bits(b)) else {
+                    return Err(format!("{wk} word {i} is not a float"));
+                };
+                if !self.close(a, b) {
+                    return Err(format!(
+                        "{wk} word {i}: oracle {:08x}, rust {:08x}",
+                        a.to_bits(),
+                        b.to_bits()
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn close(&self, a: f32, b: f32) -> bool {
+        if a.is_nan() || b.is_nan() {
+            return a.is_nan() && b.is_nan();
+        }
+        if (f64::from(a) - f64::from(b)).abs() <= f64::from(self.absolute) {
+            return true;
+        }
+        let ordered = |v: f32| {
+            let magnitude = i64::from(v.to_bits() & 0x7FFF_FFFF);
+            if v.is_sign_negative() {
+                -magnitude
+            } else {
+                magnitude
+            }
+        };
+        ordered(a).abs_diff(ordered(b)) <= u64::from(self.ulps)
+    }
+}
+
+fn float_bits(text: &str) -> Option<f32> {
+    if text.len() != 8 {
+        return None;
+    }
+    u32::from_str_radix(text, 16).ok().map(f32::from_bits)
+}
+
+/// The `"key":"value"` pairs of a flat dump line, in order.
+fn pairs(line: &str) -> Option<Vec<(String, String)>> {
+    let inner = line.strip_prefix("{\"")?.strip_suffix("\"}")?;
+    inner
+        .split("\",\"")
+        .map(|pair| {
+            let (key, value) = pair.split_once("\":\"")?;
+            Some((key.to_owned(), value.to_owned()))
+        })
+        .collect()
 }

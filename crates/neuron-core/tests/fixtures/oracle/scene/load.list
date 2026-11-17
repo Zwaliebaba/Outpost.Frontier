@@ -1,0 +1,9 @@
+# archives CreateArchetypeHandle loads, one per line
+scene/ship.cmp
+scene/nested.cmp
+scene/nocons.cmp
+scene/simple.3db
+scene/empty.cmp
+scene/plain.3db
+scene/missing.cmp
+scene/anim.cmp
