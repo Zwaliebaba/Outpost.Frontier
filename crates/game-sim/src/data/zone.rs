@@ -3,10 +3,12 @@
 //! not need the shape geometry.
 //!
 //! The membership tests, distances, radius along a direction and surface
-//! point are in [`shape`]. `ClassifyPoint`, the segment clips
-//! (`Intersect`), immersion, the frustum and sphere culls and the exclusion
-//! zones are not ported yet; see the P2.1 row of the library ledger.
+//! point are in [`shape`]; `ClassifyPoint`, immersion, the segment clips
+//! (`Intersect`) and the frustum and sphere culls in [`query`]; the
+//! exclusion zones of asteroid fields and nebulae in [`exclusion`].
 
+pub mod exclusion;
+pub mod query;
 pub mod shape;
 
 use neuron_core::hash::eq_ignore_case;
@@ -14,6 +16,7 @@ use neuron_core::id::{create_id, make_id};
 use neuron_core::ini::IniReader;
 use neuron_core::math::{Matrix, Vector};
 
+use super::asteroid_field::LootableZoneEntry;
 use super::string_cache::{CacheString, StringCache};
 use super::{Reports, lossy, value_f32};
 
@@ -156,6 +159,8 @@ pub struct Zone {
     pub ids_name: i32,
     /// `ids_info`.
     pub ids_info: i32,
+    /// The loot an asteroid field file gives the zone (`SetLootableInfo`).
+    pub lootable: Option<LootableZoneEntry>,
 }
 
 impl Zone {
@@ -188,6 +193,7 @@ impl Zone {
             visit: 0x20,
             ids_name: 0,
             ids_info: 0,
+            lootable: None,
         }
     }
 

@@ -91,6 +91,7 @@
     <ClCompile Include="oracle_game_data.cpp" />
     <ClCompile Include="oracle_game_archetype.cpp" />
     <ClCompile Include="oracle_game_universe.cpp" />
+    <ClCompile Include="oracle_game_character.cpp" />
     <ClCompile Include="oracle_game_suites.cpp" />
     <!-- P2.5: the AI suites over Common's exported wrappers (include/oracle_ai.h). -->
     <ClCompile Include="oracle_ai.cpp" />

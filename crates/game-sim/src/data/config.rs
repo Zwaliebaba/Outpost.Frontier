@@ -10,13 +10,12 @@
 //! runs it.
 //!
 //! The C++ reference count (a second `startup` loads nothing) is the
-//! caller's business here: a [`GameData`] is loaded once. The loaders of
-//! later work packages are listed in [`DataKind`] and skipped:
-//! `bodyparts`, `costumes` (P5.9), `NewCharDB` (P3) and `RtcSlider` (P5).
-//! After the list `startup` loads the AI state graphs (`AI\state_graph.db`,
-//! [`crate::ai::state_graph`], P2.5), which intern nothing. Keys `DataConfig`
-//! does not dispatch (`fonts`, `sounds`, `effects`, ...) are read by other
-//! subsystems and kept in the list.
+//! caller's business here: a [`GameData`] is loaded once. Every key
+//! `DispatchDataValue` knows is dispatched. After the list `startup` loads
+//! the AI state graphs (`AI\state_graph.db`, [`crate::ai::state_graph`],
+//! P2.5), which intern nothing. Keys `DataConfig` does not dispatch
+//! (`fonts`, `sounds`, `effects`, ...) are read by other subsystems and kept
+//! in the list.
 
 use neuron_core::hash::eq_ignore_case;
 
@@ -26,12 +25,16 @@ use neuron_core::ini::IniReader;
 use super::archetype::{ArchetypeDb, LoadCx};
 use super::base::BaseDataList;
 use super::constants::Constants;
+use super::costume::CostumeDescriptions;
 use super::fuse::{FuseFiles, PetalDb, WeaponModDb};
 use super::goods::{GoodList, GoodsContext};
 use super::loadout::LoadoutDb;
+use super::new_char::NewCharDb;
 use super::reputation::Reputation;
+use super::rtc_slider::RtcSlider;
 use super::string_cache::StringCache;
 use super::universe::{Universe, UniverseCx};
+use super::vibe::VibeDb;
 use super::{DataSource, Reports, lossy, open_ini};
 
 const SOURCE: &str = "Common\\DataConfig.cpp";
@@ -63,9 +66,9 @@ pub enum DataKind {
     Asteroids,
     /// `loadouts`: `Loadout::Load`.
     Loadouts,
-    /// `bodyparts`: `LoadBodypartDescriptions` (not part of P2.1).
+    /// `bodyparts`: `LoadBodypartDescriptions`.
     Bodyparts,
-    /// `costumes`: `LoadCostumeDescriptions` (not part of P2.1).
+    /// `costumes`: `LoadCostumeDescriptions`.
     Costumes,
     /// `bases`: `BaseDataList_load` (the value is not read).
     Bases,
@@ -83,9 +86,9 @@ pub enum DataKind {
     Fuses,
     /// `WeaponModDB`: `WeaponModDB_load`.
     WeaponModDb,
-    /// `NewCharDB`: `NewChar::TheDB->Load` (not part of P2.1).
+    /// `NewCharDB`: `NewChar::TheDB->Load`.
     NewCharDb,
-    /// `RtcSlider`: `RtcSlider::load` (not part of P2.1).
+    /// `RtcSlider`: `RtcSlider::load`.
     RtcSlider,
 }
 
@@ -119,15 +122,6 @@ impl DataKind {
             .iter()
             .find(|(name, _)| eq_ignore_case(key, name))
             .map(|&(_, kind)| kind)
-    }
-
-    /// Whether this work package ports the loader.
-    #[must_use]
-    pub fn is_ported(self) -> bool {
-        !matches!(
-            self,
-            Self::Bodyparts | Self::Costumes | Self::NewCharDb | Self::RtcSlider
-        )
     }
 }
 
@@ -188,6 +182,14 @@ pub struct GameData {
     pub petals: PetalDb,
     /// `WeaponModDB_load`.
     pub weapon_mods: WeaponModDb,
+    /// `LoadBodypartDescriptions` and `LoadCostumeDescriptions`.
+    pub costumes: CostumeDescriptions,
+    /// `NewChar::TheDB`.
+    pub new_char: NewCharDb,
+    /// `RtcSlider::load`.
+    pub rtc_slider: RtcSlider,
+    /// The static reputation vibes the universe load fills.
+    pub vibes: VibeDb,
     /// `pub::StateGraph::LoadFromFile`, after the list (P2.5).
     pub state_graphs: StateGraphDb,
     /// `FDUMP` reports of the load.
@@ -299,6 +301,8 @@ impl GameData {
                 let mut cx = UniverseCx {
                     strings: &mut self.strings,
                     archetypes: &self.archetypes,
+                    reputation: &self.reputation,
+                    vibes: &mut self.vibes,
                     reports: &mut self.reports,
                 };
                 self.universe.startup(source, value, &mut cx);
@@ -331,7 +335,18 @@ impl GameData {
             DataKind::Ships => self.archetype_file(source, value, kind, 0x75, "SHIPS"),
             DataKind::Asteroids => self.archetype_file(source, value, kind, 0x82, "ASTEROIDS"),
             DataKind::Explosions => self.archetype_file(source, value, kind, 0xd3, "Explosion"),
-            _ => {}
+            DataKind::Bodyparts => {
+                self.costumes
+                    .load_bodyparts(source, value, &mut self.reports);
+            }
+            DataKind::Costumes => {
+                self.costumes
+                    .load_costumes(source, value, &mut self.reports);
+            }
+            DataKind::NewCharDb => {
+                self.new_char.load(source, value, &mut self.reports);
+            }
+            DataKind::RtcSlider => self.rtc_slider.load(source, value, &mut self.reports),
         }
     }
 }
@@ -388,7 +403,7 @@ mod tests {
         assert_eq!(DataKind::of(b"GOODS"), Some(DataKind::Goods));
         assert_eq!(DataKind::of(b"groups"), Some(DataKind::Groups));
         assert_eq!(DataKind::of(b"fonts"), None);
-        assert!(!DataKind::Costumes.is_ported());
+        assert_eq!(DataKind::of(b"rtcslider"), Some(DataKind::RtcSlider));
     }
 
     #[test]

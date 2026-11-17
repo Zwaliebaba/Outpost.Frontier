@@ -18,6 +18,9 @@
 #include "common_goods.h"
 #include "common_fuses.h"
 #include "common_misc.h"
+#include "common_archetype.h"
+#include "common_casteroid.h"
+#include "common_net.h"
 
 using namespace oracle;
 
@@ -313,4 +316,228 @@ void DumpFuses(FGameKind& K, const std::set<unsigned int> (&PetalIds)[7])
             }
         }
     }
+}
+
+// --- Asteroid field files ------------------------------------------------------
+
+namespace
+{
+    // AsteroidExclusionZoneMgr keeps its zone vector private; this view has
+    // the same layout (pinned by the size) and is only read.
+    struct FExclusionMgrView
+    {
+        void* Vtable;
+        unsigned char ZonesAllocator;
+        Exclusion::AsteroidExclusionZone** Begin;
+        Exclusion::AsteroidExclusionZone** End;
+        Exclusion::AsteroidExclusionZone** CapacityEnd;
+        float MaxCliDist;
+        float MaxDynDist;
+    };
+    static_assert(sizeof(FExclusionMgrView) == sizeof(Exclusion::AsteroidExclusionZoneMgr),
+                  "AsteroidExclusionZoneMgr layout");
+
+    // SrvAsteroid_CopyBounded: at most Size - 1 characters.
+    std::string Bounded(const char* Text, size_t Size)
+    {
+        std::string Out = Text != nullptr ? Text : "";
+        if (Out.size() > Size - 1)
+            Out.resize(Size - 1);
+        return Out;
+    }
+
+    void DumpField(Suite& Out, const CmnAsteroid::CAsteroidField& F, const std::string& File, bool bLoaded,
+                   const std::map<const Archetype::Asteroid*, unsigned int>& ArchIds)
+    {
+        {
+            FLine L;
+            L.Add("field", GameText(File.c_str()));
+            L.Add("system", GameId(F.SystemId));
+            L.Add("zone", GameId(F.Zone != nullptr ? F.Zone->GetId() : 0u));
+            L.Add("loaded", B(bLoaded));
+            L.Add("cube_size", I(F.CubeSize));
+            L.Add("arch_cube_size", I(F.ArchCubeSize));
+            L.Add("fill_dist", I(F.FillDist));
+            L.Add("empty_freq", GameF(F.EmptyFreq));
+            Out.Line(L.Done());
+        }
+        {
+            std::string Rotations;
+            for (int Axis = 0; Axis < 3; ++Axis)
+            {
+                for (int Index = 0; Index < 4; ++Index)
+                {
+                    if (!Rotations.empty())
+                        Rotations += ",";
+                    Rotations += GameF(F.Rotations.Angles[Axis][Index]);
+                }
+            }
+            FLine L;
+            L.Add("rotations", Rotations);
+            Out.Line(L.Done());
+        }
+        for (const CmnAsteroid::AsteroidCubeArchEntry& A : F.ArchList)
+        {
+            std::string Orient;
+            for (int Row = 0; Row < 3; ++Row)
+            {
+                for (int Col = 0; Col < 3; ++Col)
+                {
+                    if (!Orient.empty())
+                        Orient += ",";
+                    Orient += GameF(A.Orient.E[Row][Col]);
+                }
+            }
+            std::map<const Archetype::Asteroid*, unsigned int>::const_iterator Id = ArchIds.find(A.Arch);
+            FLine L;
+            L.Add("arch", GameId(Id != ArchIds.end() ? Id->second : 0u));
+            L.Add("extent", V3(A.Extent));
+            L.Add("orient", Orient);
+            L.Add("mine", B(A.bMine));
+            L.Add("instant_kill", B(A.bInstantKill));
+            Out.Line(L.Done());
+        }
+        if (F.ExclusionMgr != nullptr)
+        {
+            const FExclusionMgrView* View = reinterpret_cast<const FExclusionMgrView*>(F.ExclusionMgr);
+            for (Exclusion::AsteroidExclusionZone** It = View->Begin; It != View->End; ++It)
+            {
+                const Exclusion::AsteroidExclusionZone* Z = *It;
+                FLine L;
+                L.Add("exclusion", GameId(Z->ZonePtr != nullptr ? Z->ZonePtr->GetId() : 0u));
+                L.Add("billboards", B(Z->bExcludeBillboards != 0));
+                L.Add("dynamic", B(Z->bExcludeDynamicAsteroids != 0));
+                L.Add("empty", GameF(Z->EmptyCubeFrequency));
+                L.Add("count", GameF(Z->BillboardCount));
+                L.Add("dist", GameF(Z->MaxDistSq));
+                Out.Line(L.Done());
+            }
+        }
+        std::string Loot;
+        for (const Universe::IZone* Z : F.LootZones)
+        {
+            if (!Loot.empty())
+                Loot += ";";
+            Loot += GameId(Z->GetId());
+        }
+        FLine L;
+        L.Add("loot_zones", Loot);
+        Out.Line(L.Done());
+    }
+}
+
+// Kind asteroid_fields (render_field.rs): every [Asteroids] section with a
+// file and a zone of every system file, as SrvAsteroidSystem::load walks
+// them, loaded through CAsteroidField::load after the [Field] pass of
+// FSrvAsteroidField::load. A field whose zone is missing is not loaded (the
+// server faults there). Root::load would load each rock's model through the
+// engine, which the harness does not start; every asteroid archetype is
+// therefore marked as loaded first (EngineIndex 0), so that Root::load only
+// counts the load. The archetype dumps have already been written.
+void DumpAsteroidFields(FGameKind& K, const std::string& UniversePath)
+{
+    std::map<const Archetype::Asteroid*, unsigned int> ArchIds;
+    const unsigned int Count = Archetype::GetIdCount(Archetype::AClassAsteroid);
+    for (unsigned int Index = 0; Index < Count; ++Index)
+    {
+        const unsigned int Id = Archetype::GetId(Archetype::AClassAsteroid, Index);
+        Archetype::Asteroid* Arch = Archetype::GetAsteroid(Id);
+        if (Arch == nullptr)
+            continue;
+        Arch->EngineIndex = 0;
+        ArchIds[Arch] = Id;
+    }
+    std::string Dir = UniversePath;
+    const size_t Slash = Dir.find_last_of("\\/");
+    Dir = Slash == std::string::npos ? std::string() : Dir.substr(0, Slash + 1);
+
+    std::vector<CmnAsteroid::CAsteroidField*> Fields;
+    {
+        Suite Out(K.Path("fields"));
+        for (const Universe::ISystem* S : Systems())
+        {
+            char SystemPath[0x104];
+            GetFileSysPath(SystemPath, (Dir + S->GetFile()).c_str(), nullptr);
+            INI_Reader Reader;
+            if (!Reader.open(SystemPath, false))
+                continue;
+            while (Reader.read_header())
+            {
+                if (!Reader.is_header("Asteroids"))
+                    continue;
+                std::string File;
+                std::string ZoneName;
+                while (Reader.read_value())
+                {
+                    if (Reader.is_value("file"))
+                        File = Bounded(Reader.get_value_string(), 0x100);
+                    else if (Reader.is_value("zone"))
+                        ZoneName = Bounded(Reader.get_value_string(), 0x40);
+                }
+                if (File.empty() || ZoneName.empty())
+                    continue;
+                CmnAsteroid::CAsteroidField* Field = new CmnAsteroid::CAsteroidField();
+                Fields.push_back(Field);
+                Field->set_system(S->GetId());
+                const Universe::IZone* Zone = Universe::get_zone(S->GetId(), ZoneName.c_str());
+                Field->set_zone(Zone);
+                bool bLoaded = false;
+                char FieldPath[0x104];
+                GetFileSysPath(FieldPath, File.c_str(), nullptr);
+                INI_Reader FieldReader;
+                if (Zone != nullptr && FieldReader.open(FieldPath, false))
+                {
+                    INI_Reader::State Start;
+                    FieldReader.get_state(Start);
+                    int CubeSize = Field->CubeSize;
+                    int FillDist = 0;
+                    int EmptyFreq = 0;
+                    while (FieldReader.read_header())
+                    {
+                        if (!FieldReader.is_header("Field"))
+                            continue;
+                        while (FieldReader.read_value())
+                        {
+                            if (FieldReader.is_value("cube_size"))
+                                CubeSize = (int)(long long)FieldReader.get_value_float(0);
+                            else if (FieldReader.is_value("fill_dist"))
+                                FillDist = (int)(long long)FieldReader.get_value_float(0);
+                            else if (FieldReader.is_value("empty_cube_frequency"))
+                                EmptyFreq = (int)(long long)FieldReader.get_value_float(0);
+                        }
+                    }
+                    FieldReader.set_state(Start);
+                    Field->load(FieldReader, CubeSize);
+                    Field->FillDist = FillDist;
+                    Field->EmptyFreq = (float)EmptyFreq;
+                    bLoaded = true;
+                }
+                DumpField(Out, *Field, File, bLoaded, ArchIds);
+            }
+        }
+    }
+    {
+        Suite Out(K.Path("loot"));
+        for (const Universe::ISystem* S : Systems())
+        {
+            for (const Universe::FSystemZone& Entry : *S->GetZones())
+            {
+                const CmnAsteroid::LootableZoneEntry* E = Entry.Zone->GetLootableInfo();
+                if (E == nullptr)
+                    continue;
+                FLine L;
+                L.Add("loot_zone", GameId(Entry.Zone->GetId()));
+                L.Add("container", GameId(E->AsteroidLootContainerId.Id) + "," + GameId(E->DynamicLootContainerId.Id));
+                L.Add("commodity", GameId(E->AsteroidLootCommodityId.Id) + "," + GameId(E->DynamicLootCommodityId.Id));
+                L.Add("count", I(E->AsteroidLootCountMin) + "," + I(E->AsteroidLootCountMax) + "," +
+                                   I(E->DynamicLootCountMin) + "," + I(E->DynamicLootCountMax));
+                L.Add("difficulty", I(E->AsteroidLootDifficulty) + "," + I(E->DynamicLootDifficulty));
+                Out.Line(L.Done());
+            }
+        }
+    }
+    // The fields are not deleted: their rock entries release the asteroid
+    // archetypes, and the last release would hand the made-up engine index
+    // to NeuronRuntime::Engine, which the harness does not start.
+    (void)Fields;
 }

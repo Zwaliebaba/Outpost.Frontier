@@ -56,6 +56,13 @@ void DumpArchetypes(FGameKind& K, const std::set<unsigned int>& MotorIds,
 void DumpUniverse(FGameKind& K);
 void DumpBaseData(FGameKind& K);
 void DumpFuses(FGameKind& K, const std::set<unsigned int> (&PetalIds)[7]);
+// UniversePath: the [Data] universe value, whose directory the system files
+// are relative to.
+void DumpAsteroidFields(FGameKind& K, const std::string& UniversePath);
+
+// oracle_game_character.cpp.
+void DumpCharacters(FGameKind& K, const std::set<unsigned int>& RtcNames);
+void DumpVibes(FGameKind& K);
 
 // oracle_ai.cpp (P2.5): the lines of the state graphs pub::StateGraph holds, the graphs
 // first, then the lookups of each graph's name; the state_graph data dump and the

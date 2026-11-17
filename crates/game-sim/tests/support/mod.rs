@@ -10,10 +10,13 @@
 #![allow(dead_code)]
 
 pub mod ai;
+pub mod cpp_decode;
 pub mod data;
 pub mod fill;
 pub mod game;
 pub mod render;
+pub mod render_character;
+pub mod render_field;
 pub mod render_fuse;
 pub mod render_universe;
 
