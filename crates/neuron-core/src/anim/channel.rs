@@ -179,15 +179,23 @@ pub enum ChannelError {
     /// its buffer and succeeds (divergence register); the port fails with
     /// result -6.
     StampOutsideFrames,
+    /// A channel with packed bits whose `Frames` file is empty. The
+    /// reference points such frames at its shared unpacking buffer, which
+    /// is null while no channel holds it, and fails with
+    /// `GR_OUT_OF_MEMORY`; while another channel holds it the load
+    /// succeeds. The port always fails (divergence register).
+    EmptyPackedFrames,
 }
 
 impl ChannelError {
     /// `ChannelArchetypeLoad`'s result: -6 for open and read failures, -1
-    /// (`GR_GENERIC`) for a size mismatch.
+    /// (`GR_GENERIC`) for a size mismatch, -4 (`GR_OUT_OF_MEMORY`) for empty
+    /// packed frames.
     #[must_use]
     pub const fn code(self) -> u32 {
         match self {
             Self::SizeMismatch { .. } => 0xFFFF_FFFF,
+            Self::EmptyPackedFrames => 0xFFFF_FFFC,
             Self::NoHeader
             | Self::ShortHeader
             | Self::NoFrames
@@ -213,6 +221,7 @@ impl core::fmt::Display for ChannelError {
             Self::ShortFrames => f.write_str("channel Frames shorter than its size"),
             Self::Overflow => f.write_str("channel frame size overflows"),
             Self::StampOutsideFrames => f.write_str("channel time stamp outside its frames"),
+            Self::EmptyPackedFrames => f.write_str("packed channel with empty Frames"),
         }
     }
 }
@@ -774,6 +783,9 @@ pub fn load_channel(fs: &dyn FileSystem) -> Result<LoadedChannel, AnimError> {
     let expected = header.frame_count.wrapping_mul(header.stride());
     if header.flags != FLAG_SCALAR_ONLY && size != expected {
         return failed(Some(header), ChannelError::SizeMismatch { size, expected });
+    }
+    if header.flags & COMPRESS_MASK != 0 && size == 0 {
+        return failed(Some(header), ChannelError::EmptyPackedFrames);
     }
     let (ok, frames) = read_whole(&mut file, size)?;
     if !ok || frames.len() != size as usize {
