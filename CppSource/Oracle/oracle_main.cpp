@@ -385,6 +385,35 @@ namespace
         return Path;
     }
 
+    typedef void (*FDataDump)(const std::vector<std::string>& Files);
+
+    // Runs one data dump under SEH; no C++ objects live in this frame.
+    DWORD GuardedDataDumpCall(FDataDump Dump, const std::vector<std::string>* Files)
+    {
+        __try
+        {
+            Dump(*Files);
+            return 0;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return GetExceptionCode();
+        }
+    }
+
+    // A data dump that raises is reported with its kind instead of ending the
+    // process silently; stdout is flushed after each so its counts survive.
+    void GuardedDataDump(const char* Kind, FDataDump Dump, const std::vector<std::string>& Files)
+    {
+        const DWORD Code = GuardedDataDumpCall(Dump, &Files);
+        fflush(stdout);
+        if (Code != 0)
+        {
+            fprintf(stderr, "data dump %s: exception %08lx\n", Kind, (unsigned long)Code);
+            GFailed = true;
+        }
+    }
+
     // Every .ini file under DATA and EXE through INI_Reader, and every .ini file
     // directly in EXE through the engine parser, one dump per file; then the data
     // dumps of later work packages (oracle_support.h) over every file. Run from
@@ -433,13 +462,14 @@ namespace
         }
         printf("dumped %u files, %u also through the engine parser\n", (unsigned int)Files.size(),
                (unsigned int)Engine);
-        RunVfsDataDump(AllFiles);
-        RunSurDataDump(AllFiles);
-        RunAnimDataDump(AllFiles);
-        RunFxDataDump(AllFiles);
-        RunShadingDataDump(AllFiles);
-        RunMeshDataDump(AllFiles);
-        RunSceneDataDump(AllFiles);
+        fflush(stdout);
+        GuardedDataDump("utf", RunVfsDataDump, AllFiles);
+        GuardedDataDump("sur", RunSurDataDump, AllFiles);
+        GuardedDataDump("anim", RunAnimDataDump, AllFiles);
+        GuardedDataDump("fx", RunFxDataDump, AllFiles);
+        GuardedDataDump("texture/material", RunShadingDataDump, AllFiles);
+        GuardedDataDump("mesh/dfm", RunMeshDataDump, AllFiles);
+        GuardedDataDump("scene", RunSceneDataDump, AllFiles);
     }
 }
 
