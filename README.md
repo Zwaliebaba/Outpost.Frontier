@@ -54,6 +54,6 @@ reader) and `catalog` (build the text catalogs from `resources/text/`).
 per-library status are in [design/](design/README.md). To build the C++ as
 the reference, follow [design/reference-build.md](design/reference-build.md).
 
-The [port map](docs/port-map.md) assigns the C++ subsystems to their Rust
+The [port map](design/port-map.md) assigns the C++ subsystems to their Rust
 owners. See [AGENTS.md](AGENTS.md) for naming, dependency boundaries, and
 the checks run by [CI](.github/workflows/build.yml).

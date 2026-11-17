@@ -62,7 +62,7 @@ at each store the reference makes to a `float`, as its 53-bit x87 mode
 does; and the conversion helpers in NeuronCore instead of bare float-to-int
 `as` casts where the C++ result matters.
 
-Use the current subsystem responsibilities in the [port map](docs/port-map.md)
+Use the current subsystem responsibilities in the [port map](design/port-map.md)
 to place new modules. Validate ports with tests for the relevant input format
 or observable behavior.
 

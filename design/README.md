@@ -7,6 +7,7 @@ Plan for migrating the C++ code base in `CppSource/` to the Rust workspace.
 | [migration-plan.md](migration-plan.md) | Scope, target architecture, legacy replacements, phases, work packages, gates, risks |
 | [decisions.md](decisions.md) | Owner decisions and technical decisions with the alternatives rejected |
 | [library-ledger.md](library-ledger.md) | All 39 C++ projects and shared source groups: disposition, Rust destination, work packages, status |
+| [port-map.md](port-map.md) | Which Rust crate owns each C++ project and source group, and what it is responsible for |
 | [verification.md](verification.md) | Fidelity tiers, the oracle, test data handling, CI, definition of done, gates |
 | [reference-build.md](reference-build.md) | How to build and run the C++ as the reference: DirectX 8.1 SDK, folder layout, build, run |
 | [facts.md](facts.md) | Facts to collect from the original installation (P0.3) |
