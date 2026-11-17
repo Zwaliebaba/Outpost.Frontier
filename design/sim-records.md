@@ -186,6 +186,28 @@ f, `cruise_power_usage` f, `cruise_charge_time` f, `reverse_fraction` f.
 `steering_torque` f3, `nudge_force` f, `strafe_force` f,
 `strafe_power_usage` f. The P2.3 replay ignores it.
 
+Added by P2.4 for game-sim's controller replay (after `arch`, so older
+records stay readable): `power` f and `max_power` f (`CEqObj::Power`,
+`MaxPower`; the engine draws from `power`), `orient` f9
+(`CObject::Orientation`, the frame every controller pushes in), `zone_drag`
+f\|null (the drag modifier of `ZoneAtA4`, which `get_linear_drag` uses while
+cruising; `null` outside a zone), `steering_enabled` b, `nudge_enabled` b,
+`strafe_enabled` b (`IsControllerEnabled` of the three ship controllers),
+and `thrusters` [{…}, …], each `CEThruster` in traversal order (destroyed
+ones too): `id` u, `functioning` b, `controller` b, `power_usage` f,
+`max_force` f. The `engine` object adds, after `reverse_fraction`:
+`active` b, `functioning` b (`CEEngine::IsFunctioning`), `controller` b.
+
+`crates/game-sim/tests/controller_replay.rs` rebuilds the controllers from
+`ctl` (the steering, nudge, strafe, thruster and engine controllers of
+`game_sim::equip::flight`), runs them for the PSI in IVP's order (the last
+registered first: strafe, nudge, steering, the thrusters from the last, the
+engine) and compares their pushes with `pushes`: the same kinds, every
+float within 1e-6 relative to the larger magnitude; pushes that only
+differ in order are counted but pass. Records without the P2.4 fields use
+enough power, the orientation of `in.m`, no zone, every controller
+registered and no thrusters. Its summary is `rust-controller-replay.txt`.
+
 ### The replay
 
 `neuron_core::physics::replay::replay` runs, on the `in` state: the core
@@ -206,6 +228,7 @@ summary to `rust-sim-replay.txt` there.
 | --- | --- |
 | `collision_damage` | `tick` u, `source` u, `source_obj`, `source_sub` u, `target` u, `target_obj`, `target_sub` u, `own_vel` f3, `other_vel` f3, `speed` f, `other_mass` f, `own_mass` f, `damage` f. The call is `Collision::CalcCollisionDamage(speed, other_mass, own_mass)` (its parameters are named `DamageFactor, MaxSpeed, ActualSpeed`) and `damage` its result; `speed` is the relative speed from the two velocities |
 | `munition_hit` | `tick` u, `target` u, `target_obj`, `shooter` u, `shooter_obj`, `munition` u, `sub` u, `hit_pos` f3, `damage` {`cause` i, `inflictor` u, `inflictor_owner` u, `destroyed` b, `count` i, `entries` [[`sub` u, `hp` f, `fate` i], …]}: the impact and the `DamageList` the target's `munition_hit` filled, before it is applied |
+| `munition_hit` `state` (P2.4) | after `damage`: `hull_damage` f, `energy_damage` f, `weapon_type` u (the munition archetype); when the target is found (`CObject::Find` as a ship, else a solar): `hp` f, `hp_max` f, `power` f, `power_max` f, `owner` u, `armor` f\|null (the first `CEArmor`'s `hit_pts_scale`), `sub_kind` s (`group`, `equip`, `shield` or `root`); a group adds `sub_hp` f, `sub_hp_max` d, `sub_state` i, `sub_proxy` b (`IsRootHealthProxy`), `sub_linked_type` u; an item adds `sub_hp` f, `sub_hp_max` d, `sub_type` u, `sub_destroyed` b, and a shield `shield_offline_threshold` f and `shield_weapon_mod` d (`GetWeaponModifier` of the munition's weapon type). The target's state before the list is applied, which `crates/game-sim/tests/damage_replay.rs` rebuilds to replay `munition_hit` (summary `rust-damage-replay.txt`) |
 | `behavior_in` | `tick` u, `seq` u (behaviour tick number, from 1), `id` u, `obj`, `dt` f, `behavior` i, `state_graph` i, `directive` u3, `suppressed` b (`TickSuppressedFlag`); when the owner is set: `pos` f3, `orient` f9, `vel` f3, `angvel` f3, `throttle` f, `axis` f3, `nudge` f3, `strafe` i, `cruise` b. Entry of `IBehaviorManager::UpdateBehaviorTick` |
 | `behavior_out` | `tick` u, `seq` u, `id` u, `obj`, `behavior` i, `state_graph` i, `directive` u3. Every exit of the same call |
 | `affect` | `tick` u, `beh` u (the `seq` of the behaviour tick in progress, 0 outside one), `src` s (`behavior`, `scenario` for the harness's own commands, `other`), `id` u, `obj`, `slot` i, `m` s, `i` i, `v` f[]\|null. One `IObjAffect` call on a ship: slot 0 `set_throttle` (`v` the throttle), 1 `set_axis_throttle` (`v` f3), 2 `set_nudge_vec` (`v` f3), 3 `set_strafe_dir` (`i` the `StrafeDir`), 13 `fire` (`EqObj::slot_34`: `i` the number of guns, `v` the target position or `null`) |
