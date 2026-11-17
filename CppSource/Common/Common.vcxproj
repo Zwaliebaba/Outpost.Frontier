@@ -62,6 +62,8 @@
     <ClInclude Include="..\include\common_exports.h" />
     <ClInclude Include="..\include\common_tradeoffer.h" />
     <ClInclude Include="..\include\common_timing.h" />
+    <!-- Oracle instrumentation (P2.3 sim): hooks of Oracle.exe sim, inert in the game. -->
+    <ClInclude Include="..\include\oracle_sim_hooks.h" />
     <ClInclude Include="..\include\common_async.h" />
     <ClInclude Include="..\include\common_errorhandler.h" />
     <ClInclude Include="..\include\common_dataconfig.h" />
@@ -134,6 +136,7 @@
     <ClCompile Include="common_flashlightsetinfo.cpp" />
     <ClCompile Include="common_tradeoffer.cpp" />
     <ClCompile Include="common_timing.cpp" />
+    <ClCompile Include="oracle_sim_hooks.cpp" />
     <ClCompile Include="common_async.cpp" />
     <ClCompile Include="common_errorhandler.cpp" />
     <ClCompile Include="common_dataconfig.cpp" />

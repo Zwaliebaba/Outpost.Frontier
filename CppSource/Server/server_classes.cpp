@@ -27,6 +27,7 @@
 #include "../include/rpc_iclient.h"
 #include "../include/rpc_iclient_args.h" // FServerSetReputationInfo / FPayloadServerActivateObject (add_player MP walk)
 #include "../include/md5hash.h"      // MD5HASH_API: Server exports its implicit members like baseline
+#include "../include/oracle_sim_hooks.h" // Oracle instrumentation (P2.3 sim)
 #include <windows.h>
 #include <mmsystem.h>
 #include <cstdlib>
@@ -9243,6 +9244,11 @@ void StarSystem::munition_collision(SSPMunitionCollisionInfo const& Info)
 
     // vt +0x180 munition_hit(Impact, list).
     Target->munition_hit(Impact, Damage);
+    // Oracle instrumentation (P2.3 sim): the impact and the damage list it produced, before
+    // they are applied; null outside Oracle.exe sim.
+    if (GOracleSimHooks.OnMunitionHit != nullptr)
+        GOracleSimHooks.OnMunitionHit(Target->get_id(), Impact.ShooterId, Info.Field_0x00, Impact.SubObjId,
+                                      Impact.HitPos, Damage);
     // vt +0x188 apply_damage_list(list).
     Target->apply_damage_list(Damage);
     // the list's nodes and head are freed.

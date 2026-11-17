@@ -1,0 +1,14 @@
+# Oracle.exe sim scenario (design/reference-build.md section 10): fire at a target.
+# Two fighters with no behaviour, 400 m apart; the shooter faces the target (-Z) and
+# fires its unguided guns (li_gun01_mark02: 750 m/s, 0.8 s, so 600 m) at the
+# target's position every fifth frame. Munition hits are recorded with their damage
+# lists (calls.jsonl) and as events. Multiplayer stepping.
+
+system he01
+ticks 240
+stepping mp
+
+ship shooter he_fighter li_p_he_fighter_loadout01 15000 3000 -25000 psi
+ship target he_fighter li_p_he_fighter_loadout01 15000 3000 -25400 psi
+
+at 10..150/5 shooter fire target
