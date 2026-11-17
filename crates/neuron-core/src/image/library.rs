@@ -368,6 +368,17 @@ impl TextureLoader {
     /// succeeds, retained once more by its playback group. `None` when the
     /// node cannot be opened.
     pub fn load_group(&mut self, fs: &mut dyn FileSystem) -> Option<Vec<GroupEntry>> {
+        self.load_group_each(fs, |_, _| {})
+    }
+
+    /// [`Self::load_group`], calling `visit` after each child with the
+    /// library as that child left it (a record's reference count can grow
+    /// with later children).
+    pub fn load_group_each(
+        &mut self,
+        fs: &mut dyn FileSystem,
+        mut visit: impl FnMut(&Self, &GroupEntry),
+    ) -> Option<Vec<GroupEntry>> {
         fs.open_node(b"Texture library").ok()?;
         let found = fs.find(b"*.*").unwrap_or_default();
         let mut entries = Vec::new();
@@ -386,11 +397,13 @@ impl TextureLoader {
             {
                 self.add_ref(record);
             }
-            entries.push(GroupEntry {
+            let group_entry = GroupEntry {
                 name,
                 outcome,
                 events: start..self.events.len(),
-            });
+            };
+            visit(self, &group_entry);
+            entries.push(group_entry);
         }
         let _ = fs.open_node(b"..");
         Some(entries)

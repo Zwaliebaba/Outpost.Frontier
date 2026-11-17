@@ -265,7 +265,7 @@ def texture_library():
         Dir('tga32', [File('MIP2', tga2), File('MIP0', tga8), File('MIP1', tga4)]),
         Dir('tga_pal', [File('MIP0', tga(1, 8, 4, 4, 0x20, cmap=palette())),
                         File('MIP1', tga(1, 8, 2, 2, cmap=palette()))]),
-        Dir('tga_pal16', [File('MIP0', tga(1, 8, 2, 2, cmap=palette(2), cm_entry=16))]),
+        Dir('tga_pal32', [File('MIP0', tga(1, 8, 2, 2, cmap=palette(4), cm_entry=32))]),
         Dir('tga16', [File('mip0', tga(2, 16, 4, 4)), File('Mip1', tga(2, 16, 2, 2))]),
         Dir('tga24', [File('MIP0', tga(2, 24, 4, 2, 0x10))]),
         Dir('tga_gap', [File('MIP0', tga8), File('MIP2', tga2)]),
