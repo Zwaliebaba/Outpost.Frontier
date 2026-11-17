@@ -111,6 +111,8 @@ jobs:
           Copy-Item "$f\fx\basic.ale" "$root\DATA\fx.ale"
           Copy-Item "$f\shading\texlib\basic.utf" "$root\DATA\tex.txm"
           Copy-Item "$f\shading\material\mats.utf" "$root\DATA\mats.mat"
+          Copy-Item "$f\mesh_data\library.vms" "$root\DATA\SHIPS\library.vms"
+          Copy-Item "$f\mesh_data\body.dfm" "$root\DATA\body.dfm"
           & .\bin\Oracle.exe dump $root $out
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           rustup toolchain install

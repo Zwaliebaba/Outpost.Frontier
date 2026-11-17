@@ -80,6 +80,11 @@
     <!-- P1.7: .sur files through Common.dll's PhyArch::LoadSurfaces, which reads
          NeuronRuntime::Data (hence NeuronRuntime.lib). -->
     <ClCompile Include="oracle_sur.cpp" />
+    <!-- P1.7: RendComp.dll's sources are compiled into oracle_mesh_data.cpp and
+         Deformable2.dll's (with EyeMaterial.cpp) into oracle_mesh_data_dfm.cpp; neither DLL
+         exports anything but DllMain. -->
+    <ClCompile Include="oracle_mesh_data.cpp" />
+    <ClCompile Include="oracle_mesh_data_dfm.cpp" />
     <!-- P1.9: the RemoteCommon codecs and their packet base, compiled in as RemoteClient.dll
          compiles them (its definitions, no /sdl); the two oracle_net_*_codecs.cpp files
          include the RemoteCommon sources so their file-local quantisers can be called. -->

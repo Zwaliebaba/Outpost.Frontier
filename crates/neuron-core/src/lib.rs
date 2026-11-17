@@ -10,6 +10,7 @@ pub mod image;
 pub mod ini;
 pub mod material_data;
 pub mod math;
+pub mod mesh_data;
 pub mod msvcrt;
 pub mod net;
 pub mod num;
