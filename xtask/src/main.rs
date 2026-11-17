@@ -5,7 +5,6 @@ mod catalog;
 mod graph;
 mod ini;
 mod lexer;
-mod rc;
 mod scan;
 mod workspace;
 

@@ -51,9 +51,12 @@ Line counts are C++ source and header lines from the assessment, rounded.
 All eight become text catalogs built from sources copied to
 `resources/text/` (P1.6; decided 2026-11-16: copied, not moved, so the
 reference build is untouched; the copies in `CppSource/Resources/` go with
-the C++ in P7.3). Numeric IDs keep their values. Until then both copies
-must stay byte-identical: CI compares the DLLs built from `CppSource` with
-the catalogs built from `resources/text`.
+the C++ in P7.3). Numeric IDs keep their values. Since 2026-11-17 the
+sources are one TOML file per module (decision T21, amended); the `.rc`
+scripts and card files were converted, and the catalogs stayed
+byte-identical. Until P7.3 both copies must hold the same text: CI compares
+the DLLs built from `CppSource` with the catalogs built from
+`resources/text`.
 
 | # | C++ project | Content | Catalog use | Status |
 | --- | --- | --- | --- | --- |

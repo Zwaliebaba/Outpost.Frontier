@@ -1,8 +1,8 @@
 //! Text catalogs (work package P1.6, decision T21): the string tables and
 //! rich-text cards of the eight C++ resource DLLs, looked up by numeric ID.
 //!
-//! `cargo xtask catalog` builds one catalog file per module from the
-//! resource scripts in `resources/text/` (see its README). At run time
+//! `cargo xtask catalog` builds one catalog file per module from the TOML
+//! text sources in `resources/text/` (see its README). At run time
 //! [`TextCatalogs`] registers the modules in the order the C++ loads the
 //! DLLs, so every 32-bit text ID keeps its value: the high 16 bits are the
 //! module index, the low 16 bits the module's local ID. For the client
