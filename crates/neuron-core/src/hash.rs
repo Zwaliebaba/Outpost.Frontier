@@ -301,6 +301,16 @@ pub fn name_crc32(name: &[u8]) -> u32 {
         .fold(0xFFFF_FFFF, |crc, &b| step_crc(crc, b))
 }
 
+/// The same CRC over the bytes as they are, without case folding: the
+/// node and effect name hash of `particlefx` (`HashNameCrc`, which keeps
+/// its own copy of this table).
+#[must_use]
+pub fn exact_name_crc32(name: &[u8]) -> u32 {
+    !c_str(name).iter().fold(0xFFFF_FFFF, |crc, &b| {
+        CRC_TABLE[((u32::from(b) ^ crc) & 0xFF) as usize] ^ (crc >> 8)
+    })
+}
+
 /// `GetContinuedCRC32(unsigned long, const char*)`: continues a previous
 /// result over more bytes. `continued_name_crc32(0, s) == name_crc32(s)`.
 #[must_use]

@@ -114,6 +114,10 @@ void RunUtilSuites();
 // P1.3 (oracle_vfs.cpp): the UTF container and the file systems of ReadFile.
 void RunVfsSuites();
 
+// P1.7 (oracle_fx_data.cpp): node and effect libraries of .ale files through
+// particlefx.dll. Needs the UTF factory RunVfsSuites registers.
+void RunFxDataSuites();
+
 // Data dumps of later work packages, called by Oracle.exe dump after the INI
 // dumps. Files is every file under DATA and EXE, sorted; each dump picks its
 // own, writes <output>\<kind>\<file>.jsonl per file and <output>\<kind>\files.txt,
@@ -122,3 +126,8 @@ void RunVfsSuites();
 // P1.3 (oracle_vfs.cpp): every UTF container (first bytes "UTF ") through the
 // UTF file system; kind "utf".
 void RunVfsDataDump(const std::vector<std::string>& Files);
+
+// P1.7 (oracle_fx_data.cpp): every .ale file (a UTF container) through
+// particlefx.dll's FxNodeLibrary and FxEffectLibrary; kind "fx". Runs after
+// RunVfsDataDump, which registers the UTF factory.
+void RunFxDataDump(const std::vector<std::string>& Files);
