@@ -296,7 +296,7 @@ namespace
             WriteStateGraphLines(Out);
         }
         // Leave nothing loaded for later suites.
-        pub::StateGraph::Free();
+        OracleAiFreeStateGraph();
     }
 
     void BehaviorNameSuite()

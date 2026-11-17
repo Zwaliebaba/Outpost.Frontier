@@ -82,6 +82,8 @@ COMMON_API void __cdecl OracleAiRotateTowardBySlerp(float const* From, float con
 COMMON_API float __cdecl OracleAiAngularThrottle(float const* A, float const* B, float* OutThrottle);
 // pub::StateGraph::Free, then pub::StateGraph::LoadFromFile(Path).
 COMMON_API void __cdecl OracleAiLoadStateGraph(char const* Path);
+// pub::StateGraph::Free, which Common does not export.
+COMMON_API void __cdecl OracleAiFreeStateGraph();
 // A default-constructed pub::AI::Personality, built in zeroed storage, copied to Out (0x3d8
 // bytes); its two methods for the given values.
 COMMON_API void __cdecl OracleAiDefaultPersonality(unsigned char* Out);

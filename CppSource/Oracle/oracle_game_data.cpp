@@ -39,6 +39,7 @@
 #include "common_universe.h"
 #include "common_fuses.h"
 #include "common_newchar.h"   // pub::StateGraph (the state_graph dump, P2.5)
+#include "oracle_ai.h"        // OracleAiFreeStateGraph
 
 #include <algorithm>
 #include <set>
@@ -523,7 +524,7 @@ void RunGameDataDump(const std::vector<std::string>& Files)
         pub::StateGraph::refresh_state_graph();
         Suite Out(K.Path("state_graph"));
         WriteStateGraphLines(Out);
-        pub::StateGraph::Free();
+        OracleAiFreeStateGraph();
     }
     CloseGameData();
     printf("dumped the game databases\n");

@@ -244,6 +244,11 @@ void __cdecl OracleAiLoadStateGraph(char const* Path)
     pub::StateGraph::LoadFromFile(Path);
 }
 
+void __cdecl OracleAiFreeStateGraph()
+{
+    pub::StateGraph::Free();
+}
+
 void __cdecl OracleAiDefaultPersonality(unsigned char* Out)
 {
     // Zeroed storage first, so the padding the constructors never write reads as zero.
