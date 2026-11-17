@@ -232,7 +232,7 @@ impl PhysicsWorld {
             return false;
         }
         self.collision_filter
-            .is_none_or(|filter| filter(a.user_key, b.user_key))
+            .is_none_or(|filter| filter(a.client_class, b.client_class))
     }
 
     fn body_motion(&self, h: BodyHandle, clock: &PsiClock) -> Option<(Isometry<Real>, [f32; 3])> {

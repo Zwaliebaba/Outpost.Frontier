@@ -50,6 +50,7 @@
 #include "common_server_controller.h"  // pub::Controller::Create
 #include "common_server_types.h"       // SStartupInfo
 #include "common_timing.h"             // Timing::UpdateGlobalTime
+#include "common_universe.h"           // Universe::IZone::GetDragModifier (psi.jsonl "ctl")
 #include "server_cobject.h"            // pub::SpaceObj::ShipInfo / Create
 #include "server_iserverimpl.h"        // IServerImpl (the `Server` export is looked up at run time)
 #include "oracle_sim_hooks.h"
@@ -629,6 +630,10 @@ namespace
                 J.Float("cruise_charge_time", Arch->CruiseChargeTime);
                 J.Float("reverse_fraction", Arch->ReverseFraction);
             }
+            // P2.4: the engine controller's gates (CEEngine::do_simulation_controller).
+            J.Bool("active", Engine->IsActive());
+            J.Bool("functioning", Engine->IsFunctioning());
+            J.Bool("controller", Engine->IsControllerEnabled());
             J.EndObject();
         }
         else
@@ -654,6 +659,40 @@ namespace
         {
             J.Null("arch");
         }
+        // P2.4 (game-sim's controller replay): what else the controllers read -- the owner's
+        // power (CEEngine), its orientation (every controller's frame), the zone drag of
+        // get_linear_drag (cruise), whether steering, nudge and strafe are registered, and the
+        // thrusters (CEThruster) with their gates.
+        J.Float("power", Ship->Power);
+        J.Float("max_power", Ship->MaxPower);
+        MatrixJ(J, "orient", Ship->Orientation);
+        if (Ship->ZoneAtA4 != nullptr)
+            J.Float("zone_drag", Ship->ZoneAtA4->GetDragModifier());
+        else
+            J.Null("zone_drag");
+        J.Bool("steering_enabled", Ship->Steering.IsControllerEnabled());
+        J.Bool("nudge_enabled", Ship->NudgeEngine.IsControllerEnabled());
+        J.Bool("strafe_enabled", Ship->StrafeEngine.IsControllerEnabled());
+        J.BeginArray("thrusters");
+        {
+            CEquipTraverser Walk(EquipTypeThruster, true);
+            for (CEquip* Equip = Ship->EquipManager.Traverse(Walk); Equip != nullptr;
+                 Equip = Ship->EquipManager.Traverse(Walk))
+            {
+                CEThruster* const Thruster = CEThruster::cast(Equip);
+                if (Thruster == nullptr)
+                    continue;
+                Archetype::Thruster const* const ThrusterArch = Thruster->ThrusterArch();
+                J.BeginObject(nullptr);
+                J.Uint("id", Equip->GetID());
+                J.Bool("functioning", Thruster->IsFunctioning());
+                J.Bool("controller", Thruster->IsControllerEnabled());
+                J.Float("power_usage", ThrusterArch->PowerUsage);
+                J.Float("max_force", ThrusterArch->MaxThrust);
+                J.EndObject();
+            }
+        }
+        J.EndArray();
         J.EndObject();
     }
 
@@ -894,6 +933,73 @@ namespace
         Metric("collision", NameOf(SourceId));
     }
 
+    // P2.4 (game-sim's damage replay): what EqObj::munition_hit read of its target, before
+    // the list is applied -- the hull, power, owner and armour, the sub-object that was hit,
+    // and for a shield its threshold and the weapon modifier -- and the munition's damage.
+    void MunitionHitState(FOracleJson& J, unsigned int TargetId, unsigned int MunitionArchId,
+                          unsigned short SubObjId)
+    {
+        unsigned int Id = TargetId;
+        CObject* Found = CObject::Find(Id, CObject::ClassShip);
+        if (Found == nullptr)
+            Found = CObject::Find(Id, CObject::ClassSolar);
+        Archetype::Equipment const* const MunitionRoot = Archetype::GetEquipment(MunitionArchId);
+        Archetype::Munition const* const Munition = static_cast<Archetype::Munition const*>(MunitionRoot);
+        J.BeginObject("state");
+        if (Munition != nullptr)
+        {
+            J.Float("hull_damage", Munition->HullDamage);
+            J.Float("energy_damage", Munition->EnergyDamage);
+            J.Uint("weapon_type", Munition->WeaponType.Id);
+        }
+        if (Found != nullptr)
+        {
+            CEqObj* const Eq = static_cast<CEqObj*>(Found);
+            J.Float("hp", Eq->HitPts);
+            J.Float("hp_max", Eq->Archetype->HitPts);
+            J.Float("power", Eq->Power);
+            J.Float("power_max", Eq->MaxPower);
+            J.Uint("owner", Eq->OwnerPlayer);
+            CEquip* const Armor = Eq->EquipManager.FindFirst(EquipTypeArmor);
+            if (Armor != nullptr)
+                J.Float("armor", static_cast<CEArmor*>(Armor)->ArmorArch()->HitPtsScale);
+            else
+                J.Null("armor");
+            CArchGroup* const Group = Eq->ArchGroups.FindByID(SubObjId);
+            CEquip* const Equip = Eq->EquipManager.FindByID(SubObjId);
+            if (Group != nullptr)
+            {
+                J.Str("sub_kind", "group");
+                J.Float("sub_hp", Group->GetHitPoints());
+                J.Double("sub_hp_max", Group->GetMaxHitPoints());
+                J.Int("sub_state", Group->State);
+                J.Bool("sub_proxy", Group->IsRootHealthProxy());
+                J.Uint("sub_linked_type", Group->LinkedEquipmentType());
+            }
+            else if (Equip != nullptr)
+            {
+                J.Str("sub_kind", Equip->GetType() == EquipTypeShield ? "shield" : "equip");
+                J.Float("sub_hp", Equip->GetHitPoints());
+                J.Double("sub_hp_max", Equip->GetMaxHitPoints());
+                J.Uint("sub_type", Equip->GetType());
+                J.Bool("sub_destroyed", Equip->IsDestroyed());
+                if (Equip->GetType() == EquipTypeShield)
+                {
+                    CEShield* const Shield = static_cast<CEShield*>(Equip);
+                    J.Float("shield_offline_threshold", Shield->OfflineThreshold);
+                    if (Munition != nullptr)
+                        J.Double("shield_weapon_mod", Shield->GetWeaponModifier(Munition->WeaponType));
+                }
+            }
+            else
+            {
+                J.Str("sub_kind", "root");
+            }
+            Found->Release();
+        }
+        J.EndObject();
+    }
+
     void __cdecl OnMunitionHit(unsigned int TargetId, unsigned int ShooterId, unsigned int MunitionArchId,
                                unsigned short SubObjId, Vector const& HitPos, DamageList const& Damage)
     {
@@ -922,6 +1028,7 @@ namespace
         }
         J.EndArray();
         J.EndObject();
+        MunitionHitState(J, TargetId, MunitionArchId, SubObjId);
         Write(FileCalls, J);
 
         FOracleJson E;
@@ -1110,6 +1217,36 @@ namespace
                 VectorJ(J, "angvel", AngVel);
                 J.Float("hp", HitPts);
                 J.Float("hp_max", MaxHitPts);
+                // P2.4 (scenario report): the power and the first shield of an equipped object
+                // (CEqObj::Power, MaxPower; CEShield's hit points, maximum and bOnline), `null`
+                // without a shield.
+                {
+                    unsigned int Id = Object.Id;
+                    CObject* const Found = CObject::Find(Id, Object.Class);
+                    if (Found != nullptr)
+                    {
+                        CEqObj* const Eq = static_cast<CEqObj*>(Found);
+                        J.Float("power", Eq->Power);
+                        J.Float("power_max", Eq->MaxPower);
+                        CEquip* const ShieldEquip = Eq->EquipManager.FindFirst(EquipTypeShield);
+                        CEShield* const Shield = ShieldEquip != nullptr ? CEShield::cast(ShieldEquip) : nullptr;
+                        if (Shield != nullptr)
+                        {
+                            J.BeginObject("shield");
+                            J.Uint("id", ShieldEquip->GetID());
+                            J.Float("hp", Shield->GetHitPoints());
+                            J.Float("hp_max", Shield->GetMaxHitPoints());
+                            J.Bool("online", Shield->bOnline != 0);
+                            J.Bool("functioning", Shield->IsFunctioning());
+                            J.EndObject();
+                        }
+                        else
+                        {
+                            J.Null("shield");
+                        }
+                        Found->Release();
+                    }
+                }
                 if (Object.Class == CObject::ClassShip)
                 {
                     float Throttle = 0.0f;

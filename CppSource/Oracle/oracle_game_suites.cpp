@@ -33,6 +33,8 @@
 #include "common_casteroid.h"
 #include "common_reputation.h"
 #include "common_universe.h"
+#include "common_cequip.h"   // CEGun::ComputeTimeToTgt, CNudgeEngine, CSteering (P2.4)
+#include "common_csys.h"    // LookMatrix (P2.4)
 
 // The NeuronRuntime globals Universe::Startup reads (see oracle_game_data.cpp).
 namespace NeuronRuntime
@@ -1072,6 +1074,85 @@ namespace
     // A suite that faults ends the process without a word otherwise; the
     // guard names it and the exception, and the remaining suites still run.
     // No C++ object lives in the guarded frame.
+    // Work package P2.4: LookMatrix, CEGun::ComputeTimeToTgt, and the change-thresholded
+    // setters CNudgeEngine::SetNudgeVec and CSteering::SetAxisThrottle on fresh objects
+    // (their wakeup() has no core to wake). The Rust test is object_math in
+    // crates/game-sim/tests/oracle_vectors.rs.
+    std::string FloatWords(const float* Values, int Count)
+    {
+        std::string Words;
+        for (int Index = 0; Index < Count; ++Index)
+        {
+            if (Index != 0)
+                Words += ",";
+            Words += GameF(Values[Index]);
+        }
+        return Words;
+    }
+
+    void ObjectMathSuite()
+    {
+        Suite Out("object_math.jsonl");
+        for (const std::string& Line : InputLines("object_math.list"))
+        {
+            const std::vector<std::string> Parts = Split(Line, ' ');
+            std::string Args;
+            for (size_t Index = 1; Index < Parts.size(); ++Index)
+            {
+                if (Index != 1)
+                    Args += ",";
+                Args += Parts[Index];
+            }
+            Vector V;
+            V.x = HexFloat(Parts[1]);
+            V.y = HexFloat(Parts[2]);
+            V.z = HexFloat(Parts[3]);
+            std::string Result;
+            if (Parts[0] == "look")
+            {
+                const Matrix M = LookMatrix(V);
+                Result = FloatWords(&M.E[0][0], 9);
+            }
+            else if (Parts[0] == "ttt")
+            {
+                Vector Vel;
+                Vel.x = HexFloat(Parts[4]);
+                Vel.y = HexFloat(Parts[5]);
+                Vel.z = HexFloat(Parts[6]);
+                float Time = 0.0f;
+                if (CEGun::ComputeTimeToTgt(V, Vel, HexFloat(Parts[7]), Time))
+                    Result = "1," + GameF(Time);
+                else
+                    Result = "0";
+            }
+            else if (Parts[0] == "nudge")
+            {
+                CNudgeEngine Nudge;
+                Nudge.SetNudgeVec(V);
+                const Vector After = Nudge.GetNudgeVec();
+                const float Words[3] = {After.x, After.y, After.z};
+                Result = FloatWords(Words, 3);
+            }
+            else if (Parts[0] == "axis")
+            {
+                CSteering Steering;
+                Steering.SetAxisThrottle(V);
+                const Vector After = Steering.GetAxisThrottle();
+                const float Words[3] = {After.x, After.y, After.z};
+                Result = FloatWords(Words, 3);
+            }
+            else
+            {
+                continue;
+            }
+            FLine L;
+            L.Add("kind", Parts[0]);
+            L.Add("in", Args);
+            L.Add("out", Result);
+            Out.Line(L.Done());
+        }
+    }
+
     typedef void (*FGameSimSuite)();
 
     DWORD GuardedGameSimSuiteCall(FGameSimSuite Suite)
@@ -1110,6 +1191,7 @@ void RunGameSimSuites()
     GuardedGameSimSuite("exclusion_zones", ExclusionSuite);
     GuardedGameSimSuite("spatial", SpatialSuite);
     GuardedGameSimSuite("base_props", BasePropsSuite);
+    GuardedGameSimSuite("object_math", ObjectMathSuite);
     // The last suite's universe is released under the same guard, so a fault
     // in the teardown is reported like a suite's.
     GuardedGameSimSuite("universe_shutdown", []() {

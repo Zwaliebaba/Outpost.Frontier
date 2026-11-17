@@ -171,7 +171,7 @@ pub struct CollisionGroup {
 }
 
 impl CollisionGroup {
-    fn new(id: u16) -> Self {
+    pub fn new(id: u16) -> Self {
         Self {
             id,
             obj: CacheString::EMPTY,

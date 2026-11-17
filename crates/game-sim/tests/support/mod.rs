@@ -13,11 +13,13 @@ pub mod cpp_decode;
 pub mod data;
 pub mod fill;
 pub mod game;
+pub mod records;
 pub mod render;
 pub mod render_character;
 pub mod render_field;
 pub mod render_fuse;
 pub mod render_universe;
+pub mod world;
 
 use std::fmt::Write as _;
 use std::fs;
