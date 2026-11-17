@@ -32,8 +32,8 @@ use game_sim::equip::flight::{
     Strafe, StrafeDir, Thruster, engine_controller, nudge_controller, steering_controller,
     strafe_controller, thruster_controller,
 };
-use game_sim::object::ship::{ShipFlight, linear_drag};
 use game_sim::equip::{Equip, EquipKind, EquipManager};
+use game_sim::object::ship::{ShipFlight, linear_drag};
 use neuron_core::math::{Matrix, Vector};
 use support::records::{Json, close, find_files, oracle_dir, read_lines};
 
@@ -56,10 +56,16 @@ fn orientation(ctl: &Json, record: &Json) -> Option<Matrix> {
     if let Some(m) = ctl.get("orient").and_then(Json::as_floats)
         && m.len() == 9
     {
-        return Some(Matrix::from_words([m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8]]));
+        return Some(Matrix::from_words([
+            m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8],
+        ]));
     }
     let m = record.get("in")?.get("m")?.as_floats()?;
-    Some(Matrix::from_rows([[m[0], m[1], m[2]], [m[3], m[4], m[5]], [m[6], m[7], m[8]]]))
+    Some(Matrix::from_rows([
+        [m[0], m[1], m[2]],
+        [m[3], m[4], m[5]],
+        [m[6], m[7], m[8]],
+    ]))
 }
 
 struct Rebuilt {
@@ -143,7 +149,12 @@ fn rebuild(ctl: &Json, record: &Json) -> Option<Rebuilt> {
                 could_thrust: false,
                 wake_requested: false,
             };
-            Some((thruster, t.get("functioning").and_then(Json::as_bool).unwrap_or(false)))
+            Some((
+                thruster,
+                t.get("functioning")
+                    .and_then(Json::as_bool)
+                    .unwrap_or(false),
+            ))
         })
         .collect();
     Some(Rebuilt {
@@ -162,7 +173,14 @@ fn run(mut r: Rebuilt, consts: &Constants, dt: f32) -> PushLog {
     let o = r.orientation;
     let arch = r.flight.arch;
     if r.flight.strafe.controller_enabled {
-        strafe_controller(&mut r.flight.strafe, &arch, &o, &mut r.flight.thrust_power, dt, &mut log);
+        strafe_controller(
+            &mut r.flight.strafe,
+            &arch,
+            &o,
+            &mut r.flight.thrust_power,
+            dt,
+            &mut log,
+        );
     }
     if r.flight.nudge.controller_enabled {
         nudge_controller(&r.flight.nudge, &arch, &o, dt, &mut log);
@@ -173,11 +191,21 @@ fn run(mut r: Rebuilt, consts: &Constants, dt: f32) -> PushLog {
     let mut events: Vec<EquipEvent> = Vec::new();
     for (t, functioning) in r.thrusters.iter_mut().rev() {
         if t.controller_enabled {
-            thruster_controller(t, *functioning, &o, &mut r.flight.thrust_power, dt, &mut events, &mut log);
+            thruster_controller(
+                t,
+                *functioning,
+                &o,
+                &mut r.flight.thrust_power,
+                dt,
+                &mut events,
+                &mut log,
+            );
         }
     }
-    if let Some((mut engine, functioning)) = r.engine.take() {
-        if engine.controller_enabled {
+    if let Some((mut engine, functioning)) = r.engine.take()
+        && engine.controller_enabled
+    {
+        {
             // The ship's `get_linear_drag` with this engine as its first,
             // active one.
             let mut list = EquipManager::default();
@@ -196,7 +224,15 @@ fn run(mut r: Rebuilt, consts: &Constants, dt: f32) -> PushLog {
                 orientation: &o,
                 linear_drag: drag,
             };
-            engine_controller(&mut engine, functioning, io, &mut r.power, &consts.engine, dt, &mut log);
+            engine_controller(
+                &mut engine,
+                functioning,
+                io,
+                &mut r.power,
+                &consts.engine,
+                dt,
+                &mut log,
+            );
         }
     }
     log
@@ -228,7 +264,11 @@ fn as_rows(log: &PushLog) -> Vec<(String, [f32; 4])> {
 }
 
 fn same(a: &(String, [f32; 4]), b: &(String, [f32; 4])) -> bool {
-    a.0 == b.0 && a.1.iter().zip(b.1.iter()).all(|(x, y)| close(*x, *y, TOLERANCE))
+    a.0 == b.0
+        && a.1
+            .iter()
+            .zip(b.1.iter())
+            .all(|(x, y)| close(*x, *y, TOLERANCE))
 }
 
 #[test]
@@ -238,7 +278,8 @@ fn controllers_replay_the_oracle() {
     };
     let consts = Constants::default();
     let mut summary = String::new();
-    let (mut records, mut checked, mut reordered, mut mismatched) = (0usize, 0usize, 0usize, 0usize);
+    let (mut records, mut checked, mut reordered, mut mismatched) =
+        (0usize, 0usize, 0usize, 0usize);
     let mut reports = Vec::new();
     for file in find_files(&dir, "psi.jsonl") {
         for record in read_lines(&file) {
@@ -248,21 +289,29 @@ fn controllers_replay_the_oracle() {
             };
             let dt = f(&record, "dt").unwrap_or(0.0);
             let Some(rebuilt) = rebuild(ctl, &record) else {
-                reports.push(format!("{}: tick {:?}: ctl incomplete", file.display(), record.get("tick")));
+                reports.push(format!(
+                    "{}: tick {:?}: ctl incomplete",
+                    file.display(),
+                    record.get("tick")
+                ));
                 mismatched += 1;
                 continue;
             };
             checked += 1;
             let ours = as_rows(&run(rebuilt, &consts, dt));
             let theirs = recorded(&record).unwrap_or_default();
-            let ordered = ours.len() == theirs.len() && ours.iter().zip(&theirs).all(|(a, b)| same(a, b));
+            let ordered =
+                ours.len() == theirs.len() && ours.iter().zip(&theirs).all(|(a, b)| same(a, b));
             if ordered {
                 continue;
             }
             let mut left = theirs.clone();
             let all = ours.len() == theirs.len()
                 && ours.iter().all(|a| {
-                    left.iter().position(|b| same(a, b)).map(|i| left.remove(i)).is_some()
+                    left.iter()
+                        .position(|b| same(a, b))
+                        .map(|i| left.remove(i))
+                        .is_some()
                 });
             if all {
                 reordered += 1;

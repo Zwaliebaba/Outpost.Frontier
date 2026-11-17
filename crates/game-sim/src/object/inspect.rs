@@ -133,8 +133,13 @@ impl World {
     pub fn inspect(&self, h: ObjHandle) -> Option<Inspect> {
         let o = self.get(h)?;
         let angular = match (o.physical.body, self.physics(o.physical.system)) {
-            (Some(body), Some(w)) if !matches!(o.data, KindData::Solar(_) | KindData::Asteroid(_)) => {
-                neuron_core::math::transform_matrix(&o.engine.orientation, w.angular_velocity_os(body))
+            (Some(body), Some(w))
+                if !matches!(o.data, KindData::Solar(_) | KindData::Asteroid(_)) =>
+            {
+                neuron_core::math::transform_matrix(
+                    &o.engine.orientation,
+                    w.angular_velocity_os(body),
+                )
             }
             _ => Vector::ZERO,
         };
@@ -184,7 +189,9 @@ impl World {
         }
         let consts = self.data.constants.engine.clone();
         let result = match command {
-            Command::Fire { guns, target } => return CommandResult::Fired(self.fire(h, &guns, target)),
+            Command::Fire { guns, target } => {
+                return CommandResult::Fired(self.fire(h, &guns, target));
+            }
             Command::SetHitPts(hp) => {
                 if let Some(o) = self.get_mut(h) {
                     o.simple.hit_pts = hp;
@@ -264,10 +271,17 @@ impl World {
                                     // `get_linear_drag` with the engine as it
                                     // now is.
                                     let mut list = snapshot.clone();
-                                    if let Some(EquipKind::Engine(s)) = list.get_mut(slot).map(|x| &mut x.kind) {
+                                    if let Some(EquipKind::Engine(s)) =
+                                        list.get_mut(slot).map(|x| &mut x.kind)
+                                    {
                                         s.cruise_active = state.cruise_active;
                                     }
-                                    crate::object::ship::linear_drag(&flight_arch, &list, zone_drag, &consts)
+                                    crate::object::ship::linear_drag(
+                                        &flight_arch,
+                                        &list,
+                                        zone_drag,
+                                        &consts,
+                                    )
                                 },
                                 events,
                             );

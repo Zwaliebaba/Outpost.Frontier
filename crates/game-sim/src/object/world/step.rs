@@ -50,7 +50,14 @@ pub(crate) fn run_controller(
         }
         ControllerRef::Strafe => {
             let arch = flight.arch;
-            strafe_controller(&mut flight.strafe, &arch, &orientation, &mut flight.thrust_power, dt, pusher);
+            strafe_controller(
+                &mut flight.strafe,
+                &arch,
+                &orientation,
+                &mut flight.thrust_power,
+                dt,
+                pusher,
+            );
         }
         ControllerRef::Equip(id) => {
             let Some(eq) = equipped.as_deref_mut() else {
@@ -61,7 +68,9 @@ pub(crate) fn run_controller(
             let Some(slot) = eq.equipment.find_by_id(id) else {
                 return;
             };
-            let crate::object::Equipped { equipment, power, .. } = eq;
+            let crate::object::Equipped {
+                equipment, power, ..
+            } = eq;
             let Some(equip) = equipment.get_mut(slot) else {
                 return;
             };
@@ -77,7 +86,15 @@ pub(crate) fn run_controller(
                     engine_controller(engine, functioning, io, power, consts, dt, pusher);
                 }
                 EquipKind::Thruster(thruster) => {
-                    thruster_controller(thruster, functioning, &orientation, &mut flight.thrust_power, dt, events, pusher);
+                    thruster_controller(
+                        thruster,
+                        functioning,
+                        &orientation,
+                        &mut flight.thrust_power,
+                        dt,
+                        events,
+                        pusher,
+                    );
                 }
                 _ => {}
             }
@@ -391,7 +408,9 @@ impl World {
         for slot in slots {
             let weapons_offline = eq.weapons_offline;
             let max_power = eq.max_power;
-            let crate::object::Equipped { equipment, power, .. } = &mut *eq;
+            let crate::object::Equipped {
+                equipment, power, ..
+            } = &mut *eq;
             let shield_view: Vec<(crate::equip::SubObjId, f64, f32)> = equipment
                 .iter()
                 .filter_map(|e| match &e.kind {
@@ -408,7 +427,11 @@ impl World {
             let crate::equip::Equip { kind, events, .. } = equip;
             match kind {
                 EquipKind::Engine(engine) => {
-                    let t = if flags & update_flags::NO_DYNAMICS == 0 { throttle } else { None };
+                    let t = if flags & update_flags::NO_DYNAMICS == 0 {
+                        throttle
+                    } else {
+                        None
+                    };
                     engine.update(functioning, dt, t, events);
                 }
                 EquipKind::Power(plant) => {
@@ -426,7 +449,8 @@ impl World {
                     let real_dt = (now - g.last_update_time) as f32;
                     g.last_update_time = now;
                     if let Some(shield_id) = g.linked_shield
-                        && let Some(&(_, rel, hit)) = shield_view.iter().find(|(id, _, _)| *id == shield_id)
+                        && let Some(&(_, rel, hit)) =
+                            shield_view.iter().find(|(id, _, _)| *id == shield_id)
                         && let Some(new_hit) = g.regenerate(functioning, real_dt, rel, hit, power)
                     {
                         regen.push((shield_id, new_hit));
@@ -492,15 +516,28 @@ impl World {
             if let Some(o) = self.objects.get(h)
                 && let (Some(eq), Some(ship)) = (o.equipped.as_deref(), o.as_ship())
             {
-                let (linear, angular) =
-                    ship::damping(&ship.flight, &eq.equipment, o.simple.zone_drag, &consts, mass, inertia);
+                let (linear, angular) = ship::damping(
+                    &ship.flight,
+                    &eq.equipment,
+                    o.simple.zone_drag,
+                    &consts,
+                    mass,
+                    inertia,
+                );
                 world.set_damping(body, linear, angular);
             }
         }
         // A target that cannot be targeted any more is dropped.
-        let target = self.objects.get(h).and_then(|o| o.as_ship()).and_then(|s| s.target);
+        let target = self
+            .objects
+            .get(h)
+            .and_then(|o| o.as_ship())
+            .and_then(|s| s.target);
         if let Some(t) = target {
-            let keep = self.objects.get(t).is_some_and(|o| !o.dead && o.simple.targetable);
+            let keep = self
+                .objects
+                .get(t)
+                .is_some_and(|o| !o.dead && o.simple.targetable);
             if !keep && let Some(s) = self.objects.get_mut(h).and_then(|o| o.as_ship_mut()) {
                 s.target = None;
                 s.sub_target = 0;
@@ -557,7 +594,6 @@ impl World {
             sync_bodies(&mut objects.borrow_mut(), world);
         };
         self.physics.update(system, dt, mode, &mut host, &mut sync);
-        drop(host);
         let moved: Vec<ObjHandle> = self
             .physics
             .world(system)

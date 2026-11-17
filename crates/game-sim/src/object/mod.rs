@@ -23,6 +23,12 @@
 //! [`world::BehaviorHook`], called where `CEqObj::update` calls
 //! `UpdateBehaviorTick`.
 
+// The reference's x87 comparisons send unordered operands (NaN) to one
+// side; the port spells each outcome as the comparison that is true exactly
+// when the reference takes that side, which needs negated comparisons
+// (as `neuron-core::physics` does).
+#![allow(clippy::neg_cmp_op_on_partial_ord)]
+
 pub mod arena;
 pub mod asteroid;
 pub mod csys;

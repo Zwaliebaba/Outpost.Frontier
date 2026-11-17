@@ -257,7 +257,11 @@ impl Tractor {
         if verify != TractorFailure::None {
             return verify;
         }
-        if self.arms.iter().any(|a| a.target == Some(target) && a.mode != ArmMode::Off) {
+        if self
+            .arms
+            .iter()
+            .any(|a| a.target == Some(target) && a.mode != ArmMode::Off)
+        {
             return TractorFailure::None;
         }
         self.arms.push(TractorArm {

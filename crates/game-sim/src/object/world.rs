@@ -52,8 +52,8 @@ use crate::equip::{EquipEvent, SubObjId};
 
 use super::{Arena, DamageList, ObjHandle, Object};
 
-pub(crate) use spawn::shield_status;
 pub use combat::damage_sub_obj;
+pub(crate) use spawn::shield_status;
 pub use spawn::{LootSpawn, ProjectileSpawn, ShipSpawn, SolarSpawn, SpawnError};
 
 /// A force controller the world registered with the physics
@@ -421,7 +421,10 @@ impl World {
     /// The object with an id (`CObject::Find`, `IObjDB::FindById`).
     #[must_use]
     pub fn find(&self, id: u32) -> Option<ObjHandle> {
-        self.ids.get(&id).copied().filter(|h| self.objects.contains(*h))
+        self.ids
+            .get(&id)
+            .copied()
+            .filter(|h| self.objects.contains(*h))
     }
 
     /// The object an engine instance belongs to (`GetInstanceUserData`).
@@ -598,7 +601,9 @@ impl World {
             p.get(&part_id).or_else(|| {
                 // A simple (non-compound) model's instance has no part
                 // name; its file holds one part.
-                (part_id == 0 && p.len() == 1).then(|| p.values().next()).flatten()
+                (part_id == 0 && p.len() == 1)
+                    .then(|| p.values().next())
+                    .flatten()
             })
         });
         if let Some(part) = part
@@ -612,7 +617,11 @@ impl World {
     /// `FindHardpoint_OS(instance, name)`: the hardpoint on the instance or
     /// the first of its descendants (depth first) that has it.
     #[must_use]
-    pub fn find_hardpoint(&self, instance: Option<InstanceId>, name: &[u8]) -> Option<(InstanceId, HardpointData)> {
+    pub fn find_hardpoint(
+        &self,
+        instance: Option<InstanceId>,
+        name: &[u8],
+    ) -> Option<(InstanceId, HardpointData)> {
         let id = instance?;
         let crc = name_crc32(name);
         let hardpoints = self.scene.component::<Hardpoints>()?;

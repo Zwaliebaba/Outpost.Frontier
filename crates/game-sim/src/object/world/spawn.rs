@@ -161,7 +161,10 @@ fn simple_for(root: &Root) -> Simple {
     }
 }
 
-fn hp_name(strings: &crate::data::string_cache::StringCache, s: crate::data::string_cache::CacheString) -> Vec<u8> {
+fn hp_name(
+    strings: &crate::data::string_cache::StringCache,
+    s: crate::data::string_cache::CacheString,
+) -> Vec<u8> {
     strings.get(s).to_vec()
 }
 
@@ -206,7 +209,15 @@ impl World {
     /// `CSimple::init`'s common part: id, owner, hit points (−1: the
     /// archetype's; above it: clamped; negative: 0.5, as the reference
     /// reports and does), frame.
-    fn init_simple(obj: &mut Object, system: u32, id: u32, owner: u32, hit_pts: f32, position: Vector, orientation: Matrix) {
+    fn init_simple(
+        obj: &mut Object,
+        system: u32,
+        id: u32,
+        owner: u32,
+        hit_pts: f32,
+        position: Vector,
+        orientation: Matrix,
+    ) {
         obj.simple.id = id;
         obj.simple.system = Some(system);
         obj.simple.owner_player = owner;
@@ -296,7 +307,13 @@ impl World {
     /// on the owner's instance tree, the item's model joined at the
     /// hardpoint, and for launchers their barrels. False when the
     /// hardpoint is missing (the item then reads as destroyed).
-    fn connect_equip(&mut self, owner: ObjHandle, equip: &mut Equip, hardpoint: &[u8], arch: &Equipment) -> bool {
+    fn connect_equip(
+        &mut self,
+        owner: ObjHandle,
+        equip: &mut Equip,
+        hardpoint: &[u8],
+        arch: &Equipment,
+    ) -> bool {
         let Some(root) = self.objects.get(owner).and_then(|o| o.engine.instance) else {
             if let Some(m) = &mut equip.mount {
                 m.hardpoint = hardpoint.to_vec();
@@ -321,13 +338,21 @@ impl World {
             return true;
         }
         let hp_crc = name_crc32(hardpoint);
-        let non_physical = self.part_hardpoint_ids(owner, Some(instance)).contains(&hp_crc);
+        let non_physical = self
+            .part_hardpoint_ids(owner, Some(instance))
+            .contains(&hp_crc);
         let path = self.data.strings.get(arch.root.da_archetype).to_vec();
         let model = self.create_scene_instance(&path);
         if let Some(model) = model {
             // `CNonPhysAttachment::Connect` / `CPhysAttachment::Connect`
             // join the model at its `HPConnect`.
-            connect_hardpoints(&mut self.scene, Some(instance), hp_crc, Some(model), name_crc32(b"HPConnect"));
+            connect_hardpoints(
+                &mut self.scene,
+                Some(instance),
+                hp_crc,
+                Some(model),
+                name_crc32(b"HPConnect"),
+            );
             self.instances.insert(model, owner);
         }
         let attachment = if non_physical {
@@ -370,14 +395,23 @@ impl World {
 
     /// `CEqObj::add_item`: an equipped item (allocated, its hit points
     /// set, an external one connected) or a cargo stack.
-    fn add_item(&mut self, owner: ObjHandle, desc: &crate::data::equip_desc::EquipDesc, ship: bool) {
+    fn add_item(
+        &mut self,
+        owner: ObjHandle,
+        desc: &crate::data::equip_desc::EquipDesc,
+        ship: bool,
+    ) {
         let Some(arch) = self.data.archetypes.equipment.get(&desc.arch_id).cloned() else {
             return;
         };
         if desc.equipped == 0 {
             let count = u32::try_from(desc.count).unwrap_or(0);
             let cargo = Equip::cargo(desc.id, &arch, desc.mission, desc.health, count);
-            if let Some(eq) = self.objects.get_mut(owner).and_then(|o| o.equipped.as_deref_mut()) {
+            if let Some(eq) = self
+                .objects
+                .get_mut(owner)
+                .and_then(|o| o.equipped.as_deref_mut())
+            {
                 eq.equipment.add(cargo);
             }
             return;
@@ -385,11 +419,14 @@ impl World {
         let projectile = match &arch.kind {
             EquipmentKind::Gun(g) => Some(g.launcher.projectile_archetype),
             EquipmentKind::MineDropper(l) => Some(l.projectile_archetype),
-            EquipmentKind::CounterMeasureDropper { launcher, .. } => Some(launcher.projectile_archetype),
+            EquipmentKind::CounterMeasureDropper { launcher, .. } => {
+                Some(launcher.projectile_archetype)
+            }
             _ => None,
         }
         .and_then(|id| self.data.archetypes.equipment.get(&id).cloned());
-        let Some(mut equip) = Equip::alloc(desc.id, &arch, desc.mission, ship, projectile.as_ref()) else {
+        let Some(mut equip) = Equip::alloc(desc.id, &arch, desc.mission, ship, projectile.as_ref())
+        else {
             return;
         };
         equip.set_hit_points((f64::from(desc.health) * f64::from(arch.root.hit_pts)) as f32);
@@ -401,7 +438,11 @@ impl World {
         if let EquipKind::Engine(engine) = &mut equip.kind {
             self.find_nozzles(owner, engine);
         }
-        if let Some(eq) = self.objects.get_mut(owner).and_then(|o| o.equipped.as_deref_mut()) {
+        if let Some(eq) = self
+            .objects
+            .get_mut(owner)
+            .and_then(|o| o.equipped.as_deref_mut())
+        {
             eq.equipment.add(equip);
         }
     }
@@ -443,7 +484,11 @@ impl World {
         let Some(eq) = obj.equipped.as_deref() else {
             return crate::equip::SUBOBJ_ID_ROOT;
         };
-        if let Some(g) = eq.arch_groups.iter().find(|g| g.root_instance.is_some() && g.root_instance == instance) {
+        if let Some(g) = eq
+            .arch_groups
+            .iter()
+            .find(|g| g.root_instance.is_some() && g.root_instance == instance)
+        {
             return g.id;
         }
         let id = eq.equipment.inst_to_sub_obj_id(instance);
@@ -455,7 +500,11 @@ impl World {
 
     /// `CEqObj::link_shields`: each shield link whose generators are fitted
     /// becomes a shield at the link's hardpoint with those generators.
-    fn link_shields(&mut self, owner: ObjHandle, links: &[crate::data::archetype::eq_obj::ShieldLink]) {
+    fn link_shields(
+        &mut self,
+        owner: ObjHandle,
+        links: &[crate::data::archetype::eq_obj::ShieldLink],
+    ) {
         let now = self.time;
         for link in links {
             let mut shield_slot: Option<SubObjId> = None;
@@ -483,10 +532,22 @@ impl World {
                 generator.nickname = gen_equip.arch_id;
                 let gen_id = gen_equip.id;
                 if shield_slot.is_none() {
-                    let Some(arch) = self.data.archetypes.equipment.get(&link.shield_arch).cloned() else {
+                    let Some(arch) = self
+                        .data
+                        .archetypes
+                        .equipment
+                        .get(&link.shield_arch)
+                        .cloned()
+                    else {
                         return;
                     };
-                    let mut shield = Equip::new(link.equip_id, &arch, types::SHIELD, EquipKind::Shield(Shield::default()), false);
+                    let mut shield = Equip::new(
+                        link.equip_id,
+                        &arch,
+                        types::SHIELD,
+                        EquipKind::Shield(Shield::default()),
+                        false,
+                    );
                     // `CEShield::CEShield`: fate 3, `Activate(true)`.
                     if let Some(a) = &mut shield.attached {
                         a.fate = crate::equip::Fate::HealthProxy;
@@ -499,8 +560,12 @@ impl World {
                     if let EquipKind::Shield(s) = &mut shield.kind {
                         s.activate(status, now, &mut events);
                     }
-                    shield.events.extend(events.into_iter());
-                    if let Some(eq) = self.objects.get_mut(owner).and_then(|o| o.equipped.as_deref_mut()) {
+                    shield.events.extend(events);
+                    if let Some(eq) = self
+                        .objects
+                        .get_mut(owner)
+                        .and_then(|o| o.equipped.as_deref_mut())
+                    {
                         eq.equipment.add(shield);
                     }
                     shield_slot = Some(link.equip_id);
@@ -509,10 +574,16 @@ impl World {
                     continue;
                 };
                 // `LinkShield` / `AddGen`.
-                let Some(eq) = self.objects.get_mut(owner).and_then(|o| o.equipped.as_deref_mut()) else {
+                let Some(eq) = self
+                    .objects
+                    .get_mut(owner)
+                    .and_then(|o| o.equipped.as_deref_mut())
+                else {
                     return;
                 };
-                if let Some(EquipKind::ShieldGenerator(g)) = eq.equipment.by_id_mut(gen_id).map(|e| &mut e.kind) {
+                if let Some(EquipKind::ShieldGenerator(g)) =
+                    eq.equipment.by_id_mut(gen_id).map(|e| &mut e.kind)
+                {
                     g.linked_shield = Some(shield_id);
                 }
                 if let Some(shield) = eq.equipment.by_id_mut(shield_id) {
@@ -521,7 +592,7 @@ impl World {
                     if let EquipKind::Shield(s) = &mut shield.kind {
                         s.add_gen(gen_id, &generator, status, now, &mut events);
                     }
-                    shield.events.extend(events.into_iter());
+                    shield.events.extend(events);
                 }
             }
         }
@@ -575,7 +646,13 @@ impl World {
 
     /// `CEqObj::init`'s equipment part: the collision groups, the loadout's
     /// items, the shields, the power.
-    fn init_equipped(&mut self, h: ObjHandle, eq_arch: &crate::data::archetype::eq_obj::EqObj, loadout: u32, ship: bool) {
+    fn init_equipped(
+        &mut self,
+        h: ObjHandle,
+        eq_arch: &crate::data::archetype::eq_obj::EqObj,
+        loadout: u32,
+        ship: bool,
+    ) {
         let mut groups = Vec::new();
         let tree: Vec<(InstanceId, u32)> = self
             .objects
@@ -629,7 +706,11 @@ impl World {
         if has_gen {
             self.link_shields(h, &eq_arch.shield_links);
         }
-        if let Some(eq) = self.objects.get_mut(h).and_then(|o| o.equipped.as_deref_mut()) {
+        if let Some(eq) = self
+            .objects
+            .get_mut(h)
+            .and_then(|o| o.equipped.as_deref_mut())
+        {
             let mut max = 0.0f32;
             for slot in eq.equipment.traverse(types::POWER, false) {
                 if let Some(e) = eq.equipment.get(slot) {
@@ -637,7 +718,7 @@ impl World {
                         EquipKind::Power(p) if !e.is_destroyed() => p.capacity,
                         _ => 0.0,
                     };
-                    max = add + max;
+                    max += add;
                 }
             }
             eq.max_power = max;
@@ -667,7 +748,15 @@ impl World {
         let data = KindData::Ship(Box::new(ShipData::new(flight)));
         let mut obj = self.base_object(ObjectKind::Ship, &arch.eq_obj.root, data);
         let id = s.id.unwrap_or_else(|| self.allocate_id());
-        World::init_simple(&mut obj, system, id, s.owner_player, s.hit_pts, s.position, s.orientation);
+        World::init_simple(
+            &mut obj,
+            system,
+            id,
+            s.owner_player,
+            s.hit_pts,
+            s.position,
+            s.orientation,
+        );
         let h = self.insert(system, obj);
         self.sync_instance(h);
         // `CShip::init_physics`.
@@ -679,7 +768,9 @@ impl World {
             angular_damping: constants.default_angular_damping,
             name: itoa_radix24(id),
             enable_collisions: false,
-            inertia: root.has_rotation_inertia.then(|| Vector::from_words(root.rotation_inertia)),
+            inertia: root
+                .has_rotation_inertia
+                .then(|| Vector::from_words(root.rotation_inertia)),
         };
         self.build_body(h, parms, None, false);
         self.add_initial_velocity(h, s.velocity, s.angular_velocity);
@@ -699,7 +790,10 @@ impl World {
         }
         for id in equip_controllers {
             self.register(h, ControllerRef::Equip(id));
-            if let Some(eq) = self.objects.get_mut(h).and_then(|o| o.equipped.as_deref_mut())
+            if let Some(eq) = self
+                .objects
+                .get_mut(h)
+                .and_then(|o| o.equipped.as_deref_mut())
                 && let Some(e) = eq.equipment.by_id_mut(id)
             {
                 match &mut e.kind {
@@ -711,12 +805,18 @@ impl World {
         }
         // `CShip::init`: `enable_controllers`, then the guns, the thrust
         // power, steering and nudge, the docking points.
-        for which in [ControllerRef::Steering, ControllerRef::Nudge, ControllerRef::Strafe, ControllerRef::Ship] {
+        for which in [
+            ControllerRef::Steering,
+            ControllerRef::Nudge,
+            ControllerRef::Strafe,
+            ControllerRef::Ship,
+        ] {
             self.register(h, which);
         }
         if let Some(obj) = self.objects.get_mut(h) {
             let owner = obj.simple.owner_player;
-            let (Some(eq), KindData::Ship(ship)) = (obj.equipped.as_deref_mut(), &mut obj.data) else {
+            let (Some(eq), KindData::Ship(ship)) = (obj.equipped.as_deref_mut(), &mut obj.data)
+            else {
                 return Ok(h);
             };
             ship.flight.steering.controller_enabled = true;
@@ -796,8 +896,20 @@ impl World {
         solar.loadout = s.loadout;
         solar.dest_system = s.dest_system;
         solar.atmosphere_range = s.atmosphere_range;
-        let mut obj = self.base_object(ObjectKind::Solar, &arch.eq_obj.root, KindData::Solar(Box::new(solar)));
-        World::init_simple(&mut obj, system, s.nickname, 0, -1.0, s.position, s.orientation);
+        let mut obj = self.base_object(
+            ObjectKind::Solar,
+            &arch.eq_obj.root,
+            KindData::Solar(Box::new(solar)),
+        );
+        World::init_simple(
+            &mut obj,
+            system,
+            s.nickname,
+            0,
+            -1.0,
+            s.position,
+            s.orientation,
+        );
         if (obj.simple.type_bits & 0x84) != 0
             && let KindData::Solar(sd) = &mut obj.data
         {
@@ -814,7 +926,11 @@ impl World {
             enable_collisions: true,
             inertia: None,
         };
-        let path = self.data.strings.get(arch.eq_obj.root.da_archetype).to_ascii_lowercase();
+        let path = self
+            .data
+            .strings
+            .get(arch.eq_obj.root.da_archetype)
+            .to_ascii_lowercase();
         let sphere = path
             .ends_with(b".sph")
             .then_some(arch.solar_radius)
@@ -822,13 +938,18 @@ impl World {
         if !path.ends_with(b".sph") || sphere.is_some() {
             self.build_body(h, parms, sphere, fixed);
         }
-        if !fixed && let Some((system, body)) = self.body(h)
+        if !fixed
+            && let Some((system, body)) = self.body(h)
             && let Some(world) = self.physics.world_mut(system)
         {
             world.add_to_angular_velocity_os(body, s.angular_velocity);
         }
         self.init_equipped(h, &arch.eq_obj, s.loadout, false);
-        if let Some(eq) = self.objects.get_mut(h).and_then(|o| o.equipped.as_deref_mut()) {
+        if let Some(eq) = self
+            .objects
+            .get_mut(h)
+            .and_then(|o| o.equipped.as_deref_mut())
+        {
             eq.docking_point_base = s.dock_with;
             if !self.config.single_player {
                 eq.weapons_offline = true;
@@ -842,6 +963,16 @@ impl World {
     /// server's `StarSystem::load` makes them (position, rotation,
     /// archetype, loadout, base, gate). Returns the objects made.
     pub fn load_system_solars(&mut self, system: u32) -> Vec<ObjHandle> {
+        self.load_system_solars_where(system, |_| true)
+    }
+
+    /// [`World::load_system_solars`] for the objects whose nickname id
+    /// `keep` accepts.
+    pub fn load_system_solars_where(
+        &mut self,
+        system: u32,
+        keep: impl Fn(u32) -> bool,
+    ) -> Vec<ObjHandle> {
         self.load_system(system);
         let Some(sys) = self.data.universe.systems.get(&system).cloned() else {
             return Vec::new();
@@ -898,7 +1029,10 @@ impl World {
                     spawn.atmosphere_range = crate::data::value_f32(&mut reader, 0);
                 }
             }
-            if spawn.nickname == 0 || !self.data.archetypes.solars.contains_key(&spawn.archetype) {
+            if spawn.nickname == 0
+                || !keep(spawn.nickname)
+                || !self.data.archetypes.solars.contains_key(&spawn.archetype)
+            {
                 continue;
             }
             if let Ok(h) = self.spawn_solar(system, &spawn) {
@@ -924,7 +1058,13 @@ impl World {
             .cloned()
             .ok_or(SpawnError::UnknownArchetype(s.archetype))?;
         let safe = self.data.constants.general.loot_owner_safe_time;
-        let data = KindData::Loot(LootData::new(s.owner, s.contents, s.units, s.contents_hit_pts, safe));
+        let data = KindData::Loot(LootData::new(
+            s.owner,
+            s.contents,
+            s.units,
+            s.contents_hit_pts,
+            safe,
+        ));
         let mut obj = self.base_object(ObjectKind::Loot, &arch.root, data);
         obj.simple.type_bits = 0x1000_0000;
         let id = self.allocate_id();
@@ -955,7 +1095,11 @@ impl World {
     /// # Errors
     ///
     /// An unknown archetype or system.
-    pub fn create_bullet(&mut self, system: u32, s: &ProjectileSpawn) -> Result<ObjHandle, SpawnError> {
+    pub fn create_bullet(
+        &mut self,
+        system: u32,
+        s: &ProjectileSpawn,
+    ) -> Result<ObjHandle, SpawnError> {
         self.require_system(system)?;
         let arch = self
             .data
@@ -964,7 +1108,10 @@ impl World {
             .get(&s.archetype)
             .cloned()
             .ok_or(SpawnError::UnknownArchetype(s.archetype))?;
-        let p = arch.projectile().copied().ok_or(SpawnError::UnknownArchetype(s.archetype))?;
+        let p = arch
+            .projectile()
+            .copied()
+            .ok_or(SpawnError::UnknownArchetype(s.archetype))?;
         let beam = BeamData {
             projectile: Projectile::new(s.owner, p.lifetime, p.owner_safe_time),
             munition: s.archetype,
@@ -989,7 +1136,14 @@ impl World {
         Ok(self.insert(system, obj))
     }
 
-    fn projectile_body(&mut self, h: ObjHandle, mass: f32, linear: f32, owner: u32, velocity: Vector) {
+    fn projectile_body(
+        &mut self,
+        h: ObjHandle,
+        mass: f32,
+        linear: f32,
+        owner: u32,
+        velocity: Vector,
+    ) {
         let constants = self.physics.constants().clone();
         let parms = CreateParms {
             mass,
@@ -1013,7 +1167,11 @@ impl World {
     /// # Errors
     ///
     /// An unknown archetype or system.
-    pub fn create_guided(&mut self, system: u32, s: &ProjectileSpawn) -> Result<ObjHandle, SpawnError> {
+    pub fn create_guided(
+        &mut self,
+        system: u32,
+        s: &ProjectileSpawn,
+    ) -> Result<ObjHandle, SpawnError> {
         self.require_system(system)?;
         let arch = self
             .data
@@ -1026,11 +1184,17 @@ impl World {
             return Err(SpawnError::UnknownArchetype(s.archetype));
         };
         let guided = GuidedData {
-            projectile: Projectile::new(s.owner, m.projectile.lifetime, m.projectile.owner_safe_time),
+            projectile: Projectile::new(
+                s.owner,
+                m.projectile.lifetime,
+                m.projectile.owner_safe_time,
+            ),
             munition: s.archetype,
             target: s.target.map(|t| t.0),
             sub_target: s.target.map_or(0, |t| t.1),
-            motor: (m.motor != 0).then(|| self.data.archetypes.motors.get(&m.motor).cloned()).flatten(),
+            motor: (m.motor != 0)
+                .then(|| self.data.archetypes.motors.get(&m.motor).cloned())
+                .flatten(),
             seeker_elapsed: 0.0,
             seeker_range: m.seeker_range,
             seeker_fov_cos: m.seeker_fov_cos,
@@ -1060,7 +1224,11 @@ impl World {
     /// # Errors
     ///
     /// An unknown archetype or system.
-    pub fn create_mine(&mut self, system: u32, s: &ProjectileSpawn) -> Result<ObjHandle, SpawnError> {
+    pub fn create_mine(
+        &mut self,
+        system: u32,
+        s: &ProjectileSpawn,
+    ) -> Result<ObjHandle, SpawnError> {
         self.require_system(system)?;
         let arch = self
             .data
@@ -1069,7 +1237,15 @@ impl World {
             .get(&s.archetype)
             .cloned()
             .ok_or(SpawnError::UnknownArchetype(s.archetype))?;
-        let EquipmentKind::Mine { projectile, linear_drag, detonation_dist, seek_dist, acceleration, top_speed } = arch.kind.clone() else {
+        let EquipmentKind::Mine {
+            projectile,
+            linear_drag,
+            detonation_dist,
+            seek_dist,
+            acceleration,
+            top_speed,
+        } = arch.kind.clone()
+        else {
             return Err(SpawnError::UnknownArchetype(s.archetype));
         };
         let data = MineData {
@@ -1085,7 +1261,13 @@ impl World {
         World::init_simple(&mut obj, system, id, 0, -1.0, s.position, s.orientation);
         let h = self.insert(system, obj);
         self.sync_instance(h);
-        self.projectile_body(h, arch.root.mass, drag_damping(linear_drag, arch.root.mass), s.owner, s.velocity);
+        self.projectile_body(
+            h,
+            arch.root.mass,
+            drag_damping(linear_drag, arch.root.mass),
+            s.owner,
+            s.velocity,
+        );
         Ok(h)
     }
 
@@ -1094,7 +1276,11 @@ impl World {
     /// # Errors
     ///
     /// An unknown archetype or system.
-    pub fn create_counter_measure(&mut self, system: u32, s: &ProjectileSpawn) -> Result<ObjHandle, SpawnError> {
+    pub fn create_counter_measure(
+        &mut self,
+        system: u32,
+        s: &ProjectileSpawn,
+    ) -> Result<ObjHandle, SpawnError> {
         self.require_system(system)?;
         let arch = self
             .data
@@ -1103,7 +1289,13 @@ impl World {
             .get(&s.archetype)
             .cloned()
             .ok_or(SpawnError::UnknownArchetype(s.archetype))?;
-        let EquipmentKind::CounterMeasure { projectile, linear_drag, range, diversion_pctg } = arch.kind.clone() else {
+        let EquipmentKind::CounterMeasure {
+            projectile,
+            linear_drag,
+            range,
+            diversion_pctg,
+        } = arch.kind.clone()
+        else {
             return Err(SpawnError::UnknownArchetype(s.archetype));
         };
         let data = CounterMeasureData {
@@ -1112,12 +1304,22 @@ impl World {
             range,
             diversion_pctg,
         };
-        let mut obj = self.base_object(ObjectKind::CounterMeasure, &arch.root, KindData::CounterMeasure(data));
+        let mut obj = self.base_object(
+            ObjectKind::CounterMeasure,
+            &arch.root,
+            KindData::CounterMeasure(data),
+        );
         let id = self.allocate_id();
         World::init_simple(&mut obj, system, id, 0, -1.0, s.position, s.orientation);
         let h = self.insert(system, obj);
         self.sync_instance(h);
-        self.projectile_body(h, arch.root.mass, drag_damping(linear_drag, arch.root.mass), s.owner, s.velocity);
+        self.projectile_body(
+            h,
+            arch.root.mass,
+            drag_damping(linear_drag, arch.root.mass),
+            s.owner,
+            s.velocity,
+        );
         Ok(h)
     }
 
@@ -1145,7 +1347,11 @@ impl World {
             .ok_or(SpawnError::UnknownArchetype(archetype))?;
         let mut rock = rock;
         rock.collision_group_id = system;
-        let mut obj = self.base_object(ObjectKind::Asteroid, &arch.root, KindData::Asteroid(rock.clone()));
+        let mut obj = self.base_object(
+            ObjectKind::Asteroid,
+            &arch.root,
+            KindData::Asteroid(rock.clone()),
+        );
         let id = rock.asteroid_id;
         World::init_simple(&mut obj, system, id, 0, -1.0, position, orientation);
         let h = self.insert(system, obj);

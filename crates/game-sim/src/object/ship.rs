@@ -297,7 +297,9 @@ mod tests {
 
     fn engine_list(active: bool) -> EquipManager {
         let mut arch = Equipment::new(classes::ENGINE);
-        if let crate::data::archetype::equipment::EquipmentKind::Engine { linear_drag, .. } = &mut arch.kind {
+        if let crate::data::archetype::equipment::EquipmentKind::Engine { linear_drag, .. } =
+            &mut arch.kind
+        {
             *linear_drag = 5.0;
         }
         let mut e = Equip::alloc(0x22, &arch, false, true, None).unwrap();
@@ -310,10 +312,24 @@ mod tests {
     #[test]
     fn damping_is_drag_over_mass_and_inertia() {
         let consts = crate::data::constants::Constants::default().engine;
-        let (lin, ang) = damping(&ship(), &engine_list(true), None, &consts, 2.0, Vector::new(10.0, 20.0, 30.0));
+        let (lin, ang) = damping(
+            &ship(),
+            &engine_list(true),
+            None,
+            &consts,
+            2.0,
+            Vector::new(10.0, 20.0, 30.0),
+        );
         assert_eq!(lin, 3.0);
         assert_eq!(ang, Vector::new(10.0, 10.0, 10.0));
-        let (lin, _) = damping(&ship(), &engine_list(false), Some(0.5), &consts, 2.0, Vector::new(1.0, 1.0, 1.0));
+        let (lin, _) = damping(
+            &ship(),
+            &engine_list(false),
+            Some(0.5),
+            &consts,
+            2.0,
+            Vector::new(1.0, 1.0, 1.0),
+        );
         assert_eq!(lin, 0.25);
     }
 
@@ -321,13 +337,24 @@ mod tests {
     fn linear_drag_counts_an_active_engine() {
         let consts = crate::data::constants::Constants::default().engine;
         assert_eq!(linear_drag(&ship(), &engine_list(true), None, &consts), 6.0);
-        assert_eq!(linear_drag(&ship(), &engine_list(false), Some(2.0), &consts), 2.0);
+        assert_eq!(
+            linear_drag(&ship(), &engine_list(false), Some(2.0), &consts),
+            2.0
+        );
     }
 
     #[test]
     fn force_components_sum_engine_and_drag() {
         let consts = crate::data::constants::Constants::default().engine;
-        let (f, d) = collect_force_components(&ship(), &engine_list(true), 1.0, ThrustKind::Engine, None, &consts, 6.0);
+        let (f, d) = collect_force_components(
+            &ship(),
+            &engine_list(true),
+            1.0,
+            ThrustKind::Engine,
+            None,
+            &consts,
+            6.0,
+        );
         assert_eq!(f, 0.0);
         assert_eq!(d, 6.0);
     }

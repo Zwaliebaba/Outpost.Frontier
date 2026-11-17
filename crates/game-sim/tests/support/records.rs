@@ -42,12 +42,16 @@ impl Json {
 
     /// An `f32` written as its bit pattern.
     pub fn as_f32(&self) -> Option<f32> {
-        u32::from_str_radix(self.as_str()?, 16).ok().map(f32::from_bits)
+        u32::from_str_radix(self.as_str()?, 16)
+            .ok()
+            .map(f32::from_bits)
     }
 
     /// An `f64` written as its bit pattern.
     pub fn as_f64(&self) -> Option<f64> {
-        u64::from_str_radix(self.as_str()?, 16).ok().map(f64::from_bits)
+        u64::from_str_radix(self.as_str()?, 16)
+            .ok()
+            .map(f64::from_bits)
     }
 
     /// An unsigned integer.
@@ -173,9 +177,12 @@ impl Parser<'_> {
                             self.i += 1;
                             match e {
                                 b'u' => {
-                                    let hex = std::str::from_utf8(self.b.get(self.i..self.i + 4).ok_or("bad \\u")?)
-                                        .map_err(|e| e.to_string())?;
-                                    let code = u32::from_str_radix(hex, 16).map_err(|e| e.to_string())?;
+                                    let hex = std::str::from_utf8(
+                                        self.b.get(self.i..self.i + 4).ok_or("bad \\u")?,
+                                    )
+                                    .map_err(|e| e.to_string())?;
+                                    let code =
+                                        u32::from_str_radix(hex, 16).map_err(|e| e.to_string())?;
                                     out.push(char::from_u32(code).unwrap_or('?'));
                                     self.i += 4;
                                 }
@@ -203,13 +210,20 @@ impl Parser<'_> {
             }
             _ => {
                 let start = self.i;
-                while self.i < self.b.len() && matches!(self.b[self.i], b'-' | b'+' | b'.' | b'e' | b'E' | b'0'..=b'9') {
+                while self.i < self.b.len()
+                    && matches!(
+                        self.b[self.i],
+                        b'-' | b'+' | b'.' | b'e' | b'E' | b'0'..=b'9'
+                    )
+                {
                     self.i += 1;
                 }
                 if start == self.i {
                     return Err(format!("unexpected byte at {start}"));
                 }
-                Ok(Json::Number(String::from_utf8_lossy(&self.b[start..self.i]).into_owned()))
+                Ok(Json::Number(
+                    String::from_utf8_lossy(&self.b[start..self.i]).into_owned(),
+                ))
             }
         }
     }
@@ -217,7 +231,10 @@ impl Parser<'_> {
 
 /// Parses one line.
 pub fn parse(line: &str) -> Result<Json, String> {
-    let mut p = Parser { b: line.as_bytes(), i: 0 };
+    let mut p = Parser {
+        b: line.as_bytes(),
+        i: 0,
+    };
     let v = p.value()?;
     p.ws();
     if p.i != p.b.len() {

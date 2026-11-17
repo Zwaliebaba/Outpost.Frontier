@@ -113,6 +113,24 @@ jobs:
           $code = $LASTEXITCODE
           Copy-Item "$env:OUTPOST_ORACLE_DIR\rust-sim-replay.txt" "$env:RUNNER_TEMP\outpost-sim-summaries\" -ErrorAction SilentlyContinue
           exit $code
+      - name: Replay the controllers, the damage and the scenarios through the object model
+        # Work package P2.4 (decision O20): the flight controllers rebuilt from each PSI's recorded
+        # inputs (ctl) against the recorded pushes, the munition hits and collision damages of
+        # calls.jsonl against the recorded damage lists, and the scenarios run through the Rust
+        # world against tick.jsonl (differences reported; only gross divergence fails, the
+        # envelopes being unapproved). Summaries rust-controller-replay.txt,
+        # rust-damage-replay.txt and rust-scenario-replay.txt.
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $env:OUTPOST_ORACLE_DIR = "$env:RUNNER_TEMP\outpost-sim"
+          $failed = 0
+          foreach ($test in 'controller_replay', 'damage_replay', 'scenario_replay') {
+            cargo test --locked --release -p game-sim --test $test -- --nocapture
+            if ($LASTEXITCODE -ne 0) { $failed = 1 }
+          }
+          Copy-Item "$env:OUTPOST_ORACLE_DIR\rust-*-replay.txt" "$env:RUNNER_TEMP\outpost-sim-summaries\" -ErrorAction SilentlyContinue
+          exit $failed
       - name: Keep the scenario spread summaries
         if: always()
         uses: actions/upload-artifact@v4

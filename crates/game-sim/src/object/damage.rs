@@ -19,7 +19,9 @@ use neuron_core::scene::InstanceId;
 
 use crate::data::archetype::eq_obj::CollisionGroup;
 use crate::equip::launcher::ProjectileArch;
-use crate::equip::{EquipKind, EquipManager, Fate, SUBOBJ_ID_NONE, SUBOBJ_ID_POWER, SUBOBJ_ID_ROOT, SubObjId, types};
+use crate::equip::{
+    EquipKind, EquipManager, Fate, SUBOBJ_ID_NONE, SUBOBJ_ID_POWER, SUBOBJ_ID_ROOT, SubObjId, types,
+};
 
 fn e(v: f32) -> f64 {
     f64::from(v)
@@ -328,7 +330,12 @@ pub fn damage_hull(t: &DamageTarget<'_>, amount: f32, list: &mut DamageList) -> 
 }
 
 /// `EqObj::damage_equip`. True when the item is destroyed.
-pub fn damage_equip(t: &DamageTarget<'_>, id: SubObjId, damage: f32, list: &mut DamageList) -> bool {
+pub fn damage_equip(
+    t: &DamageTarget<'_>,
+    id: SubObjId,
+    damage: f32,
+    list: &mut DamageList,
+) -> bool {
     if damage == 0.0 {
         return false;
     }
@@ -404,7 +411,12 @@ pub fn destroy_equip(t: &DamageTarget<'_>, id: SubObjId, fate: Fate, list: &mut 
 
 /// `EqObj::damage_shield`. True when the change crosses the shield's
 /// offline threshold.
-pub fn damage_shield(t: &DamageTarget<'_>, id: SubObjId, damage: f32, list: &mut DamageList) -> bool {
+pub fn damage_shield(
+    t: &DamageTarget<'_>,
+    id: SubObjId,
+    damage: f32,
+    list: &mut DamageList,
+) -> bool {
     if damage == 0.0 {
         return false;
     }
@@ -438,7 +450,11 @@ pub fn damage_shield(t: &DamageTarget<'_>, id: SubObjId, damage: f32, list: &mut
         } else {
             let max = shield.max_hit_pts;
             let rel_new = if max != 0.0 { e(new) / e(max) } else { 0.0 };
-            let rel_current = if max != 0.0 { r(e(current) / e(max)) } else { 0.0 };
+            let rel_current = if max != 0.0 {
+                r(e(current) / e(max))
+            } else {
+                0.0
+            };
             let floor = r(1.0 - e(timer));
             if rel_new < e(floor) {
                 if rel_current < floor {
@@ -512,7 +528,11 @@ pub fn damage_group(
         let floor = r(1.0 - e(timer));
         let max_exact = group.max_hit_points();
         let max = r(max_exact);
-        let rel_current = if max_exact != 0.0 { e(current) / e(max) } else { 0.0 };
+        let rel_current = if max_exact != 0.0 {
+            e(current) / e(max)
+        } else {
+            0.0
+        };
         if rel_current < e(floor) {
             new = current;
         } else {
@@ -584,7 +604,15 @@ pub fn destroy_group(
             if child.id == group.id || !in_group(group, child.root_instance) {
                 continue;
             }
-            destroy_group(t, child.id, Fate::Destroyed, list, false, in_group, mount_of);
+            destroy_group(
+                t,
+                child.id,
+                Fate::Destroyed,
+                list,
+                false,
+                in_group,
+                mount_of,
+            );
         }
     }
     list.add_damage_entry(group.id, 0.0, fate);
@@ -662,13 +690,21 @@ pub fn munition_hit(
         if t.group(sub_obj_id).is_none() {
             return;
         }
-        damage_group(t, sub_obj_id, munition.hull_damage, list, in_group, mount_of);
+        damage_group(
+            t,
+            sub_obj_id,
+            munition.hull_damage,
+            list,
+            in_group,
+            mount_of,
+        );
     } else if is_equip_id(sub_obj_id) {
         let Some(equip) = t.equipment.by_id(sub_obj_id) else {
             return;
         };
         if equip.type_bits == types::SHIELD {
-            let total = r(e(munition.hull_damage) * e(t.shield_hull_damage_factor) + e(munition.energy_damage));
+            let total = r(e(munition.hull_damage) * e(t.shield_hull_damage_factor)
+                + e(munition.energy_damage));
             let modifier = (t.shield_modifier)(sub_obj_id, munition.weapon_type);
             damage_shield(t, sub_obj_id, r(modifier * e(total)), list);
             return;
@@ -684,7 +720,11 @@ pub fn munition_hit(
 mod tests {
     use super::*;
 
-    fn target<'a>(equipment: &'a EquipManager, groups: &'a [ArchGroup], f: &'a dyn Fn(SubObjId, u32) -> f64) -> DamageTarget<'a> {
+    fn target<'a>(
+        equipment: &'a EquipManager,
+        groups: &'a [ArchGroup],
+        f: &'a dyn Fn(SubObjId, u32) -> f64,
+    ) -> DamageTarget<'a> {
         DamageTarget {
             hit_pts: 100.0,
             max_hit_pts: 100.0,
@@ -736,16 +776,38 @@ mod tests {
         let f = |_, _| 1.0;
         let t = target(&m, &[], &f);
         let mut l = DamageList::new(CAUSE_GUN, 7, 0);
-        munition_hit(&t, &munition(30.0, 20.0), SUBOBJ_ID_ROOT, &mut l, &|_, _| false, &|_| None);
+        munition_hit(
+            &t,
+            &munition(30.0, 20.0),
+            SUBOBJ_ID_ROOT,
+            &mut l,
+            &|_, _| false,
+            &|_| None,
+        );
         assert_eq!(
             l.entries,
             vec![
-                DamageEntry { sub_obj_id: SUBOBJ_ID_ROOT, hit_pts: 70.0, fate: Fate::None },
-                DamageEntry { sub_obj_id: SUBOBJ_ID_POWER, hit_pts: 30.0, fate: Fate::None },
+                DamageEntry {
+                    sub_obj_id: SUBOBJ_ID_ROOT,
+                    hit_pts: 70.0,
+                    fate: Fate::None
+                },
+                DamageEntry {
+                    sub_obj_id: SUBOBJ_ID_POWER,
+                    hit_pts: 30.0,
+                    fate: Fate::None
+                },
             ]
         );
         assert!(!l.destroyed);
-        munition_hit(&t, &munition(80.0, 0.0), SUBOBJ_ID_ROOT, &mut l, &|_, _| false, &|_| None);
+        munition_hit(
+            &t,
+            &munition(80.0, 0.0),
+            SUBOBJ_ID_ROOT,
+            &mut l,
+            &|_, _| false,
+            &|_| None,
+        );
         assert!(l.destroyed);
         assert_eq!(l.hit_pts_left(SUBOBJ_ID_ROOT), 0.0);
     }
@@ -770,7 +832,10 @@ mod tests {
         arch.hit_pts = 10;
         let mut child = CollisionGroup::new(4);
         child.hit_pts = 10;
-        let groups = vec![ArchGroup::new(&arch, b"a".to_vec()), ArchGroup::new(&child, b"b".to_vec())];
+        let groups = vec![
+            ArchGroup::new(&arch, b"a".to_vec()),
+            ArchGroup::new(&child, b"b".to_vec()),
+        ];
         let m = EquipManager::default();
         let f = |_, _| 1.0;
         let t = target(&m, &groups, &f);
@@ -778,7 +843,13 @@ mod tests {
         let in_group = |g: &ArchGroup, _i: Option<InstanceId>| g.id == 3;
         munition_hit(&t, &munition(25.0, 0.0), 3, &mut l, &in_group, &|_| None);
         assert_eq!(l.hit_pts_left(3), 0.0);
-        assert_eq!(l.entries.iter().find(|x| x.sub_obj_id == 3).map(|x| x.fate), Some(Fate::Separated));
-        assert_eq!(l.entries.iter().find(|x| x.sub_obj_id == 4).map(|x| x.fate), Some(Fate::Destroyed));
+        assert_eq!(
+            l.entries.iter().find(|x| x.sub_obj_id == 3).map(|x| x.fate),
+            Some(Fate::Separated)
+        );
+        assert_eq!(
+            l.entries.iter().find(|x| x.sub_obj_id == 4).map(|x| x.fate),
+            Some(Fate::Destroyed)
+        );
     }
 }

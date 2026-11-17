@@ -118,10 +118,19 @@ mod tests {
     #[test]
     fn immersion_is_a_sphere() {
         let p = Vector::ZERO;
-        assert_eq!(atmosphere_immersion(100.0, p, Vector::new(50.0, 0.0, 0.0)), 1.0);
-        assert_eq!(atmosphere_immersion(100.0, p, Vector::new(100.0, 0.0, 0.0)), 0.0);
+        assert_eq!(
+            atmosphere_immersion(100.0, p, Vector::new(50.0, 0.0, 0.0)),
+            1.0
+        );
+        assert_eq!(
+            atmosphere_immersion(100.0, p, Vector::new(100.0, 0.0, 0.0)),
+            0.0
+        );
         assert_eq!(atmosphere_immersion(0.0, p, p), 0.0);
         assert_eq!(body_damping(Vector::ZERO), (true, 1.0e6, 1.0e6));
-        assert_eq!(body_damping(Vector::new(0.0, 0.1, 0.0)), (false, 1.0e12, 0.0));
+        assert_eq!(
+            body_damping(Vector::new(0.0, 0.1, 0.0)),
+            (false, 1.0e12, 0.0)
+        );
     }
 }

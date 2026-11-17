@@ -28,6 +28,12 @@
 //! change after loading, so this reads what the C++ reads through its
 //! archetype pointer.
 
+// The reference's x87 comparisons send unordered operands (NaN) to one
+// side; the port spells each outcome as the comparison that is true exactly
+// when the reference takes that side, which needs negated comparisons
+// (as `neuron-core::physics` does).
+#![allow(clippy::neg_cmp_op_on_partial_ord)]
+
 pub mod flight;
 pub mod launcher;
 pub mod misc;
@@ -39,7 +45,7 @@ use neuron_core::scene::InstanceId;
 use crate::data::archetype::equipment::{Equipment, EquipmentKind};
 
 pub use flight::{
-    EngineArch, EngineState, Nudge, Pusher, ShipFlightArch, StrafeDir, Steering, Strafe,
+    EngineArch, EngineState, Nudge, Pusher, ShipFlightArch, Steering, Strafe, StrafeDir,
 };
 
 /// A sub-object id (`SubObjectID`): 1 the root, 2 the power, 3 to 0x20 the
@@ -368,9 +374,15 @@ pub enum EquipKind {
 impl Equip {
     /// `CEquip::CEquip`: inactive, not destroyed.
     #[must_use]
-    pub fn new(id: SubObjId, arch: &Equipment, type_bits: u32, kind: EquipKind, mission: bool) -> Self {
+    pub fn new(
+        id: SubObjId,
+        arch: &Equipment,
+        type_bits: u32,
+        kind: EquipKind,
+        mission: bool,
+    ) -> Self {
         let external = type_bits & types::EXTERNAL != 0;
-        let attached = (type_bits & types::ATTACHED != 0).then(|| AttachedState {
+        let attached = (type_bits & types::ATTACHED != 0).then_some(AttachedState {
             attachment: None,
             debris: None,
             hit_pts: arch.root.hit_pts,
@@ -417,14 +429,24 @@ impl Equip {
                 types::THRUSTER,
                 EquipKind::Thruster(flight::Thruster::of(arch)?),
             ),
-            (EquipmentKind::Tractor { max_length, reach_speed }, _) if ship => (
+            (
+                EquipmentKind::Tractor {
+                    max_length,
+                    reach_speed,
+                },
+                _,
+            ) if ship => (
                 types::TRACTOR,
                 EquipKind::Tractor(misc::Tractor::new(*max_length, *reach_speed)),
             ),
-            (EquipmentKind::CargoPod(_), _) => (types::CARGO_POD, EquipKind::CargoPod(misc::CargoPod::default())),
-            (EquipmentKind::Power { .. }, _) => {
-                (types::POWER, EquipKind::Power(flight::PowerPlant::of(arch)?))
-            }
+            (EquipmentKind::CargoPod(_), _) => (
+                types::CARGO_POD,
+                EquipKind::CargoPod(misc::CargoPod::default()),
+            ),
+            (EquipmentKind::Power { .. }, _) => (
+                types::POWER,
+                EquipKind::Power(flight::PowerPlant::of(arch)?),
+            ),
             (EquipmentKind::ShieldGenerator(g), _) => (
                 types::SHIELD_GEN,
                 EquipKind::ShieldGenerator(shield::ShieldGenerator::new(g)),
@@ -441,30 +463,60 @@ impl Equip {
                 types::CM_DROPPER,
                 EquipKind::CmDropper(launcher::Launcher::new(launcher, projectile)),
             ),
-            (EquipmentKind::Scanner { power_usage, range, cargo_scan_range }, _) => (
+            (
+                EquipmentKind::Scanner {
+                    power_usage,
+                    range,
+                    cargo_scan_range,
+                },
+                _,
+            ) => (
                 types::SCANNER,
                 EquipKind::Scanner(misc::Scanner::new(*power_usage, *range, *cargo_scan_range)),
             ),
-            (EquipmentKind::Light { always_on, docking_light }, _) => (
+            (
+                EquipmentKind::Light {
+                    always_on,
+                    docking_light,
+                },
+                _,
+            ) => (
                 types::LIGHT,
-                EquipKind::Light(misc::Light { always_on: *always_on, docking_light: *docking_light, on: false }),
+                EquipKind::Light(misc::Light {
+                    always_on: *always_on,
+                    docking_light: *docking_light,
+                    on: false,
+                }),
             ),
             (EquipmentKind::AttachedFx, _) => (types::ATTACHED_FX, EquipKind::AttachedFx),
             (EquipmentKind::InternalFx { .. }, _) => (types::INTERNAL_FX, EquipKind::InternalFx),
             (EquipmentKind::RepairDroid { repair_rate }, _) => (
                 types::REPAIR_DROID,
-                EquipKind::RepairDroid(misc::RepairDroid { repair_rate: *repair_rate }),
+                EquipKind::RepairDroid(misc::RepairDroid {
+                    repair_rate: *repair_rate,
+                }),
             ),
             (
-                EquipmentKind::CloakingDevice { power_usage, cloakin_time, cloakout_time, .. },
+                EquipmentKind::CloakingDevice {
+                    power_usage,
+                    cloakin_time,
+                    cloakout_time,
+                    ..
+                },
                 _,
             ) => (
                 types::CLOAK,
-                EquipKind::Cloak(misc::Cloak::new(*power_usage, *cloakin_time, *cloakout_time)),
+                EquipKind::Cloak(misc::Cloak::new(
+                    *power_usage,
+                    *cloakin_time,
+                    *cloakout_time,
+                )),
             ),
             (EquipmentKind::Armor { hit_pts_scale }, _) => (
                 types::ARMOR,
-                EquipKind::Armor(misc::Armor { hit_pts_scale: *hit_pts_scale }),
+                EquipKind::Armor(misc::Armor {
+                    hit_pts_scale: *hit_pts_scale,
+                }),
             ),
             _ => return None,
         };
@@ -484,7 +536,9 @@ impl Equip {
     #[must_use]
     pub fn cargo(id: SubObjId, arch: &Equipment, mission: bool, health: f32, count: u32) -> Self {
         let decay = match arch.kind {
-            EquipmentKind::Commodity { decay_per_second, .. } => decay_per_second,
+            EquipmentKind::Commodity {
+                decay_per_second, ..
+            } => decay_per_second,
             _ => 0.0,
         };
         let mut cargo = misc::Cargo::new(decay);
@@ -550,7 +604,9 @@ impl Equip {
     pub fn is_functioning(&self, weapons_offline: bool) -> bool {
         let base = self.is_active() && !self.is_disabled(weapons_offline) && !self.is_destroyed();
         match &self.kind {
-            EquipKind::Engine(engine) => base && engine.controller_enabled && engine.has_nozzle_or_indestructible(),
+            EquipKind::Engine(engine) => {
+                base && engine.controller_enabled && engine.has_nozzle_or_indestructible()
+            }
             _ => base,
         }
     }
@@ -673,10 +729,16 @@ impl EquipManager {
         }
         if equip.in_internal_list() {
             self.internal.push(equip);
-            EquipSlot { internal: true, index: self.internal.len() - 1 }
+            EquipSlot {
+                internal: true,
+                index: self.internal.len() - 1,
+            }
         } else {
             self.external.push(equip);
-            EquipSlot { internal: false, index: self.external.len() - 1 }
+            EquipSlot {
+                internal: false,
+                index: self.external.len() - 1,
+            }
         }
     }
 
@@ -764,12 +826,18 @@ impl EquipManager {
     #[must_use]
     pub fn find_by_id(&self, id: SubObjId) -> Option<EquipSlot> {
         if let Some(index) = self.external.iter().position(|e| e.id == id) {
-            return Some(EquipSlot { internal: false, index });
+            return Some(EquipSlot {
+                internal: false,
+                index,
+            });
         }
         self.internal
             .iter()
             .position(|e| e.id == id)
-            .map(|index| EquipSlot { internal: true, index })
+            .map(|index| EquipSlot {
+                internal: true,
+                index,
+            })
     }
 
     /// The item with an id.
@@ -788,11 +856,13 @@ impl EquipManager {
     /// (compared as the reference compares cache strings, by content).
     #[must_use]
     pub fn find_by_hardpoint(&self, hardpoint: &[u8]) -> Option<EquipSlot> {
-        self.traverse(types::EXTERNAL, true).into_iter().find(|&slot| {
-            self.get(slot)
-                .and_then(|e| e.mount.as_ref())
-                .is_some_and(|m| neuron_core::hash::eq_ignore_case(&m.hardpoint, hardpoint))
-        })
+        self.traverse(types::EXTERNAL, true)
+            .into_iter()
+            .find(|&slot| {
+                self.get(slot)
+                    .and_then(|e| e.mount.as_ref())
+                    .is_some_and(|m| neuron_core::hash::eq_ignore_case(&m.hardpoint, hardpoint))
+            })
     }
 
     /// `InstToSubObjID`: the attached item whose root instance is
@@ -868,8 +938,20 @@ mod tests {
         let power = Equip::alloc(0x22, &arch(classes::POWER, 1), false, true, None).unwrap();
         let light = Equip::alloc(0x23, &arch(classes::LIGHT, 2), false, true, None).unwrap();
         let engine = Equip::alloc(0x24, &arch(classes::ENGINE, 3), false, true, None).unwrap();
-        assert_eq!(m.add(power), EquipSlot { internal: false, index: 0 });
-        assert_eq!(m.add(light), EquipSlot { internal: true, index: 0 });
+        assert_eq!(
+            m.add(power),
+            EquipSlot {
+                internal: false,
+                index: 0
+            }
+        );
+        assert_eq!(
+            m.add(light),
+            EquipSlot {
+                internal: true,
+                index: 0
+            }
+        );
         m.add(engine);
         // The update traverser (0xff3efffc) never reaches the second list.
         let update: Vec<_> = m.traverse(types::EXTERNAL_LIST, false);
@@ -894,7 +976,10 @@ mod tests {
         e.activate_base(true);
         e.activate_base(true);
         e.activate_base(false);
-        assert_eq!(e.events, vec![EquipEvent::Activating, EquipEvent::Deactivating]);
+        assert_eq!(
+            e.events,
+            vec![EquipEvent::Activating, EquipEvent::Deactivating]
+        );
     }
 
     #[test]

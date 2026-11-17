@@ -329,7 +329,12 @@ impl Launcher {
     /// the aim, the owner's velocity added, the orientation along the
     /// muzzle velocity alone.
     #[must_use]
-    pub fn launch_info_one_barrel(&self, cx: &LaunchContext, barrel: usize, target: Vector) -> ProjLaunchInfo {
+    pub fn launch_info_one_barrel(
+        &self,
+        cx: &LaunchContext,
+        barrel: usize,
+        target: Vector,
+    ) -> ProjLaunchInfo {
         let owner = cx.owner_velocity;
         let muzzle = cx.barrel_pos(&self.barrels, barrel);
         let delta = Vector::new(
@@ -338,7 +343,8 @@ impl Launcher {
             r(e(target.z) - e(muzzle.z)),
         );
         let scale = e(self.muzzle_velocity)
-            / ((e(delta.y) * e(delta.y) + e(delta.z) * e(delta.z)) + e(delta.x) * e(delta.x)).sqrt();
+            / ((e(delta.y) * e(delta.y) + e(delta.z) * e(delta.z)) + e(delta.x) * e(delta.x))
+                .sqrt();
         let dir = Vector::new(
             r(e(delta.x) * scale),
             r(e(delta.y) * scale),
@@ -379,7 +385,10 @@ pub struct Gun {
 impl Gun {
     /// `CEGun::CEGun`.
     #[must_use]
-    pub fn new(data: &crate::data::archetype::equipment::Gun, projectile: Option<&Equipment>) -> Self {
+    pub fn new(
+        data: &crate::data::archetype::equipment::Gun,
+        projectile: Option<&Equipment>,
+    ) -> Self {
         Self {
             launcher: Launcher::new(&data.launcher, projectile),
             dispersion_angle: data.dispersion_angle,
@@ -407,8 +416,13 @@ impl Gun {
         }
         let cone = r(e(cx.muzzle_cone_angle) * e(0.017_453_292_f32));
         let muzzle = cx.barrel_pos(&self.launcher.barrels, 0);
-        let delta = Vector::new(target.x - muzzle.x, target.y - muzzle.y, target.z - muzzle.z);
-        let len = (e(delta.z) * e(delta.z) + e(delta.y) * e(delta.y) + e(delta.x) * e(delta.x)).sqrt();
+        let delta = Vector::new(
+            target.x - muzzle.x,
+            target.y - muzzle.y,
+            target.z - muzzle.z,
+        );
+        let len =
+            (e(delta.z) * e(delta.z) + e(delta.y) * e(delta.y) + e(delta.x) * e(delta.x)).sqrt();
         let inv = 1.0 / len;
         let norm = Vector::new(
             r(e(delta.x) * inv),
@@ -452,7 +466,9 @@ impl Gun {
         let seeker = self.launcher.projectile.map_or(0, |p| p.seeker);
         let mut out = if seeker == 0 {
             let owner = cx.owner_velocity;
-            let (pos, dir) = self.launcher.projectile_pos_and_velocity(cx, barrel, target);
+            let (pos, dir) = self
+                .launcher
+                .projectile_pos_and_velocity(cx, barrel, target);
             let velocity = Vector::new(
                 r(e(dir.x) + e(owner.x)),
                 r(e(dir.y) + e(owner.y)),
@@ -476,7 +492,8 @@ impl Gun {
                 r(e(rand.z) * e(vel.x) - e(vel.z) * e(rand.x)),
                 r(e(vel.y) * e(rand.x) - e(vel.x) * e(rand.y)),
             );
-            let speed = r(((e(vel.x) * e(vel.x) + e(vel.y) * e(vel.y)) + e(vel.z) * e(vel.z)).sqrt());
+            let speed =
+                r(((e(vel.x) * e(vel.x) + e(vel.y) * e(vel.y)) + e(vel.z) * e(vel.z)).sqrt());
             let draw = rng.rand();
             let lean = (f64::from(draw) * (1.0 / 32768.0) * e(spread)).tan() * e(speed);
             let scale = lean
@@ -504,7 +521,12 @@ impl Gun {
 
     /// `ComputeLaunchInfo`: one record per barrel.
     #[must_use]
-    pub fn launch_info(&self, cx: &LaunchContext, target: Vector, rng: &mut CrtRand) -> Vec<ProjLaunchInfo> {
+    pub fn launch_info(
+        &self,
+        cx: &LaunchContext,
+        target: Vector,
+        rng: &mut CrtRand,
+    ) -> Vec<ProjLaunchInfo> {
         (0..self.launcher.barrel_count())
             .map(|b| self.launch_info_one_barrel(cx, b, target, rng))
             .collect()
@@ -515,7 +537,11 @@ impl Gun {
     /// otherwise lifetime times muzzle velocity, or the motor's burn
     /// formula.
     #[must_use]
-    pub fn munition_range(&self, destroyed: bool, motor: Option<&crate::data::archetype::misc::Motor>) -> f32 {
+    pub fn munition_range(
+        &self,
+        destroyed: bool,
+        motor: Option<&crate::data::archetype::misc::Motor>,
+    ) -> f32 {
         if destroyed {
             return 0.0;
         }
@@ -566,10 +592,14 @@ impl Gun {
 /// `speed` from the origin meets a target at `rel_pos` moving at `rel_vel`.
 #[must_use]
 pub fn compute_time_to_target(rel_pos: Vector, rel_vel: Vector, speed: f32) -> Option<f32> {
-    let dot = e(rel_pos.y) * e(rel_vel.y) + e(rel_pos.z) * e(rel_vel.z) + e(rel_pos.x) * e(rel_vel.x);
-    let vel2 = r(e(rel_vel.x) * e(rel_vel.x) + e(rel_vel.y) * e(rel_vel.y) + e(rel_vel.z) * e(rel_vel.z)
+    let dot =
+        e(rel_pos.y) * e(rel_vel.y) + e(rel_pos.z) * e(rel_vel.z) + e(rel_pos.x) * e(rel_vel.x);
+    let vel2 = r(e(rel_vel.x) * e(rel_vel.x)
+        + e(rel_vel.y) * e(rel_vel.y)
+        + e(rel_vel.z) * e(rel_vel.z)
         - e(speed) * e(speed));
-    let pos2 = e(rel_pos.x) * e(rel_pos.x) + e(rel_pos.y) * e(rel_pos.y) + e(rel_pos.z) * e(rel_pos.z);
+    let pos2 =
+        e(rel_pos.x) * e(rel_pos.x) + e(rel_pos.y) * e(rel_pos.y) + e(rel_pos.z) * e(rel_pos.z);
     let disc = dot * dot - pos2 * e(vel2);
     if !(disc >= 0.0) {
         return None;
@@ -583,7 +613,11 @@ pub fn compute_time_to_target(rel_pos: Vector, rel_vel: Vector, speed: f32) -> O
     if !first && !second {
         return None;
     }
-    Some(if first && (!second || t1 < t2) { t1 } else { t2 })
+    Some(if first && (!second || t1 < t2) {
+        t1
+    } else {
+        t2
+    })
 }
 
 #[cfg(test)]
@@ -638,7 +672,10 @@ mod tests {
         assert_eq!(gun.launcher.refire_elapsed, 0.0);
         gun.launcher.update(0.25);
         // Behind the barrel: outside the cone.
-        assert_eq!(gun.fire(&cx(), Vector::new(0.0, 0.0, 400.0)), FireResult::MuzzleCone);
+        assert_eq!(
+            gun.fire(&cx(), Vector::new(0.0, 0.0, 400.0)),
+            FireResult::MuzzleCone
+        );
         let mut low = cx();
         low.owner_power = 5.0;
         gun.launcher.update(0.25);
@@ -677,6 +714,13 @@ mod tests {
     fn time_to_target_picks_the_earliest_positive_root() {
         let t = compute_time_to_target(Vector::new(0.0, 0.0, -750.0), Vector::ZERO, 750.0).unwrap();
         assert!((t - 1.0).abs() < 1e-6);
-        assert!(compute_time_to_target(Vector::new(0.0, 0.0, -10.0), Vector::new(0.0, 0.0, -1000.0), 750.0).is_none());
+        assert!(
+            compute_time_to_target(
+                Vector::new(0.0, 0.0, -10.0),
+                Vector::new(0.0, 0.0, -1000.0),
+                750.0
+            )
+            .is_none()
+        );
     }
 }

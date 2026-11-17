@@ -96,7 +96,9 @@ impl ShieldGenerator {
         if draw <= power {
             *owner_power = r(power - draw);
             if recharging {
-                return Some(r(e(real_dt) * e(self.regeneration_rate) + e(shield_hit_points)));
+                return Some(r(
+                    e(real_dt) * e(self.regeneration_rate) + e(shield_hit_points)
+                ));
             }
         }
         None
@@ -164,7 +166,12 @@ impl Shield {
 
     /// `Activate_Internal`: the collision change of the attachment is the
     /// world's; here the flag and the event.
-    pub fn activate_internal(&mut self, on: bool, status: ShieldStatus, events: &mut Vec<EquipEvent>) -> bool {
+    pub fn activate_internal(
+        &mut self,
+        on: bool,
+        status: ShieldStatus,
+        events: &mut Vec<EquipEvent>,
+    ) -> bool {
         if self.online != on && status.attached {
             self.online = on;
             events.push(EquipEvent::ShieldOfflineChanged(on));
@@ -173,7 +180,12 @@ impl Shield {
     }
 
     /// `CEShield::Activate`'s shield part, after `CEquip::Activate`.
-    pub fn activate(&mut self, status: ShieldStatus, now: f64, events: &mut Vec<EquipEvent>) -> bool {
+    pub fn activate(
+        &mut self,
+        status: ShieldStatus,
+        now: f64,
+        events: &mut Vec<EquipEvent>,
+    ) -> bool {
         if status.active {
             if self.can_activate(now) {
                 self.activate_internal(true, status, events);
@@ -196,8 +208,18 @@ impl Shield {
 
     /// `CEShield::SetHitPoints`: capped at the maximum; a functioning
     /// shield at or below its threshold goes offline for its rebuild time.
-    pub fn set_hit_points(&mut self, hit: f32, status: ShieldStatus, now: f64, events: &mut Vec<EquipEvent>) {
-        let hit = if self.max_hit_pts < hit { self.max_hit_pts } else { hit };
+    pub fn set_hit_points(
+        &mut self,
+        hit: f32,
+        status: ShieldStatus,
+        now: f64,
+        events: &mut Vec<EquipEvent>,
+    ) {
+        let hit = if self.max_hit_pts < hit {
+            self.max_hit_pts
+        } else {
+            hit
+        };
         self.hit_pts = hit;
         if self.is_functioning(status) {
             if self.relative_health() <= e(self.offline_threshold) {
@@ -226,8 +248,9 @@ impl Shield {
             self.dominant = Some((generator.nickname, generator.toughness));
         }
         let count = self.generators.len() as f64;
-        self.offline_threshold =
-            r((count * e(self.offline_threshold) + e(generator.offline_threshold)) / (count + 1.0));
+        self.offline_threshold = r((count * e(self.offline_threshold)
+            + e(generator.offline_threshold))
+            / (count + 1.0));
         if self.offline_rebuild_time < generator.offline_rebuild_time {
             self.offline_rebuild_time = generator.offline_rebuild_time;
         }
@@ -284,7 +307,12 @@ impl Shield {
     /// `GetWeaponModifier(weapon_type)`: the mean of the generators'
     /// shield modifiers, 1 without generators; unrounded.
     #[must_use]
-    pub fn weapon_modifier(&self, weapon_type: u32, shield_types: &[u32], mods: &WeaponModDb) -> f64 {
+    pub fn weapon_modifier(
+        &self,
+        weapon_type: u32,
+        shield_types: &[u32],
+        mods: &WeaponModDb,
+    ) -> f64 {
         if shield_types.is_empty() {
             return 1.0;
         }
@@ -333,7 +361,10 @@ mod tests {
         assert!(s.online);
         s.add_gen(0x31, &generator(100.0, 0.4), ON, 0.0, &mut ev);
         assert_eq!(s.max_hit_pts, 300.0);
-        assert_eq!(s.offline_threshold, r((0.2f32 as f64 + 0.4f32 as f64) / 2.0));
+        assert_eq!(
+            s.offline_threshold,
+            r((0.2f32 as f64 + 0.4f32 as f64) / 2.0)
+        );
     }
 
     #[test]

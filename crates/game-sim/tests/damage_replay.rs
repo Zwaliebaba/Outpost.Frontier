@@ -62,20 +62,31 @@ fn rebuild(record: &Json) -> Option<Case> {
             0x7FF0,
             &arch,
             types::ARMOR,
-            EquipKind::Armor(game_sim::equip::misc::Armor { hit_pts_scale: scale }),
+            EquipKind::Armor(game_sim::equip::misc::Armor {
+                hit_pts_scale: scale,
+            }),
             false,
         ));
     }
     let mut groups = Vec::new();
-    let kind = state.get("sub_kind").and_then(Json::as_str).unwrap_or("root");
+    let kind = state
+        .get("sub_kind")
+        .and_then(Json::as_str)
+        .unwrap_or("root");
     let sub_hp = f(state, "sub_hp");
     let sub_max = state.get("sub_hp_max").and_then(Json::as_f64);
     match kind {
         "group" => {
             let mut g = CollisionGroup::new(sub);
             g.hit_pts = sub_max? as i32;
-            g.root_health_proxy = state.get("sub_proxy").and_then(Json::as_bool).unwrap_or(false);
-            g.linked_equip_type = state.get("sub_linked_type").and_then(Json::as_u32).unwrap_or(0);
+            g.root_health_proxy = state
+                .get("sub_proxy")
+                .and_then(Json::as_bool)
+                .unwrap_or(false);
+            g.linked_equip_type = state
+                .get("sub_linked_type")
+                .and_then(Json::as_u32)
+                .unwrap_or(0);
             let mut group = ArchGroup::new(&g, Vec::new());
             group.hit_pts = sub_hp?;
             group.state = match state.get("sub_state").and_then(Json::as_i32) {
@@ -86,7 +97,10 @@ fn rebuild(record: &Json) -> Option<Case> {
             groups.push(group);
         }
         "equip" | "shield" => {
-            let type_bits = state.get("sub_type").and_then(Json::as_u32).unwrap_or(types::GUN);
+            let type_bits = state
+                .get("sub_type")
+                .and_then(Json::as_u32)
+                .unwrap_or(types::GUN);
             let mut arch = Equipment::new(0x11);
             arch.root.nickname = 2;
             arch.root.hit_pts = sub_max? as f32;
@@ -102,7 +116,10 @@ fn rebuild(record: &Json) -> Option<Case> {
                 EquipKind::AttachedFx
             };
             let mut e = Equip::new(sub, &arch, type_bits, kind, false);
-            let destroyed = state.get("sub_destroyed").and_then(Json::as_bool).unwrap_or(false);
+            let destroyed = state
+                .get("sub_destroyed")
+                .and_then(Json::as_bool)
+                .unwrap_or(false);
             e.mount = Some(Mount {
                 connected: !destroyed,
                 ..Mount::default()
@@ -127,7 +144,10 @@ fn rebuild(record: &Json) -> Option<Case> {
         owner: state.get("owner")?.as_u32()?,
         equipment,
         groups,
-        weapon_mod: state.get("shield_weapon_mod").and_then(Json::as_f64).unwrap_or(1.0),
+        weapon_mod: state
+            .get("shield_weapon_mod")
+            .and_then(Json::as_f64)
+            .unwrap_or(1.0),
         munition: ProjectileArch {
             hull_damage: f(state, "hull_damage")?,
             energy_damage: f(state, "energy_damage")?,
@@ -137,7 +157,10 @@ fn rebuild(record: &Json) -> Option<Case> {
     })
 }
 
-fn oracle_list(record: &Json) -> Option<(Vec<(u32, f32, i32)>, bool, i32)> {
+/// A damage list's entries (sub-object, hit points, fate).
+type Entries = Vec<(u32, f32, i32)>;
+
+fn oracle_list(record: &Json) -> Option<(Entries, bool, i32)> {
     let d = record.get("damage")?;
     let entries = d
         .get("entries")?
@@ -145,10 +168,18 @@ fn oracle_list(record: &Json) -> Option<(Vec<(u32, f32, i32)>, bool, i32)> {
         .iter()
         .map(|e| {
             let a = e.as_array()?;
-            Some((a.first()?.as_u32()?, a.get(1)?.as_f32()?, a.get(2)?.as_i32()?))
+            Some((
+                a.first()?.as_u32()?,
+                a.get(1)?.as_f32()?,
+                a.get(2)?.as_i32()?,
+            ))
         })
         .collect::<Option<Vec<_>>>()?;
-    Some((entries, d.get("destroyed")?.as_bool()?, d.get("cause")?.as_i32()?))
+    Some((
+        entries,
+        d.get("destroyed")?.as_bool()?,
+        d.get("cause")?.as_i32()?,
+    ))
 }
 
 fn replay(case: &Case, record: &Json, consts: &Constants) -> Option<DamageList> {
@@ -186,8 +217,10 @@ fn munition_hits_replay_the_oracle() {
         return;
     };
     // The constants the harness ran with: the master's constants.ini.
-    let consts = support::world::game_data().map_or_else(Constants::default, |d| d.constants.clone());
-    let (mut hits, mut checked, mut mismatched, mut collisions, mut collision_mismatched) = (0, 0, 0, 0, 0);
+    let consts =
+        support::world::game_data().map_or_else(Constants::default, |d| d.constants.clone());
+    let (mut hits, mut checked, mut mismatched, mut collisions, mut collision_mismatched) =
+        (0, 0, 0, 0, 0);
     let mut reports = Vec::new();
     for file in find_files(&dir, "calls.jsonl") {
         for record in read_lines(&file) {
@@ -237,11 +270,19 @@ fn munition_hits_replay_the_oracle() {
                     ) else {
                         continue;
                     };
-                    let ours = calc_collision_damage_scaled(consts.general.collision_damage_factor, speed, other, own);
+                    let ours = calc_collision_damage_scaled(
+                        consts.general.collision_damage_factor,
+                        speed,
+                        other,
+                        own,
+                    );
                     if ours.to_bits() != damage.to_bits() {
                         collision_mismatched += 1;
                         if reports.len() < MAX_REPORTED {
-                            reports.push(format!("{}: collision damage {ours} != {damage}", file.display()));
+                            reports.push(format!(
+                                "{}: collision damage {ours} != {damage}",
+                                file.display()
+                            ));
                         }
                     }
                 }
@@ -273,7 +314,11 @@ fn a_synthetic_hit_rebuilds() {
     let record = support::records::parse(line).unwrap();
     let case = rebuild(&record).unwrap();
     let list = replay(&case, &record, &Constants::default()).unwrap();
-    let rows: Vec<_> = list.entries.iter().map(|e| (e.sub_obj_id, e.hit_pts, e.fate)).collect();
+    let rows: Vec<_> = list
+        .entries
+        .iter()
+        .map(|e| (e.sub_obj_id, e.hit_pts, e.fate))
+        .collect();
     assert_eq!(rows, vec![(1, 1300.0, Fate::None), (2, 100.0, Fate::None)]);
     let (theirs, destroyed, cause) = oracle_list(&record).unwrap();
     assert_eq!(cause, CAUSE_GUN);

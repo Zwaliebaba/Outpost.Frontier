@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
 use game_sim::data::config::{DataConfig, GameData};
-use game_sim::object::world::{Assets, WorldConfig};
 use game_sim::object::World;
+use game_sim::object::world::{Assets, WorldConfig};
 use neuron_core::vfs::Host;
 
 /// The repository's `outdir/`.

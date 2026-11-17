@@ -241,7 +241,12 @@ impl EngineState {
 
     /// `GetCruiseThrust(throttle)`, with the ship's `get_linear_drag()`.
     #[must_use]
-    pub fn cruise_thrust(&self, ship_linear_drag: f64, throttle: f32, consts: &EngineEquipConsts) -> f32 {
+    pub fn cruise_thrust(
+        &self,
+        ship_linear_drag: f64,
+        throttle: f32,
+        consts: &EngineEquipConsts,
+    ) -> f32 {
         r(ship_linear_drag * e(consts.cruising_speed) * e(throttle))
     }
 
@@ -492,16 +497,11 @@ pub struct Steering {
 /// `CSteering::AXIS_CHANGE_THRESHOLD`.
 pub const AXIS_CHANGE_THRESHOLD: f32 = 1e-6;
 /// `CNudgeEngine::NUDGE_CHANGE_THRESHOLD`.
-pub const NUDGE_CHANGE_THRESHOLD: f32 = 9.999_999_7e-5;
+pub const NUDGE_CHANGE_THRESHOLD: f32 = 1.0e-4;
 
+/// Clamped to [-1, 1]; a NaN passes through, as in the reference.
 fn clamp_unit(v: f32) -> f32 {
-    if v < -1.0 {
-        -1.0
-    } else if v > 1.0 {
-        1.0
-    } else {
-        v
-    }
+    v.clamp(-1.0, 1.0)
 }
 
 impl Steering {
@@ -785,7 +785,11 @@ impl PowerPlant {
         let next = e(rate) * e(dt) + e(*current);
         *current = if next < e(max) { r(next) } else { max };
         if let Some((current, max)) = thrust {
-            let rate = if destroyed { 0.0 } else { self.thrust_charge_rate };
+            let rate = if destroyed {
+                0.0
+            } else {
+                self.thrust_charge_rate
+            };
             let next = e(rate) * e(dt) + e(*current);
             *current = if next < e(max) { r(next) } else { max };
         }
@@ -932,14 +936,30 @@ mod tests {
         let mut pool = 15.0f32;
         let mut events = Vec::new();
         let mut log = PushLog::default();
-        thruster_controller(&mut t, true, &Matrix::IDENTITY, &mut pool, 0.1, &mut events, &mut log);
+        thruster_controller(
+            &mut t,
+            true,
+            &Matrix::IDENTITY,
+            &mut pool,
+            0.1,
+            &mut events,
+            &mut log,
+        );
         assert!(t.could_thrust);
         assert_eq!(pool, 5.0);
         assert_eq!(
             log.0,
             vec![PushRecord::Linear(Vector::new(-0.0, -0.0, -1.0), 100.0)]
         );
-        thruster_controller(&mut t, true, &Matrix::IDENTITY, &mut pool, 0.1, &mut events, &mut log);
+        thruster_controller(
+            &mut t,
+            true,
+            &Matrix::IDENTITY,
+            &mut pool,
+            0.1,
+            &mut events,
+            &mut log,
+        );
         assert_eq!(events, vec![EquipEvent::ThrusterStarved]);
         assert!(!t.could_thrust);
     }
@@ -970,7 +990,13 @@ mod tests {
             thrust_charge_rate: 10.0,
         };
         let (mut power, mut thrust) = (90.0f32, 19.5f32);
-        p.recharge(true, false, 0.1, (&mut power, 100.0), Some((&mut thrust, 20.0)));
+        p.recharge(
+            true,
+            false,
+            0.1,
+            (&mut power, 100.0),
+            Some((&mut thrust, 20.0)),
+        );
         assert_eq!(power, 95.0);
         assert_eq!(thrust, 20.0);
     }

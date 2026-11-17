@@ -66,6 +66,7 @@ impl Projectile {
 
     /// `is_owner_safe`: an exact 0 (or NaN) is not.
     #[must_use]
+    #[allow(clippy::double_comparisons)]
     pub fn is_owner_safe(&self) -> bool {
         self.owner_safe_time < 0.0 || self.owner_safe_time > 0.0
     }

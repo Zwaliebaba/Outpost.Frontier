@@ -112,7 +112,12 @@ impl World {
     /// aim point (`CELauncher::Fire`, `ConsumeFireResources`); an unguided
     /// munition goes out as bullets (`launch_bullets`), a guided one as
     /// missiles (`launch_guided`). Returns each gun's result.
-    pub fn fire(&mut self, h: ObjHandle, guns: &[SubObjId], target: Vector) -> Vec<(SubObjId, FireResult)> {
+    pub fn fire(
+        &mut self,
+        h: ObjHandle,
+        guns: &[SubObjId],
+        target: Vector,
+    ) -> Vec<(SubObjId, FireResult)> {
         let mut out = Vec::new();
         let Some(o) = self.objects.get(h) else {
             return out;
@@ -130,8 +135,14 @@ impl World {
             let mut munition: Option<ProjectileArch> = None;
             let mut result = FireResult::Destroyed;
             let mut rng = std::mem::take(&mut self.rng);
-            if let Some(eq) = self.objects.get_mut(h).and_then(|o| o.equipped.as_deref_mut()) {
-                let crate::object::Equipped { equipment, power, .. } = eq;
+            if let Some(eq) = self
+                .objects
+                .get_mut(h)
+                .and_then(|o| o.equipped.as_deref_mut())
+            {
+                let crate::object::Equipped {
+                    equipment, power, ..
+                } = eq;
                 let ammo_arch = equipment.by_id(id).and_then(|e| match &e.kind {
                     EquipKind::Gun(g) => g.launcher.projectile,
                     _ => None,
@@ -254,8 +265,14 @@ impl World {
             .map(|w| w.collisions().to_vec())
             .unwrap_or_default();
         for ev in events {
-            let (a, b) = (ObjHandle::from_key(ev.object_a), ObjHandle::from_key(ev.object_b));
-            let (Some(sub_a), Some(sub_b)) = (self.part_sub_obj(a, ev.part_id_a), self.part_sub_obj(b, ev.part_id_b)) else {
+            let (a, b) = (
+                ObjHandle::from_key(ev.object_a),
+                ObjHandle::from_key(ev.object_b),
+            );
+            let (Some(sub_a), Some(sub_b)) = (
+                self.part_sub_obj(a, ev.part_id_a),
+                self.part_sub_obj(b, ev.part_id_b),
+            ) else {
                 continue;
             };
             self.on_collision(a, sub_a, b, sub_b, ev.point);
@@ -277,7 +294,14 @@ impl World {
     /// `GameObject::on_collision` (and `Bullet::on_collision`): a bullet
     /// hits the other object with its munition and dies; anything else
     /// deals the collision damage of the relative speed to the other.
-    fn on_collision(&mut self, h: ObjHandle, sub: SubObjId, other: ObjHandle, other_sub: SubObjId, point: Vector) {
+    fn on_collision(
+        &mut self,
+        h: ObjHandle,
+        sub: SubObjId,
+        other: ObjHandle,
+        other_sub: SubObjId,
+        point: Vector,
+    ) {
         let (Some(o), Some(other_obj)) = (self.objects.get(h), self.objects.get(other)) else {
             return;
         };
@@ -337,7 +361,14 @@ impl World {
     /// `StarSystem::munition_collision`: the target's `munition_hit` fills a
     /// damage list (cause 1 for guns, 2 for missiles, 3 for mines), which is
     /// then applied.
-    pub fn munition_collision(&mut self, target: ObjHandle, shooter: u32, munition: u32, sub: SubObjId, point: Vector) {
+    pub fn munition_collision(
+        &mut self,
+        target: ObjHandle,
+        shooter: u32,
+        munition: u32,
+        sub: SubObjId,
+        point: Vector,
+    ) {
         let Some(t) = self.objects.get(target) else {
             return;
         };
@@ -388,7 +419,13 @@ impl World {
         };
         let empty = crate::equip::EquipManager::default();
         let (equipment, groups, power, max_power, weapons_offline) = match o.equipped.as_deref() {
-            Some(eq) => (&eq.equipment, &eq.arch_groups[..], eq.power, eq.max_power, eq.weapons_offline),
+            Some(eq) => (
+                &eq.equipment,
+                &eq.arch_groups[..],
+                eq.power,
+                eq.max_power,
+                eq.weapons_offline,
+            ),
             None => (&empty, &[][..], 0.0, 0.0, false),
         };
         let mods = &self.data.weapon_mods;
@@ -406,7 +443,9 @@ impl World {
         };
         let modifier = |shield: SubObjId, weapon: u32| -> f64 {
             match equipment.by_id(shield).map(|e| &e.kind) {
-                Some(EquipKind::Shield(s)) => s.weapon_modifier(weapon, &shield_types(shield), mods),
+                Some(EquipKind::Shield(s)) => {
+                    s.weapon_modifier(weapon, &shield_types(shield), mods)
+                }
                 _ => 1.0,
             }
         };
@@ -429,9 +468,14 @@ impl World {
             death_fuse_burning: false,
             shield_modifier: &modifier,
         };
-        let in_group = |g: &damage::ArchGroup, i: Option<neuron_core::scene::InstanceId>| g.is_inst_in_group(i);
+        let in_group = |g: &damage::ArchGroup, i: Option<neuron_core::scene::InstanceId>| {
+            g.is_inst_in_group(i)
+        };
         let mount_of = |id: SubObjId| -> Option<neuron_core::scene::InstanceId> {
-            equipment.by_id(id).and_then(|e| e.mount.as_ref()).and_then(|m| m.instance)
+            equipment
+                .by_id(id)
+                .and_then(|e| e.mount.as_ref())
+                .and_then(|m| m.instance)
         };
         f(&t, &in_group, &mount_of);
     }
@@ -513,7 +557,13 @@ impl World {
     #[must_use]
     pub fn is_projectile(&self, h: ObjHandle) -> bool {
         self.objects.get(h).is_some_and(|o| {
-            matches!(o.kind, ObjectKind::Beam | ObjectKind::Guided | ObjectKind::Mine | ObjectKind::CounterMeasure)
+            matches!(
+                o.kind,
+                ObjectKind::Beam
+                    | ObjectKind::Guided
+                    | ObjectKind::Mine
+                    | ObjectKind::CounterMeasure
+            )
         })
     }
 }

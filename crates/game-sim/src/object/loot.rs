@@ -50,7 +50,11 @@ impl LootData {
     /// (`_itoa(..., 24)`).
     #[must_use]
     pub fn body_name(&self, id: u32) -> Vec<u8> {
-        itoa_radix24(if self.owner_id != 0 { self.owner_id } else { id })
+        itoa_radix24(if self.owner_id != 0 {
+            self.owner_id
+        } else {
+            id
+        })
     }
 
     /// `CLoot::update`'s safe time: the new collision group (its own id)

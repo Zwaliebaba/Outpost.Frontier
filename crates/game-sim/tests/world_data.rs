@@ -17,7 +17,11 @@ fn speed(v: Vector) -> f64 {
     (x * x + y * y + z * z).sqrt()
 }
 
-fn fighter(world: &mut game_sim::object::World, system: u32, at: Vector) -> game_sim::object::ObjHandle {
+fn fighter(
+    world: &mut game_sim::object::World,
+    system: u32,
+    at: Vector,
+) -> game_sim::object::ObjHandle {
     let spawn = ShipSpawn::new(
         create_id(b"he_fighter"),
         create_id(b"li_p_he_fighter_loadout01"),
@@ -68,7 +72,10 @@ fn fighter_has_its_loadout_and_flies() {
     }
     let i = world.inspect(ship).unwrap();
     let v = speed(i.velocity);
-    println!("speed after 3 s at full throttle: {v:.3} m/s, position {:?}", i.position);
+    println!(
+        "speed after 3 s at full throttle: {v:.3} m/s, position {:?}",
+        i.position
+    );
     assert!(v > 10.0, "the engine pushes ({v})");
     // The ship faces -Z.
     assert!(i.velocity.z < 0.0);
@@ -79,7 +86,10 @@ fn fighter_has_its_loadout_and_flies() {
         world.step(system, 1.0 / 30.0);
     }
     let turned = world.inspect(ship).unwrap();
-    println!("angular velocity after 1 s of yaw: {:?}", turned.angular_velocity);
+    println!(
+        "angular velocity after 1 s of yaw: {:?}",
+        turned.angular_velocity
+    );
     assert!(turned.orientation != i.orientation);
     assert!(turned.angular_velocity.y.abs() > 1e-3);
 }
@@ -98,9 +108,18 @@ fn guns_fire_bullets_that_hit_a_target() {
     let mut fired = 0;
     let mut hits = 0;
     for tick in 1..=240u32 {
-        if (10..=150).contains(&tick) && (tick - 10) % 5 == 0 {
-            if let Some(aim) = world.inspect(target).map(|i| i.position) {
-                world.command(shooter, Command::Fire { guns: guns.clone(), target: aim });
+        if (10..=150).contains(&tick)
+            && (tick - 10) % 5 == 0
+            && let Some(aim) = world.inspect(target).map(|i| i.position)
+        {
+            {
+                world.command(
+                    shooter,
+                    Command::Fire {
+                        guns: guns.clone(),
+                        target: aim,
+                    },
+                );
             }
         }
         world.step(system, 1.0 / 30.0);
@@ -117,6 +136,10 @@ fn guns_fire_bullets_that_hit_a_target() {
     assert!(fired > 0, "the guns fire");
     assert!(hits > 0, "the bullets hit");
     // Every bullet is gone once its lifetime ran out.
-    assert!(world.objects_in(system).iter().all(|h| !world.is_projectile(*h)));
+    assert!(
+        world
+            .objects_in(system)
+            .iter()
+            .all(|h| !world.is_projectile(*h))
+    );
 }
-
