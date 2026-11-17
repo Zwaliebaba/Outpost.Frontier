@@ -12,6 +12,7 @@ Plan for migrating the C++ code base in `CppSource/` to the Rust workspace.
 | [reference-build.md](reference-build.md) | How to build and run the C++ as the reference: DirectX 8.1 SDK, folder layout, build, run |
 | [facts.md](facts.md) | Facts to collect from the original installation (P0.3) |
 | [divergences.md](divergences.md) | Deliberate differences between the Rust port and the C++ |
+| [rebrand-names.md](rebrand-names.md) | Names the rebrand changed in the reference that the original data still uses (open) |
 | [assessment/](assessment/) | Evidence: eight assessments of the C++ tree, made on 2026-11-15 |
 
 ## Progress
@@ -30,7 +31,7 @@ Plan for migrating the C++ code base in `CppSource/` to the Rust workspace.
 | P1.4 Math kernels | In progress: `neuron-core::math`, every `x86math` kernel in the reference's operation order on the 53-bit model, aliased-call variants included. Oracle vectors equal the C++ output in CI (NaN written as one pattern). Open: acceptance at Gate G1 |
 | P1.5 Diagnostics, time, utilities | In progress: `neuron-core::diag` (FDUMP flags, the `ErrorHandler` channels, error callbacks, tick profile behind feature `tick-profile`), `neuron-core::time` (`Timing`, `Delta`), `neuron-core::util` (rect, Catmull-Rom spline, state machine, MD5 text form). Oracle vectors confirmed in CI. Open: acceptance at Gate G1 |
 | P1.6 Text catalogs | In progress: sources in `outdir/data/text/`, one TOML file per module (converted from the `.rc` scripts and cards on 2026-11-17, catalogs byte-identical), `cargo xtask catalog` builds one catalog per module, `neuron-core::catalog` resolves text IDs. CI builds the eight resource DLLs and finds every string and card equal to the catalogs. Open: acceptance at Gate G1 |
-| P1.7 Asset parsers | Not started |
+| P1.7 Asset parsers | In progress: `neuron-core::{sur, anim, fx_data, image, material_data, mesh_data}`. Data dumps equal the oracle on the original data in CI (`data.yml`): 798 `.sur`, 192 animation archives, 596 `.ale`, 1,939 mesh archives, 204 `.dfm`, 1,431 material archives, 1,413 texture libraries. Open: acceptance at Gate G1 |
 | P1.8 Scene runtime | Not started |
 | P1.9 Wire and transport | In progress: `neuron-core::net` (wire reader and writer, the RemoteCommon quantisers, T17 framing and handshake, `Transport` trait, loopback transport). Oracle vectors for the quantisers and field primitives confirmed in CI. Open: acceptance at Gate G1 |
 

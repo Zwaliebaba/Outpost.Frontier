@@ -8,8 +8,8 @@ The C++ code base in `CppSource/` is being migrated to this workspace. The
 plan, decisions and per-library ledger are in [design/](design/README.md).
 `CppSource/` is frozen: change it only to fix the reference build or to add
 oracle instrumentation (design/migration-plan.md, Phase 0). The recorded
-exceptions are the plain-text save writer (design/decisions.md O12) and the
-directory `FindFirst` fix (O14).
+exceptions are the plain-text save writer (design/decisions.md O12) the
+directory `FindFirst` fix (O14) and the particle node-library name (O16).
 
 ## Ownership and dependencies
 

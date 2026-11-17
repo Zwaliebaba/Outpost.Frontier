@@ -23,14 +23,14 @@ Line counts are C++ source and header lines from the assessment, rounded.
 | 7 | `x86math` | 1.5k | Port kernels in original operation order | `neuron-core::math` | P1.4 | in progress: every `I3DMathEngine` method ported in `neuron-core::math` (P1.4); oracle vectors equal the C++ output in CI |
 | 8 | `MemoryDiagnostics` | 1.2k | Delete; standalone tool | — | — | not started |
 | 9 | `qhull` | 24k vendor | Delete; box and pyramid shapes come from `parry3d` | `neuron-core::physics` | P2.3 | not started |
-| 10 | `Common` | 105k + 38k headers | Split by sub-module, see below | `neuron-core`, `game-sim`, `game-logic`, `neuron-client`, `game-app` | P1.1, P1.2, P1.5, P1.7, P2.1–P2.5, P4.12 | in progress: IDs, INI and `atof` (P1.1, P1.2); timing, rect, spline, state machine, error handler (P1.5) |
-| 11 | `SceneRuntime` | 10k | Port whole; it makes no renderer calls | `neuron-core::{scene, anim}` | P1.8 | not started |
+| 10 | `Common` | 105k + 38k headers | Split by sub-module, see below | `neuron-core`, `game-sim`, `game-logic`, `neuron-client`, `game-app` | P1.1, P1.2, P1.5, P1.7, P2.1–P2.5, P4.12 | in progress: IDs, INI and `atof` (P1.1, P1.2); timing, rect, spline, state machine, error handler (P1.5); `.sur` loader (P1.7) |
+| 11 | `SceneRuntime` | 10k | Port whole; it makes no renderer calls | `neuron-core::{scene, anim}` | P1.8 | in progress: animation channel archetypes, scripts and maps in `neuron-core::anim` (P1.7), equal to the oracle on all 192 archives with animations; instance tree, compound models, hardpoints, joints and the mixer in P1.8 |
 | 12 | `SceneScript` | 18k + 6.6k Lua | Port the timeline engine; replace the Lua C interpreter with a Rust evaluator | `neuron-client::scene_script` | P4.14 | not started |
-| 13 | `particlefx` | 25k | Port; data parsing to core, simulation and drawing to client | `neuron-core::fx_data`; `neuron-client::render::particles` | P1.7, P4.8 | not started |
-| 14 | `Deformable2` | 8.8k | Port; palette skinning moves into the vertex shader | `neuron-core::mesh_data`; `neuron-client::render::deformable` | P1.7, P4.7 | not started |
+| 13 | `particlefx` | 25k | Port; data parsing to core, simulation and drawing to client | `neuron-core::fx_data`; `neuron-client::render::particles` | P1.7, P4.8 | in progress: effect and node libraries in `neuron-core::fx_data` (P1.7), equal to the oracle on all 596 `.ale` files; the node-library name restored by decision O16; evaluation, simulation and drawing in P4.8 |
+| 14 | `Deformable2` | 8.8k | Port; palette skinning moves into the vertex shader | `neuron-core::mesh_data`; `neuron-client::render::deformable` | P1.7, P4.7 | in progress: `.dfm` skeleton, fractions and mesh tables in `neuron-core::mesh_data::dfm` (P1.7), equal to the oracle on all 204 files; skinning in P4.7 |
 | 15 | `surfacematerials` | 5.8k | Port the 19 material kinds and the appearance draws | `neuron-client::render::{material, appearance}` | P4.5 | not started |
-| 16 | `Shading` | 11k | Port texture and material libraries, animation, batcher | `neuron-core::image`; `neuron-client::render::{texture, material}` | P1.7, P4.4, P4.5 | not started |
-| 17 | `RendComp` | 9.8k | Port render manager and mesh kinds | `neuron-core::mesh_data`; `neuron-client::render::mesh` | P1.7, P4.6 | not started |
+| 16 | `Shading` | 11k | Port texture and material libraries, animation, batcher | `neuron-core::image`; `neuron-client::render::{texture, material}` | P1.7, P4.4, P4.5 | in progress: pixel formats, TGA decode, DDS headers and D3DX image info, format maps and texture-library loading rules in `neuron-core::image`; 22 material kinds, material-library enumeration and material-animation data in `neuron-core::material_data` (P1.7). Device uploads, binding and batching in P4.4 and P4.5 |
+| 17 | `RendComp` | 9.8k | Port render manager and mesh kinds | `neuron-core::mesh_data`; `neuron-client::render::mesh` | P1.7, P4.6 | in progress: VMesh library, parts and wires, TriMesh, sphere and MultiLevel data in `neuron-core::mesh_data` (P1.7), equal to the oracle on all 1,939 mesh archives; render manager and drawing in P4.6 |
 | 18 | `DX8RENDERER` | 8.5k | Replace with the Direct3D 12 renderer; its behaviour is the reference for the fixed-function layer. Delete the quirk database | `neuron-client::render::{d3d12, ff}` | P4.2, P4.3 | not started |
 | 19 | `DX9RENDERER` | 10.6k | Replace; its extension interface informs the programmable-pass API | `neuron-client::render::pass` | P4.9, P6.4 | not started |
 | 20 | `ximage` | 1.0k | Port the large-image tiler | `neuron-client::render::texture` | P4.4 | not started |
@@ -91,7 +91,7 @@ the DLLs built from `CppSource` with the catalogs built from
 | Universe, zones, asteroids, bases, spatial | 13.2k | `game-sim::data` | P2.1 |
 | Goods, reputation, trade | 5.3k | `game-sim::data`; rules in `game-logic` | P2.1, P3.2 |
 | Wire types, marshal buffer, format strings, costume | 4.9k | `game-sim::protocol` | P2.2 |
-| `.sur` loader | (in physics glue) | `neuron-core::sur` | P1.7 |
+| `.sur` loader | (in physics glue) | `neuron-core::sur`. Ported with the IVP compact-surface layout; equal to the oracle on all 798 files. 17 files use an older layout that the reference refuses, so those models have no collision in the original game (`li_battleship` and its 7 damage parts, the freight-train parts, `no_turret01`/`02`, `trade_turret01`, `br_weapons_platform_weapon`, `tlr_sheild`, `ast_loot_gold`); P2.3 must know this | P1.7 |
 | Physics glue | 10.4k | `neuron-core::physics` | P2.3 |
 | Object model | 15.3k | `game-sim::object` | P2.4 |
 | Equipment | 11.3k | `game-sim::equip` | P2.4 |
