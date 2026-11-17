@@ -35,6 +35,7 @@ Plan for migrating the C++ code base in `CppSource/` to the Rust workspace.
 | P1.8 Scene runtime | Accepted at Gate G1: `neuron-core::scene` (engine, compound models from `Cmpnd`, instance trees, joints, hardpoints, channel sampling, typed channels, the mixer, script playback). Three oracle suites (`scene_load`, `scene_sample`, `scene_eval`) confirmed in CI; data dumps over the original data: 2,056 archetype files load and equal the oracle (715 compounds, 15,126 parts, 14,411 constraints), 181 animation files evaluate equal to it. Undefined behaviour of the reference in D74 to D85 |
 | P1.9 Wire and transport | Accepted at Gate G1: `neuron-core::net` (wire reader and writer, the RemoteCommon quantisers, T17 framing and handshake, `Transport` trait, loopback transport). Oracle vectors for the quantisers and field primitives confirmed in CI. |
 | Gate G1 | Passed 2026-11-17 on Data dumps run [44051215922](https://github.com/Zwaliebaba/Outpost.Frontier/actions/runs/44051215922): every data dump equals the oracle ([migration plan](migration-plan.md) section 6) |
+| P2.0 Design spikes | In progress: decision records [0001](adr/0001-object-model.md) (object model), [0002](adr/0002-single-player-world.md) (single player keeps one world, answering F14) and [0003](adr/0003-simulation-oracle.md) (scenario and replay oracle, envelope method) proposed; directions chosen by the owner as O21 to O23. Open: owner approval of the records |
 
 ## Assessments
 
