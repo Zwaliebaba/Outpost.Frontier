@@ -4,8 +4,9 @@ The files `Oracle.exe sim` writes (work package P2.3, decision O23,
 [adr/0003](adr/0003-simulation-oracle.md); how to run it in
 [reference-build.md](reference-build.md) section 10). The Rust replay and
 scenario tests read them. The records are made from the original game data
-and are never committed. Record format version 1 (the `version` of the
-`start` record).
+and are never committed. Record format version 2 (the `version` of the
+`start` record; version 2 is the single `psi` record per core and PSI
+below).
 
 ## Encoding
 
@@ -19,7 +20,7 @@ one (`CppSource/OutpostFrontier/Client/oracle_json.h`):
 | `f` | a JSON string of the `f32` bit pattern, 8 lower-case hex digits (`"3f800000"` is 1.0) |
 | `d` | a JSON string of the `f64` bit pattern, 16 lower-case hex digits |
 | `s` | a JSON string; bytes from 0x80 as `\u00XX`, `"` and `\` escaped |
-| `f3`, `f4`, `f9`, `f[]` | an array of `f` (3, 4, 9 or any number of elements) |
+| `f2`, `f3`, `f4`, `f9`, `f[]`, `f[12]` | an array of `f` (2, 3, 4, 9, any number or 12 elements) |
 | `u3` | an array of three `u` |
 | `{…}` | a nested object, its fields in the order listed |
 | `x\|null` | the value, or `null` |
@@ -51,7 +52,7 @@ Conventions:
 | `server` | `data_path` s, `controller` u (SimClientStub's controller id), `system_id` u, `system_loaded` b |
 | `spawn` | `obj` s, `kind` s (`ship` or `solar`); a ship: `arch` s, `arch_id` u, `loadout` s, `loadout_id` u, `result` i (`pub::SpaceObj::Create`), `id` u, [`state_graph` s, `state_graph_id` i, `submit_state` i]; a solar: `nickname` s, `id` u (`CreateID(nickname)`), `found` b |
 | `command` | `tick` u, `line` i (in the scenario file), `obj` s, `cmd` s (the command as written), `ok` b, `result` i (what the called function returned; for a directive the `OP_RTYPE`), [`note` s, why it did not run] |
-| `error`, `critical_warning` | `tick` u, `text` s |
+| `error`, `critical_warning`, `note` | `tick` u, `text` s (`note`: an object marked `psi` whose PSIs are not recorded, and why; once per object) |
 | `end` | `tick` u, `psi_total` u, `code` i (the exit code) |
 
 ## `tick.jsonl`
@@ -75,38 +76,104 @@ database (destroyed, docked or removed).
 
 ## `psi.jsonl`
 
-One record per PSI, phase and object marked `psi` in the scenario.
+The per-PSI free-flight records (record 0003 point 5) that
+`crates/neuron-core/tests/sim_replay.rs` replays (point 7) through
+`neuron_core::physics::replay`, whose `PsiRecord::to_line` writes the same
+layout (without `ctl`) and whose unit tests round-trip it.
 
-| Field | Kind | Source (`IVP_Core` unless noted) |
+One `psi` record per core and PSI, in the order the PSIs run, for each
+object marked `psi` in the scenario whose simulation unit ran in that PSI
+(none while the unit is asleep). Not recorded, with a `note` in
+`session.jsonl`: an object with a golem or remote-correction controller
+(`CObject::GolemController`, +0x60, non-null; those beam their bodies and
+are covered by scenario tests) and a core whose simulation unit holds more
+than one core (the replay steps one core per unit).
+
+### Recording points
+
+All in `IVP_Environment_Simulate_Psi`
+(`IVP/ivp_physics/ivp_environment.cpp:661`):
+
+| Point in the C++ | Hook | Recorded |
+| --- | --- | --- |
+| before `simulate_sim_units_psi`, after the wake queue, the PSI listeners and the active values | `OnPsi` phase 0 | the PSI is counted (`psi`), the psi objects' cores are looked up |
+| `IVP_Simulation_Unit_Process_One_Psi_Step` entry, before the core step (`ivp_simulation_unit.cpp`) | `OnSimUnitPsi` phase 0 | `dt`, `idt`, `time`, `limits`, `ctl` and `in` for each recorded core of the unit |
+| every `IVP_Core::push_core_linear`, `push_core_angular_ws`, `push_core_angular_cs` into such a core while its unit runs (`ivp_core.cpp`) | `OnCorePush` | `pushes`, in call order |
+| the end of the same `Process_One_Psi_Step` | `OnSimUnitPsi` phase 1 | `check`: the environment's movement-check countdown (`next_movement_check`) came to zero at this unit (`CooldownExpired`) |
+| after `commit_all_calc_next_PSI_matrix`, before the hull managers and contacts | `OnPsi` phase 1 | `out`; the record is written |
+
+`in` is taken at the unit's entry rather than before all units: the two
+points see the same core state (another unit's controllers push only into
+its own cores, and nothing else between the two points writes a core), but
+the unit entry ties the record to the unit that steps the core, so a
+sleeping core is not recorded, the push window and the movement check
+belong to the same unit, and `in` is exactly what the Rust
+`unit_psi_begin` starts from. `commit_all_calc_next_PSI_matrix` runs only
+`calc_next_PSI_matrix` per core, so `out` is the state right after it.
+Pushes outside the unit's run (between frames, from game code) are already
+in `in` (`speed_change`, `rot_speed_change`) and are not listed.
+
+### Fields
+
+| Field | Kind | Source |
 | --- | --- | --- |
 | `rec` | s | `psi` |
 | `tick` | u | |
 | `psi` | u | PSI number in the run, from 1 |
-| `phase` | s | `in`: before the PSI's simulation units (controllers, then `calc_next_PSI_matrix`); `out`: after `commit_all_calc_next_PSI_matrix`, before hull managers and contacts |
 | `obj`, `id` | s, u | |
-| `dt` | f | `Environment->delta_time`, the PSI length |
-| `time` | f2 | `Environment->current_time` (base, offset) |
-| `pos` | f3 | `PosWorldFCore` |
-| `q` | f4 | `QWorldFCore` |
-| `speed` | f3 | `Speed` (world) |
-| `rot_speed` | f3 | `RotSpeed` (core space) |
-| `speed_change` | f3 | `SpeedChange` |
-| `rot_speed_change` | f3 | `RotSpeedChange` |
-| `delta_world` | f3 | `DeltaWorldFCore` |
-| `mass`, `inv_mass` | f, f | `Mass`, `InvMass` |
-| `inertia`, `inv_inertia` | f3, f3 | `RotInertia`, `InvRotInertia` |
-| `speed_damp` | f | `SpeedDamp` |
-| `rot_speed_damp` | f3 | `RotSpeedDamp` |
-| `upper_limit_radius` | f | `UpperLimitRadius` |
-| `speed_limit` | f | `SpeedLimit` |
-| `i_delta_time` | f | `IDeltaTime` |
-| `time_of_last_psi` | f2 | `TimeOfLastPsi` |
-| `movement_state` | u | `MovementState` |
-| `flags` | u | `Flags` |
-| `spin_clip` | f3\|null | `*SpinClipping` |
-| [`ctl`] | {…} | phase `in` of a ship only: the controller inputs below |
+| `dt` | f | `Environment->delta_time` (+0xac), the PSI length, s |
+| `idt` | f | `Environment->inv_delta_time` (+0xb0), 1/s |
+| `time` | f2 | `Environment->current_time` (base, offset), s |
+| `limits` | f2 | `Environment->anomaly_limits`: `MaxVelocity` (m/s), `MaxAngularVelocityPerPsi` (rad) |
+| [`ctl`] | {…} | a ship only: the controller inputs below, at the unit's entry |
+| `in` | {core} | the core state at the unit's entry |
+| `pushes` | [[s, f, f, f, f], …] | each push: the kind (`linear`, `angular_ws` or `angular_cs`, for `push_core_linear`, `push_core_angular_ws`, `push_core_angular_cs`), the direction or axis x, y, z (world space for the first two, core space for the third) and the magnitude argument |
+| `check` | b | the movement check came to this unit in this PSI |
+| `out` | {core} | the core state after `calc_next_PSI_matrix` |
 
-`ctl`, from the `CShip` and its equipment: `throttle` f, `axis` f3
+A core state (`in` and `out`, the same fields). Offsets are `IVP_Core`'s
+(`IVP/ivp_physics/ivp_core.h`); names in parentheses are the
+reconstruction's where IVP's differ.
+
+| Field | Kind | `IVP_Core` | Unit |
+| --- | --- | --- | --- |
+| `flags` | u | +0x00 `Flags` | — |
+| `movement_state` | u | +0x60 `MovementState` | — |
+| `unit_state` | u | `OwningSimUnit` (+0x15c) `->State`, the unit's flag word; 0 without a unit | — |
+| `upper_limit_radius` | f | +0x04 `UpperLimitRadius` | m |
+| `max_surface_deviation` | f | +0x08 (`SpeedLimit`) | m |
+| `mass` | f | +0x20 `Mass` | kg |
+| `inv_mass` | f | +0x40 `InvMass` | 1/kg |
+| `inertia` | f3 | +0x14 `RotInertia` | kg m² |
+| `inv_inertia` | f3 | +0x34 `InvRotInertia` | — |
+| `rot_speed_damp` | f3 | +0x24 `RotSpeedDamp` | 1/s |
+| `speed_damp` | f | +0x44 `SpeedDamp` | 1/s |
+| `angular_limit` | f | +0x48 `DAngularLimitFactor` | 1/m |
+| `spin_clip` | f3\|null | +0x4c `*SpinClipping`, `null` when the pointer is null | rad/s |
+| `time_of_last_psi` | f2 | +0x68 `TimeOfLastPsi` (base, offset) | s |
+| `i_delta_time` | f | +0x70 `IDeltaTime` | 1/s |
+| `rot_speed_change` | f3 | +0x74 `RotSpeedChange` | rad/s, core space |
+| `speed_change` | f3 | +0x84 `SpeedChange` | m/s, world |
+| `rot_speed` | f3 | +0x94 `RotSpeed` | rad/s, core space |
+| `speed` | f3 | +0xa4 `Speed` | m/s, world |
+| `pos` | f3 | +0xb4 `PosWorldFCore` | m |
+| `delta_world` | f3 | +0xc4 `DeltaWorldFCore` | m/s |
+| `q` | f4 | +0xd4 `QWorldFCore` | — |
+| `q_next` | f4 | +0xe4 `QWorldFCoreNext` | — |
+| `m` | f[12] | +0xf4 `MWorldFCore`: rows 0, 1, 2 (three floats each, not the fourth), then `vv` | —, m |
+| `rot_axis` | f3 | +0x134 rotation axis, world space (`RotAxisOS`) | — |
+| `current_speed` | f | +0x144 (`Margin`) | m/s |
+| `abs_omega` | f | +0x148 (`MaxSurfaceDeviation`) | rad/s |
+| `surface_rot_speed` | f | +0x14c `max_surface_rot_speed` (`BoundingRadius`) | m/s |
+| `time_of_last_motion` | f2 | +0x160 `TimeOfLastMotion` | s |
+| `time_of_last_long_motion` | f2 | +0x168 `TimeOfLastLongMotion` | s |
+| `q_last_motion` | f4 | +0x170 `QLastMotion` | — |
+| `q_last_long_motion` | f4 | +0x180 `QLastLongMotion` | — |
+| `pos_last_motion` | f3 | +0x190 `PosLastMotion` | m |
+| `pos_last_long_motion` | f3 | +0x1a0 `PosLastLongMotion` | m |
+
+`ctl` (the field record 0003 calls `controllers`; P2.4 replays it), from
+the `CShip` and its equipment: `throttle` f, `axis` f3
 (`Steering.AxisThrottle`), `steering_active` b, `nudge` f3
 (`NudgeEngine.CurrentNudge`), `nudge_active` b, `strafe` i
 (`StrafeEngine.CurrentStrafe`), `thrust_power` f, `max_thrust_power` f,
@@ -117,7 +184,21 @@ and from `Archetype::Engine`: `max_force` f, `linear_drag` f, `power_usage`
 f, `cruise_power_usage` f, `cruise_charge_time` f, `reverse_fraction` f.
 `arch` (`Archetype::Ship`): `linear_drag` f, `angular_drag` f3,
 `steering_torque` f3, `nudge_force` f, `strafe_force` f,
-`strafe_power_usage` f.
+`strafe_power_usage` f. The P2.3 replay ignores it.
+
+### The replay
+
+`neuron_core::physics::replay::replay` runs, on the `in` state: the core
+step at `time`, the pushes in order, the standard controller (damping,
+commit, zero gravity), the movement check when `check` is true, and
+`calc_next_PSI_matrix` with `dt`, `idt` and `limits`. `flags`,
+`movement_state`, `unit_state` and `spin_clip` must be equal; every other
+float within 4e-6 relative to the larger magnitude (at least absolute).
+The bound comes from the sines, cosines and arc cosines the port takes
+from the Rust standard library (decision T11); it is tightened once the
+first oracle runs show the actual spread. The test searches
+`OUTPOST_ORACLE_DIR` recursively for `psi.jsonl` files and writes its
+summary to `rust-sim-replay.txt` there.
 
 ## `calls.jsonl`
 
@@ -179,118 +260,3 @@ An event's spread is the difference between its earliest and latest first
 occurrence (`kind` `collision` keyed by object `a`, `munition_hit` by the
 target, `dock` by the ship, `destroyed` by the object; other objects by
 `#<id>`). `spread.txt` says the same in decimal.
-
-## Open: the replay layout of `psi.jsonl`
-
-The P2.3 Rust replay test (`crates/neuron-core/tests/sim_replay.rs`) was written against the layout below,
-the harness against the `psi.jsonl` section above. They differ in shape (one record per core and PSI with
-`in_`/`out_` keys versus `in` and `out` records), encoding (strings versus numbers and arrays) and content
-(the replay also needs the pushes, the movement check, the anomaly limits, the matrix, axis and motion
-snapshots). They are being unified; until then neither side is final.
-
-### Replay layout expected by the Rust test
-
-The layout of the per-PSI free-flight records that `Oracle.exe sim`
-writes (decision record [0003](adr/0003-simulation-oracle.md), point 5)
-and that `crates/neuron-core/tests/sim_replay.rs` replays (point 7). The
-Rust side is `neuron_core::physics::replay`, whose `PsiRecord::to_line`
-writes exactly this layout and whose unit tests round-trip it.
-
-### Files
-
-One file `psi.jsonl` per scenario, anywhere below the oracle's output
-folder (the test searches `OUTPOST_ORACLE_DIR` recursively). One line per
-recorded core per PSI, in the order the PSIs run. The test writes its
-summary to `rust-sim-replay.txt` in that folder.
-
-### Encoding
-
-As every oracle vector ([verification.md](verification.md)): one flat JSON
-object per line, keys in the order below, every value a string. An `f32`
-is 8 lower-case hex digits of its bit pattern; several floats are
-concatenated without separators, in the order given. `u32` words are 8 hex
-digits. Keys the test does not know are ignored, so the harness may add
-fields (the controller inputs below).
-
-### What is recorded, and where
-
-A record is one core in one PSI of `IVP_Environment_Simulate_Psi`
-(`IVP/ivp_physics/ivp_environment.cpp:661`). Record only cores without a
-golem or remote-correction controller (`CObject+0x60` null); those beam
-their bodies and are covered by scenario tests.
-
-| Point in the C++ | Recorded |
-| --- | --- |
-| `IVP_Simulation_Unit_Process_One_Psi_Step` entry, before the core step (`ivp_simulation_unit.cpp:747`) | the `in_` state |
-| the movement-check countdown of that unit (`*CooldownTimer == 0` after the decrement, `:779` / `:806`) | `check` |
-| every `IVP_Core::push_core_linear`, `push_core_angular_ws`, `push_core_angular_cs` while `EventSim->sim_unit` is that unit (`ivp_core.cpp:1310-1338`) | `pushes`, in call order |
-| after `IVP_Calc_Next_PSI_Solver::calc_next_PSI_matrix` for the core (`ivp_calc_next_psi_solver.cpp:118`) | the `out_` state |
-
-### Keys
-
-| Key | Value |
-| --- | --- |
-| `psi` | PSI counter in the run, decimal |
-| `object` | the `CObject` id, 8 hex digits |
-| `time` | the environment's `current_time` at the PSI: `time_base`, `time_offset` (2 floats) |
-| `dt` | `delta_time` (+0xac), the PSI length, s |
-| `idt` | `inv_delta_time` (+0xb0), 1/s |
-| `check` | `1` when the movement check came to this unit in this PSI, else `0` |
-| `limits` | `IVP_Anomaly_Limits` `MaxVelocity` (m/s), `MaxAngularVelocityPerPsi` (rad) |
-| `in_…` | the core state below, before the PSI |
-| `pushes` | the pushes, `;`-separated; each is `L`, `A` or `C` (linear, angular world space, angular core space) and 4 floats: the direction or axis x, y, z and the magnitude argument |
-| `out_…` | the core state below, after `calc_next_PSI_matrix` |
-| `controllers` (optional) | reserved for P2.4: the controller inputs of record 0003 point 5 (throttle, axis throttle, nudge, strafe, cruise state, power, archetype values). The P2.3 test ignores it |
-
-The core state, each key once with the `in_` and once with the `out_`
-prefix. Offsets are `IVP_Core`'s (`IVP/ivp_physics/ivp_core.h`); names in
-parentheses are the reconstruction's.
-
-| Key | `IVP_Core` | Floats | Unit |
-| --- | --- | --- | --- |
-| `flags` | +0x00 `Flags` | `u32` | — |
-| `movement` | +0x60 `MovementState` | `u32` | — |
-| `unit` | `OwningSimUnit->State` (+0x15c, then the unit's flag word) | `u32` | — |
-| `ulr` | +0x04 `UpperLimitRadius` | 1 | m |
-| `msd` | +0x08 max surface deviation (`SpeedLimit`) | 1 | m |
-| `mass` | +0x20 `Mass` | 1 | kg |
-| `inv_mass` | +0x40 `InvMass` | 1 | 1/kg |
-| `inertia` | +0x14 `RotInertia` | 3 | kg m² |
-| `inv_inertia` | +0x34 `InvRotInertia` | 3 | — |
-| `rot_damp` | +0x24 `RotSpeedDamp` | 3 | 1/s |
-| `speed_damp` | +0x44 `SpeedDamp` | 1 | 1/s |
-| `angular_limit` | +0x48 `DAngularLimitFactor` | 1 | 1/m |
-| `tlp` | +0x68 `TimeOfLastPsi` (base, offset) | 2 | s |
-| `idt` | +0x70 `IDeltaTime` | 1 | 1/s |
-| `rot_speed_change` | +0x74 `RotSpeedChange` | 3 | rad/s, core space |
-| `speed_change` | +0x84 `SpeedChange` | 3 | m/s, world |
-| `rot_speed` | +0x94 `RotSpeed` | 3 | rad/s, core space |
-| `speed` | +0xa4 `Speed` | 3 | m/s, world |
-| `pos` | +0xb4 `PosWorldFCore` | 3 | m |
-| `delta` | +0xc4 `DeltaWorldFCore` | 3 | m/s |
-| `q_last` | +0xd4 `QWorldFCore` (x, y, z, w) | 4 | — |
-| `q_next` | +0xe4 `QWorldFCoreNext` (x, y, z, w) | 4 | — |
-| `m` | +0xf4 `MWorldFCore`: rows 0, 1, 2 (3 floats each, not the 4th), then `vv` | 12 | —, m |
-| `axis` | +0x134 rotation axis (`RotAxisOS`) | 3 | — |
-| `current_speed` | +0x144 (`Margin`) | 1 | m/s |
-| `abs_omega` | +0x148 (`MaxSurfaceDeviation`) | 1 | rad/s |
-| `surface_rot_speed` | +0x14c (`BoundingRadius`) | 1 | m/s |
-| `tlm` | +0x160 `TimeOfLastMotion` | 2 | s |
-| `tllm` | +0x168 `TimeOfLastLongMotion` | 2 | s |
-| `q_lm` | +0x170 `QLastMotion` | 4 | — |
-| `q_llm` | +0x180 `QLastLongMotion` | 4 | — |
-| `pos_lm` | +0x190 `PosLastMotion` | 3 | m |
-| `pos_llm` | +0x1a0 `PosLastLongMotion` | 3 | m |
-| `spin_clip` | +0x4c `SpinClipping`: `-` when null, else 3 floats | 3 | rad/s |
-
-### The replay
-
-`neuron_core::physics::replay::replay` runs, on the `in_` state: the core
-step at `time`, the pushes in order, the standard controller (damping,
-commit, zero gravity), the movement check when `check` is `1`, and
-`calc_next_PSI_matrix` with `dt`, `idt` and `limits`. Flags, the movement
-state and the unit word must be equal; every float within 4e-6 relative to
-the larger magnitude (at least absolute). The bound comes from the sines,
-cosines and arc cosines the port takes from the Rust standard library
-(decision T11); it is tightened once the first oracle runs show the actual
-spread.

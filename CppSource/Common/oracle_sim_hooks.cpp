@@ -16,6 +16,8 @@
 #include "../IVP/ivp_physics/ivp_core.h"
 #include "../IVP/ivp_physics/ivp_real_object.h"
 #include "../IVP/ivp_physics/ivp_environment.h"
+#include "../IVP/ivp_physics/ivp_anomaly_manager.h"
+#include "../IVP/ivp_physics/ivp_simulation_unit.h"
 
 #include <cstring>
 
@@ -28,6 +30,20 @@ namespace
         Out[0] = In.x;
         Out[1] = In.y;
         Out[2] = In.z;
+    }
+
+    void CopyQuat(float* Out, IVP_U_Quat const& In)
+    {
+        Out[0] = In.x;
+        Out[1] = In.y;
+        Out[2] = In.z;
+        Out[3] = In.w;
+    }
+
+    void CopyTime(float* Out, IVP_Time const& In)
+    {
+        Out[0] = In.time_base;
+        Out[1] = In.time_offset;
     }
 }
 
@@ -49,49 +65,89 @@ float __cdecl OracleSimEnvDeltaTime(IVP_Environment const* Environment)
     return Environment != nullptr ? Environment->delta_time : 0.0f;
 }
 
-bool __cdecl OracleSimReadCore(CObject const* Object, FOracleSimCore& Out)
+void __cdecl OracleSimReadEnv(IVP_Environment const* Environment, FOracleSimEnv& Out)
 {
     std::memset(&Out, 0, sizeof(Out));
+    if (Environment == nullptr)
+        return;
+    Out.DeltaTime = Environment->delta_time;
+    Out.InvDeltaTime = Environment->inv_delta_time;
+    CopyTime(Out.Time, Environment->current_time);
+    if (Environment->anomaly_limits != nullptr)
+    {
+        Out.MaxVelocity = Environment->anomaly_limits->MaxVelocity;
+        Out.MaxAngularVelocityPerPsi = Environment->anomaly_limits->MaxAngularVelocityPerPsi;
+    }
+}
+
+IVP_Core* __cdecl OracleSimCoreOf(CObject const* Object)
+{
     if (Object == nullptr || Object->BodyPtr == nullptr)
-        return false;
-    IVP_Core const* const Core = Object->BodyPtr->core;
+        return nullptr;
+    return Object->BodyPtr->core;
+}
+
+IVP_Simulation_Unit* __cdecl OracleSimUnitOf(IVP_Core const* Core)
+{
+    return Core != nullptr ? Core->OwningSimUnit : nullptr;
+}
+
+int __cdecl OracleSimUnitCoreCount(IVP_Simulation_Unit const* Unit)
+{
+    return Unit != nullptr ? static_cast<int>(Unit->Cores.n_elems) : 0;
+}
+
+bool __cdecl OracleSimReadCore(IVP_Core const* Core, FOracleSimCore& Out)
+{
+    std::memset(&Out, 0, sizeof(Out));
     if (Core == nullptr)
         return false;
 
-    CopyVector(Out.Pos, Core->PosWorldFCore);
-    Out.Quat[0] = Core->QWorldFCore.x;
-    Out.Quat[1] = Core->QWorldFCore.y;
-    Out.Quat[2] = Core->QWorldFCore.z;
-    Out.Quat[3] = Core->QWorldFCore.w;
-    CopyVector(Out.Speed, Core->Speed);
-    CopyVector(Out.RotSpeed, Core->RotSpeed);
-    CopyVector(Out.SpeedChange, Core->SpeedChange);
-    CopyVector(Out.RotSpeedChange, Core->RotSpeedChange);
-    CopyVector(Out.DeltaWorld, Core->DeltaWorldFCore);
+    Out.Flags = Core->Flags;
+    Out.MovementState = Core->MovementState;
+    if (Core->OwningSimUnit != nullptr)
+        Out.UnitState = Core->OwningSimUnit->State;
+    Out.UpperLimitRadius = Core->UpperLimitRadius;
+    Out.SpeedLimit = Core->SpeedLimit;
     Out.Mass = Core->Mass;
     Out.InvMass = Core->InvMass;
     CopyVector(Out.RotInertia, Core->RotInertia);
     CopyVector(Out.InvRotInertia, Core->InvRotInertia);
-    Out.SpeedDamp = Core->SpeedDamp;
     CopyVector(Out.RotSpeedDamp, Core->RotSpeedDamp);
-    Out.UpperLimitRadius = Core->UpperLimitRadius;
-    Out.SpeedLimit = Core->SpeedLimit;
-    Out.IDeltaTime = Core->IDeltaTime;
-    Out.TimeOfLastPsi[0] = Core->TimeOfLastPsi.time_base;
-    Out.TimeOfLastPsi[1] = Core->TimeOfLastPsi.time_offset;
-    Out.MovementState = Core->MovementState;
-    Out.Flags = Core->Flags;
+    Out.SpeedDamp = Core->SpeedDamp;
+    Out.DAngularLimitFactor = Core->DAngularLimitFactor;
     if (Core->SpinClipping != nullptr)
     {
         Out.bSpinClipping = 1;
         CopyVector(Out.SpinClipping, *Core->SpinClipping);
     }
-    if (Core->Environment != nullptr)
+    CopyTime(Out.TimeOfLastPsi, Core->TimeOfLastPsi);
+    Out.IDeltaTime = Core->IDeltaTime;
+    CopyVector(Out.RotSpeedChange, Core->RotSpeedChange);
+    CopyVector(Out.SpeedChange, Core->SpeedChange);
+    CopyVector(Out.RotSpeed, Core->RotSpeed);
+    CopyVector(Out.Speed, Core->Speed);
+    CopyVector(Out.Pos, Core->PosWorldFCore);
+    CopyVector(Out.DeltaWorld, Core->DeltaWorldFCore);
+    CopyQuat(Out.Quat, Core->QWorldFCore);
+    CopyQuat(Out.QuatNext, Core->QWorldFCoreNext);
+    for (int Row = 0; Row < 3; ++Row)
     {
-        Out.EnvDeltaTime = Core->Environment->delta_time;
-        Out.EnvTime[0] = Core->Environment->current_time.time_base;
-        Out.EnvTime[1] = Core->Environment->current_time.time_offset;
+        for (int Column = 0; Column < 3; ++Column)
+            Out.Matrix[Row * 3 + Column] = Core->MWorldFCore.rows[Row].k[Column];
     }
+    for (int Index = 0; Index < 3; ++Index)
+        Out.Matrix[9 + Index] = Core->MWorldFCore.vv.k[Index];
+    CopyVector(Out.RotAxis, Core->RotAxisOS);
+    Out.Margin = Core->Margin;
+    Out.MaxSurfaceDeviation = Core->MaxSurfaceDeviation;
+    Out.BoundingRadius = Core->BoundingRadius;
+    CopyTime(Out.TimeOfLastMotion, Core->TimeOfLastMotion);
+    CopyTime(Out.TimeOfLastLongMotion, Core->TimeOfLastLongMotion);
+    CopyQuat(Out.QLastMotion, Core->QLastMotion);
+    CopyQuat(Out.QLastLongMotion, Core->QLastLongMotion);
+    CopyVector(Out.PosLastMotion, Core->PosLastMotion);
+    CopyVector(Out.PosLastLongMotion, Core->PosLastLongMotion);
     return true;
 }
 

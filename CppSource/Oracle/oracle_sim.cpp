@@ -51,7 +51,7 @@
 #include "common_server_types.h"       // SStartupInfo
 #include "common_timing.h"             // Timing::UpdateGlobalTime
 #include "server_cobject.h"            // pub::SpaceObj::ShipInfo / Create
-#include "server_iserverimpl.h"        // Server
+#include "server_iserverimpl.h"        // IServerImpl (the `Server` export is looked up at run time)
 #include "oracle_sim_hooks.h"
 
 // Server.dll, IServerImpl.cpp (Oracle instrumentation): StarSystem::load on one system.
@@ -62,7 +62,7 @@ namespace
     using oracle::Format;
 
     // The record format version written into session.jsonl's start record.
-    unsigned int const kSimVersion = 1;
+    unsigned int const kSimVersion = 2;
     // OutpostServer.exe's server-thread control word (SetupServerFpu without the unmask
     // option): every exception masked, 53-bit precision, round to nearest.
     unsigned int const kServerFpuWord = 0x9001f;
@@ -438,6 +438,29 @@ namespace
     unsigned int GBehaviorSeq = 0;
     unsigned int GOpenBehavior = 0;  // the behaviour tick in progress, 0 outside one
     bool GbScenarioCommand = false;  // the harness itself is issuing a command
+
+    // One psi.jsonl record being built (design/sim-records.md), one per GObjects entry: the
+    // core is resolved before the PSI's simulation units, the record opened at its unit's
+    // Process_One_Psi_Step entry, the pushes appended while that unit runs, and the record
+    // written after the next-PSI matrices.
+    enum EPsiState
+    {
+        PsiIdle,      // not recorded in this PSI (yet)
+        PsiInUnit,    // its unit is running: pushes are recorded
+        PsiUnitDone   // its unit has run: waiting for the state after calc_next_PSI_matrix
+    };
+
+    struct FPsiRecord
+    {
+        CObject* Object = nullptr;   // a reference held from OnPsi phase 0 to phase 1
+        IVP_Core* Core = nullptr;
+        EPsiState State = PsiIdle;
+        FOracleJson J;
+    };
+
+    std::vector<FPsiRecord> GPsiRecords;            // parallel to GObjects
+    IVP_Simulation_Unit* GPsiUnit = nullptr;        // the unit running with a record open
+    std::vector<std::string> GPsiNoted;             // objects already noted as not recordable
     void(__cdecl* GStubSetTick)(unsigned int) = nullptr;
 
     void Write(EFile File, std::string const& Line)
@@ -634,61 +657,210 @@ namespace
         J.EndObject();
     }
 
+    // A session note, once per object, for a psi object whose PSIs cannot be replayed.
+    void PsiNote(FSimObject const& Object, char const* Why)
+    {
+        if (std::find(GPsiNoted.begin(), GPsiNoted.end(), Object.Desc->Name) != GPsiNoted.end())
+            return;
+        GPsiNoted.push_back(Object.Desc->Name);
+        SessionNote("note", Format("psi %s: %s; its PSIs are not recorded", Object.Desc->Name.c_str(), Why));
+    }
+
+    // A core state of a psi record ("in" or "out").
+    void CoreJ(FOracleJson& J, char const* Name, FOracleSimCore const& C)
+    {
+        J.BeginObject(Name);
+        J.Uint("flags", C.Flags);
+        J.Uint("movement_state", C.MovementState);
+        J.Uint("unit_state", C.UnitState);
+        J.Float("upper_limit_radius", C.UpperLimitRadius);
+        J.Float("max_surface_deviation", C.SpeedLimit);
+        J.Float("mass", C.Mass);
+        J.Float("inv_mass", C.InvMass);
+        J.FloatArray("inertia", C.RotInertia, 3);
+        J.FloatArray("inv_inertia", C.InvRotInertia, 3);
+        J.FloatArray("rot_speed_damp", C.RotSpeedDamp, 3);
+        J.Float("speed_damp", C.SpeedDamp);
+        J.Float("angular_limit", C.DAngularLimitFactor);
+        if (C.bSpinClipping != 0)
+            J.FloatArray("spin_clip", C.SpinClipping, 3);
+        else
+            J.Null("spin_clip");
+        J.FloatArray("time_of_last_psi", C.TimeOfLastPsi, 2);
+        J.Float("i_delta_time", C.IDeltaTime);
+        J.FloatArray("rot_speed_change", C.RotSpeedChange, 3);
+        J.FloatArray("speed_change", C.SpeedChange, 3);
+        J.FloatArray("rot_speed", C.RotSpeed, 3);
+        J.FloatArray("speed", C.Speed, 3);
+        J.FloatArray("pos", C.Pos, 3);
+        J.FloatArray("delta_world", C.DeltaWorld, 3);
+        J.FloatArray("q", C.Quat, 4);
+        J.FloatArray("q_next", C.QuatNext, 4);
+        J.FloatArray("m", C.Matrix, 12);
+        J.FloatArray("rot_axis", C.RotAxis, 3);
+        J.Float("current_speed", C.Margin);
+        J.Float("abs_omega", C.MaxSurfaceDeviation);
+        J.Float("surface_rot_speed", C.BoundingRadius);
+        J.FloatArray("time_of_last_motion", C.TimeOfLastMotion, 2);
+        J.FloatArray("time_of_last_long_motion", C.TimeOfLastLongMotion, 2);
+        J.FloatArray("q_last_motion", C.QLastMotion, 4);
+        J.FloatArray("q_last_long_motion", C.QLastLongMotion, 4);
+        J.FloatArray("pos_last_motion", C.PosLastMotion, 3);
+        J.FloatArray("pos_last_long_motion", C.PosLastLongMotion, 3);
+        J.EndObject();
+    }
+
+    void ResetPsiRecords()
+    {
+        for (FPsiRecord& Record : GPsiRecords)
+        {
+            if (Record.Object != nullptr)
+                Record.Object->Release();
+            Record.Object = nullptr;
+            Record.Core = nullptr;
+            Record.State = PsiIdle;
+            Record.J = FOracleJson();
+        }
+        GPsiUnit = nullptr;
+    }
+
+    // Phase 0: count the PSI and resolve the cores of the psi objects. Phase 1 (after
+    // commit_all_calc_next_PSI_matrix): the state after calc_next_PSI_matrix closes each
+    // record whose unit ran in this PSI.
     void __cdecl OnPsi(IVP_Environment* Environment, int Phase)
     {
         if (Phase == 0)
         {
             ++GPsiSeq;
             GPsiDt.push_back(OracleSimEnvDeltaTime(Environment));
-        }
-        for (FSimObject const& Object : GObjects)
-        {
-            if (!Object.Desc->bPsi)
-                continue;
-            unsigned int Id = Object.Id;
-            CObject* const Found = CObject::Find(Id, Object.Class);
-            if (Found == nullptr)
-                continue;
-            FOracleSimCore Core;
-            if (OracleSimReadCore(Found, Core))
+            ResetPsiRecords();
+            GPsiRecords.resize(GObjects.size());
+            for (size_t Index = 0; Index < GObjects.size(); ++Index)
             {
-                FOracleJson J;
-                J.Str("rec", "psi");
-                J.Uint("tick", GTick);
-                J.Uint("psi", GPsiSeq);
-                J.Str("phase", Phase == 0 ? "in" : "out");
-                J.Str("obj", Object.Desc->Name.c_str());
-                J.Uint("id", Object.Id);
-                J.Float("dt", Core.EnvDeltaTime);
-                J.FloatArray("time", Core.EnvTime, 2);
-                J.FloatArray("pos", Core.Pos, 3);
-                J.FloatArray("q", Core.Quat, 4);
-                J.FloatArray("speed", Core.Speed, 3);
-                J.FloatArray("rot_speed", Core.RotSpeed, 3);
-                J.FloatArray("speed_change", Core.SpeedChange, 3);
-                J.FloatArray("rot_speed_change", Core.RotSpeedChange, 3);
-                J.FloatArray("delta_world", Core.DeltaWorld, 3);
-                J.Float("mass", Core.Mass);
-                J.Float("inv_mass", Core.InvMass);
-                J.FloatArray("inertia", Core.RotInertia, 3);
-                J.FloatArray("inv_inertia", Core.InvRotInertia, 3);
-                J.Float("speed_damp", Core.SpeedDamp);
-                J.FloatArray("rot_speed_damp", Core.RotSpeedDamp, 3);
-                J.Float("upper_limit_radius", Core.UpperLimitRadius);
-                J.Float("speed_limit", Core.SpeedLimit);
-                J.Float("i_delta_time", Core.IDeltaTime);
-                J.FloatArray("time_of_last_psi", Core.TimeOfLastPsi, 2);
-                J.Uint("movement_state", Core.MovementState);
-                J.Uint("flags", Core.Flags);
-                if (Core.bSpinClipping != 0)
-                    J.FloatArray("spin_clip", Core.SpinClipping, 3);
-                else
-                    J.Null("spin_clip");
-                if (Phase == 0 && Object.Class == CObject::ClassShip)
-                    ControllerInputs(J, static_cast<CShip*>(Found));
-                Write(FilePsi, J);
+                FSimObject const& Object = GObjects[Index];
+                if (!Object.Desc->bPsi)
+                    continue;
+                unsigned int Id = Object.Id;
+                CObject* const Found = CObject::Find(Id, Object.Class);
+                if (Found == nullptr)
+                    continue;
+                IVP_Core* const Core = OracleSimCoreOf(Found);
+                if (Core == nullptr || Found->GolemController != nullptr)
+                {
+                    // A golem or remote-correction controller beams its body; the scenario
+                    // tests cover those.
+                    if (Core != nullptr)
+                        PsiNote(Object, "it has a golem or remote-correction controller");
+                    Found->Release();
+                    continue;
+                }
+                GPsiRecords[Index].Object = Found;
+                GPsiRecords[Index].Core = Core;
             }
-            Found->Release();
+            return;
+        }
+
+        for (FPsiRecord& Record : GPsiRecords)
+        {
+            if (Record.State != PsiUnitDone)
+                continue;
+            FOracleSimCore Out;
+            OracleSimReadCore(Record.Core, Out);
+            CoreJ(Record.J, "out", Out);
+            Write(FilePsi, Record.J);
+        }
+        ResetPsiRecords();
+    }
+
+    // Phase 0 opens the record of each psi core in the unit: the environment's values, the
+    // controller inputs and the core state before the unit's PSI. Phase 1 closes its pushes
+    // and adds the movement check.
+    void __cdecl OnSimUnitPsi(IVP_Environment* Environment, IVP_Simulation_Unit* Unit, int Phase,
+                              bool bMovementCheck)
+    {
+        if (Phase != 0)
+        {
+            for (FPsiRecord& Record : GPsiRecords)
+            {
+                if (Record.State != PsiInUnit)
+                    continue;
+                Record.J.EndArray();
+                Record.J.Bool("check", bMovementCheck);
+                Record.State = PsiUnitDone;
+            }
+            GPsiUnit = nullptr;
+            return;
+        }
+
+        for (size_t Index = 0; Index < GPsiRecords.size(); ++Index)
+        {
+            FPsiRecord& Record = GPsiRecords[Index];
+            if (Record.Core == nullptr || Record.State != PsiIdle || OracleSimUnitOf(Record.Core) != Unit)
+                continue;
+            FSimObject const& Object = GObjects[Index];
+            if (OracleSimUnitCoreCount(Unit) != 1)
+            {
+                // The replay steps one core per unit.
+                PsiNote(Object, "its simulation unit holds more than one core");
+                continue;
+            }
+            FOracleSimEnv Env;
+            OracleSimReadEnv(Environment, Env);
+            FOracleSimCore In;
+            OracleSimReadCore(Record.Core, In);
+            FOracleJson& J = Record.J;
+            J.Str("rec", "psi");
+            J.Uint("tick", GTick);
+            J.Uint("psi", GPsiSeq);
+            J.Str("obj", Object.Desc->Name.c_str());
+            J.Uint("id", Object.Id);
+            J.Float("dt", Env.DeltaTime);
+            J.Float("idt", Env.InvDeltaTime);
+            J.FloatArray("time", Env.Time, 2);
+            float const Limits[2] = {Env.MaxVelocity, Env.MaxAngularVelocityPerPsi};
+            J.FloatArray("limits", Limits, 2);
+            if (Object.Class == CObject::ClassShip)
+                ControllerInputs(J, static_cast<CShip*>(Record.Object));
+            CoreJ(J, "in", In);
+            J.BeginArray("pushes");
+            Record.State = PsiInUnit;
+            GPsiUnit = Unit;
+        }
+    }
+
+    char const* PushKindName(int Kind)
+    {
+        switch (Kind)
+        {
+        case OracleSimPushLinear:
+            return "linear";
+        case OracleSimPushAngularWs:
+            return "angular_ws";
+        case OracleSimPushAngularCs:
+            return "angular_cs";
+        default:
+            return "unknown";
+        }
+    }
+
+    // A push into a core whose unit is running with its record open; pushes at any other
+    // time are not part of a record.
+    void __cdecl OnCorePush(IVP_Core* Core, int Kind, Vector const* Direction, float Magnitude)
+    {
+        if (GPsiUnit == nullptr)
+            return;
+        for (FPsiRecord& Record : GPsiRecords)
+        {
+            if (Record.State != PsiInUnit || Record.Core != Core)
+                continue;
+            FOracleJson& J = Record.J;
+            J.BeginArray(nullptr);
+            J.Str(nullptr, PushKindName(Kind));
+            J.Float(nullptr, Direction->x);
+            J.Float(nullptr, Direction->y);
+            J.Float(nullptr, Direction->z);
+            J.Float(nullptr, Magnitude);
+            J.EndArray();
         }
     }
 
@@ -1456,6 +1628,21 @@ namespace oracle
             FlushAll();
         }
 
+        // Server.dll is delay-loaded (Oracle.vcxproj), so the other modes never load it; it is
+        // loaded here, first, as a static import was before. Its data export `Server` cannot be
+        // delay-loaded and is looked up by name; the function imports (pub::, the
+        // OracleSimLoadSystem export) bind to this module on their first call.
+        std::string const ServerPath = ExeDir + "Server.dll";
+        HMODULE const ServerModule = LoadLibraryA(ServerPath.c_str());
+        IServerImpl* const ServerImpl =
+            ServerModule != nullptr ? reinterpret_cast<IServerImpl*>(GetProcAddress(ServerModule, "Server")) : nullptr;
+        if (ServerImpl == nullptr)
+        {
+            SessionNote("error", "cannot load " + ServerPath + " or its Server export");
+            CloseAll();
+            return 3;
+        }
+
         HMODULE const Stub = LoadLibraryA(StubPath.c_str());
         if (Stub == nullptr)
         {
@@ -1520,7 +1707,7 @@ namespace oracle
         Info.Port = 0;
         Info.bAllowPvp = 0;
         Info.bAllowNewPlayers = 1;
-        bool const bStarted = Server.Startup(Info);
+        bool const bStarted = ServerImpl->Startup(Info);
         // The server is up from here on, so every exit goes through EndProcess.
         if (!bStarted)
         {
@@ -1565,6 +1752,8 @@ namespace oracle
         GOracleSimHooks.StepSystemId = SystemId;
         GOracleSimHooks.bSinglePlayerStepping = GScenario.bSpStepping;
         GOracleSimHooks.OnPsi = OnPsi;
+        GOracleSimHooks.OnSimUnitPsi = OnSimUnitPsi;
+        GOracleSimHooks.OnCorePush = OnCorePush;
         GOracleSimHooks.OnCollisionDamage = OnCollisionDamage;
         GOracleSimHooks.OnMunitionHit = OnMunitionHit;
         GOracleSimHooks.OnBehaviorTick = OnBehaviorTick;
@@ -1589,9 +1778,9 @@ namespace oracle
             GStubSetTick(GTick);
             RunCommands(NextCommand);
             // OutpostServer.exe's frame (ServerThreadProc) with the fixed frame time.
-            Server.Update();
+            ServerImpl->Update();
             Timing::UpdateGlobalTime(GScenario.Frame);
-            Server.ElapseTime((float)GScenario.Frame);
+            ServerImpl->ElapseTime((float)GScenario.Frame);
             RecordTick(X87, Sse);
             FlushAll();
         }

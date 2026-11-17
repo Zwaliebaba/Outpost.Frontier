@@ -1,12 +1,14 @@
 //! Replay of the scenario oracle's per-PSI free-flight records (record
-//! 0003 points 5 and 7; layout in `design/sim-records.md`).
+//! 0003 points 5 and 7; layout in the `psi.jsonl` section of
+//! `design/sim-records.md`).
 //!
-//! `Oracle.exe sim` writes `psi.jsonl` files into its output folder, one
-//! per scenario. With `OUTPOST_ORACLE_DIR` set to that folder, every
-//! record's PSI is run from its recorded input state and compared with its
-//! recorded output, Tier B: within `TOLERANCE` relative to the larger
-//! magnitude (at least absolute), integers and flags exactly. Without the
-//! variable the test prints a notice and passes. A summary is written to
+//! `Oracle.exe sim` writes one `psi.jsonl` per run into its output folder
+//! (with `--runs N`, one per `run_NN` folder). With `OUTPOST_ORACLE_DIR`
+//! set to a folder above them, every record's PSI is run from its
+//! recorded input state and compared with its recorded output, Tier B:
+//! within `TOLERANCE` relative to the larger magnitude (at least
+//! absolute), integers and flags exactly. Without the variable the test
+//! prints a notice and passes. A summary is written to
 //! `rust-sim-replay.txt` in that folder.
 
 use std::fmt::Write as _;
@@ -60,11 +62,13 @@ fn free_flight_replay_matches_the_oracle() {
             if !diffs.is_empty() {
                 mismatched += 1;
                 reports.push(format!(
-                    "{}:{} psi {} object {:08x}: {}",
+                    "{}:{} tick {} psi {} {} (id {}): {}",
                     file.display(),
                     line_no + 1,
+                    record.tick,
                     record.psi,
-                    record.object,
+                    record.obj,
+                    record.id,
                     diffs.join("; ")
                 ));
             }

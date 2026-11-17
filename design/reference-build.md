@@ -462,7 +462,13 @@ The output is made from the game data: keep it outside the repository.
 ### Build and run
 
 The `Oracle` project links `Server.lib` and builds `SimClientStub.dll`
-(`CppSource\Oracle\SimClientStub\`) through its references. A run also
+(`CppSource\Oracle\SimClientStub\`) through its references. Both are
+needed by this mode only: `Server.dll` is delay-loaded (`DelayLoadDLLs`
+with `delayimp.lib`), and the harness loads it and looks up its one data
+export, `Server`, by name at the start of a run, so the vector suites,
+`dump` and `catalog` never load it; `SimClientStub.dll` is loaded with
+`LoadLibrary` by the run. Every other import from `Server.dll` must be a
+function (a data import fails the link with `LNK1194`). A run also
 loads `Content.dll` and the engine DLLs `NEURONCOMPONENTSsrv.ini` names;
 build the whole solution, or `Tools\Oracle` with `DLLs\Content`,
 `DLLs\ReadFile`, `DLLs\RendComp`, `DLLs\system`, `DLLs\SceneScript`,
@@ -533,6 +539,8 @@ is zero, which only `Oracle.exe sim` changes:
 | `Common\common_physicalsystem.cpp` | `PhysicalSystem::Update` takes the single-player branch when asked |
 | `Common\common_behaviormanager.cpp` | `UpdateBehaviorTick` reports its entry and every exit (an RAII guard) |
 | `IVP\ivp_physics\ivp_environment.cpp` | `IVP_Environment_Simulate_Psi` reports before the simulation units and after the next-PSI matrices |
+| `IVP\ivp_physics\ivp_simulation_unit.cpp` | `IVP_Simulation_Unit_Process_One_Psi_Step` reports its entry and its end with the movement check |
+| `IVP\ivp_physics\ivp_core.cpp` | `IVP_Core::push_core_linear`, `push_core_angular_ws` and `push_core_angular_cs` report the push |
 
 `srand`, the frame time and the control words need no hook: the harness
 runs the frame loop itself.
