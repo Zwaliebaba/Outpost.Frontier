@@ -34,13 +34,57 @@
 #include "common_archetype.h"
 #include "common_goods.h"
 #include "common_misc.h"
-#include "common_physys.h"
+#include "common_csys.h"
 #include "common_reputation.h"
 #include "common_universe.h"
 #include "common_fuses.h"
 
 #include <algorithm>
 #include <set>
+
+// The PhySys constants and collision functions of common_physys.h, declared
+// here because that header pulls in the IVP headers.
+namespace PhySys
+{
+    COMMON_API extern float PHYSICAL_SIM_RATE;
+    COMMON_API extern int MAX_SPAWNED_MINDIST_COUNT;
+    COMMON_API extern float ANOM_LIMITS_MAX_VELOCITY;
+    COMMON_API extern float ANOM_LIMITS_MAX_ANGULAR_VELOCITY_PER_PSI;
+    COMMON_API extern double MATERIAL_FRICTION;
+    COMMON_API extern double MATERIAL_ELASTICITY;
+    COMMON_API extern double MIN_TIME_BETWEEN_COLLISIONS;
+    COMMON_API extern float RMGR_LOOK_AHEAD_TIME_WORLD;
+    COMMON_API extern float RMGR_LOOK_AHEAD_MAX_RADIUS_WORLD;
+    COMMON_API extern float RMGR_LOOK_AHEAD_MIN_DISTANCE_WORLD;
+    COMMON_API extern float RMGR_LOOK_AHEAD_MAX_DISTANCE_WORLD;
+    COMMON_API extern float RMGR_LOOK_AHEAD_MIN_SECONDS_WORLD;
+    COMMON_API extern float RMGR_LOOK_AHEAD_TIME_INTRA;
+    COMMON_API extern float RMGR_LOOK_AHEAD_MAX_RADIUS_INTRA;
+    COMMON_API extern float RMGR_LOOK_AHEAD_MIN_DISTANCE_INTRA;
+    COMMON_API extern float RMGR_LOOK_AHEAD_MAX_DISTANCE_INTRA;
+    COMMON_API extern float RMGR_LOOK_AHEAD_MIN_SECONDS_INTRA;
+    COMMON_API extern float DEFAULT_LINEAR_DAMPING;
+    COMMON_API extern Vector DEFAULT_ANGULAR_DAMPING;
+    COMMON_API extern float GOLEM_CHILD_MASS;
+    COMMON_API extern float GOLEM_CHILD_LINEAR_DAMP;
+    COMMON_API extern Vector GOLEM_CHILD_ANGULAR_DAMP;
+    COMMON_API extern float GOLEM_MAX_DELTA_POSITION;
+    COMMON_API extern float GOLEM_DELTA_ORIENTATION;
+    COMMON_API extern float GOLEM_MAX_TORQUE;
+    COMMON_API extern float GOLEM_FORCE_FACTOR;
+    COMMON_API extern float GOLEM_DAMP_FACTOR;
+    COMMON_API extern float GOLEM_TORQUE_FACTOR;
+    COMMON_API extern float GOLEM_ANGULAR_DAMP_FACTOR;
+    COMMON_API extern float RC_MAX_DELTA_POSITION;
+    COMMON_API extern float RC_MAX_DELTA_ORIENTATION;
+    COMMON_API extern Vector GOLEM_MAX_TRANSLATION_FORCE;
+}
+
+namespace Collision
+{
+    COMMON_API float __cdecl GetImpactDamageFromType(unsigned TypeId);
+    COMMON_API float __cdecl CalcCollisionDamage(unsigned TypeId, Vector const& RelVel, Vector const& Normal);
+}
 
 // The NeuronRuntime globals the loaders read (NeuronRuntime.h declares them
 // beside headers that need the DirectX 8 SDK): the data file system, and the
