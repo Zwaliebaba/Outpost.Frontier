@@ -1,8 +1,6 @@
 # 0003 — Replay and scenario oracle; G2 envelope method
 
-Status: proposed, 2026-11-17 (P2.0). Direction chosen by the owner on
-2026-11-17 (decision O23); implements decision O20. The record waits for
-the owner's approval.
+Status: accepted by the owner on 2026-11-17 (P2.0); decision O23; implements decision O20.
 
 ## Context
 
