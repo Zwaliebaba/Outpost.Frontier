@@ -5,7 +5,8 @@
 //
 // oracle_protocol.cpp: FmtStr, binary RDL and MarshalBuffer through Common.dll.
 // oracle_protocol_packets.cpp: every packet of RemoteCommon through its Encode,
-// compiled with RemoteClient.dll's definitions like oracle_net_*_codecs.cpp.
+// and back through its Decode, compiled with RemoteClient.dll's definitions
+// like oracle_net_*_codecs.cpp.
 
 #pragma once
 
