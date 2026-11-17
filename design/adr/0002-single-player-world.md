@@ -1,8 +1,6 @@
 # 0002 — Single player keeps one shared world
 
-Status: proposed, 2026-11-17 (P2.0). Direction chosen by the owner on
-2026-11-17 (decision O21); answers fact F14. The record waits for the
-owner's approval.
+Status: accepted by the owner on 2026-11-17 (P2.0); decision O21; answers fact F14.
 
 ## Context
 

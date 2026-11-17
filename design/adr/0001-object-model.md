@@ -1,7 +1,6 @@
 # 0001 — Object model: arena, handles and kinds
 
-Status: proposed, 2026-11-17 (P2.0). Direction chosen by the owner on
-2026-11-17 (decision O22); the record waits for the owner's approval.
+Status: accepted by the owner on 2026-11-17 (P2.0); decision O22.
 
 ## Context
 
