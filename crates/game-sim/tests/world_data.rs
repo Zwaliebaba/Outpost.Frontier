@@ -199,3 +199,49 @@ fn a_blast_damages_shield_then_hull() {
         "the hull takes damage once the shield is down"
     );
 }
+
+/// The first shield of an equipped object: its hit points.
+fn shield_hp(world: &game_sim::object::World, h: game_sim::object::ObjHandle) -> f32 {
+    let eq = world
+        .get(h)
+        .and_then(|o| o.as_equipped())
+        .expect("equipped");
+    eq.equipment
+        .iter()
+        .find_map(|e| match &e.kind {
+            EquipKind::Shield(s) => Some(s.hit_pts),
+            _ => None,
+        })
+        .expect("a shield")
+}
+
+#[test]
+fn the_shield_generator_regenerates_the_shield() {
+    let Some(mut world) = support::world::world(WorldConfig::default()) else {
+        return;
+    };
+    let system = create_id(b"he01");
+    world.load_system(system);
+    let ship = fighter(&mut world, system, Vector::new(0.0, 0.0, 0.0));
+    // `CEShieldGenerator::CEShieldGenerator` activates the generator.
+    let eq = world.get(ship).and_then(|o| o.as_equipped()).unwrap();
+    assert!(
+        eq.equipment
+            .iter()
+            .any(|e| matches!(e.kind, EquipKind::ShieldGenerator(_)) && e.is_functioning(false))
+    );
+    let blast = game_sim::object::damage::Blast {
+        position: Vector::new(0.0, 0.0, 20.0),
+        radius: 60.0,
+        hull_damage: 50.0,
+        energy_damage: 0.0,
+    };
+    world.explode(system, &blast, 0, None);
+    let hit = shield_hp(&world, ship);
+    for _ in 0..31 {
+        world.step(system, 1.0 / 30.0);
+    }
+    let later = shield_hp(&world, ship);
+    println!("shield {hit} -> {later}");
+    assert!(later > hit, "the damaged shield regenerates");
+}

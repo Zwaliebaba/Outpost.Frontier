@@ -642,6 +642,11 @@ impl World {
             return;
         };
         equip.set_hit_points((f64::from(desc.health) * f64::from(arch.root.hit_pts)) as f32);
+        // `CEShieldGenerator::CEShieldGenerator`: `LastUpdateTime` is the
+        // global time at construction.
+        if let EquipKind::ShieldGenerator(g) = &mut equip.kind {
+            g.last_update_time = self.time;
+        }
         let internal = desc.is_internal(&self.data.strings);
         if !internal && equip.mount.is_some() {
             let hp = hp_name(&self.data.strings, desc.hardpoint);

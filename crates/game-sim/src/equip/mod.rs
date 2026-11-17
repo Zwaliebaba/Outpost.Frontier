@@ -412,8 +412,8 @@ impl Equip {
     /// `CEqObj::alloc_equip` and `CShip::alloc_equip`: the item an
     /// archetype makes, or `None` for a class that cannot be equipped
     /// (the reference's warning). `ship` selects the ship-only kinds
-    /// (engine, thruster, tractor). The constructors' own activations
-    /// (engine, power plant) are applied; registering controllers is the
+    /// (engine, thruster, tractor). The constructors' own activations are
+    /// applied (see the match at the end); registering controllers is the
     /// world's (`ControlObject` needs the owner's body).
     #[must_use]
     pub fn alloc(
@@ -525,10 +525,26 @@ impl Equip {
             _ => return None,
         };
         let mut equip = Self::new(id, arch, type_bits, kind, mission);
-        match equip.kind {
-            // `CEEngine::CEEngine` and `CEPower::CEPower` call
-            // `CEquip::Activate(true)`.
-            EquipKind::Engine(_) | EquipKind::Power(_) => {
+        match &mut equip.kind {
+            // The constructors that call `CEquip::Activate(true)`:
+            // `CEEngine`, `CEPower`, `CEShieldGenerator`, `CEScanner`,
+            // `CEArmor`, `CECargoPod`, and `CELightEquip` when always on.
+            EquipKind::Engine(_)
+            | EquipKind::Power(_)
+            | EquipKind::ShieldGenerator(_)
+            | EquipKind::Scanner(_)
+            | EquipKind::Armor(_)
+            | EquipKind::CargoPod(_) => {
+                equip.activate_base(true);
+            }
+            EquipKind::Light(light) if light.always_on => {
+                equip.activate_base(true);
+            }
+            // `CECloakingDevice::CECloakingDevice`: its own `Activate(true)`,
+            // then the timer set to `cloak_out_time` over what it stored.
+            EquipKind::Cloak(cloak) => {
+                cloak.activate(true);
+                cloak.timer = cloak.cloak_out_time;
                 equip.activate_base(true);
             }
             _ => {}
@@ -976,7 +992,8 @@ mod tests {
 
     #[test]
     fn activate_reports_edges() {
-        let mut e = Equip::alloc(0x22, &arch(classes::SCANNER, 1), false, true, None).unwrap();
+        // A gun starts inactive (`CELauncher` does not activate itself).
+        let mut e = Equip::alloc(0x22, &arch(classes::GUN, 1), false, true, None).unwrap();
         e.activate_base(true);
         e.activate_base(true);
         e.activate_base(false);
