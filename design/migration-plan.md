@@ -249,7 +249,7 @@ the oracle dumps.
 | P2.1 | `Common` data: constants, data config, the string cache (`common_stringcache.cpp`, moved from P1.1), archetypes, loadouts, fuse data, goods, reputation data, universe, zones, asteroid IDs, bases, rooms, spatial partition | `game-sim::data` | XL | A |
 | P2.2 | `Common` marshal buffer, format strings, costume, binary rich text; the 162 packet types and codecs from `RemoteCommon` | `game-sim::protocol` | L | A |
 | P2.3 | `PhySys` facade, `[PhySys]` constants, hull shapes from compact surfaces, integrator and impulse solver, controllers hook, rays, sphere queries, phantoms, remote correction, dead reckoning | `neuron-core::physics` | L | B |
-| P2.4 | `Common` object model (`CObject` to `CShip`, `CSolar`, projectiles, loot), attachments, object database, equipment (`CE*`), damage | `game-sim::object`, `::equip` | XL | B |
+| P2.4 | `Common` object model (`CObject` to `CShip`, `CSolar`, projectiles, loot), attachments, object database, equipment (`CE*`), damage. The shared remainder (asteroid field walk, bay, dock and gate animations, scanner and tractor updates, turret aiming, explosion bounding spheres, `HardpointSummary`, the inspection queries the AI needs) is a follow-up alongside P2.5, before Gate G2 (owner, 2026-11-17) | `game-sim::object`, `::equip` | XL | B |
 | P2.5 | `Common` AI: steering, ideas, obstacle avoidance, pathfinding, targeting, fire control, 23 behaviours, behaviour manager, state graphs | `game-sim::ai` | XL | B |
 
 Order and review (owner, 2026-11-17): P2.0 comes first and stops for the
@@ -272,7 +272,7 @@ the C++ encodings byte for byte.
 | P3.0 | Design spike: controller bus and re-entrant dispatch. The C++ nests message dispatch; Rust needs an event queue that preserves the observable order | `design/adr/` | S | — |
 | P3.1 | `Server`: save container, account hashing and files, paths, session slots, controller registry, heartbeats, timers, tick driver | `neuron-server` | M | A |
 | P3.2 | `Server`: typed events replacing 81 message IDs, client sink, character file schema and templates, player database, worth and cheat checks, groups, chat | `game-logic::{events, player, character_file}` | L | A |
-| P3.3 | `Server`: star systems, object wrappers, munitions, fuses, observers and replication, asteroid fields, base database; the `pub::` functions become methods on the world | `game-logic::{world, objects, replication, bases}` | XL | B |
+| P3.3 | `Server`: star systems, object wrappers, munitions (with the guided-missile and mine controllers), fuses, loot drops, debris, docking, observers and replication, asteroid fields, base database (the server parts moved from P2.4, owner 2026-11-17; they remove D124 to D126); the `pub::` functions become methods on the world | `game-logic::{world, objects, replication, bases}` | XL | B |
 | P3.4 | `Content`: static tables, factions, loot, cargo, system connections | `game-logic::tables` | L | A |
 | P3.5 | `Content`: mission script parser (44 conditions, 85 actions as enums) and runtime, mission object, object lists, dialogs, save sections, story shell | `game-logic::mission`, `::story` | XL | A for parse and save, B for runtime |
 | P3.6 | `Content`: encounters, spawn placement, patrol paths, NPC ships and pilots, guides, comm chatter, space support, dock queues, trade lanes | `game-logic::{population, npc}` | XL | B |

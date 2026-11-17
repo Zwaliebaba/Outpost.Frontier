@@ -11,6 +11,12 @@ platform dependence*, *numeric policy* (decision T11), *owner decision*
 
 The owner accepted D11 on 2026-11-17.
 
+The owner accepted D118 to D128 (P2.4) on 2026-11-17: D124 to D126 as open
+gaps that P3.3 removes (turret aiming and gun lock may come with P2.5);
+D122 and D123 to be revisited when multi-part ships and golems need them;
+D120 to be removed before P2.4 merges, once the P2.1 `ClassifyPoint` is on
+`main`; the rest as design choices.
+
 | ID | Area | C++ behaviour | Rust behaviour | Reason | Observable effect |
 | --- | --- | --- | --- | --- | --- |
 | D1 | `neuron-core::ini::engine` | On a stray `]` or `=` at the start of a line, an over-long phrase, or a value that does not end the line, `FIniDatabase::Parse` executes `__debugbreak`; on a key before the first section it writes through a null section (`neuroncomponents.cpp`). Without a debugger the process ends | `EngineIni::load_*` returns `EngineIniError::Breakpoint` or `KeyBeforeSection`; the sections parsed before stay | Undefined behaviour in the reference | A malformed engine INI is reported instead of ending the program |
