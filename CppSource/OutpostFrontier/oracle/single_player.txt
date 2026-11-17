@@ -7,10 +7,13 @@ waitscreen menu 1 900
 wait 90
 dump main-menu
 
-# New Game: the column slides out, menu state 16 (Restart.fl character) -> 12 (select it),
-# then the client leaves the menu for the game: client state 3 (base) or 2 (space).
+# New Game: the column slides out, menu states 16 (Restart.fl character), 12 (select it) and
+# 20 follow in one frame, and the client leaves the menu for space (client state 2). The
+# opening scene then docks at the first base (client state 3, about 2050 frames later).
 click text:NEW GAME
-waitscreen menu 12 300
+waitscreen client 2 600
+wait 150
+dump space-start
 waitscreen client 3 3000
 wait 150
 dump first-base

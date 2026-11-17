@@ -84,6 +84,11 @@ INI files. `DATA_EXTRA\` then also sits beside the executable. The client and
 server no longer show the original licence screen, so they need neither
 `EBUEula.dll` nor `EULA.rtf` and `Warranty.rtf`.
 
+A copied `data\` goes stale when a commit changes `outdir\data`: after
+decision O17 an old copy loads no particle node library, leaves the main
+menu's background scene empty and crashes on docking (section 6). Compare it with `diff -rq` after pulling data
+commits, or use a junction where no local edit is needed.
+
 On the owner's machine the run folders differ from `outdir\` in three
 values: the client INI comments out the three `[Startup] movie_file` lines
 and names `intro` by an absolute path into the run folder, and
@@ -181,6 +186,9 @@ the plain-text save writer of commit `816f556a`, recorded as decision O12.
 | `LNK1181` (cannot open input file) for `Common.lib`, `Server.lib`, `rpclocal.lib` or `NeuronRuntime.lib` in a parallel build (`/m`) | `Server`, `RemoteServer` and `RemoteClient` linked these libraries without project references, so MSBuild could build them too late | Project references added (commit `a86a199`) |
 | `LNK1181` for `neuroncomponents.lib` in `Deformable2` in a parallel build (`/m`), first seen in CI's Reference build job | `Deformable2.vcxproj` set `BuildProjectReferences` to `false`, so its reference did not order the build; `Content` and `RemoteClient` linked `neuroncomponents.lib`, `Common.lib` and `NeuronRuntime.lib` without references | The setting removed and the references added (commit `ddf4475`) |
 | With `bDrawScripts = false` in `intro.ini`, the main menu is not drawn and has no mouse cursor | `MenuStateDriverUpdate` returned before it began the frame when `bDrawScripts` is clear, and the cursor was set only on the path that enters the intro base (`client_state.cpp`) | The menu frame is always drawn and only the intro scene work depends on `bDrawScripts`; the cursor is set before that test (commit `816f556a`). With `bDrawScripts = true` the menu behaves as before |
+| `+oracle` writes no screenshots: every `dump` record has `"shot":""`, and `FLSpew.txt` shows `print_screen_save_surface: D3DXERR_INVALIDDATA` | The mode asked `PrintScreen` for `.png`; D3DX 8.1 does not save PNG | The mode writes `.bmp`, as the client's own screenshot key does (P0.5 owner run, 2026-11-17) |
+| Tree dumps of two identical `+oracle` runs differ in `flags` | The Win3D constructor keeps bits 4 to 7 of the flag byte from the heap (`Flags & 0xf8`), as the original does | The dump writes bits 0 to 3 only (P0.5 owner run, 2026-11-17) |
+| Every particle effect fails with `couldn't create instace of node` (engine fire, trails, contrails, explosions), and the client ends with `0xC0000005` in `particlefx.dll` at offset `0x7ecd` when a new single-player game's opening scene docks at the first base. The main menu's 3D background scene stays empty | The run folder's `data\` was copied before decision O17 renamed the node library in the 596 `.ale` files to `ParticleFxNodeLibrary`. The code looks for that name, so `OpenNode` failed in every file, no node library loaded, and every effect was created without nodes. `FFxEffectObject::Slot4` then reads `Nodes_[0]` without a count check, as the original does | Refresh the run folder's `data\` from `outdir\data` after any data commit (the 596 `.ale` and 851 `.thn` files of O17), keeping the local `intro.ini` value. No code change (P0.5 owner run, 2026-11-17) |
 
 ## 7. Then
 
@@ -310,7 +318,9 @@ The window must stay in front and uncovered: a windowed Direct3D 8 screenshot
 copies the screen area of the window, and the client skips frames while it is
 not the active application. Use a run folder whose INI files play no startup
 movies (section 3). Leave out `UserKeyMap.ini` in the user folder, or the
-`user` phase of the key-map dump carries local bindings.
+`user` phase of the key-map dump carries local bindings. Park the mouse
+pointer outside the window (a screen corner) before the start: the menu's
+software cursor follows the real pointer and is drawn into the screenshots.
 
 Known nondeterminism that the mode does not remove, because these files read
 the real clock directly: `type_select.cpp` (the main-menu column animation),
@@ -360,7 +370,7 @@ within those 30 frames replaces the pending dump. Screen changes are
 `ChangeClientLocation` (kind `room`, the location id).
 
 Examples: `menu_walk.txt` (main menu, Load Game, back, Options) and
-`single_player.txt` (New Game to the first base).
+`single_player.txt` (New Game, space, then the first base).
 
 ### Output
 
@@ -373,11 +383,11 @@ written during start-up have frame 0.
 | File | Records (`rec`) |
 | --- | --- |
 | `session.jsonl` | `start` (version, script, out, lines, frame_seconds, seed, settle_frames); `display`; `seed`; `screen` (kind, id); `script` (line, text, ok, note; written after the line ran, so after the records it caused); `waitscreen` (line, result); `dump` (dump, cause `script` or `screen`, label, tree, shot: the file name, `""` when the screenshot failed, null when none was asked); `quit` (why) |
-| `tree.jsonl` | per dump a `dump` head (dump, label, client, menu, room: the latest screen ids, -1 or 4294967295 before the first; shot; roots; nodes), then one line per node without `rec`: dump, i (pre-order index, roots in registry order), p (parent index, -1 for a root), d (depth), class (the factory class name or null), rtti (the C++ type name, port-specific), name, flags (Win3D +0x6c), vis (own and every ancestor's visible bit), layer, sub, hit, pos[3], orient[9]; `ctl` for a WinControl (offset, half, hitoff, tooltip, mesh, hp, nz); `text` and `tw` (scale, w, h) for a TextWin; `text` and `tc` (w, h) for a TextControl |
+| `tree.jsonl` | per dump a `dump` head (dump, label, client, menu, room: the latest screen ids, -1 or 4294967295 before the first; shot; roots; nodes), then one line per node without `rec`: dump, i (pre-order index, roots in registry order), p (parent index, -1 for a root), d (depth), class (the factory class name or null), rtti (the C++ type name, port-specific), name, flags (Win3D +0x6c, bits 0 to 3; bits 4 to 7 are left from the heap), vis (own and every ancestor's visible bit), layer, sub, hit, pos[3], orient[9]; `ctl` for a WinControl (offset, half, hitoff, tooltip, mesh, hp, nz); `text` and `tw` (scale, w, h) for a TextWin; `text` and `tc` (w, h) for a TextControl |
 | `keymap.jsonl` | per phase (`base` after `KeyMap.ini`, `user` after `UserKeyMap.ini`): `load` (result, cmds, groups); `cmd` per KeyCmd in list order (i, nickname, id, ids_name, ids_info, state, keys: [vk, modifiers] pairs); `group` per [KeyMap] (i, nickname, cmds: indices into the cmd list); `active` (the active group nicknames, newest first) |
 | `layout.jsonl` | `page` per PAGE file load (path, ok, aspect, entries) and `widget` per entry (i, type, name, rect[4], payload by type); `winini` per `WinControl::LoadIni` that found `[BaseFrame]` (path, nodes) and `winnode` per node of the control's subtree after the load (the tree node fields; `navbar.ini` and the HUD panels come this way); `keylist` (path, group_names) and `keyrow` per row (group, i, primary and alt: [nickname, vk, modifiers], name_ids, info_ids, cmd, kind, editable); `optlist` (path, opened, seed_mode) and `opt` per row of all three sections (section, i, id, info_ids, default, min, max, slider, byte15, header; the lists grow with every load, as in the client); `hud` (path, static_blend, items) and `huditem` per element (i, name, rtti, tooltip) |
 | `iclient.jsonl` | one line per call into the client event interface, before it is forwarded: frame, seq (call number from 1), slot (the vtable slot in `rpc_iclient.h`), m (the method; `IChatClient::SendCommonChatMsg` for the chat slot), a (the arguments by name). A non-void slot adds a line after the call with the same seq and `r`, the answer |
-| `shot_NNNN_<label>.png` | screenshots through `IRPTexture::PrintScreen`, NNNN from 0001 |
+| `shot_NNNN_<label>.bmp` | screenshots through `IRPTexture::PrintScreen`, NNNN from 0001: the window's client area, 1024x768, 24-bit (D3DX 8.1 saves no PNG) |
 
 IClient arguments: scalars by value; `const unsigned int&` dereferenced;
 byte blocks as hex of `Size` bytes; `TextIds` as an array of `TextCount`;
@@ -402,6 +412,21 @@ python CppSource\OutpostFrontier\Client\make_oracle_iclient.py --check
 The script stops at an argument type it has no recorder for; add an
 `OracleArg` overload in `oracle_iclient_args.h` and `.cpp` and list the
 type in the script.
+
+### Owner run
+
+Run on 2026-11-17 on the original data, Release build, from a copy of
+`bin\` with `data\` as a junction (the run-folder values of section 3).
+The figures are from the second run, after the run folder's data was
+refreshed (section 6); the first run's menu figures were made without the
+menu's background scene and are void.
+
+| Script | Result |
+| --- | --- |
+| `menu_walk.txt` | Exit code 0 after 398 frames. The background scene enters room `3118686538` at frame 0. Every `waitscreen` matched; 9 dumps (4 caused by screen changes, 5 by the script), each with tree and screenshot; key map phases `base` (122 commands, 5 groups) and `user` (no file, result 0); 176 layout records (the `navbar.ini` window tree with 15 nodes at frame 0, one PAGE file with 15 widgets, 93 key rows, 49 option rows); 6 IClient calls. Two runs with the pointer parked gave byte-identical files, screenshots included; only the output path in the `start` record differs |
+| `single_player.txt` | Exit code 0 after 2626 frames. 7 dumps: main menu, the start in space (client state 2 at frame 118), and the first base after the opening scene docks at frame 2175 (client state 3, room `2695128518`). No particle errors in `FLSpew.txt`. The first attempts crashed on docking, because the run folder's data predated decision O17 (section 6). Three runs agree on the session (every screen change and dump at the same frame), the trees, the layouts and the key map. They differ in the IClient log and in the screenshots taken in space (dumps 3, 4 and 6): the `Info` of `SendServerCharSelectVerified` carries a double that differs every run (4.29, 4.41, 4.47 at frame 118); `CommCostume` in `SendServerSendComm` carries bytes the costume does not set (heap contents, in one run the text `_Resource.p2293760__Cube_DIM`); and the server's events in space (targets, cruise, damage, fuses) come a few frames earlier or later and in a different order. The in-process server is not on the oracle's fixed step, so this script's IClient log and space screenshots are not yet comparable byte for byte |
+
+The outputs are made from the game data and stay outside the repository.
 
 ### Hooks in existing files
 
@@ -450,6 +475,16 @@ contract and the regeneration step (`make_render_trace.py`, run after any
 change to `include\render\IRenderPipeline.h`) are in
 `CppSource\RenderTrace\README.md`. A trace of the original data is game
 data: keep it outside the repository.
+
+Owner run on 2026-11-17: `menu_walk.txt` under `+oracle` with the proxy in
+place of `DirectX8` and `frames = 300-302`, on the refreshed data (section
+6). Exit code 0; `trace.jsonl` has 46,145 lines: frames 300, 301 and 302
+(3,159, 3,233 and 3,388 records) each start with a 66-line state snapshot,
+after the resource creation and uploads of frames 0 to 299; `blobs\` holds
+6,600 files (31 MB). The proxy
+changes nothing the client oracle sees: the session, key map, IClient and
+layout files equal those of a run without it, and so do the trees once the
+flag bits of section 6 are masked.
 
 ## 10. Simulation oracle (`Oracle.exe sim`)
 

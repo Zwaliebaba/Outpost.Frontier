@@ -63,7 +63,7 @@
 //   layout.jsonl   PAGE descriptors, [BaseFrame] control INI subtrees, keylist.ini,
 //                  optlist.ini, the HUD element list
 //   iclient.jsonl  every IClient / IChatClient call (oracle_iclient_args.h)
-//   shot_NNNN_<label>.png  screenshots, NNNN counting from 0001
+//   shot_NNNN_<label>.bmp  screenshots, NNNN counting from 0001
 //
 // design/reference-build.md section 8 has every record layout.
 
@@ -286,7 +286,9 @@ namespace
         J.Str("class", Object->ClassName);
         J.Str("rtti", RttiName(Object, typeid(*Object)));
         J.StrN("name", Object->Name, sizeof(Object->Name));
-        J.Uint("flags", Object->Flags);
+        // Bits 0-3 only: the constructor keeps bits 4-7 from the heap (`Flags & 0xf8`, as the
+        // original does), so they differ from run to run and carry no state.
+        J.Uint("flags", Object->Flags & 0x0f);
         J.Bool("vis", Node.bVisible);
         J.Uint("layer", Object->DrawLayer);
         J.Int("sub", Object->DrawSubLayer);
@@ -394,12 +396,13 @@ namespace
     // ---- screenshots --------------------------------------------------------------------
 
     // PrintScreen through the pipeline's IRPTexture face, as TakeClientScreenShot does; the
-    // ".png" extension selects D3DX's PNG writer. Returns the file name, empty on failure.
+    // ".bmp" extension selects D3DX's BMP writer (D3DX 8.1 returns D3DXERR_INVALIDDATA for
+    // PNG), as TakeClientScreenShot writes BMP. Returns the file name, empty on failure.
     std::string TakeShot(std::string const& Label)
     {
         G.ShotCount += 1;
         char Name[96];
-        sprintf(Name, "shot_%04u_%s.png", G.ShotCount, SanitizeLabel(Label).c_str());
+        sprintf(Name, "shot_%04u_%s.bmp", G.ShotCount, SanitizeLabel(Label).c_str());
         std::string const Path = G.OutDir + "\\" + Name;
 
         IRenderPipeline* const Pipe = NeuronRuntime::Pipeline;

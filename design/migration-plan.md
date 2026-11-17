@@ -193,6 +193,13 @@ passed on that commit. Facts F1 to F13 are recorded; F14 moved to P2.0. Evidence
 in [reference-build.md](reference-build.md) sections 5 to 7 and in
 [facts.md](facts.md).
 
+Phase 0 closed on 2026-11-17, when the owner ran P0.5 on the original data.
+The `+oracle` mode ran `menu_walk.txt` with byte-identical output across
+runs. `RenderTrace.dll` traced three frames of the same walk without
+changing anything the client oracle records. `single_player.txt` reaches
+the first base. Results are in [reference-build.md](reference-build.md)
+sections 8 and 9.
+
 If P0.2 fails for good (for example, a required closed binary cannot be
 found), the fallback is decision O3's second option: vectors transliterated
 from the C++ source plus tests against real data. That weakens every
