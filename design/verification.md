@@ -34,7 +34,7 @@ and P0.5 (the client instrumentation), and deleted with the C++ in P7.3.
 | Console harness linked against the C++ DLLs | Vectors for exported functions: hashes, INI event streams, database dumps after load, codec bytes for given messages, save round trips, account names, scheduler traces, random-mission offers from a seed |
 | `+oracle` mode in the C++ client | Interface-tree dumps per screen, parsed key map and layout files, screenshots at fixed resolution and time step, a log of calls into the client event interface for a scripted session |
 | Logging proxy for the renderer interface | A frame's calls and buffers, replayable into the Rust renderer |
-| Scenario recorder on the physics and AI facades | Per-tick positions, orientations and events for scripted scenarios |
+| Scenario recorder on the physics and AI facades (`Oracle.exe sim`, P2.3) | Per-tick positions, orientations and events for scripted scenarios; per-PSI IVP core state and controller inputs; per-call damage and behaviour records; run-to-run spread ([sim-records.md](sim-records.md)) |
 
 Vector files are line-oriented text (one JSON object per line) with floats
 written as hexadecimal bit patterns, so comparison never depends on decimal
@@ -90,7 +90,7 @@ they run on the owner's machine.
 | Host (added in P0.1) | the runner's native target | tests for `neuron-core`, `game-sim`, `neuron-server`, `game-logic` and the platform-neutral parts of the client crates |
 | Policy (added in P0.1) | — | `cargo-deny`; a scan that fails on legacy API names, `asm!`, or `unsafe` outside the permitted modules |
 | Oracle (added in P0.4) | `Win32` C++ build | builds `CppSource/Oracle`, runs it on the committed inputs and fails unless its output equals the committed vectors byte for byte (`neuron-core`'s, and from P2.2 `game-sim`'s, which the harness writes to a `game-sim` subdirectory); runs the data-dump mode on a synthetic installation; builds the eight resource DLLs and compares every string and card with the catalogs `cargo xtask catalog` builds (P1.6; that dump is game text and is not uploaded); removed in P7.3 |
-| Data dumps (added for Gate G1) | `Win32` C++ build, original data | `.github/workflows/data.yml`, nightly, on pushes to `main` and on demand: `Oracle.exe dump` over `outdir/` (decision O15), then every `data_dump_<kind>` test compares the port with it. Kinds: `ini`, `utf`, `sur`, `anim`, `fx`, `texture`, `material`, `mesh`, `dfm`, `scene`, `scene_eval`. The dumps stay on the runner; only the summaries are kept |
+| Data dumps (added for Gate G1) | `Win32` C++ build, original data | `.github/workflows/data.yml`, nightly, on pushes to `main` and on demand: `Oracle.exe dump` over `outdir/` (decision O15), then every `data_dump_<kind>` test compares the port with it. Kinds: `ini`, `utf`, `sur`, `anim`, `fx`, `texture`, `material`, `mesh`, `dfm`, `scene`, `scene_eval`. Then every scenario in `CppSource/Oracle/scenarios` through `Oracle.exe sim --runs 3` (P2.3, [reference-build.md](reference-build.md) section 10). The dumps and records stay on the runner; only the summaries are kept |
 
 ## Definition of done for a work package
 

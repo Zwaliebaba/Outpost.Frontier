@@ -26,11 +26,15 @@ jobs:
         with:
           persist-credentials: false
       - name: Build the oracle harness
+        # Oracle builds Server.dll and SimClientStub.dll through its references; the
+        # scenario oracle (Oracle.exe sim) also loads Content.dll and the engine DLLs
+        # NEURONCOMPONENTSsrv.ini names, built here by name.
         shell: pwsh
         run: |
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
-          & $msbuild CppSource\OutpostFrontier.sln '/t:Tools\Oracle' /m /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo
+          $targets = 'Tools\Oracle', 'DLLs\Content', 'DLLs\ReadFile', 'DLLs\RendComp', 'DLLs\system', 'DLLs\SceneScript', 'DLLs\DX8RENDERER', 'DLLs\Shading'
+          & $msbuild CppSource\OutpostFrontier.sln "/t:$($targets -join ';')" /m /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Dump the original data with the oracle
         # The dump root holds DATA (a junction to outdir\data) and EXE (the
@@ -59,4 +63,56 @@ jobs:
         with:
           name: data-dump-summaries
           path: ${{ runner.temp }}/outpost-oracle/rust-*.txt
+          if-no-files-found: ignore
+      - name: Run the scenario oracle
+        # Work package P2.3 (design/adr/0003-simulation-oracle.md, design/reference-build.md
+        # section 10): every scenario in CppSource/Oracle/scenarios three times, each run in a
+        # fresh process, on the original data in outdir/. The records stay on the runner; the
+        # spread summaries (record 0003 point 9) and each run's session log are kept.
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $out = "$env:RUNNER_TEMP\outpost-sim"
+          $keep = "$env:RUNNER_TEMP\outpost-sim-summaries"
+          New-Item -ItemType Directory -Force $keep | Out-Null
+          $failed = @()
+          foreach ($scenario in Get-ChildItem CppSource\Oracle\scenarios -Filter *.txt) {
+            $name = $scenario.BaseName
+            & .\bin\Oracle.exe sim "$PWD\outdir" $scenario.FullName "$out\$name" --runs 3
+            if ($LASTEXITCODE -ne 0) { $failed += $name }
+            New-Item -ItemType Directory -Force "$keep\$name" | Out-Null
+            Copy-Item "$out\$name\spread.*" "$keep\$name\" -ErrorAction SilentlyContinue
+            Get-ChildItem "$out\$name" -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+              Copy-Item "$($_.FullName)\session.jsonl" "$keep\$name\$($_.Name)-session.jsonl" -ErrorAction SilentlyContinue
+            }
+          }
+          # The step log carries what the artifacts hold: spreads and error records.
+          foreach ($dir in Get-ChildItem $keep -Directory) {
+            Write-Host "== $($dir.Name)"
+            Get-Content "$($dir.FullName)\spread.txt" -ErrorAction SilentlyContinue
+            Get-ChildItem $dir.FullName -Filter *-session.jsonl | ForEach-Object {
+              Select-String -Path $_.FullName -Pattern '"error"|"note"' | Select-Object -First 20 | ForEach-Object { "$($_.Filename): $($_.Line)" }
+            }
+          }
+          if ($failed.Count -gt 0) {
+            Write-Host "Scenarios with a failed run: $($failed -join ', ')"
+            exit 1
+          }
+      - name: Replay the recorded PSIs through the port
+        # Decision O20, replay layer: every psi.jsonl the scenarios wrote is replayed one PSI
+        # at a time through neuron-core::physics (crates/neuron-core/tests/sim_replay.rs).
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $env:OUTPOST_ORACLE_DIR = "$env:RUNNER_TEMP\outpost-sim"
+          cargo test --locked --release -p neuron-core --test sim_replay -- --nocapture
+          $code = $LASTEXITCODE
+          Copy-Item "$env:OUTPOST_ORACLE_DIR\rust-sim-replay.txt" "$env:RUNNER_TEMP\outpost-sim-summaries\" -ErrorAction SilentlyContinue
+          exit $code
+      - name: Keep the scenario spread summaries
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scenario-spread-summaries
+          path: ${{ runner.temp }}/outpost-sim-summaries
           if-no-files-found: ignore

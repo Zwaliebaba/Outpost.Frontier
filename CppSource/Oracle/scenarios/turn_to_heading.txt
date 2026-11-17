@@ -1,0 +1,11 @@
+# Oracle.exe sim scenario (design/reference-build.md section 10): turn to a heading.
+# A fighter with the FIGHTER state graph is told to face a point 1000 m to its right
+# (+X; the ship faces -Z), a 90-degree turn. Multiplayer stepping.
+
+system he01
+ticks 300
+stepping mp
+
+ship pilot he_fighter li_p_he_fighter_loadout01 15000 3000 -25000 ai FIGHTER psi
+
+at 1 pilot face 16000 3000 -25000

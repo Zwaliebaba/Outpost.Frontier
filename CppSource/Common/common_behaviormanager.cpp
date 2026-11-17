@@ -20,6 +20,7 @@
 
 #include "common_misc.h" // SinglePlayer() -- UpdateBehaviorTick's docking-target probe
 #include "common_newchar.h"
+#include "oracle_sim_hooks.h" // Oracle instrumentation (P2.3 sim)
 #include "common_pub.h"
 #include "common_pathfind.h" // PathfindManager -- IBehaviorManager+0x0C
 #include "common_universe.h"
@@ -1341,6 +1342,10 @@ void IBehaviorManager::InsertNotification(IObjRW* Target, unsigned Extra, float 
 
 void IBehaviorManager::UpdateBehaviorTick(float Dt)
 {
+    // Oracle instrumentation (P2.3 sim): reports entry and every exit to Oracle.exe sim;
+    // does nothing while GOracleSimHooks.OnBehaviorTick is null (always, outside the harness).
+    FOracleSimBehaviorScope const OracleSimScope(this, Dt);
+
     // , Common (665 instructions). This item
     // (implementation tracker 1553) was `simplified` because its own entry guard
     // depended on the whole notification-queue subsystem above, which didn't

@@ -105,6 +105,11 @@ void RunMathSuites();
 // Its output is game text and is never committed.
 void RunCatalogDump();
 
+// Oracle.exe sim <data root> <scenario file> <out folder> [--runs N] (oracle_sim.cpp,
+// oracle_sim_spread.cpp, work package P2.3): a separate mode, not a suite. Argv is main's.
+// Its output is made from the game data and is never committed.
+int RunSimMode(int Argc, char** Argv);
+
 // P1.9, oracle_net.cpp: wire primitives and quantisers.
 void RunNetSuites();
 

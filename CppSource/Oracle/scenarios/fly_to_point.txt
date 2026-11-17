@@ -1,0 +1,11 @@
+# Oracle.exe sim scenario (design/reference-build.md section 10): fly to a point.
+# A fighter with the FIGHTER state graph flies to a point 3000 m ahead and 500 m to
+# the side, without cruise, arriving within 100 m. Multiplayer stepping.
+
+system he01
+ticks 900
+stepping mp
+
+ship pilot he_fighter li_p_he_fighter_loadout01 15000 3000 -25000 ai FIGHTER psi
+
+at 1 pilot goto 15500 3000 -28000 range 100

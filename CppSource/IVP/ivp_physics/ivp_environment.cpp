@@ -18,6 +18,7 @@
 #include "../ivp_utility/ivp_math.h"
 #include "../ivp_utility/ivp_u_memory.h"
 #include "../ivp_utility/ivp_u_vector.h"
+#include "../../include/oracle_sim_hooks.h" // Oracle instrumentation (P2.3 sim)
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -692,6 +693,10 @@ void IVP_Environment_Simulate_Psi(IVP_Environment* env, IVP_Time /*current_sim_t
     IVP_U_Vector_Fixed<IVP_Hull_Manager, 128> ActiveHullManagers;
     PrepareProfile.Stop();
 
+    // Oracle instrumentation (P2.3 sim): the cores before the PSI's simulation units.
+    if (GOracleSimHooks.OnPsi != nullptr)
+        GOracleSimHooks.OnPsi(env, 0);
+
     // :0634d110-:0634d123 the routine(ECX = env->time_manager (+0x08), env,
     // &ActiveCores) -- every sim unit's PSI, filling the cores that need
     // calc_next_PSI_matrix.
@@ -702,6 +707,9 @@ void IVP_Environment_Simulate_Psi(IVP_Environment* env, IVP_Time /*current_sim_t
     // :0634d13c-:0634d152 the routine(env, &ActiveCores, &ActiveHullManagers).
     FPhysicsTickScope CommitProfile(EPhysicsTickSection::CommitHulls);
     IVP_Calc_Next_PSI_Solver::commit_all_calc_next_PSI_matrix(env, &ActiveCores, &ActiveHullManagers);
+    // Oracle instrumentation (P2.3 sim): the cores after the next-PSI matrices.
+    if (GOracleSimHooks.OnPsi != nullptr)
+        GOracleSimHooks.OnPsi(env, 1);
 
     env->sim_substate = 2;                                                         // :0634d15d
     // :0634d157-:0634d167 the routine(env, &ActiveHullManagers).

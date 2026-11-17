@@ -6,7 +6,11 @@ all-features = true
 
 [advisories]
 yanked = "deny"
-ignore = []
+ignore = [
+    # `paste` (unmaintained, no vulnerability) is a build-time proc-macro of
+    # `simba`, which `parry3d` and `nalgebra` need (decision T13, P2.3).
+    { id = "RUSTSEC-2024-0436", reason = "unmaintained build-time macro of simba, via parry3d" },
+]
 
 [licenses]
 # Licences a dependency may carry. Adding one is a decision (T13).

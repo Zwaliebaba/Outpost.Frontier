@@ -450,3 +450,181 @@ contract and the regeneration step (`make_render_trace.py`, run after any
 change to `include\render\IRenderPipeline.h`) are in
 `CppSource\RenderTrace\README.md`. A trace of the original data is game
 data: keep it outside the repository.
+
+## 10. Simulation oracle (`Oracle.exe sim`)
+
+Work package P2.3, decision O23, [adr/0003](adr/0003-simulation-oracle.md):
+a headless multiplayer server inside `Oracle.exe` runs a scripted scenario
+and records the physics, AI and damage the Rust replay and scenario tests
+compare with. The record layouts are in [sim-records.md](sim-records.md).
+The output is made from the game data: keep it outside the repository.
+
+### Build and run
+
+The `Oracle` project links `Server.lib` and builds `SimClientStub.dll`
+(`CppSource\Oracle\SimClientStub\`) through its references. Both are
+needed by this mode only: `Server.dll` is delay-loaded (`DelayLoadDLLs`
+with `delayimp.lib`), and the harness loads it and looks up its one data
+export, `Server`, by name at the start of a run, so the vector suites,
+`dump` and `catalog` never load it; `SimClientStub.dll` is loaded with
+`LoadLibrary` by the run. Every other import from `Server.dll` must be a
+function (a data import fails the link with `LNK1194`). A run also
+loads `Content.dll` and the engine DLLs `NEURONCOMPONENTSsrv.ini` names;
+build the whole solution, or `Tools\Oracle` with `DLLs\Content`,
+`DLLs\ReadFile`, `DLLs\RendComp`, `DLLs\system`, `DLLs\SceneScript`,
+`DLLs\DX8RENDERER` and `DLLs\Shading` as CI's data job does. Then, from the
+repository root:
+
+```powershell
+.\bin\Oracle.exe sim "$PWD\outdir" CppSource\Oracle\scenarios\free_flight.txt "$env:TEMP\sim\free_flight"
+.\bin\Oracle.exe sim "$PWD\outdir" CppSource\Oracle\scenarios\free_flight.txt "$env:TEMP\sim\free_flight" --runs 20
+```
+
+The data root holds the master's INI files and `data\`, as `outdir\` does.
+The output folder is created; files in it are overwritten. Exit code 0 is a
+completed run, 2 a usage or scenario error, 3 a start-up failure (the
+reason is in `session.jsonl` and on stderr). With `--runs N` (1 to 99) the
+program starts itself N times, each run in a fresh process writing to
+`<out>\run_NN\`, and writes `spread.jsonl` and `spread.txt` into `<out>`:
+the largest difference between any two runs per object, metric and event
+(record 0003 point 9). It exits 1 when a run did not complete.
+
+### Start-up
+
+As `OutpostServer.exe` (`OutpostServer.cpp:437`, `:523`, `:731-745`,
+`:338-391`), on one thread:
+
+1. `<out>\server.ini` is written from `<data root>\OutpostFrontier.ini` with
+   `[Initial MP DLLs]` reduced to Content.dll's `GameSupport`,
+   `SpaceSupport` and `BaseSupport` (the populators `SpacePop` and
+   `BasePop` and the `AISandbox` and `TestAutomation` controllers would add
+   ships of their own) and its `path` set to the folder of `Oracle.exe`;
+   every other line is copied.
+2. The current directory becomes the data root; `FDUMP` writes to
+   `fdump.txt`; `SetIsMPServer(true)`; the x87 and SSE control words are set
+   as the server thread sets them (`_control87(0x9001f, 0xfffff)`: 53-bit
+   precision, every exception masked); `NeuronRuntime::Startup(NULL,
+   "NEURONCOMPONENTSsrv.ini")`; `NeuronRuntime::OpenData` with
+   `[OutpostFrontier] data path`.
+3. `IServerImpl::Startup` with `SStartupInfo` {module path
+   `SimClientStub.dll`, INI path `server.ini`, 16 players, port 0}. It runs
+   `DataConfig::startup`, the world INI, `Server_LoadInitialDlls` (Content's
+   controllers) and loads the stub as its client interface.
+4. `srand(seed)`; `pub::Controller::Create("SimClientStub.dll",
+   "OracleSim", NULL, LOWEST)`, the controller every scenario ship names;
+   `OracleSimLoadSystem(CreateID(system))`, `StarSystem::load` as a
+   player's arrival would run it.
+5. The objects are spawned (`pub::SpaceObj::Create`, then
+   `pub::AI::SubmitState` with the state graph for `ai`) or looked up
+   (solars, `CreateID(nickname)`); a missing object ends the run.
+6. Every frame *t* = 1..`ticks`: the control words are read (recorded) and
+   set again; the fixed clock moves to `clock + t × frame`; the commands of
+   tick *t* run; then the server thread's frame: `Server.Update()`,
+   `Timing::UpdateGlobalTime(frame)`, `Server.ElapseTime((float)frame)`;
+   then the per-tick records.
+
+The server is not shut down: the run closes its files and ends the process.
+
+### Hooks in existing files
+
+Each is a few lines marked `Oracle instrumentation (P2.3 sim)`, inert while
+`GOracleSimHooks` (`include\oracle_sim_hooks.h`, `Common\oracle_sim_hooks.cpp`)
+is zero, which only `Oracle.exe sim` changes:
+
+| File | Hook |
+| --- | --- |
+| `Server\IServerImpl.cpp` | `Server_StepSystems` steps `StepSystemId` and no other system; `StarSystem_Update` runs the multiplayer physics and collision pass for that system although it has no player; `IServerImpl::ElapseTime` takes the frame time as its real dt (`OracleSimFixElapsed`); `OracleSimLoadSystem`, a new export |
+| `Server\server_gameobject.cpp` | the three timer stamps (`EqObj::update` repair, `apply_damage_list`, `apply_equip_entry`) read `OracleSimTimingRead()`, which is `Timing::read()` unless the clock is fixed; `GameObject::on_collision` reports `CalcCollisionDamage`; `Ship::set_throttle`, `set_axis_throttle`, `set_nudge_vec`, `set_strafe_dir` and `EqObj::slot_34` report the `IObjAffect` call |
+| `Server\server_classes.cpp` | `StarSystem::munition_collision` reports the impact and its damage list |
+| `Common\common_physicalsystem.cpp` | `PhysicalSystem::Update` takes the single-player branch when asked |
+| `Common\common_behaviormanager.cpp` | `UpdateBehaviorTick` reports its entry and every exit (an RAII guard) |
+| `IVP\ivp_physics\ivp_environment.cpp` | `IVP_Environment_Simulate_Psi` reports before the simulation units and after the next-PSI matrices |
+| `IVP\ivp_physics\ivp_simulation_unit.cpp` | `IVP_Simulation_Unit_Process_One_Psi_Step` reports its entry and its end with the movement check |
+| `IVP\ivp_physics\ivp_core.cpp` | `IVP_Core::push_core_linear`, `push_core_angular_ws` and `push_core_angular_cs` report the push |
+
+`srand`, the frame time and the control words need no hook: the harness
+runs the frame loop itself.
+
+### Stepping modes
+
+The server always runs in multiplayer mode (physics, collisions and NPC AI
+run on the server only there). `stepping mp` keeps the dedicated server's
+path: `StarSystem_Update` splits the frame into steps of at most 0.2 s and
+each step calls `PhysicalSystem::Update`, which accumulates and simulates
+in 0.0999 s chunks plus the remainder. `stepping sp` keeps everything else
+and switches only `PhysicalSystem::Update` to its single-player branch: one
+`IVP_Environment_SimulateDTime` per call with the step clamped to 0.0999 s,
+which is how the client steps physics once per frame in single player
+(`space_state.cpp:1054`). The differences from a real single-player frame
+are recorded, not removed: the step runs inside the server's system update
+instead of the client's frame, collisions go through the server's
+multiplayer collision pass, and every other `SinglePlayer()` test sees
+multiplayer. With a frame time of at most 0.2 s each frame is one step.
+
+### Scenario format
+
+A text file; `#` starts a comment, blank lines are skipped, tokens are
+separated by spaces, tabs or commas. Examples (one per kind of check of
+record 0003) are in `CppSource\Oracle\scenarios\`: `free_flight`,
+`turn_to_heading`, `fly_to_point`, `dock_at_station`, `fire_at_target`,
+`ram_asteroid`.
+
+| Line | Meaning |
+| --- | --- |
+| `system <nickname>` | the star system (required) |
+| `ticks <n>` | the number of frames (required) |
+| `frame <seconds>` | frame time; default 1/30, the server thread's period |
+| `stepping sp\|mp` | default `mp` |
+| `seed <n>` | `srand` after start-up; default `0x4f524143` |
+| `clock <seconds>` | the fixed clock at tick 0; default 1000 |
+| `ship <name> <archetype> <loadout\|-> <x> <y> <z> [options]` | spawn a ship; options: `heading <degrees>` (about +Y; 0 faces −Z, 90 faces −X), `orient <9 numbers>` (row-major), `vel <x y z>`, `angvel <x y z>`, `ai <state graph>` (e.g. `FIGHTER`; without it the ship has no behaviour and keeps the commands it is given), `hp <n>` (default −1, the archetype's), `psi` (record its PSIs) |
+| `solar <name> <nickname> [psi]` | a system object of the loaded system |
+| `at <ticks> <name> <command> [arguments]` | `<ticks>` is `t`, `a..b` or `a..b/step` (ticks from 1) |
+
+Commands. The first five call the ship's `IObjAffect` as the AI does; the
+directives go through `pub::AI::SubmitDirective`, each after a
+`DirectiveCancelOp` (a current directive blocks a new one), and need a
+ship with `ai`:
+
+| Command | Call |
+| --- | --- |
+| `throttle <t>` | `set_throttle` |
+| `axis <x> <y> <z>` | `set_axis_throttle` |
+| `nudge <x> <y> <z>` | `set_nudge_vec` |
+| `strafe none\|left\|right\|up\|down` | `set_strafe_dir` |
+| `fire [<target>]` | `slot_34` with every unguided `CEGun`, aimed at the target's position or 1000 m ahead |
+| `target <name>\|none` | `set_target` |
+| `goto <x> <y> <z> [range <r>] [cruise]` | `DirectiveGotoOp` to a point (`Field_0C` 1), arrival range default 100, no cruise unless asked |
+| `face <x> <y> <z>` | `DirectiveFaceOp` mode 2 (a point) |
+| `dock <target>` | `DirectiveDockOp` |
+| `ram <target>` | `DirectiveRamOp` |
+| `idle`, `cancel` | `DirectiveIdleOp`, `DirectiveCancelOp` |
+| `dock_request <target>` | `pub::SpaceObj::DockRequest` |
+
+Ships are created as Content creates NPC ships, without a reputation
+(`VibeGroupId` −1), costume or voice, and with the default personality.
+
+### Outputs
+
+`session.jsonl`, `tick.jsonl`, `events.jsonl`, `psi.jsonl` and
+`calls.jsonl` (sim-records.md); the stub's `iclient.jsonl` and
+`controller.jsonl`; `server.ini`, `fdump.txt`, `metrics.txt`.
+
+### Determinism
+
+Fixed by the harness: the frame time, the clock of the three timer stamps
+and of `ElapseTime`'s real dt, `Timing`'s global time, the `rand` seed (one
+thread), the control words before every frame (IVP's point-soup builder
+sets 64-bit precision and never restores it; the `frame` record shows what
+it found). Not fixed, as record 0003 says: the pointer-keyed physics sync
+set and IVP's pointer-XOR pair hash, so runs can differ; that is the spread
+`--runs` measures. Not audited: `timeGetTime` and `GetTickCount` reads in
+Content.dll and the engine DLLs.
+
+### Not covered yet
+
+Single-player stepping is emulated as above, not run through the client.
+Field asteroids (`CmnAsteroid`) are not scenario objects; `ram_asteroid`
+uses a static asteroid solar. Ships have no reputation, so AI targeting is
+neutral. There is no world snapshot for behaviours that read other objects
+(record 0003 point 7, P2.5).

@@ -11,6 +11,7 @@
 #include "common_net.h"  // IsMPServer -- CRemotePhysicsSimulation::tracef (module storage)
 #include "common_phyarch.h"
 #include "common_misc.h"     // SinglePlayer
+#include "oracle_sim_hooks.h" // Oracle instrumentation (P2.3 sim)
 #include "common_server.h"
 
 #include "neuroncomponents.h"
@@ -351,7 +352,9 @@ void PhysicalSystem::Update(float Dt)
     // erase(_First, _Last) (the routine).
     Collisions.clear();
 
-    if (SinglePlayer())
+    // Oracle instrumentation (P2.3 sim): Oracle.exe sim, a multiplayer server, can ask for the
+    // single-player step; GOracleSimHooks is zero everywhere else.
+    if (SinglePlayer() || GOracleSimHooks.bSinglePlayerStepping)
     {
         // FCOMP double 0.0999; TEST AH,0x41; JNZ keeps Dt (less,
         // equal, unordered); the fall-through (Dt > 0.0999) stores (float)0.0999.

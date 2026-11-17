@@ -13,6 +13,7 @@
 #include "ivp_contact_point.h"    // IVP_Try_To_Generate_Managed_Friction (06356bc0), cmn-ivp3d
 #include "ivp_impact.h"           // IVP_Old_Sync_Rot_Z (06347240 / 063473b0), cmn-ivp3g
 #include "ivp_mindist_settings.h" // G_IVP_MindistSettings (the field), cmn-ivp3d
+#include "../../include/oracle_sim_hooks.h" // Oracle instrumentation (P2.3 sim)
 
 #include <cstdint>
 #include <cstdlib>
@@ -1309,6 +1310,9 @@ void IVP_Core::set_rotation_inertia(const Vector* Inertia)
 // three accumulators get K * Direction + SpeedChange, stored z, x, y.
 void IVP_Core::push_core_linear(const Vector* Direction, float Magnitude)
 {
+    // Oracle instrumentation (P2.3 sim): the push, for the per-PSI replay records.
+    if (GOracleSimHooks.OnCorePush != nullptr)
+        GOracleSimHooks.OnCorePush(this, OracleSimPushLinear, Direction, Magnitude);
     const double K = (double)(InvMass) * Magnitude;                    // :06346a00-:06346a07
     const float NewY = (float)(K * Direction->y + SpeedChange.y);      // :06346a0b-:06346a10
     const float NewZ = (float)(K * Direction->z + SpeedChange.z);      // :06346a16-:06346a21
@@ -1323,6 +1327,9 @@ void IVP_Core::push_core_linear(const Vector* Direction, float Magnitude)
 // RotSpeedChange += each * Magnitude.
 void IVP_Core::push_core_angular_ws(const Vector* AxisWs, float Magnitude)
 {
+    // Oracle instrumentation (P2.3 sim): the push, for the per-PSI replay records.
+    if (GOracleSimHooks.OnCorePush != nullptr)
+        GOracleSimHooks.OnCorePush(this, OracleSimPushAngularWs, AxisWs, Magnitude);
     IVP_U_Point In;
     In.set(AxisWs->x, AxisWs->y, AxisWs->z);
     IVP_U_Point Local;
@@ -1339,6 +1346,9 @@ void IVP_Core::push_core_angular_ws(const Vector* AxisWs, float Magnitude)
 // (module storage..06346dc9): the same as 06346c80 without the transform.
 void IVP_Core::push_core_angular_cs(const Vector* AxisCs, float Magnitude)
 {
+    // Oracle instrumentation (P2.3 sim): the push, for the per-PSI replay records.
+    if (GOracleSimHooks.OnCorePush != nullptr)
+        GOracleSimHooks.OnCorePush(this, OracleSimPushAngularCs, AxisCs, Magnitude);
     const double ScaledX = (double)(InvRotInertia.x) * AxisCs->x;      // :06346d83-:06346d8a
     const float ScaledY = (float)((double)(InvRotInertia.y) * AxisCs->y); // :06346d8c-:06346d92
     const float ScaledZ = (float)((double)(InvRotInertia.z) * AxisCs->z); // :06346d96-:06346d9c
