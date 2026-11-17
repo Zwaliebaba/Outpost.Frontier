@@ -81,6 +81,11 @@ jobs:
           $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
           & $msbuild CppSource\OutpostFrontier.sln /m /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Check the generated IClient proxy of the +oracle mode
+        shell: pwsh
+        run: |
+          python CppSource\OutpostFrontier\Client\make_oracle_iclient.py --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   oracle:
     # Builds the C++ oracle harness (design/migration-plan.md P0.4) and checks
