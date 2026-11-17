@@ -10,8 +10,17 @@
 
 mod support;
 
-use support::data::{Report, data_dirs};
+use support::data::{Report, Tolerance, data_dirs};
 use support::game::{self, Loaded};
+use support::render::Render;
+
+/// The fields compared within a bound rather than as text: a munition's
+/// seeker cone went through `FCOS` (Tier B, 1 ulp).
+const TOLERANCE: Tolerance = Tolerance {
+    keys: &["fov_cos"],
+    ulps: 1,
+    absolute: 0.0,
+};
 
 /// Runs one kind: `files` are the pseudo-file names of its databases, each
 /// rendered by `render`.
@@ -26,7 +35,7 @@ fn run(kind: &str, files: &[&str], render: impl Fn(&Loaded, &str) -> Vec<String>
             report.file_list(&names);
             for file in files {
                 let lines = render(loaded, file);
-                report.check(file, &lines);
+                report.check_within(file, &lines, &TOLERANCE);
             }
         }
         None => {
@@ -41,5 +50,67 @@ fn run(kind: &str, files: &[&str], render: impl Fn(&Loaded, &str) -> Vec<String>
 fn data_dump_constants() {
     run("constants", &["constants"], |loaded, _| {
         game::constants_lines(&loaded.data.constants)
+    });
+}
+
+#[test]
+fn data_dump_goods() {
+    run("goods", &["goods"], |loaded, _| {
+        Render {
+            strings: &loaded.data.strings,
+        }
+        .goods(&loaded.data.goods)
+    });
+}
+
+#[test]
+fn data_dump_loadouts() {
+    run("loadouts", &["loadouts"], |loaded, _| {
+        Render {
+            strings: &loaded.data.strings,
+        }
+        .loadouts(&loaded.data.loadouts)
+    });
+}
+
+#[test]
+fn data_dump_reputation() {
+    run("reputation", &["groups"], |loaded, _| {
+        Render {
+            strings: &loaded.data.strings,
+        }
+        .groups(&loaded.data.reputation)
+    });
+}
+
+#[test]
+fn data_dump_archetypes() {
+    let files = [
+        "small_ids",
+        "simples",
+        "ships",
+        "solars",
+        "equipment",
+        "asteroids",
+        "dynamic_asteroids",
+        "motors",
+        "explosions",
+    ];
+    run("archetypes", &files, |loaded, file| {
+        let db = &loaded.data.archetypes;
+        let r = Render {
+            strings: &loaded.data.strings,
+        };
+        match file {
+            "small_ids" => Render::small_ids(db),
+            "simples" => r.roots(db.simples.values()),
+            "ships" => r.ships(db),
+            "solars" => r.solars(db),
+            "equipment" => r.equipment(db),
+            "asteroids" => r.asteroids(db),
+            "dynamic_asteroids" => r.roots(db.dynamic_asteroids.values()),
+            "motors" => Render::motors(db),
+            _ => Render::explosions(db),
+        }
     });
 }

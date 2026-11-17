@@ -83,6 +83,16 @@ pub(crate) fn lossy(bytes: &[u8]) -> String {
     String::from_utf8_lossy(neuron_core::hash::c_str(bytes)).into_owned()
 }
 
+/// `!(a < b)` as the x87 compare tests it: also true when unordered (NaN).
+pub(crate) fn not_below(a: f64, b: f64) -> bool {
+    a.partial_cmp(&b) != Some(core::cmp::Ordering::Less)
+}
+
+/// `!(a > b)`, true when unordered.
+pub(crate) fn not_above(a: f64, b: f64) -> bool {
+    a.partial_cmp(&b) != Some(core::cmp::Ordering::Greater)
+}
+
 /// A reader's float parameter stored to a `float` (`FSTP dword`).
 pub(crate) fn value_f32(reader: &mut IniReader, index: u32) -> f32 {
     reader.value_float(index) as f32

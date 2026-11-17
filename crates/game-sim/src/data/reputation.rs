@@ -16,7 +16,7 @@ use neuron_core::id::make_id;
 use neuron_core::ini::IniReader;
 use neuron_core::num::trunc_to_i32;
 
-use super::{DataSource, Reports, lossy, open_ini, value_f32};
+use super::{DataSource, Reports, lossy, not_below, open_ini, value_f32};
 
 const SOURCE: &str = "Common\\Reputation.cpp";
 
@@ -259,7 +259,7 @@ impl Reputation {
         };
         if let Some(value) = group.feelings.get_mut(&to) {
             let mut sum = f64::from(delta) + f64::from(*value);
-            if !(sum < 1.0) {
+            if not_below(sum, 1.0) {
                 sum = 1.0;
             }
             if -1.0 > sum {
@@ -272,7 +272,7 @@ impl Reputation {
             return -2;
         }
         let mut value = delta;
-        if !(value < 1.0) {
+        if not_below(f64::from(value), 1.0) {
             value = 1.0;
         }
         if -1.0 > value {

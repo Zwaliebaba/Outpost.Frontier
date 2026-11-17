@@ -17,6 +17,7 @@
 // (tests/support/game.rs). Nothing written here may be committed.
 
 #include "oracle_support.h"
+#include "oracle_game.h"
 
 #include <string.h>
 
@@ -32,6 +33,10 @@
 #include "common_goods.h"
 #include "common_misc.h"
 #include "common_physys.h"
+#include "common_reputation.h"
+
+#include <algorithm>
+#include <set>
 
 // The one NeuronRuntime global the loaders read (NeuronRuntime.h declares it
 // beside headers that need the DirectX 8 SDK).
@@ -96,36 +101,123 @@ namespace
         return F(Value.x) + "," + F(Value.y) + "," + F(Value.z);
     }
 
-    // The JSON text of a C string: printable ASCII except '"' and '\' as is,
-    // every other byte as \u00xx, as crates/game-sim/tests/support/game.rs
-    // writes it.
-    std::string Text(const char* Value)
-    {
-        std::string Out;
-        if (Value == nullptr)
-            return Out;
-        for (const unsigned char* P = (const unsigned char*)Value; *P != 0; ++P)
-        {
-            if (*P >= 0x20 && *P < 0x7f && *P != '"' && *P != '\\')
-                Out += (char)*P;
-            else
-                Out += Format("\\u%04x", (unsigned int)*P);
-        }
-        return Out;
-    }
-
     // --- The [Data] list ------------------------------------------------------
 
-    // The value loop of DispatchDataValue (common_dataconfig.cpp) for the loaders
-    // work package P2.1 ports, with the same GetFileSysPath calls.
+    // Nickname ids the dumps cannot enumerate through an export: the [Explosion]
+    // sections (the first nickname, as Archetype::LoadExplosion takes it), the
+    // [Motor] sections (the last nickname, as MotorData::read keeps it) and the
+    // [Loadout] sections (the first nickname, as Loadout::Load takes it) of every
+    // file the list dispatches to those loaders.
+    std::set<unsigned int> GExplosionIds;
+    std::set<unsigned int> GMotorIds;
+    std::set<unsigned int> GLoadoutIds;
+
+    void ScanIds(const char* FullPath)
+    {
+        INI_Reader Reader;
+        if (!Reader.open(FullPath, false))
+            return;
+        while (Reader.read_header())
+        {
+            const bool bExplosion = Reader.is_header("Explosion");
+            const bool bMotor = Reader.is_header("Motor");
+            const bool bLoadout = Reader.is_header("Loadout");
+            if (!bExplosion && !bMotor && !bLoadout)
+                continue;
+            bool bFound = false;
+            unsigned int Id = 0;
+            while (Reader.read_value())
+            {
+                if (!Reader.is_value("nickname"))
+                    continue;
+                if (bFound && !bMotor)
+                    continue;
+                Id = CreateID(Reader.get_value_string());
+                bFound = true;
+            }
+            if (!bFound)
+                continue;
+            if (bExplosion)
+                GExplosionIds.insert(Id);
+            else if (bMotor)
+                GMotorIds.insert(Id);
+            else
+                GLoadoutIds.insert(Id);
+        }
+    }
+
+    // Archetype::LoadEquipment ends with Munition::LoadBeamArchIdx, which asks
+    // NeuronRuntime::Engine for a compound archetype. The harness starts no
+    // engine, so that call faults after the file is loaded; the fault is caught
+    // here and the records stay. No C++ object lives in this frame.
+    int GuardedLoadEquipment(const char* Path)
+    {
+        __try
+        {
+            return Archetype::LoadEquipment(Path, false, nullptr);
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return -1;
+        }
+    }
+
+    // DispatchDataValue (common_dataconfig.cpp) for the loaders work package
+    // P2.1 ports, with the same GetFileSysPath calls and no factory. Keys of
+    // later work packages are skipped, as GameData::load skips them.
     void DispatchDataValue(INI_Reader& Reader)
     {
+        char FullPath[0x104];
         if (Reader.is_value("universe"))
         {
         }
         else if (Reader.is_value("constants"))
         {
             ReadConstants(Reader.get_value_string());
+        }
+        else if (Reader.is_value("equipment"))
+        {
+            GetFileSysPath(FullPath, Reader.get_value_string(), nullptr);
+            ScanIds(FullPath);
+            GuardedLoadEquipment(FullPath);
+        }
+        else if (Reader.is_value("solar"))
+        {
+            GetFileSysPath(FullPath, Reader.get_value_string(), nullptr);
+            ScanIds(FullPath);
+            Archetype::LoadSolar(FullPath, false, nullptr);
+        }
+        else if (Reader.is_value("ships"))
+        {
+            GetFileSysPath(FullPath, Reader.get_value_string(), nullptr);
+            ScanIds(FullPath);
+            Archetype::LoadShips(FullPath, false, nullptr);
+        }
+        else if (Reader.is_value("asteroids"))
+        {
+            GetFileSysPath(FullPath, Reader.get_value_string(), nullptr);
+            Archetype::LoadAsteroids(FullPath, nullptr);
+        }
+        else if (Reader.is_value("loadouts"))
+        {
+            GetFileSysPath(FullPath, Reader.get_value_string(), nullptr);
+            ScanIds(FullPath);
+            Loadout::Load(FullPath, false);
+        }
+        else if (Reader.is_value("goods"))
+        {
+            GoodList_load(Reader.get_value_string());
+        }
+        else if (Reader.is_value("Groups"))
+        {
+            GetFileSysPath(FullPath, Reader.get_value_string(), nullptr);
+            Reputation::Startup(FullPath);
+        }
+        else if (Reader.is_value("explosions"))
+        {
+            GetFileSysPath(FullPath, Reader.get_value_string(), nullptr);
+            ScanIds(FullPath);
+            Archetype::LoadSimples(FullPath, false, nullptr);
         }
     }
 
@@ -145,25 +237,6 @@ namespace
     }
 
     // --- Dumps ------------------------------------------------------------------
-
-    // A kind with its files; Out is opened per file.
-    class Kind
-    {
-    public:
-        explicit Kind(const char* Name) : Name(Name), List(GOutputDir + "\\" + Name + "\\files.txt")
-        {
-        }
-
-        std::string Path(const char* File)
-        {
-            List.Line(File);
-            return DataOutputFile(Name, File);
-        }
-
-    private:
-        const char* Name;
-        Suite List;
-    };
 
     void FloatLine(Suite& Out, const char* Key, float Value)
     {
@@ -194,7 +267,7 @@ namespace
     // OBJECT_TYPE name the collision damage of Collision::Load's table.
     void DumpConstants()
     {
-        Kind K("constants");
+        FGameKind K("constants");
         Suite Out(K.Path("constants"));
         FloatLine(Out, "COLLISION_DAMAGE_FACTOR", COLLISION_DAMAGE_FACTOR);
         FloatLine(Out, "LOOT_OWNER_SAFE_TIME", LOOT_OWNER_SAFE_TIME);
@@ -305,13 +378,29 @@ void RunGameDataDump(const std::vector<std::string>& Files)
         // No engine INI under the dump root (the synthetic tree of build.yml):
         // every kind lists no files, as the Rust test does.
         printf("game data: no EXE\\OutpostFrontier.ini, nothing loaded\n");
-        static const char* const kKinds[] = {"constants"};
+        static const char* const kKinds[] = {"constants", "goods", "loadouts", "reputation", "archetypes"};
         for (const char* Name : kKinds)
-            Suite List(GOutputDir + "\\" + Name + "\\files.txt");
+            FGameKind Empty(Name);
         CloseGameData();
         return;
     }
     DumpConstants();
+    {
+        FGameKind K("goods");
+        DumpGoods(K);
+    }
+    {
+        FGameKind K("loadouts");
+        DumpLoadouts(K, GLoadoutIds);
+    }
+    {
+        FGameKind K("reputation");
+        DumpReputation(K);
+    }
+    {
+        FGameKind K("archetypes");
+        DumpArchetypes(K, GMotorIds, GExplosionIds);
+    }
     CloseGameData();
     printf("dumped the game databases\n");
 }

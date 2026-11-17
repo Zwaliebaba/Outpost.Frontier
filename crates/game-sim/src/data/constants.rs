@@ -59,7 +59,8 @@ pub struct GeneralConsts {
 impl Default for GeneralConsts {
     fn default() -> Self {
         Self {
-            test_value: 3.1415,
+            // The compiled-in 0x40490e56, not pi.
+            test_value: f32::from_bits(0x4049_0e56),
             test_string: b"sample".to_vec(),
             collision_damage_factor: 0.25,
             loot_owner_safe_time: 1.0,

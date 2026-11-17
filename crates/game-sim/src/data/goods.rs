@@ -436,7 +436,7 @@ impl GoodList {
             info.arch_id = 0;
         }
         if info.shop_archetype.is_empty() && !info.attachment_archetype.is_empty() {
-            info.shop_archetype = info.attachment_archetype.clone();
+            info.shop_archetype = info.attachment_archetype;
         }
         info
     }
@@ -465,7 +465,7 @@ impl GoodList {
         addon.count = count;
         addon.health = 1.0;
         addon.equipped = 1;
-        if eq_ignore_case(hardpoint.as_bytes(), b"internal") {
+        if eq_ignore_case(strings.get(hardpoint), b"internal") {
             addon.make_internal(strings);
         } else {
             addon.hardpoint = hardpoint;
@@ -547,17 +547,14 @@ mod tests {
         }
     }
 
-    struct Equip;
+    struct Equip(CacheString, CacheString);
 
     impl EquipmentLookup for Equip {
         fn good_fields(&self, arch_id: u32) -> Option<EquipmentGoodFields> {
-            (arch_id == create_id(b"gun")).then(|| EquipmentGoodFields {
+            (arch_id == create_id(b"gun")).then_some(EquipmentGoodFields {
                 ids_name: 7,
                 ids_info: 8,
-                attached: Some((
-                    CacheString::from_static(b"gun.cmp"),
-                    CacheString::from_static(b"HpConnect"),
-                )),
+                attached: Some((self.0, self.1)),
             })
         }
     }
@@ -570,11 +567,15 @@ good_sell_price = 2\ncombinable = true\naddon = a, internal, 0\naddon = b, HpX, 
 [Good]\nnickname = ship\ncategory = ship\nhull = hull\n\
 [Good]\nnickname = gun\nprice = 1\n";
         let mut strings = StringCache::new();
+        let equip = Equip(
+            strings.alloc(b"gun.cmp", true),
+            strings.alloc(b"HpConnect", false),
+        );
         let mut reports = Reports::default();
         let mut list = GoodList::default();
         let mut cx = GoodsContext {
             strings: &mut strings,
-            equipment: &Equip,
+            equipment: &equip,
             reports: &mut reports,
         };
         list.load(&One(text), b"goods.ini", &mut cx);
@@ -584,7 +585,7 @@ good_sell_price = 2\ncombinable = true\naddon = a, internal, 0\naddon = b, HpX, 
         assert_eq!(gun.good_buy_price, (100.0 * f64::from(0.95_f32)) as f32);
         assert_eq!(gun.good_sell_price, 200.0);
         assert_eq!(gun.ids_name, 7);
-        assert_eq!(gun.shop_archetype.as_bytes(), b"gun.cmp");
+        assert_eq!(strings.get(gun.shop_archetype), b"gun.cmp");
         assert!(gun.addon_low[0].is_internal(&strings));
         assert_eq!(gun.addon_mid[0].count, 2);
         assert!(list.arch_is_combinable(create_id(b"gun")));

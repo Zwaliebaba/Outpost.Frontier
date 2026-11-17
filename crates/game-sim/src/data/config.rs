@@ -21,6 +21,7 @@
 use neuron_core::hash::eq_ignore_case;
 use neuron_core::ini::IniReader;
 
+use super::archetype::{ArchetypeDb, LoadCx};
 use super::constants::Constants;
 use super::goods::{GoodList, GoodsContext};
 use super::loadout::LoadoutDb;
@@ -169,6 +170,8 @@ pub struct GameData {
     pub strings: StringCache,
     /// `ReadConstants`.
     pub constants: Constants,
+    /// The archetype loaders.
+    pub archetypes: ArchetypeDb,
     /// `GoodList_load`.
     pub goods: GoodList,
     /// `Loadout::Load`.
@@ -178,6 +181,9 @@ pub struct GameData {
     /// `FDUMP` reports of the load.
     pub reports: Reports,
 }
+
+/// `ProgressCB`: sees each `[Data]` value text; `true` stops the load.
+pub type Progress<'a> = dyn FnMut(&[u8]) -> bool + 'a;
 
 /// How a load ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -202,7 +208,7 @@ impl GameData {
         &mut self,
         source: &dyn DataSource,
         config: &DataConfig,
-        mut progress: Option<&mut dyn FnMut(&[u8]) -> bool>,
+        mut progress: Option<&mut Progress<'_>>,
     ) -> LoadOutcome {
         for entry in &config.entries {
             if let Some(callback) = progress.as_mut()
@@ -226,7 +232,7 @@ impl GameData {
             DataKind::Goods => {
                 let mut cx = GoodsContext {
                     strings: &mut self.strings,
-                    equipment: &(),
+                    equipment: &self.archetypes,
                     reports: &mut self.reports,
                 };
                 self.goods.load(source, value, &mut cx);
@@ -253,7 +259,47 @@ impl GameData {
             DataKind::Groups => {
                 self.reputation.startup(source, value);
             }
+            DataKind::Equipment => self.archetype_file(source, value, kind, 0x5c, "EQUIPMENT"),
+            DataKind::Solar => self.archetype_file(source, value, kind, 0x68, "SOLAR"),
+            DataKind::Ships => self.archetype_file(source, value, kind, 0x75, "SHIPS"),
+            DataKind::Asteroids => self.archetype_file(source, value, kind, 0x82, "ASTEROIDS"),
+            DataKind::Explosions => self.archetype_file(source, value, kind, 0xd3, "Explosion"),
             _ => {}
+        }
+    }
+}
+
+impl GameData {
+    /// An archetype file, with `DataConfig`'s warning when it adds nothing.
+    fn archetype_file(
+        &mut self,
+        source: &dyn DataSource,
+        path: &[u8],
+        kind: DataKind,
+        line: u32,
+        what: &str,
+    ) {
+        let mut cx = LoadCx {
+            strings: &mut self.strings,
+            reports: &mut self.reports,
+        };
+        let db = &mut self.archetypes;
+        let added = match kind {
+            DataKind::Equipment => db.load_equipment(source, path, &mut cx),
+            DataKind::Solar => db.load_solar(source, path, &mut cx),
+            DataKind::Ships => db.load_ships(source, path, &mut cx),
+            DataKind::Asteroids => db.load_asteroids(source, path, &mut cx),
+            _ => db.load_simples(source, path, &mut cx),
+        };
+        if added == 0 {
+            self.reports.push(
+                SOURCE,
+                line,
+                format!(
+                    "*** WARNING: {what} file '{}' contains no new definitions.",
+                    lossy(path)
+                ),
+            );
         }
     }
 }

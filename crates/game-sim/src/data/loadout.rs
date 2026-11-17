@@ -112,11 +112,12 @@ pub fn add_equipment_item(
     items: &mut Vec<EquipDesc>,
     desc: &EquipDesc,
     combinable: bool,
+    strings: &StringCache,
 ) -> Result<bool, LoadoutError> {
     if combinable && let Some(found) = items.iter_mut().find(|i| i.arch_id == desc.arch_id) {
         if found.mission != desc.mission
             || found.owner != desc.owner
-            || !eq_ignore_case(found.hardpoint.as_bytes(), desc.hardpoint.as_bytes())
+            || !eq_ignore_case(strings.get(found.hardpoint), strings.get(desc.hardpoint))
         {
             return Err(LoadoutError::CargoMatchLoops);
         }
@@ -138,7 +139,7 @@ pub fn add_equipment_item(
         }
         return Ok(true);
     }
-    items.push(desc.clone());
+    items.push(*desc);
     Ok(false)
 }
 
@@ -225,7 +226,7 @@ impl LoadoutDb {
                         read_cargo_line(&mut reader, &mut desc, strings);
                         let combinable =
                             goods.arch_is_combinable(desc.arch_id) && desc.is_internal(strings);
-                        match add_equipment_item(&mut loadout.items, &desc, combinable) {
+                        match add_equipment_item(&mut loadout.items, &desc, combinable, strings) {
                             Ok(false) => {
                                 let id = loadout.id_maker.create();
                                 if let Some(last) = loadout.items.last_mut() {
@@ -266,13 +267,19 @@ mod tests {
         let mut desc = EquipDesc::new(&strings);
         desc.arch_id = 5;
         desc.health = 0.75;
-        assert_eq!(add_equipment_item(&mut items, &desc, true), Ok(false));
-        assert_eq!(add_equipment_item(&mut items, &desc, true), Ok(true));
+        assert_eq!(
+            add_equipment_item(&mut items, &desc, true, &strings),
+            Ok(false)
+        );
+        assert_eq!(
+            add_equipment_item(&mut items, &desc, true, &strings),
+            Ok(true)
+        );
         assert_eq!(items[0].count, 2);
         assert_eq!(items[0].health, 0.5);
         desc.mission = true;
         assert_eq!(
-            add_equipment_item(&mut items, &desc, true),
+            add_equipment_item(&mut items, &desc, true, &strings),
             Err(LoadoutError::CargoMatchLoops)
         );
     }

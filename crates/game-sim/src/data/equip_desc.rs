@@ -6,7 +6,7 @@ use super::string_cache::{CacheString, StringCache};
 pub const SUB_OBJECT_ID_NONE: u16 = 0;
 
 /// `EquipDesc`, 0x20 bytes in the C++: a piece of equipment or cargo.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct EquipDesc {
     /// `Cached` (+0x00).
     pub cached: u16,
@@ -36,7 +36,7 @@ impl EquipDesc {
             cached: 0,
             id: SUB_OBJECT_ID_NONE,
             arch_id: 0,
-            hardpoint: strings.cargo_bay().clone(),
+            hardpoint: strings.cargo_bay(),
             equipped: 0,
             health: 1.0,
             count: 1,
@@ -47,14 +47,14 @@ impl EquipDesc {
 
     /// `make_internal`: back into the cargo bay.
     pub fn make_internal(&mut self, strings: &StringCache) {
-        self.hardpoint = strings.cargo_bay().clone();
+        self.hardpoint = strings.cargo_bay();
     }
 
     /// `is_internal`: the hardpoint is the cargo bay's own copy. A
     /// temporary copy of `BAY` is not internal, as in the C++.
     #[must_use]
     pub fn is_internal(&self, strings: &StringCache) -> bool {
-        self.hardpoint.same(strings.cargo_bay())
+        self.hardpoint == strings.cargo_bay()
     }
 
     /// `get_cargo_space_occupied`: `count * volume` for an internal line
