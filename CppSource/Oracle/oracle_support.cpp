@@ -159,6 +159,62 @@ namespace oracle
         }
     }
 
+    void ListDataFiles(const std::string& Relative, std::vector<std::string>& Out)
+    {
+        WIN32_FIND_DATAA Found;
+        HANDLE Search = FindFirstFileA((Relative + "/*").c_str(), &Found);
+        if (Search == INVALID_HANDLE_VALUE)
+            return;
+        do
+        {
+            const std::string Name = Found.cFileName;
+            if (Name == "." || Name == "..")
+                continue;
+            const std::string Child = Relative + "/" + Name;
+            if ((Found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0)
+                ListDataFiles(Child, Out);
+            else
+                Out.push_back(Child);
+        } while (FindNextFileA(Search, &Found));
+        FindClose(Search);
+    }
+
+    std::string DataOutputFile(const char* Kind, const std::string& Relative)
+    {
+        std::string Path = GOutputDir + "\\" + Kind + "\\" + Relative + ".jsonl";
+        for (char& Ch : Path)
+        {
+            if (Ch == '/')
+                Ch = '\\';
+        }
+        return Path;
+    }
+
+    std::string FileMagic(const std::string& Relative)
+    {
+        std::string Magic;
+        FILE* File = fopen(Relative.c_str(), "rb");
+        if (File == nullptr)
+            return Magic;
+        char Bytes[4];
+        const size_t Got = fread(Bytes, 1, sizeof(Bytes), File);
+        fclose(File);
+        Magic.assign(Bytes, Got);
+        return Magic;
+    }
+
+    std::string Fnv64(const void* Data, size_t Length)
+    {
+        const unsigned char* Raw = (const unsigned char*)Data;
+        unsigned long long Hash = 0xCBF29CE484222325ull;
+        for (size_t Index = 0; Index < Length; ++Index)
+        {
+            Hash ^= Raw[Index];
+            Hash *= 0x100000001B3ull;
+        }
+        return Format("%016llx", Hash);
+    }
+
     Suite::Suite(const char* Name) : File(nullptr)
     {
         const std::string Path = GOutputDir + "\\" + Name;

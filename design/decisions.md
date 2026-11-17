@@ -23,7 +23,10 @@ through a decision record under `design/adr/`.
 | O12 | Decided 2026-11-16. Saves are written as plain-text INI. The C++ reference server writes character saves, new characters from the templates and the single-player restart file as text instead of the `FLS1` cipher container (commit `816f556a`); the Rust port does the same. Both builds still read `FLS1` files, so existing saves and the shipped templates load. This was the first change to the reference's behaviour beyond build fixes and oracle instrumentation; O14 is the second | Keeping the original `FLS1` writer in the reference and in the port; reverting the C++ change |
 | O13 | Decided 2026-11-16. The game data is text only: every INI file in the master copy (`outdir\`) is text. The port reads INI files as text and has no binary INI reader; the C++ reference keeps its decoder, which the data never reaches (divergence D10) | Porting the binary INI reader and keeping its oracle suites |
 | O14 | Decided 2026-11-17. A directory file system lists its entries. The reconstruction's `FDosFileSystem::FindFirst` (`ReadFile.cpp`) tested `JoinRoot` the wrong way round, so every pattern that joined failed with error 0xA1 and a loose directory could never be listed; it also compared the find handle with `nullptr` instead of `INVALID_HANDLE_VALUE`. Both are fixed in the C++ reference and in `neuron-core::vfs`. The port lists as `FindFirstFileA` does: Win32 wildcard rules and the `.` and `..` entries, but in byte order of the names and without 8.3 short names (divergence D37). Whether the original game had the same defect is not known; callers that enumerate a loose directory (`TextureLibrary`, `VMeshLibrary`, `SceneRuntime`, `Deformable2`) now see its entries | Keeping the defect in both builds; fixing only the port and recording a divergence |
-| O15 | Decided 2026-11-17. The port loads `.thn` scene scripts as compiled Lua 3.2 chunks only, and only the instructions the shipped scripts use: the 15 opcodes in [facts.md](facts.md) F15, with numbers stored as text. A script in source form, or a chunk with any other instruction, is rejected (divergence D38). Source can be compiled first: `cargo xtask thn-decompile` holds a compiler for the subset its output uses. The decompiler writes the numeral the original source had when the stored text would not compile back to itself (3 constants in the data, F15) | Also loading source in that subset; a full Lua 3.2 evaluator with lexer, parser and VM, as T8 first planned |
+| O15 | Decided 2026-11-17. The original game data is committed in `outdir/` (commit `dbe1abc6`): the master copy's INI files at its top and the `DATA` tree as `outdir/data/`. It is public with the repository; the owner accepts the legal exposure of publishing it. Tests and CI may read it. Dumps and vectors made from it are still not committed: they are produced from `outdir/` when a test runs. The text sources (T21) live in `outdir/data/text/` | Keeping the data outside the repository behind `OUTPOST_DATA_DIR`; making the repository private; removing the data again |
+| O16 | Superseded by O17 on 2026-11-17. Decided 2026-11-17. The reference reads the particle node library as `AlchemyNodeLibrary` again. The rebrand commit `89eda18` had renamed the node name in `CppSource/particlefx/particlefx_common.cpp` to `ParticleFxNodeLibrary`, which no `.ale` file has (all 596 use `AlchemyNodeLibrary`), so the reference never loaded node libraries. The one-line fix is an approved change to the frozen reference, like O12 and O14 | Leaving the reference as built and recording the port's correct name as a divergence |
+| O17 | Decided 2026-11-17. The data carries the reference's names (option 3 of [rebrand-names.md](rebrand-names.md)). The text files in `outdir/` already used the names of the rebrand commit `89eda18`, nickname hashes included; binary files and one hash compiled into the code still used the old ones. The binary data is renamed: in the 596 `.ale` files the node library `AlchemyNodeLibrary` is now `ParticleFxNodeLibrary` (the UTF string table rewritten in place), and in 851 compiled Lua 3.2 `.thn` cutscenes 1,468 string constants that name the player character's costume (`trent`), voice lines (`[VoiceProfile_][$B]GCS_Trent_*`) and story sounds (`dx_s*_Trent`) now say `Rellan` in the same case. Entity, camera and marker names inside the scripts, and file and directory names, keep the old spelling: nothing outside their own file matches them, or the data refers to them by that path. O16 is undone: the reference reads `ParticleFxNodeLibrary` again. `SetRellan` in `CppSource/Server/server_pub.cpp` asked for the costume `CreateID("trent")`; it now asks for `CreateID("rellan")`, an approved change to the frozen reference. Data dumps run 44056112434 on the renamed data equals the oracle in every kind. The port no longer loads an unmodified original installation; it never could once the text files were renamed | Restoring the old names in the reference (option 1); recording each mismatch as a divergence (option 2) |
+| O18 | Decided 2026-11-17. The port loads `.thn` scene scripts as compiled Lua 3.2 chunks only, and only the instructions the shipped scripts use: the 15 opcodes in [facts.md](facts.md) F15, with numbers stored as text. A script in source form, or a chunk with any other instruction, is rejected (divergence D86). Source can be compiled first: `cargo xtask thn-decompile` holds a compiler for the subset its output uses. The decompiler writes the numeral the original source had when the stored text would not compile back to itself (3 constants in the data, F15) | Also loading source in that subset; a full Lua 3.2 evaluator with lexer, parser and VM, as T8 first planned |
 
 ## Technical decisions
 
@@ -33,9 +36,19 @@ Raw Direct3D 12, feature level 11_0, Windows 10 and later, flip-model swap
 chain, borderless full screen, tearing when the sync interval is zero. The
 scene renders to an intermediate target and a final blit applies the gamma
 curve; this also serves screenshots, back-buffer reads and depth sampling.
-HLSL is compiled at build time with the Windows SDK compiler and embedded.
-Runtime compilation exists only behind a development feature for the
-nebula shaders.
+HLSL is compiled ahead of time and embedded. Runtime compilation exists
+only behind a development feature for the nebula shaders.
+
+Amended 2026-11-17 (owner): a crate keeps its HLSL sources in
+`<crate>/shaders/` and the compiled blobs in `<crate>/compiled_shaders/`,
+both committed. The code embeds the blobs with `include_bytes!`, the Rust
+counterpart of compiling to a header and including it, so building the
+crate needs no shader compiler and every host can build it. A CI step on
+Windows recompiles every source with the pinned compiler and flags and
+fails when a committed blob differs. The compiler (`fxc` for DXBC or `dxc`
+for DXIL), its version and the shader model are fixed in spike P4.0; the
+flags strip debug data and reflection so the output depends only on the
+source and the compiler version.
 
 `wgpu` was rejected: the feature set is small and fixed, the owner asked for
 Direct3D 12, and `wgpu` hides swap chain, pipeline-state and readback
@@ -87,7 +100,7 @@ because exclusive full screen is not used (T1).
 ### T8 — Lua 3.2 as a Rust load-time evaluator
 
 Scene scripts are Lua 3.2 chunks that define three tables and are never
-called again. Revised 2026-11-17 by owner decision O15: every shipped
+called again. Revised 2026-11-17 by owner decision O18: every shipped
 script is straight-line table construction (facts.md F15), so the Rust
 side is a compiled-chunk reader and an evaluator for those 15 opcodes, a
 few hundred lines instead of a lexer, parser, VM and base library. Number
@@ -245,7 +258,7 @@ Widescreen anchoring is part of the layout design from the start.
 ### T21 — Text resources
 
 The `.rc` string tables and the 5,252 rich-text files move to
-`resources/text/`. An `xtask` step builds one catalog per module, keyed by
+`outdir/data/text/`. An `xtask` step builds one catalog per module, keyed by
 the local 16-bit ID. At run time catalogs load in the order the real
 `[Resources]` list gives, so every 32-bit text ID keeps its value. Catalogs
 ship as files beside the executable.

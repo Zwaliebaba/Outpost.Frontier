@@ -1,7 +1,8 @@
 # Text resources
 
 The sources of the game's text, one TOML file per module (work package
-P1.6, decision T21). `cargo xtask catalog` builds one catalog per module
+P1.6, decision T21). They live in the game data tree, `outdir/data/text/`,
+since 2026-11-17 (they were in `resources/text/` before). `cargo xtask catalog` builds one catalog per module
 from them, by default into `target/catalogs/<Module>.tcat`. Catalogs are
 build output: they are not committed and ship beside the executables. The
 catalog format and the lookup rules are documented in

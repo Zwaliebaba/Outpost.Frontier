@@ -14,7 +14,7 @@ packages and status are in the [library ledger](library-ledger.md).
 | `Common` | NeuronCore, GameSim, GameLogic, NeuronClient, GameApp | IDs, INI, utilities (`util`), timing (`time`), diagnostics (`diag`) and `.sur` reading in core. Game data, object model, equipment, AI and wire types in GameSim. Trade and reputation rules in GameLogic. Text rendering in the client engine; client-only helpers in GameApp. |
 | `IVP`, `qhull` | NeuronCore | Physics facade over `parry3d` and the project's own solver. Neither library is ported; the compact-surface layout is read as a file format. |
 | `x86math` | NeuronCore | Vectors, matrices, quaternions and transforms in the original operation order (`math`). Common's vector and matrix helpers build on the same types. |
-| `SceneRuntime` | NeuronCore | Instance tree, compound models, hardpoints, joints and animation. No renderer dependence. |
+| `SceneRuntime` | NeuronCore | Engine, compound archetypes, `Cons` joints, hardpoints, instance trees, sampling, typed channels, mixer and playbacks (`scene`); channel and script data (`anim`). No renderer dependence. |
 | `ReadFile`, `zlib` | NeuronCore | The UTF container (`utf`); the file-system trait, the directory, UTF and memory backends, the search path and the path rules (`vfs`). `flate2` replaces zlib for network batches (`net::frame`). |
 | `luaprofile`, `MemoryDiagnostics` | — | Not ported. |
 | `rpclocal`, `RemoteCommon` | NeuronCore, GameSim | The loopback transport, field primitives and quantisers (`net`) in core and one set of message codecs in GameSim. The codec copy in `rpclocal` is not ported. |
@@ -22,11 +22,11 @@ packages and status are in the [library ledger](library-ledger.md).
 | `RemoteClient` | NeuronServer | Server-side connection handling and delivery of events to connected clients. |
 | `Server` | NeuronServer, GameLogic | Server lifecycle, sessions, save storage, accounts and the controller bus in the engine. World updates, objects, players and replication in GameLogic. |
 | `Content` | GameLogic | Missions, encounters, factions, NPC behavior, random missions and rewards. |
-| `particlefx`, `Deformable2`, `surfacematerials` | NeuronCore, NeuronClient | Data parsing in core. Particles, skinning and surface materials in the client engine. |
-| `DX8RENDERER`, `DX9RENDERER`, `RendComp`, `Shading`, `ximage` | NeuronCore, NeuronClient | Image and mesh parsing in core. The Direct3D 12 renderer, fixed-function emulation, materials, batching and textures in the client engine. Neither legacy renderer is ported. |
+| `particlefx`, `Deformable2`, `surfacematerials` | NeuronCore, NeuronClient | Data parsing in core. Particles, skinning and surface materials in the client engine. Core modules: `fx_data` (effect and node libraries), `mesh_data::dfm`. |
+| `DX8RENDERER`, `DX9RENDERER`, `RendComp`, `Shading`, `ximage` | NeuronCore, NeuronClient | Image and mesh parsing in core. The Direct3D 12 renderer, fixed-function emulation, materials, batching and textures in the client engine. Neither legacy renderer is ported. Core modules: `image`, `material_data`, `mesh_data`. |
 | `SceneScript`, `movie` | NeuronClient, GameApp | Lua 3.2 evaluator, scene timeline and Media Foundation playback in the engine. Game-specific scene selection and transitions in GameApp. |
 | `SoundManager`, `SoundStreamer`, `imeui` | NeuronClient | XAudio2 playback, mixing arithmetic, streaming, the edit-box model and IME positioning. |
-| `UiText`, `FieldGuideText`, `DialogueText`, `EquipmentCatalog`, `InterfaceExtras` | NeuronCore, GameApp | Catalog loader and text-ID lookup in core (`catalog`). Client UI, guide entries, dialogue, equipment names and menu text as catalogs that `cargo xtask catalog` builds from `resources/text/`. |
+| `UiText`, `FieldGuideText`, `DialogueText`, `EquipmentCatalog`, `InterfaceExtras` | NeuronCore, GameApp | Catalog loader and text-ID lookup in core (`catalog`). Client UI, guide entries, dialogue, equipment names and menu text as catalogs that `cargo xtask catalog` builds from `outdir/data/text/`. |
 | `NameCatalog`, `NegotiationText` | NeuronCore, GameApp, GameLogic | Catalogs as above. GameLogic keeps the numeric text IDs and never resolves text. |
 | `serverinterface` | `outpost-server` | Strings for the admin console. The MFC dialogs are dropped. |
 | `OutpostFrontier` | GameApp, NeuronClient, `outpost-frontier` | Game and menu flow in GameApp, platform and engine integration in NeuronClient, process startup and in-process server wiring in the executable package. |

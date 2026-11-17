@@ -4,8 +4,9 @@ local.json
 __pycache__/
 
 # Third-party files for the C++ reference build (design/migration-plan.md, P0.2).
-# Never commit the original game files. /dx8/ is an optional local copy of the
-# DirectX 8.1 SDK that overrides the committed CppSource/DX8/.
+# The original game files are committed once, in outdir/ (design/decisions.md
+# O15); these other locations must not hold a second copy. /dx8/ is an optional
+# local copy of the DirectX 8.1 SDK that overrides the committed CppSource/DX8/.
 /dx8/
 /DATA/
 /DATA_EXTRA/

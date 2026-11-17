@@ -1,15 +1,22 @@
 //! Shared engine facilities for the client and server.
 
+pub mod anim;
 pub mod catalog;
 pub mod diag;
+pub mod fx_data;
 pub mod hash;
 pub mod id;
+pub mod image;
 pub mod ini;
+pub mod material_data;
 pub mod math;
+pub mod mesh_data;
 pub mod msvcrt;
 pub mod net;
 pub mod num;
 pub mod rng;
+pub mod scene;
+pub mod sur;
 pub mod time;
 pub mod utf;
 pub mod util;

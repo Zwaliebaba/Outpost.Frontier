@@ -46,7 +46,7 @@ NeuronCore already holds the ported Phase 1 modules: `hash`, `id`, `num`,
 `msvcrt`, `rng`, `ini`, `utf`, `vfs`, `math`, `diag`, `time`, `util`,
 `catalog` and `net`. `cargo xtask` offers `check-policy` (crate graph,
 legacy APIs, unsafe placement), `ini` (list INI files through the ported
-reader) and `catalog` (build the text catalogs from `resources/text/`).
+reader) and `catalog` (build the text catalogs from `outdir/data/text/`).
 
 ## Migration from C++
 

@@ -14,23 +14,23 @@ Line counts are C++ source and header lines from the assessment, rounded.
 
 | # | C++ project | Lines | Disposition | Rust destination | Work packages | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `neuroncomponents` | 2.8k | Port the INI parser, name CRC and `stricmp`. Delete the component manager and the regular-expression component | `neuron-core::{ini, hash, diag}`; `neuron-client::engine` | P1.1, P1.2, P1.5, P4.16 | in progress: name CRC, `stricmp` and the INI parser ported; oracle vectors confirmed in CI. `GetCRC32(begin, end)` is not ported: it never returns for a non-empty range and has no caller. FDUMP flags and the `ErrorHandler` channels in `neuron-core::diag` (P1.5); `LogStream`, empty in the shipping build, is not ported |
+| 1 | `neuroncomponents` | 2.8k | Port the INI parser, name CRC and `stricmp`. Delete the component manager and the regular-expression component | `neuron-core::{ini, hash, diag}`; `neuron-client::engine` | P1.1, P1.2, P1.5, P4.16 | in progress (Phase 1 parts accepted at Gate G1): name CRC, `stricmp` and the INI parser ported; oracle vectors confirmed in CI. `GetCRC32(begin, end)` is not ported: it never returns for a non-empty range and has no caller. FDUMP flags and the `ErrorHandler` channels in `neuron-core::diag` (P1.5); `LogStream`, empty in the shipping build, is not ported |
 | 2 | `system` | 0.6k | Delete; start-up order moves into the engine constructor | `neuron-client::engine` | P4.16 | not started |
-| 3 | `NeuronRuntime` | 2.3k | Rewrite the transport on QUIC. Port the MD5 text form. Delete the DirectPlay wrapper and the list-server wrapper | `neuron-core::net`; `neuron-server::net`; `neuron-client::{net, engine}` | P1.5, P1.9, P3.8, P4.16 | in progress: MD5 text form in `neuron-core::util::md5` and the host error callbacks in `neuron-core::diag::callbacks` (P1.5); framing, handshake, `Transport` trait and loopback in `neuron-core::net` (P1.9). QUIC host and connection follow in P3.8 |
-| 4 | `zlib` | 27k vendor | Delete; `flate2` for network batches | `neuron-core::net` | P1.9 | in progress: `flate2` compresses batches in `neuron-core::net::frame` (P1.9) |
-| 5 | `ReadFile` | 3.5k | Port the UTF reader; redesign the file-system interface | `neuron-core::{vfs, utf}` | P1.3 | in progress: `neuron-core::{utf, vfs}` (P1.3); seven oracle suites, confirmed in CI. The directory `FindFirst` defect is fixed in both builds (decision O14). Not ported: component plumbing, the 14 stub slots, the sticky error state (errors return per call) |
+| 3 | `NeuronRuntime` | 2.3k | Rewrite the transport on QUIC. Port the MD5 text form. Delete the DirectPlay wrapper and the list-server wrapper | `neuron-core::net`; `neuron-server::net`; `neuron-client::{net, engine}` | P1.5, P1.9, P3.8, P4.16 | in progress (Phase 1 parts accepted at Gate G1): MD5 text form in `neuron-core::util::md5` and the host error callbacks in `neuron-core::diag::callbacks` (P1.5); framing, handshake, `Transport` trait and loopback in `neuron-core::net` (P1.9). QUIC host and connection follow in P3.8 |
+| 4 | `zlib` | 27k vendor | Delete; `flate2` for network batches | `neuron-core::net` | P1.9 | accepted at Gate G1: `flate2` compresses batches in `neuron-core::net::frame` (P1.9) |
+| 5 | `ReadFile` | 3.5k | Port the UTF reader; redesign the file-system interface | `neuron-core::{vfs, utf}` | P1.3 | accepted at Gate G1: `neuron-core::{utf, vfs}` (P1.3); seven oracle suites, confirmed in CI. The directory `FindFirst` defect is fixed in both builds (decision O14). Not ported: component plumbing, the 14 stub slots, the sticky error state (errors return per call) |
 | 6 | `luaprofile` | 0.7k + 7.9k Lua | Delete; no consumer. Its Lua parser source informs P4.14 | — | — | not started |
-| 7 | `x86math` | 1.5k | Port kernels in original operation order | `neuron-core::math` | P1.4 | in progress: every `I3DMathEngine` method ported in `neuron-core::math` (P1.4); oracle vectors equal the C++ output in CI |
+| 7 | `x86math` | 1.5k | Port kernels in original operation order | `neuron-core::math` | P1.4 | accepted at Gate G1: every `I3DMathEngine` method ported in `neuron-core::math` (P1.4); oracle vectors equal the C++ output in CI |
 | 8 | `MemoryDiagnostics` | 1.2k | Delete; standalone tool | — | — | not started |
 | 9 | `qhull` | 24k vendor | Delete; box and pyramid shapes come from `parry3d` | `neuron-core::physics` | P2.3 | not started |
-| 10 | `Common` | 105k + 38k headers | Split by sub-module, see below | `neuron-core`, `game-sim`, `game-logic`, `neuron-client`, `game-app` | P1.1, P1.2, P1.5, P1.7, P2.1–P2.5, P4.12 | in progress: IDs, INI and `atof` (P1.1, P1.2); timing, rect, spline, state machine, error handler (P1.5) |
-| 11 | `SceneRuntime` | 10k | Port whole; it makes no renderer calls | `neuron-core::{scene, anim}` | P1.8 | not started |
+| 10 | `Common` | 105k + 38k headers | Split by sub-module, see below | `neuron-core`, `game-sim`, `game-logic`, `neuron-client`, `game-app` | P1.1, P1.2, P1.5, P1.7, P2.1–P2.5, P4.12 | in progress (Phase 1 parts accepted at Gate G1): IDs, INI and `atof` (P1.1, P1.2); timing, rect, spline, state machine, error handler (P1.5); `.sur` loader (P1.7) |
+| 11 | `SceneRuntime` | 10k | Port whole; it makes no renderer calls | `neuron-core::{scene, anim}` | P1.8 | accepted at Gate G1: ported whole. Channel archetypes, scripts and maps in `neuron-core::anim` (P1.7), equal to the oracle on all 192 archives with animations; engine, compound models, instance trees, joints, hardpoints, channel sampling, typed channels, the mixer and script playback in `neuron-core::scene` (P1.8), loading equal to the oracle on all 2,056 archetype files and evaluation on all 181 animation files. The component manager and COM facets are not ported (T9); D74 to D85 |
 | 12 | `SceneScript` | 18k + 6.6k Lua | Port the timeline engine; replace the Lua C interpreter with a Rust evaluator | `neuron-client::scene_script` | P4.14 | not started |
-| 13 | `particlefx` | 25k | Port; data parsing to core, simulation and drawing to client | `neuron-core::fx_data`; `neuron-client::render::particles` | P1.7, P4.8 | not started |
-| 14 | `Deformable2` | 8.8k | Port; palette skinning moves into the vertex shader | `neuron-core::mesh_data`; `neuron-client::render::deformable` | P1.7, P4.7 | not started |
+| 13 | `particlefx` | 25k | Port; data parsing to core, simulation and drawing to client | `neuron-core::fx_data`; `neuron-client::render::particles` | P1.7, P4.8 | in progress (Phase 1 parts accepted at Gate G1): effect and node libraries in `neuron-core::fx_data` (P1.7), equal to the oracle on all 596 `.ale` files; the node-library name renamed in the data by decision O17; evaluation, simulation and drawing in P4.8 |
+| 14 | `Deformable2` | 8.8k | Port; palette skinning moves into the vertex shader | `neuron-core::mesh_data`; `neuron-client::render::deformable` | P1.7, P4.7 | in progress (Phase 1 parts accepted at Gate G1): `.dfm` skeleton, fractions and mesh tables in `neuron-core::mesh_data::dfm` (P1.7), equal to the oracle on all 204 files; skinning in P4.7 |
 | 15 | `surfacematerials` | 5.8k | Port the 19 material kinds and the appearance draws | `neuron-client::render::{material, appearance}` | P4.5 | not started |
-| 16 | `Shading` | 11k | Port texture and material libraries, animation, batcher | `neuron-core::image`; `neuron-client::render::{texture, material}` | P1.7, P4.4, P4.5 | not started |
-| 17 | `RendComp` | 9.8k | Port render manager and mesh kinds | `neuron-core::mesh_data`; `neuron-client::render::mesh` | P1.7, P4.6 | not started |
+| 16 | `Shading` | 11k | Port texture and material libraries, animation, batcher | `neuron-core::image`; `neuron-client::render::{texture, material}` | P1.7, P4.4, P4.5 | in progress (Phase 1 parts accepted at Gate G1): pixel formats, TGA decode, DDS headers and D3DX image info, format maps and texture-library loading rules in `neuron-core::image`; 22 material kinds, material-library enumeration and material-animation data in `neuron-core::material_data` (P1.7). Device uploads, binding and batching in P4.4 and P4.5 |
+| 17 | `RendComp` | 9.8k | Port render manager and mesh kinds | `neuron-core::mesh_data`; `neuron-client::render::mesh` | P1.7, P4.6 | in progress (Phase 1 parts accepted at Gate G1): VMesh library, parts and wires, TriMesh, sphere and MultiLevel data in `neuron-core::mesh_data` (P1.7), equal to the oracle on all 1,939 mesh archives; render manager and drawing in P4.6 |
 | 18 | `DX8RENDERER` | 8.5k | Replace with the Direct3D 12 renderer; its behaviour is the reference for the fixed-function layer. Delete the quirk database | `neuron-client::render::{d3d12, ff}` | P4.2, P4.3 | not started |
 | 19 | `DX9RENDERER` | 10.6k | Replace; its extension interface informs the programmable-pass API | `neuron-client::render::pass` | P4.9, P6.4 | not started |
 | 20 | `ximage` | 1.0k | Port the large-image tiler | `neuron-client::render::texture` | P4.4 | not started |
@@ -38,8 +38,8 @@ Line counts are C++ source and header lines from the assessment, rounded.
 | 22 | `SoundStreamer` | 2.1k | Port streaming on XAudio2 and `symphonia` | `neuron-client::audio::stream` | P4.10 | not started |
 | 23 | `movie` | 1.7k live, 13k stub | Replace with Media Foundation; delete the certificate stub | `neuron-client::media` | P4.15 | not started |
 | 24 | `imeui` | 2.7k | Port the edit-box model; replace the custom IME UI | `neuron-client::text_input` | P4.11 | not started |
-| 25 | `rpclocal` | 28k | Delete the duplicate codecs; the in-process path becomes the loopback transport | `neuron-core::net` | P1.9 | in progress: loopback transport in `neuron-core::net::transport` (P1.9); the duplicate codecs are not ported |
-| 26 | `RemoteClient` (+ `RemoteCommon`) | 3.5k + 5.8k | Port the codecs once; rewrite the server-side connection handling | `game-sim::protocol`; `neuron-server::net` | P2.2, P3.8 | in progress: field primitives and quantisers in `neuron-core::net::wire` (P1.9), oracle vectors confirmed in CI; message codecs follow in P2.2 |
+| 25 | `rpclocal` | 28k | Delete the duplicate codecs; the in-process path becomes the loopback transport | `neuron-core::net` | P1.9 | accepted at Gate G1: loopback transport in `neuron-core::net::transport` (P1.9); the duplicate codecs are not ported |
+| 26 | `RemoteClient` (+ `RemoteCommon`) | 3.5k + 5.8k | Port the codecs once; rewrite the server-side connection handling | `game-sim::protocol`; `neuron-server::net` | P2.2, P3.8 | in progress (Phase 1 parts accepted at Gate G1): field primitives and quantisers in `neuron-core::net::wire` (P1.9), oracle vectors confirmed in CI; message codecs follow in P2.2 |
 | 27 | `RemoteServer` (+ `RemoteCommon`) | 3.2k | Rewrite the client-side connection handling | `neuron-client::net` | P3.8 | not started |
 | 28 | `Server` | 39k | Port; infrastructure and rules are separated | `neuron-server`; `game-logic` | P3.1–P3.3 | not started |
 | 29 | `Content` | 78k | Port; mission scripts become enums, random-mission machines are ported as state enums | `game-logic` | P3.4–P3.7 | not started |
@@ -49,25 +49,25 @@ Line counts are C++ source and header lines from the assessment, rounded.
 ## Resource projects
 
 All eight become text catalogs built from sources copied to
-`resources/text/` (P1.6; decided 2026-11-16: copied, not moved, so the
+`outdir/data/text/` (P1.6; decided 2026-11-16: copied, not moved, so the
 reference build is untouched; the copies in `CppSource/Resources/` go with
 the C++ in P7.3). Numeric IDs keep their values. Since 2026-11-17 the
 sources are one TOML file per module (decision T21, amended); the `.rc`
 scripts and card files were converted, and the catalogs stayed
 byte-identical. Until P7.3 both copies must hold the same text: CI compares
 the DLLs built from `CppSource` with the catalogs built from
-`resources/text`.
+`outdir/data/text`.
 
 | # | C++ project | Content | Catalog use | Status |
 | --- | --- | --- | --- | --- |
-| 32 | `UiText` | 3,648 strings | Client and server | in progress: catalog built from `resources/text/` by `cargo xtask catalog`; equal to the resource DLL in CI (P1.6) |
-| 33 | `FieldGuideText` | 886 rich-text cards | Client | in progress: catalog built from `resources/text/` by `cargo xtask catalog`; equal to the resource DLL in CI (P1.6) |
-| 34 | `DialogueText` | 3,087 rich-text cards | Client | in progress: catalog built from `resources/text/` by `cargo xtask catalog`; equal to the resource DLL in CI (P1.6) |
-| 35 | `NameCatalog` | 7,139 strings | Client display; IDs referenced by game logic | in progress: catalog built from `resources/text/` by `cargo xtask catalog`; equal to the resource DLL in CI (P1.6) |
-| 36 | `EquipmentCatalog` | 784 strings, 784 cards | Client | in progress: catalog built from `resources/text/` by `cargo xtask catalog`; equal to the resource DLL in CI (P1.6) |
-| 37 | `NegotiationText` | 1,270 strings | Client display; IDs referenced by game logic | in progress: catalog built from `resources/text/` by `cargo xtask catalog`; equal to the resource DLL in CI (P1.6) |
-| 38 | `InterfaceExtras` | 495 rich-text cards | Client | in progress: catalog built from `resources/text/` by `cargo xtask catalog`; equal to the resource DLL in CI (P1.6) |
-| 39 | `serverinterface` | 107 strings; dialogs, menus, bitmaps | Strings feed the admin console; dialogs are dropped | in progress: strings only, built as for the others and equal to the DLL in CI (P1.6); dialogs, menus and bitmaps dropped |
+| 32 | `UiText` | 3,648 strings | Client and server | accepted at Gate G1: catalog built from `outdir/data/text/` by `cargo xtask catalog`; equal to the resource DLL in CI (P1.6) |
+| 33 | `FieldGuideText` | 886 rich-text cards | Client | accepted at Gate G1: catalog built from `outdir/data/text/` by `cargo xtask catalog`; equal to the resource DLL in CI (P1.6) |
+| 34 | `DialogueText` | 3,087 rich-text cards | Client | accepted at Gate G1: catalog built from `outdir/data/text/` by `cargo xtask catalog`; equal to the resource DLL in CI (P1.6) |
+| 35 | `NameCatalog` | 7,139 strings | Client display; IDs referenced by game logic | accepted at Gate G1: catalog built from `outdir/data/text/` by `cargo xtask catalog`; equal to the resource DLL in CI (P1.6) |
+| 36 | `EquipmentCatalog` | 784 strings, 784 cards | Client | accepted at Gate G1: catalog built from `outdir/data/text/` by `cargo xtask catalog`; equal to the resource DLL in CI (P1.6) |
+| 37 | `NegotiationText` | 1,270 strings | Client display; IDs referenced by game logic | accepted at Gate G1: catalog built from `outdir/data/text/` by `cargo xtask catalog`; equal to the resource DLL in CI (P1.6) |
+| 38 | `InterfaceExtras` | 495 rich-text cards | Client | accepted at Gate G1: catalog built from `outdir/data/text/` by `cargo xtask catalog`; equal to the resource DLL in CI (P1.6) |
+| 39 | `serverinterface` | 107 strings; dialogs, menus, bitmaps | Strings feed the admin console; dialogs are dropped | accepted at Gate G1: strings only, built as for the others and equal to the DLL in CI (P1.6); dialogs, menus and bitmaps dropped |
 
 ## Source groups
 
@@ -91,7 +91,7 @@ the DLLs built from `CppSource` with the catalogs built from
 | Universe, zones, asteroids, bases, spatial | 13.2k | `game-sim::data` | P2.1 |
 | Goods, reputation, trade | 5.3k | `game-sim::data`; rules in `game-logic` | P2.1, P3.2 |
 | Wire types, marshal buffer, format strings, costume | 4.9k | `game-sim::protocol` | P2.2 |
-| `.sur` loader | (in physics glue) | `neuron-core::sur` | P1.7 |
+| `.sur` loader | (in physics glue) | `neuron-core::sur`. Ported with the IVP compact-surface layout; equal to the oracle on all 798 files. 17 files use an older layout that the reference refuses, so those models have no collision in the original game (`li_battleship` and its 7 damage parts, the freight-train parts, `no_turret01`/`02`, `trade_turret01`, `br_weapons_platform_weapon`, `tlr_sheild`, `ast_loot_gold`); P2.3 must know this | P1.7 |
 | Physics glue | 10.4k | `neuron-core::physics` | P2.3 |
 | Object model | 15.3k | `game-sim::object` | P2.4 |
 | Equipment | 11.3k | `game-sim::equip` | P2.4 |

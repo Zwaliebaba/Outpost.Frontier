@@ -56,15 +56,16 @@ oracle job then shows whether the C++ agrees.
 | --- | --- | --- |
 | Vectors from synthetic input (no game content) | Committed under each crate's `tests/vectors/` | Yes |
 | Small synthetic fixtures written for the tests (hand-made UTF archives, INI files, meshes) | Committed under `tests/fixtures/` | Yes |
-| The original `DATA` and `EXE` trees | Outside the repository; path in `OUTPOST_DATA_DIR` | No |
-| Vectors derived from the original data | Outside the repository; path in `OUTPOST_ORACLE_DIR` | No |
+| The original `DATA` and `EXE` trees | Committed in `outdir/` (decision O15); tests take the folder from `OUTPOST_DATA_DIR` | Not yet |
+| Dumps and vectors made from the original data | Produced when the test runs, never committed; the oracle's dumps in `OUTPOST_ORACLE_DIR` | Not yet |
 
 Tests that need the last two are skipped with a printed notice when the
-variables are unset. On a machine with the data they run a package's full
-set and write a short result file that is attached to the pull request
-closing the package; for P1.2 this is the `data_dump` test after
-`Oracle.exe dump` ([reference-build.md](reference-build.md) section 7). A self-hosted Windows
-runner with the data can automate this; it is optional.
+variables are unset. They run a package's full set and write a short result
+file that is attached to the pull request closing the package; for P1.2
+this is the `data_dump` test after `Oracle.exe dump`
+([reference-build.md](reference-build.md) section 7). Since decision O15 the data is in the
+repository, so CI's oracle job can run these dumps itself; until it does,
+they run on the owner's machine.
 
 ## Test kinds
 
@@ -87,6 +88,7 @@ runner with the data can automate this; it is optional.
 | Host (added in P0.1) | the runner's native target | tests for `neuron-core`, `game-sim`, `neuron-server`, `game-logic` and the platform-neutral parts of the client crates |
 | Policy (added in P0.1) | — | `cargo-deny`; a scan that fails on legacy API names, `asm!`, or `unsafe` outside the permitted modules |
 | Oracle (added in P0.4) | `Win32` C++ build | builds `CppSource/Oracle`, runs it on the committed inputs and fails unless its output equals the committed vectors byte for byte; runs the data-dump mode on a synthetic installation; builds the eight resource DLLs and compares every string and card with the catalogs `cargo xtask catalog` builds (P1.6; that dump is game text and is not uploaded); removed in P7.3 |
+| Data dumps (added for Gate G1) | `Win32` C++ build, original data | `.github/workflows/data.yml`, nightly, on pushes to `main` and on demand: `Oracle.exe dump` over `outdir/` (decision O15), then every `data_dump_<kind>` test compares the port with it. Kinds: `ini`, `utf`, `sur`, `anim`, `fx`, `texture`, `material`, `mesh`, `dfm`, `scene`, `scene_eval`. The dumps stay on the runner; only the summaries are kept |
 
 ## Definition of done for a work package
 

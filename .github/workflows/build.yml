@@ -92,8 +92,8 @@ jobs:
           git diff --no-index crates/neuron-core/tests/vectors oracle-out
           if ($LASTEXITCODE -ne 0) { exit 1 }
       - name: Check the data-dump mode on a synthetic installation
-        # The same pipeline the owner runs on the original data
-        # (design/reference-build.md section 7), on a tree made from fixtures.
+        # The same pipeline .github/workflows/data.yml runs on the original
+        # data in outdir/, on a tree made from fixtures.
         shell: pwsh
         run: |
           $root = "$env:RUNNER_TEMP\fake-install"
@@ -104,12 +104,22 @@ jobs:
           Copy-Item "$f\ini\crlf_only.ini" "$root\DATA\SHIPS\crlf_only.ini"
           Copy-Item "$f\ini\empty.ini" "$root\DATA\Empty.INI"
           Copy-Item "$f\engine\include.ini", "$f\engine\sub.ini", "$f\engine\basic.ini" "$root\EXE\"
+          Copy-Item "$f\vfs\utf\full.utf" "$root\DATA\SHIPS\full.cmp"
+          Copy-Item "$f\vfs\utf\compact.utf" "$root\DATA\compact.3db"
+          Copy-Item "$f\sur\tree.sur" "$root\DATA\SHIPS\tree.sur"
+          Copy-Item "$f\anim\script_full.utf" "$root\DATA\anim.cmp"
+          Copy-Item "$f\fx\basic.ale" "$root\DATA\fx.ale"
+          Copy-Item "$f\shading\texlib\basic.utf" "$root\DATA\tex.txm"
+          Copy-Item "$f\shading\material\mats.utf" "$root\DATA\mats.mat"
+          Copy-Item "$f\mesh_data\library.vms" "$root\DATA\SHIPS\library.vms"
+          Copy-Item "$f\mesh_data\body.dfm" "$root\DATA\body.dfm"
           & .\bin\Oracle.exe dump $root $out
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           rustup toolchain install
           $env:OUTPOST_DATA_DIR = $root
           $env:OUTPOST_ORACLE_DIR = $out
-          cargo test --locked -p neuron-core --test data_dump -- --nocapture
+          # Every data_dump_<kind> test (crates/neuron-core/tests/support/data.rs).
+          cargo test --locked -p neuron-core --tests -- data_dump_ --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build the resource DLLs
         shell: pwsh
@@ -120,7 +130,7 @@ jobs:
           & $msbuild CppSource\OutpostFrontier.sln "/t:$($targets -join ';')" /m /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Compare the text catalogs with the resource DLLs
-        # Work package P1.6: the catalogs built from resources/text must hold
+        # Work package P1.6: the catalogs built from outdir/data/text must hold
         # what the game reads from the DLLs built from CppSource/Resources.
         # The dump is game text, so it stays in the runner's temp folder and
         # is not uploaded.

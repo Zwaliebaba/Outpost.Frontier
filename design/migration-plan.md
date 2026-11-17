@@ -53,7 +53,7 @@ plan most:
 | The renderer interface is used as a mutable state machine from about 650 call sites | The Rust renderer first offers the same state-machine shape as a typed API, so callers port without redesign (decision T2) |
 | 110,000 of the client's 233,000 lines are user interface, built from 3D meshes and laid out by data files | The data contracts are kept; the toolkit internals are rebuilt (decision T20) |
 | The original server list needs a closed third-party DLL that is not in the repository | Dropped. Players connect by address (decision O8) |
-| Scene scripts are Lua 3.2 used only as a load-time data language | A Rust reader for the compiled chunks and the 15 opcodes they use replaces the C interpreter (decisions T8, O15) |
+| Scene scripts are Lua 3.2 used only as a load-time data language | A Rust reader for the compiled chunks and the 15 opcodes they use replaces the C interpreter (decisions T8, O18) |
 
 Several initial assumptions were wrong and are corrected here: there is no
 Miles audio code, DirectInput is used for the mouse only, there is no
@@ -141,10 +141,10 @@ No legacy API enters the Rust code. Gate G7 checks this mechanically.
   compared as images or by play-test (rendering, particles, text layout).
 - Reference output comes from the C++ build through an oracle harness built
   in Phase 0.
-- Vectors made from synthetic input are committed and run in CI. Vectors
-  made from the original game data are not committed; tests that need them
-  read `OUTPOST_DATA_DIR` and `OUTPOST_ORACLE_DIR` and run on a machine
-  that has the data.
+- Vectors made from synthetic input are committed and run in CI. The
+  original game data is committed in `outdir/` (decision O15); vectors made
+  from it are not committed but produced when a test runs, and tests that
+  need them read `OUTPOST_DATA_DIR` and `OUTPOST_ORACLE_DIR`.
 - A work package is done when its tests pass at the assigned tier, its
   deliberate differences are entered in the divergence register, and its
   ledger rows are updated.
@@ -219,15 +219,16 @@ only the real `DATA` tree shows.
 | P1.3 | `ReadFile`: directory, UTF and memory file systems, search path | `vfs`, `utf` | M | A |
 | P1.4 | `x86math` kernels in original operation order | `math` | M | B |
 | P1.5 | `FDUMP` log sink, error callbacks, timing, tick-profile spans; rect, spline, MD5 text form | `diag`, `time`, `util` | S | A |
-| P1.6 | Eight resource projects: convert the `.rc` and `.txt` sources to TOML in `resources/text/` (T21, amended 2026-11-17), build catalogs with `xtask`, load by numeric ID | `catalog` | M | A |
+| P1.6 | Eight resource projects: convert the `.rc` and `.txt` sources to TOML in `outdir/data/text/` (T21, amended 2026-11-17), build catalogs with `xtask`, load by numeric ID | `catalog` | M | A |
 | P1.7 | Pure parsers: TGA, DDS and pixel formats (`Shading`, D3DX use); mesh data (`RendComp` headers); animation channels; effect libraries (`particlefx`); material and texture nodes; `.sur` and compact surfaces (`Common`) | `image`, `mesh_data`, `anim`, `fx_data`, `sur` | L | A |
 | P1.8 | `SceneRuntime`: instance tree, compound models, hardpoints, joints, animation mixer | `scene` | L | A for loading, B for evaluation |
 | P1.9 | Wire reader and writer, quantisers, frame and handshake types, `Transport` trait, loopback transport | `net` | M | A |
 
-Status on 2026-11-17: P1.1 to P1.6 and P1.9 are ported and their oracle
-vectors pass in CI; each stays `in progress` until its tests on the original
-data pass and Gate G1 accepts it. P1.7 and P1.8 have not started. The
-progress table in [README.md](README.md) has the detail.
+Status on 2026-11-17: Phase 1 is complete. P1.1 to P1.9 are ported, their
+oracle vectors pass in CI, and the data dumps over the original data in
+`outdir/` (decision O15) equal the oracle dumps (`data.yml`, Data dumps run [44051215922](https://github.com/Zwaliebaba/Outpost.Frontier/actions/runs/44051215922)).
+Gate G1 passed and accepted every package. The progress table in
+[README.md](README.md) has the detail.
 
 **Gate G1 (milestone "data loads").** Every file in the original `DATA`
 tree that these readers cover loads without error, and the Rust dumps equal
@@ -289,7 +290,7 @@ oracle. A random mission offer rebuilt from a saved seed equals the oracle.
 | P4.11 | Raw Input mouse, keyboard routing, cursor; `imeui` edit-box model and IME positioning | `input`, `text_input` | M | — |
 | P4.12 | Client font code: DirectWrite rasteriser, atlas, font config; rich-text display lists and markup | `text` | L | C |
 | P4.13 | Client UI toolkit: control tree, 62 control factories, INI and page-text loaders, draw layers, modal stack, typed messages, immediate-mode layer, widescreen anchoring; number-string formatting (`MsvcrtNumericVsnprintf` in `msvcrt_numeric_format.h`) | `ui` | XL | A for layout dumps, C for output |
-| P4.14 | `SceneScript`: compiled-chunk reader and evaluator for the 15-opcode subset (O15) and its number text (`MsvcrtFormatLuaNumber` in `msvcrt_numeric_format.h`), script loader, curves, motion paths, timeline and events | `scene_script` | XL | A for load, B for playback |
+| P4.14 | `SceneScript`: compiled-chunk reader and evaluator for the 15-opcode subset (O18) and its number text (`MsvcrtFormatLuaNumber` in `msvcrt_numeric_format.h`), script loader, curves, motion paths, timeline and events | `scene_script` | XL | A for load, B for playback |
 | P4.15 | `movie`: Media Foundation playback of the startup clips | `media` | S | — |
 | P4.16 | `neuroncomponents`, `system`, `NeuronRuntime::Startup`: the `Engine` value, construction and drop order | `engine` | S | — |
 
@@ -332,7 +333,7 @@ screen.
 | P6.1 | Multiplayer client flow: address book and direct connect, login, character pages, chat, player trade, groups | L |
 | P6.2 | Dedicated server under load: 128 slots, governor tuning against QUIC backlog, soak test | M |
 | P6.3 | Walk mode in base rooms | M |
-| P6.4 | Volumetric nebula on the programmable-pass API. Needs the HLSL sources from `DATA_EXTRA\SHADERS`, which are not in the repository | M |
+| P6.4 | Volumetric nebula on the programmable-pass API. The C++ loads `nebula_volume.hlsl`, `nebula_composite.hlsl`, `common.hlsli` and `debug_depth.hlsl` from `DATA_EXTRA\SHADERS` and its settings from `DATA_EXTRA\VOLUMETRIC\volumetric.ini`; none of these exist (fact F12). Decided 2026-11-17: new shaders are written from the register layout, loop bounds and settings that `nebula_volume.cpp` documents, kept in `neuron-client/shaders/` with compiled blobs in `neuron-client/compiled_shaders/` (decision T1), and the settings get defaults in code. Accepted by eye (Tier C without reference images) | M |
 | P6.5 | Tick-profile overlay on the tracing spans | S |
 
 **Gate G6 (milestone "multiplayer").** Several clients play on one
@@ -355,8 +356,8 @@ branch, CI is green, and the legacy scan is part of CI.
 
 - `CppSource/` is frozen. The only permitted changes are build fixes and
   oracle instrumentation from Phase 0. The recorded exceptions are the
-  plain-text save writer (decision O12) and the directory `FindFirst` fix
-  (decision O14).
+  plain-text save writer (decision O12) the directory `FindFirst` fix
+  (decision O14) and the costume hash in `SetRellan` (decision O17).
 - One work package is one or more pull requests against the owning crate.
   Each updates the ledger.
 - Unknown fields in the reconstruction (about 11,000) are carried as
@@ -382,9 +383,10 @@ branch, CI is green, and the legacy scan is part of CI.
 | Physics replacement changes flight feel and collision damage | Gameplay drift | Original constants honoured literally; scenario envelopes at Gate G2; owner play-test |
 | Fixed-function emulation differs from Direct3D 8 (lighting, fog, pixel centres) | Visual drift, blurred text | Trace replay and image comparison at Gate G4 |
 | Text metrics differ between GDI and DirectWrite | Line breaks and autoscaling move | GDI-compatible measuring mode; layout dumps compared; a GDI backend may be kept as a test-only reference |
-| The original data cannot be committed | CI cannot run data tests | Synthetic vectors in CI; data tests on a machine with the data; a self-hosted runner is optional |
-| The C++ tree derives from a commercial binary and the physics code carries no licence | Project-level legal exposure outside this plan's control | Not ported: IVP, the EULA and list-server binaries. Original data and vectors derived from it stay out of the repository |
+| The original data was not in the repository (resolved by decision O15: it is in `outdir/`) | CI could not run data tests | Synthetic vectors in CI; data tests can now run in CI against `outdir/` |
+| The C++ tree derives from a commercial binary, the physics code carries no licence, and the original data is published in the repository (decision O15) | Project-level legal exposure outside this plan's control; the owner accepted it for the data | Not ported: IVP, the EULA and list-server binaries. Dumps and vectors made from the data are not committed |
 | QUIC needs an async runtime inside engine crates | Threading complexity | One I/O thread owns the runtime; the game thread polls a channel, as the DirectPlay code already does |
+| The rebrand commit `89eda18` changed names in the reference; the data's text files carry the new names, but binary files and hashes compiled into the code kept old ones ([rebrand-names.md](rebrand-names.md)) | The reference misses the matching data where the code compares with an old name | Decision O17 renamed the binary data and fixed the one hash found; a name built at run time or a hash of a name not in the scan can still turn up in later phases |
 | Deleting the C++ only at the end hides progress | Stakeholders see no shrinkage | The ledger and the seven milestones are the progress record |
 
 ## 9. What happens first
