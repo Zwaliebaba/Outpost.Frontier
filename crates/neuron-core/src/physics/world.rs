@@ -183,6 +183,9 @@ struct Body {
     single_contact: bool,
     golem: Option<GolemKind>,
     golem_order: u64,
+    /// The class of the body's client object (`client_data->ObjectClass`),
+    /// which a game collision filter reads; 0 until set.
+    client_class: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -272,7 +275,7 @@ pub struct PhysicsWorld {
     phantom_events: Vec<PhantomEvent>,
     pair_last_collision: BTreeMap<(BodyHandle, BodyHandle), IvpTime>,
     order: u64,
-    collision_filter: Option<fn(u64, u64) -> bool>,
+    collision_filter: Option<fn(u32, u32) -> bool>,
 }
 
 impl PhysicsWorld {
@@ -322,9 +325,18 @@ impl PhysicsWorld {
     }
 
     /// `PhySys::m_pCollisionFilter`: a game filter asked about every pair
-    /// the group filter lets through.
-    pub fn set_collision_filter(&mut self, filter: Option<fn(u64, u64) -> bool>) {
+    /// the group filter lets through, given the two bodies' client classes
+    /// ([`PhysicsWorld::set_client_class`]).
+    pub fn set_collision_filter(&mut self, filter: Option<fn(u32, u32) -> bool>) {
         self.collision_filter = filter;
+    }
+
+    /// Sets the class of a body's client object (the `ObjectClass` of the
+    /// `CObject` in `client_data`), which the game collision filter reads.
+    pub fn set_client_class(&mut self, h: BodyHandle, class: u32) {
+        if let Some(body) = self.bodies.get_mut(h.0) {
+            body.client_class = class;
+        }
     }
 
     fn next_order(&mut self) -> u64 {
@@ -466,6 +478,7 @@ impl PhysicsWorld {
             single_contact: false,
             golem: None,
             golem_order: 0,
+            client_class: 0,
         }));
         if let Some(slot) = self.cores.get_mut(core_index) {
             slot.objects.push(handle);

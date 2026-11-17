@@ -245,8 +245,9 @@ impl World {
         let root_part = obj.physical.part_map.first().map_or(0, |p| p.part_id);
         let has_parts = !obj.physical.part_map.is_empty();
         let archetype = obj.archetype;
+        let kind = obj.kind;
         let (position, orientation) = (obj.engine.position, obj.engine.orientation);
-        let path = self.archetype_path(obj.kind, archetype);
+        let path = self.archetype_path(kind, archetype);
         let geometry = match sphere {
             Some(radius) => Geometry::ball(radius),
             None => {
@@ -271,6 +272,7 @@ impl World {
             pin_mass_center: pin,
         });
         world.set_collision_state(body, enable);
+        world.set_client_class(body, kind.class());
         if fixed {
             // The construction template's fixed flag (+0x1c): the body
             // takes no part in the simulation (divergence register).
@@ -1351,8 +1353,10 @@ impl World {
             data: KindData::Beam(beam),
             dead: false,
         };
-        let id = self.allocate_id();
-        World::init_simple(&mut obj, system, id, 0, -1.0, s.position, s.orientation);
+        // `CProjectile::CreateParms::Id` is 0: a server bullet has no id
+        // (`Server/server_classes.cpp:9743`), so a partner's
+        // `GameObject::on_collision` ignores it.
+        World::init_simple(&mut obj, system, 0, 0, -1.0, s.position, s.orientation);
         Ok(self.insert(system, obj))
     }
 

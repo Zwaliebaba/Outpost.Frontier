@@ -133,9 +133,17 @@ pub enum WorldEvent {
         shooter: u32,
         /// The gun.
         equip: SubObjId,
-        /// The bullet's id.
+        /// The projectile's id: 0 for a bullet, which has none.
         bullet: u32,
     },
+}
+
+/// `StarSystem_MpCollisionFilter` (`Server/server_classes.cpp:11409`): on
+/// the multiplayer server a pair collides only when one side is a bullet or
+/// a missile (`(ObjectClass & 0x27) == 0x27`); ships, solars, loot and the
+/// rest pass through each other (the clients report those collisions).
+fn mp_server_collision_filter(class_a: u32, class_b: u32) -> bool {
+    class_a & 0x27 == 0x27 || class_b & 0x27 == 0x27
 }
 
 /// How the world steps.
@@ -392,6 +400,14 @@ impl World {
             return;
         }
         self.physics.startup(system);
+        // `StarSystem::init`: outside single player the server installs its
+        // collision filter (`Server/server_classes.cpp:11438-11445`).
+        if !self.config.single_player
+            && self.config.server_physics
+            && let Some(world) = self.physics.world_mut(system)
+        {
+            world.set_collision_filter(Some(mp_server_collision_filter));
+        }
         self.systems.insert(system, SystemObjects::default());
     }
 

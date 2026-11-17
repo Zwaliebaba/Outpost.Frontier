@@ -283,23 +283,39 @@ impl World {
         }
     }
 
-    /// `StarSystem_ResolveCollisionSide`: the object and the sub-object of
-    /// a body's part.
+    /// `StarSystem_ResolveCollisionSide` (`Server/IServerImpl.cpp:3610`):
+    /// the object and the sub-object of a body's part. An equipped object
+    /// hit anywhere but on its shield gives the hit to its first shield
+    /// while that shield is functioning (`:3667-3678`).
     fn part_sub_obj(&self, h: ObjHandle, part_id: u32) -> Option<(ObjHandle, SubObjId)> {
         let o = self.objects.get(h)?;
         if o.is(class::BEAM) {
             return Some((h, SUBOBJ_ID_ROOT));
         }
         // A physically attached item's body stands for its owner's item.
-        if let KindData::EquipmentObject {
+        let (owner, sub) = if let KindData::EquipmentObject {
             owner: Some(owner),
             equip,
         } = o.data
         {
-            return Some((owner, equip));
+            (owner, equip)
+        } else {
+            let instance = o.part_to_inst(part_id);
+            (h, self.inst_to_sub_obj_id(h, instance))
+        };
+        if neuron_core::id::sub_object::is_shield_equip_id(sub) {
+            return Some((owner, sub));
         }
-        let instance = o.part_to_inst(part_id);
-        Some((h, self.inst_to_sub_obj_id(h, instance)))
+        let shield = self
+            .objects
+            .get(owner)
+            .and_then(|o| o.equipped.as_deref())
+            .and_then(|eq| eq.equipment.first(types::SHIELD))
+            .filter(|e| match &e.kind {
+                EquipKind::Shield(s) => s.is_functioning(super::spawn::shield_status(e)),
+                _ => false,
+            });
+        Some((owner, shield.map_or(sub, |e| e.id)))
     }
 
     /// `GameObject::on_collision` (and `Bullet::on_collision`): a bullet
