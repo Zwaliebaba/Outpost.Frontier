@@ -190,7 +190,9 @@ The permitted licences are listed in `deny.toml`. In use so far:
   (0.26 and later moved to `glam`). `nalgebra` 0.34 (Apache-2.0) comes with
   it and is used through `parry3d::na`, in `physics::shape` only. Its
   build-time macro crate `paste` carries an "unmaintained" advisory
-  (RUSTSEC-2024-0436), ignored in `deny.toml` with that reason.
+  (RUSTSEC-2024-0436), ignored in `deny.toml` with that reason. The owner
+  confirmed both on 2026-11-17: the ignore stays, and `parry3d` stays pinned
+  to 0.25.3 rather than moving to the `glam` releases.
 - `proptest` 1 (MIT or Apache-2.0; default features off, `std` only):
   a dev-dependency of `game-sim`, the protocol property tests (P2.2).
 

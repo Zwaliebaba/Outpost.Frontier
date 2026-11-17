@@ -9,6 +9,7 @@ yanked = "deny"
 ignore = [
     # `paste` (unmaintained, no vulnerability) is a build-time proc-macro of
     # `simba`, which `parry3d` and `nalgebra` need (decision T13, P2.3).
+    # Confirmed by the owner on 2026-11-17 (decision T13), with the parry3d 0.25.3 pin.
     { id = "RUSTSEC-2024-0436", reason = "unmaintained build-time macro of simba, via parry3d" },
 ]
 
