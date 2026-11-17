@@ -1217,6 +1217,36 @@ namespace
                 VectorJ(J, "angvel", AngVel);
                 J.Float("hp", HitPts);
                 J.Float("hp_max", MaxHitPts);
+                // P2.4 (scenario report): the power and the first shield of an equipped object
+                // (CEqObj::Power, MaxPower; CEShield's hit points, maximum and bOnline), `null`
+                // without a shield.
+                {
+                    unsigned int Id = Object.Id;
+                    CObject* const Found = CObject::Find(Id, Object.Class);
+                    if (Found != nullptr)
+                    {
+                        CEqObj* const Eq = static_cast<CEqObj*>(Found);
+                        J.Float("power", Eq->Power);
+                        J.Float("power_max", Eq->MaxPower);
+                        CEquip* const ShieldEquip = Eq->EquipManager.FindFirst(EquipTypeShield);
+                        CEShield* const Shield = ShieldEquip != nullptr ? CEShield::cast(ShieldEquip) : nullptr;
+                        if (Shield != nullptr)
+                        {
+                            J.BeginObject("shield");
+                            J.Uint("id", ShieldEquip->GetID());
+                            J.Float("hp", Shield->GetHitPoints());
+                            J.Float("hp_max", Shield->GetMaxHitPoints());
+                            J.Bool("online", Shield->bOnline != 0);
+                            J.Bool("functioning", Shield->IsFunctioning());
+                            J.EndObject();
+                        }
+                        else
+                        {
+                            J.Null("shield");
+                        }
+                        Found->Release();
+                    }
+                }
                 if (Object.Class == CObject::ClassShip)
                 {
                     float Throttle = 0.0f;

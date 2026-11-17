@@ -60,7 +60,7 @@ Conventions:
 | `rec` | Fields |
 | --- | --- |
 | `frame` | `tick` u, `clock` d, `x87_cw` s, `sse_cw` s (`%08x` of `__control87_2`'s two words at the start of the frame, before the harness sets 53-bit precision again; at tick 0 after spawning), `psi_count` u (PSIs in the frame), `psi_dt` f[] (each PSI's `delta_time`) |
-| `object` | `tick` u, `obj` s, `id` u, `alive` b; when alive: `pos` f3, `orient` f9, `vel` f3, `angvel` f3, `hp` f, `hp_max` f (`IObjInspect` of the server object: `get_position`, `get_orientation`, `get_velocity`, `get_angular_velocity`, `get_status`); a ship also: `throttle` f, `axis` f3, `nudge` f3, `strafe` i (`StrafeDir`), `cruise` b, `behavior` i (`CurrentBehaviorIndex`, −1 for none), `state_graph` i (−1 for none), `directive` u3 (`DirectiveStorage`) |
+| `object` | `tick` u, `obj` s, `id` u, `alive` b; when alive: `pos` f3, `orient` f9, `vel` f3, `angvel` f3, `hp` f, `hp_max` f (`IObjInspect` of the server object: `get_position`, `get_orientation`, `get_velocity`, `get_angular_velocity`, `get_status`); then (P2.4, the scenario report) `power` f, `power_max` f (`CEqObj::Power`, `MaxPower`) and `shield` {`id` u, `hp` f, `hp_max` f, `online` b (`bOnline`), `functioning` b}\|null (the first `CEShield`: `GetHitPoints`, `GetMaxHitPoints`, `IsFunctioning`); a ship also: `throttle` f, `axis` f3, `nudge` f3, `strafe` i (`StrafeDir`), `cruise` b, `behavior` i (`CurrentBehaviorIndex`, −1 for none), `state_graph` i (−1 for none), `directive` u3 (`DirectiveStorage`) |
 
 `alive` is false once the object is no longer in its system's object
 database (destroyed, docked or removed).
