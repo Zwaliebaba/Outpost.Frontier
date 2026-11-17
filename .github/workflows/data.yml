@@ -1,0 +1,62 @@
+name: Data dumps
+
+# Gate G1 (design/migration-plan.md section 6): every reader on the original
+# game data in outdir/ (decision O15) against the C++ oracle. Each work
+# package's dump is a data_dump_<kind> test (crates/neuron-core/tests/support/
+# data.rs). Runs nightly, on pushes to main, and on demand; the per-push
+# oracle job in build.yml runs the same pipeline on a synthetic tree.
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  data:
+    name: Original data against the oracle
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Build the oracle harness
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
+          & $msbuild CppSource\OutpostFrontier.sln '/t:Tools\Oracle' /m /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Dump the original data with the oracle
+        # The dump root holds DATA (a junction to outdir\data) and EXE (the
+        # INI files at the top of outdir\), as design/reference-build.md
+        # section 7 describes. The dumps are not uploaded.
+        shell: pwsh
+        run: |
+          $root = "$env:RUNNER_TEMP\outpost-data"
+          New-Item -ItemType Directory -Force "$root\EXE" | Out-Null
+          New-Item -ItemType Junction -Path "$root\DATA" -Target "$PWD\outdir\data" | Out-Null
+          Copy-Item outdir\*.ini "$root\EXE\"
+          & .\bin\Oracle.exe dump $root "$env:RUNNER_TEMP\outpost-oracle"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Prepare Rust
+        run: rustup toolchain install
+      - name: Compare the port with the oracle
+        shell: pwsh
+        run: |
+          $env:OUTPOST_DATA_DIR = "$env:RUNNER_TEMP\outpost-data"
+          $env:OUTPOST_ORACLE_DIR = "$env:RUNNER_TEMP\outpost-oracle"
+          cargo test --locked --release -p neuron-core --tests -- data_dump_ --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Keep the summaries
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: data-dump-summaries
+          path: ${{ runner.temp }}/outpost-oracle/rust-*.txt
+          if-no-files-found: ignore

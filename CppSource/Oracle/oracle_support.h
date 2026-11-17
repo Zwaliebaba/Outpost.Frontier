@@ -58,6 +58,22 @@ namespace oracle
 
     void MakeParentDirectories(const std::string& Path);
 
+    // --- Data dumps (Oracle.exe dump) ------------------------------------------
+    // The dump runs with the folder that holds DATA and EXE as the current
+    // directory. Paths are '/'-separated and relative to that folder.
+
+    // Every file under Relative, recursively, appended to Out (unsorted).
+    void ListDataFiles(const std::string& Relative, std::vector<std::string>& Out);
+
+    // <output directory>\<Kind>\<Relative>.jsonl, with backslashes.
+    std::string DataOutputFile(const char* Kind, const std::string& Relative);
+
+    // The first four bytes of a file, fewer for a shorter one.
+    std::string FileMagic(const std::string& Relative);
+
+    // FNV-1a (64-bit) of Length bytes as 16 lower-case hex digits.
+    std::string Fnv64(const void* Data, size_t Length);
+
     class Suite
     {
     public:
@@ -97,3 +113,12 @@ void RunUtilSuites();
 
 // P1.3 (oracle_vfs.cpp): the UTF container and the file systems of ReadFile.
 void RunVfsSuites();
+
+// Data dumps of later work packages, called by Oracle.exe dump after the INI
+// dumps. Files is every file under DATA and EXE, sorted; each dump picks its
+// own, writes <output>\<kind>\<file>.jsonl per file and <output>\<kind>\files.txt,
+// and crates/neuron-core/tests compares them in a data_dump_<kind> test.
+
+// P1.3 (oracle_vfs.cpp): every UTF container (first bytes "UTF ") through the
+// UTF file system; kind "utf".
+void RunVfsDataDump(const std::vector<std::string>& Files);

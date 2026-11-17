@@ -4,6 +4,8 @@
 //! Each test target uses part of this module.
 #![allow(dead_code)]
 
+pub mod data;
+
 use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};

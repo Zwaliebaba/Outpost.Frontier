@@ -26,6 +26,11 @@ namespace
     // The script line being executed, reported if a step raises an exception.
     std::string GVfsLine;
 
+    // Data-dump mode (RunVfsDataDump): file contents are written as an FNV-1a
+    // hash whatever their size, and trees are walked to this depth instead of 6.
+    bool GHashData = false;
+    const int DataTreeDepth = 64;
+
     void RegisterReadFile()
     {
         static bool bRegistered = false;
@@ -130,7 +135,7 @@ namespace
     {
         if (Result != 0)
             return Format("\"read\":\"1\",\"got\":\"%lu\",\"rerr\":\"0\",\"data\":\"", Got) +
-                   Hex(Buffer.data(), Got) + "\"";
+                   (GHashData ? "fnv:" + Fnv64(Buffer.data(), Got) : Hex(Buffer.data(), Got)) + "\"";
         return Format("\"read\":\"0\",\"got\":\"0\",\"rerr\":\"%lx\",\"data\":\"\"",
                       (unsigned long)Fs->GetFileSystemError());
     }
@@ -145,7 +150,7 @@ namespace
             return Format("\"ok\":\"0\",\"err\":\"%lx\"", ErrorSince(Fs, Before));
         const unsigned long Size = Fs->GetSize((unsigned long)Handle, nullptr);
         std::string Read;
-        if (Size > ReadLimit)
+        if (Size > ReadLimit && !GHashData)
             Read = "\"read\":\"-\"";
         else
         {
@@ -299,7 +304,7 @@ namespace
                             "\"perr\":\"%lx\",",
                             Entry.dwFileAttributes, Entry.nFileSizeLow, Times.c_str(), Attributes, AttributesError) +
                      OpenFields(Fs, Path.c_str()) + "}");
-            if ((Entry.dwFileAttributes & 0x10) != 0 && Depth < 6)
+            if ((Entry.dwFileAttributes & 0x10) != 0 && Depth < (GHashData ? DataTreeDepth : 6))
                 DumpTree(Fs, Path + "\\", Depth + 1, bFull, Out);
         }
     }
@@ -783,4 +788,32 @@ void RunVfsSuites()
     Step("utf_ops", UtfOps);
     Step("dos_ops", DosOps);
     Step("mem_ops", MemOps);
+}
+
+void RunVfsDataDump(const std::vector<std::string>& Files)
+{
+    RegisterReadFile();
+    GHashData = true;
+    Suite List(GOutputDir + "\\utf\\files.txt");
+    unsigned int Count = 0;
+    for (const std::string& File : Files)
+    {
+        if (FileMagic(File) != "UTF ")
+            continue;
+        List.Line(File);
+        ++Count;
+        Suite Out(DataOutputFile("utf", File));
+        FFileSystemDesc Desc = MakeDesc("UTF", File.c_str());
+        IFileSystem* Fs = nullptr;
+        const GENRESULT Result = UtfFactory()->CreateInstance((AGGDESC*)&Desc, (void**)&Fs);
+        Out.Line(Format("{\"archive\":\"%s\",\"result\":\"%ld\"}", File.c_str(), Result));
+        if (Result != GR_OK || Fs == nullptr)
+            continue;
+        FUtfFileSystem* Utf = dynamic_cast<FUtfFileSystem*>(Fs);
+        const bool bFull = ReadUtfDword(Utf->ActiveWalker()->GetView(), 0x14) == 0x2C;
+        DumpTree(Fs, "", 0, bFull, Out);
+        Fs->Release();
+    }
+    GHashData = false;
+    printf("dumped %u UTF containers\n", Count);
 }

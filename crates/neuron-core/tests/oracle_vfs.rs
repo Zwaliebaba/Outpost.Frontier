@@ -127,11 +127,17 @@ fn vfs_dostime() {
 
 /// Opens `path` on `fs`, reads it whole, then once more past the end.
 fn open_fields(fs: &dyn FileSystem, path: &[u8]) -> String {
+    open_fields_as(fs, path, false)
+}
+
+/// [`open_fields`]; with `hash`, the data is an FNV-1a hash whatever its
+/// size, as the harness writes it in data-dump mode.
+fn open_fields_as(fs: &dyn FileSystem, path: &[u8], hash: bool) -> String {
     match fs.open_file(&FsDesc::read(path)) {
         Err(e) => format!("\"ok\":\"0\",\"err\":\"{:x}\"", e.code()),
         Ok(mut file) => {
             let size = file.size().unwrap_or(u32::MAX);
-            let read = read_fields(&mut file, size);
+            let read = read_fields(&mut file, size, hash);
             let mut probe = [0u8; 4];
             let eof = file.read(&mut probe);
             let (r, got) = match eof {
@@ -147,19 +153,27 @@ fn open_fields(fs: &dyn FileSystem, path: &[u8]) -> String {
 }
 
 /// `"read","got","rerr","data"` of one read of `size` bytes.
-fn read_fields(file: &mut VfsFile, size: u32) -> String {
-    if size > READ_LIMIT {
+fn read_fields(file: &mut VfsFile, size: u32, hash: bool) -> String {
+    if size > READ_LIMIT && !hash {
         return "\"read\":\"-\"".to_owned();
     }
     let mut buf = vec![0u8; size as usize];
-    render_read(file.read(&mut buf), &buf)
+    render_read_as(file.read(&mut buf), &buf, hash)
 }
 
 fn render_read(result: Result<usize, VfsError>, buf: &[u8]) -> String {
+    render_read_as(result, buf, false)
+}
+
+fn render_read_as(result: Result<usize, VfsError>, buf: &[u8], hash: bool) -> String {
     match result {
         Ok(n) => format!(
             "\"read\":\"1\",\"got\":\"{n}\",\"rerr\":\"0\",\"data\":\"{}\"",
-            hex(&buf[..n])
+            if hash {
+                format!("fnv:{}", support::data::fnv64(&buf[..n]))
+            } else {
+                hex(&buf[..n])
+            }
         ),
         Err(e) => format!(
             "\"read\":\"0\",\"got\":\"0\",\"rerr\":\"{:x}\",\"data\":\"\"",
@@ -180,7 +194,21 @@ fn times_field(fs: &UtfFileSystem, times: [Option<u64>; 3]) -> String {
     }
 }
 
+/// The depth `dump_tree` walks to: 6 for the suites, 64 for data dumps.
+const SUITE_TREE_DEPTH: u32 = 6;
+const DATA_TREE_DEPTH: u32 = 64;
+
 fn dump_tree(fs: &UtfFileSystem, prefix: &[u8], depth: u32, lines: &mut Vec<String>) {
+    dump_tree_as(fs, prefix, depth, false, lines);
+}
+
+fn dump_tree_as(
+    fs: &UtfFileSystem,
+    prefix: &[u8],
+    depth: u32,
+    hash: bool,
+    lines: &mut Vec<String>,
+) {
     let mut pattern = prefix.to_vec();
     pattern.push(b'*');
     let entries = match fs.find(&pattern) {
@@ -206,11 +234,16 @@ fn dump_tree(fs: &UtfFileSystem, prefix: &[u8], depth: u32, lines: &mut Vec<Stri
             times_field(fs, entry.data.times),
             attributes.as_ref().copied().unwrap_or(0),
             err_code(&attributes),
-            open_fields(fs, &path)
+            open_fields_as(fs, &path, hash)
         ));
-        if entry.data.is_dir() && depth < 6 {
+        let limit = if hash {
+            DATA_TREE_DEPTH
+        } else {
+            SUITE_TREE_DEPTH
+        };
+        if entry.data.is_dir() && depth < limit {
             path.push(b'\\');
-            dump_tree(fs, &path, depth + 1, lines);
+            dump_tree_as(fs, &path, depth + 1, hash, lines);
         }
     }
 }
@@ -233,6 +266,41 @@ fn utf_tree() {
         }
     }
     check_suite("utf_tree.jsonl", &lines);
+}
+
+/// Every UTF container in the original data (first bytes `UTF `) through
+/// the UTF file system, as `RunVfsDataDump` in the harness (Gate G1).
+#[test]
+fn data_dump_utf() {
+    let Some(dirs) = support::data::data_dirs("utf") else {
+        return;
+    };
+    let host = Host::new(&dirs.root);
+    let files: Vec<String> = support::data::list_files(&dirs.root)
+        .into_iter()
+        .filter(|file| support::data::magic(&dirs.root, file) == b"UTF ")
+        .collect();
+    let mut report = support::data::Report::new("utf", &dirs);
+    report.file_list(&files);
+    let mut opened = 0;
+    for file in &files {
+        let mut lines = Vec::new();
+        let desc = FsDesc::read(file.as_bytes()).with_implementation(b"UTF");
+        match UtfFileSystem::open(&host, &desc) {
+            Err(e) => lines.push(format!(
+                "{{\"archive\":\"{file}\",\"result\":\"{}\"}}",
+                genresult(e)
+            )),
+            Ok(fs) => {
+                opened += 1;
+                lines.push(format!("{{\"archive\":\"{file}\",\"result\":\"0\"}}"));
+                dump_tree_as(&fs, b"", 0, true, &mut lines);
+            }
+        }
+        report.check(file, &lines);
+    }
+    report.note(format!("{opened} of {} containers opened", files.len()));
+    report.finish();
 }
 
 /// The operation scripts of `utf_ops.txt`, `dos_ops.txt` and

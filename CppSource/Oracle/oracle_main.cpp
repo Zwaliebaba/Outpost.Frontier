@@ -386,14 +386,19 @@ namespace
     }
 
     // Every .ini file under DATA and EXE through INI_Reader, and every .ini file
-    // directly in EXE through the engine parser, one dump per file. Run from the
-    // folder that holds DATA and EXE. Nothing it writes may be committed.
+    // directly in EXE through the engine parser, one dump per file; then the data
+    // dumps of later work packages (oracle_support.h) over every file. Run from
+    // the folder that holds DATA and EXE. Nothing it writes may be committed.
     void DumpData()
     {
         std::vector<std::string> Files;
         ListIniFiles("DATA", Files);
         ListIniFiles("EXE", Files);
         std::sort(Files.begin(), Files.end());
+        std::vector<std::string> AllFiles;
+        ListDataFiles("DATA", AllFiles);
+        ListDataFiles("EXE", AllFiles);
+        std::sort(AllFiles.begin(), AllFiles.end());
         if (Files.empty())
         {
             fprintf(stderr, "no .ini files under DATA or EXE in %s\n", GFixtureDir.c_str());
@@ -428,6 +433,7 @@ namespace
         }
         printf("dumped %u files, %u also through the engine parser\n", (unsigned int)Files.size(),
                (unsigned int)Engine);
+        RunVfsDataDump(AllFiles);
     }
 }
 
