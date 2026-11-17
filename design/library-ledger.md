@@ -49,24 +49,24 @@ Line counts are C++ source and header lines from the assessment, rounded.
 ## Resource projects
 
 All eight become text catalogs built from sources copied to
-`resources/text/` (P1.6; decided 2026-11-16: copied, not moved, so the
+`outdir/data/text/` (P1.6; decided 2026-11-16: copied, not moved, so the
 reference build is untouched; the copies in `CppSource/Resources/` go with
 the C++ in P7.3). Numeric IDs keep their values. Since 2026-11-17 the
 sources are one TOML file per module (decision T21, amended); the `.rc`
 scripts and card files were converted, and the catalogs stayed
 byte-identical. Until P7.3 both copies must hold the same text: CI compares
 the DLLs built from `CppSource` with the catalogs built from
-`resources/text`.
+`outdir/data/text`.
 
 | # | C++ project | Content | Catalog use | Status |
 | --- | --- | --- | --- | --- |
-| 32 | `UiText` | 3,648 strings | Client and server | in progress: catalog built from `resources/text/` by `cargo xtask catalog`; equal to the resource DLL in CI (P1.6) |
-| 33 | `FieldGuideText` | 886 rich-text cards | Client | in progress: catalog built from `resources/text/` by `cargo xtask catalog`; equal to the resource DLL in CI (P1.6) |
-| 34 | `DialogueText` | 3,087 rich-text cards | Client | in progress: catalog built from `resources/text/` by `cargo xtask catalog`; equal to the resource DLL in CI (P1.6) |
-| 35 | `NameCatalog` | 7,139 strings | Client display; IDs referenced by game logic | in progress: catalog built from `resources/text/` by `cargo xtask catalog`; equal to the resource DLL in CI (P1.6) |
-| 36 | `EquipmentCatalog` | 784 strings, 784 cards | Client | in progress: catalog built from `resources/text/` by `cargo xtask catalog`; equal to the resource DLL in CI (P1.6) |
-| 37 | `NegotiationText` | 1,270 strings | Client display; IDs referenced by game logic | in progress: catalog built from `resources/text/` by `cargo xtask catalog`; equal to the resource DLL in CI (P1.6) |
-| 38 | `InterfaceExtras` | 495 rich-text cards | Client | in progress: catalog built from `resources/text/` by `cargo xtask catalog`; equal to the resource DLL in CI (P1.6) |
+| 32 | `UiText` | 3,648 strings | Client and server | in progress: catalog built from `outdir/data/text/` by `cargo xtask catalog`; equal to the resource DLL in CI (P1.6) |
+| 33 | `FieldGuideText` | 886 rich-text cards | Client | in progress: catalog built from `outdir/data/text/` by `cargo xtask catalog`; equal to the resource DLL in CI (P1.6) |
+| 34 | `DialogueText` | 3,087 rich-text cards | Client | in progress: catalog built from `outdir/data/text/` by `cargo xtask catalog`; equal to the resource DLL in CI (P1.6) |
+| 35 | `NameCatalog` | 7,139 strings | Client display; IDs referenced by game logic | in progress: catalog built from `outdir/data/text/` by `cargo xtask catalog`; equal to the resource DLL in CI (P1.6) |
+| 36 | `EquipmentCatalog` | 784 strings, 784 cards | Client | in progress: catalog built from `outdir/data/text/` by `cargo xtask catalog`; equal to the resource DLL in CI (P1.6) |
+| 37 | `NegotiationText` | 1,270 strings | Client display; IDs referenced by game logic | in progress: catalog built from `outdir/data/text/` by `cargo xtask catalog`; equal to the resource DLL in CI (P1.6) |
+| 38 | `InterfaceExtras` | 495 rich-text cards | Client | in progress: catalog built from `outdir/data/text/` by `cargo xtask catalog`; equal to the resource DLL in CI (P1.6) |
 | 39 | `serverinterface` | 107 strings; dialogs, menus, bitmaps | Strings feed the admin console; dialogs are dropped | in progress: strings only, built as for the others and equal to the DLL in CI (P1.6); dialogs, menus and bitmaps dropped |
 
 ## Source groups

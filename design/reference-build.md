@@ -205,7 +205,7 @@ are in `oracle_support.h`.
 rich-text card of the eight resource DLLs as the game reads them (work
 package P1.6). The output is game text and must not be committed. CI's
 oracle job builds the DLLs, runs the dump and compares it with the catalogs
-that `cargo xtask catalog` builds from `resources/text/`. By hand, after
+that `cargo xtask catalog` builds from `outdir/data/text/`. By hand, after
 building the `ResourceDLLs` projects:
 
 ```powershell

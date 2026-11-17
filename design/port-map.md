@@ -26,7 +26,7 @@ packages and status are in the [library ledger](library-ledger.md).
 | `DX8RENDERER`, `DX9RENDERER`, `RendComp`, `Shading`, `ximage` | NeuronCore, NeuronClient | Image and mesh parsing in core. The Direct3D 12 renderer, fixed-function emulation, materials, batching and textures in the client engine. Neither legacy renderer is ported. |
 | `SceneScript`, `movie` | NeuronClient, GameApp | Lua 3.2 evaluator, scene timeline and Media Foundation playback in the engine. Game-specific scene selection and transitions in GameApp. |
 | `SoundManager`, `SoundStreamer`, `imeui` | NeuronClient | XAudio2 playback, mixing arithmetic, streaming, the edit-box model and IME positioning. |
-| `UiText`, `FieldGuideText`, `DialogueText`, `EquipmentCatalog`, `InterfaceExtras` | NeuronCore, GameApp | Catalog loader and text-ID lookup in core (`catalog`). Client UI, guide entries, dialogue, equipment names and menu text as catalogs that `cargo xtask catalog` builds from `resources/text/`. |
+| `UiText`, `FieldGuideText`, `DialogueText`, `EquipmentCatalog`, `InterfaceExtras` | NeuronCore, GameApp | Catalog loader and text-ID lookup in core (`catalog`). Client UI, guide entries, dialogue, equipment names and menu text as catalogs that `cargo xtask catalog` builds from `outdir/data/text/`. |
 | `NameCatalog`, `NegotiationText` | NeuronCore, GameApp, GameLogic | Catalogs as above. GameLogic keeps the numeric text IDs and never resolves text. |
 | `serverinterface` | `outpost-server` | Strings for the admin console. The MFC dialogs are dropped. |
 | `OutpostFrontier` | GameApp, NeuronClient, `outpost-frontier` | Game and menu flow in GameApp, platform and engine integration in NeuronClient, process startup and in-process server wiring in the executable package. |

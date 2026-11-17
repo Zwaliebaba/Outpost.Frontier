@@ -82,7 +82,7 @@ or observable behavior.
   other SDK, and do not use these files outside `CppSource/`.
 - Record every deliberate difference from the C++ behaviour in
   [design/divergences.md](design/divergences.md).
-- Text resources live in `resources/text/`, one TOML file per module,
+- Text resources live in `outdir/data/text/`, one TOML file per module,
   converted from `CppSource/Resources/`; `cargo xtask catalog` builds the
   catalogs. Until P7.3 a text change must be made in both places, because
   CI compares the resource DLLs with the catalogs.

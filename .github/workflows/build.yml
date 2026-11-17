@@ -120,7 +120,7 @@ jobs:
           & $msbuild CppSource\OutpostFrontier.sln "/t:$($targets -join ';')" /m /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Compare the text catalogs with the resource DLLs
-        # Work package P1.6: the catalogs built from resources/text must hold
+        # Work package P1.6: the catalogs built from outdir/data/text must hold
         # what the game reads from the DLLs built from CppSource/Resources.
         # The dump is game text, so it stays in the runner's temp folder and
         # is not uploaded.

@@ -241,7 +241,7 @@ Widescreen anchoring is part of the layout design from the start.
 ### T21 — Text resources
 
 The `.rc` string tables and the 5,252 rich-text files move to
-`resources/text/`. An `xtask` step builds one catalog per module, keyed by
+`outdir/data/text/`. An `xtask` step builds one catalog per module, keyed by
 the local 16-bit ID. At run time catalogs load in the order the real
 `[Resources]` list gives, so every 32-bit text ID keeps its value. Catalogs
 ship as files beside the executable.
