@@ -26,6 +26,7 @@ through a decision record under `design/adr/`.
 | O15 | Decided 2026-11-17. The original game data is committed in `outdir/` (commit `dbe1abc6`): the master copy's INI files at its top and the `DATA` tree as `outdir/data/`. It is public with the repository; the owner accepts the legal exposure of publishing it. Tests and CI may read it. Dumps and vectors made from it are still not committed: they are produced from `outdir/` when a test runs. The text sources (T21) live in `outdir/data/text/` | Keeping the data outside the repository behind `OUTPOST_DATA_DIR`; making the repository private; removing the data again |
 | O16 | Superseded by O17 on 2026-11-17. Decided 2026-11-17. The reference reads the particle node library as `AlchemyNodeLibrary` again. The rebrand commit `89eda18` had renamed the node name in `CppSource/particlefx/particlefx_common.cpp` to `ParticleFxNodeLibrary`, which no `.ale` file has (all 596 use `AlchemyNodeLibrary`), so the reference never loaded node libraries. The one-line fix is an approved change to the frozen reference, like O12 and O14 | Leaving the reference as built and recording the port's correct name as a divergence |
 | O17 | Decided 2026-11-17. The data carries the reference's names (option 3 of [rebrand-names.md](rebrand-names.md)). The text files in `outdir/` already used the names of the rebrand commit `89eda18`, nickname hashes included; binary files and one hash compiled into the code still used the old ones. The binary data is renamed: in the 596 `.ale` files the node library `AlchemyNodeLibrary` is now `ParticleFxNodeLibrary` (the UTF string table rewritten in place), and in 851 compiled Lua 3.2 `.thn` cutscenes 1,468 string constants that name the player character's costume (`trent`), voice lines (`[VoiceProfile_][$B]GCS_Trent_*`) and story sounds (`dx_s*_Trent`) now say `Rellan` in the same case. Entity, camera and marker names inside the scripts, and file and directory names, keep the old spelling: nothing outside their own file matches them, or the data refers to them by that path. O16 is undone: the reference reads `ParticleFxNodeLibrary` again. `SetRellan` in `CppSource/Server/server_pub.cpp` asked for the costume `CreateID("trent")`; it now asks for `CreateID("rellan")`, an approved change to the frozen reference. Data dumps run 44056112434 on the renamed data equals the oracle in every kind. The port no longer loads an unmodified original installation; it never could once the text files were renamed | Restoring the old names in the reference (option 1); recording each mismatch as a divergence (option 2) |
+| O18 | Decided 2026-11-17. The port loads `.thn` scene scripts as compiled Lua 3.2 chunks only, and only the instructions the shipped scripts use: the 15 opcodes in [facts.md](facts.md) F15, with numbers stored as text. A script in source form, or a chunk with any other instruction, is rejected (divergence D86). Source can be compiled first: `cargo xtask thn-decompile` holds a compiler for the subset its output uses. The decompiler writes the numeral the original source had when the stored text would not compile back to itself (3 constants in the data, F15) | Also loading source in that subset; a full Lua 3.2 evaluator with lexer, parser and VM, as T8 first planned |
 
 ## Technical decisions
 
@@ -99,11 +100,14 @@ because exclusive full screen is not used (T1).
 ### T8 — Lua 3.2 as a Rust load-time evaluator
 
 Scene scripts are Lua 3.2 chunks that define three tables and are never
-called again. A Rust evaluator (lexer, parser, compiled-chunk loader, VM,
-base library subset) loads source and compiled forms unchanged. The I/O
-library, which lets scripts run commands, is not provided. `mlua` cannot
-load Lua 3.2. The Lua copyright notice is kept with the module.
-`luaprofile` has no consumer and is not ported.
+called again. Revised 2026-11-17 by owner decision O18: every shipped
+script is straight-line table construction (facts.md F15), so the Rust
+side is a compiled-chunk reader and an evaluator for those 15 opcodes, a
+few hundred lines instead of a lexer, parser, VM and base library. Number
+constants are read from their stored text as `luaO_str2d` reads them. No
+library is provided, so the I/O library, which lets scripts run commands,
+cannot be reached. `mlua` cannot load Lua 3.2. The Lua copyright notice is
+kept with the module. `luaprofile` has no consumer and is not ported.
 
 ### T9 — Static composition
 

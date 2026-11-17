@@ -257,3 +257,15 @@ folders through the same reader:
 cargo xtask ini outdir --grep Libraries
 ```
 
+`cargo xtask thn-decompile` turns the compiled `.thn` scene scripts back
+into Lua 3.2 source ([facts.md](facts.md) F15). Each result is compiled
+again and must equal the input byte for byte, or it is reported and not
+written. The output is made from the game data: keep it outside the
+repository. The round-trip test reads every `.thn` file in `outdir/data`
+and runs with the workspace tests.
+
+```powershell
+cargo xtask thn-decompile outdir\data "$env:TEMP\thn-source"
+cargo test --release -p xtask thn::tests::original_data_round_trips -- --nocapture
+```
+

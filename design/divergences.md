@@ -92,6 +92,7 @@ The owner accepted D11 on 2026-11-17.
 | D83 | `neuron-core::scene::mixer` | The ease-table index is unchecked; the node stack (0x100) and snapshot (0x140) have no bound check; a blend with fewer than two nodes below calls through null | The index is clamped to 0..=255; stack and snapshot are unbounded; the output is left unchanged | Undefined behaviour in the reference | None in normal use |
 | D84 | `neuron-core::scene::typed` | An event batch with more than 0x40 keys is copied past its array | At most 0x40 keys are copied; the count is kept | Undefined behaviour in the reference | None |
 | D85 | `neuron-core::scene::animation` | `CreateTyped` with an unknown type treats the owner as a channel | Returns no channel (-1) after the fatal report | Undefined behaviour in the reference | None |
+| D86 | `neuron-client::scene_script` (P4.14) | `lua_dobuffer` runs a `.thn` script in source form or as any compiled Lua 3.2 chunk, with the full VM and the base, math and I/O libraries | Only compiled chunks with numbers stored as text, using the 15 opcodes of facts.md F15, are loaded; anything else is reported as an error | Owner decision O18 | None for the shipped data. A modded script in source form must be compiled first, and one that uses other Lua features cannot be loaded |
 
 D5 to D9 described the reader's binary INI path. That path was removed
 with decision O13, so the rows are gone; the IDs are not reused. D32

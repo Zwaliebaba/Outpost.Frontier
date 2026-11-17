@@ -53,7 +53,7 @@ plan most:
 | The renderer interface is used as a mutable state machine from about 650 call sites | The Rust renderer first offers the same state-machine shape as a typed API, so callers port without redesign (decision T2) |
 | 110,000 of the client's 233,000 lines are user interface, built from 3D meshes and laid out by data files | The data contracts are kept; the toolkit internals are rebuilt (decision T20) |
 | The original server list needs a closed third-party DLL that is not in the repository | Dropped. Players connect by address (decision O8) |
-| Scene scripts are Lua 3.2 used only as a load-time data language | A small Rust evaluator for Lua 3.2 replaces the C interpreter (decision T8) |
+| Scene scripts are Lua 3.2 used only as a load-time data language | A Rust reader for the compiled chunks and the 15 opcodes they use replaces the C interpreter (decisions T8, O18) |
 
 Several initial assumptions were wrong and are corrected here: there is no
 Miles audio code, DirectInput is used for the mouse only, there is no
@@ -290,7 +290,7 @@ oracle. A random mission offer rebuilt from a saved seed equals the oracle.
 | P4.11 | Raw Input mouse, keyboard routing, cursor; `imeui` edit-box model and IME positioning | `input`, `text_input` | M | — |
 | P4.12 | Client font code: DirectWrite rasteriser, atlas, font config; rich-text display lists and markup | `text` | L | C |
 | P4.13 | Client UI toolkit: control tree, 62 control factories, INI and page-text loaders, draw layers, modal stack, typed messages, immediate-mode layer, widescreen anchoring; number-string formatting (`MsvcrtNumericVsnprintf` in `msvcrt_numeric_format.h`) | `ui` | XL | A for layout dumps, C for output |
-| P4.14 | `SceneScript`: Lua 3.2 evaluator and its number text (`MsvcrtFormatLuaNumber` in `msvcrt_numeric_format.h`), script loader, curves, motion paths, timeline and events | `scene_script` | XL | A for load, B for playback |
+| P4.14 | `SceneScript`: compiled-chunk reader and evaluator for the 15-opcode subset (O18) and its number text (`MsvcrtFormatLuaNumber` in `msvcrt_numeric_format.h`), script loader, curves, motion paths, timeline and events | `scene_script` | XL | A for load, B for playback |
 | P4.15 | `movie`: Media Foundation playback of the startup clips | `media` | S | — |
 | P4.16 | `neuroncomponents`, `system`, `NeuronRuntime::Startup`: the `Engine` value, construction and drop order | `engine` | S | — |
 
