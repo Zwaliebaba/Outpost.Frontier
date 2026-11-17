@@ -48,7 +48,7 @@ plan most:
 | The component system (`neuroncomponents`, `system`, `NeuronRuntime::Startup`) is late binding by string name through an INI file that is not in the repository | Replaced by static composition. Nothing is loaded by name at run time (decision T9) |
 | DirectPlay is used as one reliable, ordered stream per client. The 162 message encodings never touch DirectPlay | Message encodings are kept; only the transport and framing are replaced (decisions O6, T17) |
 | `rpclocal` (28,000 lines) duplicates the codecs in `RemoteCommon` (5,800 lines) | Only one codec set is ported; `rpclocal` becomes a loopback transport of a few hundred lines |
-| The physics library is a 50,000-line reconstruction with no licence text, and the original is not reproducible run to run | Not ported. A facade over `parry3d` and a small solver replaces it (decision O5) |
+| The physics library is a 50,000-line reconstruction with no licence text, and the original is not reproducible run to run | Not ported. A facade over `parry3d` and a small solver replaces it, with free flight transliterated from IVP (decisions O5, O19) |
 | The Direct3D 8 footprint is small: two texture stages, no shaders, no stencil, no render targets | One vertex and one pixel shader plus a pipeline-state cache cover it on Direct3D 12 |
 | The renderer interface is used as a mutable state machine from about 650 call sites | The Rust renderer first offers the same state-machine shape as a typed API, so callers port without redesign (decision T2) |
 | 110,000 of the client's 233,000 lines are user interface, built from 3D meshes and laid out by data files | The data contracts are kept; the toolkit internals are rebuilt (decision T20) |
@@ -238,17 +238,24 @@ the oracle dumps.
 
 | ID | C++ source | Rust destination | Size | Tier |
 | --- | --- | --- | --- | --- |
-| P2.0 | Design spikes, each ending in a short decision record under `design/adr/`: object model representation (kinds, handles, lifetimes); single-player world ownership (default: two worlds joined by typed loopback messages, as the C++ `SP*` calls suggest) | — | S | — |
+| P2.0 | Design spikes, each ending in a short decision record under `design/adr/`: object model representation (kinds, handles, lifetimes); single-player world ownership (default: two worlds joined by typed loopback messages, as the C++ `SP*` calls suggest); the replay and scenario oracle and the G2 envelope bounds (O20) | — | S | — |
 | P2.1 | `Common` data: constants, data config, the string cache (`common_stringcache.cpp`, moved from P1.1), archetypes, loadouts, fuse data, goods, reputation data, universe, zones, asteroid IDs, bases, rooms, spatial partition | `game-sim::data` | XL | A |
 | P2.2 | `Common` marshal buffer, format strings, costume, binary rich text; the 162 packet types and codecs from `RemoteCommon` | `game-sim::protocol` | L | A |
 | P2.3 | `PhySys` facade, `[PhySys]` constants, hull shapes from compact surfaces, integrator and impulse solver, controllers hook, rays, sphere queries, phantoms, remote correction, dead reckoning | `neuron-core::physics` | L | B |
 | P2.4 | `Common` object model (`CObject` to `CShip`, `CSolar`, projectiles, loot), attachments, object database, equipment (`CE*`), damage | `game-sim::object`, `::equip` | XL | B |
 | P2.5 | `Common` AI: steering, ideas, obstacle avoidance, pathfinding, targeting, fire control, 23 behaviours, behaviour manager, state graphs | `game-sim::ai` | XL | B |
 
+Order and review (owner, 2026-11-17): P2.0 comes first and stops for the
+owner to approve its decision records. P2.1, P2.2 and P2.3 then run in
+parallel, followed by P2.4 and then P2.5. Each work package is one pull
+request. P2.3 follows O19: free flight transliterated from IVP, contacts
+through `parry3d` and the project's solver.
+
 **Gate G2.** A headless program loads a star system from the original data,
 spawns ships and runs scripted scenarios (fly to a point, dock, fire,
-collide). Trajectories, times and damage fall inside the tolerance
-envelopes taken from the oracle. All protocol codecs round-trip and match
+collide). Replay tests of the integrator, AI and damage code equal the oracle
+within Tier B bounds, and scenario trajectories, times and damage fall
+inside the envelopes approved in P2.0 (decision O20). All protocol codecs round-trip and match
 the C++ encodings byte for byte.
 
 ### Phase 3 — server and network (`neuron-server`, `game-logic`, `apps/outpost-server`)
