@@ -10,10 +10,13 @@
 // Usage: Oracle.exe <fixture directory> <output directory>
 //        Oracle.exe dump <data directory> <output directory>
 //        Oracle.exe catalog <resource DLL directory> <output directory>
+//        Oracle.exe game-sim <fixture directory> <output directory>
 // The second form dumps the original installation's INI files for
 // crates/neuron-core/tests/data_dump.rs; the third dumps the text
 // resources of the resource DLLs for crates/neuron-core/tests/catalog_dump.rs
-// (oracle_catalog.cpp). Their output must never be committed.
+// (oracle_catalog.cpp). Their output must never be committed. The fourth
+// runs the suites of crates/game-sim (oracle_game_suites.cpp) over
+// crates/game-sim/tests/fixtures/oracle.
 // All paths must be absolute: the program changes into the input
 // directory so that the engine parser and INI_Reader see relative names.
 
@@ -470,6 +473,7 @@ namespace
         GuardedDataDump("texture/material", RunShadingDataDump, AllFiles);
         GuardedDataDump("mesh/dfm", RunMeshDataDump, AllFiles);
         GuardedDataDump("scene", RunSceneDataDump, AllFiles);
+        GuardedDataDump("game", RunGameDataDump, AllFiles);
     }
 }
 
@@ -477,14 +481,16 @@ int main(int Argc, char** Argv)
 {
     const bool bDump = Argc == 4 && strcmp(Argv[1], "dump") == 0;
     const bool bCatalog = Argc == 4 && strcmp(Argv[1], "catalog") == 0;
-    if (Argc != 3 && !bDump && !bCatalog)
+    const bool bGameSim = Argc == 4 && strcmp(Argv[1], "game-sim") == 0;
+    if (Argc != 3 && !bDump && !bCatalog && !bGameSim)
     {
         fprintf(stderr, "usage: Oracle.exe <fixture directory> <output directory>\n"
                         "       Oracle.exe dump <data directory> <output directory>\n"
-                        "       Oracle.exe catalog <resource DLL directory> <output directory>\n");
+                        "       Oracle.exe catalog <resource DLL directory> <output directory>\n"
+                        "       Oracle.exe game-sim <fixture directory> <output directory>\n");
         return 2;
     }
-    const bool bMode = bDump || bCatalog;
+    const bool bMode = bDump || bCatalog || bGameSim;
     GFixtureDir = Argv[bMode ? 2 : 1];
     GOutputDir = Argv[bMode ? 3 : 2];
     if (!SetCurrentDirectoryA(GFixtureDir.c_str()))
@@ -506,6 +512,11 @@ int main(int Argc, char** Argv)
     if (bCatalog)
     {
         RunCatalogDump();
+        return GFailed ? 1 : 0;
+    }
+    if (bGameSim)
+    {
+        RunGameSimSuites();
         return GFailed ? 1 : 0;
     }
     Names();
