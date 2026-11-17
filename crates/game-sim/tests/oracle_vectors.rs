@@ -1009,6 +1009,8 @@ fn base_props() {
         ));
     }
     check_suite("base_props.jsonl", &lines);
+}
+
 /// Work package P2.4's suite: `LookMatrix`, `CEGun::ComputeTimeToTgt`,
 /// `CNudgeEngine::SetNudgeVec` and `CSteering::SetAxisThrottle` from rest,
 /// over `object_math.list`. Tier A: arithmetic and square roots only.
