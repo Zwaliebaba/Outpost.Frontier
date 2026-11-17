@@ -437,6 +437,7 @@ namespace
         RunSurDataDump(AllFiles);
         RunAnimDataDump(AllFiles);
         RunFxDataDump(AllFiles);
+        RunShadingDataDump(AllFiles);
     }
 }
 
@@ -491,5 +492,6 @@ int main(int Argc, char** Argv)
     RunSurSuites();
     RunAnimSuites();
     RunFxDataSuites();
+    RunShadingSuites();
     return GFailed ? 1 : 0;
 }

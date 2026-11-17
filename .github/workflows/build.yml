@@ -109,6 +109,8 @@ jobs:
           Copy-Item "$f\sur\tree.sur" "$root\DATA\SHIPS\tree.sur"
           Copy-Item "$f\anim\script_full.utf" "$root\DATA\anim.cmp"
           Copy-Item "$f\fx\basic.ale" "$root\DATA\fx.ale"
+          Copy-Item "$f\shading\texlib\basic.utf" "$root\DATA\tex.txm"
+          Copy-Item "$f\shading\material\mats.utf" "$root\DATA\mats.mat"
           & .\bin\Oracle.exe dump $root $out
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           rustup toolchain install

@@ -126,6 +126,10 @@ void RunAnimSuites();
 // particlefx.dll. Needs the UTF factory RunVfsSuites registers.
 void RunFxDataSuites();
 
+// P1.7 (oracle_shading.cpp): TGA levels, DDS image information, texture format maps, texture
+// libraries through a recording renderer, material schemas and material libraries of Shading.
+void RunShadingSuites();
+
 // Data dumps of later work packages, called by Oracle.exe dump after the INI
 // dumps. Files is every file under DATA and EXE, sorted; each dump picks its
 // own, writes <output>\<kind>\<file>.jsonl per file and <output>\<kind>\files.txt,
@@ -148,3 +152,9 @@ void RunAnimDataDump(const std::vector<std::string>& Files);
 // particlefx.dll's FxNodeLibrary and FxEffectLibrary; kind "fx". Runs after
 // RunVfsDataDump, which registers the UTF factory.
 void RunFxDataDump(const std::vector<std::string>& Files);
+
+// P1.7 (oracle_shading.cpp): every UTF container with a "Texture library" node (kind
+// "texture": per texture node the renderer calls, result and record) and every one with a
+// "Material library" or "MaterialAnim" node (kind "material": per material its type, kind and
+// parameter values; per animation its key data).
+void RunShadingDataDump(const std::vector<std::string>& Files);
