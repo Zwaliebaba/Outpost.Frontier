@@ -6,5 +6,5 @@
 /crates/*/tests/fixtures/** -text
 /crates/*/tests/vectors/** -text
 /xtask/tests/fixtures/** -text
-# Text resource sources (design/decisions.md T21): built into catalogs byte for byte.
+# Text sources (design/decisions.md T21): TOML, built into catalogs byte for byte.
 /resources/text/** -text

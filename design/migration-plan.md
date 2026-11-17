@@ -219,7 +219,7 @@ only the real `DATA` tree shows.
 | P1.3 | `ReadFile`: directory, UTF and memory file systems, search path | `vfs`, `utf` | M | A |
 | P1.4 | `x86math` kernels in original operation order | `math` | M | B |
 | P1.5 | `FDUMP` log sink, error callbacks, timing, tick-profile spans; rect, spline, MD5 text form | `diag`, `time`, `util` | S | A |
-| P1.6 | Eight resource projects: move the `.rc` and `.txt` sources to `resources/text/`, build catalogs with `xtask`, load by numeric ID | `catalog` | M | A |
+| P1.6 | Eight resource projects: convert the `.rc` and `.txt` sources to TOML in `resources/text/` (T21, amended 2026-11-17), build catalogs with `xtask`, load by numeric ID | `catalog` | M | A |
 | P1.7 | Pure parsers: TGA, DDS and pixel formats (`Shading`, D3DX use); mesh data (`RendComp` headers); animation channels; effect libraries (`particlefx`); material and texture nodes; `.sur` and compact surfaces (`Common`) | `image`, `mesh_data`, `anim`, `fx_data`, `sur` | L | A |
 | P1.8 | `SceneRuntime`: instance tree, compound models, hardpoints, joints, animation mixer | `scene` | L | A for loading, B for evaluation |
 | P1.9 | Wire reader and writer, quantisers, frame and handshake types, `Transport` trait, loopback transport | `net` | M | A |

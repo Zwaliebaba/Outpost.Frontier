@@ -246,6 +246,23 @@ the local 16-bit ID. At run time catalogs load in the order the real
 `[Resources]` list gives, so every 32-bit text ID keeps its value. Catalogs
 ship as files beside the executable.
 
+Amended 2026-11-17 (owner): the sources are one TOML file per module, with
+a `[strings]` table and a `[cards]` table keyed by the local ID; a card's
+`<RDL>` markup is kept as text. They were generated from the `.rc` scripts
+and card files, and the catalogs built from them are byte-identical to the
+`.rc` build's. The resource-script parser in `xtask` was removed with
+them. Until P7.3 a text change has to be made in `CppSource/Resources/` as
+well; CI's catalog comparison catches a copy that differs.
+
+Open for P4.12: the cards use seven RDL tags (`RDL`, `TEXT`, `PARA`,
+`PUSH`, `POP`, `TRA`, `JUST`). Once the RDL node model is ported and its
+XML reader checked against the oracle, the cards may become structured
+TOML (a list of nodes) instead of markup. That would remove the XML reader
+only if the other XML inputs go too: two hard-coded strings in the client
+(`nn_help.cpp`, `nn_navmap_input.cpp`), two string-table entries that hold
+`<RDL>` markup, and the "try XML, else plain text" rule for string entries
+(`ids_rdl.cpp`).
+
 ### T22 — Configuration files
 
 Game configuration keeps its file names and key names

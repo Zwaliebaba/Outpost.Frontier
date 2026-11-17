@@ -1,45 +1,62 @@
 # Text resources
 
-The sources of the game's text, one folder per module (work package P1.6,
-decision T21). They are copies of the eight resource projects in
-`CppSource/Resources/`; those copies go with the C++ in P7.3, and from then
-on these are the only ones.
+The sources of the game's text, one TOML file per module (work package
+P1.6, decision T21). `cargo xtask catalog` builds one catalog per module
+from them, by default into `target/catalogs/<Module>.tcat`. Catalogs are
+build output: they are not committed and ship beside the executables. The
+catalog format and the lookup rules are documented in
+`crates/neuron-core/src/catalog/mod.rs`.
 
-`cargo xtask catalog` builds one catalog per module from them, by default
-into `target/catalogs/<Module>.tcat`. Catalogs are build output: they are
-not committed and ship beside the executables. The catalog format and the
-lookup rules are documented in `crates/neuron-core/src/catalog/mod.rs`.
+The files were generated on 2026-11-17 from the eight resource projects in
+`CppSource/Resources/` (string tables in `.rc` scripts, rich-text cards in
+`HTML<id>_1.txt` files). The catalogs built from them are byte-identical
+to the ones the `.rc` build made before. The C++ copies go with the C++ in
+P7.3; from then on these files are the only source.
 
 ## Layout
 
-| Folder | Content | Index of its text IDs |
+| File | Content | Index of its text IDs |
 | --- | --- | --- |
-| `UiText/` | `UiText.rc`: 3,648 strings | 0 |
-| `FieldGuideText/` | `FieldGuideText.rc` and 886 cards | 1 |
-| `DialogueText/` | `DialogueText.rc` and 3,087 cards | 2 |
-| `NameCatalog/` | `NameCatalog.rc`: 7,139 strings | 3 |
-| `EquipmentCatalog/` | `EquipmentCatalog.rc`: 784 strings, and 784 cards | 4 |
-| `NegotiationText/` | `NegotiationText.rc`: 1,270 strings | 5 |
-| `InterfaceExtras/` | `InterfaceExtras.rc` and 495 cards | 6 |
-| `serverinterface/` | `serverinterface.rc`: 107 strings for the server console | none |
+| `UiText.toml` | 3,648 strings | 0 |
+| `FieldGuideText.toml` | 886 cards | 1 |
+| `DialogueText.toml` | 3,087 cards | 2 |
+| `NameCatalog.toml` | 7,139 strings | 3 |
+| `EquipmentCatalog.toml` | 784 strings and 784 cards | 4 |
+| `NegotiationText.toml` | 1,270 strings | 5 |
+| `InterfaceExtras.toml` | 495 cards | 6 |
+| `serverinterface.toml` | 107 strings for the server console | none |
 
 The index is the high 16 bits of a text ID (fact F3); the low 16 bits are
-the ID inside the module. `serverinterface` is the server's resource module
-and has no index.
+the key in the file. `serverinterface` is the server's resource module and
+has no index.
 
-- `<Module>.rc` is a resource script in UTF-8 without a byte-order mark,
-  read as code page 65001 (the C++ projects pass `rc /c65001`). Its
-  `STRINGTABLE` blocks hold the strings. A line `56 23 "HTML56_1.txt"`
-  makes the file `HTML56_1.txt` resource 56 of type 23 (`RT_HTML`).
-- `HTML<id>_1.txt` is a rich-text card: UTF-16LE text with a byte-order
-  mark, `<RDL>` markup. The catalog stores its bytes unchanged.
-- The dialogs, menus, accelerators and version information in the scripts
-  are skipped by the catalog build. The bitmaps and icons that
-  `serverinterface.rc` names were not copied: the server's dialogs are
-  dropped (library ledger row 39).
+## Format
 
-Until P7.3 the CI `oracle` job builds the resource DLLs from
-`CppSource/Resources/`, dumps them with `Oracle.exe catalog` and compares
-the dump with these catalogs (`crates/neuron-core/tests/catalog_dump.rs`),
-so the two copies must stay identical. The `.gitattributes` entry keeps
-the bytes of these files as they are.
+```toml
+[strings]
+0 = "Object Unknown"
+5 = "\n"
+12 = ""
+
+[cards]
+1000 = '''<RDL><PUSH/><TEXT>All the Fertilizer produced here…</TEXT>…</RDL>'''
+```
+
+- Keys are the 16-bit IDs inside the module, in decimal without leading
+  zeros. An ID appears once per table.
+- A string is any text. An empty string is a real entry: it makes its
+  string block exist, which changes what the game's lookup of a missing
+  neighbour returns.
+- A card is `<RDL>` rich-text markup, kept as text in a literal string so
+  its quotes need no escaping; it must not contain `'''`. The catalog
+  build stores it as UTF-16LE after a byte-order mark, as the resource
+  DLLs hold it.
+- Other tables are rejected.
+
+## Keeping the two copies in step
+
+Until P7.3 the C++ reference still builds its resource DLLs from
+`CppSource/Resources/`. CI's `oracle` job dumps those DLLs with
+`Oracle.exe catalog` and compares the dump with the catalogs built from
+these files (`crates/neuron-core/tests/catalog_dump.rs`). A text change
+made here must be made there too, or that job fails.
