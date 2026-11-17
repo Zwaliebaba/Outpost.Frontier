@@ -106,6 +106,7 @@ jobs:
           Copy-Item "$f\engine\include.ini", "$f\engine\sub.ini", "$f\engine\basic.ini" "$root\EXE\"
           Copy-Item "$f\vfs\utf\full.utf" "$root\DATA\SHIPS\full.cmp"
           Copy-Item "$f\vfs\utf\compact.utf" "$root\DATA\compact.3db"
+          Copy-Item "$f\sur\tree.sur" "$root\DATA\SHIPS\tree.sur"
           & .\bin\Oracle.exe dump $root $out
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           rustup toolchain install
