@@ -3,10 +3,12 @@
 //! not need the shape geometry.
 //!
 //! The membership tests, distances, radius along a direction and surface
-//! point are in [`shape`]. `ClassifyPoint`, the segment clips
-//! (`Intersect`), immersion, the frustum and sphere culls and the exclusion
-//! zones are not ported yet; see the P2.1 row of the library ledger.
+//! point are in [`shape`]; `ClassifyPoint`, immersion, the segment clips
+//! (`Intersect`) and the frustum and sphere culls in [`query`]; the
+//! exclusion zones of asteroid fields and nebulae in [`exclusion`].
 
+pub mod exclusion;
+pub mod query;
 pub mod shape;
 
 use neuron_core::hash::eq_ignore_case;

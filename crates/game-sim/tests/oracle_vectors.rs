@@ -27,8 +27,12 @@ use game_sim::data::reputation::{Relation, Reputation};
 use game_sim::data::string_cache::{CacheString, StringCache};
 use game_sim::data::universe::{Universe, UniverseCx};
 use game_sim::data::vibe::VibeDb;
+use game_sim::data::zone::exclusion::{
+    AsteroidExclusionZone, AsteroidExclusionZoneMgr, ExcludeObjectType, NebulaExclusionZoneMgr,
+};
+use game_sim::data::zone::query::{Frustum, Sphere};
 use neuron_core::ini::IniReader;
-use neuron_core::math::{Matrix, Vector};
+use neuron_core::math::{Matrix, Transform, Vector};
 use neuron_core::vfs::Host;
 
 use support::data::Tolerance;
@@ -376,4 +380,311 @@ fn reputation() {
         lines.push(out.done());
     }
     check_suite("reputation.jsonl", &lines);
+}
+
+/// The universe of `zone_queries/` (system `zq`).
+fn query_universe() -> Universe {
+    let source = Host::new(fixtures());
+    let mut strings = StringCache::new();
+    let mut reports = Reports::default();
+    let archetypes = ArchetypeDb::default();
+    let reputation = Reputation::default();
+    let mut vibes = VibeDb::default();
+    let mut universe = Universe::default();
+    let mut cx = UniverseCx {
+        strings: &mut strings,
+        archetypes: &archetypes,
+        reputation: &reputation,
+        vibes: &mut vibes,
+        reports: &mut reports,
+    };
+    universe.startup(&source, b"zone_queries\\universe.ini", &mut cx);
+    universe
+}
+
+/// The words of every line of a fixture list, as floats.
+fn float_rows(name: &str) -> Vec<Vec<f32>> {
+    input_lines(name)
+        .iter()
+        .map(|l| l.split(' ').map(f32_hex).collect())
+        .collect()
+}
+
+fn vec3(w: &[f32]) -> Vector {
+    Vector {
+        x: w[0],
+        y: w[1],
+        z: w[2],
+    }
+}
+
+fn bits(answers: impl Iterator<Item = bool>) -> String {
+    answers.map(|b| if b { '1' } else { '0' }).collect()
+}
+
+/// Tier A for the clips and classifications of unrotated zones, Tier B
+/// for rotated zones (`EulerMatrix`) and the frustum cull (`FSIN`,
+/// `FCOS`, `FPTAN`): floats within a bound, answers exact.
+#[test]
+fn zone_queries() {
+    let universe = query_universe();
+    let points: Vec<Vector> = input_lines("zone_points.list")
+        .iter()
+        .filter(|l| !l.starts_with("d "))
+        .map(|l| vec3(&l.split(' ').map(f32_hex).collect::<Vec<_>>()))
+        .collect();
+    let segments = float_rows("zone_segments.list");
+    let frustums: Vec<Frustum> = float_rows("zone_frustums.list")
+        .iter()
+        .map(|w| Frustum {
+            xform: Transform::new(
+                Matrix::from_rows([[w[0], w[1], w[2]], [w[3], w[4], w[5]], [w[6], w[7], w[8]]]),
+                vec3(&w[9..12]),
+            ),
+            angle_x: w[12],
+            angle_y: w[13],
+            distance: w[14],
+        })
+        .collect();
+    let spheres: Vec<Sphere> = float_rows("zone_spheres.list")
+        .iter()
+        .map(|w| Sphere {
+            center: vec3(w),
+            radius: w[3],
+        })
+        .collect();
+    let mut reports = Reports::default();
+    let mut lines = Vec::new();
+    for zone in universe.system_zones(neuron_core::id::create_id(b"zq")) {
+        lines.push(
+            Line::new()
+                .add("zone", format!("{:08x}", zone.nickname))
+                .add("shape", zone.shape.value().to_string())
+                .done(),
+        );
+        for (index, p) in points.iter().enumerate() {
+            lines.push(
+                Line::new()
+                    .add("p", index.to_string())
+                    .add("classify", f32_text(zone.classify_point(*p) as f32))
+                    .add("immersion", f32_text(zone.immersion(*p) as f32))
+                    .done(),
+            );
+        }
+        for (index, s) in segments.iter().enumerate() {
+            let mut line = Line::new();
+            line.add("seg", index.to_string());
+            match zone.intersect(vec3(s), vec3(&s[3..]), &mut reports) {
+                Some(at) => line.add("hit", "1").add("at", vec3_text(at)),
+                None => line.add("hit", "0"),
+            };
+            lines.push(line.done());
+        }
+        lines.push(
+            Line::new()
+                .add(
+                    "frustums",
+                    bits(frustums.iter().map(|f| zone.frustum_cull(f))),
+                )
+                .done(),
+        );
+        lines.push(
+            Line::new()
+                .add("spheres", bits(spheres.iter().map(|s| zone.sphere_cull(s))))
+                .done(),
+        );
+    }
+    let tolerance = Tolerance {
+        keys: &["classify", "immersion", "at"],
+        ulps: 4,
+        absolute: 1.0e-3,
+    };
+    check_within("zone_queries.jsonl", &lines, &tolerance);
+}
+
+/// The exclusion zones' properties per nickname: billboards, dynamic
+/// asteroids, empty cube frequency, billboard count.
+const EXCLUSIONS: [(&[u8], bool, bool, f32, f32); 5] = [
+    (b"x_a", true, false, -1.0, -1.0),
+    (b"x_b", false, true, 0.5, 30.0),
+    (b"x_c", false, false, -1.0, 12.7),
+    (b"x_far", false, false, 0.25, -1.0),
+    (b"x_edge", false, true, -1.0, 45.2),
+];
+
+/// The value `is_excluded` finds in its output before each call.
+const UNTOUCHED: f32 = 12345.0;
+
+fn exclusion_field(
+    mgr: &AsteroidExclusionZoneMgr,
+    ids: &[u32],
+    get: impl Fn(&AsteroidExclusionZone) -> f32,
+) -> String {
+    ids.iter()
+        .map(|id| {
+            let z = mgr
+                .zones
+                .iter()
+                .find(|z| z.zone.as_ref().map(|z| z.nickname) == Some(*id))
+                .expect("zone");
+            f32_text(get(z))
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// The asteroid and nebula exclusion managers on the zones of `zq`; the
+/// zones are not rotated, so everything is Tier A.
+#[test]
+fn exclusion_zones() {
+    let universe = query_universe();
+    let zone = |name: &[u8]| &universe.zones[&neuron_core::id::create_id(name)];
+    let mut observers: Vec<(Vector, Vec<Vector>)> = Vec::new();
+    for line in input_lines("exclusion.list") {
+        let (kind, rest) = line.split_at(2);
+        let p = vec3(&rest.split(' ').map(f32_hex).collect::<Vec<_>>());
+        if kind == "o " {
+            observers.push((p, Vec::new()));
+        } else if let Some(last) = observers.last_mut() {
+            last.1.push(p);
+        }
+    }
+    let mut lines = Vec::new();
+    let mut reports = Reports::default();
+
+    let parent = zone(b"q_sphere");
+    let mut mgr = AsteroidExclusionZoneMgr::default();
+    let ids: Vec<u32> = EXCLUSIONS
+        .iter()
+        .map(|e| neuron_core::id::create_id(e.0))
+        .collect();
+    for &(name, billboards, dynamic, empty, count) in &EXCLUSIONS {
+        mgr.push_back(Some(zone(name)), parent);
+        let back = mgr.back().expect("pushed");
+        let inside = back.set_zone(Some(zone(name)), parent);
+        back.exclude_billboards = billboards;
+        back.exclude_dynamic_asteroids = dynamic;
+        back.empty_cube_frequency = empty;
+        back.billboard_count = count;
+        lines.push(
+            Line::new()
+                .add("push", format!("{:08x}", zone(name).nickname))
+                .add("inside", u8::from(inside).to_string())
+                .done(),
+        );
+    }
+    let max = mgr.max_billboard_count();
+    lines.push(Line::new().add("max_billboards", max.to_string()).done());
+    if max > 0 {
+        mgr.normalize_billboard_density(max);
+    }
+    lines.push(
+        Line::new()
+            .add(
+                "densities",
+                exclusion_field(&mgr, &ids, |z| z.billboard_count),
+            )
+            .done(),
+    );
+    for pass in 0..2 {
+        if pass == 1 {
+            mgr.set_max_cliasteroid_exclusion_distance(300.0);
+            mgr.set_max_dynamicasteroid_exclusion_distance(100.0);
+        }
+        for (observer, queries) in &observers {
+            mgr.sort(*observer);
+            let back = mgr
+                .back()
+                .and_then(|z| z.zone.as_ref())
+                .map_or(0, |z| z.nickname);
+            lines.push(
+                Line::new()
+                    .add("observer", vec3_text(*observer))
+                    .add("dist", exclusion_field(&mgr, &ids, |z| z.max_dist_sq))
+                    .add("back", format!("{back:08x}"))
+                    .done(),
+            );
+            for q in queries {
+                let mut answers = Vec::new();
+                let mut outs = Vec::new();
+                for kind in 0..5 {
+                    let mut out = UNTOUCHED;
+                    let hit = mgr.is_excluded(*q, ExcludeObjectType::from_value(kind), &mut out);
+                    answers.push(u8::from(hit).to_string());
+                    outs.push(f32_text(out));
+                }
+                lines.push(
+                    Line::new()
+                        .add("q", vec3_text(*q))
+                        .add("ex", answers.join(","))
+                        .add("out", outs.join(","))
+                        .done(),
+                );
+            }
+        }
+    }
+
+    let nebula = zone(b"q_ellipsoid");
+    let mut neb = NebulaExclusionZoneMgr::default();
+    let names: [&[u8]; 3] = [b"x_d", b"x_a", b"x_b"];
+    for (index, name) in names.iter().enumerate() {
+        neb.push_back(zone(name), nebula, &mut reports);
+        let back = neb.back().expect("pushed");
+        if index == 0 {
+            back.set_zone_shell_name(b"nebula_shell");
+            back.fog_far = 1500.0;
+        }
+        lines.push(
+            Line::new()
+                .add("nebula_push", format!("{:08x}", zone(name).nickname))
+                .add("shell", format!("{:08x}", back.zone_shell_name))
+                .add("fog", f32_text(back.fog_far))
+                .done(),
+        );
+    }
+    let neb_ids: Vec<u32> = names.iter().map(|n| zone(n).nickname).collect();
+    for (observer, queries) in &observers {
+        neb.sort(*observer);
+        let dist: Vec<String> = neb_ids
+            .iter()
+            .map(|id| {
+                let z = neb
+                    .zones
+                    .iter()
+                    .find(|z| z.zone.nickname == *id)
+                    .expect("zone");
+                f32_text(z.max_dist_sq)
+            })
+            .collect();
+        lines.push(
+            Line::new()
+                .add("nebula_observer", vec3_text(*observer))
+                .add("dist", dist.join(","))
+                .done(),
+        );
+        let found = |near: bool, q: Vector| match neb.is_in_exclusion_zone(q, near) {
+            Some((index, value)) => {
+                format!("{:08x},{}", neb.zones[index].zone.nickname, f32_text(value))
+            }
+            None => format!("-,{}", f32_text(0.0)),
+        };
+        for q in queries {
+            lines.push(
+                Line::new()
+                    .add("q", vec3_text(*q))
+                    .add(
+                        "excluded",
+                        format!(
+                            "{},{}",
+                            u8::from(neb.is_excluded(*q, ExcludeObjectType::Nebula)),
+                            u8::from(neb.is_excluded(*q, ExcludeObjectType::CliAsteroid))
+                        ),
+                    )
+                    .add("in", found(false, *q))
+                    .add("in_near", found(true, *q))
+                    .done(),
+            );
+        }
+    }
+    check_suite("exclusion_zones.jsonl", &lines);
 }

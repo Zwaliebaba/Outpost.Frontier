@@ -15,6 +15,19 @@ P2.1) into this directory. Run it from anywhere; the output is committed.
     zone_points.list
                     x y z as f32 bit patterns: the points and directions the
                     zone suite queries every zone with
+    zone_queries/universe.ini, zone_queries/systems/zq.ini
+                    one system with a zone of every shape (edge fractions
+                    set) and the exclusion zones, for the zone_queries and
+                    exclusion_zones suites (which also read zone_points.list)
+    zone_segments.list
+                    start and end, six f32 bit patterns per line
+    zone_frustums.list
+                    a frustum per line: rotation rows, apex, angle x,
+                    angle y, distance (15 f32 bit patterns)
+    zone_spheres.list
+                    centre and radius, four f32 bit patterns per line
+    exclusion.list  the exclusion suite's observers ("o x y z") and query
+                    points ("q x y z"), f32 bit patterns
 """
 
 import math
@@ -216,6 +229,101 @@ def zones():
     write("zone_points.list", lines)
 
 
+CENTRES = [(0, 0, 0), (5000, 0, 0), (-5000, 100, 0), (0, 0, 8000), (0, 3000, -8000),
+           (10000, 0, 10000), (-10000, 0, 10000), (10000, 0, -10000), (-10000, 0, -10000),
+           (20000, 0, 0)]
+
+
+def hexes(values):
+    return " ".join("%08x" % f32(v) for v in values)
+
+
+def zone_queries():
+    os.makedirs(os.path.join(HERE, "zone_queries", "systems"), exist_ok=True)
+    universe = [
+        "[System]",
+        "nickname = zq",
+        "msg_id_prefix = gcs_refer_system_zq",
+        "file = systems\\zq.ini",
+    ]
+    zones = [
+        ("q_sphere", "SPHERE", "1000", "0, 0, 0", None, "0.25"),
+        ("q_ellipsoid", "ELLIPSOID", "3000, 1000, 2000", "5000, 0, 0", None, "0.5"),
+        ("q_ellipsoid_rot", "ELLIPSOID", "3000, 1000, 2000", "-5000, 100, 0", "0, 45, 0", "0.1"),
+        ("q_box", "BOX", "2000, 1000, 4000", "0, 0, 8000", None, "0.3"),
+        ("q_box_rot", "BOX", "2000, 1000, 4000", "0, 3000, -8000", "30, 0, 60", None),
+        ("q_cylinder", "CYLINDER", "1500, 3000", "10000, 0, 10000", None, "0.2"),
+        ("q_cylinder_rot", "CYLINDER", "1500, 3000", "-10000, 0, 10000", "90, 0, 0", "0.6"),
+        ("q_ring", "RING", "4000, 2000, 1000", "10000, 0, -10000", None, "0.4"),
+        ("q_ring_rot", "RING", "4000, 2000, 1000", "-10000, 0, -10000", "0, 0, 33", "0.05"),
+        ("q_none", "WEDGE", "100", "20000, 0, 0", None, None),
+        ("x_a", "SPHERE", "200", "300, 0, 0", None, "0.5"),
+        ("x_b", "ELLIPSOID", "200, 100, 150", "-400, 100, 0", None, "0.2"),
+        ("x_c", "BOX", "100, 100, 100", "0, -500, 0", None, None),
+        ("x_d", "SPHERE", "300", "5500, 0, 0", None, "0.3"),
+        ("x_far", "SPHERE", "100", "30000, 30000, 0", None, "0.1"),
+        ("x_edge", "SPHERE", "400", "0, 800, 0", None, "0.3"),
+    ]
+    system = []
+    for name, shape, size, pos, rotate, edge in zones:
+        system += ["[Zone]", "nickname = " + name, "pos = " + pos, "shape = " + shape, "size = " + size]
+        if rotate:
+            system.append("rotate = " + rotate)
+        if edge:
+            system.append("edge_fraction = " + edge)
+        system.append("")
+    write(os.path.join("zone_queries", "universe.ini"), universe)
+    write(os.path.join("zone_queries", "systems", "zq.ini"), system)
+
+    rel = [((-20000, 0, 0), (20000, 0, 0)), ((0, -20000, 10), (0, 20000, 10)),
+           ((-5000, -3000, -4000), (5000, 3000, 4000)), ((-20000, 9000, 0), (20000, 9000, 0)),
+           ((-20000, 0, 0), (-15000, 0, 0)), ((0, 0, 0), (20000, 0, 0)),
+           ((300, -6000, 200), (300, 6000, 200)), ((3000, 0, -20000), (3000, 0, 20000))]
+    lines = ["# start x y z, end x y z as f32 bits"]
+    for c in CENTRES:
+        for a, b in rel:
+            lines.append(hexes([c[0] + a[0], c[1] + a[1], c[2] + a[2], c[0] + b[0], c[1] + b[1], c[2] + b[2]]))
+    write("zone_segments.list", lines)
+
+    r = 0.70710677
+    rotations = [
+        [1, 0, 0, 0, 1, 0, 0, 0, 1],
+        [0, 0, 1, 0, 1, 0, -1, 0, 0],
+        [-1, 0, 0, 0, 1, 0, 0, 0, -1],
+        [0, 0, -1, 0, 1, 0, 1, 0, 0],
+        [1, 0, 0, 0, 0, -1, 0, 1, 0],
+        [r, 0, r, 0, 1, 0, -r, 0, r],
+    ]
+    apexes = [(0, 0, 30000), (30000, 0, 0), (0, 30000, 0), (0, 0, 0), (5000, 0, -3000), (-10000, 0, 20000)]
+    angles = [(1.0, 0.75), (0.3, 0.2), (2.0, 1.5)]
+    lines = ["# rotation rows (9), apex (3), angle x, angle y, distance as f32 bits"]
+    for rot in rotations:
+        for apex in apexes:
+            for ax, ay in angles:
+                for distance in [40000, 9000]:
+                    lines.append(hexes(rot + list(apex) + [ax, ay, distance]))
+    write("zone_frustums.list", lines)
+
+    rel = [((0, 0, 0), 10), ((2500, 0, 0), 100), ((2500, 0, 0), 1000), ((0, 5000, 0), 3000),
+           ((9000, 9000, 9000), 50), ((1600, 0, 0), 200), ((0, 0, 2600), 700), ((3500, 0, 0), 600)]
+    lines = ["# centre x y z, radius as f32 bits"]
+    for c in CENTRES:
+        for o, radius in rel:
+            lines.append(hexes([c[0] + o[0], c[1] + o[1], c[2] + o[2], radius]))
+    write("zone_spheres.list", lines)
+
+    lines = ["# o x y z: an observer the managers sort for; q x y z: a query point"]
+    observers = [(0, 0, 0), (2000, 0, 0), (-3000, 500, 0), (0, 0, 40000), (5600, 0, 0), (30000, 29000, 0)]
+    queries = [(0, 0, 0), (300, 0, 0), (350, 50, 0), (-400, 100, 0), (-420, 120, 10), (0, -500, 0),
+               (0, -480, 30), (0, 800, 0), (0, 700, 100), (0, 1150, 0), (5500, 0, 0), (5650, 0, 0),
+               (30000, 30000, 0), (900, 0, 0), (2000, 0, 0)]
+    for o in observers:
+        lines.append("o " + hexes(o))
+        for q in queries:
+            lines.append("q " + hexes(q))
+    write("exclusion.list", lines)
+
+
 def main():
     write("asteroid.list", asteroid())
     write("orient.list", orient())
@@ -224,6 +332,7 @@ def main():
     write("feelings.ini", feelings())
     write("reputation.list", reputation())
     zones()
+    zone_queries()
 
 
 if __name__ == "__main__":

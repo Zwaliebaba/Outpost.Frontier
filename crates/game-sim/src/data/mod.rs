@@ -26,6 +26,7 @@ pub mod reputation;
 pub mod rtc_slider;
 pub mod string_cache;
 pub mod universe;
+pub mod vc6;
 pub mod vibe;
 pub mod zone;
 
