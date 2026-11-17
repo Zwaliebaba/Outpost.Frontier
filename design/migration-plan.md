@@ -224,6 +224,11 @@ only the real `DATA` tree shows.
 | P1.8 | `SceneRuntime`: instance tree, compound models, hardpoints, joints, animation mixer | `scene` | L | A for loading, B for evaluation |
 | P1.9 | Wire reader and writer, quantisers, frame and handshake types, `Transport` trait, loopback transport | `net` | M | A |
 
+Status on 2026-11-17: P1.1 to P1.6 and P1.9 are ported and their oracle
+vectors pass in CI; each stays `in progress` until its tests on the original
+data pass and Gate G1 accepts it. P1.7 and P1.8 have not started. The
+progress table in [README.md](README.md) has the detail.
+
 **Gate G1 (milestone "data loads").** Every file in the original `DATA`
 tree that these readers cover loads without error, and the Rust dumps equal
 the oracle dumps.

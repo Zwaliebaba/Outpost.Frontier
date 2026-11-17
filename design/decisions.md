@@ -112,10 +112,17 @@ fix the detail.
 
 ### T11 — Numeric policy
 
-- One canonical arithmetic: `f32` storage, with `f64` intermediates exactly
-  where the C++ source spells a double. This corresponds to the dedicated
-  server's 53-bit mode and is the mode the oracle uses for simulation
-  vectors.
+- One canonical arithmetic: the dedicated server's 53-bit x87 mode, which
+  is also the mode the oracle runs in. Values are stored as `f32` where the
+  C++ stores a `float`. An expression the C++ evaluates on the x87 stack is
+  evaluated in `f64`, whether the source spells `float` or `double`, and
+  rounded to `f32` at each point where the reference stores to a `float`:
+  an assignment, a cast, a `float` argument or return, an `FSTP dword` in
+  inline assembly. Reworded 2026-11-17: the first wording ("`f64` exactly
+  where the C++ spells a double") would have computed `float` code in
+  `f32` and missed the oracle by more than 1 ulp in cancellation cases.
+  The client's 24-bit mode is not modelled (divergence D11, accepted by
+  the owner on 2026-11-17).
 - No fused multiply-add contraction and no fast-math anywhere.
 - `neuron-core::num` supplies truncating and round-to-even float-to-int
   conversions with x86 overflow results. `neuron-core::msvcrt` supplies the

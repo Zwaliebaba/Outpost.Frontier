@@ -111,7 +111,7 @@ difference:
 | Area | Crate and module |
 | C++ behaviour | What the reference does, with file reference |
 | Rust behaviour | What the port does |
-| Reason | Undefined behaviour in the reference, legacy platform dependence, numeric policy, or owner decision |
+| Reason | Undefined behaviour in the reference, legacy platform dependence, numeric policy, owner decision, or technical decision (citing its ID) |
 | Observable effect | What a player, a save file or a peer could notice |
 
 The owner reviews the register at every gate and signs it off at P7.1.

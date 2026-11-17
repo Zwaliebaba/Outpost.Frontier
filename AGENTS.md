@@ -57,8 +57,9 @@ Use Rust ownership and data types to express engine interfaces. Make byte
 order and field widths explicit for persistent or network data.
 
 Numbers follow design/decisions.md T11: no fused multiply-add (clippy
-rejects `mul_add`), `f64` intermediates exactly where the C++ source spells a
-double, and the conversion helpers in NeuronCore instead of bare float-to-int
+rejects `mul_add`); C++ arithmetic evaluated in `f64` and rounded to `f32`
+at each store the reference makes to a `float`, as its 53-bit x87 mode
+does; and the conversion helpers in NeuronCore instead of bare float-to-int
 `as` casts where the C++ result matters.
 
 Use the current subsystem responsibilities in the [port map](docs/port-map.md)
