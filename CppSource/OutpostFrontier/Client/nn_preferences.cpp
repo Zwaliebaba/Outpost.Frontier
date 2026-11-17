@@ -8,6 +8,7 @@
 // registered only by the WINFACTORY global below.
 
 #include "nn_preferences.h"
+#include "oracle_mode.h" // Oracle instrumentation (P0.5)
 #include "msvcrt_compat.h" // MsvcrtAtoi: baseline MSVCRT.DLL wraps mod 2^32, the UCRT saturates
 
 #include "gameflow.h"              // ResetGameflowRoomLetterbox (the routine)
@@ -1645,6 +1646,7 @@ void NnPreferences::LoadKeyList(char const* Path)
         }
     }
     Reader.close();
+    OracleOnKeyListLoaded(Path, this); // Oracle instrumentation (P0.5)
 }
 
 void NnPreferences::AddKeyRow(int CommandId, int Category)
@@ -1906,6 +1908,7 @@ bool NnPreferences::LoadOptList(char const* Path)
             ReadOptSection(Reader, OptionsC, bSeedMode != 0);
     }
     Reader.close();
+    OracleOnOptListLoaded(Path, bOpened, this); // Oracle instrumentation (P0.5)
     if (bSeedMode != 0)
         ApplyChangedPerfOptions();
     return bOpened;

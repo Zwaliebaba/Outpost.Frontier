@@ -1,6 +1,7 @@
 // Author: Giperion.
 
 #include "hud_element_list.h"
+#include "oracle_mode.h" // Oracle instrumentation (P0.5)
 
 #include "common_cequip.h"
 #include "common_cobject.h"
@@ -524,6 +525,7 @@ void LoadHudElementsFromIni()
         } while (Reader.read_header());
     }
 
+    OracleOnHudElementsLoaded(G_HudIniPath, G_HudItemHead, G_HudStaticBlend); // (P0.5)
     // .
     ResetMouseFlightState();
 }

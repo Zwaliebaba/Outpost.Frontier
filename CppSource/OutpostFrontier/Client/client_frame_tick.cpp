@@ -2,6 +2,7 @@
 
 #include "client_frame_tick.h"
 #include "client_tick_profile.h"
+#include "oracle_mode.h" // Oracle instrumentation (P0.5)
 
 #include "client_equip_fx.h"
 #include "client_state.h"
@@ -188,6 +189,7 @@ void TickClientFrame(double DeltaSeconds)
 {
     // Port-only QPC diagnostics requested by Giperion; CLIENT-BETA-LABEL.
     FClientTickProfileFrame ProfileFrame;
+    OracleFrameTick(); // Oracle instrumentation (P0.5): dumps and the script
     // Timing::UpdateGlobalTime(dt) unless the routine.
     if (!ShouldSkipLocalServerTick())
         Timing::UpdateGlobalTime(DeltaSeconds);

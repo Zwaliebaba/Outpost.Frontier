@@ -6,6 +6,7 @@
 #include "client_ime_focus.h" // ReleaseClientIMEFocus (the routine)
 #include "client_state.h"
 #include "intro_connect.h"
+#include "oracle_mode.h" // Oracle instrumentation (P0.5)
 
 #include "common_ini.h"
 #include "common_id.h"
@@ -683,6 +684,7 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE /*prev*/, LPSTR cmd, int /*show
 
         FClientCommandLine CommandLine;
         CommandLine.Parse(cmd);
+        OracleParseCommandLine(&CommandLine); // Oracle instrumentation (P0.5): `+oracle`
         ApplyClientCommandLineFlags(&CommandLine);
         LoadStartupConfig(&g_display, &CommandLine);
         ErrorHandler::activate(g_display.ini_path.c_str(), ClientAssertHandler);

@@ -1,0 +1,33 @@
+# Oracle script (P0.5): walk the main-menu screens that need no server.
+# Run: bin\OutpostFrontier.exe +oracle <repo>\CppSource\OutpostFrontier\oracle\menu_walk.txt <out>
+# Format: CppSource/OutpostFrontier/Client/oracle_mode.cpp, design/reference-build.md section 8.
+# Every screen change is also dumped by itself 30 frames after it happens.
+
+# The main menu: IntroFocus (client state 6), TypeSelect column (menu state 1).
+waitscreen menu 1 900
+wait 90
+dump main-menu
+
+# Load Game: the column slides out, menu state 3 -> 2 -> 18 in single player.
+click text:LOAD GAME
+waitscreen menu 18 300
+wait 60
+dump load-game
+# The page's "Main Menu" message button (PAGE_CharSelectSingle.page, message 0x300c).
+click MainMenu
+waitscreen menu 1 300
+wait 60
+dump main-menu-again
+
+# Options: menu state 10, PageOptions with NN_Preferences.
+click text:OPTIONS
+waitscreen menu 10 300
+wait 60
+dump options
+# The NeuroNet close button tests the cursor, so it cannot be clicked from a script; Escape
+# goes through the key map (USER_CANCEL, keydown) instead. Whatever it does is in the dumps.
+command USER_CANCEL
+wait 60
+dump options-after-cancel
+
+quit
