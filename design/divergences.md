@@ -129,7 +129,8 @@ The owner accepted D11 on 2026-11-17.
 | D152 | `game-sim::data::asteroid_field` | An `asteroid` line naming an archetype that is not loaded calls `Root::load` through null | The line is reported and dropped | Undefined behaviour in the reference | None in the data |
 | D153 | `game-sim::data::asteroid_field` | An `[Exclusion Zones]` property line before any zone was pushed writes through `back()` of an empty vector | The line is skipped | Undefined behaviour in the reference | None in the data |
 | D154 | `game-sim::data::asteroid_field` | A field without a zone dereferences null when it pushes an exclusion zone (the immersion test) and in `get_lootable_zone` | The exclusion zone is kept without the test; the loot-zone lookup gives none | Undefined behaviour in the reference | None in the data: the server faults earlier on a field whose zone is missing |
-| D155 | `game-sim::data::spatial` | `BspPartition::Remove` on an empty partition reads the root's slots through null | It panics | Undefined behaviour in the reference | None: no caller removes from an empty partition |
+| D155 | `game-sim::data::spatial` | `BspPartition::Remove` on an empty partition reads the root's slots through null | It does nothing | Undefined behaviour in the reference | None: no caller removes from an empty partition |
+| D156 | `game-sim::data::spatial` | `BspPartition::Add` splits the same full leaf for ever when no candidate plane separates its nine entries (nine coincident centres, say) | After `MAX_SPLITS_PER_ADD` (65,536) leaf splits in one `Add` the entry being placed is dropped and counted in `dropped` | Undefined behaviour in the reference (the call never returns) | None for the shipped data, which has no such entries |
 
 D5 to D9 described the reader's binary INI path. That path was removed
 with decision O13, so the rows are gone; the IDs are not reused. D32

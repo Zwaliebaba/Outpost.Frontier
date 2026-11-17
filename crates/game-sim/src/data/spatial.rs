@@ -13,9 +13,11 @@
 //! owns its nodes in an arena and refers to them by index. Object handles
 //! are `u32` values, 0 for none (the C++ null pointer).
 //!
-//! As in the reference, nine entries that no candidate plane separates
-//! (nine coincident centres, say) make `Add` split the same full leaf for
-//! ever; the data never has them.
+//! Nine entries that no candidate plane separates (nine coincident
+//! centres, say) make the reference's `Add` split the same full leaf for
+//! ever. The port stops after [`MAX_SPLITS_PER_ADD`] splits in one `Add`
+//! and drops the entry it was placing (divergence D156); the data never has
+//! such entries.
 
 // The reference's x87 comparisons send unordered operands (NaN) to one
 // side; the port spells each outcome as the comparison that is true exactly
@@ -421,7 +423,18 @@ pub struct BspPartition {
     /// The entries stored in leaves, as the C++ counts them (`Remove` does
     /// not count down).
     pub entry_count: i32,
+    /// Entries dropped because one `Add` reached [`MAX_SPLITS_PER_ADD`]
+    /// leaf splits (divergence D156; the reference never returns).
+    pub dropped: u32,
+    /// Leaf splits made by the `Add` in progress.
+    splits: u32,
 }
+
+/// The leaf splits one `Add` may make before it gives up on entries that
+/// no plane separates (divergence D156). A partition of N entries needs at
+/// most about N splits for an `Add`; the data's largest system holds a few
+/// thousand objects.
+pub const MAX_SPLITS_PER_ADD: u32 = 1 << 16;
 
 /// `LinearPartition`: one array, every query a full scan.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -561,6 +574,18 @@ fn ray_plane(s: f64, dn: f64, length: f32) -> (usize, Option<f32>) {
 }
 
 impl BspPartition {
+    /// Counts a leaf split of the `Add` in progress; false once the bound of
+    /// divergence D156 is reached, and the caller drops its entry.
+    fn may_split(&mut self) -> bool {
+        self.splits += 1;
+        if self.splits > MAX_SPLITS_PER_ADD {
+            self.dropped += 1;
+            false
+        } else {
+            true
+        }
+    }
+
     fn push_node(&mut self) -> usize {
         self.nodes.push(Node::default());
         self.nodes.len() - 1
@@ -589,9 +614,11 @@ impl BspPartition {
     /// `Remove`: the last used slot of the node holding `object` moves into
     /// its place.
     pub fn remove(&mut self, object: u32) {
-        let root = self
-            .root
-            .expect("BspPartition::Remove on an empty partition");
+        // The reference reads the root's slots through null here (divergence
+        // D155); there is nothing to remove.
+        let Some(root) = self.root else {
+            return;
+        };
         let Some(node) = self.find_object(root, object) else {
             return;
         };
@@ -613,6 +640,7 @@ impl BspPartition {
 
     /// `Add`.
     pub fn add(&mut self, entry: SpatialEntry) {
+        self.splits = 0;
         let node = match self.root {
             Some(root) => root,
             None => {
@@ -633,6 +661,9 @@ impl BspPartition {
             self.nodes[node].add_entry(entry);
             self.entry_count += 1;
         } else {
+            if !self.may_split() {
+                return;
+            }
             let slots = self.nodes[node].slots;
             self.nodes[node].plane.compute_initial_split(&slots);
             for index in 0..8 {
@@ -666,6 +697,9 @@ impl BspPartition {
                     self.entry_count += 1;
                     return;
                 }
+                if !self.may_split() {
+                    return;
+                }
                 let slots = self.nodes[child].slots;
                 self.nodes[child].plane.compute_initial_split(&slots);
                 for index in 0..8 {
@@ -687,6 +721,9 @@ impl BspPartition {
                 if !self.nodes[node].full() {
                     self.nodes[node].add_entry(entry);
                     self.entry_count += 1;
+                    return;
+                }
+                if !self.may_split() {
                     return;
                 }
                 self.split_full_leaf(node);
@@ -1204,6 +1241,16 @@ mod tests {
             position: v(x, y, z),
             radius,
         }
+    }
+
+    #[test]
+    fn coincident_entries_end_instead_of_splitting_for_ever() {
+        let mut tree = BspPartition::default();
+        for object in 1..=9 {
+            tree.add(entry(object, 5.0, 5.0, 5.0, 1.0));
+        }
+        assert!(tree.dropped >= 1, "dropped {}", tree.dropped);
+        tree.add(entry(10, 100.0, 0.0, 0.0, 1.0));
     }
 
     #[test]
