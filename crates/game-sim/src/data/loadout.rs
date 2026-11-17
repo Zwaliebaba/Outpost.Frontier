@@ -43,10 +43,10 @@ pub struct LoadoutDb {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LoadoutError {
     /// An `equip` or `cargo` line before any `nickname`: the reference
-    /// dereferences null.
+    /// dereferences null (divergence D91).
     LineBeforeNickname,
     /// A combinable cargo line whose first match differs in mission flag,
-    /// owner or hardpoint: the reference loops for ever.
+    /// owner or hardpoint: the reference loops for ever (divergence D92).
     CargoMatchLoops,
 }
 

@@ -8,7 +8,7 @@
 //! same id only once.
 //!
 //! Left out on purpose (decision record 0001, point 7): the client
-//! companion objects (`ICliObj`, `[LOD]`), and everything `Root::load`
+//! companion objects (`ICliObj`, `[LOD]`; divergence D94), and everything `Root::load`
 //! creates later (mesh and script handles, collision surfaces, the
 //! `BEAM_ARCH` compound). `DataConfig` always loads with `bReload` false,
 //! so the reload branches (redefining an equipment, ship or simple record

@@ -12,6 +12,7 @@
 //! record 0001, point 7).
 
 pub mod archetype;
+pub mod asteroid;
 pub mod base;
 pub mod config;
 pub mod constants;

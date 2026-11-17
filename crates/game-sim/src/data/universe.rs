@@ -8,8 +8,8 @@
 //! nickname read so far. Two values carry from one block to the next
 //! because the C++ never resets them: a system's position (a `[System]`
 //! without `pos` keeps the previous one) and an `[Object]`'s nickname (an
-//! object without one uses the previous object's). The C++ starts both from
-//! whatever its stack held; the port starts them at zero (divergence D90).
+//! object without one uses the previous object's). Both start at zero, as in
+//! the C++ reference (the original started from whatever its stack held).
 //!
 //! The `[Object]` records of a system file (`GetSystemObject`) are read
 //! again from the file on demand; [`Universe::system_objects`] does the

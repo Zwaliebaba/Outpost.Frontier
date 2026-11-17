@@ -387,7 +387,8 @@ impl GoodList {
                         SOURCE,
                         0,
                         format!(
-                            "hull {} is not a good; the reference dereferences null here",
+                            "hull {} is not a good; the reference dereferences null here \
+                             (divergence D88)",
                             lossy(&reader.value_string())
                         ),
                     ),
@@ -427,7 +428,7 @@ impl GoodList {
                     0,
                     format!(
                         "good 0x{:x}: equipment 0x{equipment_arch:x} is not an archetype; \
-                         the reference dereferences null here",
+                         the reference dereferences null here (divergence D87)",
                         info.id
                     ),
                 ),

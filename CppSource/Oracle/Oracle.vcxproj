@@ -86,6 +86,7 @@
     <ClCompile Include="oracle_game_data.cpp" />
     <ClCompile Include="oracle_game_archetype.cpp" />
     <ClCompile Include="oracle_game_universe.cpp" />
+    <ClCompile Include="oracle_game_suites.cpp" />
     <!-- P1.7: RendComp.dll's sources are compiled into oracle_mesh_data.cpp and
          Deformable2.dll's (with EyeMaterial.cpp) into oracle_mesh_data_dfm.cpp; neither DLL
          exports anything but DllMain. -->

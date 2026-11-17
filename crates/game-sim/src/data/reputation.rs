@@ -132,8 +132,8 @@ impl Reputation {
 
     /// `Reputation::LoadFeelings`: the `rep` lines of each `[Group]` block,
     /// `rep = feeling, other`; the first feeling for a group wins. A block
-    /// for an unknown group is skipped (the reference writes into the map's
-    /// head node there, divergence D87).
+    /// for an unknown group is skipped, as the C++ reference does (the
+    /// original wrote into the map's head node there).
     pub fn load_feelings(&mut self, reader: &mut IniReader, reports: &mut Reports) {
         while reader.read_header() {
             if !reader.is_header(b"Group") {
@@ -291,8 +291,8 @@ impl Reputation {
     }
 
     /// `Reputation::set`: replaces the feelings of `nickname`'s group (a new
-    /// group gets an empty nickname and zero names, divergence D88); the
-    /// first value for a repeated group in `relations` wins.
+    /// group gets an empty nickname and zero names, as in the C++
+    /// reference); the first value for a repeated group in `relations` wins.
     pub fn set(&mut self, nickname: &[u8], relations: &[Relation]) {
         let id = u32::from(make_id(&tstring16(nickname)));
         let group = self.groups.entry(id).or_default();

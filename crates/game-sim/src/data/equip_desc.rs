@@ -59,7 +59,8 @@ impl EquipDesc {
 
     /// `get_cargo_space_occupied`: `count * volume` for an internal line
     /// with an archetype, else 0. `volume` is the archetype's; the C++
-    /// dereferences a missing archetype, here it counts as volume 0.
+    /// dereferences a missing archetype, here it counts as volume 0
+    /// (divergence D93).
     #[must_use]
     pub fn cargo_space_occupied(&self, strings: &StringCache, volume: Option<f32>) -> f64 {
         if !self.is_internal(strings) || self.arch_id == 0 {
