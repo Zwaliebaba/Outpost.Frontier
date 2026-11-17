@@ -1,7 +1,7 @@
 """Writes the oracle inputs of the fx_data suite (work package P1.7).
 
 Everything here is synthetic: small UTF archives holding an
-AlchemyNodeLibrary and an ALEffectLib stream built from the layouts in
+ParticleFxNodeLibrary and an ALEffectLib stream built from the layouts in
 crates/neuron-core/src/fx_data/, with made-up names and values chosen to
 reach the loaders' rules: both versions, every property kind, owned and
 unowned hashes, the hash and kind remaps, unnamed and duplicate nodes, the
@@ -78,7 +78,7 @@ def utf(children):
 def ale(nodes=None, effects=None, extra=()):
     children = []
     if nodes is not None:
-        children.append(Dir(b'AlchemyNodeLibrary', [File(b'AlchemyNodeLibrary', nodes)]))
+        children.append(Dir(b'ParticleFxNodeLibrary', [File(b'ParticleFxNodeLibrary', nodes)]))
     if effects is not None:
         children.append(Dir(b'ALEffectLib', [File(b'ALEffectLib', effects)]))
     children.extend(extra)
@@ -488,10 +488,10 @@ def counts():
 
 def missing():
     yield 'missing_both.ale', ale()
-    yield 'missing_leaf.ale', utf([Dir(b'AlchemyNodeLibrary', [File(b'Other', b'\0' * 8)]),
+    yield 'missing_leaf.ale', utf([Dir(b'ParticleFxNodeLibrary', [File(b'Other', b'\0' * 8)]),
                                     Dir(b'ALEffectLib', [File(b'ALEffectLib', effects_lib([]))])])
     yield 'empty_leaves.ale', ale(b'', b'')
-    yield 'lower_case.ale', utf([Dir(b'alchemynodelibrary', [File(b'ALCHEMYNODELIBRARY', library(
+    yield 'lower_case.ale', utf([Dir(b'particlefxnodelibrary', [File(b'PARTICLEFXNODELIBRARY', library(
         [node(b'FxNode', [prop(0x103, NAME, string(b'cased'))])]))]),
         Dir(b'aleffectlib', [File(b'aleffectlib', effects_lib([effect(b'cased', [], [])]))])])
 

@@ -2,7 +2,7 @@
 //! `particlefx_nodelibrary.cpp`, `ReadNodeLibProperties` in
 //! `particlefx_common.cpp`).
 //!
-//! Stream (the file `AlchemyNodeLibrary` in the UTF directory of the same
+//! Stream (the file `ParticleFxNodeLibrary` in the UTF directory of the same
 //! name): the version as float bits, a 32-bit node count, then per node
 //! its class name (a [`Chunk::string`]) and its property records up to a
 //! zero type word. A record is a 16-bit type, a 32-bit hash and the kind's
@@ -206,7 +206,7 @@ impl NodeLibrary {
         });
     }
 
-    /// `LoadNodeLibrary`: enters the directory `AlchemyNodeLibrary` of `fs`
+    /// `LoadNodeLibrary`: enters the directory `ParticleFxNodeLibrary` of `fs`
     /// and reads the leaf of the same name, then leaves the directory.
     ///
     /// Nodes are added as they are read, so a failure keeps the nodes

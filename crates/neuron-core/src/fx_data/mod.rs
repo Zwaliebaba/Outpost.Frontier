@@ -11,7 +11,7 @@
 //! An `.ale` file is a UTF archive with two directories, each holding one
 //! file of its own name:
 //!
-//! * `AlchemyNodeLibrary`: the node prototypes ([`NodeLibrary`]): emitters,
+//! * `ParticleFxNodeLibrary`: the node prototypes ([`NodeLibrary`]): emitters,
 //!   fields, appearances and folders, each with its typed properties
 //!   ([`PropertySet`]): scalars, names, flags, nested ramps and animated
 //!   transforms.
@@ -56,10 +56,9 @@ use crate::vfs::{UtfFileSystem, VfsError};
 pub const ALE_NODE_NAME: &[u8] = b"ALEffectLib";
 /// The node library's directory and file.
 ///
-/// The rename of the C++ modules had made the reference read
-/// `"ParticleFxNodeLibrary"` here, which no data file has; decision O16
-/// restored the name in `CppSource/particlefx/particlefx_common.cpp`.
-pub const NODE_LIBRARY_NAME: &[u8] = b"AlchemyNodeLibrary";
+/// The `.ale` files named it `AlchemyNodeLibrary` until decision O17
+/// renamed it in the data to the name the reference reads.
+pub const NODE_LIBRARY_NAME: &[u8] = b"ParticleFxNodeLibrary";
 /// The `open_node` argument that leaves a directory.
 pub const LEAVE: &[u8] = b"..";
 /// Version 1.0 as float bits: nested ramps hold one key and no mode, and

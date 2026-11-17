@@ -9,7 +9,7 @@ plan, decisions and per-library ledger are in [design/](design/README.md).
 `CppSource/` is frozen: change it only to fix the reference build or to add
 oracle instrumentation (design/migration-plan.md, Phase 0). The recorded
 exceptions are the plain-text save writer (design/decisions.md O12) the
-directory `FindFirst` fix (O14) and the particle node-library name (O16).
+directory `FindFirst` fix (O14) and the costume hash in `SetRellan` (O17).
 
 ## Ownership and dependencies
 

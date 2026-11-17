@@ -10,7 +10,8 @@ on:
   schedule:
     - cron: "17 2 * * *"
   push:
-    branches: [main]
+    # TEMPORARY: confirms decision O17 on the Phase 1 branch; remove before merging.
+    branches: [main, claude/affectionate-gauss-ndzdwd]
   workflow_dispatch:
 
 permissions:

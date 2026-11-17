@@ -1,47 +1,55 @@
-# Rebranded names the original data still uses
+# Rebranded names in the data
 
-Status: open, found 2026-11-17 during Phase 1. Needs an owner decision
-before the packages that use these names (Phases 2, 3 and 5).
+Status: decided 2026-11-17, option 3 (decision O17). The first version of
+this page, written earlier the same day, assumed the data still used the
+old names throughout; it does not, and most of its rows were wrong.
+
+## What the data holds
 
 The commit that set up the Rust workspace and rebranded the C++ modules
-(`89eda18`) also changed string literals that the game data matches. The
-original data in `outdir/` (decision O15) still uses the old spellings, so
-wherever the reference compares with one of these strings it no longer
-finds what the original game found. One case is fixed already: the
-particle node-library name (decision O16).
+(`89eda18`) renamed systems, bases, characters and modules in the code. The
+data committed in `outdir/` (decision O15) had been renamed the same way,
+but only in its text files:
 
-## How the list was made
+- INI and `.fl` files use the new nicknames: every system and base (Li→he,
+  Rh→dm, Br→ve, Ku→or, Iw→fc, Bw→fr, Hi→pe, St→ep, Ew→oe), `RELAYSEVEN_system`,
+  `Or07_02`, `veilborn`, the costume and voice `rellan`, and the key
+  `particlefx` in the effect lists. Nickname hashes in the text match: the
+  `vnpc` lines in `newplayer.fl` hold `CreateID("ep01_01_base")`.
+- File and directory names keep the old spelling
+  (`systems\St01\St01.ini`, `Audio\Dialogue\Trent\…`). The text refers to
+  them by those paths, so they resolve.
+- Binary files were not renamed.
 
-Every string literal of three or more characters that `89eda18` removed
-from `CppSource/**/*.{cpp,h}` and did not add back (360 literals) was
-searched for, ignoring case, in `outdir/data/` and the INI files at the top
-of `outdir/`. 20 of them occur in the data. Each was then traced to the
-code that now holds its replacement. The scan only sees literals the
-commit removed whole; a rename that kept part of a literal, a name built
-at run time, or a hash of a name would not show, so the list is a lower
-bound.
+## Mismatches found, and what O17 did
 
-## Found
+| Where | Old name | Matched against | Done |
+| --- | --- | --- | --- |
+| 596 `.ale` files | node library `AlchemyNodeLibrary` | `kNodeLibName` in `particlefx/particlefx_common.cpp` | Renamed to `ParticleFxNodeLibrary` in the UTF string table (it fits the table's slack in every file); O16 undone |
+| 851 `.thn` cutscenes (compiled Lua 3.2) | DEFORMABLE template `trent` | costume nickname in `CHARACTERS/costumes.ini` (`rellan`) | Renamed (698 templates) |
+| same | SOUND templates `VoiceProfile_$BGCS_Trent_*`, `VoiceProfile_GCS_Trent_*` | voice messages of `rellan_voice` in `AUDIO/voices_recognizable.ini` | Renamed |
+| same | SOUND templates `dx_s*_Trent` | sound nicknames `dx_s*_Rellan` in `AUDIO/story_sounds.ini` | Renamed |
+| `Server/server_pub.cpp`, `SetRellan` | `CreateID("trent")` (`0xb8249f07`) | costume nickname `rellan` | Now `CreateID("rellan")` (`0x960dd804`) |
 
-| Data spelling | Reference now | Where | Effect in the reference | Phase |
-| --- | --- | --- | --- | --- |
-| `AlchemyNodeLibrary` | was `ParticleFxNodeLibrary` | `particlefx/particlefx_common.cpp` | Fixed by O16 | P1.7 |
-| INI key `alchemy` | `particlefx` | `OutpostFrontier/Client/vis_effect_arch.cpp:759` | The effect files named in `FX/EQUIPMENT/equipment_ale.ini` (19 lines), `FX/WEAPONS/weapons_ale.ini` (575) and `FX/ENGINES/engines_ale.ini` (106) are not read | P5.6 |
-| System list `St01`, `St02`, `St03`, `St02b`, `St02c`, `St03b`, `Ew05`, `Ew06`, `FP7_system` | `Ep01`, … `Oe05` | `Common/common_universe.cpp:265` | The systems this list singles out are not matched | P2.1 |
-| `FP7_system` | `RELAYSEVEN_system` | `Content/PlayerState.cpp:39`, `:218` | The system ID the story code looks up is not found | P3.5 |
-| Object `Ku07_02` | `Or07_02` | `OutpostFrontier/Client/hud_status_core.cpp` (`G_ShieldlessShipId`) | The ship the HUD treats as shieldless is not recognised | P5.7 |
-| Archetype type value `nomad` | `veilborn` | `Common/common_archetype_ships.cpp:799` | Ships of type `nomad` are not given that type | P2.1 |
-| Costume `trent` | `rellan` | `OutpostFrontier/Client/base_walk.cpp:247` | The walk-mode character costume is not found | P6.3 |
-| Template prefix `$BGCS_Trent_` | renamed | `OutpostFrontier/Client/gf_scenescript_sound.cpp` | Voice-line templates for the player character are not matched | P5.9 |
+Before the rename none of the 916 costume and sound templates naming the
+player character resolved; after it, 914 do. The two left
+(`VoiceProfile_$BGCS_Rellan_F09aP01_5` in `gcs_mlstand_f09ap_010.thn` and
+`gcs_mlsit_f09ap_010.thn`) name voice messages that exist in neither
+spelling, a gap in the data.
 
-## Options
+Entity, camera and marker names inside the scripts (`Char_Trent`,
+`Sc_dx_…_Trent`, `Mrk_TrentWalkAlign_0sec`) are matched only within their
+own script and keep the old spelling. So do a few text nicknames the rename
+missed but uses consistently (`MSN04_Trents_Friend`).
 
-1. Restore the original spellings in the reference, one owner decision
-   (like O16) covering this list, and port them as the data has them.
-2. Leave the reference as built, port the original spellings, and record
-   each place as a divergence. The oracle then cannot check those paths.
-3. Rename the data to the new spellings. This changes the original data,
-   which decision O15 keeps as the master copy, and the port would no
-   longer load an unmodified installation.
+## How the lists were made
 
-Option 1 keeps the oracle meaningful and the data untouched.
+Strings: every Lua string constant in the `.thn` files that follows an entity
+type was checked against the costume, sound and voice tables. Hashes: the
+`CreateID` of 781 old names recoverable from the data (system and base file
+names, directory names, and the names of the first version of this page) was
+searched for as a hex or decimal literal in `CppSource/`; `SetRellan` was the
+only hit, and the other four costume hashes beside it match current
+nicknames. A name built at run time, or a hash of a name that appears
+nowhere in the data, would not show, so later phases can still find one.
+They are handled the same way: the data keeps the new name.

@@ -357,7 +357,7 @@ branch, CI is green, and the legacy scan is part of CI.
 - `CppSource/` is frozen. The only permitted changes are build fixes and
   oracle instrumentation from Phase 0. The recorded exceptions are the
   plain-text save writer (decision O12) the directory `FindFirst` fix
-  (decision O14) and the particle node-library name (decision O16).
+  (decision O14) and the costume hash in `SetRellan` (decision O17).
 - One work package is one or more pull requests against the owning crate.
   Each updates the ledger.
 - Unknown fields in the reconstruction (about 11,000) are carried as
@@ -386,7 +386,7 @@ branch, CI is green, and the legacy scan is part of CI.
 | The original data was not in the repository (resolved by decision O15: it is in `outdir/`) | CI could not run data tests | Synthetic vectors in CI; data tests can now run in CI against `outdir/` |
 | The C++ tree derives from a commercial binary, the physics code carries no licence, and the original data is published in the repository (decision O15) | Project-level legal exposure outside this plan's control; the owner accepted it for the data | Not ported: IVP, the EULA and list-server binaries. Dumps and vectors made from the data are not committed |
 | QUIC needs an async runtime inside engine crates | Threading complexity | One I/O thread owns the runtime; the game thread polls a channel, as the DirectPlay code already does |
-| The rebrand commit `89eda18` changed names in the reference that the original data still uses ([rebrand-names.md](rebrand-names.md)) | The reference misses the matching data where the code compares with those names, so its behaviour there is not the original game's | One fixed (O16); the rest wait for an owner decision before Phases 2, 3 and 5 |
+| The rebrand commit `89eda18` changed names in the reference; the data's text files carry the new names, but binary files and hashes compiled into the code kept old ones ([rebrand-names.md](rebrand-names.md)) | The reference misses the matching data where the code compares with an old name | Decision O17 renamed the binary data and fixed the one hash found; a name built at run time or a hash of a name not in the scan can still turn up in later phases |
 | Deleting the C++ only at the end hides progress | Stakeholders see no shrinkage | The ledger and the seven milestones are the progress record |
 
 ## 9. What happens first

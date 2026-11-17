@@ -5140,7 +5140,9 @@ SERVER_API int __cdecl SetRellan(unsigned int player_id) {
     if (!p) return -2;
     CostumeDescriptions const* Costumes = GetCostumeDescriptions();
     if (Costumes != nullptr) {
-        Costumes->get_costume((int)0xb8249f07u, p->costume);
+        // CreateID("rellan"): the baseline pushed CreateID("trent"), the costume's old name;
+        // the data names it rellan (owner decision O17, an approved change to the frozen reference).
+        Costumes->get_costume((int)0x960dd804u, p->costume);
     }
     return 0;
 }
