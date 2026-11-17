@@ -1110,4 +1110,13 @@ void RunGameSimSuites()
     GuardedGameSimSuite("exclusion_zones", ExclusionSuite);
     GuardedGameSimSuite("spatial", SpatialSuite);
     GuardedGameSimSuite("base_props", BasePropsSuite);
+    // The last suite's universe is released under the same guard, so a fault
+    // in the teardown is reported like a suite's.
+    GuardedGameSimSuite("universe_shutdown", []() {
+        if (GFixtureUniverseUp)
+        {
+            Universe::Shutdown();
+            GFixtureUniverseUp = false;
+        }
+    });
 }
