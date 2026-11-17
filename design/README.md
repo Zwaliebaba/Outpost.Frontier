@@ -7,6 +7,7 @@ Plan for migrating the C++ code base in `CppSource/` to the Rust workspace.
 | [migration-plan.md](migration-plan.md) | Scope, target architecture, legacy replacements, phases, work packages, gates, risks |
 | [decisions.md](decisions.md) | Owner decisions and technical decisions with the alternatives rejected |
 | [library-ledger.md](library-ledger.md) | All 39 C++ projects and shared source groups: disposition, Rust destination, work packages, status |
+| [port-map.md](port-map.md) | Which Rust crate owns each C++ project and source group, and what it is responsible for |
 | [verification.md](verification.md) | Fidelity tiers, the oracle, test data handling, CI, definition of done, gates |
 | [reference-build.md](reference-build.md) | How to build and run the C++ as the reference: DirectX 8.1 SDK, folder layout, build, run |
 | [facts.md](facts.md) | Facts to collect from the original installation (P0.3) |
@@ -25,6 +26,13 @@ Plan for migrating the C++ code base in `CppSource/` to the Rust workspace.
 | Gate G0 | Passed 2026-11-16 ([migration plan](migration-plan.md) section 6) |
 | P1.1 Core primitives | In progress, started before G0 (migration plan section 6): `hash`, `id`, `msvcrt`, `num`, `rng` in `neuron-core`. Oracle vectors confirmed in CI. The string cache moved to P2.1. Open: acceptance at Gate G1 |
 | P1.2 INI formats | In progress, started before G0: `neuron-core::ini` (engine parser, `INI_Reader`; text only, decision O13). Oracle vectors confirmed in CI; the data dump of the master in `outdir\` shows 0 differences. Open: acceptance at Gate G1 |
+| P1.3 File systems | In progress: `neuron-core::utf` (UTF container, `FindFirst` matcher, DOS times) and `neuron-core::vfs` (`FileSystem` trait; directory, UTF and memory file systems; search path; path rules). Seven oracle suites; oracle vectors confirmed in CI; the Python UTF walker agrees with the Rust reader on the fixtures. The directory `FindFirst` defect is fixed in both builds (decision O14), checked against `FindFirstFileA` on Windows. Open: a test over the `.utf` files of the original data, acceptance at Gate G1 |
+| P1.4 Math kernels | In progress: `neuron-core::math`, every `x86math` kernel in the reference's operation order on the 53-bit model, aliased-call variants included. Oracle vectors equal the C++ output in CI (NaN written as one pattern). Open: acceptance at Gate G1 |
+| P1.5 Diagnostics, time, utilities | In progress: `neuron-core::diag` (FDUMP flags, the `ErrorHandler` channels, error callbacks, tick profile behind feature `tick-profile`), `neuron-core::time` (`Timing`, `Delta`), `neuron-core::util` (rect, Catmull-Rom spline, state machine, MD5 text form). Oracle vectors confirmed in CI. Open: acceptance at Gate G1 |
+| P1.6 Text catalogs | In progress: sources in `resources/text/`, one TOML file per module (converted from the `.rc` scripts and cards on 2026-11-17, catalogs byte-identical), `cargo xtask catalog` builds one catalog per module, `neuron-core::catalog` resolves text IDs. CI builds the eight resource DLLs and finds every string and card equal to the catalogs. Open: acceptance at Gate G1 |
+| P1.7 Asset parsers | Not started |
+| P1.8 Scene runtime | Not started |
+| P1.9 Wire and transport | In progress: `neuron-core::net` (wire reader and writer, the RemoteCommon quantisers, T17 framing and handshake, `Transport` trait, loopback transport). Oracle vectors for the quantisers and field primitives confirmed in CI. Open: acceptance at Gate G1 |
 
 ## Assessments
 

@@ -7,8 +7,9 @@ and `OutpostServer`. The toolchain is pinned in `rust-toolchain.toml`.
 The C++ code base in `CppSource/` is being migrated to this workspace. The
 plan, decisions and per-library ledger are in [design/](design/README.md).
 `CppSource/` is frozen: change it only to fix the reference build or to add
-oracle instrumentation (design/migration-plan.md, Phase 0). The plain-text
-save writer is the one recorded exception (design/decisions.md O12).
+oracle instrumentation (design/migration-plan.md, Phase 0). The recorded
+exceptions are the plain-text save writer (design/decisions.md O12) and the
+directory `FindFirst` fix (O14).
 
 ## Ownership and dependencies
 
@@ -56,11 +57,12 @@ Use Rust ownership and data types to express engine interfaces. Make byte
 order and field widths explicit for persistent or network data.
 
 Numbers follow design/decisions.md T11: no fused multiply-add (clippy
-rejects `mul_add`), `f64` intermediates exactly where the C++ source spells a
-double, and the conversion helpers in NeuronCore instead of bare float-to-int
+rejects `mul_add`); C++ arithmetic evaluated in `f64` and rounded to `f32`
+at each store the reference makes to a `float`, as its 53-bit x87 mode
+does; and the conversion helpers in NeuronCore instead of bare float-to-int
 `as` casts where the C++ result matters.
 
-Use the current subsystem responsibilities in the [port map](docs/port-map.md)
+Use the current subsystem responsibilities in the [port map](design/port-map.md)
 to place new modules. Validate ports with tests for the relevant input format
 or observable behavior.
 
@@ -80,6 +82,10 @@ or observable behavior.
   other SDK, and do not use these files outside `CppSource/`.
 - Record every deliberate difference from the C++ behaviour in
   [design/divergences.md](design/divergences.md).
+- Text resources live in `resources/text/`, one TOML file per module,
+  converted from `CppSource/Resources/`; `cargo xtask catalog` builds the
+  catalogs. Until P7.3 a text change must be made in both places, because
+  CI compares the resource DLLs with the catalogs.
 
 ## Local checks
 

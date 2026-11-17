@@ -1,0 +1,59 @@
+{"op":"mem","arg":"c0000000 2 copy - 6d656d5c726f6f745c","result":"0"}
+{"op":"state","arg":"","size":"00000000","pos":"0","alloc":"0","fnv":"811c9dc5","head":""}
+{"op":"write","arg":"68656c6c6f","ok":"1","written":"5"}
+{"op":"state","arg":"","size":"00000005","pos":"5","alloc":"65536","fnv":"63aa20f9","head":"68656c6c6f000000000000000000000000000000000000000000000000000000"}
+{"op":"seek","arg":"0 0","result":"0"}
+{"op":"read","arg":"8","ok":"1","got":"5","data":"68656c6c6f"}
+{"op":"read","arg":"8","ok":"1","got":"0","data":""}
+{"op":"seek","arg":"0 1","result":"1"}
+{"op":"read","arg":"3","ok":"1","got":"3","data":"656c6c"}
+{"op":"writeat","arg":"3 4c4f20776f726c64","ok":"1","written":"8"}
+{"op":"state","arg":"","size":"0000000b","pos":"11","alloc":"65536","fnv":"4ad0f075","head":"68656c4c4f20776f726c64000000000000000000000000000000000000000000"}
+{"op":"readat","arg":"0 20","ok":"1","got":"11","data":"68656c4c4f20776f726c64"}
+{"op":"seek","arg":"2 16","result":"65520"}
+{"op":"state","arg":"","size":"0000000b","pos":"65520","alloc":"65536","fnv":"4ad0f075","head":"68656c4c4f20776f726c64000000000000000000000000000000000000000000"}
+{"op":"setend","arg":"","ok":"1"}
+{"op":"state","arg":"","size":"0000fff0","pos":"65520","alloc":"65536","fnv":"4ad0f075","head":"68656c4c4f20776f726c64000000000000000000000000000000000000000000"}
+{"op":"seek","arg":"0 70000","result":"70000"}
+{"op":"setend","arg":"","ok":"1"}
+{"op":"state","arg":"","size":"00011170","pos":"70000","alloc":"135168","fnv":"7b243075","head":"68656c4c4f20776f726c64000000000000000000000000000000000000000000"}
+{"op":"seek","arg":"0 5","result":"5"}
+{"op":"setend","arg":"","ok":"1"}
+{"op":"state","arg":"","size":"00000005","pos":"5","alloc":"135168","fnv":"7b243075","head":"68656c4c4f20776f726c64000000000000000000000000000000000000000000"}
+{"op":"read","arg":"4","ok":"1","got":"0","data":""}
+{"op":"resolve","arg":"78 260","ok":"1","out":"6d656d5c726f6f745c78"}
+{"op":"resolve","arg":"2e2e5c78 260","ok":"1","out":"6d656d5c78"}
+{"op":"resolve","arg":"2e2e5c2e2e5c2e2e5c78 260","ok":"0","out":"6d6578"}
+{"op":"resolve","arg":"5c616273 260","ok":"1","out":"5c616273"}
+{"op":"resolve","arg":"78 4","ok":"1","out":"6d656d5c"}
+{"op":"syspath","arg":"260","out":"6d656d5c726f6f745c"}
+{"op":"syspath","arg":"4","out":"6d656d"}
+{"op":"mem","arg":"80000000 3 copy 72656164206f6e6c792064617461 -","result":"0"}
+{"op":"state","arg":"","size":"0000000e","pos":"0","alloc":"14","fnv":"5b6e06fb","head":"72656164206f6e6c792064617461"}
+{"op":"write","arg":"78","ok":"0","written":"0"}
+{"op":"read","arg":"4","ok":"1","got":"4","data":"72656164"}
+{"op":"seek","arg":"2 2","result":"12"}
+{"op":"read","arg":"10","ok":"1","got":"2","data":"7461"}
+{"op":"setend","arg":"","ok":"0"}
+{"op":"seek","arg":"1 2","result":"16"}
+{"op":"read","arg":"2","ok":"1","got":"0","data":""}
+{"op":"mem","arg":"c0000000 3 wrap 6669786564 77726170706564","result":"0"}
+{"op":"state","arg":"","size":"00000005","pos":"0","alloc":"5","fnv":"b3f55bf9","head":"6669786564"}
+{"op":"write","arg":"6162","ok":"1","written":"2"}
+{"op":"write","arg":"6364656667","ok":"1","written":"3"}
+{"op":"state","arg":"","size":"00000005","pos":"5","alloc":"5","fnv":"749bcf08","head":"6162636465"}
+{"op":"write","arg":"68","ok":"1","written":"0"}
+{"op":"seek","arg":"0 9","result":"9"}
+{"op":"setend","arg":"","ok":"0"}
+{"op":"seek","arg":"0 2","result":"2"}
+{"op":"setend","arg":"","ok":"1"}
+{"op":"state","arg":"","size":"00000002","pos":"2","alloc":"5","fnv":"749bcf08","head":"6162636465"}
+{"op":"readat","arg":"0 10","ok":"1","got":"2","data":"6162"}
+{"op":"mem","arg":"c0000000 4 copy 7472756e63 -","result":"0"}
+{"op":"state","arg":"","size":"00000005","pos":"0","alloc":"5","fnv":"d55e61e5","head":"7472756e63"}
+{"op":"writeat","arg":"10 676170","ok":"1","written":"3"}
+{"op":"state","arg":"","size":"0000000d","pos":"13","alloc":"65536","fnv":"8aea387b","head":"7472756e63000000000067617000000000000000000000000000000000000000"}
+{"op":"readat","arg":"0 20","ok":"1","got":"13","data":"7472756e630000000000676170"}
+{"op":"mem","arg":"c0000000 1 copy 6e6577 -","result":"0"}
+{"op":"state","arg":"","size":"00000000","pos":"0","alloc":"3","fnv":"28999611","head":"6e6577"}
+{"op":"read","arg":"3","ok":"1","got":"0","data":""}

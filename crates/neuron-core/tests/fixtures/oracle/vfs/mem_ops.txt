@@ -1,0 +1,60 @@
+# memory file-system operations
+mem c0000000 2 copy - 6d656d5c726f6f745c
+state
+write 68656c6c6f
+state
+seek 0 0
+read 8
+read 8
+seek 0 1
+read 3
+writeat 3 4c4f20776f726c64
+state
+readat 0 20
+seek 2 16
+state
+setend
+state
+seek 0 70000
+setend
+state
+seek 0 5
+setend
+state
+read 4
+resolve 78 260
+resolve 2e2e5c78 260
+resolve 2e2e5c2e2e5c2e2e5c78 260
+resolve 5c616273 260
+resolve 78 4
+syspath 260
+syspath 4
+mem 80000000 3 copy 72656164206f6e6c792064617461 -
+state
+write 78
+read 4
+seek 2 2
+read 10
+setend
+seek 1 2
+read 2
+mem c0000000 3 wrap 6669786564 77726170706564
+state
+write 6162
+write 6364656667
+state
+write 68
+seek 0 9
+setend
+seek 0 2
+setend
+state
+readat 0 10
+mem c0000000 4 copy 7472756e63 -
+state
+writeat 10 676170
+state
+readat 0 20
+mem c0000000 1 copy 6e6577 -
+state
+read 3

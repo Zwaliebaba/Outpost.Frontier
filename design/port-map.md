@@ -4,20 +4,20 @@ The Rust workspace uses six libraries and two thin executable packages.
 The table assigns all 39 projects in
 [the C++ solution](../CppSource/OutpostFrontier.sln) and its shared source
 groups to their destination, following the
-[migration plan](../design/migration-plan.md). Per-project detail, work
-packages and status are in the [library ledger](../design/library-ledger.md).
+[migration plan](migration-plan.md). Per-project detail, work
+packages and status are in the [library ledger](library-ledger.md).
 
 | C++ source group | Rust destination | Responsibility |
 | --- | --- | --- |
-| `neuroncomponents`, `system` | NeuronCore, NeuronClient | INI parser, name CRC and ASCII comparison in core. The component manager and system container are replaced by the client's `Engine` value, which builds the subsystems in a fixed order. |
-| `NeuronRuntime` | NeuronCore, NeuronClient, NeuronServer | Wire framing, the transport interface and the MD5 text form in core. The QUIC connection in the client and the QUIC host in the server. The DirectPlay and list-server wrappers are not ported. |
-| `Common` | NeuronCore, GameSim, GameLogic, NeuronClient, GameApp | IDs, INI, utilities and `.sur` reading in core. Game data, object model, equipment, AI and wire types in GameSim. Trade and reputation rules in GameLogic. Text rendering in the client engine; client-only helpers in GameApp. |
+| `neuroncomponents`, `system` | NeuronCore, NeuronClient | INI parser, name CRC, ASCII comparison, FDUMP flags and the error-log channels (`diag`) in core. The component manager and system container are replaced by the client's `Engine` value, which builds the subsystems in a fixed order. |
+| `NeuronRuntime` | NeuronCore, NeuronClient, NeuronServer | Wire framing, the transport interface and loopback (`net`), the MD5 text form (`util::md5`) and the host error callbacks (`diag::callbacks`) in core. The QUIC connection in the client and the QUIC host in the server. The DirectPlay and list-server wrappers are not ported. |
+| `Common` | NeuronCore, GameSim, GameLogic, NeuronClient, GameApp | IDs, INI, utilities (`util`), timing (`time`), diagnostics (`diag`) and `.sur` reading in core. Game data, object model, equipment, AI and wire types in GameSim. Trade and reputation rules in GameLogic. Text rendering in the client engine; client-only helpers in GameApp. |
 | `IVP`, `qhull` | NeuronCore | Physics facade over `parry3d` and the project's own solver. Neither library is ported; the compact-surface layout is read as a file format. |
-| `x86math` | NeuronCore | Vectors, matrices, quaternions and transforms in the original operation order. |
+| `x86math` | NeuronCore | Vectors, matrices, quaternions and transforms in the original operation order (`math`). Common's vector and matrix helpers build on the same types. |
 | `SceneRuntime` | NeuronCore | Instance tree, compound models, hardpoints, joints and animation. No renderer dependence. |
-| `ReadFile`, `zlib` | NeuronCore | File systems and the UTF container. `flate2` replaces zlib for network batches. |
+| `ReadFile`, `zlib` | NeuronCore | The UTF container (`utf`); the file-system trait, the directory, UTF and memory backends, the search path and the path rules (`vfs`). `flate2` replaces zlib for network batches (`net::frame`). |
 | `luaprofile`, `MemoryDiagnostics` | — | Not ported. |
-| `rpclocal`, `RemoteCommon` | NeuronCore, GameSim | The loopback transport in core and one set of message codecs in GameSim. The codec copy in `rpclocal` is not ported. |
+| `rpclocal`, `RemoteCommon` | NeuronCore, GameSim | The loopback transport, field primitives and quantisers (`net`) in core and one set of message codecs in GameSim. The codec copy in `rpclocal` is not ported. |
 | `RemoteServer` | NeuronClient | Client-side connection to a server and delivery of incoming events. |
 | `RemoteClient` | NeuronServer | Server-side connection handling and delivery of events to connected clients. |
 | `Server` | NeuronServer, GameLogic | Server lifecycle, sessions, save storage, accounts and the controller bus in the engine. World updates, objects, players and replication in GameLogic. |
@@ -26,7 +26,7 @@ packages and status are in the [library ledger](../design/library-ledger.md).
 | `DX8RENDERER`, `DX9RENDERER`, `RendComp`, `Shading`, `ximage` | NeuronCore, NeuronClient | Image and mesh parsing in core. The Direct3D 12 renderer, fixed-function emulation, materials, batching and textures in the client engine. Neither legacy renderer is ported. |
 | `SceneScript`, `movie` | NeuronClient, GameApp | Lua 3.2 evaluator, scene timeline and Media Foundation playback in the engine. Game-specific scene selection and transitions in GameApp. |
 | `SoundManager`, `SoundStreamer`, `imeui` | NeuronClient | XAudio2 playback, mixing arithmetic, streaming, the edit-box model and IME positioning. |
-| `UiText`, `FieldGuideText`, `DialogueText`, `EquipmentCatalog`, `InterfaceExtras` | NeuronCore, GameApp | Catalog loader in core. Client UI, guide entries, dialogue, equipment names and menu text as catalogs built from `resources/text/`. |
+| `UiText`, `FieldGuideText`, `DialogueText`, `EquipmentCatalog`, `InterfaceExtras` | NeuronCore, GameApp | Catalog loader and text-ID lookup in core (`catalog`). Client UI, guide entries, dialogue, equipment names and menu text as catalogs that `cargo xtask catalog` builds from `resources/text/`. |
 | `NameCatalog`, `NegotiationText` | NeuronCore, GameApp, GameLogic | Catalogs as above. GameLogic keeps the numeric text IDs and never resolves text. |
 | `serverinterface` | `outpost-server` | Strings for the admin console. The MFC dialogs are dropped. |
 | `OutpostFrontier` | GameApp, NeuronClient, `outpost-frontier` | Game and menu flow in GameApp, platform and engine integration in NeuronClient, process startup and in-process server wiring in the executable package. |

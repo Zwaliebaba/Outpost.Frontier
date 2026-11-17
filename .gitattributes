@@ -5,3 +5,6 @@
 # Test inputs and vectors are compared byte for byte: never convert line endings.
 /crates/*/tests/fixtures/** -text
 /crates/*/tests/vectors/** -text
+/xtask/tests/fixtures/** -text
+# Text sources (design/decisions.md T21): TOML, built into catalogs byte for byte.
+/resources/text/** -text

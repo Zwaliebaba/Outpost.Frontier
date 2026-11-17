@@ -1,6 +1,7 @@
 //! Workspace tooling. Run with `cargo xtask <command>`.
 #![forbid(unsafe_code)]
 
+mod catalog;
 mod graph;
 mod ini;
 mod lexer;
@@ -19,7 +20,7 @@ commands:
 ";
 
 fn usage() -> String {
-    format!("{USAGE}{}", ini::USAGE)
+    format!("{USAGE}{}{}", catalog::USAGE, ini::USAGE)
 }
 
 fn main() -> ExitCode {
@@ -27,6 +28,7 @@ fn main() -> ExitCode {
     match args.first().map(String::as_str) {
         Some("check-policy") if args.len() == 1 => check_policy(),
         Some("ini") => ini::run(&args[1..]),
+        Some("catalog") => catalog::run(&args[1..], workspace_root()),
         Some("help" | "--help" | "-h") => {
             println!("{}", usage());
             ExitCode::SUCCESS

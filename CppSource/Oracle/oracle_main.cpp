@@ -2,15 +2,19 @@
 //
 // Reads the synthetic inputs in crates/neuron-core/tests/fixtures/oracle,
 // calls the C++ reference through neuroncomponents.dll and Common.dll, and
-// writes one JSON object per line. The Rust test
+// writes one JSON object per line. Shared helpers are in oracle_support.h;
+// later work packages add their suites in oracle_<module>.cpp. The Rust test
 // crates/neuron-core/tests/oracle_vectors.rs renders the same suites; the
 // committed vectors must equal this program's output byte for byte.
 //
 // Usage: Oracle.exe <fixture directory> <output directory>
 //        Oracle.exe dump <data directory> <output directory>
+//        Oracle.exe catalog <resource DLL directory> <output directory>
 // The second form dumps the original installation's INI files for
-// crates/neuron-core/tests/data_dump.rs; its output must never be committed.
-// Both paths must be absolute: the program changes into the input
+// crates/neuron-core/tests/data_dump.rs; the third dumps the text
+// resources of the resource DLLs for crates/neuron-core/tests/catalog_dump.rs
+// (oracle_catalog.cpp). Their output must never be committed.
+// All paths must be absolute: the program changes into the input
 // directory so that the engine parser and INI_Reader see relative names.
 
 #include <windows.h>
@@ -26,6 +30,8 @@
 #include <string>
 #include <vector>
 
+#include "oracle_support.h"
+
 #include "neuroncomponents.h"
 #include "luaprofile.h"
 #include "common_id.h"
@@ -35,176 +41,12 @@
 
 int OracleNeuronComponentsStricmp(const char* Left, const char* Right);
 
+using namespace oracle;
+
 namespace
 {
     const unsigned long CrcContinueSeed = 0x5A5A5A5Au;
     const unsigned int LocationBase = 0x8ABCDEF0u;
-
-    std::string GFixtureDir;
-    std::string GOutputDir;
-    int GDumps = 0;
-    bool GFailed = false;
-
-    void __cdecl OracleDump(int /*Flags*/, const char* /*Format*/, ...)
-    {
-        ++GDumps;
-    }
-
-    typedef std::vector<unsigned char> Bytes;
-
-    bool ReadWholeFile(const std::string& Path, Bytes& Out)
-    {
-        Out.clear();
-        FILE* File = fopen(Path.c_str(), "rb");
-        if (File == nullptr)
-            return false;
-        unsigned char Chunk[4096];
-        size_t Got;
-        while ((Got = fread(Chunk, 1, sizeof(Chunk), File)) > 0)
-            Out.insert(Out.end(), Chunk, Chunk + Got);
-        fclose(File);
-        return true;
-    }
-
-    // The non-comment lines of an input list; empty lines are inputs too.
-    std::vector<std::string> InputLines(const char* Name)
-    {
-        std::vector<std::string> Lines;
-        Bytes Data;
-        if (!ReadWholeFile(Name, Data))
-        {
-            fprintf(stderr, "cannot read %s\n", Name);
-            GFailed = true;
-            return Lines;
-        }
-        std::string Current;
-        for (size_t Index = 0; Index < Data.size(); ++Index)
-        {
-            const char Ch = (char)Data[Index];
-            if (Ch == '\n')
-            {
-                if (Current.empty() || Current[0] != '#')
-                    Lines.push_back(Current);
-                Current.clear();
-            }
-            else if (Ch != '\r')
-            {
-                Current += Ch;
-            }
-        }
-        if (!Current.empty() && Current[0] != '#')
-            Lines.push_back(Current);
-        return Lines;
-    }
-
-    int HexValue(char Ch)
-    {
-        if (Ch >= '0' && Ch <= '9')
-            return Ch - '0';
-        if (Ch >= 'a' && Ch <= 'f')
-            return Ch - 'a' + 10;
-        if (Ch >= 'A' && Ch <= 'F')
-            return Ch - 'A' + 10;
-        return 0;
-    }
-
-    // Decoded bytes plus a terminating NUL, so data() is a C string.
-    Bytes Unhex(const std::string& Text)
-    {
-        Bytes Out;
-        for (size_t Index = 0; Index + 1 < Text.size(); Index += 2)
-            Out.push_back((unsigned char)(HexValue(Text[Index]) * 16 + HexValue(Text[Index + 1])));
-        Out.push_back(0);
-        return Out;
-    }
-
-    const char* CStr(const Bytes& Data)
-    {
-        return (const char*)Data.data();
-    }
-
-    std::string Hex(const char* Data, size_t Length)
-    {
-        static const char Digits[] = "0123456789abcdef";
-        std::string Out;
-        for (size_t Index = 0; Index < Length; ++Index)
-        {
-            const unsigned char Byte = (unsigned char)Data[Index];
-            Out += Digits[Byte >> 4];
-            Out += Digits[Byte & 15];
-        }
-        return Out;
-    }
-
-    std::string HexC(const char* Text)
-    {
-        return Text == nullptr ? std::string() : Hex(Text, strlen(Text));
-    }
-
-    std::string Format(const char* Pattern, ...)
-    {
-        static char Buffer[0x4000];
-        va_list Args;
-        va_start(Args, Pattern);
-        _vsnprintf_s(Buffer, sizeof(Buffer), _TRUNCATE, Pattern, Args);
-        va_end(Args);
-        return Buffer;
-    }
-
-    unsigned long long DoubleBits(double Value)
-    {
-        unsigned long long Bits;
-        memcpy(&Bits, &Value, sizeof(Bits));
-        return Bits;
-    }
-
-    int Sign(int Value)
-    {
-        return Value < 0 ? -1 : (Value > 0 ? 1 : 0);
-    }
-
-    void MakeParentDirectories(const std::string& Path)
-    {
-        for (size_t Index = 1; Index < Path.size(); ++Index)
-        {
-            if ((Path[Index] == '\\' || Path[Index] == '/') && Path[Index - 1] != ':')
-                CreateDirectoryA(Path.substr(0, Index).c_str(), nullptr);
-        }
-    }
-
-    class Suite
-    {
-    public:
-        // A suite file in the output directory.
-        explicit Suite(const char* Name) : Suite(GOutputDir + "\\" + Name) {}
-
-        // A file at a full path; missing directories are created.
-        explicit Suite(const std::string& Path)
-        {
-            MakeParentDirectories(Path);
-            File = fopen(Path.c_str(), "wb");
-            if (File == nullptr)
-            {
-                fprintf(stderr, "cannot write %s\n", Path.c_str());
-                GFailed = true;
-            }
-        }
-
-        ~Suite()
-        {
-            if (File != nullptr)
-                fclose(File);
-        }
-
-        void Line(const std::string& Text)
-        {
-            if (File != nullptr)
-                fprintf(File, "%s\n", Text.c_str());
-        }
-
-    private:
-        FILE* File;
-    };
 
     void Names()
     {
@@ -592,14 +434,17 @@ namespace
 int main(int Argc, char** Argv)
 {
     const bool bDump = Argc == 4 && strcmp(Argv[1], "dump") == 0;
-    if (Argc != 3 && !bDump)
+    const bool bCatalog = Argc == 4 && strcmp(Argv[1], "catalog") == 0;
+    if (Argc != 3 && !bDump && !bCatalog)
     {
         fprintf(stderr, "usage: Oracle.exe <fixture directory> <output directory>\n"
-                        "       Oracle.exe dump <data directory> <output directory>\n");
+                        "       Oracle.exe dump <data directory> <output directory>\n"
+                        "       Oracle.exe catalog <resource DLL directory> <output directory>\n");
         return 2;
     }
-    GFixtureDir = Argv[bDump ? 2 : 1];
-    GOutputDir = Argv[bDump ? 3 : 2];
+    const bool bMode = bDump || bCatalog;
+    GFixtureDir = Argv[bMode ? 2 : 1];
+    GOutputDir = Argv[bMode ? 3 : 2];
     if (!SetCurrentDirectoryA(GFixtureDir.c_str()))
     {
         fprintf(stderr, "cannot enter %s\n", GFixtureDir.c_str());
@@ -616,6 +461,11 @@ int main(int Argc, char** Argv)
         DumpData();
         return GFailed ? 1 : 0;
     }
+    if (bCatalog)
+    {
+        RunCatalogDump();
+        return GFailed ? 1 : 0;
+    }
     Names();
     StricmpPairs();
     Numbers();
@@ -625,5 +475,9 @@ int main(int Argc, char** Argv)
     Rand();
     EngineIni();
     IniReader();
+    RunMathSuites();
+    RunNetSuites();
+    RunUtilSuites();
+    RunVfsSuites();
     return GFailed ? 1 : 0;
 }

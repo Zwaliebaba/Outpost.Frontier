@@ -20,8 +20,9 @@ through a decision record under `design/adr/`.
 | O9 | The dedicated server is headless, with a config file and a command console | A terminal dashboard; a native GUI |
 | O10 | `CppSource/` stays intact until the Rust build is complete and is deleted in one commit | Deletion per library from a tagged reference; deletion per phase |
 | O11 | Decided 2026-11-16. The DirectX 8.1 SDK headers and libraries are committed in `CppSource/DX8/`, so the reference build works from a clone. They are deleted with the C++ in P7.3 | Keeping the SDK outside the repository in an ignored `dx8\` folder, as first planned |
-| O12 | Decided 2026-11-16. Saves are written as plain-text INI. The C++ reference server writes character saves, new characters from the templates and the single-player restart file as text instead of the `FLS1` cipher container (commit `816f556a`); the Rust port does the same. Both builds still read `FLS1` files, so existing saves and the shipped templates load. This is the one change to the reference's behaviour beyond build fixes and oracle instrumentation | Keeping the original `FLS1` writer in the reference and in the port; reverting the C++ change |
+| O12 | Decided 2026-11-16. Saves are written as plain-text INI. The C++ reference server writes character saves, new characters from the templates and the single-player restart file as text instead of the `FLS1` cipher container (commit `816f556a`); the Rust port does the same. Both builds still read `FLS1` files, so existing saves and the shipped templates load. This was the first change to the reference's behaviour beyond build fixes and oracle instrumentation; O14 is the second | Keeping the original `FLS1` writer in the reference and in the port; reverting the C++ change |
 | O13 | Decided 2026-11-16. The game data is text only: every INI file in the master copy (`outdir\`) is text. The port reads INI files as text and has no binary INI reader; the C++ reference keeps its decoder, which the data never reaches (divergence D10) | Porting the binary INI reader and keeping its oracle suites |
+| O14 | Decided 2026-11-17. A directory file system lists its entries. The reconstruction's `FDosFileSystem::FindFirst` (`ReadFile.cpp`) tested `JoinRoot` the wrong way round, so every pattern that joined failed with error 0xA1 and a loose directory could never be listed; it also compared the find handle with `nullptr` instead of `INVALID_HANDLE_VALUE`. Both are fixed in the C++ reference and in `neuron-core::vfs`. The port lists as `FindFirstFileA` does: Win32 wildcard rules and the `.` and `..` entries, but in byte order of the names and without 8.3 short names (divergence D37). Whether the original game had the same defect is not known; callers that enumerate a loose directory (`TextureLibrary`, `VMeshLibrary`, `SceneRuntime`, `Deformable2`) now see its entries | Keeping the defect in both builds; fixing only the port and recording a divergence |
 
 ## Technical decisions
 
@@ -111,10 +112,17 @@ fix the detail.
 
 ### T11 — Numeric policy
 
-- One canonical arithmetic: `f32` storage, with `f64` intermediates exactly
-  where the C++ source spells a double. This corresponds to the dedicated
-  server's 53-bit mode and is the mode the oracle uses for simulation
-  vectors.
+- One canonical arithmetic: the dedicated server's 53-bit x87 mode, which
+  is also the mode the oracle runs in. Values are stored as `f32` where the
+  C++ stores a `float`. An expression the C++ evaluates on the x87 stack is
+  evaluated in `f64`, whether the source spells `float` or `double`, and
+  rounded to `f32` at each point where the reference stores to a `float`:
+  an assignment, a cast, a `float` argument or return, an `FSTP dword` in
+  inline assembly. Reworded 2026-11-17: the first wording ("`f64` exactly
+  where the C++ spells a double") would have computed `float` code in
+  `f32` and missed the oracle by more than 1 ulp in cancellation cases.
+  The client's 24-bit mode is not modelled (divergence D11, accepted by
+  the owner on 2026-11-17).
 - No fused multiply-add contraction and no fast-math anywhere.
 - `neuron-core::num` supplies truncating and round-to-even float-to-int
   conversions with x86 overflow results. `neuron-core::msvcrt` supplies the
@@ -143,8 +151,17 @@ Initial allow-list: `windows`, `quinn`, `rustls`, `rcgen`, `tokio`
 `cargo-deny` enforces licences and advisories. Additions need a line in
 this register.
 
-The permitted licences are listed in `deny.toml`. In use so far: `toml`,
-in `xtask` only.
+The permitted licences are listed in `deny.toml`. In use so far:
+
+- `toml`, in `xtask` only.
+- `flate2` 1.1 (MIT or Apache-2.0; `rust_backend`, that is `miniz_oxide`):
+  `neuron-core::net::frame`, compressed batches only (P1.9).
+- `md-5` 0.10 (MIT or Apache-2.0; default features off):
+  `neuron-core::util::md5` (P1.5). The C++ MD5 was checked against RFC 1321
+  and is standard.
+- `tracing` 0.1 (MIT; `std` feature only, no attribute macros):
+  `neuron-core::diag` (P1.5). `tracing-subscriber` is not used; the
+  channel subscriber is written in `diag`.
 
 Math types are the project's own (`neuron-core::math`) so operation order
 stays under control; conversion to `nalgebra` happens at the `parry3d`
@@ -228,6 +245,23 @@ The `.rc` string tables and the 5,252 rich-text files move to
 the local 16-bit ID. At run time catalogs load in the order the real
 `[Resources]` list gives, so every 32-bit text ID keeps its value. Catalogs
 ship as files beside the executable.
+
+Amended 2026-11-17 (owner): the sources are one TOML file per module, with
+a `[strings]` table and a `[cards]` table keyed by the local ID; a card's
+`<RDL>` markup is kept as text. They were generated from the `.rc` scripts
+and card files, and the catalogs built from them are byte-identical to the
+`.rc` build's. The resource-script parser in `xtask` was removed with
+them. Until P7.3 a text change has to be made in `CppSource/Resources/` as
+well; CI's catalog comparison catches a copy that differs.
+
+Open for P4.12: the cards use seven RDL tags (`RDL`, `TEXT`, `PARA`,
+`PUSH`, `POP`, `TRA`, `JUST`). Once the RDL node model is ported and its
+XML reader checked against the oracle, the cards may become structured
+TOML (a list of nodes) instead of markup. That would remove the XML reader
+only if the other XML inputs go too: two hard-coded strings in the client
+(`nn_help.cpp`, `nn_navmap_input.cpp`), two string-table entries that hold
+`<RDL>` markup, and the "try XML, else plain text" rule for string entries
+(`ids_rdl.cpp`).
 
 ### T22 — Configuration files
 
