@@ -133,6 +133,9 @@
     <ClCompile Include="..\Shading\MaterialRegex.cpp" />
     <!-- P2.3: Oracle.exe sim, the scenario oracle; links Server.lib (the pub:: exports it calls,
          delay-loaded) and loads SimClientStub.dll at run time, in sim mode only. -->
+    <!-- P2.3: the exact physics pieces of Common.dll (CalcCollisionDamage, CDeadReckonedVector,
+         CRemotePhysicsSimulation), all called through its exports. -->
+    <ClCompile Include="oracle_physics.cpp" />
     <ClCompile Include="oracle_sim.cpp" />
     <ClCompile Include="oracle_sim_spread.cpp" />
     <!-- P2.5: the behaviour-tick recorder of Oracle.exe sim (ai.jsonl). -->

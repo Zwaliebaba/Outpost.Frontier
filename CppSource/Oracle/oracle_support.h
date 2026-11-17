@@ -180,6 +180,10 @@ void RunMeshDataDump(const std::vector<std::string>& Files);
 // after RunVfsSuites, which registers the file systems it opens.
 void RunSceneSuites();
 
+// P2.3 (oracle_physics.cpp): Collision damage, CDeadReckonedVector and
+// CRemotePhysicsSimulation of Common.dll. Loads x86math.dll (OracleLoadMathEngine).
+void RunPhysicsSuites();
+
 // P1.8 (oracle_scene.cpp): every UTF .cmp, .3db and .dfm through
 // IEngine::CreateArchetypeHandle with the Hardpoint component, kind "scene";
 // every one whose script IAnimation2::OpenScript opens, its animations played

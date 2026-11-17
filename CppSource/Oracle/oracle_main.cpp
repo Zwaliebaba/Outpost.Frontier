@@ -544,5 +544,6 @@ int main(int Argc, char** Argv)
     RunShadingSuites();
     RunMeshDataSuites();
     RunSceneSuites();
+    RunPhysicsSuites();
     return GFailed ? 1 : 0;
 }
