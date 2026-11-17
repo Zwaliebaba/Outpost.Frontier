@@ -13,16 +13,23 @@
 
 pub mod archetype;
 pub mod asteroid;
+pub mod asteroid_field;
 pub mod base;
 pub mod config;
 pub mod constants;
+pub mod costume;
 pub mod equip_desc;
 pub mod fuse;
 pub mod goods;
 pub mod loadout;
+pub mod new_char;
 pub mod reputation;
+pub mod rtc_slider;
+pub mod spatial;
 pub mod string_cache;
 pub mod universe;
+pub mod vc6;
+pub mod vibe;
 pub mod zone;
 
 use neuron_core::ini::IniReader;

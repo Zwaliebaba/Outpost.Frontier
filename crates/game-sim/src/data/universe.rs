@@ -13,8 +13,9 @@
 //!
 //! The `[Object]` records of a system file (`GetSystemObject`) are read
 //! again from the file on demand; [`Universe::system_objects`] does the
-//! same. The reputation vibes the loader also reads
-//! (`SolarReps::LoadObjectVibesFromSystemIni`) are not part of this module.
+//! same. Each system file is first read for its reputation vibes
+//! (`SolarReps::LoadObjectVibesFromSystemIni`, [`super::vibe`]) and then
+//! again from the top; the vibes of the whole load form the static store.
 
 use std::collections::BTreeMap;
 
@@ -24,7 +25,9 @@ use neuron_core::math::Vector;
 
 use super::archetype::ArchetypeDb;
 use super::goods::tstring;
+use super::reputation::Reputation;
 use super::string_cache::{CacheString, StringCache};
+use super::vibe::{VibeCx, VibeDb};
 use super::zone::Zone;
 use super::{DataSource, Reports, lossy, open_ini, value_f32};
 
@@ -257,8 +260,12 @@ impl Default for Universe {
 pub struct UniverseCx<'a> {
     /// The string cache.
     pub strings: &'a mut StringCache,
-    /// The solar archetypes (gate types).
+    /// The solar archetypes (gate types, vibe ranks).
     pub archetypes: &'a ArchetypeDb,
+    /// The factions loaded so far (vibe affiliations).
+    pub reputation: &'a Reputation,
+    /// The static vibe store the load refills.
+    pub vibes: &'a mut VibeDb,
     /// Where messages go.
     pub reports: &'a mut Reports,
 }
@@ -304,7 +311,9 @@ impl Universe {
             ..Self::default()
         };
         let mut carry = Carry::default();
+        cx.vibes.free_static();
         if let Some(mut reader) = open_ini(source, path) {
+            cx.vibes.begin_static_load();
             while reader.read_header() {
                 if reader.is_header(b"Time") {
                     while reader.read_value() {
@@ -323,6 +332,7 @@ impl Universe {
                     self.insert_base(base, cx);
                 }
             }
+            cx.vibes.end_static_load();
         }
         if self.systems.is_empty() {
             cx.reports.push(
@@ -446,6 +456,13 @@ impl Universe {
         let Some(mut reader) = open_ini(source, path) else {
             return;
         };
+        let mut vibe_cx = VibeCx {
+            archetypes: cx.archetypes,
+            reputation: cx.reputation,
+            reports: cx.reports,
+        };
+        cx.vibes.load_object_vibes(&mut reader, &mut vibe_cx);
+        reader.reset();
         while reader.read_header() {
             if reader.is_header(b"Zone") {
                 let mut zone = Zone::new(system.nickname_id);

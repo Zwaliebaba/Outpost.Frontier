@@ -124,16 +124,10 @@ impl Object {
     }
 }
 
-/// `ZONE::GetImmersion` without `ClassifyPoint` (not ported by P2.1): 1
-/// inside the zone's bounding sphere, else 0 (divergence register).
+/// `ZONE::GetImmersion` (P2.1's `Zone::immersion`), stored to the caller's
+/// float.
 fn zone_immersion(zone: &crate::data::zone::Zone, pos: Vector) -> f32 {
-    let dx = pos.x - zone.pos.x;
-    let dy = pos.y - zone.pos.y;
-    let dz = pos.z - zone.pos.z;
-    let radius = f64::from(zone.radius());
-    let dist_sq = (f64::from(dx) * f64::from(dx) + f64::from(dz) * f64::from(dz))
-        + f64::from(dy) * f64::from(dy);
-    if radius * radius < dist_sq { 0.0 } else { 1.0 }
+    zone.immersion(pos) as f32
 }
 
 /// `PhySys_SyncObjectFromBody` for every moving body.

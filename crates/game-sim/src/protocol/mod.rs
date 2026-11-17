@@ -66,6 +66,7 @@
 #[macro_use]
 mod field;
 
+pub mod base_props;
 pub mod common;
 pub mod costume;
 pub mod fmtstr;

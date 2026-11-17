@@ -9,13 +9,16 @@ Reasons are one of: *undefined behaviour in the reference*, *legacy
 platform dependence*, *numeric policy* (decision T11), *owner decision*
 (cite its ID), or *technical decision* (cite its ID; added 2026-11-17).
 
-The owner accepted D11 on 2026-11-17.
+The owner accepted D11 on 2026-11-17. On the same day the owner accepted
+D87 to D117 and D150 to D156: the rows that replace undefined behaviour of
+the reference as a class, and the design rows one by one (D87 to D93, D95,
+D96, D98, D99, D107, D117 and D156).
 
 The owner accepted D118 to D128 (P2.4) on 2026-11-17: D124 to D126 as open
 gaps that P3.3 removes (turret aiming and gun lock may come with P2.5);
 D122 and D123 to be revisited when multi-part ships and golems need them;
-D120 to be removed before P2.4 merges, once the P2.1 `ClassifyPoint` is on
-`main`; the rest as design choices.
+D120 removed before P2.4 merged, once the P2.1 `ClassifyPoint` was on
+`main` (the ID is not reused); the rest as design choices.
 
 | ID | Area | C++ behaviour | Rust behaviour | Reason | Observable effect |
 | --- | --- | --- | --- | --- | --- |
@@ -132,7 +135,6 @@ D120 to be removed before P2.4 merges, once the P2.1 `ClassifyPoint` is on
 | D117 | `game-sim::data::archetype` | The loaders hand every unknown key to the client's archetype companion (`ICliObj::ReadUnknown`), feed `[LOD]` sections to it, and `LoadEquipment` creates the `BEAM_ARCH` engine handle | No companions, `[LOD]` is skipped, no engine handle is made at load (decision record 0001, point 7) | Technical decision T10; engine handles stay out of the data | None for the server, which loads without a factory; the client's companion data moves to P4/P5 |
 | D118 | `game-sim::object::world` | `StarSystem_Update` iterates its object lists in node order and updates the solars a spatial query finds within 10000 m of each player's ship, de-duplicated, then the `ListD4` objects | The lists iterate in insertion order (decision record 0001, point 9); the near-player solars are found by a linear distance test in insertion order, then the objects marked with `set_always_update` | Technical decision T10 (no spatial partition yet, P2.1 open item); the update order of solars near a player can differ | None for NPC-only systems (the scenario oracle has no players) |
 | D119 | `game-sim::object::world` | `CSimple::update_zones` takes `GetSmallestPhysicalZoneAt`: the system's zone tree queried with a 0.1 m sphere; among equal radii the first the tree returns wins | A linear scan of the system's zones in database order, the same tests (`HasPhysicalEffect`, radius strictly smaller, `InZone`) | Technical decision T10 (the zone tree is a P2.1 open item) | Only zones of exactly equal radius that overlap |
-| D120 | `game-sim::object::world` | `ZONE::GetImmersion` ramps from 1 to 0 over the zone's edge fraction through `ClassifyPoint` | 1 inside the zone's bounding sphere, 0 outside (`ClassifyPoint` is a P2.1 open item) | Technical decision T10, until P2.1 ports `ClassifyPoint` | The scanner interference and the zone term of `collect_force_components`; the damping uses only the drag modifier |
 | D121 | `game-sim::object::world` | A still solar and every field asteroid are built with the construction template's fixed flag (`CreateParms` +0x1c), which makes the IVP core immovable | `neuron-core::physics` has no fixed flag; such a body is created and then deactivated (`PhySys::DeactivatePhysics`), which the contact solver treats as immovable | Technical decision T10 (no change to the P2.3 interface) | None expected; recorded until the scenario envelopes confirm it |
 | D122 | `game-sim::object::world` | `BuildIVP_Real` makes every non-fixed (`!fxd`) part of a compound a separate `CObject` with its own body and a golem holding it to its parent | Non-fixed parts stay with their owner's body | Technical decision T10; no ship or solar of the scenarios has one; deferred | Objects with free parts (some stations, debris) |
 | D123 | `game-sim::object::world` | A simple (non-compound) model's instance answers its part name's CRC, which picks the `.sur` part | A simple model's instance has no part name in `neuron-core::scene`; when its `.sur` holds exactly one part that part is used, otherwise the default part | Technical decision T10 | Simple models with several `.sur` parts |
@@ -141,6 +143,13 @@ D120 to be removed before P2.4 merges, once the P2.1 `ClassifyPoint` is on
 | D126 | `game-sim::object::damage` | `EqObj::destroy_equip` drops loot for fates 4 and 5 (controller event, loot records, player visit), and `apply_damage_list` lights fuses, sends `ObjectDamaged`, tells the behaviour manager, and separates destroyed equipment and groups as debris (`destroy_sub_objs`) | The fate is kept on the entry and the item or group is marked destroyed; no loot, fuses, messages or debris | Technical decision T10; the server parts belong to P3.3 | Loot drops, fuse effects and debris of destroyed parts |
 | D127 | `game-sim::object::world` | `PhySys::Attach` merges a physically attached item's body into its owner's core; the item's mass and inertia do not change the core's | The same through `neuron-core::physics::PhysicsWorld::attach`; the equipment object's own collisions report as its owner's item | — (recorded for review: the reference never reaches a collision report for a `CEquipmentObj` with its own id) | Collisions with physically attached equipment |
 | D128 | `game-sim::object::world` | `StarSystem::explode` measures each pass against `get_explosion_dmg_bounding_sphere` (the hull's explosion sphere from its parts), `get_physical_radius_r`, and each item's and group's `GetRadius`/`GetCenterOfMass` | `World::explode` takes the body's core sphere for the hull and the power, and the instance-tree extents for items and groups; the passes and their formulas are the reference's (`damage::explosion_hit`) | Technical decision T10 (`compute_explosion_dmg_bounding_sphere` deferred) | Which band a blast near the edge of a large object falls in |
+| D150 | `game-sim::data::vc6` | The VC6 `std::sort`'s unguarded insertion and partition scans rely on the comparator being a strict weak order; with one that is not (the static vibe store compares keys by a wrapping subtraction) they could run past the array | The scans stop at the slice ends | Undefined behaviour in the reference | None in the data: every nickname id has its top bit set, so the subtraction never wraps |
+| D151 | `game-sim::data::zone::exclusion` | An asteroid exclusion zone set to a null zone stays in its manager, and the queries call through the null pointer | Such a zone's immersion counts as 0 | Undefined behaviour in the reference | None in the data: field files only push zones that exist |
+| D152 | `game-sim::data::asteroid_field` | An `asteroid` line naming an archetype that is not loaded calls `Root::load` through null | The line is reported and dropped | Undefined behaviour in the reference | None in the data |
+| D153 | `game-sim::data::asteroid_field` | An `[Exclusion Zones]` property line before any zone was pushed writes through `back()` of an empty vector | The line is skipped | Undefined behaviour in the reference | None in the data |
+| D154 | `game-sim::data::asteroid_field` | A field without a zone dereferences null when it pushes an exclusion zone (the immersion test) and in `get_lootable_zone` | The exclusion zone is kept without the test; the loot-zone lookup gives none | Undefined behaviour in the reference | None in the data: the server faults earlier on a field whose zone is missing |
+| D155 | `game-sim::data::spatial` | `BspPartition::Remove` on an empty partition reads the root's slots through null | It does nothing | Undefined behaviour in the reference | None: no caller removes from an empty partition |
+| D156 | `game-sim::data::spatial` | `BspPartition::Add` splits the same full leaf for ever when no candidate plane separates its nine entries (nine coincident centres, say) | After `MAX_SPLITS_PER_ADD` (65,536) leaf splits in one `Add` the entry being placed is dropped and counted in `dropped` | Undefined behaviour in the reference (the call never returns) | None for the shipped data, which has no such entries |
 
 D5 to D9 described the reader's binary INI path. That path was removed
 with decision O13, so the rows are gone; the IDs are not reused. D32

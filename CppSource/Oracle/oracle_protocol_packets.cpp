@@ -6,7 +6,8 @@
 // oracle_protocol.h in the order of crates/game-sim/tests/support/fill.rs;
 // each Make* function mirrors the Rust function of the same channel. No
 // archetype is loaded, so every small archetype ID encodes as 0 and every
-// maximum of hit points is 1.
+// maximum of hit points is 1. Each encoding is then decoded again by the real
+// Decode and encoded once more (protocol_decode_*.jsonl, see DecodeLine).
 
 #if !defined(REMOTECLIENT_EXPORTS)
 #error "Oracle.vcxproj compiles this file with RemoteClient.dll's definitions"
@@ -1511,36 +1512,153 @@ namespace
 
     typedef FPacketBase* (*MakeFn)(unsigned int Id, unsigned int Case, Gen& G);
 
-    std::string Encoded(FPacketBase& Packet, const char* Label)
+    // The encode buffers: room for the server's second attempt (0x19000 bytes)
+    // and for what PLAYER_TRADE writes past a message (divergence D106).
+    std::vector<unsigned char>& SentBuffer()
     {
         static std::vector<unsigned char> Buffer(0x19000u + 0x100u, 0);
+        return Buffer;
+    }
+
+    std::vector<unsigned char>& BackBuffer()
+    {
+        static std::vector<unsigned char> Buffer(0x19000u + 0x100u, 0);
+        return Buffer;
+    }
+
+    // Encodes Packet into Buffer, cleared first; its bytes, or "error".
+    std::string Encoded(FPacketBase& Packet, std::vector<unsigned char>& Buffer, unsigned int& Length,
+                        const char* Label)
+    {
         std::fill(Buffer.begin(), Buffer.end(), (unsigned char)0);
         unsigned char* Holder = &Buffer[0];
-        unsigned int Length = 0;
+        Length = 0;
         const unsigned int Result = Packet.Encode(&Holder, 0x19000u, &Length);
         if (Result != 0)
         {
             fprintf(stderr, "%s: Encode returned %#x\n", Label, Result);
             GFailed = true;
+            Length = 0;
             return "error";
         }
         return Hex(&Buffer[0], Length);
     }
 
-    void PacketSuite(const char* File, const Entry* Entries, size_t Count, MakeFn Make)
+    // --- Decode (protocol_decode_*.jsonl) ---------------------------------------
+    //
+    // Each encoding is decoded again by the real decoder into an empty packet
+    // of its type, made by the factory both DLLs register, and that packet is
+    // encoded once more: oracle_protocol.rs decodes the same bytes with the
+    // Rust decoder and must give the same second encoding (with what the C++
+    // decoder's conversions change on the way; see
+    // crates/game-sim/tests/support/cpp_decode.rs).
+
+    // The decoding side of a mode: a server's message is decoded by a
+    // multiplayer client, a client's by the server, single player by itself.
+    Mode Receiver(Mode Sender)
+    {
+        switch (Sender)
+        {
+        case ModeServer:
+            return ModeClient;
+        case ModeClient:
+            return ModeServer;
+        default:
+            return ModeSingle;
+        }
+    }
+
+    // The packets whose C++ decoder is undefined on its own encoder's output
+    // have no decode line.
+    bool DecodeSkipped(unsigned int Id)
+    {
+        switch (Id)
+        {
+        case 0x30039u: // CREATENEWCHAR: after an empty name the fields are read two bytes early (D108)
+        case 0x2002bu: // SETGROUPFEELINGS: reads a relation count that is not sent (D109)
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    // SAVEGAME's constructor leaves Description unset, as the reference does;
+    // the harness clears it as MakeClient does, so the packet can be deleted.
+    void PrepareDecode(FPacketBase& Packet)
+    {
+        if (Packet.PacketId == 0x3001eu)
+        {
+            FRpcSaveGamePacket& P = static_cast<FRpcSaveGamePacket&>(Packet);
+            P.Description = nullptr;
+            P.DescriptionCount = 0;
+        }
+    }
+
+    // SETREPUTATION's single-player encoder reads both name blocks without a
+    // null test, and a decoded packet without names has none: they get the
+    // four zero bytes MakeServer gives them, which send no names either.
+    void PrepareReencode(FPacketBase& Packet)
+    {
+        if (Packet.PacketId == 0x20029u)
+        {
+            FRpcServerSetReputationPacket& P = static_cast<FRpcServerSetReputationPacket&>(Packet);
+            if (P.NameA.Data == nullptr)
+                Block(P.NameA, ZeroBytes(4), 4);
+            if (P.NameB.Data == nullptr)
+                Block(P.NameB, ZeroBytes(4), 4);
+        }
+    }
+
+    // {"in":label,"rc":decoder result,"used":bytes it consumed,"back":encoding}.
+    // The decoder reads the bytes after the two-byte header, as the transport
+    // hands them over, in the receiver's mode; the second encoding is made in
+    // the sender's mode again.
+    std::string DecodeLine(FPacketSerializer& Registry, unsigned int Id, Mode Sender, const std::string& Label,
+                           unsigned int Length)
+    {
+        FPacketBase* Fresh = nullptr;
+        const int Allocated = Registry.Allocate(Id >> 16, Id & 0xffffu, &Fresh);
+        if (Allocated != 0 || Fresh == nullptr)
+        {
+            fprintf(stderr, "%s: no factory (%d)\n", Label.c_str(), Allocated);
+            GFailed = true;
+            return "{\"in\":\"" + Label + "\",\"rc\":\"no factory\"}";
+        }
+        PrepareDecode(*Fresh);
+        oracle_protocol::SetMode(Receiver(Sender));
+        unsigned int Used = 0;
+        const unsigned int Result = Fresh->Decode(&SentBuffer()[2], Length - 2u, &Used);
+        oracle_protocol::SetMode(Sender);
+        std::string Back;
+        if (Result == 0)
+        {
+            PrepareReencode(*Fresh);
+            unsigned int BackLength = 0;
+            Back = Encoded(*Fresh, BackBuffer(), BackLength, Label.c_str());
+            delete Fresh;
+        }
+        // A packet whose decode failed may be half built: it is left alone.
+        return "{\"in\":\"" + Label + "\",\"rc\":\"" + Format("%x", Result) + "\",\"used\":\"" + Format("%u", Used) +
+               "\",\"back\":\"" + Back + "\"}";
+    }
+
+    void PacketSuite(const char* File, const char* DecodeFile, const Entry* Entries, size_t Count, MakeFn Make,
+                     FPacketSerializer& Registry)
     {
         Suite Out(File);
+        Suite DecodeOut(DecodeFile);
         for (size_t Index = 0; Index < Count; ++Index)
         {
             const Entry& E = Entries[Index];
             for (unsigned int ModeIndex = 0; ModeIndex < E.ModeCount; ++ModeIndex)
             {
-                oracle_protocol::SetMode(E.Modes[ModeIndex]);
+                const Mode Sender = E.Modes[ModeIndex];
+                oracle_protocol::SetMode(Sender);
                 for (unsigned int Case = 0; Case < E.Cases; ++Case)
                 {
                     Gen G = Gen::ForCase(E.Id, Case);
                     const std::string Label =
-                        std::string(E.Name) + " " + oracle_protocol::ModeName(E.Modes[ModeIndex]) + " " + Format("%u", Case);
+                        std::string(E.Name) + " " + oracle_protocol::ModeName(Sender) + " " + Format("%u", Case);
                     FPacketBase* Packet = Make(E.Id, Case, G);
                     if (Packet == nullptr)
                     {
@@ -1548,9 +1666,12 @@ namespace
                         GFailed = true;
                         continue;
                     }
-                    const std::string Encoding = Encoded(*Packet, Label.c_str());
-                    delete Packet;
+                    unsigned int Length = 0;
+                    const std::string Encoding = Encoded(*Packet, SentBuffer(), Length, Label.c_str());
                     Out.Line("{\"in\":\"" + Label + "\",\"out\":\"" + Encoding + "\"}");
+                    if (Length >= 2u && !DecodeSkipped(E.Id))
+                        DecodeOut.Line(DecodeLine(Registry, E.Id, Sender, Label, Length));
+                    delete Packet;
                 }
             }
         }
@@ -1742,10 +1863,16 @@ void RunProtocolPacketSuites()
     // The create-object codec's hardpoint dictionary, as the packet serializer's
     // constructor builds it in both DLLs.
     RpcServerBuildHardpointDictionary();
-    PacketSuite("game-sim\\protocol_common.jsonl", CommonEntries, sizeof(CommonEntries) / sizeof(CommonEntries[0]),
-                MakeCommon);
-    PacketSuite("game-sim\\protocol_client.jsonl", ClientEntries, sizeof(ClientEntries) / sizeof(ClientEntries[0]),
-                MakeClient);
-    PacketSuite("game-sim\\protocol_server.jsonl", ServerEntries, sizeof(ServerEntries) / sizeof(ServerEntries[0]),
-                MakeServer);
+    // The packet factories RemoteClient.dll registers (RemoteClient_transport.cpp):
+    // channels 1, 2 and 3. Its constructor builds the dictionary again.
+    FPacketSerializer Registry;
+    RpcRegisterCommonScalarPackets(&Registry);
+    RpcRegisterRemoteClientServerPackets(&Registry);
+    RpcRegisterClientScalarPackets(&Registry);
+    PacketSuite("game-sim\\protocol_common.jsonl", "game-sim\\protocol_decode_common.jsonl", CommonEntries,
+                sizeof(CommonEntries) / sizeof(CommonEntries[0]), MakeCommon, Registry);
+    PacketSuite("game-sim\\protocol_client.jsonl", "game-sim\\protocol_decode_client.jsonl", ClientEntries,
+                sizeof(ClientEntries) / sizeof(ClientEntries[0]), MakeClient, Registry);
+    PacketSuite("game-sim\\protocol_server.jsonl", "game-sim\\protocol_decode_server.jsonl", ServerEntries,
+                sizeof(ServerEntries) / sizeof(ServerEntries[0]), MakeServer, Registry);
 }

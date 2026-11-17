@@ -9,11 +9,14 @@
 //! Each test target uses part of this module.
 #![allow(dead_code)]
 
+pub mod cpp_decode;
 pub mod data;
 pub mod fill;
 pub mod game;
 pub mod records;
 pub mod render;
+pub mod render_character;
+pub mod render_field;
 pub mod render_fuse;
 pub mod render_universe;
 pub mod world;
