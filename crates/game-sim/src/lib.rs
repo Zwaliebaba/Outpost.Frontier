@@ -8,8 +8,11 @@
 //!   spatial partition and the string cache.
 //! * [`protocol`]: the message catalog and the `Common` encodings it
 //!   carries (work package P2.2).
+//! * [`ai`]: the flight AI (work package P2.5); so far the parts that need
+//!   no object world and the world interface the behaviours will use.
 #![forbid(unsafe_code)]
 
+pub mod ai;
 pub mod data;
 pub mod protocol;
 

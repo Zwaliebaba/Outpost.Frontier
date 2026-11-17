@@ -92,6 +92,8 @@
     <ClCompile Include="oracle_game_archetype.cpp" />
     <ClCompile Include="oracle_game_universe.cpp" />
     <ClCompile Include="oracle_game_suites.cpp" />
+    <!-- P2.5: the AI suites over Common's exported wrappers (include/oracle_ai.h). -->
+    <ClCompile Include="oracle_ai.cpp" />
     <!-- P1.7: RendComp.dll's sources are compiled into oracle_mesh_data.cpp and
          Deformable2.dll's (with EyeMaterial.cpp) into oracle_mesh_data_dfm.cpp; neither DLL
          exports anything but DllMain. -->
@@ -133,6 +135,8 @@
          delay-loaded) and loads SimClientStub.dll at run time, in sim mode only. -->
     <ClCompile Include="oracle_sim.cpp" />
     <ClCompile Include="oracle_sim_spread.cpp" />
+    <!-- P2.5: the behaviour-tick recorder of Oracle.exe sim (ai.jsonl). -->
+    <ClCompile Include="oracle_sim_ai.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="oracle_support.h" />
@@ -140,6 +144,7 @@
     <ClInclude Include="oracle_net_codecs.h" />
     <ClInclude Include="oracle_net_context.h" />
     <ClInclude Include="oracle_sim.h" />
+    <ClInclude Include="oracle_sim_ai.h" />
     <ClInclude Include="oracle_protocol.h" />
   </ItemGroup>
   <ItemGroup>

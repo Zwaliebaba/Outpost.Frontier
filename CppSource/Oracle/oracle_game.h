@@ -56,3 +56,8 @@ void DumpArchetypes(FGameKind& K, const std::set<unsigned int>& MotorIds,
 void DumpUniverse(FGameKind& K);
 void DumpBaseData(FGameKind& K);
 void DumpFuses(FGameKind& K, const std::set<unsigned int> (&PetalIds)[7]);
+
+// oracle_ai.cpp (P2.5): the lines of the state graphs pub::StateGraph holds, the graphs
+// first, then the lookups of each graph's name; the state_graph data dump and the
+// ai_state_graph suite share them.
+void WriteStateGraphLines(oracle::Suite& Out);

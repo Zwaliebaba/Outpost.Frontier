@@ -16,7 +16,8 @@
 // crates/neuron-core/tests/data_dump.rs; the third dumps the text
 // resources of the resource DLLs for crates/neuron-core/tests/catalog_dump.rs
 // (oracle_catalog.cpp). Their output must never be committed. The fourth
-// runs the suites of crates/game-sim (oracle_game_suites.cpp) over
+// runs the suites of crates/game-sim (oracle_game_suites.cpp, then the AI
+// suites of oracle_ai.cpp) over
 // crates/game-sim/tests/fixtures/oracle.
 // All paths must be absolute: the program changes into the input
 // directory so that the engine parser and INI_Reader see relative names.
@@ -521,6 +522,7 @@ int main(int Argc, char** Argv)
     if (bGameSim)
     {
         RunGameSimSuites();
+        RunAiSuites();
         return GFailed ? 1 : 0;
     }
     Names();

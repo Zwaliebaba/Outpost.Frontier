@@ -38,6 +38,7 @@
 #include "common_reputation.h"
 #include "common_universe.h"
 #include "common_fuses.h"
+#include "common_newchar.h"   // pub::StateGraph (the state_graph dump, P2.5)
 
 #include <algorithm>
 #include <set>
@@ -480,7 +481,7 @@ void RunGameDataDump(const std::vector<std::string>& Files)
         // every kind lists no files, as the Rust test does.
         printf("game data: no EXE\\OutpostFrontier.ini, nothing loaded\n");
         static const char* const kKinds[] = {"constants", "goods", "loadouts", "reputation", "archetypes",
-                                             "universe", "bases", "fuses"};
+                                             "universe", "bases", "fuses", "state_graph"};
         for (const char* Name : kKinds)
             FGameKind Empty(Name);
         CloseGameData();
@@ -514,6 +515,15 @@ void RunGameDataDump(const std::vector<std::string>& Files)
     {
         FGameKind K("fuses");
         DumpFuses(K, GPetalIds);
+    }
+    {
+        // P2.5: AI\state_graph.db through pub::StateGraph::refresh_state_graph, which
+        // resolves the path through NeuronRuntime::Data as the game's loader does.
+        FGameKind K("state_graph");
+        pub::StateGraph::refresh_state_graph();
+        Suite Out(K.Path("state_graph"));
+        WriteStateGraphLines(Out);
+        pub::StateGraph::Free();
     }
     CloseGameData();
     printf("dumped the game databases\n");

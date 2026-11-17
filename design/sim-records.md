@@ -213,6 +213,86 @@ summary to `rust-sim-replay.txt` there.
 The `affect` records between a `behavior_in` and its `behavior_out` with
 the same `seq` are the commands that behaviour tick issued.
 
+## `ai.jsonl`
+
+The behaviour-tick recorder of work package P2.5 (record 0003 point 7):
+for each `IBehaviorManager::UpdateBehaviorTick` the state of everything the
+tick can read, so that a behaviour can be replayed in Rust against a world
+snapshot instead of a live world. Written by
+`CppSource/Oracle/oracle_sim_ai.cpp`, which `Oracle.exe sim` starts after
+its own hooks (`OracleSimAiStart`); it chains itself in front of
+`OnBehaviorTick`, so the `seq` of its records is the `seq` of the
+`behavior_in` and `behavior_out` records of `calls.jsonl`, and the
+`affect` records with that `beh` are the commands the tick issued. The
+hooks it uses (`include/oracle_ai.h`) are inert outside the harness.
+
+Per behaviour tick, in this order: `ai_in`; `personality` when the ship's
+personality differs from the last one written for it (always on its first
+tick); one `ai_obj` per object of the read set; then, while the tick runs,
+each `ai_query` followed by an `ai_obj` for each object it found that has
+no snapshot in this tick yet; finally `ai_out`. Objects are snapshotted
+on entry: nothing moves during a behaviour tick (physics steps after it).
+
+| `rec` | Fields |
+| --- | --- |
+| `ai_start` | `version` u (1), `near_radius` f (m), `rand_hooks` [s, …] (the DLLs whose `rand` import the recorder replaced: `Common.dll`, `Server.dll`, `Content.dll` when loaded) |
+| `ai_in` | `tick` u, `seq` u, `id` u, `obj` s\|null, `dt` f, then the manager fields below, then `targets` [u, …] (the ids of the system manager's target list, `Sys->Timers.Targets`, built by the previous tick) |
+| `personality` | `tick` u, `seq` u, `id` u, `obj`, `bytes` s: the 0x3d8 bytes of `Sys->PersonalityData` (`pub::AI::Personality`) as hex; `game_sim::ai::personality::Personality::from_bytes` reads them |
+| `ai_obj` | `tick` u, `seq` u, `id` u, `obj`, `roles` [s, …], then either `fault` u (the SEH code; the read faulted) or the object fields below |
+| `ai_query` | `tick` u, `seq` u, `kind` s (`ray` `PhySys::FindRayCollisions`, `ray_object` `FindRayIntersect`, `sphere` `FindSphereCollisions`), `system` u (0 for `ray_object`), `object` u\|null (the body `ray_object` tests), `from` f3, `to` f3 (the centre twice for a sphere), `radius` f (0 for rays), `max` i, `hits` [[`id` u, `point` f3, `normal` f3, `part` u], …] (a sphere hit is [`id`]) |
+| `ai_out` | `tick` u, `seq` u, `id` u, `obj`, the manager fields below, `rand` [i, …] (every `rand()` value the game DLLs drew during the tick, in order), `rand_mod` [s, …] (the DLL that drew each) |
+
+Manager fields (`IBehaviorManager`, `include/common_iface.h`; read by
+`OracleAiReadManager`): `behavior` i (`CurrentBehaviorIndex`),
+`state_graph` i (`StateGraph->Id`, -1 for none), `directive` u3
+(`DirectiveStorage`), `maneuver_mask` u (+0xB8), `lock` b (+0xBC),
+`dirty` b (`BehaviorDirty`), `suppressed` b (`TickSuppressedFlag`),
+`timers` f[5] (`BehaviorTimerA`, `BehaviorTimerB`, `BehaviorTimerC`,
+`AttackOverrideTimer`, `AttackOverridePeriod`), `in_sights` u
+(`InSightsTargetId`), `f118` i, `f11c` i, `f120` u (the fallback
+behaviour), `score_w` f[21] and `score_b` i[21] (`BehaviorScores`, whose
+stale entries the weighted draw can read; `game_sim::ai::state_graph::
+choose_behavior` takes them).
+
+Roles of an object: `self`; `target` (`get_target`); `formation_leader`,
+`follow_leader`, `follower` (`get_formation_leader`, `get_follow_leader`,
+`get_formation_followers`, at most 16); `dock_target` (`get_dock_target`
+through `IObjDB::FindById`); `in_sights`; `candidate` (the target list);
+`near` (every ship, solar and loot of the system within `near_radius` of
+the ship's position, walked with `IObjDB::GetNext`, mask `0x107ffdff`);
+`query` (found by a query of this tick). An object has every role that
+applies, in that order.
+
+Object fields, each the `IObjInspect` slot of `include/common_iface.h`
+(`x|null` is null when the slot does not answer 0): `class` u
+(`cobject()->ObjectClass`), `type` u\|null (`get_type`), `pos` f3,
+`orient` f9, `vel` f3, `angvel` f3, `radius` f and `center` f3
+(`get_physical_radius`), `extents` f[6]\|null (`get_archetype_extents`:
+min, then max), `mass` f, `hp` f, `hp_max` f (`get_status`), `shield`
+[f, f, b]\|null (current, maximum, active), `throttle` f\|null, `axis`
+f3\|null, `nudge` f3\|null, `strafe` i\|null, `cruise` [b, b]\|null
+(cruise, trade lane), `target` u\|null, `subtarget` u\|null,
+`formation_leader` u\|null, `follow_leader` u\|null, `followers` [u, …],
+`dock_target` u\|null, `base` u\|null, `rank` u\|null, `affiliation`
+u\|null, `behavior_id` i, `toughness` i, `player` b, `dying` b,
+`targetable` b, `attitude` [f, f]\|null (the ship's
+`get_attitude_towards_symmetrical` toward this object and the reverse;
+null for the ship itself). These are the fields of
+`game_sim::ai::world::ObjectView`, which a replay world fills from them.
+
+The `rand` values come from a counting wrapper that the recorder puts in
+the import address table of each game DLL: it calls the C runtime's own
+`rand`, so the sequence is the one an unrecorded run draws, and records
+the value while a behaviour tick is open. A replay feeds them back through
+`game_sim::ai::world::RecordedRand` and checks that the port drew exactly
+as many.
+
+Not recorded: objects a behaviour looks up by an id it keeps in its own
+state and that have none of the roles above (they are outside the near
+radius and were not found by a query); the notification queue; the
+behaviours' own state blocks. The first behaviour replays will show
+whether the read set needs another role.
+
 ## SimClientStub files
 
 `iclient.jsonl` has the layout of the P0.5 client's file
@@ -235,7 +315,7 @@ structure or pointer as `"present"` (or `null`). The stub answers
 
 ## Other files of a run
 
-`server.ini` is the server INI the run used (the master's with the
+`ai.jsonl` (above) holds the behaviour ticks (P2.5). `server.ini` is the server INI the run used (the master's with the
 populators left out), `fdump.txt` every `FDUMP` message (`tick`, flags in
 hex, text) and `metrics.txt` the plain-text input of `--runs`
 (`oracle_sim.h`). None of them is a record for the tests.

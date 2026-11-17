@@ -9,6 +9,7 @@
 //! Each test target uses part of this module.
 #![allow(dead_code)]
 
+pub mod ai;
 pub mod data;
 pub mod fill;
 pub mod game;

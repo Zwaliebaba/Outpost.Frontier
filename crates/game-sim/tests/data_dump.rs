@@ -1,4 +1,5 @@
-//! Data dumps of the game databases (work package P2.1) against the C++
+//! Data dumps of the game databases (work package P2.1, and the AI state
+//! graphs of P2.5) against the C++
 //! oracle: `Oracle.exe dump` loads the `[Data]` list of
 //! `EXE/OutpostFrontier.ini` through Common's loaders and writes one dump
 //! per database (`CppSource/Oracle/oracle_game_data.cpp`); each
@@ -159,4 +160,13 @@ fn data_dump_fuses() {
             .petals(&loaded.data.petals),
         },
     );
+}
+
+/// `AI\state_graph.db` (work package P2.5), through
+/// `pub::StateGraph::refresh_state_graph` on the C++ side.
+#[test]
+fn data_dump_state_graph() {
+    run("state_graph", &["state_graph"], |loaded, _| {
+        support::ai::state_graph_lines(&loaded.data.state_graphs)
+    });
 }
