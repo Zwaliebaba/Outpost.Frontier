@@ -212,3 +212,11 @@ fn data_dump_vibes() {
         character::vibes(&loaded.data.vibes, &probes)
     });
 }
+
+#[test]
+fn data_dump_asteroid_fields() {
+    run("asteroid_fields", &["fields", "loot"], |loaded, file| {
+        let (fields, loot) = support::render_field::asteroid_fields(&loaded.data, &data_source());
+        if file == "fields" { fields } else { loot }
+    });
+}

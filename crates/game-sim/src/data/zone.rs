@@ -16,6 +16,7 @@ use neuron_core::id::{create_id, make_id};
 use neuron_core::ini::IniReader;
 use neuron_core::math::{Matrix, Vector};
 
+use super::asteroid_field::LootableZoneEntry;
 use super::string_cache::{CacheString, StringCache};
 use super::{Reports, lossy, value_f32};
 
@@ -158,6 +159,8 @@ pub struct Zone {
     pub ids_name: i32,
     /// `ids_info`.
     pub ids_info: i32,
+    /// The loot an asteroid field file gives the zone (`SetLootableInfo`).
+    pub lootable: Option<LootableZoneEntry>,
 }
 
 impl Zone {
@@ -190,6 +193,7 @@ impl Zone {
             visit: 0x20,
             ids_name: 0,
             ids_info: 0,
+            lootable: None,
         }
     }
 

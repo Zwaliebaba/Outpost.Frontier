@@ -169,6 +169,8 @@ namespace
     // The set and set_less names of the [RtcSlider] sections of the RtcSlider
     // files (render_character.rs rtc_names).
     std::set<unsigned int> GRtcNames;
+    // The [Data] universe value (DumpAsteroidFields).
+    std::string GUniversePath;
 
     void ScanRtcNames(const char* FullPath)
     {
@@ -270,6 +272,7 @@ namespace
         char FullPath[0x104];
         if (Reader.is_value("universe"))
         {
+            GUniversePath = Reader.get_value_string();
             Universe::Startup(Reader.get_value_string());
         }
         else if (Reader.is_value("constants"))
@@ -520,7 +523,8 @@ void RunGameDataDump(const std::vector<std::string>& Files)
         // every kind lists no files, as the Rust test does.
         printf("game data: no EXE\\OutpostFrontier.ini, nothing loaded\n");
         static const char* const kKinds[] = {"constants", "goods",    "loadouts",   "reputation", "archetypes",
-                                             "universe",  "bases",    "fuses",      "characters", "vibes"};
+                                             "universe",  "bases",    "fuses",      "characters", "vibes",
+                                             "asteroid_fields"};
         for (const char* Name : kKinds)
             FGameKind Empty(Name);
         CloseGameData();
@@ -562,6 +566,10 @@ void RunGameDataDump(const std::vector<std::string>& Files)
     {
         FGameKind K("vibes");
         DumpVibes(K);
+    }
+    {
+        FGameKind K("asteroid_fields");
+        DumpAsteroidFields(K, GUniversePath);
     }
     CloseGameData();
     printf("dumped the game databases\n");

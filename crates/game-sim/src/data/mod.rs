@@ -13,6 +13,7 @@
 
 pub mod archetype;
 pub mod asteroid;
+pub mod asteroid_field;
 pub mod base;
 pub mod config;
 pub mod constants;

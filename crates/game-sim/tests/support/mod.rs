@@ -14,6 +14,7 @@ pub mod fill;
 pub mod game;
 pub mod render;
 pub mod render_character;
+pub mod render_field;
 pub mod render_fuse;
 pub mod render_universe;
 
