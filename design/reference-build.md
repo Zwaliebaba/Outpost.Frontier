@@ -664,6 +664,11 @@ Content.dll and the engine DLLs.
 
 Single-player stepping is emulated as above, not run through the client.
 Field asteroids (`CmnAsteroid`) are not scenario objects; `ram_asteroid`
-uses a static asteroid solar. Ships have no reputation, so AI targeting is
+uses a static asteroid solar. The multiplayer server's collision filter
+(`StarSystem_MpCollisionFilter`, `Server/server_classes.cpp:11409`) lets a
+pair collide only when one side is a bullet or a missile, so ship–solar and
+ship–ship contact is not simulated on the server (the clients report it):
+in `ram_asteroid` the ship flies through the rock and no collision is
+recorded. Ships have no reputation, so AI targeting is
 neutral. There is no world snapshot for behaviours that read other objects
 (record 0003 point 7, P2.5).

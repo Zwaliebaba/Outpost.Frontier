@@ -1,7 +1,8 @@
-//! Oracle vectors of work package P2.1: asteroid ids and cube orientations,
+//! Oracle vectors of work packages P2.1 and P2.4: asteroid ids and cube orientations,
 //! the string cache, the faction registry, the zone queries, the exclusion
-//! zones, the spatial partitions with the system zone tree, and the base
-//! records' marshalling. The inputs are under
+//! zones, the spatial partitions with the system zone tree, the base
+//! records' marshalling, and the object-model math (`object_math`:
+//! `LookMatrix`, `ComputeTimeToTgt`, the nudge and axis setters). The inputs are under
 //! `tests/fixtures/oracle/`, written by `make_game_sim_fixtures.py`; the C++
 //! side is `CppSource/Oracle/oracle_game_suites.cpp`, run as
 //! `Oracle.exe game-sim <fixtures> <output>`.
@@ -1008,4 +1009,51 @@ fn base_props() {
         ));
     }
     check_suite("base_props.jsonl", &lines);
+}
+
+/// Work package P2.4's suite: `LookMatrix`, `CEGun::ComputeTimeToTgt`,
+/// `CNudgeEngine::SetNudgeVec` and `CSteering::SetAxisThrottle` from rest,
+/// over `object_math.list`. Tier A: arithmetic and square roots only.
+#[test]
+fn object_math() {
+    use game_sim::equip::flight::{Nudge, Steering};
+    use game_sim::equip::launcher::compute_time_to_target;
+    use game_sim::object::csys::look_matrix;
+
+    let v3 = |p: &[&str]| Vector::new(f32_hex(p[0]), f32_hex(p[1]), f32_hex(p[2]));
+    let words = |v: &[f32]| v.iter().map(|x| f32_text(*x)).collect::<Vec<_>>().join(",");
+    let mut lines = Vec::new();
+    for line in input_lines("object_math.list") {
+        let parts: Vec<&str> = line.split(' ').collect();
+        let args = parts[1..].join(",");
+        let out = match parts[0] {
+            "look" => words(&look_matrix(v3(&parts[1..4])).to_words()),
+            "ttt" => {
+                match compute_time_to_target(v3(&parts[1..4]), v3(&parts[4..7]), f32_hex(parts[7]))
+                {
+                    Some(t) => format!("1,{}", f32_text(t)),
+                    None => "0".to_owned(),
+                }
+            }
+            "nudge" => {
+                let mut n = Nudge::default();
+                n.set_nudge_vec(v3(&parts[1..4]));
+                words(&n.current.to_words())
+            }
+            "axis" => {
+                let mut s = Steering::default();
+                s.set_axis_throttle(v3(&parts[1..4]));
+                words(&s.axis_throttle.to_words())
+            }
+            other => panic!("object_math.list: unknown kind {other}"),
+        };
+        lines.push(
+            Line::new()
+                .add("kind", parts[0].to_owned())
+                .add("in", args)
+                .add("out", out)
+                .done(),
+        );
+    }
+    check_suite("object_math.jsonl", &lines);
 }

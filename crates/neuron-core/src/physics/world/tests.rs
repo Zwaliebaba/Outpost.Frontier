@@ -482,3 +482,25 @@ fn bodies_from_compact_surfaces_and_the_default_part() {
         "a mass below the epsilon becomes 1"
     );
 }
+
+#[test]
+fn the_game_filter_reads_the_client_classes() {
+    let run = |class_a: u32| {
+        let mut world = PhysicsWorld::new(1, &constants());
+        let mut random = IvpRandom::default();
+        let a = ball(&mut world, 1, 1.0, Vector::new(-3.0, 0.0, 0.0));
+        let b = ball(&mut world, 2, 1.0, Vector::new(3.0, 0.0, 0.0));
+        world.set_client_class(a, class_a);
+        world.set_client_class(b, 0x503);
+        world.set_collision_filter(Some(|a, b| a & 0x27 == 0x27 || b & 0x27 == 0x27));
+        world.add_to_velocity(a, Vector::new(40.0, 0.0, 0.0));
+        let mut events = 0;
+        for _ in 0..10 {
+            step(&mut world, &mut NoControllers, &mut random, 0.05);
+            events += world.collisions().len();
+        }
+        events
+    };
+    assert_eq!(run(0x503), 0, "two ships pass through each other");
+    assert_eq!(run(0xa7), 1, "a missile hits the ship");
+}

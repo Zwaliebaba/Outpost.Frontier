@@ -1,8 +1,10 @@
 # Oracle.exe sim scenario (design/reference-build.md section 10): ram an asteroid.
 # A fighter with no behaviour starts 1000 m from the static asteroid
 # ve03_ast_icecrystal_largeA_1 (53637, 0, -26391 in ve03) and flies into it at full
-# throttle. The contact is chaotic: compare it by outcome (collision events and the
-# damage they carry) once the runs diverge. Multiplayer stepping.
+# throttle. Multiplayer stepping. The multiplayer server's collision filter
+# (StarSystem_MpCollisionFilter) lets only bullets and missiles collide, so the ship
+# flies through the rock and no collision is recorded (design/reference-build.md
+# section 10, "Not covered yet").
 
 system ve03
 ticks 600
