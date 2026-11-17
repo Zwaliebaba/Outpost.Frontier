@@ -94,13 +94,17 @@ pub struct AxisRotations {
 }
 
 impl Default for AxisRotations {
-    /// The `CAsteroidField` default: 0, pi/2, pi and 3pi/2 on every axis.
+    /// The `CAsteroidField` default on every axis: the constructor's float
+    /// literals `0.0f`, `1.5707963f`, `3.14159265f` and `4.71238898f`
+    /// (`common_casteroidfield.cpp`). The second rounds to `3fc90fda`, one
+    /// unit in the last place below `FRAC_PI_2`, whatever the comment beside
+    /// it says.
     fn default() -> Self {
         let snap = [
             0.0,
-            core::f32::consts::FRAC_PI_2,
-            core::f32::consts::PI,
-            3.0 * core::f32::consts::FRAC_PI_2,
+            f32::from_bits(0x3fc9_0fda),
+            f32::from_bits(0x4049_0fdb),
+            f32::from_bits(0x4096_cbe4),
         ];
         Self { angles: [snap; 3] }
     }

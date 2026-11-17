@@ -383,6 +383,20 @@ namespace
         return true;
     }
 
+    // Universe::Startup is reference-counted and loads nothing while a
+    // universe is up (common_universe.cpp: GUniverseRefCount), so a suite
+    // that starts its own universe first releases the previous suite's;
+    // every suite then sees exactly its fixture, as the Rust tests do.
+    bool GFixtureUniverseUp = false;
+
+    void StartFixtureUniverse(const char* RelPath)
+    {
+        if (GFixtureUniverseUp)
+            Universe::Shutdown();
+        Universe::Startup(RelPath);
+        GFixtureUniverseUp = true;
+    }
+
     // zones/universe.ini through Universe::Startup with NeuronRuntime::Data
     // over the fixture directory, then every query of zone_points.list on
     // every zone of system zt, in its zone order.
@@ -391,7 +405,7 @@ namespace
         Suite Out("zones.jsonl");
         if (!OpenFixtureData())
             return;
-        Universe::Startup("zones\\universe.ini");
+        StartFixtureUniverse("zones\\universe.ini");
 
         std::vector<std::string> PointText;
         std::vector<Vector> Points;
@@ -481,7 +495,7 @@ namespace
         Suite Out("zone_queries.jsonl");
         if (!OpenFixtureData())
             return;
-        Universe::Startup("zone_queries\\universe.ini");
+        StartFixtureUniverse("zone_queries\\universe.ini");
 
         std::vector<Vector> Points;
         for (const std::string& Line : InputLines("zone_points.list"))
@@ -598,7 +612,7 @@ namespace
         Suite Out("exclusion_zones.jsonl");
         if (!OpenFixtureData())
             return;
-        Universe::Startup("zone_queries\\universe.ini");
+        StartFixtureUniverse("zone_queries\\universe.ini");
 
         struct FObserver
         {
@@ -813,7 +827,7 @@ namespace
         Suite Out("spatial.jsonl");
         if (!OpenFixtureData())
             return;
-        Universe::Startup("zone_queries\\universe.ini");
+        StartFixtureUniverse("zone_queries\\universe.ini");
         const Universe::ISystem* Zq = Universe::get_system(CreateID("zq"));
         static FSpatialQueryResult Result;
         ISpatialPartition* Partition = nullptr;
