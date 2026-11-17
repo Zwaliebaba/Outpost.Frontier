@@ -1,0 +1,14 @@
+# channel|t0|t1|capacity: CollectRange
+events|00000000|3f000000|16
+events|00000000|3dcccccd|16
+events|3d4ccccd|3eb33333|16
+events|3f000000|00000000|16
+events|3eb33333|3dcccccd|16
+events|00000000|3f000000|2
+events|00000000|00000000|16
+events|bf000000|3e4ccccd|16
+events|00000000|3f19999a|16
+uevents|00000000|3f400000|16
+uevents|3f400000|00000000|16
+uevents|3dcccccd|3f19999a|1
+uniform|00000000|3f000000|16

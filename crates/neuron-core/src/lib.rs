@@ -15,6 +15,7 @@ pub mod msvcrt;
 pub mod net;
 pub mod num;
 pub mod rng;
+pub mod scene;
 pub mod sur;
 pub mod time;
 pub mod utf;

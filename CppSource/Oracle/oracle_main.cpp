@@ -439,6 +439,7 @@ namespace
         RunFxDataDump(AllFiles);
         RunShadingDataDump(AllFiles);
         RunMeshDataDump(AllFiles);
+        RunSceneDataDump(AllFiles);
     }
 }
 
@@ -495,5 +496,6 @@ int main(int Argc, char** Argv)
     RunFxDataSuites();
     RunShadingSuites();
     RunMeshDataSuites();
+    RunSceneSuites();
     return GFailed ? 1 : 0;
 }

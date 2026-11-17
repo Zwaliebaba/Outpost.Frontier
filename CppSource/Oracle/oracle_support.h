@@ -169,3 +169,14 @@ void RunShadingDataDump(const std::vector<std::string>& Files);
 // .dfm through the Deformable2 loaders, kind "dfm". Runs after
 // RunVfsDataDump, which registers the file systems it opens.
 void RunMeshDataDump(const std::vector<std::string>& Files);
+
+// P1.8 (oracle_scene.cpp): compound archetypes, hardpoints, instance trees,
+// channel sampling, joints and the animation mixer of SceneRuntime.dll. Runs
+// after RunVfsSuites, which registers the file systems it opens.
+void RunSceneSuites();
+
+// P1.8 (oracle_scene.cpp): every UTF .cmp, .3db and .dfm through
+// IEngine::CreateArchetypeHandle with the Hardpoint component, kind "scene";
+// every one whose script IAnimation2::OpenScript opens, its animations played
+// on an instance through the mixer, kind "scene_eval".
+void RunSceneDataDump(const std::vector<std::string>& Files);

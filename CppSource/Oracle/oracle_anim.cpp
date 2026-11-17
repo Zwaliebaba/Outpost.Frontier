@@ -387,6 +387,12 @@ namespace
     }
 }
 
+// Loads SceneRuntime.dll once; also used by oracle_scene.cpp.
+bool OracleLoadSceneRuntime()
+{
+    return LoadSceneRuntime();
+}
+
 void RunAnimSuites()
 {
     AnimChannels();
