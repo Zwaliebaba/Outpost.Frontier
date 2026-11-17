@@ -107,6 +107,7 @@ jobs:
           Copy-Item "$f\vfs\utf\full.utf" "$root\DATA\SHIPS\full.cmp"
           Copy-Item "$f\vfs\utf\compact.utf" "$root\DATA\compact.3db"
           Copy-Item "$f\sur\tree.sur" "$root\DATA\SHIPS\tree.sur"
+          Copy-Item "$f\anim\script_full.utf" "$root\DATA\anim.cmp"
           & .\bin\Oracle.exe dump $root $out
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           rustup toolchain install

@@ -60,6 +60,8 @@
     <!-- P1.3: ReadFile.dll's source is compiled into oracle_vfs.cpp, which registers its
          factories through its DllMain; its stricmp import shim is compiled in beside it. -->
     <ClCompile Include="oracle_vfs.cpp" />
+    <!-- P1.7: loads SceneRuntime.dll at run time and reads its objects through SceneRuntime.h. -->
+    <ClCompile Include="oracle_anim.cpp" />
     <ClCompile Include="..\ReadFile\NeuronComponentsStricmp.cpp" />
     <!-- Common.dll does not export MsvcrtAtof; the same source is compiled in. -->
     <ClCompile Include="..\Common\msvcrt_atof.cpp" />
@@ -101,6 +103,12 @@
     <!-- x86math.dll exports nothing: built for oracle_math.cpp, which loads it at run time. -->
     <ProjectReference Include="..\x86math\x86math.vcxproj">
       <Project>{C4D8E201-7A3B-4F91-9E56-2B8C0D1A4E77}</Project>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+    <!-- SceneRuntime.dll exports nothing: built for oracle_anim.cpp, which loads it at run time. -->
+    <ProjectReference Include="..\SceneRuntime\SceneRuntime.vcxproj">
+      <Project>{B4E8A017-3C5D-4F21-9A86-E7D1C0B4A592}</Project>
       <LinkLibraryDependencies>false</LinkLibraryDependencies>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
     </ProjectReference>

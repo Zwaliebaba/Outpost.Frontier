@@ -435,6 +435,7 @@ namespace
                (unsigned int)Engine);
         RunVfsDataDump(AllFiles);
         RunSurDataDump(AllFiles);
+        RunAnimDataDump(AllFiles);
     }
 }
 
@@ -487,5 +488,6 @@ int main(int Argc, char** Argv)
     RunUtilSuites();
     RunVfsSuites();
     RunSurSuites();
+    RunAnimSuites();
     return GFailed ? 1 : 0;
 }

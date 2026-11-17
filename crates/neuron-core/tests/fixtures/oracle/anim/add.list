@@ -1,0 +1,11 @@
+# archive|names|names...: AddScriptNames calls on one script and file system
+anim/script_full.utf|57616c6b,49646c65
+anim/script_full.utf|49646c65,-,57616c6b
+anim/script_full.utf|726561646d65,4d697373696e67,49646c65|49646c65,52756e
+anim/script_full.utf|57414c4b,77616c6b|4e65676174697665
+anim/script_full.utf|57616c6b5c4a6f696e74206d61702030,4e65737465645c5363726970745c496e6e6572,2e646f74
+anim/script_full.utf|456d707479|456d707479,52756e
+anim/script_compact.utf|4f70656e,436c6f7365,6f70656e
+anim/no_anim.utf|57616c6b
+anim/no_script.utf|57616c6b
+anim/anim_file.utf|57616c6b
