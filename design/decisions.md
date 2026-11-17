@@ -184,6 +184,13 @@ The permitted licences are listed in `deny.toml`. In use so far:
 - `tracing` 0.1 (MIT; `std` feature only, no attribute macros):
   `neuron-core::diag` (P1.5). `tracing-subscriber` is not used; the
   channel subscriber is written in `diag`.
+- `parry3d` 0.25.3 (Apache-2.0; default features off, `required-features`,
+  `std`, `alloc`): `neuron-core::physics` (P2.3), collision geometry, shape
+  casts, rays and intersection tests. It is the last release on `nalgebra`
+  (0.26 and later moved to `glam`). `nalgebra` 0.34 (Apache-2.0) comes with
+  it and is used through `parry3d::na`, in `physics::shape` only. Its
+  build-time macro crate `paste` carries an "unmaintained" advisory
+  (RUSTSEC-2024-0436), ignored in `deny.toml` with that reason.
 
 Math types are the project's own (`neuron-core::math`) so operation order
 stays under control; conversion to `nalgebra` happens at the `parry3d`

@@ -14,6 +14,7 @@ pub mod mesh_data;
 pub mod msvcrt;
 pub mod net;
 pub mod num;
+pub mod physics;
 pub mod rng;
 pub mod scene;
 pub mod sur;
