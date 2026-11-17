@@ -179,7 +179,7 @@ the `[Resources]` DLL order that fixes text ID prefixes; the `local_server`
 value; whether `PHYSICAL_SIM_RATE` is overridden; whether `.thn` scripts
 ship as text or as compiled chunks; the `maxSoundChannels` value; the movie
 codec versions; the font faces the data expects; whether single player
-keeps one object world or two (see P2.0).
+keeps one object world or two (see P2.0; answered: one, decision O21).
 
 **Gate G0.** The C++ build runs the game on the original data. The harness
 produces vectors for at least name hashing, INI parsing and one data dump.
@@ -238,7 +238,7 @@ the oracle dumps.
 
 | ID | C++ source | Rust destination | Size | Tier |
 | --- | --- | --- | --- | --- |
-| P2.0 | Design spikes, each ending in a short decision record under `design/adr/`: object model representation (kinds, handles, lifetimes); single-player world ownership (default: two worlds joined by typed loopback messages, as the C++ `SP*` calls suggest); the replay and scenario oracle and the G2 envelope bounds (O20) | — | S | — |
+| P2.0 | Design spikes, each ending in a short decision record under `design/adr/`: object model representation (kinds, handles, lifetimes); single-player world ownership (one shared world, decision O21; the earlier default of two worlds joined by loopback rested on a misreading of the `SP*` calls); the replay and scenario oracle and the G2 envelope bounds (O20) | — | S | — |
 | P2.1 | `Common` data: constants, data config, the string cache (`common_stringcache.cpp`, moved from P1.1), archetypes, loadouts, fuse data, goods, reputation data, universe, zones, asteroid IDs, bases, rooms, spatial partition | `game-sim::data` | XL | A |
 | P2.2 | `Common` marshal buffer, format strings, costume, binary rich text; the 162 packet types and codecs from `RemoteCommon` | `game-sim::protocol` | L | A |
 | P2.3 | `PhySys` facade, `[PhySys]` constants, hull shapes from compact surfaces, integrator and impulse solver, controllers hook, rays, sphere queries, phantoms, remote correction, dead reckoning | `neuron-core::physics` | L | B |
