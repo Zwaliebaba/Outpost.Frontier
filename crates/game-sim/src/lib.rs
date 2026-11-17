@@ -6,8 +6,11 @@
 //!   constants, the `[Data]` list, goods, factions, the universe with its
 //!   bases and rooms, zones, asteroid ids, loadouts, archetypes, fuses, the
 //!   spatial partition and the string cache.
+//! * [`protocol`]: the message catalog and the `Common` encodings it
+//!   carries (work package P2.2).
 #![forbid(unsafe_code)]
 
 pub mod data;
+pub mod protocol;
 
 pub use neuron_core::ENGINE_VERSION;

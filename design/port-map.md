@@ -17,7 +17,7 @@ packages and status are in the [library ledger](library-ledger.md).
 | `SceneRuntime` | NeuronCore | Engine, compound archetypes, `Cons` joints, hardpoints, instance trees, sampling, typed channels, mixer and playbacks (`scene`); channel and script data (`anim`). No renderer dependence. |
 | `ReadFile`, `zlib` | NeuronCore | The UTF container (`utf`); the file-system trait, the directory, UTF and memory backends, the search path and the path rules (`vfs`). `flate2` replaces zlib for network batches (`net::frame`). |
 | `luaprofile`, `MemoryDiagnostics` | — | Not ported. |
-| `rpclocal`, `RemoteCommon` | NeuronCore, GameSim | The loopback transport, field primitives and quantisers (`net`) in core and one set of message codecs in GameSim. The codec copy in `rpclocal` is not ported. |
+| `rpclocal`, `RemoteCommon` | NeuronCore, GameSim | The loopback transport, field primitives and quantisers (`net`) in core. The message catalog and its codecs in GameSim (`protocol`): one enum per channel, the single-player payload forms selected by a `WireContext`, and the `Common` encodings the messages carry (`MarshalBuffer`, `FmtStr`, costume, binary RDL). The codec copy in `rpclocal` is not ported. |
 | `RemoteServer` | NeuronClient | Client-side connection to a server and delivery of incoming events. |
 | `RemoteClient` | NeuronServer | Server-side connection handling and delivery of events to connected clients. |
 | `Server` | NeuronServer, GameLogic | Server lifecycle, sessions, save storage, accounts and the controller bus in the engine. World updates, objects, players and replication in GameLogic. |

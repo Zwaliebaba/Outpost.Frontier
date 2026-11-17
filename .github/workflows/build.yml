@@ -115,14 +115,22 @@ jobs:
           & .\bin\Oracle.exe "$PWD\crates\neuron-core\tests\fixtures\oracle" "$PWD\oracle-out"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Compare with the committed vectors
+        # The harness writes the game-sim protocol suites (P2.2) to
+        # oracle-out\game-sim; they are moved aside and compared with game-sim's
+        # vectors in the next step.
         shell: pwsh
         run: |
+          New-Item -ItemType Directory -Force oracle-out-game-sim | Out-Null
+          if (Test-Path oracle-out\game-sim) { Move-Item oracle-out\game-sim\* oracle-out-game-sim; Remove-Item oracle-out\game-sim }
           git diff --no-index --stat crates/neuron-core/tests/vectors oracle-out
           git diff --no-index crates/neuron-core/tests/vectors oracle-out
           if ($LASTEXITCODE -ne 0) { exit 1 }
       - name: Run the game-sim suites and compare
-        # Work package P2.1: Oracle.exe game-sim runs on its own fixtures, so
-        # that Common's string cache has seen nothing else.
+        # game-sim's vectors come from two runs: the protocol suites (P2.2)
+        # from the main run above, moved into oracle-out-game-sim, and the
+        # data suites (P2.1) from Oracle.exe game-sim on its own fixtures, so
+        # that Common's string cache has seen nothing else. The directory is
+        # compared once both have written.
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force oracle-out-game-sim | Out-Null
