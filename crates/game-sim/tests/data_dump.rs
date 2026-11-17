@@ -145,3 +145,18 @@ fn data_dump_bases() {
         Render::base_data(&loaded.data.bases)
     });
 }
+
+#[test]
+fn data_dump_fuses() {
+    run(
+        "fuses",
+        &["fuse_files", "petals"],
+        |loaded, file| match file {
+            "fuse_files" => Render::fuse_files(&loaded.data.fuse_files),
+            _ => Render {
+                strings: &loaded.data.strings,
+            }
+            .petals(&loaded.data.petals),
+        },
+    );
+}

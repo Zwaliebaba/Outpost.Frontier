@@ -12,10 +12,9 @@
 //! The C++ reference count (a second `startup` loads nothing) is the
 //! caller's business here: a [`GameData`] is loaded once. The loaders of
 //! later work packages are listed in [`DataKind`] and skipped:
-//! `bodyparts`, `costumes` (P5.9), `NewCharDB` (P3), `RtcSlider` (P5),
-//! `PetalDB` and `WeaponModDB` (with the equipment in P2.4); the AI state
-//! graph that `startup` reads after the list (`AI\state_graph.db`) belongs
-//! to P2.5. Keys `DataConfig` does not dispatch (`fonts`, `sounds`,
+//! `bodyparts`, `costumes` (P5.9), `NewCharDB` (P3) and `RtcSlider` (P5);
+//! the AI state graph that `startup` reads after the list
+//! (`AI\state_graph.db`) belongs to P2.5. Keys `DataConfig` does not dispatch (`fonts`, `sounds`,
 //! `effects`, ...) are read by other subsystems and kept in the list.
 
 use neuron_core::hash::eq_ignore_case;
@@ -24,6 +23,7 @@ use neuron_core::ini::IniReader;
 use super::archetype::{ArchetypeDb, LoadCx};
 use super::base::BaseDataList;
 use super::constants::Constants;
+use super::fuse::{FuseFiles, PetalDb, WeaponModDb};
 use super::goods::{GoodList, GoodsContext};
 use super::loadout::LoadoutDb;
 use super::reputation::Reputation;
@@ -70,7 +70,7 @@ pub enum DataKind {
     Goods,
     /// `markets`: `BaseDataList_load_market_data`.
     Markets,
-    /// `PetalDB`: `PetalDB_load` (not part of P2.1).
+    /// `PetalDB`: `PetalDB_load`.
     PetalDb,
     /// `Groups`: `Reputation::Startup`.
     Groups,
@@ -78,7 +78,7 @@ pub enum DataKind {
     Explosions,
     /// `fuses`: `FuseDB::AddFuseINIFile`.
     Fuses,
-    /// `WeaponModDB`: `WeaponModDB_load` (not part of P2.1).
+    /// `WeaponModDB`: `WeaponModDB_load`.
     WeaponModDb,
     /// `NewCharDB`: `NewChar::TheDB->Load` (not part of P2.1).
     NewCharDb,
@@ -123,12 +123,7 @@ impl DataKind {
     pub fn is_ported(self) -> bool {
         !matches!(
             self,
-            Self::Bodyparts
-                | Self::Costumes
-                | Self::PetalDb
-                | Self::WeaponModDb
-                | Self::NewCharDb
-                | Self::RtcSlider
+            Self::Bodyparts | Self::Costumes | Self::NewCharDb | Self::RtcSlider
         )
     }
 }
@@ -184,6 +179,12 @@ pub struct GameData {
     pub universe: Universe,
     /// `BaseDataList_load` and the market files.
     pub bases: BaseDataList,
+    /// `FuseDB::AddFuseINIFile`.
+    pub fuse_files: FuseFiles,
+    /// `PetalDB_load`.
+    pub petals: PetalDb,
+    /// `WeaponModDB_load`.
+    pub weapon_mods: WeaponModDb,
     /// `FDUMP` reports of the load.
     pub reports: Reports,
 }
@@ -284,6 +285,12 @@ impl GameData {
                     &mut self.reports,
                 );
             }
+            DataKind::Fuses => self.fuse_files.add(value),
+            DataKind::PetalDb => {
+                self.petals
+                    .load(source, value, &mut self.strings, &mut self.reports);
+            }
+            DataKind::WeaponModDb => self.weapon_mods.load(source, value, &mut self.reports),
             DataKind::Groups => {
                 self.reputation.startup(source, value);
             }

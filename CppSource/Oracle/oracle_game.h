@@ -55,3 +55,4 @@ void DumpArchetypes(FGameKind& K, const std::set<unsigned int>& MotorIds,
 // oracle_game_universe.cpp.
 void DumpUniverse(FGameKind& K);
 void DumpBaseData(FGameKind& K);
+void DumpFuses(FGameKind& K, const std::set<unsigned int> (&PetalIds)[7]);

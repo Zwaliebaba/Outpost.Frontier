@@ -16,6 +16,8 @@
 #include "common_id.h"
 #include "common_universe.h"
 #include "common_goods.h"
+#include "common_fuses.h"
+#include "common_misc.h"
 
 using namespace oracle;
 
@@ -245,6 +247,70 @@ void DumpBaseData(FGameKind& K)
             G.Add("level", GameF(M.MinLevel));
             G.Add("rep", GameF(M.MinRep));
             Out.Line(G.Done());
+        }
+    }
+}
+
+namespace
+{
+    // FuseDB keeps its list protected; a derived type may read it.
+    struct FFuseFiles : FuseDB
+    {
+        static const std::list<TString<260>>& Files()
+        {
+            return m_FuseINIFiles;
+        }
+    };
+
+    // The data root as GetFileSysPath prefixes it.
+    std::string DataPrefix()
+    {
+        char Path[0x104];
+        GetFileSysPath(Path, "x", nullptr);
+        std::string Prefix = Path;
+        return Prefix.substr(0, Prefix.size() - 1);
+    }
+}
+
+void DumpFuses(FGameKind& K, const std::set<unsigned int> (&PetalIds)[7])
+{
+    {
+        Suite Out(K.Path("fuse_files"));
+        const std::string Prefix = DataPrefix();
+        for (const TString<260>& File : FFuseFiles::Files())
+        {
+            std::string Path = File.Data;
+            if (Path.size() >= Prefix.size() && _strnicmp(Path.c_str(), Prefix.c_str(), Prefix.size()) == 0)
+                Path = Path.substr(Prefix.size());
+            FLine L;
+            L.Add("fuse_file", GameText(Path.c_str()));
+            Out.Line(L.Done());
+        }
+    }
+    {
+        Suite Out(K.Path("petals"));
+        const PetalInterfaceDatabase* Db = PetalDB_get();
+        for (int Category = 0; Category < 7; ++Category)
+        {
+            for (unsigned int Id : PetalIds[Category])
+            {
+                const PetalInterfaceDatabase::petal_record* Record = Db->find_record(Category, Id);
+                if (Record == nullptr)
+                    continue;
+                std::string Extras;
+                for (const char* Extra : Record->Extras)
+                {
+                    if (!Extras.empty())
+                        Extras += ";";
+                    Extras += GameText(Extra);
+                }
+                FLine L;
+                L.Add("category", Format("%d", Category));
+                L.Add("petal", GameId(Record->NicknameId));
+                L.Add("mesh", GameText(Record->Mesh.c_str()));
+                L.Add("extras", Extras);
+                Out.Line(L.Done());
+            }
         }
     }
 }

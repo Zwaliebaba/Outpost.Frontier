@@ -17,6 +17,7 @@ pub mod base;
 pub mod config;
 pub mod constants;
 pub mod equip_desc;
+pub mod fuse;
 pub mod goods;
 pub mod loadout;
 pub mod reputation;

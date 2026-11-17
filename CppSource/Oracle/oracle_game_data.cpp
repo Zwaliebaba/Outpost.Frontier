@@ -35,6 +35,7 @@
 #include "common_physys.h"
 #include "common_reputation.h"
 #include "common_universe.h"
+#include "common_fuses.h"
 
 #include <algorithm>
 #include <set>
@@ -117,6 +118,32 @@ namespace
     std::set<unsigned int> GExplosionIds;
     std::set<unsigned int> GMotorIds;
     std::set<unsigned int> GLoadoutIds;
+    // The [ObjectTable] records of the PetalDB file: room 0, cart 5, prop 6.
+    std::set<unsigned int> GPetalIds[7];
+
+    void ScanPetalIds(const char* FullPath)
+    {
+        INI_Reader Reader;
+        if (!Reader.open(FullPath, false))
+            return;
+        while (Reader.read_header())
+        {
+            if (!Reader.is_header("ObjectTable"))
+                continue;
+            while (Reader.read_value())
+            {
+                int Category = -1;
+                if (Reader.is_value("room"))
+                    Category = 0;
+                else if (Reader.is_value("cart"))
+                    Category = 5;
+                else if (Reader.is_value("prop"))
+                    Category = 6;
+                if (Category >= 0)
+                    GPetalIds[Category].insert(CreateID(Reader.get_value_string(0)));
+            }
+        }
+    }
 
     void ScanIds(const char* FullPath)
     {
@@ -171,6 +198,8 @@ namespace
     // DispatchDataValue (common_dataconfig.cpp) for the loaders work package
     // P2.1 ports, with the same GetFileSysPath calls and no factory. Keys of
     // later work packages are skipped, as GameData::load skips them.
+    // WeaponModDB_load is not exported, so that key is skipped here too; it
+    // interns nothing, so the other databases do not depend on it.
     void DispatchDataValue(INI_Reader& Reader)
     {
         char FullPath[0x104];
@@ -222,6 +251,17 @@ namespace
         else if (Reader.is_value("markets"))
         {
             BaseDataList_load_market_data(Reader.get_value_string());
+        }
+        else if (Reader.is_value("PetalDB"))
+        {
+            GetFileSysPath(FullPath, Reader.get_value_string(), nullptr);
+            ScanPetalIds(FullPath);
+            PetalDB_load(Reader.get_value_string());
+        }
+        else if (Reader.is_value("fuses"))
+        {
+            GetFileSysPath(FullPath, Reader.get_value_string(), nullptr);
+            FuseDB::AddFuseINIFile(FullPath);
         }
         else if (Reader.is_value("Groups"))
         {
@@ -394,7 +434,7 @@ void RunGameDataDump(const std::vector<std::string>& Files)
         // every kind lists no files, as the Rust test does.
         printf("game data: no EXE\\OutpostFrontier.ini, nothing loaded\n");
         static const char* const kKinds[] = {"constants", "goods", "loadouts", "reputation", "archetypes",
-                                             "universe", "bases"};
+                                             "universe", "bases", "fuses"};
         for (const char* Name : kKinds)
             FGameKind Empty(Name);
         CloseGameData();
@@ -424,6 +464,10 @@ void RunGameDataDump(const std::vector<std::string>& Files)
     {
         FGameKind K("bases");
         DumpBaseData(K);
+    }
+    {
+        FGameKind K("fuses");
+        DumpFuses(K, GPetalIds);
     }
     CloseGameData();
     printf("dumped the game databases\n");
