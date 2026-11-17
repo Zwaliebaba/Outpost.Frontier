@@ -68,6 +68,18 @@ The owner accepted D11 on 2026-11-17.
 | D59 | `neuron-core::mesh_data::dfm` | More than 150 bones write past the skeleton; a `Face_groups` count of 0 or less with `Group*` entries writes past a zero-length array | `DfmError::TooManyBones`; no groups | Undefined behaviour in the reference | None in the data |
 | D60 | `neuron-core::mesh_data::dfm` | Missing or short point, normal, bone-count, weight, UV-deform or strip data, and bone influences out of range, are read or written out of bounds | `DfmMeshError`; the mesh is not loaded | Undefined behaviour in the reference | None in the data |
 | D61 | `neuron-core::mesh_data::dfm` | A `Material_name` without a NUL is read past its view; a failed `Fractions` read leaves the values uninitialised | The name ends at the leaf's end; fractions are 0 | Undefined behaviour in the reference | None in the data |
+| D62 | `neuron-core::image::library` | The pitch of a block-compressed DDS level of width 0 divides by zero | `LoadOutcome::Fault` for that child | Undefined behaviour in the reference | None in the data |
+| D63 | `neuron-core::image::library` | The TGA loader reads a null header when no `MIP0` record was ever mapped | `Fault` | Undefined behaviour in the reference | None in the data |
+| D64 | `neuron-core::image::{tga, library}` | A negative width or height wraps the allocation; palette or pixel bytes past a level are read from beyond the mapping | `Fault` for a negative size; a truncated level is not uploaded | Undefined behaviour in the reference | None in the data |
+| D65 | `neuron-core::image::library` | A TGA level shorter than its 18-byte header is read past its end | The missing header bytes read as 0 | Undefined behaviour in the reference | None in the data |
+| D66 | `neuron-core::image::library` | A `MIP` name of 3 characters, or with a non-digit 4th character, indexes outside the ten mip records | Treated as too many mips (-8) | Undefined behaviour in the reference | None in the data |
+| D67 | `neuron-core::image::library` | Animated-record child or frame counts too large to allocate throw | `Fault` | Undefined behaviour in the reference | None |
+| D68 | `neuron-core::image::library` | Releasing a record whose CRC is not in the map dereferences `end()` | Nothing is destroyed | Undefined behaviour in the reference | None |
+| D69 | `neuron-core::image::tga` | `LoadTgaTexture` hands the renderer a 768-byte RGB palette from an uninitialised stack buffer; a colour map with entries under 3 bytes fills only part of it | The rest is zeros | Undefined behaviour in the reference | Only for 8- and 16-bit colour-map entries; none in the data |
+| D70 | `neuron-core::image::library` | DDS levels past the end of `MIPS` hand D3DX a pointer beyond the view | The cut slice is recorded (`got` below `need`); RGBA8 conversion reports an error | Undefined behaviour in the reference | 30 DXT1 levels of `rh_bizmark_equip.cmp`; P4.4 decides their texels |
+| D71 | `neuron-core::material_data` | A string or texture-name leaf without a NUL is read past its allocation | The whole leaf is the text | Undefined behaviour in the reference | None in the data |
+| D72 | `neuron-core::material_data::anim` | `MADeltas` and `MAKeys` buffers keep uninitialised bytes past what was read; huge counts throw | Only the bytes read are kept | Undefined behaviour in the reference | None |
+| D73 | `neuron-core::image::format_map` | A format-map line near 1,024 bytes is parsed past its buffer | Bytes past the buffer read as 0 | Undefined behaviour in the reference | None |
 
 D5 to D9 described the reader's binary INI path. That path was removed
 with decision O13, so the rows are gone; the IDs are not reused. D32
