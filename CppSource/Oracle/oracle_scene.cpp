@@ -65,10 +65,49 @@ namespace
         IAnimation2* Anim;
     };
 
+    // SceneRuntime creates its 3DMathEngine through the component manager on
+    // first use and never tests the result (Create3DMathEngine): without
+    // x86math.dll registered the first joint composition or object-channel bind
+    // dereferences null. Only RunMathSuites loads x86math.dll, and the data-dump
+    // mode does not run it, so every host loads it and checks that the
+    // component exists.
+    bool LoadMathEngine()
+    {
+        static int State = 0;
+        if (State == 0)
+        {
+            State = 2;
+            if (LoadLibraryA("x86math.dll") == nullptr)
+            {
+                fprintf(stderr, "scene: cannot load x86math.dll (%lu)\n", GetLastError());
+            }
+            else
+            {
+                FAggDescC Desc;
+                memset(&Desc, 0, sizeof(Desc));
+                Desc.Size = G_AggDescSizeMath;
+                Desc.Name = "3DMathEngine";
+                void* Math = nullptr;
+                if (NEURONCOMPONENTS_Acquire()->CreateInstance((AGGDESC*)(&Desc), &Math) == GR_OK && Math != nullptr)
+                {
+                    ((INeuronComponent*)(Math))->Release();
+                    State = 1;
+                }
+                else
+                {
+                    fprintf(stderr, "scene: no 3DMathEngine component\n");
+                }
+            }
+            if (State == 2)
+                GFailed = true;
+        }
+        return State == 1;
+    }
+
     bool MakeHost(FSceneHost& Host)
     {
         memset(&Host, 0, sizeof(Host));
-        if (!OracleLoadSceneRuntime())
+        if (!OracleLoadSceneRuntime() || !LoadMathEngine())
             return false;
         ICOManager* Manager = NEURONCOMPONENTS_Acquire();
         FAggDesc8 EngineDesc;
@@ -873,6 +912,52 @@ namespace
     }
 }
 
+namespace
+{
+    // One file of the scene_eval dump.
+    __declspec(noinline) void EvalFile(FSceneHost* Host, const std::string* File, Suite* List, unsigned int* Count)
+    {
+        IFileSystem* ScriptFs = OpenArchive(*File);
+        if (ScriptFs == nullptr)
+            return;
+        void* Script = Host->Anim->OpenScript(ScriptFs);
+        ScriptFs->Release();
+        if (!Valid(Script))
+            return;
+        FAnimScript* Typed = (FAnimScript*)(Script);
+        IFileSystem* Fs = OpenArchive(*File);
+        FArchetypeHandle* Handle = Fs == nullptr ? nullptr : CreateArchetype(*Host, *File, Fs);
+        if (Fs != nullptr)
+            Fs->Release();
+        if (Handle != nullptr)
+        {
+            List->Line(*File);
+            ++*Count;
+            Suite Out(DataOutputFile("scene_eval", *File));
+            Out.Line(Format("{\"file\":\"%s\",\"entries\":\"%u\"}", File->c_str(), (unsigned int)Typed->Names.size()));
+            ScriptLines(*Host, Handle, Typed, Out);
+            Host->Engine->ReleaseHandle(Handle);
+        }
+        if (!HoldsPool(Typed))
+            Host->Anim->CloseScript(Script);
+    }
+
+    // EvalFile under SEH, so that a crash names its file; no C++ objects live
+    // in this frame.
+    DWORD GuardedEvalFile(FSceneHost* Host, const std::string* File, Suite* List, unsigned int* Count)
+    {
+        __try
+        {
+            EvalFile(Host, File, List, Count);
+            return 0;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return GetExceptionCode();
+        }
+    }
+}
+
 void RunSceneSuites()
 {
     SceneLoad();
@@ -923,29 +1008,13 @@ void RunSceneDataDump(const std::vector<std::string>& Files)
     {
         if (!SceneFile(File) || FileMagic(File) != "UTF ")
             continue;
-        IFileSystem* ScriptFs = OpenArchive(File);
-        if (ScriptFs == nullptr)
-            continue;
-        void* Script = EvalHost.Anim->OpenScript(ScriptFs);
-        ScriptFs->Release();
-        if (!Valid(Script))
-            continue;
-        FAnimScript* Typed = (FAnimScript*)(Script);
-        IFileSystem* Fs = OpenArchive(File);
-        FArchetypeHandle* Handle = Fs == nullptr ? nullptr : CreateArchetype(EvalHost, File, Fs);
-        if (Fs != nullptr)
-            Fs->Release();
-        if (Handle != nullptr)
+        const DWORD Code = GuardedEvalFile(&EvalHost, &File, &List, &Count);
+        if (Code != 0)
         {
-            List.Line(File);
-            ++Count;
-            Suite Out(DataOutputFile("scene_eval", File));
-            Out.Line(Format("{\"file\":\"%s\",\"entries\":\"%u\"}", File.c_str(), (unsigned int)Typed->Names.size()));
-            ScriptLines(EvalHost, Handle, Typed, Out);
-            EvalHost.Engine->ReleaseHandle(Handle);
+            fflush(stdout);
+            fprintf(stderr, "scene_eval: exception %08lx in %s\n", (unsigned long)Code, File.c_str());
+            GFailed = true;
         }
-        if (!HoldsPool(Typed))
-            EvalHost.Anim->CloseScript(Script);
     }
     printf("dumped %u scene evaluations\n", Count);
 }
