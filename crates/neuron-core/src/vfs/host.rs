@@ -118,9 +118,14 @@ fn translate(pattern: &[u8]) -> Vec<Wild> {
 /// then matched as `FsRtlIsNameInExpression` matches, without ASCII case.
 /// So `*.*` matches every name, `*.` the names without an extension, and
 /// `Ship?.utf` both `Ship.utf` and `Ships.utf`.
+///
+/// For the `.` and `..` entries a `?` takes a `.` like any other
+/// character, so `????` lists them: the oracle shows Windows doing so on
+/// NTFS, while `?ub` still does not list them.
 #[must_use]
 pub fn win32_match(pattern: &[u8], name: &[u8]) -> bool {
     let pattern = translate(pattern);
+    let dot_entry = !name.is_empty() && name.iter().all(|&b| b == b'.');
     let last_dot = name.iter().rposition(|&b| b == b'.');
     // reachable[n]: the pattern prefix so far can end at name position n.
     let mut reachable = vec![false; name.len() + 1];
@@ -142,7 +147,7 @@ pub fn win32_match(pattern: &[u8], name: &[u8]) -> bool {
                     }
                 }
                 Wild::DosQm => {
-                    if n == name.len() || name[n] == b'.' {
+                    if n == name.len() || (name[n] == b'.' && !dot_entry) {
                         next[n] = true;
                     } else {
                         next[n + 1] = true;
@@ -507,9 +512,12 @@ mod tests {
         assert_eq!(all(b"SHIP.UTF"), names(&["Ship.utf"]));
         assert_eq!(all(b"*.c"), names(&["a.b.c"]));
         assert_eq!(all(b"*.b"), Vec::<String>::new());
-        // DOS_QM never takes a '.', so '.' and '..' match no run of '?'.
-        assert_eq!(all(b"?"), Vec::<String>::new());
-        assert_eq!(all(b"????"), names(&["Deep"]));
+        // DOS_QM takes no '.' of an ordinary name, but does take the dots of
+        // '.' and '..' (Windows lists both for '????').
+        assert_eq!(all(b"?"), names(&["."]));
+        assert_eq!(all(b"??"), names(&[".", ".."]));
+        assert_eq!(all(b"????"), names(&[".", "..", "Deep"]));
+        assert_eq!(all(b"?.utf"), Vec::<String>::new());
         assert_eq!(all(b"p*"), names(&["plain.cmp"]));
         assert_eq!(all(b"*s*"), names(&["Ship.utf", "Ships.utf"]));
     }

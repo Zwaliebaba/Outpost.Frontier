@@ -41,9 +41,11 @@
 {"op":"find","arg":"532a","count":"2","err":"12"}
 {"op":"entry","name":"537562","attr":"00000010","size":"00000000"}
 {"op":"find","arg":"3f7562","count":"1","err":"12"}
+{"op":"entry","name":"2e","attr":"00000010","size":"00000000"}
+{"op":"entry","name":"2e2e","attr":"00000010","size":"00000000"}
 {"op":"entry","name":"44656570","attr":"00000010","size":"00000000"}
 {"op":"entry","name":"537562","attr":"00000010","size":"00000000"}
-{"op":"find","arg":"3f3f3f3f","count":"2","err":"12"}
+{"op":"find","arg":"3f3f3f3f","count":"4","err":"12"}
 {"op":"entry","name":"44656570","attr":"00000010","size":"00000000"}
 {"op":"entry","name":"456d7074792e62696e","attr":"00000000","size":"00000000"}
 {"op":"find","arg":"2a652a","count":"2","err":"12"}
