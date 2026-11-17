@@ -1018,3 +1018,10 @@ void RunSceneDataDump(const std::vector<std::string>& Files)
     }
     printf("dumped %u scene evaluations\n", Count);
 }
+
+// The 3DMathEngine of x86math.dll, for every host that needs it outside the
+// scene suites (the game-sim zone suite: Common's zone queries call it).
+bool OracleLoadMathEngine()
+{
+    return LoadMathEngine();
+}

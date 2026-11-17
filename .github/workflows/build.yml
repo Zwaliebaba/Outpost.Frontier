@@ -118,18 +118,33 @@ jobs:
           & .\bin\Oracle.exe "$PWD\crates\neuron-core\tests\fixtures\oracle" "$PWD\oracle-out"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Compare with the committed vectors
-        # The harness writes the game-sim suites (P2.2) to oracle-out\game-sim;
-        # each crate's vectors are compared with its own directory.
+        # The harness writes the game-sim protocol suites (P2.2) to
+        # oracle-out\game-sim; they are moved aside and compared with game-sim's
+        # vectors in the next step.
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force oracle-out-game-sim | Out-Null
           if (Test-Path oracle-out\game-sim) { Move-Item oracle-out\game-sim\* oracle-out-game-sim; Remove-Item oracle-out\game-sim }
           git diff --no-index --stat crates/neuron-core/tests/vectors oracle-out
           git diff --no-index crates/neuron-core/tests/vectors oracle-out
-          $core = $LASTEXITCODE
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Run the game-sim suites and compare
+        # game-sim's vectors come from two runs: the protocol suites (P2.2)
+        # from the main run above, moved into oracle-out-game-sim, and the
+        # data suites (P2.1) from Oracle.exe game-sim on its own fixtures, so
+        # that Common's string cache has seen nothing else. The directory is
+        # compared once both have written.
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force oracle-out-game-sim | Out-Null
+          & .\bin\Oracle.exe game-sim "$PWD\crates\game-sim\tests\fixtures\oracle" "$PWD\oracle-out-game-sim"
+          $code = $LASTEXITCODE
+          Write-Host ("Oracle.exe game-sim exit code {0} (0x{0:x8})" -f $code)
+          Get-ChildItem oracle-out-game-sim | ForEach-Object { "{0} {1} bytes" -f $_.Name, $_.Length }
+          if ($code -ne 0) { exit 1 }
           git diff --no-index --stat crates/game-sim/tests/vectors oracle-out-game-sim
           git diff --no-index crates/game-sim/tests/vectors oracle-out-game-sim
-          if ($core -ne 0 -or $LASTEXITCODE -ne 0) { exit 1 }
+          if ($LASTEXITCODE -ne 0) { exit 1 }
       - name: Check the data-dump mode on a synthetic installation
         # The same pipeline .github/workflows/data.yml runs on the original
         # data in outdir/, on a tree made from fixtures.
@@ -159,6 +174,9 @@ jobs:
           $env:OUTPOST_ORACLE_DIR = $out
           # Every data_dump_<kind> test (crates/neuron-core/tests/support/data.rs).
           cargo test --locked -p neuron-core --tests -- data_dump_ --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The tree has no EXE\OutpostFrontier.ini: the game databases (P2.1) list no files.
+          cargo test --locked -p game-sim --tests -- data_dump_ --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build the resource DLLs
         shell: pwsh

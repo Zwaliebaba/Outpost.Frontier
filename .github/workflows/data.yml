@@ -3,8 +3,9 @@ name: Data dumps
 # Gate G1 (design/migration-plan.md section 6): every reader on the original
 # game data in outdir/ (decision O15) against the C++ oracle. Each work
 # package's dump is a data_dump_<kind> test (crates/neuron-core/tests/support/
-# data.rs). Runs nightly, on pushes to main, and on demand; the per-push
-# oracle job in build.yml runs the same pipeline on a synthetic tree.
+# data.rs; crates/game-sim/tests/data_dump.rs for the game databases). Runs
+# nightly, on pushes to main, and on demand; the per-push oracle job in
+# build.yml runs the same pipeline on a synthetic tree.
 
 on:
   schedule:
@@ -56,6 +57,9 @@ jobs:
           $env:OUTPOST_DATA_DIR = "$env:RUNNER_TEMP\outpost-data"
           $env:OUTPOST_ORACLE_DIR = "$env:RUNNER_TEMP\outpost-oracle"
           cargo test --locked --release -p neuron-core --tests -- data_dump_ --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The game databases of work package P2.1 (crates/game-sim/tests/data_dump.rs).
+          cargo test --locked --release -p game-sim --tests -- data_dump_ --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Keep the summaries
         if: always()
