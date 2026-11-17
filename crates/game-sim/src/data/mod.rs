@@ -25,6 +25,7 @@ pub mod loadout;
 pub mod new_char;
 pub mod reputation;
 pub mod rtc_slider;
+pub mod spatial;
 pub mod string_cache;
 pub mod universe;
 pub mod vc6;

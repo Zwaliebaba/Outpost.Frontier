@@ -24,6 +24,9 @@ use game_sim::data::asteroid::{
     AxisRotations, closest_cube_coord, compute_cube_id, compute_cube_orientation,
 };
 use game_sim::data::reputation::{Relation, Reputation};
+use game_sim::data::spatial::{
+    QueryResult, SpatialEntry, SpatialPartition, SpatialRay, new_spatial,
+};
 use game_sim::data::string_cache::{CacheString, StringCache};
 use game_sim::data::universe::{Universe, UniverseCx};
 use game_sim::data::vibe::VibeDb;
@@ -687,4 +690,153 @@ fn exclusion_zones() {
         }
     }
     check_suite("exclusion_zones.jsonl", &lines);
+}
+
+fn items_line(op: &str, count: usize, result: &QueryResult) -> String {
+    let items: Vec<String> = result.items.iter().map(u32::to_string).collect();
+    Line::new()
+        .add("op", op)
+        .add("n", count.to_string())
+        .add("items", items.join(","))
+        .done()
+}
+
+fn zone_text(zone: Option<u32>) -> String {
+    format!("{:08x}", zone.unwrap_or(0))
+}
+
+/// The spatial partitions and the zone tree of system `zq`. Tier A except
+/// the frustum queries (a tangent), whose answers are compared exactly all
+/// the same.
+#[test]
+fn spatial() {
+    let universe = query_universe();
+    let zq = neuron_core::id::create_id(b"zq");
+    let mut partition: Option<SpatialPartition> = None;
+    let mut lines = Vec::new();
+    for line in input_lines("spatial.list") {
+        let (op, rest) = line.split_once(' ').unwrap_or((line.as_str(), ""));
+        let words = || -> Vec<f32> { rest.split(" ").map(f32_hex).collect() };
+        match op {
+            "new" => {
+                partition = new_spatial(rest.as_bytes());
+                lines.push(
+                    Line::new()
+                        .add("op", "new")
+                        .add("type", rest)
+                        .add("made", u8::from(partition.is_some()).to_string())
+                        .done(),
+                );
+            }
+            "add" => {
+                let (object, values) = rest.split_once(' ').expect("add");
+                let w: Vec<f32> = values.split(' ').map(f32_hex).collect();
+                if let Some(p) = partition.as_mut() {
+                    p.add(SpatialEntry {
+                        object: object.parse().expect("object"),
+                        position: vec3(&w),
+                        radius: w[3],
+                    });
+                }
+            }
+            "array" => {
+                let entries: Vec<SpatialEntry> = rest
+                    .split(' ')
+                    .map(|item| {
+                        let mut parts = item.split(':');
+                        let object = parts.next().expect("object").parse().expect("object");
+                        let w: Vec<f32> = parts.map(f32_hex).collect();
+                        SpatialEntry {
+                            object,
+                            position: vec3(&w),
+                            radius: w[3],
+                        }
+                    })
+                    .collect();
+                if let Some(p) = partition.as_mut() {
+                    p.add_array(&entries);
+                }
+            }
+            "remove" => {
+                if let Some(p) = partition.as_mut() {
+                    p.remove(rest.parse().expect("object"));
+                }
+            }
+            "clear" => {
+                if let Some(p) = partition.as_mut() {
+                    p.clear();
+                }
+            }
+            "sphere" | "ray" | "frustum" => {
+                let w = words();
+                let mut result = QueryResult::default();
+                let count = match (op, partition.as_ref()) {
+                    (_, None) => 0,
+                    ("sphere", Some(p)) => p.query_sphere(
+                        &Sphere {
+                            center: vec3(&w),
+                            radius: w[3],
+                        },
+                        &mut result,
+                    ),
+                    ("ray", Some(p)) => p.query_ray(
+                        &SpatialRay {
+                            origin: vec3(&w),
+                            direction: vec3(&w[3..]),
+                            length: w[6],
+                        },
+                        &mut result,
+                    ),
+                    (_, Some(p)) => p.query_frustum(
+                        &Frustum {
+                            xform: Transform::new(
+                                Matrix::from_rows([
+                                    [w[0], w[1], w[2]],
+                                    [w[3], w[4], w[5]],
+                                    [w[6], w[7], w[8]],
+                                ]),
+                                vec3(&w[9..12]),
+                            ),
+                            angle_x: w[12],
+                            angle_y: w[13],
+                            distance: w[14],
+                        },
+                        &mut result,
+                    ),
+                };
+                lines.push(items_line(op, count, &result));
+            }
+            _ => {
+                let w = words();
+                let sphere = Sphere {
+                    center: vec3(&w),
+                    radius: w[3],
+                };
+                let p = sphere.center;
+                lines.push(
+                    Line::new()
+                        .add("op", "tree")
+                        .add(
+                            "sphere_props",
+                            format!("{:08x}", universe.sphere_properties(zq, &sphere)),
+                        )
+                        .add(
+                            "nested",
+                            format!("{:08x}", universe.nested_properties(zq, &sphere)),
+                        )
+                        .add("smallest", zone_text(universe.smallest_zone_at(zq, p)))
+                        .add(
+                            "physical",
+                            zone_text(universe.smallest_physical_zone_at(zq, p)),
+                        )
+                        .add(
+                            "with_props",
+                            zone_text(universe.smallest_zone_with_properties_at(zq, p, 0x7fc0)),
+                        )
+                        .done(),
+                );
+            }
+        }
+    }
+    check_suite("spatial.jsonl", &lines);
 }

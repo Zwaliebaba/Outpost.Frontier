@@ -28,6 +28,9 @@ P2.1) into this directory. Run it from anywhere; the output is committed.
                     centre and radius, four f32 bit patterns per line
     exclusion.list  the exclusion suite's observers ("o x y z") and query
                     points ("q x y z"), f32 bit patterns
+    spatial.list    the spatial suite's script: new, add, array, remove,
+                    clear and the sphere, ray, frustum and zone-tree queries
+                    (see oracle_vectors.rs spatial), floats as bit patterns
 """
 
 import math
@@ -264,6 +267,15 @@ def zone_queries():
         ("x_far", "SPHERE", "100", "30000, 30000, 0", None, "0.1"),
         ("x_edge", "SPHERE", "400", "0, 800, 0", None, "0.3"),
     ]
+    extras = {
+        "q_sphere": ["property_flags = 128"],
+        "q_ellipsoid": ["property_flags = 1"],
+        "q_box": ["property_flags = 32768"],
+        "q_cylinder": ["damage = 3"],
+        "x_a": ["property_flags = 64"],
+        "x_b": ["property_flags = 2"],
+        "x_edge": ["property_flags = 4", "damage = 5"],
+    }
     system = []
     for name, shape, size, pos, rotate, edge in zones:
         system += ["[Zone]", "nickname = " + name, "pos = " + pos, "shape = " + shape, "size = " + size]
@@ -271,6 +283,7 @@ def zone_queries():
             system.append("rotate = " + rotate)
         if edge:
             system.append("edge_fraction = " + edge)
+        system += extras.get(name, [])
         system.append("")
     write(os.path.join("zone_queries", "universe.ini"), universe)
     write(os.path.join("zone_queries", "systems", "zq.ini"), system)
@@ -324,6 +337,128 @@ def zone_queries():
     write("exclusion.list", lines)
 
 
+class Lcg:
+    def __init__(self, seed):
+        self.state = seed
+
+    def unit(self):
+        self.state = (self.state * 1103515245 + 12345) & 0xFFFFFFFF
+        return ((self.state >> 8) & 0xFFFF) / 65535.0
+
+    def range(self, low, high):
+        return low + (high - low) * self.unit()
+
+
+def spatial():
+    rng = Lcg(2026)
+    lines = ["# new <type>; add <obj> x y z r; array obj:x:y:z:r ...; remove <obj>; clear;",
+             "# sphere x y z r; ray ox oy oz dx dy dz length; frustum <15 words>; tree x y z r"]
+
+    def entry(spread=20000.0):
+        return (rng.range(-spread, spread), rng.range(-spread * 0.2, spread * 0.2),
+                rng.range(-spread, spread), rng.range(10.0, 3000.0))
+
+    def sphere():
+        x, y, z, _ = entry(22000.0)
+        lines.append("sphere " + hexes([x, y, z, rng.range(0.0, 6000.0)]))
+
+    def ray():
+        x, y, z, _ = entry(25000.0)
+        d = [rng.range(-1.0, 1.0), rng.range(-0.3, 0.3), rng.range(-1.0, 1.0)]
+        n = math.sqrt(sum(c * c for c in d)) or 1.0
+        lines.append("ray " + hexes([x, y, z] + [c / n for c in d] + [rng.range(1000.0, 60000.0)]))
+
+    def frustum():
+        yaw = rng.range(0.0, 2 * math.pi)
+        c, s_ = math.cos(yaw), math.sin(yaw)
+        rot = [c, 0, s_, 0, 1, 0, -s_, 0, c]
+        x, y, z, _ = entry(20000.0)
+        lines.append("frustum " + hexes(rot + [x, y, z, rng.range(0.3, 2.0), rng.range(0.2, 1.5),
+                                               rng.range(2000.0, 40000.0)]))
+
+    def queries(spheres, rays, frustums):
+        for _ in range(spheres):
+            sphere()
+        for _ in range(rays):
+            ray()
+        for _ in range(frustums):
+            frustum()
+
+    def add(obj, e):
+        lines.append("add %d %s" % (obj, hexes(e)))
+
+    def array(first, entries):
+        lines.append("array " + " ".join("%d:%s" % (first + i, hexes(e).replace(" ", ":"))
+                                         for i, e in enumerate(entries)))
+
+    # A: one by one, with removals.
+    lines.append("new BSP")
+    for obj in range(1, 121):
+        add(obj, entry())
+        if obj % 20 == 0:
+            queries(6, 4, 1)
+    for obj in range(3, 120, 8):
+        lines.append("remove %d" % obj)
+    queries(10, 8, 6)
+    lines.append("remove 9999")
+    lines.append("clear")
+    queries(2, 2, 1)
+    for obj in range(200, 205):
+        add(obj, entry())
+    queries(4, 4, 1)
+
+    # B: built from an array, then added to; a second array is dropped.
+    lines.append("new bsp")
+    array(300, [entry() for _ in range(150)])
+    queries(12, 10, 6)
+    for obj in range(500, 530):
+        add(obj, entry())
+    queries(8, 8, 2)
+    array(600, [entry() for _ in range(5)])
+    queries(3, 0, 0)
+
+    # C: the linear partition.
+    lines.append("new Linear")
+    array(700, [entry() for _ in range(40)])
+    for obj in range(800, 810):
+        add(obj, entry())
+    lines.append("remove 805")
+    queries(8, 2, 2)
+    lines.append("clear")
+    queries(1, 0, 0)
+
+    # D: coincident and collinear positions. (Nine coincident entries would
+    # make the reference split the same leaf for ever.)
+    lines.append("new BSP")
+    for obj in range(900, 906):
+        add(obj, (100.0, 50.0, -30.0, 5.0))
+    for obj in range(920, 930):
+        add(obj, (float(obj - 920) * 10.0, 0.0, 0.0, 2.0))
+    lines.append("sphere " + hexes([100.0, 50.0, -30.0, 1.0]))
+    lines.append("sphere " + hexes([0.0, 0.0, 0.0, 500.0]))
+    lines.append("ray " + hexes([-100.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1000.0]))
+    lines.append("ray " + hexes([100.0, 50.0, -100.0, 0.0, 0.0, 1.0, 1000.0]))
+
+    # E: a root leaf from a small array, then overflowed by adds.
+    lines.append("new BSP")
+    array(1000, [entry(3000.0) for _ in range(5)])
+    queries(3, 3, 1)
+    for obj in range(1010, 1030):
+        add(obj, entry(3000.0))
+        if obj % 5 == 0:
+            queries(2, 2, 0)
+
+    # F: names without a partition.
+    lines.append("new QuadTree")
+    lines.append("new Octree")
+
+    # The zone tree of system zq.
+    for c in CENTRES + [(300, 0, 0), (0, 800, 0), (-400, 100, 0), (5500, 0, 0), (0, -500, 0)]:
+        for o, r in [((0, 0, 0), 0.0), ((150, 0, 0), 10.0), ((0, 700, 0), 300.0), ((2000, 0, 0), 2500.0)]:
+            lines.append("tree " + hexes([c[0] + o[0], c[1] + o[1], c[2] + o[2], r]))
+    write("spatial.list", lines)
+
+
 def main():
     write("asteroid.list", asteroid())
     write("orient.list", orient())
@@ -333,6 +468,7 @@ def main():
     write("reputation.list", reputation())
     zones()
     zone_queries()
+    spatial()
 
 
 if __name__ == "__main__":

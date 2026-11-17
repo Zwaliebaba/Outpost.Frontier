@@ -16,6 +16,7 @@
 #include "oracle_support.h"
 #include "oracle_game.h"
 
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -772,6 +773,157 @@ namespace
 
 namespace
 {
+    std::string ItemsLine(const char* Op, int Count, const FSpatialQueryResult& Result)
+    {
+        std::string Items;
+        for (unsigned Index = 0; Index < Result.Count; ++Index)
+        {
+            if (Index != 0)
+                Items += ",";
+            Items += Format("%u", (unsigned int)(uintptr_t)Result.Items[Index]);
+        }
+        FLine L;
+        L.Add("op", Op);
+        L.Add("n", Format("%d", Count));
+        L.Add("items", Items);
+        return L.Done();
+    }
+
+    std::string ZoneText(const Universe::IZone* Zone)
+    {
+        return GameId(Zone != nullptr ? Zone->GetId() : 0u);
+    }
+
+    FSpatialEntry SpatialEntryFrom(const std::string& Object, const std::vector<std::string>& Words, size_t First)
+    {
+        FSpatialEntry Entry;
+        Entry.Object = (void*)(uintptr_t)strtoul(Object.c_str(), nullptr, 10);
+        Entry.Position.x = HexFloat(Words[First]);
+        Entry.Position.y = HexFloat(Words[First + 1]);
+        Entry.Position.z = HexFloat(Words[First + 2]);
+        Entry.Radius = HexFloat(Words[First + 3]);
+        return Entry;
+    }
+
+    // The script of spatial.list on NewSpatial's partitions and the zone
+    // tree of system zq (oracle_vectors.rs spatial). The result buffer is a
+    // fresh one per query.
+    void SpatialSuite()
+    {
+        Suite Out("spatial.jsonl");
+        if (!OpenFixtureData())
+            return;
+        Universe::Startup("zone_queries\\universe.ini");
+        const Universe::ISystem* Zq = Universe::get_system(CreateID("zq"));
+        static FSpatialQueryResult Result;
+        ISpatialPartition* Partition = nullptr;
+        for (const std::string& Line : InputLines("spatial.list"))
+        {
+            const size_t Space = Line.find(' ');
+            const std::string Op = Line.substr(0, Space);
+            const std::string Rest = Space == std::string::npos ? std::string() : Line.substr(Space + 1);
+            const std::vector<std::string> Words = Split(Rest, ' ');
+            if (Op == "new")
+            {
+                FreeSpatial(Partition);
+                Partition = NewSpatial(Rest.c_str());
+                FLine L;
+                L.Add("op", "new");
+                L.Add("type", Rest);
+                L.Add("made", Partition != nullptr ? "1" : "0");
+                Out.Line(L.Done());
+            }
+            else if (Op == "add")
+            {
+                const FSpatialEntry Entry = SpatialEntryFrom(Words[0], Words, 1);
+                if (Partition != nullptr)
+                    Partition->Add(&Entry);
+            }
+            else if (Op == "array")
+            {
+                std::vector<FSpatialEntry> Entries;
+                for (const std::string& Item : Words)
+                {
+                    const std::vector<std::string> Parts = Split(Item, ':');
+                    Entries.push_back(SpatialEntryFrom(Parts[0], Parts, 1));
+                }
+                if (Partition != nullptr)
+                    Partition->AddArray(Entries.data(), (unsigned)Entries.size());
+            }
+            else if (Op == "remove")
+            {
+                if (Partition != nullptr)
+                    Partition->Remove((void*)(uintptr_t)strtoul(Rest.c_str(), nullptr, 10));
+            }
+            else if (Op == "clear")
+            {
+                if (Partition != nullptr)
+                    Partition->Clear();
+            }
+            else if (Op == "sphere" || Op == "ray" || Op == "frustum")
+            {
+                std::vector<float> W;
+                for (const std::string& Word : Words)
+                    W.push_back(HexFloat(Word));
+                Result.Capacity = 0x800;
+                Result.Count = 0;
+                int Count = 0;
+                if (Partition != nullptr && Op == "sphere")
+                {
+                    Geometry::Sphere S;
+                    S.Center = Vec3(W, 0);
+                    S.Radius = W[3];
+                    Count = Partition->QuerySphere(&S, &Result);
+                }
+                else if (Partition != nullptr && Op == "ray")
+                {
+                    FSpatialRay R;
+                    R.Origin = Vec3(W, 0);
+                    R.Direction = Vec3(W, 3);
+                    R.Length = W[6];
+                    Count = Partition->QueryRay(&R, &Result);
+                }
+                else if (Partition != nullptr)
+                {
+                    Geometry::Frustum F;
+                    for (int Row = 0; Row < 3; ++Row)
+                    {
+                        for (int Col = 0; Col < 3; ++Col)
+                            F.Xform.Rotation.E[Row][Col] = W[Row * 3 + Col];
+                    }
+                    F.Xform.Translation = Vec3(W, 9);
+                    F.AngleX = W[12];
+                    F.AngleY = W[13];
+                    F.Distance = W[14];
+                    Count = Partition->QueryFrustum(&F, &Result);
+                }
+                Out.Line(ItemsLine(Op.c_str(), Count, Result));
+            }
+            else
+            {
+                std::vector<float> W;
+                for (const std::string& Word : Words)
+                    W.push_back(HexFloat(Word));
+                Geometry::Sphere S;
+                S.Center = Vec3(W, 0);
+                S.Radius = W[3];
+                const Vector P = S.Center;
+                FLine L;
+                L.Add("op", "tree");
+                L.Add("sphere_props", GameId(Zq->GetSphereProperties(&S)));
+                L.Add("nested", GameId(Zq->GetNestedProperties(&S)));
+                L.Add("smallest", ZoneText(Zq->GetSmallestZoneAt(&P)));
+                L.Add("physical", ZoneText(Zq->GetSmallestPhysicalZoneAt(&P)));
+                L.Add("with_props", ZoneText(Zq->GetSmallestZoneWithPropertiesAt(&P, 0x7fc0)));
+                Out.Line(L.Done());
+            }
+        }
+        FreeSpatial(Partition);
+    }
+}
+
+namespace
+{
     // A suite that faults ends the process without a word otherwise; the
     // guard names it and the exception, and the remaining suites still run.
     // No C++ object lives in the guarded frame.
@@ -811,4 +963,5 @@ void RunGameSimSuites()
     GuardedGameSimSuite("zones", ZoneSuite);
     GuardedGameSimSuite("zone_queries", ZoneQuerySuite);
     GuardedGameSimSuite("exclusion_zones", ExclusionSuite);
+    GuardedGameSimSuite("spatial", SpatialSuite);
 }
