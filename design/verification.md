@@ -88,7 +88,7 @@ they run on the owner's machine.
 | Host (added in P0.1) | the runner's native target | tests for `neuron-core`, `game-sim`, `neuron-server`, `game-logic` and the platform-neutral parts of the client crates |
 | Policy (added in P0.1) | — | `cargo-deny`; a scan that fails on legacy API names, `asm!`, or `unsafe` outside the permitted modules |
 | Oracle (added in P0.4) | `Win32` C++ build | builds `CppSource/Oracle`, runs it on the committed inputs and fails unless its output equals the committed vectors byte for byte; runs the data-dump mode on a synthetic installation; builds the eight resource DLLs and compares every string and card with the catalogs `cargo xtask catalog` builds (P1.6; that dump is game text and is not uploaded); removed in P7.3 |
-| Data dumps (added for Gate G1) | `Win32` C++ build, original data | `.github/workflows/data.yml`, nightly, on pushes to `main` and on demand: `Oracle.exe dump` over `outdir/` (decision O15), then every `data_dump_<kind>` test compares the port with it. Kinds: `ini`, `utf`, `sur`, `anim`, `fx`, `texture`, `material`, `mesh`, `dfm` (and the scene kinds of P1.8). The dumps stay on the runner; only the summaries are kept |
+| Data dumps (added for Gate G1) | `Win32` C++ build, original data | `.github/workflows/data.yml`, nightly, on pushes to `main` and on demand: `Oracle.exe dump` over `outdir/` (decision O15), then every `data_dump_<kind>` test compares the port with it. Kinds: `ini`, `utf`, `sur`, `anim`, `fx`, `texture`, `material`, `mesh`, `dfm`, `scene`, `scene_eval`. The dumps stay on the runner; only the summaries are kept |
 
 ## Definition of done for a work package
 
