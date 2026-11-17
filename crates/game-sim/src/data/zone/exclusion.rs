@@ -60,7 +60,8 @@ impl ExcludeObjectType {
     }
 }
 
-/// The zone's immersion at `pos`, 0 without a zone (see D154).
+/// The zone's immersion at `pos`, 0 without a zone (the C++ dereferences
+/// null there; D151).
 fn immersion(zone: Option<&Zone>, pos: Vector) -> f64 {
     zone.map_or(0.0, |z| z.immersion(pos))
 }
@@ -369,7 +370,8 @@ impl NebulaExclusionZone {
 pub struct NebulaExclusionZoneMgr {
     /// The zones.
     pub zones: Vec<NebulaExclusionZone>,
-    /// `set_max_distance`, squared (0 until set; see D155).
+    /// `set_max_distance`, squared (0 until set, as in the C++
+    /// reference; the original left it indeterminate).
     pub max_dist: f32,
 }
 

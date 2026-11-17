@@ -43,7 +43,7 @@ pub fn bsearch<T>(slots: &[T], compare: impl Fn(&T) -> i32) -> Option<usize> {
 /// `_Median`, `_Insertion_sort`, `_Unguarded_insert`) step for step, with
 /// `before` as `operator<`. The unguarded scans stop at the slice ends: the
 /// C++ would read past them, which a comparator that is not a strict weak
-/// order can make happen (see D152).
+/// order can make happen (see D150).
 pub fn vc6_sort<T: Clone>(v: &mut [T], before: impl Fn(&T, &T) -> bool + Copy) {
     let len = v.len();
     if len <= SORT_MAX {

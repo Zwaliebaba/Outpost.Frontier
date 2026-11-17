@@ -32,8 +32,8 @@ const SOURCE: &str = "Common\\CharDescrip.cpp";
 /// The body-part types, in table order (`kBodypartTypeNames`).
 pub const BODYPART_TYPES: [&[u8]; 4] = [b"Body", b"Head", b"LeftHand", b"RightHand"];
 
-/// At most this many accessories per costume (the C++ writes past the
-/// array; see D150).
+/// At most this many accessories per costume: the C++ reference drops
+/// the rest (the original wrote past its array).
 pub const MAX_ACCESSORIES: usize = 8;
 
 /// `atol(name)`, or `CreateID(name)` when that is 0 (`NicknameToCreateId`).

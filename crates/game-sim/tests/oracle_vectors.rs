@@ -34,6 +34,13 @@ use game_sim::data::zone::exclusion::{
     AsteroidExclusionZone, AsteroidExclusionZoneMgr, ExcludeObjectType, NebulaExclusionZoneMgr,
 };
 use game_sim::data::zone::query::{Frustum, Sphere};
+use game_sim::protocol::base_props::{
+    AmbientScriptProperties, CharacterProperties, MissionVendorAcceptance, MissionVendorProperties,
+    NewsBroadcastProperties,
+};
+use game_sim::protocol::costume::Costume;
+use game_sim::protocol::fmtstr::FmtStr;
+use game_sim::protocol::marshal::{MarshalReader, MarshalWriter};
 use neuron_core::ini::IniReader;
 use neuron_core::math::{Matrix, Transform, Vector};
 use neuron_core::vfs::Host;
@@ -839,4 +846,162 @@ fn spatial() {
         }
     }
     check_suite("spatial.jsonl", &lines);
+}
+
+fn fmt(mad_lib: u32, int: Option<u32>, base: Option<u32>) -> FmtStr {
+    let mut out = FmtStr::new(mad_lib);
+    if let Some(value) = int {
+        out.append_int(value);
+    }
+    if let Some(id) = base {
+        out.append_base(id);
+    }
+    out
+}
+
+fn props_line(record: &str, case: u32, out: &[u8], back: &[u8]) -> String {
+    Line::new()
+        .add("record", record)
+        .add("case", case.to_string())
+        .add("out", hex(out))
+        .add("back", hex(back))
+        .done()
+}
+
+/// Marshals a record, reads it back and marshals it again.
+fn props_case<T>(
+    record: &str,
+    case: u32,
+    value: &T,
+    put: impl Fn(&T, &mut MarshalWriter) -> Result<(), game_sim::protocol::WireError>,
+    get: impl Fn(&mut MarshalReader<'_>) -> Result<T, game_sim::protocol::WireError>,
+) -> String {
+    let mut w = MarshalWriter::new();
+    put(value, &mut w).expect("marshal");
+    let out = w.into_bytes();
+    let back = get(&mut MarshalReader::new(&out)).expect("unmarshal");
+    let mut w = MarshalWriter::new();
+    put(&back, &mut w).expect("marshal again");
+    props_line(record, case, &out, &w.into_bytes())
+}
+
+/// The base records' `marshal` and `unmarshal` (Tier A).
+#[test]
+fn base_props() {
+    let mut lines = Vec::new();
+    let offers = [
+        MissionVendorProperties::default(),
+        MissionVendorProperties {
+            key: 7,
+            base_id: 0x1122_3344,
+            target_id: 5,
+            system_id: 0xabcd_ef01,
+            mission_class: 3,
+            title: fmt(1001, Some(42), None),
+            description: fmt(1002, None, Some(0x1234)),
+            briefing: fmt(0, None, None),
+            icon_texture_id: 99,
+        },
+    ];
+    for (case, v) in (0u32..).zip(&offers) {
+        lines.push(props_case(
+            "mission_vendor",
+            case,
+            v,
+            MissionVendorProperties::marshal,
+            MissionVendorProperties::unmarshal,
+        ));
+    }
+    let answers = [
+        MissionVendorAcceptance::default(),
+        MissionVendorAcceptance {
+            key: 2,
+            target_id: 3,
+            accepted: true,
+            reason: fmt(55, Some(1), None),
+        },
+    ];
+    for (case, v) in (0u32..).zip(&answers) {
+        lines.push(props_case(
+            "acceptance",
+            case,
+            v,
+            MissionVendorAcceptance::marshal,
+            MissionVendorAcceptance::unmarshal,
+        ));
+    }
+    let news = [
+        NewsBroadcastProperties::default(),
+        NewsBroadcastProperties {
+            key: 1,
+            base_id: 2,
+            flag1: true,
+            flag2: false,
+            category: 4,
+            headline: fmt(2001, None, None),
+            body: fmt(2002, Some(3), Some(9)),
+            logo: fmt(0, None, None),
+            logo_texture: Some(b"news_logo".to_vec()),
+            logo_texture_id: 0x9988,
+        },
+    ];
+    for (case, v) in (0u32..).zip(&news) {
+        lines.push(props_case(
+            "news",
+            case,
+            v,
+            NewsBroadcastProperties::marshal,
+            NewsBroadcastProperties::unmarshal,
+        ));
+    }
+    let characters = [
+        CharacterProperties::default(),
+        CharacterProperties {
+            key: 1,
+            session_id: 2,
+            room_id: 3,
+            name_ids: 4,
+            faction_id: 5,
+            name_wide: Some(vec![0x41, 0x62]),
+            name_ansi: Some(b"place".to_vec()),
+            char_type: 6,
+            posture: 7,
+            costume: Costume {
+                parts: [11, 12, 13, 14],
+                accessories: vec![21, 22],
+            },
+            script: Some(b"script.thn".to_vec()),
+            behavior_id: 8,
+            voice_id: 9,
+        },
+    ];
+    for (case, v) in (0u32..).zip(&characters) {
+        lines.push(props_case(
+            "character",
+            case,
+            v,
+            CharacterProperties::marshal,
+            CharacterProperties::unmarshal,
+        ));
+    }
+    let scenes = [
+        AmbientScriptProperties::default(),
+        AmbientScriptProperties {
+            key: 4,
+            room_id: 5,
+            script_id: 6,
+            flag: false,
+            name: Some(b"amb".to_vec()),
+        },
+    ];
+    for (case, v) in (0u32..).zip(&scenes) {
+        lines.push(props_case(
+            "ambient",
+            case,
+            v,
+            AmbientScriptProperties::marshal,
+            AmbientScriptProperties::unmarshal,
+        ));
+    }
+    check_suite("base_props.jsonl", &lines);
 }

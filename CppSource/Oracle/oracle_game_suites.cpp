@@ -924,6 +924,137 @@ namespace
 
 namespace
 {
+    // --- The base records of common_baseproperties.cpp (base_props.jsonl) -------
+
+    FmtStr MakeFmt(unsigned int MadLib, bool bInt, unsigned int IntValue, bool bBase, unsigned int BaseId)
+    {
+        FmtStr Out;
+        Out.begin_mad_lib(MadLib);
+        if (bInt)
+            Out.append_int(IntValue);
+        if (bBase)
+            Out.append_base(BaseId);
+        Out.end_mad_lib();
+        return Out;
+    }
+
+    std::string MarshalHex(const MarshalBuffer& Buffer)
+    {
+        const int Count = Buffer.get_num_written();
+        return Count == 0 ? std::string() : Hex(Buffer.get_buffer(), (size_t)Count);
+    }
+
+    // Marshals Value, reads it back into a fresh record and marshals that
+    // (oracle_vectors.rs props_case).
+    template <typename T>
+    void PropsCase(Suite& Out, const char* Record, int Case, const T& Value)
+    {
+        static unsigned char First[0x1000];
+        static unsigned char Second[0x1000];
+        MarshalBuffer W;
+        W.use_write_buffer(First, (int)sizeof(First));
+        Value.marshal(&W);
+        MarshalBuffer R;
+        R.use_read_buffer(First, W.get_num_written());
+        T Back;
+        Back.unmarshal(&R);
+        MarshalBuffer W2;
+        W2.use_write_buffer(Second, (int)sizeof(Second));
+        Back.marshal(&W2);
+        FLine L;
+        L.Add("record", Record);
+        L.Add("case", Format("%d", Case));
+        L.Add("out", MarshalHex(W));
+        L.Add("back", MarshalHex(W2));
+        Out.Line(L.Done());
+    }
+
+    void BasePropsSuite()
+    {
+        Suite Out("base_props.jsonl");
+        {
+            MissionVendorProperties Default;
+            PropsCase(Out, "mission_vendor", 0, Default);
+            MissionVendorProperties P;
+            P.Key = 7;
+            P.BaseId = 0x11223344u;
+            P.TargetId = 5;
+            P.SystemId = 0xabcdef01u;
+            P.MissionClass = 3;
+            P.Title = MakeFmt(1001, true, 42, false, 0);
+            P.Description = MakeFmt(1002, false, 0, true, 0x1234);
+            P.Briefing = MakeFmt(0, false, 0, false, 0);
+            P.IconTextureId = 99;
+            PropsCase(Out, "mission_vendor", 1, P);
+        }
+        {
+            MissionVendorAcceptance Default;
+            PropsCase(Out, "acceptance", 0, Default);
+            MissionVendorAcceptance P;
+            P.Key = 2;
+            P.TargetId = 3;
+            P.bAccepted = true;
+            P.Reason = MakeFmt(55, true, 1, false, 0);
+            PropsCase(Out, "acceptance", 1, P);
+        }
+        {
+            NewsBroadcastProperties Default;
+            PropsCase(Out, "news", 0, Default);
+            NewsBroadcastProperties P;
+            P.Key = 1;
+            P.BaseId = 2;
+            P.bFlag1 = true;
+            P.bFlag2 = false;
+            P.Category = 4;
+            P.Headline = MakeFmt(2001, false, 0, false, 0);
+            P.Body = MakeFmt(2002, true, 3, true, 9);
+            P.Logo = MakeFmt(0, false, 0, false, 0);
+            malloc_strcpy(&P.LogoTexture, "news_logo");
+            P.LogoTextureId = 0x9988;
+            PropsCase(Out, "news", 1, P);
+        }
+        {
+            CharacterProperties Default;
+            PropsCase(Out, "character", 0, Default);
+            CharacterProperties P;
+            P.Key = 1;
+            P.SessionId = 2;
+            P.RoomId = 3;
+            P.NameIds = 4;
+            P.FactionId = 5;
+            malloc_wstrcpy(&P.NameWide, L"Ab");
+            malloc_strcpy(&P.NameAnsi, "place");
+            P.CharType = 6;
+            P.Posture = 7;
+            memset(&P.Cost, 0, sizeof(P.Cost));
+            P.Cost.PartIds[0] = 11;
+            P.Cost.PartIds[1] = 12;
+            P.Cost.PartIds[2] = 13;
+            P.Cost.PartIds[3] = 14;
+            P.Cost.AccessoryIds[0] = 21;
+            P.Cost.AccessoryIds[1] = 22;
+            P.Cost.AccessoryCount = 2;
+            malloc_strcpy(&P.Script, "script.thn");
+            P.BehaviorId = 8;
+            P.VoiceId = 9;
+            PropsCase(Out, "character", 1, P);
+        }
+        {
+            AmbientScriptProperties Default;
+            PropsCase(Out, "ambient", 0, Default);
+            AmbientScriptProperties P;
+            P.Key = 4;
+            P.RoomId = 5;
+            P.ScriptId = 6;
+            P.bFlag = false;
+            malloc_strcpy(&P.Name, "amb");
+            PropsCase(Out, "ambient", 1, P);
+        }
+    }
+}
+
+namespace
+{
     // A suite that faults ends the process without a word otherwise; the
     // guard names it and the exception, and the remaining suites still run.
     // No C++ object lives in the guarded frame.
@@ -964,4 +1095,5 @@ void RunGameSimSuites()
     GuardedGameSimSuite("zone_queries", ZoneQuerySuite);
     GuardedGameSimSuite("exclusion_zones", ExclusionSuite);
     GuardedGameSimSuite("spatial", SpatialSuite);
+    GuardedGameSimSuite("base_props", BasePropsSuite);
 }

@@ -269,7 +269,7 @@ impl AsteroidField {
     }
 
     /// One `asteroid` line. An archetype that is not loaded is reported
-    /// and the line dropped (D156).
+    /// and the line dropped (D152).
     fn read_asteroid(&self, reader: &mut IniReader, cx: &mut FieldCx<'_>) -> Option<CubeArch> {
         let name = reader.value_string_at(0);
         let arch = create_id(&name);
@@ -329,7 +329,8 @@ impl AsteroidField {
 
     /// `[Exclusion Zones]`. A property line before any `exclusion` (or
     /// after one whose zone is missing, which pushes nothing) changes the
-    /// previous zone, if any; with none it is skipped (D157).
+    /// previous zone, if any; with none it is skipped (D153). A field without a zone takes its
+    /// exclusion zones without the immersion test (D154).
     fn read_exclusions(&mut self, reader: &mut IniReader, cx: &mut FieldCx<'_>) {
         let parent = self.zone.and_then(|id| cx.universe.zones.get(&id)).cloned();
         let mgr = self
@@ -471,7 +472,7 @@ impl AsteroidField {
 
 /// The zone a field's loot falls in at `pos` (`get_lootable_zone`): the
 /// first loot zone immersed there, else the field's zone when it has loot.
-/// The C++ dereferences a missing field zone; here it gives `None`.
+/// The C++ dereferences a missing field zone; here it gives `None` (D154).
 #[must_use]
 pub fn lootable_zone<'a>(
     field: &AsteroidField,

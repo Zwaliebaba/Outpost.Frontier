@@ -12,6 +12,10 @@
 //! The C++ carves nodes from one process-wide pool; here each partition
 //! owns its nodes in an arena and refers to them by index. Object handles
 //! are `u32` values, 0 for none (the C++ null pointer).
+//!
+//! As in the reference, nine entries that no candidate plane separates
+//! (nine coincident centres, say) make `Add` split the same full leaf for
+//! ever; the data never has them.
 
 // The reference's x87 comparisons send unordered operands (NaN) to one
 // side; the port spells each outcome as the comparison that is true exactly
@@ -458,7 +462,7 @@ impl SpatialPartition {
     }
 
     /// `Remove` (+0x0c). The linear partition keeps the entry; the BSP one
-    /// panics on an empty partition, where the C++ dereferences null.
+    /// panics on an empty partition, where the C++ dereferences null (D155).
     pub fn remove(&mut self, object: u32) {
         if let Self::Bsp(p) = self {
             p.remove(object);
