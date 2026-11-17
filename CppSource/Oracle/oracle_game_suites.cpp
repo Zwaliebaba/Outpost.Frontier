@@ -11,6 +11,8 @@
 // CAsteroidCube::compute_asteroid_id is private and has no export this
 // program can call; the Rust crate tests it on its own.
 
+#include <windows.h>
+
 #include "oracle_support.h"
 #include "oracle_game.h"
 
@@ -421,11 +423,43 @@ namespace
     }
 }
 
+namespace
+{
+    // A suite that faults ends the process without a word otherwise; the
+    // guard names it and the exception, and the remaining suites still run.
+    // No C++ object lives in the guarded frame.
+    typedef void (*FGameSimSuite)();
+
+    DWORD GuardedGameSimSuiteCall(FGameSimSuite Suite)
+    {
+        __try
+        {
+            Suite();
+            return 0;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return GetExceptionCode();
+        }
+    }
+
+    void GuardedGameSimSuite(const char* Name, FGameSimSuite Suite)
+    {
+        const DWORD Code = GuardedGameSimSuiteCall(Suite);
+        fflush(stdout);
+        if (Code != 0)
+        {
+            fprintf(stderr, "game-sim %s: exception %08lx\n", Name, static_cast<unsigned long>(Code));
+            GFailed = true;
+        }
+    }
+}
+
 void RunGameSimSuites()
 {
-    AsteroidIds();
-    AsteroidOrient();
-    StringCacheSuite();
-    ReputationSuite();
-    ZoneSuite();
+    GuardedGameSimSuite("asteroid_ids", AsteroidIds);
+    GuardedGameSimSuite("asteroid_orient", AsteroidOrient);
+    GuardedGameSimSuite("string_cache", StringCacheSuite);
+    GuardedGameSimSuite("reputation", ReputationSuite);
+    GuardedGameSimSuite("zones", ZoneSuite);
 }

@@ -127,7 +127,10 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force oracle-out-game-sim | Out-Null
           & .\bin\Oracle.exe game-sim "$PWD\crates\game-sim\tests\fixtures\oracle" "$PWD\oracle-out-game-sim"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $code = $LASTEXITCODE
+          Write-Host ("Oracle.exe game-sim exit code {0} (0x{0:x8})" -f $code)
+          Get-ChildItem oracle-out-game-sim | ForEach-Object { "{0} {1} bytes" -f $_.Name, $_.Length }
+          if ($code -ne 0) { exit 1 }
           git diff --no-index --stat crates/game-sim/tests/vectors oracle-out-game-sim
           git diff --no-index crates/game-sim/tests/vectors oracle-out-game-sim
           if ($LASTEXITCODE -ne 0) { exit 1 }
