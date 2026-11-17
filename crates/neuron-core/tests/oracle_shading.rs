@@ -112,6 +112,50 @@ fn event_line(event: &TextureEvent) -> String {
     }
 }
 
+/// The lines of one child of a texture group: its renderer calls, its
+/// result and its record as the library holds it right after the child.
+fn entry_lines_of(loader: &TextureLoader, entry: &GroupEntry) -> Vec<String> {
+    let mut out = Vec::new();
+    for event in &loader.events[entry.events.clone()] {
+        out.push(event_line(event));
+    }
+    let (result, record) = match entry.outcome {
+        LoadOutcome::Fault => ("fault".to_owned(), None),
+        LoadOutcome::Done { result, record } => {
+            (result.to_string(), record.filter(|_| result >= 0))
+        }
+    };
+    out.push(format!(
+        "{{\"entry\":\"{}\",\"result\":\"{result}\"}}",
+        hex(&entry.name)
+    ));
+    let Some(record) = record else {
+        return out;
+    };
+    let r = &loader.records[record];
+    let children: Vec<String> = r
+        .children
+        .iter()
+        .map(|c| c.map_or("-".to_owned(), |c| hex(&loader.records[c].name)))
+        .collect();
+    out.push(format!(
+        "{{\"record\":\"{}\",\"handle\":\"{}\",\"refs\":\"{}\",\"rate\":\"{:08x}\",\"frames\":\"{}\",\"children\":\"{}\"}}",
+        hex(&r.name),
+        r.handle,
+        r.ref_count,
+        r.tile_rate,
+        r.frames.len(),
+        children.join(",")
+    ));
+    for (index, frame) in r.frames.iter().enumerate() {
+        out.push(format!(
+            "{{\"frame\":\"{index}\",\"child\":\"{}\",\"uv\":\"{:08x},{:08x},{:08x},{:08x}\"}}",
+            frame.child, frame.uv[0], frame.uv[1], frame.uv[2], frame.uv[3]
+        ));
+    }
+    out
+}
+
 /// `LoadTextureGroup` on an opened archive: whether `Texture library`
 /// opened, then per child its renderer calls, its result and its record.
 /// Returns the loader and the children loaded.
@@ -121,50 +165,15 @@ fn texture_lines(
     lines: &mut Vec<String>,
 ) -> (TextureLoader, Vec<GroupEntry>) {
     let mut loader = TextureLoader::new(settings);
-    let Some(entries) = loader.load_group(fs) else {
+    let mut entry_lines = Vec::new();
+    let Some(entries) = loader.load_group_each(fs, |loader, entry| {
+        entry_lines.extend(entry_lines_of(loader, entry))
+    }) else {
         lines.push("{\"texlib\":\"0\"}".to_owned());
         return (loader, Vec::new());
     };
     lines.push("{\"texlib\":\"1\"}".to_owned());
-    for entry in &entries {
-        for event in &loader.events[entry.events.clone()] {
-            lines.push(event_line(event));
-        }
-        let (result, record) = match entry.outcome {
-            LoadOutcome::Fault => ("fault".to_owned(), None),
-            LoadOutcome::Done { result, record } => {
-                (result.to_string(), record.filter(|_| result >= 0))
-            }
-        };
-        lines.push(format!(
-            "{{\"entry\":\"{}\",\"result\":\"{result}\"}}",
-            hex(&entry.name)
-        ));
-        let Some(record) = record else {
-            continue;
-        };
-        let r = &loader.records[record];
-        let children: Vec<String> = r
-            .children
-            .iter()
-            .map(|c| c.map_or("-".to_owned(), |c| hex(&loader.records[c].name)))
-            .collect();
-        lines.push(format!(
-            "{{\"record\":\"{}\",\"handle\":\"{}\",\"refs\":\"{}\",\"rate\":\"{:08x}\",\"frames\":\"{}\",\"children\":\"{}\"}}",
-            hex(&r.name),
-            r.handle,
-            r.ref_count,
-            r.tile_rate,
-            r.frames.len(),
-            children.join(",")
-        ));
-        for (index, frame) in r.frames.iter().enumerate() {
-            lines.push(format!(
-                "{{\"frame\":\"{index}\",\"child\":\"{}\",\"uv\":\"{:08x},{:08x},{:08x},{:08x}\"}}",
-                frame.child, frame.uv[0], frame.uv[1], frame.uv[2], frame.uv[3]
-            ));
-        }
-    }
+    lines.extend(entry_lines);
     (loader, entries)
 }
 
