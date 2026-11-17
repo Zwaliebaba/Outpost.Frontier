@@ -322,9 +322,15 @@ impl World {
         }
         let inflictor_owner = self.objects.get(h).map_or(0, |o| o.simple.owner_player);
         let mut list = DamageList::new(CAUSE_GUN, id, inflictor_owner);
-        self.with_damage_target(other, |t, in_group, mount_of| {
-            damage_sub_obj(t, other_sub, amount, &mut list, in_group, mount_of);
-        });
+        match target.kind {
+            // `Bullet::damage_sub_obj` does nothing.
+            ObjectKind::Beam => return,
+            // `Guided::damage_sub_obj` (and `Mine`'s) destroys.
+            ObjectKind::Guided | ObjectKind::Mine => list.destroyed = true,
+            _ => self.with_damage_target(other, |t, in_group, mount_of| {
+                damage_sub_obj(t, other_sub, amount, &mut list, in_group, mount_of);
+            }),
+        }
         self.apply_damage_list(other, &list);
     }
 

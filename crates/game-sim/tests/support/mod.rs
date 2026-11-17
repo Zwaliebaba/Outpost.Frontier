@@ -15,6 +15,7 @@ pub mod game;
 pub mod render;
 pub mod render_fuse;
 pub mod render_universe;
+pub mod world;
 
 use std::fmt::Write as _;
 use std::fs;
