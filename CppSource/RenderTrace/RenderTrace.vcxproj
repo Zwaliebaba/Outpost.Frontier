@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!-- Renderer logging proxy (design/migration-plan.md P0.5): RenderTrace.dll registers the
+       component "RenderTrace", which aggregates DX8RENDERER's "DirectX8" and records the calls
+       made to it (README.md). Oracle instrumentation; deleted with the C++ in P7.3. -->
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="DebugASan|Win32">
+      <Configuration>DebugASan</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>17.0</VCProjectVersion>
+    <ProjectGuid>{5E1D7A42-3B8C-4F0E-9A61-7C2D4B8E1F35}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <RootNamespace>RenderTrace</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='DebugASan|Win32'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup>
+    <TargetName>RenderTrace</TargetName>
+    <OutDir>$(ProjectDir)..\..\$(FlBinDirName)\</OutDir>
+    <IntDir>$(ProjectDir)..\obj\RenderTrace\$(Configuration)\</IntDir>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <IncludePath>$(IncludePath);$(Dx8SdkDir)\include</IncludePath>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='DebugASan|Win32'">
+    <IncludePath>$(IncludePath);$(Dx8SdkDir)\include</IncludePath>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <IncludePath>$(IncludePath);$(Dx8SdkDir)\include</IncludePath>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <SubSystem>Windows</SubSystem>
+      <!-- The Direct3D 8 and D3DX 8 headers are used for types only: no d3d8.lib or d3dx8.lib. -->
+      <AdditionalDependencies>neuroncomponents.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(OutDir);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClInclude Include="RenderTraceCore.h" />
+    <ClInclude Include="RenderTraceGenerated.h" />
+    <ClInclude Include="..\include\neuroncomponents.h" />
+    <ClInclude Include="..\include\luaprofile.h" />
+    <ClInclude Include="..\include\render\IRenderPipeline.h" />
+    <ClInclude Include="..\include\render\d3d8_min.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="RenderTrace.cpp" />
+    <ClCompile Include="RenderTraceCore.cpp" />
+    <ClCompile Include="RenderTraceGenerated.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="make_render_trace.py" />
+    <None Include="README.md" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\neuroncomponents\neuroncomponents.vcxproj">
+      <Project>{8F3A1B20-9C4D-4E5F-A617-B8C9D0E1F203}</Project>
+    </ProjectReference>
+    <!-- Built alongside because RenderTrace creates its DirectX8 component at run time; nothing
+         is linked from it. -->
+    <ProjectReference Include="..\DX8RENDERER\DX8RENDERER.vcxproj">
+      <Project>{A1B2C3D4-E5F6-4789-8A0B-1C2D3E4F5A60}</Project>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>
