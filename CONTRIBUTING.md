@@ -6,7 +6,7 @@ the local checks.
 
 Place game-specific behavior in GameApp, GameLogic or GameSim and reusable
 engine features in the Neuron crate that owns the subsystem. The
-[port map](docs/port-map.md) covers the C++ projects and shared source groups;
+[port map](design/port-map.md) covers the C++ projects and shared source groups;
 the [library ledger](design/library-ledger.md) tracks each project's status.
 
 Work follows the work packages of the

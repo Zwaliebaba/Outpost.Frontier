@@ -4,8 +4,8 @@ The Rust workspace uses six libraries and two thin executable packages.
 The table assigns all 39 projects in
 [the C++ solution](../CppSource/OutpostFrontier.sln) and its shared source
 groups to their destination, following the
-[migration plan](../design/migration-plan.md). Per-project detail, work
-packages and status are in the [library ledger](../design/library-ledger.md).
+[migration plan](migration-plan.md). Per-project detail, work
+packages and status are in the [library ledger](library-ledger.md).
 
 | C++ source group | Rust destination | Responsibility |
 | --- | --- | --- |
