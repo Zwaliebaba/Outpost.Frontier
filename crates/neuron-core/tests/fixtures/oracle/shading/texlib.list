@@ -1,0 +1,9 @@
+# archive lod_load square pow2 lod_min square_only
+shading/texlib/basic.utf 1 0 0 0 0
+shading/texlib/basic.utf 0 0 0 0 0
+shading/texlib/basic.utf 1 0 0 4 0
+shading/texlib/basic.utf 1 2 1 0 0
+shading/texlib/basic.utf 1 1 2 8 1
+shading/texlib/lower.utf 1 0 0 0 0
+shading/texlib/notex.utf 1 0 0 0 0
+shading/texlib/missing.utf 1 0 0 0 0

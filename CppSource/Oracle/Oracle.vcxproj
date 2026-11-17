@@ -37,6 +37,10 @@
     <UseDebugLibraries>false</UseDebugLibraries>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup>
+    <!-- P1.7: Shading's sources include <d3dx8tex.h>; appended as Shading.vcxproj appends it. -->
+    <IncludePath>$(IncludePath);$(Dx8SdkDir)\include</IncludePath>
+  </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>
       <!-- SEH (__try) for the parser cases on which the reference executes a breakpoint. -->
@@ -44,7 +48,12 @@
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
-      <AdditionalDependencies>neuroncomponents.lib;Common.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <!-- P1.7: D3DXGetImageInfoFromFileInMemory from the DX8.1 SDK's static d3dx8.lib, linked as
+           DX8RENDERER links it (legacy stdio, no libci, no SafeSEH tables). -->
+      <AdditionalDependencies>neuroncomponents.lib;Common.lib;d3d8.lib;d3dx8.lib;legacy_stdio_definitions.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <IgnoreSpecificDefaultLibraries>libci.lib;%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
+      <AdditionalLibraryDirectories>$(Dx8SdkDir)\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -79,6 +88,15 @@
       <PreprocessorDefinitions>OUTPOST_SERVER;REMOTECLIENT_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>false</SDLCheck>
     </ClCompile>
+    <!-- P1.7: Shading.dll exports nothing; oracle_shading.cpp includes TextureLibrary.cpp and
+         oracle_shading_anim.cpp includes MaterialAnimation.cpp (for their file-local functions);
+         the other sources but Shading.cpp (DllMain, factories) are compiled beside them. -->
+    <ClCompile Include="oracle_shading.cpp" />
+    <ClCompile Include="oracle_shading_anim.cpp" />
+    <ClCompile Include="..\Shading\Material.cpp" />
+    <ClCompile Include="..\Shading\MaterialBatcher.cpp" />
+    <ClCompile Include="..\Shading\MaterialLibrary.cpp" />
+    <ClCompile Include="..\Shading\MaterialRegex.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="oracle_support.h" />
