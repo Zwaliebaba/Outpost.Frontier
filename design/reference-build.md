@@ -110,11 +110,14 @@ DLLs:
 Common  Content  DX8RENDERER  DX9RENDERER  Deformable2  DialogueText
 EquipmentCatalog  FieldGuideText  InterfaceExtras  NameCatalog
 NegotiationText  NeuronRuntime  ReadFile  RemoteClient  RendComp
-SceneRuntime  SceneScript  Server  Shading  SoundManager  SoundStreamer
-UiText  imeui  luaprofile  movie  neuroncomponents  particlefx  rpclocal
-remoteserver  serverinterface  surfacematerials  system  x86math  ximage
-zlib
+RenderTrace  SceneRuntime  SceneScript  Server  Shading  SoundManager
+SoundStreamer  UiText  imeui  luaprofile  movie  neuroncomponents
+particlefx  rpclocal  remoteserver  serverinterface  surfacematerials
+system  x86math  ximage  zlib
 ```
+
+`RenderTrace.dll` is the renderer logging proxy of work package P0.5
+(section 7, "Renderer traces"); the master INI does not name it.
 
 `DX9RENDERER.dll` is built only with `/p:OutpostFrontierDx9Renderer=1`. An
 INI entry that names a DLL not in this list is a fact to record in
@@ -269,3 +272,38 @@ cargo xtask thn-decompile outdir\data "$env:TEMP\thn-source"
 cargo test --release -p xtask thn::tests::original_data_round_trips -- --nocapture
 ```
 
+### Renderer traces
+
+The `RenderTrace` project in the solution's `Tools` folder builds
+`RenderTrace.dll`, a logging proxy for the Direct3D 8 renderer (work package
+P0.5). Its component `RenderTrace` creates the real `DirectX8` component
+aggregated under itself, answers the renderer's seven interfaces, forwards
+every call unchanged and records it. Nothing changes until the run folder's
+`NeuronComponents.ini` names it; to trace, edit that copy, never `outdir\`:
+
+```ini
+[Libraries]
+DX8RENDERER.dll        ; stays loaded
+RenderTrace.dll
+
+[System]
+RenderTrace            ; in place of the DirectX8 line
+
+[RenderTrace]
+output = C:\traces\menu
+frames = 300-302
+```
+
+`OUTPOST_RENDER_TRACE_DIR` and `OUTPOST_RENDER_TRACE_FRAMES` override the two
+keys. Without both an output folder and a frame list the proxy only
+forwards. The output folder receives `trace.jsonl`, one JSON object per call
+with floats as 8-hex-digit bit patterns and handles as small stable ids, and
+`blobs\`, the buffer, texture and image data named by the FNV-1a 64 hash of
+its bytes. Every selected frame starts with a snapshot of the pipeline state
+the proxy has seen; resource creation and uploads are written in every frame
+up to the last selected one, so a selected frame can be replayed. The format
+is provisional (version 0) until P4.0 fixes it. The format, the replay
+contract and the regeneration step (`make_render_trace.py`, run after any
+change to `include\render\IRenderPipeline.h`) are in
+`CppSource\RenderTrace\README.md`. A trace of the original data is game
+data: keep it outside the repository.
