@@ -180,3 +180,9 @@ void RunSceneSuites();
 // every one whose script IAnimation2::OpenScript opens, its animations played
 // on an instance through the mixer, kind "scene_eval".
 void RunSceneDataDump(const std::vector<std::string>& Files);
+
+// P2.1 (oracle_game_data.cpp): the game databases of Common, loaded from the [Data] list of
+// EXE\OutpostFrontier.ini through Common's loaders; kinds "constants" and the other
+// databases crates/game-sim/tests/data_dump.rs names. Runs after RunVfsDataDump, which
+// registers ReadFile's factories.
+void RunGameDataDump(const std::vector<std::string>& Files);

@@ -82,6 +82,8 @@
     <!-- P1.7: .sur files through Common.dll's PhyArch::LoadSurfaces, which reads
          NeuronRuntime::Data (hence NeuronRuntime.lib). -->
     <ClCompile Include="oracle_sur.cpp" />
+    <!-- P2.1: the game databases of Common (data dumps) and their pure functions. -->
+    <ClCompile Include="oracle_game_data.cpp" />
     <!-- P1.7: RendComp.dll's sources are compiled into oracle_mesh_data.cpp and
          Deformable2.dll's (with EyeMaterial.cpp) into oracle_mesh_data_dfm.cpp; neither DLL
          exports anything but DllMain. -->

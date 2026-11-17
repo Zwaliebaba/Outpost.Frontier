@@ -470,6 +470,7 @@ namespace
         GuardedDataDump("texture/material", RunShadingDataDump, AllFiles);
         GuardedDataDump("mesh/dfm", RunMeshDataDump, AllFiles);
         GuardedDataDump("scene", RunSceneDataDump, AllFiles);
+        GuardedDataDump("game", RunGameDataDump, AllFiles);
     }
 }
 

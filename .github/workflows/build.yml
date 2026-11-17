@@ -150,6 +150,9 @@ jobs:
           # Every data_dump_<kind> test (crates/neuron-core/tests/support/data.rs).
           cargo test --locked -p neuron-core --tests -- data_dump_ --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The tree has no EXE\OutpostFrontier.ini: the game databases (P2.1) list no files.
+          cargo test --locked -p game-sim --tests -- data_dump_ --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build the resource DLLs
         shell: pwsh
         run: |
