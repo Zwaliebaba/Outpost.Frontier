@@ -42,6 +42,12 @@ The executable links GameLogic to host the server in-process for single
 player. Edges appear in the manifests as the code that needs them is ported;
 `cargo xtask check-policy` rejects any edge outside this graph.
 
+NeuronCore already holds the ported Phase 1 modules: `hash`, `id`, `num`,
+`msvcrt`, `rng`, `ini`, `utf`, `vfs`, `math`, `diag`, `time`, `util`,
+`catalog` and `net`. `cargo xtask` offers `check-policy` (crate graph,
+legacy APIs, unsafe placement), `ini` (list INI files through the ported
+reader) and `catalog` (build the text catalogs from `resources/text/`).
+
 ## Migration from C++
 
 `CppSource/` holds the C++ code base being migrated. The plan, decisions and

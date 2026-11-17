@@ -26,7 +26,10 @@ neuron-core = { path = "crates/neuron-core" }
 neuron-server = { path = "crates/neuron-server" }
 
 # External crates. Each one needs an entry in design/decisions.md (T13).
+flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
+md-5 = { version = "0.10", default-features = false }
 toml = "0.9"
+tracing = { version = "0.1", default-features = false, features = ["std"] }
 
 [workspace.lints.rust]
 # Unsafe code is denied everywhere. Only the modules listed in xtask's

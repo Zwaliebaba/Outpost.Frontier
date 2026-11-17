@@ -1,0 +1,85 @@
+{"in":"64 u8:01 u16:0302 u32:07060504 f32:3f800000 f32x:7f800001 vec:3f800000c000000000000000","result":"00","failed":"-1","out":"010203040506070000803f0100c07f0000803f000000c000000000"}
+{"in":"6 u32:01020304 u16:0506","result":"00","failed":"-1","out":"040302010605"}
+{"in":"5 u32:01020304 u16:0506","result":"16","failed":"1","out":"04030201"}
+{"in":"3 u32:01020304","result":"16","failed":"0","out":""}
+{"in":"0 bytes:","result":"00","failed":"-1","out":""}
+{"in":"0 u8:00","result":"16","failed":"0","out":""}
+{"in":"20 f32x:7fa00000 f32x:ffbfffff f32x:7fc00001 f32x:00000001 f32x:ff800000","result":"00","failed":"-1","out":"0000e07fffffffff0100c07f01000000000080ff"}
+{"in":"8 f32:7f800001 f32:ff800001","result":"00","failed":"-1","out":"0100807f010080ff"}
+{"in":"12 vec:7f8000017fc00000ff800000","result":"00","failed":"-1","out":"0100807f0000c07f000080ff"}
+{"in":"11 vec:7f8000017fc00000ff800000","result":"16","failed":"0","out":""}
+{"in":"32 wide16:00410042 u8:ff","result":"00","failed":"-1","out":"020041004200ff"}
+{"in":"1 wide16:0041","result":"16","failed":"0","out":""}
+{"in":"5 wide16:00410042","result":"16","failed":"0","out":""}
+{"in":"8 wide16: u8:01","result":"00","failed":"-1","out":"000001"}
+{"in":"16 wide16:d83dde00 u8:02","result":"00","failed":"-1","out":"02003dd800de02"}
+{"in":"16 text16:00410042 u8:01","result":"00","failed":"-1","out":"02004100420001"}
+{"in":"4 text16: u8:01","result":"00","failed":"-1","out":"000001"}
+{"in":"1 text16:","result":"16","failed":"0","out":""}
+{"in":"16 b16:616263","result":"00","failed":"-1","out":"0300616263"}
+{"in":"4 b16:616263","result":"16","failed":"0","out":""}
+{"in":"1 b16:","result":"16","failed":"0","out":""}
+{"in":"16 b32:0102","result":"00","failed":"-1","out":"020000000102"}
+{"in":"5 b32:0102","result":"16","failed":"0","out":""}
+{"in":"300 bytes:000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff","result":"00","failed":"-1","out":"000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff"}
+{"in":"255 bytes:000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff","result":"16","failed":"0","out":""}
+{"in":"33 u16:26df b32:95 u8:84 u32:77d21b1d","result":"00","failed":"-1","out":"df260100000095841d1bd277"}
+{"in":"42 vec:aefbd81fe6590fbb6f1abc74 wide16:224cecf8","result":"00","failed":"-1","out":"1fd8fbaebb0f59e674bc1a6f02004c22f8ec"}
+{"in":"17 vec:9397ad4b8813ddec33af2381 b32:2b1b6892 wide16:0f53111083fd6dff767ba654 f32:5473c3a7 u8:fa vec:bdb4ec841ad91092303f1a24 vec:58692a95341a7ebc8b3c7376 b16:bd10c040","result":"16","failed":"1","out":"4bad9793ecdd13888123af33"}
+{"in":"46 wide16:35126fa7b6febe58 wide16:34e4ff3f0931 text16:f946f15e05f8 f32x:7f800001 f32:69693f16 u8:62 f32x:7f800001 f32:f5411042","result":"00","failed":"-1","out":"04001235a76ffeb658be0300e4343fff3109030046f95ef1f8050100c07f163f6969620100c07f421041f5"}
+{"in":"26 b32:63 f32x:b0a50bd0","result":"00","failed":"-1","out":"0100000063d00ba5b0"}
+{"in":"25 bytes:","result":"00","failed":"-1","out":""}
+{"in":"1 u16:7147 b16:29","result":"16","failed":"0","out":""}
+{"in":"36 u8:4d b16:75 b16:4dc1d754 f32:2a302db1 b32:49e5d71c wide16:5e42 f32x:7f800001","result":"00","failed":"-1","out":"4d01007504004dc1d754b12d302a0400000049e5d71c0100425e0100c07f"}
+{"in":"2 b16:9e b32:c5c75b3898f8 u8:4d text16:10cef11e0c30ac739777","result":"16","failed":"0","out":""}
+{"in":"43 text16:2441bbbea75d3763fef4 text16:4c17666406e4cb7e62ad8918 vec:8a9cd53fad5853cc8c93dd9c","result":"00","failed":"-1","out":"05004124bebb5da76337f4fe0600174c6466e4067ecbad6218893fd59c8acc5358ad9cdd938c"}
+{"in":"2 text16: b32:83239616 u8:39 text16:8a452e649a18 u16:7366 vec:e6c992eb8b4239a1cf5e22b1 u8:2b","result":"16","failed":"1","out":"0000"}
+{"in":"41 u16:401a b32:099c9f5a72a3 u8:fd u32:d2c58b6d b16: f32:7fc00000 u32:5e10faa4 bytes:b043ce6799","result":"00","failed":"-1","out":"1a4006000000099c9f5a72a3fd6d8bc5d200000000c07fa4fa105eb043ce6799"}
+{"in":"7 f32:152cd91b","result":"00","failed":"-1","out":"1bd92c15"}
+{"in":"19 bytes: b32:cc38f527fc b16:98c7 vec:daf01c5c98b9ddf4a58f92cc f32x:ffbfffff","result":"16","failed":"3","out":"05000000cc38f527fc020098c7"}
+{"in":"19 u16:54bb f32:21cdf413 f32:7fc00000 bytes:21c03635c27b u32:172289db","result":"16","failed":"4","out":"bb5413f4cd210000c07f21c03635c27b"}
+{"in":"31 f32x:fc76e64e vec:7bf9caeccb793ad368e9067f text16:996aa4a9 b16:","result":"00","failed":"-1","out":"4ee676fceccaf97bd33a79cb7f06e96802006a99a9a40000"}
+{"in":"40 f32x:ffbfffff u32:f6b560b9 f32x:ffbfffff f32:cf76ee90 bytes:7c8d3abe u8:42 f32x:ffbfffff bytes:10","result":"00","failed":"-1","out":"ffffffffb960b5f6ffffffff90ee76cf7c8d3abe42ffffffff10"}
+{"in":"18 bytes:78f0516636 u8:74 f32:42d2f849 u32:6a4f6749 f32x:52c2b969","result":"00","failed":"-1","out":"78f05166367449f8d24249674f6a69b9c252"}
+{"in":"25 text16:f2b8199874ecb89e4954","result":"00","failed":"-1","out":"0500b8f29819ec749eb85449"}
+{"in":"20 u16:883d","result":"00","failed":"-1","out":"3d88"}
+{"in":"6 b16:82ca6c7b u8:19 b16:a22cb6 b32:f31240a6920d vec:81cba339bf146ea86d31f578 u32:c6cf4bb3 b16:5cd5c1f0 f32:4a4b6849","result":"16","failed":"1","out":"040082ca6c7b"}
+{"in":"38 b16:c12ebc8e393f bytes: text16:dc09b490d03f04ae143c648d","result":"00","failed":"-1","out":"0600c12ebc8e393f060009dc90b43fd0ae043c148d64"}
+{"in":"37 f32x:7f800001 vec:1e0cb3bf710a67db05652216 vec:346677f6263732ef29629dbd","result":"00","failed":"-1","out":"0100c07fbfb30c1edb670a7116226505f6776634ef323726bd9d6229"}
+{"in":"15 f32:f2cf73eb","result":"00","failed":"-1","out":"eb73cff2"}
+{"in":"37 text16:eafb21a2adbc78ef2ffaa9cd f32x:045b656d b16:a420c2a2ad66 u16:bcc8","result":"00","failed":"-1","out":"0600fbeaa221bcadef78fa2fcda96d655b040600a420c2a2ad66c8bc"}
+{"in":"27 f32x:7f800001 b16:d9e1 b16: bytes:7610fd980d u8:7f vec:f291a019a0c21bf03e58b92d bytes:43","result":"16","failed":"5","out":"0100c07f0200d9e100007610fd980d7f"}
+{"in":"4 u32:320260f5 u32:570c9549 bytes:64194d1f06 f32x:f587fd47 u32:a840ced2","result":"16","failed":"1","out":"f5600232"}
+{"in":"15 u32:e419ae34 u32:3cb50e96 u8:d3 b32:4dae bytes:61b4ce48328f wide16:d7e9adbc73133d1cda7529a3 u16:e833 f32x:12281cf3","result":"16","failed":"4","out":"34ae19e4960eb53cd3020000004dae"}
+{"in":"14 b16:013e f32:f41c33ce f32:9883f322 u16:1842 f32x:ffbfffff b16:388e0c47 b32:","result":"16","failed":"4","out":"0200013ece331cf422f383984218"}
+{"in":"17 bytes:22753d07e8","result":"00","failed":"-1","out":"22753d07e8"}
+{"in":"7 f32x:7fc00000 u16:2fa0","result":"00","failed":"-1","out":"0000c07fa02f"}
+{"in":"1 wide16:9bbd f32:91c60cf4 bytes:92d2e8de4e vec:2797dea120ce0e9562a50565 bytes:","result":"16","failed":"0","out":""}
+{"in":"11 b32:f79c44 f32x:5663e5b6 vec:78d06063b0a1ed7f8991c83e u32:680bcfef bytes:4186ef f32:7fc00000 text16:2635707d4ff70589 text16:","result":"16","failed":"2","out":"03000000f79c44b6e56356"}
+{"in":"37 text16:12eb b32:14 b32:7c1e9110 b32:d511c8dd2a b16:38da7a","result":"00","failed":"-1","out":"0100eb120100000014040000007c1e911005000000d511c8dd2a030038da7a"}
+{"in":"21 bytes:164a91dbb51b vec:69139e7829c2fcd25c7dd7a8","result":"00","failed":"-1","out":"164a91dbb51b789e1369d2fcc229a8d77d5c"}
+{"in":"22 bytes:7f b32: wide16:5e33f08c021a u16:92e0 f32:f09d516a f32:7f800001 f32x:ffbfffff","result":"16","failed":"5","out":"7f000000000300335e8cf01a02e0926a519df0"}
+{"in":"30 f32x:284e1658 u32:a9c00f20 b32:bf0ae498 b16:a086ddea f32:7f800001 f32x:7fc00000","result":"00","failed":"-1","out":"58164e28200fc0a904000000bf0ae4980400a086ddea0100807f0000c07f"}
+{"in":"19 u8:e8 f32x:a728fdc2 bytes:17f60501cfde b16: vec:3cc943e6a3e3cfb0413745f5 b16:76aa4f u8:d7","result":"16","failed":"4","out":"e8c2fd28a717f60501cfde0000"}
+{"in":"24 wide16:3a72ed34458c f32:f7227888 vec:a571568293f80751de503a4b vec:fdd18c23dbc2e53a5f6e8505","result":"16","failed":"3","out":"0300723a34ed8c45887822f7825671a55107f8934b3a50de"}
+{"in":"0 b16:758e78 text16:2b07fbe4876d5ed58214c85f f32x:7f800001 f32:89603cc1 u32:5ec5fde9","result":"16","failed":"0","out":""}
+{"in":"12 u16:73c5 b32:b4 u32:865e0576 vec:e1f4772314d0503c49edb82a f32x:d5357bdc wide16:9b63 f32x:682f9e64 text16:dc725423","result":"16","failed":"3","out":"c57301000000b476055e86"}
+{"in":"26 bytes:ea50 f32:ffbfffff vec:d56833e8dbf68b9bc4f0ca67 vec:d3e8f897363ed6f907a9d5f8","result":"16","failed":"3","out":"ea50ffffbfffe83368d59b8bf6db67caf0c4"}
+{"in":"29 b32:5eca68ce f32:b5744765 wide16: bytes:b63b83 u8:5c f32x:6978c086","result":"00","failed":"-1","out":"040000005eca68ce654774b50000b63b835c86c07869"}
+{"in":"38 b16:05f09815","result":"00","failed":"-1","out":"040005f09815"}
+{"in":"38 bytes: vec:0d666db2b6cf912766b0b7ab vec:a1670e9780050ec35948c94a f32:6eae484c u8:cd","result":"00","failed":"-1","out":"b26d660d2791cfb6abb7b066970e67a1c30e05804ac948594c48ae6ecd"}
+{"in":"30 u32:7e226796 text16:0a3ffa608d7b bytes:799b wide16:54f5ce4e92938e60d52f f32:7fc00000 u32:e5574a33","result":"16","failed":"5","out":"9667227e03003f0a60fa7b8d799b0500f5544ece9392608e2fd50000c07f"}
+{"in":"23 bytes:fdcf bytes:57a48cc6 u16:07e5 b32:","result":"00","failed":"-1","out":"fdcf57a48cc6e50700000000"}
+{"in":"48 wide16: bytes:8afbfe u16:853f wide16:ee3f u32:321270af vec:19092e3a599dcdf5b4e37de3 text16:e840a6c9fdfad6f5","result":"00","failed":"-1","out":"00008afbfe3f8501003feeaf7012323a2e0919f5cd9d59e37de3b4040040e8c9a6fafdf5d6"}
+{"in":"29 b16: f32:0fa11f06 f32x:d61f9945 u32:fca49a8a u16:aeb1","result":"00","failed":"-1","out":"0000061fa10f45991fd68a9aa4fcb1ae"}
+{"in":"20 vec:ec6794dbb49972a750c0e5a5","result":"00","failed":"-1","out":"db9467eca77299b4a5e5c050"}
+{"in":"47 f32:ffbfffff f32:f31f5927 bytes:6273 f32x:93950872 text16:76de","result":"00","failed":"-1","out":"ffffbfff27591ff36273720895930100de76"}
+{"in":"11 b16:c7bb2a1c4f b32:0184d39918","result":"16","failed":"1","out":"0500c7bb2a1c4f"}
+{"in":"30 f32:28f7c5ea b32:c6e6 f32:15e311c6 b32:3e8e08ff785e f32x:859a278e","result":"00","failed":"-1","out":"eac5f72802000000c6e6c611e315060000003e8e08ff785e8e279a85"}
+{"in":"1 wide16:33338d8b bytes:1523e4fa35 b32:2927 u32:50b667c3 u8:31","result":"16","failed":"0","out":""}
+{"in":"30 u32:3bcd1393 f32x:26c9495d u8:59 text16:470cebef1d95a06d93e817fb b32:14381091bbfe text16:90bc70b826c87669bd4e wide16:96224fa4 f32:18d27f6a","result":"16","failed":"4","out":"9313cd3b5d49c9265906000c47efeb951d6da0e893fb17"}
+{"in":"7 vec:6bc19843f1e6b5f2b01ad3f5 f32x:79f8ebf4","result":"16","failed":"0","out":""}
+{"in":"12 bytes:","result":"00","failed":"-1","out":""}
+{"in":"14 text16:e3ec7579f04fd0d00303 vec:76e7543e17d8860cc16274ed wide16: f32x:7fc00000","result":"16","failed":"1","out":"0500ece379754ff0d0d00303"}
+{"in":"33 f32:14f5ce62 u16:08e0","result":"00","failed":"-1","out":"62cef514e008"}
+{"in":"36 vec:17cd3a33c5866118914d88d6 u16:de85 wide16:33390d0c vec:363e8a3f01557fd5ada328fb bytes:","result":"00","failed":"-1","out":"333acd17186186c5d6884d9185de020039330c0d3f8a3e36d57f5501fb28a3ad"}

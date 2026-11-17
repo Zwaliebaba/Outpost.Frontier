@@ -1,0 +1,81 @@
+{"in":"0102030405060708090a0b0c0d0e0f10 u8 u16 u32 f32","values":"01.0302.07060504.0b0a0908","result":"00","failed":"-1","pos":"11"}
+{"in":"010203 u32","values":"","result":"17","failed":"0","pos":"-"}
+{"in":"010203 u16 u16","values":"0201","result":"17","failed":"1","pos":"-"}
+{"in":" u8","values":"","result":"17","failed":"0","pos":"-"}
+{"in":" bytes:0","values":"","result":"00","failed":"-1","pos":"0"}
+{"in":"0100000041 b32","values":"41","result":"00","failed":"-1","pos":"5"}
+{"in":"000000004142 b32 u16","values":".4241","result":"00","failed":"-1","pos":"6"}
+{"in":"050000004142 b32","values":"","result":"17","failed":"0","pos":"-"}
+{"in":"0200410042007f wide16 u8","values":"00410042.7f","result":"00","failed":"-1","pos":"7"}
+{"in":"030041004200 wide16","values":"","result":"17","failed":"0","pos":"-"}
+{"in":"01 wide16","values":"","result":"17","failed":"0","pos":"-"}
+{"in":"02003dd800de07 wide16 u8","values":"d83dde00.07","result":"00","failed":"-1","pos":"7"}
+{"in":"0200410042007f text16 u8","values":"00410042.7f","result":"00","failed":"-1","pos":"7"}
+{"in":"000001 text16 u8","values":".01","result":"00","failed":"-1","pos":"3"}
+{"in":"0100000000000000f07f f64 u16","values":"0000000000000001.7ff0","result":"00","failed":"-1","pos":"10"}
+{"in":"010000000000f07f f64","values":"7ff0000000000001","result":"00","failed":"-1","pos":"8"}
+{"in":"0100807f0000c07f000080ff vec","values":"7f8000017fc00000ff800000","result":"00","failed":"-1","pos":"12"}
+{"in":"0100807f0000c07f0000 vec","values":"","result":"17","failed":"0","pos":"-"}
+{"in":"0100807f f32","values":"7f800001","result":"00","failed":"-1","pos":"4"}
+{"in":"aabbccdd bytes:2 bytes:0 bytes:2","values":"aabb..ccdd","result":"00","failed":"-1","pos":"4"}
+{"in":"aabbccdd bytes:5","values":"","result":"17","failed":"0","pos":"-"}
+{"in":"14000102020300 u32 u32 u8 vec","values":"02010014","result":"17","failed":"1","pos":"-"}
+{"in":"03030000000302000301030002010203001403009a000200 b32 f32 u8","values":"","result":"17","failed":"0","pos":"-"}
+{"in":"ec u32 u8 f64 f32 vec b32","values":"","result":"17","failed":"0","pos":"-"}
+{"in":"000016020201023500 bytes:4","values":"00001602","result":"00","failed":"-1","pos":"4"}
+{"in":"02000301 wide16 vec vec u16 f32","values":"","result":"17","failed":"0","pos":"-"}
+{"in":"010100000203030100020000000303b9016cb1 f64 u16","values":"0103030200000101.0200","result":"00","failed":"-1","pos":"10"}
+{"in":"03020000030396000301000100d9 u16 u8 u32","values":"0203.00.96030300","result":"00","failed":"-1","pos":"7"}
+{"in":"016b000200008900015a02aa0002b9022503020103020002 f32 text16 f64 wide16 u16","values":"02006b01..0200aa025a010089","result":"17","failed":"3","pos":"-"}
+{"in":"02020201021e0312001e03 wide16 u32 text16 bytes:3","values":"","result":"17","failed":"0","pos":"-"}
+{"in":"8100 b32 f32 f32 text16","values":"","result":"17","failed":"0","pos":"-"}
+{"in":"da vec u16 u16 wide16 b32 text16","values":"","result":"17","failed":"0","pos":"-"}
+{"in":"b8000303000000a7580200000101010102 wide16 f32 wide16 text16 f64","values":"","result":"17","failed":"0","pos":"-"}
+{"in":"000100000100ea016b f64","values":"01ea000100000100","result":"00","failed":"-1","pos":"8"}
+{"in":"00000001c200010000010002010002000001000003 vec u16","values":"01000000000100c202000100.0001","result":"00","failed":"-1","pos":"14"}
+{"in":"0100003f0101 text16 f64 f64 vec","values":"3f00","result":"17","failed":"1","pos":"-"}
+{"in":" u16","values":"","result":"17","failed":"0","pos":"-"}
+{"in":"0300030001f8 f64 wide16 u16 wide16 u8","values":"","result":"17","failed":"0","pos":"-"}
+{"in":"000172c5030300e202010100020103000202039201 bytes:5 f64","values":"000172c503.0200010102e20003","result":"00","failed":"-1","pos":"13"}
+{"in":"0300b600030200000003020101 u8 u16 f64 f32","values":"03.b600.0203000000020300","result":"17","failed":"3","pos":"-"}
+{"in":"00e50002020101000101 u8 u8","values":"00.e5","result":"00","failed":"-1","pos":"2"}
+{"in":"0302000300 vec f64 f64 u16 vec u8","values":"","result":"17","failed":"0","pos":"-"}
+{"in":"fd02030300 u16 b32 u32","values":"02fd","result":"17","failed":"1","pos":"-"}
+{"in":"0200010000 wide16 b32","values":"","result":"17","failed":"0","pos":"-"}
+{"in":" text16 wide16","values":"","result":"17","failed":"0","pos":"-"}
+{"in":"030000 u16","values":"0003","result":"00","failed":"-1","pos":"2"}
+{"in":" b32 u16 f64 f32 f32 b32","values":"","result":"17","failed":"0","pos":"-"}
+{"in":"000300012401000002f602390300 f64 bytes:2 f32 f64","values":"0000012401000300.02f6.00033902","result":"17","failed":"3","pos":"-"}
+{"in":"004800 bytes:5 f64","values":"","result":"17","failed":"0","pos":"-"}
+{"in":"02b3530000020100020001000201 wide16 u8","values":"","result":"17","failed":"0","pos":"-"}
+{"in":"020300015c03000302000000d801021603 u8 u8 vec","values":"02.03.035c01000002030001d80000","result":"00","failed":"-1","pos":"14"}
+{"in":"01 u16","values":"","result":"17","failed":"0","pos":"-"}
+{"in":"000101010001020000033902000102000002b7009b03 u32 u16 u16","values":"01010100.0100.0002","result":"00","failed":"-1","pos":"8"}
+{"in":"000302005831007d u8","values":"00","result":"00","failed":"-1","pos":"1"}
+{"in":"02007102fa vec","values":"","result":"17","failed":"0","pos":"-"}
+{"in":"e700030302010000ed00020203000003010002010302 u8 f32","values":"e7.02030300","result":"00","failed":"-1","pos":"5"}
+{"in":"037c010201000103020200d300b22100000001aee202d102 u8 f32 u16 f64 vec u16","values":"03.0102017c.0100.21b200d300020203","result":"17","failed":"4","pos":"-"}
+{"in":"01017734020001030300000000 u16","values":"0101","result":"00","failed":"-1","pos":"2"}
+{"in":"a0007e030203030222 f32 u8","values":"037e00a0.02","result":"00","failed":"-1","pos":"5"}
+{"in":"940000030100000303002da2 u16","values":"0094","result":"00","failed":"-1","pos":"2"}
+{"in":"00030001d601f2000200000274000000 u8 u32 bytes:1 u8 wide16 bytes:4","values":"00.d6010003.01.f2","result":"17","failed":"4","pos":"-"}
+{"in":"03010102f6000002030000000203 u32","values":"02010103","result":"00","failed":"-1","pos":"4"}
+{"in":"000100010254003f290003000102cb030308020003010203 bytes:4","values":"00010001","result":"00","failed":"-1","pos":"4"}
+{"in":"01a283008e910301020003002492870301012e010200 vec","values":"0083a2010103918e00030002","result":"00","failed":"-1","pos":"12"}
+{"in":"0200b3aa f32 u16 wide16 b32","values":"aab30002","result":"17","failed":"1","pos":"-"}
+{"in":" bytes:1","values":"","result":"17","failed":"0","pos":"-"}
+{"in":"03030000000201900303000103020100010003d1020300 b32 wide16 u8","values":"","result":"17","failed":"0","pos":"-"}
+{"in":"0001018400006e020000003301de vec vec bytes:5 f32 f32","values":"84010100026e000033000000","result":"17","failed":"1","pos":"-"}
+{"in":"00 u16 f64","values":"","result":"17","failed":"0","pos":"-"}
+{"in":" text16 wide16 b32 u8 f64","values":"","result":"17","failed":"0","pos":"-"}
+{"in":"000200 u8 f64 f32","values":"00","result":"17","failed":"1","pos":"-"}
+{"in":"0301019c03020003020100 u8 vec u16 text16 b32 bytes:0","values":"03","result":"17","failed":"1","pos":"-"}
+{"in":"00029601000300 u32 wide16 wide16 text16 u8","values":"01960200","result":"17","failed":"1","pos":"-"}
+{"in":"00000300b60003010f0203020000010101030002020100 f64","values":"010300b600030000","result":"00","failed":"-1","pos":"8"}
+{"in":"020103 vec u8 bytes:4 f64 wide16","values":"","result":"17","failed":"0","pos":"-"}
+{"in":"03020300007403ab00010200 f64 vec f32 u8","values":"ab03740000030203","result":"17","failed":"1","pos":"-"}
+{"in":"5c000300b9c9 wide16 text16 wide16 vec text16 b32","values":"","result":"17","failed":"0","pos":"-"}
+{"in":"01000300030102 f64","values":"","result":"17","failed":"0","pos":"-"}
+{"in":"030000 b32 u32 vec vec b32","values":"","result":"17","failed":"0","pos":"-"}
+{"in":"2a000001 f64 bytes:0 text16 text16 f64 f32","values":"","result":"17","failed":"0","pos":"-"}
+{"in":"010303ee94010001011b01a7 wide16 wide16 u8","values":"","result":"17","failed":"0","pos":"-"}

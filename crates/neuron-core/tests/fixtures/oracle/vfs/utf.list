@@ -1,0 +1,14 @@
+# UTF archives opened through the UTF factory (relative paths)
+vfs/utf/full.utf
+vfs/utf/compact.utf
+vfs/utf/clamp.utf
+vfs/utf/bad_magic.utf
+vfs/utf/bad_node.utf
+vfs/utf/bad_version.utf
+vfs/utf/empty.utf
+vfs/utf/header_only.utf
+vfs/utf/strings_oob.utf
+vfs/utf/tiny.utf
+vfs/utf/tree_oob.utf
+vfs/utf/wrong_layout.utf
+vfs/utf/missing.utf

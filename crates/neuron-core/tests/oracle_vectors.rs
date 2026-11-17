@@ -1,4 +1,6 @@
-//! Oracle vectors for work packages P1.1 and P1.2.
+//! Oracle vectors for work packages P1.1 and P1.2. Later packages add
+//! their suites in `tests/oracle_<module>.rs`, with the helpers in
+//! `tests/support/`.
 //!
 //! Each suite reads its inputs from `tests/fixtures/oracle/` and renders
 //! one JSON object per line. The committed files in `tests/vectors/` are
@@ -11,11 +13,12 @@
 //! new file is right.
 
 use std::fs;
-use std::path::{Path, PathBuf};
 
 mod support;
 
-use support::{bits32, dump_engine, dump_reader, hex};
+use support::{
+    bits32, check_suite, dump_engine, dump_reader, fixtures, hex, input_lines, read_fixture, unhex,
+};
 
 use neuron_core::hash::{continued_name_crc32, continued_name_crc32_byte, name_crc32, stricmp};
 use neuron_core::id::{create_id, make_id, make_location_id};
@@ -27,55 +30,12 @@ use neuron_core::rng::CrtRand;
 const CRC_CONTINUE_SEED: u32 = 0x5A5A_5A5A;
 const LOCATION_BASE: u32 = 0x8ABC_DEF0;
 
-fn fixtures() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/oracle")
-}
-
-fn read_fixture(relative: &str) -> Vec<u8> {
-    let path = fixtures().join(relative);
-    fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
-}
-
-/// The non-comment lines of an input list. Empty lines are inputs too.
-fn input_lines(relative: &str) -> Vec<String> {
-    let text = String::from_utf8(read_fixture(relative)).unwrap_or_default();
-    text.lines()
-        .filter(|l| !l.starts_with('#'))
-        .map(str::to_owned)
-        .collect()
-}
-
-fn unhex(text: &str) -> Vec<u8> {
-    (0..text.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&text[i..i + 2], 16).unwrap_or_else(|e| panic!("{text}: {e}")))
-        .collect()
-}
-
 fn sign(ordering: core::cmp::Ordering) -> i32 {
     ordering as i32
 }
 
 fn bits64(value: i64) -> u64 {
     u64::from_ne_bytes(value.to_ne_bytes())
-}
-
-/// Compares `lines` with the committed suite, or writes it when blessing.
-fn check_suite(name: &str, lines: &[String]) {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/vectors")
-        .join(name);
-    let rendered: String = lines.iter().map(|l| format!("{l}\n")).collect();
-    if std::env::var_os("OUTPOST_BLESS_VECTORS").is_some() {
-        fs::write(&path, rendered).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-        return;
-    }
-    let committed = fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-    let committed: Vec<&str> = committed.lines().collect();
-    for (index, (want, got)) in committed.iter().zip(lines).enumerate() {
-        assert_eq!(*want, got, "{name} line {}", index + 1);
-    }
-    assert_eq!(committed.len(), lines.len(), "{name}: line count");
 }
 
 #[test]

@@ -192,6 +192,29 @@ New-Item -ItemType Directory -Force oracle-out
 git diff --no-index crates\neuron-core\tests\vectors oracle-out
 ```
 
+The suites cover P1.1 to P1.5 and P1.9: hashing and IDs, numbers, the
+random generator, both INI readers (`oracle_main.cpp`), the math kernels
+(`oracle_math.cpp`, which loads `x86math.dll`), the utilities
+(`oracle_util*.cpp`), the UTF container and file systems (`oracle_vfs.cpp`)
+and the wire primitives (`oracle_net*.cpp`). Helpers shared by all of them
+are in `oracle_support.h`.
+
+### Text catalogs
+
+`Oracle.exe catalog <dll folder> <output folder>` dumps every string and
+rich-text card of the eight resource DLLs as the game reads them (work
+package P1.6). The output is game text and must not be committed. CI's
+oracle job builds the DLLs, runs the dump and compares it with the catalogs
+that `cargo xtask catalog` builds from `resources/text/`. By hand, after
+building the `ResourceDLLs` projects:
+
+```powershell
+.\bin\Oracle.exe catalog "$PWD\bin" "$env:TEMP\catalog-oracle"
+cargo xtask catalog --out "$env:TEMP\catalogs"
+$env:OUTPOST_CATALOG_DIR = "$env:TEMP\catalogs"; $env:OUTPOST_ORACLE_DIR = "$env:TEMP\catalog-oracle"
+cargo test -p neuron-core --test catalog_dump -- --nocapture
+```
+
 ### Data dump
 
 The data dump runs both INI readers over the master in `outdir\` and

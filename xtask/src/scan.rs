@@ -11,10 +11,7 @@ use crate::workspace::Workspace;
 /// Directories, relative to the workspace root, in which a module may
 /// allow unsafe code. The work package that adds an FFI module adds its
 /// directory here and says so in its pull request.
-const UNSAFE_ALLOWED: &[&str] = &[
-    "crates/neuron-client/src/platform/",
-    "crates/neuron-core/src/vfs/",
-];
+const UNSAFE_ALLOWED: &[&str] = &["crates/neuron-client/src/platform/"];
 
 struct Rule {
     needle: &'static str,
