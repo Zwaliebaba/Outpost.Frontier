@@ -1,0 +1,11 @@
+; Oracle instrumentation (work package P2.3): SimClientStub.dll's exports. GetClientInterface
+; is exported by its dllexport declaration in include/rpc_iclient.h.
+
+LIBRARY SimClientStub
+EXPORTS
+    GetChatClientInterface
+    CreateInstance
+    DestroyInstance
+    SimClientStubConfigure
+    SimClientStubSetTick
+    SimClientStubSetSink

@@ -1,0 +1,851 @@
+//! The step of a [`PhysicsWorld`]: the PSI, contacts, phantoms, and the
+//! queries that run against the world.
+
+use parry3d::math::{Isometry, Real};
+use parry3d::query::{Ray, ShapeCastOptions, cast_shapes, intersection_test};
+use parry3d::shape::Ball;
+
+use super::{
+    Body, BodyHandle, CollisionEvent, ControllerContext, ControllerHost, ControllerKind, GolemKind,
+    IvpQuat, IvpRandom, IvpTime, MOTION_IDLE_TIME, Phantom, PhantomEvent, PhantomHandle,
+    PhysicsWorld, PsiClock, RayHit, Vector, cross, dot, e, names_collide, r, revive_core,
+    short_name, unit_psi_begin, unit_psi_end,
+};
+use crate::physics::golem::GolemOutcome;
+use crate::physics::ivp::core::FLAG_FIXED_MASK;
+use crate::physics::ivp::psi;
+use crate::physics::shape::{self, Geometry};
+
+/// A phantom's description (`PhySys::PhantomParms` and the shape
+/// argument of one of the three `CreatePhantom` overloads).
+#[derive(Clone, Debug)]
+pub struct PhantomDesc {
+    /// The volume: [`Geometry::ball`], [`Geometry::cuboid`] or a part's
+    /// surface.
+    pub geometry: Geometry,
+    /// The world position.
+    pub position: Vector,
+    /// The world orientation.
+    pub orientation: crate::math::Matrix,
+    /// +0x06 the collision-group name; bodies with the same name are not
+    /// intruders.
+    pub name: Vec<u8>,
+    /// +0x40 whether a listener receives enter and leave events.
+    pub listener: bool,
+}
+
+/// A beam's ray for [`PhysicsWorld::generate_beam_collision`]
+/// (`PhysicalSystem::GenerateCollisions`).
+#[derive(Clone, Debug)]
+pub struct BeamQuery {
+    /// The beam's key.
+    pub user_key: u64,
+    /// The start: the last position when the beam moved, else its position.
+    pub start: Vector,
+    /// The direction, as given (not normalised).
+    pub direction: Vector,
+    /// The length.
+    pub length: f32,
+    /// The beam's collision group; hits in it are skipped.
+    pub collision_group: Vec<u8>,
+    /// The beam's velocity, for the relative speed.
+    pub velocity: Vector,
+}
+
+#[derive(Clone, Copy)]
+struct Impact {
+    a: BodyHandle,
+    b: BodyHandle,
+    time: f32,
+    point: [f32; 3],
+    normal: [f32; 3],
+    part_a: u32,
+    part_b: u32,
+}
+
+impl PhysicsWorld {
+    /// `IVP_Environment_SimulateDTime`: one PSI of the clamped step, then
+    /// the contacts and phantoms of that PSI. The collision list holds the
+    /// events of this step only when the caller clears it first
+    /// ([`PhysicsWorld::clear_collisions`]), as `PhysicalSystem::Update` does.
+    pub fn simulate_dtime(
+        &mut self,
+        delta_time: f32,
+        host: &mut dyn ControllerHost,
+        random: &mut IvpRandom,
+    ) {
+        let mut clock = self.clock;
+        clock.simulate_dtime(delta_time, |c| self.simulate_psi(c, host, random));
+        self.clock = clock;
+        self.update_phantoms();
+    }
+
+    /// Empties the collision list (`Collisions.clear()` at the start of
+    /// `PhysicalSystem::Update`).
+    pub fn clear_collisions(&mut self) {
+        self.collisions.clear();
+    }
+
+    /// `PhySys::GetCollisions`.
+    #[must_use]
+    pub fn collisions(&self) -> &[CollisionEvent] {
+        &self.collisions
+    }
+
+    /// The phantom events since the last call.
+    pub fn take_phantom_events(&mut self) -> Vec<PhantomEvent> {
+        std::mem::take(&mut self.phantom_events)
+    }
+
+    fn simulate_psi(
+        &mut self,
+        clock: &PsiClock,
+        host: &mut dyn ControllerHost,
+        random: &mut IvpRandom,
+    ) {
+        self.clock = *clock;
+        let now = clock.current_time;
+        // The wake queue.
+        for index in self.cores.indices() {
+            let Some(slot) = self.cores.get_mut(index) else {
+                continue;
+            };
+            if !slot.wake_pending {
+                continue;
+            }
+            slot.wake_pending = false;
+            if slot.simulation_disabled || !slot.core.is_frozen() {
+                continue;
+            }
+            revive_core(&mut slot.core, &mut slot.unit_state, clock);
+            let objects = slot.objects.clone();
+            for o in objects {
+                if !self.moving.contains(&o) {
+                    self.moving.push(o);
+                }
+            }
+        }
+        // The simulation units.
+        let event = clock.event_sim();
+        let mut simulated = Vec::new();
+        for index in self.cores.indices() {
+            let Some(slot) = self.cores.get_mut(index) else {
+                continue;
+            };
+            if slot.simulation_disabled || slot.core.is_frozen() {
+                continue;
+            }
+            unit_psi_begin(&mut slot.core, &mut slot.unit_state, now);
+            let motion_check = self.movement_check.tick(random);
+            let mut controllers = slot.controllers.clone();
+            controllers.sort_by_key(|(priority, _, _)| *priority);
+            for (_, _, kind) in controllers.iter().rev() {
+                self.run_controller(index, *kind, event, now, host);
+            }
+            let Some(slot) = self.cores.get_mut(index) else {
+                continue;
+            };
+            simulated.push(index);
+            if unit_psi_end(
+                &mut slot.core,
+                &mut slot.unit_state,
+                now,
+                motion_check,
+                MOTION_IDLE_TIME,
+            ) {
+                let objects = slot.objects.clone();
+                self.moving.retain(|m| !objects.contains(m));
+            }
+        }
+        let commit = clock.commit_event_sim();
+        for index in simulated.iter().rev() {
+            if let Some(slot) = self.cores.get_mut(*index) {
+                psi::calc_next_psi_matrix(
+                    &mut slot.core,
+                    commit,
+                    now,
+                    &self.limits,
+                    clock.inv_delta_time,
+                );
+            }
+        }
+        self.contacts(clock);
+    }
+
+    fn run_controller(
+        &mut self,
+        core: super::Index,
+        kind: ControllerKind,
+        event: psi::EventSim,
+        now: IvpTime,
+        host: &mut dyn ControllerHost,
+    ) {
+        match kind {
+            ControllerKind::Standard => {
+                if let Some(slot) = self.cores.get_mut(core) {
+                    slot.core
+                        .gravity_controller_step(event.delta_time, [0.0; 3]);
+                }
+            }
+            ControllerKind::External { key, .. } => {
+                if let Some(slot) = self.cores.get_mut(core) {
+                    let mut context = ControllerContext {
+                        event,
+                        current_time: now,
+                        core: &mut slot.core,
+                    };
+                    host.do_simulation_controller(key, &mut context);
+                }
+            }
+            ControllerKind::Golem(body) => {
+                let Some(b) = self.bodies.get_mut(body.0) else {
+                    return;
+                };
+                let shift = b.shift_core_f_object;
+                let Some(slot) = self.cores.get_mut(core) else {
+                    return;
+                };
+                let outcome = match &mut b.golem {
+                    Some(GolemKind::Part(g)) => g.simulate(&mut slot.core, event, now, shift),
+                    Some(GolemKind::Remote(rc)) => rc.simulate(&slot.core, event, shift),
+                    None => return,
+                };
+                if let GolemOutcome::Beam { rotation, position } = outcome {
+                    self.beam_body(body, rotation, position, true);
+                }
+            }
+        }
+    }
+
+    // ---- contacts (the port's solver, decision O19) --------------------
+
+    fn collidable(&self, h: BodyHandle) -> Option<&Body> {
+        let body = self.bodies.get(h.0)?;
+        if !body.collisions_enabled || body.geometry.ledges.is_empty() {
+            return None;
+        }
+        Some(body)
+    }
+
+    fn pair_allowed(&self, a: &Body, b: &Body) -> bool {
+        if a.core == b.core || !names_collide(&a.name, &b.name) {
+            return false;
+        }
+        self.collision_filter
+            .is_none_or(|filter| filter(a.user_key, b.user_key))
+    }
+
+    fn body_motion(&self, h: BodyHandle, clock: &PsiClock) -> Option<(Isometry<Real>, [f32; 3])> {
+        let (q, p) = self.object_pose_at(h, clock.time_of_last_psi)?;
+        let core = self.core_of(h)?;
+        let velocity = if core.is_frozen() {
+            [0.0; 3]
+        } else {
+            core.delta_world_f_core_psis
+        };
+        Some((shape::isometry(q, p), velocity))
+    }
+
+    fn find_impact(&self, a: BodyHandle, b: BodyHandle, clock: &PsiClock) -> Option<Impact> {
+        let (body_a, body_b) = (self.bodies.get(a.0)?, self.bodies.get(b.0)?);
+        let (iso_a, vel_a) = self.body_motion(a, clock)?;
+        let (iso_b, vel_b) = self.body_motion(b, clock)?;
+        let options = ShapeCastOptions {
+            max_time_of_impact: clock.delta_time,
+            target_distance: 0.0,
+            stop_at_penetration: true,
+            compute_impact_geometry_on_penetration: true,
+        };
+        let (va, vb) = (shape::to_vector(vel_a), shape::to_vector(vel_b));
+        let mut best: Option<Impact> = None;
+        for la in body_a.geometry.ledges.iter() {
+            if body_a.detached_parts.contains(&la.part_id) {
+                continue;
+            }
+            for lb in body_b.geometry.ledges.iter() {
+                if body_b.detached_parts.contains(&lb.part_id) {
+                    continue;
+                }
+                let Ok(Some(hit)) =
+                    cast_shapes(&iso_a, &va, &*la.shape, &iso_b, &vb, &*lb.shape, options)
+                else {
+                    continue;
+                };
+                if best.is_some_and(|i| i.time <= hit.time_of_impact) {
+                    continue;
+                }
+                let t = hit.time_of_impact;
+                let mut at = iso_a;
+                at.translation.vector += va * t;
+                let point = at * hit.witness1;
+                let normal = at.rotation * hit.normal1.into_inner();
+                best = Some(Impact {
+                    a,
+                    b,
+                    time: t,
+                    point: shape::from_point(&point),
+                    normal: shape::from_vector(&normal),
+                    part_a: la.part_id,
+                    part_b: lb.part_id,
+                });
+            }
+        }
+        best
+    }
+
+    fn contacts(&mut self, clock: &PsiClock) {
+        let handles: Vec<BodyHandle> = self.bodies.indices().into_iter().map(BodyHandle).collect();
+        let mut impacts = Vec::new();
+        for (i, &a) in handles.iter().enumerate() {
+            let Some(body_a) = self.collidable(a) else {
+                continue;
+            };
+            for &b in &handles[i + 1..] {
+                let Some(body_b) = self.collidable(b) else {
+                    continue;
+                };
+                if !self.pair_allowed(body_a, body_b) {
+                    continue;
+                }
+                let (Some(ca), Some(cb)) =
+                    (self.cores.get(body_a.core), self.cores.get(body_b.core))
+                else {
+                    continue;
+                };
+                let still = |s: &super::CoreSlot| s.simulation_disabled || s.core.is_frozen();
+                if still(ca) && still(cb) {
+                    continue;
+                }
+                if let Some(impact) = self.find_impact(a, b, clock) {
+                    impacts.push(impact);
+                }
+            }
+        }
+        for impact in impacts {
+            self.resolve(impact, clock);
+        }
+    }
+
+    /// The inverse mass and a function applying the world inverse inertia,
+    /// zero for fixed or disabled cores.
+    fn response_terms(&self, h: BodyHandle) -> Option<(f64, [[f64; 3]; 3], [f64; 3])> {
+        let body = self.bodies.get(h.0)?;
+        let slot = self.cores.get(body.core)?;
+        let core = &slot.core;
+        let rot = core.m_world_f_core_last_psi.rows.map(|row| row.map(e));
+        if slot.simulation_disabled || core.flags & FLAG_FIXED_MASK != 0 {
+            return Some((0.0, rot, [0.0; 3]));
+        }
+        Some((e(core.inv_mass), rot, core.inv_rot_inertia.map(e)))
+    }
+
+    fn resolve(&mut self, impact: Impact, clock: &PsiClock) {
+        let (Some(ta), Some(tb)) = (self.response_terms(impact.a), self.response_terms(impact.b))
+        else {
+            return;
+        };
+        let (Some(core_a), Some(core_b)) = (self.core_of(impact.a), self.core_of(impact.b)) else {
+            return;
+        };
+        let t = impact.time;
+        let center = |c: &crate::physics::ivp::core::Core| {
+            [0, 1, 2]
+                .map(|i| e(c.pos_world_f_core_last_psi[i]) + e(c.delta_world_f_core_psis[i]) * e(t))
+        };
+        let p = impact.point.map(e);
+        let (ca, cb) = (center(core_a), center(core_b));
+        let ra = [p[0] - ca[0], p[1] - ca[1], p[2] - ca[2]];
+        let rb = [p[0] - cb[0], p[1] - cb[1], p[2] - cb[2]];
+        let world_spin = |c: &crate::physics::ivp::core::Core, rot: &[[f64; 3]; 3]| {
+            let w = c.rot_speed.map(e);
+            [0, 1, 2].map(|i| rot[i][0] * w[0] + rot[i][1] * w[1] + rot[i][2] * w[2])
+        };
+        let point_velocity =
+            |c: &crate::physics::ivp::core::Core, rot: &[[f64; 3]; 3], lever: [f64; 3]| {
+                let wv = cross(world_spin(c, rot), lever);
+                let v = if c.is_frozen() {
+                    [0.0; 3]
+                } else {
+                    c.speed.map(e)
+                };
+                [v[0] + wv[0], v[1] + wv[1], v[2] + wv[2]]
+            };
+        let va = point_velocity(core_a, &ta.1, ra);
+        let vb = point_velocity(core_b, &tb.1, rb);
+        let n = impact.normal.map(e);
+        let rel = [vb[0] - va[0], vb[1] - va[1], vb[2] - va[2]];
+        let vn = dot(rel, n);
+        if !(vn < 0.0) {
+            return;
+        }
+        let inv_inertia_world = |terms: &(f64, [[f64; 3]; 3], [f64; 3]), x: [f64; 3]| {
+            let (_, rot, inv) = terms;
+            let local = [0, 1, 2].map(|j| rot[0][j] * x[0] + rot[1][j] * x[1] + rot[2][j] * x[2]);
+            let scaled = [local[0] * inv[0], local[1] * inv[1], local[2] * inv[2]];
+            [0, 1, 2].map(|i| rot[i][0] * scaled[0] + rot[i][1] * scaled[1] + rot[i][2] * scaled[2])
+        };
+        let effective = |dir: [f64; 3]| {
+            let ka = dot(cross(inv_inertia_world(&ta, cross(ra, dir)), ra), dir);
+            let kb = dot(cross(inv_inertia_world(&tb, cross(rb, dir)), rb), dir);
+            ta.0 + tb.0 + ka + kb
+        };
+        let k_n = effective(n);
+        if !(k_n > 0.0) {
+            return;
+        }
+        let jn = -(1.0 + self.elasticity) * vn / k_n;
+        let tangent = [rel[0] - vn * n[0], rel[1] - vn * n[1], rel[2] - vn * n[2]];
+        let vt = dot(tangent, tangent).sqrt();
+        let mut impulse = [jn * n[0], jn * n[1], jn * n[2]];
+        if vt > 1e-9 {
+            let dir = [tangent[0] / vt, tangent[1] / vt, tangent[2] / vt];
+            let k_t = effective(dir);
+            if k_t > 0.0 {
+                let jt = (vt / k_t).min(self.friction * jn);
+                for i in 0..3 {
+                    impulse[i] -= jt * dir[i];
+                }
+            }
+        }
+        let relative_velocity = [0, 1, 2].map(|i| r(va[i] - vb[i]));
+        self.apply_impulse(impact.b, impulse, rb, t);
+        self.apply_impulse(impact.a, impulse.map(|c| -c), ra, t);
+        self.record_collision(impact, relative_velocity, clock);
+    }
+
+    fn apply_impulse(&mut self, h: BodyHandle, impulse: [f64; 3], lever: [f64; 3], t: f32) {
+        let Some(terms) = self.response_terms(h) else {
+            return;
+        };
+        let (inv_mass, rot, inv) = terms;
+        if inv_mass == 0.0 {
+            return;
+        }
+        let ang_world = cross(lever, impulse);
+        let local = [0, 1, 2].map(|j| {
+            rot[0][j] * ang_world[0] + rot[1][j] * ang_world[1] + rot[2][j] * ang_world[2]
+        });
+        let d_rot = [0, 1, 2].map(|i| r(local[i] * inv[i]));
+        let d_speed = impulse.map(|c| r(c * inv_mass));
+        let frozen = self.core_of(h).is_some_and(|c| c.is_frozen());
+        if frozen {
+            if let Some(core) = self.core_of_mut(h) {
+                core.add_speed_change(d_speed);
+                core.add_rot_speed_change(d_rot);
+            }
+            self.wakeup(h);
+            return;
+        }
+        if let Some(core) = self.core_of_mut(h) {
+            let old = core.delta_world_f_core_psis;
+            for i in 0..3 {
+                core.speed[i] += d_speed[i];
+                core.rot_speed[i] += d_rot[i];
+            }
+            core.delta_world_f_core_psis = core.speed;
+            for i in 0..3 {
+                core.pos_world_f_core_last_psi[i] += (old[i] - core.speed[i]) * t;
+            }
+        }
+    }
+
+    fn record_collision(&mut self, impact: Impact, relative_velocity: [f32; 3], clock: &PsiClock) {
+        let now = clock.time_of_last_psi;
+        let key = (impact.a, impact.b);
+        let since = self
+            .pair_last_collision
+            .get(&key)
+            .map_or(f64::INFINITY, |last| now.since(*last));
+        let single = |w: &Self, h: BodyHandle| w.bodies.get(h.0).is_some_and(|b| b.single_contact);
+        if since > self.min_time_between_collisions {
+            self.pair_last_collision.insert(key, now);
+            let (Some(ka), Some(kb)) = (self.user_key(impact.a), self.user_key(impact.b)) else {
+                return;
+            };
+            self.collisions.push(CollisionEvent {
+                object_a: ka,
+                object_b: kb,
+                part_id_a: impact.part_a,
+                part_id_b: impact.part_b,
+                point: Vector::from_words(impact.point),
+                surface_normal: Vector::from_words(impact.normal.map(|c| -c)),
+                relative_velocity: Vector::from_words(relative_velocity),
+            });
+        }
+        for h in [impact.a, impact.b] {
+            if single(self, h) {
+                self.deactivate(h);
+                self.set_collision_state(h, false);
+            }
+        }
+    }
+
+    // ---- phantoms -----------------------------------------------------
+
+    /// `PhySys::CreatePhantom` (all three overloads; the shape is in the
+    /// description).
+    pub fn create_phantom(&mut self, desc: PhantomDesc) -> PhantomHandle {
+        let q = IvpQuat::from_math(crate::math::matrix_to_quaternion(&desc.orientation));
+        PhantomHandle(self.phantoms.insert(Phantom {
+            geometry: desc.geometry,
+            rotation: q,
+            position: desc.position.to_words(),
+            attached: None,
+            name: short_name(&desc.name),
+            enabled: true,
+            listener: desc.listener,
+            intruders: Vec::new(),
+        }))
+    }
+
+    /// `PhySys::DestroyPhantom`: no leave events (the listener is dropped
+    /// first, as `phantom_is_going_to_be_deleted_event` does).
+    pub fn destroy_phantom(&mut self, h: PhantomHandle) {
+        let _ = self.phantoms.remove(h.0);
+    }
+
+    /// `PhySys::AttachPhantom`: the phantom follows the body; its pose
+    /// becomes relative to the body's.
+    pub fn attach_phantom(&mut self, h: PhantomHandle, body: BodyHandle) -> bool {
+        if !self.contains(body) {
+            return false;
+        }
+        match self.phantoms.get_mut(h.0) {
+            Some(p) => {
+                p.attached = Some(body);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// `PhySys::DetachPhantom`.
+    pub fn detach_phantom(&mut self, h: PhantomHandle) -> bool {
+        match self.phantoms.get_mut(h.0) {
+            Some(p) => {
+                p.attached = None;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// `PhySys::GetCollisionStatePhantom`.
+    #[must_use]
+    pub fn phantom_collision_state(&self, h: PhantomHandle) -> bool {
+        self.phantoms.get(h.0).is_some_and(|p| p.enabled)
+    }
+
+    /// `PhySys::SetCollisionStatePhantom`: a disabled phantom has no
+    /// intruders.
+    pub fn set_phantom_collision_state(&mut self, h: PhantomHandle, enable: bool) {
+        if let Some(p) = self.phantoms.get_mut(h.0) {
+            p.enabled = enable;
+        }
+    }
+
+    /// The phantom's current intruders, in the order they entered.
+    #[must_use]
+    pub fn phantom_intruders(&self, h: PhantomHandle) -> Vec<u64> {
+        self.phantoms.get(h.0).map_or_else(Vec::new, |p| {
+            p.intruders
+                .iter()
+                .filter_map(|b| self.user_key(*b))
+                .collect()
+        })
+    }
+
+    fn phantom_pose(&self, p: &Phantom) -> (IvpQuat, [f32; 3]) {
+        match p
+            .attached
+            .and_then(|b| self.object_pose_at(b, self.clock.current_time))
+        {
+            Some((q, pos)) => {
+                let mut m = crate::physics::ivp::math::IvpMatrix::IDENTITY;
+                q.set_matrix(&mut m);
+                m.vv = pos;
+                (IvpQuat::mult(&q, &p.rotation), m.vmult4(p.position))
+            }
+            None => (p.rotation, p.position),
+        }
+    }
+
+    /// `PhySys::GetClosestPhantomIntruderPos`: the intruder nearest the
+    /// phantom's centre that `filter` accepts, and the nearest point of its
+    /// shape.
+    #[must_use]
+    pub fn closest_phantom_intruder(
+        &self,
+        h: PhantomHandle,
+        filter: impl Fn(u64) -> bool,
+    ) -> Option<(u64, Vector)> {
+        let p = self.phantoms.get(h.0)?;
+        let (_, center) = self.phantom_pose(p);
+        let mut best: Option<(f32, u64, [f32; 3])> = None;
+        for &b in &p.intruders {
+            let Some(key) = self.user_key(b) else {
+                continue;
+            };
+            if !filter(key) {
+                continue;
+            }
+            let Some((q, pos)) = self.object_pose_at(b, self.clock.current_time) else {
+                continue;
+            };
+            let iso = shape::isometry(q, pos);
+            let body = &self.bodies.get(b.0)?;
+            for ledge in body.geometry.ledges.iter() {
+                let projection = ledge
+                    .shape
+                    .project_point(&iso, &shape::to_point(center), true);
+                let point = shape::from_point(&projection.point);
+                let d = [0, 1, 2].map(|i| point[i] - center[i]);
+                let dist = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+                if best.is_none_or(|(bd, _, _)| dist < bd) {
+                    best = Some((dist, key, point));
+                }
+            }
+        }
+        best.map(|(_, key, point)| (key, Vector::from_words(point)))
+    }
+
+    fn update_phantoms(&mut self) {
+        for index in self.phantoms.indices() {
+            let Some(p) = self.phantoms.get(index) else {
+                continue;
+            };
+            let (q, pos) = self.phantom_pose(p);
+            let iso = shape::isometry(q, pos);
+            let mut inside = Vec::new();
+            if p.enabled {
+                for h in self.bodies.indices().into_iter().map(BodyHandle) {
+                    if p.attached == Some(h) {
+                        continue;
+                    }
+                    let Some(body) = self.collidable(h) else {
+                        continue;
+                    };
+                    if !names_collide(&p.name, &body.name) {
+                        continue;
+                    }
+                    let Some((bq, bp)) = self.object_pose_at(h, self.clock.current_time) else {
+                        continue;
+                    };
+                    let body_iso = shape::isometry(bq, bp);
+                    let hit = p.geometry.ledges.iter().any(|pl| {
+                        body.geometry.ledges.iter().any(|bl| {
+                            !body.detached_parts.contains(&bl.part_id)
+                                && intersection_test(&iso, &*pl.shape, &body_iso, &*bl.shape)
+                                    .unwrap_or(false)
+                        })
+                    });
+                    if hit {
+                        inside.push(h);
+                    }
+                }
+            }
+            let listener = p.listener;
+            let previous = p.intruders.clone();
+            let mut events = Vec::new();
+            for h in &previous {
+                if !inside.contains(h)
+                    && let Some(key) = self.user_key(*h)
+                {
+                    events.push(PhantomEvent {
+                        phantom: PhantomHandle(index),
+                        user_key: key,
+                        entered: false,
+                    });
+                }
+            }
+            let mut kept: Vec<BodyHandle> = previous
+                .iter()
+                .copied()
+                .filter(|h| inside.contains(h))
+                .collect();
+            for h in &inside {
+                if !previous.contains(h) {
+                    kept.push(*h);
+                    if let Some(key) = self.user_key(*h) {
+                        events.push(PhantomEvent {
+                            phantom: PhantomHandle(index),
+                            user_key: key,
+                            entered: true,
+                        });
+                    }
+                }
+            }
+            if let Some(p) = self.phantoms.get_mut(index) {
+                p.intruders = kept;
+            }
+            if listener {
+                self.phantom_events.extend(events);
+            }
+        }
+    }
+
+    // ---- queries ------------------------------------------------------
+
+    fn ray_hits(&self, from: Vector, to: Vector, only: Option<BodyHandle>) -> Vec<RayHit> {
+        let start = from.to_words();
+        let d = [to.x - from.x, to.y - from.y, to.z - from.z];
+        let length = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+        if !(length > 0.0) {
+            return Vec::new();
+        }
+        let dir = d.map(|c| c / length);
+        let ray = Ray::new(shape::to_point(start), shape::to_vector(dir));
+        let mut hits = Vec::new();
+        for h in self.bodies.indices().into_iter().map(BodyHandle) {
+            if only.is_some_and(|o| o != h) {
+                continue;
+            }
+            let Some(body) = self.bodies.get(h.0) else {
+                continue;
+            };
+            let Some((q, pos)) = self.object_pose_at(h, self.clock.current_time) else {
+                continue;
+            };
+            let iso = shape::isometry(q, pos);
+            let mut best: Option<RayHit> = None;
+            for ledge in body.geometry.ledges.iter() {
+                if body.detached_parts.contains(&ledge.part_id) {
+                    continue;
+                }
+                let Some(hit) = ledge
+                    .shape
+                    .cast_ray_and_get_normal(&iso, &ray, length, true)
+                else {
+                    continue;
+                };
+                if best.is_some_and(|b| b.distance <= hit.time_of_impact) {
+                    continue;
+                }
+                let point = ray.point_at(hit.time_of_impact);
+                best = Some(RayHit {
+                    body: h,
+                    user_key: body.user_key,
+                    point: Vector::from_words(shape::from_point(&point)),
+                    normal: Vector::from_words(shape::from_vector(&hit.normal)),
+                    part_id: ledge.part_id,
+                    distance: hit.time_of_impact,
+                });
+            }
+            hits.extend(best);
+        }
+        hits.sort_by(|a, b| a.distance.total_cmp(&b.distance));
+        hits
+    }
+
+    /// `PhySys::FindRayCollisions`: the nearest hit per body, nearest
+    /// first, at most `max_hits`.
+    #[must_use]
+    pub fn find_ray_collisions(&self, from: Vector, to: Vector, max_hits: usize) -> Vec<RayHit> {
+        let mut hits = self.ray_hits(from, to, None);
+        hits.truncate(max_hits);
+        hits
+    }
+
+    /// `PhySys::FindRayIntersect`: the ray against one body.
+    #[must_use]
+    pub fn find_ray_intersect(
+        &self,
+        body: BodyHandle,
+        from: Vector,
+        to: Vector,
+        max_hits: usize,
+    ) -> Vec<RayHit> {
+        let mut hits = self.ray_hits(from, to, Some(body));
+        hits.truncate(max_hits);
+        hits
+    }
+
+    /// `PhySys::FindSphereCollisions`: the bodies a sphere touches, in
+    /// body order, at most `max_objects`.
+    #[must_use]
+    pub fn find_sphere_collisions(
+        &self,
+        center: Vector,
+        radius: f32,
+        max_objects: usize,
+    ) -> Vec<u64> {
+        let ball = Ball::new(radius.abs());
+        let sphere_iso = shape::isometry(IvpQuat::IDENTITY, center.to_words());
+        let mut out = Vec::new();
+        for h in self.bodies.indices().into_iter().map(BodyHandle) {
+            if out.len() >= max_objects {
+                break;
+            }
+            let Some(body) = self.bodies.get(h.0) else {
+                continue;
+            };
+            let Some((q, pos)) = self.object_pose_at(h, self.clock.current_time) else {
+                continue;
+            };
+            let iso = shape::isometry(q, pos);
+            let touches = body.geometry.ledges.iter().any(|l| {
+                !body.detached_parts.contains(&l.part_id)
+                    && intersection_test(&sphere_iso, &ball, &iso, &*l.shape).unwrap_or(false)
+            });
+            if touches {
+                out.push(body.user_key);
+            }
+        }
+        out
+    }
+
+    /// `PhysicalSystem::GenerateCollisions` for a beam (a ray, not a
+    /// body): the nearest hit outside the beam's collision group becomes
+    /// a collision event, which is also returned.
+    pub fn generate_beam_collision(&mut self, beam: &BeamQuery) -> Option<CollisionEvent> {
+        let mut start = beam.start;
+        let mut length = beam.length;
+        let fudge = self.bullet_length_fudge;
+        if e(fudge) * e(0.5f32) < e(length) {
+            length = r(e(fudge) + e(length));
+            let scaled = beam.direction.to_words().map(|c| r(e(fudge) * e(c)));
+            let half = scaled.map(|c| r(0.5 * e(c)));
+            start = Vector::new(
+                r(e(start.x) - e(half[0])),
+                r(e(start.y) - e(half[1])),
+                r(e(start.z) - e(half[2])),
+            );
+        }
+        let dir = beam.direction.to_words();
+        let end = Vector::new(
+            start.x + dir[0] * length,
+            start.y + dir[1] * length,
+            start.z + dir[2] * length,
+        );
+        let group = short_name(&beam.collision_group);
+        let hits = self.ray_hits(start, end, None);
+        let hit = hits.into_iter().find(|h| {
+            let name = self.bodies.get(h.body.0).map(|b| b.name).unwrap_or([0; 8]);
+            !(name[0] != 0 && group[0] != 0 && name == group)
+        })?;
+        let step = dir.map(|c| r(e(hit.distance) * e(c)));
+        let point = Vector::new(
+            r(e(start.x) + e(step[0])),
+            r(e(start.y) + e(step[1])),
+            r(e(start.z) + e(step[2])),
+        );
+        let surface = self
+            .core_of(hit.body)
+            .map_or([0.0; 3], |c| c.surface_speed(point.to_words()));
+        let event = CollisionEvent {
+            object_a: hit.user_key,
+            object_b: beam.user_key,
+            part_id_a: hit.part_id,
+            part_id_b: 0,
+            point,
+            surface_normal: hit.normal,
+            relative_velocity: Vector::new(
+                r(e(beam.velocity.x) - e(surface[0])),
+                r(e(beam.velocity.y) - e(surface[1])),
+                r(e(beam.velocity.z) - e(surface[2])),
+            ),
+        };
+        self.collisions.push(event);
+        Some(event)
+    }
+}

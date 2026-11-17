@@ -1,0 +1,17 @@
+# Oracle.exe sim scenario (design/reference-build.md section 10): free flight.
+# A fighter with no behaviour accelerates at full throttle, yaws with a fixed axis
+# throttle for two seconds, and flies straight again. Single-player stepping: one
+# clamped physics step per frame, as the client steps it.
+#
+# Open space in he01, above the trade-lane plane (lanes span y = -800..800).
+
+system he01
+ticks 300
+frame 0.0333333333333333
+stepping sp
+
+ship pilot he_fighter li_p_he_fighter_loadout01 15000 3000 -25000 psi
+
+at 1 pilot throttle 1
+at 150 pilot axis 0 0.5 0
+at 210 pilot axis 0 0 0

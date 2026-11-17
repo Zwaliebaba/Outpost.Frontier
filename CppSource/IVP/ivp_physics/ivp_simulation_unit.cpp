@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstring>
 #include "../ivp_utility/ivp_signed_byte.h" // IVP_SignedLowByte
+#include "../../include/oracle_sim_hooks.h" // Oracle instrumentation (P2.3 sim)
 
 // ============================================================================
 // IVP_Simulation_Unit's real constructor. See the header's own
@@ -750,6 +751,9 @@ void IVP_Simulation_Unit_Process_One_Psi_Step(IVP_Event_Sim* EventSim, IVP_Simul
     EventSim->sim_unit = Unit; // :063496b0
 
     IVP_Environment* Env = EventSim->environment;
+    // Oracle instrumentation (P2.3 sim): the unit's cores before its PSI.
+    if (GOracleSimHooks.OnSimUnitPsi != nullptr)
+        GOracleSimHooks.OnSimUnitPsi(Env, Unit, 0, false);
     // CORRECTED 2026-09-17: these two counters live on DIFFERENT objects, and the port had
     // both hanging off the pool. baseline:
     // MOV EAX,[EAX + 0xa4]        ; Env->vector_cores_frozen
@@ -866,6 +870,10 @@ void IVP_Simulation_Unit_Process_One_Psi_Step(IVP_Event_Sim* EventSim, IVP_Simul
     // :06349992-:063499a3 -- leave the arena and rewind it (the routine).
     --(*BusyCounter);
     Env->vector_cores_frozen->reset_chunks();
+
+    // Oracle instrumentation (P2.3 sim): the end of the unit's PSI and its movement check.
+    if (GOracleSimHooks.OnSimUnitPsi != nullptr)
+        GOracleSimHooks.OnSimUnitPsi(Env, Unit, 1, CooldownExpired);
 }
 
 // ============================================================================

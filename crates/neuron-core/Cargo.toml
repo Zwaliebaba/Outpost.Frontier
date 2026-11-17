@@ -16,4 +16,5 @@ tick-profile = []
 [dependencies]
 flate2.workspace = true
 md-5.workspace = true
+parry3d.workspace = true
 tracing.workspace = true

@@ -29,6 +29,7 @@
 #include "../include/common_animdb.h"     // AnimDB::Update (the routine)
 #include "../include/server_createinfo.h" // FShipCreateRequest, Server_Acquire3DMathEngine (PlayerLaunch)
 #include "../include/x86math.h"           // I3DMathEngine (PlayerLaunch)
+#include "../include/oracle_sim_hooks.h"  // Oracle instrumentation (P2.3 sim)
 #include <windows.h>
 #include <mmsystem.h>
 #include <cmath>
@@ -169,6 +170,15 @@ static unsigned int StarSystem_Update(StarSystem* Sys, float Dt);
 static void Server_TimerTick(float dt);
 static void Server_TimerFiring(float dt);
 
+// Oracle instrumentation (P2.3 sim): Oracle.exe sim loads its scenario system as a player's
+// arrival would (StarSystem::load), since it has no player. No game module calls it.
+extern "C" SERVER_API bool __cdecl OracleSimLoadSystem(unsigned int SystemId) {
+    FStarSystem* const System = SysDB_LookupSystem(SystemId);
+    if (System == nullptr) return false;
+    System->load();
+    return System->bLoaded == 1;
+}
+
 static PlayerSlot* GetPlayerBySession(unsigned int session_id) {
     return PlayerDB_GetPlayer(session_id);
 }
@@ -275,6 +285,7 @@ int IServerImpl::Update() {
 
 void IServerImpl::ElapseTime(float dt) {
         double real_dt = g_TimingDelta.read_dt();
+        OracleSimFixElapsed(real_dt);   // Oracle instrumentation (P2.3 sim): fixed clock only
         if (real_dt < 0.0) real_dt = 0.0;
         g_ElapsedTimeAccum += real_dt;
         Server_PhysicsUpdate(dt);
@@ -4004,7 +4015,9 @@ static unsigned int StarSystem_Update(StarSystem* Sys, float Dt)
             // ESI = 0, the player list's size).
             // SinglePlayer() is called again here (module storage), not reused
             // from the clamp.
-            if (!SinglePlayer() && Sys->PlayerListSize != 0)
+            // Oracle instrumentation (P2.3 sim): or when Oracle.exe sim steps this system,
+            // which has no player (StepSystemId is 0 outside the harness).
+            if (!SinglePlayer() && (Sys->PlayerListSize != 0 || GOracleSimHooks.StepSystemId != 0u))
             {
                 // .. module storage -- every node of the block at
                 // +0x84 (Beams), walked with the routine(block, &it, 1):
@@ -4081,6 +4094,15 @@ static unsigned int StarSystem_Update(StarSystem* Sys, float Dt)
 static void Server_StepSystems(float dt) {
     if (!SinglePlayer())
         AnimDB::Update(dt);
+
+    // Oracle instrumentation (P2.3 sim): Oracle.exe sim steps its one scenario system, which
+    // has no player, and nothing else. StepSystemId is 0 outside the harness.
+    if (GOracleSimHooks.StepSystemId != 0u) {
+        SysDB::SysMapType::iterator const OracleIt = SysDB::SysMap.find(GOracleSimHooks.StepSystemId);
+        if (OracleIt != SysDB::SysMap.end())
+            StarSystem_Update(&OracleIt->second, dt);
+        return;
+    }
 
     static std::vector<unsigned int> SteppedSystems;
 

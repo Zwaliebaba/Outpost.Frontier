@@ -8,6 +8,7 @@
 
 #include "../include/server_gameobject.h"
 #include "../include/common_timing.h"  // Timing::read
+#include "../include/oracle_sim_hooks.h"  // Oracle instrumentation (P2.3 sim)
 #include "../include/server_sysdb.h"   // StarSystem::on_object_destroyed (GameObject::destroy)
 #include "../include/common_misc.h"    // SUBOBJ_ID_NONE (Ship::allocate_equip_id)
 #include "../include/common_cequip.h"  // CEquipTraverser / CEquip (get_damage_list)
@@ -742,6 +743,10 @@ void GameObject::on_collision(FCollisionEvent const& Hit)
                                                  + static_cast<double>(Rz) * Rz)
                                                 + static_cast<double>(Ry) * Ry));
     float const Amount = Collision::CalcCollisionDamage(Speed, OtherMass, OwnMass);
+    // Oracle instrumentation (P2.3 sim): the call's inputs and result; null outside Oracle.exe sim.
+    if (GOracleSimHooks.OnCollisionDamage != nullptr)
+        GOracleSimHooks.OnCollisionDamage(get_id(), Hit.SubObjId, Hit.Other->get_id(), Hit.OtherSubObjId,
+                                          OwnVelocity, OtherVelocity, Speed, OtherMass, OwnMass, Amount);
 
     // the record the routine reads.
     FCollisionDamage Record;
@@ -1011,7 +1016,7 @@ bool EqObj::update(float Dt)
     // CEqObj+0x15c is set (ceqobj() is dereferenced without a null test).
     if (ceqobj()->bWeaponsOffline)
     {
-        double const Now = Timing::read();               // / 06ce7e98
+        double const Now = OracleSimTimingRead();        // / 06ce7e98; Oracle instrumentation (P2.3 sim): Timing::read() outside Oracle.exe sim
         DamageList Repair;                                // list ctor
         Repair.Cause = static_cast<DamageCause>(0x1a);
 
@@ -1405,7 +1410,7 @@ void EqObj::apply_damage_list(DamageList& Damage)
     // the time of the last damage, while the hull
     // is still above 0.0 (the field; TEST AH,0x41 / JNZ skips <=).
     if (ceqobj()->get_relative_health() > 0.0)
-        LastDamageTime = Timing::read();
+        LastDamageTime = OracleSimTimingRead();   // Oracle instrumentation (P2.3 sim): Timing::read() outside Oracle.exe sim
 
     // a non-empty list only.
     if (Damage.Count != 0)
@@ -1585,7 +1590,7 @@ void EqObj::apply_equip_entry(DamageList const& Damage, DamageEntry const& Entry
                 continue;
             SrvLauncher* const Launcher = static_cast<SrvLauncher*>(*It);
             if (Launcher != nullptr)
-                Launcher->LastDamageTime = Timing::read();
+                Launcher->LastDamageTime = OracleSimTimingRead();   // Oracle instrumentation (P2.3 sim): Timing::read() outside Oracle.exe sim
             break;
         }
     }
@@ -1827,6 +1832,9 @@ static bool EqObj_FindServerEquip(std::list<ServerEquip*>& ServerEquips, CEquip 
 int EqObj::slot_34(unsigned short const* EquipIds, unsigned Count, Vector const* TargetPos,
                    int SourceClient)
 {
+    if (GOracleSimHooks.OnAffect != nullptr)   // Oracle instrumentation (P2.3 sim)
+        GOracleSimHooks.OnAffect(get_id(), OracleSimAffectFire, static_cast<int>(Count),
+                                 TargetPos != nullptr ? &TargetPos->x : nullptr, TargetPos != nullptr ? 3 : 0);
     // [this+0x24] (OwnerSystem) null or
     // is_destroyed (vt +0x160): -5.
     if (OwnerSystem == nullptr)
@@ -5482,6 +5490,8 @@ void Ship::request_returned(int RequestType, int Response, int Arg3)
 // CShip::set_throttle (IAT 06d645c4) on [ECX+0xc]; return 0.
 int Ship::set_throttle(float Throttle)
 {
+    if (GOracleSimHooks.OnAffect != nullptr)   // Oracle instrumentation (P2.3 sim)
+        GOracleSimHooks.OnAffect(get_id(), OracleSimAffectThrottle, 0, &Throttle, 1);
     static_cast<CShip*>(Object)->set_throttle(Throttle);
     return 0;
 }
@@ -5490,6 +5500,8 @@ int Ship::set_throttle(float Throttle)
 // (IAT 06d645c8); return 0.
 int Ship::set_axis_throttle(Vector const& AxisThrottle)
 {
+    if (GOracleSimHooks.OnAffect != nullptr)   // Oracle instrumentation (P2.3 sim)
+        GOracleSimHooks.OnAffect(get_id(), OracleSimAffectAxisThrottle, 0, &AxisThrottle.x, 3);
     static_cast<CShip*>(Object)->Steering.SetAxisThrottle(AxisThrottle);
     return 0;
 }
@@ -5497,6 +5509,8 @@ int Ship::set_axis_throttle(Vector const& AxisThrottle)
 // CShip::set_nudge_vec (IAT 06d645cc); return 0.
 int Ship::set_nudge_vec(Vector const& NudgeVec)
 {
+    if (GOracleSimHooks.OnAffect != nullptr)   // Oracle instrumentation (P2.3 sim)
+        GOracleSimHooks.OnAffect(get_id(), OracleSimAffectNudge, 0, &NudgeVec.x, 3);
     static_cast<CShip*>(Object)->set_nudge_vec(NudgeVec);
     return 0;
 }
@@ -5512,6 +5526,8 @@ int Ship::set_nudge_vec(Vector const& NudgeVec)
 // Always returns 0.
 int Ship::set_strafe_dir(StrafeDir Dir)
 {
+    if (GOracleSimHooks.OnAffect != nullptr)   // Oracle instrumentation (P2.3 sim)
+        GOracleSimHooks.OnAffect(get_id(), OracleSimAffectStrafe, static_cast<int>(Dir), nullptr, 0);
     CShip* const Raw = static_cast<CShip*>(Object);
     if (Raw->get_strafe_dir() == Dir)
         return 0;
