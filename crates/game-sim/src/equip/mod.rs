@@ -299,6 +299,9 @@ pub struct AttachedState {
     pub fate: Fate,
     /// +0x38..+0x4b the bounding sphere cache.
     pub bounds: Option<(f32, Vector)>,
+    /// `CNonPhysAttachment::CachedShieldFlag` (+0x0d): the part's shield
+    /// flag kept while its collisions are off.
+    pub cached_shield_flag: bool,
 }
 
 /// One equipment item: the shared `CEquip` fields and the kind's state.
@@ -388,6 +391,7 @@ impl Equip {
             hit_pts: arch.root.hit_pts,
             fate: Fate::Destroyed,
             bounds: None,
+            cached_shield_flag: false,
         });
         Self {
             id,

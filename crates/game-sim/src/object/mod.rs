@@ -209,6 +209,9 @@ pub struct Physical {
     pub part_map: Vec<PartMapEntry>,
     /// +0x74 the control mode.
     pub control_mode: i32,
+    /// The part ids the body's ledges carry (the surface manager's filter
+    /// hides those the part map lacks).
+    pub ledge_parts: Vec<u32>,
     /// The registered force controllers of the object and its equipment.
     pub controllers: Vec<(world::ControllerRef, ControllerHandle, u64)>,
 }

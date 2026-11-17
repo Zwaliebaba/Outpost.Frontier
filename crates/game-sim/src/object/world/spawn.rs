@@ -243,6 +243,7 @@ impl World {
         };
         let system = obj.physical.system;
         let root_part = obj.physical.part_map.first().map_or(0, |p| p.part_id);
+        let has_parts = !obj.physical.part_map.is_empty();
         let archetype = obj.archetype;
         let (position, orientation) = (obj.engine.position, obj.engine.orientation);
         let path = self.archetype_path(obj.kind, archetype);
@@ -253,6 +254,9 @@ impl World {
                 World::part_geometry(parts.as_ref(), root_part).0
             }
         };
+        let mut ledge_parts: Vec<u32> = geometry.ledges.iter().map(|l| l.part_id).collect();
+        ledge_parts.sort_unstable();
+        ledge_parts.dedup();
         let enable = parms.enable_collisions;
         let pin = !self.config.single_player;
         let Some(world) = self.physics.world_mut(system) else {
@@ -274,7 +278,13 @@ impl World {
         }
         if let Some(obj) = self.objects.get_mut(h) {
             obj.physical.body = Some(body);
+            // Without an instance tree (no assets) there is no part map to
+            // filter by: every ledge stays.
+            if has_parts {
+                obj.physical.ledge_parts = ledge_parts;
+            }
         }
+        self.refresh_parts(h);
     }
 
     fn archetype_path(&self, kind: ObjectKind, archetype: u32) -> Vec<u8> {
@@ -343,28 +353,54 @@ impl World {
             .contains(&hp_crc);
         let path = self.data.strings.get(arch.root.da_archetype).to_vec();
         let model = self.create_scene_instance(&path);
-        if let Some(model) = model {
-            // `CNonPhysAttachment::Connect` / `CPhysAttachment::Connect`
-            // join the model at its `HPConnect`.
-            connect_hardpoints(
-                &mut self.scene,
-                Some(instance),
-                hp_crc,
-                Some(model),
-                name_crc32(b"HPConnect"),
-            );
-            self.instances.insert(model, owner);
+        let child_hp = arch
+            .attached()
+            .map(|a| self.data.strings.get(a.hp_child).to_vec())
+            .unwrap_or_default();
+        let Some(model) = model else {
+            // `create_instance` failed: the attachment fails and the item
+            // reads as unconnected.
+            return false;
+        };
+        // `ConnectAttachedHardpoints(parent, parent hp, model, HP_child)`.
+        if connect_hardpoints(
+            &mut self.scene,
+            Some(instance),
+            hp_crc,
+            Some(model),
+            name_crc32(&child_hp),
+        ) != 0
+        {
+            self.scene.destroy_instance(model);
+            return false;
         }
         let attachment = if non_physical {
+            // `CNonPhysAttachment::Connect`: the model's instances belong to
+            // the owner, and the owner's part map gets {hp crc, model}, which
+            // makes the surface's ledges of that hardpoint visible.
+            for i in self.instance_tree(Some(model)) {
+                self.instances.insert(i, owner);
+            }
+            if let Some(o) = self.objects.get_mut(owner) {
+                o.physical.part_map.push(PartMapEntry {
+                    part_id: hp_crc,
+                    instance: Some(model),
+                    shield_part: false,
+                });
+            }
+            self.refresh_parts(owner);
             Attachment::NonPhysical {
-                instance: model,
+                instance: Some(model),
                 hp_crc,
                 collisions: true,
             }
         } else {
+            // `CPhysAttachment::Connect`: a `CEquipmentObj` with a body of
+            // its own, merged into the owner's core.
+            let object = self.attach_equipment_object(owner, equip.id, arch, model);
             Attachment::Physical {
-                object: owner,
-                instance: model,
+                object,
+                instance: Some(model),
             }
         };
         if let Some(a) = &mut equip.attached {
@@ -380,7 +416,7 @@ impl World {
             list.clear();
             for n in 1..=8u8 {
                 let name = [b'H', b'P', b'F', b'i', b'r', b'e', b'0', b'0' + n];
-                match self.find_hardpoint(model, &name) {
+                match self.find_hardpoint(Some(model), &name) {
                     Some((i, d)) => list.push(Barrel {
                         instance: Some(i),
                         position: d.position(),
@@ -391,6 +427,167 @@ impl World {
             }
         }
         true
+    }
+
+    /// `CPhysAttachment::Connect`'s equipment object: the item's model with
+    /// its root part's body (`BuildIVP_Real`, default damping, collisions
+    /// on), attached to the owner's core (`PhySys::Attach`).
+    fn attach_equipment_object(
+        &mut self,
+        owner: ObjHandle,
+        equip: SubObjId,
+        arch: &Equipment,
+        model: InstanceId,
+    ) -> ObjHandle {
+        let system = self.objects.get(owner).map_or(0, |o| o.physical.system);
+        let mut physical = Physical::default();
+        for i in self.instance_tree(Some(model)) {
+            let (_, crc) = self.scene.instance_name(Some(i));
+            physical.part_map.push(PartMapEntry {
+                part_id: crc,
+                instance: Some(i),
+                shield_part: false,
+            });
+        }
+        physical.system = system;
+        let (orientation, position) = self.instance_frame(Some(model));
+        let obj = Object {
+            kind: ObjectKind::EquipmentObject,
+            archetype: arch.root.nickname,
+            arch_mass: arch.root.mass,
+            engine: EngineObject {
+                instance: Some(model),
+                orientation,
+                position,
+                ..EngineObject::default()
+            },
+            physical,
+            simple: simple_for(&arch.root),
+            equipped: None,
+            data: KindData::EquipmentObject {
+                owner: Some(owner),
+                equip,
+            },
+            dead: false,
+        };
+        let h = self.insert(system, obj);
+        let constants = self.physics.constants().clone();
+        let name = self
+            .body(owner)
+            .and_then(|(s, b)| self.physics.world(s).map(|w| w.collision_group(b)))
+            .unwrap_or_default();
+        let parms = CreateParms {
+            mass: arch.root.mass,
+            linear_damping: constants.default_linear_damping,
+            angular_damping: constants.default_angular_damping,
+            name,
+            enable_collisions: true,
+            inertia: None,
+        };
+        self.build_body(h, parms, None, false);
+        if let (Some((_, parent)), Some((_, child))) = (self.body(owner), self.body(h))
+            && let Some(world) = self.physics.world_mut(system)
+        {
+            world.attach(parent, child);
+        }
+        h
+    }
+
+    /// The surface manager's ledge filter (`PhySurfaceManager`): a ledge
+    /// takes part in contacts and rays only while the object's part map
+    /// holds its part.
+    pub(crate) fn refresh_parts(&mut self, h: ObjHandle) {
+        let Some(o) = self.objects.get(h) else {
+            return;
+        };
+        let (Some(body), system) = (o.physical.body, o.physical.system) else {
+            return;
+        };
+        let states: Vec<(u32, bool)> = o
+            .physical
+            .ledge_parts
+            .iter()
+            .map(|&p| {
+                let attached = o
+                    .physical
+                    .part_map
+                    .iter()
+                    .any(|e| e.part_id == p && e.instance.is_some());
+                (p, attached)
+            })
+            .collect();
+        if let Some(world) = self.physics.world_mut(system) {
+            for (part, attached) in states {
+                world.set_part_attached(body, part, attached);
+            }
+        }
+    }
+
+    /// `CNonPhysAttachment::EnableCollisions` (and the physical one's): the
+    /// item's part leaves or rejoins the owner's part map, its shield flag
+    /// kept across.
+    pub(crate) fn set_attachment_collisions(&mut self, owner: ObjHandle, equip: SubObjId, enable: bool) {
+        let Some(o) = self.objects.get_mut(owner) else {
+            return;
+        };
+        let Some(eq) = o.equipped.as_deref_mut() else {
+            return;
+        };
+        let Some(e) = eq.equipment.by_id_mut(equip) else {
+            return;
+        };
+        let Some(state) = e.attached.as_mut() else {
+            return;
+        };
+        let mut physical = None;
+        match &mut state.attachment {
+            Some(Attachment::NonPhysical {
+                instance: Some(instance),
+                hp_crc,
+                collisions,
+            }) if *collisions != enable => {
+                *collisions = enable;
+                let (instance, hp_crc) = (*instance, *hp_crc);
+                let cached = state.cached_shield_flag;
+                if enable {
+                    o.physical.part_map.push(PartMapEntry {
+                        part_id: hp_crc,
+                        instance: Some(instance),
+                        shield_part: cached,
+                    });
+                } else if let Some(pos) = o.physical.part_map.iter().position(|p| p.instance == Some(instance)) {
+                    let removed = o.physical.part_map.remove(pos);
+                    state.cached_shield_flag = removed.shield_part;
+                }
+            }
+            Some(Attachment::Physical { object, .. }) => physical = Some(*object),
+            _ => {}
+        }
+        if let Some(object) = physical {
+            self.set_collisions(object, enable);
+        }
+        self.refresh_parts(owner);
+    }
+
+    /// Keeps every shield's collisions with its online state
+    /// (`Activate_Internal`'s `EnableCollisions(bOn)`).
+    pub(crate) fn sync_shield_collisions(&mut self, owner: ObjHandle) {
+        let Some(eq) = self.objects.get(owner).and_then(|o| o.equipped.as_deref()) else {
+            return;
+        };
+        let changes: Vec<(SubObjId, bool)> = eq
+            .equipment
+            .iter()
+            .filter_map(|e| match (&e.kind, e.attached.as_ref().and_then(|a| a.attachment)) {
+                (EquipKind::Shield(s), Some(Attachment::NonPhysical { collisions, .. })) if collisions != s.online => {
+                    Some((e.id, s.online))
+                }
+                _ => None,
+            })
+            .collect();
+        for (id, on) in changes {
+            self.set_attachment_collisions(owner, id, on);
+        }
     }
 
     /// `CEqObj::add_item`: an equipped item (allocated, its hit points
@@ -554,6 +751,14 @@ impl World {
                     }
                     let link_hp = hp_name(&self.data.strings, link.hardpoint);
                     self.connect_equip(owner, &mut shield, &link_hp, &arch);
+                    // `CEShield::Connect`: the shield's part is flagged.
+                    if let Some(Attachment::NonPhysical { instance, .. }) =
+                        shield.attached.as_ref().and_then(|a| a.attachment)
+                        && let Some(o) = self.objects.get_mut(owner)
+                    {
+                        let part = o.inst_to_part(instance);
+                        o.flag_part_as_shield(part);
+                    }
                     shield.activate_base(true);
                     let status = shield_status(&shield);
                     let mut events = Vec::new();
@@ -698,6 +903,7 @@ impl World {
                 self.add_item(h, item, ship);
             }
         }
+        let _ = ();
         let has_gen = self
             .objects
             .get(h)
@@ -705,6 +911,7 @@ impl World {
             .is_some_and(|e| e.equipment.find_first(types::SHIELD_GEN).is_some());
         if has_gen {
             self.link_shields(h, &eq_arch.shield_links);
+            self.sync_shield_collisions(h);
         }
         if let Some(eq) = self
             .objects

@@ -269,12 +269,15 @@ impl World {
                 ObjHandle::from_key(ev.object_a),
                 ObjHandle::from_key(ev.object_b),
             );
-            let (Some(sub_a), Some(sub_b)) = (
+            let (Some((a, sub_a)), Some((b, sub_b))) = (
                 self.part_sub_obj(a, ev.part_id_a),
                 self.part_sub_obj(b, ev.part_id_b),
             ) else {
                 continue;
             };
+            if a == b {
+                continue;
+            }
             self.on_collision(a, sub_a, b, sub_b, ev.point);
             self.on_collision(b, sub_b, a, sub_a, ev.point);
         }
@@ -282,13 +285,21 @@ impl World {
 
     /// `StarSystem_ResolveCollisionSide`: the object and the sub-object of
     /// a body's part.
-    fn part_sub_obj(&self, h: ObjHandle, part_id: u32) -> Option<SubObjId> {
+    fn part_sub_obj(&self, h: ObjHandle, part_id: u32) -> Option<(ObjHandle, SubObjId)> {
         let o = self.objects.get(h)?;
         if o.is(class::BEAM) {
-            return Some(SUBOBJ_ID_ROOT);
+            return Some((h, SUBOBJ_ID_ROOT));
+        }
+        // A physically attached item's body stands for its owner's item.
+        if let KindData::EquipmentObject {
+            owner: Some(owner),
+            equip,
+        } = o.data
+        {
+            return Some((owner, equip));
         }
         let instance = o.part_to_inst(part_id);
-        Some(self.inst_to_sub_obj_id(h, instance))
+        Some((h, self.inst_to_sub_obj_id(h, instance)))
     }
 
     /// `GameObject::on_collision` (and `Bullet::on_collision`): a bullet
@@ -532,6 +543,7 @@ impl World {
             }
         }
         let weapons_offline = o.equipped.as_deref().is_some_and(|e| e.weapons_offline);
+        self.sync_shield_collisions(h);
         if list.destroyed && !weapons_offline {
             self.destroy(h, list.inflictor_id);
         }

@@ -491,6 +491,7 @@ impl World {
             }
         }
         let _ = is_ship;
+        self.sync_shield_collisions(h);
         if behavior && let Some(mut hook) = self.take_behavior() {
             hook.update_behavior_tick(self, h, dt);
             self.put_behavior(Some(hook));
