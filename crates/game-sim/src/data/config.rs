@@ -22,11 +22,13 @@ use neuron_core::hash::eq_ignore_case;
 use neuron_core::ini::IniReader;
 
 use super::archetype::{ArchetypeDb, LoadCx};
+use super::base::BaseDataList;
 use super::constants::Constants;
 use super::goods::{GoodList, GoodsContext};
 use super::loadout::LoadoutDb;
 use super::reputation::Reputation;
 use super::string_cache::StringCache;
+use super::universe::{Universe, UniverseCx};
 use super::{DataSource, Reports, lossy, open_ini};
 
 const SOURCE: &str = "Common\\DataConfig.cpp";
@@ -178,6 +180,10 @@ pub struct GameData {
     pub loadouts: LoadoutDb,
     /// `Reputation::Startup`.
     pub reputation: Reputation,
+    /// `Universe::Startup`.
+    pub universe: Universe,
+    /// `BaseDataList_load` and the market files.
+    pub bases: BaseDataList,
     /// `FDUMP` reports of the load.
     pub reports: Reports,
 }
@@ -255,6 +261,28 @@ impl GameData {
                         ),
                     );
                 }
+            }
+            DataKind::Universe => {
+                let mut cx = UniverseCx {
+                    strings: &mut self.strings,
+                    archetypes: &self.archetypes,
+                    reports: &mut self.reports,
+                };
+                self.universe.startup(source, value, &mut cx);
+            }
+            DataKind::Bases => {
+                self.bases = BaseDataList::default();
+                self.bases
+                    .load(source, &self.universe, &self.strings, &mut self.reports);
+            }
+            DataKind::Markets => {
+                self.bases.load_market_data(
+                    source,
+                    value,
+                    &self.universe,
+                    &self.goods,
+                    &mut self.reports,
+                );
             }
             DataKind::Groups => {
                 self.reputation.startup(source, value);

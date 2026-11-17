@@ -75,7 +75,7 @@ fn id(v: u32) -> String {
 }
 
 impl Render<'_> {
-    fn t(&self, s: CacheString) -> String {
+    pub fn text(&self, s: CacheString) -> String {
         json_text(self.strings.get(s))
     }
 
@@ -83,7 +83,7 @@ impl Render<'_> {
     fn equip_desc(&self, line: &mut Line, d: &EquipDesc) {
         line.add("id", format!("{:04x}", d.id))
             .add("arch", id(d.arch_id))
-            .add("hp", self.t(d.hardpoint))
+            .add("hp", self.text(d.hardpoint))
             .add("internal", b(d.is_internal(self.strings)))
             .add("equipped", d.equipped.to_string())
             .add("health", f(d.health))
@@ -121,11 +121,11 @@ impl Render<'_> {
                     )
                     .add("jump", g.jump_dist.to_string())
                     .add("comb", b(g.combinable))
-                    .add("shop", self.t(g.shop_archetype))
-                    .add("icon", self.t(g.item_icon))
-                    .add("mat", self.t(g.material_library))
-                    .add("hp_child", self.t(g.hp_child))
-                    .add("attach", self.t(g.attachment_archetype))
+                    .add("shop", self.text(g.shop_archetype))
+                    .add("icon", self.text(g.item_icon))
+                    .add("mat", self.text(g.material_library))
+                    .add("hp_child", self.text(g.hp_child))
+                    .add("attach", self.text(g.attachment_archetype))
                     .add("ids", format!("{},{}", g.ids_name, g.ids_info))
                     .add("hull", id(g.hull_good_id))
                     .add(
@@ -189,7 +189,7 @@ impl Render<'_> {
 
     fn root(&self, line: &mut Line, r: &Root) {
         line.add("nick", id(r.nickname))
-            .add("da", self.t(r.da_archetype))
+            .add("da", self.text(r.da_archetype))
             .add("type", id(r.object_type))
             .add("ids", format!("{},{}", r.ids_name, r.ids_info))
             .add("hit_pts", f(r.hit_pts))
@@ -207,7 +207,7 @@ impl Render<'_> {
         lines.push(
             Line::new()
                 .add("group", format!("{:04x}", g.id))
-                .add("obj", self.t(g.obj))
+                .add("obj", self.text(g.obj))
                 .add("type", format!("{:x}", g.group_type))
                 .add("hit_pts", g.hit_pts.to_string())
                 .add(
@@ -244,7 +244,7 @@ impl Render<'_> {
         for d in &g.dmg_objs {
             lines.push(
                 Line::new()
-                    .add("dmg", format!("{},{}", self.t(d.hardpoint), id(d.arch)))
+                    .add("dmg", format!("{},{}", self.text(d.hardpoint), id(d.arch)))
                     .done(),
             );
         }
@@ -253,7 +253,7 @@ impl Render<'_> {
                 Line::new()
                     .add(
                         "group_dmg",
-                        format!("{},{}", self.t(d.hardpoint), id(d.arch)),
+                        format!("{},{}", self.text(d.hardpoint), id(d.arch)),
                     )
                     .done(),
             );
@@ -275,12 +275,12 @@ impl Render<'_> {
             self.group(lines, g);
         }
         for link in &e.shield_links {
-            let gens: Vec<String> = link.generator_hps.iter().map(|&h| self.t(h)).collect();
+            let gens: Vec<String> = link.generator_hps.iter().map(|&h| self.text(h)).collect();
             lines.push(
                 Line::new()
                     .add("shield_link", id(link.shield_arch))
                     .add("id", format!("{:04x}", link.equip_id))
-                    .add("hp", self.t(link.hardpoint))
+                    .add("hp", self.text(link.hardpoint))
                     .add("gens", gens.join(";"))
                     .done(),
             );
@@ -323,8 +323,8 @@ impl Render<'_> {
             line.add("destructible", b(s.destructible))
                 .add("radius", f(s.solar_radius))
                 .add("toughness", s.toughness.to_string())
-                .add("open_anim", self.t(s.open_anim))
-                .add("jump_out_hp", self.t(s.jump_out_hp))
+                .add("open_anim", self.text(s.open_anim))
+                .add("jump_out_hp", self.text(s.jump_out_hp))
                 .add("loadout", id(s.loadout));
             lines.push(line.done());
             self.eq_obj_tail(&mut lines, &s.eq_obj);
@@ -344,10 +344,10 @@ impl Render<'_> {
                     "hps",
                     format!(
                         "{},{},{},{}",
-                        self.t(s.bay_door_anim),
-                        self.t(s.hp_bay_surface),
-                        self.t(s.hp_bay_external),
-                        self.t(s.hp_tractor_source)
+                        self.text(s.bay_door_anim),
+                        self.text(s.hp_bay_surface),
+                        self.text(s.hp_bay_external),
+                        self.text(s.hp_tractor_source)
                     ),
                 )
                 .add(
@@ -380,7 +380,7 @@ impl Render<'_> {
             lines.push(line.done());
             self.eq_obj_tail(&mut lines, &s.eq_obj);
             for l in &s.legal_hps {
-                let hps: Vec<String> = l.hardpoints.iter().map(|&h| self.t(h)).collect();
+                let hps: Vec<String> = l.hardpoints.iter().map(|&h| self.text(h)).collect();
                 lines.push(
                     Line::new()
                         .add("hp_type", format!("{:x}", l.hp_type))
@@ -424,7 +424,7 @@ impl Render<'_> {
             id(a.debris_type),
             f(a.child_impulse),
             f(a.parent_impulse),
-            self.t(a.hp_child),
+            self.text(a.hp_child),
             a.toughness.to_string(),
         ]
     }
@@ -437,7 +437,7 @@ impl Render<'_> {
             f(l.refire_delay),
             f(l.muzzle_velocity),
             id(l.projectile_archetype),
-            self.t(l.use_animation),
+            self.text(l.use_animation),
         ]);
         out
     }
@@ -577,7 +577,7 @@ impl Render<'_> {
                 reach_speed,
             } => (vec![f(*max_length), f(*reach_speed)], Vec::new(), None),
             EquipmentKind::InternalFx { use_animation } => {
-                (vec![self.t(*use_animation)], Vec::new(), None)
+                (vec![self.text(*use_animation)], Vec::new(), None)
             }
             EquipmentKind::RepairDroid { repair_rate } => (vec![f(*repair_rate)], Vec::new(), None),
             EquipmentKind::RepairKit { loot_appearance }

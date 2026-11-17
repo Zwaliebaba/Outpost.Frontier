@@ -10,6 +10,7 @@
 pub mod data;
 pub mod game;
 pub mod render;
+pub mod render_universe;
 
 use std::fmt::Write as _;
 use std::fs;

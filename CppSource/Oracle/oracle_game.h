@@ -51,3 +51,7 @@ void DumpLoadouts(FGameKind& K, const std::set<unsigned int>& LoadoutIds);
 void DumpReputation(FGameKind& K);
 void DumpArchetypes(FGameKind& K, const std::set<unsigned int>& MotorIds,
                     const std::set<unsigned int>& ExplosionIds);
+
+// oracle_game_universe.cpp.
+void DumpUniverse(FGameKind& K);
+void DumpBaseData(FGameKind& K);

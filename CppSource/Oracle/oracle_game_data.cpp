@@ -34,15 +34,19 @@
 #include "common_misc.h"
 #include "common_physys.h"
 #include "common_reputation.h"
+#include "common_universe.h"
 
 #include <algorithm>
 #include <set>
 
-// The one NeuronRuntime global the loaders read (NeuronRuntime.h declares it
-// beside headers that need the DirectX 8 SDK).
+// The NeuronRuntime globals the loaders read (NeuronRuntime.h declares them
+// beside headers that need the DirectX 8 SDK): the data file system, and the
+// component manager Universe::Startup creates its directory file system with
+// (without a null test).
 namespace NeuronRuntime
 {
     NEURONRUNTIME_API extern IFileSystem* Data;
+    NEURONRUNTIME_API extern ICOManager* NeuronComponents;
 }
 
 using namespace oracle;
@@ -75,6 +79,8 @@ namespace
         }
         GPreviousData = NeuronRuntime::Data;
         NeuronRuntime::Data = Fs;
+        if (NeuronRuntime::NeuronComponents == nullptr)
+            NeuronRuntime::NeuronComponents = NEURONCOMPONENTS_Acquire();
         return true;
     }
 
@@ -170,6 +176,7 @@ namespace
         char FullPath[0x104];
         if (Reader.is_value("universe"))
         {
+            Universe::Startup(Reader.get_value_string());
         }
         else if (Reader.is_value("constants"))
         {
@@ -204,9 +211,17 @@ namespace
             ScanIds(FullPath);
             Loadout::Load(FullPath, false);
         }
+        else if (Reader.is_value("bases"))
+        {
+            BaseDataList_load();
+        }
         else if (Reader.is_value("goods"))
         {
             GoodList_load(Reader.get_value_string());
+        }
+        else if (Reader.is_value("markets"))
+        {
+            BaseDataList_load_market_data(Reader.get_value_string());
         }
         else if (Reader.is_value("Groups"))
         {
@@ -378,7 +393,8 @@ void RunGameDataDump(const std::vector<std::string>& Files)
         // No engine INI under the dump root (the synthetic tree of build.yml):
         // every kind lists no files, as the Rust test does.
         printf("game data: no EXE\\OutpostFrontier.ini, nothing loaded\n");
-        static const char* const kKinds[] = {"constants", "goods", "loadouts", "reputation", "archetypes"};
+        static const char* const kKinds[] = {"constants", "goods", "loadouts", "reputation", "archetypes",
+                                             "universe", "bases"};
         for (const char* Name : kKinds)
             FGameKind Empty(Name);
         CloseGameData();
@@ -400,6 +416,14 @@ void RunGameDataDump(const std::vector<std::string>& Files)
     {
         FGameKind K("archetypes");
         DumpArchetypes(K, GMotorIds, GExplosionIds);
+    }
+    {
+        FGameKind K("universe");
+        DumpUniverse(K);
+    }
+    {
+        FGameKind K("bases");
+        DumpBaseData(K);
     }
     CloseGameData();
     printf("dumped the game databases\n");

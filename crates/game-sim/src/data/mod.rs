@@ -12,6 +12,7 @@
 //! record 0001, point 7).
 
 pub mod archetype;
+pub mod base;
 pub mod config;
 pub mod constants;
 pub mod equip_desc;
@@ -19,6 +20,8 @@ pub mod goods;
 pub mod loadout;
 pub mod reputation;
 pub mod string_cache;
+pub mod universe;
+pub mod zone;
 
 use neuron_core::ini::IniReader;
 use neuron_core::vfs::Host;

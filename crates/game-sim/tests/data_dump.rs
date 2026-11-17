@@ -14,12 +14,15 @@ use support::data::{Report, Tolerance, data_dirs};
 use support::game::{self, Loaded};
 use support::render::Render;
 
-/// The fields compared within a bound rather than as text: a munition's
-/// seeker cone went through `FCOS` (Tier B, 1 ulp).
+use neuron_core::vfs::Host;
+
+/// The fields compared within a bound rather than as text (Tier B): a
+/// munition's seeker cone went through `FCOS`, a zone's orientation through
+/// `FSIN` and `FCOS` and a few products after them.
 const TOLERANCE: Tolerance = Tolerance {
-    keys: &["fov_cos"],
-    ulps: 1,
-    absolute: 0.0,
+    keys: &["fov_cos", "orient"],
+    ulps: 4,
+    absolute: 1.0e-7,
 };
 
 /// Runs one kind: `files` are the pseudo-file names of its databases, each
@@ -112,5 +115,33 @@ fn data_dump_archetypes() {
             "motors" => Render::motors(db),
             _ => Render::explosions(db),
         }
+    });
+}
+
+#[test]
+fn data_dump_universe() {
+    let files = ["systems", "objects", "bases", "zones"];
+    run("universe", &files, |loaded, file| {
+        let u = &loaded.data.universe;
+        let r = Render {
+            strings: &loaded.data.strings,
+        };
+        match file {
+            "systems" => r.systems(u),
+            "objects" => {
+                let root = std::env::var_os("OUTPOST_DATA_DIR").unwrap_or_default();
+                let source = Host::new(std::path::Path::new(&root).join("DATA"));
+                r.objects(u, &source)
+            }
+            "bases" => r.bases(u),
+            _ => r.zones(u),
+        }
+    });
+}
+
+#[test]
+fn data_dump_bases() {
+    run("bases", &["base_data"], |loaded, _| {
+        Render::base_data(&loaded.data.bases)
     });
 }
