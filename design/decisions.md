@@ -23,6 +23,7 @@ through a decision record under `design/adr/`.
 | O12 | Decided 2026-11-16. Saves are written as plain-text INI. The C++ reference server writes character saves, new characters from the templates and the single-player restart file as text instead of the `FLS1` cipher container (commit `816f556a`); the Rust port does the same. Both builds still read `FLS1` files, so existing saves and the shipped templates load. This was the first change to the reference's behaviour beyond build fixes and oracle instrumentation; O14 is the second | Keeping the original `FLS1` writer in the reference and in the port; reverting the C++ change |
 | O13 | Decided 2026-11-16. The game data is text only: every INI file in the master copy (`outdir\`) is text. The port reads INI files as text and has no binary INI reader; the C++ reference keeps its decoder, which the data never reaches (divergence D10) | Porting the binary INI reader and keeping its oracle suites |
 | O14 | Decided 2026-11-17. A directory file system lists its entries. The reconstruction's `FDosFileSystem::FindFirst` (`ReadFile.cpp`) tested `JoinRoot` the wrong way round, so every pattern that joined failed with error 0xA1 and a loose directory could never be listed; it also compared the find handle with `nullptr` instead of `INVALID_HANDLE_VALUE`. Both are fixed in the C++ reference and in `neuron-core::vfs`. The port lists as `FindFirstFileA` does: Win32 wildcard rules and the `.` and `..` entries, but in byte order of the names and without 8.3 short names (divergence D37). Whether the original game had the same defect is not known; callers that enumerate a loose directory (`TextureLibrary`, `VMeshLibrary`, `SceneRuntime`, `Deformable2`) now see its entries | Keeping the defect in both builds; fixing only the port and recording a divergence |
+| O15 | Decided 2026-11-17. The port loads `.thn` scene scripts as compiled Lua 3.2 chunks only, and only the instructions the shipped scripts use: the 15 opcodes in [facts.md](facts.md) F15, with numbers stored as text. A script in source form, or a chunk with any other instruction, is rejected (divergence D38). Source can be compiled first: `cargo xtask thn-decompile` holds a compiler for the subset its output uses. The decompiler writes the numeral the original source had when the stored text would not compile back to itself (3 constants in the data, F15) | Also loading source in that subset; a full Lua 3.2 evaluator with lexer, parser and VM, as T8 first planned |
 
 ## Technical decisions
 
@@ -86,11 +87,14 @@ because exclusive full screen is not used (T1).
 ### T8 — Lua 3.2 as a Rust load-time evaluator
 
 Scene scripts are Lua 3.2 chunks that define three tables and are never
-called again. A Rust evaluator (lexer, parser, compiled-chunk loader, VM,
-base library subset) loads source and compiled forms unchanged. The I/O
-library, which lets scripts run commands, is not provided. `mlua` cannot
-load Lua 3.2. The Lua copyright notice is kept with the module.
-`luaprofile` has no consumer and is not ported.
+called again. Revised 2026-11-17 by owner decision O15: every shipped
+script is straight-line table construction (facts.md F15), so the Rust
+side is a compiled-chunk reader and an evaluator for those 15 opcodes, a
+few hundred lines instead of a lexer, parser, VM and base library. Number
+constants are read from their stored text as `luaO_str2d` reads them. No
+library is provided, so the I/O library, which lets scripts run commands,
+cannot be reached. `mlua` cannot load Lua 3.2. The Lua copyright notice is
+kept with the module. `luaprofile` has no consumer and is not ported.
 
 ### T9 — Static composition
 

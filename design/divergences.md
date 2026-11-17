@@ -44,6 +44,7 @@ The owner accepted D11 on 2026-11-17.
 | D35 | `neuron-core::vfs::search` | Splitting a search entry that is a lone `\` or `X:` reads past it into the next entry's bytes | Bytes past the entry read as NUL | Undefined behaviour in the reference | None for well-formed search paths |
 | D36 | `neuron-core::vfs` (directory) | A file instance's root path of 264 bytes or more is copied without a terminator | Cut to 263 bytes | Undefined behaviour in the reference | None for paths under 264 bytes |
 | D37 | `neuron-core::vfs::Host::find` | `FindFirstFileA` returns a directory's entries in the file system's order (on NTFS, by upper-cased name) and also matches a pattern against 8.3 short names | Entries in byte order of their names; short names are not matched | Legacy platform dependence (decision O14) | Callers that depend on listing order can see entries in a different order; a pattern that matches only a short name finds nothing |
+| D38 | `neuron-client::scene_script` (P4.14) | `lua_dobuffer` runs a `.thn` script in source form or as any compiled Lua 3.2 chunk, with the full VM and the base, math and I/O libraries | Only compiled chunks with numbers stored as text, using the 15 opcodes of facts.md F15, are loaded; anything else is reported as an error | Owner decision O15 | None for the shipped data. A modded script in source form must be compiled first, and one that uses other Lua features cannot be loaded |
 
 D5 to D9 described the reader's binary INI path. That path was removed
 with decision O13, so the rows are gone; the IDs are not reused. D32
