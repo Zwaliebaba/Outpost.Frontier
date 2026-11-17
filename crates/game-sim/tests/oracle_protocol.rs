@@ -7,6 +7,13 @@
 //! encoded and must give the same bytes; the bytes are decoded, must give
 //! the values back, and must re-encode to themselves.
 //!
+//! The decode suites (`protocol_decode_*.jsonl`) check the other
+//! direction: the C++ decodes each encoding with its real `Decode` into an
+//! empty packet and encodes that packet again, a line
+//! `{"in":"<label>","rc":"0","used":"<bytes after the header>","back":"<hex>"}`.
+//! Here the Rust decoder's message, with the conversions the C++ decoder
+//! makes ([`support::cpp_decode`]), must encode to the same bytes.
+//!
 //! `OUTPOST_BLESS_VECTORS=1 cargo test --test oracle_protocol` rewrites the
 //! suites (only to add a suite; see `AGENTS.md`).
 
@@ -21,7 +28,13 @@ use game_sim::protocol::{
     ClientMessage, CommonMessage, ServerMessage, WireContext, WireError, WireWriter,
 };
 use support::fill::{self, Entry, Mode};
-use support::{Gen, check_suite, hex, wide_hex};
+use support::{Gen, check_suite, cpp_decode, hex, wide_hex};
+
+/// The encode lines and the decode lines of a channel's suites.
+struct PacketLines {
+    encode: Vec<String>,
+    decode: Vec<String>,
+}
 
 fn packet_suite<M: PartialEq + std::fmt::Debug>(
     entries: &[Entry],
@@ -30,8 +43,12 @@ fn packet_suite<M: PartialEq + std::fmt::Debug>(
     encode: impl Fn(&M, &WireContext) -> Result<Vec<u8>, WireError>,
     decode: impl Fn(&WireContext, &[u8]) -> Result<M, WireError>,
     normalize: impl Fn(&M) -> M,
-) -> Vec<String> {
-    let mut lines = Vec::new();
+    cpp_round_trip: impl Fn(&M, Mode) -> M,
+) -> PacketLines {
+    let mut lines = PacketLines {
+        encode: Vec::new(),
+        decode: Vec::new(),
+    };
     for entry in entries {
         for &mode in entry.modes {
             let ctx = mode.context(channel);
@@ -47,9 +64,19 @@ fn packet_suite<M: PartialEq + std::fmt::Debug>(
                     Ok(&bytes[..]),
                     "{label}: re-encode"
                 );
-                lines.push(format!(
+                lines.encode.push(format!(
                     "{{\"in\":\"{label}\",\"out\":\"{}\"}}",
                     hex(&bytes)
+                ));
+                if cpp_decode::SKIPPED.contains(&entry.id) {
+                    continue;
+                }
+                let again = encode(&cpp_round_trip(&back, mode), &ctx)
+                    .unwrap_or_else(|e| panic!("{label}: C++ round trip: {e}"));
+                lines.decode.push(format!(
+                    "{{\"in\":\"{label}\",\"rc\":\"0\",\"used\":\"{}\",\"back\":\"{}\"}}",
+                    bytes.len() - 2,
+                    hex(&again)
                 ));
             }
         }
@@ -66,8 +93,10 @@ fn protocol_common() {
         CommonMessage::to_wire,
         CommonMessage::from_wire,
         Clone::clone,
+        cpp_decode::common,
     );
-    check_suite("protocol_common.jsonl", &lines);
+    check_suite("protocol_common.jsonl", &lines.encode);
+    check_suite("protocol_decode_common.jsonl", &lines.decode);
 }
 
 /// The account name travels lower-cased.
@@ -90,8 +119,10 @@ fn protocol_client() {
         ClientMessage::to_wire,
         ClientMessage::from_wire,
         normalize_client,
+        |message, _| cpp_decode::client(message),
     );
-    check_suite("protocol_client.jsonl", &lines);
+    check_suite("protocol_client.jsonl", &lines.encode);
+    check_suite("protocol_decode_client.jsonl", &lines.decode);
 }
 
 #[test]
@@ -103,8 +134,10 @@ fn protocol_server() {
         ServerMessage::to_wire,
         ServerMessage::from_wire,
         Clone::clone,
+        |message, _| cpp_decode::server(message),
     );
-    check_suite("protocol_server.jsonl", &lines);
+    check_suite("protocol_server.jsonl", &lines.encode);
+    check_suite("protocol_decode_server.jsonl", &lines.decode);
 }
 
 /// The format string of case `case` (`FmtStrCase` in the harness).
