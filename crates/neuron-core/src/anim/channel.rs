@@ -19,7 +19,7 @@
 //! Tier B (decision T11; the bound is in `tests/oracle_anim.rs`).
 //!
 //! Sampling, interpolation and the typed channels that consume a channel
-//! are evaluation (work package P1.8). This module exposes what they read:
+//! are evaluation, in [`crate::scene`]. This module exposes what they read:
 //! [`Channel::frame_time`], [`Channel::payload`] and the typed views.
 
 use crate::diag::{DumpFlags, dump};

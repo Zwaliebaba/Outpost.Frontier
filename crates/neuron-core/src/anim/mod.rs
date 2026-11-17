@@ -14,7 +14,7 @@
 //! [`script`] loads them as `IAnimation2::OpenScript` and `AddScriptNames`
 //! do, through the [`FileSystem`](crate::vfs::FileSystem) port of
 //! `ReadFile`; [`channel`] reads and unpacks one `Channel`. Playback,
-//! sampling and the mixer are work package P1.8.
+//! sampling and the mixer are in [`crate::scene`].
 //!
 //! Where the reference has undefined behaviour (a null file system, a name
 //! read with no terminator, a stamp read outside the frames, a frame buffer

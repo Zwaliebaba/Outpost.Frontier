@@ -80,6 +80,18 @@ The owner accepted D11 on 2026-11-17.
 | D71 | `neuron-core::material_data` | A string or texture-name leaf without a NUL is read past its allocation | The whole leaf is the text | Undefined behaviour in the reference | None in the data |
 | D72 | `neuron-core::material_data::anim` | `MADeltas` and `MAKeys` buffers keep uninitialised bytes past what was read; huge counts throw | Only the bytes read are kept | Undefined behaviour in the reference | None |
 | D73 | `neuron-core::image::format_map` | A format-map line near 1,024 bytes is parsed past its buffer | Bytes past the buffer read as 0 | Undefined behaviour in the reference | None |
+| D74 | `neuron-core::scene::engine` | A `Cons` file of unknown type divides by a record size of 0 | Warns and reads no records | Undefined behaviour in the reference | None in the data |
+| D75 | `neuron-core::scene::engine` | A child part in two constraints is linked into a second list, corrupting both; a constraint cycle loops for ever finding the root | The child moves to the later parent; a cycle is refused | Undefined behaviour in the reference | None in the data |
+| D76 | `neuron-core::scene::engine` | A compound that holds itself recurses for ever in `CreateInstance` | The inner instance is not made | Undefined behaviour in the reference | None in the data |
+| D77 | `neuron-core::scene::engine` | The root-instance map, mixer maps and channel set are keyed by address | Keyed by arena id; `find_mapped_instance` walks roots in creation order | Technical decision T10 | Root iteration order only; results do not depend on it |
+| D78 | `neuron-core::scene::animation` | A track without a loaded channel, or whose flags name no class, is dereferenced as null in `PlayScript` | The track gets no channel and is dropped | Undefined behaviour in the reference | None in the data |
+| D79 | `neuron-core::scene::{typed, sample}` | Before any successful sample the key pointers are null; a stamp before the first frame, or a missing frame, is read outside the buffer | Zero words; a missing lower stamp leaves the time on one frame | Undefined behaviour in the reference | None in the data: every stamp starts at 0 |
+| D80 | `neuron-core::scene::typed` | Members the constructors leave uninitialised (sampled values, matrix, delta, the overlay count of a joint without a parent) | Zero | Undefined behaviour in the reference | None |
+| D81 | `neuron-core::scene::typed` | An owner channel without an archetype dereferences null for its duration | Treated as a channel that starts only at -1, 0 or -2 | Undefined behaviour in the reference | None |
+| D82 | `neuron-core::scene::sample` | `CollectRange` starts its bounds from float bit patterns; when no frame replaces them it reads far outside the frames | Collects nothing | Undefined behaviour in the reference | None for valid ranges |
+| D83 | `neuron-core::scene::mixer` | The ease-table index is unchecked; the node stack (0x100) and snapshot (0x140) have no bound check; a blend with fewer than two nodes below calls through null | The index is clamped to 0..=255; stack and snapshot are unbounded; the output is left unchanged | Undefined behaviour in the reference | None in normal use |
+| D84 | `neuron-core::scene::typed` | An event batch with more than 0x40 keys is copied past its array | At most 0x40 keys are copied; the count is kept | Undefined behaviour in the reference | None |
+| D85 | `neuron-core::scene::animation` | `CreateTyped` with an unknown type treats the owner as a channel | Returns no channel (-1) after the fatal report | Undefined behaviour in the reference | None |
 
 D5 to D9 described the reader's binary INI path. That path was removed
 with decision O13, so the rows are gone; the IDs are not reused. D32

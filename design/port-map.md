@@ -14,7 +14,7 @@ packages and status are in the [library ledger](library-ledger.md).
 | `Common` | NeuronCore, GameSim, GameLogic, NeuronClient, GameApp | IDs, INI, utilities (`util`), timing (`time`), diagnostics (`diag`) and `.sur` reading in core. Game data, object model, equipment, AI and wire types in GameSim. Trade and reputation rules in GameLogic. Text rendering in the client engine; client-only helpers in GameApp. |
 | `IVP`, `qhull` | NeuronCore | Physics facade over `parry3d` and the project's own solver. Neither library is ported; the compact-surface layout is read as a file format. |
 | `x86math` | NeuronCore | Vectors, matrices, quaternions and transforms in the original operation order (`math`). Common's vector and matrix helpers build on the same types. |
-| `SceneRuntime` | NeuronCore | Instance tree, compound models, hardpoints, joints and animation. No renderer dependence. Animation data in `anim`; the rest in `scene`. |
+| `SceneRuntime` | NeuronCore | Engine, compound archetypes, `Cons` joints, hardpoints, instance trees, sampling, typed channels, mixer and playbacks (`scene`); channel and script data (`anim`). No renderer dependence. |
 | `ReadFile`, `zlib` | NeuronCore | The UTF container (`utf`); the file-system trait, the directory, UTF and memory backends, the search path and the path rules (`vfs`). `flate2` replaces zlib for network batches (`net::frame`). |
 | `luaprofile`, `MemoryDiagnostics` | — | Not ported. |
 | `rpclocal`, `RemoteCommon` | NeuronCore, GameSim | The loopback transport, field primitives and quantisers (`net`) in core and one set of message codecs in GameSim. The codec copy in `rpclocal` is not ported. |
