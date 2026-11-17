@@ -1,5 +1,5 @@
 //! `cargo xtask catalog`: builds the text catalogs (work package P1.6,
-//! decision T21) from the text sources in `resources/text/`. The source
+//! decision T21) from the text sources in `outdir/data/text/`. The source
 //! layout is in that folder's README; the catalog format is documented in
 //! `neuron_core::catalog`.
 
@@ -12,7 +12,7 @@ use toml::{Table, Value};
 
 pub const USAGE: &str = "  catalog [--source <dir>] [--out <dir>]
                  build one text catalog per module from the text sources
-                 <dir>/<Module>.toml (default resources/text) into
+                 <dir>/<Module>.toml (default outdir/data/text) into
                  <dir>/<Module>.tcat (default target/catalogs)
 ";
 
@@ -103,7 +103,7 @@ pub fn build_module(source: &Path, name: &str) -> Result<TextCatalog, String> {
 }
 
 pub fn run(args: &[String], root: &Path) -> ExitCode {
-    let mut source = root.join("resources").join("text");
+    let mut source = root.join("outdir").join("data").join("text");
     let mut out = root.join("target").join("catalogs");
     let mut rest = args.iter();
     while let Some(arg) = rest.next() {
@@ -224,7 +224,7 @@ mod tests {
     /// (design/library-ledger.md, rows 32 to 39).
     #[test]
     fn real_tree_matches_the_ledger() {
-        let source = workspace_root().join("resources/text");
+        let source = workspace_root().join("outdir/data/text");
         let want: [(&str, usize, usize); 8] = [
             ("DialogueText", 0, 3087),
             ("EquipmentCatalog", 784, 784),

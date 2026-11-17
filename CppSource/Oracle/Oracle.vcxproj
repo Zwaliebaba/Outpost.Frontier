@@ -37,6 +37,10 @@
     <UseDebugLibraries>false</UseDebugLibraries>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <PropertyGroup>
+    <!-- P1.7: Shading's sources include <d3dx8tex.h>; appended as Shading.vcxproj appends it. -->
+    <IncludePath>$(IncludePath);$(Dx8SdkDir)\include</IncludePath>
+  </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>
       <!-- SEH (__try) for the parser cases on which the reference executes a breakpoint. -->
@@ -44,7 +48,12 @@
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
-      <AdditionalDependencies>neuroncomponents.lib;Common.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <!-- P1.7: D3DXGetImageInfoFromFileInMemory from the DX8.1 SDK's static d3dx8.lib, linked as
+           DX8RENDERER links it (legacy stdio, no libci, no SafeSEH tables). -->
+      <AdditionalDependencies>neuroncomponents.lib;Common.lib;NeuronRuntime.lib;d3d8.lib;d3dx8.lib;legacy_stdio_definitions.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <IgnoreSpecificDefaultLibraries>libci.lib;%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
+      <AdditionalLibraryDirectories>$(Dx8SdkDir)\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -60,9 +69,24 @@
     <!-- P1.3: ReadFile.dll's source is compiled into oracle_vfs.cpp, which registers its
          factories through its DllMain; its stricmp import shim is compiled in beside it. -->
     <ClCompile Include="oracle_vfs.cpp" />
+    <!-- P1.7: loads SceneRuntime.dll at run time and reads its objects through SceneRuntime.h. -->
+    <ClCompile Include="oracle_anim.cpp" />
+    <!-- P1.8: the Engine, Hardpoint and Animation components of the same SceneRuntime.dll. -->
+    <ClCompile Include="oracle_scene.cpp" />
+    <!-- P1.7: particlefx.dll is loaded at run time (it exports nothing); this file only
+         includes its private interface header. -->
+    <ClCompile Include="oracle_fx_data.cpp" />
     <ClCompile Include="..\ReadFile\NeuronComponentsStricmp.cpp" />
     <!-- Common.dll does not export MsvcrtAtof; the same source is compiled in. -->
     <ClCompile Include="..\Common\msvcrt_atof.cpp" />
+    <!-- P1.7: .sur files through Common.dll's PhyArch::LoadSurfaces, which reads
+         NeuronRuntime::Data (hence NeuronRuntime.lib). -->
+    <ClCompile Include="oracle_sur.cpp" />
+    <!-- P1.7: RendComp.dll's sources are compiled into oracle_mesh_data.cpp and
+         Deformable2.dll's (with EyeMaterial.cpp) into oracle_mesh_data_dfm.cpp; neither DLL
+         exports anything but DllMain. -->
+    <ClCompile Include="oracle_mesh_data.cpp" />
+    <ClCompile Include="oracle_mesh_data_dfm.cpp" />
     <!-- P1.9: the RemoteCommon codecs and their packet base, compiled in as RemoteClient.dll
          compiles them (its definitions, no /sdl); the two oracle_net_*_codecs.cpp files
          include the RemoteCommon sources so their file-local quantisers can be called. -->
@@ -79,6 +103,15 @@
       <PreprocessorDefinitions>OUTPOST_SERVER;REMOTECLIENT_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>false</SDLCheck>
     </ClCompile>
+    <!-- P1.7: Shading.dll exports nothing; oracle_shading.cpp includes TextureLibrary.cpp and
+         oracle_shading_anim.cpp includes MaterialAnimation.cpp (for their file-local functions);
+         the other sources but Shading.cpp (DllMain, factories) are compiled beside them. -->
+    <ClCompile Include="oracle_shading.cpp" />
+    <ClCompile Include="oracle_shading_anim.cpp" />
+    <ClCompile Include="..\Shading\Material.cpp" />
+    <ClCompile Include="..\Shading\MaterialBatcher.cpp" />
+    <ClCompile Include="..\Shading\MaterialLibrary.cpp" />
+    <ClCompile Include="..\Shading\MaterialRegex.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="oracle_support.h" />
@@ -92,9 +125,24 @@
     <ProjectReference Include="..\Common\Common.vcxproj">
       <Project>{C0A4E8B1-2D5F-4A17-9C36-E8B0D1F2A405}</Project>
     </ProjectReference>
+    <ProjectReference Include="..\NeuronRuntime\NeuronRuntime.vcxproj">
+      <Project>{9A4B2C31-0D5E-4F60-B728-C9DAE1F20415}</Project>
+    </ProjectReference>
     <!-- x86math.dll exports nothing: built for oracle_math.cpp, which loads it at run time. -->
     <ProjectReference Include="..\x86math\x86math.vcxproj">
       <Project>{C4D8E201-7A3B-4F91-9E56-2B8C0D1A4E77}</Project>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+    <!-- SceneRuntime.dll exports nothing: built for oracle_anim.cpp, which loads it at run time. -->
+    <ProjectReference Include="..\SceneRuntime\SceneRuntime.vcxproj">
+      <Project>{B4E8A017-3C5D-4F21-9A86-E7D1C0B4A592}</Project>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+    <!-- particlefx.dll exports nothing: built for oracle_fx_data.cpp, which loads it at run time. -->
+    <ProjectReference Include="..\particlefx\particlefx.vcxproj">
+      <Project>{B7E4D91A-3C5F-4A82-9E16-F2C8D0A1B405}</Project>
       <LinkLibraryDependencies>false</LinkLibraryDependencies>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
     </ProjectReference>

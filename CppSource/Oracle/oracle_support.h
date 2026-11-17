@@ -58,6 +58,22 @@ namespace oracle
 
     void MakeParentDirectories(const std::string& Path);
 
+    // --- Data dumps (Oracle.exe dump) ------------------------------------------
+    // The dump runs with the folder that holds DATA and EXE as the current
+    // directory. Paths are '/'-separated and relative to that folder.
+
+    // Every file under Relative, recursively, appended to Out (unsorted).
+    void ListDataFiles(const std::string& Relative, std::vector<std::string>& Out);
+
+    // <output directory>\<Kind>\<Relative>.jsonl, with backslashes.
+    std::string DataOutputFile(const char* Kind, const std::string& Relative);
+
+    // The first four bytes of a file, fewer for a shorter one.
+    std::string FileMagic(const std::string& Relative);
+
+    // FNV-1a (64-bit) of Length bytes as 16 lower-case hex digits.
+    std::string Fnv64(const void* Data, size_t Length);
+
     class Suite
     {
     public:
@@ -97,3 +113,70 @@ void RunUtilSuites();
 
 // P1.3 (oracle_vfs.cpp): the UTF container and the file systems of ReadFile.
 void RunVfsSuites();
+
+// P1.7 (oracle_sur.cpp): .sur files through PhyArch::LoadSurfaces and their IVP
+// compact surfaces. Needs ReadFile's factories, which RunVfsSuites registers.
+void RunSurSuites();
+
+// P1.7 (oracle_anim.cpp): channel archetypes and animation scripts of
+// SceneRuntime.dll. Runs after RunVfsSuites, which registers ReadFile.
+void RunAnimSuites();
+
+// P1.7 (oracle_fx_data.cpp): node and effect libraries of .ale files through
+// particlefx.dll. Needs the UTF factory RunVfsSuites registers.
+void RunFxDataSuites();
+
+// P1.7 (oracle_shading.cpp): TGA levels, DDS image information, texture format maps, texture
+// libraries through a recording renderer, material schemas and material libraries of Shading.
+void RunShadingSuites();
+
+// P1.7 (oracle_mesh_data.cpp, oracle_mesh_data_dfm.cpp): the mesh nodes of
+// RendComp and the .dfm tables of Deformable2. Runs after RunVfsSuites,
+// which registers the file systems it opens.
+void RunMeshDataSuites();
+
+// Data dumps of later work packages, called by Oracle.exe dump after the INI
+// dumps. Files is every file under DATA and EXE, sorted; each dump picks its
+// own, writes <output>\<kind>\<file>.jsonl per file and <output>\<kind>\files.txt,
+// and crates/neuron-core/tests compares them in a data_dump_<kind> test.
+
+// P1.3 (oracle_vfs.cpp): every UTF container (first bytes "UTF ") through the
+// UTF file system; kind "utf".
+void RunVfsDataDump(const std::vector<std::string>& Files);
+
+// P1.7 (oracle_sur.cpp): every .sur file through PhyArch::LoadSurfaces, with its
+// compact surfaces; kind "sur". Runs after RunVfsDataDump, which registers
+// ReadFile's factories.
+void RunSurDataDump(const std::vector<std::string>& Files);
+
+// P1.7 (oracle_anim.cpp): every UTF container whose Animation node
+// IAnimation2::OpenScript opens, through SceneRuntime.dll; kind "anim".
+void RunAnimDataDump(const std::vector<std::string>& Files);
+
+// P1.7 (oracle_fx_data.cpp): every .ale file (a UTF container) through
+// particlefx.dll's FxNodeLibrary and FxEffectLibrary; kind "fx". Runs after
+// RunVfsDataDump, which registers the UTF factory.
+void RunFxDataDump(const std::vector<std::string>& Files);
+
+// P1.7 (oracle_shading.cpp): every UTF container with a "Texture library" node (kind
+// "texture": per texture node the renderer calls, result and record) and every one with a
+// "Material library" or "MaterialAnim" node (kind "material": per material its type, kind and
+// parameter values; per animation its key data).
+void RunShadingDataDump(const std::vector<std::string>& Files);
+
+// P1.7 (oracle_mesh_data.cpp, oracle_mesh_data_dfm.cpp): every UTF .vms,
+// .3db, .cmp and .sph through the RendComp loaders, kind "mesh"; every UTF
+// .dfm through the Deformable2 loaders, kind "dfm". Runs after
+// RunVfsDataDump, which registers the file systems it opens.
+void RunMeshDataDump(const std::vector<std::string>& Files);
+
+// P1.8 (oracle_scene.cpp): compound archetypes, hardpoints, instance trees,
+// channel sampling, joints and the animation mixer of SceneRuntime.dll. Runs
+// after RunVfsSuites, which registers the file systems it opens.
+void RunSceneSuites();
+
+// P1.8 (oracle_scene.cpp): every UTF .cmp, .3db and .dfm through
+// IEngine::CreateArchetypeHandle with the Hardpoint component, kind "scene";
+// every one whose script IAnimation2::OpenScript opens, its animations played
+// on an instance through the mixer, kind "scene_eval".
+void RunSceneDataDump(const std::vector<std::string>& Files);

@@ -57,13 +57,14 @@ its `libci.lib` default-library reference and its missing SafeSEH tables.
 
 ## 3. Folder layout
 
-All paths are relative to the repository root. Every folder below is
-ignored by git.
+All paths are relative to the repository root. `outdir\` is committed
+(decision O15); every other folder below is ignored by git.
 
 ```text
 dx8\          optional: a local DirectX 8.1 SDK that overrides CppSource\DX8\
-outdir\       the master copy of the game files: data\ (the installation's
-              DATA folder), the INI files, the .fl templates and
+outdir\       the master copy of the game files, committed: data\ (the
+              installation's DATA folder, plus data\text\, the TOML text
+              sources), the INI files, the .fl templates and
               flconfigdatabase.txt
 bin\          Release build output, plus the runtime files listed below
 bin_debug\    Debug build output; copy_dev_ini.py fills it from bin\
@@ -205,7 +206,7 @@ are in `oracle_support.h`.
 rich-text card of the eight resource DLLs as the game reads them (work
 package P1.6). The output is game text and must not be committed. CI's
 oracle job builds the DLLs, runs the dump and compares it with the catalogs
-that `cargo xtask catalog` builds from `resources/text/`. By hand, after
+that `cargo xtask catalog` builds from `outdir/data/text/`. By hand, after
 building the `ResourceDLLs` projects:
 
 ```powershell

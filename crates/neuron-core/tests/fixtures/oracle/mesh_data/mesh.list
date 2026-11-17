@@ -1,0 +1,9 @@
+# archives for mesh_files.jsonl
+mesh_data/library.vms
+mesh_data/ship.cmp
+mesh_data/tube.3db
+mesh_data/bare_tube.3db
+mesh_data/planet.sph
+mesh_data/bare.sph
+mesh_data/plain.3db
+mesh_data/missing.3db

@@ -124,7 +124,7 @@ fn oracle_path(oracle: &Path, kind: &str, relative: &str) -> PathBuf {
 }
 
 #[test]
-fn original_data() {
+fn data_dump_ini() {
     let Some(root) = std::env::var_os("OUTPOST_DATA_DIR").map(PathBuf::from) else {
         println!("notice: OUTPOST_DATA_DIR is not set; the original-data dump was skipped");
         return;
