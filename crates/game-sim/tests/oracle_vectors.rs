@@ -8,8 +8,9 @@
 //! export the harness can call; its unit tests are in the crate.
 //!
 //! Every suite is Tier A and compared as text except `asteroid_orient`,
-//! whose matrix went through sine and cosine and is compared within a
-//! bound (the draws and the empty/filled answer are exact).
+//! whose matrix went through sine and cosine, and `zones`, whose rotated
+//! zones did (`EulerMatrix`); their floats are compared within a bound, the
+//! answers that are not floats exactly.
 
 mod support;
 
@@ -18,13 +19,15 @@ use std::fs;
 use std::path::Path;
 
 use game_sim::data::Reports;
+use game_sim::data::archetype::ArchetypeDb;
 use game_sim::data::asteroid::{
     AxisRotations, closest_cube_coord, compute_cube_id, compute_cube_orientation,
 };
 use game_sim::data::reputation::{Relation, Reputation};
 use game_sim::data::string_cache::{CacheString, StringCache};
+use game_sim::data::universe::{Universe, UniverseCx};
 use neuron_core::ini::IniReader;
-use neuron_core::math::Matrix;
+use neuron_core::math::{Matrix, Vector};
 use neuron_core::vfs::Host;
 
 use support::data::Tolerance;
@@ -130,6 +133,107 @@ fn asteroid_orient() {
             );
         }
     }
+}
+
+/// Compares a Tier B suite with the committed file, or writes it.
+fn check_within(name: &str, lines: &[String], tolerance: &Tolerance) {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/vectors")
+        .join(name);
+    if std::env::var_os("OUTPOST_BLESS_VECTORS").is_some() {
+        check_suite(name, lines);
+        return;
+    }
+    let committed = fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    let committed: Vec<&str> = committed.lines().collect();
+    assert_eq!(committed.len(), lines.len(), "{name}: line count");
+    for (index, (want, got)) in committed.iter().zip(lines).enumerate() {
+        if let Err(why) = tolerance.compare_line(want, got) {
+            panic!(
+                "{name} line {}: {why}\n  oracle: {want}\n  rust:   {got}",
+                index + 1
+            );
+        }
+    }
+}
+
+fn vec3_text(v: Vector) -> String {
+    format!("{},{},{}", f32_text(v.x), f32_text(v.y), f32_text(v.z))
+}
+
+/// Tier B: distances, surface points and radii within 4 ulps or 1e-3.
+#[test]
+fn zones() {
+    let source = Host::new(fixtures());
+    let mut strings = StringCache::new();
+    let mut reports = Reports::default();
+    let archetypes = ArchetypeDb::default();
+    let mut universe = Universe::default();
+    let mut cx = UniverseCx {
+        strings: &mut strings,
+        archetypes: &archetypes,
+        reports: &mut reports,
+    };
+    universe.startup(&source, b"zones\\universe.ini", &mut cx);
+    let mut points = Vec::new();
+    let mut directions = Vec::new();
+    for line in input_lines("zone_points.list") {
+        let (list, text) = match line.strip_prefix("d ") {
+            Some(rest) => (&mut directions, rest.to_owned()),
+            None => (&mut points, line.clone()),
+        };
+        let v: Vec<f32> = text.split(' ').map(f32_hex).collect();
+        list.push((
+            text.replace(' ', ","),
+            Vector {
+                x: v[0],
+                y: v[1],
+                z: v[2],
+            },
+        ));
+    }
+    let mut lines = Vec::new();
+    for zone in universe.system_zones(neuron_core::id::create_id(b"zt")) {
+        lines.push(
+            Line::new()
+                .add("zone", format!("{:08x}", zone.nickname))
+                .add("shape", zone.shape.value().to_string())
+                .add("radius", f32_text(zone.radius()))
+                .done(),
+        );
+        for (text, p) in &points {
+            lines.push(
+                Line::new()
+                    .add("p", text.clone())
+                    .add(
+                        "in",
+                        format!(
+                            "{},{}",
+                            u8::from(zone.in_zone(*p, 0.0)),
+                            u8::from(zone.in_zone(*p, 10.0))
+                        ),
+                    )
+                    .add("in_xz", u8::from(zone.in_zone_xz(*p, 0.0)).to_string())
+                    .add("dist", f32_text(zone.distance(*p) as f32))
+                    .add("surface", vec3_text(zone.surface_point(*p)))
+                    .done(),
+            );
+        }
+        for (text, d) in &directions {
+            lines.push(
+                Line::new()
+                    .add("d", text.clone())
+                    .add("along", f32_text(zone.radius_along(*d) as f32))
+                    .done(),
+            );
+        }
+    }
+    let tolerance = Tolerance {
+        keys: &["radius", "dist", "surface", "along"],
+        ulps: 4,
+        absolute: 1.0e-3,
+    };
+    check_within("zones.jsonl", &lines, &tolerance);
 }
 
 #[test]

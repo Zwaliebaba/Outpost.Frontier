@@ -2,9 +2,12 @@
 //! from a system file's `[Zone]` sections, and the queries on it that do
 //! not need the shape geometry.
 //!
-//! The shape tests (`InZone`, `GetDistance`, the segment clips, immersion,
-//! surface points) and the exclusion zones are not ported yet; see the
-//! P2.1 row of the library ledger.
+//! The membership tests, distances, radius along a direction and surface
+//! point are in [`shape`]. `ClassifyPoint`, the segment clips
+//! (`Intersect`), immersion, the frustum and sphere culls and the exclusion
+//! zones are not ported yet; see the P2.1 row of the library ledger.
+
+pub mod shape;
 
 use neuron_core::hash::eq_ignore_case;
 use neuron_core::id::{create_id, make_id};

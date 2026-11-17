@@ -191,3 +191,7 @@ void RunGameDataDump(const std::vector<std::string>& Files);
 // package P2.1): the suites of crates/game-sim/tests/oracle_vectors.rs, a separate mode so that
 // Common's string cache has seen nothing but its static initialiser.
 void RunGameSimSuites();
+
+// oracle_vfs.cpp: registers ReadFile's file-system factories once (for modes that do not run
+// RunVfsSuites or RunVfsDataDump first).
+void OracleRegisterReadFile();

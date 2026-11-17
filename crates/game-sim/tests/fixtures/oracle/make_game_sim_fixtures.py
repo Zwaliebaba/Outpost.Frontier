@@ -10,6 +10,11 @@ P2.1) into this directory. Run it from anywhere; the output is committed.
     groups.ini      [Group] blocks for Reputation::Startup
     feelings.ini    [Group] blocks with rep lines for Reputation::LoadFeelings
     reputation.list one query per line (see oracle_game_suites.cpp)
+    zones/universe.ini, zones/systems/zt.ini
+                    one system with a zone of every shape, for the zone suite
+    zone_points.list
+                    x y z as f32 bit patterns: the points and directions the
+                    zone suite queries every zone with
 """
 
 import math
@@ -166,6 +171,51 @@ def reputation():
     return lines
 
 
+def zones():
+    os.makedirs(os.path.join(HERE, "zones", "systems"), exist_ok=True)
+    universe = [
+        "[System]",
+        "nickname = zt",
+        "msg_id_prefix = gcs_refer_system_zt",
+        "file = systems\\zt.ini",
+        "pos = 1, 2",
+    ]
+    shapes = [
+        ("z_sphere", "SPHERE", "1000", "0, 0, 0", None),
+        ("z_ellipsoid", "ELLIPSOID", "3000, 1000, 2000", "5000, 0, 0", None),
+        ("z_ellipsoid_rot", "ELLIPSOID", "3000, 1000, 2000", "-5000, 100, 0", "0, 45, 0"),
+        ("z_box", "BOX", "2000, 1000, 4000", "0, 0, 8000", None),
+        ("z_box_rot", "BOX", "2000, 1000, 4000", "0, 3000, -8000", "30, 0, 60"),
+        ("z_cylinder", "CYLINDER", "1500, 3000", "10000, 0, 10000", None),
+        ("z_cylinder_rot", "CYLINDER", "1500, 3000", "-10000, 0, 10000", "90, 0, 0"),
+        ("z_ring", "RING", "4000, 2000, 1000", "10000, 0, -10000", None),
+        ("z_ring_rot", "RING", "4000, 2000, 1000", "-10000, 0, -10000", "0, 0, 33"),
+        ("z_none", "WEDGE", "100", "20000, 0, 0", None),
+    ]
+    system = []
+    for name, shape, size, pos, rotate in shapes:
+        system += ["[Zone]", "nickname = " + name, "pos = " + pos, "shape = " + shape, "size = " + size]
+        if rotate:
+            system.append("rotate = " + rotate)
+        system.append("")
+    write(os.path.join("zones", "universe.ini"), universe)
+    write(os.path.join("zones", "systems", "zt.ini"), system)
+
+    centres = [(0, 0, 0), (5000, 0, 0), (-5000, 100, 0), (0, 0, 8000), (0, 3000, -8000),
+               (10000, 0, 10000), (-10000, 0, 10000), (10000, 0, -10000), (-10000, 0, -10000)]
+    offsets = [(0, 0, 0), (0.005, 0, 0), (300, 200, -100), (900, 0, 0), (0, 1400, 0), (2500, 0, 0),
+               (-1700, 600, 1200), (0, 0, 3100), (3000, 0, 0), (12000, -400, 0), (2950, 0, 0),
+               (1000, 450, 900)]
+    lines = ["# x y z as f32 bits; lines starting with d are directions"]
+    for c in centres:
+        for o in offsets:
+            lines.append("%08x %08x %08x" % (f32(c[0] + o[0]), f32(c[1] + o[1]), f32(c[2] + o[2])))
+    for d in [(1, 0, 0), (0, 1, 0), (0, 0, 1), (0.6, 0.8, 0), (0.48, 0.6, 0.64), (0, 0.00001, 1),
+              (-0.577350269, 0.577350269, -0.577350269)]:
+        lines.append("d %08x %08x %08x" % (f32(d[0]), f32(d[1]), f32(d[2])))
+    write("zone_points.list", lines)
+
+
 def main():
     write("asteroid.list", asteroid())
     write("orient.list", orient())
@@ -173,6 +223,7 @@ def main():
     write("groups.ini", groups())
     write("feelings.ini", feelings())
     write("reputation.list", reputation())
+    zones()
 
 
 if __name__ == "__main__":

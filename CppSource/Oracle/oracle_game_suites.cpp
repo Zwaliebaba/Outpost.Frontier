@@ -21,11 +21,22 @@
 #include <string>
 #include <vector>
 
+#include "neuroncomponents.h"
+#include "readfile.h"
+#include "neuronruntime_core.h"
 #include "common_ini.h"
 #include "common_id.h"
 #include "common_goods.h"
 #include "common_casteroid.h"
 #include "common_reputation.h"
+#include "common_universe.h"
+
+// The NeuronRuntime globals Universe::Startup reads (see oracle_game_data.cpp).
+namespace NeuronRuntime
+{
+    NEURONRUNTIME_API extern IFileSystem* Data;
+    NEURONRUNTIME_API extern ICOManager* NeuronComponents;
+}
 
 using namespace oracle;
 
@@ -320,10 +331,101 @@ namespace
     }
 }
 
+namespace
+{
+    std::string V3(const Vector& Value)
+    {
+        return GameF(Value.x) + "," + GameF(Value.y) + "," + GameF(Value.z);
+    }
+
+    // zones/universe.ini through Universe::Startup with NeuronRuntime::Data
+    // over the fixture directory, then every query of zone_points.list on
+    // every zone of system zt, in its zone order.
+    void ZoneSuite()
+    {
+        Suite Out("zones.jsonl");
+        OracleRegisterReadFile();
+        FFileSystemDesc Desc;
+        memset(&Desc, 0, sizeof(Desc));
+        Desc.Size = 0x34;
+        Desc.ComponentName = "FileSystem";
+        Desc.Implementation = "DOS";
+        Desc.Path = GFixtureDir.c_str();
+        Desc.Access = 0x80000000;
+        Desc.ShareMode = 1;
+        Desc.Creation = 3;
+        Desc.Flags = 0x08000080;
+        Desc.Field30 = 0xFFFFFFFF;
+        IFileSystem* Fs = nullptr;
+        if (NEURONCOMPONENTS_Acquire()->CreateInstance((AGGDESC*)&Desc, (void**)&Fs) != GR_OK || Fs == nullptr)
+        {
+            fprintf(stderr, "game-sim: no DOS file system over %s (ReadFile's factories?)\n", GFixtureDir.c_str());
+            GFailed = true;
+            return;
+        }
+        NeuronRuntime::Data = Fs;
+        if (NeuronRuntime::NeuronComponents == nullptr)
+            NeuronRuntime::NeuronComponents = NEURONCOMPONENTS_Acquire();
+        Universe::Startup("zones\\universe.ini");
+
+        std::vector<std::string> PointText;
+        std::vector<Vector> Points;
+        std::vector<std::string> DirText;
+        std::vector<Vector> Dirs;
+        for (const std::string& Line : InputLines("zone_points.list"))
+        {
+            const bool bDir = Line.compare(0, 2, "d ") == 0;
+            const std::string Text = bDir ? Line.substr(2) : Line;
+            const std::vector<std::string> Parts = Split(Text, ' ');
+            Vector V;
+            V.x = HexFloat(Parts[0]);
+            V.y = HexFloat(Parts[1]);
+            V.z = HexFloat(Parts[2]);
+            std::string Joined = Text;
+            for (char& Ch : Joined)
+            {
+                if (Ch == ' ')
+                    Ch = ',';
+            }
+            (bDir ? DirText : PointText).push_back(Joined);
+            (bDir ? Dirs : Points).push_back(V);
+        }
+
+        for (const Universe::IZone* Zone = Universe::first_zone(CreateID("zt")); Zone != nullptr;
+             Zone = Universe::next_zone(Zone))
+        {
+            FLine Head;
+            Head.Add("zone", GameId(Zone->GetId()));
+            Head.Add("shape", Format("%u", Zone->GetShape()));
+            Head.Add("radius", GameF(Zone->GetRadius()));
+            Out.Line(Head.Done());
+            for (size_t Index = 0; Index < Points.size(); ++Index)
+            {
+                const Vector& P = Points[Index];
+                FLine L;
+                L.Add("p", PointText[Index]);
+                L.Add("in", Format("%d,%d", Zone->InZone(P, 0.0f) ? 1 : 0, Zone->InZone(P, 10.0f) ? 1 : 0));
+                L.Add("in_xz", Zone->InZoneXZ(P, 0.0f) ? "1" : "0");
+                L.Add("dist", GameF((float)Zone->GetDistance(P)));
+                L.Add("surface", V3(Zone->GetSurfacePoint(P)));
+                Out.Line(L.Done());
+            }
+            for (size_t Index = 0; Index < Dirs.size(); ++Index)
+            {
+                FLine L;
+                L.Add("d", DirText[Index]);
+                L.Add("along", GameF((float)Zone->GetRadiusAlong(Dirs[Index])));
+                Out.Line(L.Done());
+            }
+        }
+    }
+}
+
 void RunGameSimSuites()
 {
     AsteroidIds();
     AsteroidOrient();
     StringCacheSuite();
     ReputationSuite();
+    ZoneSuite();
 }

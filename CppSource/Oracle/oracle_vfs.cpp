@@ -790,6 +790,11 @@ void RunVfsSuites()
     Step("mem_ops", MemOps);
 }
 
+void OracleRegisterReadFile()
+{
+    RegisterReadFile();
+}
+
 void RunVfsDataDump(const std::vector<std::string>& Files)
 {
     RegisterReadFile();
