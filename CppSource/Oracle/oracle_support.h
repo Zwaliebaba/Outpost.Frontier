@@ -114,6 +114,10 @@ void RunUtilSuites();
 // P1.3 (oracle_vfs.cpp): the UTF container and the file systems of ReadFile.
 void RunVfsSuites();
 
+// P1.7 (oracle_anim.cpp): channel archetypes and animation scripts of
+// SceneRuntime.dll. Runs after RunVfsSuites, which registers ReadFile.
+void RunAnimSuites();
+
 // Data dumps of later work packages, called by Oracle.exe dump after the INI
 // dumps. Files is every file under DATA and EXE, sorted; each dump picks its
 // own, writes <output>\<kind>\<file>.jsonl per file and <output>\<kind>\files.txt,
@@ -122,3 +126,7 @@ void RunVfsSuites();
 // P1.3 (oracle_vfs.cpp): every UTF container (first bytes "UTF ") through the
 // UTF file system; kind "utf".
 void RunVfsDataDump(const std::vector<std::string>& Files);
+
+// P1.7 (oracle_anim.cpp): every UTF container whose Animation node
+// IAnimation2::OpenScript opens, through SceneRuntime.dll; kind "anim".
+void RunAnimDataDump(const std::vector<std::string>& Files);
