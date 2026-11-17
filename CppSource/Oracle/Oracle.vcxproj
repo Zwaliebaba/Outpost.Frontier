@@ -104,6 +104,13 @@
       <PreprocessorDefinitions>OUTPOST_SERVER;REMOTECLIENT_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>false</SDLCheck>
     </ClCompile>
+    <!-- P2.2: the protocol suites (game-sim vectors); the packet part is compiled with
+         RemoteClient.dll's definitions, as the two codec files above. -->
+    <ClCompile Include="oracle_protocol.cpp" />
+    <ClCompile Include="oracle_protocol_packets.cpp">
+      <PreprocessorDefinitions>OUTPOST_SERVER;REMOTECLIENT_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <SDLCheck>false</SDLCheck>
+    </ClCompile>
     <ClCompile Include="..\RemoteClient\rpc_client_packets.cpp">
       <PreprocessorDefinitions>OUTPOST_SERVER;REMOTECLIENT_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>false</SDLCheck>
@@ -127,6 +134,7 @@
     <ClInclude Include="oracle_net_codecs.h" />
     <ClInclude Include="oracle_net_context.h" />
     <ClInclude Include="oracle_sim.h" />
+    <ClInclude Include="oracle_protocol.h" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\neuroncomponents\neuroncomponents.vcxproj">

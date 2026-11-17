@@ -7,6 +7,7 @@
 #include "oracle_support.h"
 
 #include "oracle_net_codecs.h"
+#include "oracle_protocol.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -378,4 +379,6 @@ void RunNetSuites()
     Header();
     Write();
     Read();
+    // P2.2: the protocol suites of crates/game-sim (oracle_protocol*.cpp).
+    RunProtocolSuites();
 }

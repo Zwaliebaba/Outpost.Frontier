@@ -191,6 +191,8 @@ The permitted licences are listed in `deny.toml`. In use so far:
   it and is used through `parry3d::na`, in `physics::shape` only. Its
   build-time macro crate `paste` carries an "unmaintained" advisory
   (RUSTSEC-2024-0436), ignored in `deny.toml` with that reason.
+- `proptest` 1 (MIT or Apache-2.0; default features off, `std` only):
+  a dev-dependency of `game-sim`, the protocol property tests (P2.2).
 
 Math types are the project's own (`neuron-core::math`) so operation order
 stays under control; conversion to `nalgebra` happens at the `parry3d`

@@ -29,6 +29,7 @@ neuron-server = { path = "crates/neuron-server" }
 flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
 md-5 = { version = "0.10", default-features = false }
 parry3d = { version = "0.25.3", default-features = false, features = ["required-features", "std", "alloc"] }
+proptest = { version = "1", default-features = false, features = ["std"] }
 toml = "0.9"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
 
