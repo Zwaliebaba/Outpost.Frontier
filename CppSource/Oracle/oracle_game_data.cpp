@@ -16,6 +16,8 @@
 // crates/game-sim/tests/data_dump.rs renders the same lines
 // (tests/support/game.rs). Nothing written here may be committed.
 
+#include <windows.h>
+
 #include "oracle_support.h"
 #include "oracle_game.h"
 
