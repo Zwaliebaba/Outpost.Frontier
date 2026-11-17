@@ -1,5 +1,7 @@
 //! Oracle vectors of work package P2.1: asteroid ids and cube orientations,
-//! the string cache and the faction registry. The inputs are under
+//! the string cache, the faction registry, the zone queries, the exclusion
+//! zones, the spatial partitions with the system zone tree, and the base
+//! records' marshalling. The inputs are under
 //! `tests/fixtures/oracle/`, written by `make_game_sim_fixtures.py`; the C++
 //! side is `CppSource/Oracle/oracle_game_suites.cpp`, run as
 //! `Oracle.exe game-sim <fixtures> <output>`.
@@ -8,9 +10,11 @@
 //! export the harness can call; its unit tests are in the crate.
 //!
 //! Every suite is Tier A and compared as text except `asteroid_orient`,
-//! whose matrix went through sine and cosine, and `zones`, whose rotated
-//! zones did (`EulerMatrix`); their floats are compared within a bound, the
-//! answers that are not floats exactly.
+//! whose matrix went through sine and cosine, and `zones` and
+//! `zone_queries`, whose rotated zones did (`EulerMatrix`); their floats are
+//! compared within a bound, the answers that are not floats exactly. The
+//! frustum culls and queries take sines, cosines and tangents too; their
+//! answers are compared exactly all the same.
 
 mod support;
 
