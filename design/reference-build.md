@@ -176,6 +176,7 @@ the plain-text save writer of commit `816f556a`, recorded as decision O12.
 | --- | --- | --- |
 | `MSB8041` (MFC libraries are required) when building `OutpostServer` with toolset v143 | The Visual Studio 2026 installation has MFC only for v145 | The solution uses toolset v145 (commit `a86a199`) |
 | `LNK1181` (cannot open input file) for `Common.lib`, `Server.lib`, `rpclocal.lib` or `NeuronRuntime.lib` in a parallel build (`/m`) | `Server`, `RemoteServer` and `RemoteClient` linked these libraries without project references, so MSBuild could build them too late | Project references added (commit `a86a199`) |
+| `LNK1181` for `neuroncomponents.lib` in `Deformable2` in a parallel build (`/m`), first seen in CI's Reference build job | `Deformable2.vcxproj` set `BuildProjectReferences` to `false`, so its reference did not order the build; `Content` and `RemoteClient` linked `neuroncomponents.lib`, `Common.lib` and `NeuronRuntime.lib` without references | The setting removed and the references added (commit `ddf4475`) |
 | With `bDrawScripts = false` in `intro.ini`, the main menu is not drawn and has no mouse cursor | `MenuStateDriverUpdate` returned before it began the frame when `bDrawScripts` is clear, and the cursor was set only on the path that enters the intro base (`client_state.cpp`) | The menu frame is always drawn and only the intro scene work depends on `bDrawScripts`; the cursor is set before that test (commit `816f556a`). With `bDrawScripts = true` the menu behaves as before |
 
 ## 7. Then
