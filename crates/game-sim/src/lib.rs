@@ -8,9 +8,14 @@
 //!   spatial partition and the string cache.
 //! * [`protocol`]: the message catalog and the `Common` encodings it
 //!   carries (work package P2.2).
+//! * [`object`]: the space object model, the world with its arena,
+//!   handles, update loop and damage (work package P2.4).
+//! * [`equip`]: equipment and the flight controllers (work package P2.4).
 #![forbid(unsafe_code)]
 
 pub mod data;
+pub mod equip;
+pub mod object;
 pub mod protocol;
 
 pub use neuron_core::ENGINE_VERSION;
