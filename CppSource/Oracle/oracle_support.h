@@ -191,6 +191,8 @@ void RunGameDataDump(const std::vector<std::string>& Files);
 // package P2.1): the suites of crates/game-sim/tests/oracle_vectors.rs, a separate mode so that
 // Common's string cache has seen nothing but its static initialiser.
 void RunGameSimSuites();
+// Loads x86math.dll and checks for its 3DMathEngine component (oracle_scene.cpp).
+bool OracleLoadMathEngine();
 
 // oracle_vfs.cpp: registers ReadFile's file-system factories once (for modes that do not run
 // RunVfsSuites or RunVfsDataDump first).

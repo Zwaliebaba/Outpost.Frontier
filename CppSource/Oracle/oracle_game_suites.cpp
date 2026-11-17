@@ -368,6 +368,15 @@ namespace
         NeuronRuntime::Data = Fs;
         if (NeuronRuntime::NeuronComponents == nullptr)
             NeuronRuntime::NeuronComponents = NEURONCOMPONENTS_Acquire();
+        // Ellipsoid and cylinder queries go through x86math's 3DMathEngine
+        // (common_zone.cpp ZoneMathEngine), which nothing else in this mode
+        // loads.
+        if (!OracleLoadMathEngine())
+        {
+            fprintf(stderr, "game-sim: no 3DMathEngine for the zone queries\n");
+            GFailed = true;
+            return;
+        }
         Universe::Startup("zones\\universe.ini");
 
         std::vector<std::string> PointText;
