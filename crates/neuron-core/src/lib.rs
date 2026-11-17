@@ -6,6 +6,7 @@ pub mod hash;
 pub mod id;
 pub mod ini;
 pub mod math;
+pub mod mesh_data;
 pub mod msvcrt;
 pub mod net;
 pub mod num;

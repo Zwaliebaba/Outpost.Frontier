@@ -114,6 +114,11 @@ void RunUtilSuites();
 // P1.3 (oracle_vfs.cpp): the UTF container and the file systems of ReadFile.
 void RunVfsSuites();
 
+// P1.7 (oracle_mesh_data.cpp, oracle_mesh_data_dfm.cpp): the mesh nodes of
+// RendComp and the .dfm tables of Deformable2. Runs after RunVfsSuites,
+// which registers the file systems it opens.
+void RunMeshDataSuites();
+
 // Data dumps of later work packages, called by Oracle.exe dump after the INI
 // dumps. Files is every file under DATA and EXE, sorted; each dump picks its
 // own, writes <output>\<kind>\<file>.jsonl per file and <output>\<kind>\files.txt,
@@ -122,3 +127,9 @@ void RunVfsSuites();
 // P1.3 (oracle_vfs.cpp): every UTF container (first bytes "UTF ") through the
 // UTF file system; kind "utf".
 void RunVfsDataDump(const std::vector<std::string>& Files);
+
+// P1.7 (oracle_mesh_data.cpp, oracle_mesh_data_dfm.cpp): every UTF .vms,
+// .3db, .cmp and .sph through the RendComp loaders, kind "mesh"; every UTF
+// .dfm through the Deformable2 loaders, kind "dfm". Runs after
+// RunVfsDataDump, which registers the file systems it opens.
+void RunMeshDataDump(const std::vector<std::string>& Files);
