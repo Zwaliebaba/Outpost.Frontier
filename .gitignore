@@ -26,6 +26,3 @@ Tools/Vectors/obj/
 # Visual Studio local settings
 .vs/
 *.user
-
-# Game assets
-outdir/

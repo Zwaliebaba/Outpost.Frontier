@@ -1,0 +1,122 @@
+[Player]
+name = %%NAME%%
+;initial_rep = %%FACTION%%
+rank = 0
+
+money = %%MONEY%%
+voice = %%VOICE%%
+
+costume = %%BASE_COSTUME%%
+com_costume = %%COMM_COSTUME%%
+
+system = %%HOME_SYSTEM%%
+base = %%HOME_BASE%%
+
+house = 0.91, he_n_grp
+house = 0.91, li_lsf_grp
+house = 0.65, he_p_grp
+house = 0, ve_n_grp
+house = 0, ve_p_grp
+house = 0, or_n_grp
+house = 0, or_p_grp
+house = 0, dm_n_grp
+house = 0, dm_p_grp
+house = 0, co_alg_grp
+house = 0, co_be_grp
+house = 0, br_m_grp
+house = 0, co_nws_grp
+house = 0, co_hsp_grp
+house = 0.65, co_ic_grp
+house = -0.3, co_khc_grp
+house = -0.3, co_kt_grp
+house = 0, rh_m_grp
+house = 0.65, co_me_grp
+house = 0.65, co_ni_grp
+house = 0, co_os_grp
+house = -0.3, co_rs_grp
+house = -0.3, co_shi_grp
+house = 0.65, co_ss_grp
+house = 0, co_ti_grp
+house = 0.65, co_vr_grp
+house = -0.3, fc_bd_grp
+house = -0.3, fc_b_grp
+house = -0.65, fc_c_grp
+house = -0.3, fc_fa_grp
+house = -0.3, fc_g_grp
+house = -0.3, fc_gc_grp
+house = -0.3, fc_h_grp
+house = -0.3, fc_j_grp
+house = -0.65, fc_lh_grp
+house = -0.65, fc_lr_grp
+house = -0.3, fc_lwb_grp
+house = -0.65, fc_m_grp
+house = -0.65, fc_ou_grp
+house = -0.65, fc_rh_grp
+house = 0, fc_or_grp
+house = -0.65, fc_u_grp
+house = -0.65, fc_x_grp
+house = 0, gd_gm_grp
+house = 0, fc_uk_grp
+house = -0.65, fc_n_grp
+house = -0.65, fc_ln_grp
+house = -0.65, fc_kn_grp
+house = -0.65, fc_rn_grp
+house = 0, fc_ouk_grp
+house = 0, fc_q_grp
+house = 0, fc_f_grp
+house = 0, gd_im_grp
+house = 0, gd_z_grp
+house = -0.3, gd_bh_grp
+
+;he02
+visit = 2475149898,1
+;he03
+visit = 3012025930,1
+;he04
+visit = 2475110986,1
+;ve01
+visit = 3017258631,1
+;ve02
+visit = 2480392839,1
+;ve03
+visit = 3017268871,1
+;ve04
+visit = 2480353927,1
+;ve05
+visit = 3017221767,1
+;ve06
+visit = 2480364167,1
+;dm01
+visit = 2477237765,1
+;dm02
+visit = 3014121989,1
+;dm03
+visit = 2477248005,1
+;dm04
+visit = 3014074885,1
+;dm05
+visit = 2477209093,1
+;or01
+visit = 2948587596,1
+;or02
+visit = 2411699276,1
+;or03
+Visit = 2948565068,1
+;or04
+visit = 2411684940,1
+;or05
+visit = 2948558924,1
+;fc01
+visit = 2880932359,1
+;fc02
+visit = 2344089095,1
+;fc03
+visit = 2880954887,1
+;fc04
+visit = 2344029703,1
+;fc05
+visit = 2880903687,1
+;fc06
+visit = 2344052231,1
+
+%%PACKAGE%%
