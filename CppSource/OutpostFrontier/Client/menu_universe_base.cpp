@@ -1,6 +1,7 @@
 // Author: Giperion.
 
 #include "menu_universe_base.h"
+#include "oracle_mode.h" // Oracle instrumentation (P0.5)
 
 #include "client_base_market.h"
 #include "mirror_property_bucket.h" // FLocationBaseRuntime::MissionOffers (+0x00)
@@ -1126,6 +1127,7 @@ void SetClientLocationBase(unsigned BaseId)
 
 void ChangeClientLocation(unsigned Location)
 {
+    OracleNoteScreen("room", Location); // Oracle instrumentation (P0.5)
     // (thiscall, RET 4).
     G_bLocationInTransition = true;
 

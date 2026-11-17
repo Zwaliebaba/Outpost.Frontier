@@ -1,6 +1,7 @@
 // Author: Giperion.
 
 #include "menu_enter_state.h"
+#include "oracle_mode.h" // Oracle instrumentation (P0.5)
 
 #include "character_select_equip.h"
 #include "client_frame_tick.h" // / the routine / the routine, the routine
@@ -344,6 +345,7 @@ namespace
 
 void EnterMenuState(FMenuNavState* Nav, int State)
 {
+    OracleNoteScreen("menu", static_cast<unsigned>(State)); // Oracle instrumentation (P0.5)
     // (thiscall, RET 4; module storage..0x005743f7 plus case 1 up to 0x0057490c lie
     // outside the analysis inventory -- implementation notes). No test of `this`.
     // sprintf("EnterState %d\n") into a local nobody reads, then

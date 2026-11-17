@@ -110,11 +110,14 @@ DLLs:
 Common  Content  DX8RENDERER  DX9RENDERER  Deformable2  DialogueText
 EquipmentCatalog  FieldGuideText  InterfaceExtras  NameCatalog
 NegotiationText  NeuronRuntime  ReadFile  RemoteClient  RendComp
-SceneRuntime  SceneScript  Server  Shading  SoundManager  SoundStreamer
-UiText  imeui  luaprofile  movie  neuroncomponents  particlefx  rpclocal
-remoteserver  serverinterface  surfacematerials  system  x86math  ximage
-zlib
+RenderTrace  SceneRuntime  SceneScript  Server  Shading  SoundManager
+SoundStreamer  UiText  imeui  luaprofile  movie  neuroncomponents
+particlefx  rpclocal  remoteserver  serverinterface  surfacematerials
+system  x86math  ximage  zlib
 ```
+
+`RenderTrace.dll` is the renderer logging proxy of work package P0.5
+(section 7, "Renderer traces"); the master INI does not name it.
 
 `DX9RENDERER.dll` is built only with `/p:OutpostFrontierDx9Renderer=1`. An
 INI entry that names a DLL not in this list is a fact to record in
@@ -176,6 +179,7 @@ the plain-text save writer of commit `816f556a`, recorded as decision O12.
 | --- | --- | --- |
 | `MSB8041` (MFC libraries are required) when building `OutpostServer` with toolset v143 | The Visual Studio 2026 installation has MFC only for v145 | The solution uses toolset v145 (commit `a86a199`) |
 | `LNK1181` (cannot open input file) for `Common.lib`, `Server.lib`, `rpclocal.lib` or `NeuronRuntime.lib` in a parallel build (`/m`) | `Server`, `RemoteServer` and `RemoteClient` linked these libraries without project references, so MSBuild could build them too late | Project references added (commit `a86a199`) |
+| `LNK1181` for `neuroncomponents.lib` in `Deformable2` in a parallel build (`/m`), first seen in CI's Reference build job | `Deformable2.vcxproj` set `BuildProjectReferences` to `false`, so its reference did not order the build; `Content` and `RemoteClient` linked `neuroncomponents.lib`, `Common.lib` and `NeuronRuntime.lib` without references | The setting removed and the references added (commit `ddf4475`) |
 | With `bDrawScripts = false` in `intro.ini`, the main menu is not drawn and has no mouse cursor | `MenuStateDriverUpdate` returned before it began the frame when `bDrawScripts` is clear, and the cursor was set only on the path that enters the intro base (`client_state.cpp`) | The menu frame is always drawn and only the intro scene work depends on `bDrawScripts`; the cursor is set before that test (commit `816f556a`). With `bDrawScripts = true` the menu behaves as before |
 
 ## 7. Then
@@ -269,3 +273,180 @@ cargo xtask thn-decompile outdir\data "$env:TEMP\thn-source"
 cargo test --release -p xtask thn::tests::original_data_round_trips -- --nocapture
 ```
 
+## 8. Client oracle mode (`+oracle`)
+
+Work package P0.5, first half: the client instrumentation that
+[verification.md](verification.md) lists as the `+oracle` row of the
+oracle. The renderer call trace is the other half (`CppSource/RenderTrace/`).
+The code is in `CppSource/OutpostFrontier/Client/oracle_*` and
+`make_oracle_iclient.py`; the example scripts are in
+`CppSource/OutpostFrontier/oracle/`. Without `+oracle` every hook returns at
+once and the client behaves as before.
+
+### Command line
+
+```powershell
+.\bin\OutpostFrontier.exe +oracle <script file> <output folder>
+```
+
+`+oracle` is matched as a whole token in any case; the other command-line
+loops read it as the letter `O`, which none of them handles. The two paths
+are the next two tokens (double quotes allowed). Relative paths are taken
+from `bin\`, because the client makes its own folder the current directory.
+The output folder is created if missing (its parent must exist); files in it
+are overwritten. A missing argument, an unreadable script or a folder that
+cannot be created ends the process with exit code 3 and a line on the
+debugger output.
+
+The mode forces three things and nothing else:
+
+| What | How |
+| --- | --- |
+| Display | Windowed, 1024x768, 32-bit colour: InitializeEngine's render mode after `ApplyDisplayCmdlineOverrides`, the same fields `+W` and `+M1024` set. `SavePerfOptions` then writes that mode to `PerfOptions.ini`, so run the oracle from its own copy of the run folder |
+| Time step | `TickFrameTimer` paces frames at 1/30 s of real time and reports exactly 1/30 s as the measured and capped frame time; every caller of `GetClientFrameTimeCapped`, the local server tick and `Timing::UpdateGlobalTime` see it |
+| Random seed | `srand(0x4f524143)` right after InitializeEngine's `srand(timeGetTime())` |
+
+The window must stay in front and uncovered: a windowed Direct3D 8 screenshot
+copies the screen area of the window, and the client skips frames while it is
+not the active application. Use a run folder whose INI files play no startup
+movies (section 3). Leave out `UserKeyMap.ini` in the user folder, or the
+`user` phase of the key-map dump carries local bindings.
+
+Known nondeterminism that the mode does not remove, because these files read
+the real clock directly: `type_select.cpp` (the main-menu column animation),
+`login_mgr.cpp`, `menu_sound_arch.cpp` (sound tick counts), `engine_init.cpp`
+(only the seed the mode replaces), `render_ex.cpp` and `nebula_volume.cpp`
+(Direct3D 9 build only), `client_tick_profile.cpp` (overlay off by default),
+and the frame timestamp of `client_timing.cpp` (`GetClientFrameTimestampMs`).
+The DLLs (Server, Common, sound, renderer) are not audited. Pacing at 30 fps
+keeps the real clock close to game time, so these drift rather than diverge.
+
+### Script
+
+One command per line; blank lines and lines starting with `#` are skipped.
+The script runs at the start of each frame, line after line, until a line
+makes it wait. The end of the script acts as `quit`. Numbers are decimal, or
+hex after `0x`.
+
+| Command | Effect |
+| --- | --- |
+| `wait <frames>` | continue that many frames later |
+| `waitscreen <kind> <id> <frames>` | continue once the latest screen change of `client`, `menu` or `room` has that id (at once if it already has); after `<frames>` frames continue anyway with result `timeout` |
+| `dump [label]` | interface tree and screenshot now |
+| `tree [label]`, `shot [label]` | only one of the two |
+| `command <USER_NICKNAME>` | dispatch the key-map command as a matching key press does: the event record filled from the command's first active binding (else its first binding), `HudDispatchCommand(id, 1)` on key down if its state has `keydown`, again on key up if it has `keyup`. The raw-key dispatch that precedes a real key and the held-key list are skipped |
+| `key <vk>` | post `WM_KEYDOWN` and `WM_KEYUP` to the window; the pump routes them as real keys. Shift, Ctrl and Alt come from the real keyboard |
+| `click <target>` | left press `{-1, 2}` then release `{-1, 1}` straight to the target's `MouseEvent` (Win3D slot 19). Target: a widget name, `#<n>` (node n of a tree dump taken now) or `text:<caption>` (first TextWin or TextControl showing that text, ASCII case ignored, visible nodes first) |
+| `state <id>` | `G_PendingClientStateId = id`; the frame enters that client state (6 is the main menu) |
+| `log <text>` | a marker in `session.jsonl` |
+| `quit` | client state 1, the client's own quit path |
+
+`click` bypasses the pick, hover and capture walk. That works for the
+message buttons (`TextMsgButton` in the main-menu column, `UITextMsgButton`
+in the PAGE screens), which act on the event alone. It does not work for
+NeuroNet buttons (`NnButtonControl`), which test the cursor ray on release;
+moving the software cursor over a widget needs its screen projection, which
+the mode does not compute. Reach those screens through `command` or `key`.
+A command that opens a modal dialog with its own message loop
+(`NnErrorRunModal`, `NnPromptRunYesNo`, the multiplayer notice) stops the
+script until the dialog closes, because `TickClientFrame` does not run
+meanwhile.
+
+Every screen change is logged and, 30 frames later (one second of game
+time), dumped as tree and screenshot with the label `<kind>-<id>`; a change
+within those 30 frames replaces the pending dump. Screen changes are
+`EnterClientState` (kind `client`, ids in `client_state.h`), `EnterMenuState`
+(kind `menu`, states 1 to 19 of `menu_enter_state.cpp`) and
+`ChangeClientLocation` (kind `room`, the location id).
+
+Examples: `menu_walk.txt` (main menu, Load Game, back, Options) and
+`single_player.txt` (New Game to the first base).
+
+### Output
+
+One file per kind. Every file is JSON Lines; floats are their bit pattern
+in 8 lower-case hex digits, doubles in 16, byte blocks one hex string,
+narrow strings byte by byte (bytes from 0x80 as `\u00XX`), wide strings by
+UTF-16 unit. `frame` is the number of `TickClientFrame` calls so far; records
+written during start-up have frame 0.
+
+| File | Records (`rec`) |
+| --- | --- |
+| `session.jsonl` | `start` (version, script, out, lines, frame_seconds, seed, settle_frames); `display`; `seed`; `screen` (kind, id); `script` (line, text, ok, note; written after the line ran, so after the records it caused); `waitscreen` (line, result); `dump` (dump, cause `script` or `screen`, label, tree, shot: the file name, `""` when the screenshot failed, null when none was asked); `quit` (why) |
+| `tree.jsonl` | per dump a `dump` head (dump, label, client, menu, room: the latest screen ids, -1 or 4294967295 before the first; shot; roots; nodes), then one line per node without `rec`: dump, i (pre-order index, roots in registry order), p (parent index, -1 for a root), d (depth), class (the factory class name or null), rtti (the C++ type name, port-specific), name, flags (Win3D +0x6c), vis (own and every ancestor's visible bit), layer, sub, hit, pos[3], orient[9]; `ctl` for a WinControl (offset, half, hitoff, tooltip, mesh, hp, nz); `text` and `tw` (scale, w, h) for a TextWin; `text` and `tc` (w, h) for a TextControl |
+| `keymap.jsonl` | per phase (`base` after `KeyMap.ini`, `user` after `UserKeyMap.ini`): `load` (result, cmds, groups); `cmd` per KeyCmd in list order (i, nickname, id, ids_name, ids_info, state, keys: [vk, modifiers] pairs); `group` per [KeyMap] (i, nickname, cmds: indices into the cmd list); `active` (the active group nicknames, newest first) |
+| `layout.jsonl` | `page` per PAGE file load (path, ok, aspect, entries) and `widget` per entry (i, type, name, rect[4], payload by type); `winini` per `WinControl::LoadIni` that found `[BaseFrame]` (path, nodes) and `winnode` per node of the control's subtree after the load (the tree node fields; `navbar.ini` and the HUD panels come this way); `keylist` (path, group_names) and `keyrow` per row (group, i, primary and alt: [nickname, vk, modifiers], name_ids, info_ids, cmd, kind, editable); `optlist` (path, opened, seed_mode) and `opt` per row of all three sections (section, i, id, info_ids, default, min, max, slider, byte15, header; the lists grow with every load, as in the client); `hud` (path, static_blend, items) and `huditem` per element (i, name, rtti, tooltip) |
+| `iclient.jsonl` | one line per call into the client event interface, before it is forwarded: frame, seq (call number from 1), slot (the vtable slot in `rpc_iclient.h`), m (the method; `IChatClient::SendCommonChatMsg` for the chat slot), a (the arguments by name). A non-void slot adds a line after the call with the same seq and `r`, the answer |
+| `shot_NNNN_<label>.png` | screenshots through `IRPTexture::PrintScreen`, NNNN from 0001 |
+
+IClient arguments: scalars by value; `const unsigned int&` dereferenced;
+byte blocks as hex of `Size` bytes; `TextIds` as an array of `TextCount`;
+strings as strings; plain structs as hex of `sizeof(T)`, padding included as
+the sender left it (mask it when comparing); structs holding containers or
+pointers as objects of their readable fields (`EquipDesc`,
+`EquipDescVector`, `DamageList`, the create-info ids, loot items,
+reputation and group-feeling relations, mission-objective states); `FmtStr`,
+`CCharacterSet` and `CDAPacket` as `"present"` (null for a null pointer).
+The proxy is installed where `GetClientInterface` and
+`GetChatClientInterface` hand out the client, so single player (rpclocal)
+and multiplayer (RemoteServer) both go through it. Writes are serialised, so
+calls from another thread are safe; their order is the seq order.
+
+`oracle_iclient_proxy.cpp` is generated. After a change to `rpc_iclient.h`:
+
+```powershell
+python CppSource\OutpostFrontier\Client\make_oracle_iclient.py
+python CppSource\OutpostFrontier\Client\make_oracle_iclient.py --check
+```
+
+The script stops at an argument type it has no recorder for; add an
+`OracleArg` overload in `oracle_iclient_args.h` and `.cpp` and list the
+type in the script.
+
+### Hooks in existing files
+
+Each is one or two lines marked `Oracle instrumentation (P0.5)`: `main.cpp`
+(parse), `engine_init.cpp` (display, seed), `client_timing.cpp` (time step),
+`client_frame_tick.cpp` (per-frame tick), `client_state.cpp`,
+`menu_enter_state.cpp` and `menu_universe_base.cpp` (screen changes),
+`client_exports.cpp` (the proxy), `menu_keymap.cpp` and
+`menu_keymap_config.h` (key-map dump and read-only views),
+`ui_page_desc.cpp`, `wincontrol_base.cpp`, `nn_preferences.cpp` and
+`hud_element_list.cpp` (layout dumps), `win3d.cpp` and `win3d.h`
+(`Win3DForEachRegistered`, a read-only registry walk).
+
+## 9. Renderer traces (`RenderTrace`)
+
+The `RenderTrace` project in the solution's `Tools` folder builds
+`RenderTrace.dll`, a logging proxy for the Direct3D 8 renderer (work package
+P0.5). Its component `RenderTrace` creates the real `DirectX8` component
+aggregated under itself, answers the renderer's seven interfaces, forwards
+every call unchanged and records it. Nothing changes until the run folder's
+`NeuronComponents.ini` names it; to trace, edit that copy, never `outdir\`:
+
+```ini
+[Libraries]
+DX8RENDERER.dll        ; stays loaded
+RenderTrace.dll
+
+[System]
+RenderTrace            ; in place of the DirectX8 line
+
+[RenderTrace]
+output = C:\traces\menu
+frames = 300-302
+```
+
+`OUTPOST_RENDER_TRACE_DIR` and `OUTPOST_RENDER_TRACE_FRAMES` override the two
+keys. Without both an output folder and a frame list the proxy only
+forwards. The output folder receives `trace.jsonl`, one JSON object per call
+with floats as 8-hex-digit bit patterns and handles as small stable ids, and
+`blobs\`, the buffer, texture and image data named by the FNV-1a 64 hash of
+its bytes. Every selected frame starts with a snapshot of the pipeline state
+the proxy has seen; resource creation and uploads are written in every frame
+up to the last selected one, so a selected frame can be replayed. The format
+is provisional (version 0) until P4.0 fixes it. The format, the replay
+contract and the regeneration step (`make_render_trace.py`, run after any
+change to `include\render\IRenderPipeline.h`) are in
+`CppSource\RenderTrace\README.md`. A trace of the original data is game
+data: keep it outside the repository.

@@ -1,0 +1,20 @@
+# Oracle script (P0.5): start a new single-player game and record the first base.
+# Run: bin\OutpostFrontier.exe +oracle <repo>\CppSource\OutpostFrontier\oracle\single_player.txt <out>
+# Format: CppSource/OutpostFrontier/Client/oracle_mode.cpp, design/reference-build.md section 8.
+# iclient.jsonl records every call the local server makes into the client.
+
+waitscreen menu 1 900
+wait 90
+dump main-menu
+
+# New Game: the column slides out, menu state 16 (Restart.fl character) -> 12 (select it),
+# then the client leaves the menu for the game: client state 3 (base) or 2 (space).
+click text:NEW GAME
+waitscreen menu 12 300
+waitscreen client 3 3000
+wait 150
+dump first-base
+wait 300
+dump first-base-later
+
+quit

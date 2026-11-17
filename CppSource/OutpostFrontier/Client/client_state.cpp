@@ -1,6 +1,7 @@
 // Author: Giperion.
 
 #include "client_state.h"
+#include "oracle_mode.h" // Oracle instrumentation (P0.5)
 
 #include "common_ini.h"
 #include "loading_screen.h"
@@ -448,6 +449,7 @@ int ConsumePendingClientState(int StateId)
 
 IEnvironment* EnterClientState(int StateId, IEnvironment* PreviousState)
 {
+    OracleNoteScreen("client", static_cast<unsigned>(StateId)); // Oracle instrumentation (P0.5)
     // (cdecl). 0x005b2a3c: RefreshLoadingProgress on entry, and again on every
     // way out (each case's tail and the branch).
     RefreshLoadingProgress();

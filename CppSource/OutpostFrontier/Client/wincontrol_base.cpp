@@ -1,6 +1,7 @@
 // Author: Giperion.
 
 #include "wincontrol_base.h"
+#include "oracle_mode.h" // Oracle instrumentation (P0.5)
 #include "hud_widescreen.h"   // port-only (OUTPOST_FRONTIER_WIDESCREEN_SUPPORT)
 
 #include "common_ini.h"
@@ -410,6 +411,7 @@ void WinControl::LoadIni(char const* Path)
             }
         }
     }
+    OracleOnWinControlIni(Path, this); // Oracle instrumentation (P0.5)
 }
 
 void WinControl::Slot29(FILE* /*File*/)

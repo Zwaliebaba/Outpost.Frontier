@@ -19,8 +19,10 @@ precision, the dedicated server's mode (decision T11).
 
 Default Tier B bounds, tightened per test where the data allows: 1 ulp for
 single math kernels; 1e-5 relative for evaluated curves and transforms;
-scenario envelopes for physics and AI (position within a stated distance,
-event times within a stated number of ticks).
+replay tests of physics, AI and damage on the oracle's recorded per-tick
+state; scenario envelopes for closed-loop runs (position within a stated
+distance, event times within a stated number of ticks), with bounds set in
+P2.0 (decision O20).
 
 ## The oracle
 
@@ -124,7 +126,7 @@ The owner reviews the register at every gate and signs it off at P7.1.
 | --- | --- |
 | G0 | The C++ build runs on the original data; first vector suites exist; CI has all three jobs |
 | G1 | Every covered file in `DATA` loads; Rust dumps equal oracle dumps |
-| G2 | Headless scenarios inside envelopes; all codecs match C++ bytes |
+| G2 | Replay tests of integrator, AI and damage within Tier B; headless scenarios inside the envelopes approved in P2.0 (O20); all codecs match C++ bytes |
 | G3 | Headless server session over QUIC; saves interchange both ways; mission and random-mission vectors equal |
 | G4 | Viewer shows models, characters, particles, menu; trace replays match within the image threshold |
 | G5 | Campaign playable to the end; interface-tree dumps equal for every screen; saves interchange |

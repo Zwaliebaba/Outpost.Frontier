@@ -1,6 +1,7 @@
 // Author: Giperion.
 
 #include "globals.h"
+#include "oracle_mode.h" // Oracle instrumentation (P0.5)
 #include "widescreen.h"   // port-only (OUTPOST_FRONTIER_WIDESCREEN_SUPPORT)
 #include "win_factory.h"   // WinFactoryCreate (the routine)
 #include "character_info.h"
@@ -804,6 +805,7 @@ bool InitializeEngine(const FClientCommandLine* CommandLine)
     }
 
     ApplyDisplayCmdlineOverrides(&Mode, CommandLine);
+    OracleForceDisplayMode(&Mode); // Oracle instrumentation (P0.5): windowed 1024x768x32
     if (!SelectInitialRenderMode(g_client.window, &Mode, Mode.fullscreen))
         ShowEngineFatalError(0xc9);
 
@@ -874,6 +876,7 @@ bool InitializeEngine(const FClientCommandLine* CommandLine)
         return false;
     RefreshLoadingProgress();
     srand(timeGetTime());
+    OracleSeedRandom(); // Oracle instrumentation (P0.5): constant seed
     if (CreateID("OutpostFrontier") == 0)
     {
         FDUMP(0x100001, "%s(%d) : *** ERROR: %s", kMainCppPath, 0x3d1,

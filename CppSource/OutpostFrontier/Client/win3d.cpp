@@ -699,6 +699,17 @@ Win3D* Win3DGetFirstRegistered()
     return nullptr;
 }
 
+void Win3DForEachRegistered(void (*Visit)(Win3D* Object, void* Context), void* Context)
+{
+    // Oracle instrumentation (P0.5); no baseline counterpart.
+    for (FWin3DListNode* Node = G_Registry.Head; Node != nullptr; Node = Node->Next)
+    {
+        Win3D* const Object = static_cast<Win3D*>(Node->Payload);
+        if (Object != nullptr)
+            Visit(Object, Context);
+    }
+}
+
 float* Win3DGetMouseRay(float* Out)
 {
     // .

@@ -1,6 +1,7 @@
 // Author: Giperion.
 
 #include "globals.h"
+#include "oracle_mode.h" // Oracle instrumentation (P0.5)
 #include "common_misc.h"   // SinglePlayer
 #include "common_timing.h" // Timing::Delta
 #include "neuronruntime_net.h"
@@ -44,7 +45,9 @@ namespace
     void TickFrameTimer()
     {
         // .
-        const double MinFrameSeconds = 1.0 / static_cast<double>(G_FpsCap);
+        double MinFrameSeconds = 1.0 / static_cast<double>(G_FpsCap);
+        if (OracleModeActive())
+            MinFrameSeconds = OracleFrameSeconds(); // Oracle instrumentation (P0.5): pace at 30 fps
         double Dt = 0.0;
         while (true)
         {
@@ -55,6 +58,8 @@ namespace
             Sleep(1);
         }
         G_FrameDelta.swap();
+        if (OracleModeActive())
+            Dt = OracleFrameSeconds(); // Oracle instrumentation (P0.5): fixed dt
 
         G_FrameDtRaw = Dt;
 
