@@ -74,9 +74,13 @@ or observable behavior.
   `CppSource/Oracle` and fails when its output differs from them. Rewrite
   them from Rust (`OUTPOST_BLESS_VECTORS=1`) only to add a suite, never to
   make a failing comparison pass.
-- Never commit original game data or vectors derived from the original
-  data. Tests that need them read `OUTPOST_DATA_DIR` or `OUTPOST_ORACLE_DIR`
-  and return early with a printed notice when the variable is unset.
+- The original game data is committed in `outdir/` (design/decisions.md
+  O15): the master copy's INI files at its top, the `DATA` tree in
+  `outdir/data/`. Add no other copy of it, and commit no dumps or vectors
+  made from it; tests produce those from `outdir/` when they run. Tests
+  that compare with the C++ oracle's data dumps read `OUTPOST_DATA_DIR`
+  and `OUTPOST_ORACLE_DIR` and return early with a printed notice when a
+  variable is unset.
 - The DirectX 8.1 SDK headers and libraries in `CppSource/DX8/` are
   committed for the reference build (design/decisions.md O11). Commit no
   other SDK, and do not use these files outside `CppSource/`.

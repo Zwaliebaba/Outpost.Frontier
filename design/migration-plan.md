@@ -141,10 +141,10 @@ No legacy API enters the Rust code. Gate G7 checks this mechanically.
   compared as images or by play-test (rendering, particles, text layout).
 - Reference output comes from the C++ build through an oracle harness built
   in Phase 0.
-- Vectors made from synthetic input are committed and run in CI. Vectors
-  made from the original game data are not committed; tests that need them
-  read `OUTPOST_DATA_DIR` and `OUTPOST_ORACLE_DIR` and run on a machine
-  that has the data.
+- Vectors made from synthetic input are committed and run in CI. The
+  original game data is committed in `outdir/` (decision O15); vectors made
+  from it are not committed but produced when a test runs, and tests that
+  need them read `OUTPOST_DATA_DIR` and `OUTPOST_ORACLE_DIR`.
 - A work package is done when its tests pass at the assigned tier, its
   deliberate differences are entered in the divergence register, and its
   ledger rows are updated.
@@ -382,8 +382,8 @@ branch, CI is green, and the legacy scan is part of CI.
 | Physics replacement changes flight feel and collision damage | Gameplay drift | Original constants honoured literally; scenario envelopes at Gate G2; owner play-test |
 | Fixed-function emulation differs from Direct3D 8 (lighting, fog, pixel centres) | Visual drift, blurred text | Trace replay and image comparison at Gate G4 |
 | Text metrics differ between GDI and DirectWrite | Line breaks and autoscaling move | GDI-compatible measuring mode; layout dumps compared; a GDI backend may be kept as a test-only reference |
-| The original data cannot be committed | CI cannot run data tests | Synthetic vectors in CI; data tests on a machine with the data; a self-hosted runner is optional |
-| The C++ tree derives from a commercial binary and the physics code carries no licence | Project-level legal exposure outside this plan's control | Not ported: IVP, the EULA and list-server binaries. Original data and vectors derived from it stay out of the repository |
+| The original data was not in the repository (resolved by decision O15: it is in `outdir/`) | CI could not run data tests | Synthetic vectors in CI; data tests can now run in CI against `outdir/` |
+| The C++ tree derives from a commercial binary, the physics code carries no licence, and the original data is published in the repository (decision O15) | Project-level legal exposure outside this plan's control; the owner accepted it for the data | Not ported: IVP, the EULA and list-server binaries. Dumps and vectors made from the data are not committed |
 | QUIC needs an async runtime inside engine crates | Threading complexity | One I/O thread owns the runtime; the game thread polls a channel, as the DirectPlay code already does |
 | Deleting the C++ only at the end hides progress | Stakeholders see no shrinkage | The ledger and the seven milestones are the progress record |
 
