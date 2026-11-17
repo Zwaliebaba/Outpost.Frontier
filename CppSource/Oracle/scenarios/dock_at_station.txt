@@ -1,0 +1,14 @@
+# Oracle.exe sim scenario (design/reference-build.md section 10): dock at a station.
+# A fighter with the FIGHTER state graph starts 3000 m from station he01_11
+# (6173, 0, -50515, dock_with he01_11_Base) and is given a dock directive. The
+# station answers through Content.dll's SpaceSupport; a completed dock is a "dock"
+# event (events.jsonl). Multiplayer stepping.
+
+system he01
+ticks 2700
+stepping mp
+
+solar station he01_11
+ship pilot he_fighter li_p_he_fighter_loadout01 6173 300 -47500 ai FIGHTER psi
+
+at 1 pilot dock station

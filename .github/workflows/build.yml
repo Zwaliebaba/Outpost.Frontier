@@ -82,13 +82,16 @@ jobs:
           & $msbuild CppSource\OutpostFrontier.sln /m /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Check the generated P0.5 proxies
-        # The +oracle IClient proxy against include/rpc_iclient.h and the
-        # RenderTrace forwarding code against include/render/IRenderPipeline.h.
+        # The +oracle IClient proxy and the P2.3 scenario oracle's IClient stub against
+        # include/rpc_iclient.h, and the RenderTrace forwarding code against
+        # include/render/IRenderPipeline.h.
         shell: pwsh
         run: |
           python CppSource\OutpostFrontier\Client\make_oracle_iclient.py --check
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python CppSource\RenderTrace\make_render_trace.py --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python CppSource\Oracle\SimClientStub\make_sim_client_stub.py --check
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   oracle:

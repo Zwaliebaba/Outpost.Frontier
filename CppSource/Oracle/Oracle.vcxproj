@@ -50,7 +50,7 @@
       <SubSystem>Console</SubSystem>
       <!-- P1.7: D3DXGetImageInfoFromFileInMemory from the DX8.1 SDK's static d3dx8.lib, linked as
            DX8RENDERER links it (legacy stdio, no libci, no SafeSEH tables). -->
-      <AdditionalDependencies>neuroncomponents.lib;Common.lib;NeuronRuntime.lib;d3d8.lib;d3dx8.lib;legacy_stdio_definitions.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>neuroncomponents.lib;Common.lib;NeuronRuntime.lib;Server.lib;d3d8.lib;d3dx8.lib;legacy_stdio_definitions.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <IgnoreSpecificDefaultLibraries>libci.lib;%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
       <AdditionalLibraryDirectories>$(Dx8SdkDir)\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <ImageHasSafeExceptionHandlers>false</ImageHasSafeExceptionHandlers>
@@ -112,11 +112,16 @@
     <ClCompile Include="..\Shading\MaterialBatcher.cpp" />
     <ClCompile Include="..\Shading\MaterialLibrary.cpp" />
     <ClCompile Include="..\Shading\MaterialRegex.cpp" />
+    <!-- P2.3: Oracle.exe sim, the scenario oracle; links Server.lib (the Server object and the
+         pub:: exports it calls) and loads SimClientStub.dll at run time. -->
+    <ClCompile Include="oracle_sim.cpp" />
+    <ClCompile Include="oracle_sim_spread.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="oracle_support.h" />
     <ClInclude Include="oracle_net_codecs.h" />
     <ClInclude Include="oracle_net_context.h" />
+    <ClInclude Include="oracle_sim.h" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\neuroncomponents\neuroncomponents.vcxproj">
@@ -143,6 +148,15 @@
     <!-- particlefx.dll exports nothing: built for oracle_fx_data.cpp, which loads it at run time. -->
     <ProjectReference Include="..\particlefx\particlefx.vcxproj">
       <Project>{B7E4D91A-3C5F-4A82-9E16-F2C8D0A1B405}</Project>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+    <!-- P2.3: Oracle.exe sim links Server.lib and runs SimClientStub.dll. -->
+    <ProjectReference Include="..\Server\Server.vcxproj">
+      <Project>{B1C2D3E4-F5A6-7890-BCDE-F12345678901}</Project>
+    </ProjectReference>
+    <ProjectReference Include="SimClientStub\SimClientStub.vcxproj">
+      <Project>{6B2E9F14-8C3D-4A57-B1E2-3D4C5F6A7B80}</Project>
       <LinkLibraryDependencies>false</LinkLibraryDependencies>
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
     </ProjectReference>

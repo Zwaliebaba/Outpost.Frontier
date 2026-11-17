@@ -10,6 +10,7 @@
 // Usage: Oracle.exe <fixture directory> <output directory>
 //        Oracle.exe dump <data directory> <output directory>
 //        Oracle.exe catalog <resource DLL directory> <output directory>
+//        Oracle.exe sim <data root> <scenario file> <out folder> [--runs N]
 // The second form dumps the original installation's INI files for
 // crates/neuron-core/tests/data_dump.rs; the third dumps the text
 // resources of the resource DLLs for crates/neuron-core/tests/catalog_dump.rs
@@ -475,6 +476,9 @@ namespace
 
 int main(int Argc, char** Argv)
 {
+    // P2.3: the scenario oracle (oracle_sim.cpp) takes its own arguments.
+    if (Argc >= 2 && strcmp(Argv[1], "sim") == 0)
+        return RunSimMode(Argc, Argv);
     const bool bDump = Argc == 4 && strcmp(Argv[1], "dump") == 0;
     const bool bCatalog = Argc == 4 && strcmp(Argv[1], "catalog") == 0;
     if (Argc != 3 && !bDump && !bCatalog)

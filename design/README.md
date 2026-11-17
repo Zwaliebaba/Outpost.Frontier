@@ -10,6 +10,7 @@ Plan for migrating the C++ code base in `CppSource/` to the Rust workspace.
 | [port-map.md](port-map.md) | Which Rust crate owns each C++ project and source group, and what it is responsible for |
 | [verification.md](verification.md) | Fidelity tiers, the oracle, test data handling, CI, definition of done, gates |
 | [reference-build.md](reference-build.md) | How to build and run the C++ as the reference: DirectX 8.1 SDK, folder layout, build, run |
+| [sim-records.md](sim-records.md) | The record layouts of the scenario and replay oracle, `Oracle.exe sim` (P2.3) |
 | [facts.md](facts.md) | Facts to collect from the original installation (P0.3) |
 | [divergences.md](divergences.md) | Deliberate differences between the Rust port and the C++ |
 | [rebrand-names.md](rebrand-names.md) | Names the rebrand changed in the reference that the original data still uses (open) |
