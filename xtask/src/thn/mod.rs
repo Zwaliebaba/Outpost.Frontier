@@ -7,7 +7,7 @@
 //! with [`compile::compile`] and must equal the input byte for byte; a
 //! file that does not is reported and not written.
 //!
-//! The output is derived from the original data and must not be
+//! The output is made from the game data in `outdir/` and must not be
 //! committed (AGENTS.md, "Tests and test data").
 
 mod chunk;
@@ -323,16 +323,12 @@ mod tests {
         assert!(decompile_verified(&chunk.write()).is_err());
     }
 
-    /// Every `.thn` file of the original data decompiles, and the source
-    /// compiles back to the shipped bytes. `OUTPOST_DATA_DIR` names the
-    /// installation (design/reference-build.md section 7); nothing is
-    /// written.
+    /// Every `.thn` file of the game data committed in `outdir/data`
+    /// (design/decisions.md O15) decompiles, and the source compiles back
+    /// to its bytes. Nothing is written.
     #[test]
     fn original_data_round_trips() {
-        let Some(root) = std::env::var_os("OUTPOST_DATA_DIR").map(PathBuf::from) else {
-            println!("notice: OUTPOST_DATA_DIR is not set; the .thn round trip was skipped");
-            return;
-        };
+        let root = crate::workspace_root().join("outdir/data");
         let mut files = Vec::new();
         thn_files(&root, Path::new(""), &mut files);
         assert!(!files.is_empty(), "no .thn files under {}", root.display());
