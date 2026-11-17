@@ -332,7 +332,7 @@ screen.
 | P6.1 | Multiplayer client flow: address book and direct connect, login, character pages, chat, player trade, groups | L |
 | P6.2 | Dedicated server under load: 128 slots, governor tuning against QUIC backlog, soak test | M |
 | P6.3 | Walk mode in base rooms | M |
-| P6.4 | Volumetric nebula on the programmable-pass API. Needs the HLSL sources from `DATA_EXTRA\SHADERS`, which are not in the repository | M |
+| P6.4 | Volumetric nebula on the programmable-pass API. The C++ loads `nebula_volume.hlsl`, `nebula_composite.hlsl`, `common.hlsli` and `debug_depth.hlsl` from `DATA_EXTRA\SHADERS` and its settings from `DATA_EXTRA\VOLUMETRIC\volumetric.ini`; none of these exist (fact F12). Decided 2026-11-17: new shaders are written from the register layout, loop bounds and settings that `nebula_volume.cpp` documents, kept in `neuron-client/shaders/` with compiled blobs in `neuron-client/compiled_shaders/` (decision T1), and the settings get defaults in code. Accepted by eye (Tier C without reference images) | M |
 | P6.5 | Tick-profile overlay on the tracing spans | S |
 
 **Gate G6 (milestone "multiplayer").** Several clients play on one

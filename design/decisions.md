@@ -33,9 +33,19 @@ Raw Direct3D 12, feature level 11_0, Windows 10 and later, flip-model swap
 chain, borderless full screen, tearing when the sync interval is zero. The
 scene renders to an intermediate target and a final blit applies the gamma
 curve; this also serves screenshots, back-buffer reads and depth sampling.
-HLSL is compiled at build time with the Windows SDK compiler and embedded.
-Runtime compilation exists only behind a development feature for the
-nebula shaders.
+HLSL is compiled ahead of time and embedded. Runtime compilation exists
+only behind a development feature for the nebula shaders.
+
+Amended 2026-11-17 (owner): a crate keeps its HLSL sources in
+`<crate>/shaders/` and the compiled blobs in `<crate>/compiled_shaders/`,
+both committed. The code embeds the blobs with `include_bytes!`, the Rust
+counterpart of compiling to a header and including it, so building the
+crate needs no shader compiler and every host can build it. A CI step on
+Windows recompiles every source with the pinned compiler and flags and
+fails when a committed blob differs. The compiler (`fxc` for DXBC or `dxc`
+for DXIL), its version and the shader model are fixed in spike P4.0; the
+flags strip debug data and reflection so the output depends only on the
+source and the compiler version.
 
 `wgpu` was rejected: the feature set is small and fixed, the owner asked for
 Direct3D 12, and `wgpu` hides swap chain, pipeline-state and readback
