@@ -112,15 +112,13 @@ fn guns_fire_bullets_that_hit_a_target() {
             && (tick - 10) % 5 == 0
             && let Some(aim) = world.inspect(target).map(|i| i.position)
         {
-            {
-                world.command(
-                    shooter,
-                    Command::Fire {
-                        guns: guns.clone(),
-                        target: aim,
-                    },
-                );
-            }
+            world.command(
+                shooter,
+                Command::Fire {
+                    guns: guns.clone(),
+                    target: aim,
+                },
+            );
         }
         world.step(system, 1.0 / 30.0);
         for e in world.take_events() {

@@ -205,35 +205,33 @@ fn run(mut r: Rebuilt, consts: &Constants, dt: f32) -> PushLog {
     if let Some((mut engine, functioning)) = r.engine.take()
         && engine.controller_enabled
     {
-        {
-            // The ship's `get_linear_drag` with this engine as its first,
-            // active one.
-            let mut list = EquipManager::default();
-            let mut item = Equip::new(
-                0x22,
-                &game_sim::data::archetype::equipment::Equipment::new(0xC),
-                game_sim::equip::types::ENGINE,
-                EquipKind::Engine(engine.clone()),
-                false,
-            );
-            item.active = true;
-            list.add(item);
-            let drag = linear_drag(&r.flight, &list, r.zone_drag, &consts.engine);
-            let io = EngineShipIo {
-                throttle: r.flight.throttle,
-                orientation: &o,
-                linear_drag: drag,
-            };
-            engine_controller(
-                &mut engine,
-                functioning,
-                io,
-                &mut r.power,
-                &consts.engine,
-                dt,
-                &mut log,
-            );
-        }
+        // The ship's `get_linear_drag` with this engine as its first,
+        // active one.
+        let mut list = EquipManager::default();
+        let mut item = Equip::new(
+            0x22,
+            &game_sim::data::archetype::equipment::Equipment::new(0xC),
+            game_sim::equip::types::ENGINE,
+            EquipKind::Engine(engine.clone()),
+            false,
+        );
+        item.active = true;
+        list.add(item);
+        let drag = linear_drag(&r.flight, &list, r.zone_drag, &consts.engine);
+        let io = EngineShipIo {
+            throttle: r.flight.throttle,
+            orientation: &o,
+            linear_drag: drag,
+        };
+        engine_controller(
+            &mut engine,
+            functioning,
+            io,
+            &mut r.power,
+            &consts.engine,
+            dt,
+            &mut log,
+        );
     }
     log
 }
