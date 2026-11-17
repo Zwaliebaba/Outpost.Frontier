@@ -246,7 +246,7 @@ the oracle dumps.
 | ID | C++ source | Rust destination | Size | Tier |
 | --- | --- | --- | --- | --- |
 | P2.0 | Design spikes, each ending in a short decision record under `design/adr/`: object model representation (kinds, handles, lifetimes); single-player world ownership (one shared world, decision O21; the earlier default of two worlds joined by loopback rested on a misreading of the `SP*` calls); the replay and scenario oracle and the G2 envelope bounds (O20) | — | S | — |
-| P2.1 | `Common` data: constants, data config, the string cache (`common_stringcache.cpp`, moved from P1.1), archetypes, loadouts, fuse data, goods, reputation data, universe, zones, asteroid IDs, bases, rooms, spatial partition | `game-sim::data` | XL | A |
+| P2.1 | `Common` data: constants, data config, the string cache (`common_stringcache.cpp`, moved from P1.1), archetypes, loadouts, fuse data, goods, reputation data, universe, zones, asteroid IDs, bases, room names and markets, spatial partition (room INI contents moved to P5.9, owner 2026-11-17) | `game-sim::data` | XL | A |
 | P2.2 | `Common` marshal buffer, format strings, costume, binary rich text; the 162 packet types and codecs from `RemoteCommon` | `game-sim::protocol` | L | A |
 | P2.3 | `PhySys` facade, `[PhySys]` constants, hull shapes from compact surfaces, integrator and impulse solver, controllers hook, rays, sphere queries, phantoms, remote correction, dead reckoning | `neuron-core::physics` | L | B |
 | P2.4 | `Common` object model (`CObject` to `CShip`, `CSolar`, projectiles, loot), attachments, object database, equipment (`CE*`), damage | `game-sim::object`, `::equip` | XL | B |
@@ -328,7 +328,7 @@ committed images.
 | P5.6 | Combat effects: projectiles, beams, explosions, debris, engine and equipment effects, lights | XL |
 | P5.7 | HUD: status, target, contact list, waypoints, manoeuvres, weapon groups, comm | XL |
 | P5.8 | Environment: asteroid fields, nebulae, trade lanes, jump tunnel, dust | XL |
-| P5.9 | Bases: rooms, hotspots, scene-script hosts, characters, navigation bar | L |
+| P5.9 | Bases: rooms (including the room INI contents, `RoomData::read_from_ini`, and the room sub-records of `common_roominfo.cpp`, moved from P2.1 because loading them runs the scene-script engine of P4.14), hotspots, scene-script hosts, characters, navigation bar | L |
 | P5.10 | Base screens and shared windows: commerce, ship dealer, repair, news, mission vendor, navigation map, load and save, preferences, chat, mission briefing | XL |
 
 Demonstrable steps inside the phase: main menu (P5.2), a loaded system
