@@ -306,11 +306,24 @@ fn shield_of(world: &World, h: ObjHandle) -> (Option<f32>, Option<ShieldState>) 
     (Some(eq.power), shield)
 }
 
-/// The Rust side of a hit: the damage list's entries applied, in order, to
-/// the target's running hull and shield (the first hit of a tick starts
-/// from the previous tick's state, so shield regeneration within the frame
-/// is not in "before").
-fn rust_hit(tick: u32, target: &str, sub: u16, list: &DamageList, running: &mut State) -> Hit {
+/// The Rust side of a hit: the target's hull and shield as the world had
+/// them before the hit (so shield regeneration earlier in the frame is in
+/// "before", as in the oracle's pre-hit state), then the damage list's
+/// entries applied, in order.
+fn rust_hit(
+    tick: u32,
+    target: &str,
+    sub: u16,
+    list: &DamageList,
+    before: (f32, Option<(u16, f32)>),
+    running: &mut State,
+) -> Hit {
+    running.hp = before.0;
+    if let (Some(sh), Some((id, hp))) = (running.shield.as_mut(), before.1)
+        && sh.id == id
+    {
+        sh.hp = hp;
+    }
     let hull_before = running.hp;
     let shield_before = running.shield;
     for e in &list.entries {
@@ -477,11 +490,15 @@ fn run(s: &Scenario) -> Option<Run> {
                     target,
                     sub,
                     damage,
+                    hull_before,
+                    shield_before,
                     ..
                 } => {
                     let name = name_of(target);
                     let st = running.entry(name.clone()).or_default();
-                    out.hits.push(rust_hit(tick, &name, sub, &damage, st));
+                    let before = (hull_before, shield_before);
+                    out.hits
+                        .push(rust_hit(tick, &name, sub, &damage, before, st));
                 }
                 WorldEvent::Collision { a, b, damage, .. } => out.contacts.push(Contact {
                     tick,

@@ -110,6 +110,10 @@ pub enum WorldEvent {
         sub: SubObjId,
         /// The damage list before it was applied.
         damage: DamageList,
+        /// The target's hull before the hit.
+        hull_before: f32,
+        /// The target's first shield before the hit: its id and hit points.
+        shield_before: Option<(SubObjId, f32)>,
     },
     /// An object was destroyed.
     Destroyed {

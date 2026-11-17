@@ -421,12 +421,25 @@ impl World {
         self.with_damage_target(target, |t, in_group, mount_of| {
             damage::munition_hit(t, &m, sub, &mut list, in_group, mount_of);
         });
+        let (hull_before, shield_before) = self.objects.get(target).map_or((0.0, None), |t| {
+            let shield = t.equipped.as_deref().and_then(|eq| {
+                eq.equipment
+                    .first(crate::equip::types::SHIELD)
+                    .and_then(|e| match &e.kind {
+                        crate::equip::EquipKind::Shield(s) => Some((e.id, s.hit_pts)),
+                        _ => None,
+                    })
+            });
+            (t.simple.hit_pts, shield)
+        });
         self.events.push(WorldEvent::MunitionHit {
             target: target_id,
             shooter,
             munition,
             sub,
             damage: list.clone(),
+            hull_before,
+            shield_before,
         });
         self.apply_damage_list(target, &list);
     }
