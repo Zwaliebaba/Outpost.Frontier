@@ -97,7 +97,7 @@ impl FaceBehavior {
         let own = cx.own()?;
         let mut best = None;
         let mut best_distance = 100_000.0_f32;
-        let ids = cx.state.sys.targets.build(&*cx.world, cx.ship).to_vec();
+        let ids = cx.state.sys.targets.build(&mut *cx.world, cx.ship).to_vec();
         for id in ids {
             let Some(h) = cx.world.handle_of(id) else {
                 continue;
@@ -141,6 +141,10 @@ impl<W: AiEnv + ?Sized> Behavior<W> for FaceBehavior {
 
     fn base_mut(&mut self) -> &mut BehaviorBase {
         &mut self.base
+    }
+
+    fn as_any_mut(&mut self) -> Option<&mut dyn core::any::Any> {
+        Some(self)
     }
 
     fn attach(&mut self, cx: &mut Cx<'_, W>) {
@@ -373,6 +377,12 @@ impl<W: AiEnv + ?Sized> Behavior<W> for FaceBehavior {
                 false
             }
         }
+    }
+
+    /// `FaceBehavior::set_throttle` (slot 13): the throttle is unread; the
+    /// next update ends the behaviour (`Flag1d4`).
+    fn set_throttle(&mut self, _cx: &mut Cx<'_, W>, _throttle: f32) {
+        self.flag_1d4 = 1;
     }
 
     fn set_direction(&mut self, cx: &mut Cx<'_, W>, offset: Vector) {

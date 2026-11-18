@@ -222,6 +222,119 @@ COMMON_API void __cdecl OracleAiReportRayQuery(int Kind, unsigned int SystemId, 
 COMMON_API void __cdecl OracleAiReportSphereQuery(unsigned int SystemId, Vector const& Center, float Radius,
                                                   CObject* const* Objects, int MaxObjects, int Count);
 
+// TargetManager (common_iface.h) without its owner pointer.
+struct FOracleAiTargeting
+{
+    int AttackState;                // +0x08
+    float AggressionRatio;          // +0x0C
+    float SubtargetDistanceSq;      // +0x10
+    unsigned int SubtargetId;       // +0x14
+    int NumForcedTargets;           // +0x18
+    unsigned int ForcedTargets[8];  // +0x1C
+    float Anchor[3];                // +0x3C
+    int bCommitted;                 // +0x48
+    float CommitTimer;              // +0x4C
+    int SelectionPriority;          // +0x50
+    int NumCandidatesA;             // +0x54
+    int NumCandidatesB;             // +0x58
+    int NumSelected;                // +0x5C
+    int bSelectedIsPlayer;          // +0x60
+    int TargetedEnemyCount;         // +0x64
+    int bOverClampKept;             // +0x68
+    int bOverClampDropped;          // +0x69
+};
+
+// SystemManagerTimerTable (common_systemmanager.h) without the target list.
+struct FOracleAiTimerTable
+{
+    unsigned int ScannerId;         // +0x08 ScannerEquipId
+    float DecayRate;                // +0x20
+    float Level;                    // +0x24
+    int TimerActive[11];            // +0x28 Timers[i].Active
+    float TimerValues[11][3];       // Timers[i].TriggerThreshold, Duration, Accumulator
+    float DecayScale;               // +0xD8
+    int MissileCount;               // the incoming-missile list (+0xE0), at most 16 copied
+    unsigned int Missiles[16];      // its watched ids, in list order
+    unsigned int BestMissile;       // +0xE8 BestCandidateWatcher's id
+    float BestTime;                 // +0xF4 BestValueSoFar
+};
+
+// FGunGroupSlot.
+struct FOracleAiGunSlot
+{
+    unsigned int Id;
+    int bAutoTurret;
+    int Seeker;
+    int bFireTick;
+    int Kind;
+    float BurstTime;
+    float NoBurstTime;
+    float FireInterval;
+    float Phase;
+};
+
+// FLauncherFireCacheSlot.
+struct FOracleAiLineOfFire
+{
+    int bInUse;
+    unsigned int TargetId;
+    unsigned int Id;
+    float Age;
+    float RefreshTimer;
+    int bNeedsRefresh;
+    int bBlocked;
+};
+
+// SystemManagerGunGroupManager (common_systemmanager.h) without its pointers.
+struct FOracleAiGunGroups
+{
+    int LastGunFireResult;          // +0x00
+    unsigned int TargetId;          // +0x08 TargetWatcher's id
+    unsigned int HoldMask;          // +0x10
+    float AimOffset[3];             // +0x14
+    float AimRefreshTimer;          // +0x20
+    float CruiseHeldTime;           // +0x24
+    float ScanTimer;                // +0x28
+    float ScanPeriod;               // +0x2C
+    int GunCount;                   // +0x830
+    FOracleAiGunSlot Guns[64];      // +0x30
+    int MineDropperCount;           // +0x1038
+    FOracleAiGunSlot MineDroppers[64]; // +0x838
+    float Params[19];               // +0x103C .. +0x1084: the 18 interval, launch and accuracy
+                                    // floats in field order (Field_0x107C included), GunRange last
+    float WideConeAngle;            // +0x1090
+    int bFireAllGuns;               // +0x1088
+    int bEnabled;                   // +0x1094
+    FOracleAiLineOfFire LineOfFire[16]; // +0x1098
+    float CmTimer;                  // +0x1218 CmDroppers.Timer
+    int bCmActive;                  // CmDroppers.bActive
+    int CmCount;                    // CmDroppers.Count (at most 8 ids copied)
+    unsigned int CmIds[8];          // CmDroppers.Ids
+};
+
+// FaceBehavior (common_facebehavior.h): the Behavior prefix and its own fields.
+struct FOracleAiFace
+{
+    int Mode;                       // +0x0C ModeSelector0xc
+    int Result;                     // +0x10 UpdateResult10
+    float DeltaTime;                // +0x1C
+    int Flags28;                    // +0x28
+    int Flag29;                     // +0x29
+    int Kind;                       // +0x2C TargetKind2c
+    unsigned int WatchedId;         // +0x30 Watcher30's id
+    float Orient[9];                // +0x38
+    float Target[3];                // +0x5C
+    int Flag1b4;                    // +0x1B4
+    float Steer[3];                 // +0x1B8 .. +0x1C0
+    int Flag1c4;                    // +0x1C4
+    int Flag1c5;                    // +0x1C5
+    float Field1c8;                 // +0x1C8
+    float Field1cc;                 // +0x1CC
+    float Field1d0;                 // +0x1D0
+    int Flag1d4;                    // +0x1D4
+    float Field1d8;                 // +0x1D8
+};
+
 // One behaviour manager as OracleAiReadManager copies it.
 struct FOracleAiManager
 {
@@ -266,9 +379,30 @@ struct FOracleAiManager
     int bProbeContact;              // Avoidance.HasContact
     int ThrustFlags;                // Thrust: bCruiseEngaged 1, bCruiseUnobstructed 2,
                                     // bEngineActive 4, bAutoLevel 8, bAutoAvoidance 16
+    // P2.5 combat: the system manager's combat state the fire control, the target manager and
+    // the timer table carry between ticks (Sys->Targeting, Sys->Timers, Sys->GunGroups), the
+    // manager's Flags1c8, and the face behaviour's own fields while it is current.
+    int bSys;                       // Sys is set
+    int Flags1c8;                   // IBehaviorManager::Flags1c8
+    FOracleAiTargeting Targeting;   // Sys->Targeting
+    FOracleAiTimerTable Timers;     // Sys->Timers without the target list
+    FOracleAiGunGroups Guns;        // Sys->GunGroups
+    int bFace;                      // the current behaviour is the face behaviour (15)
+    FOracleAiFace Face;             // its fields
 };
 
 // Copies the manager's state; false (Out zeroed, StateGraphId -1) for a null manager.
 COMMON_API bool __cdecl OracleAiReadManager(IBehaviorManager const* Manager, FOracleAiManager& Out);
 // The CSimple id of a CObject (0 for null or an object that is not a CSimple).
 COMMON_API unsigned int __cdecl OracleAiObjectId(CObject const* Object);
+
+// Barrel 0's world position and direction of one of an equipped object's launchers
+// (CELauncher::cast over the CEqObj's FindByID, as IsLineOfFireBlocked reads them): 1 with
+// both written, 0 when the item is not a launcher.
+COMMON_API int __cdecl OracleAiLauncherBarrel(IObjInspect const* Object, unsigned short Id, float* OutPos,
+                                              float* OutDir);
+// CShip::get_tgt_lead_fire_pos(Vector&) of a ship: 1 with Out written, 0 when it answers
+// false, -1 for an object that is not a ship.
+COMMON_API int __cdecl OracleAiShipLeadFirePos(IObjInspect const* Object, float* Out);
+// CShip::get_targeted_enemy_count of a ship, -1 for an object that is not a ship.
+COMMON_API int __cdecl OracleAiTargetedEnemyCount(IObjInspect const* Object);

@@ -757,7 +757,7 @@ impl GunGroups {
         for slot in guns.iter().filter(|s| s.auto_turret) {
             let mut best_sq = f32::MAX;
             let mut best: Option<u32> = None;
-            for (h, v) in list.views(&*world, ship) {
+            for (h, v) in list.views(&mut *world, ship) {
                 if !matches_attack_order(p, v.type_flags) {
                     continue;
                 }

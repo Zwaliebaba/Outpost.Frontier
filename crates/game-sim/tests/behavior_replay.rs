@@ -41,7 +41,9 @@ use std::path::Path;
 use std::sync::Arc;
 
 use game_sim::ai::behavior::{Cx, DirectiveOp};
+use game_sim::ai::face::FaceBehavior;
 use game_sim::ai::face_idea::FaceIdea;
+use game_sim::ai::fire_control::GUN_POINTING_ANGLE;
 use game_sim::ai::manager::{BehaviorManager, ManagerState};
 use game_sim::ai::personality::Personality;
 use game_sim::ai::state_graph::StateGraphDb;
@@ -49,7 +51,8 @@ use game_sim::ai::steer::{
     build_orientation_basis, build_perpendicular_frame, steering_frame_from_relative_dir,
 };
 use game_sim::ai::world::{
-    AiCommand, AiRand, AiWorld, MotionModel, ObjectView, RayContact, RecordedRand, SpatialQueries,
+    AiCommand, AiRand, AiWorld, EquipInfo, MotionModel, ObjectView, RayContact, RecordedRand,
+    SpatialQueries,
 };
 use game_sim::object::world::{ShipSpawn, WorldConfig};
 use game_sim::object::{ObjHandle, World};
@@ -57,7 +60,8 @@ use neuron_core::id::create_id;
 use neuron_core::math::{Matrix, Vector};
 use neuron_core::physics::StepMode;
 use support::ai_records::{
-    Affect, AiTick, ManagerRecord, PathfindRecord, QueryRecord, read_affects, read_ai_ticks,
+    Affect, AiTick, EquipRecord, FaceRecord, ManagerRecord, PathfindRecord, QueryRecord, SysRecord,
+    read_affects, read_ai_ticks,
 };
 use support::records::{find_files, oracle_dir};
 
@@ -145,6 +149,17 @@ struct ReplayWorld<'a> {
     /// The ship's scan list: the target list the tick built, which the
     /// ship's next tick records on entry (`ai_in.targets`).
     scan: Vec<u32>,
+    /// The ship's items as the snapshot read them (`ai_obj.equip`).
+    equip: Option<Vec<EquipRecord>>,
+    /// The ship's `CShip::get_tgt_lead_fire_pos` (`ai_obj.lead`).
+    lead: Option<Option<Vector>>,
+    /// `CShip::get_targeted_enemy_count` of the snapshot's ships.
+    targeted: BTreeMap<u32, i32>,
+    /// The angles the snapshot asked `is_pointing_at` with: the gun angle,
+    /// the gun groups' wide and missile cone angles.
+    pointing_angles: [f32; 3],
+    /// The equipment queries of the tick the snapshot cannot answer.
+    unanswered: Vec<String>,
 }
 
 impl<'a> ReplayWorld<'a> {
@@ -158,6 +173,7 @@ impl<'a> ReplayWorld<'a> {
             let h = *m.ships.get(t.obj.as_deref()?)?;
             Some((&m.world, h))
         });
+        let own = t.objects.iter().find(|o| o.id == t.id);
         Self {
             objects: t
                 .objects
@@ -176,7 +192,31 @@ impl<'a> ReplayWorld<'a> {
             motion,
             avoid_shuffled,
             scan,
+            equip: own.and_then(|o| o.equip.clone()),
+            lead: own.and_then(|o| o.lead),
+            targeted: t
+                .objects
+                .iter()
+                .filter_map(|o| o.targeted_enemies.map(|n| (o.id, n)))
+                .collect(),
+            pointing_angles: [
+                GUN_POINTING_ANGLE,
+                t.input.sys.as_ref().map_or(0.0, |s| s.guns.wide_cone_angle),
+                t.input
+                    .sys
+                    .as_ref()
+                    .map_or(0.0, |s| s.guns.missile_launch_cone_angle),
+            ],
+            unanswered: Vec::new(),
         }
+    }
+
+    /// The ship's recorded item with an id.
+    fn item(&self, h: u32, id: u16) -> Option<&EquipRecord> {
+        if h != self.ship {
+            return None;
+        }
+        self.equip.as_ref()?.iter().find(|e| e.id == id)
     }
 
     /// The ship's state after one of its `IObjAffect` calls, with the
@@ -303,7 +343,7 @@ impl AiWorld for ReplayWorld<'_> {
         world.motion(handle)
     }
 
-    fn scan_list(&self, h: u32) -> Option<Vec<u32>> {
+    fn scan_list(&mut self, h: u32, _keep: bool) -> Option<Vec<u32>> {
         (h == self.ship).then(|| {
             self.scan
                 .iter()
@@ -315,6 +355,89 @@ impl AiWorld for ReplayWorld<'_> {
 
     fn system_of(&self, h: u32) -> Option<u32> {
         self.objects.contains_key(&h).then_some(0)
+    }
+
+    /// The ids the snapshot's `find_equipment` of the mask found.
+    fn find_equipment(&self, h: u32, type_mask: u32) -> Option<Vec<u16>> {
+        if h != self.ship {
+            return None;
+        }
+        let equip = self.equip.as_ref()?;
+        Some(
+            equip
+                .iter()
+                .filter(|e| e.type_mask == type_mask)
+                .map(|e| e.id)
+                .collect(),
+        )
+    }
+
+    /// The snapshot's status and values of the item; `None` when its
+    /// status call failed.
+    fn equipment(&self, h: u32, id: u16) -> Option<EquipInfo> {
+        let e = self.item(h, id)?;
+        let (flags, equip_flags) = e.status?;
+        let [munition, auto_turret, seeker, range, target] = e.vals;
+        Some(EquipInfo {
+            flags,
+            equip_flags: (equip_flags & 0xff) as u8,
+            munition_kind: munition.map(int),
+            auto_turret: auto_turret.map(|w| w & 0xff != 0),
+            seeker: seeker.map(|w| (w & 0xff) as u8),
+            range: range.map(f32::from_bits),
+            target_id: target,
+            barrel: e.barrel,
+        })
+    }
+
+    /// The snapshot's `can_point_at` of the item toward a candidate of the
+    /// target list.
+    fn can_point_at(&self, h: u32, id: u16, point: Vector, angle: f32) -> bool {
+        let candidate = self
+            .objects
+            .values()
+            .find(|v| vector_bits(v.position) == vector_bits(point))
+            .map(|v| v.id);
+        let answer = self.item(h, id).and_then(|e| {
+            let c = candidate?;
+            e.can_point.iter().find(|(k, _)| *k == c).map(|(_, a)| *a)
+        });
+        match answer {
+            Some(a) if angle.to_bits() == 0.3_f32.to_bits() => a,
+            _ => false,
+        }
+    }
+
+    /// The snapshot's `is_pointing_at` of the item at one of the angles it
+    /// asked with.
+    fn is_pointing_at(&mut self, h: u32, id: u16, angle: f32) -> bool {
+        let k = self
+            .pointing_angles
+            .iter()
+            .position(|a| a.to_bits() == angle.to_bits());
+        match (self.item(h, id), k) {
+            (Some(e), Some(k)) => e.pointing[k],
+            _ => {
+                self.unanswered
+                    .push(format!("is_pointing_at({id}, {:08x})", angle.to_bits()));
+                false
+            }
+        }
+    }
+
+    /// The ship's own lead (`CShip::get_tgt_lead_fire_pos`); the item form
+    /// is not recorded.
+    fn lead_fire_position(&mut self, h: u32, subtarget: Option<u16>) -> Option<Vector> {
+        if h != self.ship || subtarget.is_some() {
+            self.unanswered
+                .push(format!("lead_fire_position({h}, {subtarget:?})"));
+            return None;
+        }
+        self.lead.flatten()
+    }
+
+    fn targeted_enemy_count(&self, h: u32) -> i32 {
+        self.targeted.get(&h).copied().unwrap_or(0)
     }
 
     fn command(&mut self, h: u32, command: AiCommand<u32>) -> i32 {
@@ -436,6 +559,131 @@ fn restore(m: &mut ManagerState, r: &ManagerRecord, t: &AiTick, graphs: &StateGr
         th.auto_level = flags & 8 != 0;
         th.auto_avoidance = flags & 16 != 0;
     }
+    if let Some(flags) = r.flags_1c8 {
+        m.flags_1c8 = flags;
+    }
+    if let Some(sys) = &r.sys {
+        let clamp = m.sys.targeting.enemy_clamp;
+        m.sys.targeting = sys.targeting.clone();
+        m.sys.targeting.enemy_clamp = clamp;
+        m.sys.timers = sys.timers.clone();
+        let player = m.sys.guns.cm.player;
+        m.sys.guns = sys.guns.clone();
+        m.sys.guns.cm.player = player;
+    }
+}
+
+/// Puts the recorded face fields into the Rust face behaviour.
+fn restore_face(manager: &mut BehaviorManager<ReplayWorld<'_>>, r: &FaceRecord) {
+    let Some(face) = manager
+        .behavior_mut(15)
+        .and_then(|b| b.as_any_mut())
+        .and_then(|a| a.downcast_mut::<FaceBehavior>())
+    else {
+        return;
+    };
+    {
+        let base = game_sim::ai::behavior::Behavior::<ReplayWorld<'_>>::base_mut(face);
+        base.mode = r.mode;
+        base.result = r.result;
+        base.tick_delta = r.dt;
+        base.flags = r.flags;
+        base.flag29 = r.flag29;
+    }
+    face.kind = r.kind;
+    face.watcher_30 = (r.watched != 0).then_some(r.watched);
+    face.orient_38 = r.orient;
+    face.target_5c = r.target;
+    face.flag_1b4 = r.flag_1b4;
+    face.steer = r.steer;
+    face.flag_1c4 = r.flag_1c4;
+    face.flag_1c5 = r.flag_1c5;
+    face.field_1c8 = r.field_1c8;
+    face.field_1cc = r.field_1cc;
+    face.field_1d0 = r.field_1d0;
+    face.flag_1d4 = r.flag_1d4;
+    face.field_1d8 = r.field_1d8;
+}
+
+/// The Rust face behaviour's fields as `face` writes them.
+fn face_snapshot(manager: &mut BehaviorManager<ReplayWorld<'_>>) -> Option<FaceRecord> {
+    let face = manager
+        .behavior_mut(15)?
+        .as_any_mut()?
+        .downcast_mut::<FaceBehavior>()?;
+    let base = game_sim::ai::behavior::Behavior::<ReplayWorld<'_>>::base(face).clone();
+    Some(FaceRecord {
+        mode: base.mode,
+        result: base.result,
+        dt: base.tick_delta,
+        flags: base.flags,
+        flag29: base.flag29,
+        kind: face.kind,
+        watched: face.watcher_30.unwrap_or(0),
+        orient: face.orient_38,
+        target: face.target_5c,
+        flag_1b4: face.flag_1b4,
+        steer: face.steer,
+        flag_1c4: face.flag_1c4,
+        flag_1c5: face.flag_1c5,
+        field_1c8: face.field_1c8,
+        field_1cc: face.field_1cc,
+        field_1d0: face.field_1d0,
+        flag_1d4: face.flag_1d4,
+        field_1d8: face.field_1d8,
+    })
+}
+
+/// The recorded combat state the Rust manager left, as differences:
+/// `flags_1c8`, the target manager, the timer table and the gun groups
+/// (floats by their bits, through `Debug`), and the face behaviour's
+/// fields while it was current on exit.
+fn state_diff(m: &ManagerState, face: Option<&FaceRecord>, theirs: &ManagerRecord) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Some(flags) = theirs.flags_1c8
+        && flags != m.flags_1c8
+    {
+        out.push(format!("flags_1c8 oracle {flags} rust {}", m.flags_1c8));
+    }
+    if let Some(sys) = &theirs.sys {
+        let mut targeting = m.sys.targeting.clone();
+        targeting.enemy_clamp = sys.targeting.enemy_clamp;
+        let mut guns = m.sys.guns.clone();
+        guns.cm.player = sys.guns.cm.player;
+        let ours = SysRecord {
+            targeting,
+            timers: m.sys.timers.clone(),
+            guns,
+        };
+        for (name, a, b) in [
+            (
+                "targeting",
+                format!("{:?}", sys.targeting),
+                format!("{:?}", ours.targeting),
+            ),
+            (
+                "timers",
+                format!("{:?}", sys.timers),
+                format!("{:?}", ours.timers),
+            ),
+            (
+                "guns",
+                format!("{:?}", sys.guns),
+                format!("{:?}", ours.guns),
+            ),
+        ] {
+            if a != b {
+                out.push(format!("{name}\n    oracle {a}\n    rust   {b}"));
+            }
+        }
+    }
+    if let (Some(a), Some(b)) = (&theirs.face, face) {
+        let (a, b) = (format!("{a:?}"), format!("{b:?}"));
+        if a != b {
+            out.push(format!("face\n    oracle {a}\n    rust   {b}"));
+        }
+    }
+    out
 }
 
 /// The pathfinder fields the records hold, from the Rust manager.
@@ -488,6 +736,10 @@ fn snapshot(m: &ManagerState) -> ManagerRecord {
         scores: m.scores,
         pathfind: Some(pathfind_snapshot(m)),
         thrust: Some(thrust_flags(m)),
+        // Compared apart (`state_diff`).
+        flags_1c8: None,
+        sys: None,
+        face: None,
     }
 }
 
@@ -621,6 +873,14 @@ struct Totals {
     first_views: Vec<String>,
     /// Compared ticks by behaviour on entry: compared, matched.
     by_behavior: BTreeMap<i32, (usize, usize)>,
+    /// Ticks whose exit holds the combat state (`sys`), and those whose
+    /// state the Rust manager left differently.
+    state_compared: usize,
+    state_mismatched: usize,
+    state_reports: Vec<String>,
+    /// Ticks that asked an equipment query the snapshot cannot answer.
+    unanswered: usize,
+    unanswered_reports: Vec<String>,
 }
 
 /// The first behaviour with a weight in the graph row of `current` that
@@ -696,6 +956,39 @@ fn report(
             t.rand_mod,
             world.rand.consumed(),
             world.rand.overrun()
+        );
+    }
+    // The combat state the tick started from, and the ship's items.
+    if let Some(sys) = &t.input.sys {
+        let g = &sys.guns;
+        let _ = write!(
+            r,
+            "\n  entry: flags_1c8 {:?} priority {} attack_state {} gun target {:?} aim timer {:08x} enabled {} slots {:?} timers active {:?}",
+            t.input.flags_1c8,
+            sys.targeting.selection_priority,
+            sys.targeting.attack_state,
+            g.target,
+            g.aim_refresh_timer.to_bits(),
+            g.enabled,
+            g.guns
+                .iter()
+                .map(|s| (s.id, s.kind, s.auto_turret, s.fire_tick, s.phase))
+                .collect::<Vec<_>>(),
+            sys.timers.timers.map(|t| t.active)
+        );
+    }
+    if let Some(f) = &t.input.face {
+        let _ = write!(r, "\n  entry face {f:?}");
+    }
+    if let Some(equip) = &world.equip {
+        let _ = write!(
+            r,
+            "\n  equip {:?} lead {:?}",
+            equip
+                .iter()
+                .map(|e| (e.id, e.type_mask, e.status, e.vals, e.pointing))
+                .collect::<Vec<_>>(),
+            world.lead
         );
     }
     r
@@ -877,6 +1170,9 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
                 r
             });
             restore(&mut manager.state, &before, t, graphs);
+            if let Some(f) = &before.face {
+                restore_face(manager, f);
+            }
             let recorded = std::mem::take(&mut world.rand);
             for op in pending {
                 if let DirectiveOp::Face(f) = &op {
@@ -891,6 +1187,9 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
             world.commands.clear();
         }
         restore(&mut manager.state, &t.input, t, graphs);
+        if let Some(f) = &t.input.face {
+            restore_face(manager, f);
+        }
         manager.state.stand_in_polls = 0;
         let entry_state = manager.state.clone();
         if let Some(p) = personalities.get(&t.id) {
@@ -918,6 +1217,43 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
             })
             .unwrap_or_default();
         let rand_ok = world.rand.exhausted_exactly();
+        let our_face = if out.face.is_some() {
+            face_snapshot(manager)
+        } else {
+            None
+        };
+        let state = state_diff(&manager.state, our_face.as_ref(), out);
+        if out.sys.is_some() {
+            totals.state_compared += 1;
+            if !state.is_empty() {
+                totals.state_mismatched += 1;
+                if totals.state_reports.len() < MAX_REPORTED {
+                    totals.state_reports.push(format!(
+                        "{} seq {} tick {} id {} behaviour {} -> {}: {}",
+                        path.display(),
+                        t.seq,
+                        t.tick,
+                        t.id,
+                        t.input.behavior,
+                        out.behavior,
+                        state.join("\n  ")
+                    ));
+                }
+            }
+        }
+        if !world.unanswered.is_empty() {
+            totals.unanswered += 1;
+            if totals.unanswered_reports.len() < MAX_REPORTED {
+                totals.unanswered_reports.push(format!(
+                    "{} seq {} tick {} id {}: {:?}",
+                    path.display(),
+                    t.seq,
+                    t.tick,
+                    t.id,
+                    world.unanswered
+                ));
+            }
+        }
         if bits_equal(&ours, out) && our_commands == their_commands && rand_ok {
             totals.compared += 1;
             totals.matched += 1;
@@ -997,6 +1333,18 @@ fn behavior_ticks_against_the_oracle() {
         let _ = writeln!(summary, "first tick: {r}");
     }
     for r in &totals.reports {
+        let _ = writeln!(summary, "{r}");
+    }
+    let _ = writeln!(
+        summary,
+        "combat state on exit: {} ticks compared, {} with a difference; {} ticks asked an equipment query the snapshot cannot answer",
+        totals.state_compared, totals.state_mismatched, totals.unanswered
+    );
+    for r in totals
+        .state_reports
+        .iter()
+        .chain(&totals.unanswered_reports)
+    {
         let _ = writeln!(summary, "{r}");
     }
     print!("{summary}");

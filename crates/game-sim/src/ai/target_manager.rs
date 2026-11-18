@@ -368,7 +368,7 @@ impl TargetList {
 
     /// `BuildAiTargetList`: rebuilt unless a kept list was already built
     /// in this tick.
-    pub fn build<W: AiWorld + ?Sized>(&mut self, world: &W, ship: W::Handle) -> &[u32] {
+    pub fn build<W: AiWorld + ?Sized>(&mut self, world: &mut W, ship: W::Handle) -> &[u32] {
         if !self.keep_cache {
             self.ids.clear();
         }
@@ -379,7 +379,7 @@ impl TargetList {
         if world.inspect(ship).is_none() {
             return &self.ids;
         }
-        let Some(list) = world.scan_list(ship) else {
+        let Some(list) = world.scan_list(ship, self.keep_cache) else {
             return &self.ids;
         };
         for h in list {
@@ -398,11 +398,11 @@ impl TargetList {
     /// no longer knows are left out.
     pub fn views<W: AiWorld + ?Sized>(
         &mut self,
-        world: &W,
+        world: &mut W,
         ship: W::Handle,
     ) -> Vec<(W::Handle, ObjectView)> {
-        self.build(world, ship)
-            .iter()
+        let ids = self.build(world, ship).to_vec();
+        ids.iter()
             .filter_map(|&id| {
                 let h = world.handle_of(id)?;
                 Some((h, world.inspect(h)?))
@@ -629,12 +629,12 @@ impl TargetManager {
 
     /// `GetHostilePowerRatio` over the target list.
     pub fn hostile_power_ratio<W: AiWorld + ?Sized>(
-        env: &TargetEnv<'_, W>,
+        env: &mut TargetEnv<'_, W>,
         list: &mut TargetList,
     ) -> f64 {
         let own = env.own().map_or(0, |v| v.toughness);
         let entries: Vec<PowerEntry> = list
-            .views(&*env.world, env.ship)
+            .views(&mut *env.world, env.ship)
             .into_iter()
             .map(|(h, v)| {
                 let (attitude, reverse) = env.attitudes(h);
@@ -653,7 +653,7 @@ impl TargetManager {
     /// personality's loot-flee toughness threshold, else 0. Drops the
     /// target list first.
     pub fn scan_response<W: AiWorld + ?Sized>(
-        env: &TargetEnv<'_, W>,
+        env: &mut TargetEnv<'_, W>,
         list: &mut TargetList,
     ) -> i32 {
         list.reset();
@@ -757,7 +757,7 @@ impl TargetManager {
             .is_some_and(|levels| classify_zone_level_tier(levels) <= job.field_targeting);
 
         let proximity = env.personality.range_threshold_value();
-        let targets = list.views(&*env.world, env.ship);
+        let targets = list.views(&mut *env.world, env.ship);
         let mut hostile_threshold = -0.6_f32;
         for (h, v) in &targets {
             let (attitude, _) = env.attitudes(*h);

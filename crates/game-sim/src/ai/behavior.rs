@@ -467,6 +467,12 @@ pub trait Behavior<W: AiEnv + ?Sized> {
         true
     }
 
+    /// The concrete behaviour, for a harness that sets its fields from a
+    /// record. The default offers none.
+    fn as_any_mut(&mut self) -> Option<&mut dyn core::any::Any> {
+        None
+    }
+
     /// (1) `SetContext(Owner, Manager, Sys)`: binds the owner.
     fn bind(&mut self, owner_id: Option<u32>) -> bool {
         self.base_mut().bind(owner_id)

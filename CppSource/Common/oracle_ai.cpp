@@ -18,6 +18,8 @@
 #include "common_pathfind.h"          // PathfindManager (OracleAiReadManager)
 #include "common_misc.h"           // RandomVector
 #include "common_idea.h"           // MoveIdea
+#include "common_facebehavior.h"   // FaceBehavior (OracleAiReadManager)
+#include "common_cequip.h"         // CELauncher (OracleAiLauncherBarrel)
 
 #include <cstring>
 #include <new>
@@ -407,6 +409,139 @@ void __cdecl OracleAiReportSphereQuery(unsigned int SystemId, Vector const& Cent
     GOracleAiHooks.OnQuery(OracleAiQuerySphere, SystemId, nullptr, C, C, Radius, MaxObjects, N, Out);
 }
 
+namespace
+{
+    // The incoming-missile list node of the timer table (common_sysmgr_timertable.cpp).
+    struct FOracleTimerListNode
+    {
+        FOracleTimerListNode* Next;
+        FOracleTimerListNode* Prev;
+        BaseWatcher Watcher;
+    };
+
+    void ReadSlot(FGunGroupSlot const& In, FOracleAiGunSlot& Out)
+    {
+        Out.Id = In.HardpointId;
+        Out.bAutoTurret = In.bAutoTurret != 0 ? 1 : 0;
+        Out.Seeker = In.bSeekerMunition;
+        Out.bFireTick = In.bFireTick != 0 ? 1 : 0;
+        Out.Kind = In.MunitionKind;
+        Out.BurstTime = In.BurstTime;
+        Out.NoBurstTime = In.NoBurstTime;
+        Out.FireInterval = In.FireInterval;
+        Out.Phase = In.Phase;
+    }
+
+    void OracleAiReadSystem(SystemManager const& Sys, FOracleAiManager& Out)
+    {
+        TargetManager const& T = Sys.Targeting;
+        FOracleAiTargeting& OT = Out.Targeting;
+        OT.AttackState = T.AttackState;
+        OT.AggressionRatio = T.AggressionRatio;
+        OT.SubtargetDistanceSq = T.SubtargetDistanceSq;
+        OT.SubtargetId = T.SubtargetId;
+        OT.NumForcedTargets = T.NumForcedTargets;
+        for (int Index = 0; Index < 8; ++Index)
+            OT.ForcedTargets[Index] = T.ForcedTargets[Index];
+        FromVector(OT.Anchor, T.AnchorPosition);
+        OT.bCommitted = T.bCommitted ? 1 : 0;
+        OT.CommitTimer = T.CommitTimer;
+        OT.SelectionPriority = T.SelectionPriority;
+        OT.NumCandidatesA = T.NumCandidatesA;
+        OT.NumCandidatesB = T.NumCandidatesB;
+        OT.NumSelected = T.NumSelected;
+        OT.bSelectedIsPlayer = T.bSelectedIsPlayer ? 1 : 0;
+        OT.TargetedEnemyCount = T.TargetedEnemyCount;
+        OT.bOverClampKept = T.bPlayerOverClampKept ? 1 : 0;
+        OT.bOverClampDropped = T.bPlayerOverClampDropped ? 1 : 0;
+
+        SystemManagerTimerTable const& M = Sys.Timers;
+        FOracleAiTimerTable& OM = Out.Timers;
+        OM.ScannerId = M.ScannerEquipId;
+        OM.DecayRate = M.DecayRate;
+        OM.Level = M.Level;
+        for (int Index = 0; Index < 11; ++Index)
+        {
+            OM.TimerActive[Index] = M.Timers[Index].Active != 0 ? 1 : 0;
+            OM.TimerValues[Index][0] = M.Timers[Index].TriggerThreshold;
+            OM.TimerValues[Index][1] = M.Timers[Index].Duration;
+            OM.TimerValues[Index][2] = M.Timers[Index].Accumulator;
+        }
+        OM.DecayScale = M.UnknownScale_0xD8;
+        FOracleTimerListNode const* const Head = static_cast<FOracleTimerListNode const*>(M.ListHeadNode);
+        if (Head != nullptr)
+        {
+            for (FOracleTimerListNode const* Node = Head->Next; Node != nullptr && Node != Head && OM.MissileCount < 16;
+                 Node = Node->Next)
+                OM.Missiles[OM.MissileCount++] = Node->Watcher.get_watched_id();
+        }
+        OM.BestMissile = reinterpret_cast<BaseWatcher const*>(M.BestCandidateWatcherBytes)->get_watched_id();
+        OM.BestTime = M.BestValueSoFar;
+
+        SystemManagerGunGroupManager const& G = Sys.GunGroups;
+        FOracleAiGunGroups& OG = Out.Guns;
+        OG.LastGunFireResult = G.LastGunFireResult;
+        OG.TargetId = G.TargetWatcher().get_watched_id();
+        OG.HoldMask = G.Field_0x10;
+        FromVector(OG.AimOffset, G.AimOffset);
+        OG.AimRefreshTimer = G.AimRefreshTimer;
+        OG.CruiseHeldTime = G.CruiseHeldTime;
+        OG.ScanTimer = G.ScanTimer;
+        OG.ScanPeriod = G.ScanPeriod;
+        OG.GunCount = G.GunCount;
+        for (int Index = 0; Index < G.GunCount && Index < 64; ++Index)
+            ReadSlot(G.Guns[Index], OG.Guns[Index]);
+        OG.MineDropperCount = G.MineDropperCount;
+        for (int Index = 0; Index < G.MineDropperCount && Index < 64; ++Index)
+            ReadSlot(G.MineDroppers[Index], OG.MineDroppers[Index]);
+        std::memcpy(OG.Params, &G.GunFireIntervalTime, sizeof(OG.Params));
+        OG.WideConeAngle = G.WideConeAngle;
+        OG.bFireAllGuns = G.bFireAllGuns;
+        OG.bEnabled = G.bEnabled != 0 ? 1 : 0;
+        for (int Index = 0; Index < 16; ++Index)
+        {
+            FLauncherFireCacheSlot const& L = G.LineOfFireCache[Index];
+            FOracleAiLineOfFire& OL = OG.LineOfFire[Index];
+            OL.bInUse = L.InUse != 0 ? 1 : 0;
+            OL.TargetId = L.TargetId;
+            OL.Id = L.HardpointId;
+            OL.Age = L.Age;
+            OL.RefreshTimer = L.RefreshTimer;
+            OL.bNeedsRefresh = L.NeedsRefresh != 0 ? 1 : 0;
+            OL.bBlocked = L.bBlocked != 0 ? 1 : 0;
+        }
+        OG.CmTimer = G.CmDroppers.Timer;
+        OG.bCmActive = G.CmDroppers.bActive != 0 ? 1 : 0;
+        OG.CmCount = G.CmDroppers.Count;
+        for (int Index = 0; Index < G.CmDroppers.Count && Index < 8; ++Index)
+            OG.CmIds[Index] = G.CmDroppers.Ids[Index];
+    }
+
+    void OracleAiReadFace(FaceBehavior const& F, FOracleAiFace& Out)
+    {
+        Out.Mode = F.ModeSelector0xc;
+        Out.Result = F.UpdateResult10;
+        Out.DeltaTime = F.DeltaTime1c;
+        Out.Flags28 = F.Flags28;
+        Out.Flag29 = F.Flag29;
+        Out.Kind = F.TargetKind2c;
+        Out.WatchedId = F.Watcher30.get_watched_id();
+        FromMatrix(Out.Orient, F.OrientMatrix38);
+        FromVector(Out.Target, F.TargetPosition5c);
+        Out.Flag1b4 = F.Flag1b4;
+        Out.Steer[0] = F.Field1b8;
+        Out.Steer[1] = F.Field1bc;
+        Out.Steer[2] = F.Field1c0;
+        Out.Flag1c4 = F.Flag1c4;
+        Out.Flag1c5 = F.Flag1c5;
+        Out.Field1c8 = F.Field1c8;
+        Out.Field1cc = F.Field1cc;
+        Out.Field1d0 = F.Field1d0;
+        Out.Flag1d4 = F.Flag1d4;
+        Out.Field1d8 = F.Field1d8;
+    }
+}
+
 bool __cdecl OracleAiReadManager(IBehaviorManager const* Manager, FOracleAiManager& Out)
 {
     std::memset(&Out, 0, sizeof(Out));
@@ -478,7 +613,57 @@ bool __cdecl OracleAiReadManager(IBehaviorManager const* Manager, FOracleAiManag
         Out.bProbeActive = Pathfind->Avoidance.Active != 0 ? 1 : 0;
         Out.bProbeContact = Pathfind->Avoidance.HasContact != 0 ? 1 : 0;
     }
+    Out.Flags1c8 = Manager->Flags1c8;
+    if (Sys != nullptr)
+    {
+        Out.bSys = 1;
+        OracleAiReadSystem(*Sys, Out);
+    }
+    if (Manager->CurrentBehaviorIndex == 15 && Manager->BehaviorDispatchTable[15] != nullptr)
+    {
+        Out.bFace = 1;
+        OracleAiReadFace(*static_cast<FaceBehavior const*>(Manager->BehaviorDispatchTable[15]), Out.Face);
+    }
     return true;
+}
+
+int __cdecl OracleAiLauncherBarrel(IObjInspect const* Object, unsigned short Id, float* OutPos, float* OutDir)
+{
+    if (Object == nullptr)
+        return 0;
+    CObject* const Obj = const_cast<CObject*>(Object->cobject());
+    if (Obj == nullptr || (static_cast<unsigned>(Obj->ObjectClass) & 0x103) != 0x103)
+        return 0;
+    CELauncher* const Launcher = CELauncher::cast(static_cast<CEqObj*>(Obj)->EquipManager.FindByID(Id));
+    if (Launcher == nullptr)
+        return 0;
+    FromVector(OutPos, Launcher->GetBarrelPosWS(0));
+    FromVector(OutDir, Launcher->GetBarrelDirWS(0));
+    return 1;
+}
+
+int __cdecl OracleAiShipLeadFirePos(IObjInspect const* Object, float* Out)
+{
+    if (Object == nullptr)
+        return -1;
+    CObject const* const Obj = Object->cobject();
+    if (Obj == nullptr || (static_cast<unsigned>(Obj->ObjectClass) & 0x503) != 0x503)
+        return -1;
+    Vector Lead;
+    if (!static_cast<CShip const*>(Obj)->get_tgt_lead_fire_pos(Lead))
+        return 0;
+    FromVector(Out, Lead);
+    return 1;
+}
+
+int __cdecl OracleAiTargetedEnemyCount(IObjInspect const* Object)
+{
+    if (Object == nullptr)
+        return -1;
+    CObject* const Obj = const_cast<CObject*>(Object->cobject());
+    if (Obj == nullptr || (static_cast<unsigned>(Obj->ObjectClass) & 0x503) != 0x503)
+        return -1;
+    return static_cast<CShip*>(Obj)->get_targeted_enemy_count();
 }
 
 // ---------------------------------------------------------------------------

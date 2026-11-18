@@ -330,6 +330,14 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
             .map(|b| &**b)
     }
 
+    /// The behaviour with an index, mutably.
+    pub fn behavior_mut(&mut self, index: i32) -> Option<&mut dyn Behavior<W>> {
+        usize::try_from(index)
+            .ok()
+            .and_then(|i| self.behaviors.get_mut(i))
+            .map(|b| &mut **b as &mut dyn Behavior<W>)
+    }
+
     /// Whether the behaviour with an index is ported.
     #[must_use]
     pub fn is_ported(&self, index: i32) -> bool {

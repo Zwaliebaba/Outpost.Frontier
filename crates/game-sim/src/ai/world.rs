@@ -545,12 +545,13 @@ pub trait AiWorld {
     /// One `IObjAffect` call on `h`; the slot's integer result.
     fn command(&mut self, h: Self::Handle, command: AiCommand<Self::Handle>) -> i32;
 
-    /// The objects the ship's scanner lists (`get_scanlist(list, 0x7ffdff,
-    /// keep)` behind the scanner's status test of `BuildAiTargetList`), in
-    /// scan order; `None` when the ship has no working scanner or the call
-    /// fails. The default has no scanner.
-    fn scan_list(&self, h: Self::Handle) -> Option<Vec<Self::Handle>> {
-        let _ = h;
+    /// `get_scanlist(list, 0x7ffdff, keep)` as `BuildAiTargetList` calls
+    /// it: without `keep` the scanner's cache is cleared first, then it
+    /// scans for the types of the mask it has not scanned this frame; the
+    /// scanner's list, in scan order. `None` when the ship has no scanner
+    /// or the call fails. The default has no scanner.
+    fn scan_list(&mut self, h: Self::Handle, keep: bool) -> Option<Vec<Self::Handle>> {
+        let _ = (h, keep);
         None
     }
 

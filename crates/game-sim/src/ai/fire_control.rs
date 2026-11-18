@@ -524,7 +524,7 @@ impl GunGroups {
         }
         if !aggressive
             && !has_target_in_forward_arc(
-                &*env.world,
+                &mut *env.world,
                 env.ship,
                 list,
                 self.mine_launch_cone_angle,
@@ -659,7 +659,7 @@ impl GunGroups {
 /// > 0`), within range, faster than 10 m/s, heading the same way (cosine
 /// above 0.95) and within `max_angle` of the ship's tail.
 pub fn has_target_in_forward_arc<W: AiWorld + ?Sized>(
-    world: &W,
+    world: &mut W,
     ship: W::Handle,
     list: &mut TargetList,
     max_angle: f32,
