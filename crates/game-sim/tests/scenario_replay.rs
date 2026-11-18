@@ -30,10 +30,18 @@
 //! The guided munitions (P2.5, the server's `Guided` controller) are
 //! compared with the oracle's `guided` records of `tick.jsonl` and its
 //! `guided` cores of `psi.jsonl`, each side's numbered by id (the launch
-//! order): the launch tick, the last tick alive, the speed then, and the
-//! first bit difference of the trajectory and of the core. In a scenario
-//! the oracle records missiles for, a missile launched or spent at another
-//! tick, or one side's missile without the other's, is a gross divergence.
+//! order): the launch tick, the tick it is spent, the speed then, and the
+//! first bit difference of the trajectory and of the core.
+//!
+//! A fight is judged as `ram_ship` is (owner, 2026-11-18; record 0003
+//! point 9): bit for bit up to its first contact or munition impact,
+//! whichever comes first in the oracle ([`judge_fight`]). A difference
+//! before that tick, or a contact, hit or spent missile on the Rust side
+//! before it, is a gross divergence; after it the outcome (alive states),
+//! the trajectories, the collisions, the hits and the missiles' ends are
+//! reported for the Gate G2 envelopes, because the differences after a
+//! contact come from the accepted contact solver (D87, decision O19) and
+//! the fuse's timing (D177).
 //!
 //! For every scenario, the AI ones too, the report lists the `rand()`
 //! draws the Rust world makes while it loads the system and spawns the
@@ -1133,6 +1141,7 @@ fn report_guided(
     dir: &Path,
     scenario: &str,
     ours: &Run,
+    cutoff: u32,
 ) {
     let theirs = oracle_guided(dir, scenario);
     if theirs.is_empty() && ours.guided.is_empty() {
@@ -1307,11 +1316,18 @@ fn report_guided(
             );
         }
     }
-    if rust.len() != oracle.len() && !theirs.is_empty() {
+    // Only what happens before a fight's first contact or impact is judged
+    // (`cutoff`, owner 2026-11-18): the munitions launched before it.
+    let launched_before = |v: &[(&u32, &Vec<GuidedState>)]| {
+        v.iter()
+            .filter(|(_, s)| s.first().is_some_and(|f| f.tick < cutoff))
+            .count()
+    };
+    if launched_before(&rust) != launched_before(&oracle) && !theirs.is_empty() {
         gross.push(format!(
-            "{scenario}: guided munitions rust {} vs oracle {}",
-            rust.len(),
-            oracle.len()
+            "{scenario}: guided munitions launched before tick {cutoff}: rust {} vs oracle {}",
+            launched_before(&rust),
+            launched_before(&oracle)
         ));
     }
     for k in 0..rust.len().max(oracle.len()) {
@@ -1339,7 +1355,8 @@ fn report_guided(
             continue;
         };
         let (sa, sb) = (span(av), span(bv));
-        if (sa.0, sa.1) != (sb.0, sb.1) {
+        let before = sa.0.min(sb.0) < cutoff && sa.0 != sb.0 || sa.1.min(sb.1) < cutoff;
+        if (sa.0, sa.1) != (sb.0, sb.1) && before {
             gross.push(format!(
                 "{scenario}: guided{} launched at tick {} and spent at tick {}; the oracle's at {} and {}",
                 k + 1,
@@ -2620,6 +2637,110 @@ fn judge_contact(
     }
 }
 
+/// A run's first contact or munition impact: its first collision event,
+/// munition hit or spent guided munition (the oracle's `guided` records
+/// when `dir` is given, else the run's own).
+fn first_event(dir: &Path, scenario: &str, run: &Run) -> Option<u32> {
+    let guided = oracle_guided(dir, scenario);
+    first_event_of(run, &guided)
+}
+
+fn first_event_of(run: &Run, guided: &BTreeMap<u32, Vec<GuidedState>>) -> Option<u32> {
+    let contact = run.contacts.iter().map(|c| c.tick).min();
+    let hit = run.hits.iter().map(|h| h.tick).min();
+    let spent = guided
+        .values()
+        .filter_map(|v| {
+            v.iter()
+                .find(|s| !s.alive || s.vel == Vector::ZERO)
+                .map(|s| s.tick)
+        })
+        .min();
+    [contact, hit, spent].into_iter().flatten().min()
+}
+
+/// A fight (owner, 2026-11-18; record 0003 point 9, as `ram_ship`): every
+/// object must equal the oracle exactly before the oracle's first contact
+/// or munition impact, and the Rust world must have no contact, hit or
+/// spent missile before it. After it the outcome (alive states), the
+/// collisions and the hits are reported, not judged: they fall under the
+/// Gate G2 envelopes, the differences coming from the accepted contact
+/// solver (D87, decision O19) and the fuse's timing (D177).
+fn judge_fight(
+    summary: &mut String,
+    gross: &mut Vec<String>,
+    dir: &Path,
+    s: &Scenario,
+    ours: &Run,
+    theirs: &Run,
+) {
+    let Some(first) = first_event(dir, &s.name, theirs) else {
+        // No contact or impact: the whole run is judged, outcome included.
+        for (name, a) in &ours.states {
+            if let (Some(x), Some(y)) = (a.last(), theirs.states.get(name).and_then(|b| b.last()))
+                && x.alive != y.alive
+            {
+                gross.push(format!(
+                    "{}: {name} outcome: alive {} vs the oracle's {} (no contact)",
+                    s.name, x.alive, y.alive
+                ));
+            }
+        }
+        let _ = writeln!(summary, "{}: fight without contact or impact", s.name);
+        return;
+    };
+    let rust_first = first_event_of(ours, &ours.guided);
+    let mut pre = None;
+    for (name, a) in &ours.states {
+        let Some(b) = theirs.states.get(name) else {
+            continue;
+        };
+        let n = a.len().min(b.len()).min(first as usize);
+        if let Some(t) = (0..n).find(|&t| !same_state(&a[t], &b[t])) {
+            pre = Some(pre.map_or(t, |p: usize| p.min(t)));
+            gross.push(format!(
+                "{}: {name} differs from the oracle at tick {t}, before the first contact or impact (tick {first})",
+                s.name
+            ));
+        }
+    }
+    if rust_first.is_some_and(|t| t < first) {
+        gross.push(format!(
+            "{}: the Rust world's first contact or impact comes at tick {} before the oracle's ({first})",
+            s.name,
+            rust_first.unwrap_or(0)
+        ));
+    }
+    let _ = writeln!(
+        summary,
+        "{}: fight: first contact or impact rust tick {}, oracle tick {first}; before it {}",
+        s.name,
+        rust_first.map_or_else(|| "none".to_owned(), |t| t.to_string()),
+        pre.map_or_else(
+            || "every object equals the oracle exactly".to_owned(),
+            |t| format!("the first difference is at tick {t}")
+        )
+    );
+    for (name, a) in &ours.states {
+        if let (Some(x), Some(y)) = (a.last(), theirs.states.get(name).and_then(|b| b.last())) {
+            let _ = writeln!(
+                summary,
+                "{}: after the first contact or impact (reported): {name} alive {} hull {} | oracle alive {} hull {}",
+                s.name, x.alive, x.hp, y.alive, y.hp
+            );
+        }
+    }
+    let _ = writeln!(
+        summary,
+        "{}: after the first contact or impact (reported): collision events rust {} oracle {}; munition hits rust {} oracle {}",
+        s.name,
+        ours.contacts.len(),
+        theirs.contacts.len(),
+        ours.hits.len(),
+        theirs.hits.len()
+    );
+}
+
 /// The number of `rand()` draws a generator seeded with `seed` made to
 /// reach `now`, `None` beyond `LOAD_DRAWS_SEARCH`.
 fn draws_since(seed: u32, now: &CrtRand) -> Option<usize> {
@@ -2799,7 +2920,7 @@ fn scenarios_against_the_oracle() {
             );
             // The missiles fly before it.
             if let Some(dir) = &oracle {
-                report_guided(&mut summary, &mut gross, dir, &s.name, &our_run);
+                report_guided(&mut summary, &mut gross, dir, &s.name, &our_run, u32::MAX);
             }
             continue;
         }
@@ -2866,11 +2987,12 @@ fn scenarios_against_the_oracle() {
                 "{}: {name}: max position error {max_pos:.4} m (tick {max_tick}), velocity {max_vel:.4} m/s, orientation {max_orient:.6}, alive mismatches {alive_mismatch}, final hp {} vs {}",
                 s.name, fa.hp, fb.hp
             );
-            // A fight (the ships' attitudes come from the oracle) is
-            // chaotic contact (record 0003 point 9): judged by its outcome,
-            // which stays strict (owner, 2026-11-18).
+            // A fight (the ships' attitudes come from the oracle) is judged
+            // exactly to its first contact or impact and its outcome is
+            // reported after it (`judge_fight`; owner, 2026-11-18). The
+            // other scenarios without contact keep their strict outcome.
             let fight = !ai.attitudes.is_empty();
-            if !s.contact && ((!fight && max_pos > bound) || fa.alive != fb.alive) {
+            if !s.contact && !fight && (max_pos > bound || fa.alive != fb.alive) {
                 gross.push(format!(
                     "{}: {name} (position {max_pos:.1} m > {bound:.1} m or alive {} vs {})",
                     s.name, fa.alive, fb.alive
@@ -2901,10 +3023,18 @@ fn scenarios_against_the_oracle() {
         }
         report_hits(&mut summary, &s.name, &our_run.hits, &their_run.hits);
         report_units(&mut summary, dir, &s.name, &our_run);
-        report_guided(&mut summary, &mut gross, dir, &s.name, &our_run);
+        let fight = !ai.attitudes.is_empty();
+        let cutoff = if fight {
+            first_event(dir, &s.name, &their_run).unwrap_or(u32::MAX)
+        } else {
+            u32::MAX
+        };
+        report_guided(&mut summary, &mut gross, dir, &s.name, &our_run, cutoff);
         report_contacts(&mut summary, &s, &our_run, &their_run);
         if s.contact {
             judge_contact(&mut summary, &mut gross, &s, &our_run, &their_run);
+        } else if fight {
+            judge_fight(&mut summary, &mut gross, dir, &s, &our_run, &their_run);
         } else if our_run.contacts.is_empty() != their_run.contacts.is_empty() {
             gross.push(format!(
                 "{}: collision events rust {} vs oracle {}",
