@@ -6,12 +6,15 @@
 //! (`RecordedRand`).
 //!
 //! Each object keeps one Rust manager for the whole run, so the state the
-//! records do not hold (the behaviours' own fields, the thrust manager's
-//! caches) carries over from the Rust side's previous tick; the recorded
-//! fields (`ai_in`: behaviour, state graph, directive, mask, lock, dirty,
-//! suppressed, the five timers, in-sights, f118, f11c, f120, the score
-//! table, the target list and the personality) are set from the record
-//! before each tick. After the tick the manager fields are compared with
+//! records do not hold (the behaviours' own fields but the face
+//! behaviour's, the thrust manager's caches) carries over from the Rust
+//! side's previous tick; the recorded fields (`ai_in`: behaviour, state
+//! graph, directive, mask, lock, dirty, suppressed, the five timers,
+//! in-sights, f118, f11c, f120, the score table, the pathfinder and thrust
+//! fields, `flags_1c8`, the system manager's combat state, the face
+//! behaviour's fields, the target list and the personality) are set from
+//! the record before each tick. The ship's equipment, its lead fire
+//! positions and the ships' targeted-enemy counts come from the snapshot. After the tick the manager fields are compared with
 //! `ai_out` bit for bit, the `rand()` draws by count, and the commands
 //! with the `affect` records of `calls.jsonl` that carry the tick's `seq`
 //! (the recorded slots 0 to 3, 13 and 18 to 21; the calls the behaviour
@@ -1359,4 +1362,6 @@ fn behavior_ticks_against_the_oracle() {
     print!("{summary}");
     let _ = fs::write(dir.join("rust-behavior-replay.txt"), &summary);
     assert_eq!(totals.mismatched, 0, "{summary}");
+    assert_eq!(totals.state_mismatched, 0, "{summary}");
+    assert_eq!(totals.unanswered, 0, "{summary}");
 }

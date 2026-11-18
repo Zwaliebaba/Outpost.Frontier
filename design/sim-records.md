@@ -389,8 +389,9 @@ its commands, the ship's scan list from its next tick's `ai_in.targets`
 (the list this tick built), the queries answered from `ai_query`, the
 ship's equipment, lead and the ships' targeted-enemy counts from
 `ai_obj`, `rand()` from `ai_out`'s values). The combat state of `ai_out`
-(`flags_1c8`, `sys`, `face`) is compared and reported on a line of its
-own, with the equipment queries the snapshot cannot answer (an
+(`flags_1c8`, `sys`, `face`) is compared too and reported on a line of
+its own, with the equipment queries the snapshot cannot answer; a
+difference or such a query fails the test like a mismatched tick (an
 `is_pointing_at` at another angle, the lead of an item the snapshot has not). It compares the manager fields of `ai_out` bit for
 bit (with `pathfind` and `thrust` where the record has them), the number
 of `rand()` draws, and the commands with the `affect` records whose `beh`
