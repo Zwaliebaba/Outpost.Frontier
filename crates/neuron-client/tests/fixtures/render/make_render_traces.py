@@ -567,11 +567,14 @@ def scene_textured():
     t.stage_state(0, "ALPHAOP", D3DTOP_SELECTARG1)
     t.stage_state(0, "MAGFILTER", D3DTEXF_POINT)
     t.stage_state(0, "MINFILTER", D3DTEXF_POINT)
-    # Corners off the pixel centres so no texel edge falls on one.
+    # Corners off the pixel centres so no texel edge falls on one, and the
+    # first and last covered rows and columns at least 0.3 px inside the
+    # quad: with -0.72 the last row sampled v = 0.9991, and Direct3D 8 on
+    # CI (v >= 1, wrapped) and Direct3D 12 (v < 1) disagreed there (D278).
     quad = xyz_diffuse_tex1([
-        (-0.72, -0.72, -0.5, argb(255, 255, 255, 255), 0.0, 1.0),
-        (-0.72, 0.68, -0.5, argb(255, 255, 255, 0), 0.0, 0.0),
-        (0.68, -0.72, -0.5, argb(255, 0, 255, 255), 1.0, 1.0),
+        (-0.71, -0.71, -0.5, argb(255, 255, 255, 255), 0.0, 1.0),
+        (-0.71, 0.68, -0.5, argb(255, 255, 255, 0), 0.0, 0.0),
+        (0.68, -0.71, -0.5, argb(255, 0, 255, 255), 1.0, 1.0),
         (0.68, 0.68, -0.5, argb(255, 255, 255, 255), 1.0, 0.0),
     ])
     t.draw_primitive(D3DPT_TRIANGLESTRIP, FVF_XYZ | FVF_DIFFUSE | FVF_TEX1, quad, 4)

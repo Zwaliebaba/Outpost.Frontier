@@ -23,7 +23,7 @@
 {"seq":18,"frame":1,"interface":"IRenderPipeline","method":"SetTextureStageState","args":{"Stage":0,"Type":4,"Value":2},"ret":0}
 {"seq":19,"frame":1,"interface":"IRenderPipeline","method":"SetTextureStageState","args":{"Stage":0,"Type":16,"Value":1},"ret":0}
 {"seq":20,"frame":1,"interface":"IRenderPipeline","method":"SetTextureStageState","args":{"Stage":0,"Type":17,"Value":1},"ret":0}
-{"seq":21,"frame":1,"interface":"IRenderPipeline","method":"DrawPrimitive","args":{"Prim":5,"Fvf":322,"Verts":{"size":96,"blob":"fcbdbecd093433e5"},"Count":4,"Unused":0},"ret":0}
+{"seq":21,"frame":1,"interface":"IRenderPipeline","method":"DrawPrimitive","args":{"Prim":5,"Fvf":322,"Verts":{"size":96,"blob":"5f646c138c22866d"},"Count":4,"Unused":0},"ret":0}
 {"seq":22,"frame":1,"interface":"IRenderPipeline","method":"EndScene","args":{},"ret":0}
 {"seq":23,"frame":1,"interface":"IRenderPipeline","method":"SwapBuffers","args":{},"ret":0}
 {"frame":1,"frame_image":null,"note":"synthetic trace: the reference image is expected.bmp beside this file (Oracle.exe render-replay)"}
