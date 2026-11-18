@@ -9,6 +9,7 @@
 
 pub mod appearance;
 pub mod compare;
+pub mod deformable;
 pub mod ff;
 pub mod material;
 pub mod mesh;

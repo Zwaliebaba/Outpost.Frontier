@@ -401,3 +401,7 @@ void RunDfmDataDump(const std::vector<std::string>& Files)
     }
     printf("dumped %u dfm files\n", (unsigned int)Dfm.size());
 }
+
+// P4.7: the deformable suite (deformable.jsonl) reaches the reference's Deformable2 classes and
+// static functions, so it is compiled here, after them.
+#include "oracle_deformable.cpp"

@@ -1635,6 +1635,9 @@ void RunMaterialAppearanceSuite();
 // oracle_mesh_render.cpp (compiled into oracle_mesh_data.cpp): RendComp at run time
 // (mesh_render.jsonl).
 void RunMeshRenderSuite();
+// oracle_deformable.cpp (compiled into oracle_mesh_data_dfm.cpp): Deformable2 at run time
+// (deformable.jsonl).
+void RunDeformableSuite();
 
 void RunMaterialSuites()
 {
@@ -1654,4 +1657,5 @@ void RunMaterialSuites()
     RunMaterialSurfaceSuite();
     RunMaterialAppearanceSuite();
     RunMeshRenderSuite();
+    RunDeformableSuite();
 }

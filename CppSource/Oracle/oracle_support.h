@@ -246,7 +246,9 @@ void BigImageSuite();
 // P4.5 (oracle_material.cpp): the material regular expressions, library, global records,
 // animation and batcher of Shading.dll, over
 // crates/neuron-client/tests/fixtures/oracle/material_*.list; called by RunNeuronClientSuites,
-// last (its batcher cases leave their INI in the manager's profile parser).
+// last (its batcher cases leave their INI in the manager's profile parser). It also runs the
+// P4.6 mesh render suite and the P4.7 deformable suite (oracle_deformable.cpp, compiled into
+// oracle_mesh_data_dfm.cpp), which need its math engine.
 void RunMaterialSuites();
 // P4.8 (oracle_particles.cpp): particlefx.dll's ramp evaluation and simulation (its sources
 // compiled in), over crates/neuron-client/tests/fixtures/oracle/particle_{ramp,sim}.list; called
