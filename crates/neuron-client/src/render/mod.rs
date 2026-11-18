@@ -3,8 +3,11 @@
 //! Direct3D 12 backend and the trace player; textures at run time
 //! ([`texture`]); materials, their animation and the batcher
 //! ([`material`]); the render manager, levels of detail and the mesh
-//! kinds ([`mesh`]); particle effects ([`particles`]).
+//! kinds ([`mesh`]); `FLAppearance`'s override materials, backdrop,
+//! starsphere and blob shadows ([`appearance`]); particle effects
+//! ([`particles`]).
 
+pub mod appearance;
 pub mod compare;
 pub mod ff;
 pub mod material;

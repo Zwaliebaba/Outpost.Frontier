@@ -171,9 +171,10 @@ pub trait SurfaceServices: MaterialServices {
     fn candidate_parameter_word(&mut self, candidate: MaterialId, index: u32) -> u32;
 }
 
-/// The engine, the instance values and the counters for
-/// [`super::super::Shading`]'s [`SurfaceServices`]: what `FLAppearance`
-/// publishes. Every method answers as an engine that is not there.
+/// The engine for [`super::super::Shading`]'s [`SurfaceServices`]: what
+/// `FLAppearance` publishes as `G_FlmEngineOuter`. Every method answers as
+/// an engine that is not there. The instance values are
+/// [`super::super::Shading::values`].
 pub trait SurfaceEngine {
     /// `G_FlmEngineOuter` is set.
     fn present(&self) -> bool {
@@ -190,16 +191,93 @@ pub trait SurfaceEngine {
     fn root(&mut self, instance: usize) -> usize {
         instance
     }
+}
 
-    /// `FlmLookupIdValue`.
-    fn value(&mut self, id: i32) -> Option<u32> {
-        let _ = id;
-        None
+/// A value `IFLAppearance::SetInstanceValue` stores (`void*`): the game
+/// stores an opacity's bits for the cloak and colourize materials and a
+/// texture name for `EnvMapMaterial`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum InstanceValue {
+    /// A word stored as the pointer (an opacity's bits, or null for 0).
+    Word(u32),
+    /// A pointer to a NUL-terminated name.
+    Name(Vec<u8>),
+}
+
+/// `G_IdValues`, the instance values `FLAppearance` keeps by instance id
+/// and the surface materials read (`FlmLookupIdValue`). Id -1 is refused.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct InstanceValues {
+    values: std::collections::BTreeMap<i32, InstanceValue>,
+}
+
+impl InstanceValues {
+    /// No values.
+    #[must_use]
+    pub fn new() -> InstanceValues {
+        InstanceValues::default()
     }
 
-    /// The string a stored value points to.
-    fn value_name(&mut self, id: i32) -> Option<Vec<u8>> {
-        let _ = id;
-        None
+    /// `SetInstanceValue`: stores or replaces the value; -1 for id -1.
+    pub fn set(&mut self, id: i32, value: InstanceValue) -> i32 {
+        if id == -1 {
+            return -1;
+        }
+        self.values.insert(id, value);
+        0
+    }
+
+    /// `GetInstanceValue` and `FlmLookupIdValue`: the value stored, `None`
+    /// for id -1 or a miss.
+    #[must_use]
+    pub fn get(&self, id: i32) -> Option<&InstanceValue> {
+        if id == -1 {
+            return None;
+        }
+        self.values.get(&id)
+    }
+
+    /// `RemoveInstanceValue`: -1 for id -1, else 0 whether or not a value
+    /// was stored.
+    pub fn remove(&mut self, id: i32) -> i32 {
+        if id == -1 {
+            return -1;
+        }
+        self.values.remove(&id);
+        0
+    }
+
+    /// The value as the word a material reads (`CloakMaterial`,
+    /// `ColorizeMaterial`): `None` for a miss or a name, whose pointer the
+    /// reference would read (divergence D320).
+    #[must_use]
+    pub fn word(&self, id: i32) -> Option<u32> {
+        match self.get(id)? {
+            InstanceValue::Word(word) => Some(*word),
+            InstanceValue::Name(_) => None,
+        }
+    }
+
+    /// The name the value points to (`EnvMapMaterial`): `None` for a miss,
+    /// a null word or another word, which the reference would read as a
+    /// pointer (divergence D320).
+    #[must_use]
+    pub fn name(&self, id: i32) -> Option<Vec<u8>> {
+        match self.get(id)? {
+            InstanceValue::Name(name) => Some(name.clone()),
+            InstanceValue::Word(_) => None,
+        }
+    }
+
+    /// The number of values stored.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.values.len()
+    }
+
+    /// No value is stored.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.values.is_empty()
     }
 }

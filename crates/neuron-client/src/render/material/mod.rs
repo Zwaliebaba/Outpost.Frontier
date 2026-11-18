@@ -58,7 +58,9 @@ pub use library::{LibraryLoad, MapEntry, MapRule, MaterialGroup, MaterialLibrary
 pub use regex::MaterialRegex;
 pub use services::{MaterialServices, VertexLock};
 pub use shading::{InstanceExtents, Shading};
-pub use surface::{SurfaceFactory, SurfaceMaterial, SurfaceServices};
+pub use surface::{
+    InstanceValue, InstanceValues, SurfaceFactory, SurfaceMaterial, SurfaceServices,
+};
 
 /// `GR_OK`.
 pub const GR_OK: i32 = 0;

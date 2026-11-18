@@ -140,9 +140,12 @@
     <ClCompile Include="..\Shading\MaterialLibrary.cpp" />
     <ClCompile Include="..\Shading\MaterialRegex.cpp" />
     <!-- P4.5: surfacematerials.dll's materials for oracle_material_surface.cpp (material_surface);
-         its DllMain renamed, FLAppearance.cpp not compiled (the suite defines what the materials
-         use of it). -->
+         its DllMain renamed. FLAppearance.cpp is not compiled on its own: oracle_material_surface.cpp
+         defines what the materials use of it, and oracle_material_appearance.cpp
+         (material_appearance) includes it with those four definitions renamed. -->
     <ClCompile Include="oracle_material_surface.cpp" />
+    <ClCompile Include="oracle_material_appearance.cpp" />
+    <ClInclude Include="..\surfacematerials\FLAppearance.cpp" />
     <ClCompile Include="..\surfacematerials\MaterialImpl.cpp" />
     <ClCompile Include="..\surfacematerials\surfacematerials.cpp">
       <PreprocessorDefinitions>DllMain=SurfaceMaterialsDllMain;%(PreprocessorDefinitions)</PreprocessorDefinitions>

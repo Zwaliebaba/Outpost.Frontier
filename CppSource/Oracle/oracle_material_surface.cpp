@@ -44,8 +44,9 @@
 //     GetParameterValue       "cparam","i","v": the word written to the first payload
 //
 // and every operation writes {"case","op",...} after the lines of its calls. Floats are the
-// eight hex digits of the f32. FLAppearance.cpp is not compiled: G_FlmEngineOuter,
-// FlmLookupIdValue, FlmCreateMathEngine and FlmCreateAppearanceInstance are defined here.
+// eight hex digits of the f32. FLAppearance.cpp is not compiled with the materials:
+// G_FlmEngineOuter, FlmLookupIdValue, FlmCreateMathEngine and FlmCreateAppearanceInstance are
+// defined here (oracle_material_appearance.cpp compiles it under other names for its own suite).
 
 #include "oracle_support.h"
 

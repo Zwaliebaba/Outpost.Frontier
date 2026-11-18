@@ -184,8 +184,9 @@ jobs:
         # oracle_big_image.cpp); P4.5: the material regular expressions, library,
         # global records, animation and batcher of Shading (oracle_material.cpp), and
         # the 22 material kinds and BatchedMaterial against recording services
-        # (oracle_material_kinds.cpp) and surfacematerials' 19 materials
-        # (oracle_material_surface.cpp; material_*.jsonl); P4.6: RendComp's render
+        # (oracle_material_kinds.cpp), surfacematerials' 19 materials
+        # (oracle_material_surface.cpp) and FLAppearance (oracle_material_appearance.cpp;
+        # material_*.jsonl); P4.6: RendComp's render
         # manager and mesh kinds against recording services (oracle_mesh_render.cpp,
         # compiled into oracle_mesh_data.cpp; mesh_render.jsonl); P4.8: particlefx's
         # ramp evaluation and simulation, its sources compiled in
