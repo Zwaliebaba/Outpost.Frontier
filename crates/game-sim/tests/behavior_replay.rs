@@ -347,6 +347,7 @@ struct Totals {
     ticks: usize,
     compared: usize,
     matched: usize,
+    matched_with_stand_ins: usize,
     mismatched: usize,
     skipped: BTreeMap<i32, usize>,
     skipped_candidate: BTreeMap<i32, usize>,
@@ -466,6 +467,9 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
         if bits_equal(&ours, out) && our_commands == their_commands && rand_ok {
             totals.compared += 1;
             totals.matched += 1;
+            if unported_candidate(manager, t.input.behavior).is_some() {
+                totals.matched_with_stand_ins += 1;
+            }
             continue;
         }
         // A mismatch after a poll of a behaviour that is not ported says
@@ -508,10 +512,11 @@ fn behavior_ticks_against_the_oracle() {
     let mut summary = String::new();
     let _ = writeln!(
         summary,
-        "behaviour replay: {} ticks, {} compared, {} matched, {} mismatched ({} with a rand count mismatch); skipped by behaviour id {:?}; skipped after polling an unported behaviour {:?}",
+        "behaviour replay: {} ticks, {} compared, {} matched ({} of them with stand-in polls of unported candidates), {} mismatched ({} with a rand count mismatch); skipped by behaviour id {:?}; skipped after polling an unported behaviour {:?}",
         totals.ticks,
         totals.compared,
         totals.matched,
+        totals.matched_with_stand_ins,
         totals.mismatched,
         totals.rand_mismatch,
         totals.skipped,
