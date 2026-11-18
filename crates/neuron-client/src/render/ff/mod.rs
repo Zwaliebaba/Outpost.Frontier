@@ -8,11 +8,14 @@
 //! materials, resources, the draw packet and the recording backend follow.
 
 pub mod arena;
+pub mod buffers;
 pub mod defaults;
+pub mod device;
 pub mod draw;
 pub mod fvf;
 pub mod geometry;
 pub mod lights;
 pub mod model;
 pub mod state;
+pub mod textures;
 pub mod transforms;
