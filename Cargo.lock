@@ -171,8 +171,6 @@ name = "game-app"
 version = "0.1.0"
 dependencies = [
  "neuron-client",
- "neuron-core",
- "toml",
 ]
 
 [[package]]

@@ -7,8 +7,6 @@ publish.workspace = true
 
 [dependencies]
 neuron-client.workspace = true
-neuron-core.workspace = true
-toml.workspace = true
 
 [lints]
 workspace = true
