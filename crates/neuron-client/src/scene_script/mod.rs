@@ -8,10 +8,14 @@
 //! opcodes the shipped scripts use (decisions T8 and O18, design/facts.md
 //! F15); anything else is rejected (divergence D86).
 //!
-//! This module so far holds the evaluator ([`Vm`]), the parser's first
-//! pass ([`load()`]) and its second ([`build()`]), which turns the
-//! evaluated tables into entity and event descriptors; curve and spline
-//! evaluation and playback follow.
+//! The module holds the evaluator ([`Vm`]), the parser's first pass
+//! ([`load()`]) and its second ([`build()`]), which turns the evaluated
+//! tables into entity and event descriptors, and the run time the
+//! descriptors drive: param curves ([`curve`], `ParamCurve.cpp`), motion
+//! paths ([`spline`], `SplinePath.cpp` and `SplineMath.h`) and the scene
+//! with its timeline ([`playback`], `SceneScriptScene.cpp` and the parts of
+//! `SceneScript.cpp` that drive it), whose engine effects go through the
+//! [`playback::EntityControls`] a host attaches to an entity.
 //!
 //! The evaluator follows Lua 3.2.2, whose copyright notice is kept here as
 //! its licence asks:
@@ -54,10 +58,14 @@
 
 mod build;
 pub mod chunk;
+pub mod curve;
 pub mod entity;
 pub mod event;
 mod load;
 pub mod number;
+pub mod playback;
+pub mod spline;
+mod spline_math;
 mod table;
 mod vm;
 

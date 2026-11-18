@@ -155,6 +155,12 @@
       <AdditionalIncludeDirectories>$(ProjectDir)..\SceneScript\lua32\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <ClCompile Include="..\SceneScript\SceneScriptScene.cpp" />
+    <!-- P4.14: the run time. oracle_scene_script_runtime.cpp drives the curves, the spline
+         paths and the scene's playback; it defines the two SceneScript.cpp functions they
+         need (SceneScriptNameEqual, SceneScriptAcquire3DMathEngine). -->
+    <ClCompile Include="oracle_scene_script_runtime.cpp" />
+    <ClCompile Include="..\SceneScript\ParamCurve.cpp" />
+    <ClCompile Include="..\SceneScript\SplinePath.cpp" />
     <ClCompile Include="..\SceneScript\SceneScriptControlCalls.cpp">
       <Optimization>MaxSpeed</Optimization>
       <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
