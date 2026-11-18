@@ -311,6 +311,9 @@ struct Run {
     managers: Vec<String>,
     /// The first manager's pathfinder phases (its first three draws).
     pathfind_phases: Option<[f32; 3]>,
+    /// The first behaviour the port does not have that an AI ship ran, and
+    /// the tick (the state graph can pick one without a directive).
+    unported: Option<(i32, u32)>,
 }
 
 fn shield_of(world: &World, h: ObjHandle) -> (Option<f32>, Option<ShieldState>) {
@@ -575,6 +578,13 @@ fn run_skipping(s: &Scenario, skip: usize) -> Option<Run> {
             }
         }
         world.step(system, s.frame as f32);
+        if out.unported.is_none() {
+            out.unported = handles.values().flatten().find_map(|&h| {
+                let m = world.behavior_manager(h)?;
+                let b = m.state.behavior;
+                (b != -1 && !m.is_ported(b)).then_some((b, tick))
+            });
+        }
         let mut running: BTreeMap<String, State> = out
             .states
             .iter()
@@ -1020,6 +1030,14 @@ fn scenarios_against_the_oracle() {
             let _ = writeln!(summary, "{}: did not run", s.name);
             continue;
         };
+        if let Some((b, tick)) = our_run.unported {
+            let _ = writeln!(
+                summary,
+                "{}: skipped, an AI ship runs behaviour {b} from tick {tick}, which is not ported (AI is P2.5)",
+                s.name
+            );
+            continue;
+        }
         let ours = &our_run.states;
         for m in &our_run.managers {
             let _ = writeln!(summary, "{}: {m}", s.name);

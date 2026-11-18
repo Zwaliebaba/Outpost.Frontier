@@ -40,10 +40,14 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
-use game_sim::ai::behavior::DirectiveOp;
+use game_sim::ai::behavior::{Cx, DirectiveOp};
+use game_sim::ai::face_idea::FaceIdea;
 use game_sim::ai::manager::{BehaviorManager, ManagerState};
 use game_sim::ai::personality::Personality;
 use game_sim::ai::state_graph::StateGraphDb;
+use game_sim::ai::steer::{
+    build_orientation_basis, build_perpendicular_frame, steering_frame_from_relative_dir,
+};
 use game_sim::ai::world::{
     AiCommand, AiRand, AiWorld, MotionModel, ObjectView, RayContact, RecordedRand, SpatialQueries,
 };
@@ -697,6 +701,75 @@ fn report(
     r
 }
 
+/// A diagnostic for a mismatching face tick: the commands a fresh face
+/// idea gives on the tick's entry state for each frame the face behaviour
+/// could have built toward `point` (`BuildOrientationBasis`,
+/// `BuildPerpendicularFrame`, `SteeringFrameFromRelativeDir`).
+fn face_variants(
+    t: &AiTick,
+    motion: Option<&MotionWorld>,
+    entry: &ManagerState,
+    point: Vector,
+) -> String {
+    let Some(own) = t
+        .objects
+        .iter()
+        .find(|o| o.id == t.id)
+        .and_then(|o| o.view.clone())
+    else {
+        return String::new();
+    };
+    let reference = own.orientation;
+    let diff = Vector::new(
+        (f64::from(point.x) - f64::from(own.center.x)) as f32,
+        (f64::from(point.y) - f64::from(own.center.y)) as f32,
+        (f64::from(point.z) - f64::from(own.center.z)) as f32,
+    );
+    let frames = [
+        (
+            "orientation basis",
+            Some(build_orientation_basis(&reference, diff, None)),
+        ),
+        (
+            "perpendicular frame",
+            build_perpendicular_frame(diff, 0.999, None),
+        ),
+        (
+            "steering frame",
+            Some(steering_frame_from_relative_dir(
+                &reference,
+                diff,
+                Vector::new(0.0, 1.0, 0.0),
+            )),
+        ),
+    ];
+    let mut out = String::new();
+    for (name, frame) in frames {
+        let Some(frame) = frame else {
+            let _ = write!(out, "\n  variant {name}: none");
+            continue;
+        };
+        let mut w = ReplayWorld::new(t, Vec::new(), motion, true);
+        let mut st = entry.clone();
+        let mut cx = Cx {
+            world: &mut w,
+            ship: t.id,
+            state: &mut st,
+        };
+        let mut idea = FaceIdea::new();
+        idea.set_context(&cx);
+        idea.set_basis(&frame);
+        idea.update(&mut cx);
+        let commands: Vec<AffectRow> = w.commands.iter().filter_map(as_affect).collect();
+        let _ = write!(
+            out,
+            "\n  variant {name}: frame {:08x?} commands {commands:08x?}",
+            frame.to_words().map(f32::to_bits)
+        );
+    }
+    out
+}
+
 fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Totals) {
     let ticks = read_ai_ticks(path);
     let affects = path
@@ -718,6 +791,7 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
     // recorded exit (the state a directive between ticks finds).
     let mut submitted = 0usize;
     let mut last_out: BTreeMap<u32, ManagerRecord> = BTreeMap::new();
+    let mut face_point: Option<Vector> = None;
     let mut personalities: BTreeMap<u32, Personality> = BTreeMap::new();
     for (index, t) in ticks.iter().enumerate() {
         // The list this tick builds is the one the ship's next tick
@@ -738,6 +812,10 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
         if first_seen.insert(t.id, ()).is_none()
             && let Some(v) = world.objects.get(&t.id)
             && totals.first_views.len() < MAX_REPORTED
+            && path
+                .parent()
+                .and_then(Path::file_name)
+                .is_some_and(|n| n == "run_01")
         {
             // What the recorder's `get_physical_radius` and box give for
             // the ship, against the Rust world's answer for the same ship.
@@ -801,6 +879,9 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
             restore(&mut manager.state, &before, t, graphs);
             let recorded = std::mem::take(&mut world.rand);
             for op in pending {
+                if let DirectiveOp::Face(f) = &op {
+                    face_point = Some(f.point);
+                }
                 if !matches!(op, DirectiveOp::Cancel) {
                     manager.submit_directive(&mut world, t.id, &DirectiveOp::Cancel, 0);
                 }
@@ -811,6 +892,7 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
         }
         restore(&mut manager.state, &t.input, t, graphs);
         manager.state.stand_in_polls = 0;
+        let entry_state = manager.state.clone();
         if let Some(p) = personalities.get(&t.id) {
             manager.state.personality = *p;
         }
@@ -862,14 +944,20 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
             totals.rand_mismatch += 1;
         }
         if totals.reports.len() < MAX_REPORTED {
-            totals.reports.push(report(
+            let mut r = report(
                 path,
                 t,
                 out,
                 &ours,
                 (&their_commands, &our_commands),
                 &world,
-            ));
+            );
+            if t.input.behavior == 15
+                && let Some(point) = face_point
+            {
+                r.push_str(&face_variants(t, motion.as_ref(), &entry_state, point));
+            }
+            totals.reports.push(r);
         }
     }
 }
