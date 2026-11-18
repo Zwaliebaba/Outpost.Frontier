@@ -679,8 +679,10 @@ impl World {
                     ),
                     None => (Vec::new(), Vec::new()),
                 };
+            // `get_explosion_dmg_bounding_sphere` for the hull's passes.
+            let explosion = self.explosion_dmg_bounding_sphere(h).filter(|s| s.0 >= 0.0);
             let mut spheres = damage::BlastSpheres {
-                hull,
+                hull: explosion.unwrap_or(hull),
                 physical: hull,
                 ..damage::BlastSpheres::default()
             };

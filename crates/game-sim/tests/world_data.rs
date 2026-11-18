@@ -423,6 +423,42 @@ fn a_gate_opens_and_closes_and_a_bay_cycles() {
     assert_eq!(bay(&world), Some(BayState::Closed));
 }
 
+#[test]
+fn hardpoint_summary_and_explosion_sphere() {
+    use game_sim::object::bounds::HardpointSummary;
+    let Some(mut world) = support::world::world(WorldConfig::default()) else {
+        println!("outdir/ is missing: no hardpoints");
+        return;
+    };
+    let system = create_id(b"he01");
+    world.load_system(system);
+    let ship = fighter(&mut world, system, Vector::new(100.0, 200.0, 300.0));
+    let root = world.get(ship).unwrap().engine.instance;
+    let mut summary = HardpointSummary::default();
+    let count = summary.analyze_instance(world.scene(), root);
+    println!("{count} hardpoints");
+    assert!(count > 10);
+    assert!(summary.find_name(b"hpweapon01").is_some(), "case ignored");
+    assert_eq!(summary.find_name_instance(b"HpWeapon01"), root);
+    assert!(summary.info_by_name(b"NoSuchHardpoint").is_none());
+    summary.expire_instance();
+    assert_eq!(summary.find_name_instance(b"HpWeapon01"), None);
+    let (_, ps) = world
+        .find_hardpoint_ps(root, b"HpWeapon01")
+        .expect("on the root");
+    println!("HpWeapon01 at {:?}", ps.translation);
+
+    let (radius, center) = world.explosion_dmg_bounding_sphere(ship).expect("a sphere");
+    println!("explosion sphere {radius} at {center:?}");
+    assert!(radius > 1.0 && radius < 100.0);
+    let d = speed(Vector::new(
+        center.x - 100.0,
+        center.y - 200.0,
+        center.z - 300.0,
+    ));
+    assert!(d < f64::from(radius), "the sphere holds the ship's origin");
+}
+
 /// A gun's turret joints, as the world holds them.
 fn gun_joints(
     world: &game_sim::object::World,
