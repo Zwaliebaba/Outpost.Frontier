@@ -318,6 +318,8 @@
     <!-- P4.12-P4.14: the client's number texts (msvcrt_numeric_format.h) and RDLX markup
          through Common.dll's XMLReader (MSXML SAX2). -->
     <ClCompile Include="oracle_text.cpp" />
+    <!-- P4.12: Oracle.exe gdi-fonts, GDI's text metrics for the DirectWrite font backend. -->
+    <ClCompile Include="oracle_gdi_fonts.cpp" />
     <!-- P4.10: SoundManager.dll exports nothing but its factory; oracle_audio.cpp includes
          SoundManager.cpp (DllMain renamed, GetTickCount redirected) to call its mixer code. -->
     <ClCompile Include="oracle_audio.cpp" />
