@@ -442,22 +442,22 @@ float4 bound_or_black(uint s, float4 sampled)
 // D3DCMPFUNC: 1 never to 8 always.
 bool compare(uint func, float a, float b)
 {
-    bool pass = true;
+    bool passes = true;
     if (func == 1)
-        pass = false;
+        passes = false;
     else if (func == 2)
-        pass = a < b;
+        passes = a < b;
     else if (func == 3)
-        pass = a == b;
+        passes = a == b;
     else if (func == 4)
-        pass = a <= b;
+        passes = a <= b;
     else if (func == 5)
-        pass = a > b;
+        passes = a > b;
     else if (func == 6)
-        pass = a != b;
+        passes = a != b;
     else if (func == 7)
-        pass = a >= b;
-    return pass;
+        passes = a >= b;
+    return passes;
 }
 
 float4 ps_main(PsIn i) : SV_Target
