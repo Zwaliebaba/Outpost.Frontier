@@ -7,6 +7,7 @@
 //! primitive counting and conversion ([`geometry`]). Transforms, lights,
 //! materials, resources, the draw packet and the recording backend follow.
 
+pub mod arena;
 pub mod defaults;
 pub mod draw;
 pub mod fvf;
