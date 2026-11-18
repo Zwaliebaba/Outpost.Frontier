@@ -178,7 +178,7 @@ jobs:
         if: ${{ !cancelled() }}
         shell: pwsh
         run: |
-          Select-String -Path "$env:RUNNER_TEMP\outpost-sim\rust-scenario-replay.txt" -Pattern 'TEMP|turret joints|fight|after the first contact' | ForEach-Object { $_.Line } | Where-Object { $_ -notmatch '^\s' }
+          Select-String -Path "$env:RUNNER_TEMP\outpost-sim\rust-scenario-replay.txt" -Pattern 'turret joints|fight|after the first contact|guided\d|TEMP first hits|munition hits' | ForEach-Object { $_.Line } | Where-Object { $_ -notmatch '^\s' }
       - name: Keep the scenario spread summaries
         if: always()
         uses: actions/upload-artifact@v4
