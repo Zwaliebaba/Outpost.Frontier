@@ -235,8 +235,8 @@ impl<'a> ReplayWorld<'a> {
     }
 
     /// The ship's state after one of its `IObjAffect` calls, with the
-    /// calls the reference's bodies make in turn (`Ship::set_strafe_dir`
-    /// and `slot_54` switch the engine on, `slot_50` switches the
+    /// calls the reference's bodies make in turn (`CShip::set_throttle`,
+    /// `Ship::set_strafe_dir` and `slot_54` switch the engine on, `slot_50` switches the
     /// thrusters off before engaging cruise; `slot_4c` will not switch an
     /// engine off while the ship strafes or thrusts).
     fn follow(v: &mut ObjectView, command: &AiCommand<u32>) {
@@ -248,7 +248,11 @@ impl<'a> ReplayWorld<'a> {
             }
         };
         match command {
-            AiCommand::SetThrottle(t) => v.throttle = Some(*t),
+            AiCommand::SetThrottle(t) => {
+                // `CShip::set_throttle` activates an inactive first engine.
+                engine_on(v);
+                v.throttle = Some(*t);
+            }
             AiCommand::SetAxisThrottle(a) => v.axis_throttle = Some(*a),
             AiCommand::SetNudge(n) => v.nudge = Some(*n),
             AiCommand::SetStrafe(s) => {
