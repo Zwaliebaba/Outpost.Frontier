@@ -435,6 +435,51 @@ impl D3d12Backend {
         Ok(())
     }
 
+    /// A new back-buffer size, as `CreateBuffers` after a mode change
+    /// makes one: the scene target, its depth buffer and both views, and
+    /// the swap chain's buffers are made again at `width` by `height`.
+    /// The scene's contents are lost, as a Direct3D 8 `Reset` loses them;
+    /// resources, pipelines and samplers are kept. A window resized
+    /// without a new size needs nothing: the flip-model swap chain
+    /// stretches the back buffer to the client area, as a windowed
+    /// Direct3D 8 `Present` did.
+    pub fn resize(&mut self, width: u32, height: u32) -> Result<(), GpuError> {
+        self.flush()?;
+        let target = RenderTarget::new(&self.gpu, width, height)?;
+        let depth = depth_buffer(&self.gpu, width, height)?;
+        let scene_view = srv_desc(DXGI_FORMAT_B8G8R8A8_UNORM, 1);
+        // SAFETY: the flush above finished every use of the old views and
+        // resources; the slots belong to heaps kept with the backend, and
+        // the new resources are kept with them below.
+        unsafe {
+            self.gpu
+                .device
+                .CreateDepthStencilView(&depth, None, self.dsv.cpu(0));
+            self.gpu.device.CreateShaderResourceView(
+                &target.resource,
+                Some(&scene_view),
+                self.srvs.cpu(self.scene_slot),
+            );
+        }
+        self.target = target;
+        self._depth = depth;
+        self.scene_state = D3D12_RESOURCE_STATE_RENDER_TARGET;
+        if let Some((mut swap, rtvs)) = self.swap.take() {
+            swap.resize(width, height)?;
+            for (i, buffer) in swap.buffers.iter().enumerate() {
+                // SAFETY: slot `i` of the heap kept with the swap chain;
+                // the old views named buffers released by the resize.
+                unsafe {
+                    self.gpu
+                        .device
+                        .CreateRenderTargetView(buffer, None, rtvs.cpu(i as u32));
+                }
+            }
+            self.swap = Some((swap, rtvs));
+        }
+        Ok(())
+    }
+
     /// An offscreen target of the scene's size, for
     /// [`D3d12Backend::blit_to_target`].
     pub fn new_target(&self) -> Result<RenderTarget, GpuError> {
@@ -1311,7 +1356,7 @@ mod tests {
     use crate::render::ff::defaults::Defaults;
     use crate::render::ff::device::Device;
     use crate::render::ff::fvf::Fvf;
-    use crate::render::ff::state::{StageState, TextureFilter, TextureOp};
+    use crate::render::ff::state::{PipelineProperty, StageState, TextureFilter, TextureOp};
 
     const SIZE: u32 = 8;
 
@@ -1543,6 +1588,22 @@ mod tests {
             d.clear(ClearFlags::TARGET | ClearFlags::DEPTH, None);
             d.present();
         }
+        // A new back-buffer size: the scene and the swap chain follow.
+        d.backend.resize(16, 4).unwrap();
+        d.set_viewport(0, 0, 16, 4);
+        d.state
+            .set_pipeline(PipelineProperty::ClearColor, 0xff00_ff00);
+        d.clear(ClearFlags::TARGET | ClearFlags::DEPTH, None);
+        let pixels = d.backend.read_back().unwrap();
+        assert_eq!(pixels.len(), 16 * 4 * 4);
+        assert!(
+            pixels
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|p| *p == [0, 255, 0, 255])
+        );
+        d.present();
         let errors = std::mem::take(&mut d.backend.errors);
         let messages = d.backend.debug_messages().join("\n");
         drop(d);
