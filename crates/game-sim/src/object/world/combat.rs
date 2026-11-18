@@ -206,7 +206,24 @@ impl World {
                 }
             }
         }
+        if let Some(log) = self.fire_log.as_mut() {
+            log.push((owner_id, out.clone()));
+        }
         out
+    }
+
+    /// Starts (or stops) keeping every [`World::fire`] call's results
+    /// (diagnostic): the shooter's id and each gun's result.
+    pub fn set_fire_log(&mut self, on: bool) {
+        self.fire_log = on.then(Vec::new);
+    }
+
+    /// The fire results kept since the last call.
+    pub fn take_fire_log(&mut self) -> Vec<(u32, Vec<(SubObjId, FireResult)>)> {
+        self.fire_log
+            .as_mut()
+            .map(std::mem::take)
+            .unwrap_or_default()
     }
 
     /// The multiplayer step's beam pass: `CBeam::move` on every bullet.

@@ -436,6 +436,21 @@ number and order of units decide when an object's motion is classified
 (D88, D122). `scenario_replay` prints them around an object's first bit
 difference.
 
+## `unit_cores.jsonl`
+
+The first core of every simulation unit of the first 12 PSIs, written by
+`UnitCoreRecord` (oracle_sim.cpp): one `unit_core` record per unit and
+PSI in the order the units ran, `tick` u, `psi` u, `i` u (the unit's
+place in the PSI's run order), `id` u and `class` u as in `units.jsonl`,
+`check` b, `in` (the core at the start of the unit's PSI, in the first
+PSI only) and `out` (at its end, before `calc_next_PSI_matrix`), both in
+the core layout of `psi.jsonl`. A unit whose object is a free part
+(class 1) adds `orient` [f×9] and `pos` [f×3] (the object's frame) and,
+with a golem, `golem_q` [f×4] and `golem_current_q` [f×4] (its
+`TargetQuat` and `CurrentTargetQuat`, x y z w). `scenario_replay`
+compares every unit core with the Rust world's bit for bit and reports
+the first difference.
+
 ## `load_rand.jsonl`
 
 The load-time `rand()` draws (owner, 2026-11-18): every draw the game

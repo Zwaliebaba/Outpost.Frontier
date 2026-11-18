@@ -373,6 +373,10 @@ struct Run {
     unported: Option<(i32, u32)>,
     /// The shots fired (`WorldEvent::Fired`).
     fired: usize,
+    /// The guided munitions launched: (tick, shooter's name, gun).
+    missiles: Vec<(u32, String, u16)>,
+    /// Every fire call: (tick, shooter's name, each gun and its result).
+    fires: Vec<(u32, String, String)>,
     /// Per object and tick, the body's core after the frame (diagnostic).
     cores: BTreeMap<String, Vec<String>>,
     /// The simulation units of the first [`UNIT_PSIS`] PSIs (`units.jsonl`).
@@ -600,6 +604,7 @@ fn run(s: &Scenario, ai: &AiInputs) -> Option<Run> {
         }
     }
     world.set_unit_trace(system, true);
+    world.set_fire_log(true);
     if s.sp_collisions {
         world.set_server_collision_filter(system, false);
     }
@@ -782,7 +787,16 @@ fn run(s: &Scenario, ai: &AiInputs) -> Option<Run> {
                     out.hits
                         .push(rust_hit(tick, &name, sub, &damage, before, st));
                 }
-                WorldEvent::Fired { .. } => out.fired += 1,
+                WorldEvent::Fired {
+                    shooter,
+                    equip,
+                    bullet,
+                } => {
+                    out.fired += 1;
+                    if bullet != 0 {
+                        out.missiles.push((tick, name_of(shooter), equip));
+                    }
+                }
                 WorldEvent::Collision {
                     a,
                     b,
@@ -800,6 +814,10 @@ fn run(s: &Scenario, ai: &AiInputs) -> Option<Run> {
         }
         record(&world, &mut out.states, &handles);
         record_cores(&world, &mut out.cores, &handles);
+        for (shooter, results) in world.take_fire_log() {
+            out.fires
+                .push((tick, name_of(shooter), format!("{results:?}")));
+        }
         // The units of the PSIs this frame ran, named while their objects
         // still exist.
         if out.units.len() < UNIT_PSIS {
@@ -1055,6 +1073,57 @@ fn report_units(summary: &mut String, dir: &Path, scenario: &str, ours: &Run) {
             .collect()
     };
     let theirs = by_spawn(&theirs);
+    // The guided munitions as simulation units: the PSI each first runs.
+    let launches = |v: &[Vec<Unit>]| {
+        let mut seen: Vec<(u32, usize)> = Vec::new();
+        for (p, psi) in v.iter().enumerate() {
+            for u in psi {
+                if u.class == 0xa7 && !seen.iter().any(|(id, _)| *id == u.id) {
+                    seen.push((u.id, p + 1));
+                }
+            }
+        }
+        seen.iter().map(|(_, p)| *p).collect::<Vec<_>>()
+    };
+    let _ = writeln!(
+        summary,
+        "{scenario}: guided munitions first stepped at PSI rust {:?} oracle {:?} (of {}); rust launches (tick, shooter, gun) {:?}",
+        launches(&ours.units),
+        launches(&theirs),
+        theirs.len(),
+        ours.missiles.iter().take(8).collect::<Vec<_>>()
+    );
+    // Around the oracle's first guided munition: the fire calls of both
+    // sides (the oracle's `affect` slot 13 records: the gun count).
+    if let Some(&first) = launches(&theirs).first() {
+        let from = u32::try_from(first).unwrap_or(0).saturating_sub(3);
+        let to = from + 4;
+        for (t, who, r) in ours.fires.iter().filter(|f| (from..=to).contains(&f.0)) {
+            let _ = writeln!(summary, "    rust fire tick {t} {who}: {r}");
+        }
+        if let Some(file) = find_files(&dir.join(scenario), "ai.jsonl")
+            .into_iter()
+            .min()
+        {
+            for r in read_lines(&file) {
+                if r.get("rec").and_then(Json::as_str) != Some("affect") {
+                    continue;
+                }
+                let tick = r.get("tick").and_then(Json::as_u32).unwrap_or(0);
+                if !(from..=to).contains(&tick) || r.get("slot").and_then(Json::as_i32) != Some(13)
+                {
+                    continue;
+                }
+                let _ = writeln!(
+                    summary,
+                    "    oracle fire tick {tick} {}: guns {} depth {}",
+                    r.get("obj").and_then(Json::as_str).unwrap_or("?"),
+                    r.get("i").and_then(Json::as_i32).unwrap_or(-1),
+                    r.get("depth").and_then(Json::as_i32).unwrap_or(-1)
+                );
+            }
+        }
+    }
     report_unit_cores(summary, dir, scenario, ours, &theirs);
     let ours_units = by_spawn(&ours.units);
     let ours = &Run {

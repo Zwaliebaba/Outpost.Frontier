@@ -313,6 +313,13 @@ pub struct World {
     /// `AnimDB`'s playback map for the ambient animations
     /// (`CEInternalFX`'s `use_animation`), by playback id.
     pub(crate) ambient: BTreeMap<i32, ambient::AmbientSub>,
+    /// The results of every fire call, when kept ([`World::set_fire_log`]).
+    pub(crate) fire_log: Option<
+        Vec<(
+            u32,
+            Vec<(crate::equip::SubObjId, crate::equip::launcher::FireResult)>,
+        )>,
+    >,
 }
 
 impl core::fmt::Debug for World {
@@ -401,6 +408,7 @@ impl World {
             animation: neuron_core::scene::animation::Animation::new(),
             anim_scripts: BTreeMap::new(),
             ambient: BTreeMap::new(),
+            fire_log: None,
         }
     }
 
