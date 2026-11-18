@@ -8,9 +8,10 @@
 //! opcodes the shipped scripts use (decisions T8 and O18, design/facts.md
 //! F15); anything else is rejected (divergence D86).
 //!
-//! This module so far holds the evaluator ([`Vm`]) and the parser's first
-//! pass ([`load()`]); the entity and event builders, curves, motion paths
-//! and playback follow.
+//! This module so far holds the evaluator ([`Vm`]), the parser's first
+//! pass ([`load()`]) and its second ([`build()`]), which turns the
+//! evaluated tables into entity and event descriptors; curve and spline
+//! evaluation and playback follow.
 //!
 //! The evaluator follows Lua 3.2.2, whose copyright notice is kept here as
 //! its licence asks:
@@ -51,12 +52,16 @@
 //! This is an altered version: a Rust evaluator for a subset of the
 //! virtual machine, not the original C source.
 
+mod build;
 pub mod chunk;
+pub mod entity;
+pub mod event;
 mod load;
 pub mod number;
 mod table;
 mod vm;
 
+pub use build::{BuildError, BuildState, Scene, Step, build};
 pub use load::{LoadError, LoadSummary, load};
 pub use table::{Native, NativeKind, Table, TableError, TableId, Value};
 pub use vm::{SCENE_CONSTANTS, ScriptError, Vm};

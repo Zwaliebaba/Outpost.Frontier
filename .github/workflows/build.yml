@@ -149,7 +149,8 @@ jobs:
         # Work package P4.14: the scene-script Lua state through the reference's
         # own Lua 3.2 (CppSource/Oracle/oracle_scene_script.cpp); P4.12-P4.14:
         # the VC6 number texts and RDLX markup through MSXML (oracle_text.cpp);
-        # P4.10: SoundManager's software mixer (oracle_audio.cpp); over
+        # P4.10: SoundManager's software mixer (oracle_audio.cpp); P4.14: the engine
+        # calls of the parser's second pass (oracle_scene_script_build.cpp); over
         # crates/neuron-client/tests/fixtures/oracle.
         shell: pwsh
         run: |

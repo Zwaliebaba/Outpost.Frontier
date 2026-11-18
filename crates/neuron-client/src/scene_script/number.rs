@@ -138,9 +138,42 @@ pub fn to_number(text: &[u8]) -> Option<f64> {
     Some(x * sign)
 }
 
+/// `luaV_tostring`: the text a number converts to where the reference asks
+/// for a string (`lua_getstring`), `MsvcrtFormatLuaNumber` of
+/// `CppSource/include/msvcrt_numeric_format.h`. That is MSVC's legacy
+/// `%.16g`: the value rounded to 17 significant digits, those rounded half
+/// up to 16, trailing zeros dropped, and an exponent of at least three
+/// digits (`1e+020`, `9e-006`).
+///
+/// One implementation serves the client and xtask:
+/// [`neuron_core::msvcrt::format_lua_number`].
+pub fn format(x: f64) -> Vec<u8> {
+    neuron_core::msvcrt::format_lua_number(x).into_bytes()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn formats_like_msvc_g16() {
+        let f = |x: f64| String::from_utf8(format(x)).unwrap();
+        assert_eq!(f(1.0), "1");
+        assert_eq!(f(0.0), "0");
+        assert_eq!(f(-0.0), "-0");
+        assert_eq!(f(0.5), "0.5");
+        assert_eq!(f(-2.25), "-2.25");
+        assert_eq!(f(1e20), "1e+020");
+        assert_eq!(f(9e-6), "9e-006");
+        assert_eq!(f(0.0001), "0.0001");
+        assert_eq!(f(1e15), "1000000000000000");
+        assert_eq!(f(1e16), "1e+016");
+        assert_eq!(f(0.99999), "0.9999900000000001");
+        assert_eq!(f(0.1), "0.1");
+        assert_eq!(f(123_456_789_012_345_680.0), "1.234567890123457e+017");
+        assert_eq!(f(9_999_999_999_999_999.0), "1e+016");
+        assert_eq!(f(f64::INFINITY), "1.#INF");
+    }
 
     #[test]
     fn reads_like_lua_not_correctly_rounded() {

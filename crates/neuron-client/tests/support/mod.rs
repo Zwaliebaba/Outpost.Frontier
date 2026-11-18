@@ -7,6 +7,7 @@
 pub mod audio;
 pub mod data;
 pub mod scene_script;
+pub mod scene_script_build;
 pub mod text;
 
 use std::fmt::Write as _;
