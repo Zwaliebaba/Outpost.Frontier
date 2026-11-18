@@ -14,6 +14,7 @@
 //        Oracle.exe neuron-client <fixture directory> <output directory>
 //        Oracle.exe sim <data root> <scenario file> <out folder> [--runs N]
 //        Oracle.exe render-replay <vectors directory> <output directory>
+//        Oracle.exe gdi-fonts <fixture directory> <output directory>
 // The second form dumps the original installation's INI files for
 // crates/neuron-core/tests/data_dump.rs; the third dumps the text
 // resources of the resource DLLs for crates/neuron-core/tests/catalog_dump.rs
@@ -491,6 +492,9 @@ int main(int Argc, char** Argv)
     // P4.3: the renderer trace player (oracle_render_replay.cpp) takes its own arguments.
     if (Argc >= 2 && strcmp(Argv[1], "render-replay") == 0)
         return RunRenderReplayMode(Argc, Argv);
+    // P4.12: GDI's text metrics on this machine (oracle_gdi_fonts.cpp) take their own arguments.
+    if (Argc >= 2 && strcmp(Argv[1], "gdi-fonts") == 0)
+        return RunGdiFontsMode(Argc, Argv);
     const bool bDump = Argc == 4 && strcmp(Argv[1], "dump") == 0;
     const bool bCatalog = Argc == 4 && strcmp(Argv[1], "catalog") == 0;
     const bool bGameSim = Argc == 4 && strcmp(Argv[1], "game-sim") == 0;

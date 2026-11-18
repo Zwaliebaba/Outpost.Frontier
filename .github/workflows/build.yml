@@ -159,6 +159,20 @@ jobs:
           git diff --no-index --stat crates/game-sim/tests/vectors oracle-out-game-sim
           git diff --no-index crates/game-sim/tests/vectors oracle-out-game-sim
           if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Run the GDI font metrics mode
+        # P4.12 (oracle_gdi_fonts.cpp): GDI's text metrics on this runner for
+        # crates/neuron-client/tests/fixtures/oracle/gdi_fonts.list, compared by
+        # the next step once tests/vectors/gdi_fonts.jsonl is committed, and with
+        # DirectWrite's by tests/gdi_font_metrics.rs. Until then it is printed.
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force oracle-out-neuron-client | Out-Null
+          & .\bin\Oracle.exe gdi-fonts "$PWD\crates\neuron-client\tests\fixtures\oracle" "$PWD\oracle-out-neuron-client"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Test-Path crates\neuron-client\tests\vectors\gdi_fonts.jsonl)) {
+            Get-Content oracle-out-neuron-client\gdi_fonts.jsonl
+            Remove-Item oracle-out-neuron-client\gdi_fonts.jsonl
+          }
       - name: Run the neuron-client suites and compare
         # Work package P4.14: the scene-script Lua state through the reference's
         # own Lua 3.2 (CppSource/Oracle/oracle_scene_script.cpp); P4.12-P4.14:
