@@ -50,7 +50,7 @@ Conventions:
 | --- | --- |
 | `start` | `version` u, `scenario` s (path), `data_root` s, `system` s, `system_id` u, `ticks` u, `frame` d (seconds), `stepping` s (`sp` or `mp`), `seed` u, `clock` d (the fixed clock at tick 0), `objects` u, `commands` u |
 | `server` | `data_path` s, `controller` u (SimClientStub's controller id), `system_id` u, `system_loaded` b |
-| `spawn` | `obj` s, `kind` s (`ship` or `solar`); a ship: `arch` s, `arch_id` u, `loadout` s, `loadout_id` u, `result` i (`pub::SpaceObj::Create`), `id` u, [`state_graph` s, `state_graph_id` i, `submit_state` i]; a solar: `nickname` s, `id` u (`CreateID(nickname)`), `found` b |
+| `spawn` | `obj` s, `kind` s (`ship` or `solar`); a ship: `arch` s, `arch_id` u, `loadout` s, `loadout_id` u, `result` i (`pub::SpaceObj::Create`), `id` u, [`state_graph` s, `state_graph_id` i, [`pilot` s, `pilot_found` b (the `pilot` option; its personality was submitted)], `submit_state` i]; with `faction`, before `arch`: `faction` s, `faction_result` i (`GetReputationGroup`), then when the group is known `faction_id` u, `vibe` i (the ship's `VibeGroupId`), `vibe_alloc` i, `vibe_affiliation` i (`pub::Reputation::Alloc`, `SetAffiliation`); a solar: `nickname` s, `id` u (`CreateID(nickname)`), `found` b |
 | `command` | `tick` u, `line` i (in the scenario file), `obj` s, `cmd` s (the command as written), `ok` b, `result` i (what the called function returned; for a directive the `OP_RTYPE`), [`note` s, why it did not run] |
 | `error`, `critical_warning`, `note` | `tick` u, `text` s (`note`: an object marked `psi` whose PSIs are not recorded, and why; once per object) |
 | `end` | `tick` u, `psi_total` u, `code` i (the exit code) |
@@ -60,7 +60,7 @@ Conventions:
 | `rec` | Fields |
 | --- | --- |
 | `frame` | `tick` u, `clock` d, `x87_cw` s, `sse_cw` s (`%08x` of `__control87_2`'s two words at the start of the frame, before the harness sets 53-bit precision again; at tick 0 after spawning), `psi_count` u (PSIs in the frame), `psi_dt` f[] (each PSI's `delta_time`) |
-| `object` | `tick` u, `obj` s, `id` u, `alive` b; when alive: `pos` f3, `orient` f9, `vel` f3, `angvel` f3, `hp` f, `hp_max` f (`IObjInspect` of the server object: `get_position`, `get_orientation`, `get_velocity`, `get_angular_velocity`, `get_status`); then (P2.4, the scenario report) `power` f, `power_max` f (`CEqObj::Power`, `MaxPower`) and `shield` {`id` u, `hp` f, `hp_max` f, `online` b (`bOnline`), `functioning` b}\|null (the first `CEShield`: `GetHitPoints`, `GetMaxHitPoints`, `IsFunctioning`); a ship also: `throttle` f, `axis` f3, `nudge` f3, `strafe` i (`StrafeDir`), `cruise` b, `behavior` i (`CurrentBehaviorIndex`, −1 for none), `state_graph` i (−1 for none), `directive` u3 (`DirectiveStorage`) |
+| `object` | `tick` u, `obj` s, `id` u, `alive` b; when alive: `pos` f3, `orient` f9, `vel` f3, `angvel` f3, `hp` f, `hp_max` f (`IObjInspect` of the server object: `get_position`, `get_orientation`, `get_velocity`, `get_angular_velocity`, `get_status`); then (P2.4, the scenario report) `power` f, `power_max` f (`CEqObj::Power`, `MaxPower`) and `shield` {`id` u, `hp` f, `hp_max` f, `online` b (`bOnline`), `functioning` b}\|null (the first `CEShield`: `GetHitPoints`, `GetMaxHitPoints`, `IsFunctioning`); a ship also: `throttle` f, `axis` f3, `nudge` f3, `strafe` i (`StrafeDir`), `cruise` b, `behavior` i (`CurrentBehaviorIndex`, −1 for none), `state_graph` i (−1 for none), `directive` u3 (`DirectiveStorage`), then (P2.5, the dogfight) `target` u\|null, `target_obj` (`IObjInspect::get_target`) |
 
 `alive` is false once the object is no longer in its system's object
 database (destroyed, docked or removed).
@@ -73,6 +73,7 @@ database (destroyed, docked or removed).
 | `munition_hit` | `tick` u, `target` u, `target_obj`, `shooter` u, `shooter_obj`, `munition` u (archetype id), `sub` u (sub-object hit) | `StarSystem::munition_collision` |
 | `dock` | `tick` u, `ship` u, `ship_obj`, `dock` u, `dock_obj`, `system` u | the `DockComplete` controller message |
 | `destroyed` | `tick` u, `id` u, `obj`, `killer` u, `killer_obj`, `kind` i (the destroy kind), `pos` f3 | the `ObjectDestroyed` controller message |
+| `target` | `tick` u, `id` u, `obj`, `target` u\|null, `target_obj` | a scenario ship's `get_target` differs from the one of the previous tick's `tick.jsonl` record (P2.5) |
 
 ## `psi.jsonl`
 

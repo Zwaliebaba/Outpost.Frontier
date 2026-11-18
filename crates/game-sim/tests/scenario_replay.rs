@@ -26,7 +26,8 @@
 //! (goto) and `turn_to_heading` (face) are compared with the oracle like
 //! the other scenarios. Scenarios whose directives need a behaviour that
 //! is not ported yet, and the `dock` directive, are skipped with a note
-//! (P2.5). A summary goes to `rust-scenario-replay.txt` in the oracle
+//! (P2.5), and so is a scenario whose AI ships have a `faction` (the
+//! dogfight), whose pilots need the combat behaviours. A summary goes to `rust-scenario-replay.txt` in the oracle
 //! folder.
 
 mod support;
@@ -81,6 +82,10 @@ struct ObjDesc {
     hp: f32,
     /// The state graph (`ai NAME`), submitted with `pub::AI::SubmitState`.
     ai: Option<String>,
+    /// The `pilot` option: the personality's `[Pilot]` nickname.
+    pilot: Option<String>,
+    /// The `faction` option: the reputation group of the ship's vibe.
+    faction: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -175,6 +180,8 @@ fn parse(path: &Path) -> Option<Scenario> {
                     angvel: Vector::ZERO,
                     hp: -1.0,
                     ai: None,
+                    pilot: None,
+                    faction: None,
                 };
                 let mut at = if ship { 7 } else { 3 };
                 while at < t.len() {
@@ -198,6 +205,14 @@ fn parse(path: &Path) -> Option<Scenario> {
                         }
                         "hp" => {
                             o.hp = num(t.get(at + 1)?)? as f32;
+                            at += 2;
+                        }
+                        "pilot" => {
+                            o.pilot = Some(t.get(at + 1)?.clone());
+                            at += 2;
+                        }
+                        "faction" => {
+                            o.faction = Some(t.get(at + 1)?.clone());
                             at += 2;
                         }
                         _ => at += 1,
@@ -236,6 +251,22 @@ fn parse(path: &Path) -> Option<Scenario> {
 /// ported (the AI ships themselves run: they get a behaviour manager), or
 /// the dock directive (which needs the station's Content side).
 fn needs_ai(s: &Scenario) -> Option<String> {
+    // A hostile AI ship (the dogfight): its pilot fights.
+    let fighters: Vec<String> = s
+        .objects
+        .iter()
+        .filter(|o| o.ai.is_some() && o.faction.is_some())
+        .map(|o| match &o.pilot {
+            Some(pilot) => format!("{} ({pilot})", o.name),
+            None => o.name.clone(),
+        })
+        .collect();
+    if !fighters.is_empty() {
+        return Some(format!(
+            "{}: the pilot needs combat behaviours",
+            fighters.join(" and ")
+        ));
+    }
     for c in &s.commands {
         if c.args[0] == "dock" {
             return Some("the dock directive".to_owned());

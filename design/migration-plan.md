@@ -267,8 +267,10 @@ against the C++ as encoding is.
 
 **Gate G2.** A headless program loads a star system from the original data,
 spawns ships and runs scripted scenarios (fly to a point, fire,
-collide). The dock scenario moved to Gate G3, because docking is a server
-part of P3.3 (owner, 2026-11-18). Replay tests of the integrator, AI and damage code equal the oracle
+collide, and a dogfight between two hostile AI fighters, added by the owner
+on 2026-11-18 so that targeting, fire control and the combat behaviours are
+checked against the oracle). The dock scenario moved to Gate G3, because
+docking is a server part of P3.3 (owner, 2026-11-18). Replay tests of the integrator, AI and damage code equal the oracle
 within Tier B bounds, and scenario trajectories, times and damage fall
 inside the envelopes approved in P2.0 (decision O20). All protocol codecs round-trip and match
 the C++ encodings byte for byte.
