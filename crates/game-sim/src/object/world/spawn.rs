@@ -428,6 +428,10 @@ impl World {
                 }
             }
         }
+        // `CEGun::Connect`: the turret joints and the turret frame.
+        if let EquipKind::Gun(g) = &mut equip.kind {
+            self.locate_joints(g, Some(model), Some(instance));
+        }
         true
     }
 

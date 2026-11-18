@@ -38,6 +38,7 @@ pub mod flight;
 pub mod launcher;
 pub mod misc;
 pub mod shield;
+pub mod turret;
 
 use neuron_core::math::{Matrix, Vector};
 use neuron_core::scene::InstanceId;

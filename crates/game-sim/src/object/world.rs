@@ -32,6 +32,7 @@
 mod combat;
 mod spawn;
 mod step;
+mod turret;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -270,6 +271,7 @@ pub struct World {
     pub(crate) events: Vec<WorldEvent>,
     behavior: Option<Box<dyn BehaviorHook>>,
     always_update: Vec<ObjHandle>,
+    anim_channels: Vec<turret::AnimChannel>,
 }
 
 impl core::fmt::Debug for World {
@@ -349,6 +351,7 @@ impl World {
             events: Vec::new(),
             behavior: None,
             always_update: Vec::new(),
+            anim_channels: Vec::new(),
         }
     }
 

@@ -151,6 +151,11 @@ impl World {
     /// One server frame of a system (`StarSystem_Update`): the sub-step
     /// loop, the global time, and, with `server_physics`, the physics.
     pub fn step(&mut self, system: u32, dt: f32) {
+        // `Server_StepSystems`: outside single player `AnimDB::Update`
+        // first, which turns the joints the last frame registered.
+        if !self.config.single_player {
+            self.update_anim(dt);
+        }
         let mut step = dt;
         if !self.config.single_player && f64::from(step) > 0.2 {
             step = 0.2;
@@ -398,6 +403,7 @@ impl World {
         let throttle = ship.as_ref().map(|s| s.flight.throttle);
         let mut cloak = None;
         let mut regen: Vec<(crate::equip::SubObjId, f32)> = Vec::new();
+        let mut guns: Vec<crate::equip::SubObjId> = Vec::new();
         let slots = eq.equipment.traverse(types::EXTERNAL_LIST, false);
         for slot in slots {
             let weapons_offline = eq.weapons_offline;
@@ -418,6 +424,10 @@ impl World {
             let functioning = equip.is_functioning(weapons_offline);
             let destroyed = equip.is_destroyed();
             let status = super::spawn::shield_status(equip);
+            let id = equip.id;
+            // `CAttachedEquip::Update`: a destroyed item with debris left
+            // still updates.
+            let updates = !destroyed || equip.attached.as_ref().is_some_and(|a| a.debris.is_some());
             let crate::equip::Equip { kind, events, .. } = equip;
             match kind {
                 EquipKind::Engine(engine) => {
@@ -436,6 +446,9 @@ impl World {
                 }
                 EquipKind::Gun(g) => {
                     g.launcher.update(dt);
+                    if updates {
+                        guns.push(id);
+                    }
                 }
                 EquipKind::MineDropper(l) | EquipKind::CmDropper(l) => l.update(dt),
                 EquipKind::Shield(s) => s.update(status, now, events),
@@ -485,6 +498,11 @@ impl World {
             }
         }
         let _ = is_ship;
+        // `CEGun::Update`'s turret aim and lock clock (each gun's own
+        // update; nothing else in the list reads what it changes).
+        for id in guns {
+            self.update_gun_turret(h, id, dt);
+        }
         self.sync_shield_collisions(h);
         if behavior && let Some(mut hook) = self.take_behavior() {
             hook.update_behavior_tick(self, h, dt);

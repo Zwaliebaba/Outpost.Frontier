@@ -245,3 +245,100 @@ fn the_shield_generator_regenerates_the_shield() {
     println!("shield {hit} -> {later}");
     assert!(later > hit, "the damaged shield regenerates");
 }
+
+/// A gun's turret joints, as the world holds them.
+fn gun_joints(
+    world: &game_sim::object::World,
+    h: game_sim::object::ObjHandle,
+    id: game_sim::equip::SubObjId,
+) -> (
+    game_sim::equip::turret::JointChannel,
+    game_sim::equip::turret::JointChannel,
+) {
+    let e = world
+        .get(h)
+        .and_then(|o| o.as_equipped())
+        .and_then(|eq| eq.equipment.by_id(id))
+        .expect("gun");
+    match &e.kind {
+        EquipKind::Gun(g) => (g.yaw, g.pitch),
+        _ => panic!("not a gun"),
+    }
+}
+
+#[test]
+fn turrets_turn_onto_a_locked_target() {
+    let Some(mut world) = support::world::world(WorldConfig::default()) else {
+        println!("outdir/ is missing: no turrets");
+        return;
+    };
+    let system = create_id(b"he01");
+    world.load_system(system);
+    let shooter = fighter(&mut world, system, Vector::new(15000.0, 3000.0, -25000.0));
+    // Ahead, a little up and to the right: within a gun's limits.
+    let target = fighter(&mut world, system, Vector::new(15060.0, 3040.0, -25400.0));
+    let guns = world.unguided_guns(shooter);
+    let movable: Vec<_> = guns
+        .iter()
+        .copied()
+        .filter(|&g| gun_joints(&world, shooter, g).0.is_bound())
+        .collect();
+    println!("guns {guns:?}, turret guns {movable:?}");
+    assert!(!movable.is_empty(), "the fighter's guns turn on joints");
+    let aim = world.inspect(target).unwrap().position;
+    // The wing guns hang sideways: each pitches only outwards, so only the
+    // guns on the target's side can point at it.
+    let pointing: Vec<_> = movable
+        .iter()
+        .copied()
+        .filter(|&g| world.gun_can_point_at(shooter, g, aim, 0.0))
+        .collect();
+    println!("guns that can point at the target {pointing:?}");
+    assert!(!pointing.is_empty() && pointing.len() < movable.len());
+    // Straight behind is outside every pitch window.
+    let behind = Vector::new(15000.0, 3000.0, -24000.0);
+    assert!(
+        movable
+            .iter()
+            .all(|&g| !world.gun_can_point_at(shooter, g, behind, 0.0))
+    );
+    let movable = pointing;
+    for &g in &movable {
+        let (yaw, pitch) = gun_joints(&world, shooter, g);
+        println!(
+            "gun {g}: yaw limited {} pitch bound {}, origin {:?}",
+            yaw.limited,
+            pitch.is_bound(),
+            world.turret_origin(shooter, g)
+        );
+        assert!(world.gun_set_target(shooter, g, Some(target), 0));
+        assert!(!world.gun_set_target(shooter, g, Some(target), 0));
+    }
+    // The aim is set and the joints wait for the animation update.
+    let (yaw, pitch) = gun_joints(&world, shooter, movable[0]);
+    println!("aim yaw {} pitch {}", yaw.desired, pitch.desired);
+    assert!(yaw.desired != 0.0 || pitch.desired != 0.0);
+    assert!(!world.pending_joints().is_empty());
+    for _ in 0..90 {
+        world.step(system, 1.0 / 30.0);
+    }
+    for &g in &movable {
+        let (yaw, pitch) = gun_joints(&world, shooter, g);
+        println!(
+            "gun {g}: yaw {} -> {}, pitch {} -> {}, settled {} {}",
+            yaw.current, yaw.desired, pitch.current, pitch.desired, yaw.settled, pitch.settled
+        );
+        assert!(
+            yaw.within(0.01) && pitch.within(0.01),
+            "the joints reached the aim"
+        );
+        assert!(world.gun_can_see_target(shooter, g, 0.05));
+    }
+    // A target point overrides the lock for two seconds.
+    let g = movable[0];
+    world.gun_set_target_point(shooter, g, Vector::new(14940.0, 3000.0, -25400.0));
+    world.step(system, 1.0 / 30.0);
+    let (yaw, _) = gun_joints(&world, shooter, g);
+    println!("target point yaw {}", yaw.desired);
+    assert!(yaw.desired != gun_joints(&world, shooter, movable[0]).0.current || yaw.settled);
+}

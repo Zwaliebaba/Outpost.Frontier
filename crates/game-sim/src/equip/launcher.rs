@@ -16,6 +16,7 @@ use crate::data::archetype::equipment::{Equipment, EquipmentKind, Launcher as La
 use crate::object::csys::{look_matrix, random_vector};
 
 use super::SubObjId;
+use super::turret::JointChannel;
 
 fn e(v: f32) -> f64 {
     f64::from(v)
@@ -149,7 +150,10 @@ pub struct LaunchContext {
 }
 
 impl LaunchContext {
-    fn barrel_pos(&self, barrels: &[Barrel], index: usize) -> Vector {
+    /// `GetBarrelPosWS`: a barrel's muzzle in world space (zero when the
+    /// launcher is destroyed or the barrel unbound).
+    #[must_use]
+    pub fn barrel_pos(&self, barrels: &[Barrel], index: usize) -> Vector {
         if self.destroyed {
             return Vector::ZERO;
         }
@@ -162,7 +166,9 @@ impl LaunchContext {
         }
     }
 
-    fn barrel_dir(&self, barrels: &[Barrel], index: usize) -> Vector {
+    /// `GetBarrelDirWS`: a barrel's direction (its -Z) in world space.
+    #[must_use]
+    pub fn barrel_dir(&self, barrels: &[Barrel], index: usize) -> Vector {
         if self.destroyed {
             return Vector::ZERO;
         }
@@ -374,12 +380,22 @@ pub struct Gun {
     pub turn_rate: f32,
     /// `auto_turret`.
     pub auto_turret: bool,
-    /// The locked target and its sub-object (`LockWatcher`, `LockSubId`).
-    pub target: Option<(crate::object::ObjHandle, SubObjId)>,
+    /// +0x250 the locked target (`LockWatcher`).
+    pub target: Option<crate::object::ObjHandle>,
+    /// +0x258 its sub-object (`LockSubId`).
+    pub lock_sub: SubObjId,
     /// +0x26c the time the lock has held.
     pub lock_elapsed: f32,
-    /// The point the turret aims at, and its age.
-    pub target_point: Option<(Vector, f32)>,
+    /// +0x1f4 the yaw joint.
+    pub yaw: JointChannel,
+    /// +0x210 the pitch joint.
+    pub pitch: JointChannel,
+    /// +0x22c the turret's rest basis in its connector's frame.
+    pub turret_frame: Matrix,
+    /// +0x25c the point the turret aims at, relative to the turret origin.
+    pub target_point: Vector,
+    /// +0x268 the target point's age (`FLT_MAX` before the first).
+    pub target_point_age: f32,
 }
 
 impl Gun {
@@ -395,9 +411,62 @@ impl Gun {
             turn_rate: data.turn_rate,
             auto_turret: data.auto_turret,
             target: None,
+            lock_sub: super::SUBOBJ_ID_NONE,
             lock_elapsed: 0.0,
-            target_point: None,
+            yaw: JointChannel::default(),
+            pitch: JointChannel::default(),
+            turret_frame: Matrix::IDENTITY,
+            target_point: Vector::ZERO,
+            target_point_age: super::turret::TARGET_POINT_AGE_NONE,
         }
+    }
+
+    /// `IsMovable`: a joint was located.
+    #[must_use]
+    pub fn is_movable(&self) -> bool {
+        self.yaw.is_bound() || self.pitch.is_bound()
+    }
+
+    /// `IsJointInMotion` (the export's name; it answers whether both joints
+    /// settled in their last tick).
+    #[must_use]
+    pub fn is_joint_in_motion(&self) -> bool {
+        self.yaw.settled && self.pitch.settled
+    }
+
+    /// `GetSecondsTillLock`: a lock seeker's time left, 0 below 0; 0 for
+    /// any other munition.
+    #[must_use]
+    pub fn seconds_till_lock(&self) -> f32 {
+        let Some(p) = self.launcher.projectile.filter(|p| p.seeker == 2) else {
+            return 0.0;
+        };
+        let remaining = e(p.time_to_lock) - e(self.lock_elapsed);
+        if 0.0 > remaining {
+            return 0.0;
+        }
+        r(remaining)
+    }
+
+    /// `CEGun::SetTarget`'s own part: false when the target and sub-object
+    /// are already the lock; otherwise the lock restarts. The world then
+    /// aims the turret ([`crate::object::World::gun_set_target`]).
+    pub fn set_lock(&mut self, target: Option<crate::object::ObjHandle>, sub: SubObjId) -> bool {
+        if target == self.target && sub == self.lock_sub {
+            return false;
+        }
+        self.lock_elapsed = 0.0;
+        self.target = target;
+        self.lock_sub = sub;
+        true
+    }
+
+    /// The lock seeker's lock-on time has passed (`ComputeLaunchInfo`'s
+    /// test).
+    fn lock_ready(&self) -> bool {
+        self.launcher
+            .projectile
+            .is_some_and(|p| p.seeker == 2 && e(p.time_to_lock) - e(self.lock_elapsed) <= 0.0)
     }
 
     /// `is_guided`: the munition has a seeker.
@@ -510,11 +579,8 @@ impl Gun {
             out.velocity = Vector::new(r(keep * e(v.x)), r(keep * e(v.y)), r(keep * e(v.z)));
             out.orient = look_matrix(out.velocity);
         }
-        if seeker == 2
-            && let Some(p) = self.launcher.projectile
-            && e(p.time_to_lock) - e(self.lock_elapsed) <= 0.0
-        {
-            out.lock = self.target;
+        if self.lock_ready() {
+            out.lock = self.target.map(|t| (t, self.lock_sub));
         }
         out
     }
@@ -644,6 +710,23 @@ mod tests {
         }
     }
 
+    fn gun_defaults() -> Gun {
+        Gun {
+            launcher: launcher(),
+            dispersion_angle: 0.0,
+            turn_rate: 0.0,
+            auto_turret: false,
+            target: None,
+            lock_sub: 0,
+            lock_elapsed: 0.0,
+            yaw: JointChannel::default(),
+            pitch: JointChannel::default(),
+            turret_frame: Matrix::IDENTITY,
+            target_point: Vector::ZERO,
+            target_point_age: f32::MAX,
+        }
+    }
+
     fn cx() -> LaunchContext {
         LaunchContext {
             owner_power: 100.0,
@@ -661,9 +744,7 @@ mod tests {
             dispersion_angle: 0.0,
             turn_rate: 0.0,
             auto_turret: false,
-            target: None,
-            lock_elapsed: 0.0,
-            target_point: None,
+            ..gun_defaults()
         };
         let target = Vector::new(0.0, 0.0, -400.0);
         assert_eq!(gun.fire(&cx(), target), FireResult::RefireDelay);
@@ -689,9 +770,7 @@ mod tests {
             dispersion_angle: 0.0,
             turn_rate: 0.0,
             auto_turret: false,
-            target: None,
-            lock_elapsed: 0.0,
-            target_point: None,
+            ..gun_defaults()
         };
         let mut rng = CrtRand::with_seed(1);
         let mut c = cx();
