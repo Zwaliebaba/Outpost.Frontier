@@ -67,6 +67,10 @@ simulation units in the C++ and so set when IVP's movement check reaches
 each core. The owner decided the same day that the Rust world matches the
 C++ simulation-unit list, which will narrow or remove D122.
 
+The owner accepted D164 and D165 (P2.5) on 2026-11-18: D164 as D87's
+consequence for the controller buckets, D165 until the reputation groups
+are ported.
+
 The owner accepted D209 (P4.2) on 2026-11-18, keeping the fixed set of
 static samplers of record 0004; a trace that shows an approximated stage
 reopens it.
