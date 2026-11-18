@@ -29,6 +29,7 @@
 //! bodies are built from the archetypes' `.sur` surfaces; without assets
 //! every body is the default part and no hardpoint is found.
 
+mod ai;
 mod combat;
 mod spawn;
 mod step;
@@ -52,6 +53,7 @@ use crate::equip::{EquipEvent, SubObjId};
 
 use super::{Arena, DamageList, ObjHandle, Object};
 
+pub use ai::ManagerHook;
 pub use combat::damage_sub_obj;
 pub(crate) use spawn::shield_status;
 pub use spawn::{LootSpawn, ProjectileSpawn, ShipSpawn, SolarSpawn, SpawnError};
@@ -269,6 +271,7 @@ pub struct World {
     pub(crate) time: f64,
     pub(crate) events: Vec<WorldEvent>,
     behavior: Option<Box<dyn BehaviorHook>>,
+    pub(crate) behavior_managers: BTreeMap<ObjHandle, crate::ai::manager::BehaviorManager<World>>,
     always_update: Vec<ObjHandle>,
 }
 
@@ -348,6 +351,7 @@ impl World {
             time: 0.0,
             events: Vec::new(),
             behavior: None,
+            behavior_managers: BTreeMap::new(),
             always_update: Vec::new(),
         }
     }
@@ -567,6 +571,7 @@ impl World {
             }
         }
         self.always_update.retain(|x| *x != h);
+        self.behavior_managers.remove(&h);
     }
 
     // ---- assets -----------------------------------------------------------------------------

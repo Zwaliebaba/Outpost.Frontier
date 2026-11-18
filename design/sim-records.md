@@ -310,6 +310,23 @@ the value while a behaviour tick is open. A replay feeds them back through
 `game_sim::ai::world::RecordedRand` and checks that the port drew exactly
 as many.
 
+`crates/game-sim/tests/behavior_replay.rs` (reader in
+`tests/support/ai_records.rs`) reruns every tick through
+`game_sim::ai::manager::BehaviorManager`. It keeps one Rust manager per
+object across the file, so what the records do not hold (the behaviours'
+own fields, the thrust manager's caches) carries over from the Rust
+side's previous tick; before each tick it sets the manager fields of
+`ai_in`, the target list and the personality, and builds a world from the
+`ai_obj` snapshot (object ids as handles, the ship's own state following
+its commands, the queries answered from `ai_query`, `rand()` from
+`ai_out`'s values). It compares the manager fields of `ai_out` bit for
+bit, the number of `rand()` draws, and the commands with the `affect`
+records whose `beh` is the tick's `seq` (slots 0 to 3 and 13, the slots
+`affect` records; floats bit for bit). A tick whose behaviour on entry or
+exit is not ported is counted as skipped by behaviour id, and so is a
+mismatching tick whose graph row has a candidate that is not ported (its
+poll is a stand-in). Its summary is `rust-behavior-replay.txt`.
+
 Not recorded: objects a behaviour looks up by an id it keeps in its own
 state and that have none of the roles above (they are outside the near
 radius and were not found by a query); the notification queue; the

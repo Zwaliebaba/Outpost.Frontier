@@ -245,3 +245,47 @@ fn the_shield_generator_regenerates_the_shield() {
     println!("shield {hit} -> {later}");
     assert!(later > hit, "the damaged shield regenerates");
 }
+
+#[test]
+fn an_ai_fighter_gets_a_manager_and_idles() {
+    use game_sim::ai::behavior::{DirectiveOp, ids};
+    use game_sim::ai::state_graph::GraphType;
+    let Some(mut world) = support::world::world(WorldConfig::default()) else {
+        println!("outdir/ is missing: nothing to fly");
+        return;
+    };
+    let system = create_id(b"he01");
+    world.load_system(system);
+    let ship = fighter(&mut world, system, Vector::new(15000.0, 3000.0, -25000.0));
+    world.command(ship, Command::SetThrottle(1.0));
+    let graph = world
+        .data()
+        .state_graphs
+        .find(b"FIGHTER", GraphType::Leader);
+    assert!(graph >= 0, "FIGHTER graph");
+    assert_eq!(world.submit_state(ship, graph, None), 0);
+    let manager = world.behavior_manager(ship).expect("a manager");
+    assert_eq!(manager.state.state_graph_id(), graph);
+    assert_eq!(manager.state.behavior, ids::IDLE);
+    let eq = world.get(ship).and_then(|o| o.as_equipped()).unwrap();
+    assert!(eq.has_behavior);
+    assert_eq!(eq.behavior_index, ids::IDLE);
+    for _ in 0..30 {
+        world.step(system, 1.0 / 30.0);
+    }
+    // The idle behaviour stops the ship.
+    let i = world.inspect(ship).unwrap();
+    assert_eq!(i.ship.map(|s| s.throttle), Some(0.0));
+    // A delay directive runs and ends.
+    assert_eq!(world.submit_directive(ship, &DirectiveOp::Delay(0.5)), 1);
+    assert_eq!(
+        world.behavior_manager(ship).unwrap().state.behavior,
+        ids::DELAY
+    );
+    for _ in 0..30 {
+        world.step(system, 1.0 / 30.0);
+    }
+    let state = &world.behavior_manager(ship).unwrap().state;
+    assert_eq!(state.directive[0], 0);
+    assert!(state.completed.contains(&(ids::DELAY, 0)));
+}

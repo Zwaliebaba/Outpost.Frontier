@@ -125,7 +125,7 @@ jobs:
         run: |
           $env:OUTPOST_ORACLE_DIR = "$env:RUNNER_TEMP\outpost-sim"
           $failed = 0
-          foreach ($test in 'controller_replay', 'damage_replay', 'scenario_replay') {
+          foreach ($test in 'controller_replay', 'damage_replay', 'scenario_replay', 'behavior_replay') {
             cargo test --locked --release -p game-sim --test $test -- --nocapture
             if ($LASTEXITCODE -ne 0) { $failed = 1 }
           }
