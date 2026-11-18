@@ -152,7 +152,11 @@ fix the detail.
   conversions with x86 overflow results. `neuron-core::msvcrt` supplies the
   wrapping `atoi` and `_wtoi`, the legacy `atof` and the Universal C
   Runtime `%g` the reference formats with. The VC6 number formatters of
-  `msvcrt_numeric_format.h` port with their users (P4.13, P4.14).
+  `msvcrt_numeric_format.h` are in `neuron-core::msvcrt` too
+  (`format_lua_number`, `numeric_vsnprintf`), shared by the client and
+  xtask's chunk compiler (reworded 2026-11-18, P4.13: "port with their
+  users" would have given xtask, which may depend only on neuron-core, a
+  second copy).
 - The CRT random generator is an explicit value passed to its users, not a
   process global. Draw order is preserved where a saved seed rebuilds state
   (random missions).
@@ -177,7 +181,8 @@ this register.
 
 The permitted licences are listed in `deny.toml`. In use so far:
 
-- `toml`, in `xtask` only.
+- `toml`, in `xtask`, and as a dev-dependency of `neuron-client`
+  (`tests/rdl_cards.rs` reads the card sources, P4.12).
 - `flate2` 1.1 (MIT or Apache-2.0; `rust_backend`, that is `miniz_oxide`):
   `neuron-core::net::frame`, compressed batches only (P1.9).
 - `md-5` 0.10 (MIT or Apache-2.0; default features off):
