@@ -7,7 +7,7 @@
 # every run. No directive, no target command. Multiplayer stepping.
 
 system he01
-ticks 881
+ticks 1500
 stepping mp
 
 ship police he_fighter li_p_he_fighter_loadout01 15000 3000 -25000 ai FIGHTER pilot pilot_police_med faction he_p_grp psi
