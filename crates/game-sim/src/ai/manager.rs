@@ -28,6 +28,7 @@ use neuron_core::math::Vector;
 use super::behavior::{AiEnv, Behavior, CancelRequest, Cx, DirectiveOp, EvaluateResult, ids};
 use super::behaviors::create_behavior;
 use super::fp::{e, r};
+use super::gun_convergence::LeaderNotification;
 use super::intercept::{is_aligned_and_outside_heading_cone, is_within_intercept_range_of_iface};
 use super::pathfind::PathfindManager;
 use super::personality::Personality;
@@ -150,6 +151,10 @@ pub struct ManagerState {
     pub completed: Vec<(i32, i32)>,
     /// Notifications for other objects' managers; the owner drains them.
     pub outbox: Vec<NotificationOut>,
+    /// The formation leader's notifications a behaviour asked for
+    /// (`NotifyFormationLeader1`, `NotifyFormationLeader2`); the manager
+    /// queues them when the behaviour's call returns.
+    pub leader_notes: Vec<LeaderNotification>,
     /// How often a behaviour the port does not have yet answered a poll
     /// with its stand-in (a replay counts the ticks whose result may
     /// depend on one). Not a field of the reference.
@@ -200,6 +205,7 @@ impl ManagerState {
             sys: SystemManager::default(),
             completed: Vec::new(),
             outbox: Vec::new(),
+            leader_notes: Vec::new(),
             stand_in_polls: 0,
         }
     }
@@ -359,11 +365,17 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
         let i = Self::slot(index)?;
         let b = &mut self.behaviors[i];
         let mut cx = Cx {
-            world,
+            world: &mut *world,
             ship,
             state: &mut self.state,
         };
-        Some(f(&mut **b, &mut cx))
+        let out = f(&mut **b, &mut cx);
+        // `QueueNotification` from inside the behaviour: nothing the
+        // behaviour reads later in the same call depends on it.
+        for n in std::mem::take(&mut self.state.leader_notes) {
+            self.queue_notification(world, ship, Some(n.leader), n.extra, n.duration);
+        }
+        Some(out)
     }
 
     fn is_player(world: &W, ship: W::Handle) -> bool {
@@ -905,9 +917,13 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
                 .auto_turrets(world, ship, p, content_callback, directive, dt);
         }
         let behavior = self.state.behavior;
+        let scan = super::pathfind::ScanContext {
+            scanner: self.state.sys.timers.scanner,
+            keep: self.state.sys.targets.keep_cache,
+        };
         self.state
             .pathfind
-            .update(&mut self.state.thrust, world, ship, behavior, dt);
+            .update(&mut self.state.thrust, world, ship, behavior, dt, scan);
     }
 
     /// `UpdateBehaviorTick` after the entry tests.

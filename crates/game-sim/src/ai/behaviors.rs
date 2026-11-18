@@ -11,6 +11,8 @@
 use neuron_core::math::Vector;
 
 use super::behavior::{AiEnv, Behavior, BehaviorBase, Cx, DirectiveOp, ids};
+use super::buzz::BuzzBehavior;
+use super::evade::EvadeBehavior;
 use super::face::FaceBehavior;
 use super::fp::{e, r};
 use super::goto::GotoBehavior;
@@ -29,6 +31,8 @@ pub fn create_behavior<W: AiEnv + ?Sized>(id: i32) -> Box<dyn Behavior<W>> {
         ids::GOTO => Box::new(GotoBehavior::new(id)),
         ids::FREE_FLIGHT => Box::new(GotoBehavior::new_free_flight(id)),
         ids::FACE => Box::new(FaceBehavior::new(id)),
+        ids::BUZZ => Box::new(BuzzBehavior::new(id)),
+        ids::EVADE => Box::new(EvadeBehavior::new(id)),
         _ => Box::new(UnportedBehavior::new(id)),
     }
 }

@@ -545,13 +545,14 @@ pub trait AiWorld {
     /// One `IObjAffect` call on `h`; the slot's integer result.
     fn command(&mut self, h: Self::Handle, command: AiCommand<Self::Handle>) -> i32;
 
-    /// `get_scanlist(list, 0x7ffdff, keep)` as `BuildAiTargetList` calls
-    /// it: without `keep` the scanner's cache is cleared first, then it
-    /// scans for the types of the mask it has not scanned this frame; the
-    /// scanner's list, in scan order. `None` when the ship has no scanner
-    /// or the call fails. The default has no scanner.
-    fn scan_list(&mut self, h: Self::Handle, keep: bool) -> Option<Vec<Self::Handle>> {
-        let _ = (h, keep);
+    /// `get_scanlist(list, mask, keep)` (`BuildAiTargetList` asks with
+    /// [`AI_SCAN_MASK`], `FindClosestObstacleToAvoid` with
+    /// [`AVOID_SCAN_MASK`]): without `keep` the scanner's cache is cleared
+    /// first, then it scans for the types of the mask it has not scanned
+    /// this frame; the scanner's list, in scan order. `None` when the ship
+    /// has no scanner or the call fails. The default has no scanner.
+    fn scan_list(&mut self, h: Self::Handle, mask: u32, keep: bool) -> Option<Vec<Self::Handle>> {
+        let _ = (h, mask, keep);
         None
     }
 
@@ -615,6 +616,12 @@ pub trait AiWorld {
         0
     }
 }
+
+/// The type mask `BuildAiTargetList` scans for (owner decision
+/// 2026-11-18).
+pub const AI_SCAN_MASK: u32 = 0x007f_fdff;
+/// The type mask `FindClosestObstacleToAvoid` scans for.
+pub const AVOID_SCAN_MASK: u32 = 0x207f_8010;
 
 /// `EquipStatus::Flags` bit 0 (`EquipStatusFlagActive`).
 pub const EQUIP_ACTIVE: u8 = 0x01;

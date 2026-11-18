@@ -54,8 +54,8 @@ use game_sim::ai::steer::{
     build_orientation_basis, build_perpendicular_frame, steering_frame_from_relative_dir,
 };
 use game_sim::ai::world::{
-    AiCommand, AiRand, AiWorld, EquipInfo, MotionModel, ObjectView, RayContact, RecordedRand,
-    SpatialQueries,
+    AI_SCAN_MASK, AiCommand, AiRand, AiWorld, EquipInfo, MotionModel, ObjectView, RayContact,
+    RecordedRand, SpatialQueries,
 };
 use game_sim::object::world::{ShipSpawn, WorldConfig};
 use game_sim::object::{ObjHandle, World};
@@ -147,6 +147,9 @@ struct ReplayWorld<'a> {
     ship: u32,
     /// The ship's motion model: the motion world and the ship's handle.
     motion: Option<(&'a World, ObjHandle)>,
+    /// The other scenario ships' handles in the motion world, by id (the
+    /// dodge idea asks the watched ship's speed).
+    others: BTreeMap<u32, ObjHandle>,
     /// `GAvoidIndexTableShuffled` of the run (the process).
     avoid_shuffled: bool,
     /// The ship's scan list: the target list the tick built, which the
@@ -171,7 +174,15 @@ impl<'a> ReplayWorld<'a> {
         scan: Vec<u32>,
         motion: Option<&'a MotionWorld>,
         avoid_shuffled: bool,
+        names: &BTreeMap<u32, String>,
     ) -> Self {
+        let others = motion.map_or_else(BTreeMap::new, |m| {
+            names
+                .iter()
+                .filter(|(id, _)| **id != t.id)
+                .filter_map(|(id, name)| m.ships.get(name).map(|h| (*id, *h)))
+                .collect()
+        });
         let motion = motion.and_then(|m| {
             let h = *m.ships.get(t.obj.as_deref()?)?;
             Some((&m.world, h))
@@ -193,6 +204,7 @@ impl<'a> ReplayWorld<'a> {
             commands: Vec::new(),
             ship: t.id,
             motion,
+            others,
             avoid_shuffled,
             scan,
             equip: own.and_then(|o| o.equip.clone()),
@@ -341,19 +353,36 @@ impl AiWorld for ReplayWorld<'_> {
     fn motion(&self, h: u32) -> Option<Box<dyn MotionModel + '_>> {
         let (world, handle) = self.motion?;
         if h != self.ship {
-            return None;
+            return world.motion(*self.others.get(&h)?);
         }
         world.motion(handle)
     }
 
-    fn scan_list(&mut self, h: u32, _keep: bool) -> Option<Vec<u32>> {
-        (h == self.ship).then(|| {
+    /// The target list's mask answers the list the tick built; another
+    /// mask (the obstacle search) answers every object of the snapshot but
+    /// the ship that is targetable and not dying, by id: the scanner's
+    /// frame scan covers every type within the radar range, and the
+    /// snapshot holds every ship, solar and loot within 5 km.
+    fn scan_list(&mut self, h: u32, mask: u32, _keep: bool) -> Option<Vec<u32>> {
+        if h != self.ship {
+            return None;
+        }
+        if mask != AI_SCAN_MASK {
+            return Some(
+                self.objects
+                    .values()
+                    .filter(|v| v.id != self.ship && v.is_targetable && !v.is_dying)
+                    .map(|v| v.id)
+                    .collect(),
+            );
+        }
+        Some(
             self.scan
                 .iter()
                 .copied()
                 .filter(|id| self.objects.contains_key(id))
-                .collect()
-        })
+                .collect(),
+        )
     }
 
     fn system_of(&self, h: u32) -> Option<u32> {
@@ -1054,7 +1083,7 @@ fn face_variants(
             let _ = write!(out, "\n  variant {name}: none");
             continue;
         };
-        let mut w = ReplayWorld::new(t, Vec::new(), motion, true);
+        let mut w = ReplayWorld::new(t, Vec::new(), motion, true, &BTreeMap::new());
         let mut st = entry.clone();
         let mut cx = Cx {
             world: &mut w,
@@ -1098,6 +1127,10 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
     let mut last_out: BTreeMap<u32, ManagerRecord> = BTreeMap::new();
     let mut face_point: Option<Vector> = None;
     let mut personalities: BTreeMap<u32, Personality> = BTreeMap::new();
+    let names: BTreeMap<u32, String> = ticks
+        .iter()
+        .filter_map(|t| Some((t.id, t.obj.clone()?)))
+        .collect();
     for (index, t) in ticks.iter().enumerate() {
         // The list this tick builds is the one the ship's next tick
         // records on entry; the last tick falls back to its own entry.
@@ -1112,7 +1145,7 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
         if let Some(p) = t.personality.as_deref().and_then(Personality::from_bytes) {
             personalities.insert(t.id, p);
         }
-        let mut world = ReplayWorld::new(t, scan, motion.as_ref(), avoid_shuffled);
+        let mut world = ReplayWorld::new(t, scan, motion.as_ref(), avoid_shuffled, &names);
         let is_player = world.objects.get(&t.id).is_some_and(|v| v.is_player);
         if first_seen.insert(t.id, ()).is_none()
             && let Some(v) = world.objects.get(&t.id)

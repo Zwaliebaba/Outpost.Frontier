@@ -22,9 +22,6 @@ use crate::object::{Command, ObjHandle};
 
 use super::World;
 
-/// The type mask `BuildAiTargetList` asks the scanner for (`kScanTypeMask`).
-const AI_SCAN_MASK: u32 = 0x007f_fdff;
-
 impl World {
     /// `IObjInspect` of one object for the AI.
     #[must_use]
@@ -580,16 +577,16 @@ impl AiWorld for World {
         })
     }
 
-    /// `IObjInspectImpl::get_scanlist(list, 0x7ffdff, keep)`: -2 (`None`)
+    /// `IObjInspectImpl::get_scanlist(list, mask, keep)`: -2 (`None`)
     /// without a scanner; otherwise `clear_cache` unless `keep`, then
-    /// `scan_for_types(0x7ffdff)`, and the first scanner's list.
-    fn scan_list(&mut self, h: ObjHandle, keep: bool) -> Option<Vec<ObjHandle>> {
+    /// `scan_for_types(mask)`, and the first scanner's list.
+    fn scan_list(&mut self, h: ObjHandle, mask: u32, keep: bool) -> Option<Vec<ObjHandle>> {
         let eq = self.get(h)?.as_equipped()?;
         eq.equipment.first(types::SCANNER)?;
         if !keep {
             self.scanner_clear_cache(h);
         }
-        self.scan_for_types(h, AI_SCAN_MASK);
+        self.scan_for_types(h, mask);
         Some(World::scan_list(self, h))
     }
 
