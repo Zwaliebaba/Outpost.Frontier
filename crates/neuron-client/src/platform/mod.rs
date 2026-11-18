@@ -3,6 +3,7 @@
 //! calls in safe types; every unsafe block says why it is sound.
 #![allow(unsafe_code)]
 
+pub mod audio;
 pub mod d3d12;
 pub mod dpapi;
 pub mod known_folder;

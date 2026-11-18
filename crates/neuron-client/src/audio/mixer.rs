@@ -11,7 +11,7 @@
 //! a start position and are played.
 //!
 //! The port has no sound buffers. A [`VoiceBackend`] stands for the device
-//! (the XAudio2 source voices of a later increment, or a recorder in
+//! (the XAudio2 source voices of `platform::audio`, or a recorder in
 //! tests); a [`SoundSource`] stands for the client's play key, asked the
 //! same questions in the same order as the reference asks them.
 //!

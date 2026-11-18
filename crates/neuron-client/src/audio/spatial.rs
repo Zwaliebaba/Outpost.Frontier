@@ -230,6 +230,52 @@ pub fn voice_ratio(pitch_ratio: f32, doppler: f32, max_ratio: f32) -> f32 {
     (r as f32).clamp(1.0 / 1024.0, max_ratio)
 }
 
+/// The `SPEAKER_FRONT_LEFT` bit of a channel mask.
+pub const SPEAKER_FRONT_LEFT: u32 = 0x1;
+/// The `SPEAKER_FRONT_RIGHT` bit of a channel mask.
+pub const SPEAKER_FRONT_RIGHT: u32 = 0x2;
+
+/// The output channels of the front left and right speakers of a
+/// mastering voice with `mask` and `channels` channels (channels follow
+/// the mask's bits in order, so these are the first two); for an unknown
+/// layout (mask 0), the first two channels when there are two.
+#[must_use]
+pub fn front_pair(mask: u32, channels: u32) -> Option<(usize, usize)> {
+    let both = SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT;
+    (mask & both == both || (mask == 0 && channels >= 2)).then_some((0, 1))
+}
+
+/// `SPEAKER_FRONT_CENTER`, the mono layout's only speaker.
+pub const SPEAKER_MONO: u32 = 0x4;
+
+/// The output matrix (`destination * sources + source`, as
+/// `SetOutputMatrix` takes it) of a 2D voice of `sources` channels at
+/// `pan` hundredths of a decibel (divergence D229's pan law): the first
+/// source channel to the front left speaker, the second (or the only one)
+/// to the front right, further channels to the output of the same number.
+/// Without a front pair every source goes to every output at the mean of
+/// the two gains, shared among the sources.
+#[must_use]
+pub fn pan_matrix(sources: u32, destinations: u32, mask: u32, pan: i32) -> Vec<f32> {
+    let (s, d) = (sources.max(1) as usize, destinations.max(1) as usize);
+    let mut m = vec![0.0f32; s * d];
+    let [left, right] = super::mix::pan_to_amplitudes(pan);
+    match front_pair(mask, destinations) {
+        Some((fl, fr)) => {
+            m[fl * s] = left;
+            m[fr * s + (s - 1).min(1)] = right;
+            for i in 2..s.min(d) {
+                m[i * s + i] = 1.0;
+            }
+        }
+        None => {
+            let gain = ((f64::from(left) + f64::from(right)) / 2.0 / s as f64) as f32;
+            m.fill(gain);
+        }
+    }
+    m
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -281,6 +327,23 @@ mod tests {
         let (scaler, points) = volume_curve(0.0, f32::NAN, 1.0);
         assert_eq!((scaler, points.len()), (1.0, 2));
         assert_eq!(clamp_distance(2.0e9), 1.0e9);
+    }
+
+    #[test]
+    fn pan_matrices() {
+        // Mono to stereo at the centre, then hard right.
+        assert_eq!(pan_matrix(1, 2, 0x3, 0), [1.0, 1.0]);
+        assert_eq!(pan_matrix(1, 2, 0x3, 10000), [0.0, 1.0]);
+        // Stereo to 5.1: left to FL, right to FR, nothing elsewhere.
+        let m = pan_matrix(2, 6, 0x3F, 0);
+        assert_eq!(&m[..4], &[1.0, 0.0, 0.0, 1.0]);
+        assert!(m[4..].iter().all(|g| *g == 0.0));
+        // A mono device takes the mean.
+        assert_eq!(pan_matrix(1, 1, SPEAKER_MONO, 10000), [0.5]);
+        assert_eq!(pan_matrix(2, 1, SPEAKER_MONO, 0), [0.5, 0.5]);
+        assert_eq!(front_pair(0, 2), Some((0, 1)));
+        assert_eq!(front_pair(0x3F, 6), Some((0, 1)));
+        assert_eq!(front_pair(SPEAKER_MONO, 1), None);
     }
 
     #[test]
