@@ -7,6 +7,7 @@
 pub mod audio;
 pub mod data;
 pub mod material;
+pub mod material_appearance;
 pub mod material_kinds;
 pub mod material_surface;
 pub mod mesh_render;

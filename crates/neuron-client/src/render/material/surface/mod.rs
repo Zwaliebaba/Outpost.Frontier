@@ -29,7 +29,7 @@ pub mod schema;
 pub mod services;
 
 pub use material::{SurfaceMaterial, SurfaceState, SurfaceTexture};
-pub use services::{MeshIndices, SurfaceEngine, SurfaceServices};
+pub use services::{InstanceValue, InstanceValues, MeshIndices, SurfaceEngine, SurfaceServices};
 
 use super::GR_INTERFACE_UNSUPPORTED;
 use super::instance::{Material, MaterialFactory};

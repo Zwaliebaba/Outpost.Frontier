@@ -104,7 +104,7 @@ fn source_text(d: Option<&VertexSource>) -> String {
 }
 
 /// A material the arena hands an id to; the fake keeps its state.
-struct Dummy;
+pub struct Dummy;
 
 impl Material<()> for Dummy {
     fn initialize(&mut self, _: &mut ()) -> i32 {

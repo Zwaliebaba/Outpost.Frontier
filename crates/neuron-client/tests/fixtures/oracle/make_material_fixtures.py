@@ -1,9 +1,10 @@
 """Writes the inputs of the P4.5 material suites (Oracle.exe neuron-client,
-CppSource/Oracle/oracle_material.cpp, oracle_material_kinds.cpp and
-oracle_material_surface.cpp, and
+CppSource/Oracle/oracle_material.cpp, oracle_material_kinds.cpp,
+oracle_material_surface.cpp and oracle_material_appearance.cpp, and
 crates/neuron-client/tests/oracle_vectors.rs): material_regex.list,
 material_library.list, material_global.list, material_animation.list,
-material_batcher.list, material_kinds.list, material_surface.list and the INI
+material_batcher.list, material_kinds.list, material_surface.list,
+material_appearance.list and the INI
 files they load. Run from any folder:
 
     python make_material_fixtures.py [--check]
@@ -730,6 +731,130 @@ SURFACE_CASES = [
 ]
 
 
+# --- material_appearance --------------------------------------------------------------------
+# FLAppearance.cpp over the recording fakes of oracle_material_appearance.cpp (its header states
+# the contract and the line formats). Every case starts from the statics as the process loads
+# them, makes the appearance with an outer that answers IID_IEngine (as the engine aggregates
+# it) and ends with its last Release. The cases keep to what the reference defines: override
+# indices below 9, no draw before a successful Initialize but the renderer-less ones, no shadow
+# instance whose bounds succeed without writing, and RenderInstance probes only the slots
+# FCameraBlob has.
+
+
+def dbl(value):
+    return "%016x" % struct.unpack("<Q", struct.pack("<d", value))[0]
+
+
+def mat12(values):
+    return " ".join(f(v) for v in values)
+
+
+def yaw(angle, x, y, z, scale=1.0):
+    import math
+    c = math.cos(angle) * scale
+    s = math.sin(angle) * scale
+    return [c, 0.0, s, 0.0, 1.0, 0.0, -s, 0.0, c, x, y, z]
+
+
+def spheres(values):
+    return "/".join(",".join(f(v) for v in sphere) for sphere in values)
+
+
+def shadows(pairs):
+    return ",".join("%d:%s" % (inst, f(radius)) for inst, radius in pairs)
+
+
+APP_CAMERA = [
+    "cam vp 0 0 800 600", "cam xscale " + dbl(1.7320508075688772), "cam yscale " + dbl(1.299038105676658),
+    "cam znear " + f(0.25), "cam zfar " + f(12000.0), "cam aspect " + f(1.3333334), "cam fovy " + f(52.5),
+    "cam hfov " + f(37.5), "cam pos " + " ".join(f(v) for v in (10.5, -4.0, 2200.0)),
+    "cam orient " + " ".join(f(v) for v in (0.0, 0.6, -0.8, -1.0, 0.0, 0.0, 0.0, 0.8, 0.6)),
+    "cam view " + mat12([0.0, -1.0, 0.0, 0.6, 0.0, 0.8, -0.8, 0.0, 0.6, 3.0, -2.0, -1500.0]),
+    "cam unproj " + " ".join(f(v) for v in (0.125, -0.25, 0.96)),
+    "cam proj 1 " + " ".join(f(v) for v in (401.5, 299.25, 0.875)), "cam classify 4",
+]
+
+APP_PROBE = "probe " + spheres([
+    (0.0, 0.0, -10.0, 1.0), (0.0, 0.0, 5.0, 1.0), (0.0, 0.0, -0.5, 1.0), (1000.0, 0.0, -10.0, 1.0),
+    (0.0, 1000.0, -10.0, 1.0), (0.0, 0.0, -300000.0, 10.0), (0.0, 0.0, -199999.0, 5.0),
+    (-3.0, 2.0, -10.0, 0.5), (7.5, -5.25, -9.0, 2.0), (-12.0, 0.0, -10.0, 3.0), (0.0, -8.0, -10.0, 0.0),
+    (0.0, 0.0, 0.0, 0.0), (10000.0, 0.0, -10.0, 1.0), (4600.0, 0.0, -10.0, 1.0),
+    (0.0, 10000.0, -10.0, 1.0), (0.0, 3460.0, -10.0, 1.0), (-4615.0, 0.0, -10.0, 0.25),
+])
+
+APP_SHADOW_SCENE = [
+    "ability 1", "shadowtex 0 0 77",
+    # Fallback extents (no archetype), turned 0.3 rad about y.
+    "xf 31 " + mat12(yaw(0.3, 12.0, 20.0, -7.5)),
+    # Bounds from the renderer, turned into the third quadrant and scaled.
+    "xf 32 " + mat12(yaw(-2.5, -40.25, 3.5, 18.0, 1.25)), "arch 32 5",
+    "bounds 5 0 " + ",".join(f(v) for v in (2.5, -1.75, -0.5, 0.75, 4.0, -3.0)),
+    # Bounds that fail: the fallback again.
+    "xf 33 " + mat12(yaw(1.1, 0.0, 41.0, 0.0)), "arch 33 6", "bounds 6 -1 -",
+    # Too high to cast a shadow (fade > 50), and below the ground (fade 0).
+    "xf 34 " + mat12(yaw(0.0, 5.0, 80.0, 5.0)),
+    "xf 35 " + mat12(yaw(2.0, -5.0, -12.0, 9.0)), "arch 35 5",
+]
+
+APP_SHADOW_LIST = shadows([(31, 1.5), (32, 0.25), (33, 2.0), (34, 1.0), (35, 0.5)])
+
+APPEARANCE_CASES = [
+    # The whole life: the overrides, global record 4, the engine published, the wrapper made;
+    # instance values, the light, the overrides read back, and the releases.
+    ["create", "init", "blob"] + ["override %d" % i for i in range(9)] +
+    ["set 5 3f000000", "get 5", "lookup 5", "set 5 3e800000", "get 5", "set -1 1", "get -1",
+     "lookup -1", "remove -1", "get 6", "lookup 6", "remove 5", "get 5", "remove 99", "set 7 12345678",
+     "set 8 0", "lookup 8", "destroy 7", "get 7", "destroy 7", "light " + " ".join(
+         f(v) for v in (0.25, -0.5, 0.75, 0.9, 0.8, 0.7)), "lighton 0", "lighton 3", "release"],
+    # Create without the engine, then without the system.
+    ["fail engine", "create"],
+    ["fail system", "create"],
+    # Initialize without each interface in turn.
+    ["fail matlib", "create", "init", "blob", "release"],
+    ["fail pipeline", "create", "init", "blob", "release"],
+    ["fail vbm", "create", "init", "blob", "release"],
+    ["fail texlib", "create", "init", "blob", "release"],
+    # Without the renderer: no override, no wrapper; the draws return at once.
+    ["fail renderer", "create", "init", "blob", "backdrop 21", "stars 22", "count 23",
+     "override 5", "release"],
+    # Overrides that fail (one written anyway), one made null.
+    ["mat 2 -1 -", "mat 4 -1 13", "mat 6 0 -", "mat 7 1 14", "create", "init", "override 2",
+     "override 4", "override 6", "override 7", "release"],
+    # The backdrop: its own perspective, the wrapper's axes and sphere test, the camera's
+    # perspective again.
+    APP_CAMERA + [APP_PROBE, "create", "init", "backdrop 21", "blob", "cam aspect " + f(1.6),
+                  "cam xscale " + dbl(0.4142135623730951), "cam vp 16 8 1040 776", "backdrop 24", "blob",
+                  "release"],
+    # The starsphere: the ambient state kept, the camera's orientation without its position.
+    APP_CAMERA + [APP_PROBE, "create", "init", "stars 22", "blob", "backdrop 21", "blob",
+                  "cam orient " + " ".join(f(v) for v in (-0.5, 0.0, 0.8660254, 0.0, -1.0, 0.0,
+                                                          0.8660254, 0.0, 0.5)),
+                  "stars 25", "blob", "release"],
+    # A probe-less draw of each and a count: what the renderer is given.
+    APP_CAMERA + ["create", "init", "backdrop 21", "stars 22", "vis 3 18 27", "count 26",
+                  "count 27", "release"],
+    # Fading shadows, then fixed ones with the scale the fading draw left.
+    APP_SHADOW_SCENE + ["create", "init", "fading " + APP_SHADOW_LIST, "fixed " + APP_SHADOW_LIST,
+                        "release"],
+    # Fixed shadows first (the scale as loaded), then one fading shadow near the ground.
+    APP_SHADOW_SCENE + ["create", "init", "fixed " + APP_SHADOW_LIST,
+                        "fading " + shadows([(35, 0.5)]), "fixed " + shadows([(31, 1.5), (32, 4.0)]),
+                        "release"],
+    # Shadow early exits: no ability (written 0, not written), no instances, no texture, a frame
+    # that fails, a null handle, a lock that fails or answers a positive result.
+    APP_SHADOW_SCENE + ["create", "init", "ability 0", "fading " + shadows([(31, 1.5)]),
+                        "ability -", "fixed " + shadows([(31, 1.5)]), "ability 1", "fading -",
+                        "shadowtex -1 0 0", "fading " + shadows([(31, 1.5)]),
+                        "shadowtex 0 -1 77", "fixed " + shadows([(31, 1.5)]),
+                        "shadowtex 0 0 0", "fading " + shadows([(31, 1.5)]),
+                        "shadowtex 0 0 77", "lock -1", "fading " + shadows([(31, 1.5)]),
+                        "lock 1", "fixed " + shadows([(31, 1.5)]), "lock 0",
+                        "fading " + shadows([(34, 1.0)]), "release"],
+    # The visible counter without its override.
+    ["mat 8 -1 -", "vis 1 2 3", "create", "init", "count 26", "release"],
+]
+
+
 def write(name, text, check):
     path = os.path.join(HERE, name)
     if check:
@@ -760,6 +885,8 @@ def main():
           listing("material kinds", [" ; ".join(c) for c in KINDS_CASES]), check)
     write("material_surface.list",
           listing("material surface", [" ; ".join(c) for c in SURFACE_CASES]), check)
+    write("material_appearance.list",
+          listing("material appearance", [" ; ".join(c) for c in APPEARANCE_CASES]), check)
     write("material_map.ini", MATERIAL_MAP_INI, check)
     write("material_defaults.ini", MATERIAL_DEFAULTS_INI, check)
     write("material_batcher.ini", MATERIAL_BATCHER_INI, check)

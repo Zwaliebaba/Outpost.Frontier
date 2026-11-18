@@ -23,7 +23,7 @@ use super::batcher::{BatchDevice, DrawArgs, SubmitContext, VbListing, VertexSour
 use super::global::{GlobalRecords, UNSET};
 use super::instance::MaterialId;
 use super::services::{MaterialServices, VertexLock};
-use super::surface::{MeshIndices, SurfaceEngine, SurfaceServices};
+use super::surface::{InstanceValues, MeshIndices, SurfaceEngine, SurfaceServices};
 use crate::render::ff::buffers::{IndexSource, VbHandle};
 use crate::render::ff::device::{Backend, Device};
 use crate::render::ff::fvf::Fvf;
@@ -59,9 +59,12 @@ pub struct Shading<B: Backend> {
     pub animations: Option<MaterialAnimations>,
     /// The engine `Field20` names, for the atmosphere.
     pub engine: Option<Box<dyn InstanceExtents>>,
-    /// What `FLAppearance` publishes to the surface materials (the engine,
-    /// the instance values); `None` before it is initialized.
+    /// The engine `FLAppearance` publishes to the surface materials;
+    /// `None` before it is initialized.
     pub surface: Option<Box<dyn SurfaceEngine>>,
+    /// The instance values `FLAppearance` keeps (`G_IdValues`), which the
+    /// surface materials read.
+    pub values: InstanceValues,
     /// `G_VisibleCounterA`, `B` and `C`.
     pub visible: [u32; 3],
     vbs: BTreeMap<u32, VbHandle>,
@@ -96,6 +99,7 @@ impl<B: Backend> Shading<B> {
             animations: None,
             engine: None,
             surface: None,
+            values: InstanceValues::new(),
             visible: [0; 3],
             vbs: BTreeMap::new(),
             vb_numbers: HashMap::new(),
@@ -420,8 +424,9 @@ impl<B: Backend> MaterialServices for Shading<B> {
     }
 }
 
-/// The surface materials' calls on the model. The engine and the instance
-/// values come from [`Shading::surface`]; the model has no meshes, so the
+/// The surface materials' calls on the model. The engine comes from
+/// [`Shading::surface`], the instance values from [`Shading::values`]; the
+/// model has no meshes, so the
 /// mesh queries fail, and no material arena, so the candidate calls do
 /// nothing and fail (divergence D315).
 impl<B: Backend> SurfaceServices for Shading<B> {
@@ -515,17 +520,11 @@ impl<B: Backend> SurfaceServices for Shading<B> {
     }
 
     fn instance_value(&mut self, id: i32) -> Option<u32> {
-        if id == -1 {
-            return None;
-        }
-        self.surface.as_mut()?.value(id)
+        self.values.word(id)
     }
 
     fn instance_value_name(&mut self, id: i32) -> Option<Vec<u8>> {
-        if id == -1 {
-            return None;
-        }
-        self.surface.as_mut()?.value_name(id)
+        self.values.name(id)
     }
 
     fn count_visible(&mut self, index_span: u32, count: u32) {

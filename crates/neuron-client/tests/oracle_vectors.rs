@@ -5,7 +5,7 @@
 //! `oracle_text.cpp`, `oracle_audio.cpp`, `oracle_texture.cpp`,
 //! `oracle_big_image.cpp`, `oracle_material.cpp`,
 //! `oracle_material_kinds.cpp`, `oracle_material_surface.cpp`,
-//! `oracle_mesh_render.cpp`, `oracle_particles.cpp` and `oracle_ui.cpp`).
+//! `oracle_material_appearance.cpp`, `oracle_mesh_render.cpp`, `oracle_particles.cpp` and `oracle_ui.cpp`).
 
 mod support;
 
@@ -14,8 +14,9 @@ use neuron_client::text::rdl::markup;
 
 use support::audio::{self, check_suite_within};
 use support::{
-    check_suite, input_lines, material, material_kinds, material_surface, mesh_render, particles,
-    scene_script, scene_script_build, scene_script_runtime, text, texture, ui, unhex,
+    check_suite, input_lines, material, material_appearance, material_kinds, material_surface,
+    mesh_render, particles, scene_script, scene_script_build, scene_script_runtime, text, texture,
+    ui, unhex,
 };
 
 /// P4.14: the Lua state after each buffer of a case, one fresh state per
@@ -275,6 +276,17 @@ fn ui_quad_batch() {
 #[test]
 fn material_surface() {
     check_suite("material_surface.jsonl", &material_surface::lines());
+}
+
+/// P4.5: `FLAppearance` against recording services: the override
+/// materials, the instance values, the camera wrapper, the backdrop and
+/// starsphere draws, the fading and fixed blob shadows and the visible
+/// count (`tests/fixtures/oracle/material_appearance.list`). The shadow
+/// quads' angle goes through `atan2`, `sin` and `cos`; the cases agree
+/// exactly with a 32-bit glibc build of the reference (divergence D322).
+#[test]
+fn material_appearance() {
+    check_suite("material_appearance.jsonl", &material_appearance::lines());
 }
 
 /// P4.6: the render manager, the levels of detail, the VMesh registry,
