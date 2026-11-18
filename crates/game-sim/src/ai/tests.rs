@@ -269,3 +269,160 @@ fn maneuvers_and_sensitivity() {
     );
     assert_eq!(m.set_directive_priority(1), 3);
 }
+
+/// A leader (7) with two formation followers (8, 9), for the
+/// notifications (D195).
+struct Formation {
+    ships: Vec<ObjectView>,
+    rand: CrtRand,
+}
+
+impl Formation {
+    fn new() -> Self {
+        let ship = |id: u32, followers: Vec<u32>| ObjectView {
+            id,
+            class: class::SHIP,
+            type_flags: 0x1_0000,
+            orientation: Matrix::IDENTITY,
+            throttle: Some(0.0),
+            axis_throttle: Some(Vector::ZERO),
+            nudge: Some(Vector::ZERO),
+            strafe: Some(StrafeDir::None),
+            cruise: Some((false, false)),
+            thrusters: Some(false),
+            formation_followers: followers,
+            ..ObjectView::default()
+        };
+        Self {
+            ships: vec![
+                ship(7, vec![8, 9]),
+                ship(8, Vec::new()),
+                ship(9, Vec::new()),
+            ],
+            rand: CrtRand::with_seed(2),
+        }
+    }
+}
+
+impl AiWorld for Formation {
+    type Handle = u32;
+
+    fn inspect(&self, h: u32) -> Option<ObjectView> {
+        self.ships.iter().find(|s| s.id == h).cloned()
+    }
+
+    fn handle_of(&self, id: u32) -> Option<u32> {
+        self.ships.iter().any(|s| s.id == id).then_some(id)
+    }
+
+    fn system_objects(&self, _system: u32, _class_mask: u32) -> Vec<u32> {
+        self.ships.iter().map(|s| s.id).collect()
+    }
+
+    fn attitude(&self, _from: u32, _to: u32) -> Option<f32> {
+        None
+    }
+
+    fn attitude_symmetrical(&self, _from: u32, _to: u32) -> Option<(f32, f32)> {
+        None
+    }
+
+    fn hardpoint(&self, _h: u32, _name: &[u8]) -> Option<(Vector, Matrix)> {
+        None
+    }
+
+    fn motion(&self, _h: u32) -> Option<Box<dyn MotionModel + '_>> {
+        None
+    }
+
+    fn system_of(&self, _h: u32) -> Option<u32> {
+        Some(1)
+    }
+
+    fn command(&mut self, _h: u32, _command: AiCommand<u32>) -> i32 {
+        0
+    }
+}
+
+impl SpatialQueries for Formation {
+    fn find_ray_collisions(&self, _: u32, _: Vector, _: Vector, _: usize) -> Vec<RayContact> {
+        Vec::new()
+    }
+
+    fn find_ray_intersect(
+        &self,
+        _: u32,
+        _: u32,
+        _: Vector,
+        _: Vector,
+        _: usize,
+    ) -> Vec<RayContact> {
+        Vec::new()
+    }
+
+    fn find_sphere_collisions(&self, _: u32, _: Vector, _: f32, _: usize) -> Vec<u32> {
+        Vec::new()
+    }
+}
+
+impl AiRand for Formation {
+    fn rand(&mut self) -> i32 {
+        self.rand.rand()
+    }
+}
+
+#[test]
+fn notifications_reach_the_followers_in_order() {
+    let mut world = Formation::new();
+    let mut managers: Vec<BehaviorManager<Formation>> = [7, 8, 9]
+        .into_iter()
+        .map(|id| BehaviorManager::new(&mut world, id))
+        .collect();
+    // The leader tells its followers to force the attack (2) now: one
+    // notification each, in follower order, for the world to deliver.
+    managers[0].queue_notification(&mut world, 7, Some(7), 2, 0.0);
+    let out: Vec<(u32, u32)> = managers[0]
+        .state
+        .outbox
+        .drain(..)
+        .map(|n| (n.target, n.extra))
+        .collect();
+    assert_eq!(out, [(8, 2), (9, 2)]);
+    for (target, extra) in out {
+        let k = usize::try_from(target - 7).unwrap_or(0);
+        managers[k].receive_notification(&mut world, target, extra);
+    }
+    assert!(managers[1].state.sys.formation.force_attack);
+    assert!(managers[2].state.sys.formation.force_attack);
+
+    // A follower notifying its leader's followers reaches itself at once
+    // (inside its own call, as the reference does) and the other one
+    // through the outbox.
+    managers[1].queue_notification(&mut world, 8, Some(7), 1, 0.0);
+    assert!(!managers[1].state.sys.formation.force_attack);
+    let out: Vec<(u32, u32)> = managers[1]
+        .state
+        .outbox
+        .drain(..)
+        .map(|n| (n.target, n.extra))
+        .collect();
+    assert_eq!(out, [(9, 1)]);
+
+    // 3 on the leader: its own followers get 1.
+    managers[0].receive_notification(&mut world, 7, 3);
+    let out: Vec<(u32, u32)> = managers[0]
+        .state
+        .outbox
+        .drain(..)
+        .map(|n| (n.target, n.extra))
+        .collect();
+    assert_eq!(out, [(8, 1), (9, 1)]);
+
+    // A queued notification waits for its time and then runs as above.
+    managers[0].queue_notification(&mut world, 7, Some(7), 2, 0.05);
+    assert!(managers[0].state.outbox.is_empty());
+    managers[0].state.state_graph = None;
+    managers[0].update_behavior_tick(&mut world, 7, 0.1);
+    assert_eq!(managers[0].state.outbox.len(), 2);
+    assert!(managers[0].state.notifications.is_empty());
+}

@@ -150,6 +150,10 @@ pub struct ManagerState {
     pub completed: Vec<(i32, i32)>,
     /// Notifications for other objects' managers; the owner drains them.
     pub outbox: Vec<NotificationOut>,
+    /// How often a behaviour the port does not have yet answered a poll
+    /// with its stand-in (a replay counts the ticks whose result may
+    /// depend on one). Not a field of the reference.
+    pub stand_in_polls: u32,
 }
 
 impl ManagerState {
@@ -196,6 +200,7 @@ impl ManagerState {
             sys: SystemManager::default(),
             completed: Vec::new(),
             outbox: Vec::new(),
+            stand_in_polls: 0,
         }
     }
 
@@ -680,9 +685,8 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
     }
 
     /// `UpdateNotificationQueue`: each node counts down; an expired node
-    /// re-runs its operation at once (into [`ManagerState::outbox`]) and
-    /// leaves the queue.
-    fn update_notification_queue(&mut self, world: &W, dt: f32) {
+    /// re-runs its operation at once and leaves the queue.
+    fn update_notification_queue(&mut self, world: &mut W, ship: W::Handle, dt: f32) {
         let mut kept = Vec::with_capacity(self.state.notifications.len());
         let nodes = std::mem::take(&mut self.state.notifications);
         for mut node in nodes {
@@ -692,15 +696,19 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
                 continue;
             }
             match node.mode {
-                0 => self.queue_now(world, node.a, node.extra),
-                1 => self.insert_now(node.b, node.extra),
+                0 => self.queue_now(world, ship, node.a, node.extra),
+                1 => self.insert_now(world, ship, node.b, node.extra),
                 _ => {}
             }
         }
+        // The immediate operations queue no node, so the list is the kept
+        // nodes in their order.
         self.state.notifications = kept;
     }
 
-    fn queue_now(&mut self, world: &W, target: Option<u32>, extra: u32) {
+    /// The immediate path of `QueueNotification`: each of the target's
+    /// formation followers (at most 16) gets `InsertNotification(Extra)`.
+    fn queue_now(&mut self, world: &mut W, ship: W::Handle, target: Option<u32>, extra: u32) {
         let Some(id) = target else {
             return;
         };
@@ -710,17 +718,50 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
             .map(|v| v.formation_followers)
             .unwrap_or_default();
         for f in followers.into_iter().take(16) {
-            self.insert_now(Some(f), extra);
+            self.insert_now(world, ship, Some(f), extra);
         }
     }
 
-    fn insert_now(&mut self, target: Option<u32>, extra: u32) {
-        if let Some(id) = target {
-            self.state.outbox.push(NotificationOut {
-                target: id,
-                to_followers: false,
-                extra,
-            });
+    /// The immediate path of `InsertNotification`: on this ship's own
+    /// manager at once ([`Self::receive_notification`]); for another ship
+    /// into [`ManagerState::outbox`], which the world that owns the
+    /// managers delivers when this call returns, in order (D195).
+    fn insert_now(&mut self, world: &mut W, ship: W::Handle, target: Option<u32>, extra: u32) {
+        let Some(id) = target else {
+            return;
+        };
+        if world.inspect(ship).is_some_and(|v| v.id == id) {
+            self.receive_notification(world, ship, extra);
+            return;
+        }
+        self.state.outbox.push(NotificationOut {
+            target: id,
+            to_followers: false,
+            extra,
+        });
+    }
+
+    /// What `InsertNotification` does to the target's manager (this one):
+    /// 0 ticks the formation behaviour when it is current (slot 7) and
+    /// then, as 1, clears the formation block's force-attack flag; 2 sets
+    /// it; 3 notifies the ship's own formation followers with 1. The
+    /// notifications this queues for other ships land in the outbox.
+    pub fn receive_notification(&mut self, world: &mut W, ship: W::Handle, extra: u32) {
+        match extra {
+            0 | 1 => {
+                if extra == 0 && self.state.behavior == ids::FORMATION {
+                    self.with(world, ship, ids::FORMATION, |b, cx| {
+                        b.update(cx);
+                    });
+                }
+                self.state.sys.formation.force_attack = false;
+            }
+            2 => self.state.sys.formation.force_attack = true,
+            3 => {
+                let own = world.inspect(ship).map(|v| v.id);
+                self.queue_now(world, ship, own, 1);
+            }
+            _ => {}
         }
     }
 
@@ -729,7 +770,8 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
     /// notified now.
     pub fn queue_notification(
         &mut self,
-        world: &W,
+        world: &mut W,
+        ship: W::Handle,
         target: Option<u32>,
         extra: u32,
         duration: f32,
@@ -744,18 +786,20 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
             });
             return;
         }
-        self.queue_now(world, target, extra);
+        self.queue_now(world, ship, target, extra);
     }
 
     /// `InsertNotification(Target, Extra, Duration)`.
     pub fn insert_notification(
         &mut self,
-        own_id: Option<u32>,
+        world: &mut W,
+        ship: W::Handle,
         target: Option<u32>,
         extra: u32,
         duration: f32,
     ) {
         if duration > 0.0 {
+            let own_id = world.inspect(ship).map(|v| v.id);
             self.state.notifications.push(Notification {
                 mode: 1,
                 a: own_id,
@@ -765,7 +809,7 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
             });
             return;
         }
-        self.insert_now(target, extra);
+        self.insert_now(world, ship, target, extra);
     }
 
     /// `IBehaviorManager::UpdateBehaviorTick(Dt)` for `ship`.
@@ -795,7 +839,7 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
         }
         let notes = self.state.sys.update_after_thrust(world, ship, p, dt);
         for n in notes {
-            self.queue_notification(&*world, Some(n.leader), n.extra, n.duration);
+            self.queue_notification(world, ship, Some(n.leader), n.extra, n.duration);
         }
         self.state.sys.formation.sync_formation_leader(world, ship);
         let external_is_player = view.is_player;
@@ -861,7 +905,7 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
     /// `UpdateBehaviorTick` after the entry tests.
     #[allow(clippy::too_many_lines)]
     fn tick_body(&mut self, world: &mut W, ship: W::Handle, dt: f32, view: &ObjectView) {
-        self.update_notification_queue(world, dt);
+        self.update_notification_queue(world, ship, dt);
         let Some(graph) = self.state.state_graph.clone() else {
             return;
         };

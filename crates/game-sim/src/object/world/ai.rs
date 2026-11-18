@@ -9,7 +9,7 @@ use neuron_core::math::{Matrix, Vector};
 
 use crate::ai::behavior::DirectiveOp;
 use crate::ai::fp::{e, r};
-use crate::ai::manager::BehaviorManager;
+use crate::ai::manager::{BehaviorManager, NotificationOut};
 use crate::ai::personality::Personality;
 use crate::ai::world::{
     AiCommand, AiRand, AiWorld, EngineStatus, MotionModel, ObjectView, RayContact, SpatialQueries,
@@ -64,7 +64,7 @@ impl World {
         // refreshes at every physics sync (`cache_physical_props`:
         // `PhySys::GetRadiusR`, the core's radius and the centre of mass);
         // computed here from the body as it is now.
-        let (radius, center) = self.body_sphere(h);
+        let (radius, center) = self.physical_sphere(h);
         Some(ObjectView {
             id: i.id,
             class: i.kind.class(),
@@ -130,6 +130,36 @@ impl World {
 }
 
 impl World {
+    /// `PhySys::GetRadiusR(Object, false)` for a body without phantoms:
+    /// the core's radius and `PhySys::GetCenterOfMass` (the surface's mass
+    /// centre through the body's object frame now, with the reference's
+    /// roundings); the object's sphere without a body.
+    fn physical_sphere(&self, h: ObjHandle) -> (f32, Vector) {
+        let Some(o) = self.get(h) else {
+            return (0.0, Vector::ZERO);
+        };
+        let (Some(body), Some(w)) = (o.physical.body, self.physics(o.physical.system)) else {
+            return self.body_sphere(h);
+        };
+        let (Some(core), Some((t, m))) = (w.core(body), w.transform(body)) else {
+            return self.body_sphere(h);
+        };
+        let [c0, c1, c2] = o.physical.mass_center.map(e);
+        let m = &m.m;
+        let x0 = e(m[0][0]) * c0;
+        let y0 = e(m[1][0]) * c0;
+        let z0 = r(e(m[2][0]) * c0);
+        let x1 = r(e(m[0][1]) * c1 + x0);
+        let y1 = r(e(m[1][1]) * c1 + y0);
+        let z1 = e(m[2][1]) * c1 + e(z0);
+        let center = Vector::new(
+            r(e(m[0][2]) * c2 + e(x1) + e(t.x)),
+            r(e(m[1][2]) * c2 + e(y1) + e(t.y)),
+            r(e(m[2][2]) * c2 + z1 + e(t.z)),
+        );
+        (core.upper_limit_radius, center)
+    }
+
     /// `get_archetype_extents` (`CObject::get_surface_extents`): the
     /// `exts` corners of the physics part the object was built from (its
     /// root part, or the single part of a simple model); `None` without
@@ -683,11 +713,34 @@ impl super::BehaviorHook for ManagerHook {
             return;
         };
         manager.update_behavior_tick(world, object, dt);
+        let outbox = std::mem::take(&mut manager.state.outbox);
         world.finish_manager_call(object, manager);
+        world.deliver_notifications(outbox);
     }
 }
 
 impl World {
+    /// Delivers the notifications a manager queued for other ships'
+    /// managers during a call (D195), in the order it queued them, each
+    /// with the notifications its delivery queues in turn handed on before
+    /// the next (the reference runs each delivery inside the call, depth
+    /// first). A ship without a manager gets nothing
+    /// (`get_behavior_interface` answers null).
+    pub fn deliver_notifications(&mut self, outbox: Vec<NotificationOut>) {
+        for n in outbox {
+            let Some(h) = self.find(n.target) else {
+                continue;
+            };
+            let Some(mut manager) = self.behavior_managers.remove(&h) else {
+                continue;
+            };
+            manager.receive_notification(self, h, n.extra);
+            let more = std::mem::take(&mut manager.state.outbox);
+            self.finish_manager_call(h, manager);
+            self.deliver_notifications(more);
+        }
+    }
+
     /// Puts a manager back after a call and copies its current behaviour
     /// into the object.
     fn finish_manager_call(&mut self, h: ObjHandle, manager: BehaviorManager<World>) {
@@ -742,7 +795,9 @@ impl World {
         }
         let mut manager = self.behavior_managers.remove(&h)?;
         let out = f(&mut manager, self);
+        let outbox = std::mem::take(&mut manager.state.outbox);
         self.finish_manager_call(h, manager);
+        self.deliver_notifications(outbox);
         Some(out)
     }
 

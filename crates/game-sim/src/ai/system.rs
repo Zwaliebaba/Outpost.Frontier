@@ -8,7 +8,8 @@
 //! [`super::manager::ManagerState`] beside this. Not ported: the repair
 //! manager (`RepairManager`), the loot helper at +0x1498 and the leader's
 //! borrowed personality (`bLeaderMakesMeTougher`, which needs the
-//! leader's own system manager; the ship's own personality is used, D174).
+//! leader's own system manager; the ship's own personality is used, an
+//! open item of the ledger's AI sub-row).
 
 use super::fire_control::FireEnv;
 use super::gun_convergence::{FormationState, LeaderNotification};

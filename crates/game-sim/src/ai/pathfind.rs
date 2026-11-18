@@ -12,9 +12,8 @@
 //! the user-zone probe of modes 0 and 2 (`GetUserZoneApproachDirection`)
 //! and `UpdateHeadingBlend`.
 //!
-//! Not ported (P2.5 gap, `design/library-ledger.md`): the zone-property
-//! probe of `Update` (`Universe::ISystem::GetSphereProperties`; the fields
-//! it writes, `+0x000` and `+0x004`, stay 0), the box user zone (mode 1),
+//! Not ported (P2.5 gap, `design/library-ledger.md`): the box user zone
+//! (mode 1),
 //! `ClassifyObstaclePhase` (it walks the scanner's scan list and the
 //! system's spatial partition, which the AI world does not expose yet; the
 //! port answers phase 4, "nothing to react to", which is the reference's
@@ -96,9 +95,10 @@ pub struct UserZone {
 #[derive(Clone, Debug, PartialEq)]
 pub struct PathfindManager {
     /// +0x000 1 inside a zone with any of 0x7000, | 8 with a probe
-    /// contact (the zone probe is not ported: 0).
+    /// contact.
     pub field_000: i32,
-    /// +0x004 the zone properties (not ported: 0).
+    /// +0x004 the zone properties around the ship
+    /// ([`AiWorld::sphere_zone_properties`]).
     pub field_004: i32,
     /// +0x008 / +0x00C the user zone (`submit_user_zone`).
     pub user_zone: Option<UserZone>,
@@ -344,9 +344,13 @@ impl PathfindManager {
         self.timer_1e0 = r(zone_clock);
         if zone_clock > e(self.period_1e4) {
             self.timer_1e0 = r(e(self.timer_1e0) % e(self.period_1e4));
-            // The zone-property probe is not ported: no zone bits.
-            self.field_004 = 0;
-            self.field_000 = 0;
+            // The zone properties of a 20 m sphere around the ship.
+            let props = match (world.system_of(ship), world.inspect(ship)) {
+                (Some(system), Some(v)) => world.sphere_zone_properties(system, v.position, 20.0),
+                _ => 0,
+            };
+            self.field_004 = i32::from_ne_bytes(props.to_ne_bytes());
+            self.field_000 = i32::from(props & 0x7000 != 0);
             if self.avoidance.has_contact {
                 self.field_000 |= 8;
             }
