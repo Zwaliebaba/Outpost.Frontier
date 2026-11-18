@@ -2,4 +2,5 @@
 
 pub use neuron_core::ENGINE_VERSION;
 
+pub mod render;
 pub mod scene_script;

@@ -28,7 +28,7 @@ relative to `CppSource/`.
   `GetDeviceStats`, `GetTextureInterface`, both render-target methods and
   the two `Unsupported*` slots are stubs (`DX8RENDERER.cpp:3423`, `:3434`,
   `:4205`, `:4369-4388`).
-- **State tables and defaults.** The renderer knows 74 render states with
+- **State tables and defaults.** The renderer knows 76 render states with
   defaults (`kRenderStateProperties`, `DX8RENDERER.cpp:141-216`) and 27
   states per texture stage over 8 stages (`:222-260`); after `Initialize`
   every stage, stage 0 included, has `COLOROP` and `ALPHAOP` disabled
@@ -101,7 +101,7 @@ relative to `CppSource/`.
    enum cases: `IndexSource::Scratch`, `VertexSource::Current` and
    `VertexSource::Pool(Fvf)`.
 3. **States.** `RenderState` is an enum with one variant per render state
-   in DX8RENDERER's table (74), each carrying a typed value
+   in DX8RENDERER's table (76; corrected from 74 on 2026-11-18, P4.3), each carrying a typed value
    (`ZFunc(Compare)`, `SrcBlend(Blend)`, `FogStart(f32)`, `Ambient(Color)`,
    `AlphaRef(u32)`, …). `StageState` does the same for the 27 stage states;
    `Stage` is 0 to 7. `RenderState::from_raw(id, value)` and `to_raw()`
@@ -211,7 +211,7 @@ relative to `CppSource/`.
     backend.
 11. **Changes in the proxy** (oracle instrumentation, permitted by the
     Phase 0 rules):
-    - The header says `"version":1` and adds `"defaults"`: the 74
+    - The header says `"version":1` and adds `"defaults"`: the 76
       render-state values after the INI was read, the 27 stage defaults of
       stage 0 and of stages 1 to 7, and the pipeline-property values. A
       replayer then knows what `CreateBuffers` and
