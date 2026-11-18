@@ -379,7 +379,7 @@ struct Run {
     units: Vec<Vec<Unit>>,
     /// Each unit's core at the start and the end of its PSI, for the first
     /// PSIs (`unit_cores.jsonl`).
-    unit_cores: Vec<Vec<(CoreRecord, CoreRecord)>>,
+    unit_cores: Vec<Vec<neuron_core::physics::world::UnitCore>>,
 }
 
 /// A core's state as the bit diagnostic prints it.
@@ -824,7 +824,12 @@ fn run(s: &Scenario, ai: &AiInputs) -> Option<Run> {
 /// The oracle's unit cores (`unit_cores.jsonl` beside the first
 /// `units.jsonl`): per PSI, the cores in run order, the start state only in
 /// the first PSI.
-fn oracle_unit_cores(dir: &Path, scenario: &str) -> Vec<Vec<(Option<CoreRecord>, CoreRecord)>> {
+/// One unit of `unit_cores.jsonl`: the start (first PSI only) and end
+/// states, and for a free part its object's frame and its golem's target
+/// and current target rotations (the raw line, for the report).
+type OracleUnitCore = (Option<CoreRecord>, CoreRecord, String);
+
+fn oracle_unit_cores(dir: &Path, scenario: &str) -> Vec<Vec<OracleUnitCore>> {
     let Some(file) = find_files(&dir.join(scenario), "unit_cores.jsonl")
         .into_iter()
         .min()
@@ -834,7 +839,7 @@ fn oracle_unit_cores(dir: &Path, scenario: &str) -> Vec<Vec<(Option<CoreRecord>,
     let Ok(text) = fs::read_to_string(&file) else {
         return Vec::new();
     };
-    let mut out: Vec<Vec<(Option<CoreRecord>, CoreRecord)>> = Vec::new();
+    let mut out: Vec<Vec<OracleUnitCore>> = Vec::new();
     for line in text.lines() {
         let Ok(r) = support::records::parse(line) else {
             continue;
@@ -850,7 +855,25 @@ fn oracle_unit_cores(dir: &Path, scenario: &str) -> Vec<Vec<(Option<CoreRecord>,
         while out.len() < psi {
             out.push(Vec::new());
         }
-        out[psi - 1].push((i, o));
+        let floats = |k: &str| {
+            r.get(k)
+                .and_then(Json::as_floats)
+                .map(|v| {
+                    v.iter()
+                        .map(|x| format!("{:08x}", x.to_bits()))
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                })
+                .unwrap_or_default()
+        };
+        let extra = format!(
+            "orient [{}] pos [{}] golem_q [{}] golem_current_q [{}]",
+            floats("orient"),
+            floats("pos"),
+            floats("golem_q"),
+            floats("golem_current_q")
+        );
+        out[psi - 1].push((i, o, extra));
     }
     out
 }
@@ -869,7 +892,7 @@ fn report_unit_cores(
         return;
     }
     for (p, (a, b)) in ours.unit_cores.iter().zip(&theirs).enumerate() {
-        for (i, ((ain, aout), (bin, bout))) in a.iter().zip(b).enumerate() {
+        for (i, ((ain, aout, agolem), (bin, bout, bextra))) in a.iter().zip(b).enumerate() {
             let unit = theirs_units
                 .get(p)
                 .and_then(|u| u.get(i))
@@ -893,6 +916,27 @@ fn report_unit_cores(
                     "{scenario}: unit cores: psi {} unit {i} ({unit}) first differs at the end of its PSI, oracle != rust: {}",
                     p + 1,
                     d.iter().take(12).cloned().collect::<Vec<_>>().join("; ")
+                );
+                let h = |v: &[f32]| {
+                    v.iter()
+                        .map(|x| format!("{:08x}", x.to_bits()))
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                };
+                let q = |c: &CoreRecord| {
+                    let q = c.core.q_world_f_core_next_psi;
+                    h(&[q.x, q.y, q.z, q.w])
+                };
+                let _ = writeln!(
+                    summary,
+                    "    oracle: {bextra}; core q_next at the start [{}]",
+                    bin.as_ref().map(q).unwrap_or_default()
+                );
+                let _ = writeln!(
+                    summary,
+                    "    rust: golem target and current [{}]; core q_next at the start [{}]",
+                    agolem.map(|g| h(&g)).unwrap_or_default(),
+                    q(ain)
                 );
                 return;
             }

@@ -824,15 +824,7 @@ impl World {
     /// A system's recorded unit cores of the first PSIs
     /// ([`PhysicsWorld::unit_core_trace`]).
     #[must_use]
-    pub fn unit_core_trace(
-        &self,
-        system: u32,
-    ) -> Vec<
-        Vec<(
-            neuron_core::physics::replay::CoreRecord,
-            neuron_core::physics::replay::CoreRecord,
-        )>,
-    > {
+    pub fn unit_core_trace(&self, system: u32) -> Vec<Vec<neuron_core::physics::world::UnitCore>> {
         self.physics
             .world(system)
             .map(|w| w.unit_core_trace().to_vec())

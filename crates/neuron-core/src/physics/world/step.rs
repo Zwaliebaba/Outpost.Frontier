@@ -173,12 +173,24 @@ impl PhysicsWorld {
                 self.active.retain(|c| *c != index);
             }
             if let (Some(before), Some(slot)) = (before, self.cores.get(index)) {
+                let golem = slot
+                    .objects
+                    .first()
+                    .and_then(|b| self.bodies.get(b.0))
+                    .and_then(|b| match &b.golem {
+                        Some(GolemKind::Part(g)) => {
+                            let (t, c) = (g.target_quat, g.current_target_quat);
+                            Some([t.x, t.y, t.z, t.w, c.x, c.y, c.z, c.w])
+                        }
+                        _ => None,
+                    });
                 cores_trace.push((
                     before,
                     crate::physics::replay::CoreRecord {
                         core: slot.core.clone(),
                         unit_state: slot.unit_state,
                     },
+                    golem,
                 ));
             }
         }

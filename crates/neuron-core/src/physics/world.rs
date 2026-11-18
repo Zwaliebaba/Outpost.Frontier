@@ -321,8 +321,17 @@ pub struct PhysicsWorld {
     unit_trace: Option<Vec<Vec<(u64, bool)>>>,
     /// For the first [`UNIT_CORE_PSIS`] PSIs of the trace, each unit's core
     /// at the start and at the end of its PSI.
-    unit_core_trace: Vec<Vec<(super::replay::CoreRecord, super::replay::CoreRecord)>>,
+    unit_core_trace: Vec<Vec<UnitCore>>,
 }
+
+/// A unit's core at the start and at the end of its PSI, and for a
+/// free part's golem its target and current target rotations (x, y, z, w
+/// each).
+pub type UnitCore = (
+    super::replay::CoreRecord,
+    super::replay::CoreRecord,
+    Option<[f32; 8]>,
+);
 
 /// The PSIs [`PhysicsWorld::unit_core_trace`] keeps (`unit_cores.jsonl`'s
 /// `kUnitCorePsis`).
@@ -388,9 +397,7 @@ impl PhysicsWorld {
     /// core (and its unit flags) at the start and at the end of its PSI,
     /// before `calc_next_PSI_matrix`, in the order the units ran.
     #[must_use]
-    pub fn unit_core_trace(
-        &self,
-    ) -> &[Vec<(super::replay::CoreRecord, super::replay::CoreRecord)>] {
+    pub fn unit_core_trace(&self) -> &[Vec<UnitCore>] {
         &self.unit_core_trace
     }
 

@@ -57,6 +57,7 @@
 #include "oracle_sim_ai.h"
 #include "oracle_sim_rand.h"
 #include "oracle_sim_fault.h"
+#include "../include/common_ivp_controller.h" // IVP_Controller_Golem (unit_cores.jsonl)
 
 // Server.dll, IServerImpl.cpp (Oracle instrumentation): StarSystem::load on one system.
 extern "C" __declspec(dllimport) bool __cdecl OracleSimLoadSystem(unsigned int SystemId);
@@ -969,6 +970,24 @@ namespace
         if (GPsiSeq == 1)
             CoreJ(J, "in", GUnitCoreIn);
         CoreJ(J, "out", Out);
+        // A free part's object (class 1): its frame and its golem's targets.
+        if (Object != nullptr && (unsigned)Object->ObjectClass == 1u)
+        {
+            J.FloatArray("orient", &Object->Orientation.E[0][0], 9);
+            float const Pos[3] = {Object->WorldPosition.x, Object->WorldPosition.y, Object->WorldPosition.z};
+            J.FloatArray("pos", Pos, 3);
+            IVP_Controller_Golem const* const Golem =
+                static_cast<IVP_Controller_Golem const*>(Object->GolemController);
+            if (Golem != nullptr)
+            {
+                float const Target[4] = {Golem->TargetQuat.x, Golem->TargetQuat.y, Golem->TargetQuat.z,
+                                         Golem->TargetQuat.w};
+                J.FloatArray("golem_q", Target, 4);
+                float const Current[4] = {Golem->CurrentTargetQuat.x, Golem->CurrentTargetQuat.y,
+                                          Golem->CurrentTargetQuat.z, Golem->CurrentTargetQuat.w};
+                J.FloatArray("golem_current_q", Current, 4);
+            }
+        }
         fputs(J.Finish().c_str(), GUnitCoreFile);
         fputc('\n', GUnitCoreFile);
         fflush(GUnitCoreFile);
