@@ -22,8 +22,9 @@
 //!
 //! Scenarios whose objects need the AI (an `ai` state graph, or the
 //! `goto`, `face` and `dock` directives) are skipped with a note: the
-//! behaviours are P2.5. A summary goes to `rust-scenario-replay.txt` in
-//! the oracle folder.
+//! behaviours are P2.5. So is a scenario whose AI ships have a `faction`
+//! (the dogfight): its pilots need the combat behaviours. A summary goes
+//! to `rust-scenario-replay.txt` in the oracle folder.
 
 mod support;
 
@@ -71,6 +72,10 @@ struct ObjDesc {
     angvel: Vector,
     hp: f32,
     ai: bool,
+    /// The `pilot` option: the personality's `[Pilot]` nickname.
+    pilot: Option<String>,
+    /// The `faction` option: the reputation group of the ship's vibe.
+    faction: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -165,6 +170,8 @@ fn parse(path: &Path) -> Option<Scenario> {
                     angvel: Vector::ZERO,
                     hp: -1.0,
                     ai: false,
+                    pilot: None,
+                    faction: None,
                 };
                 let mut at = if ship { 7 } else { 3 };
                 while at < t.len() {
@@ -188,6 +195,14 @@ fn parse(path: &Path) -> Option<Scenario> {
                         }
                         "hp" => {
                             o.hp = num(t.get(at + 1)?)? as f32;
+                            at += 2;
+                        }
+                        "pilot" => {
+                            o.pilot = Some(t.get(at + 1)?.clone());
+                            at += 2;
+                        }
+                        "faction" => {
+                            o.faction = Some(t.get(at + 1)?.clone());
                             at += 2;
                         }
                         _ => at += 1,
@@ -223,6 +238,22 @@ fn parse(path: &Path) -> Option<Scenario> {
 }
 
 fn needs_ai(s: &Scenario) -> Option<String> {
+    // A hostile AI ship (the dogfight): its pilot fights.
+    let fighters: Vec<String> = s
+        .objects
+        .iter()
+        .filter(|o| o.ai && o.faction.is_some())
+        .map(|o| match &o.pilot {
+            Some(pilot) => format!("{} ({pilot})", o.name),
+            None => o.name.clone(),
+        })
+        .collect();
+    if !fighters.is_empty() {
+        return Some(format!(
+            "{}: the pilot needs combat behaviours",
+            fighters.join(" and ")
+        ));
+    }
     if let Some(o) = s.objects.iter().find(|o| o.ai) {
         return Some(format!("{} has a state graph", o.name));
     }
