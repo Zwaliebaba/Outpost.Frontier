@@ -15,13 +15,15 @@
 //! tests); a [`SoundSource`] stands for the client's play key, asked the
 //! same questions in the same order as the reference asks them.
 //!
-//! Deleted with decision T4: the 3D buffer branch of `MixerApplyInstance`
-//! (sound mode, cones, velocity, the `[1, 1e9]` distance clamp and the
-//! deferred commit; divergence D220), hardware and software placement
-//! (`MaybeMigrateHwSw`, the location flags of `Play` and its retries;
-//! D222), the per-source EAX environment (D223), and the notify thread
-//! (native loop regions replace it). Every voice takes the software path;
-//! see [`Mixer::pan_3d_voices`] (D221).
+//! Voices of 3D archetypes hand their pose to the device
+//! ([`VoiceBackend::set_emitter`]), which spatialises them with X3DAudio
+//! in place of the reference's DirectSound 3D buffers (owner decision
+//! O26, divergence D220); [`Spatial::Software`] gives them the
+//! reference's software path instead, as the oracle harness does. Deleted
+//! with decision T4: hardware and software placement (`MaybeMigrateHwSw`,
+//! the location flags of `Play` and its retries; D222), the per-source
+//! EAX environment (D223), and the notify thread (native loop regions
+//! replace it).
 
 // The reference's x87 comparisons send unordered operands (NaN) to one side;
 // the port spells each outcome as the comparison that is true exactly when
@@ -289,6 +291,40 @@ pub trait VoiceBackend {
     fn is_playing(&mut self, voice: VoiceId) -> bool;
     /// `Play`, looping or once; false when it failed.
     fn play(&mut self, voice: VoiceId, looping: bool) -> bool;
+    /// The 3D settings of a voice of a 3D archetype under
+    /// [`Spatial::Emitter`], each tick before its volume: the device
+    /// derives distance attenuation, pan and Doppler from `listener` and
+    /// `emitter` (X3DAudio, owner decision O26). Stands for the
+    /// reference's 3D buffer calls (`SetPosition`, `SetMinDistance`,
+    /// `SetMaxDistance` and the listener's deferred commit).
+    fn set_emitter(&mut self, voice: VoiceId, listener: &Listener, emitter: &Emitter);
+}
+
+/// How voices of 3D archetypes are spatialised.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Spatial {
+    /// The device spatialises them from [`VoiceBackend::set_emitter`]:
+    /// the volume carries no distance attenuation and no pan is set
+    /// (owner decision O26, divergence D220).
+    #[default]
+    Emitter,
+    /// The reference's software path, as for a 3D buffer that offers no
+    /// 3D interface (the oracle harness): distance attenuation in the
+    /// volume, no pan, since such a buffer has no pan control.
+    Software,
+}
+
+/// What [`VoiceBackend::set_emitter`] receives for one voice.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Emitter {
+    /// The source position, Z scaled as the listener's.
+    pub position: [f32; 3],
+    /// The minimum distance: full volume inside it.
+    pub min_distance: f32,
+    /// The maximum distance: no further attenuation beyond it.
+    pub max_distance: f32,
+    /// `MUTE3DATMAXDISTANCE`.
+    pub mute_at_max_distance: bool,
 }
 
 /// The capabilities a voice has, from its archetype's buffer flags.
@@ -413,6 +449,26 @@ pub fn software_settings(
     } else if pan_control {
         pan = source.pan().map(clamp_pan_2d);
     }
+    voice_settings(
+        state,
+        source,
+        archetype,
+        attenuation,
+        pan,
+        frequency_control,
+    )
+}
+
+/// The frequency for the source's pitch and the volume for `attenuation`,
+/// the tail both paths share. Without an archetype there are neither.
+fn voice_settings(
+    state: &MixState<'_>,
+    source: &dyn SoundSource,
+    archetype: Option<&Archetype>,
+    attenuation: f32,
+    pan: Option<i32>,
+    frequency_control: bool,
+) -> VoiceSettings {
     let mut frequency = None;
     let mut volume = None;
     if let Some(archetype) = archetype {
@@ -432,6 +488,27 @@ pub fn software_settings(
         frequency,
         volume,
     }
+}
+
+/// The settings of a voice the device spatialises ([`Spatial::Emitter`]):
+/// the frequency for its pitch and the volume with the client's
+/// attenuation but no distance attenuation; no pan.
+#[must_use]
+pub fn emitter_settings(
+    state: &MixState<'_>,
+    source: &dyn SoundSource,
+    archetype: Option<&Archetype>,
+    frequency_control: bool,
+) -> VoiceSettings {
+    let attenuation = source.attenuation();
+    voice_settings(
+        state,
+        source,
+        archetype,
+        attenuation,
+        None,
+        frequency_control,
+    )
 }
 
 /// The clock inputs of [`start_offset`].
@@ -533,13 +610,8 @@ pub struct Mixer<K> {
     /// `NEVER_SET_START_POS`: play from the start instead of from the
     /// time the source started.
     pub never_set_start_pos: bool,
-    /// Whether voices of 3D archetypes take the software pan. The
-    /// reference gave those voices 3D buffers, which mix themselves and
-    /// have no pan control; the port pans them (true, the default,
-    /// divergence D221). False reproduces a 3D buffer that offers no 3D
-    /// interface, where the reference's software path finds no pan
-    /// control.
-    pub pan_3d_voices: bool,
+    /// How voices of 3D archetypes are spatialised.
+    pub spatial: Spatial,
 }
 
 impl<K> Default for Mixer<K> {
@@ -556,7 +628,7 @@ impl<K> Default for Mixer<K> {
             max_channels: 0,
             max_3d_pan: DEFAULT_MAX_3D_PAN,
             never_set_start_pos: false,
-            pan_3d_voices: true,
+            spatial: Spatial::Emitter,
         }
     }
 }
@@ -771,18 +843,34 @@ impl<K: Copy + PartialEq> Mixer<K> {
         };
         let archetype = self.archetype(source.archetype());
         let instance = &self.instances[index];
-        let pan_control = instance.caps.pan || (self.pan_3d_voices && instance.caps.spatial);
         let mut pose = instance.pose;
-        let settings = software_settings(
-            &state,
-            source,
-            archetype,
-            &mut pose,
-            pan_control,
-            instance.frequency_control,
-        );
+        let emitter = self.spatial == Spatial::Emitter && instance.caps.spatial;
+        let settings = if emitter {
+            emitter_settings(&state, source, archetype, instance.frequency_control)
+        } else {
+            software_settings(
+                &state,
+                source,
+                archetype,
+                &mut pose,
+                instance.caps.pan,
+                instance.frequency_control,
+            )
+        };
         let instance = &mut self.instances[index];
         instance.pose = pose;
+        if emitter {
+            backend.set_emitter(
+                instance.voice,
+                &self.listener,
+                &Emitter {
+                    position: pose.position,
+                    min_distance: pose.min_distance,
+                    max_distance: pose.max_distance,
+                    mute_at_max_distance: instance.caps.mute_at_max_distance,
+                },
+            );
+        }
         if let Some(pan) = settings.pan
             && pan != instance.pan
         {
@@ -1006,6 +1094,10 @@ mod tests {
         fn set_position(&mut self, voice: VoiceId, byte: u32) {
             self.0.push(format!("pos {voice} {byte}"));
         }
+        fn set_emitter(&mut self, voice: VoiceId, _: &Listener, emitter: &Emitter) {
+            let [x, y, z] = emitter.position;
+            self.0.push(format!("emitter {voice} {x} {y} {z}"));
+        }
         fn is_playing(&mut self, voice: VoiceId) -> bool {
             !self.1.contains(&voice)
         }
@@ -1147,12 +1239,29 @@ mod tests {
         table.0[1].pos = Some([0.0, 0.0, 300.0]);
         mixer.tick(20, &mut table, &mut log);
         assert!(mixer.instance(1).is_none());
-        // Without the port's pan on 3D voices the far voice gets none.
-        mixer.pan_3d_voices = false;
+        // A 3D archetype's voice is the device's to spatialise: its pose
+        // goes to the emitter, its volume has no distance attenuation and
+        // it gets no pan.
         table.0[1].pos = Some([50.0, 0.0, 0.0]);
         log.0.clear();
         mixer.tick(30, &mut table, &mut log);
-        assert!(!log.0.iter().any(|l| l.starts_with("pan 3")));
+        let far = mixer.instance(1).unwrap().voice;
+        assert!(log.0.contains(&format!("emitter {far} 50 0 0")));
+        assert!(!log.0.iter().any(|l| l.starts_with(&format!("pan {far} "))));
+        assert_eq!(mixer.instance(1).unwrap().volume, 0);
+        // The software path, as the oracle harness runs it: distance
+        // attenuation in the volume, still no pan (a 3D buffer has no pan
+        // control), no emitter.
+        mixer.spatial = Spatial::Software;
+        log.0.clear();
+        mixer.tick(40, &mut table, &mut log);
+        assert!(!log.0.iter().any(|l| l.starts_with("emitter")));
+        assert!(!log.0.iter().any(|l| l.starts_with(&format!("pan {far} "))));
+        let atten = software_attenuation(10.0, quake_distance(2500.0), 1.0, 1.0, 0.0);
+        assert_eq!(
+            mixer.instance(1).unwrap().volume,
+            volume_hundredths(0.0, 0.0, atten)
+        );
     }
 
     #[test]

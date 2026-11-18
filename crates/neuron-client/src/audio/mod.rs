@@ -29,9 +29,10 @@
 //!   `SetEaxPreview`, `MixerApplyEax` and the raw `EaxGet*`/`EaxSet*`
 //!   slots. The settings map to a reverb ([`reverb`], divergence D224).
 //! - The 3D algorithm option (`3D_SW_Algorithm`, read and kept,
-//!   divergence D223) and the 3D buffers it configured: every voice takes
-//!   the software path (divergence D220), 3D voices with its pan
-//!   ([`mixer::Mixer::pan_3d_voices`], divergence D221).
+//!   divergence D223) and the DirectSound 3D buffers it configured: voices
+//!   of 3D archetypes hand their pose to the device, which spatialises
+//!   them with X3DAudio ([`mixer::Spatial`], owner decision O26,
+//!   divergence D220).
 //! - Device selection (`deviceID`), the speaker table, the primary buffer,
 //!   the notify thread (native loop regions replace it), the streamer's
 //!   ring buffer and worker thread, and the Audio Compression Manager

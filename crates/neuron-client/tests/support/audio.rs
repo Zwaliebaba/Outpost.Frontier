@@ -17,8 +17,9 @@ use neuron_client::audio::config::profile_float;
 use neuron_client::audio::listener::{Listener, Pose};
 use neuron_client::audio::mix::{quake_distance, software_attenuation};
 use neuron_client::audio::mixer::{
-    Archetype, ArchetypeId, Instance, MixState, Mixer, NO_ARCHETYPE, PcmFormat, SoundSource,
-    SourceTable, StartTiming, VoiceBackend, VoiceCaps, VoiceId, software_settings, start_offset,
+    Archetype, ArchetypeId, Emitter, Instance, MixState, Mixer, NO_ARCHETYPE, PcmFormat,
+    SoundSource, SourceTable, Spatial, StartTiming, VoiceBackend, VoiceCaps, VoiceId,
+    software_settings, start_offset,
 };
 use neuron_client::audio::reverb::EaxPreview;
 use neuron_client::render::ff::defaults::profile_number;
@@ -294,6 +295,9 @@ impl VoiceBackend for Recorder {
     }
     fn set_position(&mut self, voice: VoiceId, byte: u32) {
         self.at(voice).position = Some(byte);
+    }
+    fn set_emitter(&mut self, _: VoiceId, _: &Listener, _: &Emitter) {
+        unreachable!("the harness runs the software path")
     }
     fn is_playing(&mut self, voice: VoiceId) -> bool {
         self.at(voice).playing
@@ -646,7 +650,7 @@ pub fn tick_lines() -> Vec<String> {
             "case" => {
                 case += 1;
                 mixer = Mixer::new();
-                mixer.pan_3d_voices = false;
+                mixer.spatial = Spatial::Software;
                 table = Table(BTreeMap::new());
                 backend = Recorder::default();
                 archetypes.clear();

@@ -426,6 +426,8 @@ impl AudioConfig {
     }
 
     /// Whether `useEAX` is on: only then does the reference apply reverb.
+    /// The port applies it either way (owner decision O26, divergence
+    /// D224); the flag is kept for the client.
     #[must_use]
     pub fn use_eax(&self) -> bool {
         self.flags & startup_flags::EAX != 0

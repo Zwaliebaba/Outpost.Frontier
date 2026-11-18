@@ -6,7 +6,8 @@
 //! (`reverbprops`), and `[AudioProperties]` gives the starting values. The
 //! reference clamps them and, only when `useEAX` is on, hands them to the
 //! sound card as an EAX 1.0-style reverb. The shipped configuration leaves
-//! `useEAX` off.
+//! `useEAX` off; the port applies the reverb whatever `useEAX` says (owner
+//! decision O26, divergence D224).
 //!
 //! The mapping is the port's (divergence D224): EAX environments 0 to 22
 //! are the I3DL2 presets of the same names (`I3DL2_ENVIRONMENT_PRESET_*`
