@@ -595,6 +595,10 @@ impl PhysicsWorld {
         // long-term pair) stay zero until the first movement check finds
         // the core moved, as in the reference, which never writes them
         // before (unit_cores.jsonl).
+        core.q_last_motion = IvpQuat::from_array([0.0; 4]);
+        core.q_last_long_motion = IvpQuat::from_array([0.0; 4]);
+        core.pos_last_motion = [0.0; 3];
+        core.pos_last_long_motion = [0.0; 3];
         core.time_of_last_psi = self.clock.current_time;
         let (_, inv) = self.clock.time_to_next_psi();
         core.synchronize_simulation_time_snapshot(inv);
