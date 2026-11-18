@@ -46,6 +46,7 @@ pub mod number;
 pub mod quad;
 pub mod rich;
 pub mod string;
+pub mod substitute;
 
 use atlas::Atlas;
 use face::{Font, FontDesc};
