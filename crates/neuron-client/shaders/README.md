@@ -19,7 +19,7 @@ and stripping debug, reflection and private data makes a blob depend only
 on its source and the compiler. The compiler DLL below is the only one the
 step accepts:
 
-d3dcompiler_47.dll file version: unrecorded
+d3dcompiler_47.dll file version: `10.0.26100.9457`
 
 `cargo xtask shaders --check` (run by the Windows CI job) recompiles and
 fails when a committed blob differs from its source; it then prints each

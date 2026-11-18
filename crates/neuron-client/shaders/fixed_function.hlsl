@@ -126,14 +126,15 @@ float fog_factor(uint mode, float d)
 // the vertex has, while COLORVERTEX is on, else the material's.
 float4 material(uint source, float4 fallback, VsIn v)
 {
+    float4 result = fallback;
     if (has(COLOR_VERTEX))
     {
         if (source == 1 && has(HAS_DIFFUSE))
-            return v.diffuse;
-        if (source == 2 && has(HAS_SPECULAR))
-            return v.specular;
+            result = v.diffuse;
+        else if (source == 2 && has(HAS_SPECULAR))
+            result = v.specular;
     }
-    return fallback;
+    return result;
 }
 
 void light_vertex(VsIn v, float3 p, float3 n, out float4 diffuse, out float4 specular)
@@ -150,7 +151,7 @@ void light_vertex(VsIn v, float3 p, float3 n, out float4 diffuse, out float4 spe
     {
         Light l = lights[i];
         uint kind = (uint)l.attenuation_type.w;
-        float3 to_light;
+        float3 to_light = float3(0, 0, 0);
         float atten = 1.0;
         float spot = 1.0;
         if (kind == 3)
@@ -231,28 +232,26 @@ float4 stage_coord(VsIn v, uint s, float3 p, float3 n)
     uint index = stage[s * 3 + 2].y;
     uint generate = index >> 16;
     uint set = index & 0xffff;
-    if (has(PRETRANSFORMED))
-        return texcoord_set(v, set);
-    float4 t;
-    if (generate == 1)
+    float4 t = texcoord_set(v, set);
+    // Pre-transformed vertices take their coordinates as they are.
+    if (!has(PRETRANSFORMED))
     {
-        t = float4(n, 1);
+        if (generate == 1)
+        {
+            t = float4(n, 1);
+        }
+        else if (generate == 2)
+        {
+            t = float4(p, 1);
+        }
+        else if (generate == 3)
+        {
+            float3 eye = has(LOCAL_VIEWER) ? normalize(-p) : float3(0, 0, 1);
+            t = float4(2.0 * dot(eye, n) * n - eye, 1);
+        }
+        if ((stage[s * 3 + 2].z & 0xff) != 0)
+            t = mul(t, tex_transform[s]);
     }
-    else if (generate == 2)
-    {
-        t = float4(p, 1);
-    }
-    else if (generate == 3)
-    {
-        float3 eye = has(LOCAL_VIEWER) ? normalize(-p) : float3(0, 0, 1);
-        t = float4(2.0 * dot(eye, n) * n - eye, 1);
-    }
-    else
-    {
-        t = texcoord_set(v, set);
-    }
-    if ((stage[s * 3 + 2].z & 0xff) != 0)
-        t = mul(t, tex_transform[s]);
     return t;
 }
 
@@ -366,37 +365,55 @@ float4 argument(uint a, float4 diffuse, float4 current, float4 tex, float4 temp,
 // D3DTEXTUREOP on arguments 0, 1 and 2.
 float4 combine(uint op, float4 a0, float4 a1, float4 a2, float4 diffuse, float4 tex, float4 current)
 {
-    switch (op)
-    {
-    case 2: return a1;
-    case 3: return a2;
-    case 4: return a1 * a2;
-    case 5: return 2.0 * a1 * a2;
-    case 6: return 4.0 * a1 * a2;
-    case 7: return a1 + a2;
-    case 8: return a1 + a2 - 0.5;
-    case 9: return 2.0 * (a1 + a2 - 0.5);
-    case 10: return a1 - a2;
-    case 11: return a1 + a2 - a1 * a2;
-    case 12: return lerp(a2, a1, diffuse.a);
-    case 13: return lerp(a2, a1, tex.a);
-    case 14: return lerp(a2, a1, texture_factor.a);
-    case 15: return a1 + a2 * (1.0 - tex.a);
-    case 16: return lerp(a2, a1, current.a);
-    case 18: return float4(a1.rgb + a1.a * a2.rgb, a1.a);
-    case 19: return float4(a1.rgb * a2.rgb + a1.a, a1.a);
-    case 20: return float4((1.0 - a1.a) * a2.rgb + a1.rgb, a1.a);
-    case 21: return float4((1.0 - a1.rgb) * a2.rgb + a1.a, a1.a);
+    // PREMODULATE (17) and unknown operations: the first argument.
+    float4 r = a1;
+    if (op == 3)
+        r = a2;
+    else if (op == 4)
+        r = a1 * a2;
+    else if (op == 5)
+        r = 2.0 * a1 * a2;
+    else if (op == 6)
+        r = 4.0 * a1 * a2;
+    else if (op == 7)
+        r = a1 + a2;
+    else if (op == 8)
+        r = a1 + a2 - 0.5;
+    else if (op == 9)
+        r = 2.0 * (a1 + a2 - 0.5);
+    else if (op == 10)
+        r = a1 - a2;
+    else if (op == 11)
+        r = a1 + a2 - a1 * a2;
+    else if (op == 12)
+        r = lerp(a2, a1, diffuse.a);
+    else if (op == 13)
+        r = lerp(a2, a1, tex.a);
+    else if (op == 14)
+        r = lerp(a2, a1, texture_factor.a);
+    else if (op == 15)
+        r = a1 + a2 * (1.0 - tex.a);
+    else if (op == 16)
+        r = lerp(a2, a1, current.a);
+    else if (op == 18)
+        r = float4(a1.rgb + a1.a * a2.rgb, a1.a);
+    else if (op == 19)
+        r = float4(a1.rgb * a2.rgb + a1.a, a1.a);
+    else if (op == 20)
+        r = float4((1.0 - a1.a) * a2.rgb + a1.rgb, a1.a);
+    else if (op == 21)
+        r = float4((1.0 - a1.rgb) * a2.rgb + a1.a, a1.a);
     // Bump mapping changes the next stage's coordinates, which the shader
     // does not emulate; the colour passes through.
-    case 22: return current;
-    case 23: return current;
-    case 24: return saturate(dot((a1.rgb - 0.5) * 2.0, (a2.rgb - 0.5) * 2.0)).xxxx;
-    case 25: return a0 + a1 * a2;
-    case 26: return a0 * a1 + (1.0 - a0) * a2;
-    // PREMODULATE (17) and unknown operations: the first argument.
-    default: return a1;
-    }
+    else if (op == 22 || op == 23)
+        r = current;
+    else if (op == 24)
+        r = saturate(dot((a1.rgb - 0.5) * 2.0, (a2.rgb - 0.5) * 2.0)).xxxx;
+    else if (op == 25)
+        r = a0 + a1 * a2;
+    else if (op == 26)
+        r = a0 * a1 + (1.0 - a0) * a2;
+    return r;
 }
 
 // The coordinates a stage samples at: the projective divide by the last
@@ -425,17 +442,22 @@ float4 bound_or_black(uint s, float4 sampled)
 // D3DCMPFUNC: 1 never to 8 always.
 bool compare(uint func, float a, float b)
 {
-    switch (func)
-    {
-    case 1: return false;
-    case 2: return a < b;
-    case 3: return a == b;
-    case 4: return a <= b;
-    case 5: return a > b;
-    case 6: return a != b;
-    case 7: return a >= b;
-    default: return true;
-    }
+    bool pass = true;
+    if (func == 1)
+        pass = false;
+    else if (func == 2)
+        pass = a < b;
+    else if (func == 3)
+        pass = a == b;
+    else if (func == 4)
+        pass = a <= b;
+    else if (func == 5)
+        pass = a > b;
+    else if (func == 6)
+        pass = a != b;
+    else if (func == 7)
+        pass = a >= b;
+    return pass;
 }
 
 float4 ps_main(PsIn i) : SV_Target

@@ -51,6 +51,10 @@ The owner accepted D240 to D244 (P4.14 Build) on 2026-11-18, as
 replacements of undefined behaviour and defects in the reference and as
 simplifications that change nothing for the shipped data.
 
+The owner accepted D209 (P4.2) on 2026-11-18, keeping the fixed set of
+static samplers of record 0004; a trace that shows an approximated stage
+reopens it.
+
 | ID | Area | C++ behaviour | Rust behaviour | Reason | Observable effect |
 | --- | --- | --- | --- | --- | --- |
 | D1 | `neuron-core::ini::engine` | On a stray `]` or `=` at the start of a line, an over-long phrase, or a value that does not end the line, `FIniDatabase::Parse` executes `__debugbreak`; on a key before the first section it writes through a null section (`neuroncomponents.cpp`). Without a debugger the process ends | `EngineIni::load_*` returns `EngineIniError::Breakpoint` or `KeyBeforeSection`; the sections parsed before stay | Undefined behaviour in the reference | A malformed engine INI is reported instead of ending the program |
