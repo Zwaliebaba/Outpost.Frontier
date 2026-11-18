@@ -789,7 +789,7 @@ UIStaticText Caption 0 0 1 1 \"Hello\" \r\n";
         assert_eq!(caption, &widen(b"Back"));
         assert_eq!((*extra_int, *extra_id), (1001, 393_251));
         assert_eq!(*style, Style::Default);
-        assert_eq!(*bottom, 6.510_417e-2);
+        assert_eq!(*bottom, "6.51041666666667E-02".parse::<f32>().unwrap());
         assert_eq!(
             desc.entries[3].payload,
             EntryPayload::ScrollCycle {
