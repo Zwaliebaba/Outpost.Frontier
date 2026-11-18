@@ -1057,3 +1057,165 @@ fn object_math() {
     }
     check_suite("object_math.jsonl", &lines);
 }
+
+/// One instance of an `object_turret.list` case: 31 words.
+struct TurretInstance {
+    kind: u32,
+    rotation: Matrix,
+    position: Vector,
+    axis: Vector,
+    joint_rotation: Matrix,
+    limits: (f32, f32),
+    child: Vector,
+    angle: f32,
+}
+
+impl TurretInstance {
+    fn read(w: &[u32]) -> Self {
+        let f = |i: usize| f32::from_bits(w[i]);
+        let v = |i: usize| Vector::new(f(i), f(i + 1), f(i + 2));
+        let m = |i: usize| {
+            Matrix::from_rows([
+                [f(i), f(i + 1), f(i + 2)],
+                [f(i + 3), f(i + 4), f(i + 5)],
+                [f(i + 6), f(i + 7), f(i + 8)],
+            ])
+        };
+        Self {
+            kind: w[0],
+            rotation: m(1),
+            position: v(10),
+            axis: v(13),
+            joint_rotation: m(16),
+            limits: (f(25), f(26)),
+            child: v(27),
+            angle: f(30),
+        }
+    }
+}
+
+/// Work package P2.4's turret suite over `object_turret.list`: the joint
+/// walk of `CEGun::LocateJoints` (`JointChannel::Bind`),
+/// `ComputeTurretFrame`, `GetTurretOrigin`, `DecomposeJointMotion`,
+/// `CanPointAt`, `CanSeeTargetPoint` and `JointChannel::Tick`, the
+/// instance tree given as plain values (the C++ side answers the gun from a
+/// stand-in engine). The angles come from `FPATAN` in the reference and
+/// from the Rust library here (decision T11).
+#[test]
+fn object_turret() {
+    use game_sim::equip::turret::{
+        JointChannel, can_point_at, can_see_target_point, compute_turret_frame,
+        decompose_joint_motion, pitch_turret_origin,
+    };
+    use neuron_core::math::{mul_matrix, transform_matrix, transform_xform};
+    use neuron_core::scene::InstanceId;
+
+    let words = |v: &[f32]| v.iter().map(|x| f32_text(*x)).collect::<Vec<_>>().join(",");
+    let mut lines = Vec::new();
+    for (case, line) in input_lines("object_turret.list").iter().enumerate() {
+        let w: Vec<u32> = line
+            .split(' ')
+            .map(|t| u32::from_str_radix(t, 16).unwrap_or_else(|e| panic!("{t}: {e}")))
+            .collect();
+        assert_eq!(w.len(), 82, "object_turret.list line {}", case + 1);
+        let f = |i: usize| f32::from_bits(w[i]);
+        let v = |i: usize| Vector::new(f(i), f(i + 1), f(i + 2));
+        let connector =
+            Matrix::from_rows([[f(0), f(1), f(2)], [f(3), f(4), f(5)], [f(6), f(7), f(8)]]);
+        let root = TurretInstance::read(&w[9..40]);
+        let child = TurretInstance::read(&w[40..71]);
+        let (barrel, point) = (v(71), v(74));
+        let (angle, turn_rate, dt, want_yaw, want_pitch) = (f(77), f(78), f(79), f(80), f(81));
+
+        let mut yaw = JointChannel::default();
+        if root.kind == 2 {
+            yaw.bind(
+                InstanceId::from_index(2),
+                Some(root.limits),
+                Some(root.angle),
+            );
+        }
+        let mut pitch = JointChannel::default();
+        if child.kind == 2 {
+            pitch.bind(
+                InstanceId::from_index(3),
+                Some(child.limits),
+                Some(child.angle),
+            );
+        }
+        let yaw_local = if yaw.is_bound() {
+            root.axis
+        } else {
+            transform_matrix(&root.joint_rotation, Vector::new(0.0, 1.0, 0.0))
+        };
+        let pitch_world = if pitch.is_bound() {
+            transform_matrix(&root.rotation, child.axis)
+        } else {
+            transform_matrix(&root.rotation, Vector::new(1.0, 0.0, 0.0))
+        };
+        let frame = compute_turret_frame(&connector, yaw_local, pitch_world);
+        let origin = if pitch.is_bound() {
+            pitch_turret_origin(child.position, &child.rotation, child.child)
+        } else {
+            root.position
+        };
+        let dir = Vector::new(
+            (f64::from(point.x) - f64::from(origin.x)) as f32,
+            (f64::from(point.y) - f64::from(origin.y)) as f32,
+            (f64::from(point.z) - f64::from(origin.z)) as f32,
+        );
+        let (a_yaw, a_pitch) = decompose_joint_motion(&connector, &frame, dir);
+        let limits = |j: &JointChannel, i: &TurretInstance| j.is_bound().then_some(i.limits);
+        let points = can_point_at(
+            &connector,
+            &frame,
+            origin,
+            point,
+            angle,
+            limits(&yaw, &root),
+            limits(&pitch, &child),
+        );
+        let muzzle = transform_xform(&Transform::new(child.rotation, child.position), barrel);
+        let world = mul_matrix(&child.rotation, &Matrix::IDENTITY);
+        let barrel_dir = Vector::new(-world.m[0][2], -world.m[1][2], -world.m[2][2]);
+        let sees = can_see_target_point(muzzle, barrel_dir, point, angle);
+        let joint = |j: &JointChannel, id: u32| {
+            if j.is_bound() {
+                format!("{id},{},{}", u8::from(j.limited), f32_text(j.current))
+            } else {
+                "-".to_owned()
+            }
+        };
+        let tick = |j: &mut JointChannel, desired: f32| {
+            if !j.is_bound() {
+                return "-".to_owned();
+            }
+            j.desired = desired;
+            let next = j.tick_target(turn_rate, dt);
+            j.settle(next);
+            format!("{},{}", f32_text(j.current), u8::from(j.settled))
+        };
+        let yaw_text = joint(&yaw, 2);
+        let pitch_text = joint(&pitch, 3);
+        let ticks = format!(
+            "{}|{}",
+            tick(&mut yaw, want_yaw),
+            tick(&mut pitch, want_pitch)
+        );
+        lines.push(
+            Line::new()
+                .add("case", case.to_string())
+                .add("yaw", yaw_text)
+                .add("pitch", pitch_text)
+                .add("frame", words(&frame.to_words()))
+                .add("origin", words(&origin.to_words()))
+                .add("angles", words(&[a_yaw, a_pitch]))
+                .add("point", u8::from(points).to_string())
+                .add("see", u8::from(sees).to_string())
+                .add("tick", ticks)
+                .add("destroyed", "0")
+                .done(),
+        );
+    }
+    check_suite("object_turret.jsonl", &lines);
+}

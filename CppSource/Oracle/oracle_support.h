@@ -202,6 +202,8 @@ void RunGameDataDump(const std::vector<std::string>& Files);
 void RunGameSimSuites();
 // P2.5: the AI suites (oracle_ai.cpp), run after RunGameSimSuites in game-sim mode.
 void RunAiSuites();
+// P2.4: CEGun's turret joints (oracle_game_turret.cpp), run after RunAiSuites.
+void RunTurretSuites();
 // Loads x86math.dll and checks for its 3DMathEngine component (oracle_scene.cpp).
 bool OracleLoadMathEngine();
 
