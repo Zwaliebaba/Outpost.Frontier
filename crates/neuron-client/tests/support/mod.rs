@@ -4,8 +4,10 @@
 //! Each test target uses part of this module.
 #![allow(dead_code)]
 
+pub mod audio;
 pub mod data;
 pub mod scene_script;
+pub mod text;
 
 use std::fmt::Write as _;
 use std::fs;

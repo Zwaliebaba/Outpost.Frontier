@@ -4,14 +4,20 @@
 //! the Microsoft C runtime. These functions reproduce the results the C++
 //! reference gets: the wrapping `atoi` and `_wtoi` of
 //! `CppSource/include/msvcrt_compat.h`, the legacy `atof` of
-//! `CppSource/Common/msvcrt_atof.cpp`, and the `%g` conversion of the
-//! Universal C Runtime the reference links.
+//! `CppSource/Common/msvcrt_atof.cpp`, the `%g` conversion of the
+//! Universal C Runtime the reference links, and the VC6 number texts of
+//! `CppSource/include/msvcrt_numeric_format.h` (P4.13, P4.14) with the
+//! legacy `printf` they fall back to.
 
 mod atof;
 mod format;
+mod legacy;
+mod vc6;
 
 pub use atof::atof;
 pub use format::format_g;
+pub use legacy::{Printed, PrintfArg, PrintfError, legacy_format, legacy_vsnprintf};
+pub use vc6::{format_lua_number, numeric_vsnprintf};
 
 use crate::hash::c_str;
 
@@ -61,7 +67,11 @@ const WIDE_DIGIT_ZEROS: [u16; 18] = [
     0x0ED0, 0x0F20, 0x1040, 0x17E0, 0x1810, 0xFF10,
 ];
 
-fn wide_digit(unit: u16) -> Option<u32> {
+/// `_wchartodigit`: the value of a decimal digit in one of the 18 runs of
+/// digits the runtime knows (ASCII, Arabic-Indic, Devanagari, ...,
+/// fullwidth), `None` for anything else.
+#[must_use]
+pub fn wide_digit(unit: u16) -> Option<u32> {
     WIDE_DIGIT_ZEROS
         .iter()
         .find(|&&zero| unit < zero + 10)
@@ -105,6 +115,106 @@ pub fn wtoi(text: &[u16]) -> i32 {
     i32::from_ne_bytes(total.to_ne_bytes())
 }
 
+/// `wcstol(text, nullptr, radix)` of the Universal C Runtime: wide white
+/// space, one optional sign, an optional `0x` for radix 16 (radix 0 picks
+/// 16, 8 or 10 from the prefix), then digits; [`wide_digit`] digits and
+/// ASCII letters count. Out of range saturates to `i32::MIN` or
+/// `i32::MAX`; no digits gives 0. The text ends at its first NUL.
+///
+/// # Panics
+///
+/// When `radix` is neither 0 nor in 2..=36.
+#[must_use]
+pub fn wcstol(text: &[u16], radix: u32) -> i32 {
+    let (negative, magnitude, overflow) = strtox(text, radix);
+    let limit = if negative {
+        1u64 << 31
+    } else {
+        (1u64 << 31) - 1
+    };
+    if overflow || magnitude > limit {
+        return if negative { i32::MIN } else { i32::MAX };
+    }
+    let magnitude = i64::try_from(magnitude).unwrap_or(i64::MAX);
+    i32::try_from(if negative { -magnitude } else { magnitude }).unwrap_or(i32::MAX)
+}
+
+/// `wcstoul(text, nullptr, radix)`: as [`wcstol`], with out of range
+/// giving `u32::MAX` and a `-` negating modulo 2^32.
+///
+/// # Panics
+///
+/// When `radix` is neither 0 nor in 2..=36.
+#[must_use]
+pub fn wcstoul(text: &[u16], radix: u32) -> u32 {
+    let (negative, magnitude, overflow) = strtox(text, radix);
+    let Ok(magnitude) = u32::try_from(magnitude) else {
+        return u32::MAX;
+    };
+    if overflow {
+        u32::MAX
+    } else if negative {
+        magnitude.wrapping_neg()
+    } else {
+        magnitude
+    }
+}
+
+/// The sign, the magnitude (at most 2^32, larger values set the flag) and
+/// whether it overflowed 32 bits.
+fn strtox(text: &[u16], radix: u32) -> (bool, u64, bool) {
+    assert!(radix == 0 || (2..=36).contains(&radix), "radix {radix}");
+    let end = text.iter().position(|&u| u == 0).unwrap_or(text.len());
+    let text = &text[..end];
+    let digit = |unit: u16| {
+        wide_digit(unit).or_else(|| {
+            u8::try_from(unit)
+                .ok()
+                .filter(u8::is_ascii_alphabetic)
+                .map(|b| u32::from(b.to_ascii_uppercase() - b'A') + 10)
+        })
+    };
+    let mut at = text.iter().take_while(|&&u| is_wide_space(u)).count();
+    let negative = match text.get(at) {
+        Some(0x2D) => {
+            at += 1;
+            true
+        }
+        Some(0x2B) => {
+            at += 1;
+            false
+        }
+        _ => false,
+    };
+    let mut radix = radix;
+    if (radix == 0 || radix == 16)
+        && text.get(at).copied().and_then(digit) == Some(0)
+        && matches!(text.get(at + 1), Some(0x78 | 0x58))
+    {
+        radix = 16;
+        at += 2;
+    } else if radix == 0 {
+        radix = if text.get(at).copied().and_then(digit) == Some(0) {
+            8
+        } else {
+            10
+        };
+    }
+    let mut magnitude: u64 = 0;
+    let mut overflow = false;
+    for &unit in &text[at.min(text.len())..] {
+        let Some(value) = digit(unit).filter(|&v| v < radix) else {
+            break;
+        };
+        magnitude = magnitude * u64::from(radix) + u64::from(value);
+        if magnitude > u64::from(u32::MAX) {
+            overflow = true;
+            magnitude = u64::from(u32::MAX) + 1;
+        }
+    }
+    (negative, magnitude, overflow)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -119,6 +229,22 @@ mod tests {
         assert_eq!(atoi(b" \x0b\t+12x"), 12);
         assert_eq!(atoi(b"+-1"), 0);
         assert_eq!(atoi(b"1\x002"), 1);
+    }
+
+    #[test]
+    fn wcstol_saturates_and_wcstoul_wraps() {
+        let w = |text: &str| -> Vec<u16> { text.encode_utf16().collect() };
+        assert_eq!(wcstol(&w(" -12x"), 10), -12);
+        assert_eq!(wcstol(&w("2147483648"), 10), i32::MAX);
+        assert_eq!(wcstol(&w("-2147483648"), 10), i32::MIN);
+        assert_eq!(wcstol(&w("-99999999999"), 10), i32::MIN);
+        assert_eq!(wcstol(&w("abc"), 10), 0);
+        assert_eq!(wcstoul(&w("0xffffff00"), 16), 0xFFFF_FF00);
+        assert_eq!(wcstoul(&w("0x1ffffffff"), 16), u32::MAX);
+        assert_eq!(wcstoul(&w("-1"), 10), u32::MAX);
+        assert_eq!(wcstoul(&w("0xg"), 16), 0);
+        assert_eq!(wcstol(&w("\u{ff11}\u{ff12}"), 10), 12);
+        assert_eq!(wcstol(&w("010"), 0), 8);
     }
 
     #[test]

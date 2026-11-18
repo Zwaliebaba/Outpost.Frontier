@@ -8,6 +8,9 @@ publish.workspace = true
 [dependencies]
 neuron-core.workspace = true
 
+[dev-dependencies]
+toml.workspace = true
+
 [target.'cfg(windows)'.dependencies]
 windows.workspace = true
 

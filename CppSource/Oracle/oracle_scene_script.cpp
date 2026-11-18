@@ -315,6 +315,8 @@ namespace
 void RunNeuronClientSuites()
 {
     SceneScriptSuite();
+    RunTextSuites();
+    RunAudioSuites();
 }
 
 void RunSceneScriptDataDump(const std::vector<std::string>& Files)

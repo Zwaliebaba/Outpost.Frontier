@@ -294,6 +294,12 @@
       <AdditionalIncludeDirectories>$(ProjectDir)..\SceneScript\lua32\include;$(ProjectDir)..\SceneScript\lua32\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <DisableSpecificWarnings>4013;4101;4189;4244;4267;4311;4312;4057;4131;4127;4456;4701;4702;4706;4996</DisableSpecificWarnings>
     </ClCompile>
+    <!-- P4.12-P4.14: the client's number texts (msvcrt_numeric_format.h) and RDLX markup
+         through Common.dll's XMLReader (MSXML SAX2). -->
+    <ClCompile Include="oracle_text.cpp" />
+    <!-- P4.10: SoundManager.dll exports nothing but its factory; oracle_audio.cpp includes
+         SoundManager.cpp (DllMain renamed, GetTickCount redirected) to call its mixer code. -->
+    <ClCompile Include="oracle_audio.cpp" />
     <ClCompile Include="oracle_physics.cpp" />
     <ClCompile Include="oracle_sim.cpp" />
     <ClCompile Include="oracle_sim_spread.cpp" />

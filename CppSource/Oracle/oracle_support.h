@@ -219,6 +219,14 @@ void OracleRegisterReadFile();
 // through the reference's own Lua 3.2 compiled into Oracle.exe.
 void RunNeuronClientSuites();
 
+// P4.12, P4.13, P4.14 (oracle_text.cpp), called by RunNeuronClientSuites: the VC6 number texts of
+// msvcrt_numeric_format.h and XMLReader::read_buffer (RDLX markup through MSXML), over
+// crates/neuron-client/tests/fixtures/oracle/{number_text,rdl_markup}.list.
+void RunTextSuites();
+// P4.10 (oracle_audio.cpp): the software mixer of SoundManager.dll, compiled in, over
+// crates/neuron-client/tests/fixtures/oracle/audio; called by RunNeuronClientSuites.
+void RunAudioSuites();
+
 // P4.14 (oracle_scene_script.cpp): every .thn under DATA through lua_dobuffer in a fresh
 // Lua state, and the state after it; kind "thn".
 void RunSceneScriptDataDump(const std::vector<std::string>& Files);
