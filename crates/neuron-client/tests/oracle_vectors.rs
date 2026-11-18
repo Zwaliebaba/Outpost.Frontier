@@ -1,15 +1,15 @@
 //! The committed oracle vectors of this crate (`tests/vectors/`), rendered
 //! through the port. `Oracle.exe neuron-client` writes the same files from
-//! the C++ reference (`CppSource/Oracle/oracle_scene_script.cpp` and
-//! `oracle_audio.cpp`).
+//! the C++ reference (`CppSource/Oracle/oracle_scene_script.cpp`,
+//! `oracle_scene_script_build.cpp`, `oracle_text.cpp` and `oracle_audio.cpp`).
 
 mod support;
 
-use neuron_client::scene_script::Vm;
+use neuron_client::scene_script::{BuildState, Vm};
 use neuron_client::text::rdl::markup;
 
 use support::audio::{self, check_suite_within};
-use support::{check_suite, input_lines, scene_script, text, unhex};
+use support::{check_suite, input_lines, scene_script, scene_script_build, text, unhex};
 
 /// P4.14: the Lua state after each buffer of a case, one fresh state per
 /// case (`tests/fixtures/oracle/scene_script.list`).
@@ -115,4 +115,29 @@ fn audio_eax() {
 #[test]
 fn audio_tick() {
     check_suite_within("audio_tick.jsonl", &audio::tick_lines(), audio::tick_bound);
+}
+
+/// P4.14: the engine calls of the parser's second pass for each buffer of
+/// a case, one fresh module state per case, with or without a COM context
+/// (`tests/fixtures/oracle/scene_script_build.list`).
+#[test]
+fn scene_script_build() {
+    let mut lines = Vec::new();
+    for (case, line) in input_lines("scene_script_build.list").iter().enumerate() {
+        let mut parts = line.split(' ');
+        let com_context = parts.next() == Some("c");
+        let mut vm = Vm::new();
+        let mut state = BuildState::new();
+        for (buffer, text) in parts.enumerate() {
+            let head = format!("{{\"case\":\"{case}\",\"buffer\":\"{buffer}\",");
+            lines.extend(scene_script_build::run(
+                &mut vm,
+                &mut state,
+                &unhex(text),
+                com_context,
+                &head,
+            ));
+        }
+    }
+    check_suite("scene_script_build.jsonl", &lines);
 }

@@ -145,6 +145,21 @@
       <AdditionalIncludeDirectories>$(ProjectDir)..\SceneScript\lua32\include;$(ProjectDir)..\SceneScript\lua32\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <ClCompile Include="..\SceneScript\SceneScriptModernAdapters.cpp" />
+    <!-- P4.14: the parser's second pass. oracle_scene_script_build.cpp includes
+         SceneScriptLua.cpp; its temporary events are SceneScriptScene.cpp's, compiled in
+         beside it with the control calls it links (SceneScriptControlCalls.cpp with the
+         options SceneScript.vcxproj gives it). -->
+    <ClCompile Include="oracle_scene_script_build.cpp">
+      <AdditionalIncludeDirectories>$(ProjectDir)..\SceneScript\lua32\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <ClCompile Include="..\SceneScript\SceneScriptScene.cpp" />
+    <ClCompile Include="..\SceneScript\SceneScriptControlCalls.cpp">
+      <Optimization>MaxSpeed</Optimization>
+      <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <WholeProgramOptimization>false</WholeProgramOptimization>
+    </ClCompile>
     <ClCompile Include="..\SceneScript\lua32\src\lapi.c">
       <CompileAs>CompileAsC</CompileAs>
       <SDLCheck>false</SDLCheck>

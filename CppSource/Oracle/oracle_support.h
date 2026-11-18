@@ -228,3 +228,13 @@ void RunAudioSuites();
 // P4.14 (oracle_scene_script.cpp): every .thn under DATA through lua_dobuffer in a fresh
 // Lua state, and the state after it; kind "thn".
 void RunSceneScriptDataDump(const std::vector<std::string>& Files);
+
+// P4.14 (oracle_scene_script_build.cpp): the parser's second pass, FSceneScriptLuaLoadParser::
+// Build, against recording stand-ins for the engine, the COM context and the component
+// manager, over crates/neuron-client/tests/fixtures/oracle/scene_script_build.list; called
+// from RunNeuronClientSuites.
+void SceneScriptBuildSuite();
+
+// P4.14 (oracle_scene_script_build.cpp): every .thn under DATA through both passes of the
+// parser in a fresh module state, and the engine calls of the second; kind "thn_build".
+void RunSceneScriptBuildDataDump(const std::vector<std::string>& Files);

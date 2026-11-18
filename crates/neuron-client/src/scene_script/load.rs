@@ -45,7 +45,7 @@ impl fmt::Display for LoadError {
 impl std::error::Error for LoadError {}
 
 /// `lua_getnumber`: a number, or a string that converts to one; else 0.
-fn get_number(v: &Value) -> f64 {
+pub(super) fn get_number(v: &Value) -> f64 {
     match v {
         Value::Number(x) => *x,
         Value::String(s) => super::number::to_number(s).unwrap_or(0.0),
