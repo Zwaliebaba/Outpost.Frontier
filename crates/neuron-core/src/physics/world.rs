@@ -578,10 +578,15 @@ impl PhysicsWorld {
             };
             // `CreatePolygonBody` hands IVP the math engine's
             // `MatrixToQuaternion` of the orientation, which the core
-            // normalises (`IVP_Core`'s constructor).
-            let mut q = IvpQuat::from_math(matrix_to_quaternion(&desc.orientation));
-            q.normize();
-            q.set_matrix(&mut m);
+            // normalises and turns into its matrix (`IVP_Core`'s
+            // constructor); `init_world_transform_from_local_csys` then
+            // multiplies the matrix by the local frame (an identity
+            // rotation, exactly) and takes the core's quaternion from it.
+            let mut q0 = IvpQuat::from_math(matrix_to_quaternion(&desc.orientation));
+            q0.normize();
+            q0.set_matrix(&mut m);
+            let mut q = IvpQuat::IDENTITY;
+            q.set_from_matrix(&m);
             (q, m)
         };
         let (q_object, m_object) = object_rotation;
