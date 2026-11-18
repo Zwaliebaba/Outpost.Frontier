@@ -1,6 +1,0 @@
-# TEMP candidate: police fighter against a stationary hostile transport.
-system he01
-ticks 1800
-stepping mp
-ship police he_fighter li_p_he_fighter_loadout01 15000 3000 -25000 ai FIGHTER pilot pilot_police_med faction he_p_grp psi
-ship hauler ge_transport ge_transport 15000 3000 -26500 heading 90 faction fc_lr_grp

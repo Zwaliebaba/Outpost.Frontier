@@ -1,6 +1,0 @@
-# TEMP candidate: gunboat against a stationary hostile transport.
-system he01
-ticks 1800
-stepping mp
-ship gunboat br_gunboat br_gunboat 15000 3000 -25000 ai GUNBOAT faction he_p_grp psi
-ship hauler ge_transport ge_transport 15000 3000 -26500 heading 90 faction fc_lr_grp
