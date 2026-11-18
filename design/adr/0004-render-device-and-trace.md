@@ -320,6 +320,19 @@ relative to `CppSource/`.
     (owner answer 2) the owner's machine produces them; they
     are never blessed from Rust.
 
+    *Note of 2026-11-18 (implementation of point 15), proposed.*
+    `Oracle.exe render-replay` writes the back buffer, read through
+    DX8RENDERER's own `LockBuffer` just before the selected frame's
+    `SwapBuffers` is forwarded, not a `PrintScreen` copy of the front
+    buffer: in a window the front buffer is the screen, which a CI runner
+    may cover. The player loads an engine INI holding only
+    `[RenderPipeline] LOCKABLE_BACKBUFFER = true` for it; the key sets no
+    render state. With the windowed `COPY` swap effect the presented image
+    is that back buffer, before any gamma ramp. The synthetic traces' frame
+    image lines are `"frame_image":null` with a note; `expected.bmp` beside
+    each trace is the reference ([reference-build.md](../reference-build.md)
+    section 9).
+
 ### 3. Shader toolchain (T1)
 
 16. **Compiler:** `fxc.exe` with `d3dcompiler_47.dll` from Windows SDK
