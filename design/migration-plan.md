@@ -270,7 +270,14 @@ spawns ships and runs scripted scenarios (fly to a point, fire,
 collide, and a dogfight between two hostile AI fighters, added by the owner
 on 2026-11-18 so that targeting, fire control and the combat behaviours are
 checked against the oracle). The dock scenario moved to Gate G3, because
-docking is a server part of P3.3 (owner, 2026-11-18). Replay tests of the integrator, AI and damage code equal the oracle
+docking is a server part of P3.3 (owner, 2026-11-18). The collide scenario
+is one in which the ship really hits its target: `ram_asteroid`, in which
+neither the C++ pilot nor the Rust one touches the rock, stays as a
+near-miss check but no longer counts for the gate (owner, 2026-11-18).
+The scenarios are judged as recorded: the `rand()` draws the C++ server
+makes while it loads a system are ported before the gate, and a run that
+skips them (`World::skip_rand`, a diagnostic) does not count (owner,
+2026-11-18). Replay tests of the integrator, AI and damage code equal the oracle
 within Tier B bounds, and scenario trajectories, times and damage fall
 inside the envelopes approved in P2.0 (decision O20). All protocol codecs round-trip and match
 the C++ encodings byte for byte.
