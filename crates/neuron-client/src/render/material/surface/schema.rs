@@ -90,8 +90,8 @@ const fn address(flags: u32, name: &'static [u8], description: &'static [u8]) ->
 pub const GLASS: &[PropertyDef] = &SINGLE_PASS;
 
 /// `FlmVeilbornParamsBase`: the diffuse colour and two textures, the
-/// second named `VeilbornRGB1_VeilbornAlpha1` and wrapped in mode 5 at
-/// first.
+/// second named `NomadRGB1_NomadAlpha1` (the name the ship textures hold,
+/// decision O30) and wrapped in mode 5 at first.
 pub const VEILBORN: [PropertyDef; 9] = [
     PropertyDef {
         flags: 0,
@@ -108,7 +108,7 @@ pub const VEILBORN: [PropertyDef; 9] = [
     texture(
         b"nt_name",
         b"VeilbornTexture Name",
-        b"VeilbornRGB1_VeilbornAlpha1",
+        b"NomadRGB1_NomadAlpha1",
     ),
     wrap(b"nt_flags", b"VeilbornTexture Wrap Mode", 5),
     address(
