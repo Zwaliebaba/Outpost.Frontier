@@ -376,6 +376,46 @@ struct Run {
     /// The first behaviour the port does not have that an AI ship ran, and
     /// the tick (the state graph can pick one without a directive).
     unported: Option<(i32, u32)>,
+    /// Per object and tick, the body's core after the frame (diagnostic).
+    cores: BTreeMap<String, Vec<String>>,
+}
+
+/// A core's state as the bit diagnostic prints it.
+fn fmt_core(c: &neuron_core::physics::ivp::core::Core) -> String {
+    let h = |v: [f32; 3]| {
+        format!(
+            "[{:08x} {:08x} {:08x}]",
+            v[0].to_bits(),
+            v[1].to_bits(),
+            v[2].to_bits()
+        )
+    };
+    format!(
+        "flags {:x} movement {:x} rot_speed {} rot_speed_change {} damp {} speed {}",
+        c.flags,
+        c.movement_state,
+        h(c.rot_speed),
+        h(c.rot_speed_change),
+        h(c.rot_speed_damp_factor),
+        h(c.speed)
+    )
+}
+
+fn record_cores(
+    world: &World,
+    out: &mut BTreeMap<String, Vec<String>>,
+    handles: &BTreeMap<String, Option<ObjHandle>>,
+) {
+    for (name, h) in handles {
+        let text = h
+            .and_then(|h| world.get(h))
+            .and_then(|o| {
+                let body = o.physical.body?;
+                world.physics(o.physical.system)?.core(body).map(fmt_core)
+            })
+            .unwrap_or_else(|| "-".to_owned());
+        out.entry(name.clone()).or_default().push(text);
+    }
 }
 
 fn shield_of(world: &World, h: ObjHandle) -> (Option<f32>, Option<ShieldState>) {
@@ -580,6 +620,7 @@ fn run(s: &Scenario) -> Option<Run> {
         }
     };
     record(&world, &mut out.states, &handles);
+    record_cores(&world, &mut out.cores, &handles);
     let mut next = 0;
     for tick in 1..=s.ticks {
         while next < s.commands.len() && s.commands[next].tick == tick {
@@ -685,6 +726,7 @@ fn run(s: &Scenario) -> Option<Run> {
             }
         }
         record(&world, &mut out.states, &handles);
+        record_cores(&world, &mut out.cores, &handles);
     }
     Some(out)
 }
@@ -1127,7 +1169,7 @@ fn first_bit_difference(
     name: &str,
     ours: &[State],
     theirs: &[State],
-) {
+) -> Option<usize> {
     let hex3 = |v: Vector| {
         format!(
             "[{:08x} {:08x} {:08x}]",
@@ -1190,7 +1232,7 @@ fn first_bit_difference(
             summary,
             "{scenario}: {name}: every recorded field equals the oracle bit for bit"
         );
-        return;
+        return None;
     };
     let _ = writeln!(
         summary,
@@ -1210,6 +1252,73 @@ fn first_bit_difference(
             ax(&theirs[t]),
             hex3(ours[t].angvel),
             hex3(theirs[t].angvel)
+        );
+    }
+    Some(first)
+}
+
+/// Around a first bit difference: the Rust core after each frame and the
+/// oracle's PSI records of the object (`psi.jsonl` beside `tick.jsonl`).
+fn report_cores(
+    summary: &mut String,
+    dir: &Path,
+    scenario: &str,
+    name: &str,
+    first: usize,
+    ours: &Run,
+) {
+    let range = first.saturating_sub(2)..first + 2;
+    if let Some(cores) = ours.cores.get(name) {
+        for t in range.clone() {
+            if let Some(c) = cores.get(t) {
+                let _ = writeln!(summary, "    rust core after tick {t}: {c}");
+            }
+        }
+    }
+    let Some(file) = find_files(&dir.join(scenario), "psi.jsonl")
+        .into_iter()
+        .min()
+    else {
+        return;
+    };
+    let h = |r: &Json, k: &str| {
+        r.get(k)
+            .and_then(Json::as_floats)
+            .map(|v| {
+                v.iter()
+                    .map(|x| format!("{:08x}", x.to_bits()))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
+            .unwrap_or_default()
+    };
+    for r in read_lines(&file) {
+        let tick = r.get("tick").and_then(Json::as_u32).unwrap_or(0) as usize;
+        if !range.contains(&tick) || r.get("obj").and_then(Json::as_str) != Some(name) {
+            continue;
+        }
+        let (Some(i), Some(o)) = (r.get("in"), r.get("out")) else {
+            continue;
+        };
+        let ctl = r.get("ctl");
+        let _ = writeln!(
+            summary,
+            "    oracle psi {} tick {tick}: in flags {:x} movement {:x} rot_speed [{}] rot_speed_change [{}] damp [{}] | out rot_speed [{}] | pushes {} check {} steering {:?} drag {:?}",
+            r.get("psi").and_then(Json::as_u32).unwrap_or(0),
+            i.get("flags").and_then(Json::as_u32).unwrap_or(0),
+            i.get("movement_state").and_then(Json::as_u32).unwrap_or(0),
+            h(i, "rot_speed"),
+            h(i, "rot_speed_change"),
+            h(i, "rot_speed_damp"),
+            h(o, "rot_speed"),
+            r.get("pushes")
+                .and_then(Json::as_array)
+                .map_or(0, |a| a.len()),
+            r.get("check").and_then(Json::as_bool).unwrap_or(false),
+            ctl.and_then(|c| c.get("steering_active"))
+                .and_then(Json::as_bool),
+            ctl.and_then(|c| c.get("angular_drag_factor"))
+                .and_then(Json::as_f32),
         );
     }
 }
@@ -1551,7 +1660,11 @@ fn scenarios_against_the_oracle() {
                 ));
             }
             first_divergences(&mut summary, &s.name, name, ours_states, their_states);
-            first_bit_difference(&mut summary, &s.name, name, ours_states, their_states);
+            if let Some(first) =
+                first_bit_difference(&mut summary, &s.name, name, ours_states, their_states)
+            {
+                report_cores(&mut summary, dir, &s.name, name, first, &our_run);
+            }
         }
         // The AI's phases come from the CRT sequence: with both sides
         // seeded after the load, the first AI ship's pathfinder phases sit
