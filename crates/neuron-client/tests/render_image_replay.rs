@@ -95,11 +95,36 @@ fn synthetic_traces_draw_their_expected_images() {
                 std::fs::write(&path, file).unwrap();
                 path
             };
-            save("actual", &actual);
+            let actual_path = save("actual", &actual);
             let diff = save("difference", &result.difference);
+            // The image in the log too: CI keeps no test files.
+            let file = std::fs::read(&actual_path).unwrap();
+            println!("=== actual.bmp {name} base64 begin ===");
+            println!("{}", base64(&file));
+            println!("=== actual.bmp {name} base64 end ===");
             failures.push(format!("{name} (see {})", diff.display()));
         }
     }
     println!("{compared} of {} traces compared", dirs.len());
     assert!(failures.is_empty(), "frames failed: {failures:?}");
+}
+
+/// Standard base64 with padding.
+fn base64(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let n = chunk
+            .iter()
+            .enumerate()
+            .fold(0u32, |n, (i, &b)| n | u32::from(b) << (16 - 8 * i));
+        for i in 0..4 {
+            if i <= chunk.len() {
+                out.push(ALPHABET[(n >> (18 - 6 * i) & 63) as usize] as char);
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
 }
