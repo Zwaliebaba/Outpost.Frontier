@@ -36,6 +36,8 @@ P2.1) into this directory. Run it from anywhere; the output is committed.
                     "ttt px py pz vx vy vz speed" (CEGun::ComputeTimeToTgt),
                     "nudge x y z" (CNudgeEngine::SetNudgeVec), "axis x y z"
                     (CSteering::SetAxisThrottle), floats as f32 hex
+    object_turret.list
+                    the turret suite (P2.4): 82 words a case, see object_turret()
 """
 
 import math
@@ -484,6 +486,77 @@ def object_math():
     return lines
 
 
+def object_turret():
+    """The turret suite's cases (oracle_game_turret.cpp): 82 words per line, the type
+    words as hex integers, the rest f32 bit patterns. The connector's rotation (9), then
+    the gun's root and its child, each: joint type, world transform (rotation rows,
+    translation), joint axis, joint rotation, min, max, child position, joint angle (31);
+    then the barrel's position on the child, the query point, the cone angle, the turn
+    rate, the frame time, and the yaw and pitch to turn to."""
+    import random
+
+    rng = random.Random(24)
+
+    def euler(a, b, c):
+        ca, sa = math.cos(a), math.sin(a)
+        cb, sb = math.cos(b), math.sin(b)
+        cc, sc = math.cos(c), math.sin(c)
+        rx = [[1, 0, 0], [0, ca, -sa], [0, sa, ca]]
+        ry = [[cb, 0, sb], [0, 1, 0], [-sb, 0, cb]]
+        rz = [[cc, -sc, 0], [sc, cc, 0], [0, 0, 1]]
+
+        def mul(p, q):
+            return [[sum(p[i][k] * q[k][j] for k in range(3)) for j in range(3)] for i in range(3)]
+
+        m = mul(mul(rz, ry), rx)
+        return [m[i][j] for i in range(3) for j in range(3)]
+
+    def rot():
+        return euler(rng.uniform(-3.1, 3.1), rng.uniform(-1.5, 1.5), rng.uniform(-3.1, 3.1))
+
+    ident = [1, 0, 0, 0, 1, 0, 0, 0, 1]
+    tau = 6.2831855
+    limits = [(-tau, tau), (-1.0, 1.0), (0.0, 0.78538), (-0.5, 0.25), (-3.1415927, 3.1415927)]
+    lines = ["# 82 words a case (see oracle_game_turret.cpp)"]
+    for case in range(48):
+        types = [(2, 2), (2, 0), (0, 2), (0, 0)][case % 4]
+        simple = case < 8
+        conn = ident if simple else rot()
+        words = ["%08x" % f32(v) for v in conn]
+        root_pos = [0.0, 0.0, 0.0] if simple else [rng.uniform(-50, 50) for _ in range(3)]
+        child_pos = [0.0, 0.5, 0.0] if simple else [p + rng.uniform(-2, 2) for p in root_pos]
+        for which, kind in enumerate(types):
+            xform_rot = ident if simple else rot()
+            pos = root_pos if which == 0 else child_pos
+            axis = [0.0, 1.0, 0.0] if which == 0 else [1.0, 0.0, 0.0]
+            if not simple:
+                axis = [rng.uniform(-1, 1) for _ in range(3)]
+                n = math.sqrt(sum(a * a for a in axis)) or 1.0
+                axis = [a / n for a in axis]
+            jrot = ident if simple else rot()
+            lo, hi = limits[(case + which) % len(limits)]
+            child = [0.0, 0.0, 0.0] if simple else [rng.uniform(-1, 1) for _ in range(3)]
+            joint = 0.0 if simple else rng.uniform(lo, hi) if hi - lo < 7 else rng.uniform(-3, 3)
+            words.append("%08x" % kind)
+            words += ["%08x" % f32(v) for v in xform_rot + pos + axis + jrot + [lo, hi] + child + [joint]]
+        barrel = [0.0, 0.0, -1.0] if simple else [rng.uniform(-1, 1) for _ in range(3)]
+        if simple:
+            point = [[0, 0, -100], [30, 0, -100], [0, 40, -100], [0, 0, 100], [-30, -10, -50],
+                     [0, 0.5, 0], [100, 20, 0], [0, 0, -1e-3]][case]
+        else:
+            point = [rng.uniform(-500, 500) for _ in range(3)]
+        angle = [0.0, 0.05235988, 0.3, 1e-4][case % 4]
+        turn = [0.2617994, 1.5, 0.05, 100.0][(case // 4) % 4]
+        dt = [1.0 / 30.0, 0.25, 1.0, 0.0][(case // 3) % 4]
+        desired = [rng.uniform(-3.14, 3.14), rng.uniform(-1.5, 1.5)]
+        if case % 5 == 0:
+            desired = [3.1, -3.1]
+        words += ["%08x" % f32(v) for v in barrel + point + [angle, turn, dt] + desired]
+        assert len(words) == 82
+        lines.append(" ".join(words))
+    return lines
+
+
 def main():
     write("asteroid.list", asteroid())
     write("orient.list", orient())
@@ -495,6 +568,7 @@ def main():
     zone_queries()
     spatial()
     write("object_math.list", object_math())
+    write("object_turret.list", object_turret())
 
 
 if __name__ == "__main__":

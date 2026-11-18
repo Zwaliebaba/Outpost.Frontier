@@ -1,6 +1,6 @@
 # 0004 — Render device API, trace format version 1, shader toolchain
 
-Status: proposed (P4.0). Implements decisions T1, T2 and T10 for the
+Status: accepted by the owner on 2026-11-18 (P4.0); decision O25. Implements decisions T1, T2 and T10 for the
 renderer; fixes the trace format that P0.5 left provisional.
 
 ## Context
@@ -28,7 +28,7 @@ relative to `CppSource/`.
   `GetDeviceStats`, `GetTextureInterface`, both render-target methods and
   the two `Unsupported*` slots are stubs (`DX8RENDERER.cpp:3423`, `:3434`,
   `:4205`, `:4369-4388`).
-- **State tables and defaults.** The renderer knows 74 render states with
+- **State tables and defaults.** The renderer knows 76 render states with
   defaults (`kRenderStateProperties`, `DX8RENDERER.cpp:141-216`) and 27
   states per texture stage over 8 stages (`:222-260`); after `Initialize`
   every stage, stage 0 included, has `COLOROP` and `ALPHAOP` disabled
@@ -101,7 +101,7 @@ relative to `CppSource/`.
    enum cases: `IndexSource::Scratch`, `VertexSource::Current` and
    `VertexSource::Pool(Fvf)`.
 3. **States.** `RenderState` is an enum with one variant per render state
-   in DX8RENDERER's table (74), each carrying a typed value
+   in DX8RENDERER's table (76; corrected from 74 on 2026-11-18, P4.3), each carrying a typed value
    (`ZFunc(Compare)`, `SrcBlend(Blend)`, `FogStart(f32)`, `Ambient(Color)`,
    `AlphaRef(u32)`, …). `StageState` does the same for the 27 stage states;
    `Stage` is 0 to 7. `RenderState::from_raw(id, value)` and `to_raw()`
@@ -158,7 +158,7 @@ relative to `CppSource/`.
    function, depth bias, cull and fill mode, target formats. Everything
    else goes into the per-draw constant block: world-view and projection
    matrices, two texture transforms with their flags and coordinate
-   sources, up to eight enabled lights, material and material sources,
+   sources, up to sixteen enabled lights, material and material sources,
    ambient, colour-vertex and specular switches, fog mode, start, end,
    density and colour, alpha test function and reference, texture factor,
    the two stages' colour and alpha operations and arguments, and the pixel
@@ -211,7 +211,7 @@ relative to `CppSource/`.
     backend.
 11. **Changes in the proxy** (oracle instrumentation, permitted by the
     Phase 0 rules):
-    - The header says `"version":1` and adds `"defaults"`: the 74
+    - The header says `"version":1` and adds `"defaults"`: the 76
       render-state values after the INI was read, the 27 stage defaults of
       stage 0 and of stages 1 to 7, and the pipeline-property values. A
       replayer then knows what `CreateBuffers` and
@@ -270,7 +270,8 @@ relative to `CppSource/`.
       rasterisers.
     - The frame passes when at most `p` of its pixels do not match and the
       mean error over all pixels is at most `m`.
-    - Proposed: `t = 8`, `p = 0.5 %`, `m = 1.5`. A failing frame writes a
+    - Starting numbers, approved on 2026-11-18 and confirmed after the
+      first real replays: `t = 8`, `p = 0.5 %`, `m = 1.5`. A failing frame writes a
       difference image beside the test output.
 15. **Synthetic traces in CI.** Hand-made traces in the version 1 format,
     each exercising one state group (blend, depth, alpha test, fog, the
@@ -282,7 +283,7 @@ relative to `CppSource/`.
     `expected.bmp`. The expected images are the C++ output: a replay mode
     of the console oracle (`Oracle.exe render-replay`) plays the trace
     into DX8RENDERER and writes the front buffer. Where it cannot run
-    (section "Open questions", 2) the owner's machine produces them; they
+    (owner answer 2) the owner's machine produces them; they
     are never blessed from Rust.
 
 ### 3. Shader toolchain (T1)
@@ -368,23 +369,21 @@ relative to `CppSource/`.
 - **A new unsafe directory `render/d3d12/`.** Spreads FFI over two trees;
   keeping all of it under `platform/` leaves one place to audit.
 
-## Open questions for the owner
+## Owner answers (2026-11-18)
 
-1. The image metric of point 14: accept the method, and the proposed
-   numbers as a starting point to be confirmed after the first replays?
-2. Can the Windows CI runner create a Direct3D 8 device on its basic render
-   driver, so that `Oracle.exe render-replay` makes the synthetic expected
-   images in CI? If not, are images made on your machine and committed as
-   oracle output acceptable, with CI checking the Rust side only?
-3. Lights: is a cap of eight enabled lights per draw acceptable (Direct3D 8
-   hardware commonly reported eight; the asteroid billboards cap at four,
-   `OutpostFrontier/Client/cli_asteroid.cpp:703`)? A draw with more would
-   use the eight lowest indices and log.
-4. `PrintScreen` formats: BMP and PNG only, or also TGA, PPM, DDS and JPG
-   as the C++ offers (JPG needs an encoder not in T13)?
-5. Image replay of real traces: on your GPU through the hardware Direct3D
-   12 device (preferred, same machine as the reference), with WARP for CI
-   only?
-6. Two texture stages in the shader, eight stored in the model: confirm,
-   given that no call site names a stage above 1 and the v1 traces will
-   show whether any draw enables stage 2.
+1. The image metric of point 14 is accepted, with `t = 8`, `p = 0.5 %` and
+   `m = 1.5` as starting numbers, confirmed after the first real replays
+   and before Gate G4 is judged.
+2. The synthetic expected images come from `Oracle.exe render-replay` on
+   the Windows CI runner. If that runner cannot create a Direct3D 8 device,
+   the owner produces them and they are committed as oracle output; CI then
+   checks the Rust side only.
+3. The shader supports sixteen enabled lights per draw. A draw with more
+   uses the sixteen lowest indices and logs once.
+4. `screenshot` writes BMP and PNG only; the other C++ formats are a
+   divergence.
+5. Real traces replay on the owner's GPU through hardware Direct3D 12; WARP
+   is used for the synthetic traces in CI.
+6. The shader emulates texture stages 0 and 1; the model stores all eight.
+   The shader is extended if a version 1 trace shows a draw that enables
+   stage 2.

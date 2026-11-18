@@ -38,6 +38,7 @@ pub mod flight;
 pub mod launcher;
 pub mod misc;
 pub mod shield;
+pub mod turret;
 
 use neuron_core::math::{Matrix, Vector};
 use neuron_core::scene::InstanceId;
@@ -185,6 +186,14 @@ pub enum EquipEvent {
     ShieldWentOffline,
     /// 0x13: the shield can come back.
     ShieldCanReactivate,
+    /// 0x14: `CETractor::AddTarget` refused the loot.
+    TractorRefused(misc::TractorFailure),
+    /// 0x15: an arm lost its loot (the arm's failure) and turned off.
+    TractorArmLost(misc::TractorFailure),
+    /// 0x17: an arm's tip reached its loot.
+    TractorReached(Option<crate::object::ObjHandle>),
+    /// 0x18: an arm held its loot for `ACQUIRE_DELAY`.
+    TractorConsume(Option<crate::object::ObjHandle>),
 }
 
 /// Where an external item is mounted: its hardpoint and the engine

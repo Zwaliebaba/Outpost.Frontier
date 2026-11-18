@@ -520,43 +520,87 @@ impl AiWorld for World {
         )
     }
 
-    /// The item's state and the gun values the system manager reads. A
-    /// gun's munition kind is read from its projectile's seeker only (the
-    /// cruise-disruptor and hardpoint-type kinds need the munition
-    /// archetype the launcher does not keep), and the launcher status
-    /// (`EquipFlags`) and barrels are not exposed yet, so fire control
-    /// does not fire in the Rust world.
+    /// The item's state (`get_equipment_status`), the values the system
+    /// manager reads (`get_equipment_val`) and a launcher's first barrel.
+    /// A destroyed item, whose status call fails, reports
+    /// [`EQUIP_DESTROYED`](crate::ai::world::EQUIP_DESTROYED) and no values.
     fn equipment(&self, h: ObjHandle, id: u16) -> Option<crate::ai::world::EquipInfo> {
+        use super::{EquipmentVal, equipment_val as v};
+        use crate::ai::world::{EQUIP_ACTIVE, EQUIP_DESTROYED, EQUIP_DISABLED, EquipInfo};
         let eq = self.get(h)?.as_equipped()?;
         let item = eq.equipment.by_id(id)?;
-        let mut flags = 0;
-        if item.active {
-            flags |= crate::ai::world::EQUIP_ACTIVE;
-        }
-        if item.destroyed {
-            flags |= crate::ai::world::EQUIP_DESTROYED;
-        }
-        if item.is_disabled(eq.weapons_offline) {
-            flags |= crate::ai::world::EQUIP_DISABLED;
-        }
-        let mut info = crate::ai::world::EquipInfo {
-            flags,
-            ..crate::ai::world::EquipInfo::default()
+        let Ok(status) = self.equipment_status(h, id) else {
+            return Some(EquipInfo {
+                flags: if item.destroyed { EQUIP_DESTROYED } else { 0 },
+                ..EquipInfo::default()
+            });
         };
-        if let EquipKind::Gun(gun) = &item.kind
-            && !item.destroyed
-        {
-            let seeker = gun.launcher.projectile.is_some_and(|p| p.seeker != 0);
-            info.munition_kind = Some(i32::from(seeker));
-            info.auto_turret = Some(gun.auto_turret);
-            info.seeker = Some(u8::from(seeker));
-            info.target_id = Some(
-                gun.target
-                    .and_then(|(t, _)| self.get(t))
-                    .map_or(0, |o| o.simple.id),
-            );
+        let mut flags = 0;
+        if status.flags & super::EquipStatus::ACTIVE != 0 {
+            flags |= EQUIP_ACTIVE;
         }
-        Some(info)
+        if status.flags & super::EquipStatus::DISABLED != 0 {
+            flags |= EQUIP_DISABLED;
+        }
+        let val = |kind: u32| self.equipment_val(h, id, kind, 0.0).ok();
+        let float = |kind: u32| match val(kind) {
+            Some(EquipmentVal::Float(f)) => Some(f),
+            _ => None,
+        };
+        let int = |kind: u32| match val(kind) {
+            Some(EquipmentVal::Int(i)) => Some(i),
+            _ => None,
+        };
+        let byte = |kind: u32| match val(kind) {
+            Some(EquipmentVal::Byte(b)) => Some(b),
+            _ => None,
+        };
+        let launcher = match &item.kind {
+            EquipKind::Gun(g) => Some(&g.launcher),
+            EquipKind::MineDropper(l) | EquipKind::CmDropper(l) => Some(l),
+            _ => None,
+        };
+        let barrel = launcher.and_then(|l| {
+            let cx = self.launch_context(h, id)?;
+            Some((cx.barrel_pos(&l.barrels, 0), cx.barrel_dir(&l.barrels, 0)))
+        });
+        Some(EquipInfo {
+            flags,
+            // The low byte, as the system manager reads `EquipFlags`.
+            equip_flags: (status.equip_flags & 0xff) as u8,
+            munition_kind: int(v::MUNITION_KIND),
+            auto_turret: byte(v::AUTO_TURRET).map(|b| b != 0),
+            seeker: byte(v::SEEKER),
+            range: float(v::RANGE),
+            target_id: int(v::TARGET_ID).map(|t| t as u32),
+            barrel,
+        })
+    }
+
+    /// `get_scanlist(list, 0x7ffdff, keep)`: the first scanner's list. The
+    /// scanner has scanned this frame, before the behaviour runs, for its
+    /// own mask, a superset of the AI's, so the list holds the objects a
+    /// fresh scan for the AI's mask would find, in the same order (the
+    /// target list keeps the AI's types only); `None` without a scanner.
+    fn scan_list(&self, h: ObjHandle) -> Option<Vec<ObjHandle>> {
+        let eq = self.get(h)?.as_equipped()?;
+        eq.equipment.first(types::SCANNER)?;
+        Some(World::scan_list(self, h))
+    }
+
+    fn can_point_at(&self, h: ObjHandle, id: u16, point: Vector, angle: f32) -> bool {
+        World::can_point_at(self, h, id, point, angle).unwrap_or(false)
+    }
+
+    fn is_pointing_at(&mut self, h: ObjHandle, id: u16, angle: f32) -> bool {
+        World::is_pointing_at(self, h, id, angle).unwrap_or(false)
+    }
+
+    /// The sub-target form is `get_tgt_lead_fire_pos(id, pos)` (the gun's
+    /// lead); `CShip::get_tgt_lead_fire_pos` (the ship's own lead over its
+    /// gun statistics) is not on the world yet, so `None` answers it.
+    fn lead_fire_position(&mut self, h: ObjHandle, subtarget: Option<u16>) -> Option<Vector> {
+        self.tgt_lead_fire_pos(h, subtarget?).ok()
     }
 
     fn manager_of(&self, h: ObjHandle) -> Option<(i32, [i32; 3])> {

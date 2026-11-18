@@ -27,3 +27,6 @@ Tools/Vectors/obj/
 # Visual Studio local settings
 .vs/
 *.user
+
+# Agent worktrees (local only)
+/.claude/worktrees/

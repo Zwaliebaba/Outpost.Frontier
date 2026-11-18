@@ -145,6 +145,18 @@ jobs:
           git diff --no-index --stat crates/game-sim/tests/vectors oracle-out-game-sim
           git diff --no-index crates/game-sim/tests/vectors oracle-out-game-sim
           if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Run the neuron-client suites and compare
+        # Work package P4.14: the scene-script Lua state through the reference's
+        # own Lua 3.2 (CppSource/Oracle/oracle_scene_script.cpp), over
+        # crates/neuron-client/tests/fixtures/oracle.
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force oracle-out-neuron-client | Out-Null
+          & .\bin\Oracle.exe neuron-client "$PWD\crates\neuron-client\tests\fixtures\oracle" "$PWD\oracle-out-neuron-client"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --no-index --stat crates/neuron-client/tests/vectors oracle-out-neuron-client
+          git diff --no-index crates/neuron-client/tests/vectors oracle-out-neuron-client
+          if ($LASTEXITCODE -ne 0) { exit 1 }
       - name: Check the data-dump mode on a synthetic installation
         # The same pipeline .github/workflows/data.yml runs on the original
         # data in outdir/, on a tree made from fixtures.
@@ -177,6 +189,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # The tree has no EXE\OutpostFrontier.ini: the game databases (P2.1) list no files.
           cargo test --locked -p game-sim --tests -- data_dump_ --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The scene scripts of P4.14 (crates/neuron-client/tests/data_dump.rs); none in this tree.
+          cargo test --locked -p neuron-client --tests -- data_dump_ --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build the resource DLLs
         shell: pwsh
@@ -213,4 +228,5 @@ jobs:
           path: |
             oracle-out
             oracle-out-game-sim
+            oracle-out-neuron-client
           if-no-files-found: ignore

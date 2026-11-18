@@ -61,6 +61,9 @@ jobs:
           # The game databases of work package P2.1 (crates/game-sim/tests/data_dump.rs).
           cargo test --locked --release -p game-sim --tests -- data_dump_ --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The scene scripts of work package P4.14 (crates/neuron-client/tests/data_dump.rs).
+          cargo test --locked --release -p neuron-client --tests -- data_dump_ --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Keep the summaries
         if: always()
         uses: actions/upload-artifact@v4

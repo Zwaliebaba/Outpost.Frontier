@@ -27,7 +27,7 @@ fn r(v: f64) -> f32 {
 
 impl World {
     /// The launch context of one launcher of an equipped object.
-    fn launch_context(&self, h: ObjHandle, id: SubObjId) -> Option<LaunchContext> {
+    pub(crate) fn launch_context(&self, h: ObjHandle, id: SubObjId) -> Option<LaunchContext> {
         let o = self.objects.get(h)?;
         let eq = o.equipped.as_deref()?;
         let equip = eq.equipment.by_id(id)?;
@@ -608,7 +608,7 @@ impl World {
 
     /// The sphere of an instance subtree (`GetInstanceExtent`), in world
     /// space.
-    fn instance_sphere(
+    pub(crate) fn instance_sphere(
         &mut self,
         instance: Option<neuron_core::scene::InstanceId>,
     ) -> Option<(f32, Vector)> {
@@ -679,8 +679,10 @@ impl World {
                     ),
                     None => (Vec::new(), Vec::new()),
                 };
+            // `get_explosion_dmg_bounding_sphere` for the hull's passes.
+            let explosion = self.explosion_dmg_bounding_sphere(h).filter(|s| s.0 >= 0.0);
             let mut spheres = damage::BlastSpheres {
-                hull,
+                hull: explosion.unwrap_or(hull),
                 physical: hull,
                 ..damage::BlastSpheres::default()
             };

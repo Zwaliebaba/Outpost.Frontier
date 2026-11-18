@@ -33,6 +33,7 @@ through a decision record under `design/adr/`.
 | O22 | Decided 2026-11-17 (P2.0). `game-sim` holds objects in its own arena with generational handles, an enum of kinds with shared component structs, and handles in place of watchers and raw pointers; details in [adr/0001](adr/0001-object-model.md) | The `slotmap` crate; an ECS library; `Rc<RefCell<…>>` objects |
 | O23 | Decided 2026-11-17 (P2.0). The scenario and replay oracle is a headless `Server.dll` run inside `Oracle.exe` (`sim` mode) with a stub client DLL and inert-by-default hooks. The envelope method is fixed now (N = 20 oracle runs, bound = max(2 × spread, floor)); the numbers follow from harness runs and are approved before Gate G2. Details in [adr/0003](adr/0003-simulation-oracle.md) | A driver of its own over Common; deciding the method only after measurements |
 | O24 | Decided 2026-11-18. `BuildOrientationBasis` (`Common/common_aisteer.cpp`) zero-fills its result matrix, as the reconstruction's own notes say the original does (`local_48`, zero-filled and copied out on every path). The reconstruction declared `Matrix Result{}`, which leaves it uninitialised because `Matrix` has a user-provided empty constructor, so a forward shorter than 0.01 returned stack contents; the `ai_steer` oracle suite showed it. Fixed in the C++ reference, a recorded exception to the `CppSource/` freeze like O12, O14 and O17; `game-sim::ai::steer` already returns the zero matrix. The other `Matrix X{}` sites in Common are left as they are: their values are overwritten before use, or (`common_faceidea.cpp`) the original is uninitialised too on an unreachable path | Leaving the C++ alone, dropping the degenerate inputs from the suite and recording a divergence; zero-filling every `Matrix X{}` site |
+| O25 | Decided 2026-11-18 (P4.0). The renderer is one `render::Device` value over a platform-free state model and a `cfg(windows)` Direct3D 12 backend, with typed states and generational handles; renderer traces move to format version 1 with model replay on any host and image replay on Windows, compared by the metric of the record (starting numbers `t = 8`, `p = 0.5 %`, `m = 1.5`); shaders are DXBC from `fxc` at shader model 5.1 with fixed flags; all FFI lives under `neuron-client/src/platform/`. Up to sixteen lights per draw, BMP and PNG screenshots, two emulated texture stages. Details in [adr/0004](adr/0004-render-device-and-trace.md) | A higher-level renderer API first; raw state numbers in the API; `dxc` and shader model 6; recording resolved draws instead of interface calls |
 
 ## Technical decisions
 
@@ -196,6 +197,12 @@ The permitted licences are listed in `deny.toml`. In use so far:
   to 0.25.3 rather than moving to the `glam` releases.
 - `proptest` 1 (MIT or Apache-2.0; default features off, `std` only):
   a dev-dependency of `game-sim`, the protocol property tests (P2.2).
+- `windows` 0.62.2 (MIT or Apache-2.0; features `Win32_Foundation`,
+  `Win32_Graphics_Direct3D`, `Win32_Graphics_Direct3D12`,
+  `Win32_Graphics_Dxgi`, `Win32_Graphics_Dxgi_Common`, `Win32_Security`,
+  `Win32_System_Threading`): `neuron-client::platform` only, behind
+  `cfg(windows)` (P4.2, record 0004 point 19). Pinned when P4.2 started,
+  2026-11-18.
 
 Math types are the project's own (`neuron-core::math`) so operation order
 stays under control; conversion to `nalgebra` happens at the `parry3d`

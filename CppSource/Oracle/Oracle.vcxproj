@@ -97,6 +97,8 @@
     <ClCompile Include="oracle_ai.cpp" />
     <ClCompile Include="oracle_ai_nav.cpp" />
     <ClCompile Include="oracle_ai_combat.cpp" />
+    <!-- P2.4 (shared remainder): CEGun's turret joints over a stand-in engine. -->
+    <ClCompile Include="oracle_game_turret.cpp" />
     <!-- P1.7: RendComp.dll's sources are compiled into oracle_mesh_data.cpp and
          Deformable2.dll's (with EyeMaterial.cpp) into oracle_mesh_data_dfm.cpp; neither DLL
          exports anything but DllMain. -->
@@ -138,6 +140,160 @@
          delay-loaded) and loads SimClientStub.dll at run time, in sim mode only. -->
     <!-- P2.3: the exact physics pieces of Common.dll (CalcCollisionDamage, CDeadReckonedVector,
          CRemotePhysicsSimulation), all called through its exports. -->
+    <!-- P4.14: the Lua 3.2 copy of SceneScript.dll, compiled in as SceneScript.vcxproj compiles
+         it (C, no /sdl), with the adapters it calls; oracle_scene_script.cpp dumps the Lua
+         state after a scene script through its internal headers. -->
+    <ClCompile Include="oracle_scene_script.cpp">
+      <AdditionalIncludeDirectories>$(ProjectDir)..\SceneScript\lua32\include;$(ProjectDir)..\SceneScript\lua32\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <ClCompile Include="..\SceneScript\SceneScriptModernAdapters.cpp" />
+    <ClCompile Include="..\SceneScript\lua32\src\lapi.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <SDLCheck>false</SDLCheck>
+      <ObjectFileName>$(IntDir)lua32\%(Filename).obj</ObjectFileName>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\SceneScript\lua32\include;$(ProjectDir)..\SceneScript\lua32\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <DisableSpecificWarnings>4013;4101;4189;4244;4267;4311;4312;4057;4131;4127;4456;4701;4702;4706;4996</DisableSpecificWarnings>
+    </ClCompile>
+    <ClCompile Include="..\SceneScript\lua32\src\lauxlib.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <SDLCheck>false</SDLCheck>
+      <ObjectFileName>$(IntDir)lua32\%(Filename).obj</ObjectFileName>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\SceneScript\lua32\include;$(ProjectDir)..\SceneScript\lua32\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <DisableSpecificWarnings>4013;4101;4189;4244;4267;4311;4312;4057;4131;4127;4456;4701;4702;4706;4996</DisableSpecificWarnings>
+    </ClCompile>
+    <ClCompile Include="..\SceneScript\lua32\src\lbuffer.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <SDLCheck>false</SDLCheck>
+      <ObjectFileName>$(IntDir)lua32\%(Filename).obj</ObjectFileName>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\SceneScript\lua32\include;$(ProjectDir)..\SceneScript\lua32\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <DisableSpecificWarnings>4013;4101;4189;4244;4267;4311;4312;4057;4131;4127;4456;4701;4702;4706;4996</DisableSpecificWarnings>
+    </ClCompile>
+    <ClCompile Include="..\SceneScript\lua32\src\lbuiltin.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <SDLCheck>false</SDLCheck>
+      <ObjectFileName>$(IntDir)lua32\%(Filename).obj</ObjectFileName>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\SceneScript\lua32\include;$(ProjectDir)..\SceneScript\lua32\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <DisableSpecificWarnings>4013;4101;4189;4244;4267;4311;4312;4057;4131;4127;4456;4701;4702;4706;4996</DisableSpecificWarnings>
+    </ClCompile>
+    <ClCompile Include="..\SceneScript\lua32\src\ldo.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <SDLCheck>false</SDLCheck>
+      <ObjectFileName>$(IntDir)lua32\%(Filename).obj</ObjectFileName>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\SceneScript\lua32\include;$(ProjectDir)..\SceneScript\lua32\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <DisableSpecificWarnings>4013;4101;4189;4244;4267;4311;4312;4057;4131;4127;4456;4701;4702;4706;4996</DisableSpecificWarnings>
+    </ClCompile>
+    <ClCompile Include="..\SceneScript\lua32\src\lfunc.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <SDLCheck>false</SDLCheck>
+      <ObjectFileName>$(IntDir)lua32\%(Filename).obj</ObjectFileName>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\SceneScript\lua32\include;$(ProjectDir)..\SceneScript\lua32\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <DisableSpecificWarnings>4013;4101;4189;4244;4267;4311;4312;4057;4131;4127;4456;4701;4702;4706;4996</DisableSpecificWarnings>
+    </ClCompile>
+    <ClCompile Include="..\SceneScript\lua32\src\lgc.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <SDLCheck>false</SDLCheck>
+      <ObjectFileName>$(IntDir)lua32\%(Filename).obj</ObjectFileName>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\SceneScript\lua32\include;$(ProjectDir)..\SceneScript\lua32\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <DisableSpecificWarnings>4013;4101;4189;4244;4267;4311;4312;4057;4131;4127;4456;4701;4702;4706;4996</DisableSpecificWarnings>
+    </ClCompile>
+    <ClCompile Include="..\SceneScript\lua32\src\llex.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <SDLCheck>false</SDLCheck>
+      <ObjectFileName>$(IntDir)lua32\%(Filename).obj</ObjectFileName>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\SceneScript\lua32\include;$(ProjectDir)..\SceneScript\lua32\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <DisableSpecificWarnings>4013;4101;4189;4244;4267;4311;4312;4057;4131;4127;4456;4701;4702;4706;4996</DisableSpecificWarnings>
+    </ClCompile>
+    <ClCompile Include="..\SceneScript\lua32\src\lmem.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <SDLCheck>false</SDLCheck>
+      <ObjectFileName>$(IntDir)lua32\%(Filename).obj</ObjectFileName>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\SceneScript\lua32\include;$(ProjectDir)..\SceneScript\lua32\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <DisableSpecificWarnings>4013;4101;4189;4244;4267;4311;4312;4057;4131;4127;4456;4701;4702;4706;4996</DisableSpecificWarnings>
+    </ClCompile>
+    <ClCompile Include="..\SceneScript\lua32\src\lobject.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <SDLCheck>false</SDLCheck>
+      <ObjectFileName>$(IntDir)lua32\%(Filename).obj</ObjectFileName>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\SceneScript\lua32\include;$(ProjectDir)..\SceneScript\lua32\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <DisableSpecificWarnings>4013;4101;4189;4244;4267;4311;4312;4057;4131;4127;4456;4701;4702;4706;4996</DisableSpecificWarnings>
+    </ClCompile>
+    <ClCompile Include="..\SceneScript\lua32\src\lstate.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <SDLCheck>false</SDLCheck>
+      <ObjectFileName>$(IntDir)lua32\%(Filename).obj</ObjectFileName>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\SceneScript\lua32\include;$(ProjectDir)..\SceneScript\lua32\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <DisableSpecificWarnings>4013;4101;4189;4244;4267;4311;4312;4057;4131;4127;4456;4701;4702;4706;4996</DisableSpecificWarnings>
+    </ClCompile>
+    <ClCompile Include="..\SceneScript\lua32\src\lstring.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <SDLCheck>false</SDLCheck>
+      <ObjectFileName>$(IntDir)lua32\%(Filename).obj</ObjectFileName>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\SceneScript\lua32\include;$(ProjectDir)..\SceneScript\lua32\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <DisableSpecificWarnings>4013;4101;4189;4244;4267;4311;4312;4057;4131;4127;4456;4701;4702;4706;4996</DisableSpecificWarnings>
+    </ClCompile>
+    <ClCompile Include="..\SceneScript\lua32\src\ltable.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <SDLCheck>false</SDLCheck>
+      <ObjectFileName>$(IntDir)lua32\%(Filename).obj</ObjectFileName>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\SceneScript\lua32\include;$(ProjectDir)..\SceneScript\lua32\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <DisableSpecificWarnings>4013;4101;4189;4244;4267;4311;4312;4057;4131;4127;4456;4701;4702;4706;4996</DisableSpecificWarnings>
+    </ClCompile>
+    <ClCompile Include="..\SceneScript\lua32\src\ltm.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <SDLCheck>false</SDLCheck>
+      <ObjectFileName>$(IntDir)lua32\%(Filename).obj</ObjectFileName>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\SceneScript\lua32\include;$(ProjectDir)..\SceneScript\lua32\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <DisableSpecificWarnings>4013;4101;4189;4244;4267;4311;4312;4057;4131;4127;4456;4701;4702;4706;4996</DisableSpecificWarnings>
+    </ClCompile>
+    <ClCompile Include="..\SceneScript\lua32\src\lundump.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <SDLCheck>false</SDLCheck>
+      <ObjectFileName>$(IntDir)lua32\%(Filename).obj</ObjectFileName>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\SceneScript\lua32\include;$(ProjectDir)..\SceneScript\lua32\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <DisableSpecificWarnings>4013;4101;4189;4244;4267;4311;4312;4057;4131;4127;4456;4701;4702;4706;4996</DisableSpecificWarnings>
+    </ClCompile>
+    <ClCompile Include="..\SceneScript\lua32\src\lvm.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <SDLCheck>false</SDLCheck>
+      <ObjectFileName>$(IntDir)lua32\%(Filename).obj</ObjectFileName>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\SceneScript\lua32\include;$(ProjectDir)..\SceneScript\lua32\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <DisableSpecificWarnings>4013;4101;4189;4244;4267;4311;4312;4057;4131;4127;4456;4701;4702;4706;4996</DisableSpecificWarnings>
+    </ClCompile>
+    <ClCompile Include="..\SceneScript\lua32\src\lzio.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <SDLCheck>false</SDLCheck>
+      <ObjectFileName>$(IntDir)lua32\%(Filename).obj</ObjectFileName>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\SceneScript\lua32\include;$(ProjectDir)..\SceneScript\lua32\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <DisableSpecificWarnings>4013;4101;4189;4244;4267;4311;4312;4057;4131;4127;4456;4701;4702;4706;4996</DisableSpecificWarnings>
+    </ClCompile>
+    <ClCompile Include="..\SceneScript\lua32\src\lib\lmathlib.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <SDLCheck>false</SDLCheck>
+      <ObjectFileName>$(IntDir)lua32\%(Filename).obj</ObjectFileName>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\SceneScript\lua32\include;$(ProjectDir)..\SceneScript\lua32\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <DisableSpecificWarnings>4013;4101;4189;4244;4267;4311;4312;4057;4131;4127;4456;4701;4702;4706;4996</DisableSpecificWarnings>
+    </ClCompile>
+    <ClCompile Include="..\SceneScript\lua32\src\lib\liolib.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <SDLCheck>false</SDLCheck>
+      <ObjectFileName>$(IntDir)lua32\%(Filename).obj</ObjectFileName>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\SceneScript\lua32\include;$(ProjectDir)..\SceneScript\lua32\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <DisableSpecificWarnings>4013;4101;4189;4244;4267;4311;4312;4057;4131;4127;4456;4701;4702;4706;4996</DisableSpecificWarnings>
+    </ClCompile>
+    <ClCompile Include="..\SceneScript\lua32\src\lib\lstrlib.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <SDLCheck>false</SDLCheck>
+      <ObjectFileName>$(IntDir)lua32\%(Filename).obj</ObjectFileName>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\SceneScript\lua32\include;$(ProjectDir)..\SceneScript\lua32\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <DisableSpecificWarnings>4013;4101;4189;4244;4267;4311;4312;4057;4131;4127;4456;4701;4702;4706;4996</DisableSpecificWarnings>
+    </ClCompile>
+    <ClCompile Include="..\SceneScript\lua32\lparser_stub.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <SDLCheck>false</SDLCheck>
+      <ObjectFileName>$(IntDir)lua32\%(Filename).obj</ObjectFileName>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\SceneScript\lua32\include;$(ProjectDir)..\SceneScript\lua32\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <DisableSpecificWarnings>4013;4101;4189;4244;4267;4311;4312;4057;4131;4127;4456;4701;4702;4706;4996</DisableSpecificWarnings>
+    </ClCompile>
     <ClCompile Include="oracle_physics.cpp" />
     <ClCompile Include="oracle_sim.cpp" />
     <ClCompile Include="oracle_sim_spread.cpp" />

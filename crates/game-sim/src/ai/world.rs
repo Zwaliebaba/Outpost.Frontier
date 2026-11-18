@@ -578,7 +578,7 @@ pub trait AiWorld {
 
     /// `is_pointing_at(out, id, angle)` (67): whether the item points at
     /// its target within `angle`. The default does not.
-    fn is_pointing_at(&self, h: Self::Handle, id: u16, angle: f32) -> bool {
+    fn is_pointing_at(&mut self, h: Self::Handle, id: u16, angle: f32) -> bool {
         let _ = (h, id, angle);
         false
     }
@@ -586,7 +586,7 @@ pub trait AiWorld {
     /// The ship's lead fire position: `CShip::get_tgt_lead_fire_pos` for
     /// `None`, `get_tgt_lead_fire_pos(id, pos)` (66) for a sub-target;
     /// `None` when there is none. The default has none.
-    fn lead_fire_position(&self, h: Self::Handle, subtarget: Option<u16>) -> Option<Vector> {
+    fn lead_fire_position(&mut self, h: Self::Handle, subtarget: Option<u16>) -> Option<Vector> {
         let _ = (h, subtarget);
         None
     }
