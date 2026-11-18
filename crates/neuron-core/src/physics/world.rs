@@ -1078,8 +1078,15 @@ impl PhysicsWorld {
         for index in self.cores.indices() {
             if let Some(slot) = self.cores.get_mut(index) {
                 let other = |k: &ControllerKind| !matches!(k, ControllerKind::External { handle: c, .. } if *c == handle);
+                let had = slot.controllers.len();
                 slot.controllers.retain(|(_, _, k)| other(k));
                 slot.buckets.retain(|(_, _, k)| other(k));
+                // `IVP_Controller_Detach_From_All_Cores` marks the unit's
+                // controller set changed (0x100, clearing 0x200); the unit
+                // clears the bits at the end of its next PSI.
+                if slot.controllers.len() != had {
+                    slot.unit_state = (slot.unit_state & !0x200) | 0x100;
+                }
             }
         }
     }
