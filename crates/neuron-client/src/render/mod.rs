@@ -3,3 +3,8 @@
 //! Direct3D 12 backend and the trace player.
 
 pub mod ff;
+
+/// The trace reader and model replay, behind the feature `render-trace`
+/// (on by default; the game executable turns it off).
+#[cfg(feature = "render-trace")]
+pub mod trace;

@@ -532,6 +532,45 @@ impl Buffers {
         Ok(())
     }
 
+    /// Writes vertex bytes at byte `at` whatever the lock state, for trace
+    /// replay: the recorded offsets are the authority (record 0004, point
+    /// 10), since the C++ ring cursors cannot be reproduced.
+    pub fn replay_write_vb(
+        &mut self,
+        h: VbHandle,
+        at: u32,
+        bytes: &[u8],
+    ) -> Result<(), BufferError> {
+        let vb = self.vb_mut(h)?;
+        let end = at as usize + bytes.len();
+        let dst = vb
+            .data
+            .get_mut(at as usize..end)
+            .ok_or(BufferError::OutOfRange)?;
+        dst.copy_from_slice(bytes);
+        vb.locked = None;
+        Ok(())
+    }
+
+    /// Writes indices at position `at` whatever the lock state, for trace
+    /// replay.
+    pub fn replay_write_ib(
+        &mut self,
+        source: IndexSource,
+        at: u32,
+        indices: &[u16],
+    ) -> Result<(), BufferError> {
+        let ib = self.ib_mut(source)?;
+        let end = at as usize + indices.len();
+        let dst = ib
+            .data
+            .get_mut(at as usize..end)
+            .ok_or(BufferError::OutOfRange)?;
+        dst.copy_from_slice(indices);
+        ib.locked = None;
+        Ok(())
+    }
+
     /// `FDx8RendererStreamCache::Reset`, after a user-pointer draw.
     pub fn release_streams(&mut self) {
         self.streams = Streams {
