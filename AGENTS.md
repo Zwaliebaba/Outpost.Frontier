@@ -10,8 +10,9 @@ plan, decisions and per-library ledger are in [design/](design/README.md).
 oracle instrumentation (design/migration-plan.md, Phase 0). The recorded
 exceptions are the plain-text save writer (design/decisions.md O12) the
 directory `FindFirst` fix (O14), the costume hash in `SetRellan` (O17), the
-zero-filled `BuildOrientationBasis` result (O24) and the three data names the
-rebrand broke in code literals (O30).
+zero-filled `BuildOrientationBasis` result (O24), the three data names the
+rebrand broke in code literals (O30) and the voice archive path relative to the
+data root (O31).
 
 ## Ownership and dependencies
 

@@ -4,8 +4,8 @@
 //! `oracle_scene_script_build.cpp`, `oracle_scene_script_runtime.cpp`,
 //! `oracle_text.cpp`, `oracle_audio.cpp`, `oracle_texture.cpp`,
 //! `oracle_big_image.cpp`, `oracle_material.cpp`,
-//! `oracle_material_kinds.cpp`, `oracle_material_surface.cpp` and
-//! `oracle_ui.cpp`).
+//! `oracle_material_kinds.cpp`, `oracle_material_surface.cpp`,
+//! `oracle_mesh_render.cpp` and `oracle_ui.cpp`).
 
 mod support;
 
@@ -14,8 +14,8 @@ use neuron_client::text::rdl::markup;
 
 use support::audio::{self, check_suite_within};
 use support::{
-    check_suite, input_lines, material, material_kinds, material_surface, scene_script,
-    scene_script_build, scene_script_runtime, text, texture, ui, unhex,
+    check_suite, input_lines, material, material_kinds, material_surface, mesh_render,
+    scene_script, scene_script_build, scene_script_runtime, text, texture, ui, unhex,
 };
 
 /// P4.14: the Lua state after each buffer of a case, one fresh state per
@@ -275,4 +275,13 @@ fn ui_quad_batch() {
 #[test]
 fn material_surface() {
     check_suite("material_surface.jsonl", &material_surface::lines());
+}
+
+/// P4.6: the render manager, the levels of detail, the VMesh registry,
+/// groups, parts and wires, and the TriMesh and SphereMesh plugins against
+/// recording services (`tests/fixtures/oracle/mesh_render.list` and the
+/// archives in `tests/fixtures/oracle/mesh/`).
+#[test]
+fn mesh_render() {
+    check_suite("mesh_render.jsonl", &mesh_render::lines());
 }

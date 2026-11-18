@@ -1630,6 +1630,9 @@ namespace
 void RunMaterialKindSuite();
 // oracle_material_surface.cpp: the 19 surface materials (material_surface.jsonl).
 void RunMaterialSurfaceSuite();
+// oracle_mesh_render.cpp (compiled into oracle_mesh_data.cpp): RendComp at run time
+// (mesh_render.jsonl).
+void RunMeshRenderSuite();
 
 void RunMaterialSuites()
 {
@@ -1647,4 +1650,5 @@ void RunMaterialSuites()
     BatcherSuite();
     RunMaterialKindSuite();
     RunMaterialSurfaceSuite();
+    RunMeshRenderSuite();
 }
