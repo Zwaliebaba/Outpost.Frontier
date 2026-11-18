@@ -177,8 +177,11 @@ relative to `CppSource/`.
    and are stored only. P4.3 confirms the list from the v1 traces and adds
    any state they show in use.
 7. **Conventions.** The vertex shader moves every position by half a pixel
-   (`-1/width`, `+1/height` in clip space, scaled by `w`) so pixel centres
-   fall where Direct3D 8 put them. Pre-transformed (`XYZRHW`) vertices take
+   (`+1/width`, `-1/height` in clip space, scaled by `w`: right and down;
+   corrected on 2026-11-18, P4.2, from `-1/width`, `+1/height`, which is
+   the shift that makes Direct3D 9 sample like Direct3D 10, the opposite
+   direction) so pixel centres fall where Direct3D 8 put them: Direct3D 8
+   samples a pixel at its integer coordinates, Direct3D 12 at its centre. Pre-transformed (`XYZRHW`) vertices take
    the same shift. Matrices are uploaded row-major as the C++ stores them;
    the shaders are compiled with row-major packing (section 3).
 8. **The backend** (`render::d3d12`, `cfg(windows)`, P4.2) owns the device,

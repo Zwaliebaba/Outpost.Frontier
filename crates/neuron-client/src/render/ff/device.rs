@@ -14,7 +14,9 @@ use std::fmt;
 
 use super::buffers::{BufferError, Buffers, IndexSource, VbHandle};
 use super::defaults::Defaults;
-use super::draw::{DrawConstants, PipelineKey, unemulated_stages, unemulated_states};
+use super::draw::{
+    DrawConstants, PipelineKey, approximated_samplers, unemulated_stages, unemulated_states,
+};
 use super::fvf::Fvf;
 use super::geometry::{Primitive, draws_anything, fan_to_list, prim_count_from_verts};
 use super::lights::Lights;
@@ -167,6 +169,8 @@ pub struct Device<B: Backend> {
     /// each reported once (record 0004, point 3).
     pub unemulated: BTreeSet<RenderStateId>,
     pub unemulated_stage_seen: BTreeSet<usize>,
+    /// Emulated stages drawn with an approximated sampler (D209).
+    pub approximated_sampler_seen: BTreeSet<usize>,
     pub backend: B,
 }
 
@@ -194,6 +198,7 @@ impl<B: Backend> Device<B> {
             },
             unemulated: BTreeSet::new(),
             unemulated_stage_seen: BTreeSet::new(),
+            approximated_sampler_seen: BTreeSet::new(),
             backend,
         }
     }
@@ -307,6 +312,8 @@ impl<B: Backend> Device<B> {
         self.unemulated.extend(unemulated_states(&self.state));
         self.unemulated_stage_seen
             .extend(unemulated_stages(&self.state));
+        self.approximated_sampler_seen
+            .extend(approximated_samplers(&self.state));
         let (primitive, indices, primitive_count) = if primitive == Primitive::TriangleFan {
             let fan: Vec<u16> = match &indices {
                 IndexData::List(list) => list.clone(),
