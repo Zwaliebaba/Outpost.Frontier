@@ -30,10 +30,13 @@ flate2 = { version = "1.1", default-features = false, features = ["rust_backend"
 md-5 = { version = "0.10", default-features = false }
 parry3d = { version = "0.25.3", default-features = false, features = ["required-features", "std", "alloc"] }
 proptest = { version = "1", default-features = false, features = ["std"] }
+# MPEG Layer III decoding of the game's MP3-in-WAV sounds (P4.10).
+symphonia = { version = "0.6.1", default-features = false, features = ["mp3"] }
 toml = "0.9"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
 # Direct3D 12, DXGI, the window, known-folder, registry and DPAPI FFI of
-# neuron-client::platform (P4.1, P4.2).
+# neuron-client::platform (P4.1, P4.2); XAudio2, X3DAudio and COM
+# initialisation (P4.10).
 windows = { version = "0.62.2", features = [
     "Win32_Foundation",
     "Win32_Graphics_Direct3D",
@@ -41,6 +44,8 @@ windows = { version = "0.62.2", features = [
     "Win32_Graphics_Dxgi",
     "Win32_Graphics_Dxgi_Common",
     "Win32_Graphics_Gdi",
+    "Win32_Media_Audio",
+    "Win32_Media_Audio_XAudio2",
     "Win32_Security",
     "Win32_Security_Cryptography",
     "Win32_System_Com",
@@ -51,6 +56,14 @@ windows = { version = "0.62.2", features = [
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
+
+# The MP3 decoder is slow unoptimised; the data tests decode every shipped
+# sound (P4.10).
+[profile.dev.package.symphonia-bundle-mp3]
+opt-level = 3
+
+[profile.dev.package.symphonia-core]
+opt-level = 3
 
 [workspace.lints.rust]
 # Unsafe code is denied everywhere. Only the modules listed in xtask's

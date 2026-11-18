@@ -214,7 +214,22 @@ The permitted licences are listed in `deny.toml`. In use so far:
   `cfg(windows)` (P4.2, record 0004 point 19). Pinned when P4.2 started,
   2026-11-18. P4.1 added `Gdi` (monitor rectangles only, no GDI text),
   `HiDpi`, `Shell` and `Com` (the Documents folder), `Registry` (the
-  one-time import) and `Security_Cryptography` (DPAPI).
+  one-time import) and `Security_Cryptography` (DPAPI). P4.10 added `Media_Audio` and
+  `Media_Audio_XAudio2` for the XAudio2 device (`platform::audio`, proposed
+  2026-11-18); X3DAudio, which the crate describes only by constants, is
+  declared there and loaded with the XAudio2 library at run time.
+- `symphonia` 0.6.1 (MPL-2.0; default features off, feature `mp3` only,
+  which brings `symphonia-core`, `symphonia-bundle-mp3` and
+  `symphonia-metadata`, with `bitflags`, `bytemuck`, `lazy_static`, `libm`,
+  `log`, `num-complex`, `num-traits`, `regex-lite` and `smallvec`, all MIT,
+  Apache-2.0 or Zlib): `neuron-client::audio::decode`, the MPEG Layer III
+  data of the game's MP3-in-WAV sounds (P4.10, replacing the Audio
+  Compression Manager). The shipped data holds only PCM and MPEG-2 and
+  MPEG-2.5 Layer III, so no other codec or container is enabled; the WAV
+  container is read by `audio::wav`. Proposed 2026-11-18, with
+  `[profile.dev.package]` `opt-level = 3` for `symphonia-core` and
+  `symphonia-bundle-mp3` so the data tests decode all shipped sounds in
+  seconds.
 
 Math types are the project's own (`neuron-core::math`) so operation order
 stays under control; conversion to `nalgebra` happens at the `parry3d`
