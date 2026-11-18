@@ -1072,26 +1072,38 @@ fn report_units(summary: &mut String, dir: &Path, scenario: &str, ours: &Run) {
         return;
     };
     // The two sides number the scenario ships differently (the oracle's
-    // load makes objects the Rust world does not): each ship's id becomes
-    // its place in the spawn order, which is the order of the ids.
+    // load makes objects the Rust world does not): each ship's or
+    // munition's id becomes its place in the order of the ids of its class
+    // (the spawn order).
     let by_spawn = |v: &[Vec<Unit>]| -> Vec<Vec<Unit>> {
-        let mut ships: Vec<u32> = v
-            .iter()
-            .flatten()
-            .filter(|u| u.class == 0x503)
-            .map(|u| u.id)
-            .collect();
-        ships.sort_unstable();
-        ships.dedup();
+        let numbered = |class: u32| {
+            let mut ids: Vec<u32> = v
+                .iter()
+                .flatten()
+                .filter(|u| u.class == class)
+                .map(|u| u.id)
+                .collect();
+            ids.sort_unstable();
+            ids.dedup();
+            ids
+        };
+        let (ships, guided) = (numbered(0x503), numbered(0xa7));
         v.iter()
             .map(|psi| {
                 psi.iter()
-                    .map(|u| match ships.iter().position(|s| *s == u.id) {
-                        Some(k) if u.class == 0x503 => Unit {
-                            id: k as u32 + 1,
-                            ..*u
-                        },
-                        _ => *u,
+                    .map(|u| {
+                        let list = match u.class {
+                            0x503 => &ships,
+                            0xa7 => &guided,
+                            _ => return *u,
+                        };
+                        match list.iter().position(|s| *s == u.id) {
+                            Some(k) => Unit {
+                                id: k as u32 + 1,
+                                ..*u
+                            },
+                            None => *u,
+                        }
                     })
                     .collect()
             })
