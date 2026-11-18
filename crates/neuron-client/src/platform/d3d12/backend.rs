@@ -445,6 +445,9 @@ impl D3d12Backend {
     /// Direct3D 8 `Present` did.
     pub fn resize(&mut self, width: u32, height: u32) -> Result<(), GpuError> {
         self.flush()?;
+        // A present after the last flush may still be queued: the old back
+        // buffers and scene are released only once the queue is idle.
+        self.gpu.wait_idle()?;
         let target = RenderTarget::new(&self.gpu, width, height)?;
         let depth = depth_buffer(&self.gpu, width, height)?;
         let scene_view = srv_desc(DXGI_FORMAT_B8G8R8A8_UNORM, 1);
@@ -465,10 +468,8 @@ impl D3d12Backend {
         self._depth = depth;
         self.scene_state = D3D12_RESOURCE_STATE_RENDER_TARGET;
         if let Some((old, rtvs)) = self.swap.take() {
-            // A new swap chain on the same window, in place of
-            // `ResizeBuffers` (which ended the process on CI's runner under
-            // the debug layer): the old one is released first, as a window
-            // takes one flip-model swap chain.
+            // A new swap chain on the same window: the old one is released
+            // first, as a window takes one flip-model swap chain.
             let window = old.window;
             drop(old);
             let swap = SwapChain::new(&self.gpu, window, width, height)?;
