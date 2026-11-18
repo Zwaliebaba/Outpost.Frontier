@@ -278,8 +278,13 @@ section 10, "Collisions"). It is judged to its first contact (record 0003
 point 9): every object equals the oracle exactly before it, the contact
 comes in the same tick, the first contact's damage falls inside its
 envelope, and after it only the outcome (which objects are alive) is
-compared. `ram_asteroid`, in which neither the C++ pilot nor the Rust one
-touches the rock, stays as a near-miss check but does not count for the
+compared. The fights (`dogfight`, `skirmish`, `strafe`) are judged the same
+way: exactly up to their first contact or munition impact, whichever comes
+first; after it their outcomes and trajectories are compared within the
+approved envelopes, because the differences after a contact come from the
+accepted contact solver (D87, decision O19) and the fuse's timing (D177)
+(owner, 2026-11-18). `ram_asteroid`, in which neither the C++ pilot nor
+the Rust one touches the rock, stays as a near-miss check but does not count for the
 gate (owner, 2026-11-18). The scenarios are judged as recorded from the
 seeding point: the harness calls `srand(seed)` again once the system and
 Content's population of it have loaded, and the Rust world seeds there;
