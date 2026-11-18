@@ -9,6 +9,7 @@ pub mod data;
 pub mod material;
 pub mod material_kinds;
 pub mod material_surface;
+pub mod mesh_render;
 pub mod scene_script;
 pub mod scene_script_build;
 pub mod scene_script_runtime;

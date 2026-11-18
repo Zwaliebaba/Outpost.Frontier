@@ -2,11 +2,13 @@
 //! Direct3D 8 device the C++ draws through ([`ff`]), and later the
 //! Direct3D 12 backend and the trace player; textures at run time
 //! ([`texture`]); materials, their animation and the batcher
-//! ([`material`]).
+//! ([`material`]); the render manager, levels of detail and the mesh
+//! kinds ([`mesh`]).
 
 pub mod compare;
 pub mod ff;
 pub mod material;
+pub mod mesh;
 pub mod shader;
 pub mod texture;
 

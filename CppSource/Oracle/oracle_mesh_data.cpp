@@ -892,3 +892,7 @@ void RunMeshDataDump(const std::vector<std::string>& Files)
     printf("dumped %u mesh archives\n", (unsigned int)Mesh.size());
     RunDfmDataDump(Files);
 }
+
+// P4.6: the mesh render suite (mesh_render.jsonl) reaches the reference's RendComp classes, so it
+// is compiled here, after the sources it uses.
+#include "oracle_mesh_render.cpp"
