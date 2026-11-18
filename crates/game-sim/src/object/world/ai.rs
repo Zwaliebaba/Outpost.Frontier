@@ -628,12 +628,17 @@ impl AiWorld for World {
             AiCommand::SetStrafe(d) => Command::SetStrafeDir(StrafeDir::from_value(d.value())),
             AiCommand::SetTarget { target, subtarget } => Command::SetTarget(target, subtarget),
             AiCommand::FireGuns { equipment, target } => {
-                let Some(target) = target else {
-                    return -2;
-                };
+                // `EqObj::slot_34` without an aim point fires forward.
+                if target.is_none() {
+                    if self.get(h).is_none_or(|o| o.dead) {
+                        return -2;
+                    }
+                    self.fire(h, &equipment, None);
+                    return 0;
+                }
                 Command::Fire {
                     guns: equipment,
-                    target,
+                    target: target.unwrap_or_default(),
                 }
             }
             AiCommand::ActivateEquip { equipment, on } => Command::ActivateEquip(equipment, on),

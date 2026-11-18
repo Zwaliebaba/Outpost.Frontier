@@ -153,7 +153,7 @@ fn vec3(t: &[String], at: usize) -> Option<Vector> {
 
 /// `HeadingMatrix`: a yaw of `degrees` about +Y.
 fn heading(degrees: f64) -> Matrix {
-    let r = degrees.to_radians();
+    let r = degrees * std::f64::consts::PI / 180.0;
     let (s, c) = (r.sin() as f32, r.cos() as f32);
     Matrix::from_rows([[c, 0.0, s], [0.0, 1.0, 0.0], [-s, 0.0, c]])
 }

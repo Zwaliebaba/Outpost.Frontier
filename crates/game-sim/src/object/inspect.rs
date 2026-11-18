@@ -190,7 +190,7 @@ impl World {
         let consts = self.data.constants.engine.clone();
         let result = match command {
             Command::Fire { guns, target } => {
-                return CommandResult::Fired(self.fire(h, &guns, target));
+                return CommandResult::Fired(self.fire(h, &guns, Some(target)));
             }
             Command::SetHitPts(hp) => {
                 if let Some(o) = self.get_mut(h) {

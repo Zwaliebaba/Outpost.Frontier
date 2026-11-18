@@ -111,12 +111,15 @@ impl World {
     /// `EqObj::slot_34` with `SrvGun::fire`: each listed gun fires at the
     /// aim point (`CELauncher::Fire`, `ConsumeFireResources`); an unguided
     /// munition goes out as bullets (`launch_bullets`), a guided one as
-    /// missiles (`launch_guided`). Returns each gun's result.
+    /// missiles (`launch_guided`). Without an aim point, or for a
+    /// projectile with `force_gun_ori`, a gun fires forward
+    /// (`SrvGun::fire_forward`: the barrels' average position plus their
+    /// average direction scaled to 1e10). Returns each gun's result.
     pub fn fire(
         &mut self,
         h: ObjHandle,
         guns: &[SubObjId],
-        target: Vector,
+        aim: Option<Vector>,
     ) -> Vec<(SubObjId, FireResult)> {
         let mut out = Vec::new();
         let Some(o) = self.objects.get(h) else {
@@ -130,6 +133,27 @@ impl World {
         for &id in guns {
             let Some(cx) = self.launch_context(h, id) else {
                 continue;
+            };
+            let forward = self
+                .objects
+                .get(h)
+                .and_then(|o| o.equipped.as_deref())
+                .and_then(|eq| eq.equipment.by_id(id))
+                .and_then(|e| match &e.kind {
+                    EquipKind::Gun(g) => Some(g),
+                    _ => None,
+                })
+                .map(|g| {
+                    (
+                        g.launcher.projectile.is_some_and(|p| p.force_gun_ori),
+                        cx.forward_target(&g.launcher.barrels),
+                    )
+                });
+            let target = match (aim, forward) {
+                (Some(t), Some((false, _))) => t,
+                (_, Some((_, f))) => f,
+                (Some(t), None) => t,
+                (None, None) => continue,
             };
             let mut shots: Vec<ProjLaunchInfo> = Vec::new();
             let mut munition: Option<ProjectileArch> = None;
