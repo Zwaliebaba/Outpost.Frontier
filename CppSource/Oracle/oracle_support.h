@@ -243,6 +243,12 @@ void RunSceneScriptDataDump(const std::vector<std::string>& Files);
 // from RunNeuronClientSuites.
 void SceneScriptBuildSuite();
 
+// P4.14 (oracle_scene_script_runtime.cpp): param curves, spline paths and scene playback,
+// compiled in from ParamCurve.cpp, SplinePath.cpp and SceneScriptScene.cpp, over
+// crates/neuron-client/tests/fixtures/oracle/scene_script_{curve,spline,playback}.list;
+// called from RunNeuronClientSuites after SceneScriptBuildSuite.
+void SceneScriptRuntimeSuites();
+
 // P4.14 (oracle_scene_script_build.cpp): every .thn under DATA through both passes of the
 // parser in a fresh module state, and the engine calls of the second; kind "thn_build".
 void RunSceneScriptBuildDataDump(const std::vector<std::string>& Files);
