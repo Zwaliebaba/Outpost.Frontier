@@ -239,6 +239,7 @@ namespace
         bool bThrusters;
         int AtmosphereResult;
         float AtmosphereRange;
+        float MaxBankAngle;
     };
 
     unsigned int IdOf(IObjRW const* Object)
@@ -303,6 +304,7 @@ namespace
         }
         Out.ThrustersResult = O->are_thrusters_active(Out.bThrusters);
         Out.AtmosphereResult = O->get_atmosphere_range(Out.AtmosphereRange);
+        Out.MaxBankAngle = O->get_max_bank_angle();
         Out.AttitudeResult = -1;
         if (Self != nullptr)
             Out.AttitudeResult = Self->get_attitude_towards_symmetrical(Out.Attitude, O, Out.ReverseAttitude);
@@ -457,6 +459,7 @@ namespace
         else
             J.Null("thrusters");
         OptFloat(J, "atmosphere", Obj.AtmosphereResult, Obj.AtmosphereRange);
+        J.Float("max_bank", Obj.MaxBankAngle);
         if (Obj.AttitudeResult == 0)
         {
             J.BeginArray("attitude");

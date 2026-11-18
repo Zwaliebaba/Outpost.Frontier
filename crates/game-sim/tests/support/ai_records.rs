@@ -313,7 +313,7 @@ pub fn object_view(j: &Json) -> Option<ObjectView> {
         is_targetable: b(j, "targetable").unwrap_or(false),
         toughness: i(j, "toughness").unwrap_or(0),
         behavior_id: i(j, "behavior_id").unwrap_or(-1),
-        max_bank_angle: 0.0,
+        max_bank_angle: f(j, "max_bank").unwrap_or(0.0),
         scanner_interference: 0.0,
         atmosphere_range: f(j, "atmosphere").unwrap_or(0.0),
         engine: j.get("engine").and_then(Json::as_array).and_then(|a| {

@@ -315,9 +315,11 @@ null for the ship itself), and (P2.5 goto and face) `engine`
 [u, b, b]\|null (`find_equipment(&Id, 1, EquipTypeEngine)` and
 `get_equipment_status`: the id, `EquipStatusFlagActive`,
 `EquipStatusFlagDestroyed`; null without an engine), `thrusters` b\|null
-(`are_thrusters_active`) and `atmosphere` f\|null
-(`get_atmosphere_range`): what the thrust manager reads before it
-commands the engine and the thrusters. These are the fields of
+(`are_thrusters_active`), `atmosphere` f\|null
+(`get_atmosphere_range`) and `max_bank` f (`get_max_bank_angle`; 0 for
+an object that is not a ship): what the thrust manager reads before it
+commands the engine and the thrusters, and the bank limit of the steering
+frame. These are the fields of
 `game_sim::ai::world::ObjectView`, which a replay world fills from them.
 
 The `rand` values come from a counting wrapper that the recorder puts in

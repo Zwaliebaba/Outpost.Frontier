@@ -114,7 +114,10 @@ impl World {
             is_targetable: i.targetable,
             toughness: 0,
             behavior_id: eq.map_or(-1, |e| e.behavior_index),
-            max_bank_angle: 0.0,
+            // `CShip::get_max_bank_angle`: the ship archetype's.
+            max_bank_angle: ship_data
+                .and_then(|_| self.data.archetypes.ships.get(&o.archetype))
+                .map_or(0.0, |s| s.max_bank_angle),
             scanner_interference: o.simple.scanner_interference,
             atmosphere_range: match &o.data {
                 crate::object::KindData::Solar(s) => s.atmosphere_range,
