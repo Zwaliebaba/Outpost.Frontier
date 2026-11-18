@@ -35,6 +35,7 @@ through a decision record under `design/adr/`.
 | O24 | Decided 2026-11-18. `BuildOrientationBasis` (`Common/common_aisteer.cpp`) zero-fills its result matrix, as the reconstruction's own notes say the original does (`local_48`, zero-filled and copied out on every path). The reconstruction declared `Matrix Result{}`, which leaves it uninitialised because `Matrix` has a user-provided empty constructor, so a forward shorter than 0.01 returned stack contents; the `ai_steer` oracle suite showed it. Fixed in the C++ reference, a recorded exception to the `CppSource/` freeze like O12, O14 and O17; `game-sim::ai::steer` already returns the zero matrix. The other `Matrix X{}` sites in Common are left as they are: their values are overwritten before use, or (`common_faceidea.cpp`) the original is uninitialised too on an unreachable path | Leaving the C++ alone, dropping the degenerate inputs from the suite and recording a divergence; zero-filling every `Matrix X{}` site |
 | O25 | Decided 2026-11-18 (P4.0). The renderer is one `render::Device` value over a platform-free state model and a `cfg(windows)` Direct3D 12 backend, with typed states and generational handles; renderer traces move to format version 1 with model replay on any host and image replay on Windows, compared by the metric of the record (starting numbers `t = 8`, `p = 0.5 %`, `m = 1.5`); shaders are DXBC from `fxc` at shader model 5.1 with fixed flags; all FFI lives under `neuron-client/src/platform/`. Up to sixteen lights per draw, BMP and PNG screenshots, two emulated texture stages. Details in [adr/0004](adr/0004-render-device-and-trace.md) | A higher-level renderer API first; raw state numbers in the API; `dxc` and shader model 6; recording resolved draws instead of interface calls |
 | O26 | Decided 2026-11-18 (P4.10). Voices of 3D archetypes are spatialised by X3DAudio on the device side: the mixer hands each one its pose and the listener (`VoiceBackend::set_emitter`) and leaves distance attenuation, pan and Doppler to X3DAudio, in place of the reference's DirectSound 3D buffers; the reference's software path stays for 2D and pan voices and as an option (`Spatial::Software`) for the oracle. Environmental reverb (the EAX settings mapped to XAudio2's I3DL2 reverb) is applied whatever `useEAX` says. Audio uses the Windows default output device and its speaker layout; `deviceID` and `speakerConfiguration` are read without effect | A platform-free emulation of DirectSound 3D's inverse-distance law, Doppler and cones; the reference's software path for 3D voices (about 3 dB per doubling of distance instead of DirectSound's 6 dB, no Doppler); reverb only with `useEAX` on, as shipped; dropping reverb; honouring `deviceID` and `speakerConfiguration` |
+| O27 | Decided 2026-11-18 (P4.1). The client window is per-monitor DPI aware (version 2): a windowed client area is the mode's size times the monitor's scale, and fullscreen is a borderless window over the monitor (no display-mode change, not topmost); in both the back buffer keeps the mode's size and the swap chain stretches it. Per-user state lives in TOML files under `Documents\My Games\OutpostFrontier`, written atomically; the first run without them imports the C++ client's `HKCU\Software\Microsoft\Microsoft Games\OutpostFrontier\1.0` once and never writes the registry. Saved passwords are sealed with the Windows user's DPAPI. A new install derives the multiplayer account name as the C++ does (MD5 of the Windows `DigitalProductId` and the user name, a UUID without a product id) | Hex-text passwords as the C++ kept them; not saving passwords; exclusive fullscreen through DXGI, or both modes; physical-pixel or window-sized back buffers; a random stored account identity |
 
 ## Technical decisions
 
@@ -182,8 +183,8 @@ this register.
 
 The permitted licences are listed in `deny.toml`. In use so far:
 
-- `toml`, in `xtask`, and as a dev-dependency of `neuron-client`
-  (`tests/rdl_cards.rs` reads the card sources, P4.12).
+- `toml`, in `xtask` and `neuron-client` (`user_state`, the per-user state
+  files of P4.1; `tests/rdl_cards.rs` reads the card sources, P4.12).
 - `flate2` 1.1 (MIT or Apache-2.0; `rust_backend`, that is `miniz_oxide`):
   `neuron-core::net::frame`, compressed batches only (P1.9).
 - `md-5` 0.10 (MIT or Apache-2.0; default features off):
@@ -205,12 +206,15 @@ The permitted licences are listed in `deny.toml`. In use so far:
   a dev-dependency of `game-sim`, the protocol property tests (P2.2).
 - `windows` 0.62.2 (MIT or Apache-2.0; features `Win32_Foundation`,
   `Win32_Graphics_Direct3D`, `Win32_Graphics_Direct3D12`,
-  `Win32_Graphics_Dxgi`, `Win32_Graphics_Dxgi_Common`, `Win32_Security`,
-  `Win32_System_LibraryLoader`, `Win32_System_Threading`,
+  `Win32_Graphics_Dxgi`, `Win32_Graphics_Dxgi_Common`, `Win32_Graphics_Gdi`,
+  `Win32_Security`, `Win32_Security_Cryptography`, `Win32_System_Com`,
+  `Win32_System_LibraryLoader`, `Win32_System_Registry`,
+  `Win32_System_Threading`, `Win32_UI_HiDpi`, `Win32_UI_Shell`,
   `Win32_UI_WindowsAndMessaging`): `neuron-client::platform` only, behind
   `cfg(windows)` (P4.2, record 0004 point 19). Pinned when P4.2 started,
-  2026-11-18; the last two added for windows (the swap chain's test now,
-  the client window of P4.1 next).
+  2026-11-18. P4.1 added `Gdi` (monitor rectangles only, no GDI text),
+  `HiDpi`, `Shell` and `Com` (the Documents folder), `Registry` (the
+  one-time import) and `Security_Cryptography` (DPAPI).
 
 Math types are the project's own (`neuron-core::math`) so operation order
 stays under control; conversion to `nalgebra` happens at the `parry3d`

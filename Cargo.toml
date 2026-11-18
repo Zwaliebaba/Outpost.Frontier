@@ -32,16 +32,23 @@ parry3d = { version = "0.25.3", default-features = false, features = ["required-
 proptest = { version = "1", default-features = false, features = ["std"] }
 toml = "0.9"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
-# Direct3D 12, DXGI and the window FFI of neuron-client::platform (P4.2).
+# Direct3D 12, DXGI, the window, known-folder, registry and DPAPI FFI of
+# neuron-client::platform (P4.1, P4.2).
 windows = { version = "0.62.2", features = [
     "Win32_Foundation",
     "Win32_Graphics_Direct3D",
     "Win32_Graphics_Direct3D12",
     "Win32_Graphics_Dxgi",
     "Win32_Graphics_Dxgi_Common",
+    "Win32_Graphics_Gdi",
     "Win32_Security",
+    "Win32_Security_Cryptography",
+    "Win32_System_Com",
     "Win32_System_LibraryLoader",
+    "Win32_System_Registry",
     "Win32_System_Threading",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
 
