@@ -7,67 +7,12 @@
 //! digits, then rounds those half up to the precision asked for. So
 //! 0.99999, whose double is 0.99999000000000004551..., becomes
 //! `0.99999000000000005` and then `0.9999900000000001`, where a correctly
-//! rounding `printf` gives `0.99999`.
+//! rounding `printf` gives `0.99999`. The reference's `luaV_tostring`
+//! reproduces it (`MsvcrtFormatLuaNumber`); its port in
+//! `neuron_core::msvcrt` is the one implementation of that text.
 
 /// Formats `x` as MSVC's `%.16g` does.
-pub fn format_g16(x: f64) -> String {
-    const PRECISION: i32 = 16;
-    if !x.is_finite() {
-        // Never stored by the shipped chunks; MSVC would print `1.#INF`.
-        return format!("{x}");
-    }
-    // 17 digits rounded from the exact binary value, then half up to 16.
-    let sci = format!("{:.16e}", x.abs());
-    let (mantissa, exponent) = sci.split_once('e').expect("exponent form");
-    let mut exponent: i32 = exponent.parse().expect("exponent digits");
-    let mut digits: Vec<u8> = mantissa.bytes().filter(u8::is_ascii_digit).collect();
-    let round_up = digits.pop().is_some_and(|d| d >= b'5');
-    if round_up {
-        let mut i = digits.len();
-        loop {
-            if i == 0 {
-                digits.insert(0, b'1');
-                digits.pop();
-                exponent += 1;
-                break;
-            }
-            i -= 1;
-            if digits[i] == b'9' {
-                digits[i] = b'0';
-            } else {
-                digits[i] += 1;
-                break;
-            }
-        }
-    }
-    let digits = String::from_utf8(digits).expect("ASCII digits");
-    let sign = if x.is_sign_negative() { "-" } else { "" };
-
-    if (-4..PRECISION).contains(&exponent) {
-        let (int, frac) = if exponent >= 0 {
-            let split = (exponent + 1) as usize;
-            (digits[..split].to_owned(), digits[split..].to_owned())
-        } else {
-            let zeros = "0".repeat((-exponent - 1) as usize);
-            ("0".to_owned(), format!("{zeros}{digits}"))
-        };
-        let frac = frac.trim_end_matches('0');
-        if frac.is_empty() {
-            format!("{sign}{int}")
-        } else {
-            format!("{sign}{int}.{frac}")
-        }
-    } else {
-        let frac = digits[1..].trim_end_matches('0');
-        let point = if frac.is_empty() { "" } else { "." };
-        let esign = if exponent < 0 { '-' } else { '+' };
-        format!(
-            "{sign}{}{point}{frac}e{esign}{:03}",
-            &digits[..1],
-            exponent.abs()
-        )
-    }
-}
+pub use neuron_core::msvcrt::format_lua_number as format_g16;
 
 /// `Expten` of `lobject.c`: 10 to the power `n` by repeated squaring.
 fn expten(mut n: u32) -> f64 {

@@ -147,8 +147,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit 1 }
       - name: Run the neuron-client suites and compare
         # Work package P4.14: the scene-script Lua state through the reference's
-        # own Lua 3.2 (CppSource/Oracle/oracle_scene_script.cpp), over
-        # crates/neuron-client/tests/fixtures/oracle.
+        # own Lua 3.2 (CppSource/Oracle/oracle_scene_script.cpp); P4.12-P4.14:
+        # the VC6 number texts and RDLX markup through MSXML (oracle_text.cpp);
+        # over crates/neuron-client/tests/fixtures/oracle.
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force oracle-out-neuron-client | Out-Null

@@ -516,6 +516,7 @@ name = "neuron-client"
 version = "0.1.0"
 dependencies = [
  "neuron-core",
+ "toml",
  "windows",
 ]
 
