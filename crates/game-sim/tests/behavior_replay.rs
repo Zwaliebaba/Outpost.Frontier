@@ -1296,11 +1296,13 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
         // rotation, the recorded value is whatever the memory held.
         if let (Some(ours), Some(theirs), Some(before)) =
             (our_face.as_mut(), out.face.as_ref(), orient_before)
-            && ours.orient.m.as_flattened().iter().map(|x| x.to_bits()).eq(before
+            && ours
+                .orient
                 .m
                 .as_flattened()
                 .iter()
-                .map(|x| x.to_bits()))
+                .map(|x| x.to_bits())
+                .eq(before.m.as_flattened().iter().map(|x| x.to_bits()))
             && !is_rotation(&theirs.orient)
         {
             ours.orient = theirs.orient;
