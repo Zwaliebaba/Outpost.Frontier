@@ -331,7 +331,7 @@ namespace RenderTrace
 
     FCall::FCall(FSession& InSession, ECategory InCategory, const char* Interface, const char* Method)
         : Session(InSession), Category(InCategory), bActive(false), bWrites(false), bHasResult(false),
-          Result(GR_OK), SeqNo(0)
+          bSynthetic(false), Result(GR_OK), SeqNo(0)
     {
         Session.Lock();
         if (!Session.Tracking())
@@ -378,6 +378,8 @@ namespace RenderTrace
                 Line += ",\"note\":";
                 AppendJsonString(Line, NoteText.c_str());
             }
+            if (bSynthetic)
+                Line += ",\"synthetic\":true";
             Line += '}';
             if (bWrites)
                 Session.WriteLine(Line);
@@ -653,6 +655,11 @@ namespace RenderTrace
         NoteText += Text;
     }
 
+    void FCall::Synthetic()
+    {
+        bSynthetic = true;
+    }
+
     void FCall::Stream(const char* Name, const FRpVertexStream& Source, unsigned int Element, bool bIndexed,
                        unsigned int Start, unsigned int Count)
     {
@@ -759,7 +766,7 @@ namespace RenderTrace
     // FSession
 
     FSession::FSession()
-        : CriticalSection(nullptr), bConfigured(false), bTracking(false), bFrameRecorded(false), FrameNo(0), Seq(0),
+        : CriticalSection(nullptr), Instance(0), bConfigured(false), bTracking(false), bFrameRecorded(false), FrameNo(0), Seq(0),
           SlotOrder(0), NextId(1), LastFrame(0), File(nullptr), bSwvpKnown(false), Swvp(0), SelectionSeq(0),
           SelectionFrame(0)
     {
@@ -859,7 +866,7 @@ namespace RenderTrace
             Notice(kFdumpWarning, __LINE__, "RenderTrace: cannot create the output folder; forwarding only");
             return;
         }
-        const LONG Instance = InterlockedIncrement(&GSessionCount);
+        Instance = (long)(InterlockedIncrement(&GSessionCount));
         char FileName[64];
         if (Instance == 1)
             snprintf(FileName, sizeof(FileName), "\\trace.jsonl");
@@ -873,7 +880,7 @@ namespace RenderTrace
             return;
         }
 
-        std::string Header = "{\"format\":\"outpost-render-trace\",\"version\":0,\"renderer\":\"";
+        std::string Header = "{\"format\":\"outpost-render-trace\",\"version\":1,\"renderer\":\"";
         Header += kDx8RendererComponentName;
         Header += "\",\"section\":";
         if (Section != nullptr && Section[0] != '\0')
@@ -917,6 +924,8 @@ namespace RenderTrace
         TextureLocks.clear();
         Slots.clear();
         StageTextures.clear();
+        LiveLights.clear();
+        PendingLights.clear();
         Blobs.clear();
         Buffer.clear();
     }
@@ -1189,6 +1198,8 @@ namespace RenderTrace
         StageTextures.clear();
         bSwvpKnown = false;
         ResetSelection();
+        // LightManager Reset marks every light with data dirty: the next flush reads them all.
+        PendingLights = LiveLights;
     }
 
     void FSession::OnRenderState(unsigned int State, int Value)
@@ -1206,6 +1217,133 @@ namespace RenderTrace
         char Prefix[48];
         snprintf(Prefix, sizeof(Prefix), "L:%lld:", LightId);
         EraseSlotsWithPrefix(Prefix);
+    }
+
+    void FSession::OnLightData(const void* Light)
+    {
+        if (Light == nullptr)
+            return;
+        const long long Id = FindHandle(kLight, Light);
+        if (Id <= 0)
+            return;
+        LiveLights[Id] = Light;
+        PendingLights[Id] = Light;
+    }
+
+    void FSession::OnLightEnabled(const void* Light)
+    {
+        const long long Id = FindHandle(kLight, Light);
+        if (Id > 0 && LiveLights.find(Id) != LiveLights.end())
+            PendingLights[Id] = Light;
+    }
+
+    void FSession::OnLightRemoved(const void* Light)
+    {
+        const long long Id = FindHandle(kLight, Light);
+        if (Id <= 0)
+            return;
+        LiveLights.erase(Id);
+        PendingLights.erase(Id);
+    }
+
+    void FSession::TakePendingLights(std::vector<std::pair<long long, const void*> >* Out)
+    {
+        Out->assign(PendingLights.begin(), PendingLights.end());
+        PendingLights.clear();
+    }
+
+    void FSession::WriteDefaults(const unsigned int* States, const unsigned long* RenderValues, const bool* RenderRead,
+                                 size_t RenderCount, const int* PipelineValues, const bool* PipelineRead,
+                                 size_t PipelineCount)
+    {
+        if (!bTracking)
+            return;
+        std::string Line = "{\"defaults\":{\"render\":{";
+        char Text[64];
+        bool bFirst = true;
+        bool bMissing = false;
+        for (size_t Index = 0; Index < RenderCount; ++Index)
+        {
+            if (!RenderRead[Index])
+            {
+                bMissing = true;
+                continue;
+            }
+            snprintf(Text, sizeof(Text), "%s\"%u\":%lu", bFirst ? "" : ",", States[Index], RenderValues[Index]);
+            Line += Text;
+            bFirst = false;
+        }
+        Line += "},\"pipeline\":{";
+        bFirst = true;
+        for (size_t Index = 0; Index < PipelineCount; ++Index)
+        {
+            if (!PipelineRead[Index])
+            {
+                bMissing = true;
+                continue;
+            }
+            snprintf(Text, sizeof(Text), "%s\"%u\":%d", bFirst ? "" : ",", (unsigned int)(Index), PipelineValues[Index]);
+            Line += Text;
+            bFirst = false;
+        }
+        snprintf(Text, sizeof(Text), "}},\"seq\":%llu,\"frame\":%u,\"synthetic\":true", Seq, FrameNo);
+        Line += Text;
+        if (bMissing)
+            Line += ",\"note\":\"a getter failed; its entry is left out\"";
+        Line += '}';
+        WriteLine(Line);
+        StoreSlot("DEFAULTS", Line);
+    }
+
+    void FSession::WriteFrameImage(const void* Bmp, size_t Size, const char* Note)
+    {
+        if (!bTracking || !bFrameRecorded)
+            return;
+        char Text[160];
+        // BITMAPFILEHEADER (14 bytes) then BITMAPINFOHEADER: biWidth at 18, biHeight at 22
+        // (negative for a top-down image).
+        const unsigned char* Bytes = (const unsigned char*)(Bmp);
+        if (Bytes != nullptr && (Size < 26 || Bytes[0] != 'B' || Bytes[1] != 'M'))
+        {
+            Bytes = nullptr;
+            Note = "PrintScreen wrote no BMP file";
+        }
+        if (Bytes == nullptr)
+        {
+            std::string Line;
+            snprintf(Text, sizeof(Text), "{\"frame\":%u,\"frame_image\":null,\"note\":", FrameNo);
+            Line = Text;
+            AppendJsonString(Line, Note != nullptr ? Note : "no image");
+            Line += '}';
+            WriteLine(Line);
+            return;
+        }
+        int Width = 0;
+        int Height = 0;
+        memcpy(&Width, Bytes + 18, sizeof(Width));
+        memcpy(&Height, Bytes + 22, sizeof(Height));
+        if (Height < 0)
+            Height = -Height;
+        const std::string Hash = StoreBlob(Bmp, Size);
+        snprintf(Text, sizeof(Text), "{\"frame\":%u,\"frame_image\":\"%s\",\"width\":%d,\"height\":%d}", FrameNo,
+                 Hash.c_str(), Width, Height);
+        WriteLine(Text);
+    }
+
+    std::string FSession::FrameImagePath() const
+    {
+        char Folder[MAX_PATH + 1];
+        const DWORD Length = GetTempPathA(sizeof(Folder), Folder);
+        std::string Path;
+        if (Length > 0 && Length < sizeof(Folder))
+            Path = Folder;
+        else
+            Path = Directory + "\\";
+        if (!Path.empty() && Path[Path.size() - 1] != '\\' && Path[Path.size() - 1] != '/')
+            Path += '\\';
+        char Name[96];
+        snprintf(Name, sizeof(Name), "outpost-render-trace-%lu-%ld.bmp", (unsigned long)(GetCurrentProcessId()), Instance);
+        return Path + Name;
     }
 
     void FSession::EraseSlotsWithPrefix(const char* Prefix)
