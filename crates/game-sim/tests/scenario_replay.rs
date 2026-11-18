@@ -1013,7 +1013,8 @@ fn gun_text(id: u32, v: [f32; 5]) -> String {
     format!(
         "{id}:[{}]",
         v.iter()
-            .map(|x| format!("{:08x}", x.to_bits()))
+            // A signed zero compares as zero (the joints' rest value).
+            .map(|x| format!("{:08x}", (x + 0.0).to_bits()))
             .collect::<Vec<_>>()
             .join(" ")
     )
