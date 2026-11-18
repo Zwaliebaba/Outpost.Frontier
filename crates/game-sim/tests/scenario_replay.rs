@@ -20,9 +20,11 @@
 //! ship and named solar the closest approach on both sides, the Rust
 //! collision events and the oracle's `events.jsonl` collisions.
 //!
-//! Scenarios whose objects need the AI (an `ai` state graph, or the
-//! `goto`, `face` and `dock` directives) are skipped with a note: the
-//! behaviours are P2.5. A summary goes to `rust-scenario-replay.txt` in
+//! A ship with an `ai` state graph gets a behaviour manager
+//! (`pub::AI::SubmitState`), and the `goto`, `face`, `idle` and `cancel`
+//! commands are directives (`pub::AI::SubmitDirective`). Scenarios whose
+//! directives need a behaviour that is not ported yet, and the `dock`
+//! directive, are skipped with a note (P2.5). A summary goes to `rust-scenario-replay.txt` in
 //! the oracle folder.
 
 mod support;
@@ -32,6 +34,9 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use game_sim::ai::behavior::{DirectiveOp, FaceOp, GotoOp};
+use game_sim::ai::behaviors::create_behavior;
+use game_sim::ai::state_graph::GraphType;
 use game_sim::equip::flight::StrafeDir;
 use game_sim::equip::{EquipKind, SUBOBJ_ID_ROOT, types};
 use game_sim::object::world::{ShipSpawn, WorldConfig};
@@ -70,7 +75,8 @@ struct ObjDesc {
     vel: Vector,
     angvel: Vector,
     hp: f32,
-    ai: bool,
+    /// The state graph (`ai NAME`), submitted with `pub::AI::SubmitState`.
+    ai: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -164,7 +170,7 @@ fn parse(path: &Path) -> Option<Scenario> {
                     vel: Vector::ZERO,
                     angvel: Vector::ZERO,
                     hp: -1.0,
-                    ai: false,
+                    ai: None,
                 };
                 let mut at = if ship { 7 } else { 3 };
                 while at < t.len() {
@@ -183,7 +189,7 @@ fn parse(path: &Path) -> Option<Scenario> {
                             at += 4;
                         }
                         "ai" => {
-                            o.ai = true;
+                            o.ai = Some(t.get(at + 1)?.clone());
                             at += 2;
                         }
                         "hp" => {
@@ -222,14 +228,69 @@ fn parse(path: &Path) -> Option<Scenario> {
     Some(s)
 }
 
-fn needs_ai(s: &Scenario) -> Option<String> {
-    if let Some(o) = s.objects.iter().find(|o| o.ai) {
-        return Some(format!("{} has a state graph", o.name));
+/// The directive a scenario command submits (`SubmitScenarioDirective`
+/// of `CppSource/Oracle/oracle_sim.cpp`): `goto x y z [range r] [cruise]`
+/// (a point, range 100, no cruise unless asked) and `face x y z` (a
+/// point).
+fn directive(a: &[String]) -> Option<DirectiveOp> {
+    match a[0].as_str() {
+        "goto" => {
+            let mut op = GotoOp {
+                kind: 1,
+                destination: vec3(a, 1)?,
+                range: 100.0,
+                field_58: 0,
+                cruise: 0,
+                no_cruise: 1,
+                ..GotoOp::default()
+            };
+            let mut at = 4;
+            while at < a.len() {
+                match a[at].as_str() {
+                    "range" => {
+                        op.range = num(a.get(at + 1)?)? as f32;
+                        at += 2;
+                    }
+                    "cruise" => {
+                        op.cruise = 1;
+                        op.no_cruise = 0;
+                        at += 1;
+                    }
+                    _ => return None,
+                }
+            }
+            Some(DirectiveOp::Goto(op))
+        }
+        "face" if a.len() == 4 => Some(DirectiveOp::Face(FaceOp {
+            mode: 2,
+            point: vec3(a, 1)?,
+            ..FaceOp::default()
+        })),
+        "idle" if a.len() == 1 => Some(DirectiveOp::Idle),
+        "cancel" if a.len() == 1 => Some(DirectiveOp::Cancel),
+        _ => None,
     }
-    s.commands
-        .iter()
-        .find(|c| matches!(c.args[0].as_str(), "goto" | "face" | "dock"))
-        .map(|c| format!("the {} directive", c.args[0]))
+}
+
+/// Why a scenario cannot run yet: a directive whose behaviour is not
+/// ported (the AI ships themselves run: they get a behaviour manager), or
+/// the dock directive (which needs the station's Content side).
+fn needs_ai(s: &Scenario) -> Option<String> {
+    for c in &s.commands {
+        if c.args[0] == "dock" {
+            return Some("the dock directive".to_owned());
+        }
+        if let Some(op) = directive(&c.args)
+            && let Some(id) = op.behavior()
+            && !create_behavior::<World>(id).ported()
+        {
+            return Some(format!(
+                "the {} directive (behaviour {id} is not ported)",
+                c.args[0]
+            ));
+        }
+    }
+    None
 }
 
 /// An equipped object's first shield.
@@ -388,7 +449,15 @@ fn run(s: &Scenario) -> Option<Run> {
             spawn.velocity = o.vel;
             spawn.angular_velocity = o.angvel;
             spawn.hit_pts = o.hp;
-            world.spawn_ship(system, &spawn).ok()
+            let h = world.spawn_ship(system, &spawn).ok();
+            if let (Some(h), Some(graph)) = (h, &o.ai) {
+                let id = world
+                    .data()
+                    .state_graphs
+                    .find(graph.as_bytes(), GraphType::Leader);
+                world.submit_state(h, id, None);
+            }
+            h
         } else {
             world.find(create_id(o.nickname.as_bytes()))
         };
@@ -436,6 +505,15 @@ fn run(s: &Scenario) -> Option<Run> {
                 continue;
             };
             let a = &c.args;
+            if let Some(op) = directive(a) {
+                // A current directive blocks a new one, so each scenario
+                // directive cancels the one before.
+                if !matches!(op, DirectiveOp::Cancel) {
+                    world.submit_directive(h, &DirectiveOp::Cancel);
+                }
+                world.submit_directive(h, &op);
+                continue;
+            }
             let command = match a[0].as_str() {
                 "throttle" => a
                     .get(1)
