@@ -1,0 +1,192 @@
+# P4.12 GDI font metrics inputs for Oracle.exe gdi-fonts (CppSource/Oracle/oracle_gdi_fonts.cpp)
+# and tests/gdi_font_metrics.rs: face|lfHeight|lfWeight|lfItalic. The two faces of fonts.ini
+# at every cell height the autoscale search can reach between 640 x 480 and 1920 x 1440, then
+# standard Windows faces at a few heights, negative (em) heights, bold and italic.
+Agency FB|6|400|0
+Agency FB|7|400|0
+Agency FB|8|400|0
+Agency FB|9|400|0
+Agency FB|10|400|0
+Agency FB|11|400|0
+Agency FB|12|400|0
+Agency FB|13|400|0
+Agency FB|14|400|0
+Agency FB|15|400|0
+Agency FB|16|400|0
+Agency FB|17|400|0
+Agency FB|18|400|0
+Agency FB|19|400|0
+Agency FB|20|400|0
+Agency FB|21|400|0
+Agency FB|22|400|0
+Agency FB|23|400|0
+Agency FB|24|400|0
+Agency FB|25|400|0
+Agency FB|26|400|0
+Agency FB|27|400|0
+Agency FB|28|400|0
+Agency FB|29|400|0
+Agency FB|30|400|0
+Agency FB|31|400|0
+Agency FB|32|400|0
+Agency FB|33|400|0
+Agency FB|34|400|0
+Agency FB|35|400|0
+Agency FB|36|400|0
+Agency FB|37|400|0
+Agency FB|38|400|0
+Agency FB|39|400|0
+Agency FB|40|400|0
+Agency FB|41|400|0
+Agency FB|42|400|0
+Agency FB|43|400|0
+Agency FB|44|400|0
+Agency FB|45|400|0
+Agency FB|46|400|0
+Agency FB|47|400|0
+Agency FB|48|400|0
+Agency FB|49|400|0
+Agency FB|50|400|0
+Agency FB|51|400|0
+Agency FB|52|400|0
+Agency FB|53|400|0
+Agency FB|54|400|0
+Agency FB|55|400|0
+Agency FB|56|400|0
+Agency FB|57|400|0
+Agency FB|58|400|0
+Agency FB|59|400|0
+Agency FB|60|400|0
+Agency FB|61|400|0
+Agency FB|62|400|0
+Agency FB|63|400|0
+Agency FB|64|400|0
+Agency FB|65|400|0
+Agency FB|66|400|0
+Agency FB|67|400|0
+Agency FB|68|400|0
+Agency FB|69|400|0
+Agency FB|70|400|0
+Agency FB|71|400|0
+Agency FB|72|400|0
+Agency FB|73|400|0
+Agency FB|74|400|0
+Agency FB|75|400|0
+Agency FB|76|400|0
+Agency FB|77|400|0
+Agency FB|78|400|0
+Agency FB|79|400|0
+Agency FB|80|400|0
+Agency FB|81|400|0
+Agency FB|82|400|0
+Agency FB|83|400|0
+Agency FB|84|400|0
+Agency FB|85|400|0
+Agency FB|86|400|0
+Agency FB|87|400|0
+Agency FB|88|400|0
+Agency FB|89|400|0
+Arial Unicode MS|6|400|0
+Arial Unicode MS|7|400|0
+Arial Unicode MS|8|400|0
+Arial Unicode MS|9|400|0
+Arial Unicode MS|10|400|0
+Arial Unicode MS|11|400|0
+Arial Unicode MS|12|400|0
+Arial Unicode MS|13|400|0
+Arial Unicode MS|14|400|0
+Arial Unicode MS|15|400|0
+Arial Unicode MS|16|400|0
+Arial Unicode MS|17|400|0
+Arial Unicode MS|18|400|0
+Arial Unicode MS|19|400|0
+Arial Unicode MS|20|400|0
+Arial Unicode MS|21|400|0
+Arial Unicode MS|22|400|0
+Arial Unicode MS|23|400|0
+Arial Unicode MS|24|400|0
+Arial Unicode MS|25|400|0
+Arial Unicode MS|26|400|0
+Arial Unicode MS|27|400|0
+Arial Unicode MS|28|400|0
+Arial Unicode MS|29|400|0
+Arial Unicode MS|30|400|0
+Arial Unicode MS|31|400|0
+Arial Unicode MS|32|400|0
+Arial Unicode MS|33|400|0
+Arial Unicode MS|34|400|0
+Arial Unicode MS|35|400|0
+Arial Unicode MS|36|400|0
+Arial Unicode MS|37|400|0
+Arial Unicode MS|38|400|0
+Arial Unicode MS|39|400|0
+Arial Unicode MS|40|400|0
+Arial Unicode MS|41|400|0
+Arial Unicode MS|42|400|0
+Arial Unicode MS|43|400|0
+Arial Unicode MS|44|400|0
+Arial Unicode MS|45|400|0
+Arial Unicode MS|46|400|0
+Arial Unicode MS|47|400|0
+Arial Unicode MS|48|400|0
+Arial Unicode MS|49|400|0
+Arial Unicode MS|50|400|0
+Arial Unicode MS|51|400|0
+Arial Unicode MS|52|400|0
+Arial Unicode MS|53|400|0
+Arial Unicode MS|54|400|0
+Arial Unicode MS|55|400|0
+Arial Unicode MS|56|400|0
+Arial Unicode MS|57|400|0
+Arial Unicode MS|58|400|0
+Arial Unicode MS|59|400|0
+Arial Unicode MS|60|400|0
+Arial Unicode MS|61|400|0
+Arial Unicode MS|62|400|0
+Arial Unicode MS|63|400|0
+Arial Unicode MS|64|400|0
+Arial Unicode MS|65|400|0
+Arial Unicode MS|66|400|0
+Arial Unicode MS|67|400|0
+Arial Unicode MS|68|400|0
+Arial Unicode MS|69|400|0
+Arial Unicode MS|70|400|0
+Arial Unicode MS|71|400|0
+Arial Unicode MS|72|400|0
+Arial Unicode MS|73|400|0
+Arial Unicode MS|74|400|0
+Arial Unicode MS|75|400|0
+Arial Unicode MS|76|400|0
+Arial Unicode MS|77|400|0
+Arial Unicode MS|78|400|0
+Arial Unicode MS|79|400|0
+Arial Unicode MS|80|400|0
+Arial Unicode MS|81|400|0
+Arial Unicode MS|82|400|0
+Arial Unicode MS|83|400|0
+Arial Unicode MS|84|400|0
+Arial Unicode MS|85|400|0
+Arial Unicode MS|86|400|0
+Arial Unicode MS|87|400|0
+Arial Unicode MS|88|400|0
+Arial Unicode MS|89|400|0
+Arial|12|400|0
+Arial|16|400|0
+Arial|20|400|0
+Arial|26|400|0
+Arial|33|400|0
+Arial|-12|400|0
+Arial|-16|400|0
+Arial|-24|400|0
+Times New Roman|16|400|0
+Times New Roman|26|400|0
+Courier New|16|400|0
+Courier New|26|400|0
+Segoe UI|16|400|0
+Segoe UI|26|400|0
+Tahoma|16|400|0
+Verdana|16|400|0
+FixedSys|18|400|0
+Arial|16|700|0
+Arial|16|400|1
+Arial|26|700|1
