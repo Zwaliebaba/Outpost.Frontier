@@ -160,26 +160,6 @@ GENRESULT NEURONCOMPONENTS_API FRenderTrace::SelectMode(int* Mode, unsigned int*
     return Result;
 }
 
-// IRenderPipeline slot 12
-GENRESULT NEURONCOMPONENTS_API FRenderTrace::CreateBuffers(HWND Hwnd, int* Mode, int* OutMode)
-{
-    const GENRESULT Result = RealPipeline_->CreateBuffers(Hwnd, Mode, OutMode);
-    if (Trace_.Tracking())
-    {
-        RenderTrace::FCall Call(Trace_, RenderTrace::kAlways, "IRenderPipeline", "CreateBuffers");
-        if (Call.Active())
-        {
-            Call.Raw("Hwnd", (const void*)(Hwnd));
-            Call.Words("Mode", (const void*)(Mode), 10);
-            Call.Words("OutMode", (const void*)(OutMode), 10);
-            Call.Return(Result);
-        }
-        if (Result >= 0)
-            Trace_.OnDeviceReset();
-    }
-    return Result;
-}
-
 // IRenderPipeline slot 13
 GENRESULT NEURONCOMPONENTS_API FRenderTrace::GetModeBlob(void* OutAdapter, void* OutMode10Dwords)
 {
@@ -972,6 +952,7 @@ GENRESULT NEURONCOMPONENTS_API FRenderTrace::GetTextureStageTexture(int Stage, v
 // IRenderPipeline slot 68
 GENRESULT NEURONCOMPONENTS_API FRenderTrace::VerifyState()
 {
+    TraceLightData(true);
     const GENRESULT Result = RealPipeline_->VerifyState();
     if (Trace_.Tracking())
     {
@@ -987,6 +968,7 @@ GENRESULT NEURONCOMPONENTS_API FRenderTrace::VerifyState()
 // IRenderPipeline slot 69
 GENRESULT NEURONCOMPONENTS_API FRenderTrace::DrawPrimitive(unsigned long Prim, unsigned int Fvf, const void* Verts, unsigned int Count, void* Unused)
 {
+    TraceLightData((int)(Count) > 0);
     const GENRESULT Result = RealPipeline_->DrawPrimitive(Prim, Fvf, Verts, Count, Unused);
     if (Trace_.Tracking())
     {
@@ -1009,6 +991,7 @@ GENRESULT NEURONCOMPONENTS_API FRenderTrace::DrawPrimitive(unsigned long Prim, u
 // IRenderPipeline slot 70
 GENRESULT NEURONCOMPONENTS_API FRenderTrace::DrawIndexedPrimitiveUp(unsigned long Prim, unsigned int Fvf, const void* Verts, unsigned int VertCount, const void* Indices, unsigned int IndexCount, unsigned long Unused)
 {
+    TraceLightData((int)(RenderTrace::PrimCount(Prim, IndexCount)) > 0);
     const GENRESULT Result = RealPipeline_->DrawIndexedPrimitiveUp(Prim, Fvf, Verts, VertCount, Indices, IndexCount, Unused);
     if (Trace_.Tracking())
     {
@@ -1033,6 +1016,7 @@ GENRESULT NEURONCOMPONENTS_API FRenderTrace::DrawIndexedPrimitiveUp(unsigned lon
 // IRenderPipeline slot 71
 GENRESULT NEURONCOMPONENTS_API FRenderTrace::DrawPrimitiveVb(unsigned long Prim, void* Vb, unsigned int StartVertex, unsigned int Count, void* Unused)
 {
+    TraceLightData((int)(RenderTrace::PrimCount(Prim, Count)) > 0);
     const GENRESULT Result = RealPipeline_->DrawPrimitiveVb(Prim, Vb, StartVertex, Count, Unused);
     if (Trace_.Tracking())
     {
@@ -1055,6 +1039,7 @@ GENRESULT NEURONCOMPONENTS_API FRenderTrace::DrawPrimitiveVb(unsigned long Prim,
 // IRenderPipeline slot 72
 GENRESULT NEURONCOMPONENTS_API FRenderTrace::DrawIndexedPrimitiveVb(unsigned long Prim, void* Vb, unsigned int BaseVertex, unsigned int NumVerts, const void* Indices, unsigned int IndexCount, unsigned long Unused)
 {
+    TraceLightData((int)(RenderTrace::PrimCount(Prim, IndexCount)) > 0);
     const GENRESULT Result = RealPipeline_->DrawIndexedPrimitiveVb(Prim, Vb, BaseVertex, NumVerts, Indices, IndexCount, Unused);
     if (Trace_.Tracking())
     {
@@ -1152,6 +1137,7 @@ GENRESULT NEURONCOMPONENTS_API FRenderTrace::UnsupportedManagerOperation()
 // IRPDraw slot 3
 GENRESULT NEURONCOMPONENTS_API FRenderTrace::DrawIndexedPrimitive(unsigned long Prim, unsigned int MinIndex, unsigned int NumVertices, unsigned int StartIndex, unsigned int Count)
 {
+    TraceLightData((int)(RenderTrace::PrimCount(Prim, Count)) > 0);
     const GENRESULT Result = RealDraw_->DrawIndexedPrimitive(Prim, MinIndex, NumVertices, StartIndex, Count);
     if (Trace_.Tracking())
     {

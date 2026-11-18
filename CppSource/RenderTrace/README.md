@@ -3,17 +3,21 @@
 Oracle instrumentation for work package P0.5 ([migration plan](../../design/migration-plan.md)):
 a component that sits between the game and the Direct3D 8 renderer and
 records every call made to it, so that a frame can be replayed into the Rust
-renderer at Gate G4. The trace format is provisional (version 0); P4.0
-fixes the final one. RenderTrace changes nothing the renderer does: each
-method forwards its arguments unchanged to `DX8RENDERER.dll` and returns its
-result.
+renderer at Gate G4. The trace format is version 1, fixed by decision record
+[0004](../../design/adr/0004-render-device-and-trace.md) section 2; the Rust
+reader (`neuron-client::render::trace`) rejects any other version, so traces
+of version 0 must be recorded again. RenderTrace changes nothing the
+renderer does: each method forwards its arguments unchanged to
+`DX8RENDERER.dll` and returns its result. The few calls it makes itself (the
+getters behind the defaults line, `PrintScreen` for frame images) go to the
+real renderer directly and are not recorded.
 
 | File | What it is |
 | --- | --- |
-| `RenderTrace.cpp` | DllMain and factory, aggregation, and the 29 methods with special recording |
+| `RenderTrace.cpp` | DllMain and factory, aggregation, the 30 methods with special recording and the synthetic lines (defaults, frame images, `LightData`) |
 | `RenderTraceCore.h`, `.cpp` | The trace session: JSONL writer, blob store, handle ids, pending locks, state slots |
 | `make_render_trace.py` | Generates the two files below from `include/render/IRenderPipeline.h` |
-| `RenderTraceGenerated.h`, `.cpp` | Generated: the proxy class and the 81 methods that only forward and record |
+| `RenderTraceGenerated.h`, `.cpp` | Generated: the proxy class and the 80 methods that only forward and record |
 
 ## Build
 
@@ -67,23 +71,31 @@ the last selected frame (never, for an open range) and the proxy then only
 forwards. The engine log (`FLSpew.txt`) says which file was opened or why
 tracing stayed off.
 
+Frame images copy the front buffer, which in a window is the screen: the
+traced client must run with its window unoccluded (nothing over it, not
+minimised, on one monitor) for the selected frames, or the image shows what
+covered it. The image is written to a temporary `.bmp`
+(`%TEMP%\outpost-render-trace-<pid>-<n>.bmp`), read back and deleted.
+
 ## Output
 
 ```text
 <output>\trace.jsonl          one JSON object per line (trace-2.jsonl ... for a second renderer in the process)
-<output>\blobs\<hash>.bin     raw bytes, named by the FNV-1a 64 hash of their content (16 hex digits)
+<output>\blobs\<hash>.bin     raw bytes, named by the FNV-1a 64 hash of their content (16 hex digits);
+                             a frame image is a whole BMP file
 ```
 
 A blob is written once; a later line with the same bytes refers to the same
 file. Traces made from the original game data are game data: keep them out
 of the repository (AGENTS.md, test data).
 
-## Trace format (version 0)
+## Trace format (version 1)
 
-Every line is one object. The first line is the header:
+Every line is one object. The first line is the header, written when the
+session opens (before `Startup`):
 
 ```json
-{"format":"outpost-render-trace","version":0,"renderer":"DirectX8","section":null,"frames":"300-302, 1200"}
+{"format":"outpost-render-trace","version":1,"renderer":"DirectX8","section":null,"frames":"300-302, 1200"}
 ```
 
 A call:
@@ -101,12 +113,82 @@ A call:
 | `ret` | The GENRESULT, signed decimal |
 | `first_seen` | Ids this line used for the first time without a creating call (renderer-owned buffers, light keys) |
 | `note` | Why some data was not recorded |
-| `synthetic` | Present (true) on lines the proxy wrote for a side effect the renderer had internally |
+| `synthetic` | Present (true) on lines the proxy wrote for a side effect the renderer had internally, or for memory the renderer read without a call (`LightData`) |
 
 Frame markers: `{"frame":N,"begin_frame":true,"seq":S,"snapshot_lines":K}`
 opens a selected frame and is followed by K snapshot lines (below);
 `{"frame":N,"end_frame":true,"seq":S}` closes it after its `SwapBuffers`
-line. The last line is `{"end":true,"frame":N,"seq":S}`.
+line and its frame image line. The last line is
+`{"end":true,"frame":N,"seq":S}`.
+
+### Defaults line
+
+The header is written before `Startup` reads the INI, so it cannot hold the
+renderer's defaults. Right after each successful `CreateBuffers` line the
+proxy writes them instead, read through the real renderer's
+`GetRenderState` for each of the 76 render states of DX8RENDERER's table
+(`kRenderStateProperties`; `GetRenderState` indexes its cache unchecked, so
+no other number is read) and `GetPipelineState` for ids 0 to 14:
+
+```json
+{"defaults":{"render":{"7":1,"8":3,...,"173":1},"pipeline":{"0":1,...,"14":0}},"seq":S,"frame":F,"synthetic":true}
+```
+
+`render` maps each Direct3D 8 state number (decimal) to the value
+`CreateBuffers` gave the device, as an unsigned 32-bit number; `pipeline`
+maps each pipeline id to its value as a signed 32-bit number (the
+interface's `int`, as `GetPipelineState` lines write it). These are what
+`CreateBuffers` and `ResetRenderStatesToDefaults` apply (the INI's values
+over the built-in table) and the pipeline properties at that moment. `seq`
+is that of the `CreateBuffers` line. An entry whose getter failed is left
+out and the line has a `note`. The line is written in every frame up to the
+last selected one, like `CreateBuffers`, and kept as a state slot, so every
+snapshot after a `CreateBuffers` repeats it (as
+`{"snapshot":N,"defaults":...}`). Pipeline slot 14 is not in DX8RENDERER's
+table and always reads 0; a replayer sets only the slots the table enables.
+
+### Frame images
+
+After the `SwapBuffers` line of each selected frame (before `end_frame`)
+the proxy calls the real renderer's `IRPTexture::PrintScreen(nullptr,
+"<temp>.bmp")`, which saves the front buffer (the window's client area when
+windowed) with D3DX, stores the file as a blob and writes
+
+```json
+{"frame":N,"frame_image":"<hash>","width":W,"height":H}
+```
+
+with the width and height from the BMP's header. The image is the
+reference for frame N (record 0004, points 12 and 14). When `PrintScreen`
+fails or its file cannot be read, the line is
+`{"frame":N,"frame_image":null,"note":"<why>"}`.
+
+### LightData lines
+
+`AddLight` and `UpdateLight` hand the renderer a pointer to the caller's
+`D3DLIGHT8`; DX8RENDERER keeps it and reads the struct at its next light
+flush. The proxy tracks the lights whose data the next flush reads: those
+with an `AddLight` or `UpdateLight` since the last flush, those switched on
+with `SetLightEnable` since (a light that was off kept its data unsent), and
+after a successful `CreateBuffers` every live light (the renderer sends them
+all to the new device). `RemoveLight` and `DestroyLight` drop a light.
+Before each call that flushes the lights is forwarded, the proxy writes for
+each such light
+
+```json
+{"seq":S,"frame":F,"interface":"IRenderPipeline","method":"LightData","args":{"Handle":3,"Light":["..."]},"synthetic":true}
+```
+
+with `Handle` the light's id and `Light` the 26 words read from the
+caller's struct at that moment, so the line comes before the call's own
+line. The calls that flush are the five draws (`DrawPrimitive`,
+`DrawIndexedPrimitiveUp`, `DrawPrimitiveVb`, `DrawIndexedPrimitiveVb`,
+`IRPDraw::DrawIndexedPrimitive`; not when their counts make them return
+before `FlushDrawState`), `VerifyState`, `RemoveLight` and `DestroyLight`.
+The lines are kept as state slots (`L:<id>:LightData`) in every frame, so a
+snapshot holds the data the renderer last read for each light. A replayer
+replaces the light's stored data with the words and changes nothing else:
+the renderer saw no call.
 
 Values:
 
@@ -148,7 +230,8 @@ argument to the device as an index and records it as a number.
 | `LoadSurfaceData`, `GetImageInfo` | `SrcData`: the encoded image in memory (SrcSize bytes) |
 | `LoadTexture`, `LoadCubemap` | `FileName`; the file is read by the renderer through the file system and is not copied |
 | `DrawPrimitive`, `DrawIndexedPrimitiveUp`, `DrawIndexedPrimitiveVb` | `Verts` / `Indices`: the vertices and 16-bit indices Direct3D reads, sized from the FVF (DX8RENDERER's stride) and the primitive count |
-| `SetLight`, `AddLight`, `UpdateLight` | `Light`: the `D3DLIGHT8` (for AddLight and UpdateLight the handle points at it; the renderer reads it at the next draw, the trace holds it at the call) |
+| `SetLight`, `AddLight`, `UpdateLight` | `Light`: the `D3DLIGHT8` (for AddLight and UpdateLight the handle points at it; the line holds it at the call, the `LightData` line before the next flush what the renderer read) |
+| `CreateBuffers` | As generated, then the defaults line |
 | `CreateTexture`, `CreateVb`, `CreateIb` | `Format` (the pfenum the caller asked for), the new handle's id |
 | `DestroyVb`, `DestroyIb` | The id of the handle the argument pointed to |
 
@@ -179,8 +262,9 @@ Calls fall in three groups:
   (`make_render_trace.py`, `SPEC`) gives each method's group.
 - State setters (render and texture-stage states, stage textures and
   transforms, the transforms, lights, material, viewport, depth range,
-  render target, `ResetRenderStatesToDefaults`): written in selected frames,
-  and in every frame kept as state slots, the last call per slot.
+  render target, `ResetRenderStatesToDefaults`) and `LightData` lines:
+  written in selected frames, and in every frame kept as state slots, the
+  last call per slot. The defaults line is written always and also kept.
 - Everything else (draws, scenes, clears, getters): selected frames only.
 
 A selected frame starts with a snapshot: the kept state slots, each written
@@ -190,8 +274,9 @@ last update, and then the vertex and index buffer selection
 side effect. The proxy models the renderer's side effects on its state:
 `DestroyTexture` and `SetTextureLevelData` unbind the texture from its
 stages (a synthetic `SetTextureStageTexture` with handle 0 replaces the
-slot), `CreateBuffers` resets every slot but the lights, `RemoveLight` and
-`DestroyLight` drop the light's slots, and the selection follows `SelectVb`,
+slot), `CreateBuffers` resets every slot but the lights and then keeps the
+defaults line, `RemoveLight` and `DestroyLight` drop the light's slots, and
+the selection follows `SelectVb`,
 `SelectIb`, the draws, `LockVertexMemory`, pooled `CreateVb`,
 `CopyVertices(-1)`, `ResizeVb`, the destroy calls, `DestroyGpuResources`,
 `VbMgrReleaseAll` and changes of `D3DRS_SOFTWAREVERTEXPROCESSING`.
@@ -227,14 +312,26 @@ Rules for the replayer:
   vertices: the replayer converts (DX8RENDERER's `CopyVertexData` rules).
   For `CopyVertexData` the following unlock already holds the result.
 - Ret values are the C++ results; a replayer may compare them.
+- A defaults line replaces the render-state defaults and the enabled
+  pipeline slots, then resets as `CreateBuffers` does.
+- A `LightData` line replaces the stored data of the light with that
+  handle, without marking it dirty; a light without data takes nothing.
+- A frame's `frame_image` is the reference for an image comparison after
+  that frame's `SwapBuffers` (record 0004, point 14).
 
-## Limits of version 0
+## Limits of version 1
 
 - Content made on the GPU in skipped frames (render targets, `BlitTexture`
   results) is not in the trace; a frame that samples it replays with what
   the replayer's own earlier calls produced.
-- The light data of `AddLight` and `UpdateLight` is the caller's struct at
-  the call; the renderer reads it at the next draw.
+- A light flush that stops at a device error drops the rest of the C++
+  queue unsent; their `LightData` lines were written all the same. Data
+  the renderer reads again later without a call the proxy sees (none is
+  known besides `CreateBuffers`) has no line.
+- A frame image is the front buffer as the screen shows it: an occluded or
+  minimised window, another monitor's colour profile or a desktop
+  composition effect changes it. `PrintScreen` saves the window's client
+  area in windowed mode and the whole mode in full screen.
 - Nested locks of one buffer are matched last in, first out.
 - A lock whose offset pointer was null has `FirstVertex` / `FirstIndex` null.
 - Surface data is recorded for pfenum formats 1 to 8 and DXT1 to DXT5
