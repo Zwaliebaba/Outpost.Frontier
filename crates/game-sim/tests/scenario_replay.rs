@@ -324,6 +324,7 @@ struct State {
     pos: Vector,
     vel: Vector,
     orient: [f32; 9],
+    angvel: Vector,
     hp: f32,
     /// `None` when the record does not carry it (an older oracle record,
     /// or an object without equipment).
@@ -564,6 +565,7 @@ fn run(s: &Scenario) -> Option<Run> {
                         pos: i.position,
                         vel: i.velocity,
                         orient: i.orientation.to_words(),
+                        angvel: i.angular_velocity,
                         hp: i.hit_pts,
                         power,
                         shield,
@@ -836,6 +838,7 @@ fn oracle_ticks(file: &Path) -> BTreeMap<String, Vec<State>> {
                 pos: v("pos"),
                 vel: v("vel"),
                 orient,
+                angvel: v("angvel"),
                 hp: r.get("hp").and_then(Json::as_f32).unwrap_or(0.0),
                 power: r.get("power").and_then(Json::as_f32),
                 shield,
@@ -1102,6 +1105,80 @@ fn report_collisions(
         let _ = writeln!(summary, "    ... (the first {REPORT_COLLISIONS} listed)");
     }
     differing
+}
+
+/// The first tick at which any recorded field of an object differs from
+/// the oracle's at all (bit patterns), with the fields that differ and
+/// both sides' values in hex, and how many ticks differ.
+fn first_bit_difference(
+    summary: &mut String,
+    scenario: &str,
+    name: &str,
+    ours: &[State],
+    theirs: &[State],
+) {
+    let hex3 = |v: Vector| {
+        format!(
+            "[{:08x} {:08x} {:08x}]",
+            v.x.to_bits(),
+            v.y.to_bits(),
+            v.z.to_bits()
+        )
+    };
+    let fields = |a: &State, b: &State| -> Vec<String> {
+        let mut out = Vec::new();
+        if a.alive != b.alive {
+            out.push(format!("alive {} | {}", a.alive, b.alive));
+            return out;
+        }
+        if !a.alive {
+            return out;
+        }
+        let bits = |v: Vector| [v.x.to_bits(), v.y.to_bits(), v.z.to_bits()];
+        for (field, x, y) in [
+            ("pos", a.pos, b.pos),
+            ("vel", a.vel, b.vel),
+            ("angvel", a.angvel, b.angvel),
+        ] {
+            if bits(x) != bits(y) {
+                out.push(format!("{field} {} | {}", hex3(x), hex3(y)));
+            }
+        }
+        for i in 0..9 {
+            if a.orient[i].to_bits() != b.orient[i].to_bits() {
+                out.push(format!(
+                    "orient[{i}] {:08x} ({}) | {:08x} ({})",
+                    a.orient[i].to_bits(),
+                    a.orient[i],
+                    b.orient[i].to_bits(),
+                    b.orient[i]
+                ));
+            }
+        }
+        if a.hp.to_bits() != b.hp.to_bits() {
+            out.push(format!("hp {} | {}", a.hp, b.hp));
+        }
+        out
+    };
+    let n = ours.len().min(theirs.len());
+    let differing: Vec<usize> = (0..n)
+        .filter(|&t| !fields(&ours[t], &theirs[t]).is_empty())
+        .collect();
+    let Some(&first) = differing.first() else {
+        let _ = writeln!(
+            summary,
+            "{scenario}: {name}: every recorded field equals the oracle bit for bit"
+        );
+        return;
+    };
+    let _ = writeln!(
+        summary,
+        "{scenario}: {name}: first bit difference at tick {first} ({} of {n} ticks differ), rust | oracle:",
+        differing.len()
+    );
+    for f in fields(&ours[first], &theirs[first]) {
+        let _ = writeln!(summary, "    {f}");
+    }
 }
 
 /// Whether two states are the same, bit for bit where it counts: alive,
@@ -1441,6 +1518,7 @@ fn scenarios_against_the_oracle() {
                 ));
             }
             first_divergences(&mut summary, &s.name, name, ours_states, their_states);
+            first_bit_difference(&mut summary, &s.name, name, ours_states, their_states);
         }
         // The AI's phases come from the CRT sequence: with both sides
         // seeded after the load, the first AI ship's pathfinder phases sit
