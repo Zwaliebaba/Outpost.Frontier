@@ -97,6 +97,16 @@ int __cdecl OracleSimUnitCoreCount(IVP_Simulation_Unit const* Unit)
     return Unit != nullptr ? static_cast<int>(Unit->Cores.n_elems) : 0;
 }
 
+CObject* __cdecl OracleSimUnitCoreObject(IVP_Simulation_Unit const* Unit, int Index)
+{
+    if (Unit == nullptr || Index < 0 || Index >= static_cast<int>(Unit->Cores.n_elems))
+        return nullptr;
+    IVP_Core const* const Core = Unit->Cores.elems[Index];
+    if (Core == nullptr || Core->Objects.n_elems == 0 || Core->Objects.elems[0] == nullptr)
+        return nullptr;
+    return static_cast<CObject*>(Core->Objects.elems[0]->client_data);
+}
+
 bool __cdecl OracleSimReadCore(IVP_Core const* Core, FOracleSimCore& Out)
 {
     std::memset(&Out, 0, sizeof(Out));

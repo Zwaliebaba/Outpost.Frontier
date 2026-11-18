@@ -1197,17 +1197,17 @@ impl World {
 
     /// The solars of a system file's `[Object]` sections, made as the
     /// server's `StarSystem::load` makes them (position, rotation,
-    /// archetype, loadout, base, gate). Returns the objects made.
+    /// archetype, loadout, base, gate, spin). Returns the objects made.
     pub fn load_system_solars(&mut self, system: u32) -> Vec<ObjHandle> {
         self.load_system_solars_where(system, |_| true)
     }
 
-    /// [`World::load_system_solars`] for the objects whose nickname id
+    /// [`World::load_system_solars`] for the objects whose description
     /// `keep` accepts.
     pub fn load_system_solars_where(
         &mut self,
         system: u32,
-        keep: impl Fn(u32) -> bool,
+        keep: impl Fn(&SolarSpawn) -> bool,
     ) -> Vec<ObjHandle> {
         self.load_system(system);
         let Some(sys) = self.data.universe.systems.get(&system).cloned() else {
@@ -1263,10 +1263,18 @@ impl World {
                     spawn.dock_with = neuron_core::id::create_id(&reader.value_string());
                 } else if reader.is_value(b"atmosphere_range") {
                     spawn.atmosphere_range = crate::data::value_f32(&mut reader, 0);
+                } else if reader.is_value(b"spin") {
+                    // `CSolar::ReadObj` (`common_csolar.cpp:756`): the object-space
+                    // angular velocity `init_physics` gives the body.
+                    spawn.angular_velocity = Vector::new(
+                        crate::data::value_f32(&mut reader, 0),
+                        crate::data::value_f32(&mut reader, 1),
+                        crate::data::value_f32(&mut reader, 2),
+                    );
                 }
             }
             if spawn.nickname == 0
-                || !keep(spawn.nickname)
+                || !keep(&spawn)
                 || !self.data.archetypes.solars.contains_key(&spawn.archetype)
             {
                 continue;

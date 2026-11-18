@@ -331,6 +331,8 @@
     <ClCompile Include="oracle_sim_spread.cpp" />
     <!-- P2.5: the behaviour-tick recorder of Oracle.exe sim (ai.jsonl). -->
     <ClCompile Include="oracle_sim_ai.cpp" />
+    <!-- The rand() recorder of Oracle.exe sim (load_rand.jsonl; the AI recorder's draws). -->
+    <ClCompile Include="oracle_sim_rand.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="oracle_support.h" />
@@ -339,6 +341,7 @@
     <ClInclude Include="oracle_net_context.h" />
     <ClInclude Include="oracle_sim.h" />
     <ClInclude Include="oracle_sim_ai.h" />
+    <ClInclude Include="oracle_sim_rand.h" />
     <ClInclude Include="oracle_protocol.h" />
     <ClInclude Include="oracle_texture.h" />
   </ItemGroup>
