@@ -237,10 +237,9 @@ impl World {
             let child_owner = self.instance_owner(owner, child);
             if child_owner != this
                 && let InstanceOwner::FreePart(k) = child_owner
+                && !out.contains(&(owner, k))
             {
-                if !out.contains(&(owner, k)) {
-                    out.push((owner, k));
-                }
+                out.push((owner, k));
             }
             self.collect_part_children(owner, child, out);
         }
