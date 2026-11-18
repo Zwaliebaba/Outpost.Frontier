@@ -8,6 +8,7 @@
 //! materials, resources, the draw packet and the recording backend follow.
 
 pub mod defaults;
+pub mod draw;
 pub mod fvf;
 pub mod geometry;
 pub mod lights;
