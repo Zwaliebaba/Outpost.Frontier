@@ -90,6 +90,34 @@ fn controllers_push_through_the_hook() {
 }
 
 #[test]
+fn controller_buckets_follow_registration_and_rebuilds() {
+    let mut world = PhysicsWorld::new(1, &constants());
+    let h = ball(&mut world, 1, 1.0, Vector::ZERO);
+    let a = world
+        .register_controller(h, 1, CONTROLLER_PRIORITY)
+        .unwrap();
+    world
+        .register_controller(h, 2, CONTROLLER_PRIORITY)
+        .unwrap();
+    world
+        .register_controller(h, 3, CONTROLLER_PRIORITY)
+        .unwrap();
+    // The last registered runs first.
+    assert_eq!(world.controller_run_order(h), vec![3, 2, 1]);
+    // A rebuilt unit runs them in registration order.
+    world.rebuild_controller_buckets(h);
+    assert_eq!(world.controller_run_order(h), vec![1, 2, 3]);
+    // A controller registered again joins the buckets at the end.
+    world.unregister_controller(a);
+    world
+        .register_controller(h, 4, CONTROLLER_PRIORITY)
+        .unwrap();
+    assert_eq!(world.controller_run_order(h), vec![4, 2, 3]);
+    world.rebuild_controller_buckets(h);
+    assert_eq!(world.controller_run_order(h), vec![2, 3, 4]);
+}
+
+#[test]
 fn damping_and_sleep() {
     let mut world = PhysicsWorld::new(1, &constants());
     let mut random = IvpRandom::default();

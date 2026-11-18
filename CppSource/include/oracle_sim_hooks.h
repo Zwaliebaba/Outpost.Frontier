@@ -187,6 +187,9 @@ COMMON_API IVP_Core* __cdecl OracleSimCoreOf(CObject const* Object);
 COMMON_API IVP_Simulation_Unit* __cdecl OracleSimUnitOf(IVP_Core const* Core);
 // The number of cores in a unit, 0 for a null unit.
 COMMON_API int __cdecl OracleSimUnitCoreCount(IVP_Simulation_Unit const* Unit);
+// The unit's controllers (IVP_Controller*, the bucket keys) in the order its PSI runs them
+// (the last bucket first), at most Max; their count.
+COMMON_API int __cdecl OracleSimUnitControllers(IVP_Simulation_Unit const* Unit, void const** Out, int Max);
 // Copies a core; false (Out zeroed) for a null core.
 COMMON_API bool __cdecl OracleSimReadCore(IVP_Core const* Core, FOracleSimCore& Out);
 // Copies the manager's state; false (Out zeroed, StateGraphId -1) for a null manager.

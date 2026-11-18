@@ -137,7 +137,7 @@ impl PhysicsWorld {
             }
             unit_psi_begin(&mut slot.core, &mut slot.unit_state, now);
             let motion_check = self.movement_check.tick(random);
-            let mut controllers = slot.controllers.clone();
+            let mut controllers = slot.buckets.clone();
             controllers.sort_by_key(|(priority, _, _)| *priority);
             for (_, _, kind) in controllers.iter().rev() {
                 self.run_controller(index, *kind, event, now, host);
@@ -406,6 +406,13 @@ impl PhysicsWorld {
                     impulse[i] -= jt * dir[i];
                 }
             }
+        }
+        // Two moving cores in contact share a friction system, a controller
+        // of both: IVP merges their units and splits them again when the
+        // contact ends, rebuilding the controller buckets each time.
+        if ta.0 > 0.0 && tb.0 > 0.0 {
+            self.rebuild_controller_buckets(impact.a);
+            self.rebuild_controller_buckets(impact.b);
         }
         let relative_velocity = [0, 1, 2].map(|i| r(va[i] - vb[i]));
         self.apply_impulse(impact.b, impulse, rb, t);

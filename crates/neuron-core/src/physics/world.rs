@@ -200,7 +200,16 @@ struct CoreSlot {
     core: Core,
     unit_state: u32,
     objects: Vec<BodyHandle>,
+    /// The core's controllers in registration order (`IVP_Core::
+    /// Controllers`).
     controllers: Vec<(i32, u64, ControllerKind)>,
+    /// The simulation unit's controller buckets for this core
+    /// (`IVP_Simulation_Unit::ControllerBuckets`): a registration appends
+    /// one, an unregistration removes it, and a rebuild of the unit (a
+    /// merge or split, [`PhysicsWorld::rebuild_controller_buckets`]) makes
+    /// them the core's controllers from the last. The PSI runs them sorted
+    /// by priority (stably), from the last.
+    buckets: Vec<(i32, u64, ControllerKind)>,
     wake_pending: bool,
     simulation_disabled: bool,
 }
@@ -463,6 +472,7 @@ impl PhysicsWorld {
             unit_state: super::ivp::core::MOVEMENT_FROZEN,
             objects: Vec::new(),
             controllers: vec![(STANDARD_PRIORITY, order, ControllerKind::Standard)],
+            buckets: vec![(STANDARD_PRIORITY, order, ControllerKind::Standard)],
             wake_pending: false,
             simulation_disabled: false,
         });
@@ -520,6 +530,8 @@ impl PhysicsWorld {
         let empty = if let Some(slot) = self.cores.get_mut(core) {
             slot.objects.retain(|o| *o != h);
             slot.controllers
+                .retain(|(_, _, k)| !matches!(k, ControllerKind::Golem(b) if *b == h));
+            slot.buckets
                 .retain(|(_, _, k)| !matches!(k, ControllerKind::Golem(b) if *b == h));
             slot.objects.is_empty()
         } else {
@@ -831,11 +843,47 @@ impl PhysicsWorld {
         let handle = ControllerHandle(self.controllers.insert(h));
         let order = self.next_order();
         if let Some(slot) = self.cores.get_mut(core) {
-            slot.controllers
-                .push((priority, order, ControllerKind::External { handle, key }));
+            let entry = (priority, order, ControllerKind::External { handle, key });
+            slot.controllers.push(entry);
+            slot.buckets.push(entry);
         }
         self.wakeup(h);
         Some(handle)
+    }
+
+    /// `IVP_Simulation_Unit_Rebuild_Controller_Buckets` for the unit of a
+    /// body's core: its buckets become the core's controllers from the
+    /// last (IVP builds them walking `Core->Controllers` backwards), which
+    /// reverses the PSI's order within a priority. IVP rebuilds a unit when
+    /// it merges with another or splits (a friction system between two
+    /// moving cores does both).
+    pub fn rebuild_controller_buckets(&mut self, h: BodyHandle) {
+        let Some(core) = self.bodies.get(h.0).map(|b| b.core) else {
+            return;
+        };
+        if let Some(slot) = self.cores.get_mut(core) {
+            slot.buckets = slot.controllers.iter().rev().copied().collect();
+        }
+    }
+
+    /// The order the PSI runs a body's controllers in: the keys of its
+    /// registered controllers (the standard and golem controllers left
+    /// out).
+    #[must_use]
+    pub fn controller_run_order(&self, h: BodyHandle) -> Vec<u64> {
+        let Some(slot) = self.bodies.get(h.0).and_then(|b| self.cores.get(b.core)) else {
+            return Vec::new();
+        };
+        let mut buckets = slot.buckets.clone();
+        buckets.sort_by_key(|(priority, _, _)| *priority);
+        buckets
+            .iter()
+            .rev()
+            .filter_map(|(_, _, k)| match k {
+                ControllerKind::External { key, .. } => Some(*key),
+                _ => None,
+            })
+            .collect()
     }
 
     /// `PhySys::Controller::UnRegister`.
@@ -845,9 +893,9 @@ impl PhysicsWorld {
         }
         for index in self.cores.indices() {
             if let Some(slot) = self.cores.get_mut(index) {
-                slot.controllers.retain(
-                    |(_, _, k)| !matches!(k, ControllerKind::External { handle: c, .. } if *c == handle),
-                );
+                let other = |k: &ControllerKind| !matches!(k, ControllerKind::External { handle: c, .. } if *c == handle);
+                slot.controllers.retain(|(_, _, k)| other(k));
+                slot.buckets.retain(|(_, _, k)| other(k));
             }
         }
     }
@@ -864,11 +912,13 @@ impl PhysicsWorld {
         let has = body.golem.is_some();
         if let Some(slot) = self.cores.get_mut(core) {
             if !had && has {
-                slot.controllers
-                    .push((GOLEM_PRIORITY, order, ControllerKind::Golem(h)));
+                let entry = (GOLEM_PRIORITY, order, ControllerKind::Golem(h));
+                slot.controllers.push(entry);
+                slot.buckets.push(entry);
             } else if had && !has {
-                slot.controllers
-                    .retain(|(_, _, k)| !matches!(k, ControllerKind::Golem(b) if *b == h));
+                let other = |k: &ControllerKind| !matches!(k, ControllerKind::Golem(b) if *b == h);
+                slot.controllers.retain(|(_, _, k)| other(k));
+                slot.buckets.retain(|(_, _, k)| other(k));
             }
         }
     }

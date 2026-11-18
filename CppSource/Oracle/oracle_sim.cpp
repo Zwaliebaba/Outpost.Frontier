@@ -618,8 +618,42 @@ namespace
     // Hook callbacks
     // ------------------------------------------------------------------------------------
 
+    // The name of one controller of a ship's simulation unit (psi.jsonl "ctl.order"): the
+    // ship's own, its steering, nudge and strafe engines, its engine and its thrusters by id;
+    // "other" for anything else in the unit (IVP's standard controller included).
+    std::string ControllerName(CShip* Ship, void const* Controller)
+    {
+        auto Is = [Controller](PhySys::Controller const* C) {
+            return static_cast<void const*>(static_cast<IVP_Controller const*>(C)) == Controller;
+        };
+        if (Is(Ship))
+            return "ship";
+        if (Is(&Ship->Steering))
+            return "steering";
+        if (Is(&Ship->NudgeEngine))
+            return "nudge";
+        if (Is(&Ship->StrafeEngine))
+            return "strafe";
+        CEquipTraverser Walk(static_cast<int>(0x20000 | EquipTypeThruster), true);
+        for (CEquip* Equip = Ship->EquipManager.Traverse(Walk); Equip != nullptr;
+             Equip = Ship->EquipManager.Traverse(Walk))
+        {
+            if (CEEngine* const Engine = CEEngine::cast(Equip))
+            {
+                if (Is(static_cast<CPhysControllerEquip const*>(Engine)))
+                    return "engine";
+            }
+            else if (CEThruster* const Thruster = CEThruster::cast(Equip))
+            {
+                if (Is(static_cast<CPhysControllerEquip const*>(Thruster)))
+                    return Format("thruster %u", (unsigned)Equip->GetID());
+            }
+        }
+        return "other";
+    }
+
     // The flight controllers' inputs of a ship (psi.jsonl "ctl").
-    void ControllerInputs(FOracleJson& J, CShip* Ship)
+    void ControllerInputs(FOracleJson& J, CShip* Ship, IVP_Simulation_Unit* Unit)
     {
         J.BeginObject("ctl");
         J.Float("throttle", Ship->Throttle);
@@ -711,6 +745,16 @@ namespace
                 J.Float("max_force", ThrusterArch->MaxThrust);
                 J.EndObject();
             }
+        }
+        J.EndArray();
+        // P2.5: the unit's controllers in the order its PSI runs them (the bucket order, which a
+        // merge or split of the unit rebuilds).
+        J.BeginArray("order");
+        {
+            void const* Controllers[32];
+            const int Count = OracleSimUnitControllers(Unit, Controllers, 32);
+            for (int Index = 0; Index < Count; ++Index)
+                J.Str(nullptr, ControllerName(Ship, Controllers[Index]).c_str());
         }
         J.EndArray();
         J.EndObject();
@@ -879,7 +923,7 @@ namespace
             float const Limits[2] = {Env.MaxVelocity, Env.MaxAngularVelocityPerPsi};
             J.FloatArray("limits", Limits, 2);
             if (Object.Class == CObject::ClassShip)
-                ControllerInputs(J, static_cast<CShip*>(Record.Object));
+                ControllerInputs(J, static_cast<CShip*>(Record.Object), Unit);
             CoreJ(J, "in", In);
             J.BeginArray("pushes");
             Record.State = PsiInUnit;

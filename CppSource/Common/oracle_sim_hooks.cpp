@@ -97,6 +97,18 @@ int __cdecl OracleSimUnitCoreCount(IVP_Simulation_Unit const* Unit)
     return Unit != nullptr ? static_cast<int>(Unit->Cores.n_elems) : 0;
 }
 
+int __cdecl OracleSimUnitControllers(IVP_Simulation_Unit const* Unit, void const** Out, int Max)
+{
+    if (Unit == nullptr)
+        return 0;
+    // IVP_Simulation_Unit_Process_One_Psi_Step runs the buckets from the last to the first.
+    int Count = 0;
+    for (int Index = static_cast<int>(Unit->ControllerBuckets.n_elems) - 1; Index >= 0 && Count < Max;
+         --Index)
+        Out[Count++] = Unit->ControllerBuckets.elems[Index]->Controller;
+    return Count;
+}
+
 bool __cdecl OracleSimReadCore(IVP_Core const* Core, FOracleSimCore& Out)
 {
     std::memset(&Out, 0, sizeof(Out));
