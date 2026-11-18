@@ -441,6 +441,11 @@ mod tests {
     fn warp_clears_and_reads_back() {
         let mut gpu = match Gpu::new(AdapterChoice::Warp) {
             Ok(gpu) => gpu,
+            // CI's Windows runner has WARP: a missing device there is a
+            // failure, not a skip, so a green job means the test ran.
+            Err(e) if std::env::var_os("GITHUB_ACTIONS").is_some() => {
+                panic!("no WARP device on CI: {e}")
+            }
             Err(e) => {
                 println!("no WARP device here ({e}); nothing to test");
                 return;
