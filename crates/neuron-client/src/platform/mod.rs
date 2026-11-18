@@ -6,6 +6,7 @@
 pub mod audio;
 pub mod d3d12;
 pub mod dpapi;
+pub mod dwrite;
 pub mod ime;
 pub mod input;
 pub mod known_folder;
