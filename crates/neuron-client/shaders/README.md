@@ -32,3 +32,11 @@ shader and one pixel shader (compiled twice, once with `FLAT` for
 `SHADEMODE FLAT`) that branch on the per-draw constants. Its constant
 buffer is laid out by `render::shader::constants`, and a test compares the
 two.
+
+Without a Windows machine the blobs can be made under Wine: the
+`Microsoft.Windows.SDK.CPP` NuGet package of version 10.0.26100.9457
+carries `fxc.exe` and the recorded `d3dcompiler_47.dll` in
+`c/bin/10.0.26100.0/x64/`. Run `fxc.exe` from the `shaders` directory with
+the flags above, then `/T <profile> /E <entry>`, `/D <define>` for each
+define and `/Fo ../compiled_shaders/<output> fixed_function.hlsl`, in that
+order; the Windows CI check confirms the result.
