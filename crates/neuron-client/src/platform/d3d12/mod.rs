@@ -8,6 +8,10 @@
 //! direct queue with its fence, an offscreen render target, clearing and
 //! reading pixels back: enough to test the device on CI's WARP adapter.
 
+pub mod backend;
+pub mod pipeline;
+mod upload;
+
 use std::fmt;
 
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
@@ -160,17 +164,35 @@ impl Gpu {
         &mut self,
         record: impl FnOnce(&ID3D12GraphicsCommandList) -> Result<(), GpuError>,
     ) -> Result<(), GpuError> {
+        self.begin()?;
+        let recorded = record(&self.list);
+        let finished = self.finish();
+        recorded.and(finished)
+    }
+
+    /// Opens the command list for recording. The GPU must be idle, which
+    /// it is after [`Gpu::finish`] or [`Gpu::submit`].
+    pub fn begin(&mut self) -> Result<(), GpuError> {
         // SAFETY: the previous submission was waited for, so the allocator
         // and the list are not in use by the GPU.
         unsafe { self.allocator.Reset() }.at("CommandAllocator::Reset")?;
         // SAFETY: as above; no initial pipeline state.
-        unsafe { self.list.Reset(&self.allocator, None) }.at("CommandList::Reset")?;
-        record(&self.list)?;
+        unsafe { self.list.Reset(&self.allocator, None) }.at("CommandList::Reset")
+    }
+
+    /// The command list [`Gpu::begin`] opened.
+    #[must_use]
+    pub fn list(&self) -> &ID3D12GraphicsCommandList {
+        &self.list
+    }
+
+    /// Closes the command list, runs it and waits until the GPU is idle.
+    pub fn finish(&mut self) -> Result<(), GpuError> {
         // SAFETY: the list is open and recorded.
         unsafe { self.list.Close() }.at("CommandList::Close")?;
         let list: ID3D12CommandList = self.list.cast().at("cast")?;
-        // SAFETY: the list is closed and its resources are owned by the
-        // caller for at least the duration of this call, which waits.
+        // SAFETY: the list is closed; every resource it uses is owned by
+        // the caller until this call returns, which waits.
         unsafe { self.queue.ExecuteCommandLists(&[Some(list)]) };
         self.wait_idle()
     }
