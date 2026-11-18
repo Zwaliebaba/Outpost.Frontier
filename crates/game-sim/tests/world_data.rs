@@ -342,6 +342,87 @@ fn scanner_lists_and_tractor_pulls() {
     assert!(c > r + 25, "the tip holds the loot about a second");
 }
 
+#[test]
+fn a_gate_opens_and_closes_and_a_bay_cycles() {
+    use game_sim::object::KindData;
+    use game_sim::object::anim::BayState;
+    use game_sim::object::world::SolarSpawn;
+    let Some(mut world) = support::world::world(WorldConfig::default()) else {
+        println!("outdir/ is missing: no gates");
+        return;
+    };
+    let system = create_id(b"he01");
+    world.load_system(system);
+    let gate = world
+        .spawn_solar(
+            system,
+            &SolarSpawn {
+                archetype: create_id(b"jumpgate"),
+                loadout: 0,
+                nickname: create_id(b"test_gate"),
+                position: Vector::new(0.0, 0.0, 0.0),
+                orientation: Matrix::IDENTITY,
+                angular_velocity: Vector::ZERO,
+                destructible: false,
+                dock_with: 0,
+                dest_system: 0,
+                atmosphere_range: 0.0,
+            },
+        )
+        .expect("the gate spawns");
+    let duration = match &world.get(gate).unwrap().data {
+        KindData::Solar(s) => s.gate_anim.map(|p| p.duration),
+        _ => None,
+    };
+    println!("gate animation {duration:?} s");
+    assert!(duration.is_some_and(|d| d > 0.0), "Sc_open dock is found");
+    world.set_always_update(gate, true);
+    assert_eq!(world.activate_gate(gate, true), Some(true));
+    let mut codes = Vec::new();
+    let dt = 1.0 / 30.0;
+    for tick in 1..=800u32 {
+        if tick == 400 {
+            assert_eq!(world.activate_gate(gate, false), Some(true));
+        }
+        world.step(system, dt);
+        for ev in world.take_events() {
+            if let WorldEvent::Gate { code, .. } = ev {
+                codes.push((tick, code));
+            }
+        }
+    }
+    println!("gate notifications {codes:?}");
+    let order: Vec<i32> = codes.iter().map(|c| c.1).collect();
+    assert_eq!(order, vec![0, 1, 2, 3]);
+    // Open 10 s after it starts to open, closing 5 s after the request.
+    assert!((300..=303).contains(&(codes[1].0 - codes[0].0)));
+    assert!((150..=152).contains(&(codes[2].0 - 400)));
+    // Closed once the reverse playback ran its 5.83 s.
+    assert!((174..=177).contains(&(codes[3].0 - codes[2].0)));
+
+    // A ship's bay: the doors take the bay animation's time each way.
+    let ship = fighter(&mut world, system, Vector::new(15000.0, 3000.0, -25000.0));
+    let bay =
+        |w: &game_sim::object::World| w.get(ship).and_then(|o| o.as_ship()).map(|s| s.bay_state);
+    let time = world.open_bay(ship);
+    println!("bay doors need {time} s");
+    assert_eq!(bay(&world), Some(BayState::Opening));
+    let mut ticks = 0;
+    while bay(&world) != Some(BayState::Open) && ticks < 600 {
+        world.step(system, dt);
+        ticks += 1;
+    }
+    println!("bay open after {ticks} ticks");
+    assert_eq!(bay(&world), Some(BayState::Open));
+    assert!((f64::from(ticks) * f64::from(dt) - time).abs() < 0.1);
+    world.close_bay(ship);
+    assert_eq!(bay(&world), Some(BayState::Closing));
+    for _ in 0..=ticks + 2 {
+        world.step(system, dt);
+    }
+    assert_eq!(bay(&world), Some(BayState::Closed));
+}
+
 /// A gun's turret joints, as the world holds them.
 fn gun_joints(
     world: &game_sim::object::World,

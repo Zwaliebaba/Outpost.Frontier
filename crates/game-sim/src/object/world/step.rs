@@ -364,22 +364,6 @@ impl World {
         }
     }
 
-    fn update_solar_gate(&mut self, h: ObjHandle, dt: f32) {
-        let Some(o) = self.objects.get_mut(h) else {
-            return;
-        };
-        let type_bits = o.simple.type_bits;
-        if let KindData::Solar(s) = &mut o.data
-            && crate::object::solar::is_system_gate(type_bits)
-        {
-            match s.gate_anim_state {
-                0 => s.gate_anim_timer += dt,
-                2 => s.gate_anim_timer -= dt,
-                _ => s.gate_anim_timer = 0.0,
-            }
-        }
-    }
-
     /// `CEqObj::update`: every item of the first list updates, then the
     /// behaviour tick (unless destroyed with weapons offline, excluded or
     /// flagged off).
@@ -556,6 +540,7 @@ impl World {
                 world.set_damping(body, linear, angular);
             }
         }
+        self.update_bay(h);
         // A target that cannot be targeted any more is dropped.
         let target = self
             .objects

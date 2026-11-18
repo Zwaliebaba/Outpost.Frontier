@@ -493,13 +493,15 @@ impl World {
         }
     }
 
-    /// `AnimDB::Update`'s joint part: every joint registered since the last
-    /// call turns once (`JointChannel::Tick`: towards its aim at the gun's
+    /// `AnimDB::Update`: the registered bay and gate playbacks run for
+    /// `dt`; every joint registered since the last call turns once (`JointChannel::Tick`: towards its aim at the gun's
     /// turn rate, through the engine's joint limits), the owners' instance
-    /// trees are recomposed, and the list empties. The multiplayer server
+    /// trees are recomposed, the joint list empties and the finished
+    /// playbacks leave theirs. The multiplayer server
     /// calls it at the start of each frame ([`World::step`] does so outside
     /// single player); a single-player client calls it from its own frame.
     pub fn update_anim(&mut self, dt: f32) {
+        self.advance_playbacks(dt);
         let channels = std::mem::take(&mut self.anim_channels);
         let mut roots: Vec<InstanceId> = Vec::new();
         for c in channels {
@@ -534,6 +536,7 @@ impl World {
         for root in roots {
             self.scene.update_instance(Some(root), 0);
         }
+        self.filter_playbacks();
     }
 
     /// The turret joints waiting for the next [`World::update_anim`], as
