@@ -848,19 +848,40 @@ namespace
     unsigned int GUnitPsi = 0;
     FOracleJson* GUnitLine = nullptr;
 
+    // Writes the PSI's line in progress; with bClose the file is closed (the run ends or
+    // the last recorded PSI is over).
+    void UnitFlush(bool bClose)
+    {
+        if (GUnitFile == nullptr)
+            return;
+        if (GUnitLine != nullptr)
+        {
+            GUnitLine->EndArray();
+            fputs(GUnitLine->Finish().c_str(), GUnitFile);
+            fputc('\n', GUnitFile);
+            delete GUnitLine;
+            GUnitLine = nullptr;
+        }
+        fflush(GUnitFile);
+        if (bClose)
+        {
+            fclose(GUnitFile);
+            GUnitFile = nullptr;
+        }
+    }
+
     void UnitRecord(IVP_Simulation_Unit* Unit, int Phase, bool bMovementCheck)
     {
-        if (GUnitFile == nullptr || GPsiSeq > kUnitPsis)
+        if (GUnitFile == nullptr)
             return;
+        if (GPsiSeq > kUnitPsis)
+        {
+            UnitFlush(true);
+            return;
+        }
         if (GUnitPsi != GPsiSeq)
         {
-            if (GUnitLine != nullptr)
-            {
-                GUnitLine->EndArray();
-                fputs(GUnitLine->Finish().c_str(), GUnitFile);
-                fputc('\n', GUnitFile);
-                delete GUnitLine;
-            }
+            UnitFlush(false);
             GUnitPsi = GPsiSeq;
             GUnitLine = new FOracleJson();
             GUnitLine->Str("rec", "units");
@@ -1881,6 +1902,7 @@ namespace
         J.Uint("psi_total", GPsiSeq);
         J.Int("code", Code);
         Write(FileSession, J);
+        UnitFlush(true);
         CloseAll();
         fflush(stdout);
         fflush(stderr);
