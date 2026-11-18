@@ -325,6 +325,9 @@ struct State {
     vel: Vector,
     orient: [f32; 9],
     angvel: Vector,
+    /// A ship's commanded throttle and axis throttle (`None` for others).
+    throttle: Option<f32>,
+    axis: Option<Vector>,
     hp: f32,
     /// `None` when the record does not carry it (an older oracle record,
     /// or an object without equipment).
@@ -566,6 +569,8 @@ fn run(s: &Scenario) -> Option<Run> {
                         vel: i.velocity,
                         orient: i.orientation.to_words(),
                         angvel: i.angular_velocity,
+                        throttle: i.ship.as_ref().map(|s| s.throttle),
+                        axis: i.ship.as_ref().map(|s| s.axis_throttle),
                         hp: i.hit_pts,
                         power,
                         shield,
@@ -839,6 +844,12 @@ fn oracle_ticks(file: &Path) -> BTreeMap<String, Vec<State>> {
                 vel: v("vel"),
                 orient,
                 angvel: v("angvel"),
+                throttle: r.get("throttle").and_then(Json::as_f32),
+                axis: r
+                    .get("axis")
+                    .and_then(Json::as_floats)
+                    .filter(|a| a.len() >= 3)
+                    .map(|a| Vector::new(a[0], a[1], a[2])),
                 hp: r.get("hp").and_then(Json::as_f32).unwrap_or(0.0),
                 power: r.get("power").and_then(Json::as_f32),
                 shield,
@@ -1158,6 +1169,16 @@ fn first_bit_difference(
         if a.hp.to_bits() != b.hp.to_bits() {
             out.push(format!("hp {} | {}", a.hp, b.hp));
         }
+        if let (Some(x), Some(y)) = (a.throttle, b.throttle)
+            && x.to_bits() != y.to_bits()
+        {
+            out.push(format!("throttle {x} | {y}"));
+        }
+        if let (Some(x), Some(y)) = (a.axis, b.axis)
+            && bits(x) != bits(y)
+        {
+            out.push(format!("axis {} | {}", hex3(x), hex3(y)));
+        }
         out
     };
     let n = ours.len().min(theirs.len());
@@ -1178,6 +1199,18 @@ fn first_bit_difference(
     );
     for f in fields(&ours[first], &theirs[first]) {
         let _ = writeln!(summary, "    {f}");
+    }
+    // The commands of the ticks around it, both sides (axis throttle bits).
+    for t in first.saturating_sub(3)..(first + 2).min(n) {
+        let ax = |st: &State| st.axis.map_or_else(|| "-".to_owned(), hex3);
+        let _ = writeln!(
+            summary,
+            "    tick {t}: axis {} | {}, angvel {} | {}",
+            ax(&ours[t]),
+            ax(&theirs[t]),
+            hex3(ours[t].angvel),
+            hex3(theirs[t].angvel)
+        );
     }
 }
 
