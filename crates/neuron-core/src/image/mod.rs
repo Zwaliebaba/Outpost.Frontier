@@ -14,6 +14,7 @@
 //!   renderer calls instead of being sent to a device.
 //! * [`convert`]: the port's conversion of source pixels to RGBA8, which
 //!   the reference leaves to `D3DXLoadSurfaceFromMemory` on a device.
+//! * [`write`]: BMP and PNG files of BGRA pixels, for screenshots.
 //!
 //! No renderer and no device: creating textures from these calls is work
 //! package P4.4.
@@ -24,6 +25,7 @@ pub mod format;
 pub mod format_map;
 pub mod library;
 pub mod tga;
+pub mod write;
 
 pub use convert::{ConvertError, to_rgba8};
 pub use dds::{DdsHeader, ImageInfo};

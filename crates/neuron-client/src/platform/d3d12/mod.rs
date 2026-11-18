@@ -10,6 +10,7 @@
 
 pub mod backend;
 pub mod pipeline;
+pub mod present;
 mod upload;
 
 use std::fmt;

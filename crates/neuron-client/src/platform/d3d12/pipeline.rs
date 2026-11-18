@@ -192,13 +192,21 @@ pub fn root_signature(device: &ID3D12Device) -> Result<ID3D12RootSignature, GpuE
         pStaticSamplers: std::ptr::null(),
         Flags: D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT,
     };
+    create_root_signature(device, &desc)
+}
+
+/// Serialises `desc` and creates the root signature.
+pub(super) fn create_root_signature(
+    device: &ID3D12Device,
+    desc: &D3D12_ROOT_SIGNATURE_DESC,
+) -> Result<ID3D12RootSignature, GpuError> {
     let mut blob: Option<ID3DBlob> = None;
     let mut error: Option<ID3DBlob> = None;
-    // SAFETY: `desc` points at `parameters` and the ranges, which
-    // live until the call returns; the out slots are valid.
+    // SAFETY: `desc` points at parameters and ranges the caller keeps
+    // alive until this returns; the out slots are valid.
     unsafe {
         D3D12SerializeRootSignature(
-            &desc,
+            desc,
             D3D_ROOT_SIGNATURE_VERSION_1,
             &mut blob,
             Some(&mut error),
@@ -294,7 +302,7 @@ fn rasterizer_desc(key: &PipelineKey) -> D3D12_RASTERIZER_DESC {
 }
 
 /// Direct3D's default stencil face: keep on every outcome, always pass.
-const KEEP_ALWAYS: D3D12_DEPTH_STENCILOP_DESC = D3D12_DEPTH_STENCILOP_DESC {
+pub(super) const KEEP_ALWAYS: D3D12_DEPTH_STENCILOP_DESC = D3D12_DEPTH_STENCILOP_DESC {
     StencilFailOp: D3D12_STENCIL_OP_KEEP,
     StencilDepthFailOp: D3D12_STENCIL_OP_KEEP,
     StencilPassOp: D3D12_STENCIL_OP_KEEP,
@@ -354,7 +362,7 @@ fn semantic(name: &str) -> PCSTR {
     PCSTR(bytes.as_ptr())
 }
 
-fn bytecode(blob: &[u8]) -> D3D12_SHADER_BYTECODE {
+pub(super) fn bytecode(blob: &[u8]) -> D3D12_SHADER_BYTECODE {
     D3D12_SHADER_BYTECODE {
         pShaderBytecode: blob.as_ptr().cast(),
         BytecodeLength: blob.len(),

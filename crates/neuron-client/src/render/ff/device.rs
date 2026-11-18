@@ -18,9 +18,11 @@ use super::draw::{
     DrawConstants, PipelineKey, approximated_samplers, unemulated_stages, unemulated_states,
 };
 use super::fvf::Fvf;
+use super::gamma::{Gamma, GammaRamp};
 use super::geometry::{Primitive, draws_anything, fan_to_list, prim_count_from_verts};
 use super::lights::Lights;
 use super::model::StateModel;
+use super::screenshot::{self, ScreenshotError};
 use super::state::{PipelineProperty, RenderStateId, STAGES};
 use super::textures::{TextureEvent, TextureHandle, Textures};
 use super::transforms::Transforms;
@@ -112,6 +114,11 @@ pub enum ResourceEvent<'a> {
 pub trait Backend {
     /// A resource changed; called before the draw that may read it.
     fn resource(&mut self, event: ResourceEvent<'_>);
+    /// The gamma ramp changed; the backend applies it when it presents.
+    fn gamma(&mut self, ramp: &GammaRamp);
+    /// The scene as drawn so far, before the gamma ramp: width, height and
+    /// BGRA rows; `None` without a scene.
+    fn read_scene(&mut self) -> Option<(u32, u32, Vec<u8>)>;
     fn draw(&mut self, packet: DrawPacket);
     fn clear(&mut self, clear: Clear, viewport: Viewport);
     fn present(&mut self);
@@ -196,6 +203,8 @@ impl ResourceRecord {
 #[derive(Clone, Debug, Default)]
 pub struct RecordingBackend {
     pub resources: Vec<ResourceRecord>,
+    /// The last gamma ramp the device sent.
+    pub gamma: Option<GammaRamp>,
     pub draws: Vec<DrawPacket>,
     pub clears: Vec<Clear>,
     pub presents: u32,
@@ -204,6 +213,12 @@ pub struct RecordingBackend {
 impl Backend for RecordingBackend {
     fn resource(&mut self, event: ResourceEvent<'_>) {
         self.resources.push(ResourceRecord::of(&event));
+    }
+    fn gamma(&mut self, ramp: &GammaRamp) {
+        self.gamma = Some(ramp.clone());
+    }
+    fn read_scene(&mut self) -> Option<(u32, u32, Vec<u8>)> {
+        None
     }
     fn draw(&mut self, packet: DrawPacket) {
         self.draws.push(packet);
@@ -264,6 +279,8 @@ pub struct Device<B: Backend> {
     pub unemulated_stage_seen: BTreeSet<usize>,
     /// Emulated stages drawn with an approximated sampler (D209).
     pub approximated_sampler_seen: BTreeSet<usize>,
+    /// `IGammaControl`'s ramp and enable bit.
+    gamma: Gamma,
     pub backend: B,
 }
 
@@ -292,6 +309,7 @@ impl<B: Backend> Device<B> {
             unemulated: BTreeSet::new(),
             unemulated_stage_seen: BTreeSet::new(),
             approximated_sampler_seen: BTreeSet::new(),
+            gamma: Gamma::default(),
             backend,
         }
     }
@@ -395,6 +413,54 @@ impl<B: Backend> Device<B> {
             .drain_changes(|e| backend.resource(ResourceEvent::Buffer(e)));
         self.textures
             .drain_changes(|e| backend.resource(ResourceEvent::Texture(e)));
+    }
+
+    /// `SetGammaFunction(mask, gamma, brightness, contrast, bias)`.
+    pub fn set_gamma_function(
+        &mut self,
+        mask: u32,
+        gamma: f32,
+        brightness: f32,
+        contrast: f32,
+        bias: f32,
+    ) {
+        self.gamma
+            .set_function(mask, gamma, brightness, contrast, bias);
+        self.backend.gamma(&self.gamma.ramp);
+    }
+
+    /// `SetGammaRamp(mask, data)`.
+    pub fn set_gamma_ramp(&mut self, mask: u32, data: &[u16; 256]) {
+        self.gamma.set_ramp(mask, data);
+        self.backend.gamma(&self.gamma.ramp);
+    }
+
+    /// `GetGammaRamp(channel)`.
+    #[must_use]
+    pub fn gamma_ramp(&self, channel: u32) -> Option<&[u16; 256]> {
+        self.gamma.ramp(channel)
+    }
+
+    /// `SetGammaEnable`.
+    pub fn set_gamma_enabled(&mut self, enabled: bool) {
+        self.gamma.enabled = enabled;
+    }
+
+    /// `GetGammaEnable`.
+    #[must_use]
+    pub fn gamma_enabled(&self) -> bool {
+        self.gamma.enabled
+    }
+
+    /// `PrintScreen(nullptr, file_name)`: the file for `file_name` of the
+    /// scene as drawn so far, before the gamma ramp (a front-buffer copy
+    /// carried no hardware ramp).
+    pub fn screenshot(&mut self, file_name: &str) -> Result<Vec<u8>, ScreenshotError> {
+        // Fail on the name first, as the C++ does, before any GPU work.
+        screenshot::format_for(file_name)?;
+        self.sync_resources();
+        let (width, height, bgra) = self.backend.read_scene().ok_or(ScreenshotError::NoScene)?;
+        screenshot::encode(file_name, width, height, &bgra)
     }
 
     pub fn present(&mut self) {
@@ -701,6 +767,22 @@ mod tests {
                 buffer: listing.buffer,
                 first_vertex: 5
             }
+        );
+    }
+
+    #[test]
+    fn gamma_reaches_the_backend_and_screenshots_need_a_scene() {
+        let mut d = device();
+        assert!(d.backend.gamma.is_none());
+        d.set_gamma_function(7, 1.0, 0.0, 1.0, 0.0);
+        assert_eq!(d.backend.gamma.as_ref().unwrap().red[255], 65535);
+        assert_eq!(d.gamma_ramp(2).unwrap()[0], 0);
+        d.set_gamma_enabled(true);
+        assert!(d.gamma_enabled());
+        assert_eq!(d.screenshot("x.bmp"), Err(ScreenshotError::NoScene));
+        assert_eq!(
+            d.screenshot("x.jpg"),
+            Err(ScreenshotError::Unsupported(".jpg".into()))
         );
     }
 
