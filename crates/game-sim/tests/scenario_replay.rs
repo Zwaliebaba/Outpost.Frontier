@@ -38,8 +38,10 @@
 //! the other scenarios. Scenarios whose directives need a behaviour that
 //! is not ported yet, and the `dock` directive, are skipped with a note
 //! (P2.5). The fights (`dogfight`, `skirmish`: AI ships of hostile
-//! factions) take each pilot's personality and the ships' attitudes from
-//! the oracle's `ai.jsonl`, and are reported as chaotic contact (record
+//! factions; `strafe`: an AI fighter and a hostile ship without one) take
+//! each pilot's personality and the ships' attitudes from the oracle's
+//! `ai.jsonl` (a ship without a manager the reverse attitude of the AI
+//! ship's snapshot), and are reported as chaotic contact (record
 //! 0003 point 9): each ship's exact span, the first behaviour and target
 //! difference, the behaviour sequences, the hits before the first
 //! divergence and the outcome. A summary goes to `rust-scenario-replay.txt`
@@ -538,10 +540,26 @@ fn oracle_ai_inputs(dir: &Path, scenario: &str) -> AiInputs {
         return out;
     };
     let ticks = support::ai_records::read_ai_ticks(&first);
-    let names: BTreeMap<u32, String> = ticks
+    let ai_ships: BTreeMap<u32, String> = ticks
         .iter()
         .filter_map(|t| Some((t.id, t.obj.clone()?)))
         .collect();
+    // Every scenario ship by its id, those without a behaviour manager too
+    // (`strafe`'s target), from the same run's `tick.jsonl`.
+    let mut names = ai_ships.clone();
+    if let Some(tick_file) = first.parent().map(|d| d.join("tick.jsonl")) {
+        for j in read_lines(&tick_file) {
+            if j.get("rec").and_then(Json::as_str) != Some("object") {
+                continue;
+            }
+            if let (Some(id), Some(obj)) = (
+                j.get("id").and_then(Json::as_u32),
+                j.get("obj").and_then(Json::as_str),
+            ) {
+                names.entry(id).or_insert_with(|| obj.to_owned());
+            }
+        }
+    }
     for t in &ticks {
         let Some(name) = &t.obj else {
             continue;
@@ -550,10 +568,17 @@ fn oracle_ai_inputs(dir: &Path, scenario: &str) -> AiInputs {
             out.personalities.entry(name.clone()).or_insert(p);
         }
         for o in &t.objects {
-            if let (Some(other), Some((toward, _))) = (names.get(&o.id), o.attitude) {
+            if let (Some(other), Some((toward, reverse))) = (names.get(&o.id), o.attitude) {
                 out.attitudes
                     .entry((name.clone(), other.clone()))
                     .or_insert(toward);
+                // A ship without a manager records no attitude of its own:
+                // it takes the reverse one the AI ship's snapshot reads.
+                if !ai_ships.contains_key(&o.id) {
+                    out.attitudes
+                        .entry((other.clone(), name.clone()))
+                        .or_insert(reverse);
+                }
             }
         }
     }
