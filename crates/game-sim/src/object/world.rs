@@ -29,9 +29,12 @@
 //! bodies are built from the archetypes' `.sur` surfaces; without assets
 //! every body is the default part and no hardpoint is found.
 
+mod animate;
 mod combat;
+mod sensors;
 mod spawn;
 mod step;
+mod turret;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -53,6 +56,7 @@ use crate::equip::{EquipEvent, SubObjId};
 use super::{Arena, DamageList, ObjHandle, Object};
 
 pub use combat::damage_sub_obj;
+pub use sensors::{EquipStatus, EquipmentVal, equipment_val};
 pub(crate) use spawn::shield_status;
 pub use spawn::{LootSpawn, ProjectileSpawn, ShipSpawn, SolarSpawn, SpawnError};
 
@@ -130,6 +134,22 @@ pub enum WorldEvent {
         equip: SubObjId,
         /// The event.
         event: EquipEvent,
+    },
+    /// `CShip::open_bay` or `close_bay` moved the doors
+    /// (`notify(BayStateChanged, open)`).
+    BayDoor {
+        /// The ship's id.
+        ship: u32,
+        /// Opening.
+        open: bool,
+    },
+    /// `CSolar::update_system_gate` notified (`notify(1, &code)`): 0 the
+    /// gate starts to open, 1 it is open, 2 it starts to close, 3 closed.
+    Gate {
+        /// The gate's id.
+        solar: u32,
+        /// The code.
+        code: i32,
     },
     /// A gun fired a bullet.
     Fired {
@@ -270,6 +290,8 @@ pub struct World {
     pub(crate) events: Vec<WorldEvent>,
     behavior: Option<Box<dyn BehaviorHook>>,
     always_update: Vec<ObjHandle>,
+    anim_channels: Vec<turret::AnimChannel>,
+    anim_playbacks: Vec<(ObjHandle, animate::AnimKind)>,
 }
 
 impl core::fmt::Debug for World {
@@ -349,6 +371,8 @@ impl World {
             events: Vec::new(),
             behavior: None,
             always_update: Vec::new(),
+            anim_channels: Vec::new(),
+            anim_playbacks: Vec::new(),
         }
     }
 

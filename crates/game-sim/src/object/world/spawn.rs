@@ -289,7 +289,7 @@ impl World {
         self.refresh_parts(h);
     }
 
-    fn archetype_path(&self, kind: ObjectKind, archetype: u32) -> Vec<u8> {
+    pub(crate) fn archetype_path(&self, kind: ObjectKind, archetype: u32) -> Vec<u8> {
         let a = &self.data.archetypes;
         let root = match kind {
             ObjectKind::Ship => a.ships.get(&archetype).map(|s| s.eq_obj.root),
@@ -427,6 +427,10 @@ impl World {
                     None => break,
                 }
             }
+        }
+        // `CEGun::Connect`: the turret joints and the turret frame.
+        if let EquipKind::Gun(g) = &mut equip.kind {
+            self.locate_joints(g, Some(model), Some(instance));
         }
         true
     }
@@ -1040,6 +1044,8 @@ impl World {
         ] {
             self.register(h, which);
         }
+        self.init_tractor_source(h);
+        self.init_animations(h);
         if let Some(obj) = self.objects.get_mut(h) {
             let owner = obj.simple.owner_player;
             let (Some(eq), KindData::Ship(ship)) = (obj.equipped.as_deref_mut(), &mut obj.data)
@@ -1183,6 +1189,7 @@ impl World {
             }
         }
         self.set_collisions(h, true);
+        self.init_animations(h);
         Ok(h)
     }
 

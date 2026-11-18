@@ -20,6 +20,10 @@ pub struct SolarData {
     pub dest_system: u32,
     /// +0x1b8 the gate there.
     pub dest_gate: u32,
+    /// +0x1bc the gate opens (`GateAnimDirection`, set by `activate`).
+    pub gate_anim_direction: bool,
+    /// +0x1c0 the gate's animation (`GateAnim`), `None` (-1) without one.
+    pub gate_anim: Option<super::anim::Playback>,
     /// +0x1c4 the gate animation state (4 closed).
     pub gate_anim_state: i32,
     /// +0x1c8 the time in that state.

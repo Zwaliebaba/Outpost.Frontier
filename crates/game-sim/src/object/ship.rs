@@ -112,6 +112,8 @@ pub struct ShipData {
     pub atmosphere_solar: Option<ObjHandle>,
     /// The ship jumped out.
     pub jumped_out: bool,
+    /// +0x2b0 the bay door animation (`BayAnim`), `None` (-1) without one.
+    pub bay_anim: Option<super::anim::Playback>,
 }
 
 impl ShipData {

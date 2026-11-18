@@ -532,6 +532,7 @@ int main(int Argc, char** Argv)
     {
         RunGameSimSuites();
         RunAiSuites();
+        RunTurretSuites();
         // Every suite has closed its file. Common's static teardown with the
         // fixture universe and file systems alive faults at exit (CI: exit
         // code c0000005 after complete output), so this mode ends as the sim

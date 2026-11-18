@@ -151,6 +151,11 @@ impl World {
     /// One server frame of a system (`StarSystem_Update`): the sub-step
     /// loop, the global time, and, with `server_physics`, the physics.
     pub fn step(&mut self, system: u32, dt: f32) {
+        // `Server_StepSystems`: outside single player `AnimDB::Update`
+        // first, which turns the joints the last frame registered.
+        if !self.config.single_player {
+            self.update_anim(dt);
+        }
         let mut step = dt;
         if !self.config.single_player && f64::from(step) > 0.2 {
             step = 0.2;
@@ -359,22 +364,6 @@ impl World {
         }
     }
 
-    fn update_solar_gate(&mut self, h: ObjHandle, dt: f32) {
-        let Some(o) = self.objects.get_mut(h) else {
-            return;
-        };
-        let type_bits = o.simple.type_bits;
-        if let KindData::Solar(s) = &mut o.data
-            && crate::object::solar::is_system_gate(type_bits)
-        {
-            match s.gate_anim_state {
-                0 => s.gate_anim_timer += dt,
-                2 => s.gate_anim_timer -= dt,
-                _ => s.gate_anim_timer = 0.0,
-            }
-        }
-    }
-
     /// `CEqObj::update`: every item of the first list updates, then the
     /// behaviour tick (unless destroyed with weapons offline, excluded or
     /// flagged off).
@@ -398,6 +387,9 @@ impl World {
         let throttle = ship.as_ref().map(|s| s.flight.throttle);
         let mut cloak = None;
         let mut regen: Vec<(crate::equip::SubObjId, f32)> = Vec::new();
+        let mut guns: Vec<crate::equip::SubObjId> = Vec::new();
+        let mut scanners: Vec<crate::equip::SubObjId> = Vec::new();
+        let mut tractors: Vec<crate::equip::SubObjId> = Vec::new();
         let slots = eq.equipment.traverse(types::EXTERNAL_LIST, false);
         for slot in slots {
             let weapons_offline = eq.weapons_offline;
@@ -418,6 +410,10 @@ impl World {
             let functioning = equip.is_functioning(weapons_offline);
             let destroyed = equip.is_destroyed();
             let status = super::spawn::shield_status(equip);
+            let id = equip.id;
+            // `CAttachedEquip::Update`: a destroyed item with debris left
+            // still updates.
+            let updates = !destroyed || equip.attached.as_ref().is_some_and(|a| a.debris.is_some());
             let crate::equip::Equip { kind, events, .. } = equip;
             match kind {
                 EquipKind::Engine(engine) => {
@@ -436,6 +432,9 @@ impl World {
                 }
                 EquipKind::Gun(g) => {
                     g.launcher.update(dt);
+                    if updates {
+                        guns.push(id);
+                    }
                 }
                 EquipKind::MineDropper(l) | EquipKind::CmDropper(l) => l.update(dt),
                 EquipKind::Shield(s) => s.update(status, now, events),
@@ -450,6 +449,8 @@ impl World {
                         regen.push((shield_id, new_hit));
                     }
                 }
+                EquipKind::Scanner(_) => scanners.push(id),
+                EquipKind::Tractor(_) => tractors.push(id),
                 EquipKind::Cloak(c) => {
                     if let Some(p) = c.update(destroyed, dt) {
                         cloak = Some(p);
@@ -474,17 +475,34 @@ impl World {
             && !weapons_offline_destroyed
             && flags & update_flags::NO_BEHAVIOR == 0
             && eq.control_exclusion & 1 == 0;
+        let _ = is_ship;
+        // `CEGun::Update`'s turret aim and lock clock (each gun's own
+        // update; nothing else in the list reads what it changes).
+        for id in guns {
+            self.update_gun_turret(h, id, dt);
+        }
+        for id in scanners {
+            self.update_scanner(h, id, flags);
+        }
+        for id in tractors {
+            self.update_tractor(h, id, dt);
+        }
         // Equipment events go to the listeners.
-        for e in eq.equipment.iter_mut() {
-            for event in e.events.drain(..) {
-                self.events.push(WorldEvent::Equip {
-                    owner: owner_id,
-                    equip: e.id,
-                    event,
-                });
+        if let Some(eq) = self
+            .objects
+            .get_mut(h)
+            .and_then(|o| o.equipped.as_deref_mut())
+        {
+            for e in eq.equipment.iter_mut() {
+                for event in e.events.drain(..) {
+                    self.events.push(WorldEvent::Equip {
+                        owner: owner_id,
+                        equip: e.id,
+                        event,
+                    });
+                }
             }
         }
-        let _ = is_ship;
         self.sync_shield_collisions(h);
         if behavior && let Some(mut hook) = self.take_behavior() {
             hook.update_behavior_tick(self, h, dt);
@@ -522,6 +540,7 @@ impl World {
                 world.set_damping(body, linear, angular);
             }
         }
+        self.update_bay(h);
         // A target that cannot be targeted any more is dropped.
         let target = self
             .objects

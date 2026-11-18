@@ -29,8 +29,10 @@
 // (as `neuron-core::physics` does).
 #![allow(clippy::neg_cmp_op_on_partial_ord)]
 
+pub mod anim;
 pub mod arena;
 pub mod asteroid;
+pub mod bounds;
 pub mod csys;
 pub mod damage;
 pub mod inspect;
@@ -316,6 +318,9 @@ pub struct Equipped {
     pub has_behavior: bool,
     /// +0x198 the power.
     pub power: f32,
+    /// The explosion damage sphere in the object's space, once computed
+    /// (`bExplosionDmgCached`, `ExplosionDmgRadius`, `ExplosionDmgCenter`).
+    pub explosion_dmg_sphere: Option<(f32, Vector)>,
     /// +0x19c the maximum power (the power plants' capacity).
     pub max_power: f32,
     /// +0x1a0 the behaviour index without a manager (-1).
