@@ -8,5 +8,10 @@ publish.workspace = true
 [dependencies]
 neuron-core.workspace = true
 
+[features]
+default = ["render-trace"]
+# The renderer trace reader and model replay (record 0004, point 12).
+render-trace = []
+
 [lints]
 workspace = true
