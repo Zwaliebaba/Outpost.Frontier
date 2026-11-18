@@ -21,3 +21,16 @@ entry = "ps_main"
 profile = "ps_5_1"
 output = "fixed_function_ps_flat.cso"
 defines = ["FLAT=1"]
+
+# The final blit through the gamma ramp.
+[[shader]]
+file = "blit.hlsl"
+entry = "vs_main"
+profile = "vs_5_1"
+output = "blit_vs.cso"
+
+[[shader]]
+file = "blit.hlsl"
+entry = "ps_main"
+profile = "ps_5_1"
+output = "blit_ps.cso"

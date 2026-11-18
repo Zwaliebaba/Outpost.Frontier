@@ -17,7 +17,7 @@
 
 use std::collections::HashMap;
 
-use windows::Win32::Foundation::RECT;
+use windows::Win32::Foundation::{HWND, RECT};
 use windows::Win32::Graphics::Direct3D::{
     D3D_PRIMITIVE_TOPOLOGY, D3D_PRIMITIVE_TOPOLOGY_LINELIST, D3D_PRIMITIVE_TOPOLOGY_LINESTRIP,
     D3D_PRIMITIVE_TOPOLOGY_POINTLIST, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST,
@@ -28,24 +28,26 @@ use windows::Win32::Graphics::Direct3D12::{
     D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, D3D12_CPU_DESCRIPTOR_HANDLE,
     D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING, D3D12_DESCRIPTOR_HEAP_DESC,
     D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
-    D3D12_DESCRIPTOR_HEAP_TYPE_DSV, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER,
-    D3D12_GPU_DESCRIPTOR_HANDLE, D3D12_HEAP_FLAG_NONE, D3D12_HEAP_PROPERTIES,
-    D3D12_HEAP_TYPE_DEFAULT, D3D12_HEAP_TYPE_UPLOAD, D3D12_INDEX_BUFFER_VIEW,
-    D3D12_PLACED_SUBRESOURCE_FOOTPRINT, D3D12_RANGE, D3D12_RESOURCE_DESC,
+    D3D12_DESCRIPTOR_HEAP_TYPE_DSV, D3D12_DESCRIPTOR_HEAP_TYPE_RTV,
+    D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, D3D12_GPU_DESCRIPTOR_HANDLE, D3D12_HEAP_FLAG_NONE,
+    D3D12_HEAP_PROPERTIES, D3D12_HEAP_TYPE_DEFAULT, D3D12_HEAP_TYPE_UPLOAD,
+    D3D12_INDEX_BUFFER_VIEW, D3D12_PLACED_SUBRESOURCE_FOOTPRINT, D3D12_RANGE, D3D12_RESOURCE_DESC,
     D3D12_RESOURCE_DIMENSION_TEXTURE2D, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL,
     D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_DEPTH_WRITE,
     D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_INDEX_BUFFER,
-    D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER,
+    D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_PRESENT,
+    D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER,
     D3D12_RESOURCE_STATES, D3D12_SHADER_RESOURCE_VIEW_DESC, D3D12_SHADER_RESOURCE_VIEW_DESC_0,
-    D3D12_SRV_DIMENSION_TEXTURE2D, D3D12_TEX2D_SRV, D3D12_TEXTURE_COPY_LOCATION,
-    D3D12_TEXTURE_COPY_LOCATION_0, D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,
-    D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT,
-    D3D12_TEXTURE_LAYOUT_UNKNOWN, D3D12_VERTEX_BUFFER_VIEW, D3D12_VIEWPORT, ID3D12DescriptorHeap,
-    ID3D12Resource,
+    D3D12_SRV_DIMENSION_TEXTURE2D, D3D12_SUBRESOURCE_FOOTPRINT, D3D12_TEX2D_SRV,
+    D3D12_TEXTURE_COPY_LOCATION, D3D12_TEXTURE_COPY_LOCATION_0,
+    D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
+    D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT, D3D12_TEXTURE_LAYOUT_UNKNOWN, D3D12_VERTEX_BUFFER_VIEW,
+    D3D12_VIEWPORT, ID3D12DescriptorHeap, ID3D12Resource,
 };
 use windows::Win32::Graphics::Dxgi::Common::{
     DXGI_FORMAT, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_BC1_UNORM, DXGI_FORMAT_BC2_UNORM,
-    DXGI_FORMAT_BC3_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R16_UINT, DXGI_SAMPLE_DESC,
+    DXGI_FORMAT_BC3_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_FORMAT_R16_UINT,
+    DXGI_FORMAT_R16G16B16A16_UNORM, DXGI_SAMPLE_DESC,
 };
 
 use neuron_core::image::PixelFormat;
@@ -55,12 +57,14 @@ use super::pipeline::{
     DEPTH_FORMAT, PipelineCache, ROOT_CONSTANTS, ROOT_SAMPLERS, ROOT_TEXTURES, Shaders,
     sampler_descs,
 };
+use super::present::{Blit, SwapChain, ramp_texels};
 use super::upload::{DEFAULT_BUFFER_STATE, UploadRing, buffer};
 use super::{AdapterChoice, Context, Gpu, GpuError, RenderTarget, release_barrier, transition};
 use crate::render::ff::buffers::{BufferEvent, IndexSource, VbHandle};
 use crate::render::ff::device::{
     Backend, Clear, ClearFlags, DrawPacket, IndexData, ResourceEvent, VertexData, Viewport,
 };
+use crate::render::ff::gamma::GammaRamp;
 use crate::render::ff::geometry::Primitive;
 use crate::render::ff::textures::{Texture, TextureEvent, TextureHandle};
 use crate::render::shader::constants::{ViewportRect, pack};
@@ -200,6 +204,18 @@ pub struct D3d12Backend {
     /// Resources the open frame may still use.
     garbage: Vec<ID3D12Resource>,
     recording: bool,
+    /// The ramp the final blit applies, and whether the ramp texture is
+    /// behind it.
+    gamma: GammaRamp,
+    gamma_dirty: bool,
+    blit: Blit,
+    /// The scene target's view, for the blit.
+    scene_slot: u32,
+    scene_state: D3D12_RESOURCE_STATES,
+    ramp: ID3D12Resource,
+    ramp_slot: u32,
+    ramp_state: D3D12_RESOURCE_STATES,
+    swap: Option<(SwapChain, Heap)>,
     /// Calls that failed, in order.
     pub errors: Vec<GpuError>,
 }
@@ -266,6 +282,44 @@ impl D3d12Backend {
             D3D12_RESOURCE_STATE_GENERIC_READ,
         )?;
         write_upload(&defaults, &DEFAULTS)?;
+        let blit = Blit::new(&gpu.device)?;
+        let mut free_slots: Vec<u32> = (1..TEXTURE_SLOTS).rev().collect();
+        let scene_slot = free_slots.pop().expect("the heap has slots");
+        let scene_view = srv_desc(DXGI_FORMAT_B8G8R8A8_UNORM, 1);
+        // SAFETY: a view of the scene target in a slot of the view heap,
+        // both kept with the backend.
+        unsafe {
+            gpu.device.CreateShaderResourceView(
+                &target.resource,
+                Some(&scene_view),
+                srvs.cpu(scene_slot),
+            );
+        }
+        let ramp = committed_texture(
+            &gpu,
+            &D3D12_RESOURCE_DESC {
+                Dimension: D3D12_RESOURCE_DIMENSION_TEXTURE2D,
+                Width: 256,
+                Height: 1,
+                DepthOrArraySize: 1,
+                MipLevels: 1,
+                Format: DXGI_FORMAT_R16G16B16A16_UNORM,
+                SampleDesc: DXGI_SAMPLE_DESC {
+                    Count: 1,
+                    Quality: 0,
+                },
+                Layout: D3D12_TEXTURE_LAYOUT_UNKNOWN,
+                ..Default::default()
+            },
+            D3D12_RESOURCE_STATE_COMMON,
+        )?;
+        let ramp_slot = free_slots.pop().expect("the heap has slots");
+        let ramp_view = srv_desc(DXGI_FORMAT_R16G16B16A16_UNORM, 1);
+        // SAFETY: as above, for the ramp texture.
+        unsafe {
+            gpu.device
+                .CreateShaderResourceView(&ramp, Some(&ramp_view), srvs.cpu(ramp_slot));
+        }
         Ok(D3d12Backend {
             gpu,
             pipelines,
@@ -274,7 +328,7 @@ impl D3d12Backend {
             _depth: depth,
             dsv,
             srvs,
-            free_slots: (1..TEXTURE_SLOTS).rev().collect(),
+            free_slots,
             draw_views,
             next_view: 0,
             samplers,
@@ -284,6 +338,15 @@ impl D3d12Backend {
             textures: HashMap::new(),
             garbage: Vec::new(),
             recording: false,
+            gamma: GammaRamp::default(),
+            gamma_dirty: true,
+            blit,
+            scene_slot,
+            scene_state: D3D12_RESOURCE_STATE_RENDER_TARGET,
+            ramp,
+            ramp_slot,
+            ramp_state: D3D12_RESOURCE_STATE_COMMON,
+            swap: None,
             errors: Vec::new(),
         })
     }
@@ -333,6 +396,183 @@ impl D3d12Backend {
         self.next_view = 0;
         self.garbage.clear();
         Ok(())
+    }
+
+    /// Presents into `window` from now on, through a swap chain of the
+    /// scene's size.
+    pub fn attach_window(&mut self, window: HWND) -> Result<(), GpuError> {
+        self.flush()?;
+        let swap = SwapChain::new(&self.gpu, window, self.target.width, self.target.height)?;
+        let rtvs = Heap::new(
+            &self.gpu,
+            &D3D12_DESCRIPTOR_HEAP_DESC {
+                Type: D3D12_DESCRIPTOR_HEAP_TYPE_RTV,
+                NumDescriptors: swap.buffers.len() as u32,
+                ..Default::default()
+            },
+        )?;
+        for (i, buffer) in swap.buffers.iter().enumerate() {
+            // SAFETY: slot `i` of the heap kept with the swap chain.
+            unsafe {
+                self.gpu
+                    .device
+                    .CreateRenderTargetView(buffer, None, rtvs.cpu(i as u32));
+            }
+        }
+        self.swap = Some((swap, rtvs));
+        Ok(())
+    }
+
+    /// An offscreen target of the scene's size, for
+    /// [`D3d12Backend::blit_to_target`].
+    pub fn new_target(&self) -> Result<RenderTarget, GpuError> {
+        RenderTarget::new(&self.gpu, self.target.width, self.target.height)
+    }
+
+    /// Records the final blit into `target` (of the scene's size).
+    pub fn blit_to_target(&mut self, target: &RenderTarget) -> Result<(), GpuError> {
+        self.blit_to(
+            &target.resource,
+            target.view,
+            D3D12_RESOURCE_STATE_RENDER_TARGET,
+            D3D12_RESOURCE_STATE_RENDER_TARGET,
+        )
+    }
+
+    /// Runs the frame and reads `target` back.
+    pub fn read_target(&mut self, target: &RenderTarget) -> Result<Vec<u8>, GpuError> {
+        self.flush()?;
+        target.read_back(&mut self.gpu)
+    }
+
+    /// The final blit: the scene through the gamma ramp into `target`,
+    /// which is in `before` and is left in `after`.
+    fn blit_to(
+        &mut self,
+        target: &ID3D12Resource,
+        rtv: D3D12_CPU_DESCRIPTOR_HANDLE,
+        before: D3D12_RESOURCE_STATES,
+        after: D3D12_RESOURCE_STATES,
+    ) -> Result<(), GpuError> {
+        self.open()?;
+        if self.next_view + 2 > DRAW_SLOTS {
+            self.flush()?;
+            self.open()?;
+        }
+        if self.gamma_dirty {
+            let texels = ramp_texels(&self.gamma);
+            let alloc = self.upload.push(
+                &self.gpu.device,
+                &texels,
+                u64::from(D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT),
+            )?;
+            barrier(
+                &self.gpu,
+                &self.ramp,
+                &mut self.ramp_state,
+                D3D12_RESOURCE_STATE_COPY_DEST,
+            );
+            let footprint = D3D12_PLACED_SUBRESOURCE_FOOTPRINT {
+                Offset: alloc.offset,
+                Footprint: D3D12_SUBRESOURCE_FOOTPRINT {
+                    Format: DXGI_FORMAT_R16G16B16A16_UNORM,
+                    Width: 256,
+                    Height: 1,
+                    Depth: 1,
+                    RowPitch: 256 * 8,
+                },
+            };
+            copy_to_texture(&self.gpu, &self.ramp, 0, &alloc.resource, footprint);
+            self.gamma_dirty = false;
+        }
+        barrier(
+            &self.gpu,
+            &self.ramp,
+            &mut self.ramp_state,
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+        );
+        let scene = self.target.resource.clone();
+        barrier(
+            &self.gpu,
+            &scene,
+            &mut self.scene_state,
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+        );
+        let base = self.next_view;
+        self.next_view += 2;
+        let device = self.gpu.device.clone();
+        // SAFETY: the source slots hold live views; the destination slots
+        // are this blit's in the shader-visible ring.
+        unsafe {
+            device.CopyDescriptorsSimple(
+                1,
+                self.draw_views.cpu(base),
+                self.srvs.cpu(self.scene_slot),
+                D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
+            );
+            device.CopyDescriptorsSimple(
+                1,
+                self.draw_views.cpu(base + 1),
+                self.srvs.cpu(self.ramp_slot),
+                D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
+            );
+        }
+        let mut state = before;
+        barrier(
+            &self.gpu,
+            target,
+            &mut state,
+            D3D12_RESOURCE_STATE_RENDER_TARGET,
+        );
+        let (w, h) = (self.target.width, self.target.height);
+        let list = self.gpu.list.clone();
+        // SAFETY: everything bound lives until the frame is flushed.
+        unsafe {
+            list.SetGraphicsRootSignature(&self.blit.root);
+            list.SetPipelineState(&self.blit.state);
+            list.SetGraphicsRootDescriptorTable(0, self.draw_views.gpu(base));
+            list.IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+            list.RSSetViewports(&[D3D12_VIEWPORT {
+                TopLeftX: 0.0,
+                TopLeftY: 0.0,
+                Width: w as f32,
+                Height: h as f32,
+                MinDepth: 0.0,
+                MaxDepth: 1.0,
+            }]);
+            list.RSSetScissorRects(&[rect(0, 0, w, h)]);
+            list.OMSetRenderTargets(1, Some(&rtv), false, None);
+            list.DrawInstanced(3, 1, 0, 0);
+        }
+        barrier(&self.gpu, target, &mut state, after);
+        barrier(
+            &self.gpu,
+            &scene,
+            &mut self.scene_state,
+            D3D12_RESOURCE_STATE_RENDER_TARGET,
+        );
+        Ok(())
+    }
+
+    /// Blits into the swap chain's back buffer, runs the frame and
+    /// presents; without a window, runs the frame.
+    fn try_present(&mut self) -> Result<(), GpuError> {
+        let Some((swap, rtvs)) = self.swap.take() else {
+            return self.flush();
+        };
+        let index = swap.current();
+        let buffer = swap.buffers[index as usize].clone();
+        let result = self
+            .blit_to(
+                &buffer,
+                rtvs.cpu(index),
+                D3D12_RESOURCE_STATE_PRESENT,
+                D3D12_RESOURCE_STATE_PRESENT,
+            )
+            .and_then(|()| self.flush())
+            .and_then(|()| swap.present());
+        self.swap = Some((swap, rtvs));
+        result
     }
 
     /// Runs the frame and reads the scene back: BGRA8, rows unpadded.
@@ -557,34 +797,7 @@ impl D3d12Backend {
             &mut t.state,
             D3D12_RESOURCE_STATE_COPY_DEST,
         );
-        let dst = D3D12_TEXTURE_COPY_LOCATION {
-            pResource: std::mem::ManuallyDrop::new(Some(t.resource.clone())),
-            Type: D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
-            Anonymous: D3D12_TEXTURE_COPY_LOCATION_0 {
-                SubresourceIndex: level,
-            },
-        };
-        let srcloc = D3D12_TEXTURE_COPY_LOCATION {
-            pResource: std::mem::ManuallyDrop::new(Some(alloc.resource.clone())),
-            Type: D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,
-            Anonymous: D3D12_TEXTURE_COPY_LOCATION_0 {
-                PlacedFootprint: footprint,
-            },
-        };
-        // SAFETY: both locations name live resources; the footprint was
-        // computed for this subresource and lies inside the allocation.
-        unsafe {
-            self.gpu
-                .list
-                .CopyTextureRegion(&dst, 0, 0, 0, &srcloc, None)
-        };
-        let mut dst = dst;
-        let mut srcloc = srcloc;
-        // SAFETY: each location's resource reference is dropped once.
-        unsafe {
-            std::mem::ManuallyDrop::drop(&mut dst.pResource);
-            std::mem::ManuallyDrop::drop(&mut srcloc.pResource);
-        }
+        copy_to_texture(&self.gpu, &t.resource, level, &alloc.resource, footprint);
         Ok(())
     }
 
@@ -865,6 +1078,21 @@ impl Backend for D3d12Backend {
         self.fail(result);
     }
 
+    fn gamma(&mut self, ramp: &GammaRamp) {
+        self.gamma = ramp.clone();
+        self.gamma_dirty = true;
+    }
+
+    fn read_scene(&mut self) -> Option<(u32, u32, Vec<u8>)> {
+        match self.read_back() {
+            Ok(pixels) => Some((self.target.width, self.target.height, pixels)),
+            Err(e) => {
+                self.errors.push(e);
+                None
+            }
+        }
+    }
+
     fn draw(&mut self, packet: DrawPacket) {
         let result = self.try_draw(&packet);
         self.fail(result);
@@ -876,7 +1104,7 @@ impl Backend for D3d12Backend {
     }
 
     fn present(&mut self) {
-        let result = self.flush();
+        let result = self.try_present();
         self.fail(result);
     }
 }
@@ -900,6 +1128,41 @@ fn copy_buffer(
     unsafe {
         gpu.list
             .CopyBufferRegion(&dst.resource, dst_offset, src, src_offset, len);
+    }
+}
+
+/// Records a copy of `footprint` in `src` into subresource `level` of
+/// `dst`, which must be in the copy-destination state.
+fn copy_to_texture(
+    gpu: &Gpu,
+    dst: &ID3D12Resource,
+    level: u32,
+    src: &ID3D12Resource,
+    footprint: D3D12_PLACED_SUBRESOURCE_FOOTPRINT,
+) {
+    let dst = D3D12_TEXTURE_COPY_LOCATION {
+        pResource: std::mem::ManuallyDrop::new(Some(dst.clone())),
+        Type: D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
+        Anonymous: D3D12_TEXTURE_COPY_LOCATION_0 {
+            SubresourceIndex: level,
+        },
+    };
+    let src = D3D12_TEXTURE_COPY_LOCATION {
+        pResource: std::mem::ManuallyDrop::new(Some(src.clone())),
+        Type: D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,
+        Anonymous: D3D12_TEXTURE_COPY_LOCATION_0 {
+            PlacedFootprint: footprint,
+        },
+    };
+    // SAFETY: both locations name live resources; the footprint lies inside
+    // the source allocation and fits the destination subresource.
+    unsafe { gpu.list.CopyTextureRegion(&dst, 0, 0, 0, &src, None) };
+    let mut dst = dst;
+    let mut src = src;
+    // SAFETY: each location's resource reference is dropped once.
+    unsafe {
+        std::mem::ManuallyDrop::drop(&mut dst.pResource);
+        std::mem::ManuallyDrop::drop(&mut src.pResource);
     }
 }
 
@@ -1121,5 +1384,77 @@ mod tests {
         assert_eq!(pixel(&pixels, 6, 1), [0, 255, 0, 255]);
         assert_eq!(pixel(&pixels, 1, 6), [255, 0, 0, 255]);
         assert_eq!(pixel(&pixels, 6, 6), [255; 4]);
+    }
+
+    /// The final blit applies the gamma ramp; the scene, and so a
+    /// screenshot, keeps the colours as drawn.
+    #[test]
+    fn the_blit_applies_the_gamma_ramp() {
+        let Some(mut d) = device() else { return };
+        d.clear(ClearFlags::TARGET | ClearFlags::DEPTH, None);
+        // Opaque 0x40, 0x80, 0xc0 (red, green, blue).
+        let v = quad(|_, _| 0xff40_80c0_u32.to_le_bytes().to_vec());
+        d.draw_up(4, Fvf(0x044), &v, 6).unwrap();
+        // An inverting ramp: entry i maps to 255 - i in 8 bits.
+        let inverted: [u16; 256] = std::array::from_fn(|i| u16::MAX - (i as u16) * 257);
+        d.set_gamma_ramp(7, &inverted);
+        let out = d.backend.new_target().unwrap();
+        d.backend.blit_to_target(&out).unwrap();
+        let blitted = d.backend.read_target(&out).unwrap();
+        assert!(
+            d.backend.errors.is_empty(),
+            "{:?}\n{}",
+            d.backend.errors,
+            d.backend.debug_messages().join("\n")
+        );
+        // BGRA: blue 0xc0 -> 0x3f, green 0x80 -> 0x7f, red 0x40 -> 0xbf.
+        assert_eq!(pixel(&blitted, 4, 4), [0x3f, 0x7f, 0xbf, 255]);
+        let bmp = d.screenshot("shot.bmp").unwrap();
+        // The BMP's first stored row is the bottom one; its first pixel is
+        // BGR of the colour as drawn.
+        assert_eq!(&bmp[54..57], &[0xc0, 0x80, 0x40]);
+    }
+
+    /// Presenting through a swap chain on a (hidden) window.
+    #[test]
+    fn frames_present_into_a_window() {
+        use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            CreateWindowExW, DestroyWindow, WINDOW_EX_STYLE, WS_POPUP,
+        };
+        use windows::core::w;
+        let Some(mut d) = device() else { return };
+        // SAFETY: a plain query of this module's handle.
+        let module = unsafe { GetModuleHandleW(None) }.unwrap();
+        // SAFETY: a popup of the predefined STATIC class, never shown,
+        // destroyed below.
+        let window = unsafe {
+            CreateWindowExW(
+                WINDOW_EX_STYLE(0),
+                w!("STATIC"),
+                w!("outpost-test"),
+                WS_POPUP,
+                0,
+                0,
+                SIZE as i32,
+                SIZE as i32,
+                None,
+                None,
+                Some(module.into()),
+                None,
+            )
+        }
+        .unwrap();
+        d.backend.attach_window(window).unwrap();
+        for _ in 0..3 {
+            d.clear(ClearFlags::TARGET | ClearFlags::DEPTH, None);
+            d.present();
+        }
+        let errors = std::mem::take(&mut d.backend.errors);
+        let messages = d.backend.debug_messages().join("\n");
+        drop(d);
+        // SAFETY: the window made above; the swap chain on it is gone.
+        unsafe { DestroyWindow(window) }.unwrap();
+        assert!(errors.is_empty(), "{errors:?}\n{messages}");
     }
 }

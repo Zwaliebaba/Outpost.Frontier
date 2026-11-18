@@ -206,9 +206,11 @@ The permitted licences are listed in `deny.toml`. In use so far:
 - `windows` 0.62.2 (MIT or Apache-2.0; features `Win32_Foundation`,
   `Win32_Graphics_Direct3D`, `Win32_Graphics_Direct3D12`,
   `Win32_Graphics_Dxgi`, `Win32_Graphics_Dxgi_Common`, `Win32_Security`,
-  `Win32_System_Threading`): `neuron-client::platform` only, behind
+  `Win32_System_LibraryLoader`, `Win32_System_Threading`,
+  `Win32_UI_WindowsAndMessaging`): `neuron-client::platform` only, behind
   `cfg(windows)` (P4.2, record 0004 point 19). Pinned when P4.2 started,
-  2026-11-18.
+  2026-11-18; the last two added for windows (the swap chain's test now,
+  the client window of P4.1 next).
 
 Math types are the project's own (`neuron-core::math`) so operation order
 stays under control; conversion to `nalgebra` happens at the `parry3d`
