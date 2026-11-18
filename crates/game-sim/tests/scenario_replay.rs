@@ -27,6 +27,14 @@
 //! `events.jsonl` and `calls.jsonl`, and collision events on one side only
 //! are a gross divergence.
 //!
+//! The guided munitions (P2.5, the server's `Guided` controller) are
+//! compared with the oracle's `guided` records of `tick.jsonl` and its
+//! `guided` cores of `psi.jsonl`, each side's numbered by id (the launch
+//! order): the launch tick, the last tick alive, the speed then, and the
+//! first bit difference of the trajectory and of the core. In a scenario
+//! the oracle records missiles for, a missile launched or spent at another
+//! tick, or one side's missile without the other's, is a gross divergence.
+//!
 //! For every scenario, the AI ones too, the report lists the `rand()`
 //! draws the Rust world makes while it loads the system and spawns the
 //! objects beside the oracle's load-time draws (`load_rand.jsonl`).
@@ -61,7 +69,7 @@ use game_sim::ai::state_graph::GraphType;
 use game_sim::equip::flight::StrafeDir;
 use game_sim::equip::{EquipKind, SUBOBJ_ID_ROOT, types};
 use game_sim::object::world::{ShipSpawn, WorldConfig};
-use game_sim::object::{Command, DamageList, ObjHandle, World, WorldEvent};
+use game_sim::object::{Command, DamageList, KindData, ObjHandle, ObjectKind, World, WorldEvent};
 use neuron_core::id::create_id;
 use neuron_core::math::{Matrix, Vector};
 use neuron_core::physics::StepMode;
@@ -366,6 +374,20 @@ struct Contact {
     damage: f32,
 }
 
+/// A guided munition after a tick (the oracle's `guided` record).
+#[derive(Clone, Debug, Default)]
+struct GuidedState {
+    tick: u32,
+    alive: bool,
+    pos: Vector,
+    vel: Vector,
+    orient: [f32; 9],
+    angvel: Vector,
+    lifetime: f32,
+    seeker_elapsed: f32,
+    target: String,
+}
+
 /// What a run produced: the per-tick states, the munition hits and the
 /// collisions.
 #[derive(Default)]
@@ -385,6 +407,15 @@ struct Run {
     fired: usize,
     /// The guided munitions launched: (tick, shooter's name, gun).
     missiles: Vec<(u32, String, u16)>,
+    /// Each guided munition's states by id, from its first tick to the
+    /// first tick it is gone.
+    guided: BTreeMap<u32, Vec<GuidedState>>,
+    /// The first seeker steps of each guided munition (diagnostic).
+    guided_trace: Vec<(u32, game_sim::object::world::GuidedTrace)>,
+    /// What the launcher looked like when each guided munition went out.
+    launch_notes: Vec<String>,
+    /// Each guided munition's core after each tick (the oracle's `out`).
+    guided_cores: BTreeMap<u32, Vec<(u32, CoreRecord)>>,
     /// Every fire call: (tick, shooter's name, each gun and its result).
     fires: Vec<(u32, String, String)>,
     /// Per object and tick, the body's core after the frame (diagnostic).
@@ -638,6 +669,7 @@ fn run(s: &Scenario, ai: &AiInputs) -> Option<Run> {
     }
     world.set_unit_trace(system, true);
     world.set_fire_log(true);
+    world.set_guided_trace(true);
     if s.sp_collisions {
         world.set_server_collision_filter(system, false);
     }
@@ -828,6 +860,8 @@ fn run(s: &Scenario, ai: &AiInputs) -> Option<Run> {
                     out.fired += 1;
                     if bullet != 0 {
                         out.missiles.push((tick, name_of(shooter), equip));
+                        out.launch_notes
+                            .push(launch_note(&world, tick, shooter, equip));
                     }
                 }
                 WorldEvent::Collision {
@@ -847,6 +881,17 @@ fn run(s: &Scenario, ai: &AiInputs) -> Option<Run> {
         }
         record(&world, &mut out.states, &handles);
         record_cores(&world, &mut out.cores, &handles);
+        record_guided(&world, system, tick, &names, &mut out);
+        for t in world.take_guided_trace() {
+            let n = out
+                .guided_trace
+                .iter()
+                .filter(|(_, x)| x.id == t.id)
+                .count();
+            if n < 3 {
+                out.guided_trace.push((tick, t));
+            }
+        }
         for (shooter, results) in world.take_fire_log() {
             out.fires
                 .push((tick, name_of(shooter), format!("{results:?}")));
@@ -870,6 +915,545 @@ fn run(s: &Scenario, ai: &AiInputs) -> Option<Run> {
     }
     out.unit_cores = world.unit_core_trace(system);
     Some(out)
+}
+
+/// The shooter's frame and the launcher's turret when a guided munition
+/// goes out (diagnostic).
+fn launch_note(world: &World, tick: u32, shooter: u32, equip: u16) -> String {
+    let Some(h) = world.find(shooter) else {
+        return format!("tick {tick}: shooter #{shooter} gone");
+    };
+    let Some(o) = world.get(h) else {
+        return String::new();
+    };
+    let m = o.engine.orientation.m;
+    let hex = |v: &[f32]| {
+        v.iter()
+            .map(|x| format!("{:08x}", x.to_bits()))
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let gun = o
+        .as_equipped()
+        .and_then(|eq| eq.equipment.by_id(equip))
+        .and_then(|e| match &e.kind {
+            EquipKind::Gun(g) => Some(g),
+            _ => None,
+        })
+        .map_or_else(String::new, |g| {
+            format!(
+                "yaw desired {} current {} bound {} limited {}; pitch desired {} current {} bound {} limited {}; target point [{}] age {}; lock {:?} sub {} elapsed {}",
+                g.yaw.desired,
+                g.yaw.current,
+                g.yaw.instance.is_some(),
+                g.yaw.limited,
+                g.pitch.desired,
+                g.pitch.current,
+                g.pitch.instance.is_some(),
+                g.pitch.limited,
+                hex(&[g.target_point.x, g.target_point.y, g.target_point.z]),
+                g.target_point_age,
+                g.target.and_then(|t| world.get(t)).map(|t| t.simple.id),
+                g.lock_sub,
+                g.lock_elapsed
+            )
+        });
+    format!(
+        "tick {tick}: shooter #{shooter} orient [{}] pos [{}]; gun {equip}: {gun}",
+        hex(&[
+            m[0][0], m[0][1], m[0][2], m[1][0], m[1][1], m[1][2], m[2][0], m[2][1], m[2][2]
+        ]),
+        hex(&[
+            o.engine.position.x,
+            o.engine.position.y,
+            o.engine.position.z
+        ])
+    )
+}
+
+/// The guided munitions after a tick: each live one's state and core,
+/// and `alive` false once for each one gone.
+fn record_guided(
+    world: &World,
+    system: u32,
+    tick: u32,
+    names: &BTreeMap<u32, String>,
+    out: &mut Run,
+) {
+    let mut live = Vec::new();
+    for h in world.objects_in(system) {
+        let Some(o) = world.get(h) else {
+            continue;
+        };
+        if o.kind != ObjectKind::Guided || o.dead {
+            continue;
+        }
+        let KindData::Guided(g) = &o.data else {
+            continue;
+        };
+        let Some(i) = world.inspect(h) else {
+            continue;
+        };
+        let id = o.simple.id;
+        live.push(id);
+        let target = g
+            .target
+            .and_then(|t| world.get(t))
+            .map(|t| {
+                names
+                    .get(&t.simple.id)
+                    .cloned()
+                    .unwrap_or_else(|| format!("#{}", t.simple.id))
+            })
+            .unwrap_or_default();
+        out.guided.entry(id).or_default().push(GuidedState {
+            tick,
+            alive: true,
+            pos: i.position,
+            vel: i.velocity,
+            orient: i.orientation.to_words(),
+            angvel: i.angular_velocity,
+            lifetime: g.projectile.lifetime,
+            seeker_elapsed: g.seeker_elapsed,
+            target,
+        });
+        if let Some(core) = o
+            .physical
+            .body
+            .and_then(|b| world.physics(o.physical.system)?.core(b).cloned())
+        {
+            out.guided_cores.entry(id).or_default().push((
+                tick,
+                CoreRecord {
+                    core,
+                    unit_state: 0,
+                },
+            ));
+        }
+    }
+    for (id, states) in &mut out.guided {
+        if !live.contains(id) && states.last().is_some_and(|s| s.alive) {
+            states.push(GuidedState {
+                tick,
+                ..GuidedState::default()
+            });
+        }
+    }
+}
+
+/// The oracle's `guided` records (`tick.jsonl`) by id.
+fn oracle_guided(dir: &Path, scenario: &str) -> BTreeMap<u32, Vec<GuidedState>> {
+    let mut out: BTreeMap<u32, Vec<GuidedState>> = BTreeMap::new();
+    let Some(file) = find_files(&dir.join(scenario), "tick.jsonl")
+        .into_iter()
+        .next()
+    else {
+        return out;
+    };
+    for r in read_lines(&file) {
+        if r.get("rec").and_then(Json::as_str) != Some("guided") {
+            continue;
+        }
+        let (Some(id), Some(tick)) = (
+            r.get("id").and_then(Json::as_u32),
+            r.get("tick").and_then(Json::as_u32),
+        ) else {
+            continue;
+        };
+        let v = |k: &str| {
+            r.get(k)
+                .and_then(Json::as_floats)
+                .filter(|a| a.len() >= 3)
+                .map_or(Vector::ZERO, |a| Vector::new(a[0], a[1], a[2]))
+        };
+        out.entry(id).or_default().push(GuidedState {
+            tick,
+            alive: r.get("alive").and_then(Json::as_bool).unwrap_or(false),
+            pos: v("pos"),
+            vel: v("vel"),
+            orient: r
+                .get("orient")
+                .and_then(Json::as_floats)
+                .and_then(|a| <[f32; 9]>::try_from(a).ok())
+                .unwrap_or_default(),
+            angvel: v("angvel"),
+            lifetime: r.get("lifetime").and_then(Json::as_f32).unwrap_or(0.0),
+            seeker_elapsed: r
+                .get("seeker_elapsed")
+                .and_then(Json::as_f32)
+                .unwrap_or(0.0),
+            target: r
+                .get("target_obj")
+                .and_then(Json::as_str)
+                .map(str::to_owned)
+                .or_else(|| {
+                    r.get("target")
+                        .and_then(Json::as_u32)
+                        .map(|t| format!("#{t}"))
+                })
+                .unwrap_or_default(),
+        });
+    }
+    out
+}
+
+/// The oracle's `guided` cores (`psi.jsonl`) by id: (tick, `out`).
+fn oracle_guided_cores(dir: &Path, scenario: &str) -> BTreeMap<u32, Vec<(u32, CoreRecord)>> {
+    let mut out: BTreeMap<u32, Vec<(u32, CoreRecord)>> = BTreeMap::new();
+    let Some(file) = find_files(&dir.join(scenario), "psi.jsonl")
+        .into_iter()
+        .min()
+    else {
+        return out;
+    };
+    let Ok(text) = fs::read_to_string(&file) else {
+        return out;
+    };
+    for line in text.lines() {
+        if !line.contains("\"obj\":\"guided\"") {
+            continue;
+        }
+        let Ok(record) = neuron_core::physics::replay::PsiRecord::parse(line) else {
+            continue;
+        };
+        out.entry(record.id)
+            .or_default()
+            .push((record.tick, record.output));
+    }
+    out
+}
+
+/// The guided munitions of both sides, numbered by id: the launch tick,
+/// the last tick alive and the speed then, the first bit difference of the
+/// trajectory and of the core. Different launch or end ticks, or a missile
+/// on one side only, are gross divergence.
+fn report_guided(
+    summary: &mut String,
+    gross: &mut Vec<String>,
+    dir: &Path,
+    scenario: &str,
+    ours: &Run,
+) {
+    let theirs = oracle_guided(dir, scenario);
+    if theirs.is_empty() && ours.guided.is_empty() {
+        return;
+    }
+    let their_cores = oracle_guided_cores(dir, scenario);
+    let rust: Vec<(&u32, &Vec<GuidedState>)> = ours.guided.iter().collect();
+    let oracle: Vec<(&u32, &Vec<GuidedState>)> = theirs.iter().collect();
+    // The launch tick, the tick the munition is spent (the first tick it
+    // is gone, or reads a velocity of exactly zero: the reference's object
+    // destroyed in the collision pass stays in the object database until
+    // the next update, its body gone), and the last flying state's speed
+    // and target.
+    let span = |v: &[GuidedState]| {
+        let first = v.first().map_or(0, |s| s.tick);
+        let spent = v
+            .iter()
+            .find(|s| !s.alive || s.vel == Vector::ZERO)
+            .map_or(u32::MAX, |s| s.tick);
+        let last = v.iter().rev().find(|s| s.alive && s.tick < spent);
+        (
+            first,
+            spent,
+            last.map_or(0.0, |s| dist(s.vel, Vector::ZERO)),
+            last.map_or_else(String::new, |s| s.target.clone()),
+        )
+    };
+    let _ = writeln!(
+        summary,
+        "{scenario}: guided munitions: rust {}, oracle {}",
+        rust.len(),
+        oracle.len()
+    );
+    for note in &ours.launch_notes {
+        let _ = writeln!(summary, "    rust launch {note}");
+    }
+    let hex3 = |v: Vector| {
+        format!(
+            "[{:08x} {:08x} {:08x}]",
+            v.x.to_bits(),
+            v.y.to_bits(),
+            v.z.to_bits()
+        )
+    };
+    for (tick, t) in &ours.guided_trace {
+        let _ = writeln!(
+            summary,
+            "    rust seek tick {tick} #{}: target pos {} vel {} own pos {} vel {} sees {} turn {} align {}",
+            t.id,
+            hex3(t.target_pos),
+            hex3(t.target_vel),
+            hex3(t.pos),
+            hex3(t.vel),
+            t.sees,
+            t.turn.map_or_else(|| "-".to_owned(), hex3),
+            t.align.map_or_else(|| "-".to_owned(), hex3)
+        );
+    }
+    // The oracle's first PSIs of each missile: what its update added.
+    if let Some(file) = find_files(&dir.join(scenario), "psi.jsonl")
+        .into_iter()
+        .min()
+    {
+        let mut seen: BTreeMap<u32, usize> = BTreeMap::new();
+        for r in read_lines(&file) {
+            if r.get("obj").and_then(Json::as_str) != Some("guided") {
+                continue;
+            }
+            let id = r.get("id").and_then(Json::as_u32).unwrap_or(0);
+            let n = seen.entry(id).or_default();
+            *n += 1;
+            if *n > 3 {
+                continue;
+            }
+            let h = |c: Option<&Json>, k: &str| {
+                c.and_then(|c| c.get(k))
+                    .and_then(Json::as_floats)
+                    .map(|v| {
+                        v.iter()
+                            .map(|x| format!("{:08x}", x.to_bits()))
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    })
+                    .unwrap_or_default()
+            };
+            let i = r.get("in");
+            let _ = writeln!(
+                summary,
+                "    oracle psi tick {} #{id}: in speed [{}] speed_change [{}] rot_speed [{}] rot_speed_change [{}] pos [{}] q [{}] ulr {:?}; pushes {}",
+                r.get("tick").and_then(Json::as_u32).unwrap_or(0),
+                h(i, "speed"),
+                h(i, "speed_change"),
+                h(i, "rot_speed"),
+                h(i, "rot_speed_change"),
+                h(i, "pos"),
+                h(i, "q"),
+                i.and_then(|c| c.get("upper_limit_radius"))
+                    .and_then(Json::as_f32),
+                r.get("pushes")
+                    .and_then(Json::as_array)
+                    .map_or(0, |a| a.len())
+            );
+        }
+    }
+    // The oracle's shooters' frames in the launch ticks (`tick.jsonl`).
+    if let Some(file) = find_files(&dir.join(scenario), "tick.jsonl")
+        .into_iter()
+        .next()
+    {
+        let launches: Vec<u32> = oracle
+            .iter()
+            .filter_map(|(_, v)| v.first().map(|s| s.tick))
+            .collect();
+        for r in read_lines(&file) {
+            let tick = r.get("tick").and_then(Json::as_u32).unwrap_or(0);
+            if r.get("rec").and_then(Json::as_str) != Some("object") || !launches.contains(&tick) {
+                continue;
+            }
+            let hex = |k: &str| {
+                r.get(k)
+                    .and_then(Json::as_floats)
+                    .map(|v| {
+                        v.iter()
+                            .map(|x| format!("{:08x}", x.to_bits()))
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    })
+                    .unwrap_or_default()
+            };
+            let _ = writeln!(
+                summary,
+                "    oracle tick {tick} {}: orient [{}] pos [{}]",
+                r.get("obj").and_then(Json::as_str).unwrap_or("?"),
+                hex("orient"),
+                hex("pos")
+            );
+        }
+    }
+    for (id, v) in &oracle {
+        if let Some(first) = v.first() {
+            let _ = writeln!(
+                summary,
+                "    oracle guided #{id} first record tick {}: orient [{}] vel [{:08x} {:08x} {:08x}]",
+                first.tick,
+                first
+                    .orient
+                    .iter()
+                    .map(|x| format!("{:08x}", x.to_bits()))
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                first.vel.x.to_bits(),
+                first.vel.y.to_bits(),
+                first.vel.z.to_bits()
+            );
+        }
+    }
+    for (id, v) in &rust {
+        if let Some(first) = v.first() {
+            let _ = writeln!(
+                summary,
+                "    rust guided #{id} first record tick {}: orient [{}] vel [{:08x} {:08x} {:08x}]",
+                first.tick,
+                first
+                    .orient
+                    .iter()
+                    .map(|x| format!("{:08x}", x.to_bits()))
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                first.vel.x.to_bits(),
+                first.vel.y.to_bits(),
+                first.vel.z.to_bits()
+            );
+        }
+    }
+    if rust.len() != oracle.len() && !theirs.is_empty() {
+        gross.push(format!(
+            "{scenario}: guided munitions rust {} vs oracle {}",
+            rust.len(),
+            oracle.len()
+        ));
+    }
+    for k in 0..rust.len().max(oracle.len()) {
+        let a = rust.get(k);
+        let b = oracle.get(k);
+        let fmt = |x: Option<&(&u32, &Vec<GuidedState>)>| {
+            x.map_or_else(
+                || "none".to_owned(),
+                |(id, v)| {
+                    let (first, last, speed, target) = span(v);
+                    format!(
+                        "#{id} launched at tick {first}, spent at tick {last}, last speed {speed:.3} m/s, target {target}"
+                    )
+                },
+            )
+        };
+        let _ = writeln!(
+            summary,
+            "{scenario}: guided{}: rust {} | oracle {}",
+            k + 1,
+            fmt(a),
+            fmt(b)
+        );
+        let (Some((rid, av)), Some((oid, bv))) = (a, b) else {
+            continue;
+        };
+        let (sa, sb) = (span(av), span(bv));
+        if (sa.0, sa.1) != (sb.0, sb.1) {
+            gross.push(format!(
+                "{scenario}: guided{} launched at tick {} and spent at tick {}; the oracle's at {} and {}",
+                k + 1,
+                sa.0,
+                sa.1,
+                sb.0,
+                sb.1
+            ));
+        }
+        // The trajectory, bit for bit, tick by tick.
+        let bits = |v: Vector| [v.x.to_bits(), v.y.to_bits(), v.z.to_bits()];
+        let differs = |x: &GuidedState, y: &GuidedState| {
+            x.alive != y.alive
+                || (x.alive
+                    && (bits(x.pos) != bits(y.pos)
+                        || bits(x.vel) != bits(y.vel)
+                        || bits(x.angvel) != bits(y.angvel)
+                        || x.orient.map(f32::to_bits) != y.orient.map(f32::to_bits)
+                        || x.lifetime.to_bits() != y.lifetime.to_bits()
+                        || x.seeker_elapsed.to_bits() != y.seeker_elapsed.to_bits()))
+        };
+        let pairs: Vec<(&GuidedState, &GuidedState)> = av
+            .iter()
+            .filter_map(|x| bv.iter().find(|y| y.tick == x.tick).map(|y| (x, y)))
+            .collect();
+        let line = |st: &GuidedState| {
+            let hex = |v: Vector| {
+                format!(
+                    "[{:08x} {:08x} {:08x}]",
+                    v.x.to_bits(),
+                    v.y.to_bits(),
+                    v.z.to_bits()
+                )
+            };
+            format!(
+                "alive {} pos ({:.4}, {:.4}, {:.4}) {} vel {} speed {:.4} angvel {} fwd ({:.4}, {:.4}, {:.4}) lifetime {} elapsed {} target {}",
+                st.alive,
+                st.pos.x,
+                st.pos.y,
+                st.pos.z,
+                hex(st.pos),
+                hex(st.vel),
+                dist(st.vel, Vector::ZERO),
+                hex(st.angvel),
+                -st.orient[2],
+                -st.orient[5],
+                -st.orient[8],
+                st.lifetime,
+                st.seeker_elapsed,
+                st.target
+            )
+        };
+        match pairs.iter().position(|(x, y)| differs(x, y)) {
+            None => {
+                let _ = writeln!(
+                    summary,
+                    "{scenario}: guided{}: every common tick ({}) equals the oracle bit for bit",
+                    k + 1,
+                    pairs.len()
+                );
+            }
+            Some(i) => {
+                let _ = writeln!(
+                    summary,
+                    "{scenario}: guided{}: first bit difference at tick {} ({} of {} common ticks differ):",
+                    k + 1,
+                    pairs[i].0.tick,
+                    pairs.iter().filter(|(x, y)| differs(x, y)).count(),
+                    pairs.len()
+                );
+                for (x, y) in pairs.iter().skip(i.saturating_sub(1)).take(4) {
+                    let _ = writeln!(summary, "    tick {} rust:   {}", x.tick, line(x));
+                    let _ = writeln!(summary, "    tick {} oracle: {}", y.tick, line(y));
+                }
+            }
+        }
+        // The core after each PSI against the oracle's `out`.
+        let (Some(rc), Some(oc)) = (ours.guided_cores.get(rid), their_cores.get(oid)) else {
+            continue;
+        };
+        let mut first = None;
+        for (tick, expected) in oc {
+            let Some((_, actual)) = rc.iter().find(|(t, _)| t == tick) else {
+                continue;
+            };
+            let actual = CoreRecord {
+                core: actual.core.clone(),
+                unit_state: expected.unit_state,
+            };
+            let diffs = compare(expected, &actual, 0.0);
+            if !diffs.is_empty() {
+                first = Some((*tick, diffs));
+                break;
+            }
+        }
+        match first {
+            None => {
+                let _ = writeln!(
+                    summary,
+                    "{scenario}: guided{}: every core of the oracle's {} PSIs equals the Rust core bit for bit",
+                    k + 1,
+                    oc.len()
+                );
+            }
+            Some((tick, diffs)) => {
+                let _ = writeln!(
+                    summary,
+                    "{scenario}: guided{}: core first differs after tick {tick}: {}",
+                    k + 1,
+                    diffs.join("; ")
+                );
+            }
+        }
+    }
 }
 
 /// The oracle's unit cores (`unit_cores.jsonl` beside the first
@@ -2213,6 +2797,10 @@ fn scenarios_against_the_oracle() {
                 "{}: skipped, an AI ship runs behaviour {b} from tick {tick}, which is not ported (AI is P2.5)",
                 s.name
             );
+            // The missiles fly before it.
+            if let Some(dir) = &oracle {
+                report_guided(&mut summary, &mut gross, dir, &s.name, &our_run);
+            }
             continue;
         }
         let ours = &our_run.states;
@@ -2313,6 +2901,7 @@ fn scenarios_against_the_oracle() {
         }
         report_hits(&mut summary, &s.name, &our_run.hits, &their_run.hits);
         report_units(&mut summary, dir, &s.name, &our_run);
+        report_guided(&mut summary, &mut gross, dir, &s.name, &our_run);
         report_contacts(&mut summary, &s, &our_run, &their_run);
         if s.contact {
             judge_contact(&mut summary, &mut gross, &s, &our_run, &their_run);
