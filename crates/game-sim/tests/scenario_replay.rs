@@ -63,6 +63,7 @@ use game_sim::object::{Command, DamageList, ObjHandle, World, WorldEvent};
 use neuron_core::id::create_id;
 use neuron_core::math::{Matrix, Vector};
 use neuron_core::physics::StepMode;
+use neuron_core::physics::replay::{CoreRecord, compare};
 use neuron_core::rng::CrtRand;
 use support::directives::directive;
 use support::records::{Json, find_files, read_lines};
@@ -374,6 +375,11 @@ struct Run {
     fired: usize,
     /// Per object and tick, the body's core after the frame (diagnostic).
     cores: BTreeMap<String, Vec<String>>,
+    /// The simulation units of the first [`UNIT_PSIS`] PSIs (`units.jsonl`).
+    units: Vec<Vec<Unit>>,
+    /// Each unit's core at the start and the end of its PSI, for the first
+    /// PSIs (`unit_cores.jsonl`).
+    unit_cores: Vec<Vec<(CoreRecord, CoreRecord)>>,
 }
 
 /// A core's state as the bit diagnostic prints it.
@@ -570,22 +576,30 @@ fn run(s: &Scenario, ai: &AiInputs) -> Option<Run> {
     let mut handles: BTreeMap<String, Option<ObjHandle>> = BTreeMap::new();
     let mut managers = Vec::new();
     let mut pathfind_phases = None;
-    // The solars the scenario names, and every spinning solar: the oracle's
-    // `StarSystem::load` builds them all, and a spinning one is a
-    // simulation unit of its own, which takes its turn at the environment's
-    // movement-check countdown (that decides when a scenario ship's motion
-    // is classified). The still ones are fixed and far from the scenario
-    // objects, and the contact pass over every solar is slow in a debug
-    // build.
+    // The solars the scenario names, and every solar whose body or parts
+    // are simulation units: the spinning ones and those with free (`!fxd`)
+    // parts, which `BuildIVP_Real` makes bodies of their own held by
+    // golems. The oracle's `StarSystem::load` builds them all, and each
+    // unit takes its turn at the environment's movement-check countdown
+    // (that decides when a scenario ship's motion is classified), so the
+    // Rust world steps the oracle's units in the oracle's order. The other
+    // solars are fixed and far from the scenario objects, and the contact
+    // pass over every solar is slow in a debug build.
     let named: Vec<u32> = s
         .objects
         .iter()
         .filter(|o| !o.ship)
         .map(|o| create_id(o.nickname.as_bytes()))
         .collect();
-    world.load_system_solars_where(system, |sp| {
-        named.contains(&sp.nickname) || sp.angular_velocity != Vector::ZERO
-    });
+    for sp in world.system_solar_spawns(system) {
+        if named.contains(&sp.nickname)
+            || sp.angular_velocity != Vector::ZERO
+            || world.solar_has_free_parts(sp.archetype)
+        {
+            let _ = world.spawn_solar(system, &sp);
+        }
+    }
+    world.set_unit_trace(system, true);
     if s.sp_collisions {
         world.set_server_collision_filter(system, false);
     }
@@ -787,7 +801,265 @@ fn run(s: &Scenario, ai: &AiInputs) -> Option<Run> {
         record(&world, &mut out.states, &handles);
         record_cores(&world, &mut out.cores, &handles);
     }
+    out.units = world
+        .unit_trace(system)
+        .into_iter()
+        .take(UNIT_PSIS)
+        .map(|psi| {
+            psi.into_iter()
+                .map(|(id, class, check)| Unit { id, class, check })
+                .collect()
+        })
+        .collect();
+    out.unit_cores = world.unit_core_trace(system);
     Some(out)
+}
+
+/// The oracle's unit cores (`unit_cores.jsonl` beside the first
+/// `units.jsonl`): per PSI, the cores in run order, the start state only in
+/// the first PSI.
+fn oracle_unit_cores(dir: &Path, scenario: &str) -> Vec<Vec<(Option<CoreRecord>, CoreRecord)>> {
+    let Some(file) = find_files(&dir.join(scenario), "unit_cores.jsonl")
+        .into_iter()
+        .min()
+    else {
+        return Vec::new();
+    };
+    let Ok(text) = fs::read_to_string(&file) else {
+        return Vec::new();
+    };
+    let mut out: Vec<Vec<(Option<CoreRecord>, CoreRecord)>> = Vec::new();
+    for line in text.lines() {
+        let Ok(r) = support::records::parse(line) else {
+            continue;
+        };
+        let psi = r.get("psi").and_then(Json::as_u32).unwrap_or(0) as usize;
+        let Ok(o) = CoreRecord::parse_field(line, "out") else {
+            continue;
+        };
+        let i = CoreRecord::parse_field(line, "in").ok();
+        if psi == 0 {
+            continue;
+        }
+        while out.len() < psi {
+            out.push(Vec::new());
+        }
+        out[psi - 1].push((i, o));
+    }
+    out
+}
+
+/// The first unit core that differs from the oracle's (record 0003's bit
+/// comparison), PSI by PSI in run order, for the PSIs both recorded.
+fn report_unit_cores(
+    summary: &mut String,
+    dir: &Path,
+    scenario: &str,
+    ours: &Run,
+    theirs_units: &[Vec<Unit>],
+) {
+    let theirs = oracle_unit_cores(dir, scenario);
+    if theirs.is_empty() {
+        return;
+    }
+    for (p, (a, b)) in ours.unit_cores.iter().zip(&theirs).enumerate() {
+        for (i, ((ain, aout), (bin, bout))) in a.iter().zip(b).enumerate() {
+            let unit = theirs_units
+                .get(p)
+                .and_then(|u| u.get(i))
+                .map_or_else(|| "?".to_owned(), |u| format!("{}:{:x}", u.id, u.class));
+            if let Some(bin) = bin {
+                let d = compare(bin, ain, 0.0);
+                if !d.is_empty() {
+                    let _ = writeln!(
+                        summary,
+                        "{scenario}: unit cores: psi {} unit {i} ({unit}) starts differently, oracle != rust: {}",
+                        p + 1,
+                        d.iter().take(10).cloned().collect::<Vec<_>>().join("; ")
+                    );
+                    return;
+                }
+            }
+            let d = compare(bout, aout, 0.0);
+            if !d.is_empty() {
+                let _ = writeln!(
+                    summary,
+                    "{scenario}: unit cores: psi {} unit {i} ({unit}) first differs at the end of its PSI, oracle != rust: {}",
+                    p + 1,
+                    d.iter().take(12).cloned().collect::<Vec<_>>().join("; ")
+                );
+                return;
+            }
+        }
+        if a.len() != b.len() {
+            let _ = writeln!(
+                summary,
+                "{scenario}: unit cores: psi {} rust {} units, oracle {}",
+                p + 1,
+                a.len(),
+                b.len()
+            );
+            return;
+        }
+    }
+    let _ = writeln!(
+        summary,
+        "{scenario}: unit cores: every core of the first {} PSIs equals the oracle's bit for bit",
+        theirs.len().min(ours.unit_cores.len())
+    );
+}
+
+/// The PSIs `units.jsonl` records (`kUnitPsis`, oracle_sim.cpp).
+const UNIT_PSIS: usize = 120;
+
+/// A simulation unit of a PSI: its (first) core's object as `units.jsonl`
+/// names it, and whether the movement check came to it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Unit {
+    id: u32,
+    class: u32,
+    check: bool,
+}
+
+/// The oracle's simulation units per PSI from the first `units.jsonl`
+/// under `<oracle dir>/<scenario>/`, and whether any unit held more than
+/// one core.
+fn oracle_units(dir: &Path, scenario: &str) -> Option<(Vec<Vec<Unit>>, bool)> {
+    let file = find_files(&dir.join(scenario), "units.jsonl")
+        .into_iter()
+        .min()?;
+    let mut multi = false;
+    let mut out = Vec::new();
+    for r in read_lines(&file) {
+        let units = r.get("units").and_then(Json::as_array).unwrap_or_default();
+        let psi: Vec<Unit> = units
+            .iter()
+            .map(|u| {
+                let a = u.as_array().unwrap_or_default();
+                let words: Vec<u32> = a.iter().filter_map(Json::as_u32).collect();
+                multi |= words.len() > 2;
+                Unit {
+                    id: words.first().copied().unwrap_or(0),
+                    class: words.get(1).copied().unwrap_or(0),
+                    check: a.last().and_then(Json::as_bool) == Some(true),
+                }
+            })
+            .collect();
+        out.push(psi);
+    }
+    Some((out, multi))
+}
+
+/// A PSI's units, runs of equal ones folded (`0:1x48`), the unit the
+/// movement check came to marked with `*`.
+fn fmt_units(units: &[Unit]) -> String {
+    let mut out: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < units.len() {
+        let u = units[i];
+        let mut j = i + 1;
+        while j < units.len() && units[j] == u && !u.check {
+            j += 1;
+        }
+        let mark = if u.check { "*" } else { "" };
+        if j - i > 1 {
+            out.push(format!("{}:{:x}x{}", u.id, u.class, j - i));
+        } else {
+            out.push(format!("{}:{:x}{mark}", u.id, u.class));
+        }
+        i = j;
+    }
+    out.join(" ")
+}
+
+/// The simulation units of both sides, PSI by PSI: the first PSI where the
+/// list (objects, order, movement check) differs, or that they agree.
+fn report_units(summary: &mut String, dir: &Path, scenario: &str, ours: &Run) {
+    let Some((theirs, multi)) = oracle_units(dir, scenario) else {
+        return;
+    };
+    // The two sides number the scenario ships differently (the oracle's
+    // load makes objects the Rust world does not): each ship's id becomes
+    // its place in the spawn order, which is the order of the ids.
+    let by_spawn = |v: &[Vec<Unit>]| -> Vec<Vec<Unit>> {
+        let mut ships: Vec<u32> = v
+            .iter()
+            .flatten()
+            .filter(|u| u.class == 0x503)
+            .map(|u| u.id)
+            .collect();
+        ships.sort_unstable();
+        ships.dedup();
+        v.iter()
+            .map(|psi| {
+                psi.iter()
+                    .map(|u| match ships.iter().position(|s| *s == u.id) {
+                        Some(k) if u.class == 0x503 => Unit {
+                            id: k as u32 + 1,
+                            ..*u
+                        },
+                        _ => *u,
+                    })
+                    .collect()
+            })
+            .collect()
+    };
+    let theirs = by_spawn(&theirs);
+    report_unit_cores(summary, dir, scenario, ours, &theirs);
+    let ours_units = by_spawn(&ours.units);
+    let ours = &Run {
+        units: ours_units,
+        ..Run::default()
+    };
+    if multi {
+        let _ = writeln!(
+            summary,
+            "{scenario}: units: a unit of the oracle holds more than one core (compared by its first)"
+        );
+    }
+    let n = theirs.len().min(ours.units.len());
+    let count = |v: &[Vec<Unit>], p: usize| v.get(p).map_or(0, Vec::len);
+    let _ = writeln!(
+        summary,
+        "{scenario}: units at PSI 1, 40, 120: rust {} {} {}, oracle {} {} {}",
+        count(&ours.units, 0),
+        count(&ours.units, 39),
+        count(&ours.units, 119),
+        count(&theirs, 0),
+        count(&theirs, 39),
+        count(&theirs, 119)
+    );
+    match (0..n).find(|&p| ours.units[p] != theirs[p]) {
+        None => {
+            let _ = writeln!(
+                summary,
+                "{scenario}: units: every unit of the {n} recorded PSIs equals the oracle's (objects, order, movement check)"
+            );
+        }
+        Some(p) => {
+            let _ = writeln!(
+                summary,
+                "{scenario}: units first differ at PSI {} (of {n}):",
+                p + 1
+            );
+            for q in p.saturating_sub(1)..(p + 2).min(n) {
+                let _ = writeln!(
+                    summary,
+                    "    psi {} rust {}: {}",
+                    q + 1,
+                    ours.units[q].len(),
+                    fmt_units(&ours.units[q])
+                );
+                let _ = writeln!(
+                    summary,
+                    "    psi {} oracle {}: {}",
+                    q + 1,
+                    theirs[q].len(),
+                    fmt_units(&theirs[q])
+                );
+            }
+        }
+    }
 }
 
 /// The oracle's run of a scenario: the first `tick.jsonl` under
@@ -1874,6 +2146,7 @@ fn scenarios_against_the_oracle() {
             report_combat(&mut summary, &s.name, &our_run, &their_run);
         }
         report_hits(&mut summary, &s.name, &our_run.hits, &their_run.hits);
+        report_units(&mut summary, dir, &s.name, &our_run);
         report_contacts(&mut summary, &s, &our_run, &their_run);
         if s.contact {
             judge_contact(&mut summary, &mut gross, &s, &our_run, &their_run);

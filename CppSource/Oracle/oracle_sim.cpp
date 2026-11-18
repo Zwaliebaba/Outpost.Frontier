@@ -923,8 +923,61 @@ namespace
         }
     }
 
+    // unit_cores.jsonl: the first core of every unit of the first kUnitCorePsis PSIs at the
+    // end of the unit's PSI (before calc_next_PSI_matrix), in the order the units ran, and
+    // in the first PSI also at its start: the state of the units no scenario object owns
+    // (spinning solars, the free parts of stations), for scenario_replay's comparison.
+    const unsigned int kUnitCorePsis = 12;
+    FILE* GUnitCoreFile = nullptr;
+    unsigned int GUnitCorePsi = 0;
+    unsigned int GUnitCoreIndex = 0;
+    FOracleSimCore GUnitCoreIn;
+
+    void UnitCoreRecord(IVP_Simulation_Unit* Unit, int Phase, bool bMovementCheck)
+    {
+        if (GUnitCoreFile == nullptr)
+            return;
+        if (GPsiSeq > kUnitCorePsis)
+        {
+            fclose(GUnitCoreFile);
+            GUnitCoreFile = nullptr;
+            return;
+        }
+        if (GUnitCorePsi != GPsiSeq)
+        {
+            GUnitCorePsi = GPsiSeq;
+            GUnitCoreIndex = 0;
+        }
+        CObject* const Object = OracleSimUnitCoreObject(Unit, 0);
+        IVP_Core* const Core = Object != nullptr ? OracleSimCoreOf(Object) : nullptr;
+        if (Phase == 0)
+        {
+            OracleSimReadCore(Core, GUnitCoreIn);
+            return;
+        }
+        FOracleSimCore Out;
+        OracleSimReadCore(Core, Out);
+        bool const bSimple = Object != nullptr && ((unsigned)Object->ObjectClass & 3u) == 3u;
+        FOracleJson J;
+        J.Str("rec", "unit_core");
+        J.Uint("tick", GTick);
+        J.Uint("psi", GPsiSeq);
+        J.Uint("i", GUnitCoreIndex);
+        J.Uint("id", bSimple ? static_cast<CSimple*>(Object)->Id : 0);
+        J.Uint("class", Object != nullptr ? (unsigned)Object->ObjectClass : 0);
+        J.Bool("check", bMovementCheck);
+        if (GPsiSeq == 1)
+            CoreJ(J, "in", GUnitCoreIn);
+        CoreJ(J, "out", Out);
+        fputs(J.Finish().c_str(), GUnitCoreFile);
+        fputc('\n', GUnitCoreFile);
+        fflush(GUnitCoreFile);
+        ++GUnitCoreIndex;
+    }
+
     void UnitRecord(IVP_Simulation_Unit* Unit, int Phase, bool bMovementCheck)
     {
+        UnitCoreRecord(Unit, Phase, bMovementCheck);
         if (GUnitFile == nullptr)
             return;
         if (GPsiSeq > kUnitPsis)
@@ -2196,6 +2249,7 @@ namespace oracle
         GOracleSimHooks.OnPsi = OnPsi;
         GOracleSimHooks.OnSimUnitPsi = OnSimUnitPsi;
         GUnitFile = fopen((OutDir + "\\units.jsonl").c_str(), "wb");
+        GUnitCoreFile = fopen((OutDir + "\\unit_cores.jsonl").c_str(), "wb");
         GOracleSimHooks.OnCorePush = OnCorePush;
         GOracleSimHooks.OnCollisionDamage = OnCollisionDamage;
         GOracleSimHooks.OnMunitionHit = OnMunitionHit;
