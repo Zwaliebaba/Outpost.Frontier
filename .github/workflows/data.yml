@@ -98,7 +98,7 @@ jobs:
             Write-Host "== $($dir.Name)"
             Get-Content "$($dir.FullName)\spread.txt" -ErrorAction SilentlyContinue
             Get-ChildItem $dir.FullName -Filter *-session.jsonl | ForEach-Object {
-              Select-String -Path $_.FullName -Pattern '"error"|"note"' | Select-Object -First 20 | ForEach-Object { "$($_.Filename): $($_.Line)" }
+              Select-String -Path $_.FullName -Pattern '"error"|"note"|"fault"' | Select-Object -First 20 | ForEach-Object { "$($_.Filename): $($_.Line)" }
             }
           }
           # P2.5 (the dogfight): each run's events counted by kind and objects (munition hits

@@ -320,6 +320,8 @@
     <ClCompile Include="oracle_sim_spread.cpp" />
     <!-- P2.5: the behaviour-tick recorder of Oracle.exe sim (ai.jsonl). -->
     <ClCompile Include="oracle_sim_ai.cpp" />
+    <!-- The fault recorder of Oracle.exe sim (session.jsonl `fault`, dbghelp). -->
+    <ClCompile Include="oracle_sim_fault.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="oracle_support.h" />
@@ -328,6 +330,7 @@
     <ClInclude Include="oracle_net_context.h" />
     <ClInclude Include="oracle_sim.h" />
     <ClInclude Include="oracle_sim_ai.h" />
+    <ClInclude Include="oracle_sim_fault.h" />
     <ClInclude Include="oracle_protocol.h" />
   </ItemGroup>
   <ItemGroup>
