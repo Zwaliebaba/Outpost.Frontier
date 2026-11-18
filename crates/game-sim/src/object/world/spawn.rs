@@ -443,7 +443,7 @@ impl World {
         let (kind, archetype) = (obj.kind, obj.archetype);
         let path = self.archetype_path(kind, archetype);
         let parts = self.surface_parts(archetype, &path);
-        World::part_geometry(parts.as_ref(), part).1
+        World::part_hardpoint_list(parts.as_ref(), part)
     }
 
     /// `CExternalEquip::Connect` and `CAttachedEquip::Connect`: the mount

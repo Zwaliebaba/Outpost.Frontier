@@ -639,6 +639,11 @@ impl World {
         if path.is_empty() {
             return None;
         }
+        // An archetype the scene already holds needs no file
+        // (`CreateArchetypeHandle` finds it by name first).
+        if let Ok(Some(archetype)) = self.scene.create_archetype_handle(path, None) {
+            return self.scene.create_instance(archetype);
+        }
         let mut fs = UtfFileSystem::open(
             &assets.host,
             &FsDesc::read(path).with_implementation(b"UTF"),
@@ -692,6 +697,24 @@ impl World {
             return (Geometry::from_surface(&surface), part.hardpoint_ids.clone());
         }
         (Geometry::default_part(), Vec::new())
+    }
+
+    /// The hardpoint ids of a part, as [`World::part_geometry`] gives them,
+    /// without building the part's hulls.
+    pub(crate) fn part_hardpoint_list(parts: Option<&SurParts>, part_id: u32) -> Vec<u32> {
+        let part = parts.and_then(|p| {
+            p.get(&part_id).or_else(|| {
+                (part_id == 0 && p.len() == 1)
+                    .then(|| p.values().next())
+                    .flatten()
+            })
+        });
+        match part {
+            Some(part) if matches!(part.compact_surface(), Some(Ok(_))) => {
+                part.hardpoint_ids.clone()
+            }
+            _ => Vec::new(),
+        }
     }
 
     /// `FindHardpoint_OS(instance, name)`: the hardpoint on the instance or

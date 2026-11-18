@@ -800,17 +800,23 @@ fn run(s: &Scenario, ai: &AiInputs) -> Option<Run> {
         }
         record(&world, &mut out.states, &handles);
         record_cores(&world, &mut out.cores, &handles);
+        // The units of the PSIs this frame ran, named while their objects
+        // still exist.
+        if out.units.len() < UNIT_PSIS {
+            let trace = world.unit_trace(system);
+            for psi in trace
+                .into_iter()
+                .skip(out.units.len())
+                .take(UNIT_PSIS - out.units.len())
+            {
+                out.units.push(
+                    psi.into_iter()
+                        .map(|(id, class, check)| Unit { id, class, check })
+                        .collect(),
+                );
+            }
+        }
     }
-    out.units = world
-        .unit_trace(system)
-        .into_iter()
-        .take(UNIT_PSIS)
-        .map(|psi| {
-            psi.into_iter()
-                .map(|(id, class, check)| Unit { id, class, check })
-                .collect()
-        })
-        .collect();
     out.unit_cores = world.unit_core_trace(system);
     Some(out)
 }
