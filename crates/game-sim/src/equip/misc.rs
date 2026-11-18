@@ -4,6 +4,8 @@
 //! (`common_cescanner.cpp`), the tractor (`common_cetractor.cpp`,
 //! `common_tractorarm.cpp`) and the cloaking device (`common_cecloak.cpp`).
 
+use neuron_core::math::{Matrix, Transform, Vector};
+
 use crate::object::ObjHandle;
 
 use super::SubObjId;
@@ -182,65 +184,203 @@ impl Scanner {
     }
 }
 
-/// `TractorFailureCode`.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// `TractorFailureCode` (`include/common_cequip.h`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum TractorFailure {
-    /// No failure.
+    /// 0: no failure.
     #[default]
-    None,
-    /// The loot is out of range.
+    Ok,
+    /// 1: no loot, or loot with no units.
+    NoContents,
+    /// 2: beyond the tractor's `max_length`.
     OutOfRange,
-    /// Something blocks the beam.
-    Obstructed,
-    /// The loot belongs to someone else.
-    NotOwner,
-    /// The tractor is busy.
-    Busy,
+    /// 3: the hold cannot take the contents' volume.
+    CargoFull,
+    /// 4: no room for another shield battery.
+    ShieldBattFull,
+    /// 5: no room for another repair kit.
+    RepairKitFull,
+    /// 6: no room for the ammunition.
+    AmmoFull,
+}
+
+impl TractorFailure {
+    /// The reference's code.
+    #[must_use]
+    pub fn code(self) -> i32 {
+        match self {
+            Self::Ok => 0,
+            Self::NoContents => 1,
+            Self::OutOfRange => 2,
+            Self::CargoFull => 3,
+            Self::ShieldBattFull => 4,
+            Self::RepairKitFull => 5,
+            Self::AmmoFull => 6,
+        }
+    }
 }
 
 /// `TractorArm::Mode`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ArmMode {
-    /// Off.
+    /// 0: off.
     #[default]
     Off,
-    /// Reaching for the target.
+    /// 1: pulling the beam's tip towards the loot.
     Reaching,
-    /// Holding it at the tip.
+    /// 2: the tip holds the loot; the consume timer runs.
     Holding,
 }
+
+/// `TractorArm::ACQUIRE_DELAY`: the time the tip holds the loot before it
+/// is consumed.
+pub const ACQUIRE_DELAY: f32 = 1.0;
 
 /// `TractorArm` (0x24 bytes).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct TractorArm {
     /// +0x04 the mode.
     pub mode: ArmMode,
-    /// +0x08 the loot it pulls.
+    /// +0x08 the loot it pulls (`TargetWatch`).
     pub target: Option<ObjHandle>,
+    /// +0x10 the tip's offset from the beam source.
+    pub pull_offset: Vector,
     /// +0x1c the time left at the tip.
     pub timer: f32,
     /// +0x20 the last failure.
     pub error: TractorFailure,
 }
 
+/// What one arm's update does (`TractorArm::Update` past `VerifyTarget`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ArmStep {
+    /// Nothing happened (off, or holding with time left).
+    Idle,
+    /// The tip moved towards the loot.
+    Pulled,
+    /// The tip reached the loot (`Event_0x17`); the arm holds it now.
+    Reached,
+    /// The hold time ran out (`Event_0x18`).
+    Consume,
+}
+
+impl TractorArm {
+    /// `TractorArm::SetTarget`.
+    pub fn set_target(&mut self, target: ObjHandle) {
+        self.target = Some(target);
+        self.pull_offset = Vector::ZERO;
+        self.timer = 0.0;
+        self.error = TractorFailure::Ok;
+        self.mode = ArmMode::Reaching;
+    }
+
+    /// `TractorArm::TurnOff`.
+    pub fn turn_off(&mut self) {
+        self.target = None;
+        self.mode = ArmMode::Off;
+        self.pull_offset = Vector::ZERO;
+        self.timer = 0.0;
+        self.error = TractorFailure::Ok;
+    }
+
+    /// `TractorArm::Update` once the target verified: the tip moves from
+    /// the beam source towards the loot at `reach_speed`, snaps onto it
+    /// when this frame's step reaches it, then counts the hold time down.
+    pub fn step(
+        &mut self,
+        source: Vector,
+        target_pos: Vector,
+        reach_speed: f32,
+        dt: f32,
+    ) -> ArmStep {
+        match self.mode {
+            ArmMode::Off => ArmStep::Idle,
+            ArmMode::Reaching => {
+                let tip = Vector::new(
+                    r(e(source.x) + e(self.pull_offset.x)),
+                    r(e(source.y) + e(self.pull_offset.y)),
+                    r(e(source.z) + e(self.pull_offset.z)),
+                );
+                let dx = e(r(e(target_pos.x) - e(tip.x)));
+                let dy = e(target_pos.y) - e(tip.y);
+                let dz = e(r(e(target_pos.z) - e(tip.z)));
+                let max_step = e(dt) * e(reach_speed);
+                let dist_sq = dz * dz + dy * dy + dx * dx;
+                if dist_sq > max_step * max_step {
+                    let frac = max_step / dist_sq.sqrt();
+                    let step_y = r(dy * frac);
+                    let step_z = r(dz * frac);
+                    self.pull_offset = Vector::new(
+                        r(dx * frac + e(self.pull_offset.x)),
+                        r(e(step_y) + e(self.pull_offset.y)),
+                        r(e(step_z) + e(self.pull_offset.z)),
+                    );
+                    return ArmStep::Pulled;
+                }
+                self.pull_offset = Vector::new(
+                    r(e(target_pos.x) - e(source.x)),
+                    r(e(target_pos.y) - e(source.y)),
+                    r(e(target_pos.z) - e(source.z)),
+                );
+                self.mode = ArmMode::Holding;
+                self.timer = ACQUIRE_DELAY;
+                ArmStep::Reached
+            }
+            ArmMode::Holding => {
+                self.timer = r(e(self.timer) - e(dt));
+                if self.timer < 0.0 {
+                    ArmStep::Consume
+                } else {
+                    ArmStep::Idle
+                }
+            }
+        }
+    }
+
+    /// `TractorArm::GetTipPos`: the source plus the offset while reaching,
+    /// the loot's position while holding, else the source.
+    #[must_use]
+    pub fn tip_pos(&self, source: Vector, target_pos: Option<Vector>) -> Vector {
+        match self.mode {
+            ArmMode::Reaching => Vector::new(
+                r(e(source.x) + e(self.pull_offset.x)),
+                r(e(source.y) + e(self.pull_offset.y)),
+                r(e(source.z) + e(self.pull_offset.z)),
+            ),
+            ArmMode::Holding => target_pos.unwrap_or(source),
+            ArmMode::Off => source,
+        }
+    }
+}
+
 /// `CETractor`.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Tractor {
     /// `max_length` (`GetRange`).
     pub max_length: f32,
     /// `reach_speed`.
     pub reach_speed: f32,
+    /// +0x20 the beam source in the owner's frame (`HP_tractor_source`,
+    /// identity when the ship has none).
+    pub hp_xform: Transform,
     /// +0x50 the arms.
     pub arms: Vec<TractorArm>,
 }
 
+impl Default for Tractor {
+    fn default() -> Self {
+        Self::new(0.0, 0.0)
+    }
+}
+
 impl Tractor {
-    /// `CETractor::CETractor`.
+    /// `CETractor::CETractor` (the world sets the source hardpoint).
     #[must_use]
     pub fn new(max_length: f32, reach_speed: f32) -> Self {
         Self {
             max_length,
             reach_speed,
+            hp_xform: Transform::new(Matrix::IDENTITY, Vector::ZERO),
             arms: Vec::new(),
         }
     }
@@ -251,37 +391,56 @@ impl Tractor {
         self.arms.iter().filter(|a| a.mode != ArmMode::Off).count()
     }
 
-    /// `AddTarget` after `VerifyTarget`: a new arm reaching for the loot,
-    /// or the failure.
-    pub fn add_target(&mut self, target: ObjHandle, verify: TractorFailure) -> TractorFailure {
-        if verify != TractorFailure::None {
-            return verify;
-        }
-        if self
-            .arms
-            .iter()
-            .any(|a| a.target == Some(target) && a.mode != ArmMode::Off)
-        {
-            return TractorFailure::None;
-        }
-        self.arms.push(TractorArm {
-            mode: ArmMode::Reaching,
-            target: Some(target),
-            timer: 0.0,
-            error: TractorFailure::None,
-        });
-        TractorFailure::None
+    /// `AddTarget` after `VerifyTarget` passed: the first idle arm, or a
+    /// new one, reaches for the loot.
+    pub fn add_target(&mut self, target: ObjHandle) {
+        let slot = match self.arms.iter().position(|a| a.mode == ArmMode::Off) {
+            Some(i) => i,
+            None => {
+                self.arms.push(TractorArm::default());
+                self.arms.len() - 1
+            }
+        };
+        self.arms[slot].set_target(target);
     }
 
-    /// `RemoveTarget`.
-    pub fn remove_target(&mut self, target: ObjHandle) {
+    /// `RemoveTarget`: the arms on which `is_target` holds turn off; the
+    /// number of arms still active (the caller deactivates the tractor at
+    /// 0).
+    pub fn remove_target(&mut self, is_target: impl Fn(Option<ObjHandle>) -> bool) -> usize {
+        let mut remaining = 0;
         for arm in &mut self.arms {
-            if arm.target == Some(target) {
-                arm.mode = ArmMode::Off;
-                arm.target = None;
+            if arm.mode == ArmMode::Off {
+                continue;
+            }
+            if is_target(arm.target) {
+                arm.turn_off();
+            } else {
+                remaining += 1;
             }
         }
-        self.arms.retain(|a| a.mode != ArmMode::Off);
+        remaining
+    }
+
+    /// `CanSeeTarget`: the loot is within range (a range of exactly 0
+    /// reaches everything).
+    #[must_use]
+    pub fn can_see(&self, source: Vector, target_pos: Vector) -> bool {
+        let dx = e(target_pos.x) - e(source.x);
+        let dy = e(target_pos.y) - e(source.y);
+        let dz = e(target_pos.z) - e(source.z);
+        let range = self.max_length;
+        !(range != 0.0 && e(range) * e(range) < dz * dz + dy * dy + dx * dx)
+    }
+
+    /// `VerifyTarget`'s range test, on the `float` differences.
+    #[must_use]
+    pub fn verify_range(&self, source: Vector, target_pos: Vector) -> bool {
+        let dx = e(r(e(target_pos.x) - e(source.x)));
+        let dy = e(r(e(target_pos.y) - e(source.y)));
+        let dz = e(r(e(target_pos.z) - e(source.z)));
+        let range = self.max_length;
+        !(range != 0.0 && e(range) * e(range) < dy * dy + dz * dz + dx * dx)
     }
 }
 

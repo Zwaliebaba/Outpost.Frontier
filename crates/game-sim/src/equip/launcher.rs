@@ -82,6 +82,10 @@ pub struct ProjectileArch {
     pub seeker_range: f32,
     /// `seeker_fov_cos`.
     pub seeker_fov_cos: f32,
+    /// `hp_type` (munitions).
+    pub hp_type: u32,
+    /// `cruise_disruptor` (munitions).
+    pub cruise_disruptor: bool,
 }
 
 impl ProjectileArch {
@@ -106,6 +110,8 @@ impl ProjectileArch {
             out.time_to_lock = m.time_to_lock;
             out.seeker_range = m.seeker_range;
             out.seeker_fov_cos = m.seeker_fov_cos;
+            out.hp_type = m.hp_type;
+            out.cruise_disruptor = m.cruise_disruptor;
         }
         Some(out)
     }

@@ -404,6 +404,8 @@ impl World {
         let mut cloak = None;
         let mut regen: Vec<(crate::equip::SubObjId, f32)> = Vec::new();
         let mut guns: Vec<crate::equip::SubObjId> = Vec::new();
+        let mut scanners: Vec<crate::equip::SubObjId> = Vec::new();
+        let mut tractors: Vec<crate::equip::SubObjId> = Vec::new();
         let slots = eq.equipment.traverse(types::EXTERNAL_LIST, false);
         for slot in slots {
             let weapons_offline = eq.weapons_offline;
@@ -463,6 +465,8 @@ impl World {
                         regen.push((shield_id, new_hit));
                     }
                 }
+                EquipKind::Scanner(_) => scanners.push(id),
+                EquipKind::Tractor(_) => tractors.push(id),
                 EquipKind::Cloak(c) => {
                     if let Some(p) = c.update(destroyed, dt) {
                         cloak = Some(p);
@@ -487,21 +491,33 @@ impl World {
             && !weapons_offline_destroyed
             && flags & update_flags::NO_BEHAVIOR == 0
             && eq.control_exclusion & 1 == 0;
-        // Equipment events go to the listeners.
-        for e in eq.equipment.iter_mut() {
-            for event in e.events.drain(..) {
-                self.events.push(WorldEvent::Equip {
-                    owner: owner_id,
-                    equip: e.id,
-                    event,
-                });
-            }
-        }
         let _ = is_ship;
         // `CEGun::Update`'s turret aim and lock clock (each gun's own
         // update; nothing else in the list reads what it changes).
         for id in guns {
             self.update_gun_turret(h, id, dt);
+        }
+        for id in scanners {
+            self.update_scanner(h, id, flags);
+        }
+        for id in tractors {
+            self.update_tractor(h, id, dt);
+        }
+        // Equipment events go to the listeners.
+        if let Some(eq) = self
+            .objects
+            .get_mut(h)
+            .and_then(|o| o.equipped.as_deref_mut())
+        {
+            for e in eq.equipment.iter_mut() {
+                for event in e.events.drain(..) {
+                    self.events.push(WorldEvent::Equip {
+                        owner: owner_id,
+                        equip: e.id,
+                        event,
+                    });
+                }
+            }
         }
         self.sync_shield_collisions(h);
         if behavior && let Some(mut hook) = self.take_behavior() {

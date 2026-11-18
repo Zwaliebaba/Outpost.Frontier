@@ -30,6 +30,7 @@
 //! every body is the default part and no hardpoint is found.
 
 mod combat;
+mod sensors;
 mod spawn;
 mod step;
 mod turret;
@@ -54,6 +55,7 @@ use crate::equip::{EquipEvent, SubObjId};
 use super::{Arena, DamageList, ObjHandle, Object};
 
 pub use combat::damage_sub_obj;
+pub use sensors::{EquipStatus, EquipmentVal, equipment_val};
 pub(crate) use spawn::shield_status;
 pub use spawn::{LootSpawn, ProjectileSpawn, ShipSpawn, SolarSpawn, SpawnError};
 

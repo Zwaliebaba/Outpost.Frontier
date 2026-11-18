@@ -246,6 +246,102 @@ fn the_shield_generator_regenerates_the_shield() {
     assert!(later > hit, "the damaged shield regenerates");
 }
 
+#[test]
+fn scanner_lists_and_tractor_pulls() {
+    use game_sim::equip::misc::TractorFailure;
+    use game_sim::object::world::{EquipStatus, LootSpawn, equipment_val};
+    let Some(mut world) = support::world::world(WorldConfig::default()) else {
+        println!("outdir/ is missing: no sensors");
+        return;
+    };
+    let system = create_id(b"he01");
+    world.load_system(system);
+    let ship = fighter(&mut world, system, Vector::new(15000.0, 3000.0, -25000.0));
+    let other = fighter(&mut world, system, Vector::new(15000.0, 3000.0, -25400.0));
+    let far = fighter(&mut world, system, Vector::new(15000.0, 3000.0, -45000.0));
+    let loot = world
+        .spawn_loot(
+            system,
+            &LootSpawn {
+                archetype: create_id(b"ge_s_cm_01_ammo_crate"),
+                contents: create_id(b"ge_s_cm_01_ammo"),
+                units: 5,
+                contents_hit_pts: 10.0,
+                owner: 0,
+                position: Vector::new(15000.0, 3000.0, -25060.0),
+                velocity: Vector::ZERO,
+            },
+        )
+        .expect("loot spawns");
+    for _ in 0..15 {
+        world.step(system, 1.0 / 30.0);
+    }
+    let seen = world.scan_list(ship);
+    println!("scan list: {} objects", seen.len());
+    assert!(seen.contains(&other), "the near fighter is listed");
+    assert!(!seen.contains(&ship), "never the owner");
+    assert!(
+        !seen.contains(&far),
+        "the far fighter is out of radar range"
+    );
+
+    // Equipment status of a gun: active, powered, ready.
+    let gun = world.unguided_guns(ship)[0];
+    let status = world.equipment_status(ship, gun).expect("a gun");
+    println!("gun status {status:?}");
+    assert_eq!(status.flags & EquipStatus::ACTIVE, EquipStatus::ACTIVE);
+    assert_eq!(
+        status.equip_flags & (EquipStatus::POWER_OK | EquipStatus::REFIRE_READY),
+        EquipStatus::POWER_OK | EquipStatus::REFIRE_READY
+    );
+    assert!(matches!(
+        world.equipment_val(ship, gun, equipment_val::MUZZLE_VELOCITY, 0.0),
+        Ok(game_sim::object::world::EquipmentVal::Float(v)) if v > 0.0
+    ));
+    assert_eq!(world.equipment_status(ship, 0x7777), Err(-2));
+
+    // The tractor reaches for the loot, holds it and asks to consume it.
+    let tractor = world
+        .get(ship)
+        .and_then(|o| o.as_equipped())
+        .and_then(|eq| eq.equipment.first(types::TRACTOR))
+        .map(|e| e.id)
+        .expect("a tractor");
+    assert_eq!(
+        world.tractor_add_target(ship, tractor, loot),
+        TractorFailure::Ok
+    );
+    assert_eq!(
+        world.tractor_add_target(ship, tractor, far),
+        TractorFailure::NoContents
+    );
+    world.take_events();
+    let mut reached = None;
+    let mut consumed = None;
+    for tick in 1..=120u32 {
+        world.step(system, 1.0 / 30.0);
+        for ev in world.take_events() {
+            if let WorldEvent::Equip { event, .. } = ev {
+                match event {
+                    game_sim::equip::EquipEvent::TractorReached(_) => {
+                        reached = reached.or(Some(tick))
+                    }
+                    game_sim::equip::EquipEvent::TractorConsume(_) => {
+                        consumed = consumed.or(Some(tick))
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    println!("tractor reached at {reached:?}, consume at {consumed:?}");
+    let (r, c) = (
+        reached.expect("the tip reaches the loot"),
+        consumed.expect("consumed"),
+    );
+    assert!(c > r + 25, "the tip holds the loot about a second");
+}
+
 /// A gun's turret joints, as the world holds them.
 fn gun_joints(
     world: &game_sim::object::World,

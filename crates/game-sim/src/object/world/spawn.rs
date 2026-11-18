@@ -1044,6 +1044,7 @@ impl World {
         ] {
             self.register(h, which);
         }
+        self.init_tractor_source(h);
         if let Some(obj) = self.objects.get_mut(h) {
             let owner = obj.simple.owner_player;
             let (Some(eq), KindData::Ship(ship)) = (obj.equipped.as_deref_mut(), &mut obj.data)
