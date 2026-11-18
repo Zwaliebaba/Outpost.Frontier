@@ -82,6 +82,10 @@ pub mod vertex_flags {
     /// Stage 0 and stage 1 have a texture bound.
     pub const TEXTURE0: u32 = 1 << 9;
     pub const TEXTURE1: u32 = 1 << 10;
+    /// Stage 0 and stage 1 have a cube map bound (`LoadCubemap`): the
+    /// stage samples its cube view with three coordinates.
+    pub const CUBE0: u32 = 1 << 11;
+    pub const CUBE1: u32 = 1 << 12;
 }
 
 /// Bits of the fog word (register [`reg::FLAGS`], `z`).
@@ -281,12 +285,14 @@ fn pack_light(r: &mut Registers, slot: u32, light: &LightData, view: &M64) {
 }
 
 /// The constant buffer for one draw: `constants` for vertices of `fvf`,
-/// with textures bound on the stages `bound` marks, into `viewport`.
+/// with textures bound on the stages `bound` marks (cube maps on those
+/// `cube` marks), into `viewport`.
 #[must_use]
 pub fn pack(
     constants: &DrawConstants,
     fvf: Fvf,
     bound: [bool; SHADER_STAGES],
+    cube: [bool; SHADER_STAGES],
     viewport: ViewportRect,
 ) -> Vec<u8> {
     let mut r = Registers(vec![0; CONSTANT_BYTES]);
@@ -324,6 +330,8 @@ pub fn pack(
     set(constants.color_vertex, vertex_flags::COLOR_VERTEX);
     set(bound[0], vertex_flags::TEXTURE0);
     set(bound[1], vertex_flags::TEXTURE1);
+    set(bound[0] && cube[0], vertex_flags::CUBE0);
+    set(bound[1] && cube[1], vertex_flags::CUBE1);
 
     let mut lights = 0;
     if let Some(lighting) = &constants.lighting {
@@ -465,7 +473,7 @@ mod tests {
         // XYZ | DIFFUSE | TEX1 with a 2D set.
         let fvf = Fvf(0x142);
         let c = DrawConstants::new(&m, &t, &l, fvf);
-        let b = pack(&c, fvf, [true, false], VIEWPORT);
+        let b = pack(&c, fvf, [true, false], [false; 2], VIEWPORT);
         assert_eq!(b.len(), CONSTANT_BYTES);
         let flags = u(&b, reg::FLAGS, 0);
         assert_eq!(flags, vertex_flags::HAS_DIFFUSE | vertex_flags::TEXTURE0);
@@ -507,7 +515,7 @@ mod tests {
         l.flush().unwrap();
         let fvf = Fvf(0x112);
         let c = DrawConstants::new(&m, &t, &l, fvf);
-        let b = pack(&c, fvf, [false; 2], VIEWPORT);
+        let b = pack(&c, fvf, [false; 2], [false; 2], VIEWPORT);
         assert_eq!(u(&b, reg::COUNTS, 0), 1);
         let v = widen(&c.view);
         let want = transform([1.0, 2.0, 3.0], 1.0, &v);
