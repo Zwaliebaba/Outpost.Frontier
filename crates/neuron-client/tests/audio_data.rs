@@ -5,7 +5,7 @@
 //! ([`decode_archetype`]) and streaming ([`StreamSource`]) give the same
 //! samples, the decoder accepts every frame, and no sound decodes to more samples than its `fact` chunk
 //! allows. Nothing is compared with the oracle: MP3 decoders are not
-//! bit-exact (divergence D271).
+//! bit-exact (divergence D273).
 
 use std::collections::HashMap;
 use std::fs;

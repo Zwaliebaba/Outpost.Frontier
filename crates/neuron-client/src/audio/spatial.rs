@@ -4,7 +4,7 @@
 //! [`Listener`] and [`Emitter`] without platform code.
 //!
 //! The reference set these on DirectSound 3D buffers, whose model the port
-//! keeps where X3DAudio has a counterpart (divergence D273):
+//! keeps where X3DAudio has a counterpart (divergence D275):
 //!
 //! - Vectors are the stored ones, already in the left-handed frame both
 //!   DirectSound 3D and X3DAudio use (the listener's Z scale did that). The

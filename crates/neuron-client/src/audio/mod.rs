@@ -19,9 +19,9 @@
 //!   gapless trim, and the streamer itself over a voice queue.
 //! - [`wav`]: the RIFF/WAVE walk of the two loaders.
 //! - [`decode`]: archetype and stream decoding; MPEG Layer III through
-//!   `symphonia` (decision T13, divergence D271).
+//!   `symphonia` (decision T13, divergence D273).
 //! - [`spatial`]: the X3DAudio inputs of 3D voices and the pan matrix of
-//!   2D voices (owner decision O26, divergences D273 and D275).
+//!   2D voices (owner decision O26, divergences D275 and D277).
 //! - [`voice`]: how a device voice queues an archetype and measures a
 //!   stream's queue.
 //!
@@ -46,7 +46,7 @@
 //! - Device selection (`deviceID`), the speaker table, the primary buffer,
 //!   the notify thread (native loop regions replace it), the streamer's
 //!   ring buffer (a voice queue replaces it, divergence D227), and the
-//!   Audio Compression Manager (`symphonia` replaces it, divergence D271).
+//!   Audio Compression Manager (`symphonia` replaces it, divergence D273).
 
 pub mod config;
 pub mod decode;

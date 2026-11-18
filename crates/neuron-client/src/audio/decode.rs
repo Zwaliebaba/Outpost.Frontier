@@ -9,7 +9,7 @@
 //! found by its display name, which suggests 16-bit PCM of the same rate
 //! and channels; `symphonia` decodes it here (decision T13). MP3 decoders
 //! are not bit-exact, so the samples differ slightly from the codec's
-//! (divergence D271); lengths, trim and the `fact` cut follow the
+//! (divergence D273); lengths, trim and the `fact` cut follow the
 //! reference.
 //!
 //! - [`decode_archetype`]: `WavLibLoad` and `WavLibAcmDecode`, the whole
@@ -464,7 +464,7 @@ impl StreamSource {
     /// The buffer a stream of `seconds` holds: `avg * seconds` for PCM;
     /// for MP3 the same for the decoded rate (the reference asks the codec
     /// for the PCM size of `avg * seconds` compressed bytes; divergence
-    /// D272).
+    /// D274).
     #[must_use]
     pub fn buffer_bytes(&self, seconds: f32) -> u32 {
         buffer_bytes(self.format.bytes_per_sec, seconds)

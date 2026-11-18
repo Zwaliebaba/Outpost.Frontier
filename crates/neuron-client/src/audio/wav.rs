@@ -14,7 +14,7 @@
 //! The reference reads the format block and the sample data through the
 //! chunk headers without checking that they lie inside the mapping. The port
 //! checks: a format block that ends past the file is an error, and the
-//! sample data is cut at the end of the file (divergence D270).
+//! sample data is cut at the end of the file (divergence D272).
 
 /// `WAVE_FORMAT_PCM`.
 pub const WAVE_FORMAT_PCM: u16 = 1;
@@ -66,10 +66,10 @@ pub enum WavError {
     /// The `fmt ` chunk is smaller than the loader requires.
     ShortFormat,
     /// The format block lies past the end of the file; the reference reads
-    /// outside its mapping (divergence D270).
+    /// outside its mapping (divergence D272).
     FormatOutOfRange,
     /// The chunk walk returned to the start of the file a second time; the
-    /// reference loops forever (divergence D270).
+    /// reference loops forever (divergence D272).
     ChunkLoop,
 }
 
