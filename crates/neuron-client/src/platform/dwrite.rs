@@ -10,8 +10,9 @@
 //! a bitmap font DirectWrite cannot use) is replaced by Arial, where GDI's
 //! mapper picks a substitute of its own (divergence D290).
 //!
-//! The pixel em size, the text metrics and the rounding of advances follow
-//! GDI's mapping ([`crate::text::font::gdi`]); the advances themselves are
+//! The pixel em size (from the face's `VDMX` table where it has one), the
+//! text metrics and the rounding of advances follow GDI's mapping
+//! ([`crate::text::font::gdi`]); the advances themselves are
 //! DirectWrite's GDI-compatible (hinted) advances at that em size, and the
 //! glyphs are rasterised in the GDI-classic rendering mode with grayscale
 //! antialiasing, as the reference's `ANTIALIASED_QUALITY` asked of GDI.
@@ -32,7 +33,7 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::core::{BOOL, w};
 
-use crate::text::font::gdi::FaceTables;
+use crate::text::font::gdi::{FaceTables, Vdmx};
 use crate::text::font::{FaceHandle, FontBackend, LogFont, TextMetrics};
 
 /// The face that stands in for one DirectWrite does not have.
@@ -283,8 +284,8 @@ impl FontBackend for DWriteBackend {
         let hhea = Self::table(&face, b"hhea")?;
         let os2 = Self::table(&face, b"OS/2");
         let tables = FaceTables::parse(&head, &hhea, os2.as_deref())?;
-        let ppem = tables.ppem_for_height(log_font.height);
-        let metrics = tables.text_metrics(ppem);
+        let vdmx = Self::table(&face, b"VDMX").and_then(|t| Vdmx::parse(&t));
+        let (ppem, metrics) = tables.realise(vdmx.as_ref(), log_font.height);
         self.next += 1;
         self.faces.insert(
             self.next,

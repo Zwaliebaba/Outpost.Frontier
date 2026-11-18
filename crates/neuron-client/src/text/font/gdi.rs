@@ -7,7 +7,10 @@
 //! and the text metrics are the font's design values scaled to it and
 //! rounded. Windows does not document this; the arithmetic here is Wine's
 //! reimplementation of it (`dlls/win32u/freetype.c`, FreeType's 16.16
-//! fixed point), which matches Windows for faces without a `VDMX` table.
+//! fixed point). A face with a `VDMX` table (Arial, Segoe UI and most
+//! Windows core faces) is realised from that table instead: its records
+//! give the em size whose hinted extent fits the cell height, and the
+//! ascent and descent at it ([`Vdmx`], Wine's `load_VDMX`).
 //! The DirectWrite backend applies it to the em size and to the
 //! GDI-compatible advances DirectWrite gives (divergence D290).
 
@@ -91,6 +94,25 @@ impl FaceTables {
         ppem.max(1).cast_unsigned()
     }
 
+    /// The em size and text metrics GDI realises `lf_height` at: from the
+    /// `VDMX` group when the face has one that covers the height, from
+    /// [`FaceTables::ppem_for_height`] and [`FaceTables::text_metrics`]
+    /// otherwise.
+    #[must_use]
+    pub fn realise(&self, vdmx: Option<&Vdmx>, lf_height: i32) -> (u32, TextMetrics) {
+        if let Some(r) = vdmx.and_then(|v| v.for_height(lf_height)) {
+            let ppem = u32::from(r.ppem.max(1));
+            let mut tm = self.text_metrics(ppem);
+            tm.ascent = i32::from(r.y_max);
+            tm.descent = -i32::from(r.y_min);
+            tm.height = tm.ascent + tm.descent;
+            tm.internal_leading = tm.height - ppem.cast_signed();
+            return (ppem, tm);
+        }
+        let ppem = self.ppem_for_height(lf_height);
+        (ppem, self.text_metrics(ppem))
+    }
+
     /// FreeType's scale for `ppem`: 26.6 pixels per design unit in 16.16.
     #[must_use]
     pub fn scale(&self, ppem: u32) -> i64 {
@@ -126,6 +148,94 @@ impl FaceTables {
             ave_char_width: self.pixels(ppem, i32::from(self.x_avg_char_width)),
             max_char_width: self.pixels(ppem, i32::from(self.x_max) - i32::from(self.x_min)),
         }
+    }
+}
+
+/// One record of a `VDMX` group: the hinted extent of the face at an em
+/// size.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VdmxRecord {
+    pub ppem: u16,
+    pub y_max: i16,
+    pub y_min: i16,
+}
+
+/// The `VDMX` group GDI uses on a 1:1 (96 x 96 DPI) device, in the
+/// table's order (ascending em size).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Vdmx {
+    pub records: Vec<VdmxRecord>,
+}
+
+impl Vdmx {
+    /// The group of the first ratio record that applies to a 1:1 device:
+    /// one for every ratio (0:0-0), or one with `xRatio` 1 and 1 between
+    /// its `yStartRatio` and `yEndRatio`. As in Wine, ratio records with
+    /// `bCharSet` 0 are passed over. `None` when the table is malformed or
+    /// no ratio applies.
+    #[must_use]
+    pub fn parse(table: &[u8]) -> Option<Vdmx> {
+        let num_ratios = usize::from(be_u16(table, 4)?);
+        let mut group = None;
+        for i in 0..num_ratios {
+            let at = 6 + i * 4;
+            let (char_set, x, y_start, y_end) = (
+                *table.get(at)?,
+                *table.get(at + 1)?,
+                *table.get(at + 2)?,
+                *table.get(at + 3)?,
+            );
+            if char_set == 0 {
+                continue;
+            }
+            if (x == 0 && y_start == 0 && y_end == 0) || (x == 1 && y_start <= 1 && y_end >= 1) {
+                group = Some(usize::from(be_u16(table, 6 + num_ratios * 4 + i * 2)?));
+                break;
+            }
+        }
+        let group = group?;
+        let recs = usize::from(be_u16(table, group)?);
+        let mut records = Vec::with_capacity(recs);
+        for i in 0..recs {
+            let at = group + 4 + i * 6;
+            records.push(VdmxRecord {
+                ppem: be_u16(table, at)?,
+                y_max: be_i16(table, at + 2)?,
+                y_min: be_i16(table, at + 4)?,
+            });
+        }
+        Some(Vdmx { records })
+    }
+
+    /// The record GDI realises `lf_height` at (0 counts as 16): for a cell
+    /// height, the last record whose `yMax - yMin` does not exceed it; for
+    /// an em height, the record of that em size. `None` when the group does
+    /// not cover the height, or the record's `yMax` is 0 (Wine's test for
+    /// "found"); GDI then scales the design metrics.
+    #[must_use]
+    pub fn for_height(&self, lf_height: i32) -> Option<VdmxRecord> {
+        let height = if lf_height == 0 { 16 } else { lf_height };
+        let found = if height > 0 {
+            let mut found = None;
+            for (i, r) in self.records.iter().enumerate() {
+                let extent = i32::from(r.y_max) - i32::from(r.y_min);
+                if extent == height {
+                    found = Some(*r);
+                    break;
+                }
+                if extent > height {
+                    found = i.checked_sub(1).map(|j| self.records[j]);
+                    break;
+                }
+            }
+            found
+        } else {
+            self.records
+                .iter()
+                .find(|r| i32::from(r.ppem) == height.saturating_neg())
+                .copied()
+        };
+        found.filter(|r| r.y_max != 0)
     }
 }
 
@@ -195,7 +305,9 @@ mod tests {
     #[test]
     fn arial_at_cell_heights() {
         let a = arial();
-        // lfHeight 16 is a 14-pixel em: GDI's tmHeight 16, ascent 13.
+        // Without a VDMX table, lfHeight 16 is a 14-pixel em: tmHeight
+        // 16, ascent 13. (Arial has one; GDI realises it at 13, see
+        // `vdmx_picks_the_largest_fitting_em`.)
         assert_eq!(a.ppem_for_height(16), 14);
         let tm = a.text_metrics(14);
         assert_eq!((tm.height, tm.ascent, tm.descent), (16, 13, 3));
@@ -226,5 +338,72 @@ mod tests {
         let no_os2 = FaceTables::parse(&head, &hhea, Some(&os2[..68])).unwrap();
         assert_eq!((no_os2.win_ascent, no_os2.win_descent), (1854, 434));
         assert_eq!(FaceTables::parse(&head[..20], &hhea, None), None);
+    }
+
+    /// A `VDMX` table with a charset-0 ratio (skipped), then a 1:1 ratio,
+    /// whose group holds `records`.
+    fn vdmx_bytes(records: &[(u16, i16, i16)]) -> Vec<u8> {
+        let mut t = Vec::new();
+        t.extend_from_slice(&1u16.to_be_bytes()); // version
+        t.extend_from_slice(&1u16.to_be_bytes()); // numRecs
+        t.extend_from_slice(&2u16.to_be_bytes()); // numRatios
+        t.extend_from_slice(&[0, 0, 0, 0]);
+        t.extend_from_slice(&[1, 1, 1, 1]);
+        let group = (t.len() + 4) as u16;
+        t.extend_from_slice(&group.to_be_bytes());
+        t.extend_from_slice(&group.to_be_bytes());
+        t.extend_from_slice(&(records.len() as u16).to_be_bytes());
+        t.extend_from_slice(&[8, 40]);
+        for &(ppem, y_max, y_min) in records {
+            t.extend_from_slice(&ppem.to_be_bytes());
+            t.extend_from_slice(&y_max.to_be_bytes());
+            t.extend_from_slice(&y_min.to_be_bytes());
+        }
+        t
+    }
+
+    #[test]
+    fn vdmx_picks_the_largest_fitting_em() {
+        // Arial's hinted extents as GDI reported them on the CI runner
+        // (tests/vectors/gdi_fonts.jsonl): lfHeight 12 is a 9-pixel em,
+        // ascent 9, descent 3; lfHeight -12 a 12-pixel em, 12 + 3.
+        let v = Vdmx::parse(&vdmx_bytes(&[
+            (9, 9, -3),
+            (10, 10, -3),
+            (11, 11, -3),
+            (12, 12, -3),
+            (13, 13, -3),
+        ]))
+        .unwrap();
+        assert_eq!(v.records.len(), 5);
+        let r = v.for_height(12).unwrap();
+        assert_eq!((r.ppem, r.y_max, r.y_min), (9, 9, -3));
+        assert_eq!(v.for_height(14).unwrap().ppem, 11);
+        assert_eq!(v.for_height(16).unwrap().ppem, 13);
+        assert_eq!(v.for_height(11), None);
+        assert_eq!(v.for_height(17), None);
+        assert_eq!(v.for_height(-12).unwrap().ppem, 12);
+        assert_eq!(v.for_height(-20), None);
+
+        let a = arial();
+        let (ppem, tm) = a.realise(Some(&v), 12);
+        assert_eq!(ppem, 9);
+        assert_eq!(
+            (tm.height, tm.ascent, tm.descent, tm.internal_leading),
+            (12, 9, 3, 3)
+        );
+        let (ppem, tm) = a.realise(Some(&v), -12);
+        assert_eq!((ppem, tm.height, tm.internal_leading), (12, 15, 3));
+        // Beyond the group, the design metrics scale.
+        assert_eq!(a.realise(Some(&v), 40).0, a.ppem_for_height(40));
+        assert_eq!(a.realise(None, 16).0, 14);
+    }
+
+    #[test]
+    fn vdmx_without_a_matching_ratio_is_none() {
+        let mut t = vdmx_bytes(&[(9, 9, -3)]);
+        t[10..14].copy_from_slice(&[1, 2, 1, 1]);
+        assert_eq!(Vdmx::parse(&t), None);
+        assert_eq!(Vdmx::parse(&t[..5]), None);
     }
 }
