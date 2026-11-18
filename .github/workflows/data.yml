@@ -111,6 +111,8 @@ jobs:
                 Get-Content $events | ForEach-Object { $_ | ConvertFrom-Json } |
                   Group-Object { "$($_.rec) $($_.obj ?? $_.shooter_obj ?? $_.a_obj ?? $_.ship_obj)->$($_.target_obj ?? $_.b_obj ?? $_.dock_obj ?? $_.killer_obj)" } |
                   ForEach-Object { "$($dir.Name)/$($run.Name) events: $($_.Count) x $($_.Name)" }
+                Select-String -Path $events -Pattern '"rec":"destroyed"' |
+                  ForEach-Object { "$($dir.Name)/$($run.Name) destroyed: $($_.Line)" }
               }
               $ticks = Join-Path $run.FullName 'tick.jsonl'
               if ((Test-Path $ticks) -and (Select-String -Path $ticks -Pattern '"behavior":[0-9]' -Quiet)) {
