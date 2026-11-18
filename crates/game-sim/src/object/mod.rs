@@ -220,7 +220,36 @@ pub struct Physical {
     /// manager's `get_mass_center`, which `PhySys::GetCenterOfMass`
     /// reads whether or not the core is pinned to the origin).
     pub mass_center: [f32; 3],
+    /// The free (`!fxd`) parts `BuildIVP_Real` made objects of their own
+    /// (a solar's, held by golems; D122).
+    pub free_parts: Vec<FreePart>,
 }
+
+/// A free part of a compound (`PhySys_BuildInstanceIVP_Real`): in the
+/// reference a `CObject` of class 1 with its own body and a golem holding
+/// it at the instance's frame; here the body and the part map entries the
+/// part took from its owner, kept on the owner (D122).
+#[derive(Clone, Debug, PartialEq)]
+pub struct FreePart {
+    /// The part's body; its key is [`free_part_key`]'s.
+    pub body: BodyHandle,
+    /// The part map of the part's object: its own part first, then the
+    /// fixed parts below it.
+    pub part_map: Vec<PartMapEntry>,
+}
+
+/// The generation the body keys of free parts carry: no object handle has
+/// it, so a free part's key resolves to no object.
+pub const FREE_PART_GENERATION: u32 = u32::MAX;
+
+/// The body key of the `serial`-th free part.
+#[must_use]
+pub const fn free_part_key(serial: u32) -> u64 {
+    ((FREE_PART_GENERATION as u64) << 32) | serial as u64
+}
+
+/// `CObject::ClassObject`, the class of a free part's object.
+pub const FREE_PART_CLASS: u32 = 1;
 
 /// `CSimple` (0x9c..0xe4).
 #[derive(Clone, Debug, PartialEq)]

@@ -6,8 +6,8 @@
 //! nozzles of `CEEngine::CEEngine`).
 
 use neuron_core::hash::name_crc32;
-use neuron_core::math::{Matrix, Vector};
-use neuron_core::physics::{BodyDesc, CONTROLLER_PRIORITY, CreateParms, Geometry};
+use neuron_core::math::{Matrix, Vector, matrix_to_quaternion};
+use neuron_core::physics::{BodyDesc, CONTROLLER_PRIORITY, CreateParms, Geometry, GolemParms};
 use neuron_core::scene::{InstanceId, connect_hardpoints};
 
 use crate::data::archetype::equipment::{Equipment, EquipmentKind};
@@ -23,8 +23,9 @@ use crate::object::projectile::{
 use crate::object::ship::ShipData;
 use crate::object::solar::{SolarData, body_damping};
 use crate::object::{
-    ArchGroup, DockingPoint, EngineObject, Equipped, KindData, ObjHandle, Object, ObjectKind,
-    PartMapEntry, Physical, Simple, asteroid, loot::LootData,
+    ArchGroup, DockingPoint, EngineObject, Equipped, FREE_PART_CLASS, FreePart, KindData,
+    ObjHandle, Object, ObjectKind, PartMapEntry, Physical, Simple, asteroid, free_part_key,
+    loot::LootData,
 };
 
 use super::{ControllerRef, World};
@@ -287,6 +288,134 @@ impl World {
             if has_parts {
                 obj.physical.ledge_parts = ledge_parts;
             }
+        }
+        self.refresh_parts(h);
+    }
+
+    /// The rest of `PhySys::BuildIVP_Real` for a construction of type 1
+    /// (`CSolar::init_physics`): the walk of the instance tree below the
+    /// root (`PhySys_BuildInstanceIVP_Real`), which makes every free
+    /// (`!fxd`) part an object of its own, with a body built from the
+    /// golem-child parameters at the instance's frame and a golem holding
+    /// it there (`AttachGolemController` mode 1); the parts below a free
+    /// part go to it. The bodies are made in the walk's order, depth first,
+    /// so their cores join the wake queue in the reference's order.
+    fn build_free_parts(&mut self, h: ObjHandle, parms: &CreateParms) {
+        let Some(obj) = self.objects.get(h) else {
+            return;
+        };
+        let (system, kind, archetype, root) = (
+            obj.physical.system,
+            obj.kind,
+            obj.archetype,
+            obj.engine.instance,
+        );
+        if obj.physical.body.is_none() {
+            return;
+        }
+        let Some(root) = root else {
+            return;
+        };
+        let path = self.archetype_path(kind, archetype);
+        let Some(parts) = self.surface_parts(archetype, &path) else {
+            return;
+        };
+        let constants = super::phy_sys_constants(&self.data);
+        let child = CreateParms {
+            mass: constants.golem_child_mass,
+            linear_damping: constants.golem_child_linear_damp,
+            angular_damping: constants.golem_child_angular_damp,
+            name: parms.name.clone(),
+            enable_collisions: parms.enable_collisions,
+            inertia: parms.inertia,
+        };
+        let golem = GolemParms::for_part(&constants);
+        let pin = !self.config.single_player;
+        let children = |world: &World, i: InstanceId| {
+            let mut out = Vec::new();
+            let mut cursor = None;
+            while let Some(c) = world.scene.related_instance(Some(i), 1, cursor) {
+                out.push(c);
+                cursor = Some(c);
+            }
+            out
+        };
+        // (instance, the free part that owns it; None: the root object)
+        let mut stack: Vec<(InstanceId, Option<usize>)> = children(self, root)
+            .into_iter()
+            .rev()
+            .map(|c| (c, None))
+            .collect();
+        let mut free: Vec<FreePart> = Vec::new();
+        let mut moved: Vec<InstanceId> = Vec::new();
+        while let Some((i, owner)) = stack.pop() {
+            let (_, part_id) = self.scene.instance_name(Some(i));
+            let entry = PartMapEntry {
+                part_id,
+                instance: Some(i),
+                shield_part: false,
+            };
+            let is_free = parts.get(&part_id).is_some_and(|p| !p.not_fixed);
+            let next_owner = if is_free {
+                let (orientation, position) = self.instance_frame(Some(i));
+                let geometry = World::part_geometry(Some(&parts), part_id).0;
+                let key = free_part_key(self.next_free_part);
+                self.next_free_part = self.next_free_part.wrapping_add(1);
+                let Some(world) = self.physics.world_mut(system) else {
+                    return;
+                };
+                let body = world.create_body(BodyDesc {
+                    user_key: key,
+                    geometry,
+                    parms: child.clone(),
+                    position,
+                    orientation,
+                    pin_mass_center: pin,
+                });
+                world.set_collision_state(body, child.enable_collisions);
+                world.set_client_class(body, FREE_PART_CLASS);
+                world.attach_golem_at(body, &golem, position, matrix_to_quaternion(&orientation));
+                free.push(FreePart {
+                    body,
+                    part_map: vec![entry],
+                });
+                moved.push(i);
+                Some(free.len() - 1)
+            } else {
+                if let Some(k) = owner {
+                    free[k].part_map.push(entry);
+                    moved.push(i);
+                }
+                owner
+            };
+            for c in children(self, i).into_iter().rev() {
+                stack.push((c, next_owner));
+            }
+        }
+        if free.is_empty() {
+            return;
+        }
+        // The surface manager of each part's object hides the ledges of
+        // parts its part map lacks.
+        if let Some(world) = self.physics.world_mut(system) {
+            for part in &free {
+                let own: Vec<u32> = part.part_map.iter().map(|e| e.part_id).collect();
+                let mut ledge_parts: Vec<u32> = world
+                    .ledge_part_ids(part.body)
+                    .into_iter()
+                    .filter(|p| !own.contains(p))
+                    .collect();
+                ledge_parts.dedup();
+                for p in ledge_parts {
+                    world.set_part_attached(part.body, p, false);
+                }
+            }
+        }
+        if let Some(obj) = self.objects.get_mut(h) {
+            obj.physical
+                .part_map
+                .retain(|e| e.instance.is_none_or(|i| !moved.contains(&i)));
+            obj.physical.free_parts = free;
         }
         self.refresh_parts(h);
     }
@@ -1171,7 +1300,10 @@ impl World {
             .then_some(arch.solar_radius)
             .filter(|r| *r > 0.0);
         if !path.ends_with(b".sph") || sphere.is_some() {
-            self.build_body(h, parms, sphere, fixed);
+            self.build_body(h, parms.clone(), sphere, fixed);
+            if sphere.is_none() {
+                self.build_free_parts(h, &parms);
+            }
         }
         if !fixed
             && let Some((system, body)) = self.body(h)
@@ -1209,6 +1341,30 @@ impl World {
         system: u32,
         keep: impl Fn(&SolarSpawn) -> bool,
     ) -> Vec<ObjHandle> {
+        let mut out = Vec::new();
+        for spawn in self.system_solar_spawns(system) {
+            if keep(&spawn)
+                && let Ok(h) = self.spawn_solar(system, &spawn)
+            {
+                out.push(h);
+            }
+        }
+        out
+    }
+
+    /// Whether a solar archetype's model has a free (`!fxd`) part, which
+    /// `BuildIVP_Real` makes an object of its own with a body that is a
+    /// simulation unit.
+    pub fn solar_has_free_parts(&mut self, archetype: u32) -> bool {
+        let path = self.archetype_path(ObjectKind::Solar, archetype);
+        self.surface_parts(archetype, &path)
+            .is_some_and(|parts| parts.values().any(|p| !p.not_fixed))
+    }
+
+    /// The solars of a system file's `[Object]` sections in file order, as
+    /// [`World::load_system_solars`] reads them (those with a nickname and
+    /// a known solar archetype), without making them.
+    pub fn system_solar_spawns(&mut self, system: u32) -> Vec<SolarSpawn> {
         self.load_system(system);
         let Some(sys) = self.data.universe.systems.get(&system).cloned() else {
             return Vec::new();
@@ -1273,15 +1429,10 @@ impl World {
                     );
                 }
             }
-            if spawn.nickname == 0
-                || !keep(&spawn)
-                || !self.data.archetypes.solars.contains_key(&spawn.archetype)
-            {
+            if spawn.nickname == 0 || !self.data.archetypes.solars.contains_key(&spawn.archetype) {
                 continue;
             }
-            if let Ok(h) = self.spawn_solar(system, &spawn) {
-                out.push(h);
-            }
+            out.push(spawn);
         }
         out
     }

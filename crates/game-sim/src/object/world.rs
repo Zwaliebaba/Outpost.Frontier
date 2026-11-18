@@ -286,6 +286,8 @@ pub struct World {
     surfaces: BTreeMap<u32, Option<SurParts>>,
     pub(crate) controllers: BTreeMap<u64, (ObjHandle, ControllerRef)>,
     next_controller: u64,
+    /// The serial of the next free part's body key.
+    pub(crate) next_free_part: u32,
     id_alloc: ObjectIdAllocator,
     pub(crate) rng: CrtRand,
     pub(crate) time: f64,
@@ -375,6 +377,7 @@ impl World {
             surfaces: BTreeMap::new(),
             controllers: BTreeMap::new(),
             next_controller: 1,
+            next_free_part: 0,
             id_alloc: ObjectIdAllocator::default(),
             rng: CrtRand::with_seed(config.seed),
             time: 0.0,
@@ -608,6 +611,11 @@ impl World {
         if let (Some(body), Some(world)) = (obj.physical.body, self.physics.world_mut(system)) {
             world.destroy_body(body);
         }
+        if let Some(world) = self.physics.world_mut(system) {
+            for part in &obj.physical.free_parts {
+                world.destroy_body(part.body);
+            }
+        }
         if let Some(instance) = obj.engine.instance {
             self.instances.retain(|_, v| *v != h);
             self.scene.destroy_instance(instance);
@@ -751,6 +759,61 @@ impl World {
         let t = Transform::new(obj.engine.orientation, obj.engine.position);
         self.scene.set_instance_matrix(Some(instance), &t);
         self.scene.update_instance(Some(instance), 0);
+    }
+
+    /// Starts (or stops) recording a system's simulation units per PSI.
+    pub fn set_unit_trace(&mut self, system: u32, on: bool) {
+        if let Some(world) = self.physics.world_mut(system) {
+            world.set_unit_trace(on);
+        }
+    }
+
+    /// A system's recorded simulation units: per PSI, in the order they
+    /// ran, each unit's object as `units.jsonl` names it (`CSimple::Id`,
+    /// 0 for a free part, and the `ObjectClass`) and whether the movement
+    /// check came to it.
+    #[must_use]
+    pub fn unit_trace(&self, system: u32) -> Vec<Vec<(u32, u32, bool)>> {
+        let Some(world) = self.physics.world(system) else {
+            return Vec::new();
+        };
+        world
+            .unit_trace()
+            .iter()
+            .map(|psi| {
+                psi.iter()
+                    .map(|&(key, check)| {
+                        let h = ObjHandle::from_key(key);
+                        let (id, class) = if h.generation() == crate::object::FREE_PART_GENERATION {
+                            (0, crate::object::FREE_PART_CLASS)
+                        } else {
+                            self.objects
+                                .get(h)
+                                .map_or((0, 0), |o| (o.simple.id, o.kind.class()))
+                        };
+                        (id, class, check)
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// A system's recorded unit cores of the first PSIs
+    /// ([`PhysicsWorld::unit_core_trace`]).
+    #[must_use]
+    pub fn unit_core_trace(
+        &self,
+        system: u32,
+    ) -> Vec<
+        Vec<(
+            neuron_core::physics::replay::CoreRecord,
+            neuron_core::physics::replay::CoreRecord,
+        )>,
+    > {
+        self.physics
+            .world(system)
+            .map(|w| w.unit_core_trace().to_vec())
+            .unwrap_or_default()
     }
 
     /// The physics body of an object.
