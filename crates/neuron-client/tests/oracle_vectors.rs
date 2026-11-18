@@ -2,8 +2,8 @@
 //! through the port. `Oracle.exe neuron-client` writes the same files from
 //! the C++ reference (`CppSource/Oracle/oracle_scene_script.cpp`,
 //! `oracle_scene_script_build.cpp`, `oracle_scene_script_runtime.cpp`,
-//! `oracle_text.cpp`, `oracle_audio.cpp`, `oracle_texture.cpp` and
-//! `oracle_big_image.cpp`).
+//! `oracle_text.cpp`, `oracle_audio.cpp`, `oracle_texture.cpp`,
+//! `oracle_big_image.cpp` and `oracle_material.cpp`).
 
 mod support;
 
@@ -12,8 +12,8 @@ use neuron_client::text::rdl::markup;
 
 use support::audio::{self, check_suite_within};
 use support::{
-    check_suite, input_lines, scene_script, scene_script_build, scene_script_runtime, text,
-    texture, unhex,
+    check_suite, input_lines, material, scene_script, scene_script_build, scene_script_runtime,
+    text, texture, unhex,
 };
 
 /// P4.14: the Lua state after each buffer of a case, one fresh state per
@@ -196,4 +196,39 @@ fn scene_script_playback() {
         &scene_script_runtime::playback_lines(),
         16,
     );
+}
+
+/// P4.5: `FMaterialRegex::Compile` and `Search`: the program bytes, the
+/// search hints and the matches (`tests/fixtures/oracle/material_regex.list`).
+#[test]
+fn material_regex() {
+    check_suite("material_regex.jsonl", &material::regex_lines());
+}
+
+/// P4.5: the material library: map rules and `[MaterialMap]`, type
+/// resolution, creation, the master map, groups and reference counts
+/// (`tests/fixtures/oracle/material_library.list`).
+#[test]
+fn material_library() {
+    check_suite("material_library.jsonl", &material::library_lines());
+}
+
+/// P4.5: the global material records (`tests/fixtures/oracle/material_global.list`).
+#[test]
+fn material_global() {
+    check_suite("material_global.jsonl", &material::global_lines());
+}
+
+/// P4.5: material animation: groups, instances, ticks and texture
+/// matrices (`tests/fixtures/oracle/material_animation.list`).
+#[test]
+fn material_animation() {
+    check_suite("material_animation.jsonl", &material::animation_lines());
+}
+
+/// P4.5: the material batcher: rules, bins, queued submissions, the depth
+/// and triangle sorts and the dispatch (`tests/fixtures/oracle/material_batcher.list`).
+#[test]
+fn material_batcher() {
+    check_suite("material_batcher.jsonl", &material::batcher_lines());
 }

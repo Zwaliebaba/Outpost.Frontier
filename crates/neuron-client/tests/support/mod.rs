@@ -6,6 +6,7 @@
 
 pub mod audio;
 pub mod data;
+pub mod material;
 pub mod scene_script;
 pub mod scene_script_build;
 pub mod scene_script_runtime;
