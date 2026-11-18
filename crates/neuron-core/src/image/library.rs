@@ -31,6 +31,14 @@
 //!
 //! Where the reference reads outside a buffer or divides by zero, the
 //! port reports [`Fault`] (see the divergence register).
+//!
+//! That contract is [`ContractRenderer`], which the plain entry points
+//! ([`TextureLoader::load_group`], [`TextureLoader::load_record`],
+//! [`TextureLoader::release`]) use. The `_with` forms take any
+//! [`TextureRenderer`] instead: the client's texture runtime (work package
+//! P4.4) passes its device there, so that the device's answers steer the
+//! rules as the reference's renderer does. The events are recorded either
+//! way.
 
 use std::collections::BTreeMap;
 use std::ops::Range;
@@ -261,6 +269,98 @@ pub struct GroupEntry {
     pub events: Range<usize>,
 }
 
+/// The renderer calls the loading rules make (`CreateTexture`,
+/// `SetTextureLevelData`, `LoadCubemap` and `DestroyTexture` of the
+/// reference's `IRenderPipeline` and `IRPTexture`).
+pub trait TextureRenderer {
+    /// `CreateTexture`: a handle other than 0, or the failure's result.
+    ///
+    /// # Errors
+    ///
+    /// The renderer's result.
+    fn create_texture(
+        &mut self,
+        width: u32,
+        height: u32,
+        format: PixelFormat,
+        levels: u32,
+    ) -> Result<u32, i32>;
+    /// `SetTextureLevelData` with the upload's fields; its `result` is not
+    /// set yet. Returns the result.
+    fn set_level_data(&mut self, upload: &LevelUpload) -> i32;
+    /// `LoadCubemap` on a mapped `CUBE` file, which
+    /// [`super::dds::image_info`] describes as `info`.
+    ///
+    /// # Errors
+    ///
+    /// The renderer's result.
+    fn load_cubemap(&mut self, data: &[u8], info: Option<&ImageInfo>) -> Result<u32, i32>;
+    /// `DestroyTexture`.
+    fn destroy_texture(&mut self, handle: u32);
+}
+
+/// The fixed renderer contract of the module documentation, which the
+/// oracle harness's recording renderer implements the same way.
+#[derive(Clone, Debug)]
+pub struct ContractRenderer {
+    next_handle: u32,
+    /// The level count of each created texture, by handle.
+    created_levels: BTreeMap<u32, u32>,
+}
+
+impl Default for ContractRenderer {
+    fn default() -> Self {
+        Self {
+            next_handle: 1,
+            created_levels: BTreeMap::new(),
+        }
+    }
+}
+
+impl TextureRenderer for ContractRenderer {
+    fn create_texture(
+        &mut self,
+        width: u32,
+        height: u32,
+        _format: PixelFormat,
+        levels: u32,
+    ) -> Result<u32, i32> {
+        if width == 0 || height == 0 || levels == 0 || levels > full_chain(width, height) {
+            return Err(GR_GENERIC);
+        }
+        let handle = self.next_handle;
+        self.next_handle += 1;
+        self.created_levels.insert(handle, levels);
+        Ok(handle)
+    }
+
+    fn set_level_data(&mut self, upload: &LevelUpload) -> i32 {
+        if upload.handle == 0 || upload.format == PixelFormat::UNKNOWN {
+            -2
+        } else if self
+            .created_levels
+            .get(&upload.handle)
+            .is_none_or(|&n| upload.level >= n)
+        {
+            GR_GENERIC
+        } else {
+            0
+        }
+    }
+
+    fn load_cubemap(&mut self, _data: &[u8], info: Option<&ImageInfo>) -> Result<u32, i32> {
+        if info.is_some_and(|i| i.resource_type == dds::RTYPE_CUBETEXTURE) {
+            let handle = self.next_handle;
+            self.next_handle += 1;
+            Ok(handle)
+        } else {
+            Err(GR_GENERIC)
+        }
+    }
+
+    fn destroy_texture(&mut self, _handle: u32) {}
+}
+
 /// A texture library and its recorded renderer calls.
 #[derive(Clone, Debug, Default)]
 pub struct TextureLoader {
@@ -270,9 +370,8 @@ pub struct TextureLoader {
     by_crc: BTreeMap<u32, usize>,
     /// The renderer calls in order.
     pub events: Vec<TextureEvent>,
-    next_handle: u32,
-    /// The level count of each created texture, by handle.
-    created_levels: BTreeMap<u32, u32>,
+    /// The renderer of the plain entry points.
+    contract: ContractRenderer,
     tga_maps: [Option<Vec<u8>>; TGA_MAP_RECORDS],
 }
 
@@ -346,7 +445,6 @@ impl TextureLoader {
     pub fn new(settings: LoaderSettings) -> Self {
         Self {
             settings,
-            next_handle: 1,
             ..Self::default()
         }
     }
@@ -355,6 +453,70 @@ impl TextureLoader {
     #[must_use]
     pub fn settings(&self) -> &LoaderSettings {
         &self.settings
+    }
+
+    /// The settings, to change between loads (the reference reads its
+    /// generic slots and device abilities at each load).
+    pub fn settings_mut(&mut self) -> &mut LoaderSettings {
+        &mut self.settings
+    }
+
+    /// Runs `f` with the contract renderer.
+    fn with_contract<T>(&mut self, f: impl FnOnce(&mut Self, &mut ContractRenderer) -> T) -> T {
+        let mut contract = std::mem::take(&mut self.contract);
+        let out = f(self, &mut contract);
+        self.contract = contract;
+        out
+    }
+
+    /// The records the name map indexes, in the map's order (unsigned
+    /// CRC): `(crc, record)`.
+    pub fn canonical(&self) -> impl Iterator<Item = (u32, usize)> + '_ {
+        self.by_crc.iter().map(|(&crc, &record)| (crc, record))
+    }
+
+    /// The number of records the name map indexes.
+    #[must_use]
+    pub fn canonical_len(&self) -> usize {
+        self.by_crc.len()
+    }
+
+    /// The record the name map holds under `crc` (`FindEntryByCrc`).
+    #[must_use]
+    pub fn find_crc(&self, crc: u32) -> Option<usize> {
+        self.by_crc.get(&crc).copied()
+    }
+
+    /// Removes `crc` from the name map (`CanonicalRecords.erase`); the
+    /// record it held.
+    pub fn unindex(&mut self, crc: u32) -> Option<usize> {
+        self.by_crc.remove(&crc)
+    }
+
+    /// `StoreByNameCrc`: indexes a record by its name's CRC unless the map
+    /// already holds that CRC.
+    pub fn index(&mut self, record: usize) {
+        self.store_by_crc(record);
+    }
+
+    /// Adds a record as `LoadLegacyTextureRecord` leaves one before its
+    /// optional retain: indexed by its name, the reference count as given.
+    pub fn insert_record(&mut self, record: TextureRecord) -> usize {
+        let index = self.records.len();
+        self.records.push(record);
+        self.store_by_crc(index);
+        index
+    }
+
+    /// `DestroyEntry`: the record's own texture is destroyed and the
+    /// record is dead. The name map is not changed.
+    pub fn destroy_record_with(&mut self, record: usize, renderer: &mut dyn TextureRenderer) {
+        let handle = self.records[record].handle;
+        if handle != 0 {
+            self.events.push(TextureEvent::Destroy { handle });
+            renderer.destroy_texture(handle);
+        }
+        self.records[record].alive = false;
     }
 
     /// The live record a name's CRC finds (`FindEntryByCrc`).
@@ -371,12 +533,31 @@ impl TextureLoader {
         self.load_group_each(fs, |_, _| {})
     }
 
+    /// [`Self::load_group`] with `renderer`.
+    pub fn load_group_with(
+        &mut self,
+        fs: &mut dyn FileSystem,
+        renderer: &mut dyn TextureRenderer,
+    ) -> Option<Vec<GroupEntry>> {
+        self.load_group_each_with(fs, renderer, |_, _| {})
+    }
+
     /// [`Self::load_group`], calling `visit` after each child with the
     /// library as that child left it (a record's reference count can grow
     /// with later children).
     pub fn load_group_each(
         &mut self,
         fs: &mut dyn FileSystem,
+        visit: impl FnMut(&Self, &GroupEntry),
+    ) -> Option<Vec<GroupEntry>> {
+        self.with_contract(|this, contract| this.load_group_each_with(fs, contract, visit))
+    }
+
+    /// [`Self::load_group_each`] with `renderer`.
+    pub fn load_group_each_with(
+        &mut self,
+        fs: &mut dyn FileSystem,
+        renderer: &mut dyn TextureRenderer,
         mut visit: impl FnMut(&Self, &GroupEntry),
     ) -> Option<Vec<GroupEntry>> {
         fs.open_node(b"Texture library").ok()?;
@@ -388,7 +569,7 @@ impl TextureLoader {
                 continue;
             }
             let start = self.events.len();
-            let outcome = self.load_record(&*fs, &name, entry.token, false);
+            let outcome = self.load_record_with(&*fs, &name, entry.token, false, renderer);
             if let LoadOutcome::Done {
                 result,
                 record: Some(record),
@@ -419,7 +600,21 @@ impl TextureLoader {
         found: Option<FindToken>,
         retain: bool,
     ) -> LoadOutcome {
-        match self.try_load_record(root, path, found, retain) {
+        self.with_contract(|this, contract| {
+            this.load_record_with(root, path, found, retain, contract)
+        })
+    }
+
+    /// [`Self::load_record`] with `renderer`.
+    pub fn load_record_with(
+        &mut self,
+        root: &dyn FileSystem,
+        path: &[u8],
+        found: Option<FindToken>,
+        retain: bool,
+        renderer: &mut dyn TextureRenderer,
+    ) -> LoadOutcome {
+        match self.try_load_record(root, path, found, retain, renderer) {
             Ok((result, record)) => LoadOutcome::Done { result, record },
             Err(Fault) => LoadOutcome::Fault,
         }
@@ -431,6 +626,7 @@ impl TextureLoader {
         path: &[u8],
         found: Option<FindToken>,
         retain: bool,
+        renderer: &mut dyn TextureRenderer,
     ) -> Result<(i32, Option<usize>), Fault> {
         if let Some(existing) = self.find(path) {
             if retain {
@@ -442,16 +638,16 @@ impl TextureLoader {
             return Ok((GR_GENERIC, None));
         };
         let mut handle = 0;
-        let mut result = self.load_dds(&*texture, &mut handle)?;
+        let mut result = self.load_dds(&*texture, &mut handle, renderer)?;
         if result == NOT_THIS_FORMAT {
-            result = self.load_tga(&*texture, &mut handle)?;
+            result = self.load_tga(&*texture, &mut handle, renderer)?;
         }
         if result == NOT_THIS_FORMAT {
-            result = self.probe_cube(&*texture, &mut handle);
+            result = self.probe_cube(&*texture, &mut handle, renderer);
         }
         let mut record = None;
         if result == NOT_THIS_FORMAT {
-            (result, record) = self.load_legacy(root, &*texture, path, retain)?;
+            (result, record) = self.load_legacy(root, &*texture, path, retain, renderer)?;
         }
         if handle != 0 && result >= 0 {
             record = Some(self.create_record(handle, path, retain));
@@ -459,15 +655,17 @@ impl TextureLoader {
         Ok((result, record))
     }
 
-    fn create(&mut self, width: u32, height: u32, format: PixelFormat, levels: u32) -> u32 {
-        let ok = width != 0 && height != 0 && levels != 0 && levels <= full_chain(width, height);
-        let handle = if ok {
-            let handle = self.next_handle;
-            self.next_handle += 1;
-            self.created_levels.insert(handle, levels);
-            handle
-        } else {
-            0
+    fn create(
+        &mut self,
+        width: u32,
+        height: u32,
+        format: PixelFormat,
+        levels: u32,
+        renderer: &mut dyn TextureRenderer,
+    ) -> u32 {
+        let (handle, result) = match renderer.create_texture(width, height, format, levels) {
+            Ok(handle) => (handle, 0),
+            Err(result) => (0, result),
         };
         self.events.push(TextureEvent::Create {
             width,
@@ -475,7 +673,7 @@ impl TextureLoader {
             format,
             levels,
             handle,
-            result: if ok { 0 } else { GR_GENERIC },
+            result,
         });
         handle
     }
@@ -491,15 +689,9 @@ impl TextureLoader {
         format: PixelFormat,
         source: LevelSource,
         palette: Option<Vec<u8>>,
+        renderer: &mut dyn TextureRenderer,
     ) -> i32 {
-        let result = if handle == 0 || format == PixelFormat::UNKNOWN {
-            -2
-        } else if self.created_levels.get(&handle).is_none_or(|&n| level >= n) {
-            GR_GENERIC
-        } else {
-            0
-        };
-        self.events.push(TextureEvent::Level(LevelUpload {
+        let mut upload = LevelUpload {
             handle,
             level,
             width,
@@ -508,8 +700,11 @@ impl TextureLoader {
             format,
             source,
             palette,
-            result,
-        }));
+            result: 0,
+        };
+        upload.result = renderer.set_level_data(&upload);
+        let result = upload.result;
+        self.events.push(TextureEvent::Level(upload));
         result
     }
 
@@ -560,7 +755,12 @@ impl TextureLoader {
             .unwrap_or(PixelFormat::UNKNOWN)
     }
 
-    fn load_dds(&mut self, texture: &dyn FileSystem, out: &mut u32) -> Result<i32, Fault> {
+    fn load_dds(
+        &mut self,
+        texture: &dyn FileSystem,
+        out: &mut u32,
+        renderer: &mut dyn TextureRenderer,
+    ) -> Result<i32, Fault> {
         let Ok(file) = texture.open_file(&FsDesc::read(b"MIPS")) else {
             return Ok(NOT_THIS_FORMAT);
         };
@@ -597,7 +797,7 @@ impl TextureLoader {
         }
         let (dw, dh) = self.select_dimensions(width, height);
         let target = self.pick(source);
-        let handle = self.create(dw, dh, target, levels);
+        let handle = self.create(dw, dh, target, levels, renderer);
         if handle == 0 {
             return Ok(GR_GENERIC);
         }
@@ -654,6 +854,7 @@ impl TextureLoader {
                 source,
                 source_bytes,
                 None,
+                renderer,
             );
             if result < 0 {
                 return Ok(GR_GENERIC);
@@ -671,7 +872,12 @@ impl TextureLoader {
         TgaHeader::parse(&bytes).unwrap_or_else(|| unreachable!("18 header bytes"))
     }
 
-    fn load_tga(&mut self, texture: &dyn FileSystem, out: &mut u32) -> Result<i32, Fault> {
+    fn load_tga(
+        &mut self,
+        texture: &dyn FileSystem,
+        out: &mut u32,
+        renderer: &mut dyn TextureRenderer,
+    ) -> Result<i32, Fault> {
         let found = texture.find(b"MIP*").unwrap_or_default();
         let Some(first) = found.first() else {
             return Ok(NOT_THIS_FORMAT);
@@ -724,7 +930,7 @@ impl TextureLoader {
             }
             let target = self.pick(source);
             let (dw, dh) = self.select_dimensions(width, height);
-            handle = self.create(dw, dh, target, levels.cast_unsigned());
+            handle = self.create(dw, dh, target, levels.cast_unsigned(), renderer);
         }
         for level in 0..levels.max(0).cast_unsigned() {
             let index = skip as usize;
@@ -754,6 +960,7 @@ impl TextureLoader {
                 format,
                 LevelSource::Decoded(image.pixels),
                 palette,
+                renderer,
             );
         }
         self.tga_maps.fill(None);
@@ -761,7 +968,12 @@ impl TextureLoader {
         Ok(if handle != 0 { 0 } else { GR_GENERIC })
     }
 
-    fn probe_cube(&mut self, texture: &dyn FileSystem, out: &mut u32) -> i32 {
+    fn probe_cube(
+        &mut self,
+        texture: &dyn FileSystem,
+        out: &mut u32,
+        renderer: &mut dyn TextureRenderer,
+    ) -> i32 {
         if !self.settings.cube_maps {
             return NOT_THIS_FORMAT;
         }
@@ -772,15 +984,10 @@ impl TextureLoader {
             return GR_GENERIC;
         };
         let info = dds::image_info(view);
-        let ok = info.is_some_and(|i| i.resource_type == dds::RTYPE_CUBETEXTURE);
-        let handle = if ok {
-            let handle = self.next_handle;
-            self.next_handle += 1;
-            handle
-        } else {
-            0
+        let (handle, result) = match renderer.load_cubemap(view, info.as_ref()) {
+            Ok(handle) => (handle, 0),
+            Err(result) => (0, result),
         };
-        let result = if ok { 0 } else { GR_GENERIC };
         self.events.push(TextureEvent::Cubemap {
             data: view.to_vec(),
             info,
@@ -797,6 +1004,7 @@ impl TextureLoader {
         texture: &dyn FileSystem,
         name: &[u8],
         retain: bool,
+        renderer: &mut dyn TextureRenderer,
     ) -> Result<(i32, Option<usize>), Fault> {
         let Some(texture_count) = read_exact_u32(texture, b"Texture count") else {
             return Ok((NOT_THIS_FORMAT, None));
@@ -810,11 +1018,11 @@ impl TextureLoader {
             let mut child_name = name.to_vec();
             child_name.push(b'_');
             child_name.extend_from_slice(index.to_string().as_bytes());
-            match self.try_load_record(root, &child_name, None, true)? {
+            match self.try_load_record(root, &child_name, None, true, renderer)? {
                 (result, record) if result >= 0 => children.push(record),
                 _ => {
                     for child in children.into_iter().flatten() {
-                        self.release(child, true);
+                        self.release_with(child, true, renderer);
                     }
                     return Ok((GR_GENERIC, None));
                 }
@@ -868,7 +1076,7 @@ impl TextureLoader {
             alive: true,
         });
         for child in children.into_iter().flatten() {
-            self.release(child, false);
+            self.release_with(child, false, renderer);
         }
         self.store_by_crc(record);
         if retain {
@@ -877,7 +1085,9 @@ impl TextureLoader {
         Ok((0, Some(record)))
     }
 
-    fn create_record(&mut self, handle: u32, name: &[u8], retain: bool) -> usize {
+    /// `CreateTextureRecord`: a record of one frame over the whole of its
+    /// own texture, indexed by its name and retained when asked.
+    pub fn create_record(&mut self, handle: u32, name: &[u8], retain: bool) -> usize {
         let record = self.records.len();
         self.records.push(TextureRecord {
             name: name.to_vec(),
@@ -918,9 +1128,19 @@ impl TextureLoader {
     /// frames; with `cleanup`, a count that reaches 0 destroys the record
     /// the name's CRC finds.
     pub fn release(&mut self, record: usize, cleanup: bool) -> i32 {
+        self.with_contract(|this, contract| this.release_with(record, cleanup, contract))
+    }
+
+    /// [`Self::release`] with `renderer`.
+    pub fn release_with(
+        &mut self,
+        record: usize,
+        cleanup: bool,
+        renderer: &mut dyn TextureRenderer,
+    ) -> i32 {
         if self.records[record].frames.len() > 1 {
             for child in self.records[record].children.clone().into_iter().flatten() {
-                self.release(child, cleanup);
+                self.release_with(child, cleanup, renderer);
             }
         }
         let remaining = self.records[record].ref_count.wrapping_sub(1);
@@ -930,11 +1150,7 @@ impl TextureLoader {
         }
         let crc = name_crc32(&self.records[record].name);
         if let Some(indexed) = self.by_crc.remove(&crc) {
-            let handle = self.records[indexed].handle;
-            if handle != 0 {
-                self.events.push(TextureEvent::Destroy { handle });
-            }
-            self.records[indexed].alive = false;
+            self.destroy_record_with(indexed, renderer);
         }
         remaining
     }

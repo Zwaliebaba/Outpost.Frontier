@@ -1,10 +1,16 @@
 //! Every shipped scene script on the original data (`outdir/`, decision
 //! O15) runs in the evaluator and passes both passes of the parser.
 
+use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
+use neuron_client::scene_script::curve::Curve;
+use neuron_client::scene_script::entity::EntityTail;
+use neuron_client::scene_script::playback::{EntityControls, EventRef, Player, state};
+use neuron_client::scene_script::spline::SplinePath;
 use neuron_client::scene_script::{BuildError, BuildState, Step, Value, Vm, build, load};
 
 fn thn_files(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -164,4 +170,116 @@ fn faulting_scripts_report_errors() {
         cases += 1;
     }
     assert_eq!(cases, 11);
+}
+
+/// An engine object that answers every interface, counts the calls and
+/// starts whatever it is asked to.
+struct Counting(Rc<Cell<u64>>);
+
+impl EntityControls for Counting {
+    fn interfaces(&self) -> u32 {
+        0x3fff
+    }
+    fn set_position(&mut self, _: [f32; 3]) {
+        self.0.set(self.0.get() + 1);
+    }
+    fn set_orientation(&mut self, _: [f32; 9]) {
+        self.0.set(self.0.get() + 1);
+    }
+    fn start_motion(&mut self, _: EventRef<'_>) -> i32 {
+        0
+    }
+    fn start_sound(&mut self, _: EventRef<'_>, _: i32) -> i32 {
+        0
+    }
+    fn start_ik(&mut self, _: EventRef<'_>, _: [f32; 3], _: [f32; 9]) -> i32 {
+        0
+    }
+    fn connect_hardpoints(&mut self, _: EventRef<'_>) -> i32 {
+        0
+    }
+    fn psys_start(&mut self) -> i32 {
+        0
+    }
+    fn user_event_start(&mut self, _: EventRef<'_>) -> i32 {
+        0
+    }
+    fn script_start(&mut self, _: i32) -> i32 {
+        0
+    }
+}
+
+/// Every shipped scene script plays to its end: once with nothing attached
+/// (its own motion paths drive the path events) and once with an engine
+/// object on every entity. Each curve and each motion path of the data
+/// evaluates to finite values.
+#[test]
+fn every_shipped_scene_script_plays() {
+    let data = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../outdir/data");
+    let mut files = Vec::new();
+    thn_files(&data, &mut files);
+    if files.is_empty() {
+        println!("outdir/data has no .thn files: nothing to play");
+        return;
+    }
+    files.sort();
+    let (mut curves, mut paths, calls) = (0, 0, Rc::new(Cell::new(0)));
+    for file in &files {
+        let bytes = fs::read(file).unwrap();
+        let mut vm = Vm::new();
+        let mut state = BuildState::new();
+        let summary = load(&mut vm, &bytes).unwrap();
+        let scene = build(&mut vm, &mut state, &bytes, summary, true).unwrap();
+        for desc in scene.events() {
+            if let Some(curve) = desc.common.param_curve.as_ref().and_then(Curve::from_desc) {
+                curves += 1;
+                for i in 0..=16 {
+                    let v = curve.evaluate(i as f32 / 16.0);
+                    assert!(v.is_finite(), "{}: curve at {i}/16", file.display());
+                }
+            }
+        }
+        for desc in scene.entities() {
+            if let EntityTail::MotionPath(m) = &desc.tail
+                && let Some(object) = &m.path
+            {
+                let path = SplinePath::from_desc(object);
+                paths += 1;
+                for i in 0..=16 {
+                    let t = i as f32 / 16.0;
+                    let (mut p, mut q) = ([0.0; 3], [0.0; 4]);
+                    path.evaluate(t, &mut p);
+                    path.orientation_at(t, &mut q);
+                    assert!(
+                        p.iter().chain(&q).all(|v| v.is_finite()),
+                        "{}: path at {t}",
+                        file.display()
+                    );
+                }
+            }
+        }
+        for attach in [false, true] {
+            let mut player = Player::new();
+            player.load(&scene, summary.duration_ms);
+            if attach {
+                let handles: Vec<i32> = player.entity_handles().collect();
+                for handle in handles {
+                    player.attach(handle, Box::new(Counting(calls.clone())));
+                }
+            }
+            player.start(0);
+            let step = (player.duration() / 50).max(50);
+            let mut ticks = 0;
+            while player.state() != state::DONE {
+                player.tick(step);
+                ticks += 1;
+                assert!(ticks < 1000, "{}: does not end", file.display());
+            }
+        }
+    }
+    println!(
+        "{} scripts played; {curves} curves, {paths} motion paths; {} pose calls",
+        files.len(),
+        calls.get()
+    );
 }

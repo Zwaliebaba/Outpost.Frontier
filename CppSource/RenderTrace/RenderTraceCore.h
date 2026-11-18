@@ -132,6 +132,9 @@ namespace RenderTrace
         // Keep this line as the state slot Key (kState calls).
         void KeepAsState(const char* Key);
         void Note(const char* Text);
+        // Marks the line "synthetic": the proxy wrote it for something the renderer did
+        // without a call (LightData).
+        void Synthetic();
 
     private:
         FCall(const FCall&);
@@ -147,6 +150,7 @@ namespace RenderTrace
         bool bActive;
         bool bWrites;
         bool bHasResult;
+        bool bSynthetic;
         GENRESULT Result;
         unsigned long long SeqNo;
         std::string Line;
@@ -199,6 +203,28 @@ namespace RenderTrace
         void OnDeviceReset();
         void OnRenderState(unsigned int State, int Value);
         void OnLightGone(long long LightId);
+        // Light data the renderer reads from the caller's D3DLIGHT8 at its next light flush
+        // (README.md, LightData). AddLight and UpdateLight make a light pending; so does
+        // SetLightEnable on, and CreateBuffers for every live light, since the flush then
+        // reads the data too. RemoveLight and DestroyLight forget the light.
+        void OnLightData(const void* Light);
+        void OnLightEnabled(const void* Light);
+        void OnLightRemoved(const void* Light);
+        // Moves the pending lights (id, the caller's pointer) out, in id order.
+        void TakePendingLights(std::vector<std::pair<long long, const void*> >* Out);
+        // After a successful CreateBuffers: the renderer's defaults as GetRenderState and
+        // GetPipelineState read them (README.md, defaults line). Written in every frame up to
+        // the last selected one and kept as the state slot "DEFAULTS". Read is false where the
+        // getter failed; that entry is left out.
+        void WriteDefaults(const unsigned int* States, const unsigned long* RenderValues, const bool* RenderRead,
+                           size_t RenderCount, const int* PipelineValues, const bool* PipelineRead,
+                           size_t PipelineCount);
+        // A selected frame's reference image after its SwapBuffers: the BMP file's bytes,
+        // or null and the reason it is missing.
+        void WriteFrameImage(const void* Bmp, size_t Size, const char* Note);
+        // Where the frame image is written before it is read back: a .bmp in the temporary
+        // folder, unique to this process and session.
+        std::string FrameImagePath() const;
         void OnVbGone(const void* Vb);
         void OnIbGone(const void* Ib);
         void ResetSelection();
@@ -241,6 +267,7 @@ namespace RenderTrace
         void Flush();
 
         void* CriticalSection; // CRITICAL_SECTION, allocated so this header needs no <windows.h> layout
+        long Instance;         // 1 for trace.jsonl, 2 for trace-2.jsonl, ...
         bool bConfigured;
         bool bTracking;
         bool bFrameRecorded;
@@ -265,6 +292,8 @@ namespace RenderTrace
 
         std::map<std::string, FSlot> Slots;
         std::map<int, const void*> StageTextures;
+        std::map<long long, const void*> LiveLights;    // AddLight or UpdateLight seen, not removed
+        std::map<long long, const void*> PendingLights; // data to read at the next light flush
         bool bSwvpKnown;
         int Swvp;
         FSelection Selection;

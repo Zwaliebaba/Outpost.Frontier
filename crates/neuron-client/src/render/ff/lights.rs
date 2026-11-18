@@ -266,6 +266,25 @@ impl Lights {
         true
     }
 
+    /// The bytes behind a record's data pointer changed without a call:
+    /// the C++ record keeps the caller's pointer and reads it at the flush,
+    /// so a trace's `LightData` line (record 0004, point 11) gives what the
+    /// flush will read. Only the stored data changes: nothing is marked
+    /// dirty or queued, since the renderer saw no call. A record without
+    /// data (a null pointer) reads nothing and stays without. Returns
+    /// whether the record exists and has data.
+    pub fn replace_data(&mut self, key: u64, data: LightData) -> bool {
+        match self.records.get_mut(&key) {
+            Some(Record {
+                data: Some(stored), ..
+            }) => {
+                *stored = data;
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// `Remove`: the record goes; a queued entry of it is cleared.
     fn remove(&mut self, key: u64) {
         if !self.records.contains_key(&key) {
@@ -409,6 +428,25 @@ mod tests {
         l.flush().unwrap();
         assert_eq!(l.draw_lights()[0].1.diffuse()[0], 0.25);
         assert!(!l.update_light(7, light(1, 1.0)));
+    }
+
+    #[test]
+    fn replaced_data_is_read_by_a_pending_flush_only() {
+        let mut l = Lights::new();
+        l.add_light(100, light(3, 0.5));
+        l.set_light_enable(100, true);
+        // The caller changed its struct before the first flush read it.
+        assert!(l.replace_data(100, light(3, 0.75)));
+        l.flush().unwrap();
+        assert_eq!(l.draw_lights()[0].1.diffuse()[0], 0.75);
+        // Without a call nothing is dirty: the device keeps what it got.
+        assert!(l.replace_data(100, light(3, 0.25)));
+        l.flush().unwrap();
+        assert_eq!(l.draw_lights()[0].1.diffuse()[0], 0.75);
+        // A record without data, or none at all, takes nothing.
+        l.set_light(7, light(1, 1.0));
+        assert!(!l.replace_data(7, light(1, 0.5)));
+        assert!(!l.replace_data(8, light(1, 0.5)));
     }
 
     #[test]

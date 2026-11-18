@@ -68,8 +68,8 @@ pub const CURVE_CLASSES: [&str; 11] = [
 
 /// A param curve the parser created from `param_curve`
 /// (`CreateCurveFromLua`): its factory and the keys in the order the
-/// parser added them (`IParamCurve::AddKey`). Sorting and evaluating them
-/// is left to the curve port (`ParamCurve.cpp`).
+/// parser added them (`IParamCurve::AddKey`);
+/// [`super::curve::Curve::from_desc`] makes the curve they describe.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ParamCurve {
     /// One of [`CURVE_CLASSES`].

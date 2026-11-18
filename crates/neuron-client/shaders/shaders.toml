@@ -1,0 +1,36 @@
+# The fixed-function shaders (decision record 0004, section 3). Each entry
+# is one blob in ../compiled_shaders, compiled by `cargo xtask shaders`
+# with the fixed flags of README.md.
+
+[[shader]]
+file = "fixed_function.hlsl"
+entry = "vs_main"
+profile = "vs_5_1"
+output = "fixed_function_vs.cso"
+
+[[shader]]
+file = "fixed_function.hlsl"
+entry = "ps_main"
+profile = "ps_5_1"
+output = "fixed_function_ps.cso"
+
+# SHADEMODE FLAT: the colours are not interpolated.
+[[shader]]
+file = "fixed_function.hlsl"
+entry = "ps_main"
+profile = "ps_5_1"
+output = "fixed_function_ps_flat.cso"
+defines = ["FLAT=1"]
+
+# The final blit through the gamma ramp.
+[[shader]]
+file = "blit.hlsl"
+entry = "vs_main"
+profile = "vs_5_1"
+output = "blit_vs.cso"
+
+[[shader]]
+file = "blit.hlsl"
+entry = "ps_main"
+profile = "ps_5_1"
+output = "blit_ps.cso"

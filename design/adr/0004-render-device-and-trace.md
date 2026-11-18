@@ -177,14 +177,20 @@ relative to `CppSource/`.
    and are stored only. P4.3 confirms the list from the v1 traces and adds
    any state they show in use.
 7. **Conventions.** The vertex shader moves every position by half a pixel
-   (`-1/width`, `+1/height` in clip space, scaled by `w`) so pixel centres
-   fall where Direct3D 8 put them. Pre-transformed (`XYZRHW`) vertices take
+   (`+1/width`, `-1/height` in clip space, scaled by `w`: right and down;
+   corrected on 2026-11-18, P4.2, and confirmed by the owner the same day,
+   from `-1/width`, `+1/height`, which is the shift that makes Direct3D 9
+   sample like Direct3D 10, the opposite direction) so pixel centres fall where Direct3D 8 put them: Direct3D 8
+   samples a pixel at its integer coordinates, Direct3D 12 at its centre. Pre-transformed (`XYZRHW`) vertices take
    the same shift. Matrices are uploaded row-major as the C++ stores them;
    the shaders are compiled with row-major packing (section 3).
 8. **The backend** (`render::d3d12`, `cfg(windows)`, P4.2) owns the device,
    queue, flip-model swap chain, fences, descriptor heaps, a fixed set of
-   static samplers, a per-frame upload ring for dynamic and user-pointer
-   data, default-heap copies of static buffers and textures, the
+   samplers (made once in a shader-visible sampler heap: Direct3D 12 cannot
+   bind the shader's sampler array to static samplers, P4.2, 2026-11-18), a per-frame upload ring for dynamic and user-pointer
+   data, default-heap copies of static buffers and textures (kept current
+   by resource events from the device: create, write on unlock or
+   `SetLevelData`, release; owner answer of 2026-11-18), the
    pipeline-state cache keyed by the model's key, the scene target with
    the final blit that applies the gamma ramp, and readback. The root
    signature is built in Rust, not in HLSL. Screenshots read the scene
@@ -228,6 +234,34 @@ relative to `CppSource/`.
       light data.
     - `README.md` and the generator move to version 1; the Rust reader
       rejects version 0. The owner records the menu trace again.
+
+    *Note of 2026-11-18 (implementation of version 1).* The header is
+    written when the session opens, before `Startup` and `CreateBuffers`,
+    so it cannot hold the defaults; it only says `"version":1`. Right
+    after each successful `CreateBuffers` the proxy writes a synthetic
+    defaults line instead,
+    `{"defaults":{"render":{"<d3d number>":<value>,...},"pipeline":{"<id>":<value>,...}},"seq":S,"frame":F,"synthetic":true}`,
+    read through the real renderer's `GetRenderState` for the 76 states of
+    DX8RENDERER's table (a static list in the proxy, the numbers of
+    `RenderStateId`) and `GetPipelineState` for ids 0 to 14; render values
+    unsigned, pipeline values signed. It is written in every frame up to
+    the last selected one and kept as a state slot, so each later snapshot
+    repeats it. The stage defaults are not in it: they are the built-in
+    table (`kStageStateProperties`), which the INI does not change. The
+    model replay replaces the render-state defaults and the values of the
+    pipeline slots the built-in table enables, then runs the tail of
+    `CreateBuffers` again. A failed `PrintScreen` writes
+    `{"frame":N,"frame_image":null,"note":"<why>"}`. `LightData` lines
+    precede every call that flushes the renderer's lights, not only the
+    draws: the five draws (unless their counts return before
+    `FlushDrawState`), `VerifyState`, `RemoveLight` and `DestroyLight`. A
+    light is pending after `AddLight` or `UpdateLight`, after
+    `SetLightEnable` on (its data may still be unsent), and after a
+    successful `CreateBuffers` (the renderer resends every light); the
+    lines are kept as state slots in every frame. Replay writes the words
+    into the light's stored data without marking it dirty or queueing it
+    (`Lights::replace_data`), since the renderer saw no call; an
+    `update_light` would resend data the C++ does not resend.
 12. **Replay modes.** The player is `render::trace`, behind the feature
     `render-trace` so the game executable does not carry it.
     - *Model replay* (any host, `RecordingBackend`): every recorded call is

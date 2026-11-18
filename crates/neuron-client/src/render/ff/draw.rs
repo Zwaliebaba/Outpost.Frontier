@@ -10,8 +10,8 @@ use super::lights::{LightData, Lights, Material};
 use super::model::StateModel;
 use super::state::{
     Blend, BlendOp, Color, Compare, Cull, Fill, FogMode, MaterialSource, RenderState,
-    RenderStateId, StageState, StageStateId, TexCoordIndex, TextureArg, TextureOp,
-    TextureTransformFlags, VertexBlend, ZBuffer,
+    RenderStateId, Shade, StageState, StageStateId, TexCoordIndex, TextureAddress, TextureArg,
+    TextureFilter, TextureOp, TextureTransformFlags, VertexBlend, ZBuffer,
 };
 use super::transforms::{Matrix16, Transforms};
 
@@ -53,6 +53,9 @@ pub struct PipelineKey {
     pub depth_bias: i32,
     pub cull: Cull,
     pub fill: Fill,
+    /// `SHADEMODE` is `FLAT`: the shaders' flat variant, whose colours
+    /// are not interpolated (the first vertex's, as in Direct3D 8).
+    pub flat: bool,
 }
 
 macro_rules! read {
@@ -100,6 +103,7 @@ impl PipelineKey {
             },
             cull: read!(model, CullMode),
             fill: read!(model, FillMode),
+            flat: read!(model, ShadeMode) == Shade::Flat,
         }
     }
 }
@@ -116,6 +120,12 @@ pub struct StageOps {
     pub transform_flags: TextureTransformFlags,
     /// The stage's texture transform, when its flags enable it.
     pub transform: Option<Matrix16>,
+    pub address_u: TextureAddress,
+    pub address_v: TextureAddress,
+    pub border: Color,
+    pub mag_filter: TextureFilter,
+    pub min_filter: TextureFilter,
+    pub mip_filter: TextureFilter,
 }
 
 /// Fog as the shaders compute it.
@@ -151,6 +161,9 @@ pub struct Lighting {
 #[derive(Clone, Debug, PartialEq)]
 pub struct DrawConstants {
     pub world: Matrix16,
+    /// World matrices 1 to 3 (`D3DTS_WORLDMATRIX(n)`, identity when never
+    /// set), for vertex blending.
+    pub blend_worlds: [Matrix16; 3],
     pub view: Matrix16,
     pub projection: Matrix16,
     /// Pre-transformed vertices (`XYZRHW`) skip the transforms and lighting.
@@ -158,6 +171,9 @@ pub struct DrawConstants {
     /// `None` while `LIGHTING` is off or the vertices are pre-transformed.
     pub lighting: Option<Lighting>,
     pub color_vertex: bool,
+    /// `SPECULARENABLE`: the specular colour is added after the stages,
+    /// whether or not the vertices are lit.
+    pub specular_enable: bool,
     pub vertex_blend: VertexBlend,
     pub indexed_vertex_blend: bool,
     pub fog: Option<Fog>,
@@ -222,15 +238,28 @@ impl DrawConstants {
                 coord: read_stage!(model, stage, TexCoordIdx),
                 transform_flags,
                 transform: (transform_flags.count != 0).then(|| *transforms.texture_matrix(stage)),
+                address_u: read_stage!(model, stage, AddressU),
+                address_v: read_stage!(model, stage, AddressV),
+                border: read_stage!(model, stage, BorderColor),
+                mag_filter: read_stage!(model, stage, MagFilter),
+                min_filter: read_stage!(model, stage, MinFilter),
+                mip_filter: read_stage!(model, stage, MipFilter),
             }
         });
         DrawConstants {
             world: *transforms.world_matrix(),
+            blend_worlds: std::array::from_fn(|i| {
+                transforms
+                    .palette_matrix(i as u32 + 1)
+                    .copied()
+                    .unwrap_or(super::transforms::IDENTITY)
+            }),
             view: *transforms.view_matrix(),
             projection: *transforms.projection_matrix(),
             pretransformed,
             lighting,
             color_vertex: read!(model, ColorVertex),
+            specular_enable: read!(model, SpecularEnable),
             vertex_blend: read!(model, VertexBlendMode),
             indexed_vertex_blend: read!(model, IndexedVertexBlendEnable),
             fog,
@@ -315,6 +344,28 @@ pub fn unemulated_stages(model: &StateModel) -> Vec<usize> {
         .collect()
 }
 
+/// Emulated stages whose sampler a static sampler only approximates
+/// (divergence D209): a non-default `MIPMAPLODBIAS`, `MAXMIPLEVEL` or
+/// `MAXANISOTROPY`, or a `BORDER` address with a border colour other than
+/// transparent black, opaque black and opaque white. The device logs each
+/// stage once.
+#[must_use]
+pub fn approximated_samplers(model: &StateModel) -> Vec<usize> {
+    (0..SHADER_STAGES)
+        .filter(|&s| {
+            let differs =
+                |id: StageStateId| model.stage_state(s, id).to_raw() != id.builtin_default();
+            let border_used = read_stage!(model, s, AddressU) == TextureAddress::Border
+                || read_stage!(model, s, AddressV) == TextureAddress::Border;
+            let border = read_stage!(model, s, BorderColor).0;
+            differs(StageStateId::MipMapLodBias)
+                || differs(StageStateId::MaxMipLevel)
+                || differs(StageStateId::MaxAnisotropy)
+                || (border_used && !matches!(border, 0 | 0xff00_0000 | 0xffff_ffff))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::defaults::Defaults;
@@ -392,5 +443,15 @@ mod tests {
         assert!(unemulated_stages(&m).is_empty());
         m.set_stage_state(2, StageState::ColorOp(TextureOp::Modulate));
         assert_eq!(unemulated_stages(&m), vec![2]);
+        assert!(approximated_samplers(&m).is_empty());
+        // Border addressing with an opaque white border is exact; grey is
+        // approximated, and so is an anisotropy other than the default.
+        m.set_stage_state(0, StageState::AddressU(TextureAddress::Border));
+        m.set_stage_state(0, StageState::BorderColor(Color(0xffff_ffff)));
+        assert!(approximated_samplers(&m).is_empty());
+        m.set_stage_state(0, StageState::BorderColor(Color(0xff80_8080)));
+        assert_eq!(approximated_samplers(&m), vec![0]);
+        m.set_stage_state(1, StageState::MaxAnisotropy(4));
+        assert_eq!(approximated_samplers(&m), vec![0, 1]);
     }
 }

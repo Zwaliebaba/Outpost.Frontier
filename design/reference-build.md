@@ -470,7 +470,10 @@ with floats as 8-hex-digit bit patterns and handles as small stable ids, and
 its bytes. Every selected frame starts with a snapshot of the pipeline state
 the proxy has seen; resource creation and uploads are written in every frame
 up to the last selected one, so a selected frame can be replayed. The format
-is provisional (version 0) until P4.0 fixes it. The format, the replay
+is version 1 (decision record 0004, section 2): a defaults line after each
+`CreateBuffers`, a front-buffer image after each selected frame (the window
+must stay unoccluded) and `LightData` lines before each light flush. The
+format, the replay
 contract and the regeneration step (`make_render_trace.py`, run after any
 change to `include\render\IRenderPipeline.h`) are in
 `CppSource\RenderTrace\README.md`. A trace of the original data is game

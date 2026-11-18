@@ -27,6 +27,10 @@ jobs:
         run: cargo test --locked --workspace --all-targets
       - name: Build executables
         run: cargo build --locked --release --workspace --bins
+      - name: Check shaders
+        # Record 0004, point 18: the committed blobs are what the sources
+        # compile to with the recorded fxc.
+        run: cargo xtask shaders --check
 
   host:
     # Everything outside the Windows platform modules must build and test on
@@ -150,8 +154,10 @@ jobs:
         # own Lua 3.2 (CppSource/Oracle/oracle_scene_script.cpp); P4.12-P4.14:
         # the VC6 number texts and RDLX markup through MSXML (oracle_text.cpp);
         # P4.10: SoundManager's software mixer (oracle_audio.cpp); P4.14: the engine
-        # calls of the parser's second pass (oracle_scene_script_build.cpp); over
-        # crates/neuron-client/tests/fixtures/oracle.
+        # calls of the parser's second pass (oracle_scene_script_build.cpp); P4.14: param
+        # curves, spline paths and playback (oracle_scene_script_runtime.cpp); P4.4: the
+        # texture library at run time and ximage's BigImage (oracle_texture.cpp,
+        # oracle_big_image.cpp); over crates/neuron-client/tests/fixtures/oracle.
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force oracle-out-neuron-client | Out-Null

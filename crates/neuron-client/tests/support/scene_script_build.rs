@@ -130,7 +130,7 @@ fn entity_line(handle: usize, e: &EntityDesc) -> String {
     )
 }
 
-fn payload(p: &EventPayload) -> Vec<String> {
+pub fn payload(p: &EventPayload) -> Vec<String> {
     match p {
         EventPayload::User { payload_word, .. } => vec![word_u(*payload_word)],
         EventPayload::SetCamera | EventPayload::StartPsys => Vec::new(),

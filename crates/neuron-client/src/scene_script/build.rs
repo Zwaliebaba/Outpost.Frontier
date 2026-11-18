@@ -1270,7 +1270,7 @@ fn light_event_post(props: &mut LightProps, mask: &mut i32) {
 /// `ConvertCompactLightbaseline`): a LIGHT entity whose script gives no
 /// `type` takes its type, cone, diffuse colour, range and attenuation from
 /// the compact fields.
-fn convert_compact_light(props: &mut LightProps) {
+pub(crate) fn convert_compact_light(props: &mut LightProps) {
     let pi = f64::from(PI);
     if props.infinite != 0 {
         props.light_type = 3;
