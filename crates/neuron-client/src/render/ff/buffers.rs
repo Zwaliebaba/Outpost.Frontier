@@ -22,6 +22,7 @@ use std::fmt;
 
 use super::arena::{Arena, Handle};
 use super::fvf::Fvf;
+use super::vertex_copy::{Source, copy_vertex_data};
 
 /// The pooled rings grow in blocks of this many vertices.
 pub const POOL_BLOCK: u32 = 0x400;
@@ -530,6 +531,78 @@ impl Buffers {
         self.streams.index_buffer = Some(source);
         self.streams.base_vertex = base_vertex;
         Ok(())
+    }
+
+    /// Converts `count` vertices from vertex `start` of `src` into buffer
+    /// `h` at vertex `at` (`CopyVertexData` into the buffer's bytes). Bytes a
+    /// converter leaves alone keep their values.
+    fn convert_into(
+        &mut self,
+        h: VbHandle,
+        at: u32,
+        src: &Source<'_>,
+        start: u32,
+        count: u32,
+    ) -> Result<(), BufferError> {
+        let vb = self.vb_mut(h)?;
+        let stride = vb.stride() as usize;
+        let from = at as usize * stride;
+        let len = count as usize * stride;
+        let region = vb
+            .data
+            .get(from..from + len)
+            .ok_or(BufferError::OutOfRange)?;
+        let mut scratch = vec![0u8; start as usize * stride];
+        scratch.extend_from_slice(region);
+        copy_vertex_data(&mut scratch, vb.fvf.0, src, start, count)
+            .map_err(|_| BufferError::OutOfRange)?;
+        vb.data[from..from + len].copy_from_slice(&scratch[start as usize * stride..]);
+        Ok(())
+    }
+
+    /// `CopyVertices`: `None` is handle -1, the pool ring of the source's
+    /// format. A locked buffer is written in place at vertex `offset` of the
+    /// lock; otherwise `count` vertices are locked (at byte `offset` for a
+    /// plain buffer), written and unlocked. Returns the first vertex written.
+    pub fn copy_vertices(
+        &mut self,
+        h: Option<VbHandle>,
+        offset: u32,
+        src: &Source<'_>,
+        start: u32,
+        count: u32,
+    ) -> Result<u32, BufferError> {
+        let h = match h {
+            Some(h) => h,
+            None => {
+                let h = self.pool_vb(Fvf(src.fvf), count);
+                self.select_stream(Some(h), 0);
+                h
+            }
+        };
+        let vb = self.vb(h)?;
+        let stride = vb.stride();
+        if let Some((lock_start, _)) = vb.locked {
+            let at = lock_start.checked_div(stride).unwrap_or(0) + offset;
+            self.convert_into(h, at, src, start, count)?;
+            return Ok(offset);
+        }
+        let lock = self.lock_vb(h, offset, count)?;
+        self.convert_into(h, lock.start, src, start, count)?;
+        self.unlock_vb(h)?;
+        Ok(lock.start)
+    }
+
+    /// `CopyVertices` for trace replay: written at the recorded first vertex.
+    pub fn replay_copy_vertices(
+        &mut self,
+        h: VbHandle,
+        at: u32,
+        src: &Source<'_>,
+        start: u32,
+        count: u32,
+    ) -> Result<(), BufferError> {
+        self.convert_into(h, at, src, start, count)
     }
 
     /// Writes vertex bytes at byte `at` whatever the lock state, for trace

@@ -23,6 +23,7 @@ use crate::render::ff::fvf::Fvf;
 use crate::render::ff::lights::{LightData, Material};
 use crate::render::ff::state::PipelineProperty;
 use crate::render::ff::textures::TextureHandle;
+use crate::render::ff::vertex_copy::{Source, Stream};
 use json::Json;
 
 /// The C++ result codes replay compares with.
@@ -224,9 +225,47 @@ const ANSWERED: &[&str] = &[
     "GetImageInfo",
     "LoadCubemap",
     "CopyVertexData",
-    "CopyVertices",
     "LightData",
 ];
+
+/// A stream's bytes, element size, stride, indices and count.
+type StreamParts = (Vec<u8>, u32, u32, Vec<u32>, u32);
+
+/// A resolved vertex source of a trace (`SrcData`): each stream's bytes
+/// placed at their offsets from element 0, and its indices from vertex 0.
+#[derive(Default)]
+struct OwnedSource {
+    flags: u32,
+    fvf: u32,
+    count: u32,
+    /// Position, normal, diffuse, tex 0, tex 1: bytes, element size,
+    /// stride, indices, count.
+    streams: [StreamParts; 5],
+}
+
+impl OwnedSource {
+    fn source(&self) -> Source<'_> {
+        let s = |i: usize| {
+            let (data, byte_size, stride, index, count) = &self.streams[i];
+            Stream {
+                data,
+                byte_size: *byte_size,
+                stride: *stride,
+                index,
+                count: *count,
+            }
+        };
+        Source {
+            flags: self.flags,
+            position: s(0),
+            normal: s(1),
+            diffuse: s(2),
+            tex: [s(3), s(4)],
+            fvf: self.fvf,
+            count: self.count,
+        }
+    }
+}
 
 /// Model replay of a trace.
 pub struct ModelReplay<'a> {
@@ -413,6 +452,70 @@ impl<'a> ModelReplay<'a> {
                 }),
             },
         }
+    }
+
+    fn bytes_of(&self, v: &Json, method: &str) -> Result<Vec<u8>, TraceError> {
+        let bad = || TraceError::BadArgument {
+            method: method.to_owned(),
+            arg: "SrcData",
+        };
+        if let Some(hex) = v.get("hex").and_then(Json::as_str) {
+            return (0..hex.len())
+                .step_by(2)
+                .map(|i| u8::from_str_radix(hex.get(i..i + 2).unwrap_or("zz"), 16).ok())
+                .collect::<Option<Vec<u8>>>()
+                .ok_or_else(bad);
+        }
+        if let Some(hash) = v.get("blob").and_then(Json::as_str) {
+            return self
+                .blobs
+                .blob(hash)
+                .ok_or_else(|| TraceError::MissingBlob(hash.to_owned()));
+        }
+        Err(bad())
+    }
+
+    /// `SrcData` of `CopyVertices` as an owned source.
+    fn vertex_source(&self, call: &Call, start: u32) -> Result<OwnedSource, TraceError> {
+        let d = Self::arg(call, "SrcData")?;
+        let int = |v: &Json, k: &str| v.get(k).and_then(Json::as_i64).unwrap_or(0) as u32;
+        let mut out = OwnedSource {
+            flags: int(d, "Flags"),
+            fvf: int(d, "SrcFvf"),
+            count: int(d, "SrcCount"),
+            ..OwnedSource::default()
+        };
+        if let Some(i) = d.get("Interleaved") {
+            let stride = int(i, "Stride");
+            let mut data = vec![0; (int(i, "first") * stride) as usize];
+            data.extend(self.bytes_of(i.get("data").unwrap_or(&Json::Null), &call.method)?);
+            out.streams[0] = (data, int(i, "VertexBytes"), stride, Vec::new(), out.count);
+            return Ok(out);
+        }
+        for (slot, name) in ["Position", "Normal", "Diffuse", "Tex0", "Tex1"]
+            .into_iter()
+            .enumerate()
+        {
+            let Some(st) = d.get(name) else {
+                continue;
+            };
+            let stride = int(st, "Stride");
+            let mut data = vec![0; (int(st, "first") * stride) as usize];
+            data.extend(self.bytes_of(st.get("data").unwrap_or(&Json::Null), &call.method)?);
+            let mut index = vec![0u32; start as usize];
+            match st.get("index") {
+                Some(Json::Array(items)) => {
+                    index.extend(items.iter().map(|v| v.as_i64().unwrap_or(0) as u32))
+                }
+                Some(v @ Json::Object(_)) => {
+                    let b = self.bytes_of(v, &call.method)?;
+                    index.extend(b.as_chunks::<4>().0.iter().map(|c| u32::from_le_bytes(*c)));
+                }
+                _ => {}
+            }
+            out.streams[slot] = (data, int(st, "ByteSize"), stride, index, int(st, "Count"));
+        }
+        Ok(out)
     }
 
     fn viewspace(&self) -> bool {
@@ -716,6 +819,24 @@ impl<'a> ModelReplay<'a> {
                     self.ids.insert(id, Object::Vb(h));
                 }
             }
+            "CopyVertices" => {
+                let start = Self::u(call, "StartVertex")?;
+                let count = Self::u(call, "Count")?;
+                let src = self.vertex_source(call, start)?;
+                let h = match self.vb(call, "Handle")? {
+                    Some(h) => Some(h),
+                    None => Some(self.device.buffers.pool_vb(Fvf(src.fvf), count)),
+                };
+                if let (Some(h), Some(at)) = (h, Self::arg(call, "OutOffset")?.as_i64()) {
+                    let _ = self.device.buffers.replay_copy_vertices(
+                        h,
+                        at as u32,
+                        &src.source(),
+                        start,
+                        count,
+                    );
+                }
+            }
             "CreateIb" => {
                 let id = Self::int(call, "Out")?;
                 let h = self
@@ -942,5 +1063,22 @@ mod tests {
             &r.device.buffers.ib(IndexSource::Scratch).unwrap().indices()[100..102],
             &[1, 2]
         );
+    }
+
+    #[test]
+    fn copy_vertices_converts_the_recorded_source() {
+        let trace = r#"{"seq":1,"frame":0,"interface":"IRPVertexBuffer","method":"CreateVb","args":{"Fvf":594,"Count":4,"Out":7,"Flags":0},"ret":0}
+{"seq":2,"frame":0,"interface":"IRPVertexBuffer","method":"CopyVertices","args":{"Handle":7,"OffsetIn":0,"OutOffset":1,"DstFvf":594,"SrcData":{"Flags":0,"SrcFvf":274,"SrcCount":1,"Position":{"ByteSize":12,"Stride":12,"Count":1,"Element":12,"first":0,"last":0,"data":{"size":12,"hex":"010101010101010101010101"}},"Normal":{"ByteSize":12,"Stride":12,"Count":1,"Element":12,"first":0,"last":0,"data":{"size":12,"hex":"020202020202020202020202"}},"Tex0":{"ByteSize":8,"Stride":8,"Count":1,"Element":8,"first":0,"last":0,"data":{"size":8,"hex":"0303030303030303"}}},"StartVertex":0,"Count":1},"ret":0}"#;
+        let mut r = ModelReplay::new(Defaults::builtin(), 640, 480, &NoBlobs);
+        r.replay(trace).unwrap();
+        let Some(Object::Vb(h)) = r.ids.get(&7).copied() else {
+            panic!("the buffer has id 7")
+        };
+        // 0x112 into 0x252 (stride 0x2C): position, normal, a gap, tex 0.
+        let b = &r.device.buffers.vb(h).unwrap().bytes()[0x2C..0x58];
+        assert_eq!(&b[..12], &[1; 12]);
+        assert_eq!(&b[12..24], &[2; 12]);
+        assert_eq!(&b[24..28], &[0; 4]);
+        assert_eq!(&b[28..36], &[3; 8]);
     }
 }
