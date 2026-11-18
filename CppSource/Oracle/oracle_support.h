@@ -243,6 +243,11 @@ void RunAudioSuites();
 // RunNeuronClientSuites.
 void RunTextureSuites();
 void BigImageSuite();
+// P4.5 (oracle_material.cpp): the material regular expressions, library, global records,
+// animation and batcher of Shading.dll, over
+// crates/neuron-client/tests/fixtures/oracle/material_*.list; called by RunNeuronClientSuites,
+// last (its batcher cases leave their INI in the manager's profile parser).
+void RunMaterialSuites();
 
 // P4.14 (oracle_scene_script.cpp): every .thn under DATA through lua_dobuffer in a fresh
 // Lua state, and the state after it; kind "thn".

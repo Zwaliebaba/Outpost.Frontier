@@ -7,16 +7,20 @@
 //! `CppSource/Common/msvcrt_atof.cpp`, the `%g` conversion of the
 //! Universal C Runtime the reference links, and the VC6 number texts of
 //! `CppSource/include/msvcrt_numeric_format.h` (P4.13, P4.14) with the
-//! legacy `printf` they fall back to.
+//! legacy `printf` they fall back to, and the Universal C Runtime's
+//! `qsort`, whose order of equal elements the material batcher's draw
+//! order depends on (P4.5).
 
 mod atof;
 mod format;
 mod legacy;
+mod qsort;
 mod vc6;
 
 pub use atof::atof;
 pub use format::format_g;
 pub use legacy::{Printed, PrintfArg, PrintfError, legacy_format, legacy_vsnprintf};
+pub use qsort::qsort;
 pub use vc6::{format_lua_number, numeric_vsnprintf};
 
 use crate::hash::c_str;
