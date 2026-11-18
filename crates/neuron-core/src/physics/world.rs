@@ -186,6 +186,22 @@ struct Body {
     /// The class of the body's client object (`client_data->ObjectClass`),
     /// which a game collision filter reads; 0 until set.
     client_class: u32,
+    /// A radius around the object's origin that holds every ledge: the
+    /// contact pass skips a pair whose spheres cannot meet in the PSI.
+    bound_radius: f32,
+}
+
+/// The radius around the object's origin that holds every ledge of a
+/// geometry.
+fn bound_radius(geometry: &Geometry) -> f32 {
+    geometry
+        .ledges
+        .iter()
+        .map(|l| {
+            let s = l.shape.compute_local_bounding_sphere();
+            s.center.coords.norm() + s.radius
+        })
+        .fold(0.0, f32::max)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -292,6 +308,36 @@ pub struct PhysicsWorld {
     pair_last_collision: BTreeMap<(BodyHandle, BodyHandle), IvpTime>,
     order: u64,
     collision_filter: Option<fn(u32, u32) -> bool>,
+    /// The manager's list of simulated units (`sim_units_head`), head
+    /// first: a revived unit goes to the front, a unit that falls asleep
+    /// leaves it (D88).
+    active: Vec<Index>,
+    /// The environment's wake queue (`event_queue`) in the order the cores
+    /// were queued.
+    wake_queue: Vec<Index>,
+    /// Per PSI, the units in the order they ran: the key of each unit's
+    /// first body and whether the movement check came to it (when
+    /// [`PhysicsWorld::set_unit_trace`] turned it on).
+    unit_trace: Option<Vec<Vec<(u64, bool)>>>,
+    /// For the first [`UNIT_CORE_PSIS`] PSIs of the trace, each unit's core
+    /// at the start and at the end of its PSI.
+    unit_core_trace: Vec<Vec<(super::replay::CoreRecord, super::replay::CoreRecord)>>,
+}
+
+/// The PSIs [`PhysicsWorld::unit_core_trace`] keeps (`unit_cores.jsonl`'s
+/// `kUnitCorePsis`).
+pub const UNIT_CORE_PSIS: usize = 12;
+
+/// The order `simulate_sim_units_psi` steps a unit list in: with the next
+/// three units fetched ahead, all but the last three in list order, then
+/// the last three from the last (`A, B, C, D, E` runs `A, B, E, D, C`).
+#[must_use]
+pub fn unit_run_order<T: Copy>(list: &[T]) -> Vec<T> {
+    let n = list.len();
+    let split = n.saturating_sub(3);
+    let mut out = list[..split].to_vec();
+    out.extend(list[split..].iter().rev());
+    out
 }
 
 impl PhysicsWorld {
@@ -324,7 +370,71 @@ impl PhysicsWorld {
             pair_last_collision: BTreeMap::new(),
             order: 0,
             collision_filter: None,
+            active: Vec::new(),
+            wake_queue: Vec::new(),
+            unit_trace: None,
+            unit_core_trace: Vec::new(),
         }
+    }
+
+    /// Starts (or stops) recording the simulation units of every PSI
+    /// ([`PhysicsWorld::unit_trace`]).
+    pub fn set_unit_trace(&mut self, on: bool) {
+        self.unit_trace = on.then(Vec::new);
+        self.unit_core_trace.clear();
+    }
+
+    /// Per PSI of the first [`UNIT_CORE_PSIS`] of the trace, each unit's
+    /// core (and its unit flags) at the start and at the end of its PSI,
+    /// before `calc_next_PSI_matrix`, in the order the units ran.
+    #[must_use]
+    pub fn unit_core_trace(
+        &self,
+    ) -> &[Vec<(super::replay::CoreRecord, super::replay::CoreRecord)>] {
+        &self.unit_core_trace
+    }
+
+    /// The recorded simulation units: per PSI, each unit's first body's key
+    /// and whether the movement check came to it.
+    #[must_use]
+    pub fn unit_trace(&self) -> &[Vec<(u64, bool)>] {
+        self.unit_trace.as_deref().unwrap_or_default()
+    }
+
+    /// The simulated units now, head first, each as its first body's key.
+    #[must_use]
+    pub fn active_units(&self) -> Vec<u64> {
+        self.active
+            .iter()
+            .filter_map(|c| self.unit_key(*c))
+            .collect()
+    }
+
+    fn unit_key(&self, core: Index) -> Option<u64> {
+        let slot = self.cores.get(core)?;
+        let first = slot.objects.first()?;
+        self.bodies.get(first.0).map(|b| b.user_key)
+    }
+
+    /// `IVP_Simulation_Unit_Revive_If_Sleeping` for a frozen core: revived
+    /// now, its unit at the front of the simulated list.
+    fn revive_now(&mut self, core: Index) {
+        let clock = self.clock;
+        let Some(slot) = self.cores.get_mut(core) else {
+            return;
+        };
+        if slot.simulation_disabled || !slot.core.is_frozen() {
+            return;
+        }
+        revive_core(&mut slot.core, &mut slot.unit_state, &clock);
+        let objects = slot.objects.clone();
+        for o in objects {
+            if !self.moving.contains(&o) {
+                self.moving.push(o);
+            }
+        }
+        self.active.retain(|c| *c != core);
+        self.active.insert(0, core);
     }
 
     /// The system id the world was started for.
@@ -486,6 +596,7 @@ impl PhysicsWorld {
         let (_, inv) = self.clock.time_to_next_psi();
         core.synchronize_simulation_time_snapshot(inv);
 
+        let bound = bound_radius(&geometry);
         let order = self.next_order();
         let core_index = self.cores.insert(CoreSlot {
             core,
@@ -509,6 +620,7 @@ impl PhysicsWorld {
             golem: None,
             golem_order: 0,
             client_class: 0,
+            bound_radius: bound,
         }));
         if let Some(slot) = self.cores.get_mut(core_index) {
             slot.objects.push(handle);
@@ -558,6 +670,8 @@ impl PhysicsWorld {
             false
         };
         if empty && let Some(slot) = self.cores.remove(core) {
+            self.active.retain(|c| *c != core);
+            self.wake_queue.retain(|c| *c != core);
             for (_, _, kind) in slot.controllers {
                 if let ControllerKind::External { handle, .. } = kind {
                     self.controllers.remove(handle.0);
@@ -578,7 +692,11 @@ impl PhysicsWorld {
         };
         if let Some(slot) = self.cores.get_mut(core) {
             if slot.core.movement_state & 0xFF == super::ivp::core::MOVEMENT_FROZEN {
-                slot.wake_pending = true;
+                // `IVP_Environment_Enqueue_Core`: once until the queue runs.
+                if !slot.wake_pending {
+                    slot.wake_pending = true;
+                    self.wake_queue.push(core);
+                }
             } else {
                 slot.core.update_time_of_last_motion(now);
             }
@@ -734,6 +852,18 @@ impl PhysicsWorld {
         }
     }
 
+    /// The part ids a body's ledges carry, sorted, each once.
+    #[must_use]
+    pub fn ledge_part_ids(&self, h: BodyHandle) -> Vec<u32> {
+        let mut ids: Vec<u32> = self
+            .body(h)
+            .map(|b| b.geometry.ledges.iter().map(|l| l.part_id).collect())
+            .unwrap_or_default();
+        ids.sort_unstable();
+        ids.dedup();
+        ids
+    }
+
     /// Marks a part attached or detached; the ledges of a detached part
     /// take no part in contacts and queries (`PhySurfaceManager`).
     pub fn set_part_attached(&mut self, h: BodyHandle, part_id: u32, attached: bool) {
@@ -764,6 +894,7 @@ impl PhysicsWorld {
             slot.core.stop_movement();
             let objects = slot.objects.clone();
             self.moving.retain(|m| !objects.contains(m));
+            self.active.retain(|c| *c != core);
         }
     }
 
@@ -867,7 +998,21 @@ impl PhysicsWorld {
             slot.controllers.push(entry);
             slot.buckets.push(entry);
         }
-        self.wakeup(h);
+        // `IVP_Controller_Wake_Or_Refresh_Associated_Sim_Unit`: a sleeping
+        // unit is revived at once (to the front of the simulated list), an
+        // awake one restarts its motion clock.
+        let now = self.clock.current_time;
+        let frozen = self
+            .cores
+            .get(core)
+            .is_some_and(|s| s.core.is_frozen() && !s.simulation_disabled);
+        if frozen {
+            self.revive_now(core);
+        } else if let Some(slot) = self.cores.get_mut(core)
+            && !slot.core.is_frozen()
+        {
+            slot.core.update_time_of_last_motion(now);
+        }
         Some(handle)
     }
 
@@ -953,6 +1098,27 @@ impl PhysicsWorld {
         let mut golem = Golem::new(parms);
         golem.set_target_position(Vector::from_words(p), Vector::ZERO, now);
         golem.set_target_quaternion(q, now, None, 0.0);
+        self.set_golem(h, Some(GolemKind::Part(golem)));
+        self.wakeup(h);
+    }
+
+    /// `AttachGolemController` mode 1 as the reference calls it for a free
+    /// part: the golem holds the body at the object's frame (`position`
+    /// and `quat`, the math engine's `MatrixToQuaternion` of its
+    /// orientation, in that engine's order), its speed zero, both stamped
+    /// with the current time; then the core is queued for the simulation
+    /// (`set_target_*` end in `ensure_core_to_be_in_simulation`).
+    pub fn attach_golem_at(
+        &mut self,
+        h: BodyHandle,
+        parms: &GolemParms,
+        position: Vector,
+        quat: Quaternion,
+    ) {
+        let now = self.clock.current_time;
+        let mut golem = Golem::new(parms);
+        golem.set_target_position(position, Vector::ZERO, now);
+        golem.set_target_quaternion(IvpQuat::from_math(quat), now, None, 0.0);
         self.set_golem(h, Some(GolemKind::Part(golem)));
         self.wakeup(h);
     }

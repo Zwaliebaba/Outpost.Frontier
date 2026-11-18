@@ -105,14 +105,14 @@ impl PhysicsWorld {
     ) {
         self.clock = *clock;
         let now = clock.current_time;
-        // The wake queue.
-        for index in self.cores.indices() {
+        // The wake queue (`IVP_Environment_Process_Wake_Queue`), from the
+        // last queued core to the first: each revived unit goes to the
+        // front of the simulated list, so the list starts in queue order.
+        let queue = std::mem::take(&mut self.wake_queue);
+        for &index in queue.iter().rev() {
             let Some(slot) = self.cores.get_mut(index) else {
                 continue;
             };
-            if !slot.wake_pending {
-                continue;
-            }
             slot.wake_pending = false;
             if slot.simulation_disabled || !slot.core.is_frozen() {
                 continue;
@@ -124,23 +124,38 @@ impl PhysicsWorld {
                     self.moving.push(o);
                 }
             }
+            self.active.retain(|c| *c != index);
+            self.active.insert(0, index);
         }
-        // The simulation units.
+        // The simulation units, in `simulate_sim_units_psi`'s order.
         let event = clock.event_sim();
         let mut simulated = Vec::new();
-        for index in self.cores.indices() {
+        let mut trace = self.unit_trace.is_some().then(Vec::new);
+        let trace_cores = self
+            .unit_trace
+            .as_ref()
+            .is_some_and(|t| t.len() < super::UNIT_CORE_PSIS);
+        let mut cores_trace = Vec::new();
+        for index in super::unit_run_order(&self.active) {
             let Some(slot) = self.cores.get_mut(index) else {
                 continue;
             };
             if slot.simulation_disabled || slot.core.is_frozen() {
                 continue;
             }
+            let before = trace_cores.then(|| crate::physics::replay::CoreRecord {
+                core: slot.core.clone(),
+                unit_state: slot.unit_state,
+            });
             unit_psi_begin(&mut slot.core, &mut slot.unit_state, now);
             let motion_check = self.movement_check.tick(random);
             let mut controllers = slot.buckets.clone();
             controllers.sort_by_key(|(priority, _, _)| *priority);
             for (_, _, kind) in controllers.iter().rev() {
                 self.run_controller(index, *kind, event, now, host);
+            }
+            if let Some(t) = trace.as_mut() {
+                t.push((self.unit_key(index).unwrap_or(0), motion_check));
             }
             let Some(slot) = self.cores.get_mut(index) else {
                 continue;
@@ -155,7 +170,23 @@ impl PhysicsWorld {
             ) {
                 let objects = slot.objects.clone();
                 self.moving.retain(|m| !objects.contains(m));
+                self.active.retain(|c| *c != index);
             }
+            if let (Some(before), Some(slot)) = (before, self.cores.get(index)) {
+                cores_trace.push((
+                    before,
+                    crate::physics::replay::CoreRecord {
+                        core: slot.core.clone(),
+                        unit_state: slot.unit_state,
+                    },
+                ));
+            }
+        }
+        if trace_cores {
+            self.unit_core_trace.push(cores_trace);
+        }
+        if let (Some(t), Some(all)) = (trace, self.unit_trace.as_mut()) {
+            all.push(t);
         }
         let commit = clock.commit_event_sim();
         for index in simulated.iter().rev() {
@@ -257,6 +288,15 @@ impl PhysicsWorld {
             compute_impact_geometry_on_penetration: true,
         };
         let (va, vb) = (shape::to_vector(vel_a), shape::to_vector(vel_b));
+        // The bounding spheres around the origins, swept over the PSI: a
+        // pair they keep apart has no impact (a conservative early out).
+        let reach = f64::from(body_a.bound_radius)
+            + f64::from(body_b.bound_radius)
+            + (f64::from(va.norm()) + f64::from(vb.norm())) * f64::from(clock.delta_time);
+        let gap = f64::from((iso_a.translation.vector - iso_b.translation.vector).norm());
+        if gap > reach * 1.001 + 0.01 {
+            return None;
+        }
         let mut best: Option<Impact> = None;
         for la in body_a.geometry.ledges.iter() {
             if body_a.detached_parts.contains(&la.part_id) {
