@@ -449,6 +449,62 @@ impl AiWorld for World {
         Some(self.get(h)?.physical.system)
     }
 
+    fn find_equipment(&self, h: ObjHandle, type_mask: u32) -> Option<Vec<u16>> {
+        let eq = self.get(h)?.as_equipped()?;
+        Some(
+            eq.equipment
+                .traverse(type_mask, false)
+                .into_iter()
+                .filter_map(|s| eq.equipment.get(s).map(|x| x.id))
+                .collect(),
+        )
+    }
+
+    /// The item's state and the gun values the system manager reads. A
+    /// gun's munition kind is read from its projectile's seeker only (the
+    /// cruise-disruptor and hardpoint-type kinds need the munition
+    /// archetype the launcher does not keep), and the launcher status
+    /// (`EquipFlags`) and barrels are not exposed yet, so fire control
+    /// does not fire in the Rust world.
+    fn equipment(&self, h: ObjHandle, id: u16) -> Option<crate::ai::world::EquipInfo> {
+        let eq = self.get(h)?.as_equipped()?;
+        let item = eq.equipment.by_id(id)?;
+        let mut flags = 0;
+        if item.active {
+            flags |= crate::ai::world::EQUIP_ACTIVE;
+        }
+        if item.destroyed {
+            flags |= crate::ai::world::EQUIP_DESTROYED;
+        }
+        if item.is_disabled(eq.weapons_offline) {
+            flags |= crate::ai::world::EQUIP_DISABLED;
+        }
+        let mut info = crate::ai::world::EquipInfo {
+            flags,
+            ..crate::ai::world::EquipInfo::default()
+        };
+        if let EquipKind::Gun(gun) = &item.kind
+            && !item.destroyed
+        {
+            let seeker = gun.launcher.projectile.is_some_and(|p| p.seeker != 0);
+            info.munition_kind = Some(i32::from(seeker));
+            info.auto_turret = Some(gun.auto_turret);
+            info.seeker = Some(u8::from(seeker));
+            info.target_id = Some(
+                gun.target
+                    .and_then(|(t, _)| self.get(t))
+                    .map_or(0, |o| o.simple.id),
+            );
+        }
+        Some(info)
+    }
+
+    fn manager_of(&self, h: ObjHandle) -> Option<(i32, [i32; 3])> {
+        self.behavior_managers
+            .get(&h)
+            .map(|m| (m.state.behavior, m.state.directive))
+    }
+
     fn command(&mut self, h: ObjHandle, command: AiCommand<ObjHandle>) -> i32 {
         let typed = match command {
             AiCommand::SetThrottle(t) => Command::SetThrottle(t),
@@ -669,7 +725,7 @@ impl World {
         self.with_behavior_manager(h, |m, w| {
             m.set_state_graph(w, h, &data.state_graphs, state_graph, false);
             if let Some(p) = personality {
-                m.set_personality(p);
+                m.set_personality(w, h, p);
             }
             0
         })

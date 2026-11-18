@@ -142,13 +142,16 @@ fn manager(world: &mut OneShip) -> BehaviorManager<OneShip> {
 }
 
 #[test]
-fn construction_draws_three_phases_and_falls_back_to_idle() {
+fn construction_draws_the_scan_phase_then_three_phases_and_falls_back_to_idle() {
     let mut world = OneShip::new();
     let mut rand = CrtRand::with_seed(1);
+    // `InitSystemManager` draws first: no guns, so only the scan phase.
+    let scan = rand.rand();
     let (a, b, c) = (rand.rand(), rand.rand(), rand.rand());
     let m = manager(&mut world);
     let phase =
         |r: i32, p: f32| (f64::from(r as f32) * f64::from(1.0f32 / 32768.0) * f64::from(p)) as f32;
+    assert_eq!(m.state.sys.guns.scan_timer, phase(scan, 1.0));
     assert_eq!(m.state.timer_a, phase(a, 3.0));
     assert_eq!(m.state.timer_b, phase(b, 0.2));
     assert_eq!(m.state.attack_override_timer, phase(c, 1.0));
