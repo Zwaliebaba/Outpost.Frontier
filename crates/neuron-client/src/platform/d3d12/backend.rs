@@ -444,12 +444,9 @@ impl D3d12Backend {
     /// stretches the back buffer to the client area, as a windowed
     /// Direct3D 8 `Present` did.
     pub fn resize(&mut self, width: u32, height: u32) -> Result<(), GpuError> {
-        println!("[resize] flush");
         self.flush()?;
-        println!("[resize] target");
         let target = RenderTarget::new(&self.gpu, width, height)?;
         let depth = depth_buffer(&self.gpu, width, height)?;
-        println!("[resize] views");
         let scene_view = srv_desc(DXGI_FORMAT_B8G8R8A8_UNORM, 1);
         // SAFETY: the flush above finished every use of the old views and
         // resources; the slots belong to heaps kept with the backend, and
@@ -467,13 +464,17 @@ impl D3d12Backend {
         self.target = target;
         self._depth = depth;
         self.scene_state = D3D12_RESOURCE_STATE_RENDER_TARGET;
-        println!("[resize] swap chain");
-        if let Some((mut swap, rtvs)) = self.swap.take() {
-            swap.resize(width, height)?;
-            println!("[resize] swap chain resized");
+        if let Some((old, rtvs)) = self.swap.take() {
+            // A new swap chain on the same window, in place of
+            // `ResizeBuffers` (which ended the process on CI's runner under
+            // the debug layer): the old one is released first, as a window
+            // takes one flip-model swap chain.
+            let window = old.window;
+            drop(old);
+            let swap = SwapChain::new(&self.gpu, window, width, height)?;
             for (i, buffer) in swap.buffers.iter().enumerate() {
                 // SAFETY: slot `i` of the heap kept with the swap chain;
-                // the old views named buffers released by the resize.
+                // the old views named buffers released with the old chain.
                 unsafe {
                     self.gpu
                         .device
@@ -1542,9 +1543,7 @@ mod tests {
         let Some(mut d) = device() else { return };
         d.clear(ClearFlags::TARGET | ClearFlags::DEPTH, None);
         d.present();
-        println!("resizing offscreen");
         d.backend.resize(16, 4).unwrap();
-        println!("resized offscreen");
         d.set_viewport(0, 0, 16, 4);
         d.state
             .set_pipeline(PipelineProperty::ClearColor, 0xff00_ff00);
@@ -1631,9 +1630,7 @@ mod tests {
             d.present();
         }
         // A new back-buffer size: the scene and the swap chain follow.
-        println!("resizing with a window");
         d.backend.resize(16, 4).unwrap();
-        println!("resized");
         d.set_viewport(0, 0, 16, 4);
         d.state
             .set_pipeline(PipelineProperty::ClearColor, 0xff00_ff00);

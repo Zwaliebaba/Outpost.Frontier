@@ -23,8 +23,8 @@ use windows::Win32::Graphics::Dxgi::Common::{
 };
 use windows::Win32::Graphics::Dxgi::{
     CreateDXGIFactory2, DXGI_CREATE_FACTORY_FLAGS, DXGI_PRESENT, DXGI_SCALING_STRETCH,
-    DXGI_SWAP_CHAIN_DESC1, DXGI_SWAP_CHAIN_FLAG, DXGI_SWAP_EFFECT_FLIP_DISCARD,
-    DXGI_USAGE_RENDER_TARGET_OUTPUT, IDXGIFactory4, IDXGISwapChain1, IDXGISwapChain3,
+    DXGI_SWAP_CHAIN_DESC1, DXGI_SWAP_EFFECT_FLIP_DISCARD, DXGI_USAGE_RENDER_TARGET_OUTPUT,
+    IDXGIFactory4, IDXGISwapChain1, IDXGISwapChain3,
 };
 use windows::core::Interface;
 
@@ -147,6 +147,8 @@ pub const BACK_BUFFERS: u32 = 2;
 /// A flip-model swap chain on a window, with its back buffers.
 pub struct SwapChain {
     pub swap: IDXGISwapChain3,
+    /// The window it presents to.
+    pub window: HWND,
     pub buffers: Vec<ID3D12Resource>,
     pub width: u32,
     pub height: u32,
@@ -187,38 +189,11 @@ impl SwapChain {
         }
         Ok(SwapChain {
             swap,
+            window,
             buffers,
             width,
             height,
         })
-    }
-
-    /// Makes the buffers again at `width` by `height` (a new back-buffer
-    /// size). Every reference to the old buffers must be gone and the GPU
-    /// done with them.
-    pub fn resize(&mut self, width: u32, height: u32) -> Result<(), GpuError> {
-        self.buffers.clear();
-        println!("[swap] ResizeBuffers");
-        // SAFETY: the buffer references were dropped above and the caller
-        // flushed the queue; the format and flags are kept.
-        unsafe {
-            self.swap.ResizeBuffers(
-                BACK_BUFFERS,
-                width,
-                height,
-                DXGI_FORMAT_UNKNOWN,
-                DXGI_SWAP_CHAIN_FLAG(0),
-            )
-        }
-        .at("ResizeBuffers")?;
-        for i in 0..BACK_BUFFERS {
-            // SAFETY: `i` is below the buffer count.
-            self.buffers
-                .push(unsafe { self.swap.GetBuffer::<ID3D12Resource>(i) }.at("GetBuffer")?);
-        }
-        self.width = width;
-        self.height = height;
-        Ok(())
     }
 
     /// The back buffer to draw into next.
