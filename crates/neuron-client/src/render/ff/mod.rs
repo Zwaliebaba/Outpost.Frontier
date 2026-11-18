@@ -10,5 +10,7 @@
 pub mod defaults;
 pub mod fvf;
 pub mod geometry;
+pub mod lights;
 pub mod model;
 pub mod state;
+pub mod transforms;
