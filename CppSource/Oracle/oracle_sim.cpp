@@ -1341,6 +1341,8 @@ namespace
             return "set_strafe_dir";
         case OracleSimAffectFire:
             return "fire";
+        case OracleSimAffectTractor:
+            return "tractor";
         case OracleSimAffectTarget:
             return "set_target";
         case OracleSimAffectEquip:

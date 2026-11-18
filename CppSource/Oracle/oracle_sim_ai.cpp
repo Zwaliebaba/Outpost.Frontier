@@ -47,8 +47,9 @@ namespace
     // gun groups is 0x40 per type).
     const int kMaxEquip = 64;
     // The equipment types the system manager finds: guns and launchers, mine droppers,
-    // countermeasure droppers, shields.
-    const unsigned int kEquipTypes[4] = {0x80u, 0x20u, 0x40u, 0x100u};
+    // countermeasure droppers, shields; and (P2.5 loot) the tractor, whose range the loot
+    // behaviour reads.
+    const unsigned int kEquipTypes[5] = {0x80u, 0x20u, 0x40u, 0x100u, 0x100000u};
     // The angle the fire control asks is_pointing_at with for guns (pi/60, 0x3d567750).
     const float kGunPointingAngle = 0.05235988f;
     // The angle the auto-turret scan asks can_point_at with (0x3e99999a).
