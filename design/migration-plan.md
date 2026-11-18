@@ -270,7 +270,13 @@ spawns ships and runs scripted scenarios (fly to a point, dock, fire,
 collide). Replay tests of the integrator, AI and damage code equal the oracle
 within Tier B bounds, and scenario trajectories, times and damage fall
 inside the envelopes approved in P2.0 (decision O20). All protocol codecs round-trip and match
-the C++ encodings byte for byte.
+the C++ encodings byte for byte. The collide scenario is `ram_ship` (owner, 2026-11-18,
+in place of `ram_asteroid`, whose ship never touches the rock): two fighters, the
+multiplayer server's collision filter switched to its single-player branch, since on the
+multiplayer path only bullets and missiles collide ([reference-build.md](reference-build.md)
+section 10, "Collisions"). The scenarios' AI ships draw their first `rand()` after the
+server's load-time draws, which come from Content's `SystemLoaded` handler (P3.6;
+[sim-records.md](sim-records.md), `load_rand.jsonl`).
 
 ### Phase 3 — server and network (`neuron-server`, `game-logic`, `apps/outpost-server`)
 
