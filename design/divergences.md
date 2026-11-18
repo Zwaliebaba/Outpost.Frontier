@@ -23,6 +23,11 @@ D120 removed before P2.4 merged, once the P2.1 `ClassifyPoint` was on
 The owner accepted D190 to D192 (P2.5) on 2026-11-18, as replacements of
 undefined behaviour in the reference.
 
+ID ranges, reserved on 2026-11-18 so that work packages running in
+parallel do not collide: IDs below D200 stay with Phases 2 and 3; D200 to
+D299 belong to Phase 4. A work package takes the next free ID of its
+range.
+
 | ID | Area | C++ behaviour | Rust behaviour | Reason | Observable effect |
 | --- | --- | --- | --- | --- | --- |
 | D1 | `neuron-core::ini::engine` | On a stray `]` or `=` at the start of a line, an over-long phrase, or a value that does not end the line, `FIniDatabase::Parse` executes `__debugbreak`; on a key before the first section it writes through a null section (`neuroncomponents.cpp`). Without a debugger the process ends | `EngineIni::load_*` returns `EngineIniError::Breakpoint` or `KeyBeforeSection`; the sections parsed before stay | Undefined behaviour in the reference | A malformed engine INI is reported instead of ending the program |
