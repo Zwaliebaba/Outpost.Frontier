@@ -25,6 +25,7 @@
 
 #include <algorithm>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -489,6 +490,11 @@ namespace
     };
 
     std::vector<FPsiRecord> GPsiRecords;            // parallel to GObjects
+    // P2.5 (the missile): the psi records of the guided munitions whose units run in this
+    // PSI (obj "guided", no ctl), and every guided munition seen in a unit, for the
+    // per-tick `guided` records of tick.jsonl until it is gone.
+    std::vector<FPsiRecord> GGuidedPsi;
+    std::set<unsigned int> GGuidedIds;
     IVP_Simulation_Unit* GPsiUnit = nullptr;        // the unit running with a record open
     std::vector<std::string> GPsiNoted;             // objects already noted as not recordable
     std::map<unsigned int, unsigned int> GLastTarget;  // P2.5: ship id -> its target id at the last tick
@@ -834,6 +840,7 @@ namespace
             Record.State = PsiIdle;
             Record.J = FOracleJson();
         }
+        GGuidedPsi.clear();
         GPsiUnit = nullptr;
     }
 
@@ -880,6 +887,15 @@ namespace
         }
 
         for (FPsiRecord& Record : GPsiRecords)
+        {
+            if (Record.State != PsiUnitDone)
+                continue;
+            FOracleSimCore Out;
+            OracleSimReadCore(Record.Core, Out);
+            CoreJ(Record.J, "out", Out);
+            Write(FilePsi, Record.J);
+        }
+        for (FPsiRecord& Record : GGuidedPsi)
         {
             if (Record.State != PsiUnitDone)
                 continue;
@@ -1048,8 +1064,51 @@ namespace
                 Record.J.Bool("check", bMovementCheck);
                 Record.State = PsiUnitDone;
             }
+            for (FPsiRecord& Record : GGuidedPsi)
+            {
+                if (Record.State != PsiInUnit)
+                    continue;
+                Record.J.EndArray();
+                Record.J.Bool("check", bMovementCheck);
+                Record.State = PsiUnitDone;
+            }
             GPsiUnit = nullptr;
             return;
+        }
+
+        // P2.5: a guided munition's unit (one core, its first object of class 0xa7) opens a
+        // record of its own, with no controller inputs.
+        if (OracleSimUnitCoreCount(Unit) == 1)
+        {
+            CObject* const First = OracleSimUnitCoreObject(Unit, 0);
+            IVP_Core* const Core = First != nullptr ? OracleSimCoreOf(First) : nullptr;
+            if (Core != nullptr && (unsigned)First->ObjectClass == (unsigned)CObject::ClassGuided)
+            {
+                unsigned int const Id = static_cast<CSimple*>(First)->Id;
+                GGuidedIds.insert(Id);
+                FOracleSimEnv Env;
+                OracleSimReadEnv(Environment, Env);
+                FOracleSimCore In;
+                OracleSimReadCore(Core, In);
+                GGuidedPsi.emplace_back();
+                FPsiRecord& Record = GGuidedPsi.back();
+                Record.Core = Core;
+                FOracleJson& J = Record.J;
+                J.Str("rec", "psi");
+                J.Uint("tick", GTick);
+                J.Uint("psi", GPsiSeq);
+                J.Str("obj", "guided");
+                J.Uint("id", Id);
+                J.Float("dt", Env.DeltaTime);
+                J.Float("idt", Env.InvDeltaTime);
+                J.FloatArray("time", Env.Time, 2);
+                float const Limits[2] = {Env.MaxVelocity, Env.MaxAngularVelocityPerPsi};
+                J.FloatArray("limits", Limits, 2);
+                CoreJ(J, "in", In);
+                J.BeginArray("pushes");
+                Record.State = PsiInUnit;
+                GPsiUnit = Unit;
+            }
         }
 
         for (size_t Index = 0; Index < GPsiRecords.size(); ++Index)
@@ -1109,18 +1168,21 @@ namespace
     {
         if (GPsiUnit == nullptr)
             return;
-        for (FPsiRecord& Record : GPsiRecords)
+        for (std::vector<FPsiRecord>* List : {&GPsiRecords, &GGuidedPsi})
         {
-            if (Record.State != PsiInUnit || Record.Core != Core)
-                continue;
-            FOracleJson& J = Record.J;
-            J.BeginArray(nullptr);
-            J.Str(nullptr, PushKindName(Kind));
-            J.Float(nullptr, Direction->x);
-            J.Float(nullptr, Direction->y);
-            J.Float(nullptr, Direction->z);
-            J.Float(nullptr, Magnitude);
-            J.EndArray();
+            for (FPsiRecord& Record : *List)
+            {
+                if (Record.State != PsiInUnit || Record.Core != Core)
+                    continue;
+                FOracleJson& J = Record.J;
+                J.BeginArray(nullptr);
+                J.Str(nullptr, PushKindName(Kind));
+                J.Float(nullptr, Direction->x);
+                J.Float(nullptr, Direction->y);
+                J.Float(nullptr, Direction->z);
+                J.Float(nullptr, Magnitude);
+                J.EndArray();
+            }
         }
     }
 
@@ -1564,6 +1626,47 @@ namespace
                 Line += Format(" %.17g", Values[Index]);
             Write(FileMetrics, Line);
         }
+
+        // P2.5 (the missile): every guided munition seen in a simulation unit, after the
+        // frame: its CGuided state, then `alive` false once and it is dropped.
+        std::vector<unsigned int> Gone;
+        for (unsigned int const GuidedId : GGuidedIds)
+        {
+            FOracleJson J;
+            J.Str("rec", "guided");
+            J.Uint("tick", GTick);
+            J.Uint("id", GuidedId);
+            unsigned int Id = GuidedId;
+            CObject* const Found = CObject::Find(Id, CObject::ClassGuided);
+            J.Bool("alive", Found != nullptr);
+            if (Found == nullptr)
+            {
+                Gone.push_back(GuidedId);
+                Write(FileTick, J);
+                continue;
+            }
+            CGuided* const Guided = static_cast<CGuided*>(Found);
+            J.Uint("owner", Guided->OwnerId);
+            VectorJ(J, "pos", Guided->WorldPosition);
+            MatrixJ(J, "orient", Guided->Orientation);
+            VectorJ(J, "vel", Guided->get_velocity());
+            VectorJ(J, "angvel", Guided->get_angular_velocity());
+            J.Float("lifetime", Guided->Lifetime);
+            J.Float("seeker_elapsed", Guided->SeekerElapsed);
+            IObjRW* const Target = Guided->get_target();
+            if (Target != nullptr)
+                IdAndName(J, "target", "target_obj", Target->get_id());
+            else
+            {
+                J.Null("target");
+                J.Null("target_obj");
+            }
+            J.Uint("sub_target", Guided->SubTarget);
+            Found->Release();
+            Write(FileTick, J);
+        }
+        for (unsigned int const GuidedId : Gone)
+            GGuidedIds.erase(GuidedId);
         GPsiDt.clear();
         GPsiCheck.clear();
         GPsiSeed.clear();

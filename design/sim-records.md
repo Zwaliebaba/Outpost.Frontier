@@ -66,6 +66,19 @@ Conventions:
 `alive` is false once the object is no longer in its system's object
 database (destroyed, docked or removed).
 
+Added by P2.5 (the guided-missile controller, owner 2026-11-18): one
+`guided` record per tick, after the `object` records, for every guided
+munition (`CObject` class 0xa7) whose simulation unit has run in a PSI
+of the run, in id order: `tick` u, `id` u, `alive` b; when alive (found
+by `CObject::Find(id, ClassGuided)`): `owner` u (`CProjectile::OwnerId`),
+`pos` f3 (`WorldPosition`), `orient` f9 (`Orientation`), `vel` f3
+(`get_velocity`), `angvel` f3 (`get_angular_velocity`, world space),
+`lifetime` f, `seeker_elapsed` f, `target` u\|null and `target_obj`
+(`get_target`), `sub_target` u. A munition that is gone gets one record
+with `alive` false and no more. `scenario_replay` numbers them by id on
+both sides (the launch order) and compares the launch tick, the last
+tick alive and the trajectory bit for bit.
+
 ## `events.jsonl`
 
 | `rec` | Fields | Source |
@@ -85,7 +98,11 @@ layout (without `ctl`) and whose unit tests round-trip it.
 
 One `psi` record per core and PSI, in the order the PSIs run, for each
 object marked `psi` in the scenario whose simulation unit ran in that PSI
-(none while the unit is asleep). Not recorded, with a `note` in
+(none while the unit is asleep). Since P2.5 also for every guided
+munition whose unit (of one core) runs, with `obj` `guided`, its id and
+no `ctl` (the motor's push is in `pushes`; the seeker's velocity changes
+come between PSIs and are in `in`); `scenario_replay` compares their
+`out` with the Rust missile's core after each tick. Not recorded, with a `note` in
 `session.jsonl`: an object with a golem or remote-correction controller
 (`CObject::GolemController`, +0x60, non-null; those beam their bodies and
 are covered by scenario tests) and a core whose simulation unit holds more
