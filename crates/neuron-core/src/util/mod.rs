@@ -13,3 +13,4 @@ pub mod md5;
 pub mod rect;
 pub mod spline;
 pub mod state_machine;
+pub mod wide_hex;
