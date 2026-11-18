@@ -576,8 +576,11 @@ impl PhysicsWorld {
                 rows: desc.orientation.m,
                 vv: desc.position.to_words(),
             };
-            let mut q = IvpQuat::IDENTITY;
-            q.set_from_matrix(&m);
+            // `CreatePolygonBody` hands IVP the math engine's
+            // `MatrixToQuaternion` of the orientation, which the core
+            // normalises (`IVP_Core`'s constructor).
+            let mut q = IvpQuat::from_math(matrix_to_quaternion(&desc.orientation));
+            q.normize();
             q.set_matrix(&mut m);
             (q, m)
         };
@@ -588,10 +591,10 @@ impl PhysicsWorld {
         core.pos_world_f_core_last_psi = core_position;
         core.m_world_f_core_last_psi = m_object;
         core.m_world_f_core_last_psi.vv = core_position;
-        core.pos_last_motion = core_position;
-        core.pos_last_long_motion = core_position;
-        core.q_last_motion = q_object;
-        core.q_last_long_motion = q_object;
+        // The motion checkpoints (`PosLastMotion`, `QLastMotion` and their
+        // long-term pair) stay zero until the first movement check finds
+        // the core moved, as in the reference, which never writes them
+        // before (unit_cores.jsonl).
         core.time_of_last_psi = self.clock.current_time;
         let (_, inv) = self.clock.time_to_next_psi();
         core.synchronize_simulation_time_snapshot(inv);

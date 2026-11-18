@@ -288,15 +288,6 @@ impl PhysicsWorld {
             compute_impact_geometry_on_penetration: true,
         };
         let (va, vb) = (shape::to_vector(vel_a), shape::to_vector(vel_b));
-        // The bounding spheres around the origins, swept over the PSI: a
-        // pair they keep apart has no impact (a conservative early out).
-        let reach = f64::from(body_a.bound_radius)
-            + f64::from(body_b.bound_radius)
-            + (f64::from(va.norm()) + f64::from(vb.norm())) * f64::from(clock.delta_time);
-        let gap = f64::from((iso_a.translation.vector - iso_b.translation.vector).norm());
-        if gap > reach * 1.001 + 0.01 {
-            return None;
-        }
         let mut best: Option<Impact> = None;
         for la in body_a.geometry.ledges.iter() {
             if body_a.detached_parts.contains(&la.part_id) {
@@ -334,29 +325,58 @@ impl PhysicsWorld {
     }
 
     fn contacts(&mut self, clock: &PsiClock) {
-        let handles: Vec<BodyHandle> = self.bodies.indices().into_iter().map(BodyHandle).collect();
-        let mut impacts = Vec::new();
-        for (i, &a) in handles.iter().enumerate() {
-            let Some(body_a) = self.collidable(a) else {
+        // Every collidable body once: whether its core is still, and its
+        // swept bounding sphere (origin, radius plus the PSI's motion).
+        struct Candidate {
+            handle: BodyHandle,
+            still: bool,
+            origin: [f64; 3],
+            reach: f64,
+        }
+        let mut candidates = Vec::new();
+        for index in self.bodies.indices() {
+            let handle = BodyHandle(index);
+            let Some(body) = self.collidable(handle) else {
                 continue;
             };
-            for &b in &handles[i + 1..] {
-                let Some(body_b) = self.collidable(b) else {
+            let Some(slot) = self.cores.get(body.core) else {
+                continue;
+            };
+            let still = slot.simulation_disabled || slot.core.is_frozen();
+            let Some((iso, velocity)) = self.body_motion(handle, clock) else {
+                continue;
+            };
+            let t = iso.translation.vector;
+            let speed = shape::to_vector(velocity).norm();
+            candidates.push(Candidate {
+                handle,
+                still,
+                origin: [f64::from(t.x), f64::from(t.y), f64::from(t.z)],
+                reach: f64::from(body.bound_radius)
+                    + f64::from(speed) * f64::from(clock.delta_time),
+            });
+        }
+        let mut impacts = Vec::new();
+        for (i, a) in candidates.iter().enumerate() {
+            for b in &candidates[i + 1..] {
+                if a.still && b.still {
+                    continue;
+                }
+                // The bounding spheres, swept over the PSI, keep the pair
+                // apart: no impact (a conservative early out).
+                let d = [0, 1, 2].map(|k| a.origin[k] - b.origin[k]);
+                let gap = ((d[0] * d[0] + d[1] * d[1]) + d[2] * d[2]).sqrt();
+                if gap > (a.reach + b.reach) * 1.001 + 0.01 {
+                    continue;
+                }
+                let (Some(body_a), Some(body_b)) = (self.body(a.handle), self.body(b.handle))
+                else {
                     continue;
                 };
                 if !self.pair_allowed(body_a, body_b) {
                     continue;
                 }
-                let (Some(ca), Some(cb)) =
-                    (self.cores.get(body_a.core), self.cores.get(body_b.core))
-                else {
-                    continue;
-                };
-                let still = |s: &super::CoreSlot| s.simulation_disabled || s.core.is_frozen();
-                if still(ca) && still(cb) {
-                    continue;
-                }
-                if let Some(impact) = self.find_impact(a, b, clock) {
+                if let Some(impact) = self.find_impact(a.handle, b.handle, clock) {
                     impacts.push(impact);
                 }
             }
