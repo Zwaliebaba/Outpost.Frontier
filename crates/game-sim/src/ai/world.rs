@@ -37,6 +37,12 @@ pub trait AiRand {
     fn rand(&mut self) -> i32;
 }
 
+impl<R: AiRand + ?Sized> AiRand for &mut R {
+    fn rand(&mut self) -> i32 {
+        (**self).rand()
+    }
+}
+
 impl AiRand for CrtRand {
     fn rand(&mut self) -> i32 {
         CrtRand::rand(self)
@@ -246,6 +252,21 @@ pub struct ObjectView {
     pub max_bank_angle: f32,
     /// `get_scanner_interference` (39).
     pub scanner_interference: f32,
+    /// The first engine: `find_equipment(engine)` and
+    /// `get_equipment_status` (65, 66), `None` without one.
+    pub engine: Option<EngineStatus>,
+}
+
+/// An engine as `find_equipment` and `get_equipment_status` report it
+/// (`EquipStatus` flag bits 0 and 1).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct EngineStatus {
+    /// The sub-object id.
+    pub id: u16,
+    /// `EquipStatusFlagActive`.
+    pub active: bool,
+    /// `EquipStatusFlagDestroyed`.
+    pub destroyed: bool,
 }
 
 impl ObjectView {
@@ -265,12 +286,30 @@ impl ObjectView {
 /// A thrust source the motion queries take (`IObject::ThrustEquipType`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ThrustEquipType {
-    /// The engine.
+    /// 0: no engine, the archetype's drag only.
+    Normal,
+    /// 1: the engine.
     Engine,
-    /// The thrusters.
+    /// 2: the engine and the thrusters.
     Thrusters,
-    /// The cruise engine.
+    /// 3: a trade lane (the nudge force).
+    Tradelane,
+    /// 4: the cruise engine.
     Cruise,
+}
+
+impl ThrustEquipType {
+    /// The reference's value.
+    #[must_use]
+    pub fn value(self) -> i32 {
+        match self {
+            Self::Normal => 0,
+            Self::Engine => 1,
+            Self::Thrusters => 2,
+            Self::Tradelane => 3,
+            Self::Cruise => 4,
+        }
+    }
 }
 
 /// The motion model of a ship (`IObjInspect` slots 50 to 64): how fast it
@@ -288,10 +327,22 @@ pub trait MotionModel {
     fn speed(&self, throttle: f32, kind: ThrustEquipType) -> f32;
     /// `get_initial_speed_to_coast_distance` (55).
     fn initial_speed_to_coast_distance(&self, speed: f32, stop: bool) -> f32;
-    /// `get_time_to_accelerate_angularly` (56).
+    /// `get_time_to_accelerate_angularly` (56): about the roll axis.
     fn time_to_accelerate_angularly(&self, from: f32, to: f32, dt: f32) -> f32;
-    /// `get_angular_distance_travelled` (58).
+    /// `get_time_to_accelerate_angularly` with pitch and yaw throttles
+    /// (57): `CShip`'s four-argument version; -1 where there is none.
+    fn time_to_accelerate_angularly_xy(&self, pitch: f32, yaw: f32, from: f32, to: f32) -> f32 {
+        let _ = (pitch, yaw, from, to);
+        -1.0
+    }
+    /// `get_angular_distance_travelled` (58): about the roll axis.
     fn angular_distance_travelled(&self, from: f32, to: f32, dt: f32) -> f32;
+    /// `get_angular_distance_travelled` with pitch and yaw throttles (59);
+    /// -1 where there is none.
+    fn angular_distance_travelled_xy(&self, pitch: f32, yaw: f32, from: f32, time: f32) -> f32 {
+        let _ = (pitch, yaw, from, time);
+        -1.0
+    }
     /// `get_angular_speed_XY` (60).
     fn angular_speed_xy(&self, speed: f32, max_speed: f32) -> f32;
     /// `get_angular_speed_Z` (61).
@@ -353,6 +404,22 @@ pub enum AiCommand<H> {
         /// The exit ring.
         exit: H,
     },
+    /// 19 `slot_4c`: activate or deactivate an equipment item.
+    ActivateEquip {
+        /// The sub-object id.
+        equipment: u16,
+        /// Activate.
+        on: bool,
+    },
+    /// 20 `slot_50`: engage or leave cruise.
+    EngageCruise {
+        /// Engage.
+        engage: bool,
+        /// The second flag (the thrust manager passes false).
+        instant: bool,
+    },
+    /// 21 `slot_54`: the thrusters on or off.
+    SetThrustersActive(bool),
     /// 26 `stop_tradelane`.
     StopTradeLane,
     /// Any other slot, with its integer and float arguments in call order.
@@ -385,6 +452,9 @@ impl<H> AiCommand<H> {
             Self::RemoveFollowFollower(_) => 12,
             Self::FireGuns { .. } => 13,
             Self::SetTarget { .. } => 18,
+            Self::ActivateEquip { .. } => 19,
+            Self::EngageCruise { .. } => 20,
+            Self::SetThrustersActive(_) => 21,
             Self::GoTradeLane { .. } => 25,
             Self::StopTradeLane => 26,
             Self::Slot { slot, .. } => *slot,
@@ -423,7 +493,7 @@ pub trait AiWorld {
 
     /// The motion model of a ship (slots 50 to 64); `None` for objects
     /// that have none.
-    fn motion(&self, h: Self::Handle) -> Option<&dyn MotionModel>;
+    fn motion(&self, h: Self::Handle) -> Option<Box<dyn MotionModel + '_>>;
 
     /// The star system an object is in.
     fn system_of(&self, h: Self::Handle) -> Option<u32>;

@@ -27,9 +27,17 @@
 // comparisons.
 #![allow(clippy::neg_cmp_op_on_partial_ord)]
 
-mod fp;
+pub mod behavior;
+pub mod behaviors;
+pub(crate) mod fp;
+pub mod idea;
+pub mod manager;
 pub mod personality;
 pub mod raycast;
 pub mod state_graph;
 pub mod steer;
+pub mod thrust;
 pub mod world;
+
+#[cfg(test)]
+mod tests;
