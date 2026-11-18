@@ -1121,6 +1121,14 @@ namespace
             return "set_strafe_dir";
         case OracleSimAffectFire:
             return "fire";
+        case OracleSimAffectTarget:
+            return "set_target";
+        case OracleSimAffectEquip:
+            return "activate_equip";
+        case OracleSimAffectCruise:
+            return "engage_cruise";
+        case OracleSimAffectThrusters:
+            return "set_thrusters";
         default:
             return "unknown";
         }
@@ -1137,6 +1145,9 @@ namespace
         J.Int("slot", Slot);
         J.Str("m", AffectName(Slot));
         J.Int("i", IntArg);
+        // The instrumented calls in progress around this one (FOracleSimAffectScope): 0 for a
+        // call the caller made, 1 or more for one an IObjAffect body made.
+        J.Int("depth", GOracleSimHooks.AffectDepth > 0 ? GOracleSimHooks.AffectDepth - 1 : 0);
         if (Values != nullptr)
             J.FloatArray("v", Values, (unsigned)Count);
         else

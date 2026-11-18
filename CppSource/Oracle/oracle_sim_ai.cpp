@@ -25,7 +25,8 @@
 #include "common_cequip.h"   // StrafeDir
 #include "common_cobjdb.h"   // IObjDB
 #include "common_cobject.h"  // CObject
-#include "common_iface.h"    // IObjInspect, IObjRW, IBehaviorManager
+#include "common_iface.h"    // IObjInspect, IObjRW, IBehaviorManager, EquipStatus
+#include "common_misc.h"     // SUBOBJ_ID_NONE
 #include "common_ini.h"      // Vector
 #include "common_csys.h"     // Matrix
 #include "oracle_ai.h"
@@ -227,6 +228,17 @@ namespace
         int AttitudeResult;
         float Attitude;
         float ReverseAttitude;
+        // P2.5 goto/face: what the thrust manager reads before it commands the engine and
+        // the thrusters (find_equipment(engine) + get_equipment_status,
+        // are_thrusters_active), and get_atmosphere_range.
+        int EngineCount;
+        unsigned short EngineId;
+        int EngineStatusResult;
+        unsigned char EngineFlags;
+        int ThrustersResult;
+        bool bThrusters;
+        int AtmosphereResult;
+        float AtmosphereRange;
     };
 
     unsigned int IdOf(IObjRW const* Object)
@@ -280,6 +292,17 @@ namespace
         Out.bPlayer = O->is_player();
         Out.bDying = O->is_dying();
         Out.bTargetable = O->is_targetable();
+        Out.EngineId = SUBOBJ_ID_NONE;
+        Out.EngineCount = O->find_equipment(&Out.EngineId, 1, EquipTypeEngine);
+        Out.EngineStatusResult = -1;
+        if (Out.EngineId != SUBOBJ_ID_NONE)
+        {
+            EquipStatus Status{};
+            Out.EngineStatusResult = O->get_equipment_status(Status, Out.EngineId);
+            Out.EngineFlags = Status.Flags;
+        }
+        Out.ThrustersResult = O->are_thrusters_active(Out.bThrusters);
+        Out.AtmosphereResult = O->get_atmosphere_range(Out.AtmosphereRange);
         Out.AttitudeResult = -1;
         if (Self != nullptr)
             Out.AttitudeResult = Self->get_attitude_towards_symmetrical(Out.Attitude, O, Out.ReverseAttitude);
@@ -417,6 +440,23 @@ namespace
         J.Bool("player", Obj.bPlayer);
         J.Bool("dying", Obj.bDying);
         J.Bool("targetable", Obj.bTargetable);
+        if (Obj.EngineId != SUBOBJ_ID_NONE && Obj.EngineStatusResult == 0)
+        {
+            J.BeginArray("engine");
+            J.Uint(nullptr, Obj.EngineId);
+            J.Bool(nullptr, (Obj.EngineFlags & EquipStatusFlagActive) != 0);
+            J.Bool(nullptr, (Obj.EngineFlags & EquipStatusFlagDestroyed) != 0);
+            J.EndArray();
+        }
+        else
+        {
+            J.Null("engine");
+        }
+        if (Obj.ThrustersResult == 0)
+            J.Bool("thrusters", Obj.bThrusters);
+        else
+            J.Null("thrusters");
+        OptFloat(J, "atmosphere", Obj.AtmosphereResult, Obj.AtmosphereRange);
         if (Obj.AttitudeResult == 0)
         {
             J.BeginArray("attitude");
@@ -461,6 +501,28 @@ namespace
         for (int Behavior : M.ScoreBehaviors)
             J.Int(nullptr, Behavior);
         J.EndArray();
+        // P2.5 goto/face: the pathfinder and the thrust manager's flags.
+        if (M.bPathfind != 0)
+        {
+            J.BeginObject("pathfind");
+            J.FloatArray("timers", M.PathfindTimers, 3);
+            J.FloatArray("periods", M.PathfindPeriods, 3);
+            J.Int("record", M.PathfindRecord);
+            J.FloatArray("goal", M.PathfindGoal, 3);
+            J.Float("cap", M.PathfindCap);
+            J.Int("kind", M.PathfindKind);
+            J.FloatArray("target", M.PathfindTarget, 3);
+            J.Uint("target_id", M.PathfindTargetId);
+            J.Int("reaction", M.PathfindReaction);
+            J.Bool("probe_active", M.bProbeActive != 0);
+            J.Bool("probe_contact", M.bProbeContact != 0);
+            J.EndObject();
+        }
+        else
+        {
+            J.Null("pathfind");
+        }
+        J.Int("thrust", M.ThrustFlags);
     }
 
     void BeginTick(IBehaviorManager const* Manager, float Dt)

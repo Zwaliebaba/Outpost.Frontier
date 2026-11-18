@@ -1832,6 +1832,7 @@ static bool EqObj_FindServerEquip(std::list<ServerEquip*>& ServerEquips, CEquip 
 int EqObj::slot_34(unsigned short const* EquipIds, unsigned Count, Vector const* TargetPos,
                    int SourceClient)
 {
+    FOracleSimAffectScope const OracleAffect;   // Oracle instrumentation (P2.5 sim)
     if (GOracleSimHooks.OnAffect != nullptr)   // Oracle instrumentation (P2.3 sim)
         GOracleSimHooks.OnAffect(get_id(), OracleSimAffectFire, static_cast<int>(Count),
                                  TargetPos != nullptr ? &TargetPos->x : nullptr, TargetPos != nullptr ? 3 : 0);
@@ -2140,6 +2141,12 @@ int EqObj::slot_44(unsigned short const* EquipId, IObjRW* Target, unsigned short
 // IObjAffect slot 19 (+0x4c) -- the branch (module storage, RET 0xc).
 int EqObj::slot_4c(unsigned short const* EquipId, bool bActivate, int SourceClient)
 {
+    FOracleSimAffectScope const OracleAffect;   // Oracle instrumentation (P2.5 sim)
+    if (GOracleSimHooks.OnAffect != nullptr)
+    {
+        float const Activate = bActivate ? 1.0f : 0.0f;
+        GOracleSimHooks.OnAffect(get_id(), OracleSimAffectEquip, static_cast<int>(*EquipId), &Activate, 1);
+    }
     // no system / destroyed: -5.
     if (OwnerSystem == nullptr)
         return -5;
@@ -5490,6 +5497,7 @@ void Ship::request_returned(int RequestType, int Response, int Arg3)
 // CShip::set_throttle (IAT 06d645c4) on [ECX+0xc]; return 0.
 int Ship::set_throttle(float Throttle)
 {
+    FOracleSimAffectScope const OracleAffect;   // Oracle instrumentation (P2.5 sim)
     if (GOracleSimHooks.OnAffect != nullptr)   // Oracle instrumentation (P2.3 sim)
         GOracleSimHooks.OnAffect(get_id(), OracleSimAffectThrottle, 0, &Throttle, 1);
     static_cast<CShip*>(Object)->set_throttle(Throttle);
@@ -5500,6 +5508,7 @@ int Ship::set_throttle(float Throttle)
 // (IAT 06d645c8); return 0.
 int Ship::set_axis_throttle(Vector const& AxisThrottle)
 {
+    FOracleSimAffectScope const OracleAffect;   // Oracle instrumentation (P2.5 sim)
     if (GOracleSimHooks.OnAffect != nullptr)   // Oracle instrumentation (P2.3 sim)
         GOracleSimHooks.OnAffect(get_id(), OracleSimAffectAxisThrottle, 0, &AxisThrottle.x, 3);
     static_cast<CShip*>(Object)->Steering.SetAxisThrottle(AxisThrottle);
@@ -5509,6 +5518,7 @@ int Ship::set_axis_throttle(Vector const& AxisThrottle)
 // CShip::set_nudge_vec (IAT 06d645cc); return 0.
 int Ship::set_nudge_vec(Vector const& NudgeVec)
 {
+    FOracleSimAffectScope const OracleAffect;   // Oracle instrumentation (P2.5 sim)
     if (GOracleSimHooks.OnAffect != nullptr)   // Oracle instrumentation (P2.3 sim)
         GOracleSimHooks.OnAffect(get_id(), OracleSimAffectNudge, 0, &NudgeVec.x, 3);
     static_cast<CShip*>(Object)->set_nudge_vec(NudgeVec);
@@ -5526,6 +5536,7 @@ int Ship::set_nudge_vec(Vector const& NudgeVec)
 // Always returns 0.
 int Ship::set_strafe_dir(StrafeDir Dir)
 {
+    FOracleSimAffectScope const OracleAffect;   // Oracle instrumentation (P2.5 sim)
     if (GOracleSimHooks.OnAffect != nullptr)   // Oracle instrumentation (P2.3 sim)
         GOracleSimHooks.OnAffect(get_id(), OracleSimAffectStrafe, static_cast<int>(Dir), nullptr, 0);
     CShip* const Raw = static_cast<CShip*>(Object);
@@ -5738,6 +5749,13 @@ int Ship::slot_38(unsigned short EquipId, int Count, int SourceClient)
 // Returns 0.
 int Ship::set_target(IObjRW* Target, unsigned short SubTarget, int SourceClient)
 {
+    FOracleSimAffectScope const OracleAffect;   // Oracle instrumentation (P2.5 sim)
+    if (GOracleSimHooks.OnAffect != nullptr)
+    {
+        float const Sub = static_cast<float>(SubTarget);
+        GOracleSimHooks.OnAffect(get_id(), OracleSimAffectTarget,
+                                 static_cast<int>(Target != nullptr ? Target->get_id() : 0), &Sub, 1);
+    }
     if (OwnerSystem == nullptr)
         return -5;
     if (is_destroyed())
@@ -5781,6 +5799,12 @@ int Ship::set_target(IObjRW* Target, unsigned short SubTarget, int SourceClient)
 // Returns 0.
 int Ship::slot_50(bool bEngage, bool bArg2, int SourceClient)
 {
+    FOracleSimAffectScope const OracleAffect;   // Oracle instrumentation (P2.5 sim)
+    if (GOracleSimHooks.OnAffect != nullptr)
+    {
+        float const Second = bArg2 ? 1.0f : 0.0f;
+        GOracleSimHooks.OnAffect(get_id(), OracleSimAffectCruise, bEngage ? 1 : 0, &Second, 1);
+    }
     if (OwnerSystem == nullptr)
         return -5;
     if (is_destroyed())
@@ -5826,6 +5850,9 @@ int Ship::slot_50(bool bEngage, bool bArg2, int SourceClient)
 //                               &SourceClient)
 int Ship::slot_54(bool bActivate, int SourceClient)
 {
+    FOracleSimAffectScope const OracleAffect;   // Oracle instrumentation (P2.5 sim)
+    if (GOracleSimHooks.OnAffect != nullptr)
+        GOracleSimHooks.OnAffect(get_id(), OracleSimAffectThrusters, bActivate ? 1 : 0, nullptr, 0);
     if (OwnerSystem == nullptr)
         return -5;
     if (is_destroyed())

@@ -233,6 +233,22 @@ struct FOracleAiManager
     IObjInspect* Targets[64];       // their Iface
     int bPersonality;               // Sys is set
     unsigned char Personality[0x3d8]; // Sys->PersonalityData
+    // P2.5 goto/face: the pathfinder's clocks and override record (IBehaviorManager::Pathfind),
+    // and the thrust manager's cached flags (Sys->Thrust).
+    int bPathfind;                  // Pathfind is set
+    float PathfindTimers[3];        // Timer1E0, Timer1E8, Timer20C
+    float PathfindPeriods[3];       // Period1E4, Period1EC, Period210
+    int PathfindRecord;             // Field_214
+    float PathfindGoal[3];          // Field_22C
+    float PathfindCap;              // Field_23C
+    int PathfindKind;               // Field_240
+    float PathfindTarget[3];        // CachedTargetPosition
+    unsigned int PathfindTargetId;  // Field_064
+    int PathfindReaction;           // Reaction.State
+    int bProbeActive;               // Avoidance.Active
+    int bProbeContact;              // Avoidance.HasContact
+    int ThrustFlags;                // Thrust: bCruiseEngaged 1, bCruiseUnobstructed 2,
+                                    // bEngineActive 4, bAutoLevel 8, bAutoAvoidance 16
 };
 
 // Copies the manager's state; false (Out zeroed, StateGraphId -1) for a null manager.

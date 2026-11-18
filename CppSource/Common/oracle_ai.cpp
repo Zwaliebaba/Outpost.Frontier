@@ -15,6 +15,7 @@
 #include "common_csys.h"           // Matrix, Transform
 #include "common_aisteer.h"
 #include "common_aisteer_internal.h"  // CmnAiSteer::SteeringFrameFromRelativeDir
+#include "common_pathfind.h"          // PathfindManager (OracleAiReadManager)
 #include "common_misc.h"           // RandomVector
 #include "common_idea.h"           // MoveIdea
 
@@ -366,6 +367,30 @@ bool __cdecl OracleAiReadManager(IBehaviorManager const* Manager, FOracleAiManag
             Out.Targets[Index] = Begin[Index].Iface;
         Out.bPersonality = 1;
         std::memcpy(Out.Personality, &Sys->PersonalityData, sizeof(Out.Personality));
+        ThrustManager const& Thrust = Sys->Thrust;
+        Out.ThrustFlags = (Thrust.bCruiseEngaged != 0 ? 1 : 0) | (Thrust.bCruiseUnobstructed != 0 ? 2 : 0) |
+                          (Thrust.bEngineActive != 0 ? 4 : 0) | (Thrust.bAutoLevel != 0 ? 8 : 0) |
+                          (Thrust.bAutoAvoidance != 0 ? 16 : 0);
+    }
+    PathfindManager const* const Pathfind = Manager->Pathfind;
+    if (Pathfind != nullptr)
+    {
+        Out.bPathfind = 1;
+        Out.PathfindTimers[0] = Pathfind->Timer1E0;
+        Out.PathfindTimers[1] = Pathfind->Timer1E8;
+        Out.PathfindTimers[2] = Pathfind->Timer20C;
+        Out.PathfindPeriods[0] = Pathfind->Period1E4;
+        Out.PathfindPeriods[1] = Pathfind->Period1EC;
+        Out.PathfindPeriods[2] = Pathfind->Period210;
+        Out.PathfindRecord = Pathfind->Field_214;
+        std::memcpy(Out.PathfindGoal, &Pathfind->Field_22C, sizeof(Out.PathfindGoal));
+        Out.PathfindCap = Pathfind->Field_23C;
+        Out.PathfindKind = Pathfind->Field_240;
+        std::memcpy(Out.PathfindTarget, &Pathfind->CachedTargetPosition, sizeof(Out.PathfindTarget));
+        Out.PathfindTargetId = static_cast<unsigned int>(Pathfind->Field_064);
+        Out.PathfindReaction = Pathfind->Reaction.State;
+        Out.bProbeActive = Pathfind->Avoidance.Active != 0 ? 1 : 0;
+        Out.bProbeContact = Pathfind->Avoidance.HasContact != 0 ? 1 : 0;
     }
     return true;
 }

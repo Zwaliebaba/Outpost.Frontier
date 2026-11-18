@@ -231,7 +231,7 @@ summary to `rust-sim-replay.txt` there.
 | `munition_hit` `state` (P2.4) | after `damage`: `hull_damage` f, `energy_damage` f, `weapon_type` u (the munition archetype); when the target is found (`CObject::Find` as a ship, else a solar): `hp` f, `hp_max` f, `power` f, `power_max` f, `owner` u, `armor` f\|null (the first `CEArmor`'s `hit_pts_scale`), `sub_kind` s (`group`, `equip`, `shield` or `root`); a group adds `sub_hp` f, `sub_hp_max` d, `sub_state` i, `sub_proxy` b (`IsRootHealthProxy`), `sub_linked_type` u; an item adds `sub_hp` f, `sub_hp_max` d, `sub_type` u, `sub_destroyed` b, and a shield `shield_offline_threshold` f and `shield_weapon_mod` d (`GetWeaponModifier` of the munition's weapon type). The target's state before the list is applied, which `crates/game-sim/tests/damage_replay.rs` rebuilds to replay `munition_hit` (summary `rust-damage-replay.txt`) |
 | `behavior_in` | `tick` u, `seq` u (behaviour tick number, from 1), `id` u, `obj`, `dt` f, `behavior` i, `state_graph` i, `directive` u3, `suppressed` b (`TickSuppressedFlag`); when the owner is set: `pos` f3, `orient` f9, `vel` f3, `angvel` f3, `throttle` f, `axis` f3, `nudge` f3, `strafe` i, `cruise` b. Entry of `IBehaviorManager::UpdateBehaviorTick` |
 | `behavior_out` | `tick` u, `seq` u, `id` u, `obj`, `behavior` i, `state_graph` i, `directive` u3. Every exit of the same call |
-| `affect` | `tick` u, `beh` u (the `seq` of the behaviour tick in progress, 0 outside one), `src` s (`behavior`, `scenario` for the harness's own commands, `other`), `id` u, `obj`, `slot` i, `m` s, `i` i, `v` f[]\|null. One `IObjAffect` call on a ship: slot 0 `set_throttle` (`v` the throttle), 1 `set_axis_throttle` (`v` f3), 2 `set_nudge_vec` (`v` f3), 3 `set_strafe_dir` (`i` the `StrafeDir`), 13 `fire` (`EqObj::slot_34`: `i` the number of guns, `v` the target position or `null`) |
+| `affect` | `tick` u, `beh` u (the `seq` of the behaviour tick in progress, 0 outside one), `src` s (`behavior`, `scenario` for the harness's own commands, `other`), `id` u, `obj`, `slot` i, `m` s, `i` i, `depth` i, `v` f[]\|null. One `IObjAffect` call on a ship: slot 0 `set_throttle` (`v` the throttle), 1 `set_axis_throttle` (`v` f3), 2 `set_nudge_vec` (`v` f3), 3 `set_strafe_dir` (`i` the `StrafeDir`), 13 `fire` (`EqObj::slot_34`: `i` the number of guns, `v` the target position or `null`), 18 `set_target` (`i` the target's id, 0 for none; `v` [the sub-target]), 19 `activate_equip` (`EqObj::slot_4c`: `i` the equipment id, `v` [1 to activate, 0 to deactivate]), 20 `engage_cruise` (`Ship::slot_50`: `i` 1 to engage, 0 to leave; `v` [the second flag, 1 or 0]), 21 `set_thrusters` (`Ship::slot_54`: `i` 1 on, 0 off). `depth` (P2.5) is the number of these calls in progress around this one (`FOracleSimAffectScope`): 0 for a call the caller made, 1 or more for one an `IObjAffect` body makes in turn (`set_strafe_dir` and `slot_54` switch the engine on through `slot_4c`, `slot_50` switches the thrusters off through `slot_54`); records written before the field read as 0 |
 
 The `affect` records between a `behavior_in` and its `behavior_out` with
 the same `seq` are the commands that behaviour tick issued.
@@ -275,7 +275,18 @@ Manager fields (`IBehaviorManager`, `include/common_iface.h`; read by
 (`InSightsTargetId`), `f118` i, `f11c` i, `f120` u (the fallback
 behaviour), `score_w` f[21] and `score_b` i[21] (`BehaviorScores`, whose
 stale entries the weighted draw can read; `game_sim::ai::state_graph::
-choose_behavior` takes them).
+choose_behavior` takes them), and (P2.5 goto and face) `pathfind`
+{`timers` f[3] (`Timer1E0`, `Timer1E8`, `Timer20C`), `periods` f[3]
+(`Period1E4`, `Period1EC`, `Period210`), `record` i (`Field_214`), `goal`
+f3 (`Field_22C`), `cap` f (`Field_23C`), `kind` i (`Field_240`), `target`
+f3 (`CachedTargetPosition`), `target_id` u (`Field_064`), `reaction` i
+(`Reaction.State`), `probe_active` b and `probe_contact` b
+(`Avoidance.Active`, `Avoidance.HasContact`)}\|null (`IBehaviorManager::
+Pathfind`, `game_sim::ai::pathfind::PathfindManager`) and `thrust` i (the
+thrust manager's flags: `bCruiseEngaged` 1, `bCruiseUnobstructed` 2,
+`bEngineActive` 4, `bAutoLevel` 8, `bAutoAvoidance` 16). The pathfinder's
+clocks start from three `rand()` draws of its constructor, outside any
+behaviour tick, so a replay takes them from the record.
 
 Roles of an object: `self`; `target` (`get_target`); `formation_leader`,
 `follow_leader`, `follower` (`get_formation_leader`, `get_follow_leader`,
@@ -300,7 +311,13 @@ f3\|null, `nudge` f3\|null, `strafe` i\|null, `cruise` [b, b]\|null
 u\|null, `behavior_id` i, `toughness` i, `player` b, `dying` b,
 `targetable` b, `attitude` [f, f]\|null (the ship's
 `get_attitude_towards_symmetrical` toward this object and the reverse;
-null for the ship itself). These are the fields of
+null for the ship itself), and (P2.5 goto and face) `engine`
+[u, b, b]\|null (`find_equipment(&Id, 1, EquipTypeEngine)` and
+`get_equipment_status`: the id, `EquipStatusFlagActive`,
+`EquipStatusFlagDestroyed`; null without an engine), `thrusters` b\|null
+(`are_thrusters_active`) and `atmosphere` f\|null
+(`get_atmosphere_range`): what the thrust manager reads before it
+commands the engine and the thrusters. These are the fields of
 `game_sim::ai::world::ObjectView`, which a replay world fills from them.
 
 The `rand` values come from a counting wrapper that the recorder puts in
@@ -320,9 +337,15 @@ side's previous tick; before each tick it sets the manager fields of
 `ai_obj` snapshot (object ids as handles, the ship's own state following
 its commands, the queries answered from `ai_query`, `rand()` from
 `ai_out`'s values). It compares the manager fields of `ai_out` bit for
-bit, the number of `rand()` draws, and the commands with the `affect`
-records whose `beh` is the tick's `seq` (slots 0 to 3 and 13, the slots
-`affect` records; floats bit for bit). A tick whose behaviour on entry or
+bit (with `pathfind` and `thrust` where the record has them), the number
+of `rand()` draws, and the commands with the `affect` records whose `beh`
+is the tick's `seq` and whose `depth` is 0 (slots 0 to 3, 13 and 18 to
+21, the slots `affect` records; floats bit for bit). Before each tick it
+also sets the `pathfind` and `thrust` fields of `ai_in`. The ship's motion
+model (slots 50 to 64), which no record holds, comes from the scenario's
+ship spawned into a `World` over `outdir/`; the snapshot's own state
+follows the tick's commands as the `IObjAffect` bodies change it, nested
+calls included. A tick whose behaviour on entry or
 exit is not ported is counted as skipped by behaviour id, and so is a
 mismatching tick whose graph row has a candidate that is not ported (its
 poll is a stand-in). Its summary is `rust-behavior-replay.txt`.
