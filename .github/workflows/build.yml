@@ -27,6 +27,10 @@ jobs:
         run: cargo test --locked --workspace --all-targets
       - name: Build executables
         run: cargo build --locked --release --workspace --bins
+      - name: Check shaders
+        # Record 0004, point 18: the committed blobs are what the sources
+        # compile to with the recorded fxc.
+        run: cargo xtask shaders --check
 
   host:
     # Everything outside the Windows platform modules must build and test on
