@@ -329,12 +329,6 @@ impl PhysicsWorld {
         self.movement_check.counter
     }
 
-    /// Sets the movement-check countdown: the reference's environment has
-    /// stepped other units before a harness starts comparing.
-    pub fn set_movement_check(&mut self, counter: i16) {
-        self.movement_check.counter = counter;
-    }
-
     /// The environment's clock.
     #[must_use]
     pub fn clock(&self) -> &PsiClock {

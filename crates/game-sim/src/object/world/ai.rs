@@ -776,17 +776,6 @@ impl World {
             let _ = self.rng.rand();
         }
     }
-
-    /// Sets a system's movement-check countdown and IVP's random seed: what
-    /// the reference's environment and process stand at when a harness
-    /// starts comparing (the load steps other units and draws from the
-    /// seed; the Rust world does not).
-    pub fn set_physics_movement_check(&mut self, system: u32, counter: i16, ivp_seed: u32) {
-        if let Some(world) = self.physics.world_mut(system) {
-            world.set_movement_check(counter);
-        }
-        self.physics.set_ivp_seed(ivp_seed);
-    }
 }
 
 impl AiRand for World {

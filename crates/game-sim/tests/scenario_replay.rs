@@ -26,9 +26,13 @@
 //! (goto) and `turn_to_heading` (face) are compared with the oracle like
 //! the other scenarios. Scenarios whose directives need a behaviour that
 //! is not ported yet, and the `dock` directive, are skipped with a note
-//! (P2.5), and so is a scenario whose AI ships have a `faction` (the
-//! dogfight), whose pilots need the combat behaviours. A summary goes to `rust-scenario-replay.txt` in the oracle
-//! folder.
+//! (P2.5). The fights (`dogfight`, `skirmish`: AI ships of hostile
+//! factions) take each pilot's personality and the ships' attitudes from
+//! the oracle's `ai.jsonl`, and are reported as chaotic contact (record
+//! 0003 point 9): each ship's exact span, the first behaviour and target
+//! difference, the behaviour sequences, the hits before the first
+//! divergence and the outcome. A summary goes to `rust-scenario-replay.txt`
+//! in the oracle folder.
 
 mod support;
 
@@ -440,32 +444,13 @@ fn oracle_phases(dir: &Path, scenario: &str) -> Option<[f32; 3]> {
 struct AiInputs {
     personalities: BTreeMap<String, Personality>,
     attitudes: BTreeMap<(String, String), f32>,
-    /// The environment's movement-check countdown and IVP's random seed at
-    /// the first PSI (`tick.jsonl` `psi_mcheck`, `psi_ivp_seed`): the
-    /// reference's load steps the environment and draws from the seed
-    /// before the scenario's first tick.
-    movement_check: Option<(i16, u32)>,
 }
 
 /// The [`AiInputs`] of a scenario from its first `ai.jsonl` under
 /// `<oracle dir>/<scenario>/`: the first personality of each ship and its
-/// first attitude toward each other scenario ship; and the movement check
-/// from the first `tick.jsonl`.
+/// first attitude toward each other scenario ship.
 fn oracle_ai_inputs(dir: &Path, scenario: &str) -> AiInputs {
     let mut out = AiInputs::default();
-    if let Some(frames) = find_files(&dir.join(scenario), "tick.jsonl")
-        .into_iter()
-        .min()
-    {
-        out.movement_check = read_lines(&frames).into_iter().find_map(|r| {
-            if r.get("rec").and_then(Json::as_str) != Some("frame") {
-                return None;
-            }
-            let check = r.get("psi_mcheck")?.as_array()?.first()?.as_i32()?;
-            let seed = r.get("psi_ivp_seed")?.as_array()?.first()?.as_u32()?;
-            Some((i16::try_from(check).ok()?, seed))
-        });
-    }
     let Some(first) = find_files(&dir.join(scenario), "ai.jsonl")
         .into_iter()
         .min()
@@ -516,27 +501,25 @@ fn run_skipping(s: &Scenario, skip: usize, ai: &AiInputs) -> Option<Run> {
     world.skip_rand(skip);
     let system = create_id(s.system.as_bytes());
     world.load_system(system);
-    if let Some((counter, seed)) = ai.movement_check {
-        world.set_physics_movement_check(system, counter, seed);
-    }
     let mut handles: BTreeMap<String, Option<ObjHandle>> = BTreeMap::new();
     let mut managers = Vec::new();
     let mut pathfind_phases = None;
-    // Only the solars the scenario names and the spinning ones: the
-    // oracle's server loads the whole system, but nothing else is near the
-    // scenario objects, and the contact pass over every solar is slow in a
-    // debug build. A spinning solar is a simulation unit every PSI, so it
-    // moves the environment's movement-check countdown (which unit checks
-    // its motion, and so how hard an idle ship is damped).
+    // Only the solars the scenario names: the oracle's server loads the
+    // whole system, but nothing else is near the scenario objects, and the
+    // contact pass over every solar is slow in a debug build. The oracle's
+    // he01 environment steps 100 simulation units per PSI (`psi_mcheck`,
+    // `psi_ivp_seed`), the Rust world's the scenario ships and the three
+    // spinning solars: the movement check, every 15 to 19 unit steps,
+    // falls on other units, and an idle ship it falls on is damped harder.
     let named: Vec<u32> = s
         .objects
         .iter()
         .filter(|o| !o.ship)
         .map(|o| create_id(o.nickname.as_bytes()))
         .collect();
-    world.load_system_solars_where(system, |o| {
-        named.contains(&o.nickname) || o.angular_velocity != Vector::ZERO
-    });
+    if !named.is_empty() {
+        world.load_system_solars_where(system, |o| named.contains(&o.nickname));
+    }
     for o in &s.objects {
         let h = if o.ship {
             let mut spawn = ShipSpawn::new(

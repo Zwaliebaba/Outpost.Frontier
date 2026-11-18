@@ -113,12 +113,6 @@ impl PhysicsSystems {
         self.random.seed
     }
 
-    /// Sets IVP's random seed: the reference's process has drawn from it
-    /// before a harness starts comparing.
-    pub fn set_ivp_seed(&mut self, seed: u32) {
-        self.random.seed = seed;
-    }
-
     /// The multiplayer accumulator (one for all systems, as in the
     /// reference).
     #[must_use]
