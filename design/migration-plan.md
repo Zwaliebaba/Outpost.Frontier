@@ -378,7 +378,8 @@ branch, CI is green, and the legacy scan is part of CI.
 - `CppSource/` is frozen. The only permitted changes are build fixes and
   oracle instrumentation from Phase 0. The recorded exceptions are the
   plain-text save writer (decision O12) the directory `FindFirst` fix
-  (decision O14) and the costume hash in `SetRellan` (decision O17).
+  (decision O14), the costume hash in `SetRellan` (decision O17) and the
+  zero-filled `BuildOrientationBasis` result (decision O24).
 - One work package is one or more pull requests against the owning crate.
   Each updates the ledger.
 - Unknown fields in the reconstruction (about 11,000) are carried as

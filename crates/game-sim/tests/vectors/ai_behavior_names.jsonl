@@ -1,0 +1,50 @@
+{"id":"-1","name":"BEHAVIOR_ID_NONE"}
+{"id":"0","name":"NULL"}
+{"id":"1","name":"Buzz"}
+{"id":"2","name":"Goto"}
+{"id":"3","name":"Trail"}
+{"id":"4","name":"Flee"}
+{"id":"5","name":"Evade"}
+{"id":"6","name":"Idle"}
+{"id":"7","name":"Dock"}
+{"id":"8","name":"Launch"}
+{"id":"9","name":"InstantTradeLane"}
+{"id":"10","name":"Formation"}
+{"id":"11","name":"Large Ship (move)"}
+{"id":"12","name":"Cruise"}
+{"id":"13","name":"Strafe"}
+{"id":"14","name":"Guide"}
+{"id":"15","name":"Face"}
+{"id":"16","name":"Loot"}
+{"id":"17","name":"Follow"}
+{"id":"18","name":"DrasticEvade"}
+{"id":"19","name":"FreeFlight"}
+{"id":"20","name":"Delay"}
+{"name":"NULL","id":"0"}
+{"name":"null","id":"0"}
+{"name":"Buzz","id":"1"}
+{"name":"GOTO","id":"2"}
+{"name":"trail","id":"3"}
+{"name":"Flee","id":"4"}
+{"name":"Evade","id":"5"}
+{"name":"Idle","id":"6"}
+{"name":"Dock","id":"7"}
+{"name":"Launch","id":"8"}
+{"name":"InstantTradeLane","id":"9"}
+{"name":"instanttradelane","id":"9"}
+{"name":"Formation","id":"10"}
+{"name":"Large Ship (move)","id":"11"}
+{"name":"large ship (move)","id":"11"}
+{"name":"Cruise","id":"12"}
+{"name":"Strafe","id":"13"}
+{"name":"Guide","id":"14"}
+{"name":"Face","id":"15"}
+{"name":"Loot","id":"16"}
+{"name":"Follow","id":"17"}
+{"name":"DrasticEvade","id":"18"}
+{"name":"FreeFlight","id":"19"}
+{"name":"Delay","id":"20"}
+{"name":"","id":"-1"}
+{"name":"Nothing","id":"-1"}
+{"name":"Dock ","id":"-1"}
+{"name":"BEHAVIOR_ID_NONE","id":"-1"}

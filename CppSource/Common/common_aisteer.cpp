@@ -62,8 +62,10 @@ void BuildOrientationBasis(Matrix& Out, Matrix const& Reference, Vector const& F
 {
     // baseline builds the basis in a 9-dword local (local_48, zero-filled at
     // ) and copies it whole into Out at 062e2570-062e2582 on every
-    // path, returning Out in EAX. Result plays local_48.
-    Matrix Result{};
+    // path, returning Out in EAX. Result plays local_48. Matrix has a user-provided empty
+    // constructor, so `Matrix Result{}` would leave it uninitialised; it is zero-filled
+    // explicitly (decision O24).
+    Matrix Result(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
 
     // Z_raw = -Forward (the routine, FCHS per component).
     Vector ZRaw;

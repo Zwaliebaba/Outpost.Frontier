@@ -11,8 +11,11 @@
 //! * [`object`]: the space object model, the world with its arena,
 //!   handles, update loop and damage (work package P2.4).
 //! * [`equip`]: equipment and the flight controllers (work package P2.4).
+//! * [`ai`]: the flight AI (work package P2.5); so far the parts that need
+//!   no object world and the world interface the behaviours will use.
 #![forbid(unsafe_code)]
 
+pub mod ai;
 pub mod data;
 pub mod equip;
 pub mod object;

@@ -1,0 +1,29 @@
+# behaviour names, one per line
+NULL
+null
+Buzz
+GOTO
+trail
+Flee
+Evade
+Idle
+Dock
+Launch
+InstantTradeLane
+instanttradelane
+Formation
+Large Ship (move)
+large ship (move)
+Cruise
+Strafe
+Guide
+Face
+Loot
+Follow
+DrasticEvade
+FreeFlight
+Delay
+
+Nothing
+Dock 
+BEHAVIOR_ID_NONE
