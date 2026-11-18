@@ -382,22 +382,25 @@ struct Run {
 
 /// A core's state as the bit diagnostic prints it.
 fn fmt_core(c: &neuron_core::physics::ivp::core::Core) -> String {
-    let h = |v: [f32; 3]| {
-        format!(
-            "[{:08x} {:08x} {:08x}]",
-            v[0].to_bits(),
-            v[1].to_bits(),
-            v[2].to_bits()
-        )
+    let h = |v: &[f32]| {
+        v.iter()
+            .map(|x| format!("{:08x}", x.to_bits()))
+            .collect::<Vec<_>>()
+            .join(" ")
     };
+    let q = |q: &neuron_core::physics::ivp::math::IvpQuat| h(&[q.x, q.y, q.z, q.w]);
+    let t = |t: &neuron_core::physics::ivp::math::IvpTime| h(&[t.base, t.offset]);
     format!(
-        "flags {:x} movement {:x} rot_speed {} rot_speed_change {} damp {} speed {}",
+        "flags {:x} movement {:x} rot_speed [{}] q_next [{}] q_last_motion [{}] pos_last_motion [{}] time_of_last_motion [{}] time_of_last_long_motion [{}] time_of_last_psi [{}]",
         c.flags,
         c.movement_state,
-        h(c.rot_speed),
-        h(c.rot_speed_change),
-        h(c.rot_speed_damp_factor),
-        h(c.speed)
+        h(&c.rot_speed),
+        q(&c.q_world_f_core_next_psi),
+        q(&c.q_last_motion),
+        h(&c.pos_last_motion),
+        t(&c.time_of_last_motion),
+        t(&c.time_of_last_long_motion),
+        t(&c.time_of_last_psi),
     )
 }
 
@@ -1269,7 +1272,7 @@ fn report_cores(
 ) {
     let range = first.saturating_sub(2)..first + 2;
     if let Some(cores) = ours.cores.get(name) {
-        for t in range.clone() {
+        for t in first.saturating_sub(16)..first + 2 {
             if let Some(c) = cores.get(t) {
                 let _ = writeln!(summary, "    rust core after tick {t}: {c}");
             }
@@ -1294,7 +1297,10 @@ fn report_cores(
     };
     for r in read_lines(&file) {
         let tick = r.get("tick").and_then(Json::as_u32).unwrap_or(0) as usize;
-        if !range.contains(&tick) || r.get("obj").and_then(Json::as_str) != Some(name) {
+        let check = r.get("check").and_then(Json::as_bool).unwrap_or(false);
+        if !(range.contains(&tick) || (check && tick < first))
+            || r.get("obj").and_then(Json::as_str) != Some(name)
+        {
             continue;
         }
         let (Some(i), Some(o)) = (r.get("in"), r.get("out")) else {
@@ -1303,18 +1309,24 @@ fn report_cores(
         let ctl = r.get("ctl");
         let _ = writeln!(
             summary,
-            "    oracle psi {} tick {tick}: in flags {:x} movement {:x} rot_speed [{}] rot_speed_change [{}] damp [{}] | out rot_speed [{}] | pushes {} check {} steering {:?} drag {:?}",
+            "    oracle psi {} tick {tick}: in flags {:x} movement {:x} rot_speed [{}] q_next [{}] q_last_motion [{}] pos_last_motion [{}] time_of_last_motion [{}] time_of_last_long_motion [{}] time_of_last_psi [{}] | out movement {:x} q_last_motion [{}] time_of_last_motion [{}] | pushes {} check {} steering {:?} drag {:?}",
             r.get("psi").and_then(Json::as_u32).unwrap_or(0),
             i.get("flags").and_then(Json::as_u32).unwrap_or(0),
             i.get("movement_state").and_then(Json::as_u32).unwrap_or(0),
             h(i, "rot_speed"),
-            h(i, "rot_speed_change"),
-            h(i, "rot_speed_damp"),
-            h(o, "rot_speed"),
+            h(i, "q_next"),
+            h(i, "q_last_motion"),
+            h(i, "pos_last_motion"),
+            h(i, "time_of_last_motion"),
+            h(i, "time_of_last_long_motion"),
+            h(i, "time_of_last_psi"),
+            o.get("movement_state").and_then(Json::as_u32).unwrap_or(0),
+            h(o, "q_last_motion"),
+            h(o, "time_of_last_motion"),
             r.get("pushes")
                 .and_then(Json::as_array)
                 .map_or(0, |a| a.len()),
-            r.get("check").and_then(Json::as_bool).unwrap_or(false),
+            check,
             ctl.and_then(|c| c.get("steering_active"))
                 .and_then(Json::as_bool),
             ctl.and_then(|c| c.get("angular_drag_factor"))
