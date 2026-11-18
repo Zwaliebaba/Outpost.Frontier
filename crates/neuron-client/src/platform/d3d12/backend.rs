@@ -444,9 +444,12 @@ impl D3d12Backend {
     /// stretches the back buffer to the client area, as a windowed
     /// Direct3D 8 `Present` did.
     pub fn resize(&mut self, width: u32, height: u32) -> Result<(), GpuError> {
+        println!("[resize] flush");
         self.flush()?;
+        println!("[resize] target");
         let target = RenderTarget::new(&self.gpu, width, height)?;
         let depth = depth_buffer(&self.gpu, width, height)?;
+        println!("[resize] views");
         let scene_view = srv_desc(DXGI_FORMAT_B8G8R8A8_UNORM, 1);
         // SAFETY: the flush above finished every use of the old views and
         // resources; the slots belong to heaps kept with the backend, and
@@ -464,8 +467,10 @@ impl D3d12Backend {
         self.target = target;
         self._depth = depth;
         self.scene_state = D3D12_RESOURCE_STATE_RENDER_TARGET;
+        println!("[resize] swap chain");
         if let Some((mut swap, rtvs)) = self.swap.take() {
             swap.resize(width, height)?;
+            println!("[resize] swap chain resized");
             for (i, buffer) in swap.buffers.iter().enumerate() {
                 // SAFETY: slot `i` of the heap kept with the swap chain;
                 // the old views named buffers released by the resize.

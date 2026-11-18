@@ -24,7 +24,9 @@ jobs:
       - name: Lint workspace
         run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - name: Diagnose neuron-client (temporary)
-        run: cargo test --locked -p neuron-client --lib -- --test-threads=1 --nocapture d3d12
+        run: |
+          cargo test --locked -p neuron-client --lib -- --test-threads=1 --nocapture the_scene_resizes
+          cargo test --locked -p neuron-client --lib -- --test-threads=1 --nocapture d3d12
       - name: Test workspace
         run: cargo test --locked --workspace --all-targets
       - name: Build executables

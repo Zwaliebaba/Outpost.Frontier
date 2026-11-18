@@ -3,6 +3,12 @@
 
 use std::io::{self, Write};
 
+pub mod account_keys;
+pub mod login_history;
+pub mod profile;
+pub mod table_layouts;
+pub mod timing;
+
 /// Start the client application.
 pub fn run() -> io::Result<()> {
     writeln!(

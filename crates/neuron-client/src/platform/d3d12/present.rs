@@ -198,6 +198,7 @@ impl SwapChain {
     /// done with them.
     pub fn resize(&mut self, width: u32, height: u32) -> Result<(), GpuError> {
         self.buffers.clear();
+        println!("[swap] ResizeBuffers");
         // SAFETY: the buffer references were dropped above and the caller
         // flushed the queue; the format and flags are kept.
         unsafe {
