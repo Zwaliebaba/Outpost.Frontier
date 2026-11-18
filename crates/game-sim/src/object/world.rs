@@ -439,6 +439,20 @@ impl World {
         self.systems.insert(system, SystemObjects::default());
     }
 
+    /// Whether a loaded system's physics world keeps the multiplayer server's
+    /// collision filter that [`World::load_system`] installs. Off is the
+    /// filter's single-player branch (every pair collides), which the
+    /// scenario oracle's `collisions sp` selects on its multiplayer server
+    /// (`StarSystem_MpCollisionFilter`, `Server/server_classes.cpp:11409`).
+    pub fn set_server_collision_filter(&mut self, system: u32, on: bool) {
+        let install = on && !self.config.single_player && self.config.server_physics;
+        if let Some(world) = self.physics.world_mut(system) {
+            world.set_collision_filter(
+                install.then_some(mp_server_collision_filter as fn(u32, u32) -> bool),
+            );
+        }
+    }
+
     /// The physics world of a system.
     #[must_use]
     pub fn physics(&self, system: u32) -> Option<&PhysicsWorld> {

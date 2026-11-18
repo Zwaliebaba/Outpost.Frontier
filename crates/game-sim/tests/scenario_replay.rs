@@ -20,6 +20,17 @@
 //! ship and named solar the closest approach on both sides, the Rust
 //! collision events and the oracle's `events.jsonl` collisions.
 //!
+//! A scenario with `collisions sp` (`ram_ship`) runs without the server's
+//! collision filter, as the oracle's does; its collision events
+//! (`GameObject::on_collision`: the relative speed and the
+//! `CalcCollisionDamage` result) are paired with the oracle's
+//! `events.jsonl` and `calls.jsonl`, and collision events on one side only
+//! are a gross divergence.
+//!
+//! For every scenario, the AI ones too, the report lists the `rand()`
+//! draws the Rust world makes while it loads the system and spawns the
+//! objects beside the oracle's load-time draws (`load_rand.jsonl`).
+//!
 //! Scenarios whose objects need the AI (an `ai` state graph, or the
 //! `goto`, `face` and `dock` directives) are skipped with a note: the
 //! behaviours are P2.5. A summary goes to `rust-scenario-replay.txt` in
@@ -39,6 +50,7 @@ use game_sim::object::{Command, DamageList, ObjHandle, World, WorldEvent};
 use neuron_core::id::create_id;
 use neuron_core::math::{Matrix, Vector};
 use neuron_core::physics::StepMode;
+use neuron_core::rng::CrtRand;
 use support::records::{Json, find_files, read_lines};
 
 /// The gross-divergence bound on position, metres.
@@ -55,8 +67,11 @@ const REPORT_WINDOW: usize = 2;
 /// Munition hits listed per scenario.
 const REPORT_HITS: usize = 40;
 
-/// Collision events listed per scenario and side.
-const REPORT_COLLISIONS: usize = 10;
+/// Collision events listed per scenario.
+const REPORT_COLLISIONS: usize = 20;
+
+/// The furthest the load-time draw count is searched for.
+const LOAD_DRAWS_SEARCH: usize = 2_000_000;
 
 #[derive(Clone, Debug)]
 struct ObjDesc {
@@ -87,6 +102,9 @@ struct Scenario {
     ticks: u32,
     frame: f64,
     sp: bool,
+    /// `collisions sp`: the server's collision filter takes its
+    /// single-player branch (every pair collides).
+    sp_collisions: bool,
     seed: u32,
     objects: Vec<ObjDesc>,
     commands: Vec<Cmd>,
@@ -123,6 +141,7 @@ fn parse(path: &Path) -> Option<Scenario> {
         ticks: 0,
         frame: 1.0 / 30.0,
         sp: false,
+        sp_collisions: false,
         seed: 0x4f52_4143,
         objects: Vec::new(),
         commands: Vec::new(),
@@ -138,6 +157,7 @@ fn parse(path: &Path) -> Option<Scenario> {
             "ticks" => s.ticks = t.get(1)?.parse().ok()?,
             "frame" => s.frame = num(t.get(1)?)?,
             "stepping" => s.sp = t.get(1)?.eq_ignore_ascii_case("sp"),
+            "collisions" => s.sp_collisions = t.get(1)?.eq_ignore_ascii_case("sp"),
             "seed" => s.seed = t.get(1)?.parse().ok()?,
             "ship" | "solar" => {
                 let ship = t[0].eq_ignore_ascii_case("ship");
@@ -269,12 +289,14 @@ struct Hit {
     entries: usize,
 }
 
-/// One collision event.
+/// One collision event: the reporting object, the other, the relative
+/// speed (`None` where the record does not carry it) and the damage.
 #[derive(Clone, Debug)]
 struct Contact {
     tick: u32,
     a: String,
     b: String,
+    speed: Option<f32>,
     damage: f32,
 }
 
@@ -376,6 +398,9 @@ fn run(s: &Scenario) -> Option<Run> {
         .collect();
     if !named.is_empty() {
         world.load_system_solars_where(system, |n| named.contains(&n));
+    }
+    if s.sp_collisions {
+        world.set_server_collision_filter(system, false);
     }
     for o in &s.objects {
         let h = if o.ship {
@@ -500,10 +525,16 @@ fn run(s: &Scenario) -> Option<Run> {
                     out.hits
                         .push(rust_hit(tick, &name, sub, &damage, before, st));
                 }
-                WorldEvent::Collision { a, b, damage, .. } => out.contacts.push(Contact {
+                WorldEvent::Collision {
+                    a,
+                    b,
+                    speed,
+                    damage,
+                } => out.contacts.push(Contact {
                     tick,
                     a: name_of(a),
                     b: name_of(b),
+                    speed: Some(speed),
                     damage,
                 }),
                 _ => {}
@@ -539,8 +570,23 @@ fn oracle_run(dir: &Path, scenario: &str) -> Option<Run> {
                 tick: r.get("tick").and_then(Json::as_u32).unwrap_or(0),
                 a: record_name(&r, "a", "a_obj"),
                 b: record_name(&r, "b", "b_obj"),
+                speed: None,
                 damage: r.get("damage").and_then(Json::as_f32).unwrap_or(0.0),
             });
+        }
+    }
+    // The relative speeds of the same contacts, from their
+    // `CalcCollisionDamage` calls (one per event, in the same order).
+    if calls.is_file() {
+        let speeds: Vec<f32> = read_lines(&calls)
+            .iter()
+            .filter(|r| r.get("rec").and_then(Json::as_str) == Some("collision_damage"))
+            .map(|r| r.get("speed").and_then(Json::as_f32).unwrap_or(f32::NAN))
+            .collect();
+        if speeds.len() == run.contacts.len() {
+            for (c, v) in run.contacts.iter_mut().zip(speeds) {
+                c.speed = Some(v);
+            }
         }
     }
     Some(run)
@@ -853,12 +899,178 @@ fn report_contacts(summary: &mut String, s: &Scenario, ours: &Run, theirs: &Run)
             s.name,
             run.contacts.len()
         );
-        for c in run.contacts.iter().take(REPORT_COLLISIONS) {
-            let _ = writeln!(
-                summary,
-                "    tick {} {} against {} damage {}",
-                c.tick, c.a, c.b, c.damage
+    }
+    report_collisions(summary, &s.name, &ours.contacts, &theirs.contacts);
+}
+
+fn fmt_contact(c: &Contact) -> String {
+    let speed = c.speed.map_or_else(|| "-".to_owned(), |v| v.to_string());
+    format!("against {} speed {speed} damage {}", c.b, c.damage)
+}
+
+/// The collision events of both sides (`GameObject::on_collision` with
+/// `CalcCollisionDamage`), paired by tick, reporting object and order.
+/// Returns the number of pairs that differ.
+fn report_collisions(
+    summary: &mut String,
+    scenario: &str,
+    ours: &[Contact],
+    theirs: &[Contact],
+) -> usize {
+    type Pair<'a> = (Vec<&'a Contact>, Vec<&'a Contact>);
+    let mut groups: BTreeMap<(u32, &str), Pair<'_>> = BTreeMap::new();
+    for c in ours {
+        groups.entry((c.tick, &c.a)).or_default().0.push(c);
+    }
+    for c in theirs {
+        groups.entry((c.tick, &c.a)).or_default().1.push(c);
+    }
+    let mut lines = Vec::new();
+    let mut differing = 0;
+    for ((tick, a), (x, y)) in &groups {
+        for i in 0..x.len().max(y.len()) {
+            let side = |v: &[&Contact]| {
+                v.get(i)
+                    .map_or_else(|| "none".to_owned(), |c| fmt_contact(c))
+            };
+            let (p, q) = (side(x), side(y));
+            if p == q {
+                lines.push(format!("    tick {tick} {a} #{}: both {p}", i + 1));
+            } else {
+                differing += 1;
+                lines.push(format!(
+                    "    tick {tick} {a} #{}: rust {p} | oracle {q}",
+                    i + 1
+                ));
+            }
+        }
+    }
+    if lines.is_empty() {
+        return 0;
+    }
+    let _ = writeln!(
+        summary,
+        "{scenario}: collision events that differ: {differing} of {}",
+        lines.len()
+    );
+    for line in lines.iter().take(REPORT_COLLISIONS) {
+        let _ = writeln!(summary, "{line}");
+    }
+    if lines.len() > REPORT_COLLISIONS {
+        let _ = writeln!(summary, "    ... (the first {REPORT_COLLISIONS} listed)");
+    }
+    differing
+}
+
+/// The number of `rand()` draws a generator seeded with `seed` made to
+/// reach `now`, `None` beyond `LOAD_DRAWS_SEARCH`.
+fn draws_since(seed: u32, now: &CrtRand) -> Option<usize> {
+    let mut r = CrtRand::with_seed(seed);
+    for i in 0..=LOAD_DRAWS_SEARCH {
+        if r == *now {
+            return Some(i);
+        }
+        r.rand();
+    }
+    None
+}
+
+/// The Rust world's draws while it loads the scenario's system (every
+/// solar, as `StarSystem::load` builds them) and spawns each object, by
+/// the oracle's phases (`load_rand.jsonl`): `load`, then `spawn <name>`.
+fn rust_load_draws(s: &Scenario) -> Option<Vec<(String, usize)>> {
+    let mut world = support::world::world(WorldConfig {
+        single_player: false,
+        step_mode: if s.sp {
+            StepMode::SinglePlayer
+        } else {
+            StepMode::Multiplayer
+        },
+        server_physics: true,
+        seed: s.seed,
+    })?;
+    let system = create_id(s.system.as_bytes());
+    let mut out = Vec::new();
+    let mut last = 0;
+    let mut mark = |world: &mut World, phase: String, out: &mut Vec<(String, usize)>| {
+        let now = draws_since(s.seed, world.rng()).unwrap_or(usize::MAX);
+        out.push((phase, now.saturating_sub(last)));
+        last = now;
+    };
+    world.load_system_solars(system);
+    mark(&mut world, "load".to_owned(), &mut out);
+    for o in &s.objects {
+        if o.ship {
+            let mut spawn = ShipSpawn::new(
+                create_id(o.archetype.as_bytes()),
+                create_id(o.loadout.as_bytes()),
+                o.pos,
+                o.orient,
             );
+            spawn.velocity = o.vel;
+            spawn.angular_velocity = o.angvel;
+            spawn.hit_pts = o.hp;
+            let _ = world.spawn_ship(system, &spawn);
+        }
+        mark(&mut world, format!("spawn {}", o.name), &mut out);
+    }
+    Some(out)
+}
+
+/// The oracle's load-time draws by phase (`load_rand.jsonl` `phase`
+/// records of the first run): the phase and its draw count.
+fn oracle_load_draws(dir: &Path, scenario: &str) -> Option<Vec<(String, usize)>> {
+    let file = find_files(&dir.join(scenario), "load_rand.jsonl")
+        .into_iter()
+        .min()?;
+    let phases: Vec<(String, usize)> = read_lines(&file)
+        .iter()
+        .filter(|r| r.get("rec").and_then(Json::as_str) == Some("phase"))
+        .filter_map(|r| {
+            Some((
+                r.get("phase")?.as_str()?.to_owned(),
+                r.get("count")?.as_u32()? as usize,
+            ))
+        })
+        .collect();
+    (!phases.is_empty()).then_some(phases)
+}
+
+/// The load-time draws (owner, 2026-11-18): the Rust world's `rand()`
+/// draws while it loads the system and spawns the objects, beside the
+/// oracle's by phase. A phase the Rust world has no counterpart for (the
+/// controller, `after_load`, `hooks`) is listed with the Rust count 0.
+fn report_load_draws(summary: &mut String, s: &Scenario, oracle: Option<&Path>) {
+    let Some(ours) = rust_load_draws(s) else {
+        return;
+    };
+    let theirs = oracle.and_then(|d| oracle_load_draws(d, &s.name));
+    let total: usize = ours.iter().map(|p| p.1).sum();
+    let mut line = format!("{}: load-time draws: rust {total}", s.name);
+    if let Some(theirs) = &theirs {
+        let before_spawn: usize = theirs
+            .iter()
+            .take_while(|p| !p.0.starts_with("spawn "))
+            .map(|p| p.1)
+            .sum();
+        let all: usize = theirs.iter().map(|p| p.1).sum();
+        let _ = write!(
+            line,
+            ", oracle {all} ({before_spawn} before the first spawn)"
+        );
+    }
+    let _ = writeln!(summary, "{line}");
+    let rust_of = |phase: &str| ours.iter().find(|p| p.0 == phase).map_or(0, |p| p.1);
+    match &theirs {
+        Some(theirs) => {
+            for (phase, n) in theirs {
+                let _ = writeln!(summary, "    {phase}: rust {}, oracle {n}", rust_of(phase));
+            }
+        }
+        None => {
+            for (phase, n) in &ours {
+                let _ = writeln!(summary, "    {phase}: rust {n}");
+            }
         }
     }
 }
@@ -895,6 +1107,7 @@ fn scenarios_against_the_oracle() {
             let _ = writeln!(summary, "{}: does not parse", path.display());
             continue;
         };
+        report_load_draws(&mut summary, &s, oracle.as_deref());
         if let Some(why) = needs_ai(&s) {
             let _ = writeln!(summary, "{}: skipped, {why} (AI is P2.5)", s.name);
             continue;
@@ -973,6 +1186,14 @@ fn scenarios_against_the_oracle() {
         }
         report_hits(&mut summary, &s.name, &our_run.hits, &their_run.hits);
         report_contacts(&mut summary, &s, &our_run, &their_run);
+        if our_run.contacts.is_empty() != their_run.contacts.is_empty() {
+            gross.push(format!(
+                "{}: collision events rust {} vs oracle {}",
+                s.name,
+                our_run.contacts.len(),
+                their_run.contacts.len()
+            ));
+        }
     }
     print!("{summary}");
     if let Some(dir) = &oracle {
