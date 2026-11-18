@@ -1768,6 +1768,58 @@ namespace
             J.Int("result", Result);
             J.Uint("id", Id);
             bOk = Result == 0 && Id != 0;
+            // P2.5 (the transport's collision geometry): the ship's part map and each
+            // attached item's attachment (non-physical with its hardpoint CRC and collision
+            // state, physical, or none) and whether it is connected.
+            if (bOk)
+            {
+                unsigned int FindId = Id;
+                CObject* const Spawned = CObject::Find(FindId, CObject::ClassShip);
+                if (Spawned != nullptr)
+                {
+                    J.BeginArray("part_map");
+                    for (FPartMapEntry const& Entry : Spawned->PartMap)
+                    {
+                        J.BeginArray(nullptr);
+                        J.Uint(nullptr, Entry.PartId);
+                        J.Int(nullptr, (int)Entry.EngineInstanceId);
+                        J.EndArray();
+                    }
+                    J.EndArray();
+                    J.BeginArray("attached");
+                    CEqObj* const Eq = static_cast<CEqObj*>(Spawned);
+                    CEquipTraverser Walk(-1);
+                    for (CEquip* Equip = Eq->EquipManager.Traverse(Walk); Equip != nullptr;
+                         Equip = Eq->EquipManager.Traverse(Walk))
+                    {
+                        CAttachedEquip* const Attached = CAttachedEquip::cast(Equip);
+                        if (Attached == nullptr)
+                            continue;
+                        J.BeginObject(nullptr);
+                        J.Uint("id", Equip->GetID());
+                        J.Bool("connected", Attached->IsConnected());
+                        CNonPhysAttachment* const NonPhys = dynamic_cast<CNonPhysAttachment*>(Attached->Attachment);
+                        CPhysAttachment* const Phys = dynamic_cast<CPhysAttachment*>(Attached->Attachment);
+                        if (NonPhys != nullptr)
+                        {
+                            J.Str("kind", "non_physical");
+                            J.Uint("hp_crc", NonPhys->HpCrc);
+                            J.Bool("collisions", NonPhys->bCollisions != 0);
+                        }
+                        else if (Phys != nullptr)
+                        {
+                            J.Str("kind", "physical");
+                        }
+                        else
+                        {
+                            J.Str("kind", "none");
+                        }
+                        J.EndObject();
+                    }
+                    J.EndArray();
+                    Spawned->Release();
+                }
+            }
             if (bOk && !Desc.StateGraph.empty())
             {
                 pub::AI::SetPersonalityParams Params;

@@ -179,7 +179,7 @@ jobs:
         shell: pwsh
         run: |
           $r = "$env:RUNNER_TEMP\outpost-sim\strafe\run_01"
-          Get-Content "$r\fdump.txt" | Where-Object { $_ -notmatch 'NOTICE' } | Select-Object -Last 40
+          Get-Content "$r\session.jsonl" | Where-Object { $_.Contains('"rec":"spawn"') }
           $hits = Get-Content "$r\calls.jsonl" | Where-Object { $_.Contains('"rec":"munition_hit"') }
           $hits | Select-Object -First 3 | ForEach-Object { $_.Substring(0, [Math]::Min(400, $_.Length)) }
           $hits | ForEach-Object { ($_ | ConvertFrom-Json) } | Group-Object { "$($_.tick -lt 404) sub $($_.sub) $($_.state.sub_kind)" } | ForEach-Object { "hits: $($_.Count) x $($_.Name)" }
