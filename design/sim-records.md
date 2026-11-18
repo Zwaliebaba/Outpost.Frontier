@@ -321,10 +321,12 @@ Roles of an object: `self`; `target` (`get_target`); `formation_leader`,
 `follow_leader`, `follower` (`get_formation_leader`, `get_follow_leader`,
 `get_formation_followers`, at most 16); `dock_target` (`get_dock_target`
 through `IObjDB::FindById`); `in_sights`; `candidate` (the target list);
-`near` (every ship, solar and loot of the system within `near_radius` of
-the ship's position, walked with `IObjDB::GetNext`, mask `0x107ffdff`);
-`query` (found by a query of this tick). An object has every role that
-applies, in that order.
+`missile` (P2.5 combat: an incoming missile of the timer table's list,
+`Sys->Timers.Missiles`, or its best candidate; the near walk's mask
+leaves munitions out); `near` (every ship, solar and loot of the system
+within `near_radius` of the ship's position, walked with
+`IObjDB::GetNext`, mask `0x107ffdff`); `query` (found by a query of this tick). An object
+has every role that applies, in that order.
 
 Object fields, each the `IObjInspect` slot of `include/common_iface.h`
 (`x|null` is null when the slot does not answer 0): `class` u

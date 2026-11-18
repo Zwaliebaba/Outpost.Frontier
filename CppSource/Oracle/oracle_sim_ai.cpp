@@ -946,6 +946,15 @@ namespace
         Add(FindById(M.InSightsTargetId), "in_sights");
         for (int Index = 0; Index < M.TargetCount && Index < 64; ++Index)
             Add(M.Targets[Index], "candidate");
+        // P2.5 combat: the incoming missiles of the timer table (the near walk's mask leaves
+        // munitions out), which UpdateSystemManagerCandidateScan and the evade behaviour read.
+        if (M.bSys)
+        {
+            for (int Index = 0; Index < M.Timers.MissileCount && Index < 16; ++Index)
+                Add(FindById(M.Timers.Missiles[Index]), "missile");
+            if (M.Timers.BestMissile != 0)
+                Add(FindById(M.Timers.BestMissile), "missile");
+        }
 
         if (GOpenDb != nullptr)
         {
