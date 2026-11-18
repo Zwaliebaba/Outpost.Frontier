@@ -599,3 +599,39 @@ fn an_ai_fighter_gets_a_manager_and_idles() {
     assert_eq!(state.directive[0], 0);
     assert!(state.completed.contains(&(ids::DELAY, 0)));
 }
+
+#[test]
+fn the_ship_leads_its_target_over_its_gun_statistics() {
+    let Some(mut world) = support::world::world(WorldConfig::default()) else {
+        println!("outdir/ is missing: no gun statistics");
+        return;
+    };
+    let system = create_id(b"he01");
+    world.load_system(system);
+    let shooter = fighter(&mut world, system, Vector::new(15000.0, 3000.0, -25000.0));
+    let target = fighter(&mut world, system, Vector::new(15000.0, 3000.0, -25400.0));
+    // Three guns without a seeker; the missile launcher, off until the AI
+    // switches it on, is not counted.
+    let stats = world.ship_gun_stats(shooter).expect("a ship");
+    println!("gun stats {stats:?}");
+    assert_eq!(stats.active_guns, 3);
+    assert_eq!(stats.cm_droppers, 0);
+    assert!(stats.avg_muzzle_velocity > 0.0 && stats.max_munition_range > 400.0);
+    // Switching it on dirties the cache; it counts as a dropper then.
+    let unguided = world.unguided_guns(shooter);
+    let launcher = game_sim::ai::world::AiWorld::find_equipment(&world, shooter, types::GUN)
+        .unwrap_or_default()
+        .into_iter()
+        .find(|id| !unguided.contains(id))
+        .expect("the missile launcher");
+    world.command(shooter, Command::ActivateEquip(launcher, true));
+    assert_eq!(
+        world.ship_gun_stats(shooter).map(|s| s.cm_droppers),
+        Some(1)
+    );
+    assert_eq!(world.ship_lead_fire_position(shooter), None, "no target");
+    world.command(shooter, Command::SetTarget(Some(target), 0));
+    // Both at rest: the lead is the target's centre of mass, 400 m away.
+    let lead = world.ship_lead_fire_position(shooter).expect("in range");
+    assert!((f64::from(lead.z) + 25400.0).abs() < 10.0, "{lead:?}");
+}

@@ -106,6 +106,19 @@ impl PhysicsSystems {
             .map_or(IvpTime::default(), PhysicsWorld::current_time)
     }
 
+    /// IVP's process-wide random seed (`IVP_FastRandomFloat`), which the
+    /// movement check draws from.
+    #[must_use]
+    pub fn ivp_seed(&self) -> u32 {
+        self.random.seed
+    }
+
+    /// Sets IVP's random seed: the reference's process has drawn from it
+    /// before a harness starts comparing.
+    pub fn set_ivp_seed(&mut self, seed: u32) {
+        self.random.seed = seed;
+    }
+
     /// The multiplayer accumulator (one for all systems, as in the
     /// reference).
     #[must_use]

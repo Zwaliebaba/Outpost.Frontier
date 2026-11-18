@@ -295,6 +295,10 @@ pub struct World {
     /// `GAvoidIndexTableShuffled`: the first obstacle probe of the process
     /// has drawn its 50 `rand()` values.
     pub(crate) avoid_table_shuffled: bool,
+    /// The attitudes the AI reads (`get_attitude_towards`), by object
+    /// ids: the reputation groups are not ported, so a harness sets them
+    /// ([`World::set_attitude`]).
+    pub(crate) attitudes: BTreeMap<(u32, u32), f32>,
     always_update: Vec<ObjHandle>,
     anim_channels: Vec<turret::AnimChannel>,
     anim_playbacks: Vec<(ObjHandle, animate::AnimKind)>,
@@ -378,6 +382,7 @@ impl World {
             behavior: None,
             behavior_managers: BTreeMap::new(),
             avoid_table_shuffled: false,
+            attitudes: BTreeMap::new(),
             always_update: Vec::new(),
             anim_channels: Vec::new(),
             anim_playbacks: Vec::new(),

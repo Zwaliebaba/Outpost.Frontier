@@ -237,6 +237,118 @@ impl World {
         self.instance_sphere(instance).map(|(_, c)| c)
     }
 
+    /// `CShip::get_gun_stats`: the cached statistics of the ship's working
+    /// guns (an AI ship's auto turrets left out), rebuilt while the cache is
+    /// dirty (from the ship's construction and each change of a gun's
+    /// activation, `CEGun::Activate`): the guns without a seeker count as
+    /// active guns (their farthest range, their mean muzzle velocity), the
+    /// others as countermeasure droppers (their farthest range).
+    pub fn ship_gun_stats(&mut self, h: ObjHandle) -> Option<crate::object::ship::GunStats> {
+        let o = self.objects.get(h)?;
+        let ship = o.as_ship()?;
+        if !ship.gun_stats_dirty {
+            return Some(ship.gun_stats);
+        }
+        let is_player = ship.is_player;
+        let mut stats = crate::object::ship::GunStats::default();
+        if let Some(eq) = o.equipped.as_deref() {
+            for slot in eq.equipment.traverse(crate::equip::types::GUN, false) {
+                let Some(equip) = eq.equipment.get(slot) else {
+                    continue;
+                };
+                let EquipKind::Gun(g) = &equip.kind else {
+                    continue;
+                };
+                if !equip.is_functioning(eq.weapons_offline) || !(is_player || !g.auto_turret) {
+                    continue;
+                }
+                let ammo = g.launcher.projectile.unwrap_or_default();
+                let motor = self.data.archetypes.motors.get(&ammo.motor);
+                let range = g.munition_range(false, motor);
+                if ammo.seeker == 0 {
+                    stats.active_guns += 1;
+                    if stats.max_munition_range < range {
+                        stats.max_munition_range = range;
+                    }
+                    stats.avg_muzzle_velocity =
+                        r(e(stats.avg_muzzle_velocity) + e(g.launcher.muzzle_velocity));
+                } else {
+                    stats.cm_droppers += 1;
+                    if stats.cm_max_munition_range < range {
+                        stats.cm_max_munition_range = range;
+                    }
+                }
+            }
+        }
+        stats.avg_muzzle_velocity = if stats.active_guns != 0 {
+            r(e(stats.avg_muzzle_velocity) / e(stats.active_guns as f32))
+        } else {
+            0.0
+        };
+        let ship = self.objects.get_mut(h)?.as_ship_mut()?;
+        ship.gun_stats_dirty = false;
+        ship.gun_stats = stats;
+        Some(stats)
+    }
+
+    /// `CShip::get_tgt_lead_fire_pos(pos)`: where the ship's guns lead its
+    /// target (the sub-target's centre of mass, else the target's), at
+    /// their mean muzzle velocity, else the target's position; `Some` when
+    /// that point lies within the guns' farthest range (the droppers'
+    /// without guns), `None` without a target or out of range.
+    pub fn ship_lead_fire_position(&mut self, h: ObjHandle) -> Option<Vector> {
+        let ship = self.objects.get(h)?.as_ship()?;
+        let target = ship.target.filter(|t| self.objects.contains(*t))?;
+        let sub = ship.sub_target;
+        let stats = self.ship_gun_stats(h)?;
+        let own = self.objects.get(h)?.engine.position;
+        let mut lead = None;
+        let mut range_sq = 0.0_f32;
+        if stats.active_guns > 0 {
+            let target_vel = self.velocity(target);
+            let target_pos = match self.sub_obj_center_of_mass(target, sub) {
+                Some(p) => p,
+                None => self.center_of_mass(target),
+            };
+            let rel_pos = Vector::new(
+                r(e(target_pos.x) - e(own.x)),
+                r(e(target_pos.y) - e(own.y)),
+                r(e(target_pos.z) - e(own.z)),
+            );
+            let ship_vel = self.velocity(h);
+            let rel_vel = Vector::new(
+                r(e(target_vel.x) - e(ship_vel.x)),
+                r(e(target_vel.y) - e(ship_vel.y)),
+                r(e(target_vel.z) - e(ship_vel.z)),
+            );
+            if let Some(t) = crate::equip::launcher::compute_time_to_target(
+                rel_pos,
+                rel_vel,
+                stats.avg_muzzle_velocity,
+            ) {
+                let lead_z = r(e(rel_vel.z) * e(t));
+                lead = Some(Vector::new(
+                    r(e(rel_vel.x) * e(t) + e(target_pos.x)),
+                    r(e(rel_vel.y) * e(t) + e(target_pos.y)),
+                    r(e(lead_z) + e(target_pos.z)),
+                ));
+            }
+            range_sq = r(e(stats.max_munition_range) * e(stats.max_munition_range));
+        } else if stats.cm_droppers > 0 {
+            range_sq = r(e(stats.cm_max_munition_range) * e(stats.cm_max_munition_range));
+        }
+        let out = lead.unwrap_or_else(|| {
+            self.objects
+                .get(target)
+                .map_or(Vector::ZERO, |o| o.engine.position)
+        });
+        let dx = e(out.x) - e(own.x);
+        let dy = e(out.y) - e(own.y);
+        let dz = e(out.z) - e(own.z);
+        let dist_sq = dz * dz + dy * dy + dx * dx;
+        (dist_sq < e(range_sq)).then_some(out)
+    }
+
     /// `CEGun::ComputeTgtLeadPosition`: where the gun leads its locked
     /// target, `None` without a live target or for a destroyed gun.
     pub fn gun_lead_position(&mut self, h: ObjHandle, id: SubObjId) -> Option<Vector> {

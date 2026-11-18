@@ -1202,12 +1202,12 @@ impl World {
         self.load_system_solars_where(system, |_| true)
     }
 
-    /// [`World::load_system_solars`] for the objects whose nickname id
-    /// `keep` accepts.
+    /// [`World::load_system_solars`] for the objects `keep` accepts (it
+    /// sees each object as read).
     pub fn load_system_solars_where(
         &mut self,
         system: u32,
-        keep: impl Fn(u32) -> bool,
+        keep: impl Fn(&SolarSpawn) -> bool,
     ) -> Vec<ObjHandle> {
         self.load_system(system);
         let Some(sys) = self.data.universe.systems.get(&system).cloned() else {
@@ -1255,6 +1255,14 @@ impl World {
                         crate::data::value_f32(&mut reader, 1),
                         crate::data::value_f32(&mut reader, 2),
                     ));
+                } else if reader.is_value(b"spin") {
+                    // `CSolar` reads `spin` into the angular velocity
+                    // (`Common/common_csolar.cpp:756`).
+                    spawn.angular_velocity = Vector::new(
+                        crate::data::value_f32(&mut reader, 0),
+                        crate::data::value_f32(&mut reader, 1),
+                        crate::data::value_f32(&mut reader, 2),
+                    );
                 } else if reader.is_value(b"archetype") {
                     spawn.archetype = neuron_core::id::create_id(&reader.value_string());
                 } else if reader.is_value(b"loadout") {
@@ -1266,7 +1274,7 @@ impl World {
                 }
             }
             if spawn.nickname == 0
-                || !keep(spawn.nickname)
+                || !keep(&spawn)
                 || !self.data.archetypes.solars.contains_key(&spawn.archetype)
             {
                 continue;

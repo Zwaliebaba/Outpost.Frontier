@@ -485,13 +485,15 @@ impl AiWorld for World {
             .collect()
     }
 
-    fn attitude(&self, _from: ObjHandle, _to: ObjHandle) -> Option<f32> {
-        // Reputation is not ported (the server's groups).
-        None
+    /// Reputation is not ported (the server's groups): the attitude a
+    /// harness set ([`World::set_attitude`]), none otherwise.
+    fn attitude(&self, from: ObjHandle, to: ObjHandle) -> Option<f32> {
+        let (a, b) = (self.get(from)?.simple.id, self.get(to)?.simple.id);
+        self.attitudes.get(&(a, b)).copied()
     }
 
-    fn attitude_symmetrical(&self, _from: ObjHandle, _to: ObjHandle) -> Option<(f32, f32)> {
-        None
+    fn attitude_symmetrical(&self, from: ObjHandle, to: ObjHandle) -> Option<(f32, f32)> {
+        Some((self.attitude(from, to)?, self.attitude(to, from)?))
     }
 
     fn hardpoint(&self, h: ObjHandle, name: &[u8]) -> Option<(Vector, Matrix)> {
@@ -603,10 +605,13 @@ impl AiWorld for World {
     }
 
     /// The sub-target form is `get_tgt_lead_fire_pos(id, pos)` (the gun's
-    /// lead); `CShip::get_tgt_lead_fire_pos` (the ship's own lead over its
-    /// gun statistics) is not on the world yet, so `None` answers it.
+    /// lead); without one `CShip::get_tgt_lead_fire_pos`, the ship's own
+    /// lead over its gun statistics.
     fn lead_fire_position(&mut self, h: ObjHandle, subtarget: Option<u16>) -> Option<Vector> {
-        self.tgt_lead_fire_pos(h, subtarget?).ok()
+        match subtarget {
+            Some(id) => self.tgt_lead_fire_pos(h, id).ok(),
+            None => self.ship_lead_fire_position(h),
+        }
     }
 
     fn manager_of(&self, h: ObjHandle) -> Option<(i32, [i32; 3])> {
@@ -651,6 +656,30 @@ impl AiWorld for World {
                 for id in ids {
                     self.command(h, Command::ActivateEquip(id, on));
                 }
+                return 0;
+            }
+            // `EqObj::slot_44`: -2 for a missing or destroyed item, -4 for
+            // one that is not a gun, else `CEGun::SetTarget` (the target a
+            // simple object, else none).
+            AiCommand::SetGunTarget {
+                equipment,
+                target,
+                subtarget,
+            } => {
+                let Some(item) = self
+                    .get(h)
+                    .and_then(|o| o.as_equipped())
+                    .and_then(|eq| eq.equipment.by_id(equipment))
+                else {
+                    return -2;
+                };
+                if item.is_destroyed() {
+                    return -2;
+                }
+                if !matches!(item.kind, EquipKind::Gun(_)) {
+                    return -4;
+                }
+                self.gun_set_target(h, equipment, target, subtarget);
                 return 0;
             }
             // Formation, follow, trade lane and the unnamed slots are not
@@ -747,6 +776,17 @@ impl World {
             let _ = self.rng.rand();
         }
     }
+
+    /// Sets a system's movement-check countdown and IVP's random seed: what
+    /// the reference's environment and process stand at when a harness
+    /// starts comparing (the load steps other units and draws from the
+    /// seed; the Rust world does not).
+    pub fn set_physics_movement_check(&mut self, system: u32, counter: i16, ivp_seed: u32) {
+        if let Some(world) = self.physics.world_mut(system) {
+            world.set_movement_check(counter);
+        }
+        self.physics.set_ivp_seed(ivp_seed);
+    }
 }
 
 impl AiRand for World {
@@ -839,6 +879,16 @@ impl World {
         }
         self.finish_manager_call(h, manager);
         true
+    }
+
+    /// Sets the attitude of `from` toward `to`, which the AI reads as
+    /// `get_attitude_towards` (the reputation groups are not ported).
+    pub fn set_attitude(&mut self, from: ObjHandle, to: ObjHandle, value: f32) {
+        let (Some(a), Some(b)) = (self.get(from), self.get(to)) else {
+            return;
+        };
+        let key = (a.simple.id, b.simple.id);
+        self.attitudes.insert(key, value);
     }
 
     /// An object's behaviour manager.

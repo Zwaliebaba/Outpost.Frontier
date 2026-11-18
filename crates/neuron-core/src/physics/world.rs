@@ -321,6 +321,20 @@ impl PhysicsWorld {
         self.system_id
     }
 
+    /// The environment's movement-check countdown (`next_movement_check`,
+    /// +0x118): the simulation-unit steps until the next unit checks its
+    /// motion.
+    #[must_use]
+    pub fn movement_check(&self) -> i16 {
+        self.movement_check.counter
+    }
+
+    /// Sets the movement-check countdown: the reference's environment has
+    /// stepped other units before a harness starts comparing.
+    pub fn set_movement_check(&mut self, counter: i16) {
+        self.movement_check.counter = counter;
+    }
+
     /// The environment's clock.
     #[must_use]
     pub fn clock(&self) -> &PsiClock {
