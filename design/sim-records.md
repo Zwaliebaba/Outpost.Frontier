@@ -413,6 +413,19 @@ radius and were not found by a query); the notification queue; the
 behaviours' own state blocks. The first behaviour replays will show
 whether the read set needs another role.
 
+## `units.jsonl`
+
+The simulation units of the first 120 PSIs, written by `OnSimUnitPsi`
+(oracle_sim.cpp): one `units` record per PSI, `tick` u, `psi` u, `units`
+[[id u, class u, …, check b], …] in the order the units ran, each unit's
+cores as the id and `ObjectClass` of their first object (`CSimple::Id`, 0
+for an object without one, such as a free part of class 1;
+`OracleSimUnitCoreObject`), then whether the environment's movement-check
+countdown came to the unit. Every unit decrements the countdown, so the
+number and order of units decide when an object's motion is classified
+(D88, D122). `scenario_replay` prints them around an object's first bit
+difference.
+
 ## `load_rand.jsonl`
 
 The load-time `rand()` draws (owner, 2026-11-18): every draw the game

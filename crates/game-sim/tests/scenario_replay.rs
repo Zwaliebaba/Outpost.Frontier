@@ -530,11 +530,22 @@ fn run(s: &Scenario) -> Option<Run> {
     let mut handles: BTreeMap<String, Option<ObjHandle>> = BTreeMap::new();
     let mut managers = Vec::new();
     let mut pathfind_phases = None;
-    // Every solar of the system, as the oracle's `StarSystem::load` builds
-    // them: a spinning one is a simulation unit of its own, and every unit
-    // takes its turn at the environment's movement-check countdown, which
-    // decides when the scenario ships' motion is classified.
-    world.load_system_solars(system);
+    // The solars the scenario names, and every spinning solar: the oracle's
+    // `StarSystem::load` builds them all, and a spinning one is a
+    // simulation unit of its own, which takes its turn at the environment's
+    // movement-check countdown (that decides when a scenario ship's motion
+    // is classified). The still ones are fixed and far from the scenario
+    // objects, and the contact pass over every solar is slow in a debug
+    // build.
+    let named: Vec<u32> = s
+        .objects
+        .iter()
+        .filter(|o| !o.ship)
+        .map(|o| create_id(o.nickname.as_bytes()))
+        .collect();
+    world.load_system_solars_where(system, |sp| {
+        named.contains(&sp.nickname) || sp.angular_velocity != Vector::ZERO
+    });
     if s.sp_collisions {
         world.set_server_collision_filter(system, false);
     }

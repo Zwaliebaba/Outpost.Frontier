@@ -692,7 +692,8 @@ two hostile NPCs meet. There is no attack directive in the game; the
 
 `session.jsonl`, `tick.jsonl`, `events.jsonl`, `psi.jsonl`,
 `calls.jsonl`, since P2.5 the behaviour-tick snapshots `ai.jsonl`, and the
-load-time draws `load_rand.jsonl` with its summary `load_rand.txt`
+load-time draws `load_rand.jsonl` with its summary `load_rand.txt`, and
+the simulation units of the first PSIs, `units.jsonl`
 (sim-records.md); the stub's `iclient.jsonl` and `controller.jsonl`;
 `server.ini`, `fdump.txt`, `metrics.txt`. The rand() recorder
 (`oracle_sim_rand.cpp`) replaces the `rand` import of every module bound
