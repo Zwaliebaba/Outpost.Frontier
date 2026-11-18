@@ -1,0 +1,13 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "cargo build OutpostFrontier",
+      "type": "shell",
+      "command": "cargo",
+      "args": ["build", "--package", "outpost-frontier", "--bin", "OutpostFrontier"],
+      "problemMatcher": ["$rustc"],
+      "group": "build"
+    }
+  ]
+}
