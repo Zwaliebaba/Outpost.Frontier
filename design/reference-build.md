@@ -696,6 +696,25 @@ set and IVP's pointer-XOR pair hash, so runs can differ; that is the spread
 `--runs` measures. Not audited: `timeGetTime` and `GetTickCount` reads in
 Content.dll and the engine DLLs.
 
+The load-time draws (`load_rand.jsonl`; first recorded 2026-11-18, the same
+in every run): `StarSystem::load` draws nothing itself; its `SystemLoaded`
+message reaches Content's `FSpaceSupport`, whose `FSystemInfo::LoadFull`
+draws them all, 4,837 in he01 and 2,390 in ve03. In he01: 1,082 in
+`FZonePopulation::Validate` (`FEncounterParameters::Refresh`,
+`EncounterParams.cpp:720`, and `PickFaction` through Common's
+`weighted_vector::Pick`), 78 in `RebuildTradeLanes`
+(`CollectSpacePopZones`, `Populators.cpp:707`), then 3,677 in Common's AI
+for the 112 solar NPCs that `FSolarNpc::SubmitPersonalityState` gives a
+state graph through `pub::AI::SubmitState`: the `IBehaviorManager`
+constructor (the behaviour timers, `PathfindManager`'s phases,
+`InitSystemManager`'s scan timer and gun-group slot timing; 2,196) and
+`set_personality` (`SystemManagerGunGroupManager::RefreshFromPersonality`;
+1,481). A scenario ship with `ai` then draws 21 more while it is spawned
+(the same constructor), so its first draw is index 4,837 in he01. The
+encounter, trade-lane and solar-NPC code is Content's (P3.6) and
+`SubmitState` the server's (P3.3); the Rust world makes none of these
+draws yet (`scenario_replay` reports both counts).
+
 ### Not covered yet
 
 Single-player stepping is emulated as above, not run through the client.
