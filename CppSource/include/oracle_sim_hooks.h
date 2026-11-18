@@ -88,6 +88,8 @@ struct FOracleSimEnv
     float Time[2];                  // current_time base, offset
     float MaxVelocity;              // anomaly_limits->MaxVelocity
     float MaxAngularVelocityPerPsi; // anomaly_limits->MaxAngularVelocityPerPsi
+    int MovementCheck;              // next_movement_check (+0x118)
+    unsigned IvpSeed;               // IVP_FastRandomFloat's seed (process wide)
 };
 
 // The IVP_Core::push_core_* calls OnCorePush reports.

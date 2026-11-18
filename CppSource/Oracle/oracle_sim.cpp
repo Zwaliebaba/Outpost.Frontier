@@ -455,6 +455,8 @@ namespace
     unsigned int GTick = 0;
     unsigned int GPsiSeq = 0;
     std::vector<float> GPsiDt;      // this tick's PSI lengths
+    std::vector<int> GPsiCheck;     // the movement-check countdown at the start of each
+    std::vector<unsigned> GPsiSeed; // and IVP_FastRandomFloat's seed
     unsigned int GBehaviorSeq = 0;
     unsigned int GOpenBehavior = 0;  // the behaviour tick in progress, 0 outside one
     bool GbScenarioCommand = false;  // the harness itself is issuing a command
@@ -836,6 +838,12 @@ namespace
         {
             ++GPsiSeq;
             GPsiDt.push_back(OracleSimEnvDeltaTime(Environment));
+            {
+                FOracleSimEnv Env;
+                OracleSimReadEnv(Environment, Env);
+                GPsiCheck.push_back(Env.MovementCheck);
+                GPsiSeed.push_back(Env.IvpSeed);
+            }
             ResetPsiRecords();
             GPsiRecords.resize(GObjects.size());
             for (size_t Index = 0; Index < GObjects.size(); ++Index)
@@ -1265,6 +1273,14 @@ namespace
         F.Str("sse_cw", Format("%08x", Sse).c_str());
         F.Uint("psi_count", (unsigned)GPsiDt.size());
         F.FloatArray("psi_dt", GPsiDt.empty() ? nullptr : GPsiDt.data(), (unsigned)GPsiDt.size());
+        F.BeginArray("psi_mcheck");
+        for (int Value : GPsiCheck)
+            F.Int(nullptr, Value);
+        F.EndArray();
+        F.BeginArray("psi_ivp_seed");
+        for (unsigned Value : GPsiSeed)
+            F.Uint(nullptr, Value);
+        F.EndArray();
         Write(FileTick, F);
 
         for (FSimObject const& Object : GObjects)
@@ -1398,6 +1414,8 @@ namespace
             Write(FileMetrics, Line);
         }
         GPsiDt.clear();
+        GPsiCheck.clear();
+        GPsiSeed.clear();
     }
 
     // ------------------------------------------------------------------------------------

@@ -18,6 +18,7 @@
 #include "../IVP/ivp_physics/ivp_environment.h"
 #include "../IVP/ivp_physics/ivp_anomaly_manager.h"
 #include "../IVP/ivp_physics/ivp_simulation_unit.h"
+#include "../IVP/ivp_utility/ivp_random.h"
 
 #include <cstring>
 
@@ -73,6 +74,8 @@ void __cdecl OracleSimReadEnv(IVP_Environment const* Environment, FOracleSimEnv&
     Out.DeltaTime = Environment->delta_time;
     Out.InvDeltaTime = Environment->inv_delta_time;
     CopyTime(Out.Time, Environment->current_time);
+    Out.MovementCheck = Environment->next_movement_check;
+    Out.IvpSeed = IVP_FastRandomSeed();
     if (Environment->anomaly_limits != nullptr)
     {
         Out.MaxVelocity = Environment->anomaly_limits->MaxVelocity;
