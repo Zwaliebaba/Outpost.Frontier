@@ -62,7 +62,7 @@ static samplers of record 0004; a trace that shows an approximated stage
 reopens it.
 
 D260 to D264 (P4.4, first increment) are proposed and await the owner's
-review.
+review. D268 (P4.2) is proposed.
 
 D245 to D249 (P4.14 run time: curves, spline paths, playback) are
 proposed, for the owner's review.
@@ -255,6 +255,7 @@ proposed, for the owner's review.
 | D262 | `neuron-client::render::texture::playback` (P4.4) | `ReadPlaybackFrame` returns the current frame for frame -1 without a bounds check; a negative effective rate or elapsed time leaves a current frame past the frame table, which `GetFrame` then reads outside the table | `FrameOut::EMPTY` (no texture, the whole rectangle) | Undefined behaviour in the reference | None for positive rates and times |
 | D263 | `neuron-client::render::texture::{library, big_image}` (P4.4) | Records are pointers: a record used after its destruction, or a frame's null or destroyed child, reads freed or null memory; `SetGenericSlot` writes past its seven slots; `SetSubTexture` indexes or allocates without bound for a negative or huge index; `RemoveSubTexture` retries a member that does not resolve for ever; `GarbageCollect` destroys again a renamed record that is still indexed under its old name; `BigImage` divides by a zero texture size and `RoundUpPot` shifts a value above 2^31 for ever | A destroyed record counts as none and a missing child as texture 0; slot indices outside 0 to 6 and child indices above 0xFFFF fail with `GR_GENERIC`; `remove_sub_texture` stops with `GR_GENERIC`; a destroyed record is only unindexed; a zero texture size fails `BigImage::create`; `round_up_pot` gives 0 there | Undefined behaviour in the reference | None for callers that keep to the reference counts |
 | D264 | `neuron-client::render::texture::device` (P4.4) | `LoadDdsTexture` passes a level's pitch as its linear size over the width's block count, so for a DXT level wider than high the pitch is a fraction of a block row and `D3DXLoadSurfaceFromMemory` reads overlapping rows, the last reaching into the next level's bytes of the mapped file (and past the mapping for a file cut short) | The bytes past what the loader hands over read as zeros | Technical decision (the loader of P1.7 hands over the bytes the pitch names, not the rest of the file) | Only the end of the last block row of such levels can differ (six textures of `rh_bizmark_equip.cmp` in the data); the overlapping rows are kept as the reference reads them |
+| D268 | `neuron-client::platform::d3d12` (P4.2) | Direct3D 8 drivers filter each cube-map face on its own: a bilinear sample at a face edge clamps or wraps within that face | Direct3D 12 always filters across cube faces (seamless), so a sample at an edge blends the texels of the neighbouring face | Platform: Direct3D 12 has no non-seamless cube sampling | Texels along cube edges with linear filtering; within the Tier C image metric |
 
 D5 to D9 described the reader's binary INI path. That path was removed
 with decision O13, so the rows are gone; the IDs are not reused. D32
