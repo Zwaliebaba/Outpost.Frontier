@@ -390,6 +390,15 @@ pub enum AiCommand<H> {
         /// The aim point.
         target: Option<Vector>,
     },
+    /// 17 `slot_44`: aim one gun or launcher at a target.
+    SetGunTarget {
+        /// The item's sub-object id.
+        equipment: u16,
+        /// The target.
+        target: Option<H>,
+        /// Its sub-target.
+        subtarget: u16,
+    },
     /// 18 `set_target`.
     SetTarget {
         /// The target.
@@ -451,6 +460,7 @@ impl<H> AiCommand<H> {
             Self::AddFollowFollower(_) => 11,
             Self::RemoveFollowFollower(_) => 12,
             Self::FireGuns { .. } => 13,
+            Self::SetGunTarget { .. } => 17,
             Self::SetTarget { .. } => 18,
             Self::ActivateEquip { .. } => 19,
             Self::EngageCruise { .. } => 20,
@@ -500,6 +510,107 @@ pub trait AiWorld {
 
     /// One `IObjAffect` call on `h`; the slot's integer result.
     fn command(&mut self, h: Self::Handle, command: AiCommand<Self::Handle>) -> i32;
+
+    /// The objects the ship's scanner lists (`get_scanlist(list, 0x7ffdff,
+    /// keep)` behind the scanner's status test of `BuildAiTargetList`), in
+    /// scan order; `None` when the ship has no working scanner or the call
+    /// fails. The default has no scanner.
+    fn scan_list(&self, h: Self::Handle) -> Option<Vec<Self::Handle>> {
+        let _ = h;
+        None
+    }
+
+    /// `find_equipment(buffer, 0x40, mask)` (69): the ids of the items of
+    /// the type mask, `None` when the call fails. The default has none.
+    fn find_equipment(&self, h: Self::Handle, type_mask: u32) -> Option<Vec<u16>> {
+        let _ = (h, type_mask);
+        None
+    }
+
+    /// What the system manager reads of one item (`get_equipment_status`,
+    /// `get_equipment_val` and the launcher's barrel); `None` when the
+    /// object has no such item. The default has none.
+    fn equipment(&self, h: Self::Handle, id: u16) -> Option<EquipInfo> {
+        let _ = (h, id);
+        None
+    }
+
+    /// `can_point_at(out, id, point, angle)` (68): whether the item can
+    /// turn to `point` within `angle`. The default cannot.
+    fn can_point_at(&self, h: Self::Handle, id: u16, point: Vector, angle: f32) -> bool {
+        let _ = (h, id, point, angle);
+        false
+    }
+
+    /// `is_pointing_at(out, id, angle)` (67): whether the item points at
+    /// its target within `angle`. The default does not.
+    fn is_pointing_at(&self, h: Self::Handle, id: u16, angle: f32) -> bool {
+        let _ = (h, id, angle);
+        false
+    }
+
+    /// The ship's lead fire position: `CShip::get_tgt_lead_fire_pos` for
+    /// `None`, `get_tgt_lead_fire_pos(id, pos)` (66) for a sub-target;
+    /// `None` when there is none. The default has none.
+    fn lead_fire_position(&self, h: Self::Handle, subtarget: Option<u16>) -> Option<Vector> {
+        let _ = (h, subtarget);
+        None
+    }
+
+    /// `CShip::get_targeted_enemy_count`: the live entries of the ship's
+    /// targeter list. The default is 0.
+    fn targeted_enemy_count(&self, h: Self::Handle) -> i32 {
+        let _ = h;
+        0
+    }
+
+    /// Another object's behaviour manager as `CEqObj::
+    /// get_behavior_interface` exposes it: its current behaviour and its
+    /// directive. `None` when the object has none (or it is the manager
+    /// being ticked). The default has none.
+    fn manager_of(&self, h: Self::Handle) -> Option<(i32, [i32; 3])> {
+        let _ = h;
+        None
+    }
+
+    /// `Universe::ISystem::GetSphereProperties` of the system's zones over
+    /// a sphere (the zone-property mask). The default is 0.
+    fn sphere_zone_properties(&self, system: u32, center: Vector, radius: f32) -> u32 {
+        let _ = (system, center, radius);
+        0
+    }
+}
+
+/// `EquipStatus::Flags` bit 0 (`EquipStatusFlagActive`).
+pub const EQUIP_ACTIVE: u8 = 0x01;
+/// `EquipStatus::Flags` bit 1 (`EquipStatusFlagDestroyed`).
+pub const EQUIP_DESTROYED: u8 = 0x02;
+/// `EquipStatus::Flags` bit 2 (`EquipStatusFlagDisabled`).
+pub const EQUIP_DISABLED: u8 = 0x04;
+
+/// One equipment item as the system manager reads it.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct EquipInfo {
+    /// `EquipStatus::Flags` ([`EQUIP_ACTIVE`], [`EQUIP_DESTROYED`],
+    /// [`EQUIP_DISABLED`]).
+    pub flags: u8,
+    /// The low byte of `EquipStatus::EquipFlags` (`CELauncher::GetStatus`:
+    /// 0x2, 0x4, 0x8).
+    pub equip_flags: u8,
+    /// `get_equipment_val(EquipValMunitionKind)`: 0 a plain munition, 1 a
+    /// seeker, 2 hardpoint type 0xa, 3 a cruise disruptor.
+    pub munition_kind: Option<i32>,
+    /// `get_equipment_val(EquipValAutoTurret)`: the gun is an auto turret.
+    pub auto_turret: Option<bool>,
+    /// `get_equipment_val(EquipValSeeker)`: the munition's seeker byte.
+    pub seeker: Option<u8>,
+    /// `get_equipment_val(EquipValRange)`: the munition's range.
+    pub range: Option<f32>,
+    /// `get_equipment_val(EquipValTargetId)`: the gun's own target id.
+    pub target_id: Option<u32>,
+    /// For a launcher (`CELauncher::cast`): barrel 0's world position and
+    /// direction (`GetBarrelPosWS(0)`, `GetBarrelDirWS(0)`).
+    pub barrel: Option<(Vector, Vector)>,
 }
 
 /// One hit of a ray query, as the AI uses it (`PhySys::RayHit`).
