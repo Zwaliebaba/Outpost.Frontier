@@ -76,6 +76,18 @@ namespace
     int GCandidateCount = 0;
     float GWideConeAngle = 0.0f;
     float GMissileConeAngle = 0.0f;
+    // The target list each manager left at the end of its last tick, with the id of every
+    // entry read then. The list `ai_in` finds on entry is that one, built by the previous
+    // tick, and the game does not read it again: UpdateSystemManager empties it before the
+    // tick's own build. An entry can name an object destroyed since (its CObject released),
+    // so on entry the recorder takes the ids from here and reads only the entries still in
+    // the system's object database.
+    struct FBuiltTarget
+    {
+        IObjInspect const* Iface;
+        unsigned int Id;
+    };
+    std::map<IBehaviorManager const*, std::vector<FBuiltTarget>> GBuiltTargets;
 
     // The rand() recorder's observer (oracle_sim_rand.cpp): every draw while a behaviour
     // tick is open, with the DLL that drew it.
@@ -606,6 +618,21 @@ namespace
         return GOpenDb->FindById(&Id);
     }
 
+    // get_id under SEH: false when the read faults (an inspect object whose CObject is gone).
+    bool GuardedGetId(IObjInspect const* O, unsigned int& Out)
+    {
+        __try
+        {
+            Out = O->get_id();
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            Out = 0;
+            return false;
+        }
+    }
+
     void SlotJ(FOracleJson& J, FOracleAiGunSlot const& S)
     {
         J.BeginArray(nullptr);
@@ -812,9 +839,37 @@ namespace
         GOpenDb = M.ObjectDb;
         GOpenSelf = M.Object;
 
+        // The ids of the list the previous tick built, as read at its end; an entry that is
+        // not the one recorded then is read here under SEH. `Live` keeps the entries still in
+        // the object database (the others are not read again; their ids go to `targets_gone`).
         std::vector<unsigned int> TargetIds;
-        for (int Index = 0; Index < M.TargetCount && Index < 64; ++Index)
-            TargetIds.push_back(M.Targets[Index] != nullptr ? M.Targets[Index]->get_id() : 0);
+        std::vector<unsigned int> GoneIds;
+        IObjInspect const* Live[64] = {};
+        {
+            std::vector<FBuiltTarget> const& Built = GBuiltTargets[Manager];
+            for (int Index = 0; Index < M.TargetCount && Index < 64; ++Index)
+            {
+                IObjInspect const* const O = M.Targets[Index];
+                unsigned int Id = 0;
+                if (O != nullptr)
+                {
+                    if (Index < (int)Built.size() && Built[Index].Iface == O)
+                        Id = Built[Index].Id;
+                    else
+                        GuardedGetId(O, Id);
+                }
+                TargetIds.push_back(Id);
+                if (O == nullptr)
+                    continue;
+                IObjRW* const Found = FindById(Id);
+                unsigned int LiveId = 0;
+                if (Found != nullptr && static_cast<IObjInspect const*>(Found) == O && GuardedGetId(O, LiveId) &&
+                    LiveId == Id)
+                    Live[Index] = O;
+                else
+                    GoneIds.push_back(Id);
+            }
+        }
 
         FOracleJson J;
         J.Str("rec", "ai_in");
@@ -827,6 +882,13 @@ namespace
         for (unsigned int Id : TargetIds)
             J.Uint(nullptr, Id);
         J.EndArray();
+        if (!GoneIds.empty())
+        {
+            J.BeginArray("targets_gone");
+            for (unsigned int Id : GoneIds)
+                J.Uint(nullptr, Id);
+            J.EndArray();
+        }
         Write(J);
 
         if (M.bPersonality != 0)
@@ -879,7 +941,7 @@ namespace
             Add(FindById(DockId), "dock_target");
         Add(FindById(M.InSightsTargetId), "in_sights");
         for (int Index = 0; Index < M.TargetCount && Index < 64; ++Index)
-            Add(M.Targets[Index], "candidate");
+            Add(Live[Index], "candidate");
         // P2.5 combat: the incoming missiles of the timer table (the near walk's mask leaves
         // munitions out), which UpdateSystemManagerCandidateScan and the evade behaviour read.
         if (M.bSys)
@@ -910,8 +972,11 @@ namespace
             }
         }
         GCandidateCount = 0;
-        for (int Index = 0; Index < M.TargetCount && Index < kMaxCandidates; ++Index)
-            GCandidates[GCandidateCount++] = M.Targets[Index];
+        for (int Index = 0; Index < M.TargetCount && Index < kMaxCandidates && Index < 64; ++Index)
+        {
+            if (Live[Index] != nullptr)
+                GCandidates[GCandidateCount++] = Live[Index];
+        }
         GWideConeAngle = M.Guns.WideConeAngle;
         GMissileConeAngle = M.Guns.Params[11];  // +0x1068 MissileLaunchConeAngle
         for (IObjInspect const* O : Order)
@@ -937,6 +1002,17 @@ namespace
             J.Str(nullptr, Module.c_str());
         J.EndArray();
         Write(J);
+
+        // The list this tick built, read while its objects are still the tick's.
+        std::vector<FBuiltTarget>& Built = GBuiltTargets[Manager];
+        Built.clear();
+        for (int Index = 0; Index < M.TargetCount && Index < 64; ++Index)
+        {
+            FBuiltTarget Entry = {M.Targets[Index], 0};
+            if (Entry.Iface != nullptr)
+                GuardedGetId(Entry.Iface, Entry.Id);
+            Built.push_back(Entry);
+        }
         if (GFile != nullptr)
             fflush(GFile);
         GOpen = 0;

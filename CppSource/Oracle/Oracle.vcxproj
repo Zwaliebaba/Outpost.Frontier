@@ -333,6 +333,8 @@
     <ClCompile Include="oracle_sim_ai.cpp" />
     <!-- The rand() recorder of Oracle.exe sim (load_rand.jsonl; the AI recorder's draws). -->
     <ClCompile Include="oracle_sim_rand.cpp" />
+    <!-- The fault recorder of Oracle.exe sim (session.jsonl `fault`, dbghelp). -->
+    <ClCompile Include="oracle_sim_fault.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="oracle_support.h" />
@@ -342,6 +344,7 @@
     <ClInclude Include="oracle_sim.h" />
     <ClInclude Include="oracle_sim_ai.h" />
     <ClInclude Include="oracle_sim_rand.h" />
+    <ClInclude Include="oracle_sim_fault.h" />
     <ClInclude Include="oracle_protocol.h" />
     <ClInclude Include="oracle_texture.h" />
   </ItemGroup>

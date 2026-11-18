@@ -521,7 +521,8 @@ repository root:
 The data root holds the master's INI files and `data\`, as `outdir\` does.
 The output folder is created; files in it are overwritten. Exit code 0 is a
 completed run, 2 a usage or scenario error, 3 a start-up failure (the
-reason is in `session.jsonl` and on stderr). With `--runs N` (1 to 99) the
+reason is in `session.jsonl` and on stderr), 4 a fault in a frame (the
+`fault` record, below). With `--runs N` (1 to 99) the
 program starts itself N times, each run in a fresh process writing to
 `<out>\run_NN\`, and writes `spread.jsonl` and `spread.txt` into `<out>`:
 the largest difference between any two runs per object, metric and event
@@ -691,9 +692,26 @@ picks the hostile ship and the state graph the combat behaviours, as when
 two hostile NPCs meet. There is no attack directive in the game; the
 `target` command (`set_target`) is not used there. `skirmish` is the same
 meeting with the rogue at 400 hull points: the police kills it at tick 880,
-after the rogue's trail and flee, which the dogfight does not reach. It
-stops at tick 881 because the reference faults (access violation) at tick
-882 in every run.
+after the rogue's trail and flee, which the dogfight does not reach, and
+the run goes on to tick 1500. (Until the fault recorder showed it, the run
+stopped at tick 881: the access violation at tick 882 was the behaviour-tick
+recorder's own, reading the previous tick's target list, which still named
+the destroyed rogue; the game empties that list before it reads it.)
+
+### Faults
+
+`oracle_sim_fault.cpp` runs each frame (the tick's commands, the server
+frame and the per-tick records) inside `__try`. A structured exception
+there is written to `session.jsonl` as a `fault` record (sim-records.md):
+the code, the faulting address as module + offset, the registers with the
+memory they point at, and a stack walked with `StackWalk64` and resolved
+with dbghelp from the PDB files beside `Oracle.exe`. The run then ends
+with exit code 4. From the first frame on, a vectored handler also records
+the first eight first-chance hardware exceptions (access violations and
+the like) the same way, `first_chance` true, before any handler in the
+game code sees them; a fault the game catches itself shows only there.
+The data job's step log prints the `fault` records with the errors and
+notes.
 
 ### Outputs
 

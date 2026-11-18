@@ -56,6 +56,7 @@
 #include "oracle_sim_hooks.h"
 #include "oracle_sim_ai.h"
 #include "oracle_sim_rand.h"
+#include "oracle_sim_fault.h"
 
 // Server.dll, IServerImpl.cpp (Oracle instrumentation): StarSystem::load on one system.
 extern "C" __declspec(dllimport) bool __cdecl OracleSimLoadSystem(unsigned int SystemId);
@@ -1954,6 +1955,34 @@ namespace
         __control87_2(0, 0, &X87, &Sse);
     }
 
+    // The fault recorder's writer (oracle_sim_fault.cpp): one session.jsonl line, flushed.
+    void WriteSessionLine(std::string const& Line)
+    {
+        Write(FileSession, Line);
+        if (GFiles[FileSession] != nullptr)
+            fflush(GFiles[FileSession]);
+    }
+
+    // One frame of the run, called inside the fault recorder's __try (OracleSimGuardedCall).
+    struct FFrameArgs
+    {
+        IServerImpl* Server = nullptr;
+        size_t* NextCommand = nullptr;
+        unsigned int X87 = 0;
+        unsigned int Sse = 0;
+    };
+
+    void SimFrame(void* Arg)
+    {
+        FFrameArgs* const Args = static_cast<FFrameArgs*>(Arg);
+        RunCommands(*Args->NextCommand);
+        // OutpostServer.exe's frame (ServerThreadProc) with the fixed frame time.
+        Args->Server->Update();
+        Timing::UpdateGlobalTime(GScenario.Frame);
+        Args->Server->ElapseTime((float)GScenario.Frame);
+        RecordTick(Args->X87, Args->Sse);
+    }
+
     // Ends the process: the server is not shut down (its teardown is not part of a scenario
     // and its static destructors are not needed), so the open files are closed first.
     void EndProcess(int Code)
@@ -2186,6 +2215,10 @@ namespace oracle
         RecordTick(X87, Sse);
         FlushAll();
 
+        // The fault recorder: a structured exception in a frame is written to session.jsonl
+        // (`fault`) and ends the run with exit code 4.
+        OracleSimFaultStart(WriteSessionLine, &GTick);
+
         size_t NextCommand = 0;
         for (GTick = 1; GTick <= GScenario.Ticks; ++GTick)
         {
@@ -2195,12 +2228,19 @@ namespace oracle
             _control87(kServerFpuWord, kServerFpuMask);
             GOracleSimHooks.ClockSeconds = GScenario.ClockStart + GTick * GScenario.Frame;
             GStubSetTick(GTick);
-            RunCommands(NextCommand);
-            // OutpostServer.exe's frame (ServerThreadProc) with the fixed frame time.
-            ServerImpl->Update();
-            Timing::UpdateGlobalTime(GScenario.Frame);
-            ServerImpl->ElapseTime((float)GScenario.Frame);
-            RecordTick(X87, Sse);
+            FFrameArgs Args;
+            Args.Server = ServerImpl;
+            Args.NextCommand = &NextCommand;
+            Args.X87 = X87;
+            Args.Sse = Sse;
+            if (!OracleSimGuardedCall(SimFrame, &Args))
+            {
+                FlushAll();
+                SessionNote("error", "a structured exception in frame " + std::to_string(GTick) +
+                                         " (the fault record)");
+                EndProcess(4);
+                return 4;
+            }
             FlushAll();
         }
         GTick = GScenario.Ticks;
