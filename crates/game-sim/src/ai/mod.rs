@@ -28,6 +28,8 @@
 //! * [`thrust`]: the thrust manager the behaviours and ideas command the
 //!   ship through (`common_thrustmanager.cpp`).
 //! * [`behaviors`]: `CREATE_BEHAVIOR` and the ported behaviours.
+//! * [`script`]: `ScriptBehavior`, a scripted behaviour record and its
+//!   marshalling (`common_scriptbehavior.cpp`).
 //!
 //! `game_sim::object::World` implements the world traits
 //! (`object::world::ai`) and keeps a manager per AI ship.
@@ -49,6 +51,7 @@ pub mod idea;
 pub mod manager;
 pub mod personality;
 pub mod raycast;
+pub mod script;
 pub mod state_graph;
 pub mod steer;
 pub mod thrust;
