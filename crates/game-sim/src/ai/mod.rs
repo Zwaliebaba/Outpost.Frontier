@@ -34,6 +34,23 @@
 //! `game_sim::object::World` implements the world traits
 //! (`object::world::ai`) and keeps a manager per AI ship.
 //!
+//! The navigation layer, written against those traits:
+//!
+//! * [`intercept`]: intercept distances, clearances, heading cones, the
+//!   shape-biased dodge and the turn-circle cost
+//!   (`common_aiintercept.cpp`).
+//! * [`avoidance`]: the obstacle-avoidance probe and its candidate helpers
+//!   (`common_obstacleavoidance.cpp`).
+//! * [`bank`]: `LimitAxisThrottleForTurn` and `ComputeBankedSteeringFrame`
+//!   (`common_aisteer.cpp`).
+//! * [`nav`]: the thrust-manager, ship-up and pathfinder interfaces the
+//!   ideas drive, and the `Behavior_*` motion queries they call.
+//! * [`move_idea`], [`face_idea`]: `MoveIdea` and `FaceIdea`
+//!   (`common_moveidea.cpp`, `common_faceidea.cpp`).
+//! * [`spline_move`], [`match_throttle`]: `SplineMoveIdea` and
+//!   `MatchThrottle2Idea` (`common_splinemoveidea.cpp`,
+//!   `common_matchthrottleidea.cpp`).
+//!
 //! Everything is computed on the 53-bit model of decision T11: `f64`
 //! evaluation, a rounding to `f32` at each `float` store the reference
 //! makes, no fused multiply-add.
@@ -44,14 +61,22 @@
 // comparisons.
 #![allow(clippy::neg_cmp_op_on_partial_ord)]
 
+pub mod avoidance;
+pub mod bank;
 pub mod behavior;
 pub mod behaviors;
+pub mod face_idea;
 pub(crate) mod fp;
 pub mod idea;
+pub mod intercept;
 pub mod manager;
+pub mod match_throttle;
+pub mod move_idea;
+pub mod nav;
 pub mod personality;
 pub mod raycast;
 pub mod script;
+pub mod spline_move;
 pub mod state_graph;
 pub mod steer;
 pub mod thrust;

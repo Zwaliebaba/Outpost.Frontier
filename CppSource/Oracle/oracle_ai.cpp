@@ -32,6 +32,11 @@ using namespace oracle;
 // state_graph data dump (oracle_game_data.cpp).
 std::vector<IStateGraph const*> LoadedStateGraphs();
 
+// The navigation suites (oracle_ai_nav.cpp).
+void AiNavSuite();
+void AiNavTurnSuite();
+void AiIdeaSuite();
+
 namespace
 {
     std::vector<std::string> Words(const std::string& Line)
@@ -427,4 +432,7 @@ void RunAiSuites()
     GuardedAiSuite("ai_state_graph", StateGraphSuite);
     GuardedAiSuite("ai_behavior_names", BehaviorNameSuite);
     GuardedAiSuite("ai_personality", PersonalitySuite);
+    GuardedAiSuite("ai_nav", AiNavSuite);
+    GuardedAiSuite("ai_nav_turn", AiNavTurnSuite);
+    GuardedAiSuite("ai_idea", AiIdeaSuite);
 }

@@ -259,6 +259,7 @@ pub fn object_view(j: &Json) -> Option<ObjectView> {
         behavior_id: i(j, "behavior_id").unwrap_or(-1),
         max_bank_angle: 0.0,
         scanner_interference: 0.0,
+        atmosphere_range: f(j, "atmosphere").unwrap_or(0.0),
         engine: None,
     })
 }

@@ -111,6 +111,10 @@ impl World {
             behavior_id: eq.map_or(-1, |e| e.behavior_index),
             max_bank_angle: 0.0,
             scanner_interference: o.simple.scanner_interference,
+            atmosphere_range: match &o.data {
+                crate::object::KindData::Solar(s) => s.atmosphere_range,
+                _ => 0.0,
+            },
             engine: engine.map(|(item, id)| EngineStatus {
                 id,
                 active: item.is_active(),
@@ -145,7 +149,9 @@ impl ShipMotion<'_> {
         };
         let consts = &self.world.data.constants.engine;
         let kind = match kind {
-            ThrustEquipType::Normal => None,
+            // `collect_force_components` has no case for 0 or another
+            // value: the archetype's drag only.
+            ThrustEquipType::Normal | ThrustEquipType::Other(_) => None,
             ThrustEquipType::Engine => Some(ThrustKind::Engine),
             ThrustEquipType::Thrusters => Some(ThrustKind::Thruster),
             ThrustEquipType::Tradelane => Some(ThrustKind::Tradelane),

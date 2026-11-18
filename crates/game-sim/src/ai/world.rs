@@ -252,6 +252,9 @@ pub struct ObjectView {
     pub max_bank_angle: f32,
     /// `get_scanner_interference` (39).
     pub scanner_interference: f32,
+    /// `get_atmosphere_range` (80); 0 when it fails (every caller seeds
+    /// its out value with 0).
+    pub atmosphere_range: f32,
     /// The first engine: `find_equipment(engine)` and
     /// `get_equipment_status` (65, 66), `None` without one.
     pub engine: Option<EngineStatus>,
@@ -286,16 +289,19 @@ impl ObjectView {
 /// A thrust source the motion queries take (`IObject::ThrustEquipType`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ThrustEquipType {
-    /// 0: no engine, the archetype's drag only.
+    /// 0 `ThrustEquipNormal`.
     Normal,
-    /// 1: the engine.
+    /// 1 the engine.
     Engine,
-    /// 2: the engine and the thrusters.
+    /// 2 the thrusters.
     Thrusters,
-    /// 3: a trade lane (the nudge force).
+    /// 3 the trade lane.
     Tradelane,
-    /// 4: the cruise engine.
+    /// 4 the cruise engine.
     Cruise,
+    /// Any other value (`MoveIdea::SetThrottleScale` forwards a float's
+    /// bits as the type).
+    Other(i32),
 }
 
 impl ThrustEquipType {
@@ -308,6 +314,20 @@ impl ThrustEquipType {
             Self::Thrusters => 2,
             Self::Tradelane => 3,
             Self::Cruise => 4,
+            Self::Other(v) => v,
+        }
+    }
+
+    /// From the reference's value.
+    #[must_use]
+    pub fn from_value(value: i32) -> Self {
+        match value {
+            0 => Self::Normal,
+            1 => Self::Engine,
+            2 => Self::Thrusters,
+            3 => Self::Tradelane,
+            4 => Self::Cruise,
+            v => Self::Other(v),
         }
     }
 }
@@ -330,19 +350,14 @@ pub trait MotionModel {
     /// `get_time_to_accelerate_angularly` (56): about the roll axis.
     fn time_to_accelerate_angularly(&self, from: f32, to: f32, dt: f32) -> f32;
     /// `get_time_to_accelerate_angularly` with pitch and yaw throttles
-    /// (57): `CShip`'s four-argument version; -1 where there is none.
-    fn time_to_accelerate_angularly_xy(&self, pitch: f32, yaw: f32, from: f32, to: f32) -> f32 {
-        let _ = (pitch, yaw, from, to);
-        -1.0
-    }
+    /// (57): `CShip`'s four-argument version (the interface names the
+    /// arguments `From, To, Dt, MaxSpeed`).
+    fn time_to_accelerate_angularly_xy(&self, pitch: f32, yaw: f32, from: f32, to: f32) -> f32;
     /// `get_angular_distance_travelled` (58): about the roll axis.
     fn angular_distance_travelled(&self, from: f32, to: f32, dt: f32) -> f32;
-    /// `get_angular_distance_travelled` with pitch and yaw throttles (59);
-    /// -1 where there is none.
-    fn angular_distance_travelled_xy(&self, pitch: f32, yaw: f32, from: f32, time: f32) -> f32 {
-        let _ = (pitch, yaw, from, time);
-        -1.0
-    }
+    /// `get_angular_distance_travelled` with pitch and yaw throttles (59)
+    /// (the interface names the arguments `From, To, Dt, MaxSpeed`).
+    fn angular_distance_travelled_xy(&self, pitch: f32, yaw: f32, from: f32, time: f32) -> f32;
     /// `get_angular_speed_XY` (60).
     fn angular_speed_xy(&self, speed: f32, max_speed: f32) -> f32;
     /// `get_angular_speed_Z` (61).

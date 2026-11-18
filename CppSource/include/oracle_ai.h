@@ -91,6 +91,81 @@ COMMON_API float __cdecl OracleAiToughnessRatio(int Type);
 COMMON_API double __cdecl OracleAiRangeThresholdValue(int JobField00);
 
 // ---------------------------------------------------------------------------
+// Wrappers for the navigation suites (Oracle/oracle_ai_nav.cpp): intercepts and obstacle
+// avoidance (common_aiintercept.cpp, common_obstacleavoidance.cpp). An object is an
+// FOracleAiObject; Common/oracle_ai.cpp wraps it in an IObjInspect that answers from it
+// (get_id 1, get_physical_radius, get_archetype_extents (zeroed and -5 when bExtentsFail),
+// get_type, get_throttle, get_atmosphere_range, get_angular_speed_XY, get_speed) and fails
+// every other slot. An FAiTarget argument is one over such an object with its caches clear.
+// A null object pointer passes a null interface. A slot is 7 floats (Timer, Point, Direction).
+// ---------------------------------------------------------------------------
+
+struct FOracleAiObject
+{
+    float Position[3];
+    float Rotation[9]; // row order
+    float Velocity[3];
+    float AngularVelocity[3];
+    float Radius;
+    float Center[3];
+    float ExtentMin[3];
+    float ExtentMax[3];
+    unsigned int Type;
+    int bExtentsFail;
+    float Throttle;
+    float AngularSpeedXY;
+    float Speed;
+    float AtmosphereRange;
+};
+
+COMMON_API double __cdecl OracleAiLeadInterceptDistance(FOracleAiObject const* Elem, FOracleAiObject const* Target);
+// GetInterceptClearance, or GetInterceptClearanceOfIface when bOfIface.
+COMMON_API double __cdecl OracleAiInterceptClearance(FOracleAiObject const* Elem, FOracleAiObject const* Target,
+                                                     int bOfIface);
+// IsWithinInterceptRange, or IsWithinInterceptRangeOfIface when bOfIface.
+COMMON_API int __cdecl OracleAiWithinInterceptRange(FOracleAiObject const* Elem, FOracleAiObject const* Target,
+                                                    float Threshold, int bOfIface);
+COMMON_API int __cdecl OracleAiPointOutsideHeadingCone(float const* Point, FOracleAiObject const* Iface,
+                                                       float CosThreshold);
+COMMON_API int __cdecl OracleAiAlignedOutsideHeadingCone(FOracleAiObject const* Elem, FOracleAiObject const* Target,
+                                                         float CosThreshold);
+COMMON_API double __cdecl OracleAiSignedRadialClearance(FOracleAiObject const* Elem, float const* Point);
+COMMON_API int __cdecl OracleAiCoAlignedAndAhead(FOracleAiObject const* Target, FOracleAiObject const* Reference,
+                                                 float CosThreshold);
+COMMON_API double __cdecl OracleAiIfaceVectorMagnitude(FOracleAiObject const* Iface);
+// TransformBoundingBoxCorners; Out holds 24 floats.
+COMMON_API void __cdecl OracleAiBoxCorners(float const* Xform, float const* Min, float const* Max, float* Out);
+COMMON_API void __cdecl OracleAiShapeBiasedAvoid(FOracleAiObject const* Elem, FOracleAiObject const* Target,
+                                                 float* Out);
+COMMON_API double __cdecl OracleAiTurnCircleCost(FOracleAiObject const* Iface, float const* Point, float AngularSpeed,
+                                                 float LinearSpeed);
+// ObstacleAvoidance_AverageActiveDirection over 25 slots; Out is left as it was on false.
+COMMON_API int __cdecl OracleAiAverageActiveDirection(float const* Slots, float const* Xform, float* Out);
+// ResolveObstacleCandidateSlot; Out (7 floats) is the slot, read first.
+COMMON_API int __cdecl OracleAiResolveCandidateSlot(FOracleAiObject const* Candidate, float* Out);
+// NudgeObstaclePathPoint; OutPoint is read first and written back. Returns the code.
+COMMON_API int __cdecl OracleAiNudgePathPoint(float const* Slot, float const* Point, float const* Xform,
+                                              int bExtraCheck, float* OutPoint);
+
+// The movement ideas' helpers (common_moveidea.cpp, common_aisteer.cpp). For these the fake
+// also answers get_axis_throttle (the record's angular velocity), the four-argument
+// get_time_to_accelerate_angularly (Dt + MaxSpeed) and get_angular_distance_travelled
+// (Dt * MaxSpeed), the three-argument get_angular_distance_travelled (To * Dt),
+// get_angular_speed_Z (Speed * AngularSpeedXY), get_projected_axis_throttle_XY (Speed * 0.5f)
+// and get_max_bank_angle (0.6f).
+// MoveIdea::SetDirection / SetDirectionFrom (Basis is a Matrix) on a new MoveIdea; Out is
+// its Direction.
+COMMON_API void __cdecl OracleAiMoveSetDirection(float const* Dir, float* Out);
+COMMON_API void __cdecl OracleAiMoveSetDirectionFrom(float const* Basis, float* Out);
+// LimitAxisThrottleForTurn; Obj may be null.
+COMMON_API void __cdecl OracleAiLimitAxisThrottle(FOracleAiObject const* Obj, float const* Command,
+                                                  float const* TargetFrame, float TurnAngle, float ReferenceAngle,
+                                                  int bBankBlend, float* Out);
+// ComputeBankedSteeringFrame; Frame (9) and Bank (3) are read and written back.
+COMMON_API int __cdecl OracleAiBankedSteeringFrame(FOracleAiObject const* Elem, float const* TargetDir, float* Frame,
+                                                   float* Bank, int Mode);
+
+// ---------------------------------------------------------------------------
 // The behaviour-tick recorder (Oracle/oracle_sim_ai.cpp).
 // ---------------------------------------------------------------------------
 
