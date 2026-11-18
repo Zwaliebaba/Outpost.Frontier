@@ -145,6 +145,15 @@ jobs:
             Write-Host "Scenarios with a failed run: $($failed -join ', ')"
             exit 1
           }
+      - name: TEMPORARY strafe fdump and hits
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $r = "$env:RUNNER_TEMP\outpost-sim\strafe\run_01"
+          Get-Content "$r\fdump.txt" | Where-Object { $_ -notmatch 'NOTICE' } | Select-Object -Last 60
+          $hits = Get-Content "$r\calls.jsonl" | Where-Object { $_.Contains('"rec":"munition_hit"') }
+          $hits | Select-Object -First 3 | ForEach-Object { $_.Substring(0, [Math]::Min(400, $_.Length)) }
+          $hits | ForEach-Object { ($_ | ConvertFrom-Json) } | Group-Object { "$($_.tick -lt 404) sub $($_.sub) $($_.state.sub_kind)" } | ForEach-Object { "hits: $($_.Count) x $($_.Name)" }
       - name: Replay the recorded PSIs through the port
         # Decision O20, replay layer: every psi.jsonl the scenarios wrote is replayed one PSI
         # at a time through neuron-core::physics (crates/neuron-core/tests/sim_replay.rs).
