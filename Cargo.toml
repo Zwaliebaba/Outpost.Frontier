@@ -46,6 +46,7 @@ windows = { version = "0.62.2", features = [
     "Win32_Graphics_Gdi",
     "Win32_Media_Audio",
     "Win32_Media_Audio_XAudio2",
+    "Win32_Media_MediaFoundation",
     "Win32_Security",
     "Win32_Security_Cryptography",
     "Win32_System_Com",

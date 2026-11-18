@@ -5,7 +5,10 @@ use std::io::{self, Write};
 
 pub mod account_keys;
 pub mod login_history;
+#[cfg(windows)]
+pub mod movies;
 pub mod profile;
+pub mod startup_config;
 pub mod table_layouts;
 pub mod timing;
 
@@ -60,12 +63,21 @@ pub fn run() -> io::Result<()> {
         profile.logins.records.len()
     )?;
 
-    // The display options come from the INI with the options screen (P4.13);
-    // until then the C++'s first-run size, windowed.
+    // `LoadStartupConfig` and the display switches; the mode block that
+    // `PerfOptions.ini` fills in the C++ is not read yet.
+    let args: Vec<Vec<u8>> = std::env::args_os()
+        .skip(1)
+        .map(|a| a.to_string_lossy().into_owned().into_bytes())
+        .collect();
+    let args: Vec<&[u8]> = args.iter().map(Vec::as_slice).collect();
+    let ini = std::fs::read(String::from_utf8_lossy(startup_config::INI_NAME).as_ref()).ok();
+    let config = startup_config::StartupConfig::load(ini, &args);
+    let mut display = config.display;
+    startup_config::apply_display_overrides(&mut display, &args);
     let mode = DisplayMode {
-        width: 1024,
-        height: 768,
-        fullscreen: false,
+        width: display.width,
+        height: display.height,
+        fullscreen: display.fullscreen,
     };
     let window = Window::new("Outpost:Frontier", mode).map_err(|e| failure(e.to_string()))?;
     let (width, height) = mode.back_buffer();
@@ -77,6 +89,16 @@ pub fn run() -> io::Result<()> {
         .backend
         .attach_window(window.hwnd())
         .map_err(|e| failure(e.to_string()))?;
+
+    let audio = neuron_client::platform::audio::AudioDevice::new(
+        neuron_client::audio::config::stream_buffer_seconds(0.0),
+    )
+    .ok();
+    let mut window = window;
+    if movies::play(&config, &mut window, &mut device, audio.as_ref()) == movies::MoviesEnd::Quit {
+        writeln!(out, "quit during the startup movies")?;
+        return Ok(());
+    }
 
     let mut clock = timing::ClientTiming::new(InstantClock::new());
     let mut window = Some(window);
