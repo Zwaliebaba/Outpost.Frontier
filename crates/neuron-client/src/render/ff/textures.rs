@@ -117,6 +117,10 @@ pub struct Texture {
     pub cube: bool,
     levels: Vec<Vec<u8>>,
     locked: Option<u32>,
+    /// Levels changed since the backend last saw them, one bit per level.
+    dirty: u64,
+    /// The backend has not seen the texture yet.
+    created: bool,
 }
 
 impl Texture {
@@ -151,6 +155,33 @@ pub type TextureHandle = Handle<Texture>;
 #[derive(Debug, Default)]
 pub struct Textures {
     textures: Arena<Texture>,
+    /// Textures destroyed since the backend last saw the changes.
+    released: Vec<TextureHandle>,
+}
+
+/// The dirty bits of levels `0..levels`.
+fn level_bits(levels: u32) -> u64 {
+    if levels >= 64 {
+        u64::MAX
+    } else {
+        (1u64 << levels) - 1
+    }
+}
+
+/// A change to a texture the backend must apply before the next draw.
+#[derive(Clone, Copy, Debug)]
+pub enum TextureEvent<'a> {
+    /// Level `level` of `texture` changed; `created` is set on the first
+    /// event of a new texture, whose description the backend reads from
+    /// `desc`.
+    Level {
+        texture: TextureHandle,
+        desc: &'a Texture,
+        created: bool,
+        level: u32,
+        bytes: &'a [u8],
+    },
+    Release(TextureHandle),
 }
 
 /// The number of levels of a full chain.
@@ -197,12 +228,15 @@ impl Textures {
             cube: false,
             levels: Vec::new(),
             locked: None,
+            dirty: 0,
+            created: true,
         };
         for level in 0..levels {
             let layout =
                 texture_layout(format, width, height, level).ok_or(TextureError::Generic)?;
             texture.levels.push(vec![0; layout.bytes()]);
         }
+        texture.dirty = level_bits(levels);
         Ok(self.textures.insert(texture))
     }
 
@@ -224,14 +258,47 @@ impl Textures {
             cube: true,
             levels: faces.into(),
             locked: None,
+            dirty: 0b11_1111,
+            created: true,
         }))
     }
 
     pub fn destroy(&mut self, h: TextureHandle) -> Result<(), TextureError> {
-        self.textures
-            .remove(h)
-            .map(|_| ())
-            .map_err(|_| TextureError::Stale)
+        self.textures.remove(h).map_err(|_| TextureError::Stale)?;
+        self.released.push(h);
+        Ok(())
+    }
+
+    /// Hands every change since the last call to `apply`, releases first,
+    /// and forgets them.
+    pub fn drain_changes(&mut self, mut apply: impl FnMut(TextureEvent<'_>)) {
+        for h in self.released.drain(..) {
+            apply(TextureEvent::Release(h));
+        }
+        let dirty: Vec<TextureHandle> = self
+            .textures
+            .iter()
+            .filter(|(_, t)| t.dirty != 0 || t.created)
+            .map(|(h, _)| h)
+            .collect();
+        for h in dirty {
+            let t = self.textures.get_mut(h).expect("collected from the arena");
+            let bits = std::mem::take(&mut t.dirty);
+            let mut created = std::mem::take(&mut t.created);
+            let t = self.textures.get(h).expect("collected from the arena");
+            for level in 0..t.level_count() {
+                if bits & (1 << level.min(63)) != 0 || created {
+                    apply(TextureEvent::Level {
+                        texture: h,
+                        desc: t,
+                        created,
+                        level,
+                        bytes: &t.levels[level as usize],
+                    });
+                    created = false;
+                }
+            }
+        }
     }
 
     /// `LockTexture`: the level's layout and bytes to write.
@@ -243,6 +310,7 @@ impl Textures {
         let t = self.textures.get_mut(h).map_err(|_| TextureError::Stale)?;
         let layout = t.layout(level).ok_or(TextureError::Generic)?;
         t.locked = Some(level);
+        t.dirty |= 1 << level.min(63);
         Ok((layout, &mut t.levels[level as usize]))
     }
 
@@ -281,6 +349,7 @@ impl Textures {
             return Ok(());
         }
         let layout = t.layout(level).ok_or(TextureError::Generic)?;
+        t.dirty |= 1 << level.min(63);
         let same_size = layout.width == src_width && layout.height == src_height;
         if same_size && src_format == t.format && palette.is_none() {
             copy_rows(&mut t.levels[level as usize], &layout, pixels, pitch)?;

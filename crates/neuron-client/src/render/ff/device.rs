@@ -12,7 +12,7 @@
 use std::collections::BTreeSet;
 use std::fmt;
 
-use super::buffers::{BufferError, Buffers, IndexSource, VbHandle};
+use super::buffers::{BufferError, BufferEvent, Buffers, IndexSource, VbHandle};
 use super::defaults::Defaults;
 use super::draw::{
     DrawConstants, PipelineKey, approximated_samplers, unemulated_stages, unemulated_states,
@@ -22,7 +22,7 @@ use super::geometry::{Primitive, draws_anything, fan_to_list, prim_count_from_ve
 use super::lights::Lights;
 use super::model::StateModel;
 use super::state::{PipelineProperty, RenderStateId, STAGES};
-use super::textures::{TextureHandle, Textures};
+use super::textures::{TextureEvent, TextureHandle, Textures};
 use super::transforms::Transforms;
 
 /// Where a draw's vertices come from.
@@ -39,6 +39,7 @@ pub enum VertexData {
 #[derive(Clone, Debug, PartialEq)]
 pub enum IndexData {
     None,
+    /// Indices relative to the vertex data's first vertex.
     List(Vec<u16>),
     Buffer {
         source: IndexSource,
@@ -62,6 +63,8 @@ pub struct DrawPacket {
     pub vertex_count: u32,
     pub indices: IndexData,
     pub textures: [Option<TextureHandle>; 2],
+    /// The viewport the draw renders into.
+    pub viewport: Viewport,
 }
 
 /// `ClearBuffers` flags.
@@ -96,22 +99,112 @@ pub struct Viewport {
     pub max_z: f32,
 }
 
+/// A change to a buffer or texture, handed to the backend before the
+/// draw or present that may use it (record 0004, point 8; owner answer of
+/// 2026-11-18): the backend keeps its own copies current from these.
+#[derive(Clone, Copy, Debug)]
+pub enum ResourceEvent<'a> {
+    Buffer(BufferEvent<'a>),
+    Texture(TextureEvent<'a>),
+}
+
 /// What a renderer backend does with the model's output.
 pub trait Backend {
+    /// A resource changed; called before the draw that may read it.
+    fn resource(&mut self, event: ResourceEvent<'_>);
     fn draw(&mut self, packet: DrawPacket);
     fn clear(&mut self, clear: Clear, viewport: Viewport);
     fn present(&mut self);
 }
 
+/// A resource event as [`RecordingBackend`] keeps it: what changed and how
+/// much, without the bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResourceRecord {
+    Vertices {
+        buffer: VbHandle,
+        recreated: bool,
+        offset: usize,
+        len: usize,
+    },
+    Indices {
+        source: IndexSource,
+        recreated: bool,
+        offset: usize,
+        len: usize,
+    },
+    TextureLevel {
+        texture: TextureHandle,
+        created: bool,
+        level: u32,
+    },
+    ReleaseVertices(VbHandle),
+    ReleaseIndices(super::buffers::IbHandle),
+    ReleaseTexture(TextureHandle),
+}
+
+impl ResourceRecord {
+    #[must_use]
+    pub fn of(event: &ResourceEvent<'_>) -> ResourceRecord {
+        match *event {
+            ResourceEvent::Buffer(BufferEvent::Vertices {
+                buffer,
+                recreated,
+                offset,
+                bytes,
+                ..
+            }) => ResourceRecord::Vertices {
+                buffer,
+                recreated,
+                offset,
+                len: bytes.len(),
+            },
+            ResourceEvent::Buffer(BufferEvent::Indices {
+                source,
+                recreated,
+                offset,
+                indices,
+                ..
+            }) => ResourceRecord::Indices {
+                source,
+                recreated,
+                offset,
+                len: indices.len(),
+            },
+            ResourceEvent::Buffer(BufferEvent::ReleaseVertices(h)) => {
+                ResourceRecord::ReleaseVertices(h)
+            }
+            ResourceEvent::Buffer(BufferEvent::ReleaseIndices(h)) => {
+                ResourceRecord::ReleaseIndices(h)
+            }
+            ResourceEvent::Texture(TextureEvent::Level {
+                texture,
+                created,
+                level,
+                ..
+            }) => ResourceRecord::TextureLevel {
+                texture,
+                created,
+                level,
+            },
+            ResourceEvent::Texture(TextureEvent::Release(h)) => ResourceRecord::ReleaseTexture(h),
+        }
+    }
+}
+
 /// A backend that keeps what it is given, for tests and model replay.
 #[derive(Clone, Debug, Default)]
 pub struct RecordingBackend {
+    pub resources: Vec<ResourceRecord>,
     pub draws: Vec<DrawPacket>,
     pub clears: Vec<Clear>,
     pub presents: u32,
 }
 
 impl Backend for RecordingBackend {
+    fn resource(&mut self, event: ResourceEvent<'_>) {
+        self.resources.push(ResourceRecord::of(&event));
+    }
     fn draw(&mut self, packet: DrawPacket) {
         self.draws.push(packet);
     }
@@ -289,11 +382,23 @@ impl<B: Backend> Device<B> {
             depth: f32::from_bits(self.state.pipeline(PipelineProperty::ClearZDepth)),
             stencil: self.state.pipeline(PipelineProperty::ClearStencil),
         };
+        self.sync_resources();
         self.backend.clear(clear, self.viewport);
     }
 
     /// `SwapBuffers`.
+    /// Hands the backend every buffer and texture change since the last
+    /// call.
+    pub fn sync_resources(&mut self) {
+        let backend = &mut self.backend;
+        self.buffers
+            .drain_changes(|e| backend.resource(ResourceEvent::Buffer(e)));
+        self.textures
+            .drain_changes(|e| backend.resource(ResourceEvent::Texture(e)));
+    }
+
     pub fn present(&mut self) {
+        self.sync_resources();
         self.backend.present();
     }
 
@@ -303,7 +408,7 @@ impl<B: Backend> Device<B> {
         primitive: Primitive,
         primitive_count: u32,
         fvf: Fvf,
-        vertices: VertexData,
+        mut vertices: VertexData,
         vertex_count: u32,
         indices: IndexData,
     ) {
@@ -337,6 +442,15 @@ impl<B: Backend> Device<B> {
             };
             let list = fan_to_list(&fan, primitive_count as usize);
             let count = (list.len() / 3) as u32;
+            // The list's indices are relative to the first vertex, so the
+            // buffer's base vertex moves there.
+            if let (
+                IndexData::Buffer { base_vertex, .. },
+                VertexData::Buffer { first_vertex, .. },
+            ) = (&indices, &mut vertices)
+            {
+                *first_vertex = first_vertex.wrapping_add(*base_vertex);
+            }
             (Primitive::TriangleList, IndexData::List(list), count)
         } else {
             (primitive, indices, primitive_count)
@@ -352,7 +466,9 @@ impl<B: Backend> Device<B> {
             vertex_count,
             indices,
             textures: [self.stage_texture(0), self.stage_texture(1)],
+            viewport: self.viewport,
         };
+        self.sync_resources();
         self.backend.draw(packet);
     }
 
@@ -568,6 +684,27 @@ mod tests {
     }
 
     #[test]
+    fn indexed_fans_keep_their_base_vertex() {
+        let mut d = device();
+        let (listing, lock) = d.buffers.lock_vertex_memory(XYZ_DIFFUSE, 8).unwrap();
+        d.buffers
+            .write_vb(listing.buffer, lock.offset, &[1; 128])
+            .unwrap();
+        d.buffers.unlock_vb(listing.buffer).unwrap();
+        d.draw_indexed_vb(6, Some(listing.buffer), 5, 8, &[0, 1, 2, 3])
+            .unwrap();
+        let p = &d.backend.draws[0];
+        assert_eq!(p.indices, IndexData::List(vec![0, 1, 2, 0, 2, 3]));
+        assert_eq!(
+            p.vertices,
+            VertexData::Buffer {
+                buffer: listing.buffer,
+                first_vertex: 5
+            }
+        );
+    }
+
+    #[test]
     fn fans_arrive_as_lists() {
         let mut d = device();
         let verts = vec![0u8; 16 * 5];
@@ -606,6 +743,27 @@ mod tests {
             }
         );
         assert_eq!(d.buffers.streams.vertex_buffer, Some(listing.buffer));
+        // The backend saw each change once, before the draw that read it:
+        // the new ring and the scratch indices, then only the 3 new indices.
+        let r = &d.backend.resources;
+        assert!(r.contains(&ResourceRecord::Vertices {
+            buffer: listing.buffer,
+            recreated: true,
+            offset: 0,
+            len: 1024 * 16,
+        }));
+        assert_eq!(
+            r.last(),
+            Some(&ResourceRecord::Indices {
+                source: IndexSource::Scratch,
+                recreated: false,
+                offset: 6,
+                len: 3,
+            })
+        );
+        let seen = d.backend.resources.len();
+        d.sync_resources();
+        assert_eq!(d.backend.resources.len(), seen);
     }
 
     #[test]
