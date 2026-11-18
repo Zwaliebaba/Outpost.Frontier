@@ -10,6 +10,7 @@
 pub mod arena;
 pub mod buffers;
 pub mod defaults;
+pub mod device;
 pub mod draw;
 pub mod fvf;
 pub mod geometry;

@@ -532,6 +532,14 @@ impl Buffers {
         Ok(())
     }
 
+    /// `FDx8RendererStreamCache::Reset`, after a user-pointer draw.
+    pub fn release_streams(&mut self) {
+        self.streams = Streams {
+            base_vertex: 0xFFFF_FFFF,
+            ..Streams::default()
+        };
+    }
+
     /// `VbMgrReleaseAll` and the device loss: every GPU buffer is gone and
     /// the streams reset; buffers keep their handles and are made again by
     /// a resize.
