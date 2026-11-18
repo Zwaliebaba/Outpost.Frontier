@@ -56,7 +56,8 @@ pub const DEPTH_FORMAT: DXGI_FORMAT = DXGI_FORMAT_D24_UNORM_S8_UINT;
 
 /// Root parameter 0: the draw's constant buffer.
 pub const ROOT_CONSTANTS: u32 = 0;
-/// Root parameter 1: the stage textures' descriptor table.
+/// Root parameter 1: the stage textures' descriptor table: the 2D views of
+/// stages 0 and 1 (`t0`, `t1`), then their cube views (`t2`, `t3`).
 pub const ROOT_TEXTURES: u32 = 1;
 /// Root parameter 2: the samplers' descriptor table.
 pub const ROOT_SAMPLERS: u32 = 2;
@@ -141,7 +142,7 @@ pub fn sampler_descs() -> Vec<D3D12_SAMPLER_DESC> {
 pub fn root_signature(device: &ID3D12Device) -> Result<ID3D12RootSignature, GpuError> {
     let range = D3D12_DESCRIPTOR_RANGE {
         RangeType: D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
-        NumDescriptors: 2,
+        NumDescriptors: 4,
         BaseShaderRegister: 0,
         RegisterSpace: 0,
         OffsetInDescriptorsFromTableStart: 0,

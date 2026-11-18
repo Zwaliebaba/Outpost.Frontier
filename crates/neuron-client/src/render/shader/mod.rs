@@ -102,12 +102,14 @@ mod tests {
             ("LOCAL_VIEWER", v::LOCAL_VIEWER),
             ("NORMALIZE_NORMALS", v::NORMALIZE_NORMALS),
             ("TEXTURE0", v::TEXTURE0),
+            ("CUBE0", v::CUBE0),
             ("FOG_ENABLE", constants::fog_bits::ENABLE),
             ("FOG_RANGE", constants::fog_bits::RANGE),
         ] {
             assert_eq!(define(name), shift(bit), "{name}");
         }
         assert_eq!(v::TEXTURE1, v::TEXTURE0 << 1);
+        assert_eq!(v::CUBE1, v::CUBE0 << 1);
         assert_eq!(define("SAMPLERS"), samplers::COUNT.to_string());
     }
 }

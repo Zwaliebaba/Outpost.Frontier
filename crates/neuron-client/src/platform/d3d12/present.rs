@@ -147,6 +147,8 @@ pub const BACK_BUFFERS: u32 = 2;
 /// A flip-model swap chain on a window, with its back buffers.
 pub struct SwapChain {
     pub swap: IDXGISwapChain3,
+    /// The window it presents to.
+    pub window: HWND,
     pub buffers: Vec<ID3D12Resource>,
     pub width: u32,
     pub height: u32,
@@ -187,6 +189,7 @@ impl SwapChain {
         }
         Ok(SwapChain {
             swap,
+            window,
             buffers,
             width,
             height,

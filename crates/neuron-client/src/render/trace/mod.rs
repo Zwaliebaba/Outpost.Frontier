@@ -20,7 +20,7 @@ use neuron_core::image::PixelFormat;
 
 use crate::render::ff::buffers::{IbHandle, IndexSource, VbHandle};
 use crate::render::ff::defaults::Defaults;
-use crate::render::ff::device::{Device, RecordingBackend};
+use crate::render::ff::device::{Backend, Device, RecordingBackend};
 use crate::render::ff::fvf::Fvf;
 use crate::render::ff::lights::{LightData, Material};
 use crate::render::ff::state::{PIPELINE_SLOTS, PipelineProperty, RenderStateId};
@@ -225,6 +225,20 @@ impl BlobSource for NoBlobs {
     }
 }
 
+/// The blobs of a trace folder: `<dir>/<hash>.bin`, as the proxy writes
+/// them.
+pub struct DirBlobs(pub std::path::PathBuf);
+
+impl BlobSource for DirBlobs {
+    fn blob(&self, hash: &str) -> Option<Vec<u8>> {
+        // A hash is 16 hex digits; anything else names no file.
+        if hash.len() != 16 || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return None;
+        }
+        std::fs::read(self.0.join(format!("{hash}.bin"))).ok()
+    }
+}
+
 /// A value the model handed back that differs from the C++'s.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Mismatch {
@@ -332,9 +346,10 @@ impl OwnedSource {
     }
 }
 
-/// Model replay of a trace.
-pub struct ModelReplay<'a> {
-    pub device: Device<RecordingBackend>,
+/// Model replay of a trace: the calls applied to a [`Device`] over the
+/// recording backend, or over a drawing backend for image replay.
+pub struct ModelReplay<'a, B: Backend = RecordingBackend> {
+    pub device: Device<B>,
     ids: HashMap<i64, Object>,
     blobs: &'a dyn BlobSource,
     pub mismatches: Vec<Mismatch>,
@@ -359,8 +374,34 @@ fn floats<const N: usize>(v: &Json) -> Option<[f32; N]> {
 impl<'a> ModelReplay<'a> {
     #[must_use]
     pub fn new(defaults: Defaults, width: u32, height: u32, blobs: &'a dyn BlobSource) -> Self {
+        Self::with_backend(defaults, width, height, RecordingBackend::default(), blobs)
+    }
+}
+
+/// A frame image of image replay: the trace's reference and the scene the
+/// backend drew, read back after the frame's `SwapBuffers`, before the
+/// gamma blit (record 0004, points 12 and 13).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReplayedFrame {
+    pub frame: i64,
+    /// The reference image's blob name; `None` when the proxy took none.
+    pub reference: Option<String>,
+    /// The scene: width, height and BGRA8 rows top to bottom, or `None`
+    /// when the backend could not read it.
+    pub scene: Option<(u32, u32, Vec<u8>)>,
+}
+
+impl<'a, B: Backend> ModelReplay<'a, B> {
+    #[must_use]
+    pub fn with_backend(
+        defaults: Defaults,
+        width: u32,
+        height: u32,
+        backend: B,
+        blobs: &'a dyn BlobSource,
+    ) -> Self {
         ModelReplay {
-            device: Device::new(defaults, width, height, RecordingBackend::default()),
+            device: Device::new(defaults, width, height, backend),
             ids: HashMap::new(),
             blobs,
             mismatches: Vec::new(),
@@ -1090,6 +1131,26 @@ impl<'a> ModelReplay<'a> {
         }
         Ok(applied)
     }
+
+    /// Replays a whole trace text as [`ModelReplay::replay`] does, and at
+    /// each frame-image line reads the scene back from the backend (image
+    /// replay). Returns the frames in trace order.
+    pub fn replay_frames(&mut self, text: &str) -> Result<Vec<ReplayedFrame>, TraceError> {
+        let mut frames = Vec::new();
+        for line in text.lines().filter(|l| !l.trim().is_empty()) {
+            match parse_line(line)? {
+                Line::Call(call) => self.apply(&call)?,
+                Line::Defaults(d) => self.apply_defaults(&d)?,
+                Line::FrameImage { frame, image, .. } => frames.push(ReplayedFrame {
+                    frame,
+                    reference: image,
+                    scene: self.device.backend.read_scene(),
+                }),
+                _ => {}
+            }
+        }
+        Ok(frames)
+    }
 }
 
 #[cfg(test)]
@@ -1261,6 +1322,33 @@ mod tests {
             r.replay(r#"{"defaults":{"render":{"138":1}},"seq":9,"frame":0,"synthetic":true}"#),
             Err(TraceError::BadArgument { arg: "render", .. })
         ));
+    }
+
+    #[test]
+    fn replay_frames_reads_the_scene_at_each_frame_image() {
+        let trace = r#"{"format":"outpost-render-trace","version":1}
+{"seq":1,"frame":0,"interface":"IRenderPipeline","method":"SwapBuffers","args":{},"ret":0}
+{"frame":1,"frame_image":"0123456789abcdef","width":64,"height":64}
+{"frame":2,"frame_image":null,"note":"PrintScreen returned -2"}
+{"end":true,"frame":2,"seq":2}"#;
+        let mut r = ModelReplay::new(Defaults::builtin(), 64, 64, &NoBlobs);
+        let frames = r.replay_frames(trace).unwrap();
+        assert_eq!(
+            frames,
+            vec![
+                ReplayedFrame {
+                    frame: 1,
+                    reference: Some("0123456789abcdef".to_owned()),
+                    scene: None
+                },
+                ReplayedFrame {
+                    frame: 2,
+                    reference: None,
+                    scene: None
+                }
+            ]
+        );
+        assert_eq!(r.calls, 1);
     }
 
     #[test]
