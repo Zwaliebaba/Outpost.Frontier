@@ -18,6 +18,16 @@ crates/game-sim/tests/oracle_ai.rs.
     ai_state_graph/    the synthetic state-graph files
     ai_behavior_names.list
                        behaviour names to look up, one per line
+    ai_combat.list     28 f32 bit patterns per line: seed, munition kind,
+                       auto turret (the three integers as floats), dt,
+                       damage level, the eleven gun-group interval
+                       parameters (CppSource/include/oracle_ai.h), a
+                       threshold timer (active, threshold, duration,
+                       accumulator), a gun slot (burst, no burst,
+                       interval, phase), the aim refresh timer and a
+                       line-of-fire cache slot (age, refresh timer, needs
+                       refresh); the C++ side is
+                       CppSource/Oracle/oracle_ai_combat.cpp
 """
 
 import math
@@ -243,11 +253,47 @@ def behavior_names():
     return ["# behaviour names, one per line"] + names
 
 
+def combat():
+    g = Gen(0x5EED2502)
+    lines = ["# 28 f32 per line; see make_ai_fixtures.py"]
+    # Kind 4 (the cruise disruptor) reads the owner's personality; 6 is
+    # outside the switch.
+    kinds = [0, 0, 1, 2, 3, 5, 6]
+    for case in range(140):
+        seed = g.u32() & 0xFFFFFF
+        kind = kinds[case % len(kinds)]
+        turret = 1 if case % 3 == 1 else 0
+        dt = [0.0, 0.05, 0.1, 0.25, 1.0][case % 5] if case % 7 else g.uniform(0.0, 2.0)
+        level = g.uniform(-10.0, 200.0) if case % 4 else 0.0
+        params = [g.uniform(0.0, 6.0) for _ in range(11)]
+        if case % 10 == 3:
+            params = [0.5, 0.2, 0.5, 4.0, 0.3, 2.0, 4.0, 2.0, 0.3, 3.0, 0.5]
+        active = 1.0 if case % 2 else 0.0
+        threshold = g.uniform(0.0, 150.0)
+        duration = g.uniform(0.0, 3.0)
+        accumulator = g.uniform(0.0, 3.0)
+        burst = g.uniform(0.0, 5.0)
+        no_burst = g.uniform(0.0, 3.0)
+        interval = g.uniform(0.0, 1.0) if case % 6 else [0.0, -0.5][case % 12 // 6]
+        phase = g.uniform(-3.0, 5.0)
+        aim = g.uniform(-1.0, 2.0)
+        age = g.uniform(0.0, 11.0)
+        refresh = g.uniform(0.0, 1.2)
+        needs = float(case % 2 == 0)
+        values = [float(seed), float(kind), float(turret), dt, level] + params + [
+            active, threshold, duration, accumulator, burst, no_burst, interval, phase,
+            aim, age, refresh, needs]
+        assert len(values) == 28
+        lines.append(hexes(values))
+    return lines
+
+
 def main():
     write("ai_geometry.list", geometry())
     write("ai_steer.list", steer())
     write("ai_state_graph.list", state_graphs())
     write("ai_behavior_names.list", behavior_names())
+    write("ai_combat.list", combat())
 
 
 if __name__ == "__main__":

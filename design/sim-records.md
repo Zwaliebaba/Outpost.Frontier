@@ -49,8 +49,8 @@ Conventions:
 | `rec` | Fields |
 | --- | --- |
 | `start` | `version` u, `scenario` s (path), `data_root` s, `system` s, `system_id` u, `ticks` u, `frame` d (seconds), `stepping` s (`sp` or `mp`), `collisions` s (`sp` or `mp`; since the load-draw work, after `stepping`), `seed` u, `clock` d (the fixed clock at tick 0), `objects` u, `commands` u |
-| `server` | `data_path` s, `controller` u (SimClientStub's controller id), `system_id` u, `system_loaded` b |
-| `spawn` | `obj` s, `kind` s (`ship` or `solar`); a ship: `arch` s, `arch_id` u, `loadout` s, `loadout_id` u, `result` i (`pub::SpaceObj::Create`), `id` u, [`state_graph` s, `state_graph_id` i, `submit_state` i]; a solar: `nickname` s, `id` u (`CreateID(nickname)`), `found` b |
+| `server` | `data_path` s, `controller` u (SimClientStub's controller id), `system_id` u, `system_loaded` b, `reseed` u (the seed of the `srand` the harness calls again after the load, before the objects are spawned: the seeding point the Rust world matches; reference-build.md section 10, start-up step 5) |
+| `spawn` | `obj` s, `kind` s (`ship` or `solar`); a ship: `arch` s, `arch_id` u, `loadout` s, `loadout_id` u, `result` i (`pub::SpaceObj::Create`), `id` u, [`state_graph` s, `state_graph_id` i, [`pilot` s, `pilot_found` b (the `pilot` option; its personality was submitted)], `submit_state` i]; with `faction`, before `arch`: `faction` s, `faction_result` i (`GetReputationGroup`), then when the group is known `faction_id` u, `vibe` i (the ship's `VibeGroupId`), `vibe_alloc` i, `vibe_affiliation` i (`pub::Reputation::Alloc`, `SetAffiliation`); a solar: `nickname` s, `id` u (`CreateID(nickname)`), `found` b |
 | `command` | `tick` u, `line` i (in the scenario file), `obj` s, `cmd` s (the command as written), `ok` b, `result` i (what the called function returned; for a directive the `OP_RTYPE`), [`note` s, why it did not run] |
 | `error`, `critical_warning`, `note` | `tick` u, `text` s (`note`: an object marked `psi` whose PSIs are not recorded, and why; once per object) |
 | `end` | `tick` u, `psi_total` u, `code` i (the exit code) |
@@ -60,7 +60,7 @@ Conventions:
 | `rec` | Fields |
 | --- | --- |
 | `frame` | `tick` u, `clock` d, `x87_cw` s, `sse_cw` s (`%08x` of `__control87_2`'s two words at the start of the frame, before the harness sets 53-bit precision again; at tick 0 after spawning), `psi_count` u (PSIs in the frame), `psi_dt` f[] (each PSI's `delta_time`) |
-| `object` | `tick` u, `obj` s, `id` u, `alive` b; when alive: `pos` f3, `orient` f9, `vel` f3, `angvel` f3, `hp` f, `hp_max` f (`IObjInspect` of the server object: `get_position`, `get_orientation`, `get_velocity`, `get_angular_velocity`, `get_status`); then (P2.4, the scenario report) `power` f, `power_max` f (`CEqObj::Power`, `MaxPower`) and `shield` {`id` u, `hp` f, `hp_max` f, `online` b (`bOnline`), `functioning` b}\|null (the first `CEShield`: `GetHitPoints`, `GetMaxHitPoints`, `IsFunctioning`); a ship also: `throttle` f, `axis` f3, `nudge` f3, `strafe` i (`StrafeDir`), `cruise` b, `behavior` i (`CurrentBehaviorIndex`, −1 for none), `state_graph` i (−1 for none), `directive` u3 (`DirectiveStorage`) |
+| `object` | `tick` u, `obj` s, `id` u, `alive` b; when alive: `pos` f3, `orient` f9, `vel` f3, `angvel` f3, `hp` f, `hp_max` f (`IObjInspect` of the server object: `get_position`, `get_orientation`, `get_velocity`, `get_angular_velocity`, `get_status`); then (P2.4, the scenario report) `power` f, `power_max` f (`CEqObj::Power`, `MaxPower`) and `shield` {`id` u, `hp` f, `hp_max` f, `online` b (`bOnline`), `functioning` b}\|null (the first `CEShield`: `GetHitPoints`, `GetMaxHitPoints`, `IsFunctioning`); a ship also: `throttle` f, `axis` f3, `nudge` f3, `strafe` i (`StrafeDir`), `cruise` b, `behavior` i (`CurrentBehaviorIndex`, −1 for none), `state_graph` i (−1 for none), `directive` u3 (`DirectiveStorage`), then (P2.5, the dogfight) `target` u\|null, `target_obj` (`IObjInspect::get_target`) |
 
 `alive` is false once the object is no longer in its system's object
 database (destroyed, docked or removed).
@@ -73,6 +73,7 @@ database (destroyed, docked or removed).
 | `munition_hit` | `tick` u, `target` u, `target_obj`, `shooter` u, `shooter_obj`, `munition` u (archetype id), `sub` u (sub-object hit) | `StarSystem::munition_collision` |
 | `dock` | `tick` u, `ship` u, `ship_obj`, `dock` u, `dock_obj`, `system` u | the `DockComplete` controller message |
 | `destroyed` | `tick` u, `id` u, `obj`, `killer` u, `killer_obj`, `kind` i (the destroy kind), `pos` f3 | the `ObjectDestroyed` controller message |
+| `target` | `tick` u, `id` u, `obj`, `target` u\|null, `target_obj` | a scenario ship's `get_target` differs from the one of the previous tick's `tick.jsonl` record (P2.5) |
 
 ## `psi.jsonl`
 
@@ -231,7 +232,7 @@ summary to `rust-sim-replay.txt` there.
 | `munition_hit` `state` (P2.4) | after `damage`: `hull_damage` f, `energy_damage` f, `weapon_type` u (the munition archetype); when the target is found (`CObject::Find` as a ship, else a solar): `hp` f, `hp_max` f, `power` f, `power_max` f, `owner` u, `armor` f\|null (the first `CEArmor`'s `hit_pts_scale`), `sub_kind` s (`group`, `equip`, `shield` or `root`); a group adds `sub_hp` f, `sub_hp_max` d, `sub_state` i, `sub_proxy` b (`IsRootHealthProxy`), `sub_linked_type` u; an item adds `sub_hp` f, `sub_hp_max` d, `sub_type` u, `sub_destroyed` b, and a shield `shield_offline_threshold` f and `shield_weapon_mod` d (`GetWeaponModifier` of the munition's weapon type). The target's state before the list is applied, which `crates/game-sim/tests/damage_replay.rs` rebuilds to replay `munition_hit` (summary `rust-damage-replay.txt`) |
 | `behavior_in` | `tick` u, `seq` u (behaviour tick number, from 1), `id` u, `obj`, `dt` f, `behavior` i, `state_graph` i, `directive` u3, `suppressed` b (`TickSuppressedFlag`); when the owner is set: `pos` f3, `orient` f9, `vel` f3, `angvel` f3, `throttle` f, `axis` f3, `nudge` f3, `strafe` i, `cruise` b. Entry of `IBehaviorManager::UpdateBehaviorTick` |
 | `behavior_out` | `tick` u, `seq` u, `id` u, `obj`, `behavior` i, `state_graph` i, `directive` u3. Every exit of the same call |
-| `affect` | `tick` u, `beh` u (the `seq` of the behaviour tick in progress, 0 outside one), `src` s (`behavior`, `scenario` for the harness's own commands, `other`), `id` u, `obj`, `slot` i, `m` s, `i` i, `v` f[]\|null. One `IObjAffect` call on a ship: slot 0 `set_throttle` (`v` the throttle), 1 `set_axis_throttle` (`v` f3), 2 `set_nudge_vec` (`v` f3), 3 `set_strafe_dir` (`i` the `StrafeDir`), 13 `fire` (`EqObj::slot_34`: `i` the number of guns, `v` the target position or `null`) |
+| `affect` | `tick` u, `beh` u (the `seq` of the behaviour tick in progress, 0 outside one), `src` s (`behavior`, `scenario` for the harness's own commands, `other`), `id` u, `obj`, `slot` i, `m` s, `i` i, `depth` i, `v` f[]\|null. One `IObjAffect` call on a ship: slot 0 `set_throttle` (`v` the throttle), 1 `set_axis_throttle` (`v` f3), 2 `set_nudge_vec` (`v` f3), 3 `set_strafe_dir` (`i` the `StrafeDir`), 13 `fire` (`EqObj::slot_34`: `i` the number of guns, `v` the target position or `null`), 18 `set_target` (`i` the target's id, 0 for none; `v` [the sub-target]), 19 `activate_equip` (`EqObj::slot_4c`: `i` the equipment id, `v` [1 to activate, 0 to deactivate]), 20 `engage_cruise` (`Ship::slot_50`: `i` 1 to engage, 0 to leave; `v` [the second flag, 1 or 0]), 21 `set_thrusters` (`Ship::slot_54`: `i` 1 on, 0 off). `depth` (P2.5) is the number of these calls in progress around this one (`FOracleSimAffectScope`): 0 for a call the caller made, 1 or more for one an `IObjAffect` body makes in turn (`set_strafe_dir` and `slot_54` switch the engine on through `slot_4c`, `slot_50` switches the thrusters off through `slot_54`); records written before the field read as 0 |
 
 The `affect` records between a `behavior_in` and its `behavior_out` with
 the same `seq` are the commands that behaviour tick issued.
@@ -275,7 +276,46 @@ Manager fields (`IBehaviorManager`, `include/common_iface.h`; read by
 (`InSightsTargetId`), `f118` i, `f11c` i, `f120` u (the fallback
 behaviour), `score_w` f[21] and `score_b` i[21] (`BehaviorScores`, whose
 stale entries the weighted draw can read; `game_sim::ai::state_graph::
-choose_behavior` takes them).
+choose_behavior` takes them), and (P2.5 goto and face) `pathfind`
+{`timers` f[3] (`Timer1E0`, `Timer1E8`, `Timer20C`), `periods` f[3]
+(`Period1E4`, `Period1EC`, `Period210`), `record` i (`Field_214`), `goal`
+f3 (`Field_22C`), `cap` f (`Field_23C`), `kind` i (`Field_240`), `target`
+f3 (`CachedTargetPosition`), `target_id` u (`Field_064`), `reaction` i
+(`Reaction.State`), `probe_active` b and `probe_contact` b
+(`Avoidance.Active`, `Avoidance.HasContact`)}\|null (`IBehaviorManager::
+Pathfind`, `game_sim::ai::pathfind::PathfindManager`) and `thrust` i (the
+thrust manager's flags: `bCruiseEngaged` 1, `bCruiseUnobstructed` 2,
+`bEngineActive` 4, `bAutoLevel` 8, `bAutoAvoidance` 16). The pathfinder's
+clocks start from three `rand()` draws of its constructor, outside any
+behaviour tick, so a replay takes them from the record.
+
+Added for the dogfight (P2.5 combat): `flags_1c8` i (`Flags1c8`), `sys`
+{…}\|null (the system manager's combat state, `Sys`) and `face`
+{…}\|null (the face behaviour's fields while it is the current
+behaviour, 15). `sys` holds `targeting` (`Sys->Targeting`:
+`attack_state` i, `aggression` f, `subtarget_dist_sq` f, `subtarget` u,
+`forced` [u, …], `anchor` f3, `committed` b, `commit_timer` f,
+`priority` i (`SelectionPriority`), `candidates_a` i, `candidates_b` i,
+`selected` i, `selected_is_player` b, `targeted_enemies` i,
+`over_clamp_kept` b, `over_clamp_dropped` b), `timers` (`Sys->Timers`
+without the target list: `scanner` u, `decay_rate` f, `level` f, `timers`
+[[b, f, f, f], …] (the eleven `SustainedThresholdTimer`s: active,
+threshold, duration, accumulator), `decay_scale` f, `missiles` [u, …]
+(the incoming-missile list, at most 16), `best_missile` u, `best_time` f)
+and `guns` (`Sys->GunGroups`: `last_result` i, `target` u (0 none), `hold`
+u, `aim_offset` f3, `aim_timer` f, `cruise_held` f, `scan_timer` f,
+`scan_period` f, `slots` and `mines` [[u, b, i, b, i, f, f, f, f], …] (each
+`FGunGroupSlot`: id, auto turret, seeker, fire tick, kind, burst, pause,
+interval, phase), `params` f[19] (+0x103C to +0x1084 in field order,
+`GunRange` last), `wide_cone` f, `fire_all` b, `enabled` b,
+`line_of_fire` [[b, u, u, f, f, b, b], …] (the 16 cache slots: in use,
+target, launcher, age, refresh timer, needs refresh, blocked) and `cm`
+[f, b, [u, …]] (the countermeasure droppers' timer, state and ids)).
+`face` holds `mode` i, `result` i, `dt` f, `flags` u, `flag29` u
+(the `Behavior` prefix), `kind` i, `watched` u (0 none), `orient` f9,
+`target` f3, `flag_1b4` u, `steer` f3, `flag_1c4` u, `flag_1c5` u,
+`field_1c8` f, `field_1cc` f, `field_1d0` f, `flag_1d4` u and
+`field_1d8` f (`FaceBehavior`'s fields of the same offsets).
 
 Roles of an object: `self`; `target` (`get_target`); `formation_leader`,
 `follow_leader`, `follower` (`get_formation_leader`, `get_follow_leader`,
@@ -300,8 +340,33 @@ f3\|null, `nudge` f3\|null, `strafe` i\|null, `cruise` [b, b]\|null
 u\|null, `behavior_id` i, `toughness` i, `player` b, `dying` b,
 `targetable` b, `attitude` [f, f]\|null (the ship's
 `get_attitude_towards_symmetrical` toward this object and the reverse;
-null for the ship itself). These are the fields of
+null for the ship itself), and (P2.5 goto and face) `engine`
+[u, b, b]\|null (`find_equipment(&Id, 1, EquipTypeEngine)` and
+`get_equipment_status`: the id, `EquipStatusFlagActive`,
+`EquipStatusFlagDestroyed`; null without an engine), `thrusters` b\|null
+(`are_thrusters_active`), `atmosphere` f\|null
+(`get_atmosphere_range`) and `max_bank` f (`get_max_bank_angle`; 0 for
+an object that is not a ship): what the thrust manager reads before it
+commands the engine and the thrusters, and the bank limit of the steering
+frame. These are the fields of
 `game_sim::ai::world::ObjectView`, which a replay world fills from them.
+Added for the dogfight (P2.5 combat): `targeted_enemies` i\|null
+(`CShip::get_targeted_enemy_count`; null for an object that is not a
+ship), and for the ship itself `lead` f3\|null (`CShip::
+get_tgt_lead_fire_pos`; null when it answers false) and `equip` [{…}, …]:
+each item `find_equipment` finds for the types `0x80` (guns and
+launchers), `0x20` (mine droppers), `0x40` (countermeasure droppers) and
+`0x100` (shields), in that order, as {`id` u, `type` u (the mask that found
+it), `status` [u, u] (`get_equipment_status`: `Flags`, `EquipFlags`) or
+the failing result i, `munition`, `auto_turret`, `seeker`, `range`,
+`target` u\|null (`get_equipment_val` of `EquipValMunitionKind`,
+`EquipValAutoTurret`, `EquipValSeeker`, `EquipValRange`,
+`EquipValTargetId`: the value's four bytes, null when the call fails),
+`barrel` f[6]\|null (barrel 0's world position and direction, for a
+launcher), `lead` f3\|null (`get_tgt_lead_fire_pos(id)`, a gun's lead on
+its target; null when it fails), `pointing` [b, b, b] (`is_pointing_at` at π/60, the gun groups'
+wide cone and missile cone angles) and `can_point` [[u, b], …] (an auto
+turret's `can_point_at` toward each candidate's position at 0.3)}.
 
 The `rand` values come from the counting wrapper of the rand() recorder
 (`load_rand.jsonl` below), which sits in the import address table of each
@@ -310,6 +375,37 @@ an unrecorded run draws, and the AI recorder keeps the value while a
 behaviour tick is open. A replay feeds them back through
 `game_sim::ai::world::RecordedRand` and checks that the port drew exactly
 as many.
+
+`crates/game-sim/tests/behavior_replay.rs` (reader in
+`tests/support/ai_records.rs`) reruns every tick through
+`game_sim::ai::manager::BehaviorManager`. It keeps one Rust manager per
+object across the file, so what the records do not hold (the behaviours'
+own fields but the face behaviour's, the thrust manager's caches)
+carries over from the Rust side's previous tick; before each tick it sets
+the manager fields of `ai_in` (with `flags_1c8`, `sys` and `face` where
+the record has them), the target list and the personality, and builds a
+world from the
+`ai_obj` snapshot (object ids as handles, the ship's own state following
+its commands, the ship's scan list from its next tick's `ai_in.targets`
+(the list this tick built), the queries answered from `ai_query`, the
+ship's equipment, lead and the ships' targeted-enemy counts from
+`ai_obj`, `rand()` from `ai_out`'s values). The combat state of `ai_out`
+(`flags_1c8`, `sys`, `face`) is compared too and reported on a line of
+its own, with the equipment queries the snapshot cannot answer; a
+difference or such a query fails the test like a mismatched tick (an
+`is_pointing_at` at another angle, the lead of an item the snapshot has not). It compares the manager fields of `ai_out` bit for
+bit (with `pathfind` and `thrust` where the record has them), the number
+of `rand()` draws, and the commands with the `affect` records whose `beh`
+is the tick's `seq` and whose `depth` is 0 (slots 0 to 3, 13 and 18 to
+21, the slots `affect` records; floats bit for bit). Before each tick it
+also sets the `pathfind` and `thrust` fields of `ai_in`. The ship's motion
+model (slots 50 to 64), which no record holds, comes from the scenario's
+ship spawned into a `World` over `outdir/`; the snapshot's own state
+follows the tick's commands as the `IObjAffect` bodies change it, nested
+calls included. A tick whose behaviour on entry or
+exit is not ported is counted as skipped by behaviour id, and so is a
+mismatching tick whose graph row has a candidate that is not ported (its
+poll is a stand-in). Its summary is `rust-behavior-replay.txt`.
 
 Not recorded: objects a behaviour looks up by an id it keeps in its own
 state and that have none of the roles above (they are outside the near
@@ -321,8 +417,9 @@ whether the read set needs another role.
 
 The load-time `rand()` draws (owner, 2026-11-18): every draw the game
 DLLs make from the harness's `srand(seed)` until the first frame, with its
-caller, so that the Rust world can make the same draws before its AI
-draws its first value. Written by `CppSource/Oracle/oracle_sim_rand.cpp`,
+caller: a diagnostic of the draws the Rust world does not make yet (the
+system's population, P3.6, checked at Gate G3; the comparison starts at
+the seeding point after the load). Written by `CppSource/Oracle/oracle_sim_rand.cpp`,
 whose wrapper replaces the `rand` import of every module bound to the
 universal CRT's `rand` (`ucrtbase.dll`; system DLLs bound to `msvcrt.dll`
 have a generator of their own and are left alone). It also feeds the AI
@@ -332,12 +429,16 @@ recorder. The harness sets the phase before each step of the start-up:
 `SystemLoaded` message to Content's controllers), `after_load`, `spawn
 <name>` for each scenario object (`pub::SpaceObj::Create` and, with `ai`,
 `pub::AI::SubmitState`), `hooks` (the recorders start); `start` holds
-nothing. The records are written when the first frame starts.
+nothing. Between `after_load` and the first `spawn` the harness calls
+`srand(seed)` again (the seeding point); the `reseed` record marks it, and
+the indices of the later draws count from 0 in the new sequence. The
+records are written when the first frame starts.
 
 | `rec` | Fields |
 | --- | --- |
 | `load_rand_start` | `version` u (1), `seed` u, `symbols` b (dbghelp started), `hooks` [s, …] (the modules whose import was replaced, in load order) |
 | `draw` | `i` u (the draw's index in the CRT sequence of the seed, from 0), `phase` s, `mod` s (the module that called `rand`), `v` i (the value), `gap` u (draws just before this one the hooks did not see), `at` s (`<module>+0x<offset>` of the return address), `fn` s (the caller: the innermost inlined function first, `<` between the inline levels), `line` s (`file:line` of the call, paths from `CppSource/`; empty without line data), `stack` [s, …] (the callers' frames, each `<module>+0x<offset> <functions> (<file:line>)`, at most nine) |
+| `reseed` | `seed` u, `drawn` u (the index the generator had reached: the draws since the first `srand`), between the `draw` records of before and after it |
 | `phase` | `phase` s, `first` u (index of its first draw, or the next index when it drew nothing), `count` u (indices it spans), `recorded` u (draws the hooks saw) |
 | `load_rand_end` | `recorded` u, `unseen` u (the sum of the gaps), `lost` b (a value was not found within 10⁶ steps of the generator; the indices after it are counts of seen draws only), `next_index` u (the index of the first draw of frame 1) |
 

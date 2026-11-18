@@ -1,0 +1,22 @@
+# Oracle.exe sim scenario (design/reference-build.md section 10): a dogfight.
+# Two AI fighters of hostile factions meet head-on 1500 m apart in he01, where both
+# factions fly patrols (li01.ini encounters), and are left to the AI: no directive, no
+# target command. The target manager picks the hostile ship and the FIGHTER state graph
+# its combat behaviours, as when two hostile NPCs meet in the game (Gate G2, owner
+# 2026-11-18).
+#
+# Each ship is its faction's npcships.ini entry as faction_prop.ini lists it first:
+#   police  li_p_he_fighter_d1-2  he_fighter, li_p_he_fighter_loadout01 (3 guns, missile,
+#                                 shield), pilot_police_med, FIGHTER, he_p_grp (lawful)
+#   rogue   fc_lr_pi_fighter_d1   pi_fighter, fc_lr_pi_fighter_loadout01 (2 guns, turret,
+#                                 missile, shield), pilot_pirate_med, FIGHTER, fc_lr_grp
+# initialworld.ini: he_p_grp and fc_lr_grp feel -0.65 towards each other, below the
+# target manager's hostile threshold of -0.6. 1800 ticks (60 s) leave time for several
+# attack passes. Multiplayer stepping.
+
+system he01
+ticks 1800
+stepping mp
+
+ship police he_fighter li_p_he_fighter_loadout01 15000 3000 -25000 ai FIGHTER pilot pilot_police_med faction he_p_grp psi
+ship rogue pi_fighter fc_lr_pi_fighter_loadout01 15000 3000 -26500 heading 180 ai FIGHTER pilot pilot_pirate_med faction fc_lr_grp psi

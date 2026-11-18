@@ -32,5 +32,8 @@ namespace oracle
     // Begin returns false (and nothing is recorded) when the files cannot be written.
     bool OracleSimLoadRandBegin(std::string const& OutDir, unsigned int Seed);
     void OracleSimLoadRandPhase(std::string const& Phase);
+    // The harness calls srand(Seed) again: the indices of the draws after it are counted in
+    // the new sequence, from 0.
+    void OracleSimLoadRandReseed(unsigned int Seed);
     void OracleSimLoadRandEnd();
 }

@@ -1,6 +1,7 @@
 //! Oracle vectors of work package P2.5 (the flight AI without an object
 //! world): ray and box tests, steering frames, turn throttles, the state
-//! graphs, the behaviour names and the personality defaults. The inputs are
+//! graphs, the behaviour names, the personality defaults and the system
+//! manager's combat timers (`ai_combat`). The inputs are
 //! under `tests/fixtures/oracle/`, written by `make_ai_fixtures.py`; the C++
 //! side is `CppSource/Oracle/oracle_ai.cpp`, run by `Oracle.exe game-sim`
 //! over Common's exported wrappers (`CppSource/include/oracle_ai.h`).
@@ -385,4 +386,106 @@ fn ai_personality() {
         );
     }
     check_suite("ai_personality.jsonl", &lines);
+}
+
+/// `ai_combat.list` (make_ai_fixtures.py): the threshold timer, a gun
+/// slot's timing draws and one `UpdateTimers` step
+/// (`CppSource/Oracle/oracle_ai_combat.cpp`).
+#[test]
+fn ai_combat() {
+    use game_sim::ai::gun_groups::{GunGroups, GunSlot, LineOfFireSlot};
+    use game_sim::ai::timer_table::SustainedThresholdTimer;
+    use neuron_core::num::trunc_to_i32;
+
+    let int = |v: f32| trunc_to_i32(f64::from(v));
+    let mut lines = Vec::new();
+    for line in input_lines("ai_combat.list") {
+        let v = floats(&line);
+        assert_eq!(v.len(), 28, "ai_combat.list: {line}");
+        let seed = u32::try_from(int(v[0])).unwrap_or(0);
+        let kind = int(v[1]);
+        let turret = int(v[2]) != 0;
+        let (dt, level) = (v[3], v[4]);
+
+        let mut timer = SustainedThresholdTimer {
+            active: v[16] != 0.0,
+            threshold: v[17],
+            duration: v[18],
+            accumulator: v[19],
+        };
+        let result = timer.update(dt, level);
+        let timer_text = format!(
+            "{},{}",
+            u8::from(result),
+            fs(&[f32::from(u8::from(timer.active)), timer.accumulator])
+        );
+
+        let groups = GunGroups {
+            gun_fire_interval_time: v[5],
+            gun_fire_interval_variance: v[6],
+            auto_turret_interval_time: v[7],
+            gun_fire_burst_interval_time: v[8],
+            gun_fire_burst_interval_variance: v[9],
+            gun_fire_no_burst_interval_time: v[10],
+            auto_turret_burst_interval_time: v[11],
+            auto_turret_no_burst_interval_time: v[12],
+            auto_turret_burst_interval_variance: v[13],
+            missile_launch_interval_time: v[14],
+            missile_launch_interval_variance: v[15],
+            ..GunGroups::default()
+        };
+        let mut slot = GunSlot {
+            kind,
+            auto_turret: turret,
+            ..GunSlot::default()
+        };
+        let mut rand = CrtRand::with_seed(seed);
+        groups.randomize_slot_timing(&mut slot, &Personality::default(), &mut rand);
+        let timing = fs(&[
+            slot.burst_time,
+            slot.no_burst_time,
+            slot.fire_interval,
+            slot.phase,
+        ]);
+
+        let mut step = GunGroups::default();
+        step.guns.push(GunSlot {
+            kind,
+            burst_time: v[20],
+            no_burst_time: v[21],
+            fire_interval: v[22],
+            phase: v[23],
+            ..GunSlot::default()
+        });
+        step.aim_refresh_timer = v[24];
+        step.line_of_fire[0] = LineOfFireSlot {
+            in_use: true,
+            age: v[25],
+            refresh_timer: v[26],
+            needs_refresh: v[27] != 0.0,
+            ..LineOfFireSlot::default()
+        };
+        step.step_timers(None, dt);
+        let s = step.guns[0];
+        let c = step.line_of_fire[0];
+        let flag = |b: bool| f32::from(u8::from(b));
+        let step_text = fs(&[
+            s.phase,
+            flag(s.fire_tick),
+            step.aim_refresh_timer,
+            flag(c.in_use),
+            c.age,
+            c.refresh_timer,
+            flag(c.needs_refresh),
+        ]);
+        lines.push(
+            Line::new()
+                .add("seed", seed.to_string())
+                .add("timer", timer_text)
+                .add("timing", timing)
+                .add("step", step_text)
+                .done(),
+        );
+    }
+    check_suite("ai_combat.jsonl", &lines);
 }

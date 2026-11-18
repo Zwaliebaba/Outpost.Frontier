@@ -31,10 +31,15 @@
 //! draws the Rust world makes while it loads the system and spawns the
 //! objects beside the oracle's load-time draws (`load_rand.jsonl`).
 //!
-//! Scenarios whose objects need the AI (an `ai` state graph, or the
-//! `goto`, `face` and `dock` directives) are skipped with a note: the
-//! behaviours are P2.5. A summary goes to `rust-scenario-replay.txt` in
-//! the oracle folder.
+//! A ship with an `ai` state graph gets a behaviour manager
+//! (`pub::AI::SubmitState`), and the `goto`, `face`, `idle` and `cancel`
+//! commands are directives (`pub::AI::SubmitDirective`); `fly_to_point`
+//! (goto) and `turn_to_heading` (face) are compared with the oracle like
+//! the other scenarios. Scenarios whose directives need a behaviour that
+//! is not ported yet, and the `dock` directive, are skipped with a note
+//! (P2.5), and so is a scenario whose AI ships have a `faction` (the
+//! dogfight), whose pilots need the combat behaviours. A summary goes to `rust-scenario-replay.txt` in the oracle
+//! folder.
 
 mod support;
 
@@ -43,6 +48,9 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use game_sim::ai::behavior::DirectiveOp;
+use game_sim::ai::behaviors::create_behavior;
+use game_sim::ai::state_graph::GraphType;
 use game_sim::equip::flight::StrafeDir;
 use game_sim::equip::{EquipKind, SUBOBJ_ID_ROOT, types};
 use game_sim::object::world::{ShipSpawn, WorldConfig};
@@ -51,6 +59,7 @@ use neuron_core::id::create_id;
 use neuron_core::math::{Matrix, Vector};
 use neuron_core::physics::StepMode;
 use neuron_core::rng::CrtRand;
+use support::directives::directive;
 use support::records::{Json, find_files, read_lines};
 
 /// The gross-divergence bound on position, metres.
@@ -85,7 +94,12 @@ struct ObjDesc {
     vel: Vector,
     angvel: Vector,
     hp: f32,
-    ai: bool,
+    /// The state graph (`ai NAME`), submitted with `pub::AI::SubmitState`.
+    ai: Option<String>,
+    /// The `pilot` option: the personality's `[Pilot]` nickname.
+    pilot: Option<String>,
+    /// The `faction` option: the reputation group of the ship's vibe.
+    faction: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -105,6 +119,9 @@ struct Scenario {
     /// `collisions sp`: the server's collision filter takes its
     /// single-player branch (every pair collides).
     sp_collisions: bool,
+    /// The file is marked `# ci: expect collision`: a contact scenario,
+    /// judged to its first contact ([`judge_contact`]).
+    contact: bool,
     seed: u32,
     objects: Vec<ObjDesc>,
     commands: Vec<Cmd>,
@@ -142,6 +159,9 @@ fn parse(path: &Path) -> Option<Scenario> {
         frame: 1.0 / 30.0,
         sp: false,
         sp_collisions: false,
+        contact: text
+            .lines()
+            .any(|l| l.trim_start().starts_with("# ci: expect collision")),
         seed: 0x4f52_4143,
         objects: Vec::new(),
         commands: Vec::new(),
@@ -184,7 +204,9 @@ fn parse(path: &Path) -> Option<Scenario> {
                     vel: Vector::ZERO,
                     angvel: Vector::ZERO,
                     hp: -1.0,
-                    ai: false,
+                    ai: None,
+                    pilot: None,
+                    faction: None,
                 };
                 let mut at = if ship { 7 } else { 3 };
                 while at < t.len() {
@@ -203,11 +225,19 @@ fn parse(path: &Path) -> Option<Scenario> {
                             at += 4;
                         }
                         "ai" => {
-                            o.ai = true;
+                            o.ai = Some(t.get(at + 1)?.clone());
                             at += 2;
                         }
                         "hp" => {
                             o.hp = num(t.get(at + 1)?)? as f32;
+                            at += 2;
+                        }
+                        "pilot" => {
+                            o.pilot = Some(t.get(at + 1)?.clone());
+                            at += 2;
+                        }
+                        "faction" => {
+                            o.faction = Some(t.get(at + 1)?.clone());
                             at += 2;
                         }
                         _ => at += 1,
@@ -242,14 +272,41 @@ fn parse(path: &Path) -> Option<Scenario> {
     Some(s)
 }
 
+/// Why a scenario cannot run yet: a directive whose behaviour is not
+/// ported (the AI ships themselves run: they get a behaviour manager), or
+/// the dock directive (which needs the station's Content side).
 fn needs_ai(s: &Scenario) -> Option<String> {
-    if let Some(o) = s.objects.iter().find(|o| o.ai) {
-        return Some(format!("{} has a state graph", o.name));
-    }
-    s.commands
+    // A hostile AI ship (the dogfight): its pilot fights.
+    let fighters: Vec<String> = s
+        .objects
         .iter()
-        .find(|c| matches!(c.args[0].as_str(), "goto" | "face" | "dock"))
-        .map(|c| format!("the {} directive", c.args[0]))
+        .filter(|o| o.ai.is_some() && o.faction.is_some())
+        .map(|o| match &o.pilot {
+            Some(pilot) => format!("{} ({pilot})", o.name),
+            None => o.name.clone(),
+        })
+        .collect();
+    if !fighters.is_empty() {
+        return Some(format!(
+            "{}: the pilot needs combat behaviours",
+            fighters.join(" and ")
+        ));
+    }
+    for c in &s.commands {
+        if c.args[0] == "dock" {
+            return Some("the dock directive".to_owned());
+        }
+        if let Some(op) = directive(&c.args)
+            && let Some(id) = op.behavior()
+            && !create_behavior::<World>(id).ported()
+        {
+            return Some(format!(
+                "the {} directive (behaviour {id} is not ported)",
+                c.args[0]
+            ));
+        }
+    }
+    None
 }
 
 /// An equipped object's first shield.
@@ -307,6 +364,14 @@ struct Run {
     states: BTreeMap<String, Vec<State>>,
     hits: Vec<Hit>,
     contacts: Vec<Contact>,
+    /// The behaviour managers' clocks after construction (the phases the
+    /// constructors draw), for comparison with the first `ai_in` record.
+    managers: Vec<String>,
+    /// The first manager's pathfinder phases (its first three draws).
+    pathfind_phases: Option<[f32; 3]>,
+    /// The first behaviour the port does not have that an AI ship ran, and
+    /// the tick (the state graph can pick one without a directive).
+    unported: Option<(i32, u32)>,
 }
 
 fn shield_of(world: &World, h: ObjHandle) -> (Option<f32>, Option<ShieldState>) {
@@ -373,6 +438,35 @@ fn rust_hit(
     }
 }
 
+/// The index in the CRT sequence of `seed` at which three draws give the
+/// pathfinder's phases (`rand() / 32768 * period` for the periods 1, 0.5
+/// and 0.1, as `PathfindManager`'s constructor stores them).
+fn phase_index(seed: u32, phases: [f32; 3]) -> Option<usize> {
+    let phase = |r: i32, p: f32| (f64::from(r) * (1.0 / 32768.0) * f64::from(p)) as f32;
+    let mut rng = CrtRand::with_seed(seed);
+    let mut window: Vec<i32> = (0..3).map(|_| rng.rand()).collect();
+    for i in 0..1_000_000 {
+        if phase(window[0], 1.0).to_bits() == phases[0].to_bits()
+            && phase(window[1], 0.5).to_bits() == phases[1].to_bits()
+            && phase(window[2], 0.1).to_bits() == phases[2].to_bits()
+        {
+            return Some(i);
+        }
+        window.remove(0);
+        window.push(rng.rand());
+    }
+    None
+}
+
+/// The pathfinder phases of the first AI ship in the oracle's first
+/// `ai.jsonl` of a scenario (its first `ai_in` record).
+fn oracle_phases(dir: &Path, scenario: &str) -> Option<[f32; 3]> {
+    let files = find_files(&dir.join(scenario), "ai.jsonl");
+    let first = files.into_iter().min()?;
+    let ticks = support::ai_records::read_ai_ticks(&first);
+    ticks.first()?.input.pathfind.as_ref().map(|p| p.timers)
+}
+
 fn run(s: &Scenario) -> Option<Run> {
     let mut world = support::world::world(WorldConfig {
         single_player: false,
@@ -387,6 +481,8 @@ fn run(s: &Scenario) -> Option<Run> {
     let system = create_id(s.system.as_bytes());
     world.load_system(system);
     let mut handles: BTreeMap<String, Option<ObjHandle>> = BTreeMap::new();
+    let mut managers = Vec::new();
+    let mut pathfind_phases = None;
     // Only the solars the scenario names: the oracle's server loads the
     // whole system, but nothing else is near the scenario objects, and the
     // contact pass over every solar is slow in a debug build.
@@ -402,6 +498,9 @@ fn run(s: &Scenario) -> Option<Run> {
     if s.sp_collisions {
         world.set_server_collision_filter(system, false);
     }
+    // The seeding point (owner, 2026-11-18): the oracle's harness calls
+    // `srand(seed)` again once the system and its population have loaded.
+    world.rng().seed(s.seed);
     for o in &s.objects {
         let h = if o.ship {
             let mut spawn = ShipSpawn::new(
@@ -413,7 +512,25 @@ fn run(s: &Scenario) -> Option<Run> {
             spawn.velocity = o.vel;
             spawn.angular_velocity = o.angvel;
             spawn.hit_pts = o.hp;
-            world.spawn_ship(system, &spawn).ok()
+            let h = world.spawn_ship(system, &spawn).ok();
+            if let (Some(h), Some(graph)) = (h, &o.ai) {
+                let id = world
+                    .data()
+                    .state_graphs
+                    .find(graph.as_bytes(), GraphType::Leader);
+                world.submit_state(h, id, None);
+                if let Some(m) = world.behavior_manager(h) {
+                    let pf = &m.state.pathfind;
+                    pathfind_phases.get_or_insert([pf.timer_1e0, pf.timer_1e8, pf.timer_20c]);
+                    managers.push(format!(
+                        "{}: manager timers {:08x?} pathfind {:08x?}",
+                        o.name,
+                        m.state.timers().map(f32::to_bits),
+                        [pf.timer_1e0, pf.timer_1e8, pf.timer_20c].map(f32::to_bits)
+                    ));
+                }
+            }
+            h
         } else {
             world.find(create_id(o.nickname.as_bytes()))
         };
@@ -428,7 +545,11 @@ fn run(s: &Scenario) -> Option<Run> {
         .filter(|(id, _)| *id != 0)
         .collect();
     let name_of = |id: u32| names.get(&id).cloned().unwrap_or_else(|| format!("#{id}"));
-    let mut out = Run::default();
+    let mut out = Run {
+        managers,
+        pathfind_phases,
+        ..Run::default()
+    };
     let record = |world: &World,
                   out: &mut BTreeMap<String, Vec<State>>,
                   handles: &BTreeMap<String, Option<ObjHandle>>| {
@@ -461,6 +582,15 @@ fn run(s: &Scenario) -> Option<Run> {
                 continue;
             };
             let a = &c.args;
+            if let Some(op) = directive(a) {
+                // A current directive blocks a new one, so each scenario
+                // directive cancels the one before.
+                if !matches!(op, DirectiveOp::Cancel) {
+                    world.submit_directive(h, &DirectiveOp::Cancel);
+                }
+                world.submit_directive(h, &op);
+                continue;
+            }
             let command = match a[0].as_str() {
                 "throttle" => a
                     .get(1)
@@ -504,6 +634,13 @@ fn run(s: &Scenario) -> Option<Run> {
             }
         }
         world.step(system, s.frame as f32);
+        if out.unported.is_none() {
+            out.unported = handles.values().flatten().find_map(|&h| {
+                let m = world.behavior_manager(h)?;
+                let b = m.state.behavior;
+                (b != -1 && !m.is_ported(b)).then_some((b, tick))
+            });
+        }
         let mut running: BTreeMap<String, State> = out
             .states
             .iter()
@@ -967,6 +1104,98 @@ fn report_collisions(
     differing
 }
 
+/// Whether two states are the same, bit for bit where it counts: alive,
+/// position, velocity, orientation, hit points and the shield's hit points.
+fn same_state(a: &State, b: &State) -> bool {
+    let bits = |v: Vector| [v.x.to_bits(), v.y.to_bits(), v.z.to_bits()];
+    a.alive == b.alive
+        && (!a.alive
+            || (bits(a.pos) == bits(b.pos)
+                && bits(a.vel) == bits(b.vel)
+                && a.orient.map(f32::to_bits) == b.orient.map(f32::to_bits)
+                && a.hp.to_bits() == b.hp.to_bits()
+                && match (a.shield, b.shield) {
+                    (Some(x), Some(y)) => x.hp.to_bits() == y.hp.to_bits(),
+                    (_, None) => true,
+                    (None, Some(_)) => false,
+                }))
+}
+
+/// A contact scenario (`ram_ship`, Gate G2's collide check; owner,
+/// 2026-11-18, record 0003 point 9): the run is judged to its first
+/// contact. Every object must equal the oracle exactly before the tick of
+/// the oracle's first collision event, the Rust world's first collision
+/// event must come in the same tick, and at the last tick every object
+/// must be alive or gone as in the oracle. The first contact's damage and
+/// the trajectories after it are reported, not judged (their envelopes
+/// wait for the owner's G2 numbers).
+fn judge_contact(
+    summary: &mut String,
+    gross: &mut Vec<String>,
+    s: &Scenario,
+    ours: &Run,
+    theirs: &Run,
+) {
+    let Some(first) = theirs.contacts.iter().map(|c| c.tick).min() else {
+        gross.push(format!("{}: the oracle records no contact", s.name));
+        return;
+    };
+    let rust_first = ours.contacts.iter().map(|c| c.tick).min();
+    let mut pre = None;
+    for (name, a) in &ours.states {
+        let Some(b) = theirs.states.get(name) else {
+            continue;
+        };
+        let n = a.len().min(b.len()).min(first as usize);
+        if let Some(t) = (0..n).find(|&t| !same_state(&a[t], &b[t])) {
+            pre = Some(pre.map_or(t, |p: usize| p.min(t)));
+            gross.push(format!(
+                "{}: {name} differs from the oracle at tick {t}, before the first contact (tick {first})",
+                s.name
+            ));
+        }
+        if let (Some(x), Some(y)) = (a.last(), b.last())
+            && x.alive != y.alive
+        {
+            gross.push(format!(
+                "{}: {name} outcome: alive {} vs the oracle's {}",
+                s.name, x.alive, y.alive
+            ));
+        }
+    }
+    if rust_first != Some(first) {
+        gross.push(format!(
+            "{}: first contact at tick {} vs the oracle's {first}",
+            s.name,
+            rust_first.map_or_else(|| "none".to_owned(), |t| t.to_string())
+        ));
+    }
+    let _ = writeln!(
+        summary,
+        "{}: contact scenario: first contact rust tick {}, oracle tick {first}; before it {}",
+        s.name,
+        rust_first.map_or_else(|| "none".to_owned(), |t| t.to_string()),
+        pre.map_or_else(
+            || "every object equals the oracle exactly".to_owned(),
+            |t| format!("the first difference is at tick {t}")
+        )
+    );
+    for c in theirs.contacts.iter().filter(|c| c.tick == first) {
+        let rust = ours
+            .contacts
+            .iter()
+            .find(|r| r.tick == first && r.a == c.a)
+            .map_or_else(|| "none".to_owned(), fmt_contact);
+        let _ = writeln!(
+            summary,
+            "{}: first-contact damage to {}: rust {rust} | oracle {}",
+            s.name,
+            c.b,
+            fmt_contact(c)
+        );
+    }
+}
+
 /// The number of `rand()` draws a generator seeded with `seed` made to
 /// reach `now`, `None` beyond `LOAD_DRAWS_SEARCH`.
 fn draws_since(seed: u32, now: &CrtRand) -> Option<usize> {
@@ -981,8 +1210,9 @@ fn draws_since(seed: u32, now: &CrtRand) -> Option<usize> {
 }
 
 /// The Rust world's draws while it loads the scenario's system (every
-/// solar, as `StarSystem::load` builds them) and spawns each object, by
-/// the oracle's phases (`load_rand.jsonl`): `load`, then `spawn <name>`.
+/// solar, as `StarSystem::load` builds them) and, after seeding again as
+/// the harness does, spawns each object, by the oracle's phases
+/// (`load_rand.jsonl`): `load`, then `spawn <name>`.
 fn rust_load_draws(s: &Scenario) -> Option<Vec<(String, usize)>> {
     let mut world = support::world::world(WorldConfig {
         single_player: false,
@@ -997,13 +1227,18 @@ fn rust_load_draws(s: &Scenario) -> Option<Vec<(String, usize)>> {
     let system = create_id(s.system.as_bytes());
     let mut out = Vec::new();
     let mut last = 0;
-    let mut mark = |world: &mut World, phase: String, out: &mut Vec<(String, usize)>| {
-        let now = draws_since(s.seed, world.rng()).unwrap_or(usize::MAX);
-        out.push((phase, now.saturating_sub(last)));
-        last = now;
-    };
+    let mark =
+        |world: &mut World, last: &mut usize, phase: String, out: &mut Vec<(String, usize)>| {
+            let now = draws_since(s.seed, world.rng()).unwrap_or(usize::MAX);
+            out.push((phase, now.saturating_sub(*last)));
+            *last = now;
+        };
     world.load_system_solars(system);
-    mark(&mut world, "load".to_owned(), &mut out);
+    mark(&mut world, &mut last, "load".to_owned(), &mut out);
+    // The seeding point after the load, as in the harness: the spawns'
+    // draws count from the seed again.
+    world.rng().seed(s.seed);
+    last = 0;
     for o in &s.objects {
         if o.ship {
             let mut spawn = ShipSpawn::new(
@@ -1015,9 +1250,16 @@ fn rust_load_draws(s: &Scenario) -> Option<Vec<(String, usize)>> {
             spawn.velocity = o.vel;
             spawn.angular_velocity = o.angvel;
             spawn.hit_pts = o.hp;
-            let _ = world.spawn_ship(system, &spawn);
+            let h = world.spawn_ship(system, &spawn).ok();
+            if let (Some(h), Some(graph)) = (h, &o.ai) {
+                let id = world
+                    .data()
+                    .state_graphs
+                    .find(graph.as_bytes(), GraphType::Leader);
+                world.submit_state(h, id, None);
+            }
         }
-        mark(&mut world, format!("spawn {}", o.name), &mut out);
+        mark(&mut world, &mut last, format!("spawn {}", o.name), &mut out);
     }
     Some(out)
 }
@@ -1121,7 +1363,18 @@ fn scenarios_against_the_oracle() {
             let _ = writeln!(summary, "{}: did not run", s.name);
             continue;
         };
+        if let Some((b, tick)) = our_run.unported {
+            let _ = writeln!(
+                summary,
+                "{}: skipped, an AI ship runs behaviour {b} from tick {tick}, which is not ported (AI is P2.5)",
+                s.name
+            );
+            continue;
+        }
         let ours = &our_run.states;
+        for m in &our_run.managers {
+            let _ = writeln!(summary, "{}: {m}", s.name);
+        }
         for (name, states) in ours {
             if let Some(last) = states.last() {
                 let _ = writeln!(
@@ -1181,7 +1434,7 @@ fn scenarios_against_the_oracle() {
                 "{}: {name}: max position error {max_pos:.4} m (tick {max_tick}), velocity {max_vel:.4} m/s, orientation {max_orient:.6}, alive mismatches {alive_mismatch}, final hp {} vs {}",
                 s.name, fa.hp, fb.hp
             );
-            if max_pos > bound || fa.alive != fb.alive {
+            if !s.contact && (max_pos > bound || fa.alive != fb.alive) {
                 gross.push(format!(
                     "{}: {name} (position {max_pos:.1} m > {bound:.1} m or alive {} vs {})",
                     s.name, fa.alive, fb.alive
@@ -1189,9 +1442,24 @@ fn scenarios_against_the_oracle() {
             }
             first_divergences(&mut summary, &s.name, name, ours_states, their_states);
         }
+        // The AI's phases come from the CRT sequence: with both sides
+        // seeded after the load, the first AI ship's pathfinder phases sit
+        // at the same index.
+        if let (Some(rust), Some(oracle_p)) = (our_run.pathfind_phases, oracle_phases(dir, &s.name))
+            && let (Some(i_rust), Some(i_oracle)) =
+                (phase_index(s.seed, rust), phase_index(s.seed, oracle_p))
+        {
+            let _ = writeln!(
+                summary,
+                "{}: the AI's first draws are at index {i_oracle} of the oracle's rand() sequence and {i_rust} of the Rust world's (both from the seeding after the load)",
+                s.name
+            );
+        }
         report_hits(&mut summary, &s.name, &our_run.hits, &their_run.hits);
         report_contacts(&mut summary, &s, &our_run, &their_run);
-        if our_run.contacts.is_empty() != their_run.contacts.is_empty() {
+        if s.contact {
+            judge_contact(&mut summary, &mut gross, &s, &our_run, &their_run);
+        } else if our_run.contacts.is_empty() != their_run.contacts.is_empty() {
             gross.push(format!(
                 "{}: collision events rust {} vs oracle {}",
                 s.name,

@@ -10,8 +10,10 @@
 #![allow(dead_code)]
 
 pub mod ai;
+pub mod ai_records;
 pub mod cpp_decode;
 pub mod data;
+pub mod directives;
 pub mod fill;
 pub mod game;
 pub mod records;

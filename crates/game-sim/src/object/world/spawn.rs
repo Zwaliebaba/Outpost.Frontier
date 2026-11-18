@@ -255,6 +255,7 @@ impl World {
                 World::part_geometry(parts.as_ref(), root_part).0
             }
         };
+        let mass_center = geometry.mass_center;
         let mut ledge_parts: Vec<u32> = geometry.ledges.iter().map(|l| l.part_id).collect();
         ledge_parts.sort_unstable();
         ledge_parts.dedup();
@@ -280,6 +281,7 @@ impl World {
         }
         if let Some(obj) = self.objects.get_mut(h) {
             obj.physical.body = Some(body);
+            obj.physical.mass_center = mass_center;
             // Without an instance tree (no assets) there is no part map to
             // filter by: every ledge stays.
             if has_parts {

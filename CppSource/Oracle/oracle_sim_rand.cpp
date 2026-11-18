@@ -72,6 +72,8 @@ namespace
     bool GSymbols = false;
     std::vector<std::string> GPhases;
     std::vector<FDraw> GDraws;
+    // Each srand after the first: the draws recorded before it, and the index it reset.
+    std::vector<std::pair<unsigned int, unsigned int>> GReseeds;
 
     // The hooked module that holds Address, -1 for none.
     int ModuleOf(void const* Address)
@@ -430,6 +432,7 @@ namespace oracle
         GPhases.push_back("start");
         GDraws.clear();
         GDraws.reserve(16384);
+        GReseeds.clear();
 
         // The symbol handler over every loaded module, the PDBs beside them (bin\).
         char Exe[MAX_PATH] = {};
@@ -450,6 +453,16 @@ namespace oracle
     {
         if (GLoadFile != nullptr)
             GPhases.push_back(Phase);
+    }
+
+    void OracleSimLoadRandReseed(unsigned int Seed)
+    {
+        if (!GLoadActive)
+            return;
+        GReseeds.push_back(std::make_pair((unsigned int)GDraws.size(), GShadowIndex));
+        GShadowState = Seed;
+        GShadowIndex = 0;
+        GGapLost = false;
     }
 
     void OracleSimLoadRandEnd()
@@ -486,8 +499,21 @@ namespace oracle
             J.EndArray();
             WriteLine(J);
         }
-        for (FDraw const& D : GDraws)
+        size_t NextReseed = 0;
+        for (size_t DrawIndex = 0; DrawIndex <= GDraws.size(); ++DrawIndex)
         {
+            while (NextReseed < GReseeds.size() && GReseeds[NextReseed].first == DrawIndex)
+            {
+                FOracleJson R;
+                R.Str("rec", "reseed");
+                R.Uint("seed", GSeed);
+                R.Uint("drawn", GReseeds[NextReseed].second);
+                WriteLine(R);
+                ++NextReseed;
+            }
+            if (DrawIndex == GDraws.size())
+                break;
+            FDraw const& D = GDraws[DrawIndex];
             FResolved const& Caller = Cache[D.Frames[0]];
             FOracleJson J;
             J.Str("rec", "draw");
@@ -520,6 +546,11 @@ namespace oracle
         for (std::string const& Name : Hooked)
             Summary += " " + Name;
         Summary += GSymbols ? "\nsymbols: dbghelp\n" : "\nsymbols: none\n";
+        for (std::pair<unsigned int, unsigned int> const& R : GReseeds)
+        {
+            sprintf_s(Text, "srand(%u) again after %u draws: the later indices count from 0\n", GSeed, R.second);
+            Summary += Text;
+        }
         for (unsigned int Phase = 0; Phase < GPhases.size(); ++Phase)
         {
             std::vector<FDraw const*> Draws;

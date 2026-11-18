@@ -266,17 +266,30 @@ protocol suites also drive the C++ decoders, so that decoding is checked
 against the C++ as encoding is.
 
 **Gate G2.** A headless program loads a star system from the original data,
-spawns ships and runs scripted scenarios (fly to a point, dock, fire,
-collide). Replay tests of the integrator, AI and damage code equal the oracle
-within Tier B bounds, and scenario trajectories, times and damage fall
-inside the envelopes approved in P2.0 (decision O20). All protocol codecs round-trip and match
-the C++ encodings byte for byte. The collide scenario is `ram_ship` (owner, 2026-11-18,
-in place of `ram_asteroid`, whose ship never touches the rock): two fighters, the
-multiplayer server's collision filter switched to its single-player branch, since on the
-multiplayer path only bullets and missiles collide ([reference-build.md](reference-build.md)
-section 10, "Collisions"). The scenarios' AI ships draw their first `rand()` after the
-server's load-time draws, which come from Content's `SystemLoaded` handler (P3.6;
-[sim-records.md](sim-records.md), `load_rand.jsonl`).
+spawns ships and runs scripted scenarios (fly to a point, fire,
+collide, and a dogfight between two hostile AI fighters, added by the owner
+on 2026-11-18 so that targeting, fire control and the combat behaviours are
+checked against the oracle). The dock scenario moved to Gate G3, because
+docking is a server part of P3.3 (owner, 2026-11-18). The collide scenario
+is `ram_ship`, in which a fighter flies into another one with the multiplayer
+server's collision filter switched to its single-player branch (on the
+multiplayer path only bullets and missiles collide; [reference-build.md](reference-build.md)
+section 10, "Collisions"). It is judged to its first contact (record 0003
+point 9): every object equals the oracle exactly before it, the contact
+comes in the same tick, the first contact's damage falls inside its
+envelope, and after it only the outcome (which objects are alive) is
+compared. `ram_asteroid`, in which neither the C++ pilot nor the Rust one
+touches the rock, stays as a near-miss check but does not count for the
+gate (owner, 2026-11-18). The scenarios are judged as recorded from the
+seeding point: the harness calls `srand(seed)` again once the system and
+Content's population of it have loaded, and the Rust world seeds there;
+the `rand()` draws of the population (4,837 in he01, from Content's
+`SystemLoaded` handler; [sim-records.md](sim-records.md), `load_rand.jsonl`)
+are P3.6's and are checked at Gate G3 (owner, 2026-11-18). Replay tests of
+the integrator, AI and damage code equal the oracle within Tier B bounds,
+and scenario trajectories, times and damage fall inside the envelopes
+approved in P2.0 (decision O20). All protocol codecs round-trip and match
+the C++ encodings byte for byte.
 
 ### Phase 3 — server and network (`neuron-server`, `game-logic`, `apps/outpost-server`)
 
@@ -295,7 +308,9 @@ server's load-time draws, which come from Content's `SystemLoaded` handler (P3.6
 
 **Gate G3 (milestone "headless server").** `OutpostServer.exe` starts on
 the original data. A scripted test client connects over QUIC, logs in,
-creates a character, launches and receives object updates. Saves written by
+creates a character, launches and receives object updates. The
+`dock_at_station` scenario (moved from Gate G2, owner 2026-11-18) runs
+through the Rust world and falls inside its approved envelope. Saves written by
 Rust load in the C++ build and the reverse. Mission script dumps equal the
 oracle. A random mission offer rebuilt from a saved seed equals the oracle.
 

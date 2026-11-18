@@ -550,12 +550,17 @@ As `OutpostServer.exe` (`OutpostServer.cpp:437`, `:523`, `:731-745`,
    "OracleSim", NULL, LOWEST)`, the controller every scenario ship names;
    `OracleSimLoadSystem(CreateID(system))`, `StarSystem::load` as a
    player's arrival would run it.
-5. The objects are spawned (`pub::SpaceObj::Create`, then
+5. The seeding point (owner, 2026-11-18): `srand(seed)` again, after the
+   system and Content's population of it (the `SystemLoaded` handlers) have
+   drawn their values. The scenario is compared from here as recorded: the
+   Rust world, which has no population yet (P3.6), seeds its generator at
+   the same point, and the population's draws are checked at Gate G3.
+6. The objects are spawned (`pub::SpaceObj::Create`, then
    `pub::AI::SubmitState` with the state graph for `ai`) or looked up
    (solars, `CreateID(nickname)`); a missing object ends the run.
-6. The recorders start (the hooks below, `ai.jsonl`), the load-time
+7. The recorders start (the hooks below, `ai.jsonl`), the load-time
    recorder stops and writes its records; tick 0 is recorded.
-7. Every frame *t* = 1..`ticks`: the control words are read (recorded) and
+8. Every frame *t* = 1..`ticks`: the control words are read (recorded) and
    set again; the fixed clock moves to `clock + t × frame`; the commands of
    tick *t* run; then the server thread's frame: `Server.Update()`,
    `Timing::UpdateGlobalTime(frame)`, `Server.ElapseTime((float)frame)`;
@@ -579,6 +584,7 @@ is zero, which only `Oracle.exe sim` changes:
 | `IVP\ivp_physics\ivp_environment.cpp` | `IVP_Environment_Simulate_Psi` reports before the simulation units and after the next-PSI matrices |
 | `IVP\ivp_physics\ivp_simulation_unit.cpp` | `IVP_Simulation_Unit_Process_One_Psi_Step` reports its entry and its end with the movement check |
 | `IVP\ivp_physics\ivp_core.cpp` | `IVP_Core::push_core_linear`, `push_core_angular_ws` and `push_core_angular_cs` report the push |
+| `Content\PilotPersonalities.cpp` | `OracleSimPilotPersonality`, a new export (P2.5) that only the `pilot` option calls: `GetPilotPersonality` of a pilot nickname |
 
 `srand`, the frame time and the control words need no hook: the harness
 runs the frame loop itself.
@@ -630,8 +636,8 @@ A text file; `#` starts a comment, blank lines are skipped, tokens are
 separated by spaces, tabs or commas. Examples (one per kind of check of
 record 0003) are in `CppSource\Oracle\scenarios\`: `free_flight`,
 `turn_to_heading`, `fly_to_point`, `dock_at_station`, `fire_at_target`,
-`ram_asteroid`, and `ram_ship`, Gate G2's collide scenario in place of
-`ram_asteroid` (owner, 2026-11-18).
+`ram_asteroid`, `dogfight`, and `ram_ship`, Gate G2's collide scenario in
+place of `ram_asteroid` (owner, 2026-11-18).
 
 | Line | Meaning |
 | --- | --- |
@@ -642,7 +648,7 @@ record 0003) are in `CppSource\Oracle\scenarios\`: `free_flight`,
 | `collisions sp\|mp` | default `mp`; `sp` makes the server's collision filter take its single-player branch (below) |
 | `seed <n>` | `srand` after start-up; default `0x4f524143` |
 | `clock <seconds>` | the fixed clock at tick 0; default 1000 |
-| `ship <name> <archetype> <loadout\|-> <x> <y> <z> [options]` | spawn a ship; options: `heading <degrees>` (about +Y; 0 faces −Z, 90 faces −X), `orient <9 numbers>` (row-major), `vel <x y z>`, `angvel <x y z>`, `ai <state graph>` (e.g. `FIGHTER`; without it the ship has no behaviour and keeps the commands it is given), `hp <n>` (default −1, the archetype's), `psi` (record its PSIs) |
+| `ship <name> <archetype> <loadout\|-> <x> <y> <z> [options]` | spawn a ship; options: `heading <degrees>` (about +Y; 0 faces −Z, 90 faces −X), `orient <9 numbers>` (row-major), `vel <x y z>`, `angvel <x y z>`, `ai <state graph>` (e.g. `FIGHTER`; without it the ship has no behaviour and keeps the commands it is given), `pilot <nickname>` (with `ai`: the personality of a `[Pilot]` of `missions\pilots_population.ini` or `pilots_story.ini`, as Content gives an NPC ship of an `npcships.ini` entry, without a job; without it the default personality), `faction <group>` (a reputation affiliated with a group of `initialworld.ini`, e.g. `he_p_grp`; without it none), `hp <n>` (default −1, the archetype's), `psi` (record its PSIs) |
 | `solar <name> <nickname> [psi]` | a system object of the loaded system |
 | `at <ticks> <name> <command> [arguments]` | `<ticks>` is `t`, `a..b` or `a..b/step` (ticks from 1) |
 
@@ -666,8 +672,21 @@ ship with `ai`:
 | `idle`, `cancel` | `DirectiveIdleOp`, `DirectiveCancelOp` |
 | `dock_request <target>` | `pub::SpaceObj::DockRequest` |
 
-Ships are created as Content creates NPC ships, without a reputation
-(`VibeGroupId` −1), costume or voice, and with the default personality.
+Ships are created as Content creates NPC ships, without a costume or
+voice. A ship without `faction` has no reputation (`VibeGroupId` −1); with
+it, the harness allocates one as Content does for an NPC
+(`pub::Reputation::Alloc` with empty names, `SetAffiliation` to the group
+`GetReputationGroup` names), so its attitude towards another ship is the
+groups' feeling and the target manager treats a ship it feels −0.6 or less
+towards as hostile. A ship has the default personality unless `pilot`
+names one, which `Oracle.exe sim` reads through Content.dll's
+`OracleSimPilotPersonality` export and submits with the state graph
+(`bSetPersonality` 1).
+
+`dogfight` gives two AI fighters no command at all: the target manager
+picks the hostile ship and the state graph the combat behaviours, as when
+two hostile NPCs meet. There is no attack directive in the game; the
+`target` command (`set_target`) is not used there.
 
 ### Outputs
 
@@ -709,11 +728,13 @@ state graph through `pub::AI::SubmitState`: the `IBehaviorManager`
 constructor (the behaviour timers, `PathfindManager`'s phases,
 `InitSystemManager`'s scan timer and gun-group slot timing; 2,196) and
 `set_personality` (`SystemManagerGunGroupManager::RefreshFromPersonality`;
-1,481). A scenario ship with `ai` then draws 21 more while it is spawned
-(the same constructor), so its first draw is index 4,837 in he01. The
-encounter, trade-lane and solar-NPC code is Content's (P3.6) and
-`SubmitState` the server's (P3.3); the Rust world makes none of these
-draws yet (`scenario_replay` reports both counts).
+1,481). The encounter, trade-lane and solar-NPC code is Content's (P3.6)
+and `SubmitState` the server's (P3.3); the Rust world makes none of these
+draws yet (`scenario_replay` reports both counts). Before the harness
+seeded again after the load (start-up step 5), a scenario ship with `ai`
+drew its first value at index 4,837 in he01 and the Rust world's at 0;
+now both draw it at index 0 of the sequence of the seed (21 draws of the
+same constructor while it is spawned).
 
 ### Not covered yet
 
@@ -727,6 +748,6 @@ in `ram_asteroid` the ship flies through the rock and no collision is
 recorded. `collisions sp` (above) emulates the single-player branch
 instead; missiles against ships, the only collision of the multiplayer
 path with collision damage, wait for the server's `Guided` controller
-(P3.3). Ships have no reputation, so AI targeting is
-neutral. There is no world snapshot for behaviours that read other objects
+(P3.3). Ships without `faction` have no reputation,
+so their AI targeting is neutral. There is no world snapshot for behaviours that read other objects
 (record 0003 point 7, P2.5).

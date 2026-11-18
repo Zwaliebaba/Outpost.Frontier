@@ -87,6 +87,8 @@ namespace
         double Vel[3] = {0.0, 0.0, 0.0};
         double AngVel[3] = {0.0, 0.0, 0.0};
         std::string StateGraph;  // empty: no behaviour
+        std::string Pilot;       // P2.5: the pilot personality's nickname, empty for the default
+        std::string Faction;     // P2.5: the reputation group of the ship's vibe, empty for none
         int HitPts = -1;
         bool bPsi = false;
         int Line = 0;
@@ -255,6 +257,16 @@ namespace
                 Object.StateGraph = T[At + 1];
                 At += 2;
             }
+            else if (Key == "pilot" && At + 1 < T.size())
+            {
+                Object.Pilot = T[At + 1];
+                At += 2;
+            }
+            else if (Key == "faction" && At + 1 < T.size())
+            {
+                Object.Faction = T[At + 1];
+                At += 2;
+            }
             else if (Key == "hp" && At + 1 < T.size())
             {
                 double Value = 0.0;
@@ -269,9 +281,15 @@ namespace
                 return false;
             }
         }
-        if (!Object.bShip && (!Object.StateGraph.empty() || Object.HitPts != -1))
+        if (!Object.bShip &&
+            (!Object.StateGraph.empty() || !Object.Pilot.empty() || !Object.Faction.empty() || Object.HitPts != -1))
         {
             Error = "a solar takes only psi";
+            return false;
+        }
+        if (!Object.Pilot.empty() && Object.StateGraph.empty())
+        {
+            Error = "pilot needs ai";
             return false;
         }
         return true;
@@ -469,6 +487,7 @@ namespace
     std::vector<FPsiRecord> GPsiRecords;            // parallel to GObjects
     IVP_Simulation_Unit* GPsiUnit = nullptr;        // the unit running with a record open
     std::vector<std::string> GPsiNoted;             // objects already noted as not recordable
+    std::map<unsigned int, unsigned int> GLastTarget;  // P2.5: ship id -> its target id at the last tick
     void(__cdecl* GStubSetTick)(unsigned int) = nullptr;
 
     void Write(EFile File, std::string const& Line)
@@ -1127,6 +1146,14 @@ namespace
             return "set_strafe_dir";
         case OracleSimAffectFire:
             return "fire";
+        case OracleSimAffectTarget:
+            return "set_target";
+        case OracleSimAffectEquip:
+            return "activate_equip";
+        case OracleSimAffectCruise:
+            return "engage_cruise";
+        case OracleSimAffectThrusters:
+            return "set_thrusters";
         default:
             return "unknown";
         }
@@ -1143,6 +1170,9 @@ namespace
         J.Int("slot", Slot);
         J.Str("m", AffectName(Slot));
         J.Int("i", IntArg);
+        // The instrumented calls in progress around this one (FOracleSimAffectScope): 0 for a
+        // call the caller made, 1 or more for one an IObjAffect body made.
+        J.Int("depth", GOracleSimHooks.AffectDepth > 0 ? GOracleSimHooks.AffectDepth - 1 : 0);
         if (Values != nullptr)
             J.FloatArray("v", Values, (unsigned)Count);
         else
@@ -1274,6 +1304,40 @@ namespace
                     FOracleSimBehavior Behavior;
                     OracleSimReadBehavior(OracleSimBehaviorOf(const_cast<CObject*>(Rw->cobject())), Behavior);
                     BehaviorFields(J, Behavior);
+                    // P2.5 (the dogfight): the ship's target (IObjInspect::get_target), and a
+                    // `target` event when it changed since the last tick.
+                    IObjRW* Target = nullptr;
+                    unsigned int const TargetId =
+                        (Rw->get_target(Target) == 0 && Target != nullptr) ? Target->get_id() : 0u;
+                    if (TargetId != 0)
+                    {
+                        IdAndName(J, "target", "target_obj", TargetId);
+                    }
+                    else
+                    {
+                        J.Null("target");
+                        J.Null("target_obj");
+                    }
+                    unsigned int& Last = GLastTarget[Object.Id];
+                    if (Last != TargetId)
+                    {
+                        FOracleJson E;
+                        E.Str("rec", "target");
+                        E.Uint("tick", GTick);
+                        IdAndName(E, "id", "obj", Object.Id);
+                        if (TargetId != 0)
+                        {
+                            IdAndName(E, "target", "target_obj", TargetId);
+                            Metric("target", Object.Desc->Name);
+                        }
+                        else
+                        {
+                            E.Null("target");
+                            E.Null("target_obj");
+                        }
+                        Write(FileEvents, E);
+                        Last = TargetId;
+                    }
                 }
                 Values[0] = Pos.x;
                 Values[1] = Pos.y;
@@ -1316,6 +1380,32 @@ namespace
         return Out;
     }
 
+    // P2.5: the `faction` option. A vibe made as Content makes an NPC's reputation
+    // (pub::Reputation::Alloc with empty names, then SetAffiliation to the group), so that
+    // the ship's attitude towards another ship is the groups' feeling in initialworld.ini.
+    // Returns false when the group is unknown; Vibe stays -1 without the option.
+    bool AllocFactionVibe(FObjectDesc const& Desc, FOracleJson& J, int& Vibe)
+    {
+        Vibe = -1;
+        if (Desc.Faction.empty())
+            return true;
+        unsigned int Group = 0;
+        int const GroupResult = pub::Reputation::GetReputationGroup(Group, Desc.Faction.c_str());
+        J.Str("faction", Desc.Faction.c_str());
+        J.Int("faction_result", GroupResult);
+        if (GroupResult != 0)
+            return false;
+        FmtStr Name;
+        FmtStr Nickname;
+        int const AllocResult = pub::Reputation::Alloc(Vibe, Name, Nickname);
+        int const AffiliationResult = pub::Reputation::SetAffiliation(Vibe, Group);
+        J.Uint("faction_id", Group);
+        J.Int("vibe", Vibe);
+        J.Int("vibe_alloc", AllocResult);
+        J.Int("vibe_affiliation", AffiliationResult);
+        return AllocResult == 0 && AffiliationResult == 0;
+    }
+
     bool SpawnObject(FObjectDesc const& Desc, unsigned int SystemId, unsigned int ControllerId)
     {
         FSimObject Object;
@@ -1327,6 +1417,12 @@ namespace
         if (Desc.bShip)
         {
             Object.Class = CObject::ClassShip;
+            int Vibe = -1;
+            if (!AllocFactionVibe(Desc, J, Vibe))
+            {
+                Write(FileSession, J);
+                return false;
+            }
             pub::SpaceObj::ShipInfo Info;
             Info.ControllerId = ControllerId;
             Info.SystemID = SystemId;
@@ -1344,7 +1440,7 @@ namespace
             for (int Index = 0; Index < 8; ++Index)
                 Info.CostumeAccessory[Index] = 0;
             Info.CostumeAccessoryCount = 0;
-            Info.VibeGroupId = -1;
+            Info.VibeGroupId = Vibe;
             Info.VoiceId = 0;
             Info.DockingBaseId = 0;
             Info.HitPts = Desc.HitPts;
@@ -1371,6 +1467,25 @@ namespace
                 Params.bSetPersonality = 0;
                 J.Str("state_graph", Desc.StateGraph.c_str());
                 J.Int("state_graph_id", Params.StateGraphId);
+                if (!Desc.Pilot.empty())
+                {
+                    // P2.5: the personality Content gives an NPC ship of an npcships.ini entry
+                    // (NpcShip's GetPilotPersonalityWithJob without a job): the default
+                    // personality filled from the [Pilot] of missions\pilots_*.ini, through
+                    // Content.dll's Oracle export.
+                    typedef bool(__cdecl * FPilotPersonality)(char const*, pub::AI::Personality*);
+                    HMODULE const Content = GetModuleHandleA("Content.dll");
+                    FPilotPersonality const PilotPersonality =
+                        Content != nullptr
+                            ? (FPilotPersonality)GetProcAddress(Content, "OracleSimPilotPersonality")
+                            : nullptr;
+                    bool const bPilot =
+                        PilotPersonality != nullptr && PilotPersonality(Desc.Pilot.c_str(), &Params.Value);
+                    J.Str("pilot", Desc.Pilot.c_str());
+                    J.Bool("pilot_found", bPilot);
+                    Params.bSetPersonality = bPilot ? 1 : 0;
+                    bOk = bPilot;
+                }
                 J.Int("submit_state", (int)pub::AI::SubmitState(Id, &Params));
             }
         }
@@ -1883,6 +1998,7 @@ namespace oracle
             J.Uint("controller", ControllerId);
             J.Uint("system_id", SystemId);
             J.Bool("system_loaded", bLoaded);
+            J.Uint("reseed", GScenario.Seed);
             Write(FileSession, J);
         }
         if (ControllerId == 0 || !bLoaded)
@@ -1891,6 +2007,12 @@ namespace oracle
             EndProcess(3);
             return 3;
         }
+
+        // The seeding point of the comparison (owner, 2026-11-18): the system and Content's
+        // population of it (SystemLoaded) have drawn their values; the scenario starts from
+        // srand(seed) again, where the Rust world, which has no population yet (P3.6), seeds.
+        OracleSimLoadRandReseed(GScenario.Seed);
+        srand(GScenario.Seed);
 
         bool bSpawned = true;
         for (FObjectDesc const& Desc : GScenario.Objects)
