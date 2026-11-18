@@ -24,6 +24,12 @@
 //!   (`common_aiintercept.cpp`).
 //! * [`avoidance`]: the obstacle-avoidance probe and its candidate helpers
 //!   (`common_obstacleavoidance.cpp`).
+//! * [`bank`]: `LimitAxisThrottleForTurn` and `ComputeBankedSteeringFrame`
+//!   (`common_aisteer.cpp`).
+//! * [`nav`]: the thrust-manager, ship-up and pathfinder interfaces the
+//!   ideas drive, and the `Behavior_*` motion queries they call.
+//! * [`move_idea`], [`face_idea`]: `MoveIdea` and `FaceIdea`
+//!   (`common_moveidea.cpp`, `common_faceidea.cpp`).
 //!
 //! Everything is computed on the 53-bit model of decision T11: `f64`
 //! evaluation, a rounding to `f32` at each `float` store the reference
@@ -36,8 +42,12 @@
 #![allow(clippy::neg_cmp_op_on_partial_ord)]
 
 pub mod avoidance;
+pub mod bank;
+pub mod face_idea;
 mod fp;
 pub mod intercept;
+pub mod move_idea;
+pub mod nav;
 pub mod personality;
 pub mod raycast;
 pub mod state_graph;

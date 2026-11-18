@@ -268,12 +268,47 @@ impl ObjectView {
 /// A thrust source the motion queries take (`IObject::ThrustEquipType`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ThrustEquipType {
-    /// The engine.
+    /// 0 `ThrustEquipNormal`.
+    Normal,
+    /// 1 the engine.
     Engine,
-    /// The thrusters.
+    /// 2 the thrusters.
     Thrusters,
-    /// The cruise engine.
+    /// 3 the trade lane.
+    Tradelane,
+    /// 4 the cruise engine.
     Cruise,
+    /// Any other value (`MoveIdea::SetThrottleScale` forwards a float's
+    /// bits as the type).
+    Other(i32),
+}
+
+impl ThrustEquipType {
+    /// The reference's value.
+    #[must_use]
+    pub fn value(self) -> i32 {
+        match self {
+            Self::Normal => 0,
+            Self::Engine => 1,
+            Self::Thrusters => 2,
+            Self::Tradelane => 3,
+            Self::Cruise => 4,
+            Self::Other(v) => v,
+        }
+    }
+
+    /// From the reference's value.
+    #[must_use]
+    pub fn from_value(value: i32) -> Self {
+        match value {
+            0 => Self::Normal,
+            1 => Self::Engine,
+            2 => Self::Thrusters,
+            3 => Self::Tradelane,
+            4 => Self::Cruise,
+            v => Self::Other(v),
+        }
+    }
 }
 
 /// The motion model of a ship (`IObjInspect` slots 50 to 64): how fast it
@@ -293,8 +328,12 @@ pub trait MotionModel {
     fn initial_speed_to_coast_distance(&self, speed: f32, stop: bool) -> f32;
     /// `get_time_to_accelerate_angularly` (56).
     fn time_to_accelerate_angularly(&self, from: f32, to: f32, dt: f32) -> f32;
+    /// `get_time_to_accelerate_angularly` with a maximum speed (57).
+    fn time_to_accelerate_angularly_max(&self, from: f32, to: f32, dt: f32, max_speed: f32) -> f32;
     /// `get_angular_distance_travelled` (58).
     fn angular_distance_travelled(&self, from: f32, to: f32, dt: f32) -> f32;
+    /// `get_angular_distance_travelled` with a maximum speed (59).
+    fn angular_distance_travelled_max(&self, from: f32, to: f32, dt: f32, max_speed: f32) -> f32;
     /// `get_angular_speed_XY` (60).
     fn angular_speed_xy(&self, speed: f32, max_speed: f32) -> f32;
     /// `get_angular_speed_Z` (61).
