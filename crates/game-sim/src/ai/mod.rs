@@ -17,6 +17,14 @@
 //! * [`world`]: the inspect, command and query traits the behaviours will
 //!   use (decision record 0001 point 8) and the random source.
 //!
+//! The navigation layer, written against those traits:
+//!
+//! * [`intercept`]: intercept distances, clearances, heading cones, the
+//!   shape-biased dodge and the turn-circle cost
+//!   (`common_aiintercept.cpp`).
+//! * [`avoidance`]: the obstacle-avoidance probe and its candidate helpers
+//!   (`common_obstacleavoidance.cpp`).
+//!
 //! Everything is computed on the 53-bit model of decision T11: `f64`
 //! evaluation, a rounding to `f32` at each `float` store the reference
 //! makes, no fused multiply-add.
@@ -27,7 +35,9 @@
 // comparisons.
 #![allow(clippy::neg_cmp_op_on_partial_ord)]
 
+pub mod avoidance;
 mod fp;
+pub mod intercept;
 pub mod personality;
 pub mod raycast;
 pub mod state_graph;

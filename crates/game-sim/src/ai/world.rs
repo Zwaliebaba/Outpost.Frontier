@@ -246,6 +246,9 @@ pub struct ObjectView {
     pub max_bank_angle: f32,
     /// `get_scanner_interference` (39).
     pub scanner_interference: f32,
+    /// `get_atmosphere_range` (80); 0 when it fails (every caller seeds
+    /// its out value with 0).
+    pub atmosphere_range: f32,
 }
 
 impl ObjectView {
