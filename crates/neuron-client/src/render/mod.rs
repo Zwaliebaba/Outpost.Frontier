@@ -3,6 +3,7 @@
 //! Direct3D 12 backend and the trace player; textures at run time
 //! ([`texture`]).
 
+pub mod compare;
 pub mod ff;
 pub mod shader;
 pub mod texture;

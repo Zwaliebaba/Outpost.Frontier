@@ -63,6 +63,7 @@ cbuffer Draw : register(b0)
 #define LOCAL_VIEWER      (1u << 7)
 #define NORMALIZE_NORMALS (1u << 8)
 #define TEXTURE0          (1u << 9)
+#define CUBE0             (1u << 11)
 
 // render::shader::constants::fog_bits
 #define FOG_ENABLE (1u << 0)
@@ -72,6 +73,8 @@ cbuffer Draw : register(b0)
 #define SAMPLERS 1050
 
 Texture2D textures[2] : register(t0);
+// Cube maps (LoadCubemap) of stages 0 and 1; a null cube view otherwise.
+TextureCube cubes[2] : register(t2);
 SamplerState samplers[SAMPLERS] : register(s0);
 
 struct VsIn
@@ -436,6 +439,20 @@ bool bound(uint s)
     return (flags.x & (TEXTURE0 << s)) != 0;
 }
 
+bool cube(uint s)
+{
+    return (flags.x & (CUBE0 << s)) != 0;
+}
+
+// A stage's sample: its 2D texture at the stage's two coordinates, or its
+// cube map in the direction of the first three (D3DTSS_TEXTURETRANSFORMFLAGS
+// count 3, no projective divide). Both are sampled outside flow control;
+// the unbound one reads its null view.
+float4 stage_sample(uint s, float4 flat, float4 cubed)
+{
+    return cube(s) ? cubed : flat;
+}
+
 // A stage's texture, sampled outside flow control (an unbound stage has a
 // null descriptor). Without a texture, D3DTA_TEXTURE reads the diffuse
 // colour: documented for ALPHAARG1 (D3DTEXTURESTAGESTATETYPE), and the
@@ -473,8 +490,10 @@ float4 ps_main(PsIn i) : SV_Target
     float4 current = diffuse;
     float4 temp = 0;
     float4 texels[2] = {
-        texel_or_diffuse(0, textures[0].Sample(samplers[counts.z], stage_uv(0, i.coord0)), diffuse),
-        texel_or_diffuse(1, textures[1].Sample(samplers[counts.w], stage_uv(1, i.coord1)), diffuse)
+        texel_or_diffuse(0, stage_sample(0, textures[0].Sample(samplers[counts.z], stage_uv(0, i.coord0)),
+                                         cubes[0].Sample(samplers[counts.z], i.coord0.xyz)), diffuse),
+        texel_or_diffuse(1, stage_sample(1, textures[1].Sample(samplers[counts.w], stage_uv(1, i.coord1)),
+                                         cubes[1].Sample(samplers[counts.w], i.coord1.xyz)), diffuse)
     };
     bool active = true;
     [unroll] for (uint s = 0; s < 2; s++)

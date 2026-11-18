@@ -12,8 +12,9 @@
 //! The backend trait has no error path: a failed call is kept in
 //! [`D3d12Backend::errors`] and the draw is skipped.
 //!
-//! Not here yet: the swap chain and window, the gamma blit and
-//! screenshots. Cube maps get no GPU texture and sample as no texture.
+//! A draw binds four views: each stage's 2D view and its cube view, the
+//! null view of the other kind beside a stage's texture. A cube map from
+//! `LoadCubemap` is one level of six array slices behind a cube view.
 
 use std::collections::HashMap;
 
@@ -38,8 +39,8 @@ use windows::Win32::Graphics::Direct3D12::{
     D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_PRESENT,
     D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER,
     D3D12_RESOURCE_STATES, D3D12_SHADER_RESOURCE_VIEW_DESC, D3D12_SHADER_RESOURCE_VIEW_DESC_0,
-    D3D12_SRV_DIMENSION_TEXTURE2D, D3D12_SUBRESOURCE_FOOTPRINT, D3D12_TEX2D_SRV,
-    D3D12_TEXTURE_COPY_LOCATION, D3D12_TEXTURE_COPY_LOCATION_0,
+    D3D12_SRV_DIMENSION_TEXTURE2D, D3D12_SRV_DIMENSION_TEXTURECUBE, D3D12_SUBRESOURCE_FOOTPRINT,
+    D3D12_TEX2D_SRV, D3D12_TEXCUBE_SRV, D3D12_TEXTURE_COPY_LOCATION, D3D12_TEXTURE_COPY_LOCATION_0,
     D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
     D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT, D3D12_TEXTURE_LAYOUT_UNKNOWN, D3D12_VERTEX_BUFFER_VIEW,
     D3D12_VIEWPORT, ID3D12DescriptorHeap, ID3D12Resource,
@@ -77,10 +78,12 @@ pub const FIXED_FUNCTION: Shaders = Shaders {
     ps_flat: include_bytes!("../../../compiled_shaders/fixed_function_ps_flat.cso"),
 };
 
-/// Texture SRVs the CPU-side heap holds, the null descriptor included.
+/// Texture SRVs the CPU-side heap holds, the null descriptors included.
 const TEXTURE_SLOTS: u32 = 4096;
-/// Descriptors of the shader-visible ring: two per draw.
-const DRAW_SLOTS: u32 = 2 * 4096;
+/// The slot of the null cube view (the null 2D view is in slot 0).
+const NULL_CUBE: u32 = 1;
+/// Descriptors of the shader-visible ring: four per draw.
+const DRAW_SLOTS: u32 = 4 * 4096;
 
 /// A default-heap buffer and the state it was last moved to.
 struct GpuBuffer {
@@ -94,7 +97,10 @@ struct GpuTexture {
     resource: ID3D12Resource,
     /// Whether levels go through the RGBA8 conversion.
     convert: bool,
+    /// Subresources: mip levels, or the six faces of a cube map.
     levels: u32,
+    /// A cube map: six faces of one level, a cube view.
+    cube: bool,
     slot: u32,
     state: D3D12_RESOURCE_STATES,
 }
@@ -189,10 +195,12 @@ pub struct D3d12Backend {
     /// The depth buffer behind `dsv`, kept alive with its view.
     _depth: ID3D12Resource,
     dsv: Heap,
-    /// Texture views (CPU side) and the null view in slot 0.
+    /// Texture views (CPU side): the null 2D view in slot 0, the null cube
+    /// view in slot 1.
     srvs: Heap,
     free_slots: Vec<u32>,
-    /// The shader-visible ring the draws copy their two views into.
+    /// The shader-visible ring the draws copy their four views into (the
+    /// two stages' 2D views, then their cube views).
     draw_views: Heap,
     next_view: u32,
     /// The fixed sampler set, shader visible, made once.
@@ -247,10 +255,14 @@ impl D3d12Backend {
             },
         )?;
         let null = srv_desc(DXGI_FORMAT_B8G8R8A8_UNORM, 1);
-        // SAFETY: a null view of a 2D texture in slot 0 of the heap.
+        let null_cube = cube_srv_desc(DXGI_FORMAT_B8G8R8A8_UNORM);
+        // SAFETY: null views of a 2D texture and a cube in slots 0 and 1 of
+        // the heap.
         unsafe {
             gpu.device
                 .CreateShaderResourceView(None, Some(&null), srvs.cpu(0));
+            gpu.device
+                .CreateShaderResourceView(None, Some(&null_cube), srvs.cpu(NULL_CUBE));
         }
         let draw_views = Heap::new(
             &gpu,
@@ -283,7 +295,7 @@ impl D3d12Backend {
         )?;
         write_upload(&defaults, &DEFAULTS)?;
         let blit = Blit::new(&gpu.device)?;
-        let mut free_slots: Vec<u32> = (1..TEXTURE_SLOTS).rev().collect();
+        let mut free_slots: Vec<u32> = (NULL_CUBE + 1..TEXTURE_SLOTS).rev().collect();
         let scene_slot = free_slots.pop().expect("the heap has slots");
         let scene_view = srv_desc(DXGI_FORMAT_B8G8R8A8_UNORM, 1);
         // SAFETY: a view of the scene target in a slot of the view heap,
@@ -420,6 +432,58 @@ impl D3d12Backend {
             }
         }
         self.swap = Some((swap, rtvs));
+        Ok(())
+    }
+
+    /// A new back-buffer size, as `CreateBuffers` after a mode change
+    /// makes one: the scene target, its depth buffer and both views, and
+    /// the swap chain's buffers are made again at `width` by `height`.
+    /// The scene's contents are lost, as a Direct3D 8 `Reset` loses them;
+    /// resources, pipelines and samplers are kept. A window resized
+    /// without a new size needs nothing: the flip-model swap chain
+    /// stretches the back buffer to the client area, as a windowed
+    /// Direct3D 8 `Present` did.
+    pub fn resize(&mut self, width: u32, height: u32) -> Result<(), GpuError> {
+        self.flush()?;
+        // A present after the last flush may still be queued: the old back
+        // buffers and scene are released only once the queue is idle.
+        self.gpu.wait_idle()?;
+        let target = RenderTarget::new(&self.gpu, width, height)?;
+        let depth = depth_buffer(&self.gpu, width, height)?;
+        let scene_view = srv_desc(DXGI_FORMAT_B8G8R8A8_UNORM, 1);
+        // SAFETY: the flush above finished every use of the old views and
+        // resources; the slots belong to heaps kept with the backend, and
+        // the new resources are kept with them below.
+        unsafe {
+            self.gpu
+                .device
+                .CreateDepthStencilView(&depth, None, self.dsv.cpu(0));
+            self.gpu.device.CreateShaderResourceView(
+                &target.resource,
+                Some(&scene_view),
+                self.srvs.cpu(self.scene_slot),
+            );
+        }
+        self.target = target;
+        self._depth = depth;
+        self.scene_state = D3D12_RESOURCE_STATE_RENDER_TARGET;
+        if let Some((old, rtvs)) = self.swap.take() {
+            // A new swap chain on the same window: the old one is released
+            // first, as a window takes one flip-model swap chain.
+            let window = old.window;
+            drop(old);
+            let swap = SwapChain::new(&self.gpu, window, width, height)?;
+            for (i, buffer) in swap.buffers.iter().enumerate() {
+                // SAFETY: slot `i` of the heap kept with the swap chain;
+                // the old views named buffers released with the old chain.
+                unsafe {
+                    self.gpu
+                        .device
+                        .CreateRenderTargetView(buffer, None, rtvs.cpu(i as u32));
+                }
+            }
+            self.swap = Some((swap, rtvs));
+        }
         Ok(())
     }
 
@@ -698,9 +762,6 @@ impl D3d12Backend {
         level: u32,
         bytes: &[u8],
     ) -> Result<(), GpuError> {
-        if desc.cube {
-            return Ok(());
-        }
         if created {
             self.release_texture(h);
             let (format, convert) = texture_format(desc);
@@ -709,7 +770,11 @@ impl D3d12Backend {
                 call: "texture views exhausted",
                 code: 0,
             })?;
-            let view = srv_desc(format, desc.level_count());
+            let view = if desc.cube {
+                cube_srv_desc(format)
+            } else {
+                srv_desc(format, desc.level_count())
+            };
             // SAFETY: the slot belongs to the texture-view heap and to this
             // texture until it is released.
             unsafe {
@@ -725,6 +790,7 @@ impl D3d12Backend {
                     resource,
                     convert,
                     levels: desc.level_count(),
+                    cube: desc.cube,
                     slot,
                     state: D3D12_RESOURCE_STATE_COMMON,
                 },
@@ -803,7 +869,7 @@ impl D3d12Backend {
 
     fn try_draw(&mut self, p: &DrawPacket) -> Result<(), GpuError> {
         self.open()?;
-        if self.next_view + 2 > DRAW_SLOTS {
+        if self.next_view + 4 > DRAW_SLOTS {
             self.flush()?;
             self.open()?;
         }
@@ -907,11 +973,14 @@ impl D3d12Backend {
             }
         };
 
-        // The stage textures: their views, or the null view.
+        // The stage textures: a 2D view and a cube view per stage, the
+        // texture's own where it is of that kind, else the null view.
         let mut bound = [false; 2];
+        let mut cube = [false; 2];
         let base = self.next_view;
         for (stage, texture) in p.textures.iter().enumerate() {
-            let mut src = self.srvs.cpu(0);
+            let mut flat = self.srvs.cpu(0);
+            let mut cubed = self.srvs.cpu(NULL_CUBE);
             if let Some(t) = texture.and_then(|h| self.textures.get_mut(&h)) {
                 barrier(
                     &self.gpu,
@@ -919,27 +988,35 @@ impl D3d12Backend {
                     &mut t.state,
                     D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
                 );
-                src = self.srvs.cpu(t.slot);
+                if t.cube {
+                    cubed = self.srvs.cpu(t.slot);
+                } else {
+                    flat = self.srvs.cpu(t.slot);
+                }
                 bound[stage] = true;
+                cube[stage] = t.cube;
             }
-            // SAFETY: both handles name slots of live heaps of the same
-            // type; the destination slot is this draw's.
-            unsafe {
-                device.CopyDescriptorsSimple(
-                    1,
-                    self.draw_views.cpu(base + stage as u32),
-                    src,
-                    D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
-                );
+            for (offset, src) in [(0, flat), (2, cubed)] {
+                // SAFETY: both handles name slots of live heaps of the same
+                // type; the destination slot is this draw's.
+                unsafe {
+                    device.CopyDescriptorsSimple(
+                        1,
+                        self.draw_views.cpu(base + offset + stage as u32),
+                        src,
+                        D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
+                    );
+                }
             }
         }
-        self.next_view += 2;
+        self.next_view += 4;
 
         let vp = p.viewport;
         let constants = pack(
             &p.constants,
             p.fvf,
             bound,
+            cube,
             ViewportRect {
                 x: vp.x as f32,
                 y: vp.y as f32,
@@ -1195,6 +1272,21 @@ fn srv_desc(format: DXGI_FORMAT, levels: u32) -> D3D12_SHADER_RESOURCE_VIEW_DESC
     }
 }
 
+fn cube_srv_desc(format: DXGI_FORMAT) -> D3D12_SHADER_RESOURCE_VIEW_DESC {
+    D3D12_SHADER_RESOURCE_VIEW_DESC {
+        Format: format,
+        ViewDimension: D3D12_SRV_DIMENSION_TEXTURECUBE,
+        Shader4ComponentMapping: D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING,
+        Anonymous: D3D12_SHADER_RESOURCE_VIEW_DESC_0 {
+            TextureCube: D3D12_TEXCUBE_SRV {
+                MostDetailedMip: 0,
+                MipLevels: 1,
+                ResourceMinLODClamp: 0.0,
+            },
+        },
+    }
+}
+
 fn committed_texture(
     gpu: &Gpu,
     desc: &D3D12_RESOURCE_DESC,
@@ -1232,8 +1324,9 @@ fn texture_resource(
         Dimension: D3D12_RESOURCE_DIMENSION_TEXTURE2D,
         Width: u64::from(t.width),
         Height: t.height,
-        DepthOrArraySize: 1,
-        MipLevels: t.level_count() as u16,
+        // A cube map's faces are the six slices of one level.
+        DepthOrArraySize: if t.cube { 6 } else { 1 },
+        MipLevels: if t.cube { 1 } else { t.level_count() as u16 },
         Format: format,
         SampleDesc: DXGI_SAMPLE_DESC {
             Count: 1,
@@ -1270,7 +1363,7 @@ mod tests {
     use crate::render::ff::defaults::Defaults;
     use crate::render::ff::device::Device;
     use crate::render::ff::fvf::Fvf;
-    use crate::render::ff::state::{StageState, TextureFilter, TextureOp};
+    use crate::render::ff::state::{PipelineProperty, StageState, TextureFilter, TextureOp};
 
     const SIZE: u32 = 8;
 
@@ -1386,6 +1479,93 @@ mod tests {
         assert_eq!(pixel(&pixels, 6, 6), [255; 4]);
     }
 
+    /// A cube map from `LoadCubemap` is sampled in the direction of the
+    /// stage's three coordinates; faces in Direct3D order (+X, -X, +Y, -Y,
+    /// +Z, -Z).
+    #[test]
+    fn cube_maps_sample_the_face_their_direction_points_at() {
+        let Some(mut d) = device() else { return };
+        // One texel per face, BGRA: a distinct colour each.
+        let colours: [[u8; 4]; 6] = [
+            [0, 0, 255, 255],
+            [0, 255, 0, 255],
+            [255, 0, 0, 255],
+            [0, 255, 255, 255],
+            [255, 0, 255, 255],
+            [255, 255, 0, 255],
+        ];
+        let t = d
+            .textures
+            .create_cube(1, PixelFormat::A8R8G8B8, colours.map(|c| c.to_vec()))
+            .unwrap();
+        d.set_stage_texture(0, Some(t));
+        d.state
+            .set_stage_state(0, StageState::ColorOp(TextureOp::SelectArg1));
+        // Point sampling: Direct3D 12 filters across cube faces (seamless,
+        // D268), which with one-texel faces would mix in the neighbours.
+        d.state
+            .set_stage_state(0, StageState::MagFilter(TextureFilter::Point));
+        d.state
+            .set_stage_state(0, StageState::MinFilter(TextureFilter::Point));
+        let directions: [[f32; 3]; 6] = [
+            [1.0, 0.1, 0.2],
+            [-1.0, 0.2, 0.1],
+            [0.1, 1.0, 0.2],
+            [0.2, -1.0, 0.1],
+            [0.1, 0.2, 1.0],
+            [0.2, 0.1, -1.0],
+        ];
+        for (face, dir) in directions.iter().enumerate() {
+            d.clear(ClearFlags::TARGET | ClearFlags::DEPTH, None);
+            // XYZRHW | DIFFUSE | TEX1 with three coordinates in set 0.
+            let v = quad(|_, _| {
+                let mut e = 0xffff_ffff_u32.to_le_bytes().to_vec();
+                for c in dir {
+                    e.extend_from_slice(&c.to_le_bytes());
+                }
+                e
+            });
+            d.draw_up(4, Fvf(0x1_0144), &v, 6).unwrap();
+            let pixels = d.backend.read_back().unwrap();
+            assert!(
+                d.backend.errors.is_empty(),
+                "{:?}\n{}",
+                d.backend.errors,
+                d.backend.debug_messages().join("\n")
+            );
+            assert_eq!(pixel(&pixels, 4, 4), colours[face], "face {face}");
+        }
+    }
+
+    /// A new back-buffer size without a window: the scene and depth are
+    /// made again and draw at the new size.
+    #[test]
+    fn the_scene_resizes() {
+        let Some(mut d) = device() else { return };
+        d.clear(ClearFlags::TARGET | ClearFlags::DEPTH, None);
+        d.present();
+        d.backend.resize(16, 4).unwrap();
+        d.set_viewport(0, 0, 16, 4);
+        d.state
+            .set_pipeline(PipelineProperty::ClearColor, 0xff00_ff00);
+        d.clear(ClearFlags::TARGET | ClearFlags::DEPTH, None);
+        let pixels = d.backend.read_back().unwrap();
+        assert!(
+            d.backend.errors.is_empty(),
+            "{:?}\n{}",
+            d.backend.errors,
+            d.backend.debug_messages().join("\n")
+        );
+        assert_eq!(pixels.len(), 16 * 4 * 4);
+        assert!(
+            pixels
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|p| *p == [0, 255, 0, 255])
+        );
+    }
+
     /// The final blit applies the gamma ramp; the scene, and so a
     /// screenshot, keeps the colours as drawn.
     #[test]
@@ -1450,6 +1630,22 @@ mod tests {
             d.clear(ClearFlags::TARGET | ClearFlags::DEPTH, None);
             d.present();
         }
+        // A new back-buffer size: the scene and the swap chain follow.
+        d.backend.resize(16, 4).unwrap();
+        d.set_viewport(0, 0, 16, 4);
+        d.state
+            .set_pipeline(PipelineProperty::ClearColor, 0xff00_ff00);
+        d.clear(ClearFlags::TARGET | ClearFlags::DEPTH, None);
+        let pixels = d.backend.read_back().unwrap();
+        assert_eq!(pixels.len(), 16 * 4 * 4);
+        assert!(
+            pixels
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|p| *p == [0, 255, 0, 255])
+        );
+        d.present();
         let errors = std::mem::take(&mut d.backend.errors);
         let messages = d.backend.debug_messages().join("\n");
         drop(d);

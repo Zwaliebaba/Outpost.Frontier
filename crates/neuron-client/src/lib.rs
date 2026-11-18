@@ -3,8 +3,11 @@
 pub use neuron_core::ENGINE_VERSION;
 
 pub mod audio;
+pub mod media;
 #[cfg(windows)]
 pub mod platform;
 pub mod render;
 pub mod scene_script;
 pub mod text;
+pub mod user_state;
+pub mod window;

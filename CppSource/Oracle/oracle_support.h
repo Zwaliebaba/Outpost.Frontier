@@ -110,6 +110,11 @@ void RunCatalogDump();
 // Its output is made from the game data and is never committed.
 int RunSimMode(int Argc, char** Argv);
 
+// Oracle.exe render-replay <vectors directory> <output directory> (oracle_render_replay.cpp,
+// record 0004 point 15, work package P4.3): plays version-1 renderer traces into
+// DX8RENDERER.dll and writes each selected frame's image. Argv is main's.
+int RunRenderReplayMode(int Argc, char** Argv);
+
 // P1.9, oracle_net.cpp: wire primitives and quantisers.
 void RunNetSuites();
 
