@@ -266,8 +266,9 @@ protocol suites also drive the C++ decoders, so that decoding is checked
 against the C++ as encoding is.
 
 **Gate G2.** A headless program loads a star system from the original data,
-spawns ships and runs scripted scenarios (fly to a point, dock, fire,
-collide). Replay tests of the integrator, AI and damage code equal the oracle
+spawns ships and runs scripted scenarios (fly to a point, fire,
+collide). The dock scenario moved to Gate G3, because docking is a server
+part of P3.3 (owner, 2026-11-18). Replay tests of the integrator, AI and damage code equal the oracle
 within Tier B bounds, and scenario trajectories, times and damage fall
 inside the envelopes approved in P2.0 (decision O20). All protocol codecs round-trip and match
 the C++ encodings byte for byte.
@@ -289,7 +290,9 @@ the C++ encodings byte for byte.
 
 **Gate G3 (milestone "headless server").** `OutpostServer.exe` starts on
 the original data. A scripted test client connects over QUIC, logs in,
-creates a character, launches and receives object updates. Saves written by
+creates a character, launches and receives object updates. The
+`dock_at_station` scenario (moved from Gate G2, owner 2026-11-18) runs
+through the Rust world and falls inside its approved envelope. Saves written by
 Rust load in the C++ build and the reverse. Mission script dumps equal the
 oracle. A random mission offer rebuilt from a saved seed equals the oracle.
 
