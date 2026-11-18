@@ -57,11 +57,11 @@
 //! factions; `strafe`: an AI fighter and a hostile ship without one) take
 //! each pilot's personality and the ships' attitudes from the oracle's
 //! `ai.jsonl` (a ship without a manager the reverse attitude of the AI
-//! ship's snapshot), and are reported as chaotic contact (record
-//! 0003 point 9): each ship's exact span, the first behaviour and target
-//! difference, the behaviour sequences, the hits before the first
-//! divergence and the outcome. A summary goes to `rust-scenario-replay.txt`
-//! in the oracle folder.
+//! ship's snapshot), and are judged to their first contact or munition
+//! impact (see below; record 0003 point 9): each ship's exact span, the
+//! first behaviour and target difference, the behaviour sequences, the
+//! hits before the first divergence and the outcome are reported. A
+//! summary goes to `rust-scenario-replay.txt` in the oracle folder.
 
 mod support;
 
@@ -1030,83 +1030,6 @@ fn gun_text(id: u32, v: [f32; 5], extra: &str) -> String {
 
 /// The first tick whose turret joints differ from the oracle's
 /// (`tick.jsonl` `guns`), per ship (diagnostic).
-/// TEMPORARY: the fire calls (slot 13) of both sides and the first hits.
-fn report_fires(summary: &mut String, dir: &Path, scenario: &str, ours: &Run, theirs: &Run) {
-    let Some(file) = find_files(&dir.join(scenario), "calls.jsonl")
-        .into_iter()
-        .min()
-    else {
-        return;
-    };
-    let mut oracle: Vec<(u32, String, String)> = Vec::new();
-    for r in read_lines(&file) {
-        if r.get("rec").and_then(Json::as_str) != Some("affect")
-            || r.get("slot").and_then(Json::as_i32) != Some(13)
-        {
-            continue;
-        }
-        oracle.push((
-            r.get("tick").and_then(Json::as_u32).unwrap_or(0),
-            r.get("obj")
-                .and_then(Json::as_str)
-                .unwrap_or("?")
-                .to_owned(),
-            format!(
-                "i {} v {:?}",
-                r.get("i").and_then(Json::as_i32).unwrap_or(-1),
-                r.get("v")
-                    .and_then(Json::as_array)
-                    .map(|a| a.iter().filter_map(Json::as_f32).collect::<Vec<_>>())
-                    .unwrap_or_default()
-            ),
-        ));
-    }
-    let rust: Vec<(u32, String)> = ours.fires.iter().map(|(t, w, _)| (*t, w.clone())).collect();
-    let o: Vec<(u32, String)> = oracle.iter().map(|(t, w, _)| (*t, w.clone())).collect();
-    let _ = writeln!(
-        summary,
-        "{scenario}: TEMP fires rust {} oracle {}; first ticks rust {:?} oracle {:?}",
-        rust.len(),
-        o.len(),
-        rust.iter().take(6).collect::<Vec<_>>(),
-        o.iter().take(6).collect::<Vec<_>>()
-    );
-    if let Some(i) = (0..rust.len().max(o.len())).find(|&i| rust.get(i) != o.get(i)) {
-        let _ = writeln!(
-            summary,
-            "{scenario}: TEMP fires first differ at #{i}: rust {:?} {:?} oracle {:?}",
-            rust.get(i),
-            ours.fires.get(i).map(|f| &f.2),
-            oracle.get(i)
-        );
-    } else {
-        let _ = writeln!(
-            summary,
-            "{scenario}: TEMP fires: the same ticks and shooters"
-        );
-    }
-    for (i, f) in oracle.iter().enumerate().filter(|(i, _)| *i < 3) {
-        let _ = writeln!(
-            summary,
-            "{scenario}: TEMP oracle fire #{i} {f:?} | rust {:?}",
-            ours.fires.get(i)
-        );
-    }
-    let h = |v: &[Hit]| {
-        v.iter()
-            .take(6)
-            .map(|h| format!("{}:{}:{:#x}:{}", h.tick, h.target, h.sub, h.kind))
-            .collect::<Vec<_>>()
-            .join(" ")
-    };
-    let _ = writeln!(
-        summary,
-        "{scenario}: TEMP first hits rust {} | oracle {}",
-        h(&ours.hits),
-        h(&theirs.hits)
-    );
-}
-
 fn report_guns(summary: &mut String, dir: &Path, scenario: &str, ours: &Run) {
     let Some(file) = find_files(&dir.join(scenario), "tick.jsonl")
         .into_iter()
@@ -3222,7 +3145,6 @@ fn scenarios_against_the_oracle() {
         };
         report_guided(&mut summary, &mut gross, dir, &s.name, &our_run, cutoff);
         report_guns(&mut summary, dir, &s.name, &our_run);
-        report_fires(&mut summary, dir, &s.name, &our_run, &their_run);
         report_contacts(&mut summary, &s, &our_run, &their_run);
         if s.contact {
             judge_contact(&mut summary, &mut gross, &s, &our_run, &their_run);
