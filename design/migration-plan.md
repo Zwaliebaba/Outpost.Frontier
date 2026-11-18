@@ -289,7 +289,10 @@ are P3.6's and are checked at Gate G3 (owner, 2026-11-18). Replay tests of
 the integrator, AI and damage code equal the oracle within Tier B bounds,
 and scenario trajectories, times and damage fall inside the envelopes
 approved in P2.0 (decision O20). All protocol codecs round-trip and match
-the C++ encodings byte for byte.
+the C++ encodings byte for byte. The gate's headless program is the
+`scenario_replay` test in CI, which runs the oracle's scenario files
+through the Rust world, together with the other replays; there is no
+separate runner (owner, 2026-11-18).
 
 ### Phase 3 — server and network (`neuron-server`, `game-logic`, `apps/outpost-server`)
 

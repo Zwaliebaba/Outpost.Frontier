@@ -34,6 +34,8 @@ The owner accepted D180 to D183 (the shared remainder of P2.4) on
 clock are driven now; what is left is D183; the ID is not reused) and D128
 was narrowed to the power pass.
 
+The owner accepted D184 and D185 (P2.5 loot and flee) on 2026-11-18.
+
 ID ranges, reserved on 2026-11-18 so that work packages running in
 parallel do not collide: IDs below D200 stay with Phases 2 and 3; D200 to
 D299 belong to Phase 4. A work package takes the next free ID of its
