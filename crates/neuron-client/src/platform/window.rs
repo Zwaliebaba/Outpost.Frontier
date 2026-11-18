@@ -101,6 +101,8 @@ pub(crate) struct State {
     pub mouse: Mouse,
     pub raw: RawInputState,
     pub ime: ImeWindowState,
+    /// Whether the window's own Raw Input registration succeeded.
+    pub raw_registered: bool,
 }
 
 thread_local! {
@@ -310,7 +312,7 @@ impl Window {
         }
         .at("CreateWindowExW")?;
         // The mouse for Raw Input, plainly until the model acquires it.
-        platform_input::register_mouse(hwnd, RAWINPUTDEVICE_FLAGS(0));
+        let raw_registered = platform_input::register_mouse(hwnd, RAWINPUTDEVICE_FLAGS(0));
         // SAFETY: a plain query; the C++ latches it when it creates the
         // mouse device.
         let double_click_time = unsafe { GetDoubleClickTime() };
@@ -323,6 +325,7 @@ impl Window {
                 mouse: Mouse::new(double_click_time, mode),
                 raw: RawInputState::default(),
                 ime,
+                raw_registered,
             });
         });
         let mut window = Window { hwnd, mode };
@@ -451,6 +454,13 @@ impl Window {
     }
 
     /// [`Window::pump`] with the game's input router (`PumpMessages`).
+    /// Whether the window registered the mouse for Raw Input when it was
+    /// made.
+    #[must_use]
+    pub fn raw_input_registered(&self) -> bool {
+        with_state(|s| s.raw_registered).unwrap_or(false)
+    }
+
     pub fn pump_routed(&mut self, router: &mut dyn InputRouter) -> Pump {
         pump_routed(router)
     }
@@ -694,7 +704,6 @@ mod tests {
         use windows::Win32::UI::Input::Ime::{
             COMPOSITIONFORM, ImmGetCompositionWindow, ImmGetContext, ImmReleaseContext,
         };
-        use windows::Win32::UI::Input::{GetRegisteredRawInputDevices, RAWINPUTDEVICE};
         use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, WM_IME_CHAR, WM_KEYDOWN};
 
         use crate::input::keyboard::KeyEventKind;
@@ -720,22 +729,11 @@ mod tests {
         };
         assert_eq!(window.with_mouse(|m, _| m.display()), Some(mode));
 
-        let mut devices = [RAWINPUTDEVICE::default(); 8];
-        let mut count = devices.len() as u32;
-        // SAFETY: a buffer of `count` descriptions of their own size.
-        let got = unsafe {
-            GetRegisteredRawInputDevices(
-                Some(devices.as_mut_ptr()),
-                &mut count,
-                size_of::<RAWINPUTDEVICE>() as u32,
-            )
-        };
-        assert!(
-            devices[..got.min(8) as usize]
-                .iter()
-                .any(|d| d.usUsagePage == 1 && d.usUsage == 2),
-            "{got} devices"
-        );
+        // The window registered the mouse for Raw Input. (The registration
+        // is process-wide; the other window tests running in parallel
+        // register and destroy their own, so the window's own result is
+        // what is checked, not the process's current list.)
+        assert!(window.raw_input_registered());
 
         let mut r = Recorder {
             consume_key_downs: true,
