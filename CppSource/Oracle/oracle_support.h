@@ -208,3 +208,13 @@ bool OracleLoadMathEngine();
 // oracle_vfs.cpp: registers ReadFile's file-system factories once (for modes that do not run
 // RunVfsSuites or RunVfsDataDump first).
 void OracleRegisterReadFile();
+
+// Oracle.exe neuron-client <fixture directory> <output directory> (oracle_scene_script.cpp,
+// work package P4.14): the suites of crates/neuron-client/tests, over
+// crates/neuron-client/tests/fixtures/oracle. The Lua state after scene-script buffers,
+// through the reference's own Lua 3.2 compiled into Oracle.exe.
+void RunNeuronClientSuites();
+
+// P4.14 (oracle_scene_script.cpp): every .thn under DATA through lua_dobuffer in a fresh
+// Lua state, and the state after it; kind "thn".
+void RunSceneScriptDataDump(const std::vector<std::string>& Files);
