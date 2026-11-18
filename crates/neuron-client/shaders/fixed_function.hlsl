@@ -431,12 +431,18 @@ float2 stage_uv(uint s, float4 coord)
     return uv;
 }
 
-// A stage's texture, sampled outside flow control (an unbound stage has a
-// null descriptor, which samples as zero).
-float4 bound_or_black(uint s, float4 sampled)
+bool bound(uint s)
 {
-    // ASSUMPTION: a stage without a texture reads opaque black.
-    return (flags.x & (TEXTURE0 << s)) != 0 ? sampled : float4(0, 0, 0, 1);
+    return (flags.x & (TEXTURE0 << s)) != 0;
+}
+
+// A stage's texture, sampled outside flow control (an unbound stage has a
+// null descriptor). Without a texture, D3DTA_TEXTURE reads the diffuse
+// colour: documented for ALPHAARG1 (D3DTEXTURESTAGESTATETYPE), and the
+// colour case where it matters ends the cascade (below).
+float4 texel_or_diffuse(uint s, float4 sampled, float4 diffuse)
+{
+    return bound(s) ? sampled : diffuse;
 }
 
 // D3DCMPFUNC: 1 never to 8 always.
@@ -467,8 +473,8 @@ float4 ps_main(PsIn i) : SV_Target
     float4 current = diffuse;
     float4 temp = 0;
     float4 texels[2] = {
-        bound_or_black(0, textures[0].Sample(samplers[counts.z], stage_uv(0, i.coord0))),
-        bound_or_black(1, textures[1].Sample(samplers[counts.w], stage_uv(1, i.coord1)))
+        texel_or_diffuse(0, textures[0].Sample(samplers[counts.z], stage_uv(0, i.coord0)), diffuse),
+        texel_or_diffuse(1, textures[1].Sample(samplers[counts.w], stage_uv(1, i.coord1)), diffuse)
     };
     bool active = true;
     [unroll] for (uint s = 0; s < 2; s++)
@@ -476,7 +482,9 @@ float4 ps_main(PsIn i) : SV_Target
         uint4 colour = stage[s * 3];
         uint4 alpha = stage[s * 3 + 1];
         uint4 misc = stage[s * 3 + 2];
-        if (colour.x == 1) // DISABLE ends the cascade
+        // DISABLE ends the cascade, and so does a stage whose COLORARG1 is
+        // D3DTA_TEXTURE without a texture ("Texture Blending", Direct3D 9).
+        if (colour.x == 1 || (colour.y == 2 && !bound(s)))
             active = false;
         if (!active)
             continue;
