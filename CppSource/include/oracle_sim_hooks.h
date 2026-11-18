@@ -13,7 +13,8 @@
 //   Server/server_gameobject.cpp  the three Timing::read timer stamps; GameObject::on_collision
 //                               (CalcCollisionDamage in and out); Ship's IObjAffect setters and
 //                               EqObj::slot_34 (OnAffect)
-//   Server/server_classes.cpp   StarSystem::munition_collision (OnMunitionHit)
+//   Server/server_classes.cpp   StarSystem::munition_collision (OnMunitionHit);
+//                               StarSystem_MpCollisionFilter (single-player collisions)
 //   Common/common_physicalsystem.cpp  PhysicalSystem::Update (single-player stepping)
 //   Common/common_behaviormanager.cpp IBehaviorManager::UpdateBehaviorTick (OnBehaviorTick)
 //   IVP/ivp_physics/ivp_environment.cpp IVP_Environment_Simulate_Psi (OnPsi)
@@ -126,6 +127,9 @@ struct FOracleSimHooks
     // PhysicalSystem::Update takes the single-player branch (one clamped step per call)
     // while the server otherwise runs in multiplayer mode.
     bool bSinglePlayerStepping;
+    // StarSystem_MpCollisionFilter takes its single-player branch (every pair collides) while
+    // the server otherwise runs in multiplayer mode (P2 load draws: the collide scenario).
+    bool bSinglePlayerCollisions;
     // The timer stamps read ClockSeconds and IServerImpl::ElapseTime's real dt is
     // FrameSeconds, instead of the performance counter.
     bool bFixedClock;

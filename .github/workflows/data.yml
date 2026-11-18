@@ -91,15 +91,33 @@ jobs:
             Copy-Item "$out\$name\spread.*" "$keep\$name\" -ErrorAction SilentlyContinue
             Get-ChildItem "$out\$name" -Directory -ErrorAction SilentlyContinue | ForEach-Object {
               Copy-Item "$($_.FullName)\session.jsonl" "$keep\$name\$($_.Name)-session.jsonl" -ErrorAction SilentlyContinue
+              Copy-Item "$($_.FullName)\load_rand.txt" "$keep\$name\$($_.Name)-load_rand.txt" -ErrorAction SilentlyContinue
+            }
+            # A scenario marked "# ci: expect collision": every run records collision events
+            # with their CalcCollisionDamage calls, and the runs record the same ones.
+            if (Select-String -Path $scenario.FullName -Pattern '^# ci: expect collision' -Quiet) {
+              $seen = @()
+              foreach ($run in Get-ChildItem "$out\$name" -Directory -ErrorAction SilentlyContinue) {
+                $events = @(Select-String -Path "$($run.FullName)\events.jsonl" -Pattern '"rec":"collision"' -ErrorAction SilentlyContinue | ForEach-Object { $_.Line })
+                $calls = @(Select-String -Path "$($run.FullName)\calls.jsonl" -Pattern '"rec":"collision_damage"' -ErrorAction SilentlyContinue | ForEach-Object { $_.Line })
+                Write-Host "$name $($run.Name): $($events.Count) collision events, $($calls.Count) CalcCollisionDamage calls"
+                $events | Select-Object -First 6 | ForEach-Object { Write-Host "  $_" }
+                $calls | Select-Object -First 6 | ForEach-Object { Write-Host "  $_" }
+                if ($events.Count -eq 0 -or $calls.Count -eq 0) { $failed += "$name (no collision in $($run.Name))" }
+                $seen += (($events + $calls) -join "`n")
+              }
+              if (@($seen | Select-Object -Unique).Count -gt 1) { $failed += "$name (the runs record different collisions)" }
             }
           }
-          # The step log carries what the artifacts hold: spreads and error records.
+          # The step log carries what the artifacts hold: spreads, error records and the
+          # load-time rand() draws of each scenario's first run.
           foreach ($dir in Get-ChildItem $keep -Directory) {
             Write-Host "== $($dir.Name)"
             Get-Content "$($dir.FullName)\spread.txt" -ErrorAction SilentlyContinue
             Get-ChildItem $dir.FullName -Filter *-session.jsonl | ForEach-Object {
               Select-String -Path $_.FullName -Pattern '"error"|"note"' | Select-Object -First 20 | ForEach-Object { "$($_.Filename): $($_.Line)" }
             }
+            Get-Content "$($dir.FullName)\run_01-load_rand.txt" -ErrorAction SilentlyContinue
           }
           if ($failed.Count -gt 0) {
             Write-Host "Scenarios with a failed run: $($failed -join ', ')"

@@ -55,6 +55,7 @@
 #include "server_iserverimpl.h"        // IServerImpl (the `Server` export is looked up at run time)
 #include "oracle_sim_hooks.h"
 #include "oracle_sim_ai.h"
+#include "oracle_sim_rand.h"
 
 // Server.dll, IServerImpl.cpp (Oracle instrumentation): StarSystem::load on one system.
 extern "C" __declspec(dllimport) bool __cdecl OracleSimLoadSystem(unsigned int SystemId);
@@ -108,6 +109,7 @@ namespace
         unsigned int Ticks = 0;
         double Frame = 1.0 / 30.0;
         bool bSpStepping = false;
+        bool bSpCollisions = false;
         unsigned int Seed = 0x4f524143u;
         double ClockStart = 1000.0;
         std::vector<FObjectDesc> Objects;
@@ -329,6 +331,10 @@ namespace
             else if (Key == "stepping" && T.size() == 2 && (Lower(T[1]) == "sp" || Lower(T[1]) == "mp"))
             {
                 Out.bSpStepping = Lower(T[1]) == "sp";
+            }
+            else if (Key == "collisions" && T.size() == 2 && (Lower(T[1]) == "sp" || Lower(T[1]) == "mp"))
+            {
+                Out.bSpCollisions = Lower(T[1]) == "sp";
             }
             else if (Key == "seed" && T.size() == 2 && ParseUnsigned(T[1], Value))
             {
@@ -1758,6 +1764,7 @@ namespace oracle
             J.Uint("ticks", GScenario.Ticks);
             J.Double("frame", GScenario.Frame);
             J.Str("stepping", GScenario.bSpStepping ? "sp" : "mp");
+            J.Str("collisions", GScenario.bSpCollisions ? "sp" : "mp");
             J.Uint("seed", GScenario.Seed);
             J.Double("clock", GScenario.ClockStart);
             J.Uint("objects", (unsigned)GScenario.Objects.size());
@@ -1854,13 +1861,21 @@ namespace oracle
             return 3;
         }
 
+        // The load-time rand() recorder (load_rand.jsonl): every draw from the seeding to the
+        // first frame, with its caller.
+        if (!OracleSimLoadRandBegin(OutDir, GScenario.Seed))
+            SessionNote("note", "load_rand.jsonl cannot be written; load-time draws are not recorded");
+
         // rand() is per thread in the CRT; everything runs on this thread.
         srand(GScenario.Seed);
 
+        OracleSimLoadRandPhase("controller");
         unsigned int const ControllerId =
             pub::Controller::Create(StubPath.c_str(), "OracleSim", nullptr, pub::Controller::LOWEST);
         unsigned int const SystemId = CreateID(GScenario.System.c_str());
+        OracleSimLoadRandPhase("load");
         bool const bLoaded = OracleSimLoadSystem(SystemId);
+        OracleSimLoadRandPhase("after_load");
         {
             FOracleJson J;
             J.Str("rec", "server");
@@ -1879,7 +1894,11 @@ namespace oracle
 
         bool bSpawned = true;
         for (FObjectDesc const& Desc : GScenario.Objects)
+        {
+            OracleSimLoadRandPhase("spawn " + Desc.Name);
             bSpawned = SpawnObject(Desc, SystemId, ControllerId) && bSpawned;
+        }
+        OracleSimLoadRandPhase("hooks");
         if (!bSpawned)
         {
             SessionNote("error", "an object could not be spawned or found");
@@ -1889,6 +1908,7 @@ namespace oracle
 
         GOracleSimHooks.StepSystemId = SystemId;
         GOracleSimHooks.bSinglePlayerStepping = GScenario.bSpStepping;
+        GOracleSimHooks.bSinglePlayerCollisions = GScenario.bSpCollisions;
         GOracleSimHooks.OnPsi = OnPsi;
         GOracleSimHooks.OnSimUnitPsi = OnSimUnitPsi;
         GOracleSimHooks.OnCorePush = OnCorePush;
@@ -1901,6 +1921,7 @@ namespace oracle
         if (!OracleSimAiStart(OutDir, &GTick, &NameOf))
             SessionNote("note", "ai.jsonl cannot be written; behaviour ticks are not recorded");
         SetSink(OnControllerMessage);
+        OracleSimLoadRandEnd();
 
         // Tick 0: the state after spawning, before any frame.
         unsigned int X87 = 0;
