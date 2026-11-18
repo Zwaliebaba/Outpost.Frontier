@@ -40,6 +40,7 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
+use game_sim::ai::behavior::DirectiveOp;
 use game_sim::ai::manager::{BehaviorManager, ManagerState};
 use game_sim::ai::personality::Personality;
 use game_sim::ai::state_graph::StateGraphDb;
@@ -67,6 +68,8 @@ const RECORDED_SLOTS: [u8; 9] = [0, 1, 2, 3, 13, 18, 19, 20, 21];
 struct MotionWorld {
     world: World,
     ships: BTreeMap<String, ObjHandle>,
+    /// The scenario's commands: tick, object name, arguments.
+    commands: Vec<(u32, String, Vec<String>)>,
 }
 
 impl MotionWorld {
@@ -114,7 +117,12 @@ impl MotionWorld {
                 _ => {}
             }
         }
-        Some(Self { world, ships })
+        let commands = support::directives::commands(&text);
+        Some(Self {
+            world,
+            ships,
+            commands,
+        })
     }
 }
 
@@ -706,6 +714,10 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
     let mut avoid_shuffled = false;
     let mut managers: BTreeMap<u32, BehaviorManager<ReplayWorld<'_>>> = BTreeMap::new();
     let mut first_seen: BTreeMap<u32, ()> = BTreeMap::new();
+    // The scenario directives submitted so far, and each ship's last
+    // recorded exit (the state a directive between ticks finds).
+    let mut submitted = 0usize;
+    let mut last_out: BTreeMap<u32, ManagerRecord> = BTreeMap::new();
     let mut personalities: BTreeMap<u32, Personality> = BTreeMap::new();
     for (index, t) in ticks.iter().enumerate() {
         // The list this tick builds is the one the ship's next tick
@@ -759,6 +771,44 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
             m.state.pathfind.avoidance.phys_system_id = 1;
             m
         });
+        // The harness submits the frame's directives before the step, so
+        // between the ship's last tick and this one, outside any behaviour
+        // tick: run them on the state the last tick left (no record holds
+        // what they do to the behaviours), then take the entry fields.
+        let pending: Vec<DirectiveOp> = motion
+            .as_ref()
+            .map(|m| {
+                let mut ops = Vec::new();
+                while submitted < m.commands.len() && m.commands[submitted].0 <= t.tick {
+                    let (_, name, args) = &m.commands[submitted];
+                    submitted += 1;
+                    if t.obj.as_deref() == Some(name.as_str())
+                        && let Some(op) = support::directives::directive(args)
+                    {
+                        ops.push(op);
+                    }
+                }
+                ops
+            })
+            .unwrap_or_default();
+        if !pending.is_empty() {
+            let before = last_out.get(&t.id).cloned().unwrap_or_else(|| {
+                let mut r = t.input.clone();
+                r.behavior = int(r.f120);
+                r.directive = [0, 0, word(-1)];
+                r
+            });
+            restore(&mut manager.state, &before, t, graphs);
+            let recorded = std::mem::take(&mut world.rand);
+            for op in pending {
+                if !matches!(op, DirectiveOp::Cancel) {
+                    manager.submit_directive(&mut world, t.id, &DirectiveOp::Cancel, 0);
+                }
+                manager.submit_directive(&mut world, t.id, &op, 0);
+            }
+            world.rand = recorded;
+            world.commands.clear();
+        }
         restore(&mut manager.state, &t.input, t, graphs);
         manager.state.stand_in_polls = 0;
         if let Some(p) = personalities.get(&t.id) {
@@ -766,6 +816,7 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
         }
         manager.update_behavior_tick(&mut world, t.id, t.dt);
         avoid_shuffled = world.avoid_shuffled;
+        last_out.insert(t.id, out.clone());
         let ours = snapshot(&manager.state);
         if let Some(b) = [t.input.behavior, out.behavior]
             .into_iter()

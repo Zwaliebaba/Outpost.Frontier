@@ -36,7 +36,7 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use game_sim::ai::behavior::{DirectiveOp, FaceOp, GotoOp};
+use game_sim::ai::behavior::DirectiveOp;
 use game_sim::ai::behaviors::create_behavior;
 use game_sim::ai::state_graph::GraphType;
 use game_sim::equip::flight::StrafeDir;
@@ -46,6 +46,8 @@ use game_sim::object::{Command, DamageList, ObjHandle, World, WorldEvent};
 use neuron_core::id::create_id;
 use neuron_core::math::{Matrix, Vector};
 use neuron_core::physics::StepMode;
+use neuron_core::rng::CrtRand;
+use support::directives::directive;
 use support::records::{Json, find_files, read_lines};
 
 /// The gross-divergence bound on position, metres.
@@ -230,50 +232,6 @@ fn parse(path: &Path) -> Option<Scenario> {
     Some(s)
 }
 
-/// The directive a scenario command submits (`SubmitScenarioDirective`
-/// of `CppSource/Oracle/oracle_sim.cpp`): `goto x y z [range r] [cruise]`
-/// (a point, range 100, no cruise unless asked) and `face x y z` (a
-/// point).
-fn directive(a: &[String]) -> Option<DirectiveOp> {
-    match a[0].as_str() {
-        "goto" => {
-            let mut op = GotoOp {
-                kind: 1,
-                destination: vec3(a, 1)?,
-                range: 100.0,
-                field_58: 0,
-                cruise: 0,
-                no_cruise: 1,
-                ..GotoOp::default()
-            };
-            let mut at = 4;
-            while at < a.len() {
-                match a[at].as_str() {
-                    "range" => {
-                        op.range = num(a.get(at + 1)?)? as f32;
-                        at += 2;
-                    }
-                    "cruise" => {
-                        op.cruise = 1;
-                        op.no_cruise = 0;
-                        at += 1;
-                    }
-                    _ => return None,
-                }
-            }
-            Some(DirectiveOp::Goto(op))
-        }
-        "face" if a.len() == 4 => Some(DirectiveOp::Face(FaceOp {
-            mode: 2,
-            point: vec3(a, 1)?,
-            ..FaceOp::default()
-        })),
-        "idle" if a.len() == 1 => Some(DirectiveOp::Idle),
-        "cancel" if a.len() == 1 => Some(DirectiveOp::Cancel),
-        _ => None,
-    }
-}
-
 /// Why a scenario cannot run yet: a directive whose behaviour is not
 /// ported (the AI ships themselves run: they get a behaviour manager), or
 /// the dock directive (which needs the station's Content side).
@@ -351,6 +309,8 @@ struct Run {
     /// The behaviour managers' clocks after construction (the phases the
     /// constructors draw), for comparison with the first `ai_in` record.
     managers: Vec<String>,
+    /// The first manager's pathfinder phases (its first three draws).
+    pathfind_phases: Option<[f32; 3]>,
 }
 
 fn shield_of(world: &World, h: ObjHandle) -> (Option<f32>, Option<ShieldState>) {
@@ -417,7 +377,43 @@ fn rust_hit(
     }
 }
 
+/// The index in the CRT sequence of `seed` at which three draws give the
+/// pathfinder's phases (`rand() / 32768 * period` for the periods 1, 0.5
+/// and 0.1, as `PathfindManager`'s constructor stores them).
+fn phase_index(seed: u32, phases: [f32; 3]) -> Option<usize> {
+    let phase = |r: i32, p: f32| (f64::from(r) * (1.0 / 32768.0) * f64::from(p)) as f32;
+    let mut rng = CrtRand::with_seed(seed);
+    let mut window: Vec<i32> = (0..3).map(|_| rng.rand()).collect();
+    for i in 0..1_000_000 {
+        if phase(window[0], 1.0).to_bits() == phases[0].to_bits()
+            && phase(window[1], 0.5).to_bits() == phases[1].to_bits()
+            && phase(window[2], 0.1).to_bits() == phases[2].to_bits()
+        {
+            return Some(i);
+        }
+        window.remove(0);
+        window.push(rng.rand());
+    }
+    None
+}
+
+/// The pathfinder phases of the first AI ship in the oracle's first
+/// `ai.jsonl` of a scenario (its first `ai_in` record).
+fn oracle_phases(dir: &Path, scenario: &str) -> Option<[f32; 3]> {
+    let files = find_files(&dir.join(scenario), "ai.jsonl");
+    let first = files.into_iter().min()?;
+    let ticks = support::ai_records::read_ai_ticks(&first);
+    ticks.first()?.input.pathfind.as_ref().map(|p| p.timers)
+}
+
 fn run(s: &Scenario) -> Option<Run> {
+    run_skipping(s, 0)
+}
+
+/// [`run`] with `skip` draws of the world's `rand()` before anything is
+/// spawned: what the reference's server draws while it loads the system
+/// and the Rust world does not.
+fn run_skipping(s: &Scenario, skip: usize) -> Option<Run> {
     let mut world = support::world::world(WorldConfig {
         single_player: false,
         step_mode: if s.sp {
@@ -428,10 +424,12 @@ fn run(s: &Scenario) -> Option<Run> {
         server_physics: true,
         seed: s.seed,
     })?;
+    world.skip_rand(skip);
     let system = create_id(s.system.as_bytes());
     world.load_system(system);
     let mut handles: BTreeMap<String, Option<ObjHandle>> = BTreeMap::new();
     let mut managers = Vec::new();
+    let mut pathfind_phases = None;
     // Only the solars the scenario names: the oracle's server loads the
     // whole system, but nothing else is near the scenario objects, and the
     // contact pass over every solar is slow in a debug build.
@@ -464,6 +462,7 @@ fn run(s: &Scenario) -> Option<Run> {
                 world.submit_state(h, id, None);
                 if let Some(m) = world.behavior_manager(h) {
                     let pf = &m.state.pathfind;
+                    pathfind_phases.get_or_insert([pf.timer_1e0, pf.timer_1e8, pf.timer_20c]);
                     managers.push(format!(
                         "{}: manager timers {:08x?} pathfind {:08x?}",
                         o.name,
@@ -489,6 +488,7 @@ fn run(s: &Scenario) -> Option<Run> {
     let name_of = |id: u32| names.get(&id).cloned().unwrap_or_else(|| format!("#{id}"));
     let mut out = Run {
         managers,
+        pathfind_phases,
         ..Run::default()
     };
     let record = |world: &World,
@@ -959,6 +959,27 @@ fn report_contacts(summary: &mut String, s: &Scenario, ours: &Run, theirs: &Run)
     }
 }
 
+/// The largest position, velocity and orientation differences of two
+/// state series while both are alive, and the tick of the position's.
+fn max_errors(ours: &[State], theirs: &[State]) -> (f64, f64, f32, usize) {
+    let (mut p, mut v, mut o, mut at) = (0.0f64, 0.0f64, 0.0f32, 0);
+    for (t, (a, b)) in ours.iter().zip(theirs).enumerate() {
+        if !(a.alive && b.alive) {
+            continue;
+        }
+        let d = dist(a.pos, b.pos);
+        if d > p {
+            p = d;
+            at = t;
+        }
+        v = v.max(dist(a.vel, b.vel));
+        for i in 0..9 {
+            o = o.max((a.orient[i] - b.orient[i]).abs());
+        }
+    }
+    (p, v, o, at)
+}
+
 fn dist(a: Vector, b: Vector) -> f64 {
     let d = [
         f64::from(a.x) - f64::from(b.x),
@@ -1069,6 +1090,36 @@ fn scenarios_against_the_oracle() {
                 ));
             }
             first_divergences(&mut summary, &s.name, name, ours_states, their_states);
+        }
+        // The AI's phases come from the CRT sequence; the reference's server
+        // draws from it while it loads the system, which the Rust world
+        // does not. Where the first ship's pathfinder phases show the gap,
+        // a second run starts the Rust sequence that much later.
+        if let (Some(rust), Some(oracle_p)) = (our_run.pathfind_phases, oracle_phases(dir, &s.name))
+            && let (Some(i_rust), Some(i_oracle)) =
+                (phase_index(s.seed, rust), phase_index(s.seed, oracle_p))
+        {
+            let _ = writeln!(
+                summary,
+                "{}: the AI's first draws are at index {i_oracle} of the oracle's rand() sequence and {i_rust} of the Rust world's",
+                s.name
+            );
+            if i_oracle > i_rust
+                && let Some(aligned) = run_skipping(&s, i_oracle - i_rust)
+            {
+                for (name, ours_states) in &aligned.states {
+                    let Some(their_states) = theirs.get(name) else {
+                        continue;
+                    };
+                    let (p, v, o, t) = max_errors(ours_states, their_states);
+                    let _ = writeln!(
+                        summary,
+                        "{}: {name} with the oracle's {} load-time draws skipped: max position error {p:.4} m (tick {t}), velocity {v:.4} m/s, orientation {o:.6}",
+                        s.name,
+                        i_oracle - i_rust
+                    );
+                }
+            }
         }
         report_hits(&mut summary, &s.name, &our_run.hits, &their_run.hits);
         report_contacts(&mut summary, &s, &our_run, &their_run);
