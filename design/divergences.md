@@ -28,6 +28,9 @@ parallel do not collide: IDs below D200 stay with Phases 2 and 3; D200 to
 D299 belong to Phase 4. A work package takes the next free ID of its
 range.
 
+The owner accepted D200 and D201 (P4.14) on 2026-11-18, as replacements of
+unspecified and undefined behaviour in the reference.
+
 | ID | Area | C++ behaviour | Rust behaviour | Reason | Observable effect |
 | --- | --- | --- | --- | --- | --- |
 | D1 | `neuron-core::ini::engine` | On a stray `]` or `=` at the start of a line, an over-long phrase, or a value that does not end the line, `FIniDatabase::Parse` executes `__debugbreak`; on a key before the first section it writes through a null section (`neuroncomponents.cpp`). Without a debugger the process ends | `EngineIni::load_*` returns `EngineIniError::Breakpoint` or `KeyBeforeSection`; the sections parsed before stay | Undefined behaviour in the reference | A malformed engine INI is reported instead of ending the program |
@@ -161,6 +164,8 @@ range.
 | D190 | `game-sim::ai::state_graph` (`StateGraphDb::find_by_id`, `behavior_name`) | `pub::StateGraph::get_state_graph(id, type)` reads the name of record `id` without a range check, and `BehaviorTypes::get_behavior_name` indexes its 21-entry registry without one; an id out of range reads past the array | -1 and `None` | Undefined behaviour in the reference | None: the game passes ids it got from the same tables |
 | D191 | `game-sim::ai::state_graph::choose_behavior` | When no prefix sum exceeds the draw, the behaviour manager reads the dword after its 21-entry score table as the behaviour, and it stops at `INT3` when the chosen entry is -1 | `BehaviorChoice::Drawn(None)`; the caller decides | Undefined behaviour in the reference | None expected: the draw is below the total by construction, so the walk ends inside the live entries unless the weights are NaN or sum to less than 1e-5 |
 | D192 | `game-sim::ai::state_graph::StateGraphDb::load` | After a missing file or a wrong `behavior_count`, `LoadFromFile` returns with the array already freed by `refresh_state_graph` but the previous graph count kept, so later lookups read through a null array (and the wrong-count path leaks the file handle) | An error; the database is empty | Undefined behaviour in the reference | None with the shipped `state_graph.db`, which loads |
+| D200 | `neuron-client::scene_script` (P4.14) | Lua 3.2 tables hash strings, tables and functions by their address (`hashindex`, `ltable.c`), so the node layout, and with it the order `foreach` visits a table with such keys, depends on the heap | Strings hash by content (`hash_s` of `lstring.c`), tables by their index in the VM, predefined functions and file handles by name; keys that are numbers are placed exactly as in the reference | Undefined behaviour in the reference (unspecified order) | Lists of numbered entries (`entities`, `events`) are visited in the reference's order; tables with string keys, such as `userprops`, may be visited in another order |
+| D201 | `neuron-client::scene_script::number` (P4.14) | `luaV_tonumber` tests the byte after a leading sign and the one after it for a digit; where the string ends at the sign the second test reads past the string | A byte past the end of the string is not a digit, so the conversion fails | Undefined behaviour in the reference | None for the shipped data, which has no string arithmetic |
 
 D5 to D9 described the reader's binary INI path. That path was removed
 with decision O13, so the rows are gone; the IDs are not reused. D32
