@@ -1,0 +1,90 @@
+# Scripted MixerTick sessions. Commands, one per line:
+# 
+# case max-channels master-gain distance-factor rolloff scale max3dpan
+# listener front up position
+# arch flags(hex) channels bytes-per-sample rate block-align frames loop-start loop-end gain
+# src key is3d looping arch-index(-1: none)
+# set key field value   (active, start, atten, pitch, pan, pos, min, max, looping)
+# tick now attached-keys stopped-keys    (comma lists, '-' for none)
+# 
+# A new source is active, started at tick 0, attenuation 0, with no pitch,
+# pan 0, at the origin, and answers no distances.
+case 2 00000000 3f800000 3f800000 1 461c4000
+listener 00000000,00000000,3f800000 00000000,3f800000,00000000 00000000,00000000,00000000
+arch 11 1 2 22050 2 22050 0 22050 00000000
+src 0 0 1 0
+src 1 0 1 0
+src 2 0 1 0
+src 3 0 1 0
+set 1 active 0
+set 2 pan -2500
+tick 100 0,1,2,3 -
+tick 200 3,2,0 -
+set 1 active 1
+tick 300 1,0,2,3 -
+tick 400 - -
+tick 500 0,0,1 -
+case 8 c0400000 3f800000 3f800000 1 461c4000
+listener 00000000,00000000,3f800000 00000000,3f800000,00000000 00000000,00000000,00000000
+arch 13 1 2 22050 2 22050 0 22050 c0c00000
+arch 11 2 2 44100 4 4410 0 4410 00000000
+src 0 0 0 0
+src 1 0 0 1
+src 2 0 1 1
+src 3 0 0 -1
+set 0 pitch c2480000
+set 1 start 50
+set 2 start 2000
+tick 60 0,1,2,3 -
+tick 140 0,1,2,3 1
+set 1 start 145
+tick 150 0,1,2,3 1
+tick 1600 0,1,2,3 -
+tick 2100 0,1,2,3 -
+set 0 start 2050
+set 0 pitch 41f00000
+set 0 atten c1a40000
+tick 2100 0,1,2,3 1
+case 4 00000000 3f800000 3fc00000 -1 44bb8000
+listener 00000000,00000000,3f800000 00000000,3f800000,00000000 00000000,00000000,00000000
+arch 11 1 2 22050 2 22050 0 22050 00000000
+arch 13 1 2 11025 2 22050 0 22050 00000000
+src 0 1 1 0
+src 1 1 1 1
+src 2 1 1 0
+set 0 pos 41f00000,00000000,42200000
+set 0 min 40a00000
+set 1 pos c2c80000,41200000,00000000
+set 1 max 42480000
+set 1 pitch 41400000
+set 2 pos 00000000,00000000,c0400000
+tick 10 0,1,2 -
+set 1 max 43480000
+set 0 pos c1f00000,00000000,42200000
+tick 20 0,1,2 -
+set 1 pos 43fa0000,41200000,00000000
+set 2 atten c0800000
+tick 30 2,1,0 -
+case 4 00000000 3f800000 3f800000 1 461c4000
+listener 00000000,00000000,3f800000 00000000,3f800000,00000000 00000000,00000000,00000000
+arch 9 1 2 22050 2 22050 0 22050 00000000
+src 0 1 1 0
+src 1 1 1 0
+set 0 pos 00000000,00000000,42c80000
+set 0 max 43960000
+set 1 pos 00000000,00000000,43c80000
+set 1 max 43960000
+tick 0 0,1 -
+set 0 pos 00000000,00000000,43960000
+set 1 pos 00000000,00000000,43958000
+tick 10 0,1 -
+tick 20 0,1 -
+case 2 00000000 3f800000 3f800000 1 461c4000
+listener 00000000,00000000,3f800000 00000000,3f800000,00000000 00000000,00000000,00000000
+arch 11 1 2 22050 2 10000 2000 6000 00000000
+src 0 0 1 0
+set 0 start 0
+tick 1000 0 -
+tick 1010 0 -
+set 0 start 500
+tick 1500 0 0
