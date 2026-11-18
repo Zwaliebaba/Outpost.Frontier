@@ -4,8 +4,9 @@
 // cache, ScreenQuadClip1D) is compiled into this file over recording stand-ins for the
 // pipeline, the vertex buffer manager, the index buffer and IRPDraw, which NeuronRuntime's
 // globals point at while the suite runs. The client functions the file also references (the
-// Win3D projection stack of the big-image tile path, the surface size) are stand-ins here; no
-// case reaches them. The Rust side is crates/neuron-client/tests/oracle_vectors.rs with
+// Win3D projection stack of the big-image tile path, the surface size, Common's math engine for
+// the flares, which Common.dll does not export) are stand-ins here; no case reaches them. The
+// Rust side is crates/neuron-client/tests/oracle_vectors.rs with
 // crates/neuron-client/tests/support/ui.rs; the inputs come from
 // crates/neuron-client/tests/fixtures/oracle/make_ui_fixtures.py.
 //
@@ -43,7 +44,12 @@
 #include "../OutpostFrontier/Client/screen_quad_state.cpp"
 
 // The client's surface size (globals.cpp) and Win3D projection stack (win3d_immediate.cpp),
-// referenced by the big-image tile path, which no case calls.
+// referenced by the big-image tile path, and Common's math engine (common_csys.cpp),
+// referenced by ScreenQuadEnqueueFlare; no case calls either.
+I3DMathEngine* __cdecl Acquire3DMathEngine()
+{
+    return nullptr;
+}
 unsigned G_RenderSurfaceWidth = 800;
 unsigned G_RenderSurfaceHeight = 600;
 void Win3DSetOrtho2D()
