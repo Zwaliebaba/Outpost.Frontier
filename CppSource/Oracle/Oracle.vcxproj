@@ -147,6 +147,41 @@
     <ClCompile Include="..\surfacematerials\surfacematerials.cpp">
       <PreprocessorDefinitions>DllMain=SurfaceMaterialsDllMain;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
+    <!-- P4.8: particlefx.dll's sources for oracle_particles.cpp (particle_ramp, particle_sim), but
+         particlefx.cpp (DllMain): the suite registers the components itself. The two numeric
+         files keep the settings particlefx.vcxproj gives them. -->
+    <ClCompile Include="oracle_particles.cpp" />
+    <ClCompile Include="..\particlefx\particlefx_types.cpp" />
+    <ClCompile Include="..\particlefx\particlefx_common.cpp" />
+    <ClCompile Include="..\particlefx\particlefx_update.cpp" />
+    <ClCompile Include="..\particlefx\particlefx_fxruntime.cpp" />
+    <ClCompile Include="..\particlefx\particlefx_effectarchetype.cpp" />
+    <ClCompile Include="..\particlefx\particlefx_effectobject.cpp" />
+    <ClCompile Include="..\particlefx\particlefx_effectlibrary.cpp" />
+    <ClCompile Include="..\particlefx\particlefx_genericfx.cpp" />
+    <ClCompile Include="..\particlefx\particlefx_fields.cpp" />
+    <ClCompile Include="..\particlefx\particlefx_emitters.cpp" />
+    <ClCompile Include="..\particlefx\particlefx_appearances.cpp" />
+    <ClCompile Include="..\particlefx\particlefx_ramp.cpp" />
+    <ClCompile Include="..\particlefx\particlefx_nodelibrary.cpp" />
+    <ClCompile Include="..\particlefx\particlefx_factory.cpp" />
+    <ClCompile Include="..\particlefx\particlefx_material.cpp" />
+    <ClCompile Include="..\particlefx\particlefx_math.cpp">
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
+      <Optimization>MaxSpeed</Optimization>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <FloatingPointModel>Fast</FloatingPointModel>
+      <EnableEnhancedInstructionSet>NoExtensions</EnableEnhancedInstructionSet>
+      <SupportJustMyCode>false</SupportJustMyCode>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+    </ClCompile>
+    <ClCompile Include="..\particlefx\particlefx_float_forward.cpp">
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
+      <Optimization>MaxSpeed</Optimization>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <SupportJustMyCode>false</SupportJustMyCode>
+      <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
+    </ClCompile>
     <!-- P2.3: Oracle.exe sim, the scenario oracle; links Server.lib (the pub:: exports it calls,
          delay-loaded) and loads SimClientStub.dll at run time, in sim mode only. -->
     <!-- P2.3: the exact physics pieces of Common.dll (CalcCollisionDamage, CDeadReckonedVector,

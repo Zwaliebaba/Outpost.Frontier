@@ -248,6 +248,10 @@ void BigImageSuite();
 // crates/neuron-client/tests/fixtures/oracle/material_*.list; called by RunNeuronClientSuites,
 // last (its batcher cases leave their INI in the manager's profile parser).
 void RunMaterialSuites();
+// P4.8 (oracle_particles.cpp): particlefx.dll's ramp evaluation and simulation (its sources
+// compiled in), over crates/neuron-client/tests/fixtures/oracle/particle_{ramp,sim}.list; called
+// by RunNeuronClientSuites before RunMaterialSuites.
+void RunParticleSuites();
 // P4.13 (oracle_ui.cpp, oracle_ui_quads.cpp): the client UI toolkit's page descriptors
 // (ui_page_desc.cpp compiled in) and screen-quad batcher (screen_quad_state.cpp compiled in),
 // over crates/neuron-client/tests/fixtures/oracle/ui_{page_desc,quad_batch}.list; called by
