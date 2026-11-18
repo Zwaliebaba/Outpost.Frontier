@@ -30,6 +30,7 @@
 //! every body is the default part and no hardpoint is found.
 
 mod ai;
+mod ambient;
 mod animate;
 mod combat;
 mod sensors;
@@ -286,6 +287,8 @@ pub struct World {
     surfaces: BTreeMap<u32, Option<SurParts>>,
     pub(crate) controllers: BTreeMap<u64, (ObjHandle, ControllerRef)>,
     next_controller: u64,
+    /// The serial of the next free part's body key.
+    pub(crate) next_free_part: u32,
     id_alloc: ObjectIdAllocator,
     pub(crate) rng: CrtRand,
     pub(crate) time: f64,
@@ -302,6 +305,14 @@ pub struct World {
     always_update: Vec<ObjHandle>,
     anim_channels: Vec<turret::AnimChannel>,
     anim_playbacks: Vec<(ObjHandle, animate::AnimKind)>,
+    /// The scene's animation component (`NeuronRuntime::Anim`), which
+    /// plays the ambient animations.
+    pub(crate) animation: neuron_core::scene::animation::Animation,
+    /// The animation scripts of archetype files, by path.
+    pub(crate) anim_scripts: BTreeMap<Vec<u8>, Option<Arc<neuron_core::anim::AnimScript>>>,
+    /// `AnimDB`'s playback map for the ambient animations
+    /// (`CEInternalFX`'s `use_animation`), by playback id.
+    pub(crate) ambient: BTreeMap<i32, ambient::AmbientSub>,
 }
 
 impl core::fmt::Debug for World {
@@ -375,6 +386,7 @@ impl World {
             surfaces: BTreeMap::new(),
             controllers: BTreeMap::new(),
             next_controller: 1,
+            next_free_part: 0,
             id_alloc: ObjectIdAllocator::default(),
             rng: CrtRand::with_seed(config.seed),
             time: 0.0,
@@ -386,6 +398,9 @@ impl World {
             always_update: Vec::new(),
             anim_channels: Vec::new(),
             anim_playbacks: Vec::new(),
+            animation: neuron_core::scene::animation::Animation::new(),
+            anim_scripts: BTreeMap::new(),
+            ambient: BTreeMap::new(),
         }
     }
 
@@ -450,6 +465,20 @@ impl World {
             world.set_collision_filter(Some(mp_server_collision_filter));
         }
         self.systems.insert(system, SystemObjects::default());
+    }
+
+    /// Whether a loaded system's physics world keeps the multiplayer server's
+    /// collision filter that [`World::load_system`] installs. Off is the
+    /// filter's single-player branch (every pair collides), which the
+    /// scenario oracle's `collisions sp` selects on its multiplayer server
+    /// (`StarSystem_MpCollisionFilter`, `Server/server_classes.cpp:11409`).
+    pub fn set_server_collision_filter(&mut self, system: u32, on: bool) {
+        let install = on && !self.config.single_player && self.config.server_physics;
+        if let Some(world) = self.physics.world_mut(system) {
+            world.set_collision_filter(
+                install.then_some(mp_server_collision_filter as fn(u32, u32) -> bool),
+            );
+        }
     }
 
     /// The physics world of a system.
@@ -594,6 +623,12 @@ impl World {
         if let (Some(body), Some(world)) = (obj.physical.body, self.physics.world_mut(system)) {
             world.destroy_body(body);
         }
+        if let Some(world) = self.physics.world_mut(system) {
+            for part in &obj.physical.free_parts {
+                world.destroy_body(part.body);
+            }
+        }
+        self.end_ambient(h);
         if let Some(instance) = obj.engine.instance {
             self.instances.retain(|_, v| *v != h);
             self.scene.destroy_instance(instance);
@@ -616,6 +651,11 @@ impl World {
         let assets = self.assets.as_ref()?;
         if path.is_empty() {
             return None;
+        }
+        // An archetype the scene already holds needs no file
+        // (`CreateArchetypeHandle` finds it by name first).
+        if let Ok(Some(archetype)) = self.scene.create_archetype_handle(path, None) {
+            return self.scene.create_instance(archetype);
         }
         let mut fs = UtfFileSystem::open(
             &assets.host,
@@ -670,6 +710,24 @@ impl World {
             return (Geometry::from_surface(&surface), part.hardpoint_ids.clone());
         }
         (Geometry::default_part(), Vec::new())
+    }
+
+    /// The hardpoint ids of a part, as [`World::part_geometry`] gives them,
+    /// without building the part's hulls.
+    pub(crate) fn part_hardpoint_list(parts: Option<&SurParts>, part_id: u32) -> Vec<u32> {
+        let part = parts.and_then(|p| {
+            p.get(&part_id).or_else(|| {
+                (part_id == 0 && p.len() == 1)
+                    .then(|| p.values().next())
+                    .flatten()
+            })
+        });
+        match part {
+            Some(part) if matches!(part.compact_surface(), Some(Ok(_))) => {
+                part.hardpoint_ids.clone()
+            }
+            _ => Vec::new(),
+        }
     }
 
     /// `FindHardpoint_OS(instance, name)`: the hardpoint on the instance or
@@ -737,6 +795,53 @@ impl World {
         let t = Transform::new(obj.engine.orientation, obj.engine.position);
         self.scene.set_instance_matrix(Some(instance), &t);
         self.scene.update_instance(Some(instance), 0);
+    }
+
+    /// Starts (or stops) recording a system's simulation units per PSI.
+    pub fn set_unit_trace(&mut self, system: u32, on: bool) {
+        if let Some(world) = self.physics.world_mut(system) {
+            world.set_unit_trace(on);
+        }
+    }
+
+    /// A system's recorded simulation units: per PSI, in the order they
+    /// ran, each unit's object as `units.jsonl` names it (`CSimple::Id`,
+    /// 0 for a free part, and the `ObjectClass`) and whether the movement
+    /// check came to it.
+    #[must_use]
+    pub fn unit_trace(&self, system: u32) -> Vec<Vec<(u32, u32, bool)>> {
+        let Some(world) = self.physics.world(system) else {
+            return Vec::new();
+        };
+        world
+            .unit_trace()
+            .iter()
+            .map(|psi| {
+                psi.iter()
+                    .map(|&(key, check)| {
+                        let h = ObjHandle::from_key(key);
+                        let (id, class) = if h.generation() == crate::object::FREE_PART_GENERATION {
+                            (0, crate::object::FREE_PART_CLASS)
+                        } else {
+                            self.objects
+                                .get(h)
+                                .map_or((0, 0), |o| (o.simple.id, o.kind.class()))
+                        };
+                        (id, class, check)
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// A system's recorded unit cores of the first PSIs
+    /// ([`PhysicsWorld::unit_core_trace`]).
+    #[must_use]
+    pub fn unit_core_trace(&self, system: u32) -> Vec<Vec<neuron_core::physics::world::UnitCore>> {
+        self.physics
+            .world(system)
+            .map(|w| w.unit_core_trace().to_vec())
+            .unwrap_or_default()
     }
 
     /// The physics body of an object.

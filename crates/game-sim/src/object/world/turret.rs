@@ -614,8 +614,9 @@ impl World {
     /// single player); a single-player client calls it from its own frame.
     pub fn update_anim(&mut self, dt: f32) {
         self.advance_playbacks(dt);
+        // Phase A: the ambient playbacks' roots (`MixerWalk`).
+        let mut roots: Vec<InstanceId> = self.walk_ambient(dt);
         let channels = std::mem::take(&mut self.anim_channels);
-        let mut roots: Vec<InstanceId> = Vec::new();
         for c in channels {
             let Some(gun) = self.gun(c.owner, c.gun) else {
                 continue;
@@ -648,6 +649,9 @@ impl World {
         for root in roots {
             self.scene.update_instance(Some(root), 0);
         }
+        // Phases D and E: the golems of the free parts the ambient
+        // animations move.
+        self.push_ambient_targets();
         self.filter_playbacks();
     }
 

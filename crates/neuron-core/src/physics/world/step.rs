@@ -105,14 +105,14 @@ impl PhysicsWorld {
     ) {
         self.clock = *clock;
         let now = clock.current_time;
-        // The wake queue.
-        for index in self.cores.indices() {
+        // The wake queue (`IVP_Environment_Process_Wake_Queue`), from the
+        // last queued core to the first: each revived unit goes to the
+        // front of the simulated list, so the list starts in queue order.
+        let queue = std::mem::take(&mut self.wake_queue);
+        for &index in queue.iter().rev() {
             let Some(slot) = self.cores.get_mut(index) else {
                 continue;
             };
-            if !slot.wake_pending {
-                continue;
-            }
             slot.wake_pending = false;
             if slot.simulation_disabled || !slot.core.is_frozen() {
                 continue;
@@ -124,23 +124,38 @@ impl PhysicsWorld {
                     self.moving.push(o);
                 }
             }
+            self.active.retain(|c| *c != index);
+            self.active.insert(0, index);
         }
-        // The simulation units.
+        // The simulation units, in `simulate_sim_units_psi`'s order.
         let event = clock.event_sim();
         let mut simulated = Vec::new();
-        for index in self.cores.indices() {
+        let mut trace = self.unit_trace.is_some().then(Vec::new);
+        let trace_cores = self
+            .unit_trace
+            .as_ref()
+            .is_some_and(|t| t.len() < super::UNIT_CORE_PSIS);
+        let mut cores_trace = Vec::new();
+        for index in super::unit_run_order(&self.active) {
             let Some(slot) = self.cores.get_mut(index) else {
                 continue;
             };
             if slot.simulation_disabled || slot.core.is_frozen() {
                 continue;
             }
+            let before = trace_cores.then(|| crate::physics::replay::CoreRecord {
+                core: slot.core.clone(),
+                unit_state: slot.unit_state,
+            });
             unit_psi_begin(&mut slot.core, &mut slot.unit_state, now);
             let motion_check = self.movement_check.tick(random);
             let mut controllers = slot.buckets.clone();
             controllers.sort_by_key(|(priority, _, _)| *priority);
             for (_, _, kind) in controllers.iter().rev() {
                 self.run_controller(index, *kind, event, now, host);
+            }
+            if let Some(t) = trace.as_mut() {
+                t.push((self.unit_key(index).unwrap_or(0), motion_check));
             }
             let Some(slot) = self.cores.get_mut(index) else {
                 continue;
@@ -155,7 +170,35 @@ impl PhysicsWorld {
             ) {
                 let objects = slot.objects.clone();
                 self.moving.retain(|m| !objects.contains(m));
+                self.active.retain(|c| *c != index);
             }
+            if let (Some(before), Some(slot)) = (before, self.cores.get(index)) {
+                let golem = slot
+                    .objects
+                    .first()
+                    .and_then(|b| self.bodies.get(b.0))
+                    .and_then(|b| match &b.golem {
+                        Some(GolemKind::Part(g)) => {
+                            let (t, c) = (g.target_quat, g.current_target_quat);
+                            Some([t.x, t.y, t.z, t.w, c.x, c.y, c.z, c.w])
+                        }
+                        _ => None,
+                    });
+                cores_trace.push((
+                    before,
+                    crate::physics::replay::CoreRecord {
+                        core: slot.core.clone(),
+                        unit_state: slot.unit_state,
+                    },
+                    golem,
+                ));
+            }
+        }
+        if trace_cores {
+            self.unit_core_trace.push(cores_trace);
+        }
+        if let (Some(t), Some(all)) = (trace, self.unit_trace.as_mut()) {
+            all.push(t);
         }
         let commit = clock.commit_event_sim();
         for index in simulated.iter().rev() {
@@ -294,29 +337,58 @@ impl PhysicsWorld {
     }
 
     fn contacts(&mut self, clock: &PsiClock) {
-        let handles: Vec<BodyHandle> = self.bodies.indices().into_iter().map(BodyHandle).collect();
-        let mut impacts = Vec::new();
-        for (i, &a) in handles.iter().enumerate() {
-            let Some(body_a) = self.collidable(a) else {
+        // Every collidable body once: whether its core is still, and its
+        // swept bounding sphere (origin, radius plus the PSI's motion).
+        struct Candidate {
+            handle: BodyHandle,
+            still: bool,
+            origin: [f64; 3],
+            reach: f64,
+        }
+        let mut candidates = Vec::new();
+        for index in self.bodies.indices() {
+            let handle = BodyHandle(index);
+            let Some(body) = self.collidable(handle) else {
                 continue;
             };
-            for &b in &handles[i + 1..] {
-                let Some(body_b) = self.collidable(b) else {
+            let Some(slot) = self.cores.get(body.core) else {
+                continue;
+            };
+            let still = slot.simulation_disabled || slot.core.is_frozen();
+            let Some((iso, velocity)) = self.body_motion(handle, clock) else {
+                continue;
+            };
+            let t = iso.translation.vector;
+            let speed = shape::to_vector(velocity).norm();
+            candidates.push(Candidate {
+                handle,
+                still,
+                origin: [f64::from(t.x), f64::from(t.y), f64::from(t.z)],
+                reach: f64::from(body.bound_radius)
+                    + f64::from(speed) * f64::from(clock.delta_time),
+            });
+        }
+        let mut impacts = Vec::new();
+        for (i, a) in candidates.iter().enumerate() {
+            for b in &candidates[i + 1..] {
+                if a.still && b.still {
+                    continue;
+                }
+                // The bounding spheres, swept over the PSI, keep the pair
+                // apart: no impact (a conservative early out).
+                let d = [0, 1, 2].map(|k| a.origin[k] - b.origin[k]);
+                let gap = ((d[0] * d[0] + d[1] * d[1]) + d[2] * d[2]).sqrt();
+                if gap > (a.reach + b.reach) * 1.001 + 0.01 {
+                    continue;
+                }
+                let (Some(body_a), Some(body_b)) = (self.body(a.handle), self.body(b.handle))
+                else {
                     continue;
                 };
                 if !self.pair_allowed(body_a, body_b) {
                     continue;
                 }
-                let (Some(ca), Some(cb)) =
-                    (self.cores.get(body_a.core), self.cores.get(body_b.core))
-                else {
-                    continue;
-                };
-                let still = |s: &super::CoreSlot| s.simulation_disabled || s.core.is_frozen();
-                if still(ca) && still(cb) {
-                    continue;
-                }
-                if let Some(impact) = self.find_impact(a, b, clock) {
+                if let Some(impact) = self.find_impact(a.handle, b.handle, clock) {
                     impacts.push(impact);
                 }
             }

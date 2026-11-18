@@ -3,11 +3,13 @@
 //! call to a [`Device`] and compares every value the C++ handed back to its
 //! caller with the model's.
 //!
-//! The reader takes format versions 0 and 1; version 1 adds header
-//! defaults, frame images and `LightData` lines, which replay honours when
-//! present. Buffer data goes where the C++ put it: unlock data at the
-//! recorded first vertex or index, copies at the recorded output offset,
-//! since the C++ ring cursors advance in frames the trace skips.
+//! The reader takes format version 1 and rejects any other (record 0004,
+//! point 11). Version 1 adds the defaults line after each `CreateBuffers`,
+//! a reference image per selected frame and the synthetic `LightData`
+//! lines, which give the light data the C++ read at a light flush. Buffer
+//! data goes where the C++ put it: unlock data at the recorded first vertex
+//! or index, copies at the recorded output offset, since the C++ ring
+//! cursors advance in frames the trace skips.
 
 pub mod json;
 
@@ -21,7 +23,7 @@ use crate::render::ff::defaults::Defaults;
 use crate::render::ff::device::{Device, RecordingBackend};
 use crate::render::ff::fvf::Fvf;
 use crate::render::ff::lights::{LightData, Material};
-use crate::render::ff::state::PipelineProperty;
+use crate::render::ff::state::{PIPELINE_SLOTS, PipelineProperty, RenderStateId};
 use crate::render::ff::textures::TextureHandle;
 use crate::render::ff::vertex_copy::{Source, Stream};
 use json::Json;
@@ -30,6 +32,9 @@ use json::Json;
 const GR_OK: i64 = 0;
 const GR_GENERIC: i64 = -1;
 const E_FAIL: i64 = 0x8000_4005_u32 as i32 as i64;
+
+/// The trace format version this reader takes.
+pub const FORMAT_VERSION: i64 = 1;
 
 /// A line of a trace.
 #[derive(Clone, Debug, PartialEq)]
@@ -45,12 +50,30 @@ pub enum Line {
     EndFrame {
         frame: i64,
     },
-    /// Version 1: the reference image of a frame.
+    /// The renderer's defaults after a `CreateBuffers`, as its getters read
+    /// them: render states by Direct3D 8 number and pipeline properties by
+    /// id, in the order of the line. Also a snapshot line.
+    Defaults(DefaultsLine),
+    /// The reference image of a selected frame: the blob of a BMP file, or
+    /// `None` with the proxy's note when it could not take one.
     FrameImage {
         frame: i64,
-        image: String,
+        image: Option<String>,
+        width: i64,
+        height: i64,
+        note: Option<String>,
     },
     End,
+}
+
+/// A defaults line (record 0004, point 11, as amended on 2026-11-18).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DefaultsLine {
+    /// (Direct3D 8 number, value) for each render state of the table.
+    pub render: Vec<(u32, u32)>,
+    /// (id, value) for pipeline ids 0 to 14.
+    pub pipeline: Vec<(i32, i32)>,
+    pub snapshot: bool,
 }
 
 /// A recorded call.
@@ -81,6 +104,8 @@ pub enum TraceError {
     },
     /// A blob the source does not have.
     MissingBlob(String),
+    /// A header of a format version other than [`FORMAT_VERSION`].
+    UnsupportedVersion(i64),
 }
 
 impl fmt::Display for TraceError {
@@ -91,20 +116,58 @@ impl fmt::Display for TraceError {
             Self::UnknownMethod(m) => write!(f, "unknown method {m}"),
             Self::BadArgument { method, arg } => write!(f, "{method}: bad argument {arg}"),
             Self::MissingBlob(h) => write!(f, "missing blob {h}"),
+            Self::UnsupportedVersion(v) => write!(
+                f,
+                "trace format version {v}; this reader takes version {FORMAT_VERSION}"
+            ),
         }
     }
 }
 
 impl std::error::Error for TraceError {}
 
-/// Reads one line.
+/// The object of a defaults line: `{"<number>":<value>,...}`.
+fn number_map(v: Option<&Json>, arg: &'static str) -> Result<Vec<(i64, i64)>, TraceError> {
+    let bad = || TraceError::BadArgument {
+        method: "defaults".to_owned(),
+        arg,
+    };
+    match v {
+        None => Ok(Vec::new()),
+        Some(Json::Object(items)) => items
+            .iter()
+            .map(|(k, value)| Some((k.parse::<i64>().ok()?, value.as_i64()?)))
+            .collect::<Option<Vec<_>>>()
+            .ok_or_else(bad),
+        Some(_) => Err(bad()),
+    }
+}
+
+/// Reads one line. A header of another format version is an error.
 pub fn parse_line(text: &str) -> Result<Line, TraceError> {
     let v = json::parse(text).map_err(TraceError::Json)?;
     let int = |k: &str| v.get(k).and_then(Json::as_i64);
     if v.get("format").is_some() {
-        return Ok(Line::Header {
-            version: int("version").unwrap_or(0),
-        });
+        let version = int("version").unwrap_or(0);
+        if version != FORMAT_VERSION {
+            return Err(TraceError::UnsupportedVersion(version));
+        }
+        return Ok(Line::Header { version });
+    }
+    if let Some(d) = v.get("defaults") {
+        let render = number_map(d.get("render"), "render")?
+            .into_iter()
+            .map(|(k, value)| (k as u32, value as u32))
+            .collect();
+        let pipeline = number_map(d.get("pipeline"), "pipeline")?
+            .into_iter()
+            .map(|(k, value)| (k as i32, value as i32))
+            .collect();
+        return Ok(Line::Defaults(DefaultsLine {
+            render,
+            pipeline,
+            snapshot: v.get("snapshot").is_some(),
+        }));
     }
     if v.get("begin_frame").is_some() {
         return Ok(Line::BeginFrame {
@@ -117,10 +180,13 @@ pub fn parse_line(text: &str) -> Result<Line, TraceError> {
             frame: int("frame").unwrap_or(0),
         });
     }
-    if let Some(image) = v.get("frame_image").and_then(Json::as_str) {
+    if let Some(image) = v.get("frame_image") {
         return Ok(Line::FrameImage {
             frame: int("frame").unwrap_or(0),
-            image: image.to_owned(),
+            image: image.as_str().map(str::to_owned),
+            width: int("width").unwrap_or(0),
+            height: int("height").unwrap_or(0),
+            note: v.get("note").and_then(Json::as_str).map(str::to_owned),
         });
     }
     if v.get("end").is_some() {
@@ -225,7 +291,6 @@ const ANSWERED: &[&str] = &[
     "GetImageInfo",
     "LoadCubemap",
     "CopyVertexData",
-    "LightData",
 ];
 
 /// A stream's bytes, element size, stride, indices and count.
@@ -525,6 +590,39 @@ impl<'a> ModelReplay<'a> {
             != 0
     }
 
+    /// The tail of `CreateBuffers` the model has: the default render and
+    /// stage states, the identity transforms, the lights sent again.
+    fn create_buffers(&mut self) {
+        self.device.reset_render_states();
+        let v = self.viewspace();
+        self.device.transforms.apply_identity(v);
+        self.device.lights.reset();
+    }
+
+    /// A defaults line: the render-state defaults are replaced, the values
+    /// of the pipeline slots the built-in table enables are set (the
+    /// others stay as `SetPipelineState` leaves them, unchanged), and the
+    /// tail of `CreateBuffers` runs again. Right after `CreateBuffers` that
+    /// tail gives the same state a second time, with the new defaults; in a
+    /// snapshot the line stands where `CreateBuffers` stood among the kept
+    /// lines (the proxy drops every other slot but the lights' there).
+    pub fn apply_defaults(&mut self, line: &DefaultsLine) -> Result<(), TraceError> {
+        for &(number, value) in &line.render {
+            let id = RenderStateId::from_raw(number).ok_or(TraceError::BadArgument {
+                method: "defaults".to_owned(),
+                arg: "render",
+            })?;
+            self.device.state.set_render_default(id, value);
+        }
+        for &(id, value) in &line.pipeline {
+            if usize::try_from(id).is_ok_and(|i| i < PIPELINE_SLOTS) {
+                self.device.state.set_pipeline_raw(id, value);
+            }
+        }
+        self.create_buffers();
+        Ok(())
+    }
+
     /// Applies one call.
     pub fn apply(&mut self, call: &Call) -> Result<(), TraceError> {
         self.calls += 1;
@@ -564,12 +662,7 @@ impl<'a> ModelReplay<'a> {
                 self.compare(call, "Out", want, got);
             }
             "ResetRenderStatesToDefaults" => self.device.reset_render_states(),
-            "CreateBuffers" => {
-                self.device.reset_render_states();
-                let v = self.viewspace();
-                self.device.transforms.apply_identity(v);
-                self.device.lights.reset();
-            }
+            "CreateBuffers" => self.create_buffers(),
             "SetPipelineState" => self.device.state.set_pipeline_raw(
                 Self::int(call, "Id")? as i32,
                 Self::int(call, "Value")? as i32,
@@ -684,6 +777,17 @@ impl<'a> ModelReplay<'a> {
                 self.device
                     .lights
                     .update_light(Self::int(call, "Handle")? as u64, data);
+            }
+            // Synthetic: the D3DLIGHT8 behind the light's handle as the C++
+            // flush is about to read it. It is not `UpdateLight`, which also
+            // marks the data dirty and queues the light: the renderer saw no
+            // call, so only the stored bytes change.
+            "LightData" => {
+                let data = LightData(Self::words_arg::<26>(call, "Light")?);
+                let _ = self
+                    .device
+                    .lights
+                    .replace_data(Self::int(call, "Handle")? as u64, data);
             }
             "RemoveLight" | "DestroyLight" => {
                 let _ = self
@@ -970,14 +1074,18 @@ impl<'a> ModelReplay<'a> {
         Ok(())
     }
 
-    /// Replays a whole trace text: every call line in order. Returns the
-    /// number of calls applied.
+    /// Replays a whole trace text: every call line and defaults line in
+    /// order. Returns the number of calls applied.
     pub fn replay(&mut self, text: &str) -> Result<u64, TraceError> {
         let mut applied = 0;
         for line in text.lines().filter(|l| !l.trim().is_empty()) {
-            if let Line::Call(call) = parse_line(line)? {
-                self.apply(&call)?;
-                applied += 1;
+            match parse_line(line)? {
+                Line::Call(call) => {
+                    self.apply(&call)?;
+                    applied += 1;
+                }
+                Line::Defaults(d) => self.apply_defaults(&d)?,
+                _ => {}
             }
         }
         Ok(applied)
@@ -1010,7 +1118,7 @@ mod tests {
 
     #[test]
     fn replays_state_transforms_and_a_draw() {
-        let trace = r#"{"format":"outpost-render-trace","version":0}
+        let trace = r#"{"format":"outpost-render-trace","version":1}
 {"seq":1,"frame":0,"interface":"IRenderPipeline","method":"SetRenderState","args":{"State":23,"Value":4},"ret":0}
 {"seq":2,"frame":0,"interface":"IRenderPipeline","method":"GetRenderState","args":{"State":23,"Out":4},"ret":0}
 {"seq":3,"frame":0,"interface":"IRenderPipeline","method":"SetWorld","args":{"M12":["3f800000","00000000","00000000","00000000","3f800000","00000000","00000000","00000000","3f800000","41200000","00000000","00000000"]},"ret":0}
@@ -1080,5 +1188,163 @@ mod tests {
         assert_eq!(&b[12..24], &[2; 12]);
         assert_eq!(&b[24..28], &[0; 4]);
         assert_eq!(&b[28..36], &[3; 8]);
+    }
+
+    #[test]
+    fn rejects_other_format_versions() {
+        for (line, version) in [
+            (r#"{"format":"outpost-render-trace","version":0}"#, 0),
+            (r#"{"format":"outpost-render-trace"}"#, 0),
+            (r#"{"format":"outpost-render-trace","version":2}"#, 2),
+        ] {
+            assert_eq!(
+                parse_line(line),
+                Err(TraceError::UnsupportedVersion(version))
+            );
+        }
+        let mut r = ModelReplay::new(Defaults::builtin(), 640, 480, &NoBlobs);
+        assert_eq!(
+            r.replay(r#"{"format":"outpost-render-trace","version":0,"renderer":"DirectX8"}"#),
+            Err(TraceError::UnsupportedVersion(0))
+        );
+    }
+
+    #[test]
+    fn reads_defaults_lines() {
+        let line = r#"{"defaults":{"render":{"7":1,"23":4,"57":4294967295},"pipeline":{"0":1,"10":-1,"14":0}},"seq":12,"frame":0,"synthetic":true}"#;
+        assert_eq!(
+            parse_line(line).unwrap(),
+            Line::Defaults(DefaultsLine {
+                render: vec![(7, 1), (23, 4), (57, u32::MAX)],
+                pipeline: vec![(0, 1), (10, -1), (14, 0)],
+                snapshot: false,
+            })
+        );
+        let snapshot = r#"{"snapshot":3,"defaults":{"render":{},"pipeline":{}},"seq":12,"frame":0,"synthetic":true,"note":"a getter failed; its entry is left out"}"#;
+        assert_eq!(
+            parse_line(snapshot).unwrap(),
+            Line::Defaults(DefaultsLine {
+                render: Vec::new(),
+                pipeline: Vec::new(),
+                snapshot: true,
+            })
+        );
+        assert!(matches!(
+            parse_line(r#"{"defaults":{"render":{"x":1}},"seq":1,"frame":0}"#),
+            Err(TraceError::BadArgument { arg: "render", .. })
+        ));
+    }
+
+    #[test]
+    fn a_defaults_line_replaces_the_defaults_and_resets() {
+        let trace = r#"{"format":"outpost-render-trace","version":1}
+{"seq":1,"frame":0,"interface":"IRenderPipeline","method":"CreateBuffers","args":{},"ret":0}
+{"defaults":{"render":{"23":4,"15":1},"pipeline":{"8":65280,"14":5}},"seq":1,"frame":0,"synthetic":true}
+{"seq":2,"frame":0,"interface":"IRenderPipeline","method":"GetRenderState","args":{"State":23,"Out":4},"ret":0}
+{"seq":3,"frame":0,"interface":"IRenderPipeline","method":"GetRenderState","args":{"State":15,"Out":1},"ret":0}
+{"seq":4,"frame":0,"interface":"IRenderPipeline","method":"GetPipelineState","args":{"Id":8,"Out":65280},"ret":0}
+{"seq":5,"frame":0,"interface":"IRenderPipeline","method":"GetPipelineState","args":{"Id":14,"Out":0},"ret":0}
+{"seq":6,"frame":0,"interface":"IRenderPipeline","method":"SetRenderState","args":{"State":23,"Value":7},"ret":0}
+{"seq":7,"frame":0,"interface":"IRenderPipeline","method":"ResetRenderStatesToDefaults","args":{},"ret":0}
+{"seq":8,"frame":0,"interface":"IRenderPipeline","method":"GetRenderState","args":{"State":23,"Out":4},"ret":0}"#;
+        let mut r = ModelReplay::new(Defaults::builtin(), 640, 480, &NoBlobs);
+        assert_eq!(r.replay(trace).unwrap(), 8);
+        assert!(r.mismatches.is_empty(), "{:?}", r.mismatches);
+        assert_eq!(
+            r.device.state.defaults().render_state(RenderStateId::ZFunc),
+            4
+        );
+        // Slot 0xE is not in the table: the line leaves it alone.
+        assert_eq!(r.device.state.pipeline_raw(0xE), Some(0));
+        // A state the table does not know is an error.
+        assert!(matches!(
+            r.replay(r#"{"defaults":{"render":{"138":1}},"seq":9,"frame":0,"synthetic":true}"#),
+            Err(TraceError::BadArgument { arg: "render", .. })
+        ));
+    }
+
+    #[test]
+    fn reads_frame_images_and_their_notes() {
+        assert_eq!(
+            parse_line(r#"{"frame":5,"frame_image":"0123456789abcdef","width":640,"height":480}"#)
+                .unwrap(),
+            Line::FrameImage {
+                frame: 5,
+                image: Some("0123456789abcdef".into()),
+                width: 640,
+                height: 480,
+                note: None,
+            }
+        );
+        assert_eq!(
+            parse_line(r#"{"frame":6,"frame_image":null,"note":"PrintScreen returned -2"}"#)
+                .unwrap(),
+            Line::FrameImage {
+                frame: 6,
+                image: None,
+                width: 0,
+                height: 0,
+                note: Some("PrintScreen returned -2".into()),
+            }
+        );
+    }
+
+    /// A `LightData` line's 26 words: a directional light of red `r`.
+    fn light_words(r: f32) -> String {
+        let mut w = [0u32; 26];
+        w[0] = 3;
+        w[1] = r.to_bits();
+        w[21] = 1.0f32.to_bits();
+        let items: Vec<String> = w.iter().map(|x| format!("\"{x:08x}\"")).collect();
+        format!("[{}]", items.join(","))
+    }
+
+    #[test]
+    fn light_data_lines_give_the_data_the_flush_reads() {
+        let draw = r#"{"seq":0,"frame":0,"interface":"IRenderPipeline","method":"DrawPrimitive","args":{"Prim":1,"Fvf":66,"Verts":{"size":16,"hex":"0000803f0000803f0000803fffffffff"},"Count":1,"Unused":null},"ret":0}"#;
+        let call = |method: &str, args: String| {
+            format!(
+                r#"{{"seq":0,"frame":0,"interface":"IRenderPipeline","method":"{method}","args":{{{args}}},"ret":0}}"#
+            )
+        };
+        let light_data = |r: f32| {
+            format!(
+                r#"{{"seq":0,"frame":0,"interface":"IRenderPipeline","method":"LightData","args":{{"Handle":3,"Light":{}}},"synthetic":true}}"#,
+                light_words(r)
+            )
+        };
+        let trace = [
+            call(
+                "AddLight",
+                format!(r#""Handle":3,"Light":{}"#, light_words(0.5)),
+            ),
+            call("SetLightEnable", r#""Handle":3,"Enable":1"#.to_owned()),
+            // The caller wrote its struct again before the draw read it.
+            light_data(0.75),
+            draw.to_owned(),
+        ]
+        .join("\n");
+        let mut r = ModelReplay::new(Defaults::builtin(), 640, 480, &NoBlobs);
+        r.replay(&trace).unwrap();
+        let red = |r: &ModelReplay<'_>| {
+            r.device
+                .lights
+                .device_light(0)
+                .unwrap()
+                .data
+                .unwrap()
+                .diffuse()[0]
+        };
+        assert_eq!(red(&r), 0.75);
+        assert_eq!(r.answered.get("LightData"), None);
+        // A LightData line marks nothing dirty: without an UpdateLight the
+        // device keeps the data it has.
+        r.replay(&[light_data(0.25), draw.to_owned()].join("\n"))
+            .unwrap();
+        assert_eq!(red(&r), 0.75);
+        // An unknown handle is ignored.
+        r.replay(&light_data(0.1).replace(r#""Handle":3"#, r#""Handle":9"#))
+            .unwrap();
+        assert!(r.mismatches.is_empty(), "{:?}", r.mismatches);
     }
 }

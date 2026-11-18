@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "oracle_sim_ai.h"
+#include "oracle_sim_rand.h"
 #include "../OutpostFrontier/Client/oracle_json.h"
 
 #include "common_cequip.h"   // StrafeDir
@@ -67,7 +68,7 @@ namespace
     IObjRW* GOpenSelf = nullptr;
     std::set<unsigned int> GWritten;           // objects snapshotted in this tick
     std::vector<int> GRandValues;              // rand() values drawn in this tick
-    std::vector<int> GRandModules;             // and the DLL that drew each
+    std::vector<std::string> GRandModules;     // and the DLL that drew each
     std::map<unsigned int, std::string> GLastPersonality;
     // The tick's target list and the gun groups' two missile angles, for the own ship's
     // equipment reads.
@@ -88,83 +89,16 @@ namespace
     };
     std::map<IBehaviorManager const*, std::vector<FBuiltTarget>> GBuiltTargets;
 
-    // The DLLs whose rand import is replaced.
-    enum ERandModule
-    {
-        RandCommon = 0,
-        RandServer = 1,
-        RandContent = 2,
-        RandModuleCount = 3
-    };
-    const char* const kModuleNames[RandModuleCount] = {"Common.dll", "Server.dll", "Content.dll"};
-    typedef int(__cdecl* FRandFn)();
-    FRandFn GRealRand[RandModuleCount] = {};
-    bool GRandHooked[RandModuleCount] = {};
+    // The rand() recorder's observer (oracle_sim_rand.cpp): every draw while a behaviour
+    // tick is open, with the DLL that drew it.
+    std::vector<std::string> GRandHooks;
 
-    template <int Module>
-    int __cdecl CountingRand()
+    void __cdecl OnRand(int Value, const char* Module)
     {
-        const int Value = GRealRand[Module]();
         if (GOpen != 0)
         {
             GRandValues.push_back(Value);
             GRandModules.push_back(Module);
-        }
-        return Value;
-    }
-
-    // Replaces Module's import of Name (by name, from any DLL) with Replacement; the old
-    // pointer goes to Original. The IAT is the module's own, so only its calls are seen.
-    bool PatchImport(HMODULE Module, const char* Name, void* Replacement, void** Original)
-    {
-        if (Module == nullptr)
-            return false;
-        BYTE* const Base = reinterpret_cast<BYTE*>(Module);
-        IMAGE_DOS_HEADER const* const Dos = reinterpret_cast<IMAGE_DOS_HEADER const*>(Base);
-        if (Dos->e_magic != IMAGE_DOS_SIGNATURE)
-            return false;
-        IMAGE_NT_HEADERS const* const Nt = reinterpret_cast<IMAGE_NT_HEADERS const*>(Base + Dos->e_lfanew);
-        IMAGE_DATA_DIRECTORY const& Dir = Nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
-        if (Dir.VirtualAddress == 0)
-            return false;
-        IMAGE_IMPORT_DESCRIPTOR const* Desc = reinterpret_cast<IMAGE_IMPORT_DESCRIPTOR const*>(Base + Dir.VirtualAddress);
-        for (; Desc->Name != 0; ++Desc)
-        {
-            if (Desc->OriginalFirstThunk == 0)
-                continue;
-            IMAGE_THUNK_DATA const* Names = reinterpret_cast<IMAGE_THUNK_DATA const*>(Base + Desc->OriginalFirstThunk);
-            IMAGE_THUNK_DATA* Slots = reinterpret_cast<IMAGE_THUNK_DATA*>(Base + Desc->FirstThunk);
-            for (; Names->u1.AddressOfData != 0; ++Names, ++Slots)
-            {
-                if (IMAGE_SNAP_BY_ORDINAL(Names->u1.Ordinal))
-                    continue;
-                IMAGE_IMPORT_BY_NAME const* const ByName =
-                    reinterpret_cast<IMAGE_IMPORT_BY_NAME const*>(Base + Names->u1.AddressOfData);
-                if (strcmp(reinterpret_cast<const char*>(ByName->Name), Name) != 0)
-                    continue;
-                DWORD Old = 0;
-                if (!VirtualProtect(&Slots->u1.Function, sizeof(Slots->u1.Function), PAGE_READWRITE, &Old))
-                    return false;
-                *Original = reinterpret_cast<void*>(Slots->u1.Function);
-                Slots->u1.Function = reinterpret_cast<ULONG_PTR>(Replacement);
-                VirtualProtect(&Slots->u1.Function, sizeof(Slots->u1.Function), Old, &Old);
-                return true;
-            }
-        }
-        return false;
-    }
-
-    void HookRand()
-    {
-        void* const Wrappers[RandModuleCount] = {reinterpret_cast<void*>(&CountingRand<RandCommon>),
-                                                 reinterpret_cast<void*>(&CountingRand<RandServer>),
-                                                 reinterpret_cast<void*>(&CountingRand<RandContent>)};
-        for (int Index = 0; Index < RandModuleCount; ++Index)
-        {
-            void* Original = nullptr;
-            GRandHooked[Index] = PatchImport(GetModuleHandleA(kModuleNames[Index]), "rand", Wrappers[Index], &Original);
-            if (GRandHooked[Index])
-                GRealRand[Index] = reinterpret_cast<FRandFn>(Original);
         }
     }
 
@@ -1064,8 +998,8 @@ namespace
             J.Int(nullptr, Value);
         J.EndArray();
         J.BeginArray("rand_mod");
-        for (int Module : GRandModules)
-            J.Str(nullptr, kModuleNames[Module]);
+        for (std::string const& Module : GRandModules)
+            J.Str(nullptr, Module.c_str());
         J.EndArray();
         Write(J);
 
@@ -1175,7 +1109,8 @@ namespace oracle
             return false;
         GTick = Tick;
         GNameOf = NameOf;
-        HookRand();
+        oracle::OracleSimRandHook(GRandHooks);
+        oracle::OracleSimRandSetObserver(OnRand);
         GPreviousTick = GOracleSimHooks.OnBehaviorTick;
         GOracleSimHooks.OnBehaviorTick = OnAiBehaviorTick;
         GOracleAiHooks.OnQuery = OnAiQuery;
@@ -1185,11 +1120,8 @@ namespace oracle
         J.Uint("version", kAiVersion);
         J.Float("near_radius", kNearRadius);
         J.BeginArray("rand_hooks");
-        for (int Index = 0; Index < RandModuleCount; ++Index)
-        {
-            if (GRandHooked[Index])
-                J.Str(nullptr, kModuleNames[Index]);
-        }
+        for (std::string const& Name : GRandHooks)
+            J.Str(nullptr, Name.c_str());
         J.EndArray();
         Write(J);
         fflush(GFile);

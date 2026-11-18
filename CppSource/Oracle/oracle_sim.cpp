@@ -55,7 +55,9 @@
 #include "server_iserverimpl.h"        // IServerImpl (the `Server` export is looked up at run time)
 #include "oracle_sim_hooks.h"
 #include "oracle_sim_ai.h"
+#include "oracle_sim_rand.h"
 #include "oracle_sim_fault.h"
+#include "../include/common_ivp_controller.h" // IVP_Controller_Golem (unit_cores.jsonl)
 
 // Server.dll, IServerImpl.cpp (Oracle instrumentation): StarSystem::load on one system.
 extern "C" __declspec(dllimport) bool __cdecl OracleSimLoadSystem(unsigned int SystemId);
@@ -111,6 +113,7 @@ namespace
         unsigned int Ticks = 0;
         double Frame = 1.0 / 30.0;
         bool bSpStepping = false;
+        bool bSpCollisions = false;
         unsigned int Seed = 0x4f524143u;
         double ClockStart = 1000.0;
         std::vector<FObjectDesc> Objects;
@@ -348,6 +351,10 @@ namespace
             else if (Key == "stepping" && T.size() == 2 && (Lower(T[1]) == "sp" || Lower(T[1]) == "mp"))
             {
                 Out.bSpStepping = Lower(T[1]) == "sp";
+            }
+            else if (Key == "collisions" && T.size() == 2 && (Lower(T[1]) == "sp" || Lower(T[1]) == "mp"))
+            {
+                Out.bSpCollisions = Lower(T[1]) == "sp";
             }
             else if (Key == "seed" && T.size() == 2 && ParseUnsigned(T[1], Value))
             {
@@ -887,9 +894,150 @@ namespace
     // Phase 0 opens the record of each psi core in the unit: the environment's values, the
     // controller inputs and the core state before the unit's PSI. Phase 1 closes its pushes
     // and adds the movement check.
+    // units.jsonl: the simulation units of the first kUnitPsis PSIs in the order they ran,
+    // each with its cores' objects and whether the environment's movement-check countdown
+    // came to it (which unit classifies its motion depends on how many units share it).
+    const unsigned int kUnitPsis = 120;
+    FILE* GUnitFile = nullptr;
+    unsigned int GUnitPsi = 0;
+    FOracleJson* GUnitLine = nullptr;
+
+    // Writes the PSI's line in progress; with bClose the file is closed (the run ends or
+    // the last recorded PSI is over).
+    void UnitFlush(bool bClose)
+    {
+        if (GUnitFile == nullptr)
+            return;
+        if (GUnitLine != nullptr)
+        {
+            GUnitLine->EndArray();
+            fputs(GUnitLine->Finish().c_str(), GUnitFile);
+            fputc('\n', GUnitFile);
+            delete GUnitLine;
+            GUnitLine = nullptr;
+        }
+        fflush(GUnitFile);
+        if (bClose)
+        {
+            fclose(GUnitFile);
+            GUnitFile = nullptr;
+        }
+    }
+
+    // unit_cores.jsonl: the first core of every unit of the first kUnitCorePsis PSIs at the
+    // end of the unit's PSI (before calc_next_PSI_matrix), in the order the units ran, and
+    // in the first PSI also at its start: the state of the units no scenario object owns
+    // (spinning solars, the free parts of stations), for scenario_replay's comparison.
+    const unsigned int kUnitCorePsis = 12;
+    FILE* GUnitCoreFile = nullptr;
+    unsigned int GUnitCorePsi = 0;
+    unsigned int GUnitCoreIndex = 0;
+    FOracleSimCore GUnitCoreIn;
+
+    void UnitCoreRecord(IVP_Simulation_Unit* Unit, int Phase, bool bMovementCheck)
+    {
+        if (GUnitCoreFile == nullptr)
+            return;
+        if (GPsiSeq > kUnitCorePsis)
+        {
+            fclose(GUnitCoreFile);
+            GUnitCoreFile = nullptr;
+            return;
+        }
+        if (GUnitCorePsi != GPsiSeq)
+        {
+            GUnitCorePsi = GPsiSeq;
+            GUnitCoreIndex = 0;
+        }
+        CObject* const Object = OracleSimUnitCoreObject(Unit, 0);
+        IVP_Core* const Core = Object != nullptr ? OracleSimCoreOf(Object) : nullptr;
+        if (Phase == 0)
+        {
+            OracleSimReadCore(Core, GUnitCoreIn);
+            return;
+        }
+        FOracleSimCore Out;
+        OracleSimReadCore(Core, Out);
+        bool const bSimple = Object != nullptr && ((unsigned)Object->ObjectClass & 3u) == 3u;
+        FOracleJson J;
+        J.Str("rec", "unit_core");
+        J.Uint("tick", GTick);
+        J.Uint("psi", GPsiSeq);
+        J.Uint("i", GUnitCoreIndex);
+        J.Uint("id", bSimple ? static_cast<CSimple*>(Object)->Id : 0);
+        J.Uint("class", Object != nullptr ? (unsigned)Object->ObjectClass : 0);
+        J.Bool("check", bMovementCheck);
+        if (GPsiSeq == 1)
+            CoreJ(J, "in", GUnitCoreIn);
+        CoreJ(J, "out", Out);
+        // A free part's object (class 1): its frame and its golem's targets.
+        if (Object != nullptr && (unsigned)Object->ObjectClass == 1u)
+        {
+            J.FloatArray("orient", &Object->Orientation.E[0][0], 9);
+            float const Pos[3] = {Object->WorldPosition.x, Object->WorldPosition.y, Object->WorldPosition.z};
+            J.FloatArray("pos", Pos, 3);
+            IVP_Controller_Golem const* const Golem =
+                static_cast<IVP_Controller_Golem const*>(Object->GolemController);
+            if (Golem != nullptr)
+            {
+                float const Target[4] = {Golem->TargetQuat.x, Golem->TargetQuat.y, Golem->TargetQuat.z,
+                                         Golem->TargetQuat.w};
+                J.FloatArray("golem_q", Target, 4);
+                float const Current[4] = {Golem->CurrentTargetQuat.x, Golem->CurrentTargetQuat.y,
+                                          Golem->CurrentTargetQuat.z, Golem->CurrentTargetQuat.w};
+                J.FloatArray("golem_current_q", Current, 4);
+            }
+        }
+        fputs(J.Finish().c_str(), GUnitCoreFile);
+        fputc('\n', GUnitCoreFile);
+        fflush(GUnitCoreFile);
+        ++GUnitCoreIndex;
+    }
+
+    void UnitRecord(IVP_Simulation_Unit* Unit, int Phase, bool bMovementCheck)
+    {
+        UnitCoreRecord(Unit, Phase, bMovementCheck);
+        if (GUnitFile == nullptr)
+            return;
+        if (GPsiSeq > kUnitPsis)
+        {
+            UnitFlush(true);
+            return;
+        }
+        if (GUnitPsi != GPsiSeq)
+        {
+            UnitFlush(false);
+            GUnitPsi = GPsiSeq;
+            GUnitLine = new FOracleJson();
+            GUnitLine->Str("rec", "units");
+            GUnitLine->Uint("tick", GTick);
+            GUnitLine->Uint("psi", GPsiSeq);
+            GUnitLine->BeginArray("units");
+        }
+        if (Phase == 0)
+        {
+            GUnitLine->BeginArray(nullptr);
+            int const Count = OracleSimUnitCoreCount(Unit);
+            for (int Index = 0; Index < Count; ++Index)
+            {
+                CObject* const Object = OracleSimUnitCoreObject(Unit, Index);
+                bool const bSimple =
+                    Object != nullptr && ((unsigned)Object->ObjectClass & 3u) == 3u;
+                GUnitLine->Uint(nullptr, bSimple ? static_cast<CSimple*>(Object)->Id : 0);
+                GUnitLine->Uint(nullptr, Object != nullptr ? (unsigned)Object->ObjectClass : 0);
+            }
+        }
+        else
+        {
+            GUnitLine->Bool(nullptr, bMovementCheck);
+            GUnitLine->EndArray();
+        }
+    }
+
     void __cdecl OnSimUnitPsi(IVP_Environment* Environment, IVP_Simulation_Unit* Unit, int Phase,
                               bool bMovementCheck)
     {
+        UnitRecord(Unit, Phase, bMovementCheck);
         if (Phase != 0)
         {
             for (FPsiRecord& Record : GPsiRecords)
@@ -1917,6 +2065,7 @@ namespace
         J.Uint("psi_total", GPsiSeq);
         J.Int("code", Code);
         Write(FileSession, J);
+        UnitFlush(true);
         CloseAll();
         fflush(stdout);
         fflush(stderr);
@@ -1964,6 +2113,7 @@ namespace oracle
             J.Uint("ticks", GScenario.Ticks);
             J.Double("frame", GScenario.Frame);
             J.Str("stepping", GScenario.bSpStepping ? "sp" : "mp");
+            J.Str("collisions", GScenario.bSpCollisions ? "sp" : "mp");
             J.Uint("seed", GScenario.Seed);
             J.Double("clock", GScenario.ClockStart);
             J.Uint("objects", (unsigned)GScenario.Objects.size());
@@ -2060,13 +2210,21 @@ namespace oracle
             return 3;
         }
 
+        // The load-time rand() recorder (load_rand.jsonl): every draw from the seeding to the
+        // first frame, with its caller.
+        if (!OracleSimLoadRandBegin(OutDir, GScenario.Seed))
+            SessionNote("note", "load_rand.jsonl cannot be written; load-time draws are not recorded");
+
         // rand() is per thread in the CRT; everything runs on this thread.
         srand(GScenario.Seed);
 
+        OracleSimLoadRandPhase("controller");
         unsigned int const ControllerId =
             pub::Controller::Create(StubPath.c_str(), "OracleSim", nullptr, pub::Controller::LOWEST);
         unsigned int const SystemId = CreateID(GScenario.System.c_str());
+        OracleSimLoadRandPhase("load");
         bool const bLoaded = OracleSimLoadSystem(SystemId);
+        OracleSimLoadRandPhase("after_load");
         {
             FOracleJson J;
             J.Str("rec", "server");
@@ -2074,6 +2232,7 @@ namespace oracle
             J.Uint("controller", ControllerId);
             J.Uint("system_id", SystemId);
             J.Bool("system_loaded", bLoaded);
+            J.Uint("reseed", GScenario.Seed);
             Write(FileSession, J);
         }
         if (ControllerId == 0 || !bLoaded)
@@ -2083,9 +2242,19 @@ namespace oracle
             return 3;
         }
 
+        // The seeding point of the comparison (owner, 2026-11-18): the system and Content's
+        // population of it (SystemLoaded) have drawn their values; the scenario starts from
+        // srand(seed) again, where the Rust world, which has no population yet (P3.6), seeds.
+        OracleSimLoadRandReseed(GScenario.Seed);
+        srand(GScenario.Seed);
+
         bool bSpawned = true;
         for (FObjectDesc const& Desc : GScenario.Objects)
+        {
+            OracleSimLoadRandPhase("spawn " + Desc.Name);
             bSpawned = SpawnObject(Desc, SystemId, ControllerId) && bSpawned;
+        }
+        OracleSimLoadRandPhase("hooks");
         if (!bSpawned)
         {
             SessionNote("error", "an object could not be spawned or found");
@@ -2095,8 +2264,11 @@ namespace oracle
 
         GOracleSimHooks.StepSystemId = SystemId;
         GOracleSimHooks.bSinglePlayerStepping = GScenario.bSpStepping;
+        GOracleSimHooks.bSinglePlayerCollisions = GScenario.bSpCollisions;
         GOracleSimHooks.OnPsi = OnPsi;
         GOracleSimHooks.OnSimUnitPsi = OnSimUnitPsi;
+        GUnitFile = fopen((OutDir + "\\units.jsonl").c_str(), "wb");
+        GUnitCoreFile = fopen((OutDir + "\\unit_cores.jsonl").c_str(), "wb");
         GOracleSimHooks.OnCorePush = OnCorePush;
         GOracleSimHooks.OnCollisionDamage = OnCollisionDamage;
         GOracleSimHooks.OnMunitionHit = OnMunitionHit;
@@ -2107,6 +2279,7 @@ namespace oracle
         if (!OracleSimAiStart(OutDir, &GTick, &NameOf))
             SessionNote("note", "ai.jsonl cannot be written; behaviour ticks are not recorded");
         SetSink(OnControllerMessage);
+        OracleSimLoadRandEnd();
 
         // Tick 0: the state after spawning, before any frame.
         unsigned int X87 = 0;

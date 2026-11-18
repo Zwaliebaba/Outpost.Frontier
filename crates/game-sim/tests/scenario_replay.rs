@@ -20,6 +20,17 @@
 //! ship and named solar the closest approach on both sides, the Rust
 //! collision events and the oracle's `events.jsonl` collisions.
 //!
+//! A scenario with `collisions sp` (`ram_ship`) runs without the server's
+//! collision filter, as the oracle's does; its collision events
+//! (`GameObject::on_collision`: the relative speed and the
+//! `CalcCollisionDamage` result) are paired with the oracle's
+//! `events.jsonl` and `calls.jsonl`, and collision events on one side only
+//! are a gross divergence.
+//!
+//! For every scenario, the AI ones too, the report lists the `rand()`
+//! draws the Rust world makes while it loads the system and spawns the
+//! objects beside the oracle's load-time draws (`load_rand.jsonl`).
+//!
 //! A ship with an `ai` state graph gets a behaviour manager
 //! (`pub::AI::SubmitState`), and the `goto`, `face`, `idle` and `cancel`
 //! commands are directives (`pub::AI::SubmitDirective`); `fly_to_point`
@@ -52,6 +63,7 @@ use game_sim::object::{Command, DamageList, ObjHandle, World, WorldEvent};
 use neuron_core::id::create_id;
 use neuron_core::math::{Matrix, Vector};
 use neuron_core::physics::StepMode;
+use neuron_core::physics::replay::{CoreRecord, compare};
 use neuron_core::rng::CrtRand;
 use support::directives::directive;
 use support::records::{Json, find_files, read_lines};
@@ -70,8 +82,11 @@ const REPORT_WINDOW: usize = 2;
 /// Munition hits listed per scenario.
 const REPORT_HITS: usize = 40;
 
-/// Collision events listed per scenario and side.
-const REPORT_COLLISIONS: usize = 10;
+/// Collision events listed per scenario.
+const REPORT_COLLISIONS: usize = 20;
+
+/// The furthest the load-time draw count is searched for.
+const LOAD_DRAWS_SEARCH: usize = 2_000_000;
 
 #[derive(Clone, Debug)]
 struct ObjDesc {
@@ -107,6 +122,12 @@ struct Scenario {
     ticks: u32,
     frame: f64,
     sp: bool,
+    /// `collisions sp`: the server's collision filter takes its
+    /// single-player branch (every pair collides).
+    sp_collisions: bool,
+    /// The file is marked `# ci: expect collision`: a contact scenario,
+    /// judged to its first contact ([`judge_contact`]).
+    contact: bool,
     seed: u32,
     objects: Vec<ObjDesc>,
     commands: Vec<Cmd>,
@@ -143,6 +164,10 @@ fn parse(path: &Path) -> Option<Scenario> {
         ticks: 0,
         frame: 1.0 / 30.0,
         sp: false,
+        sp_collisions: false,
+        contact: text
+            .lines()
+            .any(|l| l.trim_start().starts_with("# ci: expect collision")),
         seed: 0x4f52_4143,
         objects: Vec::new(),
         commands: Vec::new(),
@@ -158,6 +183,7 @@ fn parse(path: &Path) -> Option<Scenario> {
             "ticks" => s.ticks = t.get(1)?.parse().ok()?,
             "frame" => s.frame = num(t.get(1)?)?,
             "stepping" => s.sp = t.get(1)?.eq_ignore_ascii_case("sp"),
+            "collisions" => s.sp_collisions = t.get(1)?.eq_ignore_ascii_case("sp"),
             "seed" => s.seed = t.get(1)?.parse().ok()?,
             "ship" | "solar" => {
                 let ship = t[0].eq_ignore_ascii_case("ship");
@@ -288,6 +314,10 @@ struct State {
     pos: Vector,
     vel: Vector,
     orient: [f32; 9],
+    angvel: Vector,
+    /// A ship's commanded throttle and axis throttle (`None` for others).
+    throttle: Option<f32>,
+    axis: Option<Vector>,
     hp: f32,
     /// `None` when the record does not carry it (an older oracle record,
     /// or an object without equipment).
@@ -315,12 +345,14 @@ struct Hit {
     entries: usize,
 }
 
-/// One collision event.
+/// One collision event: the reporting object, the other, the relative
+/// speed (`None` where the record does not carry it) and the damage.
 #[derive(Clone, Debug)]
 struct Contact {
     tick: u32,
     a: String,
     b: String,
+    speed: Option<f32>,
     damage: f32,
 }
 
@@ -341,6 +373,54 @@ struct Run {
     unported: Option<(i32, u32)>,
     /// The shots fired (`WorldEvent::Fired`).
     fired: usize,
+    /// Per object and tick, the body's core after the frame (diagnostic).
+    cores: BTreeMap<String, Vec<String>>,
+    /// The simulation units of the first [`UNIT_PSIS`] PSIs (`units.jsonl`).
+    units: Vec<Vec<Unit>>,
+    /// Each unit's core at the start and the end of its PSI, for the first
+    /// PSIs (`unit_cores.jsonl`).
+    unit_cores: Vec<Vec<neuron_core::physics::world::UnitCore>>,
+}
+
+/// A core's state as the bit diagnostic prints it.
+fn fmt_core(c: &neuron_core::physics::ivp::core::Core) -> String {
+    let h = |v: &[f32]| {
+        v.iter()
+            .map(|x| format!("{:08x}", x.to_bits()))
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let q = |q: &neuron_core::physics::ivp::math::IvpQuat| h(&[q.x, q.y, q.z, q.w]);
+    let t = |t: &neuron_core::physics::ivp::math::IvpTime| h(&[t.base, t.offset]);
+    format!(
+        "flags {:x} movement {:x} rot_speed [{}] q_next [{}] q_last_motion [{}] pos_last_motion [{}] time_of_last_motion [{}] time_of_last_long_motion [{}] time_of_last_psi [{}]",
+        c.flags,
+        c.movement_state,
+        h(&c.rot_speed),
+        q(&c.q_world_f_core_next_psi),
+        q(&c.q_last_motion),
+        h(&c.pos_last_motion),
+        t(&c.time_of_last_motion),
+        t(&c.time_of_last_long_motion),
+        t(&c.time_of_last_psi),
+    )
+}
+
+fn record_cores(
+    world: &World,
+    out: &mut BTreeMap<String, Vec<String>>,
+    handles: &BTreeMap<String, Option<ObjHandle>>,
+) {
+    for (name, h) in handles {
+        let text = h
+            .and_then(|h| world.get(h))
+            .and_then(|o| {
+                let body = o.physical.body?;
+                world.physics(o.physical.system)?.core(body).map(fmt_core)
+            })
+            .unwrap_or_else(|| "-".to_owned());
+        out.entry(name.clone()).or_default().push(text);
+    }
 }
 
 fn shield_of(world: &World, h: ObjHandle) -> (Option<f32>, Option<ShieldState>) {
@@ -481,13 +561,6 @@ fn oracle_ai_inputs(dir: &Path, scenario: &str) -> AiInputs {
 }
 
 fn run(s: &Scenario, ai: &AiInputs) -> Option<Run> {
-    run_skipping(s, 0, ai)
-}
-
-/// [`run`] with `skip` draws of the world's `rand()` before anything is
-/// spawned: what the reference's server draws while it loads the system
-/// and the Rust world does not.
-fn run_skipping(s: &Scenario, skip: usize, ai: &AiInputs) -> Option<Run> {
     let mut world = support::world::world(WorldConfig {
         single_player: false,
         step_mode: if s.sp {
@@ -498,28 +571,41 @@ fn run_skipping(s: &Scenario, skip: usize, ai: &AiInputs) -> Option<Run> {
         server_physics: true,
         seed: s.seed,
     })?;
-    world.skip_rand(skip);
     let system = create_id(s.system.as_bytes());
     world.load_system(system);
     let mut handles: BTreeMap<String, Option<ObjHandle>> = BTreeMap::new();
     let mut managers = Vec::new();
     let mut pathfind_phases = None;
-    // Only the solars the scenario names: the oracle's server loads the
-    // whole system, but nothing else is near the scenario objects, and the
-    // contact pass over every solar is slow in a debug build. The oracle's
-    // he01 environment steps 100 simulation units per PSI (`psi_mcheck`,
-    // `psi_ivp_seed`), the Rust world's the scenario ships and the three
-    // spinning solars: the movement check, every 15 to 19 unit steps,
-    // falls on other units, and an idle ship it falls on is damped harder.
+    // The solars the scenario names, and every solar whose body or parts
+    // are simulation units: the spinning ones and those with free (`!fxd`)
+    // parts, which `BuildIVP_Real` makes bodies of their own held by
+    // golems. The oracle's `StarSystem::load` builds them all, and each
+    // unit takes its turn at the environment's movement-check countdown
+    // (that decides when a scenario ship's motion is classified), so the
+    // Rust world steps the oracle's units in the oracle's order. The other
+    // solars are fixed and far from the scenario objects, and the contact
+    // pass over every solar is slow in a debug build.
     let named: Vec<u32> = s
         .objects
         .iter()
         .filter(|o| !o.ship)
         .map(|o| create_id(o.nickname.as_bytes()))
         .collect();
-    if !named.is_empty() {
-        world.load_system_solars_where(system, |o| named.contains(&o.nickname));
+    for sp in world.system_solar_spawns(system) {
+        if named.contains(&sp.nickname)
+            || sp.angular_velocity != Vector::ZERO
+            || world.solar_has_free_parts(sp.archetype)
+        {
+            let _ = world.spawn_solar(system, &sp);
+        }
     }
+    world.set_unit_trace(system, true);
+    if s.sp_collisions {
+        world.set_server_collision_filter(system, false);
+    }
+    // The seeding point (owner, 2026-11-18): the oracle's harness calls
+    // `srand(seed)` again once the system and its population have loaded.
+    world.rng().seed(s.seed);
     for o in &s.objects {
         let h = if o.ship {
             let mut spawn = ShipSpawn::new(
@@ -592,6 +678,9 @@ fn run_skipping(s: &Scenario, skip: usize, ai: &AiInputs) -> Option<Run> {
                         pos: i.position,
                         vel: i.velocity,
                         orient: i.orientation.to_words(),
+                        angvel: i.angular_velocity,
+                        throttle: i.ship.as_ref().map(|s| s.throttle),
+                        axis: i.ship.as_ref().map(|s| s.axis_throttle),
                         hp: i.hit_pts,
                         power,
                         shield,
@@ -603,6 +692,7 @@ fn run_skipping(s: &Scenario, skip: usize, ai: &AiInputs) -> Option<Run> {
         }
     };
     record(&world, &mut out.states, &handles);
+    record_cores(&world, &mut out.cores, &handles);
     let mut next = 0;
     for tick in 1..=s.ticks {
         while next < s.commands.len() && s.commands[next].tick == tick {
@@ -693,18 +783,333 @@ fn run_skipping(s: &Scenario, skip: usize, ai: &AiInputs) -> Option<Run> {
                         .push(rust_hit(tick, &name, sub, &damage, before, st));
                 }
                 WorldEvent::Fired { .. } => out.fired += 1,
-                WorldEvent::Collision { a, b, damage, .. } => out.contacts.push(Contact {
+                WorldEvent::Collision {
+                    a,
+                    b,
+                    speed,
+                    damage,
+                } => out.contacts.push(Contact {
                     tick,
                     a: name_of(a),
                     b: name_of(b),
+                    speed: Some(speed),
                     damage,
                 }),
                 _ => {}
             }
         }
         record(&world, &mut out.states, &handles);
+        record_cores(&world, &mut out.cores, &handles);
+        // The units of the PSIs this frame ran, named while their objects
+        // still exist.
+        if out.units.len() < UNIT_PSIS {
+            let trace = world.unit_trace(system);
+            for psi in trace
+                .into_iter()
+                .skip(out.units.len())
+                .take(UNIT_PSIS - out.units.len())
+            {
+                out.units.push(
+                    psi.into_iter()
+                        .map(|(id, class, check)| Unit { id, class, check })
+                        .collect(),
+                );
+            }
+        }
     }
+    out.unit_cores = world.unit_core_trace(system);
     Some(out)
+}
+
+/// The oracle's unit cores (`unit_cores.jsonl` beside the first
+/// `units.jsonl`): per PSI, the cores in run order, the start state only in
+/// the first PSI.
+/// One unit of `unit_cores.jsonl`: the start (first PSI only) and end
+/// states, and for a free part its object's frame and its golem's target
+/// and current target rotations (the raw line, for the report).
+type OracleUnitCore = (Option<CoreRecord>, CoreRecord, String);
+
+fn oracle_unit_cores(dir: &Path, scenario: &str) -> Vec<Vec<OracleUnitCore>> {
+    let Some(file) = find_files(&dir.join(scenario), "unit_cores.jsonl")
+        .into_iter()
+        .min()
+    else {
+        return Vec::new();
+    };
+    let Ok(text) = fs::read_to_string(&file) else {
+        return Vec::new();
+    };
+    let mut out: Vec<Vec<OracleUnitCore>> = Vec::new();
+    for line in text.lines() {
+        let Ok(r) = support::records::parse(line) else {
+            continue;
+        };
+        let psi = r.get("psi").and_then(Json::as_u32).unwrap_or(0) as usize;
+        let Ok(o) = CoreRecord::parse_field(line, "out") else {
+            continue;
+        };
+        let i = CoreRecord::parse_field(line, "in").ok();
+        if psi == 0 {
+            continue;
+        }
+        while out.len() < psi {
+            out.push(Vec::new());
+        }
+        let floats = |k: &str| {
+            r.get(k)
+                .and_then(Json::as_floats)
+                .map(|v| {
+                    v.iter()
+                        .map(|x| format!("{:08x}", x.to_bits()))
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                })
+                .unwrap_or_default()
+        };
+        let extra = format!(
+            "orient [{}] pos [{}] golem_q [{}] golem_current_q [{}]",
+            floats("orient"),
+            floats("pos"),
+            floats("golem_q"),
+            floats("golem_current_q")
+        );
+        out[psi - 1].push((i, o, extra));
+    }
+    out
+}
+
+/// The first unit core that differs from the oracle's (record 0003's bit
+/// comparison), PSI by PSI in run order, for the PSIs both recorded.
+fn report_unit_cores(
+    summary: &mut String,
+    dir: &Path,
+    scenario: &str,
+    ours: &Run,
+    theirs_units: &[Vec<Unit>],
+) {
+    let theirs = oracle_unit_cores(dir, scenario);
+    if theirs.is_empty() {
+        return;
+    }
+    for (p, (a, b)) in ours.unit_cores.iter().zip(&theirs).enumerate() {
+        for (i, ((ain, aout, agolem), (bin, bout, bextra))) in a.iter().zip(b).enumerate() {
+            let unit = theirs_units
+                .get(p)
+                .and_then(|u| u.get(i))
+                .map_or_else(|| "?".to_owned(), |u| format!("{}:{:x}", u.id, u.class));
+            if let Some(bin) = bin {
+                let d = compare(bin, ain, 0.0);
+                if !d.is_empty() {
+                    let _ = writeln!(
+                        summary,
+                        "{scenario}: unit cores: psi {} unit {i} ({unit}) starts differently, oracle != rust: {}",
+                        p + 1,
+                        d.iter().take(10).cloned().collect::<Vec<_>>().join("; ")
+                    );
+                    return;
+                }
+            }
+            let d = compare(bout, aout, 0.0);
+            if !d.is_empty() {
+                let _ = writeln!(
+                    summary,
+                    "{scenario}: unit cores: psi {} unit {i} ({unit}) first differs at the end of its PSI, oracle != rust: {}",
+                    p + 1,
+                    d.iter().take(12).cloned().collect::<Vec<_>>().join("; ")
+                );
+                let h = |v: &[f32]| {
+                    v.iter()
+                        .map(|x| format!("{:08x}", x.to_bits()))
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                };
+                let q = |c: &CoreRecord| {
+                    let q = c.core.q_world_f_core_next_psi;
+                    h(&[q.x, q.y, q.z, q.w])
+                };
+                let _ = writeln!(
+                    summary,
+                    "    oracle: {bextra}; core q_next at the start [{}]",
+                    bin.as_ref().map(q).unwrap_or_default()
+                );
+                let _ = writeln!(
+                    summary,
+                    "    rust: golem target and current [{}]; core q_next at the start [{}]",
+                    agolem.map(|g| h(&g)).unwrap_or_default(),
+                    q(ain)
+                );
+                return;
+            }
+        }
+        if a.len() != b.len() {
+            let _ = writeln!(
+                summary,
+                "{scenario}: unit cores: psi {} rust {} units, oracle {}",
+                p + 1,
+                a.len(),
+                b.len()
+            );
+            return;
+        }
+    }
+    let _ = writeln!(
+        summary,
+        "{scenario}: unit cores: every core of the first {} PSIs equals the oracle's bit for bit",
+        theirs.len().min(ours.unit_cores.len())
+    );
+}
+
+/// The PSIs `units.jsonl` records (`kUnitPsis`, oracle_sim.cpp).
+const UNIT_PSIS: usize = 120;
+
+/// A simulation unit of a PSI: its (first) core's object as `units.jsonl`
+/// names it, and whether the movement check came to it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Unit {
+    id: u32,
+    class: u32,
+    check: bool,
+}
+
+/// The oracle's simulation units per PSI from the first `units.jsonl`
+/// under `<oracle dir>/<scenario>/`, and whether any unit held more than
+/// one core.
+fn oracle_units(dir: &Path, scenario: &str) -> Option<(Vec<Vec<Unit>>, bool)> {
+    let file = find_files(&dir.join(scenario), "units.jsonl")
+        .into_iter()
+        .min()?;
+    let mut multi = false;
+    let mut out = Vec::new();
+    for r in read_lines(&file) {
+        let units = r.get("units").and_then(Json::as_array).unwrap_or_default();
+        let psi: Vec<Unit> = units
+            .iter()
+            .map(|u| {
+                let a = u.as_array().unwrap_or_default();
+                let words: Vec<u32> = a.iter().filter_map(Json::as_u32).collect();
+                multi |= words.len() > 2;
+                Unit {
+                    id: words.first().copied().unwrap_or(0),
+                    class: words.get(1).copied().unwrap_or(0),
+                    check: a.last().and_then(Json::as_bool) == Some(true),
+                }
+            })
+            .collect();
+        out.push(psi);
+    }
+    Some((out, multi))
+}
+
+/// A PSI's units, runs of equal ones folded (`0:1x48`), the unit the
+/// movement check came to marked with `*`.
+fn fmt_units(units: &[Unit]) -> String {
+    let mut out: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < units.len() {
+        let u = units[i];
+        let mut j = i + 1;
+        while j < units.len() && units[j] == u && !u.check {
+            j += 1;
+        }
+        let mark = if u.check { "*" } else { "" };
+        if j - i > 1 {
+            out.push(format!("{}:{:x}x{}", u.id, u.class, j - i));
+        } else {
+            out.push(format!("{}:{:x}{mark}", u.id, u.class));
+        }
+        i = j;
+    }
+    out.join(" ")
+}
+
+/// The simulation units of both sides, PSI by PSI: the first PSI where the
+/// list (objects, order, movement check) differs, or that they agree.
+fn report_units(summary: &mut String, dir: &Path, scenario: &str, ours: &Run) {
+    let Some((theirs, multi)) = oracle_units(dir, scenario) else {
+        return;
+    };
+    // The two sides number the scenario ships differently (the oracle's
+    // load makes objects the Rust world does not): each ship's id becomes
+    // its place in the spawn order, which is the order of the ids.
+    let by_spawn = |v: &[Vec<Unit>]| -> Vec<Vec<Unit>> {
+        let mut ships: Vec<u32> = v
+            .iter()
+            .flatten()
+            .filter(|u| u.class == 0x503)
+            .map(|u| u.id)
+            .collect();
+        ships.sort_unstable();
+        ships.dedup();
+        v.iter()
+            .map(|psi| {
+                psi.iter()
+                    .map(|u| match ships.iter().position(|s| *s == u.id) {
+                        Some(k) if u.class == 0x503 => Unit {
+                            id: k as u32 + 1,
+                            ..*u
+                        },
+                        _ => *u,
+                    })
+                    .collect()
+            })
+            .collect()
+    };
+    let theirs = by_spawn(&theirs);
+    report_unit_cores(summary, dir, scenario, ours, &theirs);
+    let ours_units = by_spawn(&ours.units);
+    let ours = &Run {
+        units: ours_units,
+        ..Run::default()
+    };
+    if multi {
+        let _ = writeln!(
+            summary,
+            "{scenario}: units: a unit of the oracle holds more than one core (compared by its first)"
+        );
+    }
+    let n = theirs.len().min(ours.units.len());
+    let count = |v: &[Vec<Unit>], p: usize| v.get(p).map_or(0, Vec::len);
+    let _ = writeln!(
+        summary,
+        "{scenario}: units at PSI 1, 40, 120: rust {} {} {}, oracle {} {} {}",
+        count(&ours.units, 0),
+        count(&ours.units, 39),
+        count(&ours.units, 119),
+        count(&theirs, 0),
+        count(&theirs, 39),
+        count(&theirs, 119)
+    );
+    match (0..n).find(|&p| ours.units[p] != theirs[p]) {
+        None => {
+            let _ = writeln!(
+                summary,
+                "{scenario}: units: every unit of the {n} recorded PSIs equals the oracle's (objects, order, movement check)"
+            );
+        }
+        Some(p) => {
+            let _ = writeln!(
+                summary,
+                "{scenario}: units first differ at PSI {} (of {n}):",
+                p + 1
+            );
+            for q in p.saturating_sub(1)..(p + 2).min(n) {
+                let _ = writeln!(
+                    summary,
+                    "    psi {} rust {}: {}",
+                    q + 1,
+                    ours.units[q].len(),
+                    fmt_units(&ours.units[q])
+                );
+                let _ = writeln!(
+                    summary,
+                    "    psi {} oracle {}: {}",
+                    q + 1,
+                    theirs[q].len(),
+                    fmt_units(&theirs[q])
+                );
+            }
+        }
+    }
 }
 
 /// The oracle's run of a scenario: the first `tick.jsonl` under
@@ -732,8 +1137,23 @@ fn oracle_run(dir: &Path, scenario: &str) -> Option<Run> {
                 tick: r.get("tick").and_then(Json::as_u32).unwrap_or(0),
                 a: record_name(&r, "a", "a_obj"),
                 b: record_name(&r, "b", "b_obj"),
+                speed: None,
                 damage: r.get("damage").and_then(Json::as_f32).unwrap_or(0.0),
             });
+        }
+    }
+    // The relative speeds of the same contacts, from their
+    // `CalcCollisionDamage` calls (one per event, in the same order).
+    if calls.is_file() {
+        let speeds: Vec<f32> = read_lines(&calls)
+            .iter()
+            .filter(|r| r.get("rec").and_then(Json::as_str) == Some("collision_damage"))
+            .map(|r| r.get("speed").and_then(Json::as_f32).unwrap_or(f32::NAN))
+            .collect();
+        if speeds.len() == run.contacts.len() {
+            for (c, v) in run.contacts.iter_mut().zip(speeds) {
+                c.speed = Some(v);
+            }
         }
     }
     Some(run)
@@ -846,6 +1266,13 @@ fn oracle_ticks(file: &Path) -> BTreeMap<String, Vec<State>> {
                 pos: v("pos"),
                 vel: v("vel"),
                 orient,
+                angvel: v("angvel"),
+                throttle: r.get("throttle").and_then(Json::as_f32),
+                axis: r
+                    .get("axis")
+                    .and_then(Json::as_floats)
+                    .filter(|a| a.len() >= 3)
+                    .map(|a| Vector::new(a[0], a[1], a[2])),
                 hp: r.get("hp").and_then(Json::as_f32).unwrap_or(0.0),
                 power: r.get("power").and_then(Json::as_f32),
                 shield,
@@ -878,11 +1305,16 @@ fn fmt_state(st: &State) -> String {
         },
     );
     format!(
-        "pos ({:.3}, {:.3}, {:.3}) speed {:.3} hp {} shield {shield} power {}",
+        "pos ({:.3}, {:.3}, {:.3}) vel ({:.3}, {:.3}, {:.3}) fwd ({:.3}, {:.3}, {:.3}) hp {} shield {shield} power {}",
         st.pos.x,
         st.pos.y,
         st.pos.z,
-        dist(st.vel, Vector::ZERO),
+        st.vel.x,
+        st.vel.y,
+        st.vel.z,
+        -st.orient[2],
+        -st.orient[5],
+        -st.orient[8],
         st.hp,
         st.power.map_or_else(|| "-".to_owned(), |p| p.to_string())
     )
@@ -1121,35 +1553,497 @@ fn report_contacts(summary: &mut String, s: &Scenario, ours: &Run, theirs: &Run)
             s.name,
             run.contacts.len()
         );
-        for c in run.contacts.iter().take(REPORT_COLLISIONS) {
+    }
+    report_collisions(summary, &s.name, &ours.contacts, &theirs.contacts);
+}
+
+fn fmt_contact(c: &Contact) -> String {
+    let speed = c.speed.map_or_else(|| "-".to_owned(), |v| v.to_string());
+    format!("against {} speed {speed} damage {}", c.b, c.damage)
+}
+
+/// The collision events of both sides (`GameObject::on_collision` with
+/// `CalcCollisionDamage`), paired by tick, reporting object and order.
+/// Returns the number of pairs that differ.
+fn report_collisions(
+    summary: &mut String,
+    scenario: &str,
+    ours: &[Contact],
+    theirs: &[Contact],
+) -> usize {
+    type Pair<'a> = (Vec<&'a Contact>, Vec<&'a Contact>);
+    let mut groups: BTreeMap<(u32, &str), Pair<'_>> = BTreeMap::new();
+    for c in ours {
+        groups.entry((c.tick, &c.a)).or_default().0.push(c);
+    }
+    for c in theirs {
+        groups.entry((c.tick, &c.a)).or_default().1.push(c);
+    }
+    let mut lines = Vec::new();
+    let mut differing = 0;
+    for ((tick, a), (x, y)) in &groups {
+        for i in 0..x.len().max(y.len()) {
+            let side = |v: &[&Contact]| {
+                v.get(i)
+                    .map_or_else(|| "none".to_owned(), |c| fmt_contact(c))
+            };
+            let (p, q) = (side(x), side(y));
+            if p == q {
+                lines.push(format!("    tick {tick} {a} #{}: both {p}", i + 1));
+            } else {
+                differing += 1;
+                lines.push(format!(
+                    "    tick {tick} {a} #{}: rust {p} | oracle {q}",
+                    i + 1
+                ));
+            }
+        }
+    }
+    if lines.is_empty() {
+        return 0;
+    }
+    let _ = writeln!(
+        summary,
+        "{scenario}: collision events that differ: {differing} of {}",
+        lines.len()
+    );
+    for line in lines.iter().take(REPORT_COLLISIONS) {
+        let _ = writeln!(summary, "{line}");
+    }
+    if lines.len() > REPORT_COLLISIONS {
+        let _ = writeln!(summary, "    ... (the first {REPORT_COLLISIONS} listed)");
+    }
+    differing
+}
+
+/// The first tick at which any recorded field of an object differs from
+/// the oracle's at all (bit patterns), with the fields that differ and
+/// both sides' values in hex, and how many ticks differ.
+fn first_bit_difference(
+    summary: &mut String,
+    scenario: &str,
+    name: &str,
+    ours: &[State],
+    theirs: &[State],
+) -> Option<usize> {
+    let hex3 = |v: Vector| {
+        format!(
+            "[{:08x} {:08x} {:08x}]",
+            v.x.to_bits(),
+            v.y.to_bits(),
+            v.z.to_bits()
+        )
+    };
+    let fields = |a: &State, b: &State| -> Vec<String> {
+        let mut out = Vec::new();
+        if a.alive != b.alive {
+            out.push(format!("alive {} | {}", a.alive, b.alive));
+            return out;
+        }
+        if !a.alive {
+            return out;
+        }
+        let bits = |v: Vector| [v.x.to_bits(), v.y.to_bits(), v.z.to_bits()];
+        for (field, x, y) in [
+            ("pos", a.pos, b.pos),
+            ("vel", a.vel, b.vel),
+            ("angvel", a.angvel, b.angvel),
+        ] {
+            if bits(x) != bits(y) {
+                out.push(format!("{field} {} | {}", hex3(x), hex3(y)));
+            }
+        }
+        for i in 0..9 {
+            if a.orient[i].to_bits() != b.orient[i].to_bits() {
+                out.push(format!(
+                    "orient[{i}] {:08x} ({}) | {:08x} ({})",
+                    a.orient[i].to_bits(),
+                    a.orient[i],
+                    b.orient[i].to_bits(),
+                    b.orient[i]
+                ));
+            }
+        }
+        if a.hp.to_bits() != b.hp.to_bits() {
+            out.push(format!("hp {} | {}", a.hp, b.hp));
+        }
+        if let (Some(x), Some(y)) = (a.throttle, b.throttle)
+            && x.to_bits() != y.to_bits()
+        {
+            out.push(format!("throttle {x} | {y}"));
+        }
+        if let (Some(x), Some(y)) = (a.axis, b.axis)
+            && bits(x) != bits(y)
+        {
+            out.push(format!("axis {} | {}", hex3(x), hex3(y)));
+        }
+        out
+    };
+    let n = ours.len().min(theirs.len());
+    let differing: Vec<usize> = (0..n)
+        .filter(|&t| !fields(&ours[t], &theirs[t]).is_empty())
+        .collect();
+    let Some(&first) = differing.first() else {
+        let _ = writeln!(
+            summary,
+            "{scenario}: {name}: every recorded field equals the oracle bit for bit"
+        );
+        return None;
+    };
+    let _ = writeln!(
+        summary,
+        "{scenario}: {name}: first bit difference at tick {first} ({} of {n} ticks differ), rust | oracle:",
+        differing.len()
+    );
+    for f in fields(&ours[first], &theirs[first]) {
+        let _ = writeln!(summary, "    {f}");
+    }
+    // The commands of the ticks around it, both sides (axis throttle bits).
+    for t in first.saturating_sub(3)..(first + 2).min(n) {
+        let ax = |st: &State| st.axis.map_or_else(|| "-".to_owned(), hex3);
+        let _ = writeln!(
+            summary,
+            "    tick {t}: axis {} | {}, angvel {} | {}",
+            ax(&ours[t]),
+            ax(&theirs[t]),
+            hex3(ours[t].angvel),
+            hex3(theirs[t].angvel)
+        );
+    }
+    Some(first)
+}
+
+/// Around a first bit difference: the Rust core after each frame and the
+/// oracle's PSI records of the object (`psi.jsonl` beside `tick.jsonl`).
+fn report_cores(
+    summary: &mut String,
+    dir: &Path,
+    scenario: &str,
+    name: &str,
+    first: usize,
+    ours: &Run,
+) {
+    let range = first.saturating_sub(2)..first + 2;
+    if let Some(cores) = ours.cores.get(name) {
+        for t in first.saturating_sub(16)..first + 2 {
+            if let Some(c) = cores.get(t) {
+                let _ = writeln!(summary, "    rust core after tick {t}: {c}");
+            }
+        }
+    }
+    // The simulation units of each PSI (`units.jsonl`): how many share the
+    // movement-check countdown and which one it came to.
+    if let Some(file) = find_files(&dir.join(scenario), "units.jsonl")
+        .into_iter()
+        .min()
+    {
+        for r in read_lines(&file) {
+            let psi = r.get("psi").and_then(Json::as_u32).unwrap_or(0) as usize;
+            if psi > first + 2 {
+                break;
+            }
+            let units = r.get("units").and_then(Json::as_array).unwrap_or_default();
+            let ids = |u: &Json| {
+                u.as_array().map_or_else(String::new, |a| {
+                    a.iter()
+                        .filter_map(Json::as_u32)
+                        .collect::<Vec<_>>()
+                        .chunks(2)
+                        .map(|c| format!("{}:{:x}", c[0], c.get(1).copied().unwrap_or(0)))
+                        .collect::<Vec<_>>()
+                        .join("+")
+                })
+            };
+            let checked: Vec<String> = units
+                .iter()
+                .filter(|u| {
+                    u.as_array().and_then(|a| a.last()).and_then(Json::as_bool) == Some(true)
+                })
+                .map(ids)
+                .collect();
+            let all: Vec<String> = units.iter().map(ids).collect();
             let _ = writeln!(
                 summary,
-                "    tick {} {} against {} damage {}",
-                c.tick, c.a, c.b, c.damage
+                "    oracle units psi {psi}: {} [{}], check to {:?}",
+                units.len(),
+                all.join(" "),
+                checked
             );
         }
     }
-}
-
-/// The largest position, velocity and orientation differences of two
-/// state series while both are alive, and the tick of the position's.
-fn max_errors(ours: &[State], theirs: &[State]) -> (f64, f64, f32, usize) {
-    let (mut p, mut v, mut o, mut at) = (0.0f64, 0.0f64, 0.0f32, 0);
-    for (t, (a, b)) in ours.iter().zip(theirs).enumerate() {
-        if !(a.alive && b.alive) {
+    let Some(file) = find_files(&dir.join(scenario), "psi.jsonl")
+        .into_iter()
+        .min()
+    else {
+        return;
+    };
+    let h = |r: &Json, k: &str| {
+        r.get(k)
+            .and_then(Json::as_floats)
+            .map(|v| {
+                v.iter()
+                    .map(|x| format!("{:08x}", x.to_bits()))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
+            .unwrap_or_default()
+    };
+    for r in read_lines(&file) {
+        let tick = r.get("tick").and_then(Json::as_u32).unwrap_or(0) as usize;
+        let check = r.get("check").and_then(Json::as_bool).unwrap_or(false);
+        if !(range.contains(&tick) || (check && tick < first))
+            || r.get("obj").and_then(Json::as_str) != Some(name)
+        {
             continue;
         }
-        let d = dist(a.pos, b.pos);
-        if d > p {
-            p = d;
-            at = t;
+        let (Some(i), Some(o)) = (r.get("in"), r.get("out")) else {
+            continue;
+        };
+        let ctl = r.get("ctl");
+        let _ = writeln!(
+            summary,
+            "    oracle psi {} tick {tick}: in flags {:x} movement {:x} rot_speed [{}] q_next [{}] q_last_motion [{}] pos_last_motion [{}] time_of_last_motion [{}] time_of_last_long_motion [{}] time_of_last_psi [{}] | out movement {:x} q_last_motion [{}] time_of_last_motion [{}] | pushes {} check {} steering {:?} drag {:?}",
+            r.get("psi").and_then(Json::as_u32).unwrap_or(0),
+            i.get("flags").and_then(Json::as_u32).unwrap_or(0),
+            i.get("movement_state").and_then(Json::as_u32).unwrap_or(0),
+            h(i, "rot_speed"),
+            h(i, "q_next"),
+            h(i, "q_last_motion"),
+            h(i, "pos_last_motion"),
+            h(i, "time_of_last_motion"),
+            h(i, "time_of_last_long_motion"),
+            h(i, "time_of_last_psi"),
+            o.get("movement_state").and_then(Json::as_u32).unwrap_or(0),
+            h(o, "q_last_motion"),
+            h(o, "time_of_last_motion"),
+            r.get("pushes")
+                .and_then(Json::as_array)
+                .map_or(0, |a| a.len()),
+            check,
+            ctl.and_then(|c| c.get("steering_active"))
+                .and_then(Json::as_bool),
+            ctl.and_then(|c| c.get("angular_drag_factor"))
+                .and_then(Json::as_f32),
+        );
+    }
+}
+
+/// Whether two states are the same, bit for bit where it counts: alive,
+/// position, velocity, orientation, hit points and the shield's hit points.
+fn same_state(a: &State, b: &State) -> bool {
+    let bits = |v: Vector| [v.x.to_bits(), v.y.to_bits(), v.z.to_bits()];
+    a.alive == b.alive
+        && (!a.alive
+            || (bits(a.pos) == bits(b.pos)
+                && bits(a.vel) == bits(b.vel)
+                && a.orient.map(f32::to_bits) == b.orient.map(f32::to_bits)
+                && a.hp.to_bits() == b.hp.to_bits()
+                && match (a.shield, b.shield) {
+                    (Some(x), Some(y)) => x.hp.to_bits() == y.hp.to_bits(),
+                    (_, None) => true,
+                    (None, Some(_)) => false,
+                }))
+}
+
+/// A contact scenario (`ram_ship`, Gate G2's collide check; owner,
+/// 2026-11-18, record 0003 point 9): the run is judged to its first
+/// contact. Every object must equal the oracle exactly before the tick of
+/// the oracle's first collision event, the Rust world's first collision
+/// event must come in the same tick, and at the last tick every object
+/// must be alive or gone as in the oracle. The first contact's damage and
+/// the trajectories after it are reported, not judged (their envelopes
+/// wait for the owner's G2 numbers).
+fn judge_contact(
+    summary: &mut String,
+    gross: &mut Vec<String>,
+    s: &Scenario,
+    ours: &Run,
+    theirs: &Run,
+) {
+    let Some(first) = theirs.contacts.iter().map(|c| c.tick).min() else {
+        gross.push(format!("{}: the oracle records no contact", s.name));
+        return;
+    };
+    let rust_first = ours.contacts.iter().map(|c| c.tick).min();
+    let mut pre = None;
+    for (name, a) in &ours.states {
+        let Some(b) = theirs.states.get(name) else {
+            continue;
+        };
+        let n = a.len().min(b.len()).min(first as usize);
+        if let Some(t) = (0..n).find(|&t| !same_state(&a[t], &b[t])) {
+            pre = Some(pre.map_or(t, |p: usize| p.min(t)));
+            gross.push(format!(
+                "{}: {name} differs from the oracle at tick {t}, before the first contact (tick {first})",
+                s.name
+            ));
         }
-        v = v.max(dist(a.vel, b.vel));
-        for i in 0..9 {
-            o = o.max((a.orient[i] - b.orient[i]).abs());
+        if let (Some(x), Some(y)) = (a.last(), b.last())
+            && x.alive != y.alive
+        {
+            gross.push(format!(
+                "{}: {name} outcome: alive {} vs the oracle's {}",
+                s.name, x.alive, y.alive
+            ));
         }
     }
-    (p, v, o, at)
+    if rust_first != Some(first) {
+        gross.push(format!(
+            "{}: first contact at tick {} vs the oracle's {first}",
+            s.name,
+            rust_first.map_or_else(|| "none".to_owned(), |t| t.to_string())
+        ));
+    }
+    let _ = writeln!(
+        summary,
+        "{}: contact scenario: first contact rust tick {}, oracle tick {first}; before it {}",
+        s.name,
+        rust_first.map_or_else(|| "none".to_owned(), |t| t.to_string()),
+        pre.map_or_else(
+            || "every object equals the oracle exactly".to_owned(),
+            |t| format!("the first difference is at tick {t}")
+        )
+    );
+    for c in theirs.contacts.iter().filter(|c| c.tick == first) {
+        let rust = ours
+            .contacts
+            .iter()
+            .find(|r| r.tick == first && r.a == c.a)
+            .map_or_else(|| "none".to_owned(), fmt_contact);
+        let _ = writeln!(
+            summary,
+            "{}: first-contact damage to {}: rust {rust} | oracle {}",
+            s.name,
+            c.b,
+            fmt_contact(c)
+        );
+    }
+}
+
+/// The number of `rand()` draws a generator seeded with `seed` made to
+/// reach `now`, `None` beyond `LOAD_DRAWS_SEARCH`.
+fn draws_since(seed: u32, now: &CrtRand) -> Option<usize> {
+    let mut r = CrtRand::with_seed(seed);
+    for i in 0..=LOAD_DRAWS_SEARCH {
+        if r == *now {
+            return Some(i);
+        }
+        r.rand();
+    }
+    None
+}
+
+/// The Rust world's draws while it loads the scenario's system (every
+/// solar, as `StarSystem::load` builds them) and, after seeding again as
+/// the harness does, spawns each object, by the oracle's phases
+/// (`load_rand.jsonl`): `load`, then `spawn <name>`.
+fn rust_load_draws(s: &Scenario) -> Option<Vec<(String, usize)>> {
+    let mut world = support::world::world(WorldConfig {
+        single_player: false,
+        step_mode: if s.sp {
+            StepMode::SinglePlayer
+        } else {
+            StepMode::Multiplayer
+        },
+        server_physics: true,
+        seed: s.seed,
+    })?;
+    let system = create_id(s.system.as_bytes());
+    let mut out = Vec::new();
+    let mut last = 0;
+    let mark =
+        |world: &mut World, last: &mut usize, phase: String, out: &mut Vec<(String, usize)>| {
+            let now = draws_since(s.seed, world.rng()).unwrap_or(usize::MAX);
+            out.push((phase, now.saturating_sub(*last)));
+            *last = now;
+        };
+    world.load_system_solars(system);
+    mark(&mut world, &mut last, "load".to_owned(), &mut out);
+    // The seeding point after the load, as in the harness: the spawns'
+    // draws count from the seed again.
+    world.rng().seed(s.seed);
+    last = 0;
+    for o in &s.objects {
+        if o.ship {
+            let mut spawn = ShipSpawn::new(
+                create_id(o.archetype.as_bytes()),
+                create_id(o.loadout.as_bytes()),
+                o.pos,
+                o.orient,
+            );
+            spawn.velocity = o.vel;
+            spawn.angular_velocity = o.angvel;
+            spawn.hit_pts = o.hp;
+            let h = world.spawn_ship(system, &spawn).ok();
+            if let (Some(h), Some(graph)) = (h, &o.ai) {
+                let id = world
+                    .data()
+                    .state_graphs
+                    .find(graph.as_bytes(), GraphType::Leader);
+                world.submit_state(h, id, None);
+            }
+        }
+        mark(&mut world, &mut last, format!("spawn {}", o.name), &mut out);
+    }
+    Some(out)
+}
+
+/// The oracle's load-time draws by phase (`load_rand.jsonl` `phase`
+/// records of the first run): the phase and its draw count.
+fn oracle_load_draws(dir: &Path, scenario: &str) -> Option<Vec<(String, usize)>> {
+    let file = find_files(&dir.join(scenario), "load_rand.jsonl")
+        .into_iter()
+        .min()?;
+    let phases: Vec<(String, usize)> = read_lines(&file)
+        .iter()
+        .filter(|r| r.get("rec").and_then(Json::as_str) == Some("phase"))
+        .filter_map(|r| {
+            Some((
+                r.get("phase")?.as_str()?.to_owned(),
+                r.get("count")?.as_u32()? as usize,
+            ))
+        })
+        .collect();
+    (!phases.is_empty()).then_some(phases)
+}
+
+/// The load-time draws (owner, 2026-11-18): the Rust world's `rand()`
+/// draws while it loads the system and spawns the objects, beside the
+/// oracle's by phase. A phase the Rust world has no counterpart for (the
+/// controller, `after_load`, `hooks`) is listed with the Rust count 0.
+fn report_load_draws(summary: &mut String, s: &Scenario, oracle: Option<&Path>) {
+    let Some(ours) = rust_load_draws(s) else {
+        return;
+    };
+    let theirs = oracle.and_then(|d| oracle_load_draws(d, &s.name));
+    let total: usize = ours.iter().map(|p| p.1).sum();
+    let mut line = format!("{}: load-time draws: rust {total}", s.name);
+    if let Some(theirs) = &theirs {
+        let before_spawn: usize = theirs
+            .iter()
+            .take_while(|p| !p.0.starts_with("spawn "))
+            .map(|p| p.1)
+            .sum();
+        let all: usize = theirs.iter().map(|p| p.1).sum();
+        let _ = write!(
+            line,
+            ", oracle {all} ({before_spawn} before the first spawn)"
+        );
+    }
+    let _ = writeln!(summary, "{line}");
+    let rust_of = |phase: &str| ours.iter().find(|p| p.0 == phase).map_or(0, |p| p.1);
+    match &theirs {
+        Some(theirs) => {
+            for (phase, n) in theirs {
+                let _ = writeln!(summary, "    {phase}: rust {}, oracle {n}", rust_of(phase));
+            }
+        }
+        None => {
+            for (phase, n) in &ours {
+                let _ = writeln!(summary, "    {phase}: rust {n}");
+            }
+        }
+    }
 }
 
 fn dist(a: Vector, b: Vector) -> f64 {
@@ -1184,6 +2078,7 @@ fn scenarios_against_the_oracle() {
             let _ = writeln!(summary, "{}: does not parse", path.display());
             continue;
         };
+        report_load_draws(&mut summary, &s, oracle.as_deref());
         if let Some(why) = needs_ai(&s) {
             let _ = writeln!(summary, "{}: skipped, {why} (AI is P2.5)", s.name);
             continue;
@@ -1268,51 +2163,51 @@ fn scenarios_against_the_oracle() {
                 s.name, fa.hp, fb.hp
             );
             // A fight (the ships' attitudes come from the oracle) is
-            // chaotic contact (record 0003 point 9): judged by its outcome.
+            // chaotic contact (record 0003 point 9): judged by its outcome,
+            // which stays strict (owner, 2026-11-18).
             let fight = !ai.attitudes.is_empty();
-            if (!fight && max_pos > bound) || fa.alive != fb.alive {
+            if !s.contact && ((!fight && max_pos > bound) || fa.alive != fb.alive) {
                 gross.push(format!(
                     "{}: {name} (position {max_pos:.1} m > {bound:.1} m or alive {} vs {})",
                     s.name, fa.alive, fb.alive
                 ));
             }
             first_divergences(&mut summary, &s.name, name, ours_states, their_states);
+            if let Some(first) =
+                first_bit_difference(&mut summary, &s.name, name, ours_states, their_states)
+            {
+                report_cores(&mut summary, dir, &s.name, name, first, &our_run);
+            }
         }
-        // The AI's phases come from the CRT sequence; the reference's server
-        // draws from it while it loads the system, which the Rust world
-        // does not. Where the first ship's pathfinder phases show the gap,
-        // a second run starts the Rust sequence that much later.
+        // The AI's phases come from the CRT sequence: with both sides
+        // seeded after the load, the first AI ship's pathfinder phases sit
+        // at the same index.
         if let (Some(rust), Some(oracle_p)) = (our_run.pathfind_phases, oracle_phases(dir, &s.name))
             && let (Some(i_rust), Some(i_oracle)) =
                 (phase_index(s.seed, rust), phase_index(s.seed, oracle_p))
         {
             let _ = writeln!(
                 summary,
-                "{}: the AI's first draws are at index {i_oracle} of the oracle's rand() sequence and {i_rust} of the Rust world's",
+                "{}: the AI's first draws are at index {i_oracle} of the oracle's rand() sequence and {i_rust} of the Rust world's (both from the seeding after the load)",
                 s.name
             );
-            if i_oracle > i_rust
-                && let Some(aligned) = run_skipping(&s, i_oracle - i_rust, &ai)
-            {
-                if !ai.attitudes.is_empty() {
-                    report_combat(&mut summary, &s.name, &aligned, &their_run);
-                }
-                for (name, ours_states) in &aligned.states {
-                    let Some(their_states) = theirs.get(name) else {
-                        continue;
-                    };
-                    let (p, v, o, t) = max_errors(ours_states, their_states);
-                    let _ = writeln!(
-                        summary,
-                        "{}: {name} with the oracle's {} load-time draws skipped: max position error {p:.4} m (tick {t}), velocity {v:.4} m/s, orientation {o:.6}",
-                        s.name,
-                        i_oracle - i_rust
-                    );
-                }
-            }
+        }
+        if !ai.attitudes.is_empty() {
+            report_combat(&mut summary, &s.name, &our_run, &their_run);
         }
         report_hits(&mut summary, &s.name, &our_run.hits, &their_run.hits);
+        report_units(&mut summary, dir, &s.name, &our_run);
         report_contacts(&mut summary, &s, &our_run, &their_run);
+        if s.contact {
+            judge_contact(&mut summary, &mut gross, &s, &our_run, &their_run);
+        } else if our_run.contacts.is_empty() != their_run.contacts.is_empty() {
+            gross.push(format!(
+                "{}: collision events rust {} vs oracle {}",
+                s.name,
+                our_run.contacts.len(),
+                their_run.contacts.len()
+            ));
+        }
     }
     print!("{summary}");
     if let Some(dir) = &oracle {

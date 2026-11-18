@@ -14,8 +14,8 @@ namespace oracle
 
     // Opens <OutDir>\ai.jsonl and installs the recorder: it wraps
     // GOracleSimHooks.OnBehaviorTick (so it must run after that is set), sets
-    // GOracleAiHooks.OnQuery and replaces the `rand` import of Common.dll, Server.dll and
-    // Content.dll with a counting wrapper that calls the CRT's rand. Tick points at the run's
+    // GOracleAiHooks.OnQuery and observes the rand() recorder (oracle_sim_rand.h), whose
+    // wrapper replaces the `rand` import of every game DLL. Tick points at the run's
     // tick counter. Returns false (and records nothing) when the file cannot be written.
     bool OracleSimAiStart(std::string const& OutDir, unsigned int const* Tick, FSimNameFn NameOf);
 }

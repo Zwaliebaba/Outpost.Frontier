@@ -44,17 +44,13 @@
 
 #include "oracle_support.h"
 
-// SceneScript.cpp (not compiled in) defines these for SceneScriptScene.cpp; the
-// parser's paths reach neither.
+// SceneScript.cpp (not compiled in) defines this for SceneScriptScene.cpp; the
+// parser's paths do not reach it. SceneScriptAcquire3DMathEngine, which the
+// playback suite needs, is in oracle_scene_script_runtime.cpp.
 void SceneScriptFdump(const char* Message)
 {
     if (FDUMP != nullptr)
         FDUMP(0x100002, "%s", Message != nullptr ? Message : "");
-}
-
-I3DMathEngine* SceneScriptAcquire3DMathEngine()
-{
-    return nullptr;
 }
 
 namespace scene_script_build
@@ -89,6 +85,12 @@ namespace scene_script_build
         "SmoothPCurve",     "StepPCurve",            "RampUpPCurve", "RampDownPCurve",
         "BumpOutPCurve",    "BumpInPCurve",          "FreeFormPCurve"};
     const char* const PathNames[] = {"CV_CRSplinePath", "CV_CROrientationSplinePath"};
+
+    // Set while the playback suite loads a script: the manager then creates
+    // SceneScript.dll's own curves and paths, as SceneScript.cpp's factories
+    // do (the second "LinearPCurve" registration, the Hermite linear curve, is
+    // the one the component manager hands out).
+    bool GRealObjects = false;
 
     template <size_t N>
     bool IsOneOf(const char* Name, const char* const (&Names)[N])
@@ -228,6 +230,16 @@ namespace scene_script_build
             *Instance = nullptr;
             if (Desc->size != G_AggDescSizeSceneScript || Name == nullptr)
                 return GR_INTERFACE_UNSUPPORTED;
+            if (GRealObjects)
+            {
+                if (IsOneOf(Name, CurveNames))
+                    *Instance = SceneScriptCreateParamCurve(Name, std::strcmp(Name, "LinearPCurve") == 0);
+                else if (IsOneOf(Name, PathNames))
+                    *Instance = SceneScriptCreateSplinePath(Name, std::strcmp(Name, PathNames[1]) == 0, nullptr, nullptr);
+                else
+                    return GR_INTERFACE_UNSUPPORTED;
+                return *Instance != nullptr ? GR_OK : GR_OUT_OF_MEMORY;
+            }
             if (IsOneOf(Name, CurveNames))
                 *Instance = static_cast<INeuronComponent*>(static_cast<IParamCurve*>(new FRecordingCurve(Name)));
             else if (IsOneOf(Name, PathNames))
@@ -599,6 +611,28 @@ namespace scene_script_build
         return GR_OK;
     }
 
+    // A COM context that takes the user-event strings and keeps nothing
+    // (the playback suite, whose user events the parser adds only with one).
+    class FSilentContext final : public ISceneScriptComContext
+    {
+    public:
+        GENRESULT NEURONCOMPONENTS_API QueryInterface(const char*, void** Out) override
+        {
+            *Out = nullptr;
+            return GR_INTERFACE_UNSUPPORTED;
+        }
+        unsigned long NEURONCOMPONENTS_API AddRef() override { return 1; }
+        unsigned long NEURONCOMPONENTS_API Release() override { return 1; }
+        GENRESULT NEURONCOMPONENTS_API Slot3(FSceneScriptUserEventDesc*, const char*) override { return GR_OK; }
+        GENRESULT NEURONCOMPONENTS_API Slot4(FSceneScriptUserEventDesc*, char* Buffer, unsigned int Size) override
+        {
+            if (Buffer != nullptr && Size != 0)
+                Buffer[0] = '\0';
+            return GR_GENERIC;
+        }
+        unsigned int NEURONCOMPONENTS_API Slot5(FSceneScriptUserEventDesc*) override { return 0; }
+    };
+
     // A fresh module state: Lua state, constants and the entity-name map.
     void OpenModule()
     {
@@ -650,6 +684,32 @@ namespace scene_script_build
 extern "C" ICOManager* OracleSceneScriptBuildManager()
 {
     return &scene_script_build::GManager;
+}
+
+// P4.14 playback (oracle_scene_script_runtime.cpp): the parser's two passes on one
+// script, in a fresh module state, into Engine, with real curves and paths and a COM
+// context that takes the user-event strings. Returns Load's status; Duration receives
+// the script's duration.
+GENRESULT SceneScriptOracleLoad(const unsigned char* Data, size_t Size, IScriptEngine* Engine,
+                                unsigned int* Duration)
+{
+    scene_script_build::OpenModule();
+    scene_script_build::GRealObjects = true;
+    FSceneScriptScene Unused;
+    scene_script_build::FBufferFileSystem FileSystem(Data, Size);
+    ISceneScriptLoadParser* Parser = SceneScriptCreateLuaLoadParser(&Unused);
+    const GENRESULT Status = Parser->Load(&FileSystem);
+    if (Status >= 0)
+    {
+        *Duration = Parser->GetDuration();
+        Engine->Slot18SetDuration(static_cast<int>(*Duration));
+        scene_script_build::FSilentContext Context;
+        Parser->Build(&FileSystem, Engine, &Context);
+    }
+    Parser->Destroy(1);
+    scene_script_build::GRealObjects = false;
+    scene_script_build::CloseModule();
+    return Status;
 }
 
 // One case per line of scene_script_build.list: "c" (a COM context is given

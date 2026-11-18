@@ -650,6 +650,18 @@ fn restore_face(manager: &mut BehaviorManager<ReplayWorld<'_>>, r: &FaceRecord) 
     face.field_1d8 = r.field_1d8;
 }
 
+/// Whether a matrix's rows are unit vectors (within 1e-3): a rotation, as
+/// every orientation the face behaviour writes is.
+fn is_rotation(m: &neuron_core::math::Matrix) -> bool {
+    m.m.iter().all(|r| {
+        let n = (f64::from(r[0]) * f64::from(r[0])
+            + f64::from(r[1]) * f64::from(r[1])
+            + f64::from(r[2]) * f64::from(r[2]))
+        .sqrt();
+        (n - 1.0).abs() < 1e-3
+    })
+}
+
 /// The Rust face behaviour's fields as `face` writes them.
 fn face_snapshot(manager: &mut BehaviorManager<ReplayWorld<'_>>) -> Option<FaceRecord> {
     let face = manager
@@ -1250,6 +1262,7 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
         if let Some(p) = personalities.get(&t.id) {
             manager.state.personality = *p;
         }
+        let orient_before = face_snapshot(manager).map(|f| f.orient);
         manager.update_behavior_tick(&mut world, t.id, t.dt);
         avoid_shuffled = world.avoid_shuffled;
         last_out.insert(t.id, out.clone());
@@ -1272,11 +1285,28 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
             })
             .unwrap_or_default();
         let rand_ok = world.rand.exhausted_exactly();
-        let our_face = if out.face.is_some() {
+        let mut our_face = if out.face.is_some() {
             face_snapshot(manager)
         } else {
             None
         };
+        // `FaceBehavior`'s matrix at +0x38 is left uninitialised by its
+        // constructor (D166): while the tick did not write it (the Rust
+        // value is the one before the tick) and the recorded one is no
+        // rotation, the recorded value is whatever the memory held.
+        if let (Some(ours), Some(theirs), Some(before)) =
+            (our_face.as_mut(), out.face.as_ref(), orient_before)
+            && ours
+                .orient
+                .m
+                .as_flattened()
+                .iter()
+                .map(|x| x.to_bits())
+                .eq(before.m.as_flattened().iter().map(|x| x.to_bits()))
+            && !is_rotation(&theirs.orient)
+        {
+            ours.orient = theirs.orient;
+        }
         let state = state_diff(&manager.state, our_face.as_ref(), out);
         if out.sys.is_some() {
             totals.state_compared += 1;

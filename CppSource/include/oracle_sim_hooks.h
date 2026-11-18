@@ -14,7 +14,8 @@
 //                               (CalcCollisionDamage in and out); Ship's IObjAffect setters,
 //                               set_target, slot_50 and slot_54, EqObj::slot_34 and slot_4c
 //                               (OnAffect, each inside an FOracleSimAffectScope)
-//   Server/server_classes.cpp   StarSystem::munition_collision (OnMunitionHit)
+//   Server/server_classes.cpp   StarSystem::munition_collision (OnMunitionHit);
+//                               StarSystem_MpCollisionFilter (single-player collisions)
 //   Common/common_physicalsystem.cpp  PhysicalSystem::Update (single-player stepping)
 //   Common/common_behaviormanager.cpp IBehaviorManager::UpdateBehaviorTick (OnBehaviorTick)
 //   IVP/ivp_physics/ivp_environment.cpp IVP_Environment_Simulate_Psi (OnPsi)
@@ -134,6 +135,9 @@ struct FOracleSimHooks
     // PhysicalSystem::Update takes the single-player branch (one clamped step per call)
     // while the server otherwise runs in multiplayer mode.
     bool bSinglePlayerStepping;
+    // StarSystem_MpCollisionFilter takes its single-player branch (every pair collides) while
+    // the server otherwise runs in multiplayer mode (P2 load draws: the collide scenario).
+    bool bSinglePlayerCollisions;
     // The timer stamps read ClockSeconds and IServerImpl::ElapseTime's real dt is
     // FrameSeconds, instead of the performance counter.
     bool bFixedClock;
@@ -192,6 +196,8 @@ COMMON_API int __cdecl OracleSimUnitCoreCount(IVP_Simulation_Unit const* Unit);
 // The unit's controllers (IVP_Controller*, the bucket keys) in the order its PSI runs them
 // (the last bucket first), at most Max; their count.
 COMMON_API int __cdecl OracleSimUnitControllers(IVP_Simulation_Unit const* Unit, void const** Out, int Max);
+// The CObject of a unit's core Index (its first object's client_data), null when there is none.
+COMMON_API CObject* __cdecl OracleSimUnitCoreObject(IVP_Simulation_Unit const* Unit, int Index);
 // Copies a core; false (Out zeroed) for a null core.
 COMMON_API bool __cdecl OracleSimReadCore(IVP_Core const* Core, FOracleSimCore& Out);
 // Copies the manager's state; false (Out zeroed, StateGraphId -1) for a null manager.
