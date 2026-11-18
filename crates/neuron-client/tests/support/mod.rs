@@ -13,6 +13,7 @@ pub mod scene_script_build;
 pub mod scene_script_runtime;
 pub mod text;
 pub mod texture;
+pub mod ui;
 
 use std::fmt::Write as _;
 use std::fs;

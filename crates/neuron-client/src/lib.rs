@@ -11,5 +11,6 @@ pub mod render;
 pub mod scene_script;
 pub mod text;
 pub mod text_input;
+pub mod ui;
 pub mod user_state;
 pub mod window;

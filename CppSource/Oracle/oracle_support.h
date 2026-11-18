@@ -248,6 +248,12 @@ void BigImageSuite();
 // crates/neuron-client/tests/fixtures/oracle/material_*.list; called by RunNeuronClientSuites,
 // last (its batcher cases leave their INI in the manager's profile parser).
 void RunMaterialSuites();
+// P4.13 (oracle_ui.cpp, oracle_ui_quads.cpp): the client UI toolkit's page descriptors
+// (ui_page_desc.cpp compiled in) and screen-quad batcher (screen_quad_state.cpp compiled in),
+// over crates/neuron-client/tests/fixtures/oracle/ui_{page_desc,quad_batch}.list; called by
+// RunNeuronClientSuites. RunUiSuites runs both.
+void RunUiSuites();
+void RunUiQuadSuites();
 
 // P4.14 (oracle_scene_script.cpp): every .thn under DATA through lua_dobuffer in a fresh
 // Lua state, and the state after it; kind "thn".
