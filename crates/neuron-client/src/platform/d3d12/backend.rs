@@ -28,9 +28,10 @@ use windows::Win32::Graphics::Direct3D12::{
     D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, D3D12_CPU_DESCRIPTOR_HANDLE,
     D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING, D3D12_DESCRIPTOR_HEAP_DESC,
     D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
-    D3D12_DESCRIPTOR_HEAP_TYPE_DSV, D3D12_GPU_DESCRIPTOR_HANDLE, D3D12_HEAP_FLAG_NONE,
-    D3D12_HEAP_PROPERTIES, D3D12_HEAP_TYPE_DEFAULT, D3D12_HEAP_TYPE_UPLOAD,
-    D3D12_INDEX_BUFFER_VIEW, D3D12_PLACED_SUBRESOURCE_FOOTPRINT, D3D12_RANGE, D3D12_RESOURCE_DESC,
+    D3D12_DESCRIPTOR_HEAP_TYPE_DSV, D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER,
+    D3D12_GPU_DESCRIPTOR_HANDLE, D3D12_HEAP_FLAG_NONE, D3D12_HEAP_PROPERTIES,
+    D3D12_HEAP_TYPE_DEFAULT, D3D12_HEAP_TYPE_UPLOAD, D3D12_INDEX_BUFFER_VIEW,
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT, D3D12_RANGE, D3D12_RESOURCE_DESC,
     D3D12_RESOURCE_DIMENSION_TEXTURE2D, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL,
     D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_DEPTH_WRITE,
     D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_INDEX_BUFFER,
@@ -50,7 +51,10 @@ use windows::Win32::Graphics::Dxgi::Common::{
 use neuron_core::image::PixelFormat;
 use neuron_core::image::convert::to_rgba8;
 
-use super::pipeline::{DEPTH_FORMAT, PipelineCache, ROOT_CONSTANTS, ROOT_TEXTURES, Shaders};
+use super::pipeline::{
+    DEPTH_FORMAT, PipelineCache, ROOT_CONSTANTS, ROOT_SAMPLERS, ROOT_TEXTURES, Shaders,
+    sampler_descs,
+};
 use super::upload::{DEFAULT_BUFFER_STATE, UploadRing, buffer};
 use super::{AdapterChoice, Context, Gpu, GpuError, RenderTarget, release_barrier, transition};
 use crate::render::ff::buffers::{BufferEvent, IndexSource, VbHandle};
@@ -187,6 +191,8 @@ pub struct D3d12Backend {
     /// The shader-visible ring the draws copy their two views into.
     draw_views: Heap,
     next_view: u32,
+    /// The fixed sampler set, shader visible, made once.
+    samplers: Heap,
     defaults: ID3D12Resource,
     vbs: HashMap<VbHandle, GpuBuffer>,
     ibs: HashMap<IndexSource, GpuBuffer>,
@@ -239,6 +245,20 @@ impl D3d12Backend {
                 ..Default::default()
             },
         )?;
+        let samplers = Heap::new(
+            &gpu,
+            &D3D12_DESCRIPTOR_HEAP_DESC {
+                Type: D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER,
+                NumDescriptors: crate::render::shader::samplers::COUNT,
+                Flags: D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,
+                ..Default::default()
+            },
+        )?;
+        for (i, desc) in sampler_descs().iter().enumerate() {
+            // SAFETY: slot `i` belongs to the sampler heap kept with the
+            // backend.
+            unsafe { gpu.device.CreateSampler(desc, samplers.cpu(i as u32)) };
+        }
         let defaults = buffer(
             &gpu.device,
             D3D12_HEAP_TYPE_UPLOAD,
@@ -257,6 +277,7 @@ impl D3d12Backend {
             free_slots: (1..TEXTURE_SLOTS).rev().collect(),
             draw_views,
             next_view: 0,
+            samplers,
             defaults,
             vbs: HashMap::new(),
             ibs: HashMap::new(),
@@ -292,9 +313,10 @@ impl D3d12Backend {
             self.recording = true;
             // SAFETY: the heap is live; the list is open.
             unsafe {
-                self.gpu
-                    .list
-                    .SetDescriptorHeaps(&[Some(self.draw_views.heap.clone())]);
+                self.gpu.list.SetDescriptorHeaps(&[
+                    Some(self.draw_views.heap.clone()),
+                    Some(self.samplers.heap.clone()),
+                ]);
             }
         }
         Ok(())
@@ -729,6 +751,7 @@ impl D3d12Backend {
             list.SetPipelineState(&pso);
             list.SetGraphicsRootConstantBufferView(ROOT_CONSTANTS, cb.gpu_address);
             list.SetGraphicsRootDescriptorTable(ROOT_TEXTURES, self.draw_views.gpu(base));
+            list.SetGraphicsRootDescriptorTable(ROOT_SAMPLERS, self.samplers.gpu(0));
             list.IASetPrimitiveTopology(topology(p.primitive));
             list.IASetVertexBuffers(0, Some(&[vbv, defaults]));
             list.RSSetViewports(&[D3D12_VIEWPORT {

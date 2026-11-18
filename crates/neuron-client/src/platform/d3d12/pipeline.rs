@@ -4,8 +4,11 @@
 //!
 //! The root signature has the draw's constant buffer as a root descriptor
 //! (`b0`, both stages), a descriptor table of the two stage textures
-//! (`t0`, `t1`, pixel stage) and the 1,050 static samplers of
-//! `render::shader::samplers` (`s0` on, pixel stage).
+//! (`t0`, `t1`, pixel stage) and a descriptor table of the 1,050 samplers
+//! of `render::shader::samplers` (`s0` on, pixel stage). The samplers are
+//! a fixed set made once in a sampler heap ([`sampler_descs`]), not static
+//! samplers: Direct3D 12 does not bind a shader's sampler array to static
+//! samplers ("sampler descriptor range is not fully bound").
 
 use std::collections::HashMap;
 
@@ -16,8 +19,8 @@ use windows::Win32::Graphics::Direct3D12::{
     D3D12_COMPARISON_FUNC, D3D12_COMPARISON_FUNC_ALWAYS, D3D12_COMPARISON_FUNC_NEVER,
     D3D12_CULL_MODE_BACK, D3D12_CULL_MODE_FRONT, D3D12_CULL_MODE_NONE, D3D12_DEPTH_STENCIL_DESC,
     D3D12_DEPTH_STENCILOP_DESC, D3D12_DEPTH_WRITE_MASK_ALL, D3D12_DEPTH_WRITE_MASK_ZERO,
-    D3D12_DESCRIPTOR_RANGE, D3D12_DESCRIPTOR_RANGE_TYPE_SRV, D3D12_FILL_MODE_SOLID,
-    D3D12_FILL_MODE_WIREFRAME, D3D12_FILTER, D3D12_FILTER_ANISOTROPIC,
+    D3D12_DESCRIPTOR_RANGE, D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER, D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
+    D3D12_FILL_MODE_SOLID, D3D12_FILL_MODE_WIREFRAME, D3D12_FILTER, D3D12_FILTER_ANISOTROPIC,
     D3D12_FILTER_MIN_MAG_MIP_POINT, D3D12_FLOAT32_MAX, D3D12_GRAPHICS_PIPELINE_STATE_DESC,
     D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, D3D12_INPUT_ELEMENT_DESC, D3D12_INPUT_LAYOUT_DESC,
     D3D12_LOGIC_OP_NOOP, D3D12_PRIMITIVE_TOPOLOGY_TYPE, D3D12_PRIMITIVE_TOPOLOGY_TYPE_LINE,
@@ -26,10 +29,8 @@ use windows::Win32::Graphics::Direct3D12::{
     D3D12_ROOT_DESCRIPTOR_TABLE, D3D12_ROOT_PARAMETER, D3D12_ROOT_PARAMETER_0,
     D3D12_ROOT_PARAMETER_TYPE_CBV, D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE,
     D3D12_ROOT_SIGNATURE_DESC, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT,
-    D3D12_SHADER_BYTECODE, D3D12_SHADER_VISIBILITY_ALL, D3D12_SHADER_VISIBILITY_PIXEL,
-    D3D12_STATIC_BORDER_COLOR, D3D12_STATIC_BORDER_COLOR_OPAQUE_BLACK,
-    D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE, D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK,
-    D3D12_STATIC_SAMPLER_DESC, D3D12_STENCIL_OP_KEEP, D3D12_TEXTURE_ADDRESS_MODE,
+    D3D12_SAMPLER_DESC, D3D12_SHADER_BYTECODE, D3D12_SHADER_VISIBILITY_ALL,
+    D3D12_SHADER_VISIBILITY_PIXEL, D3D12_STENCIL_OP_KEEP, D3D12_TEXTURE_ADDRESS_MODE,
     D3D12_TEXTURE_ADDRESS_MODE_BORDER, D3D12_TEXTURE_ADDRESS_MODE_CLAMP,
     D3D12_TEXTURE_ADDRESS_MODE_MIRROR, D3D12_TEXTURE_ADDRESS_MODE_MIRROR_ONCE,
     D3D12_TEXTURE_ADDRESS_MODE_WRAP, D3D12SerializeRootSignature, ID3D12Device,
@@ -57,6 +58,8 @@ pub const DEPTH_FORMAT: DXGI_FORMAT = DXGI_FORMAT_D24_UNORM_S8_UINT;
 pub const ROOT_CONSTANTS: u32 = 0;
 /// Root parameter 1: the stage textures' descriptor table.
 pub const ROOT_TEXTURES: u32 = 1;
+/// Root parameter 2: the samplers' descriptor table.
+pub const ROOT_SAMPLERS: u32 = 2;
 
 /// The compiled shaders (`cargo xtask shaders`).
 pub struct Shaders {
@@ -103,20 +106,22 @@ fn address(a: Address) -> D3D12_TEXTURE_ADDRESS_MODE {
     }
 }
 
-fn border(b: Border) -> D3D12_STATIC_BORDER_COLOR {
+fn border(b: Border) -> [f32; 4] {
     match b {
-        Border::TransparentBlack => D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK,
-        Border::OpaqueBlack => D3D12_STATIC_BORDER_COLOR_OPAQUE_BLACK,
-        Border::OpaqueWhite => D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE,
+        Border::TransparentBlack => [0.0; 4],
+        Border::OpaqueBlack => [0.0, 0.0, 0.0, 1.0],
+        Border::OpaqueWhite => [1.0; 4],
     }
 }
 
-fn static_samplers() -> Vec<D3D12_STATIC_SAMPLER_DESC> {
+/// The fixed sampler set, in table order, for the sampler heap.
+#[must_use]
+pub fn sampler_descs() -> Vec<D3D12_SAMPLER_DESC> {
     (0..samplers::COUNT)
         .map(|i| {
             let desc = samplers::desc(i);
             let (filter, max_lod) = filter(desc.filter);
-            D3D12_STATIC_SAMPLER_DESC {
+            D3D12_SAMPLER_DESC {
                 Filter: filter,
                 AddressU: address(desc.address_u),
                 AddressV: address(desc.address_v),
@@ -127,9 +132,6 @@ fn static_samplers() -> Vec<D3D12_STATIC_SAMPLER_DESC> {
                 BorderColor: border(desc.border),
                 MinLOD: 0.0,
                 MaxLOD: max_lod,
-                ShaderRegister: i,
-                RegisterSpace: 0,
-                ShaderVisibility: D3D12_SHADER_VISIBILITY_PIXEL,
             }
         })
         .collect()
@@ -140,6 +142,13 @@ pub fn root_signature(device: &ID3D12Device) -> Result<ID3D12RootSignature, GpuE
     let range = D3D12_DESCRIPTOR_RANGE {
         RangeType: D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
         NumDescriptors: 2,
+        BaseShaderRegister: 0,
+        RegisterSpace: 0,
+        OffsetInDescriptorsFromTableStart: 0,
+    };
+    let sampler_range = D3D12_DESCRIPTOR_RANGE {
+        RangeType: D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER,
+        NumDescriptors: samplers::COUNT,
         BaseShaderRegister: 0,
         RegisterSpace: 0,
         OffsetInDescriptorsFromTableStart: 0,
@@ -165,18 +174,27 @@ pub fn root_signature(device: &ID3D12Device) -> Result<ID3D12RootSignature, GpuE
             },
             ShaderVisibility: D3D12_SHADER_VISIBILITY_PIXEL,
         },
+        D3D12_ROOT_PARAMETER {
+            ParameterType: D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE,
+            Anonymous: D3D12_ROOT_PARAMETER_0 {
+                DescriptorTable: D3D12_ROOT_DESCRIPTOR_TABLE {
+                    NumDescriptorRanges: 1,
+                    pDescriptorRanges: &sampler_range,
+                },
+            },
+            ShaderVisibility: D3D12_SHADER_VISIBILITY_PIXEL,
+        },
     ];
-    let samplers = static_samplers();
     let desc = D3D12_ROOT_SIGNATURE_DESC {
         NumParameters: parameters.len() as u32,
         pParameters: parameters.as_ptr(),
-        NumStaticSamplers: samplers.len() as u32,
-        pStaticSamplers: samplers.as_ptr(),
+        NumStaticSamplers: 0,
+        pStaticSamplers: std::ptr::null(),
         Flags: D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT,
     };
     let mut blob: Option<ID3DBlob> = None;
     let mut error: Option<ID3DBlob> = None;
-    // SAFETY: `desc` points at `parameters`, `range` and `samplers`, which
+    // SAFETY: `desc` points at `parameters` and the ranges, which
     // live until the call returns; the out slots are valid.
     unsafe {
         D3D12SerializeRootSignature(
