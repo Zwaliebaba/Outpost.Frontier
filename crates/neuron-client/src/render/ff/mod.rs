@@ -19,3 +19,4 @@ pub mod model;
 pub mod state;
 pub mod textures;
 pub mod transforms;
+pub mod vertex_copy;
