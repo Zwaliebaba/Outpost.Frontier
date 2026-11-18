@@ -7,7 +7,9 @@
 
 use neuron_core::hash::name_crc32;
 use neuron_core::math::{Matrix, Vector, matrix_to_quaternion};
-use neuron_core::physics::{BodyDesc, CONTROLLER_PRIORITY, CreateParms, Geometry, GolemParms};
+use neuron_core::physics::{
+    BodyDesc, CONTROLLER_PRIORITY, CreateParms, Geometry, GolemParms, PhantomDesc,
+};
 use neuron_core::scene::{InstanceId, connect_hardpoints};
 
 use crate::data::archetype::equipment::{Equipment, EquipmentKind};
@@ -1603,6 +1605,11 @@ impl World {
             seeker_elapsed: 0.0,
             seeker_range: m.seeker_range,
             seeker_fov_cos: m.seeker_fov_cos,
+            seeker: m.seeker,
+            max_angular_velocity: m.max_angular_velocity,
+            phantom: None,
+            triggered: false,
+            trigger_obj: 0,
         };
         let mut obj = self.base_object(ObjectKind::Guided, &arch.root, KindData::Guided(guided));
         let id = self.allocate_id();
@@ -1621,6 +1628,45 @@ impl World {
         let _ = constants;
         self.build_body(h, parms, None, false);
         self.add_initial_velocity(h, s.velocity, Vector::ZERO);
+        // `Guided::arm`: the motor's controller, and with a detonation
+        // distance the proximity fuse, a ball phantom of that radius in the
+        // missile's collision group, merged into its core (collisions off
+        // until the first update turns them on).
+        self.register(h, ControllerRef::Guided);
+        if m.detonation_dist_sq > 0.0
+            && let Some((system, body)) = self.body(h)
+        {
+            let position = self
+                .objects
+                .get(h)
+                .map_or(Vector::ZERO, |o| o.engine.position);
+            let radius = f64::from(m.detonation_dist_sq).sqrt() as f32;
+            if let Some(world) = self.physics.world_mut(system) {
+                let name = world.collision_group(body);
+                let phantom = world.create_phantom(PhantomDesc {
+                    geometry: Geometry::ball(radius),
+                    position,
+                    orientation: Matrix::IDENTITY,
+                    name,
+                    listener: true,
+                });
+                world.set_phantom_collision_state(phantom, false);
+                world.attach_phantom(phantom, body, position);
+                if let Some(KindData::Guided(g)) = self.objects.get_mut(h).map(|o| &mut o.data) {
+                    g.phantom = Some(phantom);
+                }
+            }
+        }
+        // `StarSystem::create_guided`: a live target with a behaviour
+        // manager hears of the missile (event 6,
+        // `AppendSystemManagerTimerListEntry`).
+        let missile_id = self.objects.get(h).map_or(0, |o| o.simple.id);
+        if let Some((target, _)) = s.target
+            && self.objects.get(target).is_some_and(|t| !t.dead)
+            && let Some(manager) = self.behavior_managers.get_mut(&target)
+        {
+            manager.state.sys.timers.add_missile(missile_id);
+        }
         Ok(h)
     }
 

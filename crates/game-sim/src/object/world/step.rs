@@ -41,7 +41,7 @@ pub(crate) fn run_controller(
     };
     let flight = &mut ship.flight;
     match which {
-        ControllerRef::Ship => {}
+        ControllerRef::Ship | ControllerRef::Guided => {}
         ControllerRef::Steering => {
             steering_controller(&flight.steering, &flight.arch, &orientation, dt, pusher);
         }
@@ -113,6 +113,11 @@ impl ControllerHost for Host<'_> {
             return;
         };
         let dt = context.event.delta_time;
+        if which == ControllerRef::Guided {
+            let mass = context.core().mass;
+            super::guided::guided_controller(obj, mass, dt, context);
+            return;
+        }
         run_controller(obj, which, self.consts, dt, context);
     }
 }
@@ -196,6 +201,7 @@ impl World {
         if self.config.server_physics {
             self.move_beams(system, step);
             self.step_physics(system, step);
+            self.guided_phantom_events(system);
             self.process_collisions(system);
             self.reap();
         }
@@ -324,8 +330,8 @@ impl World {
                     world.set_collision_group(body, &name);
                 }
             }
+            crate::object::ObjectKind::Guided => self.update_guided(h, dt),
             crate::object::ObjectKind::Beam
-            | crate::object::ObjectKind::Guided
             | crate::object::ObjectKind::Mine
             | crate::object::ObjectKind::CounterMeasure => self.update_projectile(h, dt),
             _ => {}
@@ -336,9 +342,6 @@ impl World {
         let Some(o) = self.objects.get_mut(h) else {
             return;
         };
-        if let KindData::Guided(g) = &mut o.data {
-            g.seeker_elapsed += dt;
-        }
         let Some(p) = o.as_projectile_mut() else {
             return;
         };

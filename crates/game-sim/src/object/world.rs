@@ -33,6 +33,8 @@ mod ai;
 mod ambient;
 mod animate;
 mod combat;
+mod guided;
+pub use guided::GuidedTrace;
 mod sensors;
 mod spawn;
 mod step;
@@ -78,6 +80,8 @@ pub enum ControllerRef {
     Strafe,
     /// An equipment item's controller (`CEEngine`, `CEThruster`).
     Equip(SubObjId),
+    /// The server's `Guided` wrapper (a missile's motor, `arm`).
+    Guided,
 }
 
 /// The behaviour manager's tick (`IBehaviorManager::UpdateBehaviorTick`),
@@ -321,6 +325,9 @@ pub struct World {
     pub(crate) ambient: BTreeMap<i32, ambient::AmbientSub>,
     /// The results of every fire call, when kept ([`World::set_fire_log`]).
     pub(crate) fire_log: Option<Vec<FireCall>>,
+    /// Every guided munition's seeker step, when kept
+    /// ([`World::set_guided_trace`]).
+    pub(crate) guided_trace: Option<Vec<guided::GuidedTrace>>,
 }
 
 impl core::fmt::Debug for World {
@@ -410,6 +417,7 @@ impl World {
             anim_scripts: BTreeMap::new(),
             ambient: BTreeMap::new(),
             fire_log: None,
+            guided_trace: None,
         }
     }
 
@@ -628,6 +636,12 @@ impl World {
                 world.unregister_controller(*handle);
             }
             self.controllers.remove(key);
+        }
+        // `~Guided`: `PhySys::DestroyPhantom`.
+        if let super::KindData::Guided(g) = &obj.data
+            && let (Some(phantom), Some(world)) = (g.phantom, self.physics.world_mut(system))
+        {
+            world.destroy_phantom(phantom);
         }
         if let (Some(body), Some(world)) = (obj.physical.body, self.physics.world_mut(system)) {
             world.destroy_body(body);

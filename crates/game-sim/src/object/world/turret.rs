@@ -202,17 +202,20 @@ impl World {
         self.scene.instance_position(mount.root)
     }
 
-    /// `CObject::get_center_of_mass`: the body's mass centre, else the
-    /// position.
+    /// `CObject::get_center_of_mass`: with a body `PhySys::GetCenterOfMass`
+    /// (the surface's mass centre through the body's object frame now,
+    /// with the reference's roundings; the core of a multiplayer body is
+    /// pinned to the object's origin, so this is not the core's
+    /// position), else the position.
     #[must_use]
     pub fn center_of_mass(&self, h: ObjHandle) -> Vector {
         let Some(o) = self.objects.get(h) else {
             return Vector::ZERO;
         };
         if let (Some(body), Some(w)) = (o.physical.body, self.physics.world(o.physical.system))
-            && let Some(c) = w.center_of_mass(body)
+            && let Some((m, t)) = w.object_matrix(body)
         {
-            return c;
+            return physics_center_of_mass(&m, t, o.physical.mass_center);
         }
         o.engine.position
     }
@@ -664,4 +667,25 @@ impl World {
             .map(|c| (c.owner, c.gun, c.pitch))
             .collect()
     }
+}
+
+/// `PhySys::GetCenterOfMass`'s product: `center` (object space) through
+/// the frame `m`, `t`. The first-column products stay on the FPU, the third
+/// row's is stored; the second column is added and the first two rows
+/// stored; the third column and the translation are added last, each
+/// component rounded once.
+#[must_use]
+pub(crate) fn physics_center_of_mass(m: &[[f32; 3]; 3], t: Vector, center: [f32; 3]) -> Vector {
+    let [c0, c1, c2] = center.map(e);
+    let x0 = e(m[0][0]) * c0;
+    let y0 = e(m[1][0]) * c0;
+    let z0 = r(e(m[2][0]) * c0);
+    let x1 = r(e(m[0][1]) * c1 + x0);
+    let y1 = r(e(m[1][1]) * c1 + y0);
+    let z1 = e(m[2][1]) * c1 + e(z0);
+    Vector::new(
+        r(e(m[0][2]) * c2 + e(x1) + e(t.x)),
+        r(e(m[1][2]) * c2 + e(y1) + e(t.y)),
+        r(e(m[2][2]) * c2 + z1 + e(t.z)),
+    )
 }

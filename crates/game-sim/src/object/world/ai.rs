@@ -144,22 +144,10 @@ impl World {
         let (Some(body), Some(w)) = (o.physical.body, self.physics(o.physical.system)) else {
             return self.body_sphere(h);
         };
-        let (Some(core), Some((t, m))) = (w.core(body), w.transform(body)) else {
+        let (Some(core), Some((m, t))) = (w.core(body), w.object_matrix(body)) else {
             return self.body_sphere(h);
         };
-        let [c0, c1, c2] = o.physical.mass_center.map(e);
-        let m = &m.m;
-        let x0 = e(m[0][0]) * c0;
-        let y0 = e(m[1][0]) * c0;
-        let z0 = r(e(m[2][0]) * c0);
-        let x1 = r(e(m[0][1]) * c1 + x0);
-        let y1 = r(e(m[1][1]) * c1 + y0);
-        let z1 = e(m[2][1]) * c1 + e(z0);
-        let center = Vector::new(
-            r(e(m[0][2]) * c2 + e(x1) + e(t.x)),
-            r(e(m[1][2]) * c2 + e(y1) + e(t.y)),
-            r(e(m[2][2]) * c2 + z1 + e(t.z)),
-        );
+        let center = super::turret::physics_center_of_mass(&m, t, o.physical.mass_center);
         (core.upper_limit_radius, center)
     }
 
