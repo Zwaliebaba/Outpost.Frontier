@@ -22,10 +22,12 @@
 //!
 //! A ship with an `ai` state graph gets a behaviour manager
 //! (`pub::AI::SubmitState`), and the `goto`, `face`, `idle` and `cancel`
-//! commands are directives (`pub::AI::SubmitDirective`). Scenarios whose
-//! directives need a behaviour that is not ported yet, and the `dock`
-//! directive, are skipped with a note (P2.5). A summary goes to `rust-scenario-replay.txt` in
-//! the oracle folder.
+//! commands are directives (`pub::AI::SubmitDirective`); `fly_to_point`
+//! (goto) and `turn_to_heading` (face) are compared with the oracle like
+//! the other scenarios. Scenarios whose directives need a behaviour that
+//! is not ported yet, and the `dock` directive, are skipped with a note
+//! (P2.5). A summary goes to `rust-scenario-replay.txt` in the oracle
+//! folder.
 
 mod support;
 

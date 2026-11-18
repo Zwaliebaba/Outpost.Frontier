@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use game_sim::ai::state_graph::{BEHAVIOR_COUNT, BehaviorScore};
-use game_sim::ai::world::{ObjectView, StrafeDir};
+use game_sim::ai::world::{EngineStatus, ObjectView, StrafeDir};
 use neuron_core::math::{Matrix, Vector};
 
 use super::records::{Json, read_lines};
@@ -42,6 +42,56 @@ pub struct ManagerRecord {
     pub f120: u32,
     /// `score_w` and `score_b`.
     pub scores: [BehaviorScore; BEHAVIOR_COUNT],
+    /// `pathfind` (records written before the field: `None`).
+    pub pathfind: Option<PathfindRecord>,
+    /// `thrust`: the thrust manager's flags (cruise engaged 1, cruise
+    /// unobstructed 2, engine active 4, auto level 8, auto avoidance 16).
+    pub thrust: Option<u32>,
+}
+
+/// The pathfinder fields of `ai_in` and `ai_out` (`pathfind`).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PathfindRecord {
+    /// `Timer1E0`, `Timer1E8`, `Timer20C`.
+    pub timers: [f32; 3],
+    /// `Period1E4`, `Period1EC`, `Period210`.
+    pub periods: [f32; 3],
+    /// `Field_214`.
+    pub record: i32,
+    /// `Field_22C`.
+    pub goal: Vector,
+    /// `Field_23C`.
+    pub cap: f32,
+    /// `Field_240`.
+    pub kind: i32,
+    /// `CachedTargetPosition`.
+    pub target: Vector,
+    /// `Field_064`.
+    pub target_id: u32,
+    /// `Reaction.State`.
+    pub reaction: i32,
+    /// `Avoidance.Active`.
+    pub probe_active: bool,
+    /// `Avoidance.HasContact`.
+    pub probe_contact: bool,
+}
+
+fn pathfind(j: &Json) -> Option<PathfindRecord> {
+    let timers = j.get("timers")?.as_floats()?;
+    let periods = j.get("periods")?.as_floats()?;
+    Some(PathfindRecord {
+        timers: [*timers.first()?, *timers.get(1)?, *timers.get(2)?],
+        periods: [*periods.first()?, *periods.get(1)?, *periods.get(2)?],
+        record: i(j, "record")?,
+        goal: v3(j, "goal")?,
+        cap: f(j, "cap")?,
+        kind: i(j, "kind")?,
+        target: v3(j, "target")?,
+        target_id: u(j, "target_id")?,
+        reaction: i(j, "reaction")?,
+        probe_active: b(j, "probe_active")?,
+        probe_contact: b(j, "probe_contact")?,
+    })
 }
 
 /// One object of a tick's snapshot.
@@ -126,6 +176,10 @@ pub struct Affect {
     pub i: i32,
     /// The float arguments.
     pub v: Option<Vec<f32>>,
+    /// The instrumented calls around this one: 0 for a call the caller
+    /// made, more for one an `IObjAffect` body made (0 in records written
+    /// before the field).
+    pub depth: u32,
 }
 
 fn f(j: &Json, key: &str) -> Option<f32> {
@@ -186,6 +240,8 @@ fn manager(j: &Json) -> Option<ManagerRecord> {
         f11c: i(j, "f11c")?,
         f120: u(j, "f120")?,
         scores,
+        pathfind: j.get("pathfind").and_then(pathfind),
+        thrust: u(j, "thrust"),
     })
 }
 
@@ -234,7 +290,7 @@ pub fn object_view(j: &Json) -> Option<ObjectView> {
         nudge: v3(j, "nudge"),
         strafe: i(j, "strafe").map(StrafeDir::from_value),
         cruise,
-        thrusters: None,
+        thrusters: b(j, "thrusters"),
         target: opt_u(j, "target"),
         subtarget: opt_u(j, "subtarget").and_then(|s| u16::try_from(s).ok()),
         rank: opt_u(j, "rank"),
@@ -260,7 +316,13 @@ pub fn object_view(j: &Json) -> Option<ObjectView> {
         max_bank_angle: 0.0,
         scanner_interference: 0.0,
         atmosphere_range: f(j, "atmosphere").unwrap_or(0.0),
-        engine: None,
+        engine: j.get("engine").and_then(Json::as_array).and_then(|a| {
+            Some(EngineStatus {
+                id: u16::try_from(a.first()?.as_u32()?).ok()?,
+                active: a.get(1)?.as_bool()?,
+                destroyed: a.get(2)?.as_bool()?,
+            })
+        }),
     })
 }
 
@@ -406,6 +468,7 @@ pub fn read_affects(path: &Path) -> BTreeMap<u32, Vec<Affect>> {
             slot: i(&j, "slot").unwrap_or(-1),
             i: i(&j, "i").unwrap_or(0),
             v: j.get("v").and_then(Json::as_floats),
+            depth: u(&j, "depth").unwrap_or(0),
         };
         if a.src == "behavior" && a.beh != 0 {
             out.entry(a.beh).or_default().push(a);

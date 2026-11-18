@@ -14,7 +14,17 @@
 //! before each tick. After the tick the manager fields are compared with
 //! `ai_out` bit for bit, the `rand()` draws by count, and the commands
 //! with the `affect` records of `calls.jsonl` that carry the tick's `seq`
-//! (the recorded slots 0 to 3 and 13; floats bit for bit).
+//! (the recorded slots 0 to 3, 13 and 18 to 21; the calls the behaviour
+//! made, not the ones an `IObjAffect` body makes in turn; floats bit for
+//! bit).
+//!
+//! The motion model the behaviours query (slots 50 to 64) is a pure
+//! function of the ship's archetype and equipment, which the snapshot does
+//! not hold: the replay spawns each scenario ship into a [`World`] over
+//! `outdir/` at its scenario position and answers the motion queries of
+//! the ship from it. The snapshot's own state (position, throttle, engine
+//! and thruster status and so on) follows the commands of the tick as the
+//! reference's `IObjAffect` bodies change it, nested calls included.
 //!
 //! A tick whose behaviour on entry or exit is not ported yet is counted as
 //! skipped, by behaviour id, and so is a mismatching tick that polled a
@@ -27,6 +37,7 @@ mod support;
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::fs;
+use std::path::Path;
 use std::sync::Arc;
 
 use game_sim::ai::manager::{BehaviorManager, ManagerState};
@@ -35,9 +46,13 @@ use game_sim::ai::state_graph::StateGraphDb;
 use game_sim::ai::world::{
     AiCommand, AiRand, AiWorld, MotionModel, ObjectView, RayContact, RecordedRand, SpatialQueries,
 };
+use game_sim::object::world::{ShipSpawn, WorldConfig};
+use game_sim::object::{ObjHandle, World};
+use neuron_core::id::create_id;
 use neuron_core::math::{Matrix, Vector};
+use neuron_core::physics::StepMode;
 use support::ai_records::{
-    Affect, AiTick, ManagerRecord, QueryRecord, read_affects, read_ai_ticks,
+    Affect, AiTick, ManagerRecord, PathfindRecord, QueryRecord, read_affects, read_ai_ticks,
 };
 use support::records::{find_files, oracle_dir};
 
@@ -45,20 +60,84 @@ use support::records::{find_files, oracle_dir};
 const MAX_REPORTED: usize = 30;
 
 /// The recorded `IObjAffect` slots (`design/sim-records.md`, `affect`).
-const RECORDED_SLOTS: [u8; 5] = [0, 1, 2, 3, 13];
+const RECORDED_SLOTS: [u8; 9] = [0, 1, 2, 3, 13, 18, 19, 20, 21];
+
+/// The scenario ships of one run in a world over `outdir/`, for their
+/// motion models: the ship's scenario name to its handle.
+struct MotionWorld {
+    world: World,
+    ships: BTreeMap<String, ObjHandle>,
+}
+
+impl MotionWorld {
+    /// The ships of `CppSource/Oracle/scenarios/<scenario>.txt`, spawned
+    /// where the scenario puts them.
+    fn new(scenario: &str) -> Option<Self> {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../CppSource/Oracle/scenarios")
+            .join(format!("{scenario}.txt"));
+        let text = fs::read_to_string(path).ok()?;
+        let mut world = support::world::world(WorldConfig {
+            single_player: false,
+            step_mode: StepMode::Multiplayer,
+            server_physics: true,
+            seed: 1,
+        })?;
+        let mut system = None;
+        let mut ships = BTreeMap::new();
+        for line in text.lines() {
+            let t: Vec<&str> = line.split_whitespace().collect();
+            match t.first().copied() {
+                Some("system") if t.len() > 1 => {
+                    let id = create_id(t[1].as_bytes());
+                    world.load_system(id);
+                    system = Some(id);
+                }
+                Some("ship") if t.len() >= 7 => {
+                    let Some(system) = system else {
+                        continue;
+                    };
+                    let num = |k: usize| t.get(k).and_then(|v| v.parse::<f32>().ok());
+                    let (Some(x), Some(y), Some(z)) = (num(4), num(5), num(6)) else {
+                        continue;
+                    };
+                    let spawn = ShipSpawn::new(
+                        create_id(t[2].as_bytes()),
+                        create_id(t[3].as_bytes()),
+                        Vector::new(x, y, z),
+                        Matrix::IDENTITY,
+                    );
+                    if let Ok(h) = world.spawn_ship(system, &spawn) {
+                        ships.insert(t[1].to_owned(), h);
+                    }
+                }
+                _ => {}
+            }
+        }
+        Some(Self { world, ships })
+    }
+}
 
 /// A world over one tick's snapshot: object ids are the handles.
-struct ReplayWorld {
+struct ReplayWorld<'a> {
     objects: BTreeMap<u32, ObjectView>,
     attitudes: BTreeMap<u32, (f32, f32)>,
     queries: Vec<QueryRecord>,
     rand: RecordedRand,
     commands: Vec<AiCommand<u32>>,
     ship: u32,
+    /// The ship's motion model: the motion world and the ship's handle.
+    motion: Option<(&'a World, ObjHandle)>,
+    /// `GAvoidIndexTableShuffled` of the run (the process).
+    avoid_shuffled: bool,
 }
 
-impl ReplayWorld {
-    fn new(t: &AiTick) -> Self {
+impl<'a> ReplayWorld<'a> {
+    fn new(t: &AiTick, motion: Option<&'a MotionWorld>, avoid_shuffled: bool) -> Self {
+        let motion = motion.and_then(|m| {
+            let h = *m.ships.get(t.obj.as_deref()?)?;
+            Some((&m.world, h))
+        });
         Self {
             objects: t
                 .objects
@@ -74,6 +153,66 @@ impl ReplayWorld {
             rand: RecordedRand::new(t.rand.clone()),
             commands: Vec::new(),
             ship: t.id,
+            motion,
+            avoid_shuffled,
+        }
+    }
+
+    /// The ship's state after one of its `IObjAffect` calls, with the
+    /// calls the reference's bodies make in turn (`Ship::set_strafe_dir`
+    /// and `slot_54` switch the engine on, `slot_50` switches the
+    /// thrusters off before engaging cruise; `slot_4c` will not switch an
+    /// engine off while the ship strafes or thrusts).
+    fn follow(v: &mut ObjectView, command: &AiCommand<u32>) {
+        let engine_on = |v: &mut ObjectView| {
+            if let Some(e) = &mut v.engine
+                && !e.destroyed
+            {
+                e.active = true;
+            }
+        };
+        match command {
+            AiCommand::SetThrottle(t) => v.throttle = Some(*t),
+            AiCommand::SetAxisThrottle(a) => v.axis_throttle = Some(*a),
+            AiCommand::SetNudge(n) => v.nudge = Some(*n),
+            AiCommand::SetStrafe(s) => {
+                if v.strafe != Some(*s) {
+                    engine_on(v);
+                }
+                v.strafe = Some(*s);
+            }
+            AiCommand::EngageCruise { engage, .. } => {
+                let cruise = v.cruise.is_some_and(|c| c.0);
+                if cruise != *engage && *engage {
+                    v.thrusters = Some(false);
+                }
+                v.cruise = Some((*engage, v.cruise.is_some_and(|c| c.1)));
+            }
+            AiCommand::SetThrustersActive(on) => {
+                if *on {
+                    if v.cruise.is_some_and(|c| c.0) {
+                        return;
+                    }
+                    engine_on(v);
+                }
+                v.thrusters = Some(*on);
+            }
+            AiCommand::ActivateEquip { equipment, on } => {
+                let strafing = v.strafe.is_some_and(|s| s.value() != 0);
+                let thrusting = v.thrusters.unwrap_or(false);
+                if let Some(e) = &mut v.engine
+                    && e.id == *equipment
+                    && !e.destroyed
+                    && (*on || !(strafing || thrusting))
+                {
+                    e.active = *on;
+                }
+            }
+            AiCommand::SetTarget { target, subtarget } => {
+                v.target = *target;
+                v.subtarget = Some(*subtarget);
+            }
+            _ => {}
         }
     }
 
@@ -98,7 +237,7 @@ impl ReplayWorld {
     }
 }
 
-impl AiWorld for ReplayWorld {
+impl AiWorld for ReplayWorld<'_> {
     type Handle = u32;
 
     fn inspect(&self, h: u32) -> Option<ObjectView> {
@@ -135,8 +274,12 @@ impl AiWorld for ReplayWorld {
         None
     }
 
-    fn motion(&self, _h: u32) -> Option<Box<dyn MotionModel + '_>> {
-        None
+    fn motion(&self, h: u32) -> Option<Box<dyn MotionModel + '_>> {
+        let (world, handle) = self.motion?;
+        if h != self.ship {
+            return None;
+        }
+        world.motion(handle)
     }
 
     fn system_of(&self, h: u32) -> Option<u32> {
@@ -147,17 +290,7 @@ impl AiWorld for ReplayWorld {
         // The ship's own state follows its commands, as the reference's
         // reads after a command see it.
         if let Some(v) = self.objects.get_mut(&h) {
-            match &command {
-                AiCommand::SetThrottle(t) => v.throttle = Some(*t),
-                AiCommand::SetAxisThrottle(a) => v.axis_throttle = Some(*a),
-                AiCommand::SetNudge(n) => v.nudge = Some(*n),
-                AiCommand::SetStrafe(s) => v.strafe = Some(*s),
-                AiCommand::EngageCruise { engage, .. } => {
-                    v.cruise = Some((*engage, v.cruise.is_some_and(|c| c.1)));
-                }
-                AiCommand::SetThrustersActive(on) => v.thrusters = Some(*on),
-                _ => {}
-            }
+            Self::follow(v, &command);
         }
         if h == self.ship {
             self.commands.push(command);
@@ -166,7 +299,7 @@ impl AiWorld for ReplayWorld {
     }
 }
 
-impl SpatialQueries for ReplayWorld {
+impl SpatialQueries for ReplayWorld<'_> {
     fn find_ray_collisions(
         &self,
         _system: u32,
@@ -200,9 +333,17 @@ impl SpatialQueries for ReplayWorld {
     }
 }
 
-impl AiRand for ReplayWorld {
+impl AiRand for ReplayWorld<'_> {
     fn rand(&mut self) -> i32 {
         self.rand.rand()
+    }
+
+    fn avoid_table_shuffled(&self) -> bool {
+        self.avoid_shuffled
+    }
+
+    fn set_avoid_table_shuffled(&mut self) {
+        self.avoid_shuffled = true;
     }
 }
 
@@ -242,6 +383,56 @@ fn restore(m: &mut ManagerState, r: &ManagerRecord, t: &AiTick, graphs: &StateGr
     m.f120 = int(r.f120);
     m.scores = r.scores;
     m.sys.targets.clone_from(&t.targets);
+    if let Some(p) = &r.pathfind {
+        let pf = &mut m.pathfind;
+        [pf.timer_1e0, pf.timer_1e8, pf.timer_20c] = p.timers;
+        [pf.period_1e4, pf.period_1ec, pf.period_210] = p.periods;
+        pf.field_214 = p.record;
+        pf.field_22c = p.goal;
+        pf.field_23c = p.cap;
+        pf.field_240 = p.kind;
+        pf.cached_target_position = p.target;
+        pf.target_id = p.target_id;
+        pf.reaction.state = p.reaction;
+        pf.avoidance.active = p.probe_active;
+        pf.avoidance.has_contact = p.probe_contact;
+    }
+    if let Some(flags) = r.thrust {
+        let th = &mut m.thrust;
+        th.cruise_engaged = flags & 1 != 0;
+        th.cruise_unobstructed = flags & 2 != 0;
+        th.engine_active = flags & 4 != 0;
+        th.auto_level = flags & 8 != 0;
+        th.auto_avoidance = flags & 16 != 0;
+    }
+}
+
+/// The pathfinder fields the records hold, from the Rust manager.
+fn pathfind_snapshot(m: &ManagerState) -> PathfindRecord {
+    let pf = &m.pathfind;
+    PathfindRecord {
+        timers: [pf.timer_1e0, pf.timer_1e8, pf.timer_20c],
+        periods: [pf.period_1e4, pf.period_1ec, pf.period_210],
+        record: pf.field_214,
+        goal: pf.field_22c,
+        cap: pf.field_23c,
+        kind: pf.field_240,
+        target: pf.cached_target_position,
+        target_id: pf.target_id,
+        reaction: pf.reaction.state,
+        probe_active: pf.avoidance.active,
+        probe_contact: pf.avoidance.has_contact,
+    }
+}
+
+/// The thrust manager's flags as `thrust` writes them.
+fn thrust_flags(m: &ManagerState) -> u32 {
+    let th = &m.thrust;
+    u32::from(th.cruise_engaged)
+        | u32::from(th.cruise_unobstructed) << 1
+        | u32::from(th.engine_active) << 2
+        | u32::from(th.auto_level) << 3
+        | u32::from(th.auto_avoidance) << 4
 }
 
 /// The fields of `ai_out` the Rust manager left.
@@ -264,7 +455,31 @@ fn snapshot(m: &ManagerState) -> ManagerRecord {
         f11c: m.f11c,
         f120: word(m.f120),
         scores: m.scores,
+        pathfind: Some(pathfind_snapshot(m)),
+        thrust: Some(thrust_flags(m)),
     }
+}
+
+fn vector_bits(v: Vector) -> [u32; 3] {
+    [v.x.to_bits(), v.y.to_bits(), v.z.to_bits()]
+}
+
+/// The pathfinder fields bit for bit (only where the oracle wrote them).
+fn pathfind_equal(ours: Option<&PathfindRecord>, theirs: Option<&PathfindRecord>) -> bool {
+    let (Some(a), Some(b)) = (ours, theirs) else {
+        return true;
+    };
+    a.timers.map(f32::to_bits) == b.timers.map(f32::to_bits)
+        && a.periods.map(f32::to_bits) == b.periods.map(f32::to_bits)
+        && a.record == b.record
+        && vector_bits(a.goal) == vector_bits(b.goal)
+        && a.cap.to_bits() == b.cap.to_bits()
+        && a.kind == b.kind
+        && vector_bits(a.target) == vector_bits(b.target)
+        && a.target_id == b.target_id
+        && a.reaction == b.reaction
+        && a.probe_active == b.probe_active
+        && a.probe_contact == b.probe_contact
 }
 
 fn bits_equal(a: &ManagerRecord, b: &ManagerRecord) -> bool {
@@ -291,6 +506,8 @@ fn bits_equal(a: &ManagerRecord, b: &ManagerRecord) -> bool {
         && a.f11c == b.f11c
         && a.f120 == b.f120
         && scores
+        && pathfind_equal(a.pathfind.as_ref(), b.pathfind.as_ref())
+        && (b.thrust.is_none() || a.thrust == b.thrust)
 }
 
 /// A command as the `affect` record writes it: slot, integer, float bits.
@@ -311,6 +528,22 @@ fn as_affect(c: &AiCommand<u32>) -> Option<AffectRow> {
             i32::try_from(equipment.len()).unwrap_or(-1),
             target.as_ref().and_then(v3),
         ),
+        AiCommand::SetTarget { target, subtarget } => (
+            18,
+            target.map_or(0, int),
+            Some(vec![f32::from(*subtarget).to_bits()]),
+        ),
+        AiCommand::ActivateEquip { equipment, on } => (
+            19,
+            i32::from(*equipment),
+            Some(vec![if *on { 1.0_f32 } else { 0.0 }.to_bits()]),
+        ),
+        AiCommand::EngageCruise { engage, instant } => (
+            20,
+            i32::from(*engage),
+            Some(vec![if *instant { 1.0_f32 } else { 0.0 }.to_bits()]),
+        ),
+        AiCommand::SetThrustersActive(on) => (21, i32::from(*on), None),
         _ => return None,
     })
 }
@@ -353,11 +586,15 @@ struct Totals {
     skipped_candidate: BTreeMap<i32, usize>,
     rand_mismatch: usize,
     reports: Vec<String>,
+    /// Each run's ship on its first tick, recorded and Rust.
+    first_views: Vec<String>,
+    /// Compared ticks by behaviour on entry: compared, matched.
+    by_behavior: BTreeMap<i32, (usize, usize)>,
 }
 
 /// The first behaviour with a weight in the graph row of `current` that
 /// is not ported.
-fn unported_candidate(manager: &BehaviorManager<ReplayWorld>, current: i32) -> Option<i32> {
+fn unported_candidate(manager: &BehaviorManager<ReplayWorld<'_>>, current: i32) -> Option<i32> {
     let graph = manager.state.state_graph.as_ref()?;
     let row = graph.weights.get(usize::try_from(current).ok()?)?;
     row.iter()
@@ -373,7 +610,7 @@ fn report(
     out: &ManagerRecord,
     ours: &ManagerRecord,
     commands: (&[AffectRow], &[AffectRow]),
-    world: &ReplayWorld,
+    world: &ReplayWorld<'_>,
 ) -> String {
     let mut r = format!(
         "{} seq {} tick {} id {} ({:?}):",
@@ -391,6 +628,20 @@ fn report(
             describe(out),
             describe(ours)
         );
+        if !pathfind_equal(ours.pathfind.as_ref(), out.pathfind.as_ref())
+            || (out.thrust.is_some() && ours.thrust != out.thrust)
+        {
+            let _ = write!(
+                r,
+                "\n  pathfind in     {:?} thrust {:?}\n  pathfind oracle {:?} thrust {:?}\n  pathfind rust   {:?} thrust {:?}",
+                t.input.pathfind,
+                t.input.thrust,
+                out.pathfind,
+                out.thrust,
+                ours.pathfind,
+                ours.thrust
+            );
+        }
         if ours.scores != out.scores {
             let _ = write!(
                 r,
@@ -425,7 +676,17 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
         .parent()
         .map(|p| read_affects(&p.join("calls.jsonl")))
         .unwrap_or_default();
-    let mut managers: BTreeMap<u32, BehaviorManager<ReplayWorld>> = BTreeMap::new();
+    // `<oracle dir>/<scenario>/<run>/ai.jsonl`.
+    let scenario = path
+        .parent()
+        .and_then(Path::parent)
+        .and_then(Path::file_name)
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+    let motion = MotionWorld::new(scenario);
+    let mut avoid_shuffled = false;
+    let mut managers: BTreeMap<u32, BehaviorManager<ReplayWorld<'_>>> = BTreeMap::new();
+    let mut first_seen: BTreeMap<u32, ()> = BTreeMap::new();
     let mut personalities: BTreeMap<u32, Personality> = BTreeMap::new();
     for t in &ticks {
         let Some(out) = &t.output else {
@@ -435,16 +696,48 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
         if let Some(p) = t.personality.as_deref().and_then(Personality::from_bytes) {
             personalities.insert(t.id, p);
         }
-        let mut world = ReplayWorld::new(t);
+        let mut world = ReplayWorld::new(t, motion.as_ref(), avoid_shuffled);
         let is_player = world.objects.get(&t.id).is_some_and(|v| v.is_player);
+        if first_seen.insert(t.id, ()).is_none()
+            && let Some(v) = world.objects.get(&t.id)
+            && totals.first_views.len() < MAX_REPORTED
+        {
+            // What the recorder's `get_physical_radius` and box give for
+            // the ship, against the Rust world's answer for the same ship.
+            let rust = world
+                .motion
+                .and_then(|(w, h)| w.ai_view(h))
+                .map(|r| (r.radius, r.center, r.position, r.extents));
+            totals.first_views.push(format!(
+                "{} id {} {:?}: pos {:?} center {:?} radius {} extents {:?} engine {:?} thrusters {:?}; rust at spawn {:?}",
+                path.display(),
+                t.id,
+                t.obj,
+                v.position,
+                v.center,
+                v.radius,
+                v.extents,
+                v.engine,
+                v.thrusters,
+                rust
+            ));
+        }
         let manager = managers.entry(t.id).or_insert_with(|| {
-            BehaviorManager::from_state(ManagerState::new(is_player), Some(t.id))
+            let mut m = BehaviorManager::from_state(ManagerState::new(is_player), Some(t.id));
+            m.attach_all(&mut world, t.id);
+            m.state.pathfind.owner_type = world.objects.get(&t.id).map_or(0, |v| v.type_flags);
+            if let Some(v) = world.objects.get(&t.id) {
+                m.state.pathfind.avoidance.attach_owner(v);
+            }
+            m.state.pathfind.avoidance.phys_system_id = 1;
+            m
         });
         restore(&mut manager.state, &t.input, t, graphs);
         if let Some(p) = personalities.get(&t.id) {
             manager.state.personality = *p;
         }
         manager.update_behavior_tick(&mut world, t.id, t.dt);
+        avoid_shuffled = world.avoid_shuffled;
         let ours = snapshot(&manager.state);
         if let Some(b) = [t.input.behavior, out.behavior]
             .into_iter()
@@ -458,7 +751,7 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
             .get(&t.seq)
             .map(|v| {
                 v.iter()
-                    .filter(|a| a.id == t.id)
+                    .filter(|a| a.id == t.id && a.depth == 0)
                     .map(recorded_affect)
                     .collect()
             })
@@ -467,6 +760,9 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
         if bits_equal(&ours, out) && our_commands == their_commands && rand_ok {
             totals.compared += 1;
             totals.matched += 1;
+            let e = totals.by_behavior.entry(t.input.behavior).or_default();
+            e.0 += 1;
+            e.1 += 1;
             if unported_candidate(manager, t.input.behavior).is_some() {
                 totals.matched_with_stand_ins += 1;
             }
@@ -480,6 +776,7 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
         }
         totals.compared += 1;
         totals.mismatched += 1;
+        totals.by_behavior.entry(t.input.behavior).or_default().0 += 1;
         if !rand_ok {
             totals.rand_mismatch += 1;
         }
@@ -522,6 +819,14 @@ fn behavior_ticks_against_the_oracle() {
         totals.skipped,
         totals.skipped_candidate
     );
+    let _ = writeln!(
+        summary,
+        "compared ticks by behaviour on entry (compared, matched): {:?}",
+        totals.by_behavior
+    );
+    for r in &totals.first_views {
+        let _ = writeln!(summary, "first tick: {r}");
+    }
     for r in &totals.reports {
         let _ = writeln!(summary, "{r}");
     }

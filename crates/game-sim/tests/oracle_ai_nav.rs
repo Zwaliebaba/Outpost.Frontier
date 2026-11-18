@@ -340,7 +340,7 @@ fn ai_idea() {
     for (index, c) in cases().iter().enumerate() {
         let mut l = Line::new();
         l.add("in", index.to_string());
-        let mut idea = MoveIdea::<u32>::new();
+        let mut idea = MoveIdea::new();
         idea.set_direction(c.point);
         l.add("dir", v3(idea.direction));
         idea.set_direction_from(&c.a.view.orientation);
