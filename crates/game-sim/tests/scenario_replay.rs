@@ -1122,7 +1122,7 @@ fn report_units(summary: &mut String, dir: &Path, scenario: &str, ours: &Run) {
     // sides (the oracle's `affect` slot 13 records: the gun count).
     if let Some(&first) = launches(&theirs).first() {
         let to = u32::try_from(first).unwrap_or(0) + 1;
-        let from = to.saturating_sub(60);
+        let from = 0;
         for (t, who, r) in ours.fires.iter().filter(|f| (from..=to).contains(&f.0)) {
             let _ = writeln!(summary, "    rust fire tick {t} {who}: {r}");
         }
@@ -1135,16 +1135,18 @@ fn report_units(summary: &mut String, dir: &Path, scenario: &str, ours: &Run) {
                     continue;
                 }
                 let tick = r.get("tick").and_then(Json::as_u32).unwrap_or(0);
-                if !(from..=to).contains(&tick) || r.get("slot").and_then(Json::as_i32) != Some(13)
-                {
+                let slot = r.get("slot").and_then(Json::as_i32).unwrap_or(-1);
+                if !(from..=to).contains(&tick) || !matches!(slot, 13 | 19) {
                     continue;
                 }
                 let _ = writeln!(
                     summary,
-                    "    oracle fire tick {tick} {}: guns {} depth {}",
+                    "    oracle affect tick {tick} {} slot {slot} ({}): i {} depth {} src {}",
                     r.get("obj").and_then(Json::as_str).unwrap_or("?"),
+                    r.get("m").and_then(Json::as_str).unwrap_or("?"),
                     r.get("i").and_then(Json::as_i32).unwrap_or(-1),
-                    r.get("depth").and_then(Json::as_i32).unwrap_or(-1)
+                    r.get("depth").and_then(Json::as_i32).unwrap_or(-1),
+                    r.get("src").and_then(Json::as_str).unwrap_or("?")
                 );
             }
         }
