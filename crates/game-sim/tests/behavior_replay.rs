@@ -425,15 +425,24 @@ impl AiWorld for ReplayWorld<'_> {
         }
     }
 
-    /// The ship's own lead (`CShip::get_tgt_lead_fire_pos`); the item form
-    /// is not recorded.
+    /// The ship's own lead (`CShip::get_tgt_lead_fire_pos`), or an item's
+    /// (`get_tgt_lead_fire_pos(id)`), as the snapshot read them.
     fn lead_fire_position(&mut self, h: u32, subtarget: Option<u16>) -> Option<Vector> {
-        if h != self.ship || subtarget.is_some() {
+        if h != self.ship {
             self.unanswered
                 .push(format!("lead_fire_position({h}, {subtarget:?})"));
             return None;
         }
-        self.lead.flatten()
+        match subtarget {
+            None => self.lead.flatten(),
+            Some(id) => {
+                if self.item(h, id).is_none() {
+                    self.unanswered
+                        .push(format!("lead_fire_position({h}, Some({id}))"));
+                }
+                self.item(h, id).and_then(|e| e.lead)
+            }
+        }
     }
 
     fn targeted_enemy_count(&self, h: u32) -> i32 {

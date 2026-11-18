@@ -127,6 +127,8 @@ pub struct EquipRecord {
     pub vals: [Option<u32>; 5],
     /// Barrel 0's position and direction (launchers).
     pub barrel: Option<(Vector, Vector)>,
+    /// `get_tgt_lead_fire_pos(id)`: the gun's lead on its target.
+    pub lead: Option<Vector>,
     /// `is_pointing_at` at the gun angle, the wide and the missile cone.
     pub pointing: [bool; 3],
     /// `can_point_at(candidate position, 0.3)`: candidate id, answer.
@@ -348,6 +350,7 @@ fn equip(j: &Json) -> Option<EquipRecord> {
             .and_then(Json::as_floats)
             .filter(|a| a.len() == 6)
             .map(|a| (Vector::new(a[0], a[1], a[2]), Vector::new(a[3], a[4], a[5]))),
+        lead: v3(j, "lead"),
         pointing: [
             pointing.first()?.as_bool()?,
             pointing.get(1)?.as_bool()?,

@@ -363,7 +363,8 @@ the failing result i, `munition`, `auto_turret`, `seeker`, `range`,
 `EquipValAutoTurret`, `EquipValSeeker`, `EquipValRange`,
 `EquipValTargetId`: the value's four bytes, null when the call fails),
 `barrel` f[6]\|null (barrel 0's world position and direction, for a
-launcher), `pointing` [b, b, b] (`is_pointing_at` at π/60, the gun groups'
+launcher), `lead` f3\|null (`get_tgt_lead_fire_pos(id)`, a gun's lead on
+its target; null when it fails), `pointing` [b, b, b] (`is_pointing_at` at π/60, the gun groups'
 wide cone and missile cone angles) and `can_point` [[u, b], …] (an auto
 turret's `can_point_at` toward each candidate's position at 0.3)}.
 
@@ -390,7 +391,7 @@ ship's equipment, lead and the ships' targeted-enemy counts from
 `ai_obj`, `rand()` from `ai_out`'s values). The combat state of `ai_out`
 (`flags_1c8`, `sys`, `face`) is compared and reported on a line of its
 own, with the equipment queries the snapshot cannot answer (an
-`is_pointing_at` at another angle, the item form of the lead). It compares the manager fields of `ai_out` bit for
+`is_pointing_at` at another angle, the lead of an item the snapshot has not). It compares the manager fields of `ai_out` bit for
 bit (with `pathfind` and `thrust` where the record has them), the number
 of `rand()` draws, and the commands with the `affect` records whose `beh`
 is the tick's `seq` and whose `depth` is 0 (slots 0 to 3, 13 and 18 to

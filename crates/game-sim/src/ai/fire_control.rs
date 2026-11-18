@@ -624,7 +624,9 @@ impl GunGroups {
             {
                 continue;
             }
-            let pos = Self::lead_fire_position(env, &target, true, spread, None);
+            // The turret's own id is the sub-target argument: its lead is
+            // the gun's (`get_tgt_lead_fire_pos(id)`).
+            let pos = Self::lead_fire_position(env, &target, true, spread, Some(slot.id));
             env.fire(vec![slot.id], Some(pos));
             if slot.kind != kind::PLAIN {
                 self.guns[index].phase = -slot.fire_interval;

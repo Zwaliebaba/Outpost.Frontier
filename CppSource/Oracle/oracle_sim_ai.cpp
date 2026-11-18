@@ -207,6 +207,8 @@ namespace
         int BarrelResult;
         float BarrelPos[3];
         float BarrelDir[3];
+        int LeadResult;             // get_tgt_lead_fire_pos(Id) (CEGun::ComputeTgtLeadPosition)
+        float Lead[3];
         bool Pointing[3];           // is_pointing_at at the gun angle, the wide and the missile
                                     // cone angles
         int CanPointCount;          // can_point_at(candidate position, 0.3) for an auto turret
@@ -333,6 +335,12 @@ namespace
                     memcpy(&E.Val[V], &Val.Value, sizeof(E.Val[V]));
                 }
                 E.BarrelResult = OracleAiLauncherBarrel(O, Ids[Index], E.BarrelPos, E.BarrelDir);
+                Vector GunLead;
+                GunLead.x = GunLead.y = GunLead.z = 0.0f;
+                E.LeadResult = O->get_tgt_lead_fire_pos(Ids[Index], GunLead);
+                E.Lead[0] = GunLead.x;
+                E.Lead[1] = GunLead.y;
+                E.Lead[2] = GunLead.z;
                 const float Angles[3] = {kGunPointingAngle, GWideConeAngle, GMissileConeAngle};
                 for (int A = 0; A < 3; ++A)
                 {
@@ -497,6 +505,10 @@ namespace
         {
             J.Null("barrel");
         }
+        if (E.LeadResult == 0)
+            J.FloatArray("lead", E.Lead, 3);
+        else
+            J.Null("lead");
         J.BeginArray("pointing");
         for (int A = 0; A < 3; ++A)
             J.Bool(nullptr, E.Pointing[A]);
