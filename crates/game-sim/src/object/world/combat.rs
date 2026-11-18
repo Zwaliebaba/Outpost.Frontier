@@ -219,7 +219,7 @@ impl World {
     }
 
     /// The fire results kept since the last call.
-    pub fn take_fire_log(&mut self) -> Vec<(u32, Vec<(SubObjId, FireResult)>)> {
+    pub fn take_fire_log(&mut self) -> Vec<super::FireCall> {
         self.fire_log
             .as_mut()
             .map(std::mem::take)

@@ -273,6 +273,12 @@ impl Assets {
 /// A `.sur` file's parts, by part id.
 pub type SurParts = Arc<BTreeMap<u32, SurPart>>;
 
+/// One fire call's shooter id and each gun's result ([`World::set_fire_log`]).
+pub type FireCall = (
+    u32,
+    Vec<(crate::equip::SubObjId, crate::equip::launcher::FireResult)>,
+);
+
 /// The simulation world of one process side.
 pub struct World {
     pub(crate) data: Arc<GameData>,
@@ -314,12 +320,7 @@ pub struct World {
     /// (`CEInternalFX`'s `use_animation`), by playback id.
     pub(crate) ambient: BTreeMap<i32, ambient::AmbientSub>,
     /// The results of every fire call, when kept ([`World::set_fire_log`]).
-    pub(crate) fire_log: Option<
-        Vec<(
-            u32,
-            Vec<(crate::equip::SubObjId, crate::equip::launcher::FireResult)>,
-        )>,
-    >,
+    pub(crate) fire_log: Option<Vec<FireCall>>,
 }
 
 impl core::fmt::Debug for World {
