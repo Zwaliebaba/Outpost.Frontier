@@ -16,7 +16,7 @@ import struct
 ENDCODE, PUSHNUMBERW, PUSHNUMBER, PUSHNUMBERNEGW, PUSHNUMBERNEG = 0, 6, 7, 8, 9
 PUSHCONSTANTW, PUSHCONSTANT, GETGLOBALW, GETGLOBAL = 10, 11, 14, 15
 CREATEARRAYW, CREATEARRAY, SETGLOBALW, SETGLOBAL = 21, 22, 24, 25
-SETLISTW, SETLIST, SETMAP, ADDOP, LONGARGW, LONGARG = 28, 29, 30, 37, 64, 65
+SETLISTW, SETLIST, SETMAP, ADDOP = 28, 29, 30, 37
 
 
 class Chunk:
@@ -274,16 +274,22 @@ def nil_key():
     return c
 
 
-def longarg():
-    """LONGARG before PUSHNUMBERW gives 65536 + n; before SETMAP it is dropped."""
+def wide():
+    """More than 256 constants: the word forms of PUSHCONSTANT, GETGLOBAL and
+    SETGLOBAL, and CREATEARRAYW."""
     c = Chunk()
-    c.raw([LONGARG, 1, PUSHNUMBERW, 0, 2], push=1)
-    c.set(b"big")
-    c.table(1)
-    c.number(4); c.number(5)
-    c.raw([LONGARG, 7])
-    c.setmap(1)
-    c.set(b"after_longarg")
+    for i in range(300):
+        c.number(i)
+        c.set(b"g%03d" % i)
+    c.table(300)
+    for i in range(0, 300, 64):
+        n = min(64, 300 - i)
+        for j in range(i, i + n):
+            c.get(b"g%03d" % (299 - j))
+        c.setlist(i // 64, n)
+    c.set(b"reversed")
+    c.string(b"last constant")
+    c.set(b"tail")
     return c
 
 
@@ -316,7 +322,7 @@ def main():
         hexs(arithmetic().bytes()),
         hexs(bad_add().bytes()),
         hexs(nil_key().bytes()),
-        hexs(longarg().bytes()),
+        hexs(wide().bytes()),
         # Two chunks in one buffer; a chunk followed by a byte that is not one;
         # a truncated chunk.
         hexs(two),

@@ -428,8 +428,7 @@ impl Vm {
                 | op::GETGLOBALW
                 | op::CREATEARRAYW
                 | op::SETGLOBALW
-                | op::SETLISTW
-                | op::LONGARGW => {
+                | op::SETLISTW => {
                     aux = aux.wrapping_add(u32::from(byte(pc)) << 8);
                     pc += 1;
                     opcode + 1
@@ -438,13 +437,6 @@ impl Vm {
             };
             match base {
                 op::ENDCODE => return Ok(()),
-                op::LONGARG => {
-                    aux = aux.wrapping_add(u32::from(byte(pc)));
-                    pc += 1;
-                    aux <<= 16;
-                    // "do not reset aux"
-                    continue;
-                }
                 op::PUSHNUMBER | op::PUSHNUMBERNEG => {
                     aux = aux.wrapping_add(u32::from(byte(pc)));
                     pc += 1;
@@ -500,7 +492,6 @@ impl Vm {
                     }
                 }
                 op::SETMAP => {
-                    // `aux = *pc++`: a LONGARG prefix is dropped here.
                     let pairs = usize::from(byte(pc)) + 1;
                     pc += 1;
                     if stack.len() < 2 * pairs + 1 {

@@ -113,6 +113,9 @@ namespace
             return false;
         lua_mathlibopen();
         lua_iolibopen();
+        // Host calls run inside a block, so the objects they leave on the
+        // Lua stack are released.
+        lua_beginblock();
         lua_pushcfunction(&QuietErrorMethod);
         lua_seterrormethod();
         for (const FConstant& Constant : Constants)
@@ -120,6 +123,7 @@ namespace
             lua_pushnumber(Constant.Value);
             lua_setglobal(const_cast<char*>(Constant.Name));
         }
+        lua_endblock();
         GInitial = CurrentGlobals();
         return true;
     }
@@ -260,7 +264,10 @@ namespace
     {
         if (Size == 0)
             return 1;
-        return lua_dobuffer((char*)Buffer.data(), (int)Size, const_cast<char*>("oracle"));
+        lua_beginblock();
+        const int Status = lua_dobuffer((char*)Buffer.data(), (int)Size, const_cast<char*>("oracle"));
+        lua_endblock();
+        return Status;
     }
 
     void SceneScriptSuite()

@@ -40,8 +40,6 @@ pub mod op {
     pub const SETLIST: u8 = 29;
     pub const SETMAP: u8 = 30;
     pub const ADDOP: u8 = 37;
-    pub const LONGARGW: u8 = 64;
-    pub const LONGARG: u8 = 65;
 }
 
 /// Constant type bytes: the negated `LUA_T_*` tags of `lobject.h`.
