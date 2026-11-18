@@ -39,8 +39,11 @@
 //!   (`symphonia` replaces it in the decoding increment).
 
 pub mod config;
+pub mod decode;
 pub mod listener;
 pub mod mix;
 pub mod mixer;
 pub mod reverb;
+pub mod spatial;
 pub mod stream;
+pub mod wav;

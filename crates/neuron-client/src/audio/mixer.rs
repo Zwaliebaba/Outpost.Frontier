@@ -260,6 +260,12 @@ pub trait SoundSource {
     fn min_distance(&self) -> Option<f32>;
     /// Slot 14.
     fn max_distance(&self) -> Option<f32>;
+    /// `GetVelocity` (+0x48): the world velocity of a 3D source, which the
+    /// device's Doppler shift uses ([`Emitter::velocity`]). None by
+    /// default; the software path does not ask.
+    fn velocity(&self) -> Option<[f32; 3]> {
+        None
+    }
 }
 
 /// The client's sources by key.
@@ -319,6 +325,9 @@ pub enum Spatial {
 pub struct Emitter {
     /// The source position, Z scaled as the listener's.
     pub position: [f32; 3],
+    /// The source velocity in units per second, Z scaled as the
+    /// listener's (zero when the source gives none).
+    pub velocity: [f32; 3],
     /// The minimum distance: full volume inside it.
     pub min_distance: f32,
     /// The maximum distance: no further attenuation beyond it.
@@ -860,11 +869,14 @@ impl<K: Copy + PartialEq> Mixer<K> {
         let instance = &mut self.instances[index];
         instance.pose = pose;
         if emitter {
+            let mut velocity = source.velocity().unwrap_or([0.0; 3]);
+            velocity[2] = (f64::from(self.listener.coord_scale) * f64::from(velocity[2])) as f32;
             backend.set_emitter(
                 instance.voice,
                 &self.listener,
                 &Emitter {
                     position: pose.position,
+                    velocity,
                     min_distance: pose.min_distance,
                     max_distance: pose.max_distance,
                     mute_at_max_distance: instance.caps.mute_at_max_distance,
