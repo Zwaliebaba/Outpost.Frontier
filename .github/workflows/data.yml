@@ -125,6 +125,16 @@ jobs:
             Write-Host "Scenarios with a failed run: $($failed -join ', ')"
             exit 1
           }
+      - name: TEMP dump the dogfight records
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $src = "$env:RUNNER_TEMP\outpost-sim\dogfight\run_01"
+          tar -czf "$env:RUNNER_TEMP\dogfight.tgz" -C $src ai.jsonl calls.jsonl tick.jsonl events.jsonl session.jsonl psi.jsonl
+          $b = [Convert]::ToBase64String([IO.File]::ReadAllBytes("$env:RUNNER_TEMP\dogfight.tgz"))
+          Write-Host "DUMPLEN $($b.Length)"
+          for ($i = 0; $i -lt $b.Length; $i += 8000) { Write-Host ("DUMP " + $b.Substring($i, [Math]::Min(8000, $b.Length - $i))) }
+          Write-Host "DUMPEND"
       - name: Replay the recorded PSIs through the port
         # Decision O20, replay layer: every psi.jsonl the scenarios wrote is replayed one PSI
         # at a time through neuron-core::physics (crates/neuron-core/tests/sim_replay.rs).
