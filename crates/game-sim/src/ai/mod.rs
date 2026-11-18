@@ -30,6 +30,9 @@
 //!   ideas drive, and the `Behavior_*` motion queries they call.
 //! * [`move_idea`], [`face_idea`]: `MoveIdea` and `FaceIdea`
 //!   (`common_moveidea.cpp`, `common_faceidea.cpp`).
+//! * [`spline_move`], [`match_throttle`]: `SplineMoveIdea` and
+//!   `MatchThrottle2Idea` (`common_splinemoveidea.cpp`,
+//!   `common_matchthrottleidea.cpp`).
 //!
 //! Everything is computed on the 53-bit model of decision T11: `f64`
 //! evaluation, a rounding to `f32` at each `float` store the reference
@@ -46,10 +49,12 @@ pub mod bank;
 pub mod face_idea;
 mod fp;
 pub mod intercept;
+pub mod match_throttle;
 pub mod move_idea;
 pub mod nav;
 pub mod personality;
 pub mod raycast;
+pub mod spline_move;
 pub mod state_graph;
 pub mod steer;
 pub mod world;

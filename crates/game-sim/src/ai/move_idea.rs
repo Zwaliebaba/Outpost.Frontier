@@ -463,6 +463,7 @@ pub(crate) mod tests {
         pub calls: Vec<String>,
         pub accept: bool,
         pub gate: bool,
+        pub engaged: bool,
     }
 
     impl ThrustControl for ThrustLog {
@@ -484,6 +485,12 @@ pub(crate) mod tests {
         }
         fn check_steering_gate(&self) -> bool {
             self.gate
+        }
+        fn set_thrusters_active(&mut self, active: bool) {
+            self.calls.push(format!("thrusters {active}"));
+        }
+        fn cruise_engaged(&self) -> bool {
+            self.engaged
         }
     }
 

@@ -29,6 +29,10 @@ pub trait ThrustControl {
     fn set_axis_throttle(&mut self, wanted: Vector);
     /// `ThrustManager::CheckSteeringGate`.
     fn check_steering_gate(&self) -> bool;
+    /// `ThrustManager::SetThrustersActive`.
+    fn set_thrusters_active(&mut self, active: bool);
+    /// `ThrustManager::bCruiseEngaged` (`+0x2c`).
+    fn cruise_engaged(&self) -> bool;
 }
 
 /// The `IBehaviorManager` calls `FaceIdea` makes on its context.
@@ -59,6 +63,9 @@ pub struct PathfindFields {
     pub field_23c: f32,
     /// +0x240 the override mode; 1 forces engine mode.
     pub field_240: i32,
+    /// +0x248 (constructor -1); `SplineMoveIdea::Update` stores
+    /// `0x30038010`.
+    pub field_248: i32,
 }
 
 impl PathfindFields {
@@ -67,6 +74,7 @@ impl PathfindFields {
     pub fn new() -> Self {
         Self {
             field_23c: 1.0,
+            field_248: -1,
             ..Self::default()
         }
     }
@@ -122,7 +130,44 @@ pub fn query_fixed_falloff_effect(motion: Option<&dyn MotionModel>, distance: f3
     query_falloff_effect(motion, 0.0, distance, 1000.0, ThrustEquipType::Engine)
 }
 
-/// `Behavior_InvokeManagerSlotF8`: `get_projected_axis_throttle_XY`, 0
+/// `Behavior_QueryRadiusEffect` (`common_behavior.cpp:96`):
+/// `get_time_to_accelerate(from, to, dt, kind)` with negative `to` and
+/// `dt` clamped to 0 and `to` below 0.001 snapped to 0; 0 when `to` and
+/// `from` are both 0 or without a motion model.
+#[must_use]
+pub fn query_radius_effect(
+    motion: Option<&dyn MotionModel>,
+    from: f32,
+    to: f32,
+    dt: f32,
+    kind: ThrustEquipType,
+) -> f32 {
+    let Some(m) = motion else {
+        return 0.0;
+    };
+    let mut to = if to < 0.0 { 0.0 } else { to };
+    let dt = if dt < 0.0 { 0.0 } else { dt };
+    if to == 0.0 && from == 0.0 {
+        return 0.0;
+    }
+    if e(to) < 0.001 {
+        to = 0.0;
+    }
+    m.time_to_accelerate(from, to, dt, kind)
+}
+
+/// `Behavior_GetIfaceMaxScalarAttribute` (`common_behavior.cpp:76`): the
+/// larger of the physical radius and the atmosphere range.
+#[must_use]
+pub fn max_scalar_attribute(view: &super::world::ObjectView) -> f32 {
+    if view.atmosphere_range > view.radius {
+        view.atmosphere_range
+    } else {
+        view.radius
+    }
+}
+
+/// `Behavior_InvokeManagerSlotF8`:`get_projected_axis_throttle_XY`, 0
 /// without a motion model.
 #[must_use]
 pub fn projected_axis_throttle_xy(motion: Option<&dyn MotionModel>, value: f32) -> f32 {
