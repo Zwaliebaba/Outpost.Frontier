@@ -427,4 +427,5 @@ void RunAiSuites()
     GuardedAiSuite("ai_state_graph", StateGraphSuite);
     GuardedAiSuite("ai_behavior_names", BehaviorNameSuite);
     GuardedAiSuite("ai_personality", PersonalitySuite);
+    GuardedAiSuite("ai_combat", AiCombatSuite);
 }

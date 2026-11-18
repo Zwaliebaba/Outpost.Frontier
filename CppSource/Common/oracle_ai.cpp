@@ -271,6 +271,92 @@ double __cdecl OracleAiRangeThresholdValue(int JobField00)
     return P.get_range_threshold_value();
 }
 
+int __cdecl OracleAiThresholdTimer(float const* In, float Dt, float Level, float* Out)
+{
+    SustainedThresholdTimer Timer;
+    Timer.Active = In[0] != 0.0f ? 1 : 0;
+    Timer.TriggerThreshold = In[1];
+    Timer.Duration = In[2];
+    Timer.Accumulator = In[3];
+    bool const bResult = Timer.Update(Dt, Level);
+    Out[0] = Timer.Active != 0 ? 1.0f : 0.0f;
+    Out[1] = Timer.Accumulator;
+    return bResult ? 1 : 0;
+}
+
+namespace
+{
+    // A gun-group manager as its constructor leaves it (no owner, no target), heap-allocated
+    // (0x1238 bytes) and destroyed by the caller.
+    SystemManagerGunGroupManager* NewGunGroups()
+    {
+        void* const Storage = ::operator new(sizeof(SystemManagerGunGroupManager));
+        SystemManagerGunGroupManager* const Groups = static_cast<SystemManagerGunGroupManager*>(Storage);
+        ConstructSystemManagerGunGroupManager(Groups);
+        return Groups;
+    }
+
+    void DeleteGunGroups(SystemManagerGunGroupManager* Groups)
+    {
+        Groups->~SystemManagerGunGroupManager();
+        ::operator delete(Groups);
+    }
+}
+
+void __cdecl OracleAiGunSlotTiming(float const* Params, int Kind, int bAutoTurret, float* Out)
+{
+    SystemManagerGunGroupManager* const G = NewGunGroups();
+    G->GunFireIntervalTime = Params[0];
+    G->GunFireIntervalVariance = Params[1];
+    G->AutoTurretIntervalTime = Params[2];
+    G->GunFireBurstIntervalTime = Params[3];
+    G->GunFireBurstIntervalVariance = Params[4];
+    G->GunFireNoBurstIntervalTime = Params[5];
+    G->AutoTurretBurstIntervalTime = Params[6];
+    G->AutoTurretNoBurstIntervalTime = Params[7];
+    G->AutoTurretBurstIntervalVariance = Params[8];
+    G->MissileLaunchIntervalTime = Params[9];
+    G->MissileLaunchIntervalVariance = Params[10];
+    FGunGroupSlot& Slot = G->Guns[0];
+    Slot.MunitionKind = Kind;
+    Slot.bAutoTurret = bAutoTurret != 0 ? 1 : 0;
+    G->RandomizeSlotTiming(&Slot);
+    Out[0] = Slot.BurstTime;
+    Out[1] = Slot.NoBurstTime;
+    Out[2] = Slot.FireInterval;
+    Out[3] = Slot.Phase;
+    DeleteGunGroups(G);
+}
+
+void __cdecl OracleAiGunGroupStep(int Kind, float const* Slot, float AimTimer, float const* Cache, float Dt,
+                                  float* Out)
+{
+    SystemManagerGunGroupManager* const G = NewGunGroups();
+    G->GunCount = 1;
+    G->MineDropperCount = 0;
+    FGunGroupSlot& S = G->Guns[0];
+    S.MunitionKind = Kind;
+    S.BurstTime = Slot[0];
+    S.NoBurstTime = Slot[1];
+    S.FireInterval = Slot[2];
+    S.Phase = Slot[3];
+    G->AimRefreshTimer = AimTimer;
+    FLauncherFireCacheSlot& C = G->LineOfFireCache[0];
+    C.InUse = 1;
+    C.Age = Cache[0];
+    C.RefreshTimer = Cache[1];
+    C.NeedsRefresh = Cache[2] != 0.0f ? 1 : 0;
+    G->UpdateTimers(Dt);
+    Out[0] = S.Phase;
+    Out[1] = S.bFireTick != 0 ? 1.0f : 0.0f;
+    Out[2] = G->AimRefreshTimer;
+    Out[3] = C.InUse != 0 ? 1.0f : 0.0f;
+    Out[4] = C.Age;
+    Out[5] = C.RefreshTimer;
+    Out[6] = C.NeedsRefresh != 0 ? 1.0f : 0.0f;
+    DeleteGunGroups(G);
+}
+
 unsigned int __cdecl OracleAiObjectId(CObject const* Object)
 {
     if (Object == nullptr)
