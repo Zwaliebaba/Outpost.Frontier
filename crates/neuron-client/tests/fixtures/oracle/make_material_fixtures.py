@@ -1,9 +1,10 @@
 """Writes the inputs of the P4.5 material suites (Oracle.exe neuron-client,
-CppSource/Oracle/oracle_material.cpp and oracle_material_kinds.cpp, and
+CppSource/Oracle/oracle_material.cpp, oracle_material_kinds.cpp and
+oracle_material_surface.cpp, and
 crates/neuron-client/tests/oracle_vectors.rs): material_regex.list,
 material_library.list, material_global.list, material_animation.list,
-material_batcher.list, material_kinds.list and the INI files they load. Run
-from any folder:
+material_batcher.list, material_kinds.list, material_surface.list and the INI
+files they load. Run from any folder:
 
     python make_material_fixtures.py [--check]
 
@@ -540,6 +541,195 @@ KINDS_CASES = [KIND_SETUP + kind_body(k) for k in KIND_TEXTURES] + [
 ]
 
 
+# --- material_surface -----------------------------------------------------------------------
+# The 19 materials of surfacematerials.dll over the recording services of
+# oracle_material_surface.cpp (its header states the contract and the line formats). The cases
+# keep to what the reference defines: no ApplyVerify of a material without texture records whose
+# opacity is 1 (ShadowMaterial, WireMaterial), no ApplyVerify or Teardown of BackdropMaterial or
+# StarsphereMaterial without a candidate, no submission without a context and no flag 0x100
+# without an index buffer, no Veilborn submission before the engine is set, no candidate
+# descriptor without a leaf name.
+
+def interleaved(vertices):
+    return ",".join(f(v) for vertex in vertices for v in vertex)
+
+
+SI_VERTS = [QUAD[3 * n:3 * n + 3] + NORMALS[3 * n:3 * n + 3] + UV[2 * n:2 * n + 2] for n in range(4)]
+SC_WORDS = []
+for n in range(4):
+    SC_WORDS += [f(v) for v in QUAD[3 * n:3 * n + 3] + NORMALS[3 * n:3 * n + 3]]
+    SC_WORDS += ["%08x" % [0xff102030, 0x80405060, 0x00708090, 0xffa0b0c0][n]]
+    SC_WORDS += [f(v) for v in UV[2 * n:2 * n + 2]]
+
+
+def cand(batched=0, passes="1", cls="DcDtOcOt", desc=0, tag="Oc", param=0.5, bind=0, teardown=0,
+         submit=0):
+    return "cand %d %s %s %d %s %s %d %d %d" % (
+        batched, passes, hx(cls), desc, "-" if tag is None else hx(tag), f(param), bind, teardown,
+        submit)
+
+
+SURF_SETUP = [
+    "tex %s 1 11 3 0" % hx("diffuse.tga"),
+    "tex %s 1 12 7 0" % hx("alpha.tga"),
+    "tex %s 1 13 6 0" % hx("mask.tga"),
+    "tex %s 4 14 3 0" % hx("anim.tga"),
+    "tex %s 1 18 7 0" % hx("veilbornrgb1_veilbornalpha1"),
+    "tex %s 1 19 7 0" % hx("efxshadow"),
+    "tex %s 1 20 3 0" % hx("envmapglass"),
+    "tex %s 1 21 3 0" % hx("chrome.tga"),
+    "vsil si 0 274 4 " + interleaved(SI_VERTS),
+    "vsil sc 0 338 4 " + ",".join(SC_WORDS),
+    kvsrc("s3", 4, 0x112, 4, QUAD, NORMALS, None, UV, [3, 2, 1, 0]),
+    "idx i1 0,1,2,2,1,3",
+    "xf id " + floats(IDENTITY), "xf w1 " + floats(W1), "xf v1 " + floats(V1),
+    "xf w2 " + floats(W2), "xf v2 " + floats(V2),
+    "ctx c1 si i1 5,274,10 6,3 w1 v1 7 -",
+    "ctx cc sc i1 - - w1 v1 7 -",
+    "ctx c3 s3 i1 - - w2 v2 8 -",
+    "ctx cn - i1 5,274,10 6,3 w1 v1 7 -",
+    "ctx k1 si i1 5,274,10 6,3 w1 v1 7 c",
+    "ctx kc sc i1 - - w1 v1 9 c",
+    "ctx k0 - i1 - - w1 v1 7 c",
+]
+
+
+def surf_body(kind, texture="diffuse.tga", verify=True):
+    ops = ["new " + kind, "name " + hx("Mat_" + kind), "class", "flags"]
+    if texture is not None:
+        ops.append("set 6 7 " + hx(texture))
+    if verify:
+        ops.append("verify")
+    ops += ["resolve 00000000", "flags", "bind c1", "submit c1 4 0 4 0 6 0", "teardown c1",
+            "bind cc", "submit cc 4 1 3 0 3 0", "submit c1 4 1 3 0 3 100", "submit cn 4 0 4 0 6 0", "teardown cc", "bind -",
+            "teardown -", "flags", "passes", "params", "release"]
+    return ops
+
+
+SURFACE_CASES = [
+    # The glass family: two passes, the opacity raised to 0.8 at bind.
+    SURF_SETUP + surf_body("GlassMaterial") + surf_body("HighGlassMaterial", "alpha.tga") +
+    surf_body("GFGlassMaterial", "mask.tga"),
+    SURF_SETUP + ["new HighGlassMaterial", "name " + hx("Thin"), "set 6 7 " + hx("diffuse.tga"),
+                  "set 5 2 " + f(0.5), "verify", "flags", "bind c1", "bind c1",
+                  "set 5 2 " + f(1.5), "set 1 3 " + floats([0.25, 0.5, 0.75]), "bind cc",
+                  "dvb -3", "submit cc 4 0 4 0 6 0", "dvb 0", "rpdraw -2",
+                  "submit c1 4 0 4 0 6 100", "params", "release"],
+    # HUD icons: blended by opacity or texture alpha, tested by a one-bit alpha; the instance's
+    # colour and opacity from the engine's user data.
+    SURF_SETUP + surf_body("HUDIconMaterial") + surf_body("HUDIconMaterial", "alpha.tga") +
+    surf_body("HUDIconMaterial", "mask.tga") + [
+        "engine 1", "ud 7 " + floats([0.25, 0.5, 0.75, 1.0, 0.5]), "new HUDIconMaterial",
+        "name " + hx("Radar"), "set 6 7 " + hx("diffuse.tga"), "verify", "flags", "bind -",
+        "bind c1", "flags", "bind c3", "set 5 2 " + f(0.25), "flags", "bind c3", "release"],
+    # HUD animation: global record 4 switches it (its unset value counts as on), the animation
+    # instance follows the record at resolve.
+    SURF_SETUP + ["animlib", "anim %s 1" % hx("hudspin"), "new HUDAnimMaterial",
+                  "name " + hx("HudSpin"), "set 6 7 " + hx("anim.tga"), "verify", "bind cc",
+                  "submit cc 4 0 4 0 6 0", "submit c1 4 0 4 0 6 100", "resolve 00000000",
+                  "bind cc", "submit c1 4 0 4 0 6 100", "teardown cc", "global 4 0",
+                  "resolve 00000000", "bind cc", "submit c1 4 0 4 0 6 100", "teardown cc",
+                  "flags", "global 4 1", "resolve 00000000", "resolve 00000000", "bind c1",
+                  "teardown c1", "set 6 7 " + hx("alpha.tga"), "verify", "flags", "release"],
+    SURF_SETUP + ["global 4 0", "new HUDAnimMaterial", "name " + hx("Still"),
+                  "set 6 7 " + hx("diffuse.tga"), "verify", "resolve 00000000", "bind c1",
+                  "teardown c1", "global 4 1", "resolve 00000000", "bind c1", "teardown c1",
+                  "release"],
+    # Exclusion zones: full ambient while drawing, the zone's colour from the user data.
+    SURF_SETUP + surf_body("ExclusionZoneMaterial", "alpha.tga") + [
+        "engine 1", "ud 7 " + floats([0.1, 0.2, 0.3, 0.4, 0.6]), "rs 139 8421504",
+        "new ExclusionZoneMaterial", "name " + hx("Zone"), "set 6 7 " + hx("diffuse.tga"),
+        "verify", "flags", "submit c1 4 0 4 0 6 0", "submit c3 4 0 4 0 6 0", "bind c1",
+        "release"],
+    # Veilborn: the second texture verified (or not), the clocks, the fade of the instance's
+    # root, interleaved and indexed sources.
+    SURF_SETUP + ["engine 1", "new VeilbornMaterial", "name " + hx("Veil"), "set 1 7 " + hx("diffuse.tga"),
+                  "flags", "verify", "params", "resolve 3f000000", "resolve 40400000",
+                  "bind c1", "submit c1 4 0 4 0 6 0", "submit c3 4 1 3 0 3 0", "teardown c1",
+                  "ival 7 " + f(0.25), "submit c1 4 0 4 0 6 0", "root 7 3",
+                  "ival 3 " + f(0.75), "submit c1 4 0 4 0 6 0", "lockfail 1",
+                  "submit c1 4 0 4 0 6 0", "lockfail 0", "verify -1,0", "verify", "bind c1",
+                  "submit c1 4 0 4 0 6 0", "submit c3 4 0 4 0 6 0", "ival 3 " + f(1.5),
+                  "submit c1 4 0 4 0 6 0", "teardown -", "release",
+                  "new VeilbornMaterialNoBendy", "name " + hx("Still"), "class",
+                  "set 5 7 " + hx("missing.tga"), "verify", "resolve 3f000000", "bind c1",
+                  "submit c1 4 0 4 0 6 0", "set 0 3 " + floats([0.5, 0.5, 0.5]), "params",
+                  "release"],
+    # Planet water: its animation made at verify, its matrix at bind; depth writes off.
+    SURF_SETUP + ["animlib", "anim %s 1" % hx("waves"), "new PlanetWaterMaterial",
+                  "name " + hx("Waves"), "set 6 7 " + hx("anim.tga"), "verify", "resolve 00000000",
+                  "bind cc", "submit c1 4 0 4 0 6 0", "teardown cc", "set 5 2 " + f(0.5), "bind c1",
+                  "teardown c1", "verify", "flags", "release", "new PlanetWaterMaterial",
+                  "name " + hx("Calm"), "verify", "bind c1", "teardown c1", "release"],
+    # Engine glow: ApplyVerify replaces the material block.
+    SURF_SETUP + surf_body("EngineGlowMaterial", "alpha.tga"),
+    # Colorize: its own texture with option 1, else the candidate's opacity times its own.
+    SURF_SETUP + [cand(), "new ColorizeMaterial", "name " + hx("Paint"), "verify", "flags",
+                  "params", "bind -", "bind c1", "bind k1", "teardown k1", "teardown c1",
+                  "set 0 4 " + floats([0.2, 0.4, 0.6, 0.5]), "flags", "bind k1",
+                  cand(1, tag="Dc"), "bind kc", cand(0, desc=-1), "bind k1", "set 10 1 1", "set 6 7 " + hx("diffuse.tga"), "bind k1", "teardown k1",
+                  "submit kc 4 0 4 0 6 0", "params", "release"],
+    # Cloak: the root's value times the candidate's opacity; the candidate draws with flag 0x400
+    # while blended.
+    SURF_SETUP + ["new CloakMaterial", "name " + hx("Cloak"), "verify", "flags", "bind c1",
+                  "submit c1 4 0 4 0 6 0", cand(1), "bind k1", "submit k1 4 0 4 0 6 100",
+                  "ival 7 " + f(0.5), "bind k1", "submit k1 4 0 4 0 6 100", "teardown k1",
+                  "engine 1", "root 7 4", "ival 4 " + f(1.0), cand(0), "bind kc", "flags",
+                  "submit kc 4 0 4 0 6 0", "teardown kc", "teardown c1", "params", "release"],
+    # Wire: the mesh's own wire, else its edges (a line list); the face-group cursor.
+    SURF_SETUP + ["new WireMaterial", "name " + hx("Wire"), "class", "flags", "params",
+                  "bind c1", "set 0 4 " + floats([1.0, 0.5, 0.25, 0.5]), "params", "bind c1",
+                  "submit c1 2 0 4 0 6 0", "engine 1", "submit c1 2 0 4 0 6 0", "wire 7 1",
+                  "submit c1 2 0 4 0 6 0", "submit c1 2 1 3 0 3 0", "submit cn 2 0 4 0 6 0",
+                  "submit c1 2 0 0 0 6 0", "wire 7 0",
+                  "mesh 7 0 %s 0,1,2 %s 0,1,1,2,2,3 6" % (floats([0.5, 0.05, 1.0]),
+                                                       floats(QUAD)),
+                  "submit c1 2 0 4 0 6 0", "mopen 1,0", "submit c1 2 0 4 0 6 0", "mopen 1,-1",
+                  "submit c1 2 0 4 0 6 0", "mesh 7 -8 - - - - 0", "submit c1 2 0 4 0 6 0",
+                  "teardown cc", "release"],
+    SURF_SETUP + ["engine 1", "mesh 7 0 %s 0,1 %s 0,1,1,2 4" % (floats([2.0, 3.0]), floats(QUAD)),
+                  "new WireMaterial", "name " + hx("Edges"),
+                  "set 0 4 " + floats([0.5, 1.0, 0.75, 1.0]), "submit c1 2 0 4 0 6 0",
+                  "lockfail 1", "submit c1 2 0 4 0 6 0", "lockfail 0", "dpvb -1",
+                  "submit c1 2 0 4 0 6 0", "release"],
+    # Wire2: four triangles an edge, a reduced colour for the shifted points.
+    SURF_SETUP + ["new WireMaterial2", "name " + hx("Wire2"), "verify", "verify -1", "verify",
+                  "set 0 4 " + floats([0.75, 0.5, 0.25, 1.0]), "flags", "bind cc", "teardown cc",
+                  "engine 1", "wire 7 1",
+                  "mesh 7 0 %s 0,1 %s 0,1,2,3 4" % (floats([1.0, 0.25]), floats(QUAD)),
+                  "submit c1 4 0 4 0 6 0", "submit c1 4 0 4 0 6 0", "params", "release"],
+    # EnvMap: a glass candidate draws with the reflection on the second pass; another candidate
+    # takes its texture from the instance's root value.
+    SURF_SETUP + ["new EnvMapMaterial", "name " + hx("Chrome"), "verify", "flags",
+                  cand(0, cls="GlassMaterial"), "bind k1", "teardown k1",
+                  "submit k1 4 0 4 0 6 0", "tss 0 1 1", "submit k1 4 0 4 0 6 0", "tss 0 1 4",
+                  "tss 1 1 1", "submit k1 4 0 4 0 6 0", "tss 1 1 3", "submit k1 4 0 4 0 6 0",
+                  "dvb -1", "submit kc 4 0 4 0 6 0", "dvb 0", "bind k1", cand(0), "bind k1",
+                  "iname 7 " + hx("chrome.tga"), "bind k1", "teardown k1", "submit k1 4 0 4 0 6 0",
+                  "tss 0 1 1", "bind k1", "engine 1", "root 7 2", "iname 2 " + hx("chrome.tga"),
+                  cand(1), "bind k1", "iname 2 " + hx("missing.tga"), "bind k1", "bind c1",
+                  "submit c1 4 0 4 0 6 0", "teardown c1", "release"],
+    # Backdrop and starsphere: the candidate drawn without depth.
+    SURF_SETUP + [cand(1, submit=3), "new BackdropMaterial", "name " + hx("Sky"), "class",
+                  "flags", "params", "bind k1", "submit k1 4 0 4 0 6 0", "teardown k1",
+                  "bind c1", "bind -", "submit c1 4 0 4 0 6 0", "release", cand(0, teardown=-2),
+                  "new StarsphereMaterial", "name " + hx("Stars"), "class", "rs 7 1", "rs 14 1",
+                  "rs 23 4", "bind kc", "submit kc 4 0 4 0 6 0", "teardown kc", "release"],
+    # Shadows: efxshadow on the stage after the candidate's; a second pass over a candidate of
+    # more than one pass.
+    SURF_SETUP + [cand(0, passes="1", submit=5), "new ShadowMaterial", "name " + hx("Shadow"),
+                  "class", "flags", "bind -", "bind k1", "submit k1 4 0 4 0 6 0", "teardown k1",
+                  "teardown -", "teardown c1", "submit c1 4 0 4 0 6 0", cand(1, passes="2"),
+                  "bind k1", "submit k1 4 0 4 0 6 100", "submit kc 4 0 4 0 6 0",
+                  cand(1, passes="-"), "bind k1", "submit k0 4 0 4 0 6 0", "release"],
+    ["new ShadowMaterial", "name " + hx("NoTexture"), "bind -", "bind -", "release"],
+    # Visible counters.
+    SURF_SETUP + ["new VisibleCounterMaterial", "name " + hx("Counter"), "class", "verify",
+                  "flags", "counters", "submit c1 4 0 4 0 6 0", "submit cc 4 1 3 0 3 0", "counters",
+                  "bind c1", "teardown c1", "release", "counters"],
+]
+
+
 def write(name, text, check):
     path = os.path.join(HERE, name)
     if check:
@@ -568,6 +758,8 @@ def main():
           check)
     write("material_kinds.list",
           listing("material kinds", [" ; ".join(c) for c in KINDS_CASES]), check)
+    write("material_surface.list",
+          listing("material surface", [" ; ".join(c) for c in SURFACE_CASES]), check)
     write("material_map.ini", MATERIAL_MAP_INI, check)
     write("material_defaults.ini", MATERIAL_DEFAULTS_INI, check)
     write("material_batcher.ini", MATERIAL_BATCHER_INI, check)

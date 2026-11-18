@@ -1628,6 +1628,8 @@ namespace
 
 // oracle_material_kinds.cpp: the 22 material kinds and BatchedMaterial (material_kinds.jsonl).
 void RunMaterialKindSuite();
+// oracle_material_surface.cpp: the 19 surface materials (material_surface.jsonl).
+void RunMaterialSurfaceSuite();
 
 void RunMaterialSuites()
 {
@@ -1644,4 +1646,5 @@ void RunMaterialSuites()
     AnimationSuite();
     BatcherSuite();
     RunMaterialKindSuite();
+    RunMaterialSurfaceSuite();
 }
