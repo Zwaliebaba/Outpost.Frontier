@@ -35,6 +35,31 @@ use neuron_core::rng::CrtRand;
 pub trait AiRand {
     /// The next value, 0..=0x7fff.
     fn rand(&mut self) -> i32;
+
+    /// Whether the process-wide obstacle-avoidance index table
+    /// (`GAvoidIndexTableShuffled`) has been shuffled: the first probe of
+    /// any ship in the process draws 50 values for it. A source that does
+    /// not track it answers true (no shuffle).
+    fn avoid_table_shuffled(&self) -> bool {
+        true
+    }
+
+    /// Marks that table shuffled.
+    fn set_avoid_table_shuffled(&mut self) {}
+}
+
+impl<R: AiRand + ?Sized> AiRand for &mut R {
+    fn rand(&mut self) -> i32 {
+        (**self).rand()
+    }
+
+    fn avoid_table_shuffled(&self) -> bool {
+        (**self).avoid_table_shuffled()
+    }
+
+    fn set_avoid_table_shuffled(&mut self) {
+        (**self).set_avoid_table_shuffled();
+    }
 }
 
 impl AiRand for CrtRand {
@@ -246,6 +271,24 @@ pub struct ObjectView {
     pub max_bank_angle: f32,
     /// `get_scanner_interference` (39).
     pub scanner_interference: f32,
+    /// `get_atmosphere_range` (80); 0 when it fails (every caller seeds
+    /// its out value with 0).
+    pub atmosphere_range: f32,
+    /// The first engine: `find_equipment(engine)` and
+    /// `get_equipment_status` (65, 66), `None` without one.
+    pub engine: Option<EngineStatus>,
+}
+
+/// An engine as `find_equipment` and `get_equipment_status` report it
+/// (`EquipStatus` flag bits 0 and 1).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct EngineStatus {
+    /// The sub-object id.
+    pub id: u16,
+    /// `EquipStatusFlagActive`.
+    pub active: bool,
+    /// `EquipStatusFlagDestroyed`.
+    pub destroyed: bool,
 }
 
 impl ObjectView {
@@ -265,12 +308,47 @@ impl ObjectView {
 /// A thrust source the motion queries take (`IObject::ThrustEquipType`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ThrustEquipType {
-    /// The engine.
+    /// 0 `ThrustEquipNormal`.
+    Normal,
+    /// 1 the engine.
     Engine,
-    /// The thrusters.
+    /// 2 the thrusters.
     Thrusters,
-    /// The cruise engine.
+    /// 3 the trade lane.
+    Tradelane,
+    /// 4 the cruise engine.
     Cruise,
+    /// Any other value (`MoveIdea::SetThrottleScale` forwards a float's
+    /// bits as the type).
+    Other(i32),
+}
+
+impl ThrustEquipType {
+    /// The reference's value.
+    #[must_use]
+    pub fn value(self) -> i32 {
+        match self {
+            Self::Normal => 0,
+            Self::Engine => 1,
+            Self::Thrusters => 2,
+            Self::Tradelane => 3,
+            Self::Cruise => 4,
+            Self::Other(v) => v,
+        }
+    }
+
+    /// From the reference's value.
+    #[must_use]
+    pub fn from_value(value: i32) -> Self {
+        match value {
+            0 => Self::Normal,
+            1 => Self::Engine,
+            2 => Self::Thrusters,
+            3 => Self::Tradelane,
+            4 => Self::Cruise,
+            v => Self::Other(v),
+        }
+    }
 }
 
 /// The motion model of a ship (`IObjInspect` slots 50 to 64): how fast it
@@ -288,10 +366,17 @@ pub trait MotionModel {
     fn speed(&self, throttle: f32, kind: ThrustEquipType) -> f32;
     /// `get_initial_speed_to_coast_distance` (55).
     fn initial_speed_to_coast_distance(&self, speed: f32, stop: bool) -> f32;
-    /// `get_time_to_accelerate_angularly` (56).
+    /// `get_time_to_accelerate_angularly` (56): about the roll axis.
     fn time_to_accelerate_angularly(&self, from: f32, to: f32, dt: f32) -> f32;
-    /// `get_angular_distance_travelled` (58).
+    /// `get_time_to_accelerate_angularly` with pitch and yaw throttles
+    /// (57): `CShip`'s four-argument version (the interface names the
+    /// arguments `From, To, Dt, MaxSpeed`).
+    fn time_to_accelerate_angularly_xy(&self, pitch: f32, yaw: f32, from: f32, to: f32) -> f32;
+    /// `get_angular_distance_travelled` (58): about the roll axis.
     fn angular_distance_travelled(&self, from: f32, to: f32, dt: f32) -> f32;
+    /// `get_angular_distance_travelled` with pitch and yaw throttles (59)
+    /// (the interface names the arguments `From, To, Dt, MaxSpeed`).
+    fn angular_distance_travelled_xy(&self, pitch: f32, yaw: f32, from: f32, time: f32) -> f32;
     /// `get_angular_speed_XY` (60).
     fn angular_speed_xy(&self, speed: f32, max_speed: f32) -> f32;
     /// `get_angular_speed_Z` (61).
@@ -339,6 +424,15 @@ pub enum AiCommand<H> {
         /// The aim point.
         target: Option<Vector>,
     },
+    /// 17 `slot_44`: aim one gun or launcher at a target.
+    SetGunTarget {
+        /// The item's sub-object id.
+        equipment: u16,
+        /// The target.
+        target: Option<H>,
+        /// Its sub-target.
+        subtarget: u16,
+    },
     /// 18 `set_target`.
     SetTarget {
         /// The target.
@@ -353,6 +447,22 @@ pub enum AiCommand<H> {
         /// The exit ring.
         exit: H,
     },
+    /// 19 `slot_4c`: activate or deactivate an equipment item.
+    ActivateEquip {
+        /// The sub-object id.
+        equipment: u16,
+        /// Activate.
+        on: bool,
+    },
+    /// 20 `slot_50`: engage or leave cruise.
+    EngageCruise {
+        /// Engage.
+        engage: bool,
+        /// The second flag (the thrust manager passes false).
+        instant: bool,
+    },
+    /// 21 `slot_54`: the thrusters on or off.
+    SetThrustersActive(bool),
     /// 26 `stop_tradelane`.
     StopTradeLane,
     /// Any other slot, with its integer and float arguments in call order.
@@ -384,7 +494,11 @@ impl<H> AiCommand<H> {
             Self::AddFollowFollower(_) => 11,
             Self::RemoveFollowFollower(_) => 12,
             Self::FireGuns { .. } => 13,
+            Self::SetGunTarget { .. } => 17,
             Self::SetTarget { .. } => 18,
+            Self::ActivateEquip { .. } => 19,
+            Self::EngageCruise { .. } => 20,
+            Self::SetThrustersActive(_) => 21,
             Self::GoTradeLane { .. } => 25,
             Self::StopTradeLane => 26,
             Self::Slot { slot, .. } => *slot,
@@ -423,13 +537,115 @@ pub trait AiWorld {
 
     /// The motion model of a ship (slots 50 to 64); `None` for objects
     /// that have none.
-    fn motion(&self, h: Self::Handle) -> Option<&dyn MotionModel>;
+    fn motion(&self, h: Self::Handle) -> Option<Box<dyn MotionModel + '_>>;
 
     /// The star system an object is in.
     fn system_of(&self, h: Self::Handle) -> Option<u32>;
 
     /// One `IObjAffect` call on `h`; the slot's integer result.
     fn command(&mut self, h: Self::Handle, command: AiCommand<Self::Handle>) -> i32;
+
+    /// `get_scanlist(list, 0x7ffdff, keep)` as `BuildAiTargetList` calls
+    /// it: without `keep` the scanner's cache is cleared first, then it
+    /// scans for the types of the mask it has not scanned this frame; the
+    /// scanner's list, in scan order. `None` when the ship has no scanner
+    /// or the call fails. The default has no scanner.
+    fn scan_list(&mut self, h: Self::Handle, keep: bool) -> Option<Vec<Self::Handle>> {
+        let _ = (h, keep);
+        None
+    }
+
+    /// `find_equipment(buffer, 0x40, mask)` (69): the ids of the items of
+    /// the type mask, `None` when the call fails. The default has none.
+    fn find_equipment(&self, h: Self::Handle, type_mask: u32) -> Option<Vec<u16>> {
+        let _ = (h, type_mask);
+        None
+    }
+
+    /// What the system manager reads of one item (`get_equipment_status`,
+    /// `get_equipment_val` and the launcher's barrel); `None` when the
+    /// object has no such item. The default has none.
+    fn equipment(&self, h: Self::Handle, id: u16) -> Option<EquipInfo> {
+        let _ = (h, id);
+        None
+    }
+
+    /// `can_point_at(out, id, point, angle)` (68): whether the item can
+    /// turn to `point` within `angle`. The default cannot.
+    fn can_point_at(&self, h: Self::Handle, id: u16, point: Vector, angle: f32) -> bool {
+        let _ = (h, id, point, angle);
+        false
+    }
+
+    /// `is_pointing_at(out, id, angle)` (67): whether the item points at
+    /// its target within `angle`. The default does not.
+    fn is_pointing_at(&mut self, h: Self::Handle, id: u16, angle: f32) -> bool {
+        let _ = (h, id, angle);
+        false
+    }
+
+    /// The ship's lead fire position: `CShip::get_tgt_lead_fire_pos` for
+    /// `None`, `get_tgt_lead_fire_pos(id, pos)` (66) for a sub-target;
+    /// `None` when there is none. The default has none.
+    fn lead_fire_position(&mut self, h: Self::Handle, subtarget: Option<u16>) -> Option<Vector> {
+        let _ = (h, subtarget);
+        None
+    }
+
+    /// `CShip::get_targeted_enemy_count`: the live entries of the ship's
+    /// targeter list. The default is 0.
+    fn targeted_enemy_count(&self, h: Self::Handle) -> i32 {
+        let _ = h;
+        0
+    }
+
+    /// Another object's behaviour manager as `CEqObj::
+    /// get_behavior_interface` exposes it: its current behaviour and its
+    /// directive. `None` when the object has none (or it is the manager
+    /// being ticked). The default has none.
+    fn manager_of(&self, h: Self::Handle) -> Option<(i32, [i32; 3])> {
+        let _ = h;
+        None
+    }
+
+    /// `Universe::ISystem::GetSphereProperties` of the system's zones over
+    /// a sphere (the zone-property mask). The default is 0.
+    fn sphere_zone_properties(&self, system: u32, center: Vector, radius: f32) -> u32 {
+        let _ = (system, center, radius);
+        0
+    }
+}
+
+/// `EquipStatus::Flags` bit 0 (`EquipStatusFlagActive`).
+pub const EQUIP_ACTIVE: u8 = 0x01;
+/// `EquipStatus::Flags` bit 1 (`EquipStatusFlagDestroyed`).
+pub const EQUIP_DESTROYED: u8 = 0x02;
+/// `EquipStatus::Flags` bit 2 (`EquipStatusFlagDisabled`).
+pub const EQUIP_DISABLED: u8 = 0x04;
+
+/// One equipment item as the system manager reads it.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct EquipInfo {
+    /// `EquipStatus::Flags` ([`EQUIP_ACTIVE`], [`EQUIP_DESTROYED`],
+    /// [`EQUIP_DISABLED`]).
+    pub flags: u8,
+    /// The low byte of `EquipStatus::EquipFlags` (`CELauncher::GetStatus`:
+    /// 0x2, 0x4, 0x8).
+    pub equip_flags: u8,
+    /// `get_equipment_val(EquipValMunitionKind)`: 0 a plain munition, 1 a
+    /// seeker, 2 hardpoint type 0xa, 3 a cruise disruptor.
+    pub munition_kind: Option<i32>,
+    /// `get_equipment_val(EquipValAutoTurret)`: the gun is an auto turret.
+    pub auto_turret: Option<bool>,
+    /// `get_equipment_val(EquipValSeeker)`: the munition's seeker byte.
+    pub seeker: Option<u8>,
+    /// `get_equipment_val(EquipValRange)`: the munition's range.
+    pub range: Option<f32>,
+    /// `get_equipment_val(EquipValTargetId)`: the gun's own target id.
+    pub target_id: Option<u32>,
+    /// For a launcher (`CELauncher::cast`): barrel 0's world position and
+    /// direction (`GetBarrelPosWS(0)`, `GetBarrelDirWS(0)`).
+    pub barrel: Option<(Vector, Vector)>,
 }
 
 /// One hit of a ray query, as the AI uses it (`PhySys::RayHit`).

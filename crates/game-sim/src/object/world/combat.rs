@@ -594,7 +594,7 @@ impl World {
 
     /// The sphere of an object's body (centre of mass and the core's
     /// radius), or its position and centred radius without one.
-    fn body_sphere(&self, h: ObjHandle) -> (f32, Vector) {
+    pub(crate) fn body_sphere(&self, h: ObjHandle) -> (f32, Vector) {
         let Some(o) = self.objects.get(h) else {
             return (0.0, Vector::ZERO);
         };

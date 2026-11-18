@@ -576,6 +576,7 @@ is zero, which only `Oracle.exe sim` changes:
 | `IVP\ivp_physics\ivp_environment.cpp` | `IVP_Environment_Simulate_Psi` reports before the simulation units and after the next-PSI matrices |
 | `IVP\ivp_physics\ivp_simulation_unit.cpp` | `IVP_Simulation_Unit_Process_One_Psi_Step` reports its entry and its end with the movement check |
 | `IVP\ivp_physics\ivp_core.cpp` | `IVP_Core::push_core_linear`, `push_core_angular_ws` and `push_core_angular_cs` report the push |
+| `Content\PilotPersonalities.cpp` | `OracleSimPilotPersonality`, a new export (P2.5) that only the `pilot` option calls: `GetPilotPersonality` of a pilot nickname |
 
 `srand`, the frame time and the control words need no hook: the harness
 runs the frame loop itself.
@@ -602,7 +603,7 @@ A text file; `#` starts a comment, blank lines are skipped, tokens are
 separated by spaces, tabs or commas. Examples (one per kind of check of
 record 0003) are in `CppSource\Oracle\scenarios\`: `free_flight`,
 `turn_to_heading`, `fly_to_point`, `dock_at_station`, `fire_at_target`,
-`ram_asteroid`.
+`ram_asteroid`, `dogfight`.
 
 | Line | Meaning |
 | --- | --- |
@@ -612,7 +613,7 @@ record 0003) are in `CppSource\Oracle\scenarios\`: `free_flight`,
 | `stepping sp\|mp` | default `mp` |
 | `seed <n>` | `srand` after start-up; default `0x4f524143` |
 | `clock <seconds>` | the fixed clock at tick 0; default 1000 |
-| `ship <name> <archetype> <loadout\|-> <x> <y> <z> [options]` | spawn a ship; options: `heading <degrees>` (about +Y; 0 faces −Z, 90 faces −X), `orient <9 numbers>` (row-major), `vel <x y z>`, `angvel <x y z>`, `ai <state graph>` (e.g. `FIGHTER`; without it the ship has no behaviour and keeps the commands it is given), `hp <n>` (default −1, the archetype's), `psi` (record its PSIs) |
+| `ship <name> <archetype> <loadout\|-> <x> <y> <z> [options]` | spawn a ship; options: `heading <degrees>` (about +Y; 0 faces −Z, 90 faces −X), `orient <9 numbers>` (row-major), `vel <x y z>`, `angvel <x y z>`, `ai <state graph>` (e.g. `FIGHTER`; without it the ship has no behaviour and keeps the commands it is given), `pilot <nickname>` (with `ai`: the personality of a `[Pilot]` of `missions\pilots_population.ini` or `pilots_story.ini`, as Content gives an NPC ship of an `npcships.ini` entry, without a job; without it the default personality), `faction <group>` (a reputation affiliated with a group of `initialworld.ini`, e.g. `he_p_grp`; without it none), `hp <n>` (default −1, the archetype's), `psi` (record its PSIs) |
 | `solar <name> <nickname> [psi]` | a system object of the loaded system |
 | `at <ticks> <name> <command> [arguments]` | `<ticks>` is `t`, `a..b` or `a..b/step` (ticks from 1) |
 
@@ -636,8 +637,21 @@ ship with `ai`:
 | `idle`, `cancel` | `DirectiveIdleOp`, `DirectiveCancelOp` |
 | `dock_request <target>` | `pub::SpaceObj::DockRequest` |
 
-Ships are created as Content creates NPC ships, without a reputation
-(`VibeGroupId` −1), costume or voice, and with the default personality.
+Ships are created as Content creates NPC ships, without a costume or
+voice. A ship without `faction` has no reputation (`VibeGroupId` −1); with
+it, the harness allocates one as Content does for an NPC
+(`pub::Reputation::Alloc` with empty names, `SetAffiliation` to the group
+`GetReputationGroup` names), so its attitude towards another ship is the
+groups' feeling and the target manager treats a ship it feels −0.6 or less
+towards as hostile. A ship has the default personality unless `pilot`
+names one, which `Oracle.exe sim` reads through Content.dll's
+`OracleSimPilotPersonality` export and submits with the state graph
+(`bSetPersonality` 1).
+
+`dogfight` gives two AI fighters no command at all: the target manager
+picks the hostile ship and the state graph the combat behaviours, as when
+two hostile NPCs meet. There is no attack directive in the game; the
+`target` command (`set_target`) is not used there.
 
 ### Outputs
 
@@ -669,6 +683,6 @@ uses a static asteroid solar. The multiplayer server's collision filter
 pair collide only when one side is a bullet or a missile, so ship–solar and
 ship–ship contact is not simulated on the server (the clients report it):
 in `ram_asteroid` the ship flies through the rock and no collision is
-recorded. Ships have no reputation, so AI targeting is
-neutral. There is no world snapshot for behaviours that read other objects
+recorded. Ships without `faction` have no reputation,
+so their AI targeting is neutral. There is no world snapshot for behaviours that read other objects
 (record 0003 point 7, P2.5).

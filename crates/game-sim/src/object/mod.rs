@@ -216,6 +216,10 @@ pub struct Physical {
     pub ledge_parts: Vec<u32>,
     /// The registered force controllers of the object and its equipment.
     pub controllers: Vec<(world::ControllerRef, ControllerHandle, u64)>,
+    /// The body's surface mass centre in object space (the surface
+    /// manager's `get_mass_center`, which `PhySys::GetCenterOfMass`
+    /// reads whether or not the core is pinned to the origin).
+    pub mass_center: [f32; 3],
 }
 
 /// `CSimple` (0x9c..0xe4).

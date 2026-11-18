@@ -101,6 +101,26 @@ jobs:
               Select-String -Path $_.FullName -Pattern '"error"|"note"' | Select-Object -First 20 | ForEach-Object { "$($_.Filename): $($_.Line)" }
             }
           }
+          # P2.5 (the dogfight): each run's events counted by kind and objects (munition hits
+          # shooter->target, target picks ship->target), and the ticks each AI ship spent in
+          # each behaviour (tick.jsonl `behavior`, the BehaviorTypes id) with each target.
+          foreach ($dir in Get-ChildItem $out -Directory) {
+            foreach ($run in Get-ChildItem $dir.FullName -Directory) {
+              $events = Join-Path $run.FullName 'events.jsonl'
+              if (Test-Path $events) {
+                Get-Content $events | ForEach-Object { $_ | ConvertFrom-Json } |
+                  Group-Object { "$($_.rec) $($_.obj ?? $_.shooter_obj ?? $_.a_obj ?? $_.ship_obj)->$($_.target_obj ?? $_.b_obj ?? $_.dock_obj ?? $_.killer_obj)" } |
+                  ForEach-Object { "$($dir.Name)/$($run.Name) events: $($_.Count) x $($_.Name)" }
+              }
+              $ticks = Join-Path $run.FullName 'tick.jsonl'
+              if ((Test-Path $ticks) -and (Select-String -Path $ticks -Pattern '"behavior":[0-9]' -Quiet)) {
+                Get-Content $ticks | Where-Object { $_.Contains('"behavior":') } | ForEach-Object { $_ | ConvertFrom-Json } |
+                  Where-Object { $_.behavior -ge 0 } |
+                  Group-Object { "$($_.obj) behaviour $($_.behavior) target $($_.target_obj)" } |
+                  ForEach-Object { "$($dir.Name)/$($run.Name) ticks: $($_.Count) x $($_.Name)" }
+              }
+            }
+          }
           if ($failed.Count -gt 0) {
             Write-Host "Scenarios with a failed run: $($failed -join ', ')"
             exit 1
@@ -128,7 +148,7 @@ jobs:
         run: |
           $env:OUTPOST_ORACLE_DIR = "$env:RUNNER_TEMP\outpost-sim"
           $failed = 0
-          foreach ($test in 'controller_replay', 'damage_replay', 'scenario_replay') {
+          foreach ($test in 'controller_replay', 'damage_replay', 'scenario_replay', 'behavior_replay') {
             cargo test --locked --release -p game-sim --test $test -- --nocapture
             if ($LASTEXITCODE -ne 0) { $failed = 1 }
           }

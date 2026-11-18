@@ -11,8 +11,9 @@
 //                               and collisions with no player), IServerImpl::ElapseTime (real
 //                               dt), OracleSimLoadSystem (export, loads one system)
 //   Server/server_gameobject.cpp  the three Timing::read timer stamps; GameObject::on_collision
-//                               (CalcCollisionDamage in and out); Ship's IObjAffect setters and
-//                               EqObj::slot_34 (OnAffect)
+//                               (CalcCollisionDamage in and out); Ship's IObjAffect setters,
+//                               set_target, slot_50 and slot_54, EqObj::slot_34 and slot_4c
+//                               (OnAffect, each inside an FOracleSimAffectScope)
 //   Server/server_classes.cpp   StarSystem::munition_collision (OnMunitionHit)
 //   Common/common_physicalsystem.cpp  PhysicalSystem::Update (single-player stepping)
 //   Common/common_behaviormanager.cpp IBehaviorManager::UpdateBehaviorTick (OnBehaviorTick)
@@ -115,7 +116,12 @@ enum EOracleSimAffect
     OracleSimAffectAxisThrottle = 1,  // Values[0..2]
     OracleSimAffectNudge = 2,         // Values[0..2]
     OracleSimAffectStrafe = 3,        // IntArg = StrafeDir
-    OracleSimAffectFire = 13          // IntArg = equipment count, Values = target position or none
+    OracleSimAffectFire = 13,         // IntArg = equipment count, Values = target position or none
+    // P2.5 goto/face (design/sim-records.md, `affect`):
+    OracleSimAffectTarget = 18,       // set_target: IntArg = target id (0 none), Values[0] = sub-target
+    OracleSimAffectEquip = 19,        // slot_4c: IntArg = equipment id, Values[0] = activate (1 or 0)
+    OracleSimAffectCruise = 20,       // slot_50: IntArg = engage (1 or 0), Values[0] = the second flag
+    OracleSimAffectThrusters = 21     // slot_54: IntArg = activate (1 or 0)
 };
 
 struct FOracleSimHooks
@@ -160,6 +166,9 @@ struct FOracleSimHooks
     // Ship's IObjAffect setters and EqObj::slot_34, on entry.
     void(__cdecl* OnAffect)(unsigned int ObjectId, int Slot, int IntArg, float const* Values,
                             int Count);
+    // The number of instrumented IObjAffect calls in progress (FOracleSimAffectScope), so
+    // OnAffect can tell an outer call from one an outer call makes (depth 0 is the caller's).
+    int AffectDepth;
 };
 
 COMMON_API extern FOracleSimHooks GOracleSimHooks;
@@ -184,6 +193,16 @@ COMMON_API bool __cdecl OracleSimReadCore(IVP_Core const* Core, FOracleSimCore& 
 COMMON_API bool __cdecl OracleSimReadBehavior(IBehaviorManager const* Manager, FOracleSimBehavior& Out);
 // The behaviour manager of a CEqObj (null for anything else or when it has none).
 COMMON_API IBehaviorManager const* __cdecl OracleSimBehaviorOf(CObject* Object);
+
+// An instrumented IObjAffect call in progress: constructed before OnAffect, so OnAffect sees
+// its own call at AffectDepth 1.
+struct FOracleSimAffectScope
+{
+    FOracleSimAffectScope() { ++GOracleSimHooks.AffectDepth; }
+    ~FOracleSimAffectScope() { --GOracleSimHooks.AffectDepth; }
+    FOracleSimAffectScope(FOracleSimAffectScope const&) = delete;
+    FOracleSimAffectScope& operator=(FOracleSimAffectScope const&) = delete;
+};
 
 // UpdateBehaviorTick's hook: OnBehaviorTick(phase 0) when constructed, phase 1 when destroyed.
 struct FOracleSimBehaviorScope

@@ -29,6 +29,7 @@
 //! bodies are built from the archetypes' `.sur` surfaces; without assets
 //! every body is the default part and no hardpoint is found.
 
+mod ai;
 mod animate;
 mod combat;
 mod sensors;
@@ -55,6 +56,7 @@ use crate::equip::{EquipEvent, SubObjId};
 
 use super::{Arena, DamageList, ObjHandle, Object};
 
+pub use ai::ManagerHook;
 pub use combat::damage_sub_obj;
 pub use sensors::{EquipStatus, EquipmentVal, equipment_val};
 pub(crate) use spawn::shield_status;
@@ -289,6 +291,10 @@ pub struct World {
     pub(crate) time: f64,
     pub(crate) events: Vec<WorldEvent>,
     behavior: Option<Box<dyn BehaviorHook>>,
+    pub(crate) behavior_managers: BTreeMap<ObjHandle, crate::ai::manager::BehaviorManager<World>>,
+    /// `GAvoidIndexTableShuffled`: the first obstacle probe of the process
+    /// has drawn its 50 `rand()` values.
+    pub(crate) avoid_table_shuffled: bool,
     always_update: Vec<ObjHandle>,
     anim_channels: Vec<turret::AnimChannel>,
     anim_playbacks: Vec<(ObjHandle, animate::AnimKind)>,
@@ -370,6 +376,8 @@ impl World {
             time: 0.0,
             events: Vec::new(),
             behavior: None,
+            behavior_managers: BTreeMap::new(),
+            avoid_table_shuffled: false,
             always_update: Vec::new(),
             anim_channels: Vec::new(),
             anim_playbacks: Vec::new(),
@@ -591,6 +599,7 @@ impl World {
             }
         }
         self.always_update.retain(|x| *x != h);
+        self.behavior_managers.remove(&h);
     }
 
     // ---- assets -----------------------------------------------------------------------------

@@ -15,7 +15,11 @@
 #include "common_csys.h"           // Matrix, Transform
 #include "common_aisteer.h"
 #include "common_aisteer_internal.h"  // CmnAiSteer::SteeringFrameFromRelativeDir
+#include "common_pathfind.h"          // PathfindManager (OracleAiReadManager)
 #include "common_misc.h"           // RandomVector
+#include "common_idea.h"           // MoveIdea
+#include "common_facebehavior.h"   // FaceBehavior (OracleAiReadManager)
+#include "common_cequip.h"         // CELauncher (OracleAiLauncherBarrel)
 
 #include <cstring>
 #include <new>
@@ -271,6 +275,92 @@ double __cdecl OracleAiRangeThresholdValue(int JobField00)
     return P.get_range_threshold_value();
 }
 
+int __cdecl OracleAiThresholdTimer(float const* In, float Dt, float Level, float* Out)
+{
+    SustainedThresholdTimer Timer;
+    Timer.Active = In[0] != 0.0f ? 1 : 0;
+    Timer.TriggerThreshold = In[1];
+    Timer.Duration = In[2];
+    Timer.Accumulator = In[3];
+    bool const bResult = Timer.Update(Dt, Level);
+    Out[0] = Timer.Active != 0 ? 1.0f : 0.0f;
+    Out[1] = Timer.Accumulator;
+    return bResult ? 1 : 0;
+}
+
+namespace
+{
+    // A gun-group manager as its constructor leaves it (no owner, no target), heap-allocated
+    // (0x1238 bytes) and destroyed by the caller.
+    SystemManagerGunGroupManager* NewGunGroups()
+    {
+        void* const Storage = ::operator new(sizeof(SystemManagerGunGroupManager));
+        SystemManagerGunGroupManager* const Groups = static_cast<SystemManagerGunGroupManager*>(Storage);
+        ConstructSystemManagerGunGroupManager(Groups);
+        return Groups;
+    }
+
+    void DeleteGunGroups(SystemManagerGunGroupManager* Groups)
+    {
+        Groups->~SystemManagerGunGroupManager();
+        ::operator delete(Groups);
+    }
+}
+
+void __cdecl OracleAiGunSlotTiming(float const* Params, int Kind, int bAutoTurret, float* Out)
+{
+    SystemManagerGunGroupManager* const G = NewGunGroups();
+    G->GunFireIntervalTime = Params[0];
+    G->GunFireIntervalVariance = Params[1];
+    G->AutoTurretIntervalTime = Params[2];
+    G->GunFireBurstIntervalTime = Params[3];
+    G->GunFireBurstIntervalVariance = Params[4];
+    G->GunFireNoBurstIntervalTime = Params[5];
+    G->AutoTurretBurstIntervalTime = Params[6];
+    G->AutoTurretNoBurstIntervalTime = Params[7];
+    G->AutoTurretBurstIntervalVariance = Params[8];
+    G->MissileLaunchIntervalTime = Params[9];
+    G->MissileLaunchIntervalVariance = Params[10];
+    FGunGroupSlot& Slot = G->Guns[0];
+    Slot.MunitionKind = Kind;
+    Slot.bAutoTurret = bAutoTurret != 0 ? 1 : 0;
+    G->RandomizeSlotTiming(&Slot);
+    Out[0] = Slot.BurstTime;
+    Out[1] = Slot.NoBurstTime;
+    Out[2] = Slot.FireInterval;
+    Out[3] = Slot.Phase;
+    DeleteGunGroups(G);
+}
+
+void __cdecl OracleAiGunGroupStep(int Kind, float const* Slot, float AimTimer, float const* Cache, float Dt,
+                                  float* Out)
+{
+    SystemManagerGunGroupManager* const G = NewGunGroups();
+    G->GunCount = 1;
+    G->MineDropperCount = 0;
+    FGunGroupSlot& S = G->Guns[0];
+    S.MunitionKind = Kind;
+    S.BurstTime = Slot[0];
+    S.NoBurstTime = Slot[1];
+    S.FireInterval = Slot[2];
+    S.Phase = Slot[3];
+    G->AimRefreshTimer = AimTimer;
+    FLauncherFireCacheSlot& C = G->LineOfFireCache[0];
+    C.InUse = 1;
+    C.Age = Cache[0];
+    C.RefreshTimer = Cache[1];
+    C.NeedsRefresh = Cache[2] != 0.0f ? 1 : 0;
+    G->UpdateTimers(Dt);
+    Out[0] = S.Phase;
+    Out[1] = S.bFireTick != 0 ? 1.0f : 0.0f;
+    Out[2] = G->AimRefreshTimer;
+    Out[3] = C.InUse != 0 ? 1.0f : 0.0f;
+    Out[4] = C.Age;
+    Out[5] = C.RefreshTimer;
+    Out[6] = C.NeedsRefresh != 0 ? 1.0f : 0.0f;
+    DeleteGunGroups(G);
+}
+
 unsigned int __cdecl OracleAiObjectId(CObject const* Object)
 {
     if (Object == nullptr)
@@ -319,6 +409,139 @@ void __cdecl OracleAiReportSphereQuery(unsigned int SystemId, Vector const& Cent
     GOracleAiHooks.OnQuery(OracleAiQuerySphere, SystemId, nullptr, C, C, Radius, MaxObjects, N, Out);
 }
 
+namespace
+{
+    // The incoming-missile list node of the timer table (common_sysmgr_timertable.cpp).
+    struct FOracleTimerListNode
+    {
+        FOracleTimerListNode* Next;
+        FOracleTimerListNode* Prev;
+        BaseWatcher Watcher;
+    };
+
+    void ReadSlot(FGunGroupSlot const& In, FOracleAiGunSlot& Out)
+    {
+        Out.Id = In.HardpointId;
+        Out.bAutoTurret = In.bAutoTurret != 0 ? 1 : 0;
+        Out.Seeker = In.bSeekerMunition;
+        Out.bFireTick = In.bFireTick != 0 ? 1 : 0;
+        Out.Kind = In.MunitionKind;
+        Out.BurstTime = In.BurstTime;
+        Out.NoBurstTime = In.NoBurstTime;
+        Out.FireInterval = In.FireInterval;
+        Out.Phase = In.Phase;
+    }
+
+    void OracleAiReadSystem(SystemManager const& Sys, FOracleAiManager& Out)
+    {
+        TargetManager const& T = Sys.Targeting;
+        FOracleAiTargeting& OT = Out.Targeting;
+        OT.AttackState = T.AttackState;
+        OT.AggressionRatio = T.AggressionRatio;
+        OT.SubtargetDistanceSq = T.SubtargetDistanceSq;
+        OT.SubtargetId = T.SubtargetId;
+        OT.NumForcedTargets = T.NumForcedTargets;
+        for (int Index = 0; Index < 8; ++Index)
+            OT.ForcedTargets[Index] = T.ForcedTargets[Index];
+        FromVector(OT.Anchor, T.AnchorPosition);
+        OT.bCommitted = T.bCommitted ? 1 : 0;
+        OT.CommitTimer = T.CommitTimer;
+        OT.SelectionPriority = T.SelectionPriority;
+        OT.NumCandidatesA = T.NumCandidatesA;
+        OT.NumCandidatesB = T.NumCandidatesB;
+        OT.NumSelected = T.NumSelected;
+        OT.bSelectedIsPlayer = T.bSelectedIsPlayer ? 1 : 0;
+        OT.TargetedEnemyCount = T.TargetedEnemyCount;
+        OT.bOverClampKept = T.bPlayerOverClampKept ? 1 : 0;
+        OT.bOverClampDropped = T.bPlayerOverClampDropped ? 1 : 0;
+
+        SystemManagerTimerTable const& M = Sys.Timers;
+        FOracleAiTimerTable& OM = Out.Timers;
+        OM.ScannerId = M.ScannerEquipId;
+        OM.DecayRate = M.DecayRate;
+        OM.Level = M.Level;
+        for (int Index = 0; Index < 11; ++Index)
+        {
+            OM.TimerActive[Index] = M.Timers[Index].Active != 0 ? 1 : 0;
+            OM.TimerValues[Index][0] = M.Timers[Index].TriggerThreshold;
+            OM.TimerValues[Index][1] = M.Timers[Index].Duration;
+            OM.TimerValues[Index][2] = M.Timers[Index].Accumulator;
+        }
+        OM.DecayScale = M.UnknownScale_0xD8;
+        FOracleTimerListNode const* const Head = static_cast<FOracleTimerListNode const*>(M.ListHeadNode);
+        if (Head != nullptr)
+        {
+            for (FOracleTimerListNode const* Node = Head->Next; Node != nullptr && Node != Head && OM.MissileCount < 16;
+                 Node = Node->Next)
+                OM.Missiles[OM.MissileCount++] = Node->Watcher.get_watched_id();
+        }
+        OM.BestMissile = reinterpret_cast<BaseWatcher const*>(M.BestCandidateWatcherBytes)->get_watched_id();
+        OM.BestTime = M.BestValueSoFar;
+
+        SystemManagerGunGroupManager const& G = Sys.GunGroups;
+        FOracleAiGunGroups& OG = Out.Guns;
+        OG.LastGunFireResult = G.LastGunFireResult;
+        OG.TargetId = G.TargetWatcher().get_watched_id();
+        OG.HoldMask = G.Field_0x10;
+        FromVector(OG.AimOffset, G.AimOffset);
+        OG.AimRefreshTimer = G.AimRefreshTimer;
+        OG.CruiseHeldTime = G.CruiseHeldTime;
+        OG.ScanTimer = G.ScanTimer;
+        OG.ScanPeriod = G.ScanPeriod;
+        OG.GunCount = G.GunCount;
+        for (int Index = 0; Index < G.GunCount && Index < 64; ++Index)
+            ReadSlot(G.Guns[Index], OG.Guns[Index]);
+        OG.MineDropperCount = G.MineDropperCount;
+        for (int Index = 0; Index < G.MineDropperCount && Index < 64; ++Index)
+            ReadSlot(G.MineDroppers[Index], OG.MineDroppers[Index]);
+        std::memcpy(OG.Params, &G.GunFireIntervalTime, sizeof(OG.Params));
+        OG.WideConeAngle = G.WideConeAngle;
+        OG.bFireAllGuns = G.bFireAllGuns;
+        OG.bEnabled = G.bEnabled != 0 ? 1 : 0;
+        for (int Index = 0; Index < 16; ++Index)
+        {
+            FLauncherFireCacheSlot const& L = G.LineOfFireCache[Index];
+            FOracleAiLineOfFire& OL = OG.LineOfFire[Index];
+            OL.bInUse = L.InUse != 0 ? 1 : 0;
+            OL.TargetId = L.TargetId;
+            OL.Id = L.HardpointId;
+            OL.Age = L.Age;
+            OL.RefreshTimer = L.RefreshTimer;
+            OL.bNeedsRefresh = L.NeedsRefresh != 0 ? 1 : 0;
+            OL.bBlocked = L.bBlocked != 0 ? 1 : 0;
+        }
+        OG.CmTimer = G.CmDroppers.Timer;
+        OG.bCmActive = G.CmDroppers.bActive != 0 ? 1 : 0;
+        OG.CmCount = G.CmDroppers.Count;
+        for (int Index = 0; Index < G.CmDroppers.Count && Index < 8; ++Index)
+            OG.CmIds[Index] = G.CmDroppers.Ids[Index];
+    }
+
+    void OracleAiReadFace(FaceBehavior const& F, FOracleAiFace& Out)
+    {
+        Out.Mode = F.ModeSelector0xc;
+        Out.Result = F.UpdateResult10;
+        Out.DeltaTime = F.DeltaTime1c;
+        Out.Flags28 = F.Flags28;
+        Out.Flag29 = F.Flag29;
+        Out.Kind = F.TargetKind2c;
+        Out.WatchedId = F.Watcher30.get_watched_id();
+        FromMatrix(Out.Orient, F.OrientMatrix38);
+        FromVector(Out.Target, F.TargetPosition5c);
+        Out.Flag1b4 = F.Flag1b4;
+        Out.Steer[0] = F.Field1b8;
+        Out.Steer[1] = F.Field1bc;
+        Out.Steer[2] = F.Field1c0;
+        Out.Flag1c4 = F.Flag1c4;
+        Out.Flag1c5 = F.Flag1c5;
+        Out.Field1c8 = F.Field1c8;
+        Out.Field1cc = F.Field1cc;
+        Out.Field1d0 = F.Field1d0;
+        Out.Flag1d4 = F.Flag1d4;
+        Out.Field1d8 = F.Field1d8;
+    }
+}
+
 bool __cdecl OracleAiReadManager(IBehaviorManager const* Manager, FOracleAiManager& Out)
 {
     std::memset(&Out, 0, sizeof(Out));
@@ -365,6 +588,431 @@ bool __cdecl OracleAiReadManager(IBehaviorManager const* Manager, FOracleAiManag
             Out.Targets[Index] = Begin[Index].Iface;
         Out.bPersonality = 1;
         std::memcpy(Out.Personality, &Sys->PersonalityData, sizeof(Out.Personality));
+        ThrustManager const& Thrust = Sys->Thrust;
+        Out.ThrustFlags = (Thrust.bCruiseEngaged != 0 ? 1 : 0) | (Thrust.bCruiseUnobstructed != 0 ? 2 : 0) |
+                          (Thrust.bEngineActive != 0 ? 4 : 0) | (Thrust.bAutoLevel != 0 ? 8 : 0) |
+                          (Thrust.bAutoAvoidance != 0 ? 16 : 0);
+    }
+    PathfindManager const* const Pathfind = Manager->Pathfind;
+    if (Pathfind != nullptr)
+    {
+        Out.bPathfind = 1;
+        Out.PathfindTimers[0] = Pathfind->Timer1E0;
+        Out.PathfindTimers[1] = Pathfind->Timer1E8;
+        Out.PathfindTimers[2] = Pathfind->Timer20C;
+        Out.PathfindPeriods[0] = Pathfind->Period1E4;
+        Out.PathfindPeriods[1] = Pathfind->Period1EC;
+        Out.PathfindPeriods[2] = Pathfind->Period210;
+        Out.PathfindRecord = Pathfind->Field_214;
+        std::memcpy(Out.PathfindGoal, &Pathfind->Field_22C, sizeof(Out.PathfindGoal));
+        Out.PathfindCap = Pathfind->Field_23C;
+        Out.PathfindKind = Pathfind->Field_240;
+        std::memcpy(Out.PathfindTarget, &Pathfind->CachedTargetPosition, sizeof(Out.PathfindTarget));
+        Out.PathfindTargetId = static_cast<unsigned int>(Pathfind->Field_064);
+        Out.PathfindReaction = Pathfind->Reaction.State;
+        Out.bProbeActive = Pathfind->Avoidance.Active != 0 ? 1 : 0;
+        Out.bProbeContact = Pathfind->Avoidance.HasContact != 0 ? 1 : 0;
+    }
+    Out.Flags1c8 = Manager->Flags1c8;
+    if (Sys != nullptr)
+    {
+        Out.bSys = 1;
+        OracleAiReadSystem(*Sys, Out);
+    }
+    if (Manager->CurrentBehaviorIndex == 15 && Manager->BehaviorDispatchTable[15] != nullptr)
+    {
+        Out.bFace = 1;
+        OracleAiReadFace(*static_cast<FaceBehavior const*>(Manager->BehaviorDispatchTable[15]), Out.Face);
     }
     return true;
+}
+
+int __cdecl OracleAiLauncherBarrel(IObjInspect const* Object, unsigned short Id, float* OutPos, float* OutDir)
+{
+    if (Object == nullptr)
+        return 0;
+    CObject* const Obj = const_cast<CObject*>(Object->cobject());
+    if (Obj == nullptr || (static_cast<unsigned>(Obj->ObjectClass) & 0x103) != 0x103)
+        return 0;
+    CELauncher* const Launcher = CELauncher::cast(static_cast<CEqObj*>(Obj)->EquipManager.FindByID(Id));
+    if (Launcher == nullptr)
+        return 0;
+    FromVector(OutPos, Launcher->GetBarrelPosWS(0));
+    FromVector(OutDir, Launcher->GetBarrelDirWS(0));
+    return 1;
+}
+
+int __cdecl OracleAiShipLeadFirePos(IObjInspect const* Object, float* Out)
+{
+    if (Object == nullptr)
+        return -1;
+    CObject const* const Obj = Object->cobject();
+    if (Obj == nullptr || (static_cast<unsigned>(Obj->ObjectClass) & 0x503) != 0x503)
+        return -1;
+    Vector Lead;
+    if (!static_cast<CShip const*>(Obj)->get_tgt_lead_fire_pos(Lead))
+        return 0;
+    FromVector(Out, Lead);
+    return 1;
+}
+
+int __cdecl OracleAiTargetedEnemyCount(IObjInspect const* Object)
+{
+    if (Object == nullptr)
+        return -1;
+    CObject* const Obj = const_cast<CObject*>(Object->cobject());
+    if (Obj == nullptr || (static_cast<unsigned>(Obj->ObjectClass) & 0x503) != 0x503)
+        return -1;
+    return static_cast<CShip*>(Obj)->get_targeted_enemy_count();
+}
+
+// ---------------------------------------------------------------------------
+// The navigation suites (Oracle/oracle_ai_nav.cpp): an IObjInspect that answers from an
+// FOracleAiObject, and the wrappers over the intercept and obstacle-avoidance helpers.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+    float const Zero3[3] = {0.0f, 0.0f, 0.0f};
+
+    Vector ToVec(float const* In)
+    {
+        Vector Out;
+        Out.x = In[0];
+        Out.y = In[1];
+        Out.z = In[2];
+        return Out;
+    }
+
+    // Every slot the helpers do not read fails (-1, 0, false or null). get_id answers 1.
+    class FOracleFakeInspect : public IObjInspect
+    {
+    public:
+        explicit FOracleFakeInspect(FOracleAiObject const& In) : Data(In)
+        {
+            for (int Row = 0; Row < 3; ++Row)
+            {
+                for (int Column = 0; Column < 3; ++Column)
+                    Xform.Rotation.E[Row][Column] = In.Rotation[Row * 3 + Column];
+            }
+            Xform.Translation = ToVec(In.Position);
+            Velocity = ToVec(In.Velocity);
+            AngularVelocity = ToVec(In.AngularVelocity);
+        }
+
+        Vector const& get_position() const override { return Xform.Translation; }
+        Vector get_velocity() const override { return Velocity; }
+        Vector get_angular_velocity() const override { return AngularVelocity; }
+        Transform const& get_transform() const override { return Xform; }
+        Matrix const& get_orientation() const override { return Xform.Rotation; }
+        Vector get_center_of_mass() const override { return ToVec(Zero3); }
+        int get_sub_obj_center_of_mass(unsigned short, Vector&) const override { return -1; }
+        long get_index() const override { return 0; }
+        unsigned int const get_id() const override { return 1; }
+        int get_good_id(unsigned&) const override { return -1; }
+        int get_archetype_extents(Vector& Min, Vector& Max) const override
+        {
+            if (Data.bExtentsFail != 0)
+            {
+                Min = ToVec(Zero3);
+                Max = ToVec(Zero3);
+                return -5;
+            }
+            Min = ToVec(Data.ExtentMin);
+            Max = ToVec(Data.ExtentMax);
+            return 0;
+        }
+        int get_physical_radius(float& Radius, Vector& Center) const override { Radius = Data.Radius; Center = ToVec(Data.Center); return 0; }
+        float get_mass() const override { return 0.0f; }
+        bool is_targetable() const override { return false; }
+        bool is_dying() const override { return false; }
+        int get_status(float&, float&) const override { return -1; }
+        int get_status(float&) const override { return -1; }
+        int get_shield_status(float&, float&, bool&) const override { return -1; }
+        int get_shield_status(float&, bool&) const override { return -1; }
+        int get_throttle(float& OutThrottle) const override { OutThrottle = Data.Throttle; return 0; }
+        int get_axis_throttle(Vector& OutThrottle) const override { OutThrottle = AngularVelocity; return 0; }
+        int get_nudge_vec(Vector&) const override { return -1; }
+        int get_strafe_dir(StrafeDir&) const override { return -1; }
+        int is_cruise_active(bool&, bool&) const override { return -1; }
+        int is_cruise_active(bool&) const override { return -1; }
+        int are_thrusters_active(bool&) const override { return -1; }
+        int get_attitude_towards(float&, IObjInspect const*) const override { return -1; }
+        int get_attitude_towards_symmetrical(float&, IObjInspect const*, float&) const override { return -1; }
+        int get_reputation(float&, uint const&) const override { return -1; }
+        int get_target(IObjRW*&) const override { return -1; }
+        int get_subtarget(unsigned short&) const override { return -1; }
+        int get_subtarget_center_of_mass(Vector&) const override { return -1; }
+        int get_rank(uint&) const override { return -1; }
+        int get_affiliation(uint&) const override { return -1; }
+        int get_type(uint& OutType) const override { OutType = Data.Type; return 0; }
+        int get_base(uint&) const override { return -1; }
+        int get_dock_target(uint&) const override { return -1; }
+        int get_power(float&) const override { return -1; }
+        int get_zone_props(unsigned long&) const override { return -1; }
+        float get_scanner_interference() const override { return 0.0f; }
+        int get_hold_left(float&) const override { return -1; }
+        int enumerate_cargo(CargoEnumerator*) const override { return -1; }
+        int get_data(void const*&) const override { return -1; }
+        int get_formation_offset(Vector&) const override { return -1; }
+        int get_formation_leader(IObjRW*&) const override { return -1; }
+        int get_follow_offset(Vector&) const override { return -1; }
+        int get_follow_leader(IObjRW*&) const override { return -1; }
+        bool is_player() const override { return false; }
+        int get_hardpoint(char const*, Vector*, Matrix*) const override { return -1; }
+        bool has_dock_hardpoints() const override { return false; }
+        int get_dock_hardpoints(int, TERMINAL_TYPE*, Transform*, Transform*, Transform*, float*) const override { return -1; }
+        float get_time_to_accelerate(float, float, float, ThrustEquipType) const override { return 0.0f; }
+        float get_distance_travelled(float, float, float, ThrustEquipType) const override { return 0.0f; }
+        float get_projected_throttle(float, ThrustEquipType) const override { return 0.0f; }
+        float get_speed(float, ThrustEquipType) const override { return Data.Speed; }
+        float get_initial_speed_to_coast_distance(float, bool) const override { return 0.0f; }
+        float get_time_to_accelerate_angularly(float, float, float) const override { return 0.0f; }
+        float get_time_to_accelerate_angularly(float, float, float Dt, float MaxSpeed) const override
+        {
+            return Dt + MaxSpeed;
+        }
+        float get_angular_distance_travelled(float, float To, float Dt) const override { return To * Dt; }
+        float get_angular_distance_travelled(float, float, float Dt, float MaxSpeed) const override
+        {
+            return Dt * MaxSpeed;
+        }
+        float get_angular_speed_XY(float, float) const override { return Data.AngularSpeedXY; }
+        float get_angular_speed_Z(float Speed) const override { return Speed * Data.AngularSpeedXY; }
+        float get_projected_axis_throttle_XY(float Speed) const override { return Speed * 0.5f; }
+        float get_projected_axis_throttle_Z(float) const override { return 0.0f; }
+        float get_max_bank_angle() const override { return 0.6f; }
+        int get_scanlist(ScanList const*&, uint, bool) const override { return -1; }
+        int get_tgt_lead_fire_pos(unsigned short const&, Vector&) const override { return -1; }
+        int is_pointing_at(bool&, unsigned short const&, float) const override { return -1; }
+        int can_point_at(bool&, unsigned short const&, Vector const&, float) const override { return -1; }
+        int find_equipment(unsigned short* const, uint, uint) const override { return -1; }
+        int get_equipment_status(EquipStatus&, unsigned short const&) const override { return -1; }
+        int get_equipment_val(EquipmentVal&, unsigned short const&, EquipmentValType, float) const override { return -1; }
+        int scan_cargo(IObjRW*, EquipDescVector&) const override { return -1; }
+        int enumerate_subtargets(SubtargetEnumerator*) const override { return -1; }
+        int get_lane_direction(Transform const&, bool*) const override { return -1; }
+        int get_ring_side(Transform const&, bool*) const override { return -1; }
+        int traverse_rings(uint&, bool) const override { return -1; }
+        int is_using_tradelane(bool*) const override { return -1; }
+        int get_lane_start(IObjInspect const*, IObjInspect const*&, Vector&, Vector&) const override { return -1; }
+        bool generate_follow_offset(IObjInspect const*, Transform&) const override { return false; }
+        int get_atmosphere_range(float& OutRange) const override { OutRange = Data.AtmosphereRange; return 0; }
+        int get_toughness() const override { return -1; }
+        int get_behavior_id() const override { return -1; }
+        int get_formation_followers(IObjRW** const, uint) const override { return -1; }
+        CObject const* cobject() const override { return nullptr; }
+
+    private:
+        FOracleAiObject Data;
+        Transform Xform;
+        Vector Velocity;
+        Vector AngularVelocity;
+    };
+
+    // An FAiTarget over a fake, its caches cleared.
+    struct FOracleTarget
+    {
+        FOracleFakeInspect Inspect;
+        FAiTarget Target;
+
+        explicit FOracleTarget(FOracleAiObject const& In) : Inspect(In)
+        {
+            std::memset(&Target, 0, sizeof(Target));
+            Target.Init(nullptr, &Inspect);
+        }
+    };
+
+    void ToSlot(float const* In, ObstacleAvoidance::Slot& Out)
+    {
+        Out.Timer = In[0];
+        Out.Point = ToVector(In + 1);
+        Out.Direction = ToVector(In + 4);
+    }
+
+    void FromSlot(float* Out, ObstacleAvoidance::Slot const& In)
+    {
+        Out[0] = In.Timer;
+        FromVector(Out + 1, In.Point);
+        FromVector(Out + 4, In.Direction);
+    }
+}
+
+double __cdecl OracleAiLeadInterceptDistance(FOracleAiObject const* Elem, FOracleAiObject const* Target)
+{
+    FOracleTarget E(*Elem);
+    FOracleFakeInspect const T(*Target);
+    return EstimateLeadInterceptDistance(&E.Target, &T);
+}
+
+double __cdecl OracleAiInterceptClearance(FOracleAiObject const* Elem, FOracleAiObject const* Target, int bOfIface)
+{
+    FOracleTarget E(*Elem);
+    FOracleTarget T(*Target);
+    return bOfIface != 0 ? GetInterceptClearanceOfIface(&E.Target, &T.Inspect)
+                         : GetInterceptClearance(&E.Target, &T.Target);
+}
+
+int __cdecl OracleAiWithinInterceptRange(FOracleAiObject const* Elem, FOracleAiObject const* Target,
+                                         float Threshold, int bOfIface)
+{
+    FOracleTarget E(*Elem);
+    FOracleTarget T(*Target);
+    bool const bIn = bOfIface != 0 ? IsWithinInterceptRangeOfIface(&E.Target, &T.Inspect, Threshold)
+                                   : IsWithinInterceptRange(&E.Target, &T.Target, Threshold);
+    return bIn ? 1 : 0;
+}
+
+int __cdecl OracleAiPointOutsideHeadingCone(float const* Point, FOracleAiObject const* Iface, float CosThreshold)
+{
+    if (Iface == nullptr)
+        return IsPointOutsideHeadingCone(ToVector(Point), nullptr, CosThreshold) ? 1 : 0;
+    FOracleFakeInspect const I(*Iface);
+    return IsPointOutsideHeadingCone(ToVector(Point), &I, CosThreshold) ? 1 : 0;
+}
+
+int __cdecl OracleAiAlignedOutsideHeadingCone(FOracleAiObject const* Elem, FOracleAiObject const* Target,
+                                              float CosThreshold)
+{
+    FOracleTarget E(*Elem);
+    if (Target == nullptr)
+        return IsAlignedAndOutsideHeadingCone(&E.Target, nullptr, CosThreshold) ? 1 : 0;
+    FOracleFakeInspect const T(*Target);
+    return IsAlignedAndOutsideHeadingCone(&E.Target, &T, CosThreshold) ? 1 : 0;
+}
+
+double __cdecl OracleAiSignedRadialClearance(FOracleAiObject const* Elem, float const* Point)
+{
+    FOracleTarget E(*Elem);
+    return GetSignedRadialClearanceToPoint(&E.Target, ToVector(Point));
+}
+
+int __cdecl OracleAiCoAlignedAndAhead(FOracleAiObject const* Target, FOracleAiObject const* Reference,
+                                      float CosThreshold)
+{
+    FOracleTarget T(*Target);
+    FOracleTarget R(*Reference);
+    return IsTargetCoAlignedAndAhead(&T.Target, &R.Target, CosThreshold) ? 1 : 0;
+}
+
+double __cdecl OracleAiIfaceVectorMagnitude(FOracleAiObject const* Iface)
+{
+    if (Iface == nullptr)
+        return GetIfaceVectorMagnitude(nullptr);
+    FOracleFakeInspect const I(*Iface);
+    return GetIfaceVectorMagnitude(&I);
+}
+
+void __cdecl OracleAiBoxCorners(float const* Xform, float const* Min, float const* Max, float* Out)
+{
+    Vector Corners[8];
+    Transform const X = ToTransform(Xform);
+    TransformBoundingBoxCorners(X, ToVector(Min), ToVector(Max), Corners);
+    for (int Index = 0; Index < 8; ++Index)
+        FromVector(Out + Index * 3, Corners[Index]);
+}
+
+void __cdecl OracleAiShapeBiasedAvoid(FOracleAiObject const* Elem, FOracleAiObject const* Target, float* Out)
+{
+    FOracleTarget E(*Elem);
+    Vector Result;
+    if (Target == nullptr)
+    {
+        ComputeShapeBiasedAvoidDirection(&Result, &E.Target, nullptr);
+    }
+    else
+    {
+        FOracleFakeInspect T(*Target);
+        ComputeShapeBiasedAvoidDirection(&Result, &E.Target, &T);
+    }
+    FromVector(Out, Result);
+}
+
+double __cdecl OracleAiTurnCircleCost(FOracleAiObject const* Iface, float const* Point, float AngularSpeed,
+                                      float LinearSpeed)
+{
+    FOracleFakeInspect I(*Iface);
+    return EstimateTurnCircleApproachCost(&I, ToVector(Point), AngularSpeed, LinearSpeed);
+}
+
+int __cdecl OracleAiAverageActiveDirection(float const* Slots, float const* Xform, float* Out)
+{
+    ObstacleAvoidance::Slot S[25];
+    for (int Index = 0; Index < 25; ++Index)
+        ToSlot(Slots + Index * 7, S[Index]);
+    Vector Result = ToVector(Out);
+    Transform const X = ToTransform(Xform);
+    bool const bOk = ObstacleAvoidance_AverageActiveDirection(S, X, Result);
+    FromVector(Out, Result);
+    return bOk ? 1 : 0;
+}
+
+int __cdecl OracleAiResolveCandidateSlot(FOracleAiObject const* Candidate, float* Out)
+{
+    FOracleFakeInspect I(*Candidate);
+    ObstacleAvoidance::Slot Slot{};
+    ToSlot(Out, Slot);
+    // ResolveObstacleCandidateSlot takes the IObjRW a scan list holds and calls only its
+    // IObjInspect slots; IObjInspect is IObjRW's first base, at the same address.
+    bool const bOk = ResolveObstacleCandidateSlot(static_cast<IObjRW*>(static_cast<IObjInspect*>(&I)), Slot);
+    FromSlot(Out, Slot);
+    return bOk ? 1 : 0;
+}
+
+int __cdecl OracleAiNudgePathPoint(float const* Slot, float const* Point, float const* Xform, int bExtraCheck,
+                                   float* OutPoint)
+{
+    ObstacleAvoidance::Slot S{};
+    ToSlot(Slot, S);
+    Vector Result = ToVector(OutPoint);
+    Transform const X = ToTransform(Xform);
+    int const Code = NudgeObstaclePathPoint(S, ToVector(Point), X, &Result, bExtraCheck != 0);
+    FromVector(OutPoint, Result);
+    return Code;
+}
+
+void __cdecl OracleAiMoveSetDirection(float const* Dir, float* Out)
+{
+    MoveIdea Idea;
+    Idea.SetDirection(ToVector(Dir));
+    FromVector(Out, Idea.Direction);
+}
+
+void __cdecl OracleAiMoveSetDirectionFrom(float const* Basis, float* Out)
+{
+    Matrix const M = ToMatrix(Basis);
+    MoveIdea Idea;
+    Idea.SetDirectionFrom(&M);
+    FromVector(Out, Idea.Direction);
+}
+
+void __cdecl OracleAiLimitAxisThrottle(FOracleAiObject const* Obj, float const* Command, float const* TargetFrame,
+                                       float TurnAngle, float ReferenceAngle, int bBankBlend, float* Out)
+{
+    Matrix const Frame = ToMatrix(TargetFrame);
+    Vector Result;
+    if (Obj == nullptr)
+    {
+        LimitAxisThrottleForTurn(Result, nullptr, ToVector(Command), &Frame, TurnAngle, ReferenceAngle,
+                                 bBankBlend != 0);
+    }
+    else
+    {
+        FOracleFakeInspect const I(*Obj);
+        LimitAxisThrottleForTurn(Result, &I, ToVector(Command), &Frame, TurnAngle, ReferenceAngle, bBankBlend != 0);
+    }
+    FromVector(Out, Result);
+}
+
+int __cdecl OracleAiBankedSteeringFrame(FOracleAiObject const* Elem, float const* TargetDir, float* Frame,
+                                        float* Bank, int Mode)
+{
+    FOracleTarget E(*Elem);
+    Matrix Working = ToMatrix(Frame);
+    Vector BankVector = ToVector(Bank);
+    bool const bSteered = ComputeBankedSteeringFrame(&E.Target, ToVector(TargetDir), Working, BankVector,
+                                                     static_cast<unsigned char>(Mode));
+    FromMatrix(Frame, Working);
+    FromVector(Bank, BankVector);
+    return bSteered ? 1 : 0;
 }
