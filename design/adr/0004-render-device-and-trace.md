@@ -186,7 +186,8 @@ relative to `CppSource/`.
    the shaders are compiled with row-major packing (section 3).
 8. **The backend** (`render::d3d12`, `cfg(windows)`, P4.2) owns the device,
    queue, flip-model swap chain, fences, descriptor heaps, a fixed set of
-   static samplers, a per-frame upload ring for dynamic and user-pointer
+   samplers (made once in a shader-visible sampler heap: Direct3D 12 cannot
+   bind the shader's sampler array to static samplers, P4.2, 2026-11-18), a per-frame upload ring for dynamic and user-pointer
    data, default-heap copies of static buffers and textures (kept current
    by resource events from the device: create, write on unlock or
    `SetLevelData`, release; owner answer of 2026-11-18), the
