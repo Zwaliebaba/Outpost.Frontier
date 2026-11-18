@@ -264,6 +264,13 @@ fn matrix_from_ivp(m: &IvpMatrix) -> Matrix {
     Matrix::from_rows(m.rows)
 }
 
+/// A contact's value of the one material on both sides: the material's
+/// `float` times itself, the product rounded to `float` (decision T11).
+fn material_product(value: f64) -> f64 {
+    let v = f64::from(value as f32);
+    f64::from((v * v) as f32)
+}
+
 /// The physics of one star system.
 #[derive(Clone, Debug)]
 pub struct PhysicsWorld {
@@ -298,8 +305,13 @@ impl PhysicsWorld {
             clock: PsiClock::new(initial_psi_time(constants.physical_sim_rate)),
             movement_check: MovementCheck::default(),
             limits: constants.anomaly_limits(),
-            friction: constants.material_friction,
-            elasticity: constants.material_elasticity,
+            // `IVP_Material_Manager::get_friction_factor` and `get_elasticity`
+            // (`IVP/ivp_physics/ivp_material.cpp:44-58`): a contact's values are
+            // the products of its two sides' materials, here both the one
+            // `IVP_Material_Simple` of `PhySys` (`common_physicalsystem.cpp:613`),
+            // its values stored as `float`.
+            friction: material_product(constants.material_friction),
+            elasticity: material_product(constants.material_elasticity),
             min_time_between_collisions: constants.min_time_between_collisions,
             bullet_length_fudge: constants.bullet_length_fudge,
             bodies: Arena::default(),

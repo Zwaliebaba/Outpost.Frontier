@@ -64,6 +64,35 @@ impl fmt::Display for BufferError {
 
 impl std::error::Error for BufferError {}
 
+/// What changed in a buffer since the backend last saw it (record 0004,
+/// point 8: the backend keeps its copies current from resource events).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct Dirty {
+    /// The changed range, in bytes or indices.
+    range: Option<(usize, usize)>,
+    /// The buffer was made again (a new size): the backend replaces its
+    /// copy.
+    recreated: bool,
+}
+
+impl Dirty {
+    fn mark(&mut self, from: usize, to: usize) {
+        self.range = Some(match self.range {
+            Some((a, b)) => (a.min(from), b.max(to)),
+            None => (from, to),
+        });
+    }
+
+    fn recreate(&mut self, len: usize) {
+        self.range = Some((0, len));
+        self.recreated = true;
+    }
+
+    fn is_set(&self) -> bool {
+        self.range.is_some() || self.recreated
+    }
+}
+
 /// A vertex buffer.
 #[derive(Clone, Debug, Default)]
 pub struct VertexBuffer {
@@ -81,6 +110,7 @@ pub struct VertexBuffer {
     /// Whether the GPU buffer exists (`Gpu != 0`).
     live: bool,
     data: Vec<u8>,
+    dirty: Dirty,
 }
 
 impl VertexBuffer {
@@ -96,6 +126,7 @@ impl VertexBuffer {
         self.locked = None;
         self.live = true;
         self.data = vec![0; (fvf.stride() as usize) * (count as usize)];
+        self.dirty.recreate(self.data.len());
     }
 
     /// The bytes the buffer holds.
@@ -121,6 +152,7 @@ pub struct IndexBuffer {
     locked: Option<(u32, u32)>,
     live: bool,
     data: Vec<u16>,
+    dirty: Dirty,
 }
 
 impl IndexBuffer {
@@ -130,6 +162,7 @@ impl IndexBuffer {
         self.locked = None;
         self.live = true;
         self.data = vec![0; capacity as usize];
+        self.dirty.recreate(self.data.len());
     }
 
     #[must_use]
@@ -142,7 +175,7 @@ pub type VbHandle = Handle<VertexBuffer>;
 pub type IbHandle = Handle<IndexBuffer>;
 
 /// Which index buffer a call names.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum IndexSource {
     Buffer(IbHandle),
     /// Handle -1.
@@ -191,6 +224,9 @@ pub struct Buffers {
     pub streams: Streams,
     /// `USE_SYSLOCK`; it changes only the Direct3D lock flags.
     pub sys_lock: bool,
+    /// Buffers destroyed since the backend last saw the changes.
+    released_vbs: Vec<VbHandle>,
+    released_ibs: Vec<IbHandle>,
 }
 
 impl Default for Buffers {
@@ -217,6 +253,8 @@ impl Buffers {
                 ..Streams::default()
             },
             sys_lock: false,
+            released_vbs: Vec::new(),
+            released_ibs: Vec::new(),
         }
     }
 
@@ -300,6 +338,7 @@ impl Buffers {
             self.select_vb(None).ok();
         }
         self.vbs.remove(h).map_err(|_| BufferError::Stale)?;
+        self.released_vbs.push(h);
         Ok(())
     }
 
@@ -354,6 +393,7 @@ impl Buffers {
             return Err(BufferError::OutOfRange);
         }
         vb.data[at as usize..end].copy_from_slice(bytes);
+        vb.dirty.mark(at as usize, end);
         Ok(())
     }
 
@@ -432,6 +472,7 @@ impl Buffers {
             self.select_ib(None, 0).ok();
         }
         self.ibs.remove(h).map_err(|_| BufferError::Stale)?;
+        self.released_ibs.push(h);
         Ok(())
     }
 
@@ -492,6 +533,7 @@ impl Buffers {
             return Err(BufferError::OutOfRange);
         }
         ib.data[at as usize..end].copy_from_slice(indices);
+        ib.dirty.mark(at as usize, end);
         Ok(())
     }
 
@@ -557,6 +599,7 @@ impl Buffers {
         copy_vertex_data(&mut scratch, vb.fvf.0, src, start, count)
             .map_err(|_| BufferError::OutOfRange)?;
         vb.data[from..from + len].copy_from_slice(&scratch[start as usize * stride..]);
+        vb.dirty.mark(from, from + len);
         Ok(())
     }
 
@@ -622,6 +665,7 @@ impl Buffers {
             .ok_or(BufferError::OutOfRange)?;
         dst.copy_from_slice(bytes);
         vb.locked = None;
+        vb.dirty.mark(at as usize, end);
         Ok(())
     }
 
@@ -641,6 +685,7 @@ impl Buffers {
             .ok_or(BufferError::OutOfRange)?;
         dst.copy_from_slice(indices);
         ib.locked = None;
+        ib.dirty.mark(at as usize, end);
         Ok(())
     }
 
@@ -666,7 +711,86 @@ impl Buffers {
                 vb.locked = None;
                 vb.count = 0;
                 vb.data.clear();
+                vb.dirty.recreate(0);
             }
+        }
+    }
+}
+
+/// A change to a buffer the backend must apply before the next draw.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BufferEvent<'a> {
+    /// Bytes `offset..offset + bytes.len()` of a vertex buffer of `size`
+    /// bytes changed; `recreated` says the buffer was made again (its old
+    /// contents are gone, and `size` may differ).
+    Vertices {
+        buffer: VbHandle,
+        size: usize,
+        recreated: bool,
+        offset: usize,
+        bytes: &'a [u8],
+    },
+    /// Indices `offset..offset + indices.len()` of an index buffer of
+    /// `count` indices changed.
+    Indices {
+        source: IndexSource,
+        count: usize,
+        recreated: bool,
+        offset: usize,
+        indices: &'a [u16],
+    },
+    ReleaseVertices(VbHandle),
+    ReleaseIndices(IbHandle),
+}
+
+impl Buffers {
+    /// Hands every change since the last call to `apply`, releases first,
+    /// and forgets them.
+    pub fn drain_changes(&mut self, mut apply: impl FnMut(BufferEvent<'_>)) {
+        for h in self.released_vbs.drain(..) {
+            apply(BufferEvent::ReleaseVertices(h));
+        }
+        for h in self.released_ibs.drain(..) {
+            apply(BufferEvent::ReleaseIndices(h));
+        }
+        let vbs: Vec<VbHandle> = self
+            .vbs
+            .iter()
+            .filter(|(_, vb)| vb.dirty.is_set())
+            .map(|(h, _)| h)
+            .collect();
+        for h in vbs {
+            let vb = self.vbs.get_mut(h).expect("collected from the arena");
+            let dirty = std::mem::take(&mut vb.dirty);
+            let (from, to) = dirty.range.unwrap_or((0, 0));
+            apply(BufferEvent::Vertices {
+                buffer: h,
+                size: vb.data.len(),
+                recreated: dirty.recreated,
+                offset: from,
+                bytes: &vb.data[from..to],
+            });
+        }
+        let mut ibs: Vec<IndexSource> = self
+            .ibs
+            .iter()
+            .filter(|(_, ib)| ib.dirty.is_set())
+            .map(|(h, _)| IndexSource::Buffer(h))
+            .collect();
+        if self.scratch.dirty.is_set() {
+            ibs.push(IndexSource::Scratch);
+        }
+        for source in ibs {
+            let ib = self.ib_mut(source).expect("collected from the arena");
+            let dirty = std::mem::take(&mut ib.dirty);
+            let (from, to) = dirty.range.unwrap_or((0, 0));
+            apply(BufferEvent::Indices {
+                source,
+                count: ib.data.len(),
+                recreated: dirty.recreated,
+                offset: from,
+                indices: &ib.data[from..to],
+            });
         }
     }
 }
@@ -757,5 +881,57 @@ mod tests {
         assert_eq!(b.streams.base_vertex, 0xFFFF_FFFF);
         b.destroy_vb(h).unwrap();
         assert_eq!(b.destroy_vb(h), Err(BufferError::Stale));
+    }
+
+    #[test]
+    fn changes_reach_the_backend_once() {
+        let mut b = Buffers::new();
+        let mut seen = Vec::new();
+        let take = |b: &mut Buffers| {
+            let mut out = Vec::new();
+            b.drain_changes(|e| {
+                out.push(match e {
+                    BufferEvent::Vertices {
+                        size,
+                        recreated,
+                        offset,
+                        bytes,
+                        ..
+                    } => format!("vb {size} {recreated} {offset} {}", bytes.len()),
+                    BufferEvent::Indices {
+                        source,
+                        count,
+                        recreated,
+                        offset,
+                        indices,
+                    } => format!(
+                        "ib {} {count} {recreated} {offset} {}",
+                        source == IndexSource::Scratch,
+                        indices.len()
+                    ),
+                    BufferEvent::ReleaseVertices(_) => "release vb".into(),
+                    BufferEvent::ReleaseIndices(_) => "release ib".into(),
+                });
+            });
+            out
+        };
+        // The scratch ring exists from the start.
+        seen.extend(take(&mut b));
+        assert_eq!(
+            seen,
+            vec![format!(
+                "ib true {SCRATCH_INDICES} true 0 {SCRATCH_INDICES}"
+            )]
+        );
+        let h = b.create_vb(XYZ_DIFFUSE, 4, 0);
+        assert_eq!(take(&mut b), vec!["vb 64 true 0 64"]);
+        assert!(take(&mut b).is_empty());
+        let lock = b.lock_vb(h, 16, 2).unwrap();
+        b.write_vb(h, lock.offset + 16, &[7; 16]).unwrap();
+        b.unlock_vb(h).unwrap();
+        assert_eq!(take(&mut b), vec!["vb 64 false 32 16"]);
+        b.copy_indices(IndexSource::Scratch, 0, &[0, 1, 2]).unwrap();
+        b.destroy_vb(h).unwrap();
+        assert_eq!(take(&mut b), vec!["release vb", "ib true 16384 false 0 3"]);
     }
 }

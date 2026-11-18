@@ -14,9 +14,11 @@
 //!   renderer calls instead of being sent to a device.
 //! * [`convert`]: the port's conversion of source pixels to RGBA8, which
 //!   the reference leaves to `D3DXLoadSurfaceFromMemory` on a device.
+//! * [`write`]: BMP and PNG files of BGRA pixels, for screenshots.
 //!
-//! No renderer and no device: creating textures from these calls is work
-//! package P4.4.
+//! No renderer and no device: the loader calls a
+//! [`library::TextureRenderer`]; the client's texture runtime
+//! (`neuron-client::render::texture`, work package P4.4) gives it a device.
 
 pub mod convert;
 pub mod dds;
@@ -24,14 +26,15 @@ pub mod format;
 pub mod format_map;
 pub mod library;
 pub mod tga;
+pub mod write;
 
 pub use convert::{ConvertError, to_rgba8};
 pub use dds::{DdsHeader, ImageInfo};
 pub use format::PixelFormat;
 pub use format_map::{FormatMapRow, FormatMaps};
 pub use library::{
-    Fault, GroupEntry, LevelSource, LevelUpload, LoadOutcome, LoaderSettings, TextureEvent,
-    TextureFrame, TextureLoader, TextureRecord,
+    ContractRenderer, Fault, GroupEntry, LevelSource, LevelUpload, LoadOutcome, LoaderSettings,
+    TextureEvent, TextureFrame, TextureLoader, TextureRecord, TextureRenderer,
 };
 pub use tga::{TgaError, TgaHeader, TgaImage};
 

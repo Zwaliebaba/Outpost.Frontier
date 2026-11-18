@@ -44,6 +44,14 @@ public:
     GENRESULT CreateReal(const char* Section);
     GENRESULT QueryLocal(const char* Iid, void** Out);
 
+    // Synthetic lines (RenderTrace.cpp, README.md): the LightData lines of the pending lights
+    // (before a light flush), the defaults line (after CreateBuffers) and a selected frame's
+    // image (after its SwapBuffers). Each reads the real renderer directly, so nothing it
+    // calls is recorded.
+    void TraceLightData(bool bReachesFlush);
+    void TraceDefaults();
+    void TraceFrameImage();
+
     // INeuronComponent and IAggregateComponent (RenderTrace.cpp).
     GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override;
     unsigned long NEURONCOMPONENTS_API AddRef() override;
@@ -60,7 +68,7 @@ public:
     GENRESULT NEURONCOMPONENTS_API GetDisplayModeCount(unsigned int* Out) override; // slot 9, generated
     GENRESULT NEURONCOMPONENTS_API GetDisplayModeEnum(unsigned int Index, void* Out) override; // slot 10, generated
     GENRESULT NEURONCOMPONENTS_API SelectMode(int* Mode, unsigned int* OutIndex) override; // slot 11, generated
-    GENRESULT NEURONCOMPONENTS_API CreateBuffers(HWND Hwnd, int* Mode, int* OutMode) override; // slot 12, generated
+    GENRESULT NEURONCOMPONENTS_API CreateBuffers(HWND Hwnd, int* Mode, int* OutMode) override; // slot 12, hand-written
     GENRESULT NEURONCOMPONENTS_API GetModeBlob(void* OutAdapter, void* OutMode10Dwords) override; // slot 13, generated
     GENRESULT NEURONCOMPONENTS_API DestroyGpuResources() override; // slot 14, generated
     GENRESULT NEURONCOMPONENTS_API ClearBuffers(unsigned long Flags, const void* Rects) override; // slot 15, generated

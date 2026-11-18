@@ -137,7 +137,7 @@ fn damping_and_sleep() {
 }
 
 #[test]
-fn head_on_balls_bounce_with_the_material_elasticity() {
+fn head_on_balls_bounce_with_the_contact_elasticity() {
     let mut world = PhysicsWorld::new(1, &constants());
     let mut random = IvpRandom::default();
     let a = ball(&mut world, 1, 1.0, Vector::new(-3.0, 0.0, 0.0));
@@ -155,8 +155,9 @@ fn head_on_balls_bounce_with_the_material_elasticity() {
     assert!(event.surface_normal.x < -0.99, "the normal points to A");
     assert!((event.relative_velocity.x - 40.0).abs() < 1e-3);
     let (va, vb) = (world.velocity(a, true), world.velocity(b, true));
+    // Restitution 0.9 × 0.9 (`IVP_Material_Manager::get_elasticity`).
     assert!(
-        (va.x + 18.0).abs() < 1e-3 && (vb.x - 18.0).abs() < 1e-3,
+        (va.x + 16.2).abs() < 1e-3 && (vb.x - 16.2).abs() < 1e-3,
         "{va:?} {vb:?}"
     );
     let damage = crate::physics::CollisionDamage::default();

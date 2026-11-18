@@ -767,17 +767,6 @@ impl SpatialQueries for World {
     }
 }
 
-impl World {
-    /// Draws and drops `n` values of the world's `rand()`: for a harness
-    /// that stands in for draws the reference's server makes while it
-    /// loads a system and the port does not make yet.
-    pub fn skip_rand(&mut self, n: usize) {
-        for _ in 0..n {
-            let _ = self.rng.rand();
-        }
-    }
-}
-
 impl AiRand for World {
     fn rand(&mut self) -> i32 {
         self.rng.rand()

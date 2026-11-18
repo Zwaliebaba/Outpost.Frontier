@@ -11407,6 +11407,10 @@ static IVP_BOOL __cdecl StarSystem_MpCollisionFilter(IVP_Real_Object* A, IVP_Rea
 {
     if (SinglePlayer())
         return IVP_TRUE;
+    // Oracle instrumentation (P2.3 sim): the single-player branch when the harness asks for
+    // it (a scenario's `collisions sp`); false outside Oracle.exe sim.
+    if (GOracleSimHooks.bSinglePlayerCollisions)
+        return IVP_TRUE;
     if (A == nullptr)
         return IVP_TRUE;
     if (B == nullptr)

@@ -60,7 +60,20 @@ MANUAL = "manual"
 #     tex vb ib light             a handle, written as its id
 #     out_tex      the texture handle behind an out-pointer after the call
 #   options: key = (format, [arguments]) of the state slot (state calls),
+#            pre = a statement run before the call is forwarded (whether or not
+#                  tracing is on; the statement checks that itself),
 #            post = a statement run after the line while tracking.
+
+
+def light_flush(reaches):
+    """The "pre" of a method that makes DX8RENDERER flush its lights (FlushDrawState;
+    RemoveLight and DestroyLight are hand-written): the LightData lines of the pending
+    lights go before the call's own line (README.md, LightData). `reaches` is the C++
+    condition under which the method gets past its argument checks to the flush; when it
+    is false the renderer reads no light and the lights stay pending."""
+    return "TraceLightData(%s);" % reaches
+
+
 SPEC = {
     "IRenderPipeline": {
         "Startup": ("always", "SectionName:str", {}),
@@ -72,8 +85,8 @@ SPEC = {
         "GetDisplayModeCount": ("frame", "Out:out_u", {}),
         "GetDisplayModeEnum": ("frame", "Index:u | Out:words:5", {}),
         "SelectMode": ("always", "Mode:words:10 | OutIndex:out_u", {}),
-        "CreateBuffers": ("always", "Hwnd:raw | Mode:words:10 | OutMode:words:10",
-                          {"post": "if (Result >= 0)\n            Trace_.OnDeviceReset();"}),
+        # Hand-written: the defaults line follows the call's own line.
+        "CreateBuffers": MANUAL,
         "GetModeBlob": ("frame", "OutAdapter:raw | OutMode10Dwords:words:10", {}),
         "DestroyGpuResources": ("always", "", {"post": "Trace_.ResetSelection();"}),
         "ClearBuffers": ("frame", "Flags:u | Rects:words:4", {}),
@@ -140,11 +153,12 @@ SPEC = {
             "key": ("TEX:%d", ["Stage"]),
             "post": "if (Result == GR_OK)\n            Trace_.OnStageTexture(Stage, Handle);"}),
         "GetTextureStageTexture": ("frame", "Stage:i | OutHandle:out_tex", {}),
-        "VerifyState": ("frame", "", {}),
+        "VerifyState": ("frame", "", {"pre": light_flush("true")}),
         "DrawPrimitive": ("frame",
                           "Prim:u | Fvf:u | Verts:bytes:RenderTrace::DrawUpVertexBytes(Prim, Fvf, Count) "
                           "| Count:u | Unused:raw",
-                          {"post": "if (Result != GR_GENERIC && (int)(Count) > 0)\n"
+                          {"pre": light_flush("(int)(Count) > 0"),
+                           "post": "if (Result != GR_GENERIC && (int)(Count) > 0)\n"
                                    "            Trace_.ResetSelection();"}),
         "DrawIndexedPrimitiveUp": ("frame",
                                    "Prim:u | Fvf:u "
@@ -152,16 +166,19 @@ SPEC = {
                                    "| VertCount:u "
                                    "| Indices:bytes:RenderTrace::DrawIndexedUpIndexBytes(Prim, IndexCount) "
                                    "| IndexCount:u | Unused:u",
-                                   {"post": "if (Result != GR_GENERIC && (int)(RenderTrace::PrimCount(Prim, IndexCount)) > 0)\n"
+                                   {"pre": light_flush("(int)(RenderTrace::PrimCount(Prim, IndexCount)) > 0"),
+                                    "post": "if (Result != GR_GENERIC && (int)(RenderTrace::PrimCount(Prim, IndexCount)) > 0)\n"
                                             "            Trace_.ResetSelection();"}),
         "DrawPrimitiveVb": ("frame", "Prim:u | Vb:vb | StartVertex:u | Count:u | Unused:raw",
-                            {"post": "if (Result != GR_GENERIC && Vb != nullptr && (int)(RenderTrace::PrimCount(Prim, Count)) > 0)\n"
+                            {"pre": light_flush("(int)(RenderTrace::PrimCount(Prim, Count)) > 0"),
+                             "post": "if (Result != GR_GENERIC && Vb != nullptr && (int)(RenderTrace::PrimCount(Prim, Count)) > 0)\n"
                                      "            Trace_.SelectVb(Vb);"}),
         "DrawIndexedPrimitiveVb": ("frame",
                                    "Prim:u | Vb:vb | BaseVertex:u | NumVerts:u "
                                    "| Indices:bytes:RenderTrace::DrawIndexedVbIndexBytes(Prim, IndexCount) "
                                    "| IndexCount:u | Unused:u",
-                                   {"post": "if (Result >= 0 && Vb != nullptr)\n"
+                                   {"pre": light_flush("(int)(RenderTrace::PrimCount(Prim, IndexCount)) > 0"),
+                                    "post": "if (Result >= 0 && Vb != nullptr)\n"
                                             "        {\n"
                                             "            Trace_.SelectVb(Vb);\n"
                                             "            Trace_.SelectIb((const void*)((intptr_t)-1), BaseVertex);\n"
@@ -180,7 +197,8 @@ SPEC = {
         "CopyVertexData": MANUAL,
     },
     "IRPDraw": {
-        "DrawIndexedPrimitive": ("frame", "Prim:u | MinIndex:u | NumVertices:u | StartIndex:u | Count:u", {}),
+        "DrawIndexedPrimitive": ("frame", "Prim:u | MinIndex:u | NumVertices:u | StartIndex:u | Count:u",
+                                 {"pre": light_flush("(int)(RenderTrace::PrimCount(Prim, Count)) > 0")}),
     },
     "IRPIndexBuffer": {
         "CreateIb": MANUAL,
@@ -360,7 +378,7 @@ def check_spec(found):
             if category == "state" and "key" not in options and "post" not in options:
                 fail("%s::%s: a state call needs a key or a post hook" % (interface, method.name))
             for option in options:
-                if option not in ("key", "post"):
+                if option not in ("key", "pre", "post"):
                     fail("%s::%s: unknown option %s" % (interface, method.name, option))
 
 
@@ -410,6 +428,14 @@ public:
     // RenderTrace.cpp: creates the real renderer aggregated under this object.
     GENRESULT CreateReal(const char* Section);
     GENRESULT QueryLocal(const char* Iid, void** Out);
+
+    // Synthetic lines (RenderTrace.cpp, README.md): the LightData lines of the pending lights
+    // (before a light flush), the defaults line (after CreateBuffers) and a selected frame's
+    // image (after its SwapBuffers). Each reads the real renderer directly, so nothing it
+    // calls is recorded.
+    void TraceLightData(bool bReachesFlush);
+    void TraceDefaults();
+    void TraceFrameImage();
 
     // INeuronComponent and IAggregateComponent (RenderTrace.cpp).
     GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override;
@@ -469,6 +495,8 @@ def generate(found):
             lines.append("// %s slot %d" % (interface, method.slot))
             lines.append(method.signature(True))
             lines.append("{")
+            if "pre" in options:
+                lines.append("    " + options["pre"])
             lines.append("    const GENRESULT Result = %s;" % forward)
             lines.append("    if (Trace_.Tracking())")
             lines.append("    {")

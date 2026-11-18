@@ -30,6 +30,11 @@ pub type Affine12 = [f32; 12];
 
 const IDENTITY12: Affine12 = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0];
 
+/// The 4x4 identity, Direct3D's default for every transform.
+pub const IDENTITY: Matrix16 = [
+    1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+];
+
 /// `StoreAffine`.
 #[must_use]
 pub fn store_affine(m: &Affine12) -> Matrix16 {

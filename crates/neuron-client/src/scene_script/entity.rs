@@ -171,8 +171,8 @@ pub enum PathInit {
 }
 
 /// A motion path object, created by the parser and owned by the
-/// descriptor. Reading the text or the points into a spline is left to
-/// the spline port (`SplinePath.cpp`).
+/// descriptor; [`super::spline::SplinePath::from_desc`] makes the path it
+/// describes.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PathObject {
     pub factory: PathFactory,

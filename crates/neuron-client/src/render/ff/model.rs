@@ -87,6 +87,13 @@ impl StateModel {
         &self.defaults
     }
 
+    /// Replaces the default of a render state, the value the next
+    /// [`Self::reset_render_states`] applies. A trace's defaults line
+    /// gives the values the C++ read from its INI (record 0004, point 11).
+    pub fn set_render_default(&mut self, id: RenderStateId, value: u32) {
+        self.defaults.render[id.index()] = value;
+    }
+
     /// `ResetRenderStatesToDefaults` (also the tail of `CreateBuffers`):
     /// the render-state defaults, then every stage's defaults. States that
     /// are not in the tables keep their values.

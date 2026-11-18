@@ -6,6 +6,7 @@ mod graph;
 mod ini;
 mod lexer;
 mod scan;
+mod shaders;
 mod thn;
 mod workspace;
 
@@ -21,7 +22,13 @@ commands:
 ";
 
 fn usage() -> String {
-    format!("{USAGE}{}{}\n{}", catalog::USAGE, ini::USAGE, thn::USAGE)
+    format!(
+        "{USAGE}{}{}{}\n{}",
+        catalog::USAGE,
+        ini::USAGE,
+        shaders::USAGE,
+        thn::USAGE
+    )
 }
 
 fn main() -> ExitCode {
@@ -30,6 +37,7 @@ fn main() -> ExitCode {
         Some("check-policy") if args.len() == 1 => check_policy(),
         Some("ini") => ini::run(&args[1..]),
         Some("catalog") => catalog::run(&args[1..], workspace_root()),
+        Some("shaders") => shaders::run(&args[1..], workspace_root()),
         Some("thn-decompile") => thn::run(&args[1..]),
         Some("help" | "--help" | "-h") => {
             println!("{}", usage());

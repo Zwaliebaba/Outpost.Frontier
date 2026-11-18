@@ -1,0 +1,19 @@
+# Oracle.exe sim scenario (design/reference-build.md section 10): ram a ship.
+# Two fighters with no behaviour, 400 m apart, as in fire_at_target; the pilot faces the
+# target (-Z) and flies into it at full throttle (80 m/s, contact after about 4.5 s). The
+# multiplayer server's collision filter (StarSystem_MpCollisionFilter) lets a pair collide
+# only when one side is a bullet or a guided missile, so `collisions sp` makes it take its
+# single-player branch, in which every pair collides; the contact then goes through the
+# server's collision pass (GameObject::on_collision, CalcCollisionDamage on both sides).
+# Multiplayer stepping. Gate G2's collide scenario (owner, 2026-11-18).
+# ci: expect collision
+
+system he01
+ticks 300
+stepping mp
+collisions sp
+
+ship pilot he_fighter li_p_he_fighter_loadout01 15000 3000 -25000
+ship target he_fighter li_p_he_fighter_loadout01 15000 3000 -25400
+
+at 1 pilot throttle 1

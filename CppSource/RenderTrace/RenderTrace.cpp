@@ -11,6 +11,8 @@
 #include "RenderTraceGenerated.h"
 
 #include <new>
+#include <utility>
+#include <vector>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -36,6 +38,26 @@ namespace
     static_assert(sizeof(FRenderTraceAggDesc) == kAggDescSize, "aggregate descriptor is 0x14 bytes");
 
     static_assert(sizeof(D3DLIGHT8) == 26 * 4, "D3DLIGHT8 is 26 words");
+
+    // The Direct3D 8 numbers of the 76 render states in DX8RENDERER's table
+    // (kRenderStateProperties in DX8RENDERER.cpp, in its order; the Rust table
+    // neuron-client render::ff::state::RenderStateId has the same numbers). GetRenderState
+    // indexes the renderer's cache with the number unchecked, so only these are read.
+    const unsigned int kDefaultRenderStates[] = {
+        0x7,  0x8,  0x9,  0xA,  0xE,  0xF,  0x10, 0x13, 0x14, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C,
+        0x1D, 0x1E, 0x22, 0x23, 0x24, 0x25, 0x26, 0x28, 0x2F, 0x30, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39,
+        0x3A, 0x3B, 0x3C, 0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8B, 0x8C, 0x8D,
+        0x8E, 0x8F, 0x91, 0x92, 0x93, 0x94, 0x97, 0x98, 0x99, 0x9A, 0x9B, 0x9C, 0x9D, 0x9E, 0x9F, 0xA0,
+        0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8, 0xAA, 0xAB, 0xAC, 0xAD,
+    };
+    const size_t kDefaultRenderStateCount = sizeof(kDefaultRenderStates) / sizeof(kDefaultRenderStates[0]);
+    static_assert(sizeof(kDefaultRenderStates) / sizeof(kDefaultRenderStates[0]) == 76,
+                  "DX8RENDERER's render-state table has 76 rows");
+    // GetPipelineState answers ids 0 to 0xE.
+    const size_t kPipelineIdCount = 15;
+
+    // A selected frame's image larger than this is not read (a broken file).
+    const long kMaxFrameImageBytes = 256L << 20;
     static_assert(sizeof(D3DMATERIAL8) == 17 * 4, "D3DMATERIAL8 is 17 words");
 
     bool IidEqual(const char* Left, const char* Right)
@@ -354,7 +376,140 @@ GENRESULT NEURONCOMPONENTS_API FRenderTrace::Initialize()
 }
 
 // -------------------------------------------------------------------------------------------
-// IRenderPipeline: frames, back buffer, lights, textures
+// Synthetic lines
+
+// The LightData lines of the pending lights, before a call that flushes the renderer's
+// lights forwards (README.md, LightData). Each reads the caller's D3DLIGHT8 now, as the
+// flush is about to. In frames that are not selected the lines only update their state
+// slots. bReachesFlush is false for a call whose arguments make it return before the flush:
+// nothing is read then and the lights stay pending.
+void FRenderTrace::TraceLightData(bool bReachesFlush)
+{
+    if (!bReachesFlush || !Trace_.Tracking())
+        return;
+    RenderTrace::FScopedLock Guard(Trace_);
+    std::vector<std::pair<long long, const void*> > Lights;
+    Trace_.TakePendingLights(&Lights);
+    for (size_t Index = 0; Index < Lights.size(); ++Index)
+    {
+        // The session lock is recursive: each FCall takes it again on this thread.
+        RenderTrace::FCall Call(Trace_, RenderTrace::kState, "IRenderPipeline", "LightData");
+        if (!Call.Active())
+            continue;
+        Call.Synthetic();
+        Call.HandleId("Handle", Lights[Index].first);
+        Call.Words("Light", Lights[Index].second, 26);
+        char Key[48];
+        snprintf(Key, sizeof(Key), "L:%lld:LightData", Lights[Index].first);
+        Call.KeepAsState(Key);
+    }
+}
+
+// After a successful CreateBuffers: the render-state values the device was just given and
+// the pipeline properties, read through the real renderer's getters (not recorded).
+void FRenderTrace::TraceDefaults()
+{
+    if (!Trace_.Tracking())
+        return;
+    unsigned long RenderValues[kDefaultRenderStateCount];
+    bool RenderRead[kDefaultRenderStateCount];
+    for (size_t Index = 0; Index < kDefaultRenderStateCount; ++Index)
+    {
+        int Value = 0;
+        RenderRead[Index] =
+            RealPipeline_->GetRenderState((D3DRENDERSTATETYPE)(kDefaultRenderStates[Index]), &Value) == GR_OK;
+        RenderValues[Index] = (unsigned long)(unsigned int)(Value);
+    }
+    int PipelineValues[kPipelineIdCount];
+    bool PipelineRead[kPipelineIdCount];
+    for (size_t Index = 0; Index < kPipelineIdCount; ++Index)
+    {
+        int Value = 0;
+        PipelineRead[Index] = RealPipeline_->GetPipelineState((int)(Index), &Value) == GR_OK;
+        PipelineValues[Index] = Value;
+    }
+    RenderTrace::FScopedLock Guard(Trace_);
+    Trace_.WriteDefaults(kDefaultRenderStates, RenderValues, RenderRead, kDefaultRenderStateCount, PipelineValues,
+                         PipelineRead, kPipelineIdCount);
+}
+
+// After the SwapBuffers of a selected frame: the real renderer's PrintScreen (a copy of the
+// front buffer, so the window must not be covered) into a temporary BMP, read back, stored
+// as a blob and deleted. The PrintScreen call is not recorded.
+void FRenderTrace::TraceFrameImage()
+{
+    const std::string Path = Trace_.FrameImagePath();
+    DeleteFileA(Path.c_str());
+    const GENRESULT Printed = RealTexture_->PrintScreen(nullptr, Path.c_str());
+    std::vector<unsigned char> Bytes;
+    char Note[96] = "";
+    if (Printed != GR_OK)
+    {
+        snprintf(Note, sizeof(Note), "PrintScreen returned %ld", (long)(Printed));
+    }
+    else
+    {
+        FILE* File = fopen(Path.c_str(), "rb");
+        if (File == nullptr)
+        {
+            snprintf(Note, sizeof(Note), "cannot open the PrintScreen file");
+        }
+        else
+        {
+            long Size = -1;
+            if (fseek(File, 0, SEEK_END) == 0)
+                Size = ftell(File);
+            if (Size <= 0 || Size > kMaxFrameImageBytes || fseek(File, 0, SEEK_SET) != 0)
+            {
+                snprintf(Note, sizeof(Note), "the PrintScreen file is empty or too large");
+            }
+            else
+            {
+                Bytes.resize((size_t)(Size));
+                if (fread(&Bytes[0], 1, Bytes.size(), File) != Bytes.size())
+                {
+                    Bytes.clear();
+                    snprintf(Note, sizeof(Note), "cannot read the PrintScreen file");
+                }
+            }
+            fclose(File);
+        }
+    }
+    DeleteFileA(Path.c_str());
+    RenderTrace::FScopedLock Guard(Trace_);
+    if (Bytes.empty())
+        Trace_.WriteFrameImage(nullptr, 0, Note);
+    else
+        Trace_.WriteFrameImage(&Bytes[0], Bytes.size(), nullptr);
+}
+
+// -------------------------------------------------------------------------------------------
+// IRenderPipeline: device, frames, back buffer, lights, textures
+
+// CreateBuffers re-applies the default render states and stages; the defaults line follows
+// its own line.
+GENRESULT NEURONCOMPONENTS_API FRenderTrace::CreateBuffers(HWND Hwnd, int* Mode, int* OutMode)
+{
+    const GENRESULT Result = RealPipeline_->CreateBuffers(Hwnd, Mode, OutMode);
+    if (Trace_.Tracking())
+    {
+        {
+            RenderTrace::FCall Call(Trace_, RenderTrace::kAlways, "IRenderPipeline", "CreateBuffers");
+            if (Call.Active())
+            {
+                Call.Raw("Hwnd", (const void*)(Hwnd));
+                Call.Words("Mode", (const void*)(Mode), 10);
+                Call.Words("OutMode", (const void*)(OutMode), 10);
+                Call.Return(Result);
+            }
+            if (Result >= 0)
+                Trace_.OnDeviceReset();
+        }
+        if (Result >= 0)
+            TraceDefaults();
+    }
+    return Result;
+}
 
 GENRESULT NEURONCOMPONENTS_API FRenderTrace::SwapBuffers()
 {
@@ -365,6 +520,8 @@ GENRESULT NEURONCOMPONENTS_API FRenderTrace::SwapBuffers()
             RenderTrace::FCall Call(Trace_, RenderTrace::kAlways, "IRenderPipeline", "SwapBuffers");
             Call.Return(Result);
         }
+        if (Trace_.FrameRecorded())
+            TraceFrameImage();
         Trace_.EndFrame();
     }
     return Result;
@@ -447,12 +604,16 @@ GENRESULT NEURONCOMPONENTS_API FRenderTrace::SetLightEnable(void* Handle, int En
             snprintf(Key, sizeof(Key), "L:%lld:SetLightEnable", Id);
             Call.KeepAsState(Key);
         }
+        // A light switched on sends its data at the next flush if it was not sent yet.
+        if (Result == GR_OK && Enable != 0)
+            Trace_.OnLightEnabled(Handle);
     }
     return Result;
 }
 
-// AddLight's handle is the caller's D3DLIGHT8, which the renderer reads at the next draw;
-// the trace holds its contents at the time of the call.
+// AddLight's handle is the caller's D3DLIGHT8, which the renderer reads at the next light
+// flush; the line holds its contents at the time of the call, and the LightData line before
+// the flush holds what the renderer read.
 GENRESULT NEURONCOMPONENTS_API FRenderTrace::AddLight(void* Handle)
 {
     const GENRESULT Result = RealPipeline_->AddLight(Handle);
@@ -468,6 +629,8 @@ GENRESULT NEURONCOMPONENTS_API FRenderTrace::AddLight(void* Handle)
             snprintf(Key, sizeof(Key), "L:%lld:AddLight", Id);
             Call.KeepAsState(Key);
         }
+        if (Result == GR_OK)
+            Trace_.OnLightData(Handle);
     }
     return Result;
 }
@@ -487,12 +650,17 @@ GENRESULT NEURONCOMPONENTS_API FRenderTrace::UpdateLight(void* Handle)
             snprintf(Key, sizeof(Key), "L:%lld:UpdateLight", Id);
             Call.KeepAsState(Key);
         }
+        if (Result == GR_OK)
+            Trace_.OnLightData(Handle);
     }
     return Result;
 }
 
+// Disables the light and flushes the renderer's lights (so the LightData lines of the other
+// pending lights go first), then forgets it.
 GENRESULT NEURONCOMPONENTS_API FRenderTrace::RemoveLight(void* Handle)
 {
+    TraceLightData(true);
     const GENRESULT Result = RealPipeline_->RemoveLight(Handle);
     if (Trace_.Tracking())
     {
@@ -506,14 +674,18 @@ GENRESULT NEURONCOMPONENTS_API FRenderTrace::RemoveLight(void* Handle)
         if (Result == GR_OK && Id > 0)
         {
             Trace_.OnLightGone(Id);
+            Trace_.OnLightRemoved(Handle);
             Trace_.RetireHandle(RenderTrace::kLight, Handle);
         }
     }
     return Result;
 }
 
+// Disables the light and flushes the renderer's lights (so the LightData lines of the other
+// pending lights go first), then forgets it.
 GENRESULT NEURONCOMPONENTS_API FRenderTrace::DestroyLight(void* Handle)
 {
+    TraceLightData(true);
     const GENRESULT Result = RealPipeline_->DestroyLight(Handle);
     if (Trace_.Tracking())
     {
@@ -527,6 +699,7 @@ GENRESULT NEURONCOMPONENTS_API FRenderTrace::DestroyLight(void* Handle)
         if (Result == GR_OK && Id > 0)
         {
             Trace_.OnLightGone(Id);
+            Trace_.OnLightRemoved(Handle);
             Trace_.RetireHandle(RenderTrace::kLight, Handle);
         }
     }
