@@ -10,6 +10,7 @@
 #![allow(dead_code)]
 
 pub mod ai;
+pub mod ai_records;
 pub mod cpp_decode;
 pub mod data;
 pub mod fill;
