@@ -1096,8 +1096,8 @@ fn report_units(summary: &mut String, dir: &Path, scenario: &str, ours: &Run) {
     // Around the oracle's first guided munition: the fire calls of both
     // sides (the oracle's `affect` slot 13 records: the gun count).
     if let Some(&first) = launches(&theirs).first() {
-        let from = u32::try_from(first).unwrap_or(0).saturating_sub(3);
-        let to = from + 4;
+        let to = u32::try_from(first).unwrap_or(0) + 1;
+        let from = to.saturating_sub(60);
         for (t, who, r) in ours.fires.iter().filter(|f| (from..=to).contains(&f.0)) {
             let _ = writeln!(summary, "    rust fire tick {t} {who}: {r}");
         }
