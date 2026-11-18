@@ -327,6 +327,12 @@
          oracle_shading.cpp) and ximage.dll's BigImage; oracle_big_image.cpp includes ximage.cpp
          (DllMain renamed) to make FBigImage of its anonymous namespace. -->
     <ClCompile Include="oracle_texture.cpp" />
+    <!-- P4.5: the material regular expressions, library, animation and batcher of Shading.dll,
+         compiled in above for P1.7. -->
+    <ClCompile Include="oracle_material.cpp" />
+    <!-- P4.5: the 22 material kinds (Material.cpp) and BatchedMaterial against recording
+         services. -->
+    <ClCompile Include="oracle_material_kinds.cpp" />
     <ClCompile Include="oracle_big_image.cpp" />
     <ClCompile Include="oracle_physics.cpp" />
     <ClCompile Include="oracle_sim.cpp" />
