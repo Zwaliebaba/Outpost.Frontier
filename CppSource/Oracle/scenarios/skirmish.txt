@@ -1,0 +1,14 @@
+# Oracle.exe sim scenario (design/reference-build.md section 10): a skirmish to the kill.
+# The dogfight's two hostile AI fighters (police and rogue, same archetypes, loadouts,
+# pilots, factions and FIGHTER state graph), but the rogue starts with 400 hull points of
+# its 1900, and the run is 2700 ticks (90 s): the dogfight's police wears the rogue's
+# shield down and hits its hull within 20 s, so this run reaches a kill, and with it the
+# behaviours the dogfight never reaches (trail, strafe, flee, loot after the kill). No
+# directive, no target command. Multiplayer stepping.
+
+system he01
+ticks 2700
+stepping mp
+
+ship police he_fighter li_p_he_fighter_loadout01 15000 3000 -25000 ai FIGHTER pilot pilot_police_med faction he_p_grp psi
+ship rogue pi_fighter fc_lr_pi_fighter_loadout01 15000 3000 -26500 heading 180 ai FIGHTER pilot pilot_pirate_med faction fc_lr_grp hp 400 psi

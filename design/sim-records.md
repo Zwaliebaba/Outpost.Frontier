@@ -59,7 +59,7 @@ Conventions:
 
 | `rec` | Fields |
 | --- | --- |
-| `frame` | `tick` u, `clock` d, `x87_cw` s, `sse_cw` s (`%08x` of `__control87_2`'s two words at the start of the frame, before the harness sets 53-bit precision again; at tick 0 after spawning), `psi_count` u (PSIs in the frame), `psi_dt` f[] (each PSI's `delta_time`) |
+| `frame` | `tick` u, `clock` d, `x87_cw` s, `sse_cw` s (`%08x` of `__control87_2`'s two words at the start of the frame, before the harness sets 53-bit precision again; at tick 0 after spawning), `psi_count` u (PSIs in the frame), `psi_dt` f[] (each PSI's `delta_time`); then (P2.5) `psi_mcheck` i[] (the environment's movement-check countdown `next_movement_check` at the start of each PSI) and `psi_ivp_seed` u[] (`IVP_FastRandomFloat`'s process-wide seed then): the load steps the environment and draws from the seed before tick 1, and the movement check decides which unit classifies its motion |
 | `object` | `tick` u, `obj` s, `id` u, `alive` b; when alive: `pos` f3, `orient` f9, `vel` f3, `angvel` f3, `hp` f, `hp_max` f (`IObjInspect` of the server object: `get_position`, `get_orientation`, `get_velocity`, `get_angular_velocity`, `get_status`); then (P2.4, the scenario report) `power` f, `power_max` f (`CEqObj::Power`, `MaxPower`) and `shield` {`id` u, `hp` f, `hp_max` f, `online` b (`bOnline`), `functioning` b}\|null (the first `CEShield`: `GetHitPoints`, `GetMaxHitPoints`, `IsFunctioning`); a ship also: `throttle` f, `axis` f3, `nudge` f3, `strafe` i (`StrafeDir`), `cruise` b, `behavior` i (`CurrentBehaviorIndex`, −1 for none), `state_graph` i (−1 for none), `directive` u3 (`DirectiveStorage`), then (P2.5, the dogfight) `target` u\|null, `target_obj` (`IObjInspect::get_target`) |
 
 `alive` is false once the object is no longer in its system's object
@@ -199,13 +199,20 @@ ones too): `id` u, `functioning` b, `controller` b, `power_usage` f,
 `max_force` f. The `engine` object adds, after `reverse_fraction`:
 `active` b, `functioning` b (`CEEngine::IsFunctioning`), `controller` b.
 
+Added by P2.5 (last): `order` s[], the unit's controller buckets in the
+order the PSI runs them (`ControllerBuckets` from the last element; IVP
+appends on registration, sorts by priority and, when the friction system
+merges or splits units, rebuilds from the core's controller list walked
+backwards): `ship`, `strafe`, `nudge`, `steering`, `engine`,
+`thruster <id>`, or `other` (IVP's standard controller included).
+
 `crates/game-sim/tests/controller_replay.rs` rebuilds the controllers from
 `ctl` (the steering, nudge, strafe, thruster and engine controllers of
-`game_sim::equip::flight`), runs them for the PSI in IVP's order (the last
-registered first: strafe, nudge, steering, the thrusters from the last, the
-engine) and compares their pushes with `pushes`: the same kinds, every
-float within 1e-6 relative to the larger magnitude; pushes that only
-differ in order are counted but pass. Records without the P2.4 fields use
+`game_sim::equip::flight`), runs them for the PSI in the recorded `order`
+(without it IVP's order on registration: strafe, nudge, steering, the
+thrusters from the last, the engine) and compares their pushes with
+`pushes`: the same kinds, every float within 1e-6 relative to the larger
+magnitude, in the same order. Records without the P2.4 fields use
 enough power, the orientation of `in.m`, no zone, every controller
 registered and no thrusters. Its summary is `rust-controller-replay.txt`.
 

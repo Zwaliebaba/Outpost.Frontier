@@ -603,7 +603,7 @@ A text file; `#` starts a comment, blank lines are skipped, tokens are
 separated by spaces, tabs or commas. Examples (one per kind of check of
 record 0003) are in `CppSource\Oracle\scenarios\`: `free_flight`,
 `turn_to_heading`, `fly_to_point`, `dock_at_station`, `fire_at_target`,
-`ram_asteroid`, `dogfight`.
+`ram_asteroid`, `dogfight`, `skirmish`.
 
 | Line | Meaning |
 | --- | --- |
@@ -651,7 +651,9 @@ names one, which `Oracle.exe sim` reads through Content.dll's
 `dogfight` gives two AI fighters no command at all: the target manager
 picks the hostile ship and the state graph the combat behaviours, as when
 two hostile NPCs meet. There is no attack directive in the game; the
-`target` command (`set_target`) is not used there.
+`target` command (`set_target`) is not used there. `skirmish` is the same
+meeting with the rogue at 400 hull points and a 90 s run, so that it ends
+in a kill and reaches the behaviours the dogfight does not.
 
 ### Outputs
 
