@@ -545,14 +545,17 @@ As `OutpostServer.exe` (`OutpostServer.cpp:437`, `:523`, `:731-745`,
    `SimClientStub.dll`, INI path `server.ini`, 16 players, port 0}. It runs
    `DataConfig::startup`, the world INI, `Server_LoadInitialDlls` (Content's
    controllers) and loads the stub as its client interface.
-4. `srand(seed)`; `pub::Controller::Create("SimClientStub.dll",
+4. The load-time rand() recorder starts (`load_rand.jsonl`, below);
+   `srand(seed)`; `pub::Controller::Create("SimClientStub.dll",
    "OracleSim", NULL, LOWEST)`, the controller every scenario ship names;
    `OracleSimLoadSystem(CreateID(system))`, `StarSystem::load` as a
    player's arrival would run it.
 5. The objects are spawned (`pub::SpaceObj::Create`, then
    `pub::AI::SubmitState` with the state graph for `ai`) or looked up
    (solars, `CreateID(nickname)`); a missing object ends the run.
-6. Every frame *t* = 1..`ticks`: the control words are read (recorded) and
+6. The recorders start (the hooks below, `ai.jsonl`), the load-time
+   recorder stops and writes its records; tick 0 is recorded.
+7. Every frame *t* = 1..`ticks`: the control words are read (recorded) and
    set again; the fixed clock moves to `clock + t × frame`; the commands of
    tick *t* run; then the server thread's frame: `Server.Update()`,
    `Timing::UpdateGlobalTime(frame)`, `Server.ElapseTime((float)frame)`;
@@ -570,7 +573,7 @@ is zero, which only `Oracle.exe sim` changes:
 | --- | --- |
 | `Server\IServerImpl.cpp` | `Server_StepSystems` steps `StepSystemId` and no other system; `StarSystem_Update` runs the multiplayer physics and collision pass for that system although it has no player; `IServerImpl::ElapseTime` takes the frame time as its real dt (`OracleSimFixElapsed`); `OracleSimLoadSystem`, a new export |
 | `Server\server_gameobject.cpp` | the three timer stamps (`EqObj::update` repair, `apply_damage_list`, `apply_equip_entry`) read `OracleSimTimingRead()`, which is `Timing::read()` unless the clock is fixed; `GameObject::on_collision` reports `CalcCollisionDamage`; `Ship::set_throttle`, `set_axis_throttle`, `set_nudge_vec`, `set_strafe_dir` and `EqObj::slot_34` report the `IObjAffect` call |
-| `Server\server_classes.cpp` | `StarSystem::munition_collision` reports the impact and its damage list |
+| `Server\server_classes.cpp` | `StarSystem::munition_collision` reports the impact and its damage list; `StarSystem_MpCollisionFilter` takes its single-player branch when asked (`collisions sp`) |
 | `Common\common_physicalsystem.cpp` | `PhysicalSystem::Update` takes the single-player branch when asked |
 | `Common\common_behaviormanager.cpp` | `UpdateBehaviorTick` reports its entry and every exit (an RAII guard) |
 | `IVP\ivp_physics\ivp_environment.cpp` | `IVP_Environment_Simulate_Psi` reports before the simulation units and after the next-PSI matrices |
@@ -596,13 +599,39 @@ instead of the client's frame, collisions go through the server's
 multiplayer collision pass, and every other `SinglePlayer()` test sees
 multiplayer. With a frame time of at most 0.2 s each frame is one step.
 
+### Collisions
+
+The multiplayer server's collision filter (`StarSystem_MpCollisionFilter`,
+`Server/server_classes.cpp:11409`) lets a pair collide only when one side
+is a `CBeam` (class 0x67) or a `CGuided` (0xa7), or has no client object;
+the clients report every other contact. Neither munition gives an
+end-to-end check of collision damage: a bullet has no object id, so the
+other side's `GameObject::on_collision` returns before
+`CalcCollisionDamage`, and `Bullet::on_collision` goes to
+`munition_collision`; a missile's side is `Guided::on_collision`
+(`munition_collision` too), and its flight, motor, seeker and proximity
+fuse are the server's `Guided` controller, which the Rust world does not
+have (P3.3, D125), so its contact point and speed cannot be compared. No
+ship, solar or asteroid target collides there. `collisions sp` therefore
+makes the filter take its first branch (`if (SinglePlayer()) return
+TRUE`) while the rest of the server stays in multiplayer mode: every pair
+collides and each contact goes through the multiplayer collision pass
+(`StarSystem_ProcessCollisions`: both sides' `on_collision`,
+`CalcCollisionDamage`, `collision_damage`). As with `stepping sp`, the
+difference from a single-player game is recorded, not removed: in single
+player the contacts are found by the client's physics and reported to the
+server. `ram_ship` uses it; the data job checks that every run of a
+scenario marked `# ci: expect collision` records collision events with
+their `CalcCollisionDamage` calls and that the runs record the same ones.
+
 ### Scenario format
 
 A text file; `#` starts a comment, blank lines are skipped, tokens are
 separated by spaces, tabs or commas. Examples (one per kind of check of
 record 0003) are in `CppSource\Oracle\scenarios\`: `free_flight`,
 `turn_to_heading`, `fly_to_point`, `dock_at_station`, `fire_at_target`,
-`ram_asteroid`.
+`ram_asteroid`, and `ram_ship`, Gate G2's collide scenario in place of
+`ram_asteroid` (owner, 2026-11-18).
 
 | Line | Meaning |
 | --- | --- |
@@ -610,6 +639,7 @@ record 0003) are in `CppSource\Oracle\scenarios\`: `free_flight`,
 | `ticks <n>` | the number of frames (required) |
 | `frame <seconds>` | frame time; default 1/30, the server thread's period |
 | `stepping sp\|mp` | default `mp` |
+| `collisions sp\|mp` | default `mp`; `sp` makes the server's collision filter take its single-player branch (below) |
 | `seed <n>` | `srand` after start-up; default `0x4f524143` |
 | `clock <seconds>` | the fixed clock at tick 0; default 1000 |
 | `ship <name> <archetype> <loadout\|-> <x> <y> <z> [options]` | spawn a ship; options: `heading <degrees>` (about +Y; 0 faces −Z, 90 faces −X), `orient <9 numbers>` (row-major), `vel <x y z>`, `angvel <x y z>`, `ai <state graph>` (e.g. `FIGHTER`; without it the ship has no behaviour and keeps the commands it is given), `hp <n>` (default −1, the archetype's), `psi` (record its PSIs) |
@@ -642,12 +672,18 @@ Ships are created as Content creates NPC ships, without a reputation
 ### Outputs
 
 `session.jsonl`, `tick.jsonl`, `events.jsonl`, `psi.jsonl`,
-`calls.jsonl` and, since P2.5, the behaviour-tick snapshots `ai.jsonl`
+`calls.jsonl`, since P2.5 the behaviour-tick snapshots `ai.jsonl`, and the
+load-time draws `load_rand.jsonl` with its summary `load_rand.txt`
 (sim-records.md); the stub's `iclient.jsonl` and `controller.jsonl`;
-`server.ini`, `fdump.txt`, `metrics.txt`. The AI recorder replaces the
-`rand` import of `Common.dll`, `Server.dll` and `Content.dll` with a
-wrapper that calls the CRT's `rand` and counts, so the random sequence of
-a run is unchanged.
+`server.ini`, `fdump.txt`, `metrics.txt`. The rand() recorder
+(`oracle_sim_rand.cpp`) replaces the `rand` import of every module bound
+to the universal CRT's `rand` (`Common.dll`, `Server.dll`, `Content.dll`
+and any engine DLL that draws) with a wrapper that calls the CRT's `rand`
+and counts, so the random sequence of a run is unchanged. From the
+harness's `srand` to the first frame it keeps every draw with its phase,
+caller and stack; it starts the symbol handler (dbghelp, the PDB files
+beside `Oracle.exe` in `bin\`) for the stacks and names. The AI recorder
+keeps the draws of each behaviour tick through it.
 
 ### Determinism
 
@@ -669,6 +705,9 @@ uses a static asteroid solar. The multiplayer server's collision filter
 pair collide only when one side is a bullet or a missile, so ship–solar and
 ship–ship contact is not simulated on the server (the clients report it):
 in `ram_asteroid` the ship flies through the rock and no collision is
-recorded. Ships have no reputation, so AI targeting is
+recorded. `collisions sp` (above) emulates the single-player branch
+instead; missiles against ships, the only collision of the multiplayer
+path with collision damage, wait for the server's `Guided` controller
+(P3.3). Ships have no reputation, so AI targeting is
 neutral. There is no world snapshot for behaviours that read other objects
 (record 0003 point 7, P2.5).

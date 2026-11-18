@@ -48,7 +48,7 @@ Conventions:
 
 | `rec` | Fields |
 | --- | --- |
-| `start` | `version` u, `scenario` s (path), `data_root` s, `system` s, `system_id` u, `ticks` u, `frame` d (seconds), `stepping` s (`sp` or `mp`), `seed` u, `clock` d (the fixed clock at tick 0), `objects` u, `commands` u |
+| `start` | `version` u, `scenario` s (path), `data_root` s, `system` s, `system_id` u, `ticks` u, `frame` d (seconds), `stepping` s (`sp` or `mp`), `collisions` s (`sp` or `mp`; since the load-draw work, after `stepping`), `seed` u, `clock` d (the fixed clock at tick 0), `objects` u, `commands` u |
 | `server` | `data_path` s, `controller` u (SimClientStub's controller id), `system_id` u, `system_loaded` b |
 | `spawn` | `obj` s, `kind` s (`ship` or `solar`); a ship: `arch` s, `arch_id` u, `loadout` s, `loadout_id` u, `result` i (`pub::SpaceObj::Create`), `id` u, [`state_graph` s, `state_graph_id` i, `submit_state` i]; a solar: `nickname` s, `id` u (`CreateID(nickname)`), `found` b |
 | `command` | `tick` u, `line` i (in the scenario file), `obj` s, `cmd` s (the command as written), `ok` b, `result` i (what the called function returned; for a directive the `OP_RTYPE`), [`note` s, why it did not run] |
@@ -303,10 +303,11 @@ u\|null, `behavior_id` i, `toughness` i, `player` b, `dying` b,
 null for the ship itself). These are the fields of
 `game_sim::ai::world::ObjectView`, which a replay world fills from them.
 
-The `rand` values come from a counting wrapper that the recorder puts in
-the import address table of each game DLL: it calls the C runtime's own
-`rand`, so the sequence is the one an unrecorded run draws, and records
-the value while a behaviour tick is open. A replay feeds them back through
+The `rand` values come from the counting wrapper of the rand() recorder
+(`load_rand.jsonl` below), which sits in the import address table of each
+game DLL: it calls the C runtime's own `rand`, so the sequence is the one
+an unrecorded run draws, and the AI recorder keeps the value while a
+behaviour tick is open. A replay feeds them back through
 `game_sim::ai::world::RecordedRand` and checks that the port drew exactly
 as many.
 
@@ -315,6 +316,49 @@ state and that have none of the roles above (they are outside the near
 radius and were not found by a query); the notification queue; the
 behaviours' own state blocks. The first behaviour replays will show
 whether the read set needs another role.
+
+## `load_rand.jsonl`
+
+The load-time `rand()` draws (owner, 2026-11-18): every draw the game
+DLLs make from the harness's `srand(seed)` until the first frame, with its
+caller, so that the Rust world can make the same draws before its AI
+draws its first value. Written by `CppSource/Oracle/oracle_sim_rand.cpp`,
+whose wrapper replaces the `rand` import of every module bound to the
+universal CRT's `rand` (`ucrtbase.dll`; system DLLs bound to `msvcrt.dll`
+have a generator of their own and are left alone). It also feeds the AI
+recorder. The harness sets the phase before each step of the start-up:
+`controller` (`pub::Controller::Create` of the stub), `load`
+(`OracleSimLoadSystem`: `StarSystem::load`, which ends with the
+`SystemLoaded` message to Content's controllers), `after_load`, `spawn
+<name>` for each scenario object (`pub::SpaceObj::Create` and, with `ai`,
+`pub::AI::SubmitState`), `hooks` (the recorders start); `start` holds
+nothing. The records are written when the first frame starts.
+
+| `rec` | Fields |
+| --- | --- |
+| `load_rand_start` | `version` u (1), `seed` u, `symbols` b (dbghelp started), `hooks` [s, …] (the modules whose import was replaced, in load order) |
+| `draw` | `i` u (the draw's index in the CRT sequence of the seed, from 0), `phase` s, `mod` s (the module that called `rand`), `v` i (the value), `gap` u (draws just before this one the hooks did not see), `at` s (`<module>+0x<offset>` of the return address), `fn` s (the caller: the innermost inlined function first, `<` between the inline levels), `line` s (`file:line` of the call, paths from `CppSource/`; empty without line data), `stack` [s, …] (the callers' frames, each `<module>+0x<offset> <functions> (<file:line>)`, at most nine) |
+| `phase` | `phase` s, `first` u (index of its first draw, or the next index when it drew nothing), `count` u (indices it spans), `recorded` u (draws the hooks saw) |
+| `load_rand_end` | `recorded` u, `unseen` u (the sum of the gaps), `lost` b (a value was not found within 10⁶ steps of the generator; the indices after it are counts of seen draws only), `next_index` u (the index of the first draw of frame 1) |
+
+The gaps come from following the CRT's generator (`state = state × 214013 +
+2531011`, value `(state >> 16) & 0x7fff`) from the seed: each recorded
+value is looked up from the previous draw's state on, so a draw made
+through a module that is not hooked shows as a gap before the next seen
+one. The frames come from `StackWalk64` with the build's PDB files (the
+release build omits frame pointers), the names and lines from
+`SymFromAddr`, `SymFromInlineContext` and `SymGetLineFromInlineContext` at
+the return address minus one. Without symbols only the frame-pointer
+chain (`RtlCaptureStackBackTrace`) is walked and the functions are left
+out.
+
+`load_rand.txt`, beside it, is the summary the data job prints for each
+scenario's first run: per phase the draws grouped by caller (the module
+and the functions of the first four frames) in order of first draw with
+their first index and count, then the runs of consecutive draws with the
+same caller (the first 400). `crates/game-sim/tests/scenario_replay.rs`
+reads the `phase` records and reports them beside the Rust world's draws
+while it loads the system and spawns the scenario objects.
 
 ## SimClientStub files
 
@@ -338,7 +382,8 @@ structure or pointer as `"present"` (or `null`). The stub answers
 
 ## Other files of a run
 
-`ai.jsonl` (above) holds the behaviour ticks (P2.5). `server.ini` is the server INI the run used (the master's with the
+`ai.jsonl` (above) holds the behaviour ticks (P2.5), `load_rand.jsonl` and
+`load_rand.txt` the load-time draws. `server.ini` is the server INI the run used (the master's with the
 populators left out), `fdump.txt` every `FDUMP` message (`tick`, flags in
 hex, text) and `metrics.txt` the plain-text input of `--runs`
 (`oracle_sim.h`). None of them is a record for the tests.

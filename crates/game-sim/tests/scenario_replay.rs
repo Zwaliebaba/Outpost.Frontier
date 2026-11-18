@@ -726,11 +726,16 @@ fn fmt_state(st: &State) -> String {
         },
     );
     format!(
-        "pos ({:.3}, {:.3}, {:.3}) speed {:.3} hp {} shield {shield} power {}",
+        "pos ({:.3}, {:.3}, {:.3}) vel ({:.3}, {:.3}, {:.3}) fwd ({:.3}, {:.3}, {:.3}) hp {} shield {shield} power {}",
         st.pos.x,
         st.pos.y,
         st.pos.z,
-        dist(st.vel, Vector::ZERO),
+        st.vel.x,
+        st.vel.y,
+        st.vel.z,
+        -st.orient[2],
+        -st.orient[5],
+        -st.orient[8],
         st.hp,
         st.power.map_or_else(|| "-".to_owned(), |p| p.to_string())
     )
