@@ -1119,14 +1119,14 @@ fn report_units(summary: &mut String, dir: &Path, scenario: &str, ours: &Run) {
         ours.missiles.iter().take(8).collect::<Vec<_>>()
     );
     // Around the oracle's first guided munition: the fire calls of both
-    // sides (the oracle's `affect` slot 13 records: the gun count).
+    // sides (the oracle's `affect` records of `calls.jsonl`, slots 13 and 19).
     if let Some(&first) = launches(&theirs).first() {
         let to = u32::try_from(first).unwrap_or(0) + 1;
         let from = 0;
         for (t, who, r) in ours.fires.iter().filter(|f| (from..=to).contains(&f.0)) {
             let _ = writeln!(summary, "    rust fire tick {t} {who}: {r}");
         }
-        if let Some(file) = find_files(&dir.join(scenario), "ai.jsonl")
+        if let Some(file) = find_files(&dir.join(scenario), "calls.jsonl")
             .into_iter()
             .min()
         {
