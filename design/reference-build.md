@@ -686,8 +686,8 @@ other side's `GameObject::on_collision` returns before
 `CalcCollisionDamage`, and `Bullet::on_collision` goes to
 `munition_collision`; a missile's side is `Guided::on_collision`
 (`munition_collision` too), and its flight, motor, seeker and proximity
-fuse are the server's `Guided` controller, which the Rust world does not
-have (P3.3, D125), so its contact point and speed cannot be compared. No
+fuse are the server's `Guided` controller (ported into P2.4's remainder,
+owner 2026-11-18; its fuse timing is D177). No
 ship, solar or asteroid target collides there. `collisions sp` therefore
 makes the filter take its first branch (`if (SinglePlayer()) return
 TRUE`) while the rest of the server stays in multiplayer mode: every pair
