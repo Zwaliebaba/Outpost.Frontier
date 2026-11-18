@@ -1,8 +1,9 @@
 """Writes the inputs of the P4.5 material suites (Oracle.exe neuron-client,
-CppSource/Oracle/oracle_material.cpp, and crates/neuron-client/tests/
-oracle_vectors.rs): material_regex.list, material_library.list,
-material_global.list, material_animation.list, material_batcher.list and the
-INI files they load. Run from any folder:
+CppSource/Oracle/oracle_material.cpp and oracle_material_kinds.cpp, and
+crates/neuron-client/tests/oracle_vectors.rs): material_regex.list,
+material_library.list, material_global.list, material_animation.list,
+material_batcher.list, material_kinds.list and the INI files they load. Run
+from any folder:
 
     python make_material_fixtures.py [--check]
 
@@ -17,7 +18,9 @@ The cases keep to what the reference defines: no map entry is used after its
 material was cleared or destroyed, RemoveMaterial is only asked for CRCs the
 map holds, no animation group is unloaded twice, only materials with the
 batched face are queued, every queued submission reads inside the arrays it
-was given, and the scratch arena (BufferSize) holds every frame's copies.
+was given, and the scratch arena (BufferSize) holds every frame's copies. The material_kinds cases read no vertex, normal or index past the
+arrays they give (the vertex sources hold every stride the materials read
+them at).
 """
 
 import os
@@ -361,6 +364,182 @@ BATCHER = [
 ]
 
 
+# --- material_kinds -------------------------------------------------------------------------
+# The 22 kinds of Material.cpp and BatchedMaterial over the recording services of
+# oracle_material_kinds.cpp (its header states the contract and the line formats).
+
+def words(values):
+    return ",".join("%08x" % v for v in values)
+
+
+def kvsrc(name, flags, fvf, count, pos, normal, diffuse, tex0, index=None):
+    def part(values, fn):
+        return "-" if values is None else fn(values)
+    return "vsrc %s %d %d %d %s %s %s %s %s" % (
+        name, flags, fvf, count, part(pos, floats), part(normal, floats), part(diffuse, words),
+        part(tex0, floats), "-" if index is None else ",".join(str(i) for i in index))
+
+
+QUAD = [0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 0]
+NORMALS = [0, 0, 1, 0, 0.6, 0.8, 0.6, 0, 0.8, 0, 0, -1]
+UV = [0, 0, 1, 0, 0, 1, 1, 1]
+# fvf 0x112 is 32 bytes a vertex: the normals at the stride the back faces read them with.
+WIDE_NORMALS = []
+for n in range(4):
+    WIDE_NORMALS += NORMALS[3 * n:3 * n + 3] + [9, 9, 9, 9, 9]
+# fvf 0x152 is 36 bytes a vertex: the back faces read s1's normals at that stride, the atmosphere
+# at 12 bytes; the stream holds both reaches.
+S1_NORMALS = NORMALS + [0.125 * k for k in range(1, 25)]
+V_NEAR = [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -1.01]
+V_FAR = [0.6, 0, -0.8, 0, 1, 0, 0.8, 0, 0.6, 0.5, -0.25, -10]
+W_SPIN = [0, 1, 0, -1, 0, 0, 0, 0, 1, 0.5, 0.25, -2]
+
+KIND_SETUP = [
+    "globals 1 1 1",
+    "tex %s 1 11 3 0" % hx("diffuse.tga"),
+    "tex %s 1 12 7 0" % hx("alpha.tga"),
+    "tex %s 1 13 6 0" % hx("mask.tga"),
+    "tex %s 4 14 3 0" % hx("anim.tga"),
+    "tex %s 1 15 3 0" % hx("detail.tga"),
+    "tex %s 1 16 3 1" % hx("broken.tga"),
+    "tex %s 1 17 3 0" % hx("glow.tga"),
+    kvsrc("s1", 0, 0x152, 4, QUAD, S1_NORMALS, [0xff102030, 0x80405060, 0x00708090, 0xffa0b0c0], UV),
+    kvsrc("s2", 0, 0x112, 4, QUAD, WIDE_NORMALS, None, UV),
+    kvsrc("s3", 4, 0x112, 4, QUAD, NORMALS, None, UV, [3, 2, 1, 0]),
+    "idx i1 0,1,2,2,1,3",
+    "xf id " + floats(IDENTITY), "xf w1 " + floats(W1), "xf v1 " + floats(V1),
+    "xf vnear " + floats(V_NEAR), "xf vfar " + floats(V_FAR), "xf wspin " + floats(W_SPIN),
+    "ctx c1 s1 i1 5,338,10 6,3 w1 v1 7",
+    "ctx c2 s2 i1 - 6,3 w1 v1 7",
+    "ctx c3 s3 i1 - - w1 v1 7",
+    "ctx cn - i1 5,338,10 6,3 w1 v1 7",
+    "ctx cnear s1 i1 - - id vnear 7",
+    "ctx cfar s1 i1 - - wspin vfar 7",
+]
+
+# The texture-name properties of each kind (schema index), in block order.
+KIND_TEXTURES = {
+    "DcDt": [6], "DcDtEc": [6], "DcDtOcOt": [6], "DcDtEcOcOt": [6], "DcDtTwo": [6],
+    "DcDtEcTwo": [6], "DcDtOcOtTwo": [6], "DcDtEcOcOtTwo": [6], "DcDtEt": [1, 5], "EcEt": [1],
+    "EcEtTwo": [1], "AtmosphereMaterial": [2], "Nebula": [0], "NebulaTwo": [0],
+    "NullMaterial": [], "LightMap": [0], "DetailMapMaterial": [2, 8],
+    "DetailMap2Dm1Msk2PassMaterial": [2, 8], "IllumDetailMapMaterial": [2, 8, 13],
+    "Masked2DetailMapMaterial": [2, 8, 13], "BtDetailMapMaterial": [6, 10],
+    "BtDetailMapTwoMaterial": [6, 10],
+}
+KIND_NAMES = ["diffuse.tga", "detail.tga", "glow.tga"]
+
+
+def tex_sets(kind, names=None):
+    names = names or KIND_NAMES
+    return ["set %d 7 %s" % (i, hx(n)) for i, n in zip(KIND_TEXTURES[kind], names)]
+
+
+def kind_body(kind, names=None):
+    return ["new " + kind, "name " + hx("Mat_" + kind)] + tex_sets(kind, names) + [
+        "flags", "verify", "state", "resolve", "state", "bind c1", "submit c1 4 0 4 0 6 0",
+        "submit c2 4 1 3 0 3 0", "teardown c1", "bind -", "teardown -", "flags", "passes",
+        "params", "release"]
+
+
+KINDS_CASES = [KIND_SETUP + kind_body(k) for k in KIND_TEXTURES] + [
+    # Single pass: an alpha texture blends, a one-bit alpha tests (the submit's scope, and flag
+    # 0x400 skips it), an opacity below 1 blends; parameters out of range or of the wrong type.
+    KIND_SETUP + ["rs 24 33", "rs 25 6", "rs 15 1", "new DcDt", "name " + hx("Masked"),
+                  "set 6 7 " + hx("mask.tga"), "verify", "state", "flags", "submit c1 4 0 4 0 6 0",
+                  "submit c1 4 0 4 0 6 400", "set 5 2 " + f(0.5), "state", "flags", "verify",
+                  "state", "set 5 2 " + f(1.0), "state", "set 5 2 " + f(1.5), "set 5 1 1",
+                  "set 1 3 " + ",".join([f(0.25), f(0.5), f(0.75)]), "set 1 3 " +
+                  ",".join([f(2), f(0), f(0)]), "set 10 2 0", "set 6 7 " + hx("alpha.tga"),
+                  "verify", "state", "flags", "set 5 2 " + f(1.0), "state", "params", "release"],
+    # Animation: the library answers, the instance fills (or does not fill) the matrix; a
+    # second verify releases the first instance.
+    KIND_SETUP + ["animlib", "anim %s 1" % hx("spinner"), "anim %s 0" % hx("still"),
+                  "new DcDtOcOt", "name " + hx("SPINNER"), "set 6 7 " + hx("anim.tga"), "verify",
+                  "state", "resolve", "state", "bind c1", "teardown c1", "verify", "bind -",
+                  "teardown -", "release", "new DcDtEc", "name " + hx("still"), "verify",
+                  "bind -", "teardown -", "release", "new DcDtTwo", "name " + hx("other"),
+                  "verify", "state", "release"],
+    # Textures that are missing, "(None)", a failing playback and a null name; a verify that
+    # fails; Setup run twice releases the first playbacks.
+    KIND_SETUP + ["verify -1", "new DcDtEt", "name " + hx("Holes"), "set 1 7 " + hx("missing.tga"),
+                  "set 5 7 " + hx("(None)"), "verify", "state", "set 1 7 " + hx("broken.tga"),
+                  "set 5 7 -", "verify", "state", "set 1 7 " + hx("diffuse.tga"),
+                  "set 5 7 " + hx("glow.tga"), "verify", "state", "verify", "state", "release"],
+    # The kernel's routes: the device's buffers (and their failure), the caller's buffer (and its
+    # failure), a copy (and a lock that fails), no source.
+    KIND_SETUP + ["new EcEt", "name " + hx("routes"), "set 1 7 " + hx("glow.tga"), "verify",
+                  "submit c1 4 0 4 0 6 100", "rpdraw -5", "submit c1 4 0 4 0 6 100",
+                  "submit cn 4 0 4 0 6 100", "rpdraw 0", "dvb -2", "submit c1 4 0 4 0 6 0",
+                  "submit cn 4 0 4 0 6 0", "dvb 0", "submit c2 4 0 4 0 6 0",
+                  "submit c2 4 0 0 0 6 0", "lockfail 1", "submit c2 4 0 4 0 6 0", "lockfail 0",
+                  "submit c3 5 0 4 0 6 0", "release"],
+    # Two-sided kinds: back faces with the cull mode flipped (clockwise, counter-clockwise,
+    # none), normals from interleaved and indexed sources, a first pass that fails.
+    KIND_SETUP + ["rs 22 2", "new DcDtTwo", "name " + hx("Fin"), "set 6 7 " + hx("mask.tga"),
+                  "verify", "submit c2 4 1 3 0 3 0", "rs 22 3", "submit c3 4 0 4 0 6 0",
+                  "rs 22 1", "submit c2 4 0 4 0 6 0", "submit cn 4 0 4 0 6 0", "dvb -1",
+                  "submit c1 4 0 4 0 6 0", "dvb 0", "release", "new BtDetailMapTwoMaterial",
+                  "name " + hx("BtFin")] + tex_sets("BtDetailMapTwoMaterial") + [
+                  "verify", "rs 22 3", "submit c3 4 1 3 0 3 0", "rs 22 2",
+                  "submit c2 4 0 4 0 6 100", "release"],
+    # Detail kinds: the second stage disabled by global record 0, a failing first or second
+    # verify, the one-pass fallbacks.
+    KIND_SETUP + ["globals 0 1 1", "new DetailMap2Dm1Msk2PassMaterial", "name " + hx("d0")] +
+    tex_sets("DetailMap2Dm1Msk2PassMaterial") + ["verify", "state", "passes",
+                                                 "submit c1 4 0 4 0 6 0", "release",
+                                                 "new IllumDetailMapMaterial", "name " + hx("i0")] +
+    tex_sets("IllumDetailMapMaterial") + ["verify", "state", "passes", "submit c1 4 0 4 0 6 0",
+                                          "release", "new Masked2DetailMapMaterial",
+                                          "name " + hx("m0")] +
+    tex_sets("Masked2DetailMapMaterial") + ["verify", "state", "submit c1 4 0 4 0 6 0",
+                                            "release", "new DetailMapMaterial",
+                                            "name " + hx("dm0")] +
+    tex_sets("DetailMapMaterial") + ["verify", "state", "bind c1", "release",
+                                     "new BtDetailMapMaterial", "name " + hx("bt0")] +
+    tex_sets("BtDetailMapMaterial") + ["verify", "state", "bind c1", "release"],
+    KIND_SETUP + ["verify 0,-1", "new DetailMap2Dm1Msk2PassMaterial", "name " + hx("d1")] +
+    tex_sets("DetailMap2Dm1Msk2PassMaterial") + ["verify", "state", "release", "verify -1,0",
+                                                 "new IllumDetailMapMaterial", "name " + hx("i1")] +
+    tex_sets("IllumDetailMapMaterial") + ["verify", "state", "passes", "submit c1 4 0 4 0 6 0",
+                                          "release", "verify 0,-1",
+                                          "new IllumDetailMapMaterial", "name " + hx("i2")] +
+    tex_sets("IllumDetailMapMaterial") + ["verify", "state", "passes", "submit c1 4 0 4 0 6 0",
+                                          "release", "verify -1",
+                                          "new DetailMapMaterial", "name " + hx("dm1")] +
+    tex_sets("DetailMapMaterial") + ["verify", "state", "release", "verify -1",
+                                     "new BtDetailMapMaterial", "name " + hx("bt1")] +
+    tex_sets("BtDetailMapMaterial") + ["verify", "state", "release", "verify -1",
+                                       "new Masked2DetailMapMaterial", "name " + hx("m1")] +
+    tex_sets("Masked2DetailMapMaterial") + ["verify", "state", "passes", "release"],
+    # DcDtEt: the second texture switched off by global record 2, at verify and at resolve.
+    KIND_SETUP + ["globals 1 1 0", "new DcDtEt", "name " + hx("e0")] + tex_sets("DcDtEt") + [
+        "verify", "state", "bind -", "globals 1 1 1", "resolve", "state", "bind -",
+        "verify -1,0", "verify", "state", "release"],
+    # The atmosphere: not ready (global record 1), the view near and far, pipeline state 7 set,
+    # clear and failing, the parameters that shape it.
+    KIND_SETUP + ["new AtmosphereMaterial", "name " + hx("Air"), "set 2 7 " + hx("alpha.tga"),
+                  "verify", "state", "globals 1 0 1", "resolve", "state", "bind c1",
+                  "submit cnear 4 0 4 0 6 0", "globals 1 1 1", "resolve", "bind c1",
+                  "submit cnear 4 0 4 0 6 0", "submit cfar 4 1 3 0 3 0", "mode 0",
+                  "submit cfar 4 0 4 0 6 0", "mode none", "set 8 2 " + f(1.5),
+                  "set 7 2 " + f(0.25), "set 6 2 " + f(2.0), "submit cnear 4 0 4 0 6 0",
+                  "set 8 2 " + f(0.5), "submit cfar 4 0 4 0 6 0", "submit c3 4 0 4 0 6 0",
+                  "lockfail 1", "submit cfar 4 0 4 0 6 0", "verify -3", "verify", "params",
+                  "release"],
+    # BatchedMaterial: its bin from the inner flags at the first good verify, a bin of its own,
+    # the depth of flag 0x40.
+    KIND_SETUP + ["batched DcDtOcOt", "name " + hx("Glass"), "set 6 7 " + hx("alpha.tga"),
+                  "flags", "verify", "bin", "flags", "bsubmit c1 4 0 4 0 6 c",
+                  "bsubmit c1 4 0 4 0 6 4c", "bsubmit cfar 4 1 3 0 3 40", "verify", "bin",
+                  "release", "batched DcDt", "name " + hx("Opaque"),
+                  "set 6 7 " + hx("diffuse.tga"), "verify -1", "verify", "bin", "verify 0",
+                  "verify", "bin", "setbin 5", "verify", "bin", "bsubmit c1 4 0 4 0 6 40",
+                  "passes", "params", "release", "batched NullMaterial", "verify", "bin", "flags",
+                  "release"],
+]
+
+
 def write(name, text, check):
     path = os.path.join(HERE, name)
     if check:
@@ -387,6 +566,8 @@ def main():
           listing("material animation", [" ; ".join(c) for c in ANIMATION]), check)
     write("material_batcher.list", listing("material batcher", [" ; ".join(c) for c in BATCHER]),
           check)
+    write("material_kinds.list",
+          listing("material kinds", [" ; ".join(c) for c in KINDS_CASES]), check)
     write("material_map.ini", MATERIAL_MAP_INI, check)
     write("material_defaults.ini", MATERIAL_DEFAULTS_INI, check)
     write("material_batcher.ini", MATERIAL_BATCHER_INI, check)

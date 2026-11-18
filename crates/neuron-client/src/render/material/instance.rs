@@ -13,15 +13,17 @@
 //! [`Material::destroy`] and frees the slot. A handle to a freed slot names
 //! nothing (divergence D303).
 //!
-//! The 22 material kinds and `BatchedMaterial` implement [`Material`]
-//! (the next increment of work package P4.5); a [`MaterialFactory`] makes
-//! them by type name, as the component manager does for the factories
-//! `Shading.cpp` registers (divergence D301).
+//! The 22 material kinds ([`super::kinds::ShadingMaterial`]) and
+//! `BatchedMaterial` ([`super::batched::BatchedMaterial`]) implement
+//! [`Material`]; a [`MaterialFactory`] makes them by type name, as the
+//! component manager does for the factories `Shading.cpp` registers
+//! (divergence D301; [`super::factory::ShadingFactory`]).
 
+use neuron_core::material_data::{LeafWrite, PropertyValue};
 use neuron_core::vfs::FileSystem;
 
-use super::GR_OK;
 use super::batcher::{DrawArgs, SubmitContext};
+use super::{GR_GENERIC, GR_OK};
 
 /// A material in [`Materials`]: a slot index and the generation of the
 /// slot's current occupant.
@@ -90,6 +92,104 @@ pub trait Material<S: ?Sized> {
     /// `IMaterial::Submit`: draws now.
     fn submit(&mut self, services: &mut S, context: &SubmitContext<'_>, args: &DrawArgs) -> i32;
 
+    /// `IMaterial::Bind`; `None` is the null context.
+    fn bind(&mut self, services: &mut S, context: Option<&SubmitContext<'_>>) -> i32 {
+        let _ = (services, context);
+        GR_OK
+    }
+
+    /// `IMaterial::Teardown`; `None` is the null context.
+    fn teardown(&mut self, services: &mut S, context: Option<&SubmitContext<'_>>) -> i32 {
+        let _ = (services, context);
+        GR_OK
+    }
+
+    /// `IMaterial::GetRenderFlags` as the material answers it (a batched
+    /// material adds 0x10 to its inner material's flags).
+    ///
+    /// # Errors
+    ///
+    /// The material's result.
+    fn flags(&mut self, services: &mut S) -> Result<u32, i32> {
+        Ok(self.render_flags(services))
+    }
+
+    /// `IMaterial::GetName`: the name `SetName` kept.
+    ///
+    /// # Errors
+    ///
+    /// `GR_GENERIC` without a name.
+    fn name(&self) -> Result<Vec<u8>, i32> {
+        Err(GR_GENERIC)
+    }
+
+    /// `IMaterial::ClassName`.
+    fn class_name(&self) -> &'static str {
+        ""
+    }
+
+    /// `IMaterial::GetPassCount`.
+    ///
+    /// # Errors
+    ///
+    /// The material's result.
+    fn pass_count(&self) -> Result<i32, i32> {
+        Ok(1)
+    }
+
+    /// `IMaterial::GetParameterCount`.
+    ///
+    /// # Errors
+    ///
+    /// The material's result.
+    fn parameter_count(&self) -> Result<u32, i32> {
+        Ok(0)
+    }
+
+    /// `IMaterial::GetParameterValue(index)`.
+    ///
+    /// # Errors
+    ///
+    /// `GR_GENERIC` past the schema.
+    fn parameter(&self, index: u32) -> Result<PropertyValue, i32> {
+        let _ = index;
+        Err(GR_GENERIC)
+    }
+
+    /// `IMaterial::SetParameterValue(index, value)`: stored when it has the
+    /// property's type and lies in its declared range.
+    fn set_parameter(&mut self, services: &mut S, index: u32, value: &PropertyValue) -> i32 {
+        let _ = (services, index, value);
+        GR_GENERIC
+    }
+
+    /// `IMaterial::SaveProperties`: the leaves it writes below the
+    /// material's node, in order (a later write of a leaf replaces an
+    /// earlier one); `fs` is read for the packed address-mode words, as the
+    /// reference reads them back before it writes them.
+    ///
+    /// # Errors
+    ///
+    /// The material's result.
+    fn save(&mut self, fs: &dyn FileSystem) -> Result<Vec<LeafWrite>, i32> {
+        let _ = fs;
+        Err(GR_GENERIC)
+    }
+
+    /// `FBatchedMaterial::Submit` up to its call into the batcher: `None`
+    /// for a material that is no batched material (it draws through
+    /// [`Material::submit`]), else the bin to select and what to submit
+    /// with, or the failure. [`super::MaterialBatcher::submit_material`]
+    /// does the rest.
+    fn batch_route(
+        &mut self,
+        context: &SubmitContext<'_>,
+        args: &DrawArgs,
+    ) -> Option<Result<BatchRoute, i32>> {
+        let _ = (context, args);
+        None
+    }
+
     /// `IBatchedMaterial::Bind`.
     fn batch_bind(&mut self, services: &mut S, context: &SubmitContext<'_>) -> i32 {
         let _ = (services, context);
@@ -118,6 +218,19 @@ pub trait Material<S: ?Sized> {
     fn destroy(&mut self, services: &mut S) {
         let _ = services;
     }
+}
+
+/// What a batched material hands the batcher (`SelectBin(bin)`, then
+/// `Submit(inner, ..., depth, flags)`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BatchRoute {
+    /// The bin (`IBatchedMaterial::GetBatchBin`, `0xFFFF_FFFF` for none).
+    pub bin: u32,
+    /// The submission flags, 0x20 added when the material computed the
+    /// depth (flag 0x40).
+    pub flags: u32,
+    /// The depth as `f32` bits, 0 without flag 0x40.
+    pub depth_bits: u32,
 }
 
 /// Makes materials by type name (`ICOManager::CreateInstance` with a

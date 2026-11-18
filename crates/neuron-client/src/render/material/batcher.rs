@@ -209,7 +209,8 @@ pub struct SubmitContext<'a> {
     pub instance: usize,
     pub world: &'a [f32; 12],
     pub view: &'a [f32; 12],
-    pub vertices: &'a VertexSource,
+    /// `SourceVertices`; `None` for a null source.
+    pub vertices: Option<&'a VertexSource>,
     /// The index array from its start; draws read from `ib_start` on.
     pub indices: &'a [u16],
     /// `None` without flag 0x100.
@@ -313,7 +314,7 @@ impl QueuedRecord {
             instance: self.instance,
             world: &self.world,
             view: &self.view,
-            vertices: &self.vertices,
+            vertices: Some(&self.vertices),
             indices: self.indices.as_slice(),
             vb: self.buffers.as_ref().map(|(vb, _)| vb),
             ib: self.buffers.as_ref().map(|(_, ib)| ib),
@@ -768,7 +769,7 @@ impl<S: BatchDevice + ?Sized> MaterialBatcher<S> {
                 instance: input.instance,
                 world: &input.world,
                 view: &input.view,
-                vertices: &input.vertices,
+                vertices: Some(&input.vertices),
                 indices: &input.indices,
                 vb: Some(&input.vb),
                 ib: Some(&input.ib),
@@ -828,6 +829,47 @@ impl<S: BatchDevice + ?Sized> MaterialBatcher<S> {
         }
         bin.queue.entry(material).or_default().push(record);
         GR_OK
+    }
+
+    /// `IMaterial::Submit` on a material of the batcher's library: a
+    /// batched material selects its bin and submits itself here
+    /// ([`Material::batch_route`], `FBatchedMaterial::Submit`); any other
+    /// material draws now. `GR_GENERIC` for a handle that names nothing.
+    ///
+    /// [`Material::batch_route`]: super::Material::batch_route
+    pub fn submit_material(
+        &mut self,
+        services: &mut S,
+        material: MaterialId,
+        input: &SubmitInput,
+        args: &DrawArgs,
+    ) -> i32 {
+        let context = SubmitContext {
+            instance: input.instance,
+            world: &input.world,
+            view: &input.view,
+            vertices: Some(&input.vertices),
+            indices: &input.indices,
+            vb: Some(&input.vb),
+            ib: Some(&input.ib),
+            replaced: input.replaced,
+            field20: input.field20,
+        };
+        let Some(object) = self.library.materials_mut().get_mut(material) else {
+            return GR_GENERIC;
+        };
+        match object.batch_route(&context, args) {
+            None => object.submit(services, &context, args),
+            Some(Err(result)) => result,
+            Some(Ok(route)) => {
+                self.select_bin(route.bin);
+                let args = DrawArgs {
+                    flags: route.flags,
+                    ..*args
+                };
+                self.submit(services, material, input, &args, route.depth_bits)
+            }
+        }
     }
 
     /// `FlushBin` (slot 9): flushes one bin if it holds records, then with

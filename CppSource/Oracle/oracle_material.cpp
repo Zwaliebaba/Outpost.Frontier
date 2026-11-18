@@ -1626,6 +1626,9 @@ namespace
     }
 }
 
+// oracle_material_kinds.cpp: the 22 material kinds and BatchedMaterial (material_kinds.jsonl).
+void RunMaterialKindSuite();
+
 void RunMaterialSuites()
 {
     RegisterOracleMaterials();
@@ -1640,4 +1643,5 @@ void RunMaterialSuites()
     LibrarySuite();
     AnimationSuite();
     BatcherSuite();
+    RunMaterialKindSuite();
 }

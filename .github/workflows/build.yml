@@ -182,8 +182,10 @@ jobs:
         # curves, spline paths and playback (oracle_scene_script_runtime.cpp); P4.4: the
         # texture library at run time and ximage's BigImage (oracle_texture.cpp,
         # oracle_big_image.cpp); P4.5: the material regular expressions, library,
-        # global records, animation and batcher of Shading (oracle_material.cpp,
-        # material_*.jsonl); over crates/neuron-client/tests/fixtures/oracle.
+        # global records, animation and batcher of Shading (oracle_material.cpp), and
+        # the 22 material kinds and BatchedMaterial against recording services
+        # (oracle_material_kinds.cpp; material_*.jsonl); over
+        # crates/neuron-client/tests/fixtures/oracle.
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force oracle-out-neuron-client | Out-Null
