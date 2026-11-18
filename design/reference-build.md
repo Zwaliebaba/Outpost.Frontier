@@ -640,7 +640,7 @@ A text file; `#` starts a comment, blank lines are skipped, tokens are
 separated by spaces, tabs or commas. Examples (one per kind of check of
 record 0003) are in `CppSource\Oracle\scenarios\`: `free_flight`,
 `turn_to_heading`, `fly_to_point`, `dock_at_station`, `fire_at_target`,
-`ram_asteroid`, `dogfight`, `skirmish`, and `ram_ship`, Gate G2's collide scenario in
+`ram_asteroid`, `dogfight`, `skirmish`, `strafe`, and `ram_ship`, Gate G2's collide scenario in
 place of `ram_asteroid` (owner, 2026-11-18).
 
 | Line | Meaning |
@@ -697,6 +697,18 @@ the run goes on to tick 1500. (Until the fault recorder showed it, the run
 stopped at tick 881: the access violation at tick 882 was the behaviour-tick
 recorder's own, reading the previous tick's target list, which still named
 the destroyed rogue; the game empties that list before it reads it.)
+
+`strafe` records the strafe behaviour (13), which neither fight reaches.
+Its poll (`StrafeBehavior::Slot5`, `common_strafebehavior.cpp`) offers it
+only when the own ship is a fighter, freighter or gunboat (type
+`& 0x70000`), the target is none of those and moves at most 20 m/s; only
+then does the state graph's weight count. So the dogfight's police fighter
+meets a hostile transport (`ge_transport`, `fc_lr_grp`) with no behaviour,
+which stays where it was spawned, and strafes it for the whole run. The run
+stops at tick 1500, before the police destroys the transport at tick 1536.
+A gunboat (`GUNBOAT` graph) against the same transport and the fighter
+against a `li_cruiser` strafe as well (1799 and 1775 of 1800 ticks in a
+trial run).
 
 ### Faults
 
