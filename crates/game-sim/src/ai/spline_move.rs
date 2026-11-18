@@ -5,19 +5,20 @@
 //!
 //! The segment is [`neuron_core::util::spline::CrSplineSegment`]. The
 //! system manager's `ComputeFormationFollowerEnvelope` result is an
-//! argument ([`FollowerEnvelope`]).
+//! argument of [`SplineMoveIdea::update`] ([`FollowerEnvelope`]); the
+//! [`Idea`] implementation computes it with
+//! [`super::goto::formation_follower_envelope`].
 
 use neuron_core::math::Vector;
 use neuron_core::util::spline::{CrSplineSegment, Vec3};
 
+use super::behavior::{AiEnv, Cx};
 use super::face_idea::FaceIdea;
 use super::fp::{add, column2, e, neg, normalize3, r, scale, sub};
+use super::idea::{Idea, IdeaBase};
 use super::intercept::is_point_outside_heading_cone;
 use super::move_idea::{MoveIdea, status as move_status};
-use super::nav::{
-    PathfindFields, ShipUpControl, ThrustControl, projected_throttle, query_fixed_falloff_effect,
-    speed,
-};
+use super::nav::{NavCx, projected_throttle, query_fixed_falloff_effect, speed, with_own_motion};
 use super::raycast::clamped_dot3;
 use super::world::{AiWorld, MotionModel, ThrustEquipType};
 
@@ -40,13 +41,13 @@ pub struct FollowerEnvelope {
 
 /// `SplineMoveIdea` (`common_idea.h`), its fields from `+0x10`.
 #[derive(Clone, Debug, PartialEq)]
-pub struct SplineMoveIdea<H> {
-    /// +0x10 `BaseIdea::Attached`.
-    pub attached: bool,
+pub struct SplineMoveIdea {
+    /// `BaseIdea`'s fields (+0x10 `Attached`).
+    pub base: IdeaBase,
     /// +0x14 the embedded move idea.
-    pub move_idea: MoveIdea<H>,
+    pub move_idea: MoveIdea,
     /// +0x8c the embedded face idea.
-    pub face: FaceIdea<H>,
+    pub face: FaceIdea,
     /// +0x14c the segment.
     pub spline: Option<CrSplineSegment>,
     /// +0x150 cruise along the segment.
@@ -69,7 +70,7 @@ pub struct SplineMoveIdea<H> {
     pub persisted_t: f32,
 }
 
-impl<H> Default for SplineMoveIdea<H> {
+impl Default for SplineMoveIdea {
     fn default() -> Self {
         Self::new()
     }
@@ -88,12 +89,12 @@ fn coast_speed(motion: Option<&dyn MotionModel>, value: f32) -> f32 {
     }
 }
 
-impl<H> SplineMoveIdea<H> {
+impl SplineMoveIdea {
     /// `SplineMoveIdea::SplineMoveIdea` (`common_splinemoveidea.cpp:34`).
     #[must_use]
     pub fn new() -> Self {
         Self {
-            attached: false,
+            base: IdeaBase::default(),
             move_idea: MoveIdea::new(),
             face: FaceIdea::new(),
             spline: None,
@@ -110,33 +111,26 @@ impl<H> SplineMoveIdea<H> {
     }
 
     /// `SplineMoveIdea::SetContext` (`common_splinemoveidea.cpp:58`).
-    pub fn set_context<W: AiWorld<Handle = H> + ?Sized>(
-        &mut self,
-        world: &W,
-        ship: H,
-        pathfind: &mut PathfindFields,
-    ) -> bool
-    where
-        H: Copy,
-    {
-        if world.inspect(ship).is_none() {
+    pub fn set_context<C: NavCx + ?Sized>(&mut self, cx: &mut C) -> bool {
+        let Some(view) = cx.world().inspect(cx.ship()) else {
             return false;
-        }
-        self.attached = true;
-        self.move_idea.set_context(world, ship);
-        self.face.set_context(world, ship);
+        };
+        self.base.owner = Some(view.id);
+        self.base.attached = true;
+        self.move_idea.set_context(&*cx);
+        self.face.set_context(&*cx);
         self.spline = None;
-        pathfind.field_064 = 0;
+        cx.pathfind_mut().target_id = 0;
         self.persisted_t = 0.0;
         true
     }
 
     /// `SplineMoveIdea::Commit` (`common_splinemoveidea.cpp:92`).
-    pub fn commit(&mut self, thrust: &mut dyn ThrustControl, pathfind: &mut PathfindFields) {
-        pathfind.field_064 = 0;
-        self.move_idea.commit(thrust, pathfind);
-        self.face.commit(thrust);
-        thrust.set_nudge_direction(Vector::ZERO);
+    pub fn commit<C: NavCx + ?Sized>(&mut self, cx: &mut C) {
+        cx.pathfind_mut().target_id = 0;
+        self.move_idea.commit(cx);
+        self.face.commit(cx);
+        cx.set_nudge_direction(Vector::ZERO);
         self.persisted_t = 0.0;
     }
 
@@ -146,8 +140,10 @@ impl<H> SplineMoveIdea<H> {
     }
 
     /// `SplineMoveIdea::SetThrottleScale`: the engine throttle for `value`.
-    pub fn set_throttle_scale(&mut self, motion: Option<&dyn MotionModel>, value: f32) {
-        self.bank_blend_cap = projected_throttle(motion, value, ThrustEquipType::Engine);
+    pub fn set_throttle_scale<C: NavCx + ?Sized>(&mut self, cx: &C, value: f32) {
+        self.bank_blend_cap = with_own_motion(cx, |m| {
+            projected_throttle(m, value, ThrustEquipType::Engine)
+        });
     }
 
     /// `SplineMoveIdea::SetField158`.
@@ -157,19 +153,22 @@ impl<H> SplineMoveIdea<H> {
 
     /// `SplineMoveIdea::SetWideMode`: cruise (2) or engine (0) for the
     /// move idea.
-    pub fn set_wide_mode(&mut self, value: u8, thrust: &mut dyn ThrustControl) {
+    pub fn set_wide_mode<C: NavCx + ?Sized>(&mut self, cx: &mut C, value: u8) {
         self.wide_mode = value;
-        self.move_idea
-            .set_mode(if value != 0 { 2 } else { 0 }, thrust);
+        self.move_idea.set_mode(cx, if value != 0 { 2 } else { 0 });
     }
 
     /// `SplineMoveIdea::SetSpline` (`common_splinemoveidea.cpp:182`).
-    pub fn set_spline(&mut self, motion: Option<&dyn MotionModel>, spline: CrSplineSegment) {
+    pub fn set_spline<C: NavCx + ?Sized>(&mut self, cx: &C, spline: CrSplineSegment) {
         self.move_idea.arrival_range = self.extrapolate_base;
         self.move_idea.stop_style = 2;
         self.move_idea.kill_engine_off_bearing = 0;
-        self.max_speed_15c = speed(motion, 1.0, ThrustEquipType::Engine);
-        self.lookahead_scale = query_fixed_falloff_effect(motion, self.max_speed_15c);
+        let (max_speed, lookahead) = with_own_motion(cx, |motion| {
+            let max_speed = speed(motion, 1.0, ThrustEquipType::Engine);
+            (max_speed, query_fixed_falloff_effect(motion, max_speed))
+        });
+        self.max_speed_15c = max_speed;
+        self.lookahead_scale = lookahead;
         self.speed_norm = spline.spline_length();
         self.spline = Some(spline);
     }
@@ -180,31 +179,21 @@ impl<H> SplineMoveIdea<H> {
     ///
     /// A parameter search that cannot finish (the reference loops forever)
     /// keeps the start parameter (D163).
-    #[allow(clippy::too_many_arguments)]
-    pub fn update<W: AiWorld<Handle = H> + ?Sized>(
+    pub fn update<C: NavCx + ?Sized>(
         &mut self,
-        world: &W,
-        ship: H,
-        thrust: &mut dyn ThrustControl,
-        manager: &mut dyn ShipUpControl,
-        pathfind: &mut PathfindFields,
+        cx: &mut C,
         envelope: FollowerEnvelope,
         dt: f32,
-    ) -> i32
-    where
-        H: Copy,
-    {
-        if !self.attached {
+    ) -> i32 {
+        if !self.base.attached {
             return 3;
         }
         let Some(spline) = self.spline else {
             return 3;
         };
-        let Some(view) = world.inspect(ship) else {
+        let Some(view) = cx.world().inspect(cx.ship()) else {
             return 3;
         };
-        let motion = world.motion(ship);
-        let motion = motion.as_deref();
         if envelope.valid {
             self.move_idea.throttle = envelope.throttle;
         }
@@ -235,7 +224,7 @@ impl<H> SplineMoveIdea<H> {
         let far_point = v(spline.point(t3));
         if wide {
             if self.move_idea.mode == 1 {
-                thrust.set_nudge_direction(Vector::ZERO);
+                cx.set_nudge_direction(Vector::ZERO);
             }
             self.move_idea.mode = 2;
         } else {
@@ -248,8 +237,11 @@ impl<H> SplineMoveIdea<H> {
                 let dot = clamped_dot3(normalize3(delta), dir_a);
                 bank_factor = if dot < e(0.1) { e(0.1) } else { dot };
             }
-            let coast = coast_speed(motion, r(bank_factor * e(self.lookahead_scale)));
-            bank_blend = e(projected_throttle(motion, coast, ThrustEquipType::Engine));
+            let lookahead = self.lookahead_scale;
+            bank_blend = with_own_motion(&*cx, |motion| {
+                let coast = coast_speed(motion, r(bank_factor * e(lookahead)));
+                e(projected_throttle(motion, coast, ThrustEquipType::Engine))
+            });
         }
         if !(bank_blend < e(envelope.throttle)) {
             bank_blend = e(envelope.throttle);
@@ -261,9 +253,10 @@ impl<H> SplineMoveIdea<H> {
         self.move_idea.max_thrust_bearing = f32::from_bits(0x4049_0fdb);
         self.move_idea.target_kind = 2;
         self.move_idea.position = v(spline.p2);
+        let pathfind = cx.pathfind_mut();
         pathfind.cached_target_position = self.move_idea.position;
         pathfind.field_248 = FIELD_248_SPLINE;
-        let move_result = self.move_idea.update(world, ship, thrust, pathfind, dt);
+        let move_result = self.move_idea.update(cx, dt);
 
         let p2 = v(spline.p2);
         let chord = sub(v(spline.p3), p2);
@@ -274,7 +267,7 @@ impl<H> SplineMoveIdea<H> {
             self.face.position_1c = far_point;
             self.face.target_kind = 2;
         }
-        let _ = self.face.update(world, ship, thrust, manager, pathfind);
+        let _ = self.face.update(cx);
 
         if move_result != move_status::ARRIVED && !(e(t1) > 1.0) {
             return 0;
@@ -292,46 +285,54 @@ impl<H> SplineMoveIdea<H> {
             return 0;
         }
         self.move_idea.stop_style = self.field_158;
-        self.commit(thrust, pathfind);
+        SplineMoveIdea::commit(self, cx);
         1
+    }
+}
+
+impl<W: AiEnv + ?Sized> Idea<W> for SplineMoveIdea {
+    fn base(&self) -> &IdeaBase {
+        &self.base
+    }
+
+    fn base_mut(&mut self) -> &mut IdeaBase {
+        &mut self.base
+    }
+
+    fn update(&mut self, cx: &mut Cx<'_, W>, dt: f32) -> i32 {
+        let (valid, envelope) = super::goto::formation_follower_envelope(&*cx);
+        let envelope = FollowerEnvelope {
+            valid,
+            throttle: envelope.throttle,
+        };
+        SplineMoveIdea::update(self, cx, envelope, dt)
+    }
+
+    fn kind(&self) -> i16 {
+        SPLINE_MOVE_IDEA_KIND
+    }
+
+    fn commit(&mut self, cx: &mut Cx<'_, W>) {
+        SplineMoveIdea::commit(self, cx);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ai::move_idea::tests::{Motion, ThrustLog, Two};
-
-    struct Up;
-
-    impl ShipUpControl for Up {
-        fn ship_up_direction(&self) -> Vector {
-            Vector::new(0.0, 1.0, 0.0)
-        }
-        fn camera_level_status(&self) -> bool {
-            false
-        }
-        fn relevel_ship_up_direction(&mut self, _: bool) {}
-    }
+    use crate::ai::move_idea::tests::{TestCx, Two};
 
     #[test]
     fn follows_and_finishes_a_segment() {
-        let w = Two::new(Vector::ZERO, Vector::ZERO);
-        let mut idea = SplineMoveIdea::<u32>::new();
-        let mut pf = PathfindFields::new();
-        let mut thrust = ThrustLog {
-            accept: true,
-            ..ThrustLog::default()
-        };
+        let mut cx = TestCx::new(Two::new(Vector::ZERO, Vector::ZERO));
+        cx.thrust.accept = true;
+        let mut idea = SplineMoveIdea::new();
         let env = FollowerEnvelope {
             valid: false,
             throttle: 1.0,
         };
-        assert_eq!(
-            idea.update(&w, 1, &mut thrust, &mut Up, &mut pf, env, 0.1),
-            3
-        );
-        assert!(idea.set_context(&w, 1, &mut pf));
+        assert_eq!(idea.update(&mut cx, env, 0.1), 3);
+        assert!(idea.set_context(&mut cx));
         // A straight segment ahead along -Z, 0 to -1000.
         let spline = CrSplineSegment::new(
             [0.0, 0.0, 100.0],
@@ -339,24 +340,20 @@ mod tests {
             [0.0, 0.0, -1000.0],
             [0.0, 0.0, -1100.0],
         );
-        idea.set_spline(Some(&Motion), spline);
+        idea.set_spline(&cx, spline);
         assert_eq!(idea.speed_norm, 1000.0);
         assert_eq!(idea.move_idea.arrival_range, 50.0);
+        assert_eq!(idea.update(&mut cx, env, 0.1), 0);
         assert_eq!(
-            idea.update(&w, 1, &mut thrust, &mut Up, &mut pf, env, 0.1),
-            0
+            cx.pathfind.cached_target_position,
+            Vector::new(0.0, 0.0, -1000.0)
         );
-        assert_eq!(pf.cached_target_position, Vector::new(0.0, 0.0, -1000.0));
-        assert_eq!(pf.field_248, FIELD_248_SPLINE);
+        assert_eq!(cx.pathfind.field_248, FIELD_248_SPLINE);
         assert_eq!(idea.face.target_kind, 2);
         // Past the end of the segment, with the probe behind: done.
-        let mut beyond = Two::new(Vector::ZERO, Vector::ZERO);
-        beyond.ship.center = Vector::new(0.0, 0.0, -1040.0);
-        beyond.ship.position = beyond.ship.center;
-        assert_eq!(
-            idea.update(&beyond, 1, &mut thrust, &mut Up, &mut pf, env, 0.1),
-            1
-        );
-        assert_eq!(pf.cached_target_position, Vector::ZERO);
+        cx.world.ship.center = Vector::new(0.0, 0.0, -1040.0);
+        cx.world.ship.position = cx.world.ship.center;
+        assert_eq!(idea.update(&mut cx, env, 0.1), 1);
+        assert_eq!(cx.pathfind.cached_target_position, Vector::ZERO);
     }
 }

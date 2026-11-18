@@ -238,6 +238,44 @@ impl<W: AiEnv + ?Sized> Cx<'_, W> {
             .set_nudge_direction(&mut *self.world, self.ship, world_dir);
     }
 
+    /// `ThrustManager::SetEngineActive` on the ship.
+    pub fn set_engine_active(&mut self, active: bool) {
+        self.state
+            .thrust
+            .set_engine_active(&mut *self.world, self.ship, active);
+    }
+
+    /// `ThrustManager::CheckSteeringGate` for the ship.
+    #[must_use]
+    pub fn check_steering_gate(&self) -> bool {
+        let is_player = self.world.inspect(self.ship).is_some_and(|v| v.is_player);
+        self.state.steering_gate(is_player)
+    }
+
+    /// `Behavior::SetCruiseLock(Value, Mask)`: the pathfinder's.
+    pub fn set_cruise_lock(&mut self, value: u8, mask: u32) {
+        self.state.pathfind.set_cruise_lock(
+            &mut self.state.thrust,
+            &mut *self.world,
+            self.ship,
+            value,
+            mask,
+        );
+    }
+
+    /// The ship's view.
+    #[must_use]
+    pub fn own(&self) -> Option<super::world::ObjectView> {
+        self.world.inspect(self.ship)
+    }
+
+    /// An object's view by id.
+    #[must_use]
+    pub fn view_of(&self, id: Option<u32>) -> Option<super::world::ObjectView> {
+        let id = id?;
+        self.world.handle_of(id).and_then(|h| self.world.inspect(h))
+    }
+
     /// The idle stop (`IdleIdea::Update`).
     pub fn stop(&mut self) {
         self.state.thrust.stop(&mut *self.world, self.ship);
@@ -432,6 +470,14 @@ pub trait Behavior<W: AiEnv + ?Sized> {
     /// (1) `SetContext(Owner, Manager, Sys)`: binds the owner.
     fn bind(&mut self, owner_id: Option<u32>) -> bool {
         self.base_mut().bind(owner_id)
+    }
+
+    /// The world-dependent half of slot 1 (`SetContext`): the ideas'
+    /// `SetContext` calls, which read the ship's motion model. The manager
+    /// calls it right after [`Behavior::bind`] when it is built against a
+    /// world.
+    fn attach(&mut self, cx: &mut Cx<'_, W>) {
+        let _ = cx;
     }
 
     /// (3) becomes the current behaviour.

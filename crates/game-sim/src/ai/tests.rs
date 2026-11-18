@@ -145,6 +145,8 @@ fn manager(world: &mut OneShip) -> BehaviorManager<OneShip> {
 fn construction_draws_three_phases_and_falls_back_to_idle() {
     let mut world = OneShip::new();
     let mut rand = CrtRand::with_seed(1);
+    // The pathfinder's constructor draws its three phase offsets first.
+    let (p0, p1, p2) = (rand.rand(), rand.rand(), rand.rand());
     let (a, b, c) = (rand.rand(), rand.rand(), rand.rand());
     let m = manager(&mut world);
     let phase =
@@ -152,6 +154,9 @@ fn construction_draws_three_phases_and_falls_back_to_idle() {
     assert_eq!(m.state.timer_a, phase(a, 3.0));
     assert_eq!(m.state.timer_b, phase(b, 0.2));
     assert_eq!(m.state.attack_override_timer, phase(c, 1.0));
+    assert_eq!(m.state.pathfind.timer_1e0, phase(p0, 1.0));
+    assert_eq!(m.state.pathfind.timer_1e8, phase(p1, 0.5));
+    assert_eq!(m.state.pathfind.timer_20c, phase(p2, 0.1));
     assert_eq!(m.state.behavior, ids::IDLE);
     assert_eq!(m.state.state_graph_id(), 1);
     assert_eq!(m.state.directive, [0, 0, 0]);

@@ -3,19 +3,20 @@
 //! direction or a whole frame (or applies a fixed axis throttle), banking
 //! into the turn and limiting the axis throttle so it does not overshoot.
 //!
-//! The state is the C++ object's own fields; the `BaseIdea` plumbing
-//! becomes arguments: the world and the ship handle, the
-//! [`ThrustControl`] of the ship's `ThrustManager`, the [`ShipUpControl`]
-//! of its behaviour manager and the [`PathfindFields`] of its
-//! `PathfindManager`. The steering is Tier B (decision T11): it goes
+//! The state is the C++ object's own fields; the `BaseIdea` plumbing is
+//! the [`NavCx`] each call takes (the world and the ship, the ship's
+//! `ThrustManager`, its behaviour manager's ship-up state and its
+//! `PathfindManager`). The steering is Tier B (decision T11): it goes
 //! through `TurnHelper::get_angular_throttle` and the bank helpers.
 
 use neuron_core::math::{Matrix, Vector, transform_matrix};
 
 use super::bank::{compute_banked_steering_frame, limit_axis_throttle_for_turn};
+use super::behavior::{AiEnv, Cx};
 use super::fp::{add, column1, e, normalize3, r, sub};
+use super::idea::{Idea, IdeaBase};
 use super::intercept::{iface_position_or_zero, iface_vector_magnitude};
-use super::nav::{PathfindFields, ShipUpControl, ThrustControl, projected_axis_throttle_xy};
+use super::nav::{NavCx, projected_axis_throttle_xy, watched, with_own_motion};
 use super::raycast::clamped_dot3;
 use super::steer::{
     build_orientation_basis, get_angular_throttle, steering_frame_from_relative_dir,
@@ -39,9 +40,11 @@ pub mod status {
 
 /// `FaceIdea` (`common_idea.h`), its fields from `+0x14`.
 #[derive(Clone, Debug, PartialEq)]
-pub struct FaceIdea<H> {
-    /// +0x14 the watched object (kind 1).
-    pub watcher: Option<H>,
+pub struct FaceIdea {
+    /// `BaseIdea`'s fields.
+    pub base: IdeaBase,
+    /// +0x14 the watched object's id (kind 1).
+    pub watcher: Option<u32>,
     /// +0x1c the point to face (kind 2).
     pub position_1c: Vector,
     /// +0x28 the direction to face (kind 3).
@@ -80,18 +83,19 @@ pub struct FaceIdea<H> {
     pub threshold_bc: f32,
 }
 
-impl<H> Default for FaceIdea<H> {
+impl Default for FaceIdea {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<H> FaceIdea<H> {
+impl FaceIdea {
     /// `FaceIdea::FaceIdea` (`common_faceidea.cpp:34`). `Field90` is
     /// `get_projected_axis_throttle_XY(1)` of the still-null object: 0.
     #[must_use]
     pub fn new() -> Self {
         Self {
+            base: IdeaBase::default(),
             watcher: None,
             position_1c: Vector::ZERO,
             direction_28: Vector::ZERO,
@@ -116,17 +120,16 @@ impl<H> FaceIdea<H> {
     /// limiter's reference angle from the ship's motion model (the angular
     /// distance it covers at `get_angular_speed_XY(1, 0)`, capped at 1000);
     /// false when the ship is gone.
-    pub fn set_context<W: AiWorld<Handle = H> + ?Sized>(&mut self, world: &W, ship: H) -> bool
-    where
-        H: Copy,
-    {
-        if world.inspect(ship).is_none() {
+    pub fn set_context<C: NavCx + ?Sized>(&mut self, cx: &C) -> bool {
+        let Some(view) = cx.world().inspect(cx.ship()) else {
             return false;
-        }
-        let motion = world.motion(ship);
-        let motion = motion.as_deref();
-        let rate = motion.map_or(0.0, |m| m.angular_speed_xy(1.0, 0.0));
-        self.angle_weight_98 = angular_distance_travelled(motion, 0.0, 0.0, rate, 1000.0);
+        };
+        self.base.owner = Some(view.id);
+        self.base.attached = true;
+        self.angle_weight_98 = with_own_motion(cx, |motion| {
+            let rate = motion.map_or(0.0, |m| m.angular_speed_xy(1.0, 0.0));
+            angular_distance_travelled(motion, 0.0, 0.0, rate, 1000.0)
+        });
         // `Behavior_InvokeManagerSlotF4(Object, 1)`: queried and dropped.
         self.angle_weight_9c = f32::from_bits(0x3e49_0fdb);
         self.up_valid = 0;
@@ -134,12 +137,12 @@ impl<H> FaceIdea<H> {
     }
 
     /// `FaceIdea::Commit` (`common_faceidea.cpp:104`): a zero axis throttle.
-    pub fn commit(&self, thrust: &mut dyn ThrustControl) {
-        thrust.set_axis_throttle(Vector::ZERO);
+    pub fn commit<C: NavCx + ?Sized>(&self, cx: &mut C) {
+        cx.set_axis_throttle(Vector::ZERO);
     }
 
     /// `FaceIdea::SetWatchObject` (`common_faceidea.cpp:119`).
-    pub fn set_watch_object(&mut self, object: Option<H>) {
+    pub fn set_watch_object(&mut self, object: Option<u32>) {
         self.target_kind = i32::from(object.is_some());
         self.watcher = object;
     }
@@ -171,9 +174,9 @@ impl<H> FaceIdea<H> {
     /// `FaceIdea::SetThrottleScale` (`common_faceidea.cpp:173`): the raw
     /// value to `Field90`, `get_projected_axis_throttle_XY` of it to the
     /// cap.
-    pub fn set_throttle_scale(&mut self, motion: Option<&dyn MotionModel>, value: f32) {
+    pub fn set_throttle_scale<C: NavCx + ?Sized>(&mut self, cx: &C, value: f32) {
         self.field_90 = value;
-        self.turn_throttle = projected_axis_throttle_xy(motion, value);
+        self.turn_throttle = with_own_motion(cx, |m| projected_axis_throttle_xy(m, value));
     }
 
     /// `FaceIdea::SetUpVector` (`common_faceidea.cpp:185`): a zero vector
@@ -201,158 +204,182 @@ impl<H> FaceIdea<H> {
     /// face, turns toward it with `get_angular_throttle`, banks, limits and
     /// caps the axis throttle and hands it to the thrust manager. Returns
     /// a [`status`] value; kind 5 applies its axis throttle and returns 0.
-    pub fn update<W: AiWorld<Handle = H> + ?Sized>(
-        &mut self,
-        world: &W,
-        ship: H,
-        thrust: &mut dyn ThrustControl,
-        manager: &mut dyn ShipUpControl,
-        pathfind: &PathfindFields,
-    ) -> i32
-    where
-        H: Copy,
-    {
-        let Some(view) = world.inspect(ship) else {
+    pub fn update<C: NavCx + ?Sized>(&mut self, cx: &mut C) -> i32 {
+        let Some(view) = cx.world().inspect(cx.ship()) else {
             return status::NO_OBJECT;
         };
-        let motion = world.motion(ship);
-        let motion = motion.as_deref();
         let reference = view.orientation;
         let center = view.center;
-        let watched = self.watcher.and_then(|h| world.inspect(h));
+        let watched = watched(&*cx, self.watcher);
 
         // A frame toward `rel`: with the ship's up when the steering gate
         // is open, else from the reference frame alone.
-        let toward = |rel: Vector, gate: bool, manager: &dyn ShipUpControl| -> Matrix {
+        let toward = |rel: Vector, gate: bool, up: Vector| -> Matrix {
             if gate {
-                steering_frame_from_relative_dir(&reference, rel, manager.ship_up_direction())
+                steering_frame_from_relative_dir(&reference, rel, up)
             } else {
                 build_orientation_basis(&reference, rel, None)
             }
         };
-        let fallback = |thrust: &dyn ThrustControl, manager: &dyn ShipUpControl| -> Matrix {
-            let gate = thrust.check_steering_gate();
-            let rel = sub(iface_position_or_zero(watched.as_ref()), center);
-            toward(rel, gate, manager)
-        };
 
         // Kind > 5 (or negative, `JA`) keeps a zero frame.
         let mut working = Matrix::default();
-        match self.target_kind {
-            0 => return status::NO_OBJECT,
-            1 => {
-                let Some(target) = watched.as_ref() else {
-                    return status::NO_TARGET;
-                };
-                let w = target.angular_velocity;
-                let angular_sq = (e(w.y) * e(w.y) + e(w.z) * e(w.z)) + e(w.x) * e(w.x);
-                if self.field_64 == 0 || !(angular_sq < 0.01) {
-                    working = fallback(thrust, manager);
-                } else {
-                    let node_up = column1(&target.orientation);
-                    let rel = sub(target.center, center);
-                    working = build_orientation_basis(&reference, rel, Some(node_up));
+        {
+            let c = &*cx;
+            match self.target_kind {
+                0 => return status::NO_OBJECT,
+                1 => {
+                    let Some(target) = watched.as_ref() else {
+                        return status::NO_TARGET;
+                    };
+                    let w = target.angular_velocity;
+                    let angular_sq = (e(w.y) * e(w.y) + e(w.z) * e(w.z)) + e(w.x) * e(w.x);
+                    if self.field_64 == 0 || !(angular_sq < 0.01) {
+                        let gate = c.check_steering_gate();
+                        let rel = sub(iface_position_or_zero(watched.as_ref()), center);
+                        working = toward(rel, gate, c.ship_up_direction());
+                    } else {
+                        let node_up = column1(&target.orientation);
+                        let rel = sub(target.center, center);
+                        working = build_orientation_basis(&reference, rel, Some(node_up));
+                    }
                 }
-            }
-            2 => {
-                let raw_up = self.field_64 != 0;
-                let gate = !raw_up && thrust.check_steering_gate();
-                let rel = sub(self.position_1c, center);
-                working = if raw_up {
-                    build_orientation_basis(&reference, rel, Some(self.up_hint_6c))
-                } else {
-                    toward(rel, gate, manager)
-                };
-            }
-            3 => {
-                let gate = thrust.check_steering_gate();
-                working = toward(self.direction_28, gate, manager);
-            }
-            4 => working = self.basis_34,
-            5 => {
-                working = reference;
-                let mut banked = !view.is_player;
-                if !banked {
-                    banked = manager.camera_level_status() && thrust.check_steering_gate();
+                2 => {
+                    let raw_up = self.field_64 != 0;
+                    let gate = !raw_up && c.check_steering_gate();
+                    let rel = sub(self.position_1c, center);
+                    working = if raw_up {
+                        build_orientation_basis(&reference, rel, Some(self.up_hint_6c))
+                    } else {
+                        toward(rel, gate, c.ship_up_direction())
+                    };
                 }
-                let steer = if banked {
-                    let mut steer = self.vector_58;
-                    let up = manager.ship_up_direction();
-                    compute_banked_steering_frame(&view, motion, up, &mut working, &mut steer, 0);
-                    steer
-                } else {
-                    transform_matrix(&reference, self.vector_58)
-                };
-                thrust.set_axis_throttle(steer);
-                return status::TURNING;
+                3 => {
+                    let gate = c.check_steering_gate();
+                    working = toward(self.direction_28, gate, c.ship_up_direction());
+                }
+                4 => working = self.basis_34,
+                5 => {
+                    working = reference;
+                    let mut banked = !view.is_player;
+                    if !banked {
+                        banked = c.camera_level_status() && c.check_steering_gate();
+                    }
+                    let steer = if banked {
+                        let mut steer = self.vector_58;
+                        let up = c.ship_up_direction();
+                        with_own_motion(c, |motion| {
+                            compute_banked_steering_frame(
+                                &view,
+                                motion,
+                                up,
+                                &mut working,
+                                &mut steer,
+                                0,
+                            );
+                        });
+                        steer
+                    } else {
+                        transform_matrix(&reference, self.vector_58)
+                    };
+                    cx.set_axis_throttle(steer);
+                    return status::TURNING;
+                }
+                _ => {}
             }
-            _ => {}
-        }
 
-        if pathfind.field_214 & 0x2 != 0 {
-            let gate = thrust.check_steering_gate();
-            working = toward(sub(pathfind.field_22c, center), gate, manager);
+            let pathfind = c.pathfind();
+            if pathfind.field_214 & 0x2 != 0 {
+                let gate = c.check_steering_gate();
+                working = toward(sub(pathfind.field_22c, center), gate, c.ship_up_direction());
+            }
         }
 
         if view.is_player {
-            manager.relevel_ship_up_direction(true);
+            cx.relevel_ship_up_direction(true);
         }
 
         let turn = get_angular_throttle(&reference, &working);
         let mut steer = turn.throttle;
         self.remaining_angle = turn.angle;
 
-        let mut refresh =
-            view.is_player && manager.camera_level_status() && thrust.check_steering_gate();
-        if !refresh {
-            refresh = !view.is_player;
+        {
+            let c = &*cx;
+            let mut refresh = view.is_player && c.camera_level_status() && c.check_steering_gate();
+            if !refresh {
+                refresh = !view.is_player;
+            }
+            let up = c.ship_up_direction();
+            let lead_node = watched
+                .as_ref()
+                .filter(|node| iface_vector_magnitude(Some(node)) > 1.0);
+            let angle_weight = self.angle_weight_98;
+            steer = with_own_motion(c, |motion| {
+                if refresh {
+                    compute_banked_steering_frame(&view, motion, up, &mut working, &mut steer, 1);
+                }
+                if let Some(node) = lead_node {
+                    let lead_angle = lead_angle(node.center, node.velocity, center);
+                    // `Behavior_InvokeManagerSlotF8(Object, LeadAngle)`:
+                    // queried and dropped.
+                    let _ = projected_axis_throttle_xy(motion, lead_angle);
+                    limit_axis_throttle_for_turn(
+                        Some(&view),
+                        motion,
+                        steer,
+                        &working,
+                        lead_angle,
+                        0.35,
+                        true,
+                    )
+                } else {
+                    limit_axis_throttle_for_turn(
+                        Some(&view),
+                        motion,
+                        steer,
+                        &working,
+                        0.0,
+                        angle_weight,
+                        true,
+                    )
+                }
+            });
         }
-        if refresh {
-            let up = manager.ship_up_direction();
-            compute_banked_steering_frame(&view, motion, up, &mut working, &mut steer, 1);
-        }
-
-        let lead_node = watched
-            .as_ref()
-            .filter(|node| iface_vector_magnitude(Some(node)) > 1.0);
-        steer = if let Some(node) = lead_node {
-            let lead_angle = lead_angle(node.center, node.velocity, center);
-            // `Behavior_InvokeManagerSlotF8(Object, LeadAngle)`: queried
-            // and dropped.
-            let _ = projected_axis_throttle_xy(motion, lead_angle);
-            limit_axis_throttle_for_turn(
-                Some(&view),
-                motion,
-                steer,
-                &working,
-                lead_angle,
-                0.35,
-                true,
-            )
-        } else {
-            limit_axis_throttle_for_turn(
-                Some(&view),
-                motion,
-                steer,
-                &working,
-                0.0,
-                self.angle_weight_98,
-                true,
-            )
-        };
 
         steer = cap_length(steer, self.turn_throttle);
         if self.up_valid != 0 {
             steer = add(steer, transform_matrix(&reference, self.up_b0));
         }
         self.up_valid = 0;
-        thrust.set_axis_throttle(steer);
+        cx.set_axis_throttle(steer);
 
         if self.remaining_angle < self.facing_tolerance {
             status::FACING
         } else {
             status::TURNING
         }
+    }
+}
+
+impl<W: AiEnv + ?Sized> Idea<W> for FaceIdea {
+    fn base(&self) -> &IdeaBase {
+        &self.base
+    }
+
+    fn base_mut(&mut self) -> &mut IdeaBase {
+        &mut self.base
+    }
+
+    fn update(&mut self, cx: &mut Cx<'_, W>, _dt: f32) -> i32 {
+        FaceIdea::update(self, cx)
+    }
+
+    fn kind(&self) -> i16 {
+        FACE_IDEA_KIND
+    }
+
+    fn commit(&mut self, cx: &mut Cx<'_, W>) {
+        FaceIdea::commit(self, cx);
     }
 }
 
@@ -415,83 +442,49 @@ pub fn cap_length(v: Vector, cap: f32) -> Vector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ai::move_idea::tests::{Motion, ThrustLog, Two};
-
-    #[derive(Default)]
-    struct Up {
-        relevels: usize,
-    }
-
-    impl ShipUpControl for Up {
-        fn ship_up_direction(&self) -> Vector {
-            Vector::new(0.0, 1.0, 0.0)
-        }
-        fn camera_level_status(&self) -> bool {
-            false
-        }
-        fn relevel_ship_up_direction(&mut self, _: bool) {
-            self.relevels += 1;
-        }
-    }
+    use crate::ai::move_idea::tests::{TestCx, Two};
 
     #[test]
     fn faces_a_point_ahead_and_turns_toward_one_aside() {
-        let w = Two::new(Vector::ZERO, Vector::ZERO);
-        let mut idea = FaceIdea::<u32>::new();
-        assert!(idea.set_context(&w, 1));
-        let mut thrust = ThrustLog::default();
-        let mut up = Up::default();
-        let pf = PathfindFields::new();
-        assert_eq!(
-            idea.update(&w, 1, &mut thrust, &mut up, &pf),
-            status::NO_OBJECT
-        );
+        let mut cx = TestCx::new(Two::new(Vector::ZERO, Vector::ZERO));
+        let mut idea = FaceIdea::new();
+        assert!(idea.set_context(&cx));
+        assert_eq!(idea.update(&mut cx), status::NO_OBJECT);
         idea.set_position(Vector::new(0.0, 0.0, -100.0));
-        assert_eq!(
-            idea.update(&w, 1, &mut thrust, &mut up, &pf),
-            status::FACING
-        );
+        assert_eq!(idea.update(&mut cx), status::FACING);
         assert_eq!(idea.remaining_angle, 0.0);
         idea.set_position(Vector::new(100.0, 0.0, 0.0));
-        thrust.calls.clear();
-        assert_eq!(
-            idea.update(&w, 1, &mut thrust, &mut up, &pf),
-            status::TURNING
-        );
+        cx.thrust.calls.clear();
+        assert_eq!(idea.update(&mut cx), status::TURNING);
         assert!((idea.remaining_angle - core::f32::consts::FRAC_PI_2).abs() < 1e-5);
-        assert_eq!(thrust.calls.len(), 1);
-        assert!(thrust.calls[0].starts_with("axis"), "{:?}", thrust.calls);
-        assert_eq!(up.relevels, 0);
+        assert_eq!(cx.thrust.calls.len(), 1);
+        assert!(
+            cx.thrust.calls[0].starts_with("axis"),
+            "{:?}",
+            cx.thrust.calls
+        );
+        assert_eq!(cx.relevels, 0);
     }
 
     #[test]
     fn watched_target_gone_and_axis_mode() {
-        let w = Two::new(Vector::ZERO, Vector::new(0.0, 0.0, -100.0));
-        let mut idea = FaceIdea::<u32>::new();
-        let mut thrust = ThrustLog::default();
-        let mut up = Up::default();
-        let pf = PathfindFields::new();
+        let mut cx = TestCx::new(Two::new(Vector::ZERO, Vector::new(0.0, 0.0, -100.0)));
+        let mut idea = FaceIdea::new();
         idea.set_watch_object(Some(7));
-        assert_eq!(
-            idea.update(&w, 1, &mut thrust, &mut up, &pf),
-            status::NO_TARGET
-        );
+        assert_eq!(idea.update(&mut cx), status::NO_TARGET);
         idea.set_watch_object(Some(2));
-        assert_eq!(
-            idea.update(&w, 1, &mut thrust, &mut up, &pf),
-            status::FACING
-        );
+        assert_eq!(idea.update(&mut cx), status::FACING);
         idea.set_axis(Vector::new(0.0, 1.0, 0.0));
-        thrust.calls.clear();
+        cx.thrust.calls.clear();
         // Not a ship-like type, so the bank helper declines and the local
         // axis passes unrotated.
+        assert_eq!(idea.update(&mut cx), status::TURNING);
+        assert_eq!(cx.thrust.calls, ["axis 0 1 0"]);
+        idea.commit(&mut cx);
         assert_eq!(
-            idea.update(&w, 1, &mut thrust, &mut up, &pf),
-            status::TURNING
+            cx.thrust.calls.last().map(String::as_str),
+            Some("axis 0 0 0")
         );
-        assert_eq!(thrust.calls, ["axis 0 1 0"]);
-        idea.commit(&mut thrust);
-        assert_eq!(thrust.calls.last().map(String::as_str), Some("axis 0 0 0"));
     }
 
     #[test]
@@ -510,12 +503,13 @@ mod tests {
             Vector::ZERO,
         );
         assert!((a - core::f32::consts::FRAC_PI_4).abs() < 1e-6, "{a}");
-        let mut idea = FaceIdea::<u32>::new();
+        let mut idea = FaceIdea::new();
         idea.set_up_vector(Vector::ZERO);
         assert_eq!(idea.up_valid, 0);
         idea.set_up_vector(Vector::new(0.0, 0.5, 0.0));
         assert_eq!(idea.up_valid, 1);
-        idea.set_throttle_scale(Some(&Motion), 0.5);
+        let cx = TestCx::new(Two::new(Vector::ZERO, Vector::ZERO));
+        idea.set_throttle_scale(&cx, 0.5);
         assert_eq!((idea.field_90, idea.turn_throttle), (0.5, 0.5));
     }
 }

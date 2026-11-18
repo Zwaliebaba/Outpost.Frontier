@@ -60,6 +60,11 @@ impl World {
                     .any(|t| t.is_active())
             })
         });
+        // `get_physical_radius`: `CSimple`'s cache, which the reference
+        // refreshes at every physics sync (`cache_physical_props`:
+        // `PhySys::GetRadiusR`, the core's radius and the centre of mass);
+        // computed here from the body as it is now.
+        let (radius, center) = self.body_sphere(h);
         Some(ObjectView {
             id: i.id,
             class: i.kind.class(),
@@ -68,10 +73,10 @@ impl World {
             orientation: i.orientation,
             velocity: i.velocity,
             angular_velocity: i.angular_velocity,
-            radius: o.simple.cached_radius,
-            center: o.simple.cached_center,
+            radius,
+            center,
             center_of_mass: i.position,
-            extents: None,
+            extents: self.surface_extents(h),
             mass: i.mass,
             hit_points: (i.hit_pts, i.max_hit_pts),
             shield,
@@ -121,6 +126,22 @@ impl World {
                 destroyed: item.is_destroyed(),
             }),
         })
+    }
+}
+
+impl World {
+    /// `get_archetype_extents` (`CObject::get_surface_extents`): the
+    /// `exts` corners of the physics part the object was built from (its
+    /// root part, or the single part of a simple model); `None` without
+    /// one.
+    fn surface_extents(&self, h: ObjHandle) -> Option<(Vector, Vector)> {
+        let o = self.get(h)?;
+        let root_part = o.physical.part_map.first().map_or(0, |p| p.part_id);
+        let parts = self.surfaces.get(&o.archetype)?.as_ref()?;
+        let part = parts
+            .get(&root_part)
+            .or_else(|| (root_part == 0 && parts.len() == 1).then(|| parts.values().next())?)?;
+        part.extents.map(|x| (x.min, x.max))
     }
 }
 
@@ -581,6 +602,14 @@ impl SpatialQueries for World {
 impl AiRand for World {
     fn rand(&mut self) -> i32 {
         self.rng.rand()
+    }
+
+    fn avoid_table_shuffled(&self) -> bool {
+        self.avoid_table_shuffled
+    }
+
+    fn set_avoid_table_shuffled(&mut self) {
+        self.avoid_table_shuffled = true;
     }
 }
 

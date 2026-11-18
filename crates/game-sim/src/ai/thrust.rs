@@ -5,9 +5,10 @@
 //! command only when the state differs, so a replay sees exactly the
 //! commands the reference sends.
 
-use neuron_core::math::{Matrix, Vector, transpose_transform};
+use neuron_core::math::{Matrix, Vector, transform_matrix, transpose_transform};
 
-use super::fp::{e, normalize3};
+use super::fp::{e, normalize3, r};
+use super::raycast::clamped_dot3;
 use super::world::{AiCommand, AiWorld, StrafeDir};
 
 /// `ThrustManager` (`SystemManager+0x18`, its own fields).
@@ -269,6 +270,48 @@ impl ThrustManager {
         if !(dx * dx <= epsilon) || !(dy * dy <= epsilon) || !(dz * dz <= epsilon) {
             world.command(ship, AiCommand::SetNudge(nudge));
         }
+    }
+
+    /// `BlendNudgeDirection(WorldDir, Dt)`: the ship's current nudge (in
+    /// the world frame, dropped when it is more than `acos(0.99)` off the
+    /// wanted direction) grown toward the wanted direction by `1.5 * Dt`
+    /// times its length when the wanted direction is the longer, then
+    /// committed through `SetNudgeDirection`.
+    pub fn blend_nudge_direction<W: AiWorld + ?Sized>(
+        &mut self,
+        world: &mut W,
+        ship: W::Handle,
+        world_dir: Vector,
+        dt: f32,
+    ) {
+        let mut working = world_dir;
+        let Some(view) = world.inspect(ship) else {
+            return;
+        };
+        let local = view.nudge.unwrap_or(Vector::ZERO);
+        let mut nudge = transform_matrix(&view.orientation, local);
+        if clamped_dot3(normalize3(nudge), normalize3(working)) < e(0.99) {
+            nudge = Vector::ZERO;
+        }
+        let len_working = ((e(working.y) * e(working.y) + e(working.x) * e(working.x))
+            + e(working.z) * e(working.z))
+        .sqrt();
+        let len_nudge =
+            ((e(nudge.y) * e(nudge.y) + e(nudge.z) * e(nudge.z)) + e(nudge.x) * e(nudge.x)).sqrt();
+        if len_working > len_nudge {
+            let k = e(1.5);
+            let x_scaled = r(k * e(working.x) * e(dt));
+            let x_term = r(e(x_scaled) * len_working);
+            let y_term = r(k * e(working.y) * e(dt) * len_working);
+            let z_scaled = r(k * e(working.z));
+            let z_term = e(z_scaled) * e(dt) * len_working;
+            working = Vector::new(
+                r(e(x_term) + e(nudge.x)),
+                r(e(nudge.y) + e(y_term)),
+                r(e(nudge.z) + z_term),
+            );
+        }
+        self.set_nudge_direction(world, ship, working);
     }
 
     /// The idle stop `IdleIdea::Update` and the player's switch to the

@@ -30,32 +30,13 @@ use neuron_core::math::Vector;
 use super::behavior::{AiEnv, Behavior, CancelRequest, Cx, DirectiveOp, EvaluateResult, ids};
 use super::behaviors::create_behavior;
 use super::fp::{e, r};
+use super::pathfind::PathfindManager;
 use super::personality::Personality;
 use super::state_graph::{
     BEHAVIOR_COUNT, BehaviorChoice, BehaviorScore, StateGraph, StateGraphDb, choose_behavior,
 };
 use super::thrust::ThrustManager;
 use super::world::{AiRand, StrafeDir};
-
-/// The pathfinder state the behaviours reach (`PathfindManager`, owned by
-/// the manager at +0x0C). The pathfinder itself is not ported yet.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PathfindState {
-    /// +0x64 the target id the move ideas publish
-    /// (`BaseIdea::PublishTargetId`), cleared by `Behavior::Slot4`.
-    pub target_id: u32,
-    /// `IsCruiseUnobstructed`: true while no obstacle blocks cruise.
-    pub cruise_unobstructed: bool,
-}
-
-impl Default for PathfindState {
-    fn default() -> Self {
-        Self {
-            target_id: 0,
-            cruise_unobstructed: true,
-        }
-    }
-}
 
 /// What the tick reads of the system manager's parts that are not ported
 /// yet (see the module documentation). Later ports keep these current.
@@ -173,8 +154,8 @@ pub struct ManagerState {
     pub suppressed: bool,
     /// +0x1C8 bit 0: the target branch of the tick runs.
     pub flags_1c8: u8,
-    /// The pathfinder state.
-    pub pathfind: PathfindState,
+    /// +0x0C the pathfinder.
+    pub pathfind: PathfindManager,
     /// `SystemManager::Thrust`.
     pub thrust: ThrustManager,
     /// `SystemManager::PersonalityData`.
@@ -226,7 +207,7 @@ impl ManagerState {
             docking_port_status: 0,
             suppressed: false,
             flags_1c8: 1,
-            pathfind: PathfindState::default(),
+            pathfind: PathfindManager::default(),
             thrust: ThrustManager::new(is_player),
             personality: Personality::default(),
             sys: SystemState::default(),
@@ -300,12 +281,18 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
         let is_player = view.as_ref().is_some_and(|v| v.is_player);
         let owner_id = view.as_ref().map(|v| v.id);
         let mut state = ManagerState::new(is_player);
+        // `new PathfindManager(this)`: three draws of its own.
+        state.pathfind = PathfindManager::new(world, ship);
         let mut behaviors: Vec<Box<dyn Behavior<W>>> = Vec::with_capacity(BEHAVIOR_COUNT);
         for index in 0..BEHAVIOR_COUNT {
             let mut b = create_behavior::<W>(i32::try_from(index).unwrap_or(0));
             b.bind(owner_id);
             behaviors.push(b);
         }
+        let mut manager = Self { state, behaviors };
+        manager.attach_all(world, ship);
+        let mut state = manager.state;
+        let behaviors = manager.behaviors;
         state.behavior = 0;
         state.timer_a = phase(world.rand(), 3.0);
         state.timer_c = 0.0;
@@ -327,6 +314,20 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
             behaviors.push(b);
         }
         Self { state, behaviors }
+    }
+
+    /// Every behaviour's [`Behavior::attach`] against the world (the
+    /// world-dependent half of `SetContext`); a replay that builds the
+    /// manager with [`Self::from_state`] calls it once it has a world.
+    pub fn attach_all(&mut self, world: &mut W, ship: W::Handle) {
+        for b in &mut self.behaviors {
+            let mut cx = Cx {
+                world: &mut *world,
+                ship,
+                state: &mut self.state,
+            };
+            b.attach(&mut cx);
+        }
     }
 
     /// The behaviour with an index.
@@ -664,7 +665,7 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
         if Self::slot(current).is_none() {
             return;
         }
-        if self.state.pathfind.cruise_unobstructed {
+        if self.state.pathfind.is_cruise_unobstructed() {
             self.state.dirty = true;
             self.with(world, ship, current, |b, cx| b.set_cruise(cx, on));
             return;
@@ -792,7 +793,7 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
         };
         // `UpdateSystemManager`: of its parts, the thrust manager's cruise
         // permission and the cruise stop it implies.
-        self.state.thrust.cruise_unobstructed = self.state.pathfind.cruise_unobstructed;
+        self.state.thrust.cruise_unobstructed = self.state.pathfind.is_cruise_unobstructed();
         if view.cruise.is_some_and(|c| c.0) && !self.state.thrust.cruise_unobstructed {
             self.state.thrust.engage_cruise(world, ship, false);
         }
@@ -813,9 +814,13 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
                 }
             }
         }
-        // `ScanAutoTurretTargets`, `FireAutoTurrets` (not the player) and
-        // `PathfindManager::Update`: not ported.
+        // `ScanAutoTurretTargets` and `FireAutoTurrets` (not the player):
+        // not ported (the gun groups).
         let _ = external_is_player;
+        let behavior = self.state.behavior;
+        self.state
+            .pathfind
+            .update(&mut self.state.thrust, world, ship, behavior, dt);
         if view.is_player && len_sq(self.state.last_direction) != 0.0 {
             let dir = self.state.last_direction;
             self.update_current_behavior_direction(world, ship, dir);

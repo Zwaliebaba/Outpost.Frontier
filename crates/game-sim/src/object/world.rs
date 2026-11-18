@@ -272,6 +272,9 @@ pub struct World {
     pub(crate) events: Vec<WorldEvent>,
     behavior: Option<Box<dyn BehaviorHook>>,
     pub(crate) behavior_managers: BTreeMap<ObjHandle, crate::ai::manager::BehaviorManager<World>>,
+    /// `GAvoidIndexTableShuffled`: the first obstacle probe of the process
+    /// has drawn its 50 `rand()` values.
+    pub(crate) avoid_table_shuffled: bool,
     always_update: Vec<ObjHandle>,
 }
 
@@ -352,6 +355,7 @@ impl World {
             events: Vec::new(),
             behavior: None,
             behavior_managers: BTreeMap::new(),
+            avoid_table_shuffled: false,
             always_update: Vec::new(),
         }
     }

@@ -1,17 +1,20 @@
 //! What the movement ideas need besides the world: the ship's
 //! `ThrustManager` (a `SystemManager` component), the behaviour manager's
-//! ship-up queries, and the `PathfindManager` fields the ideas read and
-//! mirror their target into. Each is a trait or a plain struct here, so an
-//! idea is a function of its own state and these (decision T10); the
-//! owners implement them when their components are ported.
+//! ship-up queries and the `PathfindManager` the ideas read and mirror
+//! their target into. [`NavCx`] bundles them with the world and the ship:
+//! the behaviour tick context ([`Cx`]) implements it over the manager's
+//! [`ThrustManager`](super::thrust::ThrustManager) and fields, and a test
+//! can implement it with a recording fake.
 //!
 //! The `Behavior_*` motion queries of `common_behavior.cpp` the ideas call
 //! are here too, over [`MotionModel`].
 
 use neuron_core::math::Vector;
 
+use super::behavior::{AiEnv, Cx};
 use super::fp::e;
-use super::world::{MotionModel, ThrustEquipType};
+use super::pathfind::PathfindManager;
+use super::world::{AiCommand, AiWorld, MotionModel, ThrustEquipType};
 
 /// The `ThrustManager` calls the ideas make (`common_thrustmanager.cpp`,
 /// reached as `Handle + 0x18`).
@@ -45,38 +48,148 @@ pub trait ShipUpControl {
     fn relevel_ship_up_direction(&mut self, relevel: bool);
 }
 
-/// The `PathfindManager` fields the movement ideas touch
-/// (`include/common_pathfind.h`, reached as `[Context + 0xc]`).
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct PathfindFields {
-    /// +0x064 the id of the object an idea watches (`BaseIdea::PublishTargetId`).
-    pub field_064: i32,
-    /// +0x200 the cached target position (`ObstacleAvoidance::Update`'s
-    /// target).
-    pub cached_target_position: Vector,
-    /// +0x214 the override record's flags: bit 1 replaces the goal, any
-    /// bit caps the engine throttle.
-    pub field_214: i32,
-    /// +0x22c the override goal.
-    pub field_22c: Vector,
-    /// +0x23c the override throttle cap (constructor 1.0).
-    pub field_23c: f32,
-    /// +0x240 the override mode; 1 forces engine mode.
-    pub field_240: i32,
-    /// +0x248 (constructor -1); `SplineMoveIdea::Update` stores
-    /// `0x30038010`.
-    pub field_248: i32,
+/// What an idea runs against (`BaseIdea`'s `Object`, `Handle` and
+/// `Context`): the world, the ship, its thrust manager, its behaviour
+/// manager's ship-up state and its pathfinder.
+pub trait NavCx: ThrustControl + ShipUpControl {
+    /// The world.
+    type World: AiWorld + ?Sized;
+
+    /// The world, for reads.
+    fn world(&self) -> &Self::World;
+
+    /// The ship.
+    fn ship(&self) -> <Self::World as AiWorld>::Handle;
+
+    /// The pathfinder.
+    fn pathfind(&self) -> &PathfindManager;
+
+    /// The pathfinder, mutably.
+    fn pathfind_mut(&mut self) -> &mut PathfindManager;
+
+    /// One `IObjAffect` call on the ship, outside the thrust manager.
+    fn command(&mut self, command: AiCommand<<Self::World as AiWorld>::Handle>) -> i32;
 }
 
-impl PathfindFields {
-    /// The constructor's values of these fields.
-    #[must_use]
-    pub fn new() -> Self {
-        Self {
-            field_23c: 1.0,
-            field_248: -1,
-            ..Self::default()
+/// An object's view by id (a `BaseWatcher`'s target), `None` once it is
+/// gone.
+pub fn watched<C: NavCx + ?Sized>(cx: &C, id: Option<u32>) -> Option<super::world::ObjectView> {
+    let world = cx.world();
+    world.handle_of(id?).and_then(|h| world.inspect(h))
+}
+
+/// Runs `f` on the motion model of the object `id` (the box borrows the
+/// world only for the call, so commands can follow).
+pub fn with_motion_of<C: NavCx + ?Sized, T>(
+    cx: &C,
+    id: Option<u32>,
+    f: impl FnOnce(Option<&dyn MotionModel>) -> T,
+) -> T {
+    let world = cx.world();
+    let motion = id
+        .and_then(|id| world.handle_of(id))
+        .and_then(|h| world.motion(h));
+    f(motion.as_deref())
+}
+
+/// Runs `f` on the ship's motion model.
+pub fn with_own_motion<C: NavCx + ?Sized, T>(
+    cx: &C,
+    f: impl FnOnce(Option<&dyn MotionModel>) -> T,
+) -> T {
+    let motion = cx.world().motion(cx.ship());
+    f(motion.as_deref())
+}
+
+impl<W: AiEnv + ?Sized> ThrustControl for Cx<'_, W> {
+    fn set_throttle(&mut self, throttle: f32, mode: i32) -> bool {
+        Cx::set_throttle(self, throttle, mode)
+    }
+
+    fn engage_cruise(&mut self, engage: bool) {
+        Cx::engage_cruise(self, engage);
+    }
+
+    fn set_nudge_direction(&mut self, world_dir: Vector) {
+        Cx::set_nudge_direction(self, world_dir);
+    }
+
+    fn set_engine_active(&mut self, active: bool) {
+        Cx::set_engine_active(self, active);
+    }
+
+    fn set_axis_throttle(&mut self, wanted: Vector) {
+        Cx::set_axis_throttle(self, wanted);
+    }
+
+    fn check_steering_gate(&self) -> bool {
+        Cx::check_steering_gate(self)
+    }
+
+    fn set_thrusters_active(&mut self, active: bool) {
+        Cx::set_thrusters_active(self, active);
+    }
+
+    fn cruise_engaged(&self) -> bool {
+        self.state.thrust.cruise_engaged
+    }
+}
+
+impl<W: AiEnv + ?Sized> ShipUpControl for Cx<'_, W> {
+    fn ship_up_direction(&self) -> Vector {
+        self.state.ship_up
+    }
+
+    fn camera_level_status(&self) -> bool {
+        self.state.camera_level_status == 1 && self.state.level_camera
+    }
+
+    fn relevel_ship_up_direction(&mut self, relevel: bool) {
+        if !self.state.level_camera {
+            return;
         }
+        let Some(view) = self.world.inspect(self.ship) else {
+            return;
+        };
+        if !relevel {
+            return;
+        }
+        let m = &view.orientation.m;
+        let forward_y = ((e(m[2][2]) + e(m[0][2])) * 0.0 + e(m[1][2])).abs();
+        let threshold = e(f32::from_bits(0x3f34_fdf4));
+        if !(threshold > forward_y) {
+            return;
+        }
+        self.state.level_camera = false;
+        if Cx::check_steering_gate(self) {
+            self.state.ship_up = Vector::new(0.0, 1.0, 0.0);
+            self.state.ship_up_flag = false;
+        }
+        self.state.level_camera = true;
+    }
+}
+
+impl<W: AiEnv + ?Sized> NavCx for Cx<'_, W> {
+    type World = W;
+
+    fn world(&self) -> &W {
+        self.world
+    }
+
+    fn ship(&self) -> W::Handle {
+        self.ship
+    }
+
+    fn pathfind(&self) -> &PathfindManager {
+        &self.state.pathfind
+    }
+
+    fn pathfind_mut(&mut self) -> &mut PathfindManager {
+        &mut self.state.pathfind
+    }
+
+    fn command(&mut self, command: AiCommand<W::Handle>) -> i32 {
+        self.world.command(self.ship, command)
     }
 }
 

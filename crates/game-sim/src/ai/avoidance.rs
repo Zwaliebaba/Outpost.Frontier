@@ -227,20 +227,15 @@ impl ObstacleAvoidance {
     ///
     /// A ship that cannot be inspected leaves the state as it is (the
     /// reference dereferences the missing object; D160).
-    #[allow(clippy::too_many_arguments)]
-    pub fn update<W, S, R>(
+    pub fn update<W>(
         &mut self,
-        world: &W,
-        spatial: &S,
+        world: &mut W,
         ship: W::Handle,
         target: Vector,
         dt: f32,
-        rand: &mut R,
         table: &mut AvoidIndexTable,
     ) where
-        W: AiWorld + ?Sized,
-        S: SpatialQueries + ?Sized,
-        R: AiRand + ?Sized,
+        W: AiWorld + SpatialQueries + AiRand + ?Sized,
     {
         let Some(view) = world.inspect(ship) else {
             return;
@@ -297,10 +292,10 @@ impl ObstacleAvoidance {
             -900.0,
         );
         let probe_end = add(nose, transform_matrix(&rotation, probe_local));
-        let hits = spatial.find_ray_collisions(self.phys_system_id, nose, probe_end, 8);
+        let hits = world.find_ray_collisions(self.phys_system_id, nose, probe_end, 8);
         let own_type = view.type_flags;
 
-        table.shuffle_once(rand);
+        table.shuffle_once(world);
 
         let have_target = ((e(target.z) * e(target.z) + e(target.y) * e(target.y))
             + e(target.x) * e(target.x))
@@ -338,7 +333,7 @@ impl ObstacleAvoidance {
         }
 
         if !blocked {
-            self.steer_to_target(spatial, nose, forward, target, have_target);
+            self.steer_to_target(&*world, nose, forward, target, have_target);
             return;
         }
 
@@ -346,8 +341,8 @@ impl ObstacleAvoidance {
         let cone_radius = r(e(look_ahead) * 0.5);
         let cone_depth = -look_ahead;
         for _ in 0..3 {
-            let radius = r(f64::from(rand.rand()) * RAND_SCALE * e(cone_radius));
-            let angle = f64::from(rand.rand()) * RAND_SCALE * TWO_PI;
+            let radius = r(f64::from(world.rand()) * RAND_SCALE * e(cone_radius));
+            let angle = f64::from(world.rand()) * RAND_SCALE * TWO_PI;
             let cone_local = Vector::new(
                 r(angle.cos() * e(radius)),
                 r(angle.sin() * e(radius)),
@@ -355,7 +350,7 @@ impl ObstacleAvoidance {
             );
             let cone_end = add(transform_matrix(&rotation, cone_local), nose);
             // The normalised cone direction is computed and never read.
-            let cone_hits = spatial.find_ray_collisions(self.phys_system_id, nose, cone_end, 1);
+            let cone_hits = world.find_ray_collisions(self.phys_system_id, nose, cone_end, 1);
             let Some(cone_hit) = cone_hits.first() else {
                 continue;
             };
@@ -796,10 +791,18 @@ mod tests {
         assert!((oa.close_rate_scale(true) - 0.5).abs() < 1e-6);
     }
 
-    /// One ship and one wall, for `Update`.
+    /// One ship and one wall, for `Update`; every ray hits the wall at
+    /// z = -50.
     struct OneShip {
         ship: ObjectView,
         wall: ObjectView,
+        rand: CrtRand,
+    }
+
+    impl AiRand for OneShip {
+        fn rand(&mut self) -> i32 {
+            self.rand.rand()
+        }
     }
 
     impl AiWorld for OneShip {
@@ -837,10 +840,7 @@ mod tests {
         }
     }
 
-    /// Every ray hits the wall at z = -50.
-    struct Wall;
-
-    impl SpatialQueries for Wall {
+    impl SpatialQueries for OneShip {
         fn find_ray_collisions(
             &self,
             _: u32,
@@ -896,20 +896,20 @@ mod tests {
                 type_flags: 0x100,
                 ..ObjectView::default()
             },
+            rand: CrtRand::with_seed(3),
         }
     }
 
     #[test]
     fn blocked_probe_turns_away() {
-        let w = world();
+        let mut w = world();
         let mut oa = ObstacleAvoidance::new();
         oa.attach_owner(&w.ship);
         assert_eq!(oa.nose_distance, 10.0);
         assert_eq!(oa.breadth, 10.0);
         oa.phys_system_id = 1;
-        let mut rand = CrtRand::with_seed(3);
         let mut table = AvoidIndexTable::default();
-        oa.update(&w, &Wall, 1, Vector::ZERO, 0.1, &mut rand, &mut table);
+        oa.update(&mut w, 1, Vector::ZERO, 0.1, &mut table);
         assert!(table.shuffled);
         assert!(oa.active);
         assert!(oa.has_contact);
@@ -925,7 +925,7 @@ mod tests {
         for _ in 0..56 {
             reference.rand();
         }
-        assert_eq!(rand, reference);
+        assert_eq!(w.rand, reference);
     }
 
     #[test]
@@ -934,14 +934,13 @@ mod tests {
         let mut oa = ObstacleAvoidance::new();
         oa.attach_owner(&w.ship);
         oa.active = true;
-        let mut rand = CrtRand::with_seed(3);
         let mut table = AvoidIndexTable::default();
-        oa.update(&w, &Wall, 1, Vector::ZERO, 0.1, &mut rand, &mut table);
+        oa.update(&mut w, 1, Vector::ZERO, 0.1, &mut table);
         assert!(!oa.active, "no physics system");
         oa.phys_system_id = 1;
         oa.active = true;
         w.ship.velocity = Vector::new(0.0, 0.0, -0.5);
-        oa.update(&w, &Wall, 1, Vector::ZERO, 0.1, &mut rand, &mut table);
+        oa.update(&mut w, 1, Vector::ZERO, 0.1, &mut table);
         assert!(!oa.active, "too slow");
         assert!(!table.shuffled);
     }

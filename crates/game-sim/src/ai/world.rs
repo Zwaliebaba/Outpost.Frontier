@@ -35,11 +35,30 @@ use neuron_core::rng::CrtRand;
 pub trait AiRand {
     /// The next value, 0..=0x7fff.
     fn rand(&mut self) -> i32;
+
+    /// Whether the process-wide obstacle-avoidance index table
+    /// (`GAvoidIndexTableShuffled`) has been shuffled: the first probe of
+    /// any ship in the process draws 50 values for it. A source that does
+    /// not track it answers true (no shuffle).
+    fn avoid_table_shuffled(&self) -> bool {
+        true
+    }
+
+    /// Marks that table shuffled.
+    fn set_avoid_table_shuffled(&mut self) {}
 }
 
 impl<R: AiRand + ?Sized> AiRand for &mut R {
     fn rand(&mut self) -> i32 {
         (**self).rand()
+    }
+
+    fn avoid_table_shuffled(&self) -> bool {
+        (**self).avoid_table_shuffled()
+    }
+
+    fn set_avoid_table_shuffled(&mut self) {
+        (**self).set_avoid_table_shuffled();
     }
 }
 

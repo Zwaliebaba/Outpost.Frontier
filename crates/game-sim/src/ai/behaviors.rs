@@ -2,7 +2,8 @@
 //! `common_behaviortypes.cpp`). Ported so far: the simple behaviours of
 //! `common_nullbehavior.cpp`, `common_idlebehavior.cpp`,
 //! `common_delaybehavior.cpp`, `common_cruisebehavior.cpp` and
-//! `common_drasticevadebehavior.cpp`. Every other id makes an
+//! `common_drasticevadebehavior.cpp`, and goto, free flight and face
+//! ([`super::goto`], [`super::face`]). Every other id makes an
 //! [`UnportedBehavior`], which keeps the manager's protocol (it binds,
 //! engages and ticks) but never volunteers in a re-evaluation and commands
 //! nothing; [`Behavior::ported`] tells a replay to skip its ticks.
@@ -10,7 +11,9 @@
 use neuron_core::math::Vector;
 
 use super::behavior::{AiEnv, Behavior, BehaviorBase, Cx, DirectiveOp, ids};
+use super::face::FaceBehavior;
 use super::fp::{e, r};
+use super::goto::GotoBehavior;
 use super::idea::{Idea, IdleIdea};
 use super::world::AiCommand;
 
@@ -23,6 +26,9 @@ pub fn create_behavior<W: AiEnv + ?Sized>(id: i32) -> Box<dyn Behavior<W>> {
         ids::CRUISE => Box::new(CruiseBehavior::new(id)),
         ids::DRASTIC_EVADE => Box::new(DrasticEvadeBehavior::new(id)),
         ids::DELAY => Box::new(DelayBehavior::new(id)),
+        ids::GOTO => Box::new(GotoBehavior::new(id)),
+        ids::FREE_FLIGHT => Box::new(GotoBehavior::new_free_flight(id)),
+        ids::FACE => Box::new(FaceBehavior::new(id)),
         _ => Box::new(UnportedBehavior::new(id)),
     }
 }

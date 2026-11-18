@@ -3,18 +3,21 @@
 //! (and cruise state, and optionally its trade-lane nudge), holding a
 //! standoff distance or a point relative to it, and catching up when far.
 //!
-//! The state is the C++ object's own fields; the `BaseIdea` plumbing
-//! becomes arguments, as for [`super::move_idea::MoveIdea`]. The system
-//! manager's `Timers.IsTimer4Active()` is a `bool` argument of
-//! [`MatchThrottle2Idea::update`].
+//! The state is the C++ object's own fields; the `BaseIdea` plumbing is
+//! the [`NavCx`] each call takes, as for [`super::move_idea::MoveIdea`].
+//! The system manager's `Timers.IsTimer4Active()` is a `bool` argument of
+//! [`MatchThrottle2Idea::update`]; the [`Idea`] implementation passes
+//! false (the timer table is not ported).
 
 use neuron_core::math::Vector;
 
+use super::behavior::{AiEnv, Cx};
 use super::fp::{add, column2, e, inline_fast_length, len_sq_xyz, neg, normalize3, r, sub};
+use super::idea::{Idea, IdeaBase};
 use super::intercept::{iface_position_or_zero, signed_radial_clearance_to_point};
 use super::nav::{
-    PathfindFields, ThrustControl, max_scalar_attribute, projected_throttle, query_falloff_effect,
-    query_radius_effect, speed,
+    NavCx, max_scalar_attribute, projected_throttle, query_falloff_effect, query_radius_effect,
+    speed, watched, with_motion_of, with_own_motion,
 };
 use super::raycast::{bearing_angle_to_point, clamped_dot3};
 use super::world::{AiCommand, AiWorld, ThrustEquipType};
@@ -24,9 +27,11 @@ pub const MATCH_THROTTLE_IDEA_KIND: i16 = 6;
 
 /// `MatchThrottle2Idea` (`common_idea.h`), its fields from `+0x14`.
 #[derive(Clone, Debug, PartialEq)]
-pub struct MatchThrottle2Idea<H> {
-    /// +0x14 the ship being matched.
-    pub watcher: Option<H>,
+pub struct MatchThrottle2Idea {
+    /// `BaseIdea`'s fields.
+    pub base: IdeaBase,
+    /// +0x14 the ship being matched (its id).
+    pub watcher: Option<u32>,
     /// +0x1c the point (`SetWatchAndPosition`); `update` stores the
     /// watched centre there in standoff mode.
     pub position: Vector,
@@ -68,17 +73,18 @@ pub struct MatchThrottle2Idea<H> {
     pub catch_up_range_58: f32,
 }
 
-impl<H> Default for MatchThrottle2Idea<H> {
+impl Default for MatchThrottle2Idea {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<H> MatchThrottle2Idea<H> {
+impl MatchThrottle2Idea {
     /// `MatchThrottle2Idea::MatchThrottle2Idea` (`common_matchthrottleidea.cpp:52`).
     #[must_use]
     pub fn new() -> Self {
         Self {
+            base: IdeaBase::default(),
             watcher: None,
             position: Vector::ZERO,
             distance_28: 0.0,
@@ -104,51 +110,47 @@ impl<H> MatchThrottle2Idea<H> {
     /// `MatchThrottle2Idea::SetContext` (`common_matchthrottleidea.cpp:78`):
     /// the cruise and engine normalisers from the ship's motion model;
     /// false when the ship is gone.
-    pub fn set_context<W: AiWorld<Handle = H> + ?Sized>(&mut self, world: &W, ship: H) -> bool
-    where
-        H: Copy,
-    {
-        if world.inspect(ship).is_none() {
+    pub fn set_context<C: NavCx + ?Sized>(&mut self, cx: &C) -> bool {
+        let Some(view) = cx.world().inspect(cx.ship()) else {
             return false;
-        }
-        let motion = world.motion(ship);
-        let motion = motion.as_deref();
-        let cruise = speed(motion, 1.0, ThrustEquipType::Cruise);
-        self.speed_4c = r(e(query_radius_effect(
-            motion,
-            0.0,
-            cruise,
-            0.0,
-            ThrustEquipType::Cruise,
-        )) + e(300.0));
-        let engine = speed(motion, 1.0, ThrustEquipType::Engine);
-        self.speed_50 = r(e(query_radius_effect(
-            motion,
-            0.0,
-            engine,
-            0.0,
-            ThrustEquipType::Engine,
-        )) + e(50.0));
+        };
+        self.base.owner = Some(view.id);
+        self.base.attached = true;
+        let (speed_4c, speed_50) = with_own_motion(cx, |motion| {
+            let cruise = speed(motion, 1.0, ThrustEquipType::Cruise);
+            let speed_4c = r(e(query_radius_effect(
+                motion,
+                0.0,
+                cruise,
+                0.0,
+                ThrustEquipType::Cruise,
+            )) + e(300.0));
+            let engine = speed(motion, 1.0, ThrustEquipType::Engine);
+            let speed_50 = r(e(query_radius_effect(
+                motion,
+                0.0,
+                engine,
+                0.0,
+                ThrustEquipType::Engine,
+            )) + e(50.0));
+            (speed_4c, speed_50)
+        });
+        self.speed_4c = speed_4c;
+        self.speed_50 = speed_50;
         true
     }
 
     /// `MatchThrottle2Idea::Slot2` (`common_matchthrottleidea.cpp:108`):
     /// follows the watched ship into cruise (above 30 m/s) and keeps cruise
     /// engaged while not catching up.
-    pub fn slot2<W: AiWorld<Handle = H> + ?Sized>(
-        &self,
-        world: &W,
-        ship: H,
-        thrust: &mut dyn ThrustControl,
-    ) where
-        H: Copy,
-    {
-        let Some(watched) = self.watcher.and_then(|h| world.inspect(h)) else {
+    pub fn slot2<C: NavCx + ?Sized>(&self, cx: &mut C) {
+        let Some(watched) = watched(&*cx, self.watcher) else {
             return;
         };
-        if world.inspect(ship).is_none() {
+        if cx.world().inspect(cx.ship()).is_none() {
             return;
         }
+        let thrust = cx;
         if self.flag_38 == 0 {
             thrust.engage_cruise(false);
             return;
@@ -169,58 +171,47 @@ impl<H> MatchThrottle2Idea<H> {
     }
 
     /// `MatchThrottle2Idea::Commit` (`common_matchthrottleidea.cpp:144`).
-    pub fn commit(&self, thrust: &mut dyn ThrustControl, pathfind: &mut PathfindFields) {
-        thrust.set_nudge_direction(Vector::ZERO);
+    pub fn commit<C: NavCx + ?Sized>(&self, cx: &mut C) {
+        cx.set_nudge_direction(Vector::ZERO);
         if self.flag_39 == 0 {
-            thrust.set_throttle(0.0, 0);
-            thrust.engage_cruise(false);
+            cx.set_throttle(0.0, 0);
+            cx.engage_cruise(false);
         }
-        thrust.set_thrusters_active(false);
-        pathfind.cached_target_position = Vector::ZERO;
+        cx.set_thrusters_active(false);
+        cx.pathfind_mut().cached_target_position = Vector::ZERO;
     }
 
     /// `MatchThrottle2Idea::SetWatchAndPosition` (`common_matchthrottleidea.cpp:159`):
     /// the watched ship's position mirrored into the pathfinder (the
     /// origin when it cannot be inspected; D162).
-    pub fn set_watch_and_position<W: AiWorld<Handle = H> + ?Sized>(
+    pub fn set_watch_and_position<C: NavCx + ?Sized>(
         &mut self,
-        world: &W,
-        object: Option<H>,
+        cx: &mut C,
+        object: Option<u32>,
         point: Vector,
-        pathfind: &mut PathfindFields,
-    ) where
-        H: Copy,
-    {
+    ) {
         self.watcher = object;
         self.position = point;
         self.distance_28 = 0.0;
-        self.mirror(world, pathfind);
+        self.mirror(cx);
     }
 
     /// `MatchThrottle2Idea::SetWatchAndDistance` (`common_matchthrottleidea.cpp:172`).
-    pub fn set_watch_and_distance<W: AiWorld<Handle = H> + ?Sized>(
+    pub fn set_watch_and_distance<C: NavCx + ?Sized>(
         &mut self,
-        world: &W,
-        object: Option<H>,
+        cx: &mut C,
+        object: Option<u32>,
         distance: f32,
-        pathfind: &mut PathfindFields,
-    ) where
-        H: Copy,
-    {
+    ) {
         self.watcher = object;
         self.position = Vector::ZERO;
         self.distance_28 = distance;
-        self.mirror(world, pathfind);
+        self.mirror(cx);
     }
 
-    fn mirror<W: AiWorld<Handle = H> + ?Sized>(&self, world: &W, pathfind: &mut PathfindFields)
-    where
-        H: Copy,
-    {
-        pathfind.cached_target_position = self
-            .watcher
-            .and_then(|h| world.inspect(h))
-            .map_or(Vector::ZERO, |v| v.position);
+    fn mirror<C: NavCx + ?Sized>(&self, cx: &mut C) {
+        let position = watched(&*cx, self.watcher).map_or(Vector::ZERO, |v| v.position);
+        cx.pathfind_mut().cached_target_position = position;
     }
 
     /// `MatchThrottle2Idea::Update` (`common_matchthrottleidea.cpp:184`):
@@ -228,22 +219,15 @@ impl<H> MatchThrottle2Idea<H> {
     /// With the nudge flag set and the pathfinder's bit 0 clear, the
     /// watched ship's nudge is copied as an `IObjAffect::set_nudge_vec`
     /// command on `ship`.
-    pub fn update<W: AiWorld<Handle = H> + ?Sized>(
-        &mut self,
-        world: &mut W,
-        ship: H,
-        thrust: &mut dyn ThrustControl,
-        pathfind: &PathfindFields,
-        timer4_active: bool,
-    ) -> i32
-    where
-        H: Copy,
-    {
+    pub fn update<C: NavCx + ?Sized>(&mut self, cx: &mut C, timer4_active: bool) -> i32 {
         self.flag_3d = 0;
-        let Some(watched_h) = self.watcher else {
+        let Some(watched_id) = self.watcher else {
             return 3;
         };
-        let (Some(watched), Some(own)) = (world.inspect(watched_h), world.inspect(ship)) else {
+        let (Some(watched), Some(own)) = (
+            watched(&*cx, Some(watched_id)),
+            cx.world().inspect(cx.ship()),
+        ) else {
             return 3;
         };
         let center = own.center;
@@ -263,17 +247,16 @@ impl<H> MatchThrottle2Idea<H> {
             ThrustEquipType::Engine
         };
         let (match_throttle, nudge_throttle_of) = {
-            let motion = world.motion(ship);
-            let motion = motion.as_deref();
-            let watched_motion = world.motion(watched_h);
-            let watched_motion = watched_motion.as_deref();
-            let mt = projected_throttle(motion, watched_speed, match_type);
             let nudge_len = r(len_sq_zyx(watched.nudge.unwrap_or(Vector::ZERO)).sqrt());
-            let nudge_speed = speed(watched_motion, nudge_len, ThrustEquipType::Tradelane);
-            (
-                mt,
-                projected_throttle(motion, nudge_speed, ThrustEquipType::Tradelane),
-            )
+            let nudge_speed = with_motion_of(&*cx, Some(watched_id), |watched_motion| {
+                speed(watched_motion, nudge_len, ThrustEquipType::Tradelane)
+            });
+            with_own_motion(&*cx, |motion| {
+                (
+                    projected_throttle(motion, watched_speed, match_type),
+                    projected_throttle(motion, nudge_speed, ThrustEquipType::Tradelane),
+                )
+            })
         };
 
         let aim = if self.distance_28 > 0.0 {
@@ -302,8 +285,6 @@ impl<H> MatchThrottle2Idea<H> {
         let facing = (e(own_fwd.x) * e(watched_fwd.x) + e(own_fwd.z) * e(watched_fwd.z))
             + e(own_fwd.y) * e(watched_fwd.y);
 
-        let motion_box = world.motion(ship);
-        let motion = motion_box.as_deref();
         let mut throttle;
         if !(facing > 0.0) && !(self.distance_28 > 0.0) {
             throttle = 1.0;
@@ -325,10 +306,11 @@ impl<H> MatchThrottle2Idea<H> {
                 self.throttle_bias_30 = r(e(closing) / e(self.speed_2c));
                 if e(watched_speed) > 0.01 && own_speed > watched_speed && closing > 0.0 {
                     let kind = ThrustEquipType::from_value(mode);
-                    let slow_time =
-                        query_radius_effect(motion, 0.0, own_speed, watched_speed, kind);
-                    let slow_distance =
-                        query_falloff_effect(motion, 0.0, own_speed, slow_time, kind);
+                    let slow_distance = with_own_motion(&*cx, |motion| {
+                        let slow_time =
+                            query_radius_effect(motion, 0.0, own_speed, watched_speed, kind);
+                        query_falloff_effect(motion, 0.0, own_speed, slow_time, kind)
+                    });
                     self.speed_2c = slow_distance;
                     if closing <= slow_distance && e(slow_distance) > 0.01 {
                         self.throttle_bias_30 = 0.0;
@@ -357,7 +339,7 @@ impl<H> MatchThrottle2Idea<H> {
         if bearing > e(self.max_bearing_34)
             && signed_radial_clearance_to_point(&own, self.position) > e(200.0)
         {
-            thrust.set_throttle(if mode == 2 { throttle } else { 0.0 }, mode);
+            cx.set_throttle(if mode == 2 { throttle } else { 0.0 }, mode);
         } else {
             if self.flag_3c != 0 && distance > self.catch_up_range_58 {
                 self.flag_3d = 1;
@@ -366,21 +348,21 @@ impl<H> MatchThrottle2Idea<H> {
             }
             if self.flag_3b != 0 || timer4_active {
                 if !own.is_player && mode == 0 {
-                    thrust.set_thrusters_active(throttle > 2.0);
+                    cx.set_thrusters_active(throttle > 2.0);
                 }
             } else {
-                thrust.set_thrusters_active(false);
+                cx.set_thrusters_active(false);
             }
-            thrust.set_throttle(throttle, mode);
+            cx.set_throttle(throttle, mode);
         }
 
-        if pathfind.field_214 & 1 != 0 || self.flag_3a == 0 {
+        if cx.pathfind().field_214 & 1 != 0 || self.flag_3a == 0 {
             return 0;
         }
         let nudge = watched.nudge.unwrap_or(Vector::ZERO);
         let nudge_len = len_sq_zyx(nudge).sqrt();
         if !(nudge_len > e(0.1)) {
-            thrust.set_nudge_direction(Vector::ZERO);
+            cx.set_nudge_direction(Vector::ZERO);
             return 0;
         }
         let dir = normalize3(nudge);
@@ -389,9 +371,35 @@ impl<H> MatchThrottle2Idea<H> {
             r(e(nudge_throttle_of) * e(dir.y)),
             r(e(nudge_throttle_of) * e(dir.z)),
         );
-        drop(motion_box);
-        world.command(ship, AiCommand::SetNudge(out));
+        cx.command(AiCommand::SetNudge(out));
         0
+    }
+}
+
+impl<W: AiEnv + ?Sized> Idea<W> for MatchThrottle2Idea {
+    fn base(&self) -> &IdeaBase {
+        &self.base
+    }
+
+    fn base_mut(&mut self) -> &mut IdeaBase {
+        &mut self.base
+    }
+
+    fn update(&mut self, cx: &mut Cx<'_, W>, _dt: f32) -> i32 {
+        MatchThrottle2Idea::update(self, cx, false)
+    }
+
+    /// (2) `Slot2`, the cruise follow.
+    fn tick(&mut self, cx: &mut Cx<'_, W>, _dt: f32) {
+        self.slot2(cx);
+    }
+
+    fn kind(&self) -> i16 {
+        MATCH_THROTTLE_IDEA_KIND
+    }
+
+    fn commit(&mut self, cx: &mut Cx<'_, W>) {
+        MatchThrottle2Idea::commit(self, cx);
     }
 }
 
@@ -403,45 +411,46 @@ fn len_sq_zyx(v: Vector) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ai::move_idea::tests::{ThrustLog, Two};
+    use crate::ai::move_idea::tests::{TestCx, Two};
 
     #[test]
     fn matches_a_ship_ahead() {
         // The watched ship 1000 ahead, flying away along -Z at 50.
         let mut w = Two::new(Vector::ZERO, Vector::new(0.0, 0.0, -1000.0));
         w.other.velocity = Vector::new(0.0, 0.0, -50.0);
-        let mut idea = MatchThrottle2Idea::<u32>::new();
-        assert!(idea.set_context(&w, 1));
+        let mut cx = TestCx::new(w);
+        let mut idea = MatchThrottle2Idea::new();
+        assert!(idea.set_context(&cx));
         // Motion: time_to_accelerate 0, speed = throttle * 100.
         assert_eq!((idea.speed_4c, idea.speed_50), (300.0, 50.0));
-        let mut pf = PathfindFields::new();
-        idea.set_watch_and_distance(&w, Some(2), 100.0, &mut pf);
-        assert_eq!(pf.cached_target_position, Vector::new(0.0, 0.0, -1000.0));
-        let mut thrust = ThrustLog::default();
-        assert_eq!(idea.update(&mut w, 1, &mut thrust, &pf, false), 0);
+        idea.set_watch_and_distance(&mut cx, Some(2), 100.0);
+        assert_eq!(
+            cx.pathfind.cached_target_position,
+            Vector::new(0.0, 0.0, -1000.0)
+        );
+        assert_eq!(idea.update(&mut cx, false), 0);
         // Far beyond the catch-up range: full cruise throttle.
         assert_eq!(idea.flag_3d, 1);
-        assert_eq!(thrust.calls, ["thrusters false", "throttle 1.2 2"]);
+        assert_eq!(cx.thrust.calls, ["thrusters false", "throttle 1.2 2"]);
         assert_eq!(idea.position, Vector::new(0.0, 0.0, -1000.0));
-        idea.slot2(&w, 1, &mut thrust);
-        idea.commit(&mut thrust, &mut pf);
-        assert_eq!(pf.cached_target_position, Vector::ZERO);
-        idea.set_watch_and_position(&w, None, Vector::ZERO, &mut pf);
-        assert_eq!(idea.update(&mut w, 1, &mut thrust, &pf, false), 3);
+        idea.slot2(&mut cx);
+        idea.commit(&mut cx);
+        assert_eq!(cx.pathfind.cached_target_position, Vector::ZERO);
+        idea.set_watch_and_position(&mut cx, None, Vector::ZERO);
+        assert_eq!(idea.update(&mut cx, false), 3);
     }
 
     #[test]
     fn close_behind_matches_speed() {
         let mut w = Two::new(Vector::new(0.0, 0.0, -50.0), Vector::new(0.0, 0.0, -200.0));
         w.other.velocity = Vector::new(0.0, 0.0, -50.0);
-        let mut idea = MatchThrottle2Idea::<u32>::new();
-        idea.set_context(&w, 1);
-        let mut pf = PathfindFields::new();
-        idea.set_watch_and_distance(&w, Some(2), 100.0, &mut pf);
-        let mut thrust = ThrustLog::default();
-        idea.update(&mut w, 1, &mut thrust, &pf, false);
+        let mut cx = TestCx::new(w);
+        let mut idea = MatchThrottle2Idea::new();
+        idea.set_context(&cx);
+        idea.set_watch_and_distance(&mut cx, Some(2), 100.0);
+        idea.update(&mut cx, false);
         assert_eq!(idea.flag_3d, 0);
-        assert_eq!(thrust.calls.len(), 2, "{:?}", thrust.calls);
-        assert!(thrust.calls[1].ends_with(" 0"), "{:?}", thrust.calls);
+        assert_eq!(cx.thrust.calls.len(), 2, "{:?}", cx.thrust.calls);
+        assert!(cx.thrust.calls[1].ends_with(" 0"), "{:?}", cx.thrust.calls);
     }
 }
