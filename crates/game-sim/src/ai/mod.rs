@@ -31,6 +31,20 @@
 //! * [`script`]: `ScriptBehavior`, a scripted behaviour record and its
 //!   marshalling (`common_scriptbehavior.cpp`).
 //!
+//! The third increment is the system manager's combat parts
+//! ([`system::SystemManager`]):
+//!
+//! * [`target_manager`]: `TargetManager`, the AI target list and the
+//!   target choice (`common_targetmanager.cpp`, `BuildAiTargetList`).
+//! * [`timer_table`]: the damage-reaction timers and the incoming-missile
+//!   scan (`common_sysmgr_timertable.cpp`).
+//! * [`gun_groups`]: the weapon slots, their timing draws, the auto-turret
+//!   scan and the counter-measure droppers (`common_sysmgr_gungroups.cpp`).
+//! * [`fire_control`]: firing decisions, lead and aim
+//!   (`common_aifirecontrol.cpp`).
+//! * [`gun_convergence`]: the formation-leader block
+//!   (`common_gunconvergence.cpp`).
+//!
 //! `game_sim::object::World` implements the world traits
 //! (`object::world::ai`) and keeps a manager per AI ship.
 //!
@@ -67,8 +81,11 @@ pub mod behavior;
 pub mod behaviors;
 pub mod face;
 pub mod face_idea;
+pub mod fire_control;
 pub(crate) mod fp;
 pub mod goto;
+pub mod gun_convergence;
+pub mod gun_groups;
 pub mod idea;
 pub mod intercept;
 pub mod manager;
@@ -82,7 +99,10 @@ pub mod script;
 pub mod spline_move;
 pub mod state_graph;
 pub mod steer;
+pub mod system;
+pub mod target_manager;
 pub mod thrust;
+pub mod timer_table;
 pub mod world;
 
 #[cfg(test)]

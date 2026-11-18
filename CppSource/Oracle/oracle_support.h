@@ -202,6 +202,8 @@ void RunGameDataDump(const std::vector<std::string>& Files);
 void RunGameSimSuites();
 // P2.5: the AI suites (oracle_ai.cpp), run after RunGameSimSuites in game-sim mode.
 void RunAiSuites();
+// P2.5: the combat suite (oracle_ai_combat.cpp), run by RunAiSuites.
+void AiCombatSuite();
 // Loads x86math.dll and checks for its 3DMathEngine component (oracle_scene.cpp).
 bool OracleLoadMathEngine();
 

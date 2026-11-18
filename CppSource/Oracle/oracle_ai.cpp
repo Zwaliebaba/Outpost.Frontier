@@ -435,4 +435,5 @@ void RunAiSuites()
     GuardedAiSuite("ai_nav", AiNavSuite);
     GuardedAiSuite("ai_nav_turn", AiNavTurnSuite);
     GuardedAiSuite("ai_idea", AiIdeaSuite);
+    GuardedAiSuite("ai_combat", AiCombatSuite);
 }

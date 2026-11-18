@@ -90,6 +90,23 @@ COMMON_API void __cdecl OracleAiDefaultPersonality(unsigned char* Out);
 COMMON_API float __cdecl OracleAiToughnessRatio(int Type);
 COMMON_API double __cdecl OracleAiRangeThresholdValue(int JobField00);
 
+// The system manager's combat parts without an object world (Oracle/oracle_ai_combat.cpp).
+// SustainedThresholdTimer::Update on {active, threshold, duration, accumulator}; Out gets
+// {active, accumulator}; returns the result.
+COMMON_API int __cdecl OracleAiThresholdTimer(float const* In, float Dt, float Level, float* Out);
+// RandomizeSlotTiming on slot 0 of a freshly constructed gun-group manager whose eleven
+// interval parameters are Params (gun fire interval, its variance, auto-turret interval, gun
+// burst, its variance, gun no-burst, auto-turret burst, auto-turret no-burst, auto-turret
+// variance, missile interval, its variance); Out gets {burst, no burst, interval, phase}.
+// Kind 4 (the cruise disruptor) reads the owner's personality and is not supported.
+COMMON_API void __cdecl OracleAiGunSlotTiming(float const* Params, int Kind, int bAutoTurret, float* Out);
+// UpdateTimers(Dt) on a fresh gun-group manager with one gun {burst, no burst, interval,
+// phase} of the kind, the aim refresh timer and one claimed line-of-fire cache slot {age,
+// refresh timer, needs refresh}; Out gets {phase, fire tick, aim timer, in use, age, refresh
+// timer, needs refresh}.
+COMMON_API void __cdecl OracleAiGunGroupStep(int Kind, float const* Slot, float AimTimer, float const* Cache,
+                                             float Dt, float* Out);
+
 // ---------------------------------------------------------------------------
 // Wrappers for the navigation suites (Oracle/oracle_ai_nav.cpp): intercepts and obstacle
 // avoidance (common_aiintercept.cpp, common_obstacleavoidance.cpp). An object is an

@@ -16,12 +16,10 @@
 //!
 //! The reference's manager builds a `SystemManager` (0x195c bytes: the
 //! target manager, gun groups and fire control, the timer table that
-//! builds the AI target list, the repair manager, gun convergence and
-//! formation state, the thrust manager, the personality). The port has
-//! the thrust manager ([`super::thrust`]) and the personality; the rest is
-//! later P2.5 work, and [`SystemState`] holds what the tick reads of it
-//! with the values it has while those parts are idle: no target, no
-//! attack state, no timer 3, no missile reaction, no formation leader.
+//! builds the AI target list, the repair manager, the formation-leader
+//! block, the thrust manager, the personality). The port has the thrust
+//! manager ([`super::thrust`]), the personality and the combat parts
+//! ([`super::system::SystemManager`]); the repair manager is not ported.
 
 use std::sync::Arc;
 
@@ -30,31 +28,16 @@ use neuron_core::math::Vector;
 use super::behavior::{AiEnv, Behavior, CancelRequest, Cx, DirectiveOp, EvaluateResult, ids};
 use super::behaviors::create_behavior;
 use super::fp::{e, r};
+use super::intercept::{is_aligned_and_outside_heading_cone, is_within_intercept_range_of_iface};
 use super::pathfind::PathfindManager;
 use super::personality::Personality;
 use super::state_graph::{
     BEHAVIOR_COUNT, BehaviorChoice, BehaviorScore, StateGraph, StateGraphDb, choose_behavior,
 };
+use super::system::SystemManager;
+use super::target_manager::CombatEvent;
 use super::thrust::ThrustManager;
-use super::world::{AiRand, StrafeDir};
-
-/// What the tick reads of the system manager's parts that are not ported
-/// yet (see the module documentation). Later ports keep these current.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct SystemState {
-    /// `TargetManager::AttackState` (`Sys+0x1434`).
-    pub attack_state: i32,
-    /// `TargetManager::GetTarget`: the target's id.
-    pub target: Option<u32>,
-    /// `SystemManagerTimerTable::IsTimer3Active`.
-    pub timer3_active: bool,
-    /// `SystemManagerTimerTableHasMissileReactionTarget`.
-    pub missile_reaction: bool,
-    /// `FGunConvergenceStateBlock::GetCurrentLeader`: the leader's id.
-    pub current_leader: Option<u32>,
-    /// `SystemManagerTimerTable::Targets`: the AI target list's ids.
-    pub targets: Vec<u32>,
-}
+use super::world::{AiRand, ObjectView, StrafeDir};
 
 /// One queued notification (`NotificationNode`).
 #[derive(Clone, Debug, PartialEq)]
@@ -160,8 +143,8 @@ pub struct ManagerState {
     pub thrust: ThrustManager,
     /// `SystemManager::PersonalityData`.
     pub personality: Personality,
-    /// The system manager's unported parts.
-    pub sys: SystemState,
+    /// The system manager's combat parts.
+    pub sys: SystemManager,
     /// The directive results the callbacks would receive (`f11c`,
     /// `f118`), in order; the owner drains them.
     pub completed: Vec<(i32, i32)>,
@@ -210,7 +193,7 @@ impl ManagerState {
             pathfind: PathfindManager::default(),
             thrust: ThrustManager::new(is_player),
             personality: Personality::default(),
-            sys: SystemState::default(),
+            sys: SystemManager::default(),
             completed: Vec::new(),
             outbox: Vec::new(),
         }
@@ -273,16 +256,19 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
     /// phase offsets of timers A and B and the attack-override timer, in
     /// the reference's draw order.
     ///
-    /// The system manager's constructor draws too (its gun-group timers,
-    /// `InitSystemManager`); those draws belong to the gun groups and are
-    /// not made yet.
+    /// The system manager's initialisation (`InitSystemManager`) comes
+    /// first and draws too: each gun's timing, then the auto-turret scan
+    /// phase.
     pub fn new(world: &mut W, ship: W::Handle) -> Self {
         let view = world.inspect(ship);
         let is_player = view.as_ref().is_some_and(|v| v.is_player);
         let owner_id = view.as_ref().map(|v| v.id);
         let mut state = ManagerState::new(is_player);
-        // `new PathfindManager(this)`: three draws of its own.
+        // `new PathfindManager(this)`: three draws of its own, then
+        // `InitSystemManager`.
         state.pathfind = PathfindManager::new(world, ship);
+        let personality = state.personality;
+        state.sys.init(world, ship, &personality);
         let mut behaviors: Vec<Box<dyn Behavior<W>>> = Vec::with_capacity(BEHAVIOR_COUNT);
         for index in 0..BEHAVIOR_COUNT {
             let mut b = create_behavior::<W>(i32::try_from(index).unwrap_or(0));
@@ -543,11 +529,14 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
         }
     }
 
-    /// `set_personality`. The system manager's refresh from it
-    /// (`NotifySystemManagerPersonalityChanged`: fire control, timer
-    /// thresholds, repair) belongs to its unported parts.
-    pub fn set_personality(&mut self, personality: Personality) {
+    /// `set_personality`, then the system manager's refresh from it
+    /// (`NotifySystemManagerPersonalityChanged`: the gun groups, which
+    /// draw, the timer thresholds, the force-attack flag).
+    pub fn set_personality(&mut self, world: &mut W, ship: W::Handle, personality: Personality) {
         self.state.personality = personality;
+        self.state
+            .sys
+            .personality_changed(world, ship, &personality);
     }
 
     /// `enable_maneuver`: bit `maneuver + 1` (mod 32); -1 refused.
@@ -625,15 +614,15 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
     }
 
     /// `get_debugger_target`: the behaviour's target, else the target
-    /// manager's.
+    /// manager's (`TargetManager::GetTarget`, the ship's target).
     #[must_use]
-    pub fn debugger_target(&self) -> Option<u32> {
+    pub fn debugger_target(&self, world: &W, ship: W::Handle) -> Option<u32> {
         if self.state.behavior == -1 {
             return None;
         }
         self.behavior(self.state.behavior)
             .and_then(|b| b.target())
-            .or(self.state.sys.target)
+            .or_else(|| world.inspect(ship).and_then(|v| v.target))
     }
 
     /// The player's inputs that the manager forwards to the current
@@ -787,47 +776,103 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
         let Some(view) = world.inspect(ship) else {
             return;
         };
-        self.update_notification_queue(world, dt);
-        let Some(graph) = self.state.state_graph.clone() else {
-            return;
-        };
-        // `UpdateSystemManager`: of its parts, the thrust manager's cruise
-        // permission and the cruise stop it implies.
+        // `bKeepCache`: the target list is built at most once in the tick.
+        self.state.sys.targets.keep_cache = true;
+        self.tick_body(world, ship, dt, &view);
+        self.state.sys.targets.keep_cache = false;
+    }
+
+    /// The system manager's update of the tick (`UpdateSystemManager`,
+    /// `SyncFormationLeader`), then the target branch (the attack-override
+    /// timer, fire control, the in-sights report) and the auto turrets.
+    fn update_system(&mut self, world: &mut W, ship: W::Handle, dt: f32, view: &ObjectView) {
+        let personality = self.state.personality;
+        let p = &personality;
+        self.state.sys.update_before_thrust(world, ship, p, dt);
         self.state.thrust.cruise_unobstructed = self.state.pathfind.is_cruise_unobstructed();
         if view.cruise.is_some_and(|c| c.0) && !self.state.thrust.cruise_unobstructed {
             self.state.thrust.engage_cruise(world, ship, false);
         }
+        let notes = self.state.sys.update_after_thrust(world, ship, p, dt);
+        for n in notes {
+            self.queue_notification(&*world, Some(n.leader), n.extra, n.duration);
+        }
+        self.state.sys.formation.sync_formation_leader(world, ship);
         let external_is_player = view.is_player;
+        let content_callback = self.state.content_callback;
         if self.state.flags_1c8 & 1 != 0 {
             let sum = e(dt) + e(self.state.attack_override_timer);
             self.state.attack_override_timer = r(sum);
             if sum > e(self.state.attack_override_period) {
                 self.state.attack_override_timer =
                     r(e(self.state.attack_override_timer) % e(self.state.attack_override_period));
-                // `TargetManager::UpdateAttackTargetOverride`: not ported.
+                let directive = self.state.directive;
+                self.state.sys.update_attack_target_override(
+                    world,
+                    ship,
+                    p,
+                    content_callback,
+                    directive,
+                );
             }
-            if self.state.sys.target.is_some() {
-                // Fire control (`RunFireControlTick`): not ported. Without
-                // a content callback the in-sights test fails.
-                if !self.state.content_callback {
+            let target = world.inspect(ship).and_then(|v| v.target);
+            if target.is_some() {
+                self.state.sys.run_fire_control_tick(world, ship, p, target);
+                // The in-sights report: with a content callback, an AI
+                // ship whose target is ahead within its -0.7 cone and
+                // 600 m reports it once (`ship_in_sights_event`); any
+                // failed test clears the id.
+                let own = world.inspect(ship);
+                let target_view = target
+                    .and_then(|id| world.handle_of(id))
+                    .and_then(|h| world.inspect(h));
+                let in_sights = content_callback
+                    && own.as_ref().is_some_and(|v| !v.is_player)
+                    && own.as_ref().is_some_and(|v| {
+                        is_aligned_and_outside_heading_cone(v, target_view.as_ref(), -0.7)
+                    })
+                    && match (&own, &target_view) {
+                        (Some(v), Some(t)) => is_within_intercept_range_of_iface(v, t, 600.0),
+                        _ => false,
+                    };
+                if in_sights {
+                    let id = target_view.as_ref().map_or(0, |t| t.id);
+                    if self.state.in_sights != id {
+                        self.state.in_sights = id;
+                        self.state.sys.events.push(CombatEvent::InSights(id));
+                    }
+                } else {
                     self.state.in_sights = 0;
                 }
             }
         }
-        // `ScanAutoTurretTargets` and `FireAutoTurrets` (not the player):
-        // not ported (the gun groups).
-        let _ = external_is_player;
+        if !external_is_player {
+            let directive = self.state.directive;
+            self.state
+                .sys
+                .auto_turrets(world, ship, p, content_callback, directive, dt);
+        }
         let behavior = self.state.behavior;
         self.state
             .pathfind
             .update(&mut self.state.thrust, world, ship, behavior, dt);
+    }
+
+    /// `UpdateBehaviorTick` after the entry tests.
+    #[allow(clippy::too_many_lines)]
+    fn tick_body(&mut self, world: &mut W, ship: W::Handle, dt: f32, view: &ObjectView) {
+        self.update_notification_queue(world, dt);
+        let Some(graph) = self.state.state_graph.clone() else {
+            return;
+        };
+        self.update_system(world, ship, dt, view);
         if view.is_player && len_sq(self.state.last_direction) != 0.0 {
             let dir = self.state.last_direction;
             self.update_current_behavior_direction(world, ship, dir);
         }
         if self.state.content_callback {
             let d = self.state.directive;
-            let flag = self.state.sys.attack_state == 2
+            let flag = self.state.sys.attack_state() == 2
                 && self.state.behavior == 2
                 && (d[0] == 0 || d[1] == 1);
             if flag != self.state.field_f8 {
@@ -889,10 +934,12 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
             reevaluate = false;
         }
         if !armed {
-            if self.state.sys.timer3_active && self.state.behavior != ids::FACE {
+            if self.state.sys.timer3_active() && self.state.behavior != ids::FACE {
                 reevaluate = true;
             }
-            if self.state.sys.missile_reaction && self.state.behavior != ids::EVADE {
+            if self.state.sys.missile_reaction(&self.state.personality)
+                && self.state.behavior != ids::EVADE
+            {
                 reevaluate = true;
             }
         }
@@ -1018,9 +1065,9 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
         } else if current == ids::FORMATION {
             proximity = true;
             // The leader's own dock target (single player) or target
-            // (multiplayer): the gun convergence leader is not ported, so
-            // there is none.
-            self.state.sys.current_leader.and(None)
+            // (multiplayer) through the formation block's current leader: the
+            // other manager's dock behaviour is not reachable here, so none.
+            None
         } else {
             None
         };

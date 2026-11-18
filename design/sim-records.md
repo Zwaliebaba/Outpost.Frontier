@@ -335,7 +335,8 @@ own fields, the thrust manager's caches) carries over from the Rust
 side's previous tick; before each tick it sets the manager fields of
 `ai_in`, the target list and the personality, and builds a world from the
 `ai_obj` snapshot (object ids as handles, the ship's own state following
-its commands, the queries answered from `ai_query`, `rand()` from
+its commands, the ship's scan list from its next tick's `ai_in.targets`
+(the list this tick built), the queries answered from `ai_query`, `rand()` from
 `ai_out`'s values). It compares the manager fields of `ai_out` bit for
 bit (with `pathfind` and `thrust` where the record has them), the number
 of `rand()` draws, and the commands with the `affect` records whose `beh`

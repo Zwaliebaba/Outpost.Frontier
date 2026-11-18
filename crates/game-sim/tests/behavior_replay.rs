@@ -130,10 +130,18 @@ struct ReplayWorld<'a> {
     motion: Option<(&'a World, ObjHandle)>,
     /// `GAvoidIndexTableShuffled` of the run (the process).
     avoid_shuffled: bool,
+    /// The ship's scan list: the target list the tick built, which the
+    /// ship's next tick records on entry (`ai_in.targets`).
+    scan: Vec<u32>,
 }
 
 impl<'a> ReplayWorld<'a> {
-    fn new(t: &AiTick, motion: Option<&'a MotionWorld>, avoid_shuffled: bool) -> Self {
+    fn new(
+        t: &AiTick,
+        scan: Vec<u32>,
+        motion: Option<&'a MotionWorld>,
+        avoid_shuffled: bool,
+    ) -> Self {
         let motion = motion.and_then(|m| {
             let h = *m.ships.get(t.obj.as_deref()?)?;
             Some((&m.world, h))
@@ -155,6 +163,7 @@ impl<'a> ReplayWorld<'a> {
             ship: t.id,
             motion,
             avoid_shuffled,
+            scan,
         }
     }
 
@@ -282,6 +291,16 @@ impl AiWorld for ReplayWorld<'_> {
         world.motion(handle)
     }
 
+    fn scan_list(&self, h: u32) -> Option<Vec<u32>> {
+        (h == self.ship).then(|| {
+            self.scan
+                .iter()
+                .copied()
+                .filter(|id| self.objects.contains_key(id))
+                .collect()
+        })
+    }
+
     fn system_of(&self, h: u32) -> Option<u32> {
         self.objects.contains_key(&h).then_some(0)
     }
@@ -382,7 +401,7 @@ fn restore(m: &mut ManagerState, r: &ManagerRecord, t: &AiTick, graphs: &StateGr
     m.f11c = r.f11c;
     m.f120 = int(r.f120);
     m.scores = r.scores;
-    m.sys.targets.clone_from(&t.targets);
+    m.sys.targets.ids.clone_from(&t.targets);
     if let Some(p) = &r.pathfind {
         let pf = &mut m.pathfind;
         [pf.timer_1e0, pf.timer_1e8, pf.timer_20c] = p.timers;
@@ -688,7 +707,13 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
     let mut managers: BTreeMap<u32, BehaviorManager<ReplayWorld<'_>>> = BTreeMap::new();
     let mut first_seen: BTreeMap<u32, ()> = BTreeMap::new();
     let mut personalities: BTreeMap<u32, Personality> = BTreeMap::new();
-    for t in &ticks {
+    for (index, t) in ticks.iter().enumerate() {
+        // The list this tick builds is the one the ship's next tick
+        // records on entry; the last tick falls back to its own entry.
+        let scan = ticks[index + 1..]
+            .iter()
+            .find(|n| n.id == t.id)
+            .map_or_else(|| t.targets.clone(), |n| n.targets.clone());
         let Some(out) = &t.output else {
             continue;
         };
@@ -696,7 +721,7 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
         if let Some(p) = t.personality.as_deref().and_then(Personality::from_bytes) {
             personalities.insert(t.id, p);
         }
-        let mut world = ReplayWorld::new(t, motion.as_ref(), avoid_shuffled);
+        let mut world = ReplayWorld::new(t, scan, motion.as_ref(), avoid_shuffled);
         let is_player = world.objects.get(&t.id).is_some_and(|v| v.is_player);
         if first_seen.insert(t.id, ()).is_none()
             && let Some(v) = world.objects.get(&t.id)

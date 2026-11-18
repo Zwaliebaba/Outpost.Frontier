@@ -5,10 +5,9 @@
 //! manoeuvre against the closest hostile (face it with the afterburner
 //! idea, then hold it in the sights).
 //!
-//! `Slot5` asks the formation block's `FollowerDirectiveGateA` (the gun
-//! convergence state, not ported: a ship with no formation leader answers
-//! false, which is the reference's answer for one) and the pathfinder's
-//! cached obstacle.
+//! `Slot5` asks the formation block's `FollowerDirectiveGateA` and the
+//! pathfinder's cached obstacle, and builds the target list for the
+//! closest hostile (`FindClosestHostileTarget`).
 
 use neuron_core::math::{Matrix, Vector};
 
@@ -94,11 +93,12 @@ impl FaceBehavior {
     /// ship of the target list toward which the owner's attitude is at most
     /// -0.6, within `max_clearance` (a negative bound takes any range) and
     /// 100 km.
-    fn closest_hostile<W: AiEnv + ?Sized>(cx: &Cx<'_, W>, max_clearance: f32) -> Option<u32> {
+    fn closest_hostile<W: AiEnv + ?Sized>(cx: &mut Cx<'_, W>, max_clearance: f32) -> Option<u32> {
         let own = cx.own()?;
         let mut best = None;
         let mut best_distance = 100_000.0_f32;
-        for &id in &cx.state.sys.targets {
+        let ids = cx.state.sys.targets.build(&*cx.world, cx.ship).to_vec();
+        for id in ids {
             let Some(h) = cx.world.handle_of(id) else {
                 continue;
             };
@@ -179,9 +179,14 @@ impl<W: AiEnv + ?Sized> Behavior<W> for FaceBehavior {
             return mode;
         }
         let mut result = 2;
-        // `FollowerDirectiveGateA`: not ported; false without a formation
-        // leader (and for the player).
-        let gate = false;
+        let is_player = cx.own().is_some_and(|v| v.is_player);
+        let behavior = cx.state.behavior;
+        let personality = cx.state.personality;
+        let gate = cx
+            .state
+            .sys
+            .formation
+            .gate_a(&*cx.world, is_player, behavior, &personality);
         if !gate {
             let p = &cx.state.pathfind;
             if !(p.cached_obstacle_id != 0 && p.has_cached_obstacle) {
@@ -194,7 +199,7 @@ impl<W: AiEnv + ?Sized> Behavior<W> for FaceBehavior {
                     let v = own.velocity;
                     let speed_sq = (e(v.z) * e(v.z) + e(v.y) * e(v.y)) + e(v.x) * e(v.x);
                     if speed_sq > 2500.0 {
-                        result = if cx.state.sys.timer3_active { 0 } else { 1 };
+                        result = if cx.state.sys.timer3_active() { 0 } else { 1 };
                     }
                 }
             }
