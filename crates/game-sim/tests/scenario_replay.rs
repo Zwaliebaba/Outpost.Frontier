@@ -39,6 +39,7 @@ use std::path::{Path, PathBuf};
 
 use game_sim::ai::behavior::DirectiveOp;
 use game_sim::ai::behaviors::create_behavior;
+use game_sim::ai::personality::Personality;
 use game_sim::ai::state_graph::GraphType;
 use game_sim::equip::flight::StrafeDir;
 use game_sim::equip::{EquipKind, SUBOBJ_ID_ROOT, types};
@@ -251,22 +252,6 @@ fn parse(path: &Path) -> Option<Scenario> {
 /// ported (the AI ships themselves run: they get a behaviour manager), or
 /// the dock directive (which needs the station's Content side).
 fn needs_ai(s: &Scenario) -> Option<String> {
-    // A hostile AI ship (the dogfight): its pilot fights.
-    let fighters: Vec<String> = s
-        .objects
-        .iter()
-        .filter(|o| o.ai.is_some() && o.faction.is_some())
-        .map(|o| match &o.pilot {
-            Some(pilot) => format!("{} ({pilot})", o.name),
-            None => o.name.clone(),
-        })
-        .collect();
-    if !fighters.is_empty() {
-        return Some(format!(
-            "{}: the pilot needs combat behaviours",
-            fighters.join(" and ")
-        ));
-    }
     for c in &s.commands {
         if c.args[0] == "dock" {
             return Some("the dock directive".to_owned());
@@ -305,6 +290,11 @@ struct State {
     power: Option<f32>,
     /// `None` without a shield, or when the record does not carry it.
     shield: Option<ShieldState>,
+    /// The current behaviour (`CurrentBehaviorIndex`), -1 without a
+    /// manager.
+    behavior: i32,
+    /// The target's scenario name as an id (`create_id`), 0 for none.
+    target: u32,
 }
 
 /// One munition hit: the target, the sub-object, the hull and shield
@@ -345,6 +335,8 @@ struct Run {
     /// The first behaviour the port does not have that an AI ship ran, and
     /// the tick (the state graph can pick one without a directive).
     unported: Option<(i32, u32)>,
+    /// The shots fired (`WorldEvent::Fired`).
+    fired: usize,
 }
 
 fn shield_of(world: &World, h: ObjHandle) -> (Option<f32>, Option<ShieldState>) {
@@ -440,14 +432,77 @@ fn oracle_phases(dir: &Path, scenario: &str) -> Option<[f32; 3]> {
     ticks.first()?.input.pathfind.as_ref().map(|p| p.timers)
 }
 
-fn run(s: &Scenario) -> Option<Run> {
-    run_skipping(s, 0)
+/// What the Rust world cannot load for the AI ships and the harness takes
+/// from the oracle's records: each pilot's personality (Content's
+/// `[Pilot]` loader is P3.6) and the ships' attitudes toward each other
+/// (the reputation groups are not ported).
+#[derive(Clone, Debug, Default)]
+struct AiInputs {
+    personalities: BTreeMap<String, Personality>,
+    attitudes: BTreeMap<(String, String), f32>,
+    /// The environment's movement-check countdown and IVP's random seed at
+    /// the first PSI (`tick.jsonl` `psi_mcheck`, `psi_ivp_seed`): the
+    /// reference's load steps the environment and draws from the seed
+    /// before the scenario's first tick.
+    movement_check: Option<(i16, u32)>,
+}
+
+/// The [`AiInputs`] of a scenario from its first `ai.jsonl` under
+/// `<oracle dir>/<scenario>/`: the first personality of each ship and its
+/// first attitude toward each other scenario ship; and the movement check
+/// from the first `tick.jsonl`.
+fn oracle_ai_inputs(dir: &Path, scenario: &str) -> AiInputs {
+    let mut out = AiInputs::default();
+    if let Some(frames) = find_files(&dir.join(scenario), "tick.jsonl")
+        .into_iter()
+        .min()
+    {
+        out.movement_check = read_lines(&frames).into_iter().find_map(|r| {
+            if r.get("rec").and_then(Json::as_str) != Some("frame") {
+                return None;
+            }
+            let check = r.get("psi_mcheck")?.as_array()?.first()?.as_i32()?;
+            let seed = r.get("psi_ivp_seed")?.as_array()?.first()?.as_u32()?;
+            Some((i16::try_from(check).ok()?, seed))
+        });
+    }
+    let Some(first) = find_files(&dir.join(scenario), "ai.jsonl")
+        .into_iter()
+        .min()
+    else {
+        return out;
+    };
+    let ticks = support::ai_records::read_ai_ticks(&first);
+    let names: BTreeMap<u32, String> = ticks
+        .iter()
+        .filter_map(|t| Some((t.id, t.obj.clone()?)))
+        .collect();
+    for t in &ticks {
+        let Some(name) = &t.obj else {
+            continue;
+        };
+        if let Some(p) = t.personality.as_deref().and_then(Personality::from_bytes) {
+            out.personalities.entry(name.clone()).or_insert(p);
+        }
+        for o in &t.objects {
+            if let (Some(other), Some((toward, _))) = (names.get(&o.id), o.attitude) {
+                out.attitudes
+                    .entry((name.clone(), other.clone()))
+                    .or_insert(toward);
+            }
+        }
+    }
+    out
+}
+
+fn run(s: &Scenario, ai: &AiInputs) -> Option<Run> {
+    run_skipping(s, 0, ai)
 }
 
 /// [`run`] with `skip` draws of the world's `rand()` before anything is
 /// spawned: what the reference's server draws while it loads the system
 /// and the Rust world does not.
-fn run_skipping(s: &Scenario, skip: usize) -> Option<Run> {
+fn run_skipping(s: &Scenario, skip: usize, ai: &AiInputs) -> Option<Run> {
     let mut world = support::world::world(WorldConfig {
         single_player: false,
         step_mode: if s.sp {
@@ -461,21 +516,27 @@ fn run_skipping(s: &Scenario, skip: usize) -> Option<Run> {
     world.skip_rand(skip);
     let system = create_id(s.system.as_bytes());
     world.load_system(system);
+    if let Some((counter, seed)) = ai.movement_check {
+        world.set_physics_movement_check(system, counter, seed);
+    }
     let mut handles: BTreeMap<String, Option<ObjHandle>> = BTreeMap::new();
     let mut managers = Vec::new();
     let mut pathfind_phases = None;
-    // Only the solars the scenario names: the oracle's server loads the
-    // whole system, but nothing else is near the scenario objects, and the
-    // contact pass over every solar is slow in a debug build.
+    // Only the solars the scenario names and the spinning ones: the
+    // oracle's server loads the whole system, but nothing else is near the
+    // scenario objects, and the contact pass over every solar is slow in a
+    // debug build. A spinning solar is a simulation unit every PSI, so it
+    // moves the environment's movement-check countdown (which unit checks
+    // its motion, and so how hard an idle ship is damped).
     let named: Vec<u32> = s
         .objects
         .iter()
         .filter(|o| !o.ship)
         .map(|o| create_id(o.nickname.as_bytes()))
         .collect();
-    if !named.is_empty() {
-        world.load_system_solars_where(system, |n| named.contains(&n));
-    }
+    world.load_system_solars_where(system, |o| {
+        named.contains(&o.nickname) || o.angular_velocity != Vector::ZERO
+    });
     for o in &s.objects {
         let h = if o.ship {
             let mut spawn = ShipSpawn::new(
@@ -493,7 +554,7 @@ fn run_skipping(s: &Scenario, skip: usize) -> Option<Run> {
                     .data()
                     .state_graphs
                     .find(graph.as_bytes(), GraphType::Leader);
-                world.submit_state(h, id, None);
+                world.submit_state(h, id, ai.personalities.get(&o.name).copied());
                 if let Some(m) = world.behavior_manager(h) {
                     let pf = &m.state.pathfind;
                     pathfind_phases.get_or_insert([pf.timer_1e0, pf.timer_1e8, pf.timer_20c]);
@@ -510,6 +571,11 @@ fn run_skipping(s: &Scenario, skip: usize) -> Option<Run> {
             world.find(create_id(o.nickname.as_bytes()))
         };
         handles.insert(o.name.clone(), h);
+    }
+    for ((from, to), value) in &ai.attitudes {
+        if let (Some(Some(a)), Some(Some(b))) = (handles.get(from), handles.get(to)) {
+            world.set_attitude(*a, *b, *value);
+        }
     }
     let names: BTreeMap<u32, String> = handles
         .iter()
@@ -528,6 +594,10 @@ fn run_skipping(s: &Scenario, skip: usize) -> Option<Run> {
     let record = |world: &World,
                   out: &mut BTreeMap<String, Vec<State>>,
                   handles: &BTreeMap<String, Option<ObjHandle>>| {
+        let target_of = |h: ObjHandle| {
+            let id = world.ai_view(h)?.target?;
+            names.get(&id).map(|n| create_id(n.as_bytes()))
+        };
         for (name, h) in handles {
             let st = h
                 .and_then(|h| world.inspect(h).map(|i| (h, i)))
@@ -542,6 +612,8 @@ fn run_skipping(s: &Scenario, skip: usize) -> Option<Run> {
                         hp: i.hit_pts,
                         power,
                         shield,
+                        behavior: world.behavior_manager(h).map_or(-1, |m| m.state.behavior),
+                        target: target_of(h).unwrap_or(0),
                     }
                 });
             out.entry(name.clone()).or_default().push(st);
@@ -637,6 +709,7 @@ fn run_skipping(s: &Scenario, skip: usize) -> Option<Run> {
                     out.hits
                         .push(rust_hit(tick, &name, sub, &damage, before, st));
                 }
+                WorldEvent::Fired { .. } => out.fired += 1,
                 WorldEvent::Collision { a, b, damage, .. } => out.contacts.push(Contact {
                     tick,
                     a: name_of(a),
@@ -793,6 +866,11 @@ fn oracle_ticks(file: &Path) -> BTreeMap<String, Vec<State>> {
                 hp: r.get("hp").and_then(Json::as_f32).unwrap_or(0.0),
                 power: r.get("power").and_then(Json::as_f32),
                 shield,
+                behavior: r.get("behavior").and_then(Json::as_i32).unwrap_or(-1),
+                target: r
+                    .get("target_obj")
+                    .and_then(Json::as_str)
+                    .map_or(0, |n| create_id(n.as_bytes())),
             },
         );
     }
@@ -880,6 +958,76 @@ fn first_divergences(
             "{scenario}: {name}: the oracle's tick records carry no shield or power (an older harness)"
         );
     }
+}
+
+/// The comparison of a fight (record 0003 point 9): the first tick at
+/// which each ship's position (0.01 m), behaviour and target leave the
+/// oracle's, the munition hits up to the first divergence, and the
+/// outcome (alive, hull).
+fn report_combat(summary: &mut String, scenario: &str, ours: &Run, theirs: &Run) {
+    let mut first_any = usize::MAX;
+    for (name, a) in &ours.states {
+        let Some(b) = theirs.states.get(name) else {
+            continue;
+        };
+        let n = a.len().min(b.len());
+        let first = |f: &dyn Fn(&State, &State) -> bool| (0..n).find(|&t| f(&a[t], &b[t]));
+        let pos =
+            first(&|x, y| x.alive != y.alive || (x.alive && dist(x.pos, y.pos) > REPORT_POSITION));
+        let beh = first(&|x, y| x.alive && y.alive && x.behavior != y.behavior);
+        let tgt = first(&|x, y| x.alive && y.alive && x.target != y.target);
+        let shown = |v: Option<usize>| v.map_or_else(|| "never".to_owned(), |t| t.to_string());
+        let changes = |v: &[State]| {
+            let mut seq: Vec<(usize, i32)> = Vec::new();
+            for (t, st) in v.iter().enumerate() {
+                if seq.last().is_none_or(|l| l.1 != st.behavior) {
+                    seq.push((t, st.behavior));
+                }
+            }
+            seq
+        };
+        let _ = writeln!(
+            summary,
+            "{scenario}: {name}: exact (position within {REPORT_POSITION} m) until tick {}; behaviour first differs at {}, target at {}",
+            pos.map_or(n, |t| t.saturating_sub(1)),
+            shown(beh),
+            shown(tgt)
+        );
+        let _ = writeln!(
+            summary,
+            "{scenario}: {name}: behaviours rust {:?}",
+            changes(&a[..n])
+        );
+        let _ = writeln!(
+            summary,
+            "{scenario}: {name}: behaviours oracle {:?}",
+            changes(&b[..n])
+        );
+        first_divergences(summary, scenario, name, &a[..n], &b[..n]);
+        let (fa, fb) = (&a[n - 1], &b[n - 1]);
+        let _ = writeln!(
+            summary,
+            "{scenario}: {name}: outcome rust alive {} hull {} oracle alive {} hull {}",
+            fa.alive, fa.hp, fb.alive, fb.hp
+        );
+        first_any = first_any.min(pos.unwrap_or(usize::MAX));
+    }
+    let tick_limit = u32::try_from(first_any).unwrap_or(u32::MAX);
+    let before = |h: &[Hit]| h.iter().filter(|x| x.tick < tick_limit).count();
+    let _ = writeln!(
+        summary,
+        "{scenario}: shots rust {}; munition hits rust {} oracle {}; before the first divergence (tick {}) rust {} oracle {}",
+        ours.fired,
+        ours.hits.len(),
+        theirs.hits.len(),
+        if first_any == usize::MAX {
+            "none".to_owned()
+        } else {
+            first_any.to_string()
+        },
+        before(&ours.hits),
+        before(&theirs.hits)
+    );
 }
 
 fn fmt_hit(h: &Hit) -> String {
@@ -1057,7 +1205,11 @@ fn scenarios_against_the_oracle() {
             let _ = writeln!(summary, "{}: skipped, {why} (AI is P2.5)", s.name);
             continue;
         }
-        let Some(our_run) = run(&s) else {
+        let ai = oracle
+            .as_ref()
+            .map(|d| oracle_ai_inputs(d, &s.name))
+            .unwrap_or_default();
+        let Some(our_run) = run(&s, &ai) else {
             let _ = writeln!(summary, "{}: did not run", s.name);
             continue;
         };
@@ -1132,7 +1284,10 @@ fn scenarios_against_the_oracle() {
                 "{}: {name}: max position error {max_pos:.4} m (tick {max_tick}), velocity {max_vel:.4} m/s, orientation {max_orient:.6}, alive mismatches {alive_mismatch}, final hp {} vs {}",
                 s.name, fa.hp, fb.hp
             );
-            if max_pos > bound || fa.alive != fb.alive {
+            // A fight (the ships' attitudes come from the oracle) is
+            // chaotic contact (record 0003 point 9): judged by its outcome.
+            let fight = !ai.attitudes.is_empty();
+            if (!fight && max_pos > bound) || fa.alive != fb.alive {
                 gross.push(format!(
                     "{}: {name} (position {max_pos:.1} m > {bound:.1} m or alive {} vs {})",
                     s.name, fa.alive, fb.alive
@@ -1154,8 +1309,11 @@ fn scenarios_against_the_oracle() {
                 s.name
             );
             if i_oracle > i_rust
-                && let Some(aligned) = run_skipping(&s, i_oracle - i_rust)
+                && let Some(aligned) = run_skipping(&s, i_oracle - i_rust, &ai)
             {
+                if !ai.attitudes.is_empty() {
+                    report_combat(&mut summary, &s.name, &aligned, &their_run);
+                }
                 for (name, ours_states) in &aligned.states {
                     let Some(their_states) = theirs.get(name) else {
                         continue;
