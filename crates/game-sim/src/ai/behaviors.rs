@@ -91,7 +91,8 @@ impl<W: AiEnv + ?Sized> Behavior<W> for UnportedBehavior {
         false
     }
 
-    fn poll(&mut self, _cx: &mut Cx<'_, W>, _timer_c: f32) -> i32 {
+    fn poll(&mut self, cx: &mut Cx<'_, W>, _timer_c: f32) -> i32 {
+        cx.state.stand_in_polls += 1;
         2
     }
 

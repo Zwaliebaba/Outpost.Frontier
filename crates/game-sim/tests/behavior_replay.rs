@@ -734,10 +734,12 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
                 .and_then(|(w, h)| w.ai_view(h))
                 .map(|r| (r.radius, r.center, r.position, r.extents));
             totals.first_views.push(format!(
-                "{} id {} {:?}: pos {:?} center {:?} radius {} extents {:?} engine {:?} thrusters {:?}; rust at spawn {:?}",
+                "{} id {} {:?}: timers {:08x?} pathfind {:?}; pos {:?} center {:?} radius {} extents {:?} engine {:?} thrusters {:?}; rust at spawn {:?}",
                 path.display(),
                 t.id,
                 t.obj,
+                t.input.timers.map(f32::to_bits),
+                t.input.pathfind.as_ref().map(|p| p.timers.map(f32::to_bits)),
                 v.position,
                 v.center,
                 v.radius,
@@ -758,6 +760,7 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
             m
         });
         restore(&mut manager.state, &t.input, t, graphs);
+        manager.state.stand_in_polls = 0;
         if let Some(p) = personalities.get(&t.id) {
             manager.state.personality = *p;
         }
@@ -788,14 +791,16 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
             let e = totals.by_behavior.entry(t.input.behavior).or_default();
             e.0 += 1;
             e.1 += 1;
-            if unported_candidate(manager, t.input.behavior).is_some() {
+            if manager.state.stand_in_polls > 0 {
                 totals.matched_with_stand_ins += 1;
             }
             continue;
         }
         // A mismatch after a poll of a behaviour that is not ported says
         // nothing about the manager.
-        if let Some(c) = unported_candidate(manager, t.input.behavior) {
+        if manager.state.stand_in_polls > 0
+            && let Some(c) = unported_candidate(manager, t.input.behavior)
+        {
             *totals.skipped_candidate.entry(c).or_default() += 1;
             continue;
         }

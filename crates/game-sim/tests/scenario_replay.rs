@@ -348,6 +348,9 @@ struct Run {
     states: BTreeMap<String, Vec<State>>,
     hits: Vec<Hit>,
     contacts: Vec<Contact>,
+    /// The behaviour managers' clocks after construction (the phases the
+    /// constructors draw), for comparison with the first `ai_in` record.
+    managers: Vec<String>,
 }
 
 fn shield_of(world: &World, h: ObjHandle) -> (Option<f32>, Option<ShieldState>) {
@@ -428,6 +431,7 @@ fn run(s: &Scenario) -> Option<Run> {
     let system = create_id(s.system.as_bytes());
     world.load_system(system);
     let mut handles: BTreeMap<String, Option<ObjHandle>> = BTreeMap::new();
+    let mut managers = Vec::new();
     // Only the solars the scenario names: the oracle's server loads the
     // whole system, but nothing else is near the scenario objects, and the
     // contact pass over every solar is slow in a debug build.
@@ -458,6 +462,15 @@ fn run(s: &Scenario) -> Option<Run> {
                     .state_graphs
                     .find(graph.as_bytes(), GraphType::Leader);
                 world.submit_state(h, id, None);
+                if let Some(m) = world.behavior_manager(h) {
+                    let pf = &m.state.pathfind;
+                    managers.push(format!(
+                        "{}: manager timers {:08x?} pathfind {:08x?}",
+                        o.name,
+                        m.state.timers().map(f32::to_bits),
+                        [pf.timer_1e0, pf.timer_1e8, pf.timer_20c].map(f32::to_bits)
+                    ));
+                }
             }
             h
         } else {
@@ -474,7 +487,10 @@ fn run(s: &Scenario) -> Option<Run> {
         .filter(|(id, _)| *id != 0)
         .collect();
     let name_of = |id: u32| names.get(&id).cloned().unwrap_or_else(|| format!("#{id}"));
-    let mut out = Run::default();
+    let mut out = Run {
+        managers,
+        ..Run::default()
+    };
     let record = |world: &World,
                   out: &mut BTreeMap<String, Vec<State>>,
                   handles: &BTreeMap<String, Option<ObjHandle>>| {
@@ -984,6 +1000,9 @@ fn scenarios_against_the_oracle() {
             continue;
         };
         let ours = &our_run.states;
+        for m in &our_run.managers {
+            let _ = writeln!(summary, "{}: {m}", s.name);
+        }
         for (name, states) in ours {
             if let Some(last) = states.last() {
                 let _ = writeln!(
