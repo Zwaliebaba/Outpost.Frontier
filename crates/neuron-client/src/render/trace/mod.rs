@@ -84,7 +84,11 @@ pub struct Call {
     pub interface: String,
     pub method: String,
     pub args: Json,
+    /// The recorded result; 0 when the line has none.
     pub ret: i64,
+    /// Whether the line records a result. Snapshot lines the proxy writes
+    /// itself (the stream selection) have none.
+    pub has_ret: bool,
     pub snapshot: bool,
     pub synthetic: bool,
 }
@@ -206,6 +210,7 @@ pub fn parse_line(text: &str) -> Result<Line, TraceError> {
         method: method.to_owned(),
         args: v.get("args").cloned().unwrap_or(Json::Object(Vec::new())),
         ret: int("ret").unwrap_or(0),
+        has_ret: v.get("ret").is_some(),
         snapshot: v.get("snapshot").is_some(),
         synthetic: v.get("synthetic").is_some(),
     }))
@@ -503,8 +508,12 @@ impl<'a, B: Backend> ModelReplay<'a, B> {
         }
     }
 
+    /// Compares the result with the recorded one; a line without one
+    /// compares nothing.
     fn compare_ret(&mut self, call: &Call, got: i64) {
-        self.compare(call, "ret", call.ret, got);
+        if call.has_ret {
+            self.compare(call, "ret", call.ret, got);
+        }
     }
 
     fn texture(
@@ -1021,13 +1030,15 @@ impl<'a, B: Backend> ModelReplay<'a, B> {
                 }
             }
             "SelectVb" => {
-                let h = self.vb(call, "Handle")?;
-                let r = match Self::arg(call, "Handle")?.as_i64() {
-                    Some(0) => self.device.buffers.select_vb(None),
-                    _ => self
-                        .device
+                // 0 selects no buffer (the snapshot's selection right after
+                // `CreateBuffers`); it is no id, so it is tested first.
+                let r = if Self::arg(call, "Handle")?.as_i64() == Some(0) {
+                    self.device.buffers.select_vb(None)
+                } else {
+                    let h = self.vb(call, "Handle")?;
+                    self.device
                         .buffers
-                        .select_vb(h.or(self.device.buffers.streams.vertex_buffer)),
+                        .select_vb(h.or(self.device.buffers.streams.vertex_buffer))
                 };
                 self.compare_ret(call, if r.is_ok() { GR_OK } else { E_FAIL });
             }
@@ -1095,7 +1106,22 @@ impl<'a, B: Backend> ModelReplay<'a, B> {
                 );
                 self.compare(call, "drawn", call.ret >= 0, r.is_ok());
             }
-            "ClearBuffers" => self.device.clear(Self::u(call, "Flags")?, None),
+            "ClearBuffers" => {
+                // `Rects`: four words (left, top, right, bottom) or null.
+                let rect = match Self::arg(call, "Rects")? {
+                    Json::Null => None,
+                    v => Some(
+                        words(v)
+                            .filter(|w| w.len() == 4)
+                            .map(|w| std::array::from_fn(|i| w[i] as i32))
+                            .ok_or(TraceError::BadArgument {
+                                method: call.method.clone(),
+                                arg: "Rects",
+                            })?,
+                    ),
+                };
+                self.device.clear(Self::u(call, "Flags")?, rect);
+            }
             "SwapBuffers" => self.device.present(),
             "SetViewportRect" => self.device.set_viewport(
                 Self::u(call, "X")?,
@@ -1322,6 +1348,20 @@ mod tests {
             r.replay(r#"{"defaults":{"render":{"138":1}},"seq":9,"frame":0,"synthetic":true}"#),
             Err(TraceError::BadArgument { arg: "render", .. })
         ));
+    }
+
+    #[test]
+    fn snapshot_selection_of_no_buffer_and_clear_rectangles_replay() {
+        let trace = r#"{"format":"outpost-render-trace","version":1}
+{"seq":5,"frame":1,"interface":"IVertexBufferManager","method":"SelectVb","args":{"Handle":0},"snapshot":2,"synthetic":true}
+{"seq":6,"frame":1,"interface":"IRenderPipeline","method":"ClearBuffers","args":{"Flags":1,"Rects":["00000010","0000000c","00000030","00000028"]},"ret":0}
+{"seq":7,"frame":1,"interface":"IRenderPipeline","method":"ClearBuffers","args":{"Flags":3,"Rects":null},"ret":0}"#;
+        let mut r = ModelReplay::new(Defaults::builtin(), 64, 64, &NoBlobs);
+        assert_eq!(r.replay(trace).unwrap(), 3);
+        assert!(r.mismatches.is_empty(), "{:?}", r.mismatches);
+        let clears = &r.device.backend.clears;
+        assert_eq!(clears[0].rect, Some([16, 12, 48, 40]));
+        assert_eq!(clears[1].rect, None);
     }
 
     #[test]

@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use neuron_client::render::ff::defaults::Defaults;
 use neuron_client::render::ff::state::{PipelineProperty, RenderStateId};
 use neuron_client::render::trace::json::Json;
-use neuron_client::render::trace::{BlobSource, Call, Line, ModelReplay, parse_line};
+use neuron_client::render::trace::{BlobSource, Line, ModelReplay, parse_line};
 
 /// Pipeline slot 6 after `CreateBuffers` is the stage count DX8RENDERER's
 /// `ApplyDeviceCaps` stores there, not the table's default; the traces
@@ -81,30 +81,16 @@ fn back_buffer(text: &str) -> (u32, u32) {
     panic!("no CreateBuffers line");
 }
 
-/// Whether `call` is the snapshot's synthetic `SelectVb` of no buffer.
+/// `ModelReplay::replay`, line by line, naming the line that fails.
 ///
 /// Every selected frame's snapshot ends with the stream selection
 /// (README.md, "Recorded frames"); right after `CreateBuffers` it is
-/// `{"Handle":0}`, written without a `ret`. `ModelReplay::apply` looks the
-/// handle up in its id table, where 0 is not an id, and would compare the
-/// missing `ret` (read as 0) with the `E_FAIL` that `SelectVb(nullptr)`
-/// returns. Until the reader handles that line, the test applies it to the
-/// model directly: it resets the stream selection, as the C++ call does.
-fn is_empty_snapshot_selection(call: &Call) -> bool {
-    call.snapshot
-        && call.synthetic
-        && call.method == "SelectVb"
-        && call.args.get("Handle").and_then(Json::as_i64) == Some(0)
-}
-
-/// `ModelReplay::replay`, line by line, with the one exception above.
+/// `{"Handle":0}` without a `ret`, which the reader applies as no buffer
+/// and does not compare.
 fn replay_trace(replay: &mut ModelReplay<'_>, name: &str, text: &str) -> u64 {
     let mut applied = 0;
     for line in text.lines().filter(|l| !l.trim().is_empty()) {
         match parse_line(line).unwrap_or_else(|e| panic!("{name}: {e}")) {
-            Line::Call(call) if is_empty_snapshot_selection(&call) => {
-                assert!(replay.device.buffers.select_vb(None).is_err());
-            }
             Line::Call(call) => {
                 replay
                     .apply(&call)
