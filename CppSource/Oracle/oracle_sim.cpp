@@ -840,9 +840,58 @@ namespace
     // Phase 0 opens the record of each psi core in the unit: the environment's values, the
     // controller inputs and the core state before the unit's PSI. Phase 1 closes its pushes
     // and adds the movement check.
+    // units.jsonl: the simulation units of the first kUnitPsis PSIs in the order they ran,
+    // each with its cores' objects and whether the environment's movement-check countdown
+    // came to it (which unit classifies its motion depends on how many units share it).
+    const unsigned int kUnitPsis = 120;
+    FILE* GUnitFile = nullptr;
+    unsigned int GUnitPsi = 0;
+    FOracleJson* GUnitLine = nullptr;
+
+    void UnitRecord(IVP_Simulation_Unit* Unit, int Phase, bool bMovementCheck)
+    {
+        if (GUnitFile == nullptr || GPsiSeq > kUnitPsis)
+            return;
+        if (GUnitPsi != GPsiSeq)
+        {
+            if (GUnitLine != nullptr)
+            {
+                GUnitLine->EndArray();
+                fputs(GUnitLine->Finish().c_str(), GUnitFile);
+                fputc('\n', GUnitFile);
+                delete GUnitLine;
+            }
+            GUnitPsi = GPsiSeq;
+            GUnitLine = new FOracleJson();
+            GUnitLine->Str("rec", "units");
+            GUnitLine->Uint("tick", GTick);
+            GUnitLine->Uint("psi", GPsiSeq);
+            GUnitLine->BeginArray("units");
+        }
+        if (Phase == 0)
+        {
+            GUnitLine->BeginArray(nullptr);
+            int const Count = OracleSimUnitCoreCount(Unit);
+            for (int Index = 0; Index < Count; ++Index)
+            {
+                CObject* const Object = OracleSimUnitCoreObject(Unit, Index);
+                bool const bSimple =
+                    Object != nullptr && ((unsigned)Object->ObjectClass & 3u) == 3u;
+                GUnitLine->Uint(nullptr, bSimple ? static_cast<CSimple*>(Object)->Id : 0);
+                GUnitLine->Uint(nullptr, Object != nullptr ? (unsigned)Object->ObjectClass : 0);
+            }
+        }
+        else
+        {
+            GUnitLine->Bool(nullptr, bMovementCheck);
+            GUnitLine->EndArray();
+        }
+    }
+
     void __cdecl OnSimUnitPsi(IVP_Environment* Environment, IVP_Simulation_Unit* Unit, int Phase,
                               bool bMovementCheck)
     {
+        UnitRecord(Unit, Phase, bMovementCheck);
         if (Phase != 0)
         {
             for (FPsiRecord& Record : GPsiRecords)
@@ -2033,6 +2082,7 @@ namespace oracle
         GOracleSimHooks.bSinglePlayerCollisions = GScenario.bSpCollisions;
         GOracleSimHooks.OnPsi = OnPsi;
         GOracleSimHooks.OnSimUnitPsi = OnSimUnitPsi;
+        GUnitFile = fopen((OutDir + "\\units.jsonl").c_str(), "wb");
         GOracleSimHooks.OnCorePush = OnCorePush;
         GOracleSimHooks.OnCollisionDamage = OnCollisionDamage;
         GOracleSimHooks.OnMunitionHit = OnMunitionHit;

@@ -530,18 +530,11 @@ fn run(s: &Scenario) -> Option<Run> {
     let mut handles: BTreeMap<String, Option<ObjHandle>> = BTreeMap::new();
     let mut managers = Vec::new();
     let mut pathfind_phases = None;
-    // Only the solars the scenario names: the oracle's server loads the
-    // whole system, but nothing else is near the scenario objects, and the
-    // contact pass over every solar is slow in a debug build.
-    let named: Vec<u32> = s
-        .objects
-        .iter()
-        .filter(|o| !o.ship)
-        .map(|o| create_id(o.nickname.as_bytes()))
-        .collect();
-    if !named.is_empty() {
-        world.load_system_solars_where(system, |n| named.contains(&n));
-    }
+    // Every solar of the system, as the oracle's `StarSystem::load` builds
+    // them: a spinning one is a simulation unit of its own, and every unit
+    // takes its turn at the environment's movement-check countdown, which
+    // decides when the scenario ships' motion is classified.
+    world.load_system_solars(system);
     if s.sp_collisions {
         world.set_server_collision_filter(system, false);
     }
@@ -1276,6 +1269,46 @@ fn report_cores(
             if let Some(c) = cores.get(t) {
                 let _ = writeln!(summary, "    rust core after tick {t}: {c}");
             }
+        }
+    }
+    // The simulation units of each PSI (`units.jsonl`): how many share the
+    // movement-check countdown and which one it came to.
+    if let Some(file) = find_files(&dir.join(scenario), "units.jsonl")
+        .into_iter()
+        .min()
+    {
+        for r in read_lines(&file) {
+            let psi = r.get("psi").and_then(Json::as_u32).unwrap_or(0) as usize;
+            if psi > first + 2 {
+                break;
+            }
+            let units = r.get("units").and_then(Json::as_array).unwrap_or_default();
+            let ids = |u: &Json| {
+                u.as_array().map_or_else(String::new, |a| {
+                    a.iter()
+                        .filter_map(Json::as_u32)
+                        .collect::<Vec<_>>()
+                        .chunks(2)
+                        .map(|c| format!("{}:{:x}", c[0], c.get(1).copied().unwrap_or(0)))
+                        .collect::<Vec<_>>()
+                        .join("+")
+                })
+            };
+            let checked: Vec<String> = units
+                .iter()
+                .filter(|u| {
+                    u.as_array().and_then(|a| a.last()).and_then(Json::as_bool) == Some(true)
+                })
+                .map(ids)
+                .collect();
+            let all: Vec<String> = units.iter().map(ids).collect();
+            let _ = writeln!(
+                summary,
+                "    oracle units psi {psi}: {} [{}], check to {:?}",
+                units.len(),
+                all.join(" "),
+                checked
+            );
         }
     }
     let Some(file) = find_files(&dir.join(scenario), "psi.jsonl")

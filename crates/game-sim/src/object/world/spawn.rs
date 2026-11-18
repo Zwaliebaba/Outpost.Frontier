@@ -1263,6 +1263,14 @@ impl World {
                     spawn.dock_with = neuron_core::id::create_id(&reader.value_string());
                 } else if reader.is_value(b"atmosphere_range") {
                     spawn.atmosphere_range = crate::data::value_f32(&mut reader, 0);
+                } else if reader.is_value(b"spin") {
+                    // `CSolar::ReadObj` (`common_csolar.cpp:756`): the object-space
+                    // angular velocity `init_physics` gives the body.
+                    spawn.angular_velocity = Vector::new(
+                        crate::data::value_f32(&mut reader, 0),
+                        crate::data::value_f32(&mut reader, 1),
+                        crate::data::value_f32(&mut reader, 2),
+                    );
                 }
             }
             if spawn.nickname == 0
