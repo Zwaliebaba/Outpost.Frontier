@@ -9,7 +9,10 @@
 //!
 //! `ai_nav` is compared as text. `ai_nav_turn` holds
 //! `NudgeObstaclePathPoint`, whose last branch turns through a sine and a
-//! cosine (decision T11); its floats are compared within a bound.
+//! cosine (decision T11), and `ai_idea` the movement ideas' helpers
+//! (`MoveIdea::SetDirection`, `LimitAxisThrottleForTurn`,
+//! `ComputeBankedSteeringFrame`), which go through arc cosines; their
+//! floats are compared within a bound.
 
 mod support;
 
@@ -19,6 +22,7 @@ use game_sim::ai::avoidance::{
     AvoidSlot, SLOT_COUNT, average_active_direction, nudge_obstacle_path_point,
     resolve_obstacle_candidate_slot,
 };
+use game_sim::ai::bank::{compute_banked_steering_frame, limit_axis_throttle_for_turn};
 use game_sim::ai::intercept::{
     estimate_lead_intercept_distance, estimate_turn_circle_approach_cost, get_intercept_clearance,
     get_intercept_clearance_of_iface, iface_vector_magnitude, is_aligned_and_outside_heading_cone,
@@ -26,6 +30,7 @@ use game_sim::ai::intercept::{
     is_within_intercept_range_of_iface, shape_biased_avoid_direction,
     signed_radial_clearance_to_point, transform_bounding_box_corners,
 };
+use game_sim::ai::move_idea::MoveIdea;
 use game_sim::ai::world::{MotionModel, ObjectView, ThrustEquipType};
 use neuron_core::math::{Matrix, Transform, Vector};
 
@@ -65,17 +70,23 @@ impl MotionModel for Object {
     fn time_to_accelerate_angularly(&self, _: f32, _: f32, _: f32) -> f32 {
         0.0
     }
-    fn angular_distance_travelled(&self, _: f32, _: f32, _: f32) -> f32 {
-        0.0
+    fn time_to_accelerate_angularly_max(&self, _: f32, _: f32, dt: f32, max: f32) -> f32 {
+        dt + max
+    }
+    fn angular_distance_travelled_max(&self, _: f32, _: f32, dt: f32, max: f32) -> f32 {
+        dt * max
+    }
+    fn angular_distance_travelled(&self, _: f32, to: f32, dt: f32) -> f32 {
+        to * dt
     }
     fn angular_speed_xy(&self, _: f32, _: f32) -> f32 {
         self.angular_speed_xy
     }
-    fn angular_speed_z(&self, _: f32) -> f32 {
-        0.0
+    fn angular_speed_z(&self, speed: f32) -> f32 {
+        speed * self.angular_speed_xy
     }
-    fn projected_axis_throttle_xy(&self, _: f32) -> f32 {
-        0.0
+    fn projected_axis_throttle_xy(&self, speed: f32) -> f32 {
+        speed * 0.5
     }
     fn projected_axis_throttle_z(&self, _: f32) -> f32 {
         0.0
@@ -106,6 +117,8 @@ fn object(words: &[u32]) -> Object {
         extents: (!extents_fail).then(|| (vec_at(words, 22), vec_at(words, 25))),
         throttle: Some(fl(words, 30)),
         atmosphere_range: fl(words, 33),
+        axis_throttle: Some(vec_at(words, 15)),
+        max_bank_angle: 0.6,
         ..ObjectView::default()
     };
     Object {
@@ -289,13 +302,18 @@ fn ai_nav_turn() {
         }
         lines.push(l.done());
     }
-    let name = "ai_nav_turn.jsonl";
+    check_within("ai_nav_turn.jsonl", &lines, &["nudge0", "nudge1"]);
+}
+
+/// Compares `lines` with the committed suite, the floats of `keys` within
+/// 64 ulps or 1e-5 (or writes it when blessing).
+fn check_within(name: &str, lines: &[String], keys: &'static [&'static str]) {
     if std::env::var_os("OUTPOST_BLESS_VECTORS").is_some() {
-        check_suite(name, &lines);
+        check_suite(name, lines);
         return;
     }
     let tolerance = Tolerance {
-        keys: &["nudge0", "nudge1"],
+        keys,
         ulps: 64,
         absolute: 1.0e-5,
     };
@@ -305,7 +323,7 @@ fn ai_nav_turn() {
     let committed = fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     let committed: Vec<&str> = committed.lines().collect();
     assert_eq!(committed.len(), lines.len(), "{name}: line count");
-    for (index, (want, got)) in committed.iter().zip(&lines).enumerate() {
+    for (index, (want, got)) in committed.iter().zip(lines).enumerate() {
         if let Err(why) = tolerance.compare_line(want, got) {
             panic!(
                 "{name} line {}: {why}\n  oracle: {want}\n  rust:   {got}",
@@ -313,4 +331,71 @@ fn ai_nav_turn() {
             );
         }
     }
+}
+
+/// Tier B in `limit` and `bank`: the movement ideas' helpers.
+#[test]
+fn ai_idea() {
+    let mut lines = Vec::new();
+    for (index, c) in cases().iter().enumerate() {
+        let mut l = Line::new();
+        l.add("in", index.to_string());
+        let mut idea = MoveIdea::<u32>::new();
+        idea.set_direction(c.point);
+        l.add("dir", v3(idea.direction));
+        idea.set_direction_from(&c.a.view.orientation);
+        l.add("dir_from", v3(idea.direction));
+
+        let a = &c.a.view;
+        let motion: &dyn MotionModel = &c.a;
+        let ref_angle = f32_mul(c.threshold, 0.01);
+        let target = c.b.view.orientation;
+        let limit: Vec<String> = [false, true]
+            .iter()
+            .map(|&bank| {
+                v3(limit_axis_throttle_for_turn(
+                    Some(a),
+                    Some(motion),
+                    c.b.view.velocity,
+                    &target,
+                    c.angular,
+                    ref_angle,
+                    bank,
+                ))
+            })
+            .collect();
+        l.add("limit", limit.join(","));
+
+        let m = target.to_words();
+        let target_dir = Vector::new(m[1], m[4], m[7]);
+        let banked: Vec<String> = [0_u8, 1]
+            .iter()
+            .map(|&mode| {
+                let mut frame = target;
+                let mut bank_vector = c.b.view.angular_velocity;
+                let steered = compute_banked_steering_frame(
+                    a,
+                    Some(motion),
+                    target_dir,
+                    &mut frame,
+                    &mut bank_vector,
+                    mode,
+                );
+                format!(
+                    "{},{},{}",
+                    b(steered),
+                    fs(&frame.to_words()),
+                    v3(bank_vector)
+                )
+            })
+            .collect();
+        l.add("bank", banked.join(","));
+        lines.push(l.done());
+    }
+    check_within("ai_idea.jsonl", &lines, &["limit", "bank"]);
+}
+
+/// A `float` product.
+fn f32_mul(a: f32, b: f32) -> f32 {
+    (f64::from(a) * f64::from(b)) as f32
 }

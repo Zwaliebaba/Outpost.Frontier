@@ -3,7 +3,7 @@
 // (common_obstacleavoidance.cpp), over crates/game-sim/tests/fixtures/oracle/ai_nav.list
 // (written by make_ai_nav_fixtures.py). Run from RunAiSuites (oracle_ai.cpp). The Rust test
 // crates/game-sim/tests/oracle_ai_nav.rs writes the same lines; the committed vectors are
-// crates/game-sim/tests/vectors/ai_nav.jsonl and ai_nav_turn.jsonl.
+// crates/game-sim/tests/vectors/ai_nav.jsonl, ai_nav_turn.jsonl and ai_idea.jsonl.
 //
 // The helpers are internal to Common.dll; Common/oracle_ai.cpp exports wrappers over them
 // that build an IObjInspect from each FOracleAiObject (include/oracle_ai.h).
@@ -28,6 +28,7 @@ using namespace oracle;
 
 void AiNavSuite();
 void AiNavTurnSuite();
+void AiIdeaSuite();
 
 namespace
 {
@@ -169,6 +170,45 @@ void AiNavSuite()
         float Slot[7] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
         const int bSlot = OracleAiResolveCandidateSlot(&N.B, Slot);
         L.Add("slot", Format("%d,", bSlot) + NavFs(Slot, 7));
+        Out.Line(L.Done());
+    });
+}
+
+// The movement ideas' helpers. Tier B in "limit" and "bank" (acos, sin, cos).
+void AiIdeaSuite()
+{
+    Suite Out("ai_idea.jsonl");
+    ForEachNav("ai_idea", [&](int Case, const FNav& N) {
+        FLine L;
+        L.Add("in", Format("%d", Case));
+        float Dir[3];
+        OracleAiMoveSetDirection(N.Point, Dir);
+        L.Add("dir", NavFs(Dir, 3));
+        OracleAiMoveSetDirectionFrom(N.A.Rotation, Dir);
+        L.Add("dir_from", NavFs(Dir, 3));
+
+        const float RefAngle = N.Threshold * 0.01f;
+        std::string Limit;
+        for (int Bank = 0; Bank < 2; ++Bank)
+        {
+            float Limited[3];
+            OracleAiLimitAxisThrottle(&N.A, N.B.Velocity, N.B.Rotation, N.Angular, RefAngle, Bank, Limited);
+            Limit += (Bank != 0 ? "," : "") + NavFs(Limited, 3);
+        }
+        L.Add("limit", Limit);
+
+        const float TargetDir[3] = {N.B.Rotation[1], N.B.Rotation[4], N.B.Rotation[7]};
+        std::string Banked;
+        for (int Mode = 0; Mode < 2; ++Mode)
+        {
+            float Frame[9];
+            memcpy(Frame, N.B.Rotation, sizeof(Frame));
+            float Bank[3];
+            memcpy(Bank, N.B.AngularVelocity, sizeof(Bank));
+            const int bSteered = OracleAiBankedSteeringFrame(&N.A, TargetDir, Frame, Bank, Mode);
+            Banked += Format(Mode != 0 ? ",%d," : "%d,", bSteered) + NavFs(Frame, 9) + "," + NavFs(Bank, 3);
+        }
+        L.Add("bank", Banked);
         Out.Line(L.Done());
     });
 }

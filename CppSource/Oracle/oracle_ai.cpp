@@ -35,6 +35,7 @@ std::vector<IStateGraph const*> LoadedStateGraphs();
 // The navigation suites (oracle_ai_nav.cpp).
 void AiNavSuite();
 void AiNavTurnSuite();
+void AiIdeaSuite();
 
 namespace
 {
@@ -433,4 +434,5 @@ void RunAiSuites()
     GuardedAiSuite("ai_personality", PersonalitySuite);
     GuardedAiSuite("ai_nav", AiNavSuite);
     GuardedAiSuite("ai_nav_turn", AiNavTurnSuite);
+    GuardedAiSuite("ai_idea", AiIdeaSuite);
 }

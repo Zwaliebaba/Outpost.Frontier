@@ -147,6 +147,24 @@ COMMON_API int __cdecl OracleAiResolveCandidateSlot(FOracleAiObject const* Candi
 COMMON_API int __cdecl OracleAiNudgePathPoint(float const* Slot, float const* Point, float const* Xform,
                                               int bExtraCheck, float* OutPoint);
 
+// The movement ideas' helpers (common_moveidea.cpp, common_aisteer.cpp). For these the fake
+// also answers get_axis_throttle (the record's angular velocity), the four-argument
+// get_time_to_accelerate_angularly (Dt + MaxSpeed) and get_angular_distance_travelled
+// (Dt * MaxSpeed), the three-argument get_angular_distance_travelled (To * Dt),
+// get_angular_speed_Z (Speed * AngularSpeedXY), get_projected_axis_throttle_XY (Speed * 0.5f)
+// and get_max_bank_angle (0.6f).
+// MoveIdea::SetDirection / SetDirectionFrom (Basis is a Matrix) on a new MoveIdea; Out is
+// its Direction.
+COMMON_API void __cdecl OracleAiMoveSetDirection(float const* Dir, float* Out);
+COMMON_API void __cdecl OracleAiMoveSetDirectionFrom(float const* Basis, float* Out);
+// LimitAxisThrottleForTurn; Obj may be null.
+COMMON_API void __cdecl OracleAiLimitAxisThrottle(FOracleAiObject const* Obj, float const* Command,
+                                                  float const* TargetFrame, float TurnAngle, float ReferenceAngle,
+                                                  int bBankBlend, float* Out);
+// ComputeBankedSteeringFrame; Frame (9) and Bank (3) are read and written back.
+COMMON_API int __cdecl OracleAiBankedSteeringFrame(FOracleAiObject const* Elem, float const* TargetDir, float* Frame,
+                                                   float* Bank, int Mode);
+
 // ---------------------------------------------------------------------------
 // The behaviour-tick recorder (Oracle/oracle_sim_ai.cpp).
 // ---------------------------------------------------------------------------

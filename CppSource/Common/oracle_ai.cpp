@@ -16,6 +16,7 @@
 #include "common_aisteer.h"
 #include "common_aisteer_internal.h"  // CmnAiSteer::SteeringFrameFromRelativeDir
 #include "common_misc.h"           // RandomVector
+#include "common_idea.h"           // MoveIdea
 
 #include <cstring>
 #include <new>
@@ -434,7 +435,7 @@ namespace
         int get_shield_status(float&, float&, bool&) const override { return -1; }
         int get_shield_status(float&, bool&) const override { return -1; }
         int get_throttle(float& OutThrottle) const override { OutThrottle = Data.Throttle; return 0; }
-        int get_axis_throttle(Vector&) const override { return -1; }
+        int get_axis_throttle(Vector& OutThrottle) const override { OutThrottle = AngularVelocity; return 0; }
         int get_nudge_vec(Vector&) const override { return -1; }
         int get_strafe_dir(StrafeDir&) const override { return -1; }
         int is_cruise_active(bool&, bool&) const override { return -1; }
@@ -471,14 +472,20 @@ namespace
         float get_speed(float, ThrustEquipType) const override { return Data.Speed; }
         float get_initial_speed_to_coast_distance(float, bool) const override { return 0.0f; }
         float get_time_to_accelerate_angularly(float, float, float) const override { return 0.0f; }
-        float get_time_to_accelerate_angularly(float, float, float, float) const override { return 0.0f; }
-        float get_angular_distance_travelled(float, float, float) const override { return 0.0f; }
-        float get_angular_distance_travelled(float, float, float, float) const override { return 0.0f; }
+        float get_time_to_accelerate_angularly(float, float, float Dt, float MaxSpeed) const override
+        {
+            return Dt + MaxSpeed;
+        }
+        float get_angular_distance_travelled(float, float To, float Dt) const override { return To * Dt; }
+        float get_angular_distance_travelled(float, float, float Dt, float MaxSpeed) const override
+        {
+            return Dt * MaxSpeed;
+        }
         float get_angular_speed_XY(float, float) const override { return Data.AngularSpeedXY; }
-        float get_angular_speed_Z(float) const override { return 0.0f; }
-        float get_projected_axis_throttle_XY(float) const override { return 0.0f; }
+        float get_angular_speed_Z(float Speed) const override { return Speed * Data.AngularSpeedXY; }
+        float get_projected_axis_throttle_XY(float Speed) const override { return Speed * 0.5f; }
         float get_projected_axis_throttle_Z(float) const override { return 0.0f; }
-        float get_max_bank_angle() const override { return 0.0f; }
+        float get_max_bank_angle() const override { return 0.6f; }
         int get_scanlist(ScanList const*&, uint, bool) const override { return -1; }
         int get_tgt_lead_fire_pos(unsigned short const&, Vector&) const override { return -1; }
         int is_pointing_at(bool&, unsigned short const&, float) const override { return -1; }
@@ -666,4 +673,50 @@ int __cdecl OracleAiNudgePathPoint(float const* Slot, float const* Point, float 
     int const Code = NudgeObstaclePathPoint(S, ToVector(Point), X, &Result, bExtraCheck != 0);
     FromVector(OutPoint, Result);
     return Code;
+}
+
+void __cdecl OracleAiMoveSetDirection(float const* Dir, float* Out)
+{
+    MoveIdea Idea;
+    Idea.SetDirection(ToVector(Dir));
+    FromVector(Out, Idea.Direction);
+}
+
+void __cdecl OracleAiMoveSetDirectionFrom(float const* Basis, float* Out)
+{
+    Matrix const M = ToMatrix(Basis);
+    MoveIdea Idea;
+    Idea.SetDirectionFrom(&M);
+    FromVector(Out, Idea.Direction);
+}
+
+void __cdecl OracleAiLimitAxisThrottle(FOracleAiObject const* Obj, float const* Command, float const* TargetFrame,
+                                       float TurnAngle, float ReferenceAngle, int bBankBlend, float* Out)
+{
+    Matrix const Frame = ToMatrix(TargetFrame);
+    Vector Result;
+    if (Obj == nullptr)
+    {
+        LimitAxisThrottleForTurn(Result, nullptr, ToVector(Command), &Frame, TurnAngle, ReferenceAngle,
+                                 bBankBlend != 0);
+    }
+    else
+    {
+        FOracleFakeInspect const I(*Obj);
+        LimitAxisThrottleForTurn(Result, &I, ToVector(Command), &Frame, TurnAngle, ReferenceAngle, bBankBlend != 0);
+    }
+    FromVector(Out, Result);
+}
+
+int __cdecl OracleAiBankedSteeringFrame(FOracleAiObject const* Elem, float const* TargetDir, float* Frame,
+                                        float* Bank, int Mode)
+{
+    FOracleTarget E(*Elem);
+    Matrix Working = ToMatrix(Frame);
+    Vector BankVector = ToVector(Bank);
+    bool const bSteered = ComputeBankedSteeringFrame(&E.Target, ToVector(TargetDir), Working, BankVector,
+                                                     static_cast<unsigned char>(Mode));
+    FromMatrix(Frame, Working);
+    FromVector(Bank, BankVector);
+    return bSteered ? 1 : 0;
 }
