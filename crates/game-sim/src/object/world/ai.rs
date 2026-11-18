@@ -590,6 +590,10 @@ impl AiWorld for World {
         Some(World::scan_list(self, h))
     }
 
+    fn sub_object_center(&mut self, h: ObjHandle, sub: u16) -> Option<Vector> {
+        self.sub_obj_center_of_mass(h, sub)
+    }
+
     fn can_point_at(&self, h: ObjHandle, id: u16, point: Vector, angle: f32) -> bool {
         World::can_point_at(self, h, id, point, angle).unwrap_or(false)
     }

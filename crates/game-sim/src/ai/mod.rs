@@ -102,10 +102,12 @@ pub mod script;
 pub mod spline_move;
 pub mod state_graph;
 pub mod steer;
+pub mod strafe;
 pub mod system;
 pub mod target_manager;
 pub mod thrust;
 pub mod timer_table;
+pub mod trail;
 pub mod world;
 
 #[cfg(test)]

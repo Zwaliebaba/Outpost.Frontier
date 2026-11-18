@@ -1179,7 +1179,13 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
         }
         let manager = managers.entry(t.id).or_insert_with(|| {
             let mut m = BehaviorManager::from_state(ManagerState::new(is_player), Some(t.id));
-            m.attach_all(&mut world, t.id);
+            // The reference binds the behaviours when it builds the manager,
+            // before any tick: what their `SetContext` commands (a move
+            // idea leaving engine mode cuts the throttle) is no part of the
+            // tick, so they run against a world of their own.
+            let mut binding =
+                ReplayWorld::new(t, Vec::new(), motion.as_ref(), avoid_shuffled, &names);
+            m.attach_all(&mut binding, t.id);
             m.state.pathfind.owner_type = world.objects.get(&t.id).map_or(0, |v| v.type_flags);
             if let Some(v) = world.objects.get(&t.id) {
                 m.state.pathfind.avoidance.attach_owner(v);

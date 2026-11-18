@@ -593,6 +593,14 @@ pub trait AiWorld {
         None
     }
 
+    /// `get_sub_obj_center_of_mass(sub, out)` (`CEqObj`): an attached
+    /// item's or a group's centre; `None` when the call fails. The default
+    /// has none.
+    fn sub_object_center(&mut self, h: Self::Handle, sub: u16) -> Option<Vector> {
+        let _ = (h, sub);
+        None
+    }
+
     /// `CShip::get_targeted_enemy_count`: the live entries of the ship's
     /// targeter list. The default is 0.
     fn targeted_enemy_count(&self, h: Self::Handle) -> i32 {
