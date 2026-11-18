@@ -23,9 +23,10 @@ D120 removed before P2.4 merged, once the P2.1 `ClassifyPoint` was on
 The owner accepted D190 to D192 (P2.5) on 2026-11-18, as replacements of
 undefined behaviour in the reference.
 
-D180 to D183 (the shared remainder of P2.4) await the owner's review; with
-it D124 is proposed for removal (turret joints and the lock clock are driven
-now; what is left is D183) and D128 is narrowed to the power pass.
+The owner accepted D180 to D183 (the shared remainder of P2.4) on
+2026-11-18. On the same day D124 was removed (turret joints and the lock
+clock are driven now; what is left is D183; the ID is not reused) and D128
+was narrowed to the power pass.
 
 ID ranges, reserved on 2026-11-18 so that work packages running in
 parallel do not collide: IDs below D200 stay with Phases 2 and 3; D200 to
@@ -157,7 +158,6 @@ design choices.
 | D121 | `game-sim::object::world` | A still solar and every field asteroid are built with the construction template's fixed flag (`CreateParms` +0x1c), which makes the IVP core immovable | `neuron-core::physics` has no fixed flag; such a body is created and then deactivated (`PhySys::DeactivatePhysics`), which the contact solver treats as immovable | Technical decision T10 (no change to the P2.3 interface) | None expected; recorded until the scenario envelopes confirm it |
 | D122 | `game-sim::object::world` | `BuildIVP_Real` makes every non-fixed (`!fxd`) part of a compound a separate `CObject` with its own body and a golem holding it to its parent | Non-fixed parts stay with their owner's body | Technical decision T10; no ship or solar of the scenarios has one; deferred | Objects with free parts (some stations, debris) |
 | D123 | `game-sim::object::world` | A simple (non-compound) model's instance answers its part name's CRC, which picks the `.sur` part | A simple model's instance has no part name in `neuron-core::scene`; when its `.sur` holds exactly one part that part is used, otherwise the default part | Technical decision T10 | Simple models with several `.sur` parts |
-| D124 | `game-sim::equip::launcher` | `CEGun::Update` turns turret guns toward the target point through their yaw and pitch joints (`AnimDB`) and grows the lock while the lead position is in view | Turret joints are not driven; the lock clock grows only through `Gun::update_lock` with a visibility the caller supplies (the AI's, P2.5) | Technical decision T10; deferred to P2.5 with the fire control | Turrets aim along their rest direction; lock-on seekers |
 | D125 | `game-sim::object::world` | In single player `SrvGun::fire` launches no bullets (the client makes them); guided munitions get the server's `Guided` controller (motor and seeker) | `World::fire` makes the bullets on every side; guided munitions, mines and counter-measures fly as plain bodies (the server controllers are P3.3) | Decision O21 (one world: whichever side fires makes the bullets once); deferred | Missiles and mines do not steer or accelerate |
 | D126 | `game-sim::object::damage` | `EqObj::destroy_equip` drops loot for fates 4 and 5 (controller event, loot records, player visit), and `apply_damage_list` lights fuses, sends `ObjectDamaged`, tells the behaviour manager, and separates destroyed equipment and groups as debris (`destroy_sub_objs`) | The fate is kept on the entry and the item or group is marked destroyed; no loot, fuses, messages or debris | Technical decision T10; the server parts belong to P3.3 | Loot drops, fuse effects and debris of destroyed parts |
 | D127 | `game-sim::object::world` | `PhySys::Attach` merges a physically attached item's body into its owner's core; the item's mass and inertia do not change the core's | The same through `neuron-core::physics::PhysicsWorld::attach`; the equipment object's own collisions report as its owner's item | — (recorded for review: the reference never reaches a collision report for a `CEquipmentObj` with its own id) | Collisions with physically attached equipment |
