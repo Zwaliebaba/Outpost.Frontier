@@ -20,6 +20,9 @@ D122 and D123 to be revisited when multi-part ships and golems need them;
 D120 removed before P2.4 merged, once the P2.1 `ClassifyPoint` was on
 `main` (the ID is not reused); the rest as design choices.
 
+The owner accepted D190 to D192 (P2.5) on 2026-11-18, as replacements of
+undefined behaviour in the reference.
+
 | ID | Area | C++ behaviour | Rust behaviour | Reason | Observable effect |
 | --- | --- | --- | --- | --- | --- |
 | D1 | `neuron-core::ini::engine` | On a stray `]` or `=` at the start of a line, an over-long phrase, or a value that does not end the line, `FIniDatabase::Parse` executes `__debugbreak`; on a key before the first section it writes through a null section (`neuroncomponents.cpp`). Without a debugger the process ends | `EngineIni::load_*` returns `EngineIniError::Breakpoint` or `KeyBeforeSection`; the sections parsed before stay | Undefined behaviour in the reference | A malformed engine INI is reported instead of ending the program |
