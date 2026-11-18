@@ -1494,6 +1494,12 @@ mod tests {
         d.set_stage_texture(0, Some(t));
         d.state
             .set_stage_state(0, StageState::ColorOp(TextureOp::SelectArg1));
+        // Point sampling: Direct3D 12 filters across cube faces (seamless,
+        // D268), which with one-texel faces would mix in the neighbours.
+        d.state
+            .set_stage_state(0, StageState::MagFilter(TextureFilter::Point));
+        d.state
+            .set_stage_state(0, StageState::MinFilter(TextureFilter::Point));
         let directions: [[f32; 3]; 6] = [
             [1.0, 0.1, 0.2],
             [-1.0, 0.2, 0.1],
@@ -1522,6 +1528,37 @@ mod tests {
             );
             assert_eq!(pixel(&pixels, 4, 4), colours[face], "face {face}");
         }
+    }
+
+    /// A new back-buffer size without a window: the scene and depth are
+    /// made again and draw at the new size.
+    #[test]
+    fn the_scene_resizes() {
+        let Some(mut d) = device() else { return };
+        d.clear(ClearFlags::TARGET | ClearFlags::DEPTH, None);
+        d.present();
+        println!("resizing offscreen");
+        d.backend.resize(16, 4).unwrap();
+        println!("resized offscreen");
+        d.set_viewport(0, 0, 16, 4);
+        d.state
+            .set_pipeline(PipelineProperty::ClearColor, 0xff00_ff00);
+        d.clear(ClearFlags::TARGET | ClearFlags::DEPTH, None);
+        let pixels = d.backend.read_back().unwrap();
+        assert!(
+            d.backend.errors.is_empty(),
+            "{:?}\n{}",
+            d.backend.errors,
+            d.backend.debug_messages().join("\n")
+        );
+        assert_eq!(pixels.len(), 16 * 4 * 4);
+        assert!(
+            pixels
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|p| *p == [0, 255, 0, 255])
+        );
     }
 
     /// The final blit applies the gamma ramp; the scene, and so a
@@ -1589,7 +1626,9 @@ mod tests {
             d.present();
         }
         // A new back-buffer size: the scene and the swap chain follow.
+        println!("resizing with a window");
         d.backend.resize(16, 4).unwrap();
+        println!("resized");
         d.set_viewport(0, 0, 16, 4);
         d.state
             .set_pipeline(PipelineProperty::ClearColor, 0xff00_ff00);
