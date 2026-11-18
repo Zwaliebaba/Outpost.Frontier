@@ -273,6 +273,12 @@ impl D3d12Backend {
         self.pipelines.len()
     }
 
+    /// The debug layer's messages, when the layer is on.
+    #[must_use]
+    pub fn debug_messages(&self) -> Vec<String> {
+        self.gpu.debug_messages()
+    }
+
     fn fail(&mut self, result: Result<(), GpuError>) {
         if let Err(e) = result {
             self.errors.push(e);
@@ -985,6 +991,8 @@ mod tests {
     /// A device drawing on WARP, or `None` off CI where there is no WARP
     /// device (on CI a missing device fails).
     fn device() -> Option<Device<D3d12Backend>> {
+        let layer = super::super::enable_debug_layer();
+        println!("debug layer: {layer}");
         match D3d12Backend::new(AdapterChoice::Warp, SIZE, SIZE) {
             Ok(b) => Some(Device::new(Defaults::builtin(), SIZE, SIZE, b)),
             Err(e) if std::env::var_os("GITHUB_ACTIONS").is_some() => {
@@ -1027,7 +1035,12 @@ mod tests {
         let v = quad(|_, _| 0xffff_0000_u32.to_le_bytes().to_vec());
         d.draw_up(4, Fvf(0x044), &v, 6).unwrap();
         let pixels = d.backend.read_back().unwrap();
-        assert!(d.backend.errors.is_empty(), "{:?}", d.backend.errors);
+        assert!(
+            d.backend.errors.is_empty(),
+            "{:?}\n{}",
+            d.backend.errors,
+            d.backend.debug_messages().join("\n")
+        );
         for (x, y) in [(1, 1), (4, 4), (6, 2), (2, 6)] {
             assert_eq!(pixel(&pixels, x, y), [0, 0, 255, 255], "pixel {x},{y}");
         }
@@ -1075,7 +1088,12 @@ mod tests {
         });
         d.draw_up(4, Fvf(0x144), &v, 6).unwrap();
         let pixels = d.backend.read_back().unwrap();
-        assert!(d.backend.errors.is_empty(), "{:?}", d.backend.errors);
+        assert!(
+            d.backend.errors.is_empty(),
+            "{:?}\n{}",
+            d.backend.errors,
+            d.backend.debug_messages().join("\n")
+        );
         assert_eq!(pixel(&pixels, 1, 1), [0, 0, 255, 255]);
         assert_eq!(pixel(&pixels, 6, 1), [0, 255, 0, 255]);
         assert_eq!(pixel(&pixels, 1, 6), [255, 0, 0, 255]);

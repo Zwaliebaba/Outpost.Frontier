@@ -20,7 +20,7 @@ use windows::Win32::Graphics::Direct3D12::{
     D3D12_COMMAND_LIST_TYPE_DIRECT, D3D12_COMMAND_QUEUE_DESC, D3D12_CPU_DESCRIPTOR_HANDLE,
     D3D12_DESCRIPTOR_HEAP_DESC, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, D3D12_FENCE_FLAG_NONE,
     D3D12_HEAP_FLAG_NONE, D3D12_HEAP_PROPERTIES, D3D12_HEAP_TYPE_DEFAULT, D3D12_HEAP_TYPE_READBACK,
-    D3D12_PLACED_SUBRESOURCE_FOOTPRINT, D3D12_RANGE, D3D12_RESOURCE_BARRIER,
+    D3D12_MESSAGE, D3D12_PLACED_SUBRESOURCE_FOOTPRINT, D3D12_RANGE, D3D12_RESOURCE_BARRIER,
     D3D12_RESOURCE_BARRIER_0, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
     D3D12_RESOURCE_BARRIER_TYPE_TRANSITION, D3D12_RESOURCE_DESC, D3D12_RESOURCE_DIMENSION_BUFFER,
     D3D12_RESOURCE_DIMENSION_TEXTURE2D, D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET,
@@ -29,8 +29,9 @@ use windows::Win32::Graphics::Direct3D12::{
     D3D12_TEXTURE_COPY_LOCATION, D3D12_TEXTURE_COPY_LOCATION_0,
     D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
     D3D12_TEXTURE_DATA_PITCH_ALIGNMENT, D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
-    D3D12_TEXTURE_LAYOUT_UNKNOWN, D3D12CreateDevice, ID3D12CommandAllocator, ID3D12CommandList,
-    ID3D12CommandQueue, ID3D12DescriptorHeap, ID3D12Device, ID3D12Fence, ID3D12GraphicsCommandList,
+    D3D12_TEXTURE_LAYOUT_UNKNOWN, D3D12CreateDevice, D3D12GetDebugInterface,
+    ID3D12CommandAllocator, ID3D12CommandList, ID3D12CommandQueue, ID3D12Debug,
+    ID3D12DescriptorHeap, ID3D12Device, ID3D12Fence, ID3D12GraphicsCommandList, ID3D12InfoQueue,
     ID3D12Resource,
 };
 use windows::Win32::Graphics::Dxgi::Common::{
@@ -67,6 +68,25 @@ impl<T> Context<T> for windows::core::Result<T> {
             call,
             code: e.code().0,
         })
+    }
+}
+
+/// Turns on the Direct3D 12 debug layer for devices made afterwards, when
+/// the layer is installed (the Graphics Tools feature); true when it is on.
+/// For tests: the layer explains failed calls in [`Gpu::debug_messages`].
+pub fn enable_debug_layer() -> bool {
+    let mut debug: Option<ID3D12Debug> = None;
+    // SAFETY: a plain query with a valid out slot.
+    if unsafe { D3D12GetDebugInterface(&mut debug) }.is_err() {
+        return false;
+    }
+    match debug {
+        Some(debug) => {
+            // SAFETY: called before the devices it should affect are made.
+            unsafe { debug.EnableDebugLayer() };
+            true
+        }
+        None => false,
     }
 }
 
@@ -216,6 +236,40 @@ impl Gpu {
     #[must_use]
     pub fn device(&self) -> &ID3D12Device {
         &self.device
+    }
+
+    /// The debug layer's stored messages; empty without the layer.
+    #[must_use]
+    pub fn debug_messages(&self) -> Vec<String> {
+        let Ok(queue) = self.device.cast::<ID3D12InfoQueue>() else {
+            return Vec::new();
+        };
+        // SAFETY: plain queries of the queue.
+        let count = unsafe { queue.GetNumStoredMessages() };
+        let mut out = Vec::new();
+        for i in 0..count {
+            let mut len = 0usize;
+            // SAFETY: the first call asks only for the size.
+            if unsafe { queue.GetMessage(i, None, &mut len) }.is_err() || len == 0 {
+                continue;
+            }
+            // A u64 buffer keeps the message aligned.
+            let mut buf = vec![0u64; len.div_ceil(8)];
+            let message = buf.as_mut_ptr().cast::<D3D12_MESSAGE>();
+            // SAFETY: the buffer holds `len` bytes, as the queue asked.
+            if unsafe { queue.GetMessage(i, Some(message), &mut len) }.is_err() {
+                continue;
+            }
+            // SAFETY: the queue filled the message; its description is a
+            // NUL-terminated string inside the same buffer.
+            let text = unsafe {
+                std::ffi::CStr::from_ptr((*message).pDescription.cast())
+                    .to_string_lossy()
+                    .into_owned()
+            };
+            out.push(text);
+        }
+        out
     }
 }
 
