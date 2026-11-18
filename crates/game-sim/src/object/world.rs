@@ -30,6 +30,7 @@
 //! every body is the default part and no hardpoint is found.
 
 mod ai;
+mod ambient;
 mod animate;
 mod combat;
 mod sensors;
@@ -304,6 +305,14 @@ pub struct World {
     always_update: Vec<ObjHandle>,
     anim_channels: Vec<turret::AnimChannel>,
     anim_playbacks: Vec<(ObjHandle, animate::AnimKind)>,
+    /// The scene's animation component (`NeuronRuntime::Anim`), which
+    /// plays the ambient animations.
+    pub(crate) animation: neuron_core::scene::animation::Animation,
+    /// The animation scripts of archetype files, by path.
+    pub(crate) anim_scripts: BTreeMap<Vec<u8>, Option<Arc<neuron_core::anim::AnimScript>>>,
+    /// `AnimDB`'s playback map for the ambient animations
+    /// (`CEInternalFX`'s `use_animation`), by playback id.
+    pub(crate) ambient: BTreeMap<i32, ambient::AmbientSub>,
 }
 
 impl core::fmt::Debug for World {
@@ -389,6 +398,9 @@ impl World {
             always_update: Vec::new(),
             anim_channels: Vec::new(),
             anim_playbacks: Vec::new(),
+            animation: neuron_core::scene::animation::Animation::new(),
+            anim_scripts: BTreeMap::new(),
+            ambient: BTreeMap::new(),
         }
     }
 
@@ -616,6 +628,7 @@ impl World {
                 world.destroy_body(part.body);
             }
         }
+        self.end_ambient(h);
         if let Some(instance) = obj.engine.instance {
             self.instances.retain(|_, v| *v != h);
             self.scene.destroy_instance(instance);

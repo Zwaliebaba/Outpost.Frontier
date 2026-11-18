@@ -776,6 +776,14 @@ impl World {
         else {
             return;
         };
+        // `CEInternalFX::CEInternalFX`: a `use_animation` starts its
+        // ambient playback on the owner.
+        if let EquipmentKind::InternalFx { use_animation } = &arch.kind {
+            let name = self.data.strings.get(*use_animation).to_vec();
+            if !name.is_empty() {
+                self.start_ambient(owner, &name);
+            }
+        }
         equip.set_hit_points((f64::from(desc.health) * f64::from(arch.root.hit_pts)) as f32);
         // `CEShieldGenerator::CEShieldGenerator`: `LastUpdateTime` is the
         // global time at construction.
