@@ -129,7 +129,7 @@ jobs:
         if: ${{ !cancelled() }}
         shell: pwsh
         run: |
-          tar -czf "$env:RUNNER_TEMP\dogfight.tgz" -C "$env:RUNNER_TEMP\outpost-sim" dogfight/run_01 turn_to_heading/run_01
+          tar -czf "$env:RUNNER_TEMP\dogfight.tgz" -C "$env:RUNNER_TEMP\outpost-sim" dogfight/run_01 turn_to_heading/run_01 skirmish/run_01
           $b = [Convert]::ToBase64String([IO.File]::ReadAllBytes("$env:RUNNER_TEMP\dogfight.tgz"))
           Write-Host "DUMPLEN $($b.Length)"
           for ($i = 0; $i -lt $b.Length; $i += 8000) { Write-Host ("DUMP " + $b.Substring($i, [Math]::Min(8000, $b.Length - $i))) }
