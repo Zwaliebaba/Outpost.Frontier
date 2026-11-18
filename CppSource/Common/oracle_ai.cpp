@@ -368,3 +368,302 @@ bool __cdecl OracleAiReadManager(IBehaviorManager const* Manager, FOracleAiManag
     }
     return true;
 }
+
+// ---------------------------------------------------------------------------
+// The navigation suites (Oracle/oracle_ai_nav.cpp): an IObjInspect that answers from an
+// FOracleAiObject, and the wrappers over the intercept and obstacle-avoidance helpers.
+// ---------------------------------------------------------------------------
+
+namespace
+{
+    float const Zero3[3] = {0.0f, 0.0f, 0.0f};
+
+    Vector ToVec(float const* In)
+    {
+        Vector Out;
+        Out.x = In[0];
+        Out.y = In[1];
+        Out.z = In[2];
+        return Out;
+    }
+
+    // Every slot the helpers do not read fails (-1, 0, false or null). get_id answers 1.
+    class FOracleFakeInspect : public IObjInspect
+    {
+    public:
+        explicit FOracleFakeInspect(FOracleAiObject const& In) : Data(In)
+        {
+            for (int Row = 0; Row < 3; ++Row)
+            {
+                for (int Column = 0; Column < 3; ++Column)
+                    Xform.Rotation.E[Row][Column] = In.Rotation[Row * 3 + Column];
+            }
+            Xform.Translation = ToVec(In.Position);
+            Velocity = ToVec(In.Velocity);
+            AngularVelocity = ToVec(In.AngularVelocity);
+        }
+
+        Vector const& get_position() const override { return Xform.Translation; }
+        Vector get_velocity() const override { return Velocity; }
+        Vector get_angular_velocity() const override { return AngularVelocity; }
+        Transform const& get_transform() const override { return Xform; }
+        Matrix const& get_orientation() const override { return Xform.Rotation; }
+        Vector get_center_of_mass() const override { return ToVec(Zero3); }
+        int get_sub_obj_center_of_mass(unsigned short, Vector&) const override { return -1; }
+        long get_index() const override { return 0; }
+        unsigned int const get_id() const override { return 1; }
+        int get_good_id(unsigned&) const override { return -1; }
+        int get_archetype_extents(Vector& Min, Vector& Max) const override
+        {
+            if (Data.bExtentsFail != 0)
+            {
+                Min = ToVec(Zero3);
+                Max = ToVec(Zero3);
+                return -5;
+            }
+            Min = ToVec(Data.ExtentMin);
+            Max = ToVec(Data.ExtentMax);
+            return 0;
+        }
+        int get_physical_radius(float& Radius, Vector& Center) const override { Radius = Data.Radius; Center = ToVec(Data.Center); return 0; }
+        float get_mass() const override { return 0.0f; }
+        bool is_targetable() const override { return false; }
+        bool is_dying() const override { return false; }
+        int get_status(float&, float&) const override { return -1; }
+        int get_status(float&) const override { return -1; }
+        int get_shield_status(float&, float&, bool&) const override { return -1; }
+        int get_shield_status(float&, bool&) const override { return -1; }
+        int get_throttle(float& OutThrottle) const override { OutThrottle = Data.Throttle; return 0; }
+        int get_axis_throttle(Vector&) const override { return -1; }
+        int get_nudge_vec(Vector&) const override { return -1; }
+        int get_strafe_dir(StrafeDir&) const override { return -1; }
+        int is_cruise_active(bool&, bool&) const override { return -1; }
+        int is_cruise_active(bool&) const override { return -1; }
+        int are_thrusters_active(bool&) const override { return -1; }
+        int get_attitude_towards(float&, IObjInspect const*) const override { return -1; }
+        int get_attitude_towards_symmetrical(float&, IObjInspect const*, float&) const override { return -1; }
+        int get_reputation(float&, uint const&) const override { return -1; }
+        int get_target(IObjRW*&) const override { return -1; }
+        int get_subtarget(unsigned short&) const override { return -1; }
+        int get_subtarget_center_of_mass(Vector&) const override { return -1; }
+        int get_rank(uint&) const override { return -1; }
+        int get_affiliation(uint&) const override { return -1; }
+        int get_type(uint& OutType) const override { OutType = Data.Type; return 0; }
+        int get_base(uint&) const override { return -1; }
+        int get_dock_target(uint&) const override { return -1; }
+        int get_power(float&) const override { return -1; }
+        int get_zone_props(unsigned long&) const override { return -1; }
+        float get_scanner_interference() const override { return 0.0f; }
+        int get_hold_left(float&) const override { return -1; }
+        int enumerate_cargo(CargoEnumerator*) const override { return -1; }
+        int get_data(void const*&) const override { return -1; }
+        int get_formation_offset(Vector&) const override { return -1; }
+        int get_formation_leader(IObjRW*&) const override { return -1; }
+        int get_follow_offset(Vector&) const override { return -1; }
+        int get_follow_leader(IObjRW*&) const override { return -1; }
+        bool is_player() const override { return false; }
+        int get_hardpoint(char const*, Vector*, Matrix*) const override { return -1; }
+        bool has_dock_hardpoints() const override { return false; }
+        int get_dock_hardpoints(int, TERMINAL_TYPE*, Transform*, Transform*, Transform*, float*) const override { return -1; }
+        float get_time_to_accelerate(float, float, float, ThrustEquipType) const override { return 0.0f; }
+        float get_distance_travelled(float, float, float, ThrustEquipType) const override { return 0.0f; }
+        float get_projected_throttle(float, ThrustEquipType) const override { return 0.0f; }
+        float get_speed(float, ThrustEquipType) const override { return Data.Speed; }
+        float get_initial_speed_to_coast_distance(float, bool) const override { return 0.0f; }
+        float get_time_to_accelerate_angularly(float, float, float) const override { return 0.0f; }
+        float get_time_to_accelerate_angularly(float, float, float, float) const override { return 0.0f; }
+        float get_angular_distance_travelled(float, float, float) const override { return 0.0f; }
+        float get_angular_distance_travelled(float, float, float, float) const override { return 0.0f; }
+        float get_angular_speed_XY(float, float) const override { return Data.AngularSpeedXY; }
+        float get_angular_speed_Z(float) const override { return 0.0f; }
+        float get_projected_axis_throttle_XY(float) const override { return 0.0f; }
+        float get_projected_axis_throttle_Z(float) const override { return 0.0f; }
+        float get_max_bank_angle() const override { return 0.0f; }
+        int get_scanlist(ScanList const*&, uint, bool) const override { return -1; }
+        int get_tgt_lead_fire_pos(unsigned short const&, Vector&) const override { return -1; }
+        int is_pointing_at(bool&, unsigned short const&, float) const override { return -1; }
+        int can_point_at(bool&, unsigned short const&, Vector const&, float) const override { return -1; }
+        int find_equipment(unsigned short* const, uint, uint) const override { return -1; }
+        int get_equipment_status(EquipStatus&, unsigned short const&) const override { return -1; }
+        int get_equipment_val(EquipmentVal&, unsigned short const&, EquipmentValType, float) const override { return -1; }
+        int scan_cargo(IObjRW*, EquipDescVector&) const override { return -1; }
+        int enumerate_subtargets(SubtargetEnumerator*) const override { return -1; }
+        int get_lane_direction(Transform const&, bool*) const override { return -1; }
+        int get_ring_side(Transform const&, bool*) const override { return -1; }
+        int traverse_rings(uint&, bool) const override { return -1; }
+        int is_using_tradelane(bool*) const override { return -1; }
+        int get_lane_start(IObjInspect const*, IObjInspect const*&, Vector&, Vector&) const override { return -1; }
+        bool generate_follow_offset(IObjInspect const*, Transform&) const override { return false; }
+        int get_atmosphere_range(float& OutRange) const override { OutRange = Data.AtmosphereRange; return 0; }
+        int get_toughness() const override { return -1; }
+        int get_behavior_id() const override { return -1; }
+        int get_formation_followers(IObjRW** const, uint) const override { return -1; }
+        CObject const* cobject() const override { return nullptr; }
+
+    private:
+        FOracleAiObject Data;
+        Transform Xform;
+        Vector Velocity;
+        Vector AngularVelocity;
+    };
+
+    // An FAiTarget over a fake, its caches cleared.
+    struct FOracleTarget
+    {
+        FOracleFakeInspect Inspect;
+        FAiTarget Target;
+
+        explicit FOracleTarget(FOracleAiObject const& In) : Inspect(In)
+        {
+            std::memset(&Target, 0, sizeof(Target));
+            Target.Init(nullptr, &Inspect);
+        }
+    };
+
+    void ToSlot(float const* In, ObstacleAvoidance::Slot& Out)
+    {
+        Out.Timer = In[0];
+        Out.Point = ToVector(In + 1);
+        Out.Direction = ToVector(In + 4);
+    }
+
+    void FromSlot(float* Out, ObstacleAvoidance::Slot const& In)
+    {
+        Out[0] = In.Timer;
+        FromVector(Out + 1, In.Point);
+        FromVector(Out + 4, In.Direction);
+    }
+}
+
+double __cdecl OracleAiLeadInterceptDistance(FOracleAiObject const* Elem, FOracleAiObject const* Target)
+{
+    FOracleTarget E(*Elem);
+    FOracleFakeInspect const T(*Target);
+    return EstimateLeadInterceptDistance(&E.Target, &T);
+}
+
+double __cdecl OracleAiInterceptClearance(FOracleAiObject const* Elem, FOracleAiObject const* Target, int bOfIface)
+{
+    FOracleTarget E(*Elem);
+    FOracleTarget T(*Target);
+    return bOfIface != 0 ? GetInterceptClearanceOfIface(&E.Target, &T.Inspect)
+                         : GetInterceptClearance(&E.Target, &T.Target);
+}
+
+int __cdecl OracleAiWithinInterceptRange(FOracleAiObject const* Elem, FOracleAiObject const* Target,
+                                         float Threshold, int bOfIface)
+{
+    FOracleTarget E(*Elem);
+    FOracleTarget T(*Target);
+    bool const bIn = bOfIface != 0 ? IsWithinInterceptRangeOfIface(&E.Target, &T.Inspect, Threshold)
+                                   : IsWithinInterceptRange(&E.Target, &T.Target, Threshold);
+    return bIn ? 1 : 0;
+}
+
+int __cdecl OracleAiPointOutsideHeadingCone(float const* Point, FOracleAiObject const* Iface, float CosThreshold)
+{
+    if (Iface == nullptr)
+        return IsPointOutsideHeadingCone(ToVector(Point), nullptr, CosThreshold) ? 1 : 0;
+    FOracleFakeInspect const I(*Iface);
+    return IsPointOutsideHeadingCone(ToVector(Point), &I, CosThreshold) ? 1 : 0;
+}
+
+int __cdecl OracleAiAlignedOutsideHeadingCone(FOracleAiObject const* Elem, FOracleAiObject const* Target,
+                                              float CosThreshold)
+{
+    FOracleTarget E(*Elem);
+    if (Target == nullptr)
+        return IsAlignedAndOutsideHeadingCone(&E.Target, nullptr, CosThreshold) ? 1 : 0;
+    FOracleFakeInspect const T(*Target);
+    return IsAlignedAndOutsideHeadingCone(&E.Target, &T, CosThreshold) ? 1 : 0;
+}
+
+double __cdecl OracleAiSignedRadialClearance(FOracleAiObject const* Elem, float const* Point)
+{
+    FOracleTarget E(*Elem);
+    return GetSignedRadialClearanceToPoint(&E.Target, ToVector(Point));
+}
+
+int __cdecl OracleAiCoAlignedAndAhead(FOracleAiObject const* Target, FOracleAiObject const* Reference,
+                                      float CosThreshold)
+{
+    FOracleTarget T(*Target);
+    FOracleTarget R(*Reference);
+    return IsTargetCoAlignedAndAhead(&T.Target, &R.Target, CosThreshold) ? 1 : 0;
+}
+
+double __cdecl OracleAiIfaceVectorMagnitude(FOracleAiObject const* Iface)
+{
+    if (Iface == nullptr)
+        return GetIfaceVectorMagnitude(nullptr);
+    FOracleFakeInspect const I(*Iface);
+    return GetIfaceVectorMagnitude(&I);
+}
+
+void __cdecl OracleAiBoxCorners(float const* Xform, float const* Min, float const* Max, float* Out)
+{
+    Vector Corners[8];
+    Transform const X = ToTransform(Xform);
+    TransformBoundingBoxCorners(X, ToVector(Min), ToVector(Max), Corners);
+    for (int Index = 0; Index < 8; ++Index)
+        FromVector(Out + Index * 3, Corners[Index]);
+}
+
+void __cdecl OracleAiShapeBiasedAvoid(FOracleAiObject const* Elem, FOracleAiObject const* Target, float* Out)
+{
+    FOracleTarget E(*Elem);
+    Vector Result;
+    if (Target == nullptr)
+    {
+        ComputeShapeBiasedAvoidDirection(&Result, &E.Target, nullptr);
+    }
+    else
+    {
+        FOracleFakeInspect T(*Target);
+        ComputeShapeBiasedAvoidDirection(&Result, &E.Target, &T);
+    }
+    FromVector(Out, Result);
+}
+
+double __cdecl OracleAiTurnCircleCost(FOracleAiObject const* Iface, float const* Point, float AngularSpeed,
+                                      float LinearSpeed)
+{
+    FOracleFakeInspect I(*Iface);
+    return EstimateTurnCircleApproachCost(&I, ToVector(Point), AngularSpeed, LinearSpeed);
+}
+
+int __cdecl OracleAiAverageActiveDirection(float const* Slots, float const* Xform, float* Out)
+{
+    ObstacleAvoidance::Slot S[25];
+    for (int Index = 0; Index < 25; ++Index)
+        ToSlot(Slots + Index * 7, S[Index]);
+    Vector Result = ToVector(Out);
+    Transform const X = ToTransform(Xform);
+    bool const bOk = ObstacleAvoidance_AverageActiveDirection(S, X, Result);
+    FromVector(Out, Result);
+    return bOk ? 1 : 0;
+}
+
+int __cdecl OracleAiResolveCandidateSlot(FOracleAiObject const* Candidate, float* Out)
+{
+    FOracleFakeInspect I(*Candidate);
+    ObstacleAvoidance::Slot Slot{};
+    ToSlot(Out, Slot);
+    // ResolveObstacleCandidateSlot takes the IObjRW a scan list holds and calls only its
+    // IObjInspect slots; IObjInspect is IObjRW's first base, at the same address.
+    bool const bOk = ResolveObstacleCandidateSlot(static_cast<IObjRW*>(static_cast<IObjInspect*>(&I)), Slot);
+    FromSlot(Out, Slot);
+    return bOk ? 1 : 0;
+}
+
+int __cdecl OracleAiNudgePathPoint(float const* Slot, float const* Point, float const* Xform, int bExtraCheck,
+                                   float* OutPoint)
+{
+    ObstacleAvoidance::Slot S{};
+    ToSlot(Slot, S);
+    Vector Result = ToVector(OutPoint);
+    Transform const X = ToTransform(Xform);
+    int const Code = NudgeObstaclePathPoint(S, ToVector(Point), X, &Result, bExtraCheck != 0);
+    FromVector(OutPoint, Result);
+    return Code;
+}

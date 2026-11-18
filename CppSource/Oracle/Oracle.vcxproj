@@ -95,6 +95,7 @@
     <ClCompile Include="oracle_game_suites.cpp" />
     <!-- P2.5: the AI suites over Common's exported wrappers (include/oracle_ai.h). -->
     <ClCompile Include="oracle_ai.cpp" />
+    <ClCompile Include="oracle_ai_nav.cpp" />
     <!-- P1.7: RendComp.dll's sources are compiled into oracle_mesh_data.cpp and
          Deformable2.dll's (with EyeMaterial.cpp) into oracle_mesh_data_dfm.cpp; neither DLL
          exports anything but DllMain. -->
