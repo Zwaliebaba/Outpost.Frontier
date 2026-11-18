@@ -15,7 +15,8 @@ use std::fmt;
 use super::buffers::{BufferError, BufferEvent, Buffers, IndexSource, VbHandle};
 use super::defaults::Defaults;
 use super::draw::{
-    DrawConstants, PipelineKey, approximated_samplers, unemulated_stages, unemulated_states,
+    DrawConstants, PipelineKey, SHADER_STAGES, approximated_samplers, unemulated_stages,
+    unemulated_states,
 };
 use super::fvf::Fvf;
 use super::gamma::{Gamma, GammaRamp};
@@ -542,6 +543,44 @@ impl<B: Backend> Device<B> {
         Primitive::from_raw(prim).ok_or(DrawError::Fail)
     }
 
+    /// `VerifyState` on the model (record 0004, point 6: success when the
+    /// model can draw the state; divergence D312). DX8RENDERER asks the
+    /// driver (`ValidateDevice`), then requires the stage after the
+    /// device's last to have its colour and alpha operations disabled and,
+    /// with the `MODULATE2X` quirk, no enabled stage to modulate twice. The
+    /// model's device has the [`SHADER_STAGES`] stages the shaders emulate:
+    /// a state that enables a stage above them fails as the driver would
+    /// (`E_FAIL`), the stage after them must be disabled (`GR_GENERIC`),
+    /// and `BROKEN_MOD2X` stands for the quirk. The streams are deselected,
+    /// as the C++'s `SelectVertexStream(nullptr, ...)` leaves them.
+    pub fn verify_state(&mut self) -> i32 {
+        const E_FAIL: i32 = 0x8000_4005_u32.cast_signed();
+        const COLOROP: u32 = 1;
+        const ALPHAOP: u32 = 4;
+        const DISABLE: u32 = 1;
+        const MODULATE2X: u32 = 5;
+        self.buffers.release_streams();
+        if !unemulated_stages(&self.state).is_empty() {
+            return E_FAIL;
+        }
+        let stage = |s: usize, id: u32| self.state.stage_state_raw(s as u32, id).ok();
+        if stage(SHADER_STAGES, COLOROP) != Some(DISABLE)
+            || stage(SHADER_STAGES, ALPHAOP) != Some(DISABLE)
+        {
+            return -1;
+        }
+        if self.state.pipeline(PipelineProperty::BrokenMod2x) != 0 {
+            for s in 0..=SHADER_STAGES {
+                match stage(s, COLOROP) {
+                    Some(DISABLE) => break,
+                    Some(MODULATE2X) => return -1,
+                    _ => {}
+                }
+            }
+        }
+        0
+    }
+
     /// `DrawPrimitive` (user pointer): `count` vertices of `fvf`.
     pub fn draw_up(
         &mut self,
@@ -730,6 +769,31 @@ mod tests {
     }
 
     const XYZ_DIFFUSE: Fvf = Fvf(0x42);
+
+    #[test]
+    fn verify_state_follows_the_emulated_stages() {
+        let mut d = device();
+        assert_eq!(d.verify_state(), 0);
+        d.state
+            .set_stage_state(0, StageState::ColorOp(TextureOp::Modulate2x));
+        d.state
+            .set_stage_state(1, StageState::ColorOp(TextureOp::Modulate));
+        assert_eq!(d.verify_state(), 0);
+        d.state.set_pipeline(PipelineProperty::BrokenMod2x, 1);
+        assert_eq!(d.verify_state(), -1);
+        d.state.set_pipeline(PipelineProperty::BrokenMod2x, 0);
+        // The stage after the emulated ones: its alpha operation enabled.
+        d.state
+            .set_stage_state_raw(SHADER_STAGES as u32, 4, 4)
+            .unwrap();
+        assert_eq!(d.verify_state(), -1);
+        d.state
+            .set_stage_state_raw(SHADER_STAGES as u32, 4, 1)
+            .unwrap();
+        d.state
+            .set_stage_state(SHADER_STAGES, StageState::ColorOp(TextureOp::Modulate));
+        assert_eq!(d.verify_state(), 0x8000_4005_u32.cast_signed());
+    }
 
     #[test]
     fn user_pointer_draws_copy_their_vertices() {

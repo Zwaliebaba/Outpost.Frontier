@@ -8,7 +8,9 @@
 //! `MaterialAnimation.cpp` (`LoadAnimationGroup`, `ParseMaKeys`).
 //!
 //! Only data: binding, submission, batching, texture resolution and the
-//! animation clock are work package P4.5. The `[MaterialMap]` rules of
+//! animation clock are work package P4.5, which also adds the write side
+//! of the properties (`SaveProperties`, [`Material::save_properties`]) and
+//! the range check of `SetParameterValue` ([`Material::in_declared_range`]). The `[MaterialMap]` rules of
 //! the engine INI, which can replace a material's type by its name or
 //! type before it is created, are part of the material library and are
 //! not applied here: a node is parsed as the kind its `Type` leaf names.
@@ -211,11 +213,16 @@ impl MaterialKind {
         KINDS.iter().copied().find(|k| k.name.as_bytes() == name)
     }
 
-    fn is_single_pass_family(self) -> bool {
+    /// `IsSinglePassPropertySchemaFamily`: the eight `DcDt` kinds of the
+    /// single-pass schema.
+    #[must_use]
+    pub fn is_single_pass_family(self) -> bool {
         KINDS[..8].iter().any(|k| k.name == self.name)
     }
 
-    fn is_detail_family(self) -> bool {
+    /// The kinds whose stores reduce the flips at indices 6 and 7.
+    #[must_use]
+    pub fn is_detail_family(self) -> bool {
         matches!(
             self.submit,
             Submit::Detail2Pass | Submit::IllumDetail2Pass | Submit::MaskedDetail2Pass
@@ -453,6 +460,32 @@ pub struct Material {
     pub fields: MaterialFields,
 }
 
+/// One leaf `SaveProperties` writes: its name and bytes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LeafWrite {
+    /// The leaf name (the property's).
+    pub name: Vec<u8>,
+    /// The bytes written, the whole leaf.
+    pub bytes: Vec<u8>,
+}
+
+/// `IsShadingPropertyValueWithinRange`: the bounds widened by `2^-23` in
+/// `f64`; a NaN is within.
+fn within_range(value: u32, minimum: u32, maximum: u32) -> bool {
+    let epsilon = f64::from(f32::from_bits(0x3400_0000));
+    let value = f64::from(f32::from_bits(value));
+    let upper = f64::from(f32::from_bits(maximum)) + epsilon;
+    if upper <= value {
+        return false;
+    }
+    let lower = f64::from(f32::from_bits(minimum)) - epsilon;
+    // `!(lower >= value)`: a NaN passes.
+    !matches!(
+        lower.partial_cmp(&value),
+        Some(std::cmp::Ordering::Greater | std::cmp::Ordering::Equal)
+    )
+}
+
 /// The text of a string up to its first NUL.
 fn until_nul(bytes: &[u8]) -> &[u8] {
     &bytes[..bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len())]
@@ -518,6 +551,12 @@ impl Material {
     ///
     /// A missing or short leaf leaves the initial value.
     pub fn load(&mut self, fs: &dyn FileSystem) {
+        self.load_with(fs, |_| ());
+    }
+
+    /// [`Self::load`], calling `stored` with the index of each property
+    /// it stores, after the store.
+    pub fn load_with(&mut self, fs: &dyn FileSystem, mut stored: impl FnMut(usize)) {
         for (index, property) in self.kind.schema().iter().enumerate() {
             if property.flags & schema::FLAG_SKIP != 0 {
                 continue;
@@ -567,6 +606,7 @@ impl Material {
             };
             if ok.is_some() {
                 self.store(index, &value);
+                stored(index);
             }
         }
     }
@@ -685,6 +725,114 @@ impl Material {
             *slot = word;
         }
         Some(value)
+    }
+
+    /// `ValueWithinDeclaredRange`: `value` has the property's type and, for
+    /// a float or a vector, each component lies within the property's
+    /// minimum and maximum widened by `2^-23` (a NaN passes). False past
+    /// the schema.
+    #[must_use]
+    pub fn in_declared_range(&self, index: usize, value: &PropertyValue) -> bool {
+        let Some(property) = self.kind.schema().get(index) else {
+            return false;
+        };
+        if value.kind != property.current.kind {
+            return false;
+        }
+        let count = match value.kind {
+            value_type::FLOAT => 1,
+            value_type::VEC3 => 3,
+            value_type::VEC4 => 4,
+            _ => 0,
+        };
+        (0..count).all(|i| {
+            within_range(
+                value.words[i],
+                property.minimum.words[i],
+                property.maximum.words[i],
+            )
+        })
+    }
+
+    /// `SaveProperties`: the leaves written for the properties not flagged
+    /// [`schema::FLAG_SKIP`], in schema order, each from the field the
+    /// property addresses:
+    ///
+    /// * a dword or a float: its four bytes;
+    /// * a vector: 12 or 16 bytes;
+    /// * a string or texture name: its bytes and a NUL (a null name writes
+    ///   nothing; the reference takes the length of a null pointer);
+    /// * a wrap or address mode: the leaf's dword as it reads now (0 when
+    ///   it cannot be read: from `fs`, or from an earlier write of this
+    ///   save) with the mode's bits replaced: bits 4 to 7 for a wrap mode;
+    ///   bits 0 and 1 for a U address mode, then bits 2 and 3 for every
+    ///   address mode (the reference's U branch falls into the V branch, so
+    ///   a U mode is also written into the V bits).
+    ///
+    /// Component values and other types write nothing. Where the reference
+    /// writes each leaf through the file system, the caller writes these
+    /// (divergence D313).
+    #[must_use]
+    pub fn save_properties(&self, fs: &dyn FileSystem) -> Vec<LeafWrite> {
+        let mut writes: Vec<LeafWrite> = Vec::new();
+        for (index, property) in self.kind.schema().iter().enumerate() {
+            if property.flags & schema::FLAG_SKIP != 0 {
+                continue;
+            }
+            let Some(value) = self.parameter(index) else {
+                continue;
+            };
+            let word = value.words[0];
+            let bytes = match value.kind {
+                value_type::WORD | value_type::FLOAT => word.to_le_bytes().to_vec(),
+                value_type::VEC3 | value_type::VEC4 => {
+                    let count = if value.kind == value_type::VEC3 { 3 } else { 4 };
+                    value.words[..count]
+                        .iter()
+                        .flat_map(|w| w.to_le_bytes())
+                        .collect()
+                }
+                value_type::STRING | value_type::TEXTURE_NAME => match &value.text {
+                    Some(text) => {
+                        let mut bytes = text.clone();
+                        bytes.push(0);
+                        bytes
+                    }
+                    None => continue,
+                },
+                value_type::WRAP_MODE | value_type::ADDRESS_MODE => {
+                    let written = writes
+                        .iter()
+                        .rev()
+                        .find(|w| w.name == property.name)
+                        .map(|w| {
+                            w.bytes
+                                .get(..4)
+                                .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+                        });
+                    let mut packed = written
+                        .unwrap_or_else(|| read_word(fs, property.name))
+                        .unwrap_or(0);
+                    if value.kind == value_type::WRAP_MODE {
+                        packed = (packed & !0xF0) | ((word << 4) & 0xF0);
+                    } else {
+                        let v = property.flags & schema::FLAG_ADDRESS_U == 0
+                            && property.flags & schema::FLAG_ADDRESS_V != 0;
+                        if !v {
+                            packed = (packed & !3) | (word & 3);
+                        }
+                        packed = (packed & !0xC) | ((word << 2) & 0xC);
+                    }
+                    packed.to_le_bytes().to_vec()
+                }
+                _ => continue,
+            };
+            writes.push(LeafWrite {
+                name: property.name.to_vec(),
+                bytes,
+            });
+        }
+        writes
     }
 
     /// Every property value in schema order.

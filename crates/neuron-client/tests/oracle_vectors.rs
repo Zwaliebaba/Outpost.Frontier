@@ -3,7 +3,8 @@
 //! the C++ reference (`CppSource/Oracle/oracle_scene_script.cpp`,
 //! `oracle_scene_script_build.cpp`, `oracle_scene_script_runtime.cpp`,
 //! `oracle_text.cpp`, `oracle_audio.cpp`, `oracle_texture.cpp`,
-//! `oracle_big_image.cpp` and `oracle_material.cpp`).
+//! `oracle_big_image.cpp`, `oracle_material.cpp` and
+//! `oracle_material_kinds.cpp`).
 
 mod support;
 
@@ -12,8 +13,8 @@ use neuron_client::text::rdl::markup;
 
 use support::audio::{self, check_suite_within};
 use support::{
-    check_suite, input_lines, material, scene_script, scene_script_build, scene_script_runtime,
-    text, texture, unhex,
+    check_suite, input_lines, material, material_kinds, scene_script, scene_script_build,
+    scene_script_runtime, text, texture, unhex,
 };
 
 /// P4.14: the Lua state after each buffer of a case, one fresh state per
@@ -231,4 +232,13 @@ fn material_animation() {
 #[test]
 fn material_batcher() {
     check_suite("material_batcher.jsonl", &material::batcher_lines());
+}
+
+/// P4.5: the 22 material kinds and `BatchedMaterial` against recording
+/// services: texture verification, `ApplyVerify` and its fallbacks,
+/// binding, teardown, the submissions and the parameters
+/// (`tests/fixtures/oracle/material_kinds.list`).
+#[test]
+fn material_kinds() {
+    check_suite("material_kinds.jsonl", &material_kinds::lines());
 }

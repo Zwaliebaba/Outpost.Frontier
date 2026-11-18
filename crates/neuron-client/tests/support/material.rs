@@ -159,9 +159,12 @@ fn context_fields(context: &SubmitContext<'_>, args: Option<&DrawArgs>) -> Strin
     let mut fields = format!(
         "\"inst\":\"{}\",\"src\":\"{}\",\"pos\":\"{}\"",
         context.instance,
-        context.vertices.count,
+        context.vertices.map_or(0, |v| v.count),
         {
-            let p = &context.vertices.position;
+            let p = &context
+                .vertices
+                .expect("the batcher always has a source")
+                .position;
             let len = p.count.wrapping_mul(p.stride) as usize;
             p.data
                 .as_deref()
