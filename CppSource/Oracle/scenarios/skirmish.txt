@@ -1,13 +1,13 @@
 # Oracle.exe sim scenario (design/reference-build.md section 10): a skirmish to the kill.
 # The dogfight's two hostile AI fighters (police and rogue, same archetypes, loadouts,
 # pilots, factions and FIGHTER state graph), but the rogue starts with 400 hull points of
-# its 1900, and the run is 2700 ticks (90 s): the dogfight's police wears the rogue's
-# shield down and hits its hull within 20 s, so this run reaches a kill, and with it the
-# behaviours the dogfight never reaches (trail, strafe, flee, loot after the kill). No
-# directive, no target command. Multiplayer stepping.
+# its 1900. The police kills it at tick 880 after the rogue has trailed (3) and fled (4),
+# the behaviours the dogfight never reaches. The run stops at tick 881: in the reference
+# the server faults with an access violation at tick 882, two ticks after the kill, in
+# every run. No directive, no target command. Multiplayer stepping.
 
 system he01
-ticks 2700
+ticks 881
 stepping mp
 
 ship police he_fighter li_p_he_fighter_loadout01 15000 3000 -25000 ai FIGHTER pilot pilot_police_med faction he_p_grp psi
