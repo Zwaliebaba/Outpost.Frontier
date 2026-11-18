@@ -9,7 +9,7 @@
 //! and copies use; [`Fvf::layout`] places the elements as Direct3D 8 does.
 
 /// A flexible vertex format code.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
 pub struct Fvf(pub u32);
 
 /// `D3DFVF_POSITION_MASK` values.
