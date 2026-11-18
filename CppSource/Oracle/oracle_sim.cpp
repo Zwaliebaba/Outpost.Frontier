@@ -1571,6 +1571,35 @@ namespace
                     FOracleSimBehavior Behavior;
                     OracleSimReadBehavior(OracleSimBehaviorOf(const_cast<CObject*>(Rw->cobject())), Behavior);
                     BehaviorFields(J, Behavior);
+                    // P2.5 (the strafe's bullets): each gun's turret joints, [id, yaw current,
+                    // yaw desired, pitch current, pitch desired, target point age].
+                    {
+                        unsigned int GunId = Object.Id;
+                        CObject* const GunOwner = CObject::Find(GunId, CObject::ClassShip);
+                        J.BeginArray("guns");
+                        if (GunOwner != nullptr)
+                        {
+                            CEqObj* const Eq = static_cast<CEqObj*>(GunOwner);
+                            CEquipTraverser Walk(EquipTypeGun);
+                            for (CEquip* Equip = Eq->EquipManager.Traverse(Walk); Equip != nullptr;
+                                 Equip = Eq->EquipManager.Traverse(Walk))
+                            {
+                                CEGun const* const Gun = CEGun::cast(Equip);
+                                if (Gun == nullptr)
+                                    continue;
+                                J.BeginArray(nullptr);
+                                J.Uint(nullptr, Equip->GetID());
+                                J.Float(nullptr, Gun->Yaw.Current);
+                                J.Float(nullptr, Gun->Yaw.Desired);
+                                J.Float(nullptr, Gun->Pitch.Current);
+                                J.Float(nullptr, Gun->Pitch.Desired);
+                                J.Float(nullptr, Gun->TargetPointAge);
+                                J.EndArray();
+                            }
+                            GunOwner->Release();
+                        }
+                        J.EndArray();
+                    }
                     // P2.5 (the dogfight): the ship's target (IObjInspect::get_target), and a
                     // `target` event when it changed since the last tick.
                     IObjRW* Target = nullptr;

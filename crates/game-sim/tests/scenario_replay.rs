@@ -418,6 +418,8 @@ struct Run {
     /// Each guided munition's states by id, from its first tick to the
     /// first tick it is gone.
     guided: BTreeMap<u32, Vec<GuidedState>>,
+    /// Each ship's guns' turret joints per tick, as text (diagnostic).
+    guns: BTreeMap<String, Vec<String>>,
     /// The first seeker steps of each guided munition (diagnostic).
     guided_trace: Vec<(u32, game_sim::object::world::GuidedTrace)>,
     /// What the launcher looked like when each guided munition went out.
@@ -890,6 +892,34 @@ fn run(s: &Scenario, ai: &AiInputs) -> Option<Run> {
         record(&world, &mut out.states, &handles);
         record_cores(&world, &mut out.cores, &handles);
         record_guided(&world, system, tick, &names, &mut out);
+        for (name, h) in &handles {
+            let text = h
+                .and_then(|h| world.get(h))
+                .and_then(|o| o.as_equipped())
+                .map(|eq| {
+                    eq.equipment
+                        .traverse(types::GUN, false)
+                        .into_iter()
+                        .filter_map(|slot| eq.equipment.get(slot))
+                        .filter_map(|e| match &e.kind {
+                            EquipKind::Gun(g) => Some(gun_text(
+                                u32::from(e.id),
+                                [
+                                    g.yaw.current,
+                                    g.yaw.desired,
+                                    g.pitch.current,
+                                    g.pitch.desired,
+                                    g.target_point_age,
+                                ],
+                            )),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                })
+                .unwrap_or_default();
+            out.guns.entry(name.clone()).or_default().push(text);
+        }
         for t in world.take_guided_trace() {
             let n = out
                 .guided_trace
@@ -977,6 +1007,79 @@ fn launch_note(world: &World, tick: u32, shooter: u32, equip: u16) -> String {
             o.engine.position.z
         ])
     )
+}
+
+fn gun_text(id: u32, v: [f32; 5]) -> String {
+    format!(
+        "{id}:[{}]",
+        v.iter()
+            .map(|x| format!("{:08x}", x.to_bits()))
+            .collect::<Vec<_>>()
+            .join(" ")
+    )
+}
+
+/// The first tick whose turret joints differ from the oracle's
+/// (`tick.jsonl` `guns`), per ship (diagnostic).
+fn report_guns(summary: &mut String, dir: &Path, scenario: &str, ours: &Run) {
+    let Some(file) = find_files(&dir.join(scenario), "tick.jsonl")
+        .into_iter()
+        .next()
+    else {
+        return;
+    };
+    let mut theirs: BTreeMap<String, Vec<(u32, String)>> = BTreeMap::new();
+    for r in read_lines(&file) {
+        if r.get("rec").and_then(Json::as_str) != Some("object") {
+            continue;
+        }
+        let Some(guns) = r.get("guns").and_then(Json::as_array) else {
+            continue;
+        };
+        let (Some(name), Some(tick)) = (
+            r.get("obj").and_then(Json::as_str),
+            r.get("tick").and_then(Json::as_u32),
+        ) else {
+            continue;
+        };
+        let text = guns
+            .iter()
+            .filter_map(|g| {
+                let a = g.as_array()?;
+                let id = a.first()?.as_u32()?;
+                let v: Vec<f32> = a[1..].iter().filter_map(Json::as_f32).collect();
+                Some(gun_text(id, <[f32; 5]>::try_from(v).ok()?))
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        theirs
+            .entry(name.to_owned())
+            .or_default()
+            .push((tick, text));
+    }
+    for (name, list) in &theirs {
+        let Some(mine) = ours.guns.get(name) else {
+            continue;
+        };
+        match list
+            .iter()
+            .find(|(t, text)| mine.get(*t as usize).is_some_and(|m| m != text))
+        {
+            None => {
+                let _ = writeln!(
+                    summary,
+                    "{scenario}: {name}: turret joints equal the oracle's on every tick"
+                );
+            }
+            Some((t, text)) => {
+                let _ = writeln!(
+                    summary,
+                    "{scenario}: {name}: turret joints first differ at tick {t}: rust {} | oracle {text}",
+                    mine.get(*t as usize).cloned().unwrap_or_default()
+                );
+            }
+        }
+    }
 }
 
 /// The guided munitions after a tick: each live one's state and core,
@@ -3030,6 +3133,7 @@ fn scenarios_against_the_oracle() {
             u32::MAX
         };
         report_guided(&mut summary, &mut gross, dir, &s.name, &our_run, cutoff);
+        report_guns(&mut summary, dir, &s.name, &our_run);
         report_contacts(&mut summary, &s, &our_run, &their_run);
         if s.contact {
             judge_contact(&mut summary, &mut gross, &s, &our_run, &their_run);
