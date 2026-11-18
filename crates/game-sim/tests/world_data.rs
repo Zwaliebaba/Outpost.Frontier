@@ -635,3 +635,67 @@ fn the_ship_leads_its_target_over_its_gun_statistics() {
     let lead = world.ship_lead_fire_position(shooter).expect("in range");
     assert!((f64::from(lead.z) + 25400.0).abs() < 10.0, "{lead:?}");
 }
+
+#[test]
+fn the_ai_reads_loot_and_the_hold_and_points_the_tractor() {
+    use game_sim::ai::behavior::ids;
+    use game_sim::ai::loot::LootBehavior;
+    use game_sim::ai::world::{AiCommand, AiWorld};
+    use game_sim::object::world::LootSpawn;
+    let Some(mut world) = support::world::world(WorldConfig::default()) else {
+        println!("outdir/ is missing: no loot");
+        return;
+    };
+    let system = create_id(b"he01");
+    world.load_system(system);
+    let ship = fighter(&mut world, system, Vector::new(15000.0, 3000.0, -25000.0));
+    let loot = world
+        .spawn_loot(
+            system,
+            &LootSpawn {
+                archetype: create_id(b"ge_s_cm_01_ammo_crate"),
+                contents: create_id(b"ge_s_cm_01_ammo"),
+                units: 5,
+                contents_hit_pts: 10.0,
+                owner: 0,
+                position: Vector::new(15000.0, 3000.0, -25060.0),
+                velocity: Vector::ZERO,
+            },
+        )
+        .expect("loot spawns");
+    let view = AiWorld::loot(&world, loot).expect("a container");
+    println!("loot {view:?}");
+    assert_eq!(view.units, 5);
+    assert!(view.can_ai_tractor);
+    // The contents are a countermeasure.
+    assert_eq!(view.contents_class, 0x21);
+    assert!(AiWorld::loot(&world, ship).is_none());
+    let (remaining, hold) = AiWorld::cargo_hold(&world, ship).expect("a ship's hold");
+    println!("hold {remaining} of {hold}");
+    assert!(hold > 0.0 && remaining >= 0.0 && remaining <= f64::from(hold));
+    assert!(AiWorld::cargo_hold(&world, loot).is_none());
+
+    // The manager's loot behaviour takes the tractor's reach, the system
+    // manager its id; the tractor command takes the loot.
+    assert!(world.ensure_behavior_manager(ship));
+    let m = world.behavior_manager(ship).expect("a manager");
+    let tractor = m.state.sys.tractor.equip_id;
+    assert_ne!(tractor, 0);
+    let b = m
+        .behavior(ids::LOOT)
+        .and_then(|b| b.as_any())
+        .and_then(|a| a.downcast_ref::<LootBehavior>())
+        .expect("the loot behaviour");
+    assert_eq!(b.has_tractor, 1);
+    let reach = b.tractor_reach;
+    let range = AiWorld::equipment(&world, ship, tractor)
+        .and_then(|i| i.range)
+        .expect("a range");
+    assert_eq!(reach, (f64::from(range) * 0.75) as f32);
+    let tractor_at = |equipment| AiCommand::Tractor {
+        equipment,
+        target: loot,
+    };
+    assert_eq!(AiWorld::command(&mut world, ship, tractor_at(tractor)), 0);
+    assert_eq!(AiWorld::command(&mut world, ship, tractor_at(0x7777)), -2);
+}

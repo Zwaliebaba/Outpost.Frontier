@@ -240,7 +240,7 @@ summary to `rust-sim-replay.txt` there.
 | `munition_hit` `state` (P2.4) | after `damage`: `hull_damage` f, `energy_damage` f, `weapon_type` u (the munition archetype); when the target is found (`CObject::Find` as a ship, else a solar): `hp` f, `hp_max` f, `power` f, `power_max` f, `owner` u, `armor` f\|null (the first `CEArmor`'s `hit_pts_scale`), `sub_kind` s (`group`, `equip`, `shield` or `root`); a group adds `sub_hp` f, `sub_hp_max` d, `sub_state` i, `sub_proxy` b (`IsRootHealthProxy`), `sub_linked_type` u; an item adds `sub_hp` f, `sub_hp_max` d, `sub_type` u, `sub_destroyed` b, and a shield `shield_offline_threshold` f and `shield_weapon_mod` d (`GetWeaponModifier` of the munition's weapon type). The target's state before the list is applied, which `crates/game-sim/tests/damage_replay.rs` rebuilds to replay `munition_hit` (summary `rust-damage-replay.txt`) |
 | `behavior_in` | `tick` u, `seq` u (behaviour tick number, from 1), `id` u, `obj`, `dt` f, `behavior` i, `state_graph` i, `directive` u3, `suppressed` b (`TickSuppressedFlag`); when the owner is set: `pos` f3, `orient` f9, `vel` f3, `angvel` f3, `throttle` f, `axis` f3, `nudge` f3, `strafe` i, `cruise` b. Entry of `IBehaviorManager::UpdateBehaviorTick` |
 | `behavior_out` | `tick` u, `seq` u, `id` u, `obj`, `behavior` i, `state_graph` i, `directive` u3. Every exit of the same call |
-| `affect` | `tick` u, `beh` u (the `seq` of the behaviour tick in progress, 0 outside one), `src` s (`behavior`, `scenario` for the harness's own commands, `other`), `id` u, `obj`, `slot` i, `m` s, `i` i, `depth` i, `v` f[]\|null. One `IObjAffect` call on a ship: slot 0 `set_throttle` (`v` the throttle), 1 `set_axis_throttle` (`v` f3), 2 `set_nudge_vec` (`v` f3), 3 `set_strafe_dir` (`i` the `StrafeDir`), 13 `fire` (`EqObj::slot_34`: `i` the number of guns, `v` the target position or `null`), 18 `set_target` (`i` the target's id, 0 for none; `v` [the sub-target]), 19 `activate_equip` (`EqObj::slot_4c`: `i` the equipment id, `v` [1 to activate, 0 to deactivate]), 20 `engage_cruise` (`Ship::slot_50`: `i` 1 to engage, 0 to leave; `v` [the second flag, 1 or 0]), 21 `set_thrusters` (`Ship::slot_54`: `i` 1 on, 0 off). `depth` (P2.5) is the number of these calls in progress around this one (`FOracleSimAffectScope`): 0 for a call the caller made, 1 or more for one an `IObjAffect` body makes in turn (`set_strafe_dir` and `slot_54` switch the engine on through `slot_4c`, `slot_50` switches the thrusters off through `slot_54`); records written before the field read as 0 |
+| `affect` | `tick` u, `beh` u (the `seq` of the behaviour tick in progress, 0 outside one), `src` s (`behavior`, `scenario` for the harness's own commands, `other`), `id` u, `obj`, `slot` i, `m` s, `i` i, `depth` i, `v` f[]\|null. One `IObjAffect` call on a ship: slot 0 `set_throttle` (`v` the throttle), 1 `set_axis_throttle` (`v` f3), 2 `set_nudge_vec` (`v` f3), 3 `set_strafe_dir` (`i` the `StrafeDir`), 13 `fire` (`EqObj::slot_34`: `i` the number of guns, `v` the target position or `null`), 16 `tractor` (P2.5 loot: `EqObj::slot_40`: `i` the tractor's equipment id, `v` [the target's id as the bits of the float, 0 for none]), 18 `set_target` (`i` the target's id, 0 for none; `v` [the sub-target]), 19 `activate_equip` (`EqObj::slot_4c`: `i` the equipment id, `v` [1 to activate, 0 to deactivate]), 20 `engage_cruise` (`Ship::slot_50`: `i` 1 to engage, 0 to leave; `v` [the second flag, 1 or 0]), 21 `set_thrusters` (`Ship::slot_54`: `i` 1 on, 0 off). `depth` (P2.5) is the number of these calls in progress around this one (`FOracleSimAffectScope`): 0 for a call the caller made, 1 or more for one an `IObjAffect` body makes in turn (`set_strafe_dir` and `slot_54` switch the engine on through `slot_4c`, `slot_50` switches the thrusters off through `slot_54`); records written before the field read as 0 |
 
 The `affect` records between a `behavior_in` and its `behavior_out` with
 the same `seq` are the commands that behaviour tick issued.
@@ -366,7 +366,7 @@ ship), and for the ship itself `lead` f3\|null (`CShip::
 get_tgt_lead_fire_pos`; null when it answers false) and `equip` [{…}, …]:
 each item `find_equipment` finds for the types `0x80` (guns and
 launchers), `0x20` (mine droppers), `0x40` (countermeasure droppers) and
-`0x100` (shields), in that order, as {`id` u, `type` u (the mask that found
+`0x100` (shields) and (P2.5 loot) `0x100000` (the tractor, whose `range` the loot behaviour reads), in that order, as {`id` u, `type` u (the mask that found
 it), `status` [u, u] (`get_equipment_status`: `Flags`, `EquipFlags`) or
 the failing result i, `munition`, `auto_turret`, `seeker`, `range`,
 `target` u\|null (`get_equipment_val` of `EquipValMunitionKind`,
@@ -406,7 +406,7 @@ difference or such a query fails the test like a mismatched tick (an
 `is_pointing_at` at another angle, the lead of an item the snapshot has not). It compares the manager fields of `ai_out` bit for
 bit (with `pathfind` and `thrust` where the record has them), the number
 of `rand()` draws, and the commands with the `affect` records whose `beh`
-is the tick's `seq` and whose `depth` is 0 (slots 0 to 3, 13 and 18 to
+is the tick's `seq` and whose `depth` is 0 (slots 0 to 3, 13, 16 and 18 to
 21, the slots `affect` records; floats bit for bit). Before each tick it
 also sets the `pathfind` and `thrust` fields of `ai_in`. The ship's motion
 model (slots 50 to 64), which no record holds, comes from the scenario's
@@ -416,6 +416,13 @@ calls included. A tick whose behaviour on entry or
 exit is not ported is counted as skipped by behaviour id, and so is a
 mismatching tick whose graph row has a candidate that is not ported (its
 poll is a stand-in). Its summary is `rust-behavior-replay.txt`.
+
+Not recorded either: a loot container's contents (units, the AI flag, the
+contents' class and good) and the ship's cargo hold, which the loot
+behaviour reads only with a loot preference; Content parses
+`loot_preference` case-sensitively (`LT_ALL`, `LT_COMMODITIES`, ...) and
+the data's values are lower case, so every pilot of the data has none and
+the replay world answers neither.
 
 Not recorded: objects a behaviour looks up by an id it keeps in its own
 state and that have none of the roles above (they are outside the near
