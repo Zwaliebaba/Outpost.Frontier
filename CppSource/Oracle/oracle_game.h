@@ -63,3 +63,8 @@ void DumpAsteroidFields(FGameKind& K, const std::string& UniversePath);
 // oracle_game_character.cpp.
 void DumpCharacters(FGameKind& K, const std::set<unsigned int>& RtcNames);
 void DumpVibes(FGameKind& K);
+
+// oracle_ai.cpp (P2.5): the lines of the state graphs pub::StateGraph holds, the graphs
+// first, then the lookups of each graph's name; the state_graph data dump and the
+// ai_state_graph suite share them.
+void WriteStateGraphLines(oracle::Suite& Out);

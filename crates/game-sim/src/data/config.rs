@@ -11,12 +11,15 @@
 //!
 //! The C++ reference count (a second `startup` loads nothing) is the
 //! caller's business here: a [`GameData`] is loaded once. Every key
-//! `DispatchDataValue` knows is dispatched; the AI state graph that
-//! `startup` reads after the list (`AI\state_graph.db`) belongs to P2.5.
-//! Keys `DataConfig` does not dispatch (`fonts`, `sounds`, `effects`, ...)
-//! are read by other subsystems and kept in the list.
+//! `DispatchDataValue` knows is dispatched. After the list `startup` loads
+//! the AI state graphs (`AI\state_graph.db`, [`crate::ai::state_graph`],
+//! P2.5), which intern nothing. Keys `DataConfig` does not dispatch
+//! (`fonts`, `sounds`, `effects`, ...) are read by other subsystems and kept
+//! in the list.
 
 use neuron_core::hash::eq_ignore_case;
+
+use crate::ai::state_graph::{LoadError, STATE_GRAPH_PATH, StateGraphDb};
 use neuron_core::ini::IniReader;
 
 use super::archetype::{ArchetypeDb, LoadCx};
@@ -187,6 +190,8 @@ pub struct GameData {
     pub rtc_slider: RtcSlider,
     /// The static reputation vibes the universe load fills.
     pub vibes: VibeDb,
+    /// `pub::StateGraph::LoadFromFile`, after the list (P2.5).
+    pub state_graphs: StateGraphDb,
     /// `FDUMP` reports of the load.
     pub reports: Reports,
 }
@@ -223,13 +228,40 @@ impl GameData {
             if let Some(callback) = progress.as_mut()
                 && callback(&entry.value)
             {
+                self.load_state_graphs(source);
                 return LoadOutcome::Aborted;
             }
             if let Some(kind) = DataKind::of(&entry.key) {
                 self.dispatch(source, kind, &entry.value);
             }
         }
+        self.load_state_graphs(source);
         LoadOutcome::Complete
+    }
+
+    /// The state graphs `startup` loads after the list, aborted or not.
+    fn load_state_graphs(&mut self, source: &dyn DataSource) {
+        let bytes = source.read(STATE_GRAPH_PATH);
+        match StateGraphDb::load(bytes.as_deref()) {
+            Ok(db) => self.state_graphs = db,
+            Err(error) => {
+                self.state_graphs = StateGraphDb::default();
+                // The reference's source file and line of each report.
+                let (line, text) = match error {
+                    LoadError::Missing => (
+                        0x7d,
+                        "pub::StateGraph: unable to load state graph definitions",
+                    ),
+                    LoadError::BehaviorCount(_) => (
+                        0x8d,
+                        "pub::StateGraph: state graph definitions don't sync with current behavior \
+                         list, need to re-save state_graph.ini",
+                    ),
+                };
+                self.reports
+                    .push("Common\\Ai\\pubStateGraph.cpp", line, text);
+            }
+        }
     }
 
     /// One `[Data]` value (`DispatchDataValue`).

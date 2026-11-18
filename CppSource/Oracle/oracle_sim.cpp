@@ -54,6 +54,7 @@
 #include "server_cobject.h"            // pub::SpaceObj::ShipInfo / Create
 #include "server_iserverimpl.h"        // IServerImpl (the `Server` export is looked up at run time)
 #include "oracle_sim_hooks.h"
+#include "oracle_sim_ai.h"
 
 // Server.dll, IServerImpl.cpp (Oracle instrumentation): StarSystem::load on one system.
 extern "C" __declspec(dllimport) bool __cdecl OracleSimLoadSystem(unsigned int SystemId);
@@ -1895,6 +1896,10 @@ namespace oracle
         GOracleSimHooks.OnMunitionHit = OnMunitionHit;
         GOracleSimHooks.OnBehaviorTick = OnBehaviorTick;
         GOracleSimHooks.OnAffect = OnAffect;
+        // P2.5: the behaviour-tick recorder (ai.jsonl, oracle_sim_ai.cpp) chains itself in
+        // front of OnBehaviorTick, so it is started after the hooks above.
+        if (!OracleSimAiStart(OutDir, &GTick, &NameOf))
+            SessionNote("note", "ai.jsonl cannot be written; behaviour ticks are not recorded");
         SetSink(OnControllerMessage);
 
         // Tick 0: the state after spawning, before any frame.

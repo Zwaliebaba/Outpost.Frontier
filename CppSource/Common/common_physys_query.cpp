@@ -1,6 +1,7 @@
 // Author: Giperion.
 
 #include "common_physys.h"
+#include "oracle_ai.h"           // Oracle instrumentation (P2.5 ai): GOracleAiHooks
 
 #include "common_archetype.h"
 #include "common_cobject.h"
@@ -749,7 +750,11 @@ int __cdecl PhySys::FindRayCollisions(unsigned SystemId, Vector const& From, Vec
         return 0;
 
 
-    return SystemIt->second.FindRayCollisions(From, To, Hits, MaxHits);
+    int const HitCount = SystemIt->second.FindRayCollisions(From, To, Hits, MaxHits);
+    // Oracle instrumentation (P2.5 ai): report the query to the behaviour-tick recorder.
+    if (GOracleAiHooks.OnQuery != nullptr)
+        OracleAiReportRayQuery(OracleAiQueryRay, SystemId, nullptr, From, To, Hits, MaxHits, HitCount);
+    return HitCount;
 }
 
 // .
@@ -784,7 +789,11 @@ int __cdecl PhySys::FindRayIntersect(CObject* Object, Vector const& From, Vector
     Template.ray_flags = 0;
 
     // the routine(Object, &Template, Hits, MaxHits).
-    return PhySys_FindRayIntersectObject(Object, &Template, Hits, MaxHits);
+    int const HitCount = PhySys_FindRayIntersectObject(Object, &Template, Hits, MaxHits);
+    // Oracle instrumentation (P2.5 ai): report the query to the behaviour-tick recorder.
+    if (GOracleAiHooks.OnQuery != nullptr)
+        OracleAiReportRayQuery(OracleAiQueryRayObject, 0, Object, From, To, Hits, MaxHits, HitCount);
+    return HitCount;
 }
 
 // (cdecl). the routine = G_PhysicalSystems.lower_bound(SystemId);
@@ -795,7 +804,11 @@ int __cdecl PhySys::FindRayIntersect(CObject* Object, Vector const& From, Vector
 int __cdecl PhySys::FindSphereCollisions(unsigned SystemId, Vector const& Center, float Radius,
                                           CObject** OutObjects, int MaxObjects)
 {
-    return PhySys_FindSystem(SystemId).FindSphereCollisions(Center, Radius, OutObjects, MaxObjects);
+    int const Count = PhySys_FindSystem(SystemId).FindSphereCollisions(Center, Radius, OutObjects, MaxObjects);
+    // Oracle instrumentation (P2.5 ai): report the query to the behaviour-tick recorder.
+    if (GOracleAiHooks.OnQuery != nullptr)
+        OracleAiReportSphereQuery(SystemId, Center, Radius, OutObjects, MaxObjects, Count);
+    return Count;
 }
 
 void __cdecl PhySys::GenerateCollisions(CBeam* Beam)

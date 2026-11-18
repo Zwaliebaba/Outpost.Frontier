@@ -641,9 +641,13 @@ Ships are created as Content creates NPC ships, without a reputation
 
 ### Outputs
 
-`session.jsonl`, `tick.jsonl`, `events.jsonl`, `psi.jsonl` and
-`calls.jsonl` (sim-records.md); the stub's `iclient.jsonl` and
-`controller.jsonl`; `server.ini`, `fdump.txt`, `metrics.txt`.
+`session.jsonl`, `tick.jsonl`, `events.jsonl`, `psi.jsonl`,
+`calls.jsonl` and, since P2.5, the behaviour-tick snapshots `ai.jsonl`
+(sim-records.md); the stub's `iclient.jsonl` and `controller.jsonl`;
+`server.ini`, `fdump.txt`, `metrics.txt`. The AI recorder replaces the
+`rand` import of `Common.dll`, `Server.dll` and `Content.dll` with a
+wrapper that calls the CRT's `rand` and counts, so the random sequence of
+a run is unchanged.
 
 ### Determinism
 

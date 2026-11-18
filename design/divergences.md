@@ -20,10 +20,13 @@ D122 and D123 to be revisited when multi-part ships and golems need them;
 D120 removed before P2.4 merged, once the P2.1 `ClassifyPoint` was on
 `main` (the ID is not reused); the rest as design choices.
 
+The owner accepted D190 to D192 (P2.5) on 2026-11-18, as replacements of
+undefined behaviour in the reference.
+
 ID ranges, reserved on 2026-11-18 so that work packages running in
-parallel do not collide: IDs below D200 stay with Phases 2 and 3 (next free
-D129, then D157); D200 to D299 belong to Phase 4. A work package takes the
-next free ID of its range.
+parallel do not collide: IDs below D200 stay with Phases 2 and 3; D200 to
+D299 belong to Phase 4. A work package takes the next free ID of its
+range.
 
 | ID | Area | C++ behaviour | Rust behaviour | Reason | Observable effect |
 | --- | --- | --- | --- | --- | --- |
@@ -155,6 +158,9 @@ next free ID of its range.
 | D154 | `game-sim::data::asteroid_field` | A field without a zone dereferences null when it pushes an exclusion zone (the immersion test) and in `get_lootable_zone` | The exclusion zone is kept without the test; the loot-zone lookup gives none | Undefined behaviour in the reference | None in the data: the server faults earlier on a field whose zone is missing |
 | D155 | `game-sim::data::spatial` | `BspPartition::Remove` on an empty partition reads the root's slots through null | It does nothing | Undefined behaviour in the reference | None: no caller removes from an empty partition |
 | D156 | `game-sim::data::spatial` | `BspPartition::Add` splits the same full leaf for ever when no candidate plane separates its nine entries (nine coincident centres, say) | After `MAX_SPLITS_PER_ADD` (65,536) leaf splits in one `Add` the entry being placed is dropped and counted in `dropped` | Undefined behaviour in the reference (the call never returns) | None for the shipped data, which has no such entries |
+| D190 | `game-sim::ai::state_graph` (`StateGraphDb::find_by_id`, `behavior_name`) | `pub::StateGraph::get_state_graph(id, type)` reads the name of record `id` without a range check, and `BehaviorTypes::get_behavior_name` indexes its 21-entry registry without one; an id out of range reads past the array | -1 and `None` | Undefined behaviour in the reference | None: the game passes ids it got from the same tables |
+| D191 | `game-sim::ai::state_graph::choose_behavior` | When no prefix sum exceeds the draw, the behaviour manager reads the dword after its 21-entry score table as the behaviour, and it stops at `INT3` when the chosen entry is -1 | `BehaviorChoice::Drawn(None)`; the caller decides | Undefined behaviour in the reference | None expected: the draw is below the total by construction, so the walk ends inside the live entries unless the weights are NaN or sum to less than 1e-5 |
+| D192 | `game-sim::ai::state_graph::StateGraphDb::load` | After a missing file or a wrong `behavior_count`, `LoadFromFile` returns with the array already freed by `refresh_state_graph` but the previous graph count kept, so later lookups read through a null array (and the wrong-count path leaks the file handle) | An error; the database is empty | Undefined behaviour in the reference | None with the shipped `state_graph.db`, which loads |
 
 D5 to D9 described the reader's binary INI path. That path was removed
 with decision O13, so the rows are gone; the IDs are not reused. D32
