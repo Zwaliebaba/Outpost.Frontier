@@ -1,7 +1,8 @@
 //! The committed oracle vectors of this crate (`tests/vectors/`), rendered
 //! through the port. `Oracle.exe neuron-client` writes the same files from
 //! the C++ reference (`CppSource/Oracle/oracle_scene_script.cpp`,
-//! `oracle_scene_script_build.cpp`, `oracle_text.cpp` and `oracle_audio.cpp`).
+//! `oracle_scene_script_build.cpp`, `oracle_text.cpp`, `oracle_audio.cpp`,
+//! `oracle_texture.cpp` and `oracle_big_image.cpp`).
 
 mod support;
 
@@ -9,7 +10,7 @@ use neuron_client::scene_script::{BuildState, Vm};
 use neuron_client::text::rdl::markup;
 
 use support::audio::{self, check_suite_within};
-use support::{check_suite, input_lines, scene_script, scene_script_build, text, unhex};
+use support::{check_suite, input_lines, scene_script, scene_script_build, text, texture, unhex};
 
 /// P4.14: the Lua state after each buffer of a case, one fresh state per
 /// case (`tests/fixtures/oracle/scene_script.list`).
@@ -140,4 +141,19 @@ fn scene_script_build() {
         }
     }
     check_suite("scene_script_build.jsonl", &lines);
+}
+
+/// P4.4: the texture library at run time: records, playbacks and their
+/// animation, groups, reference counts and garbage collection
+/// (`tests/fixtures/oracle/texture_runtime.list`).
+#[test]
+fn texture_runtime() {
+    check_suite("texture_runtime.jsonl", &texture::runtime_lines());
+}
+
+/// P4.4: ximage's `BigImage`: tiles, their uploads and the draw callback
+/// (`tests/fixtures/oracle/big_image.list`).
+#[test]
+fn big_image() {
+    check_suite("big_image.jsonl", &texture::big_image_lines());
 }

@@ -1,0 +1,11 @@
+# P4.4 BigImage oracle inputs, written by make_texture_fixtures.py.
+image 0 4 4 3 3 10 6 20 120 ; size ; count ; draw - 0 0 10 6 ; draw 1 1 9 5 20 30 40 50 ; draw 9 5 1 1 0 0 100 60 ; draw 0 0 0 0 0 0 10 6 ; draw 0 3 10 3 0 0 10 6 ; draw 4 0 8 6 0 0 8 12 ; tile 0 ; tile 5 ; tile 6 ; tile -1 ; alpha 3f000000 ; draw - 0 0 5 3 ; color 3f800000 3f000000 00000000 ; draw - 0 0 5 3 ; fill 3 10 6 20 ; fill 3 9 6 20 ; fill 7 10 6 40
+image 1 4 4 7 7 10 6 40 240 ; count ; draw - 0 0 10 6 ; draw 2 1 10 6 -5 -5 15 15
+image 1 4 4 7 7 6 10 24 240 ; draw - 0 0 6 10
+image 0 4 4 3 3 8 8 16 128 ; draw 2 2 6 6 0 0 64 64 ; draw - 0 0 8 8
+image 0 256 256 7 7 100 50 400 20000 ; count ; draw - 10 10 110 60 ; draw 20 10 80 40 0 0 300 150
+image 0 4 4 3 3 0 0 0 0 ; count ; size ; draw - 0 0 10 10 ; tile 0
+image 0 4 4 12 12 8 8 32 64 ; draw - 0 0 8 8
+image 0 4 4 3 0 10 6 20 120
+image 0 4 4 6 6 5 5 10 40 ; draw - 0 0 5 5
+image 0 8 8 7 7 8 8 32 256 ; alpha 3f800000 ; draw - 0 0 8 8 ; alpha bf800000 ; draw - 0 0 8 8 ; alpha 437f0000 ; draw - 0 0 8 8 ; color 3e800000 3f400000 3f800000 ; draw - 0 0 8 8 ; draw - 3 7 2 9

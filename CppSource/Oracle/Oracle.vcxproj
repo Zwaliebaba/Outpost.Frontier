@@ -315,6 +315,11 @@
     <!-- P4.10: SoundManager.dll exports nothing but its factory; oracle_audio.cpp includes
          SoundManager.cpp (DllMain renamed, GetTickCount redirected) to call its mixer code. -->
     <ClCompile Include="oracle_audio.cpp" />
+    <!-- P4.4: the texture library at run time (TextureLibrary.cpp, compiled into
+         oracle_shading.cpp) and ximage.dll's BigImage; oracle_big_image.cpp includes ximage.cpp
+         (DllMain renamed) to make FBigImage of its anonymous namespace. -->
+    <ClCompile Include="oracle_texture.cpp" />
+    <ClCompile Include="oracle_big_image.cpp" />
     <ClCompile Include="oracle_physics.cpp" />
     <ClCompile Include="oracle_sim.cpp" />
     <ClCompile Include="oracle_sim_spread.cpp" />
@@ -329,6 +334,7 @@
     <ClInclude Include="oracle_sim.h" />
     <ClInclude Include="oracle_sim_ai.h" />
     <ClInclude Include="oracle_protocol.h" />
+    <ClInclude Include="oracle_texture.h" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\neuroncomponents\neuroncomponents.vcxproj">

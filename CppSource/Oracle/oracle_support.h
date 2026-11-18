@@ -226,6 +226,12 @@ void RunTextSuites();
 // P4.10 (oracle_audio.cpp): the software mixer of SoundManager.dll, compiled in, over
 // crates/neuron-client/tests/fixtures/oracle/audio; called by RunNeuronClientSuites.
 void RunAudioSuites();
+// P4.4 (oracle_texture.cpp): the texture library at run time and, through BigImageSuite
+// (oracle_big_image.cpp), ximage's BigImage, over
+// crates/neuron-client/tests/fixtures/oracle/{texture_runtime,big_image}.list; called by
+// RunNeuronClientSuites.
+void RunTextureSuites();
+void BigImageSuite();
 
 // P4.14 (oracle_scene_script.cpp): every .thn under DATA through lua_dobuffer in a fresh
 // Lua state, and the state after it; kind "thn".
