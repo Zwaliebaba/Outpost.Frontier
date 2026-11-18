@@ -4,7 +4,8 @@
 //! `oracle_scene_script_build.cpp`, `oracle_scene_script_runtime.cpp`,
 //! `oracle_text.cpp`, `oracle_audio.cpp`, `oracle_texture.cpp`,
 //! `oracle_big_image.cpp`, `oracle_material.cpp`,
-//! `oracle_material_kinds.cpp` and `oracle_ui.cpp`).
+//! `oracle_material_kinds.cpp`, `oracle_material_surface.cpp` and
+//! `oracle_ui.cpp`).
 
 mod support;
 
@@ -13,8 +14,8 @@ use neuron_client::text::rdl::markup;
 
 use support::audio::{self, check_suite_within};
 use support::{
-    check_suite, input_lines, material, material_kinds, scene_script, scene_script_build,
-    scene_script_runtime, text, texture, ui, unhex,
+    check_suite, input_lines, material, material_kinds, material_surface, scene_script,
+    scene_script_build, scene_script_runtime, text, texture, ui, unhex,
 };
 
 /// P4.14: the Lua state after each buffer of a case, one fresh state per
@@ -265,4 +266,13 @@ fn ui_quad_batch() {
         .flat_map(|(case, line)| ui::quad_batch_lines(case, line))
         .collect();
     check_suite("ui_quad_batch.jsonl", &lines);
+}
+
+/// P4.5: the 19 surface materials against recording services: their
+/// schemas, `ApplyVerify`, binding, teardown, the submissions, the engine
+/// and candidate calls and the parameters
+/// (`tests/fixtures/oracle/material_surface.list`).
+#[test]
+fn material_surface() {
+    check_suite("material_surface.jsonl", &material_surface::lines());
 }

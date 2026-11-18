@@ -184,7 +184,8 @@ jobs:
         # oracle_big_image.cpp); P4.5: the material regular expressions, library,
         # global records, animation and batcher of Shading (oracle_material.cpp), and
         # the 22 material kinds and BatchedMaterial against recording services
-        # (oracle_material_kinds.cpp; material_*.jsonl); over
+        # (oracle_material_kinds.cpp) and surfacematerials' 19 materials
+        # (oracle_material_surface.cpp; material_*.jsonl); over
         # crates/neuron-client/tests/fixtures/oracle.
         shell: pwsh
         run: |
