@@ -310,9 +310,12 @@ namespace
                                                   EquipValRange, EquipValTargetId};
         for (unsigned int Type : kEquipTypes)
         {
+            // find_equipment answers 0 and ends the ids with a 0 when they do not fill the
+            // buffer (IObjInspectImpl::find_equipment).
             unsigned short Ids[kMaxEquip] = {};
-            const int Found = O->find_equipment(Ids, kMaxEquip, Type);
-            for (int Index = 0; Index < Found && Index < kMaxEquip && Out.EquipCount < kMaxEquip; ++Index)
+            if (O->find_equipment(Ids, kMaxEquip, Type) != 0)
+                continue;
+            for (int Index = 0; Index < kMaxEquip && Out.EquipCount < kMaxEquip; ++Index)
             {
                 if (Ids[Index] == 0)
                     break;

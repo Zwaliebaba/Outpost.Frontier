@@ -289,6 +289,34 @@ thrust manager's flags: `bCruiseEngaged` 1, `bCruiseUnobstructed` 2,
 clocks start from three `rand()` draws of its constructor, outside any
 behaviour tick, so a replay takes them from the record.
 
+Added for the dogfight (P2.5 combat): `flags_1c8` i (`Flags1c8`), `sys`
+{…}\|null (the system manager's combat state, `Sys`) and `face`
+{…}\|null (the face behaviour's fields while it is the current
+behaviour, 15). `sys` holds `targeting` (`Sys->Targeting`:
+`attack_state` i, `aggression` f, `subtarget_dist_sq` f, `subtarget` u,
+`forced` [u, …], `anchor` f3, `committed` b, `commit_timer` f,
+`priority` i (`SelectionPriority`), `candidates_a` i, `candidates_b` i,
+`selected` i, `selected_is_player` b, `targeted_enemies` i,
+`over_clamp_kept` b, `over_clamp_dropped` b), `timers` (`Sys->Timers`
+without the target list: `scanner` u, `decay_rate` f, `level` f, `timers`
+[[b, f, f, f], …] (the eleven `SustainedThresholdTimer`s: active,
+threshold, duration, accumulator), `decay_scale` f, `missiles` [u, …]
+(the incoming-missile list, at most 16), `best_missile` u, `best_time` f)
+and `guns` (`Sys->GunGroups`: `last_result` i, `target` u (0 none), `hold`
+u, `aim_offset` f3, `aim_timer` f, `cruise_held` f, `scan_timer` f,
+`scan_period` f, `slots` and `mines` [[u, b, i, b, i, f, f, f, f], …] (each
+`FGunGroupSlot`: id, auto turret, seeker, fire tick, kind, burst, pause,
+interval, phase), `params` f[19] (+0x103C to +0x1084 in field order,
+`GunRange` last), `wide_cone` f, `fire_all` b, `enabled` b,
+`line_of_fire` [[b, u, u, f, f, b, b], …] (the 16 cache slots: in use,
+target, launcher, age, refresh timer, needs refresh, blocked) and `cm`
+[f, b, [u, …]] (the countermeasure droppers' timer, state and ids)).
+`face` holds `mode` i, `result` i, `dt` f, `flags` u, `flag29` u
+(the `Behavior` prefix), `kind` i, `watched` u (0 none), `orient` f9,
+`target` f3, `flag_1b4` u, `steer` f3, `flag_1c4` u, `flag_1c5` u,
+`field_1c8` f, `field_1cc` f, `field_1d0` f, `flag_1d4` u and
+`field_1d8` f (`FaceBehavior`'s fields of the same offsets).
+
 Roles of an object: `self`; `target` (`get_target`); `formation_leader`,
 `follow_leader`, `follower` (`get_formation_leader`, `get_follow_leader`,
 `get_formation_followers`, at most 16); `dock_target` (`get_dock_target`
@@ -322,6 +350,22 @@ an object that is not a ship): what the thrust manager reads before it
 commands the engine and the thrusters, and the bank limit of the steering
 frame. These are the fields of
 `game_sim::ai::world::ObjectView`, which a replay world fills from them.
+Added for the dogfight (P2.5 combat): `targeted_enemies` i\|null
+(`CShip::get_targeted_enemy_count`; null for an object that is not a
+ship), and for the ship itself `lead` f3\|null (`CShip::
+get_tgt_lead_fire_pos`; null when it answers false) and `equip` [{…}, …]:
+each item `find_equipment` finds for the types `0x80` (guns and
+launchers), `0x20` (mine droppers), `0x40` (countermeasure droppers) and
+`0x100` (shields), in that order, as {`id` u, `type` u (the mask that found
+it), `status` [u, u] (`get_equipment_status`: `Flags`, `EquipFlags`) or
+the failing result i, `munition`, `auto_turret`, `seeker`, `range`,
+`target` u\|null (`get_equipment_val` of `EquipValMunitionKind`,
+`EquipValAutoTurret`, `EquipValSeeker`, `EquipValRange`,
+`EquipValTargetId`: the value's four bytes, null when the call fails),
+`barrel` f[6]\|null (barrel 0's world position and direction, for a
+launcher), `pointing` [b, b, b] (`is_pointing_at` at π/60, the gun groups'
+wide cone and missile cone angles) and `can_point` [[u, b], …] (an auto
+turret's `can_point_at` toward each candidate's position at 0.3)}.
 
 The `rand` values come from a counting wrapper that the recorder puts in
 the import address table of each game DLL: it calls the C runtime's own
@@ -334,13 +378,19 @@ as many.
 `tests/support/ai_records.rs`) reruns every tick through
 `game_sim::ai::manager::BehaviorManager`. It keeps one Rust manager per
 object across the file, so what the records do not hold (the behaviours'
-own fields, the thrust manager's caches) carries over from the Rust
-side's previous tick; before each tick it sets the manager fields of
-`ai_in`, the target list and the personality, and builds a world from the
+own fields but the face behaviour's, the thrust manager's caches)
+carries over from the Rust side's previous tick; before each tick it sets
+the manager fields of `ai_in` (with `flags_1c8`, `sys` and `face` where
+the record has them), the target list and the personality, and builds a
+world from the
 `ai_obj` snapshot (object ids as handles, the ship's own state following
 its commands, the ship's scan list from its next tick's `ai_in.targets`
-(the list this tick built), the queries answered from `ai_query`, `rand()` from
-`ai_out`'s values). It compares the manager fields of `ai_out` bit for
+(the list this tick built), the queries answered from `ai_query`, the
+ship's equipment, lead and the ships' targeted-enemy counts from
+`ai_obj`, `rand()` from `ai_out`'s values). The combat state of `ai_out`
+(`flags_1c8`, `sys`, `face`) is compared and reported on a line of its
+own, with the equipment queries the snapshot cannot answer (an
+`is_pointing_at` at another angle, the item form of the lead). It compares the manager fields of `ai_out` bit for
 bit (with `pathfind` and `thrust` where the record has them), the number
 of `rand()` draws, and the commands with the `affect` records whose `beh`
 is the tick's `seq` and whose `depth` is 0 (slots 0 to 3, 13 and 18 to
