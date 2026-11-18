@@ -5,8 +5,9 @@
 mod support;
 
 use neuron_client::scene_script::Vm;
+use neuron_client::text::rdl::markup;
 
-use support::{check_suite, input_lines, scene_script, unhex};
+use support::{check_suite, input_lines, scene_script, text, unhex};
 
 /// P4.14: the Lua state after each buffer of a case, one fresh state per
 /// case (`tests/fixtures/oracle/scene_script.list`).
@@ -23,4 +24,27 @@ fn scene_script() {
         }
     }
     check_suite("scene_script.jsonl", &lines);
+}
+
+/// P4.13, P4.14: `MsvcrtFormatLuaNumber` and `MsvcrtNumericVsnprintf`
+/// (`tests/fixtures/oracle/number_text.list`).
+#[test]
+fn number_text() {
+    let lines: Vec<String> = input_lines("number_text.list")
+        .iter()
+        .map(|line| text::number_line(line))
+        .collect();
+    check_suite("number_text.jsonl", &lines);
+}
+
+/// P4.12: `XMLReader::read_buffer` into an empty list
+/// (`tests/fixtures/oracle/rdl_markup.list`).
+#[test]
+fn rdl_markup() {
+    let lines: Vec<String> = input_lines("rdl_markup.list")
+        .iter()
+        .enumerate()
+        .map(|(case, line)| text::markup_line(case, line, markup::read))
+        .collect();
+    check_suite("rdl_markup.jsonl", &lines);
 }
