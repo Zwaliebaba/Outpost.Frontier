@@ -1025,3 +1025,10 @@ void RunShadingDataDump(const std::vector<std::string>& Files)
     printf("dumped %u texture libraries and %u material archives\n", (unsigned int)TextureFiles.size(),
            (unsigned int)MaterialFiles.size());
 }
+
+// P4.4 (oracle_texture.cpp): the built-in format maps of TextureLibrary.cpp's anonymous
+// namespace, which this file compiles in.
+void OracleTextureFormatMapDefaults()
+{
+    FormatMapLoadDefaults();
+}
