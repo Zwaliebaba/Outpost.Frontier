@@ -12,8 +12,8 @@ use crate::ai::fp::{e, r};
 use crate::ai::manager::{BehaviorManager, NotificationOut};
 use crate::ai::personality::Personality;
 use crate::ai::world::{
-    AiCommand, AiRand, AiWorld, EngineStatus, MotionModel, ObjectView, RayContact, SpatialQueries,
-    StrafeDir as AiStrafe, ThrustEquipType,
+    AiCommand, AiRand, AiWorld, EngineStatus, LootView, MotionModel, ObjectView, RayContact,
+    SpatialQueries, StrafeDir as AiStrafe, ThrustEquipType,
 };
 use crate::equip::flight::StrafeDir;
 use crate::equip::{EquipKind, types};
@@ -620,6 +620,60 @@ impl AiWorld for World {
             .map(|m| (m.state.behavior, m.state.directive))
     }
 
+    /// `CLoot`'s units, AI flag and contents class, and `get_good_id`
+    /// (`Arch2Good` of the contents).
+    fn loot(&self, h: ObjHandle) -> Option<LootView> {
+        let crate::object::KindData::Loot(l) = &self.get(h)?.data else {
+            return None;
+        };
+        let contents = self.data.archetypes.equipment.get(&l.contents_arch);
+        Some(LootView {
+            units: l.units,
+            can_ai_tractor: l.can_ai_tractor,
+            contents_class: contents.map_or(0, |a| a.class()),
+            good_id: Some(self.data.goods.arch_to_good(l.contents_arch)),
+        })
+    }
+
+    /// `CShip::get_cargo_hold_remaining` and the ship archetype's
+    /// `hold_size`: every item of the hold mask counts its volume (a cargo
+    /// stack its count times it), rounded to `float` at each sum; what is
+    /// left of the hold, or 0 when the items exceed it.
+    fn cargo_hold(&self, h: ObjHandle) -> Option<(f64, f32)> {
+        let o = self.get(h)?;
+        o.as_ship()?;
+        let hold = self.data.archetypes.ships.get(&o.archetype)?.hold_size;
+        let eq = o.as_equipped()?;
+        let mut used = 0.0_f32;
+        for slot in eq.equipment.traverse(0x1ff_0000, false) {
+            let Some(item) = eq.equipment.get(slot) else {
+                continue;
+            };
+            let volume = self
+                .data
+                .archetypes
+                .equipment
+                .get(&item.arch_id)
+                .map_or(0.0, |a| a.volume);
+            used = match (&item.kind, item.type_bits) {
+                (EquipKind::Cargo(c), types::CARGO) => r(f64::from(c.count) * e(volume) + e(used)),
+                _ => r(e(used) + e(volume)),
+            };
+        }
+        let remaining = if used <= hold { e(hold) - e(used) } else { 0.0 };
+        Some((remaining, hold))
+    }
+
+    /// The target of the object's loot behaviour (behaviour 16).
+    fn loot_target_of(&self, h: ObjHandle) -> Option<u32> {
+        self.behavior_managers
+            .get(&h)?
+            .behavior(crate::ai::behavior::ids::LOOT)?
+            .as_any()?
+            .downcast_ref::<crate::ai::loot::LootBehavior>()?
+            .target
+    }
+
     fn command(&mut self, h: ObjHandle, command: AiCommand<ObjHandle>) -> i32 {
         let typed = match command {
             AiCommand::SetThrottle(t) => Command::SetThrottle(t),
@@ -660,6 +714,31 @@ impl AiWorld for World {
                     .unwrap_or_default();
                 for id in ids {
                     self.command(h, Command::ActivateEquip(id, on));
+                }
+                return 0;
+            }
+            // `EqObj::slot_40` (the server's own request): -5 for a dead
+            // owner, -4 without a target, -2 without the item, -5 when
+            // `CETractor::AddTarget` refuses.
+            AiCommand::Tractor { equipment, target } => {
+                if self.get(h).is_none_or(|o| o.dead) {
+                    return -5;
+                }
+                if self.get(target).is_none() {
+                    return -4;
+                }
+                let is_item = self
+                    .get(h)
+                    .and_then(|o| o.as_equipped())
+                    .and_then(|eq| eq.equipment.by_id(equipment))
+                    .is_some();
+                if !is_item {
+                    return -2;
+                }
+                if self.tractor_add_target(h, equipment, target)
+                    != crate::equip::misc::TractorFailure::Ok
+                {
+                    return -5;
                 }
                 return 0;
             }

@@ -182,9 +182,43 @@ pub struct Cx<'a, W: AiEnv + ?Sized> {
     pub ship: W::Handle,
     /// The manager's state.
     pub state: &'a mut ManagerState,
+    /// The manager's behaviours (`BehaviorDispatchTable`), for a behaviour
+    /// that drives another (the flee behaviour hands the ship to the goto,
+    /// dock or formation behaviour); the entry of the behaviour being
+    /// called holds a stand-in. `None` outside the manager.
+    pub peers: Option<&'a mut [Box<dyn Behavior<W>>]>,
 }
 
-impl<W: AiEnv + ?Sized> Cx<'_, W> {
+impl<'a, W: AiEnv + ?Sized> Cx<'a, W> {
+    /// The context of a tick outside the manager's dispatch table.
+    pub fn new(world: &'a mut W, ship: W::Handle, state: &'a mut ManagerState) -> Self {
+        Self {
+            world,
+            ship,
+            state,
+            peers: None,
+        }
+    }
+
+    /// Runs `f` on the manager's behaviour `index` with this tick's world
+    /// and state; `None` outside the manager or for an index outside the
+    /// table.
+    pub fn with_peer<T>(
+        &mut self,
+        index: i32,
+        f: impl FnOnce(&mut dyn Behavior<W>, &mut Cx<'_, W>) -> T,
+    ) -> Option<T> {
+        let peers = self.peers.as_deref_mut()?;
+        let b = peers.get_mut(usize::try_from(index).ok()?)?;
+        let mut cx = Cx {
+            world: &mut *self.world,
+            ship: self.ship,
+            state: &mut *self.state,
+            peers: None,
+        };
+        Some(f(&mut **b, &mut cx))
+    }
+
     /// `rand()`.
     pub fn rand(&mut self) -> i32 {
         self.world.rand()
@@ -529,6 +563,12 @@ pub trait Behavior<W: AiEnv + ?Sized> {
     /// The concrete behaviour, for a harness that sets its fields from a
     /// record. The default offers none.
     fn as_any_mut(&mut self) -> Option<&mut dyn core::any::Any> {
+        None
+    }
+
+    /// The concrete behaviour, for a reader of its fields (another ship's
+    /// loot behaviour reads this one's target). The default offers none.
+    fn as_any(&self) -> Option<&dyn core::any::Any> {
         None
     }
 

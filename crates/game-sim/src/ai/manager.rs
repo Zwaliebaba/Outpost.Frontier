@@ -26,7 +26,7 @@ use std::sync::Arc;
 use neuron_core::math::Vector;
 
 use super::behavior::{AiEnv, Behavior, CancelRequest, Cx, DirectiveOp, EvaluateResult, ids};
-use super::behaviors::create_behavior;
+use super::behaviors::{UnportedBehavior, create_behavior};
 use super::fp::{e, r};
 use super::gun_convergence::LeaderNotification;
 use super::intercept::{is_aligned_and_outside_heading_cone, is_within_intercept_range_of_iface};
@@ -251,6 +251,8 @@ pub struct BehaviorManager<W: AiEnv + ?Sized> {
     /// The fields.
     pub state: ManagerState,
     behaviors: Vec<Box<dyn Behavior<W>>>,
+    /// The stand-in that takes a behaviour's entry while it is called.
+    spare: Box<dyn Behavior<W>>,
 }
 
 impl<W: AiEnv + ?Sized> core::fmt::Debug for BehaviorManager<W> {
@@ -286,7 +288,11 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
             b.bind(owner_id);
             behaviors.push(b);
         }
-        let mut manager = Self { state, behaviors };
+        let mut manager = Self {
+            state,
+            behaviors,
+            spare: Box::new(UnportedBehavior::new(-1)),
+        };
         manager.attach_all(world, ship);
         let mut state = manager.state;
         let behaviors = manager.behaviors;
@@ -297,7 +303,11 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
         state.timer_b = phase(world.rand(), 0.2);
         state.attack_override_timer = phase(world.rand(), 1.0);
         state.attack_override_period = 1.0;
-        Self { state, behaviors }
+        Self {
+            state,
+            behaviors,
+            spare: Box::new(UnportedBehavior::new(-1)),
+        }
     }
 
     /// The manager over given fields and fresh, bound behaviours, drawing
@@ -310,7 +320,11 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
             b.bind(owner_id);
             behaviors.push(b);
         }
-        Self { state, behaviors }
+        Self {
+            state,
+            behaviors,
+            spare: Box::new(UnportedBehavior::new(-1)),
+        }
     }
 
     /// Every behaviour's [`Behavior::attach`] against the world (the
@@ -318,11 +332,7 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
     /// manager with [`Self::from_state`] calls it once it has a world.
     pub fn attach_all(&mut self, world: &mut W, ship: W::Handle) {
         for b in &mut self.behaviors {
-            let mut cx = Cx {
-                world: &mut *world,
-                ship,
-                state: &mut self.state,
-            };
+            let mut cx = Cx::new(&mut *world, ship, &mut self.state);
             b.attach(&mut cx);
         }
     }
@@ -363,13 +373,17 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
         f: impl FnOnce(&mut dyn Behavior<W>, &mut Cx<'_, W>) -> T,
     ) -> Option<T> {
         let i = Self::slot(index)?;
-        let b = &mut self.behaviors[i];
+        // The behaviour leaves the table for the call, so that it can
+        // reach the others (`Cx::with_peer`).
+        std::mem::swap(&mut self.behaviors[i], &mut self.spare);
         let mut cx = Cx {
             world: &mut *world,
             ship,
             state: &mut self.state,
+            peers: Some(&mut self.behaviors),
         };
-        let out = f(&mut **b, &mut cx);
+        let out = f(&mut *self.spare, &mut cx);
+        std::mem::swap(&mut self.behaviors[i], &mut self.spare);
         // `QueueNotification` from inside the behaviour: nothing the
         // behaviour reads later in the same call depends on it.
         for n in std::mem::take(&mut self.state.leader_notes) {

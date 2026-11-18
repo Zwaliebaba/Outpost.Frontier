@@ -72,7 +72,7 @@ use support::records::{find_files, oracle_dir};
 const MAX_REPORTED: usize = 30;
 
 /// The recorded `IObjAffect` slots (`design/sim-records.md`, `affect`).
-const RECORDED_SLOTS: [u8; 9] = [0, 1, 2, 3, 13, 18, 19, 20, 21];
+const RECORDED_SLOTS: [u8; 10] = [0, 1, 2, 3, 13, 16, 18, 19, 20, 21];
 
 /// The scenario ships of one run in a world over `outdir/`, for their
 /// motion models: the ship's scenario name to its handle.
@@ -868,6 +868,10 @@ fn as_affect(c: &AiCommand<u32>) -> Option<AffectRow> {
             i32::try_from(equipment.len()).unwrap_or(-1),
             target.as_ref().and_then(v3),
         ),
+        // The target's id travels as the bits of the float.
+        AiCommand::Tractor { equipment, target } => {
+            (16, i32::from(*equipment), Some(vec![*target]))
+        }
         AiCommand::SetTarget { target, subtarget } => (
             18,
             target.map_or(0, int),
@@ -1101,11 +1105,7 @@ fn face_variants(
         };
         let mut w = ReplayWorld::new(t, Vec::new(), motion, true, &BTreeMap::new());
         let mut st = entry.clone();
-        let mut cx = Cx {
-            world: &mut w,
-            ship: t.id,
-            state: &mut st,
-        };
+        let mut cx = Cx::new(&mut w, t.id, &mut st);
         let mut idea = FaceIdea::new();
         idea.set_context(&cx);
         idea.set_basis(&frame);
@@ -1202,6 +1202,9 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
             let mut binding =
                 ReplayWorld::new(t, Vec::new(), motion.as_ref(), avoid_shuffled, &names);
             m.attach_all(&mut binding, t.id);
+            // `InitSystemManager`'s tractor record (the ship's first
+            // tractor, from the snapshot's items).
+            m.state.sys.tractor.init(&binding, t.id);
             m.state.pathfind.owner_type = world.objects.get(&t.id).map_or(0, |v| v.type_flags);
             if let Some(v) = world.objects.get(&t.id) {
                 m.state.pathfind.avoidance.attach_owner(v);

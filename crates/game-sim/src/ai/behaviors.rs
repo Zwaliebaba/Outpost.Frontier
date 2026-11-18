@@ -2,8 +2,9 @@
 //! `common_behaviortypes.cpp`). Ported so far: the simple behaviours of
 //! `common_nullbehavior.cpp`, `common_idlebehavior.cpp`,
 //! `common_delaybehavior.cpp`, `common_cruisebehavior.cpp` and
-//! `common_drasticevadebehavior.cpp`, and goto, free flight and face
-//! ([`super::goto`], [`super::face`]). Every other id makes an
+//! `common_drasticevadebehavior.cpp`, and goto, free flight, face, buzz,
+//! evade, trail, strafe, flee and loot (their own modules). Follow has its
+//! poll only. Every other id makes an
 //! [`UnportedBehavior`], which keeps the manager's protocol (it binds,
 //! engages and ticks) but never volunteers in a re-evaluation and commands
 //! nothing; [`Behavior::ported`] tells a replay to skip its ticks.
@@ -14,9 +15,11 @@ use super::behavior::{AiEnv, Behavior, BehaviorBase, Cx, DirectiveOp, ids};
 use super::buzz::BuzzBehavior;
 use super::evade::EvadeBehavior;
 use super::face::FaceBehavior;
+use super::flee::FleeBehavior;
 use super::fp::{e, r};
 use super::goto::GotoBehavior;
 use super::idea::{Idea, IdleIdea};
+use super::loot::LootBehavior;
 use super::strafe::StrafeBehavior;
 use super::trail::TrailBehavior;
 use super::world::AiCommand;
@@ -450,175 +453,6 @@ impl<W: AiEnv + ?Sized> Behavior<W> for DrasticEvadeBehavior {
         self.base.flags |= 0x2;
         self.duration = f32::from_bits(op_dword(op, 0x1c));
         true
-    }
-}
-
-/// The flee hostile-ratio thresholds of `FleeSceneThreatStyle`.
-fn flee_hostile_ratio_threshold(level: i32) -> f32 {
-    match level {
-        0 => 0.15,
-        1 => 0.35,
-        2 => 0.65,
-        3 => 0.85,
-        4 => 1.0,
-        _ => 0.5,
-    }
-}
-
-/// `FleeBehavior` (id 4), its poll (slot 5) only: the flee itself hands
-/// the ship to the goto, dock or formation behaviour of the manager after
-/// asking the content callback for a destination, which the port does not
-/// have yet, so its ticks are skipped ([`Behavior::ported`] is false).
-#[derive(Clone, Debug, PartialEq)]
-pub struct FleeBehavior {
-    base: BehaviorBase,
-    /// +0x2c a flee is running.
-    pub field_2c: u8,
-    /// +0x30 the flee reason (4).
-    pub field_30: i32,
-    /// +0x38 the leader flees.
-    pub field_38: u8,
-}
-
-impl FleeBehavior {
-    /// `FleeBehavior::FleeBehavior(TypeId)`.
-    #[must_use]
-    pub fn new(id: i32) -> Self {
-        Self {
-            base: BehaviorBase::new(id),
-            field_2c: 0,
-            field_30: 4,
-            field_38: 0,
-        }
-    }
-
-    fn answer(&mut self, mode: i32) -> i32 {
-        self.base.mode = if self.base.flag29 != 0 { 3 } else { mode };
-        self.base.mode
-    }
-}
-
-impl<W: AiEnv + ?Sized> Behavior<W> for FleeBehavior {
-    fn base(&self) -> &BehaviorBase {
-        &self.base
-    }
-
-    fn base_mut(&mut self) -> &mut BehaviorBase {
-        &mut self.base
-    }
-
-    fn ported(&self) -> bool {
-        false
-    }
-
-    /// Slot 5: 0 when the leader flees, the hull and shield are below the
-    /// flee percentage, the hostile power ratio is above the threat
-    /// style's threshold, or (with the no-weapons style) no gun is ready.
-    fn poll(&mut self, cx: &mut Cx<'_, W>, _timer_c: f32) -> i32 {
-        let job = cx.state.personality.job;
-        self.field_38 = 0;
-        let mut result = 2;
-        if job.flee_when_leader_flees_style != 0
-            && let Some(leader) = cx.state.sys.formation.current_leader(&*cx.world)
-            && cx
-                .world
-                .handle_of(leader)
-                .and_then(|h| cx.world.manager_of(h))
-                .is_some_and(|m| m.0 == 4)
-        {
-            self.field_38 = 1;
-            self.field_2c = 1;
-            self.field_30 = 1;
-        }
-        if self.field_2c != 0 {
-            return self.answer(0);
-        }
-        let own = cx.own();
-        let (shield, shield_max) = own
-            .as_ref()
-            .and_then(|v| v.shield)
-            .map_or((0.0, 0.0), |s| (s.0, s.1));
-        let (hp, hp_max) = own.as_ref().map_or((0.0, 0.0), |v| v.hit_points);
-        let mut flee = false;
-        let ratio = (e(hp) + e(shield)) / (e(hp_max) + e(shield_max));
-        if ratio < e(job.flee_when_hull_damaged_percent) {
-            flee = true;
-            self.field_30 = 2;
-        }
-        let aggression = cx.state.sys.targeting.aggression_ratio;
-        if e(aggression) > e(flee_hostile_ratio_threshold(job.flee_scene_threat_style)) {
-            flee = true;
-            self.field_30 = 0;
-        }
-        if job.flee_no_weapons_style != 0
-            && !cx.state.sys.guns.has_ready_weapon_slot(&*cx.world, cx.ship)
-        {
-            self.field_30 = 3;
-            result = 0;
-        } else if flee {
-            result = 0;
-        }
-        self.answer(result)
-    }
-
-    fn update(&mut self, _cx: &mut Cx<'_, W>) -> i32 {
-        self.base.result = 1;
-        1
-    }
-}
-
-/// `LootBehavior` (id 16), its poll (slot 5) only: with a tractor and the
-/// target manager in attack state 2 it looks for loot to pick up
-/// (`AcquireLootTarget`, not ported: that poll is a stand-in), otherwise
-/// it declines. Its ticks are skipped.
-#[derive(Clone, Debug, PartialEq)]
-pub struct LootBehavior {
-    base: BehaviorBase,
-    /// +0x164 the ship has a tractor (`find_equipment(.., 0x100000)`
-    /// answered).
-    pub has_tractor: u8,
-}
-
-impl LootBehavior {
-    /// `LootBehavior::LootBehavior(TypeId)`.
-    #[must_use]
-    pub fn new(id: i32) -> Self {
-        Self {
-            base: BehaviorBase::new(id),
-            has_tractor: 0,
-        }
-    }
-}
-
-impl<W: AiEnv + ?Sized> Behavior<W> for LootBehavior {
-    fn base(&self) -> &BehaviorBase {
-        &self.base
-    }
-
-    fn base_mut(&mut self) -> &mut BehaviorBase {
-        &mut self.base
-    }
-
-    fn ported(&self) -> bool {
-        false
-    }
-
-    fn attach(&mut self, cx: &mut Cx<'_, W>) {
-        self.has_tractor = u8::from(cx.world.find_equipment(cx.ship, 0x10_0000).is_some());
-    }
-
-    fn poll(&mut self, cx: &mut Cx<'_, W>, _timer_c: f32) -> i32 {
-        if self.has_tractor != 0 && cx.state.sys.targeting.attack_state == 2 {
-            // `AcquireLootTarget`: not ported.
-            cx.state.stand_in_polls += 1;
-        }
-        self.base.mode = if self.base.flag29 != 0 { 3 } else { 2 };
-        self.base.mode
-    }
-
-    fn update(&mut self, _cx: &mut Cx<'_, W>) -> i32 {
-        self.base.result = 1;
-        1
     }
 }
 

@@ -5,8 +5,9 @@
 //! `InitSystemManager`, `UpdateSystemManager` and the personality refresh.
 //!
 //! The thrust manager and the personality live in
-//! [`super::manager::ManagerState`] beside this. Not ported: the repair
-//! manager (`RepairManager`), the loot helper at +0x1498 and the leader's
+//! [`super::manager::ManagerState`] beside this. The tractor record at
+//! +0x1498 is [`TractorRecord`]. Not ported: the repair manager
+//! (`RepairManager`) and the leader's
 //! borrowed personality (`bLeaderMakesMeTougher`, which needs the
 //! leader's own system manager; the ship's own personality is used, an
 //! open item of the ledger's AI sub-row).
@@ -17,7 +18,96 @@ use super::gun_groups::GunGroups;
 use super::personality::Personality;
 use super::target_manager::{CombatEvent, TargetEnv, TargetList, TargetManager};
 use super::timer_table::{TimerTable, slot};
-use super::world::{AiRand, AiWorld, SpatialQueries};
+use super::world::{AiCommand, AiRand, AiWorld, SpatialQueries};
+
+/// The tractor type mask of `find_equipment` (`CETractor`).
+pub const TRACTOR_TYPE: u32 = 0x10_0000;
+
+/// The tractor record at `SystemManager+0x1498` (`Owner1498`,
+/// `Watcher149C`, `Unknown14A4`): the ship's first tractor and the loot
+/// it was last pointed at. The loot behaviour drives it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TractorRecord {
+    /// +0x149C the loot the tractor was pointed at (a watcher: an object
+    /// that is gone reads as none).
+    pub watched: Option<u32>,
+    /// +0x14A4 the tractor's sub-object id (`SUBOBJ_ID_NONE`, 0, without
+    /// one).
+    pub equip_id: u16,
+}
+
+impl TractorRecord {
+    /// `InitSystemManager`'s part: `find_equipment(&Id, 1, 0x100000)`,
+    /// the first tractor or none.
+    pub fn init<W: AiWorld + ?Sized>(&mut self, world: &W, ship: W::Handle) {
+        self.equip_id = world
+            .find_equipment(ship, TRACTOR_TYPE)
+            .and_then(|ids| ids.first().copied())
+            .unwrap_or(0);
+    }
+
+    /// The watched loot while it lives.
+    fn live<W: AiWorld + ?Sized>(&self, world: &W) -> Option<u32> {
+        self.watched.filter(|&id| world.handle_of(id).is_some())
+    }
+
+    /// The tractor's activation (module storage-062ece39): refused
+    /// without a target or a tractor, or when the tractor already watches
+    /// it; otherwise it watches the target and the owner's `slot_40(&Id,
+    /// target, -1)` points it there. True when that answered 0.
+    pub fn activate<W: AiWorld + ?Sized>(
+        &mut self,
+        world: &mut W,
+        ship: W::Handle,
+        target: Option<u32>,
+    ) -> bool {
+        let Some(target) = target else {
+            return false;
+        };
+        if self.equip_id == 0 {
+            return false;
+        }
+        if self.live(&*world) == Some(target) {
+            return false;
+        }
+        self.watched = Some(target);
+        let Some(h) = world.handle_of(target) else {
+            // The reference passes the null the watcher reads; `slot_40`
+            // answers -4.
+            return false;
+        };
+        let equipment = self.equip_id;
+        world.command(
+            ship,
+            AiCommand::Tractor {
+                equipment,
+                target: h,
+            },
+        ) == 0
+    }
+
+    /// The tractor's release (module storage-062ecea3): nothing without a
+    /// live watched loot or a tractor; otherwise the watcher is cleared
+    /// and the owner's `slot_4c(&Id, false, -1)` switches the tractor
+    /// off. True when that answered 0.
+    pub fn release<W: AiWorld + ?Sized>(&mut self, world: &mut W, ship: W::Handle) -> bool {
+        if self.live(&*world).is_none() {
+            return false;
+        }
+        if self.equip_id == 0 {
+            return false;
+        }
+        self.watched = None;
+        let equipment = self.equip_id;
+        world.command(
+            ship,
+            AiCommand::ActivateEquip {
+                equipment,
+                on: false,
+            },
+        ) == 0
+    }
+}
 
 /// The system manager's combat parts.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -34,13 +124,15 @@ pub struct SystemManager {
     pub formation: FormationState,
     /// The content-callback reports, in order; the owner drains them.
     pub events: Vec<CombatEvent>,
+    /// The tractor record (+0x1498).
+    pub tractor: TractorRecord,
 }
 
 impl SystemManager {
     /// The combat parts of `InitSystemManager(ship)`, in the reference's
     /// order: the timer table, the gun groups (their `rand()` draws: each
     /// gun's timing, then the scan phase), then the countermeasure
-    /// droppers (switched on).
+    /// droppers (switched on) and the tractor record.
     pub fn init<W: AiWorld + AiRand + ?Sized>(
         &mut self,
         world: &mut W,
@@ -53,6 +145,7 @@ impl SystemManager {
         self.timers.arm(&*world, ship);
         self.guns.init(world, ship, p);
         self.guns.cm.bind(world, ship);
+        self.tractor.init(&*world, ship);
     }
 
     /// `NotifySystemManagerPersonalityChanged`: the gun groups (with their

@@ -426,3 +426,35 @@ fn notifications_reach_the_followers_in_order() {
     assert_eq!(managers[0].state.outbox.len(), 2);
     assert!(managers[0].state.notifications.is_empty());
 }
+
+#[test]
+fn a_damaged_ship_flees_through_the_goto_behaviour() {
+    use super::goto::GotoBehavior;
+    let mut world = OneShip::new();
+    world.ship.hit_points = (10.0, 100.0);
+    world.ship.center = Vector::new(5.0, 6.0, 7.0);
+    let mut m = BehaviorManager::new(&mut world, 7);
+    let mut db = graphs();
+    db.graphs[1].weights[6][ids::FLEE as usize] = 1.0;
+    m.set_state_graph(&mut world, 7, &db, 1, false);
+    let mut p = m.state.personality;
+    p.job.flee_when_hull_damaged_percent = 0.5;
+    m.set_personality(&mut world, 7, p);
+    m.update_behavior_tick(&mut world, 7, 0.25);
+    // The poll is certain (0): no draw picks; the first tick hands the
+    // ship to the goto behaviour with the fallback destination.
+    assert_eq!(m.state.behavior, ids::FLEE);
+    assert!(m.is_ported(ids::FLEE));
+    let goto = m
+        .behavior(ids::GOTO)
+        .and_then(|b| b.as_any())
+        .and_then(|a| a.downcast_ref::<GotoBehavior>())
+        .map(|g| g.op.clone());
+    let op = goto.unwrap_or_default();
+    assert_eq!(op.kind, 1);
+    assert_eq!(op.destination, Vector::new(10_005.0, 6.0, 7.0));
+    assert_eq!(op.range, 500.0);
+    // The flee stays current while the goto runs.
+    m.update_behavior_tick(&mut world, 7, 0.25);
+    assert_eq!(m.state.behavior, ids::FLEE);
+}
