@@ -3,12 +3,13 @@
 //! Direct3D 12 backend and the trace player; textures at run time
 //! ([`texture`]); materials, their animation and the batcher
 //! ([`material`]); the render manager, levels of detail and the mesh
-//! kinds ([`mesh`]).
+//! kinds ([`mesh`]); particle effects ([`particles`]).
 
 pub mod compare;
 pub mod ff;
 pub mod material;
 pub mod mesh;
+pub mod particles;
 pub mod shader;
 pub mod texture;
 

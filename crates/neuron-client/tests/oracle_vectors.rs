@@ -5,7 +5,7 @@
 //! `oracle_text.cpp`, `oracle_audio.cpp`, `oracle_texture.cpp`,
 //! `oracle_big_image.cpp`, `oracle_material.cpp`,
 //! `oracle_material_kinds.cpp`, `oracle_material_surface.cpp`,
-//! `oracle_mesh_render.cpp` and `oracle_ui.cpp`).
+//! `oracle_mesh_render.cpp`, `oracle_particles.cpp` and `oracle_ui.cpp`).
 
 mod support;
 
@@ -14,7 +14,7 @@ use neuron_client::text::rdl::markup;
 
 use support::audio::{self, check_suite_within};
 use support::{
-    check_suite, input_lines, material, material_kinds, material_surface, mesh_render,
+    check_suite, input_lines, material, material_kinds, material_surface, mesh_render, particles,
     scene_script, scene_script_build, scene_script_runtime, text, texture, ui, unhex,
 };
 
@@ -284,4 +284,19 @@ fn material_surface() {
 #[test]
 fn mesh_render() {
     check_suite("mesh_render.jsonl", &mesh_render::lines());
+}
+
+/// P4.8: every ramp and transform property of a node library evaluated at a
+/// list of times (`tests/fixtures/oracle/particle_ramp.list`).
+#[test]
+fn particle_ramp() {
+    check_suite("particle_ramp.jsonl", &particles::ramp_lines());
+}
+
+/// P4.8: effects driven by the client's calls, with the node state, the
+/// particle lists, the pools and the texture calls
+/// (`tests/fixtures/oracle/particle_sim.list`).
+#[test]
+fn particle_sim() {
+    check_suite("particle_sim.jsonl", &particles::sim_lines());
 }

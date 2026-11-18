@@ -321,6 +321,7 @@ void RunNeuronClientSuites()
     RunTextureSuites();
     SceneScriptRuntimeSuites();
     RunUiSuites();
+    RunParticleSuites();
     RunMaterialSuites();
 }
 
