@@ -151,6 +151,14 @@ fn vec3(t: &[String], at: usize) -> Option<Vector> {
     ))
 }
 
+/// The orientation `pub::SpaceObj::Create` hands the ship it makes: the
+/// request carries the math engine's `MatrixToQuaternion` of the info's
+/// matrix, and the ship's parameters take `QuaternionToMatrix` of it
+/// (`server_pub.cpp:2474`, `server_classes.cpp:7057`).
+fn spawn_orientation(m: &Matrix) -> Matrix {
+    neuron_core::math::quaternion_to_matrix(&neuron_core::math::matrix_to_quaternion(m))
+}
+
 /// `HeadingMatrix`: a yaw of `degrees` about +Y.
 fn heading(degrees: f64) -> Matrix {
     let r = degrees * std::f64::consts::PI / 180.0;
@@ -642,7 +650,7 @@ fn run(s: &Scenario, ai: &AiInputs) -> Option<Run> {
                 create_id(o.archetype.as_bytes()),
                 create_id(o.loadout.as_bytes()),
                 o.pos,
-                o.orient,
+                spawn_orientation(&o.orient),
             );
             spawn.velocity = o.vel;
             spawn.angular_velocity = o.angvel;
@@ -2077,7 +2085,7 @@ fn rust_load_draws(s: &Scenario) -> Option<Vec<(String, usize)>> {
                 create_id(o.archetype.as_bytes()),
                 create_id(o.loadout.as_bytes()),
                 o.pos,
-                o.orient,
+                spawn_orientation(&o.orient),
             );
             spawn.velocity = o.vel;
             spawn.angular_velocity = o.angvel;
