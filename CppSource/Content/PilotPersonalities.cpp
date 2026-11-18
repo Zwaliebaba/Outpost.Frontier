@@ -1354,3 +1354,18 @@ bool __cdecl GetPilotPersonalityWithJob(unsigned int* PilotId, ID_String* JobId,
         return true;
     return ApplyPilotJob(JobId, OutPersonality);
 }
+
+
+// Oracle instrumentation (P2.5 sim): the `pilot` option of an Oracle.exe sim scenario
+// (design/reference-build.md section 10). A new export, not part of the reference DLL's
+// interface; only the harness calls it, so a game run never reaches it. It fills a
+// personality from the [Pilot] named by its nickname as GetPilotPersonality does for an
+// NPC ship of an npcships.ini entry; false when the pilot is unknown.
+extern "C" __declspec(dllexport) bool __cdecl OracleSimPilotPersonality(char const* Pilot,
+                                                                       pub::AI::Personality* OutPersonality)
+{
+    if (Pilot == nullptr || OutPersonality == nullptr)
+        return false;
+    unsigned int PilotId = CreateID(Pilot);
+    return GetPilotPersonality(&PilotId, OutPersonality);
+}
