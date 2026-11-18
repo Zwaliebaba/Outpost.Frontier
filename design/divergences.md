@@ -80,6 +80,8 @@ D269 to D271 are proposed, for the owner's review.
 D245 to D249 (P4.14 run time: curves, spline paths, playback) are
 proposed, for the owner's review.
 
+D330 (P4.15) is proposed.
+
 D272 to D277 (P4.10, decoding and the XAudio2 device) are proposed, for
 the owner's review.
 
@@ -285,6 +287,7 @@ the owner's review.
 | D276 | `neuron-client::audio::reverb`, `neuron-client::platform::audio` (P4.10) | The EAX settings go to the sound card's EAX reverb | `ReverbConvertI3DL2ToNative` of the Windows SDK (an inline function, carried in Rust: single-precision arithmetic, the logarithm in double) turns D224's I3DL2 parameters into XAudio2's, wet/dry 100, 7.1 rear and side delays; the reverb runs on a one-channel submix at the output rate (within 20 to 48 kHz) into the mastering voice, and is off until the client sets an environment | Owner decision O26; technical decision T4 | The reverb sounds like XAudio2's, not a card's EAX |
 | D277 | `neuron-client::platform::audio` (P4.10) | Windows mixes a DirectSound buffer's two pan gains onto the speaker layout | A 2D voice (and a stream) of one channel goes to the front left and right outputs with D229's gains, of two channels left to front left and right to front right, further channels to the output of the same number; a layout without a front pair (mono) takes the mean of the two gains, shared among the source channels | Technical decision T4 | On multichannel outputs 2D sounds and music come from the front pair only |
 | D278 | `neuron-client::platform::d3d12` (P4.2, P4.3) | A texture coordinate within about 0.001 of a wrap boundary at a pixel's sample point falls on whichever side the driver's interpolation precision gives: the synthetic `textured` trace's last row (v = 0.9991 exactly) sampled v >= 1 and wrapped on CI's Direct3D 8 path | Direct3D 12's interpolation (8-bit subpixel vertices, float attributes) keeps v < 1 there | Platform: rasterizer precision differs between drivers, the reference's own hardware included; not emulated | A one-texel row or column at a quad edge whose coordinate ends exactly on a wrap boundary may show the other side of the texture; the synthetic trace was moved off that knife edge |
+| D330 | `neuron-client::{media, platform::media}`, `game-app::movies` (P4.15) | The movie library plays each startup movie through a DirectShow graph over the WM ASF Reader in a video window it parents to the game window, subclasses the window procedure (Shift or Escape stop, other keys swallowed), and `UpdateMovie` polls every 300 ms while the client pumps messages | A Media Foundation source reader decodes the frames to RGB32 and the sound to 16-bit PCM; each due frame is copied into a texture the renderer draws at the same placement (ideal size clamped to the client area, centred) and the sound plays as one stream on the audio device; the loop presents at the display's rate instead of polling every 300 ms; until input routing exists (P4.11) only closing the window stops a movie | Migration plan (DirectShow replaced by Media Foundation) | Picture and sound as before; a movie cannot yet be skipped with Shift or Escape |
 
 D5 to D9 described the reader's binary INI path. That path was removed
 with decision O13, so the rows are gone; the IDs are not reused. D32

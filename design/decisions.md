@@ -216,6 +216,8 @@ The permitted licences are listed in `deny.toml`. In use so far:
   `HiDpi`, `Shell` and `Com` (the Documents folder), `Registry` (the
   one-time import) and `Security_Cryptography` (DPAPI). P4.10 added `Media_Audio` and
   `Media_Audio_XAudio2` for the XAudio2 device (`platform::audio`, proposed
+  2026-11-18), and P4.15 `Media_MediaFoundation` for the startup movies'
+  source reader (`platform::media`, proposed
   2026-11-18); X3DAudio, which the crate describes only by constants, is
   declared there and loaded with the XAudio2 library at run time.
 - `symphonia` 0.6.1 (MPL-2.0; default features off, feature `mp3` only,
