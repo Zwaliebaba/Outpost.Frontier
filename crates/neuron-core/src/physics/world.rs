@@ -240,6 +240,9 @@ struct Phantom {
     enabled: bool,
     listener: bool,
     intruders: Vec<BodyHandle>,
+    /// The bodies found overlapping at the last update that are not
+    /// intruders yet (their mindists are new; see `update_phantoms`).
+    pending: Vec<BodyHandle>,
 }
 
 fn short_name(name: &[u8]) -> [u8; 8] {
@@ -662,6 +665,7 @@ impl PhysicsWorld {
                 if ph.attached == Some(h) {
                     ph.attached = None;
                 }
+                ph.pending.retain(|i| *i != h);
                 if let Some(pos) = ph.intruders.iter().position(|i| *i == h) {
                     ph.intruders.remove(pos);
                     if ph.listener {
@@ -951,7 +955,19 @@ impl PhysicsWorld {
         Some((Vector::from_words(p), quaternion_to_matrix(&q.to_math())))
     }
 
-    /// `PhySys::GetCenterOfMass`: the core's position now.
+    /// `IVP_Real_Object::get_m_world_f_object_AT`: the object's world
+    /// frame now, its rotation rows from the interpolated quaternion
+    /// (`IVP_U_Quat::set_matrix`) and its translation.
+    #[must_use]
+    pub fn object_matrix(&self, h: BodyHandle) -> Option<([[f32; 3]; 3], Vector)> {
+        let (q, p) = self.object_pose_at(h, self.clock.current_time)?;
+        let mut m = super::ivp::math::IvpMatrix::IDENTITY;
+        q.set_matrix(&mut m);
+        Some((m.rows, Vector::from_words(p)))
+    }
+
+    /// The core's position now (the mass centre of an unpinned core; see
+    /// `game-sim`'s `World::center_of_mass` for `PhySys::GetCenterOfMass`).
     #[must_use]
     pub fn center_of_mass(&self, h: BodyHandle) -> Option<Vector> {
         let core = self.core_of(h)?;

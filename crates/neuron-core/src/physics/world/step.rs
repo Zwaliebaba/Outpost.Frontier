@@ -574,6 +574,7 @@ impl PhysicsWorld {
             enabled: true,
             listener: desc.listener,
             intruders: Vec::new(),
+            pending: Vec::new(),
         }))
     }
 
@@ -583,26 +584,69 @@ impl PhysicsWorld {
         let _ = self.phantoms.remove(h.0);
     }
 
-    /// `PhySys::AttachPhantom`: the phantom follows the body; its pose
-    /// becomes relative to the body's.
-    pub fn attach_phantom(&mut self, h: PhantomHandle, body: BodyHandle) -> bool {
-        if !self.contains(body) {
+    /// `PhySys::AttachPhantom` (`IVP_Merge_Object_Into_Core`): the phantom
+    /// joins the body's core at its current pose and follows the body. The
+    /// core's upper limit radius and surface deviation grow to the
+    /// phantom's own plus `distance`, the distance from `object_position`
+    /// (the object's `WorldPosition`) to the phantom's position, as for an
+    /// attached body ([`PhysicsWorld::attach`]).
+    pub fn attach_phantom(
+        &mut self,
+        h: PhantomHandle,
+        body: BodyHandle,
+        object_position: Vector,
+    ) -> bool {
+        let now = self.clock.current_time;
+        let Some((bq, bp)) = self.object_pose_at(body, now) else {
+            return false;
+        };
+        let Some(p) = self.phantoms.get(h.0) else {
+            return false;
+        };
+        if p.attached.is_some() {
             return false;
         }
-        match self.phantoms.get_mut(h.0) {
-            Some(p) => {
-                p.attached = Some(body);
-                true
+        // The distance on the FPU stack, stored as a float.
+        let dx = e(object_position.x) - e(p.position[0]);
+        let dy = e(object_position.y) - e(p.position[1]);
+        let dz = e(object_position.z) - e(p.position[2]);
+        let distance = r(((dz * dz + dy * dy) + dx * dx).sqrt());
+        let (old_ulr, old_msd) = p.geometry.radius_and_deviation([0.0; 3]);
+        let mut m = crate::physics::ivp::math::IvpMatrix::IDENTITY;
+        bq.set_matrix(&mut m);
+        m.vv = bp;
+        let rel_position = m.vimult4(p.position);
+        let rel_rotation = IvpQuat::inv_mult(&bq, &p.rotation);
+        if let Some(core) = self.core_of_mut(body) {
+            let radius = e(distance) + e(old_ulr);
+            if radius > e(core.upper_limit_radius) {
+                core.upper_limit_radius = r(radius);
             }
-            None => false,
+            let limit = e(distance) + e(old_msd);
+            if limit > e(core.max_surface_deviation) {
+                core.max_surface_deviation = r(limit);
+            }
+            core.recompute_inverse_inertia();
         }
+        if let Some(p) = self.phantoms.get_mut(h.0) {
+            p.attached = Some(body);
+            p.rotation = rel_rotation;
+            p.position = rel_position;
+        }
+        true
     }
 
-    /// `PhySys::DetachPhantom`.
+    /// `PhySys::DetachPhantom`: the phantom stays where it is.
     pub fn detach_phantom(&mut self, h: PhantomHandle) -> bool {
+        let Some(p) = self.phantoms.get(h.0) else {
+            return false;
+        };
+        let (rotation, position) = self.phantom_pose(p);
         match self.phantoms.get_mut(h.0) {
             Some(p) => {
                 p.attached = None;
+                p.rotation = rotation;
+                p.position = position;
                 true
             }
             None => false,
@@ -725,6 +769,7 @@ impl PhysicsWorld {
             }
             let listener = p.listener;
             let previous = p.intruders.clone();
+            let pending = p.pending.clone();
             let mut events = Vec::new();
             for h in &previous {
                 if !inside.contains(h)
@@ -742,8 +787,15 @@ impl PhysicsWorld {
                 .copied()
                 .filter(|h| inside.contains(h))
                 .collect();
+            // IVP reports an intruder from its mindist with the phantom: a
+            // mindist the hull manager creates in one PSI is evaluated in a
+            // later one, so a body enters once its overlap has lasted to the
+            // end of a second step (divergence register, D177).
+            let mut waiting = Vec::new();
             for h in &inside {
-                if !previous.contains(h) {
+                if !previous.contains(h) && !pending.contains(h) {
+                    waiting.push(*h);
+                } else if !previous.contains(h) {
                     kept.push(*h);
                     if let Some(key) = self.user_key(*h) {
                         events.push(PhantomEvent {
@@ -756,6 +808,7 @@ impl PhysicsWorld {
             }
             if let Some(p) = self.phantoms.get_mut(index) {
                 p.intruders = kept;
+                p.pending = waiting;
             }
             if listener {
                 self.phantom_events.extend(events);

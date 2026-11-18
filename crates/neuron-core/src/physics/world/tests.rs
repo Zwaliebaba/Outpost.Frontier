@@ -286,14 +286,19 @@ fn phantoms_report_enter_and_leave() {
     assert_eq!(events[0].user_key, 1);
     assert!(world.phantom_intruders(p).is_empty());
     // A phantom attached to the ship travels with it.
+    let at = world.transform(ship).unwrap().0;
     let carried = world.create_phantom(PhantomDesc {
         geometry: Geometry::cuboid(Vector::new(-1.0, -1.0, -1.0), Vector::new(1.0, 1.0, 1.0)),
-        position: Vector::new(0.0, 5.0, 0.0),
+        position: Vector::new(at.x, at.y + 5.0, at.z),
         orientation: Matrix::IDENTITY,
         name: Vec::new(),
         listener: false,
     });
-    assert!(world.attach_phantom(carried, ship));
+    assert!(world.attach_phantom(carried, ship, at));
+    // The ship's core takes the phantom's reach: 5 m off plus its own
+    // radius.
+    let radius = world.core(ship).unwrap().upper_limit_radius;
+    assert!((radius - (5.0 + 3.0f32.sqrt())).abs() < 1e-4, "{radius}");
     let other = ball(&mut world, 3, 0.5, Vector::ZERO);
     let ship_x = world.transform(ship).unwrap().0.x;
     world.beam(
@@ -302,6 +307,9 @@ fn phantoms_report_enter_and_leave() {
         &Matrix::IDENTITY,
         false,
     );
+    // Found in one step, an intruder from the next.
+    step(&mut world, &mut NoControllers, &mut random, 0.01);
+    assert!(world.phantom_intruders(carried).is_empty());
     step(&mut world, &mut NoControllers, &mut random, 0.01);
     assert_eq!(world.phantom_intruders(carried), vec![3]);
     let closest = world.closest_phantom_intruder(carried, |_| true).unwrap();
