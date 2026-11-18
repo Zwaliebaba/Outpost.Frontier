@@ -20,6 +20,7 @@
 //! [`library::TextureRenderer`]; the client's texture runtime
 //! (`neuron-client::render::texture`, work package P4.4) gives it a device.
 
+pub mod bmp;
 pub mod convert;
 pub mod dds;
 pub mod format;
@@ -28,6 +29,7 @@ pub mod library;
 pub mod tga;
 pub mod write;
 
+pub use bmp::{BmpError, RgbImage};
 pub use convert::{ConvertError, to_rgba8};
 pub use dds::{DdsHeader, ImageInfo};
 pub use format::PixelFormat;

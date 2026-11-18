@@ -47,6 +47,9 @@ jobs:
         run: cargo clippy --locked --workspace --all-targets --target host-tuple -- -D warnings
       - name: Test workspace
         run: cargo test --locked --workspace --all-targets --target host-tuple
+      - name: Check the synthetic render traces
+        # Record 0004, point 15: the committed traces are what the generator writes.
+        run: python3 crates/neuron-client/tests/fixtures/render/make_render_traces.py --check
 
   policy:
     name: Policy
@@ -87,21 +90,27 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Check the generated P0.5 proxies
         # The +oracle IClient proxy and the P2.3 scenario oracle's IClient stub against
-        # include/rpc_iclient.h, and the RenderTrace forwarding code against
-        # include/render/IRenderPipeline.h.
+        # include/rpc_iclient.h, the RenderTrace forwarding code against
+        # include/render/IRenderPipeline.h, and the call decoding of
+        # Oracle.exe render-replay against RenderTrace's method table.
         shell: pwsh
         run: |
           python CppSource\OutpostFrontier\Client\make_oracle_iclient.py --check
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python CppSource\RenderTrace\make_render_trace.py --check
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python CppSource\Oracle\make_render_replay.py --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python CppSource\Oracle\SimClientStub\make_sim_client_stub.py --check
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   oracle:
     # Builds the C++ oracle harness (design/migration-plan.md P0.4) and checks
-    # that it reproduces the committed vectors byte for byte. Removed with the
-    # C++ in P7.3.
+    # that it reproduces the committed vectors byte for byte. Tools\Oracle
+    # also builds what its modes load at run time through project references:
+    # x86math.dll, SceneRuntime.dll, particlefx.dll, SimClientStub.dll and
+    # (P4.3, Oracle.exe render-replay) DX8RENDERER.dll. Removed with the C++
+    # in P7.3.
     name: Oracle vectors
     runs-on: windows-2025-vs2026
     steps:
@@ -109,6 +118,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Build the oracle harness
+        id: build
         shell: pwsh
         run: |
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
@@ -163,6 +173,10 @@ jobs:
           New-Item -ItemType Directory -Force oracle-out-neuron-client | Out-Null
           & .\bin\Oracle.exe neuron-client "$PWD\crates\neuron-client\tests\fixtures\oracle" "$PWD\oracle-out-neuron-client"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # vectors\render holds the synthetic renderer traces (record 0004,
+          # point 15), inputs written by make_render_traces.py; their images
+          # are checked by the render-replay step below.
+          Copy-Item -Recurse crates\neuron-client\tests\vectors\render oracle-out-neuron-client\render
           git diff --no-index --stat crates/neuron-client/tests/vectors oracle-out-neuron-client
           git diff --no-index crates/neuron-client/tests/vectors oracle-out-neuron-client
           if ($LASTEXITCODE -ne 0) { exit 1 }
@@ -229,6 +243,51 @@ jobs:
           $env:OUTPOST_ORACLE_DIR = $dump
           cargo test --locked -p neuron-core --test catalog_dump -- --nocapture
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Replay the synthetic render traces into DX8RENDERER
+        # Record 0004, point 15 (P4.3): Oracle.exe render-replay plays each
+        # crates/neuron-client/tests/vectors/render/<name>/trace.jsonl into the
+        # real Direct3D 8 renderer in a window on the runner and writes the
+        # back buffer of its selected frame as <name>\expected.bmp (24-bit,
+        # before gamma; CppSource/Oracle/oracle_render_replay.cpp). A committed
+        # expected.bmp must equal it byte for byte; a missing or different one
+        # is printed as base64 between marker lines, to be committed from the
+        # log (never made from Rust). The step fails when the player fails,
+        # including when the runner cannot create a Direct3D 8 HAL device. It
+        # runs whenever the harness built, so its log is there even when an
+        # earlier comparison failed.
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          $out = "$PWD\oracle-out-render"
+          New-Item -ItemType Directory -Force $out | Out-Null
+          & .\bin\Oracle.exe render-replay "$PWD\crates\neuron-client\tests\vectors\render" $out
+          $code = $LASTEXITCODE
+          Write-Host ("Oracle.exe render-replay exit code {0} (0x{0:x8})" -f $code)
+          $failed = $code -ne 0
+          foreach ($trace in Get-ChildItem crates\neuron-client\tests\vectors\render -Directory) {
+            $name = $trace.Name
+            $made = Join-Path $out "$name\expected.bmp"
+            $committed = Join-Path $trace.FullName 'expected.bmp'
+            if (-not (Test-Path $made)) {
+              Write-Host "::error::${name}: render-replay wrote no expected.bmp"
+              $failed = $true
+              continue
+            }
+            if (Test-Path $committed) {
+              if ((Get-FileHash $made).Hash -eq (Get-FileHash $committed).Hash) {
+                Write-Host "${name}: expected.bmp equals the C++ image"
+                continue
+              }
+              Write-Host "::error::${name}: the committed expected.bmp differs from the C++ image"
+              $failed = $true
+            } else {
+              Write-Host "::warning::${name}: no expected.bmp committed yet"
+            }
+            Write-Host "=== expected.bmp $name base64 begin ==="
+            Write-Host ([Convert]::ToBase64String([IO.File]::ReadAllBytes($made)))
+            Write-Host "=== expected.bmp $name base64 end ==="
+          }
+          if ($failed) { exit 1 }
       - name: Keep the oracle output
         if: always()
         uses: actions/upload-artifact@v4
@@ -238,4 +297,5 @@ jobs:
             oracle-out
             oracle-out-game-sim
             oracle-out-neuron-client
+            oracle-out-render
           if-no-files-found: ignore

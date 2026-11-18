@@ -489,6 +489,72 @@ changes nothing the client oracle sees: the session, key map, IClient and
 layout files equal those of a run without it, and so do the trees once the
 flag bits of section 6 are masked.
 
+### Replay into DX8RENDERER (`Oracle.exe render-replay`)
+
+Work package P4.3, decision record 0004 point 15:
+`Oracle.exe render-replay <vectors folder> <output folder>` plays every
+`<name>\trace.jsonl` under the vectors folder into the real renderer and
+writes the image of each selected frame to `<output>\<name>\expected.bmp`
+(`frame-<N>.bmp` for any later selected frame). The traces it is made for
+are the synthetic ones in `crates\neuron-client\tests\vectors\render\`,
+written by `crates\neuron-client\tests\fixtures\render\make_render_traces.py`
+(`--check` fails when they are stale); their `expected.bmp` files are this
+program's output, committed from CI's log (below), never made from Rust.
+
+```powershell
+msbuild CppSource\OutpostFrontier.sln /t:Tools\Oracle /p:Configuration=Release /p:Platform=Win32
+.\bin\Oracle.exe render-replay "$PWD\crates\neuron-client\tests\vectors\render" "$env:TEMP\render-replay"
+```
+
+Building `Tools\Oracle` also builds `DX8RENDERER.dll` and `x86math.dll`
+(the renderer's `3DMathEngine`), which the mode loads from `bin\`; it needs
+`d3d8.dll` and `ddraw.dll` from the system. For each trace the player
+creates `DirectX8` through neuroncomponents (not aggregated) and a window of
+the trace's back-buffer size, then plays every line in order through the
+seven interfaces: trace ids map to the real handles, light ids to a
+`D3DLIGHT8` of the player's (filled by the `AddLight`, `UpdateLight` and
+`LightData` lines), unlock data goes into the memory the real lock returned
+at the recorded first vertex or index, and the methods record 0004 point 13
+answers from the trace (mode enumeration, device information, render
+targets, `BlitTexture`, `PrintScreen`) are not called. The defaults line is
+compared with the renderer's getters, not applied. The per-method decoding
+of the 80 methods `RenderTrace` records generically is generated from
+`make_render_trace.py`'s table by `CppSource\Oracle\make_render_replay.py`
+(`--check` in CI's reference job); an unknown method stops the trace.
+`CopyVertices`, `CopyVertexData`, `LoadTexture`, `LoadCubemap` and a
+snapshot selection of a never-returned pooled buffer stop it with a message
+too: no synthetic trace uses them yet.
+
+The image is the back buffer, not the front buffer `PrintScreen` copies: a
+front-buffer copy of a window is the screen, which on a CI runner may be
+covered or off screen. Before forwarding the selected frame's `SwapBuffers`
+the player reads the back buffer through the renderer's own `LockBuffer` (a
+`CopyRects` into a system-memory surface) and writes it as a 24-bit
+bottom-up BMP. `LockBuffer` needs `LOCKABLE_BACKBUFFER`, so the player first
+loads an engine INI of its own, `[RenderPipeline]` with only
+`LOCKABLE_BACKBUFFER = true`, into neuroncomponents' profile parser; the key
+sets no render state, so the defaults are the built-in tables the synthetic
+traces' defaults lines hold. With the windowed `COPY` swap effect the
+presented image is this back buffer, and no gamma ramp applies to it (record
+0004 points 8 and 13 compare before the ramp).
+
+Every call that returns a negative result is printed with its name and
+result, beside DX8RENDERER's own `FDUMP` lines. A failure where the trace
+recorded success fails the trace (gamma calls, getters and `VerifyState`,
+which cannot change the image, only warn); a failed `CreateBuffers` ends the
+run with a message that no Direct3D 8 HAL device could be created
+(DX8RENDERER only creates `D3DDEVTYPE_HAL`). The exit code is 0 when every
+trace played and wrote its image, 1 otherwise, 2 for a usage or set-up
+error.
+
+CI's oracle job runs the mode after the other comparisons. A committed
+`expected.bmp` must equal the new one byte for byte; for a missing or
+different one the log holds the new file's base64 between
+`=== expected.bmp <name> base64 begin ===` and `... end ===`, and the
+output folder is in the job's `oracle-vectors` artifact. To commit one,
+decode the log line (`[IO.File]::WriteAllBytes(path,
+[Convert]::FromBase64String(text))`) or take it from the artifact.
+
 ## 10. Simulation oracle (`Oracle.exe sim`)
 
 Work package P2.3, decision O23, [adr/0003](adr/0003-simulation-oracle.md):

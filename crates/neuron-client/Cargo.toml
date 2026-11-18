@@ -7,8 +7,7 @@ publish.workspace = true
 
 [dependencies]
 neuron-core.workspace = true
-
-[dev-dependencies]
+symphonia.workspace = true
 toml.workspace = true
 
 [target.'cfg(windows)'.dependencies]

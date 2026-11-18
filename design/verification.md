@@ -34,6 +34,7 @@ and P0.5 (the client instrumentation), and deleted with the C++ in P7.3.
 | Console harness linked against the C++ DLLs | Vectors for exported functions: hashes, INI event streams, database dumps after load, codec bytes for given messages, save round trips, account names, scheduler traces, random-mission offers from a seed |
 | `+oracle` mode in the C++ client | Interface-tree dumps per screen, parsed key map and layout files, screenshots at fixed resolution and time step, a log of calls into the client event interface for a scripted session |
 | Logging proxy for the renderer interface | A frame's calls and buffers, replayable into the Rust renderer |
+| Renderer trace player (`Oracle.exe render-replay`, P4.3) | The image DX8RENDERER draws for each synthetic trace of `crates/neuron-client/tests/vectors/render/`, committed as its `expected.bmp` (record 0004, point 15) |
 | Scenario recorder on the physics and AI facades (`Oracle.exe sim`, P2.3) | Per-tick positions, orientations and events for scripted scenarios; per-PSI IVP core state and controller inputs; per-call damage and behaviour records; run-to-run spread ([sim-records.md](sim-records.md)) |
 
 Vector files are line-oriented text (one JSON object per line) with floats

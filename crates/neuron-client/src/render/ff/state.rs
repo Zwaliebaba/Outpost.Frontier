@@ -617,6 +617,11 @@ pub enum PipelineProperty {
     TextureAllow8Bit,
     TextureAllow32Bit,
     TextureAllowDxt,
+    /// Id 6, named `BROKEN_MULTITEXTURE` in the table. Once the device
+    /// caps are applied (`ApplyDeviceCaps`), DX8RENDERER keeps the texture
+    /// stage count there (`MaxTextureBlendStages`, at most 7), and its
+    /// getter returns that; the defaults line carries it. The model only
+    /// stores and returns the value.
     BrokenMultitexture,
     /// While on, `set_modelview` flips Z into the world matrix.
     ViewspaceLights,

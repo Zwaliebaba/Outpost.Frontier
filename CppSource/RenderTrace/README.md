@@ -319,6 +319,26 @@ Rules for the replayer:
 - A frame's `frame_image` is the reference for an image comparison after
   that frame's `SwapBuffers` (record 0004, point 14).
 
+### Replayers
+
+- Model replay in Rust: `neuron-client::render::trace` (record 0004,
+  point 12).
+- Into the C++ renderer: `Oracle.exe render-replay` (`CppSource/Oracle/
+  oracle_render_replay.cpp`, record 0004 point 15) plays traces into
+  `DX8RENDERER.dll` and writes each selected frame's image. It reads the
+  back buffer through `LockBuffer` before the frame's `SwapBuffers` instead
+  of copying the front buffer, so its window may be covered; it loads an
+  engine INI with `LOCKABLE_BACKBUFFER` for that
+  ([reference-build.md](../../design/reference-build.md) section 9). Its
+  per-method argument decoding is generated from this folder's
+  `make_render_trace.py` table by `CppSource/Oracle/make_render_replay.py`;
+  run it too after a change to the table.
+- Synthetic traces in this format, one state group each, are written by
+  `crates/neuron-client/tests/fixtures/render/make_render_traces.py` into
+  `crates/neuron-client/tests/vectors/render/`. Their frame image lines are
+  `"frame_image":null` with a note: the reference image is the
+  `expected.bmp` beside each trace, written by `Oracle.exe render-replay`.
+
 ## Limits of version 1
 
 - Content made on the GPU in skipped frames (render targets, `BlitTexture`
