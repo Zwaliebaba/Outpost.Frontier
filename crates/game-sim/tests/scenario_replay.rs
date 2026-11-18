@@ -911,6 +911,14 @@ fn run(s: &Scenario, ai: &AiInputs) -> Option<Run> {
                                     g.pitch.desired,
                                     g.target_point_age,
                                 ],
+                                &format!(
+                                    "b{}{} t{}",
+                                    u8::from(g.yaw.is_bound()),
+                                    u8::from(g.pitch.is_bound()),
+                                    g.target
+                                        .and_then(|t| world.get(t))
+                                        .map_or(0, |o| o.simple.id)
+                                ),
                             )),
                             _ => None,
                         })
@@ -1009,9 +1017,9 @@ fn launch_note(world: &World, tick: u32, shooter: u32, equip: u16) -> String {
     )
 }
 
-fn gun_text(id: u32, v: [f32; 5]) -> String {
+fn gun_text(id: u32, v: [f32; 5], extra: &str) -> String {
     format!(
-        "{id}:[{}]",
+        "{id}:[{} {extra}]",
         v.iter()
             // A signed zero compares as zero (the joints' rest value).
             .map(|x| format!("{:08x}", (x + 0.0).to_bits()))
@@ -1125,8 +1133,10 @@ fn report_guns(summary: &mut String, dir: &Path, scenario: &str, ours: &Run) {
             .filter_map(|g| {
                 let a = g.as_array()?;
                 let id = a.first()?.as_u32()?;
-                let v: Vec<f32> = a[1..].iter().filter_map(Json::as_f32).collect();
-                Some(gun_text(id, <[f32; 5]>::try_from(v).ok()?))
+                let v: Vec<f32> = a.get(1..6)?.iter().filter_map(Json::as_f32).collect();
+                let int = |i: usize| a.get(i).and_then(Json::as_u32).unwrap_or(0);
+                let extra = format!("b{}{} t{}", int(6), int(7), int(8));
+                Some(gun_text(id, <[f32; 5]>::try_from(v).ok()?, &extra))
             })
             .collect::<Vec<_>>()
             .join(" ");

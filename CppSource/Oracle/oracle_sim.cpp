@@ -1572,7 +1572,8 @@ namespace
                     OracleSimReadBehavior(OracleSimBehaviorOf(const_cast<CObject*>(Rw->cobject())), Behavior);
                     BehaviorFields(J, Behavior);
                     // P2.5 (the strafe's bullets): each gun's turret joints, [id, yaw current,
-                    // yaw desired, pitch current, pitch desired, target point age].
+                    // yaw desired, pitch current, pitch desired, target point age, yaw bound, pitch bound,
+                    // lock target id].
                     {
                         unsigned int GunId = Object.Id;
                         CObject* const GunOwner = CObject::Find(GunId, CObject::ClassShip);
@@ -1594,6 +1595,12 @@ namespace
                                 J.Float(nullptr, Gun->Pitch.Current);
                                 J.Float(nullptr, Gun->Pitch.Desired);
                                 J.Float(nullptr, Gun->TargetPointAge);
+                                J.Int(nullptr, Gun->Yaw.EngineIndex != -1 ? 1 : 0);
+                                J.Int(nullptr, Gun->Pitch.EngineIndex != -1 ? 1 : 0);
+                                CSimple* Lock = nullptr;
+                                unsigned short LockSub = 0;
+                                Gun->GetTarget(Lock, LockSub);
+                                J.Uint(nullptr, Lock != nullptr ? Lock->get_id() : 0u);
                                 J.EndArray();
                             }
                             GunOwner->Release();
