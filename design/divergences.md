@@ -31,6 +31,10 @@ range.
 The owner accepted D200 and D201 (P4.14) on 2026-11-18, as replacements of
 unspecified and undefined behaviour in the reference.
 
+The owner accepted D202 to D205 (P4.3) on 2026-11-18: D203 and D204 as
+replacements of undefined behaviour in the reference, D202 and D205 as
+design choices.
+
 | ID | Area | C++ behaviour | Rust behaviour | Reason | Observable effect |
 | --- | --- | --- | --- | --- | --- |
 | D1 | `neuron-core::ini::engine` | On a stray `]` or `=` at the start of a line, an over-long phrase, or a value that does not end the line, `FIniDatabase::Parse` executes `__debugbreak`; on a key before the first section it writes through a null section (`neuroncomponents.cpp`). Without a debugger the process ends | `EngineIni::load_*` returns `EngineIniError::Breakpoint` or `KeyBeforeSection`; the sections parsed before stay | Undefined behaviour in the reference | A malformed engine INI is reported instead of ending the program |
