@@ -61,6 +61,12 @@ The owner accepted the amended wording of D87 on 2026-11-18: a contact's
 elasticity and friction are the products of its two sides' materials, as
 `IVP_Material_Manager` takes them.
 
+The owner accepted the amended wording of D122 on 2026-11-18: the free
+parts of stations, which the port keeps on the owner's body, are also
+simulation units in the C++ and so set when IVP's movement check reaches
+each core. The owner decided the same day that the Rust world matches the
+C++ simulation-unit list, which will narrow or remove D122.
+
 | ID | Area | C++ behaviour | Rust behaviour | Reason | Observable effect |
 | --- | --- | --- | --- | --- | --- |
 | D1 | `neuron-core::ini::engine` | On a stray `]` or `=` at the start of a line, an over-long phrase, or a value that does not end the line, `FIniDatabase::Parse` executes `__debugbreak`; on a key before the first section it writes through a null section (`neuroncomponents.cpp`). Without a debugger the process ends | `EngineIni::load_*` returns `EngineIniError::Breakpoint` or `KeyBeforeSection`; the sections parsed before stay | Undefined behaviour in the reference | A malformed engine INI is reported instead of ending the program |
