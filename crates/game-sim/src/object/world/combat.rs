@@ -250,6 +250,36 @@ impl World {
             .unwrap_or_default()
     }
 
+    /// The objects a bullet's ray started inside since the last call
+    /// (diagnostic): the ray does not hit them, as IVP's ray solver does
+    /// not.
+    pub fn take_beam_starts_inside(&mut self, system: u32) -> Vec<ObjHandle> {
+        self.physics
+            .world_mut(system)
+            .map(|w| {
+                w.take_beam_starts_inside()
+                    .into_iter()
+                    .map(ObjHandle::from_key)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// The objects a bullet's ray crossed since the last call that IVP's
+    /// OV sphere test kept it from hitting (diagnostic): their core at the
+    /// start of the PSI was out of the test's reach.
+    pub fn take_beam_ov_culled(&mut self, system: u32) -> Vec<ObjHandle> {
+        self.physics
+            .world_mut(system)
+            .map(|w| {
+                w.take_beam_ov_culled()
+                    .into_iter()
+                    .map(ObjHandle::from_key)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     /// The multiplayer step's beam pass: `CBeam::move` on every bullet.
     pub(crate) fn move_beams(&mut self, system: u32, step: f32) {
         for h in self.list(system, TickList::Beams) {
