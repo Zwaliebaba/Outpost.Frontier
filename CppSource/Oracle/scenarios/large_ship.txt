@@ -1,0 +1,16 @@
+# Oracle.exe sim scenario (design/reference-build.md section 10): a large ship. A police
+# cruiser (li_cruiser with the loadout, CRUISER graph and pilot of npcships.ini's cruiser
+# entries) flies to a point 700 m ahead (the goto behaviour); a hostile fighter
+# (fc_lr_grp, no behaviour) waits 2500 m ahead. Once the goto directive is done the
+# cruiser's target manager picks the fighter and the CRUISER graph the large-ship
+# behaviour (11), which moves the cruiser to a stand-off point from the hostile ships'
+# centre. Multiplayer stepping.
+
+system he01
+ticks 1800
+stepping mp
+
+ship cruiser li_cruiser li_n_li_cruiser 15000 3000 -25000 ai CRUISER pilot cruiser_default faction he_p_grp psi
+ship rogue pi_fighter fc_lr_pi_fighter_loadout01 15000 3000 -27500 heading 180 faction fc_lr_grp
+
+at 1 cruiser goto 15000 3000 -25700 range 200

@@ -1,0 +1,16 @@
+# Oracle.exe sim scenario (design/reference-build.md section 10): a follow directive.
+# A fighter flies to a point 4000 m ahead; a second one, 300 m behind it, is given a
+# follow directive (DirectiveFollowOp, the follow behaviour 17) on it with the offset
+# (60, 0, 120) in the leader's frame and a follow distance of 150 m. The offset is not
+# zero, so the follower takes it as given (a zero offset asks the leader's
+# generate_follow_offset). Default personalities, no faction. Multiplayer stepping.
+
+system he01
+ticks 1500
+stepping mp
+
+ship leader he_fighter li_p_he_fighter_loadout01 15000 3000 -25000 ai FIGHTER psi
+ship follower he_fighter li_p_he_fighter_loadout01 15000 3000 -24700 ai FIGHTER psi
+
+at 1 leader goto 15300 3000 -29000 range 100
+at 1 follower follow leader distance 150 offset 60 0 120

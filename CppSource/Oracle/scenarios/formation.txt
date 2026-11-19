@@ -1,0 +1,21 @@
+# Oracle.exe sim scenario (design/reference-build.md section 10): a leader with two
+# wingmen in formation. As Content's ResetFormationState makes a formation of the
+# fighter_basic slots (missions\formations.ini): the leader keeps the FIGHTER (LEADER)
+# graph and is made its own formation leader with no offset; each wingman gets the
+# FIGHTER ESCORT graph and joins the leader at its slot offset
+# (pub::AI::update_formation_state). The leader then flies to a point 4000 m ahead; the
+# wingmen's graph picks the formation behaviour (10), which keeps them at their slots.
+# The police pilots of the dogfight, without a faction (no targets). Multiplayer stepping.
+
+system he01
+ticks 1500
+stepping mp
+
+ship leader he_fighter li_p_he_fighter_loadout01 15000 3000 -25000 ai FIGHTER pilot pilot_police_med psi
+ship wing1 he_fighter li_p_he_fighter_loadout01 14955 3000 -24986 ai FIGHTER escort pilot pilot_police_med psi
+ship wing2 he_fighter li_p_he_fighter_loadout01 15045 3000 -24986 ai FIGHTER escort pilot pilot_police_med psi
+
+at 1 leader formation leader
+at 1 wing1 formation leader -45 0 14
+at 1 wing2 formation leader 45 0 14
+at 1 leader goto 15300 3000 -29000 range 100
