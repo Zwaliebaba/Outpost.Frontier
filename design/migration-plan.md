@@ -280,8 +280,9 @@ comes in the same tick, the first contact's damage falls inside its
 envelope, and after it only the outcome (which objects are alive) is
 compared. The fights (`dogfight`, `skirmish`, `strafe`) are judged the same
 way: exactly up to their first contact or munition impact, whichever comes
-first; after it their outcomes and trajectories are compared within the
-approved envelopes, because the differences after a contact come from the
+first, which must come in the oracle's tick (owner, 2026-11-19); after
+it their outcomes and trajectories are compared within the approved
+envelopes, because the differences after a contact come from the
 accepted contact solver (D87, decision O19) and the fuse's timing (D177)
 (owner, 2026-11-18). `ram_asteroid`, in which neither the C++ pilot nor
 the Rust one touches the rock, stays as a near-miss check but does not count for the
