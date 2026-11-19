@@ -610,7 +610,13 @@ As `OutpostServer.exe` (`OutpostServer.cpp:437`, `:523`, `:731-745`,
    as the server thread sets them (`_control87(0x9001f, 0xfffff)`: 53-bit
    precision, every exception masked); `NeuronRuntime::Startup(NULL,
    "NEURONCOMPONENTSsrv.ini")`; `NeuronRuntime::OpenData` with
-   `[OutpostFrontier] data path`.
+   `[OutpostFrontier] data path` made absolute (`GetFullPathNameA`, P2.4):
+   the server's field load (`SrvAsteroidSystem::load`) roots the system
+   file's path, which `Universe::get_filename` has already rooted, at the
+   data path again, and `GetFileSysPath` leaves only absolute paths alone,
+   so with the INI's relative `.\data` it opens
+   `.\data\.\data\universe\…` and no asteroid field loads (the first
+   `asteroids.jsonl` probes showed it).
 3. `IServerImpl::Startup` with `SStartupInfo` {module path
    `SimClientStub.dll`, INI path `server.ini`, 16 players, port 0}. It runs
    `DataConfig::startup`, the world INI, `Server_LoadInitialDlls` (Content's

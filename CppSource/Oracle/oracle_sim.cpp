@@ -2215,8 +2215,17 @@ namespace
             {
                 if (Reader.is_value("Data path"))
                 {
+                    // P2.4: the data path is opened absolute (the current directory is the data
+                    // root). The server's field load (SrvAsteroidSystem::load) roots the system
+                    // file's path, which Universe::get_filename has already rooted, at the data
+                    // path again (GetFileSysPath leaves only absolute paths alone): with the
+                    // INI's relative ".\data" it opens ".\data\.\data\universe\..." and no
+                    // asteroid field loads. Every other path resolves as before.
                     DataPath = Reader.get_value_string();
-                    NeuronRuntime::OpenData(Reader.get_value_string());
+                    char Full[MAX_PATH] = {};
+                    DWORD const Length = GetFullPathNameA(DataPath.c_str(), MAX_PATH, Full, nullptr);
+                    std::string const Opened = (Length != 0 && Length < MAX_PATH) ? std::string(Full) : DataPath;
+                    NeuronRuntime::OpenData(Opened.c_str());
                     bFound = true;
                 }
             }
