@@ -930,7 +930,9 @@ clock once more and draws six values. `session.jsonl` records the seed
 (`server`, `startup_seed`) and each controller's heartbeat (`heartbeats`).
 The G2 fights also run with `comms off` (record 0003 point 12). The data
 job's step "Check that the oracle repeats itself" runs the five seeds that
-split three times each and fails when their records differ, when a
+split three times each and fails when their records differ (`run_rand.jsonl`
+by each draw's tick, index, value and caller: dbghelp's walk of the frames
+beyond the caller differed once between identical runs), when a
 comms-off run draws a comm roll, or when a fight with comms on differs from
 comms off before its first contact.
 
