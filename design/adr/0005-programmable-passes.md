@@ -1,6 +1,7 @@
 # 0005 — Programmable passes: render targets, programs, volume textures, scene depth
 
-Status: proposed (P4.9), for the owner's review. Fixes the detailed API
+Status: accepted by the owner on 2026-11-19 (P4.9): the register layout of
+point 11 as proposed, and D417 as written. Fixes the detailed API
 that record 0004, point 9, left to P4.9; implemented in the same change
 (`neuron-client::render::pass`, `platform::d3d12::{pass, backend::ex,
 dxc}`). Shader model 6.1 (DXIL from `dxc`, HLSL 2021) follows the owner's
@@ -355,6 +356,11 @@ Paths are relative to `CppSource/`.
   answers them.
 
 ## Open questions for the owner
+
+Answered by the owner on 2026-11-19: the layout of point 11 is the one
+P6.4 writes against, and fixed-size targets keep their contents (D417).
+The `dxc` options of `shader-compile` were aligned with record 0004's
+amended point 17 when the change was merged.
 
 1. Is the register layout of point 11 (each stage's registers at `b0` of
    its own stage) the one P6.4 should write against?

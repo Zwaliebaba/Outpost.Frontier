@@ -102,44 +102,27 @@ D260 to D264, D267, D269, D270, D272, D274, D282, D284, D285, D291 to
 D296, D300 to D307, D310 to D321, D323, D340 to D342, D344, D345, D347,
 D350 to D354, D370 to D374 and D390 to D398 and D400.
 
-These rows have an observable effect and await the owner's decision one
-by one:
+Later on 2026-11-19 the owner accepted, one group at a time, the rows with
+an observable effect: the platform replacements D268, D273, D275 to D277,
+D290 and D330; the text input rows D283 and D286; the timing and
+mathematics rows D271, D322, D355 and D399; and the UI drawing rows D343
+and D346.
 
-- D268 (P4.2): cube maps are filtered across faces, as Direct3D 12 always
-  does.
-- D271 (P4.1): the client's frame stamp has the system tick's resolution
-  (about 16 ms) instead of the winmm timer's 1 ms.
-- D273 (P4.10): MPEG audio is decoded by `symphonia`; samples differ in
-  the low bits from the Fraunhofer decoder's.
-- D275, D276 and D277 (P4.10): 3D voices are spatialised by X3DAudio and
-  reverberated by XAudio2's reverb (decision O26) instead of DirectSound
-  3D and EAX.
-- D283 and D286 (P4.11): the IME's windows are the system's (Korean
-  composes in the system's window, not inline), and a character outside
-  the ANSI code page reaches a box whole.
-- D290 (P4.12): faces come from DirectWrite with decision O29's
-  substitutes; metrics and advances may differ from GDI's by a pixel.
-- D322, D355 and D399 (P4.5, P4.6, P4.7): `atan2`, `acos`, `log10`, `sin`
-  and `cos` come from Rust's standard library instead of MSVC's C
-  runtime; the oracle suites match exactly so far.
-- D330 (P4.15): movies are decoded by Media Foundation instead of
-  DirectShow.
-- D343 (P4.13): widescreen placement moves windows by their node anchors
-  instead of by their names and C++ types.
-- D346 (P4.13): the cursor is drawn as a batched screen quad instead of
-  through the immediate-mode layer.
+The same day the owner accepted, by the same rule as the first review, the
+rows that replace undefined behaviour or follow decisions already taken:
+D298, D299, D356 to D360, D375 to D381, D410, D411, D413, D415 to D419
+(D417 as written: fixed-size targets keep their contents across a resize)
+and D420, D422 and D423. These rows have an observable effect and await
+the owner's decision:
 
-D356 to D360 (P4.6, second increment: the mesh faces and the render
-services on the device model) are proposed, for the owner's review.
-
-D410 to D419 (P4.9, the programmable passes of record 0005) are proposed,
-for the owner's review.
-
-D375 to D381 (P4.8, second increment: the particle draws) are proposed,
-for the owner's review.
-
-D297 to D299 and D420 to D423 (P4.12, third increment: rich-text layout,
-execution and `RichTextWin`) are proposed, for the owner's review.
+- D297 (P4.12): white space and lowering follow the C runtime's "C" locale
+  by a fixed table, which takes U+00A0, U+2007 and U+200A (they occur in
+  the cards) as spaces; the UCRT's answers above ASCII were not verified.
+- D412 (P4.9): alpha test and stencil do not act on programs.
+- D414 (P4.9): the programs' full-screen quad has no half-pixel shift.
+- D421 (P4.12): rich text is drawn into a memory surface instead of a GDI
+  device context (blending, the overhang box, nearest-pixel stretch,
+  5:5:5 truncation).
 
 | ID | Area | C++ behaviour | Rust behaviour | Reason | Observable effect |
 | --- | --- | --- | --- | --- | --- |
