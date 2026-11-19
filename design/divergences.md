@@ -94,6 +94,10 @@ reference's list), the narrowed D122 (a solar's free parts are bodies
 held by golems, not objects of the object model), D166 and D167 (P2.5)
 on 2026-11-18.
 
+The owner accepted D178, D186, D187 and D197 (P2.5, the dock, launch and
+trade-lane behaviours) as written on 2026-11-19. D197 is revisited in
+P3.3, when the object database's spatial buckets are ported.
+
 The owner accepted D209 (P4.2) on 2026-11-18, keeping the fixed set of
 static samplers of record 0004; a trace that shows an approximated stage
 reopens it.
