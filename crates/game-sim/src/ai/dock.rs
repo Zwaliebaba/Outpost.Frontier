@@ -920,7 +920,7 @@ impl DockBehavior {
                 cx.ship,
                 AiCommand::SetTarget {
                     target: None,
-                    subtarget: 0xffff,
+                    subtarget: 0,
                 },
             );
             let entrance = self.watched.and_then(|id| cx.world.handle_of(id));
@@ -964,7 +964,7 @@ impl DockBehavior {
             cx.ship,
             AiCommand::SetTarget {
                 target: None,
-                subtarget: 0xffff,
+                subtarget: 0,
             },
         );
         self.enter_state(cx, 0xc);

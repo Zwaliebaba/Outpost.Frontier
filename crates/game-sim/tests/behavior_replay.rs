@@ -146,6 +146,8 @@ struct ReplayWorld<'a> {
     attitudes: BTreeMap<u32, (f32, f32)>,
     queries: Vec<QueryRecord>,
     rand: RecordedRand,
+    /// The DLL that drew each recorded value (`ai_out.rand_mod`).
+    rand_mod: Vec<String>,
     commands: Vec<AiCommand<u32>>,
     ship: u32,
     /// The ship's motion model: the motion world and the ship's handle.
@@ -210,6 +212,7 @@ impl<'a> ReplayWorld<'a> {
                 .collect(),
             queries: t.queries.clone(),
             rand: RecordedRand::new(t.rand.clone()),
+            rand_mod: t.rand_mod.clone(),
             commands: Vec::new(),
             ship: t.id,
             motion,
@@ -619,6 +622,18 @@ impl AiWorld for ReplayWorld<'_> {
         if let Some(v) = self.objects.get_mut(&h) {
             Self::follow(v, &command);
         }
+        // The server's side of a request (Content's dock queue and its
+        // conversations) draws before it answers: those values are not the
+        // AI's.
+        if let AiCommand::Request { .. } = &command {
+            while self
+                .rand_mod
+                .get(self.rand.consumed())
+                .is_some_and(|m| m != "Common.dll")
+            {
+                self.rand.rand();
+            }
+        }
         let result = if let AiCommand::GoTradeLane { .. } = &command {
             self.take_answer("go_tradelane", |a| a.id == h)
                 .and_then(|a| a.ints.get(3).copied())
@@ -730,6 +745,11 @@ fn restore(m: &mut ManagerState, r: &ManagerRecord, t: &AiTick, graphs: &StateGr
         pf.reaction.state = p.reaction;
         pf.avoidance.active = p.probe_active;
         pf.avoidance.has_contact = p.probe_contact;
+        if let Some([a, b, c]) = p.locks {
+            pf.flag_245 = a;
+            pf.field_24c = b;
+            pf.field_254 = c;
+        }
     }
     if let Some(flags) = r.thrust {
         let th = &mut m.thrust;
@@ -1093,6 +1113,40 @@ fn restore_dock(manager: &mut BehaviorManager<ReplayWorld<'_>>, r: &BehRecord) {
     d.orient_40c = m(44);
 }
 
+/// Puts the recorded trade-lane fields into the Rust behaviour: its
+/// flag byte carries the heap's bits above bits 0 and 1 (D178).
+fn restore_trade_lane(manager: &mut BehaviorManager<ReplayWorld<'_>>, r: &BehRecord) {
+    if r.kind != 9 || r.ints.len() < 10 || r.floats.len() < 7 {
+        return;
+    }
+    let Some(t) = manager
+        .behavior_mut(9)
+        .and_then(|b| b.as_any_mut())
+        .and_then(|a| a.downcast_mut::<InstantTradeLaneBehavior>())
+    else {
+        return;
+    };
+    let i = &r.ints;
+    let f = &r.floats;
+    let byte = |v: i32| u8::try_from(v & 0xff).unwrap_or(0);
+    {
+        let base = game_sim::ai::behavior::Behavior::<ReplayWorld<'_>>::base_mut(t);
+        base.mode = i[0];
+        base.result = i[1];
+        base.flags = byte(i[2]);
+        base.flag29 = byte(i[3]);
+    }
+    t.state = i[4];
+    t.entrance = (i[5] != 0).then(|| word(i[5]));
+    t.lane = (i[6] != 0).then(|| word(i[6]));
+    t.in_lane = byte(i[7]);
+    t.flag_55 = byte(i[8]);
+    t.flag_56 = byte(i[9]);
+    t.speed = f[0];
+    t.lane_start = Vector::new(f[1], f[2], f[3]);
+    t.lane_end = Vector::new(f[4], f[5], f[6]);
+}
+
 /// The pathfinder fields the records hold, from the Rust manager.
 fn pathfind_snapshot(m: &ManagerState) -> PathfindRecord {
     let pf = &m.pathfind;
@@ -1108,6 +1162,7 @@ fn pathfind_snapshot(m: &ManagerState) -> PathfindRecord {
         reaction: pf.reaction.state,
         probe_active: pf.avoidance.active,
         probe_contact: pf.avoidance.has_contact,
+        locks: Some([pf.flag_245, pf.field_24c, pf.field_254]),
     }
 }
 
@@ -1171,6 +1226,7 @@ fn pathfind_equal(ours: Option<&PathfindRecord>, theirs: Option<&PathfindRecord>
         && a.reaction == b.reaction
         && a.probe_active == b.probe_active
         && a.probe_contact == b.probe_contact
+        && (a.locks.is_none() || b.locks.is_none() || a.locks == b.locks)
 }
 
 fn bits_equal(a: &ManagerRecord, b: &ManagerRecord) -> bool {
@@ -1695,6 +1751,7 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
         }
         if let Some(b) = &t.input.beh {
             restore_dock(manager, b);
+            restore_trade_lane(manager, b);
         }
         manager.state.stand_in_polls = 0;
         let entry_state = manager.state.clone();

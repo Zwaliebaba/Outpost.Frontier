@@ -431,6 +431,9 @@ pub struct PathfindRecord {
     pub probe_active: bool,
     /// `Avoidance.HasContact`.
     pub probe_contact: bool,
+    /// `locks` (P2.5 dock): `Flag245`, `Field_24C`, `Field_254`, the
+    /// flags `SetCruiseLock` writes (`None` in older records).
+    pub locks: Option<[u8; 3]>,
 }
 
 fn pathfind(j: &Json) -> Option<PathfindRecord> {
@@ -448,6 +451,10 @@ fn pathfind(j: &Json) -> Option<PathfindRecord> {
         reaction: i(j, "reaction")?,
         probe_active: b(j, "probe_active")?,
         probe_contact: b(j, "probe_contact")?,
+        locks: j.get("locks").and_then(Json::as_array).and_then(|a| {
+            let byte = |k: usize| a.get(k)?.as_u32().and_then(|v| u8::try_from(v).ok());
+            Some([byte(0)?, byte(1)?, byte(2)?])
+        }),
     })
 }
 
