@@ -29,6 +29,9 @@
 //! to the batcher of `screen_quad_state.cpp` ([`quad_batch`]), which also
 //! takes the HUD bars, effects, icons and the IME background. Hovered
 //! controls pulse between palette colours (`nn_ui_pulse.cpp`, [`pulse`]).
+//! The generic controls ([`controls`]: so far list boxes, scroll bars and
+//! cycles, framed panels) draw their frames, arrows and rules through an
+//! OpenGL-like immediate-mode layer (`win3d_immediate.cpp`, [`immediate`]).
 //! The software cursor is a named record of `mouse.ini` drawn from a
 //! texture shape at the end of the frame ([`shape`], [`cursor`]).
 //!
@@ -55,6 +58,7 @@ pub mod control;
 pub mod controls;
 pub mod cursor;
 pub mod factory;
+pub mod immediate;
 pub mod message;
 pub mod page;
 pub mod pulse;

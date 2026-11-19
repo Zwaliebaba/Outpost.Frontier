@@ -2,7 +2,7 @@
 //! `CppSource/particlefx/`).
 //!
 //! `neuron_core::fx_data` loads the `.ale` files (P1.7); this module runs
-//! them. The first increment is the simulation, platform-free:
+//! and draws them. The first increment is the simulation, platform-free:
 //!
 //! * [`ramp`]: evaluation of every keyed value (the flat ramps with their
 //!   interpolator tables and evaluation cache, the animated Hermite tracks
@@ -19,29 +19,49 @@
 //! * [`Effect`]: an instance of an effect archetype and the calls the client
 //!   makes on it each frame.
 //!
-//! Drawing (the draw contexts, vertex building, material submission and
-//! bounds) and the particle and mesh appearances' child effects and meshes
-//! are the second increment. What the simulation asks of the texture
-//! library goes through [`ParticleServices`].
+//! The second increment draws, against the renderer through
+//! [`ParticleDraw`] and the camera of the draw walk ([`Camera`]):
+//!
+//! * [`draw`]: `BeginDraw`, `EndDraw` and the draw walk (`DrawNodes`), the
+//!   six classes' draw contexts over the module's vertex buffer and the
+//!   dynamic index buffer, the batch lists of the batcher, the counters.
+//! * The vertex fills of the six billboard kinds: basic quads, streaks and
+//!   triangles, rect, perp, oriented, the dust's streaks with the camera
+//!   transform its spawns record, the beam's ribbon.
+//! * Bounding spheres: each appearance's and the effect's merge
+//!   ([`Effect::bounds`], `Slot15`).
+//!
+//! [`crate::render::stack::RenderStack`] answers both service traits on
+//! the device model. The particle and mesh appearances' child effects and
+//! meshes are not ported yet: they age and finish, draw nothing and have
+//! no sphere of their own. What the simulation asks of the texture library
+//! goes through [`ParticleServices`].
 
 // The reference's x87 branches treat an unordered comparison as one side of
 // a test; the negated comparisons keep that.
 #![allow(clippy::neg_cmp_op_on_partial_ord)]
 
 mod appearance;
+mod bounds;
+pub mod draw;
 mod effect;
 mod emitter;
 mod field;
+mod fill;
 pub mod node;
 pub mod pool;
 pub mod props;
 pub mod ramp;
 pub mod rand;
+mod ribbon;
 pub mod services;
 mod system;
 
+pub use bounds::NO_SPHERE;
+pub use draw::{DrawContext, DrawState, PARTICLE_FVF, VERTEX_BYTES};
 pub use effect::{Effect, EffectError, EffectRecord, OVERRIDE_FOLDER_HASH};
+pub use fill::sin_cos;
 pub use node::{Family, Node, NodeId};
 pub use pool::{Particle, PoolKind, Pools};
-pub use services::{NoTextures, ParticleServices};
+pub use services::{Camera, NoTextures, ParticleDraw, ParticleServices};
 pub use system::{ParticleFx, pool_of};

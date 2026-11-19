@@ -2,10 +2,11 @@
 //! through the port. `Oracle.exe neuron-client` writes the same files from
 //! the C++ reference (`CppSource/Oracle/oracle_scene_script.cpp`,
 //! `oracle_scene_script_build.cpp`, `oracle_scene_script_runtime.cpp`,
-//! `oracle_text.cpp`, `oracle_audio.cpp`, `oracle_texture.cpp`,
+//! `oracle_text.cpp`, `oracle_rich_text.cpp`, `oracle_audio.cpp`, `oracle_texture.cpp`,
 //! `oracle_big_image.cpp`, `oracle_material.cpp`,
 //! `oracle_material_kinds.cpp`, `oracle_material_surface.cpp`,
 //! `oracle_material_appearance.cpp`, `oracle_mesh_render.cpp`, `oracle_deformable.cpp`,
+//! `oracle_deformable_parts.cpp`,
 //! `oracle_particles.cpp` and `oracle_ui.cpp`).
 
 mod support;
@@ -16,9 +17,20 @@ use neuron_client::text::rdl::markup;
 use support::audio::{self, check_suite_within};
 use support::{
     check_suite, deformable, input_lines, material, material_appearance, material_kinds,
-    material_surface, mesh_render, particles, scene_script, scene_script_build,
+    material_surface, mesh_render, particles, rich_text, scene_script, scene_script_build,
     scene_script_runtime, text, texture, ui, unhex,
 };
+
+/// P4.12: `LayoutRichText`, the laid list executed, its dimensions and the
+/// caret positions, the style registry and `lex_compare`, on a recording
+/// context with fixed metrics (`tests/fixtures/oracle/rich_text.list`).
+#[test]
+fn rich_text() {
+    check_suite(
+        "rich_text.jsonl",
+        &rich_text::lines(&input_lines("rich_text.list")),
+    );
+}
 
 /// P4.14: the Lua state after each buffer of a case, one fresh state per
 /// case (`tests/fixtures/oracle/scene_script.list`).
@@ -270,6 +282,19 @@ fn ui_quad_batch() {
     check_suite("ui_quad_batch.jsonl", &lines);
 }
 
+/// P4.13: the generic controls (`ListBox`, `UIListBox`, `UIScroll`,
+/// `UICycle`, `UIWinObject`) over the operations of
+/// `tests/fixtures/oracle/ui_controls.list`, against recording stand-ins.
+#[test]
+fn ui_controls() {
+    let lines: Vec<String> = input_lines("ui_controls.list")
+        .iter()
+        .enumerate()
+        .flat_map(|(case, line)| ui::controls_lines(case, line))
+        .collect();
+    check_suite("ui_controls.jsonl", &lines);
+}
+
 /// P4.5: the 19 surface materials against recording services: their
 /// schemas, `ApplyVerify`, binding, teardown, the submissions, the engine
 /// and candidate calls and the parameters
@@ -299,6 +324,15 @@ fn mesh_render() {
     check_suite("mesh_render.jsonl", &mesh_render::lines());
 }
 
+/// P4.6, second increment: the `IMesh` and `IRenderableMesh` faces of the
+/// VMesh part and of the TriMesh archetype and instance, reached through
+/// the render manager's `QueryArchetype` and `QueryInstance`
+/// (`tests/fixtures/oracle/mesh_faces.list`).
+#[test]
+fn mesh_faces() {
+    check_suite("mesh_faces.jsonl", &mesh_render::face_lines());
+}
+
 /// P4.8: every ramp and transform property of a node library evaluated at a
 /// list of times (`tests/fixtures/oracle/particle_ramp.list`).
 #[test]
@@ -314,10 +348,27 @@ fn particle_sim() {
     check_suite("particle_sim.jsonl", &particles::sim_lines());
 }
 
+/// P4.8: the draws of the six billboard kinds, the batch lists, bounds and
+/// the draw counters against a recording renderer and camera
+/// (`tests/fixtures/oracle/particle_draw.list`).
+#[test]
+fn particle_draw() {
+    check_suite("particle_draw.jsonl", &particles::draw_lines());
+}
+
 /// P4.7: `Deformable2` at run time against recording services: skinning,
 /// the draw, parts and levels, the animation list, aim solving and the
 /// `EyeMaterial` (`tests/fixtures/oracle/deformable.list`).
 #[test]
 fn deformable() {
     check_suite("deformable.jsonl", &deformable::lines());
+}
+
+/// P4.7, second increment: parts made from archives (`ConnectInstanceParts`
+/// and `LoadSkeleton` over the UTF file system) and the `EyeMaterial` made
+/// by its factory and driven as a material of `render::material`
+/// (`tests/fixtures/oracle/deformable_parts.list`).
+#[test]
+fn deformable_parts() {
+    check_suite("deformable_parts.jsonl", &deformable::parts_lines());
 }

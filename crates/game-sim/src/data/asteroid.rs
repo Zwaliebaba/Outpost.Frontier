@@ -9,7 +9,7 @@
 //! cosine (Tier B).
 //!
 //! The field and cube runtime (`CAsteroidField`, `CAsteroidCube`,
-//! `CAsteroidSystem`) belongs with the objects (P2.4).
+//! `CAsteroidSystem`) is [`crate::object::field`].
 
 use neuron_core::math::Matrix;
 use neuron_core::num::trunc_to_i32_via_i64;

@@ -14,8 +14,17 @@
 //! stands for one call in the reference's argument order. The math engine
 //! (`I3DMathEngine`) is `neuron_core::math`, called directly.
 //!
-//! The trait is object safe: the bone link of `CreateInstance` hands the
-//! services back to the holder ([`BoneLink`]).
+//! The calls fall in two halves, so that the client can answer them from
+//! two places: [`DeformHost`] is the engine, the hardpoint component, the
+//! animation system, the channels, the VMesh part the engine hands out
+//! and `rand` (the scene runtime of P1.8 and the caller's state, other
+//! crates' pieces); [`DeformRender`] is the renderer, the pipeline, the
+//! buffers, the material library, the materials and `FDUMP`, which
+//! [`crate::render::stack::StackDeform`] answers on the device model.
+//! [`DeformServices`] is both, implemented for every type that has both.
+//!
+//! The traits are object safe: the bone link of `CreateInstance` hands the
+//! engine half back to the holder ([`BoneLink`]).
 
 use neuron_core::vfs::FileSystem;
 
@@ -32,7 +41,7 @@ pub trait BoneLink {
     /// component's.
     fn link(
         &mut self,
-        services: &mut dyn DeformServices,
+        services: &mut dyn DeformHost,
         instance: Instance,
         archetype: EngineHandle,
     ) -> bool;
@@ -50,8 +59,10 @@ pub struct ChannelSample {
     pub alpha: f32,
 }
 
-/// The calls of the Deformable component.
-pub trait DeformServices {
+/// The engine half of the component's calls: the engine, the hardpoint
+/// component, the animation system, the channels, the VMesh part and the C
+/// run time's generator.
+pub trait DeformHost {
     // --- IEngine -------------------------------------------------------------------------------
 
     /// `CreateArchetypeHandle({name, crc}, fs)`.
@@ -194,6 +205,15 @@ pub trait DeformServices {
     /// archetype.
     fn sample_channel(&mut self, key: u32, time: f32) -> ChannelSample;
 
+    // --- the C run time --------------------------------------------------------------------------
+
+    /// `rand()`.
+    fn rand(&mut self) -> i32;
+}
+
+/// The render half: the renderer, the pipeline, the vertex and index
+/// buffers, the material library and its materials, and `FDUMP`.
+pub trait DeformRender {
     // --- IRenderer2 ----------------------------------------------------------------------------
 
     /// `RenderInstance(camera, instance, 1.0, flags, null, arg)`: the rank.
@@ -295,10 +315,13 @@ pub trait DeformServices {
     /// `Teardown(context)`.
     fn teardown(&mut self, material: MaterialId, context: &SubmitContext<'_>);
 
-    // --- the C run time and diagnostics ---------------------------------------------------------
+    // --- diagnostics -----------------------------------------------------------------------------
 
-    /// `rand()`.
-    fn rand(&mut self) -> i32;
     /// `FDUMP(flags, "%s(%d) : <severity>:General:%s", file, line, message)`.
     fn dump(&mut self, flags: i32, file: &str, line: u32, message: &str);
 }
+
+/// The calls of the Deformable component: both halves.
+pub trait DeformServices: DeformHost + DeformRender {}
+
+impl<T: DeformHost + DeformRender + ?Sized> DeformServices for T {}

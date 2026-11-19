@@ -6,6 +6,7 @@
 // over tests/fixtures/oracle/number_text.list.
 // rdl_markup.jsonl: Common.dll's XMLReader::read_buffer (MSXML's SAXXMLReader with the RDLX
 // content handler) into an empty RenderDisplayList, over tests/fixtures/oracle/rdl_markup.list.
+// rich_text.jsonl: oracle_rich_text.cpp, run last.
 // The Rust side is crates/neuron-client/tests/support/text.rs, which documents the lines.
 
 #include <windows.h>
@@ -202,4 +203,5 @@ void RunTextSuites()
 {
     NumberTextSuite();
     RdlMarkupSuite();
+    RunRichTextSuites();
 }

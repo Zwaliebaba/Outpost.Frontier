@@ -11,6 +11,7 @@
 #include "common_iface.h"
 #include "common_universe.h"
 #include "common_misc.h"    // DamageList, DamageEntry
+#include "oracle_sim_hooks.h" // Oracle instrumentation (P2.4 docking points)
 
 #include "NeuronRuntime.h"
 #include "x87_trig.h"       // baseline's inline FSIN / FCOS (CEqObj::launch_pos)
@@ -725,14 +726,18 @@ ObjActivateResult CEqObj::activate(bool bOn, unsigned DockIndex)
     // spheres (Archetype+0x84 vector, 0x10-byte elements, begin == null counts as empty) --
     // baseline bounds against the archetype, not against this+0x184. DockingPoints is built 1:1
     // from those spheres by init_docking_points. Then the byte at DockingPoints[i] is swapped.
-    if (DockIndex == 0xffffffffu)
-        return ObjActivateFailed;
+    // Oracle instrumentation (P2.4 docking points): each answer is reported.
+    ObjActivateResult Result = ObjActivateFailed;
     Archetype::EqObj const* Arch = eqobjarch();
-    if (DockIndex >= Arch->DockingSpheres.size())
-        return ObjActivateFailed;
-    bool WasOn = DockingPoints[DockIndex].bActive;
-    DockingPoints[DockIndex].bActive = bOn;
-    return (bOn == WasOn) ? ObjActivateNoChange : ObjActivateChanged;
+    if (DockIndex != 0xffffffffu && DockIndex < Arch->DockingSpheres.size())
+    {
+        bool WasOn = DockingPoints[DockIndex].bActive;
+        DockingPoints[DockIndex].bActive = bOn;
+        Result = (bOn == WasOn) ? ObjActivateNoChange : ObjActivateChanged;
+    }
+    if (GOracleSimHooks.OnDockActivate != nullptr)
+        GOracleSimHooks.OnDockActivate(this, DockIndex, bOn, (int)Result);
+    return Result;
 }
 
 bool CEqObj::get_activate_state(std::vector<bool>& OutStates)
@@ -1440,6 +1445,11 @@ void CEqObj::update_docking_animations(float Dt)
 
         float const Duration = NeuronRuntime::Anim->GetStoredDuration(Entry.AnimChannel);
         float const Position = NeuronRuntime::Anim->GetScriptDuration((void*)Entry.AnimChannel);
+
+        // Oracle instrumentation (P2.4 docking points): the point before it is processed.
+        if (GOracleSimHooks.OnDockAnim != nullptr)
+            GOracleSimHooks.OnDockAnim(this, (unsigned)(It - DockingPoints.begin()), Entry.bActive, Duration,
+                                       Position, Entry.LastDuration);
 
         if (Entry.bActive)
         {

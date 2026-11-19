@@ -47,11 +47,13 @@ use std::any::Any;
 use neuron_core::math::{Matrix, Transform, Vector};
 
 use super::camera::Camera;
-use super::control::WinControl;
+use super::control::{ControlMesh, WinControl};
 use super::factory::Factory;
+use super::immediate::Immediate;
 use super::message::{Input, KeyMods, MouseButton};
 use super::pulse::Pulse;
 use super::quad_batch::QuadBatcher;
+use super::shape::{ShapeTextures, TexShape};
 use super::widescreen::{Anchor, Shift, Surface, cursor_ray, shift_pixels};
 use crate::text::font::FontSystem;
 use crate::text::font::string::PaintCx;
@@ -107,8 +109,51 @@ pub trait DrawHost {
     /// batches queued under the old camera go out and the new camera is
     /// handed to the pipeline (`FWidescreenHudShiftScope` with `bDraw`).
     fn camera_changed(&mut self, _camera: &Camera) {}
+    /// What rich-text windows draw with (the pipeline's viewport and
+    /// projection, textures and the big-image tile sink), when the host
+    /// can draw them.
+    fn rich_text_cx(&mut self) -> Option<crate::ui::controls::rich_text_win::RichTextCx<'_>> {
+        None
+    }
+    /// The immediate-mode layer the control frames, arrows and rules are
+    /// drawn with, when there is one.
+    fn immediate(&mut self) -> Option<&mut dyn Immediate> {
+        None
+    }
+    /// The texture library the shapes of control draws resolve their GPU
+    /// handles in (`TexShapeGetGpuHandle`).
+    fn shape_textures(&mut self) -> Option<&mut dyn ShapeTextures> {
+        None
+    }
+    /// `GetGameOption(DRAW SCROLL BAR CONTROLS)` (option 0x16).
+    fn scroll_bars_enabled(&self) -> bool {
+        true
+    }
+    /// Submits a control's engine instance (`SubmitWin3DEngineInstance`
+    /// and its tinted variant) with the camera the draw runs under.
+    fn submit_mesh(&mut self, _mesh: &dyn ControlMesh, _pass: MeshPass) {}
     /// For widgets that need more of their host.
     fn as_any_mut(&mut self) -> &mut dyn Any;
+}
+
+/// How a control's engine instance is submitted.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MeshPass {
+    /// `SubmitWin3DEngineInstance(holder, camera, 0, 1.0, 0)` after the
+    /// render states `ZFUNC = 8` and `ZWRITEENABLE = 1`.
+    Plain,
+    /// `SubmitWin3DTintedEngineInstanceWrapped(camera, instance, 1, tint,
+    /// lighting, 1.0, 0)`: front culling, the tint bytes R, G, B, A.
+    Tinted { tint: [u8; 4], lighting: bool },
+}
+
+/// `GetTextureFrame(shape, 0)` of a shape through the host's library: 0
+/// without a shape or a library.
+pub fn shape_handle(host: &mut dyn DrawHost, shape: Option<&TexShape>) -> u32 {
+    match (shape, host.shape_textures()) {
+        (Some(shape), Some(lib)) => shape.gpu_handle(lib, 0),
+        _ => 0,
+    }
 }
 
 /// A [`DrawHost`] with only a batcher.
@@ -215,6 +260,11 @@ pub trait Widget: Any {
     fn broadcast(&mut self, ui: &mut Ui, id: NodeId, msg: u32, a: u32, b: u32) -> bool {
         false
     }
+    /// Slot 23 with the messages controls send their parent, whose
+    /// arguments are the sender and its data (divergence D430).
+    fn child_message(&mut self, ui: &mut Ui, id: NodeId, message: &ChildMessage) -> bool {
+        false
+    }
     /// Slot 24: handed down to every child.
     fn notify(&mut self, ui: &mut Ui, id: NodeId, value: u32) {
         ui.base_notify(id, value);
@@ -260,8 +310,34 @@ pub enum Property<'a> {
     /// 0x4F: a child with a tooltip was hit; non-zero means the parent
     /// shows it.
     ChildToolTip(NodeId),
+    /// 0x29: a mouse button other than a press reached a scroll bar.
+    ChildButtonUp(NodeId),
+    /// 0x37: a scroll bar's integer range.
+    ScrollRange(i32, i32),
+    /// 0x38: a scroll bar's value.
+    ScrollValue(i32),
+    /// 0x3B: the scroll bar's value, returned truncated.
+    GetScrollValue,
+    /// 0x3E: a scroll bar's value changed (the sender, its value
+    /// truncated).
+    ScrollChanged(NodeId, i32),
     /// Any other message.
     Other(i32, usize, usize),
+}
+
+/// The slot 23 messages a control sends its parent.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ChildMessage {
+    /// 0xF001 (a press) and 0xF002 (a double click): a list box row was
+    /// picked, with its text (`None` for no row) and index.
+    ListPick {
+        from: NodeId,
+        double_click: bool,
+        text: Option<Vec<u16>>,
+        index: i32,
+    },
+    /// 0xF005: a scroll bar's value changed.
+    ScrollChanged { from: NodeId },
 }
 
 /// A request a control made to show its tooltip (`ShowToolTip`: the
@@ -395,6 +471,11 @@ pub struct Ui {
     pub fonts: Option<FontSystem>,
     /// The hover pulse.
     pub pulse: Pulse,
+    /// `GetClientFrameTimeCapped`: the frame time the last update ran with.
+    pub frame_time: f64,
+    /// The shapes of `Interface\\UI\\UITextures.ini` the scroll bars draw
+    /// with.
+    pub ui_shapes: super::controls::scroll::ScrollShapes,
 }
 
 impl Ui {
@@ -421,6 +502,8 @@ impl Ui {
             factory: Factory::with_toolkit(),
             fonts: None,
             pulse: Pulse::default(),
+            frame_time: 0.0,
+            ui_shapes: super::controls::scroll::ScrollShapes::default(),
         }
     }
 
@@ -745,6 +828,11 @@ impl Ui {
     #[must_use]
     pub fn stored_mouse_ray(&self) -> Vector {
         self.mouse_ray
+    }
+
+    /// Stores the mouse ray (`Win3DMouseRayStorage`).
+    pub fn set_mouse_ray(&mut self, ray: Vector) {
+        self.mouse_ray = ray;
     }
 
     /// `WidescreenHudCurrentShift`.
@@ -1230,6 +1318,11 @@ impl Ui {
         false
     }
 
+    /// [`Widget::child_message`] on one object.
+    pub fn send_child_message(&mut self, id: NodeId, message: &ChildMessage) -> bool {
+        self.with_widget(id, false, |w, ui| w.child_message(ui, id, message))
+    }
+
     /// Slot 23 on one object.
     pub fn send_broadcast(&mut self, id: NodeId, msg: u32, a: u32, b: u32) -> bool {
         self.with_widget(id, false, |w, ui| w.broadcast(ui, id, msg, a, b))
@@ -1242,6 +1335,7 @@ impl Ui {
     /// either the first captured `WinControl` alone (a modal dialog is up)
     /// or every root, then the unregistered entries erased.
     pub fn update_all(&mut self, delta_seconds: f64) {
+        self.frame_time = delta_seconds;
         self.pulse.advance(delta_seconds);
         let picked = if self.cursor_drawn {
             self.pick_for_hover()

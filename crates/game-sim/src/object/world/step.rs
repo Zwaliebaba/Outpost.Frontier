@@ -193,15 +193,18 @@ impl World {
             TickList::Beams,
             TickList::Mines,
             TickList::CounterMeasures,
-            TickList::Asteroids,
         ] {
             self.tick_list(system, list, step);
         }
+        // `CmnAsteroid::Update` and `SrvAsteroid_UpdateSystem`, then the
+        // asteroid list (`ListC0`).
+        self.update_asteroid_fields(system, step);
+        self.tick_list(system, TickList::Asteroids, step);
         self.reap();
         if self.config.server_physics {
             self.move_beams(system, step);
             self.step_physics(system, step);
-            self.guided_phantom_events(system);
+            self.phantom_events(system);
             self.process_collisions(system);
             self.reap();
         }
@@ -331,6 +334,7 @@ impl World {
                 }
             }
             crate::object::ObjectKind::Guided => self.update_guided(h, dt),
+            crate::object::ObjectKind::Asteroid => self.update_field_mine(h, dt),
             crate::object::ObjectKind::Beam
             | crate::object::ObjectKind::Mine
             | crate::object::ObjectKind::CounterMeasure => self.update_projectile(h, dt),
@@ -511,6 +515,7 @@ impl World {
             hook.update_behavior_tick(self, h, dt);
             self.put_behavior(Some(hook));
         }
+        self.update_docking_animations(h);
     }
 
     /// `CShip::update`: zones, `CEqObj::update`, the wake-up and the

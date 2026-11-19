@@ -63,6 +63,10 @@ for DXIL), its version and the shader model are fixed in spike P4.0; the
 flags strip debug data and reflection so the output depends only on the
 source and the compiler version.
 
+Amended 2026-11-19 (owner): the compiler is `dxc` and the shaders are
+DXIL of shader model 6.1 (record 0004, the amendment after point 18),
+pinned to the `Microsoft.Direct3D.DXC` NuGet package 1.9.2609.5.
+
 `wgpu` was rejected: the feature set is small and fixed, the owner asked for
 Direct3D 12, and `wgpu` hides swap chain, pipeline-state and readback
 control this port needs. See [05-rendering](assessment/05-rendering.md).

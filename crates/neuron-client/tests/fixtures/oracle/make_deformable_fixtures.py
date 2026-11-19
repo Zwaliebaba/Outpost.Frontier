@@ -1,7 +1,7 @@
-"""Writes the input of the P4.7 deformable suite (Oracle.exe neuron-client,
-CppSource/Oracle/oracle_deformable.cpp, and
-crates/neuron-client/tests/oracle_vectors.rs): deformable.list. Run from any
-folder:
+"""Writes the input of the P4.7 deformable suites (Oracle.exe neuron-client,
+CppSource/Oracle/oracle_deformable.cpp and oracle_deformable_parts.cpp, and
+crates/neuron-client/tests/oracle_vectors.rs): deformable.list, and
+deformable_parts.list with the archives in deformable/. Run from any folder:
 
     python make_deformable_fixtures.py [--check]
 
@@ -490,6 +490,306 @@ def deformable_list():
                                             case_aim_single, case_aim_dls, case_eye)]
 
 
+
+# --- the second suite: parts from archives and the EyeMaterial in the library ---------------------
+#
+# deformable_parts.list (CppSource/Oracle/oracle_deformable_parts.cpp): ConnectInstanceParts and
+# LoadSkeleton over UTF archives written here into deformable/, read by an in-memory file system
+# (the oracle) and by neuron-core's UTF file system (the port); and the EyeMaterial made by its
+# factory and driven through the material interface, loaded from and saved into an archive.
+#
+# The archives keep to what the reference defines: every part loads a skeleton and at least one
+# level (a part without a holder is read through null), every skin pair names a bone the engine
+# links, every UV-deform row's bone is bound, and no leaf is empty.
+
+MAGIC = 0x20465455
+UTF_VERSION = 0x101
+UTF_HEADER = 0x38
+TIMES = (0x2C210021, 0, 0x2C216000)
+
+
+class Leaf:
+    def __init__(self, name, data):
+        self.name = name
+        self.data = bytes(data)
+
+
+class Node:
+    def __init__(self, name, children):
+        self.name = name
+        self.children = children
+
+
+def utf(children):
+    """A UTF archive (0x2C-byte entries) whose root holds `children`."""
+    tree = bytearray(0x2C)
+    strings = bytearray()
+    data = bytearray()
+
+    def name_offset(name):
+        off = len(strings)
+        strings.extend(name + b'\0')
+        return off
+
+    def place(items):
+        if not items:
+            return 0
+        first = len(tree)
+        tree.extend(bytes(0x2C * len(items)))
+        for i, item in enumerate(items):
+            at = first + i * 0x2C
+            nxt = at + 0x2C if i + 1 < len(items) else 0
+            if isinstance(item, Leaf):
+                struct.pack_into('<III', tree, at, nxt, name_offset(item.name), 0x80)
+                struct.pack_into('<I', tree, at + 0x10, len(data))
+                struct.pack_into('<I', tree, at + 0x1C, len(item.data))
+                data.extend(item.data)
+            else:
+                struct.pack_into('<III', tree, at, nxt, name_offset(item.name), 0x10)
+                struct.pack_into('<I', tree, at + 0x10, place(item.children))
+            struct.pack_into('<III', tree, at + 0x20, *TIMES)
+        return first
+
+    struct.pack_into('<III', tree, 0, 0, name_offset(b'\\'), 0x10)
+    struct.pack_into('<III', tree, 0x20, *TIMES)
+    struct.pack_into('<I', tree, 0x10, place(children))
+    t = UTF_HEADER
+    s = t + len(tree)
+    d = s + len(strings)
+    head = bytearray(UTF_HEADER)
+    for at, value in ((0, MAGIC), (4, UTF_VERSION), (8, t), (0x14, 0x2C), (0x18, s), (0x24, d)):
+        struct.pack_into('<I', head, at, value)
+    return bytes(head + tree + strings + data)
+
+
+def u16s(values):
+    return struct.pack('<%dH' % len(values), *values)
+
+
+def u32s(values):
+    return struct.pack('<%dI' % len(values), *[v & 0xFFFFFFFF for v in values])
+
+
+def f32s(values):
+    return struct.pack('<%df' % len(values), *values)
+
+
+def bone_node(name, matrix, skeleton=False):
+    leaf = Leaf(b'Bone to root', f32s(matrix))
+    if skeleton:
+        return Node(name, [Node(b'DFMSkeleton', [leaf]), Leaf(b'Lod Bits', b'\xff')])
+    return Node(name, [leaf, Leaf(b'Lod Bits', b'\xff')])
+
+
+def bone_matrix(i):
+    return mul(rot("z", 0.1 * i), rot("x", -0.05 * i)) + [0.1 * i, 0.4 * i, -0.02 * i]
+
+
+def dfm_mesh_node(name, points, groups, skin, uv_rows=None, scale=1.0):
+    """groups: (node, material or None, indices); skin: per point [(bone, weight), ...];
+    uv_rows: the nine UV-deform columns' rows."""
+    face = [Leaf(b'Count', u32s([len(groups)]))]
+    for node, material, indices in groups:
+        kids = []
+        if material is not None:
+            kids.append(Leaf(b'Material_name', material + b'\0'))
+        kids.append(Leaf(b'Face_indices', u16s(indices)))
+        face.append(Node(node, kids))
+    pts = []
+    normals = []
+    for i in range(points):
+        pts += [scale * math.cos(i), scale * (0.5 * i - 1.0), scale * math.sin(i * 0.7)]
+        normals += [math.cos(i * 0.3), math.sin(i * 0.3), 0.0]
+    corners = [i % points for i in range(points + 3)]
+    firsts, counts, ids, weights = [], [], [], []
+    for pairs in skin:
+        firsts.append(len(ids))
+        counts.append(len(pairs))
+        for b, w in pairs:
+            ids.append(b)
+            weights.append(w)
+    geometry = [
+        Leaf(b'Point_indices', u32s(corners)),
+        Leaf(b'Points', f32s(pts)),
+        Leaf(b'Vertex_normals', f32s(normals)),
+        Leaf(b'UV0_indices', u32s(list(range(len(corners))))),
+        Leaf(b'UV0', f32s([i / 16.0 for i in range(2 * len(corners))])),
+        Leaf(b'Point_bone_first', u32s(firsts)),
+        Leaf(b'Point_bone_count', u32s(counts)),
+        Leaf(b'Bone_id_chain', u32s(ids)),
+        Leaf(b'Bone_weight_chain', f32s(weights)),
+    ]
+    if uv_rows:
+        columns = [b'UV_bone_id', b'UV_vertex_count', b'UV_plane_distance', b'Bone_X_to_U_scale',
+                   b'Bone_Y_to_V_scale', b'Min_du', b'Max_du', b'Min_dv', b'Max_dv']
+        for c, column in enumerate(columns):
+            values = [row[c] for row in uv_rows]
+            geometry.append(Leaf(column, u32s(values) if c < 2 else f32s(values)))
+    return Node(name, [Node(b'Face_groups', face), Node(b'Geometry', geometry)])
+
+
+SKIN6 = [[(0, 1.0)], [(0, 0.25), (1, 0.75)], [(1, 0.5), (2, 0.5)],
+         [(0, 0.1), (1, 0.2), (2, 0.3), (2, 0.4)], [(2, 1.0)], [(1, 0.6), (0, 0.4)]]
+
+
+def man_dfm():
+    bones = [bone_node(b'Root.3db', bone_matrix(0)), bone_node(b'Spine.3db', bone_matrix(1)),
+             bone_node(b'Head.3db', bone_matrix(2), skeleton=True)]
+    mesh0 = dfm_mesh_node(
+        b'Mesh0', 6,
+        [(b'Group0', b'body', [0, 1, 2, 2, 1, 3]), (b'Group1', b'eyeball', [3, 4, 5]),
+         (b'Group2', b'nomat', [5, 4, 3])],
+        SKIN6, uv_rows=[[2, 3, 2.0, 0.5, 0.4, -0.1, 0.1, -0.05, 0.05]])
+    mesh1 = dfm_mesh_node(b'Mesh1', 4, [(b'Group0', b'body', [0, 1, 2, 2, 1, 3])],
+                          SKIN6[:4], scale=0.5)
+    multi = Node(b'MultiLevel', [Leaf(b'Fractions', f32s([1.0, 0.5])), mesh0, mesh1])
+    return utf(bones + [Node(b'Skeleton', [Leaf(b'Name', b'man\0')]), multi])
+
+
+def hat_dfm():
+    mesh = dfm_mesh_node(b'Mesh0', 3, [(b'Group0', b'hat', [0, 1, 2])],
+                         [[(0, 1.0)], [(0, 1.0)], [(0, 0.5), (0, 0.5)]], scale=0.25)
+    return utf([bone_node(b'Hat.3db', bone_matrix(3)), mesh])
+
+
+def levels_dfm():
+    bones = [bone_node(b'Pelvis.3db', bone_matrix(0)), bone_node(b'Leg.3db', bone_matrix(1)),
+             bone_node(b'Foot.3db', bone_matrix(2))]
+    meshes = [dfm_mesh_node(b'Mesh%d' % k, 6 - k, [(b'Group0', b'skin', [0, 1, 2])],
+                            SKIN6[:6 - k], scale=1.0 - 0.2 * k) for k in range(3)]
+    vmesh = Node(b'Mesh3', [Node(b'Geometry', [Leaf(b'Points', f32s([0.0] * 9))])])
+    multi = Node(b'MultiLevel', [Leaf(b'Fractions', f32s([1.0, 0.6, 0.3, 0.1])), meshes[0],
+                                 meshes[1], vmesh, meshes[2], Leaf(b'Mesh_note', b'not a mesh')])
+    return utf(bones + [multi])
+
+
+def eye_library():
+    def material(name, leaves):
+        return Node(name, [Leaf(b'Type', b'EyeMaterial\0')] + leaves)
+
+    return utf([Node(b'Material library', [
+        material(b'eyeball_l', [
+            Leaf(b'Dc', f32s([0.5, 0.25, 0.75])), Leaf(b'Ec', f32s([0.1, 0.2, 0.3])),
+            Leaf(b'Oc', f32s([0.5])), Leaf(b'Sp', f32s([0.25])),
+            Leaf(b'Dt_name', b'eyeball\0'), Leaf(b'Dt_flags', u32s([0x3B]))]),
+        material(b'eyeball_r', [Leaf(b'Sc', f32s([1.0, 0.5])), Leaf(b'Dt_flags', u32s([0x46]))]),
+    ])])
+
+
+ARCHIVES = {
+    'man.dfm': man_dfm,
+    'hat.dfm': hat_dfm,
+    'levels.dfm': levels_dfm,
+    'eyes.mat': eye_library,
+}
+
+
+def case_parts():
+    ops = []
+    ops.append("links 1024 1024:256,1025:257,1026:258 | 1040 1040:259")
+    ops.append("mat body MatA")
+    ops.append("mat eyeball EyeMaterial")
+    ops.append("mat hat MatC")
+    ops.append("hp 258 head")
+    ops.append("hp 259 head")
+    ops.append("parent 1025 1024")
+    ops.append("create deformable\\man.dfm:8:0:8,deformable\\hat.dfm:8:0:8")
+    ops.append("meshes")
+    pose(ops, 3)
+    ops.append("lod 0 0")
+    ops.append("drawpart 0")
+    ops.append("lod 1 0")
+    ops.append("drawpart 1")
+    ops.append("lod 0 1")
+    ops.append("drawpart 0")
+    ops.append("stats")
+    ops.append("sphere")
+    ops.append("first")
+    ops.append("lod 0 0")
+    ops.append("draw 0 0")
+    ops.append("destroy")
+    ops.append("meshes")
+    return ops
+
+
+def case_levels_flags():
+    """Three parts of one file: levels skipped, stopped after and limited, the VMesh retry of a
+    node without face groups and of a leaf among the levels (UTF makes a file system of a leaf;
+    their archetypes take handles 0x103 and 0x104), and meshes shared through the cache."""
+    ops = []
+    ops.append("links 1056 1056:256,1057:257,1058:258 | 1072 1072:261,1073:262,1074:263"
+               " | 1088 1088:264,1089:265,1090:266")
+    ops.append("mat skin MatB")
+    ops.append("parent 1057 1056")
+    ops.append("parent 1058 1057")
+    ops.append("parent 1073 1072")
+    ops.append("create deformable\\levels.dfm:3:2:1,deformable\\levels.dfm:2:0:0,"
+               "deformable\\levels.dfm:8:1:0")
+    ops.append("meshes")
+    pose(ops, 3)
+    ops.append("lod 0 0")
+    ops.append("drawpart 0")
+    ops.append("lod 0 1")
+    ops.append("drawpart 0")
+    ops.append("lod 1 1")
+    ops.append("drawpart 1")
+    ops.append("lod 2 0")
+    ops.append("drawpart 2")
+    ops.append("stats")
+    ops.append("destroy")
+    ops.append("meshes")
+    return ops
+
+
+def case_eye_library():
+    ops = []
+    ops.append("eyelib map")
+    ops.append("eyelib refuse Foo")
+    ops.append("eyelib new eye")
+    ops.append("eyelib info eye")
+    ops.append("eyelib name eye " + b"EyeBall_L".hex())
+    ops.append("tex eyeball 1 77")
+    ops.append("texfmt 77 7")
+    ops.append("eyelib load eye deformable\\eyes.mat eyeball_l")
+    ops.append("eyelib verify eye")
+    ops.append("eyelib resolve eye")
+    ops.append("eyelib flags eye")
+    for i in range(11):
+        ops.append("eyelib get eye %d" % i)
+    ops.append("eyelib set eye 0 3 %s" % hs([0.5, 0.5, 0.5]))
+    ops.append("eyelib set eye 3 3 %s" % hs([2.0, 0.5, 0.5]))
+    ops.append("eyelib set eye 6 7 " + b"eyeball".hex())
+    ops.append("eyelib set eye 8 9 1")
+    ops.append("eyelib save eye deformable\\eyes.mat eyeball_r")
+    ops.append("eyelib load eye deformable\\eyes.mat eyeball_r")
+    ops.append("eyelib flags eye")
+    skeleton(ops, 2, 0x460, [(0x460, 0x100), (0x461, 0x101)])
+    ops.append("holder")
+    ops.append("parent 1121 1120")
+    ops.append("ori 1120 " + hs(rot("z", 0.3)))
+    ops.append("bone 1 mat " + hs(xform(mul(rot("x", 0.4), rot("y", -0.6)), (0, 0, 0))))
+    ops.append("eyelib bind eye 1 " + hs([1, 3, 2.0, 0.5, 0.4, -0.1, 0.1, -0.05, 0.05]))
+    ops.append("eyelib bind eye -")
+    ops.append("eyelib submit eye")
+    ops.append("eyelib release eye")
+    return ops
+
+
+def parts_list():
+    return [" ; ".join(case()) for case in (case_parts, case_levels_flags, case_eye_library)]
+
+
+def write_bytes(relative, data, check):
+    path = os.path.join(HERE, relative)
+    if check:
+        with open(path, "rb") as existing:
+            if existing.read() != data:
+                sys.exit("%s is out of date; run make_deformable_fixtures.py" % relative)
+        return
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "wb") as out:
+        out.write(data)
+
 def write(name, text, check):
     path = os.path.join(HERE, name)
     if check:
@@ -509,6 +809,9 @@ def listing(title, lines):
 def main():
     check = "--check" in sys.argv[1:]
     write("deformable.list", listing("deformable", deformable_list()), check)
+    write("deformable_parts.list", listing("deformable parts", parts_list()), check)
+    for name, build in ARCHIVES.items():
+        write_bytes(os.path.join("deformable", name), build(), check)
 
 
 if __name__ == "__main__":

@@ -50,6 +50,17 @@ pub trait Camera {
     fn classify_sphere(&mut self, centre: [f32; 3], radius: f32) -> i32;
     /// `GetViewTransform`.
     fn view_transform(&mut self) -> [f32; 12];
+    /// The twelve words at `GetOrientation`, which the beam's ribbon reads
+    /// as a transform: the nine of the orientation and the three after
+    /// them, the client camera's position (`FSpaceCamera::World` and
+    /// `WorldPos`; divergence D376).
+    fn orientation_block(&mut self) -> [f32; 12] {
+        let o = self.orientation();
+        let p = self.position();
+        [
+            o[0], o[1], o[2], o[3], o[4], o[5], o[6], o[7], o[8], p[0], p[1], p[2],
+        ]
+    }
 }
 
 /// A [`Camera`] as the render manager reads it ([`MeshCamera`]).

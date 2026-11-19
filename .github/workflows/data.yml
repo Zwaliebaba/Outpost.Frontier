@@ -124,6 +124,18 @@ jobs:
           # each behaviour (tick.jsonl `behavior`, the BehaviorTypes id) with each target.
           foreach ($dir in Get-ChildItem $out -Directory) {
             foreach ($run in Get-ChildItem $dir.FullName -Directory) {
+              # P2.4: the asteroid cubes and docking-point calls recorded.
+              foreach ($rec in 'asteroids.jsonl', 'dock.jsonl') {
+                $file = Join-Path $run.FullName $rec
+                if (Test-Path $file) { "$($dir.Name)/$($run.Name) ${rec}: $(@(Get-Content $file).Count) records" }
+              }
+              if ($run.Name -eq 'run_01') {
+                Get-Content (Join-Path $run.FullName 'asteroids.jsonl') -ErrorAction SilentlyContinue |
+                  Where-Object { $_.Contains('"probe"') -and $_.Contains('"tick":0,') } |
+                  ForEach-Object { "$($dir.Name)/$($run.Name) $_" }
+                Select-String -Path (Join-Path $run.FullName 'fdump.txt') -Pattern 'steroid' -ErrorAction SilentlyContinue |
+                  Select-Object -First 10 | ForEach-Object { "$($dir.Name)/$($run.Name) fdump: $($_.Line)" }
+              }
               $events = Join-Path $run.FullName 'events.jsonl'
               if (Test-Path $events) {
                 Get-Content $events | ForEach-Object { $_ | ConvertFrom-Json } |
@@ -161,14 +173,16 @@ jobs:
         # inputs (ctl) against the recorded pushes, the munition hits and collision damages of
         # calls.jsonl against the recorded damage lists, and the scenarios run through the Rust
         # world against tick.jsonl (differences reported; only gross divergence fails, the
-        # envelopes being unapproved). Summaries rust-controller-replay.txt,
-        # rust-damage-replay.txt and rust-scenario-replay.txt.
+        # envelopes being unapproved); the asteroid field walk and the docking points replayed
+        # from the oracle's own inputs against asteroids.jsonl and dock.jsonl (field_replay).
+        # Summaries rust-controller-replay.txt, rust-damage-replay.txt, rust-scenario-replay.txt,
+        # rust-field-replay.txt and rust-dock-replay.txt.
         if: ${{ !cancelled() }}
         shell: pwsh
         run: |
           $env:OUTPOST_ORACLE_DIR = "$env:RUNNER_TEMP\outpost-sim"
           $failed = 0
-          foreach ($test in 'controller_replay', 'damage_replay', 'scenario_replay', 'behavior_replay') {
+          foreach ($test in 'controller_replay', 'damage_replay', 'scenario_replay', 'behavior_replay', 'field_replay') {
             cargo test --locked --release -p game-sim --test $test -- --nocapture
             if ($LASTEXITCODE -ne 0) { $failed = 1 }
           }

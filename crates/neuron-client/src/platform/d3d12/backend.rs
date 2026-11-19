@@ -15,6 +15,13 @@
 //! A draw binds four views: each stage's 2D view and its cube view, the
 //! null view of the other kind beside a stage's texture. A cube map from
 //! `LoadCubemap` is one level of six array slices behind a cube view.
+//!
+//! The depth buffer is typeless (`R24G8_TYPELESS`) behind a
+//! `D24_UNORM_S8_UINT` depth view, so a programmable pass can sample it
+//! through an `R24_UNORM_X8_TYPELESS` view (record 0005); the programmable
+//! side of the backend is [`ex`].
+
+mod ex;
 
 use std::collections::HashMap;
 
@@ -27,12 +34,14 @@ use windows::Win32::Graphics::Direct3D::{
 use windows::Win32::Graphics::Direct3D12::{
     D3D12_CLEAR_FLAG_DEPTH, D3D12_CLEAR_FLAG_STENCIL, D3D12_CLEAR_FLAGS,
     D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, D3D12_CPU_DESCRIPTOR_HANDLE,
-    D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING, D3D12_DESCRIPTOR_HEAP_DESC,
+    D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING, D3D12_DEPTH_STENCIL_VIEW_DESC,
+    D3D12_DEPTH_STENCIL_VIEW_DESC_0, D3D12_DESCRIPTOR_HEAP_DESC,
     D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
     D3D12_DESCRIPTOR_HEAP_TYPE_DSV, D3D12_DESCRIPTOR_HEAP_TYPE_RTV,
-    D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, D3D12_GPU_DESCRIPTOR_HANDLE, D3D12_HEAP_FLAG_NONE,
-    D3D12_HEAP_PROPERTIES, D3D12_HEAP_TYPE_DEFAULT, D3D12_HEAP_TYPE_UPLOAD,
-    D3D12_INDEX_BUFFER_VIEW, D3D12_PLACED_SUBRESOURCE_FOOTPRINT, D3D12_RANGE, D3D12_RESOURCE_DESC,
+    D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER, D3D12_DSV_DIMENSION_TEXTURE2D, D3D12_DSV_FLAG_NONE,
+    D3D12_GPU_DESCRIPTOR_HANDLE, D3D12_HEAP_FLAG_NONE, D3D12_HEAP_PROPERTIES,
+    D3D12_HEAP_TYPE_DEFAULT, D3D12_HEAP_TYPE_UPLOAD, D3D12_INDEX_BUFFER_VIEW,
+    D3D12_PLACED_SUBRESOURCE_FOOTPRINT, D3D12_RANGE, D3D12_RESOURCE_DESC,
     D3D12_RESOURCE_DIMENSION_TEXTURE2D, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL,
     D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_DEPTH_WRITE,
     D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_INDEX_BUFFER,
@@ -40,10 +49,11 @@ use windows::Win32::Graphics::Direct3D12::{
     D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER,
     D3D12_RESOURCE_STATES, D3D12_SHADER_RESOURCE_VIEW_DESC, D3D12_SHADER_RESOURCE_VIEW_DESC_0,
     D3D12_SRV_DIMENSION_TEXTURE2D, D3D12_SRV_DIMENSION_TEXTURECUBE, D3D12_SUBRESOURCE_FOOTPRINT,
-    D3D12_TEX2D_SRV, D3D12_TEXCUBE_SRV, D3D12_TEXTURE_COPY_LOCATION, D3D12_TEXTURE_COPY_LOCATION_0,
-    D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
-    D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT, D3D12_TEXTURE_LAYOUT_UNKNOWN, D3D12_VERTEX_BUFFER_VIEW,
-    D3D12_VIEWPORT, ID3D12DescriptorHeap, ID3D12Resource,
+    D3D12_TEX2D_DSV, D3D12_TEX2D_SRV, D3D12_TEXCUBE_SRV, D3D12_TEXTURE_COPY_LOCATION,
+    D3D12_TEXTURE_COPY_LOCATION_0, D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,
+    D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, D3D12_TEXTURE_DATA_PLACEMENT_ALIGNMENT,
+    D3D12_TEXTURE_LAYOUT_UNKNOWN, D3D12_VERTEX_BUFFER_VIEW, D3D12_VIEWPORT, ID3D12DescriptorHeap,
+    ID3D12Resource,
 };
 use windows::Win32::Graphics::Dxgi::Common::{
     DXGI_FORMAT, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_BC1_UNORM, DXGI_FORMAT_BC2_UNORM,
@@ -55,8 +65,8 @@ use neuron_core::image::PixelFormat;
 use neuron_core::image::convert::to_rgba8;
 
 use super::pipeline::{
-    DEPTH_FORMAT, PipelineCache, ROOT_CONSTANTS, ROOT_SAMPLERS, ROOT_TEXTURES, Shaders,
-    sampler_descs,
+    DEPTH_FORMAT, DEPTH_RESOURCE_FORMAT, DEPTH_SRV_FORMAT, PipelineCache, ROOT_CONSTANTS,
+    ROOT_SAMPLERS, ROOT_TEXTURES, Shaders, sampler_descs,
 };
 use super::present::{Blit, SwapChain, ramp_texels};
 use super::upload::{DEFAULT_BUFFER_STATE, UploadRing, buffer};
@@ -82,8 +92,12 @@ pub const FIXED_FUNCTION: Shaders = Shaders {
 const TEXTURE_SLOTS: u32 = 4096;
 /// The slot of the null cube view (the null 2D view is in slot 0).
 const NULL_CUBE: u32 = 1;
-/// Descriptors of the shader-visible ring: four per draw.
+/// Descriptors of the shader-visible ring: four per fixed-function draw,
+/// sixteen per programmable draw.
 const DRAW_SLOTS: u32 = 4 * 4096;
+/// Samplers of the shader-visible ring after the fixed set: sixteen per
+/// programmable draw (the heap holds at most 2,048 samplers).
+const EX_SAMPLER_RING: u32 = 16 * 62;
 
 /// A default-heap buffer and the state it was last moved to.
 struct GpuBuffer {
@@ -192,8 +206,12 @@ pub struct D3d12Backend {
     pipelines: PipelineCache,
     upload: UploadRing,
     target: RenderTarget,
-    /// The depth buffer behind `dsv`, kept alive with its view.
-    _depth: ID3D12Resource,
+    /// The depth buffer behind `dsv` and the view in `depth_slot`, kept
+    /// alive with them.
+    depth: ID3D12Resource,
+    depth_state: D3D12_RESOURCE_STATES,
+    /// The scene depth's view in `srvs`.
+    depth_slot: u32,
     dsv: Heap,
     /// Texture views (CPU side): the null 2D view in slot 0, the null cube
     /// view in slot 1.
@@ -203,8 +221,10 @@ pub struct D3d12Backend {
     /// two stages' 2D views, then their cube views).
     draw_views: Heap,
     next_view: u32,
-    /// The fixed sampler set, shader visible, made once.
+    /// The fixed sampler set, shader visible, made once, then the ring the
+    /// programmable draws copy their sixteen samplers into.
     samplers: Heap,
+    next_sampler: u32,
     defaults: ID3D12Resource,
     vbs: HashMap<VbHandle, GpuBuffer>,
     ibs: HashMap<IndexSource, GpuBuffer>,
@@ -224,6 +244,8 @@ pub struct D3d12Backend {
     ramp_slot: u32,
     ramp_state: D3D12_RESOURCE_STATES,
     swap: Option<(SwapChain, Heap)>,
+    /// Programs, render targets and volume textures.
+    ex: ex::ExGpu,
     /// Calls that failed, in order.
     pub errors: Vec<GpuError>,
 }
@@ -244,8 +266,11 @@ impl D3d12Backend {
             },
         )?;
         // SAFETY: the view slot belongs to `dsv`, kept with the depth
-        // buffer; a default view of a depth format.
-        unsafe { gpu.device.CreateDepthStencilView(&depth, None, dsv.cpu(0)) };
+        // buffer; a typed view of the typeless depth format.
+        unsafe {
+            gpu.device
+                .CreateDepthStencilView(&depth, Some(&dsv_desc()), dsv.cpu(0));
+        }
         let srvs = Heap::new(
             &gpu,
             &D3D12_DESCRIPTOR_HEAP_DESC {
@@ -277,7 +302,7 @@ impl D3d12Backend {
             &gpu,
             &D3D12_DESCRIPTOR_HEAP_DESC {
                 Type: D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER,
-                NumDescriptors: crate::render::shader::samplers::COUNT,
+                NumDescriptors: crate::render::shader::samplers::COUNT + EX_SAMPLER_RING,
                 Flags: D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,
                 ..Default::default()
             },
@@ -332,18 +357,31 @@ impl D3d12Backend {
             gpu.device
                 .CreateShaderResourceView(&ramp, Some(&ramp_view), srvs.cpu(ramp_slot));
         }
+        let depth_slot = free_slots.pop().expect("the heap has slots");
+        // SAFETY: as above, for the depth buffer's sampled view.
+        unsafe {
+            gpu.device.CreateShaderResourceView(
+                &depth,
+                Some(&depth_srv_desc()),
+                srvs.cpu(depth_slot),
+            );
+        }
+        let ex = ex::ExGpu::new(&gpu)?;
         Ok(D3d12Backend {
             gpu,
             pipelines,
             upload: UploadRing::default(),
             target,
-            _depth: depth,
+            depth,
+            depth_state: D3D12_RESOURCE_STATE_DEPTH_WRITE,
+            depth_slot,
             dsv,
             srvs,
             free_slots,
             draw_views,
             next_view: 0,
             samplers,
+            next_sampler: 0,
             defaults,
             vbs: HashMap::new(),
             ibs: HashMap::new(),
@@ -359,6 +397,7 @@ impl D3d12Backend {
             ramp_slot,
             ramp_state: D3D12_RESOURCE_STATE_COMMON,
             swap: None,
+            ex,
             errors: Vec::new(),
         })
     }
@@ -406,6 +445,7 @@ impl D3d12Backend {
         }
         self.upload.reset();
         self.next_view = 0;
+        self.next_sampler = 0;
         self.garbage.clear();
         Ok(())
     }
@@ -442,7 +482,9 @@ impl D3d12Backend {
     /// resources, pipelines and samplers are kept. A window resized
     /// without a new size needs nothing: the flip-model swap chain
     /// stretches the back buffer to the client area, as a windowed
-    /// Direct3D 8 `Present` did.
+    /// Direct3D 8 `Present` did. Render targets sized by the back buffer
+    /// are made again at their new sizes behind the same handles, their
+    /// contents lost (record 0005, point 4).
     pub fn resize(&mut self, width: u32, height: u32) -> Result<(), GpuError> {
         self.flush()?;
         // A present after the last flush may still be queued: the old back
@@ -457,16 +499,23 @@ impl D3d12Backend {
         unsafe {
             self.gpu
                 .device
-                .CreateDepthStencilView(&depth, None, self.dsv.cpu(0));
+                .CreateDepthStencilView(&depth, Some(&dsv_desc()), self.dsv.cpu(0));
             self.gpu.device.CreateShaderResourceView(
                 &target.resource,
                 Some(&scene_view),
                 self.srvs.cpu(self.scene_slot),
             );
+            self.gpu.device.CreateShaderResourceView(
+                &depth,
+                Some(&depth_srv_desc()),
+                self.srvs.cpu(self.depth_slot),
+            );
         }
         self.target = target;
-        self._depth = depth;
+        self.depth = depth;
+        self.depth_state = D3D12_RESOURCE_STATE_DEPTH_WRITE;
         self.scene_state = D3D12_RESOURCE_STATE_RENDER_TARGET;
+        self.resize_ex_targets(width, height)?;
         if let Some((old, rtvs)) = self.swap.take() {
             // A new swap chain on the same window: the old one is released
             // first, as a window takes one flip-model swap chain.
@@ -875,6 +924,7 @@ impl D3d12Backend {
         }
         let device = self.gpu.device.clone();
         let pso = self.pipelines.get(&device, &p.key)?.clone();
+        self.depth_to_write();
         let list = self.gpu.list.clone();
 
         // Slot 0: the vertices; slot 1: the defaults vertex, stride 0.
@@ -1067,6 +1117,7 @@ impl D3d12Backend {
 
     fn try_clear(&mut self, clear: Clear, viewport: Viewport) -> Result<(), GpuError> {
         self.open()?;
+        self.depth_to_write();
         let r = match clear.rect {
             Some([x0, y0, x1, y1]) => RECT {
                 left: x0,
@@ -1338,6 +1389,23 @@ fn texture_resource(
     committed_texture(gpu, &desc, D3D12_RESOURCE_STATE_COMMON)
 }
 
+/// The depth buffer's depth view.
+fn dsv_desc() -> D3D12_DEPTH_STENCIL_VIEW_DESC {
+    D3D12_DEPTH_STENCIL_VIEW_DESC {
+        Format: DEPTH_FORMAT,
+        ViewDimension: D3D12_DSV_DIMENSION_TEXTURE2D,
+        Flags: D3D12_DSV_FLAG_NONE,
+        Anonymous: D3D12_DEPTH_STENCIL_VIEW_DESC_0 {
+            Texture2D: D3D12_TEX2D_DSV { MipSlice: 0 },
+        },
+    }
+}
+
+/// The depth buffer's sampled view: depth in every channel.
+fn depth_srv_desc() -> D3D12_SHADER_RESOURCE_VIEW_DESC {
+    super::pass::view_2d(DEPTH_SRV_FORMAT, super::pass::DEPTH_MAPPING)
+}
+
 fn depth_buffer(gpu: &Gpu, width: u32, height: u32) -> Result<ID3D12Resource, GpuError> {
     let desc = D3D12_RESOURCE_DESC {
         Dimension: D3D12_RESOURCE_DIMENSION_TEXTURE2D,
@@ -1345,7 +1413,7 @@ fn depth_buffer(gpu: &Gpu, width: u32, height: u32) -> Result<ID3D12Resource, Gp
         Height: height,
         DepthOrArraySize: 1,
         MipLevels: 1,
-        Format: DEPTH_FORMAT,
+        Format: DEPTH_RESOURCE_FORMAT,
         SampleDesc: DXGI_SAMPLE_DESC {
             Count: 1,
             Quality: 0,

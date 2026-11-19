@@ -19,6 +19,8 @@
 //                               StarSystem_MpCollisionFilter (single-player collisions)
 //   Common/common_physicalsystem.cpp  PhysicalSystem::Update (single-player stepping)
 //   Common/common_behaviormanager.cpp IBehaviorManager::UpdateBehaviorTick (OnBehaviorTick)
+//   Common/common_ceqobj.cpp    CEqObj::activate (OnDockActivate) and
+//                               CEqObj::update_docking_animations (OnDockAnim), P2.4
 //   IVP/ivp_physics/ivp_environment.cpp IVP_Environment_Simulate_Psi (OnPsi)
 //   IVP/ivp_physics/ivp_simulation_unit.cpp IVP_Simulation_Unit_Process_One_Psi_Step
 //                               (OnSimUnitPsi)
@@ -187,6 +189,13 @@ struct FOracleSimHooks
     // The number of instrumented IObjAffect calls in progress (FOracleSimAffectScope), so
     // OnAffect can tell an outer call from one an outer call makes (depth 0 is the caller's).
     int AffectDepth;
+    // P2.4 (docking points): CEqObj::activate before it returns (the index as given, the
+    // request and the ObjActivateResult), and CEqObj::update_docking_animations for each point
+    // with a channel, before the point is processed (its active flag, GetStoredDuration,
+    // GetScriptDuration and LastDuration).
+    void(__cdecl* OnDockActivate)(CObject const* Object, unsigned Index, bool bOn, int Result);
+    void(__cdecl* OnDockAnim)(CObject const* Object, unsigned Index, bool bActive, float Duration,
+                              float Position, float LastDuration);
 };
 
 COMMON_API extern FOracleSimHooks GOracleSimHooks;

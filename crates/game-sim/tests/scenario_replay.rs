@@ -673,6 +673,9 @@ fn run(s: &Scenario, ai: &AiInputs) -> Option<Run> {
     })?;
     let system = create_id(s.system.as_bytes());
     world.load_system(system);
+    // `StarSystem::load` outside single player loads the system's asteroid
+    // fields; the scenario ships fill those they fly in, as in the oracle.
+    world.load_asteroid_fields(system);
     let mut handles: BTreeMap<String, Option<ObjHandle>> = BTreeMap::new();
     let mut managers = Vec::new();
     let mut pathfind_phases = None;

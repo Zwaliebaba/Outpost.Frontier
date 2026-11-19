@@ -14,8 +14,8 @@
 //! the list's element indices (caret and selection positions) count
 //! UTF-16 units.
 //!
-//! Rendering and layout (`execute`, `get_dimensions`, splitting at a width)
-//! need the font code and come with it.
+//! Executing, measuring, splitting and laying lists out against a text
+//! render context is [`crate::text::layout`].
 
 pub mod markup;
 pub mod xml;
@@ -170,7 +170,7 @@ pub struct Position {
 }
 
 /// A clip rectangle (`ClipNode`, a `RECT`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ClipRect {
     /// Left edge.
     pub left: i32,
@@ -182,14 +182,29 @@ pub struct ClipRect {
     pub bottom: i32,
 }
 
-/// The size of an image the context made (`TextRenderContext::Image`);
-/// the bitmap itself belongs to the renderer.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ImageSize {
-    /// Width in pixels at scale 1.
+/// An image a context made (`TextRenderContext::Image`, `DeviceTRC`'s
+/// `BMPImage`): its size and, when it loaded, its pixels.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RichImage {
+    /// Width in pixels at scale 1 (`+0x04`, the bitmap's width as a float).
     pub width: f32,
-    /// Height in pixels at scale 1.
+    /// Height in pixels at scale 1 (`+0x08`).
     pub height: f32,
+    /// The bitmap; `None` when the file did not load (the size is then 0).
+    pub bitmap: Option<neuron_core::image::RgbImage>,
+}
+
+impl RichImage {
+    /// An image of a size with no pixels (what a context without a
+    /// bitmap, such as a test device, makes).
+    #[must_use]
+    pub fn sized(width: f32, height: f32) -> RichImage {
+        RichImage {
+            width,
+            height,
+            bitmap: None,
+        }
+    }
 }
 
 /// One node of a list. The variants are the twelve `RDLNode` classes.
@@ -209,7 +224,7 @@ pub enum RdlNode {
     /// `AttribStackNode`.
     AttribStack(StackOp),
     /// `ImageNode`, with no image or with one.
-    Image(Option<Rc<ImageSize>>),
+    Image(Option<Rc<RichImage>>),
     /// `PositionNode`.
     Position(Position),
     /// `ParagraphNode`: a line break.

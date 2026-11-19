@@ -25,20 +25,31 @@
 //! * [`eye`]: the `EyeMaterial`: its parameter table, value cells,
 //!   load and save, texture set-up, translucency and the bind that turns
 //!   an eye bone's direction into a texture offset.
+//! * [`material`]: the `EyeMaterial` as a material of
+//!   `render::material` ([`EyeHost`], [`EyeFactory`],
+//!   [`bind_eye_materials`]).
+//! * [`hooks`]: what the client forwards into an instance: the engine's
+//!   transform calls to the bone runtimes ([`TransformCall`]) and the
+//!   typed channels' owner callbacks to the aim events
+//!   ([`OwnerBind`]).
 //! * [`services`]: what the component calls outside itself
-//!   ([`DeformServices`]).
+//!   ([`DeformServices`]: [`DeformHost`] and [`DeformRender`]).
 //!
 //! The `.dfm` tables are read by `neuron_core::mesh_data::dfm` (P1.7);
-//! the pose itself is the engine's (`neuron_core::scene`, P1.8), which
-//! writes it into the bone runtimes. No platform code.
+//! the pose itself is the engine's (`neuron_core::scene`, P1.8), whose
+//! transform calls the client forwards into the bone runtimes. The render
+//! half of the services is [`crate::render::stack::StackDeform`] on the
+//! device model. No platform code.
 
 // The reference's x87 branches treat an unordered comparison as one side of
 // a test; the negated comparisons keep that.
 #![allow(clippy::neg_cmp_op_on_partial_ord)]
 
 pub mod eye;
+pub mod hooks;
 pub mod ik;
 pub mod instance;
+pub mod material;
 pub mod math;
 pub mod mesh;
 pub mod part;
@@ -47,11 +58,13 @@ pub mod skeleton;
 pub mod svd;
 
 pub use eye::{EyeMaterial, EyeServices};
+pub use hooks::{OwnerBind, TransformCall};
 pub use ik::{AimDesc, IkEvent};
 pub use instance::{DeformInstance, Deformable, LodDesc, PartDesc};
+pub use material::{EyeFactory, EyeHost, bind_eye_materials};
 pub use mesh::{DeformMesh, MeshArchetype, MeshCache, MeshId, VMeshWrapper};
 pub use part::DeformPart;
-pub use services::{BoneLink, ChannelSample, DeformServices};
+pub use services::{BoneLink, ChannelSample, DeformHost, DeformRender, DeformServices};
 pub use skeleton::{BoneRuntime, BoneSlot, LodHolder, Skeleton};
 
 use neuron_core::mesh_data::dfm::UvDeformRecord;

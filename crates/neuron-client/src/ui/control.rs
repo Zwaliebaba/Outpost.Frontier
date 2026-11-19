@@ -512,7 +512,14 @@ pub mod base {
                 *out = bytes;
                 0
             }
-            Property::ChildHit(_) | Property::ChildToolTip(_) | Property::Other(..) => 0,
+            Property::ChildHit(_)
+            | Property::ChildToolTip(_)
+            | Property::ChildButtonUp(_)
+            | Property::ScrollRange(..)
+            | Property::ScrollValue(_)
+            | Property::GetScrollValue
+            | Property::ScrollChanged(..)
+            | Property::Other(..) => 0,
         }
     }
 
