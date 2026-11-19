@@ -58,6 +58,7 @@
 #include "oracle_sim_ai.h"
 #include "oracle_sim_rand.h"
 #include "oracle_sim_fault.h"
+#include "oracle_sim_fields.h"
 #include "../include/common_ivp_controller.h" // IVP_Controller_Golem (unit_cores.jsonl)
 
 // Server.dll, IServerImpl.cpp (Oracle instrumentation): StarSystem::load on one system.
@@ -585,6 +586,9 @@ namespace
         return nullptr;
     }
 
+    // P2.4 (asteroids.jsonl `probe`): the positions of the scenario's live ships.
+    std::vector<Vector> ShipPositions();
+
     // The scenario name of an id, or "#<id>" for any other object.
     std::string NameOf(unsigned int Id)
     {
@@ -628,6 +632,20 @@ namespace
         IObjDB* const Db = static_cast<CSimple*>(Found)->ObjectDb;
         Found->Release();
         return Db != nullptr ? Db->FindById(&Id) : nullptr;
+    }
+
+    std::vector<Vector> ShipPositions()
+    {
+        std::vector<Vector> Out;
+        for (FSimObject const& Object : GObjects)
+        {
+            if (!Object.Desc->bShip)
+                continue;
+            IObjRW* const Rw = FindRw(Object);
+            if (Rw != nullptr)
+                Out.push_back(Rw->get_position());
+        }
+        return Out;
     }
 
     // ------------------------------------------------------------------------------------
@@ -1478,6 +1496,8 @@ namespace
 
     void RecordTick(unsigned int X87, unsigned int Sse)
     {
+        // P2.4: the asteroid cubes the frame made or changed (asteroids.jsonl).
+        oracle::OracleSimFieldsTick();
         FOracleJson F;
         F.Str("rec", "frame");
         F.Uint("tick", GTick);
@@ -2195,8 +2215,17 @@ namespace
             {
                 if (Reader.is_value("Data path"))
                 {
+                    // P2.4: the data path is opened absolute (the current directory is the data
+                    // root). The server's field load (SrvAsteroidSystem::load) roots the system
+                    // file's path, which Universe::get_filename has already rooted, at the data
+                    // path again (GetFileSysPath leaves only absolute paths alone): with the
+                    // INI's relative ".\data" it opens ".\data\.\data\universe\..." and no
+                    // asteroid field loads. Every other path resolves as before.
                     DataPath = Reader.get_value_string();
-                    NeuronRuntime::OpenData(Reader.get_value_string());
+                    char Full[MAX_PATH] = {};
+                    DWORD const Length = GetFullPathNameA(DataPath.c_str(), MAX_PATH, Full, nullptr);
+                    std::string const Opened = (Length != 0 && Length < MAX_PATH) ? std::string(Full) : DataPath;
+                    NeuronRuntime::OpenData(Opened.c_str());
                     bFound = true;
                 }
             }
@@ -2471,6 +2500,9 @@ namespace oracle
         // front of OnBehaviorTick, so it is started after the hooks above.
         if (!OracleSimAiStart(OutDir, &GTick, &NameOf))
             SessionNote("note", "ai.jsonl cannot be written; behaviour ticks are not recorded");
+        // P2.4: the asteroid fields and the docking points (asteroids.jsonl, dock.jsonl).
+        if (!OracleSimFieldsStart(OutDir, SystemId, &GTick, &NameOf, &ShipPositions))
+            SessionNote("note", "asteroids.jsonl or dock.jsonl cannot be written; fields and docking points are not recorded");
         SetSink(OnControllerMessage);
         OracleSimLoadRandEnd();
 

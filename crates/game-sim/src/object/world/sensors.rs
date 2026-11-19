@@ -581,8 +581,15 @@ impl World {
         }
     }
 
-    /// `CETractor::VerifyTarget`: loot with units, within range. The hold
-    /// and capacity tests are not made (divergence register).
+    /// `CETractor::VerifyTarget`: loot with units, within range, whose
+    /// contents' volume (when positive) the owner's hold can take
+    /// ([`World::cargo_hold_remaining`]), and, for repair kits, shield
+    /// batteries and ammunition, for which the owner has room
+    /// ([`World::repair_kit_capacity_remaining`],
+    /// [`World::shield_battery_capacity_remaining`],
+    /// [`World::ammo_capacity_remaining`]). An owner that is not a ship, or
+    /// loot whose contents have no archetype, passes the capacity tests
+    /// (the reference reads through null there; divergence register).
     #[must_use]
     pub fn tractor_verify_target(
         &self,
@@ -605,7 +612,35 @@ impl World {
         if !t.verify_range(source, l.engine.position) {
             return TractorFailure::OutOfRange;
         }
-        TractorFailure::Ok
+        let Some(contents) = self.data.archetypes.equipment.get(&data.contents_arch) else {
+            return TractorFailure::Ok;
+        };
+        let Some(remaining) = self.cargo_hold_remaining(h) else {
+            return TractorFailure::Ok;
+        };
+        // Only a positive volume is tested; the unrounded remainder below
+        // it is full.
+        if contents.volume > 0.0 && remaining < f64::from(contents.volume) {
+            return TractorFailure::CargoFull;
+        }
+        use super::cargo::{
+            CLASS_COUNTER_MEASURE, CLASS_MINE, CLASS_MUNITION, CLASS_REPAIR_KIT,
+            CLASS_SHIELD_BATTERY,
+        };
+        match contents.class() {
+            CLASS_REPAIR_KIT if self.repair_kit_capacity_remaining(h) == Some(0) => {
+                TractorFailure::RepairKitFull
+            }
+            CLASS_SHIELD_BATTERY if self.shield_battery_capacity_remaining(h) == Some(0) => {
+                TractorFailure::ShieldBattFull
+            }
+            CLASS_MUNITION | CLASS_MINE | CLASS_COUNTER_MEASURE
+                if self.ammo_capacity_remaining(h, data.contents_arch) == Some(0) =>
+            {
+                TractorFailure::AmmoFull
+            }
+            _ => TractorFailure::Ok,
+        }
     }
 
     fn tractor(&self, h: ObjHandle, id: SubObjId) -> Option<&crate::equip::misc::Tractor> {

@@ -610,7 +610,30 @@ As `OutpostServer.exe` (`OutpostServer.cpp:437`, `:523`, `:731-745`,
    as the server thread sets them (`_control87(0x9001f, 0xfffff)`: 53-bit
    precision, every exception masked); `NeuronRuntime::Startup(NULL,
    "NEURONCOMPONENTSsrv.ini")`; `NeuronRuntime::OpenData` with
-   `[OutpostFrontier] data path`.
+   `[OutpostFrontier] data path` made absolute (`GetFullPathNameA`, P2.4):
+   the server's field load (`SrvAsteroidSystem::load`) roots the system
+   file's path, which `Universe::get_filename` has already rooted, at the
+   data path again, and `GetFileSysPath` leaves only absolute paths alone,
+   so with the INI's relative `.\data` it opens
+   `.\data\.\data\universe\…` and no asteroid field loads (the first
+   `asteroids.jsonl` probes showed it). This is the reference's behaviour,
+   not a reconstruction error (investigated 2026-11-19): the traced calls
+   are `StarSystem::load` passing `Universe::get_filename`'s path (the
+   universe directory file system's root, made by `Universe::Startup` from
+   `GetFileSysPath("universe\universe.ini", Data)`, joined to the system's
+   `file`) and `SrvAsteroidSystem::load` (ordinal 498) passing it through
+   `GetFileSysPath` again; `GetFileSysPath` (Common `0xa2df0`) copies only a
+   path that starts with `\` or has a drive colon, and the DOS file system
+   keeps its root as given (ReadFile, no `_fullpath` on a directory root),
+   as `OutpostServer.exe` passes the INI's value to `OpenData`. The other
+   server loaders take paths relative to the data root
+   (`FSrvAsteroidField::load`'s field files, `pub::BuildBaseReader`'s
+   bases) or open the rooted path directly (`StarSystem::load`'s
+   `[Object]` pass), so only the field load fails. A dedicated server loads
+   its fields only with an absolute data path; the oracle runs that way,
+   and the Rust world (`World::load_asteroid_fields`) loads them as such a
+   server does, whatever form its data path has (divergence D198, owner
+   2026-11-19).
 3. `IServerImpl::Startup` with `SStartupInfo` {module path
    `SimClientStub.dll`, INI path `server.ini`, 16 players, port 0}. It runs
    `DataConfig::startup`, the world INI, `Server_LoadInitialDlls` (Content's
@@ -651,6 +674,7 @@ is zero, which only `Oracle.exe sim` changes:
 | `Server\server_classes.cpp` | `StarSystem::munition_collision` reports the impact and its damage list; `StarSystem_MpCollisionFilter` takes its single-player branch when asked (`collisions sp`) |
 | `Common\common_physicalsystem.cpp` | `PhysicalSystem::Update` takes the single-player branch when asked |
 | `Common\common_behaviormanager.cpp` | `UpdateBehaviorTick` reports its entry and every exit (an RAII guard) |
+| `Common\common_ceqobj.cpp` | `CEqObj::activate` reports each answer (`OnDockActivate`); `update_docking_animations` reports each point with a channel before processing it (`OnDockAnim`), P2.4 |
 | `IVP\ivp_physics\ivp_environment.cpp` | `IVP_Environment_Simulate_Psi` reports before the simulation units and after the next-PSI matrices |
 | `IVP\ivp_physics\ivp_simulation_unit.cpp` | `IVP_Simulation_Unit_Process_One_Psi_Step` reports its entry and its end with the movement check |
 | `IVP\ivp_physics\ivp_core.cpp` | `IVP_Core::push_core_linear`, `push_core_angular_ws` and `push_core_angular_cs` report the push |
@@ -796,8 +820,9 @@ notes.
 `session.jsonl`, `tick.jsonl`, `events.jsonl`, `psi.jsonl`,
 `calls.jsonl`, since P2.5 the behaviour-tick snapshots `ai.jsonl`, and the
 load-time draws `load_rand.jsonl` with its summary `load_rand.txt`, and
-the simulation units of the first PSIs, `units.jsonl`
-(sim-records.md); the stub's `iclient.jsonl` and `controller.jsonl`;
+the simulation units of the first PSIs, `units.jsonl`, since P2.4's
+remainder the asteroid cubes `asteroids.jsonl` and the docking points
+`dock.jsonl` (`oracle_sim_fields.cpp`; sim-records.md); the stub's `iclient.jsonl` and `controller.jsonl`;
 `server.ini`, `fdump.txt`, `metrics.txt`. The rand() recorder
 (`oracle_sim_rand.cpp`) replaces the `rand` import of every module bound
 to the universal CRT's `rand` (`Common.dll`, `Server.dll`, `Content.dll`
@@ -844,7 +869,11 @@ same constructor while it is spawned).
 
 Single-player stepping is emulated as above, not run through the client.
 Field asteroids (`CmnAsteroid`) are not scenario objects; `ram_asteroid`
-uses a static asteroid solar. The multiplayer server's collision filter
+uses a static asteroid solar. The server fills the fields around every
+ship of the system (`CmnAsteroid::Update` walks the whole ship list, so
+no player is needed): in `ram_asteroid` the fighter starts in the
+Keswick ice field, and its cubes and rocks are recorded
+(`asteroids.jsonl`). The multiplayer server's collision filter
 (`StarSystem_MpCollisionFilter`, `Server/server_classes.cpp:11409`) lets a
 pair collide only when one side is a bullet or a missile, so ship–solar and
 ship–ship contact is not simulated on the server (the clients report it):

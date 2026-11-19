@@ -1,9 +1,27 @@
-//! Bay doors and gates in the world: the playbacks `PlayScript` binds at
-//! spawn (`CShip::init`'s `bay_door_anim`, `CSolar::init`'s
-//! `open_anim`), `open_bay` and `close_bay`, `CSolar::activate` for
-//! gates, the per-frame state updates, and the playback part of
-//! `AnimDB::Update` (`Add(int)`, `MixerWalk`, `FilterObjects`). See
-//! [`crate::object::anim`] for the state machines.
+//! Bay doors, gates and docking points in the world: the playbacks
+//! `PlayScript` binds at spawn (`CShip::init`'s `bay_door_anim`,
+//! `CSolar::init`'s `open_anim`, `CEqObj::init_docking_points`' one per
+//! docking sphere with an animation), `open_bay` and `close_bay`,
+//! `CSolar::activate` for gates, `CEqObj::activate` for docking points,
+//! the per-frame state updates (`update_docking_animations` at the end of
+//! `CEqObj::update`), and the playback part of `AnimDB::Update`
+//! (`Add(int)`, `MixerWalk`, `FilterObjects`). See [`crate::object::anim`]
+//! for the state machines.
+//!
+//! # Docking points
+//!
+//! The docking points of a ship or solar are [`crate::object::Equipped`]'s
+//! `docking_points`, in the archetype's `docking_sphere` order; a point's
+//! index is the dock port the server and the AI name. The docking server
+//! (P3.3) and the docking behaviours drive them through
+//! [`World::activate_docking_point`] (`CEqObj::activate`): an active
+//! point's animation opens from its start, an inactive one closes from its
+//! end, each through `update_docking_animations` the next time the object
+//! updates (a solar updates only near a player or while it is kept updated,
+//! [`World::set_always_update`]: the server's `ListD4`, which a queued dock
+//! request joins). Each start is a [`WorldEvent::DockAnim`]
+//! (`notify(DockAnimEnded, flag)`); [`World::docking_activate_state`] is
+//! `get_activate_state`.
 
 use neuron_core::anim::AnimScript;
 use neuron_core::vfs::{FsDesc, UtfFileSystem};
@@ -21,6 +39,19 @@ pub(crate) enum AnimKind {
     Bay,
     /// A gate's animation.
     Gate,
+    /// A docking point's animation, by the point's index.
+    Dock(usize),
+}
+
+/// `CEqObj::activate`'s answer (`ObjActivateResult`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ActivateResult {
+    /// 0: no such docking point (or no equipped object).
+    Failed,
+    /// 1: the point's state changed.
+    Changed,
+    /// 2: it already was in that state.
+    NoChange,
 }
 
 impl World {
@@ -42,13 +73,34 @@ impl World {
         Some(entry.longest_channel().map_or(-1.0, |c| c.duration()))
     }
 
-    /// The bay and gate playbacks of a new object.
+    /// The bay, gate and docking-point playbacks of a new object.
     pub(crate) fn init_animations(&mut self, h: ObjHandle) {
         let Some(o) = self.objects.get(h) else {
             return;
         };
         let (kind, archetype) = (o.kind, o.archetype);
         let path = self.archetype_path(kind, archetype);
+        // `init_docking_points`: one playback per docking sphere with an
+        // animation the archetype's script has (`PlayScript`; -1 is
+        // reported in the reference and leaves the point without one).
+        let names: Vec<Vec<u8>> = o
+            .equipped
+            .as_deref()
+            .map(|eq| eq.docking_points.iter().map(|p| p.anim.clone()).collect())
+            .unwrap_or_default();
+        let playbacks: Vec<Option<Playback>> = names
+            .iter()
+            .map(|n| self.anim_duration(&path, n).map(Playback::new))
+            .collect();
+        if let Some(eq) = self
+            .objects
+            .get_mut(h)
+            .and_then(|o| o.equipped.as_deref_mut())
+        {
+            for (point, playback) in eq.docking_points.iter_mut().zip(playbacks) {
+                point.playback = playback;
+            }
+        }
         let name = match kind {
             ObjectKind::Ship => self
                 .data
@@ -85,10 +137,94 @@ impl World {
     }
 
     fn playback_mut(&mut self, h: ObjHandle, kind: AnimKind) -> Option<&mut Playback> {
-        match (&mut self.objects.get_mut(h)?.data, kind) {
+        let o = self.objects.get_mut(h)?;
+        match (&mut o.data, kind) {
             (KindData::Ship(s), AnimKind::Bay) => s.bay_anim.as_mut(),
             (KindData::Solar(s), AnimKind::Gate) => s.gate_anim.as_mut(),
+            (_, AnimKind::Dock(i)) => o
+                .equipped
+                .as_deref_mut()?
+                .docking_points
+                .get_mut(i)?
+                .playback
+                .as_mut(),
             _ => None,
+        }
+    }
+
+    /// `CEqObj::activate(on, index)`: sets docking point `index` active or
+    /// not; its animation follows at the object's next update.
+    pub fn activate_docking_point(
+        &mut self,
+        h: ObjHandle,
+        on: bool,
+        index: usize,
+    ) -> ActivateResult {
+        let Some(point) = self
+            .objects
+            .get_mut(h)
+            .and_then(|o| o.equipped.as_deref_mut())
+            .and_then(|eq| eq.docking_points.get_mut(index))
+        else {
+            return ActivateResult::Failed;
+        };
+        let was = point.active;
+        point.active = on;
+        if was == on {
+            ActivateResult::NoChange
+        } else {
+            ActivateResult::Changed
+        }
+    }
+
+    /// `CEqObj::get_activate_state`: each docking point's active flag, and
+    /// whether any is active.
+    #[must_use]
+    pub fn docking_activate_state(&self, h: ObjHandle) -> (Vec<bool>, bool) {
+        let states: Vec<bool> = self
+            .objects
+            .get(h)
+            .and_then(|o| o.equipped.as_deref())
+            .map(|eq| eq.docking_points.iter().map(|p| p.active).collect())
+            .unwrap_or_default();
+        let any = states.iter().any(|&a| a);
+        (states, any)
+    }
+
+    /// `CEqObj::update_docking_animations`: every docking point with a
+    /// playback opens or closes as it is active or not
+    /// ([`anim::update_dock_point`]); each start notifies `DockAnimEnded`
+    /// and registers the playback with `AnimDB`.
+    pub(crate) fn update_docking_animations(&mut self, h: ObjHandle) {
+        let Some(o) = self.objects.get_mut(h) else {
+            return;
+        };
+        let id = o.simple.id;
+        let Some(eq) = o.equipped.as_deref_mut() else {
+            return;
+        };
+        let mut added = Vec::new();
+        for (index, point) in eq.docking_points.iter_mut().enumerate() {
+            let Some(playback) = point.playback.as_mut() else {
+                continue;
+            };
+            let step = anim::update_dock_point(point.active, playback, &mut point.last_duration);
+            if let Some(open) = step.notify {
+                self.events.push(WorldEvent::DockAnim {
+                    obj: id,
+                    index,
+                    open,
+                });
+            }
+            if let Some((reverse, start, add)) = step.play {
+                playback.eval(reverse, start);
+                if add {
+                    added.push(index);
+                }
+            }
+        }
+        for index in added {
+            self.register_playback(h, AnimKind::Dock(index));
         }
     }
 

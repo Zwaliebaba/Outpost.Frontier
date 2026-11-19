@@ -475,6 +475,52 @@ with a golem, `golem_q` [f×4] and `golem_current_q` [f×4] (its
 compares every unit core with the Rust world's bit for bit and reports
 the first difference.
 
+## `asteroids.jsonl`
+
+The scenario system's asteroid fields after each frame (P2.4,
+`oracle_sim_fields.cpp`), the fields numbered in their
+`CAsteroidSystem::Fields` order (the system file's `[Asteroids]` order).
+The server's `CmnAsteroid::Update` walks every ship of the system, so the
+scenario ships fill the fields they fly in although the harness has no
+player. Two records:
+
+- `cube`: a cube that was not there after the last frame. `tick` u,
+  `field` u, `id` u (`CubeId`), `pos` [f×3], `orient` [f×9] (the snap
+  rotation), `empty` b, and `rocks` [{`obj_id` u (`CSimple::Id`),
+  `asteroid_id` u, `pos` [f×3] (`WorldPosition`), `orient` [f×9],
+  `mine` b, `instant_kill` b}, …] in the cube's `Asteroids` order.
+- `cubes`: a field's cubes whenever their ids, states or timers changed.
+  `tick` u, `field` u, `cubes` [{`id` u, `state` i (`CubeState`),
+  `timer` f (`StateTimer`)}, …] in id order; a field left without cubes
+  writes an empty list.
+- `probe`: at ticks 0, 1 and every 150th, what the walk works with.
+  `tick` u, `system` b (`CmnAsteroid::Find` found the system), `ships`
+  [[f×3], …] (the scenario ships' positions), `fields` [{`zone` b,
+  `cube_size` i, `fill_dist` i, `empty_freq` f, `arch` u (the `[Cube]`
+  entries), `exclusions` b, `cubes` u, `near` [b, …] (`near_field` at each
+  ship)}, …].
+
+`field_replay` replays the walk from the ships' positions of `tick.jsonl`.
+
+## `dock.jsonl`
+
+The docking points (P2.4, the hooks `OnDockActivate` and `OnDockAnim` in
+`Common/common_ceqobj.cpp`), one record per call in call order, each with
+`tick` u, `seq` u (the call's number in the run), `obj_id` u and `obj` s
+(the scenario name, `#<id>` for another object):
+
+- `dock_activate`: `CEqObj::activate`. `index` u (as given), `on` b,
+  `result` i (`ObjActivateResult`: 0 failed, 1 changed, 2 no change).
+- `dock_anim`: `CEqObj::update_docking_animations` for a point with a
+  channel, before the point is processed. `index` u, `active` b, `time` f
+  (`GetStoredDuration`), `duration` f (`GetScriptDuration`), `last` f
+  (`LastDuration`).
+
+A solar runs `update_docking_animations` only while it is updated: near a
+player, or in the server's `ListD4` while a dock request is queued.
+`field_replay` makes the recorded activations and updates on the Rust
+world and compares each point after its tick.
+
 ## `load_rand.jsonl`
 
 The load-time `rand()` draws (owner, 2026-11-18): every draw the game
