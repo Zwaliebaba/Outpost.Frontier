@@ -145,6 +145,28 @@ jobs:
             Write-Host "Scenarios with a failed run: $($failed -join ', ')"
             exit 1
           }
+      - name: TEMPORARY print the dock, launch and trade-lane records
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $out = "$env:RUNNER_TEMP\outpost-sim"
+          foreach ($name in 'dock_at_station', 'dock_trade_lane', 'launch_from_station', 'trade_lane') {
+            $run = "$out\$name\run_01"
+            Write-Host "==== $name"
+            Select-String -Path "$run\ai.jsonl" -Pattern '"rec":"ai_answer"' -ErrorAction SilentlyContinue | Select-Object -First 80 | ForEach-Object { "ANS $($_.Line)" }
+            Select-String -Path "$run\calls.jsonl" -Pattern '"slot":2[3-6],' -ErrorAction SilentlyContinue | Select-Object -First 40 | ForEach-Object { "AFF $($_.Line)" }
+            Select-String -Path "$run\ai.jsonl" -Pattern '"hpmount"' -ErrorAction SilentlyContinue | Select-Object -First 1 | ForEach-Object { "MOUNT $($_.Line.Substring([Math]::Max(0, $_.Line.IndexOf('"hpmount"'))))" }
+            $last = ''
+            Get-Content "$run\ai.jsonl" -ErrorAction SilentlyContinue | Where-Object { $_.StartsWith('{"rec":"ai_in"') -and $_.Contains('"beh') } | ForEach-Object {
+              $j = $_ | ConvertFrom-Json
+              $b = $j.beh7 ?? $j.beh8 ?? $j.beh9
+              $ints = $b.i -join ','
+              if ($ints -ne $last) { "BEH $($j.tick) b=$($j.behavior) i=$ints v=$($b.v -join ',')" }
+              $last = $ints
+            } | Select-Object -First 120
+            Get-Content "$run\events.jsonl" -ErrorAction SilentlyContinue | Select-Object -First 20 | ForEach-Object { "EVT $_" }
+            Select-String -Path "$run\session.jsonl" -Pattern '"rec":"command"' -ErrorAction SilentlyContinue | ForEach-Object { "CMD $($_.Line)" }
+          }
       - name: Replay the recorded PSIs through the port
         # Decision O20, replay layer: every psi.jsonl the scenarios wrote is replayed one PSI
         # at a time through neuron-core::physics (crates/neuron-core/tests/sim_replay.rs).
