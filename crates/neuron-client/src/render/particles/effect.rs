@@ -9,7 +9,7 @@ use neuron_core::fx_data::{EffectArchetype, NodeClass, ROOT_PARENT};
 
 use super::ParticleFx;
 use super::node::{Family, NodeId};
-use super::services::ParticleServices;
+use super::services::{Camera, ParticleDraw, ParticleServices};
 
 /// The name hash of a folder whose id makes it the effect's transform
 /// override (`0xEE223B51`).
@@ -118,6 +118,31 @@ impl Effect {
                 fx.update_tree(record.node, dt, svc);
             }
         }
+    }
+
+    /// `Slot9(camera)`: every live root node's subtree draws
+    /// (`ParticleFx::DrawNodes`); the last walk's result, else success.
+    pub fn draw(
+        &self,
+        fx: &mut ParticleFx,
+        camera: &mut dyn Camera,
+        svc: &mut dyn ParticleDraw,
+    ) -> i32 {
+        let mut result = 0;
+        // After `Slot13(7)` the records are gone (the reference walks its
+        // root count past the end).
+        for record in self.records.iter().take(self.root_count) {
+            if fx.node(record.node).is_some_and(|n| !n.is_dead()) {
+                result = fx.draw_nodes(record.node, camera, svc);
+            }
+        }
+        result
+    }
+
+    /// `Slot15(sphere)`: the bounding spheres of every record's node merged
+    /// (`MergeNodeBoundsSphere`); `false` when no node has one.
+    pub fn bounds(&self, fx: &ParticleFx, sphere: &mut [f32; 4]) -> bool {
+        super::bounds::merge_node_spheres(fx, self.records.iter().map(|r| r.node), sphere)
     }
 
     /// `Slot5`, `Slot6`, `Slot14`: a value stored on every record's node.

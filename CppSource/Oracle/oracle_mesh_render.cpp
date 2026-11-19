@@ -33,11 +33,21 @@
 //   "flags","src","idx"
 //   camview / viewport / fov / xscale / znear / campos / classify "c","r","res"
 //   dump "flags","file","line","msg" (msg hex)
+//   name "m": GetName (the second increment's SetFaceGroupMaterial)
 // with <context> "inst","world","view","vb","ib","rep","f20" and "src" the vertex source:
 // fvf,count,flags then per stream (position, normal, diffuse, tex0, tex1)
 // ;count/stride/bytes/<elements hash>/<index hash> ("-" for none). Hashes are FNV-1a 64 of the
 // bytes. Every operation then writes {"case","op",...}. Floats are the eight hex digits of the
 // f32 (sixteen for the f64 of xscale).
+//
+// Second increment (mesh_faces.list, mesh_faces.jsonl; the Rust side is the same support module):
+// "face a <archetype> <slot ...>" and "face i <instance> <slot ...>" ask QueryArchetype or
+// QueryInstance for IID_IMesh (IID_IRenderableMesh for vcount, copyvd, icount, copyidx) and call
+// one slot of the face it hands out: {"op":"face","slot","q" (the query's result)[,"r",...]}, the
+// outputs written ("v" counts, types and contexts, "m" a material's name, "b","c","d" a
+// channel's stride, element size and count, "n" an index count, "h" the hash of the elements or
+// indices the pointer addresses), with the start values ("?", 7, 5a5a, ffffffff) where nothing is
+// written.
 
 // This file is included at the end of oracle_mesh_data.cpp, after the RendComp sources (it is
 // not compiled on its own).
@@ -295,7 +305,13 @@ namespace mesh_render
         GENRESULT NEURONCOMPONENTS_API ApplyVerify(void* Context, void* Extra) override { return GR_GENERIC; }
         GENRESULT NEURONCOMPONENTS_API ResolveTextures(float Delta) override { return GR_GENERIC; }
         GENRESULT NEURONCOMPONENTS_API SetName(const char* Name) override { return GR_GENERIC; }
-        GENRESULT NEURONCOMPONENTS_API GetName(char* Out, unsigned long Size) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API GetName(char* Out, unsigned long Size) override
+        {
+            GMesh.Event(Format("\"ev\":\"name\",\"m\":\"%s\"", Name.c_str()));
+            strncpy(Out, Name.c_str(), Size);
+            Out[Size - 1] = 0;
+            return GR_OK;
+        }
         GENRESULT NEURONCOMPONENTS_API GetPassCount(int* Out) override { return GR_GENERIC; }
         GENRESULT NEURONCOMPONENTS_API GetParameterDescriptor(unsigned long Index, void* OutDesc) override
         {
@@ -375,11 +391,21 @@ namespace mesh_render
 
     // --- the renderer -------------------------------------------------------------------------
 
+    // The vertex-buffer manager the pipeline hands out (defined below).
+    IVertexBufferManager* MeshVbManager();
+
     class FMeshPipeline final : public IRenderPipeline
     {
     public:
-        GENRESULT NEURONCOMPONENTS_API QueryInterface(const char*, void** Out) override
+        // IID_IVertexBufferManager is answered (FVMeshPartRenderable::CopyVertexData asks for it),
+        // without an event; anything else is refused.
+        GENRESULT NEURONCOMPONENTS_API QueryInterface(const char* Iid, void** Out) override
         {
+            if (strcmp(Iid, Iids::VertexBufferManager) == 0)
+            {
+                *Out = MeshVbManager();
+                return GR_OK;
+            }
             *Out = nullptr;
             return GR_INTERFACE_UNSUPPORTED;
         }
@@ -870,6 +896,8 @@ namespace mesh_render
     FMeshEngine GMeshEngine;
     FMeshCamera GMeshCamera;
 
+    IVertexBufferManager* MeshVbManager() { return &GMeshVbMgr; }
+
     // --- FDUMP ---------------------------------------------------------------------------------
 
     void __cdecl MeshDump(int Flags, const char* Pattern, ...)
@@ -1252,10 +1280,176 @@ namespace mesh_render
             return Sphere->FindSphere((void*)(uintptr_t)Inst);
         }
 
+        // The elements of a GetFaceGroupData array: D elements of C bytes at stride B from A
+        // ("-" for a null array, "?" when nothing was written).
+        static std::string ElementsHash(void* A, void* B, void* C, void* D)
+        {
+            if (A == (void*)1)
+                return "?";
+            if (A == nullptr)
+                return "-";
+            std::vector<unsigned char> Bytes;
+            const unsigned char* Base = (const unsigned char*)A;
+            const size_t Stride = (size_t)(uintptr_t)B;
+            const size_t Size = (size_t)(uintptr_t)C;
+            for (size_t I = 0; I < (size_t)(uintptr_t)D; ++I)
+                Bytes.insert(Bytes.end(), Base + I * Stride, Base + I * Stride + Size);
+            return HashOf(Bytes.data(), Bytes.size());
+        }
+
+        // P4.6 second increment (mesh_faces.list): one IMesh or IRenderableMesh slot of the face
+        // QueryArchetype ("a", an archetype id) or QueryInstance ("i", an instance) hands out.
+        // {"op":"face","slot","q" (the query's result)[,"r" and the outputs]}.
+        void FaceOp(const std::vector<std::string>& T)
+        {
+            const std::string& Slot = T[3];
+            const bool bRenderable = Slot == "vcount" || Slot == "copyvd" || Slot == "icount" || Slot == "copyidx";
+            const char* Iid = bRenderable ? Iids::RenderableMesh : Iids::Mesh;
+            void* Out = nullptr;
+            int Q;
+            if (T[1] == "i")
+                Q = Manager->QueryInstance((void*)(uintptr_t)HexWord(T[2]), Iid, &Out);
+            else
+                Q = Manager->QueryArchetype((void*)(intptr_t)Dec(T[2]), Iid, &Out);
+            std::string Line = "\"op\":\"face\",\"slot\":\"" + Slot + Format("\",\"q\":\"%d\"", Q);
+            if (Q != 0 || Out == nullptr)
+            {
+                Op(Line);
+                return;
+            }
+            int R = 0;
+            if (bRenderable)
+            {
+                IRenderableMesh* Face = (IRenderableMesh*)Out;
+                if (Slot == "vcount" || Slot == "icount")
+                {
+                    int V = -9;
+                    R = Slot == "vcount" ? Face->GetVertexCount(&V) : Face->GetIndexCount(&V);
+                    Line += Format(",\"r\":\"%d\",\"v\":\"%d\"", R, V);
+                }
+                else if (Slot == "copyvd")
+                {
+                    std::vector<unsigned char> Buffer(0x4000, 0);
+                    R = Face->CopyVertexData(Buffer.data(), HexWord(T[4]), (unsigned int)Dec(T[5]), (unsigned int)Dec(T[6]));
+                    Line += Format(",\"r\":\"%d\"", R);
+                }
+                else
+                {
+                    const int Count = (int)Dec(T[4]);
+                    std::vector<unsigned short> Buffer((size_t)Count + 1, 0);
+                    unsigned short* Dest = Buffer.data();
+                    R = Face->CopyIndices(&Dest, Count);
+                    Line += Format(",\"r\":\"%d\",\"h\":\"", R) +
+                            (R == 0 ? HashOf(Buffer.data(), (size_t)Count * 2) : std::string("-")) + "\"";
+                }
+                Op(Line);
+                return;
+            }
+            IMesh* Face = (IMesh*)Out;
+            if (Slot == "count")
+            {
+                int V = -9;
+                R = Face->GetFaceGroupCount(&V);
+                Line += Format(",\"r\":\"%d\",\"v\":\"%d\"", R, V);
+            }
+            else if (Slot == "open")
+                Line += Format(",\"r\":\"%d\"", Face->OpenFaceGroup((int)Dec(T[4]), (int)Dec(T[5])));
+            else if (Slot == "close")
+                Line += Format(",\"r\":\"%d\"", Face->CloseFaceGroup());
+            else if (Slot == "add")
+                Line += Format(",\"r\":\"%d\"", Face->AddFaceGroup((void*)(uintptr_t)Dec(T[4])));
+            else if (Slot == "remove")
+                Line += Format(",\"r\":\"%d\"", Face->RemoveFaceGroup((int)Dec(T[4])));
+            else if (Slot == "prim")
+            {
+                unsigned int V = 0xFFFFFFFF;
+                R = Face->GetFaceGroupPrimitiveType(&V);
+                Line += Format(",\"r\":\"%d\",\"v\":\"%x\"", R, V);
+            }
+            else if (Slot == "getmat")
+            {
+                IMaterial* Mat = (IMaterial*)1;
+                R = Face->GetFaceGroupMaterial(&Mat);
+                const std::string Name = Mat == (IMaterial*)1 ? "?" : Mat == nullptr ? "-" : ((FMeshMat*)Mat)->Name;
+                Line += Format(",\"r\":\"%d\",\"m\":\"", R) + Name + "\"";
+            }
+            else if (Slot == "setmat")
+                Line += Format(",\"r\":\"%d\"", Face->SetFaceGroupMaterial(T[4] == "-" ? nullptr : MaterialNamed(T[4])));
+            else if (Slot == "getctx")
+            {
+                void* V = (void*)0x5A5A;
+                R = Face->GetFaceGroupMaterialContext(&V);
+                Line += Format(",\"r\":\"%d\",\"v\":\"%lx\"", R, (unsigned long)(uintptr_t)V);
+            }
+            else if (Slot == "setctx")
+                Line += Format(",\"r\":\"%d\"", Face->SetFaceGroupMaterialContext((void*)(uintptr_t)HexWord(T[4])));
+            else if (Slot == "chopen")
+                Line += Format(",\"r\":\"%d\"", Face->OpenFaceGroupChannels(HexWord(T[4])));
+            else if (Slot == "chclose")
+                Line += Format(",\"r\":\"%d\"", Face->CloseFaceGroupChannels());
+            else if (Slot == "chlock")
+                Line += Format(",\"r\":\"%d\"", Face->LockFaceGroupChannels(HexWord(T[4])));
+            else if (Slot == "chunlock")
+                Line += Format(",\"r\":\"%d\"", Face->UnlockFaceGroupChannels());
+            else if (Slot == "data")
+            {
+                void* A = (void*)1;
+                void* B = (void*)7;
+                void* C = (void*)7;
+                void* D = (void*)7;
+                R = Face->GetFaceGroupData((int)HexWord(T[4]), &A, &B, &C, &D);
+                Line += Format(",\"r\":\"%d\",\"b\":\"%lx\",\"c\":\"%lx\",\"d\":\"%lx\",\"h\":\"", R,
+                               (unsigned long)(uintptr_t)B, (unsigned long)(uintptr_t)C, (unsigned long)(uintptr_t)D) +
+                        ElementsHash(A, B, C, D) + "\"";
+            }
+            else if (Slot == "idx")
+            {
+                void* A = (void*)1;
+                void* B = (void*)7;
+                R = Face->GetFaceGroupIndices((int)HexWord(T[4]), &A, &B);
+                std::string Hash = A == (void*)1 ? "?" : A == nullptr ? "-" : HashOf(A, (size_t)(uintptr_t)B * 2);
+                Line += Format(",\"r\":\"%d\",\"n\":\"%lx\",\"h\":\"", R, (unsigned long)(uintptr_t)B) + Hash + "\"";
+            }
+            else if (Slot == "idxcount")
+            {
+                void* V = (void*)7;
+                R = Face->GetFaceGroupIndexCount((int)Dec(T[4]), &V);
+                Line += Format(",\"r\":\"%d\",\"v\":\"%lx\"", R, (unsigned long)(uintptr_t)V);
+            }
+            else if (Slot == "setdata")
+                Line += Format(",\"r\":\"%d\"", Face->SetFaceGroupData((int)HexWord(T[4]), nullptr, nullptr, nullptr, nullptr));
+            else if (Slot == "setidx")
+                Line += Format(",\"r\":\"%d\"", Face->SetFaceGroupIndices((int)HexWord(T[4]), nullptr, 0));
+            else if (Slot == "setidxcount")
+                Line += Format(",\"r\":\"%d\"", Face->SetFaceGroupIndexCount(1, 0));
+            else if (Slot == "addch")
+                Line += Format(",\"r\":\"%d\"", Face->AddFaceGroupChannels(HexWord(T[4])));
+            else if (Slot == "rmch")
+                Line += Format(",\"r\":\"%d\"", Face->RemoveFaceGroupChannels(HexWord(T[4])));
+            else if (Slot == "reset")
+                Line += Format(",\"r\":\"%d\"", Face->ResetMesh());
+            else if (Slot == "noop")
+                Line += Format(",\"r\":\"%d\"", Face->NoOp());
+            else if (Slot == "refresh")
+                Line += Format(",\"r\":\"%d\"", Face->RefreshMaterials(0));
+            else if (Slot == "reject")
+                Line += Format(",\"r\":\"%d\"", Face->RejectOperation());
+            else if (Slot == "reject1")
+                Line += Format(",\"r\":\"%d\"", Face->RejectOperation(nullptr));
+            else
+            {
+                fprintf(stderr, "mesh_faces: unknown slot %s\n", Slot.c_str());
+                GFailed = true;
+            }
+            Op(Line);
+        }
+
         void Run(const std::vector<std::string>& T)
         {
             const std::string& K = T[0];
-            if (K == "fs")
+            if (K == "face")
+                FaceOp(T);
+            else if (K == "fs")
             {
                 if (!ReadWholeFile(T[1], GArchive))
                 {
@@ -1525,18 +1719,18 @@ namespace mesh_render
     };
 }
 
-// The suite (mesh_render.jsonl), called from RunMaterialSuites after the material suites.
-void RunMeshRenderSuite()
+// One suite over a list of cases.
+static void RunMeshList(const char* ListName, const char* SuiteName)
 {
     using namespace mesh_render;
-    Suite Out("mesh_render.jsonl");
+    Suite Out(SuiteName);
     if (!OracleLoadMathEngine())
     {
         fprintf(stderr, "mesh_render: no 3DMathEngine\n");
         GFailed = true;
         return;
     }
-    const std::vector<std::string> Lines = InputLines("mesh_render.list");
+    const std::vector<std::string> Lines = InputLines(ListName);
     void(__cdecl * Saved)(int, const char*, ...) = FDUMP;
     IRenderPipeline* const SavedPipeline = G_Pipeline;
     IRPDraw* const SavedDraw = G_Draw;
@@ -1565,4 +1759,12 @@ void RunMeshRenderSuite()
     G_MaterialLibrary = SavedMaterialLibrary;
     G_Engine = SavedEngine;
     G_VmeshDataMap.clear();
+}
+
+// The suites (mesh_render.jsonl; mesh_faces.jsonl, the IMesh and IRenderableMesh faces of the
+// second increment), called from RunMaterialSuites after the material suites.
+void RunMeshRenderSuite()
+{
+    RunMeshList("mesh_render.list", "mesh_render.jsonl");
+    RunMeshList("mesh_faces.list", "mesh_faces.jsonl");
 }

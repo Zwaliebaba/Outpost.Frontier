@@ -9,7 +9,7 @@
 //! here it is a [`VMeshRegistry`] value they share through
 //! [`SharedRegistry`] (divergence D351).
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
@@ -20,6 +20,7 @@ use neuron_core::mesh_data::part;
 use neuron_core::mesh_data::vmesh::{VMeshData, VMeshError, VMeshFaceGroup, VMeshRef};
 use neuron_core::vfs::{ATTRIBUTE_DIRECTORY, FileSystem};
 
+use super::face::{FaceSource, MeshFace};
 use super::manager::{DrawRequest, GeometryQuery, RenderComponent};
 use super::services::{MeshCamera, MeshServices};
 use super::{
@@ -572,18 +573,23 @@ pub fn vertex_source(data: &VMeshData, start: u32, count: u32) -> VertexSource {
 }
 
 /// A `VMeshPart` archetype (`FVMeshPart`): a range of a library mesh.
+///
+/// The plugin shares its parts with the `IMesh` faces it hands out
+/// ([`MeshFace`]), which a material may use while the part draws; the
+/// state those faces and the plugin change lives in cells (divergence
+/// D356).
 #[derive(Clone, Debug, PartialEq)]
 pub struct VMeshPart {
     /// The selected face group, -1 for none.
-    pub cursor: i32,
+    pub cursor: Cell<i32>,
     /// The instances made on it.
-    pub use_count: i32,
+    pub use_count: Cell<i32>,
     /// The library mesh, once hooked up.
-    pub data: Option<usize>,
+    pub data: Cell<Option<usize>>,
     /// The `VMeshRef` record.
     pub mesh_ref: VMeshRef,
     /// The vertex source of its range, built by the first hook-up.
-    pub vertices: VertexSource,
+    pub vertices: RefCell<VertexSource>,
 }
 
 impl VMeshPart {
@@ -591,11 +597,11 @@ impl VMeshPart {
     #[must_use]
     pub fn new(mesh_ref: VMeshRef) -> VMeshPart {
         VMeshPart {
-            cursor: -1,
-            use_count: 0,
-            data: None,
+            cursor: Cell::new(-1),
+            use_count: Cell::new(0),
+            data: Cell::new(None),
             mesh_ref,
-            vertices: VertexSource::default(),
+            vertices: RefCell::new(VertexSource::default()),
         }
     }
 
@@ -613,26 +619,26 @@ impl VMeshPart {
     /// or one the library lacks keeps the previous material with a notice.
     /// 0, -1 without the mesh, -8 when a material was not found.
     pub fn hook_up<S: MeshServices + ?Sized>(
-        &mut self,
+        &self,
         registry: &mut VMeshRegistry,
         services: &mut S,
     ) -> i32 {
-        if self.data.is_none() {
+        if self.data.get().is_none() {
             let found = registry.find(self.mesh_ref.mesh_crc);
             if let Some(id) = found {
                 registry.add_ref(id);
             }
-            self.data = found;
+            self.data.set(found);
             let Some(entry) = found.and_then(|id| registry.entry(id)) else {
                 return -1;
             };
-            self.vertices = vertex_source(
+            *self.vertices.borrow_mut() = vertex_source(
                 &entry.data,
                 u32::from(self.mesh_ref.vertex_start),
                 u32::from(self.mesh_ref.vertex_count),
             );
         }
-        let Some(id) = self.data else {
+        let Some(id) = self.data.get() else {
             return -1;
         };
         let start = usize::from(self.mesh_ref.face_group_start);
@@ -675,7 +681,7 @@ impl VMeshPart {
     /// The triangles of the part's face groups (`IndexCount / 3` each).
     #[must_use]
     pub fn triangle_count(&self, registry: &VMeshRegistry) -> i32 {
-        let Some(entry) = self.data.and_then(|id| registry.entry(id)) else {
+        let Some(entry) = self.data.get().and_then(|id| registry.entry(id)) else {
             return 0;
         };
         self.face_groups(entry)
@@ -695,17 +701,14 @@ impl VMeshPart {
         listing: &mut VbListing,
         scratch: &mut IbScratch,
     ) -> bool {
-        let Some(group) = self
-            .data
-            .and_then(|id| registry.entry(id))
-            .and_then(|e| e.group)
-        else {
+        let data = self.data.get();
+        let Some(group) = data.and_then(|id| registry.entry(id)).and_then(|e| e.group) else {
             return false;
         };
         if registry.ensure_vb(services, group) < 0 {
             return false;
         }
-        let Some(entry) = self.data.and_then(|id| registry.entry(id)) else {
+        let Some(entry) = data.and_then(|id| registry.entry(id)) else {
             return false;
         };
         listing.vertex_buffer = entry.vertex_buffer;
@@ -715,7 +718,7 @@ impl VMeshPart {
             .wrapping_add(u32::from(self.mesh_ref.vertex_start));
         let result = registry.ensure_ib(services, group, listing.base_vertex);
         if result >= 0 {
-            let Some(entry) = self.data.and_then(|id| registry.entry(id)) else {
+            let Some(entry) = data.and_then(|id| registry.entry(id)) else {
                 return false;
             };
             scratch.index_buffer = entry.index_buffer;
@@ -729,15 +732,19 @@ impl VMeshPart {
     /// `FVMeshPart::Draw`: the transforms (unless flag 0x200), then every
     /// face group with a material (or the override) bound, submitted from
     /// the group's buffers and torn down.
+    ///
+    /// The registry is borrowed only around its own steps, never across a
+    /// material's call, so that the material can reach the part's `IMesh`
+    /// face.
     pub fn draw<S: MeshServices + ?Sized>(
         &self,
-        registry: &mut VMeshRegistry,
+        registry: &RefCell<VMeshRegistry>,
         services: &mut S,
         camera: &mut dyn MeshCamera,
         instance: Instance,
         request: &DrawRequest,
     ) -> bool {
-        let Some(id) = self.data else {
+        let Some(id) = self.data.get() else {
             return false;
         };
         let view_words = camera.view_transform();
@@ -761,27 +768,32 @@ impl VMeshPart {
             }
         }
         flags |= 0x10C;
-        let Some(entry) = registry.entry(id) else {
-            return false;
+        let (face_groups, prim, indices) = {
+            let registry = registry.borrow();
+            let Some(entry) = registry.entry(id) else {
+                return false;
+            };
+            let face_groups: Vec<(usize, VMeshFaceGroup)> = self
+                .face_groups(entry)
+                .iter()
+                .enumerate()
+                .map(|(i, g)| (usize::from(self.mesh_ref.face_group_start) + i, *g))
+                .collect();
+            let indices: Vec<u16> = entry
+                .data
+                .indices
+                .get(usize::from(self.mesh_ref.index_start)..)
+                .unwrap_or_default()
+                .to_vec();
+            (face_groups, entry.data.header.primitive_type, indices)
         };
-        let face_groups: Vec<(usize, VMeshFaceGroup)> = self
-            .face_groups(entry)
-            .iter()
-            .enumerate()
-            .map(|(i, g)| (usize::from(self.mesh_ref.face_group_start) + i, *g))
-            .collect();
-        let prim = entry.data.header.primitive_type;
-        let indices: Vec<u16> = entry
-            .data
-            .indices
-            .get(usize::from(self.mesh_ref.index_start)..)
-            .unwrap_or_default()
-            .to_vec();
+        let vertices = self.vertices.borrow();
         let mut listing = VbListing::default();
         let mut scratch = IbScratch::default();
         let mut index_start = 0u32;
         for (group, face_group) in face_groups {
             let own = registry
+                .borrow()
                 .entry(id)
                 .and_then(|e| e.materials.get(group).copied().flatten());
             let (material, replaced) = match request.extra {
@@ -789,14 +801,20 @@ impl VMeshPart {
                 None => (own, None),
             };
             if let Some(material) = material {
-                if !self.prepare(registry, services, &mut listing, &mut scratch) {
+                let prepared = self.prepare(
+                    &mut registry.borrow_mut(),
+                    services,
+                    &mut listing,
+                    &mut scratch,
+                );
+                if !prepared {
                     return false;
                 }
                 let context = SubmitContext {
                     instance,
                     world: &world_words,
                     view: &view_words,
-                    vertices: Some(&self.vertices),
+                    vertices: Some(&vertices),
                     indices: &indices,
                     vb: Some(&listing),
                     ib: Some(&scratch),
@@ -825,12 +843,8 @@ impl VMeshPart {
     }
 
     /// The destructor: the part's materials released, then its mesh.
-    fn destroy<S: MeshServices + ?Sized>(
-        &mut self,
-        registry: &mut VMeshRegistry,
-        services: &mut S,
-    ) {
-        self.cursor = -1;
+    fn destroy<S: MeshServices + ?Sized>(&self, registry: &mut VMeshRegistry, services: &mut S) {
+        self.cursor.set(-1);
         let Some(id) = self.data.take() else {
             return;
         };
@@ -848,12 +862,15 @@ impl VMeshPart {
     }
 }
 
+/// The parts of a `VMesh` plugin, shared with the faces it hands out.
+pub type SharedParts = Rc<RefCell<Vec<Option<Rc<VMeshPart>>>>>;
+
 /// The `VMesh` render plugin (`FVMeshPlugin`): parts by handle and the part
 /// the last `BindMeshInstance` chose, which every `RenderInstance` draws.
 #[derive(Debug)]
 pub struct VMeshPlugin {
     registry: SharedRegistry,
-    parts: Vec<Option<VMeshPart>>,
+    parts: SharedParts,
     bound: Option<Handle>,
 }
 
@@ -863,21 +880,50 @@ impl VMeshPlugin {
     pub fn new(registry: SharedRegistry) -> VMeshPlugin {
         VMeshPlugin {
             registry,
-            parts: Vec::new(),
+            parts: Rc::new(RefCell::new(Vec::new())),
             bound: None,
         }
     }
 
     /// A part by handle (handles are 1 and up).
     #[must_use]
-    pub fn part(&self, handle: Handle) -> Option<&VMeshPart> {
-        let index = usize::try_from(handle).ok()?.checked_sub(1)?;
-        self.parts.get(index).and_then(Option::as_ref)
+    pub fn part(&self, handle: Handle) -> Option<Rc<VMeshPart>> {
+        part_of(&self.parts, handle)
     }
 
-    fn part_mut(&mut self, handle: Handle) -> Option<&mut VMeshPart> {
-        let index = usize::try_from(handle).ok()?.checked_sub(1)?;
-        self.parts.get_mut(index).and_then(Option::as_mut)
+    /// The faces of the plugin's parts, for the render manager's directory.
+    #[must_use]
+    pub fn faces(&self) -> VMeshFaces {
+        VMeshFaces {
+            parts: Rc::clone(&self.parts),
+            registry: Rc::clone(&self.registry),
+        }
+    }
+}
+
+/// A part of a shared table by handle (handles are 1 and up).
+fn part_of(parts: &SharedParts, handle: Handle) -> Option<Rc<VMeshPart>> {
+    let index = usize::try_from(handle).ok()?.checked_sub(1)?;
+    parts.borrow().get(index).and_then(Clone::clone)
+}
+
+/// The `IMesh` faces of a `VMesh` plugin's parts
+/// (`QueryHandle(handle, IID_IMesh)`).
+#[derive(Clone, Debug)]
+pub struct VMeshFaces {
+    parts: SharedParts,
+    registry: SharedRegistry,
+}
+
+impl FaceSource for VMeshFaces {
+    fn face(&self, handle: Handle) -> Option<MeshFace> {
+        if !valid(handle) {
+            return None;
+        }
+        Some(MeshFace::VMesh {
+            part: part_of(&self.parts, handle)?,
+            registry: Rc::clone(&self.registry),
+        })
     }
 }
 
@@ -891,10 +937,11 @@ impl<S: MeshServices + ?Sized> RenderComponent<S> for VMeshPlugin {
         let Ok(Ok(claimed)) = part::claim(fs) else {
             return HANDLE_NONE;
         };
-        let mut part = VMeshPart::new(claimed.mesh_ref);
+        let part = VMeshPart::new(claimed.mesh_ref);
         part.hook_up(&mut self.registry.borrow_mut(), services);
-        self.parts.push(Some(part));
-        u32::try_from(self.parts.len()).unwrap_or(HANDLE_NONE)
+        let mut parts = self.parts.borrow_mut();
+        parts.push(Some(Rc::new(part)));
+        u32::try_from(parts.len()).unwrap_or(HANDLE_NONE)
     }
 
     fn clone_handle(&mut self, services: &mut S, _handle: Handle) -> Handle {
@@ -914,7 +961,12 @@ impl<S: MeshServices + ?Sized> RenderComponent<S> for VMeshPlugin {
         let Some(index) = usize::try_from(handle).ok().and_then(|h| h.checked_sub(1)) else {
             return;
         };
-        if let Some(mut part) = self.parts.get_mut(index).and_then(Option::take) {
+        let part = self
+            .parts
+            .borrow_mut()
+            .get_mut(index)
+            .and_then(Option::take);
+        if let Some(part) = part {
             part.destroy(&mut self.registry.borrow_mut(), services);
         }
     }
@@ -942,10 +994,10 @@ impl<S: MeshServices + ?Sized> RenderComponent<S> for VMeshPlugin {
         if !valid(handle) {
             return 0;
         }
-        let Some(part) = self.part_mut(handle) else {
+        let Some(part) = self.part(handle) else {
             return 0;
         };
-        part.use_count += 1;
+        part.use_count.set(part.use_count.get() + 1);
         let (radius, centre) = services
             .instance_extent(instance)
             .unwrap_or((f32::from_bits(handle), [0.0; 3]));
@@ -966,15 +1018,15 @@ impl<S: MeshServices + ?Sized> RenderComponent<S> for VMeshPlugin {
         if !valid(handle) {
             return 0;
         }
-        let registry = Rc::clone(&self.registry);
-        let Some(part) = self.part_mut(handle) else {
+        let Some(part) = self.part(handle) else {
             return 0;
         };
-        part.use_count -= 1;
-        if part.use_count <= 0 {
-            let mut registry = registry.borrow_mut();
+        part.use_count.set(part.use_count.get() - 1);
+        if part.use_count.get() <= 0 {
+            let mut registry = self.registry.borrow_mut();
             if let Some(group) = part
                 .data
+                .get()
                 .and_then(|id| registry.entry(id))
                 .and_then(|e| e.group)
             {
@@ -1006,7 +1058,7 @@ impl<S: MeshServices + ?Sized> RenderComponent<S> for VMeshPlugin {
             return (0, None);
         }
         let registry = self.registry.borrow();
-        let Some(part) = self.part(handle).filter(|p| p.data.is_some()) else {
+        let Some(part) = self.part(handle).filter(|p| p.data.get().is_some()) else {
             return (0, None);
         };
         if !query.can_write() {
@@ -1047,13 +1099,7 @@ impl<S: MeshServices + ?Sized> RenderComponent<S> for VMeshPlugin {
             return 0;
         };
         let request = DrawRequest { flags, ..*request };
-        let drawn = part.draw(
-            &mut self.registry.borrow_mut(),
-            services,
-            camera,
-            instance,
-            &request,
-        );
+        let drawn = part.draw(&self.registry, services, camera, instance, &request);
         i32::from(drawn)
     }
 

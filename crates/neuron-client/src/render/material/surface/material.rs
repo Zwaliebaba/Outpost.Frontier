@@ -2066,6 +2066,11 @@ where
         self.parameter_value(index)
     }
 
+    fn parameter_tag(&self, index: u32) -> Result<Option<Vec<u8>>, i32> {
+        let record = self.schema().get(index as usize).ok_or(GR_GENERIC)?;
+        Ok(Some(record.name.to_vec()))
+    }
+
     /// `SetParameterValue`: checked against the record, then stored.
     fn set_parameter(&mut self, services: &mut S, index: u32, value: &PropertyValue) -> i32 {
         let Some(property) = self.schema().get(index as usize) else {

@@ -356,6 +356,25 @@ relative to `CppSource/`.
     and fails when a committed blob differs. The Windows CI job runs the
     check. Building the crate needs no compiler on any host.
 
+    *Amended 2026-11-19 (owner): points 16 and 17 now use `dxc` and DXIL
+    of shader model 6.1.* The compiler is `dxc.exe` 1.9.2609.5 with its
+    `dxcompiler.dll` and `dxil.dll` (the validator that signs DXIL), from
+    the `Microsoft.Direct3D.DXC` NuGet package pinned by version and
+    SHA-256; the xtask step refuses another `dxcompiler.dll`. Profiles are
+    `vs_6_1` and `ps_6_1` (`cs_6_1` where a compute shader comes). The flags
+    are `-nologo -WX -O3 -Ges -Gis -Zpr -HV 2021 -Qstrip_debug
+    -Qstrip_reflect -Qstrip_priv`, the `fxc` set in `dxc`'s spelling plus
+    the HLSL 2021 language version. The device refuses a driver whose
+    highest shader model is below 6.1 when it is created. Reasons: `fxc`
+    is frozen while `dxc` is maintained; the new shaders of P4.9 and P6.4
+    are written for HLSL 2021; and every Direct3D 12 driver at feature
+    level 11_0 since 2017, and WARP, runs shader model 6.1. The fixed set
+    itself uses nothing of shader model 6, so the change is in the
+    toolchain, not in the shaders' behaviour; the image replay's Tier C
+    metric judges any codegen difference. The `dxc` alternative below was
+    rejected on 2026-11-18 for the validator and the external release to
+    pin; the pinned NuGet package answers both.
+
 ### 4. Unsafe code
 
 19. All Direct3D 12, DXGI and window FFI lives under
@@ -408,7 +427,8 @@ relative to `CppSource/`.
   branching on the constant block is enough. Revisit only if profiling
   shows a cost.
 - **`dxc` and shader model 6.** Needs the validator and signing DLL or a
-  recent runtime, and an external release to pin; no feature here needs it.
+  recent runtime, and an external release to pin; no feature here needs it. (Taken up by
+  the owner on 2026-11-19; see the amendment after point 18.)
 - **Recording resolved draws instead of interface calls.** Smaller traces,
   but the replay would skip the state model, which is where parity is lost.
 - **A binary trace format.** JSONL at a few thousand lines per frame is

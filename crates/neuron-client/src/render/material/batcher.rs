@@ -786,6 +786,34 @@ impl<S: BatchDevice + ?Sized> MaterialBatcher<S> {
             }
             return object.submit(services, &context, args);
         }
+        self.queue(material, input, args, depth_bits);
+        GR_OK
+    }
+}
+
+impl<S: ?Sized> MaterialBatcher<S> {
+    /// Whether the selected bin draws at once (its order key is negative).
+    #[must_use]
+    pub fn selected_is_immediate(&self) -> bool {
+        self.bins[self.selected].order_key < 0
+    }
+
+    /// The queuing half of [`MaterialBatcher::submit`]: the submission
+    /// copied into the selected bin's queue. False, with nothing queued,
+    /// when the bin draws at once.
+    pub fn queue(
+        &mut self,
+        material: MaterialId,
+        input: &SubmitInput,
+        args: &DrawArgs,
+        depth_bits: u32,
+    ) -> bool {
+        let record_tag = self.record_tag;
+        let record_tag_context = self.record_tag_context;
+        let bin = &mut self.bins[self.selected];
+        if bin.order_key < 0 {
+            return false;
+        }
         bin.record_count = bin.record_count.wrapping_add(1);
         let combined = words(&mul_transform(
             &transform(&input.view),
@@ -806,8 +834,8 @@ impl<S: BatchDevice + ?Sized> MaterialBatcher<S> {
             index_span: args.index_span,
             buffers: (args.flags & flags::DEVICE_BUFFERS != 0).then_some((input.vb, input.ib)),
             flags: args.flags,
-            tag: self.record_tag,
-            tag_context: self.record_tag_context,
+            tag: record_tag,
+            tag_context: record_tag_context,
             depth_bits,
             vertices: if args.flags & flags::SHARED_VERTICES != 0 {
                 Rc::clone(&input.vertices)
@@ -828,9 +856,11 @@ impl<S: BatchDevice + ?Sized> MaterialBatcher<S> {
             record.ib_start = 0;
         }
         bin.queue.entry(material).or_default().push(record);
-        GR_OK
+        true
     }
+}
 
+impl<S: BatchDevice + ?Sized> MaterialBatcher<S> {
     /// `IMaterial::Submit` on a material of the batcher's library: a
     /// batched material selects its bin and submits itself here
     /// ([`Material::batch_route`], `FBatchedMaterial::Submit`); any other

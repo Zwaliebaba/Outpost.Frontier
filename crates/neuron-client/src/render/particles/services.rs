@@ -8,6 +8,7 @@
 //! the oracle suite answers with the recording contract of
 //! `CppSource/Oracle/oracle_particles.cpp`.
 
+pub use crate::render::appearance::Camera;
 pub use crate::render::texture::FrameOut;
 
 /// A texture record `FindTextureByCrc` hands out with a reference.
@@ -58,4 +59,69 @@ impl ParticleServices for NoTextures {
     }
     fn advance_time(&mut self, _id: i32, _seconds: f32) {}
     fn dec_ref_texture(&mut self, _id: i32) {}
+}
+
+/// The calls the draws make outside the particle module: the renderer's
+/// pipeline (`IRenderPipeline`), its vertex and index buffers
+/// (`IRPVertexBuffer`, `IRPIndexBuffer`) and its draw (`IRPDraw`), as
+/// `FParticleFx::Initialize` acquires them, and the texture library of
+/// [`ParticleServices`] for the frame lookups.
+///
+/// Each method stands for one call in the reference's argument order. A
+/// vertex buffer is a handle of the renderer interface, 0 for none (the
+/// null `G_VbHandle`); the index buffer is always the renderer's dynamic
+/// one (handle -1). [`crate::render::stack::RenderStack`] answers these on
+/// the device model; the oracle suite answers with the recording contract
+/// of `CppSource/Oracle/oracle_particles.cpp`.
+pub trait ParticleDraw: ParticleServices {
+    /// `GetRenderState(state, &value)`: the value written.
+    fn render_state(&mut self, state: u32) -> u32;
+    /// `SetRenderState(state, value)`.
+    fn set_render_state(&mut self, state: u32, value: u32);
+    /// `SetTextureStageState(stage, state, value)`.
+    fn set_stage_state(&mut self, stage: u32, state: u32, value: u32);
+    /// `SetTextureStageTexture(stage, handle)`: the frame's texture word, 0
+    /// for none.
+    fn set_stage_texture(&mut self, stage: u32, handle: u32);
+    /// `SetModelview(matrix)`.
+    fn set_modelview(&mut self, matrix: &[f32; 12]);
+    /// `SelectVb(handle)`.
+    fn select_vb(&mut self, vertex_buffer: u32) -> i32;
+    /// `CreateVb(fvf, count, &handle, flags)`: the result and the handle
+    /// written (0 when nothing is written).
+    fn create_vb(&mut self, fvf: u32, count: u32, flags: u32) -> (i32, u32);
+    /// `DestroyVb(&handle)` (the handle is cleared after it).
+    fn destroy_vb(&mut self, vertex_buffer: u32);
+    /// `LockVb(handle, &offset, &memory, count)`: the offset the renderer
+    /// writes (the first vertex of the range, which the draw hands to
+    /// `SelectIb` as the base vertex).
+    ///
+    /// # Errors
+    ///
+    /// The renderer's result.
+    fn lock_vb(&mut self, vertex_buffer: u32, count: u32) -> Result<u32, i32>;
+    /// `UnlockVb(handle)`, with the vertices written into the lock since it
+    /// was taken (the six words of each, 24 bytes, little-endian).
+    fn unlock_vb(&mut self, vertex_buffer: u32, written: &[u8]);
+    /// `LockIb(-1, &offset, &memory, count)`: the index offset written,
+    /// which the draw hands to `DrawIndexedPrimitive` as the start index.
+    ///
+    /// # Errors
+    ///
+    /// The renderer's result.
+    fn lock_ib(&mut self, count: u32) -> Result<u32, i32>;
+    /// `UnlockIb(-1)`, with the indices written into the lock.
+    fn unlock_ib(&mut self, written: &[u16]);
+    /// `SelectIb(-1, base_vertex, 0, 0)`.
+    fn select_ib(&mut self, base_vertex: u32) -> i32;
+    /// `IRPDraw::DrawIndexedPrimitive(prim, min_index, vertex_count,
+    /// start_index, index_count)`.
+    fn draw_indexed(
+        &mut self,
+        prim: u32,
+        min_index: u32,
+        vertex_count: u32,
+        start_index: u32,
+        index_count: u32,
+    ) -> i32;
 }

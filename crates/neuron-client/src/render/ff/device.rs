@@ -209,6 +209,8 @@ pub struct RecordingBackend {
     pub draws: Vec<DrawPacket>,
     pub clears: Vec<Clear>,
     pub presents: u32,
+    /// The programmable calls (`render::pass`).
+    pub ex: crate::render::pass::recording::ExRecord,
 }
 
 impl Backend for RecordingBackend {
@@ -282,6 +284,9 @@ pub struct Device<B: Backend> {
     pub approximated_sampler_seen: BTreeSet<usize>,
     /// `IGammaControl`'s ramp and enable bit.
     gamma: Gamma,
+    /// Programs, render targets, volume textures and the scene depth
+    /// (`render::pass`, record 0005).
+    pub ex: crate::render::pass::ExModel,
     pub backend: B,
 }
 
@@ -311,6 +316,7 @@ impl<B: Backend> Device<B> {
             unemulated_stage_seen: BTreeSet::new(),
             approximated_sampler_seen: BTreeSet::new(),
             gamma: Gamma::default(),
+            ex: crate::render::pass::ExModel::new(width, height),
             backend,
         }
     }
