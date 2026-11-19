@@ -440,8 +440,8 @@ impl EditBox {
         true
     }
 
-    /// `ResetCaret`.
-    fn reset_caret(&mut self) {
+    /// `ResetCaret` (also what `SetFont` does after the font changed).
+    pub fn reset_caret(&mut self) {
         self.recalc_caret_pos();
     }
 

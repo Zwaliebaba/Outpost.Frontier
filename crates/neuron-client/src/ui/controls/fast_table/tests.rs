@@ -182,6 +182,7 @@ fn a_scroll_table_tells_its_owner_the_first_item() {
     );
     ui.widget_mut::<UiScroll>(bar).unwrap().set_value(7.5);
     *ui.widget_mut::<UiScrollTable>(id).unwrap() = t;
-    assert!(ui.send_child_message(id, &ChildMessage::ScrollChanged { from: bar }));
+    let value = ui.widget::<UiScroll>(bar).unwrap().value;
+    assert!(ui.send_child_message(id, &ChildMessage::ScrollChanged { from: bar, value }));
     assert_eq!(*heard.borrow(), vec![(0, 3), (7, 3)]);
 }

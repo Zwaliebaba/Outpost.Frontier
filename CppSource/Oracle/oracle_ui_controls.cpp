@@ -51,14 +51,23 @@
 //   | getcmd (0x2e) | gettoggle (0x2f) | sounds S0 S1 (0x31) | tset HEX (SetText) | ids N
 //   (SetIds) | width W (SetWidth) | cached C I (SetCachedDraw) | number HEX (SetNumberText) |
 //   cedge I X / redge I Y (SetColumnEdge / SetRowEdge) | rows H S... (the rows' flags)
-// The rich-text windows: RichTextEditWin (new RichTextEditWin), UITextEdit (new UITextEdit R B
-// TEXT), UIFastTable and UIScrollTable (new UIFastTable R B ROWS COLS), with the operations
+// The rich-text windows: RichTextWin (new RichTextWin), RichTextEditWin (new RichTextEditWin),
+// UITextEdit (new UITextEdit R B TEXT), UIFastTable and UIScrollTable (new UIFastTable R B ROWS
+// COLS), with the operations
+//   RichTextWin: rtshow V (ShowScrollBarV) | rtorigin X Y (SetScrollOrigin) | rtend | rttop
+//   (ScrollToEnd, ScrollToTop) | rtsize W H (SetNormSize) | rtauto V (SetAutoScrollbar) | rtgap X
+//   (the bar's gap) | rtlayout L P (the laid-out and pixel heights) | rtframe V RRGGBBAA (the debug
+//   frame and its colour) | rtimage (a silent big image, so the frame draws) | gopt I V | rtmesh PATH
+//   (SetMesh) | rtbar V (the bar's SetValue) | rtarm PART T (the bar's held arrow and repeat
+//   timer, for its draw) | rtscrolled (slot 23 0xf005 from the bar) | rtstate | rbstate (the
+//   window's and its bar's states)
 //   edit boxes: ekey K M D (event 1 with the record's key, modifiers and down byte) | echar W
 //   (event 2 with the character) | ecancel MSG (event 0xf with the raw message) | settext TEXT |
 //   settexta TEXT ATTRS | cleartext | gettext N | caret P | maxlen N | fixed V | password V |
 //   case M | allow V | filter TEXT | repl U | editable V | activate | deactivate H | attrs X |
 //   fmask X | prefix TEXT (one text node) | fixedlist ATTRS (one attribute node), each list
-//   change followed by RebuildDisplay
+//   change followed by RebuildDisplay; and the window's rtlayout, rtshow, rtbar, rtscrolled
+//   (slot 23, which the edit box inherits), rtstate and rbstate
 //   tables: cedge I X | redge I Y | frows H S L G... (the rows' flags and groups) | selrow R |
 //   clearsel | getsel | hdr N | borders L R T B | collines V | highlights V | resizable R C |
 //   grab X | margins X Y | tipmode M | wtip IDS | coltip C IDS | rtip R IDS | ctip R C IDS |
@@ -93,7 +102,8 @@
 //   {"ev":"text",...} {"ev":"static",...} {"ev":"button",...} {"ev":"wire",...}
 //   {"ev":"sctl",...} {"ev":"table",...} (the fields in the order the state functions print;
 //   their flags are the low four bits, the Win3D constructor keeps the others as allocated)
-//   {"ev":"edit",...} {"ev":"ftable",...} {"ev":"stable",...} {"ev":"text","r","t"}, and the HUD's
+//   {"ev":"edit",...} {"ev":"ftable",...} {"ev":"stable",...} {"ev":"rtwin",...} {"ev":"nobar"}
+//   {"ev":"text","r","t"}, and the HUD's
 //   {"ev":"focus","op","h"} {"ev":"evreg","m"} {"ev":"evunreg","m"} for the edit box's handler,
 //   {"ev":"mcursor","n"} (MouseSetCursor) and {"ev":"cb","first","rows"} (the scroll callback).
 //   Lists print as rich_text.jsonl's nodes, a reference as r(its list).
@@ -153,7 +163,10 @@
 #include "../OutpostFrontier/Client/ui_table.cpp"
 // The rich-text windows (rich_text_win.cpp, ui_text_edit.cpp, ui_fast_table.cpp). The IME box and
 // the IME focus (fl_ime_input_box.h over imeui.h) are declared under other names and stand-ins take
-// theirs: no case has an IME focus, so no box is ever made.
+// over: no case has an IME focus, so no box is ever made. The box's stand-in keeps its name (the
+// window's header names it; its members are not the real box's); the focus's stand-in has its own
+// (oracle_ime_ui.cpp compiles the real IMEFocus, whose GetSingleton would be defined twice), which
+// the rich-text sources see through a macro.
 #define FLImeInputBox OracleDeclaredImeInputBox
 #define IMEFocus OracleDeclaredImeFocus
 #include "../OutpostFrontier/Client/fl_ime_input_box.h"
@@ -167,14 +180,16 @@ struct FLImeInputBox
     bool HandleKey(UINT) { return false; }
     bool HandleMultiByteChar(char) { return false; }
 };
-struct IMEFocus
+struct OracleCtlImeFocus
 {
-    static IMEFocus* GetSingleton() { return nullptr; }
+    static OracleCtlImeFocus* GetSingleton() { return nullptr; }
     void SetFocus(FLImeInputBox*, bool) {}
 };
+#define IMEFocus OracleCtlImeFocus
 #include "../OutpostFrontier/Client/rich_text_win.cpp"
 #include "../OutpostFrontier/Client/ui_text_edit.cpp"
 #include "../OutpostFrontier/Client/ui_fast_table.cpp"
+#undef IMEFocus
 
 namespace
 {
@@ -453,6 +468,11 @@ namespace
         }
         void SetActive(bool b) { bActive_ = b; }
         void SetCustom(bool b) { bCustomColor_ = b; }
+        void Arm(int Part, float Timer)
+        {
+            DragPart_ = Part;
+            RepeatTimer_ = Timer;
+        }
     };
 
     std::vector<std::string> Split(const std::string& Text, const std::string& Separator)
@@ -1139,8 +1159,124 @@ namespace
 
     bool IsRichClass(const std::string& Class)
     {
-        return Class == "RichTextEditWin" || Class == "UITextEdit" || Class == "UIFastTable" ||
-               Class == "UIScrollTable";
+        return Class == "RichTextWin" || Class == "RichTextEditWin" || Class == "UITextEdit" ||
+               Class == "UIFastTable" || Class == "UIScrollTable";
+    }
+
+    // A big image that does nothing: a rich-text window draws its debug frame only with an image.
+    class FOracleCtlSilentImage final : public IBigImage2
+    {
+    public:
+        GENRESULT NEURONCOMPONENTS_API QueryInterface(const char*, void** Out) override
+        {
+            *Out = nullptr;
+            return GR_INTERFACE_UNSUPPORTED;
+        }
+        unsigned long NEURONCOMPONENTS_API AddRef() override { return 1; }
+        unsigned long NEURONCOMPONENTS_API Release() override { return 1; }
+        GENRESULT NEURONCOMPONENTS_API NoOp(void*, void*) override { return GR_OK; }
+        GENRESULT NEURONCOMPONENTS_API Draw(const RECT*, const RECT*) override { return GR_OK; }
+        GENRESULT NEURONCOMPONENTS_API GetSize(unsigned long* Width, unsigned long* Height) override
+        {
+            *Width = 1;
+            *Height = 1;
+            return GR_OK;
+        }
+        GENRESULT NEURONCOMPONENTS_API SetAlpha(float) override { return GR_OK; }
+        GENRESULT NEURONCOMPONENTS_API SetColor(const float*) override { return GR_OK; }
+        unsigned long NEURONCOMPONENTS_API GetTileCount() override { return 0; }
+        GENRESULT NEURONCOMPONENTS_API GetTile(int, void**, RECT*) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API SetFromBuffer(const void*, unsigned long*, unsigned long, unsigned long,
+                                                     unsigned long) override { return GR_OK; }
+        GENRESULT NEURONCOMPONENTS_API ReturnMinusSeven(void*) override { return GR_GENERIC; }
+    };
+
+    FOracleCtlSilentImage GCtlSilentImage;
+
+    void RichWinState(RichTextWin* W)
+    {
+        UiScroll* const Bar = W->ScrollBarV;
+        CtlEvent(oracle::Format("\"ev\":\"rtwin\",\"flags\":\"%02x\",\"scroll\":\"%d %d\",\"px\":\"%d %d %d\","
+                                "\"dirty\":\"%d%d\",\"modes\":\"%d %d %d %d\",\"origin\":\"%d %d\",\"size\":\"",
+                                W->Flags & 0xf, W->ScrollX, W->ScrollY, W->PixelWidth, W->PixelHeight,
+                                W->LayoutHeight, W->bLayoutDirty, W->bSurfaceDirty, W->bAutoScrollbar,
+                                W->bKeepScrolledToEnd, W->AlignMode, W->bDrawFrame, W->Trc.get_origin_h(),
+                                W->Trc.get_origin_v()) +
+                 Bits(W->NormWidth) + " " + Bits(W->NormHeight) + "\",\"bar\":\"" + Bits(W->ScrollBarWidth) + " " +
+                 Bits(W->ScrollBarGap) + (Bar != nullptr ? " 1" : " 0") + "\",\"frame\":\"" + Rgba(W->FrameColor) +
+                 "\"");
+    }
+
+    void RichResult(int Value);
+
+    // The operations of a plain RichTextWin; false when the operation is not one of them.
+    bool RichWinOp(RichTextWin* W, const std::vector<std::string>& T)
+    {
+        const std::string& Name = T[0];
+        UiScroll* const Bar = W->ScrollBarV;
+        if (Name == "gopt")
+            GCtlOptions[I(T[1])] = I(T[2]);
+        else if (Name == "rtshow")
+            W->ShowScrollBarV(I(T[1]) != 0);
+        else if (Name == "rtorigin")
+            W->SetScrollOrigin(I(T[1]), I(T[2]));
+        else if (Name == "rtend")
+            W->ScrollToEnd();
+        else if (Name == "rttop")
+            W->ScrollToTop();
+        else if (Name == "rtsize")
+            W->SetNormSize(F(T[1]), F(T[2]));
+        else if (Name == "rtauto")
+            W->SetAutoScrollbar(I(T[1]) != 0);
+        else if (Name == "rtgap")
+            W->ScrollBarGap = F(T[1]);
+        else if (Name == "rtlayout")
+        {
+            W->LayoutHeight = I(T[1]);
+            W->PixelHeight = I(T[2]);
+        }
+        else if (Name == "rtframe")
+        {
+            W->SetDrawFrame(I(T[1]) != 0);
+            Rgba4(T[2], W->FrameColor);
+        }
+        else if (Name == "rtimage")
+            W->Image = &GCtlSilentImage;
+        else if (Name == "rtmesh")
+        {
+            std::string const Path = BytesFromHex(T[1]);
+            W->SetMesh(Path.c_str(), nullptr);
+        }
+        else if (Name == "rtbar")
+        {
+            if (Bar != nullptr)
+                Bar->SetValue(F(T[1]));
+        }
+        else if (Name == "rtarm")
+        {
+            if (Bar != nullptr)
+                FUiScrollPeek::Of(Bar)->Arm(I(T[1]), F(T[2]));
+        }
+        else if (Name == "rtscrolled")
+            RichResult(W->Slot23(0xf005u, static_cast<unsigned>(reinterpret_cast<uintptr_t>(Bar)), 0u) ? 1 : 0);
+        else if (Name == "rtstate")
+            RichWinState(W);
+        else if (Name == "rbstate")
+        {
+            if (Bar == nullptr)
+                CtlEvent("\"ev\":\"nobar\"");
+            else
+            {
+                // The bar's flags as the other states print them: the low four bits.
+                unsigned char const Saved = Bar->Flags;
+                Bar->Flags = static_cast<unsigned char>(Saved & 0xf);
+                CtlEvent(FUiScrollPeek::Of(Bar)->State());
+                Bar->Flags = Saved;
+            }
+        }
+        else
+            return false;
+        return true;
     }
 
     void RichResult(int Value)
@@ -1152,6 +1288,8 @@ namespace
     bool RichOp(Win3D* O, const std::string& Class, const std::vector<std::string>& T)
     {
         const std::string& Name = T[0];
+        if (Class == "RichTextWin")
+            return RichWinOp(static_cast<RichTextWin*>(static_cast<WinControl*>(O)), T);
         RichTextEditWin* const E = GCtlEdit;
         bool const bTable = Class == "UIFastTable" || Class == "UIScrollTable";
         UiFastTable* const Table = bTable ? static_cast<UiFastTable*>(static_cast<WinControl*>(O)) : nullptr;
@@ -1255,6 +1393,9 @@ namespace
             }
             else if (Name == "state")
                 EditState(E);
+            else if (Name == "rtlayout" || Name == "rtshow" || Name == "rtbar" || Name == "rtscrolled" ||
+                     Name == "rtstate" || Name == "rbstate")
+                RichWinOp(E, T);
             else
                 return false;
             return true;
@@ -1400,7 +1541,7 @@ namespace
                     FUiPayloadTable P = {F(T[2]), F(T[3]), I(T[4]), I(T[5])};
                     Created = WinFactoryCreate("C", Class.c_str(), Parent, &P);
                 }
-                else if (IsLaterClass(Class) || Class == "RichTextEditWin")
+                else if (IsLaterClass(Class) || Class == "RichTextEditWin" || Class == "RichTextWin")
                     Created = WinFactoryCreate("C", Class.c_str(), Parent, nullptr);
                 else if (Class == "UITextEdit")
                 {

@@ -17,6 +17,15 @@
 //! for images, `C<left>,<top>,<right>,<bottom>` for clip rectangles. A
 //! context is `<attributes>:<pen h>:<pen v>:<attribute stack>:<state
 //! stack>`. Floats are their bits in hex.
+//!
+//! The rich fonts suite (`CppSource/Oracle/oracle_rich_fonts.cpp`, the
+//! client's `LoadRichFontsFromIni` compiled in) reads the INI files of
+//! `tests/fixtures/oracle/rich_fonts.list`: [`rich_fonts_lines`].
+//!
+//! ```text
+//! {"case":"<n>","fonts":"<index>:<face hex>:<size>:<bold><italic><underline> ..."}
+//! {"case":"<n>","probe":"<token>","id":"<id>","nodes":"<node> ..."}
+//! ```
 
 use std::fmt::Write as _;
 use std::rc::Rc;
@@ -308,6 +317,70 @@ fn list_text(list: &RenderDisplayList) -> String {
         .map(node_text)
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// The rich fonts suite's lines: each case's INI file (`-` for a missing
+/// one) through the `[TrueType]` and `[Style]` readers into a table of
+/// unset fonts and an empty registry, then the fonts set and the probed
+/// styles (`n<name hex>` through the reader's hash, `i<id>`).
+pub fn rich_fonts_lines(input: &[String]) -> Vec<String> {
+    use neuron_client::text::font::config::{StandardFont, apply_rich_fonts_ini};
+    use neuron_client::text::layout::style::{apply_rich_styles, style_id};
+
+    let unset = StandardFont {
+        name: b"\x01unset".to_vec(),
+        size: u32::MAX,
+        bold: false,
+        italic: false,
+        underline: false,
+    };
+    let mut out = Vec::new();
+    for (case, line) in input.iter().enumerate() {
+        let tokens: Vec<&str> = line.split(' ').filter(|t| !t.is_empty()).collect();
+        let contents = match tokens[0] {
+            "-" => None,
+            file => Some(
+                std::fs::read(super::fixtures().join("rich_fonts").join(file))
+                    .unwrap_or_else(|e| panic!("{file}: {e}")),
+            ),
+        };
+        let mut fonts = vec![unset.clone(); 32];
+        let mut styles = StyleCollection::new();
+        if let Some(contents) = &contents {
+            apply_rich_fonts_ini(contents, &mut fonts);
+            apply_rich_styles(contents, &mut styles);
+        }
+        let set: Vec<String> = fonts
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| **f != unset)
+            .map(|(index, f)| {
+                format!(
+                    "{index}:{}:{}:{}{}{}",
+                    super::hex(&f.name),
+                    f.size,
+                    u8::from(f.bold),
+                    u8::from(f.italic),
+                    u8::from(f.underline)
+                )
+            })
+            .collect();
+        out.push(format!(
+            "{{\"case\":\"{case}\",\"fonts\":\"{}\"}}",
+            set.join(" ")
+        ));
+        for probe in &tokens[1..] {
+            let id = match probe.as_bytes()[0] {
+                b'n' => style_id(&super::unhex(&probe[1..])),
+                _ => probe[1..].parse().expect("a decimal style ID"),
+            };
+            out.push(format!(
+                "{{\"case\":\"{case}\",\"probe\":\"{probe}\",\"id\":\"{id}\",\"nodes\":\"{}\"}}",
+                list_text(styles.get(id))
+            ));
+        }
+    }
+    out
 }
 
 fn layout_case(case: usize, t: &[&str], styles: &StyleCollection) -> String {

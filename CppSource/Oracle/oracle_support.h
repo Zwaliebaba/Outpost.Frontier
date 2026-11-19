@@ -238,6 +238,9 @@ void RunTextSuites();
 // functions, StyleCollection and lex_compare on a recording TextRenderContext, over
 // crates/neuron-client/tests/fixtures/oracle/rich_text.list.
 void RunRichTextSuites();
+// P4.12 (oracle_rich_fonts.cpp), called by RunRichTextSuites: the client's LoadRichFontsFromIni
+// (menu_fonts_load.cpp compiled in) over crates/neuron-client/tests/fixtures/oracle/rich_fonts.list.
+void RunRichFontsSuite();
 // P4.10 (oracle_audio.cpp): the software mixer of SoundManager.dll, compiled in, over
 // crates/neuron-client/tests/fixtures/oracle/audio; called by RunNeuronClientSuites.
 void RunAudioSuites();
@@ -267,6 +270,10 @@ void RunUiSuites();
 void RunUiQuadSuites();
 void RunUiControlSuites();
 void RunUiImmediateSuites();
+// P4.11 to P4.13 (oracle_ime_ui.cpp), called by RunUiSuites: imeui.dll's edit box, font, focus
+// manager and drawing with the client's FLImeInputBox and ClientIMEFocus compiled in, over
+// crates/neuron-client/tests/fixtures/oracle/ime_ui.list.
+void RunImeUiSuites();
 
 // P4.14 (oracle_scene_script.cpp): every .thn under DATA through lua_dobuffer in a fresh
 // Lua state, and the state after it; kind "thn".

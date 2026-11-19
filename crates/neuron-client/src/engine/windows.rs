@@ -70,7 +70,12 @@ pub fn create_engine(
     let (width, height) = config.mode.back_buffer();
     let backend =
         create_backend(adapter, window, width, height).map_err(WindowsEngineError::Gpu)?;
-    Engine::new(config, backend).map_err(WindowsEngineError::Engine)
+    let mut engine = Engine::new(config, backend).map_err(WindowsEngineError::Engine)?;
+    // The window's IME for the boxes the interface registers.
+    if let Some(hwnd) = window {
+        engine.set_ime_context(Box::new(crate::platform::ime::WindowIme::new(hwnd)));
+    }
+    Ok(engine)
 }
 
 #[cfg(test)]

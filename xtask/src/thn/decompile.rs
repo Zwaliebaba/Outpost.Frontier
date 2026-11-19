@@ -5,15 +5,14 @@
 //! runs the code on a stack of expressions instead of values, so each
 //! instruction rebuilds the source construct that produced it.
 
-use super::chunk::{Chunk, Constant, op};
-use super::number;
+use lua32_compiler::{Chunk, Constant, op, source_numeral};
 
 /// An expression rebuilt from the code.
 #[derive(Clone, Debug)]
 pub enum Expr {
     /// A numeral, as it is written in the source: the stored text, or
     /// another spelling where that text would not compile back to itself
-    /// ([`number::source_numeral`]).
+    /// ([`source_numeral`]).
     Number(String),
     String(Vec<u8>),
     /// A global variable.
@@ -126,7 +125,7 @@ pub fn decode(chunk: &Chunk) -> Result<Vec<Assignment>, String> {
             op::PUSHNUMBERNEG => stack.push(Expr::Number(format!("-{arg}"))),
             op::PUSHCONSTANT => stack.push(match constant(chunk, arg)? {
                 Constant::Number(text) => Expr::Number(
-                    number::source_numeral(text)
+                    source_numeral(text)
                         .ok_or_else(|| format!("constant {arg}: no numeral compiles to {text}"))?,
                 ),
                 Constant::String(s) => Expr::String(s.clone()),

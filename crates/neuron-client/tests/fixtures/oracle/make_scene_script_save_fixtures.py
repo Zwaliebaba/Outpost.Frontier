@@ -19,7 +19,11 @@ every byte, one that takes half, or no file system), W (Slot44SavePath
 (Slot18SetDuration), u<h>:<key hex>:<value hex> (Slot34SetUserProp),
 r<h> (Slot36RemoveEntity), e<i> (Slot39RemoveEvent of the i-th event in
 master order; ids are the module's, D249), P<x>/<y>/<z> and
-O<9 words> (the engine's SetPosition and SetOrientation).
+O<9 words> (the engine's SetPosition and SetOrientation), q<k> or q-
+(Slot41SetLoadParser with the harness's recording parser of kind k, or
+none: kind 1 fails its load; kind 2 builds nothing; kind 3 adds a monitor
+and a camera with a user property, then changes its duration; kind 4 adds
+a camera and fails its build).
 
 The inputs stay clear of what the reference leaves undefined (divergences
 D540 to D545): axes are 0 to 5 (no SUB_SCENE entity, every SCENE gives up
@@ -211,6 +215,16 @@ def cases():
          + ",r7,e3,e99,D2500,S", [main]),
         # A second load replaces the first.
         ("c1,L1,L0,S,L3,S", [main, flags, empty, camera]),
+        # Custom load parsers (Slot41SetLoadParser): a failed load, then the default parser back.
+        ("c1,L0,q1,L0,q-,L0,S", [camera]),
+        # A parser that builds nothing: the engine still finishes the load; paths, no file
+        # system.
+        ("c1,q2,L0,S,l0,L-,lx", [empty]),
+        # The default SET_CAMERA event after a parser's build, the second duration stored;
+        # the parser stays set for the next load.
+        ("c1,q3,L0,S,L0,S", [camera]),
+        # A failed build is not checked; no context.
+        ("q4,L0,S,q2,L0", [main]),
     ]
     return ["%s %s" % (program, " ".join(s.hex() for s in scripts)) for program, scripts in out]
 

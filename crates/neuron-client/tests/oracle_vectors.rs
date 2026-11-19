@@ -8,7 +8,8 @@
 //! `oracle_material_kinds.cpp`, `oracle_material_surface.cpp`,
 //! `oracle_material_appearance.cpp`, `oracle_mesh_render.cpp`, `oracle_deformable.cpp`,
 //! `oracle_deformable_parts.cpp`, `oracle_deformable_anim.cpp`,
-//! `oracle_particles.cpp`, `oracle_ui.cpp` and `oracle_ui_immediate.cpp`).
+//! `oracle_particles.cpp`, `oracle_ui.cpp`, `oracle_ui_immediate.cpp` and
+//! `oracle_ime_ui.cpp`).
 
 mod support;
 
@@ -17,7 +18,7 @@ use neuron_client::text::rdl::markup;
 
 use support::audio::{self, check_suite_within};
 use support::{
-    check_suite, deformable, deformable_anim, input_lines, material, material_appearance,
+    check_suite, deformable, deformable_anim, ime, input_lines, material, material_appearance,
     material_kinds, material_surface, mesh_render, particles, rich_text, scene_script,
     scene_script_build, scene_script_runtime, scene_script_save, text, texture, ui, ui_immediate,
     unhex,
@@ -31,6 +32,18 @@ fn rich_text() {
     check_suite(
         "rich_text.jsonl",
         &rich_text::lines(&input_lines("rich_text.list")),
+    );
+}
+
+/// P4.12: the `[TrueType]` and `[Style]` sections of the rich fonts INI
+/// through the client's `LoadRichFontsFromIni` (`menu_fonts_load.cpp`),
+/// the standard fonts it sets and the styles it registers
+/// (`tests/fixtures/oracle/rich_fonts.list`).
+#[test]
+fn rich_fonts() {
+    check_suite(
+        "rich_fonts.jsonl",
+        &rich_text::rich_fonts_lines(&input_lines("rich_fonts.list")),
     );
 }
 
@@ -334,6 +347,17 @@ fn ui_controls() {
         .flat_map(|(case, line)| ui::controls_lines(case, line))
         .collect();
     check_suite("ui_controls.jsonl", &lines);
+}
+
+/// P4.11 to P4.13: the client's IME boxes (`FLImeInputBox` over
+/// `IMEInputBox` and `CInputBox`), their fonts (`CImeUiFont`), the focus
+/// manager and the IME's draw (`ImeUi_Render`, the toolbar, `ClientIMEFocus`'s
+/// rectangles and fan, the box's `DrawString`) over the operations of
+/// `tests/fixtures/oracle/ime_ui.list`, against a scripted IME, the
+/// deterministic font metrics and a recording overlay.
+#[test]
+fn ime_ui() {
+    check_suite("ime_ui.jsonl", &ime::lines(&input_lines("ime_ui.list")));
 }
 
 /// P4.13: the Win3D immediate-mode layer, its line batchers and the

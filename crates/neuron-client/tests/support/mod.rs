@@ -8,6 +8,7 @@ pub mod audio;
 pub mod data;
 pub mod deformable;
 pub mod deformable_anim;
+pub mod ime;
 pub mod material;
 pub mod material_appearance;
 pub mod material_kinds;
@@ -21,7 +22,6 @@ pub mod scene_script_runtime;
 pub mod scene_script_save;
 pub mod text;
 pub mod texture;
-pub mod thn_compile;
 pub mod ui;
 pub mod ui_immediate;
 

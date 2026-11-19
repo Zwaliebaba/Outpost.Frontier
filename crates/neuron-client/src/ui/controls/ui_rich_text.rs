@@ -15,7 +15,7 @@ use crate::ui::controls::rich_text_win::RichTextWin;
 use crate::ui::message::MouseButton;
 use crate::ui::page::{EntryPayload, Style};
 use crate::ui::pulse::palette;
-use crate::ui::tree::{DrawHost, NodeId, Payload, Property, Ui, Widget};
+use crate::ui::tree::{ChildMessage, DrawHost, NodeId, Payload, Property, Ui, Widget};
 
 /// `UIRichTextWin`.
 #[derive(Debug, Default)]
@@ -94,6 +94,10 @@ impl Widget for UiRichTextWin {
     }
     fn draw(&mut self, ui: &mut Ui, id: NodeId, host: &mut dyn DrawHost) {
         self.win.draw(ui, id, host);
+    }
+    /// Slot 23: the window's (its bar's value).
+    fn child_message(&mut self, ui: &mut Ui, _id: NodeId, message: &ChildMessage) -> bool {
+        self.win.child_message_window(ui, message)
     }
 }
 
@@ -243,6 +247,11 @@ impl Widget for UiTextMsgButton {
         if let Some(mesh) = self.win.base.control.mesh.as_mut() {
             mesh.set_orientation(Matrix::IDENTITY);
         }
+    }
+
+    /// Slot 23: the window's (its bar's value).
+    fn child_message(&mut self, ui: &mut Ui, _id: NodeId, message: &ChildMessage) -> bool {
+        self.win.child_message_window(ui, message)
     }
 
     /// `UITextMsgButton::Draw`: the caption's colour follows the hover, the

@@ -1,0 +1,7 @@
+# P4.12 rich fonts INI oracle inputs, written by make_text_fixtures.py.
+# <file under rich_fonts/ or -> <probe: n<name hex> | i<id>>...
+full.ini n5354594c455f5449544c45 n5354594c455f424f4459 n5354594c455f454d505459 n5354594c455f4f54484552 i0
+crlf.ini i0 n4c617465 i65535
+empty.ini i0
+no_section.ini n5354594c455f5449544c45 i0
+- n5354594c455f5449544c45

@@ -432,8 +432,10 @@ pub enum ChildMessage {
         text: Option<Vec<u16>>,
         index: i32,
     },
-    /// 0xF005: a scroll bar's value changed.
-    ScrollChanged { from: NodeId },
+    /// 0xF005: a scroll bar's value changed; `value` is the bar's value
+    /// (`GetValue`), which the parent cannot ask the bar for while the bar
+    /// tells it (D347).
+    ScrollChanged { from: NodeId, value: f32 },
     /// 0xF004: Enter in a rich-text edit box.
     EditEnter { from: NodeId },
     /// 0xF003: Escape in a rich-text edit box.
@@ -600,6 +602,14 @@ pub struct Ui {
     /// `G_ScrollVSerial`: the number of the next `ScrollV_%d` bar a
     /// rich-text window makes (divergence D475).
     pub scroll_v_serial: i32,
+    /// The values a parent set on a scroll bar while the bar was telling it
+    /// of its own change, which the bar takes when the parent returns
+    /// (divergence D561).
+    scroll_values_back: Vec<(NodeId, f32)>,
+    /// Slot 23 messages that came while their receiver's own method ran (a
+    /// scroll bar drawn in its window's draw), delivered when that method
+    /// returns (divergence D561).
+    pending_child_messages: Vec<(NodeId, ChildMessage)>,
     /// The button montage the engine loaded (its tiles take the place of
     /// the services' tile search once loaded).
     pub montage: super::montage::ButtonMontage,
@@ -638,6 +648,8 @@ impl Ui {
             text_typing_count: 0,
             text_projection: None,
             scroll_v_serial: 1,
+            scroll_values_back: Vec::new(),
+            pending_child_messages: Vec::new(),
             montage: super::montage::ButtonMontage::default(),
         }
     }
@@ -771,7 +783,24 @@ impl Ui {
         {
             node.widget = Some(widget);
         }
+        if !self.pending_child_messages.is_empty() {
+            self.deliver_pending_child_messages(id);
+        }
         result
+    }
+
+    /// The slot 23 messages that waited for `id`, in the order they came;
+    /// those for deleted nodes are dropped.
+    fn deliver_pending_child_messages(&mut self, id: NodeId) {
+        let pending = std::mem::take(&mut self.pending_child_messages);
+        let (mine, rest): (Vec<_>, Vec<_>) = pending.into_iter().partition(|(to, _)| *to == id);
+        self.pending_child_messages = rest
+            .into_iter()
+            .filter(|(to, _)| self.contains(*to))
+            .collect();
+        for (_, message) in mine {
+            self.send_child_message(id, &message);
+        }
     }
 
     fn flags(&self, id: NodeId) -> u8 {
@@ -972,6 +1001,27 @@ impl Ui {
     pub fn any_captured(&self) -> bool {
         self.registered()
             .any(|id| self.win_control(id).is_some_and(|c| c.captured))
+    }
+
+    /// `SetValue` on the scroll bar `bar` while the bar is busy telling its
+    /// parent of a change (D347): the bar makes the call when its parent
+    /// returns ([`Self::take_scroll_value`]).
+    pub fn defer_scroll_value(&mut self, bar: NodeId, value: f32) {
+        self.scroll_values_back.push((bar, value));
+    }
+
+    /// The last value deferred for `bar`, the others for it dropped.
+    pub fn take_scroll_value(&mut self, bar: NodeId) -> Option<f32> {
+        let mut last = None;
+        self.scroll_values_back.retain(|&(id, value)| {
+            if id == bar {
+                last = Some(value);
+                false
+            } else {
+                true
+            }
+        });
+        last
     }
 
     /// The tooltip requests since the last call.
@@ -1491,6 +1541,12 @@ impl Ui {
 
     /// [`Widget::child_message`] on one object.
     pub fn send_child_message(&mut self, id: NodeId, message: &ChildMessage) -> bool {
+        if self.node(id).is_some_and(|n| n.widget.is_none()) {
+            // The receiver's own method is running (D347): the message waits
+            // for it to return (D561); the sender sees no answer.
+            self.pending_child_messages.push((id, message.clone()));
+            return false;
+        }
         self.with_widget(id, false, |w, ui| w.child_message(ui, id, message))
     }
 

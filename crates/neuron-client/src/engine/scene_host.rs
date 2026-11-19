@@ -200,6 +200,15 @@ impl StackEngine for SceneHost {
         Some((radius, centre.to_words()))
     }
 
+    /// `GetInstanceExtent(instance, 0, ...)`: the scene engine's sphere
+    /// around the instance's subtree (cached in the instance), -1 for an
+    /// instance it does not have; none while it is busy.
+    fn instance_subtree_extent(&mut self, instance: Instance) -> Option<(f32, [f32; 3])> {
+        let id = instance_id(instance)?;
+        let (radius, centre) = self.write(|s| s.instance_extent(Some(id), 0))?;
+        Some((radius, centre.to_words()))
+    }
+
     fn set_instance_extent(&mut self, instance: Instance, radius: f32, centre: [f32; 3]) {
         let Some(id) = instance_id(instance) else {
             return;

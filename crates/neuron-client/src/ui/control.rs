@@ -395,6 +395,34 @@ pub mod base {
         }
     }
 
+    /// `WinControl::DrawStaticMesh`: with "DRAW STATIC CONTROLS" (option
+    /// 0x15) on and a mesh, the mesh submitted between two depth-test
+    /// disables, its holder tinted with the HUD chrome colour, without front
+    /// culling, at scale 1.
+    pub fn draw_static_mesh(this: &WinControl, host: &mut dyn DrawHost) {
+        use crate::ui::immediate::capability;
+        if host.game_option(crate::ui::controls::text_control::OPT_STATIC_CONTROLS) == 0 {
+            return;
+        }
+        let Some(mesh) = this.mesh.as_deref() else {
+            return;
+        };
+        if let Some(imm) = host.immediate() {
+            imm.disable(capability::DEPTH_TEST);
+        }
+        host.submit_mesh(
+            mesh,
+            crate::ui::tree::MeshPass::Body {
+                tint: crate::ui::pulse::HUD_CHROME_RGBA,
+                front_cull: false,
+                scale: 1.0,
+            },
+        );
+        if let Some(imm) = host.immediate() {
+            imm.disable(capability::DEPTH_TEST);
+        }
+    }
+
     /// `WinControl::CaptureMouse`.
     pub fn capture_mouse(ui: &mut Ui, id: NodeId, this: &mut WinControl) {
         if !this.captured {

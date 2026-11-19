@@ -64,6 +64,7 @@ pub mod control;
 pub mod controls;
 pub mod cursor;
 pub mod factory;
+pub mod ime;
 pub mod immediate;
 pub mod message;
 pub mod montage;

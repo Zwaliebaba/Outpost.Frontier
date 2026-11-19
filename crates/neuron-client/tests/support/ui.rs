@@ -265,6 +265,8 @@ mod controls {
     use std::cell::{Cell, RefCell};
     use std::rc::Rc;
 
+    use neuron_client::render::texture::big_image::{BigImage, BigImageDesc};
+    use neuron_client::render::texture::pipeline::{Abilities, ContractPipeline};
     use neuron_client::text::font::FontId;
     use neuron_client::text::font::string::DrawOrigin;
     use neuron_client::text::rdl::{RdlNode, RenderDisplayList, TextAttributes};
@@ -277,6 +279,7 @@ mod controls {
     };
     use neuron_client::ui::controls::list_box::{ListMetrics, ScreenBox, UiListBox};
     use neuron_client::ui::controls::rich_text_edit::{RichTextEditWin, UiTextEdit};
+    use neuron_client::ui::controls::rich_text_win::RichTextWin;
     use neuron_client::ui::controls::scroll::{HitRect, ScrollShapes, UiScroll};
     use neuron_client::ui::controls::scroll_control::{PartId, ScrollControlWidget};
     use neuron_client::ui::controls::static_control::StaticControlWidget;
@@ -297,6 +300,7 @@ mod controls {
         ChildMessage, DrawHost, MeshPass, NodeId, Payload, Property, Ui, Widget, WindowView,
     };
     use neuron_client::ui::widescreen::Surface;
+    use neuron_core::image::{FormatMaps, PixelFormat};
     use neuron_core::math::{Matrix, Transform, Vector};
 
     use super::{bits, hex, unhex, units};
@@ -964,7 +968,7 @@ mod controls {
                     let m = if *double_click { 0xF002 } else { 0xF001 };
                     self.record("msg", m, &a, *index);
                 }
-                ChildMessage::ScrollChanged { from } => {
+                ChildMessage::ScrollChanged { from, .. } => {
                     let a = self.arg(*from);
                     self.record("msg", 0xF005, &a, 0);
                 }
@@ -1845,12 +1849,152 @@ mod controls {
 
     // ---- the rich-text windows (the fifth increment) ------------------------
 
-    const RICH: [&str; 4] = [
+    const RICH: [&str; 5] = [
+        "RichTextWin",
         "RichTextEditWin",
         "UITextEdit",
         "UIFastTable",
         "UIScrollTable",
     ];
+
+    /// A plain rich-text window's state (`RichWinState`).
+    fn rich_win_state(ui: &Ui, id: NodeId) -> String {
+        rich_win_state_of(ui, id, ui.widget::<RichTextWin>(id).unwrap())
+    }
+
+    fn rich_win_state_of(ui: &Ui, id: NodeId, w: &RichTextWin) -> String {
+        let b = &w.base;
+        // The bar's name is left out: the reference numbers bars across the
+        // cases (D475).
+        let bar = u8::from(b.scroll_bar_v.is_some());
+        format!(
+            "\"ev\":\"rtwin\",\"flags\":\"{:02x}\",\"scroll\":\"{} {}\",\"px\":\"{} {} {}\",\"dirty\":\"{}{}\",\"modes\":\"{} {} {} {}\",\"origin\":\"{} {}\",\"size\":\"{} {}\",\"bar\":\"{} {} {bar}\",\"frame\":\"{}\"",
+            ui.node(id).unwrap().flags & 0xF,
+            b.scroll_x,
+            b.scroll_y,
+            b.pixel_width,
+            b.pixel_height,
+            b.layout_height,
+            u8::from(b.layout_dirty),
+            u8::from(b.surface_dirty),
+            u8::from(b.auto_scrollbar),
+            u8::from(b.keep_scrolled_to_end),
+            b.align_mode,
+            u8::from(b.draw_frame),
+            b.trc.state.origin_h,
+            b.trc.state.origin_v,
+            bits(b.norm_width),
+            bits(b.norm_height),
+            bits(b.scroll_bar_width),
+            bits(b.scroll_bar_gap),
+            rgba(b.frame_color),
+        )
+    }
+
+    /// A 1 by 1 big image through a contract pipeline: the window draws
+    /// its debug frame only with an image (the oracle's is silent).
+    fn silent_image() -> BigImage {
+        let mut pipeline = ContractPipeline::new(Abilities {
+            square_only: 0,
+            max_width: 256,
+            max_height: 256,
+        });
+        let desc = BigImageDesc {
+            src_format: PixelFormat::A1R5G5B5,
+            dst_format: PixelFormat::A1R5G5B5,
+            pixels: &[0; 4],
+            width: 1,
+            height: 1,
+            pitch: 4,
+        };
+        BigImage::create(&desc, &FormatMaps::defaults(), &mut pipeline).unwrap()
+    }
+
+    /// The operations of a plain `RichTextWin`; false when the operation
+    /// is not one of them.
+    fn rich_win_op(ui: &mut Ui, id: NodeId, log: &Shared, t: &[&str], ctx: &Ctx) -> bool {
+        let bar = ui.widget::<RichTextWin>(id).unwrap().base.scroll_bar_v;
+        match t[0] {
+            "gopt" => ctx.options.borrow_mut()[i(t[1]) as usize] = i(t[2]),
+            "rtshow" => with::<RichTextWin, _>(ui, id, |w, ui| {
+                w.base.show_scroll_bar_v(ui, id, i(t[1]) != 0);
+            }),
+            "rtorigin" => with::<RichTextWin, _>(ui, id, |w, ui| {
+                w.base.set_scroll_origin(ui, i(t[1]), i(t[2]));
+            }),
+            "rtend" => with::<RichTextWin, _>(ui, id, |w, ui| w.base.scroll_to_end(ui)),
+            "rttop" => with::<RichTextWin, _>(ui, id, |w, ui| w.base.scroll_to_top(ui)),
+            "rtsize" => with::<RichTextWin, _>(ui, id, |w, ui| {
+                w.base.set_norm_size_in(ui, id, f(t[1]), f(t[2]));
+            }),
+            "rtauto" => {
+                let w = ui.widget_mut::<RichTextWin>(id).unwrap();
+                w.base.set_auto_scrollbar(i(t[1]) != 0);
+            }
+            "rtgap" => {
+                ui.widget_mut::<RichTextWin>(id)
+                    .unwrap()
+                    .base
+                    .scroll_bar_gap = f(t[1])
+            }
+            "rtlayout" => {
+                let w = ui.widget_mut::<RichTextWin>(id).unwrap();
+                w.base.layout_height = i(t[1]);
+                w.base.pixel_height = i(t[2]);
+            }
+            "rtframe" => {
+                let w = ui.widget_mut::<RichTextWin>(id).unwrap();
+                w.base.draw_frame = i(t[1]) != 0;
+                w.base.frame_color = rgba_hex(t[2]);
+            }
+            "rtimage" => {
+                ui.widget_mut::<RichTextWin>(id).unwrap().base.image = Some(silent_image())
+            }
+            "rtmesh" => with::<RichTextWin, _>(ui, id, |w, ui| {
+                base::set_mesh(ui, id, &mut w.base.control, &unhex(t[1]), b"");
+                // The parent's slot 5 reaching the window again (D347).
+                if let Some(p) = neuron_client::ui::control::parent_slot5_position(ui, id) {
+                    w.base.set_position(ui, id, p);
+                }
+            }),
+            "rtbar" => {
+                if let Some(s) = bar.and_then(|b| ui.widget_mut::<UiScroll>(b)) {
+                    s.set_value(f(t[1]));
+                }
+            }
+            "rtarm" => {
+                if let Some(s) = bar.and_then(|b| ui.widget_mut::<UiScroll>(b)) {
+                    s.drag_part = i(t[1]);
+                    s.repeat_timer = f(t[2]);
+                }
+            }
+            "rtscrolled" => {
+                let bar = bar.expect("a case scrolls only with a bar");
+                let value = ui.widget::<UiScroll>(bar).unwrap().value;
+                let r =
+                    ui.send_child_message(id, &ChildMessage::ScrollChanged { from: bar, value });
+                result(log, u8::from(r));
+            }
+            "rtstate" => {
+                let line = rich_win_state(ui, id);
+                ev(log, &line);
+            }
+            "rbstate" => match bar {
+                None => ev(log, "\"ev\":\"nobar\""),
+                Some(bar) => {
+                    // The bar's flags as the other states print them: the low
+                    // four bits.
+                    let saved = ui.node(bar).unwrap().flags;
+                    ui.node_mut(bar).unwrap().flags = saved & 0xF;
+                    let line = scroll_state(ui, bar, ui.widget::<UiScroll>(bar).unwrap());
+                    ui.node_mut(bar).unwrap().flags = saved;
+                    ev(log, &line);
+                }
+            },
+            _ => return false,
+        }
+        true
+    }
 
     /// A node as `rich_text.jsonl` prints it; a reference as r(its list).
     fn rich_node(node: &RdlNode) -> String {
@@ -2107,6 +2251,42 @@ mod controls {
                     let line = edit_state(ui, id);
                     ev(log, &line);
                 }
+                // The window's operations on the box (slot 23 inherited).
+                "rtlayout" => with_edit(ui, id, |e, _| {
+                    e.win.base.layout_height = i(t[1]);
+                    e.win.base.pixel_height = i(t[2]);
+                }),
+                "rtshow" => with_edit(ui, id, |e, ui| {
+                    e.win.base.show_scroll_bar_v(ui, id, i(t[1]) != 0);
+                }),
+                "rtbar" => {
+                    let bar = edit_of(ui, id).win.base.scroll_bar_v;
+                    if let Some(s) = bar.and_then(|b| ui.widget_mut::<UiScroll>(b)) {
+                        s.set_value(f(t[1]));
+                    }
+                }
+                "rtscrolled" => {
+                    let bar = edit_of(ui, id).win.base.scroll_bar_v;
+                    let bar = bar.expect("a case scrolls only with a bar");
+                    let value = ui.widget::<UiScroll>(bar).unwrap().value;
+                    let r = ui
+                        .send_child_message(id, &ChildMessage::ScrollChanged { from: bar, value });
+                    result(log, u8::from(r));
+                }
+                "rtstate" => {
+                    let line = rich_win_state_of(ui, id, &edit_of(ui, id).win);
+                    ev(log, &line);
+                }
+                "rbstate" => match edit_of(ui, id).win.base.scroll_bar_v {
+                    None => ev(log, "\"ev\":\"nobar\""),
+                    Some(bar) => {
+                        let saved = ui.node(bar).unwrap().flags;
+                        ui.node_mut(bar).unwrap().flags = saved & 0xF;
+                        let line = scroll_state(ui, bar, ui.widget::<UiScroll>(bar).unwrap());
+                        ui.node_mut(bar).unwrap().flags = saved;
+                        ev(log, &line);
+                    }
+                },
                 _ => return false,
             }
             return true;
@@ -2229,7 +2409,9 @@ mod controls {
             }
             "scrolled" if scroll => {
                 let bar = ui.widget::<UiScrollTable>(id).unwrap().scroll_bar.unwrap();
-                let r = ui.send_child_message(id, &ChildMessage::ScrollChanged { from: bar });
+                let value = ui.widget::<UiScroll>(bar).unwrap().value;
+                let r =
+                    ui.send_child_message(id, &ChildMessage::ScrollChanged { from: bar, value });
                 result(log, u8::from(r));
             }
             "gap" if scroll => {
@@ -2329,7 +2511,9 @@ mod controls {
             host.options = *ctx.options.borrow();
             if t[0] == "new" {
                 class = t[1].to_owned();
-                let later = LATER.contains(&class.as_str()) || class == "RichTextEditWin";
+                let later = LATER.contains(&class.as_str())
+                    || class == "RichTextEditWin"
+                    || class == "RichTextWin";
                 object = if let Some(payload) = rich_payload(&t) {
                     ui.create_by_class(
                         Some(b"C"),
@@ -2373,6 +2557,9 @@ mod controls {
             }
             let Some(id) = object else { continue };
             if LATER.contains(&class.as_str()) && later_op(&mut ui, id, &class, &log, &t, &ctx) {
+                continue;
+            }
+            if class == "RichTextWin" && rich_win_op(&mut ui, id, &log, &t, &ctx) {
                 continue;
             }
             if RICH.contains(&class.as_str()) && rich_op(&mut ui, id, &class, &log, &t) {

@@ -29,8 +29,8 @@ impl ImeBox for Ime {
         self.0.borrow_mut().push(format!("key {key:x}"));
         (key == 0x0D).then(|| units("composed"))
     }
-    fn handle_char(&mut self, byte: u8) -> Option<Vec<u16>> {
-        self.0.borrow_mut().push(format!("char {byte:x}"));
+    fn handle_char(&mut self, unit: u16) -> Option<Vec<u16>> {
+        self.0.borrow_mut().push(format!("char {unit:x}"));
         None
     }
     fn resize(&mut self, buffer_size: u32, rect: [i32; 4]) {

@@ -308,6 +308,12 @@ pub struct PhysicsWorld {
     controllers: Arena<BodyHandle>,
     moving: Vec<BodyHandle>,
     collisions: Vec<CollisionEvent>,
+    /// The objects a beam's ray started inside (diagnostic,
+    /// [`PhysicsWorld::take_beam_starts_inside`]).
+    beam_starts_inside: Vec<u64>,
+    /// The objects a beam's ray crossed that the OV sphere test culled
+    /// (diagnostic, [`PhysicsWorld::take_beam_ov_culled`]).
+    beam_ov_culled: Vec<u64>,
     phantom_events: Vec<PhantomEvent>,
     pair_last_collision: BTreeMap<(BodyHandle, BodyHandle), IvpTime>,
     order: u64,
@@ -379,6 +385,8 @@ impl PhysicsWorld {
             controllers: Arena::default(),
             moving: Vec::new(),
             collisions: Vec::new(),
+            beam_starts_inside: Vec::new(),
+            beam_ov_culled: Vec::new(),
             phantom_events: Vec::new(),
             pair_last_collision: BTreeMap::new(),
             order: 0,

@@ -1,7 +1,8 @@
 // P4.14: saving a scene and the script engine around it -- FScriptEngine of
-// CppSource/SceneScript/SceneScript.cpp (Slot4Load, Slot5Save with the default save parser,
-// Slot40SetCom, Slot43LoadPath, Slot44SavePath) and FSceneScriptScene::SaveToFileSystem of
-// SceneScriptScene.cpp -- run as the reference runs them.
+// CppSource/SceneScript/SceneScript.cpp (Slot4Load with the default or a custom load parser,
+// Slot5Save with the default save parser, Slot40SetCom, Slot41SetLoadParser, Slot43LoadPath,
+// Slot44SavePath) and FSceneScriptScene::SaveToFileSystem of SceneScriptScene.cpp -- run as
+// the reference runs them.
 //
 // SceneScript.cpp is compiled into this file, with its DllMain and the three functions the
 // other scene-script suites define renamed, so FScriptEngine of its anonymous namespace can
@@ -13,7 +14,10 @@
 //     and Slot4 hand it back (context 1), or ask for 4 bytes and fail (context 2);
 //   - the component manager (NEURONCOMPONENTS_Acquire, redirected below) answers the
 //     engine's two FileSystem requests: a read of "script<i>.thn" gets buffer i, any
-//     other read fails with -6, a write gets a recording writer.
+//     other read fails with -6, a write gets a recording writer;
+//   - ISceneScriptLoadParser (Slot41SetLoadParser): a recording parser of four kinds whose
+//     Load fails (1) or succeeds, whose Build adds nothing (2), a monitor and a camera with a
+//     user property before it changes its duration (3), or a camera and fails (4).
 // The Rust side is crates/neuron-client/tests/support/scene_script_save.rs.
 //
 // Line format (suite scene_script_save.jsonl, fixture scene_script_save.list):
@@ -21,6 +25,9 @@
 //   {"case":"<n>","write":"<hex bytes>","r":"<bytes taken>"}            each Write
 //   {"case":"<n>","com":"<3|4|5>","start":..,"primary":..,"duration":..,"taken":"<0|1>"[,"text":"<str>"]
 //    [,"size":..],"r":"<r>"}                                            each context call
+//   {"case":"<n>","parser":"load","size":..,"r":..} {"case":"<n>","parser":"duration","r":..}
+//   {"case":"<n>","parser":"build","size":..,"com":"<0|1>"} {"case":"<n>","parser":"add","r":..,"index":..}
+//   {"case":"<n>","parser":"prop","r":..}                               each load parser call
 //   {"case":"<n>","op":"<token>","r":"<r>","state":..,"entities":..,"events":..,"duration":..}
 // Data dump (kind thn_save): every .thn under DATA loaded with context 1 into a fresh engine
 // and module, then saved:
@@ -351,6 +358,77 @@ namespace scene_script_save
         std::map<int, std::string> Texts;
     };
 
+    // The recording load parser of the q<kind> token. The engine borrows it; it lives until
+    // the case ends.
+    class FLoadParser final : public ISceneScriptLoadParser
+    {
+    public:
+        explicit FLoadParser(int Kind) : Kind(Kind), DurationMs(1500) {}
+
+        void* NEURONCOMPONENTS_API Destroy(unsigned int) override { return this; }
+        unsigned int NEURONCOMPONENTS_API GetEntityCount() override { return 0; }
+        unsigned int NEURONCOMPONENTS_API GetEventCount() override { return 0; }
+        unsigned int NEURONCOMPONENTS_API GetDuration() override
+        {
+            Line(Format("\"parser\":\"duration\",\"r\":\"%u\"}", DurationMs));
+            return DurationMs;
+        }
+        GENRESULT NEURONCOMPONENTS_API Load(IFileSystem* FileSystem) override
+        {
+            const GENRESULT R = Kind == 1 ? GR_GENERIC : GR_OK;
+            Line(Format("\"parser\":\"load\",\"size\":\"%lu\",\"r\":\"%d\"}", FileSystem->GetSize(0, nullptr), R));
+            return R;
+        }
+        GENRESULT NEURONCOMPONENTS_API Build(IFileSystem* FileSystem, IScriptEngine* Engine,
+                                             ISceneScriptComContext* ComContext) override
+        {
+            Line(Format("\"parser\":\"build\",\"size\":\"%lu\",\"com\":\"%d\"}", FileSystem->GetSize(0, nullptr),
+                        ComContext != nullptr ? 1 : 0));
+            if (Kind == 3)
+            {
+                Add(Engine, kSceneScriptEntityMonitor, "mon", 1.0f);
+                const int Camera = Add(Engine, kSceneScriptEntityCamera, "cam", -2.0f);
+                const GENRESULT R = Engine->Slot34SetUserProp(Camera, "Note", "seen");
+                Line(Format("\"parser\":\"prop\",\"r\":\"%d\"}", R));
+                DurationMs = 2500;
+            }
+            else if (Kind == 4)
+            {
+                Add(Engine, kSceneScriptEntityCamera, "solo", 0.5f);
+                return GR_GENERIC;
+            }
+            return GR_OK;
+        }
+
+    private:
+        // A zero-filled descriptor of Type named Name at (X, 2, 3) with the identity
+        // orientation and the camera words 0.5, 1, 1000 and 1.25.
+        int Add(IScriptEngine* Engine, int Type, const char* Name, float X)
+        {
+            FSceneScriptEntitySnap Snap;
+            std::memset(&Snap, 0, sizeof(Snap));
+            Snap.Type = Type;
+            Snap.Pos[0] = X;
+            Snap.Pos[1] = 2.0f;
+            Snap.Pos[2] = 3.0f;
+            Snap.Orient[0] = 1.0f;
+            Snap.Orient[4] = 1.0f;
+            Snap.Orient[8] = 1.0f;
+            Snap.Name = const_cast<char*>(Name);
+            Snap.Fovh = 0.5f;
+            Snap.NearPlane = 1.0f;
+            Snap.FarPlane = 1000.0f;
+            Snap.Aspect = 1.25f;
+            int Index = -7;
+            const GENRESULT R = Engine->Slot35AddEntity(&Snap, &Index);
+            Line(Format("\"parser\":\"add\",\"r\":\"%d\",\"index\":\"%d\"}", R, Index));
+            return Index;
+        }
+
+        int Kind;
+        unsigned int DurationMs;
+    };
+
     std::string Status(FScriptEngine* Engine)
     {
         return Format("\"state\":\"%d\",\"entities\":\"%lu\",\"events\":\"%lu\",\"duration\":\"%d\"}",
@@ -358,11 +436,22 @@ namespace scene_script_save
                       Engine->Slot17GetDuration());
     }
 
-    GENRESULT RunOp(FScriptEngine* Engine, const std::string& Op, std::vector<FContext*>& Contexts)
+    GENRESULT RunOp(FScriptEngine* Engine, const std::string& Op, std::vector<FContext*>& Contexts,
+                    std::vector<FLoadParser*>& Parsers)
     {
         const std::string Arg = Op.substr(1);
         switch (Op[0])
         {
+        case 'q':
+        {
+            ISceneScriptLoadParser* Parser = nullptr;
+            if (Arg != "-")
+            {
+                Parsers.push_back(new FLoadParser(std::atoi(Arg.c_str())));
+                Parser = Parsers.back();
+            }
+            return Engine->Slot41SetLoadParser(Parser);
+        }
         case 'c':
         {
             ISceneScriptComContext* Context = nullptr;
@@ -447,15 +536,18 @@ namespace scene_script_save
             scene_script_build::OpenModule();
             FScriptEngine* Engine = new FScriptEngine();
             std::vector<FContext*> Contexts;
+            std::vector<FLoadParser*> Parsers;
             for (const std::string& Op : Split(Fields[0], ','))
             {
-                const GENRESULT R = RunOp(Engine, Op, Contexts);
+                const GENRESULT R = RunOp(Engine, Op, Contexts, Parsers);
                 Line("\"op\":\"" + Op + Format("\",\"r\":\"%d\",", R) + Status(Engine));
             }
             // The engine releases its context on the way out; nothing records it.
             GOut = nullptr;
             Engine->Release();
             GOut = &Out;
+            for (FLoadParser* Parser : Parsers)
+                delete Parser;
             scene_script_build::CloseModule();
             ++Case;
         }

@@ -91,10 +91,11 @@ use crate::render::texture::{FormatClasses, LibraryConfig, TextureLibrary};
 use crate::scene_script::playback::Player;
 use crate::scene_script::{BuildState, Vm, build, load};
 use crate::text::font::{FontBackend, FontEnv, FontSystem, config::read_fonts_ini};
-use crate::text_input::focus::ImeFocus;
-use crate::text_input::ime::NoIme;
+use crate::text_input::ime::ImeContext;
+use crate::text_input::ime_font::SharedFontBackend;
 use crate::ui::controls::scroll::ScrollShapes;
 use crate::ui::cursor::Cursors;
+use crate::ui::ime::{ImeBoxes, ImeServices};
 use crate::ui::shape::ShapeDb;
 use crate::ui::tree::Ui;
 use crate::ui::widescreen::Surface;
@@ -360,7 +361,7 @@ pub struct Engine<B: Backend + 'static> {
     ui: Option<Ui>,
     cursors: Cursors,
     ui_shape_db: ShapeDb,
-    ime: Option<ImeFocus>,
+    ime: Option<ImeBoxes>,
     /// The game options the draw reads, at the reference's defaults until
     /// the game sets them (P5).
     pub options: options::GameOptions,
@@ -658,8 +659,14 @@ impl<B: Backend + 'static> Engine<B> {
             device.set_viewport(0, 0, width, height);
         }
         log(Stage::RenderBuffers);
-        let backend = font_backend
-            .unwrap_or_else(|| default_font_backend(&data_root, client.fonts_dir.as_deref()));
+        // One backend for the font system and the IME's box fonts, as the
+        // C++'s GDI is one.
+        let backend = SharedFontBackend::new(
+            font_backend
+                .unwrap_or_else(|| default_font_backend(&data_root, client.fonts_dir.as_deref())),
+        );
+        let ime_backend = backend.clone();
+        let backend: Box<dyn FontBackend> = Box::new(backend);
         let surface_height = i32::try_from(height).unwrap_or(i32::MAX);
         let surface_width = i32::try_from(width).unwrap_or(i32::MAX);
         let mut fonts = FontSystem::new(backend, FontEnv::new(surface_width, surface_height));
@@ -729,7 +736,20 @@ impl<B: Backend + 'static> Engine<B> {
             Err(_) => notices.push(format!("{}: not loaded", lossy(INTERFACE_GENERIC))),
         }
         log(Stage::Ui);
-        let ime = ImeFocus::new(&mut NoIme);
+        // EnsureClientIMEFocus: the focus manager, on no IME until the
+        // window's is given (`set_ime_context`); "ConfirmPlayerText" for its
+        // strings and its boxes' LOGFONTA; the edit windows reach it through
+        // the services.
+        let ime = ImeBoxes::without_ime(ime_backend);
+        if let Some(fonts) = ui.fonts.as_mut()
+            && let Some(id) = fonts.find_font(b"ConfirmPlayerText")
+        {
+            let log_font = fonts
+                .font_cx(id)
+                .map(|(font, mut cx)| font.log_font(&mut cx));
+            ime.set_confirm_font(Some(id), log_font);
+        }
+        ui.services = Box::new(ImeServices(ime.clone()));
         log(Stage::ImeFocus);
         if let Some(fonts) = ui.fonts.as_mut() {
             fonts
@@ -898,9 +918,48 @@ impl<B: Backend + 'static> Engine<B> {
         &self.cursors
     }
 
-    /// The edit-box focus manager.
-    pub fn ime_mut(&mut self) -> Option<&mut ImeFocus> {
-        self.ime.as_mut()
+    /// The client's IME boxes and their focus manager.
+    #[must_use]
+    pub fn ime_boxes(&self) -> Option<&ImeBoxes> {
+        self.ime.as_ref()
+    }
+
+    /// The window's IME for the boxes the interface registers
+    /// (`IMEFocus`'s window): on Windows the game window's
+    /// (`platform::ime::WindowIme`), which `engine::windows::create_engine`
+    /// gives a window's engine.
+    pub fn set_ime_context(&mut self, context: Box<dyn ImeContext>) {
+        if let Some(ime) = &self.ime {
+            ime.set_context(context);
+        }
+    }
+
+    /// `IMEFocus::OnChar` (`GSendChar`): a unit of the IME's result string
+    /// for the focused box, whose window then shows the box's text.
+    pub fn ime_char(&mut self, unit: u16) -> bool {
+        let taken = self.ime.as_ref().is_some_and(|ime| ime.on_char(unit));
+        self.apply_ime_texts();
+        taken
+    }
+
+    /// `IMEFocus::OnSetFocus` (`gained`) or `OnKillFocus`: the window's
+    /// keyboard focus changed.
+    pub fn ime_window_focus(&mut self, gained: bool) {
+        if let Some(ime) = &self.ime {
+            ime.on_window_focus(gained);
+        }
+        self.apply_ime_texts();
+    }
+
+    /// The texts the boxes handed their windows outside the windows' own
+    /// calls, set into the windows (`FLImeInputBox::UpdatedText`, D553).
+    pub fn apply_ime_texts(&mut self) {
+        let (Some(ime), Some(ui)) = (self.ime.as_ref(), self.ui.as_mut()) else {
+            return;
+        };
+        for (owner, text) in ime.take_owner_texts() {
+            crate::ui::controls::rich_text_edit::set_ime_owner_text(ui, owner, &text);
+        }
     }
 
     /// `FLAppearance`.

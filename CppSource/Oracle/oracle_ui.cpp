@@ -152,4 +152,5 @@ void RunUiSuites()
     RunUiQuadSuites();
     RunUiControlSuites();
     RunUiImmediateSuites();
+    RunImeUiSuites();
 }

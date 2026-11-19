@@ -382,6 +382,9 @@
     <ClCompile Include="oracle_text.cpp" />
     <!-- P4.12: LayoutRichText and the list functions of Common.dll on a recording context. -->
     <ClCompile Include="oracle_rich_text.cpp" />
+    <!-- P4.12: the client's LoadRichFontsFromIni (menu_fonts_load.cpp compiled in) over Common's
+         INI_Reader and StyleCollection. -->
+    <ClCompile Include="oracle_rich_fonts.cpp" />
     <!-- P4.12: Oracle.exe gdi-fonts, GDI's text metrics for the DirectWrite font backend. -->
     <ClCompile Include="oracle_gdi_fonts.cpp" />
     <!-- P4.10: SoundManager.dll exports nothing but its factory; oracle_audio.cpp includes
@@ -411,6 +414,10 @@
     <ClCompile Include="oracle_ui_quads.cpp" />
     <ClCompile Include="oracle_ui_controls.cpp" />
     <ClCompile Include="oracle_ui_immediate.cpp" />
+    <!-- P4.11 to P4.13: imeui.dll's sources (the edit box, its font, the focus manager, the
+         composition, candidate and toolbar drawing) with the client's FLImeInputBox and
+         ClientIMEFocus; their IMM32, GDI and system calls are renamed to stand-ins. -->
+    <ClCompile Include="oracle_ime_ui.cpp" />
     <ClCompile Include="oracle_physics.cpp" />
     <ClCompile Include="oracle_sim.cpp" />
     <ClCompile Include="oracle_sim_spread.cpp" />

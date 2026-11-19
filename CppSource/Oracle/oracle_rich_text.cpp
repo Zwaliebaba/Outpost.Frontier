@@ -1,5 +1,6 @@
 // P4.12: rich-text layout and execution, run by Oracle.exe neuron-client at the end of the
-// text suites (RunTextSuites calls RunRichTextSuites).
+// text suites (RunTextSuites calls RunRichTextSuites, which then runs the rich fonts suite of
+// oracle_rich_fonts.cpp).
 //
 // rich_text.jsonl: Common.dll's LayoutRichText, RenderDisplayList::execute, get_dimensions,
 // get_element_pos and get_element_count, the node behaviours behind them, StyleCollection and
@@ -602,4 +603,5 @@ namespace
 void RunRichTextSuites()
 {
     RichTextSuite();
+    RunRichFontsSuite();
 }
