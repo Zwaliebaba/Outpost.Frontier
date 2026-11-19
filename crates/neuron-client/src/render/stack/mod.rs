@@ -122,6 +122,16 @@ pub struct StackDump {
     pub text: String,
 }
 
+/// The instances whose user data is a mesh holder's five floats
+/// (`SetInstanceUserData(instance, holder floats)`, the interface's control
+/// meshes): what `GetInstanceUserData` answers for them, shared with the
+/// holders that write the floats (divergence D510).
+pub type UserFloatTable = std::rc::Rc<
+    std::cell::RefCell<
+        std::collections::BTreeMap<Instance, std::rc::Rc<std::cell::Cell<[f32; 5]>>>,
+    >,
+>;
+
 /// The joined services. `B` is the device model's backend.
 pub struct RenderStack<B: Backend + 'static> {
     /// The device model, the texture library and the global records.
@@ -135,6 +145,8 @@ pub struct RenderStack<B: Backend + 'static> {
     directory: Option<MeshDirectory>,
     /// The engine.
     pub engine: Box<dyn StackEngine>,
+    /// The instances with a mesh holder's floats as their user data.
+    pub user_floats: UserFloatTable,
     /// `G_FlmEngineOuter` is set (the appearance published the engine).
     pub published: bool,
     /// What the meshes and materials dumped.
@@ -178,6 +190,7 @@ impl<B: Backend + 'static> RenderStack<B> {
             wires: VMeshWire::new(),
             directory: None,
             engine,
+            user_floats: UserFloatTable::default(),
             published: false,
             dumps: Vec::new(),
             face: None,
@@ -244,6 +257,17 @@ impl<B: Backend + 'static> RenderStack<B> {
             orphan.destroy(self);
         }
         Some(result)
+    }
+
+    /// `IMaterial::SetParameterValue` on a material of the library; `None`
+    /// for a handle that names nothing.
+    pub fn set_material_parameter(
+        &mut self,
+        id: MaterialId,
+        index: u32,
+        value: &neuron_core::material_data::PropertyValue,
+    ) -> Option<i32> {
+        self.with_material(id, |m, s| m.set_parameter(s, index, value))
     }
 
     /// A material of the arena, for reading.
@@ -551,6 +575,9 @@ impl<B: Backend + 'static> SurfaceServices for RenderStack<B> {
     }
 
     fn instance_user_data(&mut self, instance: usize) -> Option<[u32; 5]> {
+        if let Some(floats) = self.user_floats.borrow().get(&instance) {
+            return Some(floats.get().map(f32::to_bits));
+        }
         self.engine.user_data(instance)
     }
 

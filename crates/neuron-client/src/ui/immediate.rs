@@ -10,7 +10,9 @@
 //! pipeline (`win3d_immediate.cpp`, `win3d_renderables.cpp`). Here the
 //! controls make the same calls on an [`Immediate`] the draw host hands
 //! them ([`super::tree::DrawHost::immediate`]); the layer that turns them
-//! into draws is not ported yet. [`ImmediateLog`] records the calls.
+//! into draws is [`super::win3d_immediate::Win3dLayer`], with the line
+//! batchers of [`super::win3d_renderables`]. [`ImmediateLog`] records the
+//! calls.
 
 use neuron_core::math::{Transform, Vector};
 

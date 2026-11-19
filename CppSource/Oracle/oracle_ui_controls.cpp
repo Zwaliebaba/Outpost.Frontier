@@ -79,6 +79,8 @@
 //   {"ev":"fscale","w","z"} {"ev":"ftext","t"} {"ev":"fnum","f"} {"ev":"fdraw","x","y","w","h",
 //   "hm","vm","l","r"} (the Font::String) {"ev":"hover","k","a","x","p","e","l"} {"ev":"hidetip"}
 //   {"ev":"sound","s"} {"ev":"tplay","s"} {"ev":"tstop","s"} {"ev":"roll"} {"ev":"post","c"}
+//   {"ev":"lclear"} (EngineLightClearRegisteredList) {"ev":"winview","vp","near","far","fov"}
+//   (a static control's window camera made current) {"ev":"winview","vp":"-"} (its viewport back)
 // -- the parent's (slot 23 and SetProperty from the control; "self" for the control, a list
 // row's text in hex or "null") --
 //   {"ev":"msg","m","a","b"} {"ev":"prop","m","a","b"}
@@ -108,6 +110,12 @@
 #include <string>
 #include <vector>
 
+// The client's sound archetypes are compiled into Oracle.exe by
+// oracle_audio_client.cpp (menu_sound_arch.cpp); the controls here call
+// recording stand-ins of their own under other names, so the two suites
+// neither share state nor define a symbol twice.
+#define LookupClientSoundArch OracleCtlLookupClientSoundArch
+#define PlayClientSoundArchIfIdle OracleCtlPlayClientSoundArchIfIdle
 #include "../OutpostFrontier/Client/win3d.cpp"
 #include "../OutpostFrontier/Client/wincontrol_base.cpp"
 #include "../OutpostFrontier/Client/win_factory.cpp"
@@ -2038,8 +2046,10 @@ FMeshHolder::~FMeshHolder()
 FClientMeshHolder::~FClientMeshHolder()
 {
 }
+// The static control's draw clears the engine lights (engine_light.cpp): recorded.
 void EngineLightClearRegisteredList()
 {
+    CtlEvent("\"ev\":\"lclear\"");
 }
 void FontStringConstruct(FFontString* Self)
 {
@@ -2204,8 +2214,11 @@ bool SpaceCameraSetViewport(FSpaceCamera*, const int*)
 {
     return false;
 }
-void SpaceCameraSetViewportEx(FSpaceCamera*, const int*, int)
+// The render-to-window camera's rectangle (space_camera.cpp): kept, for the record below.
+void SpaceCameraSetViewportEx(FSpaceCamera* Cam, const int* ViewRect4, int)
 {
+    for (int I = 0; I < 4; ++I)
+        Cam->Viewport[I] = ViewRect4[I];
 }
 void ToolTipHoverDestroy(FToolTipHoverInfo*)
 {
@@ -2603,11 +2616,19 @@ void RdlClear(RenderDisplayList& Rdl)
 void SpaceCameraConstruct(FSpaceCamera*)
 {
 }
-void SpaceCameraSetFovY(FSpaceCamera*, float)
+// The render-to-window camera's vertical angle: kept. Its perspective is recorded with the
+// fields the static control set (the rectangle, the planes, the angle); putting the Win3D
+// camera's viewport back is recorded as the window's end.
+void SpaceCameraSetFovY(FSpaceCamera* Cam, float FovYDeg)
 {
+    Cam->FovYDeg = FovYDeg;
 }
-void Win3DApplyCameraPerspective(ICamera*)
+void Win3DApplyCameraPerspective(ICamera* Camera)
 {
+    const int* const Rect = Camera->GetViewport();
+    CtlEvent(oracle::Format("\"ev\":\"winview\",\"vp\":\"%d %d %d %d\",", Rect[0], Rect[1], Rect[2], Rect[3]) +
+             "\"near\":\"" + Bits(Camera->GetZNear()) + "\",\"far\":\"" + Bits(Camera->GetZFar()) +
+             "\",\"fov\":\"" + Bits(Camera->GetFovYDeg()) + "\"");
 }
 void Win3DGetViewport(int, int* Out4)
 {
@@ -2618,6 +2639,7 @@ void Win3DGetViewport(int, int* Out4)
 }
 void Win3DSetViewportRect(int, int, int, int, const char*, int)
 {
+    CtlEvent("\"ev\":\"winview\",\"vp\":\"-\"");
 }
 GENRESULT NEURONCOMPONENTS_API FSpaceCamera::QueryInterface(char const*, void** Out)
 {
@@ -2664,13 +2686,14 @@ float NEURONCOMPONENTS_API FSpaceCamera::GetAspect()
 {
     return Aspect;
 }
+// The reference's bodies (space_camera.cpp).
 double NEURONCOMPONENTS_API FSpaceCamera::GetXScaleOverNear()
 {
-    return 0.0;
+    return static_cast<double>(this->XScale) / this->ZNear;
 }
 double NEURONCOMPONENTS_API FSpaceCamera::GetYScaleOverNear()
 {
-    return 0.0;
+    return static_cast<double>(this->YScale) / this->ZNear;
 }
 // The reference's body (space_camera.cpp), over x86math's engine.
 int NEURONCOMPONENTS_API FSpaceCamera::Project(float* OutX, float* OutY, float* OutZ, float const* WorldPoint)

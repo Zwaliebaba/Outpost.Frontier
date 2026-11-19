@@ -377,7 +377,11 @@ impl DeformInstance {
     /// `OnKeys` (`IChannelSink` slot 0): the cookie forwarded to the
     /// caller's sink (the first animation's instance field that holds the
     /// channel); `None` without a sink.
-    pub fn on_keys(&self, key: u32, services: &mut dyn DeformServices) -> Option<u32> {
+    pub fn on_keys<S: super::services::SinkHost + ?Sized>(
+        &self,
+        key: u32,
+        services: &mut S,
+    ) -> Option<u32> {
         if self.sink == 0 {
             return None;
         }
@@ -397,11 +401,11 @@ impl DeformInstance {
     /// the channel, the transform's height and heading are reset (the
     /// rotation becomes the heading about y). Whether the caller's sink is
     /// called with it.
-    pub fn on_loop(
+    pub fn on_loop<S: super::services::SinkHost + ?Sized>(
         &self,
         key: u32,
         xform: &mut [f32; 12],
-        services: &mut dyn DeformServices,
+        services: &mut S,
     ) -> bool {
         let mut found = None;
         for node in &self.list {

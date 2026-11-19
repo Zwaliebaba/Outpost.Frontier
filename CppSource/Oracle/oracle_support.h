@@ -266,6 +266,7 @@ void RunParticleSuites();
 void RunUiSuites();
 void RunUiQuadSuites();
 void RunUiControlSuites();
+void RunUiImmediateSuites();
 
 // P4.14 (oracle_scene_script.cpp): every .thn under DATA through lua_dobuffer in a fresh
 // Lua state, and the state after it; kind "thn".
@@ -286,3 +287,12 @@ void SceneScriptRuntimeSuites();
 // P4.14 (oracle_scene_script_build.cpp): every .thn under DATA through both passes of the
 // parser in a fresh module state, and the engine calls of the second; kind "thn_build".
 void RunSceneScriptBuildDataDump(const std::vector<std::string>& Files);
+
+// Oracle.exe game-app <fixture directory> <output directory> (oracle_account.cpp,
+// oracle_perf_options.cpp, work package P4.1): the suites of crates/game-app/tests over
+// crates/game-app/tests/fixtures/oracle: CPlayerAccount (common_playeraccount.cpp compiled in)
+// on a scripted machine and registry, and PerfOptions.ini through LoadPerfOptions and
+// SavePerfOptions (perf_options.cpp compiled in).
+void RunGameAppSuites();
+void RunAccountSuite();
+void RunPerfOptionsSuite();

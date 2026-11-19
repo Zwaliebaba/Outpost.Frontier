@@ -341,13 +341,13 @@ impl IkEvent {
     /// first tick of a round (unless the bind descriptor's skip flag is
     /// set) solves, and the channel's joint gets its solved quaternion.
     /// `out` receives the words; the result is the reference's.
-    pub fn apply(
+    pub fn apply<S: super::services::AimHost + ?Sized>(
         &mut self,
         out: &mut [f32],
         matching: u32,
         skip: bool,
         gate_joint: Instance,
-        services: &mut dyn DeformServices,
+        services: &mut S,
     ) -> i32 {
         let count = self.count();
         if self.flags34 & 1 != 0 {
@@ -395,11 +395,11 @@ impl IkEvent {
     /// The single-joint body of `IkApply`: the target direction (or
     /// orientation, bit 6) in the parent's frame, looked at along the
     /// flags' axis, held to the joint's Euler limits unless bit 7.
-    fn solve_single(
+    fn solve_single<S: super::services::AimHost + ?Sized>(
         &mut self,
         joint: Instance,
         limits: &JointLimits,
-        services: &mut dyn DeformServices,
+        services: &mut S,
     ) {
         let parent = services.instance_parent(joint);
         let local = services.instance_orientation(parent);
@@ -438,7 +438,7 @@ impl IkEvent {
     /// and a locked end joint frees its columns) and `IkSolveDlsAlt`
     /// (`alt`: every joint's link has one).
     #[allow(clippy::too_many_lines)]
-    fn solve_dls(&mut self, alt: bool, services: &mut dyn DeformServices) {
+    fn solve_dls<S: super::services::AimHost + ?Sized>(&mut self, alt: bool, services: &mut S) {
         let mut fr = Frame::new();
         let flags = self.flags28;
         fr.pos = (flags >> 5) & 1 != 0;
@@ -566,7 +566,11 @@ impl IkEvent {
     /// halving size until the residual stops falling; the step's share
     /// accumulates. Whether another round runs.
     #[allow(clippy::too_many_lines)]
-    fn round(&mut self, fr: &mut Frame, services: &mut dyn DeformServices) -> bool {
+    fn round<S: super::services::AimHost + ?Sized>(
+        &mut self,
+        fr: &mut Frame,
+        services: &mut S,
+    ) -> bool {
         // The Jacobian as SvdMatrix cells.
         for r in 0..12i32 {
             for c in 0..12i32 {
@@ -715,7 +719,7 @@ impl IkEvent {
     /// `IkDlsStepJoints`: each joint rotated by half its step (a locked
     /// joint repeats the last unlocked one's) and the chain's trial
     /// positions rebuilt.
-    fn step_joints(&self, fr: &mut Frame, services: &mut dyn DeformServices) {
+    fn step_joints<S: super::services::AimHost + ?Sized>(&self, fr: &mut Frame, services: &mut S) {
         let mut at = 0usize;
         for joint in 0..fr.joint_iters {
             let relative = services.instance_relative(self.joint(joint));

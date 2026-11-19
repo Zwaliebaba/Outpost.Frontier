@@ -26,12 +26,13 @@ pub enum Scene {
     Effect { file: String, name: Option<String> },
     /// A scene script (`.thn`), played in a loop.
     Script(String),
-    /// A sound of the sound tables by nickname.
+    /// A `[Sound]` of the sound tables by nickname.
     Sound(String),
-    /// A voice line of a UTF voice archive (the named leaf, else the first).
+    /// A line of a voice profile (the named `msg`, else the profile's
+    /// first line).
     Voice {
-        archive: String,
-        line: Option<String>,
+        profile: String,
+        msg: Option<String>,
     },
     /// A page descriptor (`.page`) drawn over the scene.
     Page(String),
@@ -63,15 +64,18 @@ impl Scene {
                 animations: Some("CHARACTERS\\ANIMATIONS\\bodygenericmale.anm".to_owned()),
                 animation: None,
             },
+            // An explosion whose debris carry child effects: each particle
+            // of `FlamingDebApp` carries a `Flame` effect and leaves an
+            // `ExplodeNoFlameDeb` effect where it ends.
             "effect" => Scene::Effect {
-                file: "FX\\ENGINES\\gf_br_csv_engine01.ale".to_owned(),
-                name: None,
+                file: "FX\\MISC\\standardeffects.ale".to_owned(),
+                name: Some("Explode".to_owned()),
             },
             "script" => Scene::Script("MISSIONS\\M03\\m03_survivor1.thn".to_owned()),
             "sound" => Scene::Sound("hud_comm_window".to_owned()),
             "voice" => Scene::Voice {
-                archive: "AUDIO\\announcer.utf".to_owned(),
-                line: None,
+                profile: "announcer".to_owned(),
+                msg: None,
             },
             "menu" => Scene::Page("INTERFACE\\INTRO\\page_charselectsingle.page".to_owned()),
             _ => return None,
@@ -92,7 +96,7 @@ impl Scene {
             }
             Scene::Script(p) => format!("script-{}", base_name(p)),
             Scene::Sound(n) => format!("sound-{n}"),
-            Scene::Voice { archive, .. } => format!("voice-{}", base_name(archive)),
+            Scene::Voice { profile, .. } => format!("voice-{profile}"),
             Scene::Page(p) => format!("page-{}", base_name(p)),
         }
     }

@@ -57,7 +57,25 @@ pub trait ControlMesh {
     fn put_position(&mut self, position: Vector) {
         self.set_position(position);
     }
+    /// The engine instance the holder owns (`+0x04`), for the draw host's
+    /// submits; `None` for a mesh outside an engine.
+    fn engine_instance(&self) -> Option<u32> {
+        None
+    }
+    /// The holder's five floats (`+0x14`, `UserFloats`), which every
+    /// instance of its tree has as its user data and the interface's
+    /// materials read; `None` for a mesh outside an engine.
+    fn user_floats(&self) -> Option<UserFloats> {
+        None
+    }
+    /// `SetInstanceUserData(root, floats)`: the root instance reads another
+    /// holder's floats.
+    fn set_root_user_floats(&mut self, _floats: UserFloats) {}
 }
+
+/// A mesh holder's `UserFloats`: R, G, B, 1 and the alpha, shared by the
+/// instances that have them as their user data.
+pub type UserFloats = std::rc::Rc<std::cell::Cell<[f32; 5]>>;
 
 /// Loads a control mesh (`ClientMeshLoadFromPath`); `None` when the path
 /// gives no instance.

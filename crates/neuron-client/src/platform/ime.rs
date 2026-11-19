@@ -42,7 +42,7 @@ use crate::input::keyboard::vk;
 use crate::platform::input::{client_mapping, key_down, key_down_now};
 use crate::platform::window::{push, with_state};
 use crate::text_input::ime::{
-    CaretRect, Composition, ImeContext, ModifierRepair, ime_state, is_hot_key,
+    CaretRect, Composition, HeldComposition, ImeContext, ModifierRepair, ime_state, is_hot_key,
 };
 use crate::window::{ImeEvent, WindowEvent};
 
@@ -57,6 +57,8 @@ pub(crate) struct ImeWindowState {
     caret: Option<CaretRect>,
     composition: Composition,
     repair: ModifierRepair,
+    /// The composition taken when the window lost the focus (D284).
+    held: HeldComposition,
     /// Result-string units for the router (`WM_IME_CHAR`).
     pub chars: VecDeque<u16>,
 }
@@ -283,6 +285,28 @@ pub(crate) fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) 
     }
 }
 
+/// `WM_KILLFOCUS` (D284): while a box has the focus, the composition is
+/// held for the box and the IME's composition is cancelled at once, as
+/// the C++'s `IMEFocus::OnKillFocus` commits and cancels it inside the
+/// window procedure.
+pub(crate) fn hold_on_kill_focus(hwnd: HWND) {
+    let held = with_state(|s| {
+        let open = s.ime.boxes && s.ime.open;
+        s.ime.held.hold(open, &mut s.ime.composition)
+    })
+    .unwrap_or(false);
+    if !held {
+        return;
+    }
+    if let Some(context) = Context::get(hwnd) {
+        // SAFETY: the window's context.
+        unsafe {
+            let _ = ImmNotifyIME(context.himc, NI_CLOSECANDIDATE, NOTIFY_IME_INDEX(4), 0);
+            let _ = ImmNotifyIME(context.himc, NI_COMPOSITIONSTR, CPS_CANCEL, 0);
+        }
+    }
+}
+
 /// `IMEFocus::IgnoreHotKey`: with a box registered, a key an IME took that
 /// is one of its hot keys is dropped before routing and translation.
 pub(crate) fn ignore_hot_key(msg: &MSG) -> bool {
@@ -354,7 +378,12 @@ impl ImeContext for WindowIme {
         let associate = if open { context } else { HIMC::default() };
         // SAFETY: the live window and its own context, or none.
         unsafe { ImmAssociateContext(self.hwnd, associate) };
-        with_state(|s| s.ime.open = open);
+        with_state(|s| {
+            s.ime.open = open;
+            if open {
+                s.ime.held.clear();
+            }
+        });
     }
 
     fn finalize(&mut self, send: bool) -> Vec<u16> {
@@ -362,13 +391,10 @@ impl ImeContext for WindowIme {
             return Vec::new();
         };
         let text = with_state(|s| {
-            let text = if send {
-                s.ime.composition.text.clone()
-            } else {
-                Vec::new()
-            };
-            s.ime.composition.clear();
-            text
+            let ImeWindowState {
+                held, composition, ..
+            } = &mut s.ime;
+            held.take(composition, send)
         })
         .unwrap_or_default();
         // SAFETY: the window's context.

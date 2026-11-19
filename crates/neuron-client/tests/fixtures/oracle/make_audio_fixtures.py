@@ -7,12 +7,18 @@ hex digits, vectors three of them joined by commas, '-' means "the source
 does not answer". The token layout of each file is described at the top of
 the file itself. Run from any folder:
 
-    python make_audio_fixtures.py
+    python make_audio_fixtures.py [--check]
+
+With --check nothing is written; the script fails when a file differs from
+what it would write.
 """
 
 import os
 import random
 import struct
+import sys
+
+CHECK = "--check" in sys.argv[1:]
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "audio")
@@ -35,13 +41,20 @@ def opt(x, fmt=f):
     return "-" if x is None else fmt(x)
 
 
-def write(name, header, lines):
+def write_text(name, text):
     path = os.path.join(OUT, name)
-    with open(path, "w", newline="\n") as out:
-        for h in header:
-            out.write("# " + h + "\n")
-        for line in lines:
-            out.write(line + "\n")
+    data = text.encode("latin-1")
+    if CHECK:
+        with open(path, "rb") as existing:
+            if existing.read() != data:
+                sys.exit("audio/%s is out of date; run make_audio_fixtures.py" % name)
+        return
+    with open(path, "wb") as out:
+        out.write(data)
+
+
+def write(name, header, lines):
+    write_text(name, "".join("# " + h + "\n" for h in header) + "".join(l + "\n" for l in lines))
 
 
 def rnd_vec(r, scale):
@@ -395,6 +408,307 @@ def tick_cases():
     write("tick.list", [line for line in tick_cases.__doc__.strip().splitlines()], L)
 
 
+def reverb_cases():
+    """reverb.list: groups separated by ';', each "env vol decay damp" (env decimal, the others
+f32 bits). The first group is [AudioProperties] as StartupDevice stores it; each later group is
+one scene-script SetReverb."""
+    def g(env, vol, decay, damp):
+        return "%d %s %s %s" % (env, f(vol), f(decay), f(damp))
+    nan = struct.unpack("<f", struct.pack("<I", 0x7FC00000))[0]
+    lines = [
+        # The shipped engine INI: the defaults.
+        g(0, 0.0, 0.1, 1.0),
+        # Out-of-range starting values: kept without a device, clamped with one.
+        g(30, 1.5, 0.05, 2.5) + ";" + g(5, 0.5, 1.49, 0.5) + ";" + g(-1, -0.25, 150.0, -1.0),
+        g(25, 1.0, 100.0, 2.0) + ";" + g(26, 0.0, 0.1, 0.0) + ";" + g(12, 0.75, 3.92, 0.83),
+        g(1, nan, nan, nan) + ";" + g(2, 0.3, nan, 1.25),
+        g(10, 0.2, 7.5, 0.1) + ";" + g(10, 0.2, 7.5, 0.1) + ";" + g(0, 1.0, 0.1, 1.0),
+    ]
+    write("reverb.list", [line for line in reverb_cases.__doc__.strip().splitlines()], lines)
+
+
+def wav(channels, bits_, rate, frames):
+    """The name the harness makes a wav of."""
+    return "audio\\c%db%dr%df%d.wav" % (channels, bits_, rate, frames)
+
+
+def nick(name):
+    return name.encode("latin-1").hex()
+
+
+ARCH_A = """; P4.10 client wiring: [Sound] archetypes for audio_arch.jsonl and audio_client.jsonl,
+; written by make_audio_fixtures.py.
+[Sound]
+nickname = ui_click
+type = interface
+file = %(w2205)s
+attenuation = -8
+is_2d = true
+
+[Sound]
+nickname = sfx_loop
+type = normal
+file = %(w22050)s
+range = 40, 600
+attenuation = -3.9
+
+[Sound]
+nickname = sfx_bend
+file = %(w11025)s
+pitch_bendable = true
+is_2d = true
+range = 25
+
+[Sound]
+nickname = sfx_loud
+file = %(w22050)s
+attenuation = 12
+persistent = space
+
+[Sound]
+nickname = sfx_quiet
+file = %(w44100s)s
+attenuation = -120
+persistent = gameflow
+range = 10, 5
+
+[Sound]
+nickname = amb_wind
+type = ambience
+file = %(w22050)s
+range = -3, 100
+persistent = nowhere
+streamer = false
+crv_pitch = 0
+
+[Sound]
+nickname = music_theme
+type = music
+file = %(w44100s)s
+is_2d = true
+volume = 3
+
+[Sound]
+nickname = voice_line
+type = voice
+file = %(w2205)s
+is_2d = 1
+
+[Sound]
+nickname = sfx_missing
+file = audio\\nothing_here.wav
+
+[Sound]
+nickname = sfx_nofile
+
+[Sound]
+type = interface
+file = %(w2205)s
+
+[Sound]
+nickname = sfx_lod
+file = %(w22050)s
+lod1 = sfx_loop
+lod2 = NONE
+
+[Sound]
+nickname = sfx_lod2
+file = %(w2205)s
+lod2 = ui_click
+
+[Sound]
+nickname = sfx_lod_bad
+file = %(w2205)s
+lod1 = no_such_sound
+
+[Sound]
+nickname = UI_Click
+type = interface
+file = %(w2205)s
+attenuation = -6
+is_2d = true
+""" % dict(w2205=wav(1, 16, 22050, 2205), w22050=wav(1, 16, 22050, 22050),
+          w11025=wav(1, 16, 11025, 11025), w44100s=wav(2, 16, 44100, 4410))
+
+ARCH_B = """; P4.10 client wiring: redefinitions for audio_arch.jsonl, written by make_audio_fixtures.py.
+[Sound]
+nickname = sfx_loop
+type = normal
+file = %(w22050)s
+range = 80
+attenuation = -1
+
+[Sound]
+nickname = ui_click
+type = interface
+file = %(w4410)s
+is_2d = true
+
+[Sound]
+nickname = sfx_extra
+file = %(w4410)s
+type = interface
+""" % dict(w22050=wav(1, 16, 22050, 22050), w4410=wav(1, 8, 22050, 4410))
+
+
+def arch_cases():
+    """arch.list: one command per line (the format is in oracle_audio_client.cpp)."""
+    write_text("arch_a.ini", ARCH_A.replace("\n", "\r\n"))
+    write_text("arch_b.ini", ARCH_B.replace("\n", "\r\n"))
+    L = []
+
+    def case(use3d=1.0, scale=1.0, maxsub=32, maxch=8):
+        L.append("case %s %s %d %d" % (f(use3d), f(scale), maxsub, maxch))
+
+    case()
+    L.append("ini 0 audio/arch_a.ini")
+    for name in ("ui_click", "sfx_loop", "sfx_bend", "sfx_loud", "sfx_quiet", "amb_wind",
+                 "music_theme", "voice_line", "sfx_missing", "sfx_nofile", "nobody"):
+        L.append("acquire " + nick(name))
+    L.append("acquire " + nick("ui_click"))
+    L.append("release " + nick("ui_click"))
+    L.append("release " + nick("sfx_loop"))
+    L.append("release " + nick("sfx_loop"))
+    L.append("acquire " + nick("sfx_loop"))
+    L.append("ini 0 audio/arch_b.ini")
+    L.append("acquire " + nick("sfx_extra"))
+    L.append("ini 1 audio/arch_b.ini")
+    L.append("release " + nick("ui_click"))
+    L.append("acquire " + nick("sfx_lod"))
+    L.append("lod 1")
+    L.append("acquire " + nick("sfx_lod"))
+    L.append("acquire " + nick("sfx_lod_bad"))
+    L.append("lod 2")
+    L.append("acquire " + nick("sfx_lod2"))
+    L.append("release " + nick("sfx_lod"))
+    L.append("lod 0")
+    L.append("release " + nick("sfx_lod2"))
+    L.append("preload 1")
+    L.append("preload 2")
+    L.append("unload 1")
+    L.append("unload 3")
+    # Without 3D sounds every archetype is made with pan control.
+    case(use3d=0.5, scale=2.0)
+    L.append("ini 0 audio/arch_a.ini")
+    for name in ("ui_click", "sfx_loop", "sfx_bend", "amb_wind"):
+        L.append("acquire " + nick(name))
+    write("arch.list", [line for line in arch_cases.__doc__.strip().splitlines()], L)
+
+
+def client_cases():
+    """client.list: one command per line (the format is in oracle_audio_client.cpp)."""
+    L = []
+    r = random.Random(4016)
+
+    def case(use3d=1.0, scale=1.0, maxsub=32, maxch=8):
+        L.append("case %s %s %d %d" % (f(use3d), f(scale), maxsub, maxch))
+        L.append("ini 0 audio/arch_a.ini")
+
+    def play(name, flags=None, start=0, pos=(0.0, 0.0, 0.0), atten=0.0, handle=1):
+        if flags is None:
+            L.append("play %s - 0 - 0 %d" % (nick(name), handle))
+        else:
+            L.append("play %s %x %d %s %s %d" % (nick(name), flags, start, vec(pos), f(atten), handle))
+
+    def src(i, op, value=None):
+        L.append("src %d %s%s" % (i, op, "" if value is None else " " + value))
+
+    def tick(now, dt=1.0 / 30.0):
+        L.append("tick %d %s" % (now, f(dt)))
+
+    # 1. Flat sources: ranking ties, the silence floor, categories, ducking, the audio mode,
+    # one-shots retired when they end.
+    case(maxch=2)
+    play("ui_click", 0, start=0)
+    play("sfx_loop", 1, start=0)
+    play("music_theme", 1, start=50)
+    play("voice_line", 0, atten=-40.0)
+    play("sfx_quiet", 1)
+    play("nobody", 1)
+    tick(1000)
+    tick(1033)
+    src(0, "atten", f(-100.0))
+    src(1, "pan", f(-3000.0))
+    L.append("vol 0 %s" % f(0.5))
+    L.append("vol 2 %s" % f(0.001))
+    tick(1066)
+    L.append("duck push")
+    tick(1100, 0.05)
+    tick(1150, 0.05)
+    tick(1200, 0.5)
+    L.append("duck pop")
+    tick(1250, 0.25)
+    L.append("mode 1")
+    play("ui_click", 0)
+    tick(1300)
+    L.append("mode 2")
+    src(1, "type", "4")
+    tick(1350)
+    L.append("mode 0")
+    tick(1500)
+    src(1, "release")
+    src(2, "stop")
+    tick(1600)
+    play("sfx_loop", None)
+    tick(1700)
+    tick(30000)
+    # 2. Pitch: a pitch-bendable flat archetype, frequency and pitched lengths.
+    case(maxch=4)
+    play("sfx_bend", 0, start=0)
+    play("sfx_bend", 1, start=0)
+    src(0, "pitch", f(-50.0))
+    src(1, "pitch", f(120.0))
+    tick(10)
+    tick(500)
+    src(1, "pitch", f(0.0))
+    tick(600)
+    tick(1400)
+    tick(2600)
+    src(1, "offset", "100")
+    tick(2700)
+    # 3. Positioned sources: listener, distance scores, the maximum range, the perf scale,
+    # pan buffers in 3D, 3D buffers on the software path.
+    case(scale=2.0, maxch=3)
+    L.append("listener %s %s %s" % (vec([0.0, 0.0, 1.0]), vec([0.0, 1.0, 0.0]), vec([10.0, 0.0, -5.0])))
+    play("sfx_loop", 3, pos=(30.0, 0.0, 40.0))
+    play("sfx_loop", 3, pos=(10.0, 0.0, 500.0))
+    play("sfx_bend", 3, pos=(-20.0, 5.0, 0.0))
+    play("ui_click", 2, pos=(60.0, 0.0, -5.0))
+    play("amb_wind", 3, pos=(0.0, 0.0, 0.0))
+    play("sfx_loop", 3, pos=(10.0, 0.0, 1300.0))
+    play("sfx_loop", 1)
+    tick(100)
+    src(0, "pos", vec([10.0, 0.0, 15.0]))
+    src(1, "pos", vec([10.0, 0.0, 2000.0]))
+    src(2, "atten", f(-30.0))
+    tick(150)
+    L.append("listener %s %s %s" % (vec([1.0, 0.0, 0.0]), vec([0.0, 1.0, 0.0]), vec([0.0, 0.0, 0.0])))
+    tick(200)
+    tick(250)
+    # 4. Many positioned sources: the sort over more than 16, the voice budget and the cap.
+    case(maxsub=3, maxch=4)
+    L.append("listener %s %s %s" % (vec([0.0, 0.0, 1.0]), vec([0.0, 1.0, 0.0]), vec([0.0, 0.0, 0.0])))
+    for i in range(21):
+        p = [r.uniform(-400.0, 400.0), r.uniform(-50.0, 50.0), r.uniform(-400.0, 400.0)]
+        if i in (4, 9):
+            p = [100.0, 0.0, 0.0]
+        play("sfx_loop", 3, start=r.randint(0, 200), pos=p, atten=r.choice((0.0, -2.0, -6.5)))
+    tick(300)
+    for i in (3, 7, 11):
+        src(i, "pos", vec([1.0 + i, 0.0, 0.0]))
+    src(5, "stop")
+    tick(400)
+    tick(500)
+    # 5. Without 3D sounds: positioned sources on pan buffers.
+    case(use3d=0.5, maxch=4)
+    L.append("listener %s %s %s" % (vec([0.0, 0.0, 1.0]), vec([0.0, 1.0, 0.0]), vec([0.0, 0.0, 0.0])))
+    play("sfx_loop", 3, pos=(30.0, 0.0, 40.0))
+    play("amb_wind", 3, pos=(-50.0, 0.0, 10.0), start=40)
+    tick(100)
+    tick(140)
+    write("client.list", [line for line in client_cases.__doc__.strip().splitlines()], L)
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     apply_cases()
@@ -405,6 +719,9 @@ def main():
     ini_cases()
     eax_cases()
     tick_cases()
+    reverb_cases()
+    arch_cases()
+    client_cases()
 
 
 if __name__ == "__main__":

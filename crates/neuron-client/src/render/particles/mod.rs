@@ -31,11 +31,16 @@
 //! * Bounding spheres: each appearance's and the effect's merge
 //!   ([`Effect::bounds`], `Slot15`).
 //!
+//! The third increment ports the two appearances that make no billboards
+//! ([`child`]): the particle appearance, whose particles carry child
+//! effects under the appearance node (the life effect along the particle's
+//! life, turned along its velocity, and the death effect where it ends),
+//! and the mesh appearance, whose particles carry meshes of the client's
+//! mesh factory ([`FxMeshFactory`]).
+//!
 //! [`crate::render::stack::RenderStack`] answers both service traits on
-//! the device model. The particle and mesh appearances' child effects and
-//! meshes are not ported yet: they age and finish, draw nothing and have
-//! no sphere of their own. What the simulation asks of the texture library
-//! goes through [`ParticleServices`].
+//! the device model. What the simulation asks of the texture library and
+//! the mesh factory goes through [`ParticleServices`].
 
 // The reference's x87 branches treat an unordered comparison as one side of
 // a test; the negated comparisons keep that.
@@ -43,6 +48,7 @@
 
 mod appearance;
 mod bounds;
+mod child;
 pub mod draw;
 mod effect;
 mod emitter;
@@ -62,6 +68,6 @@ pub use draw::{DrawContext, DrawState, PARTICLE_FVF, VERTEX_BYTES};
 pub use effect::{Effect, EffectError, EffectRecord, OVERRIDE_FOLDER_HASH};
 pub use fill::sin_cos;
 pub use node::{Family, Node, NodeId};
-pub use pool::{Particle, PoolKind, Pools};
-pub use services::{Camera, NoTextures, ParticleDraw, ParticleServices};
+pub use pool::{Particle, ParticleRecord, PoolKind, Pools};
+pub use services::{Camera, FxMesh, FxMeshFactory, NoTextures, ParticleDraw, ParticleServices};
 pub use system::{ParticleFx, pool_of};

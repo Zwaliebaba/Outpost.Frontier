@@ -1,7 +1,8 @@
 """Writes the inputs of the P4.8 particle suites (Oracle.exe neuron-client,
 CppSource/Oracle/oracle_particles.cpp, and
 crates/neuron-client/tests/oracle_vectors.rs): particle_ramp.list,
-particle_sim.list and particle_draw.list. Run from any folder:
+particle_sim.list, particle_draw.list and particle_child.list. Run from any
+folder:
 
     python make_particle_fixtures.py [--check]
 
@@ -23,11 +24,21 @@ particle_draw.list: the same operations and the draw ones (the camera, the
 batcher, the draw limits, begin, draw and end, bounds, counters and the dust's
 camera state) over every billboard kind and its flags.
 
+particle_child.list: the same operations with the recording mesh factory
+(meshfac) and the dump of the particle and mesh appearances' records (kids):
+the particle appearance's life and death effects, the velocity's turn on both
+axes, the smooth rotation's slerp (slow, clamped), the forwarded outer time
+and LOD input, eviction across owners, the children's spheres and draws; the
+mesh appearance's meshes posed both ways, updated, drawn, evicted, refused and
+torn down.
+
 The cases keep to what the reference defines: no time is unordered, every
 ramp a property hands out has a key, loop types stay within 0 to 4 per nibble,
 every record names a node the library holds and every pair names records of
 the effect, every pool a case spawns into has room for at least one particle,
-and no texture call is made on an id the fake did not hand out.
+no texture call is made on an id the fake did not hand out, no pool is
+reallocated while it holds particles, and the mesh factory stays bound while
+meshes live (the fake hands out no null mesh).
 """
 
 import importlib.util
@@ -745,6 +756,144 @@ def draw_list():
                                             draw_dust, draw_beam, draw_batch, draw_errors)]
 
 
+# --- particle_child -----------------------------------------------------------------------
+
+# The particle and mesh appearance sets' hashes (crates/neuron-core/src/fx_data/props.rs).
+P_LIFE, P_DEATH, P_DYNAMIC, P_SMOOTH = 0x0EC7A290, 0x03B76E6C, 0xE34C3C55, 0x049A6DBE
+M_ID, M_NAME, M_UPT, M_XFORM = 0x0B7EE41C, 0x18DADCA8, 0x001FC112, 0xF0004D58
+
+
+def kid_app(name, life=None, death=None, flags=0, extra=()):
+    props = []
+    if life is not None:
+        props.append(prop(0x103, P_LIFE, string(life)))
+    if death is not None:
+        props.append(prop(0x103, P_DEATH, string(death)))
+    if flags & 1:
+        props.append(bool_prop(P_DYNAMIC))
+    if flags & 2:
+        props.append(bool_prop(P_SMOOTH))
+    return named(b"FxParticleAppearance", name, props + list(extra))
+
+
+def mesh_app(name, mesh_id, mesh_name, upt, xform=None):
+    props = [prop(2, M_ID, u32(mesh_id)), prop(0x103, M_NAME, string(mesh_name)),
+             bool_prop(M_UPT, upt)]
+    if xform is not None:
+        props.append(prop(0x105, M_XFORM, xform))
+    return named(b"FxMeshAppearance", name, props)
+
+
+def sphere_emit(name, freq, life, pressure, initial=0, node_life=20.0, radius=0.5):
+    return named(b"FxSphereEmitter", name, [
+        prop(ANIM, FREQ, anim(freq)), prop(ANIM, LIFESPAN, anim(life)),
+        prop(ANIM, PRESSURE, anim(pressure)), prop(2, INITIAL, u32(initial)),
+        prop(ANIM, SPHERE_MIN_R, anim(0.1)), prop(ANIM, SPHERE_MAX_R, anim(radius)),
+        prop(3, LIFE, f32(node_life))])
+
+
+def child_effects():
+    """The two effects the particle appearances carry: a spark that keeps
+    emitting and a puff whose emitter dies at once."""
+    nodes = [
+        sphere_emit(b"spark_emit", 30.0, 0.2, 1.0, initial=1),
+        named(b"FxBasicAppearance", b"spark_app", [bool_prop(B_QUADS)]),
+        sphere_emit(b"puff_emit", 0.0, 0.15, 3.0, initial=4, node_life=0.05),
+        named(b"FxBasicAppearance", b"puff_app", []),
+    ]
+    effects = [fed_effect(b"spark", [(b"spark_emit", b"spark_app")]),
+               fed_effect(b"puff", [(b"puff_emit", b"puff_app")])]
+    return nodes, effects
+
+
+def child_life():
+    """Life and death effects: records turned along the velocity and
+    smoothed, a field on the live records, the outer time and LOD input
+    handed on, the death effects where the records end, the children's
+    spheres and draws, the stop and the finish."""
+    kids_nodes, kids_effects = child_effects()
+    nodes = kids_nodes + [
+        sphere_emit(b"kid_emit", 6.0, 0.3, 2.0, initial=3),
+        kid_app(b"kid_app", b"spark", b"puff", 3),
+        named(b"FxGravityField", b"kid_gravity", [prop(ANIM, GRAVITY, anim(-3.0))]),
+    ]
+    effects = kids_effects + [effect(b"kids", [ref(b"kid_app", ROOT, 1), ref(b"kid_emit", ROOT, 2),
+                                               ref(b"kid_gravity", ROOT, 3)], [(2, 1), (1, 3)])]
+    ops = [ale_op(nodes, effects), "seed 77 5", "effect 0 " + hx(b"kids"), "outer 0 " + f(0.25),
+           "lod 0 " + f(0.5), "xform 0 0 " + xf(ROT_A, (1.0, 2.0, 3.0)),
+           cam(ROT_B, (0.0, 0.0, -10.0), ROT_A, (1.0, 1.0, 1.0))]
+    ops += steps(0, 1) + ["kids 0"] + steps(0, 4) + ["kids 0", "dump 0", "outer 0 " + f(0.5),
+                                                     "lod 0 " + f(0.75), "kids 0"]
+    ops += steps(0, 6) + ["kids 0"] + draw_frame() + ["spheres 0", "bounds 0", "stop 0 1"]
+    ops += steps(0, 10) + ["kids 0", "done 0 4"] + steps(0, 10) + ["done 0 4", "kids 0", "pools",
+                                                                  "release 0", "pools"]
+    return ops
+
+
+def child_turns():
+    """The velocity's turn on both axes (a jet along y takes the other axis
+    and the twist), the smooth rotation of slow particles and its clamp for
+    fast ones, a particle appearance without a life name, and a pool of
+    five records shared by four appearances (eviction across owners)."""
+    kids_nodes, kids_effects = child_effects()
+    nodes = kids_nodes + [
+        named(b"FxConeEmitter", b"up_emit", [
+            prop(ANIM, FREQ, anim(15.0)), prop(ANIM, LIFESPAN, anim(0.5)),
+            prop(ANIM, PRESSURE, anim(3.0)), prop(2, INITIAL, u32(2)),
+            prop(ANIM, CONE_MIN_S, anim(0.0)), prop(ANIM, CONE_MAX_S, anim(3.0))]),
+        kid_app(b"up_app", b"spark", None, 1),
+        sphere_emit(b"slow_emit", 15.0, 0.5, 0.2, initial=2),
+        kid_app(b"slow_app", b"spark", None, 3),
+        sphere_emit(b"fast_emit", 10.0, 0.4, 40.0, initial=2),
+        kid_app(b"fast_app", b"spark", None, 3),
+        sphere_emit(b"bare_emit", 30.0, 0.5, 1.0, initial=3),
+        kid_app(b"bare_app"),
+    ]
+    effects = kids_effects + [fed_effect(b"turns", [(b"up_emit", b"up_app"),
+                                                    (b"slow_emit", b"slow_app"),
+                                                    (b"fast_emit", b"fast_app"),
+                                                    (b"bare_emit", b"bare_app")])]
+    ops = [ale_op(nodes, effects), "pool particle 5", "seed 4321 2", "effect 0 " + hx(b"turns")]
+    ops += steps(0, 1) + ["kids 0"] + steps(0, 2) + ["kids 0", "pools"] + steps(0, 3, f(0.1)) + \
+        ["kids 0", "pools", "stop 0 7", "pools", "release 0", "pools"]
+    return ops
+
+
+def child_meshes():
+    """Mesh appearances: no factory, then meshes posed through the particle
+    transform and on the mesh's own rotation, updated, moved by a field,
+    drawn, evicted from a pool of three, refused by the factory, stopped
+    and torn down."""
+    turn = channels([0.0] * 6 + [1.0, 1.0, 1.0])
+    turn[1] = anim_keys([(0.0, 0.0, 0.0, 0.0), (1.0, 2.0, 0.0, 0.0)])
+    turn[4] = anim_keys([(0.0, 0.0, 0.0, 0.0), (1.0, 90.0, 0.0, 0.0)])
+    nodes = [
+        sphere_emit(b"m_emit", 30.0, 0.3, 2.0, initial=2),
+        mesh_app(b"posed", 7, b"rock", True, transform(0, 0, 0, turn)),
+        named(b"FxConeEmitter", b"m_emit2", [
+            prop(ANIM, FREQ, anim(20.0)), prop(ANIM, LIFESPAN, anim(0.25)),
+            prop(ANIM, PRESSURE, anim(1.5)), prop(2, INITIAL, u32(1)),
+            prop(ANIM, CONE_MAX_S, anim(40.0))]),
+        mesh_app(b"plain", 3, b"tube", False),
+        named(b"FxGravityField", b"m_gravity", [prop(ANIM, GRAVITY, anim(2.0))]),
+    ]
+    effects = [effect(b"meshes", [ref(b"posed", ROOT, 1), ref(b"plain", ROOT, 2),
+                                  ref(b"m_emit", ROOT, 3), ref(b"m_emit2", ROOT, 4),
+                                  ref(b"m_gravity", ROOT, 5)], [(3, 1), (4, 2), (1, 5)])]
+    ops = [ale_op(nodes, effects), "pool mesh 3", "seed 99 1", "effect 0 " + hx(b"meshes"),
+           "outer 0 " + f(0.5), "xform 0 0 " + xf(ROT_B, (0.0, 1.0, 0.0)), "meshfac 0"]
+    ops += steps(0, 1) + ["kids 0", "meshfac 1"] + steps(0, 2) + ["kids 0", "dump 0", "pools"] + \
+        steps(0, 4) + ["kids 0", "pools"]
+    ops += [cam(ROT_A, (0.0, 0.0, -10.0), ROT_B, (1.0, 1.0, 1.0))] + draw_frame() + \
+        ["spheres 0", "bounds 0", "meshfac 2"] + steps(0, 2) + ["kids 0", "meshfac 1", "stop 0 1"]
+    ops += steps(0, 12) + ["done 0 4", "kids 0", "pools", "release 0", "pools"]
+    return ops
+
+
+def child_list():
+    return [" ; ".join(case()) for case in (child_life, child_turns, child_meshes)]
+
+
 def write(name, text, check):
     path = os.path.join(HERE, name)
     if check:
@@ -766,6 +915,7 @@ def main():
     write("particle_ramp.list", listing("particle ramp", ramp_list()), check)
     write("particle_sim.list", listing("particle sim", sim_list()), check)
     write("particle_draw.list", listing("particle draw", draw_list()), check)
+    write("particle_child.list", listing("particle child", child_list()), check)
 
 
 if __name__ == "__main__":

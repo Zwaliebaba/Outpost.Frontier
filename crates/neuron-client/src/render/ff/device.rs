@@ -287,6 +287,8 @@ pub struct Device<B: Backend> {
     /// Programs, render targets, volume textures and the scene depth
     /// (`render::pass`, record 0005).
     pub ex: crate::render::pass::ExModel,
+    /// The draws handed to the backend so far.
+    pub draw_count: u64,
     pub backend: B,
 }
 
@@ -317,6 +319,7 @@ impl<B: Backend> Device<B> {
             approximated_sampler_seen: BTreeSet::new(),
             gamma: Gamma::default(),
             ex: crate::render::pass::ExModel::new(width, height),
+            draw_count: 0,
             backend,
         }
     }
@@ -487,6 +490,7 @@ impl<B: Backend> Device<B> {
     ) {
         // The C++ ignores the light flush's result at a draw.
         let _ = self.lights.flush();
+        self.draw_count += 1;
         self.unemulated.extend(unemulated_states(&self.state));
         self.unemulated_stage_seen
             .extend(unemulated_stages(&self.state));

@@ -7,6 +7,7 @@
 pub mod audio;
 pub mod data;
 pub mod deformable;
+pub mod deformable_anim;
 pub mod material;
 pub mod material_appearance;
 pub mod material_kinds;
@@ -20,6 +21,7 @@ pub mod scene_script_runtime;
 pub mod text;
 pub mod texture;
 pub mod ui;
+pub mod ui_immediate;
 
 use std::fmt::Write as _;
 use std::fs;

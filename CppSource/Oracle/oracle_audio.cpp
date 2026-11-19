@@ -25,6 +25,14 @@
 //   audio_tick.jsonl     {"case","arch","flags","buffer","frames","duration"} per archetype,
 //                        {"case","tick","instances"} per tick, then per instance in list
 //                        order {"case","tick","key","rank","pan","volume","freq","pos","plays"}
+//   audio_reverb.jsonl   {"in":..,"step","env","vol","decay","damp"}: the four words GetEaxPreview
+//                        hands out, step 0 with the [AudioProperties] values stored as
+//                        StartupDevice reads them and no device, step 1 after StartupDevice's
+//                        SetEaxPreview of them with a device, then one step per scene-script
+//                        SetReverb (SetEaxPreview of its four values)
+//
+// The client wiring's suites (oracle_audio_client.cpp, audio_arch.jsonl and
+// audio_client.jsonl) drive a manager of this file through the bridge functions at its end.
 
 #include <windows.h>
 
@@ -887,6 +895,151 @@ namespace
     }
 }
 
+// The bridge of oracle_audio_client.cpp: a manager with the recording device, its clock, its
+// instances and its archetypes.
+struct FOracleVoiceInfo
+{
+    void* Key;
+    unsigned long Rank;
+    bool bPan;
+    long Pan;
+    bool bVolume;
+    long Volume;
+    bool bFreq;
+    unsigned long Freq;
+    bool bPos;
+    unsigned long Pos;
+    unsigned int Plays;
+};
+
+namespace
+{
+    struct FBridgedManager
+    {
+        FSoundManager* Manager;
+        FOracleDirectSound* Device;
+    };
+    std::vector<FBridgedManager> GBridged;
+}
+
+ISoundManager* OracleAudioCreateManager(unsigned long MaxChannels)
+{
+    FBridgedManager Entry;
+    Entry.Device = new FOracleDirectSound();
+    Entry.Manager = new FSoundManager();
+    Entry.Manager->DirectSound = Entry.Device;
+    Entry.Manager->SetMaxChannels(MaxChannels);
+    GBridged.push_back(Entry);
+    return Entry.Manager;
+}
+
+void OracleAudioDestroyManager(ISoundManager* Manager)
+{
+    for (size_t Index = 0; Index < GBridged.size(); ++Index)
+    {
+        if (static_cast<ISoundManager*>(GBridged[Index].Manager) != Manager)
+            continue;
+        delete GBridged[Index].Manager;
+        delete GBridged[Index].Device;
+        GBridged.erase(GBridged.begin() + static_cast<long>(Index));
+        return;
+    }
+}
+
+void OracleAudioSetTick(unsigned long Now)
+{
+    GOracleTick = Now;
+}
+
+unsigned long OracleAudioVoices(FOracleVoiceInfo* Out, unsigned long Max)
+{
+    unsigned long Count = 0;
+    for (FSoundInstanceNode* Node = G_InstanceSentinel.Next; Node != &G_InstanceSentinel && Count < Max;
+         Node = Node->Next)
+    {
+        const FOracleBuffer* Buffer = static_cast<FOracleBuffer*>(Node->Buffer);
+        FOracleVoiceInfo& V = Out[Count++];
+        V.Key = Node->PlayKey;
+        V.Rank = Node->CapsFlags;
+        V.bPan = Buffer->bSetPan;
+        V.Pan = Buffer->SetPanValue;
+        V.bVolume = Buffer->bSetVolume;
+        V.Volume = Buffer->SetVolumeValue;
+        V.bFreq = Buffer->bSetFrequency;
+        V.Freq = Buffer->SetFrequencyValue;
+        V.bPos = Buffer->bSetPosition;
+        V.Pos = Buffer->SetPositionValue;
+        V.Plays = Buffer->Plays;
+    }
+    return Count;
+}
+
+bool OracleAudioArchetypeInfo(ISoundManager* Manager, int Id, unsigned long* Flags, unsigned long* Buffer,
+                              unsigned long* Frames, unsigned long* Duration)
+{
+    FSoundArchetype* Arch = static_cast<FSoundManager*>(Manager)->LookupArchetype(Id);
+    if (Arch == nullptr)
+        return false;
+    *Flags = Arch->Flags;
+    *Buffer = static_cast<unsigned long>(static_cast<FOracleBuffer*>(Arch->Buffer)->Flags);
+    *Frames = Arch->NumFrames;
+    *Duration = Arch->DurationMs;
+    Arch->Release();
+    return true;
+}
+
+namespace
+{
+    void ReverbSuite()
+    {
+        Suite Out("audio_reverb.jsonl");
+        for (const std::string& Line : InputLines("audio/reverb.list"))
+        {
+            const std::vector<std::string> Groups = Split(Line, ';');
+            FSoundManager* Mgr = new FSoundManager();
+            FOracleDirectSound Device;
+            Mgr->Flags &= ~4u;
+            auto Emit = [&](int Step) {
+                unsigned long Env = 0;
+                unsigned long Vol = 0;
+                unsigned long Decay = 0;
+                unsigned long Damp = 0;
+                Mgr->GetEaxPreview(&Env, &Vol, &Decay, &Damp);
+                Out.Line(Head(Line) + Field("step", Format("%d", Step)) + Field("env", Format("%08lx", Env)) +
+                         Field("vol", Format("%08lx", Vol)) + Field("decay", Format("%08lx", Decay)) +
+                         Field("damp", Format("%08lx", Damp)) + "}");
+            };
+            for (size_t Index = 0; Index < Groups.size(); ++Index)
+            {
+                const std::vector<std::string> T = Split(Groups[Index], ' ');
+                const int Env = static_cast<int>(Dec(T[0]));
+                if (Index == 0)
+                {
+                    // StartupDevice's INI reads store the values as they are.
+                    Mgr->EaxEnv = Env;
+                    Mgr->EaxVol = HexFloat(T[1]);
+                    Mgr->EaxDecay = HexFloat(T[2]);
+                    Mgr->EaxDamp = HexFloat(T[3]);
+                    Emit(0);
+                    Mgr->DirectSound = &Device;
+                    Mgr->SetEaxPreview(Mgr->EaxEnv, Mgr->EaxVol, Mgr->EaxDecay, Mgr->EaxDamp);
+                    Emit(1);
+                }
+                else
+                {
+                    Mgr->SetEaxPreview(Env, HexFloat(T[1]), HexFloat(T[2]), HexFloat(T[3]));
+                    Emit(static_cast<int>(Index) + 1);
+                }
+            }
+            Mgr->DirectSound = nullptr;
+            delete Mgr;
+        }
+    }
+}
+
+// oracle_audio_client.cpp.
+void RunAudioClientSuites();
+
 void RunAudioSuites()
 {
     ApplySuite();
@@ -897,4 +1050,6 @@ void RunAudioSuites()
     IniSuite();
     EaxSuite();
     TickSuite();
+    ReverbSuite();
+    RunAudioClientSuites();
 }

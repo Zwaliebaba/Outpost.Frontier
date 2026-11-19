@@ -34,6 +34,15 @@ pub trait ShapeTextures {
     fn set_generic_slot_4(&mut self, value: u32);
     /// `GetTextureFrame(record, frame)`: the GPU handle (word 0).
     fn frame_handle(&mut self, record: u32, frame: i32) -> u32;
+    /// `GetTextureFrame(record, frame)`: the GPU handle and the frame's UV
+    /// rect as `f32` bits (`u0, v0, u1, v1`; the whole texture unless the
+    /// library says otherwise).
+    fn frame(&mut self, record: u32, frame: i32) -> (u32, [u32; 4]) {
+        (
+            self.frame_handle(record, frame),
+            [0, 0, 0x3F80_0000, 0x3F80_0000],
+        )
+    }
     /// `GetTextureDim`: width and height of a GPU texture (0 when
     /// unknown).
     fn texture_dim(&mut self, handle: u32) -> (u32, u32);

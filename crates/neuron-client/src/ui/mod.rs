@@ -33,9 +33,11 @@
 //! framed panels, text and edit controls, static, button and wire controls,
 //! the mesh scroll bar, the table, the tooltip and the rollover, the
 //! page's rich-text windows) draw their frames, arrows and rules through an
-//! OpenGL-like immediate-mode layer (`win3d_immediate.cpp`, [`immediate`])
-//! and call the client's sounds, commands and options through
-//! [`services`].
+//! OpenGL-like immediate-mode layer (`win3d_immediate.cpp`: the calls
+//! [`immediate`], the layer [`win3d_immediate`], its line batchers and
+//! overlay pass [`win3d_renderables`]) and call the client's sounds, commands and options through
+//! [`services`]. Buttons whose mesh names a tile of the button montage
+//! draw it as a screen-space icon ([`montage`]).
 //! The software cursor is a named record of `mouse.ini` drawn from a
 //! texture shape at the end of the frame ([`shape`], [`cursor`]).
 //!
@@ -64,6 +66,7 @@ pub mod cursor;
 pub mod factory;
 pub mod immediate;
 pub mod message;
+pub mod montage;
 pub mod page;
 pub mod pulse;
 pub mod quad_batch;
@@ -71,3 +74,5 @@ pub mod services;
 pub mod shape;
 pub mod tree;
 pub mod widescreen;
+pub mod win3d_immediate;
+pub mod win3d_renderables;

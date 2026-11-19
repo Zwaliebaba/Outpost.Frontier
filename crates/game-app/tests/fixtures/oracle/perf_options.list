@@ -1,0 +1,29 @@
+# P4.1 PerfOptions.ini oracle inputs (LoadPerfOptions, SavePerfOptions), written by
+# make_game_app_fixtures.py; the format is in CppSource/Oracle/oracle_perf_options.cpp: files
+# (comma-separated, under perf/), d or - (a display block or none) and the saved display's
+# width, height, colour and depth.
+valid.ini d 1280 960 32 24
+valid.ini - 1024 768 32 24
+valid_lf.ini d 800 600 16 16
+old_version.ini d 1024 768 32 24
+negative.ini d 1024 768 32 24
+count_mismatch.ini d 1024 768 32 24
+count_fraction.ini d 1024 768 32 24
+unknown.ini d 1024 768 32 24
+partial.ini d 1024 768 32 24
+no_version.ini d 1024 768 32 24
+options_first.ini d 1024 768 32 24
+display_only.ini d 1920 1080 32 24
+skip.ini d 1024 768 32 24
+two_versions.ini d 1024 768 32 24
+version_edges.ini d 1024 768 32 24
+version_tiny.ini d 1024 768 32 24
+odd_values.ini d 1024 768 32 24
+negative_last.ini d 1024 768 32 24
+missing.ini d 1024 768 32 24
+empty.ini d 1024 768 32 24
+dup.ini d 1024 768 32 24
+display_odd.ini d 1024 768 32 24
+valid.ini,partial.ini d 1280 960 32 24
+valid.ini,old_version.ini,skip.ini d 1280 960 32 24
+partial.ini,partial.ini d 0 0 -1 -1
