@@ -699,3 +699,76 @@ fn the_ai_reads_loot_and_the_hold_and_points_the_tractor() {
     assert_eq!(AiWorld::command(&mut world, ship, tractor_at(tractor)), 0);
     assert_eq!(AiWorld::command(&mut world, ship, tractor_at(0x7777)), -2);
 }
+
+#[test]
+fn wingmen_hold_their_slots_and_a_follower_follows() {
+    use game_sim::ai::behavior::{DirectiveOp, FollowOp, GotoOp, ids};
+    use game_sim::ai::state_graph::GraphType;
+    let Some(mut world) = support::world::world(WorldConfig::default()) else {
+        println!("outdir/ is missing: nothing to fly");
+        return;
+    };
+    let system = create_id(b"he01");
+    world.load_system(system);
+    let leader = fighter(&mut world, system, Vector::new(15000.0, 3000.0, -25000.0));
+    let wing = fighter(&mut world, system, Vector::new(14955.0, 3000.0, -24986.0));
+    let follower = fighter(&mut world, system, Vector::new(15000.0, 3000.0, -24700.0));
+    let graphs = &world.data().state_graphs;
+    let lead_graph = graphs.find(b"FIGHTER", GraphType::Leader);
+    let escort_graph = graphs.find(b"FIGHTER", GraphType::Escort);
+    assert!(escort_graph >= 0 && escort_graph != lead_graph);
+    world.submit_state(leader, lead_graph, None);
+    world.submit_state(wing, escort_graph, None);
+    world.submit_state(follower, lead_graph, None);
+    // The leader leads itself, then the wingman joins at its slot.
+    assert_eq!(
+        world.update_formation_state(leader, Some(leader), Vector::ZERO),
+        0
+    );
+    let offset = Vector::new(-45.0, 0.0, 14.0);
+    assert_eq!(world.update_formation_state(wing, Some(leader), offset), 0);
+    let lv = world.ai_view(leader).unwrap();
+    let wv = world.ai_view(wing).unwrap();
+    assert_eq!(lv.formation_followers, vec![wv.id]);
+    assert_eq!(wv.formation_leader, Some(lv.id));
+    assert_eq!(wv.formation_offset, Some(offset));
+    let goto = GotoOp {
+        kind: 1,
+        destination: Vector::new(15000.0, 3000.0, -28000.0),
+        range: 100.0,
+        no_cruise: 1,
+        ..GotoOp::default()
+    };
+    assert_eq!(world.submit_directive(leader, &DirectiveOp::Goto(goto)), 1);
+    let follow = FollowOp {
+        target: lv.id,
+        offset: Vector::new(60.0, 0.0, 120.0),
+        ..FollowOp::default()
+    };
+    assert_eq!(
+        world.submit_directive(follower, &DirectiveOp::Follow(follow)),
+        1
+    );
+    for _ in 0..600 {
+        world.step(system, 1.0 / 30.0);
+    }
+    let behavior = |h| world.behavior_manager(h).unwrap().state.behavior;
+    assert_eq!(behavior(wing), ids::FORMATION);
+    assert_eq!(behavior(follower), ids::FOLLOW);
+    let (lp, wp, fp) = (
+        world.inspect(leader).unwrap().position,
+        world.inspect(wing).unwrap().position,
+        world.inspect(follower).unwrap().position,
+    );
+    // The leader has flown; the wingman keeps near its slot and the
+    // follower near its offset (both in the leader's frame, facing -Z).
+    assert!(f64::from(lp.z) < -26000.0, "leader at {lp:?}");
+    let near = |p: Vector, x: f64, z: f64| {
+        let dx = f64::from(p.x) - (f64::from(lp.x) + x);
+        let dz = f64::from(p.z) - (f64::from(lp.z) + z);
+        (dx * dx + dz * dz).sqrt() < 150.0
+    };
+    assert!(near(wp, -45.0, 14.0), "wingman at {wp:?}, leader {lp:?}");
+    assert!(near(fp, 60.0, 120.0), "follower at {fp:?}, leader {lp:?}");
+    assert_eq!(world.ai_view(follower).unwrap().follow_leader, Some(lv.id));
+}

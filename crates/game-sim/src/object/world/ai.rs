@@ -608,6 +608,44 @@ impl AiWorld for World {
             .map(|m| (m.state.behavior, m.state.directive))
     }
 
+    /// `CShip::generate_follow_offset(follower, out)`: the follower's slot
+    /// in the leader's follow list (cleared slots counted) picks a ring of
+    /// four (50 m to the side, 20 m back per ring) turned by a quarter per
+    /// slot about the leader's Z, in the leader's frame from its centre.
+    /// The reference's `FCOS` and `FSIN` round once from 64 bits; here the
+    /// `f64` value is rounded, which agrees for these angles (multiples of
+    /// a quarter turn).
+    fn generate_follow_offset(
+        &self,
+        leader: ObjHandle,
+        follower: ObjHandle,
+    ) -> Option<neuron_core::math::Transform> {
+        let fid = self.get(follower)?.simple.id;
+        let slots = &self.get(leader)?.as_ship()?.follow_followers;
+        let slot = slots.iter().position(|&s| {
+            s.and_then(|h| self.get(h))
+                .is_some_and(|o| o.simple.id == fid)
+        })?;
+        let slot = i32::try_from(slot).ok()?;
+        let ring = f64::from(slot / 4 + 1);
+        let quad = f64::from(slot % 4);
+        let offset = Vector::new(r(e(50.0) * ring), r(e(0.0) * ring), r(ring * e(20.0)));
+        let angle = quad * e(core::f32::consts::PI) * 0.5;
+        let cos = r(angle.cos());
+        let sin = r(e(r(angle)).sin());
+        let spin = Matrix::from_rows([[cos, -sin, 0.0], [sin, cos, 0.0], [0.0, 0.0, 1.0]]);
+        let rotated = neuron_core::math::transform_matrix(&spin, offset);
+        let (_, center) = self.physical_sphere(leader);
+        let orient = self.inspect(leader)?.orientation;
+        let turned = neuron_core::math::transform_matrix(&orient, rotated);
+        let translation = Vector::new(
+            r(e(turned.x) + e(center.x)),
+            r(e(turned.y) + e(center.y)),
+            r(e(turned.z) + e(center.z)),
+        );
+        Some(neuron_core::math::Transform::new(orient, translation))
+    }
+
     fn creation_type_of(&self, h: ObjHandle) -> Option<u32> {
         self.behavior_managers
             .get(&h)
