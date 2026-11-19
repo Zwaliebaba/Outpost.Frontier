@@ -27,9 +27,10 @@ use crate::math::{Matrix, Vector, matrix_to_quaternion};
 
 use super::engine::{Engine, InstanceId};
 use super::mixer::{self, BindKey, Channels, MixerMap, NodeKind};
+use super::sample::EventKey;
 use super::typed::{
-    BindDesc, ChannelEvent, ChannelOwner, ChannelSource, MixerKey, PLAY_TICKED, PlayHeader,
-    TypedChannel, TypedClass, TypedId,
+    BindDesc, ChannelEvent, ChannelOwner, ChannelSink, ChannelSource, MixerKey, PLAY_TICKED,
+    PlayHeader, TypedChannel, TypedClass, TypedId,
 };
 
 /// `G_AnimFirstPlaybackId`.
@@ -139,6 +140,118 @@ fn find_instance_by_name(
     None
 }
 
+/// The playbacks as a sink sees them while the mixer runs: the
+/// `IAnimation2` queries on playbacks a sink makes from inside its calls
+/// (`HasObject`, `GetDurationIfNamed`, `GetFirstInstanceField`).
+#[derive(Clone, Copy, Debug)]
+pub struct PlaybackView<'a> {
+    playbacks: &'a BTreeMap<i32, Playback>,
+}
+
+impl PlaybackView<'_> {
+    /// The playback `id`.
+    #[must_use]
+    pub fn playback(&self, id: u32) -> Option<&Playback> {
+        self.playbacks.get(&playback_key(id))
+    }
+
+    /// `HasObject(id, channel)`.
+    #[must_use]
+    pub fn has_object(&self, id: u32, channel: TypedId) -> bool {
+        self.playback(id)
+            .is_some_and(|p| p.typed.contains(&channel))
+    }
+
+    /// `GetDurationIfNamed(id)`: the animation's `Root height`.
+    #[must_use]
+    pub fn root_height(&self, id: u32) -> Option<f32> {
+        self.playback(id)?.entry()?.root_height
+    }
+
+    /// `GetFirstInstanceField(id)`: the animation's name.
+    #[must_use]
+    pub fn playback_name(&self, id: u32) -> Option<&[u8]> {
+        Some(self.playback(id)?.entry()?.name.as_slice())
+    }
+}
+
+/// The sinks of the channels a walk ticks (`IChannelSink`, the token of
+/// each channel's bind descriptor), called as the channels tick, with the
+/// playbacks to query.
+pub trait PlaybackSink {
+    /// `OnKeys(channel, context, batch)` on the sink `sink`.
+    fn on_keys(
+        &mut self,
+        playbacks: &PlaybackView<'_>,
+        channel: TypedId,
+        sink: u32,
+        context: u32,
+        keys: &[EventKey],
+        count: u32,
+    );
+    /// `OnLoop(channel, transform, context)` on the sink `sink`; the pose
+    /// left in `transform` is the one the channel rebinds from.
+    fn on_loop(
+        &mut self,
+        playbacks: &PlaybackView<'_>,
+        channel: TypedId,
+        sink: u32,
+        context: u32,
+        transform: &mut [f32; 12],
+    );
+}
+
+/// Records the calls as [`ChannelEvent`]s and changes no pose.
+impl PlaybackSink for Vec<ChannelEvent> {
+    fn on_keys(
+        &mut self,
+        _: &PlaybackView<'_>,
+        channel: TypedId,
+        sink: u32,
+        context: u32,
+        keys: &[EventKey],
+        count: u32,
+    ) {
+        ChannelSink::on_keys(self, channel, sink, context, keys, count);
+    }
+
+    fn on_loop(
+        &mut self,
+        _: &PlaybackView<'_>,
+        channel: TypedId,
+        sink: u32,
+        context: u32,
+        transform: &mut [f32; 12],
+    ) {
+        ChannelSink::on_loop(self, channel, sink, context, transform);
+    }
+}
+
+/// A [`PlaybackSink`] as the channels' [`ChannelSink`].
+struct Bridge<'a, 'b> {
+    view: PlaybackView<'a>,
+    sink: &'b mut dyn PlaybackSink,
+}
+
+impl ChannelSink for Bridge<'_, '_> {
+    fn on_keys(
+        &mut self,
+        channel: TypedId,
+        sink: u32,
+        context: u32,
+        keys: &[EventKey],
+        count: u32,
+    ) {
+        self.sink
+            .on_keys(&self.view, channel, sink, context, keys, count);
+    }
+
+    fn on_loop(&mut self, channel: TypedId, sink: u32, context: u32, transform: &mut [f32; 12]) {
+        self.sink
+            .on_loop(&self.view, channel, sink, context, transform);
+    }
+}
+
 impl Animation {
     /// A component with no playbacks.
     #[must_use]
@@ -173,6 +286,14 @@ impl Animation {
     #[must_use]
     pub fn mixers(&self) -> &MixerMap {
         &self.mixers
+    }
+
+    /// The playbacks as the sinks of a walk see them.
+    #[must_use]
+    pub fn view(&self) -> PlaybackView<'_> {
+        PlaybackView {
+            playbacks: &self.playbacks,
+        }
     }
 
     // --- handles ------------------------------------------------------------------------
@@ -745,21 +866,58 @@ impl Animation {
     /// playback's root). Returns what the channels reported.
     pub fn mixer_walk(&mut self, engine: &mut Engine, key: MixerKey, dt: f32) -> Vec<ChannelEvent> {
         let mut events = Vec::new();
+        self.mixer_walk_into(engine, key, dt, &mut events);
+        events
+    }
+
+    /// `MixerWalk(key, dt)` with the channels' sink calls made on `sink`
+    /// as the channels tick (an `OnLoop` that changes the pose changes
+    /// where the channel rebinds).
+    pub fn mixer_walk_into(
+        &mut self,
+        engine: &mut Engine,
+        key: MixerKey,
+        dt: f32,
+        sink: &mut dyn PlaybackSink,
+    ) {
+        let mut bridge = Bridge {
+            view: PlaybackView {
+                playbacks: &self.playbacks,
+            },
+            sink,
+        };
         mixer::walk_key(
             &mut self.mixers,
             engine,
             &mut self.channels,
             key.0,
             dt,
-            &mut events,
+            &mut bridge,
         );
-        events
     }
 
     /// `MixerWalkAll(dt)`: every list, then every playing channel no list
     /// ticked; a channel that runs out stops and leaves its list.
     pub fn mixer_walk_all(&mut self, engine: &mut Engine, dt: f32) -> Vec<ChannelEvent> {
         let mut events = Vec::new();
+        self.mixer_walk_all_into(engine, dt, &mut events);
+        events
+    }
+
+    /// `MixerWalkAll(dt)` with the sink calls made on `sink` as the
+    /// channels tick.
+    pub fn mixer_walk_all_into(
+        &mut self,
+        engine: &mut Engine,
+        dt: f32,
+        sink: &mut dyn PlaybackSink,
+    ) {
+        let mut events = Bridge {
+            view: PlaybackView {
+                playbacks: &self.playbacks,
+            },
+            sink,
+        };
         let ids = self.channels.ids();
         for &id in &ids {
             if let Some(c) = self.channels.get_mut(id) {
@@ -797,7 +955,6 @@ impl Animation {
                 mixer::unbind(&mut self.mixers, engine, &mut self.channels, id);
             }
         }
-        events
     }
 
     // --- IChannel -----------------------------------------------------------------------

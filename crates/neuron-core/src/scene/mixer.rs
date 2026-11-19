@@ -19,7 +19,7 @@ use crate::diag::{DumpFlags, dump};
 use crate::math::{Quaternion, Vector, matrix_to_quaternion, quat_slerp, quaternion_to_matrix};
 
 use super::engine::Engine;
-use super::typed::{BindDesc, ChannelEvent, PLAY_ENDED, TypedChannel, TypedId, joint_value_count};
+use super::typed::{BindDesc, ChannelSink, PLAY_ENDED, TypedChannel, TypedId, joint_value_count};
 
 /// `G_MixerEaseStep`: pi / 255 as the reference stores it.
 const EASE_STEP: f64 = f64::from_bits(0x3F89_3B35_2540_C735);
@@ -520,7 +520,7 @@ pub fn walk_list<C: Channels>(
     list: &mut MixerList,
     channels: &mut C,
     dt: f32,
-    events: &mut Vec<ChannelEvent>,
+    sink: &mut dyn ChannelSink,
 ) {
     let desc = list.desc;
     let snapshot: Vec<usize> = {
@@ -539,7 +539,7 @@ pub fn walk_list<C: Channels>(
         let finished = match node.kind {
             NodeKind::Leaf(id) => channels
                 .get_mut(id)
-                .map_or(0, |t| t.tick(engine, id, dt, events)),
+                .map_or(0, |t| t.tick(engine, id, dt, sink)),
             NodeKind::Blend(mut blend) => {
                 let sum = e(dt) + e(blend.time);
                 blend.time = r(sum);
@@ -800,7 +800,7 @@ pub fn walk_key<C: Channels>(
     channels: &mut C,
     key: i32,
     dt: f32,
-    events: &mut Vec<ChannelEvent>,
+    sink: &mut dyn ChannelSink,
 ) {
     if key == -1 {
         return;
@@ -813,7 +813,7 @@ pub fn walk_key<C: Channels>(
         let Some(list) = inner.get_mut(&bind) else {
             continue;
         };
-        walk_list(engine, list, channels, dt, events);
+        walk_list(engine, list, channels, dt, sink);
         if list.count == 0 {
             inner.remove(&bind);
         }

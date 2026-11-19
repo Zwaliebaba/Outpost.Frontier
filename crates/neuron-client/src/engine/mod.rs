@@ -31,14 +31,16 @@
 //! engine ([`Engine::create_model`]), deformable models
 //! ([`Engine::create_deformable`]), particle effects
 //! ([`Engine::load_effects`], [`Engine::create_effect`]) and scene scripts
-//! ([`Engine::load_scene_script`]), animations played on deformable
-//! models through the animation system ([`Engine::load_animations`],
-//! [`Engine::play_deformable_animation`]) and sounds played on the audio
+//! ([`Engine::load_scene_script`]), animations and aim events on
+//! deformable models through `IDeformable` ([`Engine::load_animations`],
+//! [`Engine::play_deformable_animation`], [`Engine::play_deformable`],
+//! [`Engine::start_deformable_aim`]; [`deform_anim`]) and sounds played on the audio
 //! device ([`Engine::load_sound`], [`Engine::play_sound`]). The frame's
 //! camera is any [`Camera`](crate::render::appearance::Camera);
 //! [`camera::ViewCamera`] is a perspective one.
 
 pub mod camera;
+pub mod deform_anim;
 mod effects;
 mod frame;
 pub mod order;
@@ -55,7 +57,6 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 
-use neuron_core::anim::AnimScript;
 use neuron_core::fx_data::{self as fx, AleFile, NodeClass};
 use neuron_core::ini::{EngineIni, EngineIniError, IniReader, NoIncludes};
 use neuron_core::math::Transform;
@@ -98,13 +99,16 @@ use crate::ui::widescreen::Surface;
 use crate::window::DisplayMode;
 
 pub use camera::ViewCamera;
+pub use deform_anim::DeformablePlay;
 pub use effects::{EffectServices, FxMeshes, mesh_path};
 pub use frame::{FrameInput, FrameReport};
 pub use order::{
     CREATION_ORDER, LIBRARIES, LifeEvent, Lifecycle, Phase, Reference, Stage, TEARDOWN_ORDER,
 };
 pub use scene_host::{
-    Links, RenderLink, RenderSide, SceneDeformHost, SceneHost, SharedLinks, SharedScene,
+    DeformSink, DeformableEvent, Links, Names, RenderLink, RenderSide, SceneDeformHost, SceneHost,
+    SharedAnimation, SharedDeformables, SharedLinks, SharedScene, channel_key, pull_bones,
+    sink_token, typed_id, walk_deformable,
 };
 pub use shapes::StackShapes;
 
@@ -232,13 +236,6 @@ pub struct SoundInfo {
     pub rate: u16,
 }
 
-/// An animation playing on a deformable model.
-#[derive(Clone, Copy, Debug)]
-struct DeformPlayback {
-    deformable: usize,
-    playback: u32,
-}
-
 /// What [`Engine::load_archive`] loaded from one archive.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ArchiveLoad {
@@ -353,14 +350,14 @@ pub struct Engine<B: Backend + 'static> {
     scene: SharedScene,
     links: SharedLinks,
     /// The animation system.
-    pub animation: Animation,
+    animation: SharedAnimation,
     deform: Deformable,
     deform_host: SceneDeformHost,
+    /// What the deformable models' caller sinks received, oldest first.
+    deformable_events: Vec<DeformableEvent>,
     appearance: Option<Appearance>,
     effects: Vec<Option<LiveEffect>>,
     scripts: Vec<Option<Player>>,
-    anim_scripts: Vec<Arc<AnimScript>>,
-    playbacks: Vec<DeformPlayback>,
     voices: Vec<VoiceId>,
     #[cfg_attr(not(windows), allow(dead_code))]
     next_voice: VoiceId,
@@ -373,7 +370,7 @@ pub struct Engine<B: Backend + 'static> {
     ui_shape_db: ShapeDb,
     ime: Option<ImeFocus>,
     models: Vec<Option<Model>>,
-    deformables: Vec<Option<DeformInstance>>,
+    deformables: SharedDeformables,
     backdrop: Option<ModelId>,
     starsphere: Option<ModelId>,
     loaded: Rc<RefCell<Loaded>>,
@@ -586,7 +583,8 @@ impl<B: Backend + 'static> Engine<B> {
         let scene: SharedScene = Rc::new(RefCell::new(SceneEngine::new()));
         stack.engine = Box::new(SceneHost::new(Rc::downgrade(&scene), Rc::clone(&links)));
         log(Stage::SceneEngine);
-        let animation = Animation::new();
+        let animation: SharedAnimation = Rc::new(RefCell::new(Animation::new()));
+        let deformables: SharedDeformables = Rc::new(RefCell::new(Vec::new()));
         log(Stage::Animation);
         scene
             .borrow_mut()
@@ -596,7 +594,12 @@ impl<B: Backend + 'static> Engine<B> {
             ini.section(b"Deformable")
                 .and_then(|s| s.value(b"DeformRate")),
         );
-        let deform_host = SceneDeformHost::new(Rc::clone(&scene), Rc::clone(&links));
+        let deform_host = SceneDeformHost::new(
+            Rc::clone(&scene),
+            Rc::clone(&links),
+            Rc::clone(&animation),
+            &deformables,
+        );
         log(Stage::Deformable);
         let (plugins, faces) = render_plugins::<B>(&ini, &registry, &mut notices);
         let mut manager = RenderManager::new(plugins);
@@ -761,11 +764,10 @@ impl<B: Backend + 'static> Engine<B> {
             animation,
             deform,
             deform_host,
+            deformable_events: Vec::new(),
             appearance,
             effects,
             scripts,
-            anim_scripts: Vec::new(),
-            playbacks: Vec::new(),
             voices: Vec::new(),
             next_voice: 1,
             data: Some(data),
@@ -777,7 +779,7 @@ impl<B: Backend + 'static> Engine<B> {
             ui_shape_db,
             ime: Some(ime),
             models: Vec::new(),
-            deformables: Vec::new(),
+            deformables,
             backdrop: None,
             starsphere: None,
             loaded,
@@ -1197,22 +1199,28 @@ impl<B: Backend + 'static> Engine<B> {
                 .ok()
                 .map(|fs| Box::new(fs) as Box<dyn FileSystem>)
         };
+        let index = self.deformables.borrow().len();
         let made = {
             let mut side = self.render.borrow_mut();
+            self.deform_host.set_current(Some(index));
             let mut services = StackDeform::new(&mut side.stack, &mut self.deform_host);
             self.deform
                 .create(&mut desc, 0, 0, &mut open, &mut services)
         };
+        self.deform_host.set_current(None);
         self.links.borrow_mut().take_made();
         apply_extents(&self.scene, &self.links);
         let instance = made.map_err(|_| EngineError::Deformable(lossy(path)))?;
-        self.deformables.push(Some(instance));
-        Ok(DeformableId(self.deformables.len() - 1))
+        self.deformables.borrow_mut().push(Some(instance));
+        Ok(DeformableId(index))
     }
 
     /// A deformable model, for its `IDeformable` calls.
-    pub fn deformable_mut(&mut self, id: DeformableId) -> Option<&mut DeformInstance> {
-        self.deformables.get_mut(id.0).and_then(Option::as_mut)
+    pub fn deformable_mut(&mut self, id: DeformableId) -> Option<RefMut<'_, DeformInstance>> {
+        RefMut::filter_map(self.deformables.borrow_mut(), |models| {
+            models.get_mut(id.0).and_then(Option::as_mut)
+        })
+        .ok()
     }
 
     /// `IDeformable::SetLod(instance, dt, lods)`: each part's level (the
@@ -1220,20 +1228,32 @@ impl<B: Backend + 'static> Engine<B> {
     /// do every frame) and the skin rate's countdown.
     pub fn set_deformable_lod(&mut self, id: DeformableId, dt: f32, lods: &[i32]) {
         let rate = self.deform.rate;
-        if let Some(instance) = self.deformables.get_mut(id.0).and_then(Option::as_mut) {
+        if let Some(instance) = self
+            .deformables
+            .borrow_mut()
+            .get_mut(id.0)
+            .and_then(Option::as_mut)
+        {
             instance.set_lod(dt, lods, rate);
         }
     }
 
-    /// Destroys a deformable model.
+    /// Destroys a deformable model (`IDeformable::Destroy`: its list of
+    /// animations and aim events first).
     pub fn destroy_deformable(&mut self, id: DeformableId) {
-        self.stop_deformable_animation(id);
-        let Some(instance) = self.deformables.get_mut(id.0).and_then(Option::take) else {
+        let taken = self
+            .deformables
+            .borrow_mut()
+            .get_mut(id.0)
+            .and_then(Option::take);
+        let Some(instance) = taken else {
             return;
         };
         let mut side = self.render.borrow_mut();
+        self.deform_host.set_current(Some(id.0));
         let mut services = StackDeform::new(&mut side.stack, &mut self.deform_host);
         self.deform.destroy(instance, &mut services);
+        self.deform_host.set_current(None);
     }
 
     /// A scene script (`.thn`) of the data, loaded, built and started.
@@ -1290,7 +1310,8 @@ impl<B: Backend + 'static> Engine<B> {
     /// animations bind.
     #[must_use]
     pub fn deformable_root(&self, id: DeformableId) -> Option<InstanceId> {
-        let instance = self.deformables.get(id.0)?.as_ref()?;
+        let models = self.deformables.borrow();
+        let instance = models.get(id.0)?.as_ref()?;
         u32::try_from(instance.first_bone())
             .ok()
             .map(InstanceId::from_index)
@@ -1299,7 +1320,8 @@ impl<B: Backend + 'static> Engine<B> {
     /// A deformable model's bounding sphere (`GetBoundSphere`): the radius
     /// and the centre of its first part.
     pub fn deformable_bounds(&mut self, id: DeformableId) -> Option<(f32, [f32; 3])> {
-        let instance = self.deformables.get(id.0)?.as_ref()?;
+        let models = self.deformables.borrow();
+        let instance = models.get(id.0)?.as_ref()?;
         instance.bound_sphere(&mut self.deform.meshes)
     }
 
@@ -1312,98 +1334,9 @@ impl<B: Backend + 'static> Engine<B> {
         let mut scene = self.scene.borrow_mut();
         scene.set_instance_matrix(Some(root), transform);
         scene.update_instance(Some(root), 0);
-        if let Some(Some(instance)) = self.deformables.get_mut(id.0) {
+        if let Some(Some(instance)) = self.deformables.borrow_mut().get_mut(id.0) {
             pull_bones(instance, &scene);
         }
-    }
-
-    /// The animations of an `.anm` file of the data (`OpenScript`): the
-    /// script and the names of its animations.
-    ///
-    /// # Errors
-    ///
-    /// The file does not open or holds no `Animation` node.
-    pub fn load_animations(
-        &mut self,
-        path: &[u8],
-    ) -> Result<(AnimationsId, Vec<Vec<u8>>), EngineError> {
-        let mut fs = self.open_archive(path)?;
-        let script = AnimScript::open(&mut fs)
-            .map_err(|e| EngineError::Animation(format!("{}: {e:?}", lossy(path))))?
-            .ok_or_else(|| EngineError::Animation(format!("{}: no animations", lossy(path))))?;
-        let names = script.entries().map(|(_, e)| e.name.clone()).collect();
-        self.anim_scripts.push(Arc::new(script));
-        Ok((AnimationsId(self.anim_scripts.len() - 1), names))
-    }
-
-    /// Plays the animation `name` of `animations` on a deformable model
-    /// through the animation system (`PlayScript` under the model's root
-    /// bone, then `EvalPlayback` from the start at normal speed, looping
-    /// when asked), replacing what played on it before. Each frame then
-    /// walks the animation system's mixer, updates the model's tree and
-    /// hands its bones the new transforms. The playback id.
-    ///
-    /// # Errors
-    ///
-    /// No such model, script or animation, or no track of it could start.
-    pub fn play_deformable_animation(
-        &mut self,
-        id: DeformableId,
-        animations: AnimationsId,
-        name: &[u8],
-        looping: bool,
-    ) -> Result<u32, EngineError> {
-        let script = self
-            .anim_scripts
-            .get(animations.0)
-            .cloned()
-            .ok_or_else(|| EngineError::Animation("no such animation script".to_owned()))?;
-        let root = self
-            .deformable_root(id)
-            .ok_or_else(|| EngineError::Animation("no such deformable model".to_owned()))?;
-        self.stop_deformable_animation(id);
-        let scene = self.scene.borrow();
-        let playback = self
-            .animation
-            .play_script(&scene, &script, Some(root), name, 0, 0)
-            .ok_or_else(|| EngineError::Animation(format!("no animation {}", lossy(name))))?;
-        let flags = if looping { 2 } else { 0 };
-        let result = self
-            .animation
-            .eval_playback(&scene, playback, flags, 0.0, 1.0, 0.0, 1.0, 1.0, None);
-        if result == 0xFFFF_FFFF {
-            self.animation.destroy_script(&scene, playback);
-            return Err(EngineError::Animation(format!(
-                "{} did not start",
-                lossy(name)
-            )));
-        }
-        self.playbacks.push(DeformPlayback {
-            deformable: id.0,
-            playback,
-        });
-        Ok(playback)
-    }
-
-    /// Stops and destroys the animations playing on a deformable model;
-    /// the model keeps the pose it has.
-    pub fn stop_deformable_animation(&mut self, id: DeformableId) {
-        let scene = self.scene.borrow();
-        let animation = &mut self.animation;
-        self.playbacks.retain(|p| {
-            if p.deformable != id.0 {
-                return true;
-            }
-            animation.stop_playback(&scene, p.playback);
-            animation.destroy_script(&scene, p.playback);
-            false
-        });
-    }
-
-    /// The animations playing on deformable models.
-    #[must_use]
-    pub fn animations_playing(&self) -> usize {
-        self.playbacks.len()
     }
 
     /// A sound from the bytes of a WAV file (a sound table's file or a
@@ -1559,25 +1492,23 @@ impl<B: Backend + 'static> Engine<B> {
         self.scripts.clear();
         log(Stage::SceneScripts);
         // The engine's destructor: its instances and archetypes, then its
-        // components in [Engine] order. The animations playing on the
-        // deformable models go first.
-        {
-            let scene = self.scene.borrow();
-            for p in std::mem::take(&mut self.playbacks) {
-                self.animation.destroy_script(&scene, p.playback);
-            }
-        }
-        for instance in std::mem::take(&mut self.deformables).into_iter().flatten() {
+        // components in [Engine] order. The deformable models go first, each
+        // with its list of animations and aim events.
+        let models = std::mem::take(&mut *self.deformables.borrow_mut());
+        for (index, instance) in models.into_iter().enumerate() {
+            let Some(instance) = instance else { continue };
             let mut side = self.render.borrow_mut();
+            self.deform_host.set_current(Some(index));
             let mut services = StackDeform::new(&mut side.stack, &mut self.deform_host);
             self.deform.destroy(instance, &mut services);
         }
+        self.deform_host.set_current(None);
         for id in 0..self.models.len() {
             self.destroy_model(ModelId(id));
         }
         self.models.clear();
         log(Stage::SceneEngine);
-        self.animation = Animation::new();
+        *self.animation.borrow_mut() = Animation::new();
         log(Stage::Animation);
         log(Stage::Hardpoint);
         self.deform = Deformable::new(None);
@@ -1662,9 +1593,6 @@ impl<B: Backend + 'static> Engine<B> {
     }
 }
 
-/// Hands a deformable model's bound bones the scene engine's world
-/// transforms, as the engine's `IInstanceTransform` calls on the bone
-/// runtimes would (`SetMatrix`, `MarkWorldDirty`).
 /// The libraries of an open archive into the render side (the engine's
 /// [`Engine::load_archive`] and the interface's mesh loads): its `Texture
 /// library` into the texture library, its `Material library` into the
@@ -1715,16 +1643,6 @@ fn load_libraries<B: Backend + 'static>(
         loaded.meshes.push(list);
     }
     out
-}
-
-fn pull_bones(instance: &mut DeformInstance, scene: &SceneEngine) -> usize {
-    instance.pull_bone_transforms(|bone| {
-        u32::try_from(bone).ok().map(|i| {
-            scene
-                .instance_transform(Some(InstanceId::from_index(i)))
-                .to_words()
-        })
-    })
 }
 
 /// Applies the extent writes the scene engine could not take while it was

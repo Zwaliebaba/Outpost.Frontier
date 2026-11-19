@@ -6,7 +6,7 @@
 //! `oracle_big_image.cpp`, `oracle_material.cpp`,
 //! `oracle_material_kinds.cpp`, `oracle_material_surface.cpp`,
 //! `oracle_material_appearance.cpp`, `oracle_mesh_render.cpp`, `oracle_deformable.cpp`,
-//! `oracle_deformable_parts.cpp`,
+//! `oracle_deformable_parts.cpp`, `oracle_deformable_anim.cpp`,
 //! `oracle_particles.cpp`, `oracle_ui.cpp` and `oracle_ui_immediate.cpp`).
 
 mod support;
@@ -16,9 +16,9 @@ use neuron_client::text::rdl::markup;
 
 use support::audio::{self, check_suite_within};
 use support::{
-    check_suite, deformable, input_lines, material, material_appearance, material_kinds,
-    material_surface, mesh_render, particles, rich_text, scene_script, scene_script_build,
-    scene_script_runtime, text, texture, ui, ui_immediate, unhex,
+    check_suite, deformable, deformable_anim, input_lines, material, material_appearance,
+    material_kinds, material_surface, mesh_render, particles, rich_text, scene_script,
+    scene_script_build, scene_script_runtime, text, texture, ui, ui_immediate, unhex,
 };
 
 /// P4.12: `LayoutRichText`, the laid list executed, its dimensions and the
@@ -395,4 +395,15 @@ fn deformable() {
 #[test]
 fn deformable_parts() {
     check_suite("deformable_parts.jsonl", &deformable::parts_lines());
+}
+
+/// P4.7, third increment: a deformable instance's animations and aim events
+/// through the scene engine and the animation system as the engine composes
+/// them (`PlayInstanceAnim`, `PlayInstanceAnimChain`, the list, `OnKeys`
+/// and `OnLoop` into the caller's sink, aim events whose typed channels the
+/// mixer ticks, `FEngineCharacterBody::Advance`'s walk)
+/// (`tests/fixtures/oracle/deformable_anim.list`).
+#[test]
+fn deformable_anim() {
+    check_suite("deformable_anim.jsonl", &deformable_anim::lines());
 }
