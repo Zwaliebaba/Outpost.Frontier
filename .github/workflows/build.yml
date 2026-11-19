@@ -203,7 +203,8 @@ jobs:
         # (oracle_material_surface.cpp) and FLAppearance (oracle_material_appearance.cpp;
         # material_*.jsonl); P4.6: RendComp's render
         # manager and mesh kinds against recording services (oracle_mesh_render.cpp,
-        # compiled into oracle_mesh_data.cpp; mesh_render.jsonl); P4.7: Deformable2's
+        # compiled into oracle_mesh_data.cpp; mesh_render.jsonl, and the IMesh faces,
+        # mesh_faces.jsonl); P4.7: Deformable2's
         # skinning, draw, instance slots, aim solving and EyeMaterial against recording
         # services (oracle_deformable.cpp, compiled into oracle_mesh_data_dfm.cpp;
         # deformable.jsonl); P4.8: particlefx's

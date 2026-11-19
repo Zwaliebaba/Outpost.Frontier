@@ -270,6 +270,10 @@ impl<S: ?Sized> Material<S> for BatchedMaterial<S> {
         self.inner.as_ref().ok_or(GR_GENERIC)?.parameter(index)
     }
 
+    fn parameter_tag(&self, index: u32) -> Result<Option<Vec<u8>>, i32> {
+        self.inner.as_ref().ok_or(GR_GENERIC)?.parameter_tag(index)
+    }
+
     fn set_parameter(&mut self, services: &mut S, index: u32, value: &PropertyValue) -> i32 {
         match self.inner.as_mut() {
             Some(inner) => inner.set_parameter(services, index, value),

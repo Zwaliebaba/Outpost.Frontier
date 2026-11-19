@@ -20,6 +20,10 @@
 //! * [`sphere`]: the `SphereMesh` plugin (`Plugins.cpp`): the planet
 //!   archetype, its instances, the tessellation of the cube faces, the
 //!   level formula and the face and atmosphere passes.
+//! * [`face`]: the `IMesh` and `IRenderableMesh` faces of the `VMesh`
+//!   part and of the `TriMesh` archetype and instance ([`MeshFace`]),
+//!   which the render manager's [`MeshDirectory`] finds by archetype or
+//!   instance.
 //! * [`services`]: what RendComp calls on the renderer, the engine, the
 //!   material library and the materials ([`MeshServices`]) and on the
 //!   camera ([`MeshCamera`]), one method per call in the reference's
@@ -32,6 +36,7 @@
 //!
 //! No platform code: everything here builds and tests on every host.
 
+pub mod face;
 pub mod lod;
 pub mod manager;
 pub mod services;
@@ -40,12 +45,13 @@ pub mod trimesh;
 pub mod vmesh;
 pub mod wire;
 
+pub use face::{FaceData, FaceIndices, FaceSource, MeshFace};
 pub use lod::{LodEntry, LodSet};
-pub use manager::{RenderComponent, RenderManager};
+pub use manager::{MeshDirectory, RenderComponent, RenderManager};
 pub use services::{MeshCamera, MeshServices};
 pub use sphere::SpherePlugin;
-pub use trimesh::TriMeshPlugin;
-pub use vmesh::{VMeshLibraryLoad, VMeshPlugin, VMeshRegistry};
+pub use trimesh::{TriMeshFaces, TriMeshPlugin};
+pub use vmesh::{VMeshFaces, VMeshLibraryLoad, VMeshPlugin, VMeshRegistry};
 pub use wire::VMeshWire;
 
 use neuron_core::math::Transform;

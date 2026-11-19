@@ -15,6 +15,7 @@ pub mod material;
 pub mod mesh;
 pub mod particles;
 pub mod shader;
+pub mod stack;
 pub mod texture;
 
 /// The trace reader and model replay, behind the feature `render-trace`

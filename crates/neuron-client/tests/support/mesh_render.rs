@@ -1,7 +1,8 @@
-//! The P4.6 mesh render suite: `render::mesh` against recording services
+//! The P4.6 mesh render suites: `render::mesh` against recording services
 //! with the contract `CppSource/Oracle/oracle_mesh_render.cpp` states
 //! (its header lists the lines), over the archives and operations of
-//! `tests/fixtures/oracle/mesh_render.list` (`make_mesh_fixtures.py`).
+//! `tests/fixtures/oracle/mesh_render.list` and `mesh_faces.list` (the
+//! `IMesh` and `IRenderableMesh` faces) from `make_mesh_fixtures.py`.
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
@@ -478,6 +479,15 @@ impl MeshServices for Fake {
         self.ev(&line);
         v
     }
+    fn material_name(&mut self, id: MaterialId) -> Option<Vec<u8>> {
+        let m = self.mat(id);
+        let (line, name) = (
+            format!("\"ev\":\"name\",\"m\":\"{}\"", m.name),
+            m.name.clone(),
+        );
+        self.ev(&line);
+        Some(name.into_bytes())
+    }
     fn material_class(&mut self, id: MaterialId) -> Vec<u8> {
         let m = self.mat(id);
         let (line, v) = (
@@ -631,11 +641,17 @@ struct Case {
 impl Case {
     fn new(log: &Log, case: usize) -> Case {
         let registry = VMeshRegistry::shared();
+        let vmesh = VMeshPlugin::new(Rc::clone(&registry));
+        let trimesh = TriMeshPlugin::new(false);
+        let (vmesh_faces, trimesh_faces) = (vmesh.faces(), trimesh.faces());
         let plugins: Vec<Box<dyn RenderComponent<Fake>>> = vec![
-            Box::new(VMeshPlugin::new(Rc::clone(&registry))),
-            Box::new(TriMeshPlugin::new(false)),
+            Box::new(vmesh),
+            Box::new(trimesh),
             Box::new(SpherePlugin::new()),
         ];
+        let mut manager = RenderManager::new(plugins);
+        manager.set_faces(0, Rc::new(vmesh_faces));
+        manager.set_faces(1, Rc::new(trimesh_faces));
         Case {
             fake: Fake {
                 log: Rc::clone(log),
@@ -665,7 +681,7 @@ impl Case {
                 position: [0.0; 3],
                 classify: 4,
             },
-            manager: Some(RenderManager::new(plugins)),
+            manager: Some(manager),
             registry,
             libraries: BTreeMap::new(),
             wire: VMeshWire::new(),
@@ -712,9 +728,187 @@ impl Case {
         )
     }
 
+    /// One slot of the face `QueryArchetype` ("a") or `QueryInstance`
+    /// ("i") hands out (`FaceOp`).
+    #[allow(clippy::too_many_lines)]
+    fn face_op(&mut self, t: &[&str]) {
+        let slot = t[3];
+        let renderable = matches!(slot, "vcount" | "copyvd" | "icount" | "copyidx");
+        let manager = self.manager.as_mut().expect("a manager");
+        let fake = &mut self.fake;
+        let directory = manager.directory();
+        let found = if t[1] == "i" {
+            let instance = hex_word(t[2]) as usize;
+            let archetype = fake.instance_archetype(instance);
+            if archetype == -1 {
+                Err(-1)
+            } else {
+                fake.release_handle(archetype);
+                directory.instance_face(archetype, instance)
+            }
+        } else {
+            directory.archetype_face(dec(t[2]))
+        };
+        let found = found.and_then(|face| {
+            if renderable && !face.is_renderable() {
+                Err(-1)
+            } else {
+                Ok(face)
+            }
+        });
+        let mut line = format!(
+            "\"op\":\"face\",\"slot\":\"{slot}\",\"q\":\"{}\"",
+            match &found {
+                Ok(_) => 0,
+                Err(q) => *q,
+            }
+        );
+        let Ok(face) = found else {
+            self.op(&line);
+            return;
+        };
+        let r = |line: &mut String, r: i32| line.push_str(&format!(",\"r\":\"{r}\""));
+        let material_name = |fake: &Fake, m: Result<Option<MaterialId>, i32>| match m {
+            Err(_) => "?".to_owned(),
+            Ok(None) => "-".to_owned(),
+            Ok(Some(id)) => fake.name_of(Some(id)),
+        };
+        match slot {
+            "vcount" => {
+                line.push_str(&format!(",\"r\":\"0\",\"v\":\"{}\"", face.vertex_count()));
+            }
+            "icount" => match face.total_index_count() {
+                Ok(v) => line.push_str(&format!(",\"r\":\"0\",\"v\":\"{v}\"")),
+                Err(e) => line.push_str(&format!(",\"r\":\"{e}\",\"v\":\"-9\"")),
+            },
+            "copyvd" => {
+                let mut buffer = vec![0u8; 0x4000];
+                let result = face.copy_vertex_data(
+                    fake,
+                    &mut buffer,
+                    hex_word(t[4]),
+                    dec(t[5]).cast_unsigned(),
+                    dec(t[6]).cast_unsigned(),
+                );
+                r(&mut line, result);
+            }
+            "copyidx" => match face.copy_indices(dec(t[4])) {
+                Ok(indices) => line.push_str(&format!(
+                    ",\"r\":\"0\",\"h\":\"{}\"",
+                    fnv(&u16_bytes(&indices))
+                )),
+                Err(e) => line.push_str(&format!(",\"r\":\"{e}\",\"h\":\"-\"")),
+            },
+            "count" => line.push_str(&format!(
+                ",\"r\":\"0\",\"v\":\"{}\"",
+                face.face_group_count()
+            )),
+            "open" => r(&mut line, face.open_face_group(dec(t[4]), dec(t[5]))),
+            "close" => r(&mut line, face.close_face_group()),
+            "add" => r(
+                &mut line,
+                face.add_face_group(fake, dec(t[4]).cast_unsigned()),
+            ),
+            "remove" => r(&mut line, face.remove_face_group(fake, dec(t[4]))),
+            "prim" => match face.primitive_type() {
+                Ok(v) => line.push_str(&format!(",\"r\":\"0\",\"v\":\"{v:x}\"")),
+                Err(e) => line.push_str(&format!(",\"r\":\"{e}\",\"v\":\"ffffffff\"")),
+            },
+            "getmat" => {
+                let found = face.face_group_material(fake);
+                let result = found.as_ref().map_or_else(|e| *e, |_| 0);
+                let name = material_name(fake, found);
+                line.push_str(&format!(",\"r\":\"{result}\",\"m\":\"{name}\""));
+            }
+            "setmat" => {
+                let material = (t[4] != "-").then(|| {
+                    fake.materials
+                        .iter()
+                        .find(|m| m.name == t[4])
+                        .map(|m| m.id)
+                        .expect("a known material")
+                });
+                r(&mut line, face.set_face_group_material(fake, material));
+            }
+            "getctx" => match face.material_context(fake) {
+                Ok(v) => line.push_str(&format!(",\"r\":\"0\",\"v\":\"{v:x}\"")),
+                Err(e) => line.push_str(&format!(",\"r\":\"{e}\",\"v\":\"5a5a\"")),
+            },
+            "setctx" => r(
+                &mut line,
+                face.set_material_context(fake, hex_word(t[4]) as usize),
+            ),
+            "chopen" => r(&mut line, face.open_channels(hex_word(t[4]))),
+            "chclose" => r(&mut line, face.close_channels()),
+            "chlock" => r(&mut line, face.lock_channels(hex_word(t[4]))),
+            "chunlock" => r(&mut line, face.unlock_channels()),
+            "data" => match face.face_group_data(hex_word(t[4])) {
+                Ok(d) => {
+                    let hash = d.bytes.as_ref().map_or_else(
+                        || "-".to_owned(),
+                        |bytes| {
+                            let mut picked = Vec::new();
+                            for i in 0..d.count as usize {
+                                for k in 0..d.element_bytes as usize {
+                                    let at = i * d.stride as usize + k;
+                                    picked.push(bytes.get(at).copied().unwrap_or(0));
+                                }
+                            }
+                            fnv(&picked)
+                        },
+                    );
+                    line.push_str(&format!(
+                        ",\"r\":\"0\",\"b\":\"{:x}\",\"c\":\"{:x}\",\"d\":\"{:x}\",\"h\":\"{hash}\"",
+                        d.stride, d.element_bytes, d.count
+                    ));
+                }
+                Err(e) => line.push_str(&format!(
+                    ",\"r\":\"{e}\",\"b\":\"7\",\"c\":\"7\",\"d\":\"7\",\"h\":\"?\""
+                )),
+            },
+            "idx" => match face.face_group_indices(hex_word(t[4])) {
+                Ok(found) => {
+                    let hash = found.indices.as_ref().map_or_else(
+                        || "-".to_owned(),
+                        |indices| {
+                            let picked: Vec<u16> = (0..found.count as usize)
+                                .map(|i| indices.get(i).copied().unwrap_or(0))
+                                .collect();
+                            fnv(&u16_bytes(&picked))
+                        },
+                    );
+                    line.push_str(&format!(
+                        ",\"r\":\"0\",\"n\":\"{:x}\",\"h\":\"{hash}\"",
+                        found.count
+                    ));
+                }
+                Err(e) => line.push_str(&format!(",\"r\":\"{e}\",\"n\":\"7\",\"h\":\"?\"")),
+            },
+            "idxcount" => match face.index_count(dec(t[4])) {
+                Ok(v) => line.push_str(&format!(",\"r\":\"0\",\"v\":\"{v:x}\"")),
+                Err(e) => line.push_str(&format!(",\"r\":\"{e}\",\"v\":\"7\"")),
+            },
+            "setdata" => r(&mut line, face.set_face_group_data(fake)),
+            "setidx" => r(&mut line, face.set_face_group_indices(fake)),
+            "setidxcount" => r(&mut line, face.set_index_count(fake)),
+            "addch" => r(&mut line, face.add_channels(fake)),
+            "rmch" => r(&mut line, face.remove_channels(fake)),
+            "reset" => r(&mut line, face.reset_mesh(fake)),
+            "noop" => r(&mut line, face.no_op()),
+            "refresh" => r(&mut line, face.refresh_materials(fake, 0)),
+            "reject" | "reject1" => r(&mut line, face.reject_operation()),
+            other => panic!("mesh_faces: unknown slot {other}"),
+        }
+        self.op(&line);
+    }
+
     #[allow(clippy::too_many_lines)]
     fn run(&mut self, t: &[&str]) {
         let k = t[0];
+        if k == "face" {
+            self.face_op(t);
+            return;
+        }
         let manager = self.manager.as_mut();
         let Some(manager) = manager else {
             panic!("operation {k} after end");
@@ -1006,10 +1200,19 @@ impl Case {
     }
 }
 
-/// The suite's lines.
+/// The lines of the `mesh_render` suite.
 pub fn lines() -> Vec<String> {
+    list_lines("mesh_render.list")
+}
+
+/// The lines of the `mesh_faces` suite.
+pub fn face_lines() -> Vec<String> {
+    list_lines("mesh_faces.list")
+}
+
+fn list_lines(list: &str) -> Vec<String> {
     let log: Log = Rc::new(RefCell::new(Vec::new()));
-    for (index, line) in input_lines("mesh_render.list").iter().enumerate() {
+    for (index, line) in input_lines(list).iter().enumerate() {
         let mut case = Case::new(&log, index);
         for op in line.split(" ; ") {
             let tokens: Vec<&str> = op.split(' ').collect();

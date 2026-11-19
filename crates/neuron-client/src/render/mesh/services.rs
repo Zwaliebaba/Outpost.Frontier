@@ -147,6 +147,8 @@ pub trait MeshServices {
     fn release_material(&mut self, material: MaterialId);
     /// `GetRenderFlags(&flags)` with the flags starting at 0.
     fn material_flags(&mut self, material: MaterialId) -> u32;
+    /// `GetName(buffer, 0x40)`: the name when the call returns `GR_OK`.
+    fn material_name(&mut self, material: MaterialId) -> Option<Vec<u8>>;
     /// `CopyClassName(buffer, 0x80)`: the name, to its NUL.
     fn material_class(&mut self, material: MaterialId) -> Vec<u8>;
     /// `GetParameterCount(&count)` with the count starting at 0.

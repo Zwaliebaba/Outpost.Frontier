@@ -5,11 +5,15 @@
 //! the cached box, centre and bounding sphere, the counts, the clone, the
 //! instances with their UV0 animation, and the draw.
 //!
-//! `FTriMeshArch`'s editing face (the `IMesh` slots 8 to 29, plane splits,
-//! vertex compaction and privatised face groups) is not part of this
-//! increment; no face group here has vertices of its own.
+//! The archetype's `IMesh` and `IRenderableMesh` faces are
+//! [`super::face::MeshFace`]'s; the plugin shares its archetypes and
+//! instances with them ([`TriMeshFaces`]). The editing mode of that face
+//! (plane splits, vertex compaction and privatised face groups) is not
+//! ported (divergence D358); no face group here has vertices of its own.
 
+use std::cell::RefCell;
 use std::collections::BTreeMap;
+use std::rc::Rc;
 
 use neuron_core::math::mul_transform;
 use neuron_core::mesh_data::trimesh::{
@@ -18,6 +22,7 @@ use neuron_core::mesh_data::trimesh::{
 use neuron_core::num::trunc_to_i64;
 use neuron_core::vfs::FileSystem;
 
+use super::face::{FaceSource, MeshFace, TriMeshShared};
 use super::manager::{DrawRequest, GeometryQuery, RenderComponent};
 use super::services::{MeshCamera, MeshServices};
 use super::vmesh::remap_draw_flags;
@@ -44,8 +49,45 @@ pub struct TriMeshGroup {
     pub max_index: u32,
     /// The rebased indices.
     pub indices: Vec<u16>,
+    /// `Edge_indices` (position indices, two per edge).
+    pub edge_indices: Option<Vec<u16>>,
+    /// `Edge_angles`: every float of the leaf after a load, `EdgeCount / 2`
+    /// after a clone (`SetEdges`).
+    pub edge_angles: Option<Vec<f32>>,
+    /// The group draws from the archetype's vertices; a group
+    /// `AddFaceGroup` made has none.
+    pub vertices: bool,
     /// The hook-up's sort key, 0 to 4.
     pub bucket: u32,
+}
+
+impl TriMeshGroup {
+    /// `TriMeshGroupNew` with the primitive type of `AddFaceGroup`: no
+    /// material, indices, edges or vertices, bucket 4.
+    #[must_use]
+    pub fn empty(prim: u32) -> TriMeshGroup {
+        TriMeshGroup {
+            prim,
+            material_crc: 0,
+            material: None,
+            field20: 0,
+            min_index: 0,
+            max_index: 0,
+            indices: Vec::new(),
+            edge_indices: None,
+            edge_angles: None,
+            vertices: false,
+            bucket: 4,
+        }
+    }
+
+    /// `EdgeCount`: the edge indices.
+    #[must_use]
+    pub fn edge_count(&self) -> u32 {
+        self.edge_indices
+            .as_ref()
+            .map_or(0, |e| u32::try_from(e.len()).unwrap_or(u32::MAX))
+    }
 }
 
 /// The archetype (`FTriMeshArch`).
@@ -132,6 +174,9 @@ impl TriMeshArchetype {
                 min_index: group.min_index,
                 max_index: group.max_index,
                 indices: group.indices.clone().unwrap_or_default(),
+                edge_indices: group.edge_indices.clone(),
+                edge_angles: group.edge_angles.clone(),
+                vertices: true,
                 bucket: group.bucket,
             })
             .collect();
@@ -371,12 +416,37 @@ impl TriMeshArchetype {
             }
         }
         copy.uv_anim = None;
+        for group in &mut copy.groups {
+            // `CopyFrom`'s `SetEdges(EdgeCount, EdgeIndices, EdgeAngles)`.
+            let count = group.edge_count() as usize;
+            if count == 0 {
+                group.edge_indices = None;
+                group.edge_angles = None;
+            } else if let Some(angles) = group.edge_angles.as_mut() {
+                angles.resize(count / 2, 0.0);
+            }
+        }
         for group in &copy.groups {
             if let Some(material) = group.material {
                 services.add_ref_material(material);
             }
         }
         copy
+    }
+
+    /// `FTriMeshArch::Reset` after its `CloseFaceGroup`: the bounds
+    /// cleared, every group's material released and the groups dropped,
+    /// the vertices and the UV animation dropped, the flags cleared.
+    pub fn reset<S: MeshServices + ?Sized>(&mut self, services: &mut S) {
+        self.centre = [0.0; 3];
+        self.bounds = [0.0; 6];
+        self.sphere_centre = [0.0; 3];
+        self.sphere_radius = -1.0;
+        self.destroy(services);
+        self.groups.clear();
+        self.vertices = VertexSource::default();
+        self.uv_anim = None;
+        self.flags = 0;
     }
 
     /// The destructor: every group's material released.
@@ -519,8 +589,8 @@ impl TriMeshInstance {
 /// and torn down; a group of bucket 2 or more drops the vertex listing for
 /// the groups after it.
 fn draw<S: MeshServices + ?Sized>(
-    archetype: &mut TriMeshArchetype,
-    instance: &mut TriMeshInstance,
+    shared: &TriMeshShared,
+    track: &mut Option<VertexStream>,
     services: &mut S,
     camera: &mut dyn MeshCamera,
     id: Instance,
@@ -543,10 +613,11 @@ fn draw<S: MeshServices + ?Sized>(
         services.set_world(&world_words);
     }
     let mut flags = request.flags | 0xC;
-    if let Some(track) = instance.uv_track.as_mut() {
-        std::mem::swap(&mut archetype.vertices.tex[0], track);
+    if let Some(track) = track.as_mut() {
+        std::mem::swap(&mut shared.arch.borrow_mut().vertices.tex[0], track);
         flags &= !0x4;
     }
+    let archetype = shared.arch.borrow();
     let mut listing = VbListing::default();
     let source = &archetype.vertices;
     if source.flags != 0
@@ -598,18 +669,26 @@ fn draw<S: MeshServices + ?Sized>(
             vb = None;
         }
     }
-    if let Some(track) = instance.uv_track.as_mut() {
-        std::mem::swap(&mut archetype.vertices.tex[0], track);
+    drop(archetype);
+    if let Some(track) = track.as_mut() {
+        std::mem::swap(&mut shared.arch.borrow_mut().vertices.tex[0], track);
     }
     1
 }
+
+/// The archetypes of a `TriMesh` plugin, shared with the faces it hands
+/// out.
+pub type SharedArchetypes = Rc<RefCell<Vec<Option<Rc<TriMeshShared>>>>>;
+
+/// The instances of a `TriMesh` plugin, shared with the faces.
+pub type SharedInstances = Rc<RefCell<BTreeMap<Instance, TriMeshInstance>>>;
 
 /// The `TriMesh` render plugin (`FTriMeshPlugin`).
 #[derive(Debug, Default)]
 pub struct TriMeshPlugin {
     tristrips: bool,
-    archetypes: Vec<Option<TriMeshArchetype>>,
-    instances: BTreeMap<Instance, TriMeshInstance>,
+    archetypes: SharedArchetypes,
+    instances: SharedInstances,
 }
 
 impl TriMeshPlugin {
@@ -625,46 +704,82 @@ impl TriMeshPlugin {
 
     /// An archetype by handle (1 and up).
     #[must_use]
-    pub fn archetype(&self, handle: Handle) -> Option<&TriMeshArchetype> {
-        let index = usize::try_from(handle).ok()?.checked_sub(1)?;
-        self.archetypes.get(index).and_then(Option::as_ref)
-    }
-
-    fn archetype_mut(&mut self, handle: Handle) -> Option<&mut TriMeshArchetype> {
-        let index = usize::try_from(handle).ok()?.checked_sub(1)?;
-        self.archetypes.get_mut(index).and_then(Option::as_mut)
+    pub fn archetype(&self, handle: Handle) -> Option<Rc<TriMeshShared>> {
+        archetype_of(&self.archetypes, handle)
     }
 
     /// An instance.
     #[must_use]
-    pub fn instance(&self, instance: Instance) -> Option<&TriMeshInstance> {
-        self.instances.get(&instance)
+    pub fn instance(&self, instance: Instance) -> Option<TriMeshInstance> {
+        self.instances.borrow().get(&instance).cloned()
     }
 
-    fn insert(&mut self, archetype: TriMeshArchetype) -> Handle {
-        self.archetypes.push(Some(archetype));
-        u32::try_from(self.archetypes.len()).unwrap_or(HANDLE_NONE)
+    /// The faces of the plugin's archetypes and instances, for the render
+    /// manager's directory.
+    #[must_use]
+    pub fn faces(&self) -> TriMeshFaces {
+        TriMeshFaces {
+            archetypes: Rc::clone(&self.archetypes),
+            instances: Rc::clone(&self.instances),
+        }
+    }
+
+    fn insert(&mut self, archetype: TriMeshArchetype, cursor: usize) -> Handle {
+        let mut archetypes = self.archetypes.borrow_mut();
+        archetypes.push(Some(TriMeshShared::new(archetype, cursor)));
+        u32::try_from(archetypes.len()).unwrap_or(HANDLE_NONE)
     }
 
     fn tick<S: ?Sized>(&mut self, _services: &mut S, instance: Instance, dt: f32) {
-        let Some(anim) = self.instances.get_mut(&instance) else {
+        let mut instances = self.instances.borrow_mut();
+        let Some(anim) = instances.get_mut(&instance) else {
             return;
         };
-        let index = usize::try_from(anim.mesh_live)
-            .ok()
-            .and_then(|h| h.checked_sub(1));
-        let uv = index
-            .and_then(|i| self.archetypes.get(i))
-            .and_then(Option::as_ref)
-            .and_then(|a| a.uv_anim.clone());
+        let uv = archetype_of(&self.archetypes, anim.mesh_live)
+            .and_then(|a| a.arch.borrow().uv_anim.clone());
         if let Some(uv) = uv {
             anim.advance(&uv, dt);
         }
     }
 }
 
+/// An archetype of a shared table by handle (1 and up).
+fn archetype_of(archetypes: &SharedArchetypes, handle: Handle) -> Option<Rc<TriMeshShared>> {
+    let index = usize::try_from(handle).ok()?.checked_sub(1)?;
+    archetypes.borrow().get(index).and_then(Clone::clone)
+}
+
 fn valid(handle: Handle) -> bool {
     handle != HANDLE_NONE && handle != 0
+}
+
+/// The `IMesh` faces of a `TriMesh` plugin: an archetype's
+/// (`QueryHandle`) and an instance's (`QueryMeshInstance`, the instance's
+/// live archetype behind the instance's own face).
+#[derive(Clone, Debug)]
+pub struct TriMeshFaces {
+    archetypes: SharedArchetypes,
+    instances: SharedInstances,
+}
+
+impl FaceSource for TriMeshFaces {
+    fn face(&self, handle: Handle) -> Option<MeshFace> {
+        if !valid(handle) {
+            return None;
+        }
+        Some(MeshFace::TriMesh {
+            mesh: archetype_of(&self.archetypes, handle)?,
+            instance: false,
+        })
+    }
+
+    fn instance_face(&self, instance: Instance, _handle: Handle) -> Option<MeshFace> {
+        let live = self.instances.borrow().get(&instance)?.mesh_live;
+        Some(MeshFace::TriMesh {
+            mesh: archetype_of(&self.archetypes, live)?,
+            instance: true,
+        })
+    }
 }
 
 impl<S: MeshServices + ?Sized> RenderComponent<S> for TriMeshPlugin {
@@ -686,17 +801,22 @@ impl<S: MeshServices + ?Sized> RenderComponent<S> for TriMeshPlugin {
         if mesh.face_groups_node {
             archetype.hook_up(services);
         }
-        self.insert(archetype)
+        let cursor = archetype.groups.len();
+        self.insert(archetype, cursor)
     }
 
     fn clone_handle(&mut self, services: &mut S, handle: Handle) -> Handle {
         if !valid(handle) {
             return HANDLE_NONE;
         }
-        let Some(copy) = self.archetype(handle).map(|a| a.clone_with(services)) else {
+        let Some(copy) = self
+            .archetype(handle)
+            .map(|a| a.arch.borrow().clone_with(services))
+        else {
             return HANDLE_NONE;
         };
-        self.insert(copy)
+        let cursor = copy.groups.len();
+        self.insert(copy, cursor)
     }
 
     fn destroy_handle(&mut self, services: &mut S, handle: Handle) {
@@ -706,8 +826,13 @@ impl<S: MeshServices + ?Sized> RenderComponent<S> for TriMeshPlugin {
         let Some(index) = usize::try_from(handle).ok().and_then(|h| h.checked_sub(1)) else {
             return;
         };
-        if let Some(mut archetype) = self.archetypes.get_mut(index).and_then(Option::take) {
-            archetype.destroy(services);
+        let taken = self
+            .archetypes
+            .borrow_mut()
+            .get_mut(index)
+            .and_then(Option::take);
+        if let Some(archetype) = taken {
+            archetype.arch.borrow_mut().destroy(services);
         }
     }
 
@@ -733,15 +858,17 @@ impl<S: MeshServices + ?Sized> RenderComponent<S> for TriMeshPlugin {
         if !valid(handle) {
             return 0;
         }
-        if self.instances.contains_key(&instance) {
+        if self.instances.borrow().contains_key(&instance) {
             return 1;
         }
-        let Some(archetype) = self.archetype_mut(handle) else {
+        let Some(archetype) = self.archetype(handle) else {
             return 0;
         };
-        let anim = TriMeshInstance::new(handle, archetype);
+        let mut archetype = archetype.arch.borrow_mut();
+        let anim = TriMeshInstance::new(handle, &archetype);
         let (centre, radius) = archetype.sphere().unwrap_or(([0.0; 3], 0.0));
-        self.instances.insert(instance, anim);
+        drop(archetype);
+        self.instances.borrow_mut().insert(instance, anim);
         services.set_instance_extent(instance, radius, centre);
         1
     }
@@ -752,7 +879,7 @@ impl<S: MeshServices + ?Sized> RenderComponent<S> for TriMeshPlugin {
         instance: Instance,
         _handle: Handle,
     ) -> i32 {
-        self.instances.remove(&instance);
+        self.instances.borrow_mut().remove(&instance);
         0
     }
 
@@ -762,7 +889,7 @@ impl<S: MeshServices + ?Sized> RenderComponent<S> for TriMeshPlugin {
     }
 
     fn query_mesh_instance(&mut self, instance: Instance, _handle: Handle, iid: MeshIid) -> i32 {
-        if !self.instances.contains_key(&instance) {
+        if !self.instances.borrow().contains_key(&instance) {
             return -1;
         }
         match iid {
@@ -775,7 +902,7 @@ impl<S: MeshServices + ?Sized> RenderComponent<S> for TriMeshPlugin {
     }
 
     fn update_mesh_instances(&mut self, services: &mut S, arg: u32) -> i32 {
-        let keys: Vec<Instance> = self.instances.keys().copied().collect();
+        let keys: Vec<Instance> = self.instances.borrow().keys().copied().collect();
         for instance in keys {
             self.tick(services, instance, f32::from_bits(arg));
         }
@@ -792,8 +919,8 @@ impl<S: MeshServices + ?Sized> RenderComponent<S> for TriMeshPlugin {
             return (0, None);
         }
         match self.archetype(handle) {
-            Some(a) if query.mode == 3 => (1, Some(a.vertex_count())),
-            Some(a) => (1, Some(a.triangle_count())),
+            Some(a) if query.mode == 3 => (1, Some(a.arch.borrow().vertex_count())),
+            Some(a) => (1, Some(a.arch.borrow().triangle_count())),
             None => (0, None),
         }
     }
@@ -802,8 +929,8 @@ impl<S: MeshServices + ?Sized> RenderComponent<S> for TriMeshPlugin {
         if !valid(handle) {
             return (0, None);
         }
-        match self.archetype_mut(handle) {
-            Some(a) => (1, a.bounds()),
+        match self.archetype(handle) {
+            Some(a) => (1, a.arch.borrow_mut().bounds()),
             None => (0, None),
         }
     }
@@ -812,8 +939,8 @@ impl<S: MeshServices + ?Sized> RenderComponent<S> for TriMeshPlugin {
         if !valid(handle) {
             return (0, None);
         }
-        match self.archetype_mut(handle) {
-            Some(a) => (1, a.centre()),
+        match self.archetype(handle) {
+            Some(a) => (1, a.arch.borrow_mut().centre()),
             None => (0, None),
         }
     }
@@ -826,35 +953,37 @@ impl<S: MeshServices + ?Sized> RenderComponent<S> for TriMeshPlugin {
         instance: Instance,
         request: &DrawRequest,
     ) -> i32 {
-        let Self {
-            archetypes,
-            instances,
-            ..
-        } = self;
-        let Some(anim) = instances.get_mut(&instance) else {
-            return 0;
+        // The instance's track is taken out while it draws, and neither
+        // table stays borrowed across the materials' calls.
+        let (live, mut track) = {
+            let mut instances = self.instances.borrow_mut();
+            let Some(anim) = instances.get_mut(&instance) else {
+                return 0;
+            };
+            (anim.mesh_live, anim.uv_track.take())
         };
-        let index = usize::try_from(anim.mesh_live)
-            .ok()
-            .and_then(|h| h.checked_sub(1));
-        let Some(archetype) = index
-            .and_then(|i| archetypes.get_mut(i))
-            .and_then(Option::as_mut)
-        else {
-            return 0;
+        let result = match self.archetype(live) {
+            Some(archetype) => {
+                let request = DrawRequest {
+                    flags: remap_draw_flags(request.flags),
+                    ..*request
+                };
+                draw(&archetype, &mut track, services, camera, instance, &request)
+            }
+            None => 0,
         };
-        let request = DrawRequest {
-            flags: remap_draw_flags(request.flags),
-            ..*request
-        };
-        draw(archetype, anim, services, camera, instance, &request)
+        if let Some(anim) = self.instances.borrow_mut().get_mut(&instance) {
+            anim.uv_track = track;
+        }
+        result
     }
 
     fn bind_mesh_instance(&mut self, instance: Instance, handle: Handle) -> i32 {
         if !valid(handle) {
             return -1;
         }
-        let Some(anim) = self.instances.get_mut(&instance) else {
+        let mut instances = self.instances.borrow_mut();
+        let Some(anim) = instances.get_mut(&instance) else {
             return -1;
         };
         if anim.mesh_live != anim.mesh {
@@ -866,7 +995,7 @@ impl<S: MeshServices + ?Sized> RenderComponent<S> for TriMeshPlugin {
     }
 
     fn destroy(&mut self, services: &mut S) {
-        for &instance in self.instances.keys() {
+        for &instance in self.instances.borrow().keys() {
             let message = format!(
                 "TriMesh: dtor: instance {} dangling\n",
                 i32::from_ne_bytes((instance as u32).to_ne_bytes())
