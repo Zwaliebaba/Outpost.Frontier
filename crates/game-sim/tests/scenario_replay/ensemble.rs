@@ -14,8 +14,9 @@
 //! object exactly up to the first impact, the impact in the same tick, and
 //! the strict outcome). After the first contact the outcome statistics of
 //! the seeds are compared, Rust's distribution against the oracle's, per
-//! object: the survival count, the kill tick, the munition hits taken, the
-//! collision events and the final hull and shield (see [`Bounds`]).
+//! object: the survival count, the kill tick (the first tick at hull 0),
+//! the munition hits taken and the collision events up to it, and the
+//! final hull and shield (see [`Bounds`]).
 //!
 //! `OUTPOST_ENSEMBLE_DIR` names the ensemble's folder: the oracle's runs
 //! in `<dir>/seed_<S>/<scenario>/` (data.yml, "Run the seed ensemble").
@@ -40,7 +41,7 @@ const RAM_DAMAGE_BOUND: f64 = 0.05;
 const ENVELOPES_APPROVED: bool = false;
 
 /// The outcome bounds, proposed and awaiting the owner (record 0003 point
-/// 9): for each metric Rust's 20 values against the oracle's 20. They
+/// 9): for each metric Rust's values over the seeds against the oracle's. They
 /// apply to the fights; `ram_ship` after its first contact is judged by
 /// its outcome (alive) only, and its other statistics are reported.
 struct Bounds {
@@ -49,9 +50,10 @@ struct Bounds {
     /// of the other metrics): a metric fails when its p-value is below it.
     alpha: f64,
     /// The median of a metric: |rust − oracle| at most
-    /// `max(floor, iqr × the oracle's interquartile range)`. 0.75 is about
-    /// 2.5 standard errors of the difference of two medians of 20 (normal
-    /// approximation: 0.30 × IQR), the same level as `alpha`.
+    /// `max(floor, iqr × the oracle's interquartile range)` (the owner's
+    /// levels, 2026-11-19). For 20 seeds 0.75 is about 2.5 standard errors
+    /// of the difference of two medians (normal approximation: 0.30 × IQR),
+    /// the level of `alpha`; for 60 it is about 4.4 (0.17 × IQR).
     iqr: f64,
 }
 
@@ -101,14 +103,16 @@ fn read_ensemble() -> Ensemble {
 /// One object's outcome in one run.
 #[derive(Clone, Debug, Default)]
 struct ObjOutcome {
-    /// Alive with hull above 0 at the last tick.
+    /// Never killed: its hull stays above 0 to the last tick.
     survived: bool,
-    /// The first tick it is gone or its hull is 0 (the oracle's ship can
-    /// sit at hull 0 for a tick before it is removed).
+    /// The kill (owner, 2026-11-19): the first tick its hull is 0 or less
+    /// (or it is gone), not the tick it is removed. The server's death fuse
+    /// keeps a ship at hull 0 in space for 75 more ticks in the C++
+    /// (D179), where it can still be hit.
     kill_tick: Option<u32>,
-    /// Munition hits it took.
+    /// Munition hits it took up to its kill (all of them without one).
     hits: usize,
-    /// Collision events naming it.
+    /// Collision events naming it up to its kill.
     collisions: usize,
     /// Its hull at the last tick (0 when gone).
     hull: f32,
@@ -133,16 +137,21 @@ fn outcome(run: &Run, first_event: Option<u32>) -> Outcome {
             .and_then(|t| u32::try_from(t).ok());
         let last = states.last().copied().unwrap_or_default();
         let has_shield = states.iter().any(|st| st.shield.is_some());
+        let until = kill_tick.unwrap_or(u32::MAX);
         objects.insert(
             name.clone(),
             ObjOutcome {
                 survived: kill_tick.is_none(),
                 kill_tick,
-                hits: run.hits.iter().filter(|h| &h.target == name).count(),
+                hits: run
+                    .hits
+                    .iter()
+                    .filter(|h| &h.target == name && h.tick <= until)
+                    .count(),
                 collisions: run
                     .contacts
                     .iter()
-                    .filter(|c| &c.a == name || &c.b == name)
+                    .filter(|c| (&c.a == name || &c.b == name) && c.tick <= until)
                     .count(),
                 hull: if last.alive { last.hp } else { 0.0 },
                 shield: has_shield.then(|| {
@@ -816,6 +825,10 @@ fn ensemble_statistics() {
     assert!((0.03..0.07).contains(&p9), "{p9}");
     assert!((0.002..0.01).contains(&p11), "{p11}");
     assert!((ks_p_value(20, 20, 1.0) - 2.0 / 137_846_528_820.0).abs() < 1e-12);
+    // n = m = 60 (the ensemble's size): the asymptotic 1 % critical value
+    // is 1.628 × sqrt(2 / 60) ≈ 0.297, so P(D ≥ 18/60) is near 1 %.
+    let p60 = ks_p_value(60, 60, 18.0 / 60.0);
+    assert!((0.003..0.02).contains(&p60), "{p60}");
     assert_eq!(ks_statistic(&[1.0, 2.0], &[1.0, 2.0]), 0.0);
     assert_eq!(ks_statistic(&[1.0, 1.0], &[2.0, 2.0]), 1.0);
     // Fisher: 20 of 20 against 15 of 20 is p ≈ 0.047; equal counts p = 1.
