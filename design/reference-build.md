@@ -900,7 +900,9 @@ thread), the control words before every frame (IVP's point-soup builder
 sets 64-bit precision and never restores it; the `frame` record shows what
 it found). Not fixed, as record 0003 says: the pointer-keyed physics sync
 set and IVP's pointer-XOR pair hash, so runs can differ; that is the spread
-`--runs` measures (0 in every scenario so far: the runs are identical, so
+`--runs` measures (0 in every scenario so far: the runs of one machine are
+identical, though 5 of the 120 seed-ensemble runs ended differently on
+another runner after their first contact, record 0003 point 10; so
 Gate G2 varies the seed instead, `--seed`, record 0003 point 9). Not
 audited: `timeGetTime` and `GetTickCount` reads in
 Content.dll and the engine DLLs.

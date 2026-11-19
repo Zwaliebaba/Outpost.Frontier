@@ -117,7 +117,8 @@ spread of 0 in all 130 metric lines and 23 events of the 17 scenarios
 nothing after a contact, where the differences are the Rust port's against
 the C++ (the contact solver, D87 and O19; the fuse's timing, D177). The
 owner chose a seed ensemble instead (2026-11-19). `--runs` stays as a
-determinism check: its spread is expected to stay 0.
+determinism check of one machine: its spread is expected to stay 0. Between
+machines the oracle is not quite reproducible after a contact (point 10).
 
 9. **The seed ensemble.** Each Gate G2 scenario (`fly_to_point`,
    `fire_at_target`, `ram_ship`, `dogfight`, `skirmish`, `strafe`) runs
@@ -157,84 +158,101 @@ determinism check: its spread is expected to stay 0.
       (one contact), 50 hull points and 50 shield points (the floors apply
       where the oracle does not vary).
 
-    Why these numbers. The seeds are fixed, so the verdicts are
-    reproducible and never flaky; the bounds say how large a difference 20
-    seeds can show beyond chance. One level, 1 %, is used throughout. For
-    the medians, the standard error of the difference of two medians of 20
-    is about 0.30 × IQR (normal approximation), so 0.75 × IQR is about 2.5
-    standard errors, the same 1 % level. These were chosen before the
-    comparison: the first ensemble ran with the levels 1 % and 1 × IQR
-    (commit e82c02ea); the median margin was then tightened to the 1 %
-    level, not widened. With n = 20 the survival test is weak: for the
-    oracle's measured counts it accepts Rust counts of 14–20 (oracle 20 of
-    20), 8–20 (16), 2–17 (9) and 0–15 (6). A fixed ±4 would be tighter but
-    would reject an identical distribution about 15 % of the time at a
-    survival rate of one half; the owner may prefer it. The bounds are
-    reported, not failed, until the owner approves them
-    (`ENVELOPES_APPROVED` in `scenario_replay`'s ensemble module); the
-    5 % ram bound, the exact span and the same tick fail now, the same tick
-    of a fight once `judge_fight` requires it (the change that comes with
-    the fix of `strafe`'s late first impact; until then a fight's later
-    Rust first impact is reported).
+    Why these numbers. The Rust side is reproducible: the same seeds give
+    the same runs on every machine (two data jobs, 0 of 220 per-object
+    outcomes changed). The oracle is reproducible within one job but not
+    quite between jobs: of its 120 runs, 5 ended differently in the second
+    job (the dogfight with seeds 3358599207 and 464813110, the skirmish
+    with 1478717352 and 225462782, the strafe with 2731971922, whose hauler
+    survived in one job and died at tick 1485 in the other), each after
+    its first contact, with the same first contact and the same exact span.
+    This is the nondeterminism listed above (the pointer-keyed sync set and
+    the pointer-XOR pair hash): addresses repeat between the processes of
+    one machine, which is why `--runs 3` shows a spread of 0, and differ
+    between machines. So the oracle's distributions move a little from job
+    to job (the dogfight police's median shield 362.1 in one, 372.8 in the
+    other), and the bounds are tests of a sample, not exact checks. One
+    level, 1 %, is used throughout. For the medians, the standard error of
+    the difference of two medians of 20 is about 0.30 × IQR (normal
+    approximation), so 0.75 × IQR is about 2.5 standard errors, the same
+    1 % level. The levels were set before the comparison: the first job
+    ran with 1 % and 1 × IQR (commit e82c02ea); the median margin was then
+    tightened to the 1 % level, not widened. With n = 20 the survival test
+    is weak: for the oracle's measured counts it accepts Rust counts of
+    14–20 (oracle 20 of 20), 8–20 (16), 1–16 (8), 2–17 (9) and 0–15 (6). A
+    fixed ±4 would be tighter but would reject an identical distribution
+    about 15 % of the time at a survival rate of one half; the owner may
+    prefer it. The bounds are reported, not failed, until the owner
+    approves them (`ENVELOPES_APPROVED` in `scenario_replay`'s ensemble
+    module). The 5 % ram bound, the exact span, the same tick and
+    `ram_ship`'s alive outcome fail now (per seed), the same tick of a
+    fight once `judge_fight` requires it (the change that comes with the
+    fix of `strafe`'s late first impact; until then a fight's later Rust
+    first impact is reported).
 
-    **Measured** (data job run 44494560931, commit e82c02ea). Every seed of
+    **Measured** (data job runs 44494560931 at e82c02ea and 44500705507 at
+    5a99cf3e; the table is the second, with the bounds above). Every seed of
     every scenario equals the oracle bit for bit up to its first contact or
-    impact (120 of 120). The first contact or impact comes in the oracle's
-    tick in every seed of `fly_to_point` (none), `fire_at_target` (25),
-    `ram_ship` (149), `dogfight` and `skirmish` (178–224, median 194), and
-    in 14 of 20 seeds of `strafe`; in the other 6 the Rust world's comes 2
-    ticks later (seeds 1330790723, 77536153, 3745876164, 3119248879,
-    2492621594, 1865994309). `fire_at_target` and `ram_ship` draw no
-    `rand()` after the seeding point, so their 20 runs are identical on
-    both sides; `fly_to_point` and the fights leave the first seed's run
-    between ticks 1 and 22 (strafe once at 403) and stay exact. `ram_ship`'s
-    first-contact damage: Rust 31.77 against 30.88 in every seed, largest
-    relative error 2.888 %. The fights, oracle against Rust, median
-    [quartiles], with the median difference against its margin and the
-    KS statistic and p-value:
+    impact (120 of 120, both jobs). The first contact or impact comes in
+    the oracle's tick in every seed of `fly_to_point` (none),
+    `fire_at_target` (tick 25), `ram_ship` (149), `dogfight` and
+    `skirmish` (178–224, median 194), and in 14 of 20 seeds of `strafe`; in
+    the other 6 the Rust world's comes 2 ticks later (seeds 1330790723,
+    77536153, 3745876164, 3119248879, 2492621594, 1865994309).
+    `fire_at_target` and `ram_ship` draw no `rand()` after the seeding
+    point, so their 20 runs are identical on both sides; `fly_to_point` and
+    the fights leave the first seed's run between ticks 1 and 22 (strafe
+    once at 403) and stay exact. `ram_ship`'s first-contact damage: Rust
+    31.77 against 30.88 in every seed, largest relative error 2.888 %; both
+    ships alive at the end in every seed on both sides. The fights, oracle
+    against Rust, median [quartiles] (the number of values when it is not
+    20), the median difference against its margin, and the KS statistic and
+    p-value:
 
     | Scenario | Object | Metric | Oracle | Rust | Δ median / margin | KS D / p |
     | --- | --- | --- | --- | --- | --- | --- |
-    | dogfight | police | survived | 20 of 20 | 20 of 20 | | Fisher 1.0 |
-    | dogfight | police | hits | 31 [26.5, 40] | 31.5 [22, 38.5] | 0.5 / 10.1 | 0.15 / 0.983 |
+    | dogfight | police | survived | 20 of 20 | 20 of 20 | | Fisher 1.000 |
+    | dogfight | police | hits | 31 [26.5, 37.2] | 31.5 [22, 38.5] | 0.5 / 8.1 | 0.15 / 0.983 |
     | dogfight | police | collisions | 0.5 [0, 1] | 1 [0, 1] | 0.5 / 2 | 0.10 / 1.000 |
     | dogfight | police | hull | 1300 [1300, 1300] | 1300 [1300, 1300] | 0 / 50 | 0.10 / 1.000 |
-    | dogfight | police | shield | 362.1 [282.8, 430.9] | 438.6 [317.1, 552.9] | 76.5 / 111.1 | 0.30 / 0.336 |
-    | dogfight | rogue | survived | 16 of 20 | 15 of 20 | | Fisher 1.0 |
-    | dogfight | rogue | kill tick | 1593 [1427, 1615] (4) | 1574 [1019, 1714] (5) | −19 / 140.4 | 0.40 / 0.746 |
-    | dogfight | rogue | hits | 112.5 [102.2, 133] | 112 [101.8, 130.2] | −0.5 / 23.1 | 0.10 / 1.000 |
+    | dogfight | police | shield | 372.8 [282.8, 488.1] | 438.6 [317.1, 552.9] | 65.8 / 154 | 0.25 / 0.571 |
+    | dogfight | rogue | survived | 16 of 20 | 15 of 20 | | Fisher 1.000 |
+    | dogfight | rogue | kill tick | 1593 [1427.2, 1614.5] (4) | 1574 [1019, 1714] (5) | −19 / 140.4 | 0.40 / 0.746 |
+    | dogfight | rogue | hits | 110.5 [102.2, 124.8] | 112 [101.8, 130.2] | 1.5 / 16.9 | 0.15 / 0.983 |
     | dogfight | rogue | collisions | 1 [1, 1] | 1 [1, 1] | 0 / 2 | 0.10 / 1.000 |
-    | dogfight | rogue | hull | 620.8 [38.5, 834.1] | 421 [32.7, 1043.2] | −199.8 / 596.7 | 0.10 / 1.000 |
+    | dogfight | rogue | hull | 682 [38.5, 938] | 421 [32.7, 1043.2] | −261 / 674.7 | 0.15 / 0.983 |
     | dogfight | rogue | shield | 123.4 [27.7, 129.3] | 122.9 [4.2, 129] | −0.5 / 76.2 | 0.20 / 0.832 |
-    | skirmish | police | survived | 20 of 20 | 20 of 20 | | Fisher 1.0 |
-    | skirmish | police | hits | 20 [12.8, 31] | 24.5 [17.8, 28.2] | 4.5 / 13.7 | 0.20 / 0.832 |
+    | skirmish | police | survived | 20 of 20 | 20 of 20 | | Fisher 1.000 |
+    | skirmish | police | hits | 20 [12.8, 30.8] | 24.5 [17.8, 28.2] | 4.5 / 13.5 | 0.20 / 0.832 |
     | skirmish | police | collisions | 0 [0, 1] | 0.5 [0, 1] | 0.5 / 2 | 0.15 / 0.983 |
     | skirmish | police | hull | 1300 [1300, 1300] | 1300 [1300, 1300] | 0 / 50 | 0.05 / 1.000 |
-    | skirmish | police | shield | 569.5 [403.7, 704.5] | 538.8 [400.9, 607.8] | −30.7 / 225.6 | 0.20 / 0.832 |
-    | skirmish | rogue | survived | 6 of 20 | 7 of 20 | | Fisher 1.0 |
-    | skirmish | rogue | kill tick | 910 [852.5, 1182.5] (14) | 1081 [939, 1173] (13) | 171 / 247.5 | 0.42 / 0.128 |
+    | skirmish | police | shield | 591.8 [403.7, 704.5] | 538.8 [400.9, 607.8] | −53 / 225.6 | 0.25 / 0.571 |
+    | skirmish | rogue | survived | 6 of 20 | 7 of 20 | | Fisher 1.000 |
+    | skirmish | rogue | kill tick | 910 [813.5, 1182.5] (14) | 1081 [939, 1173] (13) | 171 / 276.8 | 0.42 / 0.128 |
     | skirmish | rogue | hits | 76.5 [64.8, 90] | 81 [73, 91.2] | 4.5 / 18.9 | 0.25 / 0.571 |
     | skirmish | rogue | collisions | 1 [0, 1] | 0.5 [0, 1] | −0.5 / 2 | 0.10 / 1.000 |
     | skirmish | rogue | hull | 0 [0, 48.1] | 0 [0, 201.1] | 0 / 50 | 0.25 / 0.571 |
     | skirmish | rogue | shield | 0 [0, 32.6] | 0 [0, 121.7] | 0 / 50 | 0.20 / 0.832 |
-    | strafe | hauler | survived | 9 of 20 | 6 of 20 | | Fisher 0.515 |
-    | strafe | hauler | kill tick | 1466 [1420, 1476] (11) | 1438 [1148, 1456.5] (14) | −28 / 42 | 0.40 / 0.208 |
-    | strafe | hauler | hits | 130 [114.8, 150.2] | 111 [93.2, 116] | −19 / 26.6 | 0.50 / 0.012 |
+    | strafe | hauler | survived | 8 of 20 | 6 of 20 | | Fisher 0.741 |
+    | strafe | hauler | kill tick | 1466.5 [1425.5, 1480.8] (12) | 1438 [1147.8, 1456.5] (14) | −28.5 / 41.4 | 0.44 / 0.116 |
+    | strafe | hauler | hits | 130 [114.8, 151] | 111 [93.2, 116] | −19 / 27.2 | 0.50 / 0.012 |
     | strafe | hauler | collisions | 0 [0, 0] | 0 [0, 0] | 0 / 2 | 0.00 / 1.000 |
     | strafe | hauler | hull | 0 [0, 355.8] | 0 [0, 103.2] | 0 / 266.8 | 0.15 / 0.983 |
-    | strafe | police | all | survives untouched in every seed on both sides | | | |
+    | strafe | police | all | untouched in every seed on both sides | | | |
 
-    Every fight metric is inside the proposed bounds; the closest is
-    `strafe`'s hauler hits (p = 0.012). Two systematic differences are put
-    to the owner as findings, not absorbed by the bounds:
+    Every fight metric is inside the proposed bounds in both jobs; the
+    closest is `strafe`'s hauler hits (p = 0.012 in both). Two systematic
+    differences are put to the owner as findings, not absorbed by the
+    bounds:
     - `strafe`: the 2-tick-late first impact in 6 seeds, and a consistent
       lean in the hauler's outcome: Rust kills it earlier (lower quartile
-      of the kill tick 1148 against 1420, earliest 1010 against 1387) after
-      fewer hits (6 of Rust's 14 kills come at exactly 111 hits; the
-      oracle's kills take 102–163), and it survives in 6 seeds against 9.
-      Each metric alone is inside the bounds; together they point at more
-      hull damage per hit in Rust or a different damage path for the
-      transport, to be explained with the fix of the late first impact.
+      of the kill tick 1148 against 1420–1426, earliest 1010 against 1387)
+      after fewer hits (6 of Rust's 14 kills come at exactly 111 hits; the
+      oracle's kills take 102–163), and it survives in 6 seeds against the
+      oracle's 8–9. Each metric alone is inside the bounds; together they
+      point at more hull damage per hit in Rust or a different damage path
+      for the transport, to be explained with the fix of the late first
+      impact.
     - `ram_ship` after the first contact (reported, not bounded): the
       oracle's pilot touches the target again at ticks 156 and 157 (42.95
       and 48.33 m/s), so it records 6 collision events and each ship ends
