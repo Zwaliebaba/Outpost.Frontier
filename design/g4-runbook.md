@@ -111,7 +111,12 @@ cargo test --locked -p neuron-client --lib platform::media -- --nocapture
 The audio tests open the default device, play archetype voices that move
 and end, apply every reverb environment, stream to the end and loop shipped
 music; you should hear short sounds and music. The media test decodes the
-shipped logo movie. A test that finds no device or decoder prints
+shipped logo movie. The viewer's `sound` and `voice` scenes (section 4) play
+through the same path as the game's sounds: the sound tables and voice
+profiles of `OutpostFrontier.ini`, the client's playing list and the frame's
+sound tick, which ranks the sources and gives them the mixer's voices with
+the tables' attenuation; the engine also hands the device the
+`[AudioProperties]` reverb at start. A test that finds no device or decoder prints
 `nothing to test` and passes; that line in the output means the item is not
 covered yet. Send back the output, and say whether the sounds played and
 whether anything sounded wrong (crackle, wrong pitch, no stereo movement).
@@ -139,8 +144,9 @@ Starflier, `ge_fighter`), `station` (`largestation1`), `character` (the
 bartender's body playing the first animation of `bodygenericmale.anm`
 that binds), `effect` (`Explode` of `standardeffects.ale`, whose debris
 carry child effects), `script` (`m03_survivor1.thn`,
-looping), `sound` (`hud_comm_window`), `voice` (the first line of
-`announcer.utf`) and `menu` (`page_charselectsingle.page` over the
+looping), `sound` (`hud_comm_window` of the sound tables), `voice` (the
+first line of the `announcer` voice profile, from `announcer.utf`) and
+`menu` (`page_charselectsingle.page` over the
 scene). `--scenes ship,character` picks some; `--ship`, `--solar`,
 `--model`, `--character`, `--effect`, `--script`, `--sound`, `--voice` and
 `--page` add others (`--help` lists the forms); `--audio` opens the audio
@@ -156,8 +162,10 @@ Tab or Right and Left switch scenes, 1 to 9 pick one; A, D, W and S orbit,
 Q, E and the wheel zoom, a left drag orbits; R frames the scene again,
 Space spins the camera, N plays the character's next animation, P plays
 the scene's sound again, Esc quits. The console prints what each scene
-loaded and, every two seconds, the camera, the script clock and the
-voices playing.
+loaded (for a sound its length, format and archetype flags) and, every two
+seconds, the camera, the script clock and the sounds playing with the
+mixer's voices. `--voice announcer,DX_M06_0202_ANNOUNCER` picks a line of a
+profile by its `msg`.
 
 What to look at: the ship, the station and the character are lit and
 textured and the character moves; the effect animates; the sound and the
