@@ -810,6 +810,11 @@ namespace
             bNo[3] = I(T[B + 12]) != 0;
             auto M = [&](int K) { return bMesh[K] ? nullptr : Mesh[K].c_str(); };
             auto H = [&](int K) { return bHp[K] ? nullptr : Hp[K].c_str(); };
+            // The constructor leaves RepeatTime (+0x670) and bPageTowardMin (+0x67b) as
+            // allocated: the zeroed allocation the Rust port starts from (divergence D442),
+            // not whatever the heap holds.
+            static_cast<ScrollControl*>(static_cast<WinControl*>(O))->RepeatTime = 0.0f;
+            static_cast<ScrollControl*>(static_cast<WinControl*>(O))->bPageTowardMin = 0;
             static_cast<ScrollControl*>(static_cast<WinControl*>(O))
                 ->Init(M(0), V[0], H(0), V[1], bNo[0], M(1), V[2], H(1), V[3], bNo[1], M(2), V[4], H(2), V[5],
                        bNo[2], M(3), V[6], V[7], H(3), H(4), V[8], bNo[3], I(T[B + 13]), I(T[B + 14]),
