@@ -48,6 +48,32 @@ pub fn project_point(camera: &Camera, world: Vector) -> (f32, f32) {
     camera.project(world).map_or((0.0, 0.0), |(x, y, _)| (x, y))
 }
 
+/// A fixed screen mapping of text objects in place of the Win3D camera
+/// (the UI suites' stand-ins for `TextWinProjectPoint` and
+/// `TextWinProjectExtent`).
+pub trait TextProjection {
+    fn point(&self, world: Vector) -> (f32, f32);
+    fn extent(&self, width: f32, height: f32, z: f32) -> (f32, f32);
+}
+
+/// `TextWinProjectPoint` through the manager's projection.
+#[must_use]
+pub fn text_point(ui: &Ui, world: Vector) -> (f32, f32) {
+    match &ui.text_projection {
+        Some(p) => p.point(world),
+        None => project_point(&ui.camera, world),
+    }
+}
+
+/// `TextWinProjectExtent` through the manager's projection.
+#[must_use]
+pub fn text_extent(ui: &Ui, width: f32, height: f32, z: f32) -> (f32, f32) {
+    match &ui.text_projection {
+        Some(p) => p.extent(width, height, z),
+        None => project_extent_to_screen(&ui.camera, width, height, z),
+    }
+}
+
 /// The `TextWin` part of a text object.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TextWin {

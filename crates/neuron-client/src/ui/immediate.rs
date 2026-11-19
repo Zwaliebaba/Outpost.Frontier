@@ -12,7 +12,7 @@
 //! them ([`super::tree::DrawHost::immediate`]); the layer that turns them
 //! into draws is not ported yet. [`ImmediateLog`] records the calls.
 
-use neuron_core::math::Transform;
+use neuron_core::math::{Transform, Vector};
 
 /// `EWin3DPrimitive`.
 pub mod primitive {
@@ -81,6 +81,17 @@ pub trait Immediate {
     fn bind_modelview(&mut self, transform: &Transform);
     /// The pipeline's `SetRenderState`.
     fn set_render_state(&mut self, state: u32, value: u32);
+    /// `ImmedBatchAddLine(&G_ImmedBatchA, from, to, argb, rgb, width)`: a
+    /// thick line of the line batcher (the wire controls' edges).
+    fn batch_line(&mut self, from: Vector, to: Vector, argb: u32, rgb: u32, width: f32) {
+        let _ = (from, to, argb, rgb, width);
+    }
+    /// `Win3DImmedBatchFlushAll` and `Win3DImmedBatchReset`.
+    fn flush_batches(&mut self) {}
+    /// `Win3DSetDepthWrite`.
+    fn set_depth_write(&mut self, on: bool) {
+        let _ = on;
+    }
 }
 
 /// One recorded call.
@@ -100,6 +111,9 @@ pub enum Call {
     SetOrtho2D,
     BindModelview(Transform),
     SetRenderState(u32, u32),
+    BatchLine(Vector, Vector, u32, u32, f32),
+    FlushBatches,
+    SetDepthWrite(bool),
 }
 
 /// An [`Immediate`] that records every call.
@@ -150,5 +164,14 @@ impl Immediate for ImmediateLog {
     }
     fn set_render_state(&mut self, state: u32, value: u32) {
         self.calls.push(Call::SetRenderState(state, value));
+    }
+    fn batch_line(&mut self, from: Vector, to: Vector, argb: u32, rgb: u32, width: f32) {
+        self.calls.push(Call::BatchLine(from, to, argb, rgb, width));
+    }
+    fn flush_batches(&mut self) {
+        self.calls.push(Call::FlushBatches);
+    }
+    fn set_depth_write(&mut self, on: bool) {
+        self.calls.push(Call::SetDepthWrite(on));
     }
 }

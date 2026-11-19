@@ -125,6 +125,12 @@ pub trait DrawHost {
     fn shape_textures(&mut self) -> Option<&mut dyn ShapeTextures> {
         None
     }
+    /// `GetGameOption(index)` for the other options the control draws
+    /// read (6 the interface, 9 NeuroNet, 0x13 text controls, 0x14 button
+    /// controls, 0x15 static controls).
+    fn game_option(&self, _index: u32) -> i32 {
+        1
+    }
     /// `GetGameOption(DRAW SCROLL BAR CONTROLS)` (option 0x16).
     fn scroll_bars_enabled(&self) -> bool {
         true
@@ -132,12 +138,26 @@ pub trait DrawHost {
     /// Submits a control's engine instance (`SubmitWin3DEngineInstance`
     /// and its tinted variant) with the camera the draw runs under.
     fn submit_mesh(&mut self, _mesh: &dyn ControlMesh, _pass: MeshPass) {}
+    /// A static control draws into a window of the screen through its own
+    /// camera (`Some`), or goes back to the Win3D camera (`None`).
+    fn window_view(&mut self, _view: Option<WindowView>) {}
+    /// `NnMontageDrawTileAt(tile, where, rgba, size, 0, 0)`: whether the
+    /// montage icon was drawn.
+    fn draw_montage_tile(
+        &mut self,
+        _tile: Option<super::services::MontageTile>,
+        _at: Vector,
+        _rgba: [u8; 4],
+        _size: f32,
+    ) -> bool {
+        false
+    }
     /// For widgets that need more of their host.
     fn as_any_mut(&mut self) -> &mut dyn Any;
 }
 
 /// How a control's engine instance is submitted.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum MeshPass {
     /// `SubmitWin3DEngineInstance(holder, camera, 0, 1.0, 0)` after the
     /// render states `ZFUNC = 8` and `ZWRITEENABLE = 1`.
@@ -145,6 +165,41 @@ pub enum MeshPass {
     /// `SubmitWin3DTintedEngineInstanceWrapped(camera, instance, 1, tint,
     /// lighting, 1.0, 0)`: front culling, the tint bytes R, G, B, A.
     Tinted { tint: [u8; 4], lighting: bool },
+    /// `SubmitWin3DEngineInstance(holder, camera, front_cull, scale, 0)`
+    /// after the holder's tint floats were set from the bytes R, G, B, A
+    /// (each times 1/255).
+    Body {
+        tint: [u8; 4],
+        front_cull: bool,
+        scale: f32,
+    },
+    /// `SubmitWin3DTintedEngineInstanceWrapped(camera, instance,
+    /// front_cull, tint, lighting, scale, 0)`.
+    TintedScaled {
+        tint: [u8; 4],
+        front_cull: bool,
+        lighting: bool,
+        scale: f32,
+    },
+    /// `SubmitWin3DOutlinedEngineInstance(camera, instance, 1, wire,
+    /// scale, 0)`.
+    Outlined { wire: [u8; 4], scale: f32 },
+    /// `IRenderer2::RenderInstance(camera, instance, 1.0, 0x30, scaled
+    /// identity)` after `ZFUNC = 8` and `ZWRITEENABLE = 1` (a static
+    /// control's z-clear pass).
+    Direct { tint: [u8; 4], scale: f32 },
+}
+
+/// A static control's render-to-window view (`StaticControl::Draw`): the
+/// screen rectangle its own camera is fitted to, with the Win3D camera's
+/// planes and a 35 degree vertical field of view; `None` puts the Win3D
+/// camera and the saved viewport back.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WindowView {
+    pub rect: [i32; 4],
+    pub z_near: f32,
+    pub z_far: f32,
+    pub fov_y_deg: f32,
 }
 
 /// `GetTextureFrame(shape, 0)` of a shape through the host's library: 0
@@ -269,6 +324,17 @@ pub trait Widget: Any {
     fn notify(&mut self, ui: &mut Ui, id: NodeId, value: u32) {
         ui.base_notify(id, value);
     }
+    /// Slot 34 (`ShowToolTip`, `WinControl` and its controls): the hover
+    /// record fed to the tooltip when the control's hit test hits.
+    fn show_tooltip(&self, ui: &mut Ui, id: NodeId) {
+        if let Some(c) = self.win_control() {
+            super::control::base::show_tooltip(ui, id, c);
+        }
+    }
+    /// The tooltip singleton's `UpdateFromHover` ([`Ui::feed_tooltip_hover`]).
+    fn tooltip_hover(&mut self, ui: &mut Ui, id: NodeId, hover: &super::services::ToolTipHover) {}
+    /// The tooltip singleton's `HideNow` ([`Ui::hide_tooltip`]).
+    fn tooltip_hide(&mut self, ui: &mut Ui, id: NodeId) {}
     /// Slot 27: the hit priority (0: the depth decides).
     fn hit_priority(&self, node_priority: i32) -> i32 {
         node_priority
@@ -321,6 +387,33 @@ pub enum Property<'a> {
     /// 0x3E: a scroll bar's value changed (the sender, its value
     /// truncated).
     ScrollChanged(NodeId, i32),
+    /// A control telling its parent about itself with `SetProperty(msg,
+    /// this, value)`: 0x1A and 0x1B (a static control clicked, right),
+    /// 0x26 (activated), 0x27 (right click or double click), 0x28
+    /// (pressed), 0x2A and 0x2B (the press left and came back), 0x2C and
+    /// 0x2D (lit, unlit), 0x30 (a toggle's new state), 0x46 (a text
+    /// control was hit). The sender is a node (divergence D430).
+    FromChild { msg: i32, from: NodeId, value: i32 },
+    /// 0x45: an edit control's text changed (`None` for the null text
+    /// Backspace sends), with Enter.
+    EditText {
+        from: NodeId,
+        text: Option<Vec<u16>>,
+        enter: bool,
+    },
+    /// 0x1D: a text control's text.
+    SetText(Option<&'a [u16]>),
+    /// 0x33: a colour override (the bytes R, G, B, A), on when the flag
+    /// is set (`B == 1`).
+    Colour([u8; 4], bool),
+    /// 0x18: a static control's mesh and wire colours.
+    Colours([u8; 4], [u8; 4]),
+    /// 0x2E: a button's key-map command written to the output.
+    GetCommand(&'a mut i32),
+    /// 0x2F: a toggle button's state written to the output.
+    GetToggleState(&'a mut i32),
+    /// 0x31: a toggle button's sounds of state 0 and 1 (`None` keeps one).
+    ToggleSounds(Option<&'a [u8]>, Option<&'a [u8]>),
     /// Any other message.
     Other(i32, usize, usize),
 }
@@ -476,6 +569,20 @@ pub struct Ui {
     /// The shapes of `Interface\\UI\\UITextures.ini` the scroll bars draw
     /// with.
     pub ui_shapes: super::controls::scroll::ScrollShapes,
+    /// The client's services the controls call (sounds, commands, the
+    /// montage, options, cursors).
+    pub services: Box<dyn super::services::UiServices>,
+    /// The string tables the controls' ids resolve in.
+    pub catalogs: Option<std::rc::Rc<neuron_core::catalog::TextCatalogs>>,
+    /// `G_ToolTipSingleton`: the tooltip the factory made last.
+    pub tooltip: Option<NodeId>,
+    /// `G_RolloverSingleton`.
+    pub rollover: Option<NodeId>,
+    /// `G_TextControlTypingCount`: the text controls in a typewriter run.
+    pub text_typing_count: i32,
+    /// `TextWinProjectPoint` and `TextWinProjectExtent` in place of the
+    /// Win3D camera's (none: the camera).
+    pub text_projection: Option<Box<dyn super::controls::text_win::TextProjection>>,
 }
 
 impl Ui {
@@ -504,7 +611,39 @@ impl Ui {
             pulse: Pulse::default(),
             frame_time: 0.0,
             ui_shapes: super::controls::scroll::ScrollShapes::default(),
+            services: Box::new(super::services::NoServices),
+            catalogs: None,
+            tooltip: None,
+            rollover: None,
+            text_typing_count: 0,
+            text_projection: None,
         }
+    }
+
+    /// `GetIdsStringWWithRawFallback`: the string-table entry, else the
+    /// raw text resource, else nothing (an empty result).
+    #[must_use]
+    pub fn ids_string(&self, ids: u32) -> Vec<u16> {
+        let Some(c) = self.catalogs.as_deref() else {
+            return Vec::new();
+        };
+        let s = c.string(ids);
+        if !s.is_empty() {
+            return s.to_vec();
+        }
+        c.text(ids).map(|t| t.units()).unwrap_or_default()
+    }
+
+    /// `NnToolTipFeedHover`: the hover to the tooltip, when there is one.
+    pub fn feed_tooltip_hover(&mut self, hover: &super::services::ToolTipHover) {
+        let Some(tip) = self.tooltip else { return };
+        self.with_widget(tip, (), |w, ui| w.tooltip_hover(ui, tip, hover));
+    }
+
+    /// `NnToolTipHideGlobal`.
+    pub fn hide_tooltip(&mut self) {
+        let Some(tip) = self.tooltip else { return };
+        self.with_widget(tip, (), |w, ui| w.tooltip_hide(ui, tip));
     }
 
     // ---- the arena ----------------------------------------------------
@@ -1337,6 +1476,7 @@ impl Ui {
     pub fn update_all(&mut self, delta_seconds: f64) {
         self.frame_time = delta_seconds;
         self.pulse.advance(delta_seconds);
+        self.tick_tooltips(delta_seconds);
         let picked = if self.cursor_drawn {
             self.pick_for_hover()
         } else {
@@ -1528,6 +1668,12 @@ impl Ui {
         }
         if self.key_focus == Some(id) {
             self.key_focus = None;
+        }
+        if self.tooltip == Some(id) {
+            self.tooltip = None;
+        }
+        if self.rollover == Some(id) {
+            self.rollover = None;
         }
         self.capture.retain(|&c| c != id);
         if self.hover == Some(id) {
