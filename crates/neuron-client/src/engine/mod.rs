@@ -31,8 +31,14 @@
 //! engine ([`Engine::create_model`]), deformable models
 //! ([`Engine::create_deformable`]), particle effects
 //! ([`Engine::load_effects`], [`Engine::create_effect`]) and scene scripts
-//! ([`Engine::load_scene_script`]).
+//! ([`Engine::load_scene_script`]), animations played on deformable
+//! models through the animation system ([`Engine::load_animations`],
+//! [`Engine::play_deformable_animation`]) and sounds played on the audio
+//! device ([`Engine::load_sound`], [`Engine::play_sound`]). The frame's
+//! camera is any [`Camera`](crate::render::appearance::Camera);
+//! [`camera::ViewCamera`] is a perspective one.
 
+pub mod camera;
 mod frame;
 pub mod order;
 mod scene_host;
@@ -44,7 +50,9 @@ use std::cell::{RefCell, RefMut};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 
+use neuron_core::anim::AnimScript;
 use neuron_core::fx_data::{self as fx, AleFile, NodeClass};
 use neuron_core::ini::{EngineIni, EngineIniError, IniReader, NoIncludes};
 use neuron_core::math::Transform;
@@ -52,7 +60,10 @@ use neuron_core::scene::{Animation, ArchetypeId, Engine as SceneEngine, Hardpoin
 use neuron_core::vfs::{FileSystem, FsDesc, Host, UtfFileSystem};
 
 use crate::audio::config::{AudioConfig, CLIENT_STARTUP_FLAGS, stream_buffer_seconds};
-use crate::audio::mixer::Mixer;
+use crate::audio::decode::decode_archetype;
+use crate::audio::mixer::{
+    Archetype, ArchetypeId as SoundArchetypeId, Mixer, VoiceId, archetype_flags,
+};
 use crate::input::mouse::Mouse;
 use crate::render::appearance::Appearance;
 use crate::render::deformable::{
@@ -83,6 +94,7 @@ use crate::ui::tree::Ui;
 use crate::ui::widescreen::Surface;
 use crate::window::DisplayMode;
 
+pub use camera::ViewCamera;
 pub use frame::{FrameInput, FrameReport, Win3dStates};
 pub use order::{
     CREATION_ORDER, LIBRARIES, LifeEvent, Lifecycle, Phase, Reference, Stage, TEARDOWN_ORDER,
@@ -152,6 +164,10 @@ pub enum EngineError {
     Script(String),
     /// A deformable model could not be made.
     Deformable(String),
+    /// An animation could not be loaded or played.
+    Animation(String),
+    /// A sound could not be decoded.
+    Sound(String),
 }
 
 impl fmt::Display for EngineError {
@@ -164,6 +180,8 @@ impl fmt::Display for EngineError {
             Self::Effect(e) => write!(f, "particle effect: {e}"),
             Self::Script(e) => write!(f, "scene script: {e}"),
             Self::Deformable(p) => write!(f, "deformable model {p} could not be made"),
+            Self::Animation(e) => write!(f, "animation: {e}"),
+            Self::Sound(e) => write!(f, "sound: {e}"),
         }
     }
 }
@@ -185,6 +203,34 @@ pub struct DeformableId(usize);
 /// A loaded scene script.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct SceneScriptId(usize);
+
+/// A loaded animation script (an `.anm` file's animations).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct AnimationsId(usize);
+
+/// A sound archetype in the sound manager's mixer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct SoundId(SoundArchetypeId);
+
+/// What [`Engine::load_sound`] made.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SoundInfo {
+    /// The archetype.
+    pub id: SoundId,
+    /// Its length in milliseconds.
+    pub duration_ms: u32,
+    /// Its channels.
+    pub channels: u16,
+    /// Its sample rate.
+    pub rate: u16,
+}
+
+/// An animation playing on a deformable model.
+#[derive(Clone, Copy, Debug)]
+struct DeformPlayback {
+    deformable: usize,
+    playback: u32,
+}
 
 /// What [`Engine::load_archive`] loaded from one archive.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -287,6 +333,11 @@ pub struct Engine<B: Backend + 'static> {
     appearance: Option<Appearance>,
     effects: Vec<Option<LiveEffect>>,
     scripts: Vec<Option<Player>>,
+    anim_scripts: Vec<Arc<AnimScript>>,
+    playbacks: Vec<DeformPlayback>,
+    voices: Vec<VoiceId>,
+    #[cfg_attr(not(windows), allow(dead_code))]
+    next_voice: VoiceId,
     data: Option<Host>,
     mode: DisplayMode,
     fonts: Option<FontSystem>,
@@ -657,6 +708,10 @@ impl<B: Backend + 'static> Engine<B> {
             appearance,
             effects,
             scripts,
+            anim_scripts: Vec::new(),
+            playbacks: Vec::new(),
+            voices: Vec::new(),
+            next_voice: 1,
             data: Some(data),
             mode,
             fonts: None,
@@ -794,7 +849,12 @@ impl<B: Backend + 'static> Engine<B> {
     ///
     /// The archive does not open.
     pub fn load_archive(&mut self, path: &[u8]) -> Result<ArchiveLoad, EngineError> {
-        let mut fs = self.open_archive(path)?;
+        let fs = self.open_archive(path)?;
+        Ok(self.load_libraries(fs))
+    }
+
+    /// [`Engine::load_archive`] over an open archive.
+    fn load_libraries(&mut self, mut fs: UtfFileSystem) -> ArchiveLoad {
         let mut out = ArchiveLoad::default();
         let mut side = self.render.borrow_mut();
         let stack = &mut side.stack;
@@ -835,7 +895,7 @@ impl<B: Backend + 'static> Engine<B> {
         if list.is_some() {
             self.loaded.meshes.push(list);
         }
-        Ok(out)
+        out
     }
 
     /// A model through the scene engine: the archive's libraries
@@ -849,7 +909,36 @@ impl<B: Backend + 'static> Engine<B> {
     /// or instance from it.
     pub fn create_model(&mut self, path: &[u8]) -> Result<ModelId, EngineError> {
         self.load_archive(path)?;
-        let mut fs = self.open_archive(path)?;
+        let fs = self.open_archive(path)?;
+        self.create_model_in(path, fs)
+    }
+
+    /// [`Engine::create_model`] from an archive's bytes instead of a file
+    /// of the data (a model made by a tool or a test); `path` names it.
+    ///
+    /// # Errors
+    ///
+    /// The bytes are not an archive, or the scene engine makes no
+    /// archetype or instance from it.
+    pub fn create_model_from_bytes(
+        &mut self,
+        path: &[u8],
+        bytes: Arc<[u8]>,
+    ) -> Result<ModelId, EngineError> {
+        let open = |bytes: Arc<[u8]>| {
+            UtfFileSystem::from_bytes(bytes, path).map_err(|_| EngineError::Open(lossy(path)))
+        };
+        let fs = open(Arc::clone(&bytes))?;
+        self.load_libraries(fs);
+        let fs = open(bytes)?;
+        self.create_model_in(path, fs)
+    }
+
+    fn create_model_in(
+        &mut self,
+        path: &[u8],
+        mut fs: UtfFileSystem,
+    ) -> Result<ModelId, EngineError> {
         let name = path
             .rsplit(|&c| c == b'\\' || c == b'/')
             .next()
@@ -1043,6 +1132,7 @@ impl<B: Backend + 'static> Engine<B> {
 
     /// Destroys a deformable model.
     pub fn destroy_deformable(&mut self, id: DeformableId) {
+        self.stop_deformable_animation(id);
         let Some(instance) = self.deformables.get_mut(id.0).and_then(Option::take) else {
             return;
         };
@@ -1089,6 +1179,231 @@ impl<B: Backend + 'static> Engine<B> {
         if let Some(mut player) = self.scripts.get_mut(id.0).and_then(Option::take) {
             player.stop();
         }
+    }
+
+    /// The bounding sphere of a model's instance tree (`GetInstanceExtent`
+    /// of its root over the subtree): the radius and the centre.
+    #[must_use]
+    pub fn model_bounds(&self, model: ModelId) -> Option<(f32, [f32; 3])> {
+        let root = self.model_root(model)?;
+        let (radius, centre) = self.scene.borrow_mut().instance_extent(Some(root), 0);
+        (radius > 0.0).then_some((radius, centre.to_words()))
+    }
+
+    /// The scene instance of a deformable model's root bone
+    /// (`FirstBoneInstance`), which places the model and under which its
+    /// animations bind.
+    #[must_use]
+    pub fn deformable_root(&self, id: DeformableId) -> Option<InstanceId> {
+        let instance = self.deformables.get(id.0)?.as_ref()?;
+        u32::try_from(instance.first_bone())
+            .ok()
+            .map(InstanceId::from_index)
+    }
+
+    /// A deformable model's bounding sphere (`GetBoundSphere`): the radius
+    /// and the centre of its first part.
+    pub fn deformable_bounds(&mut self, id: DeformableId) -> Option<(f32, [f32; 3])> {
+        let instance = self.deformables.get(id.0)?.as_ref()?;
+        instance.bound_sphere(&mut self.deform.meshes)
+    }
+
+    /// Places a deformable model: its root bone's transform, the tree
+    /// updated and the bones' world transforms handed to the model.
+    pub fn set_deformable_transform(&mut self, id: DeformableId, transform: &Transform) {
+        let Some(root) = self.deformable_root(id) else {
+            return;
+        };
+        let mut scene = self.scene.borrow_mut();
+        scene.set_instance_matrix(Some(root), transform);
+        scene.update_instance(Some(root), 0);
+        if let Some(Some(instance)) = self.deformables.get_mut(id.0) {
+            pull_bones(instance, &scene);
+        }
+    }
+
+    /// The animations of an `.anm` file of the data (`OpenScript`): the
+    /// script and the names of its animations.
+    ///
+    /// # Errors
+    ///
+    /// The file does not open or holds no `Animation` node.
+    pub fn load_animations(
+        &mut self,
+        path: &[u8],
+    ) -> Result<(AnimationsId, Vec<Vec<u8>>), EngineError> {
+        let mut fs = self.open_archive(path)?;
+        let script = AnimScript::open(&mut fs)
+            .map_err(|e| EngineError::Animation(format!("{}: {e:?}", lossy(path))))?
+            .ok_or_else(|| EngineError::Animation(format!("{}: no animations", lossy(path))))?;
+        let names = script.entries().map(|(_, e)| e.name.clone()).collect();
+        self.anim_scripts.push(Arc::new(script));
+        Ok((AnimationsId(self.anim_scripts.len() - 1), names))
+    }
+
+    /// Plays the animation `name` of `animations` on a deformable model
+    /// through the animation system (`PlayScript` under the model's root
+    /// bone, then `EvalPlayback` from the start at normal speed, looping
+    /// when asked), replacing what played on it before. Each frame then
+    /// walks the animation system's mixer, updates the model's tree and
+    /// hands its bones the new transforms. The playback id.
+    ///
+    /// # Errors
+    ///
+    /// No such model, script or animation, or no track of it could start.
+    pub fn play_deformable_animation(
+        &mut self,
+        id: DeformableId,
+        animations: AnimationsId,
+        name: &[u8],
+        looping: bool,
+    ) -> Result<u32, EngineError> {
+        let script = self
+            .anim_scripts
+            .get(animations.0)
+            .cloned()
+            .ok_or_else(|| EngineError::Animation("no such animation script".to_owned()))?;
+        let root = self
+            .deformable_root(id)
+            .ok_or_else(|| EngineError::Animation("no such deformable model".to_owned()))?;
+        self.stop_deformable_animation(id);
+        let scene = self.scene.borrow();
+        let playback = self
+            .animation
+            .play_script(&scene, &script, Some(root), name, 0, 0)
+            .ok_or_else(|| EngineError::Animation(format!("no animation {}", lossy(name))))?;
+        let flags = if looping { 2 } else { 0 };
+        let result = self
+            .animation
+            .eval_playback(&scene, playback, flags, 0.0, 1.0, 0.0, 1.0, 1.0, None);
+        if result == 0xFFFF_FFFF {
+            self.animation.destroy_script(&scene, playback);
+            return Err(EngineError::Animation(format!(
+                "{} did not start",
+                lossy(name)
+            )));
+        }
+        self.playbacks.push(DeformPlayback {
+            deformable: id.0,
+            playback,
+        });
+        Ok(playback)
+    }
+
+    /// Stops and destroys the animations playing on a deformable model;
+    /// the model keeps the pose it has.
+    pub fn stop_deformable_animation(&mut self, id: DeformableId) {
+        let scene = self.scene.borrow();
+        let animation = &mut self.animation;
+        self.playbacks.retain(|p| {
+            if p.deformable != id.0 {
+                return true;
+            }
+            animation.stop_playback(&scene, p.playback);
+            animation.destroy_script(&scene, p.playback);
+            false
+        });
+    }
+
+    /// The animations playing on deformable models.
+    #[must_use]
+    pub fn animations_playing(&self) -> usize {
+        self.playbacks.len()
+    }
+
+    /// A sound from the bytes of a WAV file (a sound table's file or a
+    /// voice line of an archive), decoded whole (`WavLibLoad`) into an
+    /// archetype of the sound manager's mixer with pan control, and its
+    /// samples handed to the audio device when it started.
+    ///
+    /// # Errors
+    ///
+    /// The bytes do not decode.
+    pub fn load_sound(&mut self, bytes: &[u8]) -> Result<SoundInfo, EngineError> {
+        let decoded = decode_archetype(bytes).map_err(|e| EngineError::Sound(e.to_string()))?;
+        let byte_count = decoded.byte_count();
+        let frames = byte_count / u32::from(decoded.format.block_align.max(1));
+        let archetype = Archetype::from_pcm(
+            decoded.format,
+            byte_count,
+            0,
+            frames,
+            archetype_flags::PAN,
+            true,
+        )
+        .map_err(|e| EngineError::Sound(format!("{e:?}")))?;
+        let id = self.mixer.insert_archetype(archetype);
+        #[cfg(windows)]
+        if let Some(device) = self.audio_device.as_mut() {
+            device.set_samples(id, decoded.samples.into());
+        }
+        Ok(SoundInfo {
+            id: SoundId(id),
+            duration_ms: archetype.duration_ms,
+            channels: decoded.format.channels,
+            rate: decoded.format.rate,
+        })
+    }
+
+    /// Plays a sound once on a voice of the audio device, centred at full
+    /// volume, releasing the voices that finished. False without an audio
+    /// device or when the device gives no voice. The sound manager's
+    /// sources and its tick are the game's (P5.5); this voice is driven
+    /// directly.
+    pub fn play_sound(&mut self, sound: SoundId) -> bool {
+        self.release_finished_voices();
+        #[cfg(windows)]
+        {
+            use crate::audio::mixer::VoiceBackend;
+            let Some(data) = self.mixer.archetype(sound.0).copied() else {
+                return false;
+            };
+            let Some(device) = self.audio_device.as_mut() else {
+                return false;
+            };
+            let voice = self.next_voice;
+            self.next_voice = self.next_voice.wrapping_add(1);
+            if !device.create(voice, sound.0, &data) {
+                return false;
+            }
+            if !device.play(voice, false) {
+                device.release(voice);
+                return false;
+            }
+            self.voices.push(voice);
+            true
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = sound;
+            false
+        }
+    }
+
+    /// The voices [`Engine::play_sound`] started that still play.
+    pub fn sounds_playing(&mut self) -> usize {
+        self.release_finished_voices();
+        self.voices.len()
+    }
+
+    fn release_finished_voices(&mut self) {
+        #[cfg(windows)]
+        {
+            use crate::audio::mixer::VoiceBackend;
+            let Some(device) = self.audio_device.as_mut() else {
+                self.voices.clear();
+                return;
+            };
+            self.voices.retain(|&voice| {
+                if device.is_playing(voice) {
+                    return true;
+                }
+                device.release(voice);
+                false
+            });
+        }
+        #[cfg(not(windows))]
+        self.voices.clear();
     }
 
     /// Every step of [`TEARDOWN_ORDER`]; [`Drop`] runs it.
@@ -1142,7 +1457,14 @@ impl<B: Backend + 'static> Engine<B> {
         self.scripts.clear();
         log(Stage::SceneScripts);
         // The engine's destructor: its instances and archetypes, then its
-        // components in [Engine] order.
+        // components in [Engine] order. The animations playing on the
+        // deformable models go first.
+        {
+            let scene = self.scene.borrow();
+            for p in std::mem::take(&mut self.playbacks) {
+                self.animation.destroy_script(&scene, p.playback);
+            }
+        }
         for instance in std::mem::take(&mut self.deformables).into_iter().flatten() {
             let mut side = self.render.borrow_mut();
             let mut services = StackDeform::new(&mut side.stack, &mut self.deform_host);
@@ -1208,6 +1530,12 @@ impl<B: Backend + 'static> Engine<B> {
         log(Stage::SoundStreamer);
         #[cfg(windows)]
         {
+            if let Some(device) = self.audio_device.as_mut() {
+                use crate::audio::mixer::VoiceBackend;
+                for voice in std::mem::take(&mut self.voices) {
+                    device.release(voice);
+                }
+            }
             self.audio_device = None;
         }
         log(Stage::SoundDevice);
@@ -1229,6 +1557,19 @@ impl<B: Backend + 'static> Engine<B> {
         self.mouse = None;
         log(Stage::Input);
     }
+}
+
+/// Hands a deformable model's bound bones the scene engine's world
+/// transforms, as the engine's `IInstanceTransform` calls on the bone
+/// runtimes would (`SetMatrix`, `MarkWorldDirty`).
+fn pull_bones(instance: &mut DeformInstance, scene: &SceneEngine) -> usize {
+    instance.pull_bone_transforms(|bone| {
+        u32::try_from(bone).ok().map(|i| {
+            scene
+                .instance_transform(Some(InstanceId::from_index(i)))
+                .to_words()
+        })
+    })
 }
 
 /// Applies the extent writes the scene engine could not take while it was

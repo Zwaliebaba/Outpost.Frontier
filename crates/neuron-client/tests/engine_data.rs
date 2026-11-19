@@ -1,8 +1,9 @@
 //! The engine over the original data (`outdir/`, decision O15; work
 //! package P4.16): built from the shipped `NeuronComponents.ini` and
 //! `OutpostFrontier.ini` on the recording backend, it loads a ship through
-//! the scene engine, a skinned character, an engine effect and a scene
-//! script, and runs frames that draw them, the interface and present.
+//! the scene engine, a skinned character playing a body animation, an
+//! engine effect and a scene script, and runs frames that draw them, the
+//! interface and present.
 //! Nothing is written or committed.
 
 use std::fs;
@@ -144,6 +145,25 @@ fn the_engine_draws_frames_of_the_original_data() {
     let body = engine.create_deformable(character).expect("the character");
     engine.set_deformable_lod(body, 0.0, &[0]);
     let character_packets = frame_packets(&mut engine) - ship_packets;
+    // A body animation through the animation system.
+    let (animations, names) = engine
+        .load_animations(b"CHARACTERS\\ANIMATIONS\\bodygenericmale.anm")
+        .expect("the body animations");
+    assert!(!names.is_empty());
+    let mut played = None;
+    for name in &names {
+        if let Ok(id) = engine.play_deformable_animation(body, animations, name, true) {
+            let tracks = engine.animation.playback(id).map_or(0, |p| p.typed.len());
+            if tracks > 0 {
+                played = Some((name.clone(), tracks));
+                break;
+            }
+        }
+    }
+    let (played, tracks) =
+        played.expect("an animation of bodygenericmale.anm binds tracks on the body");
+    assert_eq!(engine.animations_playing(), 1);
+    assert!(engine.deformable_bounds(body).is_some_and(|(r, _)| r > 0.0));
     let _ = engine.load_archive(b"FX\\ENGINES\\gf_br_csv_engine01.ale");
     let _ = engine.load_archive(b"FX\\efx.txm");
     let names = engine
@@ -169,8 +189,9 @@ fn the_engine_draws_frames_of_the_original_data() {
     println!(
         "{fonts} fonts, {styles} styles; {parts} ship instances; frames: {reports:?}; \
          draw packets: ship {ship_packets}, character {character_packets}, per frame of all \
-         {packets:?}; scene clock {clock} ms; notices: \
-         {construction_notices:?}"
+         {packets:?}; scene clock {clock} ms; animation {} with {tracks} tracks; notices: \
+         {construction_notices:?}",
+        String::from_utf8_lossy(&played)
     );
     assert_eq!(presents, 5);
     assert!(ship_packets > 0, "the ship draws");
@@ -180,6 +201,12 @@ fn the_engine_draws_frames_of_the_original_data() {
         assert_eq!(report.deformables, 1);
         assert_eq!(report.effects, 1);
         assert_eq!(report.scripts, 1);
+        assert_eq!(
+            report.animations,
+            1,
+            "{} advances",
+            String::from_utf8_lossy(&played)
+        );
     }
     assert!(
         packets
@@ -195,8 +222,10 @@ fn the_engine_draws_frames_of_the_original_data() {
         "{construction_notices:?}"
     );
 
+    assert!(engine.model_bounds(ship).is_some_and(|(r, _)| r > 0.0));
     engine.destroy_effect(effect);
     engine.destroy_deformable(body);
+    assert_eq!(engine.animations_playing(), 0);
     engine.destroy_model(ship);
     assert_eq!(
         engine.scene().borrow().instances().count(),

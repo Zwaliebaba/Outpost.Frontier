@@ -11,13 +11,15 @@
 //!    queued events, then the caller's routed key and character messages,
 //!    into the UI manager (`MouseDispatchEvents`, the Win3D input handler).
 //! 2. `Win3DUpdateAll`: the UI manager's update.
-//! 3. The state's world tick: the scene scripts' timelines, the particle
+//! 3. The state's world tick: the scene scripts' timelines, the animation
+//!    system's mixer (`MixerWalkAll`) with the animated deformable models'
+//!    trees updated and their bones' transforms handed over, the particle
 //!    effects' transforms and update, then `TickMaterialAnimationPlayback`
 //!    (the texture library's playbacks and the material animations).
 //! 4. `BeginClientRenderFrame`: the dither and mip-filter states of
 //!    `TryBeginFrame`.
 //! 5. The clear (`ClearWin3DBuffers(0x4100)` after a black clear colour),
-//!    then the scene: the backdrop and the star sphere through
+//!    the frame's camera (`Win3DApplyCamera`), then the scene: the backdrop and the star sphere through
 //!    `FLAppearance`, the models' instance trees through the render manager
 //!    (`RenderInstance`), the deformable models (`IDeformable::Draw`), the
 //!    particle effects between `BeginDraw` and `EndDraw`.
@@ -29,7 +31,8 @@
 //! Stubbed, recorded in the P4.16 row of design/README.md: the sound
 //! mixer's tick (its sources are the game's, P5.5), the local server's
 //! tick and the state machine (P5.1, P5.3), the game's own scene order
-//! (the space and room cameras' `DrawScene`, P5.4, P5.9), the fade, the
+//! (the space and room cameras' `DrawScene`, P5.4, P5.9, of which the
+//! frame keeps the camera's application), the fade, the
 //! immediate-mode layer's line batchers (P4.13), and the frame clock (the
 //! caller's `game_app::timing`).
 
@@ -41,7 +44,7 @@ use crate::ui::message::Input;
 use crate::ui::quad_batch::{FfQuadDevice, QuadBatcher};
 use crate::ui::tree::QuadHost;
 
-use super::{Engine, RenderSide, apply_extents};
+use super::{Engine, RenderSide, apply_extents, pull_bones};
 
 /// `D3DRS_ZENABLE`.
 const RS_ZENABLE: u32 = 7;
@@ -103,6 +106,8 @@ pub struct FrameReport {
     pub models: usize,
     /// Deformable models drawn.
     pub deformables: usize,
+    /// Deformable models whose animation advanced.
+    pub animations: usize,
     /// Screen-quad lists flushed.
     pub quad_lists: usize,
 }
@@ -211,6 +216,21 @@ impl<B: Backend + 'static> Engine<B> {
             player.tick(step);
             report.scripts += 1;
         }
+        if !self.playbacks.is_empty() {
+            let mut scene = self.scene.borrow_mut();
+            let _ = self.animation.mixer_walk_all(&mut scene, dt_f32);
+            for playback in &self.playbacks {
+                let Some(Some(instance)) = self.deformables.get_mut(playback.deformable) else {
+                    continue;
+                };
+                let root = u32::try_from(instance.first_bone())
+                    .ok()
+                    .map(neuron_core::scene::InstanceId::from_index);
+                scene.update_instance(root, 0);
+                pull_bones(instance, &scene);
+                report.animations += 1;
+            }
+        }
         let mut side = self.render.borrow_mut();
         for live in self.effects.iter().flatten() {
             live.effect.compose(&mut self.particles);
@@ -236,6 +256,7 @@ impl<B: Backend + 'static> Engine<B> {
             CLEAR_BLACK,
         );
         device.clear(ClearFlags::TARGET | ClearFlags::DEPTH, None);
+        apply_camera(device, camera);
         {
             let RenderSide { stack, manager } = &mut *side;
             let mut services = StackAppearance { stack, manager };
@@ -311,6 +332,33 @@ impl<B: Backend + 'static> Engine<B> {
         self.frames += 1;
         report
     }
+}
+
+/// `Win3DApplyCamera`: the perspective from the camera's vertical angle,
+/// aspect and planes (`Win3DSetPerspective`; the Win3D layer's projection
+/// cache belongs to the immediate-mode layer, P4.13), then its view
+/// transform as the modelview; with
+/// the pipeline's view-space lights off, an identity view and the camera's
+/// view as the world.
+fn apply_camera<B: Backend>(device: &mut Device<B>, camera: &mut dyn Camera) {
+    let far = camera.z_far();
+    let near = camera.z_near();
+    let aspect = camera.aspect();
+    let fov = camera.fov_y_deg();
+    let _ = device.transforms.set_perspective(fov, aspect, near, far);
+    let view = camera.view_transform();
+    if device
+        .state
+        .pipeline(crate::render::ff::state::PipelineProperty::ViewspaceLights)
+        != 0
+    {
+        device.set_modelview(&view);
+        return;
+    }
+    device
+        .transforms
+        .set_view(&[1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]);
+    device.transforms.set_world(&view);
 }
 
 /// Every screen-quad list the UI draw filled, flushed to the device in
