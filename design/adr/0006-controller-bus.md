@@ -80,7 +80,13 @@ Paths are relative to `CppSource/`.
   are *out-parameters*: after `EquipDropLoot` the server copies
   `Event.Desc` back (`Server/server_gameobject.cpp:3310`, `:3424`), and
   SpaceSupport rewrites it (`Content/SpaceSupport.cpp:654-667`).
-  `DeathFuseLit` hands back `Ev.Lifetime` (`server_gameobject.cpp:1105`,
+  `ObjectDestroyed` carries the dropped equipment, which SpaceSupport
+  sorts, merges, recounts, extends with phantom loot or clears
+  (`PrepareLoot`, `SpaceSupport.cpp:351-511`, `:1030`, `:1036`). The
+  server then drops what is left (`server_gameobject.cpp:1175-1180`).
+  Missions, which come before SpaceSupport, see the list unchanged.
+  `DeathFuseLit` hands back `Ev.Lifetime`, which the conversation code
+  writes (`Content/Gcs.cpp:3915-3917`; `server_gameobject.cpp:1105`,
   `:1300`). `FreeTerminalRequest` answers through the global
   `GReportedFreeTerminal` (`server_classes.cpp:12149`). Others lend a
   resource: `PlayerSave` and `SaveGame` lend a `FILE*`, `PlayerLoad` and
@@ -98,10 +104,40 @@ Paths are relative to `CppSource/`.
   sorted by delivery time and arms one server timer on SpaceSupport's
   controller id (`:85-117`).
 - **Content's own sends.** Content sends through `_SendMessage` from about
-  32 sites, creates controllers (`BaseDB.cpp:791`, `Story.cpp:167`,
-  `StoryLauncher.cpp:76`, `Support.cpp:368`, …) and destroys them, its own
-  controller included (`MissionObject.cpp:140`, `MissionScript.cpp:1468`,
-  `Story.cpp:176`).
+  32 sites, creates controllers and destroys them, its own controller
+  included (`MissionObject.cpp:140`, `MissionScript.cpp:1468`,
+  `Story.cpp:176`). Missions are created at ABOVE_NORMAL
+  (`Story.cpp:168`, `:280`, `BaseSupport.cpp:429`, `BaseDB.cpp:792`,
+  `Support.cpp:369`). Story is created at NORMAL by StoryLauncher
+  (`StoryLauncher.cpp:76`), and a story mission restored from a save also
+  at NORMAL (`Story.cpp:374`). A running game therefore broadcasts in this
+  order: GameSupport; the missions, newest first; Story (or a restored
+  mission ahead of it); BaseSupport; SpaceSupport; StoryLauncher; BasePop;
+  SpacePop.
+- **Content depends on that order.** Three examples:
+  - GameSupport creates the player's ship record on `SpaceEnter` and sets
+    the system, base and location records on `SystemEnter`, `BaseEnter`
+    and `LocationEnter`. The controllers after it use those records
+    without testing them (`GameSupport.cpp:409-447`,
+    `Populators.cpp:530-540`).
+  - On `ObjectDestroyed` the missions read the dying NPC
+    (`MissionObject.cpp:1705`, `:1714`) before SpaceSupport deletes it
+    (`SpaceSupport.cpp:1075`).
+  - A nested broadcast from SpaceSupport (`FormationLeaderChanged`,
+    `DamageReputation`, `NpcShipCreated`) reaches the controllers after
+    SpaceSupport before the outer message does.
+- **Mission triggers** (`Content/MissionScript.cpp:436-486`). One pass
+  walks the `ActiveTriggers` list. A trigger that matches is set to
+  COMPLETE *before* its actions run, so a nested pass on the same mission
+  skips it and the outer pass can still erase it. Nested passes erase
+  other completed triggers and add new ones, and the outer pass sees
+  those additions. `Act_ActTrig` goes into a map keyed by trigger id,
+  which is drained at the end of every pass, nested passes included.
+  `Act_ChangeState` takes effect at the end of `HandleMissionMessage`. A
+  nested call on the same mission therefore ends the mission while the
+  outer pass is still running its actions. A mission destroys itself
+  after its handler returns (`MissionObject.cpp:129-142`). It is freed at
+  the next heartbeat walk, and until then it ignores everything.
 
 ### Re-entrance hazards
 
@@ -256,7 +292,7 @@ back afterwards (`take_behavior`, `put_behavior`), and it receives
    variant per id: the 81 ids that are sent, plus `NpcSystemEnter`, which
    is used only as a trigger event. Each variant keeps its numeric id
    (`id()`) for traces. Out-parameters (`EquipDropLoot.desc`,
-   `DeathFuseLit.lifetime`) are fields that a handler may change and the
+   `ObjectDestroyed.dropped_equip`, `DeathFuseLit.lifetime`) are fields that a handler may change and the
    sender reads back. Lent resources are borrows: `&mut dyn Write` for the
    save writers, `&mut IniReader`, `&[u32]`. Truncated pointers become
    handles. Answers given through a global (`GReportedFreeTerminal`) become
@@ -283,6 +319,15 @@ back afterwards (`take_behavior`, `put_behavior`), and it receives
      - removing a node other than the current one takes effect at once;
      - when the walker removes its own node, the cursor goes back to the
        previous node.
+
+     The same walk type replaces Content's `std::list` walks that a nested
+     call can change: a mission's active triggers, the jumpers, the guided
+     ships, the NPC event list and the dock launch queues. A `std::list`
+     walk behaves the same way when another node is erased. The trigger
+     pass is the case that matters for the record: there the C++ is well
+     defined and its result depends on these rules. Index walks over a
+     vector that read the length again on each step (`DestroyMission.cpp:392`)
+     stay index walks.
 
      When a nested handler removes the walker's current node, the C++ reads
      freed memory. The port's defined behaviour is to continue from the
@@ -375,8 +420,10 @@ back afterwards (`take_behavior`, `put_behavior`), and it receives
 
 - **A. One FIFO event queue (breadth first).** It changes the order of
   delivery, `rand()` draws and id allocation. It also cannot express
-  out-parameters (`EquipDropLoot`, `DeathFuseLit`), whose sender reads the
-  answer on the next line.
+  out-parameters (`EquipDropLoot`, `ObjectDestroyed`, `DeathFuseLit`),
+  whose sender reads the answer on the next line. And it breaks Content's
+  dependence on order: a mission would read a dying NPC after
+  SpaceSupport has removed it.
 - **B. A queue drained at each send (a stack emulating depth first).**
   This is equivalent to synchronous dispatch only if the sender waits for
   the drain. That is synchronous dispatch with extra machinery, and the
@@ -479,12 +526,69 @@ takes. The dispatch trace (point 10) shows the paths taken.
 
 ### Content
 
-Same-instance re-entrance, confirmed in the source: SpaceSupport's
-`Msg0x25` case calls `pub::SpaceObj::Destroy` (`Content/SpaceSupport.cpp:756`).
-That calls `GameObject::destroy` synchronously (`Server/server_pub.cpp:2585`),
-which broadcasts `ObjectDestroyed` (`Server/server_gameobject.cpp:1167`)
-to SpaceSupport again while its first handler is still running.
+**The same instance re-entered** while its handler is still running:
 
-<!-- The rest of the Content survey (iteration hazards in Content's own
-tables, mission trigger evaluation, priority-order dependencies) is
-added before the record goes to the owner. -->
+1. **SpaceSupport.**
+   - `Msg0x25` → `pub::SpaceObj::Destroy` (`SpaceSupport.cpp:756`,
+     `server_pub.cpp:2585`) → `ObjectDestroyed`
+     (`server_gameobject.cpp:1167`) → SpaceSupport.
+   - `ObjectDamaged` → `SendDamageReputation` (`CombatReputation.cpp:83-93`)
+     → `DamageReputation` → SpaceSupport (`SpaceSupport.cpp:939`).
+   - `OnObjectDestroyed` → `PromoteFormationLeader` → `FormationLeaderChanged`
+     (`:287-298`, `:1042`).
+   - Its heartbeat sends targeted `CommComplete` and `NpcTurnedHostile`
+     messages to itself (`Gcs.cpp:3533`, `CombatReputation.cpp:552`).
+   - Every nested call runs SpaceSupport's tail again (`:967-983`).
+2. **A mission.**
+   - `Act_SpawnShip` → `CreateNpcShip` → `NpcShipCreated`
+     (`SystemInfo.cpp:779-783`) → the same mission's trigger pass
+     (`MissionScript.cpp:1246-1256`), then `EncounterLaunched` to itself
+     (`MissionObject.cpp:2759`).
+   - `Act_Destroy` → `ObjectDestroyed` → `OnObjectDestroyed`
+     (`MissionScript.cpp:1525-1546`).
+   - `Act_AdjAcct` → `PlayerWorthChanged`.
+   - The mission's end → `LeaveLiveMission` → `PlayerMissionChanged`
+     (`PlayerState.cpp:707-714`) → the same mission. Then
+     `FStory::OnMissionEvent` destroys it and starts the next mission
+     while the old mission's frames are still on the stack
+     (`Story.cpp:255-330`).
+3. **BaseSupport.** `MissionResponse` → `JoinMissionAsGroup` →
+   `PlayerMissionChanged` → BaseSupport (`BaseSupport.cpp:384-480`,
+   `PlayerState.cpp:853-891`).
+4. **GameSupport.** `PlayerLoad` → `[RandomMission]` → `PlayerMissionChanged`
+   (`Support.cpp:366-381`). Every later controller receives the nested
+   message before `PlayerLoad`.
+
+**Walks that a nested call changes**, and how they are protected:
+
+| Walk | Site | C++ protection |
+| --- | --- | --- |
+| a mission's active triggers | `MissionScript.cpp:436-473` | the current trigger is set COMPLETE before its actions run; other nodes may be added or erased (well defined) |
+| guided ships | `SpaceSupport.cpp:970-983` | removal only nulls the entry, but a nested SpaceSupport call runs its own erase pass under the outer iterator (undefined) |
+| NPC events | `NpcShip.cpp:1057-1090` | none: a nested `ObjectDestroyed` erases the entry, and the outer `It->TimerId = 0` also clears a timer the call just armed |
+| jumpers | `MissionObject.cpp:2360-2462` | none |
+| dock launch queues | `DockQueues.cpp:2016-2156` | none; a `Params&` is held across `NpcShipCreated` |
+| docking ships, terminals, delayed comms | `DockQueues.cpp:585`, `:1749`, `Gcs.cpp:3505` | ids collected first, then sent |
+| mission objects | `SystemInfo.cpp:448-534`, `:906-924` | ids copied, each looked up again |
+| ships whose life expired | `SystemInfo.cpp:955-1030` | copied, but as raw pointers |
+
+**Pointers held across calls.** Player states held by missions and
+system records are recreated on `PlayerLoad` and deleted on
+`PlayerLogout` (`PlayerState.cpp:640-672`). They are safe only because
+GameSupport runs first and the missions cache them again. NPC ships are
+deleted by SpaceSupport's `OnObjectDestroyed` (`SystemInfo.cpp:544-556`).
+
+**The router.** A timer pops the *head* of the sorted queue, not the
+message that armed it (`ContentMessageRouter.cpp:137-147`). Delivery
+times come from Content's game time, which moves only on GameSupport's
+1 s heartbeat, so the order of the queue and the order of the timers can
+differ. The faction-name timers (`FactionProps.cpp:698-722`) and the
+dock-hail timers (`Gcs.cpp:3746-3752`) make the same assumption. The port
+keeps it.
+
+**Not settled by the survey.** It is not known whether
+`pub::AI::SubmitDirective` reaches `DockCancel` synchronously: the only
+evidence is the comment at `PatrolGuides.cpp:1160-1167`, and the
+behaviour manager is in Common. It is also not known whether Common's
+state-machine groups defer the deletion of machines. Both are settled by
+the dispatch trace, or by P3.6 when it reads the code.
