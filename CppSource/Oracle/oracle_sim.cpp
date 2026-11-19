@@ -1413,6 +1413,14 @@ namespace
             return "engage_cruise";
         case OracleSimAffectThrusters:
             return "set_thrusters";
+        case OracleSimAffectRequest:
+            return "request";
+        case OracleSimAffectCancelRequest:
+            return "cancel_request";
+        case OracleSimAffectGoTradeLane:
+            return "go_tradelane";
+        case OracleSimAffectStopTradeLane:
+            return "stop_tradelane";
         default:
             return "unknown";
         }
@@ -2089,6 +2097,50 @@ namespace
                 unsigned int const TargetId = Aim->Id;
                 Result = pub::SpaceObj::DockRequest(ShipId, TargetId);
             }
+            return true;
+        }
+        if (Verb == "launch" && A.size() == 4)
+        {
+            // P2.5 launch: DirectiveLaunchOp {target, dock index, terminal type}, as Content's
+            // LaunchQueuedShips gives a ship it places at a dock (FObjListLaunch::SetLaunch).
+            FSimObject const* const Aim = Target(1);
+            if (Aim == nullptr)
+                return Note = "unknown target", false;
+            double Index = 0.0;
+            double Terminal = 0.0;
+            if (!ParseDouble(A[2], Index) || !ParseDouble(A[3], Terminal))
+                return Note = "bad launch index or terminal", false;
+            pub::AI::DirectiveLaunchOp Op;
+            Op.LaunchObjectId = Aim->Id;
+            Op.Field_10 = (int32_t)Index;
+            Op.Field_14 = (int32_t)Terminal;
+            Result = SubmitScenarioDirective(Object->Id, Op);
+            return true;
+        }
+        if (Verb == "tradelane" && (A.size() == 3 || A.size() == 4))
+        {
+            // P2.5 trade lanes: DirectiveInstantTradelaneOp {entrance ring, exit ring (none: 0),
+            // speed (a float in the third word; default 0)}.
+            FSimObject const* const Entrance = Target(1);
+            if (Entrance == nullptr)
+                return Note = "unknown entrance", false;
+            unsigned int ExitId = 0;
+            if (Lower(A[2]) != "none")
+            {
+                FSimObject const* const Exit = Target(2);
+                if (Exit == nullptr)
+                    return Note = "unknown exit", false;
+                ExitId = Exit->Id;
+            }
+            double Speed = 0.0;
+            if (A.size() == 4 && !ParseDouble(A[3], Speed))
+                return Note = "bad speed", false;
+            float const SpeedF = (float)Speed;
+            pub::AI::DirectiveInstantTradelaneOp Op;
+            Op.TradeLaneId = Entrance->Id;
+            Op.Field_10 = (int32_t)ExitId;
+            memcpy(&Op.Field_14, &SpeedF, sizeof(SpeedF));
+            Result = SubmitScenarioDirective(Object->Id, Op);
             return true;
         }
         if (Verb == "idle" && A.size() == 1)

@@ -1,0 +1,14 @@
+# Oracle.exe sim scenario (design/reference-build.md section 10): dock at a trade lane ring.
+# A fighter with the FIGHTER state graph starts 1500 m from trade lane ring 16 of he01
+# (3628, 0, -52369) and is given a dock directive with the ring, the way NPC traffic enters a
+# lane: the dock behaviour (7) flies to the ring's lane start, asks for the lane (request type
+# 2) and enters it (go_tradelane). Multiplayer stepping.
+
+system he01
+ticks 1200
+stepping mp
+
+solar ring16 he01_Trade_Lane_Ring_16
+ship pilot he_fighter li_p_he_fighter_loadout01 4378 0 -51069 ai FIGHTER psi
+
+at 1 pilot dock ring16

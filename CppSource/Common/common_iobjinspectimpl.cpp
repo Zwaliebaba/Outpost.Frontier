@@ -19,6 +19,7 @@
 #include "common_pathfind.h"
 #include "common_universe.h" // Universe::IZone (CSimple::ZoneAtA4, get_zone_props)
 #include "neuroncomponents.h"
+#include "oracle_ai.h"          // Oracle instrumentation (P2.5 ai): GOracleAiHooks.OnAnswer
 
 #include <cmath>
 #include <cstdint>
@@ -1249,21 +1250,59 @@ bool IObjInspectImpl::has_dock_hardpoints() const
     return false;
 }
 
+namespace
+{
+    // Oracle instrumentation (P2.5 ai): get_dock_hardpoints' answer as the caller's buffers
+    // hold it on return (OracleAiAnswerDockHardpoints).
+    void OracleReportDockHardpoints(unsigned int ObjectId, int Index, int Result, TERMINAL_TYPE const* Type,
+                                    Transform const* XformA, Transform const* XformB,
+                                    Transform const* XformC, float const* Distance)
+    {
+        int Ints[7] = {Index, Result, Type != nullptr ? static_cast<int>(*Type) : -1, XformA != nullptr,
+                       XformB != nullptr, XformC != nullptr, Distance != nullptr};
+        float Floats[37] = {};
+        Transform const* const Xforms[3] = {XformA, XformB, XformC};
+        for (int K = 0; K < 3; ++K)
+        {
+            if (Xforms[K] == nullptr)
+                continue;
+            for (int Row = 0; Row < 3; ++Row)
+            {
+                for (int Column = 0; Column < 3; ++Column)
+                    Floats[K * 12 + Row * 3 + Column] = Xforms[K]->Rotation.E[Row][Column];
+            }
+            Floats[K * 12 + 9] = Xforms[K]->Translation.x;
+            Floats[K * 12 + 10] = Xforms[K]->Translation.y;
+            Floats[K * 12 + 11] = Xforms[K]->Translation.z;
+        }
+        Floats[36] = Distance != nullptr ? *Distance : 0.0f;
+        GOracleAiHooks.OnAnswer(OracleAiAnswerDockHardpoints, ObjectId, Ints, 7, Floats, 37);
+    }
+}
+
 int IObjInspectImpl::get_dock_hardpoints(int Index, TERMINAL_TYPE* Type, Transform* XformA,
                                           Transform* XformB, Transform* XformC,
                                           float* Distance) const
 {
+    // Oracle instrumentation (P2.5 ai): every return reports the answer.
+    auto OracleReturn = [&](int Answer) -> int {
+        if (GOracleAiHooks.OnAnswer != nullptr)
+            OracleReportDockHardpoints(Object != nullptr ? get_id() : 0u, Index, Answer, Type, XformA, XformB,
+                                       XformC, Distance);
+        return Answer;
+    };
+
     // , RET 0x18. Re-ported 2026-10-08 (cmn-ai8).
     // Object (+0x10) must be a CEqObj ((class & 0x103) == 0x103), else -5.
     if (Object == nullptr || (Object->ObjectClass & CObject::ClassEqObj) != CObject::ClassEqObj)
-        return -5;
+        return OracleReturn(-5);
 
     // the archetype's docking spheres (+0x88 begin / +0x8c end, 0x10-byte
     // records): Index -1, no buffer, or Index >= count (unsigned) -> -4.
     std::vector<Archetype::EqObj::DockingSphere> const& Spheres =
         static_cast<Archetype::EqObj const*>(Object->Archetype)->DockingSpheres;
     if (Index == -1 || Spheres.data() == nullptr || static_cast<unsigned>(Index) >= Spheres.size())
-        return -4;
+        return OracleReturn(-4);
     Archetype::EqObj::DockingSphere const& Sphere = Spheres[static_cast<unsigned>(Index)];
 
     // the optional type (+0x0c) and radius (+0x00) outputs.
@@ -1279,7 +1318,7 @@ int IObjInspectImpl::get_dock_hardpoints(int Index, TERMINAL_TYPE* Type, Transfo
     {
         FDUMP(0x100002, "%s(%d) : WARNING:General:%s", "Common\\IObjImpl.cpp", 0x4f4,
               "station hardpoint in file must be misnamed");
-        return -5;
+        return OracleReturn(-5);
     }
 
     // the name must contain "hpdockmount", else the same warning (line
@@ -1288,7 +1327,7 @@ int IObjInspectImpl::get_dock_hardpoints(int Index, TERMINAL_TYPE* Type, Transfo
     {
         FDUMP(0x100002, "%s(%d) : WARNING:General:%s", "Common\\IObjImpl.cpp", 0x4fc,
               "station hardpoint in file must be misnamed");
-        return -5;
+        return OracleReturn(-5);
     }
 
     // the mount's last character picks "hpdockpoint<c>01" for XformB and
@@ -1309,7 +1348,7 @@ int IObjInspectImpl::get_dock_hardpoints(int Index, TERMINAL_TYPE* Type, Transfo
         Result = -2;
         *XformC = *XformA;
     }
-    return Result;
+    return OracleReturn(Result);
 }
 
 int IObjInspectImpl::enumerate_subtargets(SubtargetEnumerator* Enum) const
@@ -1590,7 +1629,17 @@ int IObjInspectImpl::get_lane_start(IObjInspect const* Self, IObjInspect const*&
     CSimple const* Simple = nullptr;
     if (Object != nullptr && (static_cast<unsigned>(Object->ObjectClass) & 3) == 3)
         Simple = static_cast<CSimple const*>(Object);
-    return ResolveLaneStart(this, Self, OutLane, OutStart, OutEnd, Simple->ObjectDb);
+    // Oracle instrumentation (P2.5 ai): the lane in and out and the result (OnAnswer).
+    unsigned int const OracleLaneIn = OutLane != nullptr ? OutLane->get_id() : 0u;
+    int const Result = ResolveLaneStart(this, Self, OutLane, OutStart, OutEnd, Simple->ObjectDb);
+    if (GOracleAiHooks.OnAnswer != nullptr)
+    {
+        int const Ints[4] = {static_cast<int>(Self != nullptr ? Self->get_id() : 0u), static_cast<int>(OracleLaneIn),
+                             static_cast<int>(OutLane != nullptr ? OutLane->get_id() : 0u), Result};
+        float const Floats[6] = {OutStart.x, OutStart.y, OutStart.z, OutEnd.x, OutEnd.y, OutEnd.z};
+        GOracleAiHooks.OnAnswer(OracleAiAnswerLaneStart, get_id(), Ints, 4, Floats, 6);
+    }
+    return Result;
 }
 
 int IObjInspectImpl::get_lane_direction(Transform const& Xform, bool* OutDir) const

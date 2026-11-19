@@ -12,8 +12,9 @@
 //                               dt), OracleSimLoadSystem (export, loads one system)
 //   Server/server_gameobject.cpp  the three Timing::read timer stamps; GameObject::on_collision
 //                               (CalcCollisionDamage in and out); Ship's IObjAffect setters,
-//                               set_target, slot_50 and slot_54, EqObj::slot_34 and slot_4c
-//                               (OnAffect, each inside an FOracleSimAffectScope)
+//                               set_target, slot_50 and slot_54, EqObj::slot_34 and slot_4c,
+//                               and (P2.5 dock) slot_5c, slot_60, go_tradelane and
+//                               stop_tradelane (OnAffect, each inside an FOracleSimAffectScope)
 //   Server/server_classes.cpp   StarSystem::munition_collision (OnMunitionHit);
 //                               StarSystem_MpCollisionFilter (single-player collisions)
 //   Common/common_physicalsystem.cpp  PhysicalSystem::Update (single-player stepping)
@@ -127,7 +128,12 @@ enum EOracleSimAffect
     OracleSimAffectTarget = 18,       // set_target: IntArg = target id (0 none), Values[0] = sub-target
     OracleSimAffectEquip = 19,        // slot_4c: IntArg = equipment id, Values[0] = activate (1 or 0)
     OracleSimAffectCruise = 20,       // slot_50: IntArg = engage (1 or 0), Values[0] = the second flag
-    OracleSimAffectThrusters = 21     // slot_54: IntArg = activate (1 or 0)
+    OracleSimAffectThrusters = 21,    // slot_54: IntArg = activate (1 or 0)
+    // P2.5 dock, launch and trade lanes (ids as float bit patterns):
+    OracleSimAffectRequest = 23,      // slot_5c: IntArg = request type, Values = target id, second id, bFlag
+    OracleSimAffectCancelRequest = 24, // slot_60: IntArg = request type, Values = target id, Arg3
+    OracleSimAffectGoTradeLane = 25,  // go_tradelane: IntArg = bFastExit, Values = entrance id, exit id, speed
+    OracleSimAffectStopTradeLane = 26 // stop_tradelane
 };
 
 struct FOracleSimHooks

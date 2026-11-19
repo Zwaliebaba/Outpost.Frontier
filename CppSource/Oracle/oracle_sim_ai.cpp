@@ -240,6 +240,10 @@ namespace
         int TargetedEnemies;
         // The own ship only: what the fire control reads of its items, and the ship's lead.
         int bOwn;
+        // P2.5 dock and launch: get_hardpoint("hpmount") of the own ship.
+        int MountResult;
+        Vector MountPos;
+        Matrix MountOrient;
         int LeadResult;
         float Lead[3];
         int EquipCount;
@@ -254,6 +258,7 @@ namespace
     void ReadOwnEquipment(IObjInspect const* O, FAiObject& Out)
     {
         Out.bOwn = 1;
+        Out.MountResult = O->get_hardpoint("hpmount", &Out.MountPos, &Out.MountOrient);
         Out.LeadResult = OracleAiShipLeadFirePos(O, Out.Lead);
         static const EquipmentValType kVals[5] = {EquipValMunitionKind, EquipValAutoTurret, EquipValSeeker,
                                                   EquipValRange, EquipValTargetId};
@@ -597,6 +602,19 @@ namespace
             for (int Index = 0; Index < Obj.EquipCount; ++Index)
                 WriteEquip(J, Obj.Equip[Index]);
             J.EndArray();
+            if (Obj.MountResult == 0)
+            {
+                float Mount[12];
+                Mount[0] = Obj.MountPos.x;
+                Mount[1] = Obj.MountPos.y;
+                Mount[2] = Obj.MountPos.z;
+                memcpy(&Mount[3], &Obj.MountOrient.E[0][0], 9 * sizeof(float));
+                J.FloatArray("hpmount", Mount, 12);
+            }
+            else
+            {
+                J.Null("hpmount");
+            }
         }
         if (Obj.AttitudeResult == 0)
         {
@@ -827,6 +845,18 @@ namespace
             FaceFields(J, M.Face);
         else
             J.Null("face");
+        // P2.5 dock, launch and trade lanes: the current behaviour's own fields.
+        if (M.BehaviorKind != 0)
+        {
+            const char* const Name = M.BehaviorKind == 7 ? "beh7" : (M.BehaviorKind == 8 ? "beh8" : "beh9");
+            J.BeginObject(Name);
+            J.BeginArray("i");
+            for (int Index = 0; Index < M.Behavior.IntCount; ++Index)
+                J.Int(nullptr, M.Behavior.Ints[Index]);
+            J.EndArray();
+            J.FloatArray("v", M.Behavior.Floats, (unsigned)M.Behavior.FloatCount);
+            J.EndObject();
+        }
     }
 
     void BeginTick(IBehaviorManager const* Manager, float Dt)
@@ -1037,6 +1067,29 @@ namespace
         }
     }
 
+    // P2.5 dock, launch and trade lanes: a world answer (oracle_ai.h EOracleAiAnswer), with
+    // the behaviour tick it came in (seq 0 outside one).
+    void __cdecl OnAiAnswer(int Kind, unsigned int ObjectId, int const* Ints, int IntCount, float const* Floats,
+                            int FloatCount)
+    {
+        static const char* const kNames[4] = {"request", "dock_hardpoints", "lane_start", "go_tradelane"};
+        FOracleJson J;
+        J.Str("rec", "ai_answer");
+        J.Uint("tick", Tick());
+        J.Uint("seq", GOpen);
+        J.Str("kind", Kind >= 0 && Kind < 4 ? kNames[Kind] : "unknown");
+        IdAndName(J, ObjectId);
+        J.BeginArray("i");
+        for (int Index = 0; Index < IntCount; ++Index)
+            J.Int(nullptr, Ints[Index]);
+        J.EndArray();
+        if (Floats != nullptr)
+            J.FloatArray("v", Floats, (unsigned)FloatCount);
+        else
+            J.Null("v");
+        Write(J);
+    }
+
     const char* QueryName(int Kind)
     {
         switch (Kind)
@@ -1115,6 +1168,7 @@ namespace oracle
         GPreviousTick = GOracleSimHooks.OnBehaviorTick;
         GOracleSimHooks.OnBehaviorTick = OnAiBehaviorTick;
         GOracleAiHooks.OnQuery = OnAiQuery;
+        GOracleAiHooks.OnAnswer = OnAiAnswer;
 
         FOracleJson J;
         J.Str("rec", "ai_start");

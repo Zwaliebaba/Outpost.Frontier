@@ -7,10 +7,13 @@
 // arrays (a Vector is 3 floats, a Matrix 9 in row order, a Transform 12: the matrix, then
 // the translation). Nothing in the game calls them.
 //
-// GOracleAiHooks is inert until the harness fills it. Its one hook site, marked
-// "Oracle instrumentation (P2.5 ai)", is in Common/common_physys_query.cpp: the three PhySys
+// GOracleAiHooks is inert until the harness fills it. Its hook sites are marked
+// "Oracle instrumentation (P2.5 ai)": in Common/common_physys_query.cpp the three PhySys
 // queries the AI makes (FindRayCollisions, FindRayIntersect, FindSphereCollisions) report
-// the query and its hits. The definitions are in Common/oracle_ai.cpp.
+// the query and its hits; in Common/common_iobjinspectimpl.cpp get_dock_hardpoints and
+// get_lane_start, and in Server/server_gameobject.cpp Ship::request_returned and
+// Ship::go_tradelane, report their answers (OnAnswer). The definitions are in
+// Common/oracle_ai.cpp.
 
 #pragma once
 
@@ -205,11 +208,37 @@ struct FOracleAiHit
     unsigned int PartId;
 };
 
+// The world answers OnAnswer reports (P2.5 dock, launch and trade lanes): what the dock,
+// launch and instant-trade-lane behaviours read from the server or the station that the object
+// snapshot does not hold. Ints and Floats in the order sim-records.md (`ai_answer`) lists.
+enum EOracleAiAnswer
+{
+    // Ship::request_returned(RequestType, Response, Arg3), before the pending callback runs:
+    // Ints = RequestType, Response, Arg3, whether a callback was pending.
+    OracleAiAnswerRequest = 0,
+    // IObjInspectImpl::get_dock_hardpoints(Index, Type, A, B, C, Distance) as it returns:
+    // Ints = Index, result, the terminal type (or -1 without an output), and whether each of
+    // the four outputs was given; Floats = A, B, C (each the rotation row by row, then the
+    // translation) and the distance, as the caller's buffers hold them after the call (an
+    // output the call did not write keeps the caller's bytes).
+    OracleAiAnswerDockHardpoints = 1,
+    // IObjInspectImpl::get_lane_start(Self, OutLane, OutStart, OutEnd) as it returns:
+    // Ints = Self's id, OutLane's id on entry, on return, the result; Floats = OutStart,
+    // OutEnd.
+    OracleAiAnswerLaneStart = 2,
+    // Ship::go_tradelane(Entrance, Exit, bFastExit, Speed): Ints = the entrance's id, the
+    // exit's id, bFastExit, the result; Floats = Speed.
+    OracleAiAnswerGoTradeLane = 3
+};
+
 struct FOracleAiHooks
 {
     // A PhySys query after it ran: its arguments and its hits (Hits[0..HitCount)).
     void(__cdecl* OnQuery)(int Kind, unsigned int SystemId, CObject const* Object, float const* From,
                            float const* To, float Radius, int MaxHits, int HitCount, FOracleAiHit const* Hits);
+    // A world answer (EOracleAiAnswer) about the object ObjectId.
+    void(__cdecl* OnAnswer)(int Kind, unsigned int ObjectId, int const* Ints, int IntCount, float const* Floats,
+                            int FloatCount);
 };
 
 COMMON_API extern FOracleAiHooks GOracleAiHooks;
@@ -335,6 +364,16 @@ struct FOracleAiFace
     float Field1d8;                 // +0x1D8
 };
 
+// The own fields of the dock (7), launch (8) or instant-trade-lane (9) behaviour, in the order
+// sim-records.md (`ai_in` `beh7`, `beh8`, `beh9`) lists them.
+struct FOracleAiBehaviorFields
+{
+    int IntCount;
+    int Ints[32];
+    int FloatCount;
+    float Floats[96];
+};
+
 // One behaviour manager as OracleAiReadManager copies it.
 struct FOracleAiManager
 {
@@ -389,6 +428,10 @@ struct FOracleAiManager
     FOracleAiGunGroups Guns;        // Sys->GunGroups
     int bFace;                      // the current behaviour is the face behaviour (15)
     FOracleAiFace Face;             // its fields
+    // P2.5 dock, launch and trade lanes: the fields of the dock (7), launch (8) or
+    // instant-trade-lane (9) behaviour while it is current (BehaviorKind 0 otherwise).
+    int BehaviorKind;
+    FOracleAiBehaviorFields Behavior;
 };
 
 // Copies the manager's state; false (Out zeroed, StateGraphId -1) for a null manager.

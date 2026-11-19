@@ -312,6 +312,9 @@ fn needs_ai(s: &Scenario) -> Option<String> {
         if c.args[0] == "dock" {
             return Some("the dock directive".to_owned());
         }
+        if c.args[0] == "launch" || c.args[0] == "tradelane" {
+            return Some(format!("the {} directive", c.args[0]));
+        }
         if let Some(op) = directive(&c.args)
             && let Some(id) = op.behavior()
             && !create_behavior::<World>(id).ported()
