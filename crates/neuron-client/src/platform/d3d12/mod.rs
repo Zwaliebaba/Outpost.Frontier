@@ -9,6 +9,9 @@
 //! reading pixels back: enough to test the device on CI's WARP adapter.
 
 pub mod backend;
+#[cfg(feature = "shader-compile")]
+pub mod dxc;
+pub mod pass;
 pub mod pipeline;
 pub mod present;
 mod upload;
@@ -37,7 +40,7 @@ use windows::Win32::Graphics::Direct3D12::{
     ID3D12Resource,
 };
 use windows::Win32::Graphics::Dxgi::Common::{
-    DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_UNKNOWN, DXGI_SAMPLE_DESC,
+    DXGI_FORMAT, DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_UNKNOWN, DXGI_SAMPLE_DESC,
 };
 use windows::Win32::Graphics::Dxgi::{
     CreateDXGIFactory2, DXGI_CREATE_FACTORY_FLAGS, IDXGIAdapter1, IDXGIFactory4,
@@ -123,6 +126,8 @@ pub struct Gpu {
     fence: ID3D12Fence,
     fence_value: u64,
     event: Event,
+    /// The adapter's description.
+    adapter: String,
 }
 
 impl Gpu {
@@ -138,6 +143,13 @@ impl Gpu {
             // or an error when there is no adapter.
             AdapterChoice::Hardware => unsafe { factory.EnumAdapters1(0) }.at("EnumAdapters1")?,
         };
+        // SAFETY: a plain query of a live adapter.
+        let adapter_name = unsafe { adapter.GetDesc1() }
+            .map(|d| {
+                let end = d.Description.iter().position(|&c| c == 0).unwrap_or(128);
+                String::from_utf16_lossy(&d.Description[..end])
+            })
+            .unwrap_or_default();
         let mut device: Option<ID3D12Device> = None;
         // SAFETY: the adapter is live and `device` is a valid out slot.
         unsafe { D3D12CreateDevice(&adapter, D3D_FEATURE_LEVEL_11_0, &mut device) }
@@ -199,7 +211,14 @@ impl Gpu {
             fence,
             fence_value: 0,
             event,
+            adapter: adapter_name,
         })
+    }
+
+    /// The adapter's description (`DXGI_ADAPTER_DESC1`).
+    #[must_use]
+    pub fn adapter_name(&self) -> &str {
+        &self.adapter
     }
 
     /// Records commands with `record`, submits them and waits until the GPU
@@ -414,122 +433,135 @@ impl RenderTarget {
     /// Copies the target to the CPU: `width * height` pixels as BGRA8,
     /// rows without padding.
     pub fn read_back(&self, gpu: &mut Gpu) -> Result<Vec<u8>, GpuError> {
-        let row = self.width * 4;
-        let align = D3D12_TEXTURE_DATA_PITCH_ALIGNMENT;
-        let pitch = row.div_ceil(align) * align;
-        let size = u64::from(pitch) * u64::from(self.height);
-        let heap_props = D3D12_HEAP_PROPERTIES {
-            Type: D3D12_HEAP_TYPE_READBACK,
-            ..Default::default()
-        };
-        let desc = D3D12_RESOURCE_DESC {
-            Dimension: D3D12_RESOURCE_DIMENSION_BUFFER,
-            Width: size,
-            Height: 1,
-            DepthOrArraySize: 1,
-            MipLevels: 1,
-            Format: DXGI_FORMAT_UNKNOWN,
-            SampleDesc: DXGI_SAMPLE_DESC {
-                Count: 1,
-                Quality: 0,
-            },
-            Layout: D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
-            ..Default::default()
-        };
-        let mut buffer: Option<ID3D12Resource> = None;
-        // SAFETY: a readback buffer large enough for the pitched copy.
-        unsafe {
-            gpu.device.CreateCommittedResource(
-                &heap_props,
-                D3D12_HEAP_FLAG_NONE,
-                &desc,
-                D3D12_RESOURCE_STATE_COPY_DEST,
-                None,
-                &mut buffer,
-            )
-        }
-        .at("CreateCommittedResource")?;
-        let buffer = buffer.ok_or(GpuError {
-            call: "CreateCommittedResource",
-            code: 0,
-        })?;
-        let (width, height) = (self.width, self.height);
-        let target = self.resource.clone();
-        let readback = buffer.clone();
-        gpu.submit(move |list| {
-            let to_copy = transition(
-                &target,
-                D3D12_RESOURCE_STATE_RENDER_TARGET,
-                D3D12_RESOURCE_STATE_COPY_SOURCE,
-            );
+        read_texture(
+            gpu,
+            &self.resource,
+            DXGI_FORMAT_B8G8R8A8_UNORM,
+            4,
+            (self.width, self.height),
+            D3D12_RESOURCE_STATE_RENDER_TARGET,
+        )
+    }
+}
+
+/// Copies level 0 of a 2D texture in `state` to the CPU: `width * height`
+/// texels of `texel_bytes` each, rows without padding. The texture is
+/// back in `state` afterwards.
+pub(crate) fn read_texture(
+    gpu: &mut Gpu,
+    resource: &ID3D12Resource,
+    format: DXGI_FORMAT,
+    texel_bytes: u32,
+    (width, height): (u32, u32),
+    state: D3D12_RESOURCE_STATES,
+) -> Result<Vec<u8>, GpuError> {
+    let row = width * texel_bytes;
+    let align = D3D12_TEXTURE_DATA_PITCH_ALIGNMENT;
+    let pitch = row.div_ceil(align) * align;
+    let size = u64::from(pitch) * u64::from(height);
+    let heap_props = D3D12_HEAP_PROPERTIES {
+        Type: D3D12_HEAP_TYPE_READBACK,
+        ..Default::default()
+    };
+    let desc = D3D12_RESOURCE_DESC {
+        Dimension: D3D12_RESOURCE_DIMENSION_BUFFER,
+        Width: size,
+        Height: 1,
+        DepthOrArraySize: 1,
+        MipLevels: 1,
+        Format: DXGI_FORMAT_UNKNOWN,
+        SampleDesc: DXGI_SAMPLE_DESC {
+            Count: 1,
+            Quality: 0,
+        },
+        Layout: D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
+        ..Default::default()
+    };
+    let mut buffer: Option<ID3D12Resource> = None;
+    // SAFETY: a readback buffer large enough for the pitched copy.
+    unsafe {
+        gpu.device.CreateCommittedResource(
+            &heap_props,
+            D3D12_HEAP_FLAG_NONE,
+            &desc,
+            D3D12_RESOURCE_STATE_COPY_DEST,
+            None,
+            &mut buffer,
+        )
+    }
+    .at("CreateCommittedResource")?;
+    let buffer = buffer.ok_or(GpuError {
+        call: "CreateCommittedResource",
+        code: 0,
+    })?;
+    let target = resource.clone();
+    let readback = buffer.clone();
+    gpu.submit(move |list| {
+        if state != D3D12_RESOURCE_STATE_COPY_SOURCE {
+            let to_copy = transition(&target, state, D3D12_RESOURCE_STATE_COPY_SOURCE);
             // SAFETY: the barrier names a live resource in the state given.
             unsafe { list.ResourceBarrier(std::slice::from_ref(&to_copy)) };
             release_barrier(to_copy);
-            let src = D3D12_TEXTURE_COPY_LOCATION {
-                pResource: std::mem::ManuallyDrop::new(Some(target.clone())),
-                Type: D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
-                Anonymous: D3D12_TEXTURE_COPY_LOCATION_0 {
-                    SubresourceIndex: 0,
-                },
-            };
-            let mut footprint = D3D12_PLACED_SUBRESOURCE_FOOTPRINT::default();
-            footprint.Footprint.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
-            footprint.Footprint.Width = width;
-            footprint.Footprint.Height = height;
-            footprint.Footprint.Depth = 1;
-            footprint.Footprint.RowPitch = pitch;
-            let dst = D3D12_TEXTURE_COPY_LOCATION {
-                pResource: std::mem::ManuallyDrop::new(Some(readback.clone())),
-                Type: D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,
-                Anonymous: D3D12_TEXTURE_COPY_LOCATION_0 {
-                    PlacedFootprint: footprint,
-                },
-            };
-            // SAFETY: both locations name live resources; the footprint fits
-            // the buffer, whose size was computed from the same pitch.
-            unsafe { list.CopyTextureRegion(&dst, 0, 0, 0, &src, None) };
-            let mut src = src;
-            let mut dst = dst;
-            // SAFETY: each location's resource reference is dropped once.
-            unsafe {
-                std::mem::ManuallyDrop::drop(&mut src.pResource);
-                std::mem::ManuallyDrop::drop(&mut dst.pResource);
-            }
-            let back = transition(
-                &target,
-                D3D12_RESOURCE_STATE_COPY_SOURCE,
-                D3D12_RESOURCE_STATE_RENDER_TARGET,
-            );
+        }
+        let src = D3D12_TEXTURE_COPY_LOCATION {
+            pResource: std::mem::ManuallyDrop::new(Some(target.clone())),
+            Type: D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
+            Anonymous: D3D12_TEXTURE_COPY_LOCATION_0 {
+                SubresourceIndex: 0,
+            },
+        };
+        let mut footprint = D3D12_PLACED_SUBRESOURCE_FOOTPRINT::default();
+        footprint.Footprint.Format = format;
+        footprint.Footprint.Width = width;
+        footprint.Footprint.Height = height;
+        footprint.Footprint.Depth = 1;
+        footprint.Footprint.RowPitch = pitch;
+        let dst = D3D12_TEXTURE_COPY_LOCATION {
+            pResource: std::mem::ManuallyDrop::new(Some(readback.clone())),
+            Type: D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,
+            Anonymous: D3D12_TEXTURE_COPY_LOCATION_0 {
+                PlacedFootprint: footprint,
+            },
+        };
+        // SAFETY: both locations name live resources; the footprint fits
+        // the buffer, whose size was computed from the same pitch.
+        unsafe { list.CopyTextureRegion(&dst, 0, 0, 0, &src, None) };
+        let mut src = src;
+        let mut dst = dst;
+        // SAFETY: each location's resource reference is dropped once.
+        unsafe {
+            std::mem::ManuallyDrop::drop(&mut src.pResource);
+            std::mem::ManuallyDrop::drop(&mut dst.pResource);
+        }
+        if state != D3D12_RESOURCE_STATE_COPY_SOURCE {
+            let back = transition(&target, D3D12_RESOURCE_STATE_COPY_SOURCE, state);
             // SAFETY: as above.
             unsafe { list.ResourceBarrier(std::slice::from_ref(&back)) };
             release_barrier(back);
-            Ok(())
-        })?;
-        let mut data: *mut std::ffi::c_void = std::ptr::null_mut();
-        let range = D3D12_RANGE {
-            Begin: 0,
-            End: size as usize,
-        };
-        // SAFETY: the copy has finished (submit waited); the buffer is a
-        // readback buffer of `size` bytes.
-        unsafe { buffer.Map(0, Some(&range), Some(&mut data)) }.at("Map")?;
-        let mut pixels = Vec::with_capacity((row * height) as usize);
-        for y in 0..height as usize {
-            // SAFETY: row `y` starts at `y * pitch` and has `row` bytes
-            // inside the mapped `size` bytes.
-            let line = unsafe {
-                std::slice::from_raw_parts(
-                    (data as *const u8).add(y * pitch as usize),
-                    row as usize,
-                )
-            };
-            pixels.extend_from_slice(line);
         }
-        let none = D3D12_RANGE { Begin: 0, End: 0 };
-        // SAFETY: unmapping what was mapped; nothing was written.
-        unsafe { buffer.Unmap(0, Some(&none)) };
-        Ok(pixels)
+        Ok(())
+    })?;
+    let mut data: *mut std::ffi::c_void = std::ptr::null_mut();
+    let range = D3D12_RANGE {
+        Begin: 0,
+        End: size as usize,
+    };
+    // SAFETY: the copy has finished (submit waited); the buffer is a
+    // readback buffer of `size` bytes.
+    unsafe { buffer.Map(0, Some(&range), Some(&mut data)) }.at("Map")?;
+    let mut pixels = Vec::with_capacity((row * height) as usize);
+    for y in 0..height as usize {
+        // SAFETY: row `y` starts at `y * pitch` and has `row` bytes inside
+        // the mapped `size` bytes.
+        let line = unsafe {
+            std::slice::from_raw_parts((data as *const u8).add(y * pitch as usize), row as usize)
+        };
+        pixels.extend_from_slice(line);
     }
+    let none = D3D12_RANGE { Begin: 0, End: 0 };
+    // SAFETY: unmapping what was mapped; nothing was written.
+    unsafe { buffer.Unmap(0, Some(&none)) };
+    Ok(pixels)
 }
 
 #[cfg(test)]

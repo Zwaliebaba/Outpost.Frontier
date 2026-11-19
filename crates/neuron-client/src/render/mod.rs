@@ -5,7 +5,8 @@
 //! ([`material`]); the render manager, levels of detail and the mesh
 //! kinds ([`mesh`]); `FLAppearance`'s override materials, backdrop,
 //! starsphere and blob shadows ([`appearance`]); particle effects
-//! ([`particles`]).
+//! ([`particles`]); programmable passes for the volumetric nebula
+//! ([`pass`]).
 
 pub mod appearance;
 pub mod compare;
@@ -14,6 +15,7 @@ pub mod ff;
 pub mod material;
 pub mod mesh;
 pub mod particles;
+pub mod pass;
 pub mod shader;
 pub mod stack;
 pub mod texture;

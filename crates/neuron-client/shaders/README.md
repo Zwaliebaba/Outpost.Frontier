@@ -41,3 +41,11 @@ shader and one pixel shader (compiled twice, once with `FLAT` for
 `SHADEMODE FLAT`) that branch on the per-draw constants. Its constant
 buffer is laid out by `render::shader::constants`, and a test compares the
 two.
+
+`pass_test.hlsl` is the test program of the programmable passes (decision
+record 0005): shader model 6.1, one vertex shader and three pixel shaders
+that the WARP tests in `platform::d3d12::backend::ex` draw with. Programs
+for passes follow record 0005's register layout and blob names
+(`<stem>_vs.cso`, `<stem>[_<variant>]_ps.cso`). Its four blobs are
+committed empty until CI's shader check prints them; the WARP tests skip
+while they are empty.

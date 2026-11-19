@@ -34,3 +34,30 @@ file = "blit.hlsl"
 entry = "ps_main"
 profile = "ps_6_1"
 output = "blit_ps.cso"
+
+# The test program of the programmable passes (record 0005): one vertex
+# shader and three pixel shaders, drawn by the WARP tests of
+# platform::d3d12::backend::ex. Shader model 6.1 (DXIL).
+[[shader]]
+file = "pass_test.hlsl"
+entry = "vs_main"
+profile = "vs_6_1"
+output = "pass_test_vs.cso"
+
+[[shader]]
+file = "pass_test.hlsl"
+entry = "ps_constant"
+profile = "ps_6_1"
+output = "pass_test_constant_ps.cso"
+
+[[shader]]
+file = "pass_test.hlsl"
+entry = "ps_depth"
+profile = "ps_6_1"
+output = "pass_test_depth_ps.cso"
+
+[[shader]]
+file = "pass_test.hlsl"
+entry = "ps_volume"
+profile = "ps_6_1"
+output = "pass_test_volume_ps.cso"
