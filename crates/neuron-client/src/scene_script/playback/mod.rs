@@ -176,6 +176,15 @@ impl Player {
                 }
             }
         }
+        self.finish_load(duration);
+    }
+
+    /// The end of `Slot4Load` after the parser's second pass, whichever
+    /// parser ran it: the scene marked loaded (`MarkLoaded`), the duration
+    /// stored and the events sorted (`FinalizeLoad`), and the default
+    /// SET_CAMERA event added when the scene has exactly one monitor and
+    /// one camera and no SET_CAMERA event of its own.
+    pub fn finish_load(&mut self, duration: u32) {
         self.state = state::LOADED;
         self.duration = duration as i32;
         sort_master(&mut self.master, &self.events);

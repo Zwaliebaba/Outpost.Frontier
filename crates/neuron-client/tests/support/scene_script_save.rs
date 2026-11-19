@@ -1,14 +1,16 @@
 //! The save suite of `CppSource/Oracle/oracle_scene_script_save.cpp`: a
 //! script engine driven by a program of slot calls, with a writer that
-//! records each `Write`, the two COM contexts and the component manager's
-//! file systems of the harness; and the `thn_save` data dump.
+//! records each `Write`, the two COM contexts, the recording load parser
+//! and the component manager's file systems of the harness; and the
+//! `thn_save` data dump.
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
-use neuron_client::scene_script::playback::EventRef;
-use neuron_client::scene_script::{ComContext, ScriptEngine, ScriptModule};
+use neuron_client::scene_script::entity::{EntityDesc, EntityTail, kind};
+use neuron_client::scene_script::playback::{EventRef, Player};
+use neuron_client::scene_script::{ComContext, LoadParser, ScriptEngine, ScriptModule};
 use neuron_core::vfs::{FileSystem, FindEntry, FsDesc, FsKind, SeekOrigin, VfsError, VfsFile};
 
 use super::{hex, input_lines, unhex};
@@ -199,6 +201,103 @@ impl ComContext for Context {
     }
 }
 
+/// The harness's load parser of the `q<kind>` token: its load fails (1) or
+/// succeeds; its build adds nothing (2), a monitor and a camera with a user
+/// property before its duration changes (3), or a camera and fails (4).
+struct TestParser {
+    kind: i32,
+    duration_ms: u32,
+    log: Log,
+    head: String,
+}
+
+impl TestParser {
+    fn line(&self, body: String) {
+        self.log.borrow_mut().push(format!("{}{body}", self.head));
+    }
+
+    /// The oracle's zero-filled descriptor of `kind` named `name` at
+    /// (x, 2, 3) with the identity orientation and its camera words.
+    fn add(&self, player: &mut Player, kind: i32, name: &[u8], x: f32) -> i32 {
+        let desc = EntityDesc {
+            kind,
+            flags: 0,
+            pos: [x, 2.0, 3.0],
+            orient: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+            name: Some(name.to_vec()),
+            template_name: None,
+            lt_grp: 0,
+            srt_grp: 0,
+            usr_flg: 0,
+            tail: EntityTail::Camera {
+                fovh: 0.5,
+                near_plane: 1.0,
+                far_plane: 1000.0,
+                aspect: 1.25,
+            },
+        };
+        let (r, index) = match player.add_entity(&desc) {
+            Some(index) => (0, index),
+            None => (-1, -1),
+        };
+        self.line(format!(
+            "\"parser\":\"add\",\"r\":\"{r}\",\"index\":\"{index}\"}}"
+        ));
+        index
+    }
+}
+
+impl LoadParser for TestParser {
+    fn entity_count(&mut self) -> u32 {
+        0
+    }
+    fn event_count(&mut self) -> u32 {
+        0
+    }
+    fn duration(&mut self) -> u32 {
+        self.line(format!(
+            "\"parser\":\"duration\",\"r\":\"{}\"}}",
+            self.duration_ms
+        ));
+        self.duration_ms
+    }
+    fn load(&mut self, fs: &mut dyn FileSystem) -> i32 {
+        let r = if self.kind == 1 { -1 } else { 0 };
+        let size = fs.size().unwrap_or(0);
+        self.line(format!(
+            "\"parser\":\"load\",\"size\":\"{size}\",\"r\":\"{r}\"}}"
+        ));
+        r
+    }
+    fn build(
+        &mut self,
+        fs: &mut dyn FileSystem,
+        player: &mut Player,
+        com: Option<&mut dyn ComContext>,
+    ) -> i32 {
+        let size = fs.size().unwrap_or(0);
+        self.line(format!(
+            "\"parser\":\"build\",\"size\":\"{size}\",\"com\":\"{}\"}}",
+            i32::from(com.is_some())
+        ));
+        match self.kind {
+            3 => {
+                self.add(player, kind::MONITOR, b"mon", 1.0);
+                let camera = self.add(player, kind::CAMERA, b"cam", -2.0);
+                let r = player.set_user_prop(camera, b"Note", b"seen");
+                self.line(format!("\"parser\":\"prop\",\"r\":\"{r}\"}}"));
+                self.duration_ms = 2500;
+                0
+            }
+            4 => {
+                self.add(player, kind::CAMERA, b"solo", 0.5);
+                -1
+            }
+            _ => 0,
+        }
+    }
+}
+
 fn status(engine: &ScriptEngine) -> String {
     let p = engine.player();
     format!(
@@ -254,6 +353,19 @@ fn run_case(head: &str, program: &str, scripts: &[Vec<u8>], log: &Log) {
                     })))
                 };
                 engine.set_com(com)
+            }
+            b'q' => {
+                let parser: Option<Box<dyn LoadParser>> = if arg == "-" {
+                    None
+                } else {
+                    Some(Box::new(TestParser {
+                        kind: int(arg),
+                        duration_ms: 1500,
+                        log: log.clone(),
+                        head: head.to_owned(),
+                    }))
+                };
+                engine.set_load_parser(parser)
             }
             b'L' if arg == "-" => engine.load(&mut module, None),
             b'L' => {
