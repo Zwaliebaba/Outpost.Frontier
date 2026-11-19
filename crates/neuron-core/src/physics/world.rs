@@ -240,8 +240,9 @@ struct Phantom {
     enabled: bool,
     listener: bool,
     intruders: Vec<BodyHandle>,
-    /// The bodies found overlapping at the last update that are not
-    /// intruders yet (their mindists are new; see `update_phantoms`).
+    /// The bodies found overlapping at the last update: the intruders of
+    /// the next one (IVP evaluates the mindists in the PSI after the pose;
+    /// see `update_phantoms`).
     pending: Vec<BodyHandle>,
 }
 

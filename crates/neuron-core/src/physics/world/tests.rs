@@ -324,6 +324,45 @@ fn phantoms_report_enter_and_leave() {
 }
 
 #[test]
+fn phantoms_report_the_overlap_of_the_step_before() {
+    // IVP evaluates a phantom's mindists in the PSI after the pose: a body
+    // the phantom overlaps at the end of one step only (a fast one passing
+    // a thin part) enters in the next step, where it no longer overlaps,
+    // and leaves in the one after (the strafe missile's fuse, D177).
+    let mut world = PhysicsWorld::new(1, &constants());
+    let mut random = IvpRandom::default();
+    let ship = ball(&mut world, 1, 1.0, Vector::new(-12.0, 0.0, 0.0));
+    let p = world.create_phantom(PhantomDesc {
+        geometry: Geometry::ball(3.0),
+        position: Vector::ZERO,
+        orientation: Matrix::IDENTITY,
+        name: Vec::new(),
+        listener: true,
+    });
+    world.add_to_velocity(ship, Vector::new(140.0, 0.0, 0.0));
+    let mut seen = Vec::new();
+    for _ in 0..4 {
+        step(&mut world, &mut NoControllers, &mut random, 0.05);
+        let x = world.transform(ship).unwrap().0.x;
+        let events: Vec<bool> = world
+            .take_phantom_events()
+            .iter()
+            .map(|e| e.entered)
+            .collect();
+        seen.push((x.round(), events, world.phantom_intruders(p)));
+    }
+    assert_eq!(
+        seen,
+        vec![
+            (-5.0, vec![], vec![]),
+            (2.0, vec![], vec![]),
+            (9.0, vec![true], vec![1]),
+            (16.0, vec![false], vec![]),
+        ]
+    );
+}
+
+#[test]
 fn beams_hit_the_nearest_body_outside_their_group() {
     let mut world = PhysicsWorld::new(1, &constants());
     let own = ball(&mut world, 1, 1.0, Vector::new(5.0, 0.0, 0.0));

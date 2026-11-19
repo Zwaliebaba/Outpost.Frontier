@@ -36,12 +36,13 @@
 //! A fight is judged as `ram_ship` is (owner, 2026-11-18; record 0003
 //! point 9): bit for bit up to its first contact or munition impact,
 //! whichever comes first in the oracle ([`judge_fight`]). A difference
-//! before that tick, or a contact, hit or spent missile on the Rust side
-//! before it, is a gross divergence; after it the outcome (alive states),
-//! the trajectories, the collisions, the hits and the missiles' ends are
-//! reported for the Gate G2 envelopes, because the differences after a
-//! contact come from the accepted contact solver (D87, decision O19) and
-//! the fuse's timing (D177).
+//! before that tick, or a first contact, hit or spent missile on the Rust
+//! side in any other tick (owner, 2026-11-19: in the same tick, as
+//! `ram_ship`'s contact), is a gross divergence; after it the outcome
+//! (alive states), the trajectories, the collisions, the hits and the
+//! missiles' ends are reported for the Gate G2 envelopes, because the
+//! differences after a contact come from the accepted contact solver (D87,
+//! decision O19) and the fuse's timing (D177).
 //!
 //! For every scenario, the AI ones too, the report lists the `rand()`
 //! draws the Rust world makes while it loads the system and spawns the
@@ -3084,8 +3085,9 @@ fn judge_exact(
 
 /// A fight (owner, 2026-11-18; record 0003 point 9, as `ram_ship`): every
 /// object must equal the oracle exactly before the oracle's first contact
-/// or munition impact, and the Rust world must have no contact, hit or
-/// spent missile before it. After it the outcome (alive states), the
+/// or munition impact, and the Rust world's first contact, hit or spent
+/// missile must come in the same tick (owner, 2026-11-19), or not at all
+/// when the oracle has none. After it the outcome (alive states), the
 /// collisions and the hits are reported, not judged: they fall under the
 /// Gate G2 envelopes, the differences coming from the accepted contact
 /// solver (D87, decision O19) and the fuse's timing (D177).
@@ -3097,8 +3099,15 @@ fn judge_fight(
     ours: &Run,
     theirs: &Run,
 ) {
+    let rust_first = first_event_of(ours, &ours.guided);
     let Some(first) = first_event(dir, &s.name, theirs) else {
         // No contact or impact: the whole run is judged, outcome included.
+        if let Some(t) = rust_first {
+            gross.push(format!(
+                "{}: the Rust world's first contact or impact comes at tick {t}; the oracle has none",
+                s.name
+            ));
+        }
         for (name, a) in &ours.states {
             if let (Some(x), Some(y)) = (a.last(), theirs.states.get(name).and_then(|b| b.last()))
                 && x.alive != y.alive
@@ -3112,7 +3121,6 @@ fn judge_fight(
         let _ = writeln!(summary, "{}: fight without contact or impact", s.name);
         return;
     };
-    let rust_first = first_event_of(ours, &ours.guided);
     let mut pre = None;
     for (name, a) in &ours.states {
         let Some(b) = theirs.states.get(name) else {
@@ -3127,11 +3135,13 @@ fn judge_fight(
             ));
         }
     }
-    if rust_first.is_some_and(|t| t < first) {
+    // The first contact or impact comes in the oracle's tick, neither
+    // before nor after it (owner, 2026-11-19, as `ram_ship`'s contact).
+    if rust_first != Some(first) {
         gross.push(format!(
-            "{}: the Rust world's first contact or impact comes at tick {} before the oracle's ({first})",
+            "{}: the Rust world's first contact or impact comes at tick {}, the oracle's at tick {first}",
             s.name,
-            rust_first.unwrap_or(0)
+            rust_first.map_or_else(|| "none".to_owned(), |t| t.to_string())
         ));
     }
     let _ = writeln!(

@@ -769,10 +769,26 @@ impl PhysicsWorld {
             }
             let listener = p.listener;
             let previous = p.intruders.clone();
-            let pending = p.pending.clone();
+            // IVP reports an intruder from its mindist with the phantom, and
+            // `recalc_all_exact_mindists` evaluates the mindists in each PSI
+            // after the cores' next matrices are committed, at the PSI's
+            // time: the pose this test saw at the end of the step before.
+            // So the intruders of a step are the bodies the phantom
+            // overlapped at the end of the previous step, whether or not it
+            // still overlaps them now (divergence register, D177). A
+            // disabled phantom has none at once.
+            let now_in: Vec<BodyHandle> = if p.enabled {
+                p.pending
+                    .iter()
+                    .copied()
+                    .filter(|h| self.collidable(*h).is_some())
+                    .collect()
+            } else {
+                Vec::new()
+            };
             let mut events = Vec::new();
             for h in &previous {
-                if !inside.contains(h)
+                if !now_in.contains(h)
                     && let Some(key) = self.user_key(*h)
                 {
                     events.push(PhantomEvent {
@@ -785,17 +801,10 @@ impl PhysicsWorld {
             let mut kept: Vec<BodyHandle> = previous
                 .iter()
                 .copied()
-                .filter(|h| inside.contains(h))
+                .filter(|h| now_in.contains(h))
                 .collect();
-            // IVP reports an intruder from its mindist with the phantom: a
-            // mindist the hull manager creates in one PSI is evaluated in a
-            // later one, so a body enters once its overlap has lasted to the
-            // end of a second step (divergence register, D177).
-            let mut waiting = Vec::new();
-            for h in &inside {
-                if !previous.contains(h) && !pending.contains(h) {
-                    waiting.push(*h);
-                } else if !previous.contains(h) {
+            for h in &now_in {
+                if !previous.contains(h) {
                     kept.push(*h);
                     if let Some(key) = self.user_key(*h) {
                         events.push(PhantomEvent {
@@ -808,7 +817,7 @@ impl PhysicsWorld {
             }
             if let Some(p) = self.phantoms.get_mut(index) {
                 p.intruders = kept;
-                p.pending = waiting;
+                p.pending = inside;
             }
             if listener {
                 self.phantom_events.extend(events);
