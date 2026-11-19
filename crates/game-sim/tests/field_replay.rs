@@ -306,6 +306,9 @@ fn asteroid_fields_against_the_oracle() {
                             diffs.push(format!("tick {tick}: {d}"));
                         }
                     }
+                    Some("probe") => {
+                        let _ = writeln!(summary, "{}: tick {tick} probe {r:?}", s.name);
+                    }
                     Some("cubes") => {
                         let list = r
                             .get("cubes")

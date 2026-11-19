@@ -33,6 +33,7 @@ namespace
     unsigned int GFieldSystemId = 0;
     unsigned int const* GFieldTick = nullptr;
     oracle::FSimFieldNameFn GFieldNameOf = nullptr;
+    oracle::FSimShipPositionsFn GFieldShips = nullptr;
     unsigned int GDockSeq = 0;
 
     // Per field index: the cube ids seen after the last frame and the last `cubes` line.
@@ -140,8 +141,9 @@ namespace
 namespace oracle
 {
     bool OracleSimFieldsStart(std::string const& OutDir, unsigned int SystemId, unsigned int const* Tick,
-                              FSimFieldNameFn NameOf)
+                              FSimFieldNameFn NameOf, FSimShipPositionsFn Ships)
     {
+        GFieldShips = Ships;
         GAsteroidFile = fopen((OutDir + "\\asteroids.jsonl").c_str(), "wb");
         GDockFile = fopen((OutDir + "\\dock.jsonl").c_str(), "wb");
         if (GAsteroidFile == nullptr || GDockFile == nullptr)
@@ -167,6 +169,44 @@ namespace oracle
         if (GAsteroidFile == nullptr)
             return;
         CmnAsteroid::CAsteroidSystem* const System = CmnAsteroid::Find(GFieldSystemId);
+        unsigned int const Tick = TickNow();
+        if (Tick <= 1 || Tick % 150 == 0)
+        {
+            // What the walk works with: the fields' parameters and near_field at each ship.
+            FOracleJson P;
+            P.Str("rec", "probe");
+            P.Uint("tick", Tick);
+            P.Bool("system", System != nullptr);
+            std::vector<Vector> const Ships = GFieldShips != nullptr ? GFieldShips() : std::vector<Vector>();
+            P.BeginArray("ships");
+            for (Vector const& Ship : Ships)
+                VectorJ(P, nullptr, Ship);
+            P.EndArray();
+            P.BeginArray("fields");
+            if (System != nullptr)
+            {
+                for (std::list<CmnAsteroid::CAsteroidField*>::const_iterator Field = System->Fields.begin();
+                     Field != System->Fields.end(); ++Field)
+                {
+                    CmnAsteroid::CAsteroidField* const F = *Field;
+                    P.BeginObject(nullptr);
+                    P.Bool("zone", F->Zone != nullptr);
+                    P.Int("cube_size", F->CubeSize);
+                    P.Int("fill_dist", F->FillDist);
+                    P.Float("empty_freq", F->EmptyFreq);
+                    P.Uint("arch", static_cast<unsigned int>(F->ArchList.size()));
+                    P.Bool("exclusions", F->ExclusionMgr != nullptr);
+                    P.Uint("cubes", static_cast<unsigned int>(F->Cubes.size()));
+                    P.BeginArray("near");
+                    for (Vector const& Ship : Ships)
+                        P.Bool(nullptr, F->near_field(Ship));
+                    P.EndArray();
+                    P.EndObject();
+                }
+            }
+            P.EndArray();
+            WriteLine(GAsteroidFile, P);
+        }
         if (System == nullptr)
             return;
         unsigned int FieldIndex = 0;

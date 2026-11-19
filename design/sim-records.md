@@ -493,6 +493,12 @@ player. Two records:
   `tick` u, `field` u, `cubes` [{`id` u, `state` i (`CubeState`),
   `timer` f (`StateTimer`)}, …] in id order; a field left without cubes
   writes an empty list.
+- `probe`: at ticks 0, 1 and every 150th, what the walk works with.
+  `tick` u, `system` b (`CmnAsteroid::Find` found the system), `ships`
+  [[f×3], …] (the scenario ships' positions), `fields` [{`zone` b,
+  `cube_size` i, `fill_dist` i, `empty_freq` f, `arch` u (the `[Cube]`
+  entries), `exclusions` b, `cubes` u, `near` [b, …] (`near_field` at each
+  ship)}, …].
 
 `field_replay` replays the walk from the ships' positions of `tick.jsonl`.
 

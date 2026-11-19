@@ -586,6 +586,9 @@ namespace
         return nullptr;
     }
 
+    // P2.4 (asteroids.jsonl `probe`): the positions of the scenario's live ships.
+    std::vector<Vector> ShipPositions();
+
     // The scenario name of an id, or "#<id>" for any other object.
     std::string NameOf(unsigned int Id)
     {
@@ -629,6 +632,20 @@ namespace
         IObjDB* const Db = static_cast<CSimple*>(Found)->ObjectDb;
         Found->Release();
         return Db != nullptr ? Db->FindById(&Id) : nullptr;
+    }
+
+    std::vector<Vector> ShipPositions()
+    {
+        std::vector<Vector> Out;
+        for (FSimObject const& Object : GObjects)
+        {
+            if (!Object.Desc->bShip)
+                continue;
+            IObjRW* const Rw = FindRw(Object);
+            if (Rw != nullptr)
+                Out.push_back(Rw->get_position());
+        }
+        return Out;
     }
 
     // ------------------------------------------------------------------------------------
@@ -2475,7 +2492,7 @@ namespace oracle
         if (!OracleSimAiStart(OutDir, &GTick, &NameOf))
             SessionNote("note", "ai.jsonl cannot be written; behaviour ticks are not recorded");
         // P2.4: the asteroid fields and the docking points (asteroids.jsonl, dock.jsonl).
-        if (!OracleSimFieldsStart(OutDir, SystemId, &GTick, &NameOf))
+        if (!OracleSimFieldsStart(OutDir, SystemId, &GTick, &NameOf, &ShipPositions))
             SessionNote("note", "asteroids.jsonl or dock.jsonl cannot be written; fields and docking points are not recorded");
         SetSink(OnControllerMessage);
         OracleSimLoadRandEnd();
