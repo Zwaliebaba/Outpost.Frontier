@@ -176,14 +176,21 @@ impl StackEngine for SceneHost {
         u32::try_from(instance).map_or(-1, |i| self.links.borrow().instance_archetype(i))
     }
 
+    /// The instance's own extent. While the scene engine is busy (it is
+    /// creating the instance, whose mesh kind asks before it writes one),
+    /// the extent written meanwhile, else none yet (radius 0), as the
+    /// reference's engine answers for a new instance.
     fn instance_extent(&mut self, instance: Instance) -> Option<(f32, [f32; 3])> {
         let id = instance_id(instance)?;
-        self.write(|s| {
-            s.instance(id)?;
-            let (radius, centre) = s.instance_extent(Some(id), 1);
-            Some((radius, centre.to_words()))
-        })
-        .flatten()
+        let scene = self.scene.upgrade()?;
+        let Ok(mut s) = scene.try_borrow_mut() else {
+            let links = self.links.borrow();
+            let pending = links.extents.iter().rev().find(|(i, _, _)| *i == id);
+            return Some(pending.map_or((0.0, [0.0; 3]), |&(_, r, c)| (r, c)));
+        };
+        s.instance(id)?;
+        let (radius, centre) = s.instance_extent(Some(id), 1);
+        Some((radius, centre.to_words()))
     }
 
     fn set_instance_extent(&mut self, instance: Instance, radius: f32, centre: [f32; 3]) {

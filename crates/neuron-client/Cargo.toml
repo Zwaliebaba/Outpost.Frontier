@@ -22,5 +22,11 @@ render-trace = []
 # use the blobs `cargo xtask shaders` compiles.
 shader-compile = ["windows/Win32_Graphics_Direct3D_Dxc"]
 
+# Gate G4's model viewer (design/g4-runbook.md); its tests run with the
+# crate's (`cargo test --all-targets`).
+[[example]]
+name = "model_viewer"
+test = true
+
 [lints]
 workspace = true
