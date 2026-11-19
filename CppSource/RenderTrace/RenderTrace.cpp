@@ -9,6 +9,7 @@
 // README.md describes activation, the trace format and the replay contract.
 
 #include "RenderTraceGenerated.h"
+#include "readfile.h"
 
 #include <new>
 #include <utility>
@@ -1312,7 +1313,62 @@ GENRESULT NEURONCOMPONENTS_API FRenderTrace::UnlockVb(void* Handle)
 // -------------------------------------------------------------------------------------------
 // IRPTexture
 
-// The encoded file is read by the renderer through FileSystem; the line has its name.
+namespace
+{
+    // The bytes of the file LoadTexture and LoadCubemap decode: the same descriptor and
+    // open, size, mapping and view sequence as DX8RENDERER's OpenTextureFileMap, read
+    // again after the real call (which has closed its own handles). False when any step
+    // fails; the file system is only read.
+    bool ReadRendererFile(IFileSystem* FileSystem, const char* Name, std::vector<unsigned char>& Out)
+    {
+        Out.clear();
+        if (FileSystem == nullptr || Name == nullptr)
+            return false;
+        FFileSystemDesc Desc;
+        memset(&Desc, 0, sizeof(Desc));
+        Desc.Size = 0x34;
+        Desc.ComponentName = "FileSystem";
+        Desc.Path = Name;
+        Desc.Access = 0x80000000;
+        Desc.ShareMode = 1;
+        Desc.Creation = 3;
+        Desc.Flags = 0x8000080;
+        Desc.Field30 = 0xFFFFFFFF;
+        const int Handle = FileSystem->OpenByDesc(&Desc);
+        if (Handle == -1)
+            return false;
+        const unsigned long Size = FileSystem->GetSize((unsigned long)(Handle), 0);
+        const int Mapping = FileSystem->CreateMapping((unsigned long)(Handle), 0, 2, 0, 0, 0);
+        bool bRead = false;
+        if (Mapping != -1)
+        {
+            const int View = FileSystem->MapFileView((unsigned long)(Mapping), 4, 0, 0, 0);
+            if (View != 0)
+            {
+                const unsigned char* Bytes = (const unsigned char*)((uintptr_t)(View));
+                Out.assign(Bytes, Bytes + Size);
+                bRead = true;
+                FileSystem->UnmapFileView((unsigned long)(View));
+            }
+            FileSystem->CloseFile((unsigned long)(Mapping));
+        }
+        FileSystem->CloseFile((unsigned long)(Handle));
+        return bRead;
+    }
+
+    // `Data`: the file's bytes (a blob), or null when the proxy could not read them.
+    void FileData(RenderTrace::FCall& Call, IFileSystem* FileSystem, const char* FileName)
+    {
+        std::vector<unsigned char> Bytes;
+        if (ReadRendererFile(FileSystem, FileName, Bytes) && !Bytes.empty())
+            Call.Bytes("Data", Bytes.data(), Bytes.size());
+        else
+            Call.Null("Data");
+    }
+}
+
+// The encoded file is read by the renderer through FileSystem; the line has its name
+// and, as `Data`, the file's bytes the proxy reads through the same file system.
 GENRESULT NEURONCOMPONENTS_API FRenderTrace::LoadTexture(IFileSystem* FileSystem, const char* FileName,
                                                        void** OutHandle)
 {
@@ -1326,6 +1382,7 @@ GENRESULT NEURONCOMPONENTS_API FRenderTrace::LoadTexture(IFileSystem* FileSystem
         {
             Call.Raw("FileSystem", FileSystem);
             Call.Str("FileName", FileName);
+            FileData(Call, FileSystem, FileName);
             Call.HandleId("OutHandle", Id);
             Call.Return(Result);
         }
@@ -1346,6 +1403,7 @@ GENRESULT NEURONCOMPONENTS_API FRenderTrace::LoadCubemap(IFileSystem* FileSystem
         {
             Call.Raw("FileSystem", FileSystem);
             Call.Str("FileName", FileName);
+            FileData(Call, FileSystem, FileName);
             Call.HandleId("OutHandle", Id);
             Call.Return(Result);
         }

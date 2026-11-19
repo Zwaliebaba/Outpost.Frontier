@@ -228,7 +228,7 @@ argument to the device as an index and records it as a number.
 | `CopyIndices` | `OffsetIn`, `OutOffset`, `SrcData` (Count 16-bit indices) |
 | `SetTextureLevelData` | `Pixels`: what D3DX reads for SrcW x SrcH at Pitch in `SrcFormat` (`(rows - 1) * Pitch + one row`, rows of 4x4 blocks for DXT); `B`: the 768-byte RGB palette |
 | `LoadSurfaceData`, `GetImageInfo` | `SrcData`: the encoded image in memory (SrcSize bytes) |
-| `LoadTexture`, `LoadCubemap` | `FileName`; the file is read by the renderer through the file system and is not copied |
+| `LoadTexture`, `LoadCubemap` | `FileName`, and `Data`: the file's bytes, which the proxy reads after the call through the same file system and descriptor as the renderer (null when it cannot read them; traces made before 2026-11-19 have no `Data`) |
 | `DrawPrimitive`, `DrawIndexedPrimitiveUp`, `DrawIndexedPrimitiveVb` | `Verts` / `Indices`: the vertices and 16-bit indices Direct3D reads, sized from the FVF (DX8RENDERER's stride) and the primitive count |
 | `SetLight`, `AddLight`, `UpdateLight` | `Light`: the `D3DLIGHT8` (for AddLight and UpdateLight the handle points at it; the line holds it at the call, the `LightData` line before the next flush what the renderer read) |
 | `CreateBuffers` | As generated, then the defaults line |
