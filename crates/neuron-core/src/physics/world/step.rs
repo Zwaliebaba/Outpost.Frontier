@@ -827,14 +827,75 @@ impl PhysicsWorld {
 
     // ---- queries ------------------------------------------------------
 
-    fn ray_hits(&self, from: Vector, to: Vector, only: Option<BodyHandle>) -> Vec<RayHit> {
-        let start = from.to_words();
-        let d = [to.x - from.x, to.y - from.y, to.z - from.z];
-        let length = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+    /// The ray of a query from `from` to `to`, as `PhysicalSystem::
+    /// FindRayCollisions` and `PhySys::FindRayIntersect` build its template
+    /// (`Common/common_physicalsystem.cpp:693-716`,
+    /// `common_physys_query.cpp:766-789`): the start, the direction (the
+    /// difference times the inverse length, each stored as a float) and the
+    /// length (a float). `z_first`: `FindRayIntersect`'s length sums the
+    /// unrounded z square first.
+    fn query_ray(from: Vector, to: Vector, z_first: bool) -> Option<IvpRay> {
+        let dx = r(e(to.x) - e(from.x));
+        let dy = r(e(to.y) - e(from.y));
+        let dz_exact = e(to.z) - e(from.z);
+        let dz = r(dz_exact);
+        let length = if z_first {
+            ((dz_exact * e(dz) + e(dx) * e(dx)) + e(dy) * e(dy)).sqrt()
+        } else {
+            ((e(dy) * e(dy) + e(dz) * e(dz)) + e(dx) * e(dx)).sqrt()
+        };
+        if !(length > 0.0) {
+            return None;
+        }
+        let inv = 1.0 / length;
+        Some(IvpRay {
+            start: from.to_words(),
+            dir: [r(e(dx) * inv), r(e(dy) * inv), r(e(dz) * inv)],
+            length: r(length),
+        })
+    }
+
+    /// The nearest hit of a ray on each body, nearest first: IVP's ray
+    /// solver (`IVP/ivp_collision/ivp_ray_solver.cpp`), which all three
+    /// queries use. `GenerateCollisions` and `FindRayCollisions` cast
+    /// against every object (`check_ray_against_all_objects_in_sim`,
+    /// `Common/common_physicalsystem.cpp:444-445`, `:720-721`), through
+    /// `check_ray_against_ov_node` to `check_ray_against_object`;
+    /// `FindRayIntersect` calls `check_ray_against_object` on its one object
+    /// (`common_physys_query.cpp:694-695`). `check_ray_against_object` sends
+    /// a polygon object's ledges through `PhySurfaceManager::
+    /// insert_all_ledges_hitting_ray` (`common_physys_build.cpp:169-185`,
+    /// detached parts masked) to the ledge test, and a ball to the ball test.
+    ///
+    /// Against every object (`only` is `None`) an object is tested only
+    /// when its OV element passes the sphere test
+    /// of `check_ray_against_ov_node` (`:323-347`): the core's position at
+    /// the start of its PSI (`MWorldFCore`, not the pose the narrow test
+    /// uses) within half the ray's length plus the core's upper limit
+    /// radius of the ray's centre, and within that radius of the ray's line.
+    /// A fast object whose pose now crosses the ray can fail it, and the
+    /// ray then passes through. `culled` receives each such body the narrow
+    /// test would have hit.
+    ///
+    /// A ray does not hit a ledge it starts in: the ledge test needs a face
+    /// that faces the ray with the start strictly in front of it
+    /// (`IVP_Ray_Solver_Os::check_ray_against_compact_ledge_os`, `:438-466`),
+    /// and the ball test returns when the start is inside the ball
+    /// (`:230-236`). `inside` receives each body with a ledge that contains
+    /// the start.
+    fn ivp_ray_hits(
+        &self,
+        ray_in: &IvpRay,
+        only: Option<BodyHandle>,
+        inside: &mut Vec<BodyHandle>,
+        culled: &mut Vec<BodyHandle>,
+    ) -> Vec<RayHit> {
+        let IvpRay { start, dir, length } = *ray_in;
         if !(length > 0.0) {
             return Vec::new();
         }
-        let dir = d.map(|c| c / length);
+        let half = e(length) * 0.5;
+        let centre = [0, 1, 2].map(|k| r(half * e(dir[k]) + e(start[k])));
         let ray = Ray::new(shape::to_point(start), shape::to_vector(dir));
         let mut hits = Vec::new();
         for h in self.bodies.indices().into_iter().map(BodyHandle) {
@@ -847,10 +908,37 @@ impl PhysicsWorld {
             let Some((q, pos)) = self.object_pose_at(h, self.clock.current_time) else {
                 continue;
             };
+            let passes_ov = only.is_some()
+                || self.cores.get(body.core).is_none_or(|slot| {
+                    let core = &slot.core;
+                    let radius = core.upper_limit_radius;
+                    let reach = r(half + e(radius));
+                    let c = core.m_world_f_core_last_psi.vv;
+                    let d = [0, 1, 2].map(|k| r(e(c[k]) - e(centre[k])));
+                    let quad = (e(d[1]) * e(d[1]) + e(d[2]) * e(d[2])) + e(d[0]) * e(d[0]);
+                    if !(e(reach) * e(reach) > quad) {
+                        return false;
+                    }
+                    let (a, b) = (dir.map(e), d.map(e));
+                    let cross = [
+                        r(a[1] * b[2] - a[2] * b[1]),
+                        r(b[0] * a[2] - a[0] * b[2]),
+                        r(a[0] * b[1] - a[1] * b[0]),
+                    ];
+                    let line = (e(cross[0]) * e(cross[0]) + e(cross[1]) * e(cross[1]))
+                        + e(cross[2]) * e(cross[2]);
+                    e(radius) * e(radius) > line
+                });
             let iso = shape::isometry(q, pos);
             let mut best: Option<RayHit> = None;
             for ledge in body.geometry.ledges.iter() {
                 if body.detached_parts.contains(&ledge.part_id) {
+                    continue;
+                }
+                if ledge.shape.contains_point(&iso, &ray.origin) {
+                    if passes_ov && inside.last() != Some(&h) {
+                        inside.push(h);
+                    }
                     continue;
                 }
                 let Some(hit) = ledge
@@ -872,17 +960,39 @@ impl PhysicsWorld {
                     distance: hit.time_of_impact,
                 });
             }
+            if !passes_ov {
+                if best.is_some() {
+                    culled.push(h);
+                }
+                continue;
+            }
             hits.extend(best);
         }
         hits.sort_by(|a, b| a.distance.total_cmp(&b.distance));
         hits
     }
 
+    /// The objects (user keys) whose ledges contained the start of a beam's
+    /// ray since the last call, so that the ray did not hit them
+    /// (diagnostic).
+    pub fn take_beam_starts_inside(&mut self) -> Vec<u64> {
+        std::mem::take(&mut self.beam_starts_inside)
+    }
+
+    /// The objects (user keys) a beam's ray crossed since the last call
+    /// that IVP's OV sphere test kept it from hitting (diagnostic).
+    pub fn take_beam_ov_culled(&mut self) -> Vec<u64> {
+        std::mem::take(&mut self.beam_ov_culled)
+    }
+
     /// `PhySys::FindRayCollisions`: the nearest hit per body, nearest
     /// first, at most `max_hits`.
     #[must_use]
     pub fn find_ray_collisions(&self, from: Vector, to: Vector, max_hits: usize) -> Vec<RayHit> {
-        let mut hits = self.ray_hits(from, to, None);
+        let Some(ray) = Self::query_ray(from, to, false) else {
+            return Vec::new();
+        };
+        let mut hits = self.ivp_ray_hits(&ray, None, &mut Vec::new(), &mut Vec::new());
         hits.truncate(max_hits);
         hits
     }
@@ -896,7 +1006,10 @@ impl PhysicsWorld {
         to: Vector,
         max_hits: usize,
     ) -> Vec<RayHit> {
-        let mut hits = self.ray_hits(from, to, Some(body));
+        let Some(ray) = Self::query_ray(from, to, true) else {
+            return Vec::new();
+        };
+        let mut hits = self.ivp_ray_hits(&ray, Some(body), &mut Vec::new(), &mut Vec::new());
         hits.truncate(max_hits);
         hits
     }
@@ -953,13 +1066,26 @@ impl PhysicsWorld {
             );
         }
         let dir = beam.direction.to_words();
-        let end = Vector::new(
-            start.x + dir[0] * length,
-            start.y + dir[1] * length,
-            start.z + dir[2] * length,
-        );
         let group = short_name(&beam.collision_group);
-        let hits = self.ray_hits(start, end, None);
+        let (mut inside, mut culled) = (Vec::new(), Vec::new());
+        let ray = IvpRay {
+            start: start.to_words(),
+            dir,
+            length,
+        };
+        let hits = self.ivp_ray_hits(&ray, None, &mut inside, &mut culled);
+        for b in inside {
+            if let Some(body) = self.bodies.get(b.0) {
+                self.beam_starts_inside.push(body.user_key);
+            }
+        }
+        for b in culled {
+            if let Some(body) = self.bodies.get(b.0)
+                && !(body.name[0] != 0 && group[0] != 0 && body.name == group)
+            {
+                self.beam_ov_culled.push(body.user_key);
+            }
+        }
         let hit = hits.into_iter().find(|h| {
             let name = self.bodies.get(h.body.0).map(|b| b.name).unwrap_or([0; 8]);
             !(name[0] != 0 && group[0] != 0 && name == group)
@@ -989,4 +1115,13 @@ impl PhysicsWorld {
         self.collisions.push(event);
         Some(event)
     }
+}
+
+/// A ray as IVP's ray solver takes it (`IVP_Ray_Solver_Template`): the
+/// start, the direction as given (normalised by the caller) and the length.
+#[derive(Clone, Copy, Debug)]
+struct IvpRay {
+    start: [f32; 3],
+    dir: [f32; 3],
+    length: f32,
 }

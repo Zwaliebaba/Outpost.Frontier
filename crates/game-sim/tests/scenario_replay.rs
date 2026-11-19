@@ -464,6 +464,12 @@ struct Run {
     /// Each unit's core at the start and the end of its PSI, for the first
     /// PSIs (`unit_cores.jsonl`).
     unit_cores: Vec<Vec<neuron_core::physics::world::UnitCore>>,
+    /// The bullet rays that started inside an object, which they then do
+    /// not hit (as in IVP): the tick and the object's name.
+    starts_inside: Vec<(u32, String)>,
+    /// The objects a bullet's ray crossed that IVP's OV sphere test kept it
+    /// from hitting: the tick and the object's name.
+    ov_culled: Vec<(u32, String)>,
 }
 
 /// A core's state as the bit diagnostic prints it.
@@ -898,6 +904,18 @@ fn run(s: &Scenario, ai: &AiInputs) -> Option<Run> {
             }
         }
         world.step(system, s.frame as f32);
+        for h in world.take_beam_starts_inside(system) {
+            let name = world
+                .get(h)
+                .map_or_else(|| "?".to_owned(), |o| name_of(o.simple.id));
+            out.starts_inside.push((tick, name));
+        }
+        for h in world.take_beam_ov_culled(system) {
+            let name = world
+                .get(h)
+                .map_or_else(|| "?".to_owned(), |o| name_of(o.simple.id));
+            out.ov_culled.push((tick, name));
+        }
         if out.unported.is_none() {
             out.unported = handles.values().flatten().find_map(|&h| {
                 let m = world.behavior_manager(h)?;
@@ -3312,6 +3330,34 @@ fn report_load_draws(summary: &mut String, s: &Scenario, oracle: Option<&Path>) 
     }
 }
 
+/// The bullet rays IVP's ray solver does not let hit an object the Rust
+/// world's pose crosses: those that started inside the object, and those
+/// whose OV sphere test (the core at the start of its PSI) culled it.
+fn report_rays(summary: &mut String, scenario: &str, ours: &Run) {
+    for (what, list) in [
+        ("started inside an object", &ours.starts_inside),
+        (
+            "crossed an object its OV sphere test culled",
+            &ours.ov_culled,
+        ),
+    ] {
+        if list.is_empty() {
+            continue;
+        }
+        let shown: Vec<String> = list
+            .iter()
+            .take(8)
+            .map(|(t, n)| format!("tick {t} {n}"))
+            .collect();
+        let _ = writeln!(
+            summary,
+            "{scenario}: bullet rays that {what} (no hit, as in IVP): {}; {}",
+            list.len(),
+            shown.join(", ")
+        );
+    }
+}
+
 fn dist(a: Vector, b: Vector) -> f64 {
     let d = [
         f64::from(a.x) - f64::from(b.x),
@@ -3467,6 +3513,7 @@ fn scenarios_against_the_oracle() {
             report_combat(&mut summary, &s.name, &our_run, &their_run);
         }
         report_hits(&mut summary, &s.name, &our_run.hits, &their_run.hits);
+        report_rays(&mut summary, &s.name, &our_run);
         report_units(&mut summary, dir, &s.name, &our_run);
         let fight = !ai.attitudes.is_empty();
         let cutoff = if fight {
