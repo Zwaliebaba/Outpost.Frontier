@@ -1,7 +1,7 @@
 """Writes the inputs of the P4.8 particle suites (Oracle.exe neuron-client,
 CppSource/Oracle/oracle_particles.cpp, and
-crates/neuron-client/tests/oracle_vectors.rs): particle_ramp.list and
-particle_sim.list. Run from any folder:
+crates/neuron-client/tests/oracle_vectors.rs): particle_ramp.list,
+particle_sim.list and particle_draw.list. Run from any folder:
 
     python make_particle_fixtures.py [--check]
 
@@ -18,6 +18,10 @@ ramp and transform property of every node is evaluated at the times in order
 particle_sim.list: one case per line, operations separated by " ; " (those of
 oracle_particles.cpp): the libraries, pool sizes, the generator state,
 textures, effects and the client's per-frame calls, with dumps.
+
+particle_draw.list: the same operations and the draw ones (the camera, the
+batcher, the draw limits, begin, draw and end, bounds, counters and the dust's
+camera state) over every billboard kind and its flags.
 
 The cases keep to what the reference defines: no time is unordered, every
 ramp a property hands out has a key, loop types stay within 0 to 4 per nibble,
@@ -457,6 +461,290 @@ def sim_list():
                                             sim_folders, sim_textures, sim_errors)]
 
 
+# --- particle_draw ------------------------------------------------------------------------
+
+# The billboard sets' ramp and flag hashes (crates/neuron-core/src/fx_data/props.rs).
+B_ALPHA, B_PRIMARY = 0x04FC9016, 0xF7C2EBA9
+B_ANGLE, B_FRAMEPOS, B_ASPECT = 0x05DB630E, 0x015A6F47, 0xE0E97650
+B_TRI_UV, B_QUADS, B_STREAK, B_FLIP_U, B_FLIP_V = (0xF863872E, 0xF87B5FD5, 0xE91467F1,
+                                                  0xF3D52EE4, 0xE8DC7F5E)
+R_PRIMARY, R_LENGTH, R_WIDTH, R_FRAME = 0xFBA203B8, 0xE48DDAE2, 0x1266735F, 0x015A6F47
+R_CENTRED, R_FADE = 0xFB7958C1, 0xF9FEBF0D
+O_HEIGHT, O_WIDTH, O_XFORM = 0xF267B8E1, 0xFA03992F, 0xF0004D58
+BEAM_NO_EXTRAPOLATE, BEAM_CAP, BEAM_WIRE, BEAM_FAN = 0x08508C35, 0xE8B8CDE7, 0x1C65B7B9, 0xF87B5FD5
+BEAM_WIDTH = 0x1266735F
+
+
+def pair_prop(hashv, a, b):
+    return prop(0x104, hashv, u32(a) + u32(b))
+
+
+def flat(keys, mode=1):
+    """A nested flat ramp with one child keyed over the inner time."""
+    return nested11(4, [(0.0, single(mode, keys))])
+
+
+def view_xf(rot, pos):
+    return xf(rot, pos)
+
+
+ROT_A = (0.8, 0.0, -0.6, 0.0, 1.0, 0.0, 0.6, 0.0, 0.8)
+ROT_B = (1.0, 0.0, 0.0, 0.0, 0.6, 0.8, 0.0, -0.8, 0.6)
+ID3 = (1, 0, 0, 0, 1, 0, 0, 0, 1)
+
+
+def cam(view_rot, view_pos, world_rot, world_pos):
+    return "cam %s %s" % (xf(view_rot, view_pos), xf(world_rot, world_pos))
+
+
+def feeder(name, count, pressure=2.0, life=2.0, radius=1.0, freq=0.0):
+    return named(b"FxSphereEmitter", name, [
+        prop(ANIM, FREQ, anim(freq)), prop(ANIM, LIFESPAN, anim(life)),
+        prop(ANIM, PRESSURE, anim(pressure)), prop(2, INITIAL, u32(count)),
+        prop(ANIM, SPHERE_MIN_R, anim(0.1)), prop(ANIM, SPHERE_MAX_R, anim(radius)),
+        prop(3, LIFE, f32(20.0))])
+
+
+def fed_effect(name, pairs_of):
+    """An effect of (emitter, appearance) name pairs, every node a root."""
+    refs, pairs = [], []
+    for i, (emitter_name, app_name) in enumerate(pairs_of):
+        refs += [ref(app_name, ROOT, 2 * i + 1), ref(emitter_name, ROOT, 2 * i + 2)]
+        pairs.append((2 * i + 2, 2 * i + 1))
+    return effect(name, refs, pairs)
+
+
+def draw_frame(slot=0):
+    return ["begin", "draw %d" % slot, "end", "counters"]
+
+
+def draw_basic():
+    """The basic fills: triangles in both UV tables, quads with the frame flips,
+    streaks along the screen velocity, alpha below the cut, frame lookups."""
+    colour = prop(CRAMP, COLOR, nested11(4, [
+        (0.0, color(1, [(0.0, (1.0, 0.5, 0.25)), (1.0, (0.0, 0.75, 1.0))]))]))
+    nodes = [
+        feeder(b"e1", 4), feeder(b"e2", 3, pressure=3.0), feeder(b"e3", 3),
+        feeder(b"e4", 4, pressure=5.0),
+        named(b"FxBasicAppearance", b"tri", [
+            colour, prop(RAMP, B_ALPHA, flat([(0.0, 0.9), (1.0, 0.0)])),
+            prop(RAMP, B_PRIMARY, flat([(0.0, 0.5), (1.0, 1.5)])),
+            prop(RAMP, B_ANGLE, flat([(0.0, 0.3), (1.0, 2.5)])),
+            pair_prop(BLEND, 5, 6)]),
+        named(b"FxBasicAppearance", b"tri_uv", [
+            colour, bool_prop(B_TRI_UV), texture_name(b"anim.tga"),
+            prop(RAMP, B_FRAMEPOS, flat([(0.0, 0.0), (0.2, 1.0)])),
+            prop(RAMP, B_ANGLE, flat([(0.0, -1.0)]))]),
+        named(b"FxBasicAppearance", b"quad", [
+            colour, bool_prop(B_QUADS), bool_prop(B_FLIP_U), bool_prop(B_FLIP_V),
+            texture_name(b"anim.tga"),
+            prop(RAMP, B_FRAMEPOS, flat([(0.0, 0.0), (0.1, 1.0)])),
+            prop(RAMP, B_ASPECT, flat([(0.0, 2.0)])), prop(RAMP, B_ANGLE, flat([(0.0, 0.75)])),
+            prop(RAMP, APP_LOD, flat([(0.0, 0.5), (1.0, 2.0)]))]),
+        named(b"FxBasicAppearance", b"streak", [
+            colour, bool_prop(B_QUADS), bool_prop(B_STREAK),
+            prop(RAMP, B_ASPECT, flat([(0.0, 0.5)])),
+            prop(RAMP, B_ALPHA, flat([(0.0, 0.005), (0.01, 0.6)]))]),
+    ]
+    effects = [fed_effect(b"basics", [(b"e1", b"tri"), (b"e2", b"tri_uv"), (b"e3", b"quad"),
+                                      (b"e4", b"streak")])]
+    ops = [ale_op(nodes, effects), "tex %08x 4" % name_crc(b"anim.tga"), "seed 777 1",
+           "effect 0 " + hx(b"basics"), "lod 0 " + f(0.5),
+           "xform 0 0 " + xf(ROT_A, (0.5, -1.0, 2.0)),
+           cam(ROT_B, (0.25, 0.5, -12.0), ROT_A, (1.0, 2.0, 30.0))]
+    ops += steps(0, 2) + draw_frame() + ["spheres 0", "bounds 0"] + steps(0, 3, f(0.1)) + \
+        draw_frame() + ["bounds 0", "dump 0", "release 0"]
+    return ops
+
+
+def draw_rect():
+    """Rect quads: plain, centred and stretched, faded edge-on, flipped with
+    frame lookups."""
+    nodes = [
+        feeder(b"e1", 3), feeder(b"e2", 3, pressure=4.0), feeder(b"e3", 4, pressure=1.0),
+        feeder(b"e4", 3, pressure=2.5),
+        named(b"FxRectAppearance", b"plain", [pair_prop(BLEND, 2, 1),
+                                              prop(RAMP, R_LENGTH, flat([(0.0, 2.0)])),
+                                              prop(RAMP, R_WIDTH, flat([(0.0, 0.5)]))]),
+        named(b"FxRectAppearance", b"stretch", [bool_prop(R_CENTRED), bool_prop(B_STREAK),
+                                                prop(RAMP, R_PRIMARY,
+                                                     flat([(0.0, 0.5), (1.0, 2.0)]))]),
+        named(b"FxRectAppearance", b"fade", [bool_prop(R_FADE),
+                                             prop(RAMP, R_WIDTH, flat([(0.0, 3.0)])),
+                                             prop(RAMP, B_ALPHA, flat([(0.0, 0.7)]))]),
+        named(b"FxRectAppearance", b"flip", [bool_prop(B_FLIP_U), bool_prop(B_FLIP_V),
+                                             bool_prop(R_CENTRED), texture_name(b"play.tga"),
+                                             prop(RAMP, R_FRAME, flat([(0.0, 0.0), (0.1, 1.0)]))]),
+    ]
+    effects = [fed_effect(b"rects", [(b"e1", b"plain"), (b"e2", b"stretch"), (b"e3", b"fade"),
+                                     (b"e4", b"flip")])]
+    ops = [ale_op(nodes, effects), "tex %08x 3" % name_crc(b"play.tga"), "seed 4242 9",
+           "effect 0 " + hx(b"rects"), "xform 0 0 " + xf(ROT_B, (2.0, 0.0, -1.0)),
+           cam(ROT_A, (0.0, 0.0, -10.0), ROT_B, (0.5, 1.0, 1.5))]
+    ops += steps(0, 2) + draw_frame() + ["spheres 0", "bounds 0"] + steps(0, 2) + \
+        draw_frame() + ["release 0"]
+    return ops
+
+
+def draw_perp():
+    """Perp squares carrying their axis over frames, edge-on fade, a still
+    particle, frame lookups with the flips."""
+    nodes = [
+        feeder(b"e1", 3), feeder(b"e2", 3, pressure=0.0), feeder(b"e3", 3, pressure=3.0),
+        named(b"FxPerpAppearance", b"plain", [pair_prop(BLEND, 5, 2),
+                                              prop(RAMP, B_PRIMARY, flat([(0.0, 1.5)]))]),
+        named(b"FxPerpAppearance", b"still", [bool_prop(B_FLIP_U), texture_name(b"anim.tga"),
+                                              prop(RAMP, B_FRAMEPOS,
+                                                   flat([(0.0, 0.0), (1.0, 1.0)]))]),
+        named(b"FxPerpAppearance", b"fade", [bool_prop(R_FADE), bool_prop(B_FLIP_V)]),
+    ]
+    effects = [fed_effect(b"perps", [(b"e1", b"plain"), (b"e2", b"still"), (b"e3", b"fade")])]
+    ops = [ale_op(nodes, effects), "tex %08x 4" % name_crc(b"anim.tga"), "seed 31 4",
+           "effect 0 " + hx(b"perps"), "xform 0 0 " + xf(ROT_A, (0.0, 1.0, 0.0)),
+           cam(ID3, (0.0, 0.0, -8.0), ROT_B, (3.0, -2.0, 4.0))]
+    ops += steps(0, 1) + draw_frame() + ["dump 0"] + steps(0, 2) + draw_frame() + \
+        ["dump 0", "spheres 0", "bounds 0", "release 0"]
+    return ops
+
+
+def draw_oriented():
+    """Oriented quads on the local transform's axes, faded edge-on."""
+    rotate = channels([0.0] * 9)
+    rotate[3] = anim_keys([(0.0, 0.0, 0.0, 0.0), (1.0, 90.0, 0.0, 0.0)])
+    rotate[5] = anim(30.0)
+    rotate[0] = anim(0.25)
+    rotate[6] = anim(1.0)
+    rotate[7] = anim(1.0)
+    rotate[8] = anim(1.0)
+    nodes = [
+        feeder(b"e1", 3), feeder(b"e2", 4, pressure=3.0), feeder(b"e3", 3),
+        named(b"FxOrientedAppearance", b"plain", [prop(RAMP, O_HEIGHT, flat([(0.0, 2.0)]))]),
+        named(b"FxOrientedAppearance", b"turn", [prop(0x105, O_XFORM, transform(0, 0, 0, rotate)),
+                                                 bool_prop(B_FLIP_U), texture_name(b"anim.tga"),
+                                                 prop(RAMP, R_FRAME, flat([(0.0, 0.0), (1.0, 1.0)]))]),
+        named(b"FxOrientedAppearance", b"fade", [prop(0x105, O_XFORM, transform(0, 0, 0, rotate)),
+                                                 bool_prop(R_FADE),
+                                                 prop(RAMP, O_WIDTH, flat([(0.0, 0.5)]))]),
+    ]
+    effects = [fed_effect(b"oriented", [(b"e1", b"plain"), (b"e2", b"turn"), (b"e3", b"fade")])]
+    ops = [ale_op(nodes, effects), "tex %08x 4" % name_crc(b"anim.tga"), "seed 9001 2",
+           "effect 0 " + hx(b"oriented"), "outer 0 " + f(0.25),
+           cam(ROT_B, (0.0, 0.0, -6.0), ROT_A, (-2.0, 1.0, 5.0))]
+    ops += steps(0, 2) + draw_frame() + ["spheres 0"] + steps(0, 2) + draw_frame() + \
+        ["bounds 0", "release 0"]
+    return ops
+
+
+def draw_dust():
+    """Dust streaks between frames with the camera moving: the speed fade, the
+    jerk, spawns that record the draw's camera transform."""
+    nodes = [
+        named(b"FxConeEmitter", b"dust_emit", [
+            prop(ANIM, FREQ, anim(40.0)), prop(ANIM, LIFESPAN, anim(3.0)),
+            prop(ANIM, PRESSURE, anim(4.0)), prop(ANIM, CONE_MAX_S, anim(60.0)),
+            prop(2, INITIAL, u32(3))]),
+        named(b"FLDustAppearance", b"dust", [prop(RAMP, B_PRIMARY, flat([(0.0, 0.4)])),
+                                             bool_prop(B_FLIP_U), pair_prop(BLEND, 5, 2)]),
+    ]
+    effects = [fed_effect(b"dusty", [(b"dust_emit", b"dust")])]
+    ops = [ale_op(nodes, effects), "seed 123 0", "effect 0 " + hx(b"dusty"),
+           cam(ID3, (0.0, 0.0, -10.0), ID3, (0.0, 0.0, 10.0))]
+    ops += steps(0, 1) + draw_frame() + ["dview 0"]
+    ops += [cam(ID3, (0.5, 0.0, -10.0), ID3, (-0.5, 0.0, 10.0))] + steps(0, 1) + draw_frame() + \
+        ["dview 0", "dump 0"]
+    ops += [cam(ID3, (4.0, 1.0, -10.0), ID3, (-4.0, -1.0, 10.0))] + steps(0, 1) + draw_frame() + \
+        ["dview 0"]
+    ops += [cam(ID3, (60.0, 1.0, -10.0), ID3, (-60.0, -1.0, 10.0))] + steps(0, 1) + \
+        draw_frame() + ["dview 0", "dump 0", "spheres 0", "release 0"]
+    return ops
+
+
+def draw_beam():
+    """Beam ribbons: the fan joins, quad joins, a cap ring, no extrapolation,
+    wireframe, and a tip at a beam field."""
+    def beam(name, props):
+        return named(b"FLBeamAppearance", name, [prop(RAMP, BEAM_WIDTH, flat([(0.0, 0.5),
+                                                                                (1.0, 1.0)]))] + props)
+    nodes = [
+        feeder(b"e1", 0, freq=20.0), feeder(b"e2", 0, freq=25.0), feeder(b"e3", 0, freq=30.0),
+        feeder(b"e4", 0, freq=20.0), feeder(b"e5", 0, freq=20.0), feeder(b"e6", 0, freq=20.0),
+        beam(b"fan", [texture_name(b"anim.tga"), pair_prop(BLEND, 5, 6)]),
+        beam(b"quads", [bool_prop(BEAM_FAN, False)]),
+        beam(b"cap", [bool_prop(BEAM_CAP), texture_name(b"anim.tga")]),
+        beam(b"still", [bool_prop(BEAM_NO_EXTRAPOLATE), bool_prop(BEAM_FAN, False)]),
+        beam(b"wire", [bool_prop(BEAM_WIRE), bool_prop(BEAM_CAP)]),
+        beam(b"tip", []),
+        named(b"FLBeamField", b"tipfield", [prop(0x105, XFORM, transform(0, 0, 0, channels(
+            [0.0, 3.0, 0.0, 0.0, 0.0, 0.0, 1, 1, 1])))]),
+    ]
+    refs, pairs = [], []
+    for i, (e, a) in enumerate([(b"e1", b"fan"), (b"e2", b"quads"), (b"e3", b"cap"),
+                                (b"e4", b"still"), (b"e5", b"wire"), (b"e6", b"tip")]):
+        refs += [ref(a, ROOT, 2 * i + 1), ref(e, ROOT, 2 * i + 2)]
+        pairs.append((2 * i + 2, 2 * i + 1))
+    refs.append(ref(b"tipfield", ROOT, 13))
+    pairs.append((11, 13))
+    effects = [effect(b"beams", refs, pairs)]
+    ops = [ale_op(nodes, effects), "tex %08x 4" % name_crc(b"anim.tga"), "seed 5150 3",
+           "effect 0 " + hx(b"beams"), cam(ROT_A, (0.0, 0.0, -9.0), ROT_B, (2.0, 3.0, 4.0))]
+    for frame in range(5):
+        ops.append("xform 0 0 " + xf(ID3, (0.4 * frame, 0.1 * frame, 0.0)))
+        ops += steps(0, 1)
+    ops += draw_frame() + ["spheres 0", "bounds 0"] + steps(0, 2) + draw_frame() + \
+        ["dump 0", "release 0"]
+    return ops
+
+
+def draw_batch():
+    """The batcher: basic, rect, perp and beam lists filled at the end, two
+    effects in one list, an effect drawn twice, then the same frame unbatched."""
+    nodes = [
+        feeder(b"e1", 3), feeder(b"e2", 3), feeder(b"e3", 3), feeder(b"e4", 0, freq=30.0),
+        feeder(b"e5", 2), feeder(b"e6", 2),
+        named(b"FxBasicAppearance", b"basic", [bool_prop(B_QUADS)]),
+        named(b"FxRectAppearance", b"rect", []),
+        named(b"FxPerpAppearance", b"perp", []),
+        named(b"FLBeamAppearance", b"beam", []),
+        named(b"FxOrientedAppearance", b"oriented", []),
+        named(b"FLDustAppearance", b"dust", []),
+    ]
+    effects = [fed_effect(b"mix", [(b"e1", b"basic"), (b"e2", b"rect"), (b"e3", b"perp"),
+                                   (b"e4", b"beam"), (b"e5", b"oriented"), (b"e6", b"dust")]),
+               fed_effect(b"solo", [(b"e1", b"basic")])]
+    ops = [ale_op(nodes, effects), "seed 2 2", "effect 0 " + hx(b"mix"), "effect 1 " + hx(b"solo"),
+           "xform 1 0 " + xf(ID3, (5.0, 0.0, 0.0)),
+           cam(ROT_A, (0.0, 0.0, -10.0), ROT_B, (1.0, 1.0, 1.0)), "batch 1"]
+    ops += steps(0, 3) + steps(1, 3)
+    ops += ["begin", "draw 0", "draw 1", "end", "counters"]
+    ops += ["begin", "draw 1", "draw 0", "draw 1", "end", "counters"]
+    ops += ["batch 0"] + draw_frame() + ["release 0", "release 1"]
+    return ops
+
+
+def draw_errors():
+    """Draws outside a begin, a second begin, a lost vertex buffer, a context
+    past the limits, bounds of an effect without particles."""
+    nodes = [feeder(b"e1", 3), named(b"FxBasicAppearance", b"basic", [bool_prop(B_QUADS)]),
+             named(b"FxMeshAppearance", b"mesh", []), named(b"FxParticleAppearance", b"kids", []),
+             named(b"FLDustAppearance", b"dust", [])]
+    effects = [fed_effect(b"err", [(b"e1", b"basic")]),
+               effect(b"empty", [ref(b"mesh", ROOT, 1), ref(b"kids", ROOT, 2), ref(b"dust", ROOT, 3),
+                                 ref(b"basic", ROOT, 4)], [])]
+    ops = [ale_op(nodes, effects), "effect 0 " + hx(b"err"), "effect 1 " + hx(b"empty"),
+           "xform 1 0 " + xf(ROT_A, (1.0, 2.0, 3.0)),
+           cam(ID3, (0.0, 0.0, -5.0), ID3, (0.0, 0.0, 5.0))] + steps(0, 1)
+    ops += ["draw 0", "end", "begin", "begin", "draw 0", "end", "vbdrop", "begin", "draw 0", "end",
+            "limits 5000 8 24000", "begin", "draw 0", "end", "limits 5000 5000 6", "begin",
+            "draw 0", "end", "batch 1", "begin", "draw 0", "end", "counters",
+            "bounds 1", "spheres 1", "step 1 " + DT, "bounds 1", "release 0", "release 1"]
+    return ops
+
+
+def draw_list():
+    return [" ; ".join(case()) for case in (draw_basic, draw_rect, draw_perp, draw_oriented,
+                                            draw_dust, draw_beam, draw_batch, draw_errors)]
+
+
 def write(name, text, check):
     path = os.path.join(HERE, name)
     if check:
@@ -477,6 +765,7 @@ def main():
     check = "--check" in sys.argv[1:]
     write("particle_ramp.list", listing("particle ramp", ramp_list()), check)
     write("particle_sim.list", listing("particle sim", sim_list()), check)
+    write("particle_draw.list", listing("particle draw", draw_list()), check)
 
 
 if __name__ == "__main__":

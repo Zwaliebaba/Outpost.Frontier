@@ -5,7 +5,10 @@
 //! texture library, the global records), the material library and the
 //! batcher, the `VMesh` registry, the `VMeshWire` component and the
 //! render manager's [`MeshDirectory`]; [`StackAppearance`] adds
-//! [`AppearanceServices`] with the render manager itself.
+//! [`AppearanceServices`] with the render manager itself. It also answers
+//! the particle draws' [`ParticleServices`] and [`ParticleDraw`] (P4.8),
+//! the texture library through [`Shading`] and the module's vertex buffer
+//! and the dynamic index buffer on the device model.
 //!
 //! A draw goes from [`RenderManager::render_instance`] through the mesh
 //! kinds to the materials (`Bind`, `Submit`, `Teardown` on the material
@@ -44,6 +47,8 @@ use crate::render::mesh::{
     Archetype, FIELD20_ENGINE, Instance, MeshDirectory, MeshFace, MeshIid, MeshServices,
     RenderManager, VMeshWire,
 };
+use crate::render::particles::services::TextureRecord;
+use crate::render::particles::{ParticleDraw, ParticleServices};
 use crate::render::texture::FrameOut;
 use crate::render::texture::library::RecordId;
 
@@ -117,6 +122,10 @@ pub struct RenderStack<B: Backend + 'static> {
     face: Option<(Instance, MeshFace)>,
     /// The start of each index-buffer lock, by buffer number.
     ib_locks: Vec<(u32, u32)>,
+    /// The particle draw's vertex lock: the buffer and the byte offset.
+    particle_vb_lock: Option<(u32, u32)>,
+    /// The particle draw's index lock on the dynamic buffer: its start.
+    particle_ib_lock: Option<u32>,
 }
 
 impl<B: Backend + 'static> std::fmt::Debug for RenderStack<B> {
@@ -149,6 +158,8 @@ impl<B: Backend + 'static> RenderStack<B> {
             dumps: Vec::new(),
             face: None,
             ib_locks: Vec::new(),
+            particle_vb_lock: None,
+            particle_ib_lock: None,
         }
     }
 
@@ -1142,5 +1153,155 @@ impl<B: Backend + 'static> AppearanceServices for StackAppearance<'_, B> {
             flags,
             text: text.to_owned(),
         });
+    }
+}
+
+impl<B: Backend + 'static> ParticleServices for RenderStack<B> {
+    fn find_texture(&mut self, name: &[u8], crc: u32) -> Option<TextureRecord> {
+        MaterialServices::find_texture(&mut self.shading, name, crc)
+            .and_then(|record| u32::try_from(record).ok())
+    }
+
+    fn create_playback(&mut self, record: TextureRecord) -> i32 {
+        MaterialServices::create_playback(&mut self.shading, record as RecordId).unwrap_or(-1)
+    }
+
+    fn frame_count(&mut self, record: TextureRecord) -> Option<i32> {
+        self.shading.texture_frame_count(record as RecordId)
+    }
+
+    fn release_texture_record(&mut self, record: TextureRecord) {
+        MaterialServices::release_texture_record(&mut self.shading, record as RecordId);
+    }
+
+    fn set_wrap_mode(&mut self, id: i32, mode: i32) {
+        self.shading.textures.set_wrap(id, mode);
+    }
+
+    fn texture_frame(&mut self, id: i32, frame: i32) -> Option<FrameOut> {
+        MaterialServices::texture_frame(&mut self.shading, id, frame)
+    }
+
+    fn advance_time(&mut self, id: i32, seconds: f32) {
+        self.shading.textures.advance(id, seconds);
+    }
+
+    fn dec_ref_texture(&mut self, id: i32) {
+        MaterialServices::dec_ref_texture(&mut self.shading, id);
+    }
+}
+
+/// The particle draws on the device model: the render states and stages
+/// through [`Shading`], the module's vertex buffer by its renderer number,
+/// the dynamic index buffer as the scratch buffer.
+impl<B: Backend + 'static> ParticleDraw for RenderStack<B> {
+    fn render_state(&mut self, state: u32) -> u32 {
+        MaterialServices::render_state(&mut self.shading, state)
+    }
+
+    fn set_render_state(&mut self, state: u32, value: u32) {
+        MaterialServices::set_render_state(&mut self.shading, state, value);
+    }
+
+    fn set_stage_state(&mut self, stage: u32, state: u32, value: u32) {
+        MaterialServices::set_stage_state(&mut self.shading, stage, state, value);
+    }
+
+    fn set_stage_texture(&mut self, stage: u32, handle: u32) {
+        MaterialServices::set_stage_texture(&mut self.shading, stage, handle);
+    }
+
+    fn set_modelview(&mut self, matrix: &[f32; 12]) {
+        BatchDevice::set_modelview(&mut self.shading, matrix);
+    }
+
+    fn select_vb(&mut self, vertex_buffer: u32) -> i32 {
+        if vertex_buffer == 0 {
+            return E_FAIL;
+        }
+        BatchDevice::select_vb(&mut self.shading, vertex_buffer)
+    }
+
+    fn create_vb(&mut self, fvf: u32, count: u32, flags: u32) -> (i32, u32) {
+        let handle = self
+            .shading
+            .device
+            .buffers
+            .create_vb(Fvf(fvf), count, flags);
+        (GR_OK, self.shading.vb_number(handle))
+    }
+
+    fn destroy_vb(&mut self, vertex_buffer: u32) {
+        if let Some(h) = self.shading.vb(vertex_buffer) {
+            let _ = self.shading.device.buffers.destroy_vb(h);
+        }
+    }
+
+    fn lock_vb(&mut self, vertex_buffer: u32, count: u32) -> Result<u32, i32> {
+        let h = self.shading.vb(vertex_buffer).ok_or(E_FAIL)?;
+        let lock = self
+            .shading
+            .device
+            .buffers
+            .lock_vb(h, 0, count)
+            .map_err(|e| e.code().cast_signed())?;
+        self.particle_vb_lock = Some((vertex_buffer, lock.offset));
+        Ok(lock.start)
+    }
+
+    fn unlock_vb(&mut self, vertex_buffer: u32, written: &[u8]) {
+        let Some(h) = self.shading.vb(vertex_buffer) else {
+            return;
+        };
+        if let Some((locked, offset)) = self.particle_vb_lock.take()
+            && locked == vertex_buffer
+        {
+            let _ = self.shading.device.buffers.write_vb(h, offset, written);
+        }
+        let _ = self.shading.device.buffers.unlock_vb(h);
+    }
+
+    fn lock_ib(&mut self, count: u32) -> Result<u32, i32> {
+        let lock = self
+            .shading
+            .device
+            .buffers
+            .lock_ib(IndexSource::Scratch, 0, count)
+            .map_err(|e| e.code().cast_signed())?;
+        self.particle_ib_lock = Some(lock.start);
+        Ok(lock.start)
+    }
+
+    fn unlock_ib(&mut self, written: &[u16]) {
+        if let Some(start) = self.particle_ib_lock.take() {
+            let _ = self
+                .shading
+                .device
+                .buffers
+                .write_ib(IndexSource::Scratch, start, written);
+        }
+        let _ = self.shading.device.buffers.unlock_ib(IndexSource::Scratch);
+    }
+
+    fn select_ib(&mut self, base_vertex: u32) -> i32 {
+        BatchDevice::select_ib(self, SCRATCH_IB, base_vertex)
+    }
+
+    fn draw_indexed(
+        &mut self,
+        prim: u32,
+        min_index: u32,
+        vertex_count: u32,
+        start_index: u32,
+        index_count: u32,
+    ) -> i32 {
+        MaterialServices::draw_indexed(
+            &mut self.shading,
+            prim,
+            min_index,
+            vertex_count,
+            start_index,
+            index_count,
+        )
     }
 }

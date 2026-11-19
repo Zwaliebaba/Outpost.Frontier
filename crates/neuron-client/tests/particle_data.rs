@@ -7,13 +7,22 @@
 //! synthetic suites `particle_ramp` and `particle_sim` do that); the test
 //! checks that no effect panics, that every record finds its node, that
 //! particles are made and that the pools are whole again at the end.
-//! Nothing it computes is committed.
+//! A second test draws every effect through `RenderStack` to the device
+//! model's recording backend. Nothing either computes is committed.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use neuron_client::render::appearance::Camera;
+use neuron_client::render::ff::defaults::Defaults;
+use neuron_client::render::ff::device::{Device, RecordingBackend};
+use neuron_client::render::material::{MaterialBatcher, Shading, ShadingFactory};
+use neuron_client::render::mesh::{Archetype, Instance, VMeshRegistry};
 use neuron_client::render::particles::{Effect, NoTextures, ParticleFx, PoolKind};
+use neuron_client::render::stack::{RenderStack, StackEngine};
+use neuron_client::render::texture::{FormatClasses, LibraryConfig, TextureLibrary};
 use neuron_core::fx_data::{self as fx, AleFile, NodeClass};
+use neuron_core::vfs::{FileSystem, FsDesc, Host, UtfFileSystem};
 
 fn ale_files(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(entries) = fs::read_dir(dir) else {
@@ -219,4 +228,227 @@ fn every_shipped_effect_runs() {
     );
     assert_eq!(missing, 0, "every record finds its node");
     assert!(emitting > created / 2, "most effects make particles");
+}
+
+/// The engine the stack needs; particle draws ask it nothing.
+struct NoEngine;
+
+impl StackEngine for NoEngine {
+    fn instance_transform(&mut self, _instance: Instance) -> [f32; 12] {
+        IDENTITY
+    }
+    fn instance_archetype(&mut self, _instance: Instance) -> Archetype {
+        -1
+    }
+    fn instance_extent(&mut self, _instance: Instance) -> Option<(f32, [f32; 3])> {
+        None
+    }
+    fn set_instance_extent(&mut self, _instance: Instance, _radius: f32, _centre: [f32; 3]) {}
+}
+
+/// A camera behind the effects, looking down -z, backing away a little each
+/// frame (the dust's speed fade reads the step).
+struct Viewer {
+    z: f32,
+}
+
+impl Camera for Viewer {
+    fn position(&mut self) -> [f32; 3] {
+        [0.0, 0.0, self.z]
+    }
+    fn orientation(&mut self) -> [f32; 9] {
+        [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+    }
+    fn viewport(&mut self) -> [i32; 4] {
+        [0, 0, 639, 479]
+    }
+    fn half_fov_x_deg(&mut self) -> f32 {
+        45.0
+    }
+    fn fov_y_deg(&mut self) -> f32 {
+        60.0
+    }
+    fn z_near(&mut self) -> f32 {
+        1.0
+    }
+    fn z_far(&mut self) -> f32 {
+        10_000.0
+    }
+    fn aspect(&mut self) -> f32 {
+        1.333
+    }
+    fn x_scale_over_near(&mut self) -> f64 {
+        1.0
+    }
+    fn y_scale_over_near(&mut self) -> f64 {
+        1.0
+    }
+    fn project(&mut self, _world: [f32; 3], _out: &mut [f32; 3]) -> i32 {
+        -1
+    }
+    fn unproject(&mut self, _out: &mut [f32; 3], _x: f32, _y: f32) {}
+    fn classify_sphere(&mut self, _centre: [f32; 3], _radius: f32) -> i32 {
+        4
+    }
+    fn view_transform(&mut self) -> [f32; 12] {
+        [
+            1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, -self.z,
+        ]
+    }
+}
+
+fn txm_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            txm_files(&path, out);
+        } else if path
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("txm"))
+        {
+            out.push(path);
+        }
+    }
+}
+
+/// The texture libraries of the archives (a `.txm` file, or an `.ale` that
+/// holds one), loaded into the stack's texture library.
+fn load_textures(
+    stack: &mut RenderStack<RecordingBackend>,
+    root: &Path,
+    files: &[PathBuf],
+) -> usize {
+    let host = Host::new(root);
+    let mut groups = 0;
+    for path in files {
+        let relative = path.strip_prefix(root).unwrap_or(path);
+        let text = relative.to_string_lossy().replace('/', "\\");
+        let Ok(mut fs) = UtfFileSystem::open(
+            &host,
+            &FsDesc::read(text.as_bytes()).with_implementation(b"UTF"),
+        ) else {
+            continue;
+        };
+        if fs.open_node(b"Texture library").is_err() {
+            continue;
+        }
+        let _ = fs.open_node(b"..");
+        let (textures, mut pipeline) = stack.shading.texture_parts();
+        groups += usize::from(
+            textures
+                .load_group(&mut fs, &mut pipeline, true)
+                .group
+                .is_some(),
+        );
+    }
+    groups
+}
+
+/// Every shipped effect drawn through [`RenderStack`] to the device model's
+/// recording backend: each is stepped for 20 frames under a moving camera
+/// and drawn on every fifth (alternately through the batch lists), its
+/// bounding sphere taken, then released. The spheres must be finite, every
+/// begin and end succeed and the pools be whole at the end.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn every_shipped_effect_draws_through_the_stack() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../outdir/data");
+    let mut files = Vec::new();
+    ale_files(&root, &mut files);
+    if files.is_empty() {
+        println!("{} has no .ale files: nothing to draw", root.display());
+        return;
+    }
+    files.sort();
+    let mut txm = Vec::new();
+    txm_files(&root.join("FX"), &mut txm);
+    txm.sort();
+    let device = Device::new(Defaults::builtin(), 640, 480, RecordingBackend::default());
+    let shading = Shading::new(
+        device,
+        TextureLibrary::new(LibraryConfig::default()),
+        FormatClasses::builtin(),
+    );
+    let batcher: MaterialBatcher<RenderStack<RecordingBackend>> =
+        MaterialBatcher::new(Box::new(ShadingFactory::new()), None);
+    let mut stack = RenderStack::new(
+        shading,
+        batcher,
+        VMeshRegistry::shared(),
+        Box::new(NoEngine),
+    );
+    let texture_groups =
+        load_textures(&mut stack, &root, &txm) + load_textures(&mut stack, &root, &files);
+    let mut fx = ParticleFx::new();
+    let mut hashes = Vec::new();
+    for path in &files {
+        let ale = AleFile::parse(fs::read(path).expect("readable")).expect("a UTF archive");
+        hashes.extend(ale.effects.effects().iter().map(|e| fx::name_hash(&e.name)));
+        fx.load(&ale);
+    }
+    hashes.sort_unstable();
+    hashes.dedup();
+    let mut camera = Viewer { z: 30.0 };
+    let (mut drawn, mut packets, mut with_sphere, mut frames, mut textured) = (0, 0, 0, 0, 0);
+    let mut vertices = 0_usize;
+    for &hash in &hashes {
+        let parent = fx.create_node(NodeClass::Node);
+        let Ok(mut effect) = fx.create_effect(parent, hash, &mut stack) else {
+            fx.release(parent, &mut stack);
+            continue;
+        };
+        let before = stack.shading.device.backend.draws.len();
+        let mut sphere_seen = false;
+        for frame in 1..=20 {
+            camera.z += 0.25;
+            effect.set_transform(&mut fx, 0, &IDENTITY);
+            effect.compose(&mut fx);
+            effect.update(&mut fx, DT, &mut stack);
+            if frame % 5 != 0 {
+                continue;
+            }
+            frames += 1;
+            fx.set_use_material_batcher(frame % 10 == 0);
+            assert_eq!(fx.begin_draw(&mut stack), 0, "begin");
+            effect.draw(&mut fx, &mut camera, &mut stack);
+            assert_eq!(fx.end_draw(&mut camera, &mut stack), 0, "end");
+            let mut sphere = [0.0; 4];
+            if effect.bounds(&fx, &mut sphere) {
+                assert!(
+                    sphere.iter().all(|v| v.is_finite()),
+                    "a finite sphere: {sphere:?}"
+                );
+                sphere_seen = true;
+            }
+        }
+        textured += usize::from(effect.records().iter().any(|r| {
+            fx.node(r.node)
+                .and_then(|n| n.appearance())
+                .is_some_and(|a| a.texture.handle != -1)
+        }));
+        let draws = &stack.shading.device.backend.draws[before..];
+        vertices += draws.iter().map(|p| p.vertex_count as usize).sum::<usize>();
+        packets += draws.len();
+        drawn += usize::from(!draws.is_empty());
+        with_sphere += usize::from(sphere_seen);
+        effect.dispatch(&mut fx, 7, &mut stack);
+        effect.release(&mut fx, &mut stack);
+        fx.release(parent, &mut stack);
+        stack.shading.device.backend.draws.clear();
+    }
+    for kind in PoolKind::ALL {
+        let pool = fx.pools.get(kind);
+        assert_eq!(pool.free_count(), pool.capacity(), "{kind:?} pool leaked");
+    }
+    println!(
+        "{} effects drawn on {frames} frames: {drawn} reached the device ({packets} draw packets, \
+         {vertices} vertices), {with_sphere} with a bounding sphere, {textured} with a texture \
+         from the {texture_groups} texture libraries of the effects",
+        hashes.len()
+    );
+    assert!(drawn > hashes.len() / 2, "most effects draw");
+    assert!(textured > 0, "the effects find their textures");
 }

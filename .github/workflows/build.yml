@@ -208,7 +208,7 @@ jobs:
         # skinning, draw, instance slots, aim solving and EyeMaterial against recording
         # services (oracle_deformable.cpp, compiled into oracle_mesh_data_dfm.cpp;
         # deformable.jsonl); P4.8: particlefx's
-        # ramp evaluation and simulation, its sources compiled in
+        # ramp evaluation, simulation and draws, its sources compiled in
         # (oracle_particles.cpp; particle_*.jsonl); over
         # crates/neuron-client/tests/fixtures/oracle.
         shell: pwsh
