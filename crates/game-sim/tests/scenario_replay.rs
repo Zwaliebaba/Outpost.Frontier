@@ -155,6 +155,9 @@ struct Scenario {
     /// run it yet.
     rust_skip: Option<String>,
     seed: u32,
+    /// The seed of the seeding point when it is not `seed`: Gate G2's seed
+    /// ensemble (`Oracle.exe sim ... --seed S`; record 0003 point 9).
+    reseed: Option<u32>,
     objects: Vec<ObjDesc>,
     commands: Vec<Cmd>,
 }
@@ -208,6 +211,7 @@ fn parse(path: &Path) -> Option<Scenario> {
                 .map(|r| r.trim().to_owned())
         }),
         seed: 0x4f52_4143,
+        reseed: None,
         objects: Vec::new(),
         commands: Vec::new(),
     };
@@ -224,6 +228,7 @@ fn parse(path: &Path) -> Option<Scenario> {
             "stepping" => s.sp = t.get(1)?.eq_ignore_ascii_case("sp"),
             "collisions" => s.sp_collisions = t.get(1)?.eq_ignore_ascii_case("sp"),
             "seed" => s.seed = t.get(1)?.parse().ok()?,
+            "reseed" => s.reseed = Some(t.get(1)?.parse().ok()?),
             "ship" | "solar" => {
                 let ship = t[0].eq_ignore_ascii_case("ship");
                 let mut o = ObjDesc {
@@ -458,6 +463,12 @@ struct Run {
     /// Each unit's core at the start and the end of its PSI, for the first
     /// PSIs (`unit_cores.jsonl`).
     unit_cores: Vec<Vec<neuron_core::physics::world::UnitCore>>,
+    /// The generator after each tick (0: after spawning), to count the
+    /// draws against the oracle's `rand.jsonl`.
+    rng: Vec<CrtRand>,
+    /// The bullet rays that started inside an object, which they then do
+    /// not hit (as in IVP): the tick and the object's name.
+    starts_inside: Vec<(u32, String)>,
 }
 
 /// A core's state as the bit diagnostic prints it.
@@ -711,7 +722,8 @@ fn run(s: &Scenario, ai: &AiInputs) -> Option<Run> {
     }
     // The seeding point (owner, 2026-11-18): the oracle's harness calls
     // `srand(seed)` again once the system and its population have loaded.
-    world.rng().seed(s.seed);
+    // The seed ensemble replaces the seed here only (owner, 2026-11-19).
+    world.rng().seed(s.reseed.unwrap_or(s.seed));
     for o in &s.objects {
         let h = if o.ship {
             let mut spawn = ShipSpawn::new(
@@ -809,6 +821,7 @@ fn run(s: &Scenario, ai: &AiInputs) -> Option<Run> {
     };
     record(&world, &mut out.states, &handles);
     record_cores(&world, &mut out.cores, &handles);
+    out.rng.push(world.rng().clone());
     out.probes.insert(0, turret_probes(&world, &handles));
     let mut next = 0;
     for tick in 1..=s.ticks {
@@ -886,6 +899,13 @@ fn run(s: &Scenario, ai: &AiInputs) -> Option<Run> {
             }
         }
         world.step(system, s.frame as f32);
+        out.rng.push(world.rng().clone());
+        for h in world.take_beam_starts_inside(system) {
+            let name = world
+                .get(h)
+                .map_or_else(|| "?".to_owned(), |o| name_of(o.simple.id));
+            out.starts_inside.push((tick, name));
+        }
         if out.unported.is_none() {
             out.unported = handles.values().flatten().find_map(|&h| {
                 let m = world.behavior_manager(h)?;
@@ -3300,6 +3320,100 @@ fn report_load_draws(summary: &mut String, s: &Scenario, oracle: Option<&Path>) 
     }
 }
 
+/// The bullet rays that started inside an object (no hit, as in IVP's ray
+/// solver), and the frames' `rand()` draws against the oracle's
+/// `rand.jsonl`: the first tick at which the counts differ, and the
+/// oracle's draws up to the first contact or impact by module and caller,
+/// so that a draw the Rust world does not make (Content's comm system, a
+/// heartbeat) shows.
+fn report_rand(summary: &mut String, dir: &Path, s: &Scenario, ours: &Run, first: Option<u32>) {
+    if !ours.starts_inside.is_empty() {
+        let shown: Vec<String> = ours
+            .starts_inside
+            .iter()
+            .take(8)
+            .map(|(t, n)| format!("tick {t} {n}"))
+            .collect();
+        let _ = writeln!(
+            summary,
+            "{}: bullet rays that started inside an object (no hit, as in IVP): {}; {}",
+            s.name,
+            ours.starts_inside.len(),
+            shown.join(", ")
+        );
+    }
+    let Some(file) = find_files(&dir.join(&s.name), "rand.jsonl")
+        .into_iter()
+        .next()
+    else {
+        return;
+    };
+    // The Rust world's count after each tick, from the seeding point.
+    let mut walker = CrtRand::with_seed(s.reseed.unwrap_or(s.seed));
+    let mut index = 0usize;
+    let mut rust = Vec::with_capacity(ours.rng.len());
+    for state in &ours.rng {
+        while walker != *state && index < LOAD_DRAWS_SEARCH {
+            walker.rand();
+            index += 1;
+        }
+        rust.push((walker == *state).then_some(index));
+    }
+    // The oracle's count after each tick: the index after its last draw.
+    let mut oracle: BTreeMap<u32, usize> = BTreeMap::new();
+    let mut before: BTreeMap<String, usize> = BTreeMap::new();
+    let cut = first.unwrap_or(u32::MAX);
+    for r in read_lines(&file) {
+        let (Some(tick), Some(i)) = (
+            r.get("tick").and_then(Json::as_u32),
+            r.get("i").and_then(Json::as_u32),
+        ) else {
+            continue;
+        };
+        oracle.insert(tick, i as usize + 1);
+        if tick < cut {
+            let key = format!(
+                "{} {}",
+                r.get("mod").and_then(Json::as_str).unwrap_or("?"),
+                r.get("at").and_then(Json::as_str).unwrap_or("?")
+            );
+            *before.entry(key).or_default() += 1;
+        }
+    }
+    let mut last = rust.first().copied().flatten().unwrap_or(0);
+    let mut differ = None;
+    for (tick, count) in rust.iter().enumerate().skip(1) {
+        let o = oracle.get(&(tick as u32)).copied().unwrap_or(last);
+        last = o;
+        if *count != Some(o) {
+            differ = Some((tick, *count, o));
+            break;
+        }
+    }
+    let _ = writeln!(
+        summary,
+        "{}: rand() draws per tick: {}",
+        s.name,
+        differ.map_or_else(
+            || "the Rust world's count equals the oracle's after every tick".to_owned(),
+            |(t, r, o)| format!(
+                "first differ after tick {t}: rust {} oracle {o}",
+                r.map_or_else(|| "?".to_owned(), |r| r.to_string())
+            )
+        )
+    );
+    let mut callers: Vec<(&String, &usize)> = before.iter().collect();
+    callers.sort_by(|a, b| b.1.cmp(a.1));
+    for (caller, n) in callers.into_iter().take(12) {
+        let _ = writeln!(
+            summary,
+            "{}: oracle draws before the first contact or impact ({}): {n} x {caller}",
+            s.name,
+            first.map_or_else(|| "none".to_owned(), |t| format!("tick {t}"))
+        );
+    }
+}
+
 fn dist(a: Vector, b: Vector) -> f64 {
     let d = [
         f64::from(a.x) - f64::from(b.x),
@@ -3442,8 +3556,10 @@ fn scenarios_against_the_oracle() {
         // seeded after the load, the first AI ship's pathfinder phases sit
         // at the same index.
         if let (Some(rust), Some(oracle_p)) = (our_run.pathfind_phases, oracle_phases(dir, &s.name))
-            && let (Some(i_rust), Some(i_oracle)) =
-                (phase_index(s.seed, rust), phase_index(s.seed, oracle_p))
+            && let (Some(i_rust), Some(i_oracle)) = (
+                phase_index(s.reseed.unwrap_or(s.seed), rust),
+                phase_index(s.reseed.unwrap_or(s.seed), oracle_p),
+            )
         {
             let _ = writeln!(
                 summary,
@@ -3455,6 +3571,13 @@ fn scenarios_against_the_oracle() {
             report_combat(&mut summary, &s.name, &our_run, &their_run);
         }
         report_hits(&mut summary, &s.name, &our_run.hits, &their_run.hits);
+        report_rand(
+            &mut summary,
+            dir,
+            &s,
+            &our_run,
+            first_event(dir, &s.name, &their_run),
+        );
         report_units(&mut summary, dir, &s.name, &our_run);
         let fight = !ai.attitudes.is_empty();
         let cutoff = if fight {

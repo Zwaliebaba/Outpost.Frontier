@@ -645,6 +645,20 @@ populators left out), `fdump.txt` every `FDUMP` message (`tick`, flags in
 hex, text) and `metrics.txt` the plain-text input of `--runs`
 (`oracle_sim.h`). None of them is a record for the tests.
 
+## `rand.jsonl`
+
+Every `rand()` draw of the frames (from the end of the load-time recorder
+to the end of the run), written by the same counting wrapper as
+`load_rand.jsonl` (`oracle_sim_rand.cpp`), one record per draw, so that a
+draw the Rust world does not make (Content's, a heartbeat's) shows with
+its caller. `scenario_replay` compares the count after each tick with the
+Rust world's and lists the oracle's draws before the first contact or
+impact by caller.
+
+| `rec` | Fields |
+| --- | --- |
+| `draw` | `tick` u, `i` u (the draw's index in the sequence of the seeding point's seed, followed on from `load_rand.jsonl`), `gap` u (draws just before it the hooks did not see), `v` i, `mod` s (the module that called `rand`), `at` s (`<module>+0x<offset> <functions> (<file:line>)` of the caller) |
+
 ## `spread.jsonl` (`--runs N`)
 
 | `rec` | Fields |

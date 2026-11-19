@@ -827,7 +827,20 @@ impl PhysicsWorld {
 
     // ---- queries ------------------------------------------------------
 
-    fn ray_hits(&self, from: Vector, to: Vector, only: Option<BodyHandle>) -> Vec<RayHit> {
+    /// The nearest hit of a ray on each body, nearest first. A ray does not
+    /// hit a ledge it starts in, as IVP's ray solver does not: the ledge
+    /// test needs a face that faces the ray with the start strictly in
+    /// front of it (`IVP_Ray_Solver_Os::check_ray_against_compact_ledge_os`,
+    /// `IVP/ivp_collision/ivp_ray_solver.cpp:438-466`), and the ball test
+    /// returns when the start is inside the ball (`:230-236`). `inside`
+    /// receives each body with a ledge that contains the start.
+    fn ray_hits_inside(
+        &self,
+        from: Vector,
+        to: Vector,
+        only: Option<BodyHandle>,
+        inside: &mut Vec<BodyHandle>,
+    ) -> Vec<RayHit> {
         let start = from.to_words();
         let d = [to.x - from.x, to.y - from.y, to.z - from.z];
         let length = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
@@ -853,6 +866,12 @@ impl PhysicsWorld {
                 if body.detached_parts.contains(&ledge.part_id) {
                     continue;
                 }
+                if ledge.shape.contains_point(&iso, &ray.origin) {
+                    if inside.last() != Some(&h) {
+                        inside.push(h);
+                    }
+                    continue;
+                }
                 let Some(hit) = ledge
                     .shape
                     .cast_ray_and_get_normal(&iso, &ray, length, true)
@@ -876,6 +895,17 @@ impl PhysicsWorld {
         }
         hits.sort_by(|a, b| a.distance.total_cmp(&b.distance));
         hits
+    }
+
+    fn ray_hits(&self, from: Vector, to: Vector, only: Option<BodyHandle>) -> Vec<RayHit> {
+        self.ray_hits_inside(from, to, only, &mut Vec::new())
+    }
+
+    /// The objects (user keys) whose ledges contained the start of a beam's
+    /// ray since the last call, so that the ray did not hit them
+    /// (diagnostic).
+    pub fn take_beam_starts_inside(&mut self) -> Vec<u64> {
+        std::mem::take(&mut self.beam_starts_inside)
     }
 
     /// `PhySys::FindRayCollisions`: the nearest hit per body, nearest
@@ -959,7 +989,13 @@ impl PhysicsWorld {
             start.z + dir[2] * length,
         );
         let group = short_name(&beam.collision_group);
-        let hits = self.ray_hits(start, end, None);
+        let mut inside = Vec::new();
+        let hits = self.ray_hits_inside(start, end, None, &mut inside);
+        for b in inside {
+            if let Some(body) = self.bodies.get(b.0) {
+                self.beam_starts_inside.push(body.user_key);
+            }
+        }
         let hit = hits.into_iter().find(|h| {
             let name = self.bodies.get(h.body.0).map(|b| b.name).unwrap_or([0; 8]);
             !(name[0] != 0 && group[0] != 0 && name == group)

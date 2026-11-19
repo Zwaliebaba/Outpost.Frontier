@@ -747,7 +747,8 @@ run the scenario yet.
 | `frame <seconds>` | frame time; default 1/30, the server thread's period |
 | `stepping sp\|mp` | default `mp` |
 | `collisions sp\|mp` | default `mp`; `sp` makes the server's collision filter take its single-player branch (below) |
-| `seed <n>` | `srand` after start-up; default `0x4f524143` |
+| `seed <n>` | `srand` after start-up (and again at the seeding point, start-up step 5); default `0x4f524143` |
+| `reseed <n>` | the seed of the `srand` at the seeding point instead of `seed` (the load-time draws keep `seed`); a seed of Gate G2's seed ensemble kept as a scenario (`dogfight_reseed`) |
 | `clock <seconds>` | the fixed clock at tick 0; default 1000 |
 | `ship <name> <archetype> <loadout\|-> <x> <y> <z> [options]` | spawn a ship; options: `heading <degrees>` (about +Y; 0 faces −Z, 90 faces −X), `orient <9 numbers>` (row-major), `vel <x y z>`, `angvel <x y z>`, `ai <state graph>` (e.g. `FIGHTER`; without it the ship has no behaviour and keeps the commands it is given), `escort` (with `ai`: the graph's escort variant, `get_state_graph(name, ESCORT)`, as Content's `ResetFormationState` gives a wingman; without it the leader variant), `pilot <nickname>` (with `ai`: the personality of a `[Pilot]` of `missions\pilots_population.ini` or `pilots_story.ini`, as Content gives an NPC ship of an `npcships.ini` entry, without a job; without it the default personality), `faction <group>` (a reputation affiliated with a group of `initialworld.ini`, e.g. `he_p_grp`; without it none), `hp <n>` (default −1, the archetype's), `psi` (record its PSIs) |
 | `solar <name> <nickname> [psi]` | a system object of the loaded system |

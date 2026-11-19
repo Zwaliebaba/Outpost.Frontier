@@ -384,6 +384,31 @@ fn beams_hit_the_nearest_body_outside_their_group() {
     assert_eq!(world.collisions().len(), 1);
 }
 
+/// IVP's ray solver needs a face that faces the ray with the start in front
+/// of it, and its ball test returns when the start is inside: a ray never
+/// hits the object it starts in, and goes on to the next one.
+#[test]
+fn rays_do_not_hit_the_body_they_start_in() {
+    let mut world = PhysicsWorld::new(1, &constants());
+    let _around = ball(&mut world, 1, 2.0, Vector::new(1.0, 0.0, 0.0));
+    let _next = ball(&mut world, 2, 1.0, Vector::new(10.0, 0.0, 0.0));
+    let hits = world.find_ray_collisions(Vector::ZERO, Vector::new(100.0, 0.0, 0.0), 8);
+    assert_eq!(hits.iter().map(|h| h.user_key).collect::<Vec<_>>(), vec![2]);
+    let event = world
+        .generate_beam_collision(&BeamQuery {
+            user_key: 7,
+            start: Vector::ZERO,
+            direction: Vector::new(1.0, 0.0, 0.0),
+            length: 50.0,
+            collision_group: Vec::new(),
+            velocity: Vector::new(600.0, 0.0, 0.0),
+        })
+        .unwrap();
+    assert_eq!(event.object_a, 2);
+    assert_eq!(world.take_beam_starts_inside(), vec![1]);
+    assert!(world.take_beam_starts_inside().is_empty());
+}
+
 #[test]
 fn attach_and_detach_rebuild_the_compound() {
     let mut world = PhysicsWorld::new(1, &constants());

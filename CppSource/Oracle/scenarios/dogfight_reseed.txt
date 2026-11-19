@@ -1,0 +1,15 @@
+# Oracle.exe sim scenario (design/reference-build.md section 10): the dogfight with another
+# seed at the seeding point. dogfight.txt's two hostile AI fighters, but the srand the harness
+# calls again after the load takes seed 1295869954, one of the 60 of Gate G2's seed ensemble
+# (crates/game-sim/tests/fixtures/g2_ensemble.txt). In the ensemble run of 2026-11-19 the Rust
+# world hit the rogue's shield at tick 189 and the oracle first at tick 199, with every object
+# equal before (also seeds 3893802793, 3175751809 and 669242669, 1 to 4 ticks early); this
+# scenario keeps that case in the single-run comparison. Multiplayer stepping.
+
+system he01
+ticks 600
+stepping mp
+reseed 1295869954
+
+ship police he_fighter li_p_he_fighter_loadout01 15000 3000 -25000 ai FIGHTER pilot pilot_police_med faction he_p_grp psi
+ship rogue pi_fighter fc_lr_pi_fighter_loadout01 15000 3000 -26500 heading 180 ai FIGHTER pilot pilot_pirate_med faction fc_lr_grp psi
