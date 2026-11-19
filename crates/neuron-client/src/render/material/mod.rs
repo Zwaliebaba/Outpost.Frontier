@@ -22,9 +22,12 @@
 //! * [`batched`]: `BatchedMaterial`, which draws with an inner material and
 //!   submits through the batcher.
 //! * [`factory`]: the factories `Shading.cpp` registers, by exact name.
-//! * [`shading`]: [`MaterialServices`] and [`BatchDevice`] on the device
-//!   model ([`crate::render::ff`]) and the texture library
-//!   ([`crate::render::texture`]).
+//! * [`surface`]: the 19 materials of `surfacematerials`
+//!   ([`SurfaceMaterial`]) and their factory ([`SurfaceFactory`]), the
+//!   fallback of [`ShadingFactory`].
+//! * [`shading`]: [`MaterialServices`], [`SurfaceServices`] and
+//!   [`BatchDevice`] on the device model ([`crate::render::ff`]) and the
+//!   texture library ([`crate::render::texture`]).
 //!
 //! No platform code: everything here builds and tests on every host.
 
@@ -39,6 +42,7 @@ pub mod library;
 pub mod regex;
 pub mod services;
 pub mod shading;
+pub mod surface;
 
 pub use animation::{AnimationData, AnimationInstance, GroupId, InstanceId, MaterialAnimations};
 pub use batched::BatchedMaterial;
@@ -54,6 +58,9 @@ pub use library::{LibraryLoad, MapEntry, MapRule, MaterialGroup, MaterialLibrary
 pub use regex::MaterialRegex;
 pub use services::{MaterialServices, VertexLock};
 pub use shading::{InstanceExtents, Shading};
+pub use surface::{
+    InstanceValue, InstanceValues, SurfaceFactory, SurfaceMaterial, SurfaceServices,
+};
 
 /// `GR_OK`.
 pub const GR_OK: i32 = 0;

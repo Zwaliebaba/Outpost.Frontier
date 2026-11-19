@@ -78,12 +78,19 @@ pub struct ShipData {
     pub formation_leader: Option<ObjHandle>,
     /// +0x1c0 the formation offset.
     pub formation_offset: Vector,
-    /// +0x1d0 the formation followers.
-    pub formation_followers: Vec<ObjHandle>,
+    /// +0x1cc the formation speed: the slowest follower's engine speed
+    /// (`recalculate_formation_speed`; 0 until a follower joins).
+    pub formation_speed: f32,
+    /// +0x1d0 the formation followers (watchers: a cleared slot is `None`,
+    /// a gone follower's handle no longer resolves; the next follower takes
+    /// the first such slot).
+    pub formation_followers: Vec<Option<ObjHandle>>,
     /// +0x1e0 the follow leader.
     pub follow_leader: Option<ObjHandle>,
     /// +0x1e8 the follow offset.
     pub follow_offset: Vector,
+    /// +0x1f0 the follow followers (watchers, as the formation's).
+    pub follow_followers: Vec<Option<ObjHandle>>,
     /// +0x204 the ships targeting this one.
     pub targeters: Vec<ObjHandle>,
     /// +0x220 the target.

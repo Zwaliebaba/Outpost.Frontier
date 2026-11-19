@@ -379,7 +379,7 @@ impl TargetList {
         if world.inspect(ship).is_none() {
             return &self.ids;
         }
-        let Some(list) = world.scan_list(ship, self.keep_cache) else {
+        let Some(list) = world.scan_list(ship, super::world::AI_SCAN_MASK, self.keep_cache) else {
             return &self.ids;
         };
         for h in list {

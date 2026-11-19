@@ -47,11 +47,13 @@ use std::any::Any;
 use neuron_core::math::{Matrix, Transform, Vector};
 
 use super::camera::Camera;
-use super::control::WinControl;
+use super::control::{ControlMesh, WinControl};
 use super::factory::Factory;
+use super::immediate::Immediate;
 use super::message::{Input, KeyMods, MouseButton};
 use super::pulse::Pulse;
 use super::quad_batch::QuadBatcher;
+use super::shape::{ShapeTextures, TexShape};
 use super::widescreen::{Anchor, Shift, Surface, cursor_ray, shift_pixels};
 use crate::text::font::FontSystem;
 use crate::text::font::string::PaintCx;
@@ -107,8 +109,109 @@ pub trait DrawHost {
     /// batches queued under the old camera go out and the new camera is
     /// handed to the pipeline (`FWidescreenHudShiftScope` with `bDraw`).
     fn camera_changed(&mut self, _camera: &Camera) {}
+    /// What rich-text windows draw with (the pipeline's viewport and
+    /// projection, textures and the big-image tile sink), when the host
+    /// can draw them.
+    fn rich_text_cx(&mut self) -> Option<crate::ui::controls::rich_text_win::RichTextCx<'_>> {
+        None
+    }
+    /// The immediate-mode layer the control frames, arrows and rules are
+    /// drawn with, when there is one.
+    fn immediate(&mut self) -> Option<&mut dyn Immediate> {
+        None
+    }
+    /// The texture library the shapes of control draws resolve their GPU
+    /// handles in (`TexShapeGetGpuHandle`).
+    fn shape_textures(&mut self) -> Option<&mut dyn ShapeTextures> {
+        None
+    }
+    /// `GetGameOption(index)` for the other options the control draws
+    /// read (6 the interface, 9 NeuroNet, 0x13 text controls, 0x14 button
+    /// controls, 0x15 static controls).
+    fn game_option(&self, _index: u32) -> i32 {
+        1
+    }
+    /// `GetGameOption(DRAW SCROLL BAR CONTROLS)` (option 0x16).
+    fn scroll_bars_enabled(&self) -> bool {
+        true
+    }
+    /// Submits a control's engine instance (`SubmitWin3DEngineInstance`
+    /// and its tinted variant) with the camera the draw runs under.
+    fn submit_mesh(&mut self, _mesh: &dyn ControlMesh, _pass: MeshPass) {}
+    /// A static control draws into a window of the screen through its own
+    /// camera (`Some`), or goes back to the Win3D camera (`None`).
+    fn window_view(&mut self, _view: Option<WindowView>) {}
+    /// `EngineLightClearRegisteredList`: the engine's lights that the
+    /// scene enabled switched off (a static control's draw).
+    fn clear_engine_lights(&mut self) {}
+    /// `NnMontageDrawTileAt(tile, where, rgba, size, 0, 0)`: whether the
+    /// montage icon was drawn.
+    fn draw_montage_tile(
+        &mut self,
+        _tile: Option<super::services::MontageTile>,
+        _at: Vector,
+        _rgba: [u8; 4],
+        _size: f32,
+    ) -> bool {
+        false
+    }
     /// For widgets that need more of their host.
     fn as_any_mut(&mut self) -> &mut dyn Any;
+}
+
+/// How a control's engine instance is submitted.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum MeshPass {
+    /// `SubmitWin3DEngineInstance(holder, camera, 0, 1.0, 0)` after the
+    /// render states `ZFUNC = 8` and `ZWRITEENABLE = 1`.
+    Plain,
+    /// `SubmitWin3DTintedEngineInstanceWrapped(camera, instance, 1, tint,
+    /// lighting, 1.0, 0)`: front culling, the tint bytes R, G, B, A.
+    Tinted { tint: [u8; 4], lighting: bool },
+    /// `SubmitWin3DEngineInstance(holder, camera, front_cull, scale, 0)`
+    /// after the holder's tint floats were set from the bytes R, G, B, A
+    /// (each times 1/255).
+    Body {
+        tint: [u8; 4],
+        front_cull: bool,
+        scale: f32,
+    },
+    /// `SubmitWin3DTintedEngineInstanceWrapped(camera, instance,
+    /// front_cull, tint, lighting, scale, 0)`.
+    TintedScaled {
+        tint: [u8; 4],
+        front_cull: bool,
+        lighting: bool,
+        scale: f32,
+    },
+    /// `SubmitWin3DOutlinedEngineInstance(camera, instance, 1, wire,
+    /// scale, 0)`.
+    Outlined { wire: [u8; 4], scale: f32 },
+    /// `IRenderer2::RenderInstance(camera, instance, 1.0, 0x30, scaled
+    /// identity)` after `ZFUNC = 8` and `ZWRITEENABLE = 1` (a static
+    /// control's z-clear pass).
+    Direct { tint: [u8; 4], scale: f32 },
+}
+
+/// A static control's render-to-window view (`StaticControl::Draw`): the
+/// screen rectangle its own camera is fitted to, with the Win3D camera's
+/// planes and a 35 degree vertical field of view; `None` puts the Win3D
+/// camera and the saved viewport back.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WindowView {
+    pub rect: [i32; 4],
+    pub z_near: f32,
+    pub z_far: f32,
+    pub fov_y_deg: f32,
+}
+
+/// `GetTextureFrame(shape, 0)` of a shape through the host's library: 0
+/// without a shape or a library.
+pub fn shape_handle(host: &mut dyn DrawHost, shape: Option<&TexShape>) -> u32 {
+    match (shape, host.shape_textures()) {
+        (Some(shape), Some(lib)) => shape.gpu_handle(lib, 0),
+        _ => 0,
+    }
 }
 
 /// A [`DrawHost`] with only a batcher.
@@ -215,10 +318,26 @@ pub trait Widget: Any {
     fn broadcast(&mut self, ui: &mut Ui, id: NodeId, msg: u32, a: u32, b: u32) -> bool {
         false
     }
+    /// Slot 23 with the messages controls send their parent, whose
+    /// arguments are the sender and its data (divergence D430).
+    fn child_message(&mut self, ui: &mut Ui, id: NodeId, message: &ChildMessage) -> bool {
+        false
+    }
     /// Slot 24: handed down to every child.
     fn notify(&mut self, ui: &mut Ui, id: NodeId, value: u32) {
         ui.base_notify(id, value);
     }
+    /// Slot 34 (`ShowToolTip`, `WinControl` and its controls): the hover
+    /// record fed to the tooltip when the control's hit test hits.
+    fn show_tooltip(&self, ui: &mut Ui, id: NodeId) {
+        if let Some(c) = self.win_control() {
+            super::control::base::show_tooltip(ui, id, c);
+        }
+    }
+    /// The tooltip singleton's `UpdateFromHover` ([`Ui::feed_tooltip_hover`]).
+    fn tooltip_hover(&mut self, ui: &mut Ui, id: NodeId, hover: &super::services::ToolTipHover) {}
+    /// The tooltip singleton's `HideNow` ([`Ui::hide_tooltip`]).
+    fn tooltip_hide(&mut self, ui: &mut Ui, id: NodeId) {}
     /// Slot 27: the hit priority (0: the depth decides).
     fn hit_priority(&self, node_priority: i32) -> i32 {
         node_priority
@@ -260,8 +379,74 @@ pub enum Property<'a> {
     /// 0x4F: a child with a tooltip was hit; non-zero means the parent
     /// shows it.
     ChildToolTip(NodeId),
+    /// 0x29: a mouse button other than a press reached a scroll bar.
+    ChildButtonUp(NodeId),
+    /// 0x37: a scroll bar's integer range.
+    ScrollRange(i32, i32),
+    /// 0x38: a scroll bar's value.
+    ScrollValue(i32),
+    /// 0x3B: the scroll bar's value, returned truncated.
+    GetScrollValue,
+    /// 0x3E: a scroll bar's value changed (the sender, its value
+    /// truncated).
+    ScrollChanged(NodeId, i32),
+    /// A control telling its parent about itself with `SetProperty(msg,
+    /// this, value)`: 0x1A and 0x1B (a static control clicked, right),
+    /// 0x26 (activated), 0x27 (right click or double click), 0x28
+    /// (pressed), 0x2A and 0x2B (the press left and came back), 0x2C and
+    /// 0x2D (lit, unlit), 0x30 (a toggle's new state), 0x46 (a text
+    /// control was hit). The sender is a node (divergence D430).
+    FromChild { msg: i32, from: NodeId, value: i32 },
+    /// 0x45: an edit control's text changed (`None` for the null text
+    /// Backspace sends), with Enter.
+    EditText {
+        from: NodeId,
+        text: Option<Vec<u16>>,
+        enter: bool,
+    },
+    /// 0x1D: a text control's text.
+    SetText(Option<&'a [u16]>),
+    /// 0x33: a colour override (the bytes R, G, B, A), on when the flag
+    /// is set (`B == 1`).
+    Colour([u8; 4], bool),
+    /// 0x18: a static control's mesh and wire colours.
+    Colours([u8; 4], [u8; 4]),
+    /// 0x2E: a button's key-map command written to the output.
+    GetCommand(&'a mut i32),
+    /// 0x2F: a toggle button's state written to the output.
+    GetToggleState(&'a mut i32),
+    /// 0x31: a toggle button's sounds of state 0 and 1 (`None` keeps one).
+    ToggleSounds(Option<&'a [u8]>, Option<&'a [u8]>),
     /// Any other message.
     Other(i32, usize, usize),
+}
+
+/// The slot 23 messages a control sends its parent.
+#[derive(Clone, Debug, PartialEq)]
+pub enum ChildMessage {
+    /// 0xF001 (a press) and 0xF002 (a double click): a list box row was
+    /// picked, with its text (`None` for no row) and index.
+    ListPick {
+        from: NodeId,
+        double_click: bool,
+        text: Option<Vec<u16>>,
+        index: i32,
+    },
+    /// 0xF005: a scroll bar's value changed; `value` is the bar's value
+    /// (`GetValue`), which the parent cannot ask the bar for while the bar
+    /// tells it (D347).
+    ScrollChanged { from: NodeId, value: f32 },
+    /// 0xF004: Enter in a rich-text edit box.
+    EditEnter { from: NodeId },
+    /// 0xF003: Escape in a rich-text edit box.
+    EditEscape { from: NodeId },
+    /// 0x300D: a fast table's selected row changed.
+    TableSelect { from: NodeId, row: u32 },
+    /// 0xF002: a double click on a fast table's selectable row.
+    TableDoubleClick { from: NodeId, row: u32 },
+    /// 0xF001: a press on a fast table that selected nothing, with the
+    /// hovered cell as `(row << 16) | column`.
+    TableCellPress { from: NodeId, cell: u32 },
 }
 
 /// A request a control made to show its tooltip (`ShowToolTip`: the
@@ -395,6 +580,39 @@ pub struct Ui {
     pub fonts: Option<FontSystem>,
     /// The hover pulse.
     pub pulse: Pulse,
+    /// `GetClientFrameTimeCapped`: the frame time the last update ran with.
+    pub frame_time: f64,
+    /// The shapes of `Interface\\UI\\UITextures.ini` the scroll bars draw
+    /// with.
+    pub ui_shapes: super::controls::scroll::ScrollShapes,
+    /// The client's services the controls call (sounds, commands, the
+    /// montage, options, cursors).
+    pub services: Box<dyn super::services::UiServices>,
+    /// The string tables the controls' ids resolve in.
+    pub catalogs: Option<std::rc::Rc<neuron_core::catalog::TextCatalogs>>,
+    /// `G_ToolTipSingleton`: the tooltip the factory made last.
+    pub tooltip: Option<NodeId>,
+    /// `G_RolloverSingleton`.
+    pub rollover: Option<NodeId>,
+    /// `G_TextControlTypingCount`: the text controls in a typewriter run.
+    pub text_typing_count: i32,
+    /// `TextWinProjectPoint` and `TextWinProjectExtent` in place of the
+    /// Win3D camera's (none: the camera).
+    pub text_projection: Option<Box<dyn super::controls::text_win::TextProjection>>,
+    /// `G_ScrollVSerial`: the number of the next `ScrollV_%d` bar a
+    /// rich-text window makes (divergence D475).
+    pub scroll_v_serial: i32,
+    /// The values a parent set on a scroll bar while the bar was telling it
+    /// of its own change, which the bar takes when the parent returns
+    /// (divergence D561).
+    scroll_values_back: Vec<(NodeId, f32)>,
+    /// Slot 23 messages that came while their receiver's own method ran (a
+    /// scroll bar drawn in its window's draw), delivered when that method
+    /// returns (divergence D561).
+    pending_child_messages: Vec<(NodeId, ChildMessage)>,
+    /// The button montage the engine loaded (its tiles take the place of
+    /// the services' tile search once loaded).
+    pub montage: super::montage::ButtonMontage,
 }
 
 impl Ui {
@@ -421,7 +639,55 @@ impl Ui {
             factory: Factory::with_toolkit(),
             fonts: None,
             pulse: Pulse::default(),
+            frame_time: 0.0,
+            ui_shapes: super::controls::scroll::ScrollShapes::default(),
+            services: Box::new(super::services::NoServices),
+            catalogs: None,
+            tooltip: None,
+            rollover: None,
+            text_typing_count: 0,
+            text_projection: None,
+            scroll_v_serial: 1,
+            scroll_values_back: Vec::new(),
+            pending_child_messages: Vec::new(),
+            montage: super::montage::ButtonMontage::default(),
         }
+    }
+
+    /// The button montage tile of a mesh path: the loaded montage's
+    /// (`FindMontageTileForPath`), else the services' answer.
+    pub fn montage_tile(&mut self, path: &[u8]) -> Option<super::services::MontageTile> {
+        if self.montage.loaded {
+            self.montage.find(path)
+        } else {
+            self.services.montage_tile(path)
+        }
+    }
+
+    /// `GetIdsStringWWithRawFallback`: the string-table entry, else the
+    /// raw text resource, else nothing (an empty result).
+    #[must_use]
+    pub fn ids_string(&self, ids: u32) -> Vec<u16> {
+        let Some(c) = self.catalogs.as_deref() else {
+            return Vec::new();
+        };
+        let s = c.string(ids);
+        if !s.is_empty() {
+            return s.to_vec();
+        }
+        c.text(ids).map(|t| t.units()).unwrap_or_default()
+    }
+
+    /// `NnToolTipFeedHover`: the hover to the tooltip, when there is one.
+    pub fn feed_tooltip_hover(&mut self, hover: &super::services::ToolTipHover) {
+        let Some(tip) = self.tooltip else { return };
+        self.with_widget(tip, (), |w, ui| w.tooltip_hover(ui, tip, hover));
+    }
+
+    /// `NnToolTipHideGlobal`.
+    pub fn hide_tooltip(&mut self) {
+        let Some(tip) = self.tooltip else { return };
+        self.with_widget(tip, (), |w, ui| w.tooltip_hide(ui, tip));
     }
 
     // ---- the arena ----------------------------------------------------
@@ -517,7 +783,24 @@ impl Ui {
         {
             node.widget = Some(widget);
         }
+        if !self.pending_child_messages.is_empty() {
+            self.deliver_pending_child_messages(id);
+        }
         result
+    }
+
+    /// The slot 23 messages that waited for `id`, in the order they came;
+    /// those for deleted nodes are dropped.
+    fn deliver_pending_child_messages(&mut self, id: NodeId) {
+        let pending = std::mem::take(&mut self.pending_child_messages);
+        let (mine, rest): (Vec<_>, Vec<_>) = pending.into_iter().partition(|(to, _)| *to == id);
+        self.pending_child_messages = rest
+            .into_iter()
+            .filter(|(to, _)| self.contains(*to))
+            .collect();
+        for (_, message) in mine {
+            self.send_child_message(id, &message);
+        }
     }
 
     fn flags(&self, id: NodeId) -> u8 {
@@ -720,6 +1003,27 @@ impl Ui {
             .any(|id| self.win_control(id).is_some_and(|c| c.captured))
     }
 
+    /// `SetValue` on the scroll bar `bar` while the bar is busy telling its
+    /// parent of a change (D347): the bar makes the call when its parent
+    /// returns ([`Self::take_scroll_value`]).
+    pub fn defer_scroll_value(&mut self, bar: NodeId, value: f32) {
+        self.scroll_values_back.push((bar, value));
+    }
+
+    /// The last value deferred for `bar`, the others for it dropped.
+    pub fn take_scroll_value(&mut self, bar: NodeId) -> Option<f32> {
+        let mut last = None;
+        self.scroll_values_back.retain(|&(id, value)| {
+            if id == bar {
+                last = Some(value);
+                false
+            } else {
+                true
+            }
+        });
+        last
+    }
+
     /// The tooltip requests since the last call.
     pub fn take_tooltip_requests(&mut self) -> Vec<ToolTipRequest> {
         std::mem::take(&mut self.tooltip_requests)
@@ -745,6 +1049,11 @@ impl Ui {
     #[must_use]
     pub fn stored_mouse_ray(&self) -> Vector {
         self.mouse_ray
+    }
+
+    /// Stores the mouse ray (`Win3DMouseRayStorage`).
+    pub fn set_mouse_ray(&mut self, ray: Vector) {
+        self.mouse_ray = ray;
     }
 
     /// `WidescreenHudCurrentShift`.
@@ -1230,6 +1539,17 @@ impl Ui {
         false
     }
 
+    /// [`Widget::child_message`] on one object.
+    pub fn send_child_message(&mut self, id: NodeId, message: &ChildMessage) -> bool {
+        if self.node(id).is_some_and(|n| n.widget.is_none()) {
+            // The receiver's own method is running (D347): the message waits
+            // for it to return (D561); the sender sees no answer.
+            self.pending_child_messages.push((id, message.clone()));
+            return false;
+        }
+        self.with_widget(id, false, |w, ui| w.child_message(ui, id, message))
+    }
+
     /// Slot 23 on one object.
     pub fn send_broadcast(&mut self, id: NodeId, msg: u32, a: u32, b: u32) -> bool {
         self.with_widget(id, false, |w, ui| w.broadcast(ui, id, msg, a, b))
@@ -1242,7 +1562,9 @@ impl Ui {
     /// either the first captured `WinControl` alone (a modal dialog is up)
     /// or every root, then the unregistered entries erased.
     pub fn update_all(&mut self, delta_seconds: f64) {
+        self.frame_time = delta_seconds;
         self.pulse.advance(delta_seconds);
+        self.tick_tooltips(delta_seconds);
         let picked = if self.cursor_drawn {
             self.pick_for_hover()
         } else {
@@ -1434,6 +1756,12 @@ impl Ui {
         }
         if self.key_focus == Some(id) {
             self.key_focus = None;
+        }
+        if self.tooltip == Some(id) {
+            self.tooltip = None;
+        }
+        if self.rollover == Some(id) {
+            self.rollover = None;
         }
         self.capture.retain(|&c| c != id);
         if self.hover == Some(id) {

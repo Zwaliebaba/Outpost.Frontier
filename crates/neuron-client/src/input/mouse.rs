@@ -13,7 +13,7 @@
 //! then reads them in the C++'s order. Taking the mouse "exclusively" is
 //! the platform's business ([`MousePlatform`]): on Windows Raw Input
 //! without legacy messages, with the pointer captured and clipped to the
-//! client area (decision O28, proposed).
+//! client area (decision O28).
 //!
 //! Cursor positions are in surface pixels (the back buffer's size, the
 //! C++'s `G_RenderSurfaceWidth` and `G_RenderSurfaceHeight`). Since

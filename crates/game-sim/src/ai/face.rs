@@ -93,7 +93,10 @@ impl FaceBehavior {
     /// ship of the target list toward which the owner's attitude is at most
     /// -0.6, within `max_clearance` (a negative bound takes any range) and
     /// 100 km.
-    fn closest_hostile<W: AiEnv + ?Sized>(cx: &mut Cx<'_, W>, max_clearance: f32) -> Option<u32> {
+    pub fn closest_hostile<W: AiEnv + ?Sized>(
+        cx: &mut Cx<'_, W>,
+        max_clearance: f32,
+    ) -> Option<u32> {
         let own = cx.own()?;
         let mut best = None;
         let mut best_distance = 100_000.0_f32;

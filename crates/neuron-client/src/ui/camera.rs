@@ -188,6 +188,18 @@ impl Camera {
         self.rebuild_plane_y(f64::from(tan_y_stored));
     }
 
+    /// `SpaceCameraSetFovY`: the vertical angle, the horizontal half angle
+    /// of its tangent times the aspect (over the Hor+ factor), and both
+    /// planes from the unrounded tangents.
+    pub fn set_fov_y(&mut self, fov_y_deg: f32) {
+        self.fov_y_deg = fov_y_deg;
+        let tan_y = (f64::from(fov_y_deg) * f64::from(DEGREES_TO_RADIANS)).tan();
+        let tan_x = tan_y * f64::from(self.aspect);
+        self.half_fov_x_deg = tangent_to_degrees(tan_x / self.hor_plus_scale());
+        self.rebuild_plane_x(tan_x);
+        self.rebuild_plane_y(tan_y);
+    }
+
     /// `SpaceCameraSetViewport`: the inclusive rectangle, the aspect, the
     /// half extents, the screen centre and the planes for the stored half
     /// angle.
@@ -309,6 +321,40 @@ impl Camera {
     #[must_use]
     pub fn unproject(&self, screen_x: f32, screen_y: f32) -> Vector {
         transform_matrix(&self.world, self.screen_to_near_plane(screen_x, screen_y))
+    }
+
+    /// `FSpaceCamera::ClassifySphere` of a camera-space centre: 1 outside,
+    /// 3 straddling a plane, 4 inside. The view-axis edges are stored as
+    /// floats; the side distances stay unrounded.
+    #[must_use]
+    pub fn classify_sphere(&self, centre: [f32; 3], radius: f32) -> i32 {
+        let near_edge = round(f64::from(-centre[2]) - f64::from(radius));
+        let far_edge = round(f64::from(radius) - f64::from(centre[2]));
+        let r = f64::from(radius);
+        if far_edge < self.z_near {
+            return 1;
+        }
+        let mut result = 4;
+        if near_edge < self.z_near {
+            result = 3;
+        }
+        for (axis, plane) in [(0, self.plane_x), (1, self.plane_y)] {
+            let dist = f64::from(centre[axis].abs()) * f64::from(plane[axis])
+                + f64::from(plane[2]) * f64::from(centre[2]);
+            if dist > r {
+                return 1;
+            }
+            if dist > -r {
+                result = 3;
+            }
+        }
+        if near_edge > self.z_far {
+            return 1;
+        }
+        if far_edge > self.z_far {
+            result = 3;
+        }
+        result
     }
 
     /// The mouse ray of the Win3D input handler's move event: the cursor

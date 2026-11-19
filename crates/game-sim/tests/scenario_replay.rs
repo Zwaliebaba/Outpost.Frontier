@@ -27,6 +27,23 @@
 //! `events.jsonl` and `calls.jsonl`, and collision events on one side only
 //! are a gross divergence.
 //!
+//! The guided munitions (P2.5, the server's `Guided` controller) are
+//! compared with the oracle's `guided` records of `tick.jsonl` and its
+//! `guided` cores of `psi.jsonl`, each side's numbered by id (the launch
+//! order): the launch tick, the tick it is spent, the speed then, and the
+//! first bit difference of the trajectory and of the core.
+//!
+//! A fight is judged as `ram_ship` is (owner, 2026-11-18; record 0003
+//! point 9): bit for bit up to its first contact or munition impact,
+//! whichever comes first in the oracle ([`judge_fight`]). A difference
+//! before that tick, or a first contact, hit or spent missile on the Rust
+//! side in any other tick (owner, 2026-11-19: in the same tick, as
+//! `ram_ship`'s contact), is a gross divergence; after it the outcome
+//! (alive states), the trajectories, the collisions, the hits and the
+//! missiles' ends are reported for the Gate G2 envelopes, because the
+//! differences after a contact come from the accepted contact solver (D87,
+//! decision O19) and the fuse's timing (D177).
+//!
 //! For every scenario, the AI ones too, the report lists the `rand()`
 //! draws the Rust world makes while it loads the system and spawns the
 //! objects beside the oracle's load-time draws (`load_rand.jsonl`).
@@ -35,11 +52,19 @@
 //! (`pub::AI::SubmitState`), and the `goto`, `face`, `idle` and `cancel`
 //! commands are directives (`pub::AI::SubmitDirective`); `fly_to_point`
 //! (goto) and `turn_to_heading` (face) are compared with the oracle like
-//! the other scenarios. Scenarios whose directives need a behaviour that
-//! is not ported yet, and the `dock` directive, are skipped with a note
-//! (P2.5), and so is a scenario whose AI ships have a `faction` (the
-//! dogfight), whose pilots need the combat behaviours. A summary goes to `rust-scenario-replay.txt` in the oracle
-//! folder.
+//! the other scenarios, and the directives that name objects (`dock`,
+//! `launch`, `tradelane`) take their ids from the Rust world. Scenarios
+//! whose directives need a behaviour that is not ported yet, and those
+//! marked `# rust: skip <reason>` (the server's and Content's parts the
+//! Rust world does not have yet), are skipped with a note. The fights (`dogfight`, `skirmish`: AI ships of hostile
+//! factions; `strafe`: an AI fighter and a hostile ship without one) take
+//! each pilot's personality and the ships' attitudes from the oracle's
+//! `ai.jsonl` (a ship without a manager the reverse attitude of the AI
+//! ship's snapshot), and are judged to their first contact or munition
+//! impact (see below; record 0003 point 9): each ship's exact span, the
+//! first behaviour and target difference, the behaviour sequences, the
+//! hits before the first divergence and the outcome are reported. A
+//! summary goes to `rust-scenario-replay.txt` in the oracle folder.
 
 mod support;
 
@@ -50,16 +75,18 @@ use std::path::{Path, PathBuf};
 
 use game_sim::ai::behavior::DirectiveOp;
 use game_sim::ai::behaviors::create_behavior;
+use game_sim::ai::personality::Personality;
 use game_sim::ai::state_graph::GraphType;
 use game_sim::equip::flight::StrafeDir;
 use game_sim::equip::{EquipKind, SUBOBJ_ID_ROOT, types};
 use game_sim::object::world::{ShipSpawn, WorldConfig};
-use game_sim::object::{Command, DamageList, ObjHandle, World, WorldEvent};
+use game_sim::object::{Command, DamageList, KindData, ObjHandle, ObjectKind, World, WorldEvent};
 use neuron_core::id::create_id;
 use neuron_core::math::{Matrix, Vector};
 use neuron_core::physics::StepMode;
+use neuron_core::physics::replay::{CoreRecord, compare};
 use neuron_core::rng::CrtRand;
-use support::directives::directive;
+use support::directives::directive_with;
 use support::records::{Json, find_files, read_lines};
 
 /// The gross-divergence bound on position, metres.
@@ -100,6 +127,8 @@ struct ObjDesc {
     pilot: Option<String>,
     /// The `faction` option: the reputation group of the ship's vibe.
     faction: Option<String>,
+    /// The `escort` option: the state graph's escort variant.
+    escort: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -119,9 +148,16 @@ struct Scenario {
     /// `collisions sp`: the server's collision filter takes its
     /// single-player branch (every pair collides).
     sp_collisions: bool,
+    /// `comms off`: the oracle clamps Content's comm system (GCS), so its
+    /// `rand()` sequence holds no comm rolls (owner, 2026-11-19). The Rust
+    /// world has no comm system until P3.6 and draws none either way.
+    comms_off: bool,
     /// The file is marked `# ci: expect collision`: a contact scenario,
     /// judged to its first contact ([`judge_contact`]).
     contact: bool,
+    /// The file is marked `# rust: skip <reason>`: the Rust world cannot
+    /// run it yet.
+    rust_skip: Option<String>,
     seed: u32,
     objects: Vec<ObjDesc>,
     commands: Vec<Cmd>,
@@ -143,9 +179,17 @@ fn vec3(t: &[String], at: usize) -> Option<Vector> {
     ))
 }
 
+/// The orientation `pub::SpaceObj::Create` hands the ship it makes: the
+/// request carries the math engine's `MatrixToQuaternion` of the info's
+/// matrix, and the ship's parameters take `QuaternionToMatrix` of it
+/// (`server_pub.cpp:2474`, `server_classes.cpp:7057`).
+fn spawn_orientation(m: &Matrix) -> Matrix {
+    neuron_core::math::quaternion_to_matrix(&neuron_core::math::matrix_to_quaternion(m))
+}
+
 /// `HeadingMatrix`: a yaw of `degrees` about +Y.
 fn heading(degrees: f64) -> Matrix {
-    let r = degrees.to_radians();
+    let r = degrees * std::f64::consts::PI / 180.0;
     let (s, c) = (r.sin() as f32, r.cos() as f32);
     Matrix::from_rows([[c, 0.0, s], [0.0, 1.0, 0.0], [-s, 0.0, c]])
 }
@@ -159,9 +203,15 @@ fn parse(path: &Path) -> Option<Scenario> {
         frame: 1.0 / 30.0,
         sp: false,
         sp_collisions: false,
+        comms_off: false,
         contact: text
             .lines()
             .any(|l| l.trim_start().starts_with("# ci: expect collision")),
+        rust_skip: text.lines().find_map(|l| {
+            l.trim_start()
+                .strip_prefix("# rust: skip ")
+                .map(|r| r.trim().to_owned())
+        }),
         seed: 0x4f52_4143,
         objects: Vec::new(),
         commands: Vec::new(),
@@ -178,6 +228,7 @@ fn parse(path: &Path) -> Option<Scenario> {
             "frame" => s.frame = num(t.get(1)?)?,
             "stepping" => s.sp = t.get(1)?.eq_ignore_ascii_case("sp"),
             "collisions" => s.sp_collisions = t.get(1)?.eq_ignore_ascii_case("sp"),
+            "comms" => s.comms_off = t.get(1)?.eq_ignore_ascii_case("off"),
             "seed" => s.seed = t.get(1)?.parse().ok()?,
             "ship" | "solar" => {
                 let ship = t[0].eq_ignore_ascii_case("ship");
@@ -207,6 +258,7 @@ fn parse(path: &Path) -> Option<Scenario> {
                     ai: None,
                     pilot: None,
                     faction: None,
+                    escort: false,
                 };
                 let mut at = if ship { 7 } else { 3 };
                 while at < t.len() {
@@ -240,6 +292,10 @@ fn parse(path: &Path) -> Option<Scenario> {
                             o.faction = Some(t.get(at + 1)?.clone());
                             at += 2;
                         }
+                        "escort" => {
+                            o.escort = true;
+                            at += 1;
+                        }
                         _ => at += 1,
                     }
                 }
@@ -272,31 +328,15 @@ fn parse(path: &Path) -> Option<Scenario> {
     Some(s)
 }
 
-/// Why a scenario cannot run yet: a directive whose behaviour is not
-/// ported (the AI ships themselves run: they get a behaviour manager), or
-/// the dock directive (which needs the station's Content side).
+/// Why a scenario cannot run yet: the file says so (`# rust: skip`), or
+/// a directive whose behaviour is not ported (the AI ships themselves
+/// run: they get a behaviour manager).
 fn needs_ai(s: &Scenario) -> Option<String> {
-    // A hostile AI ship (the dogfight): its pilot fights.
-    let fighters: Vec<String> = s
-        .objects
-        .iter()
-        .filter(|o| o.ai.is_some() && o.faction.is_some())
-        .map(|o| match &o.pilot {
-            Some(pilot) => format!("{} ({pilot})", o.name),
-            None => o.name.clone(),
-        })
-        .collect();
-    if !fighters.is_empty() {
-        return Some(format!(
-            "{}: the pilot needs combat behaviours",
-            fighters.join(" and ")
-        ));
+    if let Some(why) = &s.rust_skip {
+        return Some(why.clone());
     }
     for c in &s.commands {
-        if c.args[0] == "dock" {
-            return Some("the dock directive".to_owned());
-        }
-        if let Some(op) = directive(&c.args)
+        if let Some(op) = directive_with(&c.args, &|_| Some(1))
             && let Some(id) = op.behavior()
             && !create_behavior::<World>(id).ported()
         {
@@ -328,12 +368,19 @@ struct State {
     /// A ship's commanded throttle and axis throttle (`None` for others).
     throttle: Option<f32>,
     axis: Option<Vector>,
+    /// A ship's commanded nudge (`get_nudge_vec`; `None` for others).
+    nudge: Option<Vector>,
     hp: f32,
     /// `None` when the record does not carry it (an older oracle record,
     /// or an object without equipment).
     power: Option<f32>,
     /// `None` without a shield, or when the record does not carry it.
     shield: Option<ShieldState>,
+    /// The current behaviour (`CurrentBehaviorIndex`), -1 without a
+    /// manager.
+    behavior: i32,
+    /// The target's scenario name as an id (`create_id`), 0 for none.
+    target: u32,
 }
 
 /// One munition hit: the target, the sub-object, the hull and shield
@@ -361,6 +408,20 @@ struct Contact {
     damage: f32,
 }
 
+/// A guided munition after a tick (the oracle's `guided` record).
+#[derive(Clone, Debug, Default)]
+struct GuidedState {
+    tick: u32,
+    alive: bool,
+    pos: Vector,
+    vel: Vector,
+    orient: [f32; 9],
+    angvel: Vector,
+    lifetime: f32,
+    seeker_elapsed: f32,
+    target: String,
+}
+
 /// What a run produced: the per-tick states, the munition hits and the
 /// collisions.
 #[derive(Default)]
@@ -376,8 +437,39 @@ struct Run {
     /// The first behaviour the port does not have that an AI ship ran, and
     /// the tick (the state graph can pick one without a directive).
     unported: Option<(i32, u32)>,
+    /// The shots fired (`WorldEvent::Fired`).
+    fired: usize,
+    /// The guided munitions launched: (tick, shooter's name, gun).
+    missiles: Vec<(u32, String, u16)>,
+    /// Each guided munition's states by id, from its first tick to the
+    /// first tick it is gone.
+    guided: BTreeMap<u32, Vec<GuidedState>>,
+    /// Each ship's guns' turret joints per tick, as text (diagnostic).
+    guns: BTreeMap<String, Vec<String>>,
+    /// The AI ships' turret probes after each tick (0: before the first
+    /// step), by tick and ship.
+    probes: BTreeMap<u32, BTreeMap<String, Vec<TurretProbe>>>,
+    /// The first seeker steps of each guided munition (diagnostic).
+    guided_trace: Vec<(u32, game_sim::object::world::GuidedTrace)>,
+    /// What the launcher looked like when each guided munition went out.
+    launch_notes: Vec<String>,
+    /// Each guided munition's core after each tick (the oracle's `out`).
+    guided_cores: BTreeMap<u32, Vec<(u32, CoreRecord)>>,
+    /// Every fire call: (tick, shooter's name, each gun and its result).
+    fires: Vec<(u32, String, String)>,
     /// Per object and tick, the body's core after the frame (diagnostic).
     cores: BTreeMap<String, Vec<String>>,
+    /// The simulation units of the first [`UNIT_PSIS`] PSIs (`units.jsonl`).
+    units: Vec<Vec<Unit>>,
+    /// Each unit's core at the start and the end of its PSI, for the first
+    /// PSIs (`unit_cores.jsonl`).
+    unit_cores: Vec<Vec<neuron_core::physics::world::UnitCore>>,
+    /// The bullet rays that started inside an object, which they then do
+    /// not hit (as in IVP): the tick and the object's name.
+    starts_inside: Vec<(u32, String)>,
+    /// The objects a bullet's ray crossed that IVP's OV sphere test kept it
+    /// from hitting: the tick and the object's name.
+    ov_culled: Vec<(u32, String)>,
 }
 
 /// A core's state as the bit diagnostic prints it.
@@ -514,7 +606,74 @@ fn oracle_phases(dir: &Path, scenario: &str) -> Option<[f32; 3]> {
     ticks.first()?.input.pathfind.as_ref().map(|p| p.timers)
 }
 
-fn run(s: &Scenario) -> Option<Run> {
+/// What the Rust world cannot load for the AI ships and the harness takes
+/// from the oracle's records: each pilot's personality (Content's
+/// `[Pilot]` loader is P3.6) and the ships' attitudes toward each other
+/// (the reputation groups are not ported).
+#[derive(Clone, Debug, Default)]
+struct AiInputs {
+    personalities: BTreeMap<String, Personality>,
+    attitudes: BTreeMap<(String, String), f32>,
+}
+
+/// The [`AiInputs`] of a scenario from its first `ai.jsonl` under
+/// `<oracle dir>/<scenario>/`: the first personality of each ship and its
+/// first attitude toward each other scenario ship.
+fn oracle_ai_inputs(dir: &Path, scenario: &str) -> AiInputs {
+    let mut out = AiInputs::default();
+    let Some(first) = find_files(&dir.join(scenario), "ai.jsonl")
+        .into_iter()
+        .min()
+    else {
+        return out;
+    };
+    let ticks = support::ai_records::read_ai_ticks(&first);
+    let ai_ships: BTreeMap<u32, String> = ticks
+        .iter()
+        .filter_map(|t| Some((t.id, t.obj.clone()?)))
+        .collect();
+    // Every scenario ship by its id, those without a behaviour manager too
+    // (`strafe`'s target), from the same run's `tick.jsonl`.
+    let mut names = ai_ships.clone();
+    if let Some(tick_file) = first.parent().map(|d| d.join("tick.jsonl")) {
+        for j in read_lines(&tick_file) {
+            if j.get("rec").and_then(Json::as_str) != Some("object") {
+                continue;
+            }
+            if let (Some(id), Some(obj)) = (
+                j.get("id").and_then(Json::as_u32),
+                j.get("obj").and_then(Json::as_str),
+            ) {
+                names.entry(id).or_insert_with(|| obj.to_owned());
+            }
+        }
+    }
+    for t in &ticks {
+        let Some(name) = &t.obj else {
+            continue;
+        };
+        if let Some(p) = t.personality.as_deref().and_then(Personality::from_bytes) {
+            out.personalities.entry(name.clone()).or_insert(p);
+        }
+        for o in &t.objects {
+            if let (Some(other), Some((toward, reverse))) = (names.get(&o.id), o.attitude) {
+                out.attitudes
+                    .entry((name.clone(), other.clone()))
+                    .or_insert(toward);
+                // A ship without a manager records no attitude of its own:
+                // it takes the reverse one the AI ship's snapshot reads.
+                if !ai_ships.contains_key(&o.id) {
+                    out.attitudes
+                        .entry((other.clone(), name.clone()))
+                        .or_insert(reverse);
+                }
+            }
+        }
+    }
+    out
+}
+
+fn run(s: &Scenario, ai: &AiInputs) -> Option<Run> {
     let mut world = support::world::world(WorldConfig {
         single_player: false,
         step_mode: if s.sp {
@@ -527,27 +686,46 @@ fn run(s: &Scenario) -> Option<Run> {
     })?;
     let system = create_id(s.system.as_bytes());
     world.load_system(system);
+    // `StarSystem::load` outside single player loads the system's asteroid
+    // fields; the scenario ships fill those they fly in, as in the oracle.
+    world.load_asteroid_fields(system);
     let mut handles: BTreeMap<String, Option<ObjHandle>> = BTreeMap::new();
     let mut managers = Vec::new();
     let mut pathfind_phases = None;
-    // The solars the scenario names, and every spinning solar: the oracle's
-    // `StarSystem::load` builds them all, and a spinning one is a
-    // simulation unit of its own, which takes its turn at the environment's
-    // movement-check countdown (that decides when a scenario ship's motion
-    // is classified). The still ones are fixed and far from the scenario
-    // objects, and the contact pass over every solar is slow in a debug
-    // build.
+    // The solars the scenario names, and every solar whose body or parts
+    // are simulation units: the spinning ones and those with free (`!fxd`)
+    // parts, which `BuildIVP_Real` makes bodies of their own held by
+    // golems. The oracle's `StarSystem::load` builds them all, and each
+    // unit takes its turn at the environment's movement-check countdown
+    // (that decides when a scenario ship's motion is classified), so the
+    // Rust world steps the oracle's units in the oracle's order. The other
+    // solars are fixed and far from the scenario objects, and the contact
+    // pass over every solar is slow in a debug build.
     let named: Vec<u32> = s
         .objects
         .iter()
         .filter(|o| !o.ship)
         .map(|o| create_id(o.nickname.as_bytes()))
         .collect();
-    world.load_system_solars_where(system, |sp| {
-        named.contains(&sp.nickname) || sp.angular_velocity != Vector::ZERO
-    });
+    for sp in world.system_solar_spawns(system) {
+        if named.contains(&sp.nickname)
+            || sp.angular_velocity != Vector::ZERO
+            || world.solar_has_free_parts(sp.archetype)
+        {
+            let _ = world.spawn_solar(system, &sp);
+        }
+    }
+    world.set_unit_trace(system, true);
+    world.set_fire_log(true);
+    world.set_guided_trace(true);
     if s.sp_collisions {
         world.set_server_collision_filter(system, false);
+    }
+    if s.comms_off {
+        println!(
+            "{}: comms off: the oracle's comm system is clamped (no comm rolls); the Rust world has none",
+            s.name
+        );
     }
     // The seeding point (owner, 2026-11-18): the oracle's harness calls
     // `srand(seed)` again once the system and its population have loaded.
@@ -558,18 +736,27 @@ fn run(s: &Scenario) -> Option<Run> {
                 create_id(o.archetype.as_bytes()),
                 create_id(o.loadout.as_bytes()),
                 o.pos,
-                o.orient,
+                spawn_orientation(&o.orient),
             );
             spawn.velocity = o.vel;
             spawn.angular_velocity = o.angvel;
             spawn.hit_pts = o.hp;
             let h = world.spawn_ship(system, &spawn).ok();
             if let (Some(h), Some(graph)) = (h, &o.ai) {
-                let id = world
-                    .data()
-                    .state_graphs
-                    .find(graph.as_bytes(), GraphType::Leader);
-                world.submit_state(h, id, None);
+                let kind = if o.escort {
+                    GraphType::Escort
+                } else {
+                    GraphType::Leader
+                };
+                let id = world.data().state_graphs.find(graph.as_bytes(), kind);
+                // The harness submits a personality only with `pilot`
+                // (`bSetPersonality`); without one the manager keeps the
+                // default and the gun groups draw nothing more.
+                let personality = o
+                    .pilot
+                    .as_ref()
+                    .and_then(|_| ai.personalities.get(&o.name).copied());
+                world.submit_state(h, id, personality);
                 if let Some(m) = world.behavior_manager(h) {
                     let pf = &m.state.pathfind;
                     pathfind_phases.get_or_insert([pf.timer_1e0, pf.timer_1e8, pf.timer_20c]);
@@ -586,6 +773,11 @@ fn run(s: &Scenario) -> Option<Run> {
             world.find(create_id(o.nickname.as_bytes()))
         };
         handles.insert(o.name.clone(), h);
+    }
+    for ((from, to), value) in &ai.attitudes {
+        if let (Some(Some(a)), Some(Some(b))) = (handles.get(from), handles.get(to)) {
+            world.set_attitude(*a, *b, *value);
+        }
     }
     let names: BTreeMap<u32, String> = handles
         .iter()
@@ -604,6 +796,10 @@ fn run(s: &Scenario) -> Option<Run> {
     let record = |world: &World,
                   out: &mut BTreeMap<String, Vec<State>>,
                   handles: &BTreeMap<String, Option<ObjHandle>>| {
+        let target_of = |h: ObjHandle| {
+            let id = world.ai_view(h)?.target?;
+            names.get(&id).map(|n| create_id(n.as_bytes()))
+        };
         for (name, h) in handles {
             let st = h
                 .and_then(|h| world.inspect(h).map(|i| (h, i)))
@@ -618,9 +814,12 @@ fn run(s: &Scenario) -> Option<Run> {
                         angvel: i.angular_velocity,
                         throttle: i.ship.as_ref().map(|s| s.throttle),
                         axis: i.ship.as_ref().map(|s| s.axis_throttle),
+                        nudge: i.ship.as_ref().map(|s| s.nudge),
                         hp: i.hit_pts,
                         power,
                         shield,
+                        behavior: world.behavior_manager(h).map_or(-1, |m| m.state.behavior),
+                        target: target_of(h).unwrap_or(0),
                     }
                 });
             out.entry(name.clone()).or_default().push(st);
@@ -628,6 +827,7 @@ fn run(s: &Scenario) -> Option<Run> {
     };
     record(&world, &mut out.states, &handles);
     record_cores(&world, &mut out.cores, &handles);
+    out.probes.insert(0, turret_probes(&world, &handles));
     let mut next = 0;
     for tick in 1..=s.ticks {
         while next < s.commands.len() && s.commands[next].tick == tick {
@@ -637,7 +837,22 @@ fn run(s: &Scenario) -> Option<Run> {
                 continue;
             };
             let a = &c.args;
-            if let Some(op) = directive(a) {
+            // `formation <leader|none> [x y z]`: `pub::AI::
+            // update_formation_state`.
+            if a[0] == "formation" {
+                let leader = match a.get(1).map(String::as_str) {
+                    Some("none") | None => None,
+                    Some(n) => handles.get(n).copied().flatten(),
+                };
+                let offset = vec3(a, 2).unwrap_or(Vector::ZERO);
+                world.update_formation_state(h, leader, offset);
+                continue;
+            }
+            let id_of = |n: &str| {
+                let h = handles.get(n).copied().flatten()?;
+                world.get(h).map(|o| o.simple.id)
+            };
+            if let Some(op) = directive_with(a, &id_of) {
                 // A current directive blocks a new one, so each scenario
                 // directive cancels the one before.
                 if !matches!(op, DirectiveOp::Cancel) {
@@ -689,6 +904,18 @@ fn run(s: &Scenario) -> Option<Run> {
             }
         }
         world.step(system, s.frame as f32);
+        for h in world.take_beam_starts_inside(system) {
+            let name = world
+                .get(h)
+                .map_or_else(|| "?".to_owned(), |o| name_of(o.simple.id));
+            out.starts_inside.push((tick, name));
+        }
+        for h in world.take_beam_ov_culled(system) {
+            let name = world
+                .get(h)
+                .map_or_else(|| "?".to_owned(), |o| name_of(o.simple.id));
+            out.ov_culled.push((tick, name));
+        }
         if out.unported.is_none() {
             out.unported = handles.values().flatten().find_map(|&h| {
                 let m = world.behavior_manager(h)?;
@@ -717,6 +944,18 @@ fn run(s: &Scenario) -> Option<Run> {
                     out.hits
                         .push(rust_hit(tick, &name, sub, &damage, before, st));
                 }
+                WorldEvent::Fired {
+                    shooter,
+                    equip,
+                    bullet,
+                } => {
+                    out.fired += 1;
+                    if bullet != 0 {
+                        out.missiles.push((tick, name_of(shooter), equip));
+                        out.launch_notes
+                            .push(launch_note(&world, tick, shooter, equip));
+                    }
+                }
                 WorldEvent::Collision {
                     a,
                     b,
@@ -734,8 +973,1254 @@ fn run(s: &Scenario) -> Option<Run> {
         }
         record(&world, &mut out.states, &handles);
         record_cores(&world, &mut out.cores, &handles);
+        record_guided(&world, system, tick, &names, &mut out);
+        out.probes.insert(tick, turret_probes(&world, &handles));
+        for (name, h) in &handles {
+            let text = h
+                .and_then(|h| world.get(h))
+                .and_then(|o| o.as_equipped())
+                .map(|eq| {
+                    eq.equipment
+                        .traverse(types::GUN, false)
+                        .into_iter()
+                        .filter_map(|slot| eq.equipment.get(slot))
+                        .filter_map(|e| match &e.kind {
+                            EquipKind::Gun(g) => Some(gun_text(
+                                u32::from(e.id),
+                                [
+                                    g.yaw.current,
+                                    g.yaw.desired,
+                                    g.pitch.current,
+                                    g.pitch.desired,
+                                    g.target_point_age,
+                                ],
+                                &format!(
+                                    "b{}{} t{}",
+                                    u8::from(g.yaw.is_bound()),
+                                    u8::from(g.pitch.is_bound()),
+                                    g.target
+                                        .and_then(|t| world.get(t))
+                                        .map_or_else(|| "-".to_owned(), |o| name_of(o.simple.id))
+                                ),
+                            )),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                })
+                .unwrap_or_default();
+            out.guns.entry(name.clone()).or_default().push(text);
+        }
+        for t in world.take_guided_trace() {
+            let n = out
+                .guided_trace
+                .iter()
+                .filter(|(_, x)| x.id == t.id)
+                .count();
+            if n < 3 {
+                out.guided_trace.push((tick, t));
+            }
+        }
+        for (shooter, results) in world.take_fire_log() {
+            out.fires
+                .push((tick, name_of(shooter), format!("{results:?}")));
+        }
+        // The units of the PSIs this frame ran, named while their objects
+        // still exist.
+        if out.units.len() < UNIT_PSIS {
+            let trace = world.unit_trace(system);
+            for psi in trace
+                .into_iter()
+                .skip(out.units.len())
+                .take(UNIT_PSIS - out.units.len())
+            {
+                out.units.push(
+                    psi.into_iter()
+                        .map(|(id, class, check)| Unit { id, class, check })
+                        .collect(),
+                );
+            }
+        }
     }
+    out.unit_cores = world.unit_core_trace(system);
     Some(out)
+}
+
+/// The shooter's frame and the launcher's turret when a guided munition
+/// goes out (diagnostic).
+fn launch_note(world: &World, tick: u32, shooter: u32, equip: u16) -> String {
+    let Some(h) = world.find(shooter) else {
+        return format!("tick {tick}: shooter #{shooter} gone");
+    };
+    let Some(o) = world.get(h) else {
+        return String::new();
+    };
+    let m = o.engine.orientation.m;
+    let hex = |v: &[f32]| {
+        v.iter()
+            .map(|x| format!("{:08x}", x.to_bits()))
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let gun = o
+        .as_equipped()
+        .and_then(|eq| eq.equipment.by_id(equip))
+        .and_then(|e| match &e.kind {
+            EquipKind::Gun(g) => Some(g),
+            _ => None,
+        })
+        .map_or_else(String::new, |g| {
+            format!(
+                "yaw desired {} current {} bound {} limited {}; pitch desired {} current {} bound {} limited {}; target point [{}] age {}; lock {:?} sub {} elapsed {}",
+                g.yaw.desired,
+                g.yaw.current,
+                g.yaw.instance.is_some(),
+                g.yaw.limited,
+                g.pitch.desired,
+                g.pitch.current,
+                g.pitch.instance.is_some(),
+                g.pitch.limited,
+                hex(&[g.target_point.x, g.target_point.y, g.target_point.z]),
+                g.target_point_age,
+                g.target.and_then(|t| world.get(t)).map(|t| t.simple.id),
+                g.lock_sub,
+                g.lock_elapsed
+            )
+        });
+    format!(
+        "tick {tick}: shooter #{shooter} orient [{}] pos [{}]; gun {equip}: {gun}",
+        hex(&[
+            m[0][0], m[0][1], m[0][2], m[1][0], m[1][1], m[1][2], m[2][0], m[2][1], m[2][2]
+        ]),
+        hex(&[
+            o.engine.position.x,
+            o.engine.position.y,
+            o.engine.position.z
+        ])
+    )
+}
+
+fn gun_text(id: u32, v: [f32; 5], extra: &str) -> String {
+    format!(
+        "{id}:[{} {extra}]",
+        v.iter()
+            // A signed zero compares as zero (the joints' rest value).
+            .map(|x| format!("{:08x}", (x + 0.0).to_bits()))
+            .collect::<Vec<_>>()
+            .join(" ")
+    )
+}
+
+/// The first tick whose turret joints differ from the oracle's
+/// (`tick.jsonl` `guns`), per ship (diagnostic).
+fn report_guns(summary: &mut String, dir: &Path, scenario: &str, ours: &Run) {
+    let Some(file) = find_files(&dir.join(scenario), "tick.jsonl")
+        .into_iter()
+        .next()
+    else {
+        return;
+    };
+    let mut theirs: BTreeMap<String, Vec<(u32, String)>> = BTreeMap::new();
+    let records = read_lines(&file);
+    // The lock targets by the scenario's names (the two worlds number their
+    // objects differently).
+    let oracle_names: BTreeMap<u32, String> = records
+        .iter()
+        .filter(|r| r.get("rec").and_then(Json::as_str) == Some("object"))
+        .filter_map(|r| Some((r.get("id")?.as_u32()?, r.get("obj")?.as_str()?.to_owned())))
+        .collect();
+    for r in &records {
+        if r.get("rec").and_then(Json::as_str) != Some("object") {
+            continue;
+        }
+        let Some(guns) = r.get("guns").and_then(Json::as_array) else {
+            continue;
+        };
+        let (Some(name), Some(tick)) = (
+            r.get("obj").and_then(Json::as_str),
+            r.get("tick").and_then(Json::as_u32),
+        ) else {
+            continue;
+        };
+        let text = guns
+            .iter()
+            .filter_map(|g| {
+                let a = g.as_array()?;
+                let id = a.first()?.as_u32()?;
+                let v: Vec<f32> = a.get(1..6)?.iter().filter_map(Json::as_f32).collect();
+                let int = |i: usize| a.get(i).and_then(Json::as_u32).unwrap_or(0);
+                let lock = match int(8) {
+                    0 => "-".to_owned(),
+                    id => oracle_names
+                        .get(&id)
+                        .cloned()
+                        .unwrap_or_else(|| format!("#{id}")),
+                };
+                let extra = format!("b{}{} t{lock}", int(6), int(7));
+                Some(gun_text(id, <[f32; 5]>::try_from(v).ok()?, &extra))
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        theirs
+            .entry(name.to_owned())
+            .or_default()
+            .push((tick, text));
+    }
+    for (name, list) in &theirs {
+        let Some(mine) = ours.guns.get(name) else {
+            continue;
+        };
+        // The Rust side records the guns after each tick from tick 1 (its
+        // first entry is tick 1's), the oracle from tick 0.
+        let rust_at = |t: u32| t.checked_sub(1).and_then(|k| mine.get(k as usize));
+        match list
+            .iter()
+            .find(|(t, text)| rust_at(*t).is_some_and(|m| m != text))
+        {
+            None => {
+                let _ = writeln!(
+                    summary,
+                    "{scenario}: {name}: turret joints equal the oracle's on every tick"
+                );
+            }
+            Some((t, text)) => {
+                let _ = writeln!(
+                    summary,
+                    "{scenario}: {name}: turret joints first differ at tick {t}: rust {} | oracle {text}",
+                    rust_at(*t).cloned().unwrap_or_default()
+                );
+            }
+        }
+    }
+}
+
+/// One gun of an AI ship as the auto-turret scan sees it: barrel 0's
+/// position and `can_point_at(position, 0.3)` toward each other named
+/// object.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct TurretProbe {
+    gun: u16,
+    barrel: Option<Vector>,
+    /// The turret geometry as the oracle's `turret` record lays it out.
+    turret: Option<Vec<f32>>,
+    can_point: BTreeMap<String, bool>,
+}
+
+/// The turret probes of every AI ship (diagnostic).
+fn turret_probes(
+    world: &World,
+    handles: &BTreeMap<String, Option<ObjHandle>>,
+) -> BTreeMap<String, Vec<TurretProbe>> {
+    use game_sim::ai::world::AiWorld;
+    let mut out = BTreeMap::new();
+    for (name, h) in handles {
+        let Some(h) = *h else {
+            continue;
+        };
+        if world.behavior_manager(h).is_none() {
+            continue;
+        }
+        let Some(eq) = world.get(h).and_then(|o| o.as_equipped()) else {
+            continue;
+        };
+        let guns: Vec<u16> = eq
+            .equipment
+            .traverse(types::GUN, false)
+            .into_iter()
+            .filter_map(|slot| eq.equipment.get(slot))
+            .map(|e| e.id)
+            .collect();
+        let mut probes = Vec::new();
+        for gun in guns {
+            let barrel = <World as AiWorld>::equipment(world, h, gun)
+                .and_then(|i| i.barrel)
+                .map(|(p, _)| p);
+            let mut can_point = BTreeMap::new();
+            for (other, oh) in handles {
+                let Some(oh) = *oh else {
+                    continue;
+                };
+                if oh == h {
+                    continue;
+                }
+                let Some(v) = <World as AiWorld>::inspect(world, oh) else {
+                    continue;
+                };
+                can_point.insert(
+                    other.clone(),
+                    <World as AiWorld>::can_point_at(world, h, gun, v.position, 0.3),
+                );
+            }
+            let turret = world.turret_geometry(h, gun).map(|t| {
+                let joint = |j: Option<(f32, f32)>| match j {
+                    Some((min, max)) => [1.0, 0.0, min, max],
+                    None => [0.0; 4],
+                };
+                let mut v = Vec::with_capacity(29);
+                v.extend(joint(t.yaw));
+                v.extend(joint(t.pitch));
+                v.extend([t.origin.x, t.origin.y, t.origin.z]);
+                v.extend(t.frame.m.iter().flatten());
+                v.extend(t.connector.m.iter().flatten());
+                v
+            });
+            probes.push(TurretProbe {
+                gun,
+                barrel,
+                turret,
+                can_point,
+            });
+        }
+        out.insert(name.clone(), probes);
+    }
+    out
+}
+
+/// The Rust world's turret probes against the oracle's own-ship item
+/// records (`ai_obj.equip`: barrel 0 and `can_point`), each `ai_in` of
+/// tick `t` against the Rust world after tick `t - 1` and after tick `t`
+/// (diagnostic).
+fn report_turret_probes(summary: &mut String, dir: &Path, scenario: &str, ours: &Run) {
+    let Some(first) = find_files(&dir.join(scenario), "ai.jsonl")
+        .into_iter()
+        .min()
+    else {
+        return;
+    };
+    let ticks = support::ai_records::read_ai_ticks(&first);
+    for (label, shift) in [("before", 1_u32), ("after", 0_u32)] {
+        let mut compared = 0_usize;
+        let mut differ = 0_usize;
+        let mut first_diff: Option<String> = None;
+        for t in &ticks {
+            let Some(ship) = t.obj.as_deref() else {
+                continue;
+            };
+            let Some(own) = t.objects.iter().find(|o| o.id == t.id) else {
+                continue;
+            };
+            let Some(equip) = &own.equip else {
+                continue;
+            };
+            let Some(mine) = t
+                .tick
+                .checked_sub(shift)
+                .and_then(|k| ours.probes.get(&k))
+                .and_then(|m| m.get(ship))
+            else {
+                continue;
+            };
+            let names: BTreeMap<u32, String> = t
+                .objects
+                .iter()
+                .filter_map(|o| Some((o.id, o.name.clone()?)))
+                .collect();
+            for e in equip.iter().filter(|e| e.type_mask == 0x80) {
+                let Some(p) = mine.iter().find(|p| p.gun == e.id) else {
+                    continue;
+                };
+                let mut notes = Vec::new();
+                if let (Some((theirs, _)), Some(rust)) = (e.barrel, p.barrel)
+                    && [theirs.x, theirs.y, theirs.z].map(f32::to_bits)
+                        != [rust.x, rust.y, rust.z].map(f32::to_bits)
+                {
+                    notes.push(format!("barrel rust {rust:?} oracle {theirs:?}"));
+                }
+                // The limited flags (index 1 and 5) are the oracle's only.
+                if let (Some(theirs), Some(rust)) = (&e.turret, &p.turret) {
+                    let differ: Vec<usize> = (0..29)
+                        .filter(|&k| k != 1 && k != 5)
+                        .filter(|&k| theirs[k].to_bits() != rust[k].to_bits())
+                        .collect();
+                    if !differ.is_empty() {
+                        notes.push(format!(
+                            "turret words {differ:?} rust {rust:?} oracle {theirs:?}"
+                        ));
+                    }
+                }
+                for (id, answer) in &e.can_point {
+                    let Some(n) = names.get(id) else {
+                        continue;
+                    };
+                    match p.can_point.get(n) {
+                        Some(r) if r != answer => {
+                            notes.push(format!("can_point {n} rust {r} oracle {answer}"));
+                        }
+                        _ => {}
+                    }
+                }
+                compared += 1;
+                if !notes.is_empty() {
+                    differ += 1;
+                    if first_diff.is_none() {
+                        first_diff = Some(format!(
+                            "tick {} {ship} gun {}: {}",
+                            t.tick,
+                            e.id,
+                            notes.join("; ")
+                        ));
+                    }
+                }
+            }
+        }
+        if compared > 0 {
+            let _ = writeln!(
+                summary,
+                "{scenario}: turret probes ({label} the tick): {compared} compared, {differ} differ{}",
+                first_diff.map_or_else(String::new, |d| format!("; first: {d}"))
+            );
+        }
+    }
+}
+
+/// The guided munitions after a tick: each live one's state and core,
+/// and `alive` false once for each one gone.
+fn record_guided(
+    world: &World,
+    system: u32,
+    tick: u32,
+    names: &BTreeMap<u32, String>,
+    out: &mut Run,
+) {
+    let mut live = Vec::new();
+    for h in world.objects_in(system) {
+        let Some(o) = world.get(h) else {
+            continue;
+        };
+        if o.kind != ObjectKind::Guided || o.dead {
+            continue;
+        }
+        let KindData::Guided(g) = &o.data else {
+            continue;
+        };
+        let Some(i) = world.inspect(h) else {
+            continue;
+        };
+        let id = o.simple.id;
+        live.push(id);
+        let target = g
+            .target
+            .and_then(|t| world.get(t))
+            .map(|t| {
+                names
+                    .get(&t.simple.id)
+                    .cloned()
+                    .unwrap_or_else(|| format!("#{}", t.simple.id))
+            })
+            .unwrap_or_default();
+        out.guided.entry(id).or_default().push(GuidedState {
+            tick,
+            alive: true,
+            pos: i.position,
+            vel: i.velocity,
+            orient: i.orientation.to_words(),
+            angvel: i.angular_velocity,
+            lifetime: g.projectile.lifetime,
+            seeker_elapsed: g.seeker_elapsed,
+            target,
+        });
+        if let Some(core) = o
+            .physical
+            .body
+            .and_then(|b| world.physics(o.physical.system)?.core(b).cloned())
+        {
+            out.guided_cores.entry(id).or_default().push((
+                tick,
+                CoreRecord {
+                    core,
+                    unit_state: 0,
+                },
+            ));
+        }
+    }
+    for (id, states) in &mut out.guided {
+        if !live.contains(id) && states.last().is_some_and(|s| s.alive) {
+            states.push(GuidedState {
+                tick,
+                ..GuidedState::default()
+            });
+        }
+    }
+}
+
+/// The oracle's `guided` records (`tick.jsonl`) by id.
+fn oracle_guided(dir: &Path, scenario: &str) -> BTreeMap<u32, Vec<GuidedState>> {
+    let mut out: BTreeMap<u32, Vec<GuidedState>> = BTreeMap::new();
+    let Some(file) = find_files(&dir.join(scenario), "tick.jsonl")
+        .into_iter()
+        .next()
+    else {
+        return out;
+    };
+    for r in read_lines(&file) {
+        if r.get("rec").and_then(Json::as_str) != Some("guided") {
+            continue;
+        }
+        let (Some(id), Some(tick)) = (
+            r.get("id").and_then(Json::as_u32),
+            r.get("tick").and_then(Json::as_u32),
+        ) else {
+            continue;
+        };
+        let v = |k: &str| {
+            r.get(k)
+                .and_then(Json::as_floats)
+                .filter(|a| a.len() >= 3)
+                .map_or(Vector::ZERO, |a| Vector::new(a[0], a[1], a[2]))
+        };
+        out.entry(id).or_default().push(GuidedState {
+            tick,
+            alive: r.get("alive").and_then(Json::as_bool).unwrap_or(false),
+            pos: v("pos"),
+            vel: v("vel"),
+            orient: r
+                .get("orient")
+                .and_then(Json::as_floats)
+                .and_then(|a| <[f32; 9]>::try_from(a).ok())
+                .unwrap_or_default(),
+            angvel: v("angvel"),
+            lifetime: r.get("lifetime").and_then(Json::as_f32).unwrap_or(0.0),
+            seeker_elapsed: r
+                .get("seeker_elapsed")
+                .and_then(Json::as_f32)
+                .unwrap_or(0.0),
+            target: r
+                .get("target_obj")
+                .and_then(Json::as_str)
+                .map(str::to_owned)
+                .or_else(|| {
+                    r.get("target")
+                        .and_then(Json::as_u32)
+                        .map(|t| format!("#{t}"))
+                })
+                .unwrap_or_default(),
+        });
+    }
+    out
+}
+
+/// The oracle's `guided` cores (`psi.jsonl`) by id: (tick, `out`).
+fn oracle_guided_cores(dir: &Path, scenario: &str) -> BTreeMap<u32, Vec<(u32, CoreRecord)>> {
+    let mut out: BTreeMap<u32, Vec<(u32, CoreRecord)>> = BTreeMap::new();
+    let Some(file) = find_files(&dir.join(scenario), "psi.jsonl")
+        .into_iter()
+        .min()
+    else {
+        return out;
+    };
+    let Ok(text) = fs::read_to_string(&file) else {
+        return out;
+    };
+    for line in text.lines() {
+        if !line.contains("\"obj\":\"guided\"") {
+            continue;
+        }
+        let Ok(record) = neuron_core::physics::replay::PsiRecord::parse(line) else {
+            continue;
+        };
+        out.entry(record.id)
+            .or_default()
+            .push((record.tick, record.output));
+    }
+    out
+}
+
+/// The guided munitions of both sides, numbered by id: the launch tick,
+/// the last tick alive and the speed then, the first bit difference of the
+/// trajectory and of the core. Different launch or end ticks, or a missile
+/// on one side only, are gross divergence.
+fn report_guided(
+    summary: &mut String,
+    gross: &mut Vec<String>,
+    dir: &Path,
+    scenario: &str,
+    ours: &Run,
+    cutoff: u32,
+) {
+    let theirs = oracle_guided(dir, scenario);
+    if theirs.is_empty() && ours.guided.is_empty() {
+        return;
+    }
+    let their_cores = oracle_guided_cores(dir, scenario);
+    let rust: Vec<(&u32, &Vec<GuidedState>)> = ours.guided.iter().collect();
+    let oracle: Vec<(&u32, &Vec<GuidedState>)> = theirs.iter().collect();
+    // The launch tick, the tick the munition is spent (the first tick it
+    // is gone, or reads a velocity of exactly zero: the reference's object
+    // destroyed in the collision pass stays in the object database until
+    // the next update, its body gone), and the last flying state's speed
+    // and target.
+    let span = |v: &[GuidedState]| {
+        let first = v.first().map_or(0, |s| s.tick);
+        let spent = v
+            .iter()
+            .find(|s| !s.alive || s.vel == Vector::ZERO)
+            .map_or(u32::MAX, |s| s.tick);
+        let last = v.iter().rev().find(|s| s.alive && s.tick < spent);
+        (
+            first,
+            spent,
+            last.map_or(0.0, |s| dist(s.vel, Vector::ZERO)),
+            last.map_or_else(String::new, |s| s.target.clone()),
+        )
+    };
+    let _ = writeln!(
+        summary,
+        "{scenario}: guided munitions: rust {}, oracle {}",
+        rust.len(),
+        oracle.len()
+    );
+    for note in &ours.launch_notes {
+        let _ = writeln!(summary, "    rust launch {note}");
+    }
+    let hex3 = |v: Vector| {
+        format!(
+            "[{:08x} {:08x} {:08x}]",
+            v.x.to_bits(),
+            v.y.to_bits(),
+            v.z.to_bits()
+        )
+    };
+    for (tick, t) in &ours.guided_trace {
+        let _ = writeln!(
+            summary,
+            "    rust seek tick {tick} #{}: target pos {} vel {} own pos {} vel {} sees {} turn {} align {}",
+            t.id,
+            hex3(t.target_pos),
+            hex3(t.target_vel),
+            hex3(t.pos),
+            hex3(t.vel),
+            t.sees,
+            t.turn.map_or_else(|| "-".to_owned(), hex3),
+            t.align.map_or_else(|| "-".to_owned(), hex3)
+        );
+    }
+    // The oracle's first PSIs of each missile: what its update added.
+    if let Some(file) = find_files(&dir.join(scenario), "psi.jsonl")
+        .into_iter()
+        .min()
+    {
+        let mut seen: BTreeMap<u32, usize> = BTreeMap::new();
+        for r in read_lines(&file) {
+            if r.get("obj").and_then(Json::as_str) != Some("guided") {
+                continue;
+            }
+            let id = r.get("id").and_then(Json::as_u32).unwrap_or(0);
+            let n = seen.entry(id).or_default();
+            *n += 1;
+            if *n > 3 {
+                continue;
+            }
+            let h = |c: Option<&Json>, k: &str| {
+                c.and_then(|c| c.get(k))
+                    .and_then(Json::as_floats)
+                    .map(|v| {
+                        v.iter()
+                            .map(|x| format!("{:08x}", x.to_bits()))
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    })
+                    .unwrap_or_default()
+            };
+            let i = r.get("in");
+            let _ = writeln!(
+                summary,
+                "    oracle psi tick {} #{id}: in speed [{}] speed_change [{}] rot_speed [{}] rot_speed_change [{}] pos [{}] q [{}] ulr {:?}; pushes {}",
+                r.get("tick").and_then(Json::as_u32).unwrap_or(0),
+                h(i, "speed"),
+                h(i, "speed_change"),
+                h(i, "rot_speed"),
+                h(i, "rot_speed_change"),
+                h(i, "pos"),
+                h(i, "q"),
+                i.and_then(|c| c.get("upper_limit_radius"))
+                    .and_then(Json::as_f32),
+                r.get("pushes")
+                    .and_then(Json::as_array)
+                    .map_or(0, |a| a.len())
+            );
+        }
+    }
+    // The oracle's shooters' frames in the launch ticks (`tick.jsonl`).
+    if let Some(file) = find_files(&dir.join(scenario), "tick.jsonl")
+        .into_iter()
+        .next()
+    {
+        let launches: Vec<u32> = oracle
+            .iter()
+            .filter_map(|(_, v)| v.first().map(|s| s.tick))
+            .collect();
+        for r in read_lines(&file) {
+            let tick = r.get("tick").and_then(Json::as_u32).unwrap_or(0);
+            if r.get("rec").and_then(Json::as_str) != Some("object") || !launches.contains(&tick) {
+                continue;
+            }
+            let hex = |k: &str| {
+                r.get(k)
+                    .and_then(Json::as_floats)
+                    .map(|v| {
+                        v.iter()
+                            .map(|x| format!("{:08x}", x.to_bits()))
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    })
+                    .unwrap_or_default()
+            };
+            let _ = writeln!(
+                summary,
+                "    oracle tick {tick} {}: orient [{}] pos [{}]",
+                r.get("obj").and_then(Json::as_str).unwrap_or("?"),
+                hex("orient"),
+                hex("pos")
+            );
+        }
+    }
+    for (id, v) in &oracle {
+        if let Some(first) = v.first() {
+            let _ = writeln!(
+                summary,
+                "    oracle guided #{id} first record tick {}: orient [{}] vel [{:08x} {:08x} {:08x}]",
+                first.tick,
+                first
+                    .orient
+                    .iter()
+                    .map(|x| format!("{:08x}", x.to_bits()))
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                first.vel.x.to_bits(),
+                first.vel.y.to_bits(),
+                first.vel.z.to_bits()
+            );
+        }
+    }
+    for (id, v) in &rust {
+        if let Some(first) = v.first() {
+            let _ = writeln!(
+                summary,
+                "    rust guided #{id} first record tick {}: orient [{}] vel [{:08x} {:08x} {:08x}]",
+                first.tick,
+                first
+                    .orient
+                    .iter()
+                    .map(|x| format!("{:08x}", x.to_bits()))
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                first.vel.x.to_bits(),
+                first.vel.y.to_bits(),
+                first.vel.z.to_bits()
+            );
+        }
+    }
+    // Only what happens before a fight's first contact or impact is judged
+    // (`cutoff`, owner 2026-11-18): the munitions launched before it.
+    let launched_before = |v: &[(&u32, &Vec<GuidedState>)]| {
+        v.iter()
+            .filter(|(_, s)| s.first().is_some_and(|f| f.tick < cutoff))
+            .count()
+    };
+    if launched_before(&rust) != launched_before(&oracle) && !theirs.is_empty() {
+        gross.push(format!(
+            "{scenario}: guided munitions launched before tick {cutoff}: rust {} vs oracle {}",
+            launched_before(&rust),
+            launched_before(&oracle)
+        ));
+    }
+    for k in 0..rust.len().max(oracle.len()) {
+        let a = rust.get(k);
+        let b = oracle.get(k);
+        let fmt = |x: Option<&(&u32, &Vec<GuidedState>)>| {
+            x.map_or_else(
+                || "none".to_owned(),
+                |(id, v)| {
+                    let (first, last, speed, target) = span(v);
+                    format!(
+                        "#{id} launched at tick {first}, spent at tick {last}, last speed {speed:.3} m/s, target {target}"
+                    )
+                },
+            )
+        };
+        let _ = writeln!(
+            summary,
+            "{scenario}: guided{}: rust {} | oracle {}",
+            k + 1,
+            fmt(a),
+            fmt(b)
+        );
+        let (Some((rid, av)), Some((oid, bv))) = (a, b) else {
+            continue;
+        };
+        let (sa, sb) = (span(av), span(bv));
+        let before = sa.0.min(sb.0) < cutoff && sa.0 != sb.0 || sa.1.min(sb.1) < cutoff;
+        if (sa.0, sa.1) != (sb.0, sb.1) && before {
+            gross.push(format!(
+                "{scenario}: guided{} launched at tick {} and spent at tick {}; the oracle's at {} and {}",
+                k + 1,
+                sa.0,
+                sa.1,
+                sb.0,
+                sb.1
+            ));
+        }
+        // The trajectory, bit for bit, tick by tick.
+        let bits = |v: Vector| [v.x.to_bits(), v.y.to_bits(), v.z.to_bits()];
+        let differs = |x: &GuidedState, y: &GuidedState| {
+            x.alive != y.alive
+                || (x.alive
+                    && (bits(x.pos) != bits(y.pos)
+                        || bits(x.vel) != bits(y.vel)
+                        || bits(x.angvel) != bits(y.angvel)
+                        || x.orient.map(f32::to_bits) != y.orient.map(f32::to_bits)
+                        || x.lifetime.to_bits() != y.lifetime.to_bits()
+                        || x.seeker_elapsed.to_bits() != y.seeker_elapsed.to_bits()))
+        };
+        let pairs: Vec<(&GuidedState, &GuidedState)> = av
+            .iter()
+            .filter_map(|x| bv.iter().find(|y| y.tick == x.tick).map(|y| (x, y)))
+            .collect();
+        let line = |st: &GuidedState| {
+            let hex = |v: Vector| {
+                format!(
+                    "[{:08x} {:08x} {:08x}]",
+                    v.x.to_bits(),
+                    v.y.to_bits(),
+                    v.z.to_bits()
+                )
+            };
+            format!(
+                "alive {} pos ({:.4}, {:.4}, {:.4}) {} vel {} speed {:.4} angvel {} fwd ({:.4}, {:.4}, {:.4}) lifetime {} elapsed {} target {}",
+                st.alive,
+                st.pos.x,
+                st.pos.y,
+                st.pos.z,
+                hex(st.pos),
+                hex(st.vel),
+                dist(st.vel, Vector::ZERO),
+                hex(st.angvel),
+                -st.orient[2],
+                -st.orient[5],
+                -st.orient[8],
+                st.lifetime,
+                st.seeker_elapsed,
+                st.target
+            )
+        };
+        match pairs.iter().position(|(x, y)| differs(x, y)) {
+            None => {
+                let _ = writeln!(
+                    summary,
+                    "{scenario}: guided{}: every common tick ({}) equals the oracle bit for bit",
+                    k + 1,
+                    pairs.len()
+                );
+            }
+            Some(i) => {
+                let _ = writeln!(
+                    summary,
+                    "{scenario}: guided{}: first bit difference at tick {} ({} of {} common ticks differ):",
+                    k + 1,
+                    pairs[i].0.tick,
+                    pairs.iter().filter(|(x, y)| differs(x, y)).count(),
+                    pairs.len()
+                );
+                for (x, y) in pairs.iter().skip(i.saturating_sub(1)).take(4) {
+                    let _ = writeln!(summary, "    tick {} rust:   {}", x.tick, line(x));
+                    let _ = writeln!(summary, "    tick {} oracle: {}", y.tick, line(y));
+                }
+            }
+        }
+        // The core after each PSI against the oracle's `out`.
+        let (Some(rc), Some(oc)) = (ours.guided_cores.get(rid), their_cores.get(oid)) else {
+            continue;
+        };
+        let mut first = None;
+        for (tick, expected) in oc {
+            let Some((_, actual)) = rc.iter().find(|(t, _)| t == tick) else {
+                continue;
+            };
+            let actual = CoreRecord {
+                core: actual.core.clone(),
+                unit_state: expected.unit_state,
+            };
+            let diffs = compare(expected, &actual, 0.0);
+            if !diffs.is_empty() {
+                first = Some((*tick, diffs));
+                break;
+            }
+        }
+        match first {
+            None => {
+                let _ = writeln!(
+                    summary,
+                    "{scenario}: guided{}: every core of the oracle's {} PSIs equals the Rust core bit for bit",
+                    k + 1,
+                    oc.len()
+                );
+            }
+            Some((tick, diffs)) => {
+                let _ = writeln!(
+                    summary,
+                    "{scenario}: guided{}: core first differs after tick {tick}: {}",
+                    k + 1,
+                    diffs.join("; ")
+                );
+            }
+        }
+    }
+}
+
+/// The oracle's unit cores (`unit_cores.jsonl` beside the first
+/// `units.jsonl`): per PSI, the cores in run order, the start state only in
+/// the first PSI.
+/// One unit of `unit_cores.jsonl`: the start (first PSI only) and end
+/// states, and for a free part its object's frame and its golem's target
+/// and current target rotations (the raw line, for the report).
+type OracleUnitCore = (Option<CoreRecord>, CoreRecord, String);
+
+fn oracle_unit_cores(dir: &Path, scenario: &str) -> Vec<Vec<OracleUnitCore>> {
+    let Some(file) = find_files(&dir.join(scenario), "unit_cores.jsonl")
+        .into_iter()
+        .min()
+    else {
+        return Vec::new();
+    };
+    let Ok(text) = fs::read_to_string(&file) else {
+        return Vec::new();
+    };
+    let mut out: Vec<Vec<OracleUnitCore>> = Vec::new();
+    for line in text.lines() {
+        let Ok(r) = support::records::parse(line) else {
+            continue;
+        };
+        let psi = r.get("psi").and_then(Json::as_u32).unwrap_or(0) as usize;
+        let Ok(o) = CoreRecord::parse_field(line, "out") else {
+            continue;
+        };
+        let i = CoreRecord::parse_field(line, "in").ok();
+        if psi == 0 {
+            continue;
+        }
+        while out.len() < psi {
+            out.push(Vec::new());
+        }
+        let floats = |k: &str| {
+            r.get(k)
+                .and_then(Json::as_floats)
+                .map(|v| {
+                    v.iter()
+                        .map(|x| format!("{:08x}", x.to_bits()))
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                })
+                .unwrap_or_default()
+        };
+        let extra = format!(
+            "orient [{}] pos [{}] golem_q [{}] golem_current_q [{}]",
+            floats("orient"),
+            floats("pos"),
+            floats("golem_q"),
+            floats("golem_current_q")
+        );
+        out[psi - 1].push((i, o, extra));
+    }
+    out
+}
+
+/// The first unit core that differs from the oracle's (record 0003's bit
+/// comparison), PSI by PSI in run order, for the PSIs both recorded.
+fn report_unit_cores(
+    summary: &mut String,
+    dir: &Path,
+    scenario: &str,
+    ours: &Run,
+    theirs_units: &[Vec<Unit>],
+) {
+    let theirs = oracle_unit_cores(dir, scenario);
+    if theirs.is_empty() {
+        return;
+    }
+    for (p, (a, b)) in ours.unit_cores.iter().zip(&theirs).enumerate() {
+        for (i, ((ain, aout, agolem), (bin, bout, bextra))) in a.iter().zip(b).enumerate() {
+            let unit = theirs_units
+                .get(p)
+                .and_then(|u| u.get(i))
+                .map_or_else(|| "?".to_owned(), |u| format!("{}:{:x}", u.id, u.class));
+            if let Some(bin) = bin {
+                let d = compare(bin, ain, 0.0);
+                if !d.is_empty() {
+                    let _ = writeln!(
+                        summary,
+                        "{scenario}: unit cores: psi {} unit {i} ({unit}) starts differently, oracle != rust: {}",
+                        p + 1,
+                        d.iter().take(10).cloned().collect::<Vec<_>>().join("; ")
+                    );
+                    return;
+                }
+            }
+            let d = compare(bout, aout, 0.0);
+            if !d.is_empty() {
+                let _ = writeln!(
+                    summary,
+                    "{scenario}: unit cores: psi {} unit {i} ({unit}) first differs at the end of its PSI, oracle != rust: {}",
+                    p + 1,
+                    d.iter().take(12).cloned().collect::<Vec<_>>().join("; ")
+                );
+                let h = |v: &[f32]| {
+                    v.iter()
+                        .map(|x| format!("{:08x}", x.to_bits()))
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                };
+                let q = |c: &CoreRecord| {
+                    let q = c.core.q_world_f_core_next_psi;
+                    h(&[q.x, q.y, q.z, q.w])
+                };
+                let _ = writeln!(
+                    summary,
+                    "    oracle: {bextra}; core q_next at the start [{}]",
+                    bin.as_ref().map(q).unwrap_or_default()
+                );
+                let _ = writeln!(
+                    summary,
+                    "    rust: golem target and current [{}]; core q_next at the start [{}]",
+                    agolem.map(|g| h(&g)).unwrap_or_default(),
+                    q(ain)
+                );
+                return;
+            }
+        }
+        if a.len() != b.len() {
+            let _ = writeln!(
+                summary,
+                "{scenario}: unit cores: psi {} rust {} units, oracle {}",
+                p + 1,
+                a.len(),
+                b.len()
+            );
+            return;
+        }
+    }
+    let _ = writeln!(
+        summary,
+        "{scenario}: unit cores: every core of the first {} PSIs equals the oracle's bit for bit",
+        theirs.len().min(ours.unit_cores.len())
+    );
+}
+
+/// The PSIs `units.jsonl` records (`kUnitPsis`, oracle_sim.cpp).
+const UNIT_PSIS: usize = 120;
+
+/// A simulation unit of a PSI: its (first) core's object as `units.jsonl`
+/// names it, and whether the movement check came to it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Unit {
+    id: u32,
+    class: u32,
+    check: bool,
+}
+
+/// The oracle's simulation units per PSI from the first `units.jsonl`
+/// under `<oracle dir>/<scenario>/`, and whether any unit held more than
+/// one core.
+fn oracle_units(dir: &Path, scenario: &str) -> Option<(Vec<Vec<Unit>>, bool)> {
+    let file = find_files(&dir.join(scenario), "units.jsonl")
+        .into_iter()
+        .min()?;
+    let mut multi = false;
+    let mut out = Vec::new();
+    for r in read_lines(&file) {
+        let units = r.get("units").and_then(Json::as_array).unwrap_or_default();
+        let psi: Vec<Unit> = units
+            .iter()
+            .map(|u| {
+                let a = u.as_array().unwrap_or_default();
+                let words: Vec<u32> = a.iter().filter_map(Json::as_u32).collect();
+                multi |= words.len() > 2;
+                Unit {
+                    id: words.first().copied().unwrap_or(0),
+                    class: words.get(1).copied().unwrap_or(0),
+                    check: a.last().and_then(Json::as_bool) == Some(true),
+                }
+            })
+            .collect();
+        out.push(psi);
+    }
+    Some((out, multi))
+}
+
+/// A PSI's units, runs of equal ones folded (`0:1x48`), the unit the
+/// movement check came to marked with `*`.
+fn fmt_units(units: &[Unit]) -> String {
+    let mut out: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < units.len() {
+        let u = units[i];
+        let mut j = i + 1;
+        while j < units.len() && units[j] == u && !u.check {
+            j += 1;
+        }
+        let mark = if u.check { "*" } else { "" };
+        if j - i > 1 {
+            out.push(format!("{}:{:x}x{}", u.id, u.class, j - i));
+        } else {
+            out.push(format!("{}:{:x}{mark}", u.id, u.class));
+        }
+        i = j;
+    }
+    out.join(" ")
+}
+
+/// The simulation units of both sides, PSI by PSI: the first PSI where the
+/// list (objects, order, movement check) differs, or that they agree.
+fn report_units(summary: &mut String, dir: &Path, scenario: &str, ours: &Run) {
+    let Some((theirs, multi)) = oracle_units(dir, scenario) else {
+        return;
+    };
+    // The two sides number the scenario ships differently (the oracle's
+    // load makes objects the Rust world does not): each ship's or
+    // munition's id becomes its place in the order of the ids of its class
+    // (the spawn order).
+    let by_spawn = |v: &[Vec<Unit>]| -> Vec<Vec<Unit>> {
+        let numbered = |class: u32| {
+            let mut ids: Vec<u32> = v
+                .iter()
+                .flatten()
+                .filter(|u| u.class == class)
+                .map(|u| u.id)
+                .collect();
+            ids.sort_unstable();
+            ids.dedup();
+            ids
+        };
+        let (ships, guided) = (numbered(0x503), numbered(0xa7));
+        v.iter()
+            .map(|psi| {
+                psi.iter()
+                    .map(|u| {
+                        let list = match u.class {
+                            0x503 => &ships,
+                            0xa7 => &guided,
+                            _ => return *u,
+                        };
+                        match list.iter().position(|s| *s == u.id) {
+                            Some(k) => Unit {
+                                id: k as u32 + 1,
+                                ..*u
+                            },
+                            None => *u,
+                        }
+                    })
+                    .collect()
+            })
+            .collect()
+    };
+    let theirs = by_spawn(&theirs);
+    // The guided munitions as simulation units: the PSI each first runs.
+    let launches = |v: &[Vec<Unit>]| {
+        let mut seen: Vec<(u32, usize)> = Vec::new();
+        for (p, psi) in v.iter().enumerate() {
+            for u in psi {
+                if u.class == 0xa7 && !seen.iter().any(|(id, _)| *id == u.id) {
+                    seen.push((u.id, p + 1));
+                }
+            }
+        }
+        seen.iter().map(|(_, p)| *p).collect::<Vec<_>>()
+    };
+    let _ = writeln!(
+        summary,
+        "{scenario}: guided munitions first stepped at PSI rust {:?} oracle {:?} (of {}); rust launches (tick, shooter, gun) {:?}",
+        launches(&ours.units),
+        launches(&theirs),
+        theirs.len(),
+        ours.missiles.iter().take(8).collect::<Vec<_>>()
+    );
+    // Around the oracle's first guided munition: the fire calls of both
+    // sides (the oracle's `affect` records of `calls.jsonl`, slots 13 and 19).
+    if let Some(&first) = launches(&theirs).first() {
+        let to = u32::try_from(first).unwrap_or(0) + 1;
+        let from = 0;
+        for (t, who, r) in ours.fires.iter().filter(|f| (from..=to).contains(&f.0)) {
+            let _ = writeln!(summary, "    rust fire tick {t} {who}: {r}");
+        }
+        if let Some(file) = find_files(&dir.join(scenario), "calls.jsonl")
+            .into_iter()
+            .min()
+        {
+            for r in read_lines(&file) {
+                if r.get("rec").and_then(Json::as_str) != Some("affect") {
+                    continue;
+                }
+                let tick = r.get("tick").and_then(Json::as_u32).unwrap_or(0);
+                let slot = r.get("slot").and_then(Json::as_i32).unwrap_or(-1);
+                if !(from..=to).contains(&tick) || !matches!(slot, 13 | 19) {
+                    continue;
+                }
+                let _ = writeln!(
+                    summary,
+                    "    oracle affect tick {tick} {} slot {slot} ({}): i {} depth {} src {}",
+                    r.get("obj").and_then(Json::as_str).unwrap_or("?"),
+                    r.get("m").and_then(Json::as_str).unwrap_or("?"),
+                    r.get("i").and_then(Json::as_i32).unwrap_or(-1),
+                    r.get("depth").and_then(Json::as_i32).unwrap_or(-1),
+                    r.get("src").and_then(Json::as_str).unwrap_or("?")
+                );
+            }
+        }
+    }
+    report_unit_cores(summary, dir, scenario, ours, &theirs);
+    let ours_units = by_spawn(&ours.units);
+    let ours = &Run {
+        units: ours_units,
+        ..Run::default()
+    };
+    if multi {
+        let _ = writeln!(
+            summary,
+            "{scenario}: units: a unit of the oracle holds more than one core (compared by its first)"
+        );
+    }
+    let n = theirs.len().min(ours.units.len());
+    let count = |v: &[Vec<Unit>], p: usize| v.get(p).map_or(0, Vec::len);
+    let _ = writeln!(
+        summary,
+        "{scenario}: units at PSI 1, 40, 120: rust {} {} {}, oracle {} {} {}",
+        count(&ours.units, 0),
+        count(&ours.units, 39),
+        count(&ours.units, 119),
+        count(&theirs, 0),
+        count(&theirs, 39),
+        count(&theirs, 119)
+    );
+    match (0..n).find(|&p| ours.units[p] != theirs[p]) {
+        None => {
+            let _ = writeln!(
+                summary,
+                "{scenario}: units: every unit of the {n} recorded PSIs equals the oracle's (objects, order, movement check)"
+            );
+        }
+        Some(p) => {
+            let _ = writeln!(
+                summary,
+                "{scenario}: units first differ at PSI {} (of {n}):",
+                p + 1
+            );
+            for q in p.saturating_sub(1)..(p + 2).min(n) {
+                let _ = writeln!(
+                    summary,
+                    "    psi {} rust {}: {}",
+                    q + 1,
+                    ours.units[q].len(),
+                    fmt_units(&ours.units[q])
+                );
+                let _ = writeln!(
+                    summary,
+                    "    psi {} oracle {}: {}",
+                    q + 1,
+                    theirs[q].len(),
+                    fmt_units(&theirs[q])
+                );
+            }
+        }
+    }
 }
 
 /// The oracle's run of a scenario: the first `tick.jsonl` under
@@ -899,9 +2384,19 @@ fn oracle_ticks(file: &Path) -> BTreeMap<String, Vec<State>> {
                     .and_then(Json::as_floats)
                     .filter(|a| a.len() >= 3)
                     .map(|a| Vector::new(a[0], a[1], a[2])),
+                nudge: r
+                    .get("nudge")
+                    .and_then(Json::as_floats)
+                    .filter(|a| a.len() >= 3)
+                    .map(|a| Vector::new(a[0], a[1], a[2])),
                 hp: r.get("hp").and_then(Json::as_f32).unwrap_or(0.0),
                 power: r.get("power").and_then(Json::as_f32),
                 shield,
+                behavior: r.get("behavior").and_then(Json::as_i32).unwrap_or(-1),
+                target: r
+                    .get("target_obj")
+                    .and_then(Json::as_str)
+                    .map_or(0, |n| create_id(n.as_bytes())),
             },
         );
     }
@@ -994,6 +2489,76 @@ fn first_divergences(
             "{scenario}: {name}: the oracle's tick records carry no shield or power (an older harness)"
         );
     }
+}
+
+/// The comparison of a fight (record 0003 point 9): the first tick at
+/// which each ship's position (0.01 m), behaviour and target leave the
+/// oracle's, the munition hits up to the first divergence, and the
+/// outcome (alive, hull).
+fn report_combat(summary: &mut String, scenario: &str, ours: &Run, theirs: &Run) {
+    let mut first_any = usize::MAX;
+    for (name, a) in &ours.states {
+        let Some(b) = theirs.states.get(name) else {
+            continue;
+        };
+        let n = a.len().min(b.len());
+        let first = |f: &dyn Fn(&State, &State) -> bool| (0..n).find(|&t| f(&a[t], &b[t]));
+        let pos =
+            first(&|x, y| x.alive != y.alive || (x.alive && dist(x.pos, y.pos) > REPORT_POSITION));
+        let beh = first(&|x, y| x.alive && y.alive && x.behavior != y.behavior);
+        let tgt = first(&|x, y| x.alive && y.alive && x.target != y.target);
+        let shown = |v: Option<usize>| v.map_or_else(|| "never".to_owned(), |t| t.to_string());
+        let changes = |v: &[State]| {
+            let mut seq: Vec<(usize, i32)> = Vec::new();
+            for (t, st) in v.iter().enumerate() {
+                if seq.last().is_none_or(|l| l.1 != st.behavior) {
+                    seq.push((t, st.behavior));
+                }
+            }
+            seq
+        };
+        let _ = writeln!(
+            summary,
+            "{scenario}: {name}: exact (position within {REPORT_POSITION} m) until tick {}; behaviour first differs at {}, target at {}",
+            pos.map_or(n, |t| t.saturating_sub(1)),
+            shown(beh),
+            shown(tgt)
+        );
+        let _ = writeln!(
+            summary,
+            "{scenario}: {name}: behaviours rust {:?}",
+            changes(&a[..n])
+        );
+        let _ = writeln!(
+            summary,
+            "{scenario}: {name}: behaviours oracle {:?}",
+            changes(&b[..n])
+        );
+        first_divergences(summary, scenario, name, &a[..n], &b[..n]);
+        let (fa, fb) = (&a[n - 1], &b[n - 1]);
+        let _ = writeln!(
+            summary,
+            "{scenario}: {name}: outcome rust alive {} hull {} oracle alive {} hull {}",
+            fa.alive, fa.hp, fb.alive, fb.hp
+        );
+        first_any = first_any.min(pos.unwrap_or(usize::MAX));
+    }
+    let tick_limit = u32::try_from(first_any).unwrap_or(u32::MAX);
+    let before = |h: &[Hit]| h.iter().filter(|x| x.tick < tick_limit).count();
+    let _ = writeln!(
+        summary,
+        "{scenario}: shots rust {}; munition hits rust {} oracle {}; before the first divergence (tick {}) rust {} oracle {}",
+        ours.fired,
+        ours.hits.len(),
+        theirs.hits.len(),
+        if first_any == usize::MAX {
+            "none".to_owned()
+        } else {
+            first_any.to_string()
+        },
+        before(&ours.hits),
+        before(&theirs.hits)
+    );
 }
 
 fn fmt_hit(h: &Hit) -> String {
@@ -1228,6 +2793,11 @@ fn first_bit_difference(
         {
             out.push(format!("axis {} | {}", hex3(x), hex3(y)));
         }
+        if let (Some(x), Some(y)) = (a.nudge, b.nudge)
+            && bits(x) != bits(y)
+        {
+            out.push(format!("nudge {} | {}", hex3(x), hex3(y)));
+        }
         out
     };
     let n = ours.len().min(theirs.len());
@@ -1252,9 +2822,12 @@ fn first_bit_difference(
     // The commands of the ticks around it, both sides (axis throttle bits).
     for t in first.saturating_sub(3)..(first + 2).min(n) {
         let ax = |st: &State| st.axis.map_or_else(|| "-".to_owned(), hex3);
+        let nu = |st: &State| st.nudge.map_or_else(|| "-".to_owned(), hex3);
         let _ = writeln!(
             summary,
-            "    tick {t}: axis {} | {}, angvel {} | {}",
+            "    tick {t}: nudge {} | {}, axis {} | {}, angvel {} | {}",
+            nu(&ours[t]),
+            nu(&theirs[t]),
             ax(&ours[t]),
             ax(&theirs[t]),
             hex3(ours[t].angvel),
@@ -1471,6 +3044,166 @@ fn judge_contact(
     }
 }
 
+/// A run's first contact or munition impact: its first collision event,
+/// munition hit or spent guided munition (the oracle's `guided` records
+/// when `dir` is given, else the run's own).
+fn first_event(dir: &Path, scenario: &str, run: &Run) -> Option<u32> {
+    let guided = oracle_guided(dir, scenario);
+    first_event_of(run, &guided)
+}
+
+fn first_event_of(run: &Run, guided: &BTreeMap<u32, Vec<GuidedState>>) -> Option<u32> {
+    let contact = run.contacts.iter().map(|c| c.tick).min();
+    let hit = run.hits.iter().map(|h| h.tick).min();
+    let spent = guided
+        .values()
+        .filter_map(|v| {
+            v.iter()
+                .find(|s| !s.alive || s.vel == Vector::ZERO)
+                .map(|s| s.tick)
+        })
+        .min();
+    [contact, hit, spent].into_iter().flatten().min()
+}
+
+/// The escort scenarios of P2.5, none with a contact or a munition impact
+/// (formation flight, a follow directive, a guide directive, a cruiser's
+/// goto and large-ship manoeuvre), judged exactly as recorded.
+const EXACT_SCENARIOS: [&str; 4] = ["formation", "follow", "guide", "large_ship"];
+
+/// A scenario without contact judged exactly: every object equals the
+/// oracle bit for bit at every recorded tick (position, velocity,
+/// orientation, hit points, shield), alive or gone as in the oracle.
+fn judge_exact(
+    summary: &mut String,
+    gross: &mut Vec<String>,
+    s: &Scenario,
+    ours: &Run,
+    theirs: &Run,
+) {
+    let mut exact = true;
+    for (name, a) in &ours.states {
+        let Some(b) = theirs.states.get(name) else {
+            continue;
+        };
+        if a.len() != b.len() {
+            exact = false;
+            gross.push(format!(
+                "{}: {name} has {} ticks against the oracle's {}",
+                s.name,
+                a.len(),
+                b.len()
+            ));
+        }
+        let n = a.len().min(b.len());
+        if let Some(t) = (0..n).find(|&t| !same_state(&a[t], &b[t])) {
+            exact = false;
+            gross.push(format!(
+                "{}: {name} differs from the oracle at tick {t} (no contact: judged exactly)",
+                s.name
+            ));
+        }
+    }
+    if exact {
+        let _ = writeln!(
+            summary,
+            "{}: exact: every object equals the oracle bit for bit at every tick",
+            s.name
+        );
+    }
+}
+
+/// A fight (owner, 2026-11-18; record 0003 point 9, as `ram_ship`): every
+/// object must equal the oracle exactly before the oracle's first contact
+/// or munition impact, and the Rust world's first contact, hit or spent
+/// missile must come in the same tick (owner, 2026-11-19), or not at all
+/// when the oracle has none. After it the outcome (alive states), the
+/// collisions and the hits are reported, not judged: they fall under the
+/// Gate G2 envelopes, the differences coming from the accepted contact
+/// solver (D87, decision O19) and the fuse's timing (D177).
+fn judge_fight(
+    summary: &mut String,
+    gross: &mut Vec<String>,
+    dir: &Path,
+    s: &Scenario,
+    ours: &Run,
+    theirs: &Run,
+) {
+    let rust_first = first_event_of(ours, &ours.guided);
+    let Some(first) = first_event(dir, &s.name, theirs) else {
+        // No contact or impact: the whole run is judged, outcome included.
+        if let Some(t) = rust_first {
+            gross.push(format!(
+                "{}: the Rust world's first contact or impact comes at tick {t}; the oracle has none",
+                s.name
+            ));
+        }
+        for (name, a) in &ours.states {
+            if let (Some(x), Some(y)) = (a.last(), theirs.states.get(name).and_then(|b| b.last()))
+                && x.alive != y.alive
+            {
+                gross.push(format!(
+                    "{}: {name} outcome: alive {} vs the oracle's {} (no contact)",
+                    s.name, x.alive, y.alive
+                ));
+            }
+        }
+        let _ = writeln!(summary, "{}: fight without contact or impact", s.name);
+        return;
+    };
+    let mut pre = None;
+    for (name, a) in &ours.states {
+        let Some(b) = theirs.states.get(name) else {
+            continue;
+        };
+        let n = a.len().min(b.len()).min(first as usize);
+        if let Some(t) = (0..n).find(|&t| !same_state(&a[t], &b[t])) {
+            pre = Some(pre.map_or(t, |p: usize| p.min(t)));
+            gross.push(format!(
+                "{}: {name} differs from the oracle at tick {t}, before the first contact or impact (tick {first})",
+                s.name
+            ));
+        }
+    }
+    // The first contact or impact comes in the oracle's tick, neither
+    // before nor after it (owner, 2026-11-19, as `ram_ship`'s contact).
+    if rust_first != Some(first) {
+        gross.push(format!(
+            "{}: the Rust world's first contact or impact comes at tick {}, the oracle's at tick {first}",
+            s.name,
+            rust_first.map_or_else(|| "none".to_owned(), |t| t.to_string())
+        ));
+    }
+    let _ = writeln!(
+        summary,
+        "{}: fight: first contact or impact rust tick {}, oracle tick {first}; before it {}",
+        s.name,
+        rust_first.map_or_else(|| "none".to_owned(), |t| t.to_string()),
+        pre.map_or_else(
+            || "every object equals the oracle exactly".to_owned(),
+            |t| format!("the first difference is at tick {t}")
+        )
+    );
+    for (name, a) in &ours.states {
+        if let (Some(x), Some(y)) = (a.last(), theirs.states.get(name).and_then(|b| b.last())) {
+            let _ = writeln!(
+                summary,
+                "{}: after the first contact or impact (reported): {name} alive {} hull {} | oracle alive {} hull {}",
+                s.name, x.alive, x.hp, y.alive, y.hp
+            );
+        }
+    }
+    let _ = writeln!(
+        summary,
+        "{}: after the first contact or impact (reported): collision events rust {} oracle {}; munition hits rust {} oracle {}",
+        s.name,
+        ours.contacts.len(),
+        theirs.contacts.len(),
+        ours.hits.len(),
+        theirs.hits.len()
+    );
+}
+
 /// The number of `rand()` draws a generator seeded with `seed` made to
 /// reach `now`, `None` beyond `LOAD_DRAWS_SEARCH`.
 fn draws_since(seed: u32, now: &CrtRand) -> Option<usize> {
@@ -1520,7 +3253,7 @@ fn rust_load_draws(s: &Scenario) -> Option<Vec<(String, usize)>> {
                 create_id(o.archetype.as_bytes()),
                 create_id(o.loadout.as_bytes()),
                 o.pos,
-                o.orient,
+                spawn_orientation(&o.orient),
             );
             spawn.velocity = o.vel;
             spawn.angular_velocity = o.angvel;
@@ -1597,6 +3330,34 @@ fn report_load_draws(summary: &mut String, s: &Scenario, oracle: Option<&Path>) 
     }
 }
 
+/// The bullet rays IVP's ray solver does not let hit an object the Rust
+/// world's pose crosses: those that started inside the object, and those
+/// whose OV sphere test (the core at the start of its PSI) culled it.
+fn report_rays(summary: &mut String, scenario: &str, ours: &Run) {
+    for (what, list) in [
+        ("started inside an object", &ours.starts_inside),
+        (
+            "crossed an object its OV sphere test culled",
+            &ours.ov_culled,
+        ),
+    ] {
+        if list.is_empty() {
+            continue;
+        }
+        let shown: Vec<String> = list
+            .iter()
+            .take(8)
+            .map(|(t, n)| format!("tick {t} {n}"))
+            .collect();
+        let _ = writeln!(
+            summary,
+            "{scenario}: bullet rays that {what} (no hit, as in IVP): {}; {}",
+            list.len(),
+            shown.join(", ")
+        );
+    }
+}
+
 fn dist(a: Vector, b: Vector) -> f64 {
     let d = [
         f64::from(a.x) - f64::from(b.x),
@@ -1634,7 +3395,11 @@ fn scenarios_against_the_oracle() {
             let _ = writeln!(summary, "{}: skipped, {why} (AI is P2.5)", s.name);
             continue;
         }
-        let Some(our_run) = run(&s) else {
+        let ai = oracle
+            .as_ref()
+            .map(|d| oracle_ai_inputs(d, &s.name))
+            .unwrap_or_default();
+        let Some(our_run) = run(&s, &ai) else {
             let _ = writeln!(summary, "{}: did not run", s.name);
             continue;
         };
@@ -1644,6 +3409,10 @@ fn scenarios_against_the_oracle() {
                 "{}: skipped, an AI ship runs behaviour {b} from tick {tick}, which is not ported (AI is P2.5)",
                 s.name
             );
+            // The missiles fly before it.
+            if let Some(dir) = &oracle {
+                report_guided(&mut summary, &mut gross, dir, &s.name, &our_run, u32::MAX);
+            }
             continue;
         }
         let ours = &our_run.states;
@@ -1709,7 +3478,12 @@ fn scenarios_against_the_oracle() {
                 "{}: {name}: max position error {max_pos:.4} m (tick {max_tick}), velocity {max_vel:.4} m/s, orientation {max_orient:.6}, alive mismatches {alive_mismatch}, final hp {} vs {}",
                 s.name, fa.hp, fb.hp
             );
-            if !s.contact && (max_pos > bound || fa.alive != fb.alive) {
+            // A fight (the ships' attitudes come from the oracle) is judged
+            // exactly to its first contact or impact and its outcome is
+            // reported after it (`judge_fight`; owner, 2026-11-18). The
+            // other scenarios without contact keep their strict outcome.
+            let fight = !ai.attitudes.is_empty();
+            if !s.contact && !fight && (max_pos > bound || fa.alive != fb.alive) {
                 gross.push(format!(
                     "{}: {name} (position {max_pos:.1} m > {bound:.1} m or alive {} vs {})",
                     s.name, fa.alive, fb.alive
@@ -1735,10 +3509,29 @@ fn scenarios_against_the_oracle() {
                 s.name
             );
         }
+        if !ai.attitudes.is_empty() {
+            report_combat(&mut summary, &s.name, &our_run, &their_run);
+        }
         report_hits(&mut summary, &s.name, &our_run.hits, &their_run.hits);
+        report_rays(&mut summary, &s.name, &our_run);
+        report_units(&mut summary, dir, &s.name, &our_run);
+        let fight = !ai.attitudes.is_empty();
+        let cutoff = if fight {
+            first_event(dir, &s.name, &their_run).unwrap_or(u32::MAX)
+        } else {
+            u32::MAX
+        };
+        report_guided(&mut summary, &mut gross, dir, &s.name, &our_run, cutoff);
+        report_guns(&mut summary, dir, &s.name, &our_run);
+        report_turret_probes(&mut summary, dir, &s.name, &our_run);
         report_contacts(&mut summary, &s, &our_run, &their_run);
+        if EXACT_SCENARIOS.contains(&s.name.as_str()) {
+            judge_exact(&mut summary, &mut gross, &s, &our_run, &their_run);
+        }
         if s.contact {
             judge_contact(&mut summary, &mut gross, &s, &our_run, &their_run);
+        } else if fight {
+            judge_fight(&mut summary, &mut gross, dir, &s, &our_run, &their_run);
         } else if our_run.contacts.is_empty() != their_run.contacts.is_empty() {
             gross.push(format!(
                 "{}: collision events rust {} vs oracle {}",

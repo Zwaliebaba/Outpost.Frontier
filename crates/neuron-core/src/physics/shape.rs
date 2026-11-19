@@ -70,9 +70,19 @@ impl Geometry {
         let mut ledges = Vec::new();
         for index in surface.terminal_ledges() {
             let ledge = &surface.ledges[index];
-            let points: Vec<Point<Real>> = ledge
-                .points
+            // Only the points the ledge's edges name: the point array is
+            // shared between the ledges of a surface, so the run from
+            // index 0 also holds other ledges' (and other parts') points.
+            let mut named: Vec<u16> = ledge
+                .triangles
                 .iter()
+                .flat_map(|t| t.edges.iter().map(|e| e.start_point_index()))
+                .collect();
+            named.sort_unstable();
+            named.dedup();
+            let points: Vec<Point<Real>> = named
+                .iter()
+                .filter_map(|&i| ledge.points.get(usize::from(i)))
                 .map(|p| point(p.position.to_words()))
                 .collect();
             if let Some(hull) = ConvexPolyhedron::from_convex_hull(&points) {
@@ -246,6 +256,42 @@ mod tests {
         assert!((hit - 9.5).abs() < 1e-5);
         let (radius, deviation) = g.radius_and_deviation(g.mass_center);
         assert_eq!((radius, deviation), (0.75, 0.0));
+    }
+
+    /// A ledge's hull holds only the points its edges name: the shared
+    /// point array's other points (other ledges', other parts') stay out.
+    #[test]
+    fn ledge_hull_ignores_points_its_edges_do_not_name() {
+        let bytes = include_bytes!("../../tests/fixtures/oracle/sur/multi.sur");
+        let loaded = crate::sur::load(bytes);
+        let mut checked = 0;
+        for part in loaded.parts.values() {
+            let Some(Ok(mut surface)) = part.compact_surface() else {
+                continue;
+            };
+            let before = Geometry::from_surface(&surface);
+            for index in surface.terminal_ledges() {
+                surface.ledges[index]
+                    .points
+                    .push(crate::sur::compact::PolyPoint {
+                        position: Vector::new(1.0e4, 1.0e4, 1.0e4),
+                        hesse_val: 0.0,
+                    });
+            }
+            let after = Geometry::from_surface(&surface);
+            assert_eq!(before.ledges.len(), after.ledges.len());
+            for (a, b) in before.ledges.iter().zip(after.ledges.iter()) {
+                let (Some(a), Some(b)) = (
+                    a.shape.as_convex_polyhedron(),
+                    b.shape.as_convex_polyhedron(),
+                ) else {
+                    panic!("a ledge is not a hull");
+                };
+                assert_eq!(a.points(), b.points());
+                checked += 1;
+            }
+        }
+        assert!(checked > 0);
     }
 
     #[test]

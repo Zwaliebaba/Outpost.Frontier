@@ -777,10 +777,24 @@ impl SplinePath {
     /// or when `size` is smaller than [`Self::estimate_size`] or than the
     /// text before the last point.
     pub fn save(&mut self, size: u32) -> Result<Vec<u8>, i32> {
+        match self.save_text(size) {
+            (OK, Some(text)) => Ok(text),
+            _ => Err(GENERIC),
+        }
+    }
+
+    /// `IPersistString::Slot4Save` with what it leaves in the caller's
+    /// buffer: the result, and the text written, `None` when the call
+    /// writes nothing (no points, or `size` below [`Self::estimate_size`]).
+    /// When the text reaches `size` before the last point the call fails
+    /// with the text written so far; the reference writes that text past
+    /// the end of its caller's `size + 1` bytes when it is longer
+    /// (divergence D246), and here it is all returned.
+    pub fn save_text(&mut self, size: u32) -> (i32, Option<Vec<u8>>) {
         let saved_count = self.live_points();
         let required = self.estimate_size();
         if saved_count == 0 || required > size {
-            return Err(GENERIC);
+            return (GENERIC, None);
         }
         let mut text = Vec::new();
         text.extend_from_slice(if self.closed { b"CLOSED, " } else { b"OPEN, " });
@@ -819,10 +833,8 @@ impl SplinePath {
             }
             written += 1;
         }
-        if written != saved_count {
-            return Err(GENERIC);
-        }
-        Ok(text)
+        let status = if written == saved_count { OK } else { GENERIC };
+        (status, Some(text))
     }
 }
 

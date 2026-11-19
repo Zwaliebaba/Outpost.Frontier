@@ -52,14 +52,19 @@ mod tests;
 use crate::utf::UtfError;
 use crate::vfs::{FileSystem, FindEntry, VfsError};
 
-pub use animation::{Animation, FIRST_PLAYBACK_ID, Playback};
+pub use animation::{Animation, FIRST_PLAYBACK_ID, Playback, PlaybackSink, PlaybackView};
 pub use engine::{
     Archetype, ArchetypeId, Constraint, Engine, EngineComponent, Instance, InstanceId,
     InstanceTransform, PartChild,
 };
-pub use hardpoint::{HardpointData, HardpointRecord, Hardpoints, connect_hardpoints};
+pub use hardpoint::{
+    HardpointData, HardpointRecord, Hardpoints, connect_hardpoints, connect_payload,
+};
 pub use joint::{JointKind, JointPayload, PAYLOAD_DWORDS};
-pub use typed::{BindDesc, ChannelEvent, MixerKey, PlayHeader, TypedChannel, TypedClass, TypedId};
+pub use typed::{
+    BindDesc, ChannelEvent, ChannelOwner, ChannelSink, MixerKey, PlayHeader, TypedChannel,
+    TypedClass, TypedId,
+};
 
 /// A failure the reference has no defined behaviour for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

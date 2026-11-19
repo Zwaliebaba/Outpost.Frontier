@@ -5,27 +5,36 @@ The HLSL sources of the renderer's shaders (decision record 0004, section
 crate needs no shader compiler on any host.
 
 `shaders.toml` lists every blob: the source file, entry point, profile
-(shader model 5.1, DXBC), output name and preprocessor defines.
-`cargo xtask shaders` compiles them on Windows with `fxc.exe` from Windows
-SDK 10.0.26100.0 and these flags, which are fixed:
+(shader model 6.1, DXIL; record 0004, point 16 as amended by the owner on
+2026-11-19), output name and preprocessor defines. `cargo xtask shaders`
+compiles them on Windows with `dxc.exe` and these flags, which are fixed:
 
 ```
-/nologo /WX /O3 /Ges /Gis /Zpr /Qstrip_debug /Qstrip_reflect /Qstrip_priv
+-nologo -WX -O3 -Ges -Gis -Zpr -HV 2021 -Qstrip_debug -Qstrip_reflect -Qstrip_priv
 ```
 
 Strict mode and IEEE strictness keep the compiler from reassociating
-arithmetic, `/Zpr` makes matrices row-major as the renderer uploads them,
-and stripping debug, reflection and private data makes a blob depend only
-on its source and the compiler. The compiler DLL below is the only one the
-step accepts:
+arithmetic, `-Zpr` makes matrices row-major as the renderer uploads them,
+`-HV 2021` is the HLSL language version, and stripping debug, reflection
+and private data makes a blob depend only on its source and the compiler.
+`dxil.dll` must sit beside `dxc.exe`: it validates and signs the blobs,
+which Direct3D 12 requires of DXIL.
 
-d3dcompiler_47.dll file version: `10.0.26100.9457`
+The compiler is the `Microsoft.Direct3D.DXC` NuGet package, version
+1.9.2609.5 (`microsoft.direct3d.dxc.1.9.2609.5.nupkg`, SHA-256
+`73cfa082245918c2cc1ec6740250eb7377e83a757b3b3a3e16e0d71535bfbfc3`), its
+`build/native/bin/x64/` folder. Name it with `--dxc <path to dxc.exe>` or
+the `OUTPOST_DXC` environment variable. The compiler DLL below is the only
+one the step accepts:
 
-`cargo xtask shaders --check` (run by the Windows CI job) recompiles and
-fails when a committed blob differs from its source; it then prints each
-new blob in base64 between `----- begin <name>` and `----- end <name>`
-lines, so a blob compiled on the CI runner can be committed from a host
-without the compiler.
+dxcompiler.dll file version: `1.9.2609.5`
+
+`cargo xtask shaders --check` (run by the Windows CI job, which fetches the
+package from nuget.org and checks its hash) recompiles and fails when a
+committed blob differs from its source; it then prints each new blob in
+base64 between `----- begin <name>` and `----- end <name>` lines, so a
+blob compiled on the CI runner can be committed from a host without the
+compiler.
 
 `fixed_function.hlsl` is Direct3D 8's fixed-function pipeline: one vertex
 shader and one pixel shader (compiled twice, once with `FLAT` for
@@ -33,10 +42,10 @@ shader and one pixel shader (compiled twice, once with `FLAT` for
 buffer is laid out by `render::shader::constants`, and a test compares the
 two.
 
-Without a Windows machine the blobs can be made under Wine: the
-`Microsoft.Windows.SDK.CPP` NuGet package of version 10.0.26100.9457
-carries `fxc.exe` and the recorded `d3dcompiler_47.dll` in
-`c/bin/10.0.26100.0/x64/`. Run `fxc.exe` from the `shaders` directory with
-the flags above, then `/T <profile> /E <entry>`, `/D <define>` for each
-define and `/Fo ../compiled_shaders/<output> fixed_function.hlsl`, in that
-order; the Windows CI check confirms the result.
+`pass_test.hlsl` is the test program of the programmable passes (decision
+record 0005): shader model 6.1, one vertex shader and three pixel shaders
+that the WARP tests in `platform::d3d12::backend::ex` draw with. Programs
+for passes follow record 0005's register layout and blob names
+(`<stem>_vs.cso`, `<stem>[_<variant>]_ps.cso`). Its four blobs are
+committed empty until CI's shader check prints them; the WARP tests skip
+while they are empty.

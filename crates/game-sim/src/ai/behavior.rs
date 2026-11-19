@@ -15,6 +15,7 @@
 
 use neuron_core::math::{Matrix, Vector};
 
+use super::gun_convergence::LeaderNotification;
 use super::manager::ManagerState;
 use super::world::{AiRand, AiWorld, SpatialQueries, StrafeDir};
 
@@ -181,9 +182,43 @@ pub struct Cx<'a, W: AiEnv + ?Sized> {
     pub ship: W::Handle,
     /// The manager's state.
     pub state: &'a mut ManagerState,
+    /// The manager's behaviours (`BehaviorDispatchTable`), for a behaviour
+    /// that drives another (the flee behaviour hands the ship to the goto,
+    /// dock or formation behaviour); the entry of the behaviour being
+    /// called holds a stand-in. `None` outside the manager.
+    pub peers: Option<&'a mut [Box<dyn Behavior<W>>]>,
 }
 
-impl<W: AiEnv + ?Sized> Cx<'_, W> {
+impl<'a, W: AiEnv + ?Sized> Cx<'a, W> {
+    /// The context of a tick outside the manager's dispatch table.
+    pub fn new(world: &'a mut W, ship: W::Handle, state: &'a mut ManagerState) -> Self {
+        Self {
+            world,
+            ship,
+            state,
+            peers: None,
+        }
+    }
+
+    /// Runs `f` on the manager's behaviour `index` with this tick's world
+    /// and state; `None` outside the manager or for an index outside the
+    /// table.
+    pub fn with_peer<T>(
+        &mut self,
+        index: i32,
+        f: impl FnOnce(&mut dyn Behavior<W>, &mut Cx<'_, W>) -> T,
+    ) -> Option<T> {
+        let peers = self.peers.as_deref_mut()?;
+        let b = peers.get_mut(usize::try_from(index).ok()?)?;
+        let mut cx = Cx {
+            world: &mut *self.world,
+            ship: self.ship,
+            state: &mut *self.state,
+            peers: None,
+        };
+        Some(f(&mut **b, &mut cx))
+    }
+
     /// `rand()`.
     pub fn rand(&mut self) -> i32 {
         self.world.rand()
@@ -276,9 +311,117 @@ impl<W: AiEnv + ?Sized> Cx<'_, W> {
         self.world.handle_of(id).and_then(|h| self.world.inspect(h))
     }
 
+    /// `IObjAffect::slot_5c(Kind, &Target, &Second, Flag, this)` from the
+    /// behaviour `index` (`Ship::slot_5c`): refused while another request
+    /// is in progress; otherwise the behaviour becomes the ship's pending
+    /// callback. The answers the server gave during the call follow
+    /// ([`super::world::AiWorld::take_request_answers`]); the caller hands
+    /// them to its `OnResult` and ends the request when it does not keep
+    /// it ([`Cx::end_request`]).
+    pub fn request(
+        &mut self,
+        index: i32,
+        kind: i32,
+        target: u32,
+        second: u32,
+        flag: i32,
+    ) -> Vec<super::world::RequestAnswer> {
+        self.world.command(
+            self.ship,
+            super::world::AiCommand::Request {
+                kind,
+                target,
+                second,
+                flag,
+            },
+        );
+        if self.state.request_busy {
+            return Vec::new();
+        }
+        self.state.pending_request = Some(index);
+        self.state.request_busy = true;
+        self.world.take_request_answers(self.ship)
+    }
+
+    /// The request ends: the ship's pending callback and its busy flag
+    /// cleared (`Ship::request_returned` after an answer `OnResult` does
+    /// not keep, and `Ship::slot_60`).
+    pub fn end_request(&mut self) {
+        self.state.pending_request = None;
+        self.state.request_busy = false;
+    }
+
+    /// `IObjAffect::slot_60(Kind, &Target, Arg)` (`Ship::slot_60`): the
+    /// pending callback dropped, then the server told.
+    pub fn cancel_request(&mut self, kind: i32, target: u32, arg: i32) {
+        self.end_request();
+        self.world.command(
+            self.ship,
+            super::world::AiCommand::CancelRequest { kind, target, arg },
+        );
+    }
+
     /// The idle stop (`IdleIdea::Update`).
     pub fn stop(&mut self) {
         self.state.thrust.stop(&mut *self.world, self.ship);
+    }
+
+    /// `ThrustManager::BlendNudgeDirection` on the ship.
+    pub fn blend_nudge_direction(&mut self, world_dir: Vector, dt: f32) {
+        self.state
+            .thrust
+            .blend_nudge_direction(&mut *self.world, self.ship, world_dir, dt);
+    }
+
+    /// `TargetManager::GetTarget`: the ship's target (`get_target`), when
+    /// the world has it.
+    #[must_use]
+    pub fn target_view(&self) -> Option<super::world::ObjectView> {
+        self.view_of(self.own().and_then(|v| v.target))
+    }
+
+    /// Whether timer `slot` of the system manager's timer table is latched.
+    #[must_use]
+    pub fn timer_active(&self, slot: usize) -> bool {
+        self.state.sys.timers.active(slot)
+    }
+
+    /// The ship's live formation leader (`get_formation_leader`).
+    fn formation_leader(&self) -> Option<u32> {
+        let id = self.own().and_then(|v| v.formation_leader)?;
+        self.world.handle_of(id).map(|_| id)
+    }
+
+    /// `FGunConvergenceStateBlock::NotifyFormationLeader1(Delay)`: break
+    /// apart now (1) and, after a positive delay, regroup (2).
+    pub fn notify_formation_leader_1(&mut self, delay: f32) {
+        let Some(leader) = self.formation_leader() else {
+            return;
+        };
+        self.state.leader_notes.push(LeaderNotification {
+            leader,
+            extra: 1,
+            duration: 0.0,
+        });
+        if delay > 0.0 {
+            self.state.leader_notes.push(LeaderNotification {
+                leader,
+                extra: 2,
+                duration: delay,
+            });
+        }
+    }
+
+    /// `FGunConvergenceStateBlock::NotifyFormationLeader2`: regroup now.
+    pub fn notify_formation_leader_2(&mut self) {
+        let Some(leader) = self.formation_leader() else {
+            return;
+        };
+        self.state.leader_notes.push(LeaderNotification {
+            leader,
+            extra: 2,
+            duration: 0.0,
+        });
     }
 }
 
@@ -394,18 +537,164 @@ impl Default for DrasticEvadeOp {
     }
 }
 
+/// `pub::AI::DirectiveDockOp` (0x2c bytes).
+#[derive(Clone, Debug, PartialEq)]
+pub struct DockOp {
+    /// +0x0c the object to dock with.
+    pub dock_object: u32,
+    /// +0x10 the trade lane's other ring (an object id; 0 none).
+    pub field_10: u32,
+    /// +0x14 the port is already granted.
+    pub field_14: u8,
+    /// +0x18 the dock port (-1).
+    pub port: i32,
+    /// +0x1c the object the proximity watcher watches (0 none).
+    pub field_1c: u32,
+    /// +0x20 its near threshold (200).
+    pub field_20: f32,
+    /// +0x24 its far threshold (500).
+    pub field_24: f32,
+    /// +0x28 its cruise ratio, a float's bits (0: from the speeds).
+    pub field_28: u32,
+}
+
+impl Default for DockOp {
+    /// `DirectiveDockOp::DirectiveDockOp`.
+    fn default() -> Self {
+        Self {
+            dock_object: 0,
+            field_10: 0,
+            field_14: 0,
+            port: -1,
+            field_1c: 0,
+            field_20: 200.0,
+            field_24: 500.0,
+            field_28: 0,
+        }
+    }
+}
+
+/// `pub::AI::DirectiveFollowOp` (0x24 bytes).
+#[derive(Clone, Debug, PartialEq)]
+pub struct FollowOp {
+    /// +0x0c the object to follow (`validate`: not 0).
+    pub target: u32,
+    /// +0x10 the follow distance (150).
+    pub distance: f32,
+    /// +0x14..+0x1c the offset in the leader's frame.
+    pub offset: Vector,
+    /// +0x20 the range the follow behaviour's poll uses (400).
+    pub range: f32,
+}
+
+impl Default for FollowOp {
+    /// `DirectiveFollowOp::DirectiveFollowOp`.
+    fn default() -> Self {
+        Self {
+            target: 0,
+            distance: 150.0,
+            offset: Vector::ZERO,
+            range: 400.0,
+        }
+    }
+}
+
+/// `pub::AI::DirectiveLaunchOp` (0x18 bytes).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LaunchOp {
+    /// +0x0c the object to launch from.
+    pub launch_object: u32,
+    /// +0x10 the docking sphere (-1).
+    pub index: i32,
+    /// +0x14 its terminal type (0).
+    pub terminal: i32,
+}
+
+impl Default for LaunchOp {
+    /// `DirectiveLaunchOp::DirectiveLaunchOp`.
+    fn default() -> Self {
+        Self {
+            launch_object: 0,
+            index: -1,
+            terminal: 0,
+        }
+    }
+}
+
+/// `pub::AI::DirectiveGuideOp` (0xbc bytes): a goto op, a follow op and
+/// the guide's own parameters.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GuideOp {
+    /// +0x0c the goto part (its `field_5c` is the guided ship).
+    pub goto: GotoOp,
+    /// +0x7c the follow part.
+    pub follow: FollowOp,
+    /// +0xa0 start by following (1).
+    pub field_a0: u8,
+    /// +0xa4 the sampling period (10).
+    pub field_a4: f32,
+    /// +0xa8 the course angle (π/8).
+    pub field_a8: f32,
+    /// +0xac (3).
+    pub field_ac: i32,
+    /// +0xb0 the closing threshold (10).
+    pub field_b0: f32,
+    /// +0xb4 the falling-behind threshold (-10).
+    pub field_b4: f32,
+    /// +0xb8 the poll's range (400).
+    pub field_b8: f32,
+}
+
+impl Default for GuideOp {
+    /// `DirectiveGuideOp::DirectiveGuideOp`.
+    fn default() -> Self {
+        Self {
+            goto: GotoOp::default(),
+            follow: FollowOp::default(),
+            field_a0: 1,
+            field_a4: 10.0,
+            field_a8: f32::from_bits(0x3ec9_0fdb),
+            field_ac: 3,
+            field_b0: 10.0,
+            field_b4: -10.0,
+            field_b8: 400.0,
+        }
+    }
+}
+
+/// `pub::AI::DirectiveInstantTradelaneOp` (0x18 bytes).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct InstantTradeLaneOp {
+    /// +0x0c the entrance ring.
+    pub entrance: u32,
+    /// +0x10 the exit ring (0 none).
+    pub exit: u32,
+    /// +0x14 the speed (a float in the third word).
+    pub speed: f32,
+}
+
 /// A directive operation (`pub::AI::BaseOp`), the argument of slot 10.
 /// Kinds without a ported reader keep their op type only.
 #[derive(Clone, Debug, PartialEq)]
 pub enum DirectiveOp {
     /// `DirectiveGotoOp` (op type 3).
     Goto(GotoOp),
+    /// `DirectiveFollowOp` (4).
+    Follow(FollowOp),
     /// `DirectiveFaceOp` (7).
     Face(FaceOp),
     /// `DirectiveDrasticEvadeOp` (11).
     DrasticEvade(DrasticEvadeOp),
+    /// `DirectiveDockOp` (13).
+    Dock(DockOp),
+    /// `DirectiveLaunchOp` (14).
+    Launch(LaunchOp),
+    /// `DirectiveInstantTradelaneOp` (15).
+    InstantTradeLane(InstantTradeLaneOp),
     /// `DirectiveDelayOp` (12): the delay in seconds.
     Delay(f32),
+    /// `DirectiveGuideOp` (17).
+    Guide(Box<GuideOp>),
     /// `DirectiveIdleOp` (20).
     Idle,
     /// `DirectiveCancelOp` (21).
@@ -420,9 +709,14 @@ impl DirectiveOp {
     pub fn op_type(&self) -> i32 {
         match self {
             Self::Goto(_) => 3,
+            Self::Follow(_) => 4,
             Self::Face(_) => 7,
             Self::DrasticEvade(_) => 11,
+            Self::Dock(_) => 13,
+            Self::Launch(_) => 14,
+            Self::InstantTradeLane(_) => 15,
             Self::Delay(_) => 12,
+            Self::Guide(_) => 17,
             Self::Idle => 20,
             Self::Cancel => 21,
             Self::Other(t) => *t,
@@ -470,6 +764,12 @@ pub trait Behavior<W: AiEnv + ?Sized> {
     /// The concrete behaviour, for a harness that sets its fields from a
     /// record. The default offers none.
     fn as_any_mut(&mut self) -> Option<&mut dyn core::any::Any> {
+        None
+    }
+
+    /// The concrete behaviour, for a reader of its fields (another ship's
+    /// loot behaviour reads this one's target). The default offers none.
+    fn as_any(&self) -> Option<&dyn core::any::Any> {
         None
     }
 
@@ -612,5 +912,19 @@ pub trait Behavior<W: AiEnv + ?Sized> {
     /// (26) the dock behaviour's target, for the player's docking probe.
     fn dock_target(&self) -> Option<u32> {
         None
+    }
+
+    /// `IObjAffect::RequestCB::OnResult(RequestType, Response, Arg3)`: the
+    /// answer to a request the behaviour made (the dock and trade-lane
+    /// behaviours); true keeps the request pending. The default lets go.
+    fn on_request_result(
+        &mut self,
+        cx: &mut Cx<'_, W>,
+        kind: i32,
+        response: i32,
+        arg: i32,
+    ) -> bool {
+        let _ = (cx, kind, response, arg);
+        false
     }
 }

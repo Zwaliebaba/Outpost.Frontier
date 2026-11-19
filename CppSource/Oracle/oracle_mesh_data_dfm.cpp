@@ -401,3 +401,12 @@ void RunDfmDataDump(const std::vector<std::string>& Files)
     }
     printf("dumped %u dfm files\n", (unsigned int)Dfm.size());
 }
+
+// P4.7: the deformable suite (deformable.jsonl) reaches the reference's Deformable2 classes and
+// static functions, so it is compiled here, after them.
+#include "oracle_deformable.cpp"
+// P4.7, second increment: the parts suite (deformable_parts.jsonl), which shares that suite's cases.
+#include "oracle_deformable_parts.cpp"
+// P4.7, third increment: the animation suite (deformable_anim.jsonl) against the scene runtime,
+// which shares the parts suite's file system.
+#include "oracle_deformable_anim.cpp"

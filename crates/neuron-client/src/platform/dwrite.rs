@@ -5,10 +5,13 @@
 //!
 //! A `LOGFONT` becomes a face through DirectWrite's GDI interop, which
 //! matches family, weight and style as GDI's font mapper does for installed
-//! faces. A face DirectWrite does not know (the game's `Agency FB` and
-//! `Arial Unicode MS` come with Microsoft Office, not Windows; `FixedSys` is
-//! a bitmap font DirectWrite cannot use) is replaced by Arial, where GDI's
-//! mapper picks a substitute of its own (divergence D290).
+//! faces. The font files of the game's `DATA/FONTS` are searched first, as
+//! a private collection, then the system's fonts (decision O29). A face
+//! neither has (the game's `Agency FB` and `Arial Unicode MS` come with
+//! Microsoft Office, not Windows; `FixedSys` is a bitmap font DirectWrite
+//! cannot use) is replaced by the face [`crate::text::font::substitute`]
+//! names, where GDI's mapper picked a substitute of its own (divergence
+//! D290).
 //!
 //! The pixel em size (from the face's `VDMX` table where it has one), the
 //! text metrics and the rounding of advances follow GDI's mapping
@@ -19,6 +22,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::mem::ManuallyDrop;
+use std::path::{Path, PathBuf};
 
 use windows::Win32::Foundation::RECT;
 use windows::Win32::Graphics::DirectWrite::{
@@ -26,18 +30,62 @@ use windows::Win32::Graphics::DirectWrite::{
     DWRITE_GRID_FIT_MODE_ENABLED, DWRITE_MEASURING_MODE_GDI_CLASSIC,
     DWRITE_RENDERING_MODE_GDI_CLASSIC, DWRITE_TEXT_ANTIALIAS_MODE_GRAYSCALE,
     DWRITE_TEXTURE_ALIASED_1x1, DWRITE_TEXTURE_CLEARTYPE_3x1, DWRITE_TEXTURE_TYPE,
-    DWriteCreateFactory, IDWriteFactory2, IDWriteFont, IDWriteFontFace, IDWriteGdiInterop,
+    DWriteCreateFactory, IDWriteFactory2, IDWriteFactory5, IDWriteFont, IDWriteFontCollection1,
+    IDWriteFontFace, IDWriteGdiInterop, IDWriteGdiInterop1,
 };
 use windows::Win32::Graphics::Gdi::{
     FONT_CHARSET, FONT_CLIP_PRECISION, FONT_OUTPUT_PRECISION, FONT_QUALITY, LOGFONTW,
 };
-use windows::core::{BOOL, w};
+use windows::core::{BOOL, HSTRING, Interface, w};
 
 use crate::text::font::gdi::{FaceTables, Vdmx};
+use crate::text::font::substitute::{LAST_RESORT, substitute};
 use crate::text::font::{FaceHandle, FontBackend, LogFont, TextMetrics};
 
-/// The face that stands in for one DirectWrite does not have.
-pub const FALLBACK_FACE: &[u8] = b"Arial";
+/// The face that stands in when neither the requested face nor its
+/// substitute exists.
+pub const FALLBACK_FACE: &[u8] = LAST_RESORT;
+
+/// Where a face came from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FaceSource {
+    /// The requested face, from the game's `DATA/FONTS`.
+    Private,
+    /// The requested face, from the system's fonts.
+    System,
+    /// A stand-in from the system's fonts (decision O29).
+    Substitute,
+}
+
+/// The font files of a directory, by extension (`.ttf`, `.otf`, `.ttc`,
+/// ignoring case), in name order.
+#[must_use]
+pub fn font_files(dir: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut files: Vec<PathBuf> = entries
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| {
+            p.is_file()
+                && p.extension().and_then(|e| e.to_str()).is_some_and(|e| {
+                    ["ttf", "otf", "ttc"]
+                        .iter()
+                        .any(|x| e.eq_ignore_ascii_case(x))
+                })
+        })
+        .collect();
+    files.sort();
+    files
+}
+
+/// The game's own fonts as a collection the GDI interop can match in.
+struct PrivateFonts {
+    interop: IDWriteGdiInterop1,
+    collection: IDWriteFontCollection1,
+    files: usize,
+}
 
 /// An OpenType table tag as DirectWrite takes it (`DWRITE_MAKE_OPENTYPE_TAG`).
 fn tag(name: &[u8; 4]) -> u32 {
@@ -50,7 +98,7 @@ struct Face {
     ppem: u32,
     metrics: TextMetrics,
     family: String,
-    substituted: bool,
+    source: FaceSource,
     glyphs: HashMap<u16, (u16, i32)>,
 }
 
@@ -58,6 +106,7 @@ struct Face {
 pub struct DWriteBackend {
     factory: IDWriteFactory2,
     interop: IDWriteGdiInterop,
+    private: Option<PrivateFonts>,
     faces: BTreeMap<u32, Face>,
     next: u32,
 }
@@ -70,16 +119,81 @@ impl DWriteBackend {
     ///
     /// DirectWrite's, when the factory cannot be made.
     pub fn new() -> windows::core::Result<DWriteBackend> {
+        Self::build(None)
+    }
+
+    /// As [`DWriteBackend::new`], with the font files of `dir` (the game's
+    /// `DATA/FONTS`) searched before the system's fonts (decision O29). A
+    /// missing or empty directory, files DirectWrite cannot read, or a
+    /// Windows without font sets (before Windows 10) leave the system's
+    /// fonts alone.
+    ///
+    /// # Errors
+    ///
+    /// DirectWrite's, when the factory cannot be made.
+    pub fn with_font_dir(dir: &Path) -> windows::core::Result<DWriteBackend> {
+        Self::build(Some(dir))
+    }
+
+    fn build(dir: Option<&Path>) -> windows::core::Result<DWriteBackend> {
         // SAFETY: a factory type constant; the result is an owned interface.
         let factory: IDWriteFactory2 = unsafe { DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED)? };
         // SAFETY: a live factory; the result is an owned interface.
         let interop = unsafe { factory.GetGdiInterop()? };
+        let private = dir.and_then(|d| Self::private_fonts(&factory, &interop, d));
         Ok(DWriteBackend {
             factory,
             interop,
+            private,
             faces: BTreeMap::new(),
             next: 0,
         })
+    }
+
+    /// A font set of the directory's font files, as a collection.
+    fn private_fonts(
+        factory: &IDWriteFactory2,
+        interop: &IDWriteGdiInterop,
+        dir: &Path,
+    ) -> Option<PrivateFonts> {
+        let paths = font_files(dir);
+        if paths.is_empty() {
+            return None;
+        }
+        let factory5: IDWriteFactory5 = factory.cast().ok()?;
+        let interop1: IDWriteGdiInterop1 = interop.cast().ok()?;
+        // SAFETY: a live factory; the result is an owned interface.
+        let builder = unsafe { factory5.CreateFontSetBuilder() }.ok()?;
+        let mut files = 0;
+        for path in &paths {
+            let name = HSTRING::from(path.as_os_str());
+            // SAFETY: the path string lives across the call; no write time.
+            let Ok(file) = (unsafe { factory5.CreateFontFileReference(&name, None) }) else {
+                continue;
+            };
+            // SAFETY: live builder and file reference.
+            if unsafe { builder.AddFontFile(&file) }.is_ok() {
+                files += 1;
+            }
+        }
+        if files == 0 {
+            return None;
+        }
+        // SAFETY: a live builder; the result is an owned interface.
+        let set = unsafe { builder.CreateFontSet() }.ok()?;
+        // SAFETY: a live factory and font set; the result is owned.
+        let collection = unsafe { factory5.CreateFontCollectionFromFontSet(&set) }.ok()?;
+        Some(PrivateFonts {
+            interop: interop1,
+            collection,
+            files,
+        })
+    }
+
+    /// How many font files of the private directory DirectWrite took.
+    #[must_use]
+    pub fn private_files(&self) -> usize {
+        self.private.as_ref().map_or(0, |p| p.files)
     }
 
     /// The family name of a face (English where the font has it).
@@ -91,7 +205,13 @@ impl DWriteBackend {
     /// Whether the face is the stand-in for one DirectWrite does not have.
     #[must_use]
     pub fn substituted(&self, face: FaceHandle) -> bool {
-        self.faces.get(&face.0).is_some_and(|f| f.substituted)
+        self.source(face) == Some(FaceSource::Substitute)
+    }
+
+    /// Where the face came from.
+    #[must_use]
+    pub fn source(&self, face: FaceHandle) -> Option<FaceSource> {
+        self.faces.get(&face.0).map(|f| f.source)
     }
 
     /// The whole-pixel em size the face is realised at.
@@ -127,6 +247,35 @@ impl DWriteBackend {
         let lf = Self::logfont_w(log_font, face);
         // SAFETY: `lf` is a complete LOGFONTW on the stack for the call.
         unsafe { self.interop.CreateFontFromLOGFONT(&lf) }.ok()
+    }
+
+    fn private_font(&self, log_font: &LogFont, face: &[u8]) -> Option<IDWriteFont> {
+        let private = self.private.as_ref()?;
+        let lf = Self::logfont_w(log_font, face);
+        // SAFETY: `lf` is a complete LOGFONTW on the stack for the call; the
+        // collection is live.
+        unsafe {
+            private
+                .interop
+                .CreateFontFromLOGFONT(&lf, &private.collection)
+        }
+        .ok()
+    }
+
+    /// The requested face from the private fonts, then the system's; else
+    /// its substitute, else the last resort, from the system's.
+    fn find_font(&self, log_font: &LogFont) -> Option<(IDWriteFont, FaceSource)> {
+        let requested = log_font.face();
+        if let Some(font) = self.private_font(log_font, requested) {
+            return Some((font, FaceSource::Private));
+        }
+        if let Some(font) = self.font_from_logfont(log_font, requested) {
+            return Some((font, FaceSource::System));
+        }
+        let font = self
+            .font_from_logfont(log_font, substitute(requested))
+            .or_else(|| self.font_from_logfont(log_font, FALLBACK_FACE))?;
+        Some((font, FaceSource::Substitute))
     }
 
     fn family_name(font: &IDWriteFont) -> String {
@@ -274,10 +423,7 @@ impl DWriteBackend {
 
 impl FontBackend for DWriteBackend {
     fn create_font(&mut self, log_font: &LogFont) -> Option<FaceHandle> {
-        let (font, substituted) = match self.font_from_logfont(log_font, log_font.face()) {
-            Some(font) => (font, false),
-            None => (self.font_from_logfont(log_font, FALLBACK_FACE)?, true),
-        };
+        let (font, source) = self.find_font(log_font)?;
         // SAFETY: a live font; the result is an owned interface.
         let face = unsafe { font.CreateFontFace() }.ok()?;
         let head = Self::table(&face, b"head")?;
@@ -295,7 +441,7 @@ impl FontBackend for DWriteBackend {
                 ppem,
                 metrics,
                 family: Self::family_name(&font),
-                substituted,
+                source,
                 glyphs: HashMap::new(),
             },
         );
@@ -481,6 +627,76 @@ mod tests {
         };
         assert!(b.substituted(face));
         assert!(b.char_width(face, u16::from(b'A')).unwrap() > 0);
+    }
+
+    /// Decision O29: the configured faces Windows lacks ask for their
+    /// table's substitute (or the last resort when that is missing too).
+    #[test]
+    fn missing_faces_take_their_substitutes() {
+        let Some(mut b) = backend() else {
+            return;
+        };
+        for (name, sub) in crate::text::font::substitute::TABLE {
+            let Some(face) = b.create_font(&LogFont::new(name, 20, false, false, false)) else {
+                continue;
+            };
+            if b.source(face) != Some(FaceSource::Substitute) {
+                println!("{} is installed here", String::from_utf8_lossy(name));
+                continue;
+            }
+            let family = b.family(face).unwrap_or("").to_owned();
+            let sub = String::from_utf8_lossy(sub);
+            // A variable face's named instance may report its typographic
+            // family (`Bahnschrift` for `Bahnschrift SemiCondensed`).
+            let first = sub.split(' ').next().unwrap_or("");
+            assert!(
+                family.starts_with(first) || family == "Arial",
+                "{} -> {family}, expected {sub} or Arial",
+                String::from_utf8_lossy(name)
+            );
+            println!("{} -> {family}", String::from_utf8_lossy(name));
+        }
+    }
+
+    /// Decision O29: font files under the game's font directory are matched
+    /// before the system's.
+    #[test]
+    fn private_fonts_come_first() {
+        let windir = std::env::var_os("WINDIR").map_or_else(
+            || std::path::PathBuf::from(r"C:\Windows"),
+            std::path::PathBuf::from,
+        );
+        let source = windir.join(r"Fonts\consola.ttf");
+        if !source.is_file() {
+            println!("no consola.ttf here; nothing to test");
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("outpost-fonts-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::copy(&source, dir.join("consola.ttf")).unwrap();
+        std::fs::write(dir.join("readme.txt"), b"not a font").unwrap();
+        assert_eq!(font_files(&dir), vec![dir.join("consola.ttf")]);
+        let Ok(mut b) = DWriteBackend::with_font_dir(&dir) else {
+            println!("DirectWrite is not available here; nothing to test");
+            return;
+        };
+        if b.private_files() == 0 {
+            println!("no font sets on this Windows; nothing to test");
+        } else {
+            let face = b
+                .create_font(&LogFont::new(b"Consolas", 16, false, false, false))
+                .unwrap();
+            assert_eq!(b.source(face), Some(FaceSource::Private));
+            assert_eq!(b.family(face), Some("Consolas"));
+            let arial = b
+                .create_font(&LogFont::new(b"Arial", 16, false, false, false))
+                .unwrap();
+            assert_eq!(b.source(arial), Some(FaceSource::System));
+        }
+        drop(b);
+        let _ = std::fs::remove_dir_all(&dir);
+        let none = DWriteBackend::with_font_dir(&dir.join("missing")).unwrap();
+        assert_eq!(none.private_files(), 0);
     }
 
     /// The configured faces: each realises (or falls back) and measures.

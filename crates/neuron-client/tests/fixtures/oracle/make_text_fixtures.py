@@ -1,8 +1,13 @@
-"""Writes number_text.list and rdl_markup.list, the inputs of the P4.12,
-P4.13 and P4.14 text suites (Oracle.exe neuron-client, oracle_text.cpp,
-and crates/neuron-client/tests/oracle_vectors.rs). Run from any folder:
+"""Writes number_text.list, rdl_markup.list, rich_text.list and
+rich_fonts.list with the INI files under rich_fonts/, the inputs of the
+P4.12, P4.13 and P4.14 text suites (Oracle.exe neuron-client,
+oracle_text.cpp, oracle_rich_text.cpp and oracle_rich_fonts.cpp, and
+crates/neuron-client/tests/oracle_vectors.rs). Run from any folder:
 
-    python make_text_fixtures.py
+    python make_text_fixtures.py [--check]
+
+--check compares the lists with what the script would write and fails when
+they differ.
 
 number_text.list, one case per line:
 
@@ -14,10 +19,38 @@ number_text.list, one case per line:
 
 rdl_markup.list, one case per line: UTF-16LE text in hex ("-" for none),
 read by XMLReader::read_buffer into an empty RenderDisplayList.
+
+rich_text.list, one case per line, tokens separated by spaces:
+
+    style <id> <ops>        StyleCollection::set_style(id, list)
+    styleattr <id> <hex>    StyleCollection::set_style(id, attributes)
+    layout <width> <origin h> <origin v> <single line 0|1> <wrap 0|1>
+           <attributes hex> <ops>
+        LayoutRichText of the list on a recording context that starts from
+        the attributes, then the laid list executed, its dimensions and the
+        source's caret positions.
+    lex <raw 0|1> <ops> / <ops>
+        lex_compare of the two lists, and of the first with itself.
+
+An op is a node: t:<units> (TextNode, UTF-16 units as 4 hex digits each),
+p:<units> (TextPtrNode), a:<attrs>:<mask>:<default mask> (TRANode, hex),
+s:<op> (AttribStackNode), x:<rel h>:<rel v>:<h bits>:<v bits> (PositionNode,
+floats as 8 hex digits), n (ParagraphNode), j:<mode> (JustifyNode),
+c:<left>:<top>:<right>:<bottom> (ClipNode), y:<id> (StyleNode), 0
+(NullNode), i:<w bits>:<h bits> or i:- (ImageNode with an image of that size
+or none), and [ <ops> ] (RDLRefNode over a list of its own). The styles
+persist from line to line.
+
+rich_fonts.list, one case per line: an INI file under rich_fonts/ ("-" for
+one that does not exist), read by the client's LoadRichFontsFromIni, then
+the styles to look at: n<name, hex bytes> (the ID the reader hashes the
+name to) or i<decimal ID>. Every style a file sets is probed, so the suite
+can empty them before and after the case.
 """
 
 import os
 import struct
+import sys
 
 
 def bits(value):
@@ -185,27 +218,306 @@ def markup_cases():
     return [markup(t) for t in texts]
 
 
-def write(name, header, lines):
+def t(text):
+    return "t:" + "".join("%04x" % u for u in units(text))
+
+
+def p(text):
+    return "p:" + "".join("%04x" % u for u in units(text))
+
+
+def units(text):
+    data = text.encode("utf-16-le")
+    return [data[i] | data[i + 1] << 8 for i in range(0, len(data), 2)]
+
+
+def fbits(value):
+    return "%08x" % struct.unpack("<I", struct.pack("<f", value))[0]
+
+
+def a(attrs, mask, default=0):
+    return "a:%08x:%08x:%08x" % (attrs & 0xFFFFFFFF, mask & 0xFFFFFFFF, default & 0xFFFFFFFF)
+
+
+def x(h, v, rel_h=0, rel_v=0):
+    return "x:%d:%d:%s:%s" % (rel_h, rel_v, fbits(h), fbits(v))
+
+
+def img(w, h):
+    return "i:%s:%s" % (fbits(w), fbits(h))
+
+
+def font(index, bold=False):
+    """A TRANode that sets the font byte (index in bits 3..7, bold in bit 0)."""
+    return a(index << 3 | int(bold), 0xFF)
+
+
+def color(rgb):
+    return a(rgb << 8, 0xFFFFFF00)
+
+
+def layout(width, ops, origin=(0, 0), single=0, wrap=1, attrs=0xFFFFFF00):
+    return " ".join(["layout", str(width), str(origin[0]), str(origin[1]), str(single), str(wrap),
+                     "%08x" % attrs] + ops)
+
+
+def words(text):
+    return [t(text)]
+
+
+PARA = "n"
+LOREM = "The quick brown fox jumps over the lazy dog while Mike watches."
+
+
+def rich_cases():
+    lines = [
+        # Styles used below (and one replaced later).
+        "style 7 j:1 " + a(0xE0C38708, 0xFFFFFFFF),
+        "style 8 " + a(0x52EAF510, 0xFFFFFFF8) + " " + t("[") + " s:0",
+        "styleattr 9 1dbf3b01",
+        "style 10 y:9 " + t("nested") + " [ " + t("ref") + " ]",
+    ]
+    lines += [
+        # Fits on one line; empty list; empty text.
+        layout(200, words("Hello")),
+        layout(200, []),
+        layout(200, [t(""), "0", t("x")]),
+        # Word wrap, no wrap, narrow and zero widths.
+        layout(60, words(LOREM)),
+        layout(60, words(LOREM), wrap=0),
+        layout(23, words(LOREM)),
+        layout(1, words("ab cd")),
+        layout(0, words("ab cd")),
+        layout(-5, words("ab cd")),
+        layout(60, words("Supercalifragilisticexpialidocious and more")),
+        layout(60, words("short " + "W" * 12 + " tail")),
+        layout(40, [t("one "), t("two "), t("three "), t("four "), t("five")]),
+        layout(40, [t("one"), t(" two"), t(" three"), t("four"), t("five")], wrap=0),
+        # Whitespace kinds.
+        layout(30, words("a\tb\tc d  e   f\ng\rh\x0bi\x0cj")),
+        layout(25, words("trailing spaces    ")),
+        layout(25, words("   leading")),
+        # Single-line mode.
+        layout(40, words(LOREM), single=1),
+        layout(40, words("fits"), single=1),
+        layout(2, words("abc"), single=1),
+        layout(1, words("abc"), single=1),
+        layout(30, [t("ab"), img(40.0, 9.0), t("cd")], single=1),
+        layout(30, [font(2), t("big "), font(0), t("small text here")], single=1, wrap=0),
+        # Paragraphs, empty lines, justification.
+        layout(80, [t("first"), PARA, PARA, t("third"), PARA]),
+        layout(80, ["j:1", t("centred line"), PARA, "j:2", t("right"), PARA, "j:0", t("left"),
+                    PARA, "j:3", t("other")]),
+        layout(50, ["j:1", t(LOREM)], origin=(7, 11)),
+        layout(50, ["j:2", t(LOREM)], origin=(-3, 2)),
+        layout(50, [t("a"), "j:2", t("b"), PARA, t("c")]),
+        # Font changes across nodes: line ascents and heights.
+        layout(120, [t("small "), font(3), t("Big "), font(1, True), t("bold "), font(0),
+                     t("small again and wrapping onto lines")]),
+        layout(70, [font(5), t("x"), PARA, font(0), PARA, font(7), PARA, t("y")]),
+        layout(100, [color(0x1234AB), t("red "), a(0, 0x01, 0x01), t("def ")]),
+        # The attribute stack and default masks.
+        layout(100, ["s:0", font(2), color(0xFF), t("pushed "), "s:1", t("popped "),
+                     a(0x12345678, 0xFFFFFFFF, 0xFFFFFF00), t("default colour "), "s:2",
+                     "s:1", "s:7", t("end")], attrs=0x80808008),
+        layout(100, ["s:0", "s:0", font(4), "s:0", t("deep"), "s:2", t("cleared")]),
+        # Positions: absolute and relative, negative.
+        layout(100, [x(10.0, 20.0), t("abs"), x(5.5, -3.25, 1, 1), t("rel"), x(-4.0, 0.0, 1, 0),
+                     t("back")]),
+        layout(30, [t("aa"), x(25.0, 0.0, 1, 0), t("bb"), x(-30.0, 0.0, 1, 0), t("cc")]),
+        layout(100, [x(1.0e10, -1.0e10), t("far")]),
+        # Clips.
+        layout(100, ["c:0:0:50:20", t("clipped"), "c:0:0:0:0", t("free"), "c:5:5:5:9",
+                     "c:30:2:10:40", t("x")]),
+        # Styles: known, unknown, nested, replaced.
+        layout(100, ["y:7", t("styled text that wraps over the width"), "y:8", t("in eight"),
+                     "s:1", "y:99", t("unknown")]),
+        layout(100, ["y:10", t(" after")]),
+        # References, nested and empty.
+        layout(60, ["[", t("inner text "), "[", font(1), t("deeper words here"), "]", "]",
+                    t("outer"), "[", "]", t("end")]),
+        # Images: fitting, deferred, too wide, none.
+        layout(60, [t("pic "), img(12.0, 12.0), t(" after")]),
+        layout(60, [t("long words before "), img(30.0, 20.0), t("x")]),
+        layout(20, [img(30.0, 7.5), t("y")]),
+        layout(20, [img(30.0, 7.5), t("y")], wrap=0),
+        layout(60, ["i:-", t("none"), img(8.5, 3.75)]),
+        # Text pointers.
+        layout(40, [p("pointer text that wraps"), p(""), t("x")]),
+        # Everything at once.
+        layout(90, ["s:0", "j:1", font(2), color(0x40FF40), t("Title"), PARA, "s:1", "j:0",
+                    t(LOREM + " "), font(1, True), t("Bold words. "), font(0), img(10.0, 10.0),
+                    t(" " + LOREM), PARA, "y:7", t("Styled ending."), PARA],
+               origin=(4, 4)),
+    ]
+    lines += [
+        # lex_compare: equal texts give -1, prefixes, case, runs split differently.
+        "lex 0 " + t("abc") + " / " + t("abc"),
+        "lex 0 " + t("abc") + " / " + t("ABD"),
+        "lex 1 " + t("abc") + " / " + t("ABC"),
+        "lex 0 " + t("ab") + " / " + t("abc"),
+        "lex 0 " + t("abc") + " / " + t("ab"),
+        "lex 0 " + t("ab") + " " + t("cd") + " / " + t("abcd"),
+        "lex 0 " + t("abcd") + " / " + t("ab") + " " + t("cd"),
+        "lex 0 / " + t("x"),
+        "lex 0 " + t("x") + " /",
+        "lex 0 /",
+        "lex 0 " + font(1) + " " + t("") + " " + p("z") + " / " + PARA + " " + t("Z"),
+        # An empty text pointer only on the left: on the right (the list compared with
+        # itself included) the reference loops for ever (divergence D298).
+        "lex 1 " + t("q") + " " + p("") + " / " + t("q"),
+        "lex 0 " + t("Zebra") + " / " + t("apple"),
+    ]
+    return lines
+
+
+# The rich fonts INI files: [TrueType] font lines in and out of range, [Style] sections with
+# every key, keys and headers in other cases, sections without a name (which keep the previous
+# ID, 0 before any), a repeated name (the later list replaces the earlier), values the reader
+# truncates or does not take, CRLF line ends, and files without sections.
+RICH_FONTS_FULL = """; rich fonts, as the client reads them
+[TrueType]
+font = 0, Arial Unicode MS, 22
+font = 1, Agency FB, 30
+font = 31, Vibrocentric, 16
+font = 32, Ignored, 10
+font = -1, Ignored Too, 10
+font = 6, %s, 12
+nickname = other
+
+[Style]
+name = STYLE_TITLE
+font = 3
+bold = true
+color = 135, 195, 224
+justify = Center
+
+[Style]
+name = STYLE_BODY
+italic = 1
+underline = yes
+color = 300, -1, 7
+justify = right
+justify = LEFT
+bold = false
+bold = 1
+
+[Style]
+underline = true
+justify = middle
+
+[style]
+NAME = STYLE_TITLE
+FONT = 40
+Bold = false
+Italic = true
+Justify = CENTER
+Color = 1, 2, 3
+
+[Style]
+name = STYLE_EMPTY
+
+[Other]
+name = STYLE_OTHER
+font = 9
+
+[TrueType]
+font = 1, Second Face, 18
+font = 0
+""" % ("F" * 150)
+
+RICH_FONTS_CRLF = (
+    "[Style]\r\nfont = 2\r\nunderline = 1\r\n"
+    "[Style]\r\nitalic=true\r\ncolor=10,20,30\r\njustify = left\r\n"
+    "[TrueType]\r\nfont = 2, Crlf Face, 14\r\n"
+    "[Style]\r\nname = Late\r\nfont = 31\r\nunderline = false\r\n"
+    "[Style]\r\n"
+)
+
+RICH_FONTS_NO_SECTION = "font = 1\nname = STYLE_TITLE\nbold = true\n"
+
+
+def rich_fonts_files():
+    return {
+        "full.ini": RICH_FONTS_FULL.encode("ascii"),
+        "crlf.ini": RICH_FONTS_CRLF.encode("ascii"),
+        "empty.ini": b"",
+        "no_section.ini": RICH_FONTS_NO_SECTION.encode("ascii"),
+    }
+
+
+def name_probe(name):
+    return "n" + name.encode("ascii").hex()
+
+
+def rich_fonts_cases():
+    return [
+        " ".join(["full.ini"] + [name_probe(n) for n in ("STYLE_TITLE", "STYLE_BODY", "STYLE_EMPTY",
+                                                          "STYLE_OTHER")] + ["i0"]),
+        " ".join(["crlf.ini", "i0", name_probe("Late"), "i65535"]),
+        "empty.ini i0",
+        " ".join(["no_section.ini", name_probe("STYLE_TITLE"), "i0"]),
+        " ".join(["-", name_probe("STYLE_TITLE")]),
+    ]
+
+
+def write_bytes(name, data, check):
     path = os.path.join(os.path.dirname(os.path.abspath(__file__)), name)
+    if check:
+        with open(path, "rb") as existing:
+            if existing.read() != data:
+                sys.exit("%s is out of date; run make_text_fixtures.py" % name)
+        return
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "wb") as out:
+        out.write(data)
+
+
+def write(name, header, lines, check):
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), name)
+    text = header + "".join(line + "\n" for line in lines)
+    if check:
+        with open(path, "rb") as existing:
+            if existing.read() != text.encode("ascii"):
+                sys.exit("%s is out of date; run make_text_fixtures.py" % name)
+        return
     with open(path, "w", newline="\n") as out:
-        out.write(header)
-        for line in lines:
-            out.write(line + "\n")
+        out.write(text)
 
 
 def main():
+    check = "--check" in sys.argv[1:]
     write(
         "number_text.list",
         "# P4.13/P4.14 number-text oracle inputs, written by make_text_fixtures.py.\n"
         "# lua <double bits> | printf <count> <format hex or -> [i:<int> | d:<double bits>]...\n",
         lua_cases() + printf_cases(),
+        check,
     )
     write(
         "rdl_markup.list",
         "# P4.12 RDLX markup oracle inputs, written by make_text_fixtures.py.\n"
         "# One case per line: UTF-16LE text in hex, - for empty.\n",
         markup_cases(),
+        check,
     )
+    write(
+        "rich_text.list",
+        "# P4.12 rich-text layout oracle inputs, written by make_text_fixtures.py.\n"
+        "# style <id> <ops> | styleattr <id> <hex> | layout <w> <oh> <ov> <single> <wrap> <attrs> <ops>\n"
+        "# | lex <raw> <ops> / <ops>; the ops are described in the script.\n",
+        rich_cases(),
+        check,
+    )
+    write(
+        "rich_fonts.list",
+        "# P4.12 rich fonts INI oracle inputs, written by make_text_fixtures.py.\n"
+        "# <file under rich_fonts/ or -> <probe: n<name hex> | i<id>>...\n",
+        rich_fonts_cases(),
+        check,
+    )
+    for name, data in sorted(rich_fonts_files().items()):
+        write_bytes(os.path.join("rich_fonts", name), data, check)
 
 
 if __name__ == "__main__":

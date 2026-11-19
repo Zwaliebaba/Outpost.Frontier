@@ -133,6 +133,8 @@ pub fn is_control(unit: u16) -> bool {
 pub(crate) struct Pending {
     pub caret: Option<CaretRect>,
     pub finalize: bool,
+    /// `ImeUi_SetInsertMode` of the new mode (`IMEInputBox::ToggleInsertMode`).
+    pub insert_mode: Option<bool>,
 }
 
 /// `IMEInputBox` over `CInputBox`.
@@ -350,6 +352,7 @@ impl EditBox {
     /// overwrite does not.
     pub fn toggle_insert_mode(&mut self) {
         self.insert_mode = !self.insert_mode;
+        self.pending.insert_mode = Some(self.insert_mode);
         self.caret.set_blink(self.insert_mode);
     }
 
@@ -440,8 +443,8 @@ impl EditBox {
         true
     }
 
-    /// `ResetCaret`.
-    fn reset_caret(&mut self) {
+    /// `ResetCaret` (also what `SetFont` does after the font changed).
+    pub fn reset_caret(&mut self) {
         self.recalc_caret_pos();
     }
 

@@ -1,0 +1,1096 @@
+//! `BaseRichTextWin` and `RichTextWin` (`rich_text_win.cpp`): a control
+//! that lays a display list out to its pixel width, draws it into a memory
+//! surface through a `DeviceTRC`, copies the surface into a big image and
+//! draws that over the control's projected screen rectangle; scrolling
+//! moves the device's origin.
+//!
+//! The reference's GDI surface is a [`RichSurface`]; its `A1R5G5B5`
+//! read-back goes into a [`BigImage`] whose tile draws are handed to the
+//! host ([`RichTextCx::tiles`]). The vertical scroll bar the window makes
+//! (`ScrollV_%d`, automatically when the layout overflows or on request)
+//! is a [`UiScroll`] child, which draws with the window's children and
+//! tells the window of its value through slot 23. The draw submits the
+//! window's own mesh (`DrawStaticMesh`) before the image and outlines the
+//! window in its frame colour when the debug frame is on. The calls on the
+//! bar need the toolkit: a window driven without it ([`RichTextWin::draw_with`],
+//! [`BaseRichTextWin::render`]) makes no bar.
+
+use std::any::Any;
+
+use neuron_core::image::{FormatMaps, PixelFormat};
+use neuron_core::math::{Matrix, Transform, Vector};
+use neuron_core::math::{mul_transform, transform_matrix, transform_xform};
+use neuron_core::num::trunc_to_i32;
+
+use crate::render::texture::big_image::{BigImage, BigImageDesc, Rect, TileDraw};
+use crate::render::texture::pipeline::TexturePipeline;
+use crate::text::font::FontSystem;
+use crate::text::layout::device::{DeviceTrc, DeviceTrcCx, RichSurface};
+use crate::text::layout::list::LayoutParams;
+use crate::text::layout::{TextRenderContext, layout_rich_text};
+use crate::text::rdl::{RdlNode, RenderDisplayList};
+use crate::ui::control::{WinControl, base};
+use crate::ui::controls::scroll::UiScroll;
+use crate::ui::immediate::{capability, primitive, render_state};
+use crate::ui::page::EntryPayload;
+use crate::ui::services::{HoverKey, ToolTipHover};
+use crate::ui::tree::{ChildMessage, DrawHost, NodeId, Payload, Property, Ui, VISIBLE, Widget};
+
+/// What the host gives a rich-text window's draw: the pipeline's viewport
+/// (`GetViewportRect`: x, y, width, height) and projection
+/// (`GetProjection`, row by row as the reference reads it), the texture
+/// pipeline and format maps the big image is made with, and where its
+/// tile draws go (`ScreenQuadDrawBigImageTile`).
+pub struct RichTextCx<'a> {
+    pub viewport: [i32; 4],
+    pub projection: [f32; 16],
+    pub pipeline: &'a mut dyn TexturePipeline,
+    pub formats: &'a FormatMaps,
+    pub tiles: &'a mut Vec<TileDraw>,
+}
+
+/// The toolkit and the window's node, for the calls on the window's own
+/// `UIScroll`; `None` for a window driven outside the toolkit, which makes
+/// no bar.
+pub type Toolkit<'a> = Option<(&'a mut Ui, NodeId)>;
+
+fn reborrow<'b>(toolkit: &'b mut Toolkit<'_>) -> Toolkit<'b> {
+    toolkit.as_mut().map(|(ui, id)| (&mut **ui, *id))
+}
+
+fn node_transform(ui: &Ui, id: NodeId) -> Transform {
+    ui.node(id).map_or(Transform::IDENTITY, |n| {
+        Transform::new(n.orientation, n.position)
+    })
+}
+
+/// `SetValue` on a bar. While the bar is telling the window of its own
+/// change (slot 23 from inside the bar's method, D347) the call is handed
+/// back to the bar, which makes it when the window returns
+/// (`Ui::defer_scroll_value`, divergence D561).
+fn set_bar_value(ui: &mut Ui, bar: NodeId, value: f32) {
+    if let Some(scroll) = ui.widget_mut::<UiScroll>(bar) {
+        scroll.set_value(value);
+    } else if ui.contains(bar) {
+        ui.defer_scroll_value(bar, value);
+    }
+}
+
+/// The bar beside a window: (gap + width, 0, 0) through the window's
+/// orientation as its offset (`SetOffset`), the window's transform as its
+/// own (slot 8), as `CreateScrollBarV` and `UIScrollTable::SetScrollBarGap`
+/// place it.
+pub(crate) fn place_scroll_bar(ui: &mut Ui, id: NodeId, bar: NodeId, gap: f32, width: f32) {
+    let transform = node_transform(ui, id);
+    let along = Vector::new((f64::from(gap) + f64::from(width)) as f32, 0.0, 0.0);
+    let offset = transform_matrix(&transform.rotation, along);
+    ui.with_widget(bar, (), |w, ui| base::set_offset(ui, bar, w, offset));
+    ui.set_transform(bar, &transform);
+}
+
+/// `RoundSurfaceSize`: a negative size becomes 1, 0 stays 0, a power of
+/// two stays, anything else rounds up to the next one.
+#[must_use]
+pub fn round_surface_size(size: i32) -> i32 {
+    if size < 0 {
+        return 1;
+    }
+    let mut result: i32 = 1;
+    let mut rest = size;
+    let pow2 = size & size.wrapping_sub(1) == 0;
+    while rest != 0 {
+        rest >>= 1;
+        result = result.wrapping_shl(1);
+    }
+    if pow2 { result >> 1 } else { result }
+}
+
+/// `BaseRichTextWin` (`+0x32c` to `+0x488`).
+#[derive(Debug)]
+pub struct BaseRichTextWin {
+    pub control: WinControl,
+    /// `+0x330`, `+0x334`: the size in the control's units.
+    pub norm_width: f32,
+    pub norm_height: f32,
+    /// `+0x338`: the two corners in world space (x0, y0, x1, y1).
+    pub world_rect: [f32; 4],
+    /// `+0x348`: their screen rectangle.
+    pub screen_rect: [i32; 4],
+    pub pixel_width: i32,
+    pub pixel_height: i32,
+    pub scroll_x: i32,
+    pub scroll_y: i32,
+    /// `+0x374`: what the layout made, executed by the draw.
+    pub layout_list: RenderDisplayList,
+    /// `+0x380`.
+    pub layout_height: i32,
+    /// `+0x384`.
+    pub trc: DeviceTrc,
+    /// `+0x3d4`: the memory DC and its bitmap.
+    pub surface: Option<RichSurface>,
+    /// `+0x3e8`: the read-back's row pitch in bytes.
+    pub pitch: i32,
+    /// `+0x3ec`.
+    pub image: Option<BigImage>,
+    /// `+0x3f0`: the vertical `UIScroll` child, while there is one; the
+    /// horizontal bar of `+0x3f4` is never made.
+    pub scroll_bar_v: Option<NodeId>,
+    pub scroll_bar_width: f32,
+    pub scroll_bar_gap: f32,
+    pub layout_dirty: bool,
+    pub surface_dirty: bool,
+    pub draw_frame: bool,
+    pub frame_color: [u8; 4],
+    pub auto_scrollbar: bool,
+    /// `+0x408`: 0 scrolled, 1 top, 2 centred, 3 bottom.
+    pub align_mode: i32,
+    pub tooltip_enabled: bool,
+    pub never_hit: bool,
+    pub skip_upload: bool,
+    pub alpha: f32,
+    pub keep_scrolled_to_end: bool,
+    pub attach_offset: Vector,
+    /// `+0x40c`: the hover record slot 46 hands the tooltip, keyed by the
+    /// window once it is made (divergence D436).
+    pub hover: ToolTipHover,
+}
+
+impl Default for BaseRichTextWin {
+    fn default() -> Self {
+        BaseRichTextWin::new()
+    }
+}
+
+impl BaseRichTextWin {
+    /// The constructor.
+    #[must_use]
+    pub fn new() -> BaseRichTextWin {
+        BaseRichTextWin {
+            control: WinControl::new(),
+            norm_width: 0.0,
+            norm_height: 0.0,
+            world_rect: [0.0; 4],
+            screen_rect: [0; 4],
+            pixel_width: 0,
+            pixel_height: 0,
+            scroll_x: 0,
+            scroll_y: 0,
+            layout_list: RenderDisplayList::new(),
+            layout_height: 0,
+            trc: DeviceTrc::new(),
+            surface: None,
+            pitch: 0,
+            image: None,
+            scroll_bar_v: None,
+            scroll_bar_width: 0.02,
+            scroll_bar_gap: 0.002,
+            layout_dirty: true,
+            surface_dirty: true,
+            draw_frame: false,
+            frame_color: [0x00, 0xFF, 0x00, 0xFF],
+            auto_scrollbar: false,
+            align_mode: 0,
+            tooltip_enabled: false,
+            never_hit: false,
+            skip_upload: false,
+            alpha: 1.0,
+            keep_scrolled_to_end: false,
+            attach_offset: Vector::ZERO,
+            hover: ToolTipHover::for_ids(-1),
+        }
+    }
+
+    /// `Create`'s resets after `Win3D::Create`: the rectangles, the attach
+    /// offset, both dirty flags and a 0.4 by 0.3 size. The reference then
+    /// projects the control (`EnsureSurface`), which here waits for the
+    /// first draw (divergence D423). The caller keys the hover record by
+    /// the window ([`Self::key_hover`]).
+    pub fn create_reset(&mut self) {
+        self.world_rect = [0.0; 4];
+        self.pixel_width = 0;
+        self.pixel_height = 0;
+        self.screen_rect = [0; 4];
+        self.attach_offset = Vector::ZERO;
+        self.layout_dirty = true;
+        self.surface_dirty = true;
+        self.norm_width = 0.4;
+        self.norm_height = 0.3;
+    }
+
+    /// The constructor's hover key: the window itself (divergence D436).
+    pub fn key_hover(&mut self, id: NodeId) {
+        self.hover.key = HoverKey::Object(id);
+        self.hover.ids_alt = 0;
+    }
+
+    /// `HitTest`: the ray's point at the control's depth within the world
+    /// rectangle below and right of the position.
+    #[must_use]
+    pub fn hit_test(&self, position: Vector, ray: Vector) -> bool {
+        if self.never_hit {
+            return false;
+        }
+        let t = f64::from(position.z) / f64::from(ray.z);
+        let point_y = (t * f64::from(ray.y)) as f32;
+        let delta_x = t * f64::from(ray.x) - f64::from(position.x);
+        if delta_x < 0.0 {
+            return false;
+        }
+        if !(delta_x <= f64::from(self.world_rect[2]) - f64::from(self.world_rect[0])) {
+            return false;
+        }
+        let delta_y = f64::from(position.y) - f64::from(point_y);
+        if delta_y < 0.0 {
+            return false;
+        }
+        delta_y <= f64::from(self.world_rect[1]) - f64::from(self.world_rect[3])
+    }
+
+    /// `FeedToolTipIfHovered`: with the tooltip on and a hover record
+    /// (slot 46), the record goes to the tooltip when the window's hit test
+    /// (slot 4) takes the mouse ray.
+    pub fn feed_tooltip_if_hovered(
+        &self,
+        ui: &mut Ui,
+        info: Option<&ToolTipHover>,
+        hit_test: impl FnOnce(&Ui, Vector) -> bool,
+    ) {
+        if !self.tooltip_enabled {
+            return;
+        }
+        let Some(info) = info else { return };
+        let ray = ui.mouse_ray();
+        if hit_test(ui, ray) {
+            ui.feed_tooltip_hover(info);
+        }
+    }
+
+    /// `BaseRichTextWin::SetPosition`: the attach offset added, then
+    /// `WinControl::SetPosition`.
+    pub fn set_position(&mut self, ui: &mut Ui, id: NodeId, position: Vector) {
+        let o = self.attach_offset;
+        let moved = Vector {
+            x: o.x + position.x,
+            y: o.y + position.y,
+            z: o.z + position.z,
+        };
+        base::set_position(ui, id, &mut self.control, moved);
+    }
+
+    /// `SetAttachOffset` (property 6): moved by the change of the offset.
+    pub fn set_attach_offset(&mut self, ui: &mut Ui, id: NodeId, offset: Vector) {
+        let old = self.attach_offset;
+        self.attach_offset = offset;
+        let position = ui.node(id).map_or(Vector::ZERO, |n| n.position);
+        let dz = position.z - old.z;
+        let moved = Vector {
+            x: (f64::from(position.x) - f64::from(old.x) + f64::from(offset.x)) as f32,
+            y: (f64::from(position.y) - f64::from(old.y) + f64::from(offset.y)) as f32,
+            z: dz + offset.z,
+        };
+        base::set_position(ui, id, &mut self.control, moved);
+    }
+
+    /// `SetScrollOrigin`: each coordinate moves only to a new, non-negative
+    /// value; a move puts the origin at minus the scroll, dirties the
+    /// surface and sets the bar's value to the vertical scroll.
+    pub fn set_scroll_origin(&mut self, ui: &mut Ui, x: i32, y: i32) {
+        self.move_scroll_origin(Some(ui), x, y);
+    }
+
+    /// [`Self::set_scroll_origin`], the bar's value set only with the
+    /// toolkit.
+    fn move_scroll_origin(&mut self, ui: Option<&mut Ui>, x: i32, y: i32) {
+        let mut changed = false;
+        if x != self.scroll_x && x >= 0 {
+            self.scroll_x = x;
+            changed = true;
+        }
+        if y != self.scroll_y && y >= 0 {
+            self.scroll_y = y;
+        } else if !changed {
+            return;
+        }
+        self.trc.state.origin_v = self.scroll_y.wrapping_neg();
+        self.trc.state.origin_h = self.scroll_x.wrapping_neg();
+        self.surface_dirty = true;
+        if let (Some(ui), Some(bar)) = (ui, self.scroll_bar_v) {
+            set_bar_value(ui, bar, self.scroll_y as f32);
+        }
+    }
+
+    /// `GetScrollOrigin`: the horizontal scroll, and the vertical one as
+    /// the alignment reports it (`None` for a mode above 3, where the
+    /// reference leaves its output alone).
+    #[must_use]
+    pub fn scroll_origin(&self) -> (i32, Option<i32>) {
+        let y = match self.align_mode {
+            0 => Some(self.scroll_y),
+            1 => Some(0),
+            2 => Some(-((self.pixel_height.wrapping_sub(self.layout_height)) / 2)),
+            3 => Some(self.layout_height.wrapping_sub(self.pixel_height)),
+            _ => None,
+        };
+        (self.scroll_x, y)
+    }
+
+    /// `SetAutoScrollbar`.
+    pub fn set_auto_scrollbar(&mut self, auto: bool) {
+        self.auto_scrollbar = auto;
+        self.layout_dirty = true;
+        self.surface_dirty = true;
+    }
+
+    /// `ScrollToEnd`.
+    pub fn scroll_to_end(&mut self, ui: &mut Ui) {
+        let y = if self.layout_height > self.pixel_height {
+            self.layout_height - self.pixel_height
+        } else {
+            0
+        };
+        self.set_scroll_origin(ui, self.scroll_x, y);
+    }
+
+    /// `ScrollToTop`.
+    pub fn scroll_to_top(&mut self, ui: &mut Ui) {
+        self.set_scroll_origin(ui, self.scroll_x, 0);
+    }
+
+    /// `SetAlignMode`: the surface dirtied.
+    pub fn set_align_mode(&mut self, mode: i32) {
+        self.align_mode = mode;
+        self.surface_dirty = true;
+    }
+
+    /// `MarkDirty`: a dirty layout always dirties the surface.
+    pub fn mark_dirty(&mut self, surface: bool, layout: bool) {
+        self.layout_dirty = self.layout_dirty || layout;
+        if self.layout_dirty {
+            self.surface_dirty = true;
+            return;
+        }
+        self.surface_dirty = self.surface_dirty || surface;
+    }
+
+    /// `CreateScrollBarV`: a `UIScroll` child of the window `id` named
+    /// `ScrollV_%d` (the manager's serial, divergence D475) of the bar's
+    /// width by the window's height, its range the larger of the laid-out
+    /// and the pixel height, a page of the pixel height and a step of a
+    /// tenth of it, placed beside the text (the gap plus the width along the
+    /// window's x axis) with the window's transform. The window does not
+    /// keep it: the callers do.
+    pub fn create_scroll_bar_v(&self, ui: &mut Ui, id: NodeId) -> Option<NodeId> {
+        let range = self.layout_height.max(self.pixel_height);
+        let payload = EntryPayload::ScrollCycle {
+            right: self.scroll_bar_width,
+            bottom: self.norm_height,
+            extra: [
+                0.0,
+                range as f32,
+                self.pixel_height as f32,
+                (self.pixel_height / 10) as f32,
+            ],
+            flag: false,
+        };
+        let serial = ui.scroll_v_serial;
+        ui.scroll_v_serial = serial.wrapping_add(1);
+        let name = format!("ScrollV_{serial}");
+        let bar = ui.create_by_class(
+            Some(name.as_bytes()),
+            b"UIScroll",
+            Some(id),
+            &mut Payload::Page(&payload),
+        )?;
+        place_scroll_bar(ui, id, bar, self.scroll_bar_gap, self.norm_width);
+        Some(bar)
+    }
+
+    /// The bar made (`CreateScrollBarV`) and kept, at the vertical scroll.
+    fn make_scroll_bar_v(&mut self, ui: &mut Ui, id: NodeId) {
+        self.scroll_bar_v = self.create_scroll_bar_v(ui, id);
+        if let Some(bar) = self.scroll_bar_v {
+            set_bar_value(ui, bar, self.scroll_y as f32);
+        }
+    }
+
+    /// The bar deleted (`delete ScrollBarV`).
+    fn drop_scroll_bar_v(&mut self, ui: &mut Ui) {
+        if let Some(bar) = self.scroll_bar_v.take() {
+            ui.delete(bar);
+        }
+    }
+
+    /// `ShowScrollBarV` on the window `id`: the bar made at the vertical
+    /// scroll when there is none, or deleted.
+    pub fn show_scroll_bar_v(&mut self, ui: &mut Ui, id: NodeId, show: bool) {
+        if show {
+            if self.scroll_bar_v.is_none() {
+                self.make_scroll_bar_v(ui, id);
+            }
+        } else {
+            self.drop_scroll_bar_v(ui);
+        }
+    }
+
+    /// `SetNormSize` of a window without its own bar: no dirty flags (the
+    /// next draw's projection notices). [`Self::set_norm_size_in`] also
+    /// resizes and places the bar.
+    pub fn set_norm_size(&mut self, width: f32, height: f32) {
+        self.norm_height = height;
+        self.norm_width = width;
+    }
+
+    /// `SetNormSize` of the window `id`: the size, then the bar, if any,
+    /// made the bar's width by the new height and given the window's
+    /// transform moved by the new width along its x axis (`MulTransform`;
+    /// the offset `CreateScrollBarV` gave it stays).
+    pub fn set_norm_size_in(&mut self, ui: &mut Ui, id: NodeId, width: f32, height: f32) {
+        self.set_norm_size(width, height);
+        let Some(bar) = self.scroll_bar_v else { return };
+        let bar_width = self.scroll_bar_width;
+        if let Some(scroll) = ui.widget_mut::<UiScroll>(bar) {
+            scroll.set_size(bar_width, height);
+        }
+        let beside = Transform::new(Matrix::IDENTITY, Vector::new(self.norm_width, 0.0, 0.0));
+        let placed = mul_transform(&node_transform(ui, id), &beside);
+        ui.set_transform(bar, &placed);
+    }
+
+    /// `EnsureSurface`: the control's corners (0, 0, 0) and (width,
+    /// -height, 0) through its transform and the projection into the
+    /// screen rectangle; a surface of the rectangle's size rounded up to
+    /// powers of two, with a big image of zeros of that size, when the
+    /// rounded size changed; both dirty flags when the pixel size changed.
+    /// Nothing changes when a corner projects to w = 0.
+    pub fn ensure_surface(&mut self, transform: &Transform, cx: &mut RichTextCx<'_>) {
+        let m = &cx.projection;
+        let [view_x, view_y, view_w, view_h] = cx.viewport;
+        let row = |r: usize, w: Vector| {
+            let mut sum = f64::from(m[r * 4 + 2]) * f64::from(w.z);
+            sum += f64::from(m[r * 4 + 1]) * f64::from(w.y);
+            sum += f64::from(m[r * 4]) * f64::from(w.x);
+            sum += f64::from(m[r * 4 + 3]);
+            sum as f32
+        };
+        let world0 = transform_xform(transform, Vector::ZERO);
+        let clip0 = [
+            row(0, world0),
+            row(1, world0),
+            row(2, world0),
+            row(3, world0),
+        ];
+        if clip0[3] == 0.0 {
+            return;
+        }
+        let inv_w0 = 1.0 / f64::from(clip0[3]);
+        let ndc_x0 = (f64::from(clip0[0]) * inv_w0) as f32;
+        let ndc_y0 = (inv_w0 * f64::from(clip0[1])) as f32;
+        let corner1 = Vector {
+            x: self.norm_width,
+            y: -self.norm_height,
+            z: 0.0,
+        };
+        let world1 = transform_xform(transform, corner1);
+        let clip1_x = row(0, world1);
+        let clip1_y = row(1, world1);
+        let _clip1_z = row(2, world1);
+        let clip1_w = {
+            let mut sum = f64::from(m[13]) * f64::from(world1.y);
+            sum += f64::from(m[12]) * f64::from(world1.x);
+            sum += f64::from(m[14]) * f64::from(world1.z);
+            sum += f64::from(m[15]);
+            sum as f32
+        };
+        if clip1_w == 0.0 {
+            return;
+        }
+        let inv_w1 = 1.0 / f64::from(clip1_w);
+        self.world_rect = [world0.x, world0.y, world1.x, world1.y];
+        let ndc_x1 = f64::from(clip1_x) * inv_w1;
+        let ndc_y1 = (inv_w1 * f64::from(clip1_y)) as f32;
+        let width_d = f64::from(view_w);
+        let x_d = f64::from(view_x);
+        let height_f = f64::from(view_h as f32);
+        let y_f = f64::from(view_y as f32);
+        let left = trunc_to_i32((1.0 - f64::from(ndc_x0)) * width_d * 0.5 + x_d);
+        let top = trunc_to_i32((f64::from(ndc_y0) + 1.0) * height_f * 0.5 + y_f);
+        let right = trunc_to_i32((1.0 - ndc_x1) * width_d * 0.5 + x_d);
+        let bottom = trunc_to_i32((f64::from(ndc_y1) + 1.0) * height_f * 0.5 + y_f);
+        let (old_w, old_h) = (self.pixel_width, self.pixel_height);
+        self.screen_rect = [left, top, right, bottom];
+        self.pixel_width = right.wrapping_sub(left);
+        self.pixel_height = bottom.wrapping_sub(top);
+
+        let surface_w = round_surface_size(self.pixel_width);
+        let surface_h = round_surface_size(self.pixel_height);
+        let current = self.surface.as_ref().map(|s| (s.width, s.height));
+        if surface_h > 0 && surface_w > 0 && current != Some((surface_w, surface_h)) {
+            self.surface = Some(RichSurface::new(surface_w, surface_h));
+            self.pitch = surface_w.wrapping_mul(2);
+            self.surface_dirty = true;
+            if self.pitch & 3 != 0 {
+                self.pitch = self.pitch - (self.pitch & 3) + 4;
+            }
+            let pixels = vec![0u8; (self.pitch as usize) * (surface_h as usize)];
+            let desc = BigImageDesc {
+                src_format: PixelFormat::A1R5G5B5,
+                dst_format: PixelFormat::A1R5G5B5,
+                pixels: &pixels,
+                width: surface_w as u32,
+                height: surface_h as u32,
+                pitch: self.pitch as u32,
+            };
+            if let Ok(image) = BigImage::create(&desc, cx.formats, cx.pipeline) {
+                if let Some(mut old) = self.image.take() {
+                    old.destroy(cx.pipeline);
+                }
+                self.image = Some(image);
+            }
+        }
+        if old_w != self.pixel_width || old_h != self.pixel_height {
+            self.layout_dirty = true;
+            self.surface_dirty = true;
+        }
+    }
+
+    /// `RebuildLayoutIfDirty` of a window outside the toolkit (no bar is
+    /// made): with a surface and a dirty layout, the list laid out again
+    /// (`relayout`, from the default attributes at the pen (0, 0), the
+    /// height starting at the pixel height), the view kept at the end when
+    /// it was within 60 pixels of it.
+    pub fn rebuild_layout_if_dirty(
+        &mut self,
+        fonts: &mut FontSystem,
+        content: Option<(&RenderDisplayList, bool)>,
+    ) {
+        match content {
+            Some((source, wrap)) => self.rebuild_layout_with(fonts, &mut |base, fonts| {
+                base.relayout_content(fonts, source, wrap);
+            }),
+            None => self.rebuild_layout_with(fonts, &mut |_, _| {}),
+        }
+    }
+
+    /// `RichTextWin::Relayout`: `source` laid out to the pixel width less
+    /// 4 from the pen (2, 0), its height kept.
+    pub fn relayout_content(
+        &mut self,
+        fonts: &mut FontSystem,
+        source: &RenderDisplayList,
+        wrap: bool,
+    ) {
+        let mut out = RenderDisplayList::new();
+        let mut ctx = DeviceTrcCx {
+            trc: &mut self.trc,
+            fonts: &fonts.rich,
+            backend: fonts.backend.as_mut(),
+            surface: self.surface.as_mut(),
+        };
+        let result = layout_rich_text(
+            &mut ctx,
+            &fonts.styles,
+            source,
+            &mut out,
+            LayoutParams {
+                width: self.pixel_width.wrapping_sub(4),
+                origin_h: 2,
+                origin_v: 0,
+                single_line: false,
+                wrap,
+            },
+        );
+        self.layout_list = out;
+        self.layout_height = result.height;
+    }
+
+    /// [`Self::rebuild_layout_if_dirty`] with the window's own slot 45
+    /// (`relayout`, which appends to the emptied layout list).
+    pub fn rebuild_layout_with(
+        &mut self,
+        fonts: &mut FontSystem,
+        relayout: &mut dyn FnMut(&mut BaseRichTextWin, &mut FontSystem),
+    ) {
+        self.rebuild_layout_in(fonts, None, relayout);
+    }
+
+    /// `RebuildLayoutIfDirty` with the window's slot 45, in the toolkit:
+    /// [`Self::rebuild_layout_with`], and after the layout the automatic bar
+    /// made (at the vertical scroll) when the text overflows or deleted when
+    /// it fits, then the bar's range set to the larger of the laid-out and
+    /// the pixel height.
+    pub fn rebuild_layout_in(
+        &mut self,
+        fonts: &mut FontSystem,
+        mut toolkit: Toolkit<'_>,
+        relayout: &mut dyn FnMut(&mut BaseRichTextWin, &mut FontSystem),
+    ) {
+        if self.surface.is_none() || !self.layout_dirty {
+            return;
+        }
+        self.trc.state.attr_stack.clear();
+        self.trc.state.current = self.trc.state.default;
+        self.trc.state.pos_v = 0;
+        self.trc.state.pos_h = 0;
+        self.layout_list.nodes.clear();
+        self.layout_height = self.pixel_height;
+        relayout(self, fonts);
+        if let Some((ui, id)) = reborrow(&mut toolkit) {
+            if self.auto_scrollbar {
+                if self.scroll_bar_v.is_some() {
+                    if self.layout_height <= self.pixel_height {
+                        self.drop_scroll_bar_v(ui);
+                    }
+                } else if self.layout_height > self.pixel_height {
+                    self.make_scroll_bar_v(ui, id);
+                }
+            }
+            let range = self.layout_height.max(self.pixel_height) as f32;
+            if let Some(scroll) = self.scroll_bar_v.and_then(|b| ui.widget_mut::<UiScroll>(b)) {
+                scroll.set_range(0.0, range);
+            }
+        }
+        if self.keep_scrolled_to_end {
+            let overflow = self.layout_height.wrapping_sub(self.pixel_height);
+            if f64::from(overflow) - f64::from(self.scroll_y) <= 60.0 {
+                let y = if self.layout_height > self.pixel_height {
+                    overflow
+                } else {
+                    0
+                };
+                let ui = reborrow(&mut toolkit).map(|(ui, _)| ui);
+                self.move_scroll_origin(ui, self.scroll_x, y);
+            }
+        }
+        self.layout_dirty = false;
+    }
+
+    /// The surface half of `Draw`: when either flag is up and the window
+    /// has pixels, the surface cleared, the bar's page and step set, the
+    /// layout rebuilt, the origin set by the alignment, the laid list
+    /// executed with drawing from the default attributes at (0, 0), and the
+    /// read-back uploaded into the big image (which clears the surface
+    /// flag unless the upload is skipped or fails).
+    pub fn render(
+        &mut self,
+        fonts: &mut FontSystem,
+        content: Option<(&RenderDisplayList, bool)>,
+        pipeline: &mut dyn TexturePipeline,
+    ) {
+        match content {
+            Some((source, wrap)) => self.render_with(
+                fonts,
+                &mut |base, fonts| base.relayout_content(fonts, source, wrap),
+                pipeline,
+            ),
+            None => self.render_with(fonts, &mut |_, _| {}, pipeline),
+        }
+    }
+
+    /// [`Self::render`] with the window's own slot 45.
+    pub fn render_with(
+        &mut self,
+        fonts: &mut FontSystem,
+        relayout: &mut dyn FnMut(&mut BaseRichTextWin, &mut FontSystem),
+        pipeline: &mut dyn TexturePipeline,
+    ) {
+        self.render_in(fonts, None, relayout, pipeline);
+    }
+
+    /// The surface half of `Draw` in the toolkit: [`Self::render_with`],
+    /// the bar's page and step set before the layout, the layout rebuilt
+    /// with the bar ([`Self::rebuild_layout_in`]).
+    pub fn render_in(
+        &mut self,
+        fonts: &mut FontSystem,
+        mut toolkit: Toolkit<'_>,
+        relayout: &mut dyn FnMut(&mut BaseRichTextWin, &mut FontSystem),
+        pipeline: &mut dyn TexturePipeline,
+    ) {
+        if !(self.surface_dirty || self.layout_dirty)
+            || self.pixel_width <= 0
+            || self.pixel_height <= 0
+        {
+            return;
+        }
+        let Some(surface) = self.surface.as_mut() else {
+            return;
+        };
+        surface.clear();
+        if let Some((ui, _)) = reborrow(&mut toolkit)
+            && let Some(scroll) = self.scroll_bar_v.and_then(|b| ui.widget_mut::<UiScroll>(b))
+        {
+            scroll.set_page(self.pixel_height as f32);
+            scroll.set_step((self.pixel_height / 10) as f32);
+        }
+        self.rebuild_layout_in(fonts, toolkit, relayout);
+        match self.align_mode {
+            1 => {
+                self.trc.state.origin_v = 0;
+                self.trc.state.origin_h = self.scroll_x.wrapping_neg();
+            }
+            2 => {
+                self.trc.state.origin_v = self.pixel_height.wrapping_sub(self.layout_height) / 2;
+                self.trc.state.origin_h = self.scroll_x.wrapping_neg();
+            }
+            3 => {
+                self.trc.state.origin_v = self.pixel_height.wrapping_sub(self.layout_height);
+                self.trc.state.origin_h = self.scroll_x.wrapping_neg();
+            }
+            _ => {}
+        }
+        let mut ctx = DeviceTrcCx {
+            trc: &mut self.trc,
+            fonts: &fonts.rich,
+            backend: fonts.backend.as_mut(),
+            surface: self.surface.as_mut(),
+        };
+        ctx.reset_to_default();
+        ctx.trc_mut().pos_v = 0;
+        ctx.trc_mut().pos_h = 0;
+        self.layout_list.execute(&mut ctx, &fonts.styles, true);
+        let Some(surface) = self.surface.as_ref() else {
+            return;
+        };
+        let buffer = surface.to_a1r5g5b5(self.pitch.max(0) as usize);
+        if !self.skip_upload
+            && let Some(image) = self.image.as_mut()
+            && image.set_from_buffer(
+                &buffer,
+                PixelFormat::A1R5G5B5,
+                surface.width as u32,
+                surface.height as u32,
+                self.pitch as u32,
+                pipeline,
+            ) == 0
+        {
+            self.surface_dirty = false;
+        }
+    }
+
+    /// The image half of `Draw`: the big image at the window's alpha in
+    /// white, its top-left `width + 1` by `height + 1` pixels onto the
+    /// screen rectangle grown by one.
+    pub fn draw_image(&mut self) -> Vec<TileDraw> {
+        let Some(image) = self.image.as_mut() else {
+            return Vec::new();
+        };
+        image.set_alpha(self.alpha);
+        image.set_color([1.0, 1.0, 1.0]);
+        let [l, t, r, b] = self.screen_rect;
+        let src = Rect {
+            left: 0,
+            top: 0,
+            right: r.wrapping_sub(l).wrapping_add(1),
+            bottom: b.wrapping_sub(t).wrapping_add(1),
+        };
+        let dest = Rect {
+            left: l,
+            top: t,
+            right: r.wrapping_add(1),
+            bottom: b.wrapping_add(1),
+        };
+        image.draw(Some(src), dest).1
+    }
+
+    /// The debug frame of `Draw` (`+0x402`): depth test and culling off,
+    /// the outline of the window's rectangle (0, 0) to (width, -height) in
+    /// its plane as a line loop in the frame colour through the window's
+    /// transform, untextured; the depth test and depth writes on again.
+    pub fn draw_frame(&self, host: &mut dyn DrawHost, transform: &Transform) {
+        let Some(imm) = host.immediate() else { return };
+        imm.disable(capability::DEPTH_TEST);
+        imm.disable(capability::CULL_FACE);
+        imm.set_render_state(render_state::ZENABLE, 0);
+        imm.set_render_state(render_state::ZWRITEENABLE, 0);
+        imm.set_render_state(render_state::CULLMODE, 1);
+        imm.bind_modelview(transform);
+        imm.color4ubv(self.frame_color);
+        imm.disable(capability::TEXTURE_2D);
+        imm.begin(primitive::LINE_LOOP);
+        imm.vertex(0.0, 0.0, 0.0);
+        imm.vertex(self.norm_width, 0.0, 0.0);
+        imm.vertex(self.norm_width, -self.norm_height, 0.0);
+        imm.vertex(0.0, -self.norm_height, 0.0);
+        imm.end();
+        imm.enable(capability::DEPTH_TEST);
+        imm.set_depth_write(true);
+    }
+
+    /// `BaseRichTextWin::Draw` of a visible window `id` at `transform` in
+    /// the toolkit, with the window's own surface work (`render`: the
+    /// surface half with its slot 45, given the toolkit and the host's
+    /// rich-text context): the projection, the surface (with the fonts),
+    /// the window's mesh (`DrawStaticMesh`), the image, and the debug frame
+    /// over it. The children are the caller's.
+    pub fn draw_window(
+        &mut self,
+        ui: &mut Ui,
+        id: NodeId,
+        host: &mut dyn DrawHost,
+        transform: &Transform,
+        render: &mut dyn FnMut(
+            &mut BaseRichTextWin,
+            &mut FontSystem,
+            Toolkit<'_>,
+            &mut RichTextCx<'_>,
+        ),
+    ) {
+        // The fonts leave the toolkit for the call, which the bar's calls
+        // need.
+        let mut fonts = ui.fonts.take();
+        if let Some(mut cx) = host.rich_text_cx() {
+            self.ensure_surface(transform, &mut cx);
+            if let Some(fonts) = fonts.as_mut() {
+                render(self, fonts, Some((&mut *ui, id)), &mut cx);
+            }
+        }
+        if ui.fonts.is_none() {
+            ui.fonts = fonts;
+        }
+        base::draw_static_mesh(&self.control, host);
+        if self.image.is_none() {
+            return;
+        }
+        let tiles = self.draw_image();
+        if let Some(cx) = host.rich_text_cx() {
+            cx.tiles.extend(tiles);
+        }
+        if self.draw_frame {
+            self.draw_frame(host, transform);
+        }
+    }
+}
+
+/// `RichTextWin`: a [`BaseRichTextWin`] over a source list of its own.
+#[derive(Debug)]
+pub struct RichTextWin {
+    pub base: BaseRichTextWin,
+    /// `+0x488`.
+    pub content: RenderDisplayList,
+    /// `+0x494`: the layout wraps at words (1 from the constructor).
+    pub layout_flag: bool,
+}
+
+impl Default for RichTextWin {
+    fn default() -> Self {
+        RichTextWin::new()
+    }
+}
+
+impl RichTextWin {
+    /// The constructor: both dirty flags cleared, wrapping on.
+    #[must_use]
+    pub fn new() -> RichTextWin {
+        let mut base = BaseRichTextWin::new();
+        base.surface_dirty = false;
+        base.layout_dirty = false;
+        RichTextWin {
+            base,
+            content: RenderDisplayList::new(),
+            layout_flag: true,
+        }
+    }
+
+    /// `ClearContent`: only a non-empty list dirties the window.
+    pub fn clear_content(&mut self) {
+        if self.content.nodes.is_empty() {
+            return;
+        }
+        self.content.nodes.clear();
+        self.base.layout_dirty = true;
+        self.base.surface_dirty = true;
+    }
+
+    /// `AppendContent`: a clone of every node of `source`; an empty
+    /// source changes nothing.
+    pub fn append_content(&mut self, source: &RenderDisplayList) {
+        if source.nodes.is_empty() {
+            return;
+        }
+        self.content
+            .nodes
+            .extend(source.nodes.iter().map(RdlNode::cloned));
+        self.base.layout_dirty = true;
+        self.base.surface_dirty = true;
+    }
+
+    /// `AppendNode`.
+    pub fn append_node(&mut self, node: &RdlNode) {
+        self.content.push(node.cloned());
+        self.base.layout_dirty = true;
+        self.base.surface_dirty = true;
+    }
+
+    /// `SetLayoutFlag`.
+    pub fn set_layout_flag(&mut self, wrap: bool) {
+        self.layout_flag = wrap;
+    }
+
+    /// `CreateWithText` after `Create`: the size, then one text node of the
+    /// text up to its first NUL. No dirty flags beyond `Create`'s.
+    pub fn set_text_content(&mut self, text: &[u16], width: f32, height: f32) {
+        self.base.norm_width = width;
+        self.base.norm_height = height;
+        self.content
+            .push(RdlNode::Text(crate::text::font::wide_c_str(text).to_vec()));
+    }
+
+    /// Slot 23 of the window: message `0xF005` from its own bar, whose value
+    /// the vertical scroll follows, truncated; any other message is
+    /// `WinControl`'s (none is taken). The horizontal bar's branch is never
+    /// reached: the window makes no horizontal bar.
+    pub fn child_message_window(&mut self, ui: &mut Ui, message: &ChildMessage) -> bool {
+        match message {
+            ChildMessage::ScrollChanged { from, value }
+                if Some(*from) == self.base.scroll_bar_v =>
+            {
+                let x = self.base.scroll_x;
+                self.base
+                    .set_scroll_origin(ui, x, trunc_to_i32(f64::from(*value)));
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// The window's own hit test (slot 4) at its node's position.
+    #[must_use]
+    pub fn hit(&self, ui: &Ui, id: NodeId, ray: Vector) -> bool {
+        let position = ui.node(id).map_or(Vector::ZERO, |n| n.position);
+        self.base.hit_test(position, ray)
+    }
+
+    /// `RichTextWin::Update`: the source list's `update` (every node's
+    /// `Update` is empty), the tooltip feed with the window's hit test,
+    /// the children.
+    pub fn update_window(&mut self, ui: &mut Ui, id: NodeId) {
+        self.base
+            .feed_tooltip_if_hovered(ui, Some(&self.base.hover), |ui, ray| self.hit(ui, id, ray));
+        ui.base_update(id);
+    }
+
+    /// `BaseRichTextWin::UpdateInactive`: the tooltip feed, then the
+    /// children that are not active.
+    pub fn update_inactive_window(&mut self, ui: &mut Ui, id: NodeId) {
+        self.base
+            .feed_tooltip_if_hovered(ui, Some(&self.base.hover), |ui, ray| self.hit(ui, id, ray));
+        ui.base_update_inactive(id);
+    }
+
+    /// `Draw` without the toolkit: the projection, the surface, the image;
+    /// no bar, mesh or frame.
+    pub fn draw_with(
+        &mut self,
+        transform: &Transform,
+        fonts: &mut FontSystem,
+        cx: &mut RichTextCx<'_>,
+    ) {
+        self.base.ensure_surface(transform, cx);
+        let content = (&self.content, self.layout_flag);
+        self.base.render(fonts, Some(content), cx.pipeline);
+        cx.tiles.extend(self.base.draw_image());
+    }
+}
+
+impl Widget for RichTextWin {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+    fn win_control(&self) -> Option<&WinControl> {
+        Some(&self.base.control)
+    }
+    fn win_control_mut(&mut self) -> Option<&mut WinControl> {
+        Some(&mut self.base.control)
+    }
+
+    /// `RichTextWin::Create`: `Win3D::Create` with no payload, the resets
+    /// and the content emptied.
+    fn create(
+        &mut self,
+        ui: &mut Ui,
+        id: NodeId,
+        parent: Option<NodeId>,
+        _payload: &mut Payload<'_>,
+    ) -> bool {
+        let result = ui.base_create(id, parent);
+        self.base.create_reset();
+        self.base.key_hover(id);
+        self.content.nodes.clear();
+        result
+    }
+
+    fn hit_test(&mut self, ui: &mut Ui, id: NodeId, ray: Vector) -> bool {
+        self.hit(ui, id, ray)
+    }
+
+    fn update(&mut self, ui: &mut Ui, id: NodeId) {
+        self.update_window(ui, id);
+    }
+
+    fn update_inactive(&mut self, ui: &mut Ui, id: NodeId) {
+        self.update_inactive_window(ui, id);
+    }
+
+    /// `SetPosition`: the attach offset added.
+    fn set_position(&mut self, ui: &mut Ui, id: NodeId, position: Vector) {
+        self.base.set_position(ui, id, position);
+    }
+
+    fn set_orientation(&mut self, ui: &mut Ui, id: NodeId, orientation: Matrix) {
+        base::set_orientation(ui, id, &mut self.base.control, orientation);
+    }
+
+    fn destroy(&mut self, ui: &mut Ui, id: NodeId) {
+        base::destroy(ui, id, &mut self.base.control);
+    }
+
+    fn on_delete(&mut self, ui: &mut Ui, id: NodeId) {
+        base::on_delete(ui, id, &mut self.base.control);
+    }
+
+    /// `Draw`: visible windows only ([`BaseRichTextWin::draw_window`]: the
+    /// surface needs the host's rich-text context and the toolkit's fonts),
+    /// then the children, the bar among them.
+    fn draw(&mut self, ui: &mut Ui, id: NodeId, host: &mut dyn DrawHost) {
+        let Some(node) = ui.node(id) else { return };
+        if node.flags & VISIBLE == 0 {
+            return;
+        }
+        let transform = Transform {
+            rotation: node.orientation,
+            translation: node.position,
+        };
+        let content = &self.content;
+        let wrap = self.layout_flag;
+        self.base
+            .draw_window(ui, id, host, &transform, &mut |base, fonts, toolkit, cx| {
+                base.render_in(
+                    fonts,
+                    toolkit,
+                    &mut |base, fonts| base.relayout_content(fonts, content, wrap),
+                    cx.pipeline,
+                );
+            });
+        ui.draw_children(id, host);
+    }
+
+    /// Slot 23: [`RichTextWin::child_message_window`].
+    fn child_message(&mut self, ui: &mut Ui, _id: NodeId, message: &ChildMessage) -> bool {
+        self.child_message_window(ui, message)
+    }
+
+    /// Property 6 is `SetAttachOffset`: moved by the change of the offset.
+    fn property(&mut self, ui: &mut Ui, id: NodeId, property: Property<'_>) -> isize {
+        if let Property::Offset(offset) = property {
+            self.base.set_attach_offset(ui, id, offset);
+            return 1;
+        }
+        base::property(ui, id, self, property)
+    }
+}
+
+#[cfg(test)]
+mod tests;

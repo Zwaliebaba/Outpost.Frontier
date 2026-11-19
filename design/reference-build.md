@@ -587,11 +587,24 @@ repository root:
 The data root holds the master's INI files and `data\`, as `outdir\` does.
 The output folder is created; files in it are overwritten. Exit code 0 is a
 completed run, 2 a usage or scenario error, 3 a start-up failure (the
-reason is in `session.jsonl` and on stderr). With `--runs N` (1 to 99) the
+reason is in `session.jsonl` and on stderr), 4 a fault in a frame (the
+`fault` record, below). With `--runs N` (1 to 99) the
 program starts itself N times, each run in a fresh process writing to
 `<out>\run_NN\`, and writes `spread.jsonl` and `spread.txt` into `<out>`:
 the largest difference between any two runs per object, metric and event
 (record 0003 point 9). It exits 1 when a run did not complete.
+
+`--seed S` (decimal or `0x` hex, 32 bits; Gate G2's seed ensemble,
+owner 2026-11-19) replaces the seed of the seeding point (start-up step 5)
+with `S`; the first `srand`, before the load, keeps the scenario's `seed`,
+so the load-time draws stay as they are. The run records `S` as `reseed`
+in `session.jsonl`'s `start` and `server` records and in
+`load_rand.jsonl`'s `reseed` record. With `--runs N` each child gets the
+same `--seed`. The options come after the three paths, in any order:
+
+```powershell
+.\bin\Oracle.exe sim "$PWD\outdir" CppSource\Oracle\scenarios\dogfight.txt "$env:TEMP\ens\seed_3985226492\dogfight" --seed 3985226492
+```
 
 ### Start-up
 
@@ -609,11 +622,38 @@ As `OutpostServer.exe` (`OutpostServer.cpp:437`, `:523`, `:731-745`,
    as the server thread sets them (`_control87(0x9001f, 0xfffff)`: 53-bit
    precision, every exception masked); `NeuronRuntime::Startup(NULL,
    "NEURONCOMPONENTSsrv.ini")`; `NeuronRuntime::OpenData` with
-   `[OutpostFrontier] data path`.
+   `[OutpostFrontier] data path` made absolute (`GetFullPathNameA`, P2.4):
+   the server's field load (`SrvAsteroidSystem::load`) roots the system
+   file's path, which `Universe::get_filename` has already rooted, at the
+   data path again, and `GetFileSysPath` leaves only absolute paths alone,
+   so with the INI's relative `.\data` it opens
+   `.\data\.\data\universe\…` and no asteroid field loads (the first
+   `asteroids.jsonl` probes showed it). This is the reference's behaviour,
+   not a reconstruction error (investigated 2026-11-19): the traced calls
+   are `StarSystem::load` passing `Universe::get_filename`'s path (the
+   universe directory file system's root, made by `Universe::Startup` from
+   `GetFileSysPath("universe\universe.ini", Data)`, joined to the system's
+   `file`) and `SrvAsteroidSystem::load` (ordinal 498) passing it through
+   `GetFileSysPath` again; `GetFileSysPath` (Common `0xa2df0`) copies only a
+   path that starts with `\` or has a drive colon, and the DOS file system
+   keeps its root as given (ReadFile, no `_fullpath` on a directory root),
+   as `OutpostServer.exe` passes the INI's value to `OpenData`. The other
+   server loaders take paths relative to the data root
+   (`FSrvAsteroidField::load`'s field files, `pub::BuildBaseReader`'s
+   bases) or open the rooted path directly (`StarSystem::load`'s
+   `[Object]` pass), so only the field load fails. A dedicated server loads
+   its fields only with an absolute data path; the oracle runs that way,
+   and the Rust world (`World::load_asteroid_fields`) loads them as such a
+   server does, whatever form its data path has (divergence D198, owner
+   2026-11-19).
 3. `IServerImpl::Startup` with `SStartupInfo` {module path
    `SimClientStub.dll`, INI path `server.ini`, 16 players, port 0}. It runs
    `DataConfig::startup`, the world INI, `Server_LoadInitialDlls` (Content's
-   controllers) and loads the stub as its client interface.
+   controllers) and loads the stub as its client interface. Its `srand`
+   takes the scenario's `seed` instead of `timeGetTime()` (the start-up
+   seed, below under "Determinism"), and again after `PlayerDB::init`.
+   With `comms off` the harness then sets Content's comm clamp
+   (`OracleSimSetGcsClamp`).
 4. The load-time rand() recorder starts (`load_rand.jsonl`, below);
    `srand(seed)`; `pub::Controller::Create("SimClientStub.dll",
    "OracleSim", NULL, LOWEST)`, the controller every scenario ship names;
@@ -624,11 +664,13 @@ As `OutpostServer.exe` (`OutpostServer.cpp:437`, `:523`, `:731-745`,
    drawn their values. The scenario is compared from here as recorded: the
    Rust world, which has no population yet (P3.6), seeds its generator at
    the same point, and the population's draws are checked at Gate G3.
+   With `--seed S` the seed here is `S` (the seed ensemble).
 6. The objects are spawned (`pub::SpaceObj::Create`, then
    `pub::AI::SubmitState` with the state graph for `ai`) or looked up
    (solars, `CreateID(nickname)`); a missing object ends the run.
 7. The recorders start (the hooks below, `ai.jsonl`), the load-time
-   recorder stops and writes its records; tick 0 is recorded.
+   recorder stops and writes its records; every controller's heartbeat
+   interval and phase is written (`heartbeats`); tick 0 is recorded.
 8. Every frame *t* = 1..`ticks`: the control words are read (recorded) and
    set again; the fixed clock moves to `clock + t × frame`; the commands of
    tick *t* run; then the server thread's frame: `Server.Update()`,
@@ -645,15 +687,20 @@ is zero, which only `Oracle.exe sim` changes:
 
 | File | Hook |
 | --- | --- |
-| `Server\IServerImpl.cpp` | `Server_StepSystems` steps `StepSystemId` and no other system; `StarSystem_Update` runs the multiplayer physics and collision pass for that system although it has no player; `IServerImpl::ElapseTime` takes the frame time as its real dt (`OracleSimFixElapsed`); `OracleSimLoadSystem`, a new export |
+| `Server\IServerImpl.cpp` | `Server_StepSystems` steps `StepSystemId` and no other system; `StarSystem_Update` runs the multiplayer physics and collision pass for that system although it has no player; `IServerImpl::ElapseTime` takes the frame time as its real dt (`OracleSimFixElapsed`); `OracleSimLoadSystem`, a new export; `IServerImpl::Startup`'s `srand` takes `StartupSeed` instead of `timeGetTime()` under the fixed clock, and seeds again after `PlayerDB::init` (2026-11-19); `OracleSimControllerHeartbeats`, a new export (each controller's heartbeat interval and phase) |
 | `Server\server_gameobject.cpp` | the three timer stamps (`EqObj::update` repair, `apply_damage_list`, `apply_equip_entry`) read `OracleSimTimingRead()`, which is `Timing::read()` unless the clock is fixed; `GameObject::on_collision` reports `CalcCollisionDamage`; `Ship::set_throttle`, `set_axis_throttle`, `set_nudge_vec`, `set_strafe_dir` and `EqObj::slot_34` report the `IObjAffect` call |
 | `Server\server_classes.cpp` | `StarSystem::munition_collision` reports the impact and its damage list; `StarSystem_MpCollisionFilter` takes its single-player branch when asked (`collisions sp`) |
 | `Common\common_physicalsystem.cpp` | `PhysicalSystem::Update` takes the single-player branch when asked |
 | `Common\common_behaviormanager.cpp` | `UpdateBehaviorTick` reports its entry and every exit (an RAII guard) |
+| `Common\common_ceqobj.cpp` | `CEqObj::activate` reports each answer (`OnDockActivate`); `update_docking_animations` reports each point with a channel before processing it (`OnDockAnim`), P2.4 |
 | `IVP\ivp_physics\ivp_environment.cpp` | `IVP_Environment_Simulate_Psi` reports before the simulation units and after the next-PSI matrices |
 | `IVP\ivp_physics\ivp_simulation_unit.cpp` | `IVP_Simulation_Unit_Process_One_Psi_Step` reports its entry and its end with the movement check |
 | `IVP\ivp_physics\ivp_core.cpp` | `IVP_Core::push_core_linear`, `push_core_angular_ws` and `push_core_angular_cs` report the push |
+| `Common\common_iobjinspectimpl.cpp` | `get_dock_hardpoints` and `get_lane_start` report their answers (`GOracleAiHooks.OnAnswer`, P2.5 dock) |
+| `Common\common_universe_system.cpp` | `SYSTEM::GetSphereProperties` reports its answer (the AI's zone probes, P2.5) |
+| `Server\server_gameobject.cpp` (P2.5) | `Ship::slot_5c`, `slot_60`, `go_tradelane`, `stop_tradelane` and `EqObj::slot_44` report the `IObjAffect` call; `Ship::request_returned`, `go_tradelane` and `slot_44` report their answers; `request_returned` runs the pending callback at affect depth 0 |
 | `Content\PilotPersonalities.cpp` | `OracleSimPilotPersonality`, a new export (P2.5) that only the `pilot` option calls: `GetPilotPersonality` of a pilot nickname |
+| `Content\Content.cpp` | `OracleSimSetGcsClamp`, a new export (2026-11-19) that only the `comms off` option calls: `ContentSetGcsClampEnabled`, the clamp a mission's `Act_GcsClamp` sets |
 
 `srand`, the frame time and the control words need no hook: the harness
 runs the frame loop itself.
@@ -685,8 +732,8 @@ other side's `GameObject::on_collision` returns before
 `CalcCollisionDamage`, and `Bullet::on_collision` goes to
 `munition_collision`; a missile's side is `Guided::on_collision`
 (`munition_collision` too), and its flight, motor, seeker and proximity
-fuse are the server's `Guided` controller, which the Rust world does not
-have (P3.3, D125), so its contact point and speed cannot be compared. No
+fuse are the server's `Guided` controller (ported into P2.4's remainder,
+owner 2026-11-18; its fuse timing is D177). No
 ship, solar or asteroid target collides there. `collisions sp` therefore
 makes the filter take its first branch (`if (SinglePlayer()) return
 TRUE`) while the rest of the server stays in multiplayer mode: every pair
@@ -705,8 +752,12 @@ A text file; `#` starts a comment, blank lines are skipped, tokens are
 separated by spaces, tabs or commas. Examples (one per kind of check of
 record 0003) are in `CppSource\Oracle\scenarios\`: `free_flight`,
 `turn_to_heading`, `fly_to_point`, `dock_at_station`, `fire_at_target`,
-`ram_asteroid`, `dogfight`, and `ram_ship`, Gate G2's collide scenario in
-place of `ram_asteroid` (owner, 2026-11-18).
+`ram_asteroid`, `dogfight`, `skirmish`, `strafe`, and `ram_ship`, Gate G2's collide scenario in
+place of `ram_asteroid` (owner, 2026-11-18); the escort scenarios of P2.5,
+`formation`, `follow`, `guide` and `large_ship`; and the dock scenarios of P2.5,
+`dock_trade_lane`, `launch_from_station` and `trade_lane`. A line
+`# rust: skip <reason>` tells `scenario_replay` that the Rust world cannot
+run the scenario yet.
 
 | Line | Meaning |
 | --- | --- |
@@ -715,9 +766,10 @@ place of `ram_asteroid` (owner, 2026-11-18).
 | `frame <seconds>` | frame time; default 1/30, the server thread's period |
 | `stepping sp\|mp` | default `mp` |
 | `collisions sp\|mp` | default `mp`; `sp` makes the server's collision filter take its single-player branch (below) |
-| `seed <n>` | `srand` after start-up; default `0x4f524143` |
+| `comms on\|off` | default `on`; `off` sets Content's comm clamp before the load, so `IsGcsCommAllowed` refuses every comm before its `rand()` roll (owner, 2026-11-19; record 0003: the G2 fights run with comms off) |
+| `seed <n>` | `srand` after start-up; default `0x4f524143`; also the start-up seed |
 | `clock <seconds>` | the fixed clock at tick 0; default 1000 |
-| `ship <name> <archetype> <loadout\|-> <x> <y> <z> [options]` | spawn a ship; options: `heading <degrees>` (about +Y; 0 faces −Z, 90 faces −X), `orient <9 numbers>` (row-major), `vel <x y z>`, `angvel <x y z>`, `ai <state graph>` (e.g. `FIGHTER`; without it the ship has no behaviour and keeps the commands it is given), `pilot <nickname>` (with `ai`: the personality of a `[Pilot]` of `missions\pilots_population.ini` or `pilots_story.ini`, as Content gives an NPC ship of an `npcships.ini` entry, without a job; without it the default personality), `faction <group>` (a reputation affiliated with a group of `initialworld.ini`, e.g. `he_p_grp`; without it none), `hp <n>` (default −1, the archetype's), `psi` (record its PSIs) |
+| `ship <name> <archetype> <loadout\|-> <x> <y> <z> [options]` | spawn a ship; options: `heading <degrees>` (about +Y; 0 faces −Z, 90 faces −X), `orient <9 numbers>` (row-major), `vel <x y z>`, `angvel <x y z>`, `ai <state graph>` (e.g. `FIGHTER`; without it the ship has no behaviour and keeps the commands it is given), `escort` (with `ai`: the graph's escort variant, `get_state_graph(name, ESCORT)`, as Content's `ResetFormationState` gives a wingman; without it the leader variant), `pilot <nickname>` (with `ai`: the personality of a `[Pilot]` of `missions\pilots_population.ini` or `pilots_story.ini`, as Content gives an NPC ship of an `npcships.ini` entry, without a job; without it the default personality), `faction <group>` (a reputation affiliated with a group of `initialworld.ini`, e.g. `he_p_grp`; without it none), `hp <n>` (default −1, the archetype's), `psi` (record its PSIs) |
 | `solar <name> <nickname> [psi]` | a system object of the loaded system |
 | `at <ticks> <name> <command> [arguments]` | `<ticks>` is `t`, `a..b` or `a..b/step` (ticks from 1) |
 
@@ -737,9 +789,14 @@ ship with `ai`:
 | `goto <x> <y> <z> [range <r>] [cruise]` | `DirectiveGotoOp` to a point (`Field_0C` 1), arrival range default 100, no cruise unless asked |
 | `face <x> <y> <z>` | `DirectiveFaceOp` mode 2 (a point) |
 | `dock <target>` | `DirectiveDockOp` |
+| `launch <target> <index> <terminal>` | `DirectiveLaunchOp` {the base, the docking sphere, its terminal type}, as Content's `LaunchQueuedShips` gives a ship it places at a dock (P2.5) |
+| `tradelane <entrance> <exit>\|none [speed]` | `DirectiveInstantTradelaneOp` {the entrance ring, the exit ring (0 for none), the speed as a float in the third word, default 0} (P2.5) |
 | `ram <target>` | `DirectiveRamOp` |
+| `follow <target> [distance <d>] [offset <x> <y> <z>] [range <r>]` | `DirectiveFollowOp` (P2.5 escort): the target, the follow distance (default 150), the offset in the target's frame (default 0), the range (`Field_20`, default 400) |
+| `guide <ship> <x> <y> <z> [range <r>] [distance <d>] [offset <x> <y> <z>]` | `DirectiveGuideOp` (P2.5 escort): its goto part as `goto`'s (a point, arrival range default 100, no cruise) with the guided ship in `GotoParams.Field_5C`; its follow part on the guided ship (distance default 150, offset default 0); the other fields keep their defaults |
 | `idle`, `cancel` | `DirectiveIdleOp`, `DirectiveCancelOp` |
 | `dock_request <target>` | `pub::SpaceObj::DockRequest` |
+| `formation <leader>\|none [<x> <y> <z>]` | `pub::AI::update_formation_state(ship, leader, offset)` (P2.5 escort; offset default 0): as `ResetFormationState` makes a formation, the leader first with itself as leader, then each wingman with its slot |
 
 Ships are created as Content creates NPC ships, without a costume or
 voice. A ship without `faction` has no reputation (`VibeGroupId` −1); with
@@ -755,15 +812,80 @@ names one, which `Oracle.exe sim` reads through Content.dll's
 `dogfight` gives two AI fighters no command at all: the target manager
 picks the hostile ship and the state graph the combat behaviours, as when
 two hostile NPCs meet. There is no attack directive in the game; the
-`target` command (`set_target`) is not used there.
+`target` command (`set_target`) is not used there. `skirmish` is the same
+meeting with the rogue at 400 hull points: the police kills it at tick 880,
+after the rogue's trail and flee, which the dogfight does not reach, and
+the run goes on to tick 1500. (Until the fault recorder showed it, the run
+stopped at tick 881: the access violation at tick 882 was the behaviour-tick
+recorder's own, reading the previous tick's target list, which still named
+the destroyed rogue; the game empties that list before it reads it.)
+
+`strafe` records the strafe behaviour (13), which neither fight reaches.
+Its poll (`StrafeBehavior::Slot5`, `common_strafebehavior.cpp`) offers it
+only when the own ship is a fighter, freighter or gunboat (type
+`& 0x70000`), the target is none of those and moves at most 20 m/s; only
+then does the state graph's weight count. So the dogfight's police fighter
+meets a hostile transport (`ge_transport`, `fc_lr_grp`) with no behaviour,
+which stays where it was spawned, and strafes it for the whole run. The run
+stops at tick 1500, before the police destroys the transport at tick 1536.
+A gunboat (`GUNBOAT` graph) against the same transport and the fighter
+against a `li_cruiser` strafe as well (1799 and 1775 of 1800 ticks in a
+trial run).
+
+The dock scenarios (P2.5). In `dock_at_station` the fighter's dock
+behaviour (7) flies the approach through the goto behaviour to within
+1000 m of `he01_11` (ticks 1 to 349), asks for a port at tick 354
+(`slot_5c` type 0) and is refused (response 5, port -1: the ship has no
+reputation), so the directive ends with result 2 and the ship idles; no
+docking point is reached. `dock_trade_lane` has the fighter dock with
+trade lane ring 16 as NPC traffic enters a lane: the lane start
+(`get_lane_start`), the approach, the lane request at tick 222 (type 2,
+granted at once), the ring's spline, the lane at tick 588 and the lane's
+end at tick 1188. `launch_from_station` launches the fighter from the
+station's first berth (behaviour 8, ticks 1 to 277). `trade_lane` puts the
+fighter into the lane from ring 16 to ring 18 with the instant trade lane
+(behaviour 9, `go_tradelane` at tick 12). The lane scenarios record no
+PSIs: in the lane the ship moves by `CShip`'s `LaneAction`, which the port
+does not have yet.
+
+The escort scenarios (P2.5) reach the behaviours no fight does.
+`formation` is a leader and two wingmen of `formations.ini`'s
+`fighter_basic` slots (the police pilot, no faction): the wingmen get the
+FIGHTER ESCORT graph and `update_formation_state` makes the formation, the
+leader flies a goto and the escort graph picks the formation behaviour
+(10). In `follow` a fighter follows another that flies a goto
+(`DirectiveFollowOp` with a non-zero offset, so the leader's
+`generate_follow_offset` is not asked). In `guide` a fighter guides a
+ship without behaviour to a point (`DirectiveGuideOp`): it follows the
+ship, and as the ship makes no progress it leads it through the goto
+behaviour every other sampling period. `large_ship` is a police cruiser
+(the loadout, graph and pilot of `npcships.ini`'s cruiser entries) that
+flies a goto and then, with a hostile fighter ahead, the large-ship
+behaviour (11).
+
+### Faults
+
+`oracle_sim_fault.cpp` runs each frame (the tick's commands, the server
+frame and the per-tick records) inside `__try`. A structured exception
+there is written to `session.jsonl` as a `fault` record (sim-records.md):
+the code, the faulting address as module + offset, the registers with the
+memory they point at, and a stack walked with `StackWalk64` and resolved
+with dbghelp from the PDB files beside `Oracle.exe`. The run then ends
+with exit code 4. From the first frame on, a vectored handler also records
+the first eight first-chance hardware exceptions (access violations and
+the like) the same way, `first_chance` true, before any handler in the
+game code sees them; a fault the game catches itself shows only there.
+The data job's step log prints the `fault` records with the errors and
+notes.
 
 ### Outputs
 
 `session.jsonl`, `tick.jsonl`, `events.jsonl`, `psi.jsonl`,
 `calls.jsonl`, since P2.5 the behaviour-tick snapshots `ai.jsonl`, and the
 load-time draws `load_rand.jsonl` with its summary `load_rand.txt`, and
-the simulation units of the first PSIs, `units.jsonl`
-(sim-records.md); the stub's `iclient.jsonl` and `controller.jsonl`;
+the simulation units of the first PSIs, `units.jsonl`, since P2.4's
+remainder the asteroid cubes `asteroids.jsonl` and the docking points
+`dock.jsonl` (`oracle_sim_fields.cpp`; sim-records.md); the stub's `iclient.jsonl` and `controller.jsonl`;
 `server.ini`, `fdump.txt`, `metrics.txt`. The rand() recorder
 (`oracle_sim_rand.cpp`) replaces the `rand` import of every module bound
 to the universal CRT's `rand` (`Common.dll`, `Server.dll`, `Content.dll`
@@ -778,12 +900,53 @@ keeps the draws of each behaviour tick through it.
 
 Fixed by the harness: the frame time, the clock of the three timer stamps
 and of `ElapseTime`'s real dt, `Timing`'s global time, the `rand` seed (one
-thread), the control words before every frame (IVP's point-soup builder
-sets 64-bit precision and never restores it; the `frame` record shows what
-it found). Not fixed, as record 0003 says: the pointer-keyed physics sync
-set and IVP's pointer-XOR pair hash, so runs can differ; that is the spread
-`--runs` measures. Not audited: `timeGetTime` and `GetTickCount` reads in
-Content.dll and the engine DLLs.
+thread), the start-up seed (below), the control words before every frame
+(IVP's point-soup builder sets 64-bit precision and never restores it; the
+`frame` record shows what it found). Not fixed, as record 0003 says: the
+pointer-keyed physics sync set and IVP's pointer-XOR pair hash, so runs can
+differ; that is the spread `--runs` measures. Not audited: the other
+`timeGetTime` and `GetTickCount` reads in Content.dll and the engine DLLs.
+
+The start-up seed (owner, 2026-11-19; record 0003 point 11).
+`IServerImpl::Startup` seeds the generator with `timeGetTime()` before
+Content's controllers start, and each controller's
+`pub::Controller::SetHeartbeatInterval` draws its heartbeat's starting
+phase from it (`Server_ControllerSetHeartbeat`: `rand() / 32768 ×
+interval`). GameSupport's heartbeat (1 s) is Content's game time
+(`GetContentGameTime`, `GameSupport.cpp`), which moves in whole heartbeats,
+so the phase decides at which tick a game-time test passes. Content's comm
+system tests one on every damage message: `IsGcsCommAllowed` refuses a
+comm within its category's interval (default 12 s) of the last one nearby
+and otherwise rolls `rand()` (`Gcs.cpp`). In two data jobs and three probes
+(runs 44494560931, 44500705507, 44523076483, 44526581221, 44530545092)
+that roll came a few ticks earlier or later in separate processes of one
+build, on any machine, CPU or toolset, with or without ASLR; every later
+`rand()` of the AI moved with it, and 5 of 120 seed-ensemble runs ended
+differently after their first contact (never before it). The harness now
+gives `Startup`'s `srand` the scenario's `seed`
+(`GOracleSimHooks.StartupSeed`) and seeds again after `PlayerDB::init`,
+whose first start on a machine (no `accounts.cfg` yet) seeds from the
+clock once more and draws six values. `session.jsonl` records the seed
+(`server`, `startup_seed`) and each controller's heartbeat (`heartbeats`).
+The G2 fights also run with `comms off` (record 0003 point 12). The data
+job's step "Check that the oracle repeats itself" runs the five seeds that
+split three times each and fails when their records differ (`run_rand.jsonl`
+by each draw's tick, index, value and caller: dbghelp's walk of the frames
+beyond the caller differed once between identical runs), when a
+comms-off run draws a comm roll, or when a fight with comms on differs from
+comms off before its first contact.
+
+The CI builds whose output is compared use the MSVC toolset pinned in
+`.github/msvc-toolset.txt` (`.github/scripts/msvc-pin.ps1`): build.yml's
+oracle job (`Tools\Oracle`, compared with the committed vectors, and the
+resource DLLs, compared with the text catalogs) and data.yml's oracle. The
+windows-2025-vs2026 images change their VS 2026 toolset without notice
+(14.51.36231 and 14.52.37025 were on different images on 2026-11-19); the
+pin is v143 14.44.35207, which every image in use has. None of these builds
+links MFC (v143's MFC is not on the images). The plain reference build
+(the whole solution, OutpostServer's MFC included) uses the image's default
+toolset and logs its version and the compiler's banner. The `env` record's
+`msc_full_ver` shows what a run was built with.
 
 The load-time draws (`load_rand.jsonl`; first recorded 2026-11-18, the same
 in every run): `StarSystem::load` draws nothing itself; its `SystemLoaded`
@@ -810,7 +973,11 @@ same constructor while it is spawned).
 
 Single-player stepping is emulated as above, not run through the client.
 Field asteroids (`CmnAsteroid`) are not scenario objects; `ram_asteroid`
-uses a static asteroid solar. The multiplayer server's collision filter
+uses a static asteroid solar. The server fills the fields around every
+ship of the system (`CmnAsteroid::Update` walks the whole ship list, so
+no player is needed): in `ram_asteroid` the fighter starts in the
+Keswick ice field, and its cubes and rocks are recorded
+(`asteroids.jsonl`). The multiplayer server's collision filter
 (`StarSystem_MpCollisionFilter`, `Server/server_classes.cpp:11409`) lets a
 pair collide only when one side is a bullet or a missile, so ship–solar and
 ship–ship contact is not simulated on the server (the clients report it):

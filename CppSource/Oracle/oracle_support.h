@@ -105,7 +105,7 @@ void RunMathSuites();
 // Its output is game text and is never committed.
 void RunCatalogDump();
 
-// Oracle.exe sim <data root> <scenario file> <out folder> [--runs N] (oracle_sim.cpp,
+// Oracle.exe sim <data root> <scenario file> <out folder> [--runs N] [--seed S] (oracle_sim.cpp,
 // oracle_sim_spread.cpp, work package P2.3): a separate mode, not a suite. Argv is main's.
 // Its output is made from the game data and is never committed.
 int RunSimMode(int Argc, char** Argv);
@@ -234,6 +234,13 @@ void RunNeuronClientSuites();
 // msvcrt_numeric_format.h and XMLReader::read_buffer (RDLX markup through MSXML), over
 // crates/neuron-client/tests/fixtures/oracle/{number_text,rdl_markup}.list.
 void RunTextSuites();
+// P4.12 (oracle_rich_text.cpp), called by RunTextSuites: Common.dll's LayoutRichText, the list
+// functions, StyleCollection and lex_compare on a recording TextRenderContext, over
+// crates/neuron-client/tests/fixtures/oracle/rich_text.list.
+void RunRichTextSuites();
+// P4.12 (oracle_rich_fonts.cpp), called by RunRichTextSuites: the client's LoadRichFontsFromIni
+// (menu_fonts_load.cpp compiled in) over crates/neuron-client/tests/fixtures/oracle/rich_fonts.list.
+void RunRichFontsSuite();
 // P4.10 (oracle_audio.cpp): the software mixer of SoundManager.dll, compiled in, over
 // crates/neuron-client/tests/fixtures/oracle/audio; called by RunNeuronClientSuites.
 void RunAudioSuites();
@@ -246,14 +253,27 @@ void BigImageSuite();
 // P4.5 (oracle_material.cpp): the material regular expressions, library, global records,
 // animation and batcher of Shading.dll, over
 // crates/neuron-client/tests/fixtures/oracle/material_*.list; called by RunNeuronClientSuites,
-// last (its batcher cases leave their INI in the manager's profile parser).
+// last (its batcher cases leave their INI in the manager's profile parser). It also runs the
+// P4.6 mesh render suite and the P4.7 deformable suite (oracle_deformable.cpp, compiled into
+// oracle_mesh_data_dfm.cpp), which need its math engine.
 void RunMaterialSuites();
-// P4.13 (oracle_ui.cpp, oracle_ui_quads.cpp): the client UI toolkit's page descriptors
-// (ui_page_desc.cpp compiled in) and screen-quad batcher (screen_quad_state.cpp compiled in),
-// over crates/neuron-client/tests/fixtures/oracle/ui_{page_desc,quad_batch}.list; called by
-// RunNeuronClientSuites. RunUiSuites runs both.
+// P4.8 (oracle_particles.cpp): particlefx.dll's ramp evaluation and simulation (its sources
+// compiled in), over crates/neuron-client/tests/fixtures/oracle/particle_{ramp,sim}.list; called
+// by RunNeuronClientSuites before RunMaterialSuites.
+void RunParticleSuites();
+// P4.13 (oracle_ui.cpp, oracle_ui_quads.cpp, oracle_ui_controls.cpp): the client UI toolkit's
+// page descriptors (ui_page_desc.cpp compiled in), screen-quad batcher (screen_quad_state.cpp
+// compiled in) and generic controls (the Win3D manager and the controls compiled in), over
+// crates/neuron-client/tests/fixtures/oracle/ui_{page_desc,quad_batch,controls}.list; called by
+// RunNeuronClientSuites. RunUiSuites runs the three.
 void RunUiSuites();
 void RunUiQuadSuites();
+void RunUiControlSuites();
+void RunUiImmediateSuites();
+// P4.11 to P4.13 (oracle_ime_ui.cpp), called by RunUiSuites: imeui.dll's edit box, font, focus
+// manager and drawing with the client's FLImeInputBox and ClientIMEFocus compiled in, over
+// crates/neuron-client/tests/fixtures/oracle/ime_ui.list.
+void RunImeUiSuites();
 
 // P4.14 (oracle_scene_script.cpp): every .thn under DATA through lua_dobuffer in a fresh
 // Lua state, and the state after it; kind "thn".
@@ -274,3 +294,22 @@ void SceneScriptRuntimeSuites();
 // P4.14 (oracle_scene_script_build.cpp): every .thn under DATA through both passes of the
 // parser in a fresh module state, and the engine calls of the second; kind "thn_build".
 void RunSceneScriptBuildDataDump(const std::vector<std::string>& Files);
+
+// Oracle.exe game-app <fixture directory> <output directory> (oracle_account.cpp,
+// oracle_perf_options.cpp, work package P4.1): the suites of crates/game-app/tests over
+// crates/game-app/tests/fixtures/oracle: CPlayerAccount (common_playeraccount.cpp compiled in)
+// on a scripted machine and registry, and PerfOptions.ini through LoadPerfOptions and
+// SavePerfOptions (perf_options.cpp compiled in).
+void RunGameAppSuites();
+void RunAccountSuite();
+void RunPerfOptionsSuite();
+
+// P4.14 (oracle_scene_script_save.cpp): the script engine of SceneScript.cpp (compiled in) with
+// its COM context, its file-system paths and SaveToFileSystem through the default save parser,
+// over crates/neuron-client/tests/fixtures/oracle/scene_script_save.list; called from
+// RunNeuronClientSuites after SceneScriptRuntimeSuites.
+void SceneScriptSaveSuite();
+
+// P4.14 (oracle_scene_script_save.cpp): every .thn under DATA loaded into a fresh script engine
+// and saved, each write of the save; kind "thn_save".
+void RunSceneScriptSaveDataDump(const std::vector<std::string>& Files);

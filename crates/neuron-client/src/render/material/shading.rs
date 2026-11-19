@@ -17,10 +17,13 @@ use std::collections::{BTreeMap, HashMap};
 
 use neuron_core::image::PixelFormat;
 
+use super::GR_GENERIC;
 use super::animation::{InstanceId, MaterialAnimations};
-use super::batcher::{BatchDevice, VbListing, VertexSource, VertexStream};
+use super::batcher::{BatchDevice, DrawArgs, SubmitContext, VbListing, VertexSource, VertexStream};
 use super::global::{GlobalRecords, UNSET};
+use super::instance::MaterialId;
 use super::services::{MaterialServices, VertexLock};
+use super::surface::{InstanceValues, MeshIndices, SurfaceEngine, SurfaceServices};
 use crate::render::ff::buffers::{IndexSource, VbHandle};
 use crate::render::ff::device::{Backend, Device};
 use crate::render::ff::fvf::Fvf;
@@ -56,6 +59,14 @@ pub struct Shading<B: Backend> {
     pub animations: Option<MaterialAnimations>,
     /// The engine `Field20` names, for the atmosphere.
     pub engine: Option<Box<dyn InstanceExtents>>,
+    /// The engine `FLAppearance` publishes to the surface materials;
+    /// `None` before it is initialized.
+    pub surface: Option<Box<dyn SurfaceEngine>>,
+    /// The instance values `FLAppearance` keeps (`G_IdValues`), which the
+    /// surface materials read.
+    pub values: InstanceValues,
+    /// `G_VisibleCounterA`, `B` and `C`.
+    pub visible: [u32; 3],
     vbs: BTreeMap<u32, VbHandle>,
     vb_numbers: HashMap<VbHandle, u32>,
     ibs: BTreeMap<u32, IndexSource>,
@@ -87,6 +98,9 @@ impl<B: Backend> Shading<B> {
             globals: GlobalRecords::registered(),
             animations: None,
             engine: None,
+            surface: None,
+            values: InstanceValues::new(),
+            visible: [0; 3],
             vbs: BTreeMap::new(),
             vb_numbers: HashMap::new(),
             ibs: BTreeMap::new(),
@@ -410,6 +424,176 @@ impl<B: Backend> MaterialServices for Shading<B> {
     }
 }
 
+/// The surface materials' calls on the model. The engine comes from
+/// [`Shading::surface`], the instance values from [`Shading::values`]; the
+/// model has no meshes, so the
+/// mesh queries fail, and no material arena, so the candidate calls do
+/// nothing and fail (divergence D315).
+impl<B: Backend> SurfaceServices for Shading<B> {
+    fn material(&mut self) -> Option<[u32; 17]> {
+        Some(self.device.lights.material().0)
+    }
+
+    fn stage_state(&mut self, stage: u32, state: u32) -> Option<u32> {
+        self.device.state.stage_state_raw(stage, state).ok()
+    }
+
+    fn draw_vb(&mut self, prim: u32, vertex_buffer: u32, start: u32, count: u32) -> i32 {
+        let vb = self.vb(vertex_buffer);
+        match self.device.draw_vb(prim, vb, start, count) {
+            Ok(()) => 0,
+            Err(e) => e.code().cast_signed(),
+        }
+    }
+
+    fn record_frame(&mut self, record: RecordId, frame: i32) -> Option<FrameOut> {
+        match self.textures.texture_frame(Some(record), frame) {
+            (0, out) => Some(out),
+            _ => None,
+        }
+    }
+
+    fn has_engine(&mut self) -> bool {
+        self.surface.as_ref().is_some_and(|s| s.present())
+    }
+
+    fn instance_user_data(&mut self, instance: usize) -> Option<[u32; 5]> {
+        self.surface.as_mut()?.user_data(instance)
+    }
+
+    fn instance_root(&mut self, instance: usize) -> usize {
+        self.surface.as_mut().map_or(instance, |s| s.root(instance))
+    }
+
+    fn instance_relative(&mut self, instance: usize) {
+        let _ = instance;
+    }
+
+    fn query_wire(&mut self, instance: usize) -> bool {
+        let _ = instance;
+        false
+    }
+
+    fn wire_draw(&mut self, instance: usize) {
+        let _ = instance;
+    }
+
+    fn query_mesh(&mut self, instance: usize) -> bool {
+        let _ = instance;
+        false
+    }
+
+    fn mesh_open_face_group(&mut self, instance: usize, index: i32, mode: i32) -> i32 {
+        let _ = (instance, index, mode);
+        GR_GENERIC
+    }
+
+    fn mesh_close_face_group(&mut self, instance: usize) {
+        let _ = instance;
+    }
+
+    fn mesh_open_channels(&mut self, instance: usize, flags: u32) -> i32 {
+        let _ = (instance, flags);
+        GR_GENERIC
+    }
+
+    fn mesh_lock_channels(&mut self, instance: usize, mask: u32) {
+        let _ = (instance, mask);
+    }
+
+    fn mesh_unlock_channels(&mut self, instance: usize) {
+        let _ = instance;
+    }
+
+    fn mesh_close_channels(&mut self, instance: usize) {
+        let _ = instance;
+    }
+
+    fn mesh_data(&mut self, instance: usize, channel: u32) -> Option<Vec<u32>> {
+        let _ = (instance, channel);
+        None
+    }
+
+    fn mesh_indices(&mut self, instance: usize, channel: u32) -> MeshIndices {
+        let _ = (instance, channel);
+        MeshIndices::default()
+    }
+
+    fn instance_value(&mut self, id: i32) -> Option<u32> {
+        self.values.word(id)
+    }
+
+    fn instance_value_name(&mut self, id: i32) -> Option<Vec<u8>> {
+        self.values.name(id)
+    }
+
+    fn count_visible(&mut self, index_span: u32, count: u32) {
+        self.visible[0] = self.visible[0].wrapping_add(1);
+        self.visible[1] = self.visible[1].wrapping_add(index_span);
+        self.visible[2] = self.visible[2].wrapping_add(count);
+    }
+
+    fn candidate_is_batched(&mut self, candidate: MaterialId) -> bool {
+        let _ = candidate;
+        false
+    }
+
+    fn candidate_bind(
+        &mut self,
+        candidate: MaterialId,
+        batched: bool,
+        context: &SubmitContext<'_>,
+    ) -> i32 {
+        let _ = (candidate, batched, context);
+        GR_GENERIC
+    }
+
+    fn candidate_teardown(
+        &mut self,
+        candidate: MaterialId,
+        batched: bool,
+        context: &SubmitContext<'_>,
+    ) -> i32 {
+        let _ = (candidate, batched, context);
+        GR_GENERIC
+    }
+
+    fn candidate_submit(
+        &mut self,
+        candidate: MaterialId,
+        batched: bool,
+        context: &SubmitContext<'_>,
+        args: &DrawArgs,
+    ) -> i32 {
+        let _ = (candidate, batched, context, args);
+        GR_GENERIC
+    }
+
+    fn candidate_pass_count(&mut self, candidate: MaterialId) -> Option<i32> {
+        let _ = candidate;
+        None
+    }
+
+    fn candidate_class_name(&mut self, candidate: MaterialId) -> Vec<u8> {
+        let _ = candidate;
+        Vec::new()
+    }
+
+    fn candidate_parameter_tag(
+        &mut self,
+        candidate: MaterialId,
+        index: u32,
+    ) -> Result<Option<Vec<u8>>, i32> {
+        let _ = (candidate, index);
+        Err(GR_GENERIC)
+    }
+
+    fn candidate_parameter_word(&mut self, candidate: MaterialId, index: u32) -> u32 {
+        let _ = (candidate, index);
+        0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::rc::Rc;
@@ -725,5 +909,102 @@ mod tests {
             Ok(1)
         );
         m.destroy(&mut s);
+    }
+
+    /// What `FLAppearance` would publish: an engine with one instance's
+    /// user data.
+    struct Appearance;
+
+    impl SurfaceEngine for Appearance {
+        fn present(&self) -> bool {
+            true
+        }
+
+        fn user_data(&mut self, instance: usize) -> Option<[u32; 5]> {
+            (instance == 7).then(|| [0.25f32, 0.5, 0.75, 1.0, 0.5].map(f32::to_bits))
+        }
+    }
+
+    /// Some material id for a context's candidate.
+    fn candidate_id(s: &mut Services) -> MaterialId {
+        use crate::render::material::{Materials, SurfaceFactory};
+        let mut arena: Materials<Services> = Materials::new();
+        let m = SurfaceFactory::new().create(s, b"WireMaterial").unwrap();
+        arena.insert(m, 1)
+    }
+
+    #[test]
+    fn surface_materials_bind_and_draw_on_the_device() {
+        use crate::render::material::SurfaceFactory;
+
+        let mut s = services();
+        let number = texture(&mut s, b"icon.tga", PixelFormat::R5G6B5);
+        let mut factory =
+            ShadingFactory::<Services>::with_fallback(Box::new(SurfaceFactory::new()));
+        assert!(factory.create(&mut s, b"FLAppearance").is_err());
+        let mut m = factory.create(&mut s, b"HUDIconMaterial").unwrap();
+        assert_eq!(m.class_name(), "HUDIconMaterial");
+        assert_eq!(m.initialize(&mut s), 0);
+        m.set_name(b"Radar");
+        assert_eq!(m.set_parameter(&mut s, 6, &name_value(b"icon.tga")), 0);
+        assert_eq!(m.apply_verify(&mut s), 0);
+        assert_eq!(m.flags(&mut s), Ok(0x28));
+
+        let vertices = source();
+        let indices = [0u16, 1, 2];
+        let mut context = SubmitContext {
+            instance: 7,
+            world: &IDENTITY,
+            view: &IDENTITY,
+            vertices: Some(&vertices),
+            indices: &indices,
+            vb: None,
+            ib: None,
+            replaced: None,
+            field20: 0,
+        };
+        let blend = RenderStateId::AlphaBlendEnable.raw();
+        // Without FLAppearance the icon keeps its own colour and draws
+        // opaque.
+        assert_eq!(m.bind(&mut s, Some(&context)), 0);
+        assert_eq!(s.device.state.render_state_raw(blend), Ok(0));
+        assert_eq!(s.device.stage_texture(0), s.handles.get(number));
+        // With it, the instance's user data colours the icon and its
+        // opacity of 0.5 blends.
+        s.surface = Some(Box::new(Appearance));
+        assert_eq!(m.bind(&mut s, Some(&context)), 0);
+        assert_eq!(s.device.state.render_state_raw(blend), Ok(1));
+        let block = SurfaceServices::material(&mut s).unwrap();
+        assert_eq!(block[3], 0.5f32.to_bits());
+        assert_eq!(block[4], 0.25f32.to_bits());
+        let args = DrawArgs {
+            prim_type: 4,
+            start: 0,
+            count: 3,
+            ib_start: 0,
+            index_span: 3,
+            flags: 0,
+        };
+        assert_eq!(m.submit(&mut s, &context, &args), 0);
+        m.teardown(&mut s, Some(&context));
+        assert_eq!(s.device.backend.draws.len(), 1);
+        m.destroy(&mut s);
+        assert_eq!(s.textures.playbacks().count(), 0);
+
+        // The visible counter counts on the services.
+        let mut counter = factory.create(&mut s, b"VisibleCounterMaterial").unwrap();
+        counter.initialize(&mut s);
+        counter.submit(&mut s, &context, &args);
+        counter.submit(&mut s, &context, &args);
+        assert_eq!(s.visible, [2, 6, 6]);
+
+        // The model reaches no candidate: an override material with one
+        // draws nothing and fails (D315).
+        let mut stars = factory.create(&mut s, b"StarsphereMaterial").unwrap();
+        assert_eq!(stars.class_name(), "StarsphereMaterial");
+        stars.initialize(&mut s);
+        context.replaced = Some(candidate_id(&mut s));
+        assert_eq!(stars.submit(&mut s, &context, &args), GR_GENERIC);
+        assert_eq!(s.device.backend.draws.len(), 1);
     }
 }

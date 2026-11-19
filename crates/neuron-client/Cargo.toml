@@ -13,10 +13,25 @@ toml.workspace = true
 [target.'cfg(windows)'.dependencies]
 windows.workspace = true
 
+[dev-dependencies]
+# The scene-script round trip compiles saved source before reloading it
+# (decision O18); a development tool, never a normal dependency.
+lua32-compiler.workspace = true
+
 [features]
 default = ["render-trace"]
 # The renderer trace reader and model replay (record 0004, point 12).
 render-trace = []
+# Development only (record 0005, point 11): programs compiled from HLSL
+# files at run time through dxcompiler.dll, and reloaded. Release builds
+# use the blobs `cargo xtask shaders` compiles.
+shader-compile = ["windows/Win32_Graphics_Direct3D_Dxc"]
+
+# Gate G4's model viewer (design/g4-runbook.md); its tests run with the
+# crate's (`cargo test --all-targets`).
+[[example]]
+name = "model_viewer"
+test = true
 
 [lints]
 workspace = true

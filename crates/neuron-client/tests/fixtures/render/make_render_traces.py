@@ -88,6 +88,7 @@ D3DFOG_NONE = 0
 D3DFOG_LINEAR = 3
 D3DLIGHT_DIRECTIONAL = 3
 PF_A8R8G8B8 = 7
+PF_DAA8 = 21  # the 8-bit alpha format class: A8R8G8B8 first
 
 IDENTITY12 = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]
 IDENTITY16 = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]
@@ -314,17 +315,25 @@ class Trace:
         self.call("IVertexBufferManager", "VbMgrInit", {"A": 1, "B": 0x252, "C": 0xFC00, "D": 0})
 
     # Resources (always written).
-    def create_texture(self, width, height, fmt, pixels):
+    def create_texture(self, width, height, fmt, pixels, made=None):
+        """`made` is the format the renderer chose for a format class (the lock's pfenum)."""
         tex = self.new_id()
         self.call("IRenderPipeline", "CreateTexture", {"Width": width, "Height": height, "Format": fmt,
                                                        "Levels": 1, "Flags": 0, "OutHandle": tex})
+        made = fmt if made is None else made
         pitch = width * 4
-        out = {"Width": width, "Height": height, "Pitch": pitch, "Format": fmt}
+        out = {"Width": width, "Height": height, "Pitch": pitch, "Format": made}
         self.call("IRenderPipeline", "LockTexture", {"Handle": tex, "Level": 0, "Out": out})
         self.call("IRenderPipeline", "UnlockTexture", {"Handle": tex, "Level": 0, "Width": width,
-                                                       "Height": height, "Pitch": pitch, "Format": fmt,
+                                                       "Height": height, "Pitch": pitch, "Format": made,
                                                        "data": Data(pixels)})
         return tex
+
+    def refused_texture(self, width, height, fmt, flags):
+        """A CreateTexture that makes nothing: no id, the renderer's result recorded."""
+        self.call("IRenderPipeline", "CreateTexture", {"Width": width, "Height": height, "Format": fmt,
+                                                       "Levels": 1, "Flags": flags, "OutHandle": 0},
+                  ret=s32(0xFFFFFFFE))
 
     def create_vb(self, fvf, stride, vertices):
         vb = self.new_id()
@@ -581,6 +590,29 @@ def scene_textured():
     return frame_end(t)
 
 
+def scene_texture_class():
+    """The textured scene with its texture asked for in the DAA8 format class, which
+    DX8RENDERER's CreateTexture makes in its first supported candidate, A8R8G8B8; and a
+    CreateTexture with flag 1, which it refuses before the device with 0xFFFFFFFE."""
+    t = begin("texture_class")
+    t.refused_texture(4, 4, PF_DAA8, 1)
+    tex = t.create_texture(4, 4, PF_DAA8, checker_texture(), made=PF_A8R8G8B8)
+    frame_start(t, argb(255, 0x40, 0x40, 0x40))
+    t.stage_texture(0, tex)
+    t.stage_state(0, "COLOROP", D3DTOP_MODULATE)
+    t.stage_state(0, "ALPHAOP", D3DTOP_SELECTARG1)
+    t.stage_state(0, "MAGFILTER", D3DTEXF_POINT)
+    t.stage_state(0, "MINFILTER", D3DTEXF_POINT)
+    quad = xyz_diffuse_tex1([
+        (-0.71, -0.71, -0.5, argb(255, 255, 255, 255), 0.0, 1.0),
+        (-0.71, 0.68, -0.5, argb(255, 255, 255, 0), 0.0, 0.0),
+        (0.68, -0.71, -0.5, argb(255, 0, 255, 255), 1.0, 1.0),
+        (0.68, 0.68, -0.5, argb(255, 255, 255, 255), 1.0, 0.0),
+    ])
+    t.draw_primitive(D3DPT_TRIANGLESTRIP, FVF_XYZ | FVF_DIFFUSE | FVF_TEX1, quad, 4)
+    return frame_end(t)
+
+
 def scene_alpha_blend():
     """An opaque quad, then a half-transparent triangle over it: SRCALPHA, INVSRCALPHA."""
     t = begin("alpha_blend")
@@ -696,7 +728,7 @@ def scene_fan():
 
 
 SCENES = [scene_clear, scene_untextured, scene_pretransformed, scene_textured, scene_alpha_blend,
-          scene_alpha_test, scene_fog, scene_directional_light, scene_fan]
+          scene_alpha_test, scene_fog, scene_directional_light, scene_fan, scene_texture_class]
 
 
 def outputs():

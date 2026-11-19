@@ -6,9 +6,11 @@
 //! nozzles of `CEEngine::CEEngine`).
 
 use neuron_core::hash::name_crc32;
-use neuron_core::math::{Matrix, Vector};
-use neuron_core::physics::{BodyDesc, CONTROLLER_PRIORITY, CreateParms, Geometry};
-use neuron_core::scene::{InstanceId, connect_hardpoints};
+use neuron_core::math::{Matrix, Vector, matrix_to_quaternion};
+use neuron_core::physics::{
+    BodyDesc, CONTROLLER_PRIORITY, CreateParms, Geometry, GolemParms, PhantomDesc,
+};
+use neuron_core::scene::{Engine, Hardpoints, InstanceId, connect_hardpoints, connect_payload};
 
 use crate::data::archetype::equipment::{Equipment, EquipmentKind};
 use crate::data::archetype::root::Root;
@@ -23,8 +25,9 @@ use crate::object::projectile::{
 use crate::object::ship::ShipData;
 use crate::object::solar::{SolarData, body_damping};
 use crate::object::{
-    ArchGroup, DockingPoint, EngineObject, Equipped, KindData, ObjHandle, Object, ObjectKind,
-    PartMapEntry, Physical, Simple, asteroid, loot::LootData,
+    ArchGroup, DockingPoint, EngineObject, Equipped, FREE_PART_CLASS, FreePart, KindData,
+    ObjHandle, Object, ObjectKind, PartMapEntry, Physical, Simple, asteroid, free_part_key,
+    loot::LootData,
 };
 
 use super::{ControllerRef, World};
@@ -291,6 +294,134 @@ impl World {
         self.refresh_parts(h);
     }
 
+    /// The rest of `PhySys::BuildIVP_Real` for a construction of type 1
+    /// (`CSolar::init_physics`): the walk of the instance tree below the
+    /// root (`PhySys_BuildInstanceIVP_Real`), which makes every free
+    /// (`!fxd`) part an object of its own, with a body built from the
+    /// golem-child parameters at the instance's frame and a golem holding
+    /// it there (`AttachGolemController` mode 1); the parts below a free
+    /// part go to it. The bodies are made in the walk's order, depth first,
+    /// so their cores join the wake queue in the reference's order.
+    fn build_free_parts(&mut self, h: ObjHandle, parms: &CreateParms) {
+        let Some(obj) = self.objects.get(h) else {
+            return;
+        };
+        let (system, kind, archetype, root) = (
+            obj.physical.system,
+            obj.kind,
+            obj.archetype,
+            obj.engine.instance,
+        );
+        if obj.physical.body.is_none() {
+            return;
+        }
+        let Some(root) = root else {
+            return;
+        };
+        let path = self.archetype_path(kind, archetype);
+        let Some(parts) = self.surface_parts(archetype, &path) else {
+            return;
+        };
+        let constants = super::phy_sys_constants(&self.data);
+        let child = CreateParms {
+            mass: constants.golem_child_mass,
+            linear_damping: constants.golem_child_linear_damp,
+            angular_damping: constants.golem_child_angular_damp,
+            name: parms.name.clone(),
+            enable_collisions: parms.enable_collisions,
+            inertia: parms.inertia,
+        };
+        let golem = GolemParms::for_part(&constants);
+        let pin = !self.config.single_player;
+        let children = |world: &World, i: InstanceId| {
+            let mut out = Vec::new();
+            let mut cursor = None;
+            while let Some(c) = world.scene.related_instance(Some(i), 1, cursor) {
+                out.push(c);
+                cursor = Some(c);
+            }
+            out
+        };
+        // (instance, the free part that owns it; None: the root object)
+        let mut stack: Vec<(InstanceId, Option<usize>)> = children(self, root)
+            .into_iter()
+            .rev()
+            .map(|c| (c, None))
+            .collect();
+        let mut free: Vec<FreePart> = Vec::new();
+        let mut moved: Vec<InstanceId> = Vec::new();
+        while let Some((i, owner)) = stack.pop() {
+            let (_, part_id) = self.scene.instance_name(Some(i));
+            let entry = PartMapEntry {
+                part_id,
+                instance: Some(i),
+                shield_part: false,
+            };
+            let is_free = parts.get(&part_id).is_some_and(|p| !p.not_fixed);
+            let next_owner = if is_free {
+                let (orientation, position) = self.instance_frame(Some(i));
+                let geometry = World::part_geometry(Some(&parts), part_id).0;
+                let key = free_part_key(self.next_free_part);
+                self.next_free_part = self.next_free_part.wrapping_add(1);
+                let Some(world) = self.physics.world_mut(system) else {
+                    return;
+                };
+                let body = world.create_body(BodyDesc {
+                    user_key: key,
+                    geometry,
+                    parms: child.clone(),
+                    position,
+                    orientation,
+                    pin_mass_center: pin,
+                });
+                world.set_collision_state(body, child.enable_collisions);
+                world.set_client_class(body, FREE_PART_CLASS);
+                world.attach_golem_at(body, &golem, position, matrix_to_quaternion(&orientation));
+                free.push(FreePart {
+                    body,
+                    part_map: vec![entry],
+                });
+                moved.push(i);
+                Some(free.len() - 1)
+            } else {
+                if let Some(k) = owner {
+                    free[k].part_map.push(entry);
+                    moved.push(i);
+                }
+                owner
+            };
+            for c in children(self, i).into_iter().rev() {
+                stack.push((c, next_owner));
+            }
+        }
+        if free.is_empty() {
+            return;
+        }
+        // The surface manager of each part's object hides the ledges of
+        // parts its part map lacks.
+        if let Some(world) = self.physics.world_mut(system) {
+            for part in &free {
+                let own: Vec<u32> = part.part_map.iter().map(|e| e.part_id).collect();
+                let mut ledge_parts: Vec<u32> = world
+                    .ledge_part_ids(part.body)
+                    .into_iter()
+                    .filter(|p| !own.contains(p))
+                    .collect();
+                ledge_parts.dedup();
+                for p in ledge_parts {
+                    world.set_part_attached(part.body, p, false);
+                }
+            }
+        }
+        if let Some(obj) = self.objects.get_mut(h) {
+            obj.physical
+                .part_map
+                .retain(|e| e.instance.is_none_or(|i| !moved.contains(&i)));
+            obj.physical.free_parts = free;
+        }
+        self.refresh_parts(h);
+    }
+
     pub(crate) fn archetype_path(&self, kind: ObjectKind, archetype: u32) -> Vec<u8> {
         let a = &self.data.archetypes;
         let root = match kind {
@@ -314,7 +445,7 @@ impl World {
         let (kind, archetype) = (obj.kind, obj.archetype);
         let path = self.archetype_path(kind, archetype);
         let parts = self.surface_parts(archetype, &path);
-        World::part_geometry(parts.as_ref(), part).1
+        World::part_hardpoint_list(parts.as_ref(), part)
     }
 
     /// `CExternalEquip::Connect` and `CAttachedEquip::Connect`: the mount
@@ -366,15 +497,13 @@ impl World {
             // reads as unconnected.
             return false;
         };
-        // `ConnectAttachedHardpoints(parent, parent hp, model, HP_child)`.
-        if connect_hardpoints(
+        if !connect_attached_hardpoints(
             &mut self.scene,
-            Some(instance),
+            instance,
             hp_crc,
-            Some(model),
+            model,
             name_crc32(&child_hp),
-        ) != 0
-        {
+        ) {
             self.scene.destroy_instance(model);
             return false;
         }
@@ -647,6 +776,14 @@ impl World {
         else {
             return;
         };
+        // `CEInternalFX::CEInternalFX`: a `use_animation` starts its
+        // ambient playback on the owner.
+        if let EquipmentKind::InternalFx { use_animation } = &arch.kind {
+            let name = self.data.strings.get(*use_animation).to_vec();
+            if !name.is_empty() {
+                self.start_ambient(owner, &name);
+            }
+        }
         equip.set_hit_points((f64::from(desc.health) * f64::from(arch.root.hit_pts)) as f32);
         // `CEShieldGenerator::CEShieldGenerator`: `LastUpdateTime` is the
         // global time at construction.
@@ -913,6 +1050,8 @@ impl World {
                 dock_type: s.dock_type,
                 anim: s.anim.clone(),
                 active: false,
+                playback: None,
+                last_duration: 0.0,
             })
             .collect();
         if let Some(obj) = self.objects.get_mut(h) {
@@ -1171,7 +1310,10 @@ impl World {
             .then_some(arch.solar_radius)
             .filter(|r| *r > 0.0);
         if !path.ends_with(b".sph") || sphere.is_some() {
-            self.build_body(h, parms, sphere, fixed);
+            self.build_body(h, parms.clone(), sphere, fixed);
+            if sphere.is_none() {
+                self.build_free_parts(h, &parms);
+            }
         }
         if !fixed
             && let Some((system, body)) = self.body(h)
@@ -1209,6 +1351,30 @@ impl World {
         system: u32,
         keep: impl Fn(&SolarSpawn) -> bool,
     ) -> Vec<ObjHandle> {
+        let mut out = Vec::new();
+        for spawn in self.system_solar_spawns(system) {
+            if keep(&spawn)
+                && let Ok(h) = self.spawn_solar(system, &spawn)
+            {
+                out.push(h);
+            }
+        }
+        out
+    }
+
+    /// Whether a solar archetype's model has a free (`!fxd`) part, which
+    /// `BuildIVP_Real` makes an object of its own with a body that is a
+    /// simulation unit.
+    pub fn solar_has_free_parts(&mut self, archetype: u32) -> bool {
+        let path = self.archetype_path(ObjectKind::Solar, archetype);
+        self.surface_parts(archetype, &path)
+            .is_some_and(|parts| parts.values().any(|p| !p.not_fixed))
+    }
+
+    /// The solars of a system file's `[Object]` sections in file order, as
+    /// [`World::load_system_solars`] reads them (those with a nickname and
+    /// a known solar archetype), without making them.
+    pub fn system_solar_spawns(&mut self, system: u32) -> Vec<SolarSpawn> {
         self.load_system(system);
         let Some(sys) = self.data.universe.systems.get(&system).cloned() else {
             return Vec::new();
@@ -1273,15 +1439,10 @@ impl World {
                     );
                 }
             }
-            if spawn.nickname == 0
-                || !keep(&spawn)
-                || !self.data.archetypes.solars.contains_key(&spawn.archetype)
-            {
+            if spawn.nickname == 0 || !self.data.archetypes.solars.contains_key(&spawn.archetype) {
                 continue;
             }
-            if let Ok(h) = self.spawn_solar(system, &spawn) {
-                out.push(h);
-            }
+            out.push(spawn);
         }
         out
     }
@@ -1444,6 +1605,11 @@ impl World {
             seeker_elapsed: 0.0,
             seeker_range: m.seeker_range,
             seeker_fov_cos: m.seeker_fov_cos,
+            seeker: m.seeker,
+            max_angular_velocity: m.max_angular_velocity,
+            phantom: None,
+            triggered: false,
+            trigger_obj: 0,
         };
         let mut obj = self.base_object(ObjectKind::Guided, &arch.root, KindData::Guided(guided));
         let id = self.allocate_id();
@@ -1462,6 +1628,45 @@ impl World {
         let _ = constants;
         self.build_body(h, parms, None, false);
         self.add_initial_velocity(h, s.velocity, Vector::ZERO);
+        // `Guided::arm`: the motor's controller, and with a detonation
+        // distance the proximity fuse, a ball phantom of that radius in the
+        // missile's collision group, merged into its core (collisions off
+        // until the first update turns them on).
+        self.register(h, ControllerRef::Guided);
+        if m.detonation_dist_sq > 0.0
+            && let Some((system, body)) = self.body(h)
+        {
+            let position = self
+                .objects
+                .get(h)
+                .map_or(Vector::ZERO, |o| o.engine.position);
+            let radius = f64::from(m.detonation_dist_sq).sqrt() as f32;
+            if let Some(world) = self.physics.world_mut(system) {
+                let name = world.collision_group(body);
+                let phantom = world.create_phantom(PhantomDesc {
+                    geometry: Geometry::ball(radius),
+                    position,
+                    orientation: Matrix::IDENTITY,
+                    name,
+                    listener: true,
+                });
+                world.set_phantom_collision_state(phantom, false);
+                world.attach_phantom(phantom, body, position);
+                if let Some(KindData::Guided(g)) = self.objects.get_mut(h).map(|o| &mut o.data) {
+                    g.phantom = Some(phantom);
+                }
+            }
+        }
+        // `StarSystem::create_guided`: a live target with a behaviour
+        // manager hears of the missile (event 6,
+        // `AppendSystemManagerTimerListEntry`).
+        let missile_id = self.objects.get(h).map_or(0, |o| o.simple.id);
+        if let Some((target, _)) = s.target
+            && self.objects.get(target).is_some_and(|t| !t.dead)
+            && let Some(manager) = self.behavior_managers.get_mut(&target)
+        {
+            manager.state.sys.timers.add_missile(missile_id);
+        }
         Ok(h)
     }
 
@@ -1569,8 +1774,8 @@ impl World {
         Ok(h)
     }
 
-    /// A field rock (`CAsteroid::init`, `init_physics`: mass 1000, damping
-    /// 1e6, fixed, group "Asteroid").
+    /// A field rock with the object id `id` (`CAsteroid::init`,
+    /// `init_physics`: mass 1000, damping 1e6, fixed, group "Asteroid").
     ///
     /// # Errors
     ///
@@ -1579,6 +1784,7 @@ impl World {
         &mut self,
         system: u32,
         archetype: u32,
+        id: u32,
         position: Vector,
         orientation: Matrix,
         rock: asteroid::AsteroidData,
@@ -1598,7 +1804,6 @@ impl World {
             &arch.root,
             KindData::Asteroid(rock.clone()),
         );
-        let id = rock.asteroid_id;
         World::init_simple(&mut obj, system, id, 0, -1.0, position, orientation);
         let h = self.insert(system, obj);
         self.sync_instance(h);
@@ -1624,4 +1829,68 @@ pub(crate) fn shield_status(e: &Equip) -> ShieldStatus {
         destroyed: e.is_destroyed(),
         attached: e.attached.as_ref().is_some_and(|a| a.attachment.is_some()),
     }
+}
+
+/// `WrapLimitRange`: a joint's limit range moved into `[0, 360)` by whole
+/// turns (the reference's bounds, kept in `f64` as on its x87 stack).
+fn wrap_limit_range(mut range: f64) -> f64 {
+    const TWO_PI: f64 = 6.283_185_482_025_146_5;
+    while range < 0.0 {
+        range += TWO_PI;
+    }
+    while range >= 360.0 {
+        range -= TWO_PI;
+    }
+    range
+}
+
+/// `ConnectAttachedHardpoints(parent, parent hp, child, child hp)`
+/// (`common_cattachment.cpp`): two revolute hardpoints make a revolute
+/// joint (`IHardpoint::ConnectHardpoints`' payload) with the narrower of
+/// their two limit ranges, a range of a full turn or more read as
+/// `[-pi, pi]`; any other pair goes through `ConnectHardpoints`. False
+/// when a hardpoint is missing or the joint is refused.
+fn connect_attached_hardpoints(
+    engine: &mut Engine,
+    parent: InstanceId,
+    parent_crc: u32,
+    child: InstanceId,
+    child_crc: u32,
+) -> bool {
+    let lookup = |engine: &Engine, instance: InstanceId, crc| {
+        let archetype = engine.instance_archetype(instance)?;
+        engine.component::<Hardpoints>()?.get(archetype, crc)
+    };
+    let (Some(a), Some(b)) = (
+        lookup(engine, parent, parent_crc),
+        lookup(engine, child, child_crc),
+    ) else {
+        return false;
+    };
+    if a.kind() != 2 || b.kind() != 2 {
+        return connect_hardpoints(engine, Some(parent), parent_crc, Some(child), child_crc) == 0;
+    }
+    // A range of 2 pi or more (the float 2 pi, compared in `f64`) opens the
+    // limits to [-pi, pi] and keeps its range; any other range (NaN too) is
+    // wrapped.
+    let full = |range: f64| range >= f64::from(6.283_185_5_f32);
+    let limits = |d: &neuron_core::scene::HardpointData| {
+        let range = f64::from(d.max()) - f64::from(d.min());
+        if full(range) {
+            (range, -core::f32::consts::PI, core::f32::consts::PI)
+        } else {
+            (wrap_limit_range(range), d.min(), d.max())
+        }
+    };
+    let (parent_range, parent_min, parent_max) = limits(&a);
+    let (child_range, child_min, child_max) = limits(&b);
+    let (min, max) = if parent_range < child_range {
+        (parent_min, parent_max)
+    } else {
+        (child_min, child_max)
+    };
+    let mut payload = connect_payload(&a, &b);
+    payload.0[19] = min.to_bits();
+    payload.0[20] = max.to_bits();
+    engine.create_joint(Some(parent), Some(child), &payload)
 }

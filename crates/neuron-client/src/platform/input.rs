@@ -7,7 +7,7 @@
 //! (`RIDEV_NOLEGACY | RIDEV_CAPTUREMOUSE`) and the pointer is clipped to
 //! the client area: no `WM_MOUSEMOVE` reaches the window and no click
 //! reaches another window, as with an exclusive, foreground DirectInput
-//! device (decision O28, proposed). Unacquiring registers the mouse plainly
+//! device (decision O28). Unacquiring registers the mouse plainly
 //! again and frees the pointer. Without `RIDEV_INPUTSINK`, reports arrive
 //! only while the window is in front.
 

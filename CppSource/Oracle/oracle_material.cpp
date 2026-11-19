@@ -1628,6 +1628,16 @@ namespace
 
 // oracle_material_kinds.cpp: the 22 material kinds and BatchedMaterial (material_kinds.jsonl).
 void RunMaterialKindSuite();
+// oracle_material_surface.cpp: the 19 surface materials (material_surface.jsonl).
+void RunMaterialSurfaceSuite();
+// oracle_material_appearance.cpp: FLAppearance.cpp (material_appearance.jsonl).
+void RunMaterialAppearanceSuite();
+// oracle_mesh_render.cpp (compiled into oracle_mesh_data.cpp): RendComp at run time
+// (mesh_render.jsonl).
+void RunMeshRenderSuite();
+// oracle_deformable.cpp (compiled into oracle_mesh_data_dfm.cpp): Deformable2 at run time
+// (deformable.jsonl).
+void RunDeformableSuite();
 
 void RunMaterialSuites()
 {
@@ -1644,4 +1654,8 @@ void RunMaterialSuites()
     AnimationSuite();
     BatcherSuite();
     RunMaterialKindSuite();
+    RunMaterialSurfaceSuite();
+    RunMaterialAppearanceSuite();
+    RunMeshRenderSuite();
+    RunDeformableSuite();
 }

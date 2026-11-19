@@ -1219,3 +1219,160 @@ fn object_turret() {
     }
     check_suite("object_turret.jsonl", &lines);
 }
+
+/// The asteroid field walk (P2.4) on the zones of `zq`: `near_field`,
+/// `near_field_fraction`, `populate_asteroids`, `closest_cube_pos`,
+/// `create_cube_id` and `flush_changes` on two fields without rocks, and
+/// every cube. Tier A but the snap rotations (sines and cosines), within 4
+/// ulps or 1e-6.
+#[test]
+fn asteroid_field() {
+    use game_sim::data::asteroid_field::AsteroidField;
+    use game_sim::object::field::FieldRuntime;
+    let universe = query_universe();
+    let zone = |name: &[u8]| &universe.zones[&neuron_core::id::create_id(name)];
+    let sphere = zone(b"q_sphere");
+    let ellipsoid = zone(b"q_ellipsoid");
+    let mut mgr = AsteroidExclusionZoneMgr::default();
+    mgr.push_back(Some(zone(b"x_a")), sphere);
+    mgr.back().expect("pushed").empty_cube_frequency = 0.9;
+    mgr.push_back(Some(zone(b"x_b")), sphere);
+    // The C++ literal 1.5707963f, which rounds below `FRAC_PI_2`.
+    let rotations = AxisRotations {
+        angles: [
+            [0.0, 0.3, 1.1, 2.0],
+            [0.5, f32::from_bits(0x3fc9_0fda), 3.1, 4.0],
+            [0.0, 0.7, 1.2, 2.5],
+        ],
+    };
+    let system = neuron_core::id::create_id(b"zq");
+    let mut fields = [
+        FieldRuntime::new(AsteroidField {
+            system,
+            zone: Some(sphere.nickname),
+            cube_size: 200,
+            fill_dist: 300,
+            empty_freq: 0.0,
+            exclusion: Some(mgr),
+            ..AsteroidField::default()
+        }),
+        FieldRuntime::new(AsteroidField {
+            system,
+            zone: Some(ellipsoid.nickname),
+            cube_size: 250,
+            fill_dist: 400,
+            empty_freq: 0.25,
+            rotations,
+            ..AsteroidField::default()
+        }),
+    ];
+    let zones = [sphere, ellipsoid];
+    let mut lines = Vec::new();
+    for line in input_lines("asteroid_field.list") {
+        let parts: Vec<&str> = line.split(' ').collect();
+        let op = parts[0];
+        let words = |from: usize| {
+            Vector::new(
+                f32_hex(parts[from]),
+                f32_hex(parts[from + 1]),
+                f32_hex(parts[from + 2]),
+            )
+        };
+        match op {
+            "c" | "o" => {
+                let f: usize = parts[1].parse().unwrap_or_else(|e| panic!("{line}: {e}"));
+                let field = &mut fields[f];
+                let pos = words(2);
+                let mut line_out = Line::new();
+                let out = line_out.add("op", op).add("field", f.to_string());
+                if op == "c" {
+                    lines.push(
+                        out.add("pos", vec3_text(field.closest_cube_pos(pos)))
+                            .add("cube", format!("{:08x}", field.create_cube_id(pos)))
+                            .done(),
+                    );
+                    continue;
+                }
+                let dir = words(5);
+                let near = field.near_field(Some(zones[f]), pos);
+                let fraction = field.near_field_fraction(Some(zones[f]), pos, 0.0);
+                let fraction500 = field.near_field_fraction(Some(zones[f]), pos, 500.0);
+                let mut made = if near {
+                    field.populate_asteroids(zones[f], pos, dir)
+                } else {
+                    Vec::new()
+                };
+                made.sort_unstable();
+                let made: Vec<String> = made.iter().map(|id| format!("{id:08x}")).collect();
+                lines.push(
+                    out.add("near", u8::from(near).to_string())
+                        .add("fraction", f32_text(fraction))
+                        .add("fraction500", f32_text(fraction500))
+                        .add(
+                            "made",
+                            if made.is_empty() {
+                                "-".to_owned()
+                            } else {
+                                made.join(",")
+                            },
+                        )
+                        .done(),
+                );
+            }
+            "f" => {
+                let dropped: Vec<String> = fields
+                    .iter_mut()
+                    .map(|f| f.flush_changes().len().to_string())
+                    .collect();
+                lines.push(
+                    Line::new()
+                        .add("op", "f")
+                        .add("dropped", dropped.join(","))
+                        .done(),
+                );
+            }
+            "s" => {
+                lines.push(
+                    Line::new()
+                        .add("op", "s")
+                        .add(
+                            "cubes",
+                            format!("{},{}", fields[0].cubes.len(), fields[1].cubes.len()),
+                        )
+                        .done(),
+                );
+                for (f, field) in fields.iter().enumerate() {
+                    for cube in field.cubes.values() {
+                        let orient: Vec<String> = cube
+                            .orient
+                            .to_words()
+                            .iter()
+                            .map(|&w| f32_text(w))
+                            .collect();
+                        lines.push(
+                            Line::new()
+                                .add("field", f.to_string())
+                                .add("cube", format!("{:08x}", cube.id))
+                                .add("state", cube.state.value().to_string())
+                                .add("timer", f32_text(cube.state_timer))
+                                .add("empty", u8::from(cube.empty).to_string())
+                                .add("pos", vec3_text(cube.pos))
+                                .add("orient", orient.join(","))
+                                .done(),
+                        );
+                    }
+                }
+            }
+            _ => panic!("{line}: unknown operation"),
+        }
+    }
+    check_within(
+        "asteroid_field.jsonl",
+        &lines,
+        &Tolerance {
+            keys: &["orient"],
+            ulps: 4,
+            absolute: 1.0e-6,
+        },
+    );
+}

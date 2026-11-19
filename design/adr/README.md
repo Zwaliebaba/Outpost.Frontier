@@ -13,3 +13,4 @@ decision register then carries a one-line entry that points here.
 | [0002](0002-single-player-world.md) | Single player keeps one shared world | accepted | P2.0 |
 | [0003](0003-simulation-oracle.md) | Replay and scenario oracle; G2 envelope method | accepted | P2.0 |
 | [0004](0004-render-device-and-trace.md) | Render device API, trace format version 1, shader toolchain | accepted | P4.0 |
+| [0005](0005-programmable-passes.md) | Programmable passes: render targets, programs, volume textures, scene depth | accepted | P4.9 |

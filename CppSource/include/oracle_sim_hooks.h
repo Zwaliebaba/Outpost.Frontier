@@ -12,12 +12,15 @@
 //                               dt), OracleSimLoadSystem (export, loads one system)
 //   Server/server_gameobject.cpp  the three Timing::read timer stamps; GameObject::on_collision
 //                               (CalcCollisionDamage in and out); Ship's IObjAffect setters,
-//                               set_target, slot_50 and slot_54, EqObj::slot_34 and slot_4c
-//                               (OnAffect, each inside an FOracleSimAffectScope)
+//                               set_target, slot_50 and slot_54, EqObj::slot_34 and slot_4c,
+//                               and (P2.5 dock) slot_5c, slot_60, go_tradelane and
+//                               stop_tradelane (OnAffect, each inside an FOracleSimAffectScope)
 //   Server/server_classes.cpp   StarSystem::munition_collision (OnMunitionHit);
 //                               StarSystem_MpCollisionFilter (single-player collisions)
 //   Common/common_physicalsystem.cpp  PhysicalSystem::Update (single-player stepping)
 //   Common/common_behaviormanager.cpp IBehaviorManager::UpdateBehaviorTick (OnBehaviorTick)
+//   Common/common_ceqobj.cpp    CEqObj::activate (OnDockActivate) and
+//                               CEqObj::update_docking_animations (OnDockAnim), P2.4
 //   IVP/ivp_physics/ivp_environment.cpp IVP_Environment_Simulate_Psi (OnPsi)
 //   IVP/ivp_physics/ivp_simulation_unit.cpp IVP_Simulation_Unit_Process_One_Psi_Step
 //                               (OnSimUnitPsi)
@@ -89,6 +92,8 @@ struct FOracleSimEnv
     float Time[2];                  // current_time base, offset
     float MaxVelocity;              // anomaly_limits->MaxVelocity
     float MaxAngularVelocityPerPsi; // anomaly_limits->MaxAngularVelocityPerPsi
+    int MovementCheck;              // next_movement_check (+0x118)
+    unsigned IvpSeed;               // IVP_FastRandomFloat's seed (process wide)
 };
 
 // The IVP_Core::push_core_* calls OnCorePush reports.
@@ -118,11 +123,22 @@ enum EOracleSimAffect
     OracleSimAffectNudge = 2,         // Values[0..2]
     OracleSimAffectStrafe = 3,        // IntArg = StrafeDir
     OracleSimAffectFire = 13,         // IntArg = equipment count, Values = target position or none
+    // P2.5 loot: slot_40 (the tractor): IntArg = equipment id, Values[0] = the target's id
+    // (its bits; 0 for none).
+    OracleSimAffectTractor = 16,
+    // P2.5 gun lock: slot_44: IntArg = equipment id, Values[0] = the target's id (its bits; 0
+    // for none), Values[1] = the sub-target.
+    OracleSimAffectGunTarget = 17,
     // P2.5 goto/face (design/sim-records.md, `affect`):
     OracleSimAffectTarget = 18,       // set_target: IntArg = target id (0 none), Values[0] = sub-target
     OracleSimAffectEquip = 19,        // slot_4c: IntArg = equipment id, Values[0] = activate (1 or 0)
     OracleSimAffectCruise = 20,       // slot_50: IntArg = engage (1 or 0), Values[0] = the second flag
-    OracleSimAffectThrusters = 21     // slot_54: IntArg = activate (1 or 0)
+    OracleSimAffectThrusters = 21,    // slot_54: IntArg = activate (1 or 0)
+    // P2.5 dock, launch and trade lanes (ids as float bit patterns):
+    OracleSimAffectRequest = 23,      // slot_5c: IntArg = request type, Values = target id, second id, bFlag
+    OracleSimAffectCancelRequest = 24, // slot_60: IntArg = request type, Values = target id, Arg3
+    OracleSimAffectGoTradeLane = 25,  // go_tradelane: IntArg = bFastExit, Values = entrance id, exit id, speed
+    OracleSimAffectStopTradeLane = 26 // stop_tradelane
 };
 
 struct FOracleSimHooks
@@ -173,6 +189,18 @@ struct FOracleSimHooks
     // The number of instrumented IObjAffect calls in progress (FOracleSimAffectScope), so
     // OnAffect can tell an outer call from one an outer call makes (depth 0 is the caller's).
     int AffectDepth;
+    // P2.4 (docking points): CEqObj::activate before it returns (the index as given, the
+    // request and the ObjActivateResult), and CEqObj::update_docking_animations for each point
+    // with a channel, before the point is processed (its active flag, GetStoredDuration,
+    // GetScriptDuration and LastDuration).
+    void(__cdecl* OnDockActivate)(CObject const* Object, unsigned Index, bool bOn, int Result);
+    void(__cdecl* OnDockAnim)(CObject const* Object, unsigned Index, bool bActive, float Duration,
+                              float Position, float LastDuration);
+    // With bFixedClock: the seed IServerImpl::Startup gives srand instead of timeGetTime()
+    // (the reproducibility work, owner 2026-11-19). The draws before the harness's own srand
+    // set the controllers' heartbeat phases (Server_ControllerSetHeartbeat), and through them
+    // Content's game time.
+    unsigned int StartupSeed;
 };
 
 COMMON_API extern FOracleSimHooks GOracleSimHooks;
@@ -191,6 +219,9 @@ COMMON_API IVP_Core* __cdecl OracleSimCoreOf(CObject const* Object);
 COMMON_API IVP_Simulation_Unit* __cdecl OracleSimUnitOf(IVP_Core const* Core);
 // The number of cores in a unit, 0 for a null unit.
 COMMON_API int __cdecl OracleSimUnitCoreCount(IVP_Simulation_Unit const* Unit);
+// The unit's controllers (IVP_Controller*, the bucket keys) in the order its PSI runs them
+// (the last bucket first), at most Max; their count.
+COMMON_API int __cdecl OracleSimUnitControllers(IVP_Simulation_Unit const* Unit, void const** Out, int Max);
 // The CObject of a unit's core Index (its first object's client_data), null when there is none.
 COMMON_API CObject* __cdecl OracleSimUnitCoreObject(IVP_Simulation_Unit const* Unit, int Index);
 // Copies a core; false (Out zeroed) for a null core.

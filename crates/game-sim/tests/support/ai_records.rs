@@ -56,6 +56,41 @@ pub struct ManagerRecord {
     pub sys: Option<SysRecord>,
     /// `face`: the face behaviour's fields while it is current.
     pub face: Option<FaceRecord>,
+    /// `beh7`, `beh8` or `beh9`: the dock, launch or trade-lane
+    /// behaviour's fields while it is current.
+    pub beh: Option<BehRecord>,
+}
+
+/// The own fields of the dock (7), launch (8) or instant-trade-lane (9)
+/// behaviour (`beh7`, `beh8`, `beh9`: `i` and `v` in the order
+/// `design/sim-records.md` lists).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BehRecord {
+    /// The behaviour.
+    pub kind: i32,
+    /// The integer fields.
+    pub ints: Vec<i32>,
+    /// The float fields.
+    pub floats: Vec<f32>,
+}
+
+/// A world answer (`ai_answer`): `request`, `dock_hardpoints`,
+/// `lane_start` or `go_tradelane`.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct AnswerRecord {
+    /// The frame.
+    pub tick: u32,
+    /// The behaviour tick it came in (0 outside one).
+    pub seq: u32,
+    /// The kind.
+    pub kind: String,
+    /// The object asked (the ship for `request`, `lane_start` and
+    /// `go_tradelane`).
+    pub id: u32,
+    /// The integers.
+    pub ints: Vec<i32>,
+    /// The floats.
+    pub floats: Vec<f32>,
 }
 
 /// The system manager's combat state (`sys`), in the port's types. The
@@ -133,6 +168,10 @@ pub struct EquipRecord {
     pub pointing: [bool; 3],
     /// `can_point_at(candidate position, 0.3)`: candidate id, answer.
     pub can_point: Vec<(u32, bool)>,
+    /// `turret`: what `CEGun::CanPointAt` reads (an auto turret): the yaw
+    /// and pitch joints (bound, limited, min, max), the origin, the
+    /// turret frame and the connector's orientation (29 floats).
+    pub turret: Option<Vec<f32>>,
 }
 
 fn matrix(a: &[f32]) -> Option<Matrix> {
@@ -356,6 +395,10 @@ fn equip(j: &Json) -> Option<EquipRecord> {
             pointing.get(1)?.as_bool()?,
             pointing.get(2)?.as_bool()?,
         ],
+        turret: j
+            .get("turret")
+            .and_then(Json::as_floats)
+            .filter(|a| a.len() == 29),
         can_point: j
             .get("can_point")
             .and_then(Json::as_array)
@@ -396,6 +439,9 @@ pub struct PathfindRecord {
     pub probe_active: bool,
     /// `Avoidance.HasContact`.
     pub probe_contact: bool,
+    /// `locks` (P2.5 dock): `Flag245`, `Field_24C`, `Field_254`, the
+    /// flags `SetCruiseLock` writes (`None` in older records).
+    pub locks: Option<[u8; 3]>,
 }
 
 fn pathfind(j: &Json) -> Option<PathfindRecord> {
@@ -413,6 +459,10 @@ fn pathfind(j: &Json) -> Option<PathfindRecord> {
         reaction: i(j, "reaction")?,
         probe_active: b(j, "probe_active")?,
         probe_contact: b(j, "probe_contact")?,
+        locks: j.get("locks").and_then(Json::as_array).and_then(|a| {
+            let byte = |k: usize| a.get(k)?.as_u32().and_then(|v| u8::try_from(v).ok());
+            Some([byte(0)?, byte(1)?, byte(2)?])
+        }),
     })
 }
 
@@ -421,6 +471,9 @@ fn pathfind(j: &Json) -> Option<PathfindRecord> {
 pub struct ObjRecord {
     /// The id.
     pub id: u32,
+    /// The scenario name (`obj`), `None` for an object the scenario does
+    /// not name.
+    pub name: Option<String>,
     /// The roles.
     pub roles: Vec<String>,
     /// The fields, `None` when the read faulted.
@@ -435,6 +488,9 @@ pub struct ObjRecord {
     /// `equip`: the own ship's items (`None` for other objects and older
     /// records).
     pub equip: Option<Vec<EquipRecord>>,
+    /// `hpmount`: the own ship's `get_hardpoint("hpmount")` (position and
+    /// orientation; `None` when it failed or for other objects).
+    pub hpmount: Option<(Vector, Matrix)>,
 }
 
 /// One recorded query.
@@ -487,6 +543,11 @@ pub struct AiTick {
     pub rand: Vec<i32>,
     /// The module that drew each.
     pub rand_mod: Vec<String>,
+    /// The world answers given during the tick.
+    pub answers: Vec<AnswerRecord>,
+    /// The world answers given outside a behaviour tick (seq 0) since the
+    /// previous tick of any object, in record order.
+    pub before: Vec<AnswerRecord>,
 }
 
 /// One `IObjAffect` call (`affect` of `calls.jsonl`).
@@ -575,7 +636,71 @@ fn manager(j: &Json) -> Option<ManagerRecord> {
         flags_1c8: u(j, "flags_1c8").and_then(|v| u8::try_from(v).ok()),
         sys: j.get("sys").and_then(sys),
         face: j.get("face").and_then(face),
+        beh: [(7, "beh7"), (8, "beh8"), (9, "beh9")]
+            .into_iter()
+            .find_map(|(kind, key)| {
+                let b = j.get(key)?;
+                Some(BehRecord {
+                    kind,
+                    ints: b
+                        .get("i")?
+                        .as_array()?
+                        .iter()
+                        .filter_map(Json::as_i32)
+                        .collect(),
+                    floats: b.get("v").and_then(Json::as_floats).unwrap_or_default(),
+                })
+            }),
     })
+}
+
+fn answer(j: &Json) -> AnswerRecord {
+    AnswerRecord {
+        tick: u(j, "tick").unwrap_or(0),
+        seq: u(j, "seq").unwrap_or(0),
+        kind: j
+            .get("kind")
+            .and_then(Json::as_str)
+            .unwrap_or("")
+            .to_owned(),
+        id: u(j, "id").unwrap_or(0),
+        ints: j
+            .get("i")
+            .and_then(Json::as_array)
+            .map(|a| a.iter().filter_map(Json::as_i32).collect())
+            .unwrap_or_default(),
+        floats: j.get("v").and_then(Json::as_floats).unwrap_or_default(),
+    }
+}
+
+/// The names `ai_obj` records give object ids (the scenario's names),
+/// and those of the run's `tick.jsonl` `object` records beside it (every
+/// scenario object, near or not).
+#[must_use]
+pub fn read_names(path: &Path) -> BTreeMap<String, u32> {
+    let mut out = BTreeMap::new();
+    let ticks = path.with_file_name("tick.jsonl");
+    let mut lines = read_lines(path);
+    if ticks.exists() {
+        lines.extend(
+            read_lines(&ticks)
+                .into_iter()
+                .filter(|j| j.get("rec").and_then(Json::as_str) == Some("object"))
+                .take_while(|j| u(j, "tick") == Some(0)),
+        );
+    }
+    for j in lines {
+        if !matches!(
+            j.get("rec").and_then(Json::as_str),
+            Some("ai_obj" | "object")
+        ) {
+            continue;
+        }
+        if let (Some(name), Some(id)) = (j.get("obj").and_then(Json::as_str), u(&j, "id")) {
+            out.entry(name.to_owned()).or_insert(id);
+        }
+    }
+    out
 }
 
 /// The object fields of an `ai_obj` record as an [`ObjectView`].
@@ -633,9 +758,9 @@ pub fn object_view(j: &Json) -> Option<ObjectView> {
         power: None,
         zone_props: None,
         formation_leader: opt_u(j, "formation_leader"),
-        formation_offset: None,
+        formation_offset: v3(j, "formation_offset"),
         follow_leader: opt_u(j, "follow_leader"),
-        follow_offset: None,
+        follow_offset: v3(j, "follow_offset"),
         formation_followers: j
             .get("followers")
             .and_then(Json::as_array)
@@ -698,9 +823,14 @@ fn unhex(text: &str) -> Vec<u8> {
 #[must_use]
 pub fn read_ai_ticks(path: &Path) -> Vec<AiTick> {
     let mut out: Vec<AiTick> = Vec::new();
+    let mut between: Vec<AnswerRecord> = Vec::new();
     for j in read_lines(path) {
         let rec = j.get("rec").and_then(Json::as_str).unwrap_or("");
         let seq = u(&j, "seq").unwrap_or(0);
+        if rec == "ai_answer" && seq == 0 {
+            between.push(answer(&j));
+            continue;
+        }
         match rec {
             "ai_in" => {
                 let Some(input) = manager(&j) else {
@@ -718,6 +848,7 @@ pub fn read_ai_ticks(path: &Path) -> Vec<AiTick> {
                         .and_then(Json::as_array)
                         .map(|a| a.iter().filter_map(Json::as_u32).collect())
                         .unwrap_or_default(),
+                    before: std::mem::take(&mut between),
                     ..AiTick::default()
                 });
             }
@@ -731,6 +862,7 @@ pub fn read_ai_ticks(path: &Path) -> Vec<AiTick> {
                     }
                     "ai_obj" => t.objects.push(ObjRecord {
                         id: u(&j, "id").unwrap_or(0),
+                        name: j.get("obj").and_then(Json::as_str).map(str::to_owned),
                         roles: j
                             .get("roles")
                             .and_then(Json::as_array)
@@ -756,7 +888,15 @@ pub fn read_ai_ticks(path: &Path) -> Vec<AiTick> {
                             .get("equip")
                             .and_then(Json::as_array)
                             .map(|a| a.iter().filter_map(equip).collect()),
+                        hpmount: j
+                            .get("hpmount")
+                            .and_then(Json::as_floats)
+                            .filter(|m| m.len() == 12)
+                            .and_then(|m| {
+                                Some((Vector::new(m[0], m[1], m[2]), matrix(m.get(3..12)?)?))
+                            }),
                     }),
+                    "ai_answer" => t.answers.push(answer(&j)),
                     "ai_query" => {
                         if let Some(q) = query(&j) {
                             t.queries.push(q);

@@ -1,0 +1,1131 @@
+//! The P4.8 particle suites through the port, with the contract of
+//! `CppSource/Oracle/oracle_particles.cpp`: `particle_ramp` (every ramp and
+//! transform property of a node library evaluated at a list of times) and
+//! `particle_sim` (effects driven by the client's calls, with dumps of the
+//! node state, the particle lists, the pools and the texture calls) and
+//! `particle_draw` (the same with the draws, against a recording renderer
+//! and camera) and `particle_child` (the same with the particle
+//! appearances' child effects and the mesh appearances' meshes of a
+//! recording mesh factory).
+
+use std::cell::RefCell;
+use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
+use std::rc::Rc;
+
+use neuron_client::render::particles::ramp::{
+    AnimatedRamp, AnimatedTransform, ColorRampRamp, IDENTITY, NestedSingle, SingleRampRamp,
+};
+use neuron_client::render::particles::services::{FrameOut, TextureRecord};
+use neuron_client::render::particles::{
+    Camera, Effect, EffectError, FxMesh, FxMeshFactory, NodeId, ParticleDraw, ParticleFx,
+    ParticleServices, PoolKind, pool_of,
+};
+use neuron_core::fx_data::props::{APPEARANCE_LOD_CURVE, kind};
+use neuron_core::fx_data::{
+    AleFile, ClassData, NodeClass, PropertySet, billboard_tables, name_hash,
+};
+
+use super::{input_lines, unhex};
+
+fn f(value: f32) -> String {
+    format!("{:08x}", value.to_bits())
+}
+
+fn floats(values: &[f32], separator: &str) -> String {
+    values
+        .iter()
+        .map(|&v| f(v))
+        .collect::<Vec<_>>()
+        .join(separator)
+}
+
+fn hex_float(text: &str) -> f32 {
+    f32::from_bits(u32::from_str_radix(text, 16).unwrap_or_else(|e| panic!("{text}: {e}")))
+}
+
+// --- The archive the two streams make --------------------------------------------------
+
+/// A UTF archive (the 0x2C layout of `neuron_core::utf`) with the two
+/// directories of an `.ale` file, each holding its leaf: what the oracle's
+/// in-memory file system serves.
+fn ale_archive(nodes: &[u8], effects: &[u8]) -> Vec<u8> {
+    let names: [&[u8]; 2] = [b"ParticleFxNodeLibrary", b"ALEffectLib"];
+    let leaves = [nodes, effects];
+    let mut strings = Vec::new();
+    let mut name_offset = |name: &[u8]| {
+        let offset = strings.len();
+        strings.extend_from_slice(name);
+        strings.push(0);
+        u32::try_from(offset).unwrap_or(0)
+    };
+    // Entries: root, then the two directories, then each directory's leaf.
+    let root_name = name_offset(b"\\");
+    let dir_names = names.map(&mut name_offset);
+    let leaf_names = names.map(&mut name_offset);
+    let mut tree = vec![0_u8; 0x2C * 5];
+    let mut put = |at: usize, words: &[(usize, u32)]| {
+        for &(offset, value) in words {
+            tree[at + offset..at + offset + 4].copy_from_slice(&value.to_le_bytes());
+        }
+    };
+    put(0, &[(0, 0), (4, root_name), (8, 0x10), (0x10, 0x2C)]);
+    let mut data = Vec::new();
+    for i in 0..2 {
+        let dir = 0x2C * (1 + i);
+        let leaf = 0x2C * (3 + i);
+        let next = if i == 0 { 0x2C * 2 } else { 0 };
+        put(
+            dir,
+            &[
+                (0, next as u32),
+                (4, dir_names[i]),
+                (8, 0x10),
+                (0x10, leaf as u32),
+            ],
+        );
+        put(
+            leaf,
+            &[
+                (0, 0),
+                (4, leaf_names[i]),
+                (8, 0x80),
+                (0x10, data.len() as u32),
+                (0x1C, leaves[i].len() as u32),
+            ],
+        );
+        data.extend_from_slice(leaves[i]);
+    }
+    let t = 0x38_u32;
+    let s = t + tree.len() as u32;
+    let d = s + strings.len() as u32;
+    let head = [0x2046_5455, 0x101, t, 0, 0, 0x2C, s, 0, 0, d, 0, 0, 0, 0];
+    let mut out: Vec<u8> = head.iter().flat_map(|w: &u32| w.to_le_bytes()).collect();
+    out.extend_from_slice(&tree);
+    out.extend_from_slice(&strings);
+    out.extend_from_slice(&data);
+    out
+}
+
+fn load(nodes_hex: &str, effects_hex: &str) -> AleFile {
+    AleFile::parse(ale_archive(&unhex(nodes_hex), &unhex(effects_hex))).expect("an archive")
+}
+
+fn code(result: &Result<(), neuron_core::fx_data::FxError>) -> i32 {
+    result
+        .as_ref()
+        .map_or_else(neuron_core::fx_data::FxError::code, |()| 0)
+}
+
+// --- particle_ramp --------------------------------------------------------------------
+
+/// The probes of `oracle_fx_data.cpp`: hashes a class owns that its rows miss.
+const PROBES: [(u32, u32); 6] = [
+    (0x0C53_B008, 0x200),
+    (0x0BA0_B3BB, 0x105),
+    (0xF000_4D58, 0x105),
+    (0xE462_B789, 0x202),
+    (0x061A_AF28, 0x202),
+    (0x16FF_3474, 0x202),
+];
+
+/// A property's run-time value as the set's getter hands it out.
+enum Evaluable {
+    Single(NestedSingle),
+    Color(ColorRampRamp),
+    Transform(AnimatedTransform),
+}
+
+/// The getter of `kind` for `hash`: a billboard set hands out its slot
+/// whichever child kind it holds.
+fn evaluable(set: &PropertySet, hash: u32, kind: u32) -> Option<Evaluable> {
+    if let (ClassData::Billboard(b), Some(tables)) = (&set.data, billboard_tables(set.class)) {
+        let slot = match kind {
+            kind::SINGLE_RAMP_RAMP => {
+                if let Some(&(_, slot)) = tables.single_ramps.iter().find(|(h, _)| *h == hash) {
+                    Some(slot)
+                } else if hash == APPEARANCE_LOD_CURVE {
+                    return Some(Evaluable::Single(NestedSingle::Ramp(SingleRampRamp::new(
+                        &b.lod_curve,
+                    ))));
+                } else {
+                    None
+                }
+            }
+            kind::ANIMATED_SINGLE_RAMP => tables
+                .animated_ramps
+                .iter()
+                .find(|(h, _)| *h == hash)
+                .map(|&(_, s)| s),
+            _ => None,
+        };
+        if let Some(slot) = slot {
+            return b
+                .slot(slot)
+                .map(|s| Evaluable::Single(NestedSingle::new(s)));
+        }
+        if kind != kind::COLOR_RAMP_RAMP && kind != kind::TRANSFORM {
+            return None;
+        }
+    }
+    match kind {
+        kind::SINGLE_RAMP_RAMP => set
+            .single_ramp_ramp(hash)
+            .map(|r| Evaluable::Single(NestedSingle::Ramp(SingleRampRamp::new(r)))),
+        kind::ANIMATED_SINGLE_RAMP => set
+            .animated_single_ramp(hash)
+            .map(|r| Evaluable::Single(NestedSingle::Animated(AnimatedRamp::new(r)))),
+        kind::COLOR_RAMP_RAMP => set
+            .color_ramp_ramp(hash)
+            .map(|r| Evaluable::Color(ColorRampRamp::new(r))),
+        kind::TRANSFORM => set
+            .transform(hash)
+            .map(|t| Evaluable::Transform(AnimatedTransform::new(t))),
+        _ => None,
+    }
+}
+
+/// `particle_ramp.list`.
+pub fn ramp_lines() -> Vec<String> {
+    let mut lines = Vec::new();
+    for (case, line) in input_lines("particle_ramp.list").iter().enumerate() {
+        let mut parts = line.split(' ');
+        let nodes = parts.next().unwrap_or_default();
+        let times: Vec<(f32, f32)> = parts
+            .next()
+            .unwrap_or_default()
+            .split(',')
+            .map(|pair| {
+                let (a, b) = pair.split_once(':').unwrap_or_default();
+                (hex_float(a), hex_float(b))
+            })
+            .collect();
+        let ale = load(nodes, "");
+        lines.push(format!(
+            "{{\"case\":\"{case}\",\"load\":\"{}\"}}",
+            code(&ale.nodes_result)
+        ));
+        for (index, node) in ale.nodes.nodes().iter().enumerate() {
+            let set = &node.props;
+            let mut rows: Vec<(u32, u32)> = set.class.rows().map(|r| (r.hash, r.kind)).collect();
+            let listed = rows.clone();
+            rows.extend(PROBES.iter().filter(|p| !listed.contains(p)));
+            for (hash, kind) in rows {
+                let Some(value) = evaluable(set, hash, kind) else {
+                    continue;
+                };
+                let values: Vec<String> = times
+                    .iter()
+                    .map(|&(outer, inner)| match &value {
+                        Evaluable::Single(r) => format!("{:016x}", r.eval(outer, inner).to_bits()),
+                        Evaluable::Color(r) => {
+                            let rgb = r.eval_rgb(outer, inner);
+                            let packed = r.eval_packed(outer, inner);
+                            format!("{}.{packed:08x}", floats(&rgb, "."))
+                        }
+                        Evaluable::Transform(t) => floats(&t.evaluate(outer, inner), "."),
+                    })
+                    .collect();
+                lines.push(format!(
+                    "{{\"case\":\"{case}\",\"node\":\"{index}\",\"hash\":\"{hash:08x}\",\"kind\":\"{kind:x}\",\"v\":\"{}\"}}",
+                    values.join(",")
+                ));
+            }
+        }
+    }
+    lines
+}
+
+// --- particle_sim and particle_draw ------------------------------------------------------
+
+/// The lines the fakes write, shared by the services and the camera so
+/// that they keep the call order.
+type Log = Rc<RefCell<Vec<String>>>;
+
+/// The vertices a lock's scratch region holds (`kScratchVerts`).
+const SCRATCH_VERTS: u32 = 0x4000;
+
+/// The recording texture library and renderer of the contract.
+struct Textures {
+    head: String,
+    entries: Vec<(u32, i32)>,
+    playbacks: Vec<(i32, usize)>,
+    next_id: i32,
+    log: Log,
+    states: BTreeMap<u32, u32>,
+    live_vbs: BTreeSet<u32>,
+    next_vb: u32,
+    vb_locks: u32,
+    vb_pending: u32,
+    ib_locks: u32,
+    ib_pending: u32,
+    meshes: FakeMeshes,
+}
+
+/// The recording mesh factory: meshes numbered from 1, each with a
+/// transform (a scale of 2 at the position it was made at until posed);
+/// mode 0 binds none, 1 hands out meshes, 2 fails with a mesh.
+struct FakeMeshes {
+    head: String,
+    log: Log,
+    mode: u32,
+    next: u32,
+    transforms: BTreeMap<u32, [f32; 12]>,
+}
+
+impl FakeMeshes {
+    fn line(&self, text: &str) {
+        self.log.borrow_mut().push(format!("{}{text}}}", self.head));
+    }
+}
+
+impl FxMeshFactory for FakeMeshes {
+    fn create_mesh(
+        &mut self,
+        mesh_id: u32,
+        mesh_name: &[u8],
+        six: &[f32; 6],
+    ) -> (i32, Option<FxMesh>) {
+        let mesh = self.next;
+        self.next += 1;
+        let t = [
+            2.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 2.0, six[0], six[1], six[2],
+        ];
+        self.transforms.insert(mesh, t);
+        let r = if self.mode == 2 { -1 } else { 0 };
+        let name: String = mesh_name.iter().map(|b| format!("{b:02x}")).collect();
+        self.line(&format!(
+            "\"ev\":\"meshnew\",\"id\":\"{mesh_id}\",\"name\":\"{name}\",\"six\":\"{}\",\"r\":\"{r}\",\"m\":\"{mesh}\"",
+            floats(six, ",")
+        ));
+        (r, Some(mesh))
+    }
+    fn set_mesh_transform(&mut self, mesh: FxMesh, transform: &[f32; 12]) {
+        self.line(&format!(
+            "\"ev\":\"meshxf\",\"m\":\"{mesh}\",\"x\":\"{}\"",
+            floats(transform, ",")
+        ));
+        self.transforms.insert(mesh, *transform);
+    }
+    fn mesh_transform(&mut self, mesh: FxMesh) -> [f32; 12] {
+        self.line(&format!("\"ev\":\"meshget\",\"m\":\"{mesh}\""));
+        self.transforms.get(&mesh).copied().unwrap_or(IDENTITY)
+    }
+    fn update_mesh(&mut self, mesh: FxMesh, dt: f32) {
+        self.line(&format!(
+            "\"ev\":\"meshupd\",\"m\":\"{mesh}\",\"dt\":\"{}\"",
+            f(dt)
+        ));
+    }
+    fn draw_mesh(&mut self, mesh: FxMesh, _camera: &mut dyn Camera) {
+        self.line(&format!("\"ev\":\"meshdraw\",\"m\":\"{mesh}\""));
+    }
+    fn drop_mesh(&mut self, mesh: FxMesh) {
+        self.line(&format!("\"ev\":\"meshdrop\",\"m\":\"{mesh}\""));
+    }
+    fn release_mesh(&mut self, mesh: FxMesh) {
+        self.line(&format!("\"ev\":\"meshrel\",\"m\":\"{mesh}\""));
+    }
+}
+
+impl Textures {
+    fn new(head: &str, log: &Log) -> Self {
+        Self {
+            head: head.to_owned(),
+            entries: Vec::new(),
+            playbacks: Vec::new(),
+            next_id: 1,
+            log: Rc::clone(log),
+            states: BTreeMap::new(),
+            live_vbs: BTreeSet::new(),
+            next_vb: 1,
+            vb_locks: 0,
+            vb_pending: 0,
+            ib_locks: 0,
+            ib_pending: 0,
+            meshes: FakeMeshes {
+                head: head.to_owned(),
+                log: Rc::clone(log),
+                mode: 0,
+                next: 1,
+                transforms: BTreeMap::new(),
+            },
+        }
+    }
+
+    fn line(&mut self, text: &str) {
+        self.log.borrow_mut().push(format!("{}{text}}}", self.head));
+    }
+}
+
+impl ParticleServices for Textures {
+    fn find_texture(&mut self, _name: &[u8], crc: u32) -> Option<TextureRecord> {
+        let found = self.entries.iter().position(|e| e.0 == crc);
+        let r = if found.is_some() { "0" } else { "-1" };
+        self.line(&format!(
+            "\"ev\":\"find\",\"crc\":\"{crc:08x}\",\"r\":\"{r}\""
+        ));
+        found.map(|i| u32::try_from(i + 1).unwrap_or(0))
+    }
+    fn create_playback(&mut self, record: TextureRecord) -> i32 {
+        let id = self.next_id;
+        self.next_id += 1;
+        self.playbacks.push((id, record as usize - 1));
+        self.line(&format!(
+            "\"ev\":\"play\",\"rec\":\"{record}\",\"id\":\"{id}\""
+        ));
+        id
+    }
+    fn frame_count(&mut self, record: TextureRecord) -> Option<i32> {
+        let n = self.entries[record as usize - 1].1;
+        self.line(&format!(
+            "\"ev\":\"frames\",\"rec\":\"{record}\",\"n\":\"{n}\""
+        ));
+        Some(n)
+    }
+    fn release_texture_record(&mut self, record: TextureRecord) {
+        self.line(&format!("\"ev\":\"trel\",\"rec\":\"{record}\""));
+    }
+    fn set_wrap_mode(&mut self, id: i32, mode: i32) {
+        self.line(&format!("\"ev\":\"wrap\",\"id\":\"{id}\",\"m\":\"{mode}\""));
+    }
+    fn texture_frame(&mut self, id: i32, frame: i32) -> Option<FrameOut> {
+        if !self.playbacks.iter().any(|p| p.0 == id) {
+            self.line(&format!(
+                "\"ev\":\"frame\",\"id\":\"{id}\",\"f\":\"{frame}\",\"r\":\"-1\""
+            ));
+            return None;
+        }
+        self.line(&format!(
+            "\"ev\":\"frame\",\"id\":\"{id}\",\"f\":\"{frame}\",\"r\":\"0\""
+        ));
+        #[allow(clippy::cast_precision_loss)]
+        let u0 = 0.125_f32 * frame as f32;
+        Some(FrameOut {
+            handle: (id * 100 + frame).cast_unsigned(),
+            uv: [u0.to_bits(), 0, 1.0_f32.to_bits(), 0.5_f32.to_bits()],
+        })
+    }
+    fn advance_time(&mut self, id: i32, seconds: f32) {
+        self.line(&format!(
+            "\"ev\":\"adv\",\"id\":\"{id}\",\"dt\":\"{}\"",
+            f(seconds)
+        ));
+    }
+    fn dec_ref_texture(&mut self, id: i32) {
+        self.line(&format!("\"ev\":\"decref\",\"id\":\"{id}\""));
+    }
+    fn mesh_factory(&mut self) -> Option<&mut dyn FxMeshFactory> {
+        if self.meshes.mode == 0 {
+            None
+        } else {
+            Some(&mut self.meshes)
+        }
+    }
+}
+
+impl ParticleDraw for Textures {
+    fn render_state(&mut self, state: u32) -> u32 {
+        let v = self.states.get(&state).copied().unwrap_or(state + 1000);
+        self.line(&format!("\"ev\":\"getrs\",\"s\":\"{state}\",\"v\":\"{v}\""));
+        v
+    }
+    fn set_render_state(&mut self, state: u32, value: u32) {
+        self.line(&format!(
+            "\"ev\":\"setrs\",\"s\":\"{state}\",\"v\":\"{}\"",
+            value.cast_signed()
+        ));
+        self.states.insert(state, value);
+    }
+    fn set_stage_state(&mut self, stage: u32, state: u32, value: u32) {
+        self.line(&format!(
+            "\"ev\":\"tss\",\"st\":\"{stage}\",\"s\":\"{state}\",\"v\":\"{}\"",
+            value.cast_signed()
+        ));
+    }
+    fn set_stage_texture(&mut self, stage: u32, handle: u32) {
+        self.line(&format!(
+            "\"ev\":\"tex\",\"st\":\"{stage}\",\"h\":\"{handle:x}\""
+        ));
+    }
+    fn set_modelview(&mut self, matrix: &[f32; 12]) {
+        self.line(&format!(
+            "\"ev\":\"modelview\",\"m\":\"{}\"",
+            floats(matrix, ",")
+        ));
+    }
+    fn select_vb(&mut self, vertex_buffer: u32) -> i32 {
+        let r = if self.live_vbs.contains(&vertex_buffer) {
+            0
+        } else {
+            -1
+        };
+        self.line(&format!(
+            "\"ev\":\"selvb\",\"vb\":\"{vertex_buffer:x}\",\"r\":\"{r}\""
+        ));
+        r
+    }
+    fn create_vb(&mut self, fvf: u32, count: u32, flags: u32) -> (i32, u32) {
+        let handle = self.next_vb;
+        self.next_vb += 1;
+        self.live_vbs.insert(handle);
+        self.line(&format!(
+            "\"ev\":\"createvb\",\"fvf\":\"{fvf:x}\",\"n\":\"{count}\",\"f\":\"{flags}\",\"vb\":\"{handle:x}\""
+        ));
+        (0, handle)
+    }
+    fn destroy_vb(&mut self, vertex_buffer: u32) {
+        self.line(&format!(
+            "\"ev\":\"destroyvb\",\"vb\":\"{vertex_buffer:x}\""
+        ));
+        self.live_vbs.remove(&vertex_buffer);
+    }
+    fn lock_vb(&mut self, vertex_buffer: u32, count: u32) -> Result<u32, i32> {
+        let at = 3 * self.vb_locks;
+        self.vb_locks += 1;
+        self.line(&format!(
+            "\"ev\":\"lockvb\",\"vb\":\"{vertex_buffer:x}\",\"n\":\"{count}\",\"off\":\"{at}\""
+        ));
+        self.vb_pending = count.min(SCRATCH_VERTS);
+        Ok(at)
+    }
+    fn unlock_vb(&mut self, vertex_buffer: u32, written: &[u8]) {
+        let mut data = vec![0xCD_u8; self.vb_pending as usize * 24];
+        let n = written.len().min(data.len());
+        data[..n].copy_from_slice(&written[..n]);
+        let hex: String = data.iter().map(|b| format!("{b:02x}")).collect();
+        self.line(&format!(
+            "\"ev\":\"unlockvb\",\"vb\":\"{vertex_buffer:x}\",\"data\":\"{hex}\""
+        ));
+    }
+    fn lock_ib(&mut self, count: u32) -> Result<u32, i32> {
+        let at = 5 * self.ib_locks;
+        self.ib_locks += 1;
+        self.line(&format!(
+            "\"ev\":\"lockib\",\"ib\":\"ffffffff\",\"n\":\"{count}\",\"off\":\"{at}\""
+        ));
+        self.ib_pending = count.min(SCRATCH_VERTS * 6);
+        Ok(at)
+    }
+    fn unlock_ib(&mut self, written: &[u16]) {
+        let mut data = vec![0xCDCD_u16; self.ib_pending as usize];
+        let n = written.len().min(data.len());
+        data[..n].copy_from_slice(&written[..n]);
+        let text: Vec<String> = data.iter().map(u16::to_string).collect();
+        self.line(&format!(
+            "\"ev\":\"unlockib\",\"ib\":\"ffffffff\",\"data\":\"{}\"",
+            text.join(",")
+        ));
+    }
+    fn select_ib(&mut self, base_vertex: u32) -> i32 {
+        self.line(&format!(
+            "\"ev\":\"selib\",\"ib\":\"ffffffff\",\"base\":\"{base_vertex}\""
+        ));
+        0
+    }
+    fn draw_indexed(
+        &mut self,
+        prim: u32,
+        min_index: u32,
+        vertex_count: u32,
+        start_index: u32,
+        index_count: u32,
+    ) -> i32 {
+        self.line(&format!(
+            "\"ev\":\"dip\",\"prim\":\"{prim}\",\"min\":\"{min_index}\",\"nv\":\"{vertex_count}\",\"start\":\"{start_index}\",\"n\":\"{index_count}\""
+        ));
+        0
+    }
+}
+
+/// The recording camera: the view transform, and the world transform whose
+/// first nine words are the orientation and last three the position.
+struct FakeCamera {
+    head: String,
+    log: Log,
+    view: [f32; 12],
+    world: [f32; 12],
+}
+
+impl FakeCamera {
+    fn event(&self, name: &str) {
+        self.log
+            .borrow_mut()
+            .push(format!("{}\"ev\":\"{name}\"}}", self.head));
+    }
+}
+
+impl Camera for FakeCamera {
+    fn position(&mut self) -> [f32; 3] {
+        self.event("campos");
+        [self.world[9], self.world[10], self.world[11]]
+    }
+    fn orientation(&mut self) -> [f32; 9] {
+        self.event("camorient");
+        core::array::from_fn(|i| self.world[i])
+    }
+    fn orientation_block(&mut self) -> [f32; 12] {
+        self.event("camorient");
+        self.world
+    }
+    fn view_transform(&mut self) -> [f32; 12] {
+        self.event("camview");
+        self.view
+    }
+    fn viewport(&mut self) -> [i32; 4] {
+        [0; 4]
+    }
+    fn half_fov_x_deg(&mut self) -> f32 {
+        0.0
+    }
+    fn fov_y_deg(&mut self) -> f32 {
+        0.0
+    }
+    fn z_near(&mut self) -> f32 {
+        0.0
+    }
+    fn z_far(&mut self) -> f32 {
+        0.0
+    }
+    fn aspect(&mut self) -> f32 {
+        0.0
+    }
+    fn x_scale_over_near(&mut self) -> f64 {
+        0.0
+    }
+    fn y_scale_over_near(&mut self) -> f64 {
+        0.0
+    }
+    fn project(&mut self, _world: [f32; 3], _out: &mut [f32; 3]) -> i32 {
+        -1
+    }
+    fn unproject(&mut self, _out: &mut [f32; 3], _x: f32, _y: f32) {}
+    fn classify_sphere(&mut self, _centre: [f32; 3], _radius: f32) -> i32 {
+        0
+    }
+}
+
+#[derive(Default)]
+struct Slot {
+    effect: Option<Effect>,
+    parent: Option<NodeId>,
+}
+
+const POOLS: [(&str, PoolKind); 8] = [
+    ("basic", PoolKind::Basic),
+    ("particle", PoolKind::Particle),
+    ("rect", PoolKind::Rect),
+    ("perp", PoolKind::Perp),
+    ("mesh", PoolKind::Mesh),
+    ("oriented", PoolKind::Oriented),
+    ("dust", PoolKind::Dust),
+    ("beam", PoolKind::Beam),
+];
+
+fn record_of(effect: &Effect, node: Option<NodeId>, parent: Option<NodeId>) -> String {
+    let Some(node) = node else {
+        return "-".to_owned();
+    };
+    if let Some(index) = effect.records().iter().position(|r| r.node == node) {
+        return index.to_string();
+    }
+    if Some(node) == parent {
+        "p".to_owned()
+    } else {
+        "?".to_owned()
+    }
+}
+
+fn dump(
+    fx: &ParticleFx,
+    effect: &Effect,
+    parent: Option<NodeId>,
+    head: &str,
+    out: &mut Vec<String>,
+) {
+    for (index, record) in effect.records().iter().enumerate() {
+        let node = fx.node(record.node).expect("a live record");
+        let class = node.class();
+        let mut line = format!(
+            "{head}\"op\":\"node\",\"r\":\"{index}\",\"id\":\"{}\",\"kind\":\"{}\",\"class\":\"{}\",\"refs\":\"{}\",\"flags\":\"{:08x}\",",
+            record.id,
+            record.kind,
+            String::from_utf8_lossy(class.factory_name()),
+            node.refs(),
+            node.flags
+        );
+        let _ = write!(
+            line,
+            "\"age\":\"{}\",\"dur\":\"{}\",\"outer\":\"{}\",\"lod\":\"{}\",\"parent\":\"{}\",\"local\":\"{}\",\"world\":\"{}\"",
+            f(node.age),
+            f(node.duration),
+            f(node.outer_time),
+            f(node.lod_input),
+            record_of(effect, node.parent, parent),
+            floats(&node.local, ","),
+            floats(&node.world, ",")
+        );
+        if let Some(e) = node.emitter() {
+            let _ = write!(
+                line,
+                ",\"app\":\"{}\",\"last\":\"{}\",\"press\":\"{}\",\"life\":\"{}\",\"reset\":\"{}\",\"prev\":\"{}\",\"frac\":\"{}\",\"x\":\"{}\"",
+                record_of(effect, e.appearance, parent),
+                f(e.last_emit),
+                f(e.pressure),
+                f(e.init_life_span),
+                u8::from(e.reset_history),
+                floats(&e.prev_pos, ","),
+                f(e.fraction),
+                floats(&e.xform, ",")
+            );
+            let s = e.shape;
+            let shape: Vec<f32> = match class {
+                NodeClass::ConeEmitter => {
+                    vec![s.min_radius, s.radius_range, s.min_spread, s.spread_range]
+                }
+                NodeClass::CubeEmitter => {
+                    vec![s.min_spread, s.spread_range, s.width, s.height, s.depth]
+                }
+                _ => vec![s.min_radius, s.radius_range],
+            };
+            let _ = write!(line, ",\"shape\":\"{}\"", floats(&shape, ","));
+        } else if let Some(s) = node.field() {
+            let c = floats(&s.cache, ",");
+            match class {
+                NodeClass::GravityField => {
+                    let _ = write!(line, ",\"g\":\"{}\",\"c\":\"{c}\"", f(s.magnitude));
+                }
+                NodeClass::AirField => {
+                    let _ = write!(
+                        line,
+                        ",\"ap\":\"{}\",\"mag\":\"{}\",\"bl\":\"{}\",\"c\":\"{c}\"",
+                        f(s.approach),
+                        f(s.magnitude),
+                        f(s.blend)
+                    );
+                }
+                NodeClass::RadialField => {
+                    let _ = write!(
+                        line,
+                        ",\"mag\":\"{}\",\"ap\":\"{}\",\"bl\":\"{}\",\"ds\":\"{}\",\"c\":\"{c}\"",
+                        f(s.magnitude),
+                        f(s.approach),
+                        f(s.blend),
+                        f(s.dist_scale)
+                    );
+                }
+                NodeClass::TurbulenceField => {
+                    let _ = write!(
+                        line,
+                        ",\"ap\":\"{}\",\"bl\":\"{}\",\"mag\":\"{}\"",
+                        f(s.approach),
+                        f(s.blend),
+                        f(s.magnitude)
+                    );
+                }
+                NodeClass::CollideField => {
+                    let _ = write!(
+                        line,
+                        ",\"rf\":\"{}\",\"dt\":\"{}\",\"n\":\"{}\",\"co\":\"{}\",\"sn\":\"{}\"",
+                        f(s.reflect),
+                        f(s.update_dt),
+                        floats(&s.normal, ","),
+                        floats(&s.corner, ","),
+                        floats(&s.scaled_normal, ",")
+                    );
+                }
+                NodeClass::DustField => {
+                    let _ = write!(
+                        line,
+                        ",\"rad\":\"{}\",\"rsq\":\"{}\",\"dt\":\"{}\"",
+                        f(s.radius),
+                        f(s.radius_sq),
+                        f(s.update_dt)
+                    );
+                }
+                _ => {}
+            }
+        } else if let Some(a) = node.appearance() {
+            let fields: Vec<String> = a
+                .fields
+                .iter()
+                .map(|&field| record_of(effect, field, parent))
+                .collect();
+            let t = a.texture;
+            let frame = [
+                f32::from_bits(t.frame.handle),
+                f32::from_bits(t.frame.uv[0]),
+                f32::from_bits(t.frame.uv[1]),
+                f32::from_bits(t.frame.uv[2]),
+                f32::from_bits(t.frame.uv[3]),
+            ];
+            let _ = write!(
+                line,
+                ",\"live\":\"{}\",\"erefs\":\"{}\",\"fields\":\"{}\",\"tex\":\"{:08x},{},{},{}\"",
+                a.live,
+                a.emitter_refs,
+                fields.join(","),
+                t.crc,
+                t.handle,
+                t.frame_count,
+                floats(&frame, ",")
+            );
+            if class == NodeClass::DustAppearance {
+                let _ = write!(line, ",\"ldt\":\"{}\"", f(a.last_dt));
+            }
+            if class == NodeClass::BeamAppearance {
+                let _ = write!(line, ",\"par\":\"{}\"", u8::from(a.ribbon_parity));
+            }
+        }
+        out.push(line + "}");
+        let (Some(a), Some(kind)) = (node.appearance(), pool_of(class)) else {
+            continue;
+        };
+        let pool = fx.pools.get(kind);
+        let mut cursor = a.head;
+        while let Some(i) = cursor {
+            let p = pool.item(i);
+            let mut words = vec![
+                p.pos[0],
+                p.pos[1],
+                p.pos[2],
+                p.vel[0],
+                p.vel[1],
+                p.vel[2],
+                p.age,
+                p.duration,
+                p.inv_duration,
+            ];
+            match class {
+                NodeClass::PerpAppearance | NodeClass::DustAppearance => words.extend(p.extra),
+                NodeClass::BeamAppearance => words.push(p.extra[0]),
+                _ => {}
+            }
+            out.push(format!(
+                "{head}\"op\":\"part\",\"r\":\"{index}\",\"i\":\"{i}\",\"p\":\"{}\"}}",
+                floats(&words, ",")
+            ));
+            cursor = p.next;
+        }
+    }
+}
+
+fn dump_pools(fx: &ParticleFx, head: &str, out: &mut Vec<String>) {
+    for (name, kind) in POOLS {
+        let pool = fx.pools.get(kind);
+        let used: Vec<String> = pool.used().iter().map(u32::to_string).collect();
+        out.push(format!(
+            "{head}\"op\":\"pool\",\"k\":\"{name}\",\"free\":\"{}\",\"used\":\"{}\"}}",
+            pool.free_count(),
+            used.join(",")
+        ));
+    }
+}
+
+fn xform(text: &str) -> [f32; 12] {
+    let words: Vec<f32> = text.split(',').map(hex_float).collect();
+    core::array::from_fn(|i| words[i])
+}
+
+/// `particle_sim.list`.
+pub fn sim_lines() -> Vec<String> {
+    script_lines("particle_sim.list")
+}
+
+/// `particle_draw.list`.
+pub fn draw_lines() -> Vec<String> {
+    script_lines("particle_draw.list")
+}
+
+/// `particle_child.list`.
+pub fn child_lines() -> Vec<String> {
+    script_lines("particle_child.list")
+}
+
+/// The effect a child slot holds, as the `kids` dump names it.
+fn child_text(effect: Option<&Effect>) -> String {
+    effect.map_or_else(
+        || "-".to_owned(),
+        |e| format!("{}/{}", e.records().len(), e.root_count()),
+    )
+}
+
+/// `kids <slot>`: per particle appearance record of the effect, each pool
+/// record of its list (the orientation state and the child effects, then
+/// a dump of each child effect), and per mesh appearance record each
+/// item's mesh.
+fn kids(fx: &ParticleFx, effect: &Effect, head: &str, out: &mut Vec<String>) {
+    for (index, record) in effect.records().iter().enumerate() {
+        let node = fx.node(record.node).expect("a live record");
+        let class = node.class();
+        let kind = match class {
+            NodeClass::ParticleAppearance => PoolKind::Particle,
+            NodeClass::MeshAppearance => PoolKind::Mesh,
+            _ => continue,
+        };
+        let pool = fx.pools.get(kind);
+        let mut cursor = node.appearance().and_then(|a| a.head);
+        while let Some(i) = cursor {
+            if kind == PoolKind::Mesh {
+                out.push(format!(
+                    "{head}\"op\":\"mesh\",\"r\":\"{index}\",\"i\":\"{i}\",\"m\":\"{}\"}}",
+                    fx.pools.mesh(i).unwrap_or(0)
+                ));
+            } else {
+                let r = fx.pools.record(i);
+                let mut q = r.blend_quat.to_vec();
+                q.extend(r.vel_quat);
+                q.push(r.blend);
+                out.push(format!(
+                    "{head}\"op\":\"kid\",\"r\":\"{index}\",\"i\":\"{i}\",\"q\":\"{}\",\"life\":\"{}\",\"death\":\"{}\"}}",
+                    floats(&q, ","),
+                    child_text(r.life.as_ref()),
+                    child_text(r.death.as_ref())
+                ));
+                for (tag, child) in [("l", &r.life), ("d", &r.death)] {
+                    if let Some(child) = child {
+                        dump(
+                            fx,
+                            child,
+                            Some(record.node),
+                            &format!("{head}\"k\":\"{index}.{i}.{tag}\","),
+                            out,
+                        );
+                    }
+                }
+            }
+            cursor = pool.item(i).next;
+        }
+    }
+}
+
+/// The operations of both suites over one list.
+#[allow(clippy::too_many_lines)]
+fn script_lines(list: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for (case, line) in input_lines(list).iter().enumerate() {
+        let head = format!("{{\"case\":\"{case}\",");
+        let log: Log = Rc::new(RefCell::new(Vec::new()));
+        let mut fx = ParticleFx::new();
+        let mut tex = Textures::new(&head, &log);
+        let mut camera = FakeCamera {
+            head: head.clone(),
+            log: Rc::clone(&log),
+            view: IDENTITY,
+            world: IDENTITY,
+        };
+        let mut slots: [Slot; 4] = Default::default();
+        for op in line.split(" ; ") {
+            let p: Vec<&str> = op.split(' ').collect();
+            let slot_index = |i: usize| p[i].parse::<usize>().unwrap_or(0);
+            let mut lines = Vec::new();
+            match p[0] {
+                "ale" => {
+                    let ale = load(p[1], p[2]);
+                    fx.load(&ale);
+                    lines.push(format!(
+                        "{head}\"op\":\"ale\",\"nodes\":\"{}\",\"effects\":\"{}\"}}",
+                        code(&ale.nodes_result),
+                        code(&ale.effects_result)
+                    ));
+                }
+                "pool" => {
+                    let kind = POOLS.iter().find(|(n, _)| *n == p[1]).map(|e| e.1);
+                    if let Some(kind) = kind {
+                        fx.pools.reallocate(kind, p[2].parse().unwrap_or(0));
+                    }
+                    lines.push(format!("{head}\"op\":\"pool\"}}"));
+                }
+                "seed" => {
+                    fx.rand.state = p[1].parse().unwrap_or(0);
+                    fx.rand.counter = p[2].parse().unwrap_or(0);
+                    lines.push(format!("{head}\"op\":\"seed\"}}"));
+                }
+                "tex" => {
+                    let crc = u32::from_str_radix(p[1], 16).unwrap_or(0);
+                    tex.entries.push((crc, p[2].parse().unwrap_or(0)));
+                    lines.push(format!("{head}\"op\":\"tex\"}}"));
+                }
+                "effect" => {
+                    let s = slot_index(1);
+                    let parent = fx.create_node(NodeClass::Node);
+                    slots[s].parent = Some(parent);
+                    let hash = name_hash(&unhex(p[2]));
+                    match fx.create_effect(parent, hash, &mut tex) {
+                        Ok(effect) => {
+                            lines.push(format!(
+                                "{head}\"op\":\"effect\",\"r\":\"0\",\"n\":\"{}\",\"roots\":\"{}\"}}",
+                                effect.records().len(),
+                                effect.root_count()
+                            ));
+                            slots[s].effect = Some(effect);
+                        }
+                        Err(e) => {
+                            let r = match e {
+                                EffectError::UnknownEffect => -8,
+                                EffectError::UnknownNode(_) => -1,
+                            };
+                            lines.push(format!(
+                                "{head}\"op\":\"effect\",\"r\":\"{r}\",\"n\":\"-\",\"roots\":\"-\"}}"
+                            ));
+                        }
+                    }
+                }
+                "xform" => {
+                    let effect = slots[slot_index(1)].effect.as_ref().expect("an effect");
+                    let ok = effect.set_transform(&mut fx, p[2].parse().unwrap_or(0), &xform(p[3]));
+                    let r = if ok { 0 } else { -2 };
+                    lines.push(format!("{head}\"op\":\"xform\",\"r\":\"{r}\"}}"));
+                }
+                "outer" | "age" | "lod" => {
+                    let effect = slots[slot_index(1)].effect.as_ref().expect("an effect");
+                    let value = hex_float(p[2]);
+                    match p[0] {
+                        "outer" => effect.set_outer_time(&mut fx, value),
+                        "age" => effect.set_age(&mut fx, value),
+                        _ => effect.set_lod_input(&mut fx, value),
+                    }
+                    lines.push(format!("{head}\"op\":\"{}\"}}", p[0]));
+                }
+                "step" => {
+                    let effect = slots[slot_index(1)].effect.as_ref().expect("an effect");
+                    effect.compose(&mut fx, &mut tex);
+                    effect.update(&mut fx, hex_float(p[2]), &mut tex);
+                    lines.push(format!("{head}\"op\":\"step\"}}"));
+                }
+                "stop" => {
+                    let effect = slots[slot_index(1)].effect.as_mut().expect("an effect");
+                    effect.dispatch(&mut fx, p[2].parse().unwrap_or(0), &mut tex);
+                    lines.push(format!("{head}\"op\":\"stop\"}}"));
+                }
+                "done" => {
+                    let effect = slots[slot_index(1)].effect.as_ref().expect("an effect");
+                    let r = u8::from(effect.finished(&fx, p[2].parse().unwrap_or(0)));
+                    lines.push(format!("{head}\"op\":\"done\",\"r\":\"{r}\"}}"));
+                }
+                "release" => {
+                    let s = slot_index(1);
+                    if let Some(effect) = slots[s].effect.take() {
+                        effect.release(&mut fx, &mut tex);
+                    }
+                    if let Some(parent) = slots[s].parent.take() {
+                        fx.release(parent, &mut tex);
+                    }
+                    lines.push(format!("{head}\"op\":\"release\"}}"));
+                }
+                "rand" => lines.push(format!(
+                    "{head}\"op\":\"rand\",\"s\":\"{:08x}\",\"c\":\"{:08x}\"}}",
+                    fx.rand.state, fx.rand.counter
+                )),
+                "pools" => dump_pools(&fx, &head, &mut lines),
+                "dump" => {
+                    let s = &slots[slot_index(1)];
+                    let effect = s.effect.as_ref().expect("an effect");
+                    dump(
+                        &fx,
+                        effect,
+                        s.parent,
+                        &format!("{head}\"e\":\"{}\",", p[1]),
+                        &mut lines,
+                    );
+                }
+                "cam" => {
+                    camera.view = xform(p[1]);
+                    camera.world = xform(p[2]);
+                    lines.push(format!("{head}\"op\":\"cam\"}}"));
+                }
+                "batch" => {
+                    fx.set_use_material_batcher(p[1] != "0");
+                    lines.push(format!("{head}\"op\":\"batch\"}}"));
+                }
+                "limits" => {
+                    fx.draw.vb_capacity = p[1].parse().unwrap_or(0);
+                    fx.draw.max_vertices = p[2].parse().unwrap_or(0);
+                    fx.draw.max_indices = p[3].parse().unwrap_or(0);
+                    lines.push(format!("{head}\"op\":\"limits\"}}"));
+                }
+                "vbdrop" => {
+                    tex.live_vbs.clear();
+                    lines.push(format!("{head}\"op\":\"vbdrop\"}}"));
+                }
+                "begin" => {
+                    let r = fx.begin_draw(&mut tex);
+                    lines.push(format!("{head}\"op\":\"begin\",\"r\":\"{r}\"}}"));
+                }
+                "end" => {
+                    let r = fx.end_draw(&mut camera, &mut tex);
+                    lines.push(format!("{head}\"op\":\"end\",\"r\":\"{r}\"}}"));
+                }
+                "draw" => {
+                    let effect = slots[slot_index(1)].effect.as_ref().expect("an effect");
+                    let r = effect.draw(&mut fx, &mut camera, &mut tex);
+                    lines.push(format!("{head}\"op\":\"draw\",\"r\":\"{r}\"}}"));
+                }
+                "bounds" => {
+                    let effect = slots[slot_index(1)].effect.as_ref().expect("an effect");
+                    let mut sphere = [1.0, 2.0, 3.0, 4.0];
+                    let r = if effect.bounds(&fx, &mut sphere) {
+                        0
+                    } else {
+                        -1
+                    };
+                    lines.push(format!(
+                        "{head}\"op\":\"bounds\",\"r\":\"{r}\",\"s\":\"{}\"}}",
+                        floats(&sphere, ",")
+                    ));
+                }
+                "spheres" => {
+                    let effect = slots[slot_index(1)].effect.as_ref().expect("an effect");
+                    for (index, record) in effect.records().iter().enumerate() {
+                        let mut sphere = [1.0, 2.0, 3.0, 4.0];
+                        let r = fx.bounding_sphere(record.node, &mut sphere);
+                        lines.push(format!(
+                            "{head}\"op\":\"sphere\",\"r\":\"{index}\",\"res\":\"{r}\",\"s\":\"{}\"}}",
+                            floats(&sphere, ",")
+                        ));
+                    }
+                }
+                "counters" => {
+                    let c: Vec<String> = fx.draw_counters().iter().map(u32::to_string).collect();
+                    lines.push(format!(
+                        "{head}\"op\":\"counters\",\"c\":\"{}\"}}",
+                        c.join(",")
+                    ));
+                }
+                "meshfac" => {
+                    tex.meshes.mode = p[1].parse().unwrap_or(0);
+                    lines.push(format!("{head}\"op\":\"meshfac\"}}"));
+                }
+                "kids" => {
+                    let effect = slots[slot_index(1)].effect.as_ref().expect("an effect");
+                    kids(
+                        &fx,
+                        effect,
+                        &format!("{head}\"e\":\"{}\",", p[1]),
+                        &mut lines,
+                    );
+                }
+                "dview" => {
+                    let effect = slots[slot_index(1)].effect.as_ref().expect("an effect");
+                    for (index, record) in effect.records().iter().enumerate() {
+                        let node = fx.node(record.node).expect("a live record");
+                        if node.class() != NodeClass::DustAppearance {
+                            continue;
+                        }
+                        let a = node.appearance().expect("an appearance");
+                        lines.push(format!(
+                            "{head}\"op\":\"dview\",\"r\":\"{index}\",\"view\":\"{}\",\"pos\":\"{}\",\"step\":\"{}\"}}",
+                            floats(&a.view_xform, ","),
+                            floats(&a.last_camera_pos, ","),
+                            f(a.last_camera_step)
+                        ));
+                    }
+                }
+                other => panic!("{list}: unknown operation {other}"),
+            }
+            out.append(&mut log.borrow_mut());
+            out.append(&mut lines);
+        }
+    }
+    out
+}

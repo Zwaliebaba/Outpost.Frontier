@@ -27,9 +27,24 @@ jobs:
         run: cargo test --locked --workspace --all-targets
       - name: Build executables
         run: cargo build --locked --release --workspace --bins
+      - name: Fetch the pinned shader compiler
+        # Record 0004, point 16 as amended on 2026-11-19: dxc from the
+        # Microsoft.Direct3D.DXC NuGet package, pinned by version and hash
+        # (crates/neuron-client/shaders/README.md).
+        shell: pwsh
+        run: |
+          $version = '1.9.2609.5'
+          $sha256 = '73CFA082245918C2CC1EC6740250EB7377E83A757B3B3A3E16E0D71535BFBFC3'
+          $package = Join-Path $env:RUNNER_TEMP 'dxc.zip'
+          Invoke-WebRequest -Uri "https://api.nuget.org/v3-flatcontainer/microsoft.direct3d.dxc/$version/microsoft.direct3d.dxc.$version.nupkg" -OutFile $package
+          $found = (Get-FileHash -Algorithm SHA256 $package).Hash
+          if ($found -ne $sha256) { throw "dxc package hash $found, expected $sha256" }
+          $dir = Join-Path $env:RUNNER_TEMP 'dxc'
+          Expand-Archive -Path $package -DestinationPath $dir -Force
+          "OUTPOST_DXC=$dir\build\native\bin\x64\dxc.exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Check shaders
         # Record 0004, point 18: the committed blobs are what the sources
-        # compile to with the recorded fxc.
+        # compile to with the pinned dxc.
         run: cargo xtask shaders --check
 
   host:
@@ -86,6 +101,13 @@ jobs:
         run: |
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
+          # The image's default toolset: this build's output is compared with nothing, so it is
+          # not pinned (.github/msvc-toolset.txt pins the oracle and the resource DLLs). Logged.
+          $vs = & $vswhere -latest -products * -property installationPath
+          $tools = Get-Content "$vs\VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt"
+          $cl = "$vs\VC\Tools\MSVC\$tools\bin\Hostx86\x86\cl.exe"
+          $banner = (& $cl 2>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match 'Version' } | Select-Object -First 1) -join ""
+          Write-Host "MSVC: image default toolset $tools (image $env:ImageOS $env:ImageVersion): $banner"
           & $msbuild CppSource\OutpostFrontier.sln /m /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Check the generated P0.5 proxies
@@ -123,7 +145,10 @@ jobs:
         run: |
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
-          & $msbuild CppSource\OutpostFrontier.sln '/t:Tools\Oracle' /m /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo
+          # The pinned MSVC toolset (.github/msvc-toolset.txt).
+          $pin = & .github\scripts\msvc-pin.ps1
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          & $msbuild CppSource\OutpostFrontier.sln '/t:Tools\Oracle' /m /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo @pin
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Run the oracle harness
         shell: pwsh
@@ -177,14 +202,28 @@ jobs:
         # Work package P4.14: the scene-script Lua state through the reference's
         # own Lua 3.2 (CppSource/Oracle/oracle_scene_script.cpp); P4.12-P4.14:
         # the VC6 number texts and RDLX markup through MSXML (oracle_text.cpp);
-        # P4.10: SoundManager's software mixer (oracle_audio.cpp); P4.14: the engine
+        # P4.12: LayoutRichText and the list functions of Common.dll on a
+        # recording text context (oracle_rich_text.cpp; rich_text.jsonl), and the
+        # client's rich fonts INI reader (oracle_rich_fonts.cpp; rich_fonts.jsonl);
+        # P4.10: SoundManager's software mixer (oracle_audio.cpp) and the client's sound
+        # archetypes, play keys and sound tick (oracle_audio_client.cpp); P4.14: the engine
         # calls of the parser's second pass (oracle_scene_script_build.cpp); P4.14: param
         # curves, spline paths and playback (oracle_scene_script_runtime.cpp); P4.4: the
         # texture library at run time and ximage's BigImage (oracle_texture.cpp,
         # oracle_big_image.cpp); P4.5: the material regular expressions, library,
         # global records, animation and batcher of Shading (oracle_material.cpp), and
         # the 22 material kinds and BatchedMaterial against recording services
-        # (oracle_material_kinds.cpp; material_*.jsonl); over
+        # (oracle_material_kinds.cpp), surfacematerials' 19 materials
+        # (oracle_material_surface.cpp) and FLAppearance (oracle_material_appearance.cpp;
+        # material_*.jsonl); P4.6: RendComp's render
+        # manager and mesh kinds against recording services (oracle_mesh_render.cpp,
+        # compiled into oracle_mesh_data.cpp; mesh_render.jsonl, and the IMesh faces,
+        # mesh_faces.jsonl); P4.7: Deformable2's
+        # skinning, draw, instance slots, aim solving and EyeMaterial against recording
+        # services (oracle_deformable.cpp, compiled into oracle_mesh_data_dfm.cpp;
+        # deformable.jsonl); P4.8: particlefx's
+        # ramp evaluation, simulation and draws, its sources compiled in
+        # (oracle_particles.cpp; particle_*.jsonl); over
         # crates/neuron-client/tests/fixtures/oracle.
         shell: pwsh
         run: |
@@ -197,6 +236,19 @@ jobs:
           Copy-Item -Recurse crates\neuron-client\tests\vectors\render oracle-out-neuron-client\render
           git diff --no-index --stat crates/neuron-client/tests/vectors oracle-out-neuron-client
           git diff --no-index crates/neuron-client/tests/vectors oracle-out-neuron-client
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Compare the game-app vectors
+        # P4.1: CPlayerAccount on a scripted machine and registry
+        # (oracle_account.cpp; account.jsonl) and PerfOptions.ini through
+        # LoadPerfOptions and SavePerfOptions (oracle_perf_options.cpp;
+        # perf_options.jsonl), over crates/game-app/tests/fixtures/oracle.
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force oracle-out-game-app | Out-Null
+          & .\bin\Oracle.exe game-app "$PWD\crates\game-app\tests\fixtures\oracle" "$PWD\oracle-out-game-app"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --no-index --stat crates/game-app/tests/vectors oracle-out-game-app
+          git diff --no-index crates/game-app/tests/vectors oracle-out-game-app
           if ($LASTEXITCODE -ne 0) { exit 1 }
       - name: Check the data-dump mode on a synthetic installation
         # The same pipeline .github/workflows/data.yml runs on the original
@@ -240,7 +292,10 @@ jobs:
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
           $targets = 'UiText', 'FieldGuideText', 'DialogueText', 'NameCatalog', 'EquipmentCatalog', 'NegotiationText', 'InterfaceExtras', 'serverinterface' | ForEach-Object { "ResourceDLLs\$_" }
-          & $msbuild CppSource\OutpostFrontier.sln "/t:$($targets -join ';')" /m /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo
+          # The pinned MSVC toolset (.github/msvc-toolset.txt).
+          $pin = & .github\scripts\msvc-pin.ps1
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          & $msbuild CppSource\OutpostFrontier.sln "/t:$($targets -join ';')" /m /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo @pin
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Compare the text catalogs with the resource DLLs
         # Work package P1.6: the catalogs built from outdir/data/text must hold

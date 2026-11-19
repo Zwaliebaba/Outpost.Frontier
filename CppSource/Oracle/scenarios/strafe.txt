@@ -1,0 +1,21 @@
+# Oracle.exe sim scenario (design/reference-build.md section 10): an AI fighter strafes.
+# StrafeBehavior's poll (common_strafebehavior.cpp, Slot5) offers strafe only when the
+# own ship is a fighter, freighter or gunboat (type & 0x70000), its target is none of
+# those (a transport, cruiser, capital ship) and the target moves at most 20 m/s; the
+# FIGHTER graph then weighs it against buzz, trail and the rest. The police fighter of the
+# dogfight (archetype, loadout, pilot, faction and FIGHTER graph) meets a hostile transport
+# with no behaviour and no command, which stays where it is spawned, 1500 m ahead. The
+# police picks it as its target and strafes it from its first choice on. The run stops at
+# tick 1500, before the police destroys the transport (tick 1536), so the outcome is a
+# survival on both sides; the skirmish covers the kill. Multiplayer stepping.
+
+system he01
+ticks 1500
+stepping mp
+# Content's comm system off (owner, 2026-11-19): its combat-comm rolls draw rand() at a tick
+# that depends on the heartbeat phase, and the Rust world has no comm system until P3.6
+# (design/adr/0003-simulation-oracle.md, reference-build.md section 10).
+comms off
+
+ship police he_fighter li_p_he_fighter_loadout01 15000 3000 -25000 ai FIGHTER pilot pilot_police_med faction he_p_grp psi
+ship hauler ge_transport ge_transport 15000 3000 -26500 heading 90 faction fc_lr_grp

@@ -424,6 +424,14 @@ pub enum AiCommand<H> {
         /// The aim point.
         target: Option<Vector>,
     },
+    /// 16 `slot_40`: one tractor arm toward a loot container
+    /// (`CETractor::AddTarget` on the server).
+    Tractor {
+        /// The tractor's sub-object id.
+        equipment: u16,
+        /// The loot.
+        target: H,
+    },
     /// 17 `slot_44`: aim one gun or launcher at a target.
     SetGunTarget {
         /// The item's sub-object id.
@@ -440,13 +448,46 @@ pub enum AiCommand<H> {
         /// Its sub-target.
         subtarget: u16,
     },
-    /// 25 `go_tradelane`.
+    /// 25 `go_tradelane(Entrance, Exit, bFastExit, Speed)`.
     GoTradeLane {
         /// The entrance ring.
-        entrance: H,
+        entrance: Option<H>,
         /// The exit ring.
-        exit: H,
+        exit: Option<H>,
+        /// `bFastExit`.
+        fast_exit: bool,
+        /// The speed.
+        speed: f32,
     },
+    /// 23 `slot_5c(RequestType, &TargetId, &SecondId, bFlag, Callback)`: a
+    /// dock (0), formation (1) or trade-lane (2) request; the ship keeps
+    /// the requesting behaviour as its pending callback
+    /// (`Ship::PendingRequest`), which the answer reaches
+    /// ([`AiWorld::take_request_answers`]).
+    Request {
+        /// The request type.
+        kind: i32,
+        /// The target's id.
+        target: u32,
+        /// The second id (the trade lane's other ring).
+        second: u32,
+        /// `bFlag`.
+        flag: i32,
+    },
+    /// 24 `slot_60(RequestType, &TargetId, Arg3)`: the request cancelled
+    /// (the pending callback dropped).
+    CancelRequest {
+        /// The request type.
+        kind: i32,
+        /// The target's id.
+        target: u32,
+        /// `Arg3`.
+        arg: i32,
+    },
+    /// `CShip::request_exit_tradelane`, which the dock and trade-lane
+    /// behaviours call on the ship's `CShip` directly (no `IObjAffect`
+    /// slot; [`AiCommand::slot`] reports it as 255).
+    RequestExitTradeLane,
     /// 19 `slot_4c`: activate or deactivate an equipment item.
     ActivateEquip {
         /// The sub-object id.
@@ -494,6 +535,7 @@ impl<H> AiCommand<H> {
             Self::AddFollowFollower(_) => 11,
             Self::RemoveFollowFollower(_) => 12,
             Self::FireGuns { .. } => 13,
+            Self::Tractor { .. } => 16,
             Self::SetGunTarget { .. } => 17,
             Self::SetTarget { .. } => 18,
             Self::ActivateEquip { .. } => 19,
@@ -501,6 +543,9 @@ impl<H> AiCommand<H> {
             Self::SetThrustersActive(_) => 21,
             Self::GoTradeLane { .. } => 25,
             Self::StopTradeLane => 26,
+            Self::Request { .. } => 23,
+            Self::CancelRequest { .. } => 24,
+            Self::RequestExitTradeLane => 255,
             Self::Slot { slot, .. } => *slot,
         }
     }
@@ -545,13 +590,14 @@ pub trait AiWorld {
     /// One `IObjAffect` call on `h`; the slot's integer result.
     fn command(&mut self, h: Self::Handle, command: AiCommand<Self::Handle>) -> i32;
 
-    /// `get_scanlist(list, 0x7ffdff, keep)` as `BuildAiTargetList` calls
-    /// it: without `keep` the scanner's cache is cleared first, then it
-    /// scans for the types of the mask it has not scanned this frame; the
-    /// scanner's list, in scan order. `None` when the ship has no scanner
-    /// or the call fails. The default has no scanner.
-    fn scan_list(&mut self, h: Self::Handle, keep: bool) -> Option<Vec<Self::Handle>> {
-        let _ = (h, keep);
+    /// `get_scanlist(list, mask, keep)` (`BuildAiTargetList` asks with
+    /// [`AI_SCAN_MASK`], `FindClosestObstacleToAvoid` with
+    /// [`AVOID_SCAN_MASK`]): without `keep` the scanner's cache is cleared
+    /// first, then it scans for the types of the mask it has not scanned
+    /// this frame; the scanner's list, in scan order. `None` when the ship
+    /// has no scanner or the call fails. The default has no scanner.
+    fn scan_list(&mut self, h: Self::Handle, mask: u32, keep: bool) -> Option<Vec<Self::Handle>> {
+        let _ = (h, mask, keep);
         None
     }
 
@@ -592,6 +638,14 @@ pub trait AiWorld {
         None
     }
 
+    /// `get_sub_obj_center_of_mass(sub, out)` (`CEqObj`): an attached
+    /// item's or a group's centre; `None` when the call fails. The default
+    /// has none.
+    fn sub_object_center(&mut self, h: Self::Handle, sub: u16) -> Option<Vector> {
+        let _ = (h, sub);
+        None
+    }
+
     /// `CShip::get_targeted_enemy_count`: the live entries of the ship's
     /// targeter list. The default is 0.
     fn targeted_enemy_count(&self, h: Self::Handle) -> i32 {
@@ -608,13 +662,183 @@ pub trait AiWorld {
         None
     }
 
+    /// Another object's behaviour manager's content-callback creation type
+    /// (`IBehaviorManager::ContentCbCreationType`, 3 until a callback is
+    /// installed); `None` when the object has no manager. The default has
+    /// none.
+    fn creation_type_of(&self, h: Self::Handle) -> Option<u32> {
+        let _ = h;
+        None
+    }
+
+    /// Another object's behaviour manager's personality (`CEqObj::
+    /// get_behavior_interface()->get_sys()->PersonalityData`), which a
+    /// wingman that the leader makes tougher borrows. `None` when the
+    /// object has none. The default has none.
+    fn personality_of(&self, h: Self::Handle) -> Option<super::personality::Personality> {
+        let _ = h;
+        None
+    }
+
+    /// A loot container as the loot behaviour reads it (`CLoot` through
+    /// `cobject()`, and `get_good_id`); `None` for an object that is not
+    /// loot. The default has none.
+    fn loot(&self, h: Self::Handle) -> Option<LootView> {
+        let _ = h;
+        None
+    }
+
+    /// A ship's cargo hold: `CShip::get_cargo_hold_remaining` (unrounded)
+    /// and its archetype's `hold_size`; `None` for an object that is not a
+    /// ship. The default has none.
+    fn cargo_hold(&self, h: Self::Handle) -> Option<(f64, f32)> {
+        let _ = h;
+        None
+    }
+
+    /// The loot another ship's loot behaviour chases (`LootBehavior`'s
+    /// target, behaviour 16 of the dispatch table of
+    /// `get_behavior_interface`); `None` when it has no manager or no
+    /// target. The default has none.
+    fn loot_target_of(&self, h: Self::Handle) -> Option<u32> {
+        let _ = h;
+        None
+    }
+
+    /// `generate_follow_offset(follower, out)` (79) of a leader: the
+    /// follow point and frame it assigns the follower, `None` when it
+    /// gives none. The default gives none.
+    fn generate_follow_offset(
+        &self,
+        leader: Self::Handle,
+        follower: Self::Handle,
+    ) -> Option<Transform> {
+        let _ = (leader, follower);
+        None
+    }
+
     /// `Universe::ISystem::GetSphereProperties` of the system's zones over
     /// a sphere (the zone-property mask). The default is 0.
     fn sphere_zone_properties(&self, system: u32, center: Vector, radius: f32) -> u32 {
         let _ = (system, center, radius);
         0
     }
+
+    /// `get_dock_hardpoints(Index, &Type, &A, &B, &C, &Distance)` of an
+    /// object (a station, a ring, a planet). The default fails as an
+    /// object that is no `CEqObj` does (-5, nothing written).
+    fn dock_hardpoints(&mut self, h: Self::Handle, index: i32) -> DockHardpoints {
+        let _ = (h, index);
+        DockHardpoints::failed(-5)
+    }
+
+    /// `has_dock_hardpoints`: an equipped object with a docking sphere of
+    /// type 1 (berth), 6 (ring or pad) or 7 (jump). The default has none.
+    fn has_dock_hardpoints(&self, h: Self::Handle) -> bool {
+        let _ = h;
+        false
+    }
+
+    /// `get_lane_start(Ring, OutLane, OutStart, OutDir)` asked of the ship
+    /// `h`: the trade lane `ring` starts (its next ring through
+    /// `traverse_rings`, unless `lane` names one), the start point (the
+    /// ring's `HpRightLane` or `HpLeftLane`) and the unit direction to the
+    /// lane ring. The default fails (-4, nothing written).
+    fn lane_start(
+        &mut self,
+        h: Self::Handle,
+        ring: Option<Self::Handle>,
+        lane: Option<Self::Handle>,
+    ) -> LaneStart<Self::Handle> {
+        let _ = (h, ring);
+        LaneStart {
+            result: -4,
+            lane,
+            start: None,
+            direction: None,
+        }
+    }
+
+    /// The answers the ship's pending request got since the request
+    /// command (`Ship::request_returned(RequestType, Response, Arg3)`,
+    /// which the server calls during the request when it can answer at
+    /// once), oldest first; each goes to the requesting behaviour's
+    /// `OnResult`. The default has none.
+    fn take_request_answers(&mut self, h: Self::Handle) -> Vec<RequestAnswer> {
+        let _ = h;
+        Vec::new()
+    }
+
+    /// `SinglePlayer()`: the world runs a single-player game. The default
+    /// is the dedicated server's multiplayer.
+    fn single_player(&self) -> bool {
+        false
+    }
 }
+
+/// What `get_dock_hardpoints` answers: the result and the outputs it
+/// wrote (`None` for an output it left as the caller's bytes).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DockHardpoints {
+    /// 0, -2 (a dock point missing, the mount copied for it), -4 (no such
+    /// docking sphere) or -5 (no `CEqObj`, or the mount misnamed).
+    pub result: i32,
+    /// The docking sphere's terminal type (`TERMINAL_TYPE`).
+    pub terminal: Option<i32>,
+    /// The mount (`hpdockmount<c>`).
+    pub mount: Option<Transform>,
+    /// The first dock point (`hpdockpoint<c>01`).
+    pub point1: Option<Transform>,
+    /// The second dock point (`hpdockpoint<c>02`).
+    pub point2: Option<Transform>,
+    /// The docking sphere's radius.
+    pub radius: Option<f32>,
+}
+
+impl DockHardpoints {
+    /// A failure that wrote nothing.
+    #[must_use]
+    pub fn failed(result: i32) -> Self {
+        Self {
+            result,
+            terminal: None,
+            mount: None,
+            point1: None,
+            point2: None,
+            radius: None,
+        }
+    }
+}
+
+/// What `get_lane_start` answers.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LaneStart<H> {
+    /// 0, -4 or -5.
+    pub result: i32,
+    /// The lane ring (`OutLane` on return).
+    pub lane: Option<H>,
+    /// `OutStart`, when written.
+    pub start: Option<Vector>,
+    /// `OutDir`, when written.
+    pub direction: Option<Vector>,
+}
+
+/// One `Ship::request_returned(RequestType, Response, Arg3)`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RequestAnswer {
+    /// The request type.
+    pub kind: i32,
+    /// The response.
+    pub response: i32,
+    /// `Arg3` (the dock port, -1 for none).
+    pub arg: i32,
+}
+
+/// The type mask `BuildAiTargetList` scans for (owner decision
+/// 2026-11-18).
+pub const AI_SCAN_MASK: u32 = 0x007f_fdff;
+/// The type mask `FindClosestObstacleToAvoid` scans for.
+pub const AVOID_SCAN_MASK: u32 = 0x207f_8010;
 
 /// `EquipStatus::Flags` bit 0 (`EquipStatusFlagActive`).
 pub const EQUIP_ACTIVE: u8 = 0x01;
@@ -622,6 +846,20 @@ pub const EQUIP_ACTIVE: u8 = 0x01;
 pub const EQUIP_DESTROYED: u8 = 0x02;
 /// `EquipStatus::Flags` bit 2 (`EquipStatusFlagDisabled`).
 pub const EQUIP_DISABLED: u8 = 0x04;
+
+/// A loot container as `LootBehavior` reads it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LootView {
+    /// `CLoot+0xf0` the units.
+    pub units: u32,
+    /// `CLoot+0xfc` AI ships may tractor it.
+    pub can_ai_tractor: bool,
+    /// The contents' `get_class_type` (0xa a commodity, 0x1a a repair
+    /// kit, 0x1b a shield battery).
+    pub contents_class: u32,
+    /// `get_good_id`: the contents' good (`Arch2Good`).
+    pub good_id: Option<u32>,
+}
 
 /// One equipment item as the system manager reads it.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]

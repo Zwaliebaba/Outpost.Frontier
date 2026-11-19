@@ -4,13 +4,16 @@
 //! that PSI, and the pushes they make are compared with the pushes the C++
 //! controllers made (`pushes`), without drift from earlier PSIs.
 //!
-//! The controllers run in the order IVP calls them: the last registered
-//! first (`IVP_Simulation_Unit_Process_One_Psi_Step`), so the ship, strafe,
+//! The controllers run in the order IVP calls them, the simulation unit's
+//! controller buckets from the last (`IVP_Simulation_Unit_Process_One_Psi_Step`):
+//! the order the record names (`ctl.order`, P2.5), else the order of a unit
+//! whose buckets were never rebuilt, the last registered first: strafe,
 //! nudge, steering, the thrusters from the last, then the engine. A
 //! record's pushes must agree in kind and within `TOLERANCE`, relative to
 //! the larger magnitude, push by push; when only the order differs it is
-//! reported but passes (the integrator's order is checked by
-//! `neuron-core`'s `sim_replay`).
+//! reported but passes for a record without `ctl.order` (the integrator's
+//! order is checked by `neuron-core`'s `sim_replay`), and fails for one
+//! with it.
 //!
 //! Inputs older harness builds did not record (`power`, `orient`,
 //! `zone_drag`, the controller gates, the thrusters; added for P2.4 in
@@ -68,10 +71,26 @@ fn orientation(ctl: &Json, record: &Json) -> Option<Matrix> {
     ]))
 }
 
+/// One controller of a ship's unit, as `ctl.order` names it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Ctl {
+    Strafe,
+    Nudge,
+    Steering,
+    /// A thruster by its index in `ctl.thrusters`.
+    Thruster(usize),
+    Engine,
+    /// The ship's own controller, IVP's standard controller or anything
+    /// else: no push.
+    Silent,
+}
+
 struct Rebuilt {
     flight: ShipFlight,
     engine: Option<(EngineState, bool)>,
     thrusters: Vec<(Thruster, bool)>,
+    /// The run order (`ctl.order`), `None` in older records.
+    order: Option<Vec<Ctl>>,
     power: f32,
     orientation: Matrix,
     zone_drag: Option<f32>,
@@ -136,10 +155,30 @@ fn rebuild(ctl: &Json, record: &Json) -> Option<Rebuilt> {
         }
         _ => None,
     };
-    let thrusters = ctl
+    let thruster_records = ctl
         .get("thrusters")
         .and_then(Json::as_array)
-        .unwrap_or_default()
+        .unwrap_or_default();
+    let thruster_ids: Vec<Option<u32>> = thruster_records
+        .iter()
+        .map(|t| t.get("id").and_then(Json::as_u32))
+        .collect();
+    let order = ctl.get("order").and_then(Json::as_array).map(|a| {
+        a.iter()
+            .map(|n| match n.as_str().unwrap_or("") {
+                "strafe" => Ctl::Strafe,
+                "nudge" => Ctl::Nudge,
+                "steering" => Ctl::Steering,
+                "engine" => Ctl::Engine,
+                other => other
+                    .strip_prefix("thruster ")
+                    .and_then(|id| id.parse::<u32>().ok())
+                    .and_then(|id| thruster_ids.iter().position(|t| *t == Some(id)))
+                    .map_or(Ctl::Silent, Ctl::Thruster),
+            })
+            .collect()
+    });
+    let thrusters = thruster_records
         .iter()
         .filter_map(|t| {
             let thruster = Thruster {
@@ -161,6 +200,7 @@ fn rebuild(ctl: &Json, record: &Json) -> Option<Rebuilt> {
         flight,
         engine,
         thrusters,
+        order,
         power: f(ctl, "power").unwrap_or(f32::MAX),
         orientation: orientation(ctl, record)?,
         zone_drag: ctl.get("zone_drag").and_then(Json::as_f32),
@@ -170,38 +210,61 @@ fn rebuild(ctl: &Json, record: &Json) -> Option<Rebuilt> {
 /// Runs the controllers in IVP's order.
 fn run(mut r: Rebuilt, consts: &Constants, dt: f32) -> PushLog {
     let mut log = PushLog::default();
+    let order = r.order.take().unwrap_or_else(|| {
+        let mut order = vec![Ctl::Strafe, Ctl::Nudge, Ctl::Steering];
+        order.extend((0..r.thrusters.len()).rev().map(Ctl::Thruster));
+        order.push(Ctl::Engine);
+        order
+    });
+    for c in order {
+        run_one(&mut r, c, consts, dt, &mut log);
+    }
+    log
+}
+
+/// Runs one controller when it is registered.
+fn run_one(r: &mut Rebuilt, c: Ctl, consts: &Constants, dt: f32, log: &mut PushLog) {
     let o = r.orientation;
     let arch = r.flight.arch;
-    if r.flight.strafe.controller_enabled {
-        strafe_controller(
+    match c {
+        Ctl::Strafe if r.flight.strafe.controller_enabled => strafe_controller(
             &mut r.flight.strafe,
             &arch,
             &o,
             &mut r.flight.thrust_power,
             dt,
-            &mut log,
-        );
-    }
-    if r.flight.nudge.controller_enabled {
-        nudge_controller(&r.flight.nudge, &arch, &o, dt, &mut log);
-    }
-    if r.flight.steering.controller_enabled {
-        steering_controller(&r.flight.steering, &arch, &o, dt, &mut log);
-    }
-    let mut events: Vec<EquipEvent> = Vec::new();
-    for (t, functioning) in r.thrusters.iter_mut().rev() {
-        if t.controller_enabled {
-            thruster_controller(
-                t,
-                *functioning,
-                &o,
-                &mut r.flight.thrust_power,
-                dt,
-                &mut events,
-                &mut log,
-            );
+            log,
+        ),
+        Ctl::Nudge if r.flight.nudge.controller_enabled => {
+            nudge_controller(&r.flight.nudge, &arch, &o, dt, log);
         }
+        Ctl::Steering if r.flight.steering.controller_enabled => {
+            steering_controller(&r.flight.steering, &arch, &o, dt, log);
+        }
+        Ctl::Thruster(i) => {
+            let mut events: Vec<EquipEvent> = Vec::new();
+            if let Some((t, functioning)) = r.thrusters.get_mut(i)
+                && t.controller_enabled
+            {
+                thruster_controller(
+                    t,
+                    *functioning,
+                    &o,
+                    &mut r.flight.thrust_power,
+                    dt,
+                    &mut events,
+                    log,
+                );
+            }
+        }
+        Ctl::Engine => run_engine(r, consts, dt, log),
+        _ => {}
     }
+}
+
+/// The engine controller with the ship's `get_linear_drag`.
+fn run_engine(r: &mut Rebuilt, consts: &Constants, dt: f32, log: &mut PushLog) {
+    let o = r.orientation;
     if let Some((mut engine, functioning)) = r.engine.take()
         && engine.controller_enabled
     {
@@ -230,10 +293,9 @@ fn run(mut r: Rebuilt, consts: &Constants, dt: f32) -> PushLog {
             &mut r.power,
             &consts.engine,
             dt,
-            &mut log,
+            log,
         );
     }
-    log
 }
 
 fn recorded(record: &Json) -> Option<Vec<(String, [f32; 4])>> {
@@ -296,6 +358,7 @@ fn controllers_replay_the_oracle() {
                 continue;
             };
             checked += 1;
+            let has_order = rebuilt.order.is_some();
             let ours = as_rows(&run(rebuilt, &consts, dt));
             let theirs = recorded(&record).unwrap_or_default();
             let ordered =
@@ -311,7 +374,8 @@ fn controllers_replay_the_oracle() {
                         .map(|i| left.remove(i))
                         .is_some()
                 });
-            if all {
+            // With the recorded order the pushes must come in it.
+            if all && !has_order {
                 reordered += 1;
                 continue;
             }

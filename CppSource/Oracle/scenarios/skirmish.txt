@@ -1,0 +1,19 @@
+# Oracle.exe sim scenario (design/reference-build.md section 10): a skirmish to the kill.
+# The dogfight's two hostile AI fighters (police and rogue, same archetypes, loadouts,
+# pilots, factions and FIGHTER state graph), but the rogue starts with 400 hull points of
+# its 1900. The police kills it at tick 880 after the rogue has trailed (3) and fled (4),
+# the behaviours the dogfight never reaches. The run goes on to tick 1500: the police idles
+# with no target from tick 883, and the rogue's dropped loot is removed at tick 971 (loot no
+# player has seen is removed at its first three-second check). No directive, no target
+# command. Multiplayer stepping.
+
+system he01
+ticks 1500
+stepping mp
+# Content's comm system off (owner, 2026-11-19): its combat-comm rolls draw rand() at a tick
+# that depends on the heartbeat phase, and the Rust world has no comm system until P3.6
+# (design/adr/0003-simulation-oracle.md, reference-build.md section 10).
+comms off
+
+ship police he_fighter li_p_he_fighter_loadout01 15000 3000 -25000 ai FIGHTER pilot pilot_police_med faction he_p_grp psi
+ship rogue pi_fighter fc_lr_pi_fighter_loadout01 15000 3000 -26500 heading 180 ai FIGHTER pilot pilot_pirate_med faction fc_lr_grp hp 400 psi

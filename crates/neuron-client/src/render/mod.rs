@@ -2,12 +2,22 @@
 //! Direct3D 8 device the C++ draws through ([`ff`]), and later the
 //! Direct3D 12 backend and the trace player; textures at run time
 //! ([`texture`]); materials, their animation and the batcher
-//! ([`material`]).
+//! ([`material`]); the render manager, levels of detail and the mesh
+//! kinds ([`mesh`]); `FLAppearance`'s override materials, backdrop,
+//! starsphere and blob shadows ([`appearance`]); particle effects
+//! ([`particles`]); programmable passes for the volumetric nebula
+//! ([`pass`]).
 
+pub mod appearance;
 pub mod compare;
+pub mod deformable;
 pub mod ff;
 pub mod material;
+pub mod mesh;
+pub mod particles;
+pub mod pass;
 pub mod shader;
+pub mod stack;
 pub mod texture;
 
 /// The trace reader and model replay, behind the feature `render-trace`

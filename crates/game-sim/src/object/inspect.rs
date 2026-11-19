@@ -190,7 +190,7 @@ impl World {
         let consts = self.data.constants.engine.clone();
         let result = match command {
             Command::Fire { guns, target } => {
-                return CommandResult::Fired(self.fire(h, &guns, target));
+                return CommandResult::Fired(self.fire(h, &guns, Some(target)));
             }
             Command::SetHitPts(hp) => {
                 if let Some(o) = self.get_mut(h) {
@@ -309,7 +309,11 @@ impl World {
         let Some(e) = eq.equipment.by_id_mut(id) else {
             return CommandResult::Refused;
         };
+        let was_active = e.active;
         let active = e.activate_base(on);
+        // `CEGun::Activate`: a change of a gun's state dirties the ship's
+        // gun statistics.
+        let gun_changed = matches!(e.kind, EquipKind::Gun(_)) && was_active != active;
         let mut register = None;
         match &mut e.kind {
             EquipKind::Engine(s) => {
@@ -337,6 +341,9 @@ impl World {
             if let EquipKind::Shield(s) = kind {
                 s.activate(status, now, events);
             }
+        }
+        if gun_changed && let Some(ship) = self.get_mut(h).and_then(|o| o.as_ship_mut()) {
+            ship.gun_stats_dirty = true;
         }
         match register {
             Some(true) => self.register_equip_controller(h, id),

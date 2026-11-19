@@ -5,15 +5,15 @@
 //! predictions, slots 50 to 63) and the CRT `rand()` the AI shares with
 //! the world.
 
-use neuron_core::math::{Matrix, Vector};
+use neuron_core::math::{Matrix, Transform, Vector};
 
 use crate::ai::behavior::DirectiveOp;
 use crate::ai::fp::{e, r};
 use crate::ai::manager::{BehaviorManager, NotificationOut};
 use crate::ai::personality::Personality;
 use crate::ai::world::{
-    AiCommand, AiRand, AiWorld, EngineStatus, MotionModel, ObjectView, RayContact, SpatialQueries,
-    StrafeDir as AiStrafe, ThrustEquipType,
+    AiCommand, AiRand, AiWorld, DockHardpoints, EngineStatus, LootView, MotionModel, ObjectView,
+    RayContact, SpatialQueries, StrafeDir as AiStrafe, ThrustEquipType,
 };
 use crate::equip::flight::StrafeDir;
 use crate::equip::{EquipKind, types};
@@ -21,9 +21,6 @@ use crate::object::ship::{self, ThrustKind};
 use crate::object::{Command, ObjHandle};
 
 use super::World;
-
-/// The type mask `BuildAiTargetList` asks the scanner for (`kScanTypeMask`).
-const AI_SCAN_MASK: u32 = 0x007f_fdff;
 
 impl World {
     /// `IObjInspect` of one object for the AI.
@@ -108,7 +105,7 @@ impl World {
                 .map(|s| {
                     s.formation_followers
                         .iter()
-                        .filter_map(|f| id_of(Some(*f)))
+                        .filter_map(|f| id_of(*f))
                         .collect()
                 })
                 .unwrap_or_default(),
@@ -147,22 +144,10 @@ impl World {
         let (Some(body), Some(w)) = (o.physical.body, self.physics(o.physical.system)) else {
             return self.body_sphere(h);
         };
-        let (Some(core), Some((t, m))) = (w.core(body), w.transform(body)) else {
+        let (Some(core), Some((m, t))) = (w.core(body), w.object_matrix(body)) else {
             return self.body_sphere(h);
         };
-        let [c0, c1, c2] = o.physical.mass_center.map(e);
-        let m = &m.m;
-        let x0 = e(m[0][0]) * c0;
-        let y0 = e(m[1][0]) * c0;
-        let z0 = r(e(m[2][0]) * c0);
-        let x1 = r(e(m[0][1]) * c1 + x0);
-        let y1 = r(e(m[1][1]) * c1 + y0);
-        let z1 = e(m[2][1]) * c1 + e(z0);
-        let center = Vector::new(
-            r(e(m[0][2]) * c2 + e(x1) + e(t.x)),
-            r(e(m[1][2]) * c2 + e(y1) + e(t.y)),
-            r(e(m[2][2]) * c2 + z1 + e(t.z)),
-        );
+        let center = super::turret::physics_center_of_mass(&m, t, o.physical.mass_center);
         (core.upper_limit_radius, center)
     }
 
@@ -488,19 +473,94 @@ impl AiWorld for World {
             .collect()
     }
 
-    fn attitude(&self, _from: ObjHandle, _to: ObjHandle) -> Option<f32> {
-        // Reputation is not ported (the server's groups).
-        None
+    /// Reputation is not ported (the server's groups): the attitude a
+    /// harness set ([`World::set_attitude`]), none otherwise.
+    fn attitude(&self, from: ObjHandle, to: ObjHandle) -> Option<f32> {
+        let (a, b) = (self.get(from)?.simple.id, self.get(to)?.simple.id);
+        self.attitudes.get(&(a, b)).copied()
     }
 
-    fn attitude_symmetrical(&self, _from: ObjHandle, _to: ObjHandle) -> Option<(f32, f32)> {
-        None
+    fn attitude_symmetrical(&self, from: ObjHandle, to: ObjHandle) -> Option<(f32, f32)> {
+        Some((self.attitude(from, to)?, self.attitude(to, from)?))
     }
 
+    /// `get_hardpoint` (`HardpointPosition`, `common_hierarchy.cpp:55`):
+    /// the hardpoint in world space, through the world transform of the
+    /// instance it sits on.
     fn hardpoint(&self, h: ObjHandle, name: &[u8]) -> Option<(Vector, Matrix)> {
         let o = self.get(h)?;
-        let (_, data) = self.find_hardpoint(o.engine.instance, name)?;
-        Some((data.position(), data.orientation()))
+        let (found, data) = self.find_hardpoint(o.engine.instance, name)?;
+        let instance = self.scene.instance_transform(Some(found));
+        let rotated = neuron_core::math::transform_matrix(&instance.rotation, data.position());
+        let t = instance.translation;
+        let position = Vector::new(
+            r(e(rotated.x) + e(t.x)),
+            r(e(rotated.y) + e(t.y)),
+            r(e(rotated.z) + e(t.z)),
+        );
+        let orientation = neuron_core::math::mul_matrix(&instance.rotation, &data.orientation());
+        Some((position, orientation))
+    }
+
+    /// `IObjInspectImpl::has_dock_hardpoints` (`common_iobjinspectimpl.cpp:1227`).
+    fn has_dock_hardpoints(&self, h: ObjHandle) -> bool {
+        self.get(h).and_then(|o| o.as_equipped()).is_some_and(|eq| {
+            eq.docking_points
+                .iter()
+                .any(|d| matches!(d.dock_type, 1 | 6 | 7))
+        })
+    }
+
+    /// `IObjInspectImpl::get_dock_hardpoints` (`common_iobjinspectimpl.cpp:1252`):
+    /// the docking sphere's type and radius, its mount (`hpdockmount<c>`)
+    /// and the two dock points (`hpdockpoint<c>01`, `02`; a missing one
+    /// copies the mount and makes the result -2).
+    fn dock_hardpoints(&mut self, h: ObjHandle, index: i32) -> DockHardpoints {
+        let Some(sphere) = self.get(h).and_then(|o| o.as_equipped()).map(|eq| {
+            usize::try_from(index)
+                .ok()
+                .filter(|_| index != -1)
+                .and_then(|i| eq.docking_points.get(i).cloned())
+        }) else {
+            return DockHardpoints::failed(-5);
+        };
+        let Some(sphere) = sphere else {
+            return DockHardpoints::failed(-4);
+        };
+        let mut out = DockHardpoints {
+            result: -5,
+            terminal: i32::try_from(sphere.dock_type).ok(),
+            mount: None,
+            point1: None,
+            point2: None,
+            radius: Some(sphere.radius),
+        };
+        let name = &sphere.hardpoint;
+        let Some((pos, orient)) = self.hardpoint(h, name) else {
+            return out;
+        };
+        let mount = Transform::new(orient, pos);
+        out.mount = Some(mount);
+        if !name.windows(11).any(|w| w == b"hpdockmount") {
+            return out;
+        }
+        let suffix = name.last().copied().unwrap_or(0);
+        out.result = 0;
+        let point = |n: u8, out: &mut DockHardpoints| {
+            let mut point_name = b"hpdockpoint".to_vec();
+            point_name.push(suffix);
+            point_name.extend_from_slice(if n == 1 { b"01" } else { b"02" });
+            match self.hardpoint(h, &point_name) {
+                Some((p, o)) => Some(Transform::new(o, p)),
+                None => {
+                    out.result = -2;
+                    Some(mount)
+                }
+            }
+        };
+        out.point1 = point(1, &mut out);
+        out.point2 = point(2, &mut out);
+        out
     }
 
     fn motion(&self, h: ObjHandle) -> Option<Box<dyn MotionModel + '_>> {
@@ -580,17 +640,21 @@ impl AiWorld for World {
         })
     }
 
-    /// `IObjInspectImpl::get_scanlist(list, 0x7ffdff, keep)`: -2 (`None`)
+    /// `IObjInspectImpl::get_scanlist(list, mask, keep)`: -2 (`None`)
     /// without a scanner; otherwise `clear_cache` unless `keep`, then
-    /// `scan_for_types(0x7ffdff)`, and the first scanner's list.
-    fn scan_list(&mut self, h: ObjHandle, keep: bool) -> Option<Vec<ObjHandle>> {
+    /// `scan_for_types(mask)`, and the first scanner's list.
+    fn scan_list(&mut self, h: ObjHandle, mask: u32, keep: bool) -> Option<Vec<ObjHandle>> {
         let eq = self.get(h)?.as_equipped()?;
         eq.equipment.first(types::SCANNER)?;
         if !keep {
             self.scanner_clear_cache(h);
         }
-        self.scan_for_types(h, AI_SCAN_MASK);
+        self.scan_for_types(h, mask);
         Some(World::scan_list(self, h))
+    }
+
+    fn sub_object_center(&mut self, h: ObjHandle, sub: u16) -> Option<Vector> {
+        self.sub_obj_center_of_mass(h, sub)
     }
 
     fn can_point_at(&self, h: ObjHandle, id: u16, point: Vector, angle: f32) -> bool {
@@ -602,16 +666,113 @@ impl AiWorld for World {
     }
 
     /// The sub-target form is `get_tgt_lead_fire_pos(id, pos)` (the gun's
-    /// lead); `CShip::get_tgt_lead_fire_pos` (the ship's own lead over its
-    /// gun statistics) is not on the world yet, so `None` answers it.
+    /// lead); without one `CShip::get_tgt_lead_fire_pos`, the ship's own
+    /// lead over its gun statistics.
     fn lead_fire_position(&mut self, h: ObjHandle, subtarget: Option<u16>) -> Option<Vector> {
-        self.tgt_lead_fire_pos(h, subtarget?).ok()
+        match subtarget {
+            Some(id) => self.tgt_lead_fire_pos(h, id).ok(),
+            None => self.ship_lead_fire_position(h),
+        }
     }
 
     fn manager_of(&self, h: ObjHandle) -> Option<(i32, [i32; 3])> {
         self.behavior_managers
             .get(&h)
             .map(|m| (m.state.behavior, m.state.directive))
+    }
+
+    /// `CShip::generate_follow_offset(follower, out)`: the follower's slot
+    /// in the leader's follow list (cleared slots counted) picks a ring of
+    /// four (50 m to the side, 20 m back per ring) turned by a quarter per
+    /// slot about the leader's Z, in the leader's frame from its centre.
+    /// The reference's `FCOS` and `FSIN` round once from 64 bits; here the
+    /// `f64` value is rounded, which agrees for these angles (multiples of
+    /// a quarter turn).
+    fn generate_follow_offset(
+        &self,
+        leader: ObjHandle,
+        follower: ObjHandle,
+    ) -> Option<neuron_core::math::Transform> {
+        let fid = self.get(follower)?.simple.id;
+        let slots = &self.get(leader)?.as_ship()?.follow_followers;
+        let slot = slots.iter().position(|&s| {
+            s.and_then(|h| self.get(h))
+                .is_some_and(|o| o.simple.id == fid)
+        })?;
+        let slot = i32::try_from(slot).ok()?;
+        let ring = f64::from(slot / 4 + 1);
+        let quad = f64::from(slot % 4);
+        let offset = Vector::new(r(e(50.0) * ring), r(e(0.0) * ring), r(ring * e(20.0)));
+        let angle = quad * e(core::f32::consts::PI) * 0.5;
+        let cos = r(angle.cos());
+        let sin = r(e(r(angle)).sin());
+        let spin = Matrix::from_rows([[cos, -sin, 0.0], [sin, cos, 0.0], [0.0, 0.0, 1.0]]);
+        let rotated = neuron_core::math::transform_matrix(&spin, offset);
+        let (_, center) = self.physical_sphere(leader);
+        let orient = self.inspect(leader)?.orientation;
+        let turned = neuron_core::math::transform_matrix(&orient, rotated);
+        let translation = Vector::new(
+            r(e(turned.x) + e(center.x)),
+            r(e(turned.y) + e(center.y)),
+            r(e(turned.z) + e(center.z)),
+        );
+        Some(neuron_core::math::Transform::new(orient, translation))
+    }
+
+    fn creation_type_of(&self, h: ObjHandle) -> Option<u32> {
+        self.behavior_managers
+            .get(&h)
+            .map(|m| m.state.creation_type)
+    }
+
+    fn personality_of(&self, h: ObjHandle) -> Option<crate::ai::personality::Personality> {
+        self.behavior_managers.get(&h).map(|m| m.state.personality)
+    }
+
+    /// `CLoot`'s units, AI flag and contents class, and `get_good_id`
+    /// (`Arch2Good` of the contents).
+    fn loot(&self, h: ObjHandle) -> Option<LootView> {
+        let crate::object::KindData::Loot(l) = &self.get(h)?.data else {
+            return None;
+        };
+        let contents = self.data.archetypes.equipment.get(&l.contents_arch);
+        Some(LootView {
+            units: l.units,
+            can_ai_tractor: l.can_ai_tractor,
+            contents_class: contents.map_or(0, |a| a.class()),
+            good_id: Some(self.data.goods.arch_to_good(l.contents_arch)),
+        })
+    }
+
+    /// `CShip::get_cargo_hold_remaining` and the ship archetype's
+    /// `hold_size`: every item of the hold mask counts its volume (a cargo
+    /// stack its count times it), rounded to `float` at each sum; what is
+    /// left of the hold, or 0 when the items exceed it.
+    fn cargo_hold(&self, h: ObjHandle) -> Option<(f64, f32)> {
+        Some((self.cargo_hold_remaining(h)?, self.cargo_hold_size(h)?))
+    }
+
+    /// The target of the object's loot behaviour (behaviour 16).
+    fn loot_target_of(&self, h: ObjHandle) -> Option<u32> {
+        self.behavior_managers
+            .get(&h)?
+            .behavior(crate::ai::behavior::ids::LOOT)?
+            .as_any()?
+            .downcast_ref::<crate::ai::loot::LootBehavior>()?
+            .target
+    }
+
+    /// `Universe::ISystem::GetSphereProperties` over the system's zones
+    /// (P2.1's zone tree and `SphereCull`).
+    fn sphere_zone_properties(&self, system: u32, center: Vector, radius: f32) -> u32 {
+        self.data
+            .universe
+            .sphere_properties(system, &crate::data::zone::query::Sphere { center, radius })
+    }
+
+    /// `SinglePlayer()`.
+    fn single_player(&self) -> bool {
+        self.config.single_player
     }
 
     fn command(&mut self, h: ObjHandle, command: AiCommand<ObjHandle>) -> i32 {
@@ -622,12 +783,17 @@ impl AiWorld for World {
             AiCommand::SetStrafe(d) => Command::SetStrafeDir(StrafeDir::from_value(d.value())),
             AiCommand::SetTarget { target, subtarget } => Command::SetTarget(target, subtarget),
             AiCommand::FireGuns { equipment, target } => {
-                let Some(target) = target else {
-                    return -2;
-                };
+                // `EqObj::slot_34` without an aim point fires forward.
+                if target.is_none() {
+                    if self.get(h).is_none_or(|o| o.dead) {
+                        return -2;
+                    }
+                    self.fire(h, &equipment, None);
+                    return 0;
+                }
                 Command::Fire {
                     guns: equipment,
-                    target,
+                    target: target.unwrap_or_default(),
                 }
             }
             AiCommand::ActivateEquip { equipment, on } => Command::ActivateEquip(equipment, on),
@@ -652,8 +818,64 @@ impl AiWorld for World {
                 }
                 return 0;
             }
-            // Formation, follow, trade lane and the unnamed slots are not
-            // world commands yet.
+            // `EqObj::slot_40` (the server's own request): -5 for a dead
+            // owner, -4 without a target, -2 without the item, -5 when
+            // `CETractor::AddTarget` refuses.
+            AiCommand::Tractor { equipment, target } => {
+                if self.get(h).is_none_or(|o| o.dead) {
+                    return -5;
+                }
+                if self.get(target).is_none() {
+                    return -4;
+                }
+                let is_item = self
+                    .get(h)
+                    .and_then(|o| o.as_equipped())
+                    .and_then(|eq| eq.equipment.by_id(equipment))
+                    .is_some();
+                if !is_item {
+                    return -2;
+                }
+                if self.tractor_add_target(h, equipment, target)
+                    != crate::equip::misc::TractorFailure::Ok
+                {
+                    return -5;
+                }
+                return 0;
+            }
+            // `EqObj::slot_44`: -2 for a missing or destroyed item, -4 for
+            // one that is not a gun, else `CEGun::SetTarget` (the target a
+            // simple object, else none).
+            AiCommand::SetGunTarget {
+                equipment,
+                target,
+                subtarget,
+            } => {
+                let Some(item) = self
+                    .get(h)
+                    .and_then(|o| o.as_equipped())
+                    .and_then(|eq| eq.equipment.by_id(equipment))
+                else {
+                    return -2;
+                };
+                if item.is_destroyed() {
+                    return -2;
+                }
+                if !matches!(item.kind, EquipKind::Gun(_)) {
+                    return -4;
+                }
+                self.gun_set_target(h, equipment, target, subtarget);
+                return 0;
+            }
+            AiCommand::SetFormationLeader(_)
+            | AiCommand::SetFormationOffset(_)
+            | AiCommand::AddFormationFollower(_)
+            | AiCommand::RemoveFormationFollower(_)
+            | AiCommand::SetFollowLeader(_)
+            | AiCommand::SetFollowOffset(_)
+            | AiCommand::AddFollowFollower(_)
+            | AiCommand::RemoveFollowFollower(_) => return self.formation_command(h, command),
+            // Trade lane and the unnamed slots are not world commands yet.
             _ => return -2,
         };
         match self.command(h, typed) {
@@ -664,6 +886,219 @@ impl AiWorld for World {
 }
 
 impl World {
+    /// The formation and follow slots of `IObjAffect` (4 to 7, 9 to 12) on a
+    /// ship (`Ship::set_formation_leader` and the `CShip` bodies they
+    /// forward to); `GameObject`'s -8 for any other object. The player's
+    /// client reports of `set_formation_leader` and `set_formation_offset`
+    /// are the server's (P3).
+    fn formation_command(&mut self, h: ObjHandle, command: AiCommand<ObjHandle>) -> i32 {
+        if self.ship_data(h).is_none() {
+            return -8;
+        }
+        let own_id = self.id_of_handle(h);
+        match command {
+            AiCommand::SetFormationLeader(leader) => {
+                if let Some(s) = self.ship_data_mut(h) {
+                    s.formation_leader = leader;
+                }
+                0
+            }
+            AiCommand::SetFormationOffset(offset) => {
+                if let Some(s) = self.ship_data_mut(h) {
+                    s.formation_offset = offset;
+                }
+                0
+            }
+            AiCommand::SetFollowLeader(leader) => {
+                if let Some(s) = self.ship_data_mut(h) {
+                    s.follow_leader = leader;
+                }
+                0
+            }
+            AiCommand::SetFollowOffset(offset) => {
+                if let Some(s) = self.ship_data_mut(h) {
+                    s.follow_offset = offset;
+                }
+                0
+            }
+            // `CShip::add_formation_follower`: only a ship that leads
+            // itself takes followers; the first cleared slot, else a new
+            // one; then the formation speed.
+            AiCommand::AddFormationFollower(f) => {
+                let leader = self
+                    .ship_data(h)
+                    .and_then(|s| s.formation_leader)
+                    .filter(|&l| self.get(l).is_some());
+                if leader.is_none_or(|l| self.id_of_handle(l) != own_id) {
+                    return -2;
+                }
+                let follower_id = self.id_of_handle(f);
+                let slots = self
+                    .ship_data(h)
+                    .map(|s| s.formation_followers.clone())
+                    .unwrap_or_default();
+                if let Some(i) = self.free_or_same_slot(&slots, follower_id) {
+                    if self.live_slot(slots[i]).is_none()
+                        && let Some(s) = self.ship_data_mut(h)
+                    {
+                        s.formation_followers[i] = Some(f);
+                    }
+                } else if let Some(s) = self.ship_data_mut(h) {
+                    s.formation_followers.push(Some(f));
+                }
+                self.recalculate_formation_speed(h);
+                0
+            }
+            AiCommand::RemoveFormationFollower(f) => {
+                let follower_id = self.id_of_handle(f);
+                let slots = self
+                    .ship_data(h)
+                    .map(|s| s.formation_followers.clone())
+                    .unwrap_or_default();
+                let Some(i) = self.matching_slot(&slots, follower_id) else {
+                    return -3;
+                };
+                if let Some(s) = self.ship_data_mut(h) {
+                    s.formation_followers[i] = None;
+                }
+                self.recalculate_formation_speed(h);
+                0
+            }
+            // `CShip::add_follow_follower`: not the ship itself; the first
+            // cleared slot, else a new one.
+            AiCommand::AddFollowFollower(f) => {
+                let follower_id = self.id_of_handle(f);
+                if follower_id == own_id {
+                    return -1;
+                }
+                let slots = self
+                    .ship_data(h)
+                    .map(|s| s.follow_followers.clone())
+                    .unwrap_or_default();
+                if let Some(i) = self.free_or_same_slot(&slots, follower_id) {
+                    if self.live_slot(slots[i]).is_none()
+                        && let Some(s) = self.ship_data_mut(h)
+                    {
+                        s.follow_followers[i] = Some(f);
+                    }
+                } else if let Some(s) = self.ship_data_mut(h) {
+                    s.follow_followers.push(Some(f));
+                }
+                0
+            }
+            AiCommand::RemoveFollowFollower(f) => {
+                let follower_id = self.id_of_handle(f);
+                let slots = self
+                    .ship_data(h)
+                    .map(|s| s.follow_followers.clone())
+                    .unwrap_or_default();
+                let Some(i) = self.matching_slot(&slots, follower_id) else {
+                    return -3;
+                };
+                if let Some(s) = self.ship_data_mut(h) {
+                    s.follow_followers[i] = None;
+                }
+                0
+            }
+            _ => -2,
+        }
+    }
+
+    /// A watcher slot's object while it lives.
+    fn live_slot(&self, slot: Option<ObjHandle>) -> Option<ObjHandle> {
+        slot.filter(|&f| self.get(f).is_some())
+    }
+
+    /// An object's id, 0 once it is gone.
+    fn id_of_handle(&self, h: ObjHandle) -> u32 {
+        self.get(h).map_or(0, |o| o.simple.id)
+    }
+
+    /// The first slot that is cleared or holds the object `id`.
+    fn free_or_same_slot(&self, slots: &[Option<ObjHandle>], id: u32) -> Option<usize> {
+        slots.iter().position(|&slot| {
+            self.live_slot(slot)
+                .is_none_or(|e| self.id_of_handle(e) == id)
+        })
+    }
+
+    /// The slot that holds the live object `id`.
+    fn matching_slot(&self, slots: &[Option<ObjHandle>], id: u32) -> Option<usize> {
+        slots.iter().position(|&slot| {
+            self.live_slot(slot)
+                .is_some_and(|e| self.id_of_handle(e) == id)
+        })
+    }
+
+    /// `CShip::recalculate_formation_speed`: the slowest live follower's
+    /// `get_speed(1, engine)`, 1e8 without one.
+    fn recalculate_formation_speed(&mut self, h: ObjHandle) {
+        let slots = self
+            .ship_data(h)
+            .map(|s| s.formation_followers.clone())
+            .unwrap_or_default();
+        let mut min = 1.0e8_f32;
+        for f in slots.into_iter().filter_map(|s| self.live_slot(s)) {
+            let speed = <Self as AiWorld>::motion(self, f)
+                .map_or(0.0, |m| m.speed(1.0, ThrustEquipType::Engine));
+            if !(min < speed) {
+                min = speed;
+            }
+        }
+        if let Some(s) = self.ship_data_mut(h) {
+            s.formation_speed = min;
+        }
+    }
+
+    fn ship_data(&self, h: ObjHandle) -> Option<&crate::object::ship::ShipData> {
+        self.get(h).and_then(|o| o.as_ship())
+    }
+
+    fn ship_data_mut(&mut self, h: ObjHandle) -> Option<&mut crate::object::ship::ShipData> {
+        self.get_mut(h).and_then(|o| o.as_ship_mut())
+    }
+
+    /// `pub::AI::update_formation_state(ship, leader, offset)` (Server):
+    /// the ship leaves its old leader's formation (unless it led itself),
+    /// takes the new leader and offset, and joins the new leader's
+    /// followers (unless it is the leader). -3 for a ship that is not
+    /// there, else 0; in multiplayer an unchanged leader changes nothing.
+    /// (The player clients of the leaders and followers are told by the
+    /// server, P3.)
+    pub fn update_formation_state(
+        &mut self,
+        ship: ObjHandle,
+        leader: Option<ObjHandle>,
+        offset: Vector,
+    ) -> i32 {
+        if self.get(ship).is_none() {
+            return -3;
+        }
+        let leader = self.live_slot(leader);
+        let old = self.live_slot(self.ship_data(ship).and_then(|s| s.formation_leader));
+        if !self.config.single_player && leader == old {
+            return 0;
+        }
+        let own_id = self.id_of_handle(ship);
+        if let Some(old) = old
+            && self.id_of_handle(old) != own_id
+        {
+            self.command_ai(old, AiCommand::RemoveFormationFollower(ship));
+        }
+        self.command_ai(ship, AiCommand::SetFormationLeader(leader));
+        self.command_ai(ship, AiCommand::SetFormationOffset(offset));
+        if let Some(l) = leader
+            && l != ship
+        {
+            self.command_ai(l, AiCommand::AddFormationFollower(ship));
+        }
+        0
+    }
+
+    fn command_ai(&mut self, h: ObjHandle, command: AiCommand<ObjHandle>) -> i32 {
+        <Self as AiWorld>::command(self, h, command)
+    }
+
     /// The object id of a physics user key (the world keys bodies by
     /// handle; the AI keys them by object id, as the reference does).
     fn id_of_key(&self, key: u64) -> u32 {
@@ -827,6 +1262,16 @@ impl World {
         }
         self.finish_manager_call(h, manager);
         true
+    }
+
+    /// Sets the attitude of `from` toward `to`, which the AI reads as
+    /// `get_attitude_towards` (the reputation groups are not ported).
+    pub fn set_attitude(&mut self, from: ObjHandle, to: ObjHandle, value: f32) {
+        let (Some(a), Some(b)) = (self.get(from), self.get(to)) else {
+            return;
+        };
+        let key = (a.simple.id, b.simple.id);
+        self.attitudes.insert(key, value);
     }
 
     /// An object's behaviour manager.

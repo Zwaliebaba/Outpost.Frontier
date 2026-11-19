@@ -1,0 +1,922 @@
+"""Writes the inputs of the P4.8 particle suites (Oracle.exe neuron-client,
+CppSource/Oracle/oracle_particles.cpp, and
+crates/neuron-client/tests/oracle_vectors.rs): particle_ramp.list,
+particle_sim.list, particle_draw.list and particle_child.list. Run from any
+folder:
+
+    python make_particle_fixtures.py [--check]
+
+Everything is synthetic. Node libraries and effect libraries are built as the
+streams of an .ale file's two leaves with the stream helpers of
+crates/neuron-core/tests/fixtures/oracle/make_fx_data_fixtures.py (P1.7),
+which this script imports; node names are hashed with the particle module's
+name CRC, whose table is read from crates/neuron-core/src/hash.rs.
+
+particle_ramp.list: one case per line, "<node library hex> <times>": every
+ramp and transform property of every node is evaluated at the times in order
+(each time "outer:inner", floats as eight hex digits).
+
+particle_sim.list: one case per line, operations separated by " ; " (those of
+oracle_particles.cpp): the libraries, pool sizes, the generator state,
+textures, effects and the client's per-frame calls, with dumps.
+
+particle_draw.list: the same operations and the draw ones (the camera, the
+batcher, the draw limits, begin, draw and end, bounds, counters and the dust's
+camera state) over every billboard kind and its flags.
+
+particle_child.list: the same operations with the recording mesh factory
+(meshfac) and the dump of the particle and mesh appearances' records (kids):
+the particle appearance's life and death effects, the velocity's turn on both
+axes, the smooth rotation's slerp (slow, clamped), the forwarded outer time
+and LOD input, eviction across owners, the children's spheres and draws; the
+mesh appearance's meshes posed both ways, updated, drawn, evicted, refused and
+torn down.
+
+The cases keep to what the reference defines: no time is unordered, every
+ramp a property hands out has a key, loop types stay within 0 to 4 per nibble,
+every record names a node the library holds and every pair names records of
+the effect, every pool a case spawns into has room for at least one particle,
+no texture call is made on an id the fake did not hand out, no pool is
+reallocated while it holds particles, and the mesh factory stays bound while
+meshes live (the fake hands out no null mesh).
+"""
+
+import importlib.util
+import os
+import re
+import struct
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+REPO = os.path.normpath(os.path.join(HERE, "..", "..", "..", "..", ".."))
+
+
+def _load_fx_data_helpers():
+    path = os.path.join(REPO, "crates", "neuron-core", "tests", "fixtures", "oracle",
+                        "make_fx_data_fixtures.py")
+    spec = importlib.util.spec_from_file_location("make_fx_data_fixtures", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+fx = _load_fx_data_helpers()
+
+
+def _crc_table():
+    with open(os.path.join(REPO, "crates", "neuron-core", "src", "hash.rs")) as source:
+        text = source.read()
+    block = text[text.index("const CRC_TABLE"):]
+    block = block[block.index("[") + 1:block.index("];")]
+    words = [int(w.replace("_", ""), 16) for w in re.findall(r"0x[0-9A-Fa-f_]+", block)]
+    assert len(words) == 256
+    return words
+
+
+CRC = _crc_table()
+
+
+def name_hash(name):
+    """HashNameCrc: the engine CRC over the bytes as they are."""
+    crc = 0xFFFFFFFF
+    for byte in name:
+        crc = CRC[(byte ^ crc) & 0xFF] ^ (crc >> 8)
+    return crc ^ 0xFFFFFFFF
+
+
+def f(value):
+    return "%08x" % struct.unpack("<I", struct.pack("<f", value))[0]
+
+
+def hx(data):
+    return data.hex()
+
+
+# --- Property helpers ---------------------------------------------------------------------
+
+prop, node, string, f32, u32 = fx.prop, fx.node, fx.string, fx.f32, fx.u32
+nested11, animated, single, color, transform = (fx.nested11, fx.animated, fx.single, fx.color,
+                                                fx.transform)
+Bits = fx.Bits
+STEP = Bits(0xFFFFFFFF)
+
+ANIM, RAMP, CRAMP = 0x202, 0x200, 0x201
+NAME, LIFE, XFORM = 0xEFA8CE01, 0xF27FDE7D, 0xE13A59A1
+
+FREQ, MAXP, COUNT, LIFESPAN, PRESSURE, APPROACH = (0x023C350C, 0xF5042852, 0xE7221F95,
+                                                   0x0A635880, 0x0AB180C5, 0x0681233E)
+INITIAL, EMIT_LOD = 0x0F9A9D52, 0xFE077E05
+CONE_MIN_R, CONE_MAX_R, CONE_MIN_S, CONE_MAX_S = 0x1C73D16B, 0xF636F07F, 0x100E7F55, 0xFA4B5E41
+CUBE_W, CUBE_H, CUBE_D, CUBE_MIN_S, CUBE_MAX_S = (0xFD22A11C, 0xEFB0F8CF, 0x14B74EB2,
+                                                  0xE282006B, 0x08C7217F)
+SPHERE_MIN_R, SPHERE_MAX_R = 0xF231FF60, 0x1874DE74
+GRAVITY = 0xE02B8BD4
+AIR_MAG, AIR_APPROACH = 0xE5E3524C, 0x10423CEB
+RAD_RADIUS, RAD_ATTEN, RAD_MAG, RAD_APPROACH = 0xFF28F620, 0x1A433168, 0x0064B3B9, 0xF3CF5EA5
+TURB_MAG, TURB_APPROACH = 0x1CEAC6D1, 0x1B970B9A
+COLLIDE_REFLECT = 0xF2468210
+DUST_RADIUS = 0x1874DE74
+TEXNAME, BLEND, COLOR, ALPHA, SIZE = 0x1BA23359, 0x1506EB6C, 0x048767E8, 0x04FC9016, 0xF7C2EBA9
+USE_COMMON_FRAME, COMMON_FRAME = 0xE2F60EEB, 0xF52B8DD5
+APP_LOD = 0x0C53B008
+
+OVERRIDE_FOLDER = 0xEE223B51
+ROOT = 0x8000
+
+
+def anim(value):
+    """A nested animated ramp with one keyless value."""
+    return nested11(4, [(0.0, animated(value, 0, []))])
+
+
+def anim_keys(keys, loop=0, weight=1.0, mode=4):
+    """A nested animated ramp whose one child has keys (time, value, in, out)."""
+    return nested11(mode, [(0.0, animated(weight, loop, keys))])
+
+
+def ramp(value):
+    return nested11(4, [(0.0, single(4, [(0.0, value)]))])
+
+
+def named(cls, name, props):
+    return node(cls, [prop(0x103, NAME, string(name))] + props)
+
+
+def channels(values):
+    return [anim(v) for v in values]
+
+
+def bool_prop(hashv, value=True):
+    return prop(0x8001 if value else 0x0001, hashv)
+
+
+def texture_name(text):
+    return prop(0x103, TEXNAME, string(text))
+
+
+def name_crc(text):
+    """NEURONCOMPONENTS_CRC::GetCRC32: the case-folded name CRC the billboard sets keep."""
+    crc = 0xFFFFFFFF
+    for byte in text.lower():
+        crc = CRC[(byte ^ crc) & 0xFF] ^ (crc >> 8)
+    return crc ^ 0xFFFFFFFF
+
+
+# --- particle_ramp ------------------------------------------------------------------------
+
+def ramp_library():
+    """Nodes whose properties reach every evaluation rule."""
+    loops = [0x00, 0x11, 0x22, 0x33, 0x44, 0x12, 0x30]
+    hermite = [(0.0, 0.0, 0.0, 2.0), (1.0, 4.0, -1.0, 0.5), (1.0, 5.0, 0.0, 0.0),
+               (2.5, -3.0, 0.25, STEP), (4.0, 1.0, 1.0, 1.0)]
+    emitter_props = [
+        prop(ANIM, FREQ, anim_keys(hermite, loops[0])),
+        prop(ANIM, MAXP, anim_keys(hermite, loops[1])),
+        prop(ANIM, COUNT, anim_keys(hermite, loops[2])),
+        prop(ANIM, LIFESPAN, anim_keys(hermite, loops[3])),
+        prop(ANIM, PRESSURE, anim_keys(hermite, loops[4])),
+        prop(ANIM, APPROACH, anim_keys(hermite, loops[5])),
+        prop(ANIM, SPHERE_MIN_R, anim_keys([(0.5, 2.0, 0.0, 0.0)], 0x44)),
+        prop(ANIM, SPHERE_MAX_R, anim_keys([(0.5, 2.0, 3.0, -3.0)], 0x00)),
+        # Outer keys blended in each mode.
+        prop(RAMP, EMIT_LOD, nested11(0, [
+            (0.0, single(1, [(0.0, 0.0), (1.0, 1.0), (1.0, 5.0), (2.0, 6.0)])),
+            (2.0, single(4, [(0.0, 10.0), (2.0, 0.0)]))])),
+    ]
+    nested_modes = []
+    for mode in range(8):
+        nested_modes.append(nested11(mode if mode < 7 else 9, [
+            (0.0, animated(1.0, 0, [(0.0, 0.0, 0.0, 0.0), (2.0, 8.0, 0.0, 0.0)])),
+            (1.0, animated(3.0, 0, [])),
+            (3.0, animated(-2.0, 0x30, [(0.0, 1.0, 0.0, 0.0), (1.0, 2.0, 0.0, 0.0)]))]))
+    flat = []
+    for mode in range(7):
+        flat.append(nested11(mode, [
+            (0.0, single(mode, [(-1.0, 2.0), (0.5, -1.0), (0.5, 3.0), (2.0, 0.25)])),
+            (1.5, single((mode + 3) % 7, [(0.0, 1.0), (1.0, 7.0)])),
+            (2.0, single(mode, [(0.0, 4.0)]))]))
+    colors = []
+    for mode in range(7):
+        colors.append(nested11(mode, [
+            (0.0, color(mode, [(0.0, (0.1, 0.9, 0.5)), (0.5, (1.0, 0.0, 0.25)),
+                               (0.5, (0.2, 0.2, 0.2)), (1.0, (0.0, 1.0, 1.0))])),
+            (1.0, color((mode + 4) % 7, [(0.0, (1.0, 1.0, 1.0)), (2.0, (0.0, 0.5, 0.0))])),
+            (2.5, color(mode, [(0.0, (0.3, 0.6, 0.9))]))]))
+    rotate = channels([0.0] * 9)
+    rotate[0] = anim_keys([(0.0, 1.0, 0.0, 0.0), (2.0, -3.0, 0.0, 0.0)])
+    rotate[2] = anim_keys([(0.0, 0.5, 0.0, 0.0)])
+    rotate[3] = anim_keys([(0.0, 0.0, 0.0, 0.0), (2.0, 90.0, 10.0, 10.0)])
+    rotate[4] = anim(30.0)
+    rotate[5] = anim_keys([(0.0, -45.0, 0.0, 0.0), (1.0, 200.0, 0.0, 0.0)], 0x11)
+    rotate[6] = anim_keys([(0.0, 1.0, 0.0, 0.0), (2.0, 2.0, 0.0, 0.0)])
+    rotate[8] = anim(0.5)
+    scale_only = channels([0.0] * 6 + [2.0, 1.0, 1.0])
+    nodes = [
+        named(b"FxSphereEmitter", b"ramp_emitter", emitter_props + [
+            prop(0x105, XFORM, transform(1, 2, 3, rotate))]),
+        named(b"FxBasicAppearance", b"ramp_basic", [
+            prop(CRAMP, COLOR, colors[0]),
+            prop(RAMP, ALPHA, flat[1]),
+            prop(RAMP, SIZE, flat[2]),
+            prop(RAMP, 0x05DB630E, flat[3]),
+            prop(RAMP, 0x015A6F47, flat[4]),
+            prop(RAMP, 0xE0E97650, flat[5]),
+            prop(RAMP, APP_LOD, flat[6]),
+            prop(ANIM, COMMON_FRAME, nested_modes[0]),
+        ]),
+        named(b"FxRectAppearance", b"ramp_rect", [
+            prop(CRAMP, COLOR, colors[1]),
+            prop(ANIM, COMMON_FRAME, nested_modes[1]),
+            prop(0x105, XFORM, transform(0, 0, 0, scale_only)),
+        ]),
+        named(b"FxPerpAppearance", b"ramp_perp", [
+            prop(CRAMP, COLOR, colors[2]),
+            prop(ANIM, COMMON_FRAME, nested_modes[2]),
+        ]),
+        named(b"FxOrientedAppearance", b"ramp_oriented", [
+            prop(CRAMP, COLOR, colors[3]),
+            prop(ANIM, COMMON_FRAME, nested_modes[3]),
+            prop(0x105, 0xF0004D58, transform(4, 3, 5, rotate)),
+        ]),
+        named(b"FLDustAppearance", b"ramp_dust", [
+            prop(CRAMP, COLOR, colors[4]),
+            prop(ANIM, COMMON_FRAME, nested_modes[4]),
+        ]),
+        named(b"FLBeamAppearance", b"ramp_beam", [
+            prop(CRAMP, COLOR, colors[5]),
+            prop(ANIM, COMMON_FRAME, nested_modes[5]),
+        ]),
+        named(b"FxRadialField", b"ramp_radial", [
+            prop(RAMP, RAD_ATTEN, flat[0]),
+            prop(ANIM, RAD_MAG, nested_modes[6]),
+            prop(ANIM, RAD_RADIUS, nested_modes[7]),
+        ]),
+        named(b"FxCubeEmitter", b"ramp_cube", [
+            prop(ANIM, CUBE_W, anim_keys(hermite, loops[6])),
+            prop(ANIM, CUBE_H, anim_keys([(1.0, 3.0, 0.0, 0.0), (1.0, 4.0, 0.0, 0.0)], 0x44)),
+        ]),
+        named(b"FxParticleAppearance", b"ramp_particle", [prop(RAMP, APP_LOD, flat[3])]),
+    ]
+    return fx.library(nodes)
+
+
+def ramp_times():
+    times = [(0.0, 0.0), (0.5, 0.5), (1.0, 1.0), (0.25, 0.75), (1.0, 0.5), (2.0, 2.0),
+             (1.75, -1.5), (3.0, 4.0), (0.6, 1.0), (-1.0, 9.5), (2.4, -7.25), (1.2, 2.5),
+             (0.5, 0.5), (5.0, 1.999), (1.5, 13.0)]
+    return ",".join("%s:%s" % (f(a), f(b)) for a, b in times)
+
+
+def ramp_list():
+    lines = [hx(ramp_library()) + " " + ramp_times()]
+    # The 1.0 library: one key per nested ramp.
+    v10 = fx.library([
+        node(b"FxConeEmitter", [prop(0x103, NAME, string(b"old")),
+                                prop(0x100, EMIT_LOD, single(2, [(0.0, 1.0), (1.0, 3.0)])),
+                                prop(0x102, FREQ, animated(5.0, 0x11, [(0.0, 1.0, 0.0, 0.0),
+                                                                         (1.0, 2.0, 0.0, 0.0)]))]),
+    ], version=fx.V10)
+    lines.append(hx(v10) + " " + ramp_times())
+    return lines
+
+
+# --- particle_sim -------------------------------------------------------------------------
+
+def effect(name, refs, pairs):
+    return fx.effect(name, refs, pairs)
+
+
+def ale_op(nodes, effects):
+    return "ale %s %s" % (hx(fx.library(nodes)), hx(fx.effects_lib(effects)))
+
+
+def ref(name, parent, ident, kind=0):
+    return (kind, name_hash(name), parent, ident)
+
+
+DT = f(1.0 / 30.0)
+XF_ID = ",".join(f(v) for v in (1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0))
+
+
+def xf(rot, pos):
+    return ",".join(f(v) for v in list(rot) + list(pos))
+
+
+def steps(slot, count, dt=DT):
+    return ["step %d %s" % (slot, dt)] * count
+
+
+def sim_basic():
+    """Sphere emitter into a basic appearance under gravity; stop and finish."""
+    nodes = [
+        named(b"FxSphereEmitter", b"spark_emit", [
+            prop(ANIM, FREQ, anim(40.0)), prop(ANIM, LIFESPAN, anim(0.5)),
+            prop(ANIM, PRESSURE, anim(3.0)), prop(2, INITIAL, u32(3)),
+            prop(ANIM, SPHERE_MIN_R, anim(0.25)), prop(ANIM, SPHERE_MAX_R, anim(1.5)),
+            prop(3, LIFE, f32(10.0))]),
+        named(b"FxBasicAppearance", b"spark_app", [prop(CRAMP, COLOR, nested11(4, [
+            (0.0, color(1, [(0.0, (1.0, 0.5, 0.0)), (1.0, (0.0, 0.0, 1.0))]))]))]),
+        named(b"FxGravityField", b"spark_gravity", [prop(ANIM, GRAVITY, anim(4.0))]),
+    ]
+    effects = [effect(b"sparks", [ref(b"spark_emit", ROOT, 1), ref(b"spark_app", ROOT, 2),
+                                  ref(b"spark_gravity", ROOT, 3)], [(1, 2), (2, 3)])]
+    ops = [ale_op(nodes, effects), "effect 0 " + hx(b"sparks"), "dump 0",
+           "xform 0 0 " + XF_ID] + steps(0, 1) + ["dump 0"] + steps(0, 5) + [
+        "dump 0", "pools", "stop 0 1", "done 0 4"] + steps(0, 4) + ["dump 0", "done 0 4"] + \
+        steps(0, 14) + ["done 0 4", "dump 0", "rand", "release 0", "pools"]
+    return ops
+
+
+def sim_cone_motion():
+    """Cone emitter moving each frame (motion compensation and velocity
+    approach), air and turbulence fields on a perp appearance."""
+    nodes = [
+        named(b"FxConeEmitter", b"jet_emit", [
+            prop(ANIM, FREQ, anim(25.0)), prop(ANIM, LIFESPAN, anim(0.4)),
+            prop(ANIM, PRESSURE, anim_keys([(0.0, 2.0, 0.0, 0.0), (1.0, 6.0, 0.0, 0.0)])),
+            prop(ANIM, APPROACH, anim(0.5)),
+            prop(ANIM, CONE_MIN_R, anim(0.1)), prop(ANIM, CONE_MAX_R, anim(0.4)),
+            prop(ANIM, CONE_MIN_S, anim(5.0)), prop(ANIM, CONE_MAX_S, anim(30.0))]),
+        named(b"FxPerpAppearance", b"jet_app", []),
+        named(b"FxAirField", b"jet_air", [prop(ANIM, AIR_MAG, anim(-2.0)),
+                                          prop(ANIM, AIR_APPROACH, anim(1.5))]),
+        named(b"FxTurbulenceField", b"jet_turb", [prop(ANIM, TURB_MAG, anim(3.0)),
+                                                  prop(ANIM, TURB_APPROACH, anim(0.25))]),
+    ]
+    effects = [effect(b"jet", [ref(b"jet_app", ROOT, 1), ref(b"jet_emit", ROOT, 2),
+                               ref(b"jet_air", ROOT, 3), ref(b"jet_turb", ROOT, 4)],
+                      [(2, 1), (1, 3), (1, 4)])]
+    ops = [ale_op(nodes, effects), "seed 4660 7", "effect 0 " + hx(b"jet")]
+    rot = (0.8, 0.0, -0.6, 0.0, 1.0, 0.0, 0.6, 0.0, 0.8)
+    for frame in range(8):
+        ops.append("xform 0 0 " + xf(rot, (0.5 * frame, 0.25 * frame, -frame)))
+        ops += steps(0, 1)
+    ops += ["dump 0", "rand", "stop 0 7", "dump 0", "release 0", "pools"]
+    return ops
+
+
+def sim_cube_pool():
+    """Cube emitter into a rect appearance with radial and collide fields,
+    through a pool of four items (eviction), with a second effect sharing it."""
+    nodes = [
+        named(b"FxCubeEmitter", b"box_emit", [
+            prop(ANIM, FREQ, anim(60.0)), prop(ANIM, LIFESPAN, anim(1.0)),
+            prop(ANIM, PRESSURE, anim(1.0)), prop(ANIM, CUBE_W, anim(2.0)),
+            prop(ANIM, CUBE_H, anim(1.0)), prop(ANIM, CUBE_D, anim(0.5)),
+            prop(ANIM, CUBE_MIN_S, anim(0.0)), prop(ANIM, CUBE_MAX_S, anim(80.0))]),
+        named(b"FxRectAppearance", b"box_app", []),
+        named(b"FxRadialField", b"box_radial", [
+            prop(ANIM, RAD_RADIUS, anim(2.0)), prop(ANIM, RAD_MAG, anim(5.0)),
+            prop(ANIM, RAD_APPROACH, anim(0.5)),
+            prop(RAMP, RAD_ATTEN, nested11(4, [(0.0, single(1, [(0.0, 1.0), (1.0, 0.0)]))]))]),
+        named(b"FxGravityField", b"box_gravity", [prop(ANIM, GRAVITY, anim(-30.0))]),
+        named(b"FxCollideField", b"box_floor", [prop(ANIM, COLLIDE_REFLECT, anim(0.6)),
+                                                prop(0x105, XFORM, transform(0, 0, 0, channels(
+                                                    [0.0, 0.5, 0.0, 10.0, 0.0, 0.0, 1, 1, 1])))]),
+    ]
+    effects = [effect(b"box", [ref(b"box_app", ROOT, 1), ref(b"box_emit", ROOT, 2),
+                               ref(b"box_radial", ROOT, 3), ref(b"box_floor", ROOT, 4),
+                               ref(b"box_gravity", ROOT, 5)],
+                      [(2, 1), (1, 3), (1, 5), (1, 4)])]
+    ops = [ale_op(nodes, effects), "pool rect 4", "seed 99 3", "effect 0 " + hx(b"box"),
+           "effect 1 " + hx(b"box"), "xform 1 0 " + xf((1, 0, 0, 0, 1, 0, 0, 0, 1), (3, 0, 0))]
+    for _ in range(8):
+        ops += steps(0, 1) + steps(1, 1)
+    ops += ["dump 0", "dump 1", "pools", "release 0", "pools"] + steps(1, 3) + [
+        "dump 1", "release 1", "pools"]
+    return ops
+
+
+def sim_folders():
+    """Folders (a kind 1 group and the transform override), animated node
+    transforms, outer time, LOD input, bursts, initial particles, the
+    particle cap, lifetimes, and a beam with a beam field and a dust
+    appearance with a dust field."""
+    move = channels([0.0] * 9)
+    move[0] = anim_keys([(0.0, 0.0, 0.0, 0.0), (1.0, 2.0, 0.0, 0.0)])
+    move[4] = anim_keys([(0.0, 0.0, 0.0, 0.0), (1.0, 90.0, 0.0, 0.0)])
+    nodes = [
+        named(b"FxSphereEmitter", b"burst_emit", [
+            prop(ANIM, FREQ, anim(0.0)), prop(ANIM, LIFESPAN, anim(2.0)),
+            prop(ANIM, COUNT, anim_keys([(0.05, 4.0, 0.0, 0.0), (0.1, 2.5, 0.0, 0.0),
+                                         (0.2, 6.0, 0.0, 0.0)])),
+            prop(ANIM, MAXP, anim(7.0)), prop(2, INITIAL, u32(2)),
+            prop(RAMP, EMIT_LOD, nested11(4, [(0.0, single(1, [(0.0, 0.5), (1.0, 1.5)]))])),
+            prop(3, LIFE, f32(0.4)), prop(0x105, XFORM, transform(0, 0, 0, move))]),
+        named(b"FLBeamAppearance", b"burst_beam", []),
+        named(b"FLBeamField", b"burst_beamfield", []),
+        named(b"FxConeEmitter", b"dust_emit", [
+            prop(ANIM, FREQ, anim(30.0)), prop(ANIM, LIFESPAN, anim(0.3)),
+            prop(ANIM, PRESSURE, anim(4.0)), prop(ANIM, CONE_MAX_S, anim(60.0))]),
+        named(b"FLDustAppearance", b"dust_app", []),
+        named(b"FLDustField", b"dust_field", [prop(ANIM, DUST_RADIUS, anim(4.0))]),
+        named(b"FxOrientedAppearance", b"dust_oriented", []),
+        named(b"FxSphereEmitter", b"dust_feed", [
+            prop(ANIM, FREQ, anim(45.0)), prop(ANIM, LIFESPAN, anim(20.0)),
+            prop(ANIM, PRESSURE, anim(12.0)), prop(ANIM, SPHERE_MAX_R, anim(0.3))]),
+    ]
+    effects = [effect(b"groups", [
+        ref(b"group", ROOT, 1, kind=1),
+        ref(b"burst_emit", 1, 2), ref(b"burst_beam", 1, 3), ref(b"burst_beamfield", 1, 4),
+        (2, OVERRIDE_FOLDER, ROOT, 5),
+        ref(b"dust_emit", 5, 6), ref(b"dust_app", 5, 7), ref(b"dust_field", 5, 8),
+        ref(b"dust_oriented", ROOT, 9), ref(b"dust_feed", 5, 10)],
+        [(2, 3), (3, 4), (6, 7), (7, 8), (6, 9), (10, 7)])]
+    ops = [ale_op(nodes, effects), "seed 51966 0", "effect 0 " + hx(b"groups"), "dump 0",
+           "outer 0 " + f(0.5), "lod 0 " + f(0.75),
+           "xform 0 0 " + xf((0, 1, 0, -1, 0, 0, 0, 0, 1), (1, 2, 3)),
+           "xform 0 1 " + xf((1, 0, 0, 0, 1, 0, 0, 0, 1), (0, 0.25, 0))]
+    ops += steps(0, 3) + ["dump 0"] + steps(0, 6, f(0.05)) + ["dump 0", "done 0 1", "done 0 2",
+                                                              "done 0 7", "age 0 " + f(0.0)]
+    ops += steps(0, 2) + ["dump 0", "release 0", "pools"]
+    return ops
+
+
+def sim_textures():
+    """Texture frames: a common-frame lookup, an advancing playback, a texture
+    the library does not find, and the handle released with the node."""
+    nodes = [
+        named(b"FxSphereEmitter", b"tex_emit", [prop(ANIM, FREQ, anim(10.0)),
+                                                prop(ANIM, LIFESPAN, anim(0.25))]),
+        named(b"FxBasicAppearance", b"tex_frame", [
+            texture_name(b"anim.tga"), bool_prop(USE_COMMON_FRAME),
+            prop(ANIM, COMMON_FRAME, anim_keys([(0.0, 0.0, 0.0, 0.0), (1.0, 1.0, 0.0, 0.0)]))]),
+        named(b"FxRectAppearance", b"tex_play", [texture_name(b"play.tga")]),
+        named(b"FxPerpAppearance", b"tex_missing", [texture_name(b"missing.tga")]),
+        named(b"FLBeamAppearance", b"tex_beam", [texture_name(b"anim.tga")]),
+    ]
+    effects = [effect(b"textured", [ref(b"tex_frame", ROOT, 1), ref(b"tex_play", ROOT, 2),
+                                    ref(b"tex_missing", ROOT, 3), ref(b"tex_beam", ROOT, 4),
+                                    ref(b"tex_emit", ROOT, 5)],
+                      [(5, 1), (5, 2)])]
+    ops = [ale_op(nodes, effects),
+           "tex %08x 4" % name_crc(b"anim.tga"), "tex %08x 3" % name_crc(b"play.tga"),
+           "effect 0 " + hx(b"textured")]
+    ops += steps(0, 4, f(0.2)) + ["dump 0", "stop 0 7", "release 0"]
+    return ops
+
+
+def sim_errors():
+    """An unknown effect, a record whose node is missing, and nodes made
+    and released without ever updating."""
+    nodes = [named(b"FxBasicAppearance", b"lonely", [])]
+    effects = [effect(b"broken", [ref(b"lonely", ROOT, 1), ref(b"nowhere", ROOT, 2)], []),
+               effect(b"idle", [ref(b"lonely", ROOT, 1)], [])]
+    return [ale_op(nodes, effects), "effect 0 " + hx(b"absent"), "effect 1 " + hx(b"broken"),
+            "release 1", "effect 2 " + hx(b"idle"), "dump 2", "done 2 4"] + steps(2, 1) + [
+        "dump 2", "done 2 4", "release 2", "pools"]
+
+
+def sim_list():
+    return [" ; ".join(case()) for case in (sim_basic, sim_cone_motion, sim_cube_pool,
+                                            sim_folders, sim_textures, sim_errors)]
+
+
+# --- particle_draw ------------------------------------------------------------------------
+
+# The billboard sets' ramp and flag hashes (crates/neuron-core/src/fx_data/props.rs).
+B_ALPHA, B_PRIMARY = 0x04FC9016, 0xF7C2EBA9
+B_ANGLE, B_FRAMEPOS, B_ASPECT = 0x05DB630E, 0x015A6F47, 0xE0E97650
+B_TRI_UV, B_QUADS, B_STREAK, B_FLIP_U, B_FLIP_V = (0xF863872E, 0xF87B5FD5, 0xE91467F1,
+                                                  0xF3D52EE4, 0xE8DC7F5E)
+R_PRIMARY, R_LENGTH, R_WIDTH, R_FRAME = 0xFBA203B8, 0xE48DDAE2, 0x1266735F, 0x015A6F47
+R_CENTRED, R_FADE = 0xFB7958C1, 0xF9FEBF0D
+O_HEIGHT, O_WIDTH, O_XFORM = 0xF267B8E1, 0xFA03992F, 0xF0004D58
+BEAM_NO_EXTRAPOLATE, BEAM_CAP, BEAM_WIRE, BEAM_FAN = 0x08508C35, 0xE8B8CDE7, 0x1C65B7B9, 0xF87B5FD5
+BEAM_WIDTH = 0x1266735F
+
+
+def pair_prop(hashv, a, b):
+    return prop(0x104, hashv, u32(a) + u32(b))
+
+
+def flat(keys, mode=1):
+    """A nested flat ramp with one child keyed over the inner time."""
+    return nested11(4, [(0.0, single(mode, keys))])
+
+
+def view_xf(rot, pos):
+    return xf(rot, pos)
+
+
+ROT_A = (0.8, 0.0, -0.6, 0.0, 1.0, 0.0, 0.6, 0.0, 0.8)
+ROT_B = (1.0, 0.0, 0.0, 0.0, 0.6, 0.8, 0.0, -0.8, 0.6)
+ID3 = (1, 0, 0, 0, 1, 0, 0, 0, 1)
+
+
+def cam(view_rot, view_pos, world_rot, world_pos):
+    return "cam %s %s" % (xf(view_rot, view_pos), xf(world_rot, world_pos))
+
+
+def feeder(name, count, pressure=2.0, life=2.0, radius=1.0, freq=0.0):
+    return named(b"FxSphereEmitter", name, [
+        prop(ANIM, FREQ, anim(freq)), prop(ANIM, LIFESPAN, anim(life)),
+        prop(ANIM, PRESSURE, anim(pressure)), prop(2, INITIAL, u32(count)),
+        prop(ANIM, SPHERE_MIN_R, anim(0.1)), prop(ANIM, SPHERE_MAX_R, anim(radius)),
+        prop(3, LIFE, f32(20.0))])
+
+
+def fed_effect(name, pairs_of):
+    """An effect of (emitter, appearance) name pairs, every node a root."""
+    refs, pairs = [], []
+    for i, (emitter_name, app_name) in enumerate(pairs_of):
+        refs += [ref(app_name, ROOT, 2 * i + 1), ref(emitter_name, ROOT, 2 * i + 2)]
+        pairs.append((2 * i + 2, 2 * i + 1))
+    return effect(name, refs, pairs)
+
+
+def draw_frame(slot=0):
+    return ["begin", "draw %d" % slot, "end", "counters"]
+
+
+def draw_basic():
+    """The basic fills: triangles in both UV tables, quads with the frame flips,
+    streaks along the screen velocity, alpha below the cut, frame lookups."""
+    colour = prop(CRAMP, COLOR, nested11(4, [
+        (0.0, color(1, [(0.0, (1.0, 0.5, 0.25)), (1.0, (0.0, 0.75, 1.0))]))]))
+    nodes = [
+        feeder(b"e1", 4), feeder(b"e2", 3, pressure=3.0), feeder(b"e3", 3),
+        feeder(b"e4", 4, pressure=5.0),
+        named(b"FxBasicAppearance", b"tri", [
+            colour, prop(RAMP, B_ALPHA, flat([(0.0, 0.9), (1.0, 0.0)])),
+            prop(RAMP, B_PRIMARY, flat([(0.0, 0.5), (1.0, 1.5)])),
+            prop(RAMP, B_ANGLE, flat([(0.0, 0.3), (1.0, 2.5)])),
+            pair_prop(BLEND, 5, 6)]),
+        named(b"FxBasicAppearance", b"tri_uv", [
+            colour, bool_prop(B_TRI_UV), texture_name(b"anim.tga"),
+            prop(RAMP, B_FRAMEPOS, flat([(0.0, 0.0), (0.2, 1.0)])),
+            prop(RAMP, B_ANGLE, flat([(0.0, -1.0)]))]),
+        named(b"FxBasicAppearance", b"quad", [
+            colour, bool_prop(B_QUADS), bool_prop(B_FLIP_U), bool_prop(B_FLIP_V),
+            texture_name(b"anim.tga"),
+            prop(RAMP, B_FRAMEPOS, flat([(0.0, 0.0), (0.1, 1.0)])),
+            prop(RAMP, B_ASPECT, flat([(0.0, 2.0)])), prop(RAMP, B_ANGLE, flat([(0.0, 0.75)])),
+            prop(RAMP, APP_LOD, flat([(0.0, 0.5), (1.0, 2.0)]))]),
+        named(b"FxBasicAppearance", b"streak", [
+            colour, bool_prop(B_QUADS), bool_prop(B_STREAK),
+            prop(RAMP, B_ASPECT, flat([(0.0, 0.5)])),
+            prop(RAMP, B_ALPHA, flat([(0.0, 0.005), (0.01, 0.6)]))]),
+    ]
+    effects = [fed_effect(b"basics", [(b"e1", b"tri"), (b"e2", b"tri_uv"), (b"e3", b"quad"),
+                                      (b"e4", b"streak")])]
+    ops = [ale_op(nodes, effects), "tex %08x 4" % name_crc(b"anim.tga"), "seed 777 1",
+           "effect 0 " + hx(b"basics"), "lod 0 " + f(0.5),
+           "xform 0 0 " + xf(ROT_A, (0.5, -1.0, 2.0)),
+           cam(ROT_B, (0.25, 0.5, -12.0), ROT_A, (1.0, 2.0, 30.0))]
+    ops += steps(0, 2) + draw_frame() + ["spheres 0", "bounds 0"] + steps(0, 3, f(0.1)) + \
+        draw_frame() + ["bounds 0", "dump 0", "release 0"]
+    return ops
+
+
+def draw_rect():
+    """Rect quads: plain, centred and stretched, faded edge-on, flipped with
+    frame lookups."""
+    nodes = [
+        feeder(b"e1", 3), feeder(b"e2", 3, pressure=4.0), feeder(b"e3", 4, pressure=1.0),
+        feeder(b"e4", 3, pressure=2.5),
+        named(b"FxRectAppearance", b"plain", [pair_prop(BLEND, 2, 1),
+                                              prop(RAMP, R_LENGTH, flat([(0.0, 2.0)])),
+                                              prop(RAMP, R_WIDTH, flat([(0.0, 0.5)]))]),
+        named(b"FxRectAppearance", b"stretch", [bool_prop(R_CENTRED), bool_prop(B_STREAK),
+                                                prop(RAMP, R_PRIMARY,
+                                                     flat([(0.0, 0.5), (1.0, 2.0)]))]),
+        named(b"FxRectAppearance", b"fade", [bool_prop(R_FADE),
+                                             prop(RAMP, R_WIDTH, flat([(0.0, 3.0)])),
+                                             prop(RAMP, B_ALPHA, flat([(0.0, 0.7)]))]),
+        named(b"FxRectAppearance", b"flip", [bool_prop(B_FLIP_U), bool_prop(B_FLIP_V),
+                                             bool_prop(R_CENTRED), texture_name(b"play.tga"),
+                                             prop(RAMP, R_FRAME, flat([(0.0, 0.0), (0.1, 1.0)]))]),
+    ]
+    effects = [fed_effect(b"rects", [(b"e1", b"plain"), (b"e2", b"stretch"), (b"e3", b"fade"),
+                                     (b"e4", b"flip")])]
+    ops = [ale_op(nodes, effects), "tex %08x 3" % name_crc(b"play.tga"), "seed 4242 9",
+           "effect 0 " + hx(b"rects"), "xform 0 0 " + xf(ROT_B, (2.0, 0.0, -1.0)),
+           cam(ROT_A, (0.0, 0.0, -10.0), ROT_B, (0.5, 1.0, 1.5))]
+    ops += steps(0, 2) + draw_frame() + ["spheres 0", "bounds 0"] + steps(0, 2) + \
+        draw_frame() + ["release 0"]
+    return ops
+
+
+def draw_perp():
+    """Perp squares carrying their axis over frames, edge-on fade, a still
+    particle, frame lookups with the flips."""
+    nodes = [
+        feeder(b"e1", 3), feeder(b"e2", 3, pressure=0.0), feeder(b"e3", 3, pressure=3.0),
+        named(b"FxPerpAppearance", b"plain", [pair_prop(BLEND, 5, 2),
+                                              prop(RAMP, B_PRIMARY, flat([(0.0, 1.5)]))]),
+        named(b"FxPerpAppearance", b"still", [bool_prop(B_FLIP_U), texture_name(b"anim.tga"),
+                                              prop(RAMP, B_FRAMEPOS,
+                                                   flat([(0.0, 0.0), (1.0, 1.0)]))]),
+        named(b"FxPerpAppearance", b"fade", [bool_prop(R_FADE), bool_prop(B_FLIP_V)]),
+    ]
+    effects = [fed_effect(b"perps", [(b"e1", b"plain"), (b"e2", b"still"), (b"e3", b"fade")])]
+    ops = [ale_op(nodes, effects), "tex %08x 4" % name_crc(b"anim.tga"), "seed 31 4",
+           "effect 0 " + hx(b"perps"), "xform 0 0 " + xf(ROT_A, (0.0, 1.0, 0.0)),
+           cam(ID3, (0.0, 0.0, -8.0), ROT_B, (3.0, -2.0, 4.0))]
+    ops += steps(0, 1) + draw_frame() + ["dump 0"] + steps(0, 2) + draw_frame() + \
+        ["dump 0", "spheres 0", "bounds 0", "release 0"]
+    return ops
+
+
+def draw_oriented():
+    """Oriented quads on the local transform's axes, faded edge-on."""
+    rotate = channels([0.0] * 9)
+    rotate[3] = anim_keys([(0.0, 0.0, 0.0, 0.0), (1.0, 90.0, 0.0, 0.0)])
+    rotate[5] = anim(30.0)
+    rotate[0] = anim(0.25)
+    rotate[6] = anim(1.0)
+    rotate[7] = anim(1.0)
+    rotate[8] = anim(1.0)
+    nodes = [
+        feeder(b"e1", 3), feeder(b"e2", 4, pressure=3.0), feeder(b"e3", 3),
+        named(b"FxOrientedAppearance", b"plain", [prop(RAMP, O_HEIGHT, flat([(0.0, 2.0)]))]),
+        named(b"FxOrientedAppearance", b"turn", [prop(0x105, O_XFORM, transform(0, 0, 0, rotate)),
+                                                 bool_prop(B_FLIP_U), texture_name(b"anim.tga"),
+                                                 prop(RAMP, R_FRAME, flat([(0.0, 0.0), (1.0, 1.0)]))]),
+        named(b"FxOrientedAppearance", b"fade", [prop(0x105, O_XFORM, transform(0, 0, 0, rotate)),
+                                                 bool_prop(R_FADE),
+                                                 prop(RAMP, O_WIDTH, flat([(0.0, 0.5)]))]),
+    ]
+    effects = [fed_effect(b"oriented", [(b"e1", b"plain"), (b"e2", b"turn"), (b"e3", b"fade")])]
+    ops = [ale_op(nodes, effects), "tex %08x 4" % name_crc(b"anim.tga"), "seed 9001 2",
+           "effect 0 " + hx(b"oriented"), "outer 0 " + f(0.25),
+           cam(ROT_B, (0.0, 0.0, -6.0), ROT_A, (-2.0, 1.0, 5.0))]
+    ops += steps(0, 2) + draw_frame() + ["spheres 0"] + steps(0, 2) + draw_frame() + \
+        ["bounds 0", "release 0"]
+    return ops
+
+
+def draw_dust():
+    """Dust streaks between frames with the camera moving: the speed fade, the
+    jerk, spawns that record the draw's camera transform."""
+    nodes = [
+        named(b"FxConeEmitter", b"dust_emit", [
+            prop(ANIM, FREQ, anim(40.0)), prop(ANIM, LIFESPAN, anim(3.0)),
+            prop(ANIM, PRESSURE, anim(4.0)), prop(ANIM, CONE_MAX_S, anim(60.0)),
+            prop(2, INITIAL, u32(3))]),
+        named(b"FLDustAppearance", b"dust", [prop(RAMP, B_PRIMARY, flat([(0.0, 0.4)])),
+                                             bool_prop(B_FLIP_U), pair_prop(BLEND, 5, 2)]),
+    ]
+    effects = [fed_effect(b"dusty", [(b"dust_emit", b"dust")])]
+    ops = [ale_op(nodes, effects), "seed 123 0", "effect 0 " + hx(b"dusty"),
+           cam(ID3, (0.0, 0.0, -10.0), ID3, (0.0, 0.0, 10.0))]
+    ops += steps(0, 1) + draw_frame() + ["dview 0"]
+    ops += [cam(ID3, (0.5, 0.0, -10.0), ID3, (-0.5, 0.0, 10.0))] + steps(0, 1) + draw_frame() + \
+        ["dview 0", "dump 0"]
+    ops += [cam(ID3, (4.0, 1.0, -10.0), ID3, (-4.0, -1.0, 10.0))] + steps(0, 1) + draw_frame() + \
+        ["dview 0"]
+    ops += [cam(ID3, (60.0, 1.0, -10.0), ID3, (-60.0, -1.0, 10.0))] + steps(0, 1) + \
+        draw_frame() + ["dview 0", "dump 0", "spheres 0", "release 0"]
+    return ops
+
+
+def draw_beam():
+    """Beam ribbons: the fan joins, quad joins, a cap ring, no extrapolation,
+    wireframe, and a tip at a beam field."""
+    def beam(name, props):
+        return named(b"FLBeamAppearance", name, [prop(RAMP, BEAM_WIDTH, flat([(0.0, 0.5),
+                                                                                (1.0, 1.0)]))] + props)
+    nodes = [
+        feeder(b"e1", 0, freq=20.0), feeder(b"e2", 0, freq=25.0), feeder(b"e3", 0, freq=30.0),
+        feeder(b"e4", 0, freq=20.0), feeder(b"e5", 0, freq=20.0), feeder(b"e6", 0, freq=20.0),
+        beam(b"fan", [texture_name(b"anim.tga"), pair_prop(BLEND, 5, 6)]),
+        beam(b"quads", [bool_prop(BEAM_FAN, False)]),
+        beam(b"cap", [bool_prop(BEAM_CAP), texture_name(b"anim.tga")]),
+        beam(b"still", [bool_prop(BEAM_NO_EXTRAPOLATE), bool_prop(BEAM_FAN, False)]),
+        beam(b"wire", [bool_prop(BEAM_WIRE), bool_prop(BEAM_CAP)]),
+        beam(b"tip", []),
+        named(b"FLBeamField", b"tipfield", [prop(0x105, XFORM, transform(0, 0, 0, channels(
+            [0.0, 3.0, 0.0, 0.0, 0.0, 0.0, 1, 1, 1])))]),
+    ]
+    refs, pairs = [], []
+    for i, (e, a) in enumerate([(b"e1", b"fan"), (b"e2", b"quads"), (b"e3", b"cap"),
+                                (b"e4", b"still"), (b"e5", b"wire"), (b"e6", b"tip")]):
+        refs += [ref(a, ROOT, 2 * i + 1), ref(e, ROOT, 2 * i + 2)]
+        pairs.append((2 * i + 2, 2 * i + 1))
+    refs.append(ref(b"tipfield", ROOT, 13))
+    pairs.append((11, 13))
+    effects = [effect(b"beams", refs, pairs)]
+    ops = [ale_op(nodes, effects), "tex %08x 4" % name_crc(b"anim.tga"), "seed 5150 3",
+           "effect 0 " + hx(b"beams"), cam(ROT_A, (0.0, 0.0, -9.0), ROT_B, (2.0, 3.0, 4.0))]
+    for frame in range(5):
+        ops.append("xform 0 0 " + xf(ID3, (0.4 * frame, 0.1 * frame, 0.0)))
+        ops += steps(0, 1)
+    ops += draw_frame() + ["spheres 0", "bounds 0"] + steps(0, 2) + draw_frame() + \
+        ["dump 0", "release 0"]
+    return ops
+
+
+def draw_batch():
+    """The batcher: basic, rect, perp and beam lists filled at the end, two
+    effects in one list, an effect drawn twice, then the same frame unbatched."""
+    nodes = [
+        feeder(b"e1", 3), feeder(b"e2", 3), feeder(b"e3", 3), feeder(b"e4", 0, freq=30.0),
+        feeder(b"e5", 2), feeder(b"e6", 2),
+        named(b"FxBasicAppearance", b"basic", [bool_prop(B_QUADS)]),
+        named(b"FxRectAppearance", b"rect", []),
+        named(b"FxPerpAppearance", b"perp", []),
+        named(b"FLBeamAppearance", b"beam", []),
+        named(b"FxOrientedAppearance", b"oriented", []),
+        named(b"FLDustAppearance", b"dust", []),
+    ]
+    effects = [fed_effect(b"mix", [(b"e1", b"basic"), (b"e2", b"rect"), (b"e3", b"perp"),
+                                   (b"e4", b"beam"), (b"e5", b"oriented"), (b"e6", b"dust")]),
+               fed_effect(b"solo", [(b"e1", b"basic")])]
+    ops = [ale_op(nodes, effects), "seed 2 2", "effect 0 " + hx(b"mix"), "effect 1 " + hx(b"solo"),
+           "xform 1 0 " + xf(ID3, (5.0, 0.0, 0.0)),
+           cam(ROT_A, (0.0, 0.0, -10.0), ROT_B, (1.0, 1.0, 1.0)), "batch 1"]
+    ops += steps(0, 3) + steps(1, 3)
+    ops += ["begin", "draw 0", "draw 1", "end", "counters"]
+    ops += ["begin", "draw 1", "draw 0", "draw 1", "end", "counters"]
+    ops += ["batch 0"] + draw_frame() + ["release 0", "release 1"]
+    return ops
+
+
+def draw_errors():
+    """Draws outside a begin, a second begin, a lost vertex buffer, a context
+    past the limits, bounds of an effect without particles."""
+    nodes = [feeder(b"e1", 3), named(b"FxBasicAppearance", b"basic", [bool_prop(B_QUADS)]),
+             named(b"FxMeshAppearance", b"mesh", []), named(b"FxParticleAppearance", b"kids", []),
+             named(b"FLDustAppearance", b"dust", [])]
+    effects = [fed_effect(b"err", [(b"e1", b"basic")]),
+               effect(b"empty", [ref(b"mesh", ROOT, 1), ref(b"kids", ROOT, 2), ref(b"dust", ROOT, 3),
+                                 ref(b"basic", ROOT, 4)], [])]
+    ops = [ale_op(nodes, effects), "effect 0 " + hx(b"err"), "effect 1 " + hx(b"empty"),
+           "xform 1 0 " + xf(ROT_A, (1.0, 2.0, 3.0)),
+           cam(ID3, (0.0, 0.0, -5.0), ID3, (0.0, 0.0, 5.0))] + steps(0, 1)
+    ops += ["draw 0", "end", "begin", "begin", "draw 0", "end", "vbdrop", "begin", "draw 0", "end",
+            "limits 5000 8 24000", "begin", "draw 0", "end", "limits 5000 5000 6", "begin",
+            "draw 0", "end", "batch 1", "begin", "draw 0", "end", "counters",
+            "bounds 1", "spheres 1", "step 1 " + DT, "bounds 1", "release 0", "release 1"]
+    return ops
+
+
+def draw_list():
+    return [" ; ".join(case()) for case in (draw_basic, draw_rect, draw_perp, draw_oriented,
+                                            draw_dust, draw_beam, draw_batch, draw_errors)]
+
+
+# --- particle_child -----------------------------------------------------------------------
+
+# The particle and mesh appearance sets' hashes (crates/neuron-core/src/fx_data/props.rs).
+P_LIFE, P_DEATH, P_DYNAMIC, P_SMOOTH = 0x0EC7A290, 0x03B76E6C, 0xE34C3C55, 0x049A6DBE
+M_ID, M_NAME, M_UPT, M_XFORM = 0x0B7EE41C, 0x18DADCA8, 0x001FC112, 0xF0004D58
+
+
+def kid_app(name, life=None, death=None, flags=0, extra=()):
+    props = []
+    if life is not None:
+        props.append(prop(0x103, P_LIFE, string(life)))
+    if death is not None:
+        props.append(prop(0x103, P_DEATH, string(death)))
+    if flags & 1:
+        props.append(bool_prop(P_DYNAMIC))
+    if flags & 2:
+        props.append(bool_prop(P_SMOOTH))
+    return named(b"FxParticleAppearance", name, props + list(extra))
+
+
+def mesh_app(name, mesh_id, mesh_name, upt, xform=None):
+    props = [prop(2, M_ID, u32(mesh_id)), prop(0x103, M_NAME, string(mesh_name)),
+             bool_prop(M_UPT, upt)]
+    if xform is not None:
+        props.append(prop(0x105, M_XFORM, xform))
+    return named(b"FxMeshAppearance", name, props)
+
+
+def sphere_emit(name, freq, life, pressure, initial=0, node_life=20.0, radius=0.5):
+    return named(b"FxSphereEmitter", name, [
+        prop(ANIM, FREQ, anim(freq)), prop(ANIM, LIFESPAN, anim(life)),
+        prop(ANIM, PRESSURE, anim(pressure)), prop(2, INITIAL, u32(initial)),
+        prop(ANIM, SPHERE_MIN_R, anim(0.1)), prop(ANIM, SPHERE_MAX_R, anim(radius)),
+        prop(3, LIFE, f32(node_life))])
+
+
+def child_effects():
+    """The two effects the particle appearances carry: a spark that keeps
+    emitting and a puff whose emitter dies at once."""
+    nodes = [
+        sphere_emit(b"spark_emit", 30.0, 0.2, 1.0, initial=1),
+        named(b"FxBasicAppearance", b"spark_app", [bool_prop(B_QUADS)]),
+        sphere_emit(b"puff_emit", 0.0, 0.15, 3.0, initial=4, node_life=0.05),
+        named(b"FxBasicAppearance", b"puff_app", []),
+    ]
+    effects = [fed_effect(b"spark", [(b"spark_emit", b"spark_app")]),
+               fed_effect(b"puff", [(b"puff_emit", b"puff_app")])]
+    return nodes, effects
+
+
+def child_life():
+    """Life and death effects: records turned along the velocity and
+    smoothed, a field on the live records, the outer time and LOD input
+    handed on, the death effects where the records end, the children's
+    spheres and draws, the stop and the finish."""
+    kids_nodes, kids_effects = child_effects()
+    nodes = kids_nodes + [
+        sphere_emit(b"kid_emit", 6.0, 0.3, 2.0, initial=3),
+        kid_app(b"kid_app", b"spark", b"puff", 3),
+        named(b"FxGravityField", b"kid_gravity", [prop(ANIM, GRAVITY, anim(-3.0))]),
+    ]
+    effects = kids_effects + [effect(b"kids", [ref(b"kid_app", ROOT, 1), ref(b"kid_emit", ROOT, 2),
+                                               ref(b"kid_gravity", ROOT, 3)], [(2, 1), (1, 3)])]
+    ops = [ale_op(nodes, effects), "seed 77 5", "effect 0 " + hx(b"kids"), "outer 0 " + f(0.25),
+           "lod 0 " + f(0.5), "xform 0 0 " + xf(ROT_A, (1.0, 2.0, 3.0)),
+           cam(ROT_B, (0.0, 0.0, -10.0), ROT_A, (1.0, 1.0, 1.0))]
+    ops += steps(0, 1) + ["kids 0"] + steps(0, 4) + ["kids 0", "dump 0", "outer 0 " + f(0.5),
+                                                     "lod 0 " + f(0.75), "kids 0"]
+    ops += steps(0, 6) + ["kids 0"] + draw_frame() + ["spheres 0", "bounds 0", "stop 0 1"]
+    ops += steps(0, 10) + ["kids 0", "done 0 4"] + steps(0, 10) + ["done 0 4", "kids 0", "pools",
+                                                                  "release 0", "pools"]
+    return ops
+
+
+def child_turns():
+    """The velocity's turn on both axes (a jet along y takes the other axis
+    and the twist), the smooth rotation of slow particles and its clamp for
+    fast ones, a particle appearance without a life name, and a pool of
+    five records shared by four appearances (eviction across owners)."""
+    kids_nodes, kids_effects = child_effects()
+    nodes = kids_nodes + [
+        named(b"FxConeEmitter", b"up_emit", [
+            prop(ANIM, FREQ, anim(15.0)), prop(ANIM, LIFESPAN, anim(0.5)),
+            prop(ANIM, PRESSURE, anim(3.0)), prop(2, INITIAL, u32(2)),
+            prop(ANIM, CONE_MIN_S, anim(0.0)), prop(ANIM, CONE_MAX_S, anim(3.0))]),
+        kid_app(b"up_app", b"spark", None, 1),
+        sphere_emit(b"slow_emit", 15.0, 0.5, 0.2, initial=2),
+        kid_app(b"slow_app", b"spark", None, 3),
+        sphere_emit(b"fast_emit", 10.0, 0.4, 40.0, initial=2),
+        kid_app(b"fast_app", b"spark", None, 3),
+        sphere_emit(b"bare_emit", 30.0, 0.5, 1.0, initial=3),
+        kid_app(b"bare_app"),
+    ]
+    effects = kids_effects + [fed_effect(b"turns", [(b"up_emit", b"up_app"),
+                                                    (b"slow_emit", b"slow_app"),
+                                                    (b"fast_emit", b"fast_app"),
+                                                    (b"bare_emit", b"bare_app")])]
+    ops = [ale_op(nodes, effects), "pool particle 5", "seed 4321 2", "effect 0 " + hx(b"turns")]
+    ops += steps(0, 1) + ["kids 0"] + steps(0, 2) + ["kids 0", "pools"] + steps(0, 3, f(0.1)) + \
+        ["kids 0", "pools", "stop 0 7", "pools", "release 0", "pools"]
+    return ops
+
+
+def child_meshes():
+    """Mesh appearances: no factory, then meshes posed through the particle
+    transform and on the mesh's own rotation, updated, moved by a field,
+    drawn, evicted from a pool of three, refused by the factory, stopped
+    and torn down."""
+    turn = channels([0.0] * 6 + [1.0, 1.0, 1.0])
+    turn[1] = anim_keys([(0.0, 0.0, 0.0, 0.0), (1.0, 2.0, 0.0, 0.0)])
+    turn[4] = anim_keys([(0.0, 0.0, 0.0, 0.0), (1.0, 90.0, 0.0, 0.0)])
+    nodes = [
+        sphere_emit(b"m_emit", 30.0, 0.3, 2.0, initial=2),
+        mesh_app(b"posed", 7, b"rock", True, transform(0, 0, 0, turn)),
+        named(b"FxConeEmitter", b"m_emit2", [
+            prop(ANIM, FREQ, anim(20.0)), prop(ANIM, LIFESPAN, anim(0.25)),
+            prop(ANIM, PRESSURE, anim(1.5)), prop(2, INITIAL, u32(1)),
+            prop(ANIM, CONE_MAX_S, anim(40.0))]),
+        mesh_app(b"plain", 3, b"tube", False),
+        named(b"FxGravityField", b"m_gravity", [prop(ANIM, GRAVITY, anim(2.0))]),
+    ]
+    effects = [effect(b"meshes", [ref(b"posed", ROOT, 1), ref(b"plain", ROOT, 2),
+                                  ref(b"m_emit", ROOT, 3), ref(b"m_emit2", ROOT, 4),
+                                  ref(b"m_gravity", ROOT, 5)], [(3, 1), (4, 2), (1, 5)])]
+    ops = [ale_op(nodes, effects), "pool mesh 3", "seed 99 1", "effect 0 " + hx(b"meshes"),
+           "outer 0 " + f(0.5), "xform 0 0 " + xf(ROT_B, (0.0, 1.0, 0.0)), "meshfac 0"]
+    ops += steps(0, 1) + ["kids 0", "meshfac 1"] + steps(0, 2) + ["kids 0", "dump 0", "pools"] + \
+        steps(0, 4) + ["kids 0", "pools"]
+    ops += [cam(ROT_A, (0.0, 0.0, -10.0), ROT_B, (1.0, 1.0, 1.0))] + draw_frame() + \
+        ["spheres 0", "bounds 0", "meshfac 2"] + steps(0, 2) + ["kids 0", "meshfac 1", "stop 0 1"]
+    ops += steps(0, 12) + ["done 0 4", "kids 0", "pools", "release 0", "pools"]
+    return ops
+
+
+def child_list():
+    return [" ; ".join(case()) for case in (child_life, child_turns, child_meshes)]
+
+
+def write(name, text, check):
+    path = os.path.join(HERE, name)
+    if check:
+        with open(path, "rb") as existing:
+            if existing.read() != text.encode("latin-1"):
+                sys.exit("%s is out of date; run make_particle_fixtures.py" % name)
+        return
+    with open(path, "wb") as out:
+        out.write(text.encode("latin-1"))
+
+
+def listing(title, lines):
+    return "# P4.8 %s oracle inputs, written by make_particle_fixtures.py.\n" % title + "".join(
+        line + "\n" for line in lines)
+
+
+def main():
+    check = "--check" in sys.argv[1:]
+    write("particle_ramp.list", listing("particle ramp", ramp_list()), check)
+    write("particle_sim.list", listing("particle sim", sim_list()), check)
+    write("particle_draw.list", listing("particle draw", draw_list()), check)
+    write("particle_child.list", listing("particle child", child_list()), check)
+
+
+if __name__ == "__main__":
+    main()

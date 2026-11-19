@@ -765,3 +765,493 @@ pub fn tick_bound(key: &str) -> Bound {
         _ => Bound::Exact,
     }
 }
+
+/// `audio_reverb.jsonl`: the preview after `StartupDevice`'s INI reads
+/// without a device, after its `SetEaxPreview` with one, and after each
+/// scene-script `SetReverb`.
+pub fn reverb_lines() -> Vec<String> {
+    use neuron_client::audio::config::ReverbSettings;
+    use neuron_client::audio::reverb::EaxState;
+    let mut out = Vec::new();
+    for line in input_lines("audio/reverb.list") {
+        let mut state = None::<EaxState>;
+        for (index, group) in line.split(';').enumerate() {
+            let t: Vec<&str> = group.split(' ').collect();
+            let (env, vol, decay, damp) = (dec::<i32>(t[0]), hexf(t[1]), hexf(t[2]), hexf(t[3]));
+            let mut emit = |state: &EaxState, step: usize| {
+                let w = state.words();
+                out.push(
+                    Line::new(&line)
+                        .field("step", step)
+                        .field("env", format!("{:08x}", w[0]))
+                        .field("vol", format!("{:08x}", w[1]))
+                        .field("decay", format!("{:08x}", w[2]))
+                        .field("damp", format!("{:08x}", w[3]))
+                        .end(),
+                );
+            };
+            if index == 0 {
+                let ini = ReverbSettings {
+                    environment: env,
+                    volume: vol,
+                    decay_time: decay,
+                    damping: damp,
+                    mix: 0,
+                };
+                let mut s = EaxState::from_ini(&ini, false);
+                emit(&s, 0);
+                s.device = true;
+                s.startup();
+                emit(&s, 1);
+                state = Some(s);
+            } else {
+                let s = state.as_mut().expect("a first group");
+                s.set(env, vol, decay, damp);
+                emit(s, index + 1);
+            }
+        }
+    }
+    out
+}
+
+impl neuron_client::audio::client::SoundDevice for Recorder {
+    fn set_samples(&mut self, _: ArchetypeId, _: std::sync::Arc<[u8]>) {}
+    fn remove_samples(&mut self, _: ArchetypeId) {}
+}
+
+/// The harness's data: a PCM RIFF file of zero frames for each name
+/// `c<channels>b<bits>r<rate>f<frames>.wav`. A name inside an archive (a
+/// voice profile's `audio\<nickname>.utf`) is a leaf of the fixture file
+/// of that path, whose lines map a leaf to such a name.
+struct SyntheticWavs;
+
+/// The wav name a leaf of a fixture archive stands for.
+fn archive_leaf(archive: &[u8], leaf: &[u8]) -> Option<Vec<u8>> {
+    let relative = String::from_utf8(archive.to_vec()).ok()?.replace('\\', "/");
+    let text = fs::read(super::fixtures().join(relative)).ok()?;
+    text.split(|&b| b == b'\n').find_map(|line| {
+        let line = line.strip_suffix(b"\r").unwrap_or(line);
+        let space = line.iter().position(|&b| b == b' ')?;
+        (&line[..space] == leaf).then(|| line[space + 1..].to_vec())
+    })
+}
+
+impl neuron_client::audio::client::WavFiles for SyntheticWavs {
+    fn read(&self, file: &[u8], archive: Option<&[u8]>) -> Option<Vec<u8>> {
+        let mapped;
+        let file = match archive {
+            Some(archive) => {
+                mapped = archive_leaf(archive, file)?;
+                mapped.as_slice()
+            }
+            None => file,
+        };
+        let name = std::str::from_utf8(file).ok()?;
+        let name = name.rsplit(['\\', '/']).next()?;
+        let rest = name.strip_prefix('c')?;
+        let (channels, rest) = rest.split_once('b')?;
+        let (bits, rest) = rest.split_once('r')?;
+        let (rate, rest) = rest.split_once('f')?;
+        let (frames, ext) = rest.split_once('.')?;
+        if ext.len() != 3 {
+            return None;
+        }
+        let (channels, bits, rate, frames): (u32, u32, u32, u32) = (
+            channels.parse().ok()?,
+            bits.parse().ok()?,
+            rate.parse().ok()?,
+            frames.parse().ok()?,
+        );
+        let align = channels * (bits / 8);
+        let data = frames * align;
+        let mut out = Vec::new();
+        for w in [0x4646_4952, 36 + data, 0x4556_4157, 0x2074_6D66, 16] {
+            out.extend_from_slice(&u32::to_le_bytes(w));
+        }
+        out.extend_from_slice(&1u16.to_le_bytes());
+        out.extend_from_slice(&u16::try_from(channels).ok()?.to_le_bytes());
+        out.extend_from_slice(&rate.to_le_bytes());
+        out.extend_from_slice(&(rate * align).to_le_bytes());
+        out.extend_from_slice(&u16::try_from(align).ok()?.to_le_bytes());
+        out.extend_from_slice(&u16::try_from(bits).ok()?.to_le_bytes());
+        out.extend_from_slice(&0x6174_6164u32.to_le_bytes());
+        out.extend_from_slice(&data.to_le_bytes());
+        out.resize(out.len() + data as usize, 0);
+        Some(out)
+    }
+}
+
+/// One session of the client suites.
+struct ClientCase {
+    index: i32,
+    mixer: Mixer<u32>,
+    device: Recorder,
+    sound: neuron_client::audio::client::ClientSound,
+    options: neuron_client::audio::client::config::SoundOptions,
+    names: Vec<neuron_client::audio::client::SourceKey>,
+    handles: Vec<Option<neuron_client::audio::client::SourceKey>>,
+}
+
+fn hex_bytes(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// The manager's archetype of a mixer id, or four dashes.
+fn sm_fields(mixer: &Mixer<u32>, sm_arch_id: i32) -> String {
+    match (sm_arch_id != -1)
+        .then(|| mixer.archetype(sm_arch_id))
+        .flatten()
+    {
+        Some(m) => format!(
+            ",\"sm_flags\":\"{:x}\",\"sm_buffer\":\"{:x}\",\"sm_frames\":\"{}\",\
+             \"sm_duration\":\"{}\"",
+            m.flags, m.buffer_flags, m.frames, m.duration_ms
+        ),
+        None => ",\"sm_flags\":\"-\",\"sm_buffer\":\"-\",\"sm_frames\":\"-\",\"sm_duration\":\"-\""
+            .to_owned(),
+    }
+}
+
+/// The voice profiles in id order, each followed by its lines
+/// (`oracle_audio_client.cpp`'s `DumpVoices`).
+fn client_voice_lines(case: &ClientCase, out: &mut Vec<String>) {
+    let or_dash = |s: String| if s.is_empty() { "-".to_owned() } else { s };
+    for p in case.sound.voices.iter() {
+        let scripts: Vec<String> = p.scripts.iter().map(|s| hex_bytes(s)).collect();
+        let files: Vec<String> = p
+            .sound_files
+            .iter()
+            .map(|(id, f)| format!("{id:08x}:{}", hex_bytes(f)))
+            .collect();
+        out.push(format!(
+            "{{\"case\":\"{}\",\"voice\":\"{:08x}\",\"name\":\"{}\",\"utf\":\"{}\",\
+             \"scripts\":\"{}\",\"files\":\"{}\"}}",
+            case.index,
+            p.id,
+            hex_bytes(&p.name),
+            p.utf_path
+                .as_deref()
+                .map_or_else(|| "-".to_owned(), hex_bytes),
+            or_dash(scripts.join(",")),
+            or_dash(files.join(","))
+        ));
+        for (id, m) in &p.messages {
+            out.push(format!(
+                "{{\"case\":\"{}\",\"voice\":\"{:08x}\",\"msg\":\"{id:08x}\",\"sm\":\"{}\",\
+                 \"prio\":\"{}\",\"atten\":\"{}\",\"refs\":\"{}\",\"file\":\"{}\"{}}}",
+                case.index,
+                p.id,
+                m.sm_arch_id,
+                m.priority,
+                m.attenuation,
+                m.ref_count,
+                hex_bytes(&p.sound_file(*id)),
+                sm_fields(&case.mixer, m.sm_arch_id)
+            ));
+        }
+    }
+}
+
+fn client_arch_lines(case: &ClientCase, out: &mut Vec<String>) {
+    for a in case.sound.sounds.iter() {
+        let linked = a
+            .linked
+            .map_or_else(|| "-".to_owned(), |l| format!("{l:08x}"));
+        let file = a.file.as_deref().map_or_else(|| "-".to_owned(), hex_bytes);
+        let mut line = format!(
+            "{{\"case\":\"{}\",\"arch\":\"{:08x}\",\"file\":\"{file}\",\"sm\":\"{}\",\
+             \"min\":\"{}\",\"max\":\"{}\",\"flags\":\"{:08x}\",\"lod\":\"{:08x},{:08x}\",\
+             \"linked\":\"{linked}\",\"uses\":\"{}\",\"unlinked\":\"{}\"",
+            case.index,
+            a.nickname_id,
+            a.sm_arch_id,
+            f(a.range_min),
+            f(a.range_max),
+            a.flags,
+            a.lod[0],
+            a.lod[1],
+            a.use_count,
+            a.unlinked_uses
+        );
+        line.push_str(&sm_fields(&case.mixer, a.sm_arch_id));
+        line.push('}');
+        out.push(line);
+    }
+    client_voice_lines(case, out);
+}
+
+fn client_name(case: &ClientCase, key: neuron_client::audio::client::SourceKey) -> String {
+    case.names
+        .iter()
+        .rposition(|&k| k == key)
+        .map_or_else(|| "?".to_owned(), |i| i.to_string())
+}
+
+fn client_tick_lines(case: &ClientCase, now: u32, out: &mut Vec<String>) {
+    use neuron_client::audio::client::SourceKey;
+    let ranked: Vec<String> = case.sound.ranked().map(|k| client_name(case, k)).collect();
+    let ranked = if ranked.is_empty() {
+        "-".to_owned()
+    } else {
+        ranked.join(",")
+    };
+    out.push(format!(
+        "{{\"case\":\"{}\",\"tick\":\"{now}\",\"duck\":\"{}\",\"ranked\":\"{ranked}\"}}",
+        case.index,
+        f(case.sound.ducking_db())
+    ));
+    for key in case.sound.playing() {
+        let s = case.sound.source(key).expect("a playing source");
+        out.push(format!(
+            "{{\"case\":\"{}\",\"tick\":\"{now}\",\"src\":\"{}\",\"flags\":\"{:02x}\",\
+             \"start\":\"{}\",\"score\":\"{}\",\"atten\":\"{}\",\"pitch\":\"{}\",\
+             \"finished\":\"{}\"}}",
+            case.index,
+            client_name(case, key),
+            s.flags & 0x1F,
+            s.start_tick,
+            f(s.mixer_score),
+            f(s.volume_db()),
+            s.pitch_value().map_or_else(|| "-".to_owned(), f),
+            u8::from(s.is_finished())
+        ));
+    }
+    for instance in case.mixer.instances() {
+        let r = case
+            .device
+            .0
+            .get(&instance.voice)
+            .cloned()
+            .unwrap_or_default();
+        out.push(format!(
+            "{{\"case\":\"{}\",\"tick\":\"{now}\",\"voice\":\"{}\",\"rank\":\"{}\",\
+             \"pan\":\"{}\",\"volume\":\"{}\",\"freq\":\"{}\",\"pos\":\"{}\",\
+             \"plays\":\"{}\"}}",
+            case.index,
+            client_name(case, SourceKey(instance.key)),
+            instance.rank,
+            or_dash(r.pan),
+            or_dash(r.volume),
+            or_dash(r.frequency),
+            or_dash(r.position),
+            r.plays
+        ));
+    }
+}
+
+/// One session of `audio/arch.list` or `audio/client.list` through
+/// [`neuron_client::audio::client::ClientSound`], in the line formats of
+/// `oracle_audio_client.cpp`.
+#[allow(clippy::too_many_lines)]
+fn client_session(list: &str) -> Vec<String> {
+    use neuron_client::audio::client::config::SoundOptions;
+    use neuron_client::audio::client::source::ArchRef;
+    use neuron_client::audio::client::{ClientSound, NoAttachments, PlayKey, SoundEnv};
+    use neuron_core::id::create_id;
+
+    let mut out = Vec::new();
+    let mut case: Option<ClientCase> = None;
+    // The manager's clock is the harness's process-wide tick.
+    let mut now = 0u32;
+    for line in input_lines(list) {
+        let t: Vec<&str> = line.split(' ').collect();
+        if t[0] == "case" {
+            let index = case.as_ref().map_or(0, |c| c.index + 1);
+            let mut mixer = Mixer::new();
+            mixer.spatial = Spatial::Software;
+            mixer.max_channels = dec(t[4]);
+            case = Some(ClientCase {
+                index,
+                mixer,
+                device: Recorder::default(),
+                sound: ClientSound::new(),
+                options: SoundOptions {
+                    use_3d_sounds: hexf(t[1]),
+                    max_distance_scale: hexf(t[2]),
+                    max_submitted_sounds: dec(t[3]),
+                    ..SoundOptions::default()
+                },
+                names: Vec::new(),
+                handles: Vec::new(),
+            });
+            continue;
+        }
+        let c = case.as_mut().expect("a case first");
+        // A `PROFILE/MSG` token names a line of a voice profile.
+        let find = |sound: &ClientSound, hex: &str| match hex.split_once('/') {
+            Some((profile, msg)) => {
+                sound.voice_line(create_id(&unhex(profile)), create_id(&unhex(msg)))
+            }
+            None => sound
+                .sounds
+                .lookup(create_id(&unhex(hex)))
+                .map(ArchRef::Sound),
+        };
+        let mut env = SoundEnv {
+            mixer: &mut c.mixer,
+            device: &mut c.device,
+            files: &SyntheticWavs,
+            options: c.options,
+            now,
+        };
+        let sound = &mut c.sound;
+        let mut dump = false;
+        match t[0] {
+            "voices" => {
+                // A file that does not open adds nothing (`INI_Reader::open`).
+                let bytes = std::fs::read(super::fixtures().join(t[1]));
+                // `ResolveScriptFile`'s `_access` under the data root, the
+                // fixture directory.
+                let exists = |p: &[u8]| {
+                    let relative = String::from_utf8_lossy(p).replace('\\', "/");
+                    super::fixtures().join(relative).is_file()
+                };
+                let added = bytes.map_or(0, |b| sound.load_voices(&b, &exists));
+                out.push(format!(
+                    "{{\"case\":\"{}\",\"op\":\"voices\",\"nick\":\"-\",\"r\":\"{added}\"}}",
+                    c.index
+                ));
+                dump = true;
+            }
+            "ini" => {
+                let path = super::fixtures().join(t[2]);
+                let bytes =
+                    std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+                let added = sound.load_sounds(&mut env, &bytes, t[1] != "0");
+                out.push(format!(
+                    "{{\"case\":\"{}\",\"op\":\"ini\",\"nick\":\"-\",\"r\":\"{added}\"}}",
+                    c.index
+                ));
+                dump = true;
+            }
+            "acquire" | "release" => {
+                let r = match find(sound, t[1]) {
+                    None => 0,
+                    Some(arch) if t[0] == "acquire" => i32::from(sound.acquire(&mut env, arch)),
+                    Some(arch) => i32::from(sound.release_arch(&mut env, arch).to_le_bytes()[0]),
+                };
+                out.push(format!(
+                    "{{\"case\":\"{}\",\"op\":\"{}\",\"nick\":\"{}\",\"r\":\"{r}\"}}",
+                    c.index, t[0], t[1]
+                ));
+                dump = true;
+            }
+            "lod" | "preload" | "unload" => {
+                let value: u32 = dec(t[1]);
+                match t[0] {
+                    "lod" => sound.set_lod(&mut env, value.cast_signed()),
+                    "preload" => sound.preload_category(&mut env, value),
+                    _ => sound.unload_category(&mut env, value),
+                }
+                out.push(format!(
+                    "{{\"case\":\"{}\",\"op\":\"{}\",\"nick\":\"-\",\"r\":\"{value}\"}}",
+                    c.index, t[0]
+                ));
+                dump = true;
+            }
+            "play" => {
+                let key = (t[2] != "-").then(|| PlayKey {
+                    start: dec(t[3]),
+                    flags: u8::from_str_radix(t[2], 16).unwrap_or(0),
+                    position: vec3(t[4]),
+                    attenuation: hexf(t[5]),
+                });
+                let (ok, handle) = match find(sound, t[1]) {
+                    Some(arch) => sound.play(&mut env, arch, key.as_ref(), t[6] != "0"),
+                    None => (false, None),
+                };
+                let mut src = "-".to_owned();
+                if ok && let Some(last) = sound.playing().last() {
+                    src = c.names.len().to_string();
+                    c.names.push(last);
+                    c.handles.push(handle);
+                }
+                out.push(format!(
+                    "{{\"case\":\"{}\",\"op\":\"play\",\"r\":\"{}\",\"src\":\"{src}\"}}",
+                    c.index,
+                    u8::from(ok)
+                ));
+            }
+            "src" => {
+                let index: usize = dec(t[1]);
+                let Some(handle) = c.handles[index] else {
+                    panic!("{list}: source {index} has no handle");
+                };
+                match t[2] {
+                    "offset" => sound.set_start_offset(&env, handle, dec(t[3])),
+                    "stop" => sound.stop(&mut env, handle),
+                    "release" => {
+                        sound.release(&mut env, handle);
+                        c.handles[index] = None;
+                    }
+                    op => {
+                        let s = sound.source_mut(handle).expect("a live source");
+                        match op {
+                            "atten" => s.set_attenuation(hexf(t[3])),
+                            "pan" => s.set_pan(hexf(t[3])),
+                            "pitch" => s.set_pitch(hexf(t[3])),
+                            "pos" => s.set_position(vec3(t[3]), &|_, w| w),
+                            "vel" => s.set_velocity(vec3(t[3])),
+                            "loop" => s.set_looping(t[3] != "0"),
+                            "type" => s.category = dec(t[3]),
+                            other => panic!("{list}: unknown source operation {other}"),
+                        }
+                    }
+                }
+            }
+            "vol" => sound.set_category_volume(dec(t[1]), hexf(t[2])),
+            "mode" => sound.config.audio_mode = dec(t[1]),
+            "duck" => {
+                if t[1] == "push" {
+                    sound.push_ducking();
+                } else {
+                    sound.pop_ducking();
+                }
+            }
+            "listener" => {
+                env.mixer.listener.set_orientation(vec3(t[1]), vec3(t[2]));
+                env.mixer.listener.set_position(vec3(t[3]));
+            }
+            "tick" => {
+                now = dec(t[1]);
+                env.now = now;
+                sound.tick(&mut env, None, hexf(t[2]), &NoAttachments);
+                client_tick_lines(c, now, &mut out);
+            }
+            other => panic!("{list}: unknown command {other}"),
+        }
+        if dump {
+            client_arch_lines(c, &mut out);
+        }
+    }
+    out
+}
+
+/// `audio_arch.jsonl`: the `[Sound]` tables, their uses and links, and the
+/// mixer archetypes they make.
+pub fn arch_lines() -> Vec<String> {
+    client_session("audio/arch.list")
+}
+
+/// `audio_client.jsonl`: play keys through the client's sound tick and the
+/// mixer.
+pub fn client_lines() -> Vec<String> {
+    client_session("audio/client.list")
+}
+
+/// `audio_voice.jsonl`: the voice profiles (`LoadClientVoicesIni`), their
+/// lines' wavs out of the profiles' archives, and their plays.
+pub fn voice_lines() -> Vec<String> {
+    client_session("audio/voice.list")
+}
+
+/// The bounds of `audio_client.jsonl`: the score passes through the
+/// logarithm, the ducking through `exp` and the logarithm, and the volume
+/// and frequency through both as in `audio_tick.jsonl`.
+pub fn client_bound(key: &str) -> Bound {
+    match key {
+        "score" | "duck" | "atten" => Bound::F32Ulps(2),
+        "volume" | "freq" => Bound::Int(1),
+        _ => Bound::Exact,
+    }
+}

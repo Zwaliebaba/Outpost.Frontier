@@ -98,11 +98,11 @@ const HAS_ALPHA: [bool; 15] = [
     false, false, false, false, false, true, true, true, false, false, true, true, true, true, true,
 ];
 
-fn alpha_bits(format: u32) -> u32 {
+pub(super) fn alpha_bits(format: u32) -> u32 {
     ALPHA_BITS.get(format as usize).copied().unwrap_or(0)
 }
 
-fn has_alpha(format: u32) -> bool {
+pub(super) fn has_alpha(format: u32) -> bool {
     (10..=14).contains(&format) || HAS_ALPHA.get(format as usize).copied().unwrap_or(false)
 }
 
@@ -157,7 +157,7 @@ pub fn fvf_stride(fvf: u32) -> u32 {
     fvf_pos_size(fvf) + fvf_normal_size(fvf) + fvf_color_size(fvf) + fvf_tex_size(fvf)
 }
 
-fn stream_f32(stream: &VertexStream, byte: usize) -> f32 {
+pub(super) fn stream_f32(stream: &VertexStream, byte: usize) -> f32 {
     stream
         .data
         .as_deref()
@@ -165,11 +165,11 @@ fn stream_f32(stream: &VertexStream, byte: usize) -> f32 {
         .map_or(0.0, |b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
 }
 
-fn stream_bits(stream: &VertexStream, byte: usize) -> u32 {
+pub(super) fn stream_bits(stream: &VertexStream, byte: usize) -> u32 {
     stream_f32(stream, byte).to_bits()
 }
 
-fn put_bits(bytes: &mut [u8], at: usize, bits: u32) {
+pub(super) fn put_bits(bytes: &mut [u8], at: usize, bits: u32) {
     if let Some(slot) = bytes.get_mut(at..at + 4) {
         slot.copy_from_slice(&bits.to_le_bytes());
     }
@@ -177,7 +177,7 @@ fn put_bits(bytes: &mut [u8], at: usize, bits: u32) {
 
 /// The indices a draw reads: `span` from `ib_start` on, zeros past the
 /// array (divergence D310).
-fn draw_indices(context: &SubmitContext<'_>, ib_start: u32, span: u32) -> Vec<u16> {
+pub(super) fn draw_indices(context: &SubmitContext<'_>, ib_start: u32, span: u32) -> Vec<u16> {
     (0..span as usize)
         .map(|i| {
             context
@@ -189,10 +189,85 @@ fn draw_indices(context: &SubmitContext<'_>, ib_start: u32, span: u32) -> Vec<u1
         .collect()
 }
 
-fn has_vertex_colours(context: Option<&SubmitContext<'_>>) -> bool {
+pub(super) fn has_vertex_colours(context: Option<&SubmitContext<'_>>) -> bool {
     context
         .and_then(|c| c.vertices)
         .is_some_and(|v| v.diffuse.data.is_some())
+}
+
+/// `SubmitIndexedListing`: the caller's vertex buffer, if it gave one.
+fn indexed_listing<S: MaterialServices + ?Sized>(
+    services: &mut S,
+    context: &SubmitContext<'_>,
+    args: &DrawArgs,
+) -> i32 {
+    let Some(vb) = context.vb else {
+        return -1;
+    };
+    let indices = draw_indices(context, args.ib_start, args.index_span);
+    services.draw_indexed_vb(
+        args.prim_type,
+        vb.vertex_buffer,
+        vb.base_vertex.wrapping_add(args.start),
+        args.count,
+        &indices,
+    )
+}
+
+/// `SubmitCopiedVertices`: the source copied into vertex memory.
+fn copied_vertices<S: MaterialServices + ?Sized>(
+    services: &mut S,
+    context: &SubmitContext<'_>,
+    source: &VertexSource,
+    args: &DrawArgs,
+) -> i32 {
+    let mut lock = match services.lock_vertex_memory(source.fvf, args.count) {
+        Ok(lock) => lock,
+        Err(result) => return result,
+    };
+    let fvf = lock.listing.fvf;
+    services.copy_vertex_data(&mut lock.bytes, fvf, source, args.start, args.count);
+    let listing = lock.listing;
+    services.unlock_vertex_memory(lock);
+    let indices = draw_indices(context, args.ib_start, args.index_span);
+    services.draw_indexed_vb(
+        args.prim_type,
+        listing.vertex_buffer,
+        listing.base_vertex,
+        args.count,
+        &indices,
+    )
+}
+
+/// `SubmitKernel`: the device's own buffers (flag 0x100), the caller's
+/// vertex buffer, then a copy of the source.
+pub(super) fn submit_kernel<S: MaterialServices + ?Sized>(
+    services: &mut S,
+    context: &SubmitContext<'_>,
+    args: &DrawArgs,
+) -> i32 {
+    if args.flags & 0x100 != 0 {
+        let bias = context.ib.map_or(0, |ib| ib.bias);
+        let result = services.draw_indexed(
+            args.prim_type,
+            args.start,
+            args.count,
+            bias.wrapping_add(args.ib_start),
+            args.index_span,
+        );
+        if result >= 0 {
+            return result;
+        }
+    }
+    let mut result = indexed_listing(services, context, args);
+    if result < 0
+        && let Some(source) = context.vertices
+        && args.count > 0
+        && args.index_span > 0
+    {
+        result = copied_vertices(services, context, source, args);
+    }
+    result
 }
 
 /// What a texture block holds at run time (`FTexBlock` from `+4`): the
@@ -977,81 +1052,6 @@ impl<A: Copy> ShadingMaterial<A> {
 
     // --- Submit ---------------------------------------------------------------------------------
 
-    /// `SubmitIndexedListing`: the caller's vertex buffer, if it gave one.
-    fn indexed_listing<S: MaterialServices<Animation = A> + ?Sized>(
-        services: &mut S,
-        context: &SubmitContext<'_>,
-        args: &DrawArgs,
-    ) -> i32 {
-        let Some(vb) = context.vb else {
-            return -1;
-        };
-        let indices = draw_indices(context, args.ib_start, args.index_span);
-        services.draw_indexed_vb(
-            args.prim_type,
-            vb.vertex_buffer,
-            vb.base_vertex.wrapping_add(args.start),
-            args.count,
-            &indices,
-        )
-    }
-
-    /// `SubmitCopiedVertices`: the source copied into vertex memory.
-    fn copied_vertices<S: MaterialServices<Animation = A> + ?Sized>(
-        services: &mut S,
-        context: &SubmitContext<'_>,
-        source: &VertexSource,
-        args: &DrawArgs,
-    ) -> i32 {
-        let mut lock = match services.lock_vertex_memory(source.fvf, args.count) {
-            Ok(lock) => lock,
-            Err(result) => return result,
-        };
-        let fvf = lock.listing.fvf;
-        services.copy_vertex_data(&mut lock.bytes, fvf, source, args.start, args.count);
-        let listing = lock.listing;
-        services.unlock_vertex_memory(lock);
-        let indices = draw_indices(context, args.ib_start, args.index_span);
-        services.draw_indexed_vb(
-            args.prim_type,
-            listing.vertex_buffer,
-            listing.base_vertex,
-            args.count,
-            &indices,
-        )
-    }
-
-    /// `SubmitKernel`: the device's own buffers (flag 0x100), the caller's
-    /// vertex buffer, then a copy of the source.
-    fn kernel<S: MaterialServices<Animation = A> + ?Sized>(
-        services: &mut S,
-        context: &SubmitContext<'_>,
-        args: &DrawArgs,
-    ) -> i32 {
-        if args.flags & 0x100 != 0 {
-            let bias = context.ib.map_or(0, |ib| ib.bias);
-            let result = services.draw_indexed(
-                args.prim_type,
-                args.start,
-                args.count,
-                bias.wrapping_add(args.ib_start),
-                args.index_span,
-            );
-            if result >= 0 {
-                return result;
-            }
-        }
-        let mut result = Self::indexed_listing(services, context, args);
-        if result < 0
-            && let Some(source) = context.vertices
-            && args.count > 0
-            && args.index_span > 0
-        {
-            result = Self::copied_vertices(services, context, source, args);
-        }
-        result
-    }
-
     /// `SubmitAlphaTest`: the kernel inside an alpha test at 0x80 for a
     /// material whose texture has a one-bit alpha (unless flag 0x400).
     fn alpha_test_submit<S: MaterialServices<Animation = A> + ?Sized>(
@@ -1070,7 +1070,7 @@ impl<A: Copy> ShadingMaterial<A> {
             saved.2 = services.render_state(RS_ALPHATESTENABLE);
             services.set_render_state(RS_ALPHATESTENABLE, 1);
         }
-        let result = Self::kernel(services, context, args);
+        let result = submit_kernel(services, context, args);
         if scope {
             services.set_render_state(RS_ALPHAREF, saved.0);
             services.set_render_state(RS_ALPHAFUNC, saved.1);
@@ -1293,7 +1293,7 @@ impl<A: Copy> ShadingMaterial<A> {
         let saved_test = services.render_state(RS_ALPHATESTENABLE);
         services.set_render_state(RS_ALPHATESTENABLE, 0);
         self.illum_pass_state(services, 0);
-        Self::kernel(services, context, args);
+        submit_kernel(services, context, args);
         if self.detail_pass_count == 1 {
             services.set_render_state(RS_ALPHATESTENABLE, saved_test);
             self.do_teardown(services, None);
@@ -1309,7 +1309,7 @@ impl<A: Copy> ShadingMaterial<A> {
         let saved_zwrite = services.render_state(RS_ZWRITEENABLE);
         services.set_render_state(RS_ZWRITEENABLE, 0);
         self.illum_pass_state(services, 1);
-        Self::kernel(services, context, args);
+        submit_kernel(services, context, args);
         services.set_render_state(RS_ZWRITEENABLE, saved_zwrite);
         services.set_render_state(RS_ZFUNC, saved_zfunc);
         services.set_render_state(RS_ALPHAFUNC, saved_func);
@@ -1332,7 +1332,7 @@ impl<A: Copy> ShadingMaterial<A> {
         services.set_render_state(RS_ALPHATESTENABLE, u32::from(!single));
         if single {
             self.family_pass_state(services, 0);
-            Self::kernel(services, context, args);
+            submit_kernel(services, context, args);
             services.set_render_state(RS_ALPHATESTENABLE, saved_test);
             self.do_teardown(services, None);
             return GR_OK;
@@ -1342,13 +1342,13 @@ impl<A: Copy> ShadingMaterial<A> {
         let saved_func = services.render_state(RS_ALPHAFUNC);
         services.set_render_state(RS_ALPHAFUNC, 2);
         self.family_pass_state(services, 0);
-        Self::kernel(services, context, args);
+        submit_kernel(services, context, args);
         services.set_render_state(RS_ALPHAREF, 1);
         services.set_render_state(RS_ALPHAFUNC, 5);
         let saved_zfunc = services.render_state(RS_ZFUNC);
         services.set_render_state(RS_ZFUNC, 4);
         self.family_pass_state(services, 1);
-        Self::kernel(services, context, args);
+        submit_kernel(services, context, args);
         services.set_render_state(RS_ZFUNC, saved_zfunc);
         services.set_render_state(RS_ALPHAFUNC, saved_func);
         services.set_render_state(RS_ALPHAREF, saved_ref);
@@ -1369,7 +1369,7 @@ impl<A: Copy> ShadingMaterial<A> {
             Submit::LightMap => {
                 let saved = services.render_state(RS_ZFUNC);
                 services.set_render_state(RS_ZFUNC, 4);
-                Self::kernel(services, context, args);
+                submit_kernel(services, context, args);
                 services.set_render_state(RS_ZFUNC, saved);
                 GR_OK
             }
@@ -1378,7 +1378,7 @@ impl<A: Copy> ShadingMaterial<A> {
                 self.submit_two_pass(services, context, args)
             }
             Submit::BtDetailTwo => {
-                let result = Self::kernel(services, context, args);
+                let result = submit_kernel(services, context, args);
                 match context.vertices {
                     Some(source) if result >= 0 => {
                         Self::back_faces(services, context, source, args, &BT_DETAIL_CULL_FLIP)
@@ -1396,7 +1396,7 @@ impl<A: Copy> ShadingMaterial<A> {
                     _ => result,
                 }
             }
-            Submit::Kernel => Self::kernel(services, context, args),
+            Submit::Kernel => submit_kernel(services, context, args),
         }
     }
 
@@ -1581,6 +1581,16 @@ where
 
     fn parameter(&self, index: u32) -> Result<PropertyValue, i32> {
         self.data.parameter(index as usize).ok_or(GR_GENERIC)
+    }
+
+    fn parameter_tag(&self, index: u32) -> Result<Option<Vec<u8>>, i32> {
+        let record = self
+            .data
+            .kind
+            .schema()
+            .get(index as usize)
+            .ok_or(GR_GENERIC)?;
+        Ok(Some(record.name.to_vec()))
     }
 
     /// `SetParameterValue`: checked against the schema, stored, then the

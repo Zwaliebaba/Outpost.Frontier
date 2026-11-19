@@ -1,0 +1,18 @@
+# Oracle.exe sim scenario (design/reference-build.md section 10): an instant trade lane.
+# A fighter with the FIGHTER state graph waits 300 m before trade lane ring 16 of he01
+# (3628, 0, -52369; the lane runs to ring 17 at -70, 0, -58894 and on to ring 18) and is given
+# an instant-trade-lane directive from ring 16 to ring 18 (InstantTradeLaneBehavior,
+# behaviour 9). Multiplayer stepping. No PSIs are recorded: in the lane the ship moves by
+# CShip's LaneAction, which the port does not have yet.
+
+# rust: skip CShip's LaneAction (P3.3)
+
+system he01
+ticks 600
+stepping mp
+
+solar ring16 he01_Trade_Lane_Ring_16
+solar ring18 he01_Trade_Lane_Ring_18
+ship pilot he_fighter li_p_he_fighter_loadout01 3778 0 -52104 ai FIGHTER
+
+at 1 pilot tradelane ring16 ring18

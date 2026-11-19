@@ -111,12 +111,15 @@ impl World {
     /// `EqObj::slot_34` with `SrvGun::fire`: each listed gun fires at the
     /// aim point (`CELauncher::Fire`, `ConsumeFireResources`); an unguided
     /// munition goes out as bullets (`launch_bullets`), a guided one as
-    /// missiles (`launch_guided`). Returns each gun's result.
+    /// missiles (`launch_guided`). Without an aim point, or for a
+    /// projectile with `force_gun_ori`, a gun fires forward
+    /// (`SrvGun::fire_forward`: the barrels' average position plus their
+    /// average direction scaled to 1e10). Returns each gun's result.
     pub fn fire(
         &mut self,
         h: ObjHandle,
         guns: &[SubObjId],
-        target: Vector,
+        aim: Option<Vector>,
     ) -> Vec<(SubObjId, FireResult)> {
         let mut out = Vec::new();
         let Some(o) = self.objects.get(h) else {
@@ -130,6 +133,27 @@ impl World {
         for &id in guns {
             let Some(cx) = self.launch_context(h, id) else {
                 continue;
+            };
+            let forward = self
+                .objects
+                .get(h)
+                .and_then(|o| o.equipped.as_deref())
+                .and_then(|eq| eq.equipment.by_id(id))
+                .and_then(|e| match &e.kind {
+                    EquipKind::Gun(g) => Some(g),
+                    _ => None,
+                })
+                .map(|g| {
+                    (
+                        g.launcher.projectile.is_some_and(|p| p.force_gun_ori),
+                        cx.forward_target(&g.launcher.barrels),
+                    )
+                });
+            let target = match (aim, forward) {
+                (Some(t), Some((false, _))) => t,
+                (_, Some((_, f))) => f,
+                (Some(t), None) => t,
+                (None, None) => continue,
             };
             let mut shots: Vec<ProjLaunchInfo> = Vec::new();
             let mut munition: Option<ProjectileArch> = None;
@@ -206,7 +230,54 @@ impl World {
                 }
             }
         }
+        if let Some(log) = self.fire_log.as_mut() {
+            log.push((owner_id, out.clone()));
+        }
         out
+    }
+
+    /// Starts (or stops) keeping every [`World::fire`] call's results
+    /// (diagnostic): the shooter's id and each gun's result.
+    pub fn set_fire_log(&mut self, on: bool) {
+        self.fire_log = on.then(Vec::new);
+    }
+
+    /// The fire results kept since the last call.
+    pub fn take_fire_log(&mut self) -> Vec<super::FireCall> {
+        self.fire_log
+            .as_mut()
+            .map(std::mem::take)
+            .unwrap_or_default()
+    }
+
+    /// The objects a bullet's ray started inside since the last call
+    /// (diagnostic): the ray does not hit them, as IVP's ray solver does
+    /// not.
+    pub fn take_beam_starts_inside(&mut self, system: u32) -> Vec<ObjHandle> {
+        self.physics
+            .world_mut(system)
+            .map(|w| {
+                w.take_beam_starts_inside()
+                    .into_iter()
+                    .map(ObjHandle::from_key)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// The objects a bullet's ray crossed since the last call that IVP's
+    /// OV sphere test kept it from hitting (diagnostic): their core at the
+    /// start of the PSI was out of the test's reach.
+    pub fn take_beam_ov_culled(&mut self, system: u32) -> Vec<ObjHandle> {
+        self.physics
+            .world_mut(system)
+            .map(|w| {
+                w.take_beam_ov_culled()
+                    .into_iter()
+                    .map(ObjHandle::from_key)
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     /// The multiplayer step's beam pass: `CBeam::move` on every bullet.
@@ -332,6 +403,12 @@ impl World {
         let (Some(o), Some(other_obj)) = (self.objects.get(h), self.objects.get(other)) else {
             return;
         };
+        // `Guided::on_collision` runs whether or not the other side's
+        // report destroyed the missile first.
+        if o.kind == ObjectKind::Guided {
+            self.guided_collision(h, other, other_sub);
+            return;
+        }
         if o.dead {
             return;
         }
@@ -588,7 +665,7 @@ impl World {
         let weapons_offline = o.equipped.as_deref().is_some_and(|e| e.weapons_offline);
         self.sync_shield_collisions(h);
         if list.destroyed && !weapons_offline {
-            self.destroy(h, list.inflictor_id);
+            self.kill(h, list.inflictor_id);
         }
     }
 
@@ -629,6 +706,76 @@ impl World {
         &mut self,
         system: u32,
         blast: &damage::Blast,
+        inflictor: u32,
+        skip: Option<ObjHandle>,
+    ) {
+        self.explode_caused(system, blast, damage::CAUSE_EXPLOSION, inflictor, skip, 0.0);
+    }
+
+    /// [`World::explode`] with the damage lists' cause, then the impulse
+    /// pass: every object not owned by a player whose body sphere meets
+    /// the blast is pushed away from it at the blast's centre
+    /// (`PhySys::AddImpulseAtPoint`) by `impulse` (none when it is 0).
+    pub fn explode_caused(
+        &mut self,
+        system: u32,
+        blast: &damage::Blast,
+        cause: damage::DamageCause,
+        inflictor: u32,
+        skip: Option<ObjHandle>,
+        impulse: f32,
+    ) {
+        self.explode_damage(system, blast, cause, inflictor, skip);
+        if impulse == 0.0 {
+            return;
+        }
+        let pushed: Vec<ObjHandle> = self
+            .objects_in(system)
+            .into_iter()
+            .filter(|h| Some(*h) != skip)
+            .filter(|h| {
+                self.objects
+                    .get(*h)
+                    .is_some_and(|o| o.simple.owner_player == 0 && o.physical.body.is_some())
+            })
+            .collect();
+        for h in pushed {
+            let (radius, center) = self.body_sphere(h);
+            let reach = f64::from(blast.radius) + f64::from(radius);
+            let d = [
+                f64::from(center.x) - f64::from(blast.position.x),
+                f64::from(center.y) - f64::from(blast.position.y),
+                f64::from(center.z) - f64::from(blast.position.z),
+            ];
+            if d[0] * d[0] + d[1] * d[1] + d[2] * d[2] > reach * reach {
+                continue;
+            }
+            // Float arithmetic, as the reference stores each step.
+            let dir = Vector::new(r(d[0]), r(d[1]), r(d[2]));
+            let length_sq = r((e(dir.y) * e(dir.y) + e(dir.z) * e(dir.z)) + e(dir.x) * e(dir.x));
+            if length_sq == 0.0 {
+                // `random_on_unit_sphere` is not drawn (D176).
+                continue;
+            }
+            let inverse = r(1.0 / e(length_sq).sqrt());
+            let push = Vector::new(
+                r(e(r(e(dir.x) * e(inverse))) * e(impulse)),
+                r(e(r(e(dir.y) * e(inverse))) * e(impulse)),
+                r(e(r(e(dir.z) * e(inverse))) * e(impulse)),
+            );
+            if let Some((system, body)) = self.body(h)
+                && let Some(world) = self.physics.world_mut(system)
+            {
+                world.add_impulse_at_point(body, push, blast.position);
+            }
+        }
+    }
+
+    fn explode_damage(
+        &mut self,
+        system: u32,
+        blast: &damage::Blast,
+        cause: damage::DamageCause,
         inflictor: u32,
         skip: Option<ObjHandle>,
     ) {
@@ -696,7 +843,7 @@ impl World {
                     spheres.groups.push((id, r, c));
                 }
             }
-            let mut list = DamageList::new(damage::CAUSE_EXPLOSION, inflictor, inflictor_owner);
+            let mut list = DamageList::new(cause, inflictor, inflictor_owner);
             self.with_damage_target(h, |t, in_group, mount_of| {
                 damage::explosion_hit(t, blast, &spheres, &mut list, in_group, mount_of);
             });

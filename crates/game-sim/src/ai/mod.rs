@@ -65,6 +65,11 @@
 //!   `MatchThrottle2Idea` (`common_splinemoveidea.cpp`,
 //!   `common_matchthrottleidea.cpp`).
 //!
+//! The behaviours that drive the ship ([`goto`], [`face`], [`buzz`],
+//! [`evade`], [`trail`], [`strafe`], [`flee`], [`loot`], [`follower`]: follow
+//! and formation, [`guide`], [`large_ship`], [`dock`], [`launch`],
+//! [`itl`]) sit beside [`behaviors`], which registers them.
+//!
 //! Everything is computed on the 53-bit model of decision T11: `f64`
 //! evaluation, a rounding to `f32` at each `float` store the reference
 //! makes, no fused multiply-add.
@@ -79,15 +84,26 @@ pub mod avoidance;
 pub mod bank;
 pub mod behavior;
 pub mod behaviors;
+pub mod buzz;
+pub mod dock;
+pub mod dodge;
+pub mod evade;
 pub mod face;
 pub mod face_idea;
 pub mod fire_control;
+pub mod flee;
+pub mod follower;
 pub(crate) mod fp;
 pub mod goto;
+pub mod guide;
 pub mod gun_convergence;
 pub mod gun_groups;
 pub mod idea;
 pub mod intercept;
+pub mod itl;
+pub mod large_ship;
+pub mod launch;
+pub mod loot;
 pub mod manager;
 pub mod match_throttle;
 pub mod move_idea;
@@ -99,10 +115,12 @@ pub mod script;
 pub mod spline_move;
 pub mod state_graph;
 pub mod steer;
+pub mod strafe;
 pub mod system;
 pub mod target_manager;
 pub mod thrust;
 pub mod timer_table;
+pub mod trail;
 pub mod world;
 
 #[cfg(test)]

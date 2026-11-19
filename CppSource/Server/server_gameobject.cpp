@@ -9,6 +9,7 @@
 #include "../include/server_gameobject.h"
 #include "../include/common_timing.h"  // Timing::read
 #include "../include/oracle_sim_hooks.h"  // Oracle instrumentation (P2.3 sim)
+#include "../include/oracle_ai.h"         // Oracle instrumentation (P2.5 ai): OnAnswer
 #include "../include/server_sysdb.h"   // StarSystem::on_object_destroyed (GameObject::destroy)
 #include "../include/common_misc.h"    // SUBOBJ_ID_NONE (Ship::allocate_equip_id)
 #include "../include/common_cequip.h"  // CEquipTraverser / CEquip (get_damage_list)
@@ -1962,6 +1963,14 @@ static CLoot* EqObj_LootOf(IObjRW* Obj)
 // IObjAffect slot 16 (+0x40) -- the routine (module storage, RET 0xc).
 int EqObj::slot_40(unsigned short const* EquipId, IObjRW* Target, int SourceClient)
 {
+    FOracleSimAffectScope const OracleAffect;   // Oracle instrumentation (P2.5 sim)
+    if (GOracleSimHooks.OnAffect != nullptr)
+    {
+        unsigned int const TargetId = Target != nullptr ? Target->get_id() : 0u;
+        float TargetBits = 0.0f;
+        memcpy(&TargetBits, &TargetId, sizeof(TargetBits));
+        GOracleSimHooks.OnAffect(get_id(), OracleSimAffectTractor, static_cast<int>(*EquipId), &TargetBits, 1);
+    }
     // no system / destroyed: -5.
     if (OwnerSystem == nullptr)
         return -5;
@@ -2082,6 +2091,16 @@ int EqObj::slot_3c(unsigned short const* EquipId, std::vector<IObjRW*> const& Ta
 int EqObj::slot_44(unsigned short const* EquipId, IObjRW* Target, unsigned short SubTarget,
                    int SourceClient)
 {
+    FOracleSimAffectScope const OracleAffect;   // Oracle instrumentation (P2.5 ai)
+    if (GOracleSimHooks.OnAffect != nullptr)
+    {
+        // The target's id as a float bit pattern, then the sub-target.
+        unsigned int const TargetId = Target != nullptr ? Target->get_id() : 0u;
+        float Values[2];
+        std::memcpy(&Values[0], &TargetId, sizeof(TargetId));
+        Values[1] = static_cast<float>(SubTarget);
+        GOracleSimHooks.OnAffect(get_id(), OracleSimAffectGunTarget, static_cast<int>(*EquipId), Values, 2);
+    }
     // no system / destroyed: -5.
     if (OwnerSystem == nullptr)
         return -5;
@@ -2095,6 +2114,8 @@ int EqObj::slot_44(unsigned short const* EquipId, IObjRW* Target, unsigned short
 
     // BL, "the gun's target changed".
     bool bChanged = false;
+    // Oracle instrumentation (P2.5 ai): what the call did to the gun (OracleAiAnswerGunTarget).
+    int OracleGun = 0;
     if (!SinglePlayer() || SourceClient == 0)
     {
         // FindByID on ceqobj().
@@ -2122,7 +2143,27 @@ int EqObj::slot_44(unsigned short const* EquipId, IObjRW* Target, unsigned short
                         Simple = const_cast<CSimple*>(static_cast<CSimple const*>(Raw));
                 }
                 bChanged = Gun->SetTarget(Simple, SubTarget);
+                OracleGun = 1;
+                if (GOracleAiHooks.OnAnswer != nullptr)   // Oracle instrumentation (P2.5 ai)
+                {
+                    CSimple* Lock = nullptr;
+                    unsigned short LockSub = 0;
+                    Gun->GetTarget(Lock, LockSub);
+                    int const Ints[6] = {static_cast<int>(*EquipId),
+                                         static_cast<int>(Target != nullptr ? Target->get_id() : 0u),
+                                         static_cast<int>(SubTarget), bChanged ? 1 : 0,
+                                         static_cast<int>(Lock != nullptr ? Lock->get_id() : 0u),
+                                         static_cast<int>(Simple != nullptr ? Simple->get_id() : 0u)};
+                    GOracleAiHooks.OnAnswer(OracleAiAnswerGunTarget, get_id(), Ints, 6, nullptr, 0);
+                }
             }
+        }
+        if (OracleGun == 0 && GOracleAiHooks.OnAnswer != nullptr)   // Oracle instrumentation (P2.5 ai)
+        {
+            int const Ints[6] = {static_cast<int>(*EquipId),
+                                 static_cast<int>(Target != nullptr ? Target->get_id() : 0u),
+                                 static_cast<int>(SubTarget), -1, Result, 0};
+            GOracleAiHooks.OnAnswer(OracleAiAnswerGunTarget, get_id(), Ints, 6, nullptr, 0);
         }
 
         // the server's own request is only told
@@ -5477,9 +5518,20 @@ void Ship::collect_droppable_equip(std::vector<EquipDesc>& Out)
 // Field_0x98 = (RequestType == 0 && Response == 3)
 void Ship::request_returned(int RequestType, int Response, int Arg3)
 {
+    if (GOracleAiHooks.OnAnswer != nullptr)   // Oracle instrumentation (P2.5 ai)
+    {
+        int const Ints[4] = {RequestType, Response, Arg3, PendingRequest != nullptr ? 1 : 0};
+        GOracleAiHooks.OnAnswer(OracleAiAnswerRequest, get_id(), Ints, 4, nullptr, 0);
+    }
     if (PendingRequest != nullptr)
     {
-        if (!PendingRequest->OnResult(RequestType, Response, Arg3))
+        // Oracle instrumentation (P2.5 ai): the callback is the requesting behaviour's code, so
+        // the IObjAffect calls it makes are its own (depth 0), not the request's body's.
+        int const OracleDepth = GOracleSimHooks.AffectDepth;
+        GOracleSimHooks.AffectDepth = 0;
+        bool const bKeep = PendingRequest->OnResult(RequestType, Response, Arg3);
+        GOracleSimHooks.AffectDepth = OracleDepth;
+        if (!bKeep)
         {
             PendingRequest = nullptr;
             Field_0x98 = 0;
@@ -5915,6 +5967,16 @@ int Ship::slot_54(bool bActivate, int SourceClient)
 int Ship::slot_5c(int RequestType, unsigned const* TargetId, unsigned const* SecondId,
                   int bFlag, RequestCB* Callback)
 {
+    FOracleSimAffectScope const OracleAffect;   // Oracle instrumentation (P2.5 ai)
+    if (GOracleSimHooks.OnAffect != nullptr)
+    {
+        // The ids travel as float bit patterns: the target, the second id (0 without), bFlag.
+        unsigned int const Words[3] = {TargetId != nullptr ? *TargetId : 0u, SecondId != nullptr ? *SecondId : 0u,
+                                       static_cast<unsigned int>(bFlag)};
+        float Values[3];
+        std::memcpy(Values, Words, sizeof(Values));
+        GOracleSimHooks.OnAffect(get_id(), OracleSimAffectRequest, RequestType, Values, 3);
+    }
     if (Field_0x98 != 0)
         return 0;
     PendingRequest = Callback;
@@ -5964,6 +6026,15 @@ int Ship::slot_5c(int RequestType, unsigned const* TargetId, unsigned const* Sec
 // Returns 0.
 int Ship::slot_60(int RequestType, unsigned const* TargetId, int Arg3)
 {
+    FOracleSimAffectScope const OracleAffect;   // Oracle instrumentation (P2.5 ai)
+    if (GOracleSimHooks.OnAffect != nullptr)
+    {
+        // The target id and Arg3 as float bit patterns.
+        unsigned int const Words[2] = {TargetId != nullptr ? *TargetId : 0u, static_cast<unsigned int>(Arg3)};
+        float Values[2];
+        std::memcpy(Values, Words, sizeof(Values));
+        GOracleSimHooks.OnAffect(get_id(), OracleSimAffectCancelRequest, RequestType, Values, 2);
+    }
     PendingRequest = nullptr;
     Field_0x98 = 0;
 
@@ -6013,8 +6084,31 @@ int Ship::slot_60(int RequestType, unsigned const* TargetId, int Arg3)
 int Ship::go_tradelane(IObjInspect const* EntranceRing, IObjInspect const* ExitRing,
                        bool bFastExit, float Speed)
 {
+    FOracleSimAffectScope const OracleAffect;   // Oracle instrumentation (P2.5 ai)
+    unsigned int const OracleIds[2] = {EntranceRing != nullptr ? EntranceRing->get_id() : 0u,
+                                       ExitRing != nullptr ? ExitRing->get_id() : 0u};
+    if (GOracleSimHooks.OnAffect != nullptr)
+    {
+        // The entrance and exit ids as float bit patterns, then the speed.
+        float Values[3];
+        std::memcpy(Values, OracleIds, sizeof(OracleIds));
+        Values[2] = Speed;
+        GOracleSimHooks.OnAffect(get_id(), OracleSimAffectGoTradeLane, bFastExit ? 1 : 0, Values, 3);
+    }
     if (static_cast<CShip*>(Object)->go_tradelane(EntranceRing, ExitRing, this, bFastExit, Speed) != 0)
+    {
+        if (GOracleAiHooks.OnAnswer != nullptr)   // Oracle instrumentation (P2.5 ai)
+        {
+            int const Ints[4] = {static_cast<int>(OracleIds[0]), static_cast<int>(OracleIds[1]), bFastExit ? 1 : 0, -5};
+            GOracleAiHooks.OnAnswer(OracleAiAnswerGoTradeLane, get_id(), Ints, 4, &Speed, 1);
+        }
         return -5;
+    }
+    if (GOracleAiHooks.OnAnswer != nullptr)   // Oracle instrumentation (P2.5 ai)
+    {
+        int const Ints[4] = {static_cast<int>(OracleIds[0]), static_cast<int>(OracleIds[1]), bFastExit ? 1 : 0, 0};
+        GOracleAiHooks.OnAnswer(OracleAiAnswerGoTradeLane, get_id(), Ints, 4, &Speed, 1);
+    }
     unsigned int const ExitId = (ExitRing != nullptr) ? ExitRing->get_id() : 0u;
     unsigned int const EntranceId = EntranceRing->get_id();
     unsigned int const ShipId = get_id();
@@ -6031,6 +6125,9 @@ int Ship::go_tradelane(IObjInspect const* EntranceRing, IObjInspect const* ExitR
 // Returns 0.
 int Ship::stop_tradelane()
 {
+    FOracleSimAffectScope const OracleAffect;   // Oracle instrumentation (P2.5 ai)
+    if (GOracleSimHooks.OnAffect != nullptr)
+        GOracleSimHooks.OnAffect(get_id(), OracleSimAffectStopTradeLane, 0, nullptr, 0);
     CShip* const Raw = static_cast<CShip*>(Object);
     Raw->stop_tradelane();
     unsigned int const ExitId = Raw->get_tradelane_exit_ring();

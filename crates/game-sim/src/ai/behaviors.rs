@@ -2,8 +2,10 @@
 //! `common_behaviortypes.cpp`). Ported so far: the simple behaviours of
 //! `common_nullbehavior.cpp`, `common_idlebehavior.cpp`,
 //! `common_delaybehavior.cpp`, `common_cruisebehavior.cpp` and
-//! `common_drasticevadebehavior.cpp`, and goto, free flight and face
-//! ([`super::goto`], [`super::face`]). Every other id makes an
+//! `common_drasticevadebehavior.cpp`, and goto, free flight, face, buzz,
+//! evade, trail, strafe, flee, loot, follow, formation, guide, large
+//! ship, dock, launch and instant trade lane (their own modules). Every
+//! other id makes an
 //! [`UnportedBehavior`], which keeps the manager's protocol (it binds,
 //! engages and ticks) but never volunteers in a re-evaluation and commands
 //! nothing; [`Behavior::ported`] tells a replay to skip its ticks.
@@ -11,10 +13,22 @@
 use neuron_core::math::Vector;
 
 use super::behavior::{AiEnv, Behavior, BehaviorBase, Cx, DirectiveOp, ids};
+use super::buzz::BuzzBehavior;
+use super::dock::DockBehavior;
+use super::evade::EvadeBehavior;
 use super::face::FaceBehavior;
+use super::flee::FleeBehavior;
+use super::follower::{FollowBehavior, FormationBehavior};
 use super::fp::{e, r};
 use super::goto::GotoBehavior;
+use super::guide::GuideBehavior;
 use super::idea::{Idea, IdleIdea};
+use super::itl::InstantTradeLaneBehavior;
+use super::large_ship::LargeShipBehavior;
+use super::launch::LaunchBehavior;
+use super::loot::LootBehavior;
+use super::strafe::StrafeBehavior;
+use super::trail::TrailBehavior;
 use super::world::AiCommand;
 
 /// `CREATE_BEHAVIOR(id)`: the behaviour registered under `id`.
@@ -29,6 +43,19 @@ pub fn create_behavior<W: AiEnv + ?Sized>(id: i32) -> Box<dyn Behavior<W>> {
         ids::GOTO => Box::new(GotoBehavior::new(id)),
         ids::FREE_FLIGHT => Box::new(GotoBehavior::new_free_flight(id)),
         ids::FACE => Box::new(FaceBehavior::new(id)),
+        ids::BUZZ => Box::new(BuzzBehavior::new(id)),
+        ids::EVADE => Box::new(EvadeBehavior::new(id)),
+        ids::TRAIL => Box::new(TrailBehavior::new(id)),
+        ids::STRAFE => Box::new(StrafeBehavior::new(id)),
+        ids::FLEE => Box::new(FleeBehavior::new(id)),
+        ids::LOOT => Box::new(LootBehavior::new(id)),
+        ids::FOLLOW => Box::new(FollowBehavior::new(id)),
+        ids::DOCK => Box::new(DockBehavior::new(id)),
+        ids::LAUNCH => Box::new(LaunchBehavior::new(id)),
+        ids::INSTANT_TRADE_LANE => Box::new(InstantTradeLaneBehavior::new(id)),
+        ids::FORMATION => Box::new(FormationBehavior::new(id)),
+        ids::GUIDE => Box::new(GuideBehavior::new(id)),
+        ids::LARGE_SHIP => Box::new(LargeShipBehavior::new(id)),
         _ => Box::new(UnportedBehavior::new(id)),
     }
 }
@@ -58,6 +85,26 @@ pub fn op_dword(op: &DirectiveOp, offset: usize) -> u32 {
         (DirectiveOp::DrasticEvade(d), 0x18) => d.words_10[2],
         (DirectiveOp::DrasticEvade(d), 0x1c) => bits(d.duration),
         (DirectiveOp::Delay(s), 0x0c) => bits(*s),
+        (DirectiveOp::Dock(d), 0x0c) => d.dock_object,
+        (DirectiveOp::Dock(d), 0x10) => d.field_10,
+        (DirectiveOp::Dock(d), 0x14) => u32::from(d.field_14),
+        (DirectiveOp::Dock(d), 0x18) => int(d.port),
+        (DirectiveOp::Dock(d), 0x1c) => d.field_1c,
+        (DirectiveOp::Dock(d), 0x20) => bits(d.field_20),
+        (DirectiveOp::Dock(d), 0x24) => bits(d.field_24),
+        (DirectiveOp::Dock(d), 0x28) => d.field_28,
+        (DirectiveOp::Launch(l), 0x0c) => l.launch_object,
+        (DirectiveOp::Launch(l), 0x10) => int(l.index),
+        (DirectiveOp::Launch(l), 0x14) => int(l.terminal),
+        (DirectiveOp::InstantTradeLane(t), 0x0c) => t.entrance,
+        (DirectiveOp::InstantTradeLane(t), 0x10) => t.exit,
+        (DirectiveOp::InstantTradeLane(t), 0x14) => bits(t.speed),
+        (DirectiveOp::Follow(f), 0x0c) => f.target,
+        (DirectiveOp::Follow(f), 0x10) => bits(f.distance),
+        (DirectiveOp::Follow(f), 0x14) => bits(f.offset.x),
+        (DirectiveOp::Follow(f), 0x18) => bits(f.offset.y),
+        (DirectiveOp::Follow(f), 0x1c) => bits(f.offset.z),
+        (DirectiveOp::Follow(f), 0x20) => bits(f.range),
         _ => 0,
     }
 }

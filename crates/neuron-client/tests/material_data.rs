@@ -97,17 +97,19 @@ fn archives(root: &Path, dir: &Path, out: &mut Vec<std::path::PathBuf>) {
 /// decision O15) through the batcher's library with the shipped
 /// `[MaterialMap]` and `[BatchedMaterials]`, `Shading`'s factories and the
 /// device model, after the archive's own textures: each child whose type
-/// (remapped) is one of the 22 kinds or a batched one is created and
-/// loaded, verified and resolved; the types `Shading` does not make (the
-/// `surfacematerials` kinds, next) are counted. Deleting the groups frees
-/// every material and texture playback.
+/// (remapped) is one of the 22 kinds, one of the 19 surface materials (the
+/// fallback factory) or a batched one is created and loaded, verified and
+/// resolved; the types no factory makes are counted (the reference fails to
+/// create them too). Deleting the groups frees every material and texture
+/// playback.
 #[test]
 fn shipped_material_libraries_create_through_the_factory() {
     use std::collections::BTreeMap;
 
     use neuron_client::render::ff::defaults::Defaults;
     use neuron_client::render::ff::device::{Device, RecordingBackend};
-    use neuron_client::render::material::{Shading, ShadingFactory};
+    use neuron_client::render::material::surface::SurfaceSpec;
+    use neuron_client::render::material::{Shading, ShadingFactory, SurfaceFactory};
     use neuron_client::render::texture::{FormatClasses, LibraryConfig, TextureLibrary};
     use neuron_core::hash::name_crc32;
     use neuron_core::material_data::{MaterialEntry, MaterialKind, load_material_library};
@@ -135,10 +137,15 @@ fn shipped_material_libraries_create_through_the_factory() {
         TextureLibrary::new(LibraryConfig::default()),
         FormatClasses::builtin(),
     );
-    let mut batcher: MaterialBatcher<Shading<RecordingBackend>> =
-        MaterialBatcher::new(Box::new(ShadingFactory::new()), Some(&ini));
+    let mut batcher: MaterialBatcher<Shading<RecordingBackend>> = MaterialBatcher::new(
+        Box::new(ShadingFactory::with_fallback(Box::new(
+            SurfaceFactory::new(),
+        ))),
+        Some(&ini),
+    );
     let host = Host::new(&root);
     let (mut libraries, mut children, mut expected, mut missing) = (0, 0, 0, 0);
+    let mut surface: BTreeMap<String, u32> = BTreeMap::new();
     let mut others: BTreeMap<String, u32> = BTreeMap::new();
     let mut kinds: BTreeMap<String, u32> = BTreeMap::new();
     let mut groups = Vec::new();
@@ -190,9 +197,12 @@ fn shipped_material_libraries_create_through_the_factory() {
                 .remap_type(&lower, type_name)
                 .unwrap_or_else(|_| type_name.clone());
             let selected = String::from_utf8_lossy(&selected).into_owned();
-            if MaterialKind::by_name(selected.as_bytes()).is_some() {
+            let shading = MaterialKind::by_name(selected.as_bytes()).is_some();
+            let surfaced = SurfaceSpec::by_name(selected.as_bytes()).is_some();
+            if shading || surfaced {
                 expected += 1;
-                *kinds.entry(selected.clone()).or_default() += 1;
+                let counts = if shading { &mut kinds } else { &mut surface };
+                *counts.entry(selected.clone()).or_default() += 1;
                 if !members.contains(&name_crc32(&node.name)) {
                     missing += 1;
                     println!(
@@ -212,6 +222,18 @@ fn shipped_material_libraries_create_through_the_factory() {
             .resolve_textures_group(&mut services, group.cast_signed(), 0.0);
         groups.push(group);
     }
+    // The surface materials loaded their leaves: the HUD icons name their textures.
+    let materials = batcher.library().materials();
+    let named_icons = materials
+        .live()
+        .filter_map(|id| materials.get(id))
+        .filter(|m| m.class_name() == "HUDIconMaterial")
+        .filter(|m| {
+            m.parameter(6)
+                .is_ok_and(|v| v.text.is_some_and(|t| t.as_slice() != b"(None)"))
+        })
+        .count();
+    assert!(named_icons > 0, "no HUD icon loaded a texture name");
     let live = batcher.library().materials().live().count();
     let batched = batcher
         .library()
@@ -226,11 +248,16 @@ fn shipped_material_libraries_create_through_the_factory() {
         })
         .count();
     println!(
-        "{libraries} material libraries: {children} typed children, {expected} of Shading's kinds \
-         ({live} materials live, {batched} batched); kinds {kinds:?}; other types {others:?}"
+        "{libraries} material libraries: {children} typed children, {expected} made by a factory \
+         ({live} materials live, {batched} batched); kinds {kinds:?}; surface materials \
+         {surface:?}; other types {others:?}"
     );
     assert!(libraries > 0);
-    assert_eq!(missing, 0, "materials of Shading's kinds not created");
+    assert_eq!(missing, 0, "materials of a factory's types not created");
+    assert!(
+        others.keys().all(|t| t == "DcDtBt" || t == "DcDtEtTwo"),
+        "types no factory makes: {others:?}"
+    );
     for group in groups {
         batcher
             .library_mut()

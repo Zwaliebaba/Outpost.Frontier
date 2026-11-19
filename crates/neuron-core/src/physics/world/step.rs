@@ -105,14 +105,14 @@ impl PhysicsWorld {
     ) {
         self.clock = *clock;
         let now = clock.current_time;
-        // The wake queue.
-        for index in self.cores.indices() {
+        // The wake queue (`IVP_Environment_Process_Wake_Queue`), from the
+        // last queued core to the first: each revived unit goes to the
+        // front of the simulated list, so the list starts in queue order.
+        let queue = std::mem::take(&mut self.wake_queue);
+        for &index in queue.iter().rev() {
             let Some(slot) = self.cores.get_mut(index) else {
                 continue;
             };
-            if !slot.wake_pending {
-                continue;
-            }
             slot.wake_pending = false;
             if slot.simulation_disabled || !slot.core.is_frozen() {
                 continue;
@@ -124,23 +124,38 @@ impl PhysicsWorld {
                     self.moving.push(o);
                 }
             }
+            self.active.retain(|c| *c != index);
+            self.active.insert(0, index);
         }
-        // The simulation units.
+        // The simulation units, in `simulate_sim_units_psi`'s order.
         let event = clock.event_sim();
         let mut simulated = Vec::new();
-        for index in self.cores.indices() {
+        let mut trace = self.unit_trace.is_some().then(Vec::new);
+        let trace_cores = self
+            .unit_trace
+            .as_ref()
+            .is_some_and(|t| t.len() < super::UNIT_CORE_PSIS);
+        let mut cores_trace = Vec::new();
+        for index in super::unit_run_order(&self.active) {
             let Some(slot) = self.cores.get_mut(index) else {
                 continue;
             };
             if slot.simulation_disabled || slot.core.is_frozen() {
                 continue;
             }
+            let before = trace_cores.then(|| crate::physics::replay::CoreRecord {
+                core: slot.core.clone(),
+                unit_state: slot.unit_state,
+            });
             unit_psi_begin(&mut slot.core, &mut slot.unit_state, now);
             let motion_check = self.movement_check.tick(random);
-            let mut controllers = slot.controllers.clone();
+            let mut controllers = slot.buckets.clone();
             controllers.sort_by_key(|(priority, _, _)| *priority);
             for (_, _, kind) in controllers.iter().rev() {
                 self.run_controller(index, *kind, event, now, host);
+            }
+            if let Some(t) = trace.as_mut() {
+                t.push((self.unit_key(index).unwrap_or(0), motion_check));
             }
             let Some(slot) = self.cores.get_mut(index) else {
                 continue;
@@ -155,7 +170,35 @@ impl PhysicsWorld {
             ) {
                 let objects = slot.objects.clone();
                 self.moving.retain(|m| !objects.contains(m));
+                self.active.retain(|c| *c != index);
             }
+            if let (Some(before), Some(slot)) = (before, self.cores.get(index)) {
+                let golem = slot
+                    .objects
+                    .first()
+                    .and_then(|b| self.bodies.get(b.0))
+                    .and_then(|b| match &b.golem {
+                        Some(GolemKind::Part(g)) => {
+                            let (t, c) = (g.target_quat, g.current_target_quat);
+                            Some([t.x, t.y, t.z, t.w, c.x, c.y, c.z, c.w])
+                        }
+                        _ => None,
+                    });
+                cores_trace.push((
+                    before,
+                    crate::physics::replay::CoreRecord {
+                        core: slot.core.clone(),
+                        unit_state: slot.unit_state,
+                    },
+                    golem,
+                ));
+            }
+        }
+        if trace_cores {
+            self.unit_core_trace.push(cores_trace);
+        }
+        if let (Some(t), Some(all)) = (trace, self.unit_trace.as_mut()) {
+            all.push(t);
         }
         let commit = clock.commit_event_sim();
         for index in simulated.iter().rev() {
@@ -294,29 +337,58 @@ impl PhysicsWorld {
     }
 
     fn contacts(&mut self, clock: &PsiClock) {
-        let handles: Vec<BodyHandle> = self.bodies.indices().into_iter().map(BodyHandle).collect();
-        let mut impacts = Vec::new();
-        for (i, &a) in handles.iter().enumerate() {
-            let Some(body_a) = self.collidable(a) else {
+        // Every collidable body once: whether its core is still, and its
+        // swept bounding sphere (origin, radius plus the PSI's motion).
+        struct Candidate {
+            handle: BodyHandle,
+            still: bool,
+            origin: [f64; 3],
+            reach: f64,
+        }
+        let mut candidates = Vec::new();
+        for index in self.bodies.indices() {
+            let handle = BodyHandle(index);
+            let Some(body) = self.collidable(handle) else {
                 continue;
             };
-            for &b in &handles[i + 1..] {
-                let Some(body_b) = self.collidable(b) else {
+            let Some(slot) = self.cores.get(body.core) else {
+                continue;
+            };
+            let still = slot.simulation_disabled || slot.core.is_frozen();
+            let Some((iso, velocity)) = self.body_motion(handle, clock) else {
+                continue;
+            };
+            let t = iso.translation.vector;
+            let speed = shape::to_vector(velocity).norm();
+            candidates.push(Candidate {
+                handle,
+                still,
+                origin: [f64::from(t.x), f64::from(t.y), f64::from(t.z)],
+                reach: f64::from(body.bound_radius)
+                    + f64::from(speed) * f64::from(clock.delta_time),
+            });
+        }
+        let mut impacts = Vec::new();
+        for (i, a) in candidates.iter().enumerate() {
+            for b in &candidates[i + 1..] {
+                if a.still && b.still {
+                    continue;
+                }
+                // The bounding spheres, swept over the PSI, keep the pair
+                // apart: no impact (a conservative early out).
+                let d = [0, 1, 2].map(|k| a.origin[k] - b.origin[k]);
+                let gap = ((d[0] * d[0] + d[1] * d[1]) + d[2] * d[2]).sqrt();
+                if gap > (a.reach + b.reach) * 1.001 + 0.01 {
+                    continue;
+                }
+                let (Some(body_a), Some(body_b)) = (self.body(a.handle), self.body(b.handle))
+                else {
                     continue;
                 };
                 if !self.pair_allowed(body_a, body_b) {
                     continue;
                 }
-                let (Some(ca), Some(cb)) =
-                    (self.cores.get(body_a.core), self.cores.get(body_b.core))
-                else {
-                    continue;
-                };
-                let still = |s: &super::CoreSlot| s.simulation_disabled || s.core.is_frozen();
-                if still(ca) && still(cb) {
-                    continue;
-                }
-                if let Some(impact) = self.find_impact(a, b, clock) {
+                if let Some(impact) = self.find_impact(a.handle, b.handle, clock) {
                     impacts.push(impact);
                 }
             }
@@ -407,6 +479,13 @@ impl PhysicsWorld {
                 }
             }
         }
+        // Two moving cores in contact share a friction system, a controller
+        // of both: IVP merges their units and splits them again when the
+        // contact ends, rebuilding the controller buckets each time.
+        if ta.0 > 0.0 && tb.0 > 0.0 {
+            self.rebuild_controller_buckets(impact.a);
+            self.rebuild_controller_buckets(impact.b);
+        }
         let relative_velocity = [0, 1, 2].map(|i| r(va[i] - vb[i]));
         self.apply_impulse(impact.b, impulse, rb, t);
         self.apply_impulse(impact.a, impulse.map(|c| -c), ra, t);
@@ -495,6 +574,7 @@ impl PhysicsWorld {
             enabled: true,
             listener: desc.listener,
             intruders: Vec::new(),
+            pending: Vec::new(),
         }))
     }
 
@@ -504,26 +584,69 @@ impl PhysicsWorld {
         let _ = self.phantoms.remove(h.0);
     }
 
-    /// `PhySys::AttachPhantom`: the phantom follows the body; its pose
-    /// becomes relative to the body's.
-    pub fn attach_phantom(&mut self, h: PhantomHandle, body: BodyHandle) -> bool {
-        if !self.contains(body) {
+    /// `PhySys::AttachPhantom` (`IVP_Merge_Object_Into_Core`): the phantom
+    /// joins the body's core at its current pose and follows the body. The
+    /// core's upper limit radius and surface deviation grow to the
+    /// phantom's own plus `distance`, the distance from `object_position`
+    /// (the object's `WorldPosition`) to the phantom's position, as for an
+    /// attached body ([`PhysicsWorld::attach`]).
+    pub fn attach_phantom(
+        &mut self,
+        h: PhantomHandle,
+        body: BodyHandle,
+        object_position: Vector,
+    ) -> bool {
+        let now = self.clock.current_time;
+        let Some((bq, bp)) = self.object_pose_at(body, now) else {
+            return false;
+        };
+        let Some(p) = self.phantoms.get(h.0) else {
+            return false;
+        };
+        if p.attached.is_some() {
             return false;
         }
-        match self.phantoms.get_mut(h.0) {
-            Some(p) => {
-                p.attached = Some(body);
-                true
+        // The distance on the FPU stack, stored as a float.
+        let dx = e(object_position.x) - e(p.position[0]);
+        let dy = e(object_position.y) - e(p.position[1]);
+        let dz = e(object_position.z) - e(p.position[2]);
+        let distance = r(((dz * dz + dy * dy) + dx * dx).sqrt());
+        let (old_ulr, old_msd) = p.geometry.radius_and_deviation([0.0; 3]);
+        let mut m = crate::physics::ivp::math::IvpMatrix::IDENTITY;
+        bq.set_matrix(&mut m);
+        m.vv = bp;
+        let rel_position = m.vimult4(p.position);
+        let rel_rotation = IvpQuat::inv_mult(&bq, &p.rotation);
+        if let Some(core) = self.core_of_mut(body) {
+            let radius = e(distance) + e(old_ulr);
+            if radius > e(core.upper_limit_radius) {
+                core.upper_limit_radius = r(radius);
             }
-            None => false,
+            let limit = e(distance) + e(old_msd);
+            if limit > e(core.max_surface_deviation) {
+                core.max_surface_deviation = r(limit);
+            }
+            core.recompute_inverse_inertia();
         }
+        if let Some(p) = self.phantoms.get_mut(h.0) {
+            p.attached = Some(body);
+            p.rotation = rel_rotation;
+            p.position = rel_position;
+        }
+        true
     }
 
-    /// `PhySys::DetachPhantom`.
+    /// `PhySys::DetachPhantom`: the phantom stays where it is.
     pub fn detach_phantom(&mut self, h: PhantomHandle) -> bool {
+        let Some(p) = self.phantoms.get(h.0) else {
+            return false;
+        };
+        let (rotation, position) = self.phantom_pose(p);
         match self.phantoms.get_mut(h.0) {
             Some(p) => {
                 p.attached = None;
+                p.rotation = rotation;
+                p.position = position;
                 true
             }
             None => false,
@@ -646,9 +769,26 @@ impl PhysicsWorld {
             }
             let listener = p.listener;
             let previous = p.intruders.clone();
+            // IVP reports an intruder from its mindist with the phantom, and
+            // `recalc_all_exact_mindists` evaluates the mindists in each PSI
+            // after the cores' next matrices are committed, at the PSI's
+            // time: the pose this test saw at the end of the step before.
+            // So the intruders of a step are the bodies the phantom
+            // overlapped at the end of the previous step, whether or not it
+            // still overlaps them now (divergence register, D177). A
+            // disabled phantom has none at once.
+            let now_in: Vec<BodyHandle> = if p.enabled {
+                p.pending
+                    .iter()
+                    .copied()
+                    .filter(|h| self.collidable(*h).is_some())
+                    .collect()
+            } else {
+                Vec::new()
+            };
             let mut events = Vec::new();
             for h in &previous {
-                if !inside.contains(h)
+                if !now_in.contains(h)
                     && let Some(key) = self.user_key(*h)
                 {
                     events.push(PhantomEvent {
@@ -661,9 +801,9 @@ impl PhysicsWorld {
             let mut kept: Vec<BodyHandle> = previous
                 .iter()
                 .copied()
-                .filter(|h| inside.contains(h))
+                .filter(|h| now_in.contains(h))
                 .collect();
-            for h in &inside {
+            for h in &now_in {
                 if !previous.contains(h) {
                     kept.push(*h);
                     if let Some(key) = self.user_key(*h) {
@@ -677,6 +817,7 @@ impl PhysicsWorld {
             }
             if let Some(p) = self.phantoms.get_mut(index) {
                 p.intruders = kept;
+                p.pending = inside;
             }
             if listener {
                 self.phantom_events.extend(events);
@@ -686,14 +827,75 @@ impl PhysicsWorld {
 
     // ---- queries ------------------------------------------------------
 
-    fn ray_hits(&self, from: Vector, to: Vector, only: Option<BodyHandle>) -> Vec<RayHit> {
-        let start = from.to_words();
-        let d = [to.x - from.x, to.y - from.y, to.z - from.z];
-        let length = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+    /// The ray of a query from `from` to `to`, as `PhysicalSystem::
+    /// FindRayCollisions` and `PhySys::FindRayIntersect` build its template
+    /// (`Common/common_physicalsystem.cpp:693-716`,
+    /// `common_physys_query.cpp:766-789`): the start, the direction (the
+    /// difference times the inverse length, each stored as a float) and the
+    /// length (a float). `z_first`: `FindRayIntersect`'s length sums the
+    /// unrounded z square first.
+    fn query_ray(from: Vector, to: Vector, z_first: bool) -> Option<IvpRay> {
+        let dx = r(e(to.x) - e(from.x));
+        let dy = r(e(to.y) - e(from.y));
+        let dz_exact = e(to.z) - e(from.z);
+        let dz = r(dz_exact);
+        let length = if z_first {
+            ((dz_exact * e(dz) + e(dx) * e(dx)) + e(dy) * e(dy)).sqrt()
+        } else {
+            ((e(dy) * e(dy) + e(dz) * e(dz)) + e(dx) * e(dx)).sqrt()
+        };
+        if !(length > 0.0) {
+            return None;
+        }
+        let inv = 1.0 / length;
+        Some(IvpRay {
+            start: from.to_words(),
+            dir: [r(e(dx) * inv), r(e(dy) * inv), r(e(dz) * inv)],
+            length: r(length),
+        })
+    }
+
+    /// The nearest hit of a ray on each body, nearest first: IVP's ray
+    /// solver (`IVP/ivp_collision/ivp_ray_solver.cpp`), which all three
+    /// queries use. `GenerateCollisions` and `FindRayCollisions` cast
+    /// against every object (`check_ray_against_all_objects_in_sim`,
+    /// `Common/common_physicalsystem.cpp:444-445`, `:720-721`), through
+    /// `check_ray_against_ov_node` to `check_ray_against_object`;
+    /// `FindRayIntersect` calls `check_ray_against_object` on its one object
+    /// (`common_physys_query.cpp:694-695`). `check_ray_against_object` sends
+    /// a polygon object's ledges through `PhySurfaceManager::
+    /// insert_all_ledges_hitting_ray` (`common_physys_build.cpp:169-185`,
+    /// detached parts masked) to the ledge test, and a ball to the ball test.
+    ///
+    /// Against every object (`only` is `None`) an object is tested only
+    /// when its OV element passes the sphere test
+    /// of `check_ray_against_ov_node` (`:323-347`): the core's position at
+    /// the start of its PSI (`MWorldFCore`, not the pose the narrow test
+    /// uses) within half the ray's length plus the core's upper limit
+    /// radius of the ray's centre, and within that radius of the ray's line.
+    /// A fast object whose pose now crosses the ray can fail it, and the
+    /// ray then passes through. `culled` receives each such body the narrow
+    /// test would have hit.
+    ///
+    /// A ray does not hit a ledge it starts in: the ledge test needs a face
+    /// that faces the ray with the start strictly in front of it
+    /// (`IVP_Ray_Solver_Os::check_ray_against_compact_ledge_os`, `:438-466`),
+    /// and the ball test returns when the start is inside the ball
+    /// (`:230-236`). `inside` receives each body with a ledge that contains
+    /// the start.
+    fn ivp_ray_hits(
+        &self,
+        ray_in: &IvpRay,
+        only: Option<BodyHandle>,
+        inside: &mut Vec<BodyHandle>,
+        culled: &mut Vec<BodyHandle>,
+    ) -> Vec<RayHit> {
+        let IvpRay { start, dir, length } = *ray_in;
         if !(length > 0.0) {
             return Vec::new();
         }
-        let dir = d.map(|c| c / length);
+        let half = e(length) * 0.5;
+        let centre = [0, 1, 2].map(|k| r(half * e(dir[k]) + e(start[k])));
         let ray = Ray::new(shape::to_point(start), shape::to_vector(dir));
         let mut hits = Vec::new();
         for h in self.bodies.indices().into_iter().map(BodyHandle) {
@@ -706,10 +908,37 @@ impl PhysicsWorld {
             let Some((q, pos)) = self.object_pose_at(h, self.clock.current_time) else {
                 continue;
             };
+            let passes_ov = only.is_some()
+                || self.cores.get(body.core).is_none_or(|slot| {
+                    let core = &slot.core;
+                    let radius = core.upper_limit_radius;
+                    let reach = r(half + e(radius));
+                    let c = core.m_world_f_core_last_psi.vv;
+                    let d = [0, 1, 2].map(|k| r(e(c[k]) - e(centre[k])));
+                    let quad = (e(d[1]) * e(d[1]) + e(d[2]) * e(d[2])) + e(d[0]) * e(d[0]);
+                    if !(e(reach) * e(reach) > quad) {
+                        return false;
+                    }
+                    let (a, b) = (dir.map(e), d.map(e));
+                    let cross = [
+                        r(a[1] * b[2] - a[2] * b[1]),
+                        r(b[0] * a[2] - a[0] * b[2]),
+                        r(a[0] * b[1] - a[1] * b[0]),
+                    ];
+                    let line = (e(cross[0]) * e(cross[0]) + e(cross[1]) * e(cross[1]))
+                        + e(cross[2]) * e(cross[2]);
+                    e(radius) * e(radius) > line
+                });
             let iso = shape::isometry(q, pos);
             let mut best: Option<RayHit> = None;
             for ledge in body.geometry.ledges.iter() {
                 if body.detached_parts.contains(&ledge.part_id) {
+                    continue;
+                }
+                if ledge.shape.contains_point(&iso, &ray.origin) {
+                    if passes_ov && inside.last() != Some(&h) {
+                        inside.push(h);
+                    }
                     continue;
                 }
                 let Some(hit) = ledge
@@ -731,17 +960,39 @@ impl PhysicsWorld {
                     distance: hit.time_of_impact,
                 });
             }
+            if !passes_ov {
+                if best.is_some() {
+                    culled.push(h);
+                }
+                continue;
+            }
             hits.extend(best);
         }
         hits.sort_by(|a, b| a.distance.total_cmp(&b.distance));
         hits
     }
 
+    /// The objects (user keys) whose ledges contained the start of a beam's
+    /// ray since the last call, so that the ray did not hit them
+    /// (diagnostic).
+    pub fn take_beam_starts_inside(&mut self) -> Vec<u64> {
+        std::mem::take(&mut self.beam_starts_inside)
+    }
+
+    /// The objects (user keys) a beam's ray crossed since the last call
+    /// that IVP's OV sphere test kept it from hitting (diagnostic).
+    pub fn take_beam_ov_culled(&mut self) -> Vec<u64> {
+        std::mem::take(&mut self.beam_ov_culled)
+    }
+
     /// `PhySys::FindRayCollisions`: the nearest hit per body, nearest
     /// first, at most `max_hits`.
     #[must_use]
     pub fn find_ray_collisions(&self, from: Vector, to: Vector, max_hits: usize) -> Vec<RayHit> {
-        let mut hits = self.ray_hits(from, to, None);
+        let Some(ray) = Self::query_ray(from, to, false) else {
+            return Vec::new();
+        };
+        let mut hits = self.ivp_ray_hits(&ray, None, &mut Vec::new(), &mut Vec::new());
         hits.truncate(max_hits);
         hits
     }
@@ -755,7 +1006,10 @@ impl PhysicsWorld {
         to: Vector,
         max_hits: usize,
     ) -> Vec<RayHit> {
-        let mut hits = self.ray_hits(from, to, Some(body));
+        let Some(ray) = Self::query_ray(from, to, true) else {
+            return Vec::new();
+        };
+        let mut hits = self.ivp_ray_hits(&ray, Some(body), &mut Vec::new(), &mut Vec::new());
         hits.truncate(max_hits);
         hits
     }
@@ -812,13 +1066,26 @@ impl PhysicsWorld {
             );
         }
         let dir = beam.direction.to_words();
-        let end = Vector::new(
-            start.x + dir[0] * length,
-            start.y + dir[1] * length,
-            start.z + dir[2] * length,
-        );
         let group = short_name(&beam.collision_group);
-        let hits = self.ray_hits(start, end, None);
+        let (mut inside, mut culled) = (Vec::new(), Vec::new());
+        let ray = IvpRay {
+            start: start.to_words(),
+            dir,
+            length,
+        };
+        let hits = self.ivp_ray_hits(&ray, None, &mut inside, &mut culled);
+        for b in inside {
+            if let Some(body) = self.bodies.get(b.0) {
+                self.beam_starts_inside.push(body.user_key);
+            }
+        }
+        for b in culled {
+            if let Some(body) = self.bodies.get(b.0)
+                && !(body.name[0] != 0 && group[0] != 0 && body.name == group)
+            {
+                self.beam_ov_culled.push(body.user_key);
+            }
+        }
         let hit = hits.into_iter().find(|h| {
             let name = self.bodies.get(h.body.0).map(|b| b.name).unwrap_or([0; 8]);
             !(name[0] != 0 && group[0] != 0 && name == group)
@@ -848,4 +1115,13 @@ impl PhysicsWorld {
         self.collisions.push(event);
         Some(event)
     }
+}
+
+/// A ray as IVP's ray solver takes it (`IVP_Ray_Solver_Template`): the
+/// start, the direction as given (normalised by the caller) and the length.
+#[derive(Clone, Copy, Debug)]
+struct IvpRay {
+    start: [f32; 3],
+    dir: [f32; 3],
+    length: f32,
 }

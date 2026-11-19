@@ -47,8 +47,9 @@ namespace
     // gun groups is 0x40 per type).
     const int kMaxEquip = 64;
     // The equipment types the system manager finds: guns and launchers, mine droppers,
-    // countermeasure droppers, shields.
-    const unsigned int kEquipTypes[4] = {0x80u, 0x20u, 0x40u, 0x100u};
+    // countermeasure droppers, shields; and (P2.5 loot) the tractor, whose range the loot
+    // behaviour reads.
+    const unsigned int kEquipTypes[5] = {0x80u, 0x20u, 0x40u, 0x100u, 0x100000u};
     // The angle the fire control asks is_pointing_at with for guns (pi/60, 0x3d567750).
     const float kGunPointingAngle = 0.05235988f;
     // The angle the auto-turret scan asks can_point_at with (0x3e99999a).
@@ -76,6 +77,18 @@ namespace
     int GCandidateCount = 0;
     float GWideConeAngle = 0.0f;
     float GMissileConeAngle = 0.0f;
+    // The target list each manager left at the end of its last tick, with the id of every
+    // entry read then. The list `ai_in` finds on entry is that one, built by the previous
+    // tick, and the game does not read it again: UpdateSystemManager empties it before the
+    // tick's own build. An entry can name an object destroyed since (its CObject released),
+    // so on entry the recorder takes the ids from here and reads only the entries still in
+    // the system's object database.
+    struct FBuiltTarget
+    {
+        IObjInspect const* Iface;
+        unsigned int Id;
+    };
+    std::map<IBehaviorManager const*, std::vector<FBuiltTarget>> GBuiltTargets;
 
     // The rand() recorder's observer (oracle_sim_rand.cpp): every draw while a behaviour
     // tick is open, with the DLL that drew it.
@@ -145,6 +158,8 @@ namespace
         float Lead[3];
         bool Pointing[3];           // is_pointing_at at the gun angle, the wide and the missile
                                     // cone angles
+        int TurretResult;           // OracleAiTurretGeometry for an auto turret
+        float Turret[29];
         int CanPointCount;          // can_point_at(candidate position, 0.3) for an auto turret
         unsigned int CanPointIds[kMaxCandidates];
         bool CanPoint[kMaxCandidates];
@@ -195,6 +210,12 @@ namespace
         unsigned int FollowId;
         int FollowerCount;
         unsigned int Followers[kMaxFollowers];
+        // P2.5 escort: get_formation_offset and get_follow_offset, which the formation and
+        // follow behaviours read.
+        int FormationOffsetResult;
+        Vector FormationOffset;
+        int FollowOffsetResult;
+        Vector FollowOffset;
         int DockResult;
         unsigned int DockTarget;
         int BaseResult;
@@ -227,6 +248,10 @@ namespace
         int TargetedEnemies;
         // The own ship only: what the fire control reads of its items, and the ship's lead.
         int bOwn;
+        // P2.5 dock and launch: get_hardpoint("hpmount") of the own ship.
+        int MountResult;
+        Vector MountPos;
+        Matrix MountOrient;
         int LeadResult;
         float Lead[3];
         int EquipCount;
@@ -241,6 +266,7 @@ namespace
     void ReadOwnEquipment(IObjInspect const* O, FAiObject& Out)
     {
         Out.bOwn = 1;
+        Out.MountResult = O->get_hardpoint("hpmount", &Out.MountPos, &Out.MountOrient);
         Out.LeadResult = OracleAiShipLeadFirePos(O, Out.Lead);
         static const EquipmentValType kVals[5] = {EquipValMunitionKind, EquipValAutoTurret, EquipValSeeker,
                                                   EquipValRange, EquipValTargetId};
@@ -283,8 +309,10 @@ namespace
                     E.Pointing[A] = bPointing;
                 }
                 // EquipValAutoTurret's byte.
+                E.TurretResult = 0;
                 if (Type == 0x80u && E.ValResult[1] == 0 && (E.Val[1] & 0xffu) != 0)
                 {
+                    E.TurretResult = OracleAiTurretGeometry(O, Ids[Index], E.Turret);
                     for (int C = 0; C < GCandidateCount; ++C)
                     {
                         if (GCandidates[C] == nullptr)
@@ -337,6 +365,8 @@ namespace
         Out.FollowerCount = (Count < 0) ? 0 : ((Count > (int)kMaxFollowers) ? (int)kMaxFollowers : Count);
         for (int Index = 0; Index < Out.FollowerCount; ++Index)
             Out.Followers[Index] = IdOf(Followers[Index]);
+        Out.FormationOffsetResult = O->get_formation_offset(Out.FormationOffset);
+        Out.FollowOffsetResult = O->get_follow_offset(Out.FollowOffset);
         Out.DockResult = O->get_dock_target(Out.DockTarget);
         Out.BaseResult = O->get_base(Out.Base);
         Out.RankResult = O->get_rank(Out.Rank);
@@ -447,6 +477,8 @@ namespace
         for (int A = 0; A < 3; ++A)
             J.Bool(nullptr, E.Pointing[A]);
         J.EndArray();
+        if (E.TurretResult == 1)
+            J.FloatArray("turret", E.Turret, 29);
         J.BeginArray("can_point");
         for (int C = 0; C < E.CanPointCount; ++C)
         {
@@ -543,6 +575,8 @@ namespace
         for (int Index = 0; Index < Obj.FollowerCount; ++Index)
             J.Uint(nullptr, Obj.Followers[Index]);
         J.EndArray();
+        OptVector(J, "formation_offset", Obj.FormationOffsetResult, Obj.FormationOffset);
+        OptVector(J, "follow_offset", Obj.FollowOffsetResult, Obj.FollowOffset);
         OptUint(J, "dock_target", Obj.DockResult, Obj.DockTarget);
         OptUint(J, "base", Obj.BaseResult, Obj.Base);
         OptUint(J, "rank", Obj.RankResult, Obj.Rank);
@@ -584,6 +618,19 @@ namespace
             for (int Index = 0; Index < Obj.EquipCount; ++Index)
                 WriteEquip(J, Obj.Equip[Index]);
             J.EndArray();
+            if (Obj.MountResult == 0)
+            {
+                float Mount[12];
+                Mount[0] = Obj.MountPos.x;
+                Mount[1] = Obj.MountPos.y;
+                Mount[2] = Obj.MountPos.z;
+                memcpy(&Mount[3], &Obj.MountOrient.E[0][0], 9 * sizeof(float));
+                J.FloatArray("hpmount", Mount, 12);
+            }
+            else
+            {
+                J.Null("hpmount");
+            }
         }
         if (Obj.AttitudeResult == 0)
         {
@@ -604,6 +651,21 @@ namespace
         if (GOpenDb == nullptr || Id == 0)
             return nullptr;
         return GOpenDb->FindById(&Id);
+    }
+
+    // get_id under SEH: false when the read faults (an inspect object whose CObject is gone).
+    bool GuardedGetId(IObjInspect const* O, unsigned int& Out)
+    {
+        __try
+        {
+            Out = O->get_id();
+            return true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            Out = 0;
+            return false;
+        }
     }
 
     void SlotJ(FOracleJson& J, FOracleAiGunSlot const& S)
@@ -783,6 +845,10 @@ namespace
             J.Int("reaction", M.PathfindReaction);
             J.Bool("probe_active", M.bProbeActive != 0);
             J.Bool("probe_contact", M.bProbeContact != 0);
+            J.BeginArray("locks");
+            for (int Lock : M.PathfindLocks)
+                J.Int(nullptr, Lock);
+            J.EndArray();
             J.EndObject();
         }
         else
@@ -799,6 +865,18 @@ namespace
             FaceFields(J, M.Face);
         else
             J.Null("face");
+        // P2.5 dock, launch and trade lanes: the current behaviour's own fields.
+        if (M.BehaviorKind != 0)
+        {
+            const char* const Name = M.BehaviorKind == 7 ? "beh7" : (M.BehaviorKind == 8 ? "beh8" : "beh9");
+            J.BeginObject(Name);
+            J.BeginArray("i");
+            for (int Index = 0; Index < M.Behavior.IntCount; ++Index)
+                J.Int(nullptr, M.Behavior.Ints[Index]);
+            J.EndArray();
+            J.FloatArray("v", M.Behavior.Floats, (unsigned)M.Behavior.FloatCount);
+            J.EndObject();
+        }
     }
 
     void BeginTick(IBehaviorManager const* Manager, float Dt)
@@ -812,9 +890,37 @@ namespace
         GOpenDb = M.ObjectDb;
         GOpenSelf = M.Object;
 
+        // The ids of the list the previous tick built, as read at its end; an entry that is
+        // not the one recorded then is read here under SEH. `Live` keeps the entries still in
+        // the object database (the others are not read again; their ids go to `targets_gone`).
         std::vector<unsigned int> TargetIds;
-        for (int Index = 0; Index < M.TargetCount && Index < 64; ++Index)
-            TargetIds.push_back(M.Targets[Index] != nullptr ? M.Targets[Index]->get_id() : 0);
+        std::vector<unsigned int> GoneIds;
+        IObjInspect const* Live[64] = {};
+        {
+            std::vector<FBuiltTarget> const& Built = GBuiltTargets[Manager];
+            for (int Index = 0; Index < M.TargetCount && Index < 64; ++Index)
+            {
+                IObjInspect const* const O = M.Targets[Index];
+                unsigned int Id = 0;
+                if (O != nullptr)
+                {
+                    if (Index < (int)Built.size() && Built[Index].Iface == O)
+                        Id = Built[Index].Id;
+                    else
+                        GuardedGetId(O, Id);
+                }
+                TargetIds.push_back(Id);
+                if (O == nullptr)
+                    continue;
+                IObjRW* const Found = FindById(Id);
+                unsigned int LiveId = 0;
+                if (Found != nullptr && static_cast<IObjInspect const*>(Found) == O && GuardedGetId(O, LiveId) &&
+                    LiveId == Id)
+                    Live[Index] = O;
+                else
+                    GoneIds.push_back(Id);
+            }
+        }
 
         FOracleJson J;
         J.Str("rec", "ai_in");
@@ -827,6 +933,13 @@ namespace
         for (unsigned int Id : TargetIds)
             J.Uint(nullptr, Id);
         J.EndArray();
+        if (!GoneIds.empty())
+        {
+            J.BeginArray("targets_gone");
+            for (unsigned int Id : GoneIds)
+                J.Uint(nullptr, Id);
+            J.EndArray();
+        }
         Write(J);
 
         if (M.bPersonality != 0)
@@ -878,8 +991,34 @@ namespace
         if (Self->get_dock_target(DockId) == 0)
             Add(FindById(DockId), "dock_target");
         Add(FindById(M.InSightsTargetId), "in_sights");
+        // P2.5 dock, launch and trade lanes: the objects the current behaviour holds (the
+        // dock's object, lane ring and watched object; the launch's base; the trade lane's
+        // two rings), which can lie beyond the near radius.
+        if (M.BehaviorKind == 7 && M.Behavior.IntCount > 17)
+        {
+            for (int Index = 15; Index <= 17; ++Index)
+                Add(FindById(static_cast<unsigned int>(M.Behavior.Ints[Index])), "behavior");
+        }
+        else if (M.BehaviorKind == 8 && M.Behavior.IntCount > 5)
+        {
+            Add(FindById(static_cast<unsigned int>(M.Behavior.Ints[5])), "behavior");
+        }
+        else if (M.BehaviorKind == 9 && M.Behavior.IntCount > 6)
+        {
+            Add(FindById(static_cast<unsigned int>(M.Behavior.Ints[5])), "behavior");
+            Add(FindById(static_cast<unsigned int>(M.Behavior.Ints[6])), "behavior");
+        }
         for (int Index = 0; Index < M.TargetCount && Index < 64; ++Index)
-            Add(M.Targets[Index], "candidate");
+            Add(Live[Index], "candidate");
+        // P2.5 combat: the incoming missiles of the timer table (the near walk's mask leaves
+        // munitions out), which UpdateSystemManagerCandidateScan and the evade behaviour read.
+        if (M.bSys)
+        {
+            for (int Index = 0; Index < M.Timers.MissileCount && Index < 16; ++Index)
+                Add(FindById(M.Timers.Missiles[Index]), "missile");
+            if (M.Timers.BestMissile != 0)
+                Add(FindById(M.Timers.BestMissile), "missile");
+        }
 
         if (GOpenDb != nullptr)
         {
@@ -900,9 +1039,15 @@ namespace
                     Add(O, "near");
             }
         }
+        // The auto-turret scan asks can_point_at for the list it builds during the tick
+        // (BuildAiTargetList), which the entry list need not hold yet: every object of the
+        // snapshot but the ship is a candidate.
         GCandidateCount = 0;
-        for (int Index = 0; Index < M.TargetCount && Index < kMaxCandidates; ++Index)
-            GCandidates[GCandidateCount++] = M.Targets[Index];
+        for (IObjInspect const* O : Order)
+        {
+            if (O != Self && GCandidateCount < kMaxCandidates)
+                GCandidates[GCandidateCount++] = O;
+        }
         GWideConeAngle = M.Guns.WideConeAngle;
         GMissileConeAngle = M.Guns.Params[11];  // +0x1068 MissileLaunchConeAngle
         for (IObjInspect const* O : Order)
@@ -928,6 +1073,17 @@ namespace
             J.Str(nullptr, Module.c_str());
         J.EndArray();
         Write(J);
+
+        // The list this tick built, read while its objects are still the tick's.
+        std::vector<FBuiltTarget>& Built = GBuiltTargets[Manager];
+        Built.clear();
+        for (int Index = 0; Index < M.TargetCount && Index < 64; ++Index)
+        {
+            FBuiltTarget Entry = {M.Targets[Index], 0};
+            if (Entry.Iface != nullptr)
+                GuardedGetId(Entry.Iface, Entry.Id);
+            Built.push_back(Entry);
+        }
         if (GFile != nullptr)
             fflush(GFile);
         GOpen = 0;
@@ -949,6 +1105,30 @@ namespace
             if (GPreviousTick != nullptr)
                 GPreviousTick(Manager, Dt, Phase);
         }
+    }
+
+    // P2.5 dock, launch and trade lanes: a world answer (oracle_ai.h EOracleAiAnswer), with
+    // the behaviour tick it came in (seq 0 outside one).
+    void __cdecl OnAiAnswer(int Kind, unsigned int ObjectId, int const* Ints, int IntCount, float const* Floats,
+                            int FloatCount)
+    {
+        static const char* const kNames[6] = {"request",      "dock_hardpoints", "lane_start",
+                                              "go_tradelane", "gun_target",      "zone_props"};
+        FOracleJson J;
+        J.Str("rec", "ai_answer");
+        J.Uint("tick", Tick());
+        J.Uint("seq", GOpen);
+        J.Str("kind", Kind >= 0 && Kind < 6 ? kNames[Kind] : "unknown");
+        IdAndName(J, ObjectId);
+        J.BeginArray("i");
+        for (int Index = 0; Index < IntCount; ++Index)
+            J.Int(nullptr, Ints[Index]);
+        J.EndArray();
+        if (Floats != nullptr)
+            J.FloatArray("v", Floats, (unsigned)FloatCount);
+        else
+            J.Null("v");
+        Write(J);
     }
 
     const char* QueryName(int Kind)
@@ -1029,6 +1209,7 @@ namespace oracle
         GPreviousTick = GOracleSimHooks.OnBehaviorTick;
         GOracleSimHooks.OnBehaviorTick = OnAiBehaviorTick;
         GOracleAiHooks.OnQuery = OnAiQuery;
+        GOracleAiHooks.OnAnswer = OnAiAnswer;
 
         FOracleJson J;
         J.Str("rec", "ai_start");

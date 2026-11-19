@@ -2,7 +2,7 @@
 // design/adr/0003-simulation-oracle.md; usage and scenario format in
 // design/reference-build.md section 10; record layouts in design/sim-records.md).
 //
-//   Oracle.exe sim <data root> <scenario file> <out folder> [--runs N]
+//   Oracle.exe sim <data root> <scenario file> <out folder> [--runs N] [--seed S]
 //
 // One run starts a headless multiplayer server in this process the way OutpostServer.exe
 // does (NeuronRuntime::Startup with NEURONCOMPONENTSsrv.ini, the data path, SetIsMPServer,
@@ -25,6 +25,7 @@
 
 #include <algorithm>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -56,9 +57,19 @@
 #include "oracle_sim_hooks.h"
 #include "oracle_sim_ai.h"
 #include "oracle_sim_rand.h"
+#include "oracle_sim_fault.h"
+#include "oracle_sim_fields.h"
+#include "oracle_sim_env.h"
+#include "../include/common_ivp_controller.h" // IVP_Controller_Golem (unit_cores.jsonl)
 
 // Server.dll, IServerImpl.cpp (Oracle instrumentation): StarSystem::load on one system.
 extern "C" __declspec(dllimport) bool __cdecl OracleSimLoadSystem(unsigned int SystemId);
+// Server.dll's other Oracle export: every controller's heartbeat (session.jsonl `heartbeats`).
+typedef void(__cdecl* FOracleSimHeartbeatFn)(void* Context, unsigned int Flid, unsigned int Priority,
+                                              char const* Module, float Interval, float Phase,
+                                              bool bDeferred);
+extern "C" __declspec(dllimport) void __cdecl OracleSimControllerHeartbeats(FOracleSimHeartbeatFn Fn,
+                                                                            void* Context);
 
 namespace
 {
@@ -91,6 +102,7 @@ namespace
         std::string Faction;     // P2.5: the reputation group of the ship's vibe, empty for none
         int HitPts = -1;
         bool bPsi = false;
+        bool bEscort = false;    // P2.5 escort: the state graph's ESCORT variant (with `ai`)
         int Line = 0;
     };
 
@@ -112,6 +124,9 @@ namespace
         double Frame = 1.0 / 30.0;
         bool bSpStepping = false;
         bool bSpCollisions = false;
+        // `comms off`: Content's comm system (GCS) refuses every comm, so it draws no rand()
+        // (the reproducibility work, owner 2026-11-19).
+        bool bCommsOff = false;
         unsigned int Seed = 0x4f524143u;
         double ClockStart = 1000.0;
         std::vector<FObjectDesc> Objects;
@@ -257,6 +272,13 @@ namespace
                 Object.StateGraph = T[At + 1];
                 At += 2;
             }
+            else if (Key == "escort")
+            {
+                // P2.5 escort: a wingman's graph, as Content's ResetFormationState gives one
+                // (pub::StateGraph::get_state_graph(graph, ESCORT)).
+                Object.bEscort = true;
+                ++At;
+            }
             else if (Key == "pilot" && At + 1 < T.size())
             {
                 Object.Pilot = T[At + 1];
@@ -282,7 +304,8 @@ namespace
             }
         }
         if (!Object.bShip &&
-            (!Object.StateGraph.empty() || !Object.Pilot.empty() || !Object.Faction.empty() || Object.HitPts != -1))
+            (!Object.StateGraph.empty() || !Object.Pilot.empty() || !Object.Faction.empty() || Object.HitPts != -1 ||
+             Object.bEscort))
         {
             Error = "a solar takes only psi";
             return false;
@@ -290,6 +313,11 @@ namespace
         if (!Object.Pilot.empty() && Object.StateGraph.empty())
         {
             Error = "pilot needs ai";
+            return false;
+        }
+        if (Object.bEscort && Object.StateGraph.empty())
+        {
+            Error = "escort needs ai";
             return false;
         }
         return true;
@@ -353,6 +381,10 @@ namespace
             else if (Key == "collisions" && T.size() == 2 && (Lower(T[1]) == "sp" || Lower(T[1]) == "mp"))
             {
                 Out.bSpCollisions = Lower(T[1]) == "sp";
+            }
+            else if (Key == "comms" && T.size() == 2 && (Lower(T[1]) == "on" || Lower(T[1]) == "off"))
+            {
+                Out.bCommsOff = Lower(T[1]) == "off";
             }
             else if (Key == "seed" && T.size() == 2 && ParseUnsigned(T[1], Value))
             {
@@ -461,6 +493,8 @@ namespace
     unsigned int GTick = 0;
     unsigned int GPsiSeq = 0;
     std::vector<float> GPsiDt;      // this tick's PSI lengths
+    std::vector<int> GPsiCheck;     // the movement-check countdown at the start of each
+    std::vector<unsigned> GPsiSeed; // and IVP_FastRandomFloat's seed
     unsigned int GBehaviorSeq = 0;
     unsigned int GOpenBehavior = 0;  // the behaviour tick in progress, 0 outside one
     bool GbScenarioCommand = false;  // the harness itself is issuing a command
@@ -485,6 +519,11 @@ namespace
     };
 
     std::vector<FPsiRecord> GPsiRecords;            // parallel to GObjects
+    // P2.5 (the missile): the psi records of the guided munitions whose units run in this
+    // PSI (obj "guided", no ctl), and every guided munition seen in a unit, for the
+    // per-tick `guided` records of tick.jsonl until it is gone.
+    std::vector<FPsiRecord> GGuidedPsi;
+    std::set<unsigned int> GGuidedIds;
     IVP_Simulation_Unit* GPsiUnit = nullptr;        // the unit running with a record open
     std::vector<std::string> GPsiNoted;             // objects already noted as not recordable
     std::map<unsigned int, unsigned int> GLastTarget;  // P2.5: ship id -> its target id at the last tick
@@ -575,6 +614,9 @@ namespace
         return nullptr;
     }
 
+    // P2.4 (asteroids.jsonl `probe`): the positions of the scenario's live ships.
+    std::vector<Vector> ShipPositions();
+
     // The scenario name of an id, or "#<id>" for any other object.
     std::string NameOf(unsigned int Id)
     {
@@ -620,12 +662,60 @@ namespace
         return Db != nullptr ? Db->FindById(&Id) : nullptr;
     }
 
+    std::vector<Vector> ShipPositions()
+    {
+        std::vector<Vector> Out;
+        for (FSimObject const& Object : GObjects)
+        {
+            if (!Object.Desc->bShip)
+                continue;
+            IObjRW* const Rw = FindRw(Object);
+            if (Rw != nullptr)
+                Out.push_back(Rw->get_position());
+        }
+        return Out;
+    }
+
     // ------------------------------------------------------------------------------------
     // Hook callbacks
     // ------------------------------------------------------------------------------------
 
+    // The name of one controller of a ship's simulation unit (psi.jsonl "ctl.order"): the
+    // ship's own, its steering, nudge and strafe engines, its engine and its thrusters by id;
+    // "other" for anything else in the unit (IVP's standard controller included).
+    std::string ControllerName(CShip* Ship, void const* Controller)
+    {
+        auto Is = [Controller](PhySys::Controller const* C) {
+            return static_cast<void const*>(static_cast<IVP_Controller const*>(C)) == Controller;
+        };
+        if (Is(Ship))
+            return "ship";
+        if (Is(&Ship->Steering))
+            return "steering";
+        if (Is(&Ship->NudgeEngine))
+            return "nudge";
+        if (Is(&Ship->StrafeEngine))
+            return "strafe";
+        CEquipTraverser Walk(static_cast<int>(0x20000 | EquipTypeThruster), true);
+        for (CEquip* Equip = Ship->EquipManager.Traverse(Walk); Equip != nullptr;
+             Equip = Ship->EquipManager.Traverse(Walk))
+        {
+            if (CEEngine* const Engine = CEEngine::cast(Equip))
+            {
+                if (Is(static_cast<CPhysControllerEquip const*>(Engine)))
+                    return "engine";
+            }
+            else if (CEThruster* const Thruster = CEThruster::cast(Equip))
+            {
+                if (Is(static_cast<CPhysControllerEquip const*>(Thruster)))
+                    return Format("thruster %u", (unsigned)Equip->GetID());
+            }
+        }
+        return "other";
+    }
+
     // The flight controllers' inputs of a ship (psi.jsonl "ctl").
-    void ControllerInputs(FOracleJson& J, CShip* Ship)
+    void ControllerInputs(FOracleJson& J, CShip* Ship, IVP_Simulation_Unit* Unit)
     {
         J.BeginObject("ctl");
         J.Float("throttle", Ship->Throttle);
@@ -719,6 +809,16 @@ namespace
             }
         }
         J.EndArray();
+        // P2.5: the unit's controllers in the order its PSI runs them (the bucket order, which a
+        // merge or split of the unit rebuilds).
+        J.BeginArray("order");
+        {
+            void const* Controllers[32];
+            const int Count = OracleSimUnitControllers(Unit, Controllers, 32);
+            for (int Index = 0; Index < Count; ++Index)
+                J.Str(nullptr, ControllerName(Ship, Controllers[Index]).c_str());
+        }
+        J.EndArray();
         J.EndObject();
     }
 
@@ -786,6 +886,7 @@ namespace
             Record.State = PsiIdle;
             Record.J = FOracleJson();
         }
+        GGuidedPsi.clear();
         GPsiUnit = nullptr;
     }
 
@@ -798,6 +899,12 @@ namespace
         {
             ++GPsiSeq;
             GPsiDt.push_back(OracleSimEnvDeltaTime(Environment));
+            {
+                FOracleSimEnv Env;
+                OracleSimReadEnv(Environment, Env);
+                GPsiCheck.push_back(Env.MovementCheck);
+                GPsiSeed.push_back(Env.IvpSeed);
+            }
             ResetPsiRecords();
             GPsiRecords.resize(GObjects.size());
             for (size_t Index = 0; Index < GObjects.size(); ++Index)
@@ -826,6 +933,15 @@ namespace
         }
 
         for (FPsiRecord& Record : GPsiRecords)
+        {
+            if (Record.State != PsiUnitDone)
+                continue;
+            FOracleSimCore Out;
+            OracleSimReadCore(Record.Core, Out);
+            CoreJ(Record.J, "out", Out);
+            Write(FilePsi, Record.J);
+        }
+        for (FPsiRecord& Record : GGuidedPsi)
         {
             if (Record.State != PsiUnitDone)
                 continue;
@@ -870,8 +986,79 @@ namespace
         }
     }
 
+    // unit_cores.jsonl: the first core of every unit of the first kUnitCorePsis PSIs at the
+    // end of the unit's PSI (before calc_next_PSI_matrix), in the order the units ran, and
+    // in the first PSI also at its start: the state of the units no scenario object owns
+    // (spinning solars, the free parts of stations), for scenario_replay's comparison.
+    const unsigned int kUnitCorePsis = 12;
+    FILE* GUnitCoreFile = nullptr;
+    unsigned int GUnitCorePsi = 0;
+    unsigned int GUnitCoreIndex = 0;
+    FOracleSimCore GUnitCoreIn;
+
+    void UnitCoreRecord(IVP_Simulation_Unit* Unit, int Phase, bool bMovementCheck)
+    {
+        if (GUnitCoreFile == nullptr)
+            return;
+        if (GPsiSeq > kUnitCorePsis)
+        {
+            fclose(GUnitCoreFile);
+            GUnitCoreFile = nullptr;
+            return;
+        }
+        if (GUnitCorePsi != GPsiSeq)
+        {
+            GUnitCorePsi = GPsiSeq;
+            GUnitCoreIndex = 0;
+        }
+        CObject* const Object = OracleSimUnitCoreObject(Unit, 0);
+        IVP_Core* const Core = Object != nullptr ? OracleSimCoreOf(Object) : nullptr;
+        if (Phase == 0)
+        {
+            OracleSimReadCore(Core, GUnitCoreIn);
+            return;
+        }
+        FOracleSimCore Out;
+        OracleSimReadCore(Core, Out);
+        bool const bSimple = Object != nullptr && ((unsigned)Object->ObjectClass & 3u) == 3u;
+        FOracleJson J;
+        J.Str("rec", "unit_core");
+        J.Uint("tick", GTick);
+        J.Uint("psi", GPsiSeq);
+        J.Uint("i", GUnitCoreIndex);
+        J.Uint("id", bSimple ? static_cast<CSimple*>(Object)->Id : 0);
+        J.Uint("class", Object != nullptr ? (unsigned)Object->ObjectClass : 0);
+        J.Bool("check", bMovementCheck);
+        if (GPsiSeq == 1)
+            CoreJ(J, "in", GUnitCoreIn);
+        CoreJ(J, "out", Out);
+        // A free part's object (class 1): its frame and its golem's targets.
+        if (Object != nullptr && (unsigned)Object->ObjectClass == 1u)
+        {
+            J.FloatArray("orient", &Object->Orientation.E[0][0], 9);
+            float const Pos[3] = {Object->WorldPosition.x, Object->WorldPosition.y, Object->WorldPosition.z};
+            J.FloatArray("pos", Pos, 3);
+            IVP_Controller_Golem const* const Golem =
+                static_cast<IVP_Controller_Golem const*>(Object->GolemController);
+            if (Golem != nullptr)
+            {
+                float const Target[4] = {Golem->TargetQuat.x, Golem->TargetQuat.y, Golem->TargetQuat.z,
+                                         Golem->TargetQuat.w};
+                J.FloatArray("golem_q", Target, 4);
+                float const Current[4] = {Golem->CurrentTargetQuat.x, Golem->CurrentTargetQuat.y,
+                                          Golem->CurrentTargetQuat.z, Golem->CurrentTargetQuat.w};
+                J.FloatArray("golem_current_q", Current, 4);
+            }
+        }
+        fputs(J.Finish().c_str(), GUnitCoreFile);
+        fputc('\n', GUnitCoreFile);
+        fflush(GUnitCoreFile);
+        ++GUnitCoreIndex;
+    }
+
     void UnitRecord(IVP_Simulation_Unit* Unit, int Phase, bool bMovementCheck)
     {
+        UnitCoreRecord(Unit, Phase, bMovementCheck);
         if (GUnitFile == nullptr)
             return;
         if (GPsiSeq > kUnitPsis)
@@ -923,8 +1110,51 @@ namespace
                 Record.J.Bool("check", bMovementCheck);
                 Record.State = PsiUnitDone;
             }
+            for (FPsiRecord& Record : GGuidedPsi)
+            {
+                if (Record.State != PsiInUnit)
+                    continue;
+                Record.J.EndArray();
+                Record.J.Bool("check", bMovementCheck);
+                Record.State = PsiUnitDone;
+            }
             GPsiUnit = nullptr;
             return;
+        }
+
+        // P2.5: a guided munition's unit (one core, its first object of class 0xa7) opens a
+        // record of its own, with no controller inputs.
+        if (OracleSimUnitCoreCount(Unit) == 1)
+        {
+            CObject* const First = OracleSimUnitCoreObject(Unit, 0);
+            IVP_Core* const Core = First != nullptr ? OracleSimCoreOf(First) : nullptr;
+            if (Core != nullptr && (unsigned)First->ObjectClass == (unsigned)CObject::ClassGuided)
+            {
+                unsigned int const Id = static_cast<CSimple*>(First)->Id;
+                GGuidedIds.insert(Id);
+                FOracleSimEnv Env;
+                OracleSimReadEnv(Environment, Env);
+                FOracleSimCore In;
+                OracleSimReadCore(Core, In);
+                GGuidedPsi.emplace_back();
+                FPsiRecord& Record = GGuidedPsi.back();
+                Record.Core = Core;
+                FOracleJson& J = Record.J;
+                J.Str("rec", "psi");
+                J.Uint("tick", GTick);
+                J.Uint("psi", GPsiSeq);
+                J.Str("obj", "guided");
+                J.Uint("id", Id);
+                J.Float("dt", Env.DeltaTime);
+                J.Float("idt", Env.InvDeltaTime);
+                J.FloatArray("time", Env.Time, 2);
+                float const Limits[2] = {Env.MaxVelocity, Env.MaxAngularVelocityPerPsi};
+                J.FloatArray("limits", Limits, 2);
+                CoreJ(J, "in", In);
+                J.BeginArray("pushes");
+                Record.State = PsiInUnit;
+                GPsiUnit = Unit;
+            }
         }
 
         for (size_t Index = 0; Index < GPsiRecords.size(); ++Index)
@@ -955,7 +1185,7 @@ namespace
             float const Limits[2] = {Env.MaxVelocity, Env.MaxAngularVelocityPerPsi};
             J.FloatArray("limits", Limits, 2);
             if (Object.Class == CObject::ClassShip)
-                ControllerInputs(J, static_cast<CShip*>(Record.Object));
+                ControllerInputs(J, static_cast<CShip*>(Record.Object), Unit);
             CoreJ(J, "in", In);
             J.BeginArray("pushes");
             Record.State = PsiInUnit;
@@ -984,18 +1214,21 @@ namespace
     {
         if (GPsiUnit == nullptr)
             return;
-        for (FPsiRecord& Record : GPsiRecords)
+        for (std::vector<FPsiRecord>* List : {&GPsiRecords, &GGuidedPsi})
         {
-            if (Record.State != PsiInUnit || Record.Core != Core)
-                continue;
-            FOracleJson& J = Record.J;
-            J.BeginArray(nullptr);
-            J.Str(nullptr, PushKindName(Kind));
-            J.Float(nullptr, Direction->x);
-            J.Float(nullptr, Direction->y);
-            J.Float(nullptr, Direction->z);
-            J.Float(nullptr, Magnitude);
-            J.EndArray();
+            for (FPsiRecord& Record : *List)
+            {
+                if (Record.State != PsiInUnit || Record.Core != Core)
+                    continue;
+                FOracleJson& J = Record.J;
+                J.BeginArray(nullptr);
+                J.Str(nullptr, PushKindName(Kind));
+                J.Float(nullptr, Direction->x);
+                J.Float(nullptr, Direction->y);
+                J.Float(nullptr, Direction->z);
+                J.Float(nullptr, Magnitude);
+                J.EndArray();
+            }
         }
     }
 
@@ -1216,6 +1449,10 @@ namespace
             return "set_strafe_dir";
         case OracleSimAffectFire:
             return "fire";
+        case OracleSimAffectTractor:
+            return "tractor";
+        case OracleSimAffectGunTarget:
+            return "gun_target";
         case OracleSimAffectTarget:
             return "set_target";
         case OracleSimAffectEquip:
@@ -1224,6 +1461,14 @@ namespace
             return "engage_cruise";
         case OracleSimAffectThrusters:
             return "set_thrusters";
+        case OracleSimAffectRequest:
+            return "request";
+        case OracleSimAffectCancelRequest:
+            return "cancel_request";
+        case OracleSimAffectGoTradeLane:
+            return "go_tradelane";
+        case OracleSimAffectStopTradeLane:
+            return "stop_tradelane";
         default:
             return "unknown";
         }
@@ -1289,6 +1534,8 @@ namespace
 
     void RecordTick(unsigned int X87, unsigned int Sse)
     {
+        // P2.4: the asteroid cubes the frame made or changed (asteroids.jsonl).
+        oracle::OracleSimFieldsTick();
         FOracleJson F;
         F.Str("rec", "frame");
         F.Uint("tick", GTick);
@@ -1297,6 +1544,14 @@ namespace
         F.Str("sse_cw", Format("%08x", Sse).c_str());
         F.Uint("psi_count", (unsigned)GPsiDt.size());
         F.FloatArray("psi_dt", GPsiDt.empty() ? nullptr : GPsiDt.data(), (unsigned)GPsiDt.size());
+        F.BeginArray("psi_mcheck");
+        for (int Value : GPsiCheck)
+            F.Int(nullptr, Value);
+        F.EndArray();
+        F.BeginArray("psi_ivp_seed");
+        for (unsigned Value : GPsiSeed)
+            F.Uint(nullptr, Value);
+        F.EndArray();
         Write(FileTick, F);
 
         for (FSimObject const& Object : GObjects)
@@ -1374,6 +1629,42 @@ namespace
                     FOracleSimBehavior Behavior;
                     OracleSimReadBehavior(OracleSimBehaviorOf(const_cast<CObject*>(Rw->cobject())), Behavior);
                     BehaviorFields(J, Behavior);
+                    // P2.5 (the strafe's bullets): each gun's turret joints, [id, yaw current,
+                    // yaw desired, pitch current, pitch desired, target point age, yaw bound, pitch bound,
+                    // lock target id].
+                    {
+                        unsigned int GunId = Object.Id;
+                        CObject* const GunOwner = CObject::Find(GunId, CObject::ClassShip);
+                        J.BeginArray("guns");
+                        if (GunOwner != nullptr)
+                        {
+                            CEqObj* const Eq = static_cast<CEqObj*>(GunOwner);
+                            CEquipTraverser Walk(EquipTypeGun);
+                            for (CEquip* Equip = Eq->EquipManager.Traverse(Walk); Equip != nullptr;
+                                 Equip = Eq->EquipManager.Traverse(Walk))
+                            {
+                                CEGun const* const Gun = CEGun::cast(Equip);
+                                if (Gun == nullptr)
+                                    continue;
+                                J.BeginArray(nullptr);
+                                J.Uint(nullptr, Equip->GetID());
+                                J.Float(nullptr, Gun->Yaw.Current);
+                                J.Float(nullptr, Gun->Yaw.Desired);
+                                J.Float(nullptr, Gun->Pitch.Current);
+                                J.Float(nullptr, Gun->Pitch.Desired);
+                                J.Float(nullptr, Gun->TargetPointAge);
+                                J.Int(nullptr, Gun->Yaw.EngineIndex != -1 ? 1 : 0);
+                                J.Int(nullptr, Gun->Pitch.EngineIndex != -1 ? 1 : 0);
+                                CSimple* Lock = nullptr;
+                                unsigned short LockSub = 0;
+                                Gun->GetTarget(Lock, LockSub);
+                                J.Uint(nullptr, Lock != nullptr ? Lock->get_id() : 0u);
+                                J.EndArray();
+                            }
+                            GunOwner->Release();
+                        }
+                        J.EndArray();
+                    }
                     // P2.5 (the dogfight): the ship's target (IObjInspect::get_target), and a
                     // `target` event when it changed since the last tick.
                     IObjRW* Target = nullptr;
@@ -1429,7 +1720,50 @@ namespace
                 Line += Format(" %.17g", Values[Index]);
             Write(FileMetrics, Line);
         }
+
+        // P2.5 (the missile): every guided munition seen in a simulation unit, after the
+        // frame: its CGuided state, then `alive` false once and it is dropped.
+        std::vector<unsigned int> Gone;
+        for (unsigned int const GuidedId : GGuidedIds)
+        {
+            FOracleJson J;
+            J.Str("rec", "guided");
+            J.Uint("tick", GTick);
+            J.Uint("id", GuidedId);
+            unsigned int Id = GuidedId;
+            CObject* const Found = CObject::Find(Id, CObject::ClassGuided);
+            J.Bool("alive", Found != nullptr);
+            if (Found == nullptr)
+            {
+                Gone.push_back(GuidedId);
+                Write(FileTick, J);
+                continue;
+            }
+            CGuided* const Guided = static_cast<CGuided*>(Found);
+            J.Uint("owner", Guided->OwnerId);
+            VectorJ(J, "pos", Guided->WorldPosition);
+            MatrixJ(J, "orient", Guided->Orientation);
+            VectorJ(J, "vel", Guided->get_velocity());
+            VectorJ(J, "angvel", Guided->get_angular_velocity());
+            J.Float("lifetime", Guided->Lifetime);
+            J.Float("seeker_elapsed", Guided->SeekerElapsed);
+            IObjRW* const Target = Guided->get_target();
+            if (Target != nullptr)
+                IdAndName(J, "target", "target_obj", Target->get_id());
+            else
+            {
+                J.Null("target");
+                J.Null("target_obj");
+            }
+            J.Uint("sub_target", Guided->SubTarget);
+            Found->Release();
+            Write(FileTick, J);
+        }
+        for (unsigned int const GuidedId : Gone)
+            GGuidedIds.erase(GuidedId);
         GPsiDt.clear();
+        GPsiCheck.clear();
+        GPsiSeed.clear();
     }
 
     // ------------------------------------------------------------------------------------
@@ -1528,15 +1862,70 @@ namespace
             J.Int("result", Result);
             J.Uint("id", Id);
             bOk = Result == 0 && Id != 0;
+            // P2.5 (the transport's collision geometry): the ship's part map and each
+            // attached item's attachment (non-physical with its hardpoint CRC and collision
+            // state, physical, or none) and whether it is connected.
+            if (bOk)
+            {
+                unsigned int FindId = Id;
+                CObject* const Spawned = CObject::Find(FindId, CObject::ClassShip);
+                if (Spawned != nullptr)
+                {
+                    J.BeginArray("part_map");
+                    for (FPartMapEntry const& Entry : Spawned->PartMap)
+                    {
+                        J.BeginArray(nullptr);
+                        J.Uint(nullptr, Entry.PartId);
+                        J.Int(nullptr, (int)Entry.EngineInstanceId);
+                        J.EndArray();
+                    }
+                    J.EndArray();
+                    J.BeginArray("attached");
+                    CEqObj* const Eq = static_cast<CEqObj*>(Spawned);
+                    CEquipTraverser Walk(-1);
+                    for (CEquip* Equip = Eq->EquipManager.Traverse(Walk); Equip != nullptr;
+                         Equip = Eq->EquipManager.Traverse(Walk))
+                    {
+                        CAttachedEquip* const Attached = CAttachedEquip::cast(Equip);
+                        if (Attached == nullptr)
+                            continue;
+                        J.BeginObject(nullptr);
+                        J.Uint("id", Equip->GetID());
+                        J.Bool("connected", Attached->IsConnected());
+                        CNonPhysAttachment* const NonPhys = dynamic_cast<CNonPhysAttachment*>(Attached->Attachment);
+                        CPhysAttachment* const Phys = dynamic_cast<CPhysAttachment*>(Attached->Attachment);
+                        if (NonPhys != nullptr)
+                        {
+                            J.Str("kind", "non_physical");
+                            J.Uint("hp_crc", NonPhys->HpCrc);
+                            J.Bool("collisions", NonPhys->bCollisions != 0);
+                        }
+                        else if (Phys != nullptr)
+                        {
+                            J.Str("kind", "physical");
+                        }
+                        else
+                        {
+                            J.Str("kind", "none");
+                        }
+                        J.EndObject();
+                    }
+                    J.EndArray();
+                    Spawned->Release();
+                }
+            }
             if (bOk && !Desc.StateGraph.empty())
             {
                 pub::AI::SetPersonalityParams Params;
-                Params.StateGraphId = pub::StateGraph::get_state_graph(Desc.StateGraph.c_str(), pub::StateGraph::LEADER);
+                Params.StateGraphId = pub::StateGraph::get_state_graph(
+                    Desc.StateGraph.c_str(), Desc.bEscort ? pub::StateGraph::ESCORT : pub::StateGraph::LEADER);
                 Params.ContentCallbackObject = nullptr;
                 Params.DirectiveCallbackObject = nullptr;
                 Params.bSetPersonality = 0;
                 J.Str("state_graph", Desc.StateGraph.c_str());
                 J.Int("state_graph_id", Params.StateGraphId);
+                if (Desc.bEscort)
+                    J.Bool("escort", true);
                 if (!Desc.Pilot.empty())
                 {
                     // P2.5: the personality Content gives an NPC ship of an npcships.ini entry
@@ -1763,6 +2152,162 @@ namespace
             }
             return true;
         }
+        if (Verb == "launch" && A.size() == 4)
+        {
+            // P2.5 launch: DirectiveLaunchOp {target, dock index, terminal type}, as Content's
+            // LaunchQueuedShips gives a ship it places at a dock (FObjListLaunch::SetLaunch).
+            FSimObject const* const Aim = Target(1);
+            if (Aim == nullptr)
+                return Note = "unknown target", false;
+            double Index = 0.0;
+            double Terminal = 0.0;
+            if (!ParseDouble(A[2], Index) || !ParseDouble(A[3], Terminal))
+                return Note = "bad launch index or terminal", false;
+            pub::AI::DirectiveLaunchOp Op;
+            Op.LaunchObjectId = Aim->Id;
+            Op.Field_10 = (int32_t)Index;
+            Op.Field_14 = (int32_t)Terminal;
+            Result = SubmitScenarioDirective(Object->Id, Op);
+            return true;
+        }
+        if (Verb == "tradelane" && (A.size() == 3 || A.size() == 4))
+        {
+            // P2.5 trade lanes: DirectiveInstantTradelaneOp {entrance ring, exit ring (none: 0),
+            // speed (a float in the third word; default 0)}.
+            FSimObject const* const Entrance = Target(1);
+            if (Entrance == nullptr)
+                return Note = "unknown entrance", false;
+            unsigned int ExitId = 0;
+            if (Lower(A[2]) != "none")
+            {
+                FSimObject const* const Exit = Target(2);
+                if (Exit == nullptr)
+                    return Note = "unknown exit", false;
+                ExitId = Exit->Id;
+            }
+            double Speed = 0.0;
+            if (A.size() == 4 && !ParseDouble(A[3], Speed))
+                return Note = "bad speed", false;
+            float const SpeedF = (float)Speed;
+            pub::AI::DirectiveInstantTradelaneOp Op;
+            Op.TradeLaneId = Entrance->Id;
+            Op.Field_10 = (int32_t)ExitId;
+            memcpy(&Op.Field_14, &SpeedF, sizeof(SpeedF));
+            Result = SubmitScenarioDirective(Object->Id, Op);
+            return true;
+        }
+        // P2.5 escort. `formation <leader|none> [x y z]`: pub::AI::update_formation_state(ship,
+        // leader, offset), as Content's ResetFormationState makes a formation (the leader
+        // first with itself as leader and no offset, then each wingman with its slot).
+        if (Verb == "formation" && (A.size() == 2 || A.size() == 5))
+        {
+            unsigned int LeaderId = 0;
+            if (Lower(A[1]) != "none")
+            {
+                FSimObject const* const Leader = Target(1);
+                if (Leader == nullptr)
+                    return Note = "unknown leader", false;
+                LeaderId = Leader->Id;
+            }
+            Vector Offset;
+            Offset.x = Offset.y = Offset.z = 0.0f;
+            if (A.size() == 5 && !CommandVector(Command, 2, Offset))
+                return Note = "bad offset", false;
+            Result = (int)pub::AI::update_formation_state(Object->Id, LeaderId, Offset);
+            return true;
+        }
+        // `follow <target> [distance d] [offset x y z] [range r]`: DirectiveFollowOp (distance
+        // 150, offset 0, range 400 unless given).
+        if (Verb == "follow" && A.size() >= 2)
+        {
+            FSimObject const* const Aim = Target(1);
+            if (Aim == nullptr)
+                return Note = "unknown target", false;
+            pub::AI::DirectiveFollowOp Op;
+            Op.TargetId = Aim->Id;
+            for (size_t At = 2; At < A.size(); ++At)
+            {
+                double Value = 0.0;
+                std::string const Key = Lower(A[At]);
+                if (Key == "distance" && At + 1 < A.size() && ParseDouble(A[At + 1], Value))
+                {
+                    Op.FollowDistance = (float)Value;
+                    ++At;
+                }
+                else if (Key == "range" && At + 1 < A.size() && ParseDouble(A[At + 1], Value))
+                {
+                    Op.Field_20 = (float)Value;
+                    ++At;
+                }
+                else if (Key == "offset" && At + 3 < A.size())
+                {
+                    Vector Offset;
+                    if (!CommandVector(Command, At + 1, Offset))
+                        return Note = "bad offset", false;
+                    Op.Field_14 = Offset.x;
+                    Op.Field_18 = Offset.y;
+                    Op.Field_1C = Offset.z;
+                    At += 3;
+                }
+                else
+                {
+                    return Note = "bad follow option " + A[At], false;
+                }
+            }
+            Result = SubmitScenarioDirective(Object->Id, Op);
+            return true;
+        }
+        // `guide <escorted> <x y z> [range r] [distance d] [offset x y z]`: DirectiveGuideOp
+        // to a point (its goto part as the goto command's: Field_0C 1, no cruise; range 100
+        // unless given), the escorted ship in GotoParams.Field_5C and as the follow part's
+        // target (distance 150, offset 0 unless given); the other fields keep their defaults.
+        if (Verb == "guide" && A.size() >= 5)
+        {
+            FSimObject const* const Escorted = Target(1);
+            if (Escorted == nullptr)
+                return Note = "unknown escorted ship", false;
+            pub::AI::DirectiveGuideOp Op;
+            Op.GotoParams.Field_0C = 1;
+            if (!CommandVector(Command, 2, Op.GotoParams.Destination))
+                return Note = "bad point", false;
+            Op.GotoParams.Field_50 = 100.0f;
+            Op.GotoParams.Field_58 = 0;
+            Op.GotoParams.Field_5A = 0;
+            Op.GotoParams.Field_5B = 1;
+            Op.GotoParams.Field_5C = Escorted->Id;
+            Op.FollowParams.TargetId = Escorted->Id;
+            for (size_t At = 5; At < A.size(); ++At)
+            {
+                double Value = 0.0;
+                std::string const Key = Lower(A[At]);
+                if (Key == "range" && At + 1 < A.size() && ParseDouble(A[At + 1], Value))
+                {
+                    Op.GotoParams.Field_50 = (float)Value;
+                    ++At;
+                }
+                else if (Key == "distance" && At + 1 < A.size() && ParseDouble(A[At + 1], Value))
+                {
+                    Op.FollowParams.FollowDistance = (float)Value;
+                    ++At;
+                }
+                else if (Key == "offset" && At + 3 < A.size())
+                {
+                    Vector Offset;
+                    if (!CommandVector(Command, At + 1, Offset))
+                        return Note = "bad offset", false;
+                    Op.FollowParams.Field_14 = Offset.x;
+                    Op.FollowParams.Field_18 = Offset.y;
+                    Op.FollowParams.Field_1C = Offset.z;
+                    At += 3;
+                }
+                else
+                {
+                    return Note = "bad guide option " + A[At], false;
+                }
+            }
+            Result = SubmitScenarioDirective(Object->Id, Op);
+            return true;
+        }
         if (Verb == "idle" && A.size() == 1)
         {
             pub::AI::DirectiveIdleOp Op;
@@ -1867,8 +2412,17 @@ namespace
             {
                 if (Reader.is_value("Data path"))
                 {
+                    // P2.4: the data path is opened absolute (the current directory is the data
+                    // root). The server's field load (SrvAsteroidSystem::load) roots the system
+                    // file's path, which Universe::get_filename has already rooted, at the data
+                    // path again (GetFileSysPath leaves only absolute paths alone): with the
+                    // INI's relative ".\data" it opens ".\data\.\data\universe\..." and no
+                    // asteroid field loads. Every other path resolves as before.
                     DataPath = Reader.get_value_string();
-                    NeuronRuntime::OpenData(Reader.get_value_string());
+                    char Full[MAX_PATH] = {};
+                    DWORD const Length = GetFullPathNameA(DataPath.c_str(), MAX_PATH, Full, nullptr);
+                    std::string const Opened = (Length != 0 && Length < MAX_PATH) ? std::string(Full) : DataPath;
+                    NeuronRuntime::OpenData(Opened.c_str());
                     bFound = true;
                 }
             }
@@ -1892,6 +2446,49 @@ namespace
         __control87_2(0, 0, &X87, &Sse);
     }
 
+    // The fault recorder's writer (oracle_sim_fault.cpp): one session.jsonl line, flushed.
+    void WriteSessionLine(std::string const& Line)
+    {
+        Write(FileSession, Line);
+        if (GFiles[FileSession] != nullptr)
+            fflush(GFiles[FileSession]);
+    }
+
+    // One `heartbeats` entry (OracleSimControllerHeartbeats' callback).
+    void __cdecl WriteHeartbeat(void* Context, unsigned int Flid, unsigned int Priority, char const* Module,
+                                float Interval, float Phase, bool bDeferred)
+    {
+        FOracleJson& J = *static_cast<FOracleJson*>(Context);
+        J.BeginObject(nullptr);
+        J.Uint("flid", Flid);
+        J.Uint("priority", Priority);
+        J.Str("module", Module);
+        J.Float("interval", Interval);
+        J.Float("phase", Phase);
+        J.Bool("deferred", bDeferred);
+        J.EndObject();
+    }
+
+    // One frame of the run, called inside the fault recorder's __try (OracleSimGuardedCall).
+    struct FFrameArgs
+    {
+        IServerImpl* Server = nullptr;
+        size_t* NextCommand = nullptr;
+        unsigned int X87 = 0;
+        unsigned int Sse = 0;
+    };
+
+    void SimFrame(void* Arg)
+    {
+        FFrameArgs* const Args = static_cast<FFrameArgs*>(Arg);
+        RunCommands(*Args->NextCommand);
+        // OutpostServer.exe's frame (ServerThreadProc) with the fixed frame time.
+        Args->Server->Update();
+        Timing::UpdateGlobalTime(GScenario.Frame);
+        Args->Server->ElapseTime((float)GScenario.Frame);
+        RecordTick(Args->X87, Args->Sse);
+    }
+
     // Ends the process: the server is not shut down (its teardown is not part of a scenario
     // and its static destructors are not needed), so the open files are closed first.
     void EndProcess(int Code)
@@ -1901,6 +2498,11 @@ namespace
         J.Uint("tick", GTick);
         J.Uint("psi_total", GPsiSeq);
         J.Int("code", Code);
+        // The machine, compiler and runtime DLLs of the run (session.jsonl `env`; the
+        // cross-runner reproducibility work, owner 2026-11-19), after everything the run
+        // computes.
+        oracle::OracleSimRunRandEnd();
+        Write(FileSession, oracle::OracleSimEnvRecord());
         Write(FileSession, J);
         UnitFlush(true);
         CloseAll();
@@ -1912,7 +2514,8 @@ namespace
 
 namespace oracle
 {
-    int RunSimScenario(std::string const& DataRoot, std::string const& ScenarioPath, std::string const& OutDir)
+    int RunSimScenario(std::string const& DataRoot, std::string const& ScenarioPath, std::string const& OutDir,
+                       FSimOptions const& Options)
     {
         MakeParentDirectories(OutDir + "\\session.jsonl");
         for (int Index = 0; Index < kFileCount; ++Index)
@@ -1934,6 +2537,8 @@ namespace oracle
             CloseAll();
             return 2;
         }
+        // The seed of the seeding point (start-up step 5): --seed's, else the scenario's.
+        unsigned int const Reseed = Options.bReseed ? Options.Reseed : GScenario.Seed;
 
         std::string const ExeDir = ExeFolder();
         std::string const StubPath = ExeDir + "SimClientStub.dll";
@@ -1951,7 +2556,9 @@ namespace oracle
             J.Double("frame", GScenario.Frame);
             J.Str("stepping", GScenario.bSpStepping ? "sp" : "mp");
             J.Str("collisions", GScenario.bSpCollisions ? "sp" : "mp");
+            J.Str("comms", GScenario.bCommsOff ? "off" : "on");
             J.Uint("seed", GScenario.Seed);
+            J.Uint("reseed", Reseed);
             J.Double("clock", GScenario.ClockStart);
             J.Uint("objects", (unsigned)GScenario.Objects.size());
             J.Uint("commands", (unsigned)GScenario.Commands.size());
@@ -2013,6 +2620,10 @@ namespace oracle
         CoInitialize(nullptr);
         _control87(kServerFpuWord, kServerFpuMask);
         GOracleSimHooks.bFixedClock = true;
+        // IServerImpl::Startup's srand takes the scenario's seed instead of timeGetTime(): the
+        // draws before the harness's own srand set the controllers' heartbeat phases, and
+        // through them Content's game time (the reproducibility work, owner 2026-11-19).
+        GOracleSimHooks.StartupSeed = GScenario.Seed;
         GOracleSimHooks.FrameSeconds = GScenario.Frame;
         GOracleSimHooks.ClockSeconds = GScenario.ClockStart;
         SetIsMPServer(true);
@@ -2047,6 +2658,23 @@ namespace oracle
             return 3;
         }
 
+        // `comms off`: the GCS clamp through Content.dll's Oracle export, before the load.
+        bool bCommsClamped = false;
+        if (GScenario.bCommsOff)
+        {
+            typedef void(__cdecl * FSetGcsClamp)(bool);
+            HMODULE const Content = GetModuleHandleA("Content.dll");
+            FSetGcsClamp const SetGcsClamp =
+                Content != nullptr ? (FSetGcsClamp)GetProcAddress(Content, "OracleSimSetGcsClamp") : nullptr;
+            if (SetGcsClamp != nullptr)
+            {
+                SetGcsClamp(true);
+                bCommsClamped = true;
+            }
+            else
+                SessionNote("error", "comms off: Content.dll lacks OracleSimSetGcsClamp");
+        }
+
         // The load-time rand() recorder (load_rand.jsonl): every draw from the seeding to the
         // first frame, with its caller.
         if (!OracleSimLoadRandBegin(OutDir, GScenario.Seed))
@@ -2069,7 +2697,10 @@ namespace oracle
             J.Uint("controller", ControllerId);
             J.Uint("system_id", SystemId);
             J.Bool("system_loaded", bLoaded);
-            J.Uint("reseed", GScenario.Seed);
+            J.Uint("reseed", Reseed);
+            J.Uint("startup_seed", GOracleSimHooks.StartupSeed);
+            if (GScenario.bCommsOff)
+                J.Bool("comms_clamped", bCommsClamped);
             Write(FileSession, J);
         }
         if (ControllerId == 0 || !bLoaded)
@@ -2082,8 +2713,9 @@ namespace oracle
         // The seeding point of the comparison (owner, 2026-11-18): the system and Content's
         // population of it (SystemLoaded) have drawn their values; the scenario starts from
         // srand(seed) again, where the Rust world, which has no population yet (P3.6), seeds.
-        OracleSimLoadRandReseed(GScenario.Seed);
-        srand(GScenario.Seed);
+        // With --seed the seed is the ensemble's (owner, 2026-11-19).
+        OracleSimLoadRandReseed(Reseed);
+        srand(Reseed);
 
         bool bSpawned = true;
         for (FObjectDesc const& Desc : GScenario.Objects)
@@ -2105,6 +2737,7 @@ namespace oracle
         GOracleSimHooks.OnPsi = OnPsi;
         GOracleSimHooks.OnSimUnitPsi = OnSimUnitPsi;
         GUnitFile = fopen((OutDir + "\\units.jsonl").c_str(), "wb");
+        GUnitCoreFile = fopen((OutDir + "\\unit_cores.jsonl").c_str(), "wb");
         GOracleSimHooks.OnCorePush = OnCorePush;
         GOracleSimHooks.OnCollisionDamage = OnCollisionDamage;
         GOracleSimHooks.OnMunitionHit = OnMunitionHit;
@@ -2114,8 +2747,29 @@ namespace oracle
         // front of OnBehaviorTick, so it is started after the hooks above.
         if (!OracleSimAiStart(OutDir, &GTick, &NameOf))
             SessionNote("note", "ai.jsonl cannot be written; behaviour ticks are not recorded");
+        // P2.4: the asteroid fields and the docking points (asteroids.jsonl, dock.jsonl).
+        if (!OracleSimFieldsStart(OutDir, SystemId, &GTick, &NameOf, &ShipPositions))
+            SessionNote("note", "asteroids.jsonl or dock.jsonl cannot be written; fields and docking points are not recorded");
         SetSink(OnControllerMessage);
         OracleSimLoadRandEnd();
+        // The frame-time rand() recorder (run_rand.jsonl), only with OUTPOST_ORACLE_RUN_RAND set
+        // (the cross-runner reproducibility work, owner 2026-11-19).
+        {
+            char Flag[8] = {};
+            if (GetEnvironmentVariableA("OUTPOST_ORACLE_RUN_RAND", Flag, sizeof(Flag)) > 0)
+                OracleSimRunRandBegin(OutDir, &GTick);
+        }
+
+        // Every controller's heartbeat interval and phase as frame 1 finds them.
+        {
+            FOracleJson J;
+            J.Str("rec", "heartbeats");
+            J.Uint("tick", 0);
+            J.BeginArray("controllers");
+            OracleSimControllerHeartbeats(&WriteHeartbeat, &J);
+            J.EndArray();
+            Write(FileSession, J);
+        }
 
         // Tick 0: the state after spawning, before any frame.
         unsigned int X87 = 0;
@@ -2123,6 +2777,10 @@ namespace oracle
         ControlWords(X87, Sse);
         RecordTick(X87, Sse);
         FlushAll();
+
+        // The fault recorder: a structured exception in a frame is written to session.jsonl
+        // (`fault`) and ends the run with exit code 4.
+        OracleSimFaultStart(WriteSessionLine, &GTick);
 
         size_t NextCommand = 0;
         for (GTick = 1; GTick <= GScenario.Ticks; ++GTick)
@@ -2133,12 +2791,19 @@ namespace oracle
             _control87(kServerFpuWord, kServerFpuMask);
             GOracleSimHooks.ClockSeconds = GScenario.ClockStart + GTick * GScenario.Frame;
             GStubSetTick(GTick);
-            RunCommands(NextCommand);
-            // OutpostServer.exe's frame (ServerThreadProc) with the fixed frame time.
-            ServerImpl->Update();
-            Timing::UpdateGlobalTime(GScenario.Frame);
-            ServerImpl->ElapseTime((float)GScenario.Frame);
-            RecordTick(X87, Sse);
+            FFrameArgs Args;
+            Args.Server = ServerImpl;
+            Args.NextCommand = &NextCommand;
+            Args.X87 = X87;
+            Args.Sse = Sse;
+            if (!OracleSimGuardedCall(SimFrame, &Args))
+            {
+                FlushAll();
+                SessionNote("error", "a structured exception in frame " + std::to_string(GTick) +
+                                         " (the fault record)");
+                EndProcess(4);
+                return 4;
+            }
             FlushAll();
         }
         GTick = GScenario.Ticks;
@@ -2149,17 +2814,35 @@ namespace oracle
 
 int RunSimMode(int Argc, char** Argv)
 {
-    int Runs = 0;
-    bool bUsage = Argc != 5 && Argc != 7;
-    if (Argc == 7)
+    // The options after the paths, each once, in any order: --runs N (1 to 99), --seed S
+    // (decimal or 0x hex, 32 bits).
+    oracle::FSimOptions Options;
+    bool bUsage = Argc < 5 || (Argc - 5) % 2 != 0;
+    bool bRuns = false;
+    for (int Index = 5; !bUsage && Index + 1 < Argc; Index += 2)
     {
         unsigned long Value = 0;
-        bUsage = strcmp(Argv[5], "--runs") != 0 || !ParseUnsigned(Argv[6], Value) || Value == 0 || Value > 99;
-        Runs = (int)Value;
+        bool const bParsed = ParseUnsigned(Argv[Index + 1], Value);
+        if (strcmp(Argv[Index], "--runs") == 0 && !bRuns)
+        {
+            bUsage = !bParsed || Value == 0 || Value > 99;
+            Options.Runs = (int)Value;
+            bRuns = true;
+        }
+        else if (strcmp(Argv[Index], "--seed") == 0 && !Options.bReseed)
+        {
+            bUsage = !bParsed;
+            Options.bReseed = true;
+            Options.Reseed = (unsigned int)Value;
+        }
+        else
+        {
+            bUsage = true;
+        }
     }
     if (bUsage)
     {
-        fprintf(stderr, "usage: Oracle.exe sim <data root> <scenario file> <out folder> [--runs N]\n");
+        fprintf(stderr, "usage: Oracle.exe sim <data root> <scenario file> <out folder> [--runs N] [--seed S]\n");
         return 2;
     }
     std::string Paths[3];
@@ -2175,7 +2858,7 @@ int RunSimMode(int Argc, char** Argv)
         while (Paths[Index].size() > 3 && (Paths[Index].back() == '\\' || Paths[Index].back() == '/'))
             Paths[Index].pop_back();
     }
-    if (Runs > 0)
-        return oracle::RunSimSpread(Paths[0], Paths[1], Paths[2], Runs);
-    return oracle::RunSimScenario(Paths[0], Paths[1], Paths[2]);
+    if (Options.Runs > 0)
+        return oracle::RunSimSpread(Paths[0], Paths[1], Paths[2], Options);
+    return oracle::RunSimScenario(Paths[0], Paths[1], Paths[2], Options);
 }

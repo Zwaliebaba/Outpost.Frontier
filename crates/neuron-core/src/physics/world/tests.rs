@@ -90,6 +90,34 @@ fn controllers_push_through_the_hook() {
 }
 
 #[test]
+fn controller_buckets_follow_registration_and_rebuilds() {
+    let mut world = PhysicsWorld::new(1, &constants());
+    let h = ball(&mut world, 1, 1.0, Vector::ZERO);
+    let a = world
+        .register_controller(h, 1, CONTROLLER_PRIORITY)
+        .unwrap();
+    world
+        .register_controller(h, 2, CONTROLLER_PRIORITY)
+        .unwrap();
+    world
+        .register_controller(h, 3, CONTROLLER_PRIORITY)
+        .unwrap();
+    // The last registered runs first.
+    assert_eq!(world.controller_run_order(h), vec![3, 2, 1]);
+    // A rebuilt unit runs them in registration order.
+    world.rebuild_controller_buckets(h);
+    assert_eq!(world.controller_run_order(h), vec![1, 2, 3]);
+    // A controller registered again joins the buckets at the end.
+    world.unregister_controller(a);
+    world
+        .register_controller(h, 4, CONTROLLER_PRIORITY)
+        .unwrap();
+    assert_eq!(world.controller_run_order(h), vec![4, 2, 3]);
+    world.rebuild_controller_buckets(h);
+    assert_eq!(world.controller_run_order(h), vec![2, 3, 4]);
+}
+
+#[test]
 fn damping_and_sleep() {
     let mut world = PhysicsWorld::new(1, &constants());
     let mut random = IvpRandom::default();
@@ -258,14 +286,19 @@ fn phantoms_report_enter_and_leave() {
     assert_eq!(events[0].user_key, 1);
     assert!(world.phantom_intruders(p).is_empty());
     // A phantom attached to the ship travels with it.
+    let at = world.transform(ship).unwrap().0;
     let carried = world.create_phantom(PhantomDesc {
         geometry: Geometry::cuboid(Vector::new(-1.0, -1.0, -1.0), Vector::new(1.0, 1.0, 1.0)),
-        position: Vector::new(0.0, 5.0, 0.0),
+        position: Vector::new(at.x, at.y + 5.0, at.z),
         orientation: Matrix::IDENTITY,
         name: Vec::new(),
         listener: false,
     });
-    assert!(world.attach_phantom(carried, ship));
+    assert!(world.attach_phantom(carried, ship, at));
+    // The ship's core takes the phantom's reach: 5 m off plus its own
+    // radius.
+    let radius = world.core(ship).unwrap().upper_limit_radius;
+    assert!((radius - (5.0 + 3.0f32.sqrt())).abs() < 1e-4, "{radius}");
     let other = ball(&mut world, 3, 0.5, Vector::ZERO);
     let ship_x = world.transform(ship).unwrap().0.x;
     world.beam(
@@ -274,6 +307,9 @@ fn phantoms_report_enter_and_leave() {
         &Matrix::IDENTITY,
         false,
     );
+    // Found in one step, an intruder from the next.
+    step(&mut world, &mut NoControllers, &mut random, 0.01);
+    assert!(world.phantom_intruders(carried).is_empty());
     step(&mut world, &mut NoControllers, &mut random, 0.01);
     assert_eq!(world.phantom_intruders(carried), vec![3]);
     let closest = world.closest_phantom_intruder(carried, |_| true).unwrap();
@@ -285,6 +321,45 @@ fn phantoms_report_enter_and_leave() {
     assert!(world.detach_phantom(carried));
     world.destroy_phantom(carried);
     assert!(!world.phantom_collision_state(carried));
+}
+
+#[test]
+fn phantoms_report_the_overlap_of_the_step_before() {
+    // IVP evaluates a phantom's mindists in the PSI after the pose: a body
+    // the phantom overlaps at the end of one step only (a fast one passing
+    // a thin part) enters in the next step, where it no longer overlaps,
+    // and leaves in the one after (the strafe missile's fuse, D177).
+    let mut world = PhysicsWorld::new(1, &constants());
+    let mut random = IvpRandom::default();
+    let ship = ball(&mut world, 1, 1.0, Vector::new(-12.0, 0.0, 0.0));
+    let p = world.create_phantom(PhantomDesc {
+        geometry: Geometry::ball(3.0),
+        position: Vector::ZERO,
+        orientation: Matrix::IDENTITY,
+        name: Vec::new(),
+        listener: true,
+    });
+    world.add_to_velocity(ship, Vector::new(140.0, 0.0, 0.0));
+    let mut seen = Vec::new();
+    for _ in 0..4 {
+        step(&mut world, &mut NoControllers, &mut random, 0.05);
+        let x = world.transform(ship).unwrap().0.x;
+        let events: Vec<bool> = world
+            .take_phantom_events()
+            .iter()
+            .map(|e| e.entered)
+            .collect();
+        seen.push((x.round(), events, world.phantom_intruders(p)));
+    }
+    assert_eq!(
+        seen,
+        vec![
+            (-5.0, vec![], vec![]),
+            (2.0, vec![], vec![]),
+            (9.0, vec![true], vec![1]),
+            (16.0, vec![false], vec![]),
+        ]
+    );
 }
 
 #[test]
@@ -307,6 +382,53 @@ fn beams_hit_the_nearest_body_outside_their_group() {
     assert!((event.point.x - 9.0).abs() < 1e-4);
     assert_eq!(event.relative_velocity, Vector::new(600.0, 0.0, 0.0));
     assert_eq!(world.collisions().len(), 1);
+}
+
+/// Against every object, IVP's ray solver first tests the OV element's
+/// sphere at the core's position at the start of its PSI (`MWorldFCore`):
+/// a fast object that crosses the ray now but was further than its radius
+/// from the ray's line then is not hit. A query of one object has no such
+/// test.
+#[test]
+fn rays_test_the_core_at_the_start_of_its_psi_first() {
+    let mut world = PhysicsWorld::new(1, &constants());
+    let mut random = IvpRandom::default();
+    let mover = ball(&mut world, 1, 1.0, Vector::new(10.0, 0.0, 0.0));
+    world.add_to_velocity(mover, Vector::new(0.0, 0.0, 30.0));
+    step(&mut world, &mut NoControllers, &mut random, 0.0999);
+    let now = world.transform(mover).unwrap().0;
+    let then = world.core_of(mover).unwrap().m_world_f_core_last_psi.vv;
+    assert!(now.z - then[2] > 2.5, "now {now:?} then {then:?}");
+    // A ray along x through the ball's centre now misses the sphere then.
+    let from = Vector::new(0.0, now.y, now.z);
+    let to = Vector::new(20.0, now.y, now.z);
+    assert!(world.find_ray_collisions(from, to, 8).is_empty());
+    assert_eq!(world.find_ray_intersect(mover, from, to, 4).len(), 1);
+}
+
+/// IVP's ray solver needs a face that faces the ray with the start in front
+/// of it, and its ball test returns when the start is inside: a ray never
+/// hits the object it starts in, and goes on to the next one.
+#[test]
+fn rays_do_not_hit_the_body_they_start_in() {
+    let mut world = PhysicsWorld::new(1, &constants());
+    let _around = ball(&mut world, 1, 2.0, Vector::new(1.0, 0.0, 0.0));
+    let _next = ball(&mut world, 2, 1.0, Vector::new(10.0, 0.0, 0.0));
+    let hits = world.find_ray_collisions(Vector::ZERO, Vector::new(100.0, 0.0, 0.0), 8);
+    assert_eq!(hits.iter().map(|h| h.user_key).collect::<Vec<_>>(), vec![2]);
+    let event = world
+        .generate_beam_collision(&BeamQuery {
+            user_key: 7,
+            start: Vector::ZERO,
+            direction: Vector::new(1.0, 0.0, 0.0),
+            length: 50.0,
+            collision_group: Vec::new(),
+            velocity: Vector::new(600.0, 0.0, 0.0),
+        })
+        .unwrap();
+    assert_eq!(event.object_a, 2);
+    assert_eq!(world.take_beam_starts_inside(), vec![1]);
+    assert!(world.take_beam_starts_inside().is_empty());
 }
 
 #[test]

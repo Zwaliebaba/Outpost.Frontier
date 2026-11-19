@@ -3,7 +3,10 @@
 //!
 //! The C++ (`imeui`) draws the composition string and the candidate list
 //! itself, reads reading strings out of IME internals and probes IME
-//! DLLs. Here the system draws its composition and candidate windows and
+//! DLLs. Here the system draws its composition and candidate windows (the
+//! game draws the IME's toolbar, `ui::ime`, from this window's state; the
+//! window hands the game none of the messages its own composition,
+//! candidate list and reading window would be drawn from, D283) and
 //! this module places them at the focused edit box's caret
 //! (`ImmSetCompositionWindow`, `ImmSetCandidateWindow`) when a composition
 //! starts or changes, a candidate list opens, or the caret moves. The
@@ -21,29 +24,37 @@ use std::collections::VecDeque;
 use std::ffi::c_void;
 
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
+use windows::Win32::Storage::FileSystem::{
+    GetFileVersionInfoSizeW, GetFileVersionInfoW, VS_FIXEDFILEINFO, VerQueryValueW,
+};
+use windows::Win32::System::SystemInformation::GetTickCount;
 use windows::Win32::UI::Input::Ime::{
     CANDIDATEFORM, CFS_EXCLUDE, CFS_POINT, COMPOSITIONFORM, CPS_CANCEL, GCS_COMPATTR, GCS_COMPSTR,
     GCS_CURSORPOS, GCS_RESULTSTR, HIMC, IME_COMPOSITION_STRING, IME_CONVERSION_MODE,
     IMN_CHANGECANDIDATE, IMN_OPENCANDIDATE, IMN_SETCONVERSIONMODE, IMN_SETOPENSTATUS,
     ImmAssociateContext, ImmGetCompositionStringW, ImmGetContext, ImmGetConversionStatus,
-    ImmGetOpenStatus, ImmGetVirtualKey, ImmIsIME, ImmNotifyIME, ImmReleaseContext,
-    ImmSetCandidateWindow, ImmSetCompositionWindow, NI_CLOSECANDIDATE, NI_COMPOSITIONSTR,
-    NOTIFY_IME_INDEX,
+    ImmGetIMEFileNameW, ImmGetOpenStatus, ImmGetVirtualKey, ImmIsIME, ImmNotifyIME,
+    ImmReleaseContext, ImmSetCandidateWindow, ImmSetCompositionWindow, NI_CLOSECANDIDATE,
+    NI_COMPOSITIONSTR, NOTIFY_IME_INDEX,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetFocus, GetKeyboardLayout, GetKeyboardLayoutList, HKL,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    MSG, PostMessageW, WM_IME_CHAR, WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION, WM_IME_NOTIFY,
-    WM_IME_STARTCOMPOSITION, WM_INPUTLANGCHANGE, WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    GetCaretBlinkTime, MSG, PostMessageW, WM_IME_CHAR, WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION,
+    WM_IME_NOTIFY, WM_IME_STARTCOMPOSITION, WM_INPUTLANGCHANGE, WM_KEYDOWN, WM_KEYUP,
+    WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
+use windows::core::PCWSTR;
 
 use crate::input::keyboard::vk;
 use crate::platform::input::{client_mapping, key_down, key_down_now};
 use crate::platform::window::{push, with_state};
 use crate::text_input::ime::{
-    CaretRect, Composition, ImeContext, ModifierRepair, ime_state, is_hot_key,
+    CaretRect, Composition, HeldComposition, ImeContext, ImeView, ModifierRepair, ime_state,
+    is_hot_key,
 };
+use crate::text_input::ime_core::ImeFile;
 use crate::window::{ImeEvent, WindowEvent};
 
 /// The window's IME state.
@@ -57,6 +68,8 @@ pub(crate) struct ImeWindowState {
     caret: Option<CaretRect>,
     composition: Composition,
     repair: ModifierRepair,
+    /// The composition taken when the window lost the focus (D284).
+    held: HeldComposition,
     /// Result-string units for the router (`WM_IME_CHAR`).
     pub chars: VecDeque<u16>,
 }
@@ -283,6 +296,28 @@ pub(crate) fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) 
     }
 }
 
+/// `WM_KILLFOCUS` (D284): while a box has the focus, the composition is
+/// held for the box and the IME's composition is cancelled at once, as
+/// the C++'s `IMEFocus::OnKillFocus` commits and cancels it inside the
+/// window procedure.
+pub(crate) fn hold_on_kill_focus(hwnd: HWND) {
+    let held = with_state(|s| {
+        let open = s.ime.boxes && s.ime.open;
+        s.ime.held.hold(open, &mut s.ime.composition)
+    })
+    .unwrap_or(false);
+    if !held {
+        return;
+    }
+    if let Some(context) = Context::get(hwnd) {
+        // SAFETY: the window's context.
+        unsafe {
+            let _ = ImmNotifyIME(context.himc, NI_CLOSECANDIDATE, NOTIFY_IME_INDEX(4), 0);
+            let _ = ImmNotifyIME(context.himc, NI_COMPOSITIONSTR, CPS_CANCEL, 0);
+        }
+    }
+}
+
 /// `IMEFocus::IgnoreHotKey`: with a box registered, a key an IME took that
 /// is one of its hot keys is dropped before routing and translation.
 pub(crate) fn ignore_hot_key(msg: &MSG) -> bool {
@@ -354,7 +389,12 @@ impl ImeContext for WindowIme {
         let associate = if open { context } else { HIMC::default() };
         // SAFETY: the live window and its own context, or none.
         unsafe { ImmAssociateContext(self.hwnd, associate) };
-        with_state(|s| s.ime.open = open);
+        with_state(|s| {
+            s.ime.open = open;
+            if open {
+                s.ime.held.clear();
+            }
+        });
     }
 
     fn finalize(&mut self, send: bool) -> Vec<u16> {
@@ -362,13 +402,10 @@ impl ImeContext for WindowIme {
             return Vec::new();
         };
         let text = with_state(|s| {
-            let text = if send {
-                s.ime.composition.text.clone()
-            } else {
-                Vec::new()
-            };
-            s.ime.composition.clear();
-            text
+            let ImeWindowState {
+                held, composition, ..
+            } = &mut s.ime;
+            held.take(composition, send)
         })
         .unwrap_or_default();
         // SAFETY: the window's context.
@@ -392,5 +429,98 @@ impl ImeContext for WindowIme {
 
     fn set_boxes_registered(&mut self, registered: bool) {
         with_state(|s| s.ime.boxes = registered);
+    }
+
+    fn available(&self) -> bool {
+        ime_available()
+    }
+
+    /// The state, the layout and the clocks. The composition and the
+    /// candidate list are the system's windows (decision T7, D283): the
+    /// window hands the game no messages for them, so only the toolbar
+    /// shows.
+    fn view(&mut self) -> ImeView {
+        // SAFETY: plain queries of this thread's layout and the clocks.
+        let (layout, tick, caret_blink) =
+            unsafe { (GetKeyboardLayout(0), GetTickCount(), GetCaretBlinkTime()) };
+        ImeView {
+            state: self.state(),
+            language: layout.0 as usize as u32,
+            tick,
+            caret_blink,
+        }
+    }
+
+    fn has_context(&mut self) -> bool {
+        Context::get(self.hwnd).is_some()
+    }
+
+    fn layout(&mut self) -> u32 {
+        // SAFETY: a plain query of this thread's layout.
+        unsafe { GetKeyboardLayout(0) }.0 as usize as u32
+    }
+
+    /// The layout's IME file (`ImmGetIMEFileNameW`) and the file version
+    /// of its version resource, for `GetImeId`. The IME itself is not
+    /// loaded, so whether it exports `GetReadingString` is not known
+    /// (D591).
+    fn ime_file(&mut self) -> Option<ImeFile> {
+        // SAFETY: a plain query of this thread's layout.
+        let layout = unsafe { GetKeyboardLayout(0) };
+        let mut name = [0u16; 1024];
+        // SAFETY: the buffer and its length in units.
+        let length = unsafe { ImmGetIMEFileNameW(layout, Some(&mut name[..1023])) };
+        let length = usize::try_from(length)
+            .ok()
+            .filter(|&n| n > 0 && n < 1024)?;
+        let name = &name[..length];
+        let mut path = name.to_vec();
+        path.push(0);
+        let mut handle = 0u32;
+        // SAFETY: a terminated name and an out handle.
+        let size = unsafe { GetFileVersionInfoSizeW(PCWSTR(path.as_ptr()), Some(&mut handle)) };
+        let version = (size != 0)
+            .then(|| {
+                let mut data = vec![0u8; size as usize];
+                // SAFETY: a buffer of the size the query returned.
+                unsafe {
+                    GetFileVersionInfoW(
+                        PCWSTR(path.as_ptr()),
+                        Some(handle),
+                        size,
+                        data.as_mut_ptr().cast::<c_void>(),
+                    )
+                }
+                .ok()?;
+                let mut fixed: *mut c_void = std::ptr::null_mut();
+                let mut fixed_size = 0u32;
+                let root = [u16::from(b'\\'), 0];
+                // SAFETY: the version data just read; the result points
+                // into it and is read before it is dropped.
+                let found = unsafe {
+                    VerQueryValueW(
+                        data.as_ptr().cast::<c_void>(),
+                        PCWSTR(root.as_ptr()),
+                        &mut fixed,
+                        &mut fixed_size,
+                    )
+                }
+                .as_bool();
+                if !found
+                    || fixed.is_null()
+                    || (fixed_size as usize) < std::mem::size_of::<VS_FIXEDFILEINFO>()
+                {
+                    return None;
+                }
+                // SAFETY: a VS_FIXEDFILEINFO inside `data`, of the size
+                // checked; read unaligned.
+                let info = unsafe { std::ptr::read_unaligned(fixed.cast::<VS_FIXEDFILEINFO>()) };
+                Some((info.dwFileVersionMS, info.dwFileVersionLS))
+            })
+            .flatten();
+        Some(ImeFile {
+            name: String::from_utf16_lossy(name),
+            version,
+        })
     }
 }
