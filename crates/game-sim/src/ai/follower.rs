@@ -230,7 +230,7 @@ impl FollowerBase {
                 let Some(own) = cx.own() else {
                     return;
                 };
-                let leader_pos = self.lead_view(cx).map_or(Vector::ZERO, |v| v.position);
+                let leader_pos = self.lead_view(cx).map_or(Vector::ZERO, |v| v.center);
                 self.face.set_direction(sub(own.center, leader_pos));
                 self.face.set_scale_94(p.exit_top_turn_break_away_throttle);
                 self.face.update(cx);
@@ -538,7 +538,7 @@ impl<W: AiEnv + ?Sized> FollowerWork<W> for FollowBehavior {
             (probe.translation, false)
         } else {
             let rotated = transform_matrix(&basis, offset);
-            (add(rotated, leader.position), !present)
+            (add(rotated, leader.center), !present)
         };
         let mut update_match = true;
         self.update_engage_state(&own, &leader);
@@ -820,7 +820,7 @@ impl<W: AiEnv + ?Sized> FollowerWork<W> for FormationBehavior {
             self.f.offset = o;
         }
         let leader_offset = leader.formation_offset.unwrap_or(Vector::ZERO);
-        let anchor = sub(leader.position, transform_matrix(&basis, leader_offset));
+        let anchor = sub(leader.center, transform_matrix(&basis, leader_offset));
         let slot_point = add(transform_matrix(&basis, self.f.offset), anchor);
         let leader_backward = negated_iface_direction(Some(&leader));
         let (cruise, lane) = own.cruise.unwrap_or((false, false));
