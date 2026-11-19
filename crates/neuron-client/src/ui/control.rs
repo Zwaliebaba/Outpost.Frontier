@@ -57,6 +57,11 @@ pub trait ControlMesh {
     fn put_position(&mut self, position: Vector) {
         self.set_position(position);
     }
+    /// The engine instance the holder owns (`+0x04`), for the draw host's
+    /// submits; `None` for a mesh outside an engine.
+    fn engine_instance(&self) -> Option<u32> {
+        None
+    }
 }
 
 /// Loads a control mesh (`ClientMeshLoadFromPath`); `None` when the path

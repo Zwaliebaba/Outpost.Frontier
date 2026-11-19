@@ -43,6 +43,8 @@ mod frame;
 pub mod order;
 mod scene_host;
 mod shapes;
+pub mod ui_host;
+pub mod ui_meshes;
 #[cfg(windows)]
 pub mod windows;
 
@@ -95,7 +97,7 @@ use crate::ui::widescreen::Surface;
 use crate::window::DisplayMode;
 
 pub use camera::ViewCamera;
-pub use frame::{FrameInput, FrameReport, Win3dStates};
+pub use frame::{FrameInput, FrameReport};
 pub use order::{
     CREATION_ORDER, LIBRARIES, LifeEvent, Lifecycle, Phase, Reference, Stage, TEARDOWN_ORDER,
 };
@@ -103,6 +105,9 @@ pub use scene_host::{
     Links, RenderLink, RenderSide, SceneDeformHost, SceneHost, SharedLinks, SharedScene,
 };
 pub use shapes::StackShapes;
+
+/// The interface's shared mesh and material file (`Win3DStartupManager`).
+const INTERFACE_GENERIC: &[u8] = b"interface\\interface.generic.vms";
 
 /// The engine's stack type over a backend.
 pub type Stack<B> = RenderStack<B>;
@@ -350,9 +355,13 @@ pub struct Engine<B: Backend + 'static> {
     deformables: Vec<Option<DeformInstance>>,
     backdrop: Option<ModelId>,
     starsphere: Option<ModelId>,
-    loaded: Loaded,
-    win3d: Win3dStates,
+    loaded: Rc<RefCell<Loaded>>,
+    win3d: crate::ui::win3d_immediate::Win3dLayer,
+    batchers: crate::ui::win3d_renderables::LineBatchers,
     quads: crate::ui::quad_batch::QuadBatcher,
+    /// The client clock of the frames run, for the cursor's animation.
+    elapsed: f64,
+    ui_meshes: Rc<std::cell::Cell<usize>>,
     frames: u64,
     torn_down: bool,
 }
@@ -673,6 +682,19 @@ impl<B: Backend + 'static> Engine<B> {
                 Err(_) => notices.push("Interface\\UI\\UITextures.ini: not loaded".to_owned()),
             }
         }
+        // `Win3DStartupManager`'s material entry: the interface's shared
+        // meshes, materials and textures (`interface\interface.generic.vms`),
+        // which the control meshes reference.
+        let loaded: Rc<RefCell<Loaded>> = Rc::default();
+        match UtfFileSystem::open(
+            &data,
+            &FsDesc::read(INTERFACE_GENERIC).with_implementation(b"UTF"),
+        ) {
+            Ok(fs) => {
+                load_libraries(&render, &registry, &mut loaded.borrow_mut(), fs);
+            }
+            Err(_) => notices.push(format!("{}: not loaded", lossy(INTERFACE_GENERIC))),
+        }
         log(Stage::Ui);
         let ime = ImeFocus::new(&mut NoIme);
         log(Stage::ImeFocus);
@@ -687,6 +709,17 @@ impl<B: Backend + 'static> Engine<B> {
         }
         log(Stage::ImageRoot);
         apply_extents(&scene, &links);
+        let ui_meshes = Rc::new(std::cell::Cell::new(0));
+        // The control meshes through the scene engine (`ClientMeshLoadFromPath`).
+        ui.mesh_loader = Some(Box::new(ui_meshes::EngineMeshLoader {
+            data: data.clone(),
+            registry: Rc::clone(&registry),
+            render: Rc::clone(&render),
+            scene: Rc::clone(&scene),
+            links: Rc::clone(&links),
+            loaded: Rc::clone(&loaded),
+            made: Rc::clone(&ui_meshes),
+        }));
 
         Ok(Engine {
             lifecycle,
@@ -724,9 +757,12 @@ impl<B: Backend + 'static> Engine<B> {
             deformables: Vec::new(),
             backdrop: None,
             starsphere: None,
-            loaded: Loaded::default(),
-            win3d: Win3dStates::default(),
+            loaded,
+            win3d: crate::ui::win3d_immediate::Win3dLayer::new(width, height),
+            batchers: crate::ui::win3d_renderables::LineBatchers::new(),
             quads: crate::ui::quad_batch::QuadBatcher::new(),
+            elapsed: 0.0,
+            ui_meshes,
             frames: 0,
             torn_down: false,
         })
@@ -800,6 +836,18 @@ impl<B: Backend + 'static> Engine<B> {
         self.mouse.as_mut()
     }
 
+    /// The control meshes the interface made through the engine so far.
+    #[must_use]
+    pub fn ui_meshes_made(&self) -> usize {
+        self.ui_meshes.get()
+    }
+
+    /// The `mouse.ini` cursors, to choose the one in use
+    /// (`MouseSetCursor`).
+    pub fn cursors_mut(&mut self) -> &mut Cursors {
+        &mut self.cursors
+    }
+
     /// The `mouse.ini` cursors.
     #[must_use]
     pub fn cursors(&self) -> &Cursors {
@@ -854,48 +902,13 @@ impl<B: Backend + 'static> Engine<B> {
     }
 
     /// [`Engine::load_archive`] over an open archive.
-    fn load_libraries(&mut self, mut fs: UtfFileSystem) -> ArchiveLoad {
-        let mut out = ArchiveLoad::default();
-        let mut side = self.render.borrow_mut();
-        let stack = &mut side.stack;
-        if fs.open_node(b"Texture library").is_ok() {
-            let _ = fs.open_node(b"..");
-            let (textures, mut pipeline) = stack.shading.texture_parts();
-            out.textures = textures.load_group(&mut fs, &mut pipeline, true).group;
-            self.loaded.textures.extend(out.textures);
-        }
-        if fs.open_node(b"Material library").is_ok() {
-            let _ = fs.open_node(b"..");
-            let load = stack.with_batcher(|b, s| b.library_mut().load_library(s, &mut fs, true));
-            if let Some(load) = load
-                && load.result >= 0
-                && let Some(group) = load.group
-            {
-                stack.with_batcher(|b, s| {
-                    b.library_mut().apply_verify_group(s, group.cast_signed());
-                    b.library_mut()
-                        .resolve_textures_group(s, group.cast_signed(), 0.0);
-                });
-                out.materials = Some(group);
-                self.loaded.materials.push(group);
-            }
-        }
-        if let Some(animations) = stack.shading.animations.as_mut()
-            && let Some(group) = animations.load_group(&mut fs)
-        {
-            out.animations = true;
-            self.loaded.animations.push(group);
-        }
-        let mut root: Box<dyn FileSystem> = Box::new(fs);
-        let list = self
-            .registry
-            .borrow_mut()
-            .load_library(stack, root.as_mut(), -1);
-        out.meshes = list.as_ref().map_or(0, Vec::len);
-        if list.is_some() {
-            self.loaded.meshes.push(list);
-        }
-        out
+    fn load_libraries(&mut self, fs: UtfFileSystem) -> ArchiveLoad {
+        load_libraries(
+            &self.render,
+            &self.registry,
+            &mut self.loaded.borrow_mut(),
+            fs,
+        )
     }
 
     /// A model through the scene engine: the archive's libraries
@@ -939,11 +952,10 @@ impl<B: Backend + 'static> Engine<B> {
         path: &[u8],
         mut fs: UtfFileSystem,
     ) -> Result<ModelId, EngineError> {
-        let name = path
-            .rsplit(|&c| c == b'\\' || c == b'/')
-            .next()
-            .unwrap_or(path)
-            .to_vec();
+        // Named by the whole relative path, as the client's mesh loader
+        // names its archetypes: the shipped data has models of one file
+        // name in several folders.
+        let name = path.to_vec();
         let archetype = self
             .scene
             .borrow_mut()
@@ -1503,22 +1515,23 @@ impl<B: Backend + 'static> Engine<B> {
         {
             let mut side = self.render.borrow_mut();
             let stack = &mut side.stack;
-            for list in std::mem::take(&mut self.loaded.meshes) {
+            let mut loaded = self.loaded.borrow_mut();
+            for list in std::mem::take(&mut loaded.meshes) {
                 self.registry.borrow_mut().unload_library(stack, list);
             }
             log(Stage::VMeshLibrary);
-            for group in std::mem::take(&mut self.loaded.materials) {
+            for group in std::mem::take(&mut loaded.materials) {
                 stack.with_batcher(|b, s| b.library_mut().delete_group(s, group.cast_signed()));
             }
             log(Stage::MaterialBatcher);
             if let Some(animations) = stack.shading.animations.as_mut() {
-                for group in std::mem::take(&mut self.loaded.animations) {
+                for group in std::mem::take(&mut loaded.animations) {
                     animations.unload_group(group);
                 }
             }
             log(Stage::MaterialAnimation);
             let (textures, mut pipeline) = stack.shading.texture_parts();
-            for group in std::mem::take(&mut self.loaded.textures) {
+            for group in std::mem::take(&mut loaded.textures) {
                 textures.garbage_collect(group, &mut pipeline);
             }
             log(Stage::TextureLibrary);
@@ -1562,6 +1575,58 @@ impl<B: Backend + 'static> Engine<B> {
 /// Hands a deformable model's bound bones the scene engine's world
 /// transforms, as the engine's `IInstanceTransform` calls on the bone
 /// runtimes would (`SetMatrix`, `MarkWorldDirty`).
+/// The libraries of an open archive into the render side (the engine's
+/// [`Engine::load_archive`] and the interface's mesh loads): its `Texture
+/// library` into the texture library, its `Material library` into the
+/// material library (verified and resolved), its material animations and
+/// its `VMeshLibrary` into the shared registry, each group kept in
+/// `loaded` for the teardown.
+fn load_libraries<B: Backend + 'static>(
+    render: &RefCell<RenderSide<B>>,
+    registry: &crate::render::mesh::vmesh::SharedRegistry,
+    loaded: &mut Loaded,
+    mut fs: UtfFileSystem,
+) -> ArchiveLoad {
+    let mut out = ArchiveLoad::default();
+    let mut side = render.borrow_mut();
+    let stack = &mut side.stack;
+    if fs.open_node(b"Texture library").is_ok() {
+        let _ = fs.open_node(b"..");
+        let (textures, mut pipeline) = stack.shading.texture_parts();
+        out.textures = textures.load_group(&mut fs, &mut pipeline, true).group;
+        loaded.textures.extend(out.textures);
+    }
+    if fs.open_node(b"Material library").is_ok() {
+        let _ = fs.open_node(b"..");
+        let load = stack.with_batcher(|b, s| b.library_mut().load_library(s, &mut fs, true));
+        if let Some(load) = load
+            && load.result >= 0
+            && let Some(group) = load.group
+        {
+            stack.with_batcher(|b, s| {
+                b.library_mut().apply_verify_group(s, group.cast_signed());
+                b.library_mut()
+                    .resolve_textures_group(s, group.cast_signed(), 0.0);
+            });
+            out.materials = Some(group);
+            loaded.materials.push(group);
+        }
+    }
+    if let Some(animations) = stack.shading.animations.as_mut()
+        && let Some(group) = animations.load_group(&mut fs)
+    {
+        out.animations = true;
+        loaded.animations.push(group);
+    }
+    let mut root: Box<dyn FileSystem> = Box::new(fs);
+    let list = registry.borrow_mut().load_library(stack, root.as_mut(), -1);
+    out.meshes = list.as_ref().map_or(0, Vec::len);
+    if list.is_some() {
+        loaded.meshes.push(list);
+    }
+    out
+}
+
 fn pull_bones(instance: &mut DeformInstance, scene: &SceneEngine) -> usize {
     instance.pull_bone_transforms(|bone| {
         u32::try_from(bone).ok().map(|i| {

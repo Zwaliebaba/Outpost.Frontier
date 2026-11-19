@@ -246,6 +246,17 @@ impl<B: Backend + 'static> RenderStack<B> {
         Some(result)
     }
 
+    /// `IMaterial::SetParameterValue` on a material of the library; `None`
+    /// for a handle that names nothing.
+    pub fn set_material_parameter(
+        &mut self,
+        id: MaterialId,
+        index: u32,
+        value: &neuron_core::material_data::PropertyValue,
+    ) -> Option<i32> {
+        self.with_material(id, |m, s| m.set_parameter(s, index, value))
+    }
+
     /// A material of the arena, for reading.
     fn material_ref(&self, id: MaterialId) -> Option<&dyn Material<RenderStack<B>>> {
         self.batcher.as_ref()?.library().materials().get(id)

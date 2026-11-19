@@ -266,6 +266,7 @@ void RunParticleSuites();
 void RunUiSuites();
 void RunUiQuadSuites();
 void RunUiControlSuites();
+void RunUiImmediateSuites();
 
 // P4.14 (oracle_scene_script.cpp): every .thn under DATA through lua_dobuffer in a fresh
 // Lua state, and the state after it; kind "thn".
