@@ -123,7 +123,7 @@ impl TextWin {
         match ui.fonts.as_mut() {
             Some(sys) => self.text.set_text(sys, Some(text)),
             None => {
-                let mut scratch = FontSystem::new(Box::new(NoBackend), FontEnv::new(0, 0));
+                let mut scratch = scratch_fonts();
                 self.text.set_text(&mut scratch, Some(text));
             }
         }
@@ -200,6 +200,12 @@ impl TextWin {
         };
         self.text.draw_children(sys, &mut cx, &mut origin, 0.0, 0.0);
     }
+}
+
+/// A font system without fonts, for strings handled while the manager has
+/// none.
+pub(crate) fn scratch_fonts() -> FontSystem {
+    FontSystem::new(Box::new(NoBackend), FontEnv::new(0, 0))
 }
 
 /// A backend for strings handled without a font system: it makes nothing.

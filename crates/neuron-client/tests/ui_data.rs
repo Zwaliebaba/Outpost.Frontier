@@ -9,14 +9,21 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use neuron_client::ui::control::{PlainControl, load_ini};
+use std::cell::RefCell;
+use std::rc::Rc;
+
+use neuron_client::ui::control::{ControlMesh, MeshLoader, PlainControl, load_ini};
 use neuron_client::ui::cursor::{Cursors, compute_quad};
 use neuron_client::ui::factory::{CLASSES, owner};
+use neuron_client::ui::immediate::{Immediate, ImmediateLog};
 use neuron_client::ui::page::{MasterWin, PageDesc};
+use neuron_client::ui::quad_batch::QuadBatcher;
 use neuron_client::ui::shape::FixedTextures;
+use neuron_client::ui::tree::DrawHost;
 use neuron_client::ui::tree::Ui;
 use neuron_client::ui::widescreen::Surface;
 use neuron_core::ini::IniReader;
+use neuron_core::math::{Matrix, Transform, Vector};
 
 fn data() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../outdir/data")
@@ -40,6 +47,54 @@ fn pages() -> Vec<PathBuf> {
     out
 }
 
+/// A mesh instance that only exists.
+struct NoMesh;
+
+impl ControlMesh for NoMesh {
+    fn transform(&self) -> Transform {
+        Transform::IDENTITY
+    }
+    fn set_position(&mut self, _: Vector) {}
+    fn set_orientation(&mut self, _: Matrix) {}
+    fn set_transform(&mut self, _: Transform) {}
+    fn hardpoint(&self, _: &[u8]) -> Option<Transform> {
+        None
+    }
+}
+
+/// A loader that gives every path an instance and keeps the paths.
+struct PathLoader(Rc<RefCell<Vec<Vec<u8>>>>);
+
+impl MeshLoader for PathLoader {
+    fn load(&mut self, path: &[u8], _: &[u8]) -> Option<Box<dyn ControlMesh>> {
+        self.0.borrow_mut().push(path.to_vec());
+        Some(Box::new(NoMesh))
+    }
+}
+
+/// A draw host that records the immediate-mode calls.
+#[derive(Default)]
+struct LogHost {
+    quads: QuadBatcher,
+    log: ImmediateLog,
+    meshes: usize,
+}
+
+impl DrawHost for LogHost {
+    fn quads(&mut self) -> &mut QuadBatcher {
+        &mut self.quads
+    }
+    fn immediate(&mut self) -> Option<&mut dyn Immediate> {
+        Some(&mut self.log)
+    }
+    fn submit_mesh(&mut self, _: &dyn ControlMesh, _: neuron_client::ui::tree::MeshPass) {
+        self.meshes += 1;
+    }
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+}
+
 /// A manager whose factory has every class of the reference: the toolkit's
 /// own, and a bare control for each class not ported yet.
 fn ui_with_every_class(surface: Surface) -> Ui {
@@ -61,6 +116,14 @@ fn shipped_pages_load_and_place_their_widgets() {
         return;
     }
     let mut entries = 0;
+    let ported = [
+        "UIStaticText",
+        "UIListBox",
+        "UIScroll",
+        "UICycle",
+        "UIWinObject",
+    ];
+    let (mut built, mut immediate_calls, mut meshes) = (0, 0, 0);
     for path in &files {
         let bytes = fs::read(path).unwrap();
         let desc = PageDesc::load(&bytes);
@@ -83,10 +146,32 @@ fn shipped_pages_load_and_place_their_widgets() {
             (Surface::new(1920, 1080), 240.0, 1680.0),
         ] {
             let mut ui = ui_with_every_class(surface);
+            let loaded = Rc::new(RefCell::new(Vec::new()));
+            ui.mesh_loader = Some(Box::new(PathLoader(loaded.clone())));
             let id = MasterWin::open(&mut ui, &desc)
                 .unwrap_or_else(|| panic!("{}: the page failed", path.display()));
             let page = ui.widget::<MasterWin>(id).unwrap().page.clone().unwrap();
             assert_eq!(page.count(), names.len(), "{}", path.display());
+            let objects = desc
+                .entries
+                .iter()
+                .filter(|e| e.type_name == b"UIWinObject")
+                .count();
+            assert_eq!(loaded.borrow().len(), objects, "{}", path.display());
+            for i in 0..page.count() {
+                let widget = page.widget(i).unwrap();
+                let class = ui.node(widget).unwrap().class_name.unwrap();
+                if ported.contains(&class) {
+                    built += usize::from(surface.width == 1024);
+                }
+            }
+            let mut host = LogHost::default();
+            ui.update_all(0.016);
+            ui.draw_all(&mut host);
+            if surface.width == 1024 {
+                immediate_calls += host.log.calls.len();
+                meshes += host.meshes;
+            }
             for i in 0..page.count() {
                 let widget = page.widget(i).unwrap();
                 let position = ui.node(widget).unwrap().position;
@@ -107,7 +192,12 @@ fn shipped_pages_load_and_place_their_widgets() {
             assert_eq!(ui.live_count(), 0);
         }
     }
-    println!("{} pages, {entries} entries", files.len());
+    assert!(built > 0 && immediate_calls > 0 && meshes > 0);
+    println!(
+        "{} pages, {entries} entries, {built} built by the toolkit's own controls, \
+         {immediate_calls} immediate-mode calls and {meshes} meshes drawn at 1024 x 768",
+        files.len()
+    );
 }
 
 #[test]

@@ -258,12 +258,14 @@ void RunMaterialSuites();
 // compiled in), over crates/neuron-client/tests/fixtures/oracle/particle_{ramp,sim}.list; called
 // by RunNeuronClientSuites before RunMaterialSuites.
 void RunParticleSuites();
-// P4.13 (oracle_ui.cpp, oracle_ui_quads.cpp): the client UI toolkit's page descriptors
-// (ui_page_desc.cpp compiled in) and screen-quad batcher (screen_quad_state.cpp compiled in),
-// over crates/neuron-client/tests/fixtures/oracle/ui_{page_desc,quad_batch}.list; called by
-// RunNeuronClientSuites. RunUiSuites runs both.
+// P4.13 (oracle_ui.cpp, oracle_ui_quads.cpp, oracle_ui_controls.cpp): the client UI toolkit's
+// page descriptors (ui_page_desc.cpp compiled in), screen-quad batcher (screen_quad_state.cpp
+// compiled in) and generic controls (the Win3D manager and the controls compiled in), over
+// crates/neuron-client/tests/fixtures/oracle/ui_{page_desc,quad_batch,controls}.list; called by
+// RunNeuronClientSuites. RunUiSuites runs the three.
 void RunUiSuites();
 void RunUiQuadSuites();
+void RunUiControlSuites();
 
 // P4.14 (oracle_scene_script.cpp): every .thn under DATA through lua_dobuffer in a fresh
 // Lua state, and the state after it; kind "thn".

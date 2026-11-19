@@ -5,7 +5,8 @@
 // pipeline, the vertex buffer manager, the index buffer and IRPDraw, which NeuronRuntime's
 // globals point at while the suite runs. The client functions the file also references (the
 // Win3D projection stack of the big-image tile path, the surface size, Common's math engine for
-// the flares, which Common.dll does not export) are stand-ins here; no case reaches them. The
+// the flares, which Common.dll does not export) are stand-ins here or in
+// oracle_ui_controls.cpp; no case of this file reaches them. The
 // Rust side is crates/neuron-client/tests/oracle_vectors.rs with
 // crates/neuron-client/tests/support/ui.rs; the inputs come from
 // crates/neuron-client/tests/fixtures/oracle/make_ui_fixtures.py.
@@ -43,24 +44,24 @@
 
 #include "../OutpostFrontier/Client/screen_quad_state.cpp"
 
-// The client's surface size (globals.cpp) and Win3D projection stack (win3d_immediate.cpp),
-// referenced by the big-image tile path, and Common's math engine (common_csys.cpp),
-// referenced by ScreenQuadEnqueueFlare; no case calls either.
+// The client's surface size (globals.cpp), referenced by the big-image tile path, and Common's
+// math engine (common_csys.cpp), referenced by ScreenQuadEnqueueFlare (no case of this file
+// calls either) and by the controls of oracle_ui_controls.cpp: x86math's engine. The Win3D
+// projection stack the tile path also names records in oracle_ui_controls.cpp.
 I3DMathEngine* __cdecl Acquire3DMathEngine()
 {
-    return nullptr;
+    static I3DMathEngine* Engine = nullptr;
+    if (Engine == nullptr && OracleLoadMathEngine())
+    {
+        FMathDesc Desc = {sizeof(FMathDesc), "3DMathEngine", nullptr};
+        void* Created = nullptr;
+        if (NEURONCOMPONENTS_Acquire()->CreateInstance((AGGDESC*)(&Desc), &Created) == GR_OK)
+            Engine = (I3DMathEngine*)Created;
+    }
+    return Engine;
 }
 unsigned G_RenderSurfaceWidth = 800;
 unsigned G_RenderSurfaceHeight = 600;
-void Win3DSetOrtho2D()
-{
-}
-void Win3DPushProjection()
-{
-}
-void Win3DPopProjection()
-{
-}
 
 namespace
 {
