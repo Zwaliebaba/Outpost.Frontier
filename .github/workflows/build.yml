@@ -27,9 +27,24 @@ jobs:
         run: cargo test --locked --workspace --all-targets
       - name: Build executables
         run: cargo build --locked --release --workspace --bins
+      - name: Fetch the pinned shader compiler
+        # Record 0004, point 16 as amended on 2026-11-19: dxc from the
+        # Microsoft.Direct3D.DXC NuGet package, pinned by version and hash
+        # (crates/neuron-client/shaders/README.md).
+        shell: pwsh
+        run: |
+          $version = '1.9.2609.5'
+          $sha256 = '73CFA082245918C2CC1EC6740250EB7377E83A757B3B3A3E16E0D71535BFBFC3'
+          $package = Join-Path $env:RUNNER_TEMP 'dxc.zip'
+          Invoke-WebRequest -Uri "https://api.nuget.org/v3-flatcontainer/microsoft.direct3d.dxc/$version/microsoft.direct3d.dxc.$version.nupkg" -OutFile $package
+          $found = (Get-FileHash -Algorithm SHA256 $package).Hash
+          if ($found -ne $sha256) { throw "dxc package hash $found, expected $sha256" }
+          $dir = Join-Path $env:RUNNER_TEMP 'dxc'
+          Expand-Archive -Path $package -DestinationPath $dir -Force
+          "OUTPOST_DXC=$dir\build\native\bin\x64\dxc.exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Check shaders
         # Record 0004, point 18: the committed blobs are what the sources
-        # compile to with the recorded fxc.
+        # compile to with the pinned dxc.
         run: cargo xtask shaders --check
 
   host:

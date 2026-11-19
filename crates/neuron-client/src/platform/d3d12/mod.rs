@@ -18,8 +18,9 @@ use std::fmt;
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::Graphics::Direct3D::D3D_FEATURE_LEVEL_11_0;
 use windows::Win32::Graphics::Direct3D12::{
-    D3D12_COMMAND_LIST_TYPE_DIRECT, D3D12_COMMAND_QUEUE_DESC, D3D12_CPU_DESCRIPTOR_HANDLE,
-    D3D12_DESCRIPTOR_HEAP_DESC, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, D3D12_FENCE_FLAG_NONE,
+    D3D_SHADER_MODEL_6_1, D3D12_COMMAND_LIST_TYPE_DIRECT, D3D12_COMMAND_QUEUE_DESC,
+    D3D12_CPU_DESCRIPTOR_HANDLE, D3D12_DESCRIPTOR_HEAP_DESC, D3D12_DESCRIPTOR_HEAP_TYPE_RTV,
+    D3D12_FEATURE_DATA_SHADER_MODEL, D3D12_FEATURE_SHADER_MODEL, D3D12_FENCE_FLAG_NONE,
     D3D12_HEAP_FLAG_NONE, D3D12_HEAP_PROPERTIES, D3D12_HEAP_TYPE_DEFAULT, D3D12_HEAP_TYPE_READBACK,
     D3D12_MESSAGE, D3D12_PLACED_SUBRESOURCE_FOOTPRINT, D3D12_RANGE, D3D12_RESOURCE_BARRIER,
     D3D12_RESOURCE_BARRIER_0, D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
@@ -145,6 +146,28 @@ impl Gpu {
             call: "D3D12CreateDevice",
             code: 0,
         })?;
+        // The shaders are DXIL of shader model 6.1 (record 0004, point 16 as
+        // amended on 2026-11-19): refuse a driver that cannot run them here
+        // rather than at the first pipeline state.
+        let mut model = D3D12_FEATURE_DATA_SHADER_MODEL {
+            HighestShaderModel: D3D_SHADER_MODEL_6_1,
+        };
+        // SAFETY: the out structure is the one D3D12_FEATURE_SHADER_MODEL
+        // takes, and its size is passed with it.
+        unsafe {
+            device.CheckFeatureSupport(
+                D3D12_FEATURE_SHADER_MODEL,
+                std::ptr::from_mut(&mut model).cast(),
+                std::mem::size_of::<D3D12_FEATURE_DATA_SHADER_MODEL>() as u32,
+            )
+        }
+        .at("CheckFeatureSupport(SHADER_MODEL)")?;
+        if model.HighestShaderModel.0 < D3D_SHADER_MODEL_6_1.0 {
+            return Err(GpuError {
+                call: "shader model 6.1 support",
+                code: model.HighestShaderModel.0,
+            });
+        }
         let queue_desc = D3D12_COMMAND_QUEUE_DESC {
             Type: D3D12_COMMAND_LIST_TYPE_DIRECT,
             ..Default::default()
