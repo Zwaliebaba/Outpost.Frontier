@@ -193,7 +193,7 @@ local, without new collisions:
 
 ## Next steps if Option 3 is chosen
 
-1. Record the rule as a decision (O31) and the table beside
+1. Record the rule as a decision (O33) and the table beside
    rebrand-names.md.
 2. Build `cargo xtask names check` from the scans used here, with the
    known-gap list, and add it to CI.
