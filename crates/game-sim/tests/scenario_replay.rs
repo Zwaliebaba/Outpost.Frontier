@@ -938,7 +938,7 @@ fn run(s: &Scenario, ai: &AiInputs) -> Option<Run> {
                                     u8::from(g.pitch.is_bound()),
                                     g.target
                                         .and_then(|t| world.get(t))
-                                        .map_or(0, |o| o.simple.id)
+                                        .map_or_else(|| "-".to_owned(), |o| name_of(o.simple.id))
                                 ),
                             )),
                             _ => None,
@@ -1059,7 +1059,15 @@ fn report_guns(summary: &mut String, dir: &Path, scenario: &str, ours: &Run) {
         return;
     };
     let mut theirs: BTreeMap<String, Vec<(u32, String)>> = BTreeMap::new();
-    for r in read_lines(&file) {
+    let records = read_lines(&file);
+    // The lock targets by the scenario's names (the two worlds number their
+    // objects differently).
+    let oracle_names: BTreeMap<u32, String> = records
+        .iter()
+        .filter(|r| r.get("rec").and_then(Json::as_str) == Some("object"))
+        .filter_map(|r| Some((r.get("id")?.as_u32()?, r.get("obj")?.as_str()?.to_owned())))
+        .collect();
+    for r in &records {
         if r.get("rec").and_then(Json::as_str) != Some("object") {
             continue;
         }
@@ -1079,7 +1087,14 @@ fn report_guns(summary: &mut String, dir: &Path, scenario: &str, ours: &Run) {
                 let id = a.first()?.as_u32()?;
                 let v: Vec<f32> = a.get(1..6)?.iter().filter_map(Json::as_f32).collect();
                 let int = |i: usize| a.get(i).and_then(Json::as_u32).unwrap_or(0);
-                let extra = format!("b{}{} t{}", int(6), int(7), int(8));
+                let lock = match int(8) {
+                    0 => "-".to_owned(),
+                    id => oracle_names
+                        .get(&id)
+                        .cloned()
+                        .unwrap_or_else(|| format!("#{id}")),
+                };
+                let extra = format!("b{}{} t{lock}", int(6), int(7));
                 Some(gun_text(id, <[f32; 5]>::try_from(v).ok()?, &extra))
             })
             .collect::<Vec<_>>()
