@@ -6,7 +6,7 @@ use std::fmt::Write as _;
 use neuron_client::engine::camera::{ViewCamera, orbit};
 use neuron_client::engine::{
     AnimationsId, DeformableId, EffectId, Engine, FrameInput, FrameReport, ModelId, SceneScriptId,
-    SoundInfo,
+    SoundId,
 };
 use neuron_client::render::ff::device::Backend;
 use neuron_client::render::ff::lights::LightData;
@@ -98,7 +98,9 @@ pub struct Viewer<B: Backend + 'static> {
     content: Content,
     animations: Option<Animations>,
     character: Option<DeformableId>,
-    sound: Option<SoundInfo>,
+    sound: Option<SoundId>,
+    /// The sound tables and voice profiles are loaded.
+    sound_tables: bool,
     /// What the scenes did, for the report and the console.
     pub log: Vec<String>,
     /// The interface classes standing as bare controls.
@@ -132,6 +134,7 @@ impl<B: Backend + 'static> Viewer<B> {
             animations: None,
             character: None,
             sound: None,
+            sound_tables: false,
             log: Vec::new(),
             stand_ins,
             libraries: std::collections::BTreeSet::new(),
@@ -255,28 +258,26 @@ impl<B: Backend + 'static> Viewer<B> {
             Scene::Effect { file, name } => self.show_effect(file, name.as_deref())?,
             Scene::Script(path) => self.show_script(path)?,
             Scene::Sound(nickname) => {
-                let file = catalog::sound(&data, nickname.as_bytes())
+                self.ensure_sound_tables();
+                let sound = self
+                    .engine
+                    .sound(nickname.as_bytes())
                     .ok_or_else(|| format!("no sound {nickname} in the sound tables"))?;
-                let bytes = data
-                    .read_file(&file)
-                    .map_err(|_| format!("{}: not found", lossy(&file)))?
-                    .data;
-                self.load_and_play(&format!("sound {nickname} ({})", lossy(&file)), &bytes)?;
+                self.play(&format!("sound {nickname}"), sound)?;
             }
-            Scene::Voice { archive, line } => {
-                let bytes = data
-                    .read_file(archive.as_bytes())
-                    .map_err(|_| format!("{archive}: not found"))?
-                    .data;
-                let lines = catalog::voice_lines(bytes);
-                let chosen = match line {
-                    Some(name) => lines.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)),
-                    None => lines.first(),
-                }
-                .ok_or_else(|| format!("{archive}: no such voice line"))?;
-                let label = format!("voice line {archive}\\{} of {}", chosen.0, lines.len());
-                let bytes = chosen.1.clone();
-                self.load_and_play(&label, &bytes)?;
+            Scene::Voice { profile, msg } => {
+                self.ensure_sound_tables();
+                let sound = self
+                    .engine
+                    .voice_line(profile.as_bytes(), msg.as_deref().map(str::as_bytes))
+                    .ok_or_else(|| format!("no such line of the voice profile {profile}"))?;
+                let lines = self
+                    .engine
+                    .client_sound()
+                    .voices
+                    .get(neuron_core::id::create_id(profile.as_bytes()))
+                    .map_or(0, |p| p.messages.len());
+                self.play(&format!("voice line of {profile} (of {lines})"), sound)?;
             }
             Scene::Page(path) => self.show_page(path)?,
         }
@@ -431,28 +432,46 @@ impl<B: Backend + 'static> Viewer<B> {
         Ok(())
     }
 
-    fn load_and_play(&mut self, label: &str, bytes: &[u8]) -> Result<(), String> {
-        let info = self.engine.load_sound(bytes).map_err(|e| e.to_string())?;
-        self.sound = Some(info);
-        let played = self.engine.play_sound(info.id);
+    /// The sound tables and voice profiles of `OutpostFrontier.ini`, once.
+    fn ensure_sound_tables(&mut self) {
+        if self.sound_tables {
+            return;
+        }
+        self.sound_tables = true;
+        let tables = self.engine.load_sound_tables();
         self.note(format!(
-            "{label}: {} ms, {} channels at {} Hz, {}",
-            info.duration_ms,
-            info.channels,
-            info.rate,
-            if played {
-                "playing on the audio device"
-            } else {
-                "decoded (no audio device)"
-            }
+            "sound tables: {} [Sound] archetypes, {} voice profiles",
+            tables.sounds, tables.voices
         ));
+    }
+
+    /// Plays a sound through the client's playing list; the frames' sound
+    /// tick ranks it and plays it through the mixer.
+    fn play(&mut self, label: &str, sound: SoundId) -> Result<(), String> {
+        if !self.engine.play_sound(sound) {
+            return Err(format!("{label}: its wav did not load"));
+        }
+        self.sound = Some(sound);
+        let device = if self.engine.has_audio_device() {
+            "playing on the audio device"
+        } else {
+            "playing on a silent device (no audio device)"
+        };
+        let info = self.engine.sound_info(sound);
+        self.note(match info {
+            Some(i) => format!(
+                "{label}: {} ms, {} channels at {} Hz, archetype flags {:x}, {device}",
+                i.duration_ms, i.channels, i.rate, i.flags
+            ),
+            None => format!("{label}: {device}"),
+        });
         Ok(())
     }
 
     /// Plays the scene's sound again.
     #[cfg_attr(not(windows), allow(dead_code))]
     pub fn replay_sound(&mut self) -> bool {
-        self.sound.is_some_and(|s| self.engine.play_sound(s.id))
+        self.sound.is_some_and(|s| self.engine.play_sound(s))
     }
 
     fn show_page(&mut self, path: &str) -> Result<(), String> {
@@ -563,9 +582,13 @@ impl<B: Backend + 'static> Viewer<B> {
         if self.engine.animations_playing() > 0 {
             let _ = write!(line, "; animation playing");
         }
-        let voices = self.engine.sounds_playing();
-        if voices > 0 {
-            let _ = write!(line, "; {voices} voices playing");
+        let sources = self.engine.sounds_playing();
+        if sources > 0 {
+            let _ = write!(
+                line,
+                "; {sources} sounds playing, {} mixer voices",
+                self.engine.mixer.instances().len()
+            );
         }
         line
     }

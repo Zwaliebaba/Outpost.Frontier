@@ -1,0 +1,8 @@
+# reverb.list: groups separated by ';', each "env vol decay damp" (env decimal, the others
+# f32 bits). The first group is [AudioProperties] as StartupDevice stores it; each later group is
+# one scene-script SetReverb.
+0 00000000 3dcccccd 3f800000
+30 3fc00000 3d4ccccd 40200000;5 3f000000 3fbeb852 3f000000;-1 be800000 43160000 bf800000
+25 3f800000 42c80000 40000000;26 00000000 3dcccccd 00000000;12 3f400000 407ae148 3f547ae1
+1 7fc00000 7fc00000 7fc00000;2 3e99999a 7fc00000 3fa00000
+10 3e4ccccd 40f00000 3dcccccd;10 3e4ccccd 40f00000 3dcccccd;0 3f800000 3dcccccd 3f800000

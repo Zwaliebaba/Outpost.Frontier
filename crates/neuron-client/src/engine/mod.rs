@@ -34,8 +34,10 @@
 //! ([`Engine::load_scene_script`]), animations and aim events on
 //! deformable models through `IDeformable` ([`Engine::load_animations`],
 //! [`Engine::play_deformable_animation`], [`Engine::play_deformable`],
-//! [`Engine::start_deformable_aim`]; [`deform_anim`]) and sounds played on the audio
-//! device ([`Engine::load_sound`], [`Engine::play_sound`]). The frame's
+//! [`Engine::start_deformable_aim`]; [`deform_anim`]) and the client's
+//! sounds: the sound tables and voice profiles ([`Engine::load_sound_tables`]),
+//! played through the client's playing list and the frame's sound tick
+//! ([`Engine::play_sound`]; [`sound`]). The frame's
 //! camera is any [`Camera`](crate::render::appearance::Camera);
 //! [`camera::ViewCamera`] is a perspective one.
 
@@ -48,6 +50,7 @@ pub mod options;
 pub mod order;
 mod scene_host;
 mod shapes;
+pub mod sound;
 pub mod ui_host;
 pub mod ui_meshes;
 #[cfg(windows)]
@@ -66,10 +69,7 @@ use neuron_core::scene::{Animation, ArchetypeId, Engine as SceneEngine, Hardpoin
 use neuron_core::vfs::{FileSystem, FsDesc, Host, UtfFileSystem};
 
 use crate::audio::config::{AudioConfig, CLIENT_STARTUP_FLAGS, stream_buffer_seconds};
-use crate::audio::decode::decode_archetype;
-use crate::audio::mixer::{
-    Archetype, ArchetypeId as SoundArchetypeId, Mixer, VoiceId, archetype_flags,
-};
+use crate::audio::mixer::Mixer;
 use crate::input::mouse::Mouse;
 use crate::render::appearance::Appearance;
 use crate::render::deformable::{
@@ -113,6 +113,7 @@ pub use scene_host::{
     sink_token, typed_id, walk_deformable,
 };
 pub use shapes::StackShapes;
+pub use sound::{SoundId, SoundInfo, SoundTables};
 
 /// The interface's shared mesh and material file (`Win3DStartupManager`).
 const INTERFACE_GENERIC: &[u8] = b"interface\\interface.generic.vms";
@@ -179,8 +180,6 @@ pub enum EngineError {
     Deformable(String),
     /// An animation could not be loaded or played.
     Animation(String),
-    /// A sound could not be decoded.
-    Sound(String),
 }
 
 impl fmt::Display for EngineError {
@@ -194,7 +193,6 @@ impl fmt::Display for EngineError {
             Self::Script(e) => write!(f, "scene script: {e}"),
             Self::Deformable(p) => write!(f, "deformable model {p} could not be made"),
             Self::Animation(e) => write!(f, "animation: {e}"),
-            Self::Sound(e) => write!(f, "sound: {e}"),
         }
     }
 }
@@ -220,23 +218,6 @@ pub struct SceneScriptId(usize);
 /// A loaded animation script (an `.anm` file's animations).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct AnimationsId(usize);
-
-/// A sound archetype in the sound manager's mixer.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct SoundId(SoundArchetypeId);
-
-/// What [`Engine::load_sound`] made.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SoundInfo {
-    /// The archetype.
-    pub id: SoundId,
-    /// Its length in milliseconds.
-    pub duration_ms: u32,
-    /// Its channels.
-    pub channels: u16,
-    /// Its sample rate.
-    pub rate: u16,
-}
 
 /// What [`Engine::load_archive`] loaded from one archive.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -285,13 +266,18 @@ struct Loaded {
 }
 
 /// The `[Data]` keys of `OutpostFrontier.ini` the engine reads
-/// (`LoadClientIniData`'s `fonts` and `rich_fonts`, and `fonts_dir`).
+/// (`LoadClientIniData`'s `fonts`, `rich_fonts`, `sounds` and `voices`, and
+/// `fonts_dir`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ClientData {
     /// Each key in file order: `true` for `rich_fonts`.
     pub fonts: Vec<(bool, Vec<u8>)>,
     /// `fonts_dir`: the font files' directory under the data.
     pub fonts_dir: Option<Vec<u8>>,
+    /// `sounds`: the sound tables, in file order.
+    pub sounds: Vec<Vec<u8>>,
+    /// `voices`: the voice profiles, in file order.
+    pub voices: Vec<Vec<u8>>,
 }
 
 impl ClientData {
@@ -317,6 +303,10 @@ impl ClientData {
                     out.fonts.push((true, reader.value_string()));
                 } else if reader.is_value(b"fonts_dir") {
                     out.fonts_dir = Some(reader.value_string());
+                } else if reader.is_value(b"sounds") {
+                    out.sounds.push(reader.value_string());
+                } else if reader.is_value(b"voices") {
+                    out.voices.push(reader.value_string());
                 }
             }
         }
@@ -333,7 +323,8 @@ pub struct Engine<B: Backend + 'static> {
     pub notices: Vec<String>,
     registry: crate::render::mesh::vmesh::SharedRegistry,
     render: Rc<RefCell<RenderSide<B>>>,
-    /// The sound manager's mixer, its play keys the game's (P5.5).
+    /// The sound manager's mixer; its play keys are the client's sources
+    /// ([`Engine::client_sound`]).
     pub mixer: Mixer<u32>,
     /// The sound manager's INI settings.
     pub audio: AudioConfig,
@@ -360,9 +351,8 @@ pub struct Engine<B: Backend + 'static> {
     appearance: Option<Appearance>,
     effects: Vec<Option<LiveEffect>>,
     scripts: Vec<Option<Player>>,
-    voices: Vec<VoiceId>,
-    #[cfg_attr(not(windows), allow(dead_code))]
-    next_voice: VoiceId,
+    /// The client's sounds.
+    sound: sound::EngineSound,
     data: Option<Host>,
     mode: DisplayMode,
     fonts: Option<FontSystem>,
@@ -764,7 +754,13 @@ impl<B: Backend + 'static> Engine<B> {
             made: Rc::clone(&ui_meshes),
         }));
 
-        Ok(Engine {
+        let sound = sound::EngineSound::new(
+            &audio.reverb,
+            audio.force_frequency_to_software,
+            client.sounds.clone(),
+            client.voices.clone(),
+        );
+        let mut engine = Engine {
             lifecycle,
             ini,
             notices,
@@ -787,8 +783,7 @@ impl<B: Backend + 'static> Engine<B> {
             appearance,
             effects,
             scripts,
-            voices: Vec::new(),
-            next_voice: 1,
+            sound,
             data: Some(data),
             mode,
             fonts: None,
@@ -811,7 +806,10 @@ impl<B: Backend + 'static> Engine<B> {
             ui_meshes,
             frames: 0,
             torn_down: false,
-        })
+        };
+        // StartupDevice's SetEaxPreview of the [AudioProperties] reverb.
+        engine.apply_reverb();
+        Ok(engine)
     }
 
     /// The lifecycle log (shared: it can be read after the engine drops).
@@ -1300,6 +1298,9 @@ impl<B: Backend + 'static> Engine<B> {
             .map_err(|e| EngineError::Script(format!("{}: {e}", lossy(path))))?;
         let mut player = Player::new();
         player.load(&scene, duration);
+        // The scene root answers the reverb events through the sound
+        // manager, as the game's scene object does.
+        sound::attach_scene_reverb(&mut player, &self.sound.reverb);
         player.start(0);
         self.scripts.push(Some(player));
         Ok(SceneScriptId(self.scripts.len() - 1))
@@ -1358,101 +1359,6 @@ impl<B: Backend + 'static> Engine<B> {
         if let Some(Some(instance)) = self.deformables.borrow_mut().get_mut(id.0) {
             pull_bones(instance, &scene);
         }
-    }
-
-    /// A sound from the bytes of a WAV file (a sound table's file or a
-    /// voice line of an archive), decoded whole (`WavLibLoad`) into an
-    /// archetype of the sound manager's mixer with pan control, and its
-    /// samples handed to the audio device when it started.
-    ///
-    /// # Errors
-    ///
-    /// The bytes do not decode.
-    pub fn load_sound(&mut self, bytes: &[u8]) -> Result<SoundInfo, EngineError> {
-        let decoded = decode_archetype(bytes).map_err(|e| EngineError::Sound(e.to_string()))?;
-        let byte_count = decoded.byte_count();
-        let frames = byte_count / u32::from(decoded.format.block_align.max(1));
-        let archetype = Archetype::from_pcm(
-            decoded.format,
-            byte_count,
-            0,
-            frames,
-            archetype_flags::PAN,
-            true,
-        )
-        .map_err(|e| EngineError::Sound(format!("{e:?}")))?;
-        let id = self.mixer.insert_archetype(archetype);
-        #[cfg(windows)]
-        if let Some(device) = self.audio_device.as_mut() {
-            device.set_samples(id, decoded.samples.into());
-        }
-        Ok(SoundInfo {
-            id: SoundId(id),
-            duration_ms: archetype.duration_ms,
-            channels: decoded.format.channels,
-            rate: decoded.format.rate,
-        })
-    }
-
-    /// Plays a sound once on a voice of the audio device, centred at full
-    /// volume, releasing the voices that finished. False without an audio
-    /// device or when the device gives no voice. The sound manager's
-    /// sources and its tick are the game's (P5.5); this voice is driven
-    /// directly.
-    pub fn play_sound(&mut self, sound: SoundId) -> bool {
-        self.release_finished_voices();
-        #[cfg(windows)]
-        {
-            use crate::audio::mixer::VoiceBackend;
-            let Some(data) = self.mixer.archetype(sound.0).copied() else {
-                return false;
-            };
-            let Some(device) = self.audio_device.as_mut() else {
-                return false;
-            };
-            let voice = self.next_voice;
-            self.next_voice = self.next_voice.wrapping_add(1);
-            if !device.create(voice, sound.0, &data) {
-                return false;
-            }
-            if !device.play(voice, false) {
-                device.release(voice);
-                return false;
-            }
-            self.voices.push(voice);
-            true
-        }
-        #[cfg(not(windows))]
-        {
-            let _ = sound;
-            false
-        }
-    }
-
-    /// The voices [`Engine::play_sound`] started that still play.
-    pub fn sounds_playing(&mut self) -> usize {
-        self.release_finished_voices();
-        self.voices.len()
-    }
-
-    fn release_finished_voices(&mut self) {
-        #[cfg(windows)]
-        {
-            use crate::audio::mixer::VoiceBackend;
-            let Some(device) = self.audio_device.as_mut() else {
-                self.voices.clear();
-                return;
-            };
-            self.voices.retain(|&voice| {
-                if device.is_playing(voice) {
-                    return true;
-                }
-                device.release(voice);
-                false
-            });
-        }
-        #[cfg(not(windows))]
-        self.voices.clear();
     }
 
     /// Every step of [`TEARDOWN_ORDER`]; [`Drop`] runs it.
@@ -1587,14 +1493,11 @@ impl<B: Backend + 'static> Engine<B> {
             log(Stage::ParticleVertexBuffer);
         }
         log(Stage::SoundStreamer);
+        // The client's sounds stop and their archetypes go before the
+        // device (`StopAllClientSounds`, `ShutdownClientSoundArch`).
+        self.shutdown_sounds();
         #[cfg(windows)]
         {
-            if let Some(device) = self.audio_device.as_mut() {
-                use crate::audio::mixer::VoiceBackend;
-                for voice in std::mem::take(&mut self.voices) {
-                    device.release(voice);
-                }
-            }
             self.audio_device = None;
         }
         log(Stage::SoundDevice);

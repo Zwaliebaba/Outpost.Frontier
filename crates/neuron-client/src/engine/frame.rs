@@ -18,7 +18,9 @@
 //!    list swept; [`super::deform_anim`]), the particle
 //!    effects' transforms and update (at most a tenth of a second, as
 //!    `SpaceEffectsDrawFrame` clamps it; the mesh factory's new meshes
-//!    are loaded and placed after it, D493), then
+//!    are loaded and placed after it, D493), the client's sound tick
+//!    (`TickClientSoundMixer` and the mixer's tick, with the reverb the
+//!    scripts set; [`super::sound`]), then
 //!    `TickMaterialAnimationPlayback` (the texture library's playbacks and
 //!    the material animations).
 //! 4. `BeginClientRenderFrame`: the dither and mip-filter states of
@@ -115,6 +117,8 @@ pub struct FrameReport {
     pub deformables: usize,
     /// Deformable models whose animation advanced.
     pub animations: usize,
+    /// Sources in the client's playing list after the sound tick.
+    pub sounds: usize,
     /// Screen-quad lists flushed after the interface's draw.
     pub quad_lists: usize,
     /// Draw packets of the interface pass (the controls, their meshes,
@@ -208,6 +212,10 @@ impl<B: Backend + 'static> Engine<B> {
             }
         }
         self.settle_fx_meshes();
+        // The client's sound tick (`TickClientSoundMixer`, which the game
+        // states run in their update) and the reverb the scripts set.
+        self.tick_sounds(dt);
+        report.sounds = self.sounds_playing();
         let mut side = self.render.borrow_mut();
         let shading = &mut side.stack.shading;
         shading.textures.tick_all(0, dt_f32);

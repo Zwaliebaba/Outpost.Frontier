@@ -194,12 +194,13 @@ pub fn summary(run: &SceneRun) -> String {
     let _ = write!(
         line,
         "; last frame: models {}, deformables {}, animations {}, effects {}, scripts {}, \
-         UI draws {} (control meshes {}, text tiles {}, quad lists {}{})",
+         sounds {}, UI draws {} (control meshes {}, text tiles {}, quad lists {}{})",
         r.models,
         r.deformables,
         r.animations,
         r.effects,
         r.scripts,
+        r.sounds,
         r.ui_draws,
         r.ui_meshes,
         r.ui_tiles,

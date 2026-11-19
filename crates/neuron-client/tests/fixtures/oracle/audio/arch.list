@@ -1,0 +1,42 @@
+# arch.list: one command per line (the format is in oracle_audio_client.cpp).
+case 3f800000 3f800000 32 8
+ini 0 audio/arch_a.ini
+acquire 75695f636c69636b
+acquire 7366785f6c6f6f70
+acquire 7366785f62656e64
+acquire 7366785f6c6f7564
+acquire 7366785f7175696574
+acquire 616d625f77696e64
+acquire 6d757369635f7468656d65
+acquire 766f6963655f6c696e65
+acquire 7366785f6d697373696e67
+acquire 7366785f6e6f66696c65
+acquire 6e6f626f6479
+acquire 75695f636c69636b
+release 75695f636c69636b
+release 7366785f6c6f6f70
+release 7366785f6c6f6f70
+acquire 7366785f6c6f6f70
+ini 0 audio/arch_b.ini
+acquire 7366785f6578747261
+ini 1 audio/arch_b.ini
+release 75695f636c69636b
+acquire 7366785f6c6f64
+lod 1
+acquire 7366785f6c6f64
+acquire 7366785f6c6f645f626164
+lod 2
+acquire 7366785f6c6f6432
+release 7366785f6c6f64
+lod 0
+release 7366785f6c6f6432
+preload 1
+preload 2
+unload 1
+unload 3
+case 3f000000 40000000 32 8
+ini 0 audio/arch_a.ini
+acquire 75695f636c69636b
+acquire 7366785f6c6f6f70
+acquire 7366785f62656e64
+acquire 616d625f77696e64

@@ -647,3 +647,116 @@ fn the_engine_draws_mesh_appearances_and_child_effects() {
         peak.0, peak.1
     );
 }
+
+/// P4.10, the client wiring: the sound tables and voice profiles of
+/// `OutpostFrontier.ini`'s `[Data]` load into the client's sounds; a
+/// `[Sound]` and a voice line play through the client's playing list, the
+/// frame's sound tick and the mixer, with the attenuation the tables give;
+/// a one-shot is retired when it ends and its archetype goes with it; the
+/// reverb of `[AudioProperties]` is the sound manager's preview.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn the_engine_plays_the_sound_tables_through_the_sound_tick() {
+    use neuron_client::audio::client::source::ArchRef;
+    let base = outdir();
+    let (Ok(engine_ini), Ok(client_ini)) = (
+        fs::read(base.join("NeuronComponents.ini")),
+        fs::read(base.join("OutpostFrontier.ini")),
+    ) else {
+        println!("outdir has no INI files: nothing to run");
+        return;
+    };
+    let data = base.join("data");
+    if !data.join("AUDIO").is_dir() {
+        println!("outdir/data is missing: nothing to run");
+        return;
+    }
+    let mode = DisplayMode {
+        width: 640,
+        height: 480,
+        fullscreen: false,
+    };
+    let mut config = EngineConfig::new(&data, mode);
+    config.engine_ini = Some(engine_ini);
+    config.client_ini = Some(client_ini);
+    config.font_backend = Some(Box::new(FakeBackend::default()));
+    let mut engine: Engine<RecordingBackend> =
+        Engine::new(config, RecordingBackend::default()).expect("the engine");
+
+    // StartupDevice: [AudioProperties] has no reverb keys, so the preview is
+    // the defaults, clamped.
+    let reverb = engine.reverb().preview;
+    assert_eq!(
+        (
+            reverb.environment,
+            reverb.volume,
+            reverb.decay_time,
+            reverb.damping
+        ),
+        (0, 0.0, 0.1, 1.0)
+    );
+
+    let tables = engine.load_sound_tables();
+    let sound = engine.client_sound();
+    assert_eq!(tables.sounds, sound.sounds.len());
+    assert!(tables.sounds > 1500, "{tables:?}");
+    assert!(tables.voices > 100, "{tables:?}");
+    assert!(
+        sound.voices.iter().filter(|p| p.utf_path.is_some()).count() > 100,
+        "the profiles find their archives"
+    );
+    // SoundCFG.ini's [CFG].
+    assert_eq!(sound.config.space_down_by, -9.0);
+    assert_eq!(engine.mixer.listener.doppler_factor, 0.1);
+
+    // A [Sound]: interface, attenuation -8; not `is_2d`, so its archetype
+    // is a 3D buffer although it plays as a flat source.
+    let click = engine.sound(b"hud_comm_window").expect("hud_comm_window");
+    let ArchRef::Sound(id) = click.0 else {
+        panic!("a [Sound]");
+    };
+    assert_eq!(
+        engine.client_sound().sounds.get(id).unwrap().attenuation(),
+        -8
+    );
+    assert!(engine.play_sound(click));
+    let info = engine.sound_info(click).expect("its mixer archetype");
+    assert_eq!(info.flags, 0x09, "a 3D buffer, mute beyond the maximum");
+    assert!(info.duration_ms > 100, "{info:?}");
+    engine.frame(FrameInput::idle(1.0 / 30.0), &mut Viewer);
+    let instance = *engine
+        .mixer
+        .instances()
+        .first()
+        .expect("the sound has a voice");
+    assert!(instance.started);
+    assert_eq!(instance.volume, -800, "the table's attenuation");
+    assert_eq!(engine.sounds_playing(), 1);
+
+    // A voice line out of its profile's archive.
+    let line = engine
+        .voice_line(b"announcer", None)
+        .expect("the announcer's first line");
+    assert!(engine.play_sound(line));
+    let voice = engine.sound_info(line).expect("its mixer archetype");
+    assert_eq!(voice.flags, 0x11, "a voice line is 2D: pan control");
+    engine.frame(FrameInput::idle(1.0 / 30.0), &mut Viewer);
+    assert_eq!(engine.sounds_playing(), 2);
+    assert_eq!(engine.mixer.instances().len(), 2);
+
+    // Both end: retired, their voices and archetypes released.
+    let longest = info.duration_ms.max(voice.duration_ms);
+    let frames = longest / 33 + 4;
+    for _ in 0..frames {
+        engine.frame(FrameInput::idle(1.0 / 30.0), &mut Viewer);
+    }
+    assert_eq!(engine.sounds_playing(), 0);
+    assert!(engine.mixer.instances().is_empty());
+    assert!(engine.sound_info(click).is_none(), "the last use ended");
+    assert_eq!(engine.client_sound().alive(), 0);
+    println!(
+        "{} [Sound] archetypes, {} voice profiles; hud_comm_window {} ms, the announcer's \
+         first line {} ms",
+        tables.sounds, tables.voices, info.duration_ms, voice.duration_ms
+    );
+}
