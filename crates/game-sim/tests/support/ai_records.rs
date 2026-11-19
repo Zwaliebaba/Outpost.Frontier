@@ -655,12 +655,27 @@ fn answer(j: &Json) -> AnswerRecord {
     }
 }
 
-/// The names `ai_obj` records give object ids (the scenario's names).
+/// The names `ai_obj` records give object ids (the scenario's names),
+/// and those of the run's `tick.jsonl` `object` records beside it (every
+/// scenario object, near or not).
 #[must_use]
 pub fn read_names(path: &Path) -> BTreeMap<String, u32> {
     let mut out = BTreeMap::new();
-    for j in read_lines(path) {
-        if j.get("rec").and_then(Json::as_str) != Some("ai_obj") {
+    let ticks = path.with_file_name("tick.jsonl");
+    let mut lines = read_lines(path);
+    if ticks.exists() {
+        lines.extend(
+            read_lines(&ticks)
+                .into_iter()
+                .filter(|j| j.get("rec").and_then(Json::as_str) == Some("object"))
+                .take_while(|j| u(j, "tick") == Some(0)),
+        );
+    }
+    for j in lines {
+        if !matches!(
+            j.get("rec").and_then(Json::as_str),
+            Some("ai_obj" | "object")
+        ) {
             continue;
         }
         if let (Some(name), Some(id)) = (j.get("obj").and_then(Json::as_str), u(&j, "id")) {

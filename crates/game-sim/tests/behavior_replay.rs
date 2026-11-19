@@ -75,7 +75,7 @@ use support::records::{find_files, oracle_dir};
 const MAX_REPORTED: usize = 30;
 
 /// The recorded `IObjAffect` slots (`design/sim-records.md`, `affect`).
-const RECORDED_SLOTS: [u8; 14] = [0, 1, 2, 3, 13, 16, 18, 19, 20, 21, 23, 24, 25, 26];
+const RECORDED_SLOTS: [u8; 15] = [0, 1, 2, 3, 13, 16, 17, 18, 19, 20, 21, 23, 24, 25, 26];
 
 /// The scenario ships of one run in a world over `outdir/`, for their
 /// motion models: the ship's scenario name to its handle.
@@ -963,7 +963,8 @@ fn beh_snapshot(manager: &mut BehaviorManager<ReplayWorld<'_>>, kind: i32) -> Op
         for m in [&l.launch_basis, &l.basis2, &l.basis3] {
             floats.extend(mat(m));
         }
-    } else if let Some(t) = any.downcast_mut::<InstantTradeLaneBehavior>() {
+    } else {
+        let t = any.downcast_mut::<InstantTradeLaneBehavior>()?;
         ints.extend([
             t.state,
             id(t.entrance),
@@ -975,8 +976,6 @@ fn beh_snapshot(manager: &mut BehaviorManager<ReplayWorld<'_>>, kind: i32) -> Op
         floats.push(t.speed);
         floats.extend(vec3(t.lane_start));
         floats.extend(vec3(t.lane_end));
-    } else {
-        return None;
     }
     Some(BehRecord { kind, ints, floats })
 }
@@ -1224,6 +1223,15 @@ fn as_affect(c: &AiCommand<u32>) -> Option<AffectRow> {
         AiCommand::Tractor { equipment, target } => {
             (16, i32::from(*equipment), Some(vec![*target]))
         }
+        AiCommand::SetGunTarget {
+            equipment,
+            target,
+            subtarget,
+        } => (
+            17,
+            i32::from(*equipment),
+            Some(vec![target.unwrap_or(0), f32::from(*subtarget).to_bits()]),
+        ),
         AiCommand::SetTarget { target, subtarget } => (
             18,
             target.map_or(0, int),
@@ -1624,6 +1632,14 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
                 ops
             })
             .unwrap_or_default();
+        // The world's answers outside the ticks since the ship's last one
+        // (what the directives asked, and the server's later answer to a
+        // request), in their order.
+        for a in &t.before {
+            queued.entry(a.id).or_default().push(a.clone());
+        }
+        let batch = queued.remove(&t.id).unwrap_or_default();
+        let saved_answers = world.set_answers(batch.clone());
         if !pending.is_empty() {
             let before = last_out.get(&t.id).cloned().unwrap_or_else(|| {
                 let mut r = t.input.clone();
@@ -1648,15 +1664,9 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
             world.rand = recorded;
             world.commands.clear();
         }
-        // The server's answers since the ship's last tick (a request it
-        // answered later), with what the callbacks asked meanwhile.
-        for a in &t.before {
-            queued.entry(a.id).or_default().push(a.clone());
-        }
-        if let Some(batch) = queued.remove(&t.id)
-            && !batch.is_empty()
-        {
-            let saved = world.set_answers(batch.clone());
+        // The server's later answers to a request, with what the callbacks
+        // asked meanwhile.
+        if !batch.is_empty() {
             let recorded = std::mem::take(&mut world.rand);
             for a in batch.iter().filter(|a| a.kind == "request") {
                 let k = world
@@ -1677,8 +1687,8 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
             }
             world.rand = recorded;
             world.commands.clear();
-            (world.answers, world.used) = saved;
         }
+        (world.answers, world.used) = saved_answers;
         restore(&mut manager.state, &t.input, t, graphs);
         if let Some(f) = &t.input.face {
             restore_face(manager, f);
