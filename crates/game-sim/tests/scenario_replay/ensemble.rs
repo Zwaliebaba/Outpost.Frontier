@@ -521,7 +521,7 @@ fn fmt_sample(v: &[f64]) -> String {
 }
 
 /// One metric of one object, Rust's values against the oracle's: the
-/// summary line and whether it is outside the proposed bounds.
+/// summary line and whether it is outside the approved bounds.
 fn compare_metric(metric: &str, mut rust: Vec<f64>, mut oracle: Vec<f64>) -> (String, bool) {
     rust.sort_by(f64::total_cmp);
     oracle.sort_by(f64::total_cmp);
@@ -816,7 +816,7 @@ fn g2_seed_ensemble() {
     }
     let _ = writeln!(
         summary,
-        "\nmetrics outside the proposed bounds ({}): {}",
+        "\nmetrics outside the bounds ({}): {}",
         if ENVELOPES_APPROVED {
             "approved: failing"
         } else {

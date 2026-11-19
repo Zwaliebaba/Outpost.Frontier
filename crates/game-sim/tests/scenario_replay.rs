@@ -5,8 +5,10 @@
 //! with the oracle's `tick.jsonl` (the first run found under
 //! `<oracle dir>/<scenario>/`).
 //!
-//! The envelopes are not approved yet (record 0003 point 10), so the test
-//! reports the measured differences (position, velocity, orientation, hit
+//! The Gate G2 envelopes (record 0003 points 9 and 10, approved by the
+//! owner on 2026-11-19) are judged over the seed ensemble in the
+//! `ensemble` module. This single-run comparison reports the measured
+//! differences (position, velocity, orientation, hit
 //! points, alive state) and fails only on gross divergence: a named
 //! object more than `GROSS_POSITION` metres (or half the distance it
 //! travelled in the oracle, if more) from the oracle's position, or alive

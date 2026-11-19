@@ -329,8 +329,10 @@ separate runner (owner, 2026-11-18).
 **Gate G3 (milestone "headless server").** `OutpostServer.exe` starts on
 the original data. A scripted test client connects over QUIC, logs in,
 creates a character, launches and receives object updates. The
-`dock_at_station` scenario (moved from Gate G2, owner 2026-11-18) runs
-through the Rust world and falls inside its approved envelope. Saves written by
+`dock_at_station` scenario (moved from Gate G2, owner 2026-11-18) and the
+`trade_lane` and `dock_trade_lane` scenarios (moved from Gate G2 with the
+lane request, `LaneAction` and `get_lane_start`, owner 2026-11-19) run
+through the Rust world and fall inside their approved envelopes. Saves written by
 Rust load in the C++ build and the reverse. Mission script dumps equal the
 oracle. A random mission offer rebuilt from a saved seed equals the oracle.
 
