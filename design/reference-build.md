@@ -651,6 +651,7 @@ is zero, which only `Oracle.exe sim` changes:
 | `Server\server_classes.cpp` | `StarSystem::munition_collision` reports the impact and its damage list; `StarSystem_MpCollisionFilter` takes its single-player branch when asked (`collisions sp`) |
 | `Common\common_physicalsystem.cpp` | `PhysicalSystem::Update` takes the single-player branch when asked |
 | `Common\common_behaviormanager.cpp` | `UpdateBehaviorTick` reports its entry and every exit (an RAII guard) |
+| `Common\common_ceqobj.cpp` | `CEqObj::activate` reports each answer (`OnDockActivate`); `update_docking_animations` reports each point with a channel before processing it (`OnDockAnim`), P2.4 |
 | `IVP\ivp_physics\ivp_environment.cpp` | `IVP_Environment_Simulate_Psi` reports before the simulation units and after the next-PSI matrices |
 | `IVP\ivp_physics\ivp_simulation_unit.cpp` | `IVP_Simulation_Unit_Process_One_Psi_Step` reports its entry and its end with the movement check |
 | `IVP\ivp_physics\ivp_core.cpp` | `IVP_Core::push_core_linear`, `push_core_angular_ws` and `push_core_angular_cs` report the push |
@@ -796,8 +797,9 @@ notes.
 `session.jsonl`, `tick.jsonl`, `events.jsonl`, `psi.jsonl`,
 `calls.jsonl`, since P2.5 the behaviour-tick snapshots `ai.jsonl`, and the
 load-time draws `load_rand.jsonl` with its summary `load_rand.txt`, and
-the simulation units of the first PSIs, `units.jsonl`
-(sim-records.md); the stub's `iclient.jsonl` and `controller.jsonl`;
+the simulation units of the first PSIs, `units.jsonl`, since P2.4's
+remainder the asteroid cubes `asteroids.jsonl` and the docking points
+`dock.jsonl` (`oracle_sim_fields.cpp`; sim-records.md); the stub's `iclient.jsonl` and `controller.jsonl`;
 `server.ini`, `fdump.txt`, `metrics.txt`. The rand() recorder
 (`oracle_sim_rand.cpp`) replaces the `rand` import of every module bound
 to the universal CRT's `rand` (`Common.dll`, `Server.dll`, `Content.dll`
@@ -844,7 +846,11 @@ same constructor while it is spawned).
 
 Single-player stepping is emulated as above, not run through the client.
 Field asteroids (`CmnAsteroid`) are not scenario objects; `ram_asteroid`
-uses a static asteroid solar. The multiplayer server's collision filter
+uses a static asteroid solar. The server fills the fields around every
+ship of the system (`CmnAsteroid::Update` walks the whole ship list, so
+no player is needed): in `ram_asteroid` the fighter starts in the
+Keswick ice field, and its cubes and rocks are recorded
+(`asteroids.jsonl`). The multiplayer server's collision filter
 (`StarSystem_MpCollisionFilter`, `Server/server_classes.cpp:11409`) lets a
 pair collide only when one side is a bullet or a missile, so ship–solar and
 ship–ship contact is not simulated on the server (the clients report it):
