@@ -829,6 +829,10 @@ namespace
             J.Int("reaction", M.PathfindReaction);
             J.Bool("probe_active", M.bProbeActive != 0);
             J.Bool("probe_contact", M.bProbeContact != 0);
+            J.BeginArray("locks");
+            for (int Lock : M.PathfindLocks)
+                J.Int(nullptr, Lock);
+            J.EndArray();
             J.EndObject();
         }
         else

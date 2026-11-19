@@ -750,6 +750,9 @@ bool __cdecl OracleAiReadManager(IBehaviorManager const* Manager, FOracleAiManag
         Out.PathfindReaction = Pathfind->Reaction.State;
         Out.bProbeActive = Pathfind->Avoidance.Active != 0 ? 1 : 0;
         Out.bProbeContact = Pathfind->Avoidance.HasContact != 0 ? 1 : 0;
+        Out.PathfindLocks[0] = Pathfind->Flag245;
+        Out.PathfindLocks[1] = Pathfind->Field_24C;
+        Out.PathfindLocks[2] = Pathfind->Field_254;
     }
     Out.Flags1c8 = Manager->Flags1c8;
     if (Sys != nullptr)

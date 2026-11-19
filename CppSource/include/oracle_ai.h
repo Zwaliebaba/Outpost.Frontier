@@ -426,6 +426,7 @@ struct FOracleAiManager
     int PathfindReaction;           // Reaction.State
     int bProbeActive;               // Avoidance.Active
     int bProbeContact;              // Avoidance.HasContact
+    int PathfindLocks[3];           // P2.5 dock: Flag245, Field_24C, Field_254 (SetCruiseLock)
     int ThrustFlags;                // Thrust: bCruiseEngaged 1, bCruiseUnobstructed 2,
                                     // bEngineActive 4, bAutoLevel 8, bAutoAvoidance 16
     // P2.5 combat: the system manager's combat state the fire control, the target manager and
