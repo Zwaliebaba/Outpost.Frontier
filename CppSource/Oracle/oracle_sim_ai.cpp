@@ -1033,11 +1033,14 @@ namespace
                     Add(O, "near");
             }
         }
+        // The auto-turret scan asks can_point_at for the list it builds during the tick
+        // (BuildAiTargetList), which the entry list need not hold yet: every object of the
+        // snapshot but the ship is a candidate.
         GCandidateCount = 0;
-        for (int Index = 0; Index < M.TargetCount && Index < kMaxCandidates && Index < 64; ++Index)
+        for (IObjInspect const* O : Order)
         {
-            if (Live[Index] != nullptr)
-                GCandidates[GCandidateCount++] = Live[Index];
+            if (O != Self && GCandidateCount < kMaxCandidates)
+                GCandidates[GCandidateCount++] = O;
         }
         GWideConeAngle = M.Guns.WideConeAngle;
         GMissileConeAngle = M.Guns.Params[11];  // +0x1068 MissileLaunchConeAngle

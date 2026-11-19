@@ -1520,7 +1520,15 @@ fn report(
             "\n  equip {:?} lead {:?}",
             equip
                 .iter()
-                .map(|e| (e.id, e.type_mask, e.status, e.vals, e.pointing))
+                .map(|e| (
+                    e.id,
+                    e.type_mask,
+                    e.status,
+                    e.vals,
+                    e.pointing,
+                    e.barrel.map(|(p, _)| p),
+                    e.can_point.clone()
+                ))
                 .collect::<Vec<_>>(),
             world.lead
         );

@@ -439,6 +439,9 @@ struct Run {
     guided: BTreeMap<u32, Vec<GuidedState>>,
     /// Each ship's guns' turret joints per tick, as text (diagnostic).
     guns: BTreeMap<String, Vec<String>>,
+    /// The AI ships' turret probes after each tick (0: before the first
+    /// step), by tick and ship.
+    probes: BTreeMap<u32, BTreeMap<String, Vec<TurretProbe>>>,
     /// The first seeker steps of each guided munition (diagnostic).
     guided_trace: Vec<(u32, game_sim::object::world::GuidedTrace)>,
     /// What the launcher looked like when each guided munition went out.
@@ -802,6 +805,7 @@ fn run(s: &Scenario, ai: &AiInputs) -> Option<Run> {
     };
     record(&world, &mut out.states, &handles);
     record_cores(&world, &mut out.cores, &handles);
+    out.probes.insert(0, turret_probes(&world, &handles));
     let mut next = 0;
     for tick in 1..=s.ticks {
         while next < s.commands.len() && s.commands[next].tick == tick {
@@ -936,6 +940,7 @@ fn run(s: &Scenario, ai: &AiInputs) -> Option<Run> {
         record(&world, &mut out.states, &handles);
         record_cores(&world, &mut out.cores, &handles);
         record_guided(&world, system, tick, &names, &mut out);
+        out.probes.insert(tick, turret_probes(&world, &handles));
         for (name, h) in &handles {
             let text = h
                 .and_then(|h| world.get(h))
@@ -1151,6 +1156,157 @@ fn report_guns(summary: &mut String, dir: &Path, scenario: &str, ours: &Run) {
                     rust_at(*t).cloned().unwrap_or_default()
                 );
             }
+        }
+    }
+}
+
+/// One gun of an AI ship as the auto-turret scan sees it: barrel 0's
+/// position and `can_point_at(position, 0.3)` toward each other named
+/// object.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct TurretProbe {
+    gun: u16,
+    barrel: Option<Vector>,
+    can_point: BTreeMap<String, bool>,
+}
+
+/// The turret probes of every AI ship (diagnostic).
+fn turret_probes(
+    world: &World,
+    handles: &BTreeMap<String, Option<ObjHandle>>,
+) -> BTreeMap<String, Vec<TurretProbe>> {
+    use game_sim::ai::world::AiWorld;
+    let mut out = BTreeMap::new();
+    for (name, h) in handles {
+        let Some(h) = *h else {
+            continue;
+        };
+        if world.behavior_manager(h).is_none() {
+            continue;
+        }
+        let Some(eq) = world.get(h).and_then(|o| o.as_equipped()) else {
+            continue;
+        };
+        let guns: Vec<u16> = eq
+            .equipment
+            .traverse(types::GUN, false)
+            .into_iter()
+            .filter_map(|slot| eq.equipment.get(slot))
+            .map(|e| e.id)
+            .collect();
+        let mut probes = Vec::new();
+        for gun in guns {
+            let barrel = <World as AiWorld>::equipment(world, h, gun)
+                .and_then(|i| i.barrel)
+                .map(|(p, _)| p);
+            let mut can_point = BTreeMap::new();
+            for (other, oh) in handles {
+                let Some(oh) = *oh else {
+                    continue;
+                };
+                if oh == h {
+                    continue;
+                }
+                let Some(v) = <World as AiWorld>::inspect(world, oh) else {
+                    continue;
+                };
+                can_point.insert(
+                    other.clone(),
+                    <World as AiWorld>::can_point_at(world, h, gun, v.position, 0.3),
+                );
+            }
+            probes.push(TurretProbe {
+                gun,
+                barrel,
+                can_point,
+            });
+        }
+        out.insert(name.clone(), probes);
+    }
+    out
+}
+
+/// The Rust world's turret probes against the oracle's own-ship item
+/// records (`ai_obj.equip`: barrel 0 and `can_point`), each `ai_in` of
+/// tick `t` against the Rust world after tick `t - 1` and after tick `t`
+/// (diagnostic).
+fn report_turret_probes(summary: &mut String, dir: &Path, scenario: &str, ours: &Run) {
+    let Some(first) = find_files(&dir.join(scenario), "ai.jsonl")
+        .into_iter()
+        .min()
+    else {
+        return;
+    };
+    let ticks = support::ai_records::read_ai_ticks(&first);
+    for (label, shift) in [("before", 1_u32), ("after", 0_u32)] {
+        let mut compared = 0_usize;
+        let mut differ = 0_usize;
+        let mut first_diff: Option<String> = None;
+        for t in &ticks {
+            let Some(ship) = t.obj.as_deref() else {
+                continue;
+            };
+            let Some(own) = t.objects.iter().find(|o| o.id == t.id) else {
+                continue;
+            };
+            let Some(equip) = &own.equip else {
+                continue;
+            };
+            let Some(mine) = t
+                .tick
+                .checked_sub(shift)
+                .and_then(|k| ours.probes.get(&k))
+                .and_then(|m| m.get(ship))
+            else {
+                continue;
+            };
+            let names: BTreeMap<u32, String> = t
+                .objects
+                .iter()
+                .filter_map(|o| Some((o.id, o.name.clone()?)))
+                .collect();
+            for e in equip.iter().filter(|e| e.type_mask == 0x80) {
+                let Some(p) = mine.iter().find(|p| p.gun == e.id) else {
+                    continue;
+                };
+                let mut notes = Vec::new();
+                if let (Some((theirs, _)), Some(rust)) = (e.barrel, p.barrel)
+                    && [theirs.x, theirs.y, theirs.z].map(f32::to_bits)
+                        != [rust.x, rust.y, rust.z].map(f32::to_bits)
+                {
+                    notes.push(format!("barrel rust {rust:?} oracle {theirs:?}"));
+                }
+                for (id, answer) in &e.can_point {
+                    let Some(n) = names.get(id) else {
+                        continue;
+                    };
+                    match p.can_point.get(n) {
+                        Some(r) if r != answer => {
+                            notes.push(format!("can_point {n} rust {r} oracle {answer}"));
+                        }
+                        _ => {}
+                    }
+                }
+                compared += 1;
+                if !notes.is_empty() {
+                    differ += 1;
+                    if first_diff.is_none() {
+                        first_diff = Some(format!(
+                            "tick {} {ship} gun {}: {}",
+                            t.tick,
+                            e.id,
+                            notes.join("; ")
+                        ));
+                    }
+                }
+            }
+        }
+        if compared > 0 {
+            let _ = writeln!(
+                summary,
+                "{scenario}: turret probes ({label} the tick): {compared} compared, {differ} differ{}",
+                first_diff.map_or_else(String::new, |d| format!("; first: {d}"))
+            );
         }
     }
 }
@@ -3267,6 +3423,7 @@ fn scenarios_against_the_oracle() {
         };
         report_guided(&mut summary, &mut gross, dir, &s.name, &our_run, cutoff);
         report_guns(&mut summary, dir, &s.name, &our_run);
+        report_turret_probes(&mut summary, dir, &s.name, &our_run);
         report_contacts(&mut summary, &s, &our_run, &their_run);
         if EXACT_SCENARIOS.contains(&s.name.as_str()) {
             judge_exact(&mut summary, &mut gross, &s, &our_run, &their_run);

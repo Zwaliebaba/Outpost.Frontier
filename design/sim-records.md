@@ -396,7 +396,9 @@ the failing result i, `munition`, `auto_turret`, `seeker`, `range`,
 launcher), `lead` f3\|null (`get_tgt_lead_fire_pos(id)`, a gun's lead on
 its target; null when it fails), `pointing` [b, b, b] (`is_pointing_at` at π/60, the gun groups'
 wide cone and missile cone angles) and `can_point` [[u, b], …] (an auto
-turret's `can_point_at` toward each candidate's position at 0.3)}.
+turret's `can_point_at` toward the position of each object of the
+snapshot but the ship, at 0.3: the scan asks it for the list it builds
+during the tick, which the entry list need not hold yet)}.
 
 The `rand` values come from the counting wrapper of the rand() recorder
 (`load_rand.jsonl` below), which sits in the import address table of each
