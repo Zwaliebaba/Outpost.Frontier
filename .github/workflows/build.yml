@@ -226,6 +226,19 @@ jobs:
           git diff --no-index --stat crates/neuron-client/tests/vectors oracle-out-neuron-client
           git diff --no-index crates/neuron-client/tests/vectors oracle-out-neuron-client
           if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Compare the game-app vectors
+        # P4.1: CPlayerAccount on a scripted machine and registry
+        # (oracle_account.cpp; account.jsonl) and PerfOptions.ini through
+        # LoadPerfOptions and SavePerfOptions (oracle_perf_options.cpp;
+        # perf_options.jsonl), over crates/game-app/tests/fixtures/oracle.
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force oracle-out-game-app | Out-Null
+          & .\bin\Oracle.exe game-app "$PWD\crates\game-app\tests\fixtures\oracle" "$PWD\oracle-out-game-app"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --no-index --stat crates/game-app/tests/vectors oracle-out-game-app
+          git diff --no-index crates/game-app/tests/vectors oracle-out-game-app
+          if ($LASTEXITCODE -ne 0) { exit 1 }
       - name: Check the data-dump mode on a synthetic installation
         # The same pipeline .github/workflows/data.yml runs on the original
         # data in outdir/, on a tree made from fixtures.

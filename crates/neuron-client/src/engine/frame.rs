@@ -10,6 +10,10 @@
 //! 1. Input: the mouse model's frame update over the platform and its
 //!    queued events, then the caller's routed key and character messages,
 //!    into the UI manager (`MouseDispatchEvents`, the Win3D input handler).
+//!    The game routes its input during the message pump instead, as the
+//!    reference's `PumpMessages` does (`game_app::input_router`), and
+//!    gives the frame its mouse ([`Engine::frame_with_mouse`]), whose
+//!    update runs in step 6.
 //! 2. `Win3DUpdateAll`: the UI manager's update.
 //! 3. The state's world tick: the scene scripts' timelines, the
 //!    deformable models with something on their lists advanced as the
@@ -40,8 +44,9 @@
 //!    their tints and window views, the button montage's icons, the
 //!    rich-text tiles, the font atlas's overlay flush and the IME's overlay
 //!    pass, with the engine's game options), the screen-quad lists the
-//!    draw left, and last the software cursor
-//!    (`MouseFrameUpdate`'s `DrawCursor`).
+//!    draw left, and last `MouseFrameUpdate`: the game's mouse read (with
+//!    [`Engine::frame_with_mouse`]) and the software cursor drawn
+//!    (`DrawCursor`).
 //! 7. `EndClientRenderScene`: the batcher's `FlushAll(1)` and the render
 //!    states the next frame starts from; then `PresentClientRenderFrame`.
 //!
@@ -100,6 +105,18 @@ impl FrameInput<'_> {
     }
 }
 
+/// The mouse a frame reads after the interface's draw and draws the
+/// cursor at, as `Win3DDrawAll` ends with `MouseFrameUpdate`: the game's
+/// mouse model on its window (`platform::window::Window` on Windows). The
+/// events the update queues are the caller's to route before the next
+/// frame (`MouseDispatchEvents` at the start of `PumpMessages`).
+pub trait FrameMouse {
+    /// `MouseFrameUpdate`'s reads at the frame's millisecond stamp.
+    fn frame_update(&mut self, frame_ms: u32);
+    /// The software cursor in surface pixels.
+    fn cursor(&self) -> (i32, i32);
+}
+
 /// What one frame did.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct FrameReport {
@@ -149,10 +166,36 @@ fn end_scene<B: Backend>(layer: &mut Win3dLayer, pipe: &mut FfPipeline<'_, B>) {
 impl<B: Backend + 'static> Engine<B> {
     /// One frame: the input, the UI update, the world tick, the scene,
     /// the UI draw and the present, in the reference's order (see the
-    /// module documentation). `camera` is the scene's camera.
-    #[allow(clippy::too_many_lines)]
+    /// module documentation). `camera` is the scene's camera. The engine's
+    /// own mouse model is updated first when `input.mouse` gives it a
+    /// device, and the cursor is drawn at it.
     pub fn frame(&mut self, input: FrameInput<'_>, camera: &mut dyn Camera) -> FrameReport {
+        self.run_frame(input, camera, None)
+    }
+
+    /// [`Engine::frame`] with the game's mouse: after the interface's draw
+    /// the mouse's frame update runs, once the cursors are loaded, and the
+    /// cursor is drawn at its software cursor (`Win3DDrawAll` ending with
+    /// `MouseFrameUpdate`). The caller routes the input before the frame
+    /// (`ui_input` and `input.mouse` are then normally empty).
+    pub fn frame_with_mouse(
+        &mut self,
+        input: FrameInput<'_>,
+        camera: &mut dyn Camera,
+        mouse: &mut dyn FrameMouse,
+    ) -> FrameReport {
+        self.run_frame(input, camera, Some(mouse))
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn run_frame(
+        &mut self,
+        input: FrameInput<'_>,
+        camera: &mut dyn Camera,
+        frame_mouse: Option<&mut dyn FrameMouse>,
+    ) -> FrameReport {
         let mut report = FrameReport::default();
+        let frame_ms = input.frame_ms;
         let dt = input.delta_seconds;
         #[allow(clippy::cast_possible_truncation)]
         let dt_f32 = dt as f32;
@@ -350,9 +393,20 @@ impl<B: Backend + 'static> Engine<B> {
             report.ui_montage_icons = host.montage_icons;
         }
         report.quad_lists = flush_quads(&mut self.quads, &mut side.stack.shading);
+        // MouseFrameUpdate: nothing at all until the cursors are loaded.
+        let position = match frame_mouse {
+            Some(mouse) => self.cursors.ready.then(|| {
+                mouse.frame_update(frame_ms);
+                mouse.cursor()
+            }),
+            None => self.mouse.as_ref().map(|m| {
+                let (x, y, _) = m.cursor();
+                (x, y)
+            }),
+        };
         report.cursor = draw_cursor(
             &mut self.cursors,
-            self.mouse.as_ref(),
+            position,
             self.ui.as_ref(),
             self.data.as_ref(),
             self.elapsed,
@@ -405,13 +459,13 @@ fn apply_camera<B: Backend>(
 /// pre-transformed quad (divergence D346). Whether it was drawn.
 fn draw_cursor<B: Backend + 'static>(
     cursors: &mut crate::ui::cursor::Cursors,
-    mouse: Option<&crate::input::mouse::Mouse>,
+    position: Option<(i32, i32)>,
     ui: Option<&crate::ui::tree::Ui>,
     data: Option<&neuron_core::vfs::Host>,
     elapsed: f64,
     stack: &mut crate::render::stack::RenderStack<B>,
 ) -> bool {
-    let (Some(mouse), Some(ui), Some(data)) = (mouse, ui, data) else {
+    let (Some((x, y)), Some(ui), Some(data)) = (position, ui, data) else {
         return false;
     };
     if !cursors.ready {
@@ -428,7 +482,6 @@ fn draw_cursor<B: Backend + 'static>(
         let mut lib = super::StackShapes::new(stack, data);
         shape.gpu_handle(&mut lib, 0)
     };
-    let (x, y, _) = mouse.cursor();
     let surface = ui.camera.surface;
     let shading = &mut stack.shading;
     let mut device = FfQuadDevice {

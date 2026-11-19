@@ -103,7 +103,7 @@ use crate::window::DisplayMode;
 pub use camera::ViewCamera;
 pub use deform_anim::DeformablePlay;
 pub use effects::{EffectServices, FxMeshes, mesh_path};
-pub use frame::{FrameInput, FrameReport};
+pub use frame::{FrameInput, FrameMouse, FrameReport};
 pub use order::{
     CREATION_ORDER, LIBRARIES, LifeEvent, Lifecycle, Phase, Reference, Stage, TEARDOWN_ORDER,
 };

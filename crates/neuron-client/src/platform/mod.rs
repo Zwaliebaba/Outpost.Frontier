@@ -10,6 +10,7 @@ pub mod dwrite;
 pub mod ime;
 pub mod input;
 pub mod known_folder;
+pub mod machine;
 pub mod media;
 pub mod registry;
 pub mod window;
