@@ -6,7 +6,9 @@
 //! limit), and released. Nothing is compared with the oracle (the
 //! synthetic suites `particle_ramp` and `particle_sim` do that); the test
 //! checks that no effect panics, that every record finds its node, that
-//! particles are made and that the pools are whole again at the end.
+//! particles are made, that the particle appearances carry their life and
+//! death effects and the mesh appearances ask a mesh factory for meshes
+//! (each given back), and that the pools are whole again at the end.
 //! A second test draws every effect through `RenderStack` to the device
 //! model's recording backend. Nothing either computes is committed.
 
@@ -18,7 +20,11 @@ use neuron_client::render::ff::defaults::Defaults;
 use neuron_client::render::ff::device::{Device, RecordingBackend};
 use neuron_client::render::material::{MaterialBatcher, Shading, ShadingFactory};
 use neuron_client::render::mesh::{Archetype, Instance, VMeshRegistry};
-use neuron_client::render::particles::{Effect, NoTextures, ParticleFx, PoolKind};
+use neuron_client::render::particles::services::{FrameOut, TextureRecord};
+use neuron_client::render::particles::{
+    Camera as FxCamera, Effect, FxMesh, FxMeshFactory, NoTextures, ParticleFx, ParticleServices,
+    PoolKind,
+};
 use neuron_client::render::stack::{RenderStack, StackEngine};
 use neuron_client::render::texture::{FormatClasses, LibraryConfig, TextureLibrary};
 use neuron_core::fx_data::{self as fx, AleFile, NodeClass};
@@ -119,6 +125,82 @@ impl Oddities {
 const IDENTITY: [f32; 12] = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0];
 const DT: f32 = 1.0 / 30.0;
 
+/// No textures, and a mesh factory that counts the meshes it hands out and
+/// gets back.
+#[derive(Default)]
+struct Counting {
+    made: u32,
+    released: u32,
+    posed: u32,
+    updated: u32,
+}
+
+impl FxMeshFactory for Counting {
+    fn create_mesh(&mut self, _id: u32, _name: &[u8], _six: &[f32; 6]) -> (i32, Option<FxMesh>) {
+        self.made += 1;
+        (0, Some(self.made))
+    }
+    fn set_mesh_transform(&mut self, _mesh: FxMesh, transform: &[f32; 12]) {
+        assert!(transform.iter().all(|v| v.is_finite()), "a finite pose");
+        self.posed += 1;
+    }
+    fn mesh_transform(&mut self, _mesh: FxMesh) -> [f32; 12] {
+        IDENTITY
+    }
+    fn update_mesh(&mut self, _mesh: FxMesh, _dt: f32) {
+        self.updated += 1;
+    }
+    fn draw_mesh(&mut self, _mesh: FxMesh, _camera: &mut dyn FxCamera) {}
+    fn drop_mesh(&mut self, _mesh: FxMesh) {}
+    fn release_mesh(&mut self, _mesh: FxMesh) {
+        self.released += 1;
+    }
+}
+
+impl ParticleServices for Counting {
+    fn find_texture(&mut self, name: &[u8], crc: u32) -> Option<TextureRecord> {
+        NoTextures.find_texture(name, crc)
+    }
+    fn create_playback(&mut self, _record: TextureRecord) -> i32 {
+        -1
+    }
+    fn frame_count(&mut self, _record: TextureRecord) -> Option<i32> {
+        None
+    }
+    fn release_texture_record(&mut self, _record: TextureRecord) {}
+    fn set_wrap_mode(&mut self, _id: i32, _mode: i32) {}
+    fn texture_frame(&mut self, _id: i32, _frame: i32) -> Option<FrameOut> {
+        None
+    }
+    fn advance_time(&mut self, _id: i32, _seconds: f32) {}
+    fn dec_ref_texture(&mut self, _id: i32) {}
+    fn mesh_factory(&mut self) -> Option<&mut dyn FxMeshFactory> {
+        Some(self)
+    }
+}
+
+/// The child effects (life and death) the particle appearances of an
+/// effect's records carry now.
+fn child_effects(fx: &ParticleFx, effect: &Effect) -> (usize, usize) {
+    let (mut life, mut death) = (0, 0);
+    for record in effect.records() {
+        let Some(node) = fx.node(record.node) else {
+            continue;
+        };
+        if node.class() != NodeClass::ParticleAppearance {
+            continue;
+        }
+        let mut cursor = node.appearance().and_then(|a| a.head);
+        while let Some(index) = cursor {
+            let r = fx.pools.record(index);
+            life += usize::from(r.life.is_some());
+            death += usize::from(r.death.is_some());
+            cursor = fx.pools.get(PoolKind::Particle).item(index).next;
+        }
+    }
+    (life, death)
+}
+
 #[test]
 fn every_shipped_effect_runs() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../outdir/data");
@@ -148,10 +230,11 @@ fn every_shipped_effect_runs() {
     }
     hashes.sort_unstable();
     hashes.dedup();
-    let mut svc = NoTextures;
+    let mut svc = Counting::default();
     let (mut created, mut missing, mut emitting, mut finished) = (0, 0, 0, 0);
     let mut peak = 0_u32;
-    let mut skipped_classes = 0;
+    let mut child_classes = 0;
+    let (mut with_life, mut with_death, mut with_meshes) = (0, 0, 0);
     for &hash in &hashes {
         let parent = fx.create_node(NodeClass::Node);
         let mut effect = match fx.create_effect(parent, hash, &mut svc) {
@@ -163,7 +246,7 @@ fn every_shipped_effect_runs() {
             }
         };
         created += 1;
-        skipped_classes += effect
+        child_classes += effect
             .records()
             .iter()
             .filter(|r| {
@@ -174,9 +257,11 @@ fn every_shipped_effect_runs() {
             })
             .count();
         let mut live_peak = 0;
-        let frame = |effect: &Effect, fx: &mut ParticleFx, svc: &mut NoTextures| {
+        let (mut saw_life, mut saw_death) = (false, false);
+        let meshes_before = svc.made;
+        let frame = |effect: &Effect, fx: &mut ParticleFx, svc: &mut Counting| {
             effect.set_transform(fx, 0, &IDENTITY);
-            effect.compose(fx);
+            effect.compose(fx, svc);
             effect.update(fx, DT, svc);
             let live: u32 = effect
                 .records()
@@ -187,16 +272,25 @@ fn every_shipped_effect_runs() {
         };
         for _ in 0..30 {
             live_peak = live_peak.max(frame(&effect, &mut fx, &mut svc));
+            let (life, death) = child_effects(&fx, &effect);
+            saw_life |= life > 0;
+            saw_death |= death > 0;
         }
         effect.dispatch(&mut fx, 1, &mut svc);
         let mut done = false;
         for _ in 0..600 {
             frame(&effect, &mut fx, &mut svc);
+            let (life, death) = child_effects(&fx, &effect);
+            saw_life |= life > 0;
+            saw_death |= death > 0;
             if effect.finished(&fx, 4) {
                 done = true;
                 break;
             }
         }
+        with_life += usize::from(saw_life);
+        with_death += usize::from(saw_death);
+        with_meshes += usize::from(svc.made > meshes_before);
         if live_peak > 0 {
             emitting += 1;
         }
@@ -216,10 +310,18 @@ fn every_shipped_effect_runs() {
     println!(
         "{} files, {} effects: {created} created, {missing} with a missing node, \
          {emitting} emitted particles (peak {peak} live), {finished} finished after the stop; \
-         {skipped_classes} particle and mesh appearance records not simulated yet",
+         {child_classes} particle and mesh appearance records: {with_life} effects carried \
+         life effects, {with_death} death effects, {with_meshes} made meshes ({} meshes, \
+         {} poses, {} updates)",
         files.len(),
-        hashes.len()
+        hashes.len(),
+        svc.made,
+        svc.posed,
+        svc.updated
     );
+    assert_eq!(svc.made, svc.released, "every mesh went back");
+    assert!(with_life > 0 && with_death > 0, "the child effects run");
+    assert!(with_meshes > 0, "the mesh appearances ask for meshes");
     assert_eq!(oddities.flat_modes, 0, "an interpolator past the table");
     assert_eq!(oddities.empty_nested, 0, "a nested ramp without keys");
     assert_eq!(
@@ -405,7 +507,7 @@ fn every_shipped_effect_draws_through_the_stack() {
         for frame in 1..=20 {
             camera.z += 0.25;
             effect.set_transform(&mut fx, 0, &IDENTITY);
-            effect.compose(&mut fx);
+            effect.compose(&mut fx, &mut stack);
             effect.update(&mut fx, DT, &mut stack);
             if frame % 5 != 0 {
                 continue;

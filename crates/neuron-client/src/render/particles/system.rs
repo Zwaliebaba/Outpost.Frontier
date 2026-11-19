@@ -164,20 +164,24 @@ impl ParticleFx {
         self.destroy(node, svc);
     }
 
-    /// The destructor (`~FGenericFxObjectBase`): the particle list, then the
-    /// texture, then the associated appearance, then the fields.
+    /// The destructor (`~FGenericFxObjectBase`): the particle list (a
+    /// particle record's child effects and a mesh item's mesh torn down),
+    /// then the texture, then the associated appearance, then the fields.
     fn destroy(&mut self, node: Node, svc: &mut dyn ParticleServices) {
         match node.behaviour {
             Behaviour::Appearance(app) => {
                 if let Some(kind) = pool_of(node.props.class) {
-                    let pool = self.pools.get_mut(kind);
                     let mut cursor = app.head;
                     while let Some(index) = cursor {
-                        cursor = pool.item(index).next;
-                        let item = pool.item_mut(index);
+                        let item = self.pools.get_mut(kind).item_mut(index);
+                        cursor = item.next;
                         item.next = None;
                         item.prev = None;
-                        pool.free(index);
+                        if matches!(kind, PoolKind::Particle | PoolKind::Mesh) {
+                            self.release_pool_item(kind, index, svc);
+                        } else {
+                            self.pools.get_mut(kind).free(index);
+                        }
                     }
                 }
                 if app.texture.handle != -1 {
@@ -414,8 +418,25 @@ impl ParticleFx {
         }
     }
 
-    /// `ComposeNodeTransform(parent)`.
-    fn compose(&mut self, id: NodeId, parent: &[f32; 12]) {
+    /// The node's `ComposeNodeTransform(parent)`: a particle appearance
+    /// first makes its records' death effects, a mesh appearance then poses
+    /// its meshes.
+    fn compose(&mut self, id: NodeId, parent: &[f32; 12], svc: &mut dyn ParticleServices) {
+        match self.n(id).class() {
+            NodeClass::ParticleAppearance => {
+                self.particle_death_effects(id, svc);
+                self.compose_node(id, parent);
+            }
+            NodeClass::MeshAppearance => {
+                self.compose_node(id, parent);
+                self.mesh_pose(id, svc);
+            }
+            _ => self.compose_node(id, parent),
+        }
+    }
+
+    /// `FGenericFxObjectBase::ComposeNodeTransform(parent)`.
+    fn compose_node(&mut self, id: NodeId, parent: &[f32; 12]) {
         let node = self.n_mut(id);
         let flags = node.flags;
         if flags & FLAG_WORLD_SET != 0 {
@@ -443,22 +464,22 @@ impl ParticleFx {
     /// `ParticleFx::Slot15(_, start)`: the start node composed with the
     /// identity, then its children with its result
     /// (`PropagateNodeChainTransform`). Its siblings are not visited.
-    pub fn compose_tree(&mut self, start: NodeId) {
-        self.compose(start, &IDENTITY);
+    pub fn compose_tree(&mut self, start: NodeId, svc: &mut dyn ParticleServices) {
+        self.compose(start, &IDENTITY, svc);
         let world = self.n(start).world;
         if let Some(child) = self.n(start).first_child {
-            self.compose_chain(child, &world);
+            self.compose_chain(child, &world, svc);
         }
     }
 
-    fn compose_chain(&mut self, first: NodeId, parent: &[f32; 12]) {
+    fn compose_chain(&mut self, first: NodeId, parent: &[f32; 12], svc: &mut dyn ParticleServices) {
         let mut cursor = Some(first);
         while let Some(id) = cursor {
-            self.compose(id, parent);
+            self.compose(id, parent, svc);
             let node = self.n(id);
             if let Some(child) = node.first_child {
                 let world = node.world;
-                self.compose_chain(child, &world);
+                self.compose_chain(child, &world, svc);
             }
             cursor = self.n(id).next;
         }

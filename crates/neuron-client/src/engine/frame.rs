@@ -14,15 +14,22 @@
 //! 3. The state's world tick: the scene scripts' timelines, the animation
 //!    system's mixer (`MixerWalkAll`) with the animated deformable models'
 //!    trees updated and their bones' transforms handed over, the particle
-//!    effects' transforms and update, then `TickMaterialAnimationPlayback`
-//!    (the texture library's playbacks and the material animations).
+//!    effects' transforms and update (at most a tenth of a second, as
+//!    `SpaceEffectsDrawFrame` clamps it; the mesh factory's new meshes
+//!    are loaded and placed after it, D493), then
+//!    `TickMaterialAnimationPlayback` (the texture library's playbacks and
+//!    the material animations).
 //! 4. `BeginClientRenderFrame`: the dither and mip-filter states of
 //!    `TryBeginFrame`.
 //! 5. The clear (`ClearWin3DBuffers(0x4100)` after a black clear colour),
 //!    the frame's camera (`Win3DApplyCamera`), then the scene: the backdrop and the star sphere through
 //!    `FLAppearance`, the models' instance trees through the render manager
 //!    (`RenderInstance`), the deformable models (`IDeformable::Draw`), the
-//!    particle effects between `BeginDraw` and `EndDraw`.
+//!    particle effects between `BeginDraw` and `EndDraw` (the particle part
+//!    of `SpaceEffectsDrawFrame`: `LESSEQUAL` and no dithering around it,
+//!    the `BATCH_PARTICLES` option handed to `SetUseMaterialBatcher`; the
+//!    child effects draw as their appearances' children and the mesh
+//!    appearances' meshes through the render manager).
 //! 6. `ClearWin3DBuffers(0x100)`, `Win3DSetDepthFunc(4)`, `Win3DDrawAll`
 //!    through the engine's draw host ([`super::ui_host::UiHost`]: the
 //!    immediate-mode layer, the line batchers, the control meshes, the
@@ -43,18 +50,23 @@
 use crate::input::mouse::MousePlatform;
 use crate::render::appearance::{AppearanceServices, Camera, MeshView};
 use crate::render::ff::device::{Backend, ClearFlags};
+use crate::render::particles::ParticleDraw;
 use crate::render::stack::{StackAppearance, draw_deformable};
 use crate::ui::message::Input;
 use crate::ui::quad_batch::{FfQuadDevice, QuadBatcher};
 use crate::ui::win3d_immediate::{FfPipeline, Win3dLayer, capability};
 
 use super::ui_host::UiHost;
-use super::{Engine, RenderSide, apply_extents, pull_bones};
+use super::{EffectServices, Engine, RenderSide, apply_extents, pull_bones};
 
+/// `D3DRS_ZFUNC`.
+const RS_ZFUNC: u32 = 23;
 /// `D3DRS_DITHERENABLE`.
 const RS_DITHERENABLE: u32 = 26;
 /// `D3DTSS_MIPFILTER`.
 const TSS_MIPFILTER: u32 = 18;
+/// The longest step the effects take (`SpaceEffectsDrawFrame`'s clamp).
+const EFFECT_DT_MAX: f32 = 0.1;
 /// `ClearWin3DBuffers(0x4100)`'s clear colour, opaque black.
 const CLEAR_BLACK: u32 = 0xFF00_0000;
 
@@ -183,12 +195,29 @@ impl<B: Backend + 'static> Engine<B> {
                 report.animations += 1;
             }
         }
-        let mut side = self.render.borrow_mut();
-        for live in self.effects.iter().flatten() {
-            live.effect.compose(&mut self.particles);
-            live.effect
-                .update(&mut self.particles, dt_f32, &mut side.stack);
+        {
+            // SpaceEffectsDrawFrame's ClampedDt: at most a tenth of a second.
+            let effect_dt = if dt_f32 > EFFECT_DT_MAX {
+                EFFECT_DT_MAX
+            } else {
+                dt_f32
+            };
+            let mut side = self.render.borrow_mut();
+            let mut services = EffectServices {
+                stack: &mut side.stack,
+                manager: None,
+                scene: &self.scene,
+                data: self.data.as_ref(),
+                meshes: Some(&mut self.fx_meshes),
+            };
+            for live in self.effects.iter().flatten() {
+                live.effect.compose(&mut self.particles, &mut services);
+                live.effect
+                    .update(&mut self.particles, effect_dt, &mut services);
+            }
         }
+        self.settle_fx_meshes();
+        let mut side = self.render.borrow_mut();
         let shading = &mut side.stack.shading;
         shading.textures.tick_all(0, dt_f32);
         if let Some(animations) = shading.animations.as_mut() {
@@ -259,14 +288,31 @@ impl<B: Backend + 'static> Engine<B> {
             report.deformables += 1;
         }
         if self.effects.iter().any(Option::is_some) {
-            let stack = &mut side.stack;
-            if self.particles.begin_draw(stack) >= 0 {
+            // SpaceEffectsDrawFrame's particle part: LESSEQUAL and no
+            // dithering around the draw, the batcher option handed over.
+            let RenderSide { stack, manager } = &mut *side;
+            let z_func = ParticleDraw::render_state(stack, RS_ZFUNC);
+            ParticleDraw::set_render_state(stack, RS_ZFUNC, 4);
+            let dither = ParticleDraw::render_state(stack, RS_DITHERENABLE);
+            ParticleDraw::set_render_state(stack, RS_DITHERENABLE, 0);
+            self.particles
+                .set_use_material_batcher(self.particle_batcher);
+            let mut services = EffectServices {
+                stack,
+                manager: Some(manager),
+                scene: &self.scene,
+                data: self.data.as_ref(),
+                meshes: Some(&mut self.fx_meshes),
+            };
+            if self.particles.begin_draw(&mut services) >= 0 {
                 for live in self.effects.iter().flatten() {
-                    live.effect.draw(&mut self.particles, camera, stack);
+                    live.effect.draw(&mut self.particles, camera, &mut services);
                     report.effects += 1;
                 }
-                self.particles.end_draw(camera, stack);
+                self.particles.end_draw(camera, &mut services);
             }
+            ParticleDraw::set_render_state(stack, RS_DITHERENABLE, dither);
+            ParticleDraw::set_render_state(stack, RS_ZFUNC, z_func);
         }
 
         // 6. The interface over the scene.

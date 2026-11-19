@@ -101,11 +101,12 @@ impl Effect {
     }
 
     /// `Slot7`: every live root node's subtree composes its transforms
-    /// (`ParticleFx::Slot15`).
-    pub fn compose(&self, fx: &mut ParticleFx) {
+    /// (`ParticleFx::Slot15`); particle appearances make their death
+    /// effects and mesh appearances pose their meshes on the way.
+    pub fn compose(&self, fx: &mut ParticleFx, svc: &mut dyn ParticleServices) {
         for record in &self.records[..self.root_count] {
             if !fx.n(record.node).is_dead() {
-                fx.compose_tree(record.node);
+                fx.compose_tree(record.node, svc);
             }
         }
     }
@@ -145,7 +146,7 @@ impl Effect {
         super::bounds::merge_node_spheres(fx, self.records.iter().map(|r| r.node), sphere)
     }
 
-    /// `Slot5`, `Slot6`, `Slot14`: a value stored on every record's node.
+    /// `Slot5`: a value stored on every record's node.
     fn walk(&self, fx: &mut ParticleFx, set: impl Fn(&mut super::node::Node)) {
         for record in &self.records {
             set(fx.n_mut(record.node));
@@ -157,14 +158,20 @@ impl Effect {
         self.walk(fx, |n| n.age = age);
     }
 
-    /// `Slot6(outer_time)`.
+    /// `Slot6(outer_time)`: every record's node's `SetNodeOuterTime` (a
+    /// particle appearance hands it on to its child effects).
     pub fn set_outer_time(&self, fx: &mut ParticleFx, outer_time: f32) {
-        self.walk(fx, |n| n.outer_time = outer_time);
+        for record in &self.records {
+            fx.set_node_outer_time(record.node, outer_time);
+        }
     }
 
-    /// `Slot14(lod_input)`.
+    /// `Slot14(lod_input)`: every record's node's `SetNodeLodInput` (a
+    /// particle appearance hands it on to its child effects).
     pub fn set_lod_input(&self, fx: &mut ParticleFx, lod_input: f32) {
-        self.walk(fx, |n| n.lod_input = lod_input);
+        for record in &self.records {
+            fx.set_node_lod_input(record.node, lod_input);
+        }
     }
 
     fn family_bit(fx: &ParticleFx, node: NodeId, flags: u32) -> bool {
