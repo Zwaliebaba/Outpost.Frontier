@@ -616,7 +616,23 @@ As `OutpostServer.exe` (`OutpostServer.cpp:437`, `:523`, `:731-745`,
    data path again, and `GetFileSysPath` leaves only absolute paths alone,
    so with the INI's relative `.\data` it opens
    `.\data\.\data\universe\…` and no asteroid field loads (the first
-   `asteroids.jsonl` probes showed it).
+   `asteroids.jsonl` probes showed it). This is the reference's behaviour,
+   not a reconstruction error (investigated 2026-11-19): the traced calls
+   are `StarSystem::load` passing `Universe::get_filename`'s path (the
+   universe directory file system's root, made by `Universe::Startup` from
+   `GetFileSysPath("universe\universe.ini", Data)`, joined to the system's
+   `file`) and `SrvAsteroidSystem::load` (ordinal 498) passing it through
+   `GetFileSysPath` again; `GetFileSysPath` (Common `0xa2df0`) copies only a
+   path that starts with `\` or has a drive colon, and the DOS file system
+   keeps its root as given (ReadFile, no `_fullpath` on a directory root),
+   as `OutpostServer.exe` passes the INI's value to `OpenData`. The other
+   server loaders take paths relative to the data root
+   (`FSrvAsteroidField::load`'s field files, `pub::BuildBaseReader`'s
+   bases) or open the rooted path directly (`StarSystem::load`'s
+   `[Object]` pass), so only the field load fails. A dedicated server loads
+   its fields only with an absolute data path; the oracle runs that way,
+   and the Rust world (`World::load_asteroid_fields`) loads them as such a
+   server does.
 3. `IServerImpl::Startup` with `SStartupInfo` {module path
    `SimClientStub.dll`, INI path `server.ini`, 16 players, port 0}. It runs
    `DataConfig::startup`, the world INI, `Server_LoadInitialDlls` (Content's

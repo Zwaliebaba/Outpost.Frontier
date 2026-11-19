@@ -42,6 +42,9 @@ to the mines and counter-measures. D177 falls under the rule for fights
 decided the same day: a fight is judged exactly up to its first contact or
 munition impact, and after it within the Gate G2 envelopes.
 
+The owner accepted D188 and D189 (P2.4 asteroid fields) and the narrowing
+of D181 to the reference's null reads on 2026-11-19.
+
 ID ranges, reserved on 2026-11-18 so that work packages running in
 parallel do not collide: IDs below D200 stay with Phases 2 and 3; D200 to
 D299 belong to Phase 4. A work package takes the next free ID of its
