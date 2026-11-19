@@ -1405,6 +1405,8 @@ namespace
             return "fire";
         case OracleSimAffectTractor:
             return "tractor";
+        case OracleSimAffectGunTarget:
+            return "gun_target";
         case OracleSimAffectTarget:
             return "set_target";
         case OracleSimAffectEquip:

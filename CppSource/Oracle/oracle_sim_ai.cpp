@@ -971,6 +971,23 @@ namespace
         if (Self->get_dock_target(DockId) == 0)
             Add(FindById(DockId), "dock_target");
         Add(FindById(M.InSightsTargetId), "in_sights");
+        // P2.5 dock, launch and trade lanes: the objects the current behaviour holds (the
+        // dock's object, lane ring and watched object; the launch's base; the trade lane's
+        // two rings), which can lie beyond the near radius.
+        if (M.BehaviorKind == 7 && M.Behavior.IntCount > 17)
+        {
+            for (int Index = 15; Index <= 17; ++Index)
+                Add(FindById(static_cast<unsigned int>(M.Behavior.Ints[Index])), "behavior");
+        }
+        else if (M.BehaviorKind == 8 && M.Behavior.IntCount > 5)
+        {
+            Add(FindById(static_cast<unsigned int>(M.Behavior.Ints[5])), "behavior");
+        }
+        else if (M.BehaviorKind == 9 && M.Behavior.IntCount > 6)
+        {
+            Add(FindById(static_cast<unsigned int>(M.Behavior.Ints[5])), "behavior");
+            Add(FindById(static_cast<unsigned int>(M.Behavior.Ints[6])), "behavior");
+        }
         for (int Index = 0; Index < M.TargetCount && Index < 64; ++Index)
             Add(Live[Index], "candidate");
         // P2.5 combat: the incoming missiles of the timer table (the near walk's mask leaves

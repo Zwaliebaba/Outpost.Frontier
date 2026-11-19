@@ -124,6 +124,9 @@ enum EOracleSimAffect
     // P2.5 loot: slot_40 (the tractor): IntArg = equipment id, Values[0] = the target's id
     // (its bits; 0 for none).
     OracleSimAffectTractor = 16,
+    // P2.5 gun lock: slot_44: IntArg = equipment id, Values[0] = the target's id (its bits; 0
+    // for none), Values[1] = the sub-target.
+    OracleSimAffectGunTarget = 17,
     // P2.5 goto/face (design/sim-records.md, `affect`):
     OracleSimAffectTarget = 18,       // set_target: IntArg = target id (0 none), Values[0] = sub-target
     OracleSimAffectEquip = 19,        // slot_4c: IntArg = equipment id, Values[0] = activate (1 or 0)

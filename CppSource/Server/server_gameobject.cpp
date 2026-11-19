@@ -2091,6 +2091,16 @@ int EqObj::slot_3c(unsigned short const* EquipId, std::vector<IObjRW*> const& Ta
 int EqObj::slot_44(unsigned short const* EquipId, IObjRW* Target, unsigned short SubTarget,
                    int SourceClient)
 {
+    FOracleSimAffectScope const OracleAffect;   // Oracle instrumentation (P2.5 ai)
+    if (GOracleSimHooks.OnAffect != nullptr)
+    {
+        // The target's id as a float bit pattern, then the sub-target.
+        unsigned int const TargetId = Target != nullptr ? Target->get_id() : 0u;
+        float Values[2];
+        std::memcpy(&Values[0], &TargetId, sizeof(TargetId));
+        Values[1] = static_cast<float>(SubTarget);
+        GOracleSimHooks.OnAffect(get_id(), OracleSimAffectGunTarget, static_cast<int>(*EquipId), Values, 2);
+    }
     // no system / destroyed: -5.
     if (OwnerSystem == nullptr)
         return -5;
