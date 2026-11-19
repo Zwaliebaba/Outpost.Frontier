@@ -21,3 +21,7 @@
 // limiter, not gameplay-visible randomness. Kept here as a small, reusable,
 // self-contained utility rather than inlined into that (unported) caller.
 float IVP_FastRandomFloat();
+
+// Oracle instrumentation (P2.5, design/sim-records.md): the seed as it stands, which the sim
+// oracle records at each PSI. Nothing in the game calls it.
+unsigned IVP_FastRandomSeed();

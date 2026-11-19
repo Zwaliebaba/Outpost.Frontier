@@ -90,6 +90,34 @@ fn controllers_push_through_the_hook() {
 }
 
 #[test]
+fn controller_buckets_follow_registration_and_rebuilds() {
+    let mut world = PhysicsWorld::new(1, &constants());
+    let h = ball(&mut world, 1, 1.0, Vector::ZERO);
+    let a = world
+        .register_controller(h, 1, CONTROLLER_PRIORITY)
+        .unwrap();
+    world
+        .register_controller(h, 2, CONTROLLER_PRIORITY)
+        .unwrap();
+    world
+        .register_controller(h, 3, CONTROLLER_PRIORITY)
+        .unwrap();
+    // The last registered runs first.
+    assert_eq!(world.controller_run_order(h), vec![3, 2, 1]);
+    // A rebuilt unit runs them in registration order.
+    world.rebuild_controller_buckets(h);
+    assert_eq!(world.controller_run_order(h), vec![1, 2, 3]);
+    // A controller registered again joins the buckets at the end.
+    world.unregister_controller(a);
+    world
+        .register_controller(h, 4, CONTROLLER_PRIORITY)
+        .unwrap();
+    assert_eq!(world.controller_run_order(h), vec![4, 2, 3]);
+    world.rebuild_controller_buckets(h);
+    assert_eq!(world.controller_run_order(h), vec![2, 3, 4]);
+}
+
+#[test]
 fn damping_and_sleep() {
     let mut world = PhysicsWorld::new(1, &constants());
     let mut random = IvpRandom::default();
@@ -258,14 +286,19 @@ fn phantoms_report_enter_and_leave() {
     assert_eq!(events[0].user_key, 1);
     assert!(world.phantom_intruders(p).is_empty());
     // A phantom attached to the ship travels with it.
+    let at = world.transform(ship).unwrap().0;
     let carried = world.create_phantom(PhantomDesc {
         geometry: Geometry::cuboid(Vector::new(-1.0, -1.0, -1.0), Vector::new(1.0, 1.0, 1.0)),
-        position: Vector::new(0.0, 5.0, 0.0),
+        position: Vector::new(at.x, at.y + 5.0, at.z),
         orientation: Matrix::IDENTITY,
         name: Vec::new(),
         listener: false,
     });
-    assert!(world.attach_phantom(carried, ship));
+    assert!(world.attach_phantom(carried, ship, at));
+    // The ship's core takes the phantom's reach: 5 m off plus its own
+    // radius.
+    let radius = world.core(ship).unwrap().upper_limit_radius;
+    assert!((radius - (5.0 + 3.0f32.sqrt())).abs() < 1e-4, "{radius}");
     let other = ball(&mut world, 3, 0.5, Vector::ZERO);
     let ship_x = world.transform(ship).unwrap().0.x;
     world.beam(
@@ -274,6 +307,9 @@ fn phantoms_report_enter_and_leave() {
         &Matrix::IDENTITY,
         false,
     );
+    // Found in one step, an intruder from the next.
+    step(&mut world, &mut NoControllers, &mut random, 0.01);
+    assert!(world.phantom_intruders(carried).is_empty());
     step(&mut world, &mut NoControllers, &mut random, 0.01);
     assert_eq!(world.phantom_intruders(carried), vec![3]);
     let closest = world.closest_phantom_intruder(carried, |_| true).unwrap();

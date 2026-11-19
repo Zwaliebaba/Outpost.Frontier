@@ -30,8 +30,11 @@
 //! every body is the default part and no hardpoint is found.
 
 mod ai;
+mod ambient;
 mod animate;
 mod combat;
+mod guided;
+pub use guided::GuidedTrace;
 mod sensors;
 mod spawn;
 mod step;
@@ -77,6 +80,8 @@ pub enum ControllerRef {
     Strafe,
     /// An equipment item's controller (`CEEngine`, `CEThruster`).
     Equip(SubObjId),
+    /// The server's `Guided` wrapper (a missile's motor, `arm`).
+    Guided,
 }
 
 /// The behaviour manager's tick (`IBehaviorManager::UpdateBehaviorTick`),
@@ -272,6 +277,12 @@ impl Assets {
 /// A `.sur` file's parts, by part id.
 pub type SurParts = Arc<BTreeMap<u32, SurPart>>;
 
+/// One fire call's shooter id and each gun's result ([`World::set_fire_log`]).
+pub type FireCall = (
+    u32,
+    Vec<(crate::equip::SubObjId, crate::equip::launcher::FireResult)>,
+);
+
 /// The simulation world of one process side.
 pub struct World {
     pub(crate) data: Arc<GameData>,
@@ -286,6 +297,8 @@ pub struct World {
     surfaces: BTreeMap<u32, Option<SurParts>>,
     pub(crate) controllers: BTreeMap<u64, (ObjHandle, ControllerRef)>,
     next_controller: u64,
+    /// The serial of the next free part's body key.
+    pub(crate) next_free_part: u32,
     id_alloc: ObjectIdAllocator,
     pub(crate) rng: CrtRand,
     pub(crate) time: f64,
@@ -295,9 +308,26 @@ pub struct World {
     /// `GAvoidIndexTableShuffled`: the first obstacle probe of the process
     /// has drawn its 50 `rand()` values.
     pub(crate) avoid_table_shuffled: bool,
+    /// The attitudes the AI reads (`get_attitude_towards`), by object
+    /// ids: the reputation groups are not ported, so a harness sets them
+    /// ([`World::set_attitude`]).
+    pub(crate) attitudes: BTreeMap<(u32, u32), f32>,
     always_update: Vec<ObjHandle>,
     anim_channels: Vec<turret::AnimChannel>,
     anim_playbacks: Vec<(ObjHandle, animate::AnimKind)>,
+    /// The scene's animation component (`NeuronRuntime::Anim`), which
+    /// plays the ambient animations.
+    pub(crate) animation: neuron_core::scene::animation::Animation,
+    /// The animation scripts of archetype files, by path.
+    pub(crate) anim_scripts: BTreeMap<Vec<u8>, Option<Arc<neuron_core::anim::AnimScript>>>,
+    /// `AnimDB`'s playback map for the ambient animations
+    /// (`CEInternalFX`'s `use_animation`), by playback id.
+    pub(crate) ambient: BTreeMap<i32, ambient::AmbientSub>,
+    /// The results of every fire call, when kept ([`World::set_fire_log`]).
+    pub(crate) fire_log: Option<Vec<FireCall>>,
+    /// Every guided munition's seeker step, when kept
+    /// ([`World::set_guided_trace`]).
+    pub(crate) guided_trace: Option<Vec<guided::GuidedTrace>>,
 }
 
 impl core::fmt::Debug for World {
@@ -371,6 +401,7 @@ impl World {
             surfaces: BTreeMap::new(),
             controllers: BTreeMap::new(),
             next_controller: 1,
+            next_free_part: 0,
             id_alloc: ObjectIdAllocator::default(),
             rng: CrtRand::with_seed(config.seed),
             time: 0.0,
@@ -378,9 +409,15 @@ impl World {
             behavior: None,
             behavior_managers: BTreeMap::new(),
             avoid_table_shuffled: false,
+            attitudes: BTreeMap::new(),
             always_update: Vec::new(),
             anim_channels: Vec::new(),
             anim_playbacks: Vec::new(),
+            animation: neuron_core::scene::animation::Animation::new(),
+            anim_scripts: BTreeMap::new(),
+            ambient: BTreeMap::new(),
+            fire_log: None,
+            guided_trace: None,
         }
     }
 
@@ -600,9 +637,21 @@ impl World {
             }
             self.controllers.remove(key);
         }
+        // `~Guided`: `PhySys::DestroyPhantom`.
+        if let super::KindData::Guided(g) = &obj.data
+            && let (Some(phantom), Some(world)) = (g.phantom, self.physics.world_mut(system))
+        {
+            world.destroy_phantom(phantom);
+        }
         if let (Some(body), Some(world)) = (obj.physical.body, self.physics.world_mut(system)) {
             world.destroy_body(body);
         }
+        if let Some(world) = self.physics.world_mut(system) {
+            for part in &obj.physical.free_parts {
+                world.destroy_body(part.body);
+            }
+        }
+        self.end_ambient(h);
         if let Some(instance) = obj.engine.instance {
             self.instances.retain(|_, v| *v != h);
             self.scene.destroy_instance(instance);
@@ -625,6 +674,11 @@ impl World {
         let assets = self.assets.as_ref()?;
         if path.is_empty() {
             return None;
+        }
+        // An archetype the scene already holds needs no file
+        // (`CreateArchetypeHandle` finds it by name first).
+        if let Ok(Some(archetype)) = self.scene.create_archetype_handle(path, None) {
+            return self.scene.create_instance(archetype);
         }
         let mut fs = UtfFileSystem::open(
             &assets.host,
@@ -679,6 +733,24 @@ impl World {
             return (Geometry::from_surface(&surface), part.hardpoint_ids.clone());
         }
         (Geometry::default_part(), Vec::new())
+    }
+
+    /// The hardpoint ids of a part, as [`World::part_geometry`] gives them,
+    /// without building the part's hulls.
+    pub(crate) fn part_hardpoint_list(parts: Option<&SurParts>, part_id: u32) -> Vec<u32> {
+        let part = parts.and_then(|p| {
+            p.get(&part_id).or_else(|| {
+                (part_id == 0 && p.len() == 1)
+                    .then(|| p.values().next())
+                    .flatten()
+            })
+        });
+        match part {
+            Some(part) if matches!(part.compact_surface(), Some(Ok(_))) => {
+                part.hardpoint_ids.clone()
+            }
+            _ => Vec::new(),
+        }
     }
 
     /// `FindHardpoint_OS(instance, name)`: the hardpoint on the instance or
@@ -746,6 +818,53 @@ impl World {
         let t = Transform::new(obj.engine.orientation, obj.engine.position);
         self.scene.set_instance_matrix(Some(instance), &t);
         self.scene.update_instance(Some(instance), 0);
+    }
+
+    /// Starts (or stops) recording a system's simulation units per PSI.
+    pub fn set_unit_trace(&mut self, system: u32, on: bool) {
+        if let Some(world) = self.physics.world_mut(system) {
+            world.set_unit_trace(on);
+        }
+    }
+
+    /// A system's recorded simulation units: per PSI, in the order they
+    /// ran, each unit's object as `units.jsonl` names it (`CSimple::Id`,
+    /// 0 for a free part, and the `ObjectClass`) and whether the movement
+    /// check came to it.
+    #[must_use]
+    pub fn unit_trace(&self, system: u32) -> Vec<Vec<(u32, u32, bool)>> {
+        let Some(world) = self.physics.world(system) else {
+            return Vec::new();
+        };
+        world
+            .unit_trace()
+            .iter()
+            .map(|psi| {
+                psi.iter()
+                    .map(|&(key, check)| {
+                        let h = ObjHandle::from_key(key);
+                        let (id, class) = if h.generation() == crate::object::FREE_PART_GENERATION {
+                            (0, crate::object::FREE_PART_CLASS)
+                        } else {
+                            self.objects
+                                .get(h)
+                                .map_or((0, 0), |o| (o.simple.id, o.kind.class()))
+                        };
+                        (id, class, check)
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// A system's recorded unit cores of the first PSIs
+    /// ([`PhysicsWorld::unit_core_trace`]).
+    #[must_use]
+    pub fn unit_core_trace(&self, system: u32) -> Vec<Vec<neuron_core::physics::world::UnitCore>> {
+        self.physics
+            .world(system)
+            .map(|w| w.unit_core_trace().to_vec())
+            .unwrap_or_default()
     }
 
     /// The physics body of an object.

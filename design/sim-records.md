@@ -50,20 +50,34 @@ Conventions:
 | --- | --- |
 | `start` | `version` u, `scenario` s (path), `data_root` s, `system` s, `system_id` u, `ticks` u, `frame` d (seconds), `stepping` s (`sp` or `mp`), `collisions` s (`sp` or `mp`; since the load-draw work, after `stepping`), `seed` u, `clock` d (the fixed clock at tick 0), `objects` u, `commands` u |
 | `server` | `data_path` s, `controller` u (SimClientStub's controller id), `system_id` u, `system_loaded` b, `reseed` u (the seed of the `srand` the harness calls again after the load, before the objects are spawned: the seeding point the Rust world matches; reference-build.md section 10, start-up step 5) |
-| `spawn` | `obj` s, `kind` s (`ship` or `solar`); a ship: `arch` s, `arch_id` u, `loadout` s, `loadout_id` u, `result` i (`pub::SpaceObj::Create`), `id` u, [`state_graph` s, `state_graph_id` i, [`pilot` s, `pilot_found` b (the `pilot` option; its personality was submitted)], `submit_state` i]; with `faction`, before `arch`: `faction` s, `faction_result` i (`GetReputationGroup`), then when the group is known `faction_id` u, `vibe` i (the ship's `VibeGroupId`), `vibe_alloc` i, `vibe_affiliation` i (`pub::Reputation::Alloc`, `SetAffiliation`); a solar: `nickname` s, `id` u (`CreateID(nickname)`), `found` b |
+| `spawn` | `obj` s, `kind` s (`ship` or `solar`); a ship: `arch` s, `arch_id` u, `loadout` s, `loadout_id` u, `result` i (`pub::SpaceObj::Create`), `id` u, [`state_graph` s, `state_graph_id` i, [`pilot` s, `pilot_found` b (the `pilot` option; its personality was submitted)], `submit_state` i]; with `faction`, before `arch`: `faction` s, `faction_result` i (`GetReputationGroup`), then when the group is known `faction_id` u, `vibe` i (the ship's `VibeGroupId`), `vibe_alloc` i, `vibe_affiliation` i (`pub::Reputation::Alloc`, `SetAffiliation`); a solar: `nickname` s, `id` u (`CreateID(nickname)`), `found` b; then (P2.5, the transport's collision geometry) a created ship's `part_map` [[`part` u, `instance` i], …] (`CObject::PartMap`) and `attached` [{`id` u, `connected` b, `kind` s (`non_physical`, `physical` or `none`), with `non_physical` also `hp_crc` u, `collisions` b}, …] (every `CAttachedEquip` and its attachment) |
 | `command` | `tick` u, `line` i (in the scenario file), `obj` s, `cmd` s (the command as written), `ok` b, `result` i (what the called function returned; for a directive the `OP_RTYPE`), [`note` s, why it did not run] |
 | `error`, `critical_warning`, `note` | `tick` u, `text` s (`note`: an object marked `psi` whose PSIs are not recorded, and why; once per object) |
+| `fault` | `tick` u, `first_chance` b (from the vectored handler; false: the frame's `__except` filter, which ends the run with code 4), `code` s (hex), `code_name` s, `address` s (hex), `at` {`module` s\|null, `offset` s (hex, from the module base), `functions` s[] (the innermost inlined function first), `line` s (`file:line` under `CppSource/`, `""` when unknown)}, for an access violation `access` s (`read`, `write`, `execute`), `target` s (hex), `target_memory` s (`free`, `reserved`, `committed`, `committed, not readable`); `symbols` b (dbghelp started), `regs` {`eax` .. `ebp`: {`v` s, [`in` s (module+offset and symbol)], `words` s[4] and [`word0_in` s] when it points at readable memory (a vtable names the class), else `memory` s}, `esp` s, `eip` s, `eflags` s}, `esp_words` s[16], `stack` [{`module`, `offset`, `functions`, `line`}] (at most 48 frames; frame 0 is the faulting instruction, the others are resolved at their call) |
 | `end` | `tick` u, `psi_total` u, `code` i (the exit code) |
 
 ## `tick.jsonl`
 
 | `rec` | Fields |
 | --- | --- |
-| `frame` | `tick` u, `clock` d, `x87_cw` s, `sse_cw` s (`%08x` of `__control87_2`'s two words at the start of the frame, before the harness sets 53-bit precision again; at tick 0 after spawning), `psi_count` u (PSIs in the frame), `psi_dt` f[] (each PSI's `delta_time`) |
-| `object` | `tick` u, `obj` s, `id` u, `alive` b; when alive: `pos` f3, `orient` f9, `vel` f3, `angvel` f3, `hp` f, `hp_max` f (`IObjInspect` of the server object: `get_position`, `get_orientation`, `get_velocity`, `get_angular_velocity`, `get_status`); then (P2.4, the scenario report) `power` f, `power_max` f (`CEqObj::Power`, `MaxPower`) and `shield` {`id` u, `hp` f, `hp_max` f, `online` b (`bOnline`), `functioning` b}\|null (the first `CEShield`: `GetHitPoints`, `GetMaxHitPoints`, `IsFunctioning`); a ship also: `throttle` f, `axis` f3, `nudge` f3, `strafe` i (`StrafeDir`), `cruise` b, `behavior` i (`CurrentBehaviorIndex`, −1 for none), `state_graph` i (−1 for none), `directive` u3 (`DirectiveStorage`), then (P2.5, the dogfight) `target` u\|null, `target_obj` (`IObjInspect::get_target`) |
+| `frame` | `tick` u, `clock` d, `x87_cw` s, `sse_cw` s (`%08x` of `__control87_2`'s two words at the start of the frame, before the harness sets 53-bit precision again; at tick 0 after spawning), `psi_count` u (PSIs in the frame), `psi_dt` f[] (each PSI's `delta_time`); then (P2.5) `psi_mcheck` i[] (the environment's movement-check countdown `next_movement_check` at the start of each PSI) and `psi_ivp_seed` u[] (`IVP_FastRandomFloat`'s process-wide seed then): the load steps the environment and draws from the seed before tick 1, and the movement check decides which unit classifies its motion |
+| `object` | `tick` u, `obj` s, `id` u, `alive` b; when alive: `pos` f3, `orient` f9, `vel` f3, `angvel` f3, `hp` f, `hp_max` f (`IObjInspect` of the server object: `get_position`, `get_orientation`, `get_velocity`, `get_angular_velocity`, `get_status`); then (P2.4, the scenario report) `power` f, `power_max` f (`CEqObj::Power`, `MaxPower`) and `shield` {`id` u, `hp` f, `hp_max` f, `online` b (`bOnline`), `functioning` b}\|null (the first `CEShield`: `GetHitPoints`, `GetMaxHitPoints`, `IsFunctioning`); a ship also: `throttle` f, `axis` f3, `nudge` f3, `strafe` i (`StrafeDir`), `cruise` b, `behavior` i (`CurrentBehaviorIndex`, −1 for none), `state_graph` i (−1 for none), `directive` u3 (`DirectiveStorage`), then (P2.5, the dogfight) `target` u\|null, `target_obj` (`IObjInspect::get_target`); then (P2.5, the strafe's bullets) `guns` [[`id` u, yaw current f, yaw desired f, pitch current f, pitch desired f, target point age f, yaw bound i, pitch bound i, lock target id u], …] (every `CEGun`'s turret joints, `TargetPointAge` and `GetTarget`) |
 
 `alive` is false once the object is no longer in its system's object
 database (destroyed, docked or removed).
+
+Added by P2.5 (the guided-missile controller, owner 2026-11-18): one
+`guided` record per tick, after the `object` records, for every guided
+munition (`CObject` class 0xa7) whose simulation unit has run in a PSI
+of the run, in id order: `tick` u, `id` u, `alive` b; when alive (found
+by `CObject::Find(id, ClassGuided)`): `owner` u (`CProjectile::OwnerId`),
+`pos` f3 (`WorldPosition`), `orient` f9 (`Orientation`), `vel` f3
+(`get_velocity`), `angvel` f3 (`get_angular_velocity`, world space),
+`lifetime` f, `seeker_elapsed` f, `target` u\|null and `target_obj`
+(`get_target`), `sub_target` u. A munition that is gone gets one record
+with `alive` false and no more. `scenario_replay` numbers them by id on
+both sides (the launch order) and compares the launch tick, the last
+tick alive and the trajectory bit for bit.
 
 ## `events.jsonl`
 
@@ -84,7 +98,11 @@ layout (without `ctl`) and whose unit tests round-trip it.
 
 One `psi` record per core and PSI, in the order the PSIs run, for each
 object marked `psi` in the scenario whose simulation unit ran in that PSI
-(none while the unit is asleep). Not recorded, with a `note` in
+(none while the unit is asleep). Since P2.5 also for every guided
+munition whose unit (of one core) runs, with `obj` `guided`, its id and
+no `ctl` (the motor's push is in `pushes`; the seeker's velocity changes
+come between PSIs and are in `in`); `scenario_replay` compares their
+`out` with the Rust missile's core after each tick. Not recorded, with a `note` in
 `session.jsonl`: an object with a golem or remote-correction controller
 (`CObject::GolemController`, +0x60, non-null; those beam their bodies and
 are covered by scenario tests) and a core whose simulation unit holds more
@@ -199,13 +217,20 @@ ones too): `id` u, `functioning` b, `controller` b, `power_usage` f,
 `max_force` f. The `engine` object adds, after `reverse_fraction`:
 `active` b, `functioning` b (`CEEngine::IsFunctioning`), `controller` b.
 
+Added by P2.5 (last): `order` s[], the unit's controller buckets in the
+order the PSI runs them (`ControllerBuckets` from the last element; IVP
+appends on registration, sorts by priority and, when the friction system
+merges or splits units, rebuilds from the core's controller list walked
+backwards): `ship`, `strafe`, `nudge`, `steering`, `engine`,
+`thruster <id>`, or `other` (IVP's standard controller included).
+
 `crates/game-sim/tests/controller_replay.rs` rebuilds the controllers from
 `ctl` (the steering, nudge, strafe, thruster and engine controllers of
-`game_sim::equip::flight`), runs them for the PSI in IVP's order (the last
-registered first: strafe, nudge, steering, the thrusters from the last, the
-engine) and compares their pushes with `pushes`: the same kinds, every
-float within 1e-6 relative to the larger magnitude; pushes that only
-differ in order are counted but pass. Records without the P2.4 fields use
+`game_sim::equip::flight`), runs them for the PSI in the recorded `order`
+(without it IVP's order on registration: strafe, nudge, steering, the
+thrusters from the last, the engine) and compares their pushes with
+`pushes`: the same kinds, every float within 1e-6 relative to the larger
+magnitude, in the same order. Records without the P2.4 fields use
 enough power, the orientation of `in.m`, no zone, every controller
 registered and no thrusters. Its summary is `rust-controller-replay.txt`.
 
@@ -232,7 +257,7 @@ summary to `rust-sim-replay.txt` there.
 | `munition_hit` `state` (P2.4) | after `damage`: `hull_damage` f, `energy_damage` f, `weapon_type` u (the munition archetype); when the target is found (`CObject::Find` as a ship, else a solar): `hp` f, `hp_max` f, `power` f, `power_max` f, `owner` u, `armor` f\|null (the first `CEArmor`'s `hit_pts_scale`), `sub_kind` s (`group`, `equip`, `shield` or `root`); a group adds `sub_hp` f, `sub_hp_max` d, `sub_state` i, `sub_proxy` b (`IsRootHealthProxy`), `sub_linked_type` u; an item adds `sub_hp` f, `sub_hp_max` d, `sub_type` u, `sub_destroyed` b, and a shield `shield_offline_threshold` f and `shield_weapon_mod` d (`GetWeaponModifier` of the munition's weapon type). The target's state before the list is applied, which `crates/game-sim/tests/damage_replay.rs` rebuilds to replay `munition_hit` (summary `rust-damage-replay.txt`) |
 | `behavior_in` | `tick` u, `seq` u (behaviour tick number, from 1), `id` u, `obj`, `dt` f, `behavior` i, `state_graph` i, `directive` u3, `suppressed` b (`TickSuppressedFlag`); when the owner is set: `pos` f3, `orient` f9, `vel` f3, `angvel` f3, `throttle` f, `axis` f3, `nudge` f3, `strafe` i, `cruise` b. Entry of `IBehaviorManager::UpdateBehaviorTick` |
 | `behavior_out` | `tick` u, `seq` u, `id` u, `obj`, `behavior` i, `state_graph` i, `directive` u3. Every exit of the same call |
-| `affect` | `tick` u, `beh` u (the `seq` of the behaviour tick in progress, 0 outside one), `src` s (`behavior`, `scenario` for the harness's own commands, `other`), `id` u, `obj`, `slot` i, `m` s, `i` i, `depth` i, `v` f[]\|null. One `IObjAffect` call on a ship: slot 0 `set_throttle` (`v` the throttle), 1 `set_axis_throttle` (`v` f3), 2 `set_nudge_vec` (`v` f3), 3 `set_strafe_dir` (`i` the `StrafeDir`), 13 `fire` (`EqObj::slot_34`: `i` the number of guns, `v` the target position or `null`), 18 `set_target` (`i` the target's id, 0 for none; `v` [the sub-target]), 19 `activate_equip` (`EqObj::slot_4c`: `i` the equipment id, `v` [1 to activate, 0 to deactivate]), 20 `engage_cruise` (`Ship::slot_50`: `i` 1 to engage, 0 to leave; `v` [the second flag, 1 or 0]), 21 `set_thrusters` (`Ship::slot_54`: `i` 1 on, 0 off). `depth` (P2.5) is the number of these calls in progress around this one (`FOracleSimAffectScope`): 0 for a call the caller made, 1 or more for one an `IObjAffect` body makes in turn (`set_strafe_dir` and `slot_54` switch the engine on through `slot_4c`, `slot_50` switches the thrusters off through `slot_54`); records written before the field read as 0 |
+| `affect` | `tick` u, `beh` u (the `seq` of the behaviour tick in progress, 0 outside one), `src` s (`behavior`, `scenario` for the harness's own commands, `other`), `id` u, `obj`, `slot` i, `m` s, `i` i, `depth` i, `v` f[]\|null. One `IObjAffect` call on a ship: slot 0 `set_throttle` (`v` the throttle), 1 `set_axis_throttle` (`v` f3), 2 `set_nudge_vec` (`v` f3), 3 `set_strafe_dir` (`i` the `StrafeDir`), 13 `fire` (`EqObj::slot_34`: `i` the number of guns, `v` the target position or `null`), 16 `tractor` (P2.5 loot: `EqObj::slot_40`: `i` the tractor's equipment id, `v` [the target's id as the bits of the float, 0 for none]), 18 `set_target` (`i` the target's id, 0 for none; `v` [the sub-target]), 19 `activate_equip` (`EqObj::slot_4c`: `i` the equipment id, `v` [1 to activate, 0 to deactivate]), 20 `engage_cruise` (`Ship::slot_50`: `i` 1 to engage, 0 to leave; `v` [the second flag, 1 or 0]), 21 `set_thrusters` (`Ship::slot_54`: `i` 1 on, 0 off). `depth` (P2.5) is the number of these calls in progress around this one (`FOracleSimAffectScope`): 0 for a call the caller made, 1 or more for one an `IObjAffect` body makes in turn (`set_strafe_dir` and `slot_54` switch the engine on through `slot_4c`, `slot_50` switches the thrusters off through `slot_54`); records written before the field read as 0 |
 
 The `affect` records between a `behavior_in` and its `behavior_out` with
 the same `seq` are the commands that behaviour tick issued.
@@ -260,7 +285,7 @@ on entry: nothing moves during a behaviour tick (physics steps after it).
 | `rec` | Fields |
 | --- | --- |
 | `ai_start` | `version` u (1), `near_radius` f (m), `rand_hooks` [s, …] (the DLLs whose `rand` import the recorder replaced: `Common.dll`, `Server.dll`, `Content.dll` when loaded) |
-| `ai_in` | `tick` u, `seq` u, `id` u, `obj` s\|null, `dt` f, then the manager fields below, then `targets` [u, …] (the ids of the system manager's target list, `Sys->Timers.Targets`, built by the previous tick) |
+| `ai_in` | `tick` u, `seq` u, `id` u, `obj` s\|null, `dt` f, then the manager fields below, then `targets` [u, …] (the ids of the system manager's target list, `Sys->Timers.Targets`, built by the previous tick; read at the end of that tick, since an entry can name an object destroyed since), [`targets_gone` [u, …] (those of them no longer in the object database, or whose object is released: they are not snapshotted as `candidate` and not asked `can_point_at`)] |
 | `personality` | `tick` u, `seq` u, `id` u, `obj`, `bytes` s: the 0x3d8 bytes of `Sys->PersonalityData` (`pub::AI::Personality`) as hex; `game_sim::ai::personality::Personality::from_bytes` reads them |
 | `ai_obj` | `tick` u, `seq` u, `id` u, `obj`, `roles` [s, …], then either `fault` u (the SEH code; the read faulted) or the object fields below |
 | `ai_query` | `tick` u, `seq` u, `kind` s (`ray` `PhySys::FindRayCollisions`, `ray_object` `FindRayIntersect`, `sphere` `FindSphereCollisions`), `system` u (0 for `ray_object`), `object` u\|null (the body `ray_object` tests), `from` f3, `to` f3 (the centre twice for a sphere), `radius` f (0 for rays), `max` i, `hits` [[`id` u, `point` f3, `normal` f3, `part` u], …] (a sphere hit is [`id`]) |
@@ -321,10 +346,12 @@ Roles of an object: `self`; `target` (`get_target`); `formation_leader`,
 `follow_leader`, `follower` (`get_formation_leader`, `get_follow_leader`,
 `get_formation_followers`, at most 16); `dock_target` (`get_dock_target`
 through `IObjDB::FindById`); `in_sights`; `candidate` (the target list);
-`near` (every ship, solar and loot of the system within `near_radius` of
-the ship's position, walked with `IObjDB::GetNext`, mask `0x107ffdff`);
-`query` (found by a query of this tick). An object has every role that
-applies, in that order.
+`missile` (P2.5 combat: an incoming missile of the timer table's list,
+`Sys->Timers.Missiles`, or its best candidate; the near walk's mask
+leaves munitions out); `near` (every ship, solar and loot of the system
+within `near_radius` of the ship's position, walked with
+`IObjDB::GetNext`, mask `0x107ffdff`); `query` (found by a query of this tick). An object
+has every role that applies, in that order.
 
 Object fields, each the `IObjInspect` slot of `include/common_iface.h`
 (`x|null` is null when the slot does not answer 0): `class` u
@@ -356,7 +383,7 @@ ship), and for the ship itself `lead` f3\|null (`CShip::
 get_tgt_lead_fire_pos`; null when it answers false) and `equip` [{…}, …]:
 each item `find_equipment` finds for the types `0x80` (guns and
 launchers), `0x20` (mine droppers), `0x40` (countermeasure droppers) and
-`0x100` (shields), in that order, as {`id` u, `type` u (the mask that found
+`0x100` (shields) and (P2.5 loot) `0x100000` (the tractor, whose `range` the loot behaviour reads), in that order, as {`id` u, `type` u (the mask that found
 it), `status` [u, u] (`get_equipment_status`: `Flags`, `EquipFlags`) or
 the failing result i, `munition`, `auto_turret`, `seeker`, `range`,
 `target` u\|null (`get_equipment_val` of `EquipValMunitionKind`,
@@ -396,7 +423,7 @@ difference or such a query fails the test like a mismatched tick (an
 `is_pointing_at` at another angle, the lead of an item the snapshot has not). It compares the manager fields of `ai_out` bit for
 bit (with `pathfind` and `thrust` where the record has them), the number
 of `rand()` draws, and the commands with the `affect` records whose `beh`
-is the tick's `seq` and whose `depth` is 0 (slots 0 to 3, 13 and 18 to
+is the tick's `seq` and whose `depth` is 0 (slots 0 to 3, 13, 16 and 18 to
 21, the slots `affect` records; floats bit for bit). Before each tick it
 also sets the `pathfind` and `thrust` fields of `ai_in`. The ship's motion
 model (slots 50 to 64), which no record holds, comes from the scenario's
@@ -406,6 +433,13 @@ calls included. A tick whose behaviour on entry or
 exit is not ported is counted as skipped by behaviour id, and so is a
 mismatching tick whose graph row has a candidate that is not ported (its
 poll is a stand-in). Its summary is `rust-behavior-replay.txt`.
+
+Not recorded either: a loot container's contents (units, the AI flag, the
+contents' class and good) and the ship's cargo hold, which the loot
+behaviour reads only with a loot preference; Content parses
+`loot_preference` case-sensitively (`LT_ALL`, `LT_COMMODITIES`, ...) and
+the data's values are lower case, so every pilot of the data has none and
+the replay world answers neither.
 
 Not recorded: objects a behaviour looks up by an id it keeps in its own
 state and that have none of the roles above (they are outside the near
@@ -425,6 +459,21 @@ countdown came to the unit. Every unit decrements the countdown, so the
 number and order of units decide when an object's motion is classified
 (D88, D122). `scenario_replay` prints them around an object's first bit
 difference.
+
+## `unit_cores.jsonl`
+
+The first core of every simulation unit of the first 12 PSIs, written by
+`UnitCoreRecord` (oracle_sim.cpp): one `unit_core` record per unit and
+PSI in the order the units ran, `tick` u, `psi` u, `i` u (the unit's
+place in the PSI's run order), `id` u and `class` u as in `units.jsonl`,
+`check` b, `in` (the core at the start of the unit's PSI, in the first
+PSI only) and `out` (at its end, before `calc_next_PSI_matrix`), both in
+the core layout of `psi.jsonl`. A unit whose object is a free part
+(class 1) adds `orient` [f×9] and `pos` [f×3] (the object's frame) and,
+with a golem, `golem_q` [f×4] and `golem_current_q` [f×4] (its
+`TargetQuat` and `CurrentTargetQuat`, x y z w). `scenario_replay`
+compares every unit core with the Rust world's bit for bit and reports
+the first difference.
 
 ## `load_rand.jsonl`
 

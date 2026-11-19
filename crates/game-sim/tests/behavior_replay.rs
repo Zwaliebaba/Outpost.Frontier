@@ -54,8 +54,8 @@ use game_sim::ai::steer::{
     build_orientation_basis, build_perpendicular_frame, steering_frame_from_relative_dir,
 };
 use game_sim::ai::world::{
-    AiCommand, AiRand, AiWorld, EquipInfo, MotionModel, ObjectView, RayContact, RecordedRand,
-    SpatialQueries,
+    AI_SCAN_MASK, AiCommand, AiRand, AiWorld, EquipInfo, MotionModel, ObjectView, RayContact,
+    RecordedRand, SpatialQueries,
 };
 use game_sim::object::world::{ShipSpawn, WorldConfig};
 use game_sim::object::{ObjHandle, World};
@@ -72,7 +72,7 @@ use support::records::{find_files, oracle_dir};
 const MAX_REPORTED: usize = 30;
 
 /// The recorded `IObjAffect` slots (`design/sim-records.md`, `affect`).
-const RECORDED_SLOTS: [u8; 9] = [0, 1, 2, 3, 13, 18, 19, 20, 21];
+const RECORDED_SLOTS: [u8; 10] = [0, 1, 2, 3, 13, 16, 18, 19, 20, 21];
 
 /// The scenario ships of one run in a world over `outdir/`, for their
 /// motion models: the ship's scenario name to its handle.
@@ -147,6 +147,9 @@ struct ReplayWorld<'a> {
     ship: u32,
     /// The ship's motion model: the motion world and the ship's handle.
     motion: Option<(&'a World, ObjHandle)>,
+    /// The other scenario ships' handles in the motion world, by id (the
+    /// dodge idea asks the watched ship's speed).
+    others: BTreeMap<u32, ObjHandle>,
     /// `GAvoidIndexTableShuffled` of the run (the process).
     avoid_shuffled: bool,
     /// The ship's scan list: the target list the tick built, which the
@@ -171,7 +174,15 @@ impl<'a> ReplayWorld<'a> {
         scan: Vec<u32>,
         motion: Option<&'a MotionWorld>,
         avoid_shuffled: bool,
+        names: &BTreeMap<u32, String>,
     ) -> Self {
+        let others = motion.map_or_else(BTreeMap::new, |m| {
+            names
+                .iter()
+                .filter(|(id, _)| **id != t.id)
+                .filter_map(|(id, name)| m.ships.get(name).map(|h| (*id, *h)))
+                .collect()
+        });
         let motion = motion.and_then(|m| {
             let h = *m.ships.get(t.obj.as_deref()?)?;
             Some((&m.world, h))
@@ -193,6 +204,7 @@ impl<'a> ReplayWorld<'a> {
             commands: Vec::new(),
             ship: t.id,
             motion,
+            others,
             avoid_shuffled,
             scan,
             equip: own.and_then(|o| o.equip.clone()),
@@ -223,8 +235,8 @@ impl<'a> ReplayWorld<'a> {
     }
 
     /// The ship's state after one of its `IObjAffect` calls, with the
-    /// calls the reference's bodies make in turn (`Ship::set_strafe_dir`
-    /// and `slot_54` switch the engine on, `slot_50` switches the
+    /// calls the reference's bodies make in turn (`CShip::set_throttle`,
+    /// `Ship::set_strafe_dir` and `slot_54` switch the engine on, `slot_50` switches the
     /// thrusters off before engaging cruise; `slot_4c` will not switch an
     /// engine off while the ship strafes or thrusts).
     fn follow(v: &mut ObjectView, command: &AiCommand<u32>) {
@@ -236,7 +248,11 @@ impl<'a> ReplayWorld<'a> {
             }
         };
         match command {
-            AiCommand::SetThrottle(t) => v.throttle = Some(*t),
+            AiCommand::SetThrottle(t) => {
+                // `CShip::set_throttle` activates an inactive first engine.
+                engine_on(v);
+                v.throttle = Some(*t);
+            }
             AiCommand::SetAxisThrottle(a) => v.axis_throttle = Some(*a),
             AiCommand::SetNudge(n) => v.nudge = Some(*n),
             AiCommand::SetStrafe(s) => {
@@ -341,19 +357,36 @@ impl AiWorld for ReplayWorld<'_> {
     fn motion(&self, h: u32) -> Option<Box<dyn MotionModel + '_>> {
         let (world, handle) = self.motion?;
         if h != self.ship {
-            return None;
+            return world.motion(*self.others.get(&h)?);
         }
         world.motion(handle)
     }
 
-    fn scan_list(&mut self, h: u32, _keep: bool) -> Option<Vec<u32>> {
-        (h == self.ship).then(|| {
+    /// The target list's mask answers the list the tick built; another
+    /// mask (the obstacle search) answers every object of the snapshot but
+    /// the ship that is targetable and not dying, by id: the scanner's
+    /// frame scan covers every type within the radar range, and the
+    /// snapshot holds every ship, solar and loot within 5 km.
+    fn scan_list(&mut self, h: u32, mask: u32, _keep: bool) -> Option<Vec<u32>> {
+        if h != self.ship {
+            return None;
+        }
+        if mask != AI_SCAN_MASK {
+            return Some(
+                self.objects
+                    .values()
+                    .filter(|v| v.id != self.ship && v.is_targetable && !v.is_dying)
+                    .map(|v| v.id)
+                    .collect(),
+            );
+        }
+        Some(
             self.scan
                 .iter()
                 .copied()
                 .filter(|id| self.objects.contains_key(id))
-                .collect()
-        })
+                .collect(),
+        )
     }
 
     fn system_of(&self, h: u32) -> Option<u32> {
@@ -617,6 +650,18 @@ fn restore_face(manager: &mut BehaviorManager<ReplayWorld<'_>>, r: &FaceRecord) 
     face.field_1d8 = r.field_1d8;
 }
 
+/// Whether a matrix's rows are unit vectors (within 1e-3): a rotation, as
+/// every orientation the face behaviour writes is.
+fn is_rotation(m: &neuron_core::math::Matrix) -> bool {
+    m.m.iter().all(|r| {
+        let n = (f64::from(r[0]) * f64::from(r[0])
+            + f64::from(r[1]) * f64::from(r[1])
+            + f64::from(r[2]) * f64::from(r[2]))
+        .sqrt();
+        (n - 1.0).abs() < 1e-3
+    })
+}
+
 /// The Rust face behaviour's fields as `face` writes them.
 fn face_snapshot(manager: &mut BehaviorManager<ReplayWorld<'_>>) -> Option<FaceRecord> {
     let face = manager
@@ -823,6 +868,10 @@ fn as_affect(c: &AiCommand<u32>) -> Option<AffectRow> {
             i32::try_from(equipment.len()).unwrap_or(-1),
             target.as_ref().and_then(v3),
         ),
+        // The target's id travels as the bits of the float.
+        AiCommand::Tractor { equipment, target } => {
+            (16, i32::from(*equipment), Some(vec![*target]))
+        }
         AiCommand::SetTarget { target, subtarget } => (
             18,
             target.map_or(0, int),
@@ -1054,13 +1103,9 @@ fn face_variants(
             let _ = write!(out, "\n  variant {name}: none");
             continue;
         };
-        let mut w = ReplayWorld::new(t, Vec::new(), motion, true);
+        let mut w = ReplayWorld::new(t, Vec::new(), motion, true, &BTreeMap::new());
         let mut st = entry.clone();
-        let mut cx = Cx {
-            world: &mut w,
-            ship: t.id,
-            state: &mut st,
-        };
+        let mut cx = Cx::new(&mut w, t.id, &mut st);
         let mut idea = FaceIdea::new();
         idea.set_context(&cx);
         idea.set_basis(&frame);
@@ -1098,6 +1143,10 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
     let mut last_out: BTreeMap<u32, ManagerRecord> = BTreeMap::new();
     let mut face_point: Option<Vector> = None;
     let mut personalities: BTreeMap<u32, Personality> = BTreeMap::new();
+    let names: BTreeMap<u32, String> = ticks
+        .iter()
+        .filter_map(|t| Some((t.id, t.obj.clone()?)))
+        .collect();
     for (index, t) in ticks.iter().enumerate() {
         // The list this tick builds is the one the ship's next tick
         // records on entry; the last tick falls back to its own entry.
@@ -1112,7 +1161,7 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
         if let Some(p) = t.personality.as_deref().and_then(Personality::from_bytes) {
             personalities.insert(t.id, p);
         }
-        let mut world = ReplayWorld::new(t, scan, motion.as_ref(), avoid_shuffled);
+        let mut world = ReplayWorld::new(t, scan, motion.as_ref(), avoid_shuffled, &names);
         let is_player = world.objects.get(&t.id).is_some_and(|v| v.is_player);
         if first_seen.insert(t.id, ()).is_none()
             && let Some(v) = world.objects.get(&t.id)
@@ -1146,7 +1195,16 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
         }
         let manager = managers.entry(t.id).or_insert_with(|| {
             let mut m = BehaviorManager::from_state(ManagerState::new(is_player), Some(t.id));
-            m.attach_all(&mut world, t.id);
+            // The reference binds the behaviours when it builds the manager,
+            // before any tick: what their `SetContext` commands (a move
+            // idea leaving engine mode cuts the throttle) is no part of the
+            // tick, so they run against a world of their own.
+            let mut binding =
+                ReplayWorld::new(t, Vec::new(), motion.as_ref(), avoid_shuffled, &names);
+            m.attach_all(&mut binding, t.id);
+            // `InitSystemManager`'s tractor record (the ship's first
+            // tractor, from the snapshot's items).
+            m.state.sys.tractor.init(&binding, t.id);
             m.state.pathfind.owner_type = world.objects.get(&t.id).map_or(0, |v| v.type_flags);
             if let Some(v) = world.objects.get(&t.id) {
                 m.state.pathfind.avoidance.attach_owner(v);
@@ -1207,6 +1265,7 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
         if let Some(p) = personalities.get(&t.id) {
             manager.state.personality = *p;
         }
+        let orient_before = face_snapshot(manager).map(|f| f.orient);
         manager.update_behavior_tick(&mut world, t.id, t.dt);
         avoid_shuffled = world.avoid_shuffled;
         last_out.insert(t.id, out.clone());
@@ -1229,11 +1288,28 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
             })
             .unwrap_or_default();
         let rand_ok = world.rand.exhausted_exactly();
-        let our_face = if out.face.is_some() {
+        let mut our_face = if out.face.is_some() {
             face_snapshot(manager)
         } else {
             None
         };
+        // `FaceBehavior`'s matrix at +0x38 is left uninitialised by its
+        // constructor (D166): while the tick did not write it (the Rust
+        // value is the one before the tick) and the recorded one is no
+        // rotation, the recorded value is whatever the memory held.
+        if let (Some(ours), Some(theirs), Some(before)) =
+            (our_face.as_mut(), out.face.as_ref(), orient_before)
+            && ours
+                .orient
+                .m
+                .as_flattened()
+                .iter()
+                .map(|x| x.to_bits())
+                .eq(before.m.as_flattened().iter().map(|x| x.to_bits()))
+            && !is_rotation(&theirs.orient)
+        {
+            ours.orient = theirs.orient;
+        }
         let state = state_diff(&manager.state, our_face.as_ref(), out);
         if out.sys.is_some() {
             totals.state_compared += 1;

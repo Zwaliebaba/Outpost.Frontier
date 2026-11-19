@@ -89,6 +89,8 @@ struct FOracleSimEnv
     float Time[2];                  // current_time base, offset
     float MaxVelocity;              // anomaly_limits->MaxVelocity
     float MaxAngularVelocityPerPsi; // anomaly_limits->MaxAngularVelocityPerPsi
+    int MovementCheck;              // next_movement_check (+0x118)
+    unsigned IvpSeed;               // IVP_FastRandomFloat's seed (process wide)
 };
 
 // The IVP_Core::push_core_* calls OnCorePush reports.
@@ -118,6 +120,9 @@ enum EOracleSimAffect
     OracleSimAffectNudge = 2,         // Values[0..2]
     OracleSimAffectStrafe = 3,        // IntArg = StrafeDir
     OracleSimAffectFire = 13,         // IntArg = equipment count, Values = target position or none
+    // P2.5 loot: slot_40 (the tractor): IntArg = equipment id, Values[0] = the target's id
+    // (its bits; 0 for none).
+    OracleSimAffectTractor = 16,
     // P2.5 goto/face (design/sim-records.md, `affect`):
     OracleSimAffectTarget = 18,       // set_target: IntArg = target id (0 none), Values[0] = sub-target
     OracleSimAffectEquip = 19,        // slot_4c: IntArg = equipment id, Values[0] = activate (1 or 0)
@@ -191,6 +196,9 @@ COMMON_API IVP_Core* __cdecl OracleSimCoreOf(CObject const* Object);
 COMMON_API IVP_Simulation_Unit* __cdecl OracleSimUnitOf(IVP_Core const* Core);
 // The number of cores in a unit, 0 for a null unit.
 COMMON_API int __cdecl OracleSimUnitCoreCount(IVP_Simulation_Unit const* Unit);
+// The unit's controllers (IVP_Controller*, the bucket keys) in the order its PSI runs them
+// (the last bucket first), at most Max; their count.
+COMMON_API int __cdecl OracleSimUnitControllers(IVP_Simulation_Unit const* Unit, void const** Out, int Max);
 // The CObject of a unit's core Index (its first object's client_data), null when there is none.
 COMMON_API CObject* __cdecl OracleSimUnitCoreObject(IVP_Simulation_Unit const* Unit, int Index);
 // Copies a core; false (Out zeroed) for a null core.

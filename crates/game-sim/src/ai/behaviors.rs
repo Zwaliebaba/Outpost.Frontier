@@ -2,8 +2,9 @@
 //! `common_behaviortypes.cpp`). Ported so far: the simple behaviours of
 //! `common_nullbehavior.cpp`, `common_idlebehavior.cpp`,
 //! `common_delaybehavior.cpp`, `common_cruisebehavior.cpp` and
-//! `common_drasticevadebehavior.cpp`, and goto, free flight and face
-//! ([`super::goto`], [`super::face`]). Every other id makes an
+//! `common_drasticevadebehavior.cpp`, and goto, free flight, face, buzz,
+//! evade, trail, strafe, flee and loot (their own modules). Follow has its
+//! poll only. Every other id makes an
 //! [`UnportedBehavior`], which keeps the manager's protocol (it binds,
 //! engages and ticks) but never volunteers in a re-evaluation and commands
 //! nothing; [`Behavior::ported`] tells a replay to skip its ticks.
@@ -11,10 +12,16 @@
 use neuron_core::math::Vector;
 
 use super::behavior::{AiEnv, Behavior, BehaviorBase, Cx, DirectiveOp, ids};
+use super::buzz::BuzzBehavior;
+use super::evade::EvadeBehavior;
 use super::face::FaceBehavior;
+use super::flee::FleeBehavior;
 use super::fp::{e, r};
 use super::goto::GotoBehavior;
 use super::idea::{Idea, IdleIdea};
+use super::loot::LootBehavior;
+use super::strafe::StrafeBehavior;
+use super::trail::TrailBehavior;
 use super::world::AiCommand;
 
 /// `CREATE_BEHAVIOR(id)`: the behaviour registered under `id`.
@@ -29,6 +36,13 @@ pub fn create_behavior<W: AiEnv + ?Sized>(id: i32) -> Box<dyn Behavior<W>> {
         ids::GOTO => Box::new(GotoBehavior::new(id)),
         ids::FREE_FLIGHT => Box::new(GotoBehavior::new_free_flight(id)),
         ids::FACE => Box::new(FaceBehavior::new(id)),
+        ids::BUZZ => Box::new(BuzzBehavior::new(id)),
+        ids::EVADE => Box::new(EvadeBehavior::new(id)),
+        ids::TRAIL => Box::new(TrailBehavior::new(id)),
+        ids::STRAFE => Box::new(StrafeBehavior::new(id)),
+        ids::FLEE => Box::new(FleeBehavior::new(id)),
+        ids::LOOT => Box::new(LootBehavior::new(id)),
+        ids::FOLLOW => Box::new(FollowBehavior::new(id)),
         _ => Box::new(UnportedBehavior::new(id)),
     }
 }
@@ -439,5 +453,51 @@ impl<W: AiEnv + ?Sized> Behavior<W> for DrasticEvadeBehavior {
         self.base.flags |= 0x2;
         self.duration = f32::from_bits(op_dword(op, 0x1c));
         true
+    }
+}
+
+/// `FollowBehavior` (id 17), its poll (slot 5) only: without a follow
+/// directive it declines; with one it answers by the leader's range,
+/// which needs the follow directive's leader (not ported: a stand-in). Its
+/// ticks are skipped.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FollowBehavior {
+    base: BehaviorBase,
+}
+
+impl FollowBehavior {
+    /// `FollowBehavior::FollowBehavior(TypeId)`.
+    #[must_use]
+    pub fn new(id: i32) -> Self {
+        Self {
+            base: BehaviorBase::new(id),
+        }
+    }
+}
+
+impl<W: AiEnv + ?Sized> Behavior<W> for FollowBehavior {
+    fn base(&self) -> &BehaviorBase {
+        &self.base
+    }
+
+    fn base_mut(&mut self) -> &mut BehaviorBase {
+        &mut self.base
+    }
+
+    fn ported(&self) -> bool {
+        false
+    }
+
+    fn poll(&mut self, cx: &mut Cx<'_, W>, _timer_c: f32) -> i32 {
+        if self.base.flags & 0x2 != 0 {
+            cx.state.stand_in_polls += 1;
+        }
+        self.base.mode = if self.base.flag29 != 0 { 3 } else { 2 };
+        self.base.mode
+    }
+
+    fn update(&mut self, _cx: &mut Cx<'_, W>) -> i32 {
+        self.base.result = 1;
+        1
     }
 }

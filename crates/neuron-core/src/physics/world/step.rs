@@ -105,14 +105,14 @@ impl PhysicsWorld {
     ) {
         self.clock = *clock;
         let now = clock.current_time;
-        // The wake queue.
-        for index in self.cores.indices() {
+        // The wake queue (`IVP_Environment_Process_Wake_Queue`), from the
+        // last queued core to the first: each revived unit goes to the
+        // front of the simulated list, so the list starts in queue order.
+        let queue = std::mem::take(&mut self.wake_queue);
+        for &index in queue.iter().rev() {
             let Some(slot) = self.cores.get_mut(index) else {
                 continue;
             };
-            if !slot.wake_pending {
-                continue;
-            }
             slot.wake_pending = false;
             if slot.simulation_disabled || !slot.core.is_frozen() {
                 continue;
@@ -124,23 +124,38 @@ impl PhysicsWorld {
                     self.moving.push(o);
                 }
             }
+            self.active.retain(|c| *c != index);
+            self.active.insert(0, index);
         }
-        // The simulation units.
+        // The simulation units, in `simulate_sim_units_psi`'s order.
         let event = clock.event_sim();
         let mut simulated = Vec::new();
-        for index in self.cores.indices() {
+        let mut trace = self.unit_trace.is_some().then(Vec::new);
+        let trace_cores = self
+            .unit_trace
+            .as_ref()
+            .is_some_and(|t| t.len() < super::UNIT_CORE_PSIS);
+        let mut cores_trace = Vec::new();
+        for index in super::unit_run_order(&self.active) {
             let Some(slot) = self.cores.get_mut(index) else {
                 continue;
             };
             if slot.simulation_disabled || slot.core.is_frozen() {
                 continue;
             }
+            let before = trace_cores.then(|| crate::physics::replay::CoreRecord {
+                core: slot.core.clone(),
+                unit_state: slot.unit_state,
+            });
             unit_psi_begin(&mut slot.core, &mut slot.unit_state, now);
             let motion_check = self.movement_check.tick(random);
-            let mut controllers = slot.controllers.clone();
+            let mut controllers = slot.buckets.clone();
             controllers.sort_by_key(|(priority, _, _)| *priority);
             for (_, _, kind) in controllers.iter().rev() {
                 self.run_controller(index, *kind, event, now, host);
+            }
+            if let Some(t) = trace.as_mut() {
+                t.push((self.unit_key(index).unwrap_or(0), motion_check));
             }
             let Some(slot) = self.cores.get_mut(index) else {
                 continue;
@@ -155,7 +170,35 @@ impl PhysicsWorld {
             ) {
                 let objects = slot.objects.clone();
                 self.moving.retain(|m| !objects.contains(m));
+                self.active.retain(|c| *c != index);
             }
+            if let (Some(before), Some(slot)) = (before, self.cores.get(index)) {
+                let golem = slot
+                    .objects
+                    .first()
+                    .and_then(|b| self.bodies.get(b.0))
+                    .and_then(|b| match &b.golem {
+                        Some(GolemKind::Part(g)) => {
+                            let (t, c) = (g.target_quat, g.current_target_quat);
+                            Some([t.x, t.y, t.z, t.w, c.x, c.y, c.z, c.w])
+                        }
+                        _ => None,
+                    });
+                cores_trace.push((
+                    before,
+                    crate::physics::replay::CoreRecord {
+                        core: slot.core.clone(),
+                        unit_state: slot.unit_state,
+                    },
+                    golem,
+                ));
+            }
+        }
+        if trace_cores {
+            self.unit_core_trace.push(cores_trace);
+        }
+        if let (Some(t), Some(all)) = (trace, self.unit_trace.as_mut()) {
+            all.push(t);
         }
         let commit = clock.commit_event_sim();
         for index in simulated.iter().rev() {
@@ -294,29 +337,58 @@ impl PhysicsWorld {
     }
 
     fn contacts(&mut self, clock: &PsiClock) {
-        let handles: Vec<BodyHandle> = self.bodies.indices().into_iter().map(BodyHandle).collect();
-        let mut impacts = Vec::new();
-        for (i, &a) in handles.iter().enumerate() {
-            let Some(body_a) = self.collidable(a) else {
+        // Every collidable body once: whether its core is still, and its
+        // swept bounding sphere (origin, radius plus the PSI's motion).
+        struct Candidate {
+            handle: BodyHandle,
+            still: bool,
+            origin: [f64; 3],
+            reach: f64,
+        }
+        let mut candidates = Vec::new();
+        for index in self.bodies.indices() {
+            let handle = BodyHandle(index);
+            let Some(body) = self.collidable(handle) else {
                 continue;
             };
-            for &b in &handles[i + 1..] {
-                let Some(body_b) = self.collidable(b) else {
+            let Some(slot) = self.cores.get(body.core) else {
+                continue;
+            };
+            let still = slot.simulation_disabled || slot.core.is_frozen();
+            let Some((iso, velocity)) = self.body_motion(handle, clock) else {
+                continue;
+            };
+            let t = iso.translation.vector;
+            let speed = shape::to_vector(velocity).norm();
+            candidates.push(Candidate {
+                handle,
+                still,
+                origin: [f64::from(t.x), f64::from(t.y), f64::from(t.z)],
+                reach: f64::from(body.bound_radius)
+                    + f64::from(speed) * f64::from(clock.delta_time),
+            });
+        }
+        let mut impacts = Vec::new();
+        for (i, a) in candidates.iter().enumerate() {
+            for b in &candidates[i + 1..] {
+                if a.still && b.still {
+                    continue;
+                }
+                // The bounding spheres, swept over the PSI, keep the pair
+                // apart: no impact (a conservative early out).
+                let d = [0, 1, 2].map(|k| a.origin[k] - b.origin[k]);
+                let gap = ((d[0] * d[0] + d[1] * d[1]) + d[2] * d[2]).sqrt();
+                if gap > (a.reach + b.reach) * 1.001 + 0.01 {
+                    continue;
+                }
+                let (Some(body_a), Some(body_b)) = (self.body(a.handle), self.body(b.handle))
+                else {
                     continue;
                 };
                 if !self.pair_allowed(body_a, body_b) {
                     continue;
                 }
-                let (Some(ca), Some(cb)) =
-                    (self.cores.get(body_a.core), self.cores.get(body_b.core))
-                else {
-                    continue;
-                };
-                let still = |s: &super::CoreSlot| s.simulation_disabled || s.core.is_frozen();
-                if still(ca) && still(cb) {
-                    continue;
-                }
-                if let Some(impact) = self.find_impact(a, b, clock) {
+                if let Some(impact) = self.find_impact(a.handle, b.handle, clock) {
                     impacts.push(impact);
                 }
             }
@@ -407,6 +479,13 @@ impl PhysicsWorld {
                 }
             }
         }
+        // Two moving cores in contact share a friction system, a controller
+        // of both: IVP merges their units and splits them again when the
+        // contact ends, rebuilding the controller buckets each time.
+        if ta.0 > 0.0 && tb.0 > 0.0 {
+            self.rebuild_controller_buckets(impact.a);
+            self.rebuild_controller_buckets(impact.b);
+        }
         let relative_velocity = [0, 1, 2].map(|i| r(va[i] - vb[i]));
         self.apply_impulse(impact.b, impulse, rb, t);
         self.apply_impulse(impact.a, impulse.map(|c| -c), ra, t);
@@ -495,6 +574,7 @@ impl PhysicsWorld {
             enabled: true,
             listener: desc.listener,
             intruders: Vec::new(),
+            pending: Vec::new(),
         }))
     }
 
@@ -504,26 +584,69 @@ impl PhysicsWorld {
         let _ = self.phantoms.remove(h.0);
     }
 
-    /// `PhySys::AttachPhantom`: the phantom follows the body; its pose
-    /// becomes relative to the body's.
-    pub fn attach_phantom(&mut self, h: PhantomHandle, body: BodyHandle) -> bool {
-        if !self.contains(body) {
+    /// `PhySys::AttachPhantom` (`IVP_Merge_Object_Into_Core`): the phantom
+    /// joins the body's core at its current pose and follows the body. The
+    /// core's upper limit radius and surface deviation grow to the
+    /// phantom's own plus `distance`, the distance from `object_position`
+    /// (the object's `WorldPosition`) to the phantom's position, as for an
+    /// attached body ([`PhysicsWorld::attach`]).
+    pub fn attach_phantom(
+        &mut self,
+        h: PhantomHandle,
+        body: BodyHandle,
+        object_position: Vector,
+    ) -> bool {
+        let now = self.clock.current_time;
+        let Some((bq, bp)) = self.object_pose_at(body, now) else {
+            return false;
+        };
+        let Some(p) = self.phantoms.get(h.0) else {
+            return false;
+        };
+        if p.attached.is_some() {
             return false;
         }
-        match self.phantoms.get_mut(h.0) {
-            Some(p) => {
-                p.attached = Some(body);
-                true
+        // The distance on the FPU stack, stored as a float.
+        let dx = e(object_position.x) - e(p.position[0]);
+        let dy = e(object_position.y) - e(p.position[1]);
+        let dz = e(object_position.z) - e(p.position[2]);
+        let distance = r(((dz * dz + dy * dy) + dx * dx).sqrt());
+        let (old_ulr, old_msd) = p.geometry.radius_and_deviation([0.0; 3]);
+        let mut m = crate::physics::ivp::math::IvpMatrix::IDENTITY;
+        bq.set_matrix(&mut m);
+        m.vv = bp;
+        let rel_position = m.vimult4(p.position);
+        let rel_rotation = IvpQuat::inv_mult(&bq, &p.rotation);
+        if let Some(core) = self.core_of_mut(body) {
+            let radius = e(distance) + e(old_ulr);
+            if radius > e(core.upper_limit_radius) {
+                core.upper_limit_radius = r(radius);
             }
-            None => false,
+            let limit = e(distance) + e(old_msd);
+            if limit > e(core.max_surface_deviation) {
+                core.max_surface_deviation = r(limit);
+            }
+            core.recompute_inverse_inertia();
         }
+        if let Some(p) = self.phantoms.get_mut(h.0) {
+            p.attached = Some(body);
+            p.rotation = rel_rotation;
+            p.position = rel_position;
+        }
+        true
     }
 
-    /// `PhySys::DetachPhantom`.
+    /// `PhySys::DetachPhantom`: the phantom stays where it is.
     pub fn detach_phantom(&mut self, h: PhantomHandle) -> bool {
+        let Some(p) = self.phantoms.get(h.0) else {
+            return false;
+        };
+        let (rotation, position) = self.phantom_pose(p);
         match self.phantoms.get_mut(h.0) {
             Some(p) => {
                 p.attached = None;
+                p.rotation = rotation;
+                p.position = position;
                 true
             }
             None => false,
@@ -646,6 +769,7 @@ impl PhysicsWorld {
             }
             let listener = p.listener;
             let previous = p.intruders.clone();
+            let pending = p.pending.clone();
             let mut events = Vec::new();
             for h in &previous {
                 if !inside.contains(h)
@@ -663,8 +787,15 @@ impl PhysicsWorld {
                 .copied()
                 .filter(|h| inside.contains(h))
                 .collect();
+            // IVP reports an intruder from its mindist with the phantom: a
+            // mindist the hull manager creates in one PSI is evaluated in a
+            // later one, so a body enters once its overlap has lasted to the
+            // end of a second step (divergence register, D177).
+            let mut waiting = Vec::new();
             for h in &inside {
-                if !previous.contains(h) {
+                if !previous.contains(h) && !pending.contains(h) {
+                    waiting.push(*h);
+                } else if !previous.contains(h) {
                     kept.push(*h);
                     if let Some(key) = self.user_key(*h) {
                         events.push(PhantomEvent {
@@ -677,6 +808,7 @@ impl PhysicsWorld {
             }
             if let Some(p) = self.phantoms.get_mut(index) {
                 p.intruders = kept;
+                p.pending = waiting;
             }
             if listener {
                 self.phantom_events.extend(events);

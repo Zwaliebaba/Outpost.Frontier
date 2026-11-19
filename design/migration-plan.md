@@ -249,7 +249,7 @@ the oracle dumps.
 | P2.1 | `Common` data: constants, data config, the string cache (`common_stringcache.cpp`, moved from P1.1), archetypes, loadouts, fuse data, goods, reputation data, universe, zones, asteroid IDs, bases, room names and markets, spatial partition (room INI contents moved to P5.9, owner 2026-11-17) | `game-sim::data` | XL | A |
 | P2.2 | `Common` marshal buffer, format strings, costume, binary rich text; the 162 packet types and codecs from `RemoteCommon` | `game-sim::protocol` | L | A |
 | P2.3 | `PhySys` facade, `[PhySys]` constants, hull shapes from compact surfaces, integrator and impulse solver, controllers hook, rays, sphere queries, phantoms, remote correction, dead reckoning | `neuron-core::physics` | L | B |
-| P2.4 | `Common` object model (`CObject` to `CShip`, `CSolar`, projectiles, loot), attachments, object database, equipment (`CE*`), damage. The shared remainder (asteroid field walk, bay, dock and gate animations, scanner and tractor updates, turret aiming, explosion bounding spheres, `HardpointSummary`, the inspection queries the AI needs) is a follow-up alongside P2.5, before Gate G2 (owner, 2026-11-17) | `game-sim::object`, `::equip` | XL | B |
+| P2.4 | `Common` object model (`CObject` to `CShip`, `CSolar`, projectiles, loot), attachments, object database, equipment (`CE*`), damage. The shared remainder (asteroid field walk, bay, dock and gate animations, scanner and tractor updates, turret aiming, explosion bounding spheres, `HardpointSummary`, the inspection queries the AI needs) is a follow-up alongside P2.5, before Gate G2 (owner, 2026-11-17). The server's guided-missile controller (`Guided`: motor, seeker and steering, proximity fuse, detonation through `StarSystem::explode`) moved into this remainder from P3.3 (owner, 2026-11-18) | `game-sim::object`, `::equip` | XL | B |
 | P2.5 | `Common` AI: steering, ideas, obstacle avoidance, pathfinding, targeting, fire control, 23 behaviours, behaviour manager, state graphs | `game-sim::ai` | XL | B |
 
 Order and review (owner, 2026-11-17): P2.0 comes first and stops for the
@@ -278,8 +278,13 @@ section 10, "Collisions"). It is judged to its first contact (record 0003
 point 9): every object equals the oracle exactly before it, the contact
 comes in the same tick, the first contact's damage falls inside its
 envelope, and after it only the outcome (which objects are alive) is
-compared. `ram_asteroid`, in which neither the C++ pilot nor the Rust one
-touches the rock, stays as a near-miss check but does not count for the
+compared. The fights (`dogfight`, `skirmish`, `strafe`) are judged the same
+way: exactly up to their first contact or munition impact, whichever comes
+first; after it their outcomes and trajectories are compared within the
+approved envelopes, because the differences after a contact come from the
+accepted contact solver (D87, decision O19) and the fuse's timing (D177)
+(owner, 2026-11-18). `ram_asteroid`, in which neither the C++ pilot nor
+the Rust one touches the rock, stays as a near-miss check but does not count for the
 gate (owner, 2026-11-18). The scenarios are judged as recorded from the
 seeding point: the harness calls `srand(seed)` again once the system and
 Content's population of it have loaded, and the Rust world seeds there;
@@ -289,7 +294,10 @@ are P3.6's and are checked at Gate G3 (owner, 2026-11-18). Replay tests of
 the integrator, AI and damage code equal the oracle within Tier B bounds,
 and scenario trajectories, times and damage fall inside the envelopes
 approved in P2.0 (decision O20). All protocol codecs round-trip and match
-the C++ encodings byte for byte.
+the C++ encodings byte for byte. The gate's headless program is the
+`scenario_replay` test in CI, which runs the oracle's scenario files
+through the Rust world, together with the other replays; there is no
+separate runner (owner, 2026-11-18).
 
 ### Phase 3 — server and network (`neuron-server`, `game-logic`, `apps/outpost-server`)
 
@@ -298,7 +306,7 @@ the C++ encodings byte for byte.
 | P3.0 | Design spike: controller bus and re-entrant dispatch. The C++ nests message dispatch; Rust needs an event queue that preserves the observable order | `design/adr/` | S | — |
 | P3.1 | `Server`: save container, account hashing and files, paths, session slots, controller registry, heartbeats, timers, tick driver | `neuron-server` | M | A |
 | P3.2 | `Server`: typed events replacing 81 message IDs, client sink, character file schema and templates, player database, worth and cheat checks, groups, chat | `game-logic::{events, player, character_file}` | L | A |
-| P3.3 | `Server`: star systems, object wrappers, munitions (with the guided-missile and mine controllers), fuses, loot drops, debris, docking, observers and replication, asteroid fields, base database (the server parts moved from P2.4, owner 2026-11-17; they remove D125 and D126; D124 was removed by the P2.4 follow-up); the `pub::` functions become methods on the world | `game-logic::{world, objects, replication, bases}` | XL | B |
+| P3.3 | `Server`: star systems, object wrappers, munitions (with the mine and counter-measure controllers; the guided-missile controller moved to P2.4's remainder, owner 2026-11-18), fuses, loot drops, debris, docking, observers and replication, asteroid fields, base database (the server parts moved from P2.4, owner 2026-11-17; they remove D125, narrowed to the mines and counter-measures, and D126; D124 was removed by the P2.4 follow-up); the `pub::` functions become methods on the world | `game-logic::{world, objects, replication, bases}` | XL | B |
 | P3.4 | `Content`: static tables, factions, loot, cargo, system connections | `game-logic::tables` | L | A |
 | P3.5 | `Content`: mission script parser (44 conditions, 85 actions as enums) and runtime, mission object, object lists, dialogs, save sections, story shell | `game-logic::mission`, `::story` | XL | A for parse and save, B for runtime |
 | P3.6 | `Content`: encounters, spawn placement, patrol paths, NPC ships and pilots, guides, comm chatter, space support, dock queues, trade lanes | `game-logic::{population, npc}` | XL | B |

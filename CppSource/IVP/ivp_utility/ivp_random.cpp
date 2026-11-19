@@ -22,3 +22,8 @@ float IVP_FastRandomFloat()
     const unsigned Low16 = g_IVP_FastRandomSeed & 0xffffu;
     return (float)Low16 * (1.0f / 65536.0f);
 }
+
+unsigned IVP_FastRandomSeed()
+{
+    return g_IVP_FastRandomSeed;
+}

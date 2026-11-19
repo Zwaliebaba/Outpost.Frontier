@@ -1962,6 +1962,14 @@ static CLoot* EqObj_LootOf(IObjRW* Obj)
 // IObjAffect slot 16 (+0x40) -- the routine (module storage, RET 0xc).
 int EqObj::slot_40(unsigned short const* EquipId, IObjRW* Target, int SourceClient)
 {
+    FOracleSimAffectScope const OracleAffect;   // Oracle instrumentation (P2.5 sim)
+    if (GOracleSimHooks.OnAffect != nullptr)
+    {
+        unsigned int const TargetId = Target != nullptr ? Target->get_id() : 0u;
+        float TargetBits = 0.0f;
+        memcpy(&TargetBits, &TargetId, sizeof(TargetBits));
+        GOracleSimHooks.OnAffect(get_id(), OracleSimAffectTractor, static_cast<int>(*EquipId), &TargetBits, 1);
+    }
     // no system / destroyed: -5.
     if (OwnerSystem == nullptr)
         return -5;

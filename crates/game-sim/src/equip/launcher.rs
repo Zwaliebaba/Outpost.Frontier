@@ -172,6 +172,45 @@ impl LaunchContext {
         }
     }
 
+    /// `GetAvgBarrelPosWS` (or `GetAvgBarrelDirWS` with `dir`): the
+    /// barrels' float sum times the unrounded reciprocal of their count.
+    fn barrel_average(&self, barrels: &[Barrel], dir: bool) -> Vector {
+        let mut sum = [0.0f32; 3];
+        for i in 0..barrels.len() {
+            let v = if dir {
+                self.barrel_dir(barrels, i)
+            } else {
+                self.barrel_pos(barrels, i)
+            };
+            for (k, x) in [v.x, v.y, v.z].into_iter().enumerate() {
+                sum[k] = (f64::from(x) + f64::from(sum[k])) as f32;
+            }
+        }
+        let inv = 1.0 / barrels.len() as f64;
+        Vector::new(
+            (f64::from(sum[0]) * inv) as f32,
+            (f64::from(sum[1]) * inv) as f32,
+            (f64::from(sum[2]) * inv) as f32,
+        )
+    }
+
+    /// `SrvGun::fire_forward`'s aim point: the barrels' average position
+    /// plus their average direction scaled to 1e10 over its length
+    /// (`(z*z + y*y) + x*x`).
+    #[must_use]
+    pub fn forward_target(&self, barrels: &[Barrel]) -> Vector {
+        let p = self.barrel_average(barrels, false);
+        let d = self.barrel_average(barrels, true);
+        let (x, y, z) = (f64::from(d.x), f64::from(d.y), f64::from(d.z));
+        let scale = 10_000_000_000.0 / ((z * z + y * y) + x * x).sqrt();
+        let d = Vector::new((x * scale) as f32, (y * scale) as f32, (z * scale) as f32);
+        Vector::new(
+            (f64::from(p.x) + f64::from(d.x)) as f32,
+            (f64::from(d.y) + f64::from(p.y)) as f32,
+            (f64::from(d.z) + f64::from(p.z)) as f32,
+        )
+    }
+
     /// `GetBarrelDirWS`: a barrel's direction (its -Z) in world space.
     #[must_use]
     pub fn barrel_dir(&self, barrels: &[Barrel], index: usize) -> Vector {

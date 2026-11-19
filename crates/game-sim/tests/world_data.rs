@@ -599,3 +599,103 @@ fn an_ai_fighter_gets_a_manager_and_idles() {
     assert_eq!(state.directive[0], 0);
     assert!(state.completed.contains(&(ids::DELAY, 0)));
 }
+
+#[test]
+fn the_ship_leads_its_target_over_its_gun_statistics() {
+    let Some(mut world) = support::world::world(WorldConfig::default()) else {
+        println!("outdir/ is missing: no gun statistics");
+        return;
+    };
+    let system = create_id(b"he01");
+    world.load_system(system);
+    let shooter = fighter(&mut world, system, Vector::new(15000.0, 3000.0, -25000.0));
+    let target = fighter(&mut world, system, Vector::new(15000.0, 3000.0, -25400.0));
+    // Three guns without a seeker; the missile launcher, off until the AI
+    // switches it on, is not counted.
+    let stats = world.ship_gun_stats(shooter).expect("a ship");
+    println!("gun stats {stats:?}");
+    assert_eq!(stats.active_guns, 3);
+    assert_eq!(stats.cm_droppers, 0);
+    assert!(stats.avg_muzzle_velocity > 0.0 && stats.max_munition_range > 400.0);
+    // Switching it on dirties the cache; it counts as a dropper then.
+    let unguided = world.unguided_guns(shooter);
+    let launcher = game_sim::ai::world::AiWorld::find_equipment(&world, shooter, types::GUN)
+        .unwrap_or_default()
+        .into_iter()
+        .find(|id| !unguided.contains(id))
+        .expect("the missile launcher");
+    world.command(shooter, Command::ActivateEquip(launcher, true));
+    assert_eq!(
+        world.ship_gun_stats(shooter).map(|s| s.cm_droppers),
+        Some(1)
+    );
+    assert_eq!(world.ship_lead_fire_position(shooter), None, "no target");
+    world.command(shooter, Command::SetTarget(Some(target), 0));
+    // Both at rest: the lead is the target's centre of mass, 400 m away.
+    let lead = world.ship_lead_fire_position(shooter).expect("in range");
+    assert!((f64::from(lead.z) + 25400.0).abs() < 10.0, "{lead:?}");
+}
+
+#[test]
+fn the_ai_reads_loot_and_the_hold_and_points_the_tractor() {
+    use game_sim::ai::behavior::ids;
+    use game_sim::ai::loot::LootBehavior;
+    use game_sim::ai::world::{AiCommand, AiWorld};
+    use game_sim::object::world::LootSpawn;
+    let Some(mut world) = support::world::world(WorldConfig::default()) else {
+        println!("outdir/ is missing: no loot");
+        return;
+    };
+    let system = create_id(b"he01");
+    world.load_system(system);
+    let ship = fighter(&mut world, system, Vector::new(15000.0, 3000.0, -25000.0));
+    let loot = world
+        .spawn_loot(
+            system,
+            &LootSpawn {
+                archetype: create_id(b"ge_s_cm_01_ammo_crate"),
+                contents: create_id(b"ge_s_cm_01_ammo"),
+                units: 5,
+                contents_hit_pts: 10.0,
+                owner: 0,
+                position: Vector::new(15000.0, 3000.0, -25060.0),
+                velocity: Vector::ZERO,
+            },
+        )
+        .expect("loot spawns");
+    let view = AiWorld::loot(&world, loot).expect("a container");
+    println!("loot {view:?}");
+    assert_eq!(view.units, 5);
+    assert!(view.can_ai_tractor);
+    // The contents are a countermeasure.
+    assert_eq!(view.contents_class, 0x21);
+    assert!(AiWorld::loot(&world, ship).is_none());
+    let (remaining, hold) = AiWorld::cargo_hold(&world, ship).expect("a ship's hold");
+    println!("hold {remaining} of {hold}");
+    assert!(hold > 0.0 && remaining >= 0.0 && remaining <= f64::from(hold));
+    assert!(AiWorld::cargo_hold(&world, loot).is_none());
+
+    // The manager's loot behaviour takes the tractor's reach, the system
+    // manager its id; the tractor command takes the loot.
+    assert!(world.ensure_behavior_manager(ship));
+    let m = world.behavior_manager(ship).expect("a manager");
+    let tractor = m.state.sys.tractor.equip_id;
+    assert_ne!(tractor, 0);
+    let b = m
+        .behavior(ids::LOOT)
+        .and_then(|b| b.as_any())
+        .and_then(|a| a.downcast_ref::<LootBehavior>())
+        .expect("the loot behaviour");
+    assert_eq!(b.has_tractor, 1);
+    let reach = b.tractor_reach;
+    let range = AiWorld::equipment(&world, ship, tractor)
+        .and_then(|i| i.range)
+        .expect("a range");
+    assert_eq!(reach, (f64::from(range) * 0.75) as f32);
+    let tractor_at = |equipment| AiCommand::Tractor {
+        equipment,
+        target: loot,
+    };
+    assert_eq!(AiWorld::command(&mut world, ship, tractor_at(tractor)), 0);
+    assert_eq!(AiWorld::command(&mut world, ship, tractor_at(0x7777)), -2);
+}

@@ -8,31 +8,82 @@
 //!
 //! Ported: the constructor (with its three `rand()` phase offsets and the
 //! motion queries), `SetCruiseLock`, `IsCruiseUnobstructed`, `Update`,
-//! `RefreshAvoidance`, `SelectAvoidancePoint`, `SelectObstacleDirection`,
-//! the user-zone probe of modes 0 and 2 (`GetUserZoneApproachDirection`)
-//! and `UpdateHeadingBlend`.
+//! `RefreshAvoidance`, `SelectAvoidancePoint`, `SelectObstacleDirection`
+//! with `FindClosestObstacleToAvoid` over the scanner's scan list, the
+//! user-zone probe of modes 0 and 2 (`GetUserZoneApproachDirection`) and
+//! `UpdateHeadingBlend`.
 //!
 //! Not ported (P2.5 gap, `design/library-ledger.md`): the box user zone
-//! (mode 1),
-//! `ClassifyObstaclePhase` (it walks the scanner's scan list and the
-//! system's spatial partition, which the AI world does not expose yet; the
-//! port answers phase 4, "nothing to react to", which is the reference's
-//! answer when the scan list holds no obstacle within its capsules) and
-//! `FindClosestObstacleToAvoid` (the scan list again; the port finds none,
-//! so `SelectObstacleDirection` falls back to the probe's avoid direction
-//! as the reference does when the list is empty).
+//! (mode 1) and `ClassifyObstaclePhase`'s walk (it walks the scan list and
+//! the system's spatial partition for planets, which the AI world does not
+//! expose yet; the port answers phase 4, "nothing to react to", which is
+//! the reference's answer when the scan list holds no obstacle within its
+//! capsules).
 
 use neuron_core::math::Quaternion;
 use neuron_core::math::{Matrix, Vector, quaternion_to_matrix, transform_matrix};
 
 use super::avoidance::{AvoidIndexTable, ObstacleAvoidance};
 use super::behavior::AiEnv;
+use super::fp::{add, column2, inline_fast_length, neg, scale, sub};
 use super::fp::{e, r};
 use super::intercept::{
-    estimate_turn_circle_approach_cost, iface_position_or_zero, shape_biased_avoid_direction,
+    estimate_turn_circle_approach_cost, iface_position_or_zero, negated_iface_direction,
+    shape_biased_avoid_direction,
 };
+use super::nav::max_scalar_attribute;
+use super::raycast::{swept_sphere_collision_time, transformed_boxes_intersect};
 use super::thrust::ThrustManager;
-use super::world::{AiWorld, ThrustEquipType};
+use super::world::{AVOID_SCAN_MASK, AiWorld, EQUIP_DESTROYED, MotionModel, ThrustEquipType};
+
+/// What the obstacle search reads of the system manager: the scanner's
+/// id in the timer table and the target list's `bKeepCache`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ScanContext {
+    /// `SystemManagerTimerTable::ScannerEquipId`.
+    pub scanner: Option<u16>,
+    /// `SystemManagerTimerTable::bKeepCache`.
+    pub keep: bool,
+}
+
+/// `Behavior_QueryChainedRadiusEffect(object, radius, kind)`
+/// (`common_behavior.cpp`): the distance covered while accelerating from
+/// 1 to `radius` against a falloff of the top speed less 1; 0 without a
+/// motion model or when the falloff is below `radius`.
+#[must_use]
+pub fn chained_radius_effect(
+    motion: Option<&dyn MotionModel>,
+    radius: f32,
+    kind: ThrustEquipType,
+) -> f32 {
+    let Some(m) = motion else {
+        return 0.0;
+    };
+    let mut value = e(m.speed(1.0, kind)) - 1.0;
+    if value < 0.0 {
+        value = 0.0;
+    }
+    if value < e(radius) {
+        return 0.0;
+    }
+    let mut radius = radius;
+    if e(radius) < 0.001 {
+        radius = 0.0;
+    }
+    let mut copy = radius;
+    let mut falloff = r(value);
+    if copy < 0.0 {
+        copy = 0.0;
+    }
+    if value < 0.0 {
+        falloff = 0.0;
+    }
+    if e(copy) < 0.001 {
+        copy = 0.0;
+    }
+    let time = m.time_to_accelerate(1.0, copy, falloff, kind);
+    m.distance_travelled(1.0, radius, time, kind)
+}
 
 /// `PathfindManager::ObstacleReaction` (`+0x16C`).
 #[derive(Clone, Debug, PartialEq)]
@@ -336,6 +387,7 @@ impl PathfindManager {
         ship: W::Handle,
         behavior: i32,
         dt: f32,
+        scan: ScanContext,
     ) {
         if self.owner_type & 0x7f_0000 == 0 {
             return;
@@ -367,7 +419,7 @@ impl PathfindManager {
         self.timer_20c = r(record_clock);
         if record_clock > e(self.period_210) {
             self.timer_20c = r(e(self.timer_20c) % e(self.period_210));
-            self.refresh_avoidance(thrust, world, ship);
+            self.refresh_avoidance(thrust, world, ship, scan);
         }
 
         if self.field_214 & 1 != 0 {
@@ -414,6 +466,7 @@ impl PathfindManager {
         thrust: &mut ThrustManager,
         world: &mut W,
         ship: W::Handle,
+        scan: ScanContext,
     ) {
         self.clear_record();
         if let Some((point, scale, kind)) = self.select_avoidance_point(&*world, ship) {
@@ -428,7 +481,7 @@ impl PathfindManager {
         if self.owner_type & 0x13_0000 == 0 {
             return;
         }
-        let Some((direction, obstacle)) = self.select_obstacle_direction(&*world, ship) else {
+        let Some((direction, obstacle)) = self.select_obstacle_direction(world, ship, scan) else {
             return;
         };
         self.watcher_218 = obstacle;
@@ -523,18 +576,19 @@ impl PathfindManager {
     }
 
     /// `SelectObstacleDirection`: the shape-biased way around the closest
-    /// obstacle on the scan list (none: `FindClosestObstacleToAvoid` is not
-    /// ported), else the probe's avoid direction and its contact.
+    /// obstacle on the scan list other than the published target, else the
+    /// probe's avoid direction and its contact.
     fn select_obstacle_direction<W: AiWorld + ?Sized>(
         &mut self,
-        world: &W,
+        world: &mut W,
         ship: W::Handle,
+        scan: ScanContext,
     ) -> Option<(Vector, Option<u32>)> {
         if self.flag_245 == 0 || self.field_24c == 0 {
             return None;
         }
         self.field_255 = false;
-        if let Some(obstacle) = self.find_closest_obstacle_to_avoid(world, ship) {
+        if let Some(obstacle) = self.find_closest_obstacle_to_avoid(world, ship, scan) {
             let view = world.inspect(ship)?;
             let target = world.handle_of(obstacle).and_then(|h| world.inspect(h));
             let direction = shape_biased_avoid_direction(&view, target.as_ref());
@@ -548,19 +602,154 @@ impl PathfindManager {
         Some((direction, world.handle_of(id).map(|_| id)))
     }
 
-    /// `FindClosestObstacleToAvoid` over the scan list: not ported (the
-    /// scan list is not part of the AI world yet), so no obstacle.
+    /// `FindClosestObstacleToAvoid(&Sys->Timers, target id, Field_248)`
+    /// (`common_obstacleavoidance.cpp`): of the scan list (mask
+    /// [`AVOID_SCAN_MASK`]), the nearest object ahead within the look-ahead
+    /// reach that the ship would meet over the look-ahead time (a swept
+    /// sphere test, or a swept box test for the type bit 29 and for a ship
+    /// of the same formation over 0.3 s); none below 5 m/s or when the
+    /// scanner is destroyed.
+    #[allow(clippy::too_many_lines)]
     fn find_closest_obstacle_to_avoid<W: AiWorld + ?Sized>(
         &self,
-        _world: &W,
-        _ship: W::Handle,
+        world: &mut W,
+        ship: W::Handle,
+        scan: ScanContext,
     ) -> Option<u32> {
-        None
+        let exclude = self.target_id;
+        let mask = u32::from_ne_bytes(self.field_248.to_ne_bytes());
+        let own = world.inspect(ship)?;
+        let v = own.velocity;
+        let speed_exact = ((e(v.x) * e(v.x) + e(v.y) * e(v.y)) + e(v.z) * e(v.z)).sqrt();
+        let speed = r(speed_exact);
+        if speed_exact < 5.0 {
+            return None;
+        }
+        let owner_pos = own.position;
+        let owner_xform = own.transform();
+        let owner_radius = own.radius;
+        let heading = negated_iface_direction(Some(&own));
+        let (readiness, chained) = {
+            let motion = world.motion(ship);
+            let m = motion.as_deref();
+            (
+                e(m.map_or(0.0, |m| m.speed(1.0, ThrustEquipType::Tradelane))) * 0.5,
+                chained_radius_effect(m, 0.0, ThrustEquipType::Tradelane),
+            )
+        };
+        if readiness <= 1.0 {
+            return None;
+        }
+        let look_exact = e(chained) / e(speed) + 6.0;
+        let look = r(look_exact);
+        let reach = look_exact * e(speed);
+        let reach_sq = r(reach * reach);
+        let mut owner_box = [0.0_f32; 6];
+        if let Some((mn, mx)) = own.extents {
+            owner_box = [
+                r(e(mn.x) * 1.5),
+                r(e(mx.x) * 1.5),
+                r(e(mn.y) * 1.5),
+                r(e(mx.y) * 1.5),
+                r(e(mn.z) * 1.5),
+                r(e(mx.z) * 1.5),
+            ];
+        }
+        let live = |world: &W, id: Option<u32>| id.filter(|&id| world.handle_of(id).is_some());
+        let owner_leader = live(world, own.formation_leader);
+        let destroyed = scan
+            .scanner
+            .and_then(|id| world.equipment(ship, id))
+            .is_some_and(|i| i.flags & EQUIP_DESTROYED != 0);
+        if destroyed {
+            return None;
+        }
+        let list = world.scan_list(ship, AVOID_SCAN_MASK, scan.keep)?;
+        let mut result = None;
+        let mut best = 1.0e12_f32;
+        for h in list {
+            let Some(c) = world.inspect(h) else {
+                continue;
+            };
+            if c.type_flags & mask == 0 {
+                continue;
+            }
+            let to = sub(c.center, owner_pos);
+            let ahead = (e(heading.x) * e(to.x) + e(heading.z) * e(to.z)) + e(heading.y) * e(to.y);
+            if ahead < 0.0 {
+                continue;
+            }
+            let len_sq = (e(to.x) * e(to.x) + e(to.z) * e(to.z)) + e(to.y) * e(to.y);
+            if len_sq > e(reach_sq) {
+                continue;
+            }
+            if c.id == exclude || c.id == own.id {
+                continue;
+            }
+            if c.type_flags & AVOID_SCAN_MASK == 0 {
+                continue;
+            }
+            if c.radius > 1000.0 {
+                continue;
+            }
+            let mut time = look;
+            let mut use_box = (c.type_flags >> 29) & 1 != 0;
+            if let (Some(cl), Some(ol)) = (live(world, c.formation_leader), owner_leader)
+                && cl == ol
+            {
+                use_box = true;
+                time = 0.3;
+            }
+            let cand_pos = c.center;
+            let cv = c.velocity;
+            let owner_travel = r(e(time) * e(speed));
+            let cand_speed = ((e(cv.x) * e(cv.x) + e(cv.y) * e(cv.y)) + e(cv.z) * e(cv.z)).sqrt();
+            let cand_travel = r(cand_speed * e(time));
+            let collide = if use_box {
+                let Some((mn, mx)) = c.extents else {
+                    continue;
+                };
+                let cand_box = [mn.x, mx.x, mn.y, mx.y, r(e(mn.z) - e(cand_travel)), mx.z];
+                let mut swept = owner_box;
+                swept[4] = r(e(owner_box[4]) - e(owner_travel));
+                transformed_boxes_intersect(&owner_xform, &swept, &c.transform(), &cand_box)
+            } else {
+                let cand_radius = max_scalar_attribute(&c);
+                let forward = neg(column2(&c.orientation));
+                let cand_end = add(cand_pos, scale(forward, cand_travel));
+                let owner_end = Vector::new(
+                    r(e(heading.x) * e(owner_travel) + e(owner_pos.x)),
+                    r(e(heading.y) * e(owner_travel) + e(owner_pos.y)),
+                    r(e(heading.z) * e(owner_travel) + e(owner_pos.z)),
+                );
+                swept_sphere_collision_time(
+                    owner_radius,
+                    owner_pos,
+                    owner_end,
+                    cand_radius,
+                    cand_pos,
+                    cand_end,
+                )
+                .hit
+            };
+            if !collide {
+                continue;
+            }
+            let dx = e(cand_pos.x) - e(owner_pos.x);
+            let dy = e(cand_pos.y) - e(owner_pos.y);
+            let dz = e(cand_pos.z) - e(owner_pos.z);
+            let distance = inline_fast_length((dz * dz + dy * dy) + dx * dx);
+            if distance < e(best) {
+                best = r(distance);
+                result = Some(c.id);
+            }
+        }
+        result
     }
 
     /// `GetUserZoneApproachDirection`: modes 0 and 2 (a sphere; the box of
     /// mode 1 is not ported and answers nothing).
-    fn user_zone_approach_direction<W: AiWorld + ?Sized>(
+    pub fn user_zone_approach_direction<W: AiWorld + ?Sized>(
         &mut self,
         world: &W,
         ship: W::Handle,

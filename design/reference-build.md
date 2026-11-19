@@ -587,7 +587,8 @@ repository root:
 The data root holds the master's INI files and `data\`, as `outdir\` does.
 The output folder is created; files in it are overwritten. Exit code 0 is a
 completed run, 2 a usage or scenario error, 3 a start-up failure (the
-reason is in `session.jsonl` and on stderr). With `--runs N` (1 to 99) the
+reason is in `session.jsonl` and on stderr), 4 a fault in a frame (the
+`fault` record, below). With `--runs N` (1 to 99) the
 program starts itself N times, each run in a fresh process writing to
 `<out>\run_NN\`, and writes `spread.jsonl` and `spread.txt` into `<out>`:
 the largest difference between any two runs per object, metric and event
@@ -685,8 +686,8 @@ other side's `GameObject::on_collision` returns before
 `CalcCollisionDamage`, and `Bullet::on_collision` goes to
 `munition_collision`; a missile's side is `Guided::on_collision`
 (`munition_collision` too), and its flight, motor, seeker and proximity
-fuse are the server's `Guided` controller, which the Rust world does not
-have (P3.3, D125), so its contact point and speed cannot be compared. No
+fuse are the server's `Guided` controller (ported into P2.4's remainder,
+owner 2026-11-18; its fuse timing is D177). No
 ship, solar or asteroid target collides there. `collisions sp` therefore
 makes the filter take its first branch (`if (SinglePlayer()) return
 TRUE`) while the rest of the server stays in multiplayer mode: every pair
@@ -705,7 +706,7 @@ A text file; `#` starts a comment, blank lines are skipped, tokens are
 separated by spaces, tabs or commas. Examples (one per kind of check of
 record 0003) are in `CppSource\Oracle\scenarios\`: `free_flight`,
 `turn_to_heading`, `fly_to_point`, `dock_at_station`, `fire_at_target`,
-`ram_asteroid`, `dogfight`, and `ram_ship`, Gate G2's collide scenario in
+`ram_asteroid`, `dogfight`, `skirmish`, `strafe`, and `ram_ship`, Gate G2's collide scenario in
 place of `ram_asteroid` (owner, 2026-11-18).
 
 | Line | Meaning |
@@ -755,7 +756,40 @@ names one, which `Oracle.exe sim` reads through Content.dll's
 `dogfight` gives two AI fighters no command at all: the target manager
 picks the hostile ship and the state graph the combat behaviours, as when
 two hostile NPCs meet. There is no attack directive in the game; the
-`target` command (`set_target`) is not used there.
+`target` command (`set_target`) is not used there. `skirmish` is the same
+meeting with the rogue at 400 hull points: the police kills it at tick 880,
+after the rogue's trail and flee, which the dogfight does not reach, and
+the run goes on to tick 1500. (Until the fault recorder showed it, the run
+stopped at tick 881: the access violation at tick 882 was the behaviour-tick
+recorder's own, reading the previous tick's target list, which still named
+the destroyed rogue; the game empties that list before it reads it.)
+
+`strafe` records the strafe behaviour (13), which neither fight reaches.
+Its poll (`StrafeBehavior::Slot5`, `common_strafebehavior.cpp`) offers it
+only when the own ship is a fighter, freighter or gunboat (type
+`& 0x70000`), the target is none of those and moves at most 20 m/s; only
+then does the state graph's weight count. So the dogfight's police fighter
+meets a hostile transport (`ge_transport`, `fc_lr_grp`) with no behaviour,
+which stays where it was spawned, and strafes it for the whole run. The run
+stops at tick 1500, before the police destroys the transport at tick 1536.
+A gunboat (`GUNBOAT` graph) against the same transport and the fighter
+against a `li_cruiser` strafe as well (1799 and 1775 of 1800 ticks in a
+trial run).
+
+### Faults
+
+`oracle_sim_fault.cpp` runs each frame (the tick's commands, the server
+frame and the per-tick records) inside `__try`. A structured exception
+there is written to `session.jsonl` as a `fault` record (sim-records.md):
+the code, the faulting address as module + offset, the registers with the
+memory they point at, and a stack walked with `StackWalk64` and resolved
+with dbghelp from the PDB files beside `Oracle.exe`. The run then ends
+with exit code 4. From the first frame on, a vectored handler also records
+the first eight first-chance hardware exceptions (access violations and
+the like) the same way, `first_chance` true, before any handler in the
+game code sees them; a fault the game catches itself shows only there.
+The data job's step log prints the `fault` records with the errors and
+notes.
 
 ### Outputs
 

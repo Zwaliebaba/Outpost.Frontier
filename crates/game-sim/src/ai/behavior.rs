@@ -15,6 +15,7 @@
 
 use neuron_core::math::{Matrix, Vector};
 
+use super::gun_convergence::LeaderNotification;
 use super::manager::ManagerState;
 use super::world::{AiRand, AiWorld, SpatialQueries, StrafeDir};
 
@@ -181,9 +182,43 @@ pub struct Cx<'a, W: AiEnv + ?Sized> {
     pub ship: W::Handle,
     /// The manager's state.
     pub state: &'a mut ManagerState,
+    /// The manager's behaviours (`BehaviorDispatchTable`), for a behaviour
+    /// that drives another (the flee behaviour hands the ship to the goto,
+    /// dock or formation behaviour); the entry of the behaviour being
+    /// called holds a stand-in. `None` outside the manager.
+    pub peers: Option<&'a mut [Box<dyn Behavior<W>>]>,
 }
 
-impl<W: AiEnv + ?Sized> Cx<'_, W> {
+impl<'a, W: AiEnv + ?Sized> Cx<'a, W> {
+    /// The context of a tick outside the manager's dispatch table.
+    pub fn new(world: &'a mut W, ship: W::Handle, state: &'a mut ManagerState) -> Self {
+        Self {
+            world,
+            ship,
+            state,
+            peers: None,
+        }
+    }
+
+    /// Runs `f` on the manager's behaviour `index` with this tick's world
+    /// and state; `None` outside the manager or for an index outside the
+    /// table.
+    pub fn with_peer<T>(
+        &mut self,
+        index: i32,
+        f: impl FnOnce(&mut dyn Behavior<W>, &mut Cx<'_, W>) -> T,
+    ) -> Option<T> {
+        let peers = self.peers.as_deref_mut()?;
+        let b = peers.get_mut(usize::try_from(index).ok()?)?;
+        let mut cx = Cx {
+            world: &mut *self.world,
+            ship: self.ship,
+            state: &mut *self.state,
+            peers: None,
+        };
+        Some(f(&mut **b, &mut cx))
+    }
+
     /// `rand()`.
     pub fn rand(&mut self) -> i32 {
         self.world.rand()
@@ -279,6 +314,64 @@ impl<W: AiEnv + ?Sized> Cx<'_, W> {
     /// The idle stop (`IdleIdea::Update`).
     pub fn stop(&mut self) {
         self.state.thrust.stop(&mut *self.world, self.ship);
+    }
+
+    /// `ThrustManager::BlendNudgeDirection` on the ship.
+    pub fn blend_nudge_direction(&mut self, world_dir: Vector, dt: f32) {
+        self.state
+            .thrust
+            .blend_nudge_direction(&mut *self.world, self.ship, world_dir, dt);
+    }
+
+    /// `TargetManager::GetTarget`: the ship's target (`get_target`), when
+    /// the world has it.
+    #[must_use]
+    pub fn target_view(&self) -> Option<super::world::ObjectView> {
+        self.view_of(self.own().and_then(|v| v.target))
+    }
+
+    /// Whether timer `slot` of the system manager's timer table is latched.
+    #[must_use]
+    pub fn timer_active(&self, slot: usize) -> bool {
+        self.state.sys.timers.active(slot)
+    }
+
+    /// The ship's live formation leader (`get_formation_leader`).
+    fn formation_leader(&self) -> Option<u32> {
+        let id = self.own().and_then(|v| v.formation_leader)?;
+        self.world.handle_of(id).map(|_| id)
+    }
+
+    /// `FGunConvergenceStateBlock::NotifyFormationLeader1(Delay)`: break
+    /// apart now (1) and, after a positive delay, regroup (2).
+    pub fn notify_formation_leader_1(&mut self, delay: f32) {
+        let Some(leader) = self.formation_leader() else {
+            return;
+        };
+        self.state.leader_notes.push(LeaderNotification {
+            leader,
+            extra: 1,
+            duration: 0.0,
+        });
+        if delay > 0.0 {
+            self.state.leader_notes.push(LeaderNotification {
+                leader,
+                extra: 2,
+                duration: delay,
+            });
+        }
+    }
+
+    /// `FGunConvergenceStateBlock::NotifyFormationLeader2`: regroup now.
+    pub fn notify_formation_leader_2(&mut self) {
+        let Some(leader) = self.formation_leader() else {
+            return;
+        };
+        self.state.leader_notes.push(LeaderNotification {
+            leader,
+            extra: 2,
+            duration: 0.0,
+        });
     }
 }
 
@@ -470,6 +563,12 @@ pub trait Behavior<W: AiEnv + ?Sized> {
     /// The concrete behaviour, for a harness that sets its fields from a
     /// record. The default offers none.
     fn as_any_mut(&mut self) -> Option<&mut dyn core::any::Any> {
+        None
+    }
+
+    /// The concrete behaviour, for a reader of its fields (another ship's
+    /// loot behaviour reads this one's target). The default offers none.
+    fn as_any(&self) -> Option<&dyn core::any::Any> {
         None
     }
 

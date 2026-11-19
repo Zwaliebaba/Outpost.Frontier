@@ -12,8 +12,8 @@ use crate::ai::fp::{e, r};
 use crate::ai::manager::{BehaviorManager, NotificationOut};
 use crate::ai::personality::Personality;
 use crate::ai::world::{
-    AiCommand, AiRand, AiWorld, EngineStatus, MotionModel, ObjectView, RayContact, SpatialQueries,
-    StrafeDir as AiStrafe, ThrustEquipType,
+    AiCommand, AiRand, AiWorld, EngineStatus, LootView, MotionModel, ObjectView, RayContact,
+    SpatialQueries, StrafeDir as AiStrafe, ThrustEquipType,
 };
 use crate::equip::flight::StrafeDir;
 use crate::equip::{EquipKind, types};
@@ -21,9 +21,6 @@ use crate::object::ship::{self, ThrustKind};
 use crate::object::{Command, ObjHandle};
 
 use super::World;
-
-/// The type mask `BuildAiTargetList` asks the scanner for (`kScanTypeMask`).
-const AI_SCAN_MASK: u32 = 0x007f_fdff;
 
 impl World {
     /// `IObjInspect` of one object for the AI.
@@ -147,22 +144,10 @@ impl World {
         let (Some(body), Some(w)) = (o.physical.body, self.physics(o.physical.system)) else {
             return self.body_sphere(h);
         };
-        let (Some(core), Some((t, m))) = (w.core(body), w.transform(body)) else {
+        let (Some(core), Some((m, t))) = (w.core(body), w.object_matrix(body)) else {
             return self.body_sphere(h);
         };
-        let [c0, c1, c2] = o.physical.mass_center.map(e);
-        let m = &m.m;
-        let x0 = e(m[0][0]) * c0;
-        let y0 = e(m[1][0]) * c0;
-        let z0 = r(e(m[2][0]) * c0);
-        let x1 = r(e(m[0][1]) * c1 + x0);
-        let y1 = r(e(m[1][1]) * c1 + y0);
-        let z1 = e(m[2][1]) * c1 + e(z0);
-        let center = Vector::new(
-            r(e(m[0][2]) * c2 + e(x1) + e(t.x)),
-            r(e(m[1][2]) * c2 + e(y1) + e(t.y)),
-            r(e(m[2][2]) * c2 + z1 + e(t.z)),
-        );
+        let center = super::turret::physics_center_of_mass(&m, t, o.physical.mass_center);
         (core.upper_limit_radius, center)
     }
 
@@ -488,13 +473,15 @@ impl AiWorld for World {
             .collect()
     }
 
-    fn attitude(&self, _from: ObjHandle, _to: ObjHandle) -> Option<f32> {
-        // Reputation is not ported (the server's groups).
-        None
+    /// Reputation is not ported (the server's groups): the attitude a
+    /// harness set ([`World::set_attitude`]), none otherwise.
+    fn attitude(&self, from: ObjHandle, to: ObjHandle) -> Option<f32> {
+        let (a, b) = (self.get(from)?.simple.id, self.get(to)?.simple.id);
+        self.attitudes.get(&(a, b)).copied()
     }
 
-    fn attitude_symmetrical(&self, _from: ObjHandle, _to: ObjHandle) -> Option<(f32, f32)> {
-        None
+    fn attitude_symmetrical(&self, from: ObjHandle, to: ObjHandle) -> Option<(f32, f32)> {
+        Some((self.attitude(from, to)?, self.attitude(to, from)?))
     }
 
     fn hardpoint(&self, h: ObjHandle, name: &[u8]) -> Option<(Vector, Matrix)> {
@@ -580,17 +567,21 @@ impl AiWorld for World {
         })
     }
 
-    /// `IObjInspectImpl::get_scanlist(list, 0x7ffdff, keep)`: -2 (`None`)
+    /// `IObjInspectImpl::get_scanlist(list, mask, keep)`: -2 (`None`)
     /// without a scanner; otherwise `clear_cache` unless `keep`, then
-    /// `scan_for_types(0x7ffdff)`, and the first scanner's list.
-    fn scan_list(&mut self, h: ObjHandle, keep: bool) -> Option<Vec<ObjHandle>> {
+    /// `scan_for_types(mask)`, and the first scanner's list.
+    fn scan_list(&mut self, h: ObjHandle, mask: u32, keep: bool) -> Option<Vec<ObjHandle>> {
         let eq = self.get(h)?.as_equipped()?;
         eq.equipment.first(types::SCANNER)?;
         if !keep {
             self.scanner_clear_cache(h);
         }
-        self.scan_for_types(h, AI_SCAN_MASK);
+        self.scan_for_types(h, mask);
         Some(World::scan_list(self, h))
+    }
+
+    fn sub_object_center(&mut self, h: ObjHandle, sub: u16) -> Option<Vector> {
+        self.sub_obj_center_of_mass(h, sub)
     }
 
     fn can_point_at(&self, h: ObjHandle, id: u16, point: Vector, angle: f32) -> bool {
@@ -602,16 +593,73 @@ impl AiWorld for World {
     }
 
     /// The sub-target form is `get_tgt_lead_fire_pos(id, pos)` (the gun's
-    /// lead); `CShip::get_tgt_lead_fire_pos` (the ship's own lead over its
-    /// gun statistics) is not on the world yet, so `None` answers it.
+    /// lead); without one `CShip::get_tgt_lead_fire_pos`, the ship's own
+    /// lead over its gun statistics.
     fn lead_fire_position(&mut self, h: ObjHandle, subtarget: Option<u16>) -> Option<Vector> {
-        self.tgt_lead_fire_pos(h, subtarget?).ok()
+        match subtarget {
+            Some(id) => self.tgt_lead_fire_pos(h, id).ok(),
+            None => self.ship_lead_fire_position(h),
+        }
     }
 
     fn manager_of(&self, h: ObjHandle) -> Option<(i32, [i32; 3])> {
         self.behavior_managers
             .get(&h)
             .map(|m| (m.state.behavior, m.state.directive))
+    }
+
+    /// `CLoot`'s units, AI flag and contents class, and `get_good_id`
+    /// (`Arch2Good` of the contents).
+    fn loot(&self, h: ObjHandle) -> Option<LootView> {
+        let crate::object::KindData::Loot(l) = &self.get(h)?.data else {
+            return None;
+        };
+        let contents = self.data.archetypes.equipment.get(&l.contents_arch);
+        Some(LootView {
+            units: l.units,
+            can_ai_tractor: l.can_ai_tractor,
+            contents_class: contents.map_or(0, |a| a.class()),
+            good_id: Some(self.data.goods.arch_to_good(l.contents_arch)),
+        })
+    }
+
+    /// `CShip::get_cargo_hold_remaining` and the ship archetype's
+    /// `hold_size`: every item of the hold mask counts its volume (a cargo
+    /// stack its count times it), rounded to `float` at each sum; what is
+    /// left of the hold, or 0 when the items exceed it.
+    fn cargo_hold(&self, h: ObjHandle) -> Option<(f64, f32)> {
+        let o = self.get(h)?;
+        o.as_ship()?;
+        let hold = self.data.archetypes.ships.get(&o.archetype)?.hold_size;
+        let eq = o.as_equipped()?;
+        let mut used = 0.0_f32;
+        for slot in eq.equipment.traverse(0x1ff_0000, false) {
+            let Some(item) = eq.equipment.get(slot) else {
+                continue;
+            };
+            let volume = self
+                .data
+                .archetypes
+                .equipment
+                .get(&item.arch_id)
+                .map_or(0.0, |a| a.volume);
+            used = match (&item.kind, item.type_bits) {
+                (EquipKind::Cargo(c), types::CARGO) => r(f64::from(c.count) * e(volume) + e(used)),
+                _ => r(e(used) + e(volume)),
+            };
+        }
+        let remaining = if used <= hold { e(hold) - e(used) } else { 0.0 };
+        Some((remaining, hold))
+    }
+
+    /// The target of the object's loot behaviour (behaviour 16).
+    fn loot_target_of(&self, h: ObjHandle) -> Option<u32> {
+        self.behavior_managers
+            .get(&h)?
+            .behavior(crate::ai::behavior::ids::LOOT)?
+            .as_any()?
+            .downcast_ref::<crate::ai::loot::LootBehavior>()?
+            .target
     }
 
     fn command(&mut self, h: ObjHandle, command: AiCommand<ObjHandle>) -> i32 {
@@ -622,12 +670,17 @@ impl AiWorld for World {
             AiCommand::SetStrafe(d) => Command::SetStrafeDir(StrafeDir::from_value(d.value())),
             AiCommand::SetTarget { target, subtarget } => Command::SetTarget(target, subtarget),
             AiCommand::FireGuns { equipment, target } => {
-                let Some(target) = target else {
-                    return -2;
-                };
+                // `EqObj::slot_34` without an aim point fires forward.
+                if target.is_none() {
+                    if self.get(h).is_none_or(|o| o.dead) {
+                        return -2;
+                    }
+                    self.fire(h, &equipment, None);
+                    return 0;
+                }
                 Command::Fire {
                     guns: equipment,
-                    target,
+                    target: target.unwrap_or_default(),
                 }
             }
             AiCommand::ActivateEquip { equipment, on } => Command::ActivateEquip(equipment, on),
@@ -650,6 +703,55 @@ impl AiWorld for World {
                 for id in ids {
                     self.command(h, Command::ActivateEquip(id, on));
                 }
+                return 0;
+            }
+            // `EqObj::slot_40` (the server's own request): -5 for a dead
+            // owner, -4 without a target, -2 without the item, -5 when
+            // `CETractor::AddTarget` refuses.
+            AiCommand::Tractor { equipment, target } => {
+                if self.get(h).is_none_or(|o| o.dead) {
+                    return -5;
+                }
+                if self.get(target).is_none() {
+                    return -4;
+                }
+                let is_item = self
+                    .get(h)
+                    .and_then(|o| o.as_equipped())
+                    .and_then(|eq| eq.equipment.by_id(equipment))
+                    .is_some();
+                if !is_item {
+                    return -2;
+                }
+                if self.tractor_add_target(h, equipment, target)
+                    != crate::equip::misc::TractorFailure::Ok
+                {
+                    return -5;
+                }
+                return 0;
+            }
+            // `EqObj::slot_44`: -2 for a missing or destroyed item, -4 for
+            // one that is not a gun, else `CEGun::SetTarget` (the target a
+            // simple object, else none).
+            AiCommand::SetGunTarget {
+                equipment,
+                target,
+                subtarget,
+            } => {
+                let Some(item) = self
+                    .get(h)
+                    .and_then(|o| o.as_equipped())
+                    .and_then(|eq| eq.equipment.by_id(equipment))
+                else {
+                    return -2;
+                };
+                if item.is_destroyed() {
+                    return -2;
+                }
+                if !matches!(item.kind, EquipKind::Gun(_)) {
+                    return -4;
+                }
+                self.gun_set_target(h, equipment, target, subtarget);
                 return 0;
             }
             // Formation, follow, trade lane and the unnamed slots are not
@@ -827,6 +929,16 @@ impl World {
         }
         self.finish_manager_call(h, manager);
         true
+    }
+
+    /// Sets the attitude of `from` toward `to`, which the AI reads as
+    /// `get_attitude_towards` (the reputation groups are not ported).
+    pub fn set_attitude(&mut self, from: ObjHandle, to: ObjHandle, value: f32) {
+        let (Some(a), Some(b)) = (self.get(from), self.get(to)) else {
+            return;
+        };
+        let key = (a.simple.id, b.simple.id);
+        self.attitudes.insert(key, value);
     }
 
     /// An object's behaviour manager.

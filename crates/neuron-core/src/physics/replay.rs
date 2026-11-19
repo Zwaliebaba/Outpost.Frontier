@@ -382,6 +382,15 @@ impl PsiRecord {
     }
 }
 
+impl CoreRecord {
+    /// The core object under `key` of a JSON line in the `psi.jsonl` core
+    /// layout (`unit_cores.jsonl` uses it too).
+    pub fn parse_field(line: &str, key: &str) -> Result<Self, RecordError> {
+        let value = json::parse(line)?;
+        read_core(value.get(key)?)
+    }
+}
+
 /// Runs the record's PSI on its input state: the core step, the pushes,
 /// the standard controller, the movement check and `calc_next_PSI_matrix`.
 #[must_use]

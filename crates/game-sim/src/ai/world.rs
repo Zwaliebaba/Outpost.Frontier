@@ -424,6 +424,14 @@ pub enum AiCommand<H> {
         /// The aim point.
         target: Option<Vector>,
     },
+    /// 16 `slot_40`: one tractor arm toward a loot container
+    /// (`CETractor::AddTarget` on the server).
+    Tractor {
+        /// The tractor's sub-object id.
+        equipment: u16,
+        /// The loot.
+        target: H,
+    },
     /// 17 `slot_44`: aim one gun or launcher at a target.
     SetGunTarget {
         /// The item's sub-object id.
@@ -494,6 +502,7 @@ impl<H> AiCommand<H> {
             Self::AddFollowFollower(_) => 11,
             Self::RemoveFollowFollower(_) => 12,
             Self::FireGuns { .. } => 13,
+            Self::Tractor { .. } => 16,
             Self::SetGunTarget { .. } => 17,
             Self::SetTarget { .. } => 18,
             Self::ActivateEquip { .. } => 19,
@@ -545,13 +554,14 @@ pub trait AiWorld {
     /// One `IObjAffect` call on `h`; the slot's integer result.
     fn command(&mut self, h: Self::Handle, command: AiCommand<Self::Handle>) -> i32;
 
-    /// `get_scanlist(list, 0x7ffdff, keep)` as `BuildAiTargetList` calls
-    /// it: without `keep` the scanner's cache is cleared first, then it
-    /// scans for the types of the mask it has not scanned this frame; the
-    /// scanner's list, in scan order. `None` when the ship has no scanner
-    /// or the call fails. The default has no scanner.
-    fn scan_list(&mut self, h: Self::Handle, keep: bool) -> Option<Vec<Self::Handle>> {
-        let _ = (h, keep);
+    /// `get_scanlist(list, mask, keep)` (`BuildAiTargetList` asks with
+    /// [`AI_SCAN_MASK`], `FindClosestObstacleToAvoid` with
+    /// [`AVOID_SCAN_MASK`]): without `keep` the scanner's cache is cleared
+    /// first, then it scans for the types of the mask it has not scanned
+    /// this frame; the scanner's list, in scan order. `None` when the ship
+    /// has no scanner or the call fails. The default has no scanner.
+    fn scan_list(&mut self, h: Self::Handle, mask: u32, keep: bool) -> Option<Vec<Self::Handle>> {
+        let _ = (h, mask, keep);
         None
     }
 
@@ -592,6 +602,14 @@ pub trait AiWorld {
         None
     }
 
+    /// `get_sub_obj_center_of_mass(sub, out)` (`CEqObj`): an attached
+    /// item's or a group's centre; `None` when the call fails. The default
+    /// has none.
+    fn sub_object_center(&mut self, h: Self::Handle, sub: u16) -> Option<Vector> {
+        let _ = (h, sub);
+        None
+    }
+
     /// `CShip::get_targeted_enemy_count`: the live entries of the ship's
     /// targeter list. The default is 0.
     fn targeted_enemy_count(&self, h: Self::Handle) -> i32 {
@@ -608,6 +626,31 @@ pub trait AiWorld {
         None
     }
 
+    /// A loot container as the loot behaviour reads it (`CLoot` through
+    /// `cobject()`, and `get_good_id`); `None` for an object that is not
+    /// loot. The default has none.
+    fn loot(&self, h: Self::Handle) -> Option<LootView> {
+        let _ = h;
+        None
+    }
+
+    /// A ship's cargo hold: `CShip::get_cargo_hold_remaining` (unrounded)
+    /// and its archetype's `hold_size`; `None` for an object that is not a
+    /// ship. The default has none.
+    fn cargo_hold(&self, h: Self::Handle) -> Option<(f64, f32)> {
+        let _ = h;
+        None
+    }
+
+    /// The loot another ship's loot behaviour chases (`LootBehavior`'s
+    /// target, behaviour 16 of the dispatch table of
+    /// `get_behavior_interface`); `None` when it has no manager or no
+    /// target. The default has none.
+    fn loot_target_of(&self, h: Self::Handle) -> Option<u32> {
+        let _ = h;
+        None
+    }
+
     /// `Universe::ISystem::GetSphereProperties` of the system's zones over
     /// a sphere (the zone-property mask). The default is 0.
     fn sphere_zone_properties(&self, system: u32, center: Vector, radius: f32) -> u32 {
@@ -616,12 +659,32 @@ pub trait AiWorld {
     }
 }
 
+/// The type mask `BuildAiTargetList` scans for (owner decision
+/// 2026-11-18).
+pub const AI_SCAN_MASK: u32 = 0x007f_fdff;
+/// The type mask `FindClosestObstacleToAvoid` scans for.
+pub const AVOID_SCAN_MASK: u32 = 0x207f_8010;
+
 /// `EquipStatus::Flags` bit 0 (`EquipStatusFlagActive`).
 pub const EQUIP_ACTIVE: u8 = 0x01;
 /// `EquipStatus::Flags` bit 1 (`EquipStatusFlagDestroyed`).
 pub const EQUIP_DESTROYED: u8 = 0x02;
 /// `EquipStatus::Flags` bit 2 (`EquipStatusFlagDisabled`).
 pub const EQUIP_DISABLED: u8 = 0x04;
+
+/// A loot container as `LootBehavior` reads it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LootView {
+    /// `CLoot+0xf0` the units.
+    pub units: u32,
+    /// `CLoot+0xfc` AI ships may tractor it.
+    pub can_ai_tractor: bool,
+    /// The contents' `get_class_type` (0xa a commodity, 0x1a a repair
+    /// kit, 0x1b a shield battery).
+    pub contents_class: u32,
+    /// `get_good_id`: the contents' good (`Arch2Good`).
+    pub good_id: Option<u32>,
+}
 
 /// One equipment item as the system manager reads it.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]

@@ -4,6 +4,7 @@
 //! body and a motor), `CMine` and `CCounterMeasure`.
 
 use neuron_core::math::{Matrix, Vector};
+use neuron_core::physics::PhantomHandle;
 
 use crate::data::archetype::misc::Motor;
 
@@ -155,6 +156,19 @@ pub struct GuidedData {
     pub seeker_range: f32,
     /// The munition's seeker field-of-view cosine.
     pub seeker_fov_cos: f32,
+    /// The munition's seeker kind (`Munition`+0x90): 0 none, 1 dumb, 2
+    /// lock; only a lock-on seeker steers.
+    pub seeker: u32,
+    /// The munition's `max_angular_velocity` (`Munition`+0xa0), rad/s.
+    pub max_angular_velocity: f32,
+    /// The server's `Guided` wrapper +0x74: the proximity fuse's phantom
+    /// (`arm`; only with a detonation distance).
+    pub phantom: Option<PhantomHandle>,
+    /// +0x78: something entered the phantom (`Guided::added`).
+    pub triggered: bool,
+    /// +0x7c: the id of what entered it last (0 for an object without
+    /// one).
+    pub trigger_obj: u32,
 }
 
 impl GuidedData {

@@ -18,6 +18,7 @@
 #include "../IVP/ivp_physics/ivp_environment.h"
 #include "../IVP/ivp_physics/ivp_anomaly_manager.h"
 #include "../IVP/ivp_physics/ivp_simulation_unit.h"
+#include "../IVP/ivp_utility/ivp_random.h"
 
 #include <cstring>
 
@@ -73,6 +74,8 @@ void __cdecl OracleSimReadEnv(IVP_Environment const* Environment, FOracleSimEnv&
     Out.DeltaTime = Environment->delta_time;
     Out.InvDeltaTime = Environment->inv_delta_time;
     CopyTime(Out.Time, Environment->current_time);
+    Out.MovementCheck = Environment->next_movement_check;
+    Out.IvpSeed = IVP_FastRandomSeed();
     if (Environment->anomaly_limits != nullptr)
     {
         Out.MaxVelocity = Environment->anomaly_limits->MaxVelocity;
@@ -95,6 +98,18 @@ IVP_Simulation_Unit* __cdecl OracleSimUnitOf(IVP_Core const* Core)
 int __cdecl OracleSimUnitCoreCount(IVP_Simulation_Unit const* Unit)
 {
     return Unit != nullptr ? static_cast<int>(Unit->Cores.n_elems) : 0;
+}
+
+int __cdecl OracleSimUnitControllers(IVP_Simulation_Unit const* Unit, void const** Out, int Max)
+{
+    if (Unit == nullptr)
+        return 0;
+    // IVP_Simulation_Unit_Process_One_Psi_Step runs the buckets from the last to the first.
+    int Count = 0;
+    for (int Index = static_cast<int>(Unit->ControllerBuckets.n_elems) - 1; Index >= 0 && Count < Max;
+         --Index)
+        Out[Count++] = Unit->ControllerBuckets.elems[Index]->Controller;
+    return Count;
 }
 
 CObject* __cdecl OracleSimUnitCoreObject(IVP_Simulation_Unit const* Unit, int Index)

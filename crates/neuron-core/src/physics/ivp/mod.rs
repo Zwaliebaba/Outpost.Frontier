@@ -37,6 +37,9 @@ pub fn initial_psi_time(physical_sim_rate: f32) -> f32 {
     r(1.0 / e(physical_sim_rate))
 }
 
+/// `IVP_ENVIRONMENT_DEFAULT_DELTA_PSI_TIME` (`1.0f / 66.0f`).
+pub const DEFAULT_DELTA_PSI_TIME: f32 = 1.0 / 66.0;
+
 /// The environment's clock: `current_time`, the PSI bookkeeping of
 /// `IVP_Time_Event_PSI::simulate_time_event` and the event manager's time
 /// base, with the PSI as the only queued event.
@@ -65,7 +68,11 @@ impl PsiClock {
         Self {
             current_time: IvpTime::default(),
             time_of_last_psi: IvpTime::default(),
-            next_psi_time: IvpTime::default(),
+            // `IVP_Environment`'s constructor splits its default PSI time
+            // (`IVP_ENVIRONMENT_DEFAULT_DELTA_PSI_TIME`, 1/66) into the next
+            // PSI's time; `set_delta_PSI_time` does not move it, so a core
+            // revived before the first PSI synchronises to 1/66.
+            next_psi_time: IvpTime::new(0.0, DEFAULT_DELTA_PSI_TIME),
             delta_time: psi_time,
             inv_delta_time: r(1.0 / e(psi_time)),
             base: IvpTime::default(),

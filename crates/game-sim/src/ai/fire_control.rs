@@ -294,7 +294,9 @@ impl GunGroups {
             let Some((barrel, _)) = info.and_then(|i| i.barrel) else {
                 return can_fire::INACTIVE;
             };
-            let p = target.position;
+            // `GetIfacePositionOrZero`: the centre `get_physical_radius`
+            // answers.
+            let p = target.center;
             let dx = e(p.x) - e(barrel.x);
             let dy = e(p.y) - e(barrel.y);
             let dz = e(p.z) - e(barrel.z);

@@ -861,6 +861,10 @@ impl<W: AiEnv + ?Sized> Behavior<W> for GotoBehavior {
         ok
     }
 
+    fn as_any(&self) -> Option<&dyn core::any::Any> {
+        Some(self)
+    }
+
     fn attach(&mut self, cx: &mut Cx<'_, W>) {
         if !self.base.bound {
             return;
