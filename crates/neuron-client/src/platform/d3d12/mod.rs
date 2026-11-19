@@ -79,20 +79,29 @@ impl<T> Context<T> for windows::core::Result<T> {
 /// Turns on the Direct3D 12 debug layer for devices made afterwards, when
 /// the layer is installed (the Graphics Tools feature); true when it is on.
 /// For tests: the layer explains failed calls in [`Gpu::debug_messages`].
+///
+/// The layer is turned on once per process. Turning it on while a device
+/// exists removes that device, and every device a process makes on one
+/// adapter is the same object, so the first call must come before the
+/// first device: the library's own tests make sure of it in [`Gpu::new`].
 pub fn enable_debug_layer() -> bool {
-    let mut debug: Option<ID3D12Debug> = None;
-    // SAFETY: a plain query with a valid out slot.
-    if unsafe { D3D12GetDebugInterface(&mut debug) }.is_err() {
-        return false;
-    }
-    match debug {
-        Some(debug) => {
-            // SAFETY: called before the devices it should affect are made.
-            unsafe { debug.EnableDebugLayer() };
-            true
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        let mut debug: Option<ID3D12Debug> = None;
+        // SAFETY: a plain query with a valid out slot.
+        if unsafe { D3D12GetDebugInterface(&mut debug) }.is_err() {
+            return false;
         }
-        None => false,
-    }
+        match debug {
+            Some(debug) => {
+                // SAFETY: called once, before the devices it should affect
+                // are made.
+                unsafe { debug.EnableDebugLayer() };
+                true
+            }
+            None => false,
+        }
+    })
 }
 
 /// Which adapter a device runs on.
@@ -150,6 +159,11 @@ impl Gpu {
                 String::from_utf16_lossy(&d.Description[..end])
             })
             .unwrap_or_default();
+        // The library's tests run in one process on threads: the layer goes
+        // on before any of them makes a device, or turning it on later
+        // removes the devices the others hold.
+        #[cfg(test)]
+        enable_debug_layer();
         let mut device: Option<ID3D12Device> = None;
         // SAFETY: the adapter is live and `device` is a valid out slot.
         unsafe { D3D12CreateDevice(&adapter, D3D_FEATURE_LEVEL_11_0, &mut device) }
