@@ -59,6 +59,7 @@
 #include "oracle_sim_rand.h"
 #include "oracle_sim_fault.h"
 #include "oracle_sim_fields.h"
+#include "oracle_sim_env.h"
 #include "../include/common_ivp_controller.h" // IVP_Controller_Golem (unit_cores.jsonl)
 
 // Server.dll, IServerImpl.cpp (Oracle instrumentation): StarSystem::load on one system.
@@ -2469,6 +2470,10 @@ namespace
         J.Uint("tick", GTick);
         J.Uint("psi_total", GPsiSeq);
         J.Int("code", Code);
+        // The machine, compiler and runtime DLLs of the run (session.jsonl `env`; the
+        // cross-runner reproducibility work, owner 2026-11-19), after everything the run
+        // computes.
+        Write(FileSession, oracle::OracleSimEnvRecord());
         Write(FileSession, J);
         UnitFlush(true);
         CloseAll();

@@ -1,197 +1,191 @@
 name: Data dumps
 
-# Gate G1 (design/migration-plan.md section 6): every reader on the original
-# game data in outdir/ (decision O15) against the C++ oracle. Each work
-# package's dump is a data_dump_<kind> test (crates/neuron-core/tests/support/
-# data.rs; crates/game-sim/tests/data_dump.rs for the game databases). Runs
-# nightly, on pushes to main, and on demand; the per-push oracle job in
-# build.yml runs the same pipeline on a synthetic tree.
+# TEMPORARY, branch claude/oracle-determinism only (owner, 2026-11-19): the oracle
+# reproducibility probe. Not for main. The normal data.yml is on main.
+#
+# Two data.yml jobs of claude/g2-envelopes (runs 44494560931 and 44500705507, same C++
+# source) recorded different outcomes for 5 of the 120 seed-ensemble runs. The jobs differed
+# in the runner image (20261103 / 20261116), the MSVC toolset (14.51.36231 / 14.52.37025)
+# and the machine. This workflow separates the three:
+#
+#   build   builds the oracle with each toolset it can get on one image (the latest, 14.51
+#           side by side, v143) and uploads each bin\ as an artifact;
+#   probe   runs each bin, on four machines, on the 5 scenario+seed pairs that differed,
+#           with the ensemble step's exact command line (and output paths) and then with
+#           --runs 3, and uploads the records;
+#   compare diffs every record against machine a's latest-toolset build and prints the
+#           first differing line and field of each file.
 
 on:
-  schedule:
-    - cron: "17 2 * * *"
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  data:
-    name: Original data against the oracle
+  build:
+    name: Build the oracle (${{ matrix.toolset }})
     runs-on: windows-2025-vs2026
-    timeout-minutes: 120
+    timeout-minutes: 90
+    continue-on-error: ${{ matrix.toolset != 'latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        toolset: [latest, v14.51, v143]
     steps:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
+      - name: Pick the toolset
+        id: pick
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -property installationPath
+          $msvc = { @(Get-ChildItem "$vs\VC\Tools\MSVC" -Directory | ForEach-Object Name) }
+          Write-Host "image: $env:ImageOS $env:ImageVersion; VS: $vs"
+          Write-Host "installed MSVC toolsets: $((& $msvc) -join ', ')"
+          Get-ChildItem "$vs\VC\Auxiliary\Build" -Filter 'Microsoft.VCToolsVersion*.txt' -ErrorAction SilentlyContinue |
+            ForEach-Object { "  $($_.Name): $(Get-Content $_.FullName)" }
+          $props = ''
+          switch ('${{ matrix.toolset }}') {
+            'latest' { }
+            'v143' {
+              if (-not ((& $msvc) | Where-Object { $_ -like '14.4*' })) { Write-Host 'no v143 toolset'; "skip=true" >> $env:GITHUB_OUTPUT; exit 0 }
+              $props = '/p:PlatformToolset=v143'
+            }
+            'v14.51' {
+              $have = (& $msvc) | Where-Object { $_ -like '14.51.*' } | Select-Object -First 1
+              if (-not $have) {
+                $roots = 'C:\ProgramData\Microsoft\VisualStudio\Packages\_Channels', 'C:\ProgramData\Microsoft\VisualStudio\Packages\_Instances'
+                $ids = @(Get-ChildItem $roots -Recurse -File -Include *.json -ErrorAction SilentlyContinue |
+                  Select-String -Pattern 'Microsoft\.VisualStudio\.Component\.VC\.14\.51\.[0-9]+\.[0-9]+\.x86\.x64' -AllMatches |
+                  ForEach-Object { $_.Matches.Value } | Sort-Object -Unique)
+                Write-Host "14.51 components in the installer's catalogs: $($ids -join ', ')"
+                if ($ids.Count -eq 0) {
+                  $ids = 1..6 | ForEach-Object { "Microsoft.VisualStudio.Component.VC.14.51.18.$_.x86.x64" }
+                }
+                $setup = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\setup.exe"
+                foreach ($id in $ids) {
+                  $p = Start-Process $setup -ArgumentList 'modify', '--installPath', "`"$vs`"", '--add', $id, '--quiet', '--norestart', '--nocache' -Wait -PassThru
+                  Write-Host "install ${id}: exit $($p.ExitCode)"
+                  $have = (& $msvc) | Where-Object { $_ -like '14.51.*' } | Select-Object -First 1
+                  if ($have) { break }
+                }
+              }
+              if (-not $have) { Write-Host 'no 14.51 toolset'; "skip=true" >> $env:GITHUB_OUTPUT; exit 0 }
+              Write-Host "MSVC toolsets now: $((& $msvc) -join ', ')"
+              $props = "/p:VCToolsVersion=$have"
+            }
+          }
+          "props=$props" >> $env:GITHUB_OUTPUT
       - name: Build the oracle harness
-        # Oracle builds Server.dll and SimClientStub.dll through its references; the
-        # scenario oracle (Oracle.exe sim) also loads Content.dll and the engine DLLs
-        # NEURONCOMPONENTSsrv.ini names, built here by name.
+        if: steps.pick.outputs.skip != 'true'
         shell: pwsh
         run: |
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
           $targets = 'Tools\Oracle', 'DLLs\Content', 'DLLs\ReadFile', 'DLLs\RendComp', 'DLLs\system', 'DLLs\SceneScript', 'DLLs\DX8RENDERER', 'DLLs\Shading'
-          & $msbuild CppSource\OutpostFrontier.sln "/t:$($targets -join ';')" /m /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo
+          $extra = @('${{ steps.pick.outputs.props }}' | Where-Object { $_ })
+          & $msbuild CppSource\OutpostFrontier.sln "/t:$($targets -join ';')" /m /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo @extra
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Dump the original data with the oracle
-        # The dump root holds DATA (a junction to outdir\data) and EXE (the
-        # INI files at the top of outdir\), as design/reference-build.md
-        # section 7 describes. The dumps are not uploaded.
-        shell: pwsh
-        run: |
-          $root = "$env:RUNNER_TEMP\outpost-data"
-          New-Item -ItemType Directory -Force "$root\EXE" | Out-Null
-          New-Item -ItemType Junction -Path "$root\DATA" -Target "$PWD\outdir\data" | Out-Null
-          Copy-Item outdir\*.ini "$root\EXE\"
-          & .\bin\Oracle.exe dump $root "$env:RUNNER_TEMP\outpost-oracle"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Prepare Rust
-        run: rustup toolchain install
-      - name: Compare the port with the oracle
-        shell: pwsh
-        run: |
-          $env:OUTPOST_DATA_DIR = "$env:RUNNER_TEMP\outpost-data"
-          $env:OUTPOST_ORACLE_DIR = "$env:RUNNER_TEMP\outpost-oracle"
-          cargo test --locked --release -p neuron-core --tests -- data_dump_ --nocapture
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          # The game databases of work package P2.1 (crates/game-sim/tests/data_dump.rs).
-          cargo test --locked --release -p game-sim --tests -- data_dump_ --nocapture
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          # The scene scripts of work package P4.14 (crates/neuron-client/tests/data_dump.rs).
-          cargo test --locked --release -p neuron-client --tests -- data_dump_ --nocapture
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Keep the summaries
-        if: always()
+          Get-ChildItem bin -File -Include *.dll, *.exe -Recurse | Get-FileHash -Algorithm SHA256 | ForEach-Object { "  $($_.Hash.Substring(0, 16)) $(Split-Path -Leaf $_.Path)" }
+      - name: Keep the build
+        if: steps.pick.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: data-dump-summaries
-          path: ${{ runner.temp }}/outpost-oracle/rust-*.txt
-          if-no-files-found: ignore
-      - name: Run the scenario oracle
-        # Work package P2.3 (design/adr/0003-simulation-oracle.md, design/reference-build.md
-        # section 10): every scenario in CppSource/Oracle/scenarios three times, each run in a
-        # fresh process, on the original data in outdir/. The records stay on the runner; the
-        # spread summaries (record 0003 point 9) and each run's session log are kept.
-        if: ${{ !cancelled() }}
+          name: bin-${{ matrix.toolset }}
+          path: |
+            bin/
+            !bin/**/*.lib
+            !bin/**/*.exp
+            !bin/**/*.ipdb
+            !bin/**/*.iobj
+            !bin/**/*.ilk
+          retention-days: 3
+
+  probe:
+    name: Probe (machine ${{ matrix.machine }})
+    needs: build
+    if: ${{ !cancelled() }}
+    runs-on: windows-2025-vs2026
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        machine: [a, b, c, d]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bin-*
+          path: ${{ runner.temp }}/bins
+      - name: Run the differing ensemble pairs
         shell: pwsh
         run: |
-          $out = "$env:RUNNER_TEMP\outpost-sim"
-          $keep = "$env:RUNNER_TEMP\outpost-sim-summaries"
+          Write-Host "runner: $env:RUNNER_NAME image $env:ImageOS $env:ImageVersion"
+          $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
+          Write-Host "cpu: $($cpu.Name) | $($cpu.Manufacturer) | cores $($cpu.NumberOfCores) logical $($cpu.NumberOfLogicalProcessors) | microcode $((Get-ItemProperty 'HKLM:\HARDWARE\DESCRIPTION\System\CentralProcessor\0' -ErrorAction SilentlyContinue).'Update Revision' -join ',')"
+          $os = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'
+          Write-Host "os: $($os.CurrentBuild).$($os.UBR)"
+          $pairs = 'dogfight 3358599207', 'dogfight 464813110', 'skirmish 1478717352', 'skirmish 225462782', 'strafe 2731971922'
+          $keep = "$env:RUNNER_TEMP\probe"
           New-Item -ItemType Directory -Force $keep | Out-Null
-          $failed = @()
-          foreach ($scenario in Get-ChildItem CppSource\Oracle\scenarios -Filter *.txt) {
-            $name = $scenario.BaseName
-            & .\bin\Oracle.exe sim "$PWD\outdir" $scenario.FullName "$out\$name" --runs 3
-            if ($LASTEXITCODE -ne 0) { $failed += $name }
-            New-Item -ItemType Directory -Force "$keep\$name" | Out-Null
-            Copy-Item "$out\$name\spread.*" "$keep\$name\" -ErrorAction SilentlyContinue
-            Get-ChildItem "$out\$name" -Directory -ErrorAction SilentlyContinue | ForEach-Object {
-              Copy-Item "$($_.FullName)\session.jsonl" "$keep\$name\$($_.Name)-session.jsonl" -ErrorAction SilentlyContinue
-              Copy-Item "$($_.FullName)\load_rand.txt" "$keep\$name\$($_.Name)-load_rand.txt" -ErrorAction SilentlyContinue
-            }
-            # A scenario marked "# ci: expect collision": every run records collision events
-            # with their CalcCollisionDamage calls, and the runs record the same ones.
-            if (Select-String -Path $scenario.FullName -Pattern '^# ci: expect collision' -Quiet) {
-              $seen = @()
-              foreach ($run in Get-ChildItem "$out\$name" -Directory -ErrorAction SilentlyContinue) {
-                $events = @(Select-String -Path "$($run.FullName)\events.jsonl" -Pattern '"rec":"collision"' -ErrorAction SilentlyContinue | ForEach-Object { $_.Line })
-                $calls = @(Select-String -Path "$($run.FullName)\calls.jsonl" -Pattern '"rec":"collision_damage"' -ErrorAction SilentlyContinue | ForEach-Object { $_.Line })
-                Write-Host "$name $($run.Name): $($events.Count) collision events, $($calls.Count) CalcCollisionDamage calls"
-                $events | Select-Object -First 6 | ForEach-Object { Write-Host "  $_" }
-                $calls | Select-Object -First 6 | ForEach-Object { Write-Host "  $_" }
-                if ($events.Count -eq 0 -or $calls.Count -eq 0) { $failed += "$name (no collision in $($run.Name))" }
-                $seen += (($events + $calls) -join "`n")
+          $hashes = @()
+          foreach ($bin in Get-ChildItem "$env:RUNNER_TEMP\bins" -Directory) {
+            $toolset = $bin.Name -replace '^bin-', ''
+            # The ensemble step runs .\bin\Oracle.exe from the checkout: the same paths here.
+            Remove-Item bin -Recurse -Force -ErrorAction SilentlyContinue
+            Copy-Item $bin.FullName bin -Recurse
+            foreach ($pair in $pairs) {
+              $name, $seed = $pair -split ' '
+              # The ensemble step's command line and output folder, exactly.
+              $dir = "$env:RUNNER_TEMP\outpost-ensemble\seed_$seed\$name"
+              Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue
+              & .\bin\Oracle.exe sim "$PWD\outdir" "CppSource\Oracle\scenarios\$name.txt" $dir --seed $seed
+              Write-Host "$toolset $name seed ${seed}: exit $LASTEXITCODE"
+              # Three more, each a fresh process (--runs), into another folder.
+              $spread = "$env:RUNNER_TEMP\outpost-runs\seed_$seed\$name"
+              Remove-Item $spread -Recurse -Force -ErrorAction SilentlyContinue
+              & .\bin\Oracle.exe sim "$PWD\outdir" "CppSource\Oracle\scenarios\$name.txt" $spread --seed $seed --runs 3
+              Write-Host "$toolset $name seed $seed --runs 3: exit $LASTEXITCODE"
+              Get-Content "$spread\spread.txt" -ErrorAction SilentlyContinue | Select-Object -First 12 | ForEach-Object { "    $_" }
+              foreach ($run in @(Get-Item $dir) + @(Get-ChildItem $spread -Directory)) {
+                foreach ($file in Get-ChildItem $run.FullName -File -Filter *.jsonl) {
+                  if ($file.Name -eq 'session.jsonl') { continue }
+                  $h = (Get-FileHash $file.FullName -Algorithm SHA256).Hash.Substring(0, 16)
+                  $hashes += "$toolset $name $seed $(if ($run.FullName -eq $dir) { 'single' } else { $run.Name }) $($file.Name) $h"
+                }
               }
-              if (@($seen | Select-Object -Unique).Count -gt 1) { $failed += "$name (the runs record different collisions)" }
-            }
-          }
-          # The step log carries what the artifacts hold: spreads, error records and the
-          # load-time rand() draws of each scenario's first run.
-          foreach ($dir in Get-ChildItem $keep -Directory) {
-            Write-Host "== $($dir.Name)"
-            Get-Content "$($dir.FullName)\spread.txt" -ErrorAction SilentlyContinue
-            Get-ChildItem $dir.FullName -Filter *-session.jsonl | ForEach-Object {
-              Select-String -Path $_.FullName -Pattern '"error"|"note"|"fault"' | Select-Object -First 20 | ForEach-Object { "$($_.Filename): $($_.Line)" }
-            }
-            Get-Content "$($dir.FullName)\run_01-load_rand.txt" -ErrorAction SilentlyContinue
-          }
-          # P2.5 (the dogfight): each run's events counted by kind and objects (munition hits
-          # shooter->target, target picks ship->target), and the ticks each AI ship spent in
-          # each behaviour (tick.jsonl `behavior`, the BehaviorTypes id) with each target.
-          foreach ($dir in Get-ChildItem $out -Directory) {
-            foreach ($run in Get-ChildItem $dir.FullName -Directory) {
-              # P2.4: the asteroid cubes and docking-point calls recorded.
-              foreach ($rec in 'asteroids.jsonl', 'dock.jsonl') {
-                $file = Join-Path $run.FullName $rec
-                if (Test-Path $file) { "$($dir.Name)/$($run.Name) ${rec}: $(@(Get-Content $file).Count) records" }
-              }
-              if ($run.Name -eq 'run_01') {
-                Get-Content (Join-Path $run.FullName 'asteroids.jsonl') -ErrorAction SilentlyContinue |
-                  Where-Object { $_.Contains('"probe"') -and $_.Contains('"tick":0,') } |
-                  ForEach-Object { "$($dir.Name)/$($run.Name) $_" }
-                Select-String -Path (Join-Path $run.FullName 'fdump.txt') -Pattern 'steroid' -ErrorAction SilentlyContinue |
-                  Select-Object -First 10 | ForEach-Object { "$($dir.Name)/$($run.Name) fdump: $($_.Line)" }
-              }
-              $events = Join-Path $run.FullName 'events.jsonl'
-              if (Test-Path $events) {
-                Get-Content $events | ForEach-Object { $_ | ConvertFrom-Json } |
-                  Group-Object { "$($_.rec) $($_.obj ?? $_.shooter_obj ?? $_.a_obj ?? $_.ship_obj)->$($_.target_obj ?? $_.b_obj ?? $_.dock_obj ?? $_.killer_obj)" } |
-                  ForEach-Object { "$($dir.Name)/$($run.Name) events: $($_.Count) x $($_.Name)" }
-                Select-String -Path $events -Pattern '"rec":"destroyed"' |
-                  ForEach-Object { "$($dir.Name)/$($run.Name) destroyed: $($_.Line)" }
-              }
-              $ticks = Join-Path $run.FullName 'tick.jsonl'
-              if ((Test-Path $ticks) -and (Select-String -Path $ticks -Pattern '"behavior":[0-9]' -Quiet)) {
-                Get-Content $ticks | Where-Object { $_.Contains('"behavior":') } | ForEach-Object { $_ | ConvertFrom-Json } |
-                  Where-Object { $_.behavior -ge 0 } |
-                  Group-Object { "$($_.obj) behaviour $($_.behavior) target $($_.target_obj)" } |
-                  ForEach-Object { "$($dir.Name)/$($run.Name) ticks: $($_.Count) x $($_.Name)" }
-              }
+              Select-String -Path "$dir\session.jsonl" -Pattern '"rec":"env"' | ForEach-Object { "    $($_.Line)" }
+              $target = "$keep\$toolset\seed_$seed\$name"
+              New-Item -ItemType Directory -Force $target | Out-Null
+              Copy-Item "$dir\*.jsonl", "$dir\load_rand.txt", "$dir\metrics.txt" $target -ErrorAction SilentlyContinue
             }
           }
-          if ($failed.Count -gt 0) {
-            Write-Host "Scenarios with a failed run: $($failed -join ', ')"
-            exit 1
-          }
-      - name: Replay the recorded PSIs through the port
-        # Decision O20, replay layer: every psi.jsonl the scenarios wrote is replayed one PSI
-        # at a time through neuron-core::physics (crates/neuron-core/tests/sim_replay.rs).
-        if: ${{ !cancelled() }}
-        shell: pwsh
-        run: |
-          $env:OUTPOST_ORACLE_DIR = "$env:RUNNER_TEMP\outpost-sim"
-          cargo test --locked --release -p neuron-core --test sim_replay -- --nocapture
-          $code = $LASTEXITCODE
-          Copy-Item "$env:OUTPOST_ORACLE_DIR\rust-sim-replay.txt" "$env:RUNNER_TEMP\outpost-sim-summaries\" -ErrorAction SilentlyContinue
-          exit $code
-      - name: Replay the controllers, the damage and the scenarios through the object model
-        # Work package P2.4 (decision O20): the flight controllers rebuilt from each PSI's recorded
-        # inputs (ctl) against the recorded pushes, the munition hits and collision damages of
-        # calls.jsonl against the recorded damage lists, and the scenarios run through the Rust
-        # world against tick.jsonl (differences reported; only gross divergence fails, the
-        # envelopes being unapproved); the asteroid field walk and the docking points replayed
-        # from the oracle's own inputs against asteroids.jsonl and dock.jsonl (field_replay).
-        # Summaries rust-controller-replay.txt, rust-damage-replay.txt, rust-scenario-replay.txt,
-        # rust-field-replay.txt and rust-dock-replay.txt.
-        if: ${{ !cancelled() }}
-        shell: pwsh
-        run: |
-          $env:OUTPOST_ORACLE_DIR = "$env:RUNNER_TEMP\outpost-sim"
-          $failed = 0
-          foreach ($test in 'controller_replay', 'damage_replay', 'scenario_replay', 'behavior_replay', 'field_replay') {
-            cargo test --locked --release -p game-sim --test $test -- --nocapture
-            if ($LASTEXITCODE -ne 0) { $failed = 1 }
-          }
-          Copy-Item "$env:OUTPOST_ORACLE_DIR\rust-*-replay.txt" "$env:RUNNER_TEMP\outpost-sim-summaries\" -ErrorAction SilentlyContinue
-          exit $failed
-      - name: Keep the scenario spread summaries
-        if: always()
-        uses: actions/upload-artifact@v4
+          $hashes | Set-Content "$keep\hashes.txt"
+          $hashes | ForEach-Object { "  $_" }
+      - uses: actions/upload-artifact@v4
         with:
-          name: scenario-spread-summaries
-          path: ${{ runner.temp }}/outpost-sim-summaries
-          if-no-files-found: ignore
+          name: probe-${{ matrix.machine }}
+          path: ${{ runner.temp }}/probe/
+          retention-days: 3
+
+  compare:
+    name: Compare the probes
+    needs: probe
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: probe-*
+          path: ${{ runner.temp }}/probes
+      - name: First differences
+        run: python3 -I .github/oracle-determinism/compare.py "${{ runner.temp }}/probes"
