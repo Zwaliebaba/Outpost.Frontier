@@ -44,9 +44,12 @@ use std::path::Path;
 use std::sync::Arc;
 
 use game_sim::ai::behavior::{Cx, DirectiveOp};
+use game_sim::ai::dock::DockBehavior;
 use game_sim::ai::face::FaceBehavior;
 use game_sim::ai::face_idea::FaceIdea;
 use game_sim::ai::fire_control::GUN_POINTING_ANGLE;
+use game_sim::ai::itl::InstantTradeLaneBehavior;
+use game_sim::ai::launch::LaunchBehavior;
 use game_sim::ai::manager::{BehaviorManager, ManagerState};
 use game_sim::ai::personality::Personality;
 use game_sim::ai::state_graph::StateGraphDb;
@@ -54,17 +57,17 @@ use game_sim::ai::steer::{
     build_orientation_basis, build_perpendicular_frame, steering_frame_from_relative_dir,
 };
 use game_sim::ai::world::{
-    AI_SCAN_MASK, AiCommand, AiRand, AiWorld, EquipInfo, MotionModel, ObjectView, RayContact,
-    RecordedRand, SpatialQueries,
+    AI_SCAN_MASK, AiCommand, AiRand, AiWorld, DockHardpoints, EquipInfo, LaneStart, MotionModel,
+    ObjectView, RayContact, RecordedRand, RequestAnswer, SpatialQueries,
 };
 use game_sim::object::world::{ShipSpawn, WorldConfig};
 use game_sim::object::{ObjHandle, World};
 use neuron_core::id::create_id;
-use neuron_core::math::{Matrix, Vector};
+use neuron_core::math::{Matrix, Transform, Vector};
 use neuron_core::physics::StepMode;
 use support::ai_records::{
-    Affect, AiTick, EquipRecord, FaceRecord, ManagerRecord, PathfindRecord, QueryRecord, SysRecord,
-    read_affects, read_ai_ticks,
+    Affect, AiTick, AnswerRecord, BehRecord, EquipRecord, FaceRecord, ManagerRecord,
+    PathfindRecord, QueryRecord, SysRecord, read_affects, read_ai_ticks, read_names,
 };
 use support::records::{find_files, oracle_dir};
 
@@ -72,7 +75,7 @@ use support::records::{find_files, oracle_dir};
 const MAX_REPORTED: usize = 30;
 
 /// The recorded `IObjAffect` slots (`design/sim-records.md`, `affect`).
-const RECORDED_SLOTS: [u8; 10] = [0, 1, 2, 3, 13, 16, 18, 19, 20, 21];
+const RECORDED_SLOTS: [u8; 14] = [0, 1, 2, 3, 13, 16, 18, 19, 20, 21, 23, 24, 25, 26];
 
 /// The scenario ships of one run in a world over `outdir/`, for their
 /// motion models: the ship's scenario name to its handle.
@@ -166,6 +169,12 @@ struct ReplayWorld<'a> {
     pointing_angles: [f32; 3],
     /// The equipment queries of the tick the snapshot cannot answer.
     unanswered: Vec<String>,
+    /// The world answers of the tick (`ai_answer`), each used once.
+    answers: Vec<AnswerRecord>,
+    /// Which of them have been used.
+    used: Vec<bool>,
+    /// The ship's `get_hardpoint("hpmount")` (`ai_obj.hpmount`).
+    hpmount: Option<(Vector, Matrix)>,
 }
 
 impl<'a> ReplayWorld<'a> {
@@ -214,6 +223,9 @@ impl<'a> ReplayWorld<'a> {
                 .iter()
                 .filter_map(|o| o.targeted_enemies.map(|n| (o.id, n)))
                 .collect(),
+            answers: t.answers.clone(),
+            used: vec![false; t.answers.len()],
+            hpmount: own.and_then(|o| o.hpmount),
             pointing_angles: [
                 GUN_POINTING_ANGLE,
                 t.input.sys.as_ref().map_or(0.0, |s| s.guns.wide_cone_angle),
@@ -224,6 +236,31 @@ impl<'a> ReplayWorld<'a> {
             ],
             unanswered: Vec::new(),
         }
+    }
+
+    /// The first unused recorded answer of a kind that `pick` accepts,
+    /// marked used.
+    fn take_answer(
+        &mut self,
+        kind: &str,
+        pick: impl Fn(&AnswerRecord) -> bool,
+    ) -> Option<AnswerRecord> {
+        let k = self
+            .answers
+            .iter()
+            .enumerate()
+            .position(|(k, a)| !self.used[k] && a.kind == kind && pick(a))?;
+        self.used[k] = true;
+        Some(self.answers[k].clone())
+    }
+
+    /// The answers of a batch outside a tick, in place of the tick's.
+    fn set_answers(&mut self, answers: Vec<AnswerRecord>) -> (Vec<AnswerRecord>, Vec<bool>) {
+        let used = vec![false; answers.len()];
+        (
+            std::mem::replace(&mut self.answers, answers),
+            std::mem::replace(&mut self.used, used),
+        )
     }
 
     /// The ship's recorded item with an id.
@@ -350,8 +387,83 @@ impl AiWorld for ReplayWorld<'_> {
         self.attitudes.get(&to).copied()
     }
 
-    fn hardpoint(&self, _h: u32, _name: &[u8]) -> Option<(Vector, Matrix)> {
-        None
+    /// The ship's `hpmount` as the snapshot read it.
+    fn hardpoint(&self, h: u32, name: &[u8]) -> Option<(Vector, Matrix)> {
+        if h != self.ship || name != b"hpmount" {
+            return None;
+        }
+        self.hpmount
+    }
+
+    /// The recorded answer of `get_dock_hardpoints` for the object and
+    /// sphere (the caller's buffers as they were after the call).
+    fn dock_hardpoints(&mut self, h: u32, index: i32) -> DockHardpoints {
+        let Some(a) = self.take_answer("dock_hardpoints", |a| {
+            a.id == h && a.ints.first() == Some(&index)
+        }) else {
+            self.unanswered
+                .push(format!("dock_hardpoints({h}, {index})"));
+            return DockHardpoints::failed(-5);
+        };
+        let flag = |k: usize| a.ints.get(k).is_some_and(|&v| v != 0);
+        let xform = |k: usize| {
+            let f = a.floats.get(k * 12..k * 12 + 12)?;
+            Some(Transform::new(
+                Matrix::from_rows([[f[0], f[1], f[2]], [f[3], f[4], f[5]], [f[6], f[7], f[8]]]),
+                Vector::new(f[9], f[10], f[11]),
+            ))
+        };
+        DockHardpoints {
+            result: a.ints.get(1).copied().unwrap_or(-5),
+            terminal: a.ints.get(2).copied(),
+            mount: if flag(3) { xform(0) } else { None },
+            point1: if flag(4) { xform(1) } else { None },
+            point2: if flag(5) { xform(2) } else { None },
+            radius: if flag(6) {
+                a.floats.get(36).copied()
+            } else {
+                None
+            },
+        }
+    }
+
+    /// The recorded answer of `get_lane_start` the ship got for the ring.
+    fn lane_start(&mut self, h: u32, ring: Option<u32>, lane: Option<u32>) -> LaneStart<u32> {
+        let ring_id = ring.map_or(0, int);
+        let Some(a) = self.take_answer("lane_start", |a| {
+            a.id == h && a.ints.first() == Some(&ring_id)
+        }) else {
+            self.unanswered.push(format!("lane_start({h}, {ring:?})"));
+            return LaneStart {
+                result: -4,
+                lane,
+                start: None,
+                direction: None,
+            };
+        };
+        let v = |k: usize| {
+            let f = a.floats.get(k..k + 3)?;
+            Some(Vector::new(f[0], f[1], f[2]))
+        };
+        LaneStart {
+            result: a.ints.get(3).copied().unwrap_or(-4),
+            lane: a.ints.get(2).map(|&id| word(id)).filter(|&id| id != 0),
+            start: v(0),
+            direction: v(3),
+        }
+    }
+
+    /// The server's answers to the ship's request during the tick.
+    fn take_request_answers(&mut self, h: u32) -> Vec<RequestAnswer> {
+        let mut out = Vec::new();
+        while let Some(a) = self.take_answer("request", |a| a.id == h) {
+            out.push(RequestAnswer {
+                kind: a.ints.first().copied().unwrap_or(0),
+                response: a.ints.get(1).copied().unwrap_or(0),
+                arg: a.ints.get(2).copied().unwrap_or(-1),
+            });
+        }
+        out
     }
 
     fn motion(&self, h: u32) -> Option<Box<dyn MotionModel + '_>> {
@@ -491,10 +603,17 @@ impl AiWorld for ReplayWorld<'_> {
         if let Some(v) = self.objects.get_mut(&h) {
             Self::follow(v, &command);
         }
+        let result = if let AiCommand::GoTradeLane { .. } = &command {
+            self.take_answer("go_tradelane", |a| a.id == h)
+                .and_then(|a| a.ints.get(3).copied())
+                .unwrap_or(0)
+        } else {
+            0
+        };
         if h == self.ship {
             self.commands.push(command);
         }
-        0
+        result
     }
 }
 
@@ -743,6 +862,222 @@ fn state_diff(m: &ManagerState, face: Option<&FaceRecord>, theirs: &ManagerRecor
     out
 }
 
+/// The dock, launch or trade-lane behaviour's fields in the layout of
+/// `beh7`, `beh8` and `beh9` (`design/sim-records.md`).
+fn beh_snapshot(manager: &mut BehaviorManager<ReplayWorld<'_>>, kind: i32) -> Option<BehRecord> {
+    let b = manager.behavior_mut(kind)?;
+    let base = b.base().clone();
+    let head = vec![
+        base.mode,
+        base.result,
+        i32::from(base.flags),
+        i32::from(base.flag29),
+    ];
+    let any = b.as_any_mut()?;
+    let id = |v: Option<u32>| v.map_or(0, int);
+    let vec3 = |v: Vector| [v.x, v.y, v.z];
+    let mat = |m: &Matrix| m.m.concat();
+    let mut ints = head;
+    let mut floats = Vec::new();
+    if let Some(d) = any.downcast_mut::<DockBehavior>() {
+        ints.extend([
+            d.mode,
+            int(d.type_flags),
+            d.field_330,
+            i32::from(d.cleared_334),
+            d.field_43c,
+            d.sub_440,
+            i32::from(d.abort_398),
+            i32::from(d.flag_399),
+            i32::from(d.flag_39a),
+            i32::from(d.flag_39b),
+            i32::from(d.combat_344),
+            id(d.watched),
+            id(d.target_ship),
+            id(d.prox.watched),
+            int(d.prox.zone_flags),
+            int(d.prox.saved_flags),
+            i32::from(d.pilot),
+        ]);
+        floats.extend([
+            d.field_338,
+            d.field_33c,
+            d.timer_340,
+            d.field_408,
+            d.max_speed_46c,
+            d.prox.near,
+            d.prox.far,
+            d.prox.ratio,
+        ]);
+        for v in [
+            d.facing,
+            d.intercept,
+            d.dest,
+            d.saved,
+            d.offset_430,
+            d.field_444,
+        ] {
+            floats.extend(vec3(v));
+        }
+        for m in [&d.orient_3a8, &d.orient_3d8, &d.orient_40c] {
+            floats.extend(mat(m));
+        }
+    } else if let Some(l) = any.downcast_mut::<LaunchBehavior>() {
+        ints.extend([
+            l.mode,
+            id(l.watched),
+            int(l.system),
+            int(l.target_type),
+            l.index,
+            i32::from(l.straight),
+            i32::from(l.berth),
+            i32::from(l.turn_about),
+        ]);
+        floats.extend([
+            base.tick_delta,
+            l.wait,
+            l.waited,
+            l.elapsed,
+            l.limit,
+            l.throttle_22c,
+        ]);
+        for v in [l.mount_offset, l.point2, l.point1, l.mount] {
+            floats.extend(vec3(v));
+        }
+        for m in [&l.launch_basis, &l.basis2, &l.basis3] {
+            floats.extend(mat(m));
+        }
+    } else if let Some(t) = any.downcast_mut::<InstantTradeLaneBehavior>() {
+        ints.extend([
+            t.state,
+            id(t.entrance),
+            id(t.lane),
+            i32::from(t.in_lane),
+            i32::from(t.flag_55),
+            i32::from(t.flag_56),
+        ]);
+        floats.push(t.speed);
+        floats.extend(vec3(t.lane_start));
+        floats.extend(vec3(t.lane_end));
+    } else {
+        return None;
+    }
+    Some(BehRecord { kind, ints, floats })
+}
+
+/// The fields of a `beh` record the replay cannot compare: the launch
+/// behaviour's system (the replay world has no system ids).
+fn beh_skipped(kind: i32, k: usize) -> bool {
+    kind == 8 && k == 6
+}
+
+/// The differences between the recorded and the Rust behaviour fields.
+fn beh_diff(theirs: &BehRecord, ours: Option<&BehRecord>) -> Option<String> {
+    let Some(ours) = ours else {
+        return Some(format!(
+            "beh{} oracle {:?}, rust none",
+            theirs.kind, theirs.ints
+        ));
+    };
+    let ints: Vec<usize> = (0..theirs.ints.len().max(ours.ints.len()))
+        .filter(|&k| !beh_skipped(theirs.kind, k) && theirs.ints.get(k) != ours.ints.get(k))
+        .collect();
+    let floats: Vec<usize> = (0..theirs.floats.len().max(ours.floats.len()))
+        .filter(|&k| {
+            theirs.floats.get(k).map(|v| v.to_bits()) != ours.floats.get(k).map(|v| v.to_bits())
+        })
+        .collect();
+    if ints.is_empty() && floats.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "beh{}: ints {:?} oracle {:?} rust {:?}; floats {:?} oracle {:08x?} rust {:08x?}",
+        theirs.kind,
+        ints,
+        theirs.ints,
+        ours.ints,
+        floats,
+        floats
+            .iter()
+            .filter_map(|&k| theirs.floats.get(k).map(|v| v.to_bits()))
+            .collect::<Vec<_>>(),
+        floats
+            .iter()
+            .filter_map(|&k| ours.floats.get(k).map(|v| v.to_bits()))
+            .collect::<Vec<_>>()
+    ))
+}
+
+/// Puts the recorded dock fields into the Rust dock behaviour (as the
+/// face behaviour's): its constructor leaves most of them as the heap
+/// held them, and `SetContext` computed the `hpmount` offset before the
+/// first tick.
+fn restore_dock(manager: &mut BehaviorManager<ReplayWorld<'_>>, r: &BehRecord) {
+    if r.kind != 7 || r.ints.len() < 21 || r.floats.len() < 53 {
+        return;
+    }
+    let Some(d) = manager
+        .behavior_mut(7)
+        .and_then(|b| b.as_any_mut())
+        .and_then(|a| a.downcast_mut::<DockBehavior>())
+    else {
+        return;
+    };
+    let i = &r.ints;
+    let f = &r.floats;
+    {
+        let base = game_sim::ai::behavior::Behavior::<ReplayWorld<'_>>::base_mut(d);
+        base.mode = i[0];
+        base.result = i[1];
+        base.flags = u8::try_from(i[2] & 0xff).unwrap_or(0);
+        base.flag29 = u8::try_from(i[3] & 0xff).unwrap_or(0);
+    }
+    let byte = |v: i32| u8::try_from(v & 0xff).unwrap_or(0);
+    let id = |v: i32| (v != 0).then(|| word(v));
+    d.mode = i[4];
+    d.type_flags = word(i[5]);
+    d.field_330 = i[6];
+    d.cleared_334 = byte(i[7]);
+    d.field_43c = i[8];
+    d.sub_440 = i[9];
+    d.abort_398 = byte(i[10]);
+    d.flag_399 = byte(i[11]);
+    d.flag_39a = byte(i[12]);
+    d.flag_39b = byte(i[13]);
+    d.combat_344 = byte(i[14]);
+    d.watched = id(i[15]);
+    d.target_ship = id(i[16]);
+    d.prox.watched = id(i[17]);
+    d.prox.zone_flags = word(i[18]);
+    d.prox.saved_flags = word(i[19]);
+    d.pilot = i[20] != 0;
+    d.field_338 = f[0];
+    d.field_33c = f[1];
+    d.timer_340 = f[2];
+    d.field_408 = f[3];
+    d.max_speed_46c = f[4];
+    d.prox.near = f[5];
+    d.prox.far = f[6];
+    d.prox.ratio = f[7];
+    let v = |k: usize| Vector::new(f[k], f[k + 1], f[k + 2]);
+    let m = |k: usize| {
+        Matrix::from_rows([
+            [f[k], f[k + 1], f[k + 2]],
+            [f[k + 3], f[k + 4], f[k + 5]],
+            [f[k + 6], f[k + 7], f[k + 8]],
+        ])
+    };
+    d.facing = v(8);
+    d.intercept = v(11);
+    d.dest = v(14);
+    d.saved = v(17);
+    d.offset_430 = v(20);
+    d.field_444 = v(23);
+    d.orient_3a8 = m(26);
+    d.orient_3d8 = m(35);
+    d.orient_40c = m(44);
+}
+
 /// The pathfinder fields the records hold, from the Rust manager.
 fn pathfind_snapshot(m: &ManagerState) -> PathfindRecord {
     let pf = &m.pathfind;
@@ -797,6 +1132,7 @@ fn snapshot(m: &ManagerState) -> ManagerRecord {
         flags_1c8: None,
         sys: None,
         face: None,
+        beh: None,
     }
 }
 
@@ -888,6 +1224,31 @@ fn as_affect(c: &AiCommand<u32>) -> Option<AffectRow> {
             Some(vec![if *instant { 1.0_f32 } else { 0.0 }.to_bits()]),
         ),
         AiCommand::SetThrustersActive(on) => (21, i32::from(*on), None),
+        // The ids travel as the bits of the floats.
+        AiCommand::Request {
+            kind,
+            target,
+            second,
+            flag,
+        } => (23, *kind, Some(vec![*target, *second, word(*flag)])),
+        AiCommand::CancelRequest { kind, target, arg } => {
+            (24, *kind, Some(vec![*target, word(*arg)]))
+        }
+        AiCommand::GoTradeLane {
+            entrance,
+            exit,
+            fast_exit,
+            speed,
+        } => (
+            25,
+            i32::from(*fast_exit),
+            Some(vec![
+                entrance.unwrap_or(0),
+                exit.unwrap_or(0),
+                speed.to_bits(),
+            ]),
+        ),
+        AiCommand::StopTradeLane => (26, 0, None),
         _ => return None,
     })
 }
@@ -942,6 +1303,11 @@ struct Totals {
     /// Ticks that asked an equipment query the snapshot cannot answer.
     unanswered: usize,
     unanswered_reports: Vec<String>,
+    /// Ticks whose exit holds the dock, launch or trade-lane behaviour's
+    /// fields, and those the Rust behaviour left differently.
+    beh_compared: usize,
+    beh_mismatched: usize,
+    beh_reports: Vec<String>,
 }
 
 /// The first behaviour with a weight in the graph row of `current` that
@@ -1134,6 +1500,11 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
         .and_then(|n| n.to_str())
         .unwrap_or("");
     let motion = MotionWorld::new(scenario);
+    // The scenario's names of the objects (the directives name them).
+    let object_ids = read_names(path);
+    let resolve = |name: &str| object_ids.get(name).copied();
+    // The answers outside a tick, waiting for their ship's next tick.
+    let mut queued: BTreeMap<u32, Vec<AnswerRecord>> = BTreeMap::new();
     let mut avoid_shuffled = false;
     let mut managers: BTreeMap<u32, BehaviorManager<ReplayWorld<'_>>> = BTreeMap::new();
     let mut first_seen: BTreeMap<u32, ()> = BTreeMap::new();
@@ -1224,7 +1595,7 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
                     let (_, name, args) = &m.commands[submitted];
                     submitted += 1;
                     if t.obj.as_deref() == Some(name.as_str())
-                        && let Some(op) = support::directives::directive(args)
+                        && let Some(op) = support::directives::directive_with(args, &resolve)
                     {
                         ops.push(op);
                     }
@@ -1256,9 +1627,43 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
             world.rand = recorded;
             world.commands.clear();
         }
+        // The server's answers since the ship's last tick (a request it
+        // answered later), with what the callbacks asked meanwhile.
+        for a in &t.before {
+            queued.entry(a.id).or_default().push(a.clone());
+        }
+        if let Some(batch) = queued.remove(&t.id)
+            && !batch.is_empty()
+        {
+            let saved = world.set_answers(batch.clone());
+            let recorded = std::mem::take(&mut world.rand);
+            for a in batch.iter().filter(|a| a.kind == "request") {
+                let k = world
+                    .answers
+                    .iter()
+                    .zip(world.used.iter())
+                    .position(|(b, u)| !u && b == a);
+                if let Some(k) = k {
+                    world.used[k] = true;
+                }
+                manager.request_returned(
+                    &mut world,
+                    t.id,
+                    a.ints.first().copied().unwrap_or(0),
+                    a.ints.get(1).copied().unwrap_or(0),
+                    a.ints.get(2).copied().unwrap_or(-1),
+                );
+            }
+            world.rand = recorded;
+            world.commands.clear();
+            (world.answers, world.used) = saved;
+        }
         restore(&mut manager.state, &t.input, t, graphs);
         if let Some(f) = &t.input.face {
             restore_face(manager, f);
+        }
+        if let Some(b) = &t.input.beh {
+            restore_dock(manager, b);
         }
         manager.state.stand_in_polls = 0;
         let entry_state = manager.state.clone();
@@ -1309,6 +1714,24 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
             && !is_rotation(&theirs.orient)
         {
             ours.orient = theirs.orient;
+        }
+        if let Some(theirs) = &out.beh {
+            totals.beh_compared += 1;
+            let ours = beh_snapshot(manager, theirs.kind);
+            if let Some(d) = beh_diff(theirs, ours.as_ref()) {
+                totals.beh_mismatched += 1;
+                if totals.beh_reports.len() < MAX_REPORTED {
+                    totals.beh_reports.push(format!(
+                        "{} seq {} tick {} id {} behaviour {} -> {}: {d}",
+                        path.display(),
+                        t.seq,
+                        t.tick,
+                        t.id,
+                        t.input.behavior,
+                        out.behavior
+                    ));
+                }
+            }
         }
         let state = state_diff(&manager.state, our_face.as_ref(), out);
         if out.sys.is_some() {
@@ -1435,9 +1858,18 @@ fn behavior_ticks_against_the_oracle() {
     {
         let _ = writeln!(summary, "{r}");
     }
+    let _ = writeln!(
+        summary,
+        "dock, launch and trade-lane fields on exit: {} ticks compared, {} with a difference",
+        totals.beh_compared, totals.beh_mismatched
+    );
+    for r in &totals.beh_reports {
+        let _ = writeln!(summary, "{r}");
+    }
     print!("{summary}");
     let _ = fs::write(dir.join("rust-behavior-replay.txt"), &summary);
     assert_eq!(totals.mismatched, 0, "{summary}");
     assert_eq!(totals.state_mismatched, 0, "{summary}");
     assert_eq!(totals.unanswered, 0, "{summary}");
+    assert_eq!(totals.beh_mismatched, 0, "{summary}");
 }

@@ -311,6 +311,56 @@ impl<'a, W: AiEnv + ?Sized> Cx<'a, W> {
         self.world.handle_of(id).and_then(|h| self.world.inspect(h))
     }
 
+    /// `IObjAffect::slot_5c(Kind, &Target, &Second, Flag, this)` from the
+    /// behaviour `index` (`Ship::slot_5c`): refused while another request
+    /// is in progress; otherwise the behaviour becomes the ship's pending
+    /// callback. The answers the server gave during the call follow
+    /// ([`super::world::AiWorld::take_request_answers`]); the caller hands
+    /// them to its `OnResult` and ends the request when it does not keep
+    /// it ([`Cx::end_request`]).
+    pub fn request(
+        &mut self,
+        index: i32,
+        kind: i32,
+        target: u32,
+        second: u32,
+        flag: i32,
+    ) -> Vec<super::world::RequestAnswer> {
+        self.world.command(
+            self.ship,
+            super::world::AiCommand::Request {
+                kind,
+                target,
+                second,
+                flag,
+            },
+        );
+        if self.state.request_busy {
+            return Vec::new();
+        }
+        self.state.pending_request = Some(index);
+        self.state.request_busy = true;
+        self.world.take_request_answers(self.ship)
+    }
+
+    /// The request ends: the ship's pending callback and its busy flag
+    /// cleared (`Ship::request_returned` after an answer `OnResult` does
+    /// not keep, and `Ship::slot_60`).
+    pub fn end_request(&mut self) {
+        self.state.pending_request = None;
+        self.state.request_busy = false;
+    }
+
+    /// `IObjAffect::slot_60(Kind, &Target, Arg)` (`Ship::slot_60`): the
+    /// pending callback dropped, then the server told.
+    pub fn cancel_request(&mut self, kind: i32, target: u32, arg: i32) {
+        self.end_request();
+        self.world.command(
+            self.ship,
+            super::world::AiCommand::CancelRequest { kind, target, arg },
+        );
+    }
+
     /// The idle stop (`IdleIdea::Update`).
     pub fn stop(&mut self) {
         self.state.thrust.stop(&mut *self.world, self.ship);
@@ -487,6 +537,76 @@ impl Default for DrasticEvadeOp {
     }
 }
 
+/// `pub::AI::DirectiveDockOp` (0x2c bytes).
+#[derive(Clone, Debug, PartialEq)]
+pub struct DockOp {
+    /// +0x0c the object to dock with.
+    pub dock_object: u32,
+    /// +0x10 the trade lane's other ring (an object id; 0 none).
+    pub field_10: u32,
+    /// +0x14 the port is already granted.
+    pub field_14: u8,
+    /// +0x18 the dock port (-1).
+    pub port: i32,
+    /// +0x1c the object the proximity watcher watches (0 none).
+    pub field_1c: u32,
+    /// +0x20 its near threshold (200).
+    pub field_20: f32,
+    /// +0x24 its far threshold (500).
+    pub field_24: f32,
+    /// +0x28 its cruise ratio, a float's bits (0: from the speeds).
+    pub field_28: u32,
+}
+
+impl Default for DockOp {
+    /// `DirectiveDockOp::DirectiveDockOp`.
+    fn default() -> Self {
+        Self {
+            dock_object: 0,
+            field_10: 0,
+            field_14: 0,
+            port: -1,
+            field_1c: 0,
+            field_20: 200.0,
+            field_24: 500.0,
+            field_28: 0,
+        }
+    }
+}
+
+/// `pub::AI::DirectiveLaunchOp` (0x18 bytes).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LaunchOp {
+    /// +0x0c the object to launch from.
+    pub launch_object: u32,
+    /// +0x10 the docking sphere (-1).
+    pub index: i32,
+    /// +0x14 its terminal type (0).
+    pub terminal: i32,
+}
+
+impl Default for LaunchOp {
+    /// `DirectiveLaunchOp::DirectiveLaunchOp`.
+    fn default() -> Self {
+        Self {
+            launch_object: 0,
+            index: -1,
+            terminal: 0,
+        }
+    }
+}
+
+/// `pub::AI::DirectiveInstantTradelaneOp` (0x18 bytes).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct InstantTradeLaneOp {
+    /// +0x0c the entrance ring.
+    pub entrance: u32,
+    /// +0x10 the exit ring (0 none).
+    pub exit: u32,
+    /// +0x14 the speed (a float in the third word).
+    pub speed: f32,
+}
+
 /// A directive operation (`pub::AI::BaseOp`), the argument of slot 10.
 /// Kinds without a ported reader keep their op type only.
 #[derive(Clone, Debug, PartialEq)]
@@ -497,6 +617,12 @@ pub enum DirectiveOp {
     Face(FaceOp),
     /// `DirectiveDrasticEvadeOp` (11).
     DrasticEvade(DrasticEvadeOp),
+    /// `DirectiveDockOp` (13).
+    Dock(DockOp),
+    /// `DirectiveLaunchOp` (14).
+    Launch(LaunchOp),
+    /// `DirectiveInstantTradelaneOp` (15).
+    InstantTradeLane(InstantTradeLaneOp),
     /// `DirectiveDelayOp` (12): the delay in seconds.
     Delay(f32),
     /// `DirectiveIdleOp` (20).
@@ -515,6 +641,9 @@ impl DirectiveOp {
             Self::Goto(_) => 3,
             Self::Face(_) => 7,
             Self::DrasticEvade(_) => 11,
+            Self::Dock(_) => 13,
+            Self::Launch(_) => 14,
+            Self::InstantTradeLane(_) => 15,
             Self::Delay(_) => 12,
             Self::Idle => 20,
             Self::Cancel => 21,
@@ -711,5 +840,19 @@ pub trait Behavior<W: AiEnv + ?Sized> {
     /// (26) the dock behaviour's target, for the player's docking probe.
     fn dock_target(&self) -> Option<u32> {
         None
+    }
+
+    /// `IObjAffect::RequestCB::OnResult(RequestType, Response, Arg3)`: the
+    /// answer to a request the behaviour made (the dock and trade-lane
+    /// behaviours); true keeps the request pending. The default lets go.
+    fn on_request_result(
+        &mut self,
+        cx: &mut Cx<'_, W>,
+        kind: i32,
+        response: i32,
+        arg: i32,
+    ) -> bool {
+        let _ = (cx, kind, response, arg);
+        false
     }
 }

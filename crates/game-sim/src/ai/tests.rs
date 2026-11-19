@@ -3,7 +3,7 @@
 use neuron_core::math::{Matrix, Vector};
 use neuron_core::rng::CrtRand;
 
-use super::behavior::{DirectiveOp, DrasticEvadeOp, ids};
+use super::behavior::{DirectiveOp, DrasticEvadeOp, LaunchOp, ids};
 use super::manager::BehaviorManager;
 use super::state_graph::{BEHAVIOR_COUNT, GraphType, StateGraph, StateGraphDb};
 use super::world::{
@@ -238,12 +238,14 @@ fn drastic_evade_nudges_for_its_duration() {
 fn cancel_returns_to_the_fallback() {
     let mut world = OneShip::new();
     let mut m = manager(&mut world);
-    assert_eq!(
-        m.submit_directive(&mut world, 7, &DirectiveOp::Other(14), 0),
-        1
-    );
+    let launch = DirectiveOp::Launch(LaunchOp {
+        launch_object: 7,
+        index: 0,
+        terminal: 1,
+    });
+    assert_eq!(m.submit_directive(&mut world, 7, &launch, 0), 1);
     assert_eq!(m.state.behavior, ids::LAUNCH);
-    assert!(!m.is_ported(ids::LAUNCH));
+    assert!(m.is_ported(ids::LAUNCH));
     assert_eq!(
         m.submit_directive(&mut world, 7, &DirectiveOp::Cancel, 0),
         1

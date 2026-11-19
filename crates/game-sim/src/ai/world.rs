@@ -448,13 +448,46 @@ pub enum AiCommand<H> {
         /// Its sub-target.
         subtarget: u16,
     },
-    /// 25 `go_tradelane`.
+    /// 25 `go_tradelane(Entrance, Exit, bFastExit, Speed)`.
     GoTradeLane {
         /// The entrance ring.
-        entrance: H,
+        entrance: Option<H>,
         /// The exit ring.
-        exit: H,
+        exit: Option<H>,
+        /// `bFastExit`.
+        fast_exit: bool,
+        /// The speed.
+        speed: f32,
     },
+    /// 23 `slot_5c(RequestType, &TargetId, &SecondId, bFlag, Callback)`: a
+    /// dock (0), formation (1) or trade-lane (2) request; the ship keeps
+    /// the requesting behaviour as its pending callback
+    /// (`Ship::PendingRequest`), which the answer reaches
+    /// ([`AiWorld::take_request_answers`]).
+    Request {
+        /// The request type.
+        kind: i32,
+        /// The target's id.
+        target: u32,
+        /// The second id (the trade lane's other ring).
+        second: u32,
+        /// `bFlag`.
+        flag: i32,
+    },
+    /// 24 `slot_60(RequestType, &TargetId, Arg3)`: the request cancelled
+    /// (the pending callback dropped).
+    CancelRequest {
+        /// The request type.
+        kind: i32,
+        /// The target's id.
+        target: u32,
+        /// `Arg3`.
+        arg: i32,
+    },
+    /// `CShip::request_exit_tradelane`, which the dock and trade-lane
+    /// behaviours call on the ship's `CShip` directly (no `IObjAffect`
+    /// slot; [`AiCommand::slot`] reports it as 255).
+    RequestExitTradeLane,
     /// 19 `slot_4c`: activate or deactivate an equipment item.
     ActivateEquip {
         /// The sub-object id.
@@ -510,6 +543,9 @@ impl<H> AiCommand<H> {
             Self::SetThrustersActive(_) => 21,
             Self::GoTradeLane { .. } => 25,
             Self::StopTradeLane => 26,
+            Self::Request { .. } => 23,
+            Self::CancelRequest { .. } => 24,
+            Self::RequestExitTradeLane => 255,
             Self::Slot { slot, .. } => *slot,
         }
     }
@@ -657,6 +693,108 @@ pub trait AiWorld {
         let _ = (system, center, radius);
         0
     }
+
+    /// `get_dock_hardpoints(Index, &Type, &A, &B, &C, &Distance)` of an
+    /// object (a station, a ring, a planet). The default fails as an
+    /// object that is no `CEqObj` does (-5, nothing written).
+    fn dock_hardpoints(&mut self, h: Self::Handle, index: i32) -> DockHardpoints {
+        let _ = (h, index);
+        DockHardpoints::failed(-5)
+    }
+
+    /// `get_lane_start(Ring, OutLane, OutStart, OutDir)` asked of the ship
+    /// `h`: the trade lane `ring` starts (its next ring through
+    /// `traverse_rings`, unless `lane` names one), the start point (the
+    /// ring's `HpRightLane` or `HpLeftLane`) and the unit direction to the
+    /// lane ring. The default fails (-4, nothing written).
+    fn lane_start(
+        &mut self,
+        h: Self::Handle,
+        ring: Option<Self::Handle>,
+        lane: Option<Self::Handle>,
+    ) -> LaneStart<Self::Handle> {
+        let _ = (h, ring);
+        LaneStart {
+            result: -4,
+            lane,
+            start: None,
+            direction: None,
+        }
+    }
+
+    /// The answers the ship's pending request got since the request
+    /// command (`Ship::request_returned(RequestType, Response, Arg3)`,
+    /// which the server calls during the request when it can answer at
+    /// once), oldest first; each goes to the requesting behaviour's
+    /// `OnResult`. The default has none.
+    fn take_request_answers(&mut self, h: Self::Handle) -> Vec<RequestAnswer> {
+        let _ = h;
+        Vec::new()
+    }
+
+    /// `SinglePlayer()`: the world runs a single-player game. The default
+    /// is the dedicated server's multiplayer.
+    fn single_player(&self) -> bool {
+        false
+    }
+}
+
+/// What `get_dock_hardpoints` answers: the result and the outputs it
+/// wrote (`None` for an output it left as the caller's bytes).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DockHardpoints {
+    /// 0, -2 (a dock point missing, the mount copied for it), -4 (no such
+    /// docking sphere) or -5 (no `CEqObj`, or the mount misnamed).
+    pub result: i32,
+    /// The docking sphere's terminal type (`TERMINAL_TYPE`).
+    pub terminal: Option<i32>,
+    /// The mount (`hpdockmount<c>`).
+    pub mount: Option<Transform>,
+    /// The first dock point (`hpdockpoint<c>01`).
+    pub point1: Option<Transform>,
+    /// The second dock point (`hpdockpoint<c>02`).
+    pub point2: Option<Transform>,
+    /// The docking sphere's radius.
+    pub radius: Option<f32>,
+}
+
+impl DockHardpoints {
+    /// A failure that wrote nothing.
+    #[must_use]
+    pub fn failed(result: i32) -> Self {
+        Self {
+            result,
+            terminal: None,
+            mount: None,
+            point1: None,
+            point2: None,
+            radius: None,
+        }
+    }
+}
+
+/// What `get_lane_start` answers.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LaneStart<H> {
+    /// 0, -4 or -5.
+    pub result: i32,
+    /// The lane ring (`OutLane` on return).
+    pub lane: Option<H>,
+    /// `OutStart`, when written.
+    pub start: Option<Vector>,
+    /// `OutDir`, when written.
+    pub direction: Option<Vector>,
+}
+
+/// One `Ship::request_returned(RequestType, Response, Arg3)`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RequestAnswer {
+    /// The request type.
+    pub kind: i32,
+    /// The response.
+    pub response: i32,
+    /// `Arg3` (the dock port, -1 for none).
+    pub arg: i32,
 }
 
 /// The type mask `BuildAiTargetList` scans for (owner decision

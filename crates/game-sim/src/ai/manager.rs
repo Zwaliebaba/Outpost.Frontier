@@ -159,6 +159,14 @@ pub struct ManagerState {
     /// with its stand-in (a replay counts the ticks whose result may
     /// depend on one). Not a field of the reference.
     pub stand_in_polls: u32,
+    /// The ship's pending request (`Ship::PendingRequest`, `+0x9c`): the
+    /// index of the behaviour whose `OnResult` the answer reaches. The
+    /// server's ship keeps it; the port keeps it with the manager, which
+    /// owns the behaviour (D186).
+    pub pending_request: Option<i32>,
+    /// `Ship::Field_0x98`: a request is in progress, and a new one is
+    /// refused.
+    pub request_busy: bool,
 }
 
 impl ManagerState {
@@ -207,6 +215,8 @@ impl ManagerState {
             outbox: Vec::new(),
             leader_notes: Vec::new(),
             stand_in_polls: 0,
+            pending_request: None,
+            request_busy: false,
         }
     }
 
@@ -596,6 +606,33 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
     pub fn enable_all_maneuvers(&mut self) -> bool {
         self.state.maneuver_mask = 0;
         true
+    }
+
+    /// `Ship::request_returned(RequestType, Response, Arg3)` with the
+    /// ship's pending callback: the requesting behaviour's `OnResult`; an
+    /// answer it does not keep ends the request. Without a pending
+    /// callback the answer goes to the player's client in the reference
+    /// (not the AI's), so nothing happens here.
+    pub fn request_returned(
+        &mut self,
+        world: &mut W,
+        ship: W::Handle,
+        kind: i32,
+        response: i32,
+        arg: i32,
+    ) {
+        let Some(index) = self.state.pending_request else {
+            return;
+        };
+        let keep = self
+            .with(world, ship, index, |b, cx| {
+                b.on_request_result(cx, kind, response, arg)
+            })
+            .unwrap_or(false);
+        if !keep {
+            self.state.pending_request = None;
+            self.state.request_busy = false;
+        }
     }
 
     /// `lock_maneuvers`.

@@ -3,7 +3,8 @@
 //! `common_nullbehavior.cpp`, `common_idlebehavior.cpp`,
 //! `common_delaybehavior.cpp`, `common_cruisebehavior.cpp` and
 //! `common_drasticevadebehavior.cpp`, and goto, free flight, face, buzz,
-//! evade, trail, strafe, flee and loot (their own modules). Follow has its
+//! evade, trail, strafe, flee, loot, dock, launch and instant trade lane
+//! (their own modules). Follow has its
 //! poll only. Every other id makes an
 //! [`UnportedBehavior`], which keeps the manager's protocol (it binds,
 //! engages and ticks) but never volunteers in a re-evaluation and commands
@@ -13,12 +14,15 @@ use neuron_core::math::Vector;
 
 use super::behavior::{AiEnv, Behavior, BehaviorBase, Cx, DirectiveOp, ids};
 use super::buzz::BuzzBehavior;
+use super::dock::DockBehavior;
 use super::evade::EvadeBehavior;
 use super::face::FaceBehavior;
 use super::flee::FleeBehavior;
 use super::fp::{e, r};
 use super::goto::GotoBehavior;
 use super::idea::{Idea, IdleIdea};
+use super::itl::InstantTradeLaneBehavior;
+use super::launch::LaunchBehavior;
 use super::loot::LootBehavior;
 use super::strafe::StrafeBehavior;
 use super::trail::TrailBehavior;
@@ -43,6 +47,9 @@ pub fn create_behavior<W: AiEnv + ?Sized>(id: i32) -> Box<dyn Behavior<W>> {
         ids::FLEE => Box::new(FleeBehavior::new(id)),
         ids::LOOT => Box::new(LootBehavior::new(id)),
         ids::FOLLOW => Box::new(FollowBehavior::new(id)),
+        ids::DOCK => Box::new(DockBehavior::new(id)),
+        ids::LAUNCH => Box::new(LaunchBehavior::new(id)),
+        ids::INSTANT_TRADE_LANE => Box::new(InstantTradeLaneBehavior::new(id)),
         _ => Box::new(UnportedBehavior::new(id)),
     }
 }
@@ -72,6 +79,20 @@ pub fn op_dword(op: &DirectiveOp, offset: usize) -> u32 {
         (DirectiveOp::DrasticEvade(d), 0x18) => d.words_10[2],
         (DirectiveOp::DrasticEvade(d), 0x1c) => bits(d.duration),
         (DirectiveOp::Delay(s), 0x0c) => bits(*s),
+        (DirectiveOp::Dock(d), 0x0c) => d.dock_object,
+        (DirectiveOp::Dock(d), 0x10) => d.field_10,
+        (DirectiveOp::Dock(d), 0x14) => u32::from(d.field_14),
+        (DirectiveOp::Dock(d), 0x18) => int(d.port),
+        (DirectiveOp::Dock(d), 0x1c) => d.field_1c,
+        (DirectiveOp::Dock(d), 0x20) => bits(d.field_20),
+        (DirectiveOp::Dock(d), 0x24) => bits(d.field_24),
+        (DirectiveOp::Dock(d), 0x28) => d.field_28,
+        (DirectiveOp::Launch(l), 0x0c) => l.launch_object,
+        (DirectiveOp::Launch(l), 0x10) => int(l.index),
+        (DirectiveOp::Launch(l), 0x14) => int(l.terminal),
+        (DirectiveOp::InstantTradeLane(t), 0x0c) => t.entrance,
+        (DirectiveOp::InstantTradeLane(t), 0x10) => t.exit,
+        (DirectiveOp::InstantTradeLane(t), 0x14) => bits(t.speed),
         _ => 0,
     }
 }

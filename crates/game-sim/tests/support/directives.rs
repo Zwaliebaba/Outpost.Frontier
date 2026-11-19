@@ -4,7 +4,7 @@
 //! them to its managers between the recorded behaviour ticks, as the
 //! harness does before the frame's step).
 
-use game_sim::ai::behavior::{DirectiveOp, FaceOp, GotoOp};
+use game_sim::ai::behavior::{DirectiveOp, DockOp, FaceOp, GotoOp, InstantTradeLaneOp, LaunchOp};
 use neuron_core::math::Vector;
 
 fn num(t: &str) -> Option<f64> {
@@ -61,6 +61,33 @@ pub fn directive(a: &[String]) -> Option<DirectiveOp> {
         "idle" if a.len() == 1 => Some(DirectiveOp::Idle),
         "cancel" if a.len() == 1 => Some(DirectiveOp::Cancel),
         _ => None,
+    }
+}
+
+/// As [`directive`], and the directives that name objects, whose ids
+/// `resolve` gives for the scenario's names: `dock <target>`
+/// (`DirectiveDockOp` with its defaults), `launch <target> <index>
+/// <terminal>` and `tradelane <entrance> <exit|none> [speed]`.
+#[must_use]
+pub fn directive_with(a: &[String], resolve: &dyn Fn(&str) -> Option<u32>) -> Option<DirectiveOp> {
+    match a.first()?.as_str() {
+        "dock" if a.len() == 2 => Some(DirectiveOp::Dock(DockOp {
+            dock_object: resolve(&a[1])?,
+            ..DockOp::default()
+        })),
+        "launch" if a.len() == 4 => Some(DirectiveOp::Launch(LaunchOp {
+            launch_object: resolve(&a[1])?,
+            index: num(&a[2])? as i32,
+            terminal: num(&a[3])? as i32,
+        })),
+        "tradelane" if a.len() == 3 || a.len() == 4 => {
+            Some(DirectiveOp::InstantTradeLane(InstantTradeLaneOp {
+                entrance: resolve(&a[1])?,
+                exit: if a[2] == "none" { 0 } else { resolve(&a[2])? },
+                speed: a.get(3).and_then(|t| num(t)).map_or(0.0, |v| v as f32),
+            }))
+        }
+        _ => directive(a),
     }
 }
 
