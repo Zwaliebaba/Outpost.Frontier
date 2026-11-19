@@ -1,8 +1,13 @@
 # The pinned MSVC toolset of CppSource builds on CI (.github/msvc-toolset.txt). Writes the
 # MSBuild arguments that select it to the pipeline; exits 1 when the runner image lacks it.
+# With -Mfc (the whole solution: OutpostServer links MFC) it also makes sure the toolset's MFC
+# libraries are there, adding the pin file's mfc-component with the Visual Studio installer
+# when the image lacks them.
 #
-#   $pin = & .github\scripts\msvc-pin.ps1
+#   $pin = & .github\scripts\msvc-pin.ps1 [-Mfc]
 #   & $msbuild CppSource\OutpostFrontier.sln ... @pin
+
+param([switch]$Mfc)
 
 $ErrorActionPreference = 'Stop'
 $file = Join-Path $PSScriptRoot '..\msvc-toolset.txt'
@@ -30,5 +35,25 @@ if ($installed -notcontains $tools) {
     Write-Host "::error::The runner image lacks the pinned MSVC toolset $tools; bump .github/msvc-toolset.txt to an installed one ($($installed -join ', '))"
     exit 1
 }
+
+if ($Mfc) {
+    $mfcLib = "$vs\VC\Tools\MSVC\$tools\atlmfc\lib\x86"
+    if (-not (Test-Path $mfcLib)) {
+        $component = $settings['mfc-component']
+        if (-not $component) {
+            Write-Host "::error::The toolset $tools has no MFC libraries and .github/msvc-toolset.txt names no mfc-component"
+            exit 1
+        }
+        Write-Host "MSVC pin: adding $component (no $mfcLib)"
+        $setup = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\setup.exe"
+        $process = Start-Process $setup -ArgumentList 'modify', '--installPath', "`"$vs`"", '--add', $component, '--quiet', '--norestart', '--nocache' -Wait -PassThru
+        Write-Host "MSVC pin: installer exit $($process.ExitCode)"
+        if (-not (Test-Path $mfcLib)) {
+            Write-Host "::error::Adding $component did not install $mfcLib"
+            exit 1
+        }
+    }
+}
+
 "/p:PlatformToolset=$toolset"
 "/p:VCToolsVersion=$tools"

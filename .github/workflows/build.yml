@@ -102,7 +102,7 @@ jobs:
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
           # The pinned MSVC toolset (.github/msvc-toolset.txt).
-          $pin = & .github\scripts\msvc-pin.ps1
+          $pin = & .github\scripts\msvc-pin.ps1 -Mfc
           if ($LASTEXITCODE -ne 0) { exit 1 }
           & $msbuild CppSource\OutpostFrontier.sln /m /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo @pin
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
