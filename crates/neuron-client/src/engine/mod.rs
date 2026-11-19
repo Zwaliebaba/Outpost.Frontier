@@ -31,18 +31,28 @@
 //! engine ([`Engine::create_model`]), deformable models
 //! ([`Engine::create_deformable`]), particle effects
 //! ([`Engine::load_effects`], [`Engine::create_effect`]) and scene scripts
-//! ([`Engine::load_scene_script`]), animations played on deformable
-//! models through the animation system ([`Engine::load_animations`],
-//! [`Engine::play_deformable_animation`]) and sounds played on the audio
-//! device ([`Engine::load_sound`], [`Engine::play_sound`]). The frame's
+//! ([`Engine::load_scene_script`]), animations and aim events on
+//! deformable models through `IDeformable` ([`Engine::load_animations`],
+//! [`Engine::play_deformable_animation`], [`Engine::play_deformable`],
+//! [`Engine::start_deformable_aim`]; [`deform_anim`]) and the client's
+//! sounds: the sound tables and voice profiles ([`Engine::load_sound_tables`]),
+//! played through the client's playing list and the frame's sound tick
+//! ([`Engine::play_sound`]; [`sound`]). The frame's
 //! camera is any [`Camera`](crate::render::appearance::Camera);
 //! [`camera::ViewCamera`] is a perspective one.
 
 pub mod camera;
+pub mod deform_anim;
+mod effects;
 mod frame;
+pub mod lights;
+pub mod options;
 pub mod order;
 mod scene_host;
 mod shapes;
+pub mod sound;
+pub mod ui_host;
+pub mod ui_meshes;
 #[cfg(windows)]
 pub mod windows;
 
@@ -52,7 +62,6 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 
-use neuron_core::anim::AnimScript;
 use neuron_core::fx_data::{self as fx, AleFile, NodeClass};
 use neuron_core::ini::{EngineIni, EngineIniError, IniReader, NoIncludes};
 use neuron_core::math::Transform;
@@ -60,10 +69,7 @@ use neuron_core::scene::{Animation, ArchetypeId, Engine as SceneEngine, Hardpoin
 use neuron_core::vfs::{FileSystem, FsDesc, Host, UtfFileSystem};
 
 use crate::audio::config::{AudioConfig, CLIENT_STARTUP_FLAGS, stream_buffer_seconds};
-use crate::audio::decode::decode_archetype;
-use crate::audio::mixer::{
-    Archetype, ArchetypeId as SoundArchetypeId, Mixer, VoiceId, archetype_flags,
-};
+use crate::audio::mixer::Mixer;
 use crate::input::mouse::Mouse;
 use crate::render::appearance::Appearance;
 use crate::render::deformable::{
@@ -95,14 +101,22 @@ use crate::ui::widescreen::Surface;
 use crate::window::DisplayMode;
 
 pub use camera::ViewCamera;
-pub use frame::{FrameInput, FrameReport, Win3dStates};
+pub use deform_anim::DeformablePlay;
+pub use effects::{EffectServices, FxMeshes, mesh_path};
+pub use frame::{FrameInput, FrameMouse, FrameReport};
 pub use order::{
     CREATION_ORDER, LIBRARIES, LifeEvent, Lifecycle, Phase, Reference, Stage, TEARDOWN_ORDER,
 };
 pub use scene_host::{
-    Links, RenderLink, RenderSide, SceneDeformHost, SceneHost, SharedLinks, SharedScene,
+    DeformSink, DeformableEvent, Links, Names, RenderLink, RenderSide, SceneDeformHost, SceneHost,
+    SharedAnimation, SharedDeformables, SharedLinks, SharedScene, channel_key, pull_bones,
+    sink_token, typed_id, walk_deformable,
 };
 pub use shapes::StackShapes;
+pub use sound::{SoundId, SoundInfo, SoundTables};
+
+/// The interface's shared mesh and material file (`Win3DStartupManager`).
+const INTERFACE_GENERIC: &[u8] = b"interface\\interface.generic.vms";
 
 /// The engine's stack type over a backend.
 pub type Stack<B> = RenderStack<B>;
@@ -166,8 +180,6 @@ pub enum EngineError {
     Deformable(String),
     /// An animation could not be loaded or played.
     Animation(String),
-    /// A sound could not be decoded.
-    Sound(String),
 }
 
 impl fmt::Display for EngineError {
@@ -181,7 +193,6 @@ impl fmt::Display for EngineError {
             Self::Script(e) => write!(f, "scene script: {e}"),
             Self::Deformable(p) => write!(f, "deformable model {p} could not be made"),
             Self::Animation(e) => write!(f, "animation: {e}"),
-            Self::Sound(e) => write!(f, "sound: {e}"),
         }
     }
 }
@@ -208,30 +219,6 @@ pub struct SceneScriptId(usize);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct AnimationsId(usize);
 
-/// A sound archetype in the sound manager's mixer.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct SoundId(SoundArchetypeId);
-
-/// What [`Engine::load_sound`] made.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SoundInfo {
-    /// The archetype.
-    pub id: SoundId,
-    /// Its length in milliseconds.
-    pub duration_ms: u32,
-    /// Its channels.
-    pub channels: u16,
-    /// Its sample rate.
-    pub rate: u16,
-}
-
-/// An animation playing on a deformable model.
-#[derive(Clone, Copy, Debug)]
-struct DeformPlayback {
-    deformable: usize,
-    playback: u32,
-}
-
 /// What [`Engine::load_archive`] loaded from one archive.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ArchiveLoad {
@@ -256,6 +243,19 @@ struct LiveEffect {
     effect: Effect,
 }
 
+/// `ParticleEffectCleanupParticleFx`: the effect stopped (`Slot13(7)`) and
+/// released, its folder detached and released.
+fn cleanup_effect(
+    particles: &mut ParticleFx,
+    mut live: LiveEffect,
+    svc: &mut dyn crate::render::particles::ParticleServices,
+) {
+    live.effect.dispatch(particles, 7, svc);
+    live.effect.release(particles, svc);
+    particles.detach(live.parent, svc);
+    particles.release(live.parent, svc);
+}
+
 /// The groups the engine loaded, freed at the teardown.
 #[derive(Default)]
 struct Loaded {
@@ -266,13 +266,18 @@ struct Loaded {
 }
 
 /// The `[Data]` keys of `OutpostFrontier.ini` the engine reads
-/// (`LoadClientIniData`'s `fonts` and `rich_fonts`, and `fonts_dir`).
+/// (`LoadClientIniData`'s `fonts`, `rich_fonts`, `sounds` and `voices`, and
+/// `fonts_dir`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ClientData {
     /// Each key in file order: `true` for `rich_fonts`.
     pub fonts: Vec<(bool, Vec<u8>)>,
     /// `fonts_dir`: the font files' directory under the data.
     pub fonts_dir: Option<Vec<u8>>,
+    /// `sounds`: the sound tables, in file order.
+    pub sounds: Vec<Vec<u8>>,
+    /// `voices`: the voice profiles, in file order.
+    pub voices: Vec<Vec<u8>>,
 }
 
 impl ClientData {
@@ -298,6 +303,10 @@ impl ClientData {
                     out.fonts.push((true, reader.value_string()));
                 } else if reader.is_value(b"fonts_dir") {
                     out.fonts_dir = Some(reader.value_string());
+                } else if reader.is_value(b"sounds") {
+                    out.sounds.push(reader.value_string());
+                } else if reader.is_value(b"voices") {
+                    out.voices.push(reader.value_string());
                 }
             }
         }
@@ -314,7 +323,8 @@ pub struct Engine<B: Backend + 'static> {
     pub notices: Vec<String>,
     registry: crate::render::mesh::vmesh::SharedRegistry,
     render: Rc<RefCell<RenderSide<B>>>,
-    /// The sound manager's mixer, its play keys the game's (P5.5).
+    /// The sound manager's mixer; its play keys are the client's sources
+    /// ([`Engine::client_sound`]).
     pub mixer: Mixer<u32>,
     /// The sound manager's INI settings.
     pub audio: AudioConfig,
@@ -324,20 +334,25 @@ pub struct Engine<B: Backend + 'static> {
     audio_device: Option<crate::platform::audio::AudioDevice>,
     /// The particle system.
     pub particles: ParticleFx,
+    /// The game option `BATCH_PARTICLES` (0 by default), which the frame's
+    /// effect draw hands to `SetUseMaterialBatcher`.
+    pub particle_batcher: bool,
+    /// The client's mesh factory, bound to the particle system
+    /// (`WarmUpEffectShapes`).
+    fx_meshes: FxMeshes,
     scene: SharedScene,
     links: SharedLinks,
     /// The animation system.
-    pub animation: Animation,
+    animation: SharedAnimation,
     deform: Deformable,
     deform_host: SceneDeformHost,
+    /// What the deformable models' caller sinks received, oldest first.
+    deformable_events: Vec<DeformableEvent>,
     appearance: Option<Appearance>,
     effects: Vec<Option<LiveEffect>>,
     scripts: Vec<Option<Player>>,
-    anim_scripts: Vec<Arc<AnimScript>>,
-    playbacks: Vec<DeformPlayback>,
-    voices: Vec<VoiceId>,
-    #[cfg_attr(not(windows), allow(dead_code))]
-    next_voice: VoiceId,
+    /// The client's sounds.
+    sound: sound::EngineSound,
     data: Option<Host>,
     mode: DisplayMode,
     fonts: Option<FontSystem>,
@@ -346,13 +361,22 @@ pub struct Engine<B: Backend + 'static> {
     cursors: Cursors,
     ui_shape_db: ShapeDb,
     ime: Option<ImeFocus>,
+    /// The game options the draw reads, at the reference's defaults until
+    /// the game sets them (P5).
+    pub options: options::GameOptions,
+    /// The engine lights' registered list.
+    pub lights: lights::EngineLights,
     models: Vec<Option<Model>>,
-    deformables: Vec<Option<DeformInstance>>,
+    deformables: SharedDeformables,
     backdrop: Option<ModelId>,
     starsphere: Option<ModelId>,
-    loaded: Loaded,
-    win3d: Win3dStates,
+    loaded: Rc<RefCell<Loaded>>,
+    win3d: crate::ui::win3d_immediate::Win3dLayer,
+    batchers: crate::ui::win3d_renderables::LineBatchers,
     quads: crate::ui::quad_batch::QuadBatcher,
+    /// The client clock of the frames run, for the cursor's animation.
+    elapsed: f64,
+    ui_meshes: Rc<std::cell::Cell<usize>>,
     frames: u64,
     torn_down: bool,
 }
@@ -556,7 +580,8 @@ impl<B: Backend + 'static> Engine<B> {
         let scene: SharedScene = Rc::new(RefCell::new(SceneEngine::new()));
         stack.engine = Box::new(SceneHost::new(Rc::downgrade(&scene), Rc::clone(&links)));
         log(Stage::SceneEngine);
-        let animation = Animation::new();
+        let animation: SharedAnimation = Rc::new(RefCell::new(Animation::new()));
+        let deformables: SharedDeformables = Rc::new(RefCell::new(Vec::new()));
         log(Stage::Animation);
         scene
             .borrow_mut()
@@ -566,7 +591,12 @@ impl<B: Backend + 'static> Engine<B> {
             ini.section(b"Deformable")
                 .and_then(|s| s.value(b"DeformRate")),
         );
-        let deform_host = SceneDeformHost::new(Rc::clone(&scene), Rc::clone(&links));
+        let deform_host = SceneDeformHost::new(
+            Rc::clone(&scene),
+            Rc::clone(&links),
+            Rc::clone(&animation),
+            &deformables,
+        );
         log(Stage::Deformable);
         let (plugins, faces) = render_plugins::<B>(&ini, &registry, &mut notices);
         let mut manager = RenderManager::new(plugins);
@@ -672,6 +702,31 @@ impl<B: Backend + 'static> Engine<B> {
                 }
                 Err(_) => notices.push("Interface\\UI\\UITextures.ini: not loaded".to_owned()),
             }
+            // `LoadButtonMontage`, which the reference runs on first use
+            // (divergence D511).
+            let textures = data.read_file(crate::ui::montage::BUTTON_TEXTURES_INI).ok();
+            let montage = data.read_file(crate::ui::montage::BUTTON_MONTAGE_INI).ok();
+            if montage.is_none() {
+                notices.push("interface\\ButtonMontage.ini: not loaded".to_owned());
+            }
+            ui.montage.load(
+                textures.as_ref().map(|f| f.data.as_slice()),
+                montage.as_ref().map(|f| f.data.as_slice()),
+                &mut lib,
+            );
+        }
+        // `Win3DStartupManager`'s material entry: the interface's shared
+        // meshes, materials and textures (`interface\interface.generic.vms`),
+        // which the control meshes reference.
+        let loaded: Rc<RefCell<Loaded>> = Rc::default();
+        match UtfFileSystem::open(
+            &data,
+            &FsDesc::read(INTERFACE_GENERIC).with_implementation(b"UTF"),
+        ) {
+            Ok(fs) => {
+                load_libraries(&render, &registry, &mut loaded.borrow_mut(), fs);
+            }
+            Err(_) => notices.push(format!("{}: not loaded", lossy(INTERFACE_GENERIC))),
         }
         log(Stage::Ui);
         let ime = ImeFocus::new(&mut NoIme);
@@ -687,8 +742,25 @@ impl<B: Backend + 'static> Engine<B> {
         }
         log(Stage::ImageRoot);
         apply_extents(&scene, &links);
+        let ui_meshes = Rc::new(std::cell::Cell::new(0));
+        // The control meshes through the scene engine (`ClientMeshLoadFromPath`).
+        ui.mesh_loader = Some(Box::new(ui_meshes::EngineMeshLoader {
+            data: data.clone(),
+            registry: Rc::clone(&registry),
+            render: Rc::clone(&render),
+            scene: Rc::clone(&scene),
+            links: Rc::clone(&links),
+            loaded: Rc::clone(&loaded),
+            made: Rc::clone(&ui_meshes),
+        }));
 
-        Ok(Engine {
+        let sound = sound::EngineSound::new(
+            &audio.reverb,
+            audio.force_frequency_to_software,
+            client.sounds.clone(),
+            client.voices.clone(),
+        );
+        let mut engine = Engine {
             lifecycle,
             ini,
             notices,
@@ -700,18 +772,18 @@ impl<B: Backend + 'static> Engine<B> {
             #[cfg(windows)]
             audio_device,
             particles,
+            particle_batcher: false,
+            fx_meshes: FxMeshes::default(),
             scene,
             links,
             animation,
             deform,
             deform_host,
+            deformable_events: Vec::new(),
             appearance,
             effects,
             scripts,
-            anim_scripts: Vec::new(),
-            playbacks: Vec::new(),
-            voices: Vec::new(),
-            next_voice: 1,
+            sound,
             data: Some(data),
             mode,
             fonts: None,
@@ -720,16 +792,24 @@ impl<B: Backend + 'static> Engine<B> {
             cursors,
             ui_shape_db,
             ime: Some(ime),
+            options: options::GameOptions::default(),
+            lights: lights::EngineLights::default(),
             models: Vec::new(),
-            deformables: Vec::new(),
+            deformables,
             backdrop: None,
             starsphere: None,
-            loaded: Loaded::default(),
-            win3d: Win3dStates::default(),
+            loaded,
+            win3d: crate::ui::win3d_immediate::Win3dLayer::new(width, height),
+            batchers: crate::ui::win3d_renderables::LineBatchers::new(),
             quads: crate::ui::quad_batch::QuadBatcher::new(),
+            elapsed: 0.0,
+            ui_meshes,
             frames: 0,
             torn_down: false,
-        })
+        };
+        // StartupDevice's SetEaxPreview of the [AudioProperties] reverb.
+        engine.apply_reverb();
+        Ok(engine)
     }
 
     /// The lifecycle log (shared: it can be read after the engine drops).
@@ -800,6 +880,18 @@ impl<B: Backend + 'static> Engine<B> {
         self.mouse.as_mut()
     }
 
+    /// The control meshes the interface made through the engine so far.
+    #[must_use]
+    pub fn ui_meshes_made(&self) -> usize {
+        self.ui_meshes.get()
+    }
+
+    /// The `mouse.ini` cursors, to choose the one in use
+    /// (`MouseSetCursor`).
+    pub fn cursors_mut(&mut self) -> &mut Cursors {
+        &mut self.cursors
+    }
+
     /// The `mouse.ini` cursors.
     #[must_use]
     pub fn cursors(&self) -> &Cursors {
@@ -854,48 +946,13 @@ impl<B: Backend + 'static> Engine<B> {
     }
 
     /// [`Engine::load_archive`] over an open archive.
-    fn load_libraries(&mut self, mut fs: UtfFileSystem) -> ArchiveLoad {
-        let mut out = ArchiveLoad::default();
-        let mut side = self.render.borrow_mut();
-        let stack = &mut side.stack;
-        if fs.open_node(b"Texture library").is_ok() {
-            let _ = fs.open_node(b"..");
-            let (textures, mut pipeline) = stack.shading.texture_parts();
-            out.textures = textures.load_group(&mut fs, &mut pipeline, true).group;
-            self.loaded.textures.extend(out.textures);
-        }
-        if fs.open_node(b"Material library").is_ok() {
-            let _ = fs.open_node(b"..");
-            let load = stack.with_batcher(|b, s| b.library_mut().load_library(s, &mut fs, true));
-            if let Some(load) = load
-                && load.result >= 0
-                && let Some(group) = load.group
-            {
-                stack.with_batcher(|b, s| {
-                    b.library_mut().apply_verify_group(s, group.cast_signed());
-                    b.library_mut()
-                        .resolve_textures_group(s, group.cast_signed(), 0.0);
-                });
-                out.materials = Some(group);
-                self.loaded.materials.push(group);
-            }
-        }
-        if let Some(animations) = stack.shading.animations.as_mut()
-            && let Some(group) = animations.load_group(&mut fs)
-        {
-            out.animations = true;
-            self.loaded.animations.push(group);
-        }
-        let mut root: Box<dyn FileSystem> = Box::new(fs);
-        let list = self
-            .registry
-            .borrow_mut()
-            .load_library(stack, root.as_mut(), -1);
-        out.meshes = list.as_ref().map_or(0, Vec::len);
-        if list.is_some() {
-            self.loaded.meshes.push(list);
-        }
-        out
+    fn load_libraries(&mut self, fs: UtfFileSystem) -> ArchiveLoad {
+        load_libraries(
+            &self.render,
+            &self.registry,
+            &mut self.loaded.borrow_mut(),
+            fs,
+        )
     }
 
     /// A model through the scene engine: the archive's libraries
@@ -939,11 +996,10 @@ impl<B: Backend + 'static> Engine<B> {
         path: &[u8],
         mut fs: UtfFileSystem,
     ) -> Result<ModelId, EngineError> {
-        let name = path
-            .rsplit(|&c| c == b'\\' || c == b'/')
-            .next()
-            .unwrap_or(path)
-            .to_vec();
+        // Named by the whole relative path, as the client's mesh loader
+        // names its archetypes: the shipped data has models of one file
+        // name in several folders.
+        let name = path.to_vec();
         let archetype = self
             .scene
             .borrow_mut()
@@ -1038,15 +1094,21 @@ impl<B: Backend + 'static> Engine<B> {
     pub fn create_effect(&mut self, name: &[u8]) -> Result<EffectId, EngineError> {
         let hash = fx::name_hash(name);
         let mut side = self.render.borrow_mut();
-        let stack = &mut side.stack;
+        let mut services = EffectServices {
+            stack: &mut side.stack,
+            manager: None,
+            scene: &self.scene,
+            data: self.data.as_ref(),
+            meshes: Some(&mut self.fx_meshes),
+        };
         let parent = self.particles.create_node(NodeClass::Node);
-        match self.particles.create_effect(parent, hash, stack) {
+        match self.particles.create_effect(parent, hash, &mut services) {
             Ok(effect) => {
                 self.effects.push(Some(LiveEffect { parent, effect }));
                 Ok(EffectId(self.effects.len() - 1))
             }
             Err(e) => {
-                self.particles.release(parent, stack);
+                self.particles.release(parent, &mut services);
                 Err(EngineError::Effect(format!("{}: {e:?}", lossy(name))))
             }
         }
@@ -1068,14 +1130,68 @@ impl<B: Backend + 'static> Engine<B> {
             .map(|l| &l.effect)
     }
 
-    /// Releases an effect and its folder.
+    /// Stops and releases an effect and its folder, as the client's
+    /// `ParticleEffectCleanupParticleFx` does: `Slot13(7)` (its live roots
+    /// submitted, its records released), the effect's `Release`, then the
+    /// folder detached and released.
     pub fn destroy_effect(&mut self, effect: EffectId) {
         let Some(live) = self.effects.get_mut(effect.0).and_then(Option::take) else {
             return;
         };
-        let mut side = self.render.borrow_mut();
-        live.effect.release(&mut self.particles, &mut side.stack);
-        self.particles.release(live.parent, &mut side.stack);
+        {
+            let mut side = self.render.borrow_mut();
+            let mut services = EffectServices {
+                stack: &mut side.stack,
+                manager: None,
+                scene: &self.scene,
+                data: self.data.as_ref(),
+                meshes: Some(&mut self.fx_meshes),
+            };
+            cleanup_effect(&mut self.particles, live, &mut services);
+        }
+        self.settle_fx_meshes();
+    }
+
+    /// The meshes of the client's mesh factory still held by the effects'
+    /// mesh appearances, and how many of them have an engine instance.
+    #[must_use]
+    pub fn fx_mesh_count(&self) -> (usize, usize) {
+        (self.fx_meshes.live(), self.fx_meshes.instanced())
+    }
+
+    /// What the mesh factory left for after the particle walk (D493): the
+    /// instances of released meshes destroyed, then the new meshes'
+    /// archetypes loaded (`Archetype::Load`: the archive's libraries the
+    /// first time, the archetype found or made) and instances made, placed
+    /// and posed.
+    fn settle_fx_meshes(&mut self) {
+        for instance in self.fx_meshes.take_doomed() {
+            self.scene.borrow_mut().destroy_instance(instance);
+        }
+        for (mesh, path) in self.fx_meshes.take_pending() {
+            let instance = self.load_fx_mesh(&path);
+            self.fx_meshes.bind(mesh, instance, &self.scene);
+        }
+    }
+
+    /// `Archetype::Load(path)` and `ClientMeshHolderBindInstance` for a
+    /// mesh of the mesh factory: the instance, whose archetype it holds.
+    fn load_fx_mesh(&mut self, path: &[u8]) -> Option<InstanceId> {
+        if self.fx_meshes.first_load(path) {
+            let _ = self.load_archive(path);
+        }
+        let mut fs = self.open_archive(path).ok()?;
+        let archetype = self
+            .scene
+            .borrow_mut()
+            .create_archetype_handle(path, Some(&mut fs))
+            .ok()
+            .flatten()?;
+        self.links.borrow_mut().take_made();
+        let instance = self.scene.borrow_mut().create_instance(archetype);
+        self.links.borrow_mut().take_made();
+        self.scene.borrow_mut().release_handle(archetype);
+        instance
     }
 
     /// A deformable model (`IDeformable::Create`) from one `.dfm` file of
@@ -1102,22 +1218,28 @@ impl<B: Backend + 'static> Engine<B> {
                 .ok()
                 .map(|fs| Box::new(fs) as Box<dyn FileSystem>)
         };
+        let index = self.deformables.borrow().len();
         let made = {
             let mut side = self.render.borrow_mut();
+            self.deform_host.set_current(Some(index));
             let mut services = StackDeform::new(&mut side.stack, &mut self.deform_host);
             self.deform
                 .create(&mut desc, 0, 0, &mut open, &mut services)
         };
+        self.deform_host.set_current(None);
         self.links.borrow_mut().take_made();
         apply_extents(&self.scene, &self.links);
         let instance = made.map_err(|_| EngineError::Deformable(lossy(path)))?;
-        self.deformables.push(Some(instance));
-        Ok(DeformableId(self.deformables.len() - 1))
+        self.deformables.borrow_mut().push(Some(instance));
+        Ok(DeformableId(index))
     }
 
     /// A deformable model, for its `IDeformable` calls.
-    pub fn deformable_mut(&mut self, id: DeformableId) -> Option<&mut DeformInstance> {
-        self.deformables.get_mut(id.0).and_then(Option::as_mut)
+    pub fn deformable_mut(&mut self, id: DeformableId) -> Option<RefMut<'_, DeformInstance>> {
+        RefMut::filter_map(self.deformables.borrow_mut(), |models| {
+            models.get_mut(id.0).and_then(Option::as_mut)
+        })
+        .ok()
     }
 
     /// `IDeformable::SetLod(instance, dt, lods)`: each part's level (the
@@ -1125,20 +1247,32 @@ impl<B: Backend + 'static> Engine<B> {
     /// do every frame) and the skin rate's countdown.
     pub fn set_deformable_lod(&mut self, id: DeformableId, dt: f32, lods: &[i32]) {
         let rate = self.deform.rate;
-        if let Some(instance) = self.deformables.get_mut(id.0).and_then(Option::as_mut) {
+        if let Some(instance) = self
+            .deformables
+            .borrow_mut()
+            .get_mut(id.0)
+            .and_then(Option::as_mut)
+        {
             instance.set_lod(dt, lods, rate);
         }
     }
 
-    /// Destroys a deformable model.
+    /// Destroys a deformable model (`IDeformable::Destroy`: its list of
+    /// animations and aim events first).
     pub fn destroy_deformable(&mut self, id: DeformableId) {
-        self.stop_deformable_animation(id);
-        let Some(instance) = self.deformables.get_mut(id.0).and_then(Option::take) else {
+        let taken = self
+            .deformables
+            .borrow_mut()
+            .get_mut(id.0)
+            .and_then(Option::take);
+        let Some(instance) = taken else {
             return;
         };
         let mut side = self.render.borrow_mut();
+        self.deform_host.set_current(Some(id.0));
         let mut services = StackDeform::new(&mut side.stack, &mut self.deform_host);
         self.deform.destroy(instance, &mut services);
+        self.deform_host.set_current(None);
     }
 
     /// A scene script (`.thn`) of the data, loaded, built and started.
@@ -1164,6 +1298,9 @@ impl<B: Backend + 'static> Engine<B> {
             .map_err(|e| EngineError::Script(format!("{}: {e}", lossy(path))))?;
         let mut player = Player::new();
         player.load(&scene, duration);
+        // The scene root answers the reverb events through the sound
+        // manager, as the game's scene object does.
+        sound::attach_scene_reverb(&mut player, &self.sound.reverb);
         player.start(0);
         self.scripts.push(Some(player));
         Ok(SceneScriptId(self.scripts.len() - 1))
@@ -1195,7 +1332,8 @@ impl<B: Backend + 'static> Engine<B> {
     /// animations bind.
     #[must_use]
     pub fn deformable_root(&self, id: DeformableId) -> Option<InstanceId> {
-        let instance = self.deformables.get(id.0)?.as_ref()?;
+        let models = self.deformables.borrow();
+        let instance = models.get(id.0)?.as_ref()?;
         u32::try_from(instance.first_bone())
             .ok()
             .map(InstanceId::from_index)
@@ -1204,7 +1342,8 @@ impl<B: Backend + 'static> Engine<B> {
     /// A deformable model's bounding sphere (`GetBoundSphere`): the radius
     /// and the centre of its first part.
     pub fn deformable_bounds(&mut self, id: DeformableId) -> Option<(f32, [f32; 3])> {
-        let instance = self.deformables.get(id.0)?.as_ref()?;
+        let models = self.deformables.borrow();
+        let instance = models.get(id.0)?.as_ref()?;
         instance.bound_sphere(&mut self.deform.meshes)
     }
 
@@ -1217,193 +1356,9 @@ impl<B: Backend + 'static> Engine<B> {
         let mut scene = self.scene.borrow_mut();
         scene.set_instance_matrix(Some(root), transform);
         scene.update_instance(Some(root), 0);
-        if let Some(Some(instance)) = self.deformables.get_mut(id.0) {
+        if let Some(Some(instance)) = self.deformables.borrow_mut().get_mut(id.0) {
             pull_bones(instance, &scene);
         }
-    }
-
-    /// The animations of an `.anm` file of the data (`OpenScript`): the
-    /// script and the names of its animations.
-    ///
-    /// # Errors
-    ///
-    /// The file does not open or holds no `Animation` node.
-    pub fn load_animations(
-        &mut self,
-        path: &[u8],
-    ) -> Result<(AnimationsId, Vec<Vec<u8>>), EngineError> {
-        let mut fs = self.open_archive(path)?;
-        let script = AnimScript::open(&mut fs)
-            .map_err(|e| EngineError::Animation(format!("{}: {e:?}", lossy(path))))?
-            .ok_or_else(|| EngineError::Animation(format!("{}: no animations", lossy(path))))?;
-        let names = script.entries().map(|(_, e)| e.name.clone()).collect();
-        self.anim_scripts.push(Arc::new(script));
-        Ok((AnimationsId(self.anim_scripts.len() - 1), names))
-    }
-
-    /// Plays the animation `name` of `animations` on a deformable model
-    /// through the animation system (`PlayScript` under the model's root
-    /// bone, then `EvalPlayback` from the start at normal speed, looping
-    /// when asked), replacing what played on it before. Each frame then
-    /// walks the animation system's mixer, updates the model's tree and
-    /// hands its bones the new transforms. The playback id.
-    ///
-    /// # Errors
-    ///
-    /// No such model, script or animation, or no track of it could start.
-    pub fn play_deformable_animation(
-        &mut self,
-        id: DeformableId,
-        animations: AnimationsId,
-        name: &[u8],
-        looping: bool,
-    ) -> Result<u32, EngineError> {
-        let script = self
-            .anim_scripts
-            .get(animations.0)
-            .cloned()
-            .ok_or_else(|| EngineError::Animation("no such animation script".to_owned()))?;
-        let root = self
-            .deformable_root(id)
-            .ok_or_else(|| EngineError::Animation("no such deformable model".to_owned()))?;
-        self.stop_deformable_animation(id);
-        let scene = self.scene.borrow();
-        let playback = self
-            .animation
-            .play_script(&scene, &script, Some(root), name, 0, 0)
-            .ok_or_else(|| EngineError::Animation(format!("no animation {}", lossy(name))))?;
-        let flags = if looping { 2 } else { 0 };
-        let result = self
-            .animation
-            .eval_playback(&scene, playback, flags, 0.0, 1.0, 0.0, 1.0, 1.0, None);
-        if result == 0xFFFF_FFFF {
-            self.animation.destroy_script(&scene, playback);
-            return Err(EngineError::Animation(format!(
-                "{} did not start",
-                lossy(name)
-            )));
-        }
-        self.playbacks.push(DeformPlayback {
-            deformable: id.0,
-            playback,
-        });
-        Ok(playback)
-    }
-
-    /// Stops and destroys the animations playing on a deformable model;
-    /// the model keeps the pose it has.
-    pub fn stop_deformable_animation(&mut self, id: DeformableId) {
-        let scene = self.scene.borrow();
-        let animation = &mut self.animation;
-        self.playbacks.retain(|p| {
-            if p.deformable != id.0 {
-                return true;
-            }
-            animation.stop_playback(&scene, p.playback);
-            animation.destroy_script(&scene, p.playback);
-            false
-        });
-    }
-
-    /// The animations playing on deformable models.
-    #[must_use]
-    pub fn animations_playing(&self) -> usize {
-        self.playbacks.len()
-    }
-
-    /// A sound from the bytes of a WAV file (a sound table's file or a
-    /// voice line of an archive), decoded whole (`WavLibLoad`) into an
-    /// archetype of the sound manager's mixer with pan control, and its
-    /// samples handed to the audio device when it started.
-    ///
-    /// # Errors
-    ///
-    /// The bytes do not decode.
-    pub fn load_sound(&mut self, bytes: &[u8]) -> Result<SoundInfo, EngineError> {
-        let decoded = decode_archetype(bytes).map_err(|e| EngineError::Sound(e.to_string()))?;
-        let byte_count = decoded.byte_count();
-        let frames = byte_count / u32::from(decoded.format.block_align.max(1));
-        let archetype = Archetype::from_pcm(
-            decoded.format,
-            byte_count,
-            0,
-            frames,
-            archetype_flags::PAN,
-            true,
-        )
-        .map_err(|e| EngineError::Sound(format!("{e:?}")))?;
-        let id = self.mixer.insert_archetype(archetype);
-        #[cfg(windows)]
-        if let Some(device) = self.audio_device.as_mut() {
-            device.set_samples(id, decoded.samples.into());
-        }
-        Ok(SoundInfo {
-            id: SoundId(id),
-            duration_ms: archetype.duration_ms,
-            channels: decoded.format.channels,
-            rate: decoded.format.rate,
-        })
-    }
-
-    /// Plays a sound once on a voice of the audio device, centred at full
-    /// volume, releasing the voices that finished. False without an audio
-    /// device or when the device gives no voice. The sound manager's
-    /// sources and its tick are the game's (P5.5); this voice is driven
-    /// directly.
-    pub fn play_sound(&mut self, sound: SoundId) -> bool {
-        self.release_finished_voices();
-        #[cfg(windows)]
-        {
-            use crate::audio::mixer::VoiceBackend;
-            let Some(data) = self.mixer.archetype(sound.0).copied() else {
-                return false;
-            };
-            let Some(device) = self.audio_device.as_mut() else {
-                return false;
-            };
-            let voice = self.next_voice;
-            self.next_voice = self.next_voice.wrapping_add(1);
-            if !device.create(voice, sound.0, &data) {
-                return false;
-            }
-            if !device.play(voice, false) {
-                device.release(voice);
-                return false;
-            }
-            self.voices.push(voice);
-            true
-        }
-        #[cfg(not(windows))]
-        {
-            let _ = sound;
-            false
-        }
-    }
-
-    /// The voices [`Engine::play_sound`] started that still play.
-    pub fn sounds_playing(&mut self) -> usize {
-        self.release_finished_voices();
-        self.voices.len()
-    }
-
-    fn release_finished_voices(&mut self) {
-        #[cfg(windows)]
-        {
-            use crate::audio::mixer::VoiceBackend;
-            let Some(device) = self.audio_device.as_mut() else {
-                self.voices.clear();
-                return;
-            };
-            self.voices.retain(|&voice| {
-                if device.is_playing(voice) {
-                    return true;
-                }
-                device.release(voice);
-                false
-            });
-        }
-        #[cfg(not(windows))]
-        self.voices.clear();
     }
 
     /// Every step of [`TEARDOWN_ORDER`]; [`Drop`] runs it.
@@ -1417,13 +1372,17 @@ impl<B: Backend + 'static> Engine<B> {
         let log = |stage| lifecycle.record(stage, Phase::Teardown);
 
         // ClientAtExitTeardown, up to NeuronRuntime::Shutdown.
+        let mut montage = crate::ui::montage::ButtonMontage::default();
         if let Some(mut ui) = self.ui.take() {
             ui.shutdown();
             self.fonts = ui.fonts.take();
+            montage = std::mem::take(&mut ui.montage);
         }
         if let Some(data) = self.data.as_ref() {
             let mut side = self.render.borrow_mut();
             let mut lib = StackShapes::new(&mut side.stack, data);
+            // `ClearButtonMontage`.
+            montage.clear(&mut lib);
             self.ui_shape_db.clear(&mut lib);
             self.cursors.shapes.clear(&mut lib);
         }
@@ -1445,11 +1404,18 @@ impl<B: Backend + 'static> Engine<B> {
         // NeuronRuntime::Shutdown.
         {
             let mut side = self.render.borrow_mut();
+            let mut services = EffectServices {
+                stack: &mut side.stack,
+                manager: None,
+                scene: &self.scene,
+                data: None,
+                meshes: Some(&mut self.fx_meshes),
+            };
             for live in std::mem::take(&mut self.effects).into_iter().flatten() {
-                live.effect.release(&mut self.particles, &mut side.stack);
-                self.particles.release(live.parent, &mut side.stack);
+                cleanup_effect(&mut self.particles, live, &mut services);
             }
         }
+        self.settle_fx_meshes();
         log(Stage::Effects);
         for player in self.scripts.iter_mut().flatten() {
             player.stop();
@@ -1457,25 +1423,23 @@ impl<B: Backend + 'static> Engine<B> {
         self.scripts.clear();
         log(Stage::SceneScripts);
         // The engine's destructor: its instances and archetypes, then its
-        // components in [Engine] order. The animations playing on the
-        // deformable models go first.
-        {
-            let scene = self.scene.borrow();
-            for p in std::mem::take(&mut self.playbacks) {
-                self.animation.destroy_script(&scene, p.playback);
-            }
-        }
-        for instance in std::mem::take(&mut self.deformables).into_iter().flatten() {
+        // components in [Engine] order. The deformable models go first, each
+        // with its list of animations and aim events.
+        let models = std::mem::take(&mut *self.deformables.borrow_mut());
+        for (index, instance) in models.into_iter().enumerate() {
+            let Some(instance) = instance else { continue };
             let mut side = self.render.borrow_mut();
+            self.deform_host.set_current(Some(index));
             let mut services = StackDeform::new(&mut side.stack, &mut self.deform_host);
             self.deform.destroy(instance, &mut services);
         }
+        self.deform_host.set_current(None);
         for id in 0..self.models.len() {
             self.destroy_model(ModelId(id));
         }
         self.models.clear();
         log(Stage::SceneEngine);
-        self.animation = Animation::new();
+        *self.animation.borrow_mut() = Animation::new();
         log(Stage::Animation);
         log(Stage::Hardpoint);
         self.deform = Deformable::new(None);
@@ -1503,22 +1467,23 @@ impl<B: Backend + 'static> Engine<B> {
         {
             let mut side = self.render.borrow_mut();
             let stack = &mut side.stack;
-            for list in std::mem::take(&mut self.loaded.meshes) {
+            let mut loaded = self.loaded.borrow_mut();
+            for list in std::mem::take(&mut loaded.meshes) {
                 self.registry.borrow_mut().unload_library(stack, list);
             }
             log(Stage::VMeshLibrary);
-            for group in std::mem::take(&mut self.loaded.materials) {
+            for group in std::mem::take(&mut loaded.materials) {
                 stack.with_batcher(|b, s| b.library_mut().delete_group(s, group.cast_signed()));
             }
             log(Stage::MaterialBatcher);
             if let Some(animations) = stack.shading.animations.as_mut() {
-                for group in std::mem::take(&mut self.loaded.animations) {
+                for group in std::mem::take(&mut loaded.animations) {
                     animations.unload_group(group);
                 }
             }
             log(Stage::MaterialAnimation);
             let (textures, mut pipeline) = stack.shading.texture_parts();
-            for group in std::mem::take(&mut self.loaded.textures) {
+            for group in std::mem::take(&mut loaded.textures) {
                 textures.garbage_collect(group, &mut pipeline);
             }
             log(Stage::TextureLibrary);
@@ -1528,14 +1493,11 @@ impl<B: Backend + 'static> Engine<B> {
             log(Stage::ParticleVertexBuffer);
         }
         log(Stage::SoundStreamer);
+        // The client's sounds stop and their archetypes go before the
+        // device (`StopAllClientSounds`, `ShutdownClientSoundArch`).
+        self.shutdown_sounds();
         #[cfg(windows)]
         {
-            if let Some(device) = self.audio_device.as_mut() {
-                use crate::audio::mixer::VoiceBackend;
-                for voice in std::mem::take(&mut self.voices) {
-                    device.release(voice);
-                }
-            }
             self.audio_device = None;
         }
         log(Stage::SoundDevice);
@@ -1559,17 +1521,56 @@ impl<B: Backend + 'static> Engine<B> {
     }
 }
 
-/// Hands a deformable model's bound bones the scene engine's world
-/// transforms, as the engine's `IInstanceTransform` calls on the bone
-/// runtimes would (`SetMatrix`, `MarkWorldDirty`).
-fn pull_bones(instance: &mut DeformInstance, scene: &SceneEngine) -> usize {
-    instance.pull_bone_transforms(|bone| {
-        u32::try_from(bone).ok().map(|i| {
-            scene
-                .instance_transform(Some(InstanceId::from_index(i)))
-                .to_words()
-        })
-    })
+/// The libraries of an open archive into the render side (the engine's
+/// [`Engine::load_archive`] and the interface's mesh loads): its `Texture
+/// library` into the texture library, its `Material library` into the
+/// material library (verified and resolved), its material animations and
+/// its `VMeshLibrary` into the shared registry, each group kept in
+/// `loaded` for the teardown.
+fn load_libraries<B: Backend + 'static>(
+    render: &RefCell<RenderSide<B>>,
+    registry: &crate::render::mesh::vmesh::SharedRegistry,
+    loaded: &mut Loaded,
+    mut fs: UtfFileSystem,
+) -> ArchiveLoad {
+    let mut out = ArchiveLoad::default();
+    let mut side = render.borrow_mut();
+    let stack = &mut side.stack;
+    if fs.open_node(b"Texture library").is_ok() {
+        let _ = fs.open_node(b"..");
+        let (textures, mut pipeline) = stack.shading.texture_parts();
+        out.textures = textures.load_group(&mut fs, &mut pipeline, true).group;
+        loaded.textures.extend(out.textures);
+    }
+    if fs.open_node(b"Material library").is_ok() {
+        let _ = fs.open_node(b"..");
+        let load = stack.with_batcher(|b, s| b.library_mut().load_library(s, &mut fs, true));
+        if let Some(load) = load
+            && load.result >= 0
+            && let Some(group) = load.group
+        {
+            stack.with_batcher(|b, s| {
+                b.library_mut().apply_verify_group(s, group.cast_signed());
+                b.library_mut()
+                    .resolve_textures_group(s, group.cast_signed(), 0.0);
+            });
+            out.materials = Some(group);
+            loaded.materials.push(group);
+        }
+    }
+    if let Some(animations) = stack.shading.animations.as_mut()
+        && let Some(group) = animations.load_group(&mut fs)
+    {
+        out.animations = true;
+        loaded.animations.push(group);
+    }
+    let mut root: Box<dyn FileSystem> = Box::new(fs);
+    let list = registry.borrow_mut().load_library(stack, root.as_mut(), -1);
+    out.meshes = list.as_ref().map_or(0, Vec::len);
+    if list.is_some() {
+        loaded.meshes.push(list);
+    }
+    out
 }
 
 /// Applies the extent writes the scene engine could not take while it was

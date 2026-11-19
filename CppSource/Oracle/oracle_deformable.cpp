@@ -2297,7 +2297,14 @@ namespace deformable_oracle
     void RunPartsSuite();
 }
 
-// The suites (deformable.jsonl, then deformable_parts.jsonl), called from RunMaterialSuites after
+namespace deformable_anim_oracle
+{
+    // oracle_deformable_anim.cpp: deformable_anim.jsonl.
+    void RunAnimSuite();
+}
+
+// The suites (deformable.jsonl, deformable_parts.jsonl, then deformable_anim.jsonl against the
+// scene runtime's Engine and Animation), called from RunMaterialSuites after
 // the mesh render suite.
 void RunDeformableSuite()
 {
@@ -2313,6 +2320,7 @@ void RunDeformableSuite()
         RunDeformableList(Out, "deformable.list");
     }
     RunPartsSuite();
+    deformable_anim_oracle::RunAnimSuite();
 }
 
 void deformable_oracle::RunDeformableList(Suite& Out, const char* List)

@@ -53,8 +53,8 @@ model_viewer: the Gate G4 viewer over neuron-client's engine
   --character DFM[,ANM[,NAME]]
   --effect ALE[,NAME]
   --script THN
-  --sound NICK        a sound of the AUDIO tables
-  --voice UTF[,LINE]  a voice line of a voice archive
+  --sound NICK        a [Sound] of the sound tables
+  --voice VOICE[,MSG] a line of a voice profile (default: its first)
   --page PATH         a page descriptor drawn over the scene
 
 Window keys: Tab or Right / Left next and previous scene, 1-9 a scene,
@@ -149,8 +149,8 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
             "--voice" => {
                 let mut parts = split(&value()?).into_iter();
                 out.scenes.push(Scene::Voice {
-                    archive: parts.next().unwrap_or_default(),
-                    line: parts.next(),
+                    profile: parts.next().unwrap_or_default(),
+                    msg: parts.next(),
                 });
             }
             "--page" => out.scenes.push(Scene::Page(value()?)),

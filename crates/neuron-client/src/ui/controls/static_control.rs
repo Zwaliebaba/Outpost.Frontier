@@ -419,6 +419,7 @@ impl StaticControl {
         {
             return;
         }
+        host.clear_engine_lights();
         let Some(radius) = self.control.mesh.as_ref().map(|m| m.radius(0)) else {
             return;
         };

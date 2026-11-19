@@ -15,7 +15,10 @@
 //! paths ([`spline`], `SplinePath.cpp` and `SplineMath.h`) and the scene
 //! with its timeline ([`playback`], `SceneScriptScene.cpp` and the parts of
 //! `SceneScript.cpp` that drive it), whose engine effects go through the
-//! [`playback::EntityControls`] a host attaches to an entity.
+//! [`playback::EntityControls`] a host attaches to an entity. Saving a
+//! scene (`SaveToFileSystem`) is [`playback::Player::save_to`]; the script
+//! engine of `SceneScript.cpp` around the scene, with its COM context, its
+//! save parser and its file-system paths, is [`ScriptEngine`].
 //!
 //! The evaluator follows Lua 3.2.2, whose copyright notice is kept here as
 //! its licence asks:
@@ -64,6 +67,7 @@ pub mod event;
 mod load;
 pub mod number;
 pub mod playback;
+mod script_engine;
 pub mod spline;
 mod spline_math;
 mod table;
@@ -71,5 +75,9 @@ mod vm;
 
 pub use build::{BuildError, BuildState, Scene, Step, build};
 pub use load::{LoadError, LoadSummary, load};
+pub use script_engine::{
+    CREATE_ALWAYS, ComContext, DefaultSaveParser, FileSystemFactory, SaveParser, ScriptEngine,
+    ScriptModule, host_file_systems,
+};
 pub use table::{Native, NativeKind, Table, TableError, TableId, Value};
 pub use vm::{SCENE_CONSTANTS, ScriptError, Vm};

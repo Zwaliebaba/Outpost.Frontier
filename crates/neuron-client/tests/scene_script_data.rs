@@ -1,5 +1,8 @@
 //! Every shipped scene script on the original data (`outdir/`, decision
-//! O15) runs in the evaluator and passes both passes of the parser.
+//! O15) runs in the evaluator, passes both passes of the parser, plays to
+//! its end, and saves to source that reloads to the same scene.
+
+mod support;
 
 use std::cell::Cell;
 use std::collections::BTreeMap;
@@ -11,7 +14,12 @@ use neuron_client::scene_script::curve::Curve;
 use neuron_client::scene_script::entity::EntityTail;
 use neuron_client::scene_script::playback::{EntityControls, EventRef, Player, state};
 use neuron_client::scene_script::spline::SplinePath;
-use neuron_client::scene_script::{BuildError, BuildState, Step, Value, Vm, build, load};
+use neuron_client::scene_script::{
+    BuildError, BuildState, CREATE_ALWAYS, ScriptEngine, ScriptModule, Step, Value, Vm, build, load,
+};
+use neuron_core::vfs::{GENERIC_READ, GENERIC_WRITE, MemFileSystem, MemSource, OPEN_EXISTING};
+
+use support::thn_compile;
 
 fn thn_files(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(entries) = fs::read_dir(dir) else {
@@ -281,5 +289,198 @@ fn every_shipped_scene_script_plays() {
         "{} scripts played; {curves} curves, {paths} motion paths; {} pose calls",
         files.len(),
         calls.get()
+    );
+}
+
+/// `bytes` loaded into a fresh script engine and module through a file
+/// system (`Slot4Load`), and the text its save writes to another
+/// (`Slot5Save` with the default save parser); `None` for a scene that does
+/// not load.
+fn load_and_save(bytes: &[u8]) -> (ScriptEngine, Option<Vec<u8>>) {
+    let mut module = ScriptModule::new();
+    let mut engine = ScriptEngine::new();
+    let mut source = MemFileSystem::new(
+        None,
+        GENERIC_READ,
+        OPEN_EXISTING,
+        MemSource::Copy(Some(bytes)),
+    );
+    if engine.load(&mut module, Some(&mut source)) != 0 {
+        return (engine, None);
+    }
+    let mut target = MemFileSystem::new(
+        None,
+        GENERIC_READ | GENERIC_WRITE,
+        CREATE_ALWAYS,
+        MemSource::Copy(None),
+    );
+    assert_eq!(engine.save(Some(&mut target)), 0);
+    let text = target.buffer()[..target.logical_size() as usize].to_vec();
+    (engine, Some(text))
+}
+
+/// The lines of a saved scene, without their line ends and the commas
+/// that end all but the last entity and event, with each `q_orient` value
+/// blanked; and how many lines held one.
+fn normalised_lines(text: &[u8]) -> (Vec<Vec<u8>>, usize) {
+    let mut q_orients = 0;
+    let lines = text
+        .split(|&c| c == b'\n')
+        .map(|line| {
+            let mut line = line.to_vec();
+            while matches!(line.last(), Some(b'\r' | b',')) {
+                line.pop();
+            }
+            if let Some(at) = line.windows(12).position(|w| w == b"q_orient = {") {
+                let end = line[at..]
+                    .iter()
+                    .position(|&c| c == b'}')
+                    .map_or(line.len(), |e| at + e);
+                line.splice(at + 12..end, *b"..");
+                q_orients += 1;
+            }
+            line
+        })
+        .collect();
+    (lines, q_orients)
+}
+
+/// Two saved lines that differ only in numbers, each within a millionth of
+/// its size (or of 1): what the reference's conversions lose on the way
+/// through the text (light angles between radians and degrees).
+fn close_lines(x: &[u8], y: &[u8]) -> bool {
+    let tokens = |l: &[u8]| -> Vec<String> {
+        String::from_utf8_lossy(l)
+            .split([' ', ',', '{', '}', '='])
+            .filter(|t| !t.is_empty())
+            .map(str::to_owned)
+            .collect()
+    };
+    let (a, b) = (tokens(x), tokens(y));
+    a.len() == b.len()
+        && a.iter().zip(&b).all(|(s, t)| {
+            s == t
+                || matches!((s.parse::<f64>(), t.parse::<f64>()),
+                    (Ok(u), Ok(v)) if (u - v).abs() <= 1e-6 * u.abs().max(1.0))
+        })
+}
+
+/// Every shipped scene script, loaded and saved, reloads to the same scene:
+/// the saved source compiles (with the subset compiler of `cargo xtask
+/// thn-decompile`, since the port loads compiled chunks only, decision
+/// O18), loads, has the same entities, user properties and events, and
+/// saves to the same text. Two things differ as they do in the reference:
+/// events with equal start times may come back in another order (the
+/// master sort is not stable), and a spatial event's `q_orient` holds four
+/// words of the quaternion's matrix instead of the quaternion, so it
+/// reloads as another rotation and saves differently.
+#[test]
+fn every_shipped_scene_script_saves_and_reloads() {
+    let data = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../outdir/data");
+    let mut files = Vec::new();
+    thn_files(&data, &mut files);
+    if files.is_empty() {
+        println!("outdir/data has no .thn files: nothing to save");
+        return;
+    }
+    files.sort();
+    let (mut bytes_saved, mut same_text, mut q_orient_events) = (0, 0, 0);
+    let mut drifted = BTreeMap::new();
+    for file in &files {
+        let name = file.display();
+        let (first, text) = load_and_save(&fs::read(file).unwrap());
+        let text = text.unwrap_or_else(|| panic!("{name}: does not load"));
+        bytes_saved += text.len();
+        let chunk = thn_compile::compile(&text)
+            .unwrap_or_else(|e| panic!("{name}: the saved source does not compile: {e}"));
+        let (second, again) = load_and_save(&chunk);
+        let again = again.unwrap_or_else(|| panic!("{name}: the saved source does not load"));
+        let (a, b) = (first.player(), second.player());
+        assert_eq!(a.live_entity_count(), b.live_entity_count(), "{name}");
+        assert_eq!(a.duration(), b.duration(), "{name}");
+        for handle in a.entity_handles() {
+            assert_eq!(
+                a.entity_owner_type(handle),
+                b.entity_owner_type(handle),
+                "{name}: entity {handle}"
+            );
+            assert_eq!(a.user_props(handle), b.user_props(handle), "{name}");
+        }
+        let events = |p: &Player| {
+            let mut all: Vec<_> = p
+                .events()
+                .map(|(_, e)| {
+                    let c = &e.common;
+                    (
+                        c.start_ms,
+                        c.kind,
+                        c.flags,
+                        c.event_flags,
+                        c.duration_ms,
+                        c.primary,
+                        c.secondary,
+                        c.pcurve_period,
+                    )
+                })
+                .collect();
+            all.sort_unstable();
+            all
+        };
+        let (old_events, new_events) = (events(a), events(b));
+        assert_eq!(old_events.len(), new_events.len(), "{name}");
+        // Times go through a `float` of seconds printed to the millisecond,
+        // which keeps every millisecond only below about 4,000 seconds.
+        let near = |a: i32, b: i32| a.abs_diff(b) <= 1 + a.unsigned_abs() / (1 << 23);
+        for (x, y) in old_events.iter().zip(&new_events) {
+            assert!(
+                near(x.0, y.0)
+                    && near(x.4, y.4)
+                    && (x.1, x.2, x.3, x.5, x.6, x.7) == (y.1, y.2, y.3, y.5, y.6, y.7),
+                "{name}: event {x:?} became {y:?}"
+            );
+        }
+        if text == again {
+            same_text += 1;
+            continue;
+        }
+        let (mut old, q_orients) = normalised_lines(&text);
+        let (mut new, _) = normalised_lines(&again);
+        q_orient_events += q_orients;
+        let events_at = old
+            .iter()
+            .position(|l| l == b"events =")
+            .unwrap_or_else(|| panic!("{name}: no events"));
+        let mut same = |old: &[Vec<u8>], new: &[Vec<u8>], what: &str| {
+            assert_eq!(old.len(), new.len(), "{name}: {what}");
+            for (x, y) in old.iter().zip(new) {
+                if x == y {
+                    continue;
+                }
+                assert!(
+                    close_lines(x, y),
+                    "{name}: {what}: {} became {}",
+                    String::from_utf8_lossy(x),
+                    String::from_utf8_lossy(y)
+                );
+                let line = String::from_utf8_lossy(x);
+                let key = if line.starts_with("\t{") {
+                    line.split(", ").nth(1).unwrap_or_default().to_owned()
+                } else {
+                    line.split('=').next().unwrap_or_default().trim().to_owned()
+                };
+                *drifted.entry(key).or_insert(0) += 1;
+            }
+        };
+        same(&old[..events_at], &new[..events_at], "the entities");
+        old[events_at..].sort_unstable();
+        new[events_at..].sort_unstable();
+        same(&old, &new, "the events");
+    }
+    println!(
+        "{} scripts saved ({bytes_saved} bytes) and reloaded; {same_text} save to the same text, \
+         the others to the same events in another order or with another q_orient \
+         ({q_orient_events} spatial events with q_orient); lines with numbers within a \
+         millionth: {drifted:?}",
+        files.len()
     );
 }

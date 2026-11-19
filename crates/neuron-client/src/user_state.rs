@@ -243,6 +243,57 @@ pub fn from_hex(text: &str) -> Option<Vec<u8>> {
         .collect()
 }
 
+/// The two keys under `HKEY_LOCAL_MACHINE` that `SeedMachineHash`
+/// (`common_playeraccount.cpp`) reads `DigitalProductId` from, the
+/// Windows 9x key first.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProductIdKey {
+    /// `Software\Microsoft\Windows\CurrentVersion\`.
+    Windows9x,
+    /// `Software\Microsoft\Windows NT\CurrentVersion\`.
+    WindowsNt,
+}
+
+impl ProductIdKey {
+    /// The key's path, with the C++'s trailing backslash.
+    #[must_use]
+    pub fn path(self) -> &'static str {
+        match self {
+            ProductIdKey::Windows9x => "Software\\Microsoft\\Windows\\CurrentVersion\\",
+            ProductIdKey::WindowsNt => "Software\\Microsoft\\Windows NT\\CurrentVersion\\",
+        }
+    }
+}
+
+/// The size of `SeedMachineHash`'s product-id buffer, in bytes.
+pub const PRODUCT_ID_CAPACITY: u32 = 0x400;
+
+/// The size `SeedMachineHash` gives `GetUserNameA`, in characters with the
+/// terminator.
+pub const USER_NAME_CAPACITY: u32 = 0x101;
+
+/// The machine queries the multiplayer account of a new install is derived
+/// from (`SeedMachineHash`; decision O27). On Windows
+/// `platform::machine::WinMachine` asks the system; tests give fixed
+/// answers.
+pub trait MachineIdentity {
+    /// `RegOpenKeyExA(HKEY_LOCAL_MACHINE, key, KEY_QUERY_VALUE)` and, when
+    /// it opens, `RegQueryValueExA(key, "DigitalProductId")` into a buffer
+    /// of [`PRODUCT_ID_CAPACITY`] bytes whose size `size` claims, updated
+    /// as the call updates it. `None` when the key does not open (nothing
+    /// is queried and `size` is kept); `Some(None)` when the query fails.
+    fn product_id(&mut self, key: ProductIdKey, size: &mut u32) -> Option<Option<Vec<u8>>>;
+    /// `UuidCreate`: a new UUID, as its 16 bytes in memory.
+    fn uuid(&mut self) -> [u8; 16];
+    /// `GetUserNameA` into [`USER_NAME_CAPACITY`] characters: the name's
+    /// bytes in the system code page, without the terminator; `None` when
+    /// the call fails.
+    fn user_name(&mut self) -> Option<Vec<u8>>;
+    /// The millisecond counter the C++ reads with `timeGetTime` when the
+    /// user name cannot be had.
+    fn milliseconds(&mut self) -> u32;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

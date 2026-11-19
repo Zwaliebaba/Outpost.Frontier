@@ -5,8 +5,11 @@
 //! `+B`, `+F`, `+M`, `+W` applied to a display mode.
 //!
 //! The C++ also resets the game options to their defaults here
-//! (`GGameOptionDescs`); those belong to the game options and are not part
-//! of this module.
+//! (`GGameOptionDescs`); the engine holds them at those defaults
+//! (`neuron_client::engine::options`, D512), and nothing in the C++ saves
+//! or loads them. The display mode the device takes is not this one but
+//! `InitializeEngine`'s own block under `PerfOptions.ini`
+//! ([`crate::render_mode`]).
 
 use neuron_core::ini::IniReader;
 use neuron_core::msvcrt::atoi;

@@ -141,6 +141,9 @@ pub trait DrawHost {
     /// A static control draws into a window of the screen through its own
     /// camera (`Some`), or goes back to the Win3D camera (`None`).
     fn window_view(&mut self, _view: Option<WindowView>) {}
+    /// `EngineLightClearRegisteredList`: the engine's lights that the
+    /// scene enabled switched off (a static control's draw).
+    fn clear_engine_lights(&mut self) {}
     /// `NnMontageDrawTileAt(tile, where, rgba, size, 0, 0)`: whether the
     /// montage icon was drawn.
     fn draw_montage_tile(
@@ -597,6 +600,9 @@ pub struct Ui {
     /// `G_ScrollVSerial`: the number of the next `ScrollV_%d` bar a
     /// rich-text window makes (divergence D475).
     pub scroll_v_serial: i32,
+    /// The button montage the engine loaded (its tiles take the place of
+    /// the services' tile search once loaded).
+    pub montage: super::montage::ButtonMontage,
 }
 
 impl Ui {
@@ -632,6 +638,17 @@ impl Ui {
             text_typing_count: 0,
             text_projection: None,
             scroll_v_serial: 1,
+            montage: super::montage::ButtonMontage::default(),
+        }
+    }
+
+    /// The button montage tile of a mesh path: the loaded montage's
+    /// (`FindMontageTileForPath`), else the services' answer.
+    pub fn montage_tile(&mut self, path: &[u8]) -> Option<super::services::MontageTile> {
+        if self.montage.loaded {
+            self.montage.find(path)
+        } else {
+            self.services.montage_tile(path)
         }
     }
 

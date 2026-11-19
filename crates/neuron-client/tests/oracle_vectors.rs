@@ -2,12 +2,13 @@
 //! through the port. `Oracle.exe neuron-client` writes the same files from
 //! the C++ reference (`CppSource/Oracle/oracle_scene_script.cpp`,
 //! `oracle_scene_script_build.cpp`, `oracle_scene_script_runtime.cpp`,
+//! `oracle_scene_script_save.cpp`,
 //! `oracle_text.cpp`, `oracle_rich_text.cpp`, `oracle_audio.cpp`, `oracle_texture.cpp`,
 //! `oracle_big_image.cpp`, `oracle_material.cpp`,
 //! `oracle_material_kinds.cpp`, `oracle_material_surface.cpp`,
 //! `oracle_material_appearance.cpp`, `oracle_mesh_render.cpp`, `oracle_deformable.cpp`,
-//! `oracle_deformable_parts.cpp`,
-//! `oracle_particles.cpp` and `oracle_ui.cpp`).
+//! `oracle_deformable_parts.cpp`, `oracle_deformable_anim.cpp`,
+//! `oracle_particles.cpp`, `oracle_ui.cpp` and `oracle_ui_immediate.cpp`).
 
 mod support;
 
@@ -16,9 +17,10 @@ use neuron_client::text::rdl::markup;
 
 use support::audio::{self, check_suite_within};
 use support::{
-    check_suite, deformable, input_lines, material, material_appearance, material_kinds,
-    material_surface, mesh_render, particles, rich_text, scene_script, scene_script_build,
-    scene_script_runtime, text, texture, ui, unhex,
+    check_suite, deformable, deformable_anim, input_lines, material, material_appearance,
+    material_kinds, material_surface, mesh_render, particles, rich_text, scene_script,
+    scene_script_build, scene_script_runtime, scene_script_save, text, texture, ui, ui_immediate,
+    unhex,
 };
 
 /// P4.12: `LayoutRichText`, the laid list executed, its dimensions and the
@@ -138,6 +140,33 @@ fn audio_tick() {
     check_suite_within("audio_tick.jsonl", &audio::tick_lines(), audio::tick_bound);
 }
 
+/// P4.10, the client wiring: the preview `StartupDevice` stores from
+/// `[AudioProperties]` and the scene scripts' `SetReverb` calls of it.
+#[test]
+fn audio_reverb() {
+    check_suite("audio_reverb.jsonl", &audio::reverb_lines());
+}
+
+/// P4.10, the client wiring: the `[Sound]` tables (`LoadClientSoundArchIni`),
+/// their uses, level-of-detail links and the mixer archetypes
+/// `CreateSoundArchWav` makes.
+#[test]
+fn audio_arch() {
+    check_suite("audio_arch.jsonl", &audio::arch_lines());
+}
+
+/// P4.10, the client wiring: play keys through the client's sound tick
+/// (`TickClientSoundMixer`): scores, ranking, ducking, categories,
+/// retirement, and the volume, pan and start of each voice of the mixer.
+#[test]
+fn audio_client() {
+    check_suite_within(
+        "audio_client.jsonl",
+        &audio::client_lines(),
+        audio::client_bound,
+    );
+}
+
 /// P4.14: the engine calls of the parser's second pass for each buffer of
 /// a case, one fresh module state per case, with or without a COM context
 /// (`tests/fixtures/oracle/scene_script_build.list`).
@@ -212,6 +241,18 @@ fn scene_script_playback() {
         &scene_script_runtime::playback_lines(),
         16,
     );
+}
+
+/// P4.14: scenes saved through the script engine (`Slot5Save` and the
+/// default save parser, `SaveToFileSystem`), its COM context
+/// (`Slot40SetCom`) and its file-system paths (`Slot43LoadPath`,
+/// `Slot44SavePath`), each write as the engine makes it
+/// (`tests/fixtures/oracle/scene_script_save.list`). Tier A: the writer
+/// prints floats the scene holds; the one matrix it makes from a
+/// quaternion uses no trigonometry.
+#[test]
+fn scene_script_save() {
+    check_suite("scene_script_save.jsonl", &scene_script_save::lines());
 }
 
 /// P4.5: `FMaterialRegex::Compile` and `Search`: the program bytes, the
@@ -295,6 +336,19 @@ fn ui_controls() {
     check_suite("ui_controls.jsonl", &lines);
 }
 
+/// P4.13: the Win3D immediate-mode layer, its line batchers and the
+/// overlay pass over the operations of
+/// `tests/fixtures/oracle/ui_immediate.list`, against a recording pipeline.
+#[test]
+fn ui_immediate() {
+    let lines: Vec<String> = input_lines("ui_immediate.list")
+        .iter()
+        .enumerate()
+        .flat_map(|(case, line)| ui_immediate::lines(case, line))
+        .collect();
+    check_suite("ui_immediate.jsonl", &lines);
+}
+
 /// P4.5: the 19 surface materials against recording services: their
 /// schemas, `ApplyVerify`, binding, teardown, the submissions, the engine
 /// and candidate calls and the parameters
@@ -356,6 +410,17 @@ fn particle_draw() {
     check_suite("particle_draw.jsonl", &particles::draw_lines());
 }
 
+/// P4.8: the particle appearances' child effects (life and death, the
+/// velocity's turn and its slerp, the forwarded outer time and LOD input,
+/// the record teardown and eviction, the children's spheres) and the mesh
+/// appearances' meshes of a recording mesh factory (the spawn, the poses,
+/// the update, the draw, the eviction and the failures), with the draws of
+/// `particle_draw` (`tests/fixtures/oracle/particle_child.list`).
+#[test]
+fn particle_child() {
+    check_suite("particle_child.jsonl", &particles::child_lines());
+}
+
 /// P4.7: `Deformable2` at run time against recording services: skinning,
 /// the draw, parts and levels, the animation list, aim solving and the
 /// `EyeMaterial` (`tests/fixtures/oracle/deformable.list`).
@@ -371,4 +436,15 @@ fn deformable() {
 #[test]
 fn deformable_parts() {
     check_suite("deformable_parts.jsonl", &deformable::parts_lines());
+}
+
+/// P4.7, third increment: a deformable instance's animations and aim events
+/// through the scene engine and the animation system as the engine composes
+/// them (`PlayInstanceAnim`, `PlayInstanceAnimChain`, the list, `OnKeys`
+/// and `OnLoop` into the caller's sink, aim events whose typed channels the
+/// mixer ticks, `FEngineCharacterBody::Advance`'s walk)
+/// (`tests/fixtures/oracle/deformable_anim.list`).
+#[test]
+fn deformable_anim() {
+    check_suite("deformable_anim.jsonl", &deformable_anim::lines());
 }

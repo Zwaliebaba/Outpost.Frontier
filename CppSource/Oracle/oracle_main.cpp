@@ -12,6 +12,7 @@
 //        Oracle.exe catalog <resource DLL directory> <output directory>
 //        Oracle.exe game-sim <fixture directory> <output directory>
 //        Oracle.exe neuron-client <fixture directory> <output directory>
+//        Oracle.exe game-app <fixture directory> <output directory>
 //        Oracle.exe sim <data root> <scenario file> <out folder> [--runs N] [--seed S]
 //        Oracle.exe render-replay <vectors directory> <output directory>
 //        Oracle.exe gdi-fonts <fixture directory> <output directory>
@@ -481,6 +482,7 @@ namespace
         GuardedDataDump("game", RunGameDataDump, AllFiles);
         GuardedDataDump("thn", RunSceneScriptDataDump, AllFiles);
         GuardedDataDump("thn_build", RunSceneScriptBuildDataDump, AllFiles);
+        GuardedDataDump("thn_save", RunSceneScriptSaveDataDump, AllFiles);
     }
 }
 
@@ -499,16 +501,18 @@ int main(int Argc, char** Argv)
     const bool bCatalog = Argc == 4 && strcmp(Argv[1], "catalog") == 0;
     const bool bGameSim = Argc == 4 && strcmp(Argv[1], "game-sim") == 0;
     const bool bNeuronClient = Argc == 4 && strcmp(Argv[1], "neuron-client") == 0;
-    if (Argc != 3 && !bDump && !bCatalog && !bGameSim && !bNeuronClient)
+    const bool bGameApp = Argc == 4 && strcmp(Argv[1], "game-app") == 0;
+    if (Argc != 3 && !bDump && !bCatalog && !bGameSim && !bNeuronClient && !bGameApp)
     {
         fprintf(stderr, "usage: Oracle.exe <fixture directory> <output directory>\n"
                         "       Oracle.exe dump <data directory> <output directory>\n"
                         "       Oracle.exe catalog <resource DLL directory> <output directory>\n"
                         "       Oracle.exe game-sim <fixture directory> <output directory>\n"
-                        "       Oracle.exe neuron-client <fixture directory> <output directory>\n");
+                        "       Oracle.exe neuron-client <fixture directory> <output directory>\n"
+                        "       Oracle.exe game-app <fixture directory> <output directory>\n");
         return 2;
     }
-    const bool bMode = bDump || bCatalog || bGameSim || bNeuronClient;
+    const bool bMode = bDump || bCatalog || bGameSim || bNeuronClient || bGameApp;
     GFixtureDir = Argv[bMode ? 2 : 1];
     GOutputDir = Argv[bMode ? 3 : 2];
     if (!SetCurrentDirectoryA(GFixtureDir.c_str()))
@@ -535,6 +539,11 @@ int main(int Argc, char** Argv)
     if (bNeuronClient)
     {
         RunNeuronClientSuites();
+        return GFailed ? 1 : 0;
+    }
+    if (bGameApp)
+    {
+        RunGameAppSuites();
         return GFailed ? 1 : 0;
     }
     if (bGameSim)

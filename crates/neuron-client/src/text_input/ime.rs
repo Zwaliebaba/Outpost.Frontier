@@ -84,6 +84,56 @@ impl Composition {
     }
 }
 
+/// The composition a window holds from the moment it loses the keyboard
+/// focus until the game hands it to the box losing the focus (D284).
+///
+/// The C++ commits the composition inside the window procedure: at
+/// `WM_KILLFOCUS` `IMEFocus::OnKillFocus` reaches `ImeUi_FinalizeString`,
+/// which sends the copy of the composition to the box and cancels the
+/// IME's composition. Here the window procedure takes the copy and the
+/// window cancels the composition at once ([`HeldComposition::hold`]), so
+/// the system can no longer end or commit it on its own; the game's
+/// focus manager gets the held text when it handles the focus loss
+/// ([`HeldComposition::take`] in the window's [`ImeContext::finalize`]).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct HeldComposition(Option<Vec<u16>>);
+
+impl HeldComposition {
+    /// `WM_KILLFOCUS`: while a box has the focus (`open`), the copy is
+    /// held and cleared. Returns whether it was, that is whether the IME's
+    /// composition is to be cancelled now.
+    pub fn hold(&mut self, open: bool, composition: &mut Composition) -> bool {
+        if !open {
+            return false;
+        }
+        self.0 = Some(std::mem::take(&mut composition.text));
+        composition.clear();
+        true
+    }
+
+    /// `ImeUi_FinalizeString`'s text: the held composition when there is
+    /// one, else the copy's; with `send` false, nothing. Both are cleared.
+    pub fn take(&mut self, composition: &mut Composition, send: bool) -> Vec<u16> {
+        let text = self
+            .0
+            .take()
+            .unwrap_or_else(|| std::mem::take(&mut composition.text));
+        composition.clear();
+        if send { text } else { Vec::new() }
+    }
+
+    /// A box took the focus again: nothing is held any more.
+    pub fn clear(&mut self) {
+        self.0 = None;
+    }
+
+    /// Whether a composition is held.
+    #[must_use]
+    pub fn is_held(&self) -> bool {
+        self.0.is_some()
+    }
+}
+
 /// Where the IME windows go: the focused box's caret in surface pixels
 /// (`ImeUi_SetCaretPosition`), with the line height below which the
 /// candidate list opens.
@@ -244,6 +294,30 @@ impl ModifierRepair {
 mod tests {
     use super::*;
     use crate::input::keyboard::{WM_KEYDOWN, WM_SYSKEYDOWN};
+
+    /// D284: the composition at the focus loss reaches the box once, even
+    /// when the system ended its composition before the game handled the
+    /// loss; without a focused box nothing is held.
+    #[test]
+    fn a_composition_held_at_the_focus_loss_is_committed_once() {
+        let mut held = HeldComposition::default();
+        let mut copy = Composition::new(vec![0x65e5, 0x672c], &[0, 0], 2);
+        assert!(!held.hold(false, &mut copy));
+        assert_eq!(copy.text, [0x65e5, 0x672c]);
+        assert!(held.hold(true, &mut copy));
+        assert!(copy.is_empty() && held.is_held());
+        // WM_IME_ENDCOMPOSITION clears the copy; the held text stays.
+        copy.clear();
+        assert_eq!(held.take(&mut copy, true), [0x65e5, 0x672c]);
+        assert_eq!(held.take(&mut copy, true), Vec::<u16>::new());
+        // Without a held text the copy is taken; without `send` nothing.
+        let mut copy = Composition::new(vec![0x41], &[], 1);
+        assert_eq!(held.take(&mut copy, false), Vec::<u16>::new());
+        assert!(copy.is_empty());
+        held.hold(true, &mut Composition::new(vec![0x42], &[], 1));
+        held.clear();
+        assert!(!held.is_held());
+    }
 
     #[test]
     fn compositions_keep_one_attribute_per_unit() {

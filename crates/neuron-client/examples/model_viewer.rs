@@ -199,6 +199,7 @@ mod tests {
     use super::*;
     use neuron_client::engine::Engine;
     use neuron_client::render::ff::device::RecordingBackend;
+    use neuron_client::render::particles::PoolKind;
     use neuron_client::text::font::fake::FakeBackend;
 
     fn small_args() -> Args {
@@ -290,7 +291,13 @@ mod tests {
         let mut viewer = viewer::Viewer::new(engine);
         let mut lines = Vec::new();
         for scene in &args.scenes {
-            let run = headless::run_scene(&mut viewer, scene, 2, None);
+            // The explosion throws its first debris on its fourth frame.
+            let frames = if matches!(scene, scenes::Scene::Effect { .. }) {
+                8
+            } else {
+                2
+            };
+            let run = headless::run_scene(&mut viewer, scene, frames, None);
             lines.push(headless::summary(&run));
             assert_eq!(run.result, Ok(()), "{}: {:?}", run.label, run.notes);
             let r = run.last;
@@ -304,14 +311,113 @@ mod tests {
                     assert_eq!((r.deformables, r.animations), (1, 1), "{}", run.label);
                     assert!(draws > 0, "{} draws", run.label);
                 }
-                scenes::Scene::Effect { .. } => assert_eq!(r.effects, 1, "{}", run.label),
+                scenes::Scene::Effect { .. } => {
+                    assert_eq!(r.effects, 1, "{}", run.label);
+                    assert!(draws > 0, "{} draws", run.label);
+                    // The debris carry their child effects.
+                    let fx = &viewer.engine.particles;
+                    let records = fx.pools.get(PoolKind::Particle).used();
+                    let live: u32 = records
+                        .iter()
+                        .filter_map(|&i| fx.pools.record(i).life.as_ref())
+                        .flat_map(|life| life.records())
+                        .filter_map(|r| fx.node(r.node).and_then(|n| n.appearance()))
+                        .map(|a| a.live)
+                        .sum();
+                    assert!(
+                        !records.is_empty() && live > 0,
+                        "{}: {} particle records, {live} child particles",
+                        run.label,
+                        records.len()
+                    );
+                }
                 scenes::Scene::Script(_) => assert_eq!(r.scripts, 1, "{}", run.label),
-                scenes::Scene::Page(_) => assert!(r.ui_nodes > 0, "{}", run.label),
+                scenes::Scene::Sound(_) | scenes::Scene::Voice { .. } => {
+                    // The sound plays through the client's playing list:
+                    // ranked by the frames' sound tick and given a voice of
+                    // the mixer.
+                    assert!(r.sounds >= 1, "{}: {:?}", run.label, run.notes);
+                    let mixer = &viewer.engine.mixer;
+                    assert!(!mixer.instances().is_empty(), "{}", run.label);
+                    assert!(mixer.instances().iter().all(|i| i.started), "{}", run.label);
+                }
+                scenes::Scene::Page(_) => {
+                    assert!(r.ui_nodes > 0, "{}", run.label);
+                    assert!(r.ui_draws > 0, "{} draws its widgets", run.label);
+                }
                 _ => {}
             }
         }
         viewer.clear();
         assert_eq!(viewer.engine.scene().borrow().instances().count(), 0);
         println!("{}", lines.join("\n"));
+    }
+
+    /// The `menu` scene over the original data on the recording backend:
+    /// `page_charselectsingle.page`'s widgets draw through the engine's
+    /// interface pass. The nine rich-text windows and three text buttons
+    /// hand back their surfaces as big-image tiles, the scroll bar draws
+    /// its slider shapes through the immediate-mode layer with their
+    /// texture, the list boxes draw their frames, and the arrow cursor is
+    /// drawn last; without the page the pass draws nothing.
+    #[test]
+    fn the_menu_scene_draws_its_widgets() {
+        use neuron_client::render::ff::device::IndexData;
+        let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../outdir");
+        if !base.join("data/INTERFACE").is_dir() {
+            println!("outdir/data is missing: nothing to run");
+            return;
+        }
+        let data = base.join("data");
+        let args = args::parse(
+            [
+                "--size",
+                "1024x768",
+                "--data",
+                data.to_str().expect("a UTF-8 path"),
+                "--scenes",
+                "menu",
+            ]
+            .map(str::to_owned),
+        )
+        .expect("arguments");
+        let mut config = engine_config(&args).expect("a configuration");
+        config.font_backend = Some(Box::new(FakeBackend::default()));
+        let engine = Engine::new(config, RecordingBackend::default()).expect("the engine");
+        let mut viewer = viewer::Viewer::new(engine);
+        let run = headless::run_scene(&mut viewer, &args.scenes[0], 2, None);
+        println!("{}", headless::summary(&run));
+        assert_eq!(run.result, Ok(()), "{:?}", run.notes);
+        let r = run.last;
+        assert_eq!(r.ui_tiles, 12, "nine rich-text windows and three buttons");
+        assert!(r.cursor, "the arrow cursor");
+        let (immediate, textured_immediate, quads) = {
+            let device = viewer.engine.device();
+            let draws = &device.backend.draws;
+            let frame = &draws[draws.len() - r.ui_draws..];
+            let immediate: Vec<_> = frame.iter().filter(|d| d.fvf.0 == 0x142).collect();
+            let textured = immediate.iter().filter(|d| d.textures[0].is_some()).count();
+            let quads = frame
+                .iter()
+                .filter(|d| d.fvf.0 == 0x1C4 && d.textures[0].is_some())
+                .filter(|d| matches!(d.indices, IndexData::Buffer { .. }))
+                .count();
+            (immediate.len(), textured, quads)
+        };
+        println!(
+            "interface pass: {} draws, {immediate} immediate ({textured_immediate} textured), \
+             {quads} textured screen quads",
+            r.ui_draws
+        );
+        assert!(immediate >= 3, "the list boxes' frames and the scroll bar");
+        assert!(textured_immediate > 0, "the scroll bar's slider shapes");
+        assert!(quads >= 13, "the tiles and the cursor");
+        viewer.clear();
+        let after = viewer.frame(neuron_client::engine::FrameInput::idle(headless::STEP));
+        assert_eq!(
+            (after.ui_draws, after.ui_tiles, after.cursor),
+            (0, 0, false),
+            "nothing is drawn without the page"
+        );
     }
 }

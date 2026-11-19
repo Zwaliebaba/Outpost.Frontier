@@ -223,8 +223,67 @@ pub trait ChannelOwner: core::fmt::Debug {
     /// position and orientation for a position-quaternion channel, none
     /// for the base class); what the owner writes there is the channel's
     /// sample afterwards, which the mixer blends (an aim event writes its
-    /// joint's solved quaternion).
-    fn apply(&mut self, sampled: &mut [f32], channel: TypedId, bind: &BindDesc, time: f32) -> u32;
+    /// joint's solved quaternion). `engine` is the engine the channel is
+    /// ticked on, which the reference's owners reach through their own
+    /// `IEngine` pointer (an aim event reads its chain's joints from it).
+    fn apply(
+        &mut self,
+        engine: &Engine,
+        sampled: &mut [f32],
+        channel: TypedId,
+        bind: &BindDesc,
+        time: f32,
+    ) -> u32;
+}
+
+/// `IChannelSink`: what a typed channel reports to the sink of its bind
+/// descriptor while it is ticked, at the moment the reference calls it.
+pub trait ChannelSink {
+    /// `OnKeys(channel, context, batch)`: the event keys a tick crossed
+    /// (at most 0x40 copied; `count` is every key found).
+    fn on_keys(
+        &mut self,
+        channel: TypedId,
+        sink: u32,
+        context: u32,
+        keys: &[sample::EventKey],
+        count: u32,
+    );
+    /// `OnLoop(channel, transform, context)`: an object channel wrapped
+    /// around; `transform` is the pose it wrapped from (orientation, then
+    /// position). What the sink leaves there is the pose the channel
+    /// rebinds from.
+    fn on_loop(&mut self, channel: TypedId, sink: u32, context: u32, transform: &mut [f32; 12]);
+}
+
+/// A sink that records the calls as [`ChannelEvent`]s and changes no
+/// pose.
+impl ChannelSink for Vec<ChannelEvent> {
+    fn on_keys(
+        &mut self,
+        channel: TypedId,
+        sink: u32,
+        context: u32,
+        keys: &[sample::EventKey],
+        count: u32,
+    ) {
+        self.push(ChannelEvent::Keys {
+            channel,
+            sink,
+            context,
+            keys: keys.to_vec(),
+            count,
+        });
+    }
+
+    fn on_loop(&mut self, channel: TypedId, sink: u32, context: u32, transform: &mut [f32; 12]) {
+        self.push(ChannelEvent::Loop {
+            channel,
+            sink,
+            context,
+            transform: *transform,
+        });
+    }
 }
 
 /// Two frames and the fraction between them, as `Sample` writes them; a
@@ -848,7 +907,7 @@ impl TypedChannel {
         engine: &Engine,
         id: TypedId,
         dt: f32,
-        events: &mut Vec<ChannelEvent>,
+        sink: &mut dyn ChannelSink,
     ) -> u32 {
         let mut result = 0;
         self.play_flags |= PLAY_TICKED;
@@ -861,10 +920,9 @@ impl TypedChannel {
         if self.owner.is_some() {
             let mut sampled = self.sampled_words();
             let bind = self.bind;
-            let result = self
-                .owner
-                .as_mut()
-                .map_or(0, |owner| owner.apply(&mut sampled, id, &bind, new_time));
+            let result = self.owner.as_mut().map_or(0, |owner| {
+                owner.apply(engine, &mut sampled, id, &bind, new_time)
+            });
             self.store_sampled(&sampled);
             return result;
         }
@@ -877,13 +935,7 @@ impl TypedChannel {
                 return result;
             }
             keys.truncate(0x40);
-            events.push(ChannelEvent::Keys {
-                channel: id,
-                sink: self.bind.extra,
-                context: self.bind.context,
-                keys,
-                count,
-            });
+            sink.on_keys(id, self.bind.extra, self.bind.context, &keys, count);
             return result;
         }
         let Some(duration) = self.duration() else {
@@ -912,12 +964,7 @@ impl TypedChannel {
                     pose[..9].copy_from_slice(&m);
                     pose[9..].copy_from_slice(&self.applied_pos.to_words());
                     if self.bind.extra != 0 {
-                        events.push(ChannelEvent::Loop {
-                            channel: id,
-                            sink: self.bind.extra,
-                            context: self.bind.context,
-                            transform: pose,
-                        });
+                        sink.on_loop(id, self.bind.extra, self.bind.context, &mut pose);
                     }
                     block = Some(pose);
                 }
@@ -1197,6 +1244,7 @@ mod owner_tests {
     impl ChannelOwner for Aim {
         fn apply(
             &mut self,
+            _engine: &Engine,
             sampled: &mut [f32],
             _channel: TypedId,
             _bind: &BindDesc,

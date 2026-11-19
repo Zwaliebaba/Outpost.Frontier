@@ -10,21 +10,43 @@
 //! 1. Input: the mouse model's frame update over the platform and its
 //!    queued events, then the caller's routed key and character messages,
 //!    into the UI manager (`MouseDispatchEvents`, the Win3D input handler).
+//!    The game routes its input during the message pump instead, as the
+//!    reference's `PumpMessages` does (`game_app::input_router`), and
+//!    gives the frame its mouse ([`Engine::frame_with_mouse`]), whose
+//!    update runs in step 6.
 //! 2. `Win3DUpdateAll`: the UI manager's update.
-//! 3. The state's world tick: the scene scripts' timelines, the animation
-//!    system's mixer (`MixerWalkAll`) with the animated deformable models'
-//!    trees updated and their bones' transforms handed over, the particle
-//!    effects' transforms and update, then `TickMaterialAnimationPlayback`
-//!    (the texture library's playbacks and the material animations).
+//! 3. The state's world tick: the scene scripts' timelines, the
+//!    deformable models with something on their lists advanced as the
+//!    game's character objects advance them (`MixerWalk` under the root
+//!    bone, the tree updated and the bones' transforms handed over, the
+//!    list swept; [`super::deform_anim`]), the particle
+//!    effects' transforms and update (at most a tenth of a second, as
+//!    `SpaceEffectsDrawFrame` clamps it; the mesh factory's new meshes
+//!    are loaded and placed after it, D493), the client's sound tick
+//!    (`TickClientSoundMixer` and the mixer's tick, with the reverb the
+//!    scripts set; [`super::sound`]), then
+//!    `TickMaterialAnimationPlayback` (the texture library's playbacks and
+//!    the material animations).
 //! 4. `BeginClientRenderFrame`: the dither and mip-filter states of
 //!    `TryBeginFrame`.
 //! 5. The clear (`ClearWin3DBuffers(0x4100)` after a black clear colour),
 //!    the frame's camera (`Win3DApplyCamera`), then the scene: the backdrop and the star sphere through
 //!    `FLAppearance`, the models' instance trees through the render manager
 //!    (`RenderInstance`), the deformable models (`IDeformable::Draw`), the
-//!    particle effects between `BeginDraw` and `EndDraw`.
+//!    particle effects between `BeginDraw` and `EndDraw` (the particle part
+//!    of `SpaceEffectsDrawFrame`: `LESSEQUAL` and no dithering around it,
+//!    the `BATCH_PARTICLES` option handed to `SetUseMaterialBatcher`; the
+//!    child effects draw as their appearances' children and the mesh
+//!    appearances' meshes through the render manager).
 //! 6. `ClearWin3DBuffers(0x100)`, `Win3DSetDepthFunc(4)`, `Win3DDrawAll`
-//!    and the screen-quad lists it filled.
+//!    through the engine's draw host ([`super::ui_host::UiHost`]: the
+//!    immediate-mode layer, the line batchers, the control meshes with
+//!    their tints and window views, the button montage's icons, the
+//!    rich-text tiles, the font atlas's overlay flush and the IME's overlay
+//!    pass, with the engine's game options), the screen-quad lists the
+//!    draw left, and last `MouseFrameUpdate`: the game's mouse read (with
+//!    [`Engine::frame_with_mouse`]) and the software cursor drawn
+//!    (`DrawCursor`).
 //! 7. `EndClientRenderScene`: the batcher's `FlushAll(1)` and the render
 //!    states the next frame starts from; then `PresentClientRenderFrame`.
 //!
@@ -32,37 +54,29 @@
 //! mixer's tick (its sources are the game's, P5.5), the local server's
 //! tick and the state machine (P5.1, P5.3), the game's own scene order
 //! (the space and room cameras' `DrawScene`, P5.4, P5.9, of which the
-//! frame keeps the camera's application), the fade, the
-//! immediate-mode layer's line batchers (P4.13), and the frame clock (the
-//! caller's `game_app::timing`).
+//! frame keeps the camera's application), the fade, and the frame clock
+//! (the caller's `game_app::timing`).
 
 use crate::input::mouse::MousePlatform;
 use crate::render::appearance::{AppearanceServices, Camera, MeshView};
-use crate::render::ff::device::{Backend, ClearFlags, Device};
+use crate::render::ff::device::{Backend, ClearFlags};
+use crate::render::particles::ParticleDraw;
 use crate::render::stack::{StackAppearance, draw_deformable};
 use crate::ui::message::Input;
 use crate::ui::quad_batch::{FfQuadDevice, QuadBatcher};
-use crate::ui::tree::QuadHost;
+use crate::ui::win3d_immediate::{FfPipeline, Win3dLayer, capability};
 
-use super::{Engine, RenderSide, apply_extents, pull_bones};
+use super::ui_host::UiHost;
+use super::{EffectServices, Engine, RenderSide, apply_extents};
 
-/// `D3DRS_ZENABLE`.
-const RS_ZENABLE: u32 = 7;
-/// `D3DRS_ZWRITEENABLE`.
-const RS_ZWRITEENABLE: u32 = 14;
-/// `D3DRS_CULLMODE`.
-const RS_CULLMODE: u32 = 22;
 /// `D3DRS_ZFUNC`.
 const RS_ZFUNC: u32 = 23;
 /// `D3DRS_DITHERENABLE`.
 const RS_DITHERENABLE: u32 = 26;
-/// `D3DRS_ALPHABLENDENABLE`.
-const RS_ALPHABLENDENABLE: u32 = 27;
-/// `glDisable(GL_FOG)`'s seven states: `FOGENABLE`, `FOGTABLEMODE`,
-/// `FOGVERTEXMODE`, `FOGCOLOR`, `FOGSTART`, `FOGEND`, `FOGDENSITY`.
-const FOG_STATES: [u32; 7] = [28, 35, 140, 34, 36, 37, 38];
 /// `D3DTSS_MIPFILTER`.
 const TSS_MIPFILTER: u32 = 18;
+/// The longest step the effects take (`SpaceEffectsDrawFrame`'s clamp).
+const EFFECT_DT_MAX: f32 = 0.1;
 /// `ClearWin3DBuffers(0x4100)`'s clear colour, opaque black.
 const CLEAR_BLACK: u32 = 0xFF00_0000;
 
@@ -91,6 +105,18 @@ impl FrameInput<'_> {
     }
 }
 
+/// The mouse a frame reads after the interface's draw and draws the
+/// cursor at, as `Win3DDrawAll` ends with `MouseFrameUpdate`: the game's
+/// mouse model on its window (`platform::window::Window` on Windows). The
+/// events the update queues are the caller's to route before the next
+/// frame (`MouseDispatchEvents` at the start of `PumpMessages`).
+pub trait FrameMouse {
+    /// `MouseFrameUpdate`'s reads at the frame's millisecond stamp.
+    fn frame_update(&mut self, frame_ms: u32);
+    /// The software cursor in surface pixels.
+    fn cursor(&self) -> (i32, i32);
+}
+
 /// What one frame did.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct FrameReport {
@@ -108,78 +134,68 @@ pub struct FrameReport {
     pub deformables: usize,
     /// Deformable models whose animation advanced.
     pub animations: usize,
-    /// Screen-quad lists flushed.
+    /// Sources in the client's playing list after the sound tick.
+    pub sounds: usize,
+    /// Screen-quad lists flushed after the interface's draw.
     pub quad_lists: usize,
+    /// Draw packets of the interface pass (the controls, their meshes,
+    /// the text and the cursor).
+    pub ui_draws: usize,
+    /// Control instances the interface submitted.
+    pub ui_meshes: usize,
+    /// Rich-text tiles the interface drew.
+    pub ui_tiles: usize,
+    /// Button montage icons the interface queued.
+    pub ui_montage_icons: usize,
+    /// Whether the software cursor was drawn.
+    pub cursor: bool,
 }
 
-/// The render-state cache of the Win3D immediate-mode layer
-/// (`win3d_immediate.cpp`'s `G_bDepthTest`, `G_DepthWrite`, `G_DepthFunc`,
-/// `G_AlphaBlendEnable`), with the calls of it the frame makes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Win3dStates {
-    pub depth_test: bool,
-    pub depth_write: u32,
-    pub depth_func: u32,
-    pub alpha_blend: u32,
-}
-
-impl Default for Win3dStates {
-    fn default() -> Self {
-        Win3dStates {
-            depth_test: true,
-            depth_write: 1,
-            depth_func: 4,
-            alpha_blend: 0,
-        }
-    }
-}
-
-impl Win3dStates {
-    fn depth<B: Backend>(&self, device: &mut Device<B>) {
-        let _ = device.state.set_render_state_raw(RS_ZFUNC, self.depth_func);
-        let _ = device
-            .state
-            .set_render_state_raw(RS_ZENABLE, u32::from(self.depth_test));
-        let _ = device
-            .state
-            .set_render_state_raw(RS_ZWRITEENABLE, self.depth_write);
-    }
-
-    /// `Win3DSetDepthFunc`.
-    pub fn set_depth_func<B: Backend>(&mut self, device: &mut Device<B>, func: u32) {
-        self.depth_func = func;
-        self.depth(device);
-    }
-
-    /// `Win3DSetDepthWrite`.
-    pub fn set_depth_write<B: Backend>(&mut self, device: &mut Device<B>, on: u32) {
-        self.depth_write = on;
-        self.depth(device);
-    }
-
-    /// The end of `EndSceneHalf`: fog off, depth write on, blending off,
-    /// the depth test on, `LESSEQUAL`, back faces culled.
-    pub fn end_scene<B: Backend>(&mut self, device: &mut Device<B>) {
-        for state in FOG_STATES {
-            let _ = device.state.set_render_state_raw(state, 0);
-        }
-        self.set_depth_write(device, 1);
-        self.alpha_blend = 0;
-        let _ = device.state.set_render_state_raw(RS_ALPHABLENDENABLE, 0);
-        self.depth_test = true;
-        self.depth(device);
-        self.set_depth_func(device, 4);
-        let _ = device.state.set_render_state_raw(RS_CULLMODE, 2);
-    }
+/// `EndSceneHalf`'s states through the immediate-mode layer: fog off,
+/// depth write on, blending off, the depth test on, `LESSEQUAL`, back
+/// faces culled.
+fn end_scene<B: Backend>(layer: &mut Win3dLayer, pipe: &mut FfPipeline<'_, B>) {
+    layer.disable(pipe, capability::FOG);
+    layer.set_depth_write(pipe, 1);
+    layer.disable(pipe, capability::BLEND);
+    layer.enable(pipe, capability::DEPTH_TEST);
+    layer.set_depth_func(pipe, 4);
+    layer.enable(pipe, capability::CULL_FACE);
 }
 
 impl<B: Backend + 'static> Engine<B> {
     /// One frame: the input, the UI update, the world tick, the scene,
     /// the UI draw and the present, in the reference's order (see the
-    /// module documentation). `camera` is the scene's camera.
-    #[allow(clippy::too_many_lines)]
+    /// module documentation). `camera` is the scene's camera. The engine's
+    /// own mouse model is updated first when `input.mouse` gives it a
+    /// device, and the cursor is drawn at it.
     pub fn frame(&mut self, input: FrameInput<'_>, camera: &mut dyn Camera) -> FrameReport {
+        self.run_frame(input, camera, None)
+    }
+
+    /// [`Engine::frame`] with the game's mouse: after the interface's draw
+    /// the mouse's frame update runs, once the cursors are loaded, and the
+    /// cursor is drawn at its software cursor (`Win3DDrawAll` ending with
+    /// `MouseFrameUpdate`). The caller routes the input before the frame
+    /// (`ui_input` and `input.mouse` are then normally empty).
+    pub fn frame_with_mouse(
+        &mut self,
+        input: FrameInput<'_>,
+        camera: &mut dyn Camera,
+        mouse: &mut dyn FrameMouse,
+    ) -> FrameReport {
+        self.run_frame(input, camera, Some(mouse))
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn run_frame(
+        &mut self,
+        input: FrameInput<'_>,
+        camera: &mut dyn Camera,
+        frame_mouse: Option<&mut dyn FrameMouse>,
+    ) -> FrameReport {
         let mut report = FrameReport::default();
+        let frame_ms = input.frame_ms;
         let dt = input.delta_seconds;
         #[allow(clippy::cast_possible_truncation)]
         let dt_f32 = dt as f32;
@@ -216,27 +232,34 @@ impl<B: Backend + 'static> Engine<B> {
             player.tick(step);
             report.scripts += 1;
         }
-        if !self.playbacks.is_empty() {
-            let mut scene = self.scene.borrow_mut();
-            let _ = self.animation.mixer_walk_all(&mut scene, dt_f32);
-            for playback in &self.playbacks {
-                let Some(Some(instance)) = self.deformables.get_mut(playback.deformable) else {
-                    continue;
-                };
-                let root = u32::try_from(instance.first_bone())
-                    .ok()
-                    .map(neuron_core::scene::InstanceId::from_index);
-                scene.update_instance(root, 0);
-                pull_bones(instance, &scene);
-                report.animations += 1;
+        report.animations = self.advance_deformables(dt_f32);
+        {
+            // SpaceEffectsDrawFrame's ClampedDt: at most a tenth of a second.
+            let effect_dt = if dt_f32 > EFFECT_DT_MAX {
+                EFFECT_DT_MAX
+            } else {
+                dt_f32
+            };
+            let mut side = self.render.borrow_mut();
+            let mut services = EffectServices {
+                stack: &mut side.stack,
+                manager: None,
+                scene: &self.scene,
+                data: self.data.as_ref(),
+                meshes: Some(&mut self.fx_meshes),
+            };
+            for live in self.effects.iter().flatten() {
+                live.effect.compose(&mut self.particles, &mut services);
+                live.effect
+                    .update(&mut self.particles, effect_dt, &mut services);
             }
         }
+        self.settle_fx_meshes();
+        // The client's sound tick (`TickClientSoundMixer`, which the game
+        // states run in their update) and the reverb the scripts set.
+        self.tick_sounds(dt);
+        report.sounds = self.sounds_playing();
         let mut side = self.render.borrow_mut();
-        for live in self.effects.iter().flatten() {
-            live.effect.compose(&mut self.particles);
-            live.effect
-                .update(&mut self.particles, dt_f32, &mut side.stack);
-        }
         let shading = &mut side.stack.shading;
         shading.textures.tick_all(0, dt_f32);
         if let Some(animations) = shading.animations.as_mut() {
@@ -256,7 +279,14 @@ impl<B: Backend + 'static> Engine<B> {
             CLEAR_BLACK,
         );
         device.clear(ClearFlags::TARGET | ClearFlags::DEPTH, None);
-        apply_camera(device, camera);
+        {
+            let shading = &mut side.stack.shading;
+            let mut pipe = FfPipeline {
+                device: &mut shading.device,
+                handles: &shading.handles,
+            };
+            apply_camera(&mut self.win3d, &mut pipe, camera);
+        }
         {
             let RenderSide { stack, manager } = &mut *side;
             let mut services = StackAppearance { stack, manager };
@@ -284,7 +314,7 @@ impl<B: Backend + 'static> Engine<B> {
                 report.models += 1;
             }
         }
-        for instance in self.deformables.iter_mut().flatten() {
+        for instance in self.deformables.borrow_mut().iter_mut().flatten() {
             let RenderSide { stack, manager } = &mut *side;
             draw_deformable(
                 instance,
@@ -300,33 +330,105 @@ impl<B: Backend + 'static> Engine<B> {
             report.deformables += 1;
         }
         if self.effects.iter().any(Option::is_some) {
-            let stack = &mut side.stack;
-            if self.particles.begin_draw(stack) >= 0 {
+            // SpaceEffectsDrawFrame's particle part: LESSEQUAL and no
+            // dithering around the draw, the batcher option handed over.
+            let RenderSide { stack, manager } = &mut *side;
+            let z_func = ParticleDraw::render_state(stack, RS_ZFUNC);
+            ParticleDraw::set_render_state(stack, RS_ZFUNC, 4);
+            let dither = ParticleDraw::render_state(stack, RS_DITHERENABLE);
+            ParticleDraw::set_render_state(stack, RS_DITHERENABLE, 0);
+            self.particles
+                .set_use_material_batcher(self.particle_batcher);
+            let mut services = EffectServices {
+                stack,
+                manager: Some(manager),
+                scene: &self.scene,
+                data: self.data.as_ref(),
+                meshes: Some(&mut self.fx_meshes),
+            };
+            if self.particles.begin_draw(&mut services) >= 0 {
                 for live in self.effects.iter().flatten() {
-                    live.effect.draw(&mut self.particles, camera, stack);
+                    live.effect.draw(&mut self.particles, camera, &mut services);
                     report.effects += 1;
                 }
-                self.particles.end_draw(camera, stack);
+                self.particles.end_draw(camera, &mut services);
             }
+            ParticleDraw::set_render_state(stack, RS_DITHERENABLE, dither);
+            ParticleDraw::set_render_state(stack, RS_ZFUNC, z_func);
         }
 
         // 6. The interface over the scene.
-        let shading = &mut side.stack.shading;
-        shading.device.clear(ClearFlags::DEPTH, None);
-        self.win3d.set_depth_func(&mut shading.device, 4);
-        if let Some(ui) = self.ui.as_mut() {
-            let mut host = QuadHost {
-                quads: std::mem::take(&mut self.quads),
+        self.elapsed += dt;
+        let ui_draws_before = side.stack.shading.device.draw_count;
+        {
+            let shading = &mut side.stack.shading;
+            shading.device.clear(ClearFlags::DEPTH, None);
+            let mut pipe = FfPipeline {
+                device: &mut shading.device,
+                handles: &shading.handles,
             };
-            ui.draw_all(&mut host);
-            self.quads = host.quads;
+            self.win3d.set_depth_func(&mut pipe, 4);
         }
-        report.quad_lists = flush_quads(&mut self.quads, shading);
+        if let (Some(ui), Some(data)) = (self.ui.as_mut(), self.data.as_ref()) {
+            let RenderSide { stack, manager } = &mut *side;
+            let camera = ui.camera;
+            let mut host = UiHost::new(
+                stack,
+                manager,
+                data,
+                self.appearance.as_ref(),
+                &mut self.win3d,
+                &mut self.batchers,
+                &mut self.quads,
+                &camera,
+                super::ui_host::UiPassState {
+                    options: &self.options,
+                    lights: &mut self.lights,
+                    ime_boxes: self.ime.as_ref().is_some_and(|f| !f.is_empty()),
+                },
+            );
+            ui.draw_all(&mut host);
+            report.ui_meshes = host.meshes;
+            report.ui_tiles = host.tile_draws;
+            report.ui_montage_icons = host.montage_icons;
+        }
+        report.quad_lists = flush_quads(&mut self.quads, &mut side.stack.shading);
+        // MouseFrameUpdate: nothing at all until the cursors are loaded.
+        let position = match frame_mouse {
+            Some(mouse) => self.cursors.ready.then(|| {
+                mouse.frame_update(frame_ms);
+                mouse.cursor()
+            }),
+            None => self.mouse.as_ref().map(|m| {
+                let (x, y, _) = m.cursor();
+                (x, y)
+            }),
+        };
+        report.cursor = draw_cursor(
+            &mut self.cursors,
+            position,
+            self.ui.as_ref(),
+            self.data.as_ref(),
+            self.elapsed,
+            &mut side.stack,
+        );
+        let shading = &mut side.stack.shading;
+        report.ui_draws = usize::try_from(shading.device.draw_count - ui_draws_before).unwrap_or(0);
 
         // 7. EndClientRenderScene and PresentClientRenderFrame.
         side.stack.flush_all(1);
-        self.win3d.end_scene(&mut side.stack.shading.device);
+        {
+            let shading = &mut side.stack.shading;
+            let mut pipe = FfPipeline {
+                device: &mut shading.device,
+                handles: &shading.handles,
+            };
+            end_scene(&mut self.win3d, &mut pipe);
+        }
         side.stack.shading.device.present();
+        // `Win3DOnPresentFrame`: the cache follows the `LIKE_PETAL` option.
+        self.win3d
+            .on_present_frame(self.options.get(super::options::LIKE_PETAL));
         drop(side);
         apply_extents(&self.scene, &self.links);
         self.frames += 1;
@@ -335,30 +437,59 @@ impl<B: Backend + 'static> Engine<B> {
 }
 
 /// `Win3DApplyCamera`: the perspective from the camera's vertical angle,
-/// aspect and planes (`Win3DSetPerspective`; the Win3D layer's projection
-/// cache belongs to the immediate-mode layer, P4.13), then its view
-/// transform as the modelview; with
-/// the pipeline's view-space lights off, an identity view and the camera's
-/// view as the world.
-fn apply_camera<B: Backend>(device: &mut Device<B>, camera: &mut dyn Camera) {
+/// aspect and planes (read far, near, aspect, field of view) through the
+/// layer's projection cache, then its view transform as the modelview;
+/// with the pipeline's view-space lights off, an identity view and the
+/// camera's view as the world.
+fn apply_camera<B: Backend>(
+    layer: &mut Win3dLayer,
+    pipe: &mut FfPipeline<'_, B>,
+    camera: &mut dyn Camera,
+) {
     let far = camera.z_far();
     let near = camera.z_near();
     let aspect = camera.aspect();
     let fov = camera.fov_y_deg();
-    let _ = device.transforms.set_perspective(fov, aspect, near, far);
     let view = camera.view_transform();
-    if device
-        .state
-        .pipeline(crate::render::ff::state::PipelineProperty::ViewspaceLights)
-        != 0
-    {
-        device.set_modelview(&view);
-        return;
+    layer.apply_camera(pipe, fov, aspect, near, far, &view);
+}
+
+/// `DrawCursor` at the end of `MouseFrameUpdate`: the cursor in use
+/// animated on the client clock and drawn at the software cursor as one
+/// pre-transformed quad (divergence D346). Whether it was drawn.
+fn draw_cursor<B: Backend + 'static>(
+    cursors: &mut crate::ui::cursor::Cursors,
+    position: Option<(i32, i32)>,
+    ui: Option<&crate::ui::tree::Ui>,
+    data: Option<&neuron_core::vfs::Host>,
+    elapsed: f64,
+    stack: &mut crate::render::stack::RenderStack<B>,
+) -> bool {
+    let (Some((x, y)), Some(ui), Some(data)) = (position, ui, data) else {
+        return false;
+    };
+    if !cursors.ready {
+        return false;
     }
-    device
-        .transforms
-        .set_view(&[1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]);
-    device.transforms.set_world(&view);
+    #[allow(clippy::cast_possible_truncation)]
+    let Some(shape) = cursors.animate(elapsed as f32) else {
+        return false;
+    };
+    let Some(cursor) = cursors.current() else {
+        return false;
+    };
+    let handle = {
+        let mut lib = super::StackShapes::new(stack, data);
+        shape.gpu_handle(&mut lib, 0)
+    };
+    let surface = ui.camera.surface;
+    let shading = &mut stack.shading;
+    let mut device = FfQuadDevice {
+        device: &mut shading.device,
+        handles: &shading.handles,
+    };
+    crate::ui::cursor::draw(&mut device, cursor, &shape, handle, (x, y), &surface);
+    true
 }
 
 /// Every screen-quad list the UI draw filled, flushed to the device in

@@ -325,3 +325,76 @@ pub trait DeformRender {
 pub trait DeformServices: DeformHost + DeformRender {}
 
 impl<T: DeformHost + DeformRender + ?Sized> DeformServices for T {}
+
+/// The calls an aim event makes from inside its typed channels' tick
+/// (`FIkEvent::Apply`, `IkApply` and the solvers): the engine's reads of
+/// the chain's joints and `FDUMP`. The animation system calls the owner
+/// while it walks the mixer, when only the engine it ticks on is at hand;
+/// every [`DeformServices`] answers them too.
+pub trait AimHost {
+    /// `GetInstanceParent`: -1 for none.
+    fn instance_parent(&mut self, instance: Instance) -> Instance;
+    /// `GetInstanceRelative`: the 23 words of the joint to the parent.
+    fn instance_relative(&mut self, instance: Instance) -> [u32; 23];
+    /// `GetInstancePosition`.
+    fn instance_position(&mut self, instance: Instance) -> [f32; 3];
+    /// `GetInstanceOrientation`.
+    fn instance_orientation(&mut self, instance: Instance) -> [f32; 9];
+    /// `GetJointParams(instance, index, out)`.
+    fn joint_params(&mut self, instance: Instance, index: u32) -> Vec<f32>;
+    /// `FDUMP`.
+    fn dump(&mut self, flags: i32, file: &str, line: u32, message: &str);
+}
+
+impl<T: DeformHost + DeformRender + ?Sized> AimHost for T {
+    fn instance_parent(&mut self, instance: Instance) -> Instance {
+        DeformHost::instance_parent(self, instance)
+    }
+
+    fn instance_relative(&mut self, instance: Instance) -> [u32; 23] {
+        DeformHost::instance_relative(self, instance)
+    }
+
+    fn instance_position(&mut self, instance: Instance) -> [f32; 3] {
+        DeformHost::instance_position(self, instance)
+    }
+
+    fn instance_orientation(&mut self, instance: Instance) -> [f32; 9] {
+        DeformHost::instance_orientation(self, instance)
+    }
+
+    fn joint_params(&mut self, instance: Instance, index: u32) -> Vec<f32> {
+        DeformHost::joint_params(self, instance, index)
+    }
+
+    fn dump(&mut self, flags: i32, file: &str, line: u32, message: &str) {
+        DeformRender::dump(self, flags, file, line, message);
+    }
+}
+
+/// The calls the instance's channel sink makes (`OnKeys`, `OnLoop`): the
+/// animation system's queries on its playbacks, which the animation
+/// system answers from inside its mixer walk; every [`DeformServices`]
+/// answers them too.
+pub trait SinkHost {
+    /// `HasObject(handle, key)`.
+    fn has_object(&mut self, handle: i32, key: u32) -> u32;
+    /// `GetFirstInstanceField(handle, &out)`.
+    fn first_instance_field(&mut self, handle: i32) -> Option<u32>;
+    /// `GetDurationIfNamed(handle, &out)`.
+    fn duration_if_named(&mut self, handle: i32) -> Option<f32>;
+}
+
+impl<T: DeformHost + ?Sized> SinkHost for T {
+    fn has_object(&mut self, handle: i32, key: u32) -> u32 {
+        DeformHost::has_object(self, handle, key)
+    }
+
+    fn first_instance_field(&mut self, handle: i32) -> Option<u32> {
+        DeformHost::first_instance_field(self, handle)
+    }
+
+    fn duration_if_named(&mut self, handle: i32) -> Option<f32> {
+        DeformHost::duration_if_named(self, handle)
+    }
+}

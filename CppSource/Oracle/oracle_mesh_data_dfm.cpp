@@ -407,3 +407,6 @@ void RunDfmDataDump(const std::vector<std::string>& Files)
 #include "oracle_deformable.cpp"
 // P4.7, second increment: the parts suite (deformable_parts.jsonl), which shares that suite's cases.
 #include "oracle_deformable_parts.cpp"
+// P4.7, third increment: the animation suite (deformable_anim.jsonl) against the scene runtime,
+// which shares the parts suite's file system.
+#include "oracle_deformable_anim.cpp"
