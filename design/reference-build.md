@@ -594,6 +594,18 @@ program starts itself N times, each run in a fresh process writing to
 the largest difference between any two runs per object, metric and event
 (record 0003 point 9). It exits 1 when a run did not complete.
 
+`--seed S` (decimal or `0x` hex, 32 bits; Gate G2's seed ensemble,
+owner 2026-11-19) replaces the seed of the seeding point (start-up step 5)
+with `S`; the first `srand`, before the load, keeps the scenario's `seed`,
+so the load-time draws stay as they are. The run records `S` as `reseed`
+in `session.jsonl`'s `start` and `server` records and in
+`load_rand.jsonl`'s `reseed` record. With `--runs N` each child gets the
+same `--seed`. The options come after the three paths, in any order:
+
+```powershell
+.\bin\Oracle.exe sim "$PWD\outdir" CppSource\Oracle\scenarios\dogfight.txt "$env:TEMP\ens\seed_3985226492\dogfight" --seed 3985226492
+```
+
 ### Start-up
 
 As `OutpostServer.exe` (`OutpostServer.cpp:437`, `:523`, `:731-745`,
@@ -648,6 +660,7 @@ As `OutpostServer.exe` (`OutpostServer.cpp:437`, `:523`, `:731-745`,
    drawn their values. The scenario is compared from here as recorded: the
    Rust world, which has no population yet (P3.6), seeds its generator at
    the same point, and the population's draws are checked at Gate G3.
+   With `--seed S` the seed here is `S` (the seed ensemble).
 6. The objects are spawned (`pub::SpaceObj::Create`, then
    `pub::AI::SubmitState` with the state graph for `ai`) or looked up
    (solars, `CreateID(nickname)`); a missing object ends the run.

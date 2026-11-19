@@ -1,4 +1,4 @@
-// Oracle.exe sim ... --runs N (work package P2.3, design/adr/0003-simulation-oracle.md point 9):
+// Oracle.exe sim ... --runs N [--seed S] (work package P2.3, design/adr/0003-simulation-oracle.md point 9):
 // the scenario N times, each in a fresh child process, then the run-to-run spread of every
 // metric -- the largest difference between any two runs -- into spread.jsonl (record layout
 // in design/sim-records.md) and spread.txt (the same in decimal, for reading).
@@ -160,12 +160,15 @@ namespace
         return "\"" + Text + "\"";
     }
 
-    int RunChild(std::string const& DataRoot, std::string const& ScenarioPath, std::string const& RunDir)
+    int RunChild(std::string const& DataRoot, std::string const& ScenarioPath, std::string const& RunDir,
+                 oracle::FSimOptions const& Options)
     {
         char Exe[MAX_PATH] = {};
         GetModuleFileNameA(nullptr, Exe, MAX_PATH);
         std::string Command = QuoteCommandArg(Exe) + " sim " + QuoteCommandArg(DataRoot) + " " +
                               QuoteCommandArg(ScenarioPath) + " " + QuoteCommandArg(RunDir);
+        if (Options.bReseed)
+            Command += Format(" --seed %u", Options.Reseed);
         std::vector<char> Buffer(Command.begin(), Command.end());
         Buffer.push_back('\0');
         STARTUPINFOA Startup;
@@ -189,8 +192,10 @@ namespace
 
 namespace oracle
 {
-    int RunSimSpread(std::string const& DataRoot, std::string const& ScenarioPath, std::string const& OutDir, int Runs)
+    int RunSimSpread(std::string const& DataRoot, std::string const& ScenarioPath, std::string const& OutDir,
+                     FSimOptions const& Options)
     {
+        int const Runs = Options.Runs;
         MakeParentDirectories(OutDir + "\\spread.jsonl");
         std::vector<FRun> Results((size_t)Runs);
         int Completed = 0;
@@ -198,7 +203,7 @@ namespace oracle
         {
             std::string const RunDir = OutDir + Format("\\run_%02d", Index + 1);
             FRun& Run = Results[(size_t)Index];
-            Run.ExitCode = RunChild(DataRoot, ScenarioPath, RunDir);
+            Run.ExitCode = RunChild(DataRoot, ScenarioPath, RunDir, Options);
             Run.bRead = Run.ExitCode == 0 && ReadMetrics(RunDir + "\\metrics.txt", Run);
             if (Run.bRead)
                 ++Completed;
