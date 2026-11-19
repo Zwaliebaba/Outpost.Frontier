@@ -3,7 +3,8 @@
 //!
 //! The C++ (`imeui`) draws the composition string and the candidate list
 //! itself, reads reading strings out of IME internals and probes IME
-//! DLLs. Here the system draws its composition and candidate windows and
+//! DLLs. Here the system draws its composition and candidate windows (the
+//! game draws the IME's toolbar, `ui::ime`, from this window's state) and
 //! this module places them at the focused edit box's caret
 //! (`ImmSetCompositionWindow`, `ImmSetCandidateWindow`) when a composition
 //! starts or changes, a candidate list opens, or the caret moves. The
@@ -21,6 +22,7 @@ use std::collections::VecDeque;
 use std::ffi::c_void;
 
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
+use windows::Win32::System::SystemInformation::GetTickCount;
 use windows::Win32::UI::Input::Ime::{
     CANDIDATEFORM, CFS_EXCLUDE, CFS_POINT, COMPOSITIONFORM, CPS_CANCEL, GCS_COMPATTR, GCS_COMPSTR,
     GCS_CURSORPOS, GCS_RESULTSTR, HIMC, IME_COMPOSITION_STRING, IME_CONVERSION_MODE,
@@ -34,15 +36,17 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetFocus, GetKeyboardLayout, GetKeyboardLayoutList, HKL,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    MSG, PostMessageW, WM_IME_CHAR, WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION, WM_IME_NOTIFY,
-    WM_IME_STARTCOMPOSITION, WM_INPUTLANGCHANGE, WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    GetCaretBlinkTime, MSG, PostMessageW, WM_IME_CHAR, WM_IME_COMPOSITION, WM_IME_ENDCOMPOSITION,
+    WM_IME_NOTIFY, WM_IME_STARTCOMPOSITION, WM_INPUTLANGCHANGE, WM_KEYDOWN, WM_KEYUP,
+    WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 
 use crate::input::keyboard::vk;
 use crate::platform::input::{client_mapping, key_down, key_down_now};
 use crate::platform::window::{push, with_state};
 use crate::text_input::ime::{
-    CaretRect, Composition, HeldComposition, ImeContext, ModifierRepair, ime_state, is_hot_key,
+    CaretRect, Composition, HeldComposition, ImeContext, ImeView, ModifierRepair, ime_state,
+    is_hot_key,
 };
 use crate::window::{ImeEvent, WindowEvent};
 
@@ -418,5 +422,27 @@ impl ImeContext for WindowIme {
 
     fn set_boxes_registered(&mut self, registered: bool) {
         with_state(|s| s.ime.boxes = registered);
+    }
+
+    fn available(&self) -> bool {
+        ime_available()
+    }
+
+    /// The state, the layout and the clocks; the composition and the
+    /// candidate list are the system's windows (decision T7, D283), so the
+    /// game draws neither and only the toolbar shows.
+    fn view(&mut self) -> ImeView {
+        // SAFETY: plain queries of this thread's layout and the clocks.
+        let (layout, tick, caret_blink) =
+            unsafe { (GetKeyboardLayout(0), GetTickCount(), GetCaretBlinkTime()) };
+        ImeView {
+            state: self.state(),
+            language: layout.0 as usize as u32,
+            ime_id: 0,
+            tick,
+            caret_blink,
+            composition: None,
+            candidates: None,
+        }
     }
 }

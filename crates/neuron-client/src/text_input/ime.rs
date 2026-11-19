@@ -5,6 +5,7 @@
 //! `ImeUi_ProcessMessage`, `ImeUi_IgnoreHotKey` and `ImeUi_GetState`.
 
 use crate::input::keyboard::{WM_KEYUP, WM_SYSKEYUP, vk};
+use crate::text_input::ime_render::CandidateList;
 
 /// A composition character's attribute (`GCS_COMPATTR`, the `ATTR_*`
 /// values).
@@ -36,6 +37,22 @@ impl From<u8> for CompositionAttribute {
             4 => CompositionAttribute::InputError,
             5 => CompositionAttribute::FixedConverted,
             other => CompositionAttribute::Other(other),
+        }
+    }
+}
+
+impl CompositionAttribute {
+    /// The attribute byte (`GCompositionAttributes`).
+    #[must_use]
+    pub fn byte(self) -> u8 {
+        match self {
+            CompositionAttribute::Input => 0,
+            CompositionAttribute::TargetConverted => 1,
+            CompositionAttribute::Converted => 2,
+            CompositionAttribute::TargetNotConverted => 3,
+            CompositionAttribute::InputError => 4,
+            CompositionAttribute::FixedConverted => 5,
+            CompositionAttribute::Other(b) => b,
         }
     }
 }
@@ -144,6 +161,29 @@ pub struct CaretRect {
     pub height: i32,
 }
 
+/// What the IME's drawing reads of the IME at a frame (`ImeUi_Render`'s
+/// globals that the window's IME keeps).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ImeView {
+    /// `GImeState` (`ImeUi_GetState`): 0 off, 1 on, 2 a Chinese IME in
+    /// alphanumeric mode.
+    pub state: u32,
+    /// `GLanguage`: the keyboard layout's low 32 bits.
+    pub language: u32,
+    /// `GetImeId(0)`: the IME's version word (0 when not known).
+    pub ime_id: u32,
+    /// `GetTickCount`.
+    pub tick: u32,
+    /// `GCaretBlinkInterval` (`GetCaretBlinkTime`).
+    pub caret_blink: u32,
+    /// The composition the game draws (support level 2); `None` while the
+    /// system draws it in its own window (decision T7, D283).
+    pub composition: Option<Composition>,
+    /// The candidate list the game draws; `None` while the system draws
+    /// it.
+    pub candidates: Option<CandidateList>,
+}
+
 /// What the edit boxes ask of the IME.
 pub trait ImeContext {
     /// `ImeUi_SetState`: give the window its input context (`true`) or
@@ -159,6 +199,15 @@ pub trait ImeContext {
     /// Whether any box is registered (`IMEFocus::m_NumBoxes != 0`): the
     /// window procedure and the hot-key test act only then.
     fn set_boxes_registered(&mut self, registered: bool);
+    /// `IsImeAvailable` (`CheckAnyIME`): some installed keyboard layout is
+    /// an IME. The client makes its edit boxes' IME boxes only then.
+    fn available(&self) -> bool {
+        false
+    }
+    /// What the IME's drawing reads this frame.
+    fn view(&mut self) -> ImeView {
+        ImeView::default()
+    }
 }
 
 /// An IME context that does nothing: hosts without an IME, and tests.

@@ -123,16 +123,18 @@ pub struct HudRecord {
     pub repeat: bool,
 }
 
-/// What a rich-text edit box asks of its IME box (`FLImeInputBox`): the
-/// game makes one while the IME focus exists
-/// ([`UiServices::create_ime_box`]). A key or character the box takes may
+/// What a rich-text edit box asks of its IME box (`FLImeInputBox`,
+/// [`crate::ui::ime::ClientImeBox`]): the client makes one while it has an
+/// IME ([`UiServices::create_ime_box`], [`crate::ui::ime::ImeBoxes`]). A key or character the box takes may
 /// change its composed text, which it hands back for the owner's
 /// `SetText` (the box's `UpdatedText`).
 pub trait ImeBox {
     /// `HandleKey` (slot 4).
     fn handle_key(&mut self, key: u32) -> Option<Vec<u16>>;
-    /// `HandleMultiByteChar`: the character's low byte.
-    fn handle_char(&mut self, byte: u8) -> Option<Vec<u16>>;
+    /// `HandleMultiByteChar` of the character's low byte in the C++; the
+    /// UTF-16 unit here, which the box takes whole (`HandleWideChar`,
+    /// divergence D286).
+    fn handle_char(&mut self, unit: u16) -> Option<Vec<u16>>;
     /// `SetInputBufferSize` and `Resize` (slot 3) with the window's screen
     /// rectangle (left, top, right, bottom).
     fn resize(&mut self, buffer_size: u32, rect: [i32; 4]);

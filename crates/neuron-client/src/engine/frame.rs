@@ -225,6 +225,7 @@ impl<B: Backend + 'static> Engine<B> {
             ui.update_all(dt);
             report.ui_nodes = ui.update_node_count;
         }
+        self.apply_ime_texts();
 
         // 3. The world tick.
         let step = (dt * 1000.0).round() as i32;
@@ -384,10 +385,18 @@ impl<B: Backend + 'static> Engine<B> {
                 super::ui_host::UiPassState {
                     options: &self.options,
                     lights: &mut self.lights,
-                    ime_boxes: self.ime.as_ref().is_some_and(|f| !f.is_empty()),
                 },
             );
             ui.draw_all(&mut host);
+            // ImeFocusDrawPass, the last pass of Win3DDrawAll.
+            if let Some(ime) = self.ime.as_ref() {
+                let (w, h) = self.mode.back_buffer();
+                let surface = (
+                    i32::try_from(w).unwrap_or(i32::MAX),
+                    i32::try_from(h).unwrap_or(i32::MAX),
+                );
+                host.ime_pass(ime, ui.fonts.as_mut(), surface);
+            }
             report.ui_meshes = host.meshes;
             report.ui_tiles = host.tile_draws;
             report.ui_montage_icons = host.montage_icons;

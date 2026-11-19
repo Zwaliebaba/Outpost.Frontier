@@ -36,20 +36,23 @@ use crate::render::mesh::services::MeshCamera;
 use crate::render::stack::RenderStack;
 use crate::render::texture::big_image::TileDraw;
 use crate::render::texture::pipeline::{Abilities, GR_GENERIC, GR_INVALID_PARMS, TexturePipeline};
-use crate::text::font::string::PaintCx;
+use crate::text::font::FontSystem;
+use crate::text::font::quad::ScreenQuadRecord;
+use crate::text::font::string::{DrawOrigin, PaintCx};
 use crate::ui::camera::Camera;
 use crate::ui::control::ControlMesh;
 use crate::ui::controls::rich_text_win::RichTextCx;
+use crate::ui::ime::{ImeBoxes, ImeOverlay, ImeString};
 use crate::ui::immediate::Immediate;
 use crate::ui::montage;
-use crate::ui::quad_batch::{IconCamera, QuadBatcher, QuadDevice};
+use crate::ui::quad_batch::{Frame, IconCamera, QuadBatcher, QuadDevice};
 use crate::ui::services::MontageTile;
 use crate::ui::shape::ShapeTextures;
 use crate::ui::tree::{DrawHost, MeshPass, WindowView};
 use crate::ui::widescreen::shear_modelview;
 use crate::ui::win3d_immediate::{FfPipeline, QUERY_VIEWPORT, Win3dLayer, capability, rs};
 use crate::ui::win3d_renderables::{
-    Batch, LineBatchers, Win3dView, font_atlas_key, ime_focus_draw_pass, prep_ui_overlay,
+    Batch, LineBatchers, Win3dView, font_atlas_key, ime_pass_begin, ime_pass_end, prep_ui_overlay,
 };
 
 use super::StackShapes;
@@ -144,13 +147,10 @@ const CMP_ALWAYS: u32 = 8;
 const INV_255: f32 = 1.0 / 255.0;
 
 /// What the interface pass reads of the rest of the engine besides the
-/// render parts: the game options, the engine lights' registered list and
-/// whether the IME focus has input boxes.
+/// render parts: the game options and the engine lights' registered list.
 pub struct UiPassState<'a> {
     pub options: &'a GameOptions,
     pub lights: &'a mut EngineLights,
-    /// `IMEFocus::GetSingleton()` and `NumInputBoxes() != 0`.
-    pub ime_boxes: bool,
 }
 
 /// `SetHolderTint`: the bytes R, G, B and A over 255 into floats 0, 1, 2
@@ -189,7 +189,6 @@ pub struct UiHost<'a, B: Backend + 'static> {
     tiles: Vec<TileDraw>,
     options: GameOptions,
     lights: &'a mut EngineLights,
-    ime_boxes: bool,
     /// A static control's window camera and the viewport it saved.
     window: Option<(Camera, [i32; 4])>,
     /// Control instances submitted.
@@ -231,7 +230,6 @@ impl<'a, B: Backend + 'static> UiHost<'a, B> {
             tiles: Vec::new(),
             options: state.options.clone(),
             lights: state.lights,
-            ime_boxes: state.ime_boxes,
             window: None,
             meshes: 0,
             tile_draws: 0,
@@ -267,6 +265,42 @@ impl<'a, B: Backend + 'static> UiHost<'a, B> {
         let view = Win3dView::of(&mut self.camera);
         self.batchers.flush_all(self.layer, &mut pipe, &view);
         self.batchers.reset();
+    }
+
+    /// `ImeFocusDrawPass` (run when the IME focus has boxes): the pass's
+    /// states, the client's IME draw (`IMEFocus::Draw`: the toolbar, the
+    /// composition and the candidates of the focused box) through the
+    /// layer, the screen-quad batcher, the font atlas and `fonts`' strings,
+    /// the two IME lists flushed and the states back. The engine's frame
+    /// runs it after the interface draw's tail (D555).
+    pub fn ime_pass(
+        &mut self,
+        ime: &ImeBoxes,
+        fonts: Option<&mut FontSystem>,
+        surface: (i32, i32),
+    ) {
+        if ime.is_empty() {
+            return;
+        }
+        self.drain_tiles();
+        let saved = {
+            let (layer, mut pipe) = self.parts();
+            ime_pass_begin(layer, &mut pipe)
+        };
+        {
+            let mut overlay = HostOverlay {
+                host: &mut *self,
+                fonts,
+                surface,
+            };
+            ime.draw(&mut overlay);
+        }
+        let shading = &mut self.textures.0.shading;
+        let mut pipe = FfPipeline {
+            device: &mut shading.device,
+            handles: &shading.handles,
+        };
+        ime_pass_end(self.layer, &mut pipe, self.quads, saved);
     }
 
     /// The tiles rich-text windows handed back since the last call, drawn.
@@ -595,8 +629,9 @@ impl<B: Backend + 'static> DrawHost for UiHost<'_, B> {
     }
 
     /// `Win3DDrawAll`'s tail: the button montage's flush, the line
-    /// batchers' flush, the font atlas's overlay flush, the IME's overlay
-    /// pass, and the batcher's bin order back.
+    /// batchers' flush, the font atlas's overlay flush and the batcher's
+    /// bin order back. The IME's overlay pass, which needs the font
+    /// system, follows from the engine's frame ([`UiHost::ime_pass`]).
     fn end_draw(&mut self) {
         self.drain_tiles();
         let shading = &mut self.textures.0.shading;
@@ -608,9 +643,6 @@ impl<B: Backend + 'static> DrawHost for UiHost<'_, B> {
         let view = Win3dView::of(&mut self.camera);
         self.batchers.flush_all(self.layer, &mut pipe, &view);
         prep_ui_overlay(self.layer, &mut pipe, self.quads, font_atlas_key());
-        if self.ime_boxes {
-            ime_focus_draw_pass(self.layer, &mut pipe, self.quads);
-        }
         let _ = self.textures.0.with_batcher(|b, _| b.set_bin_order(1, 1));
     }
 
@@ -784,6 +816,129 @@ impl<B: Backend + 'static> DrawHost for UiHost<'_, B> {
 
     fn as_any_mut(&mut self) -> &mut dyn Any {
         &mut self.any
+    }
+}
+
+/// The IME pass's drawing over the interface pass's parts and the font
+/// system.
+struct HostOverlay<'h, 'a, B: Backend + 'static> {
+    host: &'h mut UiHost<'a, B>,
+    fonts: Option<&'h mut FontSystem>,
+    surface: (i32, i32),
+}
+
+impl<B: Backend + 'static> HostOverlay<'_, '_, B> {
+    /// The string's font bound and its shadow off on first use (the C++'s
+    /// constructors do it).
+    fn bound<'s>(fonts: &mut FontSystem, string: &'s mut ImeString) -> &'s mut ImeString {
+        if !string.bound {
+            string.child.bind_font(fonts, string.font);
+            string.child.set_shadow(false);
+            string.bound = true;
+        }
+        string
+    }
+}
+
+impl<B: Backend + 'static> ImeOverlay for HostOverlay<'_, '_, B> {
+    fn begin(&mut self, primitive: u32) {
+        self.host.layer.begin(primitive);
+    }
+
+    fn vertex(&mut self, x: f32, y: f32, z: f32) {
+        self.host.layer.vertex(x, y, z);
+    }
+
+    fn color3ub(&mut self, r: u8, g: u8, b: u8) {
+        self.host.layer.color3ub(r, g, b);
+    }
+
+    fn end(&mut self) {
+        let (layer, mut pipe) = self.host.parts();
+        layer.end(&mut pipe);
+    }
+
+    fn set_quad_key(&mut self, key: u32) {
+        self.host.quads.set_material_key(key);
+    }
+
+    fn begin_quad_frame(&mut self, frame: Frame, blend_mode: i32, find: bool) {
+        self.host.quads.begin_frame(frame, blend_mode, find);
+    }
+
+    fn append_quad(&mut self, record: ScreenQuadRecord) {
+        self.host.quads.append_record(record);
+    }
+
+    fn flush_quads(&mut self, key: u32) {
+        let shading = &mut self.host.textures.0.shading;
+        let mut pipe = FfPipeline {
+            device: &mut shading.device,
+            handles: &shading.handles,
+        };
+        self.host.quads.flush(&mut pipe, key);
+    }
+
+    fn atlas_key(&mut self) -> u32 {
+        self.fonts
+            .as_ref()
+            .map_or_else(font_atlas_key, |f| f.atlas.material_key)
+    }
+
+    fn set_atlas_key(&mut self, key: u32) {
+        if let Some(fonts) = self.fonts.as_mut() {
+            fonts.atlas.material_key = key;
+        }
+    }
+
+    fn set_draw_color(&mut self, packed: u32) {
+        if let Some(fonts) = self.fonts.as_mut() {
+            fonts.atlas.draw_color = packed;
+        }
+    }
+
+    fn string_text(&mut self, string: &mut ImeString, text: &[u16]) {
+        if let Some(fonts) = self.fonts.as_deref_mut() {
+            Self::bound(fonts, string).child.set_text(fonts, Some(text));
+        }
+    }
+
+    fn string_size(&mut self, string: &mut ImeString) -> (i32, i32) {
+        match self.fonts.as_deref_mut() {
+            Some(fonts) => Self::bound(fonts, string).child.get_size(fonts),
+            None => (0, 0),
+        }
+    }
+
+    fn string_paint(&mut self, string: &mut ImeString, x: f32, y: f32) {
+        let Some(fonts) = self.fonts.as_deref_mut() else {
+            return;
+        };
+        let text_enabled = self.host.options.get(options::TEXT) != 0;
+        let host = &mut *self.host;
+        let mut cx = PaintCx {
+            pipeline: &mut host.textures,
+            sink: &mut *host.quads,
+            text_enabled,
+        };
+        let origin = DrawOrigin {
+            x,
+            y,
+            ..DrawOrigin::default()
+        };
+        Self::bound(fonts, string)
+            .child
+            .paint(fonts, &mut cx, &origin, 0.0, 0.0);
+    }
+
+    fn string_release(&mut self, string: &mut ImeString) {
+        if let Some(fonts) = self.fonts.as_deref_mut() {
+            string.child.release(fonts);
+        }
+    }
+
+    fn surface(&self) -> (i32, i32) {
+        self.surface
     }
 }
 

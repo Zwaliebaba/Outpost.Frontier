@@ -638,7 +638,7 @@ impl RichTextEditWin {
             self.rebuild_display();
         }
         if let Some(ime) = self.ime_box.as_mut() {
-            let text = ime.handle_char((ch & 0xFF) as u8);
+            let text = ime.handle_char(ch);
             self.ime_text(text);
         }
         true
@@ -856,6 +856,22 @@ impl Widget for RichTextEditWin {
     fn property(&mut self, ui: &mut Ui, id: NodeId, property: Property<'_>) -> isize {
         self.win.property(ui, id, property)
     }
+}
+
+/// `FLImeInputBox::UpdatedText`'s `Owner->SetText(Text, 0)` for a box
+/// whose text changed outside its window's own call (the IME's result
+/// characters, a focus move): the window's text set with its current
+/// attributes. False when the node is not an edit window.
+pub fn set_ime_owner_text(ui: &mut Ui, id: NodeId, text: &[u16]) -> bool {
+    if let Some(w) = ui.widget_mut::<RichTextEditWin>(id) {
+        w.set_text(text, None);
+        return true;
+    }
+    if let Some(w) = ui.widget_mut::<UiTextEdit>(id) {
+        w.edit.set_text(text, None);
+        return true;
+    }
+    false
 }
 
 /// `UITextEdit`: a read-only edit box sized and filled by its payload.

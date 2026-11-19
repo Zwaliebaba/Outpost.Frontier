@@ -81,6 +81,13 @@ impl ImeFocus {
             .and_then(|s| s.edit_box.as_mut())
     }
 
+    /// The box's text when it was handed on since the last call
+    /// (`UpdatedText`, which the client's box writes into its window).
+    pub fn take_updated_text(&mut self, id: BoxId) -> Option<Vec<u16>> {
+        let b = self.get_mut(id)?;
+        b.take_updated().then(|| b.text().to_vec())
+    }
+
     /// Hands a box's pending requests to the IME.
     fn apply(&mut self, id: BoxId, ime: &mut dyn ImeContext) {
         let Some(b) = self.get_mut(id) else {

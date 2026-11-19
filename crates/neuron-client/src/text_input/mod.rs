@@ -14,10 +14,15 @@
 //!
 //! Everything here is platform-free: [`ime::ImeContext`] is what the boxes
 //! ask of the IME, implemented on Windows by `platform::ime::WindowIme`
-//! and by [`ime::NoIme`] elsewhere. Drawing a box's text is the UI
-//! toolkit's (P4.13); it measures text for the caret through
-//! [`edit_box::TextMeasure`].
+//! and by [`ime::NoIme`] elsewhere. A box measures text for the caret
+//! through [`edit_box::TextMeasure`]; the client's boxes measure with their
+//! own font ([`ime_font::ImeUiFont`], `CImeUiFont`, over the client's font
+//! backend). What `imeui` draws, the toolbar, the composition and the
+//! candidate list, is [`ime_render`]; the client's boxes and their draw
+//! through the engine's IME pass are the UI toolkit's (`ui::ime`).
 
 pub mod edit_box;
 pub mod focus;
 pub mod ime;
+pub mod ime_font;
+pub mod ime_render;
