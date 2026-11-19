@@ -431,6 +431,17 @@ pub enum ChildMessage {
     },
     /// 0xF005: a scroll bar's value changed.
     ScrollChanged { from: NodeId },
+    /// 0xF004: Enter in a rich-text edit box.
+    EditEnter { from: NodeId },
+    /// 0xF003: Escape in a rich-text edit box.
+    EditEscape { from: NodeId },
+    /// 0x300D: a fast table's selected row changed.
+    TableSelect { from: NodeId, row: u32 },
+    /// 0xF002: a double click on a fast table's selectable row.
+    TableDoubleClick { from: NodeId, row: u32 },
+    /// 0xF001: a press on a fast table that selected nothing, with the
+    /// hovered cell as `(row << 16) | column`.
+    TableCellPress { from: NodeId, cell: u32 },
 }
 
 /// A request a control made to show its tooltip (`ShowToolTip`: the
@@ -583,6 +594,9 @@ pub struct Ui {
     /// `TextWinProjectPoint` and `TextWinProjectExtent` in place of the
     /// Win3D camera's (none: the camera).
     pub text_projection: Option<Box<dyn super::controls::text_win::TextProjection>>,
+    /// `G_ScrollVSerial`: the number of the next `ScrollV_%d` bar a
+    /// rich-text window makes (divergence D475).
+    pub scroll_v_serial: i32,
 }
 
 impl Ui {
@@ -617,6 +631,7 @@ impl Ui {
             rollover: None,
             text_typing_count: 0,
             text_projection: None,
+            scroll_v_serial: 1,
         }
     }
 

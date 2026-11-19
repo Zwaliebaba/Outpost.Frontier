@@ -445,6 +445,123 @@ LATER_CASES = [
 
 CONTROL_CASES += LATER_CASES
 
+
+def tray(lx, ly):
+    """The ray under the table point (lx, ly) of a table at (-0.3, 0.2, -1)."""
+    return ray(-0.3 + lx, 0.2 + ly)
+
+
+# The rich-text windows (the fifth increment): the edit box's keys, characters, caret, runs,
+# modes, focus and blink; the read-only page edit field; the fast table's hover, selection, edge
+# drags, setters, tooltips and draws; the scroll table's bar and callback.
+RICH_CASES = [
+    # Typing, the caret keys, Delete and Backspace, the formatting keys and their runs, Enter
+    # and Escape to the parent, the caret's clamp, GetText.
+    " ; ".join([
+        "new RichTextEditWin", "state",
+        "echar 65", "echar 98", "echar 99", "state",
+        "ekey 37 0 1", "echar 88", "state",
+        "ekey 36 0 1", "ekey 46 0 1", "state",
+        "ekey 35 0 1", "ekey 8 0 1", "state",
+        "ekey 8 0 0", "echar 13", "echar 127", "state",
+        "ekey 66 4 1", "echar 122", "state",
+        "ekey 66 0 1", "ekey 73 4 1", "ekey 85 4 1", "echar 113", "state",
+        "ekey 107 4 1", "ekey 107 4 1", "echar 114", "ekey 109 4 1", "echar 115", "state",
+        "attrs fffffff9", "ekey 107 4 1", "state", "attrs ffffff01", "ekey 109 4 1", "state",
+        "fmask 0", "ekey 66 4 1", "ekey 107 4 1", "state",
+        "ekey 13 0 1", "ekey 27 0 1", "ekey 9 0 1", "ekey 45 0 1", "ekey 65 0 1",
+        "caret 2", "state", "caret 0", "state", "caret -5", "state", "caret 99", "state",
+        "gettext 0", "gettext 1", "gettext 3", "gettext 64",
+        "hit", "btn -1 2",
+    ]),
+    # The modes: the maximum length, the case modes, a deny and an allow list with their
+    # replacement, password runs, the fixed style, a prefix, text with attributes, clearing.
+    " ; ".join([
+        "new RichTextEditWin",
+        "maxlen 3", "settext " + text("hello"), "state", "echar 120", "state",
+        "maxlen -1", "maxlen 0", "case 1", "echar 97", "settext " + text("MiXed"), "state",
+        "case 2", "echar 81", "settext " + text("MiXed"), "state", "case 7",
+        "settext " + text("MiXed"), "state", "case 0",
+        "filter " + text("xyz"), "echar 121", "settext " + text("oxo"), "state",
+        "allow 1", "echar 122", "echar 97", "repl 2a", "echar 98", "state",
+        "allow 0", "repl 5f",
+        "password 1", "state", "password 1", "password 0", "state",
+        "fixedlist ffff0008", "fixed 1", "state", "fixed 0", "state",
+        "prefix " + text("> "), "state",
+        "settexta " + text("abc") + " 00ff0004", "state",
+        "caret 1", "echar 100", "state",
+        "cleartext", "state",
+    ]),
+    # The input focus and the events, read-only and USER_CANCEL, the caret blink, the caret's
+    # draw while it holds the focus, a deactivation that hides the box.
+    " ; ".join([
+        "new RichTextEditWin", "state", "draw",
+        "activate", "state", "editable 0", "editable 0", "ecancel 0", "ecancel 5",
+        "editable 1", "ecancel 5",
+        "dt " + fb(0.2), "update", "state", "dt " + fb(0.35), "update", "state",
+        "dt " + fb(1.2), "update", "state", "draw", "dt " + fb(0.25), "update", "state",
+        "draw", "update", "draw",
+        "deactivate 0", "state", "draw", "activate", "deactivate 1", "state", "draw",
+        "ekey 37 0 1", "echar 65", "state",
+    ]),
+    # The page's edit field: read-only, its payload's size and caption.
+    " ; ".join([
+        "new UITextEdit " + fbs(0.5, 0.04) + " " + text("Player"), "state",
+        "echar 33", "state", "activate", "deactivate 0",
+    ]),
+    # A fast table: the hover, the selection by a press and a double click, a press off the
+    # rows, the edge drags, the edge setters, the draws with quads and with the group outline.
+    " ; ".join([
+        "new UIFastTable " + fbs(0.6, 0.4) + " 4 3", "state",
+        xform(-0.3, 0.2, -1.0), "state",
+        "frows 1 1 1 0 1 1 1 7 1 1 0 7 0 1 1 0", "draw",
+        tray(0.25, -0.15), "update", "state", "btn -1 2", "draw",
+        "btn -1 3", "btn -1 2", "selrow 2", "selrow 3", "selrow 9", "getsel", "clearsel",
+        "getsel", "state",
+        tray(0.25, -0.35), "update", "state", "btn -1 2",
+        tray(0.2015, -0.15), "update", "state", "btn -1 2", "state",
+        tray(0.3, -0.15), "update", "state", "btn -1 1", "state", "update",
+        tray(0.25, -0.2015), "update", "state",
+        tray(0.25, -0.1985), "update", "state", "btn -1 2",
+        tray(0.25, -0.25), "update", "state", "btn -1 1",
+        tray(0.1985, -0.15), "update", "state",
+        "hdr 1", tray(0.1985, -0.05), "update", "state", "hdr 9", "state",
+        "cedge 0 " + fb(0.1), "cedge 1 " + fb(0.001), "cedge 2 " + fb(0.9), "cedge 3 " + fb(0.1),
+        "redge 0 " + fb(-0.1), "redge 1 " + fb(-0.05), "redge 3 " + fb(-0.12), "redge 4 " + fb(-0.1),
+        "state",
+        "setedges 4 " + fbs(0.0, -0.1, -0.2, -0.3) + " 3 " + fbs(0.0, 0.2, 0.4), "state",
+        "setedges 4 " + fbs(0.0, -0.1, -0.2, -0.3) + " 2 " + fbs(0.0, 0.2),
+        "setedges 4 " + fbs(0.0, -0.1, -0.2, -0.3) + " 3 " + fbs(0.1, 0.2, 0.4), "state",
+        tray(0.25, -0.15), "update", "highlights 0", "draw",
+        "borders 1 0 1 0", "collines 0", "draw", "collines 1", "hdr 2", "draw",
+        "resizable 0 0", tray(0.2015, -0.15), "update", "state",
+        "grab " + fb(-1.0), "grab " + fb(0.5), "state",
+        "clearcell 1 2", "clearcell 4 0", "clearcell 0 3", "span 1 1 1", "invalidate 9 0",
+        "margins 3 1", "state",
+        "leave", "hit", tray(0.7, -0.1), "hit", tray(0.1, 0.01), "hit",
+    ]),
+    # The tooltips: the window's record, per column, per row and per cell.
+    " ; ".join([
+        "new UIFastTable " + fbs(0.6, 0.4) + " 2 2", xform(-0.3, 0.2, -1.0),
+        "tooltip 1", tray(0.45, -0.25), "update", "wtip 21", "update",
+        "tipmode 1", "state", "coltip 1 55", "update",
+        "tipmode 2", "state", "rtip 1 33", "update", tray(0.45, -0.05), "update",
+        "tipmode 3", "state", "ctip 1 1 44", tray(0.45, -0.25), "update",
+        "tipmode 0", "state", "update", "tooltip 0", "update",
+    ]),
+    # A scroll table: the bar made with the table, the item counts, the callback, the bar's
+    # value, the gap, the transform moving the bar, the draw.
+    " ; ".join([
+        "new UIScrollTable " + fbs(0.5, 0.3) + " 3 2", "state", "bstate",
+        "items 10 0", "state", "bstate", "callback", "barvalue " + fb(4.6), "first", "scrolled",
+        "items 10 1", "bstate", "scrolled", "barvalue " + fb(9.0), "first",
+        "gap " + fb(0.01), "bstate", xform(-0.3, 0.2, -1.0), "bstate", "draw",
+        "items 2 0", "state", "bstate", "first", "draw",
+    ]),
+]
+
+CONTROL_CASES += RICH_CASES
+
 CASES = [
     # A front-end page of every class, in the shipped files' style.
     "#Automatically generated. Do not edit!\n"

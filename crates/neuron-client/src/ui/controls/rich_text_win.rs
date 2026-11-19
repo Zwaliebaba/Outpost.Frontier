@@ -10,8 +10,8 @@
 //! is a `UIScroll` child in the reference; the toolkit has no `UIScroll`
 //! yet, so the window keeps the bar's state itself ([`ScrollBar`]) and the
 //! bar's value changes come in through [`RichTextWin::on_scroll_bar`]
-//! (divergence D422). The window's own mesh, its debug frame and the
-//! tooltip feed are left to the toolkit's controls (P4.13).
+//! (divergence D422). The tooltip feed is the window's update; its own
+//! mesh and its debug frame are open.
 
 use std::any::Any;
 
@@ -28,6 +28,7 @@ use crate::text::layout::list::LayoutParams;
 use crate::text::layout::{TextRenderContext, layout_rich_text};
 use crate::text::rdl::{RdlNode, RenderDisplayList};
 use crate::ui::control::{WinControl, base};
+use crate::ui::services::{HoverKey, ToolTipHover};
 use crate::ui::tree::{DrawHost, NodeId, Payload, Property, Ui, VISIBLE, Widget};
 
 /// What the host gives a rich-text window's draw: the pipeline's viewport
@@ -117,6 +118,9 @@ pub struct BaseRichTextWin {
     pub alpha: f32,
     pub keep_scrolled_to_end: bool,
     pub attach_offset: Vector,
+    /// `+0x40c`: the hover record slot 46 hands the tooltip, keyed by the
+    /// window once it is made (divergence D436).
+    pub hover: ToolTipHover,
 }
 
 impl Default for BaseRichTextWin {
@@ -160,14 +164,16 @@ impl BaseRichTextWin {
             alpha: 1.0,
             keep_scrolled_to_end: false,
             attach_offset: Vector::ZERO,
+            hover: ToolTipHover::for_ids(-1),
         }
     }
 
     /// `Create`'s resets after `Win3D::Create`: the rectangles, the attach
     /// offset, both dirty flags and a 0.4 by 0.3 size. The reference then
     /// projects the control (`EnsureSurface`), which here waits for the
-    /// first draw (divergence D423).
-    fn create_reset(&mut self) {
+    /// first draw (divergence D423). The caller keys the hover record by
+    /// the window ([`Self::key_hover`]).
+    pub fn create_reset(&mut self) {
         self.world_rect = [0.0; 4];
         self.pixel_width = 0;
         self.pixel_height = 0;
@@ -177,6 +183,12 @@ impl BaseRichTextWin {
         self.surface_dirty = true;
         self.norm_width = 0.4;
         self.norm_height = 0.3;
+    }
+
+    /// The constructor's hover key: the window itself (divergence D436).
+    pub fn key_hover(&mut self, id: NodeId) {
+        self.hover.key = HoverKey::Object(id);
+        self.hover.ids_alt = 0;
     }
 
     /// `HitTest`: the ray's point at the control's depth within the world
@@ -200,6 +212,51 @@ impl BaseRichTextWin {
             return false;
         }
         delta_y <= f64::from(self.world_rect[1]) - f64::from(self.world_rect[3])
+    }
+
+    /// `FeedToolTipIfHovered`: with the tooltip on and a hover record
+    /// (slot 46), the record goes to the tooltip when the window's hit test
+    /// (slot 4) takes the mouse ray.
+    pub fn feed_tooltip_if_hovered(
+        &self,
+        ui: &mut Ui,
+        info: Option<&ToolTipHover>,
+        hit_test: impl FnOnce(&Ui, Vector) -> bool,
+    ) {
+        if !self.tooltip_enabled {
+            return;
+        }
+        let Some(info) = info else { return };
+        let ray = ui.mouse_ray();
+        if hit_test(ui, ray) {
+            ui.feed_tooltip_hover(info);
+        }
+    }
+
+    /// `BaseRichTextWin::SetPosition`: the attach offset added, then
+    /// `WinControl::SetPosition`.
+    pub fn set_position(&mut self, ui: &mut Ui, id: NodeId, position: Vector) {
+        let o = self.attach_offset;
+        let moved = Vector {
+            x: o.x + position.x,
+            y: o.y + position.y,
+            z: o.z + position.z,
+        };
+        base::set_position(ui, id, &mut self.control, moved);
+    }
+
+    /// `SetAttachOffset` (property 6): moved by the change of the offset.
+    pub fn set_attach_offset(&mut self, ui: &mut Ui, id: NodeId, offset: Vector) {
+        let old = self.attach_offset;
+        self.attach_offset = offset;
+        let position = ui.node(id).map_or(Vector::ZERO, |n| n.position);
+        let dz = position.z - old.z;
+        let moved = Vector {
+            x: (f64::from(position.x) - f64::from(old.x) + f64::from(offset.x)) as f32,
+            y: (f64::from(position.y) - f64::from(old.y) + f64::from(offset.y)) as f32,
+            z: dz + offset.z,
+        };
+        base::set_position(ui, id, &mut self.control, moved);
     }
 
     /// `SetScrollOrigin`: each coordinate moves only to a new, non-negative
@@ -280,7 +337,8 @@ impl BaseRichTextWin {
     /// `CreateScrollBarV`: the bar beside the text, its range the larger of
     /// the laid-out and the pixel height, a page of the pixel height and a
     /// step of a tenth of it.
-    fn create_scroll_bar_v(&self) -> ScrollBar {
+    #[must_use]
+    pub fn create_scroll_bar_v(&self) -> ScrollBar {
         let range = self.layout_height.max(self.pixel_height);
         ScrollBar {
             value: 0.0,
@@ -422,6 +480,53 @@ impl BaseRichTextWin {
         fonts: &mut FontSystem,
         content: Option<(&RenderDisplayList, bool)>,
     ) {
+        match content {
+            Some((source, wrap)) => self.rebuild_layout_with(fonts, &mut |base, fonts| {
+                base.relayout_content(fonts, source, wrap);
+            }),
+            None => self.rebuild_layout_with(fonts, &mut |_, _| {}),
+        }
+    }
+
+    /// `RichTextWin::Relayout`: `source` laid out to the pixel width less
+    /// 4 from the pen (2, 0), its height kept.
+    pub fn relayout_content(
+        &mut self,
+        fonts: &mut FontSystem,
+        source: &RenderDisplayList,
+        wrap: bool,
+    ) {
+        let mut out = RenderDisplayList::new();
+        let mut ctx = DeviceTrcCx {
+            trc: &mut self.trc,
+            fonts: &fonts.rich,
+            backend: fonts.backend.as_mut(),
+            surface: self.surface.as_mut(),
+        };
+        let result = layout_rich_text(
+            &mut ctx,
+            &fonts.styles,
+            source,
+            &mut out,
+            LayoutParams {
+                width: self.pixel_width.wrapping_sub(4),
+                origin_h: 2,
+                origin_v: 0,
+                single_line: false,
+                wrap,
+            },
+        );
+        self.layout_list = out;
+        self.layout_height = result.height;
+    }
+
+    /// [`Self::rebuild_layout_if_dirty`] with the window's own slot 45
+    /// (`relayout`, which appends to the emptied layout list).
+    pub fn rebuild_layout_with(
+        &mut self,
+        fonts: &mut FontSystem,
+        relayout: &mut dyn FnMut(&mut BaseRichTextWin, &mut FontSystem),
+    ) {
         if self.surface.is_none() || !self.layout_dirty {
             return;
         }
@@ -431,31 +536,7 @@ impl BaseRichTextWin {
         self.trc.state.pos_h = 0;
         self.layout_list.nodes.clear();
         self.layout_height = self.pixel_height;
-        if let Some((source, wrap)) = content {
-            // RichTextWin::Relayout.
-            let mut out = RenderDisplayList::new();
-            let mut ctx = DeviceTrcCx {
-                trc: &mut self.trc,
-                fonts: &fonts.rich,
-                backend: fonts.backend.as_mut(),
-                surface: self.surface.as_mut(),
-            };
-            let result = layout_rich_text(
-                &mut ctx,
-                &fonts.styles,
-                source,
-                &mut out,
-                LayoutParams {
-                    width: self.pixel_width.wrapping_sub(4),
-                    origin_h: 2,
-                    origin_v: 0,
-                    single_line: false,
-                    wrap,
-                },
-            );
-            self.layout_list = out;
-            self.layout_height = result.height;
-        }
+        relayout(self, fonts);
         if self.auto_scrollbar {
             if self.scroll_bar_v.is_some() {
                 if self.layout_height <= self.pixel_height {
@@ -497,6 +578,23 @@ impl BaseRichTextWin {
         content: Option<(&RenderDisplayList, bool)>,
         pipeline: &mut dyn TexturePipeline,
     ) {
+        match content {
+            Some((source, wrap)) => self.render_with(
+                fonts,
+                &mut |base, fonts| base.relayout_content(fonts, source, wrap),
+                pipeline,
+            ),
+            None => self.render_with(fonts, &mut |_, _| {}, pipeline),
+        }
+    }
+
+    /// [`Self::render`] with the window's own slot 45.
+    pub fn render_with(
+        &mut self,
+        fonts: &mut FontSystem,
+        relayout: &mut dyn FnMut(&mut BaseRichTextWin, &mut FontSystem),
+        pipeline: &mut dyn TexturePipeline,
+    ) {
         if !(self.surface_dirty || self.layout_dirty)
             || self.pixel_width <= 0
             || self.pixel_height <= 0
@@ -511,7 +609,7 @@ impl BaseRichTextWin {
             bar.page = self.pixel_height as f32;
             bar.step = (self.pixel_height / 10) as f32;
         }
-        self.rebuild_layout_if_dirty(fonts, content);
+        self.rebuild_layout_with(fonts, relayout);
         match self.align_mode {
             1 => {
                 self.trc.state.origin_v = 0;
@@ -664,6 +762,30 @@ impl RichTextWin {
             .set_scroll_origin(x, trunc_to_i32(f64::from(value)));
     }
 
+    /// The window's own hit test (slot 4) at its node's position.
+    #[must_use]
+    pub fn hit(&self, ui: &Ui, id: NodeId, ray: Vector) -> bool {
+        let position = ui.node(id).map_or(Vector::ZERO, |n| n.position);
+        self.base.hit_test(position, ray)
+    }
+
+    /// `RichTextWin::Update`: the source list's `update` (every node's
+    /// `Update` is empty), the tooltip feed with the window's hit test,
+    /// the children.
+    pub fn update_window(&mut self, ui: &mut Ui, id: NodeId) {
+        self.base
+            .feed_tooltip_if_hovered(ui, Some(&self.base.hover), |ui, ray| self.hit(ui, id, ray));
+        ui.base_update(id);
+    }
+
+    /// `BaseRichTextWin::UpdateInactive`: the tooltip feed, then the
+    /// children that are not active.
+    pub fn update_inactive_window(&mut self, ui: &mut Ui, id: NodeId) {
+        self.base
+            .feed_tooltip_if_hovered(ui, Some(&self.base.hover), |ui, ray| self.hit(ui, id, ray));
+        ui.base_update_inactive(id);
+    }
+
     /// `Draw` without the toolkit: the projection, the surface, the image.
     /// Returns nothing when the window has no surface yet.
     pub fn draw_with(
@@ -704,24 +826,26 @@ impl Widget for RichTextWin {
     ) -> bool {
         let result = ui.base_create(id, parent);
         self.base.create_reset();
+        self.base.key_hover(id);
         self.content.nodes.clear();
         result
     }
 
     fn hit_test(&mut self, ui: &mut Ui, id: NodeId, ray: Vector) -> bool {
-        let position = ui.node(id).map_or(Vector::ZERO, |n| n.position);
-        self.base.hit_test(position, ray)
+        self.hit(ui, id, ray)
+    }
+
+    fn update(&mut self, ui: &mut Ui, id: NodeId) {
+        self.update_window(ui, id);
+    }
+
+    fn update_inactive(&mut self, ui: &mut Ui, id: NodeId) {
+        self.update_inactive_window(ui, id);
     }
 
     /// `SetPosition`: the attach offset added.
     fn set_position(&mut self, ui: &mut Ui, id: NodeId, position: Vector) {
-        let o = self.base.attach_offset;
-        let moved = Vector {
-            x: o.x + position.x,
-            y: o.y + position.y,
-            z: o.z + position.z,
-        };
-        base::set_position(ui, id, &mut self.base.control, moved);
+        self.base.set_position(ui, id, position);
     }
 
     fn set_orientation(&mut self, ui: &mut Ui, id: NodeId, orientation: Matrix) {
@@ -758,16 +882,7 @@ impl Widget for RichTextWin {
     /// Property 6 is `SetAttachOffset`: moved by the change of the offset.
     fn property(&mut self, ui: &mut Ui, id: NodeId, property: Property<'_>) -> isize {
         if let Property::Offset(offset) = property {
-            let old = self.base.attach_offset;
-            self.base.attach_offset = offset;
-            let position = ui.node(id).map_or(Vector::ZERO, |n| n.position);
-            let dz = position.z - old.z;
-            let moved = Vector {
-                x: (f64::from(position.x) - f64::from(old.x) + f64::from(offset.x)) as f32,
-                y: (f64::from(position.y) - f64::from(old.y) + f64::from(offset.y)) as f32,
-                z: dz + offset.z,
-            };
-            base::set_position(ui, id, &mut self.base.control, moved);
+            self.base.set_attach_offset(ui, id, offset);
             return 1;
         }
         base::property(ui, id, self, property)
