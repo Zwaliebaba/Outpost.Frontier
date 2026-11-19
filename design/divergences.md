@@ -88,47 +88,46 @@ The owner accepted D209 (P4.2) on 2026-11-18, keeping the fixed set of
 static samplers of record 0004; a trace that shows an approximated stage
 reopens it.
 
-D260 to D264 (P4.4, first increment) are proposed and await the owner's
-review. D268 (P4.2) is proposed. The owner accepted D278 (P4.2, P4.3) on
-2026-11-18: rasterizer precision at an exact wrap boundary is not emulated,
-and the synthetic trace stays off that knife edge.
+The owner accepted D278 (P4.2, P4.3) on 2026-11-18: rasterizer precision
+at an exact wrap boundary is not emulated, and the synthetic trace stays
+off that knife edge. D265 and D266 (P4.1) follow the owner's decision O27
+of 2026-11-18, D280 and D281 (P4.11, the mouse) the owner's decision O28
+of the same day.
 
-D265 and D266 (P4.1) follow the owner's decision O27 of 2026-11-18. D267 and
-D269 to D271 are proposed, for the owner's review.
+On 2026-11-19 the owner accepted, as written, the Phase 4 rows that replace
+undefined behaviour in the reference with defined behaviour, and those
+that follow decisions already taken (O25, O26, the technical decisions,
+the ownership rules and the ban on legacy platform APIs): D245 to D249,
+D260 to D264, D267, D269, D270, D272, D274, D282, D284, D285, D291 to
+D296, D300 to D307, D310 to D321, D323, D340 to D342, D344, D345, D347,
+D350 to D354, D370 to D374 and D390 to D398 and D400.
 
-D245 to D249 (P4.14 run time: curves, spline paths, playback) are
-proposed, for the owner's review.
+These rows have an observable effect and await the owner's decision one
+by one:
 
-D330 (P4.15) is proposed.
-
-D340 to D347 (P4.13, the UI toolkit framework) are proposed, for the owner's
-review.
-
-D272 to D277 (P4.10, decoding and the XAudio2 device) are proposed, for
-the owner's review.
-
-D280 and D281 (P4.11, the mouse) follow the owner's decision O28 of
-2026-11-18. D282 to D286 (key routing and the IME) are proposed, for the
-owner's review.
-
-D290 to D296 (P4.12, the font code and its DirectWrite backend) are
-proposed, for the owner's review.
-D300 to D307 (P4.5, first increment: material regular expressions, library,
-global records, animation and batcher) are proposed, for the owner's
-review.
-D310 to D313 (P4.5, second increment: the 22 material kinds,
-`BatchedMaterial`, `VerifyState` on the model, saving properties) are
-proposed, for the owner's review.
-D314 to D317 (P4.5, third increment: the surface materials of
-`surfacematerials`) are proposed, for the owner's review.
-D318 to D323 (P4.5, fourth increment: `FLAppearance`) are proposed, for
-the owner's review.
-D350 to D355 (P4.6, first increment: the render manager, the levels of
-detail and the mesh kinds of `RendComp`) are proposed, for the owner's
-review.
-D390 to D400 (P4.7, first increment: the skeleton, skinning, the draw,
-the instance slots, aim solving and the `EyeMaterial` of `Deformable2`)
-are proposed, for the owner's review.
+- D268 (P4.2): cube maps are filtered across faces, as Direct3D 12 always
+  does.
+- D271 (P4.1): the client's frame stamp has the system tick's resolution
+  (about 16 ms) instead of the winmm timer's 1 ms.
+- D273 (P4.10): MPEG audio is decoded by `symphonia`; samples differ in
+  the low bits from the Fraunhofer decoder's.
+- D275, D276 and D277 (P4.10): 3D voices are spatialised by X3DAudio and
+  reverberated by XAudio2's reverb (decision O26) instead of DirectSound
+  3D and EAX.
+- D283 and D286 (P4.11): the IME's windows are the system's (Korean
+  composes in the system's window, not inline), and a character outside
+  the ANSI code page reaches a box whole.
+- D290 (P4.12): faces come from DirectWrite with decision O29's
+  substitutes; metrics and advances may differ from GDI's by a pixel.
+- D322, D355 and D399 (P4.5, P4.6, P4.7): `atan2`, `acos`, `log10`, `sin`
+  and `cos` come from Rust's standard library instead of MSVC's C
+  runtime; the oracle suites match exactly so far.
+- D330 (P4.15): movies are decoded by Media Foundation instead of
+  DirectShow.
+- D343 (P4.13): widescreen placement moves windows by their node anchors
+  instead of by their names and C++ types.
+- D346 (P4.13): the cursor is drawn as a batched screen quad instead of
+  through the immediate-mode layer.
 
 | ID | Area | C++ behaviour | Rust behaviour | Reason | Observable effect |
 | --- | --- | --- | --- | --- | --- |
