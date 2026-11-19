@@ -910,6 +910,22 @@ fn run(s: &Scenario, ai: &AiInputs) -> Option<Run> {
                 _ => {}
             }
         }
+        if tick <= 25 && s.name == "dogfight" {
+            for (name, h) in &handles {
+                if let Some(m) = h.and_then(|h| world.behavior_manager(h)) {
+                    eprintln!(
+                        "TMPDBG {} tick {tick} {name}: behavior {} targets {:?} guns.target {:?} attack {} flags_1c8 {} timers {:?}",
+                        s.name,
+                        m.state.behavior,
+                        m.state.sys.targets.ids,
+                        m.state.sys.guns.target,
+                        m.state.sys.targeting.attack_state,
+                        m.state.flags_1c8,
+                        m.state.timers()
+                    );
+                }
+            }
+        }
         record(&world, &mut out.states, &handles);
         record_cores(&world, &mut out.cores, &handles);
         record_guided(&world, system, tick, &names, &mut out);

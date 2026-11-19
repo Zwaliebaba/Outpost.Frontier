@@ -167,6 +167,16 @@ jobs:
             Get-Content "$run\events.jsonl" -ErrorAction SilentlyContinue | Select-Object -First 20 | ForEach-Object { "EVT $_" }
             Select-String -Path "$run\session.jsonl" -Pattern '"rec":"command"' -ErrorAction SilentlyContinue | ForEach-Object { "CMD $($_.Line)" }
           }
+      - name: TEMPORARY print the dogfight's first AI ticks
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $run = "$env:RUNNER_TEMP\outpost-sim\dogfight\run_01"
+          Get-Content "$run\ai.jsonl" | Where-Object { $_.StartsWith('{"rec":"ai_in"') -or $_.StartsWith('{"rec":"ai_out"') } | Select-Object -First 50 | ForEach-Object {
+            $j = $_ | ConvertFrom-Json
+            "AIREC $($j.rec) tick $($j.tick) seq $($j.seq) $($j.obj) behavior $($j.behavior) targets $($j.targets -join ',') guns.target $($j.sys.guns.target) attack $($j.sys.targeting.attack_state) flags_1c8 $($j.flags_1c8) timers $($j.timers -join ',')"
+          }
+          Select-String -Path "$run\calls.jsonl" -Pattern '"rec":"affect","tick":[0-9],|"rec":"affect","tick":[12][0-9],' | Select-Object -First 60 | ForEach-Object { "AFF $($_.Line)" }
       - name: Replay the recorded PSIs through the port
         # Decision O20, replay layer: every psi.jsonl the scenarios wrote is replayed one PSI
         # at a time through neuron-core::physics (crates/neuron-core/tests/sim_replay.rs).
