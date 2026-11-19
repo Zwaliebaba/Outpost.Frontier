@@ -121,6 +121,42 @@ Decision O19 transliterates free flight from IVP. Facts from the C++
 10. The numbers are filled in from harness runs in a later revision of this
     record and approved by the owner before Gate G2 is judged.
 
+### Reproducibility (owner, 2026-11-19)
+
+11. **The start-up seed** (a point-2 hook). `IServerImpl::Startup` seeded
+    the generator with `timeGetTime()` before Content's controllers start;
+    each `SetHeartbeatInterval` draws its heartbeat's starting phase from
+    it, and GameSupport's 1 s heartbeat is Content's game time, which moves
+    in whole heartbeats. Content's comm system (GCS) rolls `rand()` on a
+    damage message once its category's interval (12 s by default) has
+    passed since the last comm nearby (`IsGcsCommAllowed`), so the roll's
+    tick depended on the wall clock, and every later draw of the AI with
+    it: 5 of 120 G2 seed-ensemble runs ended differently in separate
+    processes, always after the first contact (data runs 44494560931 and
+    44500705507; probes 44523076483, 44526581221 and 44530545092 ruled out
+    the machine, the CPU, the toolset and ASLR, and found the roll with a
+    recorder of every frame-time draw). Under the harness's fixed clock
+    the seed is the scenario's `seed`; the harness seeds again after
+    `PlayerDB::init` (whose first start on a machine seeds from the clock
+    once more). The heartbeat phases are recorded (`heartbeats`).
+12. **Comms off in the fights.** The G2 fight scenarios (`dogfight`,
+    `skirmish`, `strafe`) run with `comms off`: the harness sets Content's
+    comm clamp, as a mission's `Act_GcsClamp` does, so `IsGcsCommAllowed`
+    refuses before its roll. The Rust world has no comm system until P3.6;
+    with comms on, the oracle's `rand()` sequence holds comm rolls the port
+    never draws, and every draw after the first one compares unlike. This
+    is harness configuration, not a divergence. `ram_ship` and
+    `fire_at_target` keep comms on: their ships have no AI, so no draw
+    follows a comm roll. The data job checks that a fight with comms on
+    equals comms off before its first contact.
+13. **The toolset.** The CI builds whose output is compared (the oracle
+    and the resource DLLs in build.yml's oracle job, the oracle in
+    data.yml) use one pinned MSVC toolset, `.github/msvc-toolset.txt`
+    (v143 14.44.35207, the one toolset every image in use has); the plain
+    reference build uses the image's default and logs it. The `env` record
+    of every run names the compiler, the CPU, the OS build and the runtime
+    DLLs.
+
 ## Consequences
 
 - The per-PSI free-flight records (point 5) have a fixed layout, written

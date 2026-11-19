@@ -31,6 +31,16 @@ bool __cdecl ContentIsGcsClampEnabled()
     return G_bContentGcsClampDisabled == 0;
 }
 
+// Oracle instrumentation (P2.3 sim): the `comms off` option of an Oracle.exe sim scenario
+// (design/reference-build.md section 10, owner 2026-11-19). A new export, not part of the
+// reference DLL's interface; only the harness calls it, so a game run never reaches it. It sets
+// the GCS clamp as a mission's Act_GcsClamp does, so IsGcsCommAllowed refuses every comm before
+// its rand() roll.
+extern "C" __declspec(dllexport) void __cdecl OracleSimSetGcsClamp(bool bClamp)
+{
+    ContentSetGcsClampEnabled(bClamp ? 1 : 0);
+}
+
 void __cdecl SpacePopSetGcsClampEnabled(unsigned char EnabledByte)
 {
     // is a tail jump to the routine.

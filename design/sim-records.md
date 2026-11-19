@@ -48,12 +48,14 @@ Conventions:
 
 | `rec` | Fields |
 | --- | --- |
-| `start` | `version` u, `scenario` s (path), `data_root` s, `system` s, `system_id` u, `ticks` u, `frame` d (seconds), `stepping` s (`sp` or `mp`), `collisions` s (`sp` or `mp`; since the load-draw work, after `stepping`), `seed` u, `clock` d (the fixed clock at tick 0), `objects` u, `commands` u |
-| `server` | `data_path` s, `controller` u (SimClientStub's controller id), `system_id` u, `system_loaded` b, `reseed` u (the seed of the `srand` the harness calls again after the load, before the objects are spawned: the seeding point the Rust world matches; reference-build.md section 10, start-up step 5) |
+| `start` | `version` u, `scenario` s (path), `data_root` s, `system` s, `system_id` u, `ticks` u, `frame` d (seconds), `stepping` s (`sp` or `mp`), `collisions` s (`sp` or `mp`; since the load-draw work, after `stepping`), `comms` s (`on` or `off`, the scenario's `comms`; since 2026-11-19), `seed` u (the scenario's: the first `srand`, before the load), `reseed` u (the seed of the seeding point: `--seed`'s, else `seed`; since the G2 seed ensemble, 2026-11-19), `clock` d (the fixed clock at tick 0), `objects` u, `commands` u |
+| `server` | `data_path` s, `controller` u (SimClientStub's controller id), `system_id` u, `system_loaded` b, `reseed` u (the seed of the `srand` the harness calls again after the load, before the objects are spawned: the seeding point the Rust world matches, `--seed`'s when given; reference-build.md section 10, start-up step 5), `startup_seed` u (the seed `IServerImpl::Startup`'s `srand` took instead of `timeGetTime()`: the scenario's `seed`; since 2026-11-19), with `comms off` also `comms_clamped` b (Content's comm clamp was set) |
+| `heartbeats` | `tick` u (0), `controllers` [{`flid` u, `priority` u, `module` s (the controller's DLL), `interval` f (s, −1 for none), `phase` f (the accumulator frame 1 starts from), `deferred` b}, …] in the server's list order: the heartbeat of every controller (`OracleSimControllerHeartbeats`; Content's GameSupport heartbeat is its game time), written before tick 0 (since 2026-11-19) |
 | `spawn` | `obj` s, `kind` s (`ship` or `solar`); a ship: `arch` s, `arch_id` u, `loadout` s, `loadout_id` u, `result` i (`pub::SpaceObj::Create`), `id` u, [`state_graph` s, `state_graph_id` i, [`pilot` s, `pilot_found` b (the `pilot` option; its personality was submitted)], `submit_state` i]; with `faction`, before `arch`: `faction` s, `faction_result` i (`GetReputationGroup`), then when the group is known `faction_id` u, `vibe` i (the ship's `VibeGroupId`), `vibe_alloc` i, `vibe_affiliation` i (`pub::Reputation::Alloc`, `SetAffiliation`); a solar: `nickname` s, `id` u (`CreateID(nickname)`), `found` b; then (P2.5, the transport's collision geometry) a created ship's `part_map` [[`part` u, `instance` i], …] (`CObject::PartMap`) and `attached` [{`id` u, `connected` b, `kind` s (`non_physical`, `physical` or `none`), with `non_physical` also `hp_crc` u, `collisions` b}, …] (every `CAttachedEquip` and its attachment) |
 | `command` | `tick` u, `line` i (in the scenario file), `obj` s, `cmd` s (the command as written), `ok` b, `result` i (what the called function returned; for a directive the `OP_RTYPE`), [`note` s, why it did not run] |
 | `error`, `critical_warning`, `note` | `tick` u, `text` s (`note`: an object marked `psi` whose PSIs are not recorded, and why; once per object) |
 | `fault` | `tick` u, `first_chance` b (from the vectored handler; false: the frame's `__except` filter, which ends the run with code 4), `code` s (hex), `code_name` s, `address` s (hex), `at` {`module` s\|null, `offset` s (hex, from the module base), `functions` s[] (the innermost inlined function first), `line` s (`file:line` under `CppSource/`, `""` when unknown)}, for an access violation `access` s (`read`, `write`, `execute`), `target` s (hex), `target_memory` s (`free`, `reserved`, `committed`, `committed, not readable`); `symbols` b (dbghelp started), `regs` {`eax` .. `ebp`: {`v` s, [`in` s (module+offset and symbol)], `words` s[4] and [`word0_in` s] when it points at readable memory (a vtable names the class), else `memory` s}, `esp` s, `eip` s, `eflags` s}, `esp_words` s[16], `stack` [{`module`, `offset`, `functions`, `line`}] (at most 48 frames; frame 0 is the faulting instruction, the others are resolved at their call) |
+| `env` | (cross-runner reproducibility, owner 2026-11-19; just before `end`, after everything the run computes) `msc_full_ver` u, `msc_build` u (`_MSC_FULL_VER`, `_MSC_BUILD` of the compiler that built Oracle.exe; the solution builds every DLL with it), `cpu` {`vendor` s, `brand` s, `signature` s (CPUID leaf 1 EAX), `leaf1_ecx` s, `leaf1_edx` s, `leaf7_ebx` s (hex feature words), `logical` u}, `os` {`build` s, `ubr` u, `display_version` s}, `process_heap` s (hex), `stack_local` s (the address of a local of the writer, hex), `modules` [{`name` s, `loaded` b, [`path` s, `base` s (hex), `version` s (the file version)]}, …] (Oracle.exe, Server.dll, Common.dll, Content.dll, SimClientStub.dll and the CRT and system DLLs) |
 | `end` | `tick` u, `psi_total` u, `code` i (the exit code) |
 
 ## `tick.jsonl`
@@ -569,6 +571,17 @@ player, or in the server's `ListD4` while a dock request is queued.
 `field_replay` makes the recorded activations and updates on the Rust
 world and compares each point after its tick.
 
+## `run_rand.jsonl`
+
+Only with the environment variable `OUTPOST_ORACLE_RUN_RAND` set (the cross-runner
+reproducibility work, owner 2026-11-19; `oracle_sim_rand.cpp`): every `rand()` draw of the
+frames, after the load-time recorder stops, written when the run ends. One `draw` record per
+draw in order: `tick` u, `i` u (its index in the CRT sequence of the seed, the generator
+followed on from `load_rand.jsonl`), `v` i, `gap` u (draws the hooks did not see just
+before it), `mod` s (the DLL whose import drew it), `stack` [s, …] (the caller first, as
+`module+0xoffset`); then one `sym` record per address, `at` s, `fn` s, `line` s; then
+`run_rand_end` with `recorded` u, `lost` b, `next_index` u.
+
 ## `load_rand.jsonl`
 
 The load-time `rand()` draws (owner, 2026-11-18): every draw the game
@@ -594,7 +607,7 @@ records are written when the first frame starts.
 | --- | --- |
 | `load_rand_start` | `version` u (1), `seed` u, `symbols` b (dbghelp started), `hooks` [s, …] (the modules whose import was replaced, in load order) |
 | `draw` | `i` u (the draw's index in the CRT sequence of the seed, from 0), `phase` s, `mod` s (the module that called `rand`), `v` i (the value), `gap` u (draws just before this one the hooks did not see), `at` s (`<module>+0x<offset>` of the return address), `fn` s (the caller: the innermost inlined function first, `<` between the inline levels), `line` s (`file:line` of the call, paths from `CppSource/`; empty without line data), `stack` [s, …] (the callers' frames, each `<module>+0x<offset> <functions> (<file:line>)`, at most nine) |
-| `reseed` | `seed` u, `drawn` u (the index the generator had reached: the draws since the first `srand`), between the `draw` records of before and after it |
+| `reseed` | `seed` u (the seed of this `srand`: `--seed`'s when given, else the scenario's), `drawn` u (the index the generator had reached: the draws since the first `srand`), between the `draw` records of before and after it |
 | `phase` | `phase` s, `first` u (index of its first draw, or the next index when it drew nothing), `count` u (indices it spans), `recorded` u (draws the hooks saw) |
 | `load_rand_end` | `recorded` u, `unseen` u (the sum of the gaps), `lost` b (a value was not found within 10⁶ steps of the generator; the indices after it are counts of seen draws only), `next_index` u (the index of the first draw of frame 1) |
 

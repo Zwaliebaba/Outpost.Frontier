@@ -594,6 +594,18 @@ program starts itself N times, each run in a fresh process writing to
 the largest difference between any two runs per object, metric and event
 (record 0003 point 9). It exits 1 when a run did not complete.
 
+`--seed S` (decimal or `0x` hex, 32 bits; Gate G2's seed ensemble,
+owner 2026-11-19) replaces the seed of the seeding point (start-up step 5)
+with `S`; the first `srand`, before the load, keeps the scenario's `seed`,
+so the load-time draws stay as they are. The run records `S` as `reseed`
+in `session.jsonl`'s `start` and `server` records and in
+`load_rand.jsonl`'s `reseed` record. With `--runs N` each child gets the
+same `--seed`. The options come after the three paths, in any order:
+
+```powershell
+.\bin\Oracle.exe sim "$PWD\outdir" CppSource\Oracle\scenarios\dogfight.txt "$env:TEMP\ens\seed_3985226492\dogfight" --seed 3985226492
+```
+
 ### Start-up
 
 As `OutpostServer.exe` (`OutpostServer.cpp:437`, `:523`, `:731-745`,
@@ -637,7 +649,11 @@ As `OutpostServer.exe` (`OutpostServer.cpp:437`, `:523`, `:731-745`,
 3. `IServerImpl::Startup` with `SStartupInfo` {module path
    `SimClientStub.dll`, INI path `server.ini`, 16 players, port 0}. It runs
    `DataConfig::startup`, the world INI, `Server_LoadInitialDlls` (Content's
-   controllers) and loads the stub as its client interface.
+   controllers) and loads the stub as its client interface. Its `srand`
+   takes the scenario's `seed` instead of `timeGetTime()` (the start-up
+   seed, below under "Determinism"), and again after `PlayerDB::init`.
+   With `comms off` the harness then sets Content's comm clamp
+   (`OracleSimSetGcsClamp`).
 4. The load-time rand() recorder starts (`load_rand.jsonl`, below);
    `srand(seed)`; `pub::Controller::Create("SimClientStub.dll",
    "OracleSim", NULL, LOWEST)`, the controller every scenario ship names;
@@ -648,11 +664,13 @@ As `OutpostServer.exe` (`OutpostServer.cpp:437`, `:523`, `:731-745`,
    drawn their values. The scenario is compared from here as recorded: the
    Rust world, which has no population yet (P3.6), seeds its generator at
    the same point, and the population's draws are checked at Gate G3.
+   With `--seed S` the seed here is `S` (the seed ensemble).
 6. The objects are spawned (`pub::SpaceObj::Create`, then
    `pub::AI::SubmitState` with the state graph for `ai`) or looked up
    (solars, `CreateID(nickname)`); a missing object ends the run.
 7. The recorders start (the hooks below, `ai.jsonl`), the load-time
-   recorder stops and writes its records; tick 0 is recorded.
+   recorder stops and writes its records; every controller's heartbeat
+   interval and phase is written (`heartbeats`); tick 0 is recorded.
 8. Every frame *t* = 1..`ticks`: the control words are read (recorded) and
    set again; the fixed clock moves to `clock + t × frame`; the commands of
    tick *t* run; then the server thread's frame: `Server.Update()`,
@@ -669,7 +687,7 @@ is zero, which only `Oracle.exe sim` changes:
 
 | File | Hook |
 | --- | --- |
-| `Server\IServerImpl.cpp` | `Server_StepSystems` steps `StepSystemId` and no other system; `StarSystem_Update` runs the multiplayer physics and collision pass for that system although it has no player; `IServerImpl::ElapseTime` takes the frame time as its real dt (`OracleSimFixElapsed`); `OracleSimLoadSystem`, a new export |
+| `Server\IServerImpl.cpp` | `Server_StepSystems` steps `StepSystemId` and no other system; `StarSystem_Update` runs the multiplayer physics and collision pass for that system although it has no player; `IServerImpl::ElapseTime` takes the frame time as its real dt (`OracleSimFixElapsed`); `OracleSimLoadSystem`, a new export; `IServerImpl::Startup`'s `srand` takes `StartupSeed` instead of `timeGetTime()` under the fixed clock, and seeds again after `PlayerDB::init` (2026-11-19); `OracleSimControllerHeartbeats`, a new export (each controller's heartbeat interval and phase) |
 | `Server\server_gameobject.cpp` | the three timer stamps (`EqObj::update` repair, `apply_damage_list`, `apply_equip_entry`) read `OracleSimTimingRead()`, which is `Timing::read()` unless the clock is fixed; `GameObject::on_collision` reports `CalcCollisionDamage`; `Ship::set_throttle`, `set_axis_throttle`, `set_nudge_vec`, `set_strafe_dir` and `EqObj::slot_34` report the `IObjAffect` call |
 | `Server\server_classes.cpp` | `StarSystem::munition_collision` reports the impact and its damage list; `StarSystem_MpCollisionFilter` takes its single-player branch when asked (`collisions sp`) |
 | `Common\common_physicalsystem.cpp` | `PhysicalSystem::Update` takes the single-player branch when asked |
@@ -682,6 +700,7 @@ is zero, which only `Oracle.exe sim` changes:
 | `Common\common_universe_system.cpp` | `SYSTEM::GetSphereProperties` reports its answer (the AI's zone probes, P2.5) |
 | `Server\server_gameobject.cpp` (P2.5) | `Ship::slot_5c`, `slot_60`, `go_tradelane`, `stop_tradelane` and `EqObj::slot_44` report the `IObjAffect` call; `Ship::request_returned`, `go_tradelane` and `slot_44` report their answers; `request_returned` runs the pending callback at affect depth 0 |
 | `Content\PilotPersonalities.cpp` | `OracleSimPilotPersonality`, a new export (P2.5) that only the `pilot` option calls: `GetPilotPersonality` of a pilot nickname |
+| `Content\Content.cpp` | `OracleSimSetGcsClamp`, a new export (2026-11-19) that only the `comms off` option calls: `ContentSetGcsClampEnabled`, the clamp a mission's `Act_GcsClamp` sets |
 
 `srand`, the frame time and the control words need no hook: the harness
 runs the frame loop itself.
@@ -747,7 +766,8 @@ run the scenario yet.
 | `frame <seconds>` | frame time; default 1/30, the server thread's period |
 | `stepping sp\|mp` | default `mp` |
 | `collisions sp\|mp` | default `mp`; `sp` makes the server's collision filter take its single-player branch (below) |
-| `seed <n>` | `srand` after start-up; default `0x4f524143` |
+| `comms on\|off` | default `on`; `off` sets Content's comm clamp before the load, so `IsGcsCommAllowed` refuses every comm before its `rand()` roll (owner, 2026-11-19; record 0003: the G2 fights run with comms off) |
+| `seed <n>` | `srand` after start-up; default `0x4f524143`; also the start-up seed |
 | `clock <seconds>` | the fixed clock at tick 0; default 1000 |
 | `ship <name> <archetype> <loadout\|-> <x> <y> <z> [options]` | spawn a ship; options: `heading <degrees>` (about +Y; 0 faces −Z, 90 faces −X), `orient <9 numbers>` (row-major), `vel <x y z>`, `angvel <x y z>`, `ai <state graph>` (e.g. `FIGHTER`; without it the ship has no behaviour and keeps the commands it is given), `escort` (with `ai`: the graph's escort variant, `get_state_graph(name, ESCORT)`, as Content's `ResetFormationState` gives a wingman; without it the leader variant), `pilot <nickname>` (with `ai`: the personality of a `[Pilot]` of `missions\pilots_population.ini` or `pilots_story.ini`, as Content gives an NPC ship of an `npcships.ini` entry, without a job; without it the default personality), `faction <group>` (a reputation affiliated with a group of `initialworld.ini`, e.g. `he_p_grp`; without it none), `hp <n>` (default −1, the archetype's), `psi` (record its PSIs) |
 | `solar <name> <nickname> [psi]` | a system object of the loaded system |
@@ -880,12 +900,53 @@ keeps the draws of each behaviour tick through it.
 
 Fixed by the harness: the frame time, the clock of the three timer stamps
 and of `ElapseTime`'s real dt, `Timing`'s global time, the `rand` seed (one
-thread), the control words before every frame (IVP's point-soup builder
-sets 64-bit precision and never restores it; the `frame` record shows what
-it found). Not fixed, as record 0003 says: the pointer-keyed physics sync
-set and IVP's pointer-XOR pair hash, so runs can differ; that is the spread
-`--runs` measures. Not audited: `timeGetTime` and `GetTickCount` reads in
-Content.dll and the engine DLLs.
+thread), the start-up seed (below), the control words before every frame
+(IVP's point-soup builder sets 64-bit precision and never restores it; the
+`frame` record shows what it found). Not fixed, as record 0003 says: the
+pointer-keyed physics sync set and IVP's pointer-XOR pair hash, so runs can
+differ; that is the spread `--runs` measures. Not audited: the other
+`timeGetTime` and `GetTickCount` reads in Content.dll and the engine DLLs.
+
+The start-up seed (owner, 2026-11-19; record 0003 point 11).
+`IServerImpl::Startup` seeds the generator with `timeGetTime()` before
+Content's controllers start, and each controller's
+`pub::Controller::SetHeartbeatInterval` draws its heartbeat's starting
+phase from it (`Server_ControllerSetHeartbeat`: `rand() / 32768 ×
+interval`). GameSupport's heartbeat (1 s) is Content's game time
+(`GetContentGameTime`, `GameSupport.cpp`), which moves in whole heartbeats,
+so the phase decides at which tick a game-time test passes. Content's comm
+system tests one on every damage message: `IsGcsCommAllowed` refuses a
+comm within its category's interval (default 12 s) of the last one nearby
+and otherwise rolls `rand()` (`Gcs.cpp`). In two data jobs and three probes
+(runs 44494560931, 44500705507, 44523076483, 44526581221, 44530545092)
+that roll came a few ticks earlier or later in separate processes of one
+build, on any machine, CPU or toolset, with or without ASLR; every later
+`rand()` of the AI moved with it, and 5 of 120 seed-ensemble runs ended
+differently after their first contact (never before it). The harness now
+gives `Startup`'s `srand` the scenario's `seed`
+(`GOracleSimHooks.StartupSeed`) and seeds again after `PlayerDB::init`,
+whose first start on a machine (no `accounts.cfg` yet) seeds from the
+clock once more and draws six values. `session.jsonl` records the seed
+(`server`, `startup_seed`) and each controller's heartbeat (`heartbeats`).
+The G2 fights also run with `comms off` (record 0003 point 12). The data
+job's step "Check that the oracle repeats itself" runs the five seeds that
+split three times each and fails when their records differ (`run_rand.jsonl`
+by each draw's tick, index, value and caller: dbghelp's walk of the frames
+beyond the caller differed once between identical runs), when a
+comms-off run draws a comm roll, or when a fight with comms on differs from
+comms off before its first contact.
+
+The CI builds whose output is compared use the MSVC toolset pinned in
+`.github/msvc-toolset.txt` (`.github/scripts/msvc-pin.ps1`): build.yml's
+oracle job (`Tools\Oracle`, compared with the committed vectors, and the
+resource DLLs, compared with the text catalogs) and data.yml's oracle. The
+windows-2025-vs2026 images change their VS 2026 toolset without notice
+(14.51.36231 and 14.52.37025 were on different images on 2026-11-19); the
+pin is v143 14.44.35207, which every image in use has. None of these builds
+links MFC (v143's MFC is not on the images). The plain reference build
+(the whole solution, OutpostServer's MFC included) uses the image's default
+toolset and logs its version and the compiler's banner. The `env` record's
+`msc_full_ver` shows what a run was built with.
 
 The load-time draws (`load_rand.jsonl`; first recorded 2026-11-18, the same
 in every run): `StarSystem::load` draws nothing itself; its `SystemLoaded`

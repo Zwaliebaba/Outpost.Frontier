@@ -2,7 +2,7 @@
 // design/adr/0003-simulation-oracle.md; usage and scenario format in
 // design/reference-build.md section 10; record layouts in design/sim-records.md).
 //
-//   Oracle.exe sim <data root> <scenario file> <out folder> [--runs N]
+//   Oracle.exe sim <data root> <scenario file> <out folder> [--runs N] [--seed S]
 //
 // One run starts a headless multiplayer server in this process the way OutpostServer.exe
 // does (NeuronRuntime::Startup with NEURONCOMPONENTSsrv.ini, the data path, SetIsMPServer,
@@ -59,10 +59,17 @@
 #include "oracle_sim_rand.h"
 #include "oracle_sim_fault.h"
 #include "oracle_sim_fields.h"
+#include "oracle_sim_env.h"
 #include "../include/common_ivp_controller.h" // IVP_Controller_Golem (unit_cores.jsonl)
 
 // Server.dll, IServerImpl.cpp (Oracle instrumentation): StarSystem::load on one system.
 extern "C" __declspec(dllimport) bool __cdecl OracleSimLoadSystem(unsigned int SystemId);
+// Server.dll's other Oracle export: every controller's heartbeat (session.jsonl `heartbeats`).
+typedef void(__cdecl* FOracleSimHeartbeatFn)(void* Context, unsigned int Flid, unsigned int Priority,
+                                              char const* Module, float Interval, float Phase,
+                                              bool bDeferred);
+extern "C" __declspec(dllimport) void __cdecl OracleSimControllerHeartbeats(FOracleSimHeartbeatFn Fn,
+                                                                            void* Context);
 
 namespace
 {
@@ -117,6 +124,9 @@ namespace
         double Frame = 1.0 / 30.0;
         bool bSpStepping = false;
         bool bSpCollisions = false;
+        // `comms off`: Content's comm system (GCS) refuses every comm, so it draws no rand()
+        // (the reproducibility work, owner 2026-11-19).
+        bool bCommsOff = false;
         unsigned int Seed = 0x4f524143u;
         double ClockStart = 1000.0;
         std::vector<FObjectDesc> Objects;
@@ -371,6 +381,10 @@ namespace
             else if (Key == "collisions" && T.size() == 2 && (Lower(T[1]) == "sp" || Lower(T[1]) == "mp"))
             {
                 Out.bSpCollisions = Lower(T[1]) == "sp";
+            }
+            else if (Key == "comms" && T.size() == 2 && (Lower(T[1]) == "on" || Lower(T[1]) == "off"))
+            {
+                Out.bCommsOff = Lower(T[1]) == "off";
             }
             else if (Key == "seed" && T.size() == 2 && ParseUnsigned(T[1], Value))
             {
@@ -2440,6 +2454,21 @@ namespace
             fflush(GFiles[FileSession]);
     }
 
+    // One `heartbeats` entry (OracleSimControllerHeartbeats' callback).
+    void __cdecl WriteHeartbeat(void* Context, unsigned int Flid, unsigned int Priority, char const* Module,
+                                float Interval, float Phase, bool bDeferred)
+    {
+        FOracleJson& J = *static_cast<FOracleJson*>(Context);
+        J.BeginObject(nullptr);
+        J.Uint("flid", Flid);
+        J.Uint("priority", Priority);
+        J.Str("module", Module);
+        J.Float("interval", Interval);
+        J.Float("phase", Phase);
+        J.Bool("deferred", bDeferred);
+        J.EndObject();
+    }
+
     // One frame of the run, called inside the fault recorder's __try (OracleSimGuardedCall).
     struct FFrameArgs
     {
@@ -2469,6 +2498,11 @@ namespace
         J.Uint("tick", GTick);
         J.Uint("psi_total", GPsiSeq);
         J.Int("code", Code);
+        // The machine, compiler and runtime DLLs of the run (session.jsonl `env`; the
+        // cross-runner reproducibility work, owner 2026-11-19), after everything the run
+        // computes.
+        oracle::OracleSimRunRandEnd();
+        Write(FileSession, oracle::OracleSimEnvRecord());
         Write(FileSession, J);
         UnitFlush(true);
         CloseAll();
@@ -2480,7 +2514,8 @@ namespace
 
 namespace oracle
 {
-    int RunSimScenario(std::string const& DataRoot, std::string const& ScenarioPath, std::string const& OutDir)
+    int RunSimScenario(std::string const& DataRoot, std::string const& ScenarioPath, std::string const& OutDir,
+                       FSimOptions const& Options)
     {
         MakeParentDirectories(OutDir + "\\session.jsonl");
         for (int Index = 0; Index < kFileCount; ++Index)
@@ -2502,6 +2537,8 @@ namespace oracle
             CloseAll();
             return 2;
         }
+        // The seed of the seeding point (start-up step 5): --seed's, else the scenario's.
+        unsigned int const Reseed = Options.bReseed ? Options.Reseed : GScenario.Seed;
 
         std::string const ExeDir = ExeFolder();
         std::string const StubPath = ExeDir + "SimClientStub.dll";
@@ -2519,7 +2556,9 @@ namespace oracle
             J.Double("frame", GScenario.Frame);
             J.Str("stepping", GScenario.bSpStepping ? "sp" : "mp");
             J.Str("collisions", GScenario.bSpCollisions ? "sp" : "mp");
+            J.Str("comms", GScenario.bCommsOff ? "off" : "on");
             J.Uint("seed", GScenario.Seed);
+            J.Uint("reseed", Reseed);
             J.Double("clock", GScenario.ClockStart);
             J.Uint("objects", (unsigned)GScenario.Objects.size());
             J.Uint("commands", (unsigned)GScenario.Commands.size());
@@ -2581,6 +2620,10 @@ namespace oracle
         CoInitialize(nullptr);
         _control87(kServerFpuWord, kServerFpuMask);
         GOracleSimHooks.bFixedClock = true;
+        // IServerImpl::Startup's srand takes the scenario's seed instead of timeGetTime(): the
+        // draws before the harness's own srand set the controllers' heartbeat phases, and
+        // through them Content's game time (the reproducibility work, owner 2026-11-19).
+        GOracleSimHooks.StartupSeed = GScenario.Seed;
         GOracleSimHooks.FrameSeconds = GScenario.Frame;
         GOracleSimHooks.ClockSeconds = GScenario.ClockStart;
         SetIsMPServer(true);
@@ -2615,6 +2658,23 @@ namespace oracle
             return 3;
         }
 
+        // `comms off`: the GCS clamp through Content.dll's Oracle export, before the load.
+        bool bCommsClamped = false;
+        if (GScenario.bCommsOff)
+        {
+            typedef void(__cdecl * FSetGcsClamp)(bool);
+            HMODULE const Content = GetModuleHandleA("Content.dll");
+            FSetGcsClamp const SetGcsClamp =
+                Content != nullptr ? (FSetGcsClamp)GetProcAddress(Content, "OracleSimSetGcsClamp") : nullptr;
+            if (SetGcsClamp != nullptr)
+            {
+                SetGcsClamp(true);
+                bCommsClamped = true;
+            }
+            else
+                SessionNote("error", "comms off: Content.dll lacks OracleSimSetGcsClamp");
+        }
+
         // The load-time rand() recorder (load_rand.jsonl): every draw from the seeding to the
         // first frame, with its caller.
         if (!OracleSimLoadRandBegin(OutDir, GScenario.Seed))
@@ -2637,7 +2697,10 @@ namespace oracle
             J.Uint("controller", ControllerId);
             J.Uint("system_id", SystemId);
             J.Bool("system_loaded", bLoaded);
-            J.Uint("reseed", GScenario.Seed);
+            J.Uint("reseed", Reseed);
+            J.Uint("startup_seed", GOracleSimHooks.StartupSeed);
+            if (GScenario.bCommsOff)
+                J.Bool("comms_clamped", bCommsClamped);
             Write(FileSession, J);
         }
         if (ControllerId == 0 || !bLoaded)
@@ -2650,8 +2713,9 @@ namespace oracle
         // The seeding point of the comparison (owner, 2026-11-18): the system and Content's
         // population of it (SystemLoaded) have drawn their values; the scenario starts from
         // srand(seed) again, where the Rust world, which has no population yet (P3.6), seeds.
-        OracleSimLoadRandReseed(GScenario.Seed);
-        srand(GScenario.Seed);
+        // With --seed the seed is the ensemble's (owner, 2026-11-19).
+        OracleSimLoadRandReseed(Reseed);
+        srand(Reseed);
 
         bool bSpawned = true;
         for (FObjectDesc const& Desc : GScenario.Objects)
@@ -2688,6 +2752,24 @@ namespace oracle
             SessionNote("note", "asteroids.jsonl or dock.jsonl cannot be written; fields and docking points are not recorded");
         SetSink(OnControllerMessage);
         OracleSimLoadRandEnd();
+        // The frame-time rand() recorder (run_rand.jsonl), only with OUTPOST_ORACLE_RUN_RAND set
+        // (the cross-runner reproducibility work, owner 2026-11-19).
+        {
+            char Flag[8] = {};
+            if (GetEnvironmentVariableA("OUTPOST_ORACLE_RUN_RAND", Flag, sizeof(Flag)) > 0)
+                OracleSimRunRandBegin(OutDir, &GTick);
+        }
+
+        // Every controller's heartbeat interval and phase as frame 1 finds them.
+        {
+            FOracleJson J;
+            J.Str("rec", "heartbeats");
+            J.Uint("tick", 0);
+            J.BeginArray("controllers");
+            OracleSimControllerHeartbeats(&WriteHeartbeat, &J);
+            J.EndArray();
+            Write(FileSession, J);
+        }
 
         // Tick 0: the state after spawning, before any frame.
         unsigned int X87 = 0;
@@ -2732,17 +2814,35 @@ namespace oracle
 
 int RunSimMode(int Argc, char** Argv)
 {
-    int Runs = 0;
-    bool bUsage = Argc != 5 && Argc != 7;
-    if (Argc == 7)
+    // The options after the paths, each once, in any order: --runs N (1 to 99), --seed S
+    // (decimal or 0x hex, 32 bits).
+    oracle::FSimOptions Options;
+    bool bUsage = Argc < 5 || (Argc - 5) % 2 != 0;
+    bool bRuns = false;
+    for (int Index = 5; !bUsage && Index + 1 < Argc; Index += 2)
     {
         unsigned long Value = 0;
-        bUsage = strcmp(Argv[5], "--runs") != 0 || !ParseUnsigned(Argv[6], Value) || Value == 0 || Value > 99;
-        Runs = (int)Value;
+        bool const bParsed = ParseUnsigned(Argv[Index + 1], Value);
+        if (strcmp(Argv[Index], "--runs") == 0 && !bRuns)
+        {
+            bUsage = !bParsed || Value == 0 || Value > 99;
+            Options.Runs = (int)Value;
+            bRuns = true;
+        }
+        else if (strcmp(Argv[Index], "--seed") == 0 && !Options.bReseed)
+        {
+            bUsage = !bParsed;
+            Options.bReseed = true;
+            Options.Reseed = (unsigned int)Value;
+        }
+        else
+        {
+            bUsage = true;
+        }
     }
     if (bUsage)
     {
-        fprintf(stderr, "usage: Oracle.exe sim <data root> <scenario file> <out folder> [--runs N]\n");
+        fprintf(stderr, "usage: Oracle.exe sim <data root> <scenario file> <out folder> [--runs N] [--seed S]\n");
         return 2;
     }
     std::string Paths[3];
@@ -2758,7 +2858,7 @@ int RunSimMode(int Argc, char** Argv)
         while (Paths[Index].size() > 3 && (Paths[Index].back() == '\\' || Paths[Index].back() == '/'))
             Paths[Index].pop_back();
     }
-    if (Runs > 0)
-        return oracle::RunSimSpread(Paths[0], Paths[1], Paths[2], Runs);
-    return oracle::RunSimScenario(Paths[0], Paths[1], Paths[2]);
+    if (Options.Runs > 0)
+        return oracle::RunSimSpread(Paths[0], Paths[1], Paths[2], Options);
+    return oracle::RunSimScenario(Paths[0], Paths[1], Paths[2], Options);
 }

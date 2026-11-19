@@ -196,6 +196,11 @@ struct FOracleSimHooks
     void(__cdecl* OnDockActivate)(CObject const* Object, unsigned Index, bool bOn, int Result);
     void(__cdecl* OnDockAnim)(CObject const* Object, unsigned Index, bool bActive, float Duration,
                               float Position, float LastDuration);
+    // With bFixedClock: the seed IServerImpl::Startup gives srand instead of timeGetTime()
+    // (the reproducibility work, owner 2026-11-19). The draws before the harness's own srand
+    // set the controllers' heartbeat phases (Server_ControllerSetHeartbeat), and through them
+    // Content's game time.
+    unsigned int StartupSeed;
 };
 
 COMMON_API extern FOracleSimHooks GOracleSimHooks;

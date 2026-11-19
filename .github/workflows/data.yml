@@ -35,7 +35,10 @@ jobs:
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
           $targets = 'Tools\Oracle', 'DLLs\Content', 'DLLs\ReadFile', 'DLLs\RendComp', 'DLLs\system', 'DLLs\SceneScript', 'DLLs\DX8RENDERER', 'DLLs\Shading'
-          & $msbuild CppSource\OutpostFrontier.sln "/t:$($targets -join ';')" /m /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo
+          # The pinned MSVC toolset (.github/msvc-toolset.txt).
+          $pin = & .github\scripts\msvc-pin.ps1
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          & $msbuild CppSource\OutpostFrontier.sln "/t:$($targets -join ';')" /m /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo @pin
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Dump the original data with the oracle
         # The dump root holds DATA (a junction to outdir\data) and EXE (the
@@ -155,6 +158,93 @@ jobs:
           }
           if ($failed.Count -gt 0) {
             Write-Host "Scenarios with a failed run: $($failed -join ', ')"
+            exit 1
+          }
+      - name: Check that the oracle repeats itself
+        # The reproducibility work (owner, 2026-11-19; design/adr/0003-simulation-oracle.md,
+        # reference-build.md section 10, "Determinism"). Before IServerImpl::Startup's srand
+        # took the scenario's seed, these five seeds of the G2 fights ended differently in
+        # separate processes of one build; ram_ship and fire_at_target (no AI, comms on) run at
+        # their own seed. Each runs three times (--runs 3, fresh processes)
+        # with the frame-time rand() recorder: the records must be identical (ai.jsonl apart: the
+        # personality padding it copies holds stack garbage), and with
+        # `comms off` no draw comes from Content's comm system. Each fight also runs once with
+        # comms on: the records must be identical to the comms-off run before the first contact.
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $root = "$env:RUNNER_TEMP\outpost-repeat"
+          $env:OUTPOST_ORACLE_RUN_RAND = '1'
+          $failed = @()
+          # A run_rand.jsonl's draws: all of them, those whose caller is IsGcsCommAllowed
+          # (Content's comm roll), and the other draws after the first comm roll.
+          function Get-CommDraws($file) {
+            $sites = @(Select-String -Path $file -Pattern '"rec":"sym".*IsGcsCommAllowed' | ForEach-Object { ($_.Line | ConvertFrom-Json).at })
+            $total = 0; $comm = 0; $after = 0
+            foreach ($line in [IO.File]::ReadLines($file)) {
+              if (-not $line.StartsWith('{"rec":"draw"')) { continue }
+              $total++
+              if ($sites.Count -gt 0 -and $sites -contains ($line | ConvertFrom-Json).stack[0]) { $comm++ }
+              elseif ($comm -gt 0) { $after++ }
+            }
+            return [pscustomobject]@{ Total = $total; Comm = $comm; After = $after }
+          }
+          $pairs = 'dogfight 3358599207', 'dogfight 464813110', 'skirmish 1478717352', 'skirmish 225462782', 'strafe 2731971922', 'ram_ship 1330790723', 'fire_at_target 1330790723'
+          foreach ($pair in $pairs) {
+            $name, $seed = $pair -split ' '
+            $dir = "$root\${name}_$seed"
+            & .\bin\Oracle.exe sim "$PWD\outdir" "CppSource\Oracle\scenarios\$name.txt" $dir --seed $seed --runs 3 | Out-Null
+            if ($LASTEXITCODE -ne 0) { $failed += "$name $seed (exit $LASTEXITCODE)" }
+            $runs = @(Get-ChildItem $dir -Directory | Sort-Object Name)
+            foreach ($file in 'tick.jsonl', 'events.jsonl', 'calls.jsonl', 'psi.jsonl') {
+              $hashes = @($runs | ForEach-Object { (Get-FileHash "$($_.FullName)\$file" -Algorithm SHA256 -ErrorAction SilentlyContinue).Hash })
+              $distinct = @($hashes | Select-Object -Unique).Count
+              if ($distinct -ne 1) { $failed += "$name $seed $file ($distinct versions in $($runs.Count) runs)" }
+            }
+            # run_rand.jsonl: each draw's tick, index, value, module and caller (dbghelp's walk
+            # of the frames beyond the caller is not compared).
+            $draws = @($runs | ForEach-Object {
+              $kept = foreach ($line in [IO.File]::ReadLines("$($_.FullName)\run_rand.jsonl")) {
+                if ($line -match '^(\{"rec":"draw",.*?"stack":\["[^"]*")') { $Matches[1] }
+              }
+              ($kept -join "`n").GetHashCode()
+            })
+            $distinct = @($draws | Select-Object -Unique).Count
+            if ($distinct -ne 1) { $failed += "$name $seed run_rand.jsonl draws ($distinct versions in $($runs.Count) runs)" }
+            $session = "$($runs[0].FullName)\session.jsonl"
+            $server = Select-String -Path $session -Pattern '"rec":"server"' | Select-Object -First 1
+            $beats = Select-String -Path $session -Pattern '"rec":"heartbeats"' | Select-Object -First 1
+            $envRec = Select-String -Path $session -Pattern '"rec":"env"' | Select-Object -First 1
+            $comms = Get-CommDraws "$($runs[0].FullName)\run_rand.jsonl"
+            $contact = Select-String -Path "$($runs[0].FullName)\events.jsonl" -Pattern '"rec":"(munition_hit|collision)"' | Select-Object -First 1
+            $contactTick = if ($contact) { ($contact.Line | ConvertFrom-Json).tick } else { 'none' }
+            Write-Host "$name seed ${seed}: $($runs.Count) runs, first contact tick $contactTick, draws $($comms.Total), comm rolls $($comms.Comm), other draws after the first comm roll $($comms.After)"
+            Write-Host "  $($server.Line)"
+            Write-Host "  $($beats.Line)"
+            if ($pair -eq $pairs[0]) { Write-Host "  $($envRec.Line)" }
+            $isOff = Select-String -Path "CppSource\Oracle\scenarios\$name.txt" -Pattern '^comms off' -Quiet
+            if ($isOff -and $comms.Comm -ne 0) { $failed += "$name $seed ($($comms.Comm) comm rolls with comms off)" }
+            if ($isOff) {
+              # The same seed with comms on: equal before the first contact.
+              $on = "$env:RUNNER_TEMP\${name}_comms_on.txt"
+              Get-Content "CppSource\Oracle\scenarios\$name.txt" | Where-Object { $_ -notmatch '^comms off' } | Set-Content $on
+              $onDir = "$root\${name}_${seed}_comms_on"
+              & .\bin\Oracle.exe sim "$PWD\outdir" $on $onDir --seed $seed | Out-Null
+              $a = @(Get-Content "$($runs[0].FullName)\tick.jsonl")
+              $b = @(Get-Content "$onDir\tick.jsonl")
+              $first = 'never'
+              for ($i = 0; $i -lt [Math]::Max($a.Count, $b.Count); $i++) {
+                if ($a[$i] -ne $b[$i]) { $first = ($a[$i] | ConvertFrom-Json).tick; break }
+              }
+              $onComms = Get-CommDraws "$onDir\run_rand.jsonl"
+              Write-Host "  comms on: draws $($onComms.Total), comm rolls $($onComms.Comm), other draws after the first $($onComms.After); tick.jsonl first differs from comms off at tick $first"
+              if ($first -ne 'never' -and $contactTick -ne 'none' -and [int]$first -lt [int]$contactTick) {
+                $failed += "$name $seed (comms on differs at tick $first, before the first contact at $contactTick)"
+              }
+            }
+          }
+          if ($failed.Count -gt 0) {
+            Write-Host "Not reproducible: $($failed -join '; ')"
             exit 1
           }
       - name: Replay the recorded PSIs through the port

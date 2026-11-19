@@ -101,6 +101,13 @@ jobs:
         run: |
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
+          # The image's default toolset: this build's output is compared with nothing, so it is
+          # not pinned (.github/msvc-toolset.txt pins the oracle and the resource DLLs). Logged.
+          $vs = & $vswhere -latest -products * -property installationPath
+          $tools = Get-Content "$vs\VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt"
+          $cl = "$vs\VC\Tools\MSVC\$tools\bin\Hostx86\x86\cl.exe"
+          $banner = (& $cl 2>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match 'Version' } | Select-Object -First 1) -join ""
+          Write-Host "MSVC: image default toolset $tools (image $env:ImageOS $env:ImageVersion): $banner"
           & $msbuild CppSource\OutpostFrontier.sln /m /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Check the generated P0.5 proxies
@@ -138,7 +145,10 @@ jobs:
         run: |
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
-          & $msbuild CppSource\OutpostFrontier.sln '/t:Tools\Oracle' /m /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo
+          # The pinned MSVC toolset (.github/msvc-toolset.txt).
+          $pin = & .github\scripts\msvc-pin.ps1
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          & $msbuild CppSource\OutpostFrontier.sln '/t:Tools\Oracle' /m /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo @pin
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Run the oracle harness
         shell: pwsh
@@ -282,7 +292,10 @@ jobs:
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
           $targets = 'UiText', 'FieldGuideText', 'DialogueText', 'NameCatalog', 'EquipmentCatalog', 'NegotiationText', 'InterfaceExtras', 'serverinterface' | ForEach-Object { "ResourceDLLs\$_" }
-          & $msbuild CppSource\OutpostFrontier.sln "/t:$($targets -join ';')" /m /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo
+          # The pinned MSVC toolset (.github/msvc-toolset.txt).
+          $pin = & .github\scripts\msvc-pin.ps1
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          & $msbuild CppSource\OutpostFrontier.sln "/t:$($targets -join ';')" /m /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo @pin
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Compare the text catalogs with the resource DLLs
         # Work package P1.6: the catalogs built from outdir/data/text must hold
