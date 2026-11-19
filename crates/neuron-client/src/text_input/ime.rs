@@ -5,7 +5,7 @@
 //! `ImeUi_ProcessMessage`, `ImeUi_IgnoreHotKey` and `ImeUi_GetState`.
 
 use crate::input::keyboard::{WM_KEYUP, WM_SYSKEYUP, vk};
-use crate::text_input::ime_render::CandidateList;
+use crate::text_input::ime_core::{ImeFile, ImeMessage, Reading};
 
 /// A composition character's attribute (`GCS_COMPATTR`, the `ATTR_*`
 /// values).
@@ -162,7 +162,9 @@ pub struct CaretRect {
 }
 
 /// What the IME's drawing reads of the IME at a frame (`ImeUi_Render`'s
-/// globals that the window's IME keeps).
+/// globals that the window's IME keeps). The composition, the candidates
+/// and the reading come as [`ImeMessage`]s ([`ImeContext::take_messages`]);
+/// the IME's version word from its file ([`ImeContext::ime_file`]).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ImeView {
     /// `GImeState` (`ImeUi_GetState`): 0 off, 1 on, 2 a Chinese IME in
@@ -170,18 +172,10 @@ pub struct ImeView {
     pub state: u32,
     /// `GLanguage`: the keyboard layout's low 32 bits.
     pub language: u32,
-    /// `GetImeId(0)`: the IME's version word (0 when not known).
-    pub ime_id: u32,
     /// `GetTickCount`.
     pub tick: u32,
     /// `GCaretBlinkInterval` (`GetCaretBlinkTime`).
     pub caret_blink: u32,
-    /// The composition the game draws (support level 2); `None` while the
-    /// system draws it in its own window (decision T7, D283).
-    pub composition: Option<Composition>,
-    /// The candidate list the game draws; `None` while the system draws
-    /// it.
-    pub candidates: Option<CandidateList>,
 }
 
 /// What the edit boxes ask of the IME.
@@ -207,6 +201,56 @@ pub trait ImeContext {
     /// What the IME's drawing reads this frame.
     fn view(&mut self) -> ImeView {
         ImeView::default()
+    }
+    /// `ImmGetContext` of the window: whether it has an input context now.
+    fn has_context(&mut self) -> bool {
+        true
+    }
+    /// `GetKeyboardLayout(0)`: the layout's low 32 bits.
+    fn layout(&mut self) -> u32 {
+        self.view().language
+    }
+    /// The IME's messages since the last call, for the game's own
+    /// composition, candidate list and reading window
+    /// (`ImeUi_ProcessMessage`). The window's has none: the system draws
+    /// them (decision T7, D283).
+    fn take_messages(&mut self) -> Vec<ImeMessage> {
+        Vec::new()
+    }
+    /// `ImeUi_SetInsertMode`: the focused box's insert mode changed.
+    fn set_insert_mode(&mut self, _insert: bool) {}
+    /// The layout's IME file and its version (`ImmGetIMEFileNameA`, the
+    /// version resource), which `GetImeId` reads; none without an IME.
+    fn ime_file(&mut self) -> Option<ImeFile> {
+        None
+    }
+    /// `SetupReadingApi`: whether the layout's IME exports
+    /// `GetReadingString`.
+    fn reading_api(&mut self) -> bool {
+        false
+    }
+    /// `ShowReadingWindow` of the IME's own reading window.
+    fn show_reading_window(&mut self, _show: bool) {}
+    /// The IME's reading at `IMN_PRIVATE` for its version word `ime_id`:
+    /// what `GetReadingString` gives when `reading_api`, else the IME's own
+    /// reading record; `None` without one.
+    fn reading(&mut self, _ime_id: u32, _reading_api: bool) -> Option<Reading> {
+        None
+    }
+    /// The low byte of the "keyboard mapping" value under
+    /// `HKCU\software\microsoft\windows\currentversion\` and `key`
+    /// (`UpdateReadingOrientation`).
+    fn keyboard_mapping(&mut self, _key: &str) -> Option<u8> {
+        None
+    }
+    /// `IsDBCSLeadByteEx` in the layout's ANSI code page (`GLeadBytes`).
+    fn is_lead_byte(&mut self, _byte: u8) -> bool {
+        false
+    }
+    /// `MultiByteToWideChar` of one character of the layout's ANSI code
+    /// page to its unit.
+    fn decode_ansi(&mut self, bytes: &[u8]) -> u16 {
+        bytes.first().map_or(0, |&b| u16::from(b))
     }
 }
 

@@ -94,6 +94,9 @@ impl ImeFocus {
             return;
         };
         let pending = std::mem::take(&mut b.pending);
+        if let Some(insert) = pending.insert_mode {
+            ime.set_insert_mode(insert);
+        }
         if pending.finalize {
             ime.finalize(false);
         }

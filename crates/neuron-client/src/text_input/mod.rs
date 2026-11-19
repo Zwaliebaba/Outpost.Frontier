@@ -11,6 +11,9 @@
 //! `ImmSetCandidateWindow`). The window keeps a copy of the composition
 //! ([`ime::Composition`]: text, attributes, cursor) for the UI toolkit,
 //! which may hide its own caret while one is in progress, as `CCaret` does.
+//! What `imeui` does with the IME's messages, levels 2 and 3, the
+//! candidate page, the reading window and the IME's version word, is
+//! [`ime_core`], for the messages an IME context hands it.
 //!
 //! Everything here is platform-free: [`ime::ImeContext`] is what the boxes
 //! ask of the IME, implemented on Windows by `platform::ime::WindowIme`
@@ -24,5 +27,6 @@
 pub mod edit_box;
 pub mod focus;
 pub mod ime;
+pub mod ime_core;
 pub mod ime_font;
 pub mod ime_render;

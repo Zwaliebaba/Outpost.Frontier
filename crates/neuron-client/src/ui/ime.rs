@@ -31,6 +31,7 @@ use crate::text::font::{FontId, LogFont};
 use crate::text_input::edit_box::EditBox;
 use crate::text_input::focus::{BoxId, ImeFocus};
 use crate::text_input::ime::{ImeContext, NoIme};
+use crate::text_input::ime_core::{CoreContext, ImeCore, ImeMessage};
 use crate::text_input::ime_font::{FanVertex, ImeDraw, ImeUiFont, SharedFontBackend, SymbolFont};
 use crate::text_input::ime_render::{
     Appearance, CandidatePage, LanguageState, RenderInput, RenderState, SUPPORT_LEVEL, render,
@@ -265,6 +266,9 @@ struct ClientBox {
 struct ImeHub {
     focus: ImeFocus,
     context: Box<dyn ImeContext>,
+    /// `ImeUiCore.cpp`'s state: the messages' composition, candidates and
+    /// reading, the support level, the language.
+    core: ImeCore,
     backend: SharedFontBackend,
     /// "ConfirmPlayerText" and its `LOGFONTA` (`ClientConfirmPlayerFont`).
     confirm_font: Option<FontId>,
@@ -272,7 +276,6 @@ struct ImeHub {
     boxes: Vec<ClientBox>,
     confirm: ImeString,
     symbol: SymbolFont,
-    language: LanguageState,
     render: RenderState,
     owner_texts: Vec<(NodeId, Vec<u16>)>,
     released: Vec<ImeString>,
@@ -319,21 +322,26 @@ impl std::fmt::Debug for ImeBoxes {
 }
 
 impl ImeBoxes {
-    /// The focus manager on `context` (its input context closed), whose
-    /// boxes measure with `backend`.
+    /// The focus manager on `context` (`ClientIMEFocus`'s constructor:
+    /// `ImeUi_Initialize`, which leaves the input context closed, and
+    /// support level 2), whose boxes measure with `backend`.
     #[must_use]
     pub fn new(mut context: Box<dyn ImeContext>, backend: SharedFontBackend) -> ImeBoxes {
-        let focus = ImeFocus::new(context.as_mut());
+        let mut focus = ImeFocus::default();
+        let mut core = ImeCore::default();
+        core.initialize(&mut focus, context.as_mut());
+        context.set_boxes_registered(false);
+        core.set_support_level(SUPPORT_LEVEL, &mut focus, context.as_mut());
         ImeBoxes(Rc::new(RefCell::new(ImeHub {
             focus,
             context,
+            core,
             backend,
             confirm_font: None,
             log_font: None,
             boxes: Vec::new(),
             confirm: ImeString::new(StringRole::Confirm, None),
             symbol: SymbolFont::default(),
-            language: LanguageState::default(),
             render: RenderState::default(),
             owner_texts: Vec::new(),
             released: Vec::new(),
@@ -346,13 +354,118 @@ impl ImeBoxes {
         ImeBoxes::new(Box::new(NoIme), backend)
     }
 
-    /// The window's IME context: the window's input context is closed and
-    /// told whether boxes are registered.
+    /// The window's IME context: `ImeUi_Initialize` and support level 2
+    /// on it (the window's input context closed), told whether boxes are
+    /// registered; a box with the focus opens it again.
     pub fn set_context(&self, mut context: Box<dyn ImeContext>) {
         let mut hub = self.0.borrow_mut();
-        context.set_open(false);
-        context.set_boxes_registered(!hub.focus.is_empty());
+        let ImeHub { focus, core, .. } = &mut *hub;
+        *core = ImeCore::default();
+        core.initialize(focus, context.as_mut());
+        context.set_boxes_registered(!focus.is_empty());
+        core.set_support_level(SUPPORT_LEVEL, focus, context.as_mut());
+        if focus
+            .focus()
+            .and_then(|id| focus.get(id))
+            .is_some_and(EditBox::has_focus)
+        {
+            core.set_state(true, context.as_mut());
+        }
         hub.context = context;
+    }
+
+    /// `ImeUi_ProcessMessage` of a message the IME handed the game; the
+    /// level-3 composition's units and keys reach the focused box.
+    pub fn process(&self, message: ImeMessage) {
+        let mut hub = self.0.borrow_mut();
+        let ImeHub {
+            focus,
+            context,
+            core,
+            ..
+        } = &mut *hub;
+        core.process(message, focus, context.as_mut());
+        hub.collect(None);
+    }
+
+    /// The context's messages (`ImeContext::take_messages`) through
+    /// `IMEFocus::WndProc`: processed while a box is registered.
+    pub fn pump(&self) {
+        let mut hub = self.0.borrow_mut();
+        let ImeHub {
+            focus,
+            context,
+            core,
+            ..
+        } = &mut *hub;
+        for message in context.take_messages() {
+            if !focus.is_empty() {
+                core.process(message, focus, context.as_mut());
+            }
+        }
+        hub.collect(None);
+    }
+
+    /// `IMEFocus::SetSupportLevel` (`ImeUi_SetSupportLevel`).
+    pub fn set_support_level(&self, level: u32) {
+        let mut hub = self.0.borrow_mut();
+        let ImeHub {
+            focus,
+            context,
+            core,
+            ..
+        } = &mut *hub;
+        core.set_support_level(level, focus, context.as_mut());
+        hub.collect(None);
+    }
+
+    /// `ImeUi_GetSupportLevel`.
+    #[must_use]
+    pub fn support_level(&self) -> u32 {
+        self.0.borrow().core.support_level()
+    }
+
+    /// `ImeUi_IsCompositionEmpty`.
+    #[must_use]
+    pub fn composition_empty(&self) -> bool {
+        self.0.borrow().core.is_composition_empty()
+    }
+
+    /// The composition copy (`GComposition`), its client caret and
+    /// composition cursor.
+    #[must_use]
+    pub fn composition(&self) -> (Vec<u16>, i32, i32) {
+        let hub = self.0.borrow();
+        (
+            hub.core.composition().to_vec(),
+            hub.core.client_caret(),
+            hub.core.composition_cursor(),
+        )
+    }
+
+    /// `GbInsertMode`.
+    #[must_use]
+    pub fn insert_mode(&self) -> bool {
+        self.0.borrow().core.insert_mode()
+    }
+
+    /// The candidate page and reading window.
+    #[must_use]
+    pub fn candidates(&self) -> CandidatePage {
+        self.0.borrow().core.page().clone()
+    }
+
+    /// The language's candidate orientation and toolbar symbol.
+    #[must_use]
+    pub fn language(&self) -> LanguageState {
+        self.0.borrow().core.language().clone()
+    }
+
+    /// `GetImeId(index)` for the layout of the last language check.
+    pub fn ime_id(&self, index: usize) -> u32 {
+        let mut hub = self.0.borrow_mut();
+        let ImeHub { context, core, .. } = &mut *hub;
+        core.ime_id(index, context.as_mut())
     }
 
     /// `ClientConfirmPlayerFont`: the font the strings bind and the
@@ -396,8 +509,17 @@ impl ImeBoxes {
     /// and its `UpdatedText` queued for its window.
     pub fn with_box_mut<R>(&self, id: BoxId, f: impl FnOnce(&mut EditBox) -> R) -> Option<R> {
         let mut hub = self.0.borrow_mut();
-        let ImeHub { focus, context, .. } = &mut *hub;
-        let result = focus.edit(id, context.as_mut(), f);
+        let ImeHub {
+            focus,
+            context,
+            core,
+            ..
+        } = &mut *hub;
+        let ime = &mut CoreContext {
+            core,
+            context: context.as_mut(),
+        };
+        let result = focus.edit(id, ime, f);
         hub.collect(None);
         result
     }
@@ -414,8 +536,17 @@ impl ImeBoxes {
     /// `IMEFocus::SetFocus(box, force)`.
     pub fn set_focus(&self, id: Option<BoxId>, force: bool) {
         let mut hub = self.0.borrow_mut();
-        let ImeHub { focus, context, .. } = &mut *hub;
-        focus.set_focus(id, force, context.as_mut());
+        let ImeHub {
+            focus,
+            context,
+            core,
+            ..
+        } = &mut *hub;
+        let ime = &mut CoreContext {
+            core,
+            context: context.as_mut(),
+        };
+        focus.set_focus(id, force, ime);
         hub.collect(None);
     }
 
@@ -447,16 +578,21 @@ impl ImeBoxes {
         let ImeHub {
             focus,
             context,
+            core,
             log_font,
             confirm_font,
             boxes,
             ..
         } = &mut *hub;
-        let id = focus.register(edit, context.as_mut());
+        let ime = &mut CoreContext {
+            core,
+            context: context.as_mut(),
+        };
+        let id = focus.register(edit, ime);
         // Without "ConfirmPlayerText" the C++ reads its LOGFONTA through a
         // null font; the box keeps its zeroed one (D554).
         if let Some(log_font) = *log_font {
-            focus.edit(id, context.as_mut(), |b| {
+            focus.edit(id, ime, |b| {
                 font.set_log_font(&log_font);
                 b.reset_caret();
             });
@@ -479,8 +615,17 @@ impl ImeBoxes {
     /// `IMEFocus::SetFocus(nullptr, false)`.
     pub fn clear_focus(&self) {
         let mut hub = self.0.borrow_mut();
-        let ImeHub { focus, context, .. } = &mut *hub;
-        focus.set_focus(None, false, context.as_mut());
+        let ImeHub {
+            focus,
+            context,
+            core,
+            ..
+        } = &mut *hub;
+        let ime = &mut CoreContext {
+            core,
+            context: context.as_mut(),
+        };
+        focus.set_focus(None, false, ime);
         hub.collect(None);
     }
 
@@ -488,8 +633,17 @@ impl ImeBoxes {
     /// focused box.
     pub fn on_char(&self, unit: u16) -> bool {
         let mut hub = self.0.borrow_mut();
-        let ImeHub { focus, context, .. } = &mut *hub;
-        let taken = focus.on_char(unit, context.as_mut());
+        let ImeHub {
+            focus,
+            context,
+            core,
+            ..
+        } = &mut *hub;
+        let ime = &mut CoreContext {
+            core,
+            context: context.as_mut(),
+        };
+        let taken = focus.on_char(unit, ime);
         hub.collect(None);
         taken
     }
@@ -497,8 +651,17 @@ impl ImeBoxes {
     /// `IMEFocus::OnKeyDown`.
     pub fn on_key_down(&self, key: u32) -> bool {
         let mut hub = self.0.borrow_mut();
-        let ImeHub { focus, context, .. } = &mut *hub;
-        let taken = focus.on_key_down(key, context.as_mut());
+        let ImeHub {
+            focus,
+            context,
+            core,
+            ..
+        } = &mut *hub;
+        let ime = &mut CoreContext {
+            core,
+            context: context.as_mut(),
+        };
+        let taken = focus.on_key_down(key, ime);
         hub.collect(None);
         taken
     }
@@ -506,11 +669,20 @@ impl ImeBoxes {
     /// `IMEFocus::OnSetFocus` (`gained`) and `OnKillFocus`.
     pub fn on_window_focus(&self, gained: bool) {
         let mut hub = self.0.borrow_mut();
-        let ImeHub { focus, context, .. } = &mut *hub;
+        let ImeHub {
+            focus,
+            context,
+            core,
+            ..
+        } = &mut *hub;
+        let ime = &mut CoreContext {
+            core,
+            context: context.as_mut(),
+        };
         if gained {
-            focus.on_window_focus_gained(context.as_mut());
+            focus.on_window_focus_gained(ime);
         } else {
-            focus.on_window_focus_lost(context.as_mut());
+            focus.on_window_focus_lost(ime);
         }
         hub.collect(None);
     }
@@ -524,11 +696,12 @@ impl ImeBoxes {
 
     /// `IMEFocus::Draw(0)`: the boxes' own draw (empty in the client), then
     /// `ImeUi_Render(true, true)` while the focused box has the IME on:
-    /// the toolbar, the composition and the candidate list the IME
-    /// context hands the game (decision T7: on Windows the system draws
-    /// the last two, D283). The IME's state, the layout's orientation and
-    /// symbol are read from the context at the draw, the screen is the
-    /// surface (D552).
+    /// the toolbar, the composition (level 2, or its backgrounds inline at
+    /// level 3) and the candidate list or reading window the IME context's
+    /// messages gave (decision T7: on Windows the system draws the last
+    /// two, D283). The IME's state and layout are read from the context at
+    /// the draw, the layout checked for its orientation and symbol, the
+    /// screen is the surface (D552).
     pub fn draw(&self, overlay: &mut dyn ImeOverlay) {
         let mut hub = self.0.borrow_mut();
         let hub = &mut *hub;
@@ -541,7 +714,8 @@ impl ImeBoxes {
             }
         }
         let view = hub.context.view();
-        hub.language.check(view.language, view.ime_id);
+        hub.core.check_layout(view.language, hub.context.as_mut());
+        let ime_id = hub.core.ime_id(0, hub.context.as_mut());
         let Some(id) = hub.focus.focus() else {
             return;
         };
@@ -552,14 +726,14 @@ impl ImeBoxes {
         else {
             return;
         };
-        if !enabled {
+        if !enabled || !hub.core.enabled() {
             return;
         }
         let ImeHub {
             boxes,
             confirm,
             symbol,
-            language,
+            core,
             render: state,
             ..
         } = hub;
@@ -568,17 +742,13 @@ impl ImeBoxes {
         };
         let appearance = Appearance::client();
         let (candidate_color, composition_color) = appearance.font_colors(0);
-        let composition = view.composition.unwrap_or_default();
-        let attributes: Vec<u8> = composition.attributes.iter().map(|a| a.byte()).collect();
-        let candidates = view.candidates.map_or_else(CandidatePage::default, |list| {
-            CandidatePage::update(view.language, view.ime_id, language.vertical, &list)
-        });
+        let level = core.support_level();
+        let language = core.language();
         let fan_text = symbol.symbol();
         let symbol_color = || symbol.color();
         let font = Rc::clone(&client.font);
-        let cursor = composition.cursor as i32;
         let input = RenderInput {
-            support_level: SUPPORT_LEVEL,
+            support_level: level,
             appearance: &appearance,
             symbol_font: symbol,
             fan_text: &fan_text,
@@ -590,18 +760,18 @@ impl ImeBoxes {
             state: view.state,
             language: view.language,
             symbol: &language.symbol,
-            ime_id: view.ime_id,
-            composition: &composition.text,
-            attributes: &attributes,
-            client_caret: cursor,
-            composition_cursor: cursor,
-            candidates: &candidates,
+            ime_id,
+            composition: core.composition(),
+            attributes: core.attributes(),
+            client_caret: core.client_caret(),
+            composition_cursor: core.composition_cursor(),
+            candidates: core.page(),
             vertical: language.vertical,
             tick: view.tick,
             caret_blink: view.caret_blink,
             candidate_color,
             composition_color,
-            backgrounds: appearance.composition_backgrounds(SUPPORT_LEVEL),
+            backgrounds: appearance.composition_backgrounds(level),
         };
         let mut draw = ClientDraw {
             overlay,
@@ -687,8 +857,17 @@ impl ClientImeBox {
     /// handed the window (other boxes' are queued).
     pub fn edit<R>(&mut self, f: impl FnOnce(&mut EditBox) -> R) -> (Option<R>, Option<Vec<u16>>) {
         let mut hub = self.hub.borrow_mut();
-        let ImeHub { focus, context, .. } = &mut *hub;
-        let result = focus.edit(self.id, context.as_mut(), f);
+        let ImeHub {
+            focus,
+            context,
+            core,
+            ..
+        } = &mut *hub;
+        let ime = &mut CoreContext {
+            core,
+            context: context.as_mut(),
+        };
+        let result = focus.edit(self.id, ime, f);
         let text = hub.collect(Some(self.id));
         (result, text)
     }
@@ -723,8 +902,17 @@ impl ImeBox for ClientImeBox {
     /// `IMEFocus::SetFocus(box, false)`.
     fn take_focus(&mut self) {
         let mut hub = self.hub.borrow_mut();
-        let ImeHub { focus, context, .. } = &mut *hub;
-        focus.set_focus(Some(self.id), false, context.as_mut());
+        let ImeHub {
+            focus,
+            context,
+            core,
+            ..
+        } = &mut *hub;
+        let ime = &mut CoreContext {
+            core,
+            context: context.as_mut(),
+        };
+        focus.set_focus(Some(self.id), false, ime);
         hub.collect(None);
     }
 }
@@ -739,8 +927,17 @@ impl Drop for ClientImeBox {
             return;
         };
         let hub = &mut *hub;
-        let ImeHub { focus, context, .. } = &mut *hub;
-        let _ = focus.remove(self.id, context.as_mut());
+        let ImeHub {
+            focus,
+            context,
+            core,
+            ..
+        } = &mut *hub;
+        let ime = &mut CoreContext {
+            core,
+            context: context.as_mut(),
+        };
+        let _ = focus.remove(self.id, ime);
         if let Some(i) = hub.boxes.iter().position(|b| b.id == self.id) {
             let b = hub.boxes.remove(i);
             hub.released.push(b.text);
