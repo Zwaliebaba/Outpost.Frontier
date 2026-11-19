@@ -7,7 +7,7 @@
 use neuron_core::vfs::{FileSystem, FsDesc};
 
 use super::math::{IDENTITY12, mul_transform12};
-use super::services::{BoneLink, DeformServices};
+use super::services::{BoneLink, DeformHost};
 use super::{EngineHandle, INSTANCE_NONE, Instance};
 
 /// `G_MaxBoneCount`.
@@ -54,7 +54,7 @@ impl Skeleton {
         &mut self,
         name: &[u8],
         fs: &mut dyn FileSystem,
-        services: &mut dyn DeformServices,
+        services: &mut dyn DeformHost,
     ) -> bool {
         let entries = fs.find(b"*.3db").unwrap_or_default();
         for entry in entries {
@@ -98,7 +98,7 @@ impl Skeleton {
 
     /// `DestroySkeletonHandles`: `ReleaseHandle` on every bone's archetype,
     /// then on the skeleton's (-1 included).
-    pub fn release_handles(&self, services: &mut dyn DeformServices) {
+    pub fn release_handles(&self, services: &mut dyn DeformHost) {
         for bone in &self.bones {
             services.release_handle(bone.archetype);
         }
@@ -206,12 +206,7 @@ impl LodHolder {
     /// skeleton's bone, and the runtime becomes the instance's transform
     /// (the engine calls `Init`, then copies its matrix in through
     /// `SetMatrix`).
-    pub fn bind_one(
-        &mut self,
-        services: &mut dyn DeformServices,
-        index: usize,
-        instance: Instance,
-    ) {
+    pub fn bind_one(&mut self, services: &mut dyn DeformHost, index: usize, instance: Instance) {
         let Some(slot) = self.bones.get_mut(index) else {
             return;
         };
@@ -227,7 +222,7 @@ impl LodHolder {
     /// is `archetype` is bound to `instance`.
     fn link_bone(
         &mut self,
-        services: &mut dyn DeformServices,
+        services: &mut dyn DeformHost,
         instance: Instance,
         archetype: EngineHandle,
     ) -> bool {
@@ -252,11 +247,7 @@ impl LodHolder {
     /// with the bone link registered, then an instance of its own for
     /// every bone the tree did not link (those become roots). Always
     /// `true`.
-    pub fn attach_skeleton(
-        &mut self,
-        skeleton: Skeleton,
-        services: &mut dyn DeformServices,
-    ) -> bool {
+    pub fn attach_skeleton(&mut self, skeleton: Skeleton, services: &mut dyn DeformHost) -> bool {
         self.skeleton = skeleton;
         self.bones = vec![BoneRuntime::default(); self.skeleton.bones.len()];
         let handle = self.skeleton.archetype;
@@ -276,7 +267,7 @@ impl LodHolder {
     }
 
     /// The holder's destruction: the skeleton's handles released.
-    pub fn destroy(&self, services: &mut dyn DeformServices) {
+    pub fn destroy(&self, services: &mut dyn DeformHost) {
         self.skeleton.release_handles(services);
     }
 }
@@ -284,7 +275,7 @@ impl LodHolder {
 impl BoneLink for LodHolder {
     fn link(
         &mut self,
-        services: &mut dyn DeformServices,
+        services: &mut dyn DeformHost,
         instance: Instance,
         archetype: EngineHandle,
     ) -> bool {

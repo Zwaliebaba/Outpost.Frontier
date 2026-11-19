@@ -1,7 +1,12 @@
-//! The P4.7 deformable suite: `render::deformable` against recording
+//! The P4.7 deformable suites: `render::deformable` against recording
 //! services with the contract `CppSource/Oracle/oracle_deformable.cpp`
 //! states (its header lists the lines), over the operations of
-//! `tests/fixtures/oracle/deformable.list` (`make_deformable_fixtures.py`).
+//! `tests/fixtures/oracle/deformable.list` (`make_deformable_fixtures.py`);
+//! and the second increment's parts suite with the operations of
+//! `oracle_deformable_parts.cpp` over `deformable_parts.list` and the
+//! archives in `deformable/`: parts made from archives by
+//! `Deformable::create`, and the `EyeMaterial` made by its factory and
+//! driven as a `render::material::Material`.
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -18,20 +23,23 @@ use neuron_client::render::deformable::math::{
 use neuron_client::render::deformable::mesh::fvf_stride;
 use neuron_client::render::deformable::svd::{SvdMatrix, pseudo_inverse};
 use neuron_client::render::deformable::{
-    BoneLink, BoneSlot, ChannelSample, DeformInstance, DeformMesh, DeformPart, DeformServices,
-    Deformable, EngineHandle, Instance, LodHolder, MeshArchetype, Skeleton, UvBinding,
+    BoneLink, BoneSlot, ChannelSample, DeformHost, DeformInstance, DeformMesh, DeformPart,
+    DeformRender, Deformable, EngineHandle, EyeFactory, EyeHost, Instance, LodDesc, LodHolder,
+    MeshArchetype, PartDesc, Skeleton, UvBinding, bind_eye_materials,
 };
 use neuron_client::render::material::{
-    DrawArgs, IbScratch, Material, MaterialId, Materials, SubmitContext, VbListing, VertexLock,
-    VertexSource, VertexStream,
+    BatchDevice, DrawArgs, IbScratch, Material, MaterialId, MaterialLibrary, MaterialServices,
+    Materials, SubmitContext, VbListing, VertexLock, VertexSource, VertexStream,
 };
 use neuron_client::render::mesh::MeshCamera;
+use neuron_client::render::texture::FrameOut;
 use neuron_core::hash::name_crc32;
+use neuron_core::material_data::PropertyValue;
 use neuron_core::mesh_data::dfm::{DfmFaceGroup, DfmMesh, SkinPair, SkinVertex, UvDeformRecord};
 use neuron_core::mesh_data::trimesh::rebase;
-use neuron_core::vfs::FileSystem;
+use neuron_core::vfs::{FileSystem, FsDesc, Host, UtfFileSystem};
 
-use super::{hex, input_lines, unhex};
+use super::{fixtures, hex, input_lines, unhex};
 
 type Log = Rc<RefCell<Vec<String>>>;
 
@@ -207,6 +215,12 @@ struct Rec {
     // materials
     fakes: HashMap<MaterialId, String>,
     eyes: HashMap<MaterialId, EyeMaterial>,
+    // the parts suite
+    next_arch: i32,
+    link_queue: Vec<(i32, Vec<(i32, i32)>)>,
+    by_name: HashMap<Vec<u8>, MaterialId>,
+    holder_known: bool,
+    binding: Option<UvBinding>,
 }
 
 impl Rec {
@@ -259,7 +273,28 @@ impl Rec {
             next_playback: 0x40,
             fakes: HashMap::new(),
             eyes: HashMap::new(),
+            next_arch: 0x100,
+            link_queue: Vec::new(),
+            by_name: HashMap::new(),
+            holder_known: true,
+            binding: None,
         }
+    }
+
+    /// `CreateArchetypeHandle`: a skeleton's name gets the skeleton handle,
+    /// any other the next handle.
+    fn create_handle(&mut self, name: &[u8]) -> EngineHandle {
+        let r = if name.starts_with(b"skel_") {
+            self.skel_handle
+        } else {
+            self.next_arch += 1;
+            self.next_arch - 1
+        };
+        self.ev(&format!(
+            "\"ev\":\"carch\",\"name\":\"{}\",\"r\":\"{r}\"",
+            String::from_utf8_lossy(name)
+        ));
+        r
     }
 
     fn ev(&self, body: &str) {
@@ -288,17 +323,20 @@ impl Rec {
     }
 }
 
-impl DeformServices for Rec {
-    fn create_archetype(&mut self, _: &[u8], _: &mut dyn FileSystem) -> EngineHandle {
-        -1
+impl DeformHost for Rec {
+    fn create_archetype(&mut self, name: &[u8], _: &mut dyn FileSystem) -> EngineHandle {
+        self.create_handle(name)
     }
-    fn create_skeleton_archetype(&mut self, _: &[u8], _: &mut dyn FileSystem) -> EngineHandle {
-        -1
+    fn create_skeleton_archetype(&mut self, name: &[u8], _: &mut dyn FileSystem) -> EngineHandle {
+        self.create_handle(name)
     }
     fn release_handle(&mut self, handle: EngineHandle) {
         self.ev(&format!("\"ev\":\"relh\",\"h\":\"{handle}\""));
     }
-    fn query_vmesh_part(&mut self, _: EngineHandle) -> Result<u32, i32> {
+    fn query_vmesh_part(&mut self, handle: EngineHandle) -> Result<u32, i32> {
+        self.ev(&format!(
+            "\"ev\":\"qvmesh\",\"h\":\"{handle}\",\"r\":\"-1\""
+        ));
         Err(-1)
     }
     fn add_ref_vmesh_part(&mut self, _: u32) {}
@@ -314,6 +352,11 @@ impl DeformServices for Rec {
         link: Option<&mut dyn BoneLink>,
     ) -> Instance {
         if handle == self.skel_handle {
+            if !self.link_queue.is_empty() {
+                let (root, links) = self.link_queue.remove(0);
+                self.link_root = root;
+                self.links = links;
+            }
             let root = self.link_root;
             self.ev(&format!(
                 "\"ev\":\"cinst\",\"h\":\"{handle}\",\"r\":\"{root}\""
@@ -341,8 +384,14 @@ impl DeformServices for Rec {
         self.ev(&format!("\"ev\":\"dinst\",\"inst\":\"{instance}\""));
     }
     fn set_instance_transform(&mut self, instance: Instance, bone: usize) -> Option<[f32; 12]> {
+        // The fake knows the bone only for holders the case built.
+        let shown = if self.holder_known {
+            i64::try_from(bone).unwrap_or(-1)
+        } else {
+            -1
+        };
         self.ev(&format!(
-            "\"ev\":\"setxf\",\"inst\":\"{instance}\",\"bone\":\"{bone}\""
+            "\"ev\":\"setxf\",\"inst\":\"{instance}\",\"bone\":\"{shown}\""
         ));
         if instance == -1 {
             return None;
@@ -607,6 +656,12 @@ impl DeformServices for Rec {
         ));
         out
     }
+    fn rand(&mut self) -> i32 {
+        0
+    }
+}
+
+impl DeformRender for Rec {
     fn render_instance(&mut self, instance: Instance, flags: u32, arg: u32) -> i32 {
         self.ev(&format!(
             "\"ev\":\"rinst\",\"inst\":\"{instance}\",\"thr\":\"{}\",\"flags\":\"{flags:x}\",\"m\":\"0\",\"arg\":\"{arg:x}\",\"r\":\"{}\"",
@@ -770,11 +825,21 @@ impl DeformServices for Rec {
         self.ev(&format!("\"ev\":\"destroyib\",\"ib\":\"{index_buffer:x}\""));
         self.live_ib.remove(&index_buffer);
     }
-    fn find_material(&mut self, _: &[u8], _: u32) -> (i32, Option<MaterialId>) {
-        (GR_GENERIC, None)
+    fn find_material(&mut self, name: &[u8], _: u32) -> (i32, Option<MaterialId>) {
+        let found = self.by_name.get(name).copied();
+        self.ev(&format!(
+            "\"ev\":\"findmat\",\"name\":\"{}\",\"r\":\"{}\"",
+            String::from_utf8_lossy(name),
+            if found.is_some() { 0 } else { -1 }
+        ));
+        match found {
+            Some(id) => (GR_OK, Some(id)),
+            None => (GR_GENERIC, None),
+        }
     }
     fn release_material(&mut self, material: MaterialId) {
         if let Some(name) = self.fakes.get(&material) {
+            let name = name.split(':').next().unwrap_or("");
             self.ev(&format!("\"ev\":\"mrelease\",\"m\":\"{name}\""));
         }
     }
@@ -849,9 +914,6 @@ impl DeformServices for Rec {
             Self::context(context)
         ));
     }
-    fn rand(&mut self) -> i32 {
-        0
-    }
     fn dump(&mut self, flags: i32, file: &str, line: u32, message: &str) {
         self.ev(&format!(
             "\"ev\":\"dump\",\"flags\":\"{flags:x}\",\"file\":\"{file}\",\"line\":\"{line:x}\",\"msg\":\"{}\"",
@@ -866,7 +928,7 @@ impl EyeServices for Rec {
         self.ev(&format!("\"ev\":\"setmat\",\"v\":\"{}\"", fs(&v)));
     }
     fn set_render_state(&mut self, state: u32, value: u32) {
-        DeformServices::set_render_state(self, state, value.cast_signed());
+        DeformRender::set_render_state(self, state, value.cast_signed());
     }
     fn set_stage_state(&mut self, stage: u32, state: u32, value: u32) {
         self.ev(&format!(
@@ -981,13 +1043,151 @@ impl EyeServices for Rec {
         self.ev(&format!("\"ev\":\"decref\",\"id\":\"{id}\""));
     }
     fn instance_parent(&mut self, instance: Instance) -> Instance {
-        DeformServices::instance_parent(self, instance)
+        DeformHost::instance_parent(self, instance)
     }
     fn instance_orientation(&mut self, instance: Instance) -> [f32; 9] {
-        DeformServices::instance_orientation(self, instance)
+        DeformHost::instance_orientation(self, instance)
     }
     fn dump(&mut self, flags: i32, file: &str, line: u32, message: &str) {
-        DeformServices::dump(self, flags, file, line, message);
+        DeformRender::dump(self, flags, file, line, message);
+    }
+}
+
+/// The renderer and the texture library as a material sees them (the
+/// `EyeMaterial` as a `render::material::Material`): the recording fakes'
+/// calls through [`EyeServices`].
+impl BatchDevice for Rec {
+    fn select_vb(&mut self, vertex_buffer: u32) -> i32 {
+        DeformRender::select_vb(self, vertex_buffer)
+    }
+    fn select_ib(&mut self, index_buffer: u32, base_vertex: u32) -> i32 {
+        DeformRender::select_ib(self, index_buffer, base_vertex)
+    }
+    fn pipeline_state(&mut self, id: u32) -> Option<i32> {
+        DeformRender::pipeline_state(self, id)
+    }
+    fn set_modelview(&mut self, matrix: &[f32; 12]) {
+        DeformRender::set_modelview(self, matrix);
+    }
+    fn set_world(&mut self, matrix: &[f32; 12]) {
+        DeformRender::set_world(self, matrix);
+    }
+    fn set_view(&mut self, _: &[f32; 12]) {}
+}
+
+impl MaterialServices for Rec {
+    type TextureRecord = u32;
+    type Animation = u32;
+
+    fn set_material(&mut self, block: &[u32; 17]) {
+        EyeServices::set_material(self, block);
+    }
+    fn set_render_state(&mut self, state: u32, value: u32) {
+        EyeServices::set_render_state(self, state, value);
+    }
+    fn render_state(&mut self, state: u32) -> u32 {
+        DeformRender::render_state(self, state).cast_unsigned()
+    }
+    fn set_stage_state(&mut self, stage: u32, state: u32, value: u32) {
+        EyeServices::set_stage_state(self, stage, state, value);
+    }
+    fn set_stage_texture(&mut self, stage: u32, handle: u32) {
+        EyeServices::set_stage_texture(self, stage, handle);
+    }
+    fn set_texture_transform(&mut self, stage: u32, matrix: &[f32; 16]) {
+        EyeServices::set_texture_transform(self, stage, matrix);
+    }
+    fn texture_format(&mut self, handle: u32) -> Result<u32, i32> {
+        EyeServices::texture_format(self, handle).map(i32::cast_unsigned)
+    }
+    fn verify_state(&mut self) -> i32 {
+        EyeServices::verify_state(self)
+    }
+    fn draw_indexed_vb(
+        &mut self,
+        prim: u32,
+        vertex_buffer: u32,
+        base_vertex: u32,
+        vertex_count: u32,
+        indices: &[u16],
+    ) -> i32 {
+        let span = u32::try_from(indices.len()).unwrap_or(u32::MAX);
+        EyeServices::draw_indexed_vb(
+            self,
+            prim,
+            vertex_buffer,
+            base_vertex,
+            vertex_count,
+            0,
+            span,
+        )
+    }
+    fn draw_indexed(
+        &mut self,
+        prim: u32,
+        min_index: u32,
+        vertex_count: u32,
+        start_index: u32,
+        count: u32,
+    ) -> i32 {
+        EyeServices::draw_indexed(self, prim, min_index, vertex_count, start_index, count)
+    }
+    fn lock_vertex_memory(&mut self, fvf: u32, count: u32) -> Result<VertexLock, i32> {
+        EyeServices::lock_vertex_memory(self, fvf, count)
+    }
+    fn copy_vertex_data(&mut self, _: &mut [u8], _: u32, _: &VertexSource, _: u32, _: u32) {}
+    fn unlock_vertex_memory(&mut self, _: VertexLock) {}
+    fn find_texture(&mut self, name: &[u8], crc: u32) -> Option<u32> {
+        EyeServices::find_texture(self, name, crc)
+    }
+    fn texture_frame_count(&mut self, record: u32) -> Option<i32> {
+        Some(EyeServices::frame_count(self, record))
+    }
+    fn create_playback(&mut self, record: u32) -> Result<i32, i32> {
+        EyeServices::create_playback(self, record)
+    }
+    fn texture_frame(&mut self, id: i32, frame: i32) -> Option<FrameOut> {
+        EyeServices::texture_frame(self, id, frame).map(|handle| FrameOut { handle, uv: [0; 4] })
+    }
+    fn release_texture_record(&mut self, record: u32) {
+        EyeServices::release_texture_record(self, record);
+    }
+    fn dec_ref_texture(&mut self, id: i32) {
+        EyeServices::dec_ref_texture(self, id);
+    }
+    fn has_animation_library(&mut self) -> bool {
+        false
+    }
+    fn create_animation_instance(&mut self, _: Option<&[u8]>, _: u32) -> Option<u32> {
+        None
+    }
+    fn release_animation_instance(&mut self, _: u32) {}
+    fn animation_uv_matrix(&mut self, _: u32) -> Option<[f32; 16]> {
+        None
+    }
+    fn instance_extent(&mut self, _: usize, _: usize) -> Option<(f32, [f32; 3])> {
+        None
+    }
+    fn global_record(&mut self, _: u32) -> u32 {
+        0
+    }
+}
+
+impl EyeHost for Rec {
+    fn eye_instance_parent(&mut self, instance: Instance) -> Instance {
+        DeformHost::instance_parent(self, instance)
+    }
+    fn eye_instance_orientation(&mut self, instance: Instance) -> [f32; 9] {
+        DeformHost::instance_orientation(self, instance)
+    }
+    fn take_uv_binding(&mut self) -> Option<UvBinding> {
+        self.binding.take()
+    }
+    fn restore_uv_binding(&mut self, binding: UvBinding) {
+        self.binding = Some(binding);
+    }
+    fn eye_dump(&mut self, flags: i32, file: &str, line: u32, message: &str) {
+        DeformRender::dump(self, flags, file, line, message);
     }
 }
 
@@ -1071,6 +1271,8 @@ struct Case {
     instance: Option<DeformInstance>,
     aims: Vec<Option<u32>>,
     aim_targets: Vec<([f32; 3], [f32; 9])>,
+    library: Option<MaterialLibrary<Rec>>,
+    lib_eyes: HashMap<String, Box<dyn Material<Rec>>>,
 }
 
 impl Case {
@@ -1476,6 +1678,7 @@ impl Case {
                 let id = self.arena.insert(Box::new(Dummy), 1);
                 self.rec.fakes.insert(id, format!("{}:{}", t[1], t[2]));
                 self.materials.insert(t[1].to_owned(), id);
+                self.rec.by_name.insert(t[1].as_bytes().to_vec(), id);
             }
             "eyemat" => {
                 let id = self.arena.insert(Box::new(Dummy), 1);
@@ -1488,6 +1691,7 @@ impl Case {
                 ));
                 self.rec.eyes.insert(id, eye);
                 self.materials.insert(t[1].to_owned(), id);
+                self.rec.by_name.insert(t[1].as_bytes().to_vec(), id);
             }
             "mesh" => {
                 self.build = MeshBuild {
@@ -1999,7 +2203,7 @@ impl Case {
                 }
                 let mut out = SvdMatrix::default();
                 if !pseudo_inverse(&source, &mut out).converged {
-                    DeformServices::dump(
+                    DeformRender::dump(
                         &mut self.rec,
                         0x0010_0002,
                         "Deformable2\\Mat.h",
@@ -2053,15 +2257,471 @@ impl Case {
                 self.rec.texture_formats.insert(hex_word(t[1]), dec(t[2]));
             }
             "eye" => self.run_eye(t),
+            "links" | "create" | "meshes" | "eyelib" => self.run_parts(op, t),
             other => panic!("unknown operation {other}"),
         }
     }
 }
 
-/// The suite's lines: every case of `deformable.list` in order.
-pub fn lines() -> Vec<String> {
+/// A part's holder, skeleton and buffers as the `create` operation shows
+/// them.
+fn part_text(part: &DeformPart) -> String {
+    let Some(holder) = part.lod.as_ref() else {
+        return "nolod".to_owned();
+    };
+    let bones = holder
+        .skeleton
+        .bones
+        .iter()
+        .map(|b| format!("{}:{}", b.archetype, fs(&b.bone_to_root)))
+        .collect::<Vec<_>>()
+        .join("|");
+    let slots = holder
+        .bones
+        .iter()
+        .map(|b| format!("{}:{:x}", b.instance, b.flags))
+        .collect::<Vec<_>>()
+        .join("|");
+    format!(
+        "bound={},lod={},meshes={},vcap={},icap={},flags={:x},skel={},bones={bones},slots={slots}",
+        holder.bind_cursor,
+        part.lod_index,
+        part.meshes.len(),
+        part.vb_capacity,
+        part.ib_capacity,
+        part.flags,
+        holder.skeleton.archetype
+    )
+}
+
+fn property_text(value: &PropertyValue) -> String {
+    Case::cell_text(&ParamValue {
+        ty: value.kind.cast_signed(),
+        words: value.words,
+        text: value.text.clone(),
+    })
+}
+
+fn eye_values(eye: &dyn Material<Rec>) -> String {
+    (0..10)
+        .map(|i| {
+            eye.parameter(i)
+                .map_or_else(|_| "0:0,0,0,0".to_owned(), |v| property_text(&v))
+        })
+        .collect::<Vec<_>>()
+        .join(";")
+}
+
+/// The archive's `Material library\<node>`.
+fn material_node(archive: &str, node: &str) -> Box<dyn FileSystem> {
+    let host = Host::new(fixtures());
+    let desc = FsDesc::read(archive.as_bytes()).with_implementation(b"UTF");
+    let mut fs: Box<dyn FileSystem> =
+        Box::new(UtfFileSystem::open(&host, &desc).unwrap_or_else(|e| panic!("{archive}: {e:?}")));
+    fs.open_node(b"Material library")
+        .expect("a material library");
+    fs.open_node(node.as_bytes()).expect("the material's node");
+    fs
+}
+
+impl Case {
+    #[allow(clippy::too_many_lines)]
+    fn run_parts(&mut self, op: &str, t: &[&str]) {
+        match op {
+            "links" => {
+                for group in t[1..].split(|w| *w == "|") {
+                    let links = group[1]
+                        .split(',')
+                        .map(|pair| {
+                            let (a, b) = pair.split_once(':').expect("a pair");
+                            (dec(a), dec(b))
+                        })
+                        .collect();
+                    self.rec.link_queue.push((dec(group[0]), links));
+                }
+            }
+            "create" => {
+                let mut descs: Vec<PartDesc> = t[1]
+                    .split(',')
+                    .map(|spec| {
+                        let f: Vec<&str> = spec.split(':').collect();
+                        let mut lods = vec![LodDesc::default(); 8];
+                        lods[0].name = f[0].as_bytes().to_vec();
+                        PartDesc {
+                            lod_count: dec(f[1]),
+                            lods,
+                            path: None,
+                            flags: dec(f[2]).cast_unsigned(),
+                            lod_limit: dec(f[3]).cast_unsigned(),
+                        }
+                    })
+                    .collect();
+                let host = Host::new(fixtures());
+                let mut open = |d: &PartDesc| -> Option<Box<dyn FileSystem>> {
+                    let desc = FsDesc::read(&d.lods[0].name).with_implementation(b"UTF");
+                    UtfFileSystem::open(&host, &desc)
+                        .ok()
+                        .map(|fs| Box::new(fs) as Box<dyn FileSystem>)
+                };
+                self.rec.holder_known = false;
+                let made = self
+                    .module
+                    .create(&mut descs, 0, 0, &mut open, &mut self.rec);
+                self.rec.holder_known = true;
+                let r = match &made {
+                    Ok(_) => GR_OK,
+                    Err(r) => *r,
+                };
+                let desc_text = descs
+                    .iter()
+                    .map(|d| {
+                        let n = usize::try_from(d.lod_count).unwrap_or(0);
+                        let fractions = d.lods[..n]
+                            .iter()
+                            .map(|l| f(l.fraction))
+                            .collect::<Vec<_>>()
+                            .join(",");
+                        format!(
+                            "{}/{}",
+                            d.lod_count,
+                            if fractions.is_empty() {
+                                "-"
+                            } else {
+                                &fractions
+                            }
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(";");
+                let parts_text = made.as_ref().map_or_else(
+                    |_| String::new(),
+                    |inst| {
+                        inst.parts
+                            .iter()
+                            .map(part_text)
+                            .collect::<Vec<_>>()
+                            .join(";")
+                    },
+                );
+                if let Ok(inst) = made {
+                    self.instance = Some(inst);
+                    self.holder = HolderAt::Part(0);
+                }
+                self.op(&format!(
+                    "\"op\":\"create\",\"r\":\"{r}\",\"descs\":\"{desc_text}\",\"parts\":\"{parts_text}\""
+                ));
+            }
+            "meshes" => {
+                let cache = &self.module.meshes;
+                let text = cache
+                    .iter()
+                    .map(|(crc, id)| {
+                        let refs = cache.refs(id);
+                        match cache.get(id) {
+                            Some(DeformMesh::Dfm(m)) => {
+                                let groups = m
+                                    .face_groups
+                                    .iter()
+                                    .map(|g| {
+                                        format!(
+                                            "{}/{}/{}",
+                                            u8::from(g.material.is_some()),
+                                            g.indices.len(),
+                                            g.uv_bone_index.cast_signed()
+                                        )
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join("|");
+                                let lists = m
+                                    .bone_verts
+                                    .iter()
+                                    .map(|l| l.len().to_string())
+                                    .collect::<Vec<_>>()
+                                    .join(",");
+                                format!(
+                                    "{crc:x}:{refs}:dfm:{}:{}:{}:{:x}:{groups}:{lists}",
+                                    m.index_count(),
+                                    m.vertex_capacity(),
+                                    u8::from(m.flag70),
+                                    m.fvf
+                                )
+                            }
+                            Some(DeformMesh::VMesh(w)) => {
+                                format!("{crc:x}:{refs}:vmesh:{}", w.handle)
+                            }
+                            None => String::new(),
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(";");
+                self.op(&format!("\"op\":\"meshes\",\"v\":\"{text}\""));
+            }
+            "eyelib" => self.run_eye_library(t),
+            other => panic!("unknown parts operation {other}"),
+        }
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn run_eye_library(&mut self, t: &[&str]) {
+        let rec = &mut self.rec;
+        match t[1] {
+            "map" => {
+                let mut library = MaterialLibrary::<Rec>::new(Box::new(EyeFactory::new()));
+                bind_eye_materials(&mut library);
+                let rule = &library.rules()[0];
+                rec.ev(&format!(
+                    "\"ev\":\"maprule\",\"key\":\"{}\",\"pattern\":\"{}\",\"type\":\"{}\"",
+                    rule.key,
+                    String::from_utf8_lossy(&rule.pattern),
+                    String::from_utf8_lossy(&rule.type_name)
+                ));
+                self.library = Some(library);
+                rec.ev("\"op\":\"eyelib\",\"sub\":\"map\"");
+                return;
+            }
+            "refuse" | "new" => {
+                let library = self.library.as_mut().expect("the library");
+                let type_name = if t[1] == "new" { "EyeMaterial" } else { t[2] };
+                let made = library.factory_mut().create(rec, type_name.as_bytes());
+                match (t[1], made) {
+                    ("refuse", made) => {
+                        let r = made.map_or_else(|r| r, |_| GR_OK);
+                        rec.ev(&format!(
+                            "\"op\":\"eyelib\",\"sub\":\"refuse\",\"r\":\"{r}\""
+                        ));
+                    }
+                    (_, Ok(mut eye)) => {
+                        let init = eye.initialize(rec);
+                        self.lib_eyes.insert(t[2].to_owned(), eye);
+                        rec.ev(&format!(
+                            "\"op\":\"eyelib\",\"sub\":\"new\",\"r\":\"0\",\"init\":\"{init}\""
+                        ));
+                    }
+                    (_, Err(r)) => {
+                        rec.ev(&format!(
+                            "\"op\":\"eyelib\",\"sub\":\"new\",\"r\":\"{r}\",\"init\":\"-1\""
+                        ));
+                    }
+                }
+                return;
+            }
+            _ => {}
+        }
+        let name = t[2].to_owned();
+        let mut eye = self.lib_eyes.remove(&name).expect("an EyeMaterial");
+        match t[1] {
+            "info" => {
+                let count = eye.parameter_count().unwrap_or(0);
+                let keys = (0..=count)
+                    .map(|i| match eye.parameter_tag(i) {
+                        Ok(Some(key)) => format!("0:{}", hex(&key)),
+                        Ok(None) => "0:-".to_owned(),
+                        Err(r) => format!("{r}:-"),
+                    })
+                    .collect::<Vec<_>>()
+                    .join(";");
+                let passes = eye.pass_count().unwrap_or(-9);
+                rec.ev(&format!(
+                    "\"op\":\"eyelib\",\"sub\":\"info\",\"class\":\"0:{}\",\"passes\":\"0:{passes}\",\"count\":\"0:{count}\",\"keys\":\"{keys}\"",
+                    eye.class_name()
+                ));
+            }
+            "name" => {
+                eye.set_name(&unhex(t[3]));
+                let (r, v) = match eye.name() {
+                    Ok(n) => (GR_OK, hex(&n)),
+                    Err(r) => (r, String::new()),
+                };
+                rec.ev(&format!(
+                    "\"op\":\"eyelib\",\"sub\":\"name\",\"r\":\"{r}\",\"v\":\"{v}\""
+                ));
+            }
+            "load" | "save" => {
+                let mut fs = material_node(t[3], t[4]);
+                let r = if t[1] == "load" {
+                    eye.load(rec, fs.as_mut())
+                } else {
+                    match eye.save(fs.as_ref()) {
+                        Ok(writes) => {
+                            for w in writes {
+                                rec.ev(&format!(
+                                    "\"ev\":\"fswrite\",\"name\":\"{}\",\"data\":\"{}\"",
+                                    String::from_utf8_lossy(&w.name),
+                                    hex(&w.bytes)
+                                ));
+                            }
+                            GR_OK
+                        }
+                        Err(r) => r,
+                    }
+                };
+                rec.ev(&format!(
+                    "\"op\":\"eyelib\",\"sub\":\"{}\",\"r\":\"{r}\",\"v\":\"{}\"",
+                    t[1],
+                    eye_values(eye.as_ref())
+                ));
+            }
+            "verify" => {
+                let r = eye.apply_verify(rec);
+                rec.ev(&format!(
+                    "\"op\":\"eyelib\",\"sub\":\"verify\",\"r\":\"{r}\""
+                ));
+            }
+            "resolve" => {
+                let r = eye.resolve_textures(rec, 0.0);
+                rec.ev(&format!(
+                    "\"op\":\"eyelib\",\"sub\":\"resolve\",\"r\":\"{r}\""
+                ));
+            }
+            "flags" => {
+                let (r, v) = match eye.flags(rec) {
+                    Ok(v) => (GR_OK, v),
+                    Err(r) => (r, 0),
+                };
+                rec.ev(&format!(
+                    "\"op\":\"eyelib\",\"sub\":\"flags\",\"r\":\"{r}\",\"v\":\"{v:x}\""
+                ));
+            }
+            "get" => {
+                let index = dec(t[3]).cast_unsigned();
+                let (r, cell) = match eye.parameter(index) {
+                    Ok(v) => (GR_OK, property_text(&v)),
+                    Err(r) => (r, "0:0,0,0,0".to_owned()),
+                };
+                rec.ev(&format!(
+                    "\"op\":\"eyelib\",\"sub\":\"get\",\"r\":\"{r}\",\"cell\":\"{cell}\""
+                ));
+            }
+            "set" => {
+                let index = dec(t[3]).cast_unsigned();
+                let kind = dec(t[4]).cast_unsigned();
+                let mut value = PropertyValue {
+                    kind,
+                    words: [0; 4],
+                    text: None,
+                };
+                if kind == 5 || kind == 7 {
+                    let b = unhex(t[5]);
+                    value.text = Some(neuron_core::hash::c_str(&b).to_vec());
+                } else {
+                    for (k, w) in t[5].split(',').take(4).enumerate() {
+                        value.words[k] = hex_word(w);
+                    }
+                }
+                let r = eye.set_parameter(rec, index, &value);
+                rec.ev(&format!(
+                    "\"op\":\"eyelib\",\"sub\":\"set\",\"r\":\"{r}\",\"v\":\"{}\"",
+                    eye_values(eye.as_ref())
+                ));
+            }
+            "bind" => {
+                if t[3] == "-" {
+                    let ctx = SubmitContext {
+                        instance: 0,
+                        world: &IDENTITY12,
+                        view: &IDENTITY12,
+                        vertices: None,
+                        indices: &[],
+                        vb: None,
+                        ib: None,
+                        replaced: None,
+                        field20: 0,
+                    };
+                    eye.bind(rec, Some(&ctx));
+                    eye.teardown(rec, Some(&ctx));
+                    rec.ev("\"op\":\"eyelib\",\"sub\":\"bind\"");
+                } else {
+                    let r = hex_floats(t[4]);
+                    let bone_index = usize::try_from(dec(t[3])).unwrap_or(0);
+                    let (local, instance) = {
+                        let b = &self.holder_mut().bones[bone_index];
+                        (b.local, b.instance)
+                    };
+                    let rec = &mut self.rec;
+                    #[allow(clippy::cast_possible_truncation)]
+                    let record = UvDeformRecord {
+                        bone_id: r[0] as i32,
+                        vertex_count: r[1] as i32,
+                        plane_distance: r[2],
+                        bone_x_to_u: r[3],
+                        bone_y_to_v: r[4],
+                        min_du: r[5],
+                        max_du: r[6],
+                        min_dv: r[7],
+                        max_dv: r[8],
+                    };
+                    rec.binding = Some(UvBinding {
+                        record: Some(record),
+                        bone_local: local,
+                        bone_instance: instance,
+                        eye_uv_transform_count: 0,
+                    });
+                    let ctx = SubmitContext {
+                        instance: instance.cast_unsigned() as usize,
+                        world: &IDENTITY12,
+                        view: &IDENTITY12,
+                        vertices: None,
+                        indices: &[],
+                        vb: None,
+                        ib: None,
+                        replaced: None,
+                        field20: 1,
+                    };
+                    eye.bind(rec, Some(&ctx));
+                    eye.teardown(rec, Some(&ctx));
+                    let n = rec.binding.take().map_or(0, |b| b.eye_uv_transform_count);
+                    rec.ev(&format!("\"op\":\"eyelib\",\"sub\":\"bind\",\"n\":\"{n}\""));
+                }
+            }
+            "submit" => {
+                let vb = VbListing {
+                    vertex_buffer: 0x123,
+                    fvf: 0x112,
+                    base_vertex: 5,
+                };
+                let ib = IbScratch {
+                    index_buffer: 0x456,
+                    bias: 7,
+                };
+                let ctx = SubmitContext {
+                    instance: 0,
+                    world: &IDENTITY12,
+                    view: &IDENTITY12,
+                    vertices: None,
+                    indices: &[],
+                    vb: Some(&vb),
+                    ib: Some(&ib),
+                    replaced: None,
+                    field20: 0,
+                };
+                let args = DrawArgs {
+                    prim_type: 4,
+                    start: 2,
+                    count: 9,
+                    ib_start: 3,
+                    index_span: 12,
+                    flags: 0x100,
+                };
+                let r = eye.submit(rec, &ctx, &args);
+                rec.ev(&format!(
+                    "\"op\":\"eyelib\",\"sub\":\"submit\",\"r\":\"{r}\""
+                ));
+            }
+            "release" => {
+                eye.destroy(rec);
+                rec.ev("\"op\":\"eyelib\",\"sub\":\"release\"");
+                return;
+            }
+            other => panic!("unknown eyelib operation {other}"),
+        }
+        self.lib_eyes.insert(name, eye);
+    }
+}
+
+/// The lines of every case of `list` in order.
+fn run_list(list: &str) -> Vec<String> {
     let log: Log = Rc::new(RefCell::new(Vec::new()));
-    for (case, line) in input_lines("deformable.list").iter().enumerate() {
+    for (case, line) in input_lines(list).iter().enumerate() {
         let mut runner = Case {
             rec: Rec::new(log.clone(), case),
             camera: Camera {
@@ -2080,6 +2740,8 @@ pub fn lines() -> Vec<String> {
             instance: None,
             aims: Vec::new(),
             aim_targets: Vec::new(),
+            library: None,
+            lib_eyes: HashMap::new(),
         };
         for op in line.split(" ; ") {
             let t: Vec<&str> = op.split(' ').collect();
@@ -2089,4 +2751,14 @@ pub fn lines() -> Vec<String> {
     let out = log.borrow().clone();
     let _ = BTreeMap::<u8, u8>::new();
     out
+}
+
+/// The suite's lines: every case of `deformable.list` in order.
+pub fn lines() -> Vec<String> {
+    run_list("deformable.list")
+}
+
+/// The parts suite's lines: every case of `deformable_parts.list` in order.
+pub fn parts_lines() -> Vec<String> {
+    run_list("deformable_parts.list")
 }
