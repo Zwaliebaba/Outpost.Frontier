@@ -469,6 +469,9 @@ struct Run {
     /// The bullet rays that started inside an object, which they then do
     /// not hit (as in IVP): the tick and the object's name.
     starts_inside: Vec<(u32, String)>,
+    /// The objects a bullet's ray crossed that IVP's OV sphere test kept it
+    /// from hitting: the tick and the object's name.
+    ov_culled: Vec<(u32, String)>,
 }
 
 /// A core's state as the bit diagnostic prints it.
@@ -905,6 +908,12 @@ fn run(s: &Scenario, ai: &AiInputs) -> Option<Run> {
                 .get(h)
                 .map_or_else(|| "?".to_owned(), |o| name_of(o.simple.id));
             out.starts_inside.push((tick, name));
+        }
+        for h in world.take_beam_ov_culled(system) {
+            let name = world
+                .get(h)
+                .map_or_else(|| "?".to_owned(), |o| name_of(o.simple.id));
+            out.ov_culled.push((tick, name));
         }
         if out.unported.is_none() {
             out.unported = handles.values().flatten().find_map(|&h| {
@@ -3339,6 +3348,21 @@ fn report_rand(summary: &mut String, dir: &Path, s: &Scenario, ours: &Run, first
             "{}: bullet rays that started inside an object (no hit, as in IVP): {}; {}",
             s.name,
             ours.starts_inside.len(),
+            shown.join(", ")
+        );
+    }
+    if !ours.ov_culled.is_empty() {
+        let shown: Vec<String> = ours
+            .ov_culled
+            .iter()
+            .take(8)
+            .map(|(t, n)| format!("tick {t} {n}"))
+            .collect();
+        let _ = writeln!(
+            summary,
+            "{}: bullet rays through an object that IVP's OV sphere test culled (no hit): {}; {}",
+            s.name,
+            ours.ov_culled.len(),
             shown.join(", ")
         );
     }

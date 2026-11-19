@@ -384,6 +384,28 @@ fn beams_hit_the_nearest_body_outside_their_group() {
     assert_eq!(world.collisions().len(), 1);
 }
 
+/// Against every object, IVP's ray solver first tests the OV element's
+/// sphere at the core's position at the start of its PSI (`MWorldFCore`):
+/// a fast object that crosses the ray now but was further than its radius
+/// from the ray's line then is not hit. A query of one object has no such
+/// test.
+#[test]
+fn rays_test_the_core_at_the_start_of_its_psi_first() {
+    let mut world = PhysicsWorld::new(1, &constants());
+    let mut random = IvpRandom::default();
+    let mover = ball(&mut world, 1, 1.0, Vector::new(10.0, 0.0, 0.0));
+    world.add_to_velocity(mover, Vector::new(0.0, 0.0, 30.0));
+    step(&mut world, &mut NoControllers, &mut random, 0.0999);
+    let now = world.transform(mover).unwrap().0;
+    let then = world.core_of(mover).unwrap().m_world_f_core_last_psi.vv;
+    assert!(now.z - then[2] > 2.5, "now {now:?} then {then:?}");
+    // A ray along x through the ball's centre now misses the sphere then.
+    let from = Vector::new(0.0, now.y, now.z);
+    let to = Vector::new(20.0, now.y, now.z);
+    assert!(world.find_ray_collisions(from, to, 8).is_empty());
+    assert_eq!(world.find_ray_intersect(mover, from, to, 4).len(), 1);
+}
+
 /// IVP's ray solver needs a face that faces the ray with the start in front
 /// of it, and its ball test returns when the start is inside: a ray never
 /// hits the object it starts in, and goes on to the next one.
