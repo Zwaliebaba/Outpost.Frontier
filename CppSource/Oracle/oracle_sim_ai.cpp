@@ -1072,13 +1072,13 @@ namespace
     void __cdecl OnAiAnswer(int Kind, unsigned int ObjectId, int const* Ints, int IntCount, float const* Floats,
                             int FloatCount)
     {
-        static const char* const kNames[5] = {"request", "dock_hardpoints", "lane_start", "go_tradelane",
-                                              "gun_target"};
+        static const char* const kNames[6] = {"request",      "dock_hardpoints", "lane_start",
+                                              "go_tradelane", "gun_target",      "zone_props"};
         FOracleJson J;
         J.Str("rec", "ai_answer");
         J.Uint("tick", Tick());
         J.Uint("seq", GOpen);
-        J.Str("kind", Kind >= 0 && Kind < 5 ? kNames[Kind] : "unknown");
+        J.Str("kind", Kind >= 0 && Kind < 6 ? kNames[Kind] : "unknown");
         IdAndName(J, ObjectId);
         J.BeginArray("i");
         for (int Index = 0; Index < IntCount; ++Index)

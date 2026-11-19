@@ -11,8 +11,9 @@
 // "Oracle instrumentation (P2.5 ai)": in Common/common_physys_query.cpp the three PhySys
 // queries the AI makes (FindRayCollisions, FindRayIntersect, FindSphereCollisions) report
 // the query and its hits; in Common/common_iobjinspectimpl.cpp get_dock_hardpoints and
-// get_lane_start, and in Server/server_gameobject.cpp Ship::request_returned and
-// Ship::go_tradelane, report their answers (OnAnswer). The definitions are in
+// get_lane_start, in Common/common_universe_system.cpp SYSTEM::GetSphereProperties, and in
+// Server/server_gameobject.cpp Ship::request_returned, Ship::go_tradelane and
+// EqObj::slot_44, report their answers (OnAnswer). The definitions are in
 // Common/oracle_ai.cpp.
 
 #pragma once
@@ -233,7 +234,11 @@ enum EOracleAiAnswer
     // the target's id, the sub-target, CEGun::SetTarget's answer (-1 when it was not called),
     // the gun's lock target id after the call (the result when SetTarget was not called), the
     // CSimple id SetTarget was given.
-    OracleAiAnswerGunTarget = 4
+    OracleAiAnswerGunTarget = 4,
+    // Universe::ISystem::GetSphereProperties(Sphere) (the pathfinder's and the target
+    // manager's zone probes): ObjectId = the system's id; Ints = the properties; Floats = the
+    // centre and the radius.
+    OracleAiAnswerZoneProperties = 5
 };
 
 struct FOracleAiHooks
