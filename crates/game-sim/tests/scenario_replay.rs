@@ -126,6 +126,8 @@ struct ObjDesc {
     pilot: Option<String>,
     /// The `faction` option: the reputation group of the ship's vibe.
     faction: Option<String>,
+    /// The `escort` option: the state graph's escort variant.
+    escort: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -249,6 +251,7 @@ fn parse(path: &Path) -> Option<Scenario> {
                     ai: None,
                     pilot: None,
                     faction: None,
+                    escort: false,
                 };
                 let mut at = if ship { 7 } else { 3 };
                 while at < t.len() {
@@ -281,6 +284,10 @@ fn parse(path: &Path) -> Option<Scenario> {
                         "faction" => {
                             o.faction = Some(t.get(at + 1)?.clone());
                             at += 2;
+                        }
+                        "escort" => {
+                            o.escort = true;
+                            at += 1;
                         }
                         _ => at += 1,
                     }
@@ -354,6 +361,8 @@ struct State {
     /// A ship's commanded throttle and axis throttle (`None` for others).
     throttle: Option<f32>,
     axis: Option<Vector>,
+    /// A ship's commanded nudge (`get_nudge_vec`; `None` for others).
+    nudge: Option<Vector>,
     hp: f32,
     /// `None` when the record does not carry it (an older oracle record,
     /// or an object without equipment).
@@ -709,11 +718,20 @@ fn run(s: &Scenario, ai: &AiInputs) -> Option<Run> {
             spawn.hit_pts = o.hp;
             let h = world.spawn_ship(system, &spawn).ok();
             if let (Some(h), Some(graph)) = (h, &o.ai) {
-                let id = world
-                    .data()
-                    .state_graphs
-                    .find(graph.as_bytes(), GraphType::Leader);
-                world.submit_state(h, id, ai.personalities.get(&o.name).copied());
+                let kind = if o.escort {
+                    GraphType::Escort
+                } else {
+                    GraphType::Leader
+                };
+                let id = world.data().state_graphs.find(graph.as_bytes(), kind);
+                // The harness submits a personality only with `pilot`
+                // (`bSetPersonality`); without one the manager keeps the
+                // default and the gun groups draw nothing more.
+                let personality = o
+                    .pilot
+                    .as_ref()
+                    .and_then(|_| ai.personalities.get(&o.name).copied());
+                world.submit_state(h, id, personality);
                 if let Some(m) = world.behavior_manager(h) {
                     let pf = &m.state.pathfind;
                     pathfind_phases.get_or_insert([pf.timer_1e0, pf.timer_1e8, pf.timer_20c]);
@@ -771,6 +789,7 @@ fn run(s: &Scenario, ai: &AiInputs) -> Option<Run> {
                         angvel: i.angular_velocity,
                         throttle: i.ship.as_ref().map(|s| s.throttle),
                         axis: i.ship.as_ref().map(|s| s.axis_throttle),
+                        nudge: i.ship.as_ref().map(|s| s.nudge),
                         hp: i.hit_pts,
                         power,
                         shield,
@@ -792,18 +811,22 @@ fn run(s: &Scenario, ai: &AiInputs) -> Option<Run> {
                 continue;
             };
             let a = &c.args;
-            let op = {
-                let resolve = |n: &str| {
-                    handles
-                        .get(n)
-                        .copied()
-                        .flatten()
-                        .and_then(|h| world.get(h))
-                        .map(|o| o.simple.id)
+            // `formation <leader|none> [x y z]`: `pub::AI::
+            // update_formation_state`.
+            if a[0] == "formation" {
+                let leader = match a.get(1).map(String::as_str) {
+                    Some("none") | None => None,
+                    Some(n) => handles.get(n).copied().flatten(),
                 };
-                directive_with(a, &resolve)
+                let offset = vec3(a, 2).unwrap_or(Vector::ZERO);
+                world.update_formation_state(h, leader, offset);
+                continue;
+            }
+            let id_of = |n: &str| {
+                let h = handles.get(n).copied().flatten()?;
+                world.get(h).map(|o| o.simple.id)
             };
-            if let Some(op) = op {
+            if let Some(op) = directive_with(a, &id_of) {
                 // A current directive blocks a new one, so each scenario
                 // directive cancels the one before.
                 if !matches!(op, DirectiveOp::Cancel) {
@@ -2143,6 +2166,11 @@ fn oracle_ticks(file: &Path) -> BTreeMap<String, Vec<State>> {
                     .and_then(Json::as_floats)
                     .filter(|a| a.len() >= 3)
                     .map(|a| Vector::new(a[0], a[1], a[2])),
+                nudge: r
+                    .get("nudge")
+                    .and_then(Json::as_floats)
+                    .filter(|a| a.len() >= 3)
+                    .map(|a| Vector::new(a[0], a[1], a[2])),
                 hp: r.get("hp").and_then(Json::as_f32).unwrap_or(0.0),
                 power: r.get("power").and_then(Json::as_f32),
                 shield,
@@ -2547,6 +2575,11 @@ fn first_bit_difference(
         {
             out.push(format!("axis {} | {}", hex3(x), hex3(y)));
         }
+        if let (Some(x), Some(y)) = (a.nudge, b.nudge)
+            && bits(x) != bits(y)
+        {
+            out.push(format!("nudge {} | {}", hex3(x), hex3(y)));
+        }
         out
     };
     let n = ours.len().min(theirs.len());
@@ -2571,9 +2604,12 @@ fn first_bit_difference(
     // The commands of the ticks around it, both sides (axis throttle bits).
     for t in first.saturating_sub(3)..(first + 2).min(n) {
         let ax = |st: &State| st.axis.map_or_else(|| "-".to_owned(), hex3);
+        let nu = |st: &State| st.nudge.map_or_else(|| "-".to_owned(), hex3);
         let _ = writeln!(
             summary,
-            "    tick {t}: axis {} | {}, angvel {} | {}",
+            "    tick {t}: nudge {} | {}, axis {} | {}, angvel {} | {}",
+            nu(&ours[t]),
+            nu(&theirs[t]),
             ax(&ours[t]),
             ax(&theirs[t]),
             hex3(ours[t].angvel),
@@ -2810,6 +2846,53 @@ fn first_event_of(run: &Run, guided: &BTreeMap<u32, Vec<GuidedState>>) -> Option
         })
         .min();
     [contact, hit, spent].into_iter().flatten().min()
+}
+
+/// The escort scenarios of P2.5, none with a contact or a munition impact
+/// (formation flight, a follow directive, a guide directive, a cruiser's
+/// goto and large-ship manoeuvre), judged exactly as recorded.
+const EXACT_SCENARIOS: [&str; 4] = ["formation", "follow", "guide", "large_ship"];
+
+/// A scenario without contact judged exactly: every object equals the
+/// oracle bit for bit at every recorded tick (position, velocity,
+/// orientation, hit points, shield), alive or gone as in the oracle.
+fn judge_exact(
+    summary: &mut String,
+    gross: &mut Vec<String>,
+    s: &Scenario,
+    ours: &Run,
+    theirs: &Run,
+) {
+    let mut exact = true;
+    for (name, a) in &ours.states {
+        let Some(b) = theirs.states.get(name) else {
+            continue;
+        };
+        if a.len() != b.len() {
+            exact = false;
+            gross.push(format!(
+                "{}: {name} has {} ticks against the oracle's {}",
+                s.name,
+                a.len(),
+                b.len()
+            ));
+        }
+        let n = a.len().min(b.len());
+        if let Some(t) = (0..n).find(|&t| !same_state(&a[t], &b[t])) {
+            exact = false;
+            gross.push(format!(
+                "{}: {name} differs from the oracle at tick {t} (no contact: judged exactly)",
+                s.name
+            ));
+        }
+    }
+    if exact {
+        let _ = writeln!(
+            summary,
+            "{}: exact: every object equals the oracle bit for bit at every tick",
+            s.name
+        );
+    }
 }
 
 /// A fight (owner, 2026-11-18; record 0003 point 9, as `ram_ship`): every
@@ -3185,6 +3268,9 @@ fn scenarios_against_the_oracle() {
         report_guided(&mut summary, &mut gross, dir, &s.name, &our_run, cutoff);
         report_guns(&mut summary, dir, &s.name, &our_run);
         report_contacts(&mut summary, &s, &our_run, &their_run);
+        if EXACT_SCENARIOS.contains(&s.name.as_str()) {
+            judge_exact(&mut summary, &mut gross, &s, &our_run, &their_run);
+        }
         if s.contact {
             judge_contact(&mut summary, &mut gross, &s, &our_run, &their_run);
         } else if fight {

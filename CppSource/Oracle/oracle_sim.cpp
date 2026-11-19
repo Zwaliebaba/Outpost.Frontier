@@ -94,6 +94,7 @@ namespace
         std::string Faction;     // P2.5: the reputation group of the ship's vibe, empty for none
         int HitPts = -1;
         bool bPsi = false;
+        bool bEscort = false;    // P2.5 escort: the state graph's ESCORT variant (with `ai`)
         int Line = 0;
     };
 
@@ -260,6 +261,13 @@ namespace
                 Object.StateGraph = T[At + 1];
                 At += 2;
             }
+            else if (Key == "escort")
+            {
+                // P2.5 escort: a wingman's graph, as Content's ResetFormationState gives one
+                // (pub::StateGraph::get_state_graph(graph, ESCORT)).
+                Object.bEscort = true;
+                ++At;
+            }
             else if (Key == "pilot" && At + 1 < T.size())
             {
                 Object.Pilot = T[At + 1];
@@ -285,7 +293,8 @@ namespace
             }
         }
         if (!Object.bShip &&
-            (!Object.StateGraph.empty() || !Object.Pilot.empty() || !Object.Faction.empty() || Object.HitPts != -1))
+            (!Object.StateGraph.empty() || !Object.Pilot.empty() || !Object.Faction.empty() || Object.HitPts != -1 ||
+             Object.bEscort))
         {
             Error = "a solar takes only psi";
             return false;
@@ -293,6 +302,11 @@ namespace
         if (!Object.Pilot.empty() && Object.StateGraph.empty())
         {
             Error = "pilot needs ai";
+            return false;
+        }
+        if (Object.bEscort && Object.StateGraph.empty())
+        {
+            Error = "escort needs ai";
             return false;
         }
         return true;
@@ -1869,12 +1883,15 @@ namespace
             if (bOk && !Desc.StateGraph.empty())
             {
                 pub::AI::SetPersonalityParams Params;
-                Params.StateGraphId = pub::StateGraph::get_state_graph(Desc.StateGraph.c_str(), pub::StateGraph::LEADER);
+                Params.StateGraphId = pub::StateGraph::get_state_graph(
+                    Desc.StateGraph.c_str(), Desc.bEscort ? pub::StateGraph::ESCORT : pub::StateGraph::LEADER);
                 Params.ContentCallbackObject = nullptr;
                 Params.DirectiveCallbackObject = nullptr;
                 Params.bSetPersonality = 0;
                 J.Str("state_graph", Desc.StateGraph.c_str());
                 J.Int("state_graph_id", Params.StateGraphId);
+                if (Desc.bEscort)
+                    J.Bool("escort", true);
                 if (!Desc.Pilot.empty())
                 {
                     // P2.5: the personality Content gives an NPC ship of an npcships.ini entry
@@ -2142,6 +2159,118 @@ namespace
             Op.TradeLaneId = Entrance->Id;
             Op.Field_10 = (int32_t)ExitId;
             memcpy(&Op.Field_14, &SpeedF, sizeof(SpeedF));
+            Result = SubmitScenarioDirective(Object->Id, Op);
+            return true;
+        }
+        // P2.5 escort. `formation <leader|none> [x y z]`: pub::AI::update_formation_state(ship,
+        // leader, offset), as Content's ResetFormationState makes a formation (the leader
+        // first with itself as leader and no offset, then each wingman with its slot).
+        if (Verb == "formation" && (A.size() == 2 || A.size() == 5))
+        {
+            unsigned int LeaderId = 0;
+            if (Lower(A[1]) != "none")
+            {
+                FSimObject const* const Leader = Target(1);
+                if (Leader == nullptr)
+                    return Note = "unknown leader", false;
+                LeaderId = Leader->Id;
+            }
+            Vector Offset;
+            Offset.x = Offset.y = Offset.z = 0.0f;
+            if (A.size() == 5 && !CommandVector(Command, 2, Offset))
+                return Note = "bad offset", false;
+            Result = (int)pub::AI::update_formation_state(Object->Id, LeaderId, Offset);
+            return true;
+        }
+        // `follow <target> [distance d] [offset x y z] [range r]`: DirectiveFollowOp (distance
+        // 150, offset 0, range 400 unless given).
+        if (Verb == "follow" && A.size() >= 2)
+        {
+            FSimObject const* const Aim = Target(1);
+            if (Aim == nullptr)
+                return Note = "unknown target", false;
+            pub::AI::DirectiveFollowOp Op;
+            Op.TargetId = Aim->Id;
+            for (size_t At = 2; At < A.size(); ++At)
+            {
+                double Value = 0.0;
+                std::string const Key = Lower(A[At]);
+                if (Key == "distance" && At + 1 < A.size() && ParseDouble(A[At + 1], Value))
+                {
+                    Op.FollowDistance = (float)Value;
+                    ++At;
+                }
+                else if (Key == "range" && At + 1 < A.size() && ParseDouble(A[At + 1], Value))
+                {
+                    Op.Field_20 = (float)Value;
+                    ++At;
+                }
+                else if (Key == "offset" && At + 3 < A.size())
+                {
+                    Vector Offset;
+                    if (!CommandVector(Command, At + 1, Offset))
+                        return Note = "bad offset", false;
+                    Op.Field_14 = Offset.x;
+                    Op.Field_18 = Offset.y;
+                    Op.Field_1C = Offset.z;
+                    At += 3;
+                }
+                else
+                {
+                    return Note = "bad follow option " + A[At], false;
+                }
+            }
+            Result = SubmitScenarioDirective(Object->Id, Op);
+            return true;
+        }
+        // `guide <escorted> <x y z> [range r] [distance d] [offset x y z]`: DirectiveGuideOp
+        // to a point (its goto part as the goto command's: Field_0C 1, no cruise; range 100
+        // unless given), the escorted ship in GotoParams.Field_5C and as the follow part's
+        // target (distance 150, offset 0 unless given); the other fields keep their defaults.
+        if (Verb == "guide" && A.size() >= 5)
+        {
+            FSimObject const* const Escorted = Target(1);
+            if (Escorted == nullptr)
+                return Note = "unknown escorted ship", false;
+            pub::AI::DirectiveGuideOp Op;
+            Op.GotoParams.Field_0C = 1;
+            if (!CommandVector(Command, 2, Op.GotoParams.Destination))
+                return Note = "bad point", false;
+            Op.GotoParams.Field_50 = 100.0f;
+            Op.GotoParams.Field_58 = 0;
+            Op.GotoParams.Field_5A = 0;
+            Op.GotoParams.Field_5B = 1;
+            Op.GotoParams.Field_5C = Escorted->Id;
+            Op.FollowParams.TargetId = Escorted->Id;
+            for (size_t At = 5; At < A.size(); ++At)
+            {
+                double Value = 0.0;
+                std::string const Key = Lower(A[At]);
+                if (Key == "range" && At + 1 < A.size() && ParseDouble(A[At + 1], Value))
+                {
+                    Op.GotoParams.Field_50 = (float)Value;
+                    ++At;
+                }
+                else if (Key == "distance" && At + 1 < A.size() && ParseDouble(A[At + 1], Value))
+                {
+                    Op.FollowParams.FollowDistance = (float)Value;
+                    ++At;
+                }
+                else if (Key == "offset" && At + 3 < A.size())
+                {
+                    Vector Offset;
+                    if (!CommandVector(Command, At + 1, Offset))
+                        return Note = "bad offset", false;
+                    Op.FollowParams.Field_14 = Offset.x;
+                    Op.FollowParams.Field_18 = Offset.y;
+                    Op.FollowParams.Field_1C = Offset.z;
+                    At += 3;
+                }
+                else
+                {
+                    return Note = "bad guide option " + A[At], false;
+                }
+            }
             Result = SubmitScenarioDirective(Object->Id, Op);
             return true;
         }

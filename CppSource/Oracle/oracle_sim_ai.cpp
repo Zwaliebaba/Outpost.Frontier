@@ -208,6 +208,12 @@ namespace
         unsigned int FollowId;
         int FollowerCount;
         unsigned int Followers[kMaxFollowers];
+        // P2.5 escort: get_formation_offset and get_follow_offset, which the formation and
+        // follow behaviours read.
+        int FormationOffsetResult;
+        Vector FormationOffset;
+        int FollowOffsetResult;
+        Vector FollowOffset;
         int DockResult;
         unsigned int DockTarget;
         int BaseResult;
@@ -355,6 +361,8 @@ namespace
         Out.FollowerCount = (Count < 0) ? 0 : ((Count > (int)kMaxFollowers) ? (int)kMaxFollowers : Count);
         for (int Index = 0; Index < Out.FollowerCount; ++Index)
             Out.Followers[Index] = IdOf(Followers[Index]);
+        Out.FormationOffsetResult = O->get_formation_offset(Out.FormationOffset);
+        Out.FollowOffsetResult = O->get_follow_offset(Out.FollowOffset);
         Out.DockResult = O->get_dock_target(Out.DockTarget);
         Out.BaseResult = O->get_base(Out.Base);
         Out.RankResult = O->get_rank(Out.Rank);
@@ -561,6 +569,8 @@ namespace
         for (int Index = 0; Index < Obj.FollowerCount; ++Index)
             J.Uint(nullptr, Obj.Followers[Index]);
         J.EndArray();
+        OptVector(J, "formation_offset", Obj.FormationOffsetResult, Obj.FormationOffset);
+        OptVector(J, "follow_offset", Obj.FollowOffsetResult, Obj.FollowOffset);
         OptUint(J, "dock_target", Obj.DockResult, Obj.DockTarget);
         OptUint(J, "base", Obj.BaseResult, Obj.Base);
         OptUint(J, "rank", Obj.RankResult, Obj.Rank);

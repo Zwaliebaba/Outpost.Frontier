@@ -177,6 +177,11 @@ struct ReplayWorld<'a> {
     used: Vec<bool>,
     /// The ship's `get_hardpoint("hpmount")` (`ai_obj.hpmount`).
     hpmount: Option<(Vector, Matrix)>,
+    /// The other AI ships' managers as their last recorded exit left
+    /// them: the current behaviour and the directive (`CEqObj::
+    /// get_behavior_interface`; a formation leader's directive is read by
+    /// its wingmen).
+    managers: BTreeMap<u32, (i32, [i32; 3])>,
 }
 
 impl<'a> ReplayWorld<'a> {
@@ -187,11 +192,20 @@ impl<'a> ReplayWorld<'a> {
         avoid_shuffled: bool,
         names: &BTreeMap<u32, String>,
     ) -> Self {
+        // The other scenario ships: the AI ships by their records, and the
+        // snapshot's named objects (a ship without a manager, such as the
+        // guided ship of a guide directive).
         let others = motion.map_or_else(BTreeMap::new, |m| {
             names
                 .iter()
-                .filter(|(id, _)| **id != t.id)
-                .filter_map(|(id, name)| m.ships.get(name).map(|h| (*id, *h)))
+                .map(|(id, name)| (*id, name.as_str()))
+                .chain(
+                    t.objects
+                        .iter()
+                        .filter_map(|o| Some((o.id, o.name.as_deref()?))),
+                )
+                .filter(|(id, _)| *id != t.id)
+                .filter_map(|(id, name)| m.ships.get(name).map(|h| (id, *h)))
                 .collect()
         });
         let motion = motion.and_then(|m| {
@@ -238,6 +252,7 @@ impl<'a> ReplayWorld<'a> {
                     .map_or(0.0, |s| s.guns.missile_launch_cone_angle),
             ],
             unanswered: Vec::new(),
+            managers: BTreeMap::new(),
         }
     }
 
@@ -614,6 +629,13 @@ impl AiWorld for ReplayWorld<'_> {
 
     fn targeted_enemy_count(&self, h: u32) -> i32 {
         self.targeted.get(&h).copied().unwrap_or(0)
+    }
+
+    fn manager_of(&self, h: u32) -> Option<(i32, [i32; 3])> {
+        if h == self.ship {
+            return None;
+        }
+        self.managers.get(&h).copied()
     }
 
     fn command(&mut self, h: u32, command: AiCommand<u32>) -> i32 {
@@ -1595,7 +1617,13 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
     let mut first_seen: BTreeMap<u32, ()> = BTreeMap::new();
     // The scenario directives submitted so far, and each ship's last
     // recorded exit (the state a directive between ticks finds).
-    let mut submitted = 0usize;
+    // Each command once, by its index (another ship's tick in the same
+    // frame must not consume it).
+    let mut submitted: Vec<bool> = motion
+        .as_ref()
+        .map_or_else(Vec::new, |m| vec![false; m.commands.len()]);
+    // Mismatches reported per ship.
+    let mut reported: BTreeMap<u32, usize> = BTreeMap::new();
     let mut last_out: BTreeMap<u32, ManagerRecord> = BTreeMap::new();
     let mut face_point: Option<Vector> = None;
     let mut personalities: BTreeMap<u32, Personality> = BTreeMap::new();
@@ -1618,6 +1646,19 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
             personalities.insert(t.id, p);
         }
         let mut world = ReplayWorld::new(t, scan, motion.as_ref(), avoid_shuffled, &names);
+        world.managers = last_out
+            .iter()
+            .filter(|(id, _)| **id != t.id)
+            .map(|(id, m)| {
+                (
+                    *id,
+                    (
+                        m.behavior,
+                        m.directive.map(|w| i32::from_ne_bytes(w.to_ne_bytes())),
+                    ),
+                )
+            })
+            .collect();
         let is_player = world.objects.get(&t.id).is_some_and(|v| v.is_player);
         if first_seen.insert(t.id, ()).is_none()
             && let Some(v) = world.objects.get(&t.id)
@@ -1676,11 +1717,24 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
             .as_ref()
             .map(|m| {
                 let mut ops = Vec::new();
-                while submitted < m.commands.len() && m.commands[submitted].0 <= t.tick {
-                    let (_, name, args) = &m.commands[submitted];
-                    submitted += 1;
+                for (index, (tick, name, args)) in m.commands.iter().enumerate() {
+                    if *tick > t.tick || submitted[index] || t.obj.as_deref() != Some(name.as_str())
+                    {
+                        continue;
+                    }
+                    submitted[index] = true;
+                    // The objects a follow or guide names, by the
+                    // snapshot's scenario names.
+                    let id_of = |n: &str| {
+                        t.objects
+                            .iter()
+                            .find(|o| o.name.as_deref() == Some(n))
+                            .map(|o| o.id)
+                    };
                     if t.obj.as_deref() == Some(name.as_str())
-                        && let Some(op) = support::directives::directive_with(args, &resolve)
+                        && let Some(op) = support::directives::directive_with(args, &|n| {
+                            id_of(n).or_else(|| resolve(n))
+                        })
                     {
                         ops.push(op);
                     }
@@ -1907,7 +1961,9 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
         if !rand_ok {
             totals.rand_mismatch += 1;
         }
-        if totals.reports.len() < MAX_REPORTED {
+        let per_ship = reported.entry(t.id).or_default();
+        *per_ship += 1;
+        if totals.reports.len() < MAX_REPORTED && *per_ship <= 3 {
             let mut r = report(
                 path,
                 t,

@@ -662,6 +662,24 @@ pub trait AiWorld {
         None
     }
 
+    /// Another object's behaviour manager's content-callback creation type
+    /// (`IBehaviorManager::ContentCbCreationType`, 3 until a callback is
+    /// installed); `None` when the object has no manager. The default has
+    /// none.
+    fn creation_type_of(&self, h: Self::Handle) -> Option<u32> {
+        let _ = h;
+        None
+    }
+
+    /// Another object's behaviour manager's personality (`CEqObj::
+    /// get_behavior_interface()->get_sys()->PersonalityData`), which a
+    /// wingman that the leader makes tougher borrows. `None` when the
+    /// object has none. The default has none.
+    fn personality_of(&self, h: Self::Handle) -> Option<super::personality::Personality> {
+        let _ = h;
+        None
+    }
+
     /// A loot container as the loot behaviour reads it (`CLoot` through
     /// `cobject()`, and `get_good_id`); `None` for an object that is not
     /// loot. The default has none.
@@ -684,6 +702,18 @@ pub trait AiWorld {
     /// target. The default has none.
     fn loot_target_of(&self, h: Self::Handle) -> Option<u32> {
         let _ = h;
+        None
+    }
+
+    /// `generate_follow_offset(follower, out)` (79) of a leader: the
+    /// follow point and frame it assigns the follower, `None` when it
+    /// gives none. The default gives none.
+    fn generate_follow_offset(
+        &self,
+        leader: Self::Handle,
+        follower: Self::Handle,
+    ) -> Option<Transform> {
+        let _ = (leader, follower);
         None
     }
 

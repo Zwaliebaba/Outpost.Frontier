@@ -1,0 +1,17 @@
+# Oracle.exe sim scenario (design/reference-build.md section 10): a guide directive.
+# A fighter guides a stationary ship (no behaviour) to a point 3000 m away
+# (DirectiveGuideOp, the guide behaviour 14): it starts by following the guided ship at
+# the offset (0, 0, 150) through the manager's follow behaviour; every 10 s it samples the
+# guided ship's progress, and as the ship makes none it switches to leading it through the
+# manager's goto behaviour toward the point, and back to following once it is more than
+# 200 m away, so both of the guide's children fly. Default personality, no faction.
+# Multiplayer stepping.
+
+system he01
+ticks 1500
+stepping mp
+
+ship guided he_fighter li_p_he_fighter_loadout01 15000 3000 -25000 psi
+ship guide he_fighter li_p_he_fighter_loadout01 15100 3000 -24900 ai FIGHTER psi
+
+at 1 guide guide guided 15000 3000 -28000 offset 0 0 150

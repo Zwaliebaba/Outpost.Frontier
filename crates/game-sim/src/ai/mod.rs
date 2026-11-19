@@ -66,8 +66,9 @@
 //!   `common_matchthrottleidea.cpp`).
 //!
 //! The behaviours that drive the ship ([`goto`], [`face`], [`buzz`],
-//! [`evade`], [`trail`], [`strafe`], [`flee`], [`loot`], [`dock`],
-//! [`launch`], [`itl`]) sit beside [`behaviors`], which registers them.
+//! [`evade`], [`trail`], [`strafe`], [`flee`], [`loot`], [`follower`]: follow
+//! and formation, [`guide`], [`large_ship`], [`dock`], [`launch`],
+//! [`itl`]) sit beside [`behaviors`], which registers them.
 //!
 //! Everything is computed on the 53-bit model of decision T11: `f64`
 //! evaluation, a rounding to `f32` at each `float` store the reference
@@ -91,13 +92,16 @@ pub mod face;
 pub mod face_idea;
 pub mod fire_control;
 pub mod flee;
+pub mod follower;
 pub(crate) mod fp;
 pub mod goto;
+pub mod guide;
 pub mod gun_convergence;
 pub mod gun_groups;
 pub mod idea;
 pub mod intercept;
 pub mod itl;
+pub mod large_ship;
 pub mod launch;
 pub mod loot;
 pub mod manager;

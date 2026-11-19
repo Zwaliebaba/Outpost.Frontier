@@ -463,6 +463,9 @@ fn pathfind(j: &Json) -> Option<PathfindRecord> {
 pub struct ObjRecord {
     /// The id.
     pub id: u32,
+    /// The scenario name (`obj`), `None` for an object the scenario does
+    /// not name.
+    pub name: Option<String>,
     /// The roles.
     pub roles: Vec<String>,
     /// The fields, `None` when the read faulted.
@@ -747,9 +750,9 @@ pub fn object_view(j: &Json) -> Option<ObjectView> {
         power: None,
         zone_props: None,
         formation_leader: opt_u(j, "formation_leader"),
-        formation_offset: None,
+        formation_offset: v3(j, "formation_offset"),
         follow_leader: opt_u(j, "follow_leader"),
-        follow_offset: None,
+        follow_offset: v3(j, "follow_offset"),
         formation_followers: j
             .get("followers")
             .and_then(Json::as_array)
@@ -851,6 +854,7 @@ pub fn read_ai_ticks(path: &Path) -> Vec<AiTick> {
                     }
                     "ai_obj" => t.objects.push(ObjRecord {
                         id: u(&j, "id").unwrap_or(0),
+                        name: j.get("obj").and_then(Json::as_str).map(str::to_owned),
                         roles: j
                             .get("roles")
                             .and_then(Json::as_array)
