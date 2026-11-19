@@ -74,8 +74,6 @@ namespace
     std::vector<FDraw> GDraws;
     // Each srand after the first: the draws recorded before it, and the index it reset.
     std::vector<std::pair<unsigned int, unsigned int>> GReseeds;
-    // The seed of each of them (--seed can make it differ from the first srand's).
-    std::vector<unsigned int> GReseedSeeds;
 
     // The hooked module that holds Address, -1 for none.
     int ModuleOf(void const* Address)
@@ -192,11 +190,6 @@ namespace
         GDraws.push_back(Draw);
     }
 
-    // The frame recorder (rand.jsonl): every draw of the frames, defined below.
-    FILE* GFrameFile = nullptr;
-    unsigned int const* GFrameTick = nullptr;
-    void RecordFrameDraw(int Value, int Module, void* Return);
-
     __declspec(noinline) int __cdecl CountingRand()
     {
         void* const Return = _ReturnAddress();
@@ -205,8 +198,6 @@ namespace
         const int Value = Real();
         if (GLoadActive)
             RecordLoadDraw(Value, Module, Return);
-        if (GFrameFile != nullptr)
-            RecordFrameDraw(Value, Module, Return);
         if (GObserver != nullptr)
             GObserver(Value, Module >= 0 ? GModules[Module].Name.c_str() : "?");
         return Value;
@@ -372,53 +363,10 @@ namespace
         fputs(J.Finish().c_str(), GLoadFile);
         fputc('\n', GLoadFile);
     }
-
-    // Each caller's text, resolved once.
-    std::map<void*, std::string> GFrameCallers;
-
-    // One draw of a frame: its tick, its index in the sequence of the seeding point's seed
-    // (the load recorder's generator, followed on), the module and the caller.
-    void RecordFrameDraw(int Value, int Module, void* Return)
-    {
-        FDraw Draw;
-        memset(&Draw, 0, sizeof(Draw));
-        Draw.Value = Value;
-        FollowGenerator(Value, Draw);
-        auto Found = GFrameCallers.find(Return);
-        if (Found == GFrameCallers.end())
-        {
-            FResolved const R = Resolve((DWORD64)(ULONG_PTR)Return);
-            const std::string Text = Where(R) + " " + Chain(R) + (R.Line.empty() ? "" : " (" + R.Line + ")");
-            Found = GFrameCallers.emplace(Return, Text).first;
-        }
-        FOracleJson J;
-        J.Str("rec", "draw");
-        J.Uint("tick", GFrameTick != nullptr ? *GFrameTick : 0);
-        J.Uint("i", Draw.Index);
-        J.Uint("gap", Draw.Gap);
-        J.Int("v", Value);
-        J.Str("mod", Module >= 0 ? GModules[Module].Name.c_str() : "?");
-        J.Str("at", Found->second.c_str());
-        fputs(J.Finish().c_str(), GFrameFile);
-        fputc('\n', GFrameFile);
-    }
 }
 
 namespace oracle
 {
-    bool OracleSimRandFrameStart(std::string const& OutDir, unsigned int const* Tick)
-    {
-        GFrameFile = fopen((OutDir + "\\rand.jsonl").c_str(), "wb");
-        GFrameTick = Tick;
-        return GFrameFile != nullptr;
-    }
-
-    void OracleSimRandFrameFlush()
-    {
-        if (GFrameFile != nullptr)
-            fflush(GFrameFile);
-    }
-
     void OracleSimRandHook(std::vector<std::string>& Hooked)
     {
         // Only imports bound to the universal CRT's rand, the one generator the game DLLs
@@ -485,7 +433,6 @@ namespace oracle
         GDraws.clear();
         GDraws.reserve(16384);
         GReseeds.clear();
-        GReseedSeeds.clear();
 
         // The symbol handler over every loaded module, the PDBs beside them (bin\).
         char Exe[MAX_PATH] = {};
@@ -513,7 +460,6 @@ namespace oracle
         if (!GLoadActive)
             return;
         GReseeds.push_back(std::make_pair((unsigned int)GDraws.size(), GShadowIndex));
-        GReseedSeeds.push_back(Seed);
         GShadowState = Seed;
         GShadowIndex = 0;
         GGapLost = false;
@@ -560,7 +506,7 @@ namespace oracle
             {
                 FOracleJson R;
                 R.Str("rec", "reseed");
-                R.Uint("seed", GReseedSeeds[NextReseed]);
+                R.Uint("seed", GSeed);
                 R.Uint("drawn", GReseeds[NextReseed].second);
                 WriteLine(R);
                 ++NextReseed;
@@ -600,10 +546,9 @@ namespace oracle
         for (std::string const& Name : Hooked)
             Summary += " " + Name;
         Summary += GSymbols ? "\nsymbols: dbghelp\n" : "\nsymbols: none\n";
-        for (size_t Reseed = 0; Reseed < GReseeds.size(); ++Reseed)
+        for (std::pair<unsigned int, unsigned int> const& R : GReseeds)
         {
-            sprintf_s(Text, "srand(%u) again after %u draws: the later indices count from 0\n", GReseedSeeds[Reseed],
-                      GReseeds[Reseed].second);
+            sprintf_s(Text, "srand(%u) again after %u draws: the later indices count from 0\n", GSeed, R.second);
             Summary += Text;
         }
         for (unsigned int Phase = 0; Phase < GPhases.size(); ++Phase)

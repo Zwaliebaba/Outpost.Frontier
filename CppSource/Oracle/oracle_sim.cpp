@@ -118,10 +118,6 @@ namespace
         bool bSpStepping = false;
         bool bSpCollisions = false;
         unsigned int Seed = 0x4f524143u;
-        // `reseed S`: the seed of the srand at the seeding point (start-up step 5), when it
-        // is not `seed` (a seed of Gate G2's seed ensemble kept as a scenario).
-        bool bReseed = false;
-        unsigned int Reseed = 0;
         double ClockStart = 1000.0;
         std::vector<FObjectDesc> Objects;
         std::vector<FCommand> Commands;
@@ -380,11 +376,6 @@ namespace
             {
                 Out.Seed = (unsigned int)Value;
             }
-            else if (Key == "reseed" && T.size() == 2 && ParseUnsigned(T[1], Value))
-            {
-                Out.bReseed = true;
-                Out.Reseed = (unsigned int)Value;
-            }
             else if (Key == "clock" && T.size() == 2 && ParseDouble(T[1], Number))
             {
                 Out.ClockStart = Number;
@@ -544,12 +535,10 @@ namespace
             if (File != nullptr)
                 fflush(File);
         }
-        oracle::OracleSimRandFrameFlush();
     }
 
     void CloseAll()
     {
-        oracle::OracleSimRandFrameFlush();
         for (FILE*& File : GFiles)
         {
             if (File != nullptr)
@@ -2513,8 +2502,6 @@ namespace oracle
             CloseAll();
             return 2;
         }
-        // The seed of the seeding point (start-up step 5): the scenario's reseed, else its seed.
-        unsigned int const Reseed = GScenario.bReseed ? GScenario.Reseed : GScenario.Seed;
 
         std::string const ExeDir = ExeFolder();
         std::string const StubPath = ExeDir + "SimClientStub.dll";
@@ -2533,7 +2520,6 @@ namespace oracle
             J.Str("stepping", GScenario.bSpStepping ? "sp" : "mp");
             J.Str("collisions", GScenario.bSpCollisions ? "sp" : "mp");
             J.Uint("seed", GScenario.Seed);
-            J.Uint("reseed", Reseed);
             J.Double("clock", GScenario.ClockStart);
             J.Uint("objects", (unsigned)GScenario.Objects.size());
             J.Uint("commands", (unsigned)GScenario.Commands.size());
@@ -2651,7 +2637,7 @@ namespace oracle
             J.Uint("controller", ControllerId);
             J.Uint("system_id", SystemId);
             J.Bool("system_loaded", bLoaded);
-            J.Uint("reseed", Reseed);
+            J.Uint("reseed", GScenario.Seed);
             Write(FileSession, J);
         }
         if (ControllerId == 0 || !bLoaded)
@@ -2664,8 +2650,8 @@ namespace oracle
         // The seeding point of the comparison (owner, 2026-11-18): the system and Content's
         // population of it (SystemLoaded) have drawn their values; the scenario starts from
         // srand(seed) again, where the Rust world, which has no population yet (P3.6), seeds.
-        OracleSimLoadRandReseed(Reseed);
-        srand(Reseed);
+        OracleSimLoadRandReseed(GScenario.Seed);
+        srand(GScenario.Seed);
 
         bool bSpawned = true;
         for (FObjectDesc const& Desc : GScenario.Objects)
@@ -2702,9 +2688,6 @@ namespace oracle
             SessionNote("note", "asteroids.jsonl or dock.jsonl cannot be written; fields and docking points are not recorded");
         SetSink(OnControllerMessage);
         OracleSimLoadRandEnd();
-        // The frame recorder (rand.jsonl): every draw of the frames with its caller.
-        if (!oracle::OracleSimRandFrameStart(OutDir, &GTick))
-            SessionNote("note", "rand.jsonl cannot be written; the frames' draws are not recorded");
 
         // Tick 0: the state after spawning, before any frame.
         unsigned int X87 = 0;

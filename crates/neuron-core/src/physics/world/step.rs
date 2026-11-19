@@ -856,11 +856,20 @@ impl PhysicsWorld {
     }
 
     /// The nearest hit of a ray on each body, nearest first: IVP's ray
-    /// solver (`IVP/ivp_collision/ivp_ray_solver.cpp`).
+    /// solver (`IVP/ivp_collision/ivp_ray_solver.cpp`), which all three
+    /// queries use. `GenerateCollisions` and `FindRayCollisions` cast
+    /// against every object (`check_ray_against_all_objects_in_sim`,
+    /// `Common/common_physicalsystem.cpp:444-445`, `:720-721`), through
+    /// `check_ray_against_ov_node` to `check_ray_against_object`;
+    /// `FindRayIntersect` calls `check_ray_against_object` on its one object
+    /// (`common_physys_query.cpp:694-695`). `check_ray_against_object` sends
+    /// a polygon object's ledges through `PhySurfaceManager::
+    /// insert_all_ledges_hitting_ray` (`common_physys_build.cpp:169-185`,
+    /// detached parts masked) to the ledge test, and a ball to the ball test.
     ///
-    /// Against every object (`all`, `check_ray_against_all_objects_in_sim`)
-    /// an object is tested only when its OV element passes the sphere test
-    /// of `check_ray_against_ov_node` (`:318-347`): the core's position at
+    /// Against every object (`only` is `None`) an object is tested only
+    /// when its OV element passes the sphere test
+    /// of `check_ray_against_ov_node` (`:323-347`): the core's position at
     /// the start of its PSI (`MWorldFCore`, not the pose the narrow test
     /// uses) within half the ray's length plus the core's upper limit
     /// radius of the ray's centre, and within that radius of the ray's line.

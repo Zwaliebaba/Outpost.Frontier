@@ -36,11 +36,4 @@ namespace oracle
     // the new sequence, from 0.
     void OracleSimLoadRandReseed(unsigned int Seed);
     void OracleSimLoadRandEnd();
-
-    // The frame recorder (rand.jsonl, design/sim-records.md): from the load recorder's end,
-    // every draw with the frame's tick (read through Tick), its index in the sequence of the
-    // seeding point's seed (followed on from the load recorder), the module and the caller.
-    // Start returns false when the file cannot be written; Flush writes what is buffered.
-    bool OracleSimRandFrameStart(std::string const& OutDir, unsigned int const* Tick);
-    void OracleSimRandFrameFlush();
 }
