@@ -1,7 +1,8 @@
 //! What the simulation calls outside the particle module: the texture
 //! library (`ITextureLibrary2`) through the appearances' texture wrapper
 //! (`FFxTextureWrapper` in `particlefx_genericfx.cpp`, the reference's
-//! `ImpFxTexInfo`).
+//! `ImpFxTexInfo`), and the client's mesh factory (`IFxMeshFactory`,
+//! `IFxMesh`) through the mesh appearance.
 //!
 //! Each method stands for one call in the reference's argument order. The
 //! renderer's texture library ([`crate::render::texture`]) is one answer;
@@ -35,6 +36,44 @@ pub trait ParticleServices {
     fn advance_time(&mut self, id: i32, seconds: f32);
     /// `DecRefById(id)`.
     fn dec_ref_texture(&mut self, id: i32);
+    /// The mesh factory `IFxRuntime::BindMeshFactory` bound (`G_FxMeshFactory`);
+    /// `None` when none is bound, and the mesh appearance then emits
+    /// nothing. The default binds none.
+    fn mesh_factory(&mut self) -> Option<&mut dyn FxMeshFactory> {
+        None
+    }
+}
+
+/// A mesh the mesh factory hands out (`IFxMesh`), by the factory's number.
+pub type FxMesh = u32;
+
+/// The client's mesh factory and its meshes (`IFxMeshFactory` and `IFxMesh`
+/// in `include/particlefx.h`; the reference's only implementation is the
+/// client's `FLFxMeshFactory` in `fl_fx_mesh.cpp`). Each method stands for
+/// one call in the reference's argument order; a mesh the factory hands
+/// out is held by one particle of a mesh appearance until
+/// [`FxMeshFactory::release_mesh`].
+pub trait FxMeshFactory {
+    /// `IFxMeshFactory::Slot3(mesh_id, mesh_name, world_six, &mesh)`: the
+    /// result and the mesh written (`None` for a null mesh).
+    fn create_mesh(
+        &mut self,
+        mesh_id: u32,
+        mesh_name: &[u8],
+        six: &[f32; 6],
+    ) -> (i32, Option<FxMesh>);
+    /// `IFxMesh::Slot3(transform)`: the mesh's world transform.
+    fn set_mesh_transform(&mut self, mesh: FxMesh, transform: &[f32; 12]);
+    /// `IFxMesh::Slot4()`: the mesh's world transform.
+    fn mesh_transform(&mut self, mesh: FxMesh) -> [f32; 12];
+    /// `IFxMesh::Slot5(dt)`: the mesh's update.
+    fn update_mesh(&mut self, mesh: FxMesh, dt: f32);
+    /// `IFxMesh::Slot6(camera)`: the mesh draws itself.
+    fn draw_mesh(&mut self, mesh: FxMesh, camera: &mut dyn Camera);
+    /// `IFxMesh::Slot7()`: the mesh lets go of its material and instance.
+    fn drop_mesh(&mut self, mesh: FxMesh);
+    /// The `Release` that frees the mesh.
+    fn release_mesh(&mut self, mesh: FxMesh);
 }
 
 /// Services that answer nothing: no texture is found, so no call after

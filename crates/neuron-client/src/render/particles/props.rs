@@ -153,9 +153,41 @@ pub enum PropsData {
     Field(FieldProps),
     /// The six billboard appearances.
     Billboard(Box<BillboardProps>),
-    /// `FxParticleAppearance` and `FxMeshAppearance` (their child effects
-    /// and meshes are not ported yet): only the LOD curve is kept.
-    OtherAppearance(SingleRampRamp),
+    /// `FxParticleAppearance`.
+    Particle(Box<ParticleProps>),
+    /// `FxMeshAppearance`.
+    Mesh(Box<MeshProps>),
+}
+
+/// The particle appearance set (`FFxParticleAppearancePropertySet`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ParticleProps {
+    /// `Appearance_LODCurve`.
+    pub lod_curve: SingleRampRamp,
+    /// `ParticleApp_LifeName`: the effect each particle carries along its
+    /// life (empty for none).
+    pub life_name: Vec<u8>,
+    /// `ParticleApp_DeathName`: the effect each particle leaves when it
+    /// dies (empty for none).
+    pub death_name: Vec<u8>,
+    /// Bit 0 `ParticleApp_UseDynamicRotation`, bit 1
+    /// `ParticleApp_SmoothRotation`.
+    pub flags: u32,
+}
+
+/// The mesh appearance set (`FFxMeshAppearancePropertySet`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct MeshProps {
+    /// `Appearance_LODCurve`.
+    pub lod_curve: SingleRampRamp,
+    /// `MeshApp_MeshId`, handed to the mesh factory.
+    pub mesh_id: u32,
+    /// `MeshApp_MeshName`, handed to the mesh factory.
+    pub mesh_name: Vec<u8>,
+    /// `MeshApp_UseParticleTransform`, the byte as set.
+    pub use_particle_transform: u8,
+    /// `MeshApp_ParticleTransform`, evaluated at a particle's time.
+    pub particle_transform: AnimatedTransform,
 }
 
 /// A node's property set at run time.
@@ -283,8 +315,19 @@ impl NodeProps {
                 common_tex_frame: slot(b.common_tex_frame.as_ref()),
                 local_transform: b.local_transform.as_ref().map(AnimatedTransform::new),
             })),
-            ClassData::Particle(p) => PropsData::OtherAppearance(SingleRampRamp::new(&p.lod_curve)),
-            ClassData::Mesh(m) => PropsData::OtherAppearance(SingleRampRamp::new(&m.lod_curve)),
+            ClassData::Particle(p) => PropsData::Particle(Box::new(ParticleProps {
+                lod_curve: SingleRampRamp::new(&p.lod_curve),
+                life_name: p.life_name.clone().unwrap_or_default(),
+                death_name: p.death_name.clone().unwrap_or_default(),
+                flags: p.flags,
+            })),
+            ClassData::Mesh(m) => PropsData::Mesh(Box::new(MeshProps {
+                lod_curve: SingleRampRamp::new(&m.lod_curve),
+                mesh_id: m.mesh_id,
+                mesh_name: m.mesh_name.clone().unwrap_or_default(),
+                use_particle_transform: m.use_particle_transform,
+                particle_transform: AnimatedTransform::new(&m.particle_transform),
+            })),
         };
         Self {
             class: set.class,

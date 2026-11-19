@@ -233,7 +233,7 @@ impl ParticleFx {
                 for axis in 0..3 {
                     full_delta[axis] = round(f64::from(full_delta[axis]) - f64::from(step[axis]));
                 }
-                self.emit_particle(id, &props.shape, age_offset, full_delta, velocity);
+                self.emit_particle(id, &props.shape, age_offset, full_delta, velocity, svc);
                 emit_now -= 1;
                 if emit_now == 0 {
                     break;
@@ -247,6 +247,7 @@ impl ParticleFx {
     }
 
     /// The shape's `EmitParticle(age_offset, pos_offset, vel_in)`.
+    #[allow(clippy::too_many_arguments)]
     fn emit_particle(
         &mut self,
         id: NodeId,
@@ -254,6 +255,7 @@ impl ParticleFx {
         age_offset: f32,
         pos_offset: [f32; 3],
         vel_in: [f32; 3],
+        svc: &mut dyn ParticleServices,
     ) {
         let Some(state) = self.n(id).emitter() else {
             return;
@@ -292,12 +294,13 @@ impl ParticleFx {
             }
         };
         let vel = dir.map(|d| round(f64::from(d) * f64::from(pressure)));
-        self.submit_particle(id, pos, vel, age_offset, pos_offset, vel_in);
+        self.submit_particle(id, pos, vel, age_offset, pos_offset, vel_in, svc);
     }
 
     /// `SubmitParticle`: the particle moved back along its velocity by the
     /// age offset and by the emitter's motion, into the appearance's space;
     /// the appearance's check (`Pad46`) decides whether it spawns (`Pad47`).
+    #[allow(clippy::too_many_arguments)]
     fn submit_particle(
         &mut self,
         id: NodeId,
@@ -306,6 +309,7 @@ impl ParticleFx {
         age_offset: f32,
         pos_offset: [f32; 3],
         vel_in: [f32; 3],
+        svc: &mut dyn ParticleServices,
     ) {
         let age = f64::from(age_offset);
         let q = vel.map(|v| round(f64::from(v) * age));
@@ -332,7 +336,7 @@ impl ParticleFx {
             placed[0], placed[1], placed[2], rotated[0], rotated[1], rotated[2],
         ];
         if self.appearance_check(appearance, &six, age_offset, init_life_span) {
-            self.appearance_spawn(appearance, &six, age_offset, init_life_span);
+            self.appearance_spawn(appearance, &six, age_offset, init_life_span, svc);
         }
     }
 }

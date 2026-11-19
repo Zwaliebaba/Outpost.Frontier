@@ -1,9 +1,10 @@
-// P4.8: the particle simulation (first increment) and drawing (second) of particlefx.dll,
+// P4.8: the particle simulation (first increment), drawing (second) and the particle and mesh
+// appearances (third) of particlefx.dll,
 // compiled in from the reference's own sources (particlefx_*.cpp but particlefx.cpp, whose
 // DllMain is replaced by the registration below), against a recording texture library,
 // recording renderer interfaces and camera, and an in-memory file system. The Rust side is
 // crates/neuron-client/tests/support/particles.rs with the same contract; the inputs are
-// crates/neuron-client/tests/fixtures/oracle/particle_{ramp,sim,draw}.list from
+// crates/neuron-client/tests/fixtures/oracle/particle_{ramp,sim,draw,child}.list from
 // make_particle_fixtures.py.
 //
 // The libraries load through FAleChunk from a file system holding the two leaves of an .ale
@@ -75,6 +76,23 @@
 //   where nothing was written)   SelectIb "selib","ib","base"
 //   DrawIndexedPrimitive "dip","prim","min","nv","start","n"
 //   the camera's GetViewTransform "camview", GetPosition "campos", GetOrientation "camorient"
+//
+// particle_child: the operations of particle_draw, every case also binding the runtime's
+// ParticleFx and effect library (G_RuntimeParticleFx, G_RuntimeEffectLibrary, which the particle
+// appearance creates its child effects through) and no mesh factory, and these:
+//   meshfac <mode>          G_FxMeshFactory: 0 none, 1 the recording factory, 2 the factory
+//                           failing (-1) with a mesh
+//   kids <slot>             per particle appearance record of the effect, each record of its
+//                           list: "kid","r","i","q" (BlendQuat, VelQuat, Blend), "life","death"
+//                           (the child effect's record and root counts, "-" for none), then a
+//                           dump of the life and the death effect (each line with "k":
+//                           "<record>.<item>.l|d"); per mesh appearance record, each item's
+//                           mesh: "mesh","r","i","m" (0 for none)
+// The recording mesh factory writes {"case","ev",...} in call order: Slot3 "meshnew","id"
+// (MeshId),"name" (MeshName's bytes in hex),"six","r","m" (meshes numbered from 1, each with
+// the transform {2, 0, 0, 0, 2, 0, 0, 0, 2, position} until posed); the meshes' Slot3
+// "meshxf","m","x", Slot4 "meshget","m", Slot5 "meshupd","m","dt", Slot6 "meshdraw","m", Slot7
+// "meshdrop","m", and the Release that reaches 0 "meshrel","m".
 // Floats are the eight hex digits of the f32.
 
 // The dumps below redefine private and protected; see there.
@@ -776,6 +794,102 @@ namespace
         int SetProperty(char const* Key, char const* Value) override { return GR_GENERIC; }
     };
 
+    // --- The recording mesh factory (particle_child) -----------------------------------------
+
+    class FFakeMesh final : public IFxMesh
+    {
+    public:
+        unsigned long Id = 0;
+        unsigned long Refs = 1;
+        float Xform[12] = {};
+        GENRESULT NEURONCOMPONENTS_API QueryInterface(const char*, void** Out) override
+        {
+            *Out = nullptr;
+            return GR_INTERFACE_UNSUPPORTED;
+        }
+        unsigned long NEURONCOMPONENTS_API AddRef() override { return ++Refs; }
+        unsigned long NEURONCOMPONENTS_API Release() override
+        {
+            if (Refs > 0)
+                --Refs;
+            if (Refs != 0)
+                return Refs;
+            // The fake keeps the object (the factory's list owns it); a released mesh is not
+            // called again.
+            GLog.Event(Format("\"ev\":\"meshrel\",\"m\":\"%lu\"", Id));
+            return 0;
+        }
+        GENRESULT NEURONCOMPONENTS_API Slot3(void* Transform) override
+        {
+            memcpy(Xform, Transform, sizeof(Xform));
+            GLog.Event(Format("\"ev\":\"meshxf\",\"m\":\"%lu\",\"x\":\"", Id) + Floats(Xform, 12) + "\"");
+            return GR_OK;
+        }
+        float* NEURONCOMPONENTS_API Slot4() override
+        {
+            GLog.Event(Format("\"ev\":\"meshget\",\"m\":\"%lu\"", Id));
+            return Xform;
+        }
+        GENRESULT NEURONCOMPONENTS_API Slot5(void* Arg) override
+        {
+            // The step's float bits in the argument's low word.
+            const unsigned long Bits = (unsigned long)(uintptr_t)Arg;
+            float Dt = 0.0f;
+            memcpy(&Dt, &Bits, sizeof(Dt));
+            GLog.Event(Format("\"ev\":\"meshupd\",\"m\":\"%lu\",\"dt\":\"", Id) + F(Dt) + "\"");
+            return GR_OK;
+        }
+        GENRESULT NEURONCOMPONENTS_API Slot6(void*) override
+        {
+            GLog.Event(Format("\"ev\":\"meshdraw\",\"m\":\"%lu\"", Id));
+            return GR_OK;
+        }
+        GENRESULT NEURONCOMPONENTS_API Slot7() override
+        {
+            GLog.Event(Format("\"ev\":\"meshdrop\",\"m\":\"%lu\"", Id));
+            return GR_OK;
+        }
+        GENRESULT NEURONCOMPONENTS_API Slot8(void*) override { return GR_GENERIC; }
+    };
+
+    class FFakeMeshFactory final : public IFxMeshFactory
+    {
+    public:
+        int Mode = 0;
+        std::list<FFakeMesh> Meshes;
+        unsigned long NextId = 1;
+        void Reset()
+        {
+            Mode = 0;
+            Meshes.clear();
+            NextId = 1;
+        }
+        GENRESULT NEURONCOMPONENTS_API QueryInterface(const char*, void** Out) override
+        {
+            *Out = nullptr;
+            return GR_INTERFACE_UNSUPPORTED;
+        }
+        unsigned long NEURONCOMPONENTS_API AddRef() override { return 1; }
+        unsigned long NEURONCOMPONENTS_API Release() override { return 1; }
+        GENRESULT NEURONCOMPONENTS_API Slot3(void* ArgA, void* ArgB, float const* Position,
+                                             IFxMesh** Out) override
+        {
+            Meshes.push_back(FFakeMesh());
+            FFakeMesh& Mesh = Meshes.back();
+            Mesh.Id = NextId++;
+            const float Start[12] = {2, 0, 0, 0, 2, 0, 0, 0, 2, Position[0], Position[1], Position[2]};
+            memcpy(Mesh.Xform, Start, sizeof(Start));
+            const long Result = Mode == 2 ? -1 : 0;
+            GLog.Event(Format("\"ev\":\"meshnew\",\"id\":\"%lu\",\"name\":\"", (unsigned long)(uintptr_t)ArgA) +
+                       HexC(static_cast<const char*>(ArgB)) + "\",\"six\":\"" + Floats(Position, 6) +
+                       Format("\",\"r\":\"%ld\",\"m\":\"%lu\"", Result, Mesh.Id));
+            *Out = &Mesh;
+            return static_cast<GENRESULT>(Result);
+        }
+    };
+
+    FFakeMeshFactory GMeshes;
+
     FPfxPipeline GPipe;
     FPfxVb GVb;
     FPfxIb GIb;
@@ -1168,6 +1282,56 @@ namespace
     // The module's draw globals and the renderer fakes as a case starts: no vertex buffer, the
     // batcher off, the buffer sizes of 1000-item pools, the counters, contexts and lists
     // cleared, an identity camera.
+    // The particle appearance's records: per record of a particle appearance's list, its tail
+    // and a dump of each child effect; per mesh appearance item, its mesh.
+    std::string ChildText(IFxEffect* Child)
+    {
+        if (Child == nullptr)
+            return "-";
+        FFxEffectObject* const Object = static_cast<FFxEffectObject*>(Child);
+        return Format("%lu/%ld", Object->NodeCount_, (long)Object->RootNodeCount_);
+    }
+
+    void DumpKids(Suite& Out, const std::string& Head, FFxEffectObject* Effect)
+    {
+        for (unsigned long Index = 0; Index < Effect->NodeCount_; ++Index)
+        {
+            INeuronComponent* const Record = Effect->Nodes_[Index].Node;
+            FGenericFxObjectBase* Node = Base(Record);
+            const std::string Class = Node->GetFxFactoryName();
+            const bool bMesh = Class == "FxMeshAppearance";
+            if (!bMesh && Class != "FxParticleAppearance")
+                continue;
+            FAppearancePool* Pool = PoolOf(Class.c_str());
+            for (FPooledParticle* P = Node->InstanceListHead_; P != nullptr; P = P->Next)
+            {
+                const unsigned long Item = ItemIndex(Pool, P);
+                if (bMesh)
+                {
+                    IFxMesh* const Mesh = *reinterpret_cast<IFxMesh**>(reinterpret_cast<unsigned char*>(P) + 0x30);
+                    const unsigned long Id = Mesh != nullptr ? static_cast<FFakeMesh*>(Mesh)->Id : 0;
+                    Out.Line(Head + Format("\"op\":\"mesh\",\"r\":\"%lu\",\"i\":\"%lu\",\"m\":\"%lu\"}", Index,
+                                           Item, Id));
+                    continue;
+                }
+                FParticleAppRecord* const R = reinterpret_cast<FParticleAppRecord*>(P);
+                float Q[9];
+                memcpy(Q, R->BlendQuat, 4 * sizeof(float));
+                memcpy(Q + 4, R->VelQuat, 4 * sizeof(float));
+                Q[8] = R->Blend;
+                Out.Line(Head + Format("\"op\":\"kid\",\"r\":\"%lu\",\"i\":\"%lu\",\"q\":\"", Index, Item) +
+                         Floats(Q, 9) + "\",\"life\":\"" + ChildText(R->LifeEffect) + "\",\"death\":\"" +
+                         ChildText(R->DeathEffect) + "\"}");
+                if (R->LifeEffect != nullptr)
+                    DumpEffect(Out, Head + Format("\"k\":\"%lu.%lu.l\",", Index, Item),
+                               static_cast<FFxEffectObject*>(R->LifeEffect), Record);
+                if (R->DeathEffect != nullptr)
+                    DumpEffect(Out, Head + Format("\"k\":\"%lu.%lu.d\",", Index, Item),
+                               static_cast<FFxEffectObject*>(R->DeathEffect), Record);
+            }
+        }
+    }
+
     void ResetDraw()
     {
         G_bInDraw = false;
@@ -1227,6 +1391,12 @@ namespace
                 return;
             G_TextureLibrary = &Textures;
             Library->BindParticleFx(Fx, Fx);
+            // The runtime's bindings, which the particle appearance's child effects go through;
+            // no mesh factory until a case binds one.
+            G_RuntimeParticleFx = Fx;
+            G_RuntimeEffectLibrary = Library;
+            GMeshes.Reset();
+            G_FxMeshFactory = nullptr;
             FAleFs Fs;
             FSlot Slots[4];
             for (const std::string& Op : SplitText(Lines[Case], " ; "))
@@ -1234,7 +1404,7 @@ namespace
                 const std::vector<std::string> P = SplitText(Op, " ");
                 const std::string& Name = P[0];
                 FSlot* S = P.size() > 1 && Name != "ale" && Name != "pool" && Name != "seed" && Name != "tex" &&
-                        Name != "cam" && Name != "batch" && Name != "limits"
+                        Name != "cam" && Name != "batch" && Name != "limits" && Name != "meshfac"
                     ? &Slots[atoi(P[1].c_str())]
                     : nullptr;
                 IFxEffect* Effect = S != nullptr ? S->Effect : nullptr;
@@ -1405,6 +1575,14 @@ namespace
                         Text += Format(Index ? ",%lu" : "%lu", Counters[Index]);
                     Out.Line(Head + "\"op\":\"counters\",\"c\":\"" + Text + "\"}");
                 }
+                else if (Name == "meshfac")
+                {
+                    GMeshes.Mode = atoi(P[1].c_str());
+                    G_FxMeshFactory = GMeshes.Mode != 0 ? static_cast<INeuronComponent*>(&GMeshes) : nullptr;
+                    Out.Line(Head + "\"op\":\"meshfac\"}");
+                }
+                else if (Name == "kids")
+                    DumpKids(Out, Head + Format("\"e\":\"%s\",", P[1].c_str()), static_cast<FFxEffectObject*>(Effect));
                 else if (Name == "dview")
                 {
                     FFxEffectObject* Object = static_cast<FFxEffectObject*>(Effect);
@@ -1426,6 +1604,9 @@ namespace
                 }
             }
             G_TextureLibrary = nullptr;
+            G_FxMeshFactory = nullptr;
+            G_RuntimeParticleFx = nullptr;
+            G_RuntimeEffectLibrary = nullptr;
             // The ParticleFx and the library are left alive: their teardown walks state the cases
             // do not set up (the init node).
         }
@@ -1440,4 +1621,5 @@ void RunParticleSuites()
     RampSuite();
     ScriptSuite("particle_sim.jsonl", "particle_sim.list");
     ScriptSuite("particle_draw.jsonl", "particle_draw.list");
+    ScriptSuite("particle_child.jsonl", "particle_child.list");
 }

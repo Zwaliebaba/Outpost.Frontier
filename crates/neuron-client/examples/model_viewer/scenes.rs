@@ -63,9 +63,12 @@ impl Scene {
                 animations: Some("CHARACTERS\\ANIMATIONS\\bodygenericmale.anm".to_owned()),
                 animation: None,
             },
+            // An explosion whose debris carry child effects: each particle
+            // of `FlamingDebApp` carries a `Flame` effect and leaves an
+            // `ExplodeNoFlameDeb` effect where it ends.
             "effect" => Scene::Effect {
-                file: "FX\\ENGINES\\gf_br_csv_engine01.ale".to_owned(),
-                name: None,
+                file: "FX\\MISC\\standardeffects.ale".to_owned(),
+                name: Some("Explode".to_owned()),
             },
             "script" => Scene::Script("MISSIONS\\M03\\m03_survivor1.thn".to_owned()),
             "sound" => Scene::Sound("hud_comm_window".to_owned()),

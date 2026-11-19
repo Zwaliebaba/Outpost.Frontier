@@ -597,9 +597,13 @@ impl ParticleFx {
                 self.draw_dust(id, camera, svc);
                 return;
             }
-            // Mesh appearances draw their meshes (none in this increment);
-            // particle appearances' child effects draw as effects.
-            NodeClass::MeshAppearance | NodeClass::ParticleAppearance => return,
+            NodeClass::MeshAppearance => {
+                self.mesh_draw(id, camera, svc);
+                return;
+            }
+            // The child effects are the node's children: the walk draws
+            // them.
+            NodeClass::ParticleAppearance => return,
             _ => {}
         }
         let (Some(index), Some(list)) = (context_of(class), list_of(class)) else {

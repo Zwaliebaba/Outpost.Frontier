@@ -199,6 +199,7 @@ mod tests {
     use super::*;
     use neuron_client::engine::Engine;
     use neuron_client::render::ff::device::RecordingBackend;
+    use neuron_client::render::particles::PoolKind;
     use neuron_client::text::font::fake::FakeBackend;
 
     fn small_args() -> Args {
@@ -290,7 +291,13 @@ mod tests {
         let mut viewer = viewer::Viewer::new(engine);
         let mut lines = Vec::new();
         for scene in &args.scenes {
-            let run = headless::run_scene(&mut viewer, scene, 2, None);
+            // The explosion throws its first debris on its fourth frame.
+            let frames = if matches!(scene, scenes::Scene::Effect { .. }) {
+                8
+            } else {
+                2
+            };
+            let run = headless::run_scene(&mut viewer, scene, frames, None);
             lines.push(headless::summary(&run));
             assert_eq!(run.result, Ok(()), "{}: {:?}", run.label, run.notes);
             let r = run.last;
@@ -304,7 +311,26 @@ mod tests {
                     assert_eq!((r.deformables, r.animations), (1, 1), "{}", run.label);
                     assert!(draws > 0, "{} draws", run.label);
                 }
-                scenes::Scene::Effect { .. } => assert_eq!(r.effects, 1, "{}", run.label),
+                scenes::Scene::Effect { .. } => {
+                    assert_eq!(r.effects, 1, "{}", run.label);
+                    assert!(draws > 0, "{} draws", run.label);
+                    // The debris carry their child effects.
+                    let fx = &viewer.engine.particles;
+                    let records = fx.pools.get(PoolKind::Particle).used();
+                    let live: u32 = records
+                        .iter()
+                        .filter_map(|&i| fx.pools.record(i).life.as_ref())
+                        .flat_map(|life| life.records())
+                        .filter_map(|r| fx.node(r.node).and_then(|n| n.appearance()))
+                        .map(|a| a.live)
+                        .sum();
+                    assert!(
+                        !records.is_empty() && live > 0,
+                        "{}: {} particle records, {live} child particles",
+                        run.label,
+                        records.len()
+                    );
+                }
                 scenes::Scene::Script(_) => assert_eq!(r.scripts, 1, "{}", run.label),
                 scenes::Scene::Page(_) => {
                     assert!(r.ui_nodes > 0, "{}", run.label);

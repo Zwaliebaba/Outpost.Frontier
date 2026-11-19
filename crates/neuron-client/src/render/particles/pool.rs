@@ -4,9 +4,13 @@
 //! and a used list of links, in allocation order; when a billboard pool is
 //! full, a spawn evicts the oldest used item from its owner's list. Each
 //! appearance threads its own particles through the items' `next` and
-//! `prev` (its instance list).
+//! `prev` (its instance list). The particle pool's items carry a particle
+//! record (orientation and child effects) and the mesh pool's a mesh; both
+//! are torn down when the item goes back (`ReleaseAppearancePoolItem`).
 
+use super::effect::Effect;
 use super::node::NodeId;
+use super::services::FxMesh;
 
 /// The pools, in the order `FreeAllAppearancePools` lists the globals'
 /// declarations (`G_PoolBasic` first).
@@ -260,10 +264,43 @@ impl Pool {
     }
 }
 
-/// The eight pools.
+/// The tail of a particle appearance's record (`FParticleAppRecord`, the
+/// words after the shared particle in the 0x74-byte items of
+/// `G_PoolParticle`): the orientation state and the two child effects.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ParticleRecord {
+    /// `BlendQuat` (w, x, y, z): the smooth rotation's state.
+    pub blend_quat: [f32; 4],
+    /// `VelQuat` (w, x, y, z): the orientation from the velocity.
+    pub vel_quat: [f32; 4],
+    /// `Blend`: the last slerp weight.
+    pub blend: f32,
+    /// The life effect (`ParticleApp_LifeName`), made at the spawn.
+    pub life: Option<Effect>,
+    /// The death effect (`ParticleApp_DeathName`), made once the particle
+    /// is past its duration.
+    pub death: Option<Effect>,
+}
+
+impl Default for ParticleRecord {
+    fn default() -> Self {
+        Self {
+            blend_quat: [1.0, 0.0, 0.0, 0.0],
+            vel_quat: [1.0, 0.0, 0.0, 0.0],
+            blend: 0.0,
+            life: None,
+            death: None,
+        }
+    }
+}
+
+/// The eight pools, with the tails of the particle and mesh pools' items
+/// (the particle records, and the mesh at `+0x30` of `G_PoolMesh`'s items).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Pools {
     pools: Vec<Pool>,
+    records: Vec<ParticleRecord>,
+    meshes: Vec<Option<FxMesh>>,
 }
 
 impl Pools {
@@ -275,7 +312,31 @@ impl Pools {
                 .iter()
                 .map(|_| Pool::new(DEFAULT_POOL_SIZE))
                 .collect(),
+            records: vec![ParticleRecord::default(); DEFAULT_POOL_SIZE as usize],
+            meshes: vec![None; DEFAULT_POOL_SIZE as usize],
         }
+    }
+
+    /// The record of a particle pool item.
+    #[must_use]
+    pub fn record(&self, index: u32) -> &ParticleRecord {
+        &self.records[index as usize]
+    }
+
+    /// The record of a particle pool item, mutable.
+    pub fn record_mut(&mut self, index: u32) -> &mut ParticleRecord {
+        &mut self.records[index as usize]
+    }
+
+    /// The mesh of a mesh pool item.
+    #[must_use]
+    pub fn mesh(&self, index: u32) -> Option<FxMesh> {
+        self.meshes[index as usize]
+    }
+
+    /// The mesh slot of a mesh pool item.
+    pub fn mesh_mut(&mut self, index: u32) -> &mut Option<FxMesh> {
+        &mut self.meshes[index as usize]
     }
 
     /// A pool.
@@ -295,6 +356,11 @@ impl Pools {
     /// effects.
     pub fn reallocate(&mut self, kind: PoolKind, count: u32) {
         self.pools[kind as usize] = Pool::new(count);
+        match kind {
+            PoolKind::Particle => self.records = vec![ParticleRecord::default(); count as usize],
+            PoolKind::Mesh => self.meshes = vec![None; count as usize],
+            _ => {}
+        }
     }
 }
 

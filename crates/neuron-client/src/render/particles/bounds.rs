@@ -76,6 +76,51 @@ fn merge(sphere: &mut [f32; 4], centre: [f32; 3], radius: f32, length: Length) {
     sphere[3] = new_radius;
 }
 
+/// `MergeMeshBoundsPoint`: `sphere` grows to hold the point `centre` (a
+/// sphere of radius 0, the length rounded to a float).
+pub(crate) fn merge_point(sphere: &mut [f32; 4], centre: [f32; 3]) {
+    merge(sphere, centre, 0.0, Length::Yzx);
+}
+
+/// `MergeParticleSphere(out, child, inline)`: the particle appearance's
+/// merge of its child effects' spheres. The radius sums in another order
+/// than the list merges' (the child's radius and the distance first);
+/// `inline` takes the rounded `(y*y + z*z) + x*x` length (the death
+/// effects'), otherwise `(x*x + y*y) + z*z` unrounded (the life effects').
+pub(crate) fn merge_particle_sphere(out: &mut [f32; 4], child: &[f32; 4], inline: bool) {
+    let mut difference: [f32; 3] = std::array::from_fn(|i| round(d(child[i]) - d(out[i])));
+    let length_sq = if inline {
+        d(round(
+            (d(difference[1]) * d(difference[1]) + d(difference[2]) * d(difference[2]))
+                + d(difference[0]) * d(difference[0]),
+        ))
+    } else {
+        (d(difference[0]) * d(difference[0]) + d(difference[1]) * d(difference[1]))
+            + d(difference[2]) * d(difference[2])
+    };
+    let g = d(inv_sqrt_guess(round(length_sq)));
+    let distance = ((1.5 - ((g * g) * length_sq) * 0.5) * g) * length_sq;
+    let rounded = round(distance);
+    if distance + d(out[3]) < d(child[3]) {
+        *out = *child;
+        return;
+    }
+    if d(child[3]) + d(rounded) < d(out[3]) {
+        return;
+    }
+    let new_radius = round(((d(child[3]) + d(rounded)) + d(out[3])) * 0.5);
+    if !(d(rounded) <= 1e-6) {
+        let inverse = 1.0 / d(rounded);
+        difference = difference.map(|v| round(inverse * d(v)));
+        let step = round(d(new_radius) - d(out[3]));
+        for (i, v) in difference.iter().enumerate() {
+            let offset = round(d(step) * d(*v));
+            out[i] = round(d(offset) + d(out[i]));
+        }
+    }
+    out[3] = new_radius;
+}
+
 /// How a class sizes a particle's sphere.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Radius {
@@ -126,12 +171,8 @@ impl ParticleFx {
             return NO_SPHERE;
         };
         match class {
-            NodeClass::MeshAppearance => {
-                // No meshes in this increment: the list is empty.
-                to_world(out);
-                return GR_GENERIC;
-            }
-            NodeClass::ParticleAppearance => return GR_GENERIC,
+            NodeClass::MeshAppearance => return self.mesh_bounds(id, out),
+            NodeClass::ParticleAppearance => return self.particle_bounds(id, out),
             // Dust has no sphere of its own.
             NodeClass::DustAppearance => return NO_SPHERE,
             _ => {}

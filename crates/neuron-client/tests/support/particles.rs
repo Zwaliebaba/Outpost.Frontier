@@ -4,7 +4,9 @@
 //! `particle_sim` (effects driven by the client's calls, with dumps of the
 //! node state, the particle lists, the pools and the texture calls) and
 //! `particle_draw` (the same with the draws, against a recording renderer
-//! and camera).
+//! and camera) and `particle_child` (the same with the particle
+//! appearances' child effects and the mesh appearances' meshes of a
+//! recording mesh factory).
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
@@ -16,8 +18,8 @@ use neuron_client::render::particles::ramp::{
 };
 use neuron_client::render::particles::services::{FrameOut, TextureRecord};
 use neuron_client::render::particles::{
-    Camera, Effect, EffectError, NodeId, ParticleDraw, ParticleFx, ParticleServices, PoolKind,
-    pool_of,
+    Camera, Effect, EffectError, FxMesh, FxMeshFactory, NodeId, ParticleDraw, ParticleFx,
+    ParticleServices, PoolKind, pool_of,
 };
 use neuron_core::fx_data::props::{APPEARANCE_LOD_CURVE, kind};
 use neuron_core::fx_data::{
@@ -257,6 +259,73 @@ struct Textures {
     vb_pending: u32,
     ib_locks: u32,
     ib_pending: u32,
+    meshes: FakeMeshes,
+}
+
+/// The recording mesh factory: meshes numbered from 1, each with a
+/// transform (a scale of 2 at the position it was made at until posed);
+/// mode 0 binds none, 1 hands out meshes, 2 fails with a mesh.
+struct FakeMeshes {
+    head: String,
+    log: Log,
+    mode: u32,
+    next: u32,
+    transforms: BTreeMap<u32, [f32; 12]>,
+}
+
+impl FakeMeshes {
+    fn line(&self, text: &str) {
+        self.log.borrow_mut().push(format!("{}{text}}}", self.head));
+    }
+}
+
+impl FxMeshFactory for FakeMeshes {
+    fn create_mesh(
+        &mut self,
+        mesh_id: u32,
+        mesh_name: &[u8],
+        six: &[f32; 6],
+    ) -> (i32, Option<FxMesh>) {
+        let mesh = self.next;
+        self.next += 1;
+        let t = [
+            2.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 2.0, six[0], six[1], six[2],
+        ];
+        self.transforms.insert(mesh, t);
+        let r = if self.mode == 2 { -1 } else { 0 };
+        let name: String = mesh_name.iter().map(|b| format!("{b:02x}")).collect();
+        self.line(&format!(
+            "\"ev\":\"meshnew\",\"id\":\"{mesh_id}\",\"name\":\"{name}\",\"six\":\"{}\",\"r\":\"{r}\",\"m\":\"{mesh}\"",
+            floats(six, ",")
+        ));
+        (r, Some(mesh))
+    }
+    fn set_mesh_transform(&mut self, mesh: FxMesh, transform: &[f32; 12]) {
+        self.line(&format!(
+            "\"ev\":\"meshxf\",\"m\":\"{mesh}\",\"x\":\"{}\"",
+            floats(transform, ",")
+        ));
+        self.transforms.insert(mesh, *transform);
+    }
+    fn mesh_transform(&mut self, mesh: FxMesh) -> [f32; 12] {
+        self.line(&format!("\"ev\":\"meshget\",\"m\":\"{mesh}\""));
+        self.transforms.get(&mesh).copied().unwrap_or(IDENTITY)
+    }
+    fn update_mesh(&mut self, mesh: FxMesh, dt: f32) {
+        self.line(&format!(
+            "\"ev\":\"meshupd\",\"m\":\"{mesh}\",\"dt\":\"{}\"",
+            f(dt)
+        ));
+    }
+    fn draw_mesh(&mut self, mesh: FxMesh, _camera: &mut dyn Camera) {
+        self.line(&format!("\"ev\":\"meshdraw\",\"m\":\"{mesh}\""));
+    }
+    fn drop_mesh(&mut self, mesh: FxMesh) {
+        self.line(&format!("\"ev\":\"meshdrop\",\"m\":\"{mesh}\""));
+    }
+    fn release_mesh(&mut self, mesh: FxMesh) {
+        self.line(&format!("\"ev\":\"meshrel\",\"m\":\"{mesh}\""));
+    }
 }
 
 impl Textures {
@@ -274,6 +343,13 @@ impl Textures {
             vb_pending: 0,
             ib_locks: 0,
             ib_pending: 0,
+            meshes: FakeMeshes {
+                head: head.to_owned(),
+                log: Rc::clone(log),
+                mode: 0,
+                next: 1,
+                transforms: BTreeMap::new(),
+            },
         }
     }
 
@@ -338,6 +414,13 @@ impl ParticleServices for Textures {
     }
     fn dec_ref_texture(&mut self, id: i32) {
         self.line(&format!("\"ev\":\"decref\",\"id\":\"{id}\""));
+    }
+    fn mesh_factory(&mut self) -> Option<&mut dyn FxMeshFactory> {
+        if self.meshes.mode == 0 {
+            None
+        } else {
+            Some(&mut self.meshes)
+        }
     }
 }
 
@@ -754,6 +837,68 @@ pub fn draw_lines() -> Vec<String> {
     script_lines("particle_draw.list")
 }
 
+/// `particle_child.list`.
+pub fn child_lines() -> Vec<String> {
+    script_lines("particle_child.list")
+}
+
+/// The effect a child slot holds, as the `kids` dump names it.
+fn child_text(effect: Option<&Effect>) -> String {
+    effect.map_or_else(
+        || "-".to_owned(),
+        |e| format!("{}/{}", e.records().len(), e.root_count()),
+    )
+}
+
+/// `kids <slot>`: per particle appearance record of the effect, each pool
+/// record of its list (the orientation state and the child effects, then
+/// a dump of each child effect), and per mesh appearance record each
+/// item's mesh.
+fn kids(fx: &ParticleFx, effect: &Effect, head: &str, out: &mut Vec<String>) {
+    for (index, record) in effect.records().iter().enumerate() {
+        let node = fx.node(record.node).expect("a live record");
+        let class = node.class();
+        let kind = match class {
+            NodeClass::ParticleAppearance => PoolKind::Particle,
+            NodeClass::MeshAppearance => PoolKind::Mesh,
+            _ => continue,
+        };
+        let pool = fx.pools.get(kind);
+        let mut cursor = node.appearance().and_then(|a| a.head);
+        while let Some(i) = cursor {
+            if kind == PoolKind::Mesh {
+                out.push(format!(
+                    "{head}\"op\":\"mesh\",\"r\":\"{index}\",\"i\":\"{i}\",\"m\":\"{}\"}}",
+                    fx.pools.mesh(i).unwrap_or(0)
+                ));
+            } else {
+                let r = fx.pools.record(i);
+                let mut q = r.blend_quat.to_vec();
+                q.extend(r.vel_quat);
+                q.push(r.blend);
+                out.push(format!(
+                    "{head}\"op\":\"kid\",\"r\":\"{index}\",\"i\":\"{i}\",\"q\":\"{}\",\"life\":\"{}\",\"death\":\"{}\"}}",
+                    floats(&q, ","),
+                    child_text(r.life.as_ref()),
+                    child_text(r.death.as_ref())
+                ));
+                for (tag, child) in [("l", &r.life), ("d", &r.death)] {
+                    if let Some(child) = child {
+                        dump(
+                            fx,
+                            child,
+                            Some(record.node),
+                            &format!("{head}\"k\":\"{index}.{i}.{tag}\","),
+                            out,
+                        );
+                    }
+                }
+            }
+            cursor = pool.item(i).next;
+        }
+    }
+}
+
 /// The operations of both suites over one list.
 #[allow(clippy::too_many_lines)]
 fn script_lines(list: &str) -> Vec<String> {
@@ -844,7 +989,7 @@ fn script_lines(list: &str) -> Vec<String> {
                 }
                 "step" => {
                     let effect = slots[slot_index(1)].effect.as_ref().expect("an effect");
-                    effect.compose(&mut fx);
+                    effect.compose(&mut fx, &mut tex);
                     effect.update(&mut fx, hex_float(p[2]), &mut tex);
                     lines.push(format!("{head}\"op\":\"step\"}}"));
                 }
@@ -946,6 +1091,19 @@ fn script_lines(list: &str) -> Vec<String> {
                         "{head}\"op\":\"counters\",\"c\":\"{}\"}}",
                         c.join(",")
                     ));
+                }
+                "meshfac" => {
+                    tex.meshes.mode = p[1].parse().unwrap_or(0);
+                    lines.push(format!("{head}\"op\":\"meshfac\"}}"));
+                }
+                "kids" => {
+                    let effect = slots[slot_index(1)].effect.as_ref().expect("an effect");
+                    kids(
+                        &fx,
+                        effect,
+                        &format!("{head}\"e\":\"{}\",", p[1]),
+                        &mut lines,
+                    );
                 }
                 "dview" => {
                     let effect = slots[slot_index(1)].effect.as_ref().expect("an effect");

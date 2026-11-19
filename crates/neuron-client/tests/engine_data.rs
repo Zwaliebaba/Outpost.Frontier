@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use neuron_client::engine::{Engine, EngineConfig, FrameInput, Phase, TEARDOWN_ORDER};
 use neuron_client::render::appearance::Camera;
 use neuron_client::render::ff::device::RecordingBackend;
+use neuron_client::render::particles::PoolKind;
 use neuron_client::text::font::fake::FakeBackend;
 use neuron_client::window::DisplayMode;
 
@@ -351,4 +352,80 @@ fn models_of_one_file_name_in_several_folders_stay_apart() {
     assert_ne!(archetypes[0], archetypes[1]);
     assert_ne!(archetypes[0], archetypes[2]);
     assert_ne!(archetypes[1], archetypes[2]);
+}
+
+/// The particle effects' client wiring over the original data: the mesh
+/// appearance of the trade lane tube (`gf_TLR_tube`) asks the engine's mesh
+/// factory for `fx\misc\TLRtube.3db` (divergence D490), whose instances the
+/// frame poses and draws through the render manager; the explosion's debris
+/// (`Explode`) carry their child effects, drawn with the effect. Releasing
+/// the effects destroys the meshes' instances.
+#[test]
+fn the_engine_draws_mesh_appearances_and_child_effects() {
+    let base = outdir();
+    let (Ok(engine_ini), Ok(client_ini)) = (
+        fs::read(base.join("NeuronComponents.ini")),
+        fs::read(base.join("OutpostFrontier.ini")),
+    ) else {
+        println!("outdir has no INI files: nothing to run");
+        return;
+    };
+    let data = base.join("data");
+    if !data.join("FX").is_dir() {
+        println!("outdir/data is missing: nothing to run");
+        return;
+    }
+    let mode = DisplayMode {
+        width: 640,
+        height: 480,
+        fullscreen: false,
+    };
+    let mut config = EngineConfig::new(&data, mode);
+    config.engine_ini = Some(engine_ini);
+    config.client_ini = Some(client_ini);
+    config.font_backend = Some(Box::new(FakeBackend::default()));
+    let mut engine: Engine<RecordingBackend> =
+        Engine::new(config, RecordingBackend::default()).expect("the engine");
+    engine
+        .load_effects(b"FX\\MISC\\gf_tlr_tube.ale")
+        .expect("the tube's effects");
+    engine
+        .load_effects(b"FX\\MISC\\standardeffects.ale")
+        .expect("the standard effects");
+    let tube = engine.create_effect(b"gf_TLR_tube").expect("the tube");
+    let mut peak = (0, 0);
+    let mut packets = 0;
+    for _ in 0..12 {
+        packets += frame_packets(&mut engine);
+        let (live, instanced) = engine.fx_mesh_count();
+        peak = (peak.0.max(live), peak.1.max(instanced));
+    }
+    assert!(peak.1 > 0, "the tube's meshes have instances: {peak:?}");
+    assert!(packets > 0, "the tube draws");
+    let explode = engine.create_effect(b"Explode").expect("the explosion");
+    for _ in 0..8 {
+        frame_packets(&mut engine);
+    }
+    let fx = &engine.particles;
+    let children = fx
+        .pools
+        .get(PoolKind::Particle)
+        .used()
+        .iter()
+        .filter(|&&i| fx.pools.record(i).life.is_some())
+        .count();
+    assert!(children > 0, "the debris carry their child effects");
+    engine.destroy_effect(explode);
+    engine.destroy_effect(tube);
+    assert_eq!(engine.fx_mesh_count(), (0, 0), "every mesh went back");
+    assert_eq!(
+        engine.scene().borrow().instances().count(),
+        0,
+        "the meshes' instances are destroyed"
+    );
+    println!(
+        "the tube held up to {} meshes ({} with an instance) over 12 frames, {packets} draw \
+         packets; the explosion's debris carried {children} child effects",
+        peak.0, peak.1
+    );
 }

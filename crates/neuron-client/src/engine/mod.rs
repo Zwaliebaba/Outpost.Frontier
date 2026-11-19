@@ -39,6 +39,7 @@
 //! [`camera::ViewCamera`] is a perspective one.
 
 pub mod camera;
+mod effects;
 mod frame;
 pub mod order;
 mod scene_host;
@@ -97,6 +98,7 @@ use crate::ui::widescreen::Surface;
 use crate::window::DisplayMode;
 
 pub use camera::ViewCamera;
+pub use effects::{EffectServices, FxMeshes, mesh_path};
 pub use frame::{FrameInput, FrameReport};
 pub use order::{
     CREATION_ORDER, LIBRARIES, LifeEvent, Lifecycle, Phase, Reference, Stage, TEARDOWN_ORDER,
@@ -261,6 +263,19 @@ struct LiveEffect {
     effect: Effect,
 }
 
+/// `ParticleEffectCleanupParticleFx`: the effect stopped (`Slot13(7)`) and
+/// released, its folder detached and released.
+fn cleanup_effect(
+    particles: &mut ParticleFx,
+    mut live: LiveEffect,
+    svc: &mut dyn crate::render::particles::ParticleServices,
+) {
+    live.effect.dispatch(particles, 7, svc);
+    live.effect.release(particles, svc);
+    particles.detach(live.parent, svc);
+    particles.release(live.parent, svc);
+}
+
 /// The groups the engine loaded, freed at the teardown.
 #[derive(Default)]
 struct Loaded {
@@ -329,6 +344,12 @@ pub struct Engine<B: Backend + 'static> {
     audio_device: Option<crate::platform::audio::AudioDevice>,
     /// The particle system.
     pub particles: ParticleFx,
+    /// The game option `BATCH_PARTICLES` (0 by default), which the frame's
+    /// effect draw hands to `SetUseMaterialBatcher`.
+    pub particle_batcher: bool,
+    /// The client's mesh factory, bound to the particle system
+    /// (`WarmUpEffectShapes`).
+    fx_meshes: FxMeshes,
     scene: SharedScene,
     links: SharedLinks,
     /// The animation system.
@@ -733,6 +754,8 @@ impl<B: Backend + 'static> Engine<B> {
             #[cfg(windows)]
             audio_device,
             particles,
+            particle_batcher: false,
+            fx_meshes: FxMeshes::default(),
             scene,
             links,
             animation,
@@ -1050,15 +1073,21 @@ impl<B: Backend + 'static> Engine<B> {
     pub fn create_effect(&mut self, name: &[u8]) -> Result<EffectId, EngineError> {
         let hash = fx::name_hash(name);
         let mut side = self.render.borrow_mut();
-        let stack = &mut side.stack;
+        let mut services = EffectServices {
+            stack: &mut side.stack,
+            manager: None,
+            scene: &self.scene,
+            data: self.data.as_ref(),
+            meshes: Some(&mut self.fx_meshes),
+        };
         let parent = self.particles.create_node(NodeClass::Node);
-        match self.particles.create_effect(parent, hash, stack) {
+        match self.particles.create_effect(parent, hash, &mut services) {
             Ok(effect) => {
                 self.effects.push(Some(LiveEffect { parent, effect }));
                 Ok(EffectId(self.effects.len() - 1))
             }
             Err(e) => {
-                self.particles.release(parent, stack);
+                self.particles.release(parent, &mut services);
                 Err(EngineError::Effect(format!("{}: {e:?}", lossy(name))))
             }
         }
@@ -1080,14 +1109,68 @@ impl<B: Backend + 'static> Engine<B> {
             .map(|l| &l.effect)
     }
 
-    /// Releases an effect and its folder.
+    /// Stops and releases an effect and its folder, as the client's
+    /// `ParticleEffectCleanupParticleFx` does: `Slot13(7)` (its live roots
+    /// submitted, its records released), the effect's `Release`, then the
+    /// folder detached and released.
     pub fn destroy_effect(&mut self, effect: EffectId) {
         let Some(live) = self.effects.get_mut(effect.0).and_then(Option::take) else {
             return;
         };
-        let mut side = self.render.borrow_mut();
-        live.effect.release(&mut self.particles, &mut side.stack);
-        self.particles.release(live.parent, &mut side.stack);
+        {
+            let mut side = self.render.borrow_mut();
+            let mut services = EffectServices {
+                stack: &mut side.stack,
+                manager: None,
+                scene: &self.scene,
+                data: self.data.as_ref(),
+                meshes: Some(&mut self.fx_meshes),
+            };
+            cleanup_effect(&mut self.particles, live, &mut services);
+        }
+        self.settle_fx_meshes();
+    }
+
+    /// The meshes of the client's mesh factory still held by the effects'
+    /// mesh appearances, and how many of them have an engine instance.
+    #[must_use]
+    pub fn fx_mesh_count(&self) -> (usize, usize) {
+        (self.fx_meshes.live(), self.fx_meshes.instanced())
+    }
+
+    /// What the mesh factory left for after the particle walk (D493): the
+    /// instances of released meshes destroyed, then the new meshes'
+    /// archetypes loaded (`Archetype::Load`: the archive's libraries the
+    /// first time, the archetype found or made) and instances made, placed
+    /// and posed.
+    fn settle_fx_meshes(&mut self) {
+        for instance in self.fx_meshes.take_doomed() {
+            self.scene.borrow_mut().destroy_instance(instance);
+        }
+        for (mesh, path) in self.fx_meshes.take_pending() {
+            let instance = self.load_fx_mesh(&path);
+            self.fx_meshes.bind(mesh, instance, &self.scene);
+        }
+    }
+
+    /// `Archetype::Load(path)` and `ClientMeshHolderBindInstance` for a
+    /// mesh of the mesh factory: the instance, whose archetype it holds.
+    fn load_fx_mesh(&mut self, path: &[u8]) -> Option<InstanceId> {
+        if self.fx_meshes.first_load(path) {
+            let _ = self.load_archive(path);
+        }
+        let mut fs = self.open_archive(path).ok()?;
+        let archetype = self
+            .scene
+            .borrow_mut()
+            .create_archetype_handle(path, Some(&mut fs))
+            .ok()
+            .flatten()?;
+        self.links.borrow_mut().take_made();
+        let instance = self.scene.borrow_mut().create_instance(archetype);
+        self.links.borrow_mut().take_made();
+        self.scene.borrow_mut().release_handle(archetype);
+        instance
     }
 
     /// A deformable model (`IDeformable::Create`) from one `.dfm` file of
@@ -1457,11 +1540,18 @@ impl<B: Backend + 'static> Engine<B> {
         // NeuronRuntime::Shutdown.
         {
             let mut side = self.render.borrow_mut();
+            let mut services = EffectServices {
+                stack: &mut side.stack,
+                manager: None,
+                scene: &self.scene,
+                data: None,
+                meshes: Some(&mut self.fx_meshes),
+            };
             for live in std::mem::take(&mut self.effects).into_iter().flatten() {
-                live.effect.release(&mut self.particles, &mut side.stack);
-                self.particles.release(live.parent, &mut side.stack);
+                cleanup_effect(&mut self.particles, live, &mut services);
             }
         }
+        self.settle_fx_meshes();
         log(Stage::Effects);
         for player in self.scripts.iter_mut().flatten() {
             player.stop();

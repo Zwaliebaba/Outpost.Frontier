@@ -6,8 +6,8 @@
 //! (`ApplyFieldsToPool`) and the integration (`IntegratePool`).
 //!
 //! Drawing is in [`super::draw`]. `FxParticleAppearance` and
-//! `FxMeshAppearance` spawn child effects and meshes; they are not
-//! simulated yet: they only age and finish.
+//! `FxMeshAppearance`, which spawn child effects and meshes, are in
+//! [`super::child`].
 
 use std::rc::Rc;
 
@@ -240,14 +240,22 @@ impl ParticleFx {
     }
 
     /// `Pad47(six, age, duration)`: the class's spawn.
-    pub(crate) fn appearance_spawn(&mut self, id: NodeId, six: &[f32; 6], age: f32, duration: f32) {
+    pub(crate) fn appearance_spawn(
+        &mut self,
+        id: NodeId,
+        six: &[f32; 6],
+        age: f32,
+        duration: f32,
+        svc: &mut dyn ParticleServices,
+    ) {
         let class = self.n(id).class();
         let Some(kind) = pool_of(class) else {
             return;
         };
-        if matches!(kind, PoolKind::Particle | PoolKind::Mesh) {
-            // Child effects and meshes: not ported yet.
-            return;
+        match kind {
+            PoolKind::Particle => return self.particle_spawn(id, six, age, duration, svc),
+            PoolKind::Mesh => return self.mesh_spawn(id, six, age, duration, svc),
+            _ => {}
         }
         if self.pools.get(kind).capacity() == 0 {
             // The reference stores through a null item (D371).
@@ -307,16 +315,11 @@ impl ParticleFx {
     ) {
         let props_rc = Rc::clone(&self.n(id).props);
         let class = props_rc.class;
-        let PropsData::Billboard(props) = &props_rc.data else {
-            // Particle and mesh appearances: their update is the second
-            // increment; here they age and finish without particles.
-            let node = self.n_mut(id);
-            node.age = round(f64::from(dt) + f64::from(node.age));
-            let app = self.app(id);
-            if app.emitter_refs == 0 && app.head.is_none() {
-                self.n_mut(id).flags |= FLAG_DONE;
-            }
-            return;
+        let props = match &props_rc.data {
+            PropsData::Billboard(props) => props,
+            PropsData::Particle(_) => return self.particle_update(id, dt, svc),
+            PropsData::Mesh(_) => return self.mesh_update(id, dt, svc),
+            _ => return,
         };
         if class == NodeClass::DustAppearance {
             self.app_mut(id).last_dt = dt;
@@ -343,14 +346,20 @@ impl ParticleFx {
             }
         }
         self.app_mut(id).texture = texture;
-        self.apply_fields_to_pool(id, svc);
+        self.apply_fields_to_pool(id, false, svc);
         self.integrate(id, dt);
     }
 
-    /// `ApplyFieldsToPool(owner, false)`: a dead field leaves the list
+    /// `ApplyFieldsToPool(owner, live_only)`: a dead field leaves the list
     /// (releasing it); every other one begins on the appearance and acts on
-    /// each of its particles in list order.
-    fn apply_fields_to_pool(&mut self, id: NodeId, svc: &mut dyn ParticleServices) {
+    /// each of its particles in list order (with `live_only`, only those
+    /// whose age is below their duration).
+    pub(crate) fn apply_fields_to_pool(
+        &mut self,
+        id: NodeId,
+        live_only: bool,
+        svc: &mut dyn ParticleServices,
+    ) {
         let Some(kind) = pool_of(self.n(id).class()) else {
             return;
         };
@@ -370,6 +379,10 @@ impl ParticleFx {
             let mut cursor = self.app(id).head;
             while let Some(index) = cursor {
                 let item = *self.pools.get(kind).item(index);
+                if live_only && !(item.age < item.duration) {
+                    cursor = item.next;
+                    continue;
+                }
                 let mut pos_vel = [
                     item.pos[0],
                     item.pos[1],

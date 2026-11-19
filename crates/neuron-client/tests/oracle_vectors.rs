@@ -369,6 +369,17 @@ fn particle_draw() {
     check_suite("particle_draw.jsonl", &particles::draw_lines());
 }
 
+/// P4.8: the particle appearances' child effects (life and death, the
+/// velocity's turn and its slerp, the forwarded outer time and LOD input,
+/// the record teardown and eviction, the children's spheres) and the mesh
+/// appearances' meshes of a recording mesh factory (the spawn, the poses,
+/// the update, the draw, the eviction and the failures), with the draws of
+/// `particle_draw` (`tests/fixtures/oracle/particle_child.list`).
+#[test]
+fn particle_child() {
+    check_suite("particle_child.jsonl", &particles::child_lines());
+}
+
 /// P4.7: `Deformable2` at run time against recording services: skinning,
 /// the draw, parts and levels, the animation list, aim solving and the
 /// `EyeMaterial` (`tests/fixtures/oracle/deformable.list`).
