@@ -2,7 +2,7 @@
 // design/adr/0003-simulation-oracle.md; usage and scenario format in
 // design/reference-build.md section 10; record layouts in design/sim-records.md).
 //
-//   Oracle.exe sim <data root> <scenario file> <out folder> [--runs N]
+//   Oracle.exe sim <data root> <scenario file> <out folder> [--runs N] [--seed S]
 //
 // One run starts a headless multiplayer server in this process the way OutpostServer.exe
 // does (NeuronRuntime::Startup with NEURONCOMPONENTSsrv.ini, the data path, SetIsMPServer,
@@ -2480,7 +2480,8 @@ namespace
 
 namespace oracle
 {
-    int RunSimScenario(std::string const& DataRoot, std::string const& ScenarioPath, std::string const& OutDir)
+    int RunSimScenario(std::string const& DataRoot, std::string const& ScenarioPath, std::string const& OutDir,
+                       FSimOptions const& Options)
     {
         MakeParentDirectories(OutDir + "\\session.jsonl");
         for (int Index = 0; Index < kFileCount; ++Index)
@@ -2502,6 +2503,8 @@ namespace oracle
             CloseAll();
             return 2;
         }
+        // The seed of the seeding point (start-up step 5): --seed's, else the scenario's.
+        unsigned int const Reseed = Options.bReseed ? Options.Reseed : GScenario.Seed;
 
         std::string const ExeDir = ExeFolder();
         std::string const StubPath = ExeDir + "SimClientStub.dll";
@@ -2520,6 +2523,7 @@ namespace oracle
             J.Str("stepping", GScenario.bSpStepping ? "sp" : "mp");
             J.Str("collisions", GScenario.bSpCollisions ? "sp" : "mp");
             J.Uint("seed", GScenario.Seed);
+            J.Uint("reseed", Reseed);
             J.Double("clock", GScenario.ClockStart);
             J.Uint("objects", (unsigned)GScenario.Objects.size());
             J.Uint("commands", (unsigned)GScenario.Commands.size());
@@ -2637,7 +2641,7 @@ namespace oracle
             J.Uint("controller", ControllerId);
             J.Uint("system_id", SystemId);
             J.Bool("system_loaded", bLoaded);
-            J.Uint("reseed", GScenario.Seed);
+            J.Uint("reseed", Reseed);
             Write(FileSession, J);
         }
         if (ControllerId == 0 || !bLoaded)
@@ -2650,8 +2654,9 @@ namespace oracle
         // The seeding point of the comparison (owner, 2026-11-18): the system and Content's
         // population of it (SystemLoaded) have drawn their values; the scenario starts from
         // srand(seed) again, where the Rust world, which has no population yet (P3.6), seeds.
-        OracleSimLoadRandReseed(GScenario.Seed);
-        srand(GScenario.Seed);
+        // With --seed the seed is the ensemble's (owner, 2026-11-19).
+        OracleSimLoadRandReseed(Reseed);
+        srand(Reseed);
 
         bool bSpawned = true;
         for (FObjectDesc const& Desc : GScenario.Objects)
@@ -2732,17 +2737,35 @@ namespace oracle
 
 int RunSimMode(int Argc, char** Argv)
 {
-    int Runs = 0;
-    bool bUsage = Argc != 5 && Argc != 7;
-    if (Argc == 7)
+    // The options after the paths, each once, in any order: --runs N (1 to 99), --seed S
+    // (decimal or 0x hex, 32 bits).
+    oracle::FSimOptions Options;
+    bool bUsage = Argc < 5 || (Argc - 5) % 2 != 0;
+    bool bRuns = false;
+    for (int Index = 5; !bUsage && Index + 1 < Argc; Index += 2)
     {
         unsigned long Value = 0;
-        bUsage = strcmp(Argv[5], "--runs") != 0 || !ParseUnsigned(Argv[6], Value) || Value == 0 || Value > 99;
-        Runs = (int)Value;
+        bool const bParsed = ParseUnsigned(Argv[Index + 1], Value);
+        if (strcmp(Argv[Index], "--runs") == 0 && !bRuns)
+        {
+            bUsage = !bParsed || Value == 0 || Value > 99;
+            Options.Runs = (int)Value;
+            bRuns = true;
+        }
+        else if (strcmp(Argv[Index], "--seed") == 0 && !Options.bReseed)
+        {
+            bUsage = !bParsed;
+            Options.bReseed = true;
+            Options.Reseed = (unsigned int)Value;
+        }
+        else
+        {
+            bUsage = true;
+        }
     }
     if (bUsage)
     {
-        fprintf(stderr, "usage: Oracle.exe sim <data root> <scenario file> <out folder> [--runs N]\n");
+        fprintf(stderr, "usage: Oracle.exe sim <data root> <scenario file> <out folder> [--runs N] [--seed S]\n");
         return 2;
     }
     std::string Paths[3];
@@ -2758,7 +2781,7 @@ int RunSimMode(int Argc, char** Argv)
         while (Paths[Index].size() > 3 && (Paths[Index].back() == '\\' || Paths[Index].back() == '/'))
             Paths[Index].pop_back();
     }
-    if (Runs > 0)
-        return oracle::RunSimSpread(Paths[0], Paths[1], Paths[2], Runs);
-    return oracle::RunSimScenario(Paths[0], Paths[1], Paths[2]);
+    if (Options.Runs > 0)
+        return oracle::RunSimSpread(Paths[0], Paths[1], Paths[2], Options);
+    return oracle::RunSimScenario(Paths[0], Paths[1], Paths[2], Options);
 }

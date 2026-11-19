@@ -1,0 +1,40 @@
+# Gate G2's seed ensemble (design/adr/0003-simulation-oracle.md point 9; owner,
+# 2026-11-19). Each listed scenario of CppSource/Oracle/scenarios runs once per seed on
+# both sides: the oracle as `Oracle.exe sim <data root> <scenario> <out>\seed_<S>\<name>
+# --seed S` (data.yml, "Run the seed ensemble"), the Rust world in scenario_replay's
+# `g2_seed_ensemble` test. The seed replaces the one of the srand the harness calls again
+# once the system and Content's population have loaded (reference-build.md section 10,
+# start-up step 5); the load-time draws keep the scenario's seed.
+#
+# The seeds: the scenario default 0x4f524143 (1330790723), then 0x4f524143 + k x
+# 0x9e3779b9 (mod 2^32) for k = 1..19, so that no two seeds are close (the CRT's first
+# draw from a seed is nearly linear in it). Fixed: change the list only with a new
+# revision of record 0003.
+
+scenario fly_to_point
+scenario fire_at_target
+scenario ram_ship
+scenario dogfight
+scenario skirmish
+scenario strafe
+
+seed 1330790723
+seed 3985226492
+seed 2344694965
+seed 704163438
+seed 3358599207
+seed 1718067680
+seed 77536153
+seed 2731971922
+seed 1091440395
+seed 3745876164
+seed 2105344637
+seed 464813110
+seed 3119248879
+seed 1478717352
+seed 4133153121
+seed 2492621594
+seed 852090067
+seed 3506525836
+seed 1865994309
+seed 225462782
