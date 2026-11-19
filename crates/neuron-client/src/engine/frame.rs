@@ -24,7 +24,11 @@
 //!    (`RenderInstance`), the deformable models (`IDeformable::Draw`), the
 //!    particle effects between `BeginDraw` and `EndDraw`.
 //! 6. `ClearWin3DBuffers(0x100)`, `Win3DSetDepthFunc(4)`, `Win3DDrawAll`
-//!    and the screen-quad lists it filled.
+//!    through the engine's draw host ([`super::ui_host::UiHost`]: the
+//!    immediate-mode layer, the line batchers, the control meshes, the
+//!    rich-text tiles and the font atlas's overlay flush), the screen-quad
+//!    lists the draw left, and last the software cursor
+//!    (`MouseFrameUpdate`'s `DrawCursor`).
 //! 7. `EndClientRenderScene`: the batcher's `FlushAll(1)` and the render
 //!    states the next frame starts from; then `PresentClientRenderFrame`.
 //!
@@ -32,35 +36,23 @@
 //! mixer's tick (its sources are the game's, P5.5), the local server's
 //! tick and the state machine (P5.1, P5.3), the game's own scene order
 //! (the space and room cameras' `DrawScene`, P5.4, P5.9, of which the
-//! frame keeps the camera's application), the fade, the
-//! immediate-mode layer's line batchers (P4.13), and the frame clock (the
+//! frame keeps the camera's application), the fade, the button montage
+//! and the IME's overlay pass of `Win3DDrawAll`, and the frame clock (the
 //! caller's `game_app::timing`).
 
 use crate::input::mouse::MousePlatform;
 use crate::render::appearance::{AppearanceServices, Camera, MeshView};
-use crate::render::ff::device::{Backend, ClearFlags, Device};
+use crate::render::ff::device::{Backend, ClearFlags};
 use crate::render::stack::{StackAppearance, draw_deformable};
 use crate::ui::message::Input;
 use crate::ui::quad_batch::{FfQuadDevice, QuadBatcher};
-use crate::ui::tree::QuadHost;
+use crate::ui::win3d_immediate::{FfPipeline, Win3dLayer, capability};
 
+use super::ui_host::UiHost;
 use super::{Engine, RenderSide, apply_extents, pull_bones};
 
-/// `D3DRS_ZENABLE`.
-const RS_ZENABLE: u32 = 7;
-/// `D3DRS_ZWRITEENABLE`.
-const RS_ZWRITEENABLE: u32 = 14;
-/// `D3DRS_CULLMODE`.
-const RS_CULLMODE: u32 = 22;
-/// `D3DRS_ZFUNC`.
-const RS_ZFUNC: u32 = 23;
 /// `D3DRS_DITHERENABLE`.
 const RS_DITHERENABLE: u32 = 26;
-/// `D3DRS_ALPHABLENDENABLE`.
-const RS_ALPHABLENDENABLE: u32 = 27;
-/// `glDisable(GL_FOG)`'s seven states: `FOGENABLE`, `FOGTABLEMODE`,
-/// `FOGVERTEXMODE`, `FOGCOLOR`, `FOGSTART`, `FOGEND`, `FOGDENSITY`.
-const FOG_STATES: [u32; 7] = [28, 35, 140, 34, 36, 37, 38];
 /// `D3DTSS_MIPFILTER`.
 const TSS_MIPFILTER: u32 = 18;
 /// `ClearWin3DBuffers(0x4100)`'s clear colour, opaque black.
@@ -108,69 +100,29 @@ pub struct FrameReport {
     pub deformables: usize,
     /// Deformable models whose animation advanced.
     pub animations: usize,
-    /// Screen-quad lists flushed.
+    /// Screen-quad lists flushed after the interface's draw.
     pub quad_lists: usize,
+    /// Draw packets of the interface pass (the controls, their meshes,
+    /// the text and the cursor).
+    pub ui_draws: usize,
+    /// Control instances the interface submitted.
+    pub ui_meshes: usize,
+    /// Rich-text tiles the interface drew.
+    pub ui_tiles: usize,
+    /// Whether the software cursor was drawn.
+    pub cursor: bool,
 }
 
-/// The render-state cache of the Win3D immediate-mode layer
-/// (`win3d_immediate.cpp`'s `G_bDepthTest`, `G_DepthWrite`, `G_DepthFunc`,
-/// `G_AlphaBlendEnable`), with the calls of it the frame makes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Win3dStates {
-    pub depth_test: bool,
-    pub depth_write: u32,
-    pub depth_func: u32,
-    pub alpha_blend: u32,
-}
-
-impl Default for Win3dStates {
-    fn default() -> Self {
-        Win3dStates {
-            depth_test: true,
-            depth_write: 1,
-            depth_func: 4,
-            alpha_blend: 0,
-        }
-    }
-}
-
-impl Win3dStates {
-    fn depth<B: Backend>(&self, device: &mut Device<B>) {
-        let _ = device.state.set_render_state_raw(RS_ZFUNC, self.depth_func);
-        let _ = device
-            .state
-            .set_render_state_raw(RS_ZENABLE, u32::from(self.depth_test));
-        let _ = device
-            .state
-            .set_render_state_raw(RS_ZWRITEENABLE, self.depth_write);
-    }
-
-    /// `Win3DSetDepthFunc`.
-    pub fn set_depth_func<B: Backend>(&mut self, device: &mut Device<B>, func: u32) {
-        self.depth_func = func;
-        self.depth(device);
-    }
-
-    /// `Win3DSetDepthWrite`.
-    pub fn set_depth_write<B: Backend>(&mut self, device: &mut Device<B>, on: u32) {
-        self.depth_write = on;
-        self.depth(device);
-    }
-
-    /// The end of `EndSceneHalf`: fog off, depth write on, blending off,
-    /// the depth test on, `LESSEQUAL`, back faces culled.
-    pub fn end_scene<B: Backend>(&mut self, device: &mut Device<B>) {
-        for state in FOG_STATES {
-            let _ = device.state.set_render_state_raw(state, 0);
-        }
-        self.set_depth_write(device, 1);
-        self.alpha_blend = 0;
-        let _ = device.state.set_render_state_raw(RS_ALPHABLENDENABLE, 0);
-        self.depth_test = true;
-        self.depth(device);
-        self.set_depth_func(device, 4);
-        let _ = device.state.set_render_state_raw(RS_CULLMODE, 2);
-    }
+/// `EndSceneHalf`'s states through the immediate-mode layer: fog off,
+/// depth write on, blending off, the depth test on, `LESSEQUAL`, back
+/// faces culled.
+fn end_scene<B: Backend>(layer: &mut Win3dLayer, pipe: &mut FfPipeline<'_, B>) {
+    layer.disable(pipe, capability::FOG);
+    layer.set_depth_write(pipe, 1);
+    layer.disable(pipe, capability::BLEND);
+    layer.enable(pipe, capability::DEPTH_TEST);
+    layer.set_depth_func(pipe, 4);
+    layer.enable(pipe, capability::CULL_FACE);
 }
 
 impl<B: Backend + 'static> Engine<B> {
@@ -256,7 +208,14 @@ impl<B: Backend + 'static> Engine<B> {
             CLEAR_BLACK,
         );
         device.clear(ClearFlags::TARGET | ClearFlags::DEPTH, None);
-        apply_camera(device, camera);
+        {
+            let shading = &mut side.stack.shading;
+            let mut pipe = FfPipeline {
+                device: &mut shading.device,
+                handles: &shading.handles,
+            };
+            apply_camera(&mut self.win3d, &mut pipe, camera);
+        }
         {
             let RenderSide { stack, manager } = &mut *side;
             let mut services = StackAppearance { stack, manager };
@@ -311,22 +270,59 @@ impl<B: Backend + 'static> Engine<B> {
         }
 
         // 6. The interface over the scene.
-        let shading = &mut side.stack.shading;
-        shading.device.clear(ClearFlags::DEPTH, None);
-        self.win3d.set_depth_func(&mut shading.device, 4);
-        if let Some(ui) = self.ui.as_mut() {
-            let mut host = QuadHost {
-                quads: std::mem::take(&mut self.quads),
+        self.elapsed += dt;
+        let ui_draws_before = side.stack.shading.device.draw_count;
+        {
+            let shading = &mut side.stack.shading;
+            shading.device.clear(ClearFlags::DEPTH, None);
+            let mut pipe = FfPipeline {
+                device: &mut shading.device,
+                handles: &shading.handles,
             };
-            ui.draw_all(&mut host);
-            self.quads = host.quads;
+            self.win3d.set_depth_func(&mut pipe, 4);
         }
-        report.quad_lists = flush_quads(&mut self.quads, shading);
+        if let (Some(ui), Some(data)) = (self.ui.as_mut(), self.data.as_ref()) {
+            let RenderSide { stack, manager } = &mut *side;
+            let camera = ui.camera;
+            let mut host = UiHost::new(
+                stack,
+                manager,
+                data,
+                self.appearance.as_ref(),
+                &mut self.win3d,
+                &mut self.batchers,
+                &mut self.quads,
+                &camera,
+            );
+            ui.draw_all(&mut host);
+            report.ui_meshes = host.meshes;
+            report.ui_tiles = host.tile_draws;
+        }
+        report.quad_lists = flush_quads(&mut self.quads, &mut side.stack.shading);
+        report.cursor = draw_cursor(
+            &mut self.cursors,
+            self.mouse.as_ref(),
+            self.ui.as_ref(),
+            self.data.as_ref(),
+            self.elapsed,
+            &mut side.stack,
+        );
+        let shading = &mut side.stack.shading;
+        report.ui_draws = usize::try_from(shading.device.draw_count - ui_draws_before).unwrap_or(0);
 
         // 7. EndClientRenderScene and PresentClientRenderFrame.
         side.stack.flush_all(1);
-        self.win3d.end_scene(&mut side.stack.shading.device);
+        {
+            let shading = &mut side.stack.shading;
+            let mut pipe = FfPipeline {
+                device: &mut shading.device,
+                handles: &shading.handles,
+            };
+            end_scene(&mut self.win3d, &mut pipe);
+        }
         side.stack.shading.device.present();
+        // `Win3DOnPresentFrame`: the `LIKE_PETAL` option is off.
+        self.win3d.on_present_frame(0);
         drop(side);
         apply_extents(&self.scene, &self.links);
         self.frames += 1;
@@ -335,30 +331,60 @@ impl<B: Backend + 'static> Engine<B> {
 }
 
 /// `Win3DApplyCamera`: the perspective from the camera's vertical angle,
-/// aspect and planes (`Win3DSetPerspective`; the Win3D layer's projection
-/// cache belongs to the immediate-mode layer, P4.13), then its view
-/// transform as the modelview; with
-/// the pipeline's view-space lights off, an identity view and the camera's
-/// view as the world.
-fn apply_camera<B: Backend>(device: &mut Device<B>, camera: &mut dyn Camera) {
+/// aspect and planes (read far, near, aspect, field of view) through the
+/// layer's projection cache, then its view transform as the modelview;
+/// with the pipeline's view-space lights off, an identity view and the
+/// camera's view as the world.
+fn apply_camera<B: Backend>(
+    layer: &mut Win3dLayer,
+    pipe: &mut FfPipeline<'_, B>,
+    camera: &mut dyn Camera,
+) {
     let far = camera.z_far();
     let near = camera.z_near();
     let aspect = camera.aspect();
     let fov = camera.fov_y_deg();
-    let _ = device.transforms.set_perspective(fov, aspect, near, far);
     let view = camera.view_transform();
-    if device
-        .state
-        .pipeline(crate::render::ff::state::PipelineProperty::ViewspaceLights)
-        != 0
-    {
-        device.set_modelview(&view);
-        return;
+    layer.apply_camera(pipe, fov, aspect, near, far, &view);
+}
+
+/// `DrawCursor` at the end of `MouseFrameUpdate`: the cursor in use
+/// animated on the client clock and drawn at the software cursor as one
+/// pre-transformed quad (divergence D346). Whether it was drawn.
+fn draw_cursor<B: Backend + 'static>(
+    cursors: &mut crate::ui::cursor::Cursors,
+    mouse: Option<&crate::input::mouse::Mouse>,
+    ui: Option<&crate::ui::tree::Ui>,
+    data: Option<&neuron_core::vfs::Host>,
+    elapsed: f64,
+    stack: &mut crate::render::stack::RenderStack<B>,
+) -> bool {
+    let (Some(mouse), Some(ui), Some(data)) = (mouse, ui, data) else {
+        return false;
+    };
+    if !cursors.ready {
+        return false;
     }
-    device
-        .transforms
-        .set_view(&[1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]);
-    device.transforms.set_world(&view);
+    #[allow(clippy::cast_possible_truncation)]
+    let Some(shape) = cursors.animate(elapsed as f32) else {
+        return false;
+    };
+    let Some(cursor) = cursors.current() else {
+        return false;
+    };
+    let handle = {
+        let mut lib = super::StackShapes::new(stack, data);
+        shape.gpu_handle(&mut lib, 0)
+    };
+    let (x, y, _) = mouse.cursor();
+    let surface = ui.camera.surface;
+    let shading = &mut stack.shading;
+    let mut device = FfQuadDevice {
+        device: &mut shading.device,
+        handles: &shading.handles,
+    };
+    crate::ui::cursor::draw(&mut device, cursor, &shape, handle, (x, y), &surface);
+    true
 }
 
 /// Every screen-quad list the UI draw filled, flushed to the device in

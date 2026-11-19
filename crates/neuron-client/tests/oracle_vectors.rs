@@ -7,7 +7,7 @@
 //! `oracle_material_kinds.cpp`, `oracle_material_surface.cpp`,
 //! `oracle_material_appearance.cpp`, `oracle_mesh_render.cpp`, `oracle_deformable.cpp`,
 //! `oracle_deformable_parts.cpp`,
-//! `oracle_particles.cpp` and `oracle_ui.cpp`).
+//! `oracle_particles.cpp`, `oracle_ui.cpp` and `oracle_ui_immediate.cpp`).
 
 mod support;
 
@@ -18,7 +18,7 @@ use support::audio::{self, check_suite_within};
 use support::{
     check_suite, deformable, input_lines, material, material_appearance, material_kinds,
     material_surface, mesh_render, particles, rich_text, scene_script, scene_script_build,
-    scene_script_runtime, text, texture, ui, unhex,
+    scene_script_runtime, text, texture, ui, ui_immediate, unhex,
 };
 
 /// P4.12: `LayoutRichText`, the laid list executed, its dimensions and the
@@ -293,6 +293,19 @@ fn ui_controls() {
         .flat_map(|(case, line)| ui::controls_lines(case, line))
         .collect();
     check_suite("ui_controls.jsonl", &lines);
+}
+
+/// P4.13: the Win3D immediate-mode layer, its line batchers and the
+/// overlay pass over the operations of
+/// `tests/fixtures/oracle/ui_immediate.list`, against a recording pipeline.
+#[test]
+fn ui_immediate() {
+    let lines: Vec<String> = input_lines("ui_immediate.list")
+        .iter()
+        .enumerate()
+        .flat_map(|(case, line)| ui_immediate::lines(case, line))
+        .collect();
+    check_suite("ui_immediate.jsonl", &lines);
 }
 
 /// P4.5: the 19 surface materials against recording services: their

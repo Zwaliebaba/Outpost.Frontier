@@ -311,6 +311,40 @@ impl Camera {
         transform_matrix(&self.world, self.screen_to_near_plane(screen_x, screen_y))
     }
 
+    /// `FSpaceCamera::ClassifySphere` of a camera-space centre: 1 outside,
+    /// 3 straddling a plane, 4 inside. The view-axis edges are stored as
+    /// floats; the side distances stay unrounded.
+    #[must_use]
+    pub fn classify_sphere(&self, centre: [f32; 3], radius: f32) -> i32 {
+        let near_edge = round(f64::from(-centre[2]) - f64::from(radius));
+        let far_edge = round(f64::from(radius) - f64::from(centre[2]));
+        let r = f64::from(radius);
+        if far_edge < self.z_near {
+            return 1;
+        }
+        let mut result = 4;
+        if near_edge < self.z_near {
+            result = 3;
+        }
+        for (axis, plane) in [(0, self.plane_x), (1, self.plane_y)] {
+            let dist = f64::from(centre[axis].abs()) * f64::from(plane[axis])
+                + f64::from(plane[2]) * f64::from(centre[2]);
+            if dist > r {
+                return 1;
+            }
+            if dist > -r {
+                result = 3;
+            }
+        }
+        if near_edge > self.z_far {
+            return 1;
+        }
+        if far_edge > self.z_far {
+            result = 3;
+        }
+        result
+    }
+
     /// The mouse ray of the Win3D input handler's move event: the cursor
     /// pixel unprojected and normalised (`NormalizeInPlace`, no zero test:
     /// a zero vector gives NaNs as in the reference).

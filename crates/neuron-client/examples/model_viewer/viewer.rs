@@ -10,11 +10,10 @@ use neuron_client::engine::{
 };
 use neuron_client::render::ff::device::Backend;
 use neuron_client::render::ff::lights::LightData;
-use neuron_client::ui::control::{ControlMesh, MeshLoader, PlainControl};
+use neuron_client::ui::control::PlainControl;
 use neuron_client::ui::factory::CLASSES;
 use neuron_client::ui::page::{MasterWin, PageDesc};
 use neuron_client::ui::tree::NodeId;
-use neuron_core::math::{Matrix, Transform, Vector};
 
 use crate::catalog;
 use crate::scenes::Scene;
@@ -72,32 +71,6 @@ impl Orbit {
     }
 }
 
-/// A mesh instance of a page's `UIWinObject` that only exists: the
-/// engine's UI draw has no mesh pass yet.
-struct NoMesh;
-
-impl ControlMesh for NoMesh {
-    fn transform(&self) -> Transform {
-        Transform::IDENTITY
-    }
-    fn set_position(&mut self, _: Vector) {}
-    fn set_orientation(&mut self, _: Matrix) {}
-    fn set_transform(&mut self, _: Transform) {}
-    fn hardpoint(&self, _: &[u8]) -> Option<Transform> {
-        None
-    }
-}
-
-/// Gives every `UIWinObject` a [`NoMesh`] and counts them.
-struct CountingLoader(std::rc::Rc<std::cell::Cell<usize>>);
-
-impl MeshLoader for CountingLoader {
-    fn load(&mut self, _: &[u8], _: &[u8]) -> Option<Box<dyn ControlMesh>> {
-        self.0.set(self.0.get() + 1);
-        Some(Box::new(NoMesh))
-    }
-}
-
 /// What the current scene put into the engine.
 #[derive(Default)]
 struct Content {
@@ -128,7 +101,6 @@ pub struct Viewer<B: Backend + 'static> {
     sound: Option<SoundInfo>,
     /// What the scenes did, for the report and the console.
     pub log: Vec<String>,
-    page_meshes: std::rc::Rc<std::cell::Cell<usize>>,
     /// The interface classes standing as bare controls.
     stand_ins: Vec<&'static str>,
     /// The libraries loaded so far (they stay until the engine drops).
@@ -138,7 +110,6 @@ pub struct Viewer<B: Backend + 'static> {
 impl<B: Backend + 'static> Viewer<B> {
     /// The viewer over a built engine.
     pub fn new(mut engine: Engine<B>) -> Viewer<B> {
-        let page_meshes = std::rc::Rc::new(std::cell::Cell::new(0));
         let mut stand_ins = Vec::new();
         if let Some(ui) = engine.ui_mut() {
             // The classes the toolkit does not have yet (P5's screens)
@@ -150,7 +121,6 @@ impl<B: Backend + 'static> Viewer<B> {
                     stand_ins.push(name);
                 }
             }
-            ui.mesh_loader = Some(Box::new(CountingLoader(page_meshes.clone())));
         }
         let camera = ViewCamera::new(engine.mode().back_buffer(), HALF_FOV_X, 0.25, 1_000_000.0);
         Viewer {
@@ -163,7 +133,6 @@ impl<B: Backend + 'static> Viewer<B> {
             character: None,
             sound: None,
             log: Vec::new(),
-            page_meshes,
             stand_ins,
             libraries: std::collections::BTreeSet::new(),
         }
@@ -187,6 +156,7 @@ impl<B: Backend + 'static> Viewer<B> {
         if let (Some(id), Some(ui)) = (content.page, self.engine.ui_mut()) {
             ui.destroy(id);
             ui.delete(id);
+            self.engine.cursors_mut().set_cursor(None, false);
         }
         self.animations = None;
         self.character = None;
@@ -495,7 +465,9 @@ impl<B: Backend + 'static> Viewer<B> {
         if !desc.ok {
             return Err(format!("{path}: the page descriptor does not load"));
         }
-        self.page_meshes.set(0);
+        let meshes_before = self.engine.ui_meshes_made();
+        // The cursor the front end shows (`MouseSetCursor("arrow")`).
+        self.engine.cursors_mut().set_cursor(Some(b"arrow"), false);
         let ui = self.engine.ui_mut().ok_or("no UI manager")?;
         let id = MasterWin::open(ui, &desc).ok_or_else(|| format!("{path}: the page failed"))?;
         let page = ui.widget::<MasterWin>(id).and_then(|w| w.page.clone());
@@ -525,10 +497,10 @@ impl<B: Backend + 'static> Viewer<B> {
         }
         self.content.page = Some(id);
         self.orbit = Orbit::framing([0.0; 3], 10.0);
+        let meshes = self.engine.ui_meshes_made() - meshes_before;
         self.note(format!(
-            "page {path}: {} entries, {widgets} widgets, {} meshes not drawn",
+            "page {path}: {} entries, {widgets} widgets, {meshes} control meshes",
             desc.entries.len(),
-            self.page_meshes.get()
         ));
         self.log.extend(layout);
         Ok(())

@@ -373,6 +373,113 @@ impl QuadBatcher {
         }
     }
 
+    /// `ScreenQuadDrawBigImageTile`: one tile of a big image (a rich-text
+    /// window's surface) as a screen quad of the "image" list, clipped to
+    /// the surface and flushed at once under a pushed 2D projection, with
+    /// the reference's saved and forced states. `dest` is left, bottom,
+    /// right and top; `uv` the four corners' `u, v` (top left, top right,
+    /// bottom left, bottom right).
+    pub fn draw_big_image_tile(
+        &mut self,
+        layer: &mut super::win3d_immediate::Win3dLayer,
+        pipe: &mut dyn super::win3d_immediate::Win3dPipeline,
+        handle: u32,
+        color: u32,
+        dest: [f32; 4],
+        uv: [f32; 8],
+    ) {
+        layer.push_projection(pipe);
+        layer.set_ortho_2d(pipe);
+        let mut saved = Vec::with_capacity(5);
+        for (state, value) in [
+            (RS_CLIPPING, 0),
+            (RS_AMBIENT, 0xFFFF_FFFF),
+            (RS_CULLMODE, 1),
+        ] {
+            saved.push((state, pipe.render_state(state)));
+            pipe.set_render_state(state, value);
+        }
+        pipe.set_render_state(RS_LIGHTING, 0);
+        pipe.set_render_state(RS_SPECULARENABLE, 0);
+        pipe.set_render_state(RS_ALPHABLENDENABLE, 0);
+        pipe.set_render_state(RS_COLORVERTEX, 1);
+        pipe.set_render_state(RS_DIFFUSEMATERIALSOURCE, 1);
+        for &(stage, state, value) in &FLUSH_STAGE_STATES {
+            pipe.set_stage_state(stage, state, value);
+        }
+        let saved_10 = pipe.stage_state(0, 0x10);
+        let saved_11 = pipe.stage_state(0, 0x11);
+        // `G_BigImageTilePointFilter` is 1.
+        pipe.set_stage_state(0, 0x10, 1);
+        pipe.set_stage_state(0, 0x11, 1);
+        for (state, value) in [(0x17, 8), (0x0E, 0)] {
+            saved.push((state, pipe.render_state(state)));
+            pipe.set_render_state(state, value);
+        }
+
+        self.set_material_key(neuron_core::hash::name_crc32(b"image"));
+        let frame = Frame {
+            texture: handle,
+            u0: uv[0],
+            v0: uv[7],
+            u1: uv[6],
+            v1: uv[1],
+        };
+        self.begin_frame(frame, 2, false);
+        let [mut x0, mut y0, mut x1, mut y1] = dest;
+        let (mut u0, mut v0, mut u1, mut v1) = (frame.u0, frame.v0, frame.u1, frame.v1);
+        let (width, height) = layer.surface;
+        let hi = |size: u32| size.wrapping_sub(1).cast_signed() as f32;
+        let span_x = (f64::from(x1) - f64::from(x0)) as f32;
+        if crate::text::font::quad::clip_1d(
+            &mut x0,
+            &mut x1,
+            &mut u0,
+            &mut u1,
+            0.0,
+            hi(width),
+            span_x,
+        ) != 0
+        {
+            let span_y = (f64::from(y1) - f64::from(y0)) as f32;
+            if crate::text::font::quad::clip_1d(
+                &mut y0,
+                &mut y1,
+                &mut v0,
+                &mut v1,
+                0.0,
+                hi(height),
+                span_y,
+            ) != 0
+            {
+                self.append_record(ScreenQuadRecord {
+                    x0,
+                    y0,
+                    x1,
+                    y1,
+                    depth_a: 1.0,
+                    depth_b: 1.0,
+                    u0,
+                    v0,
+                    u1,
+                    v1,
+                    color,
+                });
+                self.flush(pipe, Self::CURRENT_LIST);
+            }
+        }
+
+        pipe.set_render_state(RS_COLORVERTEX, 0);
+        pipe.set_stage_state(0, 0x0D, 1);
+        pipe.set_stage_state(0, 0x0E, 1);
+        pipe.set_stage_state(0, 0x10, saved_10);
+        pipe.set_stage_state(0, 0x11, saved_11);
+        layer.pop_projection(pipe);
+        for (state, value) in saved.into_iter().rev() {
+            pipe.set_render_state(state, value);
+        }
+    }
+
     /// `ApplyScreenQuadRenderStates`, the menu path's 2D preset through the
     /// state cache.
     pub fn apply_screen_quad_render_states(&mut self, device: &mut dyn QuadDevice) {

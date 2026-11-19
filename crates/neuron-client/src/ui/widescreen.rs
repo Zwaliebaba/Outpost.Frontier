@@ -172,6 +172,20 @@ impl Shift {
     }
 }
 
+/// `WidescreenHudShearModelview` for a shift of `pixels` (`G_HudShift`):
+/// a modelview bound without the camera, sheared like the view; `None`
+/// without a shift.
+#[must_use]
+pub fn shear_modelview(camera: &Camera, pixels: f32, modelview: &Transform) -> Option<Transform> {
+    if pixels == 0.0 {
+        return None;
+    }
+    Some(shear(
+        modelview,
+        f64::from(pixels) / f64::from(camera.x_scale),
+    ))
+}
+
 /// `WidescreenHudCursorRay`: the cursor's ray through the camera as it is
 /// now; unlike the input handler's normalisation a zero vector gives zero.
 #[must_use]

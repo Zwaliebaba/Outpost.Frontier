@@ -235,3 +235,76 @@ fn the_engine_draws_frames_of_the_original_data() {
     drop(engine);
     assert_eq!(lifecycle.stages(Phase::Teardown), TEARDOWN_ORDER.to_vec());
 }
+
+/// The interface's control meshes through the engine (P4.13): the
+/// navigation bar of `INTERFACE\BASESIDE\navbar.ini` builds its twelve
+/// `ButtonControl`s, whose meshes the engine's loader makes as scene
+/// archetypes and instances (`ClientMeshLoadFromPath`; the seven buttons
+/// that name `unknown.3db`, which the data lacks, have none); the pass
+/// submits them through the render manager with the Win3D camera, and
+/// deleting the bar destroys their instances.
+#[test]
+fn the_navigation_bar_draws_its_meshes_through_the_engine() {
+    let data = outdir().join("data");
+    let (Ok(engine_ini), Ok(client_ini), Ok(navbar)) = (
+        fs::read(outdir().join("NeuronComponents.ini")),
+        fs::read(outdir().join("OutpostFrontier.ini")),
+        fs::read(data.join("INTERFACE/BASESIDE/navbar.ini")),
+    ) else {
+        println!("outdir/ has no data: nothing to draw");
+        return;
+    };
+    let mode = DisplayMode {
+        width: 1024,
+        height: 768,
+        fullscreen: false,
+    };
+    let mut config = EngineConfig::new(&data, mode);
+    config.engine_ini = Some(engine_ini);
+    config.client_ini = Some(client_ini);
+    config.font_backend = Some(Box::new(FakeBackend::default()));
+    let mut engine: Engine<RecordingBackend> =
+        Engine::new(config, RecordingBackend::default()).expect("the engine");
+    let ui = engine.ui_mut().expect("the UI manager");
+    let bar = ui
+        .create_by_class(
+            Some(b"NavBar"),
+            b"WinControl",
+            None,
+            &mut neuron_client::ui::tree::Payload::None,
+        )
+        .expect("the bar");
+    let mut ini = neuron_core::ini::IniReader::new();
+    assert!(ini.open_memory(&navbar));
+    neuron_client::ui::control::load_ini(ui, bar, &mut ini);
+    assert_eq!(ui.children(bar).len(), 12);
+    // The bar placed one unit in front of the Win3D camera (`SetPosition`;
+    // the base screen that places it is P5's): the buttons' meshes move to
+    // their offsets from there.
+    ui.set_position(bar, neuron_core::math::Vector::new(0.0, 0.0, -1.0));
+    let made = engine.ui_meshes_made();
+    assert_eq!(made, 5, "a mesh for each button whose file exists");
+    let instances = engine.scene().borrow().instances().count();
+    assert!(instances >= 5, "{instances} instances");
+    let mut reports = Vec::new();
+    let mut packets = Vec::new();
+    for _ in 0..2 {
+        let before = engine.device().backend.draws.len();
+        reports.push(engine.frame(FrameInput::idle(1.0 / 30.0), &mut Viewer));
+        packets.push(engine.device().backend.draws.len() - before);
+    }
+    let last = reports[1];
+    println!(
+        "navbar.ini: {made} meshes, {instances} instances; frames {reports:?}, packets {packets:?}"
+    );
+    assert!(last.ui_meshes >= 5, "every button's mesh is submitted");
+    assert!(last.ui_draws > 0, "the meshes draw");
+    let ui = engine.ui_mut().expect("the UI manager");
+    ui.destroy(bar);
+    ui.delete(bar);
+    assert_eq!(
+        engine.scene().borrow().instances().count(),
+        0,
+        "the buttons' instances go with them"
+    );
+}
