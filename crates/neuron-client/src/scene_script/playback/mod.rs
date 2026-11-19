@@ -516,6 +516,13 @@ impl Player {
         self.world.entities.get(&index).map(|e| (e.pos, e.orient))
     }
 
+    /// The kind of an entity's owner (`entity_kind`), which decides the
+    /// interfaces an attached object binds.
+    #[must_use]
+    pub fn entity_owner_type(&self, index: i32) -> Option<i32> {
+        self.world.entities.get(&index).map(|e| e.owner_type)
+    }
+
     /// The handles of the entities, in order (`Slot7EntityHandle`).
     pub fn entity_handles(&self) -> impl Iterator<Item = i32> + '_ {
         self.world.entities.keys().copied()

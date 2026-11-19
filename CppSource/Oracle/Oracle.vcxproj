@@ -381,6 +381,10 @@
     <!-- P4.10: SoundManager.dll exports nothing but its factory; oracle_audio.cpp includes
          SoundManager.cpp (DllMain renamed, GetTickCount redirected) to call its mixer code. -->
     <ClCompile Include="oracle_audio.cpp" />
+    <!-- P4.10, the client wiring: oracle_audio_client.cpp includes the client's sound archetypes,
+         play keys and sound tick (menu_sound_arch.cpp) and its audio configuration
+         (sound_config.cpp), and drives oracle_audio.cpp's manager through its bridge. -->
+    <ClCompile Include="oracle_audio_client.cpp" />
     <!-- P4.4: the texture library at run time (TextureLibrary.cpp, compiled into
          oracle_shading.cpp) and ximage.dll's BigImage; oracle_big_image.cpp includes ximage.cpp
          (DllMain renamed) to make FBigImage of its anonymous namespace. -->

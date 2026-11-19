@@ -138,6 +138,33 @@ fn audio_tick() {
     check_suite_within("audio_tick.jsonl", &audio::tick_lines(), audio::tick_bound);
 }
 
+/// P4.10, the client wiring: the preview `StartupDevice` stores from
+/// `[AudioProperties]` and the scene scripts' `SetReverb` calls of it.
+#[test]
+fn audio_reverb() {
+    check_suite("audio_reverb.jsonl", &audio::reverb_lines());
+}
+
+/// P4.10, the client wiring: the `[Sound]` tables (`LoadClientSoundArchIni`),
+/// their uses, level-of-detail links and the mixer archetypes
+/// `CreateSoundArchWav` makes.
+#[test]
+fn audio_arch() {
+    check_suite("audio_arch.jsonl", &audio::arch_lines());
+}
+
+/// P4.10, the client wiring: play keys through the client's sound tick
+/// (`TickClientSoundMixer`): scores, ranking, ducking, categories,
+/// retirement, and the volume, pan and start of each voice of the mixer.
+#[test]
+fn audio_client() {
+    check_suite_within(
+        "audio_client.jsonl",
+        &audio::client_lines(),
+        audio::client_bound,
+    );
+}
+
 /// P4.14: the engine calls of the parser's second pass for each buffer of
 /// a case, one fresh module state per case, with or without a COM context
 /// (`tests/fixtures/oracle/scene_script_build.list`).

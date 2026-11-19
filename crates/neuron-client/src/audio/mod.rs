@@ -24,6 +24,9 @@
 //!   2D voices (owner decision O26, divergences D275 and D277).
 //! - [`voice`]: how a device voice queues an archetype and measures a
 //!   stream's queue.
+//! - [`client`]: the client's sound layer over the mixer: the `[Sound]`
+//!   archetypes of the sound tables, the voice profiles, the play keys and
+//!   the per-frame sound tick (`TickClientSoundMixer`).
 //!
 //! The XAudio2 device that plays all this is `platform::audio` (Windows
 //! only).
@@ -48,6 +51,7 @@
 //!   ring buffer (a voice queue replaces it, divergence D227), and the
 //!   Audio Compression Manager (`symphonia` replaces it, divergence D273).
 
+pub mod client;
 pub mod config;
 pub mod decode;
 pub mod listener;

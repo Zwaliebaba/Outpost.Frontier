@@ -65,6 +65,63 @@ impl EaxPreview {
     }
 }
 
+/// The preview the sound manager keeps (`EaxEnv` to `EaxDamp`):
+/// `StartupDevice` stores the `[AudioProperties]` values as they are read
+/// and hands them to `SetEaxPreview`; scene scripts call it again
+/// (`IReverbControl::SetReverb`) and read it back (`GetReverb`, through
+/// `GetEaxPreview`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct EaxState {
+    /// The values `GetEaxPreview` hands out.
+    pub preview: EaxPreview,
+    /// The manager has a device. Without one `SetEaxPreview` stores
+    /// nothing; the engine's manager always counts as having one
+    /// (divergence D525).
+    pub device: bool,
+}
+
+impl EaxState {
+    /// The `[AudioProperties]` values as `StartupDevice` stores them,
+    /// before its `SetEaxPreview`.
+    #[must_use]
+    pub fn from_ini(reverb: &super::config::ReverbSettings, device: bool) -> EaxState {
+        EaxState {
+            preview: EaxPreview {
+                environment: reverb.environment,
+                volume: reverb.volume,
+                decay_time: reverb.decay_time,
+                damping: reverb.damping,
+            },
+            device,
+        }
+    }
+
+    /// `SetEaxPreview`: the clamped values, when there is a device.
+    pub fn set(&mut self, environment: i32, volume: f32, decay_time: f32, damping: f32) {
+        if self.device {
+            self.preview = EaxPreview::clamped(environment, volume, decay_time, damping);
+        }
+    }
+
+    /// `StartupDevice`'s call: `SetEaxPreview` of the stored values.
+    pub fn startup(&mut self) {
+        let p = self.preview;
+        self.set(p.environment, p.volume, p.decay_time, p.damping);
+    }
+
+    /// `GetEaxPreview`: the four words.
+    #[must_use]
+    pub fn words(&self) -> [u32; 4] {
+        let p = &self.preview;
+        [
+            p.environment.cast_unsigned(),
+            p.volume.to_bits(),
+            p.decay_time.to_bits(),
+            p.damping.to_bits(),
+        ]
+    }
+}
+
 /// I3DL2 reverb parameters (`DSFXI3DL2Reverb`, `XAUDIO2FX_REVERB_I3DL2_PARAMETERS`
 /// without the wet/dry mix).
 #[derive(Clone, Copy, Debug, PartialEq)]

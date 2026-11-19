@@ -332,6 +332,15 @@ mod tests {
                     );
                 }
                 scenes::Scene::Script(_) => assert_eq!(r.scripts, 1, "{}", run.label),
+                scenes::Scene::Sound(_) | scenes::Scene::Voice { .. } => {
+                    // The sound plays through the client's playing list:
+                    // ranked by the frames' sound tick and given a voice of
+                    // the mixer.
+                    assert!(r.sounds >= 1, "{}: {:?}", run.label, run.notes);
+                    let mixer = &viewer.engine.mixer;
+                    assert!(!mixer.instances().is_empty(), "{}", run.label);
+                    assert!(mixer.instances().iter().all(|i| i.started), "{}", run.label);
+                }
                 scenes::Scene::Page(_) => {
                     assert!(r.ui_nodes > 0, "{}", run.label);
                     assert!(r.ui_draws > 0, "{} draws its widgets", run.label);
