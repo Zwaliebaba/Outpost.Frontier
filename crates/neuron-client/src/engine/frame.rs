@@ -34,9 +34,11 @@
 //!    appearances' meshes through the render manager).
 //! 6. `ClearWin3DBuffers(0x100)`, `Win3DSetDepthFunc(4)`, `Win3DDrawAll`
 //!    through the engine's draw host ([`super::ui_host::UiHost`]: the
-//!    immediate-mode layer, the line batchers, the control meshes, the
-//!    rich-text tiles and the font atlas's overlay flush), the screen-quad
-//!    lists the draw left, and last the software cursor
+//!    immediate-mode layer, the line batchers, the control meshes with
+//!    their tints and window views, the button montage's icons, the
+//!    rich-text tiles, the font atlas's overlay flush and the IME's overlay
+//!    pass, with the engine's game options), the screen-quad lists the
+//!    draw left, and last the software cursor
 //!    (`MouseFrameUpdate`'s `DrawCursor`).
 //! 7. `EndClientRenderScene`: the batcher's `FlushAll(1)` and the render
 //!    states the next frame starts from; then `PresentClientRenderFrame`.
@@ -45,9 +47,8 @@
 //! mixer's tick (its sources are the game's, P5.5), the local server's
 //! tick and the state machine (P5.1, P5.3), the game's own scene order
 //! (the space and room cameras' `DrawScene`, P5.4, P5.9, of which the
-//! frame keeps the camera's application), the fade, the button montage
-//! and the IME's overlay pass of `Win3DDrawAll`, and the frame clock (the
-//! caller's `game_app::timing`).
+//! frame keeps the camera's application), the fade, and the frame clock
+//! (the caller's `game_app::timing`).
 
 use crate::input::mouse::MousePlatform;
 use crate::render::appearance::{AppearanceServices, Camera, MeshView};
@@ -123,6 +124,8 @@ pub struct FrameReport {
     pub ui_meshes: usize,
     /// Rich-text tiles the interface drew.
     pub ui_tiles: usize,
+    /// Button montage icons the interface queued.
+    pub ui_montage_icons: usize,
     /// Whether the software cursor was drawn.
     pub cursor: bool,
 }
@@ -327,10 +330,16 @@ impl<B: Backend + 'static> Engine<B> {
                 &mut self.batchers,
                 &mut self.quads,
                 &camera,
+                super::ui_host::UiPassState {
+                    options: &self.options,
+                    lights: &mut self.lights,
+                    ime_boxes: self.ime.as_ref().is_some_and(|f| !f.is_empty()),
+                },
             );
             ui.draw_all(&mut host);
             report.ui_meshes = host.meshes;
             report.ui_tiles = host.tile_draws;
+            report.ui_montage_icons = host.montage_icons;
         }
         report.quad_lists = flush_quads(&mut self.quads, &mut side.stack.shading);
         report.cursor = draw_cursor(
@@ -355,8 +364,9 @@ impl<B: Backend + 'static> Engine<B> {
             end_scene(&mut self.win3d, &mut pipe);
         }
         side.stack.shading.device.present();
-        // `Win3DOnPresentFrame`: the `LIKE_PETAL` option is off.
-        self.win3d.on_present_frame(0);
+        // `Win3DOnPresentFrame`: the cache follows the `LIKE_PETAL` option.
+        self.win3d
+            .on_present_frame(self.options.get(super::options::LIKE_PETAL));
         drop(side);
         apply_extents(&self.scene, &self.links);
         self.frames += 1;

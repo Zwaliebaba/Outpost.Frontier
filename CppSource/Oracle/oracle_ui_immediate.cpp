@@ -9,8 +9,11 @@
 // draw through a recording pipeline, vertex buffer, index buffer and IRPDraw; the screen-quad
 // flush of the overlay pass is the real ScreenQuadFlush of oracle_ui_quads.cpp, on the
 // recorders as well. The Win3D camera the flushes read is a camera the case sets. The button
-// montage, the font atlas's key and ScaleVec3 (the fuzzy lines', which no case reaches) are
-// stand-ins. The Rust side is crates/neuron-client/tests/oracle_vectors.rs with
+// montage's draw and flush are the reference's (nn_montage_draw.cpp, renamed as well; its tiles
+// are the case's, its loader is not reached). The font atlas's key and ScaleVec3 are stand-ins;
+// so are Common's RandomVector (the reference's body over a rand of the MSVC runtime's
+// recurrence that the case seeds) and the texture library's GetTextureFrame (the frames the
+// case sets). The Rust side is crates/neuron-client/tests/oracle_vectors.rs with
 // crates/neuron-client/tests/support/ui_immediate.rs; the inputs come from
 // crates/neuron-client/tests/fixtures/oracle/make_ui_immediate_fixtures.py.
 //
@@ -44,6 +47,15 @@
 //   font X0 Y0 X1 Y1 COLOR TEX   a record of the font atlas's list (texture TEX, blend 2)
 //   overlay                  UiOverlayPrepPipeline
 //   state                    the layer's state
+//   srand N                  the stand-in rand's seed (1 at the start of a case)
+//   frame REC H U0 V0 U1 V1  GetTextureFrame(REC, 0): handle H and the rect (else REC and 0 0 1 1)
+//   fuzzy CURVED TEX SX SY SZ EX EY EZ CX CY CZ PX PY PZ R G B W J S   Win3DDrawFuzzyLine
+//                            (TEX 0 for none; start, end, control, eye, colour, width, jitter,
+//                            side scale)
+//   camxs XS YS              the case camera's x and y scales (GetXScaleOverNear's)
+//   mtile U V STEP REC SCALE  a montage tile on a shape of texture REC (0: no shape)
+//   mdraw I X Y Z R G B A SIZE MODE ANGLE   NnMontageDrawTileAt(tile I, or null for "-")
+//   mflush                   ButtonMontageFlushBatch
 //
 // Line formats, each prefixed with "case": the recorders' calls --
 //   {"ev":"rs","s","v"} {"ev":"get","s","v"} {"ev":"tss","st","t","v"} {"ev":"gtss","st","t","v"}
@@ -56,9 +68,9 @@
 //   {"ev":"qvlock","fvf","n"} {"ev":"qverts","data"} {"ev":"qilock","n"} {"ev":"qidx","data"}
 //   {"ev":"qselect","base"} {"ev":"qdraw","prim","min","n","start","count"} (a screen-quad flush)
 // (matrices and vertex data as the hex of their little-endian bytes; the buffer calls answer
-// offset 0) -- and per getvp and state
+// offset 0) -- and per getvp, state and mdraw
 //   {"ev":"getvp","q","v"} {"ev":"state","colour","nv","ni","kind","params","set","skip",
-//    "depth","blend","vp","mv"}.
+//    "depth","blend","vp","mv"} {"ev":"mdraw","r"}.
 
 #include "oracle_support.h"
 
@@ -66,10 +78,14 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <deque>
 #include <map>
 #include <set>
 #include <string>
 #include <vector>
+
+// Common's declarations first, so that the rename below reaches only the layer's call.
+#include "common_misc.h"
 
 // The layer's own names, and the client functions of other files it reaches that this suite
 // stands in for, renamed for this file.
@@ -140,10 +156,20 @@
 #define LoadButtonMontage OracleImm_LoadButtonMontage
 #define NnMontageFlushButtons OracleImm_NnMontageFlushButtons
 #define ScaleVec3 OracleImm_ScaleVec3
+#define RandomVector OracleImm_RandomVector
+#define G_ButtonMontageTiles OracleImm_G_ButtonMontageTiles
+#define G_ButtonShapeDB OracleImm_G_ButtonShapeDB
+#define G_ButtonsMaterialKey OracleImm_G_ButtonsMaterialKey
+#define FindButtonMontageTile OracleImm_FindButtonMontageTile
+#define ClearButtonMontage OracleImm_ClearButtonMontage
+#define NnMontageDrawTileAt OracleImm_NnMontageDrawTileAt
+
+Vector OracleImm_RandomVector(float Radius);
 
 #include "../OutpostFrontier/Client/win3d_immediate.cpp"
 #include "../OutpostFrontier/Client/win3d_renderables.cpp"
 #include "../OutpostFrontier/Client/win3d_render.cpp"
+#include "../OutpostFrontier/Client/nn_montage_draw.cpp"
 
 #include "../OutpostFrontier/Client/font_atlas.h"
 #include "../OutpostFrontier/Client/nn_montage_draw.h"
@@ -165,21 +191,37 @@ unsigned FontAtlasMaterialKey()
     return NEURONCOMPONENTS_CRC::GetCRC32("font");
 }
 
-bool G_bButtonMontageLoaded = true;
-
-void LoadButtonMontage()
-{
-}
-
-void NnMontageFlushButtons()
-{
-}
-
 void ScaleVec3(float* Out, float const* V, float Scalar)
 {
     Out[0] = V[0] * Scalar;
     Out[1] = V[1] * Scalar;
     Out[2] = V[2] * Scalar;
+}
+
+namespace
+{
+    // The stand-in rand: the MSVC runtime's recurrence, seeded by the case.
+    unsigned int GImmRandState = 1;
+
+    int ImmRand()
+    {
+        GImmRandState = GImmRandState * 214013u + 2531011u;
+        return (int)((GImmRandState >> 16) & 0x7fffu);
+    }
+}
+
+// Common's RandomVector (common_misc.cpp), the reference's body over the stand-in rand.
+Vector OracleImm_RandomVector(float Radius)
+{
+    float const X = (float)(ImmRand() - 0x3fff);
+    float const Y = (float)(ImmRand() - 0x3fff);
+    double const Z = (double)(ImmRand() - 0x3fff);
+    double const Scale = (double)(Radius) / sqrt(Z * Z + (double)(Y) * Y + (double)(X) * X);
+    Vector Result;
+    Result.x = (float)((double)(X) * Scale);
+    Result.y = (float)((double)(Y) * Scale);
+    Result.z = (float)(Scale * Z);
+    return Result;
 }
 
 namespace
@@ -590,6 +632,83 @@ namespace
             int WorldIndex, const float* M12) override { return GR_GENERIC; }
     };
 
+    // The texture library's GetTextureFrame: the frames the case set, else the record as the
+    // handle over the whole texture.
+    class FOracleImmTextures final : public ITextureLibrary2
+    {
+    public:
+        std::map<uintptr_t, std::vector<unsigned long>> Frames;
+        GENRESULT NEURONCOMPONENTS_API QueryInterface(const char*, void** Out) override
+        {
+            *Out = nullptr;
+            return GR_INTERFACE_UNSUPPORTED;
+        }
+        unsigned long NEURONCOMPONENTS_API AddRef() override { return 1; }
+        unsigned long NEURONCOMPONENTS_API Release() override { return 1; }
+        GENRESULT NEURONCOMPONENTS_API GetTextureFrame(void* Tex, int, unsigned long* Out) override
+        {
+            const auto Found = Frames.find((uintptr_t)Tex);
+            if (Found != Frames.end())
+            {
+                for (int I = 0; I < 5; ++I)
+                    Out[I] = Found->second[I];
+                return GR_OK;
+            }
+            const float Whole[4] = {0.0f, 0.0f, 1.0f, 1.0f};
+            Out[0] = (unsigned long)(uintptr_t)Tex;
+            memcpy(&Out[1], Whole, sizeof(Whole));
+            return GR_OK;
+        }
+        GENRESULT NEURONCOMPONENTS_API FindTextureByCrc(void*, void**) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API GetFrameCount(void*, int*) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API CreatePlaybackGroup(void*, int*) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API ReleaseTextureRecord(void*) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API DecRefById(int) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API GetFrame(int, int, unsigned long*) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API SetGenericSlot(int, unsigned long) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API GetGenericSlot(int, unsigned long*) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API LoadTextureGroup(void*, int*) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API LoadTextureLibrary(void*, const char*) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API GarbageCollect(int) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API TickAllPlayback(int, float) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API SetGroupName(int, const char*) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API GetGroupName(int, char*, unsigned long) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API FindOrCreateByName(const char*, void**) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API AddRefById(int) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API CopyName(void*, char*, unsigned long) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API SetRecordName(void*, const char*) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API SetSubTexture(void*, int, int) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API SetFrameHandle(void*, int, unsigned long) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API SetFrameRect(void*, int, float, float, float, float) override
+        {
+            return GR_GENERIC;
+        }
+        GENRESULT NEURONCOMPONENTS_API GetGroupPixelFormat(void*, void*, int*) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API SetTileRate(void*, float) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API GetTileRate(void*, float*) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API ResolveTextureRecord(int, void**) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API SetElapsedTime(int, float) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API GetElapsedTime(int, float*) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API SetFrameIndex(int, unsigned int) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API GetFrameIndex(int, unsigned int*) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API SetLocalRate(int, float) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API GetEffectiveRate(int, float*) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API SetWrapMode(int, int) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API GetWrapMode(int, int*) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API AdvanceTime(int, float) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API PeekNextGroupId(unsigned long*) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API EnumGroup(int, int*) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API GetSubCount(int, int*) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API EnumTexture(int, int, void**) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API AddSubTexture(int, void*) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API RemoveSubTexture(int, void*) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API PickGpuFormat(const unsigned long*, unsigned long*) override
+        {
+            return GR_GENERIC;
+        }
+        GENRESULT NEURONCOMPONENTS_API AllocateNewTextureId(int*) override { return GR_GENERIC; }
+    };
+
     std::vector<std::string> SplitImm(const std::string& Text, const std::string& Separator)
     {
         std::vector<std::string> Parts;
@@ -680,6 +799,7 @@ namespace
         IRPDraw* const SavedDraw = NeuronRuntime::RPDraw;
         const unsigned SavedWidth = G_RenderSurfaceWidth;
         const unsigned SavedHeight = G_RenderSurfaceHeight;
+        ITextureLibrary2* const SavedTextures = NeuronRuntime::TextureLib;
         for (const std::string& Line : oracle::InputLines("ui_immediate.list"))
         {
             FOracleImmPipeline Pipe;
@@ -692,6 +812,12 @@ namespace
             NeuronRuntime::VertexBuffer = &QuadBuffers;
             NeuronRuntime::RPIndexBuffer = &QuadBuffers;
             NeuronRuntime::RPDraw = &QuadBuffers;
+            FOracleImmTextures Textures;
+            NeuronRuntime::TextureLib = &Textures;
+            GImmRandState = 1;
+            // The montage's shapes, by texture record (the tiles point into them).
+            std::deque<FTexShape> Shapes;
+            G_ButtonMontageTiles.clear();
             G_RenderSurfaceWidth = 800;
             G_RenderSurfaceHeight = 600;
             GImmCamera = FSpaceCamera();
@@ -850,7 +976,73 @@ namespace
                     UiOverlayPrepPipeline();
                 else if (Name == "state")
                     PrintState();
+                else if (Name == "srand")
+                    GImmRandState = (unsigned)ImmInt(F[1]);
+                else if (Name == "frame")
+                {
+                    std::vector<unsigned long> Frame(5, 0);
+                    Frame[0] = ImmHex(F[2]);
+                    for (int I = 0; I < 4; ++I)
+                        Frame[1 + I] = ImmHex(F[3 + I]);
+                    Textures.Frames[(uintptr_t)ImmHex(F[1])] = Frame;
+                }
+                else if (Name == "fuzzy")
+                {
+                    FWin3DFuzzyLine Line;
+                    memset(&Line, 0, sizeof(Line));
+                    Line.bCurved = (unsigned char)ImmInt(F[1]);
+                    Line.Texture = (void*)(uintptr_t)ImmHex(F[2]);
+                    for (int I = 0; I < 3; ++I)
+                    {
+                        Line.Start[I] = ImmF(F[3 + I]);
+                        Line.End[I] = ImmF(F[6 + I]);
+                        Line.Control[I] = ImmF(F[9 + I]);
+                        Line.EyePos[I] = ImmF(F[12 + I]);
+                        Line.Color[I] = ImmF(F[15 + I]);
+                    }
+                    Line.Width = ImmF(F[18]);
+                    Line.JitterScale = ImmF(F[19]);
+                    Line.SideScale = ImmF(F[20]);
+                    Win3DDrawFuzzyLine(&Line);
+                }
+                else if (Name == "camxs")
+                {
+                    GImmCamera.XScale = ImmF(F[1]);
+                    GImmCamera.YScale = ImmF(F[2]);
+                }
+                else if (Name == "mtile")
+                {
+                    FTexShape* Shape = nullptr;
+                    const uintptr_t Record = (uintptr_t)ImmHex(F[4]);
+                    if (Record != 0)
+                    {
+                        Shapes.emplace_back();
+                        Shape = &Shapes.back();
+                        Shape->Texture = (void*)Record;
+                    }
+                    FButtonMontageTile Tile;
+                    Tile.U = ImmF(F[1]);
+                    Tile.V = ImmF(F[2]);
+                    Tile.Step = ImmF(F[3]);
+                    Tile.Shape = Shape;
+                    Tile.Scale = ImmF(F[5]);
+                    G_ButtonMontageTiles.push_back(Tile);
+                }
+                else if (Name == "mdraw")
+                {
+                    const FButtonMontageTile* Tile =
+                        F[1] == "-" ? nullptr : &G_ButtonMontageTiles[(size_t)ImmInt(F[1])];
+                    const float Where[3] = {ImmF(F[2]), ImmF(F[3]), ImmF(F[4])};
+                    const unsigned char Rgba[4] = {(unsigned char)ImmInt(F[5]), (unsigned char)ImmInt(F[6]),
+                                                   (unsigned char)ImmInt(F[7]), (unsigned char)ImmInt(F[8])};
+                    const bool bDrawn =
+                        NnMontageDrawTileAt(Tile, Where, Rgba, ImmF(F[9]), ImmInt(F[10]), ImmF(F[11]));
+                    ImmEvent(oracle::Format("\"ev\":\"mdraw\",\"r\":\"%d\"", bDrawn ? 1 : 0));
+                }
+                else if (Name == "mflush")
+                    ButtonMontageFlushBatch();
             }
+            G_ButtonMontageTiles.clear();
             Win3DImmedBatchDestroyAll();
             ResetQuads();
             ++GImmCase;
@@ -861,6 +1053,7 @@ namespace
         NeuronRuntime::RPDraw = SavedDraw;
         G_RenderSurfaceWidth = SavedWidth;
         G_RenderSurfaceHeight = SavedHeight;
+        NeuronRuntime::TextureLib = SavedTextures;
         GImmOut = nullptr;
     }
 }

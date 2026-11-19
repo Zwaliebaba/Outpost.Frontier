@@ -43,6 +43,8 @@ pub mod camera;
 pub mod deform_anim;
 mod effects;
 mod frame;
+pub mod lights;
+pub mod options;
 pub mod order;
 mod scene_host;
 mod shapes;
@@ -369,6 +371,11 @@ pub struct Engine<B: Backend + 'static> {
     cursors: Cursors,
     ui_shape_db: ShapeDb,
     ime: Option<ImeFocus>,
+    /// The game options the draw reads, at the reference's defaults until
+    /// the game sets them (P5).
+    pub options: options::GameOptions,
+    /// The engine lights' registered list.
+    pub lights: lights::EngineLights,
     models: Vec<Option<Model>>,
     deformables: SharedDeformables,
     backdrop: Option<ModelId>,
@@ -705,6 +712,18 @@ impl<B: Backend + 'static> Engine<B> {
                 }
                 Err(_) => notices.push("Interface\\UI\\UITextures.ini: not loaded".to_owned()),
             }
+            // `LoadButtonMontage`, which the reference runs on first use
+            // (divergence D511).
+            let textures = data.read_file(crate::ui::montage::BUTTON_TEXTURES_INI).ok();
+            let montage = data.read_file(crate::ui::montage::BUTTON_MONTAGE_INI).ok();
+            if montage.is_none() {
+                notices.push("interface\\ButtonMontage.ini: not loaded".to_owned());
+            }
+            ui.montage.load(
+                textures.as_ref().map(|f| f.data.as_slice()),
+                montage.as_ref().map(|f| f.data.as_slice()),
+                &mut lib,
+            );
         }
         // `Win3DStartupManager`'s material entry: the interface's shared
         // meshes, materials and textures (`interface\interface.generic.vms`),
@@ -778,6 +797,8 @@ impl<B: Backend + 'static> Engine<B> {
             cursors,
             ui_shape_db,
             ime: Some(ime),
+            options: options::GameOptions::default(),
+            lights: lights::EngineLights::default(),
             models: Vec::new(),
             deformables,
             backdrop: None,
@@ -1445,13 +1466,17 @@ impl<B: Backend + 'static> Engine<B> {
         let log = |stage| lifecycle.record(stage, Phase::Teardown);
 
         // ClientAtExitTeardown, up to NeuronRuntime::Shutdown.
+        let mut montage = crate::ui::montage::ButtonMontage::default();
         if let Some(mut ui) = self.ui.take() {
             ui.shutdown();
             self.fonts = ui.fonts.take();
+            montage = std::mem::take(&mut ui.montage);
         }
         if let Some(data) = self.data.as_ref() {
             let mut side = self.render.borrow_mut();
             let mut lib = StackShapes::new(&mut side.stack, data);
+            // `ClearButtonMontage`.
+            montage.clear(&mut lib);
             self.ui_shape_db.clear(&mut lib);
             self.cursors.shapes.clear(&mut lib);
         }

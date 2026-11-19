@@ -31,7 +31,7 @@ use crate::render::ff::buffers::IndexSource;
 use crate::render::ff::device::{Backend, Device};
 use crate::render::ff::fvf::Fvf;
 use crate::render::texture::device::HandleTable;
-use crate::text::font::quad::{QuadSink, SCREEN_QUAD_FVF, ScreenQuadRecord, TlVertex};
+use crate::text::font::quad::{QuadSink, SCREEN_QUAD_FVF, ScreenQuadRecord, TlVertex, clip_1d};
 
 /// `D3DRS_CULLMODE`.
 pub const RS_CULLMODE: u32 = 0x16;
@@ -332,6 +332,138 @@ impl QuadBatcher {
         [f.u0, f.v0, f.u1, f.v1]
     }
 
+    /// `ScreenQuadEnqueueIcon`: a square of `size` world units at
+    /// `position`, projected through `camera` onto the current list in the
+    /// colour `argb` with the list frame's UV rect; a record clipped to the
+    /// viewport, or with an angle above 1e-5 four rotated vertices kept
+    /// only when every corner lies inside the viewport. Nothing when the
+    /// point is behind the near plane or the square under a pixel wide.
+    pub fn enqueue_icon(
+        &mut self,
+        camera: &IconCamera,
+        position: [f32; 3],
+        argb: u32,
+        size: f32,
+        angle: f32,
+    ) {
+        let Some(p) = project_object_extent(camera, position, size) else {
+            return;
+        };
+        let rect = camera.viewport;
+        let [u0, v0, u1, v1] = self.frame_uv();
+        let depth_a = r32(1.0 - f64::from(camera.z_near) * f64::from(p.inv_depth));
+        if f64::from(angle).abs() <= 1.0e-5 || angle.is_nan() {
+            let (sx, sy, hw, hh) = (
+                f64::from(p.screen_x),
+                f64::from(p.screen_y),
+                f64::from(p.half_w),
+                f64::from(p.half_h),
+            );
+            let mut x0 = r32(sx - hw + 0.5);
+            let mut x1 = r32(sx + hw + 0.5);
+            let mut y0 = r32(sy - hh + 0.5);
+            let mut y1 = r32(sy + hh + 0.5);
+            let (mut cu0, mut cv0, mut cu1, mut cv1) = (u0, v0, u1, v1);
+            #[allow(clippy::cast_precision_loss)]
+            let (left, top, right, bottom) = (
+                rect[0] as f32,
+                rect[1] as f32,
+                rect[2] as f32,
+                rect[3] as f32,
+            );
+            if clip_1d(
+                &mut x0,
+                &mut x1,
+                &mut cu0,
+                &mut cu1,
+                left,
+                right,
+                p.half_w + p.half_w,
+            ) == 0
+            {
+                return;
+            }
+            if clip_1d(
+                &mut y0,
+                &mut y1,
+                &mut cv0,
+                &mut cv1,
+                top,
+                bottom,
+                p.half_h + p.half_h,
+            ) == 0
+            {
+                return;
+            }
+            self.append_record(ScreenQuadRecord {
+                x0,
+                y0,
+                x1,
+                y1,
+                depth_a,
+                depth_b: p.inv_depth,
+                u0: cu0,
+                v0: cv0,
+                u1: cu1,
+                v1: cv1,
+                color: argb,
+            });
+            return;
+        }
+        let cos = f64::from(angle).cos();
+        let sin = f64::from(angle).sin();
+        let cos_hw = r32(cos * f64::from(p.half_w));
+        let sin_hw = r32(f64::from(p.half_w) * sin);
+        let cos_hh = r32(cos * f64::from(p.half_h));
+        let sin_hh = r32(sin * f64::from(p.half_h));
+        let (cos_hw, sin_hw, cos_hh, sin_hh) = (
+            f64::from(cos_hw),
+            f64::from(sin_hw),
+            f64::from(cos_hh),
+            f64::from(sin_hh),
+        );
+        let x = f64::from(p.screen_x);
+        let y = f64::from(p.screen_y);
+        let x_minus_cos = x - cos_hw;
+        let y_minus_sin = y - sin_hw;
+        let corner_x = [
+            r32(x_minus_cos - sin_hh),
+            r32(x_minus_cos + sin_hh),
+            r32((sin_hh + cos_hw) + x),
+            r32((cos_hw + x) - sin_hh),
+        ];
+        let corner_y = [
+            r32((sin_hw + y) - cos_hh),
+            r32((cos_hh + sin_hw) + y),
+            r32(cos_hh + y_minus_sin),
+            r32(y_minus_sin - cos_hh),
+        ];
+        #[allow(clippy::cast_precision_loss)]
+        let left = rect[0] as f32;
+        for (&cx, &cy) in corner_x.iter().zip(&corner_y) {
+            if cx < left
+                || f64::from(rect[2]) <= f64::from(cx)
+                || f64::from(rect[1]) > f64::from(cy)
+                || f64::from(rect[3]) <= f64::from(cy)
+            {
+                return;
+            }
+        }
+        let us = [u0, u0, u1, u1];
+        let vs = [v0, v1, v1, v0];
+        let quad = std::array::from_fn(|i| TlVertex {
+            x: corner_x[i],
+            y: corner_y[i],
+            z: depth_a,
+            rhw: p.inv_depth,
+            color: argb,
+            specular: 0,
+            u: us[i],
+            v: vs[i],
+        });
+        self.append_rotated(quad);
+    }
+
     /// `ScreenQuadFlush`: the 2D states, every live node of one list drawn
     /// and freed, the material key back to the default, the saved states
     /// restored.
@@ -561,6 +693,88 @@ fn flush_node(node: &BatchNode, device: &mut dyn QuadDevice) {
         device.draw_indexed_quads(&vertices, &indices);
     }
     device.set_render_state(RS_ALPHABLENDENABLE, 0);
+}
+
+fn r32(v: f64) -> f32 {
+    v as f32
+}
+
+/// What `ScreenQuadEnqueueIcon` and `ScreenQuadProjectObjectExtent` read
+/// of their camera (`ICamera`'s slots 5, 8, 11, 12 and 16).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct IconCamera {
+    /// `GetViewTransform`.
+    pub view: [f32; 12],
+    pub z_near: f32,
+    /// `GetXScaleOverNear` and `GetYScaleOverNear`, unrounded.
+    pub x_scale_over_near: f64,
+    pub y_scale_over_near: f64,
+    /// Left, top, right, bottom.
+    pub viewport: [i32; 4],
+}
+
+impl IconCamera {
+    /// The values of a camera now (its view transform rebuilt when dirty).
+    pub fn of(camera: &mut super::camera::Camera) -> IconCamera {
+        IconCamera {
+            view: camera.view_transform().to_words(),
+            z_near: camera.z_near,
+            x_scale_over_near: camera.x_scale_over_near(),
+            y_scale_over_near: camera.y_scale_over_near(),
+            viewport: camera.viewport,
+        }
+    }
+}
+
+/// What `ScreenQuadProjectObjectExtent` writes.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ProjectedExtent {
+    pub screen_x: f32,
+    pub screen_y: f32,
+    pub half_w: f32,
+    pub half_h: f32,
+    pub inv_depth: f32,
+}
+
+/// `ScreenQuadProjectObjectExtent`: the point in camera space through the
+/// view transform, its reciprocal depth and the half extents of `size`
+/// there; `None` behind the near plane or under a pixel wide.
+#[must_use]
+pub fn project_object_extent(
+    camera: &IconCamera,
+    position: [f32; 3],
+    size: f32,
+) -> Option<ProjectedExtent> {
+    let view = neuron_core::math::Transform::from_words(camera.view);
+    let cam =
+        neuron_core::math::transform_xform(&view, neuron_core::math::Vector::from_words(position));
+    if f64::from(cam.z) - f64::from(camera.z_near) >= 0.0 {
+        return None;
+    }
+    let inv_depth = r32(-1.0 / f64::from(cam.z));
+    let near = f64::from(camera.z_near);
+    let scale_x = r32(near * f64::from(r32(camera.x_scale_over_near)));
+    let scale_y = r32(near * f64::from(r32(camera.y_scale_over_near)));
+    let (inv, s) = (f64::from(inv_depth), f64::from(size));
+    let half_w = f64::from(scale_x) * inv * s * f64::from(0.5f32);
+    let half_h = (f64::from(scale_y) * inv * s * f64::from(0.5f32)).abs();
+    if half_w < 1.0 {
+        return None;
+    }
+    let rect = camera.viewport;
+    let half_span_y = f64::from(rect[3].wrapping_sub(rect[1])) * f64::from(0.5f32);
+    let half_span_x = f64::from(rect[2].wrapping_sub(rect[0])) * f64::from(0.5f32);
+    Some(ProjectedExtent {
+        screen_x: r32(
+            (half_span_x + f64::from(cam.x) * f64::from(scale_x) * inv) + f64::from(rect[0])
+        ),
+        screen_y: r32(
+            (f64::from(cam.y) * f64::from(scale_y) * inv + f64::from(rect[1])) + half_span_y,
+        ),
+        half_w: r32(half_w),
+        half_h: r32(half_h),
+        inv_depth,
+    })
 }
 
 impl QuadSink for QuadBatcher {

@@ -562,6 +562,26 @@ RICH_CASES = [
 
 CONTROL_CASES += RICH_CASES
 
+# P4.13, seventh increment: the engine's interface pass.
+PASS_CASES = [
+    # A static control that renders to a window: the instance's box projected, the window
+    # camera's rectangle, planes and angle, the passes through it, the Win3D camera's viewport
+    # back; then a box off the surface, which draws nothing; then one on z-clear, and the
+    # option gate.
+    " ; ".join([
+        "new StaticControl",
+        "init " + hx("window.cmp") + " " + fbs(0.0, 0.0, 0.0) + " - " + fbs(0.1, 0.08, 0.1) +
+        " 0 0 0 0 0 1 0 0 0 0 " + fbs(0.0, 0.0, 0.0),
+        xform(0.1, -0.05, -1.0), "state", "draw",
+        "colours 10203040 50607080", "draw",
+        xform(5.0, 0.0, -1.0), "draw",
+        xform(-0.2, 0.1, -1.5), "prop 2 1 0", "draw",
+        "gopt 21 0", "draw", "gopt 21 1",
+    ]),
+]
+
+CONTROL_CASES += PASS_CASES
+
 CASES = [
     # A front-end page of every class, in the shipped files' style.
     "#Automatically generated. Do not edit!\n"

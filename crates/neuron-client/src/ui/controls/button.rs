@@ -273,7 +273,7 @@ impl ButtonControl {
         if let Payload::Ini(ini) = payload {
             self.read_ini(ui, id, parent, ini);
             let path = self.control.mesh_path.clone();
-            self.montage_tile = ui.services.montage_tile(&path);
+            self.montage_tile = ui.montage_tile(&path);
         }
         if let Some(p) = ui.parent(id) {
             let at = position(ui, p);
@@ -285,6 +285,7 @@ impl ButtonControl {
         if self.toggle.is_some() {
             if !self.mesh2.is_empty() {
                 self.load_toggle_mesh(ui);
+                self.share_toggle_floats();
                 self.place_toggle_mesh(ui, id);
             }
             self.toggle_sounds_from_button(ui);
@@ -373,7 +374,7 @@ impl ButtonControl {
         }
         if let Some(path) = mesh {
             self.control.mesh_path = path.to_vec();
-            self.montage_tile = ui.services.montage_tile(path);
+            self.montage_tile = ui.montage_tile(path);
             if self.montage_tile.is_none_or(|t| t.scale == 0.0)
                 && base::set_mesh(ui, id, &mut self.control, path, b"")
             {
@@ -415,6 +416,7 @@ impl ButtonControl {
             if let Some(m2) = mesh2 {
                 let path = m2.to_vec();
                 self.load_toggle_mesh_from(ui, &path);
+                self.share_toggle_floats();
                 self.place_toggle_mesh(ui, id);
             }
             self.toggle_sounds_from_button(ui);
@@ -425,6 +427,18 @@ impl ButtonControl {
         let mesh = ui.mesh_loader.as_mut().and_then(|l| l.load(path, b""));
         if let Some(t) = self.toggle.as_mut() {
             t.mesh = mesh;
+        }
+    }
+
+    /// `SetInstanceUserData(state-1 instance, main holder's floats)`: the
+    /// state-1 instance reads the tint the body pass writes for the main
+    /// holder (divergence D440).
+    fn share_toggle_floats(&mut self) {
+        let floats = self.control.mesh.as_ref().and_then(|m| m.user_floats());
+        if let (Some(floats), Some(t)) = (floats, self.toggle.as_mut())
+            && let Some(m2) = t.mesh.as_mut()
+        {
+            m2.set_root_user_floats(floats);
         }
     }
 

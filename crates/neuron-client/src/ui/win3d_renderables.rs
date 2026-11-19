@@ -9,9 +9,9 @@
 //! vertices (each end in its colour, and pushed the width to either side
 //! along the perpendicular in the edge colour) and twelve indices.
 //!
-//! Not ported: the button montage's ensure and flush (`ButtonMontageEnsure`,
-//! `ButtonMontageFlushBatch`, the game's montage, P5) and the IME's overlay
-//! pass (`ImeFocusDrawPass`, with the IME work of P4.11).
+//! The button montage's ensure and flush (`ButtonMontageEnsure`,
+//! `ButtonMontageFlushBatch`) are [`super::montage`]'s; the IME's overlay
+//! pass (`ImeFocusDrawPass`) is [`ime_focus_draw_pass`].
 
 use neuron_core::hash::name_crc32;
 
@@ -299,6 +299,52 @@ pub fn prep_ui_overlay(
     layer.pop_projection(pipe);
     pipe.set_render_state(rs::ZWRITEENABLE, saved_zwrite);
     pipe.set_render_state(rs::ZFUNC, saved_zfunc);
+}
+
+/// `ImeFocusDrawPass`, for an IME focus with input boxes: under a pushed
+/// 2D projection, point filtering, depth function `ALWAYS`, no depth write
+/// and no culling, `IMEFocus::Draw` and then the "IMEbkground" and
+/// "IMEtext" screen-quad lists flushed; then everything put back.
+///
+/// `IMEFocus::Draw` draws nothing here: the boxes' own draw is empty and
+/// the composition and candidates are the system's windows (divergence
+/// D283), so the two lists hold only what the game queued on them.
+pub fn ime_focus_draw_pass(
+    layer: &mut Win3dLayer,
+    pipe: &mut dyn Win3dPipeline,
+    quads: &mut QuadBatcher,
+) {
+    layer.push_projection(pipe);
+    layer.set_ortho_2d(pipe);
+    let saved_10 = pipe.stage_state(0, 0x10);
+    let saved_11 = pipe.stage_state(0, 0x11);
+    pipe.set_stage_state(0, 0x10, 1);
+    pipe.set_stage_state(0, 0x11, 1);
+    let saved_zfunc = pipe.render_state(rs::ZFUNC);
+    pipe.set_render_state(rs::ZFUNC, 8);
+    let saved_zwrite = pipe.render_state(rs::ZWRITEENABLE);
+    pipe.set_render_state(rs::ZWRITEENABLE, 0);
+    layer.disable(pipe, capability::CULL_FACE);
+    quads.flush(pipe, ime_background_key());
+    quads.flush(pipe, ime_text_key());
+    pipe.set_stage_state(0, 0x10, saved_10);
+    pipe.set_stage_state(0, 0x11, saved_11);
+    layer.enable(pipe, capability::CULL_FACE);
+    layer.pop_projection(pipe);
+    pipe.set_render_state(rs::ZWRITEENABLE, saved_zwrite);
+    pipe.set_render_state(rs::ZFUNC, saved_zfunc);
+}
+
+/// `G_ImeBackgroundKey`: the CRC of "IMEbkground".
+#[must_use]
+pub fn ime_background_key() -> u32 {
+    name_crc32(b"IMEbkground")
+}
+
+/// `G_ImeTextKey`: the CRC of "IMEtext".
+#[must_use]
+pub fn ime_text_key() -> u32 {
+    name_crc32(b"IMEtext")
 }
 
 /// The font atlas's material key (`FontAtlasMaterialKey`: the CRC of

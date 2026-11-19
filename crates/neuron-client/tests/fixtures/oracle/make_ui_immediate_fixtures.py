@@ -138,6 +138,75 @@ CASES = [
 ]
 
 
+# P4.13, seventh increment: the button montage, the fuzzy lines.
+
+# The Win3D camera's x and y scales (HalfWidth / tan(27.216 degrees)).
+WIN3D_SCALES = "camxs %s" % fl(622.0, -622.0)
+
+
+def mtile(u, vv, step, record, scale):
+    return "mtile %s %x %s" % (fl(u, vv, step), record, fb(scale))
+
+
+def mdraw(index, at, rgba, size, mode, angle):
+    return "mdraw %s %s %d %d %d %d %s %d %s" % (
+        index, fl(*at), rgba[0], rgba[1], rgba[2], rgba[3], fb(size), mode, fb(angle))
+
+
+def fuzzy(curved, texture, start, end, control, eye, colour, width, jitter, side):
+    return "fuzzy %d %x %s" % (curved, texture, fl(*(list(start) + list(end) + list(control) +
+                                                   list(eye) + list(colour) +
+                                                   [width, jitter, side])))
+
+
+CASES += [
+    # Montage icons: the tile's square inset and mirrored per mode, a mode that keeps the
+    # frame's rect, a rotated icon, a tile without a shape and none, behind the camera, under a
+    # pixel, clipped at the viewport's edge, a rotated icon across the edge; then the flush of
+    # the "buttons" list with the depth states saved and restored.
+    [WIN3D_CAM, WIN3D_SCALES, "get 23 4 ; get 14 1",
+     "frame 7 77 %s" % " ".join(fb(x) for x in (0.1, 0.2, 0.9, 0.8)),
+     mtile(0.0, 0.0, 0.25, 7, 0.05), mtile(0.25, 0.5, 0.25, 7, 0.0),
+     mtile(0.0, 0.0, 0.5, 0, 0.02), mtile(0.75, 0.25, 0.25, 8, 0.0),
+     mdraw("0", (0.01, 0.02, -1.0), (16, 32, 48, 64), 0.05, 0, 0.0),
+     mdraw("1", (-0.1, 0.05, -1.0), (255, 255, 255, 255), 0.03, 1, 0.0),
+     mdraw("1", (0.1, -0.05, -1.2), (1, 2, 3, 4), 0.03, 2, 0.0),
+     mdraw("1", (0.0, 0.1, -0.8), (200, 100, 50, 25), 0.03, 3, 0.0),
+     mdraw("0", (0.05, 0.05, -1.0), (9, 8, 7, 6), 0.04, 5, 0.0),
+     mdraw("3", (-0.05, -0.1, -1.0), (128, 128, 128, 255), 0.06, 0, 0.3),
+     mdraw("2", (0.0, 0.0, -1.0), (255, 0, 0, 255), 0.05, 0, 0.0),
+     mdraw("-", (0.0, 0.0, -1.0), (255, 0, 0, 255), 0.05, 0, 0.0),
+     mdraw("0", (0.0, 0.0, 1.0), (255, 0, 0, 255), 0.05, 0, 0.0),
+     mdraw("0", (0.0, 0.0, -1.0), (255, 0, 0, 255), 0.001, 0, 0.0),
+     mdraw("0", (0.5, 0.0, -1.0), (0, 255, 0, 255), 0.08, 0, 0.0),
+     mdraw("0", (0.0, -0.385, -1.0), (0, 0, 255, 255), 0.08, 2, 0.0),
+     mdraw("3", (0.51, 0.0, -1.0), (0, 255, 255, 255), 0.08, 0, -0.7),
+     "mflush ; state"],
+    # A flush with nothing queued.
+    [WIN3D_CAM, "mflush"],
+    # Fuzzy lines: a line strip with its jitter, textured quads facing the eye, an arc as a
+    # strip and as quads, an arc too small to draw.
+    [WIN3D_CAM, "srand 7",
+     fuzzy(0, 0, (0.0, 0.0, -10.0), (10.0, 1.0, -12.0), (0.0, 0.0, 0.0), (0.0, 0.0, 0.0),
+           (1.0, 0.5, 0.25), 2.5, 0.1, 1.0),
+     "state"],
+    [WIN3D_CAM, "frame 9 99 %s" % fl(0.0, 0.0, 1.0, 1.0), "known 99",
+     fuzzy(0, 9, (-2.0, 1.0, -8.0), (3.0, -0.5, -9.5), (0.0, 0.0, 0.0), (0.0, 0.5, 1.0),
+           (0.2, 0.4, 0.6), 1.25, 0.2, 0.75),
+     "state"],
+    [WIN3D_CAM, "srand 12345",
+     fuzzy(1, 0, (5.0, 0.0, -10.0), (0.0, 5.0, -10.0), (0.0, 0.0, -10.0), (0.0, 0.0, 0.0),
+           (0.9, 0.8, 0.7), 1.5, 0.05, 1.0),
+     fuzzy(1, 0, (0.0, 0.0, -3.0), (1.0, 0.0, -3.0), (0.0, 0.0, -3.0), (0.0, 0.0, 0.0),
+           (1.0, 1.0, 1.0), 1.0, 0.1, 1.0),
+     "state"],
+    [WIN3D_CAM, "srand 99", "known 99",
+     fuzzy(1, 9, (2.0, 2.0, -6.0), (-2.0, 2.5, -7.0), (0.0, 1.0, -6.5), (0.0, 0.0, 0.0),
+           (0.5, 0.5, 0.5), 0.8, 0.15, 2.0),
+     "state"],
+]
+
+
 def write(here, name, lines, check):
     data = ("\n".join(lines) + "\n").encode("latin-1")
     path = os.path.join(here, name)
