@@ -13,7 +13,7 @@
 //        Oracle.exe game-sim <fixture directory> <output directory>
 //        Oracle.exe neuron-client <fixture directory> <output directory>
 //        Oracle.exe game-app <fixture directory> <output directory>
-//        Oracle.exe sim <data root> <scenario file> <out folder> [--runs N]
+//        Oracle.exe sim <data root> <scenario file> <out folder> [--runs N] [--seed S]
 //        Oracle.exe render-replay <vectors directory> <output directory>
 //        Oracle.exe gdi-fonts <fixture directory> <output directory>
 // The second form dumps the original installation's INI files for
