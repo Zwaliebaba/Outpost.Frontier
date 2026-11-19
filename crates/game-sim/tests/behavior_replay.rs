@@ -166,6 +166,11 @@ struct ReplayWorld<'a> {
     pointing_angles: [f32; 3],
     /// The equipment queries of the tick the snapshot cannot answer.
     unanswered: Vec<String>,
+    /// The other AI ships' managers as their last recorded exit left
+    /// them: the current behaviour and the directive (`CEqObj::
+    /// get_behavior_interface`; a formation leader's directive is read by
+    /// its wingmen).
+    managers: BTreeMap<u32, (i32, [i32; 3])>,
 }
 
 impl<'a> ReplayWorld<'a> {
@@ -232,6 +237,7 @@ impl<'a> ReplayWorld<'a> {
                     .map_or(0.0, |s| s.guns.missile_launch_cone_angle),
             ],
             unanswered: Vec::new(),
+            managers: BTreeMap::new(),
         }
     }
 
@@ -492,6 +498,13 @@ impl AiWorld for ReplayWorld<'_> {
 
     fn targeted_enemy_count(&self, h: u32) -> i32 {
         self.targeted.get(&h).copied().unwrap_or(0)
+    }
+
+    fn manager_of(&self, h: u32) -> Option<(i32, [i32; 3])> {
+        if h == self.ship {
+            return None;
+        }
+        self.managers.get(&h).copied()
     }
 
     fn command(&mut self, h: u32, command: AiCommand<u32>) -> i32 {
@@ -1177,6 +1190,19 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
             personalities.insert(t.id, p);
         }
         let mut world = ReplayWorld::new(t, scan, motion.as_ref(), avoid_shuffled, &names);
+        world.managers = last_out
+            .iter()
+            .filter(|(id, _)| **id != t.id)
+            .map(|(id, m)| {
+                (
+                    *id,
+                    (
+                        m.behavior,
+                        m.directive.map(|w| i32::from_ne_bytes(w.to_ne_bytes())),
+                    ),
+                )
+            })
+            .collect();
         let is_player = world.objects.get(&t.id).is_some_and(|v| v.is_player);
         if first_seen.insert(t.id, ()).is_none()
             && let Some(v) = world.objects.get(&t.id)
