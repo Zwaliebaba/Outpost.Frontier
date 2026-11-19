@@ -262,17 +262,31 @@ pub fn quad_batch_lines(case: usize, line: &str) -> Vec<String> {
 
 mod controls {
     use std::any::Any;
-    use std::cell::RefCell;
+    use std::cell::{Cell, RefCell};
     use std::rc::Rc;
 
+    use neuron_client::text::font::FontId;
+    use neuron_client::text::font::string::DrawOrigin;
     use neuron_client::ui::control::{ControlMesh, MeshLoader, WinControl, base};
+    use neuron_client::ui::controls::button::{
+        ButtonControl, ButtonWidget, RichTextButtonWidget, ToggleButtonWidget,
+    };
     use neuron_client::ui::controls::list_box::{ListMetrics, ScreenBox, UiListBox};
     use neuron_client::ui::controls::scroll::{HitRect, ScrollShapes, UiScroll};
+    use neuron_client::ui::controls::scroll_control::{PartId, ScrollControlWidget};
+    use neuron_client::ui::controls::static_control::StaticControlWidget;
+    use neuron_client::ui::controls::table::UiTable;
+    use neuron_client::ui::controls::text_control::{
+        ControlText, EditControl, TextControl, TextControlWidget,
+    };
+    use neuron_client::ui::controls::text_win::TextProjection;
     use neuron_client::ui::controls::win_object::UiWinObject;
+    use neuron_client::ui::controls::wire::{WireControl, WireWidget};
     use neuron_client::ui::immediate::Immediate;
-    use neuron_client::ui::message::{ButtonAction, MouseButton};
+    use neuron_client::ui::message::{ButtonAction, KeyMods, MouseButton};
     use neuron_client::ui::page::EntryPayload;
     use neuron_client::ui::quad_batch::QuadBatcher;
+    use neuron_client::ui::services::{HoverKey, ToolTipHover, UiServices};
     use neuron_client::ui::shape::{ShapeTextures, TexShape};
     use neuron_client::ui::tree::{
         ChildMessage, DrawHost, MeshPass, NodeId, Payload, Property, Ui, Widget,
@@ -285,12 +299,17 @@ mod controls {
     struct Log {
         case: usize,
         lines: Vec<String>,
+        /// The teardown after the case records nothing, as the oracle's.
+        muted: bool,
     }
 
     type Shared = Rc<RefCell<Log>>;
 
     fn ev(log: &Shared, fields: &str) {
         let mut l = log.borrow_mut();
+        if l.muted {
+            return;
+        }
         let line = format!("{{\"case\":\"{}\",{fields}}}", l.case);
         l.lines.push(line);
     }
@@ -305,6 +324,14 @@ mod controls {
 
     fn rgba(c: [u8; 4]) -> String {
         format!("{:02x}{:02x}{:02x}{:02x}", c[0], c[1], c[2], c[3])
+    }
+
+    fn mesh_ev(name: &str, index: usize) -> String {
+        if index > 0 {
+            format!("\"ev\":\"{name}\",\"i\":\"{index}\"")
+        } else {
+            format!("\"ev\":\"{name}\"")
+        }
     }
 
     /// The immediate-mode stand-ins of the suite.
@@ -384,6 +411,17 @@ mod controls {
                 ),
             );
         }
+        fn batch_line(&mut self, from: Vector, to: Vector, argb: u32, _rgb: u32, width: f32) {
+            ev(
+                &self.0,
+                &format!(
+                    "\"ev\":\"line\",\"f\":\"{}\",\"t\":\"{}\",\"c\":\"{argb:08x}\",\"w\":\"{}\"",
+                    bits3(from),
+                    bits3(to),
+                    bits(width)
+                ),
+            );
+        }
     }
 
     /// The texture library of the shapes: a record's handle is the record.
@@ -416,7 +454,14 @@ mod controls {
         imm: RecImmediate,
         textures: Handles,
         option: i32,
+        options: [i32; 0x20],
         log: Shared,
+    }
+
+    /// The holder's tint floats of a body pass (`SetHolderTint`).
+    fn tint_floats(rgba: [u8; 4]) -> [f32; 4] {
+        let inv = f64::from(1.0_f32 / 255.0);
+        rgba.map(|b| (f64::from(b) * inv) as f32)
     }
 
     impl DrawHost for Host {
@@ -432,17 +477,74 @@ mod controls {
         fn scroll_bars_enabled(&self) -> bool {
             self.option != 0
         }
+        fn game_option(&self, index: u32) -> i32 {
+            self.options.get(index as usize).copied().unwrap_or(1)
+        }
         fn submit_mesh(&mut self, _mesh: &dyn ControlMesh, pass: MeshPass) {
+            let log = &self.log;
             match pass {
-                MeshPass::Plain => ev(&self.log, "\"ev\":\"submit\""),
+                MeshPass::Plain => ev(log, "\"ev\":\"submit\""),
+                MeshPass::Body {
+                    tint,
+                    front_cull,
+                    scale,
+                } => {
+                    ev(log, "\"ev\":\"submit\"");
+                    let t = tint_floats(tint);
+                    if front_cull || scale != 1.0 || t.iter().any(|&v| v != 1.0) {
+                        ev(
+                            log,
+                            &format!(
+                                "\"ev\":\"body\",\"t\":\"{}\",\"cull\":\"{}\",\"s\":\"{}\"",
+                                bits_n(&t),
+                                u8::from(front_cull),
+                                bits(scale)
+                            ),
+                        );
+                    }
+                }
                 MeshPass::Tinted { tint, lighting } => ev(
-                    &self.log,
+                    log,
                     &format!(
                         "\"ev\":\"tinted\",\"tint\":\"{}\",\"l\":\"{}\"",
                         rgba(tint),
                         u8::from(lighting)
                     ),
                 ),
+                MeshPass::TintedScaled {
+                    tint,
+                    front_cull,
+                    lighting,
+                    scale,
+                } => {
+                    ev(
+                        log,
+                        &format!(
+                            "\"ev\":\"tinted\",\"tint\":\"{}\",\"l\":\"{}\"",
+                            rgba(tint),
+                            u8::from(lighting)
+                        ),
+                    );
+                    if !front_cull || scale != 1.0 {
+                        ev(
+                            log,
+                            &format!(
+                                "\"ev\":\"tscale\",\"cull\":\"{}\",\"s\":\"{}\"",
+                                u8::from(front_cull),
+                                bits(scale)
+                            ),
+                        );
+                    }
+                }
+                MeshPass::Outlined { wire, scale } => ev(
+                    log,
+                    &format!(
+                        "\"ev\":\"outlined\",\"w\":\"{}\",\"s\":\"{}\"",
+                        rgba(wire),
+                        bits(scale)
+                    ),
+                ),
+                MeshPass::Direct { .. } => panic!("no case draws a z-clear pass"),
             }
         }
         fn as_any_mut(&mut self) -> &mut dyn Any {
@@ -450,36 +552,82 @@ mod controls {
         }
     }
 
-    struct RecMesh(Shared);
+    /// An engine instance: the transform the calls set, recorded.
+    struct RecMesh {
+        log: Shared,
+        index: usize,
+        transform: Transform,
+    }
 
-    impl ControlMesh for RecMesh {
-        fn transform(&self) -> Transform {
-            Transform::IDENTITY
-        }
-        fn set_position(&mut self, p: Vector) {
+    impl RecMesh {
+        fn pos(&mut self, p: Vector) {
+            self.transform.translation = p;
             ev(
-                &self.0,
+                &self.log,
                 &format!(
-                    "\"ev\":\"mpos\",\"x\":\"{}\",\"y\":\"{}\",\"z\":\"{}\"",
+                    "{},\"x\":\"{}\",\"y\":\"{}\",\"z\":\"{}\"",
+                    mesh_ev("mpos", self.index),
                     bits(p.x),
                     bits(p.y),
                     bits(p.z)
                 ),
             );
-            ev(&self.0, "\"ev\":\"mupd\"");
         }
-        fn set_orientation(&mut self, _: Matrix) {
-            ev(&self.0, "\"ev\":\"mori\"");
+        fn ori(&mut self, m: Matrix) {
+            self.transform.rotation = m;
+            ev(
+                &self.log,
+                &format!(
+                    "{},\"m\":\"{}\"",
+                    mesh_ev("mori", self.index),
+                    bits_n(&m.to_words())
+                ),
+            );
         }
-        fn set_transform(&mut self, _: Transform) {
-            ev(&self.0, "\"ev\":\"mxf\"");
+        fn upd(&self) {
+            ev(&self.log, &mesh_ev("mupd", self.index));
+        }
+    }
+
+    impl ControlMesh for RecMesh {
+        fn transform(&self) -> Transform {
+            self.transform
+        }
+        fn set_position(&mut self, p: Vector) {
+            self.pos(p);
+            self.upd();
+        }
+        fn set_orientation(&mut self, m: Matrix) {
+            self.ori(m);
+            self.upd();
+        }
+        fn set_transform(&mut self, t: Transform) {
+            self.transform = t;
+            ev(
+                &self.log,
+                &format!(
+                    "{},\"m\":\"{}\"",
+                    mesh_ev("mxf", self.index),
+                    bits_n(&t.to_words())
+                ),
+            );
+            self.upd();
         }
         fn hardpoint(&self, _: &[u8]) -> Option<Transform> {
             None
         }
+        fn radius(&self, _: u32) -> f32 {
+            0.25
+        }
+        fn put_orientation(&mut self, m: Matrix) {
+            self.ori(m);
+        }
+        fn put_position(&mut self, p: Vector) {
+            self.pos(p);
+        }
     }
 
-    struct RecLoader(Shared);
+    struct RecLoader(Shared, Rc<Cell<usize>>);
 
     impl MeshLoader for RecLoader {
         fn load(&mut self, path: &[u8], material: &[u8]) -> Option<Box<dyn ControlMesh>> {
@@ -491,7 +639,196 @@ mod controls {
                     hex(material)
                 ),
             );
-            Some(Box::new(RecMesh(self.0.clone())))
+            let index = self.1.get().min(7);
+            self.1.set(index + 1);
+            Some(Box::new(RecMesh {
+                log: self.0.clone(),
+                index,
+                transform: Transform::IDENTITY,
+            }))
+        }
+    }
+
+    /// The services' stand-ins: a UI sound's slot is its name's length.
+    struct RecServices {
+        log: Shared,
+        elapsed: Rc<Cell<f64>>,
+    }
+
+    impl UiServices for RecServices {
+        fn find_ui_sound_slot(&mut self, name: &[u8]) -> i32 {
+            let len = name.iter().position(|&b| b == 0).unwrap_or(name.len());
+            if len == 0 { -1 } else { len as i32 }
+        }
+        fn play_or_rewind_ui_sound_slot(&mut self, slot: u32) {
+            ev(&self.log, &format!("\"ev\":\"sound\",\"s\":\"{slot}\""));
+        }
+        fn play_ui_sound_slot_flag1(&mut self, slot: u32) {
+            ev(&self.log, &format!("\"ev\":\"tplay\",\"s\":\"{slot}\""));
+        }
+        fn stop_ui_sound_slot(&mut self, slot: u32) {
+            ev(&self.log, &format!("\"ev\":\"tstop\",\"s\":\"{slot}\""));
+        }
+        fn play_ui_rollover_sound(&mut self) {
+            ev(&self.log, "\"ev\":\"roll\"");
+        }
+        fn post_command(&mut self, command: u32) {
+            ev(&self.log, &format!("\"ev\":\"post\",\"c\":\"{command}\""));
+        }
+        fn elapsed_time(&mut self) -> f64 {
+            self.elapsed.get()
+        }
+    }
+
+    /// The `Font::String` stand-ins: the text kept, a line when it has a
+    /// text or a number, 7 pixels a character by 16.
+    struct RecText {
+        log: Shared,
+        text: Option<Vec<u16>>,
+        number: Option<Vec<u8>>,
+        font: Option<FontId>,
+        slots: bool,
+    }
+
+    impl RecText {
+        fn len(&self) -> usize {
+            match &self.text {
+                Some(t) if !t.is_empty() => t.len(),
+                _ => self.number.as_ref().map_or(0, Vec::len),
+            }
+        }
+        fn lay_out(&mut self) {
+            self.slots = self.len() > 0 || self.number.is_some();
+        }
+        fn drop_text(&mut self) {
+            self.text = None;
+            self.slots = false;
+            self.number = None;
+        }
+    }
+
+    impl ControlText for RecText {
+        fn set_scale(&mut self, _: &mut Ui, width: f32, depth: f32) {
+            ev(
+                &self.log,
+                &format!(
+                    "\"ev\":\"fscale\",\"w\":\"{}\",\"z\":\"{}\"",
+                    bits(width),
+                    bits(depth)
+                ),
+            );
+        }
+        fn set_text(&mut self, _: &mut Ui, text: Option<&[u16]>) {
+            let cut = |t: &[u16]| t[..t.iter().position(|&u| u == 0).unwrap_or(t.len())].to_vec();
+            let incoming = text.map(cut);
+            if incoming.as_deref().unwrap_or(&[]) == self.text.as_deref().unwrap_or(&[]) {
+                return;
+            }
+            if self.text.as_ref().is_some_and(|t| !t.is_empty()) {
+                self.drop_text();
+            }
+            match incoming {
+                Some(t) => self.text = Some(t),
+                None => {
+                    if let Some(t) = &mut self.text {
+                        t.clear();
+                    }
+                }
+            }
+            let shown = self
+                .text
+                .as_deref()
+                .map_or_else(|| "null".to_owned(), units);
+            ev(&self.log, &format!("\"ev\":\"ftext\",\"t\":\"{shown}\""));
+        }
+        fn text(&self) -> Option<&[u16]> {
+            self.text.as_deref()
+        }
+        fn set_number_text(&mut self, _: &mut Ui, format: &[u8]) {
+            if self.text.as_ref().is_some_and(|t| !t.is_empty()) {
+                self.drop_text();
+            }
+            self.number = Some(format.to_vec());
+            ev(
+                &self.log,
+                &format!("\"ev\":\"fnum\",\"f\":\"{}\"", hex(format)),
+            );
+        }
+        fn font(&self) -> Option<FontId> {
+            self.font
+        }
+        fn set_font(&mut self, _: &mut Ui, font: Option<FontId>) {
+            self.font = font;
+        }
+        fn find_font(&self, _: &Ui, _: &[u8]) -> Option<FontId> {
+            Some(FontId(0))
+        }
+        fn has_child_slots(&self) -> bool {
+            self.slots
+        }
+        fn child_count(&mut self, _: &mut Ui, _: &mut dyn DrawHost) -> usize {
+            self.lay_out();
+            usize::from(self.slots)
+        }
+        fn extent(&mut self, _: &mut Ui, _: Option<&mut dyn DrawHost>) -> (i32, i32) {
+            self.lay_out();
+            (7 * self.len() as i32, if self.slots { 16 } else { 0 })
+        }
+        fn draw_children(
+            &mut self,
+            _: &mut Ui,
+            _: &mut dyn DrawHost,
+            o: DrawOrigin,
+            left: f32,
+            right: f32,
+        ) {
+            self.lay_out();
+            ev(
+                &self.log,
+                &format!(
+                    "\"ev\":\"fdraw\",\"x\":\"{}\",\"y\":\"{}\",\"w\":\"{}\",\"h\":\"{}\",\"hm\":\"{}\",\"vm\":\"{}\",\"l\":\"{}\",\"r\":\"{}\"",
+                    bits(o.x),
+                    bits(o.y),
+                    bits(o.width),
+                    bits(o.height),
+                    o.h_mode,
+                    o.v_mode,
+                    bits(left),
+                    bits(right)
+                ),
+            );
+        }
+        fn clear_contents(&mut self, _: &mut Ui) {
+            self.drop_text();
+        }
+        fn set_draw_color(&mut self, _: &mut Ui, argb: u32) {
+            ev(&self.log, &format!("\"ev\":\"color\",\"c\":\"{argb:08x}\""));
+        }
+        fn set_multi_line(&mut self, _: bool) {}
+        fn set_max_lines(&mut self, _: i32) {}
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+        fn as_any_mut(&mut self) -> &mut dyn Any {
+            self
+        }
+    }
+
+    /// The suite's fixed projection of text objects.
+    struct Fixed;
+
+    impl TextProjection for Fixed {
+        fn point(&self, world: Vector) -> (f32, f32) {
+            (
+                (f64::from(world.x) * 400.0 + 320.0) as f32,
+                (240.0 - f64::from(world.y) * 400.0) as f32,
+            )
+        }
+        fn extent(&self, width: f32, height: f32, _z: f32) -> (f32, f32) {
+            (
+                (f64::from(width) * 400.0) as f32,
+                (f64::from(height) * 400.0) as f32,
+            )
         }
     }
 
@@ -556,12 +893,61 @@ mod controls {
                 Property::ChildToolTip(id) => self.record("prop", 0x4F, &self.arg(id), 0),
                 Property::ChildButtonUp(id) => self.record("prop", 0x29, &self.arg(id), 0),
                 Property::ScrollChanged(id, v) => self.record("prop", 0x3E, &self.arg(id), v),
+                Property::FromChild { msg, from, value } => {
+                    self.record("prop", msg.cast_unsigned(), &self.arg(from), value);
+                }
+                Property::EditText { text, enter, .. } => {
+                    let a = text.as_deref().map_or_else(|| "null".to_owned(), units);
+                    self.record("prop", 0x45, &a, i32::from(enter));
+                }
                 other => panic!("unexpected property {other:?}"),
             }
             0
         }
         fn destroy(&mut self, ui: &mut Ui, id: NodeId) {
             base::destroy(ui, id, &mut self.control);
+        }
+        fn set_position(&mut self, ui: &mut Ui, id: NodeId, position: Vector) {
+            base::set_position(ui, id, &mut self.control, position);
+        }
+        fn set_orientation(&mut self, ui: &mut Ui, id: NodeId, orientation: Matrix) {
+            base::set_orientation(ui, id, &mut self.control, orientation);
+        }
+    }
+
+    /// The tooltip's stand-in: the hover records and hides fed to it.
+    struct RecTip {
+        log: Shared,
+        child: Rc<RefCell<Option<NodeId>>>,
+    }
+
+    impl Widget for RecTip {
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+        fn as_any_mut(&mut self) -> &mut dyn Any {
+            self
+        }
+        fn tooltip_hover(&mut self, _: &mut Ui, _: NodeId, h: &ToolTipHover) {
+            let key = match h.key {
+                HoverKey::Ids(v) => v.to_string(),
+                HoverKey::Object(id) if *self.child.borrow() == Some(id) => "self".to_owned(),
+                HoverKey::Object(_) => "other".to_owned(),
+            };
+            ev(
+                &self.log,
+                &format!(
+                    "\"ev\":\"hover\",\"k\":\"{key}\",\"a\":\"{}\",\"x\":\"{}\",\"p\":\"{}\",\"e\":\"{}\",\"l\":\"{}\"",
+                    h.ids_alt,
+                    h.aux,
+                    bits3(h.world_pos),
+                    bits3(h.half_extents),
+                    u8::from(h.live)
+                ),
+            );
+        }
+        fn tooltip_hide(&mut self, _: &mut Ui, _: NodeId) {
+            ev(&self.log, "\"ev\":\"hidetip\"");
         }
     }
 
@@ -579,11 +965,13 @@ mod controls {
 
     /// The suite's fixed projection of text objects.
     fn screen_box(position: Vector, width: f32, height: f32) -> ScreenBox {
+        let (x, y) = Fixed.point(position);
+        let (w, h) = Fixed.extent(width, height, position.z);
         ScreenBox {
-            x: (f64::from(position.x) * 400.0 + 320.0) as f32,
-            y: (240.0 - f64::from(position.y) * 400.0) as f32,
-            width: (f64::from(width) * 400.0) as f32,
-            height: (f64::from(height) * 400.0) as f32,
+            x,
+            y,
+            width: w,
+            height: h,
         }
     }
 
@@ -599,6 +987,14 @@ mod controls {
         (0..field.len() / 4)
             .map(|k| u16::from_str_radix(&field[k * 4..k * 4 + 4], 16).unwrap())
             .collect()
+    }
+
+    fn null_or(field: &str) -> Option<Vec<u8>> {
+        (field != "-").then(|| unhex(field))
+    }
+
+    fn rgba_hex(field: &str) -> [u8; 4] {
+        u32::from_str_radix(field, 16).unwrap().to_be_bytes()
     }
 
     fn button(f0: i32, f1: i32) -> MouseButton {
@@ -724,6 +1120,12 @@ mod controls {
                 extra: [f(t[4]), f(t[5]), f(t[6]), f(t[7])],
                 flag: i(t[8]) != 0,
             },
+            "UITable" => EntryPayload::Table {
+                right: f(t[2]),
+                bottom: f(t[3]),
+                int5: i(t[4]),
+                int6: i(t[5]),
+            },
             _ => EntryPayload::WinObject {
                 right: f(t[2]),
                 bottom: f(t[3]),
@@ -731,6 +1133,502 @@ mod controls {
                 extra_float: f(t[4]),
             },
         }
+    }
+
+    const LATER: [&str; 10] = [
+        "TextControl",
+        "EditControl",
+        "StaticControl",
+        "ButtonControl",
+        "ToggleButtonControl",
+        "RichTextButtonControl",
+        "WireStaticControl",
+        "WireButtonControl",
+        "ScrollControl",
+        "UITable",
+    ];
+
+    fn text_of(ui: &mut Ui, id: NodeId) -> Option<&mut TextControl> {
+        let n = ui.node_mut(id)?.widget_mut()?.as_any_mut();
+        if n.is::<TextControlWidget>() {
+            return n.downcast_mut::<TextControlWidget>().map(|w| &mut w.text);
+        }
+        n.downcast_mut::<EditControl>().map(|w| &mut w.text)
+    }
+
+    fn button_of(ui: &mut Ui, id: NodeId) -> Option<&mut ButtonControl> {
+        let n = ui.node_mut(id)?.widget_mut()?.as_any_mut();
+        if n.is::<ButtonWidget>() {
+            return n.downcast_mut::<ButtonWidget>().map(|w| &mut w.button);
+        }
+        if n.is::<ToggleButtonWidget>() {
+            return n
+                .downcast_mut::<ToggleButtonWidget>()
+                .map(|w| &mut w.button);
+        }
+        n.downcast_mut::<RichTextButtonWidget>()
+            .map(|w| &mut w.button)
+    }
+
+    fn wire_of(ui: &mut Ui, id: NodeId) -> Option<&mut WireControl> {
+        ui.widget_mut::<WireWidget>(id).map(|w| &mut w.wire)
+    }
+
+    /// One state line of the later controls.
+    fn later_state(ui: &mut Ui, id: NodeId, class: &str, typing: i32) -> String {
+        let n = ui.node(id).unwrap();
+        let (flags, pos, orient) = (n.flags & 0x0F, n.position, n.orientation);
+        let pending = |p: &[u16]| {
+            if p.is_empty() {
+                String::new()
+            } else {
+                units(p)
+            }
+        };
+        match class {
+            "TextControl" | "EditControl" => {
+                let edit = ui.widget::<EditControl>(id).map(|e| {
+                    format!(
+                        ",\"ct\":\"{}\",\"cs\":\"{}\",\"ml\":\"{}\",\"ed\":\"{}\",\"dg\":\"{}\"",
+                        bits(e.cursor_timer),
+                        u8::from(e.cursor_shown),
+                        e.max_length,
+                        u8::from(e.editable),
+                        u8::from(e.digits_only)
+                    )
+                });
+                let t = text_of(ui, id).unwrap();
+                format!(
+                    "\"ev\":\"text\",\"flags\":\"{flags:02x}\",\"pos\":\"{}\",\"off\":\"{}\",\"w\":\"{}\",\"h\":\"{}\",\"t\":\"{}\",\"tc\":\"{}\",\"te\":\"{}\",\"ti\":\"{}\",\"tw\":\"{}\",\"typing\":\"{}\",\"pend\":\"{}\",\"blink\":\"{}\",\"ph\":\"{}\",\"be\":\"{}\",\"oc\":\"{}\",\"co\":\"{}\",\"cap\":\"{}\",\"lc\":\"{}\",\"n\":\"{typing}\"{}",
+                    bits3(pos),
+                    bits3(t.control.offset),
+                    bits(t.width),
+                    bits(t.height),
+                    t.text.text().map_or_else(|| "null".to_owned(), units),
+                    t.typed_count,
+                    bits(t.type_elapsed),
+                    bits(t.type_interval),
+                    u8::from(t.typewriter),
+                    u8::from(t.typing),
+                    pending(&t.pending),
+                    u8::from(t.blink),
+                    u8::from(t.blink_phase),
+                    bits(t.blink_elapsed),
+                    rgba(t.override_colour),
+                    u8::from(t.colour_override),
+                    u8::from(t.in_capture),
+                    t.line_count,
+                    edit.unwrap_or_default()
+                )
+            }
+            "StaticControl" => {
+                let s = &ui.widget::<StaticControlWidget>(id).unwrap().control;
+                format!(
+                    "\"ev\":\"static\",\"flags\":\"{flags:02x}\",\"pos\":\"{}\",\"orient\":\"{}\",\"off\":\"{}\",\"a\":\"{}\",\"s\":\"{}\",\"f\":\"{}{}{}{}{}{}{}{}{}{}\",\"fr\":\"{}\",\"rs\":\"{}\",\"mc\":\"{}\",\"wc\":\"{}\"",
+                    bits3(pos),
+                    bits_n(&orient.to_words()),
+                    bits3(s.control.offset),
+                    bits_n(&[s.cur_roll, s.cur_pitch, s.cur_yaw]),
+                    bits_n(&s.start_ypr),
+                    u8::from(s.no_mesh_render),
+                    u8::from(s.no_wire_render),
+                    u8::from(s.no_coloring),
+                    u8::from(s.field_347),
+                    u8::from(s.use_colours),
+                    u8::from(s.enable_rotation),
+                    u8::from(s.no_clear_render),
+                    u8::from(s.render_to_window),
+                    u8::from(s.zclear),
+                    u8::from(s.control.no_z_enable),
+                    bits(s.force_radius),
+                    bits(s.rotation_speed),
+                    rgba(s.mesh_colour),
+                    rgba(s.wire_colour)
+                )
+            }
+            "ButtonControl" | "ToggleButtonControl" | "RichTextButtonControl" => {
+                let b = button_of(ui, id).unwrap();
+                format!(
+                    "\"ev\":\"button\",\"flags\":\"{flags:02x}\",\"pos\":\"{}\",\"orient\":\"{}\",\"off\":\"{}\",\"b\":\"{:02x}\",\"b2\":\"{:02x}\",\"spin\":\"{}\",\"bt\":\"{}\",\"ph\":\"{}\",\"glow\":\"{:08x}\",\"cmd\":\"{}\",\"tip\":\"{}\",\"tip2\":\"{}\",\"slot\":\"{}\",\"ts\":\"{}\",\"uc\":\"{}\",\"col\":\"{}\"",
+                    bits3(pos),
+                    bits_n(&orient.to_words()),
+                    bits3(b.control.offset),
+                    b.bits,
+                    b.bits2,
+                    bits(b.spin_angle),
+                    bits(b.blink_timer),
+                    u8::from(b.blink_phase),
+                    b.glow_argb,
+                    b.command_id,
+                    b.control.tooltip_ids,
+                    b.tooltip2,
+                    b.ui_sound_slot,
+                    b.toggle.as_ref().map_or(-1, |t| t.state),
+                    u8::from(b.use_colour),
+                    rgba(b.colour)
+                )
+            }
+            "WireStaticControl" | "WireButtonControl" => {
+                let w = wire_of(ui, id).unwrap();
+                format!(
+                    "\"ev\":\"wire\",\"flags\":\"{flags:02x}\",\"pos\":\"{}\",\"c\":\"{}\",\"st\":\"{:02x}\",\"m\":\"{:x}\",\"bl\":\"{}\",\"ph\":\"{}\",\"bt\":\"{}\",\"bs\":\"{}\",\"cmd\":\"{}\",\"slot\":\"{}\"",
+                    bits3(pos),
+                    bits3(w.wire_center),
+                    w.wire_state,
+                    w.edge_mask,
+                    u8::from(w.blink),
+                    u8::from(w.blink_phase),
+                    bits(w.blink_timer),
+                    w.button.as_ref().map_or(-1, |b| i32::from(b.state & 7)),
+                    w.button.as_ref().map_or(0, |b| b.command_id),
+                    w.sound_slot
+                )
+            }
+            "ScrollControl" => {
+                let c = &ui.widget::<ScrollControlWidget>(id).unwrap().scroll;
+                let x = |t: &Transform| bits_n(&t.to_words());
+                format!(
+                    "\"ev\":\"sctl\",\"v\":\"{}\",\"min\":\"{}\",\"max\":\"{}\",\"pg\":\"{}\",\"st\":\"{}\",\"valid\":\"{}\",\"f\":\"{}{}{}{}{}{}{}\",\"rt\":\"{}\",\"back\":\"{}\",\"next\":\"{}\",\"prev\":\"{}\",\"thumb\":\"{}\",\"ts\":\"{}\",\"te\":\"{}\"",
+                    c.value,
+                    c.min_range,
+                    c.max_range,
+                    c.page_size,
+                    c.step,
+                    u8::from(c.thumb_valid),
+                    u8::from(c.dragging),
+                    u8::from(c.paging),
+                    u8::from(c.next_pressed),
+                    u8::from(c.prev_pressed),
+                    u8::from(c.thumb_hover),
+                    u8::from(c.next_hover),
+                    u8::from(c.prev_hover),
+                    bits(c.repeat_time),
+                    x(&c.back.xform),
+                    x(&c.next.xform),
+                    x(&c.prev.xform),
+                    x(&c.thumb_xform),
+                    x(&c.thumb_start),
+                    x(&c.thumb_end)
+                )
+            }
+            _ => {
+                let t = ui.widget::<UiTable>(id).unwrap();
+                format!(
+                    "\"ev\":\"table\",\"w\":\"{}\",\"h\":\"{}\",\"re\":\"{}\",\"ce\":\"{}\",\"sel\":\"{} {}\",\"hov\":\"{} {}\",\"drag\":\"{}{}{} {}\",\"do\":\"{}\",\"inv\":\"{}\"",
+                    bits(t.width),
+                    bits(t.height),
+                    bits_n(&t.row_edges),
+                    bits_n(&t.column_edges),
+                    u8::from(t.selected),
+                    t.selected_row,
+                    u8::from(t.hovered),
+                    t.hovered_row,
+                    u8::from(t.drag_armed),
+                    u8::from(t.dragging),
+                    u8::from(t.drag_column),
+                    t.drag_edge,
+                    bits(t.drag_offset),
+                    bits_n(&t.inverse.to_words())
+                )
+            }
+        }
+    }
+
+    fn v3(t: &[&str], k: usize) -> Vector {
+        Vector::new(f(t[k]), f(t[k + 1]), f(t[k + 2]))
+    }
+
+    fn opt_bytes(t: &[&str], k: usize) -> Option<Vec<u8>> {
+        null_or(t[k])
+    }
+
+    /// The Init operation of the later controls.
+    fn init_control(ui: &mut Ui, id: NodeId, class: &str, t: &[&str]) {
+        match class {
+            "TextControl" | "EditControl" => {
+                let style = opt_bytes(t, 1);
+                let hp = opt_bytes(t, 5);
+                ui.with_widget(id, (), |w, ui| {
+                    let any = w.as_any_mut();
+                    let tc = if any.is::<EditControl>() {
+                        &mut any.downcast_mut::<EditControl>().unwrap().text
+                    } else {
+                        &mut any.downcast_mut::<TextControlWidget>().unwrap().text
+                    };
+                    tc.init(
+                        ui,
+                        id,
+                        style.as_deref(),
+                        v3(t, 2),
+                        hp.as_deref(),
+                        f(t[6]),
+                        f(t[7]),
+                        i(t[8]).cast_unsigned(),
+                        i(t[9]),
+                        i(t[10]),
+                        i(t[11]) != 0,
+                    );
+                });
+            }
+            "StaticControl" => {
+                let mesh = opt_bytes(t, 1);
+                let hp = opt_bytes(t, 5);
+                with::<StaticControlWidget, _>(ui, id, |w, ui| {
+                    w.control.init(
+                        ui,
+                        id,
+                        mesh.as_deref(),
+                        v3(t, 2),
+                        hp.as_deref(),
+                        v3(t, 6),
+                        i(t[9]) != 0,
+                        i(t[10]) != 0,
+                        i(t[11]) != 0,
+                        i(t[12]) != 0,
+                        i(t[13]) != 0,
+                        i(t[14]) != 0,
+                        i(t[15]) != 0,
+                        i(t[16]),
+                        i(t[17]),
+                        i(t[18]) != 0,
+                        [f(t[19]), f(t[20]), f(t[21])],
+                    );
+                });
+            }
+            "ButtonControl" | "ToggleButtonControl" | "RichTextButtonControl" => {
+                let (mesh, mesh2, sound, key, hp) = (
+                    opt_bytes(t, 1),
+                    opt_bytes(t, 2),
+                    opt_bytes(t, 3),
+                    opt_bytes(t, 4),
+                    opt_bytes(t, 8),
+                );
+                let command = if class == "ToggleButtonControl" {
+                    0
+                } else {
+                    i(t[18])
+                };
+                ui.with_widget(id, (), |w, ui| {
+                    let any = w.as_any_mut();
+                    let b = if any.is::<ButtonWidget>() {
+                        &mut any.downcast_mut::<ButtonWidget>().unwrap().button
+                    } else if any.is::<ToggleButtonWidget>() {
+                        &mut any.downcast_mut::<ToggleButtonWidget>().unwrap().button
+                    } else {
+                        &mut any.downcast_mut::<RichTextButtonWidget>().unwrap().button
+                    };
+                    b.init(
+                        ui,
+                        id,
+                        mesh.as_deref(),
+                        mesh2.as_deref(),
+                        sound.as_deref(),
+                        key.as_deref(),
+                        v3(t, 5),
+                        hp.as_deref(),
+                        v3(t, 9),
+                        i(t[12]) as u8,
+                        i(t[13]) as u8,
+                        i(t[14]) as u8,
+                        i(t[15]) != 0,
+                        i(t[16]),
+                        i(t[17]),
+                        command,
+                    );
+                });
+            }
+            "WireStaticControl" => {
+                with::<WireWidget, _>(ui, id, |w, ui| {
+                    w.wire.init_static(
+                        ui,
+                        id,
+                        v3(t, 1),
+                        v3(t, 4),
+                        i(t[7]) as u8,
+                        i(t[8]) != 0,
+                        i(t[9]),
+                        i(t[10]).cast_unsigned(),
+                    );
+                });
+            }
+            "WireButtonControl" => {
+                let sound = opt_bytes(t, 1);
+                with::<WireWidget, _>(ui, id, |w, ui| {
+                    w.wire.init_button(
+                        ui,
+                        id,
+                        sound.as_deref(),
+                        v3(t, 2),
+                        v3(t, 5),
+                        i(t[8]) as u8,
+                        i(t[9]) != 0,
+                        i(t[10]),
+                        i(t[11]),
+                        i(t[12]).cast_unsigned(),
+                    );
+                });
+            }
+            "ScrollControl" => {
+                with::<ScrollControlWidget, _>(ui, id, |w, ui| {
+                    for (k, part) in [PartId::Back, PartId::Next, PartId::Prev]
+                        .into_iter()
+                        .enumerate()
+                    {
+                        let b = 1 + k * 9;
+                        let mesh = opt_bytes(t, b);
+                        let hp = opt_bytes(t, b + 4);
+                        w.scroll.init_part(
+                            ui,
+                            id,
+                            part,
+                            mesh.as_deref(),
+                            v3(t, b + 1),
+                            hp.as_deref(),
+                            v3(t, b + 5),
+                            i(t[b + 8]) != 0,
+                        );
+                    }
+                    let b = 28;
+                    let mesh = opt_bytes(t, b);
+                    let hp0 = opt_bytes(t, b + 7);
+                    let hp1 = opt_bytes(t, b + 8);
+                    w.scroll.init_thumb(
+                        ui,
+                        id,
+                        mesh.as_deref(),
+                        v3(t, b + 1),
+                        v3(t, b + 4),
+                        hp0.as_deref(),
+                        hp1.as_deref(),
+                        v3(t, b + 9),
+                        i(t[b + 12]) != 0,
+                        (i(t[b + 13]), i(t[b + 14]), i(t[b + 15])),
+                        i(t[b + 16]) != 0,
+                        i(t[b + 17]) != 0,
+                    );
+                });
+            }
+            _ => panic!("no Init for {class}"),
+        }
+    }
+
+    /// `SetProperty` with integers, as a typed property.
+    fn int_property(m: i32, a: i32, b: i32) -> Property<'static> {
+        match m {
+            1 => Property::Hidden(a != 0),
+            2 => Property::Inactive(a != 0),
+            3 => Property::ToolTip(a),
+            0x37 => Property::ScrollRange(a, b),
+            0x38 => Property::ScrollValue(a),
+            0x3B => Property::GetScrollValue,
+            _ => Property::Other(m, a as usize, b as usize),
+        }
+    }
+
+    /// The operations of the later controls; false when it is not one.
+    fn later_op(ui: &mut Ui, id: NodeId, class: &str, log: &Shared, t: &[&str], ctx: &Ctx) -> bool {
+        let prop =
+            |ui: &mut Ui, p: Property<'_>| ui.with_widget(id, 0, |w, ui| w.property(ui, id, p));
+        match t[0] {
+            "init" => init_control(ui, id, class, t),
+            "enter" => {
+                let ray = ui.mouse_ray();
+                ui.with_widget(id, (), |w, ui| w.mouse_enter(ui, id, ray));
+            }
+            "inactive" => ui.with_widget(id, (), |w, ui| w.update_inactive(ui, id)),
+            "key" => {
+                let mut mods = KeyMods(i(t[2]) as u8);
+                let r = ui.with_widget(id, false, |w, ui| {
+                    w.key_event(ui, id, i(t[1]).cast_unsigned(), &mut mods)
+                });
+                result(log, u8::from(r));
+            }
+            "time" => ctx.elapsed.set(f64::from(f(t[1]))),
+            "gopt" => ctx.options.borrow_mut()[i(t[1]) as usize] = i(t[2]),
+            "prop" => {
+                let m = i32::from_str_radix(t[1], 16).unwrap();
+                let r = prop(ui, int_property(m, i(t[2]), i(t[3])));
+                result(log, r);
+            }
+            "offset" => {
+                let r = prop(ui, Property::Offset(v3(t, 1)));
+                result(log, r);
+            }
+            "text" => {
+                let w = wide(t[1]);
+                let r = prop(ui, Property::SetText(Some(&w)));
+                result(log, r);
+            }
+            "colour" => {
+                let r = prop(ui, Property::Colour(rgba_hex(t[1]), i(t[2]) == 1));
+                result(log, r);
+            }
+            "colours" => {
+                let r = prop(ui, Property::Colours(rgba_hex(t[1]), rgba_hex(t[2])));
+                result(log, r);
+            }
+            "getcmd" | "gettoggle" => {
+                let mut out = -7;
+                if t[0] == "getcmd" {
+                    prop(ui, Property::GetCommand(&mut out));
+                } else {
+                    prop(ui, Property::GetToggleState(&mut out));
+                }
+                result(log, out);
+            }
+            "sounds" => {
+                let (s0, s1) = (null_or(t[1]), null_or(t[2]));
+                prop(ui, Property::ToggleSounds(s0.as_deref(), s1.as_deref()));
+            }
+            "tset" | "ids" | "width" | "cached" | "number" => {
+                let edit = ui.widget::<EditControl>(id).is_some();
+                let run = |tc: &mut TextControl, ui: &mut Ui| match t[0] {
+                    "tset" => tc.set_text(ui, id, Some(&wide(t[1]))),
+                    "ids" => tc.set_ids(ui, id, i(t[1]).cast_unsigned()),
+                    "width" => tc.set_width(ui, id, f(t[1])),
+                    "cached" => tc.set_cached_draw(i(t[1]) != 0, i(t[2]) != 0),
+                    _ => tc.set_number_text(ui, id, &unhex(t[1])),
+                };
+                if edit {
+                    with::<EditControl, _>(ui, id, |w, ui| run(&mut w.text, ui));
+                } else {
+                    with::<TextControlWidget, _>(ui, id, |w, ui| run(&mut w.text, ui));
+                }
+            }
+            "cedge" | "redge" => {
+                let r = with::<UiTable, _>(ui, id, |w, ui| {
+                    if t[0] == "cedge" {
+                        w.set_column_edge(ui, id, i(t[1]).cast_unsigned(), f(t[2]))
+                    } else {
+                        w.set_row_edge(ui, id, i(t[1]).cast_unsigned(), f(t[2]))
+                    }
+                });
+                result(log, u8::from(r));
+            }
+            "rows" => {
+                let w = ui.widget_mut::<UiTable>(id).unwrap();
+                for (k, row) in w.rows.iter_mut().enumerate() {
+                    if 2 + k * 2 >= t.len() {
+                        break;
+                    }
+                    row.hoverable = i(t[1 + k * 2]) != 0;
+                    row.selectable = i(t[2 + k * 2]) != 0;
+                }
+            }
+            "state" => {
+                let typing = ui.text_typing_count;
+                let line = later_state(ui, id, class, typing);
+                ev(log, &line);
+            }
+            _ => return false,
+        }
+        true
+    }
+
+    /// What the operations share across a case.
+    struct Ctx {
+        elapsed: Rc<Cell<f64>>,
+        options: Rc<RefCell<[i32; 0x20]>>,
     }
 
     /// One state line.
@@ -767,7 +1665,7 @@ mod controls {
         }
     }
 
-    /// The operations of one control class.
+    /// The operations of the first control classes.
     fn class_op(ui: &mut Ui, id: NodeId, log: &Shared, t: &[&str]) {
         let v3 = |k: usize| Vector::new(f(t[k]), f(t[k + 1]), f(t[k + 2]));
         match t[0] {
@@ -848,9 +1746,20 @@ mod controls {
         let log: Shared = Rc::new(RefCell::new(Log {
             case,
             lines: Vec::new(),
+            muted: false,
         }));
         let mut ui = Ui::new(Surface::new(640, 480));
-        ui.mesh_loader = Some(Box::new(RecLoader(log.clone())));
+        let instances = Rc::new(Cell::new(0));
+        ui.mesh_loader = Some(Box::new(RecLoader(log.clone(), instances)));
+        let ctx = Ctx {
+            elapsed: Rc::new(Cell::new(0.0)),
+            options: Rc::new(RefCell::new([1; 0x20])),
+        };
+        ui.services = Box::new(RecServices {
+            log: log.clone(),
+            elapsed: ctx.elapsed.clone(),
+        });
+        ui.text_projection = Some(Box::new(Fixed));
         let shape = |record| {
             Some(TexShape {
                 texture: Some(record),
@@ -868,6 +1777,7 @@ mod controls {
             imm: RecImmediate(log.clone()),
             textures: Handles,
             option: 1,
+            options: [1; 0x20],
             log: log.clone(),
         };
         let child = Rc::new(RefCell::new(None));
@@ -883,19 +1793,46 @@ mod controls {
                 &mut Payload::None,
             )
             .unwrap();
+        let tip = ui.alloc(Some(Box::new(RecTip {
+            log: log.clone(),
+            child: child.clone(),
+        })));
+        ui.tooltip = Some(tip);
         let mut object: Option<NodeId> = None;
         let mut class = String::new();
         for op in line.split(" ; ") {
             let t: Vec<&str> = op.split(' ').collect();
+            host.options = *ctx.options.borrow();
             if t[0] == "new" {
                 class = t[1].to_owned();
-                let payload = payload(&t);
-                object = ui.create_by_class(
-                    Some(b"C"),
-                    class.as_bytes(),
-                    Some(parent),
-                    &mut Payload::Page(&payload),
-                );
+                let later = LATER.contains(&class.as_str());
+                object = if later && class != "UITable" {
+                    ui.create_by_class(
+                        Some(b"C"),
+                        class.as_bytes(),
+                        Some(parent),
+                        &mut Payload::None,
+                    )
+                } else {
+                    let payload = payload(&t);
+                    ui.create_by_class(
+                        Some(b"C"),
+                        class.as_bytes(),
+                        Some(parent),
+                        &mut Payload::Page(&payload),
+                    )
+                };
+                if let Some(id) = object
+                    && let Some(tc) = text_of(&mut ui, id)
+                {
+                    tc.text = Box::new(RecText {
+                        log: log.clone(),
+                        text: None,
+                        number: None,
+                        font: None,
+                        slots: false,
+                    });
+                }
                 *child.borrow_mut() = object;
                 ev(
                     &log,
@@ -904,6 +1841,9 @@ mod controls {
                 continue;
             }
             let Some(id) = object else { continue };
+            if LATER.contains(&class.as_str()) && later_op(&mut ui, id, &class, &log, &t, &ctx) {
+                continue;
+            }
             let list = class == "UIListBox";
             let v3 = |k: usize| Vector::new(f(t[k]), f(t[k + 1]), f(t[k + 2]));
             match t[0] {
@@ -949,6 +1889,7 @@ mod controls {
                 _ => class_op(&mut ui, id, &log, &t),
             }
         }
+        log.borrow_mut().muted = true;
         drop(host);
         drop(ui);
         Rc::try_unwrap(log)

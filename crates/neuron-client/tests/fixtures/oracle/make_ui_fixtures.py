@@ -259,6 +259,192 @@ CONTROL_CASES = [
     " ; ".join(["new UIWinObject " + fbs(1.0, 1.0, -1.0), "state"]),
 ]
 
+def hx(s):
+    return s.encode().hex()
+
+
+def fbits(v):
+    return "%d" % struct.unpack("<i", struct.pack("<f", v))[0]
+
+
+IDENT = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
+
+# The later controls. With the Win3D camera of a 640 x 480 surface, the pixel (cx, cy) looks
+# along ((cx - 320) / 622.2252, (240 - cy) / 622.2252, -1): (382, 116) is about (0.1, 0.2, -1).
+LATER_CASES = [
+    # A text control: placement, a draw, the clickable control's hover, press, release and
+    # right press, the typewriter, the blink, the colours, the trims, the cached draw, the
+    # number text, the option gate.
+    " ; ".join([
+        "new TextControl", "init - " + fbs(0.0, 0.0, 0.0) + " - " + fbs(0.4, 0.05) + " 0 1 0 0",
+        "state", "pos " + fbs(0.1, 0.2, -1.0), "state",
+        "tset " + text("Hello"), "draw",
+        "prop 24 1 0", "cursor 380 116", "draw",
+        ray(0.1, 0.2), "hit",
+        "btn -1 2", "state", "btn -1 1", "btn -1 3", "btn -2 2", "state",
+        "prop 50 1 100", "dt " + fb(0.25), "update", "state", "draw",
+        "update", "update", "state",
+        "prop 50 1 50", "update", "inactive", "state",
+        "prop 51 1 0", "colour 11223344 0", "dt " + fb(0.6), "update", "update", "state", "draw",
+        "prop 51 0 0", "prop c 1 0", "draw", "prop c 0 0",
+        "prop 2 1 0", "draw", "prop 2 0 0",
+        "prop 23 1065353216 0", "draw",
+        "prop 21 0 0", "prop 20 0 0",
+        "text " + text("World"), "ids 5", "width " + fb(0.5),
+        "cached 1 1", "draw", "draw", "cached 0 0",
+        "gopt 19 0", "draw", "gopt 19 1",
+        "number " + hx("%d"), "draw",
+        "offset " + fbs(0.01, 0.02, 0.0), "state",
+    ]),
+    # A text control anchored at its corner, hit without being clickable, a tooltip.
+    " ; ".join([
+        "new TextControl", "init " + hx("Normal") + " " + fbs(0.01, -0.02, 0.0) + " - " +
+        fbs(0.2, 0.1) + " 7 2 11 1",
+        "pos " + fbs(-0.3, 0.0, -1.0), "state", ray(-0.2, -0.05), "hit", ray(0.3, 0.0), "hit",
+        "draw",
+    ]),
+    # An edit control: the blinking cursor, characters, the numeric keypad, Backspace, Enter,
+    # digits only, the maximum length, the text property, not editable.
+    " ; ".join([
+        "new EditControl", "init - " + fbs(0.0, 0.0, 0.0) + " - " + fbs(0.3, 0.04) + " 0 0 0 1",
+        "pos " + fbs(-0.2, 0.1, -1.0),
+        "dt " + fb(0.3), "update", "update", "state",
+        "key 65 2", "key 65 1", "key 98 1", "key 8 2", "key 8 1", "key 8 1", "key 8 1",
+        "key 13 1", "key 13 2",
+        "prop 44 1 0", "key 65 1", "key 49 1",
+        "prop 43 1 3", "key 50 1", "key 51 1", "key 52 1",
+        "dt " + fb(0.6), "update", "state",
+        "text " + text("xyz"), "state",
+        "prop 43 0 0", "update", "key 65 1", "state",
+    ]),
+    # A static control: the mesh, the placement, the passes, the force radius, the flags, the
+    # colours, inactive, the option gate, the angles, the clicks, the tooltip.
+    " ; ".join([
+        "new StaticControl",
+        "init " + hx("box.cmp") + " " + fbs(0.0, 0.0, 0.0) + " - " + fbs(0.1, 0.1, 0.1) +
+        " 0 0 0 0 0 0 1 0 0 0 " + fbs(0.0, 0.0, 0.0),
+        "state", xform(0.1, 0.2, -1.0, ROT), "state", "draw",
+        "prop 4d 2 0", "draw",
+        "prop 19 0 65536", "draw",
+        "prop 19 1 1", "draw",
+        "colours 10203040 50607080", "draw",
+        "prop 2 1 0", "draw", "prop 2 0 0",
+        "gopt 21 0", "draw", "gopt 21 1",
+        "prop c 1 0", "prop d " + fbits(0.5) + " 0", "state", "prop e 0 0",
+        "prop 1c 0 0", "state",
+        "btn -1 3", "btn -1 2", "btn -2 2",
+        "prop 3 7 0", ray(0.1, 0.2), "hit", ray(0.5, 0.5), "hit", "state",
+    ]),
+    # A turning static control and its snap back.
+    " ; ".join([
+        "new StaticControl",
+        "init " + hx("spin.cmp") + " " + fbs(0.0, 0.0, 0.0) + " - " + fbs(0.1, 0.1, 0.1) +
+        " 1 0 0 0 1 0 1 0 2 1 " + fbs(0.1, 0.2, 0.3),
+        xform(0.0, 0.0, -1.0), "state", "dt " + fb(0.5), "update", "state",
+        "prop 1c 0 0", "update", "state", "update", "state", "draw",
+    ]),
+    # A button: placement, the draw, the hover, a press followed on the button and released
+    # over it, a right press released off it, the selection, the glow, the blink, inactive,
+    # the colour.
+    " ; ".join([
+        "new ButtonControl",
+        "init " + hx("btn.cmp") + " - " + hx("click") + " - " + fbs(0.0, 0.0, 0.0) + " - " +
+        fbs(0.05, 0.05, 0.05) + " 0 0 0 0 7 0 0",
+        xform(0.1, 0.2, -1.0), "state", "draw",
+        "enter", "state", "draw", "leave",
+        "cursor 382 116", "btn -1 2", "update", "state", "btn -1 1", "state",
+        "cursor 100 100", "btn -1 3", "update", "btn -1 1", "state",
+        "getcmd",
+        "prop c 1 0", "draw", "prop c 0 0",
+        "prop 35 1 0", "draw",
+        "prop 51 1 0", "dt " + fb(0.6), "update", "update", "draw", "state", "prop 51 0 0",
+        "prop 2 1 0", "draw", "prop 34 1 0", "draw", "state", "prop 2 0 0",
+        "colour 11223344 1", "draw", "prop 2c 0 0", "prop 2d 0 0", "prop 32 1 0", "draw",
+        "gopt 20 0", "draw",
+    ]),
+    # A meshless button of a key-map command: no body, the hit through its position, the post.
+    " ; ".join([
+        "new ButtonControl",
+        "init - - - " + hx("next") + " " + fbs(0.0, 0.0, 0.0) + " - " +
+        fbs(0.05, 0.05, 0.05) + " 1 1 1 1 0 0 0",
+        xform(0.1, 0.2, -1.0), "state", "draw", "getcmd",
+        "cursor 382 116", "btn -1 2", "btn -1 1", "state",
+        "prop 36 1 0", "state",
+    ]),
+    # A toggle button: both meshes, the glow's half turn, a click flips the state, the state-1
+    # draw, the state sounds and properties.
+    " ; ".join([
+        "new ToggleButtonControl",
+        "init " + hx("a.cmp") + " " + hx("b.cmp") + " " + hx("snd") + " - " +
+        fbs(0.0, 0.0, 0.0) + " - " + fbs(0.05, 0.05, 0.05) + " 0 0 0 0 7 8",
+        "state", xform(0.1, 0.2, -1.0), "state", "draw",
+        "prop 35 1 0", "draw",
+        ray(0.1, 0.2), "cursor 382 116", "btn -1 2", "update", "btn -1 1", "state",
+        "gettoggle", "update", "draw",
+        "sounds - " + hx("x"), "btn -1 2", "btn -1 1", "state",
+        "prop 30 0 0", "gettoggle", "prop 30 1 0", "gettoggle",
+        "offset " + fbs(0.01, 0.0, 0.0), "state",
+    ]),
+    # A wire box: the edges, lit, focused, inactive, the colour, the blink; never hit.
+    " ; ".join([
+        "new WireStaticControl", "init " + fbs(0.0, 0.0, 0.0) + " " + fbs(0.1, 0.05, 0.0) +
+        " 0 0 0 0",
+        xform(0.1, 0.2, -1.0), "state", "draw",
+        "prop c 1 0", "draw", "prop c 0 0",
+        "prop 2c 0 0", "draw", "prop 2d 0 0",
+        "prop 2 1 0", "draw", "prop 34 1 0", "draw", "prop 2 0 0",
+        "colour 11223344 1", "draw",
+        "prop 51 1 0", "dt " + fb(0.6), "update", "update", "draw", "state",
+        ray(0.1, 0.2), "hit", "btn -1 2",
+    ]),
+    # A wire button: two edges, the hover, a right click, a press released off it.
+    " ; ".join([
+        "new WireButtonControl", "init " + hx("ws") + " " + fbs(0.0, 0.0, 0.0) + " " +
+        fbs(0.1, 0.05, 0.02) + " 1 0 9 0 5",
+        xform(0.1, 0.2, -1.0), "draw", "enter", "leave",
+        "cursor 382 116", ray(0.1, 0.2), "hit",
+        "btn -1 3", "update", "btn -1 1", "state",
+        "btn -1 2", "cursor 100 100", "update", "btn -1 1", "state",
+        "getcmd", "draw",
+    ]),
+    # A mesh scroll bar: the layout, the draw, the hover, the buttons and their repeat, the
+    # range and value properties, the thumb drag, the back plate's paging.
+    " ; ".join([
+        "new ScrollControl",
+        "init " + hx("back") + " " + fbs(0.0, 0.0, 0.0) + " - " + fbs(0.02, 0.2, 0.01) + " 0 " +
+        hx("next") + " " + fbs(0.0, 0.21, 0.0) + " - " + fbs(0.02, 0.02, 0.01) + " 0 " +
+        hx("prev") + " " + fbs(0.0, -0.21, 0.0) + " - " + fbs(0.02, 0.02, 0.01) + " 0 " +
+        hx("thumb") + " " + fbs(0.0, 0.18, 0.0) + " " + fbs(0.0, -0.18, 0.0) + " - - " +
+        fbs(0.02, 0.02, 0.01) + " 0 0 10 3 0 0",
+        "state", xform(0.5, 0.0, -1.0), "state", "draw",
+        ray(0.5, 0.21), "enter", "draw", "leave",
+        "cursor 631 109", "btn -1 2", "state",
+        "time " + fb(0.5), "update", "state", "btn -1 1",
+        "cursor 631 371", "btn -1 2", "btn -1 1", "state",
+        "prop 37 20 5", "prop 38 12 0", "prop 39 0 0", "prop 3a 0 0", "prop 3b 0 0",
+        "prop 3c 4 2", "prop 3d 0 0", "state",
+        "offset " + fbs(0.01, 0.0, 0.0), "state",
+        "cursor 637 233", "btn -1 2", "state", "cursor 637 150", "update", "state", "btn -1 1",
+        "cursor 637 333", "btn -1 2", "state", "time " + fb(1.0), "update", "state", "btn -1 1",
+        "draw",
+    ]),
+    # A table: the edges, the hover, the selection, a column edge dragged, the edge setters,
+    # a row that is not hoverable, the hit test.
+    " ; ".join([
+        "new UITable " + fbs(0.6, 0.4) + " 3 2", "rows 1 1 1 1 0 1",
+        xform(-0.3, 0.2, -1.0), "state", "draw",
+        ray(-0.2, 0.15), "update", "state", "btn -1 2", "draw",
+        ray(0.002, 0.15), "update", "state", "btn -1 2", "state",
+        ray(0.1, 0.15), "update", "state", "btn -1 1", "state",
+        "cedge 1 " + fb(0.7), "cedge 0 " + fb(0.1), "redge 1 " + fb(-0.05),
+        "redge 2 " + fb(-0.3), "state",
+        ray(-0.2, -0.13), "update", "state",
+        "hit", ray(0.5, 0.15), "hit", "btn -2 2",
+    ]),
+]
+
+CONTROL_CASES += LATER_CASES
+
 CASES = [
     # A front-end page of every class, in the shipped files' style.
     "#Automatically generated. Do not edit!\n"

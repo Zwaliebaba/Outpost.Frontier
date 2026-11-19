@@ -1,8 +1,9 @@
 //! The shipped interface files (`outdir/data`, decision O15) through the UI
 //! toolkit of work package P4.13: every page descriptor loads and becomes a
 //! page whose widgets sit inside the 4:3 interface on a 4:3 and on a wide
-//! surface, the `[BaseFrame]` file builds its sub-controls through the
-//! factory, and `mouse.ini` gives its shapes and cursors. Nothing is written
+//! surface (66 of the 72 widgets with the toolkit's own controls), the
+//! `[BaseFrame]` file builds its buttons through the factory, and
+//! `mouse.ini` gives its shapes and cursors. Nothing is written
 //! or compared with the oracle; the page descriptor loader and the
 //! screen-quad batcher are compared with the C++ in `oracle_vectors.rs`.
 
@@ -13,10 +14,11 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use neuron_client::ui::control::{ControlMesh, MeshLoader, PlainControl, load_ini};
+use neuron_client::ui::controls::button::ButtonWidget;
 use neuron_client::ui::cursor::{Cursors, compute_quad};
 use neuron_client::ui::factory::{CLASSES, owner};
 use neuron_client::ui::immediate::{Immediate, ImmediateLog};
-use neuron_client::ui::page::{MasterWin, PageDesc};
+use neuron_client::ui::page::{EntryPayload, MasterWin, PageDesc, Style};
 use neuron_client::ui::quad_batch::QuadBatcher;
 use neuron_client::ui::shape::FixedTextures;
 use neuron_client::ui::tree::DrawHost;
@@ -122,6 +124,8 @@ fn shipped_pages_load_and_place_their_widgets() {
         "UIScroll",
         "UICycle",
         "UIWinObject",
+        "UIRichTextWin",
+        "UITextMsgButton",
     ];
     let (mut built, mut immediate_calls, mut meshes) = (0, 0, 0);
     for path in &files {
@@ -152,10 +156,20 @@ fn shipped_pages_load_and_place_their_widgets() {
                 .unwrap_or_else(|| panic!("{}: the page failed", path.display()));
             let page = ui.widget::<MasterWin>(id).unwrap().page.clone().unwrap();
             assert_eq!(page.count(), names.len(), "{}", path.display());
+            // The panels' meshes and the text buttons' style meshes.
             let objects = desc
                 .entries
                 .iter()
-                .filter(|e| e.type_name == b"UIWinObject")
+                .filter(|e| {
+                    e.type_name == b"UIWinObject"
+                        || matches!(
+                            &e.payload,
+                            EntryPayload::TextMsgButton {
+                                style: Style::Default | Style::Named(_),
+                                ..
+                            }
+                        )
+                })
                 .count();
             assert_eq!(loaded.borrow().len(), objects, "{}", path.display());
             for i in 0..page.count() {
@@ -207,6 +221,8 @@ fn the_navigation_bar_builds_its_controls() {
         return;
     };
     let mut ui = ui_with_every_class(Surface::new(1024, 768));
+    let loaded = Rc::new(RefCell::new(Vec::new()));
+    ui.mesh_loader = Some(Box::new(PathLoader(loaded.clone())));
     let id = ui
         .create_by_class(
             Some(b"NavBar"),
@@ -223,13 +239,26 @@ fn the_navigation_bar_builds_its_controls() {
     assert_eq!(control.offset.z, -1.0);
     let children = ui.children(id);
     assert_eq!(children.len(), 12);
-    for child in children {
+    for &child in &children {
         let node = ui.node(child).unwrap();
         assert_eq!(node.class_name, Some("ButtonControl"));
         assert!(
             node.name().starts_with(b"RoomControl") || node.name().starts_with(b"ButtonControl")
         );
+        // The toolkit's own button, its mesh loaded by its INI section.
+        let button = &ui.widget::<ButtonWidget>(child).unwrap().button;
+        assert!(button.control.mesh.is_some());
     }
+    assert_eq!(loaded.borrow().len(), 12);
+    let mut host = LogHost::default();
+    ui.update_all(0.016);
+    ui.draw_all(&mut host);
+    assert!(host.meshes >= 12);
+    println!(
+        "navbar.ini: {} buttons built by the toolkit, {} mesh passes drawn",
+        children.len(),
+        host.meshes
+    );
 }
 
 #[test]
