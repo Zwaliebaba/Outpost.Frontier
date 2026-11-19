@@ -66,6 +66,8 @@
 //! hits before the first divergence and the outcome are reported. A
 //! summary goes to `rust-scenario-replay.txt` in the oracle folder.
 
+#[path = "scenario_replay/ensemble.rs"]
+mod ensemble;
 mod support;
 
 use std::collections::BTreeMap;
@@ -159,6 +161,9 @@ struct Scenario {
     /// run it yet.
     rust_skip: Option<String>,
     seed: u32,
+    /// The seed of the seeding point when it is not `seed`: Gate G2's seed
+    /// ensemble (`Oracle.exe sim ... --seed S`; record 0003 point 9).
+    reseed: Option<u32>,
     objects: Vec<ObjDesc>,
     commands: Vec<Cmd>,
 }
@@ -213,6 +218,7 @@ fn parse(path: &Path) -> Option<Scenario> {
                 .map(|r| r.trim().to_owned())
         }),
         seed: 0x4f52_4143,
+        reseed: None,
         objects: Vec::new(),
         commands: Vec::new(),
     };
@@ -729,7 +735,8 @@ fn run(s: &Scenario, ai: &AiInputs) -> Option<Run> {
     }
     // The seeding point (owner, 2026-11-18): the oracle's harness calls
     // `srand(seed)` again once the system and its population have loaded.
-    world.rng().seed(s.seed);
+    // The seed ensemble replaces the seed here only (owner, 2026-11-19).
+    world.rng().seed(s.reseed.unwrap_or(s.seed));
     for o in &s.objects {
         let h = if o.ship {
             let mut spawn = ShipSpawn::new(

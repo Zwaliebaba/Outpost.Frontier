@@ -667,7 +667,7 @@ hex, text) and `metrics.txt` the plain-text input of `--runs`
 | `event` | `kind` s, `obj` s, `present` u (runs with the event), `of` u (completed runs), `first_min` u, `first_max` u, `spread` u (ticks) |
 
 For each object and tick the spread of a metric is its largest difference
-between any two completed runs (record 0003 point 9): the distance between
+between any two completed runs (the determinism check of record 0003's envelope method): the distance between
 positions, velocities and angular velocities, the largest element
 difference of the orientation matrices, the hit-point difference; ticks at
 which the object is not alive in every run are counted in
@@ -678,3 +678,24 @@ An event's spread is the difference between its earliest and latest first
 occurrence (`kind` `collision` keyed by object `a`, `munition_hit` by the
 target, `dock` by the ship, `destroyed` by the object; other objects by
 `#<id>`). `spread.txt` says the same in decimal.
+
+## The seed ensemble (`--seed S`)
+
+Gate G2's seed ensemble (record 0003 point 9, owner 2026-11-19): the data
+job runs each scenario of `crates/game-sim/tests/fixtures/g2_ensemble.txt`
+once per seed listed there, as `Oracle.exe sim <data root> <scenario>
+<ensemble>\seed_<S>\<scenario> --seed S`. Each run's folder holds the
+records of a single run; the job keeps only those the comparison reads
+(`tick.jsonl`, `events.jsonl`, the `munition_hit` and `collision_damage`
+records of `calls.jsonl`, the first 2,000 lines of `ai.jsonl`,
+`session.jsonl`, `load_rand.txt`). A run records its seed in the `start`
+and `server` records (`reseed`) and in `load_rand.jsonl`'s `reseed`
+record. The Rust test (`scenario_replay`'s `g2_seed_ensemble`, with
+`OUTPOST_ENSEMBLE_DIR` set to `<ensemble>`) writes `rust-ensemble.txt`
+there: per scenario and seed the first contact or impact on both sides,
+the tick at which the seed's run leaves the first seed's, each object's
+outcome (survived, kill tick, munition hits taken, collision events, final
+hull and shield) on both sides and the seed's judgement; then per object
+and metric both sides' distributions (median, quartiles, range), the
+median difference against its margin and the exact two-sample
+Kolmogorov–Smirnov test (Fisher's exact test for the survival counts).

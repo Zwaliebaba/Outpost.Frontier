@@ -592,15 +592,18 @@ reason is in `session.jsonl` and on stderr), 4 a fault in a frame (the
 program starts itself N times, each run in a fresh process writing to
 `<out>\run_NN\`, and writes `spread.jsonl` and `spread.txt` into `<out>`:
 the largest difference between any two runs per object, metric and event
-(record 0003 point 9). It exits 1 when a run did not complete.
+(the determinism check of record 0003's envelope method). It exits 1
+when a run did not complete.
 
 `--seed S` (decimal or `0x` hex, 32 bits; Gate G2's seed ensemble,
-owner 2026-11-19) replaces the seed of the seeding point (start-up step 5)
-with `S`; the first `srand`, before the load, keeps the scenario's `seed`,
-so the load-time draws stay as they are. The run records `S` as `reseed`
-in `session.jsonl`'s `start` and `server` records and in
-`load_rand.jsonl`'s `reseed` record. With `--runs N` each child gets the
-same `--seed`. The options come after the three paths, in any order:
+record 0003 point 9, owner 2026-11-19) replaces the seed of the seeding
+point (start-up step 5) with `S`; the first `srand`, before the load,
+keeps the scenario's `seed`, so the load-time draws stay as they are. The
+run records `S` as `reseed` in `session.jsonl`'s `start` and `server`
+records and in `load_rand.jsonl`'s `reseed` record. With `--runs N` each
+child gets the same `--seed`. The options come after the three paths, in
+any order. The data job runs the ensemble of
+`crates/game-sim/tests/fixtures/g2_ensemble.txt` this way:
 
 ```powershell
 .\bin\Oracle.exe sim "$PWD\outdir" CppSource\Oracle\scenarios\dogfight.txt "$env:TEMP\ens\seed_3985226492\dogfight" --seed 3985226492

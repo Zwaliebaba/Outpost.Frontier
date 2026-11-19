@@ -247,6 +247,63 @@ jobs:
             Write-Host "Not reproducible: $($failed -join '; ')"
             exit 1
           }
+      - name: Run the seed ensemble
+        # Gate G2's seed ensemble (design/adr/0003-simulation-oracle.md point 9; owner,
+        # 2026-11-19): each scenario of crates/game-sim/tests/fixtures/g2_ensemble.txt once per
+        # seed listed there, each run in a fresh process with --seed (the seed of the srand the
+        # harness calls again after the load), into outpost-ensemble\seed_<S>\<scenario>\. Each
+        # run must record its seed. Only what the Rust comparison reads is kept on the runner
+        # (tick.jsonl, events.jsonl, the munition_hit and collision_damage records of calls.jsonl,
+        # the head of ai.jsonl with the pilots' personalities and attitudes, session.jsonl); the
+        # session logs go to the summaries.
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $ens = "$env:RUNNER_TEMP\outpost-ensemble"
+          $keep = "$env:RUNNER_TEMP\outpost-sim-summaries\ensemble"
+          New-Item -ItemType Directory -Force $keep | Out-Null
+          $list = Get-Content crates\game-sim\tests\fixtures\g2_ensemble.txt | ForEach-Object { ($_ -split '#')[0].Trim() } | Where-Object { $_ }
+          $scenarios = @($list | Where-Object { $_ -like 'scenario *' } | ForEach-Object { ($_ -split '\s+')[1] })
+          $seeds = @($list | Where-Object { $_ -like 'seed *' } | ForEach-Object { ($_ -split '\s+')[1] })
+          Write-Host "seed ensemble: $($scenarios -join ', ') x $($seeds.Count) seeds"
+          $kept = 'tick.jsonl', 'events.jsonl', 'calls.jsonl', 'ai.jsonl', 'session.jsonl', 'load_rand.txt'
+          $failed = @()
+          $clock = [Diagnostics.Stopwatch]::StartNew()
+          foreach ($seed in $seeds) {
+            foreach ($name in $scenarios) {
+              $dir = "$ens\seed_$seed\$name"
+              $run = [Diagnostics.Stopwatch]::StartNew()
+              & .\bin\Oracle.exe sim "$PWD\outdir" "CppSource\Oracle\scenarios\$name.txt" $dir --seed $seed
+              $code = $LASTEXITCODE
+              Write-Host "$name seed ${seed}: exit $code, $([int]$run.Elapsed.TotalSeconds) s"
+              if ($code -ne 0) { $failed += "$name seed $seed (exit $code)" }
+              if (-not (Select-String -Path "$dir\session.jsonl" -Pattern "`"reseed`":$seed[,}]" -Quiet -ErrorAction SilentlyContinue)) {
+                $failed += "$name seed $seed (session.jsonl does not record the seed)"
+              }
+              if ($seed -eq $seeds[0]) {
+                Get-ChildItem $dir -File | ForEach-Object { "  $name seed ${seed} $($_.Name): $($_.Length) bytes" }
+              }
+              $calls = "$dir\calls.jsonl"
+              if (Test-Path $calls) {
+                $lines = @(Select-String -Path $calls -Pattern '"rec":"(munition_hit|collision_damage)"' | ForEach-Object { $_.Line })
+                Set-Content -Path $calls -Value $lines
+              }
+              $ai = "$dir\ai.jsonl"
+              if (Test-Path $ai) {
+                $head = @(Get-Content $ai -TotalCount 2000)
+                Set-Content -Path $ai -Value $head
+              }
+              Get-ChildItem $dir -File -ErrorAction SilentlyContinue | Where-Object { $kept -notcontains $_.Name } | Remove-Item
+              Copy-Item "$dir\session.jsonl" "$keep\seed_$seed-$name-session.jsonl" -ErrorAction SilentlyContinue
+              Select-String -Path "$dir\session.jsonl" -Pattern '"error"|"fault"' -ErrorAction SilentlyContinue |
+                Select-Object -First 5 | ForEach-Object { "  $name seed ${seed}: $($_.Line)" }
+            }
+          }
+          Write-Host "seed ensemble: $($scenarios.Count * $seeds.Count) runs in $($clock.Elapsed)"
+          if ($failed.Count -gt 0) {
+            Write-Host "Ensemble runs that failed: $($failed -join ', ')"
+            exit 1
+          }
       - name: Replay the recorded PSIs through the port
         # Decision O20, replay layer: every psi.jsonl the scenarios wrote is replayed one PSI
         # at a time through neuron-core::physics (crates/neuron-core/tests/sim_replay.rs).
@@ -278,6 +335,21 @@ jobs:
           }
           Copy-Item "$env:OUTPOST_ORACLE_DIR\rust-*-replay.txt" "$env:RUNNER_TEMP\outpost-sim-summaries\" -ErrorAction SilentlyContinue
           exit $failed
+      - name: Compare the seed ensemble through the Rust world
+        # Gate G2 (record 0003 point 9): the same scenarios and seeds through the Rust world
+        # (scenario_replay's g2_seed_ensemble test). Each seed is judged exactly up to its first
+        # contact or munition impact, ram_ship's first-contact damage within 5 % (owner,
+        # 2026-11-19); after it the outcome statistics of the seeds, Rust's against the oracle's,
+        # are reported against the proposed bounds. Summary rust-ensemble.txt.
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          $env:OUTPOST_ENSEMBLE_DIR = "$env:RUNNER_TEMP\outpost-ensemble"
+          $env:OUTPOST_ORACLE_DIR = "$env:RUNNER_TEMP\outpost-sim"
+          cargo test --locked --release -p game-sim --test scenario_replay -- g2_seed_ensemble --nocapture
+          $code = $LASTEXITCODE
+          Copy-Item "$env:OUTPOST_ENSEMBLE_DIR\rust-ensemble.txt" "$env:RUNNER_TEMP\outpost-sim-summaries\" -ErrorAction SilentlyContinue
+          exit $code
       - name: Keep the scenario spread summaries
         if: always()
         uses: actions/upload-artifact@v4
