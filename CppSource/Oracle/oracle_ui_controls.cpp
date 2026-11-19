@@ -110,6 +110,12 @@
 #include <string>
 #include <vector>
 
+// The client's sound archetypes are compiled into Oracle.exe by
+// oracle_audio_client.cpp (menu_sound_arch.cpp); the controls here call
+// recording stand-ins of their own under other names, so the two suites
+// neither share state nor define a symbol twice.
+#define LookupClientSoundArch OracleCtlLookupClientSoundArch
+#define PlayClientSoundArchIfIdle OracleCtlPlayClientSoundArchIfIdle
 #include "../OutpostFrontier/Client/win3d.cpp"
 #include "../OutpostFrontier/Client/wincontrol_base.cpp"
 #include "../OutpostFrontier/Client/win_factory.cpp"
