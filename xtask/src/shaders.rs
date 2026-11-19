@@ -1,13 +1,16 @@
-//! `cargo xtask shaders`: compile the fixed-function shaders with `fxc`
-//! (decision record 0004, section 3) into the committed blobs, or check
-//! that the committed blobs are what the sources compile to.
+//! `cargo xtask shaders`: compile the renderer's shaders with `dxc`
+//! (decision record 0004, section 3, as amended on 2026-11-19: DXIL of
+//! shader model 6.1) into the committed blobs, or check that the committed
+//! blobs are what the sources compile to.
 //!
 //! The manifest is `crates/neuron-client/shaders/shaders.toml`: one
 //! `[[shader]]` table per blob with `file`, `entry`, `profile`, `output`
-//! and optional `defines`. The compiler is `fxc.exe` from Windows SDK
-//! 10.0.26100.0 (or `--fxc <path>`), and the `d3dcompiler_47.dll` beside it
-//! must have the file version `shaders/README.md` records, so a blob
-//! changes only when its source does. The flags are fixed.
+//! and optional `defines`. The compiler is `dxc.exe` from the
+//! `Microsoft.Direct3D.DXC` NuGet package (`--dxc <path>`, or the
+//! `OUTPOST_DXC` environment variable), with `dxcompiler.dll` and
+//! `dxil.dll` (the validator that signs the blobs) beside it; the
+//! compiler DLL must have the file version `shaders/README.md` records, so
+//! a blob changes only when its source does. The flags are fixed.
 //!
 //! `--check` compiles to a temporary directory and compares. On a
 //! difference it prints each new blob in base64 between marker lines, so
@@ -20,32 +23,34 @@ use std::process::{Command, ExitCode};
 
 use toml::{Table, Value};
 
-pub const USAGE: &str = "  shaders [--check] [--fxc <path>]
-                 compile crates/neuron-client/shaders/shaders.toml with fxc
+pub const USAGE: &str = "  shaders [--check] [--dxc <path>]
+                 compile crates/neuron-client/shaders/shaders.toml with dxc
                  into crates/neuron-client/compiled_shaders (Windows only);
                  --check fails when a committed blob differs and prints the
                  new blobs in base64
 ";
 
-/// `fxc`'s flags (record 0004, point 17), before `/T`, `/E`, `/D` and
-/// `/Fo`.
+/// `dxc`'s flags (record 0004, point 17 as amended), before `-T`, `-E`,
+/// `-D` and `-Fo`.
 const FLAGS: &[&str] = &[
-    "/nologo",
-    "/WX",
-    "/O3",
-    "/Ges",
-    "/Gis",
-    "/Zpr",
-    "/Qstrip_debug",
-    "/Qstrip_reflect",
-    "/Qstrip_priv",
+    "-nologo",
+    "-WX",
+    "-O3",
+    "-Ges",
+    "-Gis",
+    "-Zpr",
+    "-HV",
+    "2021",
+    "-Qstrip_debug",
+    "-Qstrip_reflect",
+    "-Qstrip_priv",
 ];
 
-/// Where `fxc` is when `--fxc` does not say.
-const DEFAULT_FXC: &str = r"C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\fxc.exe";
+/// The environment variable that names `dxc.exe` when `--dxc` does not.
+const DXC_VARIABLE: &str = "OUTPOST_DXC";
 
 /// The line of `shaders/README.md` that records the compiler DLL version.
-const VERSION_PREFIX: &str = "d3dcompiler_47.dll file version: ";
+const VERSION_PREFIX: &str = "dxcompiler.dll file version: ";
 
 struct Shader {
     file: String,
@@ -144,25 +149,25 @@ fn base64(bytes: &[u8]) -> String {
     out
 }
 
-fn compile(fxc: &Path, source_dir: &Path, shader: &Shader, out: &Path) -> Result<(), String> {
-    let mut command = Command::new(fxc);
+fn compile(dxc: &Path, source_dir: &Path, shader: &Shader, out: &Path) -> Result<(), String> {
+    let mut command = Command::new(dxc);
     command.args(FLAGS);
-    command.args(["/T", &shader.profile, "/E", &shader.entry]);
+    command.args(["-T", &shader.profile, "-E", &shader.entry]);
     for define in &shader.defines {
-        command.args(["/D", define]);
+        command.args(["-D", define]);
     }
     command
-        .arg("/Fo")
+        .arg("-Fo")
         .arg(out)
         .arg(source_dir.join(&shader.file));
     let output = command
         .output()
-        .map_err(|e| format!("cannot run {}: {e}", fxc.display()))?;
+        .map_err(|e| format!("cannot run {}: {e}", dxc.display()))?;
     if output.status.success() {
         Ok(())
     } else {
         Err(format!(
-            "fxc failed for {} ({}):\n{}{}",
+            "dxc failed for {} ({}):\n{}{}",
             shader.output,
             shader.entry,
             String::from_utf8_lossy(&output.stdout),
@@ -183,15 +188,21 @@ pub fn run(args: &[String], root: &Path) -> ExitCode {
 
 fn run_inner(args: &[String], root: &Path) -> Result<ExitCode, String> {
     let mut check = false;
-    let mut fxc = PathBuf::from(DEFAULT_FXC);
+    let mut dxc: Option<PathBuf> = std::env::var_os(DXC_VARIABLE).map(PathBuf::from);
     let mut it = args.iter();
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--check" => check = true,
-            "--fxc" => fxc = it.next().ok_or("--fxc needs a path")?.into(),
+            "--dxc" => dxc = Some(it.next().ok_or("--dxc needs a path")?.into()),
             other => return Err(format!("unknown argument {other}\n{USAGE}")),
         }
     }
+    let dxc = dxc.ok_or_else(|| {
+        format!(
+            "no dxc: pass --dxc <path to dxc.exe> or set {DXC_VARIABLE} (shaders/README.md says \
+             where the pinned compiler comes from)"
+        )
+    })?;
     let crate_dir = root.join("crates/neuron-client");
     let source_dir = crate_dir.join("shaders");
     let blob_dir = crate_dir.join("compiled_shaders");
@@ -201,7 +212,14 @@ fn run_inner(args: &[String], root: &Path) -> Result<ExitCode, String> {
     )?))?;
     let readme = String::from_utf8_lossy(&read(&source_dir.join("README.md"))?).into_owned();
 
-    let dll = fxc.with_file_name("d3dcompiler_47.dll");
+    let validator = dxc.with_file_name("dxil.dll");
+    if !validator.is_file() {
+        return Err(format!(
+            "{} is missing: without the validator dxc writes unsigned blobs",
+            validator.display()
+        ));
+    }
+    let dll = dxc.with_file_name("dxcompiler.dll");
     let found = file_version(&read(&dll)?)
         .ok_or_else(|| format!("{} has no file version", dll.display()))?;
     let version_ok = match recorded_version(&readme) {
@@ -229,7 +247,7 @@ fn run_inner(args: &[String], root: &Path) -> Result<ExitCode, String> {
     let mut differ = Vec::new();
     for shader in &shaders {
         let out = out_dir.join(&shader.output);
-        compile(&fxc, &source_dir, shader, &out)?;
+        compile(&dxc, &source_dir, shader, &out)?;
         if check {
             let new = read(&out)?;
             let committed = std::fs::read(blob_dir.join(&shader.output)).ok();
@@ -240,7 +258,7 @@ fn run_inner(args: &[String], root: &Path) -> Result<ExitCode, String> {
     }
     if !check {
         println!(
-            "shaders: compiled {} blobs with d3dcompiler_47 {found}",
+            "shaders: compiled {} blobs with dxcompiler {found}",
             shaders.len()
         );
         return Ok(if version_ok {
@@ -298,11 +316,11 @@ mod tests {
     #[test]
     fn the_readme_records_a_version_or_not() {
         assert_eq!(
-            recorded_version("x\nd3dcompiler_47.dll file version: `10.0.1.2`\n").as_deref(),
-            Some("10.0.1.2")
+            recorded_version("x\ndxcompiler.dll file version: `1.9.2609.5`\n").as_deref(),
+            Some("1.9.2609.5")
         );
         assert_eq!(
-            recorded_version("d3dcompiler_47.dll file version: unrecorded"),
+            recorded_version("dxcompiler.dll file version: unrecorded"),
             None
         );
     }
@@ -317,7 +335,7 @@ mod tests {
         assert!(
             shaders
                 .iter()
-                .all(|s| s.profile.ends_with("_5_1") && s.output.ends_with(".cso"))
+                .all(|s| s.profile.ends_with("_6_1") && s.output.ends_with(".cso"))
         );
     }
 }
