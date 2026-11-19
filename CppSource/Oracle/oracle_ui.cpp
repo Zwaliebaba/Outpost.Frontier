@@ -150,4 +150,5 @@ void RunUiSuites()
 {
     PageDescSuite();
     RunUiQuadSuites();
+    RunUiControlSuites();
 }

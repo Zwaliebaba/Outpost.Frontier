@@ -301,11 +301,12 @@ impl World {
         }
     }
 
-    /// The phantom events of the last physics step: an object entering a
-    /// missile's fuse (`Guided::added`) latches the trigger with the id of
-    /// its root (0 without one), unless it is the missile's owner while
-    /// the owner-safe time runs.
-    pub(crate) fn guided_phantom_events(&mut self, system: u32) {
+    /// The phantom events of the last physics step: those of a field
+    /// mine's phantom go to the mine ([`World::mine_phantom_event`]); an
+    /// object entering a missile's fuse (`Guided::added`) latches the
+    /// trigger with the id of its root (0 without one), unless it is the
+    /// missile's owner while the owner-safe time runs.
+    pub(crate) fn phantom_events(&mut self, system: u32) {
         let events = match self.physics.world_mut(system) {
             Some(w) => w.take_phantom_events(),
             None => return,
@@ -315,6 +316,10 @@ impl World {
         }
         let missiles = self.list(system, TickList::Guided);
         for ev in events {
+            // A field mine's phantom (`MedMine::added`, `deleted`).
+            if self.mine_phantom_event(system, &ev) {
+                continue;
+            }
             if !ev.entered {
                 continue;
             }

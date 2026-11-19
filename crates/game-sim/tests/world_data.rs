@@ -700,6 +700,314 @@ fn the_ai_reads_loot_and_the_hold_and_points_the_tractor() {
     assert_eq!(AiWorld::command(&mut world, ship, tractor_at(0x7777)), -2);
 }
 
+/// The live field rocks of a system.
+fn rocks(world: &game_sim::object::World, system: u32) -> Vec<game_sim::object::ObjHandle> {
+    world
+        .objects_in(system)
+        .into_iter()
+        .filter(|h| {
+            world
+                .get(*h)
+                .is_some_and(|o| o.kind == ObjectKind::Asteroid && !o.dead)
+        })
+        .collect()
+}
+
+#[test]
+fn an_asteroid_field_fills_around_a_ship_and_empties_behind_it() {
+    let Some(mut world) = support::world::world(WorldConfig::default()) else {
+        println!("outdir/ is missing: no asteroid fields");
+        return;
+    };
+    let system = create_id(b"ve03");
+    let count = world.load_asteroid_fields(system);
+    println!("ve03: {count} asteroid fields");
+    assert_eq!(count, 5, "the five [Asteroids] sections of br03.ini");
+    // `ram_asteroid`'s start, in the Keswick ice field.
+    let pos = Vector::new(53637.0, 0.0, -25391.0);
+    let zone_of = |w: &game_sim::object::World, i: usize| {
+        let f = &w.asteroid_fields(system)[i];
+        f.field
+            .zone
+            .and_then(|z| w.data().universe.zones.get(&z))
+            .cloned()
+    };
+    let near: Vec<usize> = (0..count)
+        .filter(|&i| world.asteroid_fields(system)[i].near_field(zone_of(&world, i).as_ref(), pos))
+        .collect();
+    println!("fields near the ship: {near:?}");
+    assert!(!near.is_empty(), "the ship is in a field");
+    assert!(rocks(&world, system).is_empty());
+    let ship = fighter(&mut world, system, pos);
+    world.step(system, 1.0 / 30.0);
+    let cubes: usize = near
+        .iter()
+        .map(|&i| world.asteroid_fields(system)[i].cubes.len())
+        .sum();
+    let placed = rocks(&world, system);
+    println!("after one step: {cubes} cubes, {} rocks", placed.len());
+    assert!(cubes > 0 && cubes <= 9 * near.len());
+    assert!(!placed.is_empty(), "the filled cubes place rocks");
+    // Every rock is the shared object of its cube, fixed and listed.
+    for &h in &placed {
+        let o = world.get(h).expect("a rock");
+        let game_sim::object::KindData::Asteroid(a) = &o.data else {
+            panic!("an asteroid");
+        };
+        assert!(a.listed && !a.mine);
+        assert!(world.body(h).is_some());
+        assert_eq!(world.find(o.simple.id), Some(h));
+    }
+    // The cubes stay while the ship is there.
+    for _ in 0..60 {
+        world.step(system, 1.0 / 30.0);
+    }
+    assert_eq!(rocks(&world, system).len(), placed.len());
+    // Without an observer they count 3 s, go far, and go at the next walk.
+    world.destroy(ship, 0);
+    let mut gone_at = None;
+    for tick in 1..=200u32 {
+        world.step(system, 1.0 / 30.0);
+        if gone_at.is_none() && rocks(&world, system).is_empty() {
+            gone_at = Some(tick);
+        }
+    }
+    println!("the rocks went after {gone_at:?} steps");
+    let gone_at = gone_at.expect("the rocks are dropped");
+    assert!((90..=93).contains(&gone_at), "3 s, then a walk");
+    assert!(
+        near.iter()
+            .all(|&i| world.asteroid_fields(system)[i].cubes.is_empty())
+    );
+}
+
+#[test]
+fn a_docking_point_opens_and_closes() {
+    use game_sim::object::world::ActivateResult;
+    let Some(mut world) = support::world::world(WorldConfig::default()) else {
+        println!("outdir/ is missing: no docking points");
+        return;
+    };
+    let system = create_id(b"he01");
+    let station = create_id(b"he01_11");
+    let made = world.load_system_solars_where(system, |s| s.nickname == station);
+    let h = *made.first().expect("he01_11 spawns");
+    let points: Vec<(Vec<u8>, Option<f32>)> = world
+        .get(h)
+        .and_then(|o| o.as_equipped())
+        .map(|eq| {
+            eq.docking_points
+                .iter()
+                .map(|p| (p.anim.clone(), p.playback.map(|b| b.duration)))
+                .collect()
+        })
+        .unwrap_or_default();
+    println!("docking points {points:?}");
+    let index = points
+        .iter()
+        .position(|p| p.1.is_some_and(|d| d > 0.0))
+        .expect("a docking point with an animation");
+    let duration = points[index].1.unwrap_or(0.0);
+    assert_eq!(
+        world.activate_docking_point(h, true, index),
+        ActivateResult::Changed
+    );
+    assert_eq!(
+        world.activate_docking_point(h, true, index),
+        ActivateResult::NoChange
+    );
+    assert_eq!(
+        world.activate_docking_point(h, true, 99),
+        ActivateResult::Failed
+    );
+    let (states, any) = world.docking_activate_state(h);
+    assert!(any && states[index]);
+    // A solar far from players updates only while kept updated.
+    world.step(system, 1.0 / 30.0);
+    assert!(
+        world
+            .take_events()
+            .iter()
+            .all(|e| !matches!(e, WorldEvent::DockAnim { .. }))
+    );
+    world.set_always_update(h, true);
+    let time = |w: &game_sim::object::World| {
+        w.get(h)
+            .and_then(|o| o.as_equipped())
+            .and_then(|eq| eq.docking_points[index].playback)
+            .map_or(-1.0, |p| p.time)
+    };
+    let dt = 1.0 / 30.0;
+    let mut events = Vec::new();
+    let mut open_at = None;
+    for tick in 1..=600u32 {
+        if tick == 300 {
+            assert_eq!(
+                world.activate_docking_point(h, false, index),
+                ActivateResult::Changed
+            );
+        }
+        world.step(system, dt);
+        for ev in world.take_events() {
+            if let WorldEvent::DockAnim { index: i, open, .. } = ev {
+                events.push((tick, i, open));
+            }
+        }
+        if open_at.is_none() && time(&world) >= duration {
+            open_at = Some(tick);
+        }
+    }
+    println!("dock animation {duration} s: events {events:?}, open at {open_at:?}");
+    assert_eq!(events.first(), Some(&(1, index, true)));
+    let open_at = open_at.expect("the point opens");
+    let expected = (f64::from(duration) / f64::from(dt)).ceil() as u32;
+    assert!(
+        open_at.abs_diff(expected + 1) <= 1,
+        "opens over the animation"
+    );
+    assert_eq!(events.get(1).map(|e| (e.0, e.2)), Some((300, false)));
+    assert_eq!(time(&world), 0.0, "closed again");
+}
+
+#[test]
+fn cargo_capacities_and_the_tractor_refusals() {
+    use game_sim::equip::Equip;
+    use game_sim::equip::misc::TractorFailure;
+    use game_sim::object::world::{LootSpawn, ScanResult};
+    let Some(mut world) = support::world::world(WorldConfig::default()) else {
+        println!("outdir/ is missing: no cargo");
+        return;
+    };
+    let system = create_id(b"he01");
+    world.load_system(system);
+    let ship = fighter(&mut world, system, Vector::new(15000.0, 3000.0, -25000.0));
+    let hold = world.cargo_hold_size(ship).expect("a hold");
+    let free = world.cargo_hold_remaining(ship).expect("room");
+    println!("hold {free} of {hold}");
+    assert_eq!(hold, 25.0);
+    assert_eq!(world.repair_kit_capacity_remaining(ship), Some(12));
+    assert_eq!(world.shield_battery_capacity_remaining(ship), Some(12));
+    let ammo = create_id(b"ge_s_cm_01_ammo");
+    let max_ammo = world.data().constants.general.max_player_ammo;
+    let carried = |w: &game_sim::object::World| {
+        w.get(ship).and_then(|o| o.as_equipped()).and_then(|eq| {
+            eq.equipment
+                .iter()
+                .find(|e| e.arch_id == ammo)
+                .and_then(|e| match &e.kind {
+                    EquipKind::Cargo(c) => Some(c.count.cast_signed()),
+                    _ => None,
+                })
+        })
+    };
+    let have = carried(&world).unwrap_or(0);
+    assert_eq!(
+        world.ammo_capacity_remaining(ship, ammo),
+        Some(if have > max_ammo { 0 } else { max_ammo - have })
+    );
+    assert_eq!(world.ammo_capacity_remaining(ship, 0), Some(-1));
+    let gold = create_id(b"commodity_gold");
+    let gold_space = world.space_for_cargo_type(ship, gold).expect("a ship");
+    assert_eq!(gold_space, free.floor() as i32, "gold takes 1 per unit");
+    let spawn = |w: &mut game_sim::object::World, contents: &[u8]| {
+        w.spawn_loot(
+            system,
+            &LootSpawn {
+                archetype: create_id(b"ge_s_cm_01_ammo_crate"),
+                contents: create_id(contents),
+                units: 5,
+                contents_hit_pts: 10.0,
+                owner: 0,
+                position: Vector::new(15000.0, 3000.0, -25060.0),
+                velocity: Vector::ZERO,
+            },
+        )
+        .expect("loot spawns")
+    };
+    let tractor = world
+        .get(ship)
+        .and_then(|o| o.as_equipped())
+        .and_then(|eq| eq.equipment.first(types::TRACTOR))
+        .map(|e| e.id)
+        .expect("a tractor");
+    let ammo_loot = spawn(&mut world, b"ge_s_cm_01_ammo");
+    let gold_loot = spawn(&mut world, b"commodity_gold");
+    assert_eq!(
+        world.tractor_verify_target(ship, tractor, Some(ammo_loot)),
+        TractorFailure::Ok
+    );
+    assert_eq!(
+        world.tractor_verify_target(ship, tractor, Some(gold_loot)),
+        TractorFailure::Ok
+    );
+    // A full stack of countermeasures: no room for more ammunition.
+    let add = |w: &mut game_sim::object::World, id: u16, arch: u32, count: u32| {
+        let a = w
+            .data()
+            .archetypes
+            .equipment
+            .get(&arch)
+            .cloned()
+            .expect("an archetype");
+        let item = Equip::cargo(id, &a, false, 1.0, count);
+        w.get_mut(ship)
+            .and_then(|o| o.as_equipped_mut())
+            .expect("equipped")
+            .equipment
+            .add(item);
+    };
+    if have == 0 {
+        add(&mut world, 0x4000, ammo, max_ammo.cast_unsigned());
+    } else if let Some(eq) = world.get_mut(ship).and_then(|o| o.as_equipped_mut()) {
+        for e in eq.equipment.iter_mut() {
+            if let (true, EquipKind::Cargo(c)) = (e.arch_id == ammo, &mut e.kind) {
+                c.count = max_ammo.cast_unsigned();
+            }
+        }
+    }
+    assert_eq!(world.ammo_capacity_remaining(ship, ammo), Some(0));
+    assert_eq!(
+        world.tractor_verify_target(ship, tractor, Some(ammo_loot)),
+        TractorFailure::AmmoFull
+    );
+    // Gold to the brim: the hold is full.
+    let left = world.cargo_hold_remaining(ship).expect("room");
+    add(&mut world, 0x4001, gold, left.ceil() as u32);
+    assert_eq!(world.cargo_hold_remaining(ship), Some(0.0));
+    assert_eq!(world.space_for_cargo_type(ship, gold), Some(0));
+    assert_eq!(
+        world.tractor_verify_target(ship, tractor, Some(gold_loot)),
+        TractorFailure::CargoFull
+    );
+
+    // The cargo scan of another ship lists its equipment and cargo.
+    let other = fighter(&mut world, system, Vector::new(15000.0, 3000.0, -25200.0));
+    let scanner = world
+        .get(ship)
+        .and_then(|o| o.as_equipped())
+        .and_then(|eq| eq.equipment.first(types::SCANNER))
+        .map(|e| e.id)
+        .expect("a scanner");
+    let (result, list) = world.scan_cargo(ship, scanner, Some(other));
+    println!("cargo scan {result:?}: {} items", list.len());
+    assert_eq!(result, ScanResult::Complete);
+    let items = world
+        .get(other)
+        .and_then(|o| o.as_equipped())
+        .map_or(0, |eq| eq.equipment.traverse(u32::MAX, false).len());
+    assert!(!list.is_empty() && list.len() <= items);
+    assert!(list.iter().any(|e| e.equipped && e.hardpoint.is_some()));
+    assert_eq!(
+        world.scan_cargo(ship, scanner, None).0,
+        ScanResult::NoTarget
+    );
+    let far = fighter(&mut world, system, Vector::new(15000.0, 3000.0, -45000.0));
+    assert_eq!(
+        world.scan_cargo(ship, scanner, Some(far)).0,
+        ScanResult::TooFar
+    );
+}
+
 #[test]
 fn wingmen_hold_their_slots_and_a_follower_follows() {
     use game_sim::ai::behavior::{DirectiveOp, FollowOp, GotoOp, ids};

@@ -3,7 +3,10 @@ page descriptor and screen-quad batcher suites (Oracle.exe neuron-client,
 oracle_ui.cpp and oracle_ui_quads.cpp, and
 crates/neuron-client/tests/oracle_vectors.rs). Run from any folder:
 
-    python make_ui_fixtures.py
+    python make_ui_fixtures.py [--check]
+
+With --check nothing is written; the script fails when a list differs from
+what it would write.
 
 ui_page_desc.list, one case per line: the bytes of a PAGE file in hex,
 which the suite writes to a file and loads with FUiPageDesc::LoadFromFile
@@ -15,10 +18,14 @@ text mode then sees the same fields.
 
 ui_quad_batch.list, one case per line: batcher operations separated by
 " ; " (the format is in oracle_ui_quads.cpp).
+
+ui_controls.list, one case per line: control operations separated by " ; "
+(the format is in oracle_ui_controls.cpp).
 """
 
 import os
 import struct
+import sys
 
 
 def fb(value):
@@ -94,6 +101,164 @@ QUAD_CASES = [
     ]),
 ]
 
+def fbs(*values):
+    return " ".join(fb(v) for v in values)
+
+
+def text(s):
+    return "".join("%04x" % ord(c) for c in s)
+
+
+def xform(tx, ty, tz, m=(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)):
+    return "xform " + fbs(*(list(m) + [tx, ty, tz]))
+
+
+def ray(x, y, z=-1.0):
+    return "ray " + fbs(x, y, z)
+
+
+# A list box at (-0.25, 0.2, -1), 0.5 by 0.3: on screen x 220..420, y 160..280 with the
+# oracle's fixed projection, rows of 16 pixels and characters of 7.
+LIST = ["new UIListBox " + fbs(0.5, 0.3), xform(-0.25, 0.2, -1.0)]
+# A vertical scroll bar at (0.6, 0.2, -1), 0.02 by 0.4, range 0..100, page 14, step 1: the
+# local point (lx, ly) is under the ray (0.6 + lx, 0.2 + ly, -1).
+VSCROLL = ["new UIScroll " + fbs(0.02, 0.4, 0.0, 100.0, 14.0, 1.0) + " 0", xform(0.6, 0.2, -1.0)]
+
+
+def vray(lx, ly):
+    return ray(0.6 + lx, 0.2 + ly)
+
+
+# A horizontal one at (-0.3, -0.1, -1), 0.5 by 0.03, range 0..20, page 4, step 2.
+HSCROLL = ["new UIScroll " + fbs(0.5, 0.03, 0.0, 20.0, 4.0, 2.0) + " 1", xform(-0.3, -0.1, -1.0)]
+
+
+def hray(lx, ly):
+    return ray(-0.3 + lx, -0.1 + ly)
+
+
+ROT = (0.8, -0.6, 0.0, 0.6, 0.8, 0.0, 0.0, 0.0, 1.0)
+
+CONTROL_CASES = [
+    # A list: items, data, texts, the hover row, a press and a double click, the draw.
+    " ; ".join(LIST + [
+        "state",
+        "item " + text("Alpha") + " 11", "item " + text("Beta") + " 22",
+        "item " + text("A row far too long for the box it is in") + " 33",
+        "data 0", "data 2", "data 3", "data -1",
+        "settext 1 " + text("B2"), "settext 3 " + text("x"),
+        "cursor 250 190", "dt " + fb(0.25), "update", "state",
+        "btn -1 2", "state", "btn -1 3", "btn -1 1", "btn -2 2", "state",
+        "f80 2", "rules 1", "draw",
+        "over", "state",
+    ]),
+    # The hover at the box's edges and past the items; nothing hovered selects no row.
+    " ; ".join(LIST + [
+        "item " + text("one") + " 1", "item " + text("two") + " 2",
+        "cursor 219 170", "update", "state",
+        "cursor 420 280", "update", "state",
+        "cursor 220 160", "update", "state",
+        "cursor 300 200", "update", "state", "btn -1 2", "state",
+        "cursor 421 170", "update", "state",
+        "first 1", "cursor 300 170", "update", "state",
+    ]),
+    # Visible rows, the first row, the frame off, the rules with no rows, not selectable.
+    " ; ".join(LIST + [
+        "item " + text("r0") + " 0", "item " + text("r1") + " 0", "item " + text("r2") + " 0",
+        "item " + text("") + " 0",
+        "rows 2", "first 1", "draw",
+        "rows 5", "first 0", "frame 0", "rules 1", "draw",
+        "rows -1", "draw",
+        "sel 0", "cursor 300 170", "update", "btn -1 2", "state",
+        "f80 0", "pulse " + fb(0.1), "rows 3", "frame 1", "rules 0", "draw",
+        "pulse " + fb(0.35), "draw",
+    ]),
+    # A rotated page transform projects the extent; a full list refuses the 257th row.
+    " ; ".join(["new UIListBox " + fbs(0.4, 0.25), xform(0.1, -0.2, -1.5, ROT), "state"] +
+               ["item " + text("i%d" % i) + " %d" % i for i in range(257)] +
+               ["data 255", "data 256", "settext 255 " + text("last"), "settext 256 " + text("no"),
+                "state"]),
+    # A vertical scroll bar: the layout, the hot parts, the arrows and their repeat, the track,
+    # the thumb drag and its release.
+    " ; ".join(VSCROLL + [
+        "state",
+        vray(0.01, -0.01), "update", "state",
+        "btn -1 2", "state",
+        "dt " + fb(0.125), "draw", "draw", "draw", "state", "draw", "state",
+        "leave", "state",
+        vray(0.01, -0.39), "btn -1 2", "state",
+        vray(0.01, -0.3), "btn -1 2", "state",
+        vray(0.01, -0.025), "btn -1 2", "state",
+        "value " + fb(40.0), "state",
+        vray(0.01, -0.17), "update", "btn -1 2", "state",
+        vray(0.01, -0.25), "over", "state", "update", "draw",
+        vray(0.01, -0.2), "btn -1 1", "state",
+        vray(0.05, -0.2), "btn -1 2", "state",
+        "btn -2 2",
+    ]),
+    # The draw's option gate and custom colour, inactive bars, the hit test, the properties.
+    " ; ".join(VSCROLL + [
+        "opt 0", "draw", "opt 1", "custom 1", "draw", "custom 0",
+        vray(0.01, -0.1), "hit", vray(0.03, -0.1), "hit", vray(0.0, 0.0), "hit",
+        vray(0.01, -0.4), "hit",
+        "active 0", vray(0.01, -0.01), "btn -1 2", "over", "active 1",
+        "prop 37 0 5", "state", "prop 37 0 50", "state", "prop 38 7 0", "state",
+        "prop 38 99 0", "prop 3b 0 0",
+        "offset " + fbs(0.01, -0.02, 0.0), "state",
+        "soff " + fbs(0.03, 0.01, 0.5), "state",
+        "pos " + fbs(0.2, 0.1, -2.0), "state",
+        "range " + fbs(10.0, 5.0), "state", "range " + fbs(-5.0, 5.0), "page " + fbs(20.0), "state",
+        "page " + fbs(-1.0), "step " + fbs(0.5), "size " + fbs(0.05, 0.03), "state",
+        "value " + fb(3.25), "state",
+    ]),
+    # A horizontal bar: the layout, the draw with a hot thumb, the arrows, a drag.
+    " ; ".join(HSCROLL + [
+        "state",
+        hray(0.1, -0.015), "update", "draw",
+        hray(0.01, -0.01), "btn -1 2", "state",
+        hray(0.49, -0.01), "btn -1 3", "btn -1 2", "state",
+        hray(0.3, -0.01), "btn -1 2", "state",
+        hray(0.06, -0.01), "btn -1 2", "state",
+        "value " + fb(8.0), "state",
+        hray(0.25, -0.01), "update", "btn -1 2", "state", "update", "draw",
+        hray(0.35, -0.01), "over", "state",
+        "btn -1 1", "state",
+    ]),
+    # Step mode: the thumb's block, the track's tenth jumps, the drag's truncation.
+    " ; ".join(VSCROLL + [
+        "stepmode 1", "range " + fbs(0.0, 10.0), "value " + fb(0.0), "state",
+        vray(0.01, -0.3), "btn -1 2", "state", "btn -1 2", "state",
+        vray(0.01, -0.03), "btn -1 2", "state",
+        "range " + fbs(0.0, 4.0), "value " + fb(2.0), "state",
+        vray(0.01, -0.3), "btn -1 2", "state",
+        "value " + fb(1.0), "update", "draw",
+        "horiz 1", "size " + fbs(0.4, 0.02), "state",
+    ]),
+    # A cycle: only the arrows, a press on each, their repeat, a click elsewhere inside, outside.
+    " ; ".join(["new UICycle " + fbs(0.3, 0.03, 0.0, 5.0, 1.0, 1.0) + " 1",
+                xform(0.1, 0.2, -1.0), "state",
+                ray(0.1 + 0.29, 0.2 - 0.01), "btn -1 2", "state",
+                "dt " + fb(0.25), "draw", "state", "draw", "state", "draw", "state",
+                ray(0.1 + 0.01, 0.2 - 0.01), "btn -1 2", "state",
+                ray(0.1 + 0.15, 0.2 - 0.01), "btn -1 2", "state", "btn -1 1",
+                ray(0.1 + 0.5, 0.2 - 0.01), "btn -1 2", "state",
+                "stepmode 1", ray(0.1 + 0.29, 0.2 - 0.01), "btn -1 2", "btn -1 2", "btn -1 2",
+                "btn -1 2", "btn -1 2", "state",
+                "active 0", "btn -1 2"]),
+    # A vertical cycle with the arrow hot while drawn.
+    " ; ".join(["new UICycle " + fbs(0.03, 0.2, 0.0, 3.0, 1.0, 1.0) + " 0",
+                xform(-0.4, 0.0, -1.0), ray(-0.4 + 0.01, -0.01), "update", "draw", "state"]),
+    # A framed panel: the mesh load, the placement of the page transform, the draw passes.
+    " ; ".join(["new UIWinObject " + fbs(0.6, 0.4, -1.2) + " " +
+                "interface\\intro\\objects\\box.cmp".encode().hex(),
+                xform(-0.3, 0.2, -1.0), "state", "draw",
+                "flags 1", "tint 10203040", "draw", "flags 3", "draw", "flags 2", "draw",
+                xform(0.05, -0.1, -1.5, ROT), "state",
+                "pos " + fbs(0.1, 0.2, -3.0), "state"]),
+    # A panel without its mesh path still loads (the loader decides).
+    " ; ".join(["new UIWinObject " + fbs(1.0, 1.0, -1.0), "state"]),
+]
+
 CASES = [
     # A front-end page of every class, in the shipped files' style.
     "#Automatically generated. Do not edit!\n"
@@ -160,7 +325,20 @@ CASES = [
 ]
 
 
+def write(here, name, lines, check):
+    data = ("\n".join(lines) + "\n").encode("latin-1")
+    path = os.path.join(here, name)
+    if check:
+        with open(path, "rb") as existing:
+            if existing.read() != data:
+                sys.exit("%s is out of date; run make_ui_fixtures.py" % name)
+        return
+    with open(path, "wb") as out:
+        out.write(data)
+
+
 def main():
+    check = "--check" in sys.argv[1:]
     here = os.path.dirname(os.path.abspath(__file__))
     lines = [
         "# P4.13 page descriptor oracle inputs, written by make_ui_fixtures.py.",
@@ -169,14 +347,17 @@ def main():
     for case in CASES:
         data = case.encode("latin-1")
         lines.append(data.hex() if data else "-")
-    with open(os.path.join(here, "ui_page_desc.list"), "w", newline="\n") as out:
-        out.write("\n".join(lines) + "\n")
+    write(here, "ui_page_desc.list", lines, check)
     lines = [
         "# P4.13 screen-quad batcher oracle inputs, written by make_ui_fixtures.py.",
         "# One case per line: operations separated by \" ; \" (oracle_ui_quads.cpp).",
     ] + QUAD_CASES
-    with open(os.path.join(here, "ui_quad_batch.list"), "w", newline="\n") as out:
-        out.write("\n".join(lines) + "\n")
+    write(here, "ui_quad_batch.list", lines, check)
+    lines = [
+        "# P4.13 control oracle inputs, written by make_ui_fixtures.py.",
+        "# One case per line: operations separated by \" ; \" (oracle_ui_controls.cpp).",
+    ] + CONTROL_CASES
+    write(here, "ui_controls.list", lines, check)
 
 
 if __name__ == "__main__":

@@ -13,7 +13,7 @@
 //! `[DynamicAsteroids]`, `[TexturePanels]`, the colours) belongs to its
 //! presentation (P5.6). Loading a rock's model (`Root::load`) is left out
 //! with the other engine handles (D117). The cube runtime (population,
-//! changes) belongs with the objects (P2.4).
+//! changes) is [`crate::object::field`].
 
 use neuron_core::id::create_id;
 use neuron_core::ini::IniReader;

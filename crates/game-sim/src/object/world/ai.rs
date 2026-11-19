@@ -676,28 +676,7 @@ impl AiWorld for World {
     /// stack its count times it), rounded to `float` at each sum; what is
     /// left of the hold, or 0 when the items exceed it.
     fn cargo_hold(&self, h: ObjHandle) -> Option<(f64, f32)> {
-        let o = self.get(h)?;
-        o.as_ship()?;
-        let hold = self.data.archetypes.ships.get(&o.archetype)?.hold_size;
-        let eq = o.as_equipped()?;
-        let mut used = 0.0_f32;
-        for slot in eq.equipment.traverse(0x1ff_0000, false) {
-            let Some(item) = eq.equipment.get(slot) else {
-                continue;
-            };
-            let volume = self
-                .data
-                .archetypes
-                .equipment
-                .get(&item.arch_id)
-                .map_or(0.0, |a| a.volume);
-            used = match (&item.kind, item.type_bits) {
-                (EquipKind::Cargo(c), types::CARGO) => r(f64::from(c.count) * e(volume) + e(used)),
-                _ => r(e(used) + e(volume)),
-            };
-        }
-        let remaining = if used <= hold { e(hold) - e(used) } else { 0.0 };
-        Some((remaining, hold))
+        Some((self.cargo_hold_remaining(h)?, self.cargo_hold_size(h)?))
     }
 
     /// The target of the object's loot behaviour (behaviour 16).

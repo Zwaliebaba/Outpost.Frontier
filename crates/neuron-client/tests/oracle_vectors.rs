@@ -281,6 +281,19 @@ fn ui_quad_batch() {
     check_suite("ui_quad_batch.jsonl", &lines);
 }
 
+/// P4.13: the generic controls (`ListBox`, `UIListBox`, `UIScroll`,
+/// `UICycle`, `UIWinObject`) over the operations of
+/// `tests/fixtures/oracle/ui_controls.list`, against recording stand-ins.
+#[test]
+fn ui_controls() {
+    let lines: Vec<String> = input_lines("ui_controls.list")
+        .iter()
+        .enumerate()
+        .flat_map(|(case, line)| ui::controls_lines(case, line))
+        .collect();
+    check_suite("ui_controls.jsonl", &lines);
+}
+
 /// P4.5: the 19 surface materials against recording services: their
 /// schemas, `ApplyVerify`, binding, teardown, the submissions, the engine
 /// and candidate calls and the parameters

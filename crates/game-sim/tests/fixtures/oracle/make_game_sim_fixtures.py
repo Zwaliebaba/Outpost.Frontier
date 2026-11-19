@@ -38,6 +38,11 @@ P2.1) into this directory. Run it from anywhere; the output is committed.
                     (CSteering::SetAxisThrottle), floats as f32 hex
     object_turret.list
                     the turret suite (P2.4): 82 words a case, see object_turret()
+    asteroid_field.list
+                    the asteroid field suite (P2.4) on the zones of zq: "o f x y z
+                    dx dy dz" an observer of field f, "c f x y z" the cube of a
+                    position, "f" flush_changes on both fields, "s" every cube;
+                    floats as f32 hex
 """
 
 import math
@@ -557,6 +562,43 @@ def object_turret():
     return lines
 
 
+def asteroid_field():
+    lines = ["# o f x y z dx dy dz: an observer of field f; c f x y z: the cube of a position;",
+             "# f: flush_changes; s: every cube (oracle_game_suites.cpp AsteroidFieldSuite)"]
+
+    def h(values):
+        return " ".join("%08x" % f32(v) for v in values)
+
+    def unit(x, y, z):
+        n = math.sqrt(x * x + y * y + z * z)
+        return (x / n, y / n, z / n)
+
+    for f, points in ((0, [(0, 0, 0), (199.99, -200, 0.05), (200, 200, -200), (-1350, 0, 0),
+                           (5000, 0, 0), (2600, 0, 0)]),
+                      (1, [(5000, 0, 0), (4874.5, 125.1, -250), (9000, 0, 0), (1000, 0, 0)])):
+        for p in points:
+            lines.append("c %d %s" % (f, h(p)))
+    for step in range(10):
+        lines.append("f")
+        a = (-700 + 140 * step, 20 + 3 * step, 50 - 10 * step)
+        lines.append("o 0 %s %s" % (h(a), h(unit(0.2, 0.1, -1))))
+        b = (380 - 9 * step, -40 + step, 15.5)
+        lines.append("o 0 %s %s" % (h(b), h(unit(-1, 0, 0.3))))
+        c = (3500 + 300 * step, 30, -40 + 25 * step)
+        lines.append("o 1 %s %s" % (h(c), h(unit(0.6, 0.05, 0.8))))
+        if step in (0, 3, 9):
+            lines.append("s")
+    # Observers outside the fields and on the fill margin.
+    for p in ((0, 1400, 0), (0, 2500, 0), (0, 2900, 0), (9300, 0, 0), (5000, 1500, 0)):
+        lines.append("o 0 %s %s" % (h(p), h((0, 0, -1))))
+        lines.append("o 1 %s %s" % (h(p), h((0, 0, -1))))
+    lines.append("f")
+    lines.append("s")
+    lines.append("f")
+    lines.append("s")
+    return lines
+
+
 def main():
     write("asteroid.list", asteroid())
     write("orient.list", orient())
@@ -569,6 +611,7 @@ def main():
     spatial()
     write("object_math.list", object_math())
     write("object_turret.list", object_turret())
+    write("asteroid_field.list", asteroid_field())
 
 
 if __name__ == "__main__":
