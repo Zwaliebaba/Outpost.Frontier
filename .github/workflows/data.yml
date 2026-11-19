@@ -124,6 +124,11 @@ jobs:
           # each behaviour (tick.jsonl `behavior`, the BehaviorTypes id) with each target.
           foreach ($dir in Get-ChildItem $out -Directory) {
             foreach ($run in Get-ChildItem $dir.FullName -Directory) {
+              # P2.4: the asteroid cubes and docking-point calls recorded.
+              foreach ($rec in 'asteroids.jsonl', 'dock.jsonl') {
+                $file = Join-Path $run.FullName $rec
+                if (Test-Path $file) { "$($dir.Name)/$($run.Name) ${rec}: $(@(Get-Content $file).Count) records" }
+              }
               $events = Join-Path $run.FullName 'events.jsonl'
               if (Test-Path $events) {
                 Get-Content $events | ForEach-Object { $_ | ConvertFrom-Json } |

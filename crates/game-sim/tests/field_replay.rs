@@ -364,6 +364,7 @@ fn asteroid_fields_against_the_oracle() {
             failures.push(s.name.clone());
         }
     }
+    println!("{summary}");
     let _ = fs::write(dir.join("rust-field-replay.txt"), &summary);
     assert!(failures.is_empty(), "asteroid fields differ: {failures:?}");
 }
@@ -541,6 +542,7 @@ fn docking_points_against_the_oracle() {
             failures.push(s.name.clone());
         }
     }
+    println!("{summary}");
     let _ = fs::write(dir.join("rust-dock-replay.txt"), &summary);
     assert!(failures.is_empty(), "docking points differ: {failures:?}");
 }
