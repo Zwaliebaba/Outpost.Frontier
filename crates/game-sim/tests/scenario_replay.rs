@@ -714,7 +714,14 @@ fn run(s: &Scenario, ai: &AiInputs) -> Option<Run> {
                     GraphType::Leader
                 };
                 let id = world.data().state_graphs.find(graph.as_bytes(), kind);
-                world.submit_state(h, id, ai.personalities.get(&o.name).copied());
+                // The harness submits a personality only with `pilot`
+                // (`bSetPersonality`); without one the manager keeps the
+                // default and the gun groups draw nothing more.
+                let personality = o
+                    .pilot
+                    .as_ref()
+                    .and_then(|_| ai.personalities.get(&o.name).copied());
+                world.submit_state(h, id, personality);
                 if let Some(m) = world.behavior_manager(h) {
                     let pf = &m.state.pathfind;
                     pathfind_phases.get_or_insert([pf.timer_1e0, pf.timer_1e8, pf.timer_20c]);
