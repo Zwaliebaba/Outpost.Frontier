@@ -122,9 +122,10 @@ machines the oracle is not quite reproducible after a contact (point 10).
 
 9. **The seed ensemble.** Each Gate G2 scenario (`fly_to_point`,
    `fire_at_target`, `ram_ship`, `dogfight`, `skirmish`, `strafe`) runs
-   once per seed of a fixed, committed list of 20 on both sides
+   once per seed of a fixed, committed list of 60 on both sides (20 in the
+   first revision; 60 by the owner's decision of 2026-11-19)
    (`crates/game-sim/tests/fixtures/g2_ensemble.txt`: the default
-   0x4f524143, then 0x4f524143 + k × 0x9e3779b9 mod 2³² for k = 1..19, so
+   0x4f524143, then 0x4f524143 + k × 0x9e3779b9 mod 2³² for k = 1..59, so
    that no two seeds are close; the CRT's first draw is nearly linear in
    the seed). The seed replaces the one of the `srand` at the seeding point,
    after the system and Content's population have loaded (`Oracle.exe sim
@@ -144,12 +145,15 @@ machines the oracle is not quite reproducible after a contact (point 10).
      final position within the gross bound and the alive states equal.
 
    After the first contact the fights are compared by outcome statistics
-   over the 20 seeds, per object: the survival count (alive with hull above
-   0 at the last tick), the kill tick (the first tick gone or at hull 0),
-   the munition hits taken, the collision events naming it, the final hull
-   and the final shield.
+   over the seeds, per object: the survival count, the kill tick, the
+   munition hits taken and the collision events naming it up to the kill,
+   the final hull and the final shield. A kill is the first tick the hull
+   is 0 or less (owner, 2026-11-19), not the tick the object is removed:
+   the server's death fuse keeps a ship at hull 0 in space for 75 ticks in
+   the C++ (D179), where it can still be hit; a survivor is never killed.
 10. **Bounds (proposed 2026-11-19, awaiting the owner).** For each fight,
-    object and metric, Rust's 20 values against the oracle's 20:
+    object and metric, Rust's values over the seeds against the oracle's
+    (the owner kept these tests and levels with 60 seeds, 2026-11-19):
     - survival count: Fisher's exact test, two-sided, p ≥ 0.01;
     - kill tick, hits, collision events, hull, shield: the exact two-sample
       Kolmogorov–Smirnov test p ≥ 0.01, and |median(Rust) −
