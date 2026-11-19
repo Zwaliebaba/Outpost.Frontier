@@ -2,16 +2,22 @@
 //! `CppSource/Oracle/oracle_particles.cpp`: `particle_ramp` (every ramp and
 //! transform property of a node library evaluated at a list of times) and
 //! `particle_sim` (effects driven by the client's calls, with dumps of the
-//! node state, the particle lists, the pools and the texture calls).
+//! node state, the particle lists, the pools and the texture calls) and
+//! `particle_draw` (the same with the draws, against a recording renderer
+//! and camera).
 
+use std::cell::RefCell;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
+use std::rc::Rc;
 
 use neuron_client::render::particles::ramp::{
-    AnimatedRamp, AnimatedTransform, ColorRampRamp, NestedSingle, SingleRampRamp,
+    AnimatedRamp, AnimatedTransform, ColorRampRamp, IDENTITY, NestedSingle, SingleRampRamp,
 };
 use neuron_client::render::particles::services::{FrameOut, TextureRecord};
 use neuron_client::render::particles::{
-    Effect, EffectError, NodeId, ParticleFx, ParticleServices, PoolKind, pool_of,
+    Camera, Effect, EffectError, NodeId, ParticleDraw, ParticleFx, ParticleServices, PoolKind,
+    pool_of,
 };
 use neuron_core::fx_data::props::{APPEARANCE_LOD_CURVE, kind};
 use neuron_core::fx_data::{
@@ -228,20 +234,51 @@ pub fn ramp_lines() -> Vec<String> {
     lines
 }
 
-// --- particle_sim ---------------------------------------------------------------------
+// --- particle_sim and particle_draw ------------------------------------------------------
 
-/// The recording texture library of the contract.
+/// The lines the fakes write, shared by the services and the camera so
+/// that they keep the call order.
+type Log = Rc<RefCell<Vec<String>>>;
+
+/// The vertices a lock's scratch region holds (`kScratchVerts`).
+const SCRATCH_VERTS: u32 = 0x4000;
+
+/// The recording texture library and renderer of the contract.
 struct Textures {
     head: String,
     entries: Vec<(u32, i32)>,
     playbacks: Vec<(i32, usize)>,
     next_id: i32,
-    lines: Vec<String>,
+    log: Log,
+    states: BTreeMap<u32, u32>,
+    live_vbs: BTreeSet<u32>,
+    next_vb: u32,
+    vb_locks: u32,
+    vb_pending: u32,
+    ib_locks: u32,
+    ib_pending: u32,
 }
 
 impl Textures {
+    fn new(head: &str, log: &Log) -> Self {
+        Self {
+            head: head.to_owned(),
+            entries: Vec::new(),
+            playbacks: Vec::new(),
+            next_id: 1,
+            log: Rc::clone(log),
+            states: BTreeMap::new(),
+            live_vbs: BTreeSet::new(),
+            next_vb: 1,
+            vb_locks: 0,
+            vb_pending: 0,
+            ib_locks: 0,
+            ib_pending: 0,
+        }
+    }
+
     fn line(&mut self, text: &str) {
-        self.lines.push(format!("{}{text}}}", self.head));
+        self.log.borrow_mut().push(format!("{}{text}}}", self.head));
     }
 }
 
@@ -301,6 +338,187 @@ impl ParticleServices for Textures {
     }
     fn dec_ref_texture(&mut self, id: i32) {
         self.line(&format!("\"ev\":\"decref\",\"id\":\"{id}\""));
+    }
+}
+
+impl ParticleDraw for Textures {
+    fn render_state(&mut self, state: u32) -> u32 {
+        let v = self.states.get(&state).copied().unwrap_or(state + 1000);
+        self.line(&format!("\"ev\":\"getrs\",\"s\":\"{state}\",\"v\":\"{v}\""));
+        v
+    }
+    fn set_render_state(&mut self, state: u32, value: u32) {
+        self.line(&format!(
+            "\"ev\":\"setrs\",\"s\":\"{state}\",\"v\":\"{}\"",
+            value.cast_signed()
+        ));
+        self.states.insert(state, value);
+    }
+    fn set_stage_state(&mut self, stage: u32, state: u32, value: u32) {
+        self.line(&format!(
+            "\"ev\":\"tss\",\"st\":\"{stage}\",\"s\":\"{state}\",\"v\":\"{}\"",
+            value.cast_signed()
+        ));
+    }
+    fn set_stage_texture(&mut self, stage: u32, handle: u32) {
+        self.line(&format!(
+            "\"ev\":\"tex\",\"st\":\"{stage}\",\"h\":\"{handle:x}\""
+        ));
+    }
+    fn set_modelview(&mut self, matrix: &[f32; 12]) {
+        self.line(&format!(
+            "\"ev\":\"modelview\",\"m\":\"{}\"",
+            floats(matrix, ",")
+        ));
+    }
+    fn select_vb(&mut self, vertex_buffer: u32) -> i32 {
+        let r = if self.live_vbs.contains(&vertex_buffer) {
+            0
+        } else {
+            -1
+        };
+        self.line(&format!(
+            "\"ev\":\"selvb\",\"vb\":\"{vertex_buffer:x}\",\"r\":\"{r}\""
+        ));
+        r
+    }
+    fn create_vb(&mut self, fvf: u32, count: u32, flags: u32) -> (i32, u32) {
+        let handle = self.next_vb;
+        self.next_vb += 1;
+        self.live_vbs.insert(handle);
+        self.line(&format!(
+            "\"ev\":\"createvb\",\"fvf\":\"{fvf:x}\",\"n\":\"{count}\",\"f\":\"{flags}\",\"vb\":\"{handle:x}\""
+        ));
+        (0, handle)
+    }
+    fn destroy_vb(&mut self, vertex_buffer: u32) {
+        self.line(&format!(
+            "\"ev\":\"destroyvb\",\"vb\":\"{vertex_buffer:x}\""
+        ));
+        self.live_vbs.remove(&vertex_buffer);
+    }
+    fn lock_vb(&mut self, vertex_buffer: u32, count: u32) -> Result<u32, i32> {
+        let at = 3 * self.vb_locks;
+        self.vb_locks += 1;
+        self.line(&format!(
+            "\"ev\":\"lockvb\",\"vb\":\"{vertex_buffer:x}\",\"n\":\"{count}\",\"off\":\"{at}\""
+        ));
+        self.vb_pending = count.min(SCRATCH_VERTS);
+        Ok(at)
+    }
+    fn unlock_vb(&mut self, vertex_buffer: u32, written: &[u8]) {
+        let mut data = vec![0xCD_u8; self.vb_pending as usize * 24];
+        let n = written.len().min(data.len());
+        data[..n].copy_from_slice(&written[..n]);
+        let hex: String = data.iter().map(|b| format!("{b:02x}")).collect();
+        self.line(&format!(
+            "\"ev\":\"unlockvb\",\"vb\":\"{vertex_buffer:x}\",\"data\":\"{hex}\""
+        ));
+    }
+    fn lock_ib(&mut self, count: u32) -> Result<u32, i32> {
+        let at = 5 * self.ib_locks;
+        self.ib_locks += 1;
+        self.line(&format!(
+            "\"ev\":\"lockib\",\"ib\":\"ffffffff\",\"n\":\"{count}\",\"off\":\"{at}\""
+        ));
+        self.ib_pending = count.min(SCRATCH_VERTS * 6);
+        Ok(at)
+    }
+    fn unlock_ib(&mut self, written: &[u16]) {
+        let mut data = vec![0xCDCD_u16; self.ib_pending as usize];
+        let n = written.len().min(data.len());
+        data[..n].copy_from_slice(&written[..n]);
+        let text: Vec<String> = data.iter().map(u16::to_string).collect();
+        self.line(&format!(
+            "\"ev\":\"unlockib\",\"ib\":\"ffffffff\",\"data\":\"{}\"",
+            text.join(",")
+        ));
+    }
+    fn select_ib(&mut self, base_vertex: u32) -> i32 {
+        self.line(&format!(
+            "\"ev\":\"selib\",\"ib\":\"ffffffff\",\"base\":\"{base_vertex}\""
+        ));
+        0
+    }
+    fn draw_indexed(
+        &mut self,
+        prim: u32,
+        min_index: u32,
+        vertex_count: u32,
+        start_index: u32,
+        index_count: u32,
+    ) -> i32 {
+        self.line(&format!(
+            "\"ev\":\"dip\",\"prim\":\"{prim}\",\"min\":\"{min_index}\",\"nv\":\"{vertex_count}\",\"start\":\"{start_index}\",\"n\":\"{index_count}\""
+        ));
+        0
+    }
+}
+
+/// The recording camera: the view transform, and the world transform whose
+/// first nine words are the orientation and last three the position.
+struct FakeCamera {
+    head: String,
+    log: Log,
+    view: [f32; 12],
+    world: [f32; 12],
+}
+
+impl FakeCamera {
+    fn event(&self, name: &str) {
+        self.log
+            .borrow_mut()
+            .push(format!("{}\"ev\":\"{name}\"}}", self.head));
+    }
+}
+
+impl Camera for FakeCamera {
+    fn position(&mut self) -> [f32; 3] {
+        self.event("campos");
+        [self.world[9], self.world[10], self.world[11]]
+    }
+    fn orientation(&mut self) -> [f32; 9] {
+        self.event("camorient");
+        core::array::from_fn(|i| self.world[i])
+    }
+    fn orientation_block(&mut self) -> [f32; 12] {
+        self.event("camorient");
+        self.world
+    }
+    fn view_transform(&mut self) -> [f32; 12] {
+        self.event("camview");
+        self.view
+    }
+    fn viewport(&mut self) -> [i32; 4] {
+        [0; 4]
+    }
+    fn half_fov_x_deg(&mut self) -> f32 {
+        0.0
+    }
+    fn fov_y_deg(&mut self) -> f32 {
+        0.0
+    }
+    fn z_near(&mut self) -> f32 {
+        0.0
+    }
+    fn z_far(&mut self) -> f32 {
+        0.0
+    }
+    fn aspect(&mut self) -> f32 {
+        0.0
+    }
+    fn x_scale_over_near(&mut self) -> f64 {
+        0.0
+    }
+    fn y_scale_over_near(&mut self) -> f64 {
+        0.0
+    }
+    fn project(&mut self, _world: [f32; 3], _out: &mut [f32; 3]) -> i32 {
+        -1
+    }
+    fn unproject(&mut self, _out: &mut [f32; 3], _x: f32, _y: f32) {}
+    fn classify_sphere(&mut self, _centre: [f32; 3], _radius: f32) -> i32 {
+        0
     }
 }
 
@@ -527,28 +745,40 @@ fn xform(text: &str) -> [f32; 12] {
 }
 
 /// `particle_sim.list`.
-#[allow(clippy::too_many_lines)]
 pub fn sim_lines() -> Vec<String> {
+    script_lines("particle_sim.list")
+}
+
+/// `particle_draw.list`.
+pub fn draw_lines() -> Vec<String> {
+    script_lines("particle_draw.list")
+}
+
+/// The operations of both suites over one list.
+#[allow(clippy::too_many_lines)]
+fn script_lines(list: &str) -> Vec<String> {
     let mut out = Vec::new();
-    for (case, line) in input_lines("particle_sim.list").iter().enumerate() {
+    for (case, line) in input_lines(list).iter().enumerate() {
         let head = format!("{{\"case\":\"{case}\",");
+        let log: Log = Rc::new(RefCell::new(Vec::new()));
         let mut fx = ParticleFx::new();
-        let mut tex = Textures {
+        let mut tex = Textures::new(&head, &log);
+        let mut camera = FakeCamera {
             head: head.clone(),
-            entries: Vec::new(),
-            playbacks: Vec::new(),
-            next_id: 1,
-            lines: Vec::new(),
+            log: Rc::clone(&log),
+            view: IDENTITY,
+            world: IDENTITY,
         };
         let mut slots: [Slot; 4] = Default::default();
         for op in line.split(" ; ") {
             let p: Vec<&str> = op.split(' ').collect();
             let slot_index = |i: usize| p[i].parse::<usize>().unwrap_or(0);
+            let mut lines = Vec::new();
             match p[0] {
                 "ale" => {
                     let ale = load(p[1], p[2]);
                     fx.load(&ale);
-                    out.push(format!(
+                    lines.push(format!(
                         "{head}\"op\":\"ale\",\"nodes\":\"{}\",\"effects\":\"{}\"}}",
                         code(&ale.nodes_result),
                         code(&ale.effects_result)
@@ -559,28 +789,26 @@ pub fn sim_lines() -> Vec<String> {
                     if let Some(kind) = kind {
                         fx.pools.reallocate(kind, p[2].parse().unwrap_or(0));
                     }
-                    out.push(format!("{head}\"op\":\"pool\"}}"));
+                    lines.push(format!("{head}\"op\":\"pool\"}}"));
                 }
                 "seed" => {
                     fx.rand.state = p[1].parse().unwrap_or(0);
                     fx.rand.counter = p[2].parse().unwrap_or(0);
-                    out.push(format!("{head}\"op\":\"seed\"}}"));
+                    lines.push(format!("{head}\"op\":\"seed\"}}"));
                 }
                 "tex" => {
                     let crc = u32::from_str_radix(p[1], 16).unwrap_or(0);
                     tex.entries.push((crc, p[2].parse().unwrap_or(0)));
-                    out.push(format!("{head}\"op\":\"tex\"}}"));
+                    lines.push(format!("{head}\"op\":\"tex\"}}"));
                 }
                 "effect" => {
                     let s = slot_index(1);
                     let parent = fx.create_node(NodeClass::Node);
                     slots[s].parent = Some(parent);
                     let hash = name_hash(&unhex(p[2]));
-                    let result = fx.create_effect(parent, hash, &mut tex);
-                    out.append(&mut tex.lines);
-                    match result {
+                    match fx.create_effect(parent, hash, &mut tex) {
                         Ok(effect) => {
-                            out.push(format!(
+                            lines.push(format!(
                                 "{head}\"op\":\"effect\",\"r\":\"0\",\"n\":\"{}\",\"roots\":\"{}\"}}",
                                 effect.records().len(),
                                 effect.root_count()
@@ -592,7 +820,7 @@ pub fn sim_lines() -> Vec<String> {
                                 EffectError::UnknownEffect => -8,
                                 EffectError::UnknownNode(_) => -1,
                             };
-                            out.push(format!(
+                            lines.push(format!(
                                 "{head}\"op\":\"effect\",\"r\":\"{r}\",\"n\":\"-\",\"roots\":\"-\"}}"
                             ));
                         }
@@ -602,7 +830,7 @@ pub fn sim_lines() -> Vec<String> {
                     let effect = slots[slot_index(1)].effect.as_ref().expect("an effect");
                     let ok = effect.set_transform(&mut fx, p[2].parse().unwrap_or(0), &xform(p[3]));
                     let r = if ok { 0 } else { -2 };
-                    out.push(format!("{head}\"op\":\"xform\",\"r\":\"{r}\"}}"));
+                    lines.push(format!("{head}\"op\":\"xform\",\"r\":\"{r}\"}}"));
                 }
                 "outer" | "age" | "lod" => {
                     let effect = slots[slot_index(1)].effect.as_ref().expect("an effect");
@@ -612,25 +840,23 @@ pub fn sim_lines() -> Vec<String> {
                         "age" => effect.set_age(&mut fx, value),
                         _ => effect.set_lod_input(&mut fx, value),
                     }
-                    out.push(format!("{head}\"op\":\"{}\"}}", p[0]));
+                    lines.push(format!("{head}\"op\":\"{}\"}}", p[0]));
                 }
                 "step" => {
                     let effect = slots[slot_index(1)].effect.as_ref().expect("an effect");
                     effect.compose(&mut fx);
                     effect.update(&mut fx, hex_float(p[2]), &mut tex);
-                    out.append(&mut tex.lines);
-                    out.push(format!("{head}\"op\":\"step\"}}"));
+                    lines.push(format!("{head}\"op\":\"step\"}}"));
                 }
                 "stop" => {
                     let effect = slots[slot_index(1)].effect.as_mut().expect("an effect");
                     effect.dispatch(&mut fx, p[2].parse().unwrap_or(0), &mut tex);
-                    out.append(&mut tex.lines);
-                    out.push(format!("{head}\"op\":\"stop\"}}"));
+                    lines.push(format!("{head}\"op\":\"stop\"}}"));
                 }
                 "done" => {
                     let effect = slots[slot_index(1)].effect.as_ref().expect("an effect");
                     let r = u8::from(effect.finished(&fx, p[2].parse().unwrap_or(0)));
-                    out.push(format!("{head}\"op\":\"done\",\"r\":\"{r}\"}}"));
+                    lines.push(format!("{head}\"op\":\"done\",\"r\":\"{r}\"}}"));
                 }
                 "release" => {
                     let s = slot_index(1);
@@ -640,14 +866,13 @@ pub fn sim_lines() -> Vec<String> {
                     if let Some(parent) = slots[s].parent.take() {
                         fx.release(parent, &mut tex);
                     }
-                    out.append(&mut tex.lines);
-                    out.push(format!("{head}\"op\":\"release\"}}"));
+                    lines.push(format!("{head}\"op\":\"release\"}}"));
                 }
-                "rand" => out.push(format!(
+                "rand" => lines.push(format!(
                     "{head}\"op\":\"rand\",\"s\":\"{:08x}\",\"c\":\"{:08x}\"}}",
                     fx.rand.state, fx.rand.counter
                 )),
-                "pools" => dump_pools(&fx, &head, &mut out),
+                "pools" => dump_pools(&fx, &head, &mut lines),
                 "dump" => {
                     let s = &slots[slot_index(1)];
                     let effect = s.effect.as_ref().expect("an effect");
@@ -656,11 +881,92 @@ pub fn sim_lines() -> Vec<String> {
                         effect,
                         s.parent,
                         &format!("{head}\"e\":\"{}\",", p[1]),
-                        &mut out,
+                        &mut lines,
                     );
                 }
-                other => panic!("particle_sim: unknown operation {other}"),
+                "cam" => {
+                    camera.view = xform(p[1]);
+                    camera.world = xform(p[2]);
+                    lines.push(format!("{head}\"op\":\"cam\"}}"));
+                }
+                "batch" => {
+                    fx.set_use_material_batcher(p[1] != "0");
+                    lines.push(format!("{head}\"op\":\"batch\"}}"));
+                }
+                "limits" => {
+                    fx.draw.vb_capacity = p[1].parse().unwrap_or(0);
+                    fx.draw.max_vertices = p[2].parse().unwrap_or(0);
+                    fx.draw.max_indices = p[3].parse().unwrap_or(0);
+                    lines.push(format!("{head}\"op\":\"limits\"}}"));
+                }
+                "vbdrop" => {
+                    tex.live_vbs.clear();
+                    lines.push(format!("{head}\"op\":\"vbdrop\"}}"));
+                }
+                "begin" => {
+                    let r = fx.begin_draw(&mut tex);
+                    lines.push(format!("{head}\"op\":\"begin\",\"r\":\"{r}\"}}"));
+                }
+                "end" => {
+                    let r = fx.end_draw(&mut camera, &mut tex);
+                    lines.push(format!("{head}\"op\":\"end\",\"r\":\"{r}\"}}"));
+                }
+                "draw" => {
+                    let effect = slots[slot_index(1)].effect.as_ref().expect("an effect");
+                    let r = effect.draw(&mut fx, &mut camera, &mut tex);
+                    lines.push(format!("{head}\"op\":\"draw\",\"r\":\"{r}\"}}"));
+                }
+                "bounds" => {
+                    let effect = slots[slot_index(1)].effect.as_ref().expect("an effect");
+                    let mut sphere = [1.0, 2.0, 3.0, 4.0];
+                    let r = if effect.bounds(&fx, &mut sphere) {
+                        0
+                    } else {
+                        -1
+                    };
+                    lines.push(format!(
+                        "{head}\"op\":\"bounds\",\"r\":\"{r}\",\"s\":\"{}\"}}",
+                        floats(&sphere, ",")
+                    ));
+                }
+                "spheres" => {
+                    let effect = slots[slot_index(1)].effect.as_ref().expect("an effect");
+                    for (index, record) in effect.records().iter().enumerate() {
+                        let mut sphere = [1.0, 2.0, 3.0, 4.0];
+                        let r = fx.bounding_sphere(record.node, &mut sphere);
+                        lines.push(format!(
+                            "{head}\"op\":\"sphere\",\"r\":\"{index}\",\"res\":\"{r}\",\"s\":\"{}\"}}",
+                            floats(&sphere, ",")
+                        ));
+                    }
+                }
+                "counters" => {
+                    let c: Vec<String> = fx.draw_counters().iter().map(u32::to_string).collect();
+                    lines.push(format!(
+                        "{head}\"op\":\"counters\",\"c\":\"{}\"}}",
+                        c.join(",")
+                    ));
+                }
+                "dview" => {
+                    let effect = slots[slot_index(1)].effect.as_ref().expect("an effect");
+                    for (index, record) in effect.records().iter().enumerate() {
+                        let node = fx.node(record.node).expect("a live record");
+                        if node.class() != NodeClass::DustAppearance {
+                            continue;
+                        }
+                        let a = node.appearance().expect("an appearance");
+                        lines.push(format!(
+                            "{head}\"op\":\"dview\",\"r\":\"{index}\",\"view\":\"{}\",\"pos\":\"{}\",\"step\":\"{}\"}}",
+                            floats(&a.view_xform, ","),
+                            floats(&a.last_camera_pos, ","),
+                            f(a.last_camera_step)
+                        ));
+                    }
+                }
+                other => panic!("{list}: unknown operation {other}"),
             }
+            out.append(&mut log.borrow_mut());
+            out.append(&mut lines);
         }
     }
     out

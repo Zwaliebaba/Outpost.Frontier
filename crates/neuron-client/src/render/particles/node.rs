@@ -242,6 +242,14 @@ pub struct AppearanceState {
     pub view_xform: [f32; 12],
     /// Beam: flips with every particle.
     pub ribbon_parity: bool,
+    /// Dust: the camera position of the last draw (`LastCameraPos_`).
+    pub last_camera_pos: [f32; 3],
+    /// Dust: the camera step length of the last draw (`LastCameraStep_`).
+    pub last_camera_step: f32,
+    /// The next appearance of its batch list (`BatchNext_`).
+    pub batch_next: Option<NodeId>,
+    /// The previous appearance of its batch list (`BatchPrev_`).
+    pub batch_prev: Option<NodeId>,
 }
 
 /// What a node does on its update.

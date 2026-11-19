@@ -153,7 +153,7 @@
     <ClCompile Include="..\surfacematerials\surfacematerials.cpp">
       <PreprocessorDefinitions>DllMain=SurfaceMaterialsDllMain;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
-    <!-- P4.8: particlefx.dll's sources for oracle_particles.cpp (particle_ramp, particle_sim), but
+    <!-- P4.8: particlefx.dll's sources for oracle_particles.cpp (particle_ramp, particle_sim, particle_draw), but
          particlefx.cpp (DllMain): the suite registers the components itself. The two numeric
          files keep the settings particlefx.vcxproj gives them. -->
     <ClCompile Include="oracle_particles.cpp" />

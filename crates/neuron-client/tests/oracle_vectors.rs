@@ -323,6 +323,14 @@ fn particle_sim() {
     check_suite("particle_sim.jsonl", &particles::sim_lines());
 }
 
+/// P4.8: the draws of the six billboard kinds, the batch lists, bounds and
+/// the draw counters against a recording renderer and camera
+/// (`tests/fixtures/oracle/particle_draw.list`).
+#[test]
+fn particle_draw() {
+    check_suite("particle_draw.jsonl", &particles::draw_lines());
+}
+
 /// P4.7: `Deformable2` at run time against recording services: skinning,
 /// the draw, parts and levels, the animation list, aim solving and the
 /// `EyeMaterial` (`tests/fixtures/oracle/deformable.list`).
