@@ -5,7 +5,8 @@
 //! `oracle_text.cpp`, `oracle_audio.cpp`, `oracle_texture.cpp`,
 //! `oracle_big_image.cpp`, `oracle_material.cpp`,
 //! `oracle_material_kinds.cpp`, `oracle_material_surface.cpp`,
-//! `oracle_material_appearance.cpp`, `oracle_mesh_render.cpp`, `oracle_particles.cpp` and `oracle_ui.cpp`).
+//! `oracle_material_appearance.cpp`, `oracle_mesh_render.cpp`, `oracle_deformable.cpp`,
+//! `oracle_particles.cpp` and `oracle_ui.cpp`).
 
 mod support;
 
@@ -14,9 +15,9 @@ use neuron_client::text::rdl::markup;
 
 use support::audio::{self, check_suite_within};
 use support::{
-    check_suite, input_lines, material, material_appearance, material_kinds, material_surface,
-    mesh_render, particles, scene_script, scene_script_build, scene_script_runtime, text, texture,
-    ui, unhex,
+    check_suite, deformable, input_lines, material, material_appearance, material_kinds,
+    material_surface, mesh_render, particles, scene_script, scene_script_build,
+    scene_script_runtime, text, texture, ui, unhex,
 };
 
 /// P4.14: the Lua state after each buffer of a case, one fresh state per
@@ -311,4 +312,12 @@ fn particle_ramp() {
 #[test]
 fn particle_sim() {
     check_suite("particle_sim.jsonl", &particles::sim_lines());
+}
+
+/// P4.7: `Deformable2` at run time against recording services: skinning,
+/// the draw, parts and levels, the animation list, aim solving and the
+/// `EyeMaterial` (`tests/fixtures/oracle/deformable.list`).
+#[test]
+fn deformable() {
+    check_suite("deformable.jsonl", &deformable::lines());
 }

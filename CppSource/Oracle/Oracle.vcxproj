@@ -107,6 +107,9 @@
          so it is not compiled on its own. -->
     <ClInclude Include="oracle_mesh_render.cpp" />
     <ClCompile Include="oracle_mesh_data_dfm.cpp" />
+    <!-- P4.7: the deformable suite; oracle_mesh_data_dfm.cpp includes it after the Deformable2
+         sources, so it is not compiled on its own. -->
+    <ClInclude Include="oracle_deformable.cpp" />
     <!-- P1.9: the RemoteCommon codecs and their packet base, compiled in as RemoteClient.dll
          compiles them (its definitions, no /sdl); the two oracle_net_*_codecs.cpp files
          include the RemoteCommon sources so their file-local quantisers can be called. -->
