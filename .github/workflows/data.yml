@@ -1,20 +1,15 @@
 name: Data dumps
 
 # TEMPORARY, branch claude/oracle-determinism only (owner, 2026-11-19): the oracle
-# reproducibility probe. Not for main. The normal data.yml is on main.
+# reproducibility probe, second run. Not for main. The normal data.yml is on main.
 #
-# Two data.yml jobs of claude/g2-envelopes (runs 44494560931 and 44500705507, same C++
-# source) recorded different outcomes for 5 of the 120 seed-ensemble runs. The jobs differed
-# in the runner image (20261103 / 20261116), the MSVC toolset (14.51.36231 / 14.52.37025)
-# and the machine. This workflow separates the three:
-#
-#   build   builds the oracle with each toolset it can get on one image (the latest, 14.51
-#           side by side, v143) and uploads each bin\ as an artifact;
-#   probe   runs each bin, on four machines, on the 5 scenario+seed pairs that differed,
-#           with the ensemble step's exact command line (and output paths) and then with
-#           --runs 3, and uploads the records;
-#   compare diffs every record against machine a's latest-toolset build and prints the
-#           first differing line and field of each file.
+# The first probe (run 44523076483) showed that the 5 ensemble pairs end differently in
+# separate processes of one build on one machine; machine, CPU and toolset do not decide
+# the outcome. This run builds the oracle once and runs each pair 6 times (--runs 6, each a
+# fresh process) twice: as Windows starts it, and with Oracle.exe's address-space
+# randomization switched off (Set-ProcessMitigation: bottom-up, high-entropy and forced
+# relocation). compare_runs.py prints, per pair, each run's heap and stack placement and
+# the first records that differ from run 1.
 
 on:
   workflow_dispatch:
@@ -23,169 +18,44 @@ permissions:
   contents: read
 
 jobs:
-  build:
-    name: Build the oracle (${{ matrix.toolset }})
+  repeat:
+    name: Repeated runs with and without ASLR
     runs-on: windows-2025-vs2026
-    timeout-minutes: 90
-    continue-on-error: ${{ matrix.toolset != 'latest' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        toolset: [latest, v14.51, v143]
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
-      - name: Pick the toolset
-        id: pick
+      - name: Build the oracle harness
         shell: pwsh
         run: |
+          Write-Host "image: $env:ImageOS $env:ImageVersion"
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $vs = & $vswhere -latest -products * -property installationPath
-          $msvc = { @(Get-ChildItem "$vs\VC\Tools\MSVC" -Directory | ForEach-Object Name) }
-          Write-Host "image: $env:ImageOS $env:ImageVersion; VS: $vs"
-          Write-Host "installed MSVC toolsets: $((& $msvc) -join ', ')"
-          Get-ChildItem "$vs\VC\Auxiliary\Build" -Filter 'Microsoft.VCToolsVersion*.txt' -ErrorAction SilentlyContinue |
-            ForEach-Object { "  $($_.Name): $(Get-Content $_.FullName)" }
-          $props = ''
-          switch ('${{ matrix.toolset }}') {
-            'latest' { }
-            'v143' {
-              if (-not ((& $msvc) | Where-Object { $_ -like '14.4*' })) { Write-Host 'no v143 toolset'; "skip=true" >> $env:GITHUB_OUTPUT; exit 0 }
-              $props = '/p:PlatformToolset=v143'
-            }
-            'v14.51' {
-              $have = (& $msvc) | Where-Object { $_ -like '14.51.*' } | Select-Object -First 1
-              if (-not $have) {
-                $roots = 'C:\ProgramData\Microsoft\VisualStudio\Packages\_Channels', 'C:\ProgramData\Microsoft\VisualStudio\Packages\_Instances'
-                $ids = @(Get-ChildItem $roots -Recurse -File -Include *.json -ErrorAction SilentlyContinue |
-                  Select-String -Pattern 'Microsoft\.VisualStudio\.Component\.VC\.14\.51\.[0-9]+\.[0-9]+\.x86\.x64' -AllMatches |
-                  ForEach-Object { $_.Matches.Value } | Sort-Object -Unique)
-                Write-Host "14.51 components in the installer's catalogs: $($ids -join ', ')"
-                if ($ids.Count -eq 0) {
-                  $ids = 1..6 | ForEach-Object { "Microsoft.VisualStudio.Component.VC.14.51.18.$_.x86.x64" }
-                }
-                $setup = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\setup.exe"
-                foreach ($id in $ids) {
-                  $p = Start-Process $setup -ArgumentList 'modify', '--installPath', "`"$vs`"", '--add', $id, '--quiet', '--norestart', '--nocache' -Wait -PassThru
-                  Write-Host "install ${id}: exit $($p.ExitCode)"
-                  $have = (& $msvc) | Where-Object { $_ -like '14.51.*' } | Select-Object -First 1
-                  if ($have) { break }
-                }
-              }
-              if (-not $have) { Write-Host 'no 14.51 toolset'; "skip=true" >> $env:GITHUB_OUTPUT; exit 0 }
-              Write-Host "MSVC toolsets now: $((& $msvc) -join ', ')"
-              $props = "/p:VCToolsVersion=$have"
-            }
-          }
-          "props=$props" >> $env:GITHUB_OUTPUT
-      - name: Build the oracle harness
-        if: steps.pick.outputs.skip != 'true'
-        shell: pwsh
-        run: |
-          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          Get-ChildItem "$vs\VC\Auxiliary\Build" -Filter 'Microsoft.VCToolsVersion.default.txt' | ForEach-Object { "MSVC: $(Get-Content $_.FullName)" }
           $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
           $targets = 'Tools\Oracle', 'DLLs\Content', 'DLLs\ReadFile', 'DLLs\RendComp', 'DLLs\system', 'DLLs\SceneScript', 'DLLs\DX8RENDERER', 'DLLs\Shading'
-          $extra = @('${{ steps.pick.outputs.props }}' | Where-Object { $_ })
-          & $msbuild CppSource\OutpostFrontier.sln "/t:$($targets -join ';')" /m /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo @extra
+          & $msbuild CppSource\OutpostFrontier.sln "/t:$($targets -join ';')" /m /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          Get-ChildItem bin -File -Include *.dll, *.exe -Recurse | Get-FileHash -Algorithm SHA256 | ForEach-Object { "  $($_.Hash.Substring(0, 16)) $(Split-Path -Leaf $_.Path)" }
-      - name: Keep the build
-        if: steps.pick.outputs.skip != 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: bin-${{ matrix.toolset }}
-          path: |
-            bin/
-            !bin/**/*.lib
-            !bin/**/*.exp
-            !bin/**/*.ipdb
-            !bin/**/*.iobj
-            !bin/**/*.ilk
-          retention-days: 3
-
-  probe:
-    name: Probe (machine ${{ matrix.machine }})
-    needs: build
-    if: ${{ !cancelled() }}
-    runs-on: windows-2025-vs2026
-    timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      matrix:
-        machine: [a, b, c, d]
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: bin-*
-          path: ${{ runner.temp }}/bins
-      - name: Run the differing ensemble pairs
+      - name: Run the pairs with and without ASLR
         shell: pwsh
         run: |
-          Write-Host "runner: $env:RUNNER_NAME image $env:ImageOS $env:ImageVersion"
           $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
-          Write-Host "cpu: $($cpu.Name) | $($cpu.Manufacturer) | cores $($cpu.NumberOfCores) logical $($cpu.NumberOfLogicalProcessors) | microcode $((Get-ItemProperty 'HKLM:\HARDWARE\DESCRIPTION\System\CentralProcessor\0' -ErrorAction SilentlyContinue).'Update Revision' -join ',')"
-          $os = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'
-          Write-Host "os: $($os.CurrentBuild).$($os.UBR)"
+          Write-Host "cpu: $($cpu.Name)"
           $pairs = 'dogfight 3358599207', 'dogfight 464813110', 'skirmish 1478717352', 'skirmish 225462782', 'strafe 2731971922'
-          $keep = "$env:RUNNER_TEMP\probe"
-          New-Item -ItemType Directory -Force $keep | Out-Null
-          $hashes = @()
-          foreach ($bin in Get-ChildItem "$env:RUNNER_TEMP\bins" -Directory) {
-            $toolset = $bin.Name -replace '^bin-', ''
-            # The ensemble step runs .\bin\Oracle.exe from the checkout: the same paths here.
-            Remove-Item bin -Recurse -Force -ErrorAction SilentlyContinue
-            Copy-Item $bin.FullName bin -Recurse
+          $root = "$env:RUNNER_TEMP\det"
+          foreach ($mode in 'aslr', 'noaslr') {
+            if ($mode -eq 'noaslr') {
+              Set-ProcessMitigation -Name Oracle.exe -Disable BottomUp, HighEntropy, ForceRelocateImages
+              Get-ProcessMitigation -Name Oracle.exe | Select-Object -ExpandProperty ASLR | Format-List | Out-String | Write-Host
+            }
             foreach ($pair in $pairs) {
               $name, $seed = $pair -split ' '
-              # The ensemble step's command line and output folder, exactly.
-              $dir = "$env:RUNNER_TEMP\outpost-ensemble\seed_$seed\$name"
-              Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue
-              & .\bin\Oracle.exe sim "$PWD\outdir" "CppSource\Oracle\scenarios\$name.txt" $dir --seed $seed
-              Write-Host "$toolset $name seed ${seed}: exit $LASTEXITCODE"
-              # Three more, each a fresh process (--runs), into another folder.
-              $spread = "$env:RUNNER_TEMP\outpost-runs\seed_$seed\$name"
-              Remove-Item $spread -Recurse -Force -ErrorAction SilentlyContinue
-              & .\bin\Oracle.exe sim "$PWD\outdir" "CppSource\Oracle\scenarios\$name.txt" $spread --seed $seed --runs 3
-              Write-Host "$toolset $name seed $seed --runs 3: exit $LASTEXITCODE"
-              Get-Content "$spread\spread.txt" -ErrorAction SilentlyContinue | Select-Object -First 12 | ForEach-Object { "    $_" }
-              foreach ($run in @(Get-Item $dir) + @(Get-ChildItem $spread -Directory)) {
-                foreach ($file in Get-ChildItem $run.FullName -File -Filter *.jsonl) {
-                  if ($file.Name -eq 'session.jsonl') { continue }
-                  $h = (Get-FileHash $file.FullName -Algorithm SHA256).Hash.Substring(0, 16)
-                  $hashes += "$toolset $name $seed $(if ($run.FullName -eq $dir) { 'single' } else { $run.Name }) $($file.Name) $h"
-                }
-              }
-              Select-String -Path "$dir\session.jsonl" -Pattern '"rec":"env"' | ForEach-Object { "    $($_.Line)" }
-              $target = "$keep\$toolset\seed_$seed\$name"
-              New-Item -ItemType Directory -Force $target | Out-Null
-              Copy-Item "$dir\*.jsonl", "$dir\load_rand.txt", "$dir\metrics.txt" $target -ErrorAction SilentlyContinue
+              $dir = "$root\$mode\${name}_$seed"
+              & .\bin\Oracle.exe sim "$PWD\outdir" "CppSource\Oracle\scenarios\$name.txt" $dir --seed $seed --runs 6
+              Write-Host "$mode $name seed ${seed}: exit $LASTEXITCODE"
             }
           }
-          $hashes | Set-Content "$keep\hashes.txt"
-          $hashes | ForEach-Object { "  $_" }
-      - uses: actions/upload-artifact@v4
-        with:
-          name: probe-${{ matrix.machine }}
-          path: ${{ runner.temp }}/probe/
-          retention-days: 3
-
-  compare:
-    name: Compare the probes
-    needs: probe
-    if: ${{ !cancelled() }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: probe-*
-          path: ${{ runner.temp }}/probes
-      - name: First differences
-        run: python3 -I .github/oracle-determinism/compare.py "${{ runner.temp }}/probes"
+      - name: Compare the runs
+        shell: pwsh
+        run: python -I .github\oracle-determinism\compare_runs.py "$env:RUNNER_TEMP\det"

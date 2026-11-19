@@ -145,6 +145,9 @@ namespace oracle
         J.Str("display_version", RegString("DisplayVersion").c_str());
         J.EndObject();
         J.Str("process_heap", Hex32((unsigned int)(UINT_PTR)GetProcessHeap()).c_str());
+        // A local's address: the stack's placement (stack randomization) in this process.
+        unsigned int StackProbe = 0;
+        J.Str("stack_local", Hex32((unsigned int)(UINT_PTR)&StackProbe).c_str());
         J.BeginArray("modules");
         char const* const kModules[] = {"Oracle.exe",     "Server.dll",       "Common.dll",   "Content.dll",
                                         "ivp.dll",        "SimClientStub.dll", "ucrtbase.dll", "vcruntime140.dll",
