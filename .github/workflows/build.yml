@@ -106,7 +106,7 @@ jobs:
           $vs = & $vswhere -latest -products * -property installationPath
           $tools = Get-Content "$vs\VC\Auxiliary\Build\Microsoft.VCToolsVersion.default.txt"
           $cl = "$vs\VC\Tools\MSVC\$tools\bin\Hostx86\x86\cl.exe"
-          $banner = (& $cl 2>&1 | Select-Object -First 1) -join ''
+          $banner = (& $cl 2>&1 | ForEach-Object { "$_" } | Where-Object { $_ -match 'Version' } | Select-Object -First 1) -join ""
           Write-Host "MSVC: image default toolset $tools (image $env:ImageOS $env:ImageVersion): $banner"
           & $msbuild CppSource\OutpostFrontier.sln /m /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
