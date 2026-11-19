@@ -394,6 +394,28 @@ fn run_seed(base: &Scenario, seed: u32, dir: &Path, fallback_ai: Option<&Path>) 
                 first_divergences(&mut lines, &s.name, name, a, b);
             }
         }
+        // The first hits on each side and the Rust missiles before them.
+        let rust_first = first_event_of(&ours, &ours.guided);
+        let until = oracle_first.max(rust_first).unwrap_or(0) + 5;
+        for (side, hits) in [("rust", &ours.hits), ("oracle", &theirs.hits)] {
+            for h in hits.iter().filter(|h| h.tick <= until).take(6) {
+                let _ = writeln!(
+                    lines,
+                    "{}: {side} hit at tick {} on {}: {}",
+                    s.name,
+                    h.tick,
+                    h.target,
+                    fmt_hit(h)
+                );
+            }
+        }
+        for (tick, shooter, gun) in ours.missiles.iter().filter(|m| m.0 <= until) {
+            let _ = writeln!(
+                lines,
+                "{}: rust missile launched at tick {tick} by {shooter} (gun {gun})",
+                s.name
+            );
+        }
     }
     out.oracle = Some(outcome(&theirs, oracle_first));
     out.oracle_trace = trace(&theirs);
