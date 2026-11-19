@@ -748,13 +748,17 @@ impl<B: Backend> Device<B> {
             f => Fvf(f),
         };
         let base_vertex = self.buffers.streams.base_vertex;
+        // Direct3D 8 reads vertex `BaseVertexIndex + index`; `MinIndex` is
+        // the lowest index the draw uses, relative to that base, and moves
+        // no vertex.
+        let _ = min_index;
         self.submit(
             primitive,
             pc,
             fvf,
             VertexData::Buffer {
                 buffer: h,
-                first_vertex: min_index,
+                first_vertex: 0,
             },
             vertex_count,
             IndexData::Buffer {
@@ -840,6 +844,35 @@ mod tests {
             VertexData::Buffer {
                 buffer: listing.buffer,
                 first_vertex: 5
+            }
+        );
+    }
+
+    #[test]
+    fn indexed_draws_read_from_the_base_vertex_not_the_min_index() {
+        let mut d = device();
+        let vb = d.buffers.create_vb(XYZ_DIFFUSE, 64, 0);
+        let ib = d.buffers.create_ib(64, 0);
+        d.buffers.select_vb(Some(vb)).unwrap();
+        d.buffers
+            .select_ib(Some(IndexSource::Buffer(ib)), 10)
+            .unwrap();
+        d.draw_indexed(4, 27, 9, 3, 6).unwrap();
+        let p = &d.backend.draws[0];
+        assert_eq!(
+            p.vertices,
+            VertexData::Buffer {
+                buffer: vb,
+                first_vertex: 0
+            }
+        );
+        assert_eq!(
+            p.indices,
+            IndexData::Buffer {
+                source: IndexSource::Buffer(ib),
+                start: 3,
+                count: 6,
+                base_vertex: 10
             }
         );
     }

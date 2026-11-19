@@ -181,6 +181,10 @@ fn recorded_traces_match_their_frame_images() {
             replay.mismatches.len(),
             replay.device.backend.errors
         );
+        report.push_str(&format!(
+            "  answered from the trace {:?}\n",
+            replay.answered
+        ));
         for mismatch in replay.mismatches.iter().take(20) {
             report.push_str(&format!("  mismatch {mismatch:?}\n"));
         }

@@ -43,7 +43,19 @@ frame numbers below land on the same picture every run. RenderTrace
    RenderTrace            ; in place of the DirectX8 line
    ```
 
-2. Park the mouse pointer in a screen corner, keep the window in front and
+2. On a display scaled above 100 %, mark the tracing copy of the client as
+   DPI aware first. The client is not, so Windows stretches its window, and
+   the front-buffer image then copies the wrong part of the screen (owner
+   run of 2026-11-19 at 125 %: every frame image zoomed and offset, with
+   the window border in it). One per-user value, for that copy only:
+
+   ```powershell
+   $key = 'HKCU:\Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers'
+   New-Item -Path $key -Force | Out-Null
+   New-ItemProperty -Path $key -Name '<tracing run folder>\bin\OutpostFrontier.exe' -Value '~ HIGHDPIAWARE' -PropertyType String -Force
+   ```
+
+3. Park the mouse pointer in a screen corner, keep the window in front and
    uncovered while it runs, and record one trace per scene, each into its
    own folder under one root (here `C:\traces`):
 
@@ -73,7 +85,7 @@ frame numbers below land on the same picture every run. RenderTrace
    at that frame, move the range later. A trace writes every resource upload
    up to its last frame, so the base trace is large.
 
-3. Each folder now holds `trace.jsonl` and `blobs\`. `FLSpew.txt`
+4. Each folder now holds `trace.jsonl` and `blobs\`. `FLSpew.txt`
    (`%LOCALAPPDATA%\OutpostFrontier`) says which file was opened or why
    tracing stayed off.
 

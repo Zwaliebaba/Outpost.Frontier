@@ -81,8 +81,10 @@ TSS = {"COLOROP": 1, "COLORARG1": 2, "COLORARG2": 3, "ALPHAOP": 4, "MAGFILTER": 
 D3DTOP_SELECTARG1 = 2
 D3DTOP_MODULATE = 4
 D3DTEXF_POINT = 1
+D3DBLEND_SRCCOLOR = 3
 D3DBLEND_SRCALPHA = 5
 D3DBLEND_INVSRCALPHA = 6
+D3DBLEND_DESTCOLOR = 9
 D3DCMP_GREATER = 5
 D3DFOG_NONE = 0
 D3DFOG_LINEAR = 3
@@ -727,8 +729,45 @@ def scene_fan():
     return frame_end(t)
 
 
+def scene_multiply_blend():
+    """A mid-tone gradient, then the checker texture tinted by the vertex colour drawn over it
+    with SRCBLEND DESTCOLOR and DESTBLEND SRCCOLOR, lighting off: the full-screen overlay of
+    the game's planet arrival cutscene (vertex colour ff8affff), which doubles the product of
+    source and destination in Direct3D 8."""
+    t = begin("multiply_blend")
+    tex = t.create_texture(4, 4, PF_A8R8G8B8, checker_texture())
+    frame_start(t, argb(255, 0x00, 0x00, 0x00))
+    t.render_state("LIGHTING", 0)
+    quad = xyz_diffuse([
+        (-0.9, -0.9, -0.6, argb(255, 0x60, 0x30, 0x20)),
+        (-0.9, 0.9, -0.6, argb(255, 0x20, 0x60, 0x30)),
+        (0.9, -0.9, -0.6, argb(255, 0x30, 0x20, 0x60)),
+        (0.9, 0.9, -0.6, argb(255, 0x50, 0x50, 0x50)),
+    ])
+    t.draw_primitive(D3DPT_TRIANGLESTRIP, FVF_XYZ | FVF_DIFFUSE, quad, 4)
+    t.stage_texture(0, tex)
+    t.stage_state(0, "COLOROP", D3DTOP_MODULATE)
+    t.stage_state(0, "ALPHAOP", D3DTOP_SELECTARG1)
+    t.stage_state(0, "MAGFILTER", D3DTEXF_POINT)
+    t.stage_state(0, "MINFILTER", D3DTEXF_POINT)
+    t.render_state("ALPHABLENDENABLE", 1)
+    t.render_state("SRCBLEND", D3DBLEND_DESTCOLOR)
+    t.render_state("DESTBLEND", D3DBLEND_SRCCOLOR)
+    t.render_state("ZWRITEENABLE", 0)
+    tint = argb(255, 0x8A, 0xFF, 0xFF)
+    overlay = xyz_diffuse_tex1([
+        (-0.71, -0.71, -0.4, tint, 0.0, 1.0),
+        (-0.71, 0.68, -0.4, tint, 0.0, 0.0),
+        (0.68, -0.71, -0.4, tint, 1.0, 1.0),
+        (0.68, 0.68, -0.4, tint, 1.0, 0.0),
+    ])
+    t.draw_primitive(D3DPT_TRIANGLESTRIP, FVF_XYZ | FVF_DIFFUSE | FVF_TEX1, overlay, 4)
+    return frame_end(t)
+
+
 SCENES = [scene_clear, scene_untextured, scene_pretransformed, scene_textured, scene_alpha_blend,
-          scene_alpha_test, scene_fog, scene_directional_light, scene_fan, scene_texture_class]
+          scene_alpha_test, scene_fog, scene_directional_light, scene_fan, scene_texture_class,
+          scene_multiply_blend]
 
 
 def outputs():
