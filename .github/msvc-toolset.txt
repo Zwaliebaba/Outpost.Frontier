@@ -1,0 +1,14 @@
+# The MSVC toolset of every CppSource build on CI (build.yml's reference build, oracle job
+# and resource DLLs; data.yml's oracle): owner, 2026-11-19, design/reference-build.md
+# section 10, "Determinism". .github/scripts/msvc-pin.ps1 reads it, fails when the runner
+# image lacks the version and passes it to MSBuild as /p:PlatformToolset and
+# /p:VCToolsVersion. The oracle's session.jsonl `env` record (msc_full_ver) shows what a run
+# was built with.
+#
+# windows-2025-vs2026 images roll the VS 2026 (v145) toolset forward without notice
+# (20261103: 14.51.36231, 20261116: 14.52.37025, neither on the other image). The VS 2022
+# toolset 14.44.35207 (v143, VS 2022 17.14, the last VS 2022 release) is installed on both
+# and is not updated. To bump: change both lines to a toolset every image in use has
+# (the build step lists the installed ones when it fails).
+platform-toolset v143
+vc-tools 14.44.35207

@@ -214,13 +214,22 @@ static void PlayerData_SendClientNullPacket(PlayerData& Slot) {
 bool IServerImpl::Startup(const SStartupInfo& info) {
         GServerTimeBase = 0.0;             // /module storage -- the BASE; the field is not reset
         g_TimingDelta.start();             // , this = the field
-        srand(timeGetTime());              // .. module storage
+        // .. module storage. Oracle instrumentation (P2.3 sim, the reproducibility work, owner
+        // 2026-11-19): under the harness's fixed clock the seed is GOracleSimHooks.StartupSeed,
+        // not the wall clock; outside Oracle.exe sim the hooks are zero and this is
+        // srand(timeGetTime()) as before.
+        srand(GOracleSimHooks.bFixedClock ? GOracleSimHooks.StartupSeed : timeGetTime());
         RefreshLoadingProgress();
         if (CreateID("OutpostFrontier") == 0)   // .. module storage
             return false;                  // XOR AL,AL
         // MOV ECX,.data:Players / CALL PlayerDB::init --
         // the exported global, not a member of this object.
         Players.init(info.MaxPlayers, info.bAllowNewPlayers != 0);
+        // Oracle instrumentation (as above): InitServerAccount's first start on a machine (no
+        // accounts.cfg yet) seeds from the wall clock again and draws six values; the harness
+        // seeds once more, so a machine's first run and its later runs load alike.
+        if (GOracleSimHooks.bFixedClock)
+            srand(GOracleSimHooks.StartupSeed);
         RefreshLoadingProgress();
         // baseline 0x64b8f: the routine((LPCSTR)param_1) — the MODULE path, i.e. the
         // first 0x104 bytes of SStartupInfo. This is what LoadLibrary+GetClientInterface
@@ -3205,6 +3214,27 @@ extern "C" int __cdecl Server_ControllerSetHeartbeat(unsigned int Flid, float In
     node->HeartbeatTimer = Interval;
     node->HeartbeatAccum = (float)rand() * (1.0f / 32768.0f) * Interval;
     return 0;
+}
+
+// Oracle instrumentation (P2.3 sim, the reproducibility work, owner 2026-11-19): every
+// controller's heartbeat as it stands, in list order (the active list, then the deferred
+// one), for session.jsonl's `heartbeats` record. A new export; no game module calls it.
+typedef void(__cdecl* FOracleSimHeartbeatFn)(void* Context, unsigned int Flid, unsigned int Priority,
+                                              char const* Module, float Interval, float Phase,
+                                              bool bDeferred);
+extern "C" SERVER_API void __cdecl OracleSimControllerHeartbeats(FOracleSimHeartbeatFn Fn, void* Context) {
+    if (Fn == nullptr) return;
+    FControllerNode* const Sentinels[2] = { &g_ControllerListSentinel, &g_DeferredListSentinel };
+    for (int List = 0; List < 2; ++List) {
+        for (FControllerNode* Node = Sentinels[List]->Next; Node != Sentinels[List]; Node = Node->Next) {
+            char Path[MAX_PATH] = {};
+            if (Node->ModuleHandle != nullptr)
+                GetModuleFileNameA(Node->ModuleHandle, Path, MAX_PATH);
+            char const* const Slash = strrchr(Path, '\\');
+            Fn(Context, Node->FLID, Node->Priority, Slash != nullptr ? Slash + 1 : Path, Node->HeartbeatTimer,
+               Node->HeartbeatAccum, List == 1);
+        }
+    }
 }
 
 // pub::SetTimer's body — baseline 0x06d5ee00. Allocates a 0x18-byte node, links it at the

@@ -10,6 +10,10 @@
 system he01
 ticks 1500
 stepping mp
+# Content's comm system off (owner, 2026-11-19): its combat-comm rolls draw rand() at a tick
+# that depends on the heartbeat phase, and the Rust world has no comm system until P3.6
+# (design/adr/0003-simulation-oracle.md, reference-build.md section 10).
+comms off
 
 ship police he_fighter li_p_he_fighter_loadout01 15000 3000 -25000 ai FIGHTER pilot pilot_police_med faction he_p_grp psi
 ship rogue pi_fighter fc_lr_pi_fighter_loadout01 15000 3000 -26500 heading 180 ai FIGHTER pilot pilot_pirate_med faction fc_lr_grp hp 400 psi

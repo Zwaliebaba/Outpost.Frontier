@@ -101,7 +101,10 @@ jobs:
         run: |
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
-          & $msbuild CppSource\OutpostFrontier.sln /m /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo
+          # The pinned MSVC toolset (.github/msvc-toolset.txt).
+          $pin = & .github\scripts\msvc-pin.ps1
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          & $msbuild CppSource\OutpostFrontier.sln /m /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo @pin
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Check the generated P0.5 proxies
         # The +oracle IClient proxy and the P2.3 scenario oracle's IClient stub against
@@ -138,7 +141,10 @@ jobs:
         run: |
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
-          & $msbuild CppSource\OutpostFrontier.sln '/t:Tools\Oracle' /m /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo
+          # The pinned MSVC toolset (.github/msvc-toolset.txt).
+          $pin = & .github\scripts\msvc-pin.ps1
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          & $msbuild CppSource\OutpostFrontier.sln '/t:Tools\Oracle' /m /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo @pin
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Run the oracle harness
         shell: pwsh
@@ -282,7 +288,10 @@ jobs:
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
           $targets = 'UiText', 'FieldGuideText', 'DialogueText', 'NameCatalog', 'EquipmentCatalog', 'NegotiationText', 'InterfaceExtras', 'serverinterface' | ForEach-Object { "ResourceDLLs\$_" }
-          & $msbuild CppSource\OutpostFrontier.sln "/t:$($targets -join ';')" /m /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo
+          # The pinned MSVC toolset (.github/msvc-toolset.txt).
+          $pin = & .github\scripts\msvc-pin.ps1
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          & $msbuild CppSource\OutpostFrontier.sln "/t:$($targets -join ';')" /m /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo @pin
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Compare the text catalogs with the resource DLLs
         # Work package P1.6: the catalogs built from outdir/data/text must hold
