@@ -32,6 +32,10 @@ data root (O31).
 - NeuronServer owns hosting, sessions, and persistence infrastructure.
   GameLogic owns authoritative simulation rules, missions, encounters, and
   player state.
+- `crates/lua32-compiler` owns the Lua 3.2 subset compiler of the `.thn`
+  scene scripts, their chunk format and stored number text (decision O18).
+  It uses NeuronCore only and forbids unsafe code; xtask depends on it, and
+  NeuronClient only as a dev-dependency, for its scene-script tests.
 - Keep startup wiring in `apps/` and put reusable code in the owning crate
   under `crates/`.
 - `cargo xtask check-policy` enforces these edges. The table is in

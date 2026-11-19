@@ -445,6 +445,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d15f86d12da44cd8d4ec3c73984537eb7f4cadcb9776a575a0a8a05ca11005c"
 
 [[package]]
+name = "lua32-compiler"
+version = "0.1.0"
+dependencies = [
+ "neuron-core",
+]
+
+[[package]]
 name = "matrixmultiply"
 version = "0.3.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -523,6 +530,7 @@ dependencies = [
 name = "neuron-client"
 version = "0.1.0"
 dependencies = [
+ "lua32-compiler",
  "neuron-core",
  "symphonia",
  "toml",
@@ -1178,6 +1186,7 @@ checksum = "8c3b93199df0ab874cdf0c6a94f0a0dc3423fe41f1cafb62b8bd7b1deb277aef"
 name = "xtask"
 version = "0.1.0"
 dependencies = [
+ "lua32-compiler",
  "neuron-core",
  "toml",
 ]
