@@ -936,11 +936,17 @@ beyond the caller differed once between identical runs), when a
 comms-off run draws a comm roll, or when a fight with comms on differs from
 comms off before its first contact.
 
-CI builds CppSource with the MSVC toolset pinned in
-`.github/msvc-toolset.txt` (`.github/scripts/msvc-pin.ps1`): the
+The CI builds whose output is compared use the MSVC toolset pinned in
+`.github/msvc-toolset.txt` (`.github/scripts/msvc-pin.ps1`): build.yml's
+oracle job (`Tools\Oracle`, compared with the committed vectors, and the
+resource DLLs, compared with the text catalogs) and data.yml's oracle. The
 windows-2025-vs2026 images change their VS 2026 toolset without notice
-(14.51.36231 and 14.52.37025 were on different images on 2026-11-19). The
-`env` record's `msc_full_ver` shows what a run was built with.
+(14.51.36231 and 14.52.37025 were on different images on 2026-11-19); the
+pin is v143 14.44.35207, which every image in use has. None of these builds
+links MFC (v143's MFC is not on the images). The plain reference build
+(the whole solution, OutpostServer's MFC included) uses the image's default
+toolset and logs its version and the compiler's banner. The `env` record's
+`msc_full_ver` shows what a run was built with.
 
 The load-time draws (`load_rand.jsonl`; first recorded 2026-11-18, the same
 in every run): `StarSystem::load` draws nothing itself; its `SystemLoaded`

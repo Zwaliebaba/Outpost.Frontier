@@ -1,10 +1,11 @@
-# The MSVC toolset of every CppSource build on CI (build.yml's reference build, oracle job
-# and resource DLLs; data.yml's oracle): owner, 2026-11-19, design/reference-build.md
-# section 10, "Determinism". .github/scripts/msvc-pin.ps1 reads it, fails when the runner
-# image lacks the version and passes it to MSBuild as /p:PlatformToolset and
-# /p:VCToolsVersion; with -Mfc (the reference build's whole solution) it adds mfc-component
-# when the image lacks the toolset's MFC libraries. The oracle's session.jsonl `env` record
-# (msc_full_ver) shows what a run was built with.
+# The MSVC toolset of the CppSource builds whose output CI compares: build.yml's oracle job
+# (Tools\Oracle and the resource DLLs, compared with the committed vectors and the text
+# catalogs) and data.yml's oracle (owner, 2026-11-19; design/reference-build.md section 10,
+# "Determinism"). The plain reference build uses the image's default toolset and logs it.
+# .github/scripts/msvc-pin.ps1 reads this file, fails when the runner image lacks the version
+# and passes it to MSBuild as /p:PlatformToolset and /p:VCToolsVersion. The oracle's
+# session.jsonl `env` record (msc_full_ver) shows what a run was built with. None of the
+# pinned builds links MFC, which the images do not have for v143.
 #
 # windows-2025-vs2026 images roll the VS 2026 (v145) toolset forward without notice
 # (20261103: 14.51.36231, 20261116: 14.52.37025, neither on the other image). The VS 2022
@@ -13,5 +14,3 @@
 # (the build step lists the installed ones when it fails).
 platform-toolset v143
 vc-tools 14.44.35207
-# The Visual Studio component with the toolset's MFC (OutpostServer links MFC).
-mfc-component Microsoft.VisualStudio.Component.VC.14.44.17.14.MFC

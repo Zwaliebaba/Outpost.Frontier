@@ -149,9 +149,13 @@ Decision O19 transliterates free flight from IVP. Facts from the C++
     `fire_at_target` keep comms on: their ships have no AI, so no draw
     follows a comm roll. The data job checks that a fight with comms on
     equals comms off before its first contact.
-13. **The toolset.** CI builds CppSource with one pinned MSVC toolset
-    (`.github/msvc-toolset.txt`); the `env` record of every run names the
-    compiler, the CPU, the OS build and the runtime DLLs.
+13. **The toolset.** The CI builds whose output is compared (the oracle
+    and the resource DLLs in build.yml's oracle job, the oracle in
+    data.yml) use one pinned MSVC toolset, `.github/msvc-toolset.txt`
+    (v143 14.44.35207, the one toolset every image in use has); the plain
+    reference build uses the image's default and logs it. The `env` record
+    of every run names the compiler, the CPU, the OS build and the runtime
+    DLLs.
 
 ## Consequences
 
