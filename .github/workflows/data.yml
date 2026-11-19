@@ -150,7 +150,7 @@ jobs:
         shell: pwsh
         run: |
           $out = "$env:RUNNER_TEMP\outpost-sim"
-          foreach ($name in 'dock_at_station', 'dock_trade_lane', 'launch_from_station', 'trade_lane') {
+          foreach ($name in 'dock_at_station', 'dock_trade_lane', 'launch_from_station', 'trade_lane', 'dogfight') {
             $run = "$out\$name\run_01"
             Write-Host "==== $name"
             Select-String -Path "$run\ai.jsonl" -Pattern '"rec":"ai_answer"' -ErrorAction SilentlyContinue | Select-Object -First 80 | ForEach-Object { "ANS $($_.Line)" }
