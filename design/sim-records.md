@@ -570,6 +570,17 @@ player, or in the server's `ListD4` while a dock request is queued.
 `field_replay` makes the recorded activations and updates on the Rust
 world and compares each point after its tick.
 
+## `run_rand.jsonl`
+
+Only with the environment variable `OUTPOST_ORACLE_RUN_RAND` set (the cross-runner
+reproducibility work, owner 2026-11-19; `oracle_sim_rand.cpp`): every `rand()` draw of the
+frames, after the load-time recorder stops, written when the run ends. One `draw` record per
+draw in order: `tick` u, `i` u (its index in the CRT sequence of the seed, the generator
+followed on from `load_rand.jsonl`), `v` i, `gap` u (draws the hooks did not see just
+before it), `mod` s (the DLL whose import drew it), `stack` [s, …] (the caller first, as
+`module+0xoffset`); then one `sym` record per address, `at` s, `fn` s, `line` s; then
+`run_rand_end` with `recorded` u, `lost` b, `next_index` u.
+
 ## `load_rand.jsonl`
 
 The load-time `rand()` draws (owner, 2026-11-18): every draw the game

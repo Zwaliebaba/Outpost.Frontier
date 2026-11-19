@@ -60,7 +60,13 @@ def parse(line):
 
 def normalise(line, padding):
     """The line with a personality record's bytes removed (their differing offsets are
-    collected in `padding`, keyed by the line number)."""
+    collected in `padding`, keyed by the line number), and the face behaviour's matrix of an
+    ai record masked (D166: left as the heap held it)."""
+    if '"face":' in line and ('"rec":"ai_in"' in line or '"rec":"ai_out"' in line):
+        rec = parse(line)
+        if isinstance(rec, dict) and isinstance(rec.get("face"), dict) and "orient" in rec["face"]:
+            rec["face"]["orient"] = "masked"
+            return json.dumps(rec), None
     if '"rec":"personality"' not in line:
         return line, None
     rec = parse(line)
@@ -95,6 +101,22 @@ def first_contact(run_dir):
         if rec and rec.get("rec") in ("munition_hit", "collision"):
             return rec.get("tick")
     return None
+
+
+_SYMS = {}
+
+
+def symbols(lines):
+    key = id(lines)
+    if key not in _SYMS:
+        table = {}
+        for line in lines:
+            if '"rec":"sym"' in line:
+                rec = parse(line)
+                if rec:
+                    table[rec.get("at")] = "%s (%s)" % (rec.get("fn"), rec.get("line"))
+        _SYMS[key] = table
+    return _SYMS[key]
 
 
 def compare_pair(pair_dir):
@@ -164,6 +186,20 @@ def compare_pair(pair_dir):
             a = content[(ref, name)]
             b = content[(run, name)]
             print("    %s: first at line %d, tick %s" % (name, diffs[0] + 1, tick))
+            if name == "run_rand.jsonl":
+                d = diffs[0]
+                for side, lines in (("ref", a), ("other", b)):
+                    syms = symbols(lines)
+                    print("      %s draws around the first difference:" % side)
+                    for number in range(max(0, d - 3), min(len(lines), d + 4)):
+                        rec = parse(lines[number])
+                        if not isinstance(rec, dict) or rec.get("rec") != "draw":
+                            continue
+                        frames = " <- ".join("%s %s" % (at, syms.get(at, "")) for at in rec.get("stack", [])[:6])
+                        print("        %s line %d tick %s i %s v %s gap %s %s: %s" % (
+                            "*" if number == d else " ", number + 1, rec.get("tick"), rec.get("i"), rec.get("v"),
+                            rec.get("gap"), rec.get("mod"), frames))
+                continue
             if index >= 3:
                 continue
             if index == 0:
@@ -172,6 +208,14 @@ def compare_pair(pair_dir):
             for number in diffs:
                 ra = parse(a[number]) if number < len(a) else None
                 rb = parse(b[number]) if number < len(b) else None
+                if name == "run_rand.jsonl":
+                    for side, rec, lines in (("ref", ra, a), ("other", rb, b)):
+                        if isinstance(rec, dict):
+                            syms = symbols(lines)
+                            print("      %s draw tick %s i %s v %s gap %s mod %s" % (side, rec.get("tick"), rec.get("i"), rec.get("v"), rec.get("gap"), rec.get("mod")))
+                            for at in rec.get("stack", []):
+                                print("        %s %s" % (at, syms.get(at, "")))
+                    continue
                 if isinstance(ra, dict) and isinstance(rb, dict):
                     out = []
                     field_diffs(ra, rb, "", out)

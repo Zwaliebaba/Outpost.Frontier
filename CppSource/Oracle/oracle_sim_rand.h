@@ -36,4 +36,13 @@ namespace oracle
     // the new sequence, from 0.
     void OracleSimLoadRandReseed(unsigned int Seed);
     void OracleSimLoadRandEnd();
+
+    // The frame-time recorder (the cross-runner reproducibility work, owner 2026-11-19): with
+    // OUTPOST_ORACLE_RUN_RAND set, Oracle.exe sim starts it after OracleSimLoadRandEnd. Every
+    // draw from then on is kept with *Tick, its index in the CRT sequence (the generator is
+    // followed on from the load-time recorder's state) and its caller's stack; End writes
+    // <OutDir>\run_rand.jsonl (`draw` records, then one `sym` record per address).
+    bool OracleSimRunRandBegin(std::string const& OutDir, unsigned int const* Tick);
+    void OracleSimRunRandEnd();
 }
+

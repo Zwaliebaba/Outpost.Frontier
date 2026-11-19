@@ -180,6 +180,25 @@ namespace
         }
     }
 
+    // The frame-time recorder (OracleSimRunRandBegin): every draw of the frames, the tick in
+    // Phase.
+    bool GRunActive = false;
+    std::string GRunDir;
+    unsigned int const* GRunTick = nullptr;
+    std::vector<FDraw> GRunDraws;
+
+    void RecordRunDraw(int Value, int Module, void* Return)
+    {
+        FDraw Draw;
+        memset(&Draw, 0, sizeof(Draw));
+        Draw.Value = Value;
+        Draw.Module = Module;
+        Draw.Phase = GRunTick != nullptr ? *GRunTick : 0;
+        FollowGenerator(Value, Draw);
+        CaptureStack(Return, Draw);
+        GRunDraws.push_back(Draw);
+    }
+
     void RecordLoadDraw(int Value, int Module, void* Return)
     {
         FDraw Draw;
@@ -200,6 +219,8 @@ namespace
         const int Value = Real();
         if (GLoadActive)
             RecordLoadDraw(Value, Module, Return);
+        else if (GRunActive)
+            RecordRunDraw(Value, Module, Return);
         if (GObserver != nullptr)
             GObserver(Value, Module >= 0 ? GModules[Module].Name.c_str() : "?");
         return Value;
@@ -650,5 +671,74 @@ namespace oracle
         }
         GDraws.clear();
         GDraws.shrink_to_fit();
+    }
+
+    bool OracleSimRunRandBegin(std::string const& OutDir, unsigned int const* Tick)
+    {
+        if (GLoadActive)
+            return false;
+        GRunDir = OutDir;
+        GRunTick = Tick;
+        GRunDraws.clear();
+        GRunDraws.reserve(65536);
+        GRunActive = true;
+        return true;
+    }
+
+    void OracleSimRunRandEnd()
+    {
+        if (!GRunActive)
+            return;
+        GRunActive = false;
+        FILE* const File = fopen((GRunDir + "\\run_rand.jsonl").c_str(), "wb");
+        if (File == nullptr)
+            return;
+        if (GSymbols)
+            SymRefreshModuleList(GetCurrentProcess());
+        std::map<DWORD64, FResolved> Cache;
+        for (FDraw const& D : GRunDraws)
+        {
+            for (unsigned int Index = 0; Index < D.FrameCount; ++Index)
+            {
+                if (Cache.find(D.Frames[Index]) == Cache.end())
+                    Cache[D.Frames[Index]] = Resolve(D.Frames[Index]);
+            }
+        }
+        for (FDraw const& D : GRunDraws)
+        {
+            FOracleJson J;
+            J.Str("rec", "draw");
+            J.Uint("tick", D.Phase);
+            J.Uint("i", D.Index);
+            J.Int("v", D.Value);
+            J.Uint("gap", D.Gap);
+            J.Str("mod", D.Module >= 0 ? GModules[D.Module].Name.c_str() : "?");
+            J.BeginArray("stack");
+            for (unsigned int Index = 0; Index < D.FrameCount; ++Index)
+                J.Str(nullptr, Where(Cache[D.Frames[Index]]).c_str());
+            J.EndArray();
+            fputs(J.Finish().c_str(), File);
+            fputc('\n', File);
+        }
+        for (auto const& Entry : Cache)
+        {
+            FOracleJson J;
+            J.Str("rec", "sym");
+            J.Str("at", Where(Entry.second).c_str());
+            J.Str("fn", Chain(Entry.second).c_str());
+            J.Str("line", Entry.second.Line.c_str());
+            fputs(J.Finish().c_str(), File);
+            fputc('\n', File);
+        }
+        {
+            FOracleJson J;
+            J.Str("rec", "run_rand_end");
+            J.Uint("recorded", (unsigned)GRunDraws.size());
+            J.Bool("lost", GGapLost);
+            J.Uint("next_index", GShadowIndex);
+            fputs(J.Finish().c_str(), File);
+            fputc('\n', File);
+        }
+        fclose(File);
     }
 }

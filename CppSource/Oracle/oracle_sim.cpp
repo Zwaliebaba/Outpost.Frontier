@@ -2473,6 +2473,7 @@ namespace
         // The machine, compiler and runtime DLLs of the run (session.jsonl `env`; the
         // cross-runner reproducibility work, owner 2026-11-19), after everything the run
         // computes.
+        oracle::OracleSimRunRandEnd();
         Write(FileSession, oracle::OracleSimEnvRecord());
         Write(FileSession, J);
         UnitFlush(true);
@@ -2698,6 +2699,13 @@ namespace oracle
             SessionNote("note", "asteroids.jsonl or dock.jsonl cannot be written; fields and docking points are not recorded");
         SetSink(OnControllerMessage);
         OracleSimLoadRandEnd();
+        // The frame-time rand() recorder (run_rand.jsonl), only with OUTPOST_ORACLE_RUN_RAND set
+        // (the cross-runner reproducibility work, owner 2026-11-19).
+        {
+            char Flag[8] = {};
+            if (GetEnvironmentVariableA("OUTPOST_ORACLE_RUN_RAND", Flag, sizeof(Flag)) > 0)
+                OracleSimRunRandBegin(OutDir, &GTick);
+        }
 
         // Tick 0: the state after spawning, before any frame.
         unsigned int X87 = 0;

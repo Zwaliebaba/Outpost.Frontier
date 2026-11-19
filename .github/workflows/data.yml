@@ -3,13 +3,11 @@ name: Data dumps
 # TEMPORARY, branch claude/oracle-determinism only (owner, 2026-11-19): the oracle
 # reproducibility probe, second run. Not for main. The normal data.yml is on main.
 #
-# The first probe (run 44523076483) showed that the 5 ensemble pairs end differently in
-# separate processes of one build on one machine; machine, CPU and toolset do not decide
-# the outcome. This run builds the oracle once and runs each pair 6 times (--runs 6, each a
-# fresh process) twice: as Windows starts it, and with Oracle.exe's address-space
-# randomization switched off (Set-ProcessMitigation: bottom-up, high-entropy and forced
-# relocation). compare_runs.py prints, per pair, each run's heap and stack placement and
-# the first records that differ from run 1.
+# Probe 1 (run 44523076483): the 5 ensemble pairs end differently in separate processes of
+# one build on one machine. Probe 2 (run 44526581221): the same with ASLR off; the first
+# difference is the rand() sequence (a behaviour tick draws values shifted by a few draws).
+# This run records every frame-time rand() draw with its caller (OUTPOST_ORACLE_RUN_RAND,
+# run_rand.jsonl) and prints the first draw that differs between runs.
 
 on:
   workflow_dispatch:
@@ -19,7 +17,7 @@ permissions:
 
 jobs:
   repeat:
-    name: Repeated runs with and without ASLR
+    name: Repeated runs with the rand() recorder
     runs-on: windows-2025-vs2026
     timeout-minutes: 120
     steps:
@@ -37,24 +35,20 @@ jobs:
           $targets = 'Tools\Oracle', 'DLLs\Content', 'DLLs\ReadFile', 'DLLs\RendComp', 'DLLs\system', 'DLLs\SceneScript', 'DLLs\DX8RENDERER', 'DLLs\Shading'
           & $msbuild CppSource\OutpostFrontier.sln "/t:$($targets -join ';')" /m /p:Configuration=Release /p:Platform=Win32 /v:minimal /nologo
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Run the pairs with and without ASLR
+      - name: Run the pairs with the frame-time rand() recorder
         shell: pwsh
         run: |
           $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1
           Write-Host "cpu: $($cpu.Name)"
+          $env:OUTPOST_ORACLE_RUN_RAND = '1'
           $pairs = 'dogfight 3358599207', 'dogfight 464813110', 'skirmish 1478717352', 'skirmish 225462782', 'strafe 2731971922'
           $root = "$env:RUNNER_TEMP\det"
-          foreach ($mode in 'aslr', 'noaslr') {
-            if ($mode -eq 'noaslr') {
-              Set-ProcessMitigation -Name Oracle.exe -Disable BottomUp, HighEntropy, ForceRelocateImages
-              Get-ProcessMitigation -Name Oracle.exe | Select-Object -ExpandProperty ASLR | Format-List | Out-String | Write-Host
-            }
-            foreach ($pair in $pairs) {
-              $name, $seed = $pair -split ' '
-              $dir = "$root\$mode\${name}_$seed"
-              & .\bin\Oracle.exe sim "$PWD\outdir" "CppSource\Oracle\scenarios\$name.txt" $dir --seed $seed --runs 6
-              Write-Host "$mode $name seed ${seed}: exit $LASTEXITCODE"
-            }
+          foreach ($pair in $pairs) {
+            $name, $seed = $pair -split ' '
+            $dir = "$root\rand\${name}_$seed"
+            & .\bin\Oracle.exe sim "$PWD\outdir" "CppSource\Oracle\scenarios\$name.txt" $dir --seed $seed --runs 5
+            Write-Host "$name seed ${seed}: exit $LASTEXITCODE"
+            Get-ChildItem $dir -Directory | ForEach-Object { "  $($_.Name) run_rand.jsonl: $((Get-Item "$($_.FullName)\run_rand.jsonl" -ErrorAction SilentlyContinue).Length) bytes" }
           }
       - name: Compare the runs
         shell: pwsh
