@@ -487,18 +487,88 @@ impl Default for DrasticEvadeOp {
     }
 }
 
+/// `pub::AI::DirectiveFollowOp` (0x24 bytes).
+#[derive(Clone, Debug, PartialEq)]
+pub struct FollowOp {
+    /// +0x0c the object to follow (`validate`: not 0).
+    pub target: u32,
+    /// +0x10 the follow distance (150).
+    pub distance: f32,
+    /// +0x14..+0x1c the offset in the leader's frame.
+    pub offset: Vector,
+    /// +0x20 the range the follow behaviour's poll uses (400).
+    pub range: f32,
+}
+
+impl Default for FollowOp {
+    /// `DirectiveFollowOp::DirectiveFollowOp`.
+    fn default() -> Self {
+        Self {
+            target: 0,
+            distance: 150.0,
+            offset: Vector::ZERO,
+            range: 400.0,
+        }
+    }
+}
+
+/// `pub::AI::DirectiveGuideOp` (0xbc bytes): a goto op, a follow op and
+/// the guide's own parameters.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GuideOp {
+    /// +0x0c the goto part (its `field_5c` is the guided ship).
+    pub goto: GotoOp,
+    /// +0x7c the follow part.
+    pub follow: FollowOp,
+    /// +0xa0 start by following (1).
+    pub field_a0: u8,
+    /// +0xa4 the sampling period (10).
+    pub field_a4: f32,
+    /// +0xa8 the course angle (π/8).
+    pub field_a8: f32,
+    /// +0xac (3).
+    pub field_ac: i32,
+    /// +0xb0 the closing threshold (10).
+    pub field_b0: f32,
+    /// +0xb4 the falling-behind threshold (-10).
+    pub field_b4: f32,
+    /// +0xb8 the poll's range (400).
+    pub field_b8: f32,
+}
+
+impl Default for GuideOp {
+    /// `DirectiveGuideOp::DirectiveGuideOp`.
+    fn default() -> Self {
+        Self {
+            goto: GotoOp::default(),
+            follow: FollowOp::default(),
+            field_a0: 1,
+            field_a4: 10.0,
+            field_a8: f32::from_bits(0x3ec9_0fdb),
+            field_ac: 3,
+            field_b0: 10.0,
+            field_b4: -10.0,
+            field_b8: 400.0,
+        }
+    }
+}
+
 /// A directive operation (`pub::AI::BaseOp`), the argument of slot 10.
 /// Kinds without a ported reader keep their op type only.
 #[derive(Clone, Debug, PartialEq)]
 pub enum DirectiveOp {
     /// `DirectiveGotoOp` (op type 3).
     Goto(GotoOp),
+    /// `DirectiveFollowOp` (4).
+    Follow(FollowOp),
     /// `DirectiveFaceOp` (7).
     Face(FaceOp),
     /// `DirectiveDrasticEvadeOp` (11).
     DrasticEvade(DrasticEvadeOp),
     /// `DirectiveDelayOp` (12): the delay in seconds.
     Delay(f32),
+    /// `DirectiveGuideOp` (17).
+    Guide(Box<GuideOp>),
     /// `DirectiveIdleOp` (20).
     Idle,
     /// `DirectiveCancelOp` (21).
@@ -513,9 +583,11 @@ impl DirectiveOp {
     pub fn op_type(&self) -> i32 {
         match self {
             Self::Goto(_) => 3,
+            Self::Follow(_) => 4,
             Self::Face(_) => 7,
             Self::DrasticEvade(_) => 11,
             Self::Delay(_) => 12,
+            Self::Guide(_) => 17,
             Self::Idle => 20,
             Self::Cancel => 21,
             Self::Other(t) => *t,

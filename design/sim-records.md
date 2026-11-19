@@ -363,7 +363,9 @@ min, then max), `mass` f, `hp` f, `hp_max` f (`get_status`), `shield`
 f3\|null, `nudge` f3\|null, `strafe` i\|null, `cruise` [b, b]\|null
 (cruise, trade lane), `target` u\|null, `subtarget` u\|null,
 `formation_leader` u\|null, `follow_leader` u\|null, `followers` [u, …],
-`dock_target` u\|null, `base` u\|null, `rank` u\|null, `affiliation`
+(P2.5 escort) `formation_offset` f3\|null and `follow_offset` f3\|null
+(`get_formation_offset`, `get_follow_offset`, which the formation and
+follow behaviours read), `dock_target` u\|null, `base` u\|null, `rank` u\|null, `affiliation`
 u\|null, `behavior_id` i, `toughness` i, `player` b, `dying` b,
 `targetable` b, `attitude` [f, f]\|null (the ship's
 `get_attitude_towards_symmetrical` toward this object and the reverse;

@@ -769,10 +769,14 @@ impl GunGroups {
                 let dy = e(v.position.y) - e(barrel.y);
                 let dz = e(v.position.z) - e(barrel.z);
                 let dist_sq = r((dz * dz + dy * dy) + dx * dx);
-                // A ship whose manager was made by a content callback of
-                // creation type 2 is spared by a ship that may not engage:
-                // the creation type is not modelled, so none is.
-                let _ = self_may_engage;
+                // A ship whose manager's content callback is of creation
+                // type 2 is spared by a ship that may not engage.
+                if !self_may_engage
+                    && v.is(super::world::class::SHIP)
+                    && world.creation_type_of(h) == Some(2)
+                {
+                    continue;
+                }
                 let (attitude, _) = world.attitude_symmetrical(ship, h).unwrap_or((0.0, 0.0));
                 if !(attitude <= -0.6) {
                     continue;

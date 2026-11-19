@@ -731,7 +731,8 @@ separated by spaces, tabs or commas. Examples (one per kind of check of
 record 0003) are in `CppSource\Oracle\scenarios\`: `free_flight`,
 `turn_to_heading`, `fly_to_point`, `dock_at_station`, `fire_at_target`,
 `ram_asteroid`, `dogfight`, `skirmish`, `strafe`, and `ram_ship`, Gate G2's collide scenario in
-place of `ram_asteroid` (owner, 2026-11-18).
+place of `ram_asteroid` (owner, 2026-11-18); the escort scenarios of P2.5,
+`formation`, `follow`, `guide` and `large_ship`.
 
 | Line | Meaning |
 | --- | --- |
@@ -742,7 +743,7 @@ place of `ram_asteroid` (owner, 2026-11-18).
 | `collisions sp\|mp` | default `mp`; `sp` makes the server's collision filter take its single-player branch (below) |
 | `seed <n>` | `srand` after start-up; default `0x4f524143` |
 | `clock <seconds>` | the fixed clock at tick 0; default 1000 |
-| `ship <name> <archetype> <loadout\|-> <x> <y> <z> [options]` | spawn a ship; options: `heading <degrees>` (about +Y; 0 faces −Z, 90 faces −X), `orient <9 numbers>` (row-major), `vel <x y z>`, `angvel <x y z>`, `ai <state graph>` (e.g. `FIGHTER`; without it the ship has no behaviour and keeps the commands it is given), `pilot <nickname>` (with `ai`: the personality of a `[Pilot]` of `missions\pilots_population.ini` or `pilots_story.ini`, as Content gives an NPC ship of an `npcships.ini` entry, without a job; without it the default personality), `faction <group>` (a reputation affiliated with a group of `initialworld.ini`, e.g. `he_p_grp`; without it none), `hp <n>` (default −1, the archetype's), `psi` (record its PSIs) |
+| `ship <name> <archetype> <loadout\|-> <x> <y> <z> [options]` | spawn a ship; options: `heading <degrees>` (about +Y; 0 faces −Z, 90 faces −X), `orient <9 numbers>` (row-major), `vel <x y z>`, `angvel <x y z>`, `ai <state graph>` (e.g. `FIGHTER`; without it the ship has no behaviour and keeps the commands it is given), `escort` (with `ai`: the graph's escort variant, `get_state_graph(name, ESCORT)`, as Content's `ResetFormationState` gives a wingman; without it the leader variant), `pilot <nickname>` (with `ai`: the personality of a `[Pilot]` of `missions\pilots_population.ini` or `pilots_story.ini`, as Content gives an NPC ship of an `npcships.ini` entry, without a job; without it the default personality), `faction <group>` (a reputation affiliated with a group of `initialworld.ini`, e.g. `he_p_grp`; without it none), `hp <n>` (default −1, the archetype's), `psi` (record its PSIs) |
 | `solar <name> <nickname> [psi]` | a system object of the loaded system |
 | `at <ticks> <name> <command> [arguments]` | `<ticks>` is `t`, `a..b` or `a..b/step` (ticks from 1) |
 
@@ -763,8 +764,11 @@ ship with `ai`:
 | `face <x> <y> <z>` | `DirectiveFaceOp` mode 2 (a point) |
 | `dock <target>` | `DirectiveDockOp` |
 | `ram <target>` | `DirectiveRamOp` |
+| `follow <target> [distance <d>] [offset <x> <y> <z>] [range <r>]` | `DirectiveFollowOp` (P2.5 escort): the target, the follow distance (default 150), the offset in the target's frame (default 0), the range (`Field_20`, default 400) |
+| `guide <ship> <x> <y> <z> [range <r>] [distance <d>] [offset <x> <y> <z>]` | `DirectiveGuideOp` (P2.5 escort): its goto part as `goto`'s (a point, arrival range default 100, no cruise) with the guided ship in `GotoParams.Field_5C`; its follow part on the guided ship (distance default 150, offset default 0); the other fields keep their defaults |
 | `idle`, `cancel` | `DirectiveIdleOp`, `DirectiveCancelOp` |
 | `dock_request <target>` | `pub::SpaceObj::DockRequest` |
+| `formation <leader>\|none [<x> <y> <z>]` | `pub::AI::update_formation_state(ship, leader, offset)` (P2.5 escort; offset default 0): as `ResetFormationState` makes a formation, the leader first with itself as leader, then each wingman with its slot |
 
 Ships are created as Content creates NPC ships, without a costume or
 voice. A ship without `faction` has no reputation (`VibeGroupId` −1); with
@@ -799,6 +803,21 @@ stops at tick 1500, before the police destroys the transport at tick 1536.
 A gunboat (`GUNBOAT` graph) against the same transport and the fighter
 against a `li_cruiser` strafe as well (1799 and 1775 of 1800 ticks in a
 trial run).
+
+The escort scenarios (P2.5) reach the behaviours no fight does.
+`formation` is a leader and two wingmen of `formations.ini`'s
+`fighter_basic` slots (the police pilot, no faction): the wingmen get the
+FIGHTER ESCORT graph and `update_formation_state` makes the formation, the
+leader flies a goto and the escort graph picks the formation behaviour
+(10). In `follow` a fighter follows another that flies a goto
+(`DirectiveFollowOp` with a non-zero offset, so the leader's
+`generate_follow_offset` is not asked). In `guide` a fighter guides a
+ship without behaviour to a point (`DirectiveGuideOp`): it follows the
+ship, and as the ship makes no progress it leads it through the goto
+behaviour every other sampling period. `large_ship` is a police cruiser
+(the loadout, graph and pilot of `npcships.ini`'s cruiser entries) that
+flies a goto and then, with a hostile fighter ahead, the large-ship
+behaviour (11).
 
 ### Faults
 

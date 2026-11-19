@@ -6,11 +6,10 @@
 //!
 //! The thrust manager and the personality live in
 //! [`super::manager::ManagerState`] beside this. The tractor record at
-//! +0x1498 is [`TractorRecord`]. Not ported: the repair manager
-//! (`RepairManager`) and the leader's
-//! borrowed personality (`bLeaderMakesMeTougher`, which needs the
-//! leader's own system manager; the ship's own personality is used, an
-//! open item of the ledger's AI sub-row).
+//! +0x1498 is [`TractorRecord`]. A wingman whose leader makes it tougher
+//! (`bLeaderMakesMeTougher`) gives its gun groups the leader's personality
+//! while the leader lives. Not ported: the repair manager
+//! (`RepairManager`), which borrows the same way.
 
 use super::fire_control::FireEnv;
 use super::gun_convergence::{FormationState, LeaderNotification};
@@ -126,6 +125,9 @@ pub struct SystemManager {
     pub events: Vec<CombatEvent>,
     /// The tractor record (+0x1498).
     pub tractor: TractorRecord,
+    /// +0x14 the gun groups took the formation leader's personality
+    /// (`Unknown14`).
+    pub borrowed: bool,
 }
 
 impl SystemManager {
@@ -156,9 +158,79 @@ impl SystemManager {
         ship: W::Handle,
         p: &Personality,
     ) {
-        self.guns.refresh_from_personality(world, ship, p);
+        self.refresh_guns(world, ship, p);
         self.timers.refresh_from_personality(p);
         self.formation.force_attack = p.job.force_attack_formation != 0;
+    }
+
+    /// The personality `RefreshFromPersonality` takes the gun groups'
+    /// parameters from: the formation leader's (an equipped object with a
+    /// manager) for an AI ship with `leader_makes_me_tougher`, else none
+    /// (the ship's own).
+    fn leader_personality<W: AiWorld + ?Sized>(
+        &self,
+        world: &W,
+        ship: W::Handle,
+        p: &Personality,
+    ) -> Option<Personality> {
+        let own = world.inspect(ship)?;
+        if own.is_player || p.formation.leader_makes_me_tougher == 0 {
+            return None;
+        }
+        let leader = world.handle_of(self.formation.formation_leader(world)?)?;
+        if !world.inspect(leader)?.is(super::world::class::EQ_OBJ) {
+            return None;
+        }
+        world.personality_of(leader)
+    }
+
+    /// `SystemManagerGunGroupManager::RefreshFromPersonality`: from the
+    /// leader's personality when it makes the ship tougher (and the
+    /// borrowing latched), else from the ship's own.
+    fn refresh_guns<W: AiWorld + AiRand + ?Sized>(
+        &mut self,
+        world: &mut W,
+        ship: W::Handle,
+        p: &Personality,
+    ) {
+        if let Some(leader) = self.leader_personality(&*world, ship, p) {
+            self.borrowed = true;
+            self.guns.refresh_from_personality(world, ship, &leader);
+        } else {
+            self.guns.refresh_from_personality(world, ship, p);
+        }
+    }
+
+    /// The end of `UpdateSystemManager`: an AI wingman that borrowed its
+    /// leader's personality and has lost the leader (gone, or hidden)
+    /// drops `leader_makes_me_tougher` and refreshes from its own: the gun
+    /// groups (with their draws), the timer thresholds, the force-attack
+    /// flag. Returns the changed personality.
+    pub fn release_borrowed<W: AiWorld + AiRand + ?Sized>(
+        &mut self,
+        world: &mut W,
+        ship: W::Handle,
+        p: &Personality,
+    ) -> Option<Personality> {
+        if !self.borrowed {
+            return None;
+        }
+        if world.inspect(ship).is_none_or(|v| v.is_player) {
+            return None;
+        }
+        if p.formation.leader_makes_me_tougher == 0 {
+            return None;
+        }
+        if !self.formation.leader_suppressed && self.formation.formation_leader(&*world).is_some() {
+            return None;
+        }
+        self.borrowed = false;
+        let mut own = *p;
+        own.formation.leader_makes_me_tougher = 0;
+        self.refresh_guns(world, ship, &own);
+        self.timers.refresh_from_personality(&own);
+        self.formation.force_attack = own.job.force_attack_formation != 0;
+        Some(own)
     }
 
     /// `UpdateSystemManager` up to the thrust manager: the target list is
