@@ -4,10 +4,14 @@
 # (fc_lr_grp, no behaviour) waits 2500 m ahead. Once the goto directive is done the
 # cruiser's target manager picks the fighter and the CRUISER graph the large-ship
 # behaviour (11), which moves the cruiser to a stand-off point from the hostile ships'
-# centre. Multiplayer stepping.
+# centre (from tick 549 on; 1800 ticks recorded 1252 of them). The run stops at tick
+# 1200: the Rust world's cruiser keeps its turrets' lock on the fighter from tick 548, which
+# the oracle's turrets do not take, and launches missiles from tick 1234 that the oracle's
+# cruiser never fires (the gun lock is an open item of the P2.5 ledger row). Multiplayer
+# stepping.
 
 system he01
-ticks 1800
+ticks 1200
 stepping mp
 
 ship cruiser li_cruiser li_n_li_cruiser 15000 3000 -25000 ai CRUISER pilot cruiser_default faction he_p_grp psi

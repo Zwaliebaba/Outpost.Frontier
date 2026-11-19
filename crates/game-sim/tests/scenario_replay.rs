@@ -351,6 +351,8 @@ struct State {
     /// A ship's commanded throttle and axis throttle (`None` for others).
     throttle: Option<f32>,
     axis: Option<Vector>,
+    /// A ship's commanded nudge (`get_nudge_vec`; `None` for others).
+    nudge: Option<Vector>,
     hp: f32,
     /// `None` when the record does not carry it (an older oracle record,
     /// or an object without equipment).
@@ -770,6 +772,7 @@ fn run(s: &Scenario, ai: &AiInputs) -> Option<Run> {
                         angvel: i.angular_velocity,
                         throttle: i.ship.as_ref().map(|s| s.throttle),
                         axis: i.ship.as_ref().map(|s| s.axis_throttle),
+                        nudge: i.ship.as_ref().map(|s| s.nudge),
                         hp: i.hit_pts,
                         power,
                         shield,
@@ -2128,6 +2131,11 @@ fn oracle_ticks(file: &Path) -> BTreeMap<String, Vec<State>> {
                     .and_then(Json::as_floats)
                     .filter(|a| a.len() >= 3)
                     .map(|a| Vector::new(a[0], a[1], a[2])),
+                nudge: r
+                    .get("nudge")
+                    .and_then(Json::as_floats)
+                    .filter(|a| a.len() >= 3)
+                    .map(|a| Vector::new(a[0], a[1], a[2])),
                 hp: r.get("hp").and_then(Json::as_f32).unwrap_or(0.0),
                 power: r.get("power").and_then(Json::as_f32),
                 shield,
@@ -2532,6 +2540,11 @@ fn first_bit_difference(
         {
             out.push(format!("axis {} | {}", hex3(x), hex3(y)));
         }
+        if let (Some(x), Some(y)) = (a.nudge, b.nudge)
+            && bits(x) != bits(y)
+        {
+            out.push(format!("nudge {} | {}", hex3(x), hex3(y)));
+        }
         out
     };
     let n = ours.len().min(theirs.len());
@@ -2556,9 +2569,12 @@ fn first_bit_difference(
     // The commands of the ticks around it, both sides (axis throttle bits).
     for t in first.saturating_sub(3)..(first + 2).min(n) {
         let ax = |st: &State| st.axis.map_or_else(|| "-".to_owned(), hex3);
+        let nu = |st: &State| st.nudge.map_or_else(|| "-".to_owned(), hex3);
         let _ = writeln!(
             summary,
-            "    tick {t}: axis {} | {}, angvel {} | {}",
+            "    tick {t}: nudge {} | {}, axis {} | {}, angvel {} | {}",
+            nu(&ours[t]),
+            nu(&theirs[t]),
             ax(&ours[t]),
             ax(&theirs[t]),
             hex3(ours[t].angvel),

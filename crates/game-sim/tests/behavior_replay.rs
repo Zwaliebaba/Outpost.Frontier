@@ -176,11 +176,20 @@ impl<'a> ReplayWorld<'a> {
         avoid_shuffled: bool,
         names: &BTreeMap<u32, String>,
     ) -> Self {
+        // The other scenario ships: the AI ships by their records, and the
+        // snapshot's named objects (a ship without a manager, such as the
+        // guided ship of a guide directive).
         let others = motion.map_or_else(BTreeMap::new, |m| {
             names
                 .iter()
-                .filter(|(id, _)| **id != t.id)
-                .filter_map(|(id, name)| m.ships.get(name).map(|h| (*id, *h)))
+                .map(|(id, name)| (*id, name.as_str()))
+                .chain(
+                    t.objects
+                        .iter()
+                        .filter_map(|o| Some((o.id, o.name.as_deref()?))),
+                )
+                .filter(|(id, _)| *id != t.id)
+                .filter_map(|(id, name)| m.ships.get(name).map(|h| (id, *h)))
                 .collect()
         });
         let motion = motion.and_then(|m| {
