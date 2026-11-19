@@ -267,6 +267,10 @@ void RunUiSuites();
 void RunUiQuadSuites();
 void RunUiControlSuites();
 void RunUiImmediateSuites();
+// P4.11 to P4.13 (oracle_ime_ui.cpp), called by RunUiSuites: imeui.dll's edit box, font, focus
+// manager and drawing with the client's FLImeInputBox and ClientIMEFocus compiled in, over
+// crates/neuron-client/tests/fixtures/oracle/ime_ui.list.
+void RunImeUiSuites();
 
 // P4.14 (oracle_scene_script.cpp): every .thn under DATA through lua_dobuffer in a fresh
 // Lua state, and the state after it; kind "thn".

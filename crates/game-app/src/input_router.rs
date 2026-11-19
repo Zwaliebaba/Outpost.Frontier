@@ -38,23 +38,23 @@ pub trait InputTarget {
     fn window_focus(&mut self, gained: bool, ime: &mut dyn ImeContext);
 }
 
+/// The engine's boxes use the IME context the engine was given (the same
+/// window's as the router's, `Engine::set_ime_context`); a box whose text
+/// changed outside its window's call writes it into the window after the
+/// call.
 impl<B: Backend + 'static> InputTarget for Engine<B> {
     fn ui_input(&mut self, input: Input) -> bool {
-        self.ui_mut().is_some_and(|ui| ui.handle(input))
+        let taken = self.ui_mut().is_some_and(|ui| ui.handle(input));
+        self.apply_ime_texts();
+        taken
     }
 
-    fn ime_char(&mut self, unit: u16, ime: &mut dyn ImeContext) -> bool {
-        self.ime_mut().is_some_and(|focus| focus.on_char(unit, ime))
+    fn ime_char(&mut self, unit: u16, _ime: &mut dyn ImeContext) -> bool {
+        Engine::ime_char(self, unit)
     }
 
-    fn window_focus(&mut self, gained: bool, ime: &mut dyn ImeContext) {
-        if let Some(focus) = self.ime_mut() {
-            if gained {
-                focus.on_window_focus_gained(ime);
-            } else {
-                focus.on_window_focus_lost(ime);
-            }
-        }
+    fn window_focus(&mut self, gained: bool, _ime: &mut dyn ImeContext) {
+        self.ime_window_focus(gained);
     }
 }
 

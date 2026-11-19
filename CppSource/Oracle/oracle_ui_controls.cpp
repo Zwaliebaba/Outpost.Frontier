@@ -153,7 +153,10 @@
 #include "../OutpostFrontier/Client/ui_table.cpp"
 // The rich-text windows (rich_text_win.cpp, ui_text_edit.cpp, ui_fast_table.cpp). The IME box and
 // the IME focus (fl_ime_input_box.h over imeui.h) are declared under other names and stand-ins take
-// theirs: no case has an IME focus, so no box is ever made.
+// over: no case has an IME focus, so no box is ever made. The box's stand-in keeps its name (the
+// window's header names it; its members are not the real box's); the focus's stand-in has its own
+// (oracle_ime_ui.cpp compiles the real IMEFocus, whose GetSingleton would be defined twice), which
+// the rich-text sources see through a macro.
 #define FLImeInputBox OracleDeclaredImeInputBox
 #define IMEFocus OracleDeclaredImeFocus
 #include "../OutpostFrontier/Client/fl_ime_input_box.h"
@@ -167,14 +170,16 @@ struct FLImeInputBox
     bool HandleKey(UINT) { return false; }
     bool HandleMultiByteChar(char) { return false; }
 };
-struct IMEFocus
+struct OracleCtlImeFocus
 {
-    static IMEFocus* GetSingleton() { return nullptr; }
+    static OracleCtlImeFocus* GetSingleton() { return nullptr; }
     void SetFocus(FLImeInputBox*, bool) {}
 };
+#define IMEFocus OracleCtlImeFocus
 #include "../OutpostFrontier/Client/rich_text_win.cpp"
 #include "../OutpostFrontier/Client/ui_text_edit.cpp"
 #include "../OutpostFrontier/Client/ui_fast_table.cpp"
+#undef IMEFocus
 
 namespace
 {

@@ -301,38 +301,70 @@ pub fn prep_ui_overlay(
     pipe.set_render_state(rs::ZFUNC, saved_zfunc);
 }
 
+/// The states [`ime_pass_begin`] saved for [`ime_pass_end`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ImePassSaved {
+    stage_10: u32,
+    stage_11: u32,
+    zfunc: u32,
+    zwrite: u32,
+}
+
+/// `ImeFocusDrawPass` up to `IMEFocus::Draw`: the 2D projection pushed,
+/// point filtering, depth function `ALWAYS`, no depth write, no culling.
+pub fn ime_pass_begin(layer: &mut Win3dLayer, pipe: &mut dyn Win3dPipeline) -> ImePassSaved {
+    layer.push_projection(pipe);
+    layer.set_ortho_2d(pipe);
+    let stage_10 = pipe.stage_state(0, 0x10);
+    let stage_11 = pipe.stage_state(0, 0x11);
+    pipe.set_stage_state(0, 0x10, 1);
+    pipe.set_stage_state(0, 0x11, 1);
+    let zfunc = pipe.render_state(rs::ZFUNC);
+    pipe.set_render_state(rs::ZFUNC, 8);
+    let zwrite = pipe.render_state(rs::ZWRITEENABLE);
+    pipe.set_render_state(rs::ZWRITEENABLE, 0);
+    layer.disable(pipe, capability::CULL_FACE);
+    ImePassSaved {
+        stage_10,
+        stage_11,
+        zfunc,
+        zwrite,
+    }
+}
+
+/// `ImeFocusDrawPass` after `IMEFocus::Draw`: the "IMEbkground" and
+/// "IMEtext" lists flushed, then everything put back.
+pub fn ime_pass_end(
+    layer: &mut Win3dLayer,
+    pipe: &mut dyn Win3dPipeline,
+    quads: &mut QuadBatcher,
+    saved: ImePassSaved,
+) {
+    quads.flush(pipe, ime_background_key());
+    quads.flush(pipe, ime_text_key());
+    pipe.set_stage_state(0, 0x10, saved.stage_10);
+    pipe.set_stage_state(0, 0x11, saved.stage_11);
+    layer.enable(pipe, capability::CULL_FACE);
+    layer.pop_projection(pipe);
+    pipe.set_render_state(rs::ZWRITEENABLE, saved.zwrite);
+    pipe.set_render_state(rs::ZFUNC, saved.zfunc);
+}
+
 /// `ImeFocusDrawPass`, for an IME focus with input boxes: under a pushed
 /// 2D projection, point filtering, depth function `ALWAYS`, no depth write
 /// and no culling, `IMEFocus::Draw` and then the "IMEbkground" and
 /// "IMEtext" screen-quad lists flushed; then everything put back.
 ///
-/// `IMEFocus::Draw` draws nothing here: the boxes' own draw is empty and
-/// the composition and candidates are the system's windows (divergence
-/// D283), so the two lists hold only what the game queued on them.
+/// This one has no `IMEFocus::Draw` between the two halves; the engine
+/// runs the client's draw (`ui::ime::ImeBoxes::draw`) between
+/// [`ime_pass_begin`] and [`ime_pass_end`].
 pub fn ime_focus_draw_pass(
     layer: &mut Win3dLayer,
     pipe: &mut dyn Win3dPipeline,
     quads: &mut QuadBatcher,
 ) {
-    layer.push_projection(pipe);
-    layer.set_ortho_2d(pipe);
-    let saved_10 = pipe.stage_state(0, 0x10);
-    let saved_11 = pipe.stage_state(0, 0x11);
-    pipe.set_stage_state(0, 0x10, 1);
-    pipe.set_stage_state(0, 0x11, 1);
-    let saved_zfunc = pipe.render_state(rs::ZFUNC);
-    pipe.set_render_state(rs::ZFUNC, 8);
-    let saved_zwrite = pipe.render_state(rs::ZWRITEENABLE);
-    pipe.set_render_state(rs::ZWRITEENABLE, 0);
-    layer.disable(pipe, capability::CULL_FACE);
-    quads.flush(pipe, ime_background_key());
-    quads.flush(pipe, ime_text_key());
-    pipe.set_stage_state(0, 0x10, saved_10);
-    pipe.set_stage_state(0, 0x11, saved_11);
-    layer.enable(pipe, capability::CULL_FACE);
-    layer.pop_projection(pipe);
-    pipe.set_render_state(rs::ZWRITEENABLE, saved_zwrite);
-    pipe.set_render_state(rs::ZFUNC, saved_zfunc);
+    let saved = ime_pass_begin(layer, pipe);
+    ime_pass_end(layer, pipe, quads, saved);
 }
 
 /// `G_ImeBackgroundKey`: the CRC of "IMEbkground".
