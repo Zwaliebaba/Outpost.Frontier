@@ -1,4 +1,5 @@
-//! A deterministic [`FontBackend`] for the platform-free tests.
+//! A deterministic [`FontBackend`] for the platform-free tests and the
+//! engine's construction off Windows (`engine::Engine` with no DirectWrite).
 //!
 //! A face at `lfHeight` h has a cell of `|h|` pixels (a negative height
 //! adds a fifth for the leading), ascent four fifths of it. Advances: a

@@ -4,6 +4,7 @@
 use std::io::{self, Write};
 
 pub mod account_keys;
+pub mod cameras;
 pub mod login_history;
 #[cfg(windows)]
 pub mod movies;
@@ -23,18 +24,18 @@ pub fn run() -> io::Result<()> {
 }
 
 /// Start the client application: the profile (imported from the C++
-/// client's registry on the first run), the window, the renderer on the
-/// first hardware adapter (WARP when there is none), and the frame loop on
-/// the client clock until the window closes. The close command quits at
-/// once until the exit dialog exists (P5).
+/// client's registry on the first run), the window, the engine
+/// (`neuron_client::engine`, work package P4.16: the renderer on the first
+/// hardware adapter or WARP, the audio device, the fonts and the UI
+/// manager, built from `NeuronComponents.ini` and `OutpostFrontier.ini` in
+/// the working directory and the data path), the startup movies, and the
+/// engine's frame on the client clock until the window closes. The close
+/// command quits at once until the exit dialog exists (P5).
 #[cfg(windows)]
 pub fn run() -> io::Result<()> {
-    use neuron_client::platform::d3d12::AdapterChoice;
-    use neuron_client::platform::d3d12::backend::D3d12Backend;
+    use neuron_client::engine::{EngineConfig, FrameInput, windows::create_engine};
     use neuron_client::platform::window::{Pump, Window, pump};
     use neuron_client::platform::{dpapi::Dpapi, known_folder, registry};
-    use neuron_client::render::ff::defaults::Defaults;
-    use neuron_client::render::ff::device::{ClearFlags, Device};
     use neuron_client::user_state::{LEGACY_REGISTRY_KEY, UserPaths};
     use neuron_client::window::{DisplayMode, WindowEvent};
     use neuron_core::time::InstantClock;
@@ -71,7 +72,7 @@ pub fn run() -> io::Result<()> {
         .collect();
     let args: Vec<&[u8]> = args.iter().map(Vec::as_slice).collect();
     let ini = std::fs::read(String::from_utf8_lossy(startup_config::INI_NAME).as_ref()).ok();
-    let config = startup_config::StartupConfig::load(ini, &args);
+    let config = startup_config::StartupConfig::load(ini.clone(), &args);
     let mut display = config.display;
     startup_config::apply_display_overrides(&mut display, &args);
     let mode = DisplayMode {
@@ -79,30 +80,41 @@ pub fn run() -> io::Result<()> {
         height: display.height,
         fullscreen: display.fullscreen,
     };
-    let window = Window::new("Outpost:Frontier", mode).map_err(|e| failure(e.to_string()))?;
-    let (width, height) = mode.back_buffer();
-    let backend = D3d12Backend::new(AdapterChoice::Hardware, width, height)
-        .or_else(|_| D3d12Backend::new(AdapterChoice::Warp, width, height))
-        .map_err(|e| failure(e.to_string()))?;
-    let mut device = Device::new(Defaults::builtin(), width, height, backend);
-    device
-        .backend
-        .attach_window(window.hwnd())
-        .map_err(|e| failure(e.to_string()))?;
+    let mut window = Window::new("Outpost:Frontier", mode).map_err(|e| failure(e.to_string()))?;
 
-    let audio = neuron_client::platform::audio::AudioDevice::new(
-        neuron_client::audio::config::stream_buffer_seconds(0.0),
-    )
-    .ok();
-    let mut window = window;
-    if movies::play(&config, &mut window, &mut device, audio.as_ref()) == movies::MoviesEnd::Quit {
+    // InitializeEngine: NeuronRuntime::Startup with NEURONCOMPONENTS.INI
+    // from the working directory, then the data path.
+    let mut engine_config = EngineConfig::new(
+        std::path::PathBuf::from(String::from_utf8_lossy(&config.data_path).replace('\\', "/")),
+        mode,
+    );
+    engine_config.engine_ini = std::fs::read("NeuronComponents.ini").ok();
+    engine_config.client_ini = ini;
+    engine_config.audio_device = true;
+    let mut engine = create_engine(engine_config, None, Some(window.hwnd()))
+        .map_err(|e| failure(e.to_string()))?;
+    for notice in &engine.notices {
+        writeln!(out, "engine: {notice}")?;
+    }
+
+    if movies::play(
+        &config,
+        &mut window,
+        &mut engine.device(),
+        engine.audio_device(),
+    ) == movies::MoviesEnd::Quit
+    {
         writeln!(out, "quit during the startup movies")?;
         return Ok(());
     }
 
     let mut clock = timing::ClientTiming::new(InstantClock::new());
+    let mut camera = cameras::StillCamera::new(mode.back_buffer());
     let mut window = Some(window);
     loop {
+        clock.update(true, 0, || {
+            std::thread::sleep(std::time::Duration::from_millis(1))
+        });
         let events = match window.as_mut().map_or_else(pump, Window::pump) {
             Pump::Quit(code, _) => {
                 writeln!(out, "quit ({code})")?;
@@ -116,12 +128,14 @@ pub fn run() -> io::Result<()> {
             }
             continue;
         }
-        clock.update(true, 0, || {
-            std::thread::sleep(std::time::Duration::from_millis(1))
-        });
-        device.clear(ClearFlags::TARGET | ClearFlags::DEPTH, None);
-        device.present();
-        if let Some(e) = device.backend.errors.first() {
+        let input = FrameInput {
+            delta_seconds: clock.frame_time_capped(),
+            frame_ms: clock.frame_timestamp_ms(),
+            mouse: None,
+            ui_input: Vec::new(),
+        };
+        engine.frame(input, &mut camera);
+        if let Some(e) = engine.device().backend.errors.first() {
             return Err(failure(format!("renderer: {e}")));
         }
     }

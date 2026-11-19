@@ -685,6 +685,30 @@ impl ParticleFx {
         self.draw.use_batcher = on;
     }
 
+    /// `CreateVertexBuffer` (the client calls it once the render mode is
+    /// set): the module's vertex buffer destroyed when there is one, then
+    /// made again at the pool sizes' vertex count; a failed create leaves
+    /// none (and `BeginDraw` tries again).
+    pub fn create_vertex_buffer(&mut self, svc: &mut dyn ParticleDraw) {
+        if self.draw.vertex_buffer != 0 {
+            svc.destroy_vb(self.draw.vertex_buffer);
+            self.draw.vertex_buffer = 0;
+        }
+        let (result, handle) = svc.create_vb(PARTICLE_FVF, self.draw.vb_capacity, 1);
+        self.draw.vertex_buffer = handle;
+        if result < 0 {
+            // "Unable to create vertex buffer".
+            svc.destroy_vb(self.draw.vertex_buffer);
+            self.draw.vertex_buffer = 0;
+        }
+    }
+
+    /// `ReleaseVertexBuffer`: the module's vertex buffer destroyed.
+    pub fn release_vertex_buffer(&mut self, svc: &mut dyn ParticleDraw) {
+        svc.destroy_vb(self.draw.vertex_buffer);
+        self.draw.vertex_buffer = 0;
+    }
+
     /// `CopyCounters`.
     #[must_use]
     pub const fn draw_counters(&self) -> [u32; 9] {
