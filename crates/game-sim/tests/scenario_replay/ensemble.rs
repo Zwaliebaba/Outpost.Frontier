@@ -36,12 +36,12 @@ use super::*;
 /// D87).
 const RAM_DAMAGE_BOUND: f64 = 0.05;
 
-/// Whether the owner has approved the outcome bounds below; until then a
-/// metric outside them is reported, not failed.
-const ENVELOPES_APPROVED: bool = false;
+/// Whether the owner has approved the outcome bounds below (approved
+/// 2026-11-19); a metric outside them fails the test.
+const ENVELOPES_APPROVED: bool = true;
 
-/// The outcome bounds, proposed and awaiting the owner (record 0003 point
-/// 9): for each metric Rust's values over the seeds against the oracle's. They
+/// The outcome bounds, approved by the owner on 2026-11-19 (record 0003
+/// point 10): for each metric Rust's values over the seeds against the oracle's. They
 /// apply to the fights; `ram_ship` after its first contact is judged by
 /// its outcome (alive) only, and its other statistics are reported.
 struct Bounds {
@@ -50,16 +50,17 @@ struct Bounds {
     /// of the other metrics): a metric fails when its p-value is below it.
     alpha: f64,
     /// The median of a metric: |rust − oracle| at most
-    /// `max(floor, iqr × the oracle's interquartile range)` (the owner's
-    /// levels, 2026-11-19). For 20 seeds 0.75 is about 2.5 standard errors
-    /// of the difference of two medians (normal approximation: 0.30 × IQR),
-    /// the level of `alpha`; for 60 it is about 4.4 (0.17 × IQR).
+    /// `max(floor, iqr × the oracle's interquartile range)` (the owner,
+    /// 2026-11-19). With 60 seeds the standard error of the difference of
+    /// two medians is about 0.17 × IQR (normal approximation), so 0.44 is
+    /// about 2.5 standard errors, the level of `alpha`. (The 20-seed
+    /// proposal used 0.75, the same level at 20 seeds.)
     iqr: f64,
 }
 
 const BOUNDS: Bounds = Bounds {
     alpha: 0.01,
-    iqr: 0.75,
+    iqr: 0.44,
 };
 
 /// The floors of the median bound, per metric: one second of kill time,

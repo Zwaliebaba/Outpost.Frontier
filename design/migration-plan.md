@@ -292,7 +292,9 @@ sides, every seed judged as above, and after the first contact the fights'
 outcome statistics over the seeds (survival count, kill tick (the first
 tick at hull 0), munition hits and collision events up to it, final hull
 and shield) compared, Rust's distribution against the oracle's, within
-bounds that record 0003 proposes and the owner approves. The scenarios
+the bounds of record 0003 point 10 (approved by the owner on
+2026-11-19: Fisher's and the two-sample Kolmogorov–Smirnov tests at 1 %,
+medians within 0.44 × the oracle's interquartile range or a floor). The scenarios
 without contact keep the strict outcome check. `ram_asteroid`, in which neither the C++ pilot nor
 the Rust one touches the rock, stays as a near-miss check but does not count for the
 gate (owner, 2026-11-18). The scenarios are judged as recorded from the
