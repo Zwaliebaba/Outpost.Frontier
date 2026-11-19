@@ -158,6 +158,8 @@ namespace
         float Lead[3];
         bool Pointing[3];           // is_pointing_at at the gun angle, the wide and the missile
                                     // cone angles
+        int TurretResult;           // OracleAiTurretGeometry for an auto turret
+        float Turret[29];
         int CanPointCount;          // can_point_at(candidate position, 0.3) for an auto turret
         unsigned int CanPointIds[kMaxCandidates];
         bool CanPoint[kMaxCandidates];
@@ -307,8 +309,10 @@ namespace
                     E.Pointing[A] = bPointing;
                 }
                 // EquipValAutoTurret's byte.
+                E.TurretResult = 0;
                 if (Type == 0x80u && E.ValResult[1] == 0 && (E.Val[1] & 0xffu) != 0)
                 {
+                    E.TurretResult = OracleAiTurretGeometry(O, Ids[Index], E.Turret);
                     for (int C = 0; C < GCandidateCount; ++C)
                     {
                         if (GCandidates[C] == nullptr)
@@ -473,6 +477,8 @@ namespace
         for (int A = 0; A < 3; ++A)
             J.Bool(nullptr, E.Pointing[A]);
         J.EndArray();
+        if (E.TurretResult == 1)
+            J.FloatArray("turret", E.Turret, 29);
         J.BeginArray("can_point");
         for (int C = 0; C < E.CanPointCount; ++C)
         {

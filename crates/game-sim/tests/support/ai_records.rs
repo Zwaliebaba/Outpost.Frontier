@@ -168,6 +168,10 @@ pub struct EquipRecord {
     pub pointing: [bool; 3],
     /// `can_point_at(candidate position, 0.3)`: candidate id, answer.
     pub can_point: Vec<(u32, bool)>,
+    /// `turret`: what `CEGun::CanPointAt` reads (an auto turret): the yaw
+    /// and pitch joints (bound, limited, min, max), the origin, the
+    /// turret frame and the connector's orientation (29 floats).
+    pub turret: Option<Vec<f32>>,
 }
 
 fn matrix(a: &[f32]) -> Option<Matrix> {
@@ -391,6 +395,10 @@ fn equip(j: &Json) -> Option<EquipRecord> {
             pointing.get(1)?.as_bool()?,
             pointing.get(2)?.as_bool()?,
         ],
+        turret: j
+            .get("turret")
+            .and_then(Json::as_floats)
+            .filter(|a| a.len() == 29),
         can_point: j
             .get("can_point")
             .and_then(Json::as_array)

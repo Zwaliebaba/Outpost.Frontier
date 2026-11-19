@@ -1170,6 +1170,8 @@ fn report_guns(summary: &mut String, dir: &Path, scenario: &str, ours: &Run) {
 struct TurretProbe {
     gun: u16,
     barrel: Option<Vector>,
+    /// The turret geometry as the oracle's `turret` record lays it out.
+    turret: Option<Vec<f32>>,
     can_point: BTreeMap<String, bool>,
 }
 
@@ -1218,9 +1220,23 @@ fn turret_probes(
                     <World as AiWorld>::can_point_at(world, h, gun, v.position, 0.3),
                 );
             }
+            let turret = world.turret_geometry(h, gun).map(|t| {
+                let joint = |j: Option<(f32, f32)>| match j {
+                    Some((min, max)) => [1.0, 0.0, min, max],
+                    None => [0.0; 4],
+                };
+                let mut v = Vec::with_capacity(29);
+                v.extend(joint(t.yaw));
+                v.extend(joint(t.pitch));
+                v.extend([t.origin.x, t.origin.y, t.origin.z]);
+                v.extend(t.frame.m.iter().flatten());
+                v.extend(t.connector.m.iter().flatten());
+                v
+            });
             probes.push(TurretProbe {
                 gun,
                 barrel,
+                turret,
                 can_point,
             });
         }
@@ -1278,6 +1294,18 @@ fn report_turret_probes(summary: &mut String, dir: &Path, scenario: &str, ours: 
                         != [rust.x, rust.y, rust.z].map(f32::to_bits)
                 {
                     notes.push(format!("barrel rust {rust:?} oracle {theirs:?}"));
+                }
+                // The limited flags (index 1 and 5) are the oracle's only.
+                if let (Some(theirs), Some(rust)) = (&e.turret, &p.turret) {
+                    let differ: Vec<usize> = (0..29)
+                        .filter(|&k| k != 1 && k != 5)
+                        .filter(|&k| theirs[k].to_bits() != rust[k].to_bits())
+                        .collect();
+                    if !differ.is_empty() {
+                        notes.push(format!(
+                            "turret words {differ:?} rust {rust:?} oracle {theirs:?}"
+                        ));
+                    }
                 }
                 for (id, answer) in &e.can_point {
                     let Some(n) = names.get(id) else {

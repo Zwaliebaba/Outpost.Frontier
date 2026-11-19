@@ -398,7 +398,12 @@ its target; null when it fails), `pointing` [b, b, b] (`is_pointing_at` at π/60
 wide cone and missile cone angles) and `can_point` [[u, b], …] (an auto
 turret's `can_point_at` toward the position of each object of the
 snapshot but the ship, at 0.3: the scan asks it for the list it builds
-during the tick, which the entry list need not hold yet)}.
+during the tick, which the entry list need not hold yet) and, for an auto
+turret, `turret` f[29] (what `CEGun::CanPointAt` reads: the yaw and the
+pitch joint each as bound, `bLimited`, the engine's `Min` and `Max`, then
+`GetTurretOrigin`, `TurretFrame` and the parent connector's orientation,
+row-major; `scenario_replay` compares it and `can_point` with the Rust
+world)}.
 
 The `rand` values come from the counting wrapper of the rand() recorder
 (`load_rand.jsonl` below), which sits in the import address table of each

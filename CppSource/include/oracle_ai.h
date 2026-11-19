@@ -455,6 +455,12 @@ COMMON_API unsigned int __cdecl OracleAiObjectId(CObject const* Object);
 // both written, 0 when the item is not a launcher.
 COMMON_API int __cdecl OracleAiLauncherBarrel(IObjInspect const* Object, unsigned short Id, float* OutPos,
                                               float* OutDir);
+// What CEGun::CanPointAt reads of one of an equipped object's guns (P2.5): Out[0..3] the yaw
+// joint (bound, bLimited, the engine's Min and Max; 0 for an unbound joint), Out[4..7] the
+// pitch joint alike, Out[8..10] GetTurretOrigin, Out[11..19] TurretFrame, Out[20..28] the
+// orientation of the parent connector (GetParentConnector(false)), row-major. 1 with all 29
+// written, 0 when the item is not a gun.
+COMMON_API int __cdecl OracleAiTurretGeometry(IObjInspect const* Object, unsigned short Id, float* Out);
 // CShip::get_tgt_lead_fire_pos(Vector&) of a ship: 1 with Out written, 0 when it answers
 // false, -1 for an object that is not a ship.
 COMMON_API int __cdecl OracleAiShipLeadFirePos(IObjInspect const* Object, float* Out);

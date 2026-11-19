@@ -23,6 +23,7 @@
 #include "common_launchbehavior.h" // LaunchBehavior
 #include "common_itlbehavior.h"    // InstantTradeLaneBehavior
 #include "common_cequip.h"         // CELauncher (OracleAiLauncherBarrel)
+#include "common_cequip_internal.h" // CmnCequip::InstanceRelative (OracleAiTurretGeometry)
 
 #include <cstring>
 #include <new>
@@ -793,6 +794,42 @@ int __cdecl OracleAiLauncherBarrel(IObjInspect const* Object, unsigned short Id,
         return 0;
     FromVector(OutPos, Launcher->GetBarrelPosWS(0));
     FromVector(OutDir, Launcher->GetBarrelDirWS(0));
+    return 1;
+}
+
+int __cdecl OracleAiTurretGeometry(IObjInspect const* Object, unsigned short Id, float* Out)
+{
+    if (Object == nullptr)
+        return 0;
+    CObject* const Obj = const_cast<CObject*>(Object->cobject());
+    if (Obj == nullptr || (static_cast<unsigned>(Obj->ObjectClass) & 0x103) != 0x103)
+        return 0;
+    CEGun* const Gun = CEGun::cast(static_cast<CEqObj*>(Obj)->EquipManager.FindByID(Id));
+    if (Gun == nullptr)
+        return 0;
+    auto Joint = [](CEGun::JointChannel const& J, float* To) {
+        To[0] = To[1] = To[2] = To[3] = 0.0f;
+        if (J.EngineIndex == CmnCequip::kInvalidEngineInstance)
+            return;
+        To[0] = 1.0f;
+        To[1] = J.bLimited != 0 ? 1.0f : 0.0f;
+        CmnCequip::FJointRelative const* const Rel = CmnCequip::InstanceRelative(J.EngineIndex);
+        if (Rel != nullptr)
+        {
+            To[2] = Rel->Min;
+            To[3] = Rel->Max;
+        }
+    };
+    Joint(Gun->Yaw, Out);
+    Joint(Gun->Pitch, Out + 4);
+    FromVector(Out + 8, Gun->GetTurretOrigin());
+    for (int R = 0; R < 3; ++R)
+        for (int C = 0; C < 3; ++C)
+            Out[11 + R * 3 + C] = Gun->TurretFrame.E[R][C];
+    float const* const Ori =
+        NeuronRuntime::Engine->GetInstanceOrientation((void*)(Gun->GetParentConnector(false)));
+    for (int K = 0; K < 9; ++K)
+        Out[20 + K] = Ori != nullptr ? Ori[K] : 0.0f;
     return 1;
 }
 
