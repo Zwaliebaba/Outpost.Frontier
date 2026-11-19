@@ -3,9 +3,12 @@
 //! `.cmp` or `.3db` file of the data becomes a scene archetype (its
 //! libraries loaded first, as [`super::Engine::create_model`] loads them)
 //! and an instance tree the control owns; the engine's UI draw submits it
-//! through the render manager (`engine::ui_host`).
+//! through the render manager (`engine::ui_host`). Every instance of the
+//! tree has the holder's five floats as its user data
+//! (`CompoundInstanceAnalyze` with `SetInstanceUserData`), which the body
+//! passes tint and the interface's materials read.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use neuron_core::hash::name_crc32;
@@ -15,7 +18,8 @@ use neuron_core::vfs::{FsDesc, Host, UtfFileSystem};
 
 use crate::render::ff::device::Backend;
 use crate::render::mesh::vmesh::SharedRegistry;
-use crate::ui::control::{ControlMesh, MeshLoader};
+use crate::render::stack::UserFloatTable;
+use crate::ui::control::{ControlMesh, MeshLoader, UserFloats};
 
 use super::{Loaded, RenderSide, SharedLinks, SharedScene, apply_extents, load_libraries};
 
@@ -88,20 +92,52 @@ impl<B: Backend + 'static> MeshLoader for EngineMeshLoader<B> {
             return None;
         };
         self.made.set(self.made.get() + 1);
+        // `CompoundInstanceAnalyze(instance, MeshAnalyzeSetUserData,
+        // holder floats)`: every instance of the tree reads the holder's
+        // floats.
+        let floats: UserFloats = Rc::new(Cell::new([1.0; 5]));
+        let instances = tree_instances(&self.scene.borrow(), root);
+        let table = self.render.borrow().stack.user_floats.clone();
+        {
+            let mut t = table.borrow_mut();
+            for &i in &instances {
+                t.insert(i.index() as usize, Rc::clone(&floats));
+            }
+        }
         Some(Box::new(EngineMesh {
             scene: Rc::clone(&self.scene),
             root,
             archetype,
+            floats,
+            table,
+            instances,
         }))
     }
 }
 
+/// The instance and every instance below it, parents first
+/// (`CompoundInstanceAnalyze`'s order).
+fn tree_instances(scene: &neuron_core::scene::Engine, root: InstanceId) -> Vec<InstanceId> {
+    let mut out = vec![root];
+    let mut child = None;
+    while let Some(c) = scene.related_instance(Some(root), 1, child) {
+        out.extend(tree_instances(scene, c));
+        child = Some(c);
+    }
+    out
+}
+
 /// A control's instance tree in the engine's scene (the mesh holder); the
-/// instance is destroyed and the archetype released when it drops.
+/// instance is destroyed and the archetype released when it drops. Its
+/// floats are every instance's user data (the render stack's
+/// [`UserFloatTable`]).
 pub struct EngineMesh {
     scene: SharedScene,
     root: InstanceId,
     archetype: ArchetypeId,
+    floats: UserFloats,
+    table: UserFloatTable,
+    instances: Vec<InstanceId>,
 }
 
 impl EngineMesh {
@@ -165,10 +201,25 @@ impl ControlMesh for EngineMesh {
     fn engine_instance(&self) -> Option<u32> {
         Some(self.root.index())
     }
+
+    fn user_floats(&self) -> Option<UserFloats> {
+        Some(Rc::clone(&self.floats))
+    }
+
+    fn set_root_user_floats(&mut self, floats: UserFloats) {
+        self.table
+            .borrow_mut()
+            .insert(self.root.index() as usize, floats);
+    }
 }
 
 impl Drop for EngineMesh {
     fn drop(&mut self) {
+        if let Ok(mut t) = self.table.try_borrow_mut() {
+            for i in &self.instances {
+                t.remove(&(i.index() as usize));
+            }
+        }
         if let Ok(mut scene) = self.scene.try_borrow_mut() {
             scene.destroy_instance(self.root);
             scene.release_handle(self.archetype);

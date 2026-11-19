@@ -393,6 +393,141 @@ fn the_navigation_bar_draws_its_meshes_through_the_engine() {
     );
 }
 
+/// The controls `Win3DDrawAll` draws for the engine (P4.13, seventh
+/// increment): a button whose mesh names a tile of the button montage
+/// draws the tile as an icon into the "buttons" list, which the pass
+/// flushes; a button's body pass writes its tint into the holder's floats,
+/// which its instances have as their user data; a static control that
+/// renders to a window draws through a viewport of its own and puts the
+/// Win3D camera's back; the game options gate the draws.
+#[test]
+#[allow(clippy::too_many_lines)]
+fn the_interface_pass_draws_montage_icons_tints_and_windows() {
+    let data = outdir().join("data");
+    let (Ok(engine_ini), Ok(client_ini)) = (
+        fs::read(outdir().join("NeuronComponents.ini")),
+        fs::read(outdir().join("OutpostFrontier.ini")),
+    ) else {
+        println!("outdir/ has no data: nothing to draw");
+        return;
+    };
+    let mode = DisplayMode {
+        width: 1024,
+        height: 768,
+        fullscreen: false,
+    };
+    let mut config = EngineConfig::new(&data, mode);
+    config.engine_ini = Some(engine_ini);
+    config.client_ini = Some(client_ini);
+    config.font_backend = Some(Box::new(FakeBackend::default()));
+    let mut engine: Engine<RecordingBackend> =
+        Engine::new(config, RecordingBackend::default()).expect("the engine");
+    let ui = engine.ui_mut().expect("the UI manager");
+    assert!(ui.montage.loaded, "the montage loads with the UI manager");
+    assert_eq!(ui.montage.tiles.len(), 72, "the tiles of ButtonMontage.ini");
+    let formation = ui
+        .montage
+        .find(b"INTERFACE\\HUD\\HUD_FORMATION.3DB")
+        .expect("the formation icon");
+    assert!(formation.shape.is_some(), "on the Montage32 shape");
+    let page = b"[BaseFrame]\noffset = 0, 0, -1\nsubcontrol = Icon\nsubcontrol = Body\n\
+subcontrol = Window\n\n\
+[Icon]\nclass_name = ButtonControl\nmesh = interface\\HUD\\HUD_formation.3db\n\
+offset = -0.2, 0, 0\nmouse_size = 0.02, 0.02, 0\n\n\
+[Body]\nclass_name = ButtonControl\nmesh = interface\\baseside\\take_off.3db\n\
+offset = 0.2, 0, 0\nmouse_size = 0.02, 0.02, 0\n\n\
+[Window]\nclass_name = StaticControl\nmesh = interface\\baseside\\take_off.3db\n\
+offset = 0, 0.1, 0\nmouse_size = 0.05, 0.05, 0.05\nrender_to_window = 1\n";
+    let frame = ui
+        .create_by_class(
+            Some(b"Frame"),
+            b"WinControl",
+            None,
+            &mut neuron_client::ui::tree::Payload::None,
+        )
+        .expect("the frame");
+    let mut ini = neuron_core::ini::IniReader::new();
+    assert!(ini.open_memory(page));
+    neuron_client::ui::control::load_ini(ui, frame, &mut ini);
+    assert_eq!(ui.children(frame).len(), 3);
+    ui.set_position(frame, neuron_core::math::Vector::new(0.0, 0.0, -1.0));
+    // `Create` loads the icon button's mesh too (only `Init` skips a tile
+    // with a scale); the tile draws in its place.
+    assert_eq!(engine.ui_meshes_made(), 3);
+    let floats_before: Vec<[f32; 5]> = {
+        let render = engine.render();
+        let table = render.stack.user_floats.borrow();
+        table.values().map(|f| f.get()).collect()
+    };
+    assert!(
+        floats_before.len() >= 2 && floats_before.iter().all(|f| *f == [1.0; 5]),
+        "every instance of the two trees reads its holder's floats, all 1 at first"
+    );
+    let mut reports = Vec::new();
+    let mut packets = Vec::new();
+    for _ in 0..2 {
+        let before = engine.device().backend.draws.len();
+        reports.push(engine.frame(FrameInput::idle(1.0 / 30.0), &mut Viewer));
+        packets.push(engine.device().backend.draws[before..].to_vec());
+    }
+    let last = reports[1];
+    println!("frames {reports:?}");
+    assert_eq!(last.ui_montage_icons, 1, "the formation icon");
+    let icon_draws = packets[1]
+        .iter()
+        .filter(|d| d.fvf.0 == 0x1C4 && d.textures[0].is_some() && d.vertex_count == 4)
+        .count();
+    assert!(icon_draws >= 1, "the buttons list goes out as screen quads");
+    let window_draws = packets[1]
+        .iter()
+        .filter(|d| d.viewport.width < 1024 && d.viewport.width > 0)
+        .count();
+    assert!(window_draws > 0, "the static control draws into its window");
+    assert!(
+        packets[1]
+            .last()
+            .is_some_and(|d| d.viewport.width == 1024 && d.viewport.height == 768),
+        "the Win3D camera's viewport is back"
+    );
+    let tinted: Vec<[f32; 5]> = {
+        let render = engine.render();
+        let table = render.stack.user_floats.borrow();
+        table.values().map(|f| f.get()).collect()
+    };
+    // The body button's and the static control's trees are tinted (the idle
+    // cyan); the icon button's mesh is never submitted and keeps its 1s.
+    let written = tinted.iter().filter(|f| **f != [1.0; 5]).count();
+    assert!(
+        written >= 2 && written < tinted.len() && tinted.iter().all(|f| f[3] == 1.0),
+        "the body passes wrote their tints: {tinted:?}"
+    );
+    // SHIP WIRES off: the tinted and outlined submits stop; LIKE_PETAL on:
+    // the projection cache is off for the next frame.
+    let meshes_with_wires = last.ui_meshes;
+    engine
+        .options
+        .set(neuron_client::engine::options::SHIP_WIRES, 0);
+    let report = engine.frame(FrameInput::idle(1.0 / 30.0), &mut Viewer);
+    assert!(
+        report.ui_meshes < meshes_with_wires,
+        "{} < {meshes_with_wires}",
+        report.ui_meshes
+    );
+    engine
+        .options
+        .set(neuron_client::engine::options::DRAW_SCROLL_BAR_CONTROLS, 0);
+    engine.options.set(0x14, 0);
+    let report = engine.frame(FrameInput::idle(1.0 / 30.0), &mut Viewer);
+    assert_eq!(report.ui_montage_icons, 0, "no button controls drawn");
+    let ui = engine.ui_mut().expect("the UI manager");
+    ui.destroy(frame);
+    ui.delete(frame);
+    assert!(
+        engine.render().stack.user_floats.borrow().is_empty(),
+        "the holders' floats go with their instances"
+    );
+}
+
 /// Models are named by their whole relative path (D481, closed): the
 /// shipped interface has three different `front_button.cmp` files, and
 /// each loads as an archetype of its own instead of the first one found.

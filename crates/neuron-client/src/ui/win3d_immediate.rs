@@ -20,9 +20,9 @@
 //! the oracle comparison. [`Win3dLayer`] holds the module's globals
 //! (decision T10).
 //!
-//! Not ported: the fuzzy lines of the tractor beam (`Win3DDrawFuzzyLine`,
-//! `Win3DDrawFuzzyArc`, the HUD's, P5). The vertex overflow's rate-limited
-//! warning is a counter here (divergence D480).
+//! The fuzzy lines the tractor beam draws (`Win3DDrawFuzzyLine`,
+//! `Win3DDrawFuzzyArc`) are in [`fuzzy`]. The vertex overflow's
+//! rate-limited warning is a counter here (divergence D480).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -37,6 +37,10 @@ use crate::render::texture::device::HandleTable;
 use crate::text::font::quad::TlVertex;
 
 pub use super::immediate::{capability, primitive};
+
+pub mod fuzzy;
+
+pub use fuzzy::{FuzzyLine, random_vector};
 
 /// The accumulator's vertex format: `XYZ | DIFFUSE | TEX1`.
 pub const FVF: u32 = 0x142;

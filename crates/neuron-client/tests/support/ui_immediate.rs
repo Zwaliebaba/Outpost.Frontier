@@ -7,13 +7,17 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use neuron_client::text::font::quad::{ScreenQuadRecord, TlVertex};
-use neuron_client::ui::quad_batch::{Frame, QuadBatcher, QuadDevice, vertex_bytes};
+use neuron_client::ui::montage::{draw_tile_at, flush_buttons};
+use neuron_client::ui::quad_batch::{Frame, IconCamera, QuadBatcher, QuadDevice, vertex_bytes};
+use neuron_client::ui::services::MontageTile;
+use neuron_client::ui::shape::{ShapeTextures, TexShape};
 use neuron_client::ui::win3d_immediate::{
-    LineVertex, QUERY_VIEWPORT, Vertex, Win3dLayer, Win3dPipeline, sphere_points,
+    FuzzyLine, LineVertex, QUERY_VIEWPORT, Vertex, Win3dLayer, Win3dPipeline, sphere_points,
 };
 use neuron_client::ui::win3d_renderables::{
     Batch, LineBatchers, Win3dView, font_atlas_key, prep_ui_overlay,
 };
+use neuron_core::rng::CrtRand;
 
 use super::hex;
 
@@ -181,6 +185,39 @@ impl Win3dPipeline for Recorder {
     }
 }
 
+/// The texture library's `GetTextureFrame`: the frames the case set, else
+/// the record as the handle over the whole texture.
+#[derive(Default)]
+struct Frames(BTreeMap<u32, (u32, [u32; 4])>);
+
+impl ShapeTextures for Frames {
+    fn find(&mut self, _: &[u8]) -> Option<u32> {
+        None
+    }
+    fn add_ref(&mut self, _: u32) {}
+    fn release(&mut self, _: u32) {}
+    fn load_group(&mut self, _: &[u8]) -> Option<i32> {
+        None
+    }
+    fn garbage_collect(&mut self, _: i32) {}
+    fn generic_slot_4(&mut self) -> u32 {
+        0
+    }
+    fn set_generic_slot_4(&mut self, _: u32) {}
+    fn frame_handle(&mut self, record: u32, frame: i32) -> u32 {
+        self.frame(record, frame).0
+    }
+    fn frame(&mut self, record: u32, _: i32) -> (u32, [u32; 4]) {
+        self.0
+            .get(&record)
+            .copied()
+            .unwrap_or((record, [0, 0, 0x3F80_0000, 0x3F80_0000]))
+    }
+    fn texture_dim(&mut self, _: u32) -> (u32, u32) {
+        (0, 0)
+    }
+}
+
 fn h32(field: &str) -> u32 {
     u32::from_str_radix(field, 16).unwrap()
 }
@@ -244,6 +281,10 @@ pub fn lines(case: usize, line: &str) -> Vec<String> {
         viewport: [0; 4],
         view: [0.0; 12],
     };
+    let mut scales = (0.0f32, 0.0f32);
+    let mut rand = CrtRand::default();
+    let mut frames = Frames::default();
+    let mut tiles: Vec<MontageTile> = Vec::new();
     for op in line.split(" ; ") {
         let x: Vec<&str> = op.split(' ').collect();
         match x[0] {
@@ -370,6 +411,69 @@ pub fn lines(case: usize, line: &str) -> Vec<String> {
                 let line = state_line(&layer);
                 rec.event(&line);
             }
+            "srand" => rand.seed(int(x[1]).cast_unsigned()),
+            "frame" => {
+                frames.0.insert(
+                    h32(x[1]),
+                    (h32(x[2]), std::array::from_fn(|i| h32(x[3 + i]))),
+                );
+            }
+            "fuzzy" => {
+                let v3 = |at: usize| [f(x[at]), f(x[at + 1]), f(x[at + 2])];
+                let texture = h32(x[2]);
+                let line = FuzzyLine {
+                    curved: int(x[1]) != 0,
+                    texture: (texture != 0).then_some(texture),
+                    start: v3(3),
+                    end: v3(6),
+                    control: v3(9),
+                    eye: v3(12),
+                    color: v3(15),
+                    width: f(x[18]),
+                    jitter_scale: f(x[19]),
+                    side_scale: f(x[20]),
+                };
+                layer.draw_fuzzy_line(&mut rec, &line, &mut rand, &mut |t| frames.frame(t, 0).0);
+            }
+            "camxs" => scales = (f(x[1]), f(x[2])),
+            "mtile" => {
+                let record = h32(x[4]);
+                tiles.push(MontageTile {
+                    index: tiles.len(),
+                    scale: f(x[5]),
+                    u: f(x[1]),
+                    v: f(x[2]),
+                    step: f(x[3]),
+                    shape: (record != 0).then_some(TexShape {
+                        texture: Some(record),
+                        ..TexShape::default()
+                    }),
+                });
+            }
+            "mdraw" => {
+                let tile = (x[1] != "-").then(|| tiles[usize::try_from(int(x[1])).unwrap()]);
+                let icon_camera = IconCamera {
+                    view: camera.view,
+                    z_near: camera.z_near,
+                    x_scale_over_near: f64::from(scales.0) / f64::from(camera.z_near),
+                    y_scale_over_near: f64::from(scales.1) / f64::from(camera.z_near),
+                    viewport: camera.viewport,
+                };
+                let byte = |i: usize| x[i].parse::<u8>().unwrap();
+                let drawn = draw_tile_at(
+                    &mut quads,
+                    &mut frames,
+                    &icon_camera,
+                    tile.as_ref(),
+                    [f(x[2]), f(x[3]), f(x[4])],
+                    [byte(5), byte(6), byte(7), byte(8)],
+                    f(x[9]),
+                    int(x[10]),
+                    f(x[11]),
+                );
+                rec.event(&format!("\"ev\":\"mdraw\",\"r\":\"{}\"", u8::from(drawn)));
+            }
+            "mflush" => flush_buttons(&mut rec, &mut quads),
             other => panic!("unknown operation {other}"),
         }
     }

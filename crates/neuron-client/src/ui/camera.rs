@@ -188,6 +188,18 @@ impl Camera {
         self.rebuild_plane_y(f64::from(tan_y_stored));
     }
 
+    /// `SpaceCameraSetFovY`: the vertical angle, the horizontal half angle
+    /// of its tangent times the aspect (over the Hor+ factor), and both
+    /// planes from the unrounded tangents.
+    pub fn set_fov_y(&mut self, fov_y_deg: f32) {
+        self.fov_y_deg = fov_y_deg;
+        let tan_y = (f64::from(fov_y_deg) * f64::from(DEGREES_TO_RADIANS)).tan();
+        let tan_x = tan_y * f64::from(self.aspect);
+        self.half_fov_x_deg = tangent_to_degrees(tan_x / self.hor_plus_scale());
+        self.rebuild_plane_x(tan_x);
+        self.rebuild_plane_y(tan_y);
+    }
+
     /// `SpaceCameraSetViewport`: the inclusive rectangle, the aspect, the
     /// half extents, the screen centre and the planes for the stored half
     /// angle.

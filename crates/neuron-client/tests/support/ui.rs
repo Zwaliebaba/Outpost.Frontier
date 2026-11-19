@@ -294,7 +294,7 @@ mod controls {
     use neuron_client::ui::services::{HoverKey, HudRecord, ToolTipHover, UiServices};
     use neuron_client::ui::shape::{ShapeTextures, TexShape};
     use neuron_client::ui::tree::{
-        ChildMessage, DrawHost, MeshPass, NodeId, Payload, Property, Ui, Widget,
+        ChildMessage, DrawHost, MeshPass, NodeId, Payload, Property, Ui, Widget, WindowView,
     };
     use neuron_client::ui::widescreen::Surface;
     use neuron_core::math::{Matrix, Transform, Vector};
@@ -557,6 +557,30 @@ mod controls {
                 ),
                 MeshPass::Direct { .. } => panic!("no case draws a z-clear pass"),
             }
+        }
+        /// The window camera's rectangle, planes and angle, as the C++
+        /// stand-in of `Win3DApplyCameraPerspective` records them; the
+        /// window's end as its `Win3DSetViewportRect`.
+        fn window_view(&mut self, view: Option<WindowView>) {
+            match view {
+                Some(v) => ev(
+                    &self.log,
+                    &format!(
+                        "\"ev\":\"winview\",\"vp\":\"{} {} {} {}\",\"near\":\"{}\",\"far\":\"{}\",\"fov\":\"{}\"",
+                        v.rect[0],
+                        v.rect[1],
+                        v.rect[2],
+                        v.rect[3],
+                        bits(v.z_near),
+                        bits(v.z_far),
+                        bits(v.fov_y_deg)
+                    ),
+                ),
+                None => ev(&self.log, "\"ev\":\"winview\",\"vp\":\"-\""),
+            }
+        }
+        fn clear_engine_lights(&mut self) {
+            ev(&self.log, "\"ev\":\"lclear\"");
         }
         fn as_any_mut(&mut self) -> &mut dyn Any {
             self

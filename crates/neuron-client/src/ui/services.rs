@@ -16,12 +16,19 @@ use super::tree::NodeId;
 
 /// A button montage tile (`FButtonMontageTile`): an icon of
 /// `ButtonMontage.ini` drawn in place of a button's mesh.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct MontageTile {
     /// The tile's index in the montage.
     pub index: usize,
     /// `Scale`: the icon's size; 0 sizes it by the mesh.
     pub scale: f32,
+    /// `U`, `V`: the tile's upper left corner on its shape.
+    pub u: f32,
+    pub v: f32,
+    /// `Step`: the tile's size in UV.
+    pub step: f32,
+    /// The `ButtonTextures.ini` shape the tile sits on, if any.
+    pub shape: Option<super::shape::TexShape>,
 }
 
 /// The three cursors `UITable` sets (`LoadImageA` of `IDC_SIZENS` and
