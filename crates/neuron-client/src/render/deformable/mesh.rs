@@ -805,6 +805,11 @@ impl MeshCache {
             .map_or(0, |e| e.refs)
     }
 
+    /// The cached meshes by name CRC, in CRC order (`G_MeshCache`'s).
+    pub fn iter(&self) -> impl Iterator<Item = (u32, MeshId)> + '_ {
+        self.by_crc.iter().map(|(&crc, &id)| (crc, id))
+    }
+
     /// The meshes alive.
     pub fn len(&self) -> usize {
         self.entries.iter().flatten().count()

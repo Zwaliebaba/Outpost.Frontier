@@ -6,6 +6,7 @@
 //! `oracle_big_image.cpp`, `oracle_material.cpp`,
 //! `oracle_material_kinds.cpp`, `oracle_material_surface.cpp`,
 //! `oracle_material_appearance.cpp`, `oracle_mesh_render.cpp`, `oracle_deformable.cpp`,
+//! `oracle_deformable_parts.cpp`,
 //! `oracle_particles.cpp` and `oracle_ui.cpp`).
 
 mod support;
@@ -361,4 +362,13 @@ fn particle_draw() {
 #[test]
 fn deformable() {
     check_suite("deformable.jsonl", &deformable::lines());
+}
+
+/// P4.7, second increment: parts made from archives (`ConnectInstanceParts`
+/// and `LoadSkeleton` over the UTF file system) and the `EyeMaterial` made
+/// by its factory and driven as a material of `render::material`
+/// (`tests/fixtures/oracle/deformable_parts.list`).
+#[test]
+fn deformable_parts() {
+    check_suite("deformable_parts.jsonl", &deformable::parts_lines());
 }

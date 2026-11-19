@@ -46,6 +46,15 @@
 //   dump "flags","file","line","msg" (line hex, msg hex)
 // with <context> "inst","world","view","vb","ib","f20". Every operation then writes
 // {"case","op",...}.
+//
+// The second increment's suite (deformable_parts.jsonl, input deformable_parts.list) runs the
+// same cases with the operations of oracle_deformable_parts.cpp, which this file reaches through
+// RunPartsOp: parts made from archives by the reference's Create (ConnectInstanceParts and
+// LoadSkeleton over an in-memory file system) and the EyeMaterial made by its factory. For them
+// the engine also records
+//   carch "name","r" (CreateArchetypeHandle) / qvmesh "h","r" (QueryEngineComponent)
+// and the material library
+//   findmat "name","r" (FindMaterialByCrc) / maprule "key","pattern","type" (AddMapRule).
 
 #include <stdarg.h>
 #include <stdint.h>
@@ -138,6 +147,10 @@ namespace deformable_oracle
         long LinkRoot = -1;
         std::vector<std::pair<long, long>> Links;
         long NextInstance = 0x500;
+        // The archetype handles CreateArchetypeHandle hands out (skeletons get SkelHandle) and the
+        // bone links queued for the next skeleton instances (the parts suite).
+        long NextArch = 0x100;
+        std::vector<std::pair<long, std::vector<std::pair<long, long>>>> LinkQueue;
         bool bHardpoints = true;
         std::map<long, std::vector<std::string>> HardpointNames;
         unsigned long ConnectResult = 0;
@@ -323,6 +336,21 @@ namespace deformable_oracle
 
     // --- the engine ---------------------------------------------------------------------------
 
+    // The search path GetSearchPath hands out; LoadSkeleton releases it.
+    class FDefSearchPath final : public INeuronComponent
+    {
+    public:
+        GENRESULT NEURONCOMPONENTS_API QueryInterface(const char*, void** Out) override
+        {
+            *Out = nullptr;
+            return GR_INTERFACE_UNSUPPORTED;
+        }
+        unsigned long NEURONCOMPONENTS_API AddRef() override { return 1; }
+        unsigned long NEURONCOMPONENTS_API Release() override { return 1; }
+    };
+
+    FDefSearchPath GSearchPath;
+
     class FDefHardpoint final : public IHardpoint
     {
     public:
@@ -381,6 +409,12 @@ namespace deformable_oracle
         {
             if (Id(Handle) == G.SkelHandle)
             {
+                if (!G.LinkQueue.empty())
+                {
+                    G.LinkRoot = G.LinkQueue.front().first;
+                    G.Links = G.LinkQueue.front().second;
+                    G.LinkQueue.erase(G.LinkQueue.begin());
+                }
                 G.Event(Format("\"ev\":\"cinst\",\"h\":\"%ld\",\"r\":\"%ld\"", Id(Handle), G.LinkRoot));
                 for (const std::pair<long, long>& Link : G.Links)
                 {
@@ -464,16 +498,31 @@ namespace deformable_oracle
         GENRESULT NEURONCOMPONENTS_API NotifyEngineComponents(void* Arg) override { return GR_GENERIC; }
         GENRESULT NEURONCOMPONENTS_API SetSearchPath(const char* Path) override { return GR_GENERIC; }
         GENRESULT NEURONCOMPONENTS_API QuerySearchPath(char* Dest, unsigned long MaxChars) override { return GR_GENERIC; }
-        GENRESULT NEURONCOMPONENTS_API SetFilesystem(INeuronComponent* NewPath) override { return GR_GENERIC; }
-        GENRESULT NEURONCOMPONENTS_API GetSearchPath(void** Out) override { return GR_GENERIC; }
+        GENRESULT NEURONCOMPONENTS_API SetFilesystem(INeuronComponent*) override { return GR_OK; }
+        GENRESULT NEURONCOMPONENTS_API GetSearchPath(void** Out) override
+        {
+            *Out = &GSearchPath;
+            return GR_OK;
+        }
+        void* NEURONCOMPONENTS_API CreateArchetypeHandle(FEngineName* Name, void*) override
+        {
+            const char* Text = Name->Text != nullptr ? Name->Text : "";
+            const long R = strncmp(Text, "skel_", 5) == 0 ? G.SkelHandle : G.NextArch++;
+            G.Event(Format("\"ev\":\"carch\",\"name\":\"%s\",\"r\":\"%ld\"", Text, R));
+            return Ptr(R);
+        }
+        GENRESULT NEURONCOMPONENTS_API QueryEngineComponent(int Handle, void*, void** Out) override
+        {
+            G.Event(Format("\"ev\":\"qvmesh\",\"h\":\"%d\",\"r\":\"-1\"", Handle));
+            *Out = nullptr;
+            return GR_GENERIC;
+        }
         GENRESULT NEURONCOMPONENTS_API CreateFileSystem(const char* Path, void** Out, void* Factory) override { return GR_GENERIC; }
         void* NEURONCOMPONENTS_API CreateCompoundArchetype(FEngineName* Name) override { return nullptr; }
-        void* NEURONCOMPONENTS_API CreateArchetypeHandle(FEngineName* Name, void* FileSystem) override { return nullptr; }
         void* NEURONCOMPONENTS_API DuplicateArchetype(void* ArchIn, FEngineName* Name) override { return nullptr; }
         unsigned long NEURONCOMPONENTS_API AddRefHandle(void* Handle) override { return 0; }
         FEngineName* NEURONCOMPONENTS_API GetArchetypeName(FEngineName* Out, void* Handle) override { return nullptr; }
         void* NEURONCOMPONENTS_API FindArchetype(FEngineName* Name) override { return nullptr; }
-        GENRESULT NEURONCOMPONENTS_API QueryEngineComponent(int Id, void* Name, void** Out) override { return GR_GENERIC; }
         unsigned long NEURONCOMPONENTS_API IsCompoundArchetype(void* Handle) override { return 0; }
         GENRESULT NEURONCOMPONENTS_API EnumerateArchetypeConstraints( void* Handle, int(__cdecl* Callback)(void*, void*, void*, void*), void* Context) override { return GR_GENERIC; }
         GENRESULT NEURONCOMPONENTS_API EnumerateArchetypeChildren( void* Handle, int(__cdecl* Callback)(void*, void*, int, void*), void* Context) override { return GR_GENERIC; }
@@ -1419,6 +1468,10 @@ namespace deformable_oracle
 
     std::string QuatText(const float* Q) { return Fs(Q, 4); }
 
+    struct FDefCase;
+    // oracle_deformable_parts.cpp: the parts suite's operations; false for an unknown one.
+    bool RunPartsOp(FDefCase& Case, const std::vector<std::string>& T);
+
     struct FDefCase
     {
         FMeshBuild Build;
@@ -2082,7 +2135,7 @@ namespace deformable_oracle
                 G.TextureFormats[(long)HexWord(T[1])] = (int)Dec(T[2]);
             else if (K == "eye")
                 RunEye(T);
-            else
+            else if (!RunPartsOp(*this, T))
             {
                 fprintf(stderr, "deformable: unknown operation %s\n", K.c_str());
                 GFailed = true;
@@ -2234,18 +2287,37 @@ namespace deformable_oracle
     };
 }
 
-// The suite (deformable.jsonl), called from RunMaterialSuites after the mesh render suite.
+namespace deformable_oracle
+{
+    // The cases of a list into Out, against the fakes, with this material library (none for the
+    // first suite).
+    IMaterialLibrary* GListLibrary = nullptr;
+    void RunDeformableList(Suite& Out, const char* List);
+    // oracle_deformable_parts.cpp: deformable_parts.jsonl.
+    void RunPartsSuite();
+}
+
+// The suites (deformable.jsonl, then deformable_parts.jsonl), called from RunMaterialSuites after
+// the mesh render suite.
 void RunDeformableSuite()
 {
     using namespace deformable_oracle;
-    Suite Out("deformable.jsonl");
     if (!OracleLoadMathEngine())
     {
         fprintf(stderr, "deformable: no 3DMathEngine\n");
         GFailed = true;
         return;
     }
-    const std::vector<std::string> Lines = InputLines("deformable.list");
+    {
+        Suite Out("deformable.jsonl");
+        RunDeformableList(Out, "deformable.list");
+    }
+    RunPartsSuite();
+}
+
+void deformable_oracle::RunDeformableList(Suite& Out, const char* List)
+{
+    const std::vector<std::string> Lines = InputLines(List);
     void(__cdecl * Saved)(int, const char*, ...) = FDUMP;
     FDUMP = DefDump;
     // FDeformable's constructor zeroes the module caches; the fakes go in after it.
@@ -2257,6 +2329,7 @@ void RunDeformableSuite()
     G_Pipeline = &GPipeline;
     G_VertexBuffer = &GVb;
     G_IndexBuffer = &GIb;
+    G_MaterialLibrary = GListLibrary;
     for (size_t Case = 0; Case < Lines.size(); ++Case)
     {
         G = FDefState();
@@ -2278,5 +2351,6 @@ void RunDeformableSuite()
     G_Pipeline = nullptr;
     G_VertexBuffer = nullptr;
     G_IndexBuffer = nullptr;
+    G_MaterialLibrary = nullptr;
     G_MeshCache.clear();
 }

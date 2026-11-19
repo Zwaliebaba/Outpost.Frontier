@@ -25,10 +25,21 @@
 //! fails), and the batcher is taken out while it flushes or while the
 //! library loads, creates or releases (divergence D359). The engine's
 //! instances stay behind [`StackEngine`].
+//!
+//! [`StackDeform`] (work package P4.7) adds the render half of the
+//! deformable component's calls: a skinned character draws through its
+//! face groups' materials (the `EyeMaterial` among them, which the stack
+//! answers as an [`EyeHost`]) into the device's draw packets, its skinned
+//! vertices in a device vertex buffer.
 
 use std::rc::Rc;
 
+mod deform;
+
+pub use deform::{StackDeform, draw_deformable};
+
 use crate::render::appearance::{AppearanceServices, Camera, Face, MeshView};
+use crate::render::deformable::{EyeHost, UvBinding};
 use crate::render::ff::buffers::{BufferError, IndexSource};
 use crate::render::ff::device::Backend;
 use crate::render::ff::fvf::Fvf;
@@ -90,6 +101,16 @@ pub trait StackEngine {
         let _ = instance;
         None
     }
+    /// `GetInstanceParent` (the `EyeMaterial`'s bind): -1 for none.
+    fn instance_parent(&mut self, instance: Instance) -> i32 {
+        let _ = instance;
+        -1
+    }
+    /// `GetInstanceOrientation`: the nine floats.
+    fn instance_orientation(&mut self, instance: Instance) -> [f32; 9] {
+        let _ = instance;
+        [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+    }
 }
 
 /// A `FDUMP` or log event the stack received.
@@ -126,6 +147,9 @@ pub struct RenderStack<B: Backend + 'static> {
     particle_vb_lock: Option<(u32, u32)>,
     /// The particle draw's index lock on the dynamic buffer: its start.
     particle_ib_lock: Option<u32>,
+    /// The UV-deform binding of the deformable face group binding its
+    /// material (what the context's `Field20` points to).
+    uv_binding: Option<UvBinding>,
 }
 
 impl<B: Backend + 'static> std::fmt::Debug for RenderStack<B> {
@@ -160,6 +184,7 @@ impl<B: Backend + 'static> RenderStack<B> {
             ib_locks: Vec::new(),
             particle_vb_lock: None,
             particle_ib_lock: None,
+            uv_binding: None,
         }
     }
 
@@ -971,6 +996,30 @@ impl<B: Backend + 'static> MeshServices for RenderStack<B> {
             flags: 0,
             text: format!("{name} {value}"),
         });
+    }
+}
+
+impl<B: Backend + 'static> EyeHost for RenderStack<B> {
+    fn eye_instance_parent(&mut self, instance: i32) -> i32 {
+        usize::try_from(instance).map_or(-1, |i| self.engine.instance_parent(i))
+    }
+
+    fn eye_instance_orientation(&mut self, instance: i32) -> [f32; 9] {
+        usize::try_from(instance).map_or([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0], |i| {
+            self.engine.instance_orientation(i)
+        })
+    }
+
+    fn take_uv_binding(&mut self) -> Option<UvBinding> {
+        self.uv_binding.take()
+    }
+
+    fn restore_uv_binding(&mut self, binding: UvBinding) {
+        self.uv_binding = Some(binding);
+    }
+
+    fn eye_dump(&mut self, flags: i32, file: &str, line: u32, message: &str) {
+        MeshServices::dump(self, flags, file, line, message);
     }
 }
 
