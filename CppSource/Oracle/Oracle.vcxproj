@@ -382,6 +382,9 @@
     <ClCompile Include="oracle_text.cpp" />
     <!-- P4.12: LayoutRichText and the list functions of Common.dll on a recording context. -->
     <ClCompile Include="oracle_rich_text.cpp" />
+    <!-- P4.12: the client's LoadRichFontsFromIni (menu_fonts_load.cpp compiled in) over Common's
+         INI_Reader and StyleCollection. -->
+    <ClCompile Include="oracle_rich_fonts.cpp" />
     <!-- P4.12: Oracle.exe gdi-fonts, GDI's text metrics for the DirectWrite font backend. -->
     <ClCompile Include="oracle_gdi_fonts.cpp" />
     <!-- P4.10: SoundManager.dll exports nothing but its factory; oracle_audio.cpp includes

@@ -1,9 +1,11 @@
 //! The script engine: `FScriptEngine` of `SceneScript.cpp`, the object the
 //! game creates for each scene script. It owns the scene ([`Player`]) and
 //! adds what the scene does not hold: the COM context (`Slot40SetCom`),
-//! loading from a file system (`Slot4Load`) or a path (`Slot43LoadPath`),
-//! saving through the save parser (`Slot5Save`, `Slot42SetSaveParser`) or
-//! to a path (`Slot44SavePath`), and the last path either was given.
+//! loading from a file system (`Slot4Load`) through the default parser or
+//! the load parser the game sets (`Slot41SetLoadParser`), or from a path
+//! (`Slot43LoadPath`), saving through the save parser (`Slot5Save`,
+//! `Slot42SetSaveParser`) or to a path (`Slot44SavePath`), and the last
+//! path either was given.
 //!
 //! The parser's module-lifetime state (the Lua state and the published
 //! entity handles) is the caller's [`ScriptModule`], which every engine of
@@ -64,6 +66,37 @@ impl ScriptModule {
     pub fn new() -> ScriptModule {
         ScriptModule::default()
     }
+}
+
+/// `ISceneScriptLoadParser`: what `Slot4Load` reads a file with in place
+/// of the scene-script parser, once the game sets one
+/// (`Slot41SetLoadParser`). The engine runs [`Self::load`]; when its
+/// result is not negative, it stores [`Self::duration`], runs
+/// [`Self::build`] (whose result it ignores), and finishes the load with
+/// [`Self::duration`] asked again. The counts are the reference
+/// interface's; the engine does not ask for them.
+///
+/// The reference's parser gets the engine itself (`IScriptEngine`); here
+/// [`Self::build`] gets the scene, whose methods are the engine's scene
+/// slots (`Slot34SetUserProp` to `Slot39RemoveEvent` and the rest), and
+/// the engine's COM context (divergence D560).
+pub trait LoadParser {
+    /// Slot 1, `GetEntityCount`.
+    fn entity_count(&mut self) -> u32;
+    /// Slot 2, `GetEventCount`.
+    fn event_count(&mut self) -> u32;
+    /// Slot 3, `GetDuration`.
+    fn duration(&mut self) -> u32;
+    /// Slot 4, `Load`: the first pass over the file; a negative result
+    /// fails the load.
+    fn load(&mut self, fs: &mut dyn FileSystem) -> i32;
+    /// Slot 5, `Build`: the second pass, which fills the scene.
+    fn build(
+        &mut self,
+        fs: &mut dyn FileSystem,
+        player: &mut Player,
+        com: Option<&mut dyn ComContext>,
+    ) -> i32;
 }
 
 /// `ISceneScriptSaveParser`: what `Slot5Save` hands the scene to. The
@@ -146,6 +179,7 @@ fn result_code(error: VfsError) -> i32 {
 pub struct ScriptEngine {
     player: Player,
     com: Option<Rc<RefCell<dyn ComContext>>>,
+    load_parser: Option<Box<dyn LoadParser>>,
     save_parser: Option<Box<dyn SaveParser>>,
     /// The `+0xc` string: the last path given to `Slot43LoadPath` (when not
     /// null) or `Slot44SavePath`.
@@ -184,6 +218,19 @@ impl ScriptEngine {
         self.com.as_ref()
     }
 
+    /// `Slot41SetLoadParser`: the parser `Slot4Load` uses, `None` for the
+    /// scene-script parser made per load. It stays set across loads.
+    /// Always 0.
+    pub fn set_load_parser(&mut self, parser: Option<Box<dyn LoadParser>>) -> i32 {
+        self.load_parser = parser;
+        OK
+    }
+
+    /// The load parser set with [`Self::set_load_parser`].
+    pub fn load_parser_mut(&mut self) -> Option<&mut (dyn LoadParser + 'static)> {
+        self.load_parser.as_deref_mut()
+    }
+
     /// `Slot42SetSaveParser`: the parser `Slot5Save` uses, `None` for the
     /// default one made per call. Always 0.
     pub fn set_save_parser(&mut self, parser: Option<Box<dyn SaveParser>>) -> i32 {
@@ -202,7 +249,9 @@ impl ScriptEngine {
     /// into the scene, the COM context receiving the user events' text.
     /// 0 without a file system or when the first pass succeeds; -1 when the
     /// file is empty or short or the first pass fails, and where the
-    /// reference faults in the second pass (divergence D240).
+    /// reference faults in the second pass (divergence D240). With a load
+    /// parser set, that parser's passes run instead
+    /// ([`LoadParser`]); `module` is then not used.
     pub fn load(&mut self, module: &mut ScriptModule, fs: Option<&mut dyn FileSystem>) -> i32 {
         if self.player.state() != 0 {
             self.player.clear();
@@ -210,6 +259,21 @@ impl ScriptEngine {
         let Some(fs) = fs else {
             return OK;
         };
+        if let Some(parser) = self.load_parser.as_deref_mut() {
+            if parser.load(fs) < 0 {
+                return GENERIC;
+            }
+            self.player.set_duration(parser.duration() as i32);
+            let mut com = self.com.as_ref().map(|c| c.borrow_mut());
+            // `as_deref_mut` keeps the object's `'static` bound, which the
+            // reborrow cannot meet behind `&mut`.
+            #[allow(clippy::option_as_ref_deref)]
+            let com = com.as_mut().map(|c| -> &mut dyn ComContext { &mut **c });
+            parser.build(fs, &mut self.player, com);
+            let duration = parser.duration();
+            self.player.finish_load(duration);
+            return OK;
+        }
         let Some(bytes) = read_whole(fs) else {
             return GENERIC;
         };
@@ -370,6 +434,77 @@ mod tests {
             text,
             b"duration = 1.500;\r\n\r\nentities =\r\n{\r\n\r\n};\r\n\r\nevents =\r\n{\r\n};\r\n"
         );
+    }
+
+    /// A parser of the tests: its load fails on an empty file; its build
+    /// counts itself and raises its duration.
+    struct Counting {
+        builds: u32,
+        duration_ms: u32,
+    }
+
+    impl LoadParser for Counting {
+        fn entity_count(&mut self) -> u32 {
+            0
+        }
+        fn event_count(&mut self) -> u32 {
+            0
+        }
+        fn duration(&mut self) -> u32 {
+            self.duration_ms
+        }
+        fn load(&mut self, fs: &mut dyn FileSystem) -> i32 {
+            if fs.size().unwrap_or(0) == 0 {
+                GENERIC
+            } else {
+                OK
+            }
+        }
+        fn build(
+            &mut self,
+            _: &mut dyn FileSystem,
+            _: &mut Player,
+            _: Option<&mut dyn ComContext>,
+        ) -> i32 {
+            self.builds += 1;
+            self.duration_ms += 250;
+            GENERIC
+        }
+    }
+
+    /// A load parser set with `Slot41SetLoadParser` reads every load until
+    /// it is removed: the scene takes the duration it reports after its
+    /// build, whatever the build returned; no file system skips it.
+    #[test]
+    fn a_load_parser_stays_until_it_is_removed() {
+        let mut module = ScriptModule::new();
+        let mut engine = ScriptEngine::new();
+        let parser = Counting {
+            builds: 0,
+            duration_ms: 1000,
+        };
+        assert_eq!(engine.set_load_parser(Some(Box::new(parser))), OK);
+        let mut file = MemFileSystem::new(
+            None,
+            GENERIC_READ,
+            OPEN_EXISTING,
+            MemSource::Copy(Some(b"x")),
+        );
+        assert_eq!(engine.load(&mut module, Some(&mut file)), OK);
+        assert_eq!(engine.player().duration(), 1250);
+        assert_eq!(
+            engine.player().state(),
+            crate::scene_script::playback::state::LOADED
+        );
+        assert_eq!(engine.load(&mut module, None), OK);
+        assert_eq!(engine.player().state(), 0);
+        let mut empty =
+            MemFileSystem::new(None, GENERIC_READ, OPEN_EXISTING, MemSource::Copy(None));
+        assert_eq!(engine.load(&mut module, Some(&mut empty)), GENERIC);
+        assert_eq!(engine.load(&mut module, Some(&mut file)), OK);
+        assert_eq!(engine.player().duration(), 1500);
+        assert_eq!(engine.set_load_parser(None), OK);
+        assert!(engine.load_parser_mut().is_none());
     }
 
     /// The host's factories open files for reading only: a load of a

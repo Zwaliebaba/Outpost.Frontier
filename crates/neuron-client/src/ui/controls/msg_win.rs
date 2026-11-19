@@ -17,7 +17,7 @@ use neuron_core::math::{Matrix, Vector};
 use crate::text::rdl::{RdlNode, RenderDisplayList};
 use crate::ui::control::WinControl;
 use crate::ui::controls::rich_text_win::RichTextWin;
-use crate::ui::tree::{DrawHost, NodeId, Payload, Property, Ui, Widget};
+use crate::ui::tree::{ChildMessage, DrawHost, NodeId, Payload, Property, Ui, Widget};
 
 /// What a message window shows (`FChatDisplaySnapshot`): a generation
 /// that moves on with every change, and the list it versions.
@@ -146,6 +146,10 @@ impl Widget for MsgWin {
     }
     fn draw(&mut self, ui: &mut Ui, id: NodeId, host: &mut dyn DrawHost) {
         self.win.draw(ui, id, host);
+    }
+    /// Slot 23: the window's (its bar's value).
+    fn child_message(&mut self, ui: &mut Ui, _id: NodeId, message: &ChildMessage) -> bool {
+        self.win.child_message_window(ui, message)
     }
     fn property(&mut self, ui: &mut Ui, id: NodeId, property: Property<'_>) -> isize {
         self.win.property(ui, id, property)

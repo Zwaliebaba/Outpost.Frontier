@@ -472,10 +472,16 @@ impl UiScroll {
     }
 
     /// The parent told of a change: slot 23 0xF005, then property 0x3E with
-    /// the truncated value when it is a `WinControl`.
-    fn notify_parent(&self, ui: &mut Ui, id: NodeId) {
+    /// the truncated value when it is a `WinControl`. A value the parent set
+    /// on the bar during slot 23 (a rich-text window's `SetScrollOrigin`) is
+    /// set before the property (divergence D561).
+    fn notify_parent(&mut self, ui: &mut Ui, id: NodeId) {
         let Some(parent) = ui.parent(id) else { return };
-        ui.send_child_message(parent, &ChildMessage::ScrollChanged { from: id });
+        let value = self.value;
+        ui.send_child_message(parent, &ChildMessage::ScrollChanged { from: id, value });
+        if let Some(back) = ui.take_scroll_value(id) {
+            self.set_value(back);
+        }
         if ui.win_control(parent).is_some() {
             let value = trunc_to_i32(f64::from(self.value));
             ui.property(parent, Property::ScrollChanged(id, value));

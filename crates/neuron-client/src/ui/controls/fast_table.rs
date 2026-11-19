@@ -14,9 +14,7 @@
 use std::any::Any;
 use std::rc::Rc;
 
-use neuron_core::math::{
-    Matrix, Transform, Vector, general_inverse, transform_matrix, transform_xform,
-};
+use neuron_core::math::{Matrix, Transform, Vector, general_inverse, transform_xform};
 use neuron_core::num::trunc_to_i32;
 
 use crate::text::font::FontSystem;
@@ -25,7 +23,7 @@ use crate::text::layout::layout_rich_text;
 use crate::text::layout::list::LayoutParams;
 use crate::text::rdl::{ClipRect, RdlNode, RenderDisplayList};
 use crate::ui::control::{WinControl, base};
-use crate::ui::controls::rich_text_win::{BaseRichTextWin, RichTextCx};
+use crate::ui::controls::rich_text_win::{BaseRichTextWin, RichTextCx, place_scroll_bar};
 use crate::ui::controls::scroll::UiScroll;
 use crate::ui::immediate::{primitive, render_state};
 use crate::ui::message::MouseButton;
@@ -805,23 +803,46 @@ impl UiFastTable {
         imm.end();
     }
 
-    /// The window's draw with the table's slot 45.
+    /// The window's draw with the table's slot 45
+    /// ([`BaseRichTextWin::draw_window`]), then the children.
     fn draw_window(&mut self, ui: &mut Ui, id: NodeId, host: &mut dyn DrawHost) {
         let Some(node) = ui.node(id) else { return };
         if node.flags & VISIBLE == 0 {
             return;
         }
         let transform = Transform::new(node.orientation, node.position);
-        if let Some(fonts) = ui.fonts.as_mut()
-            && let Some(mut cx) = host.rich_text_cx()
-        {
-            self.draw_surface(&transform, fonts, &mut cx);
-        }
+        let mut grid = Grid {
+            cells: &mut self.cells,
+            row_edges: &self.row_edges,
+            column_edges: &self.column_edges,
+            margins: (self.cell_margin_x, self.cell_margin_y),
+            single_line: self.layout_flag,
+        };
+        self.base
+            .draw_window(ui, id, host, &transform, &mut |base, fonts, toolkit, cx| {
+                let projection = cx.projection;
+                let viewport = cx.viewport;
+                base.render_in(
+                    fonts,
+                    toolkit,
+                    &mut |base, fonts| {
+                        relayout_cells(
+                            base,
+                            fonts,
+                            grid.reborrow(),
+                            &transform,
+                            &projection,
+                            viewport,
+                        );
+                    },
+                    cx.pipeline,
+                );
+            });
         ui.draw_children(id, host);
     }
 
     /// `BaseRichTextWin::Draw` without the toolkit: the projection, the
-    /// surface laid out by slot 45, the image.
+    /// surface laid out by slot 45, the image; no bar, mesh or frame.
     pub fn draw_surface(
         &mut self,
         transform: &Transform,
@@ -1273,51 +1294,6 @@ impl Widget for UiFastTable {
 /// the first item and the visible row count.
 pub type ScrollTableCallback = Box<dyn FnMut(i32, u32)>;
 
-impl BaseRichTextWin {
-    /// `CreateScrollBarV` as a child: a `UIScroll` named `ScrollV_%d` (the
-    /// manager's serial) of the bar's width by the window's height, its
-    /// range the larger of the laid-out and the pixel height, a page of the
-    /// pixel height and a step of a tenth of it, placed beside the text
-    /// (the gap plus the width along the window's x axis) with the
-    /// window's transform.
-    pub fn create_scroll_bar_child(&self, ui: &mut Ui, id: NodeId) -> Option<NodeId> {
-        let range = self.layout_height.max(self.pixel_height);
-        let payload = EntryPayload::ScrollCycle {
-            right: self.scroll_bar_width,
-            bottom: self.norm_height,
-            extra: [
-                0.0,
-                range as f32,
-                self.pixel_height as f32,
-                (self.pixel_height / 10) as f32,
-            ],
-            flag: false,
-        };
-        let serial = ui.scroll_v_serial;
-        ui.scroll_v_serial = serial.wrapping_add(1);
-        let name = format!("ScrollV_{serial}");
-        let bar = ui.create_by_class(
-            Some(name.as_bytes()),
-            b"UIScroll",
-            Some(id),
-            &mut Payload::Page(&payload),
-        )?;
-        place_bar(ui, id, bar, self.scroll_bar_gap, self.norm_width);
-        Some(bar)
-    }
-}
-
-/// The bar beside the window: (gap + width, 0, 0) through the window's
-/// orientation as its offset (`SetOffset`), the window's transform as its
-/// own (slot 8).
-fn place_bar(ui: &mut Ui, id: NodeId, bar: NodeId, gap: f32, width: f32) {
-    let transform = node_transform(ui, id);
-    let along = Vector::new((f64::from(gap) + f64::from(width)) as f32, 0.0, 0.0);
-    let offset = transform_matrix(&transform.rotation, along);
-    ui.with_widget(bar, (), |w, ui| base::set_offset(ui, bar, w, offset));
-    ui.set_transform(bar, &transform);
-}
-
 /// `UIScrollTable`.
 #[derive(Default)]
 pub struct UiScrollTable {
@@ -1403,13 +1379,18 @@ impl UiScrollTable {
     pub fn set_scroll_bar_gap(&mut self, ui: &mut Ui, id: NodeId, gap: f32) {
         self.table.base.scroll_bar_gap = gap;
         if let Some(bar) = self.scroll_bar {
-            place_bar(ui, id, bar, gap, self.table.base.norm_width);
+            place_scroll_bar(ui, id, bar, gap, self.table.base.norm_width);
         }
     }
 
     /// The callback hears the first item and the visible rows.
     fn scrolled(&mut self, ui: &Ui) {
         let first = self.first_item(ui);
+        self.scrolled_to(first);
+    }
+
+    /// The callback hears `first` and the visible rows.
+    fn scrolled_to(&mut self, first: i32) {
         let visible = self.visible_rows();
         if let Some(cb) = self.callback.as_mut() {
             cb(first, visible);
@@ -1456,7 +1437,7 @@ impl Widget for UiScrollTable {
         if !self.table.create(ui, id, parent, payload) {
             return false;
         }
-        self.scroll_bar = self.table.base.create_scroll_bar_child(ui, id);
+        self.scroll_bar = self.table.base.create_scroll_bar_v(ui, id);
         let rows = self.table.row_edges.len() as u32;
         self.set_item_count(ui, rows, 0);
         if let Some(bar) = self.bar(ui) {
@@ -1486,10 +1467,12 @@ impl Widget for UiScrollTable {
         self.table.mouse_event(ui, id, event)
     }
     /// Slot 23: the bar's value change goes to the callback.
-    fn child_message(&mut self, ui: &mut Ui, _id: NodeId, message: &ChildMessage) -> bool {
+    fn child_message(&mut self, _ui: &mut Ui, _id: NodeId, message: &ChildMessage) -> bool {
         match message {
-            ChildMessage::ScrollChanged { from } if Some(*from) == self.scroll_bar => {
-                self.scrolled(ui);
+            // The bar's value comes with the message: the bar is busy while
+            // it tells the table (D347).
+            ChildMessage::ScrollChanged { from, value } if Some(*from) == self.scroll_bar => {
+                self.scrolled_to(trunc_to_i32(f64::from(*value)));
                 true
             }
             _ => false,

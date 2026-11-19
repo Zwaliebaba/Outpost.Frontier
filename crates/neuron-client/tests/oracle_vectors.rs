@@ -35,6 +35,18 @@ fn rich_text() {
     );
 }
 
+/// P4.12: the `[TrueType]` and `[Style]` sections of the rich fonts INI
+/// through the client's `LoadRichFontsFromIni` (`menu_fonts_load.cpp`),
+/// the standard fonts it sets and the styles it registers
+/// (`tests/fixtures/oracle/rich_fonts.list`).
+#[test]
+fn rich_fonts() {
+    check_suite(
+        "rich_fonts.jsonl",
+        &rich_text::rich_fonts_lines(&input_lines("rich_fonts.list")),
+    );
+}
+
 /// P4.14: the Lua state after each buffer of a case, one fresh state per
 /// case (`tests/fixtures/oracle/scene_script.list`).
 #[test]

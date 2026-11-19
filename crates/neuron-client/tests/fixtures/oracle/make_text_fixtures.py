@@ -1,6 +1,7 @@
-"""Writes number_text.list, rdl_markup.list and rich_text.list, the inputs
-of the P4.12, P4.13 and P4.14 text suites (Oracle.exe neuron-client,
-oracle_text.cpp and oracle_rich_text.cpp, and
+"""Writes number_text.list, rdl_markup.list, rich_text.list and
+rich_fonts.list with the INI files under rich_fonts/, the inputs of the
+P4.12, P4.13 and P4.14 text suites (Oracle.exe neuron-client,
+oracle_text.cpp, oracle_rich_text.cpp and oracle_rich_fonts.cpp, and
 crates/neuron-client/tests/oracle_vectors.rs). Run from any folder:
 
     python make_text_fixtures.py [--check]
@@ -39,6 +40,12 @@ c:<left>:<top>:<right>:<bottom> (ClipNode), y:<id> (StyleNode), 0
 (NullNode), i:<w bits>:<h bits> or i:- (ImageNode with an image of that size
 or none), and [ <ops> ] (RDLRefNode over a list of its own). The styles
 persist from line to line.
+
+rich_fonts.list, one case per line: an INI file under rich_fonts/ ("-" for
+one that does not exist), read by the client's LoadRichFontsFromIni, then
+the styles to look at: n<name, hex bytes> (the ID the reader hashes the
+name to) or i<decimal ID>. Every style a file sets is probed, so the suite
+can empty them before and after the case.
 """
 
 import os
@@ -364,6 +371,108 @@ def rich_cases():
     return lines
 
 
+# The rich fonts INI files: [TrueType] font lines in and out of range, [Style] sections with
+# every key, keys and headers in other cases, sections without a name (which keep the previous
+# ID, 0 before any), a repeated name (the later list replaces the earlier), values the reader
+# truncates or does not take, CRLF line ends, and files without sections.
+RICH_FONTS_FULL = """; rich fonts, as the client reads them
+[TrueType]
+font = 0, Arial Unicode MS, 22
+font = 1, Agency FB, 30
+font = 31, Vibrocentric, 16
+font = 32, Ignored, 10
+font = -1, Ignored Too, 10
+font = 6, %s, 12
+nickname = other
+
+[Style]
+name = STYLE_TITLE
+font = 3
+bold = true
+color = 135, 195, 224
+justify = Center
+
+[Style]
+name = STYLE_BODY
+italic = 1
+underline = yes
+color = 300, -1, 7
+justify = right
+justify = LEFT
+bold = false
+bold = 1
+
+[Style]
+underline = true
+justify = middle
+
+[style]
+NAME = STYLE_TITLE
+FONT = 40
+Bold = false
+Italic = true
+Justify = CENTER
+Color = 1, 2, 3
+
+[Style]
+name = STYLE_EMPTY
+
+[Other]
+name = STYLE_OTHER
+font = 9
+
+[TrueType]
+font = 1, Second Face, 18
+font = 0
+""" % ("F" * 150)
+
+RICH_FONTS_CRLF = (
+    "[Style]\r\nfont = 2\r\nunderline = 1\r\n"
+    "[Style]\r\nitalic=true\r\ncolor=10,20,30\r\njustify = left\r\n"
+    "[TrueType]\r\nfont = 2, Crlf Face, 14\r\n"
+    "[Style]\r\nname = Late\r\nfont = 31\r\nunderline = false\r\n"
+    "[Style]\r\n"
+)
+
+RICH_FONTS_NO_SECTION = "font = 1\nname = STYLE_TITLE\nbold = true\n"
+
+
+def rich_fonts_files():
+    return {
+        "full.ini": RICH_FONTS_FULL.encode("ascii"),
+        "crlf.ini": RICH_FONTS_CRLF.encode("ascii"),
+        "empty.ini": b"",
+        "no_section.ini": RICH_FONTS_NO_SECTION.encode("ascii"),
+    }
+
+
+def name_probe(name):
+    return "n" + name.encode("ascii").hex()
+
+
+def rich_fonts_cases():
+    return [
+        " ".join(["full.ini"] + [name_probe(n) for n in ("STYLE_TITLE", "STYLE_BODY", "STYLE_EMPTY",
+                                                          "STYLE_OTHER")] + ["i0"]),
+        " ".join(["crlf.ini", "i0", name_probe("Late"), "i65535"]),
+        "empty.ini i0",
+        " ".join(["no_section.ini", name_probe("STYLE_TITLE"), "i0"]),
+        " ".join(["-", name_probe("STYLE_TITLE")]),
+    ]
+
+
+def write_bytes(name, data, check):
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), name)
+    if check:
+        with open(path, "rb") as existing:
+            if existing.read() != data:
+                sys.exit("%s is out of date; run make_text_fixtures.py" % name)
+        return
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "wb") as out:
+        out.write(data)
+
+
 def write(name, header, lines, check):
     path = os.path.join(os.path.dirname(os.path.abspath(__file__)), name)
     text = header + "".join(line + "\n" for line in lines)
@@ -400,6 +509,15 @@ def main():
         rich_cases(),
         check,
     )
+    write(
+        "rich_fonts.list",
+        "# P4.12 rich fonts INI oracle inputs, written by make_text_fixtures.py.\n"
+        "# <file under rich_fonts/ or -> <probe: n<name hex> | i<id>>...\n",
+        rich_fonts_cases(),
+        check,
+    )
+    for name, data in sorted(rich_fonts_files().items()):
+        write_bytes(os.path.join("rich_fonts", name), data, check)
 
 
 if __name__ == "__main__":

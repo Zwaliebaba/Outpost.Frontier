@@ -18,7 +18,7 @@
 //! [`playback::EntityControls`] a host attaches to an entity. Saving a
 //! scene (`SaveToFileSystem`) is [`playback::Player::save_to`]; the script
 //! engine of `SceneScript.cpp` around the scene, with its COM context, its
-//! save parser and its file-system paths, is [`ScriptEngine`].
+//! load and save parsers and its file-system paths, is [`ScriptEngine`].
 //!
 //! The evaluator follows Lua 3.2.2, whose copyright notice is kept here as
 //! its licence asks:
@@ -76,8 +76,8 @@ mod vm;
 pub use build::{BuildError, BuildState, Scene, Step, build};
 pub use load::{LoadError, LoadSummary, load};
 pub use script_engine::{
-    CREATE_ALWAYS, ComContext, DefaultSaveParser, FileSystemFactory, SaveParser, ScriptEngine,
-    ScriptModule, host_file_systems,
+    CREATE_ALWAYS, ComContext, DefaultSaveParser, FileSystemFactory, LoadParser, SaveParser,
+    ScriptEngine, ScriptModule, host_file_systems,
 };
 pub use table::{Native, NativeKind, Table, TableError, TableId, Value};
 pub use vm::{SCENE_CONSTANTS, ScriptError, Vm};
