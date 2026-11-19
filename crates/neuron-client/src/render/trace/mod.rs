@@ -17,6 +17,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 
 use neuron_core::image::PixelFormat;
+use neuron_core::image::dds;
 
 use crate::render::ff::buffers::{IbHandle, IndexSource, VbHandle};
 use crate::render::ff::defaults::Defaults;
@@ -27,7 +28,8 @@ use crate::render::ff::state::{PIPELINE_SLOTS, PipelineProperty, RenderStateId};
 use crate::render::ff::textures::TextureHandle;
 use crate::render::ff::vertex_copy::{Source, Stream};
 use crate::render::texture::format_class::{FormatClasses, port_supports};
-use crate::render::texture::pipeline::Abilities;
+use crate::render::texture::pipeline::{Abilities, TexturePipeline};
+use crate::render::texture::{DevicePipeline, HandleTable};
 use json::Json;
 
 /// The C++ result codes replay compares with.
@@ -260,6 +262,9 @@ pub struct Mismatch {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Object {
     Texture(TextureHandle),
+    /// A texture `LoadTexture` or `LoadCubemap` read from a file the trace
+    /// does not carry (RenderTrace README): binding it binds no texture.
+    FileTexture,
     Vb(VbHandle),
     Ib(IbHandle),
 }
@@ -307,10 +312,8 @@ const ANSWERED: &[&str] = &[
     "SetGammaEnable",
     "GetGammaEnable",
     "PrintScreen",
-    "LoadTexture",
     "LoadSurfaceData",
     "GetImageInfo",
-    "LoadCubemap",
     "CopyVertexData",
 ];
 
@@ -576,6 +579,7 @@ impl<'a, B: Backend> ModelReplay<'a, B> {
             0 => Ok(None),
             id => match self.ids.get(&id) {
                 Some(Object::Texture(t)) => Ok(Some(*t)),
+                Some(Object::FileTexture) => Ok(None),
                 _ => Err(TraceError::BadArgument {
                     method: call.method.clone(),
                     arg: name,
@@ -990,6 +994,11 @@ impl<'a, B: Backend> ModelReplay<'a, B> {
                 }
             }
             "DestroyVb" => {
+                // A null handle is a no-op returning GR_OK, as in the
+                // reference (the caller's handle was never created).
+                if Self::arg(call, "Handle")?.as_i64() == Some(0) {
+                    return Ok(());
+                }
                 if let Some(h) = self.vb(call, "Handle")? {
                     let _ = self.device.buffers.destroy_vb(h);
                 }
@@ -1024,7 +1033,9 @@ impl<'a, B: Backend> ModelReplay<'a, B> {
                 let h = self.device.buffers.pool_vb(fvf, Self::u(call, "Count")?);
                 self.device.buffers.streams.vertex_buffer = Some(h);
                 self.device.buffers.streams.fvf = 0;
-                if let Some(id) = out.get("id").and_then(Json::as_i64) {
+                // `Out` is {"VertexBuffer": id, "Fvf", "BaseVertex"}
+                // (RenderTrace README, the pooled-buffer table).
+                if let Some(id) = out.get("VertexBuffer").and_then(Json::as_i64) {
                     self.ids.insert(id, Object::Vb(h));
                 }
             }
@@ -1188,6 +1199,42 @@ impl<'a, B: Backend> ModelReplay<'a, B> {
                 .device
                 .set_depth_range(Self::float(call, "MinZ")?, Self::float(call, "MaxZ")?),
             "VbMgrReleaseAll" => self.device.buffers.release_all(),
+            "LoadCubemap" if call.args.get("Data").is_some_and(|d| !d.is_null()) => {
+                // The file's bytes recorded as `Data`: the port's
+                // `LoadCubemap` builds the cube texture from them.
+                let data = self.data(call, "Data")?;
+                let info = dds::image_info(&data);
+                let mut handles = HandleTable::new();
+                let loaded = DevicePipeline {
+                    device: &mut self.device,
+                    handles: &mut handles,
+                    classes: &self.classes,
+                    abilities: self.abilities,
+                }
+                .load_cubemap(&data, info.as_ref());
+                let id = Self::int(call, "OutHandle")?;
+                match loaded {
+                    Ok(n) => {
+                        if let (Some(t), true) = (handles.get(n), id > 0) {
+                            self.ids.insert(id, Object::Texture(t));
+                        }
+                        self.compare_ret(call, GR_OK);
+                    }
+                    Err(code) => {
+                        self.compare_ret(call, i64::from(code));
+                        if call.ret >= 0 && id > 0 {
+                            self.ids.insert(id, Object::FileTexture);
+                        }
+                    }
+                }
+            }
+            "LoadTexture" | "LoadCubemap" => {
+                *self.answered.entry(m.to_owned()).or_default() += 1;
+                let id = Self::int(call, "OutHandle")?;
+                if call.ret >= 0 && id > 0 {
+                    self.ids.insert(id, Object::FileTexture);
+                }
+            }
             _ if ANSWERED.contains(&m) => {
                 *self.answered.entry(m.to_owned()).or_default() += 1;
             }
@@ -1349,6 +1396,55 @@ mod tests {
             r.replay(r#"{"format":"outpost-render-trace","version":0,"renderer":"DirectX8"}"#),
             Err(TraceError::UnsupportedVersion(0))
         );
+    }
+
+    /// A 1 x 1 A8R8G8B8 cube map file: the DDS header and six faces.
+    fn cube_dds_hex() -> String {
+        let mut b = vec![0u8; dds::DATA_OFFSET];
+        let mut put = |at: usize, v: u32| b[at..at + 4].copy_from_slice(&v.to_le_bytes());
+        put(0x00, u32::from_le_bytes(*b"DDS "));
+        put(0x04, 124);
+        put(0x08, 0x1007);
+        put(0x0C, 1);
+        put(0x10, 1);
+        put(0x4C, 32);
+        put(0x50, 0x41);
+        put(0x58, 32);
+        put(0x5C, 0x00FF_0000);
+        put(0x60, 0x0000_FF00);
+        put(0x64, 0x0000_00FF);
+        put(0x68, 0xFF00_0000);
+        put(0x6C, 0x1008);
+        put(0x70, 0xFE00);
+        for face in 0..6u8 {
+            b.extend_from_slice(&[face, 0, 0, 0xFF]);
+        }
+        b.iter().map(|x| format!("{x:02x}")).collect()
+    }
+
+    #[test]
+    fn load_cubemap_builds_the_recorded_file() {
+        let mut r = ModelReplay::new(Defaults::builtin(), 64, 64, &NoBlobs);
+        let trace = format!(
+            "{}\n{}\n{}",
+            format_args!(
+                r#"{{"seq":1,"frame":0,"interface":"IRPTexture","method":"LoadCubemap","args":{{"FileSystem":1,"FileName":"CUBE","Data":{{"size":152,"hex":"{}"}},"OutHandle":5}},"ret":0}}"#,
+                cube_dds_hex()
+            ),
+            r#"{"seq":2,"frame":0,"interface":"IRPTexture","method":"LoadCubemap","args":{"FileSystem":1,"FileName":"CUBE","OutHandle":6},"ret":0}"#,
+            r#"{"seq":3,"frame":0,"interface":"IRenderPipeline","method":"SetTextureStageTexture","args":{"Stage":0,"Handle":5},"ret":0}"#,
+        );
+        r.replay(&trace).unwrap();
+        assert!(r.mismatches.is_empty(), "{:?}", r.mismatches);
+        let t = r.device.stage_texture(0).expect("the cube is bound");
+        assert!(r.device.textures.get(t).unwrap().cube);
+        // Without `Data` (older traces) the texture binds as none.
+        r.replay(
+            r#"{"seq":4,"frame":0,"interface":"IRenderPipeline","method":"SetTextureStageTexture","args":{"Stage":0,"Handle":6},"ret":0}"#,
+        )
+        .unwrap();
+        assert_eq!(r.device.stage_texture(0), None);
+        assert_eq!(r.answered.get("LoadCubemap"), Some(&1));
     }
 
     #[test]

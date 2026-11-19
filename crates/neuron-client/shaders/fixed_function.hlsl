@@ -503,7 +503,8 @@ float4 ps_main(PsIn i) : SV_Target
         uint4 misc = stage[s * 3 + 2];
         // DISABLE ends the cascade, and so does a stage whose COLORARG1 is
         // D3DTA_TEXTURE without a texture ("Texture Blending", Direct3D 9).
-        if (colour.x == 1 || (colour.y == 2 && !bound(s)))
+        // The words are op, ARG0, ARG1, ARG2: COLORARG1 is colour.z.
+        if (colour.x == 1 || (colour.z == 2 && !bound(s)))
             active = false;
         if (!active)
             continue;
