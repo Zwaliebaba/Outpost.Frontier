@@ -344,7 +344,7 @@ impl<B: Backend + 'static> Viewer<B> {
             .map_err(|e| e.to_string())?;
         let tracks = self
             .engine
-            .animation
+            .animation()
             .playback(playback)
             .map_or(0, |p| p.typed.len());
         self.note(format!(

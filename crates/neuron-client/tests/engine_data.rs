@@ -11,10 +11,12 @@ use std::path::{Path, PathBuf};
 
 use neuron_client::engine::{Engine, EngineConfig, FrameInput, Phase, TEARDOWN_ORDER};
 use neuron_client::render::appearance::Camera;
+use neuron_client::render::deformable::AimDesc;
 use neuron_client::render::ff::device::RecordingBackend;
 use neuron_client::render::particles::PoolKind;
 use neuron_client::text::font::fake::FakeBackend;
 use neuron_client::window::DisplayMode;
+use neuron_core::scene::InstanceId;
 
 /// A camera 60 units behind the origin on +z, looking down -z.
 struct Viewer;
@@ -154,7 +156,7 @@ fn the_engine_draws_frames_of_the_original_data() {
     let mut played = None;
     for name in &names {
         if let Ok(id) = engine.play_deformable_animation(body, animations, name, true) {
-            let tracks = engine.animation.playback(id).map_or(0, |p| p.typed.len());
+            let tracks = engine.animation().playback(id).map_or(0, |p| p.typed.len());
             if tracks > 0 {
                 played = Some((name.clone(), tracks));
                 break;
@@ -177,6 +179,19 @@ fn the_engine_draws_frames_of_the_original_data() {
         .load_scene_script(b"MISSIONS\\M03\\m03_survivor1.thn")
         .expect("the scene script");
 
+    // The bones' poses before the frames.
+    let poses = |engine: &mut Engine<RecordingBackend>| -> Vec<[f32; 12]> {
+        let instance = engine.deformable_mut(body).expect("the body");
+        instance
+            .parts
+            .iter()
+            .filter_map(|p| p.lod.as_ref())
+            .flat_map(|h| h.bones.iter().map(|b| b.local))
+            .collect()
+    };
+    let before = poses(&mut engine);
+    engine.listen_deformable(body);
+
     // Three frames.
     let mut reports = Vec::new();
     let mut packets = Vec::new();
@@ -185,14 +200,28 @@ fn the_engine_draws_frames_of_the_original_data() {
         reports.push(engine.frame(FrameInput::idle(1.0 / 30.0), &mut Viewer));
         packets.push(engine.device().backend.draws.len() - before);
     }
+    let after = poses(&mut engine);
+    let moved = before.iter().zip(&after).filter(|(a, b)| a != b).count();
+    assert!(
+        moved > 0,
+        "{} moves the bartender's bones",
+        String::from_utf8_lossy(&played)
+    );
+    assert_eq!(
+        engine.deformable_list_count(body),
+        1,
+        "the looping animation stays on the list"
+    );
+    let events = engine.take_deformable_events();
     let presents = engine.device().backend.presents;
     let clock = engine.scene_script_mut(script).map_or(0, |p| p.clock());
     println!(
         "{fonts} fonts, {styles} styles; {parts} ship instances; frames: {reports:?}; \
          draw packets: ship {ship_packets}, character {character_packets}, per frame of all \
-         {packets:?}; scene clock {clock} ms; animation {} with {tracks} tracks; notices: \
-         {construction_notices:?}",
-        String::from_utf8_lossy(&played)
+         {packets:?}; scene clock {clock} ms; animation {} with {tracks} tracks, {moved} bone \
+         poses moved, {} sink events; notices: {construction_notices:?}",
+        String::from_utf8_lossy(&played),
+        events.len()
     );
     assert_eq!(presents, 5);
     assert!(ship_packets > 0, "the ship draws");
@@ -224,6 +253,60 @@ fn the_engine_draws_frames_of_the_original_data() {
     );
 
     assert!(engine.model_bounds(ship).is_some_and(|(r, _)| r > 0.0));
+
+    // An aim of the bartender's head through its neck (`IDeformable::StartAim`): the frames'
+    // walks tick its typed channels, whose owner solves on the scene engine; once stopped, the
+    // sweep drops it and the animation plays on.
+    let bones: Vec<i32> = engine
+        .deformable_mut(body)
+        .and_then(|i| {
+            i.parts[0]
+                .lod
+                .as_ref()
+                .map(|h| h.bones.iter().map(|b| b.instance).collect())
+        })
+        .unwrap_or_default();
+    let (head, root) = {
+        let scene = engine.scene().borrow();
+        let id = |b: i32| u32::try_from(b).ok().map(InstanceId::from_index);
+        let head = bones
+            .iter()
+            .copied()
+            .find(|&b| {
+                scene
+                    .instance_name(id(b))
+                    .0
+                    .is_some_and(|n| n.eq_ignore_ascii_case(b"Body_Head"))
+            })
+            .expect("the bartender has a head bone");
+        let neck = scene.instance_parent(id(head));
+        let root = scene.instance_parent(neck).expect("the neck has a parent");
+        (head, i32::try_from(root.index()).unwrap_or(-1))
+    };
+    let desc = AimDesc {
+        root,
+        end: head,
+        flags: 0x21,
+        target_pos: [0.0, 2.0, 1.0],
+        target_orient: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0],
+        damping: 0.1,
+        locks: Vec::new(),
+    };
+    let aim = engine
+        .start_deformable_aim(body, &desc, 0)
+        .expect("the aim starts");
+    assert_eq!(engine.deformable_list_count(body), 2);
+    for _ in 0..2 {
+        engine.frame(FrameInput::idle(1.0 / 30.0), &mut Viewer);
+    }
+    assert_eq!(engine.deformable_list_count(body), 2, "the aim holds");
+    engine.stop_deformable_aim(body, aim);
+    engine.frame(FrameInput::idle(1.0 / 30.0), &mut Viewer);
+    assert_eq!(
+        engine.deformable_list_count(body),
+        1,
+        "the stopped aim is swept"
+    );
     engine.destroy_effect(effect);
     engine.destroy_deformable(body);
     assert_eq!(engine.animations_playing(), 0);

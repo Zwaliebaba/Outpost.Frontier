@@ -111,6 +111,9 @@
          sources, so it is not compiled on its own. -->
     <ClInclude Include="oracle_deformable.cpp" />
     <ClInclude Include="oracle_deformable_parts.cpp" />
+    <ClInclude Include="oracle_deformable_anim.cpp" />
+    <!-- P4.7, third increment: the Engine with the Animation aggregated, for the animation suite. -->
+    <ClCompile Include="oracle_deformable_host.cpp" />
     <!-- P1.9: the RemoteCommon codecs and their packet base, compiled in as RemoteClient.dll
          compiles them (its definitions, no /sdl); the two oracle_net_*_codecs.cpp files
          include the RemoteCommon sources so their file-local quantisers can be called. -->

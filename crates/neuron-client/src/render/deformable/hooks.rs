@@ -26,7 +26,6 @@
 //! tick).
 
 use super::instance::{DeformInstance, ListPayload};
-use super::services::DeformServices;
 use super::skeleton::BoneRuntime;
 use super::{INSTANCE_NONE, Instance};
 
@@ -139,12 +138,12 @@ impl DeformInstance {
     /// and writes the channel's joint quaternion into `sampled`. The
     /// event's result, `None` when no aim event of this instance owns the
     /// channel.
-    pub fn apply_channel(
+    pub fn apply_channel<S: super::services::AimHost + ?Sized>(
         &mut self,
         sampled: &mut [f32],
         key: u32,
         bind: &OwnerBind,
-        services: &mut dyn DeformServices,
+        services: &mut S,
     ) -> Option<i32> {
         let event = self
             .list

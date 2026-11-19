@@ -1,7 +1,9 @@
 """Writes the input of the P4.7 deformable suites (Oracle.exe neuron-client,
 CppSource/Oracle/oracle_deformable.cpp and oracle_deformable_parts.cpp, and
-crates/neuron-client/tests/oracle_vectors.rs): deformable.list, and
-deformable_parts.list with the archives in deformable/. Run from any folder:
+crates/neuron-client/tests/oracle_vectors.rs): deformable.list,
+deformable_parts.list with the archives in deformable/, and deformable_anim.list
+with the skeleton and animations in deformable/ (oracle_deformable_anim.cpp).
+Run from any folder:
 
     python make_deformable_fixtures.py [--check]
 
@@ -684,6 +686,7 @@ ARCHIVES = {
 }
 
 
+
 def case_parts():
     ops = []
     ops.append("links 1024 1024:256,1025:257,1026:258 | 1040 1040:259")
@@ -779,6 +782,208 @@ def parts_list():
     return [" ; ".join(case()) for case in (case_parts, case_levels_flags, case_eye_library)]
 
 
+# --- the third suite: animations and aim events through the animation system ----------------------
+#
+# deformable_anim.list (CppSource/Oracle/oracle_deformable_anim.cpp): a skeleton compound
+# (deformable/skel.cmp: a pelvis, a spine, neck and head on sphere joints and an arm on a revolute
+# one) loaded and instanced by the scene engine, its instances bound to an instance's bone runtimes,
+# and the scripts of deformable/moves.anm played on it through IDeformable (PlayInstanceAnim,
+# PlayInstanceAnimChain, the list, OnKeys and OnLoop into the caller's sink) and aim events whose
+# typed channels the animation system ticks, each case walked as FEngineCharacterBody::Advance does
+# (MixerWalk under the root bone, UpdateInstance, GetListCount). Both read the archives with their own
+# UTF readers (the oracle's in-memory one of the parts suite, neuron-core's).
+#
+# The cases keep to what the reference defines: every aim chain is of sphere joints without an
+# axis (the alternative solver with a position task reads past its joint array), no aim's first
+# joint is locked, PlayInstanceAnimChain names a joint whose chain to the root bone every channel of
+# the playback reaches, every aim is stopped and swept before the case ends (the handle registry
+# outlives the instances), and the event channel binds to the instance's sink.
+
+def quat(axis, angle):
+    c, s = math.cos(angle / 2), math.sin(angle / 2)
+    v = {"x": (s, 0.0, 0.0), "y": (0.0, s, 0.0), "z": (0.0, 0.0, s)}[axis]
+    return [c, v[0], v[1], v[2]]
+
+
+def cstr(text, size):
+    raw = text.encode() + b'\0'
+    return raw.ljust(size, b'\0')[:size]
+
+
+def joint_record(parent, child, words, size):
+    data = cstr(parent, 0x40) + cstr(child, 0x40) + f32s(words)
+    return data.ljust(size, b'\0')[:size]
+
+
+def sphere_record(parent, child, origin, limits):
+    # origin, offset (none: no axis), rotation, yaw and pitch limits, roll limits.
+    return joint_record(parent, child, list(origin) + [0.0, 0.0, 0.0] + IDENT9 + list(limits), 0xD4)
+
+
+def rev_record(parent, child, origin, axis, lo, hi):
+    return joint_record(parent, child, list(origin) + [0.0, 0.0, 0.0] + IDENT9 + list(axis) + [lo, hi],
+                        0xD0)
+
+
+SKEL_BONES = ["pelvis", "spine", "neck", "head", "arm"]
+
+
+def skel_cmp():
+    def part(entry, name):
+        return Node(entry.encode(), [Leaf(b'Object name', name.encode() + b'\0'),
+                                     Leaf(b'File name', (name + ".3db").encode() + b'\0'),
+                                     Leaf(b'Index', u32s([0]))])
+    limits = (-0.8, 0.8, -0.6, 0.6, -0.4, 0.4)
+    spheres = (sphere_record("pelvis", "spine", (0.0, 0.5, 0.0), limits)
+               + sphere_record("spine", "neck", (0.0, 0.6, 0.05), limits)
+               + sphere_record("neck", "head", (0.0, 0.25, 0.02), limits))
+    revs = rev_record("spine", "arm", (0.3, 0.4, 0.0), (0.0, 0.0, 1.0), -1.5, 1.5)
+    cmpnd = Node(b'Cmpnd', [part("Root", "pelvis")] + [part("Part_" + n, n) for n in SKEL_BONES[1:]]
+                 + [Node(b'Cons', [Leaf(b'Sphere', spheres), Leaf(b'Rev', revs)])])
+    files = [Node((n + ".3db").encode(), [Leaf(b'Bone', u32s([i]))]) for i, n in enumerate(SKEL_BONES)]
+    return utf([cmpnd] + files)
+
+
+def anim_channel(count, interval, flags, frames):
+    return Node(b'Channel', [Leaf(b'Header', struct.pack('<IfI', count, interval, flags)),
+                             Leaf(b'Frames', frames)])
+
+
+def anim_map(name, parent, child, channel):
+    kids = []
+    if parent is not None:
+        kids.append(Leaf(b'Parent name', parent.encode() + b'\0'))
+    if child is not None:
+        kids.append(Leaf(b'Child name', child.encode() + b'\0'))
+    kids.append(channel)
+    return Node(name.encode(), kids)
+
+
+def rows(values):
+    return b''.join(f32s(r) for r in values)
+
+
+def moves_anm():
+    walk = Node(b'Walk', [
+        anim_map("Object map", "pelvis", None, anim_channel(4, 0.25, 6, rows([
+            [0.0, 0.0, 0.0] + quat("y", 0.0), [0.2, 0.02, 0.3] + quat("y", 0.1),
+            [0.4, 0.0, 0.6] + quat("y", 0.2), [0.6, 0.02, 0.9] + quat("y", 0.3)]))),
+        anim_map("Joint map 0", "pelvis", "spine", anim_channel(3, 0.375, 4, rows([
+            quat("x", 0.0), quat("x", 0.1), quat("x", 0.0)]))),
+        anim_map("Joint map 1", "spine", "neck", anim_channel(3, 0.375, 4, rows([
+            quat("z", 0.0), quat("z", -0.15), quat("z", 0.0)]))),
+        Leaf(b'Root height', f32s([0.95])),
+    ])
+    # A key at 0 bounds every range a tick collects (CollectRange reads outside the frames for a
+    # range no frame bounds).
+    events = b''.join(f32s([t]) + u32s([4 * i]) for i, t in enumerate([0.0, 0.3, 0.45]))
+    events += b'STEPWAVEDONE'
+    wave = Node(b'Wave', [
+        anim_map("Joint map", "spine", "arm", anim_channel(4, 0.2, 1, f32s([0.0, 0.8, 1.2, 0.4]))),
+        # The loader drops event maps (LoadAnimScriptMaps adds tracks for the other maps only);
+        # a joint map without names whose channel holds events binds to the instance's sink.
+        anim_map("Event map", None, None, anim_channel(3, -1.0, 8, events)),
+        anim_map("Joint map E", None, None, anim_channel(3, -1.0, 8, events)),
+    ])
+    nod = Node(b'Nod', [
+        anim_map("Joint map 0", "neck", "head", anim_channel(3, 0.3, 4, rows([
+            quat("x", 0.0), quat("x", 0.3), quat("x", 0.1)]))),
+        anim_map("Joint map 1", "spine", "neck", anim_channel(2, 0.6, 4, rows([
+            quat("y", 0.0), quat("y", 0.2)]))),
+        anim_map("Joint map 2", "pelvis", "spine", anim_channel(2, 0.6, 4, rows([
+            quat("z", 0.0), quat("z", 0.1)]))),
+        anim_map("Object map", "pelvis", None, anim_channel(2, 0.6, 6, rows([
+            [0.0, 0.0, 0.0] + quat("y", 0.0), [0.0, 0.1, 0.2] + quat("y", 0.25)]))),
+    ])
+    return utf([Node(b'Animation', [Node(b'Script', [walk, wave, nod])])])
+
+
+def play(anim, time=0.0, blend=0.0, speed=1.0, scale=1.0, flags=0, twist=-1.0):
+    return "play %s %s %s %s %s %x %s" % (anim, h(time), h(blend), h(speed), h(scale), flags, h(twist))
+
+
+def walks(*dts):
+    return ["walk " + h(dt) for dt in dts]
+
+
+def model():
+    return ["model deformable\\skel.cmp deformable\\moves.anm 5c", "walk " + h(0.0)]
+
+
+def case_anim_loop():
+    # A looping walk: the root's object channel wraps (OnLoop resets its height and heading), the
+    # caller's sink hears it; then the list is dropped.
+    ops = model() + ["sink", play("Walk", flags=2)]
+    ops += walks(0.1, 0.2, 0.2, 0.2, 0.15, 0.3, 0.4)
+    ops += ["count", "destroyall", "count"] + walks(0.1)
+    return ops
+
+
+def case_anim_once():
+    # A walk from 0.3 s with the root data's motion and a twist, run out: the sweep drops it and
+    # the resting height follows the root.
+    ops = model() + ["sink", play("Walk", time=0.3, speed=1.5, flags=0, twist=0.5)]
+    ops += walks(0.1, 0.1, 0.2, 0.2) + ["count"]
+    ops += [play("Walk", time=0.0, scale=0.5, flags=0)] + walks(0.25, 0.25, 0.3) + ["count"]
+    return ops
+
+
+def case_anim_keys():
+    # The wave's event keys reach the caller's sink with the animation's name, while a walk blends
+    # in over it; a second wave without a sink.
+    ops = model() + ["sink", play("Walk", flags=2), "walk " + h(0.1),
+                     play("Wave", blend=0.2, flags=0)]
+    ops += walks(0.05, 0.1, 0.1, 0.1, 0.2, 0.2) + ["count"]
+    ops += ["nosink", play("Wave", flags=0)] + walks(0.2, 0.2) + ["count", "destroyall"]
+    return ops
+
+
+def case_anim_chain():
+    # PlayInstanceAnimChain moves the playback so that the head starts where it stands.
+    ops = model() + [play("Walk", flags=2)] + walks(0.2, 0.1)
+    ops += ["chain Nod %s %s %s %s 0 %s 3" % (h(0.0), h(0.0), h(1.0), h(1.0), h(-1.0))]
+    ops += walks(0.1, 0.2, 0.2, 0.2) + ["count"]
+    ops += ["chain Nod %s %s %s %s 2 %s 3" % (h(0.3), h(0.1), h(1.0), h(1.0), h(0.4))]
+    ops += walks(0.1, 0.3) + ["count", "destroyall"]
+    return ops
+
+
+def case_anim_aim_chain():
+    # An aim of the head through the neck and spine (the damped-least-squares solver), its target
+    # moved, then stopped and swept; a second aim on a joint the first holds is blocked.
+    ops = model()
+    target = [0.4, 1.6, 0.6]
+    ops.append("aim 0 3 21 %s %s %s - 0" % (hs(target), hs(IDENT9), h(0.05)))
+    ops += walks(0.1, 0.1)
+    ops.append("aim 1 3 21 %s %s %s - 0" % (hs(target), hs(IDENT9), h(0.05)))
+    ops.append("target 0 %s %s" % (hs([-0.3, 1.4, 0.5]), hs(IDENT9)))
+    ops += walks(0.1, 0.1)
+    ops += ["stopaim 0"] + walks(0.1) + ["count"] + walks(0.1) + ["count"]
+    return ops
+
+
+def case_anim_aim_single():
+    # A look of the head alone (the single-joint solver with the Euler clamp) over a looping walk,
+    # with a blend in; a point aim of the neck through the spine, the neck locked.
+    ops = model() + [play("Walk", flags=2)] + walks(0.1)
+    orient = mul(rot("y", 0.5), rot("x", 0.2))
+    ops.append("aim 2 3 5 %s %s %s - %s" % (hs([0.5, 2.0, 1.0]), hs(orient), h(0.1), h(0.2)))
+    ops += walks(0.1, 0.1, 0.2)
+    ops.append("target 0 %s %s" % (hs([-1.0, 1.0, 0.5]), hs(orient)))
+    ops += walks(0.1)
+    ops += ["stopaim 0"] + walks(0.1, 0.1) + ["count"]
+    ops.append("aim 0 2 21 %s %s %s 2 0" % (hs([0.3, 1.0, 0.4]), hs(orient), h(0.1)))
+    ops += walks(0.1, 0.1)
+    ops += ["stopaim 1"] + walks(0.1, 0.1) + ["count", "destroyall"]
+    return ops
+
+
+def anim_list():
+    return [" ; ".join(case()) for case in (case_anim_loop, case_anim_once, case_anim_keys,
+                                            case_anim_chain, case_anim_aim_chain,
+                                            case_anim_aim_single)]
+
+
 def write_bytes(relative, data, check):
     path = os.path.join(HERE, relative)
     if check:
@@ -810,7 +1015,10 @@ def main():
     check = "--check" in sys.argv[1:]
     write("deformable.list", listing("deformable", deformable_list()), check)
     write("deformable_parts.list", listing("deformable parts", parts_list()), check)
+    write("deformable_anim.list", listing("deformable animation", anim_list()), check)
     for name, build in ARCHIVES.items():
+        write_bytes(os.path.join("deformable", name), build(), check)
+    for name, build in (('skel.cmp', skel_cmp), ('moves.anm', moves_anm)):
         write_bytes(os.path.join("deformable", name), build(), check)
 
 

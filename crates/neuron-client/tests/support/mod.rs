@@ -7,6 +7,7 @@
 pub mod audio;
 pub mod data;
 pub mod deformable;
+pub mod deformable_anim;
 pub mod material;
 pub mod material_appearance;
 pub mod material_kinds;

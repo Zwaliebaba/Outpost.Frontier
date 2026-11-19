@@ -11,9 +11,11 @@
 //!    queued events, then the caller's routed key and character messages,
 //!    into the UI manager (`MouseDispatchEvents`, the Win3D input handler).
 //! 2. `Win3DUpdateAll`: the UI manager's update.
-//! 3. The state's world tick: the scene scripts' timelines, the animation
-//!    system's mixer (`MixerWalkAll`) with the animated deformable models'
-//!    trees updated and their bones' transforms handed over, the particle
+//! 3. The state's world tick: the scene scripts' timelines, the
+//!    deformable models with something on their lists advanced as the
+//!    game's character objects advance them (`MixerWalk` under the root
+//!    bone, the tree updated and the bones' transforms handed over, the
+//!    list swept; [`super::deform_anim`]), the particle
 //!    effects' transforms and update (at most a tenth of a second, as
 //!    `SpaceEffectsDrawFrame` clamps it; the mesh factory's new meshes
 //!    are loaded and placed after it, D493), then
@@ -57,7 +59,7 @@ use crate::ui::quad_batch::{FfQuadDevice, QuadBatcher};
 use crate::ui::win3d_immediate::{FfPipeline, Win3dLayer, capability};
 
 use super::ui_host::UiHost;
-use super::{EffectServices, Engine, RenderSide, apply_extents, pull_bones};
+use super::{EffectServices, Engine, RenderSide, apply_extents};
 
 /// `D3DRS_ZFUNC`.
 const RS_ZFUNC: u32 = 23;
@@ -180,21 +182,7 @@ impl<B: Backend + 'static> Engine<B> {
             player.tick(step);
             report.scripts += 1;
         }
-        if !self.playbacks.is_empty() {
-            let mut scene = self.scene.borrow_mut();
-            let _ = self.animation.mixer_walk_all(&mut scene, dt_f32);
-            for playback in &self.playbacks {
-                let Some(Some(instance)) = self.deformables.get_mut(playback.deformable) else {
-                    continue;
-                };
-                let root = u32::try_from(instance.first_bone())
-                    .ok()
-                    .map(neuron_core::scene::InstanceId::from_index);
-                scene.update_instance(root, 0);
-                pull_bones(instance, &scene);
-                report.animations += 1;
-            }
-        }
+        report.animations = self.advance_deformables(dt_f32);
         {
             // SpaceEffectsDrawFrame's ClampedDt: at most a tenth of a second.
             let effect_dt = if dt_f32 > EFFECT_DT_MAX {
@@ -272,7 +260,7 @@ impl<B: Backend + 'static> Engine<B> {
                 report.models += 1;
             }
         }
-        for instance in self.deformables.iter_mut().flatten() {
+        for instance in self.deformables.borrow_mut().iter_mut().flatten() {
             let RenderSide { stack, manager } = &mut *side;
             draw_deformable(
                 instance,
