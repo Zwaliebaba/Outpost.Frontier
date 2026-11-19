@@ -308,3 +308,47 @@ fn the_navigation_bar_draws_its_meshes_through_the_engine() {
         "the buttons' instances go with them"
     );
 }
+
+/// Models are named by their whole relative path (D481, closed): the
+/// shipped interface has three different `front_button.cmp` files, and
+/// each loads as an archetype of its own instead of the first one found.
+#[test]
+fn models_of_one_file_name_in_several_folders_stay_apart() {
+    let data = outdir().join("data");
+    let (Ok(engine_ini), Ok(client_ini)) = (
+        fs::read(outdir().join("NeuronComponents.ini")),
+        fs::read(outdir().join("OutpostFrontier.ini")),
+    ) else {
+        println!("outdir/ has no data: nothing to load");
+        return;
+    };
+    let mode = DisplayMode {
+        width: 1024,
+        height: 768,
+        fullscreen: false,
+    };
+    let mut config = EngineConfig::new(&data, mode);
+    config.engine_ini = Some(engine_ini);
+    config.client_ini = Some(client_ini);
+    config.font_backend = Some(Box::new(FakeBackend::default()));
+    let mut engine: Engine<RecordingBackend> =
+        Engine::new(config, RecordingBackend::default()).expect("the engine");
+    let paths: [&[u8]; 3] = [
+        b"INTERFACE\\INTRO\\OBJECTS\\front_button.cmp",
+        b"INTERFACE\\LOADSAVE\\front_button.cmp",
+        b"INTERFACE\\NEURONET\\INVENTORY\\front_button.cmp",
+    ];
+    let mut archetypes = Vec::new();
+    for path in paths {
+        engine.create_model(path).expect("the model");
+        let id = engine
+            .scene()
+            .borrow()
+            .lookup_archetype(neuron_core::hash::name_crc32(path))
+            .expect("an archetype under the whole path");
+        archetypes.push(id);
+    }
+    assert_ne!(archetypes[0], archetypes[1]);
+    assert_ne!(archetypes[0], archetypes[2]);
+    assert_ne!(archetypes[1], archetypes[2]);
+}

@@ -133,26 +133,26 @@ D421 as written, and by the same rule D401 to D405, D430, D431 and D433 to
 D435. D406 is closed: the typed channels now keep what their owner writes
 into the sample, as the reference's `GetSampled` pointer does. D358 stays
 as written: the owner deferred `TriMesh`'s editing mode until a caller
-needs it. D432 has an observable effect and awaits the owner's decision:
+needs it.
 
-- D432 (P4.13): `UITextures.ini` is loaded into `Ui::ui_shapes` by the
-  client, and a control whose shape is missing binds texture 0.
-
-D436 to D447 (P4.13, fourth increment: the rest of the generic
-controls) are proposed, for the owner's review.
-
-D450 to D456 (P4.16, first increment: the engine value and its frame)
-are proposed, with decision O39, for the owner's review. D460 and D461
-(P4.16, second increment: the engine calls of Gate G4's model viewer) are
-proposed, and D453 gained a sentence on extents asked for while the scene
-engine is busy.
-
-D470 to D478 (P4.13, fifth increment: the editable, message and table
-rich-text windows) are proposed, for the owner's review.
-D480 to D483 (P4.13, the immediate-mode layer and the engine's interface
-draw) are proposed, for the owner's review. D452 gained a sentence: the
-font atlas's list now goes out in the overlay pass, as the reference's
-does. D346 stays as accepted: the cursor keeps its pre-transformed quad.
+In a fourth review on 2026-11-19 the owner accepted D432 (P4.13:
+`UITextures.ini` is loaded into `Ui::ui_shapes` by the client, and a
+control whose shape is missing binds texture 0) as written, and accepted
+decision O39 with D436 to D447 (P4.13, fourth increment: the rest of the
+generic controls), D450 to D456 (P4.16, first increment: the engine value
+and its frame), D460 and D461 (P4.16, second increment: the engine calls
+of Gate G4's model viewer), D470 to D478 (P4.13, fifth increment: the
+editable, message and table rich-text windows), D480, D482 and D483
+(P4.13, the immediate-mode layer and the engine's interface draw). D453
+gained a sentence on extents asked for while the scene engine is busy;
+D452 one on the font atlas's list, which goes out in the overlay pass as
+the reference's does. D346 stays as accepted: the cursor keeps its
+pre-transformed quad. D481 is narrowed: on the owner's decision the
+engine names and finds control meshes and models by their whole relative
+path, as `ClientMeshLoadFromPath` does (the shipped interface has
+different files of one name in several folders); what remains, the
+holder's archetype reference, has no effect and is accepted by the same
+rule.
 
 | ID | Area | C++ behaviour | Rust behaviour | Reason | Observable effect |
 | --- | --- | --- | --- | --- | --- |
@@ -515,7 +515,7 @@ does. D346 stays as accepted: the cursor keeps its pre-transformed quad.
 | D477 | `neuron-client::ui::controls::fast_table` (P4.13) | `FUiFastTableEdges::LoadFromRegistry` treats a missing value as size -1 on both queries, so the sizes agree and the vector is resized to 0x3FFFFFFF floats; the registry access is in the class | A missing value leaves the vector alone; the registry access is the game's, which hands `TableEdges::load_edges` the value's bytes (`edge_bytes` gives what `SaveToRegistry` writes) | Undefined behaviour in the reference (an allocation it cannot make); technical decision T10 | A missing value keeps the default edges instead of failing |
 | D478 | `neuron-client::ui::controls::fast_table` (P4.13) | `UIFastTable::Update` reads the first edge of a vector without testing that it has one and reads through the tooltip record of the hovered column, row or cell without testing that there is one; `MouseEvent` tells the parent of a press off the rows without testing that there is a parent | An empty edge vector reads 0; a missing record feeds nothing; without a parent the press tells nobody | Undefined behaviour in the reference | None for tables with edges, tooltip records for their mode and a parent |
 | D480 | `neuron-client::ui::win3d_immediate` (P4.13) | The layer warns through `FDUMP`: a vertex dropped from a full accumulator (at most once a second of client time), a capability `Win3DEnable` or `Win3DDisable` does not know, a primitive `Win3DEnd` does not know | Nothing is written; the dropped vertices are counted in `Win3dLayer::dropped` | Technical decision T10 (the layer is one value without the process's dump channel) | No warnings in the log; the draws are the same |
-| D481 | `neuron-client::engine::ui_meshes` (P4.13) | `ClientMeshLoadFromPath` finds an archetype by the CRC of the whole relative path and keeps the mesh holder's handle only in the model cache (`bRegisterCache`); otherwise it releases the handle once the instance is bound | The loader names a control mesh's archetype by the file's base name, as `Engine::create_model` names models, finds it by that name's CRC, and the holder keeps its archetype reference until it drops | Technical decision (the engine's archetype naming of P4.16) | Two control meshes with the same file name in different folders share one archetype |
+| D481 | `neuron-client::engine::ui_meshes` (P4.13) | `ClientMeshLoadFromPath` keeps the mesh holder's archetype handle only in the model cache (`bRegisterCache`); otherwise it releases the handle once the instance is bound | Narrowed 2026-11-19 (owner): the loader names and finds a control mesh's archetype by the whole relative path, as the reference does, and so does `Engine::create_model` for models. The holder keeps its archetype reference until it drops | Technical decision T10 (the holder owns what it uses) | None: the instance keeps the archetype alive in both |
 | D482 | `neuron-client::engine::ui_host` (P4.13) | A rich-text window's big image calls `ScreenQuadDrawBigImageTile` for each tile from inside the window's draw | The window hands its tiles back (`RichTextCx::tiles`); the engine's draw host draws them (`QuadBatcher::draw_big_image_tile`) at its next call from any control, before that call's own draw, and at the end of the interface's draw | Technical decision (the window draws through the host, D434) | None: no draw of the window's falls between its tiles and the host's next call |
 | D483 | `neuron-client::ui::win3d_immediate` (P4.13) | `Win3DSetViewport` and `Win3DSetViewportRect` hand the pipeline signed integers that DX8RENDERER stores as `DWORD`s of the Direct3D 8 viewport; a negative origin or size becomes a huge one and the device call fails | `FfPipeline` gives the device model 0 for a negative value | Undefined behaviour in the reference | None for the interface's rectangles, which lie on the surface |
 

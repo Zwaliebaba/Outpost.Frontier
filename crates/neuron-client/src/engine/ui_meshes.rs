@@ -57,11 +57,10 @@ impl<B: Backend + 'static> MeshLoader for EngineMeshLoader<B> {
         if path.is_empty() {
             return None;
         }
-        let name = path
-            .rsplit(|&c| c == b'\\' || c == b'/')
-            .next()
-            .unwrap_or(path)
-            .to_vec();
+        // The archetype is named by the whole relative path, as
+        // `FindArchetype({RelPath, GetCRC32(RelPath)})` keys it: the shipped
+        // interface has files of one name in several folders.
+        let name = path.to_vec();
         let found = self.scene.borrow_mut().find_archetype(name_crc32(&name));
         let archetype = match found {
             Some(a) => a,

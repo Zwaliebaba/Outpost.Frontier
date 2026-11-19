@@ -952,11 +952,10 @@ impl<B: Backend + 'static> Engine<B> {
         path: &[u8],
         mut fs: UtfFileSystem,
     ) -> Result<ModelId, EngineError> {
-        let name = path
-            .rsplit(|&c| c == b'\\' || c == b'/')
-            .next()
-            .unwrap_or(path)
-            .to_vec();
+        // Named by the whole relative path, as the client's mesh loader
+        // names its archetypes: the shipped data has models of one file
+        // name in several folders.
+        let name = path.to_vec();
         let archetype = self
             .scene
             .borrow_mut()
