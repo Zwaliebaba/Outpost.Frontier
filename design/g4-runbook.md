@@ -137,7 +137,8 @@ cargo run --locked --release -p neuron-client --example model_viewer -- `
 The scenes are `synthetic` (a lit cube made in memory), `ship` (the
 Starflier, `ge_fighter`), `station` (`largestation1`), `character` (the
 bartender's body playing the first animation of `bodygenericmale.anm`
-that binds), `effect` (an engine effect), `script` (`m03_survivor1.thn`,
+that binds), `effect` (`Explode` of `standardeffects.ale`, whose debris
+carry child effects), `script` (`m03_survivor1.thn`,
 looping), `sound` (`hud_comm_window`), `voice` (the first line of
 `announcer.utf`) and `menu` (`page_charselectsingle.page` over the
 scene). `--scenes ship,character` picks some; `--ship`, `--solar`,
