@@ -172,7 +172,10 @@ determinism check: its spread is expected to stay 0.
     survival rate of one half; the owner may prefer it. The bounds are
     reported, not failed, until the owner approves them
     (`ENVELOPES_APPROVED` in `scenario_replay`'s ensemble module); the
-    5 % ram bound and the exact span are failing now.
+    5 % ram bound, the exact span and the same tick fail now, the same tick
+    of a fight once `judge_fight` requires it (the change that comes with
+    the fix of `strafe`'s late first impact; until then a fight's later
+    Rust first impact is reported).
 
     **Measured** (data job run 44494560931, commit e82c02ea). Every seed of
     every scenario equals the oracle bit for bit up to its first contact or
