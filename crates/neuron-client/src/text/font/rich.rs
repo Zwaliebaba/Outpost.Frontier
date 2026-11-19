@@ -4,8 +4,8 @@
 //! indexed by the font byte of the text attributes), the rich-text scale
 //! and the metric queries of `DeviceTRC`.
 //!
-//! Drawing rich text (`execute_text`, images, clipping) belongs to the
-//! rich-text layout and execution, which are not ported yet.
+//! Drawing rich text (`execute_text`, images, clipping) is the device of
+//! the rich-text layout, `crate::text::layout::device`.
 
 use neuron_core::num::trunc_to_i32;
 
@@ -46,6 +46,8 @@ pub struct RichFonts {
     pub scale_y: f32,
     /// `mDropShadowX`, `mDropShadowY`.
     pub drop_shadow: (i32, i32),
+    /// The image root of `set_image_root`, with its trailing backslash.
+    pub image_root: Vec<u8>,
     initialised: bool,
 }
 
@@ -71,8 +73,24 @@ impl RichFonts {
             scale_x: 1.0,
             scale_y: 1.0,
             drop_shadow: (2, 2),
+            image_root: Vec::new(),
             initialised: false,
         }
+    }
+
+    /// `DeviceTRC::set_image_root`: the path, with a backslash appended
+    /// unless it ends in one. An empty path faults in the reference; the
+    /// port keeps a lone backslash (divergence D420).
+    pub fn set_image_root(&mut self, path: &[u8]) {
+        self.image_root = path.to_vec();
+        if self.image_root.last() != Some(&b'\\') {
+            self.image_root.push(b'\\');
+        }
+    }
+
+    /// `DeviceTRC::set_drop_shadow_offset`.
+    pub fn set_drop_shadow_offset(&mut self, x: i32, y: i32) {
+        self.drop_shadow = (x, y);
     }
 
     fn release_all(&mut self, backend: &mut dyn FontBackend) {

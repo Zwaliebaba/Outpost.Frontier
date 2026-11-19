@@ -4,8 +4,7 @@
 //! reference's `INI_Reader` ([`neuron_core::ini::IniReader`]).
 //!
 //! The `[Style]` sections of `rich_fonts.ini` build rich-text display lists
-//! for the style registry; they belong to the rich-text layout and are not
-//! read here.
+//! for the style registry: `crate::text::layout::style`.
 
 use neuron_core::ini::IniReader;
 
