@@ -105,7 +105,7 @@ impl World {
                 .map(|s| {
                     s.formation_followers
                         .iter()
-                        .filter_map(|f| id_of(Some(*f)))
+                        .filter_map(|f| id_of(*f))
                         .collect()
                 })
                 .unwrap_or_default(),
@@ -608,6 +608,16 @@ impl AiWorld for World {
             .map(|m| (m.state.behavior, m.state.directive))
     }
 
+    fn creation_type_of(&self, h: ObjHandle) -> Option<u32> {
+        self.behavior_managers
+            .get(&h)
+            .map(|m| m.state.creation_type)
+    }
+
+    fn personality_of(&self, h: ObjHandle) -> Option<crate::ai::personality::Personality> {
+        self.behavior_managers.get(&h).map(|m| m.state.personality)
+    }
+
     /// `CLoot`'s units, AI flag and contents class, and `get_good_id`
     /// (`Arch2Good` of the contents).
     fn loot(&self, h: ObjHandle) -> Option<LootView> {
@@ -754,8 +764,15 @@ impl AiWorld for World {
                 self.gun_set_target(h, equipment, target, subtarget);
                 return 0;
             }
-            // Formation, follow, trade lane and the unnamed slots are not
-            // world commands yet.
+            AiCommand::SetFormationLeader(_)
+            | AiCommand::SetFormationOffset(_)
+            | AiCommand::AddFormationFollower(_)
+            | AiCommand::RemoveFormationFollower(_)
+            | AiCommand::SetFollowLeader(_)
+            | AiCommand::SetFollowOffset(_)
+            | AiCommand::AddFollowFollower(_)
+            | AiCommand::RemoveFollowFollower(_) => return self.formation_command(h, command),
+            // Trade lane and the unnamed slots are not world commands yet.
             _ => return -2,
         };
         match self.command(h, typed) {
@@ -766,6 +783,219 @@ impl AiWorld for World {
 }
 
 impl World {
+    /// The formation and follow slots of `IObjAffect` (4 to 7, 9 to 12) on a
+    /// ship (`Ship::set_formation_leader` and the `CShip` bodies they
+    /// forward to); `GameObject`'s -8 for any other object. The player's
+    /// client reports of `set_formation_leader` and `set_formation_offset`
+    /// are the server's (P3).
+    fn formation_command(&mut self, h: ObjHandle, command: AiCommand<ObjHandle>) -> i32 {
+        if self.ship_data(h).is_none() {
+            return -8;
+        }
+        let own_id = self.id_of_handle(h);
+        match command {
+            AiCommand::SetFormationLeader(leader) => {
+                if let Some(s) = self.ship_data_mut(h) {
+                    s.formation_leader = leader;
+                }
+                0
+            }
+            AiCommand::SetFormationOffset(offset) => {
+                if let Some(s) = self.ship_data_mut(h) {
+                    s.formation_offset = offset;
+                }
+                0
+            }
+            AiCommand::SetFollowLeader(leader) => {
+                if let Some(s) = self.ship_data_mut(h) {
+                    s.follow_leader = leader;
+                }
+                0
+            }
+            AiCommand::SetFollowOffset(offset) => {
+                if let Some(s) = self.ship_data_mut(h) {
+                    s.follow_offset = offset;
+                }
+                0
+            }
+            // `CShip::add_formation_follower`: only a ship that leads
+            // itself takes followers; the first cleared slot, else a new
+            // one; then the formation speed.
+            AiCommand::AddFormationFollower(f) => {
+                let leader = self
+                    .ship_data(h)
+                    .and_then(|s| s.formation_leader)
+                    .filter(|&l| self.get(l).is_some());
+                if leader.is_none_or(|l| self.id_of_handle(l) != own_id) {
+                    return -2;
+                }
+                let follower_id = self.id_of_handle(f);
+                let slots = self
+                    .ship_data(h)
+                    .map(|s| s.formation_followers.clone())
+                    .unwrap_or_default();
+                if let Some(i) = self.free_or_same_slot(&slots, follower_id) {
+                    if self.live_slot(slots[i]).is_none()
+                        && let Some(s) = self.ship_data_mut(h)
+                    {
+                        s.formation_followers[i] = Some(f);
+                    }
+                } else if let Some(s) = self.ship_data_mut(h) {
+                    s.formation_followers.push(Some(f));
+                }
+                self.recalculate_formation_speed(h);
+                0
+            }
+            AiCommand::RemoveFormationFollower(f) => {
+                let follower_id = self.id_of_handle(f);
+                let slots = self
+                    .ship_data(h)
+                    .map(|s| s.formation_followers.clone())
+                    .unwrap_or_default();
+                let Some(i) = self.matching_slot(&slots, follower_id) else {
+                    return -3;
+                };
+                if let Some(s) = self.ship_data_mut(h) {
+                    s.formation_followers[i] = None;
+                }
+                self.recalculate_formation_speed(h);
+                0
+            }
+            // `CShip::add_follow_follower`: not the ship itself; the first
+            // cleared slot, else a new one.
+            AiCommand::AddFollowFollower(f) => {
+                let follower_id = self.id_of_handle(f);
+                if follower_id == own_id {
+                    return -1;
+                }
+                let slots = self
+                    .ship_data(h)
+                    .map(|s| s.follow_followers.clone())
+                    .unwrap_or_default();
+                if let Some(i) = self.free_or_same_slot(&slots, follower_id) {
+                    if self.live_slot(slots[i]).is_none()
+                        && let Some(s) = self.ship_data_mut(h)
+                    {
+                        s.follow_followers[i] = Some(f);
+                    }
+                } else if let Some(s) = self.ship_data_mut(h) {
+                    s.follow_followers.push(Some(f));
+                }
+                0
+            }
+            AiCommand::RemoveFollowFollower(f) => {
+                let follower_id = self.id_of_handle(f);
+                let slots = self
+                    .ship_data(h)
+                    .map(|s| s.follow_followers.clone())
+                    .unwrap_or_default();
+                let Some(i) = self.matching_slot(&slots, follower_id) else {
+                    return -3;
+                };
+                if let Some(s) = self.ship_data_mut(h) {
+                    s.follow_followers[i] = None;
+                }
+                0
+            }
+            _ => -2,
+        }
+    }
+
+    /// A watcher slot's object while it lives.
+    fn live_slot(&self, slot: Option<ObjHandle>) -> Option<ObjHandle> {
+        slot.filter(|&f| self.get(f).is_some())
+    }
+
+    /// An object's id, 0 once it is gone.
+    fn id_of_handle(&self, h: ObjHandle) -> u32 {
+        self.get(h).map_or(0, |o| o.simple.id)
+    }
+
+    /// The first slot that is cleared or holds the object `id`.
+    fn free_or_same_slot(&self, slots: &[Option<ObjHandle>], id: u32) -> Option<usize> {
+        slots.iter().position(|&slot| {
+            self.live_slot(slot)
+                .is_none_or(|e| self.id_of_handle(e) == id)
+        })
+    }
+
+    /// The slot that holds the live object `id`.
+    fn matching_slot(&self, slots: &[Option<ObjHandle>], id: u32) -> Option<usize> {
+        slots.iter().position(|&slot| {
+            self.live_slot(slot)
+                .is_some_and(|e| self.id_of_handle(e) == id)
+        })
+    }
+
+    /// `CShip::recalculate_formation_speed`: the slowest live follower's
+    /// `get_speed(1, engine)`, 1e8 without one.
+    fn recalculate_formation_speed(&mut self, h: ObjHandle) {
+        let slots = self
+            .ship_data(h)
+            .map(|s| s.formation_followers.clone())
+            .unwrap_or_default();
+        let mut min = 1.0e8_f32;
+        for f in slots.into_iter().filter_map(|s| self.live_slot(s)) {
+            let speed = <Self as AiWorld>::motion(self, f)
+                .map_or(0.0, |m| m.speed(1.0, ThrustEquipType::Engine));
+            if !(min < speed) {
+                min = speed;
+            }
+        }
+        if let Some(s) = self.ship_data_mut(h) {
+            s.formation_speed = min;
+        }
+    }
+
+    fn ship_data(&self, h: ObjHandle) -> Option<&crate::object::ship::ShipData> {
+        self.get(h).and_then(|o| o.as_ship())
+    }
+
+    fn ship_data_mut(&mut self, h: ObjHandle) -> Option<&mut crate::object::ship::ShipData> {
+        self.get_mut(h).and_then(|o| o.as_ship_mut())
+    }
+
+    /// `pub::AI::update_formation_state(ship, leader, offset)` (Server):
+    /// the ship leaves its old leader's formation (unless it led itself),
+    /// takes the new leader and offset, and joins the new leader's
+    /// followers (unless it is the leader). -3 for a ship that is not
+    /// there, else 0; in multiplayer an unchanged leader changes nothing.
+    /// (The player clients of the leaders and followers are told by the
+    /// server, P3.)
+    pub fn update_formation_state(
+        &mut self,
+        ship: ObjHandle,
+        leader: Option<ObjHandle>,
+        offset: Vector,
+    ) -> i32 {
+        if self.get(ship).is_none() {
+            return -3;
+        }
+        let leader = self.live_slot(leader);
+        let old = self.live_slot(self.ship_data(ship).and_then(|s| s.formation_leader));
+        if !self.config.single_player && leader == old {
+            return 0;
+        }
+        let own_id = self.id_of_handle(ship);
+        if let Some(old) = old
+            && self.id_of_handle(old) != own_id
+        {
+            self.command_ai(old, AiCommand::RemoveFormationFollower(ship));
+        }
+        self.command_ai(ship, AiCommand::SetFormationLeader(leader));
+        self.command_ai(ship, AiCommand::SetFormationOffset(offset));
+        if let Some(l) = leader
+            && l != ship
+        {
+            self.command_ai(l, AiCommand::AddFormationFollower(ship));
+        }
+        0
+    }
+
+    fn command_ai(&mut self, h: ObjHandle, command: AiCommand<ObjHandle>) -> i32 {
+        <Self as AiWorld>::command(self, h, command)
+    }
+
     /// The object id of a physics user key (the world keys bodies by
     /// handle; the AI keys them by object id, as the reference does).
     fn id_of_key(&self, key: u64) -> u32 {

@@ -106,6 +106,9 @@ pub struct ManagerState {
     pub level_camera: bool,
     /// +0x110 a content callback is installed.
     pub content_callback: bool,
+    /// +0x114 the content callback's `get_creation_type` (3 until one is
+    /// installed).
+    pub creation_type: u32,
     /// +0x118 the directive result word.
     pub f118: i32,
     /// +0x11C the finished behaviour, -1 for none.
@@ -183,6 +186,7 @@ impl ManagerState {
             field_f8: true,
             level_camera: true,
             content_callback: false,
+            creation_type: 3,
             f118: 0,
             f11c: -1,
             f120: if is_player { 0x13 } else { 6 },
@@ -578,6 +582,15 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
             .personality_changed(world, ship, &personality);
     }
 
+    /// `set_content_callback(Callback)`: the callback installed (`None`
+    /// removes it) and, with one, its `get_creation_type` kept.
+    pub fn set_content_callback(&mut self, creation_type: Option<u32>) {
+        self.state.content_callback = creation_type.is_some();
+        if let Some(t) = creation_type {
+            self.state.creation_type = t;
+        }
+    }
+
     /// `enable_maneuver`: bit `maneuver + 1` (mod 32); -1 refused.
     pub fn enable_maneuver(&mut self, maneuver: i32, enable: bool) -> bool {
         if maneuver == -1 {
@@ -874,6 +887,9 @@ impl<W: AiEnv + ?Sized> BehaviorManager<W> {
         let notes = self.state.sys.update_after_thrust(world, ship, p, dt);
         for n in notes {
             self.queue_notification(world, ship, Some(n.leader), n.extra, n.duration);
+        }
+        if let Some(own) = self.state.sys.release_borrowed(world, ship, p) {
+            self.state.personality = own;
         }
         self.state.sys.formation.sync_formation_leader(world, ship);
         let external_is_player = view.is_player;
@@ -1236,7 +1252,8 @@ pub enum PlayerInput {
     Throttle(f32),
 }
 
-/// `DirectiveOp::validate` for the ops that check anything (goto, face).
+/// `DirectiveOp::validate` for the ops that check anything (goto, face,
+/// follow, guide).
 #[must_use]
 pub fn validate(op: &DirectiveOp) -> bool {
     match op {
@@ -1255,6 +1272,10 @@ pub fn validate(op: &DirectiveOp) -> bool {
             !(g.field_64 < g.field_60)
         }
         DirectiveOp::Face(f) => !(f.mode == 0 || (f.mode == 1 && f.target == 0)),
+        DirectiveOp::Follow(f) => f.target != 0,
+        DirectiveOp::Guide(g) => {
+            validate(&DirectiveOp::Goto(g.goto.clone())) && g.follow.target != 0
+        }
         _ => true,
     }
 }

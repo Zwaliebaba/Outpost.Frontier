@@ -1223,8 +1223,16 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
                 while submitted < m.commands.len() && m.commands[submitted].0 <= t.tick {
                     let (_, name, args) = &m.commands[submitted];
                     submitted += 1;
+                    // The objects a follow or guide names, by the
+                    // snapshot's scenario names.
+                    let id_of = |n: &str| {
+                        t.objects
+                            .iter()
+                            .find(|o| o.name.as_deref() == Some(n))
+                            .map(|o| o.id)
+                    };
                     if t.obj.as_deref() == Some(name.as_str())
-                        && let Some(op) = support::directives::directive(args)
+                        && let Some(op) = support::directives::directive_with(args, &id_of)
                     {
                         ops.push(op);
                     }

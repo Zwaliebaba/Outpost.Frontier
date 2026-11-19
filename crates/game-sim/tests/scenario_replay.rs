@@ -83,7 +83,7 @@ use neuron_core::math::{Matrix, Vector};
 use neuron_core::physics::StepMode;
 use neuron_core::physics::replay::{CoreRecord, compare};
 use neuron_core::rng::CrtRand;
-use support::directives::directive;
+use support::directives::{directive, directive_with};
 use support::records::{Json, find_files, read_lines};
 
 /// The gross-divergence bound on position, metres.
@@ -124,6 +124,8 @@ struct ObjDesc {
     pilot: Option<String>,
     /// The `faction` option: the reputation group of the ship's vibe.
     faction: Option<String>,
+    /// The `escort` option: the state graph's escort variant.
+    escort: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -239,6 +241,7 @@ fn parse(path: &Path) -> Option<Scenario> {
                     ai: None,
                     pilot: None,
                     faction: None,
+                    escort: false,
                 };
                 let mut at = if ship { 7 } else { 3 };
                 while at < t.len() {
@@ -271,6 +274,10 @@ fn parse(path: &Path) -> Option<Scenario> {
                         "faction" => {
                             o.faction = Some(t.get(at + 1)?.clone());
                             at += 2;
+                        }
+                        "escort" => {
+                            o.escort = true;
+                            at += 1;
                         }
                         _ => at += 1,
                     }
@@ -699,10 +706,12 @@ fn run(s: &Scenario, ai: &AiInputs) -> Option<Run> {
             spawn.hit_pts = o.hp;
             let h = world.spawn_ship(system, &spawn).ok();
             if let (Some(h), Some(graph)) = (h, &o.ai) {
-                let id = world
-                    .data()
-                    .state_graphs
-                    .find(graph.as_bytes(), GraphType::Leader);
+                let kind = if o.escort {
+                    GraphType::Escort
+                } else {
+                    GraphType::Leader
+                };
+                let id = world.data().state_graphs.find(graph.as_bytes(), kind);
                 world.submit_state(h, id, ai.personalities.get(&o.name).copied());
                 if let Some(m) = world.behavior_manager(h) {
                     let pf = &m.state.pathfind;
@@ -782,7 +791,22 @@ fn run(s: &Scenario, ai: &AiInputs) -> Option<Run> {
                 continue;
             };
             let a = &c.args;
-            if let Some(op) = directive(a) {
+            // `formation <leader|none> [x y z]`: `pub::AI::
+            // update_formation_state`.
+            if a[0] == "formation" {
+                let leader = match a.get(1).map(String::as_str) {
+                    Some("none") | None => None,
+                    Some(n) => handles.get(n).copied().flatten(),
+                };
+                let offset = vec3(a, 2).unwrap_or(Vector::ZERO);
+                world.update_formation_state(h, leader, offset);
+                continue;
+            }
+            let id_of = |n: &str| {
+                let h = handles.get(n).copied().flatten()?;
+                world.get(h).map(|o| o.simple.id)
+            };
+            if let Some(op) = directive_with(a, &id_of) {
                 // A current directive blocks a new one, so each scenario
                 // directive cancels the one before.
                 if !matches!(op, DirectiveOp::Cancel) {
@@ -2773,6 +2797,52 @@ fn first_event_of(run: &Run, guided: &BTreeMap<u32, Vec<GuidedState>>) -> Option
     [contact, hit, spent].into_iter().flatten().min()
 }
 
+/// The escort scenarios of P2.5 without contact (formation flight, a
+/// follow directive, a guide directive), judged exactly as recorded.
+const EXACT_SCENARIOS: [&str; 3] = ["formation", "follow", "guide"];
+
+/// A scenario without contact judged exactly: every object equals the
+/// oracle bit for bit at every recorded tick (position, velocity,
+/// orientation, hit points, shield), alive or gone as in the oracle.
+fn judge_exact(
+    summary: &mut String,
+    gross: &mut Vec<String>,
+    s: &Scenario,
+    ours: &Run,
+    theirs: &Run,
+) {
+    let mut exact = true;
+    for (name, a) in &ours.states {
+        let Some(b) = theirs.states.get(name) else {
+            continue;
+        };
+        if a.len() != b.len() {
+            exact = false;
+            gross.push(format!(
+                "{}: {name} has {} ticks against the oracle's {}",
+                s.name,
+                a.len(),
+                b.len()
+            ));
+        }
+        let n = a.len().min(b.len());
+        if let Some(t) = (0..n).find(|&t| !same_state(&a[t], &b[t])) {
+            exact = false;
+            gross.push(format!(
+                "{}: {name} differs from the oracle at tick {t} (no contact: judged exactly)",
+                s.name
+            ));
+        }
+    }
+    if exact {
+        let _ = writeln!(
+            summary,
+            "{}: exact: every object equals the oracle bit for bit at every tick",
+            s.name
+        );
+    }
+}
+
 /// A fight (owner, 2026-11-18; record 0003 point 9, as `ram_ship`): every
 /// object must equal the oracle exactly before the oracle's first contact
 /// or munition impact, and the Rust world must have no contact, hit or
@@ -3146,6 +3216,9 @@ fn scenarios_against_the_oracle() {
         report_guided(&mut summary, &mut gross, dir, &s.name, &our_run, cutoff);
         report_guns(&mut summary, dir, &s.name, &our_run);
         report_contacts(&mut summary, &s, &our_run, &their_run);
+        if EXACT_SCENARIOS.contains(&s.name.as_str()) {
+            judge_exact(&mut summary, &mut gross, &s, &our_run, &their_run);
+        }
         if s.contact {
             judge_contact(&mut summary, &mut gross, &s, &our_run, &their_run);
         } else if fight {
