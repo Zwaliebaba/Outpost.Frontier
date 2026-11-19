@@ -117,8 +117,8 @@ spread of 0 in all 130 metric lines and 23 events of the 17 scenarios
 nothing after a contact, where the differences are the Rust port's against
 the C++ (the contact solver, D87 and O19; the fuse's timing, D177). The
 owner chose a seed ensemble instead (2026-11-19). `--runs` stays as a
-determinism check of one machine: its spread is expected to stay 0. Between
-machines the oracle is not quite reproducible after a contact (point 10).
+determinism check: its spread is expected to stay 0 (points 11 to 13 made
+the oracle repeat itself across processes and machines).
 
 9. **The seed ensemble.** Each Gate G2 scenario (`fly_to_point`,
    `fire_at_target`, `ram_ship`, `dogfight`, `skirmish`, `strafe`) runs
@@ -162,26 +162,19 @@ machines the oracle is not quite reproducible after a contact (point 10).
       (one contact), 50 hull points and 50 shield points (the floors apply
       where the oracle does not vary).
 
-    Why these numbers. The Rust side is reproducible: the same seeds give
-    the same runs on every machine (two data jobs, 0 of 220 per-object
-    outcomes changed). The oracle is reproducible within one job but not
-    quite between jobs: of its 120 runs, 5 ended differently in the second
-    job (the dogfight with seeds 3358599207 and 464813110, the skirmish
-    with 1478717352 and 225462782, the strafe with 2731971922, whose hauler
-    survived in one job and died at tick 1485 in the other), each after
-    its first contact, with the same first contact and the same exact span.
-    This is the nondeterminism listed above (the pointer-keyed sync set and
-    the pointer-XOR pair hash): addresses repeat between the processes of
-    one machine, which is why `--runs 3` shows a spread of 0, and differ
-    between machines. So the oracle's distributions move a little from job
-    to job (the dogfight police's median shield 362.1 in one, 372.8 in the
-    other), and the bounds are tests of a sample, not exact checks. One
-    level, 1 %, is used throughout. For the medians, the standard error of
-    the difference of two medians of 20 is about 0.30 × IQR (normal
-    approximation), so 0.75 × IQR is about 2.5 standard errors, the same
-    1 % level. The levels were set before the comparison: the first job
+    Why these numbers. Both sides are reproducible (the Rust world on every
+    machine; the oracle since points 11 to 13), so a verdict does not
+    change from job to job; the bounds say how large a difference the
+    seeds can show beyond chance, the seeds being a sample of the
+    starting conditions. One level, 1 %, is used throughout. For the
+    medians, the standard error of the difference of two medians of n is
+    about 1.31 × IQR / √n (normal approximation: 0.30 × IQR for 20, 0.17 ×
+    IQR for 60), so 0.75 × IQR is about 2.5 standard errors for 20 seeds
+    (the 1 % level) and about 4.4 for 60 (a looser test, which the owner
+    kept with the 60 seeds, 2026-11-19; at 60 the 1 % level would be about
+    0.44 × IQR). The levels were set before the comparison: the first job
     ran with 1 % and 1 × IQR (commit e82c02ea); the median margin was then
-    tightened to the 1 % level, not widened. With n = 20 the survival test
+    tightened to 0.75, not widened. With n = 20 the survival test
     is weak: for the oracle's measured counts it accepts Rust counts of
     14–20 (oracle 20 of 20), 8–20 (16), 1–16 (8), 2–17 (9) and 0–15 (6). A
     fixed ±4 would be tighter but would reject an identical distribution
@@ -263,6 +256,42 @@ machines the oracle is not quite reproducible after a contact (point 10).
       with shield 749.51; the Rust ships separate after the first contact
       (2 events, shield 794.26), in all 20 seeds. This is the contact
       solver (D87), and the outcome (both alive) agrees.
+
+### Reproducibility (owner, 2026-11-19)
+
+11. **The start-up seed** (a point-2 hook). `IServerImpl::Startup` seeded
+    the generator with `timeGetTime()` before Content's controllers start;
+    each `SetHeartbeatInterval` draws its heartbeat's starting phase from
+    it, and GameSupport's 1 s heartbeat is Content's game time, which moves
+    in whole heartbeats. Content's comm system (GCS) rolls `rand()` on a
+    damage message once its category's interval (12 s by default) has
+    passed since the last comm nearby (`IsGcsCommAllowed`), so the roll's
+    tick depended on the wall clock, and every later draw of the AI with
+    it: 5 of 120 G2 seed-ensemble runs ended differently in separate
+    processes, always after the first contact (data runs 44494560931 and
+    44500705507; probes 44523076483, 44526581221 and 44530545092 ruled out
+    the machine, the CPU, the toolset and ASLR, and found the roll with a
+    recorder of every frame-time draw). Under the harness's fixed clock
+    the seed is the scenario's `seed`; the harness seeds again after
+    `PlayerDB::init` (whose first start on a machine seeds from the clock
+    once more). The heartbeat phases are recorded (`heartbeats`).
+12. **Comms off in the fights.** The G2 fight scenarios (`dogfight`,
+    `skirmish`, `strafe`) run with `comms off`: the harness sets Content's
+    comm clamp, as a mission's `Act_GcsClamp` does, so `IsGcsCommAllowed`
+    refuses before its roll. The Rust world has no comm system until P3.6;
+    with comms on, the oracle's `rand()` sequence holds comm rolls the port
+    never draws, and every draw after the first one compares unlike. This
+    is harness configuration, not a divergence. `ram_ship` and
+    `fire_at_target` keep comms on: their ships have no AI, so no draw
+    follows a comm roll. The data job checks that a fight with comms on
+    equals comms off before its first contact.
+13. **The toolset.** The CI builds whose output is compared (the oracle
+    and the resource DLLs in build.yml's oracle job, the oracle in
+    data.yml) use one pinned MSVC toolset, `.github/msvc-toolset.txt`
+    (v143 14.44.35207, the one toolset every image in use has); the plain
+    reference build uses the image's default and logs it. The `env` record
+    of every run names the compiler, the CPU, the OS build and the runtime
+    DLLs.
 
 ## Consequences
 

@@ -1562,8 +1562,13 @@ namespace
                     FUiPayloadWinObject P = {F(T[2]), F(T[3]), Buffer.data(), F(T[4])};
                     Created = WinFactoryCreate("C", Class.c_str(), Parent, &P);
                 }
+                // Win3D's constructor leaves the flag bits 4 to 7 (+0x6c) as allocated: the zeroed
+                // allocation the Rust port starts from (divergence D442), not whatever the heap
+                // holds (0x30 from the v143 build in case 10; nothing reads them).
+                if (Created != nullptr)
+                    Created->Flags = static_cast<unsigned char>(Created->Flags & 0x0f);
                 GCtlObject = Created;
-                GCtlEdit = (Created != nullptr && (Class == "RichTextEditWin" || Class == "UITextEdit"))
+                GCtlEdit =(Created != nullptr && (Class == "RichTextEditWin" || Class == "UITextEdit"))
                                ? static_cast<RichTextEditWin*>(static_cast<WinControl*>(Created))
                                : nullptr;
                 CtlEvent(oracle::Format("\"ev\":\"new\",\"ok\":\"%d\"", Created != nullptr ? 1 : 0));

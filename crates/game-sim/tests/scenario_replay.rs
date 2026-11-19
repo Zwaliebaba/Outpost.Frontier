@@ -150,6 +150,10 @@ struct Scenario {
     /// `collisions sp`: the server's collision filter takes its
     /// single-player branch (every pair collides).
     sp_collisions: bool,
+    /// `comms off`: the oracle clamps Content's comm system (GCS), so its
+    /// `rand()` sequence holds no comm rolls (owner, 2026-11-19). The Rust
+    /// world has no comm system until P3.6 and draws none either way.
+    comms_off: bool,
     /// The file is marked `# ci: expect collision`: a contact scenario,
     /// judged to its first contact ([`judge_contact`]).
     contact: bool,
@@ -204,6 +208,7 @@ fn parse(path: &Path) -> Option<Scenario> {
         frame: 1.0 / 30.0,
         sp: false,
         sp_collisions: false,
+        comms_off: false,
         contact: text
             .lines()
             .any(|l| l.trim_start().starts_with("# ci: expect collision")),
@@ -229,6 +234,7 @@ fn parse(path: &Path) -> Option<Scenario> {
             "frame" => s.frame = num(t.get(1)?)?,
             "stepping" => s.sp = t.get(1)?.eq_ignore_ascii_case("sp"),
             "collisions" => s.sp_collisions = t.get(1)?.eq_ignore_ascii_case("sp"),
+            "comms" => s.comms_off = t.get(1)?.eq_ignore_ascii_case("off"),
             "seed" => s.seed = t.get(1)?.parse().ok()?,
             "ship" | "solar" => {
                 let ship = t[0].eq_ignore_ascii_case("ship");
@@ -720,6 +726,12 @@ fn run(s: &Scenario, ai: &AiInputs) -> Option<Run> {
     world.set_guided_trace(true);
     if s.sp_collisions {
         world.set_server_collision_filter(system, false);
+    }
+    if s.comms_off {
+        println!(
+            "{}: comms off: the oracle's comm system is clamped (no comm rolls); the Rust world has none",
+            s.name
+        );
     }
     // The seeding point (owner, 2026-11-18): the oracle's harness calls
     // `srand(seed)` again once the system and its population have loaded.
