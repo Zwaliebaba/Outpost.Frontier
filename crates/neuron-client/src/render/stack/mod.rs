@@ -81,6 +81,13 @@ pub trait StackEngine {
     /// `GetInstanceExtent(instance, 1, ...)`: `None` when nothing is
     /// written.
     fn instance_extent(&mut self, instance: Instance) -> Option<(f32, [f32; 3])>;
+    /// `GetInstanceExtent(instance, 0, ...)`: the sphere around the
+    /// instance and its children, as the atmosphere asks the engine its
+    /// `Field20` names. By default the instance's own extent (an engine
+    /// whose instances have no children).
+    fn instance_subtree_extent(&mut self, instance: Instance) -> Option<(f32, [f32; 3])> {
+        self.instance_extent(instance)
+    }
     /// `SetInstanceExtent(instance, 1, radius, centre)`.
     fn set_instance_extent(&mut self, instance: Instance, radius: f32, centre: [f32; 3]);
     /// `GetRelatedInstance(instance, 1, previous)`: the next child.
@@ -538,12 +545,13 @@ impl<B: Backend + 'static> MaterialServices for RenderStack<B> {
         self.shading.animation_uv_matrix(instance)
     }
 
-    /// The atmosphere's `GetInstanceExtent` on the engine `Field20` names:
-    /// the stack's engine for the sphere's [`FIELD20_ENGINE`], else
-    /// [`Shading`]'s.
+    /// The atmosphere's `GetInstanceExtent(instance, 0, ...)` on the engine
+    /// `Field20` names: the stack's engine for the sphere's
+    /// [`FIELD20_ENGINE`] (the sphere around the instance and its
+    /// children), else [`Shading`]'s.
     fn instance_extent(&mut self, field20: usize, instance: usize) -> Option<(f32, [f32; 3])> {
         if field20 == FIELD20_ENGINE {
-            return self.engine.instance_extent(instance);
+            return self.engine.instance_subtree_extent(instance);
         }
         MaterialServices::instance_extent(&mut self.shading, field20, instance)
     }
@@ -1379,5 +1387,105 @@ impl<B: Backend + 'static> ParticleDraw for RenderStack<B> {
             start_index,
             index_count,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::render::ff::defaults::Defaults;
+    use crate::render::ff::device::{Device, RecordingBackend};
+    use crate::render::material::{InstanceExtents, ShadingFactory};
+    use crate::render::mesh::VMeshRegistry;
+    use crate::render::texture::{FormatClasses, LibraryConfig, TextureLibrary};
+
+    /// An engine whose instance 5 has its own sphere of radius 2 and, with
+    /// its children, one of radius 7.
+    struct Parent;
+
+    impl StackEngine for Parent {
+        fn instance_transform(&mut self, _: Instance) -> [f32; 12] {
+            [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]
+        }
+        fn instance_archetype(&mut self, _: Instance) -> Archetype {
+            -1
+        }
+        fn instance_extent(&mut self, instance: Instance) -> Option<(f32, [f32; 3])> {
+            (instance == 5).then_some((2.0, [0.0, 1.0, 0.0]))
+        }
+        fn instance_subtree_extent(&mut self, instance: Instance) -> Option<(f32, [f32; 3])> {
+            (instance == 5).then_some((7.0, [0.0, 3.0, 0.0]))
+        }
+        fn set_instance_extent(&mut self, _: Instance, _: f32, _: [f32; 3]) {}
+    }
+
+    /// An engine with one instance without children.
+    struct Flat;
+
+    impl StackEngine for Flat {
+        fn instance_transform(&mut self, _: Instance) -> [f32; 12] {
+            [0.0; 12]
+        }
+        fn instance_archetype(&mut self, _: Instance) -> Archetype {
+            -1
+        }
+        fn instance_extent(&mut self, _: Instance) -> Option<(f32, [f32; 3])> {
+            Some((4.5, [1.0, 2.0, 3.0]))
+        }
+        fn set_instance_extent(&mut self, _: Instance, _: f32, _: [f32; 3]) {}
+    }
+
+    /// What `Shading` alone answers for other `Field20` values.
+    struct Other;
+
+    impl InstanceExtents for Other {
+        fn extent(&mut self, field20: usize, instance: usize) -> Option<(f32, [f32; 3])> {
+            Some((field20 as f32, [instance as f32, 0.0, 0.0]))
+        }
+    }
+
+    fn stack(engine: Box<dyn StackEngine>) -> RenderStack<RecordingBackend> {
+        let device = Device::new(Defaults::builtin(), 64, 64, RecordingBackend::default());
+        let mut shading = Shading::new(
+            device,
+            TextureLibrary::new(LibraryConfig::default()),
+            FormatClasses::builtin(),
+        );
+        shading.engine = Some(Box::new(Other));
+        let batcher = MaterialBatcher::new(Box::new(ShadingFactory::new()), None);
+        RenderStack::new(shading, batcher, VMeshRegistry::shared(), engine)
+    }
+
+    #[test]
+    fn the_atmosphere_asks_the_engine_for_the_subtree_sphere() {
+        let mut s = stack(Box::new(Parent));
+        // The sphere's `Field20` is the engine: GetInstanceExtent(.., 0).
+        assert_eq!(
+            MaterialServices::instance_extent(&mut s, FIELD20_ENGINE, 5),
+            Some((7.0, [0.0, 3.0, 0.0]))
+        );
+        assert_eq!(
+            MaterialServices::instance_extent(&mut s, FIELD20_ENGINE, 6),
+            None
+        );
+        // The render manager's own-extent query stays flag 1.
+        assert_eq!(
+            MeshServices::instance_extent(&mut s, 5),
+            Some((2.0, [0.0, 1.0, 0.0]))
+        );
+        // Any other `Field20` goes to the engine `Shading` was given.
+        assert_eq!(
+            MaterialServices::instance_extent(&mut s, 0x55, 9),
+            Some((85.0, [9.0, 0.0, 0.0]))
+        );
+    }
+
+    #[test]
+    fn an_engine_without_children_answers_its_own_extent() {
+        let mut s = stack(Box::new(Flat));
+        assert_eq!(
+            MaterialServices::instance_extent(&mut s, FIELD20_ENGINE, 1),
+            Some((4.5, [1.0, 2.0, 3.0]))
+        );
     }
 }

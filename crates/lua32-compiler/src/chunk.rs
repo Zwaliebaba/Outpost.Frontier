@@ -74,6 +74,8 @@ impl fmt::Display for ChunkError {
     }
 }
 
+impl std::error::Error for ChunkError {}
+
 fn error<T>(message: impl Into<String>) -> Result<T, ChunkError> {
     Err(ChunkError(message.into()))
 }

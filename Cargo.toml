@@ -6,6 +6,7 @@ members = [
     "crates/game-app",
     "crates/game-logic",
     "crates/game-sim",
+    "crates/lua32-compiler",
     "crates/neuron-client",
     "crates/neuron-core",
     "crates/neuron-server",
@@ -21,6 +22,7 @@ publish = false
 [workspace.dependencies]
 game-app = { path = "crates/game-app" }
 game-logic = { path = "crates/game-logic" }
+lua32-compiler = { path = "crates/lua32-compiler" }
 neuron-client = { path = "crates/neuron-client" }
 neuron-core = { path = "crates/neuron-core" }
 neuron-server = { path = "crates/neuron-server" }

@@ -19,8 +19,6 @@ use neuron_client::scene_script::{
 };
 use neuron_core::vfs::{GENERIC_READ, GENERIC_WRITE, MemFileSystem, MemSource, OPEN_EXISTING};
 
-use support::thn_compile;
-
 fn thn_files(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(entries) = fs::read_dir(dir) else {
         return;
@@ -391,8 +389,12 @@ fn every_shipped_scene_script_saves_and_reloads() {
         let (first, text) = load_and_save(&fs::read(file).unwrap());
         let text = text.unwrap_or_else(|| panic!("{name}: does not load"));
         bytes_saved += text.len();
-        let chunk = thn_compile::compile(&text)
-            .unwrap_or_else(|e| panic!("{name}: the saved source does not compile: {e}"));
+        // The port loads compiled chunks only (decision O18, divergence
+        // D86), so the saved source is compiled first, as a modded script
+        // must be; the compiler accepts the language the writer writes.
+        let chunk = lua32_compiler::compile(&text)
+            .unwrap_or_else(|e| panic!("{name}: the saved source does not compile: {e}"))
+            .write();
         let (second, again) = load_and_save(&chunk);
         let again = again.unwrap_or_else(|| panic!("{name}: the saved source does not load"));
         let (a, b) = (first.player(), second.player());

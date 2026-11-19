@@ -13,6 +13,11 @@ toml.workspace = true
 [target.'cfg(windows)'.dependencies]
 windows.workspace = true
 
+[dev-dependencies]
+# The scene-script round trip compiles saved source before reloading it
+# (decision O18); a development tool, never a normal dependency.
+lua32-compiler.workspace = true
+
 [features]
 default = ["render-trace"]
 # The renderer trace reader and model replay (record 0004, point 12).

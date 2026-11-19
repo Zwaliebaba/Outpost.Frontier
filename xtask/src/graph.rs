@@ -12,6 +12,7 @@ use crate::workspace::{Member, Workspace};
 /// the graph and recording it in AGENTS.md.
 const ALLOWED: &[(&str, &[&str])] = &[
     ("neuron-core", &[]),
+    ("lua32-compiler", &["neuron-core"]),
     ("game-sim", &["neuron-core"]),
     ("neuron-client", &["neuron-core"]),
     ("neuron-server", &["neuron-core"]),
@@ -32,8 +33,13 @@ const ALLOWED: &[(&str, &[&str])] = &[
         "outpost-server",
         &["neuron-core", "game-sim", "neuron-server", "game-logic"],
     ),
-    ("xtask", &["neuron-core"]),
+    ("xtask", &["neuron-core", "lua32-compiler"]),
 ];
+
+/// Workspace crates a member may use in its tests only: edges allowed in
+/// `dev-dependencies` (plain or target-specific) and refused anywhere
+/// else.
+const DEV_ONLY: &[(&str, &[&str])] = &[("neuron-client", &["lua32-compiler"])];
 
 const DEPENDENCY_TABLES: &[&str] = &["dependencies", "dev-dependencies", "build-dependencies"];
 
@@ -89,8 +95,17 @@ fn check_member(member: &Member, workspace_names: &[&str], findings: &mut Vec<Fi
         return;
     };
 
+    let dev_only = DEV_ONLY
+        .iter()
+        .find(|(name, _)| *name == member.name)
+        .map_or(&[][..], |(_, deps)| *deps);
+
     for (table_name, dependency) in dependencies(&member.manifest) {
-        if workspace_names.contains(&dependency.as_str()) && !allowed.contains(&dependency.as_str())
+        let dependency_name = dependency.as_str();
+        let is_dev = table_name.ends_with("dev-dependencies");
+        if workspace_names.contains(&dependency_name)
+            && !allowed.contains(&dependency_name)
+            && !(is_dev && dev_only.contains(&dependency_name))
         {
             findings.push(Finding {
                 location: location.clone(),
@@ -163,7 +178,13 @@ mod tests {
         }
     }
 
-    const NAMES: &[&str] = &["neuron-core", "neuron-client", "game-logic", "game-app"];
+    const NAMES: &[&str] = &[
+        "neuron-core",
+        "neuron-client",
+        "game-logic",
+        "game-app",
+        "lua32-compiler",
+    ];
 
     const HEADER: &str = "[package]\nname = \"x\"\nrust-version.workspace = true\n\
                           [lints]\nworkspace = true\n";
@@ -210,6 +231,36 @@ mod tests {
                 .message
                 .contains("target.cfg(windows).dev-dependencies")
         );
+    }
+
+    #[test]
+    fn dev_only_edge_passes_in_dev_dependencies_only() {
+        for table in ["dev-dependencies", "target.'cfg(windows)'.dev-dependencies"] {
+            let m = member(
+                "neuron-client",
+                &format!("{HEADER}[{table}]\nlua32-compiler.workspace = true\n"),
+            );
+            assert!(findings(&m).is_empty(), "{table}");
+        }
+        for table in ["dependencies", "build-dependencies"] {
+            let m = member(
+                "neuron-client",
+                &format!("{HEADER}[{table}]\nlua32-compiler.workspace = true\n"),
+            );
+            let found = findings(&m);
+            assert_eq!(found.len(), 1, "{table}");
+            assert!(
+                found[0]
+                    .message
+                    .contains("may not depend on `lua32-compiler`")
+            );
+        }
+        // A dev-only edge of one crate is no edge of another.
+        let m = member(
+            "game-app",
+            &format!("{HEADER}[dev-dependencies]\nlua32-compiler.workspace = true\n"),
+        );
+        assert_eq!(findings(&m).len(), 1);
     }
 
     #[test]

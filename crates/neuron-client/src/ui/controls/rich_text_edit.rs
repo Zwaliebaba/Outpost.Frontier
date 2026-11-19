@@ -853,6 +853,11 @@ impl Widget for RichTextEditWin {
         }
         base::mouse_event(ui, id, self, event)
     }
+    /// Slot 23, inherited from the window: its bar's value (a bar shown
+    /// with `ShowScrollBarV`; the box makes none of its own).
+    fn child_message(&mut self, ui: &mut Ui, _id: NodeId, message: &ChildMessage) -> bool {
+        self.win.child_message_window(ui, message)
+    }
     fn property(&mut self, ui: &mut Ui, id: NodeId, property: Property<'_>) -> isize {
         self.win.property(ui, id, property)
     }
@@ -925,6 +930,10 @@ impl Widget for UiTextEdit {
             return ui.base_mouse_event(id, event);
         }
         base::mouse_event(ui, id, self, event)
+    }
+    /// Slot 23: the window's, as `RichTextEditWin` inherits it.
+    fn child_message(&mut self, ui: &mut Ui, id: NodeId, message: &ChildMessage) -> bool {
+        Widget::child_message(&mut self.edit, ui, id, message)
     }
     fn property(&mut self, ui: &mut Ui, id: NodeId, property: Property<'_>) -> isize {
         self.edit.property(ui, id, property)

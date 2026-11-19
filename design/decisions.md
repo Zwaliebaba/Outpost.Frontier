@@ -165,7 +165,8 @@ fix the detail.
   Runtime `%g` the reference formats with. The VC6 number formatters of
   `msvcrt_numeric_format.h` are in `neuron-core::msvcrt` too
   (`format_lua_number`, `numeric_vsnprintf`), shared by the client and
-  xtask's chunk compiler (reworded 2026-11-18, P4.13: "port with their
+  xtask's chunk compiler (the `lua32-compiler` crate since 2026-11-19;
+  reworded 2026-11-18, P4.13: "port with their
   users" would have given xtask, which may depend only on neuron-core, a
   second copy).
 - The CRT random generator is an explicit value passed to its users, not a

@@ -4,23 +4,20 @@
 //! The shipped scripts are compiled chunks without debug information, so
 //! comments, layout and the spelling of numerals are gone; numbers come
 //! back in the text the compiler stored. Every result is compiled again
-//! with [`compile::compile`] and must equal the input byte for byte; a
-//! file that does not is reported and not written.
+//! with [`lua32_compiler::compile`] and must equal the input byte for
+//! byte; a file that does not is reported and not written.
 //!
 //! The output is made from the game data in `outdir/` and must not be
 //! committed (AGENTS.md, "Tests and test data").
 
-mod chunk;
-mod compile;
 mod decompile;
-mod number;
 
 use std::fs;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use chunk::{Chunk, HEADER};
+use lua32_compiler::{Chunk, Constant, HEADER, compile, source_numeral};
 
 pub const USAGE: &str = "  thn-decompile <file> [<out file>]
   thn-decompile <folder> <out folder>
@@ -42,7 +39,7 @@ pub struct Decompiled {
 pub fn decompile_verified(bytes: &[u8]) -> Result<Decompiled, String> {
     let chunk = Chunk::read(bytes).map_err(|e| e.to_string())?;
     let source = decompile::decompile(&chunk)?;
-    let again = compile::compile(source.as_bytes())
+    let again = compile(source.as_bytes())
         .map_err(|e| format!("the decompiled source does not compile: {e}"))?
         .write();
     if again != bytes {
@@ -59,10 +56,10 @@ pub fn decompile_verified(bytes: &[u8]) -> Result<Decompiled, String> {
         .constants
         .iter()
         .filter_map(|c| match c {
-            chunk::Constant::Number(stored) => number::source_numeral(stored)
+            Constant::Number(stored) => source_numeral(stored)
                 .filter(|written| written != stored)
                 .map(|written| (stored.clone(), written)),
-            chunk::Constant::String(_) => None,
+            Constant::String(_) => None,
         })
         .collect();
     Ok(Decompiled { source, respelled })
@@ -184,8 +181,8 @@ pub fn run(args: &[String]) -> ExitCode {
 
 #[cfg(test)]
 mod tests {
-    use super::chunk::{Chunk, Constant, op};
-    use super::compile::compile;
+    use lua32_compiler::op;
+
     use super::decompile::decompile;
     use super::*;
 
@@ -195,43 +192,6 @@ mod tests {
         assert_eq!(Chunk::read(&bytes).as_ref(), Ok(&chunk));
         let text = decompile_verified(&bytes).unwrap_or_else(|e| panic!("{e}\n{src}"));
         (chunk, text.source)
-    }
-
-    /// Code worked out by hand from `lparser.c` for a small script.
-    #[test]
-    fn compiles_as_the_reference_parser_does() {
-        let chunk = compile(b"x = 1\ny = { -2, 0.5; a = Z + 3 }\n").unwrap();
-        assert_eq!(
-            chunk.constants,
-            [
-                Constant::String(b"x".to_vec()),
-                Constant::String(b"y".to_vec()),
-                Constant::Number("0.5".into()),
-                Constant::String(b"a".to_vec()),
-                Constant::String(b"Z".to_vec()),
-            ]
-        );
-        #[rustfmt::skip]
-        let code = [
-            4, 0,                           // stack size 4, no parameters
-            op::PUSHNUMBER, 1,
-            op::SETGLOBAL, 0,               // x = 1
-            op::CREATEARRAY, 3,             // { ... } with 3 items in all
-            op::PUSHNUMBERNEG, 2,
-            op::PUSHCONSTANT, 2,
-            op::SETLIST, 0, 2,              // t[1], t[2]
-            op::PUSHCONSTANT, 3,            // "a"
-            op::GETGLOBAL, 4,
-            op::PUSHNUMBER, 3,
-            op::ADDOP,
-            op::SETMAP, 0,                  // t.a
-            op::SETGLOBAL, 1,               // y = t
-            op::ENDCODE,
-        ];
-        assert_eq!(chunk.code, code);
-        let mut header = HEADER.to_vec();
-        header.extend([0, 0, 0, 0, 0, 0, 0, 0, 1, 0]);
-        assert!(chunk.write().starts_with(&header));
     }
 
     #[test]
@@ -289,23 +249,6 @@ mod tests {
             text.contains("{ y = 1; 4, 5 }") || text.contains(";\n"),
             "{text}"
         );
-    }
-
-    #[test]
-    fn rejects_what_the_subset_does_not_cover() {
-        for src in [
-            "x = f(1)",
-            "x = a.b",
-            "local x = 1",
-            "x = -y",
-            "x = 1 - 2",
-            "x, y = 1, 2",
-            "x = [[long]]",
-            "$debug\nx = 1",
-            "x = 1 == 2",
-        ] {
-            assert!(compile(src.as_bytes()).is_err(), "{src}");
-        }
     }
 
     #[test]

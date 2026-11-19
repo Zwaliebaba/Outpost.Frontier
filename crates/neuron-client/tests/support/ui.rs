@@ -1859,7 +1859,10 @@ mod controls {
 
     /// A plain rich-text window's state (`RichWinState`).
     fn rich_win_state(ui: &Ui, id: NodeId) -> String {
-        let w = ui.widget::<RichTextWin>(id).unwrap();
+        rich_win_state_of(ui, id, ui.widget::<RichTextWin>(id).unwrap())
+    }
+
+    fn rich_win_state_of(ui: &Ui, id: NodeId, w: &RichTextWin) -> String {
         let b = &w.base;
         // The bar's name is left out: the reference numbers bars across the
         // cases (D475).
@@ -2248,6 +2251,42 @@ mod controls {
                     let line = edit_state(ui, id);
                     ev(log, &line);
                 }
+                // The window's operations on the box (slot 23 inherited).
+                "rtlayout" => with_edit(ui, id, |e, _| {
+                    e.win.base.layout_height = i(t[1]);
+                    e.win.base.pixel_height = i(t[2]);
+                }),
+                "rtshow" => with_edit(ui, id, |e, ui| {
+                    e.win.base.show_scroll_bar_v(ui, id, i(t[1]) != 0);
+                }),
+                "rtbar" => {
+                    let bar = edit_of(ui, id).win.base.scroll_bar_v;
+                    if let Some(s) = bar.and_then(|b| ui.widget_mut::<UiScroll>(b)) {
+                        s.set_value(f(t[1]));
+                    }
+                }
+                "rtscrolled" => {
+                    let bar = edit_of(ui, id).win.base.scroll_bar_v;
+                    let bar = bar.expect("a case scrolls only with a bar");
+                    let value = ui.widget::<UiScroll>(bar).unwrap().value;
+                    let r = ui
+                        .send_child_message(id, &ChildMessage::ScrollChanged { from: bar, value });
+                    result(log, u8::from(r));
+                }
+                "rtstate" => {
+                    let line = rich_win_state_of(ui, id, &edit_of(ui, id).win);
+                    ev(log, &line);
+                }
+                "rbstate" => match edit_of(ui, id).win.base.scroll_bar_v {
+                    None => ev(log, "\"ev\":\"nobar\""),
+                    Some(bar) => {
+                        let saved = ui.node(bar).unwrap().flags;
+                        ui.node_mut(bar).unwrap().flags = saved & 0xF;
+                        let line = scroll_state(ui, bar, ui.widget::<UiScroll>(bar).unwrap());
+                        ui.node_mut(bar).unwrap().flags = saved;
+                        ev(log, &line);
+                    }
+                },
                 _ => return false,
             }
             return true;

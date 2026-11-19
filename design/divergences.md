@@ -164,47 +164,44 @@ different files of one name in several folders); what remains, the
 holder's archetype reference, has no effect and is accepted by the same
 rule.
 
-D490 to D495 (P4.8, third increment: the particle and mesh appearances and
-the client's mesh factory) are proposed, for the owner's review.
-
-D500 and D501 (P4.7, third increment: instance animations and aim events
-through the engine) are proposed, for the owner's review. D460 was
-narrowed with them: the models' animations play on their own lists,
-with their sinks and aim events; what remains is that the engine, not
-the game's character objects, advances them. The owner accepted D460
-in the fourth review; the narrowed row stays accepted.
-D510 to D513 (P4.13, seventh increment: the engine's interface pass) are
-proposed, for the owner's review.
-D520 to D528 (P4.10, the client wiring: the sound archetypes, voice
-profiles, play keys and sound tick through the engine) are proposed, for
-the owner's review. With them D461 is proposed for closing:
+In a fifth review on 2026-11-19 the owner accepted D490 to D495 (P4.8,
+third increment: the particle and mesh appearances and the client's mesh
+factory; D490 by the owner's choice, so mesh appearances load the meshes
+the data names and the trade lane tube shows its mesh, which the reference
+loses to its `(null)` path), D500 and D501 (P4.7, third increment:
+instance animations and aim events through the engine), D510 to D513
+(P4.13, seventh increment: the engine's interface pass), D520 to D528
+(P4.10, the client wiring: the sound archetypes, voice profiles, play keys
+and sound tick through the engine), D530 to D534 (P4.1 and P4.11: the
+account derivation of a new install, `PerfOptions.ini`'s options and
+display mode, and the low-machine warning), D540 to D546 (P4.14, saving a
+scene and the script engine's COM context and file-system paths), D550 to
+D555 (P4.11 to P4.13, the IME input box and font), D560 to D562 (P4.12 and
+P4.14: the script engine's custom load parser, and the rich-text window's
+own scroll bar as a `UIScroll` child) and D570 and D571 (P4.4, P4.5,
+P4.12 and P4.16, the render residuals). D461 and D422 are closed:
 `Engine::play_sound` plays through the client's playing list, the frame's
-sound tick and the mixer's tick, so the stand-in is gone; the row stays for
-its history.
-D530 to D534 (P4.1 and P4.11: the account derivation of a new install,
-`PerfOptions.ini`'s options and display mode, and the low-machine
-warning) are proposed, for the owner's review. D284 was narrowed with
-them: the window now holds the composition at the focus loss and cancels
-it, as the reference's window procedure commits and cancels it, so the
-box receives it once whatever the system does before the game handles
-the loss; what remains is that the box receives it after the pump.
-D540 to D546 (P4.14, saving a scene and the script engine's COM context
-and file-system paths) are proposed, for the owner's review.
-D550 to D555 (P4.11 to P4.13, the IME input box and font) are proposed,
-for the owner's review. D283, D285, D286 and D471 were narrowed with
-them: the game now draws the IME's toolbar beside the focused box as the
-reference does, and its composition and candidate drawing is ported for
-what an IME context hands the game, which the window's does not (D283);
-the client's boxes measure with their own font (D285); the edit window
-hands its box the UTF-16 unit (D286); the box `FLImeInputBox` is ported
-(D471).
-D560 to D562 (P4.12 and P4.14, the residuals: the script engine's custom
-load parser, and the rich-text window's own scroll bar as a `UIScroll`
-child) are proposed, for the owner's review. With them D422 is proposed
-for closing: `BaseRichTextWin` makes its bar as a `UIScroll` child and
-hears its value through slot 23, as the reference does; the row stays for
-its history. D475's Rust column now names both bars, which take the
-manager's numbers.
+sound tick and the mixer's tick, and `BaseRichTextWin` makes its bar as a
+`UIScroll` child and hears its value through slot 23, as the reference
+does; their rows stay for their history.
+
+Narrowed with these increments: D460 (the models' animations play on
+their own lists, with their sinks and aim events; what remains is that
+the engine, not the game's character objects, advances them; accepted in
+the fourth review, the narrowed row stays accepted); D284 (the window
+holds the composition at the focus loss and cancels it, so the box
+receives it once; what remains is that it arrives after the pump); D283,
+D285, D286 and D471 (the game draws the IME's toolbar beside the focused
+box, and its composition and candidate drawing is ported for what an IME
+context hands the game, which the window's does not; the client's boxes
+measure with their own font; the edit window hands its box the UTF-16
+unit; `FLImeInputBox` is ported). D475's Rust column names both bars,
+which take the manager's numbers.
+
+The owner deferred the VMesh-backed deformable draw (P4.6's
+`DeformServices` on the stack, P4.7's VMesh part of a VMesh-backed mesh)
+on 2026-11-19, as `TriMesh`'s editing mode (D358): no shipped model has
+one, and it is ported when a caller needs it.
 
 | ID | Area | C++ behaviour | Rust behaviour | Reason | Observable effect |
 | --- | --- | --- | --- | --- | --- |
@@ -448,7 +445,7 @@ manager's numbers.
 | D299 | `neuron-client::text::layout::device` (P4.12) | `DeviceTRC::execute_image` with no image (an `ImageNode` made with a null image) reads the image's size through the null pointer | Nothing is drawn and the pen stays | Undefined behaviour in the reference | None: every image node the client makes holds an image |
 | D420 | `neuron-client::text::font::rich` (P4.12) | `DeviceTRC::set_image_root` with an empty path reads the byte before the string's null buffer and faults | The root is a lone backslash | Undefined behaviour in the reference | None: the client passes its data path |
 | D421 | `neuron-client::text::layout::device` (P4.12) | `DeviceTRC` measures and draws through GDI on the window's memory DC: the face of the font byte selected (a face that failed to be made leaves the DC's previous one), `ExtTextOutW` with `ETO_CLIPPED` in `TRANSPARENT` mode blending GDI's antialiased glyphs over the bitmap, `StretchBlt` in the DC's default stretch mode, a clip region, and `GetDIBits` reducing the screen-format bitmap to 16-bit 5:5:5 | The DC is a `RichSurface` of `0x00RRGGBB` pixels with a clip rectangle; text is the backend's coverage (decision T3) blended in the text colour per channel, rounded, in a box of the run's advance with a cell of room on either side, two cells high; images are stretched by nearest pixel; the read-back keeps each channel's top five bits; a font byte without a face measures 0 by 0 and draws nothing | Legacy platform dependence (decision T3) | Glyph edges, overhangs beyond a cell and shrunk images may differ by a pixel or a coverage step; positions, advances and the layout are the reference's for the backend's metrics (oracle suite `rich_text`) |
-| D422 | `neuron-client::ui::controls::rich_text_win` (P4.12) | `BaseRichTextWin` makes its vertical scroll bar as a `UIScroll` child (`ScrollV_%d`) beside the text and hears its value through slot 23 | Proposed for closing (P4.12 residuals): the bar is a `UIScroll` child (`BaseRichTextWin::create_scroll_bar_v`) and its value comes in through slot 23 (`RichTextWin::child_message_window`). Before: the window kept the bar's value, range, page, step and size (`ScrollBar`); the bar's value came in through `RichTextWin::on_scroll_bar` | Technical decision T10 (no `UIScroll` in the toolkit yet) | None now; before, no bar was drawn or clicked |
+| D422 | `neuron-client::ui::controls::rich_text_win` (P4.12) | `BaseRichTextWin` makes its vertical scroll bar as a `UIScroll` child (`ScrollV_%d`) beside the text and hears its value through slot 23 | Closed 2026-11-19 (owner) with the P4.12 residuals: the bar is a `UIScroll` child (`BaseRichTextWin::create_scroll_bar_v`) and its value comes in through slot 23 (`RichTextWin::child_message_window`). Before: the window kept the bar's value, range, page, step and size (`ScrollBar`); the bar's value came in through `RichTextWin::on_scroll_bar` | Technical decision T10 (no `UIScroll` in the toolkit yet) | None now; before, no bar was drawn or clicked |
 | D423 | `neuron-client::ui::controls::rich_text_win` (P4.12) | `Create` projects the control (`EnsureSurface`) through the pipeline at once, setting its screen rectangle, pixel size and surface | The projection waits for the first draw, where the host hands over the viewport and projection | Technical decision T10 | Until the first draw the pixel size is 0: `ScrollToEnd` and the layout height read 0 there, as for a window whose control projects to nothing |
 | D300 | `neuron-client::render::material::regex` (P4.5) | `FMaterialRegex` reads patterns and subjects as C strings; a `[` class whose last character is `\` steps past the terminator and goes on reading whatever follows it | Patterns and subjects are byte slices that end at their first NUL; a read past the end gives 0, so such a class is refused like any unclosed one | Undefined behaviour in the reference | None for patterns that end inside the string |
 | D301 | `neuron-client::render::material::{instance, library}` (P4.5) | Materials are COM objects the component manager makes by name (CRC lookup, then each registered factory in priority order); a component without the material face is released without a warning; `BatchedMaterial` aggregates its inner material | A `MaterialFactory` makes them by name; a component that is not a material is a factory error and logs the "Unable to create material" warning; the batched face and its inner material are one `Material` value | Technical decision O25 (typed handles instead of interface pointers) | A log line; none for drawing or counts |
@@ -557,7 +554,7 @@ manager's numbers.
 | D455 | `neuron-client::engine::frame` (P4.16) | `TryBeginFrame` sets `D3DRS_DITHERENABLE` for a 16-bit display mode with the dither option on | The state is always 0 | Owner decision O27 and decision record 0004 (the back buffer is always 32-bit BGRA) | None: a 32-bit mode never dithers in the reference either |
 | D456 | `neuron-client::engine::scene_host` (P4.16) | `Deformable2`'s `rand()` is the C runtime's process-wide generator, seeded by `srand(timeGetTime())` in `InitializeEngine` and shared with every other caller | `SceneDeformHost::rand` is the same linear congruential generator, its own, seeded with 1 | Legacy platform dependence (the C runtime's state; D400) | The skin-refresh phase of each deformable follows a fixed sequence instead of a time-seeded one (none with a `DeformRate` of 0, the shipped value) |
 | D460 | `neuron-client::engine` (P4.16, narrowed by P4.7) | The game's character objects advance their deformable models from their own updates (`FEngineCharacterBody::Advance(dt)`: `MixerWalk` under the root bone at `dt` times the body's rate, `UpdateInstance`, `GetListCount`) and play a body's animations through `IDeformable::Play` with the body's arguments | `Engine::frame` advances every deformable model with something on its list at the frame's `dt` (rate 1), in the state's world tick after the scene scripts (`Engine::advance_deformables` over `walk_deformable`, then `GetListCount`); `Engine::play_deformable_animation` destroys the model's list (`DestroyAllList`) and plays with the character body's arguments (`DeformablePlay::character`) | The game's character objects are P5.9's; the viewer of Gate G4 and the engine's tests need animated characters before them | A model with an empty list is not walked or updated by the frame (its tree changes only through `set_deformable_transform`, which updates it); every animation runs at rate 1 |
-| D461 | `neuron-client::engine` (P4.16) | Sounds play through the sound manager: a source per playing sound, its instance in the mixer's list, volume, pan and 3D settings computed at the manager's tick (`FSoundManager::Update`) | Until P4.10's client wiring, `Engine::load_sound` decoded a WAV file's bytes into an archetype of the mixer and `Engine::play_sound` played it once on a device voice of its own. Now `Engine::play_sound` is `PlayClientSoundArch` on a `[Sound]` of the sound tables or a voice line: a source of the client's playing list (`audio::client`), ranked by the frame's sound tick (`TickClientSoundMixer`) and played by the mixer's tick with the archetype's gain, the channel limit, the categories and the ducking | Proposed for closing (P4.10, the client wiring): the stand-in is gone | None: no longer a divergence; the row stays for its history |
+| D461 | `neuron-client::engine` (P4.16) | Sounds play through the sound manager: a source per playing sound, its instance in the mixer's list, volume, pan and 3D settings computed at the manager's tick (`FSoundManager::Update`) | Closed 2026-11-19 (owner). Until P4.10's client wiring, `Engine::load_sound` decoded a WAV file's bytes into an archetype of the mixer and `Engine::play_sound` played it once on a device voice of its own. Now `Engine::play_sound` is `PlayClientSoundArch` on a `[Sound]` of the sound tables or a voice line: a source of the client's playing list (`audio::client`), ranked by the frame's sound tick (`TickClientSoundMixer`) and played by the mixer's tick with the archetype's gain, the channel limit, the categories and the ducking | Closed with P4.10's client wiring: the stand-in is gone | None: no longer a divergence; the row stays for its history |
 | D470 | `neuron-client::ui::controls::rich_text_edit` (P4.13) | `RichTextEditWin::OnChar` asks the C runtime's `iswcntrl`, and `OnChar` and `SetText` its `towupper` and `towlower`, in the `"C"` locale: the CRT's table below U+0100, `GetStringTypeW`'s character types above it | Control characters are U+0000 to U+001F and U+007F to U+009F; only ASCII letters change case (as D297 lowers them) | Legacy platform dependence | Where the system's types call another character a control character the port inserts it; letters outside ASCII keep their case, as in the `"C"` locale |
 | D471 | `neuron-client::ui::{services, controls::rich_text_edit}` (P4.13) | `RichTextEditWin`'s constructor makes an `FLImeInputBox` while `IMEFocus::GetSingleton` is set and the window calls it directly; the box writes its composed text into its owner (`UpdatedText`); the window takes the HUD's input focus and registers for events 1, 2 and `USER_CANCEL` through the globals of `hud_command_dispatch.cpp`, and reads the event from `HudCommandRecord` | The client makes the box when the window is created (`UiServices::create_ime_box`, which the engine's services answer with `ui::ime::ImeBoxes::create_box`, the box `ui::ime::ClientImeBox`; `None` without an IME) behind the `ImeBox` trait (keys, characters, resize, focus); a key or character the box takes returns its new text, which the window sets with `SetText`, and a text that changes outside the window's call follows D553; the input focus and the event registry are `UiServices` methods and the record (`HudRecord`) is an argument of `on_event`, which the game's dispatcher calls | Technical decision T10 (no process globals); the key map's dispatcher is GameApp's (P5.2) | None for windows the factory makes |
 | D472 | `neuron-client::ui::controls::rich_text_edit` (P4.13) | The caret's draw reads an unwritten local as the vertical offset when the alignment mode is not 0 to 3 (`SetAlignMode` does not check it) | The offset is 0 | Undefined behaviour in the reference | None for the alignment modes the client sets |
@@ -613,6 +610,8 @@ manager's numbers.
 | D560 | `neuron-client::scene_script::script_engine` (P4.14) | The game's load parser (`Slot41SetLoadParser`) is borrowed by pointer, and its `Build` gets the engine itself (`IScriptEngine`), any of whose slots it may call: the scene's, and the COM context's, the parsers', the loads', the saves' and the paths' | The engine owns the parser (`ScriptEngine::set_load_parser`, `Box<dyn LoadParser>`); `LoadParser::build` gets the scene (`Player`, whose methods are the engine's scene slots) and the engine's COM context, and cannot reach the engine's other slots while it builds | Technical decision T10 (no aliasing between the engine and the parser it calls) | None for a parser that builds the scene (oracle suite `scene_script_save`, four cases); a parser that sets a parser, a context or a path, or loads or saves, from inside its own build has no counterpart |
 | D561 | `neuron-client::ui::{tree, controls::{scroll, rich_text_win, fast_table}}` (P4.12) | A scroll bar tells its parent of a change through the parent's slot 23 while the bar's own method runs, also while a method of the parent runs (a window's bar drawn in the window's draw steps a held arrow); the parent asks the bar for its value (`GetValue`), and a rich-text window sets it back (`SetValue` of the truncated scroll) before the bar's `NotifyParent` sends property 0x3E | The message carries the bar's value (`ChildMessage::ScrollChanged`); a slot 23 message to a parent whose method runs waits until that method returns (`Ui::send_child_message`); a `SetValue` on the busy bar is made by the bar when its parent returns, before property 0x3E (`Ui::defer_scroll_value`). This narrows D347 for these calls | Technical decision T10 (a widget is taken out of its node while its method runs, D347) | A window that a bar drawn in its draw scrolls, and a scroll table's callback, hear the change when the draw returns rather than during it; the states after it are the reference's (oracle suite `ui_controls`, case 32) |
 | D562 | `neuron-client::ui::controls::rich_text_win` (P4.12) | `WinControl::Destroy` deletes the window's children, the bar among them, and leaves `ScrollBarV` pointing at it; the window's next call on the bar (`SetValue`, `SetRange`, `SetPage`, a slot 23 test) reads freed memory | The bar's node id finds nothing and the calls on it are skipped; `ShowScrollBarV(true)` makes no new bar while the stale id is kept, as the reference's non-null pointer makes none | Undefined behaviour in the reference | None for windows that are not used after their `Destroy` |
+| D570 | `neuron-client::render::trace` (P4.4) | DX8RENDERER's `CreateTexture` resolves a format class through the catalog the run's engine INI made (`[TextureFormatClasses]` over `PopulateFormatCatalog`), asks the Direct3D 8 driver which candidates it takes (`CheckTextureFormat`) and itself whether the device is square-only (ability 5) | Model replay resolves it through `ModelReplay::classes` (the built-in catalog unless the caller gives the run's) with the port's device support (D260) after the trace's `TEXTURE_ALLOW_*` gates, and `ModelReplay::abilities` (D261's values unless the caller gives others); `GetTextureFormat` stays answered from the trace | Legacy platform dependence (the driver's formats, D260); the trace format of record 0004 holds neither the engine INI nor the driver's answers | A trace of a run with its own `[TextureFormatClasses]`, or of a driver without a candidate the port has, replays a class in another format unless the caller sets the catalog; the synthetic `texture_class` trace's `DAA8` is `A8R8G8B8` on both |
+| D571 | `neuron-client::engine::scene_host` (P4.5, P4.16) | The atmosphere material calls `GetInstanceExtent(instance, 0, ...)` on the engine its context's `Field20` points to whenever it draws | `SceneHost::instance_subtree_extent` asks the scene engine for it, and answers none while the scene engine is borrowed (the material then keeps its radius of 1), as D453's own extent does | Technical decision T10 (no re-entrant borrows) | None: the frame draws with the scene engine free |
 
 D5 to D9 described the reader's binary INI path. That path was removed
 with decision O13, so the rows are gone; the IDs are not reused. D32

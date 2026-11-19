@@ -1,5 +1,6 @@
-//! A Lua 3.2 compiler for the subset [`super::decompile`] writes, so a
-//! decompiled script can be checked against its chunk byte for byte.
+//! A Lua 3.2 compiler for the subset `cargo xtask thn-decompile` and the
+//! scene writer write, so a decompiled script can be checked against its
+//! chunk byte for byte and a saved scene reloaded.
 //!
 //! The code generation follows `lparser.c` in `CppSource/luaprofile/lua32/
 //! src` function by function: the same instruction forms, constant table
@@ -13,8 +14,10 @@
 //! leading `-`, strings, global names, table constructors, `+` and
 //! brackets. Anything else is an error, not a different program.
 
-use super::chunk::{Chunk, Constant, op};
-use super::number;
+use std::fmt;
+
+use crate::chunk::{Chunk, Constant, op};
+use crate::number;
 
 const MAX_BYTE: usize = 0xFF;
 const MAX_WORD: usize = 0xFFFF;
@@ -570,10 +573,26 @@ impl Parser<'_> {
     }
 }
 
+/// Why source did not compile: the line and what was wrong there.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CompileError(pub String);
+
+impl fmt::Display for CompileError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for CompileError {}
+
 /// Compiles source in the supported subset to the chunk the reference
 /// compiler makes from it. The function header is the one every shipped
 /// chunk has: line 0 and an empty source name.
-pub fn compile(src: &[u8]) -> Result<Chunk, String> {
+pub fn compile(src: &[u8]) -> Result<Chunk, CompileError> {
+    compile_chunk(src).map_err(CompileError)
+}
+
+fn compile_chunk(src: &[u8]) -> Result<Chunk, String> {
     let lex = Lexer {
         src,
         at: 0,
@@ -597,4 +616,65 @@ pub fn compile(src: &[u8]) -> Result<Chunk, String> {
         code: p.code,
         constants: p.constants,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::chunk::HEADER;
+
+    /// Code worked out by hand from `lparser.c` for a small script.
+    #[test]
+    fn compiles_as_the_reference_parser_does() {
+        let chunk = compile(b"x = 1\ny = { -2, 0.5; a = Z + 3 }\n").unwrap();
+        assert_eq!(
+            chunk.constants,
+            [
+                Constant::String(b"x".to_vec()),
+                Constant::String(b"y".to_vec()),
+                Constant::Number("0.5".into()),
+                Constant::String(b"a".to_vec()),
+                Constant::String(b"Z".to_vec()),
+            ]
+        );
+        #[rustfmt::skip]
+        let code = [
+            4, 0,                           // stack size 4, no parameters
+            op::PUSHNUMBER, 1,
+            op::SETGLOBAL, 0,               // x = 1
+            op::CREATEARRAY, 3,             // { ... } with 3 items in all
+            op::PUSHNUMBERNEG, 2,
+            op::PUSHCONSTANT, 2,
+            op::SETLIST, 0, 2,              // t[1], t[2]
+            op::PUSHCONSTANT, 3,            // "a"
+            op::GETGLOBAL, 4,
+            op::PUSHNUMBER, 3,
+            op::ADDOP,
+            op::SETMAP, 0,                  // t.a
+            op::SETGLOBAL, 1,               // y = t
+            op::ENDCODE,
+        ];
+        assert_eq!(chunk.code, code);
+        let mut header = HEADER.to_vec();
+        header.extend([0, 0, 0, 0, 0, 0, 0, 0, 1, 0]);
+        assert!(chunk.write().starts_with(&header));
+        assert_eq!(Chunk::read(&chunk.write()), Ok(chunk));
+    }
+
+    #[test]
+    fn rejects_what_the_subset_does_not_cover() {
+        for src in [
+            "x = f(1)",
+            "x = a.b",
+            "local x = 1",
+            "x = -y",
+            "x = 1 - 2",
+            "x, y = 1, 2",
+            "x = [[long]]",
+            "$debug\nx = 1",
+            "x = 1 == 2",
+        ] {
+            assert!(compile(src.as_bytes()).is_err(), "{src}");
+        }
+    }
 }
