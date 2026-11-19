@@ -15,6 +15,7 @@ use neuron_client::render::appearance::Camera;
 use neuron_client::render::ff::device::RecordingBackend;
 use neuron_client::text::font::fake::FakeBackend;
 use neuron_client::text_input::ime::{CaretRect, ImeContext, ImeView};
+use neuron_client::text_input::ime_core::{CompositionString, ImeMessage};
 use neuron_client::ui::controls::rich_text_edit::RichTextEditWin;
 use neuron_client::ui::tree::{NodeId, Payload};
 use neuron_client::window::DisplayMode;
@@ -205,4 +206,83 @@ fn the_windows_ime_reaches_the_box_its_window_and_the_draw() {
     engine.ui_mut().unwrap().delete(id);
     assert!(boxes.is_empty());
     assert_eq!(boxes.focus(), None);
+}
+
+/// An IME context that hands the game its messages (the window's does
+/// not, decision T7): a Korean layout.
+#[derive(Default)]
+struct Messages {
+    layout: u32,
+    queue: Vec<ImeMessage>,
+}
+
+struct Messaging(Rc<RefCell<Messages>>);
+
+impl ImeContext for Messaging {
+    fn set_open(&mut self, _open: bool) {}
+    fn finalize(&mut self, _send: bool) -> Vec<u16> {
+        Vec::new()
+    }
+    fn set_caret(&mut self, _caret: CaretRect) {}
+    fn set_boxes_registered(&mut self, _registered: bool) {}
+    fn available(&self) -> bool {
+        true
+    }
+    fn view(&mut self) -> ImeView {
+        ImeView {
+            state: 1,
+            language: self.0.borrow().layout,
+            ..ImeView::default()
+        }
+    }
+    fn take_messages(&mut self) -> Vec<ImeMessage> {
+        std::mem::take(&mut self.0.borrow_mut().queue)
+    }
+}
+
+fn korean(text: &str, cursor: i32) -> Option<CompositionString> {
+    let text: Vec<u16> = text.encode_utf16().collect();
+    Some(CompositionString {
+        attributes: vec![0; text.len()],
+        text,
+        cursor,
+    })
+}
+
+/// P4.11: the messages a context hands reach the focused box at the
+/// frame; Korean switches to level 3, whose composition is typed into the
+/// box and its window, replaced by the result.
+#[test]
+fn a_contexts_korean_composition_is_typed_inline() {
+    let mut engine = engine(&scratch("korean"));
+    let log = Rc::new(RefCell::new(Messages {
+        layout: 0x0409_0409,
+        queue: Vec::new(),
+    }));
+    engine.set_ime_context(Box::new(Messaging(Rc::clone(&log))));
+    let id = edit_window(&mut engine);
+    let boxes = engine.ime_boxes().unwrap().clone();
+    assert_eq!(boxes.support_level(), 2);
+    {
+        let mut l = log.borrow_mut();
+        l.layout = 0x0412_0412;
+        l.queue.push(ImeMessage::InputLanguageChanged);
+        l.queue.push(ImeMessage::Composition {
+            result: None,
+            composition: korean("\u{ac00}", 1),
+        });
+    }
+    engine.frame(FrameInput::idle(1.0 / 30.0), &mut Still);
+    assert_eq!(boxes.support_level(), 3);
+    assert_eq!(text(&engine, id), "\u{ac00}");
+    log.borrow_mut().queue.extend([
+        ImeMessage::Composition {
+            result: Some("\u{ac01}".encode_utf16().collect()),
+            composition: korean("n", 1),
+        },
+        ImeMessage::EndComposition,
+    ]);
+    engine.frame(FrameInput::idle(1.0 / 30.0), &mut Still);
+    assert_eq!(text(&engine, id), "\u{ac01}");
+    assert!(boxes.composition_empty());
 }

@@ -352,8 +352,9 @@ fn ui_controls() {
 /// P4.11 to P4.13: the client's IME boxes (`FLImeInputBox` over
 /// `IMEInputBox` and `CInputBox`), their fonts (`CImeUiFont`), the focus
 /// manager and the IME's draw (`ImeUi_Render`, the toolbar, `ClientIMEFocus`'s
-/// rectangles and fan, the box's `DrawString`) over the operations of
-/// `tests/fixtures/oracle/ime_ui.list`, against a scripted IME, the
+/// rectangles and fan, the box's `DrawString`) and the IME's messages
+/// (support levels 2 and 3, readings, version words) over the operations
+/// of `tests/fixtures/oracle/ime_ui.list`, against a scripted IME, the
 /// deterministic font metrics and a recording overlay.
 #[test]
 fn ime_ui() {

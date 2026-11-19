@@ -19,8 +19,9 @@ use crate::window::Rect;
 
 /// The support level the client sets (`IMEFocus`'s constructor calls
 /// `ImeUi_SetSupportLevel(2)`): the game draws the composition and the
-/// candidate list. Level 3 (inline, by synthesised keys, forced for Korean)
-/// is not ported (divergence D283).
+/// candidate list. `ImeUi_SetSupportLevel` makes it 3 for Korean (the
+/// composition typed inline into the box by synthesised keys,
+/// `text_input::ime_core`).
 pub const SUPPORT_LEVEL: u32 = 2;
 
 /// `LANG_CHINESE`, `LANG_JAPANESE`, `LANG_KOREAN`.
@@ -206,7 +207,10 @@ pub struct CandidateList {
 /// `GReadingSelection`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CandidatePage {
-    /// Ten entries, each formatted (`FormatCandidate`); empty ones unused.
+    /// Ten entries, each formatted (`FormatCandidate`) or a reading's
+    /// character; an entry is its text to its first zero
+    /// ([`CandidatePage::entry`]), and what follows the zero is what the
+    /// slot held before, as in the C++'s buffers.
     pub entries: Vec<Vec<u16>>,
     pub count: i32,
     pub page_size: i32,
@@ -249,11 +253,68 @@ pub fn format_candidate(number: i32, text: &[u16], vertical: bool) -> Vec<u16> {
 }
 
 impl CandidatePage {
-    /// `ImeUi_UpdateCandidateList` over a candidate list: the page that
-    /// holds the selection (for the Simplified Chinese IME with an id, the
-    /// candidates that fit 18 units), the selection within it, formatted.
-    /// A page size of 0 starts at the first candidate (the C++ divides by
-    /// it).
+    /// Entry `index` to its first zero (empty past the ten).
+    #[must_use]
+    pub fn entry(&self, index: usize) -> &[u16] {
+        self.entries.get(index).map_or(&[][..], |e| {
+            &e[..e.iter().position(|&u| u == 0).unwrap_or(e.len())]
+        })
+    }
+
+    /// `memset(GCandidates, 0, ...)`.
+    pub fn clear_entries(&mut self) {
+        self.entries = vec![Vec::new(); 10];
+    }
+
+    /// `GCandidates[index][0] = 0` (nothing past the ten).
+    pub fn clear_first_unit(&mut self, index: usize) {
+        if let Some(e) = self.entries.get_mut(index)
+            && let Some(first) = e.first_mut()
+        {
+            *first = 0;
+        }
+    }
+
+    /// `GCandidates[index][0] = unit` alone (`MultiByteToWideChar` of one
+    /// unit, no terminator).
+    pub fn set_first_unit(&mut self, index: usize, unit: u16) {
+        if let Some(e) = self.entries.get_mut(index) {
+            match e.first_mut() {
+                Some(first) => *first = unit,
+                None => e.push(unit),
+            }
+        }
+    }
+
+    /// `GCandidates[index][0] = unit; GCandidates[index][1] = 0`.
+    pub fn set_reading_unit(&mut self, index: usize, unit: u16) {
+        if let Some(e) = self.entries.get_mut(index) {
+            if e.len() < 2 {
+                e.resize(2, 0);
+            }
+            e[0] = unit;
+            e[1] = 0;
+        }
+    }
+
+    /// `AssembleReading`: the reading window's text, the entries joined,
+    /// with the selection at the selected entry's first unit.
+    pub fn assemble_reading(&mut self) {
+        self.reading_selection = -1;
+        self.reading.clear();
+        for index in 0..usize::try_from(self.count)
+            .unwrap_or(0)
+            .min(self.entries.len())
+        {
+            if self.selection == index as i32 {
+                self.reading_selection = self.reading.len() as i32;
+            }
+            let text = self.entry(index).to_vec();
+            self.reading.extend(text);
+        }
+    }
+
+    /// `ImeUi_UpdateCandidateList` over a candidate list into a new page.
     #[must_use]
     pub fn update(
         language: u32,
@@ -261,13 +322,22 @@ impl CandidatePage {
         vertical: bool,
         list: &CandidateList,
     ) -> CandidatePage {
+        let mut page = CandidatePage::default();
+        page.apply_list(language, ime_id, vertical, list);
+        page
+    }
+
+    /// `ImeUi_UpdateCandidateList` over a candidate list: the page that
+    /// holds the selection (for the Simplified Chinese IME with an id, the
+    /// candidates that fit 18 units), the selection within it, formatted.
+    /// A page size of 0 starts at the first candidate (the C++ divides by
+    /// it). The reading window's state stays.
+    pub fn apply_list(&mut self, language: u32, ime_id: u32, vertical: bool, list: &CandidateList) {
         let low = language & 0xFFFF;
         let count = list.strings.len() as u32;
-        let mut page = CandidatePage {
-            selection: list.selection as i32,
-            count: count as i32,
-            ..CandidatePage::default()
-        };
+        let page = self;
+        page.selection = list.selection as i32;
+        page.count = count as i32;
         let mut start = 0u32;
         if low == 0x804 && ime_id != 0 {
             let mut accumulated = 0u32;
@@ -297,6 +367,7 @@ impl CandidatePage {
         } else {
             page.selection = page.selection.wrapping_sub(start as i32);
         }
+        page.clear_entries();
         for (display, index) in (start..count).enumerate() {
             if display >= page.page_size.max(0) as usize || display >= page.entries.len() {
                 break;
@@ -307,7 +378,6 @@ impl CandidatePage {
         if low & 0x3FF == LANG_KOREAN || (low == 0x404 && ime_id == 0) {
             page.selection = -1;
         }
-        page
     }
 }
 
@@ -334,8 +404,10 @@ impl Default for LanguageState {
 }
 
 impl LanguageState {
-    /// `ImeUi_CheckLanguage` for the layout `language` (its low 32 bits).
-    pub fn check(&mut self, language: u32, ime_id: u32) {
+    /// `ImeUi_CheckLanguage` for the layout `language` (its low 32 bits);
+    /// `ime_id` is `GetImeId(0)`, asked only for the layouts whose
+    /// orientation depends on it.
+    pub fn check(&mut self, language: u32, ime_id: impl FnOnce() -> u32) {
         if self.previous == Some(language) {
             return;
         }
@@ -351,7 +423,7 @@ impl LanguageState {
                     self.symbol = vec![u16::from(b'A')];
                     if sub == 2 {
                         self.symbol = vec![ZHONG];
-                        self.vertical = ime_id == 0;
+                        self.vertical = ime_id() == 0;
                     }
                 }
             }
@@ -633,7 +705,7 @@ pub fn render(
         }
     }
     let page = input.candidates;
-    let first = page.entries.first().is_some_and(|e| !e.is_empty());
+    let first = !page.entry(0).is_empty();
     if !show_toolbar || page.count == 0 || !first {
         return;
     }
@@ -653,11 +725,8 @@ pub fn render(
         (max_width, max_height) = font.text_extent(&page.reading);
     } else {
         let mut ci = 0usize;
-        while ci < widths.len()
-            && page.entries.get(ci).is_some_and(|e| !e.is_empty())
-            && (ci as i32) < page.page_size
-        {
-            let (w, h) = font.text_extent(&page.entries[ci]);
+        while ci < widths.len() && !page.entry(ci).is_empty() && (ci as i32) < page.page_size {
+            let (w, h) = font.text_extent(page.entry(ci));
             max_width = max_width.max(w);
             max_height = max_height.max(h);
             widths[ci] = w;
@@ -783,7 +852,7 @@ pub fn render(
         if ci >= page.count {
             return;
         }
-        let entry = page.entries.get(ci as usize).map_or(&[][..], Vec::as_slice);
+        let entry = page.entry(ci as usize);
         let width = widths.get(ci as usize).copied().unwrap_or(0);
         if ci == page.selection {
             font.set_color(inverse);
