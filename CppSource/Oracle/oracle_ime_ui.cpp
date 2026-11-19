@@ -21,7 +21,8 @@
 // spaces, integers in decimal unless noted, texts as UTF-16 units in hex (4 digits each, "-"
 // for none). Every case starts with no IME focus, a window with its default input context, the
 // layout 04090409, the IME open, conversion mode 1, tick 0, a caret blink time of 500, an 800 x
-// 600 client area and "ConfirmPlayerText" as Arial at height 16. Operations:
+// 600 client area, "ConfirmPlayerText" as Arial at height 16, and no IME file, reading or
+// keyboard mapping. Operations:
 //   screen W H | blink B | lf H FACE (before focus) | focus (new ClientIMEFocus) |
 //   box (new FLImeInputBox, owned by window N, N the box's number) | del I |
 //   key I K (HandleKey) | mb I B (HandleMultiByteChar of a byte) | wc I U (HandleWideChar) |
@@ -33,7 +34,16 @@
 //   endcomp (WM_IME_ENDCOMPOSITION) | cand SEL PAGE TEXT... (IMN_OPENCANDIDATE with that list) |
 //   nocand (IMN_CLOSECANDIDATE) | tick T | caret I (the box's UpdateCaret) | fheight I H (its
 //   font's SetHeight) | extent I TEXT (its font's GetTextExtent) | draw (IMEFocus::Draw(0)) |
-//   state I | fstate | gdi | appearance | parse TEXT | langstate | candstate
+//   state I | fstate | gdi | appearance | parse TEXT | langstate | candstate |
+//   imefile NAME|- MS|- LS API (the layout's IME file as ImmGetIMEFileNameA names it, its file
+//   version in hex or none, and whether it exports GetReadingString and ShowReadingWindow) |
+//   kbmap KEY VALUE|- (the "keyboard mapping" value under HKCU's
+//   software\microsoft\windows\currentversion\KEY, in hex) | reading TEXT ERROR VERTICAL (the
+//   reading GetReadingString gives, and the reading record the IME's private context holds for
+//   its version word) | langchange L (the layout, then WM_INPUTLANGCHANGE) | level N
+//   (IMEFocus::SetSupportLevel) | startcomp (WM_IME_STARTCOMPOSITION) | result TEXT
+//   (WM_IME_COMPOSITION with the result string) | resultcomp RESULT TEXT ATTRS CURSOR (both) |
+//   private L (IMN_PRIVATE with lParam L in hex) | readstate | imeid | compstate
 //
 // Lines, each prefixed with "case": the owner windows' SetText, the last text each window got
 // during an operation, in window order -- {"ev":"settext","o","t"}; the draw's calls --
@@ -45,8 +55,11 @@
 // operations' results -- {"ev":"focus","avail"} {"ev":"r","v"} {"ev":"caret","v"}
 // {"ev":"extent","w","h"} {"ev":"box",...} {"ev":"fstate","n","focus"}
 // {"ev":"gdi","created","deleted"} {"ev":"appearance",...} {"ev":"parse","v"}
-// {"ev":"lang","vertical","symbol"} {"ev":"cand","count","page","sel","e"}. Floats are f32 bits in
-// hex. CCaret leaves its blink flag uninitialised; the harness sets it to 1 after each box is
+// {"ev":"lang","vertical","symbol"} {"ev":"cand","count","page","sel","e"}
+// {"ev":"read","show","horiz","reading","sel"} (the reading window) {"ev":"imeid","v0","v1"}
+// (GetImeId(1), then GetImeId(0)) {"ev":"comp","t","caret","cursor","level","insert"} (the
+// composition copy, its caret and cursor, the support level, the insert mode). Floats are f32
+// bits in hex. CCaret leaves its blink flag uninitialised; the harness sets it to 1 after each box is
 // made, as the port starts it (divergence D282).
 
 #define IMEUI_EXPORTS
@@ -152,6 +165,19 @@ namespace
     std::vector<BYTE> GCompAttrs;
     LONG GCompCursor = 0;
     std::vector<unsigned char> GCandBytes;
+    FWide GResultText;
+    // The layout's IME: its file, version resource and reading exports; its reading; the
+    // registry's keyboard mappings.
+    std::string GImeFileName;
+    bool GImeHasVersion = false;
+    DWORD GImeVersionMS = 0;
+    DWORD GImeVersionLS = 0;
+    bool GImeReadingApi = false;
+    bool GReadingSet = false;
+    FWide GReadingText;
+    unsigned GReadingError = 0;
+    BOOL GReadingVertical = FALSE;
+    std::map<std::string, DWORD> GKeyboardMappings;
 
     HIMC OracleImmGetContext(HWND) { return GAssociated; }
     BOOL OracleImmReleaseContext(HWND, HIMC) { return TRUE; }
@@ -187,6 +213,15 @@ namespace
     {
         if (Kind == GCS_CURSORPOS)
             return GCompCursor;
+        if (Kind == GCS_RESULTSTR)
+        {
+            DWORD Bytes = static_cast<DWORD>(GResultText.size() * sizeof(wchar_t));
+            if (Bytes > Length)
+                Bytes = Length;
+            if (Buffer != nullptr && Bytes != 0)
+                memcpy(Buffer, GResultText.data(), Bytes);
+            return static_cast<LONG>(Bytes);
+        }
         if (Kind == GCS_COMPSTR)
         {
             DWORD Bytes = static_cast<DWORD>(GCompText.size() * sizeof(wchar_t));
@@ -209,12 +244,193 @@ namespace
     }
     LONG OracleImmGetCompositionStringA(HIMC, DWORD, LPVOID, DWORD) { return 0; }
     UINT OracleImmGetVirtualKey(HWND) { return 0; }
-    UINT OracleImmGetIMEFileNameA(HKL, LPSTR Name, UINT)
+    UINT OracleImmGetIMEFileNameA(HKL, LPSTR Name, UINT Capacity)
     {
-        if (Name != nullptr)
-            Name[0] = 0;
-        return 0;
+        if (Name == nullptr || Capacity == 0)
+            return 0;
+        UINT Count = 0;
+        while (Count < GImeFileName.size() && Count + 1 < Capacity)
+        {
+            Name[Count] = GImeFileName[Count];
+            ++Count;
+        }
+        Name[Count] = 0;
+        return Count;
     }
+
+    // The IME's version resource: one VS_FIXEDFILEINFO, which VerQueryValueA finds at "\".
+    DWORD OracleImeGetFileVersionInfoSizeA(LPCSTR, DWORD* Handle)
+    {
+        if (Handle != nullptr)
+            *Handle = 0;
+        return GImeHasVersion ? static_cast<DWORD>(sizeof(VS_FIXEDFILEINFO)) : 0;
+    }
+    BOOL OracleImeGetFileVersionInfoA(LPCSTR, DWORD, DWORD Size, void* Data)
+    {
+        if (!GImeHasVersion || Data == nullptr || Size < sizeof(VS_FIXEDFILEINFO))
+            return FALSE;
+        VS_FIXEDFILEINFO Info;
+        memset(&Info, 0, sizeof(Info));
+        Info.dwSignature = 0xfeef04bd;
+        Info.dwFileVersionMS = GImeVersionMS;
+        Info.dwFileVersionLS = GImeVersionLS;
+        memcpy(Data, &Info, sizeof(Info));
+        return TRUE;
+    }
+    BOOL OracleImeVerQueryValueA(const void* Data, LPCSTR, void** Out, UINT* Size)
+    {
+        *Out = const_cast<void*>(Data);
+        *Size = static_cast<UINT>(sizeof(VS_FIXEDFILEINFO));
+        return TRUE;
+    }
+    // NORM_IGNORECASE over ASCII names.
+    int OracleImeCompareStringA(LCID, DWORD, LPCSTR A, int, LPCSTR B, int)
+    {
+        for (;; ++A, ++B)
+        {
+            int const CA = (*A >= 'a' && *A <= 'z') ? *A - 32 : *A;
+            int const CB = (*B >= 'a' && *B <= 'z') ? *B - 32 : *B;
+            if (CA != CB)
+                return CA < CB ? 1 : 3;
+            if (CA == 0)
+                return 2;
+        }
+    }
+    // HKCU's software\microsoft\windows\currentversion\KEY "keyboard mapping".
+    HKEY const kMappingKey = reinterpret_cast<HKEY>(static_cast<UINT_PTR>(0x7700));
+    std::string GOpenMapping;
+    LONG OracleImeRegOpenKeyExA(HKEY, LPCSTR Name, DWORD, REGSAM, HKEY* Out)
+    {
+        std::string const Prefix = "software\\microsoft\\windows\\currentversion\\";
+        std::string const Full = Name != nullptr ? Name : "";
+        if (Full.compare(0, Prefix.size(), Prefix) != 0)
+            return 2;
+        std::string const Key = Full.substr(Prefix.size());
+        if (GKeyboardMappings.find(Key) == GKeyboardMappings.end())
+            return 2;
+        GOpenMapping = Key;
+        *Out = kMappingKey;
+        return ERROR_SUCCESS;
+    }
+    LONG OracleImeRegQueryValueExA(HKEY Key, LPCSTR Value, DWORD*, DWORD* Type, BYTE* Data, DWORD* Size)
+    {
+        if (Key != kMappingKey || Value == nullptr || strcmp(Value, "keyboard mapping") != 0)
+            return 2;
+        if (*Size < 4)
+            return 234;
+        DWORD const Mapping = GKeyboardMappings[GOpenMapping];
+        memcpy(Data, &Mapping, 4);
+        *Size = 4;
+        if (Type != nullptr)
+            *Type = 4;
+        return ERROR_SUCCESS;
+    }
+    LONG OracleImeRegCloseKey(HKEY) { return ERROR_SUCCESS; }
+
+    // The IME's exports: GetReadingString hands the case's reading.
+    UINT WINAPI OracleImeGetReadingString(HIMC, UINT Length, PVOID Buffer, PINT Error, BOOL* Vertical,
+                                          PUINT MaxLength)
+    {
+        UINT const Count = static_cast<UINT>(GReadingText.size());
+        if (Error != nullptr)
+            *Error = static_cast<int>(GReadingError);
+        if (Vertical != nullptr)
+            *Vertical = GReadingVertical;
+        if (MaxLength != nullptr)
+            *MaxLength = 64;
+        if (Buffer == nullptr || Length == 0)
+            return Count;
+        UINT const Copied = Length < Count ? Length : Count;
+        unsigned short* const Out = static_cast<unsigned short*>(Buffer);
+        for (UINT Index = 0; Index < Copied; ++Index)
+            Out[Index] = static_cast<unsigned short>(GReadingText[Index]);
+        return Copied;
+    }
+    BOOL WINAPI OracleImeShowReadingWindow(HIMC, BOOL) { return TRUE; }
+
+    // ImmLockIMC's INPUTCONTEXT (its private handle at +0x124) and ImmLockIMCC's private block,
+    // laid out as the reading record of the IME the case's file and layout make: the version
+    // word GetImeId works out, and the offsets ImeUi_GetReadingString reads for it.
+    unsigned char GImcBlock[0x200];
+    unsigned char GImccPrivate[0x40];
+    unsigned char GReadingRecordHop[0x40];
+    unsigned char GReadingRecord[0x200];
+
+    void PutRecordPointer(unsigned char* At, void* Pointer) { memcpy(At, &Pointer, sizeof(Pointer)); }
+    void PutRecordU32(unsigned char* At, unsigned Value) { memcpy(At, &Value, 4); }
+    void PutRecordWide(unsigned char* At)
+    {
+        for (size_t Index = 0; Index < GReadingText.size(); ++Index)
+        {
+            unsigned short const Unit = static_cast<unsigned short>(GReadingText[Index]);
+            memcpy(At + Index * 2, &Unit, 2);
+        }
+    }
+    void PutRecordBytes(unsigned char* At)
+    {
+        for (size_t Index = 0; Index < GReadingText.size(); ++Index)
+            At[Index] = static_cast<unsigned char>(GReadingText[Index]);
+    }
+
+    void* WINAPI OracleImeLockImc(HIMC)
+    {
+        memset(GImcBlock, 0, sizeof(GImcBlock));
+        HIMCC const Handle = reinterpret_cast<HIMCC>(static_cast<UINT_PTR>(0x4321));
+        memcpy(GImcBlock + 0x124, &Handle, sizeof(Handle));
+        return GImcBlock;
+    }
+    BOOL WINAPI OracleImeUnlockImc(HIMC) { return TRUE; }
+    void* WINAPI OracleImeLockImcc(HIMCC)
+    {
+        memset(GImccPrivate, 0, sizeof(GImccPrivate));
+        memset(GReadingRecordHop, 0, sizeof(GReadingRecordHop));
+        memset(GReadingRecord, 0, sizeof(GReadingRecord));
+        if (!GReadingSet)
+            return GImccPrivate;
+        DWORD const MS = GImeVersionMS;
+        DWORD const Id = ((((MS & 0xffu) << 8) | (MS & 0xffff0000u)) * 256u) | (static_cast<DWORD>(GLayout) & 0xffffu);
+        unsigned const Count = static_cast<unsigned>(GReadingText.size());
+        switch (Id)
+        {
+        case 0x04020404: case 0x04030404: case 0x04040404:
+            PutRecordPointer(GImccPrivate + 0x18, GReadingRecord);
+            PutRecordU32(GReadingRecord + 0x9c, Count);
+            PutRecordU32(GReadingRecord + 0xa0, GReadingError);
+            PutRecordWide(GReadingRecord + 0x38);
+            break;
+        case 0x04010804:
+            PutRecordPointer(GImccPrivate + 0x1c, GReadingRecord);
+            PutRecordPointer(GImccPrivate + 0x20, GReadingRecord);
+            PutRecordU32(GReadingRecord + 0x9c, Count);
+            PutRecordU32(GReadingRecord + 0xa0, GReadingError);
+            PutRecordWide(GReadingRecord + 0x38);
+            break;
+        case 0x04020804:
+            PutRecordPointer(GImccPrivate + 0x20, GReadingRecord);
+            PutRecordU32(GReadingRecord + 0x60, Count);
+            PutRecordU32(GReadingRecord + 0x64, GReadingError);
+            PutRecordWide(GReadingRecord + 0x40);
+            break;
+        case 0x05000404:
+            PutRecordPointer(GImccPrivate + 0x0c, GReadingRecordHop);
+            PutRecordPointer(GReadingRecordHop + 0x20, GReadingRecord);
+            PutRecordU32(GReadingRecord + 0x50, Count);
+            PutRecordU32(GReadingRecord + 0x54, GReadingError);
+            PutRecordBytes(GReadingRecord + 0x40);
+            break;
+        case 0x05010404: case 0x05020404: case 0x05030804:
+            PutRecordPointer(GImccPrivate + 4, GReadingRecordHop);
+            PutRecordPointer(GReadingRecordHop + 0x18, GReadingRecord);
+            PutRecordU32(GReadingRecord + 0x60, Count);
+            PutRecordU32(GReadingRecord + 0x64, GReadingError);
+            PutRecordWide(GReadingRecord + 0x40);
+            break;
+        default:
+            break;
+        }
+        return GImccPrivate;
+    }
+    BOOL WINAPI OracleImeUnlockImcc(HIMCC) { return TRUE; }
     HWND OracleImmGetDefaultIMEWnd(HWND) { return nullptr; }
 
     // --- The rest of the system ---------------------------------------------------------------
@@ -242,7 +458,24 @@ namespace
     HMODULE const kModule = reinterpret_cast<HMODULE>(static_cast<UINT_PTR>(0x10000));
     HMODULE OracleLoadLibraryA(LPCSTR) { return kModule; }
     HMODULE OracleLoadLibraryW(LPCWSTR) { return kModule; }
-    FARPROC OracleGetProcAddress(HMODULE, LPCSTR) { return nullptr; }
+    FARPROC OracleGetProcAddress(HMODULE, LPCSTR Name)
+    {
+        if (Name == nullptr)
+            return nullptr;
+        if (GImeReadingApi && strcmp(Name, "GetReadingString") == 0)
+            return reinterpret_cast<FARPROC>(&OracleImeGetReadingString);
+        if (GImeReadingApi && strcmp(Name, "ShowReadingWindow") == 0)
+            return reinterpret_cast<FARPROC>(&OracleImeShowReadingWindow);
+        if (strcmp(Name, "ImmLockIMC") == 0)
+            return reinterpret_cast<FARPROC>(&OracleImeLockImc);
+        if (strcmp(Name, "ImmUnlockIMC") == 0)
+            return reinterpret_cast<FARPROC>(&OracleImeUnlockImc);
+        if (strcmp(Name, "ImmLockIMCC") == 0)
+            return reinterpret_cast<FARPROC>(&OracleImeLockImcc);
+        if (strcmp(Name, "ImmUnlockIMCC") == 0)
+            return reinterpret_cast<FARPROC>(&OracleImeUnlockImcc);
+        return nullptr;
+    }
     // imeui.rc's string table.
     const char* const kAppearanceStrings[17] = {
         "0", "0x00404040", "0xff000000", "24", "0", "0xa0", "0xffffffff", "0xff000000",
@@ -548,6 +781,13 @@ void OracleImeOwner::SetText(wchar_t const* Text, void const*)
 #define ImmGetVirtualKey OracleImmGetVirtualKey
 #define ImmGetIMEFileNameA OracleImmGetIMEFileNameA
 #define ImmGetDefaultIMEWnd OracleImmGetDefaultIMEWnd
+#define GetFileVersionInfoSizeA OracleImeGetFileVersionInfoSizeA
+#define GetFileVersionInfoA OracleImeGetFileVersionInfoA
+#define VerQueryValueA OracleImeVerQueryValueA
+#define CompareStringA OracleImeCompareStringA
+#define RegOpenKeyExA OracleImeRegOpenKeyExA
+#define RegQueryValueExA OracleImeRegQueryValueExA
+#define RegCloseKey OracleImeRegCloseKey
 #define GetTickCount OracleGetTickCount
 #define GetCaretBlinkTime OracleGetCaretBlinkTime
 #define GetKeyboardLayout OracleGetKeyboardLayout
@@ -672,6 +912,18 @@ namespace
         GCompAttrs.clear();
         GCompCursor = 0;
         GCandBytes.clear();
+        GResultText.clear();
+        GImeFileName.clear();
+        GImeHasVersion = false;
+        GImeVersionMS = 0;
+        GImeVersionLS = 0;
+        GImeReadingApi = false;
+        GReadingSet = false;
+        GReadingText.clear();
+        GReadingError = 0;
+        GReadingVertical = FALSE;
+        GKeyboardMappings.clear();
+        GOpenMapping.clear();
         GFaces.clear();
         GSelected.clear();
         GNextHandle = 0x100;
@@ -712,6 +964,15 @@ namespace
         GbCapturedContext = false;
         GLanguageSymbol = L"A";
         GbHorizontalReading = false;
+        GImeId[0] = 0;
+        GImeId[1] = 0;
+        GImeIdLayout = NULL;
+        GGetReadingString = NULL;
+        GShowReadingWindow = NULL;
+        GLockImc = NULL;
+        GUnlockImc = NULL;
+        GLockImcc = NULL;
+        GUnlockImcc = NULL;
         GLanguage = 0;
         GKeyboardLayout = NULL;
         GCapturedContext = NULL;
@@ -948,6 +1209,63 @@ namespace
                 BOOL Handled = FALSE;
                 ImeUi_ProcessMessage(kWindow, WM_IME_ENDCOMPOSITION, 0, 0, &Handled);
             }
+            else if (Name == "startcomp")
+            {
+                BOOL Handled = FALSE;
+                ImeUi_ProcessMessage(kWindow, WM_IME_STARTCOMPOSITION, 0, 0, &Handled);
+            }
+            else if (Name == "result" || Name == "resultcomp")
+            {
+                GResultText = DecodeUnits(F[1]);
+                LPARAM Flags = GCS_RESULTSTR;
+                if (Name == "resultcomp")
+                {
+                    GCompText = DecodeUnits(F[2]);
+                    GCompAttrs.clear();
+                    if (F[3] != "-")
+                        for (size_t Index = 0; Index + 2 <= F[3].size(); Index += 2)
+                            GCompAttrs.push_back(static_cast<BYTE>(Hex32(F[3].substr(Index, 2))));
+                    GCompCursor = Int(F[4]);
+                    Flags |= GCS_COMPSTR | GCS_COMPATTR | GCS_CURSORPOS;
+                }
+                BOOL Handled = FALSE;
+                ImeUi_ProcessMessage(kWindow, WM_IME_COMPOSITION, 0, Flags, &Handled);
+            }
+            else if (Name == "langchange")
+            {
+                GLayout = Hex32(F[1]);
+                BOOL Handled = FALSE;
+                ImeUi_ProcessMessage(kWindow, WM_INPUTLANGCHANGE, 0, 0, &Handled);
+            }
+            else if (Name == "level" && World.Focus != nullptr)
+                World.Focus->SetSupportLevel(Int(F[1]));
+            else if (Name == "imefile")
+            {
+                GImeFileName = F[1] == "-" ? std::string() : F[1];
+                GImeHasVersion = F[2] != "-";
+                GImeVersionMS = GImeHasVersion ? Hex32(F[2]) : 0;
+                GImeVersionLS = GImeHasVersion ? Hex32(F[3]) : 0;
+                GImeReadingApi = Int(F[4]) != 0;
+            }
+            else if (Name == "kbmap")
+            {
+                if (F[2] == "-")
+                    GKeyboardMappings.erase(F[1]);
+                else
+                    GKeyboardMappings[F[1]] = Hex32(F[2]);
+            }
+            else if (Name == "reading")
+            {
+                GReadingText = DecodeUnits(F[1]);
+                GReadingError = static_cast<unsigned>(Int(F[2]));
+                GReadingVertical = Int(F[3]) != 0 ? TRUE : FALSE;
+                GReadingSet = true;
+            }
+            else if (Name == "private")
+            {
+                BOOL Handled = FALSE;
+                ImeUi_ProcessMessage(kWindow, WM_IME_NOTIFY, IMN_PRIVATE, static_cast<LPARAM>(Hex32(F[1])), &Handled);
+            }
             else if (Name == "cand")
             {
                 std::vector<FWide> Strings;
@@ -1023,6 +1341,22 @@ namespace
                                         GCandidateCount, GCandidatePageSize, GCandidateSelection) +
                          Entries + "\"");
             }
+            else if (Name == "readstate")
+                ImeEvent(oracle::Format("\"ev\":\"read\",\"show\":\"%d\",\"horiz\":\"%d\",\"reading\":\"",
+                                        GbShowReading ? 1 : 0, GbHorizontalReading ? 1 : 0) +
+                         UnitsC(GReading) + oracle::Format("\",\"sel\":\"%d\"", GReadingSelection));
+            else if (Name == "imeid")
+            {
+                DWORD const Second = GetImeId(1);
+                DWORD const First = GetImeId(0);
+                ImeEvent(oracle::Format("\"ev\":\"imeid\",\"v0\":\"%08lx\",\"v1\":\"%08lx\"",
+                                        static_cast<unsigned long>(First), static_cast<unsigned long>(Second)));
+            }
+            else if (Name == "compstate")
+                ImeEvent("\"ev\":\"comp\",\"t\":\"" + UnitsC(GComposition) +
+                         oracle::Format("\",\"caret\":\"%d\",\"cursor\":\"%d\",\"level\":\"%lu\",\"insert\":\"%d\"",
+                                        GClientCaret, GCompositionCursor,
+                                        static_cast<unsigned long>(GSupportLevel), GbInsertMode ? 1 : 0));
             FlushOwnerTexts();
         }
         for (size_t Index = 0; Index < World.Boxes.size(); ++Index)

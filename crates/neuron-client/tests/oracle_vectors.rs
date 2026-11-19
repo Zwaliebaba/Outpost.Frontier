@@ -180,6 +180,19 @@ fn audio_client() {
     );
 }
 
+/// P4.10, the client wiring: the voice profiles (`LoadClientVoicesIni`:
+/// `[Voice]` and `[Sound]` lines, `extend =`), each line's wav read out of
+/// its profile's `audio\<nickname>.utf` as the leaf `0x%X` of its id, and
+/// the lines played through the sound tick.
+#[test]
+fn audio_voice() {
+    check_suite_within(
+        "audio_voice.jsonl",
+        &audio::voice_lines(),
+        audio::client_bound,
+    );
+}
+
 /// P4.14: the engine calls of the parser's second pass for each buffer of
 /// a case, one fresh module state per case, with or without a COM context
 /// (`tests/fixtures/oracle/scene_script_build.list`).
@@ -352,8 +365,9 @@ fn ui_controls() {
 /// P4.11 to P4.13: the client's IME boxes (`FLImeInputBox` over
 /// `IMEInputBox` and `CInputBox`), their fonts (`CImeUiFont`), the focus
 /// manager and the IME's draw (`ImeUi_Render`, the toolbar, `ClientIMEFocus`'s
-/// rectangles and fan, the box's `DrawString`) over the operations of
-/// `tests/fixtures/oracle/ime_ui.list`, against a scripted IME, the
+/// rectangles and fan, the box's `DrawString`) and the IME's messages
+/// (support levels 2 and 3, readings, version words) over the operations
+/// of `tests/fixtures/oracle/ime_ui.list`, against a scripted IME, the
 /// deterministic font metrics and a recording overlay.
 #[test]
 fn ime_ui() {

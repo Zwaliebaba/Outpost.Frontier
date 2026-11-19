@@ -45,6 +45,20 @@
 //                      {"case","tick","voice","rank","pan","volume","freq","pos","plays"}
 // A source's flag byte is printed without its top three bits, which the pools leave as the block
 // held them (divergence D527); "src" is "?" for a source no play made.
+//
+// The voice profiles (Client\cmn\Voice.cpp, ported as voice_profiles.cpp) are compiled in too:
+// audio/voice.list runs the same commands, and
+//   voices FILE                     LoadClientVoicesIni(FILE), FILE under the fixtures
+// A NICK of the form PROFILE/MSG (both in hex) names the line MSG of the profile PROFILE, a
+// VoiceMsg, through LookupClientVoice and FindMessage (null when either is unknown). In that
+// session NeuronRuntime::Data's root is the fixture directory, so ResolveScriptFile finds
+// audio\<nickname>.utf there; opening that path ("UTF") gives an archive whose text lines map a
+// leaf name to a wav name of the form above ("0x2A c1b16r22050f100.wav"); its other leaves are
+// not found. Lines of audio_voice.jsonl: the arch ones above and, after every command that
+// prints the archetypes, per profile in id order {"case","voice","name","utf","scripts","files"}
+// (texts in hex, "files" the `file =` table as id:name, "-" when empty), then per line in id
+// order {"case","voice","msg","sm","prio","atten","refs","file","sm_flags","sm_buffer",
+// "sm_frames","sm_duration"} ("file" is slot 1, the line's wav name).
 
 #include "oracle_support.h"
 
@@ -58,6 +72,34 @@
 
 #include "../OutpostFrontier/Client/sound_config.cpp"
 #include "../OutpostFrontier/Client/menu_sound_arch.cpp"
+
+// voice_profiles.cpp's headers first; then CopyBoundedString (the client's startup_config.cpp;
+// Server.lib has one of its own) reaches its body as a file-local copy of the client's under a
+// name of its own, so this file defines none of the name.
+#include <io.h>
+#include "common_reputation.h"
+#include "common_universe.h"
+#include "../OutpostFrontier/Client/globals.h"
+#include "../OutpostFrontier/Client/menu_universe_base.h"
+#include "../OutpostFrontier/Client/voice_profiles.h"
+#define CopyBoundedString OracleVoiceProfilesCopyBoundedString
+
+// startup_config.cpp's body.
+static unsigned OracleVoiceProfilesCopyBoundedString(char* Dest, unsigned Capacity, const char* Src)
+{
+    if (Src == nullptr)
+        return 0;
+    unsigned Length = static_cast<unsigned>(strlen(Src));
+    if (Length >= Capacity)
+        Length = Capacity - 1;
+    memcpy(Dest, Src, Length);
+    Dest[Length] = '\0';
+    return Length;
+}
+
+#include "../OutpostFrontier/Client/voice_profiles.cpp"
+
+#undef CopyBoundedString
 
 using namespace oracle;
 
@@ -300,22 +342,87 @@ namespace
         int NEURONCOMPONENTS_API InvokeLockedCallback(unsigned long, unsigned long, unsigned long) override { return GR_GENERIC; }
     };
 
-    // NeuronRuntime::Data: CreateInstance makes the wav its description names.
+    // NeuronRuntime::Data: CreateInstance makes the wav its description names. In the voice
+    // session the root is the fixture directory and a "UTF" path ending in .utf opens an archive
+    // (a FWavData of its own, made on the heap) whose leaves are the file's lines.
     class FWavData final : public IFileSystem
     {
     public:
+        std::string Root;
+        bool bArchive = false;
+        unsigned long Refs = 1;
+        std::map<std::string, std::string> Leaves;
+
         GENRESULT NEURONCOMPONENTS_API QueryInterface(const char*, void** Out) override
         {
             *Out = nullptr;
             return GR_INTERFACE_UNSUPPORTED;
         }
-        unsigned long NEURONCOMPONENTS_API AddRef() override { return 1; }
-        unsigned long NEURONCOMPONENTS_API Release() override { return 1; }
+        unsigned long NEURONCOMPONENTS_API AddRef() override { return bArchive ? ++Refs : 1; }
+        unsigned long NEURONCOMPONENTS_API Release() override
+        {
+            if (!bArchive)
+                return 1;
+            if (--Refs == 0)
+            {
+                delete this;
+                return 0;
+            }
+            return Refs;
+        }
+        // The archive audio\<nickname>.utf of the fixtures: "leaf wav" per line.
+        static FWavData* OpenArchive(const char* Path)
+        {
+            if (Path == nullptr)
+                return nullptr;
+            const size_t Length = strlen(Path);
+            if (Length < 4 || _stricmp(Path + Length - 4, ".utf") != 0)
+                return nullptr;
+            std::string Relative = Path;
+            for (char& Ch : Relative)
+            {
+                if (Ch == '\\')
+                    Ch = '/';
+            }
+            Bytes Text;
+            if (!ReadWholeFile(GFixtureDir + "/" + Relative, Text))
+                return nullptr;
+            FWavData* Archive = new FWavData();
+            Archive->bArchive = true;
+            std::string Line;
+            Text.push_back('\n');
+            for (unsigned char Byte : Text)
+            {
+                if (Byte == '\n')
+                {
+                    const size_t Space = Line.find(' ');
+                    if (Space != std::string::npos)
+                        Archive->Leaves[Line.substr(0, Space)] = Line.substr(Space + 1);
+                    Line.clear();
+                }
+                else if (Byte != '\r')
+                    Line += static_cast<char>(Byte);
+            }
+            return Archive;
+        }
         GENRESULT NEURONCOMPONENTS_API CreateInstance(AGGDESC* Arg, void** Out) override
         {
             const FFileSystemAggDesc* Desc = reinterpret_cast<const FFileSystemAggDesc*>(Arg);
+            const char* Name = Desc->DataPath;
+            if (bArchive)
+            {
+                const std::map<std::string, std::string>::const_iterator Leaf =
+                    Name != nullptr ? Leaves.find(Name) : Leaves.end();
+                Name = Leaf != Leaves.end() ? Leaf->second.c_str() : nullptr;
+            }
+            else if (!Root.empty() && Desc->BackendName != nullptr && strcmp(Desc->BackendName, "UTF") == 0)
+            {
+                FWavData* const Archive = OpenArchive(Name);
+                *Out = Archive != nullptr ? static_cast<IFileSystem*>(Archive) : nullptr;
+                return Archive != nullptr ? GR_OK : GR_GENERIC;
+            }
             FWavFs* Fs = new FWavFs();
-            if (!MakeWav(Desc->DataPath, Fs->Data))
+            if (!MakeWav(Name, Fs->Data))
             {
                 Fs->Release();
                 *Out = nullptr;
@@ -380,8 +487,11 @@ namespace
         int NEURONCOMPONENTS_API GetFilePosition(unsigned long, unsigned long*) override { return GR_GENERIC; }
         void NEURONCOMPONENTS_API GetFileSysPath(char* Out, unsigned long MaxChars) override
         {
-            if (Out != nullptr && MaxChars != 0)
-                Out[0] = 0;
+            if (Out == nullptr || MaxChars == 0)
+                return;
+            const size_t Length = Root.size() < MaxChars - 1 ? Root.size() : MaxChars - 1;
+            memcpy(Out, Root.c_str(), Length);
+            Out[Length] = 0;
         }
         int NEURONCOMPONENTS_API GetAccessFlags() override { return GR_GENERIC; }
         int NEURONCOMPONENTS_API GetParentFileSystem(IFileSystem**) override { return GR_GENERIC; }
@@ -427,14 +537,72 @@ namespace
         return Line + "}";
     }
 
+    // The manager's archetype of a SoundManager id, or four dashes.
+    std::string SmFields(int SmArchId)
+    {
+        unsigned long Flags = 0;
+        unsigned long Buffer = 0;
+        unsigned long Frames = 0;
+        unsigned long Duration = 0;
+        if (SmArchId != -1 &&
+            OracleAudioArchetypeInfo(NeuronRuntime::Sound, SmArchId, &Flags, &Buffer, &Frames, &Duration))
+        {
+            return Fld("sm_flags", Format("%lx", Flags)) + Fld("sm_buffer", Format("%lx", Buffer)) +
+                   Fld("sm_frames", Format("%lu", Frames)) + Fld("sm_duration", Format("%lu", Duration));
+        }
+        return Fld("sm_flags", "-") + Fld("sm_buffer", "-") + Fld("sm_frames", "-") + Fld("sm_duration", "-");
+    }
+
+    // The voice profiles in id order, each followed by its lines.
+    void DumpVoices(Suite& Out, int Case)
+    {
+        for (std::map<unsigned int, FVoiceProfile>::iterator It = GVoiceProfiles.begin(); It != GVoiceProfiles.end();
+             ++It)
+        {
+            FVoiceProfile& Profile = It->second;
+            std::string Scripts;
+            for (std::list<std::string>::const_iterator S = Profile.Scripts.begin(); S != Profile.Scripts.end(); ++S)
+                Scripts += (Scripts.empty() ? "" : ",") + HexC(S->c_str());
+            std::string Files;
+            for (std::map<unsigned int, std::string>::const_iterator F = Profile.SoundFiles.begin();
+                 F != Profile.SoundFiles.end(); ++F)
+                Files += (Files.empty() ? "" : ",") + IdText(F->first) + ":" + HexC(F->second.c_str());
+            Out.Line(Format("{\"case\":\"%d\",\"voice\":\"%08x\"", Case, Profile.Id.Id) +
+                     Fld("name", HexC(Profile.Name)) +
+                     Fld("utf", Profile.UtfPath.empty() ? std::string("-") : HexC(Profile.UtfPath.c_str())) +
+                     Fld("scripts", Scripts.empty() ? std::string("-") : Scripts) +
+                     Fld("files", Files.empty() ? std::string("-") : Files) + "}");
+            for (std::map<unsigned int, FVoiceMsg>::iterator M = Profile.Messages.begin(); M != Profile.Messages.end();
+                 ++M)
+            {
+                FVoiceMsg& Msg = M->second;
+                Out.Line(Format("{\"case\":\"%d\",\"voice\":\"%08x\",\"msg\":\"%08x\"", Case, Profile.Id.Id,
+                                Msg.Id.Id) +
+                         Fld("sm", Format("%d", Msg.SmArchId)) + Fld("prio", Format("%d", Msg.Priority)) +
+                         Fld("atten", Format("%d", Msg.Attenuation)) + Fld("refs", Format("%d", Msg.RefCount)) +
+                         Fld("file", HexC(Msg.GetFileName())) + SmFields(Msg.SmArchId) + "}");
+            }
+        }
+    }
+
     void DumpArchs(Suite& Out, int Case)
     {
         for (std::map<unsigned, FClientSoundArch*>::iterator It = G_SoundArchs.begin(); It != G_SoundArchs.end(); ++It)
             Out.Line(ArchLine(Case, It->second));
+        DumpVoices(Out, Case);
     }
 
     void* FindArch(const std::string& NickHex)
     {
+        const size_t Slash = NickHex.find('/');
+        if (Slash != std::string::npos)
+        {
+            const Bytes Profile = Unhex(NickHex.substr(0, Slash));
+            const Bytes Line = Unhex(NickHex.substr(Slash + 1));
+            FVoiceProfile* const Voice = LookupClientVoice(CreateID(CStr(Profile)));
+            FVoiceMsg* const Msg = Voice != nullptr ? Voice->FindMessage(CreateID(CStr(Line))) : nullptr;
+            return Msg != nullptr ? static_cast<Archetype::ISound*>(static_cast<Archetype::IVoiceMsg*>(Msg)) : nullptr;
+        }
         const Bytes Nick = Unhex(NickHex);
         ID_String Id;
         Id.Id = CreateID(CStr(Nick));
@@ -469,6 +637,7 @@ namespace
             StopAllClientSounds();
             SetClientSoundLod(0);
             ShutdownClientSoundArch();
+            ClearClientVoices();
             OracleAudioDestroyManager(Manager);
             Manager = nullptr;
             NeuronRuntime::Sound = nullptr;
@@ -507,10 +676,12 @@ namespace
         return Out;
     }
 
-    void RunSession(const char* List, const char* Output)
+    void RunSession(const char* List, const char* Output, bool bVoiceRoot)
     {
         Suite Out(Output);
         FWavData Data;
+        if (bVoiceRoot)
+            Data.Root = GFixtureDir;
         IFileSystem* const SavedData = NeuronRuntime::Data;
         ISoundManager* const SavedSound = NeuronRuntime::Sound;
         NeuronRuntime::Data = &Data;
@@ -531,6 +702,13 @@ namespace
                 SetClientAudioMode(0);
                 for (int Category = 0; Category < 5; ++Category)
                     SetMaster(Category, 1.0f);
+            }
+            else if (Command == "voices")
+            {
+                const int Added = LoadClientVoicesIni(T[1].c_str());
+                Out.Line(Format("{\"case\":\"%d\",\"op\":\"voices\",\"nick\":\"-\",\"r\":\"%d\"}", Case.Index,
+                                Added));
+                DumpArchs(Out, Case.Index);
             }
             else if (Command == "ini")
             {
@@ -718,6 +896,7 @@ namespace
 
 void RunAudioClientSuites()
 {
-    RunSession("audio/arch.list", "audio_arch.jsonl");
-    RunSession("audio/client.list", "audio_client.jsonl");
+    RunSession("audio/arch.list", "audio_arch.jsonl", false);
+    RunSession("audio/client.list", "audio_client.jsonl", false);
+    RunSession("audio/voice.list", "audio_voice.jsonl", true);
 }

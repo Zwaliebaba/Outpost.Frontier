@@ -225,6 +225,11 @@ impl<B: Backend + 'static> Engine<B> {
             ui.update_all(dt);
             report.ui_nodes = ui.update_node_count;
         }
+        // The IME's messages its context handed since the last frame (the
+        // window procedure's `ImeUi_ProcessMessage`).
+        if let Some(ime) = self.ime.as_ref() {
+            ime.pump();
+        }
         self.apply_ime_texts();
 
         // 3. The world tick.
