@@ -453,6 +453,22 @@ impl AiWorld for ReplayWorld<'_> {
         }
     }
 
+    /// The zone properties the oracle's probe of the same sphere found
+    /// (`zone_props`); 0 when the tick made no such probe.
+    fn sphere_zone_properties(&self, _system: u32, center: Vector, radius: f32) -> u32 {
+        self.answers
+            .iter()
+            .find(|a| {
+                a.kind == "zone_props"
+                    && a.floats.len() == 4
+                    && vector_bits(Vector::new(a.floats[0], a.floats[1], a.floats[2]))
+                        == vector_bits(center)
+                    && a.floats[3].to_bits() == radius.to_bits()
+            })
+            .and_then(|a| a.ints.first())
+            .map_or(0, |&v| word(v))
+    }
+
     /// The server's answers to the ship's request during the tick.
     fn take_request_answers(&mut self, h: u32) -> Vec<RequestAnswer> {
         let mut out = Vec::new();
@@ -1308,6 +1324,11 @@ struct Totals {
     beh_compared: usize,
     beh_mismatched: usize,
     beh_reports: Vec<String>,
+    /// The oracle's zone probes (`zone_props`) against the Rust world's
+    /// zones (`World::sphere_zone_properties`, P2.1's zones).
+    zone_compared: usize,
+    zone_mismatched: usize,
+    zone_reports: Vec<String>,
 }
 
 /// The first behaviour with a weight in the graph row of `current` that
@@ -1715,6 +1736,35 @@ fn replay_file(path: &std::path::Path, graphs: &StateGraphDb, totals: &mut Total
         {
             ours.orient = theirs.orient;
         }
+        // The oracle's zone probes against the Rust world's zones.
+        if let Some(m) = motion.as_ref() {
+            for a in t
+                .answers
+                .iter()
+                .chain(&t.before)
+                .filter(|a| a.kind == "zone_props" && a.floats.len() == 4)
+            {
+                let ours = m.world.sphere_zone_properties(
+                    a.id,
+                    Vector::new(a.floats[0], a.floats[1], a.floats[2]),
+                    a.floats[3],
+                );
+                let theirs = a.ints.first().map_or(0, |&v| word(v));
+                totals.zone_compared += 1;
+                if ours != theirs {
+                    totals.zone_mismatched += 1;
+                    if totals.zone_reports.len() < MAX_REPORTED {
+                        totals.zone_reports.push(format!(
+                            "{} tick {} system {}: sphere {:?} oracle {theirs:#x} rust {ours:#x}",
+                            path.display(),
+                            a.tick,
+                            a.id,
+                            a.floats
+                        ));
+                    }
+                }
+            }
+        }
         if let Some(theirs) = &out.beh {
             totals.beh_compared += 1;
             let ours = beh_snapshot(manager, theirs.kind);
@@ -1866,10 +1916,19 @@ fn behavior_ticks_against_the_oracle() {
     for r in &totals.beh_reports {
         let _ = writeln!(summary, "{r}");
     }
+    let _ = writeln!(
+        summary,
+        "zone probes: {} compared with the Rust world's zones, {} with a difference",
+        totals.zone_compared, totals.zone_mismatched
+    );
+    for r in &totals.zone_reports {
+        let _ = writeln!(summary, "{r}");
+    }
     print!("{summary}");
     let _ = fs::write(dir.join("rust-behavior-replay.txt"), &summary);
     assert_eq!(totals.mismatched, 0, "{summary}");
     assert_eq!(totals.state_mismatched, 0, "{summary}");
     assert_eq!(totals.unanswered, 0, "{summary}");
     assert_eq!(totals.beh_mismatched, 0, "{summary}");
+    assert_eq!(totals.zone_mismatched, 0, "{summary}");
 }

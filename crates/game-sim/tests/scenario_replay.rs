@@ -51,9 +51,11 @@
 //! (`pub::AI::SubmitState`), and the `goto`, `face`, `idle` and `cancel`
 //! commands are directives (`pub::AI::SubmitDirective`); `fly_to_point`
 //! (goto) and `turn_to_heading` (face) are compared with the oracle like
-//! the other scenarios. Scenarios whose directives need a behaviour that
-//! is not ported yet, and the `dock` directive, are skipped with a note
-//! (P2.5). The fights (`dogfight`, `skirmish`: AI ships of hostile
+//! the other scenarios, and the directives that name objects (`dock`,
+//! `launch`, `tradelane`) take their ids from the Rust world. Scenarios
+//! whose directives need a behaviour that is not ported yet, and those
+//! marked `# rust: skip <reason>` (the server's and Content's parts the
+//! Rust world does not have yet), are skipped with a note. The fights (`dogfight`, `skirmish`: AI ships of hostile
 //! factions; `strafe`: an AI fighter and a hostile ship without one) take
 //! each pilot's personality and the ships' attitudes from the oracle's
 //! `ai.jsonl` (a ship without a manager the reverse attitude of the AI
@@ -83,7 +85,7 @@ use neuron_core::math::{Matrix, Vector};
 use neuron_core::physics::StepMode;
 use neuron_core::physics::replay::{CoreRecord, compare};
 use neuron_core::rng::CrtRand;
-use support::directives::directive;
+use support::directives::directive_with;
 use support::records::{Json, find_files, read_lines};
 
 /// The gross-divergence bound on position, metres.
@@ -146,6 +148,9 @@ struct Scenario {
     /// The file is marked `# ci: expect collision`: a contact scenario,
     /// judged to its first contact ([`judge_contact`]).
     contact: bool,
+    /// The file is marked `# rust: skip <reason>`: the Rust world cannot
+    /// run it yet.
+    rust_skip: Option<String>,
     seed: u32,
     objects: Vec<ObjDesc>,
     commands: Vec<Cmd>,
@@ -194,6 +199,11 @@ fn parse(path: &Path) -> Option<Scenario> {
         contact: text
             .lines()
             .any(|l| l.trim_start().starts_with("# ci: expect collision")),
+        rust_skip: text.lines().find_map(|l| {
+            l.trim_start()
+                .strip_prefix("# rust: skip ")
+                .map(|r| r.trim().to_owned())
+        }),
         seed: 0x4f52_4143,
         objects: Vec::new(),
         commands: Vec::new(),
@@ -304,18 +314,15 @@ fn parse(path: &Path) -> Option<Scenario> {
     Some(s)
 }
 
-/// Why a scenario cannot run yet: a directive whose behaviour is not
-/// ported (the AI ships themselves run: they get a behaviour manager), or
-/// the dock directive (which needs the station's Content side).
+/// Why a scenario cannot run yet: the file says so (`# rust: skip`), or
+/// a directive whose behaviour is not ported (the AI ships themselves
+/// run: they get a behaviour manager).
 fn needs_ai(s: &Scenario) -> Option<String> {
+    if let Some(why) = &s.rust_skip {
+        return Some(why.clone());
+    }
     for c in &s.commands {
-        if c.args[0] == "dock" {
-            return Some("the dock directive".to_owned());
-        }
-        if c.args[0] == "launch" || c.args[0] == "tradelane" {
-            return Some(format!("the {} directive", c.args[0]));
-        }
-        if let Some(op) = directive(&c.args)
+        if let Some(op) = directive_with(&c.args, &|_| Some(1))
             && let Some(id) = op.behavior()
             && !create_behavior::<World>(id).ported()
         {
@@ -785,7 +792,18 @@ fn run(s: &Scenario, ai: &AiInputs) -> Option<Run> {
                 continue;
             };
             let a = &c.args;
-            if let Some(op) = directive(a) {
+            let op = {
+                let resolve = |n: &str| {
+                    handles
+                        .get(n)
+                        .copied()
+                        .flatten()
+                        .and_then(|h| world.get(h))
+                        .map(|o| o.simple.id)
+                };
+                directive_with(a, &resolve)
+            };
+            if let Some(op) = op {
                 // A current directive blocks a new one, so each scenario
                 // directive cancels the one before.
                 if !matches!(op, DirectiveOp::Cancel) {

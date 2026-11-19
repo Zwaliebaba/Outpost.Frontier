@@ -5,6 +5,8 @@
 # 2) and enters it (go_tradelane). Multiplayer stepping. No PSIs are recorded: in the lane
 # the ship moves by CShip's LaneAction, which the port does not have yet.
 
+# rust: skip the lane start (get_lane_start), the server's lane request and CShip's LaneAction (P3.3)
+
 system he01
 ticks 1200
 stepping mp

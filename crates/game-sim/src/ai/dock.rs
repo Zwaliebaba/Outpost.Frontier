@@ -1053,10 +1053,17 @@ impl<W: AiEnv + ?Sized> Behavior<W> for DockBehavior {
         };
         let kind = candidate.type_flags;
         if kind & 0x0060_0de0 != 0 {
-            // `has_dock_hardpoints` is a station property the AI view does
-            // not carry: a station or docking ring counts as having them.
-            if kind & 0x8c0 == 0 && kind & 0x120 == 0 {
-                return EvaluateResult::Skip;
+            if kind & 0x8c0 == 0 {
+                if kind & 0x120 == 0 {
+                    return EvaluateResult::Skip;
+                }
+                let has = cx
+                    .world
+                    .handle_of(candidate.id)
+                    .is_some_and(|h| cx.world.has_dock_hardpoints(h));
+                if !has {
+                    return EvaluateResult::Skip;
+                }
             }
         } else {
             if kind & 0x3 == 0 || candidate.base.unwrap_or(0) == 0 {

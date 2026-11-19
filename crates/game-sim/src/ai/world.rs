@@ -702,6 +702,13 @@ pub trait AiWorld {
         DockHardpoints::failed(-5)
     }
 
+    /// `has_dock_hardpoints`: an equipped object with a docking sphere of
+    /// type 1 (berth), 6 (ring or pad) or 7 (jump). The default has none.
+    fn has_dock_hardpoints(&self, h: Self::Handle) -> bool {
+        let _ = h;
+        false
+    }
+
     /// `get_lane_start(Ring, OutLane, OutStart, OutDir)` asked of the ship
     /// `h`: the trade lane `ring` starts (its next ring through
     /// `traverse_rings`, unless `lane` names one), the start point (the

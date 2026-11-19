@@ -5,6 +5,8 @@
 # behaviour 9). Multiplayer stepping. No PSIs are recorded: in the lane the ship moves by
 # CShip's LaneAction, which the port does not have yet.
 
+# rust: skip CShip's LaneAction (P3.3)
+
 system he01
 ticks 600
 stepping mp
