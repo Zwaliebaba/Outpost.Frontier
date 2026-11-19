@@ -107,6 +107,12 @@ pub trait DrawHost {
     /// batches queued under the old camera go out and the new camera is
     /// handed to the pipeline (`FWidescreenHudShiftScope` with `bDraw`).
     fn camera_changed(&mut self, _camera: &Camera) {}
+    /// What rich-text windows draw with (the pipeline's viewport and
+    /// projection, textures and the big-image tile sink), when the host
+    /// can draw them.
+    fn rich_text_cx(&mut self) -> Option<crate::ui::controls::rich_text_win::RichTextCx<'_>> {
+        None
+    }
     /// For widgets that need more of their host.
     fn as_any_mut(&mut self) -> &mut dyn Any;
 }
