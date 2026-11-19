@@ -218,7 +218,13 @@ impl ChannelSource {
 /// `IChannelOwner`: drives a channel created without an archetype.
 pub trait ChannelOwner: core::fmt::Debug {
     /// `Apply(sampled, key, bind, time)`: the channel's tick result.
-    fn apply(&mut self, sampled: &[f32], channel: TypedId, bind: &BindDesc, time: f32) -> u32;
+    /// `sampled` is the channel's own sample (`GetSampled`: one word for a
+    /// scalar, three for a vector, four for a quaternion, the applied
+    /// position and orientation for a position-quaternion channel, none
+    /// for the base class); what the owner writes there is the channel's
+    /// sample afterwards, which the mixer blends (an aim event writes its
+    /// joint's solved quaternion).
+    fn apply(&mut self, sampled: &mut [f32], channel: TypedId, bind: &BindDesc, time: f32) -> u32;
 }
 
 /// Two frames and the fraction between them, as `Sample` writes them; a
@@ -701,6 +707,31 @@ impl TypedChannel {
         out[..n].to_vec()
     }
 
+    /// Writes words of [`TypedChannel::sampled_words`]' layout back into
+    /// the channel's sample: what an owner left in the buffer `GetSampled`
+    /// handed it.
+    fn store_sampled(&mut self, words: &[f32]) {
+        let word = |i: usize| words.get(i).copied().unwrap_or(0.0);
+        match self.class {
+            TypedClass::Event => {}
+            TypedClass::Scalar => self.sampled[0] = word(0),
+            TypedClass::Vector => {
+                for (i, slot) in self.sampled.iter_mut().take(3).enumerate() {
+                    *slot = word(i);
+                }
+            }
+            TypedClass::Quaternion => {
+                for (i, slot) in self.sampled.iter_mut().enumerate() {
+                    *slot = word(i);
+                }
+            }
+            TypedClass::PosQuat => {
+                self.applied_pos = Vector::from_words([word(0), word(1), word(2)]);
+                self.applied_quat = Quaternion::from_words([word(3), word(4), word(5), word(6)]);
+            }
+        }
+    }
+
     // --- posing ------------------------------------------------------------------------
 
     /// `TypedApplyFromArchetype`: poses the channel at its time (at the
@@ -828,11 +859,14 @@ impl TypedChannel {
         let new_time = r(e(dt) * e(self.rate) + e(self.time));
         self.time = new_time;
         if self.owner.is_some() {
-            let sampled = self.sampled_words();
+            let mut sampled = self.sampled_words();
             let bind = self.bind;
-            if let Some(owner) = &mut self.owner {
-                return owner.apply(&sampled, id, &bind, new_time);
-            }
+            let result = self
+                .owner
+                .as_mut()
+                .map_or(0, |owner| owner.apply(&mut sampled, id, &bind, new_time));
+            self.store_sampled(&sampled);
+            return result;
         }
         if self.flags() == 8 {
             let mut keys = Vec::new();
@@ -1150,4 +1184,47 @@ pub fn joint_value_count(engine: &Engine, instance: Option<InstanceId>) -> usize
     engine
         .instance_relative(instance)
         .map_or(0, |rel| value_count_for_code(rel.code()))
+}
+
+#[cfg(test)]
+mod owner_tests {
+    use super::*;
+
+    /// Writes a fixed quaternion into the sample, as an aim event does.
+    #[derive(Debug)]
+    struct Aim(u32);
+
+    impl ChannelOwner for Aim {
+        fn apply(
+            &mut self,
+            sampled: &mut [f32],
+            _channel: TypedId,
+            _bind: &BindDesc,
+            _time: f32,
+        ) -> u32 {
+            self.0 += 1;
+            sampled.copy_from_slice(&[0.0, 0.6, 0.0, 0.8][..sampled.len()]);
+            7
+        }
+    }
+
+    #[test]
+    fn an_owner_writes_the_channels_sample() {
+        let engine = Engine::new();
+        let mut events = Vec::new();
+        let mut quat = TypedChannel::with_owner(TypedClass::Quaternion, Box::new(Aim(0)));
+        assert_eq!(quat.tick(&engine, TypedId(1), 0.1, &mut events), 7);
+        assert_eq!(quat.sampled, [0.0, 0.6, 0.0, 0.8]);
+        let mut out = [0.0; 7];
+        quat.copy_sampled(&mut out);
+        assert_eq!(&out[..4], &[0.0, 0.6, 0.0, 0.8]);
+
+        let mut scalar = TypedChannel::with_owner(TypedClass::Scalar, Box::new(Aim(0)));
+        scalar.tick(&engine, TypedId(2), 0.1, &mut events);
+        assert_eq!(scalar.sampled[0], 0.0);
+
+        let mut event = TypedChannel::with_owner(TypedClass::Event, Box::new(Aim(0)));
+        assert_eq!(event.tick(&engine, TypedId(3), 0.1, &mut events), 7);
+        assert!(events.is_empty());
+    }
 }

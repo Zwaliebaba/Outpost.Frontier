@@ -116,24 +116,17 @@ The same day the owner accepted, by the same rule as the first review, the
 rows that replace undefined behaviour or follow decisions already taken:
 D298, D299, D356 to D360, D375 to D381, D410, D411, D413, D415 to D419
 (D417 as written: fixed-size targets keep their contents across a resize)
-and D420, D422 and D423. These rows have an observable effect and await
-the owner's decision:
+and D420, D422 and D423.
 
-- D297 (P4.12): white space and lowering follow the C runtime's "C" locale
-  by a fixed table, which takes U+00A0, U+2007 and U+200A (they occur in
-  the cards) as spaces; the UCRT's answers above ASCII were not verified.
-- D412 (P4.9): alpha test and stencil do not act on programs.
-- D414 (P4.9): the programs' full-screen quad has no half-pixel shift.
-- D421 (P4.12): rich text is drawn into a memory surface instead of a GDI
-  device context (blending, the overhang box, nearest-pixel stretch,
-  5:5:5 truncation).
+In a third review on 2026-11-19 the owner accepted D297, D412, D414 and
+D421 as written, and by the same rule D401 to D405, D430, D431 and D433 to
+D435. D406 is closed: the typed channels now keep what their owner writes
+into the sample, as the reference's `GetSampled` pointer does. D358 stays
+as written: the owner deferred `TriMesh`'s editing mode until a caller
+needs it. D432 has an observable effect and awaits the owner's decision:
 
-D430 to D435 (P4.13, third increment: the first generic controls) are
-proposed, for the owner's review.
-
-D401 to D406 (P4.7, second increment: the deformable component on the
-render stack, the `EyeMaterial` in the material library and the client's
-hooks) are proposed, for the owner's review.
+- D432 (P4.13): `UITextures.ini` is loaded into `Ui::ui_shapes` by the
+  client, and a control whose shape is missing binds texture 0.
 
 | ID | Area | C++ behaviour | Rust behaviour | Reason | Observable effect |
 | --- | --- | --- | --- | --- | --- |
@@ -431,7 +424,7 @@ hooks) are proposed, for the owner's review.
 | D403 | `neuron-client::render::deformable::material` (P4.7) | The `EyeMaterial`'s vertex-buffer draw passes `Indices + IbStart` and `IndexSpan` of the caller's array, reading past it for a span longer than the array; `Setup` reads `GetFrameCount`'s output uninitialised when the call fails | The adapter hands the draw the context's indices from `ib_start`, an index past the array reading 0; a failed `GetFrameCount` counts 0 frames | Undefined behaviour in the reference | None: the deformable draw takes the `IRPDraw` route (flag 0x100), and the texture library fails `GetFrameCount` only for a null record, which the eye never passes |
 | D404 | `neuron-client::render::deformable::material` (P4.7) | `BindEyeMaterials` registers the `EyeMaterial`'s factory with the process's component manager (`RegisterEyeMaterialFactory`, priority 0x80000000), where every library's `CreateInstance` finds it by name, and adds the rule `^eye*` | The factory is a link of the library's factory chain (`EyeFactory`, made with a fallback as `ShadingFactory` is), given when the library is made; `bind_eye_materials` adds the rule | Technical decision T9 (no component manager) | A library made without an `EyeFactory` in its chain refuses the type `EyeMaterial` (`GR_INTERFACE_UNSUPPORTED`); the client's library has it |
 | D405 | `neuron-client::render::deformable::hooks` (P4.7) | The engine writes each pose into the bound bones' runtimes as it computes it (`SetPosition`, `SetOrientation`, `SetMatrix`, `MarkWorldDirty` on the `IInstanceTransform`) | The scene engine keeps its own transforms; the client forwards the calls (`DeformInstance::forward_transform`) or, after an update, hands every bound bone the engine's world transform as `SetMatrix` then `MarkWorldDirty` (`pull_bone_transforms`) | Technical decision T10 (the scene engine owns instance transforms, P1.8); D391 | A pull marks every bound bone dirty, so a bone whose pose did not change is skinned again; the skinned vertices are the same |
-| D406 | `neuron-client::render::deformable::hooks`, `neuron-core::scene::typed` (P4.7) | The aim event is the owner of its typed channels; at each tick the channel calls `FIkEvent::Apply` with its own sample buffer, into which the event writes the joint's solved quaternion, and the mixer then blends that sample onto the joint | `DeformInstance::apply_channel` runs the event's `IkApply` for the channel's key and writes the quaternion into the caller's buffer; the typed channels of P1.8 hand an owner a copy of their sample (`ChannelOwner::apply` takes it read-only), so the client cannot yet return the quaternion to the mixer | Interim: the owner side of `neuron-core::scene::typed` (P1.8) does not take an owner's words back | Aim solving runs, but its result does not reach the joints through the mixer until the typed channel takes the owner's words; open in the ledger |
+| D406 | `neuron-client::render::deformable::hooks`, `neuron-core::scene::typed` (P4.7) | The aim event is the owner of its typed channels; at each tick the channel calls `FIkEvent::Apply` with its own sample buffer (`GetSampled`), into which the event writes the joint's solved quaternion, and the mixer then blends that sample onto the joint | `ChannelOwner::apply` takes the channel's sample mutably and the channel keeps what the owner wrote; `DeformInstance::apply_channel` writes the joint's quaternion into it | Closed 2026-11-19 (owner): the interim read-only sample of P1.8's typed channels was changed to match the reference | None: no longer a divergence; the row stays for its history |
 | D410 | `neuron-client::render::pass::device` (P4.9) | `BeginExPass` refuses a nested pass at run time; inside a pass, `BindExProgram(nullptr)` returns to fixed function and ordinary `IRenderPipeline` draws go to the pass's target | `Device::begin_pass` returns a `Pass` that borrows the device mutably: a nested pass or any fixed-function draw while it lives does not compile; a pass draws only with a program (`bind_program(None)` leaves no program, and a draw then returns `PassError::NoProgram`) | Technical decision (record 0005, point 9; T2's fixed-function draws stay outside passes) | None for the C++'s callers: the nebula and the depth view draw only with programs inside their passes |
 | D411 | `neuron-client::render::pass::device` (P4.9) | Render states set inside a pass go through the pipeline's state cache, and `EndExPass` re-queues the values pending at `BeginExPass`; `GetRenderState` inside a pass returns the pass's value | The pass draws from its own copy of the device's render states, made at `begin_pass` with `BeginExPass`'s overrides; `Pass::set_render_state` and `Pass::render_state` work on the copy; the device's state model is never written, so nothing is restored | Technical decision (record 0005, point 9) | None: the states a draw sees inside and after the pass are the C++'s |
 | D412 | `neuron-client::platform::d3d12::backend::ex` (P4.9) | Direct3D 9 keeps applying fixed-function per-pixel states to `ps_3_0` output: `ALPHATESTENABLE` with `ALPHAREF` and `ALPHAFUNC` (and the stencil states) still act on a programmable draw | A programmable draw takes from the render states only what a Direct3D 12 pipeline state holds (blend, colour writes, depth function, write and bias, cull, fill); alpha test and stencil do nothing; a program discards pixels itself | Platform: Direct3D 12 has no alpha test; technical decision (record 0005, point 10) | A pass that turns alpha testing on (the pass starts with it off; no C++ caller does) draws every pixel |
