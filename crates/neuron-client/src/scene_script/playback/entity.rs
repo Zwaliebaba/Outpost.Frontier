@@ -101,6 +101,10 @@ pub struct Entity {
     pub(super) scene_packed: [u32; 15],
     pub(super) path: Option<SplinePath>,
     pub(super) path_binding: PathBinding,
+    /// The descriptor's path object (`Snap.MotionPath.MotionPath`) once an
+    /// update replaced it; `None` while it is the object the entity was
+    /// made with, [`Self::path`].
+    pub(super) snap_path: Option<Option<SplinePath>>,
     pub(super) user_props: Vec<(Vec<u8>, Vec<u8>)>,
 }
 
@@ -167,6 +171,7 @@ impl Entity {
             scene_packed: [0; 15],
             path: None,
             path_binding: PathBinding::None,
+            snap_path: None,
             user_props: Vec::new(),
         };
         match owner_type {

@@ -28,6 +28,7 @@ pub mod controls;
 mod entity;
 mod event;
 mod math;
+mod save;
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -38,8 +39,10 @@ use entity::{Entity, PathBinding, World, bind_set};
 use event::Event;
 
 use super::build::{Scene, Step};
-use super::entity::{EntityDesc, kind as entity_kind};
+use super::entity::{EntityDesc, EntityTail, kind as entity_kind};
 use super::event::{EventCommon, EventDesc, EventPayload, kind as event_kind};
+use super::script_engine::ComContext;
+use super::spline::SplinePath;
 
 /// The playback states (`kSceneScriptPlayback*`): 0 before anything is
 /// loaded.
@@ -132,6 +135,18 @@ impl Player {
     /// adds the default SET_CAMERA event when the scene has exactly one
     /// monitor and one camera and no SET_CAMERA event of its own.
     pub fn load(&mut self, scene: &Scene, duration: u32) {
+        self.load_with_com(scene, duration, None);
+    }
+
+    /// [`Self::load`] for an engine with a COM context (`Slot40SetCom`):
+    /// after the parser adds a user event it hands the event's text to the
+    /// context (`ISceneScriptComContext::Slot3`).
+    pub fn load_with_com(
+        &mut self,
+        scene: &Scene,
+        duration: u32,
+        mut com: Option<&mut dyn ComContext>,
+    ) {
         if self.state != 0 {
             self.clear();
         }
@@ -150,7 +165,14 @@ impl Player {
                     self.update_entity(*entity, desc);
                 }
                 Step::AddEvent(desc) => {
-                    self.add_event(desc);
+                    let id = self.add_event(desc);
+                    // The parser hands the text on whether the engine took
+                    // the event or not (then with the id -1).
+                    if let (EventPayload::User { text, .. }, Some(com)) =
+                        (&desc.payload, com.as_mut())
+                    {
+                        com.set_user_event_string(EventRef { id, desc }, text.as_deref());
+                    }
                 }
             }
         }
@@ -247,7 +269,18 @@ impl Player {
             self.world.unbind_monitor_children(index);
         }
         let e = self.world.get(index).expect("checked");
-        if e.apply_snap(desc, Some(&csys)) {
+        let scene_changed = e.apply_snap(desc, Some(&csys));
+        // `ApplyMotionPathDesc`: the descriptor's path object replaces the
+        // one the entity's own descriptor holds; the path the entity
+        // evaluates stays the one it was made with.
+        if e.owner_type == entity_kind::MOTION_PATH
+            && desc.flags & 1 == 0
+            && desc.kind == entity_kind::MOTION_PATH
+            && let EntityTail::MotionPath(m) = &desc.tail
+        {
+            e.snap_path = Some(m.path.as_ref().map(SplinePath::from_desc));
+        }
+        if scene_changed {
             let words = e.snap_scene;
             self.world.publish_scene(index, words, 0xff);
         }

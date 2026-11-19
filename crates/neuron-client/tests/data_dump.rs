@@ -7,7 +7,7 @@ use std::fs;
 use neuron_client::scene_script::{BuildState, Vm};
 
 use support::data::{Report, data_dirs, list_files};
-use support::{scene_script, scene_script_build};
+use support::{scene_script, scene_script_build, scene_script_save};
 
 /// P4.14: every `.thn` under `DATA` in a fresh Lua state, and the state
 /// after it (`RunSceneScriptDataDump`); kind `thn`.
@@ -60,5 +60,31 @@ fn data_dump_thn_build() {
         report.check(file, &lines);
     }
     report.note(format!("{calls} engine calls"));
+    report.finish();
+}
+
+/// P4.14: every `.thn` under `DATA` loaded into a fresh script engine and
+/// module with a COM context, then saved through the default save parser,
+/// each write as the engine makes it (`RunSceneScriptSaveDataDump`); kind
+/// `thn_save`.
+#[test]
+fn data_dump_thn_save() {
+    let Some(dirs) = data_dirs("thn_save") else {
+        return;
+    };
+    let files: Vec<String> = list_files(&dirs.root)
+        .into_iter()
+        .filter(|f| f.starts_with("DATA/") && f.to_ascii_lowercase().ends_with(".thn"))
+        .collect();
+    let mut report = Report::new("thn_save", &dirs);
+    report.file_list(&files);
+    let mut writes = 0;
+    for file in &files {
+        let bytes = fs::read(dirs.root.join(file)).unwrap_or_default();
+        let lines = scene_script_save::dump_lines(file, &bytes);
+        writes += lines.len() - 2;
+        report.check(file, &lines);
+    }
+    report.note(format!("{writes} writes"));
     report.finish();
 }

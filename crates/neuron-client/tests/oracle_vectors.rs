@@ -2,6 +2,7 @@
 //! through the port. `Oracle.exe neuron-client` writes the same files from
 //! the C++ reference (`CppSource/Oracle/oracle_scene_script.cpp`,
 //! `oracle_scene_script_build.cpp`, `oracle_scene_script_runtime.cpp`,
+//! `oracle_scene_script_save.cpp`,
 //! `oracle_text.cpp`, `oracle_rich_text.cpp`, `oracle_audio.cpp`, `oracle_texture.cpp`,
 //! `oracle_big_image.cpp`, `oracle_material.cpp`,
 //! `oracle_material_kinds.cpp`, `oracle_material_surface.cpp`,
@@ -18,7 +19,8 @@ use support::audio::{self, check_suite_within};
 use support::{
     check_suite, deformable, deformable_anim, input_lines, material, material_appearance,
     material_kinds, material_surface, mesh_render, particles, rich_text, scene_script,
-    scene_script_build, scene_script_runtime, text, texture, ui, ui_immediate, unhex,
+    scene_script_build, scene_script_runtime, scene_script_save, text, texture, ui, ui_immediate,
+    unhex,
 };
 
 /// P4.12: `LayoutRichText`, the laid list executed, its dimensions and the
@@ -239,6 +241,18 @@ fn scene_script_playback() {
         &scene_script_runtime::playback_lines(),
         16,
     );
+}
+
+/// P4.14: scenes saved through the script engine (`Slot5Save` and the
+/// default save parser, `SaveToFileSystem`), its COM context
+/// (`Slot40SetCom`) and its file-system paths (`Slot43LoadPath`,
+/// `Slot44SavePath`), each write as the engine makes it
+/// (`tests/fixtures/oracle/scene_script_save.list`). Tier A: the writer
+/// prints floats the scene holds; the one matrix it makes from a
+/// quaternion uses no trigonometry.
+#[test]
+fn scene_script_save() {
+    check_suite("scene_script_save.jsonl", &scene_script_save::lines());
 }
 
 /// P4.5: `FMaterialRegex::Compile` and `Search`: the program bytes, the
