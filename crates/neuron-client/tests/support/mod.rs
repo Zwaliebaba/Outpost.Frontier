@@ -22,7 +22,6 @@ pub mod scene_script_runtime;
 pub mod scene_script_save;
 pub mod text;
 pub mod texture;
-pub mod thn_compile;
 pub mod ui;
 pub mod ui_immediate;
 
