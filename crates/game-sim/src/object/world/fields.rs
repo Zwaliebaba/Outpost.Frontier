@@ -167,7 +167,7 @@ impl World {
         // The observer scan: each fills the first two fields it is near.
         for &(pos, dir) in observers {
             let mut populated = 0;
-            for field in &mut fields {
+            for (index, field) in fields.iter_mut().enumerate() {
                 let zone = field
                     .field
                     .zone
@@ -181,7 +181,7 @@ impl World {
                 if let Some(zone) = zone.cloned() {
                     let made = field.populate_asteroids(&zone, pos, dir);
                     for id in made {
-                        self.spawn_cube_objects(system, field, id);
+                        self.spawn_cube_objects(system, field, index, id);
                     }
                 }
                 if populated >= 2 {
@@ -210,7 +210,13 @@ impl World {
 
     /// `CAsteroidCube::init`'s spawn: one object per rock of a new cube
     /// (`CObject::Alloc`, `open`, `CAsteroid::init` with its fixed body).
-    fn spawn_cube_objects(&mut self, system: u32, field: &mut FieldRuntime, cube_id: u32) {
+    fn spawn_cube_objects(
+        &mut self,
+        system: u32,
+        field: &mut FieldRuntime,
+        index: usize,
+        cube_id: u32,
+    ) {
         let Some(cube) = field.cubes.get(&cube_id) else {
             return;
         };
@@ -223,7 +229,7 @@ impl World {
                 mine: rock.mine,
                 instant_kill: rock.instant_kill,
                 collision_group_id: system,
-                field: None,
+                field: u32::try_from(index).ok(),
                 listed: true,
                 armed: None,
             };
