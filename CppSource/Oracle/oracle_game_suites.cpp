@@ -785,6 +785,154 @@ namespace
             }
         }
     }
+
+    // P2.4: the asteroid field walk on the zones of zq (oracle_vectors.rs asteroid_field):
+    // CAsteroidField::near_field, near_field_fraction, populate_asteroids,
+    // closest_cube_pos, create_cube_id and flush_changes on two fields whose [Cube] lists
+    // are empty (a rock needs the engine and the physics; the scenario oracle's
+    // asteroids.jsonl checks the rocks), and every cube's id, state, timer, emptiness,
+    // centre and snap rotation. Field 0 is q_sphere's with two exclusion zones (x_a, an
+    // empty-cube frequency of 0.9; x_b, excluded), field 1 q_ellipsoid's with rotations of
+    // its own. The private CAsteroidField::update is not called here (asteroids.jsonl
+    // records its timers).
+    void AsteroidFieldSuite()
+    {
+        Suite Out("asteroid_field.jsonl");
+        if (!OpenFixtureData())
+            return;
+        StartFixtureUniverse("zone_queries\\universe.ini");
+
+        CmnAsteroid::CAsteroidField Fields[2];
+        const Universe::IZone* const Sphere = ZoneNamed("q_sphere");
+        const Universe::IZone* const Ellipsoid = ZoneNamed("q_ellipsoid");
+        Fields[0].set_system(CreateID("zq"));
+        Fields[0].set_zone(Sphere);
+        Fields[0].set_cube_size(200);
+        Fields[0].set_fill_dist(300);
+        Fields[0].set_empty_freq(0.0f);
+        Exclusion::AsteroidExclusionZoneMgr* const Mgr = new Exclusion::AsteroidExclusionZoneMgr();
+        Mgr->push_back(ZoneNamed("x_a"), Sphere);
+        Mgr->back()->EmptyCubeFrequency = 0.9f;
+        Mgr->push_back(ZoneNamed("x_b"), Sphere);
+        Fields[0].ExclusionMgr = Mgr;
+        Fields[1].set_system(CreateID("zq"));
+        Fields[1].set_zone(Ellipsoid);
+        Fields[1].set_cube_size(250);
+        Fields[1].set_fill_dist(400);
+        Fields[1].set_empty_freq(0.25f);
+        const float kAngles[3][4] = {{0.0f, 0.3f, 1.1f, 2.0f},
+                                     {0.5f, 1.5707963f, 3.1f, 4.0f},
+                                     {0.0f, 0.7f, 1.2f, 2.5f}};
+        for (int Axis = 0; Axis < 3; ++Axis)
+        {
+            for (int Index = 0; Index < 4; ++Index)
+                Fields[1].Rotations.Angles[Axis][Index] = kAngles[Axis][Index];
+        }
+
+        for (const std::string& Line : InputLines("asteroid_field.list"))
+        {
+            const std::vector<std::string> Parts = Split(Line, ' ');
+            const std::string& Op = Parts[0];
+            FLine L;
+            L.Add("op", Op);
+            if (Op == "o" || Op == "c")
+            {
+                const int F = atoi(Parts[1].c_str());
+                CmnAsteroid::CAsteroidField& Field = Fields[F];
+                Vector Pos;
+                Pos.x = HexFloat(Parts[2]);
+                Pos.y = HexFloat(Parts[3]);
+                Pos.z = HexFloat(Parts[4]);
+                L.Add("field", Format("%d", F));
+                if (Op == "c")
+                {
+                    const Vector Snapped = Field.closest_cube_pos(Pos);
+                    L.Add("pos", V3(Snapped));
+                    L.Add("cube", Format("%08lx", Field.create_cube_id(Pos)));
+                    Out.Line(L.Done());
+                    continue;
+                }
+                Vector Dir;
+                Dir.x = HexFloat(Parts[5]);
+                Dir.y = HexFloat(Parts[6]);
+                Dir.z = HexFloat(Parts[7]);
+                const bool bNear = Field.near_field(Pos);
+                const float Fraction = Field.near_field_fraction(Pos, 0.0f);
+                const float Fraction500 = Field.near_field_fraction(Pos, 500.0f);
+                std::map<unsigned long, int> Before;
+                for (std::map<unsigned long, CmnAsteroid::CAsteroidCube>::const_iterator It = Field.Cubes.begin();
+                     It != Field.Cubes.end(); ++It)
+                    Before[It->first] = 1;
+                if (bNear)
+                    Field.populate_asteroids(Pos, Dir);
+                std::string Made;
+                for (std::map<unsigned long, CmnAsteroid::CAsteroidCube>::const_iterator It = Field.Cubes.begin();
+                     It != Field.Cubes.end(); ++It)
+                {
+                    if (Before.find(It->first) != Before.end())
+                        continue;
+                    if (!Made.empty())
+                        Made += ",";
+                    Made += Format("%08lx", It->first);
+                }
+                L.Add("near", bNear ? "1" : "0");
+                L.Add("fraction", GameF(Fraction));
+                L.Add("fraction500", GameF(Fraction500));
+                L.Add("made", Made.empty() ? std::string("-") : Made);
+                Out.Line(L.Done());
+            }
+            else if (Op == "f")
+            {
+                std::string Dropped;
+                for (int F = 0; F < 2; ++F)
+                {
+                    const size_t Count = Fields[F].Cubes.size();
+                    Fields[F].flush_changes();
+                    if (F != 0)
+                        Dropped += ",";
+                    Dropped += Format("%u", static_cast<unsigned int>(Count - Fields[F].Cubes.size()));
+                }
+                L.Add("dropped", Dropped);
+                Out.Line(L.Done());
+            }
+            else if (Op == "s")
+            {
+                L.Add("cubes", Format("%u,%u", static_cast<unsigned int>(Fields[0].Cubes.size()),
+                                      static_cast<unsigned int>(Fields[1].Cubes.size())));
+                Out.Line(L.Done());
+                for (int F = 0; F < 2; ++F)
+                {
+                    for (std::map<unsigned long, CmnAsteroid::CAsteroidCube>::const_iterator It = Fields[F].Cubes.begin();
+                         It != Fields[F].Cubes.end(); ++It)
+                    {
+                        const CmnAsteroid::CAsteroidCube& Cube = It->second;
+                        std::string Words;
+                        for (int Row = 0; Row < 3; ++Row)
+                        {
+                            for (int Col = 0; Col < 3; ++Col)
+                            {
+                                if (!Words.empty())
+                                    Words += ",";
+                                Words += GameF(Cube.Orient.E[Row][Col]);
+                            }
+                        }
+                        FLine C;
+                        C.Add("field", Format("%d", F));
+                        C.Add("cube", Format("%08lx", Cube.CubeId));
+                        C.Add("state", Format("%d", static_cast<int>(Cube.State)));
+                        C.Add("timer", GameF(Cube.StateTimer));
+                        C.Add("empty", Cube.bEmpty ? "1" : "0");
+                        C.Add("pos", V3(Cube.Pos));
+                        C.Add("orient", Words);
+                        Out.Line(C.Done());
+                    }
+                }
+            }
+        }
+        // The manager was made here; the fields' destructors must not free it.
+        Fields[0].ExclusionMgr = nullptr;
+        delete Mgr;
+    }
 }
 
 namespace
@@ -1189,6 +1337,7 @@ void RunGameSimSuites()
     GuardedGameSimSuite("zones", ZoneSuite);
     GuardedGameSimSuite("zone_queries", ZoneQuerySuite);
     GuardedGameSimSuite("exclusion_zones", ExclusionSuite);
+    GuardedGameSimSuite("asteroid_field", AsteroidFieldSuite);
     GuardedGameSimSuite("spatial", SpatialSuite);
     GuardedGameSimSuite("base_props", BasePropsSuite);
     GuardedGameSimSuite("object_math", ObjectMathSuite);

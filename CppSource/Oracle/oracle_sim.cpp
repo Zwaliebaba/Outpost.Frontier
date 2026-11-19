@@ -58,6 +58,7 @@
 #include "oracle_sim_ai.h"
 #include "oracle_sim_rand.h"
 #include "oracle_sim_fault.h"
+#include "oracle_sim_fields.h"
 #include "../include/common_ivp_controller.h" // IVP_Controller_Golem (unit_cores.jsonl)
 
 // Server.dll, IServerImpl.cpp (Oracle instrumentation): StarSystem::load on one system.
@@ -1478,6 +1479,8 @@ namespace
 
     void RecordTick(unsigned int X87, unsigned int Sse)
     {
+        // P2.4: the asteroid cubes the frame made or changed (asteroids.jsonl).
+        oracle::OracleSimFieldsTick();
         FOracleJson F;
         F.Str("rec", "frame");
         F.Uint("tick", GTick);
@@ -2471,6 +2474,9 @@ namespace oracle
         // front of OnBehaviorTick, so it is started after the hooks above.
         if (!OracleSimAiStart(OutDir, &GTick, &NameOf))
             SessionNote("note", "ai.jsonl cannot be written; behaviour ticks are not recorded");
+        // P2.4: the asteroid fields and the docking points (asteroids.jsonl, dock.jsonl).
+        if (!OracleSimFieldsStart(OutDir, SystemId, &GTick, &NameOf))
+            SessionNote("note", "asteroids.jsonl or dock.jsonl cannot be written; fields and docking points are not recorded");
         SetSink(OnControllerMessage);
         OracleSimLoadRandEnd();
 
