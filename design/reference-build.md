@@ -632,7 +632,8 @@ As `OutpostServer.exe` (`OutpostServer.cpp:437`, `:523`, `:731-745`,
    `[Object]` pass), so only the field load fails. A dedicated server loads
    its fields only with an absolute data path; the oracle runs that way,
    and the Rust world (`World::load_asteroid_fields`) loads them as such a
-   server does.
+   server does, whatever form its data path has (divergence D198, owner
+   2026-11-19).
 3. `IServerImpl::Startup` with `SStartupInfo` {module path
    `SimClientStub.dll`, INI path `server.ini`, 16 players, port 0}. It runs
    `DataConfig::startup`, the world INI, `Server_LoadInitialDlls` (Content's
