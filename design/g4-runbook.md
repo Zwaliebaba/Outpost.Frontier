@@ -160,11 +160,16 @@ voices playing.
 
 What to look at: the ship, the station and the character are lit and
 textured and the character moves; the effect animates; the sound and the
-voice line are heard; the `menu` scene draws nothing of the page yet (its
-controls need the immediate-mode layer and P5.2's classes) but the report
-lists where each widget sits. Send back `report.txt` and the BMP files,
-and say what looks wrong (black or untextured models, wrong colours,
-faces missing, a camera that does not frame the object).
+voice line are heard; the `menu` scene draws the page's widgets over the
+scene: the buttons' captions and the labels as rich text, the character
+list's two framed boxes and its scroll bar with the slider shapes of
+`UITextures.ini`, and the arrow cursor at the software cursor (the list
+and the character's fields stay empty: P5.2's screen fills them). The
+report lists where each widget sits and, per scene, the interface pass's
+draws (control meshes, text tiles, the cursor). Send back `report.txt` and
+the BMP files, and say what looks wrong (black or untextured models, wrong
+colours, faces missing, a camera that does not frame the object, a widget
+missing, misplaced or drawn in the wrong colour).
 
 ## 5. Then
 
